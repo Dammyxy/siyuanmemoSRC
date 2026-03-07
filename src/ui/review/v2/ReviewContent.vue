@@ -119,6 +119,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import * as siyuan from 'siyuan';
 import type { ReviewUIState } from './types';
+import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
 import { OVERLAY_REGISTRY } from './overlays/index';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
 import MultiClozeCardRenderer from '../components/MultiClozeCardRenderer.vue';
@@ -160,6 +161,9 @@ const props = defineProps<{
   hasHiddenContent?: boolean;
   showAnswer?: boolean;
   meta?: ReviewUIState['meta'];
+}>();
+const emit = defineEmits<{
+  (e: 'editor-state-change', state: ReviewEditorState): void;
 }>();
 
 const logger = createLogger('ReviewContent');
@@ -213,6 +217,9 @@ const renderError = ref<string | null>(null);
 let renderSeq = 0;
 let answerRenderSeq = 0;
 let protyleInitialized = false;  // 🆕 跟踪 Protyle 是否已初始化
+let protyleInitTimer: ReturnType<typeof setTimeout> | null = null;
+let currentEditorState = createReviewEditorState();
+let unlockOnDoubleClickCleanup: (() => void) | null = null;
 
 // 快速卡片渲染服务
 const quickCardRenderService = ref(
@@ -439,6 +446,112 @@ const shouldUseQuickCardRenderer = computed(() => {
     && isQuickCard.value;
 });
 
+const currentRendererKind = computed<ReviewEditorState['renderer']>(() => {
+  if (props.content.type === 'empty') {
+    return 'empty';
+  }
+  if (props.content.type === 'html') {
+    return 'html';
+  }
+  if (
+    (props.content.isXiuyuanListTemplate && !!props.content.xiuyuanMeta)
+    || shouldUseMultiClozeRenderer.value
+    || shouldUseImageOcclusionRenderer.value
+    || shouldUseConceptDefinitionRenderer.value
+    || shouldUseConceptCardRenderer.value
+    || shouldUseDescriptorCardRenderer.value
+    || shouldUseQuickCardRenderer.value
+    || !!renderError.value
+  ) {
+    return 'special';
+  }
+  if (props.content.type === 'protyle') {
+    return 'main-protyle';
+  }
+  return 'empty';
+});
+
+function emitEditorState(state: ReviewEditorState): void {
+  if (
+    currentEditorState.renderer === state.renderer
+    && currentEditorState.supportsNativeEdit === state.supportsNativeEdit
+    && currentEditorState.isEditing === state.isEditing
+  ) {
+    return;
+  }
+
+  currentEditorState = state;
+  emit('editor-state-change', state);
+}
+
+function removeUnlockOnDoubleClick(): void {
+  unlockOnDoubleClickCleanup?.();
+  unlockOnDoubleClickCleanup = null;
+}
+
+function clearProtyleInitTimer(): void {
+  if (protyleInitTimer !== null) {
+    clearTimeout(protyleInitTimer);
+    protyleInitTimer = null;
+  }
+}
+
+function focusFirstReviewActionButton(): void {
+  const reviewRoot = hostRef.value?.closest('.fsrs-review-v2') as HTMLElement | null;
+  const actionButton = reviewRoot?.querySelector('.card__action button:not([disabled])') as HTMLButtonElement | null;
+  actionButton?.focus();
+}
+
+function attachUnlockOnDoubleClick(protyle: siyuan.Protyle): void {
+  const wysiwygElement = protyle.protyle?.wysiwyg?.element as HTMLElement | undefined;
+  if (!wysiwygElement || typeof protyle.enable !== 'function') {
+    return;
+  }
+
+  removeUnlockOnDoubleClick();
+  const handleDoubleClick = () => {
+    protyle.enable?.();
+    emitEditorState(createReviewEditorState('main-protyle', {
+      supportsNativeEdit: true,
+      isEditing: true,
+    }));
+    removeUnlockOnDoubleClick();
+  };
+
+  wysiwygElement.addEventListener('dblclick', handleDoubleClick);
+  unlockOnDoubleClickCleanup = () => {
+    wysiwygElement.removeEventListener('dblclick', handleDoubleClick);
+  };
+}
+
+function setMainProtyleReadOnly(protyle: siyuan.Protyle): void {
+  protyle.disable?.();
+  attachUnlockOnDoubleClick(protyle);
+  emitEditorState(createReviewEditorState('main-protyle', {
+    supportsNativeEdit: true,
+    isEditing: false,
+  }));
+}
+
+function exitEditorByEscape(): boolean {
+  if (
+    currentEditorState.renderer !== 'main-protyle'
+    || !currentEditorState.supportsNativeEdit
+    || !currentEditorState.isEditing
+    || !editorRef.value
+  ) {
+    return false;
+  }
+
+  setMainProtyleReadOnly(editorRef.value);
+  focusFirstReviewActionButton();
+  return true;
+}
+
+defineExpose({
+  exitEditorByEscape,
+});
+
 // 概念定义卡加载成功
 function clearRendererError(): void {
   renderError.value = null;
@@ -562,6 +675,9 @@ function applyAnswerVisibility(): void {
 async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
   clearRendererError();
+  clearProtyleInitTimer();
+  removeUnlockOnDoubleClick();
+  emitEditorState(createReviewEditorState('main-protyle'));
 
   // Reset renderer flags early to prevent stale card type leaking between cards.
   isConceptDefinitionCard.value = false;
@@ -1007,27 +1123,16 @@ async function renderProtyle(blockId: string): Promise<void> {
     typewriterMode: false,
     after: (protyle: siyuan.Protyle) => {
       logger.debug('[SiYuanMemo][ReviewContent] Protyle after callback called');
-
-      // 锁定编辑器
-      if (typeof protyle.disable === 'function') {
-        protyle.disable();
-
-        // 添加双击解锁功能
-        const wysiwygElement = protyle.protyle?.wysiwyg?.element;
-        if (wysiwygElement) {
-          const handleDoubleClick = () => {
-            if (typeof protyle.enable === 'function') {
-              protyle.enable();
-            }
-            wysiwygElement.removeEventListener('dblclick', handleDoubleClick);
-          };
-          wysiwygElement.addEventListener('dblclick', handleDoubleClick);
-        }
-      }
+      setMainProtyleReadOnly(protyle);
       
       // 🆕 标记 Protyle 已初始化
       nextTick(() => {
-        setTimeout(() => {
+        clearProtyleInitTimer();
+        protyleInitTimer = setTimeout(() => {
+          protyleInitTimer = null;
+          if (seq !== renderSeq || !hostRef.value || editorRef.value !== protyle) {
+            return;
+          }
           protyleInitialized = true;
           logger.debug('[SiYuanMemo][ReviewContent] Protyle initialized, applying answer visibility');
           
@@ -1120,6 +1225,20 @@ watch(
 );
 
 watch(
+  currentRendererKind,
+  (renderer) => {
+    if (renderer === 'main-protyle') {
+      return;
+    }
+
+    clearProtyleInitTimer();
+    removeUnlockOnDoubleClick();
+    emitEditorState(createReviewEditorState(renderer));
+  },
+  { immediate: true },
+);
+
+watch(
   () => [props.hasHiddenContent, props.showAnswer],
   ([hidden, show]) => {
     logger.debug('[SiYuanMemo][ReviewContent] Watch triggered:', { hidden, show, protyleInitialized });
@@ -1165,6 +1284,9 @@ watch(
 );
 
 onUnmounted(() => {
+  clearProtyleInitTimer();
+  removeUnlockOnDoubleClick();
+  emitEditorState(createReviewEditorState('empty'));
   try {
     editorRef.value?.destroy?.();
   } catch {}

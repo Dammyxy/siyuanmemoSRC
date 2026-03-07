@@ -10,6 +10,7 @@ import {
 } from '../config/sortDisplayContract';
 import { matchesParsedQuery } from '../utils/cardFilters';
 import { normalizeSortModel } from '../utils/sortModel';
+import { resolveBrowserCardActionId } from '../utils/browserCardIdentity';
 
 const logger = createLogger('DataSourceUtils');
 
@@ -100,7 +101,7 @@ export type QueueDueAdjustResult = QueueCardActionResult & {
 };
 
 export function resolveBrowserCardId(card: BrowserCard): string {
-  return card.fsrsCardId || card.id || '';
+  return resolveBrowserCardActionId(card);
 }
 
 export async function removeCardsFromQueue(

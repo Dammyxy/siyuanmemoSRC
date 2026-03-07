@@ -414,7 +414,9 @@ export class DialogManager implements IDialogManager {
 
     let counts: Record<string, number> = {};
     try {
-      counts = await this.context.getBrowserService().getQueueCounts();
+      const browserService = this.context.getBrowserService();
+      browserService.invalidateQueueCountsCache();
+      counts = await browserService.getQueueCounts();
     } catch (error) {
       logger.warn('[DialogManager] Failed to load queue counts for mobile launcher:', error);
     }

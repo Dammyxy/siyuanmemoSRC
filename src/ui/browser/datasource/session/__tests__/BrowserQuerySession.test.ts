@@ -132,5 +132,11 @@ describe('BrowserQuerySession', () => {
     expect(result.totalCount).toBe(3);
     expect(result.rows).toHaveLength(3);
     expect(result.rows.map((row) => row.fsrsCardId)).toEqual(['fsrs-1', 'fsrs-2', 'fsrs-3']);
+
+    const matchedIds = await session.getAllMatchedIds({
+      queryFingerprint: 'fp-same-block',
+      buildLiteRows,
+    });
+    expect(matchedIds).toEqual(['fsrs-1', 'fsrs-2', 'fsrs-3']);
   });
 });

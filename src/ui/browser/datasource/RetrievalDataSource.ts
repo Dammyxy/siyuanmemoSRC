@@ -203,7 +203,7 @@ export class RetrievalDataSource implements ICardDataSource, IBrowserQueryableDa
     };
   }
 
-  private invalidateQuerySession(): void {
+  public invalidateQuerySession(): void {
     this.dataGeneration += 1;
     this.querySession.invalidate();
   }

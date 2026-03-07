@@ -197,6 +197,15 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
         await this.removeCardFromCollection(cardIdOrBlockId, { logger });
     }
 
+    public async syncManualMembershipForScheduledCard(card: FSRSCard): Promise<boolean> {
+        const dayEnd = getCurrentDayEnd(this.getDayStartHour());
+        if (card.due <= dayEnd) {
+            return false;
+        }
+
+        return this.syncManualMembershipForCard(card, logger);
+    }
+
     protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
         await this.removeCardFromCollection(cardIdOrBlockId, {
             logger,

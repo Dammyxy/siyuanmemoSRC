@@ -211,6 +211,14 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
         await this.removeCardFromCollection(cardIdOrBlockId, { logger });
     }
 
+    public async syncManualMembershipForScheduledCard(card: FSRSCard): Promise<boolean> {
+        if (card.due <= Date.now()) {
+            return false;
+        }
+
+        return this.syncManualMembershipForCard(card, logger);
+    }
+
     protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
         await this.removeCardFromCollection(cardIdOrBlockId, {
             logger,

@@ -2,7 +2,10 @@
  * 卡片浏览器类型定义
  */
 
+import type { BreadcrumbItem } from '@/core/card/common/application/types';
+
 /** 卡片状态枚举 */
+
 export enum CardState {
     New = 0,
     Learning = 1,
@@ -76,6 +79,9 @@ export interface BrowserCardMeta extends Record<string, unknown> {
     content?: string;
     deckId?: string;
     rootId?: string;
+    box?: string;
+    path?: string;
+    hPath?: string;
     blockType?: string;
     isDocument?: boolean;
     suspended?: boolean;
@@ -268,13 +274,13 @@ export function truncateContent(text: string, maxLength = 100): string {
 // ==========================================================================
 
 /** 面包屑项 */
-export interface IBreadcrumbItem {
-    id: string;
-    name: string;
-    type: string;
-    subType: string;
-    children: [];
+export interface IBreadcrumbItem extends BreadcrumbItem {
+    subType?: string;
+    children?: unknown[];
 }
+
+/** 预览区当前内容来源 */
+export type BrowserPreviewSource = 'selected-card' | 'breadcrumb';
 
 /** 浏览器视图模式 */
 export type BrowserViewMode = 'flat' | 'hierarchy';

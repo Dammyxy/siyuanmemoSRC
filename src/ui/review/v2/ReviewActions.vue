@@ -339,68 +339,50 @@ async function onScheduleConfirm(options: ScheduleOptions) {
       return;
     }
     
-    // 通过 ApplicationContext 获取服务
     const context = props.plugin.getContext();
-    const manager = context.getUnifiedDataSourceManager();
-    const schedulerRouter = context.getScheduler();
-    
-    if (!manager) {
-      logger.error('Manager not available');
+    const reviewService = context.getReviewService();
+
+    if (!reviewService) {
+      logger.error('Review service not available');
       return;
     }
     
-    // 1. 计算目标日期
     let targetDate: number;
     if (options.dueDate) {
       targetDate = new Date(options.dueDate).getTime();
     } else if (options.days) {
       targetDate = Date.now() + options.days * 24 * 60 * 60 * 1000;
     } else {
-      targetDate = Date.now() + 7 * 24 * 60 * 60 * 1000; // 默认 7 天
+      targetDate = Date.now() + 7 * 24 * 60 * 60 * 1000;
     }
     
-    // 2. 获取卡片
-    const card = await manager.getCard(cardId);
-    
-    // 3. 根据模式处理
     if (options.mode === 'rating') {
-      // 评分模式：应用调度器 + 覆盖日期
-      const rating = options.rating || 3;
-      
-      if (schedulerRouter) {
-        // 调用调度器
-        const updatedCard = await schedulerRouter.route(card, rating);
-        
-        // 手动覆盖到期日期
-        updatedCard.due = targetDate;
-        await manager.updateCard(updatedCard);
-        
-        logger.debug('Card scheduled with rating to target date', {
-          cardId,
-          rating,
-          targetDate,
-        });
-      } else {
-        logger.warn('Scheduler router not available, using direct mode');
-        card.due = targetDate;
-        await manager.updateCard(card);
-      }
+      await reviewService.rescheduleCard(cardId, {
+        mode: 'rating',
+        rating: options.rating || 3,
+        dueTimestamp: targetDate,
+      });
+
+      logger.debug('Card scheduled with rating to target date', {
+        cardId,
+        rating: options.rating || 3,
+        targetDate,
+      });
     } else {
-      // 仅修改日期：直接更新
-      card.due = targetDate;
-      await manager.updateCard(card);
-      
+      await reviewService.rescheduleCard(cardId, {
+        mode: 'direct',
+        dueTimestamp: targetDate,
+      });
+
       logger.debug('Card due date updated', { cardId, targetDate });
     }
     
-    // 4. 从队列移除
     if (props.queue && typeof props.queue.removeCard === 'function') {
       await props.queue.removeCard(cardId);
     }
     
     closeScheduleDialog();
     
-    // 5. 继续下一张
     emit('skip');
     
   } catch (error) {

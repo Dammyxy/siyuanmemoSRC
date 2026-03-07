@@ -236,7 +236,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
     };
   }
 
-  private invalidateQuerySession(): void {
+  public invalidateQuerySession(): void {
     this.dataGeneration += 1;
     this.querySession.invalidate();
   }

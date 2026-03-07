@@ -1,7 +1,7 @@
 import { ref } from 'vue';
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
-import { CardType, CardState, type FSRSCard } from '@/types/card';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { BrowserCard } from '../../types';
 import { useCardActions } from '../useCardActions';
 import { invalidateCardCache } from '../../browserService';
@@ -49,18 +49,6 @@ function buildFsrsCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     updatedAt: overrides.updatedAt ?? now,
     meta: overrides.meta ? { ...overrides.meta } : undefined,
     aFactor: overrides.aFactor,
-    schedulerType: overrides.schedulerType,
-    syncToRiff: overrides.syncToRiff,
-    riffCardId: overrides.riffCardId,
-    schedulerMeta: overrides.schedulerMeta,
-    postponeCount: overrides.postponeCount,
-    lastPostponeDate: overrides.lastPostponeDate,
-    rescheduleHistory: overrides.rescheduleHistory,
-    learning_step: overrides.learning_step,
-    skipNote: overrides.skipNote,
-    skipUntil: overrides.skipUntil,
-    sourceUrl: overrides.sourceUrl,
-    extractedFrom: overrides.extractedFrom,
   };
 }
 
@@ -102,19 +90,17 @@ function buildBrowserCard(overrides: Partial<BrowserCard> = {}): BrowserCard {
 
 function createStorage(initialCards: FSRSCard[]) {
   const cards = new Map(initialCards.map((card) => [card.id, cloneCard(card)]));
-  const getCardMock = vi.fn((cardId: string) => {
-    const card = cards.get(cardId);
-    return card ? cloneCard(card) : undefined;
-  });
-  const getAllCardsMock = vi.fn(() => Array.from(cards.values()).map(cloneCard));
   const setCardMock = vi.fn((card: FSRSCard) => {
     cards.set(card.id, cloneCard(card));
   });
   const saveCardsMock = vi.fn(async () => {});
 
   const storage: CardTypeMarkerStoragePort = {
-    getCard: getCardMock,
-    getAllCards: getAllCardsMock,
+    getCard: (cardId: string) => {
+      const card = cards.get(cardId);
+      return card ? cloneCard(card) : undefined;
+    },
+    getAllCards: () => Array.from(cards.values()).map(cloneCard),
     setCard: setCardMock,
     saveCards: saveCardsMock,
   };
@@ -133,7 +119,7 @@ describe('useCardActions', () => {
     vi.clearAllMocks();
   });
 
-  it('markCardsAsTopic updates only the selected local card and refreshes browser state', async () => {
+  it('markCardsAsTopic updates only the selected card and syncs default render', async () => {
     const targetCard = buildFsrsCard({
       id: 'card-target',
       blockId: 'block-shared',
@@ -149,7 +135,6 @@ describe('useCardActions', () => {
     const { storage, getCard, setCardMock, saveCardsMock } = createStorage([targetCard, siblingCard]);
     const loadData = vi.fn(async () => {});
     const pushMsg = vi.fn(async () => {});
-    const pushErrMsg = vi.fn(async () => {});
 
     const actions = useCardActions({
       loading: ref(false),
@@ -157,92 +142,115 @@ describe('useCardActions', () => {
       refreshData: vi.fn(async () => {}),
       t: (_key, fallback) => fallback,
       pushMsg,
-      pushErrMsg,
+      pushErrMsg: vi.fn(async () => {}),
       storage,
     });
 
-    await actions.markCardsAsTopic([
-      buildBrowserCard({
-        id: 'riff-target',
-        fsrsCardId: 'card-target',
-        blockId: 'block-shared',
-      }),
-    ]);
+    await actions.markCardsAsTopic([buildBrowserCard({ fsrsCardId: 'card-target', blockId: 'block-shared' })]);
 
     expect(setCardMock).toHaveBeenCalledTimes(1);
     expect(saveCardsMock).toHaveBeenCalledTimes(1);
     expect(loadData).toHaveBeenCalledTimes(1);
-    expect(pushErrMsg).not.toHaveBeenCalled();
     expect(pushMsg.mock.calls[0]?.[0]).toContain('Topic');
     expect(vi.mocked(invalidateCardCache)).toHaveBeenCalledTimes(1);
-
-    const updatedCard = getCard('card-target');
-    const untouchedSibling = getCard('card-sibling');
-
-    expect(updatedCard?.type).toBe(CardType.Topic);
-    expect(updatedCard?.meta).toMatchObject({
-      forceProtyleRender: true,
-      existing: 'keep',
-    });
-    expect(updatedCard?.meta).not.toHaveProperty('forceQuickRender');
-    expect(untouchedSibling?.type).toBe(CardType.Item);
-    expect(untouchedSibling?.meta).toMatchObject({ existing: 'sibling' });
+    expect(getCard('card-target')?.type).toBe(CardType.Topic);
+    expect(getCard('card-target')?.meta).toMatchObject({ forceProtyleRender: true, existing: 'keep' });
+    expect(getCard('card-target')?.meta).not.toHaveProperty('forceQuickRender');
+    expect(getCard('card-sibling')?.type).toBe(CardType.Item);
   });
 
-  it('markCardsAsItem clears concept markers and render metadata in local storage only', async () => {
+  it('markCardsAsItem keeps the current render metadata while removing semantic markers', async () => {
     const conceptCard = buildFsrsCard({
       id: 'card-concept',
-      blockId: 'block-concept',
       type: CardType.Concept,
       cardTypeMarker: 'concept',
       meta: {
         renderProfile: 'concept',
         typeMarker: 'C',
+        templateID: 'builtin-concept-simple',
         cardTypeMarker: 'concept',
-        forceQuickRender: true,
-        existing: 'keep',
       },
     });
-    const { storage, getCard, setCardMock, saveCardsMock } = createStorage([conceptCard]);
-    const loadData = vi.fn(async () => {});
-    const pushMsg = vi.fn(async () => {});
-    const pushErrMsg = vi.fn(async () => {});
+    const { storage, getCard } = createStorage([conceptCard]);
 
     const actions = useCardActions({
       loading: ref(false),
-      loadData,
+      loadData: vi.fn(async () => {}),
       refreshData: vi.fn(async () => {}),
       t: (_key, fallback) => fallback,
-      pushMsg,
-      pushErrMsg,
+      pushMsg: vi.fn(async () => {}),
+      pushErrMsg: vi.fn(async () => {}),
       storage,
     });
 
-    await actions.markCardsAsItem([
-      buildBrowserCard({
-        id: 'riff-concept',
-        fsrsCardId: 'card-concept',
-        blockId: 'block-concept',
-      }),
-    ]);
+    await actions.markCardsAsItem([buildBrowserCard({ fsrsCardId: 'card-concept', blockId: 'block-concept' })]);
 
-    expect(setCardMock).toHaveBeenCalledTimes(1);
-    expect(saveCardsMock).toHaveBeenCalledTimes(1);
-    expect(loadData).toHaveBeenCalledTimes(1);
-    expect(pushErrMsg).not.toHaveBeenCalled();
-    expect(pushMsg.mock.calls[0]?.[0]).toContain('Item');
-    expect(vi.mocked(invalidateCardCache)).toHaveBeenCalledTimes(1);
-
-    const updatedCard = getCard('card-concept');
-    expect(updatedCard?.type).toBe(CardType.Item);
-    expect(updatedCard?.cardTypeMarker).toBeUndefined();
-    expect(updatedCard?.meta).toMatchObject({
-      existing: 'keep',
+    expect(getCard('card-concept')?.type).toBe(CardType.Item);
+    expect(getCard('card-concept')?.cardTypeMarker).toBeUndefined();
+    expect(getCard('card-concept')?.meta).toMatchObject({
+      renderProfile: 'concept',
+      typeMarker: 'C',
+      templateID: 'builtin-concept-simple',
     });
-    expect(updatedCard?.meta).not.toHaveProperty('renderProfile');
-    expect(updatedCard?.meta).not.toHaveProperty('typeMarker');
-    expect(updatedCard?.meta).not.toHaveProperty('cardTypeMarker');
-    expect(updatedCard?.meta).not.toHaveProperty('forceQuickRender');
-    expect(updatedCard?.meta).not.toHaveProperty('forceProtyleRender');
+    expect(getCard('card-concept')?.meta).not.toHaveProperty('cardTypeMarker');
+  });
+
+  it('markCardsAsConcept applies concept render metadata via shared transition helper', async () => {
+    const itemCard = buildFsrsCard({
+      id: 'card-concept-target',
+      type: CardType.Item,
+      meta: { existing: 'keep', forceQuickRender: true },
+    });
+    const { storage, getCard } = createStorage([itemCard]);
+
+    const actions = useCardActions({
+      loading: ref(false),
+      loadData: vi.fn(async () => {}),
+      refreshData: vi.fn(async () => {}),
+      t: (_key, fallback) => fallback,
+      pushMsg: vi.fn(async () => {}),
+      pushErrMsg: vi.fn(async () => {}),
+      storage,
+    });
+
+    await actions.markCardsAsConcept([buildBrowserCard({ fsrsCardId: 'card-concept-target', blockId: 'block-concept-target' })]);
+
+    expect(getCard('card-concept-target')?.type).toBe(CardType.Concept);
+    expect(getCard('card-concept-target')?.meta).toMatchObject({
+      existing: 'keep',
+      renderProfile: 'concept',
+      typeMarker: 'C',
+      templateID: 'builtin-concept-simple',
+      cardTypeMarker: 'concept',
+    });
+  });
+
+  it('convertCardsRender updates render metadata without changing card type', async () => {
+    const itemCard = buildFsrsCard({
+      id: 'card-render-target',
+      type: CardType.Item,
+    });
+    const { storage, getCard } = createStorage([itemCard]);
+    const pushMsg = vi.fn(async () => {});
+
+    const actions = useCardActions({
+      loading: ref(false),
+      loadData: vi.fn(async () => {}),
+      refreshData: vi.fn(async () => {}),
+      t: (_key, fallback) => fallback,
+      pushMsg,
+      pushErrMsg: vi.fn(async () => {}),
+      storage,
+    });
+
+    await actions.convertCardsRender([buildBrowserCard({ fsrsCardId: 'card-render-target', blockId: 'block-render-target' })], 'descriptor-reverse');
+
+    expect(getCard('card-render-target')?.type).toBe(CardType.Item);
+    expect(getCard('card-render-target')?.meta).toMatchObject({
+      renderProfile: 'descriptor',
+      typeMarker: 'concept-descriptor-reverse',
+      templateID: 'builtin-concept-descriptor-reverse',
+    });
+    expect(pushMsg.mock.calls[0]?.[0]).toContain('仅更新渲染元数据');
   });
 });

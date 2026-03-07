@@ -131,6 +131,11 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
+  public invalidateQuerySession(): void {
+    this.dataGeneration += 1;
+    this.querySession.invalidate();
+  }
+
   getSupportedActions(): CardBrowserAction[] {
     return [{ id: 'open', label: 'Open', icon: 'iconOpen' }];
   }

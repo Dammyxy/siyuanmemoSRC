@@ -184,6 +184,7 @@ export interface ReviewSessionHook {
   back: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
   reload: () => Promise<void>;
+  refreshCurrentItem: (item: unknown) => Promise<void>;
   getQueueStrategy: () => unknown;
   loadCardByBlockId: (blockId: string) => Promise<void>;
   onMounted: () => void;

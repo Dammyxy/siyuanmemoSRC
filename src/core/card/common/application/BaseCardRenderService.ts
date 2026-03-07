@@ -12,15 +12,15 @@
 import { getBlockBreadcrumb } from '@/core/siyuan/api';
 import { extractConceptName, hasConceptDefinitionSyntax } from '@/core/xiuyuan/cardMeta';
 import type { BreadcrumbItem } from './types';
+import {
+  clipBreadcrumbsAtLastDocument,
+  dedupeBreadcrumbsById,
+  normalizeBreadcrumbName,
+  normalizeRawBreadcrumbs,
+} from './breadcrumbNormalization';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BaseCardRenderService');
-
-type RawBreadcrumbItem = {
-  id?: string;
-  name?: string;
-  type?: string;
-};
 
 export abstract class BaseCardRenderService {
   /**
@@ -48,27 +48,14 @@ export abstract class BaseCardRenderService {
       if (!breadcrumbResult || !Array.isArray(breadcrumbResult)) {
         return [];
       }
-      
-      // 鎺掗櫎鏈€鍚?N 椤?
-      const parentBreadcrumbs = breadcrumbResult.slice(0, -excludeLast);
-      
-      // 馃啎 鎵惧埌鏈€鍚庝竴涓枃妗ｅ潡鐨勪綅缃?
-      let lastDocumentIndex = -1;
-      for (let i = parentBreadcrumbs.length - 1; i >= 0; i--) {
-        if (parentBreadcrumbs[i].type === 'NodeDocument') {
-          lastDocumentIndex = i;
-          break;
-        }
-      }
-      
-      // 馃啎 鍙繚鐣欏埌鏈€鍚庝竴涓枃妗ｅ潡锛堝寘鍚級
-      const filteredBreadcrumbs = lastDocumentIndex >= 0 
-        ? parentBreadcrumbs.slice(0, lastDocumentIndex + 1)
-        : parentBreadcrumbs;
-      
-      // 澶勭悊姣忎釜闈㈠寘灞戦」锛屽簲鐢?CDF 瑙勫垯
+
+      const parentBreadcrumbs = normalizeRawBreadcrumbs(breadcrumbResult, {
+        trimTrailingCount: excludeLast,
+        cleanDisplayName: false,
+      });
+
       const processedBreadcrumbs = await Promise.all(
-        filteredBreadcrumbs.map(async (item: RawBreadcrumbItem) => {
+        parentBreadcrumbs.map(async (item) => {
           const itemId = item.id || '';
           let itemName = item.name || '';
           
@@ -82,14 +69,13 @@ export abstract class BaseCardRenderService {
           
           return {
             id: itemId,
-            name: itemName,
+            name: normalizeBreadcrumbName(itemName),
             type: item.type || 'NodeParagraph',
           };
         })
       );
-      
-      // 鍘婚噸锛氫娇鐢?Map 鎸夋爣鍑嗗寲鍚庣殑 name 鍘婚噸
-      return this.deduplicateBreadcrumbs(processedBreadcrumbs);
+
+      return clipBreadcrumbsAtLastDocument(dedupeBreadcrumbsById(processedBreadcrumbs));
     } catch (error) {
       logger.error('[BaseCardRenderService] Failed to load breadcrumbs:', error);
       return [];
@@ -121,9 +107,11 @@ export abstract class BaseCardRenderService {
       }
       
       logger.debug('[BaseCardRenderService] loadConceptContext - breadcrumbResult:', breadcrumbResult);
-      
-      // 鎺掗櫎鏈€鍚?N 椤?
-      const parentBreadcrumbs = breadcrumbResult.slice(0, -excludeLast);
+
+      const parentBreadcrumbs = normalizeRawBreadcrumbs(breadcrumbResult, {
+        trimTrailingCount: excludeLast,
+        cleanDisplayName: false,
+      });
       
       logger.debug('[BaseCardRenderService] loadConceptContext - parentBreadcrumbs:', parentBreadcrumbs);
       
@@ -150,7 +138,7 @@ export abstract class BaseCardRenderService {
         
         contextItems.push({
           id: itemId,
-          name: itemName,
+          name: normalizeBreadcrumbName(itemName),
           type: itemType,
           isConcept, // 馃啎 鏍囪鏄惁涓烘蹇?
         });
@@ -158,7 +146,7 @@ export abstract class BaseCardRenderService {
       
       logger.debug('[BaseCardRenderService] loadConceptContext - final contextItems:', contextItems);
       
-      return contextItems;
+      return dedupeBreadcrumbsById(contextItems);
     } catch (error) {
       logger.error('[BaseCardRenderService] Failed to load concept context:', error);
       return [];
@@ -259,28 +247,6 @@ export abstract class BaseCardRenderService {
     // 鍖归厤鍧楀紩鐢細((block-id)) 鎴?((block-id '鍚嶇О'))
     const blockRefPattern = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/;
     return blockRefPattern.test(markdown);
-  }
-
-  /**
-   * 鍘婚噸闈㈠寘灞?
-   * 
-   * @param breadcrumbs 鍘熷闈㈠寘灞戝垪琛?
-   * @returns 鍘婚噸鍚庣殑闈㈠寘灞戝垪琛?
-   */
-  private deduplicateBreadcrumbs(breadcrumbs: BreadcrumbItem[]): BreadcrumbItem[] {
-    const dedupMap = new Map<string, BreadcrumbItem>();
-    
-    for (const item of breadcrumbs) {
-      // 鏍囧噯鍖栨枃鏈細鍘绘帀鍒楄〃绗﹀彿
-      const normalizedName = item.name.replace(/^[鈥-\d]+\.?\s*/, '').trim();
-      dedupMap.set(normalizedName, {
-        id: item.id,
-        name: normalizedName,
-        type: item.type,
-      });
-    }
-    
-    return Array.from(dedupMap.values());
   }
 
   /**

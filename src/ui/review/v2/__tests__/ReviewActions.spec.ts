@@ -1,5 +1,5 @@
-import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
+import { describe, expect, it, vi } from 'vitest';
 import ReviewActions from '../ReviewActions.vue';
 import type { ReviewUIState } from '../types';
 import type { FSRSCard } from '@/types/card';
@@ -28,6 +28,7 @@ function mountReviewActions(
   actions: ReviewUIState['actions'],
   isMobile = false,
   currentCard: FSRSCard | null = null,
+  extraProps: Record<string, unknown> = {},
 ) {
   return mount(ReviewActions, {
     props: {
@@ -39,6 +40,7 @@ function mountReviewActions(
         space: 'Space',
         enterKey: 'Enter',
       },
+      ...extraProps,
     },
     global: {
       stubs: {
@@ -176,5 +178,42 @@ describe('ReviewActions layout', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('schedule-date-dialog-stub').exists()).toBe(false);
+  });
+
+  it('uses ReviewApplicationService for schedule confirmation', async () => {
+    const rescheduleCard = vi.fn(async () => undefined);
+    const removeCard = vi.fn(async () => undefined);
+    const wrapper = mountReviewActions(
+      createActions({ showAnswer: true }),
+      false,
+      null,
+      {
+        plugin: {
+          getContext: () => ({
+            getReviewService: () => ({ rescheduleCard }),
+          }),
+        },
+        queue: { removeCard },
+      },
+    );
+
+    wrapper.getComponent({ name: 'SkipMenuButton' }).vm.$emit('schedule');
+    await wrapper.vm.$nextTick();
+
+    wrapper.getComponent({ name: 'ScheduleDateDialog' }).vm.$emit('confirm', {
+      mode: 'direct',
+      days: 2,
+    });
+    await flushPromises();
+
+    expect(rescheduleCard).toHaveBeenCalledWith(
+      'card-1',
+      expect.objectContaining({
+        mode: 'direct',
+        dueTimestamp: expect.any(Number),
+      }),
+    );
+    expect(removeCard).toHaveBeenCalledWith('card-1');
+    expect(wrapper.emitted('skip')).toBeTruthy();
   });
 });

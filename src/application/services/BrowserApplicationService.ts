@@ -46,6 +46,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly unifiedDataSourceManager: IUnifiedDataSourceManagerFacade | null;
   private readonly siyuanApi: BrowserSiyuanPort;
   private queueCountsInFlight: Promise<Record<string, number>> | null = null;
+  private queueCountsRequestSeq = 0;
   private queueCountsCache = {
     value: { ...EMPTY_QUEUE_COUNTS },
     timestamp: 0,
@@ -184,6 +185,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     };
   }
 
+  invalidateQueueCountsCache(): void {
+    this.queueCountsInFlight = null;
+    this.queueCountsRequestSeq += 1;
+    this.queueCountsCache = {
+      value: { ...this.queueCountsCache.value },
+      timestamp: 0,
+    };
+  }
+
   async getQueueCounts(): Promise<Record<string, number>> {
     const manager = this.unifiedDataSourceManager;
     if (!manager) {
@@ -199,21 +209,29 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return { ...this.queueCountsCache.value };
     }
 
-    this.queueCountsInFlight = this.readQueueCountsFromManager(manager)
+    const requestSeq = ++this.queueCountsRequestSeq;
+    const requestPromise = this.readQueueCountsFromManager(manager)
       .then((counts) => {
-        this.queueCountsCache = { value: counts, timestamp: Date.now() };
+        if (requestSeq === this.queueCountsRequestSeq) {
+          this.queueCountsCache = { value: counts, timestamp: Date.now() };
+        }
         return { ...counts };
       })
       .catch((error) => {
         logger.error('Failed to get queue counts:', error);
-        this.queueCountsCache = { value: { ...EMPTY_QUEUE_COUNTS }, timestamp: Date.now() };
+        if (requestSeq === this.queueCountsRequestSeq) {
+          this.queueCountsCache = { value: { ...EMPTY_QUEUE_COUNTS }, timestamp: Date.now() };
+        }
         return { ...EMPTY_QUEUE_COUNTS };
       })
       .finally(() => {
-        this.queueCountsInFlight = null;
+        if (this.queueCountsInFlight === requestPromise) {
+          this.queueCountsInFlight = null;
+        }
       });
 
-    return this.queueCountsInFlight;
+    this.queueCountsInFlight = requestPromise;
+    return requestPromise;
   }
 
   async setFilterGroupFilter(filter: CardFilter): Promise<boolean> {

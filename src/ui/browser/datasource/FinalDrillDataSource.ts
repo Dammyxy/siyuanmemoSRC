@@ -205,7 +205,7 @@ export class FinalDrillDataSource implements ICardDataSource, IBrowserQueryableD
     };
   }
 
-  private invalidateQuerySession(): void {
+  public invalidateQuerySession(): void {
     this.dataGeneration += 1;
     this.querySession.invalidate();
   }

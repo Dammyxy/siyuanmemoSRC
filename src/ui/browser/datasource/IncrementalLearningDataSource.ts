@@ -240,7 +240,7 @@ export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQ
     };
   }
 
-  private invalidateQuerySession(): void {
+  public invalidateQuerySession(): void {
     this.dataGeneration += 1;
     this.querySession.invalidate();
   }

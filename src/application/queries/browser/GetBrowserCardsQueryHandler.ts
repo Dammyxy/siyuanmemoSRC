@@ -427,7 +427,7 @@ export class GetBrowserCardsQueryHandler {
     const rootId = (card.meta?.rootId as string) || '';
     
     const cardType = card.type as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined;
-    const finalCardType = customAttrs[this.siyuanApi.ATTR_CARD_TYPE] || cardType;
+    const finalCardType = cardType || customAttrs[this.siyuanApi.ATTR_CARD_TYPE];
     
     return {
       id: card.id,
@@ -456,7 +456,7 @@ export class GetBrowserCardsQueryHandler {
       firstReview: lastReviewDate,
       firstReviewFormatted,
       
-      priority: parseInt(customAttrs[this.siyuanApi.ATTR_PRIORITY] || '50') || 50,
+      priority: card.priority ?? 50,
       suspended: customAttrs[this.siyuanApi.ATTR_SUSPENDED] === 'true',
       
       cardType: finalCardType,

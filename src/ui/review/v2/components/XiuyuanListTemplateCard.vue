@@ -1,27 +1,16 @@
 <template>
   <div class="xiuyuan-list-template-card">
-    <!-- 面包屑 - 使用浏览器预览区样式 -->
-    <div v-if="breadcrumbs.length > 0" class="preview__breadcrumb">
-      <div 
-        v-for="(item, index) in breadcrumbs" 
-        :key="item.id"
-        class="breadcrumb__item"
-        :style="{ paddingLeft: `${index * 16 + 8}px` }"
-      >
-        <span class="breadcrumb__text">
-          <svg class="breadcrumb__icon"><use :xlink:href="item.type === 'NodeDocument' ? '#iconFile' : '#iconALIGN'"></use></svg>
-          {{ item.name || '...' }}
-        </span>
-      </div>
-    </div>
-    
-    <!-- 问题部分 -->
+    <CardBreadcrumb
+      v-if="breadcrumbs.length > 0"
+      :items="breadcrumbs"
+      variant="preview"
+    />
+
     <div class="xiuyuan-question" v-html="questionHtml"></div>
-    
-    <!-- 已学过的答案 -->
+
     <div v-if="meta.currentIndex && meta.currentIndex > 0" class="xiuyuan-previous-answers">
-      <div 
-        v-for="(child, index) in previousChildren" 
+      <div
+        v-for="(child, index) in previousChildren"
         :key="child.id"
         class="xiuyuan-answer-item xiuyuan-answer-learned"
       >
@@ -30,25 +19,21 @@
         <span class="xiuyuan-answer-text">{{ child.answer }}</span>
       </div>
     </div>
-    
-    <!-- 当前提示（正面）或答案（背面） -->
+
     <div class="xiuyuan-current-item">
-      <!-- 正面：显示提示 -->
       <div v-if="!showAnswer && hasCue" class="xiuyuan-current-cue">
         <span class="xiuyuan-cue-marker">?</span>
         <span class="xiuyuan-cue-index">{{ (meta.currentIndex || 0) + 1 }}.</span>
         <span class="xiuyuan-cue-text">{{ meta.cue }}</span>
       </div>
-      
-      <!-- 背面：显示答案 -->
+
       <div v-else class="xiuyuan-current-answer">
         <span class="xiuyuan-answer-marker">✓</span>
         <span class="xiuyuan-answer-index">{{ (meta.currentIndex || 0) + 1 }}.</span>
         <span class="xiuyuan-answer-text">{{ meta.answer }}</span>
       </div>
     </div>
-    
-    <!-- 剩余提示 -->
+
     <div v-if="showAnswer && hasRemaining" class="xiuyuan-remaining-hint">
       还有 {{ remainingCount }} 个答案未学习
     </div>
@@ -56,15 +41,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import type { BreadcrumbItem } from '@/core/card/common/application/types';
+import { normalizeRawBreadcrumbs } from '@/core/card/common/application/breadcrumbNormalization';
+import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
 import { createLogger } from '@/utils/logger';
-
-type BreadcrumbRecord = {
-  id: string;
-  name: string;
-  type: string;
-};
 
 type SiyuanApiLike = {
   getBlockDOM: (blockId: string) => Promise<{ dom?: string } | null | undefined>;
@@ -83,20 +65,6 @@ type XiuyuanTemplatePluginLike = {
   getContext?: () => PluginContextLike | undefined;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function toBreadcrumbRecord(item: unknown): BreadcrumbRecord | null {
-  if (!isRecord(item)) {
-    return null;
-  }
-  const id = typeof item.id === 'string' ? item.id : '';
-  const name = typeof item.name === 'string' ? item.name : '';
-  const type = typeof item.type === 'string' ? item.type : 'NodeParagraph';
-  return { id, name, type };
-}
-
 const props = defineProps<{
   meta: XiuyuanCardMeta;
   showAnswer: boolean;
@@ -107,13 +75,12 @@ const props = defineProps<{
 const logger = createLogger('XiuyuanListTemplateCard');
 
 const questionHtml = ref('');
-const breadcrumbs = ref<Array<{ id: string; name: string; type: string }>>([]);
+const breadcrumbs = ref<BreadcrumbItem[]>([]);
 
 function getSiyuanApi() {
   return props.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
 }
 
-// 已学过的子项
 const previousChildren = computed(() => {
   if (!props.meta.allChildren || !props.meta.currentIndex) {
     return [];
@@ -121,7 +88,6 @@ const previousChildren = computed(() => {
   return props.meta.allChildren.slice(0, props.meta.currentIndex);
 });
 
-// 是否还有未学习的
 const hasRemaining = computed(() => {
   if (!props.meta.allChildren || props.meta.currentIndex === undefined) {
     return false;
@@ -129,7 +95,6 @@ const hasRemaining = computed(() => {
   return props.meta.currentIndex < props.meta.allChildren.length - 1;
 });
 
-// 剩余数量
 const remainingCount = computed(() => {
   if (!props.meta.allChildren || props.meta.currentIndex === undefined) {
     return 0;
@@ -139,7 +104,6 @@ const remainingCount = computed(() => {
 
 const hasCue = computed(() => (props.meta.cue || '').trim().length > 0);
 
-// 加载问题块的 HTML 和面包屑
 onMounted(async () => {
   try {
     const siyuanApi = getSiyuanApi();
@@ -147,43 +111,16 @@ onMounted(async () => {
       throw new Error('Environment not initialized');
     }
 
-    // 加载问题块 HTML
     const result = await siyuanApi.getBlockDOM(props.questionBlockId);
     questionHtml.value = result?.dom || '';
-    
-    // 加载面包屑
+
     const breadcrumbResult = await siyuanApi.getBlockBreadcrumb(props.questionBlockId);
-    
-    if (breadcrumbResult && Array.isArray(breadcrumbResult)) {
-      // 排除最后两项：
-      // - 最后一项：段落块（questionBlockId 本身）
-      // - 倒数第二项：列表项块（问题标题，会在正文中显示）
-      const parentBreadcrumbs = breadcrumbResult.slice(0, -2);
-      
-      const allBreadcrumbs = parentBreadcrumbs
-        .map(toBreadcrumbRecord)
-        .filter((item): item is BreadcrumbRecord => item !== null);
-      
-      // 🔧 去重：使用 Map 按标准化后的 name 去重
-      const dedupMap = new Map<string, { id: string; name: string; type: string }>();
-      
-      for (const item of allBreadcrumbs) {
-        // 标准化文本：去掉列表符号
-        const normalizedName = item.name.replace(/^[•\-\d]+\.?\s*/, '').trim();
-        
-        // 使用标准化后的 name 作为 key 和 value，这样相同内容的会覆盖
-        dedupMap.set(normalizedName, {
-          id: item.id,
-          name: normalizedName, // 使用标准化后的名称
-          type: item.type,
-        });
-      }
-      
-      // 转换回数组
-      breadcrumbs.value = Array.from(dedupMap.values());
-    }
-  } catch (err) {
-    logger.error('[XiuyuanListTemplateCard] Failed to load question block:', err);
+    breadcrumbs.value = normalizeRawBreadcrumbs(breadcrumbResult, {
+      trimTrailingCount: 2,
+    });
+  }
+  catch (error) {
+    logger.error('[XiuyuanListTemplateCard] Failed to load question block:', error);
     questionHtml.value = '<div class="ft__error">加载失败</div>';
   }
 });
@@ -192,53 +129,6 @@ onMounted(async () => {
 <style scoped>
 .xiuyuan-list-template-card {
   padding: 16px;
-}
-
-/* 垂直面包屑样式 - 复用浏览器预览区样式 */
-.preview__breadcrumb {
-  display: flex;
-  flex-direction: column;
-  padding: 8px 0;
-  margin-bottom: 0;
-  background: transparent;
-}
-
-.breadcrumb__item {
-  display: flex;
-  align-items: center;
-  padding: 2px 8px;
-  cursor: pointer;
-  color: var(--b3-theme-on-surface);
-  line-height: 1.6;
-  position: relative;
-  border-radius: 4px;
-}
-
-.breadcrumb__item:hover {
-  text-decoration: underline;
-  color: var(--b3-theme-primary);
-  background-color: var(--b3-list-hover);
-}
-
-.breadcrumb__text {
-  display: flex;
-  align-items: center;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--b3-font-family);
-  opacity: 0.86;
-  flex: 1;
-  min-width: 0;
-}
-
-.breadcrumb__icon {
-  width: 12px;
-  height: 12px;
-  margin-right: 6px;
-  opacity: 0.6;
-  fill: var(--b3-theme-on-surface);
 }
 
 .xiuyuan-question {

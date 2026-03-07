@@ -236,7 +236,7 @@ import type {
   IBrowserQueryableDataSource,
   SortModel,
 } from './datasource/types';
-import { isBrowserQueryableDataSource } from './datasource/types';
+import { hasQuerySessionInvalidation, isBrowserQueryableDataSource } from './datasource/types';
 import { adjustTime } from './datasource/MenuActions';  // Import adjustTime
 import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
@@ -279,6 +279,10 @@ import {
   DEFAULT_PREVIEW_SIZE,
 } from './constants';
 import { extractSqlStatement } from './utils/cardFilters';
+import {
+  resolveBrowserCardActionId,
+  resolveBrowserCardStableId,
+} from './utils/browserCardIdentity';
 import { extractBlockIds } from './utils/helpers';
 import { interpolateI18n } from './utils/i18n';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
@@ -770,9 +774,12 @@ function resolveQueryableDataSource(
   return dataSource;
 }
 
+function resolveIncrementalRowId(card: BrowserCard | null | undefined): string {
+  return resolveBrowserCardStableId(card);
+}
+
 function resolveBrowserCardSelectionId(card: BrowserCard | null | undefined): string {
-  if (!card) return '';
-  return String(card.blockId || card.fsrsCardId || card.id || '').trim();
+  return resolveBrowserCardStableId(card);
 }
 
 function buildSelectionContextFingerprint(): string {
@@ -1611,11 +1618,12 @@ function startResize(e: MouseEvent) {
 }
 
 // Jump to block
-function jumpToBlock() {
-  if (previewCard.value && props.app) {
+function jumpToBlock(blockId?: string) {
+  const targetId = blockId || previewCard.value?.blockId;
+  if (targetId && props.app) {
     openTab({
       app: props.app,
-      doc: { id: previewCard.value.blockId },
+      doc: { id: targetId },
     });
   }
 }
@@ -1878,11 +1886,11 @@ function resolveSubsetBlockIds(cards: BrowserCard[]): string[] {
 }
 
 function resolvePreferredSubsetCardId(cards: BrowserCard[], anchorRow?: BrowserCard): string {
-  const preferredFromAnchor = String(anchorRow?.id || '').trim();
+  const preferredFromAnchor = resolveBrowserCardActionId(anchorRow);
   if (preferredFromAnchor) {
     return preferredFromAnchor;
   }
-  return String(cards?.[0]?.id || '').trim();
+  return resolveBrowserCardActionId(cards?.[0]);
 }
 
 async function openSubsetReviewFromSelection(cards: BrowserCard[], anchorRow?: BrowserCard): Promise<void> {
@@ -2383,7 +2391,23 @@ const {
   rowsForFocus,
   allRows,
   refreshQueueCounts,
-  loadQueueCardsSimple,
+  loadVisibleRows: async (impactedRows) => {
+    const queryable = resolveQueryableDataSource(currentDataSource.value);
+    if (queryable) {
+      if (hasQuerySessionInvalidation(queryable)) {
+        queryable.invalidateQuerySession();
+      }
+      const rowIds = Array.from(
+        new Set(impactedRows.map((row) => resolveIncrementalRowId(row)).filter(Boolean))
+      );
+      return queryable.getRowsByIds(rowIds);
+    }
+
+    const blockIds = Array.from(
+      new Set(impactedRows.map((row) => String(row.blockId || '').trim()).filter(Boolean))
+    );
+    return loadQueueCardsSimple(blockIds);
+  },
   onRowsDeleted: () => {
     setTimeout(() => {
       const currentApi = gridApi.value;
@@ -3059,6 +3083,7 @@ const {
   pushMsg: (msg, duration) => pushMsg(msg, duration),
   pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
   storage: pluginStorage.value,
+  manager: pluginUnifiedDataSourceManager.value,
 });
 
 const cardTypeDetection = useCardTypeDetection(() => rows.value);
@@ -3093,8 +3118,8 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   return cards;
 }
 
-async function refreshQueueCounts() {
-  await refreshQueueCountsBridge(queueCounts);
+async function refreshQueueCounts(forceRefresh = true) {
+  await refreshQueueCountsBridge(queueCounts, { forceRefresh });
 }
 
 async function handleSelectQueue(queueId: string) {

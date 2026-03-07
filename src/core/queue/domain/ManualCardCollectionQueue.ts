@@ -42,6 +42,10 @@ interface BuildOutstandingQueueCardsOptions extends BuildDynamicQueueCardsOption
   everyNthElement: number;
 }
 
+interface SyncManualMembershipOptions {
+  notifyObservers?: boolean;
+}
+
 interface BuildDynamicCardsFromBaseOptions {
   logger: ManualCardQueueLogger;
   baseCardsLabel?: string;
@@ -469,6 +473,54 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
       baseCardsLabel,
       warnInvalidBlockId,
     });
+  }
+
+  protected async syncManualMembershipForCard(
+    card: Pick<FSRSCard, 'id' | 'blockId'>,
+    logger: ManualCardQueueLogger,
+    options: SyncManualMembershipOptions = {},
+  ): Promise<boolean> {
+    await this.ensureInitialLoad();
+
+    const candidateIds = Array.from(
+      new Set([String(card.id || '').trim(), String(card.blockId || '').trim()].filter(Boolean))
+    );
+    if (candidateIds.length === 0) {
+      return false;
+    }
+
+    let removed = false;
+    for (const candidateId of candidateIds) {
+      removed = this.manualCards.delete(candidateId) || removed;
+    }
+
+    if (!removed) {
+      return false;
+    }
+
+    if (this.customOrder) {
+      this.customOrder = this.customOrder.filter((id) => !candidateIds.includes(String(id || '').trim()));
+    }
+    if (this.cards.length > 0) {
+      this.cards = this.cards.filter((entry) => (
+        !candidateIds.includes(String(entry.id || '').trim())
+        && !candidateIds.includes(String(entry.blockId || '').trim())
+      ));
+    }
+
+    await this.saveManualCardState(logger);
+    this.clearSizeCache();
+    this.emitQueueChangedEvent();
+    if (options.notifyObservers !== false) {
+      this.notifyObservers();
+    }
+
+    logger.info(`Removed card ${card.id} from manual additions after schedule update`, {
+      blockId: card.blockId,
+      remainingManualCards: this.manualCards.size(),
+    });
+
+    return true;
   }
 
   protected async addCardToCollection(

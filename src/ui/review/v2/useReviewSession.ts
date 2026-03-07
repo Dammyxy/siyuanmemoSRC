@@ -408,6 +408,11 @@ export function useReviewSession<TItem>(
     }
   };
 
+  const refreshCurrentItem = async (item: unknown): Promise<void> => {
+    currentItem.value = (item as TItem | null) ?? null;
+    await updateState();
+  };
+
   const loadCardByBlockId = async (blockId: string): Promise<void> => {
     try {
       const loader = resolveNeuralPathLoader(queue);
@@ -443,6 +448,7 @@ export function useReviewSession<TItem>(
     back,
     executeCommand,
     reload,
+    refreshCurrentItem,
     getQueueStrategy,
     loadCardByBlockId,
     onMounted: mounted,

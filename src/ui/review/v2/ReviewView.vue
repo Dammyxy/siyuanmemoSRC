@@ -22,7 +22,18 @@
         @breadcrumb-click="handleBreadcrumbClick"
       />
 
-      <ReviewContent :app="app" :plugin="props.plugin" :content="state.content" :overlay="state.overlay" :has-hidden-content="state.meta.hasHiddenContent" :show-answer="state.actions.showAnswer" :meta="state.meta" :i18n="i18n" />
+      <ReviewContent
+        ref="contentRef"
+        :app="app"
+        :plugin="props.plugin"
+        :content="state.content"
+        :overlay="state.overlay"
+        :has-hidden-content="state.meta.hasHiddenContent"
+        :show-answer="state.actions.showAnswer"
+        :meta="state.meta"
+        :i18n="i18n"
+        @editor-state-change="handleEditorStateChange"
+      />
 
       <ReviewActions
         :actions="state.actions"
@@ -32,10 +43,10 @@
         :queue="providerQueue || props.queue"
         :plugin="props.plugin"
         :is-mobile="props.isMobile"
-        @reveal="hook.reveal"
-        @grade="hook.grade"
-        @skip="hook.skip"
-        @back="hook.back"
+        @reveal="handleReveal"
+        @grade="handleGrade"
+        @skip="handleSkip"
+        @back="handleBack"
         @command="hook.executeCommand"
         @openMenu="handleOpenMenu"
       />
@@ -97,7 +108,10 @@ import { createLogger } from '@/utils/logger';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import {
+  type DataChangeEvent,
   type CardFilter,
+  type IDataSourceObserver,
+  type IUnifiedDataSourceManagerFacade,
   isNeuralRoamSessionQueue,
   type NeuralNavigationState,
   type NeuralRoamSeedEntry,
@@ -105,7 +119,16 @@ import {
   type NeuralRoamSessionQueue,
 } from '@/types/unified-data-source';
 import { isTopicLikeCard } from './reviewCardSemantics';
+import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
+import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
 import { resolveReviewKeyAction } from './reviewKeyActionResolver';
+import {
+  consumeRecentlyModifiedReviewHotkey,
+  getForwardedReviewHotkey,
+  hasReviewKeyboardModifier,
+  normalizeReviewKeyboardKey,
+  rememberModifiedReviewHotkey,
+} from './reviewKeyboardGuard';
 
 const logger = createLogger('ReviewView');
 
@@ -186,6 +209,7 @@ type ReviewPluginContextLike = {
         };
       };
     };
+    getCard?: (cardId: string) => { id: string; blockId?: string } | undefined;
     getCardByBlockId?: (blockId: string) => { id: string } | undefined;
   };
   getReviewService?: () => {
@@ -193,6 +217,7 @@ type ReviewPluginContextLike = {
       BUILTIN_DECK_ID: string;
     } | undefined;
   };
+  getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
 };
 
 type ReviewPluginLike = {
@@ -231,6 +256,16 @@ type CommandLike = {
 
 type ProtyleLike = {
   resize?: () => void;
+};
+
+type ScheduledReviewCardPayload = {
+  cardId?: string;
+  blockId?: string;
+  dueTimestamp?: number;
+};
+
+type ReviewContentExpose = {
+  exitEditorByEscape: () => boolean;
 };
 
 type ProtyleHostElement = HTMLElement & {
@@ -316,6 +351,10 @@ const emit = defineEmits<{
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
+const contentRef = ref<ReviewContentExpose | null>(null);
+const recentModifiedHotkeys = new Map<string, number>();
+const editorState = ref<ReviewEditorState>(createReviewEditorState());
+let escRepeatLatch = false;
 
 // 🆕 防重复触发机制 - 使用更智能的策略
 let lastKeyPressTime = 0;
@@ -401,6 +440,12 @@ function getDialogManager() {
   return contextFromProps?.getDialogManager?.() || contextFromWindow?.getDialogManager?.() || null;
 }
 
+function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getUnifiedDataSourceManager?.() || contextFromWindow?.getUnifiedDataSourceManager?.() || null;
+}
+
 function openNeuralBrowserSubview(subview: 'concept-cards' | 'roam-history' | 'worldline-anchors'): void {
   const dialogManager = getDialogManager();
   if (!dialogManager || typeof dialogManager.openBrowserDialog !== 'function') {
@@ -426,7 +471,8 @@ onMounted(() => {
   });
 
   // 🆕 添加键盘事件监听器
-  document.addEventListener('keydown', handleKeyDown);
+  document.addEventListener('keydown', handleKeyDown, true);
+  document.addEventListener('keyup', handleKeyUp, true);
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener added');
 
   // 🌌 恢复侧边栏状态（已删除）
@@ -450,11 +496,16 @@ onMounted(() => {
   // 🆕 初始化导航状态（Phase 3: UI 控件）
   refreshNavigationState();
   syncReviewFilterFromQueue();
+  bindReviewDataObserver();
 });
 
 // 🆕 组件卸载时移除键盘事件监听器
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeyDown);
+  document.removeEventListener('keydown', handleKeyDown, true);
+  document.removeEventListener('keyup', handleKeyUp, true);
+  recentModifiedHotkeys.clear();
+  escRepeatLatch = false;
+  unbindReviewDataObserver();
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener removed');
 });
 
@@ -494,17 +545,212 @@ const i18n = props.i18n;
 const showReviewFilterDialog = ref(false);
 const appliedReviewFilter = ref<CardFilter | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
+let subscribedReviewManager: IUnifiedDataSourceManagerFacade | null = null;
 
 function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
+function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
+  const cardMeta = state.value.actions.cardMeta;
+  const currentCard = state.value.content.card;
+  return {
+    cardId: String(cardMeta?.cardID || currentCard?.id || '').trim(),
+    blockId: String(cardMeta?.blockID || currentCard?.blockId || '').trim(),
+  };
+}
+
+function getActiveRemovableReviewQueue(): { removeCard?: (cardIdOrBlockId: string) => Promise<void> } | null {
+  const activeQueue = providerQueue || props.queue;
+  return isRecord(activeQueue) ? activeQueue as { removeCard?: (cardIdOrBlockId: string) => Promise<void> } : null;
+}
+
+async function advanceScheduledCurrentCard(payload: ScheduledReviewCardPayload): Promise<void> {
+  const scheduledCardId = String(payload.cardId || '').trim();
+  const scheduledBlockId = String(payload.blockId || '').trim();
+  const currentReference = getCurrentReviewCardReference();
+  const matchesCurrentCard =
+    (scheduledCardId && scheduledCardId === currentReference.cardId)
+    || (scheduledBlockId && scheduledBlockId === currentReference.blockId);
+
+  if (!matchesCurrentCard) {
+    logger.debug('[SiYuanMemo][ReviewView] Ignore scheduled event for non-current card:', {
+      payload,
+      currentReference,
+    });
+    return;
+  }
+
+  const removableQueue = getActiveRemovableReviewQueue();
+  const removalTarget = scheduledCardId || scheduledBlockId;
+
+  if (removableQueue && typeof removableQueue.removeCard === 'function' && removalTarget) {
+    try {
+      await removableQueue.removeCard(removalTarget);
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewView] Failed to remove scheduled current card from queue:', {
+        removalTarget,
+        error,
+      });
+    }
+  }
+
+  await hook.skip();
+}
+
+async function refreshCurrentReviewCard(): Promise<void> {
+  const manager = subscribedReviewManager;
+  const { cardId } = getCurrentReviewCardReference();
+  if (!manager || !cardId) {
+    return;
+  }
+
+  try {
+    const requestedCardId = cardId;
+    const nextCard = await manager.getCard(cardId);
+    if (getCurrentReviewCardReference().cardId !== requestedCardId) {
+      return;
+    }
+    await hook.refreshCurrentItem(nextCard);
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to refresh current review card from unified manager:', {
+      cardId,
+      error,
+    });
+  }
+}
+
+const reviewDataObserver: IDataSourceObserver = {
+  onDataChanged(event: DataChangeEvent) {
+    if (event.type !== 'card-updated') {
+      return;
+    }
+
+    const { cardId, blockId } = getCurrentReviewCardReference();
+    if (!cardId && !blockId) {
+      return;
+    }
+
+    const matched = (event.cardIds || []).some((id) => {
+      const normalized = String(id || '').trim();
+      return normalized === cardId || normalized === blockId;
+    });
+    if (!matched) {
+      return;
+    }
+
+    void refreshCurrentReviewCard();
+  },
+};
+
+function bindReviewDataObserver(): void {
+  const manager = getUnifiedDataSourceManager();
+  if (manager === subscribedReviewManager) {
+    return;
+  }
+
+  if (subscribedReviewManager) {
+    subscribedReviewManager.unregisterObserver(reviewDataObserver);
+  }
+
+  subscribedReviewManager = manager;
+  subscribedReviewManager?.registerObserver(reviewDataObserver);
+}
+
+function unbindReviewDataObserver(): void {
+  if (!subscribedReviewManager) {
+    return;
+  }
+
+  subscribedReviewManager.unregisterObserver(reviewDataObserver);
+  subscribedReviewManager = null;
+}
+
+function getEventElement(target: EventTarget | null): HTMLElement | null {
+  if (target instanceof HTMLElement) {
+    return target;
+  }
+  if (target instanceof Node) {
+    return target.parentElement;
+  }
+  return null;
+}
+
+function isInsideReviewRoot(target: EventTarget | null): boolean {
+  const root = rootRef.value;
+  const element = getEventElement(target);
+  return !!root && !!element && root.contains(element);
+}
+
+function isReviewKeyboardContext(target: EventTarget | null): boolean {
+  if (isInsideReviewRoot(target) || isInsideReviewRoot(document.activeElement)) {
+    return true;
+  }
+
+  const root = rootRef.value;
+  const activeElement = document.activeElement;
+  return !!root
+    && root.isConnected
+    && (activeElement === document.body || activeElement === document.documentElement);
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
-  const element = target as HTMLElement | null;
+  const element = getEventElement(target);
   if (!element) {
     return false;
   }
   return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
+}
+
+function isDialogMode(): boolean {
+  return props.mode !== 'tab';
+}
+
+function handleEditorStateChange(nextState: ReviewEditorState): void {
+  editorState.value = nextState;
+  if (nextState.renderer !== 'main-protyle') {
+    escRepeatLatch = false;
+  }
+}
+
+function maybeHandleReviewEscape(event: KeyboardEvent): boolean {
+  if (!isReviewKeyboardContext(event.target)) {
+    return false;
+  }
+
+  const decision = resolveReviewDialogEscapeKeydown({
+    isDialogMode: isDialogMode(),
+    key: event.key,
+    repeat: event.repeat,
+    escRepeatLatch,
+    editorState: editorState.value,
+  });
+
+  if (decision === 'consume-latched') {
+    event.preventDefault();
+    event.stopPropagation();
+    logger.debug('[SiYuanMemo][ReviewView] Consumed repeated Escape while latch is active');
+    return true;
+  }
+
+  if (decision === 'exit-editor' && contentRef.value?.exitEditorByEscape()) {
+    event.preventDefault();
+    event.stopPropagation();
+    escRepeatLatch = true;
+    logger.debug('[SiYuanMemo][ReviewView] Exited Protyle editor by repeated Escape');
+    return true;
+  }
+
+  return false;
+}
+
+function handleKeyUp(event: KeyboardEvent): void {
+  if (shouldResetReviewDialogEscapeLatch({
+    key: event.key,
+    escRepeatLatch,
+  })) {
+    escRepeatLatch = false;
+  }
 }
 
 function handleReviewKeyAction(
@@ -576,22 +822,64 @@ function handleRootClick(e: MouseEvent) {
     currentTarget: e.currentTarget,
   });
 
-  // 只处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
-  if (typeof e.detail !== 'string') return;
-
-  const key = e.detail.toLowerCase();
+  const key = getForwardedReviewHotkey(e.detail);
+  if (!key) {
+    return;
+  }
+  if (consumeRecentlyModifiedReviewHotkey(recentModifiedHotkeys, key)) {
+    logger.debug('[SiYuanMemo][ReviewView] Ignoring forwarded modified hotkey:', { key });
+    return;
+  }
   handleReviewKeyAction('hotkey', key, e);
 }
 
 // 🆕 处理标准键盘事件
 function handleKeyDown(e: KeyboardEvent) {
+  if (!isReviewKeyboardContext(e.target)) {
+    return;
+  }
+  if (maybeHandleReviewEscape(e)) {
+    return;
+  }
+
+  const key = normalizeReviewKeyboardKey(e.key);
+  if (hasReviewKeyboardModifier(e)) {
+    rememberModifiedReviewHotkey(recentModifiedHotkeys, {
+      key,
+      ctrlKey: e.ctrlKey,
+      metaKey: e.metaKey,
+      altKey: e.altKey,
+      shiftKey: e.shiftKey,
+    });
+    return;
+  }
+
   // 忽略在输入框中的按键
   if (isTypingTarget(e.target)) {
     return;
   }
 
-  const key = e.key.toLowerCase();
   handleReviewKeyAction('keydown', key, e);
+}
+
+function handleReveal(): void {
+  escRepeatLatch = false;
+  hook.reveal();
+}
+
+function handleGrade(rating: number): void {
+  escRepeatLatch = false;
+  void hook.grade(rating);
+}
+
+function handleSkip(): void {
+  escRepeatLatch = false;
+  void hook.skip();
+}
+
+function handleBack(): void {
+  escRepeatLatch = false;
+  void hook.back();
 }
 
 function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) {
@@ -651,7 +939,7 @@ function handleOpenMenu(menuCommands: IQueueCommand<unknown>[], ev: MouseEvent) 
       icon: 'iconEdit',
       label: t('editSrsData', '编辑 SRS 数据'),
       click: () => {
-        void openSrsEditorDialog(currentCard.blockId);
+        void openSrsEditorDialog(currentCard.blockId, currentCard.id);
       },
     });
     menu.addSeparator();
@@ -872,10 +1160,11 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     logger.debug('[SiYuanMemo][ReviewView] Edit SRS button clicked');
     const cardMeta = state.value.actions.cardMeta;
     const blockId = cardMeta?.blockID || state.value.content.data;
+    const cardId = cardMeta?.cardID;
     logger.debug('[SiYuanMemo][ReviewView] cardMeta:', cardMeta);
     logger.debug('[SiYuanMemo][ReviewView] blockId:', blockId);
     if (blockId) {
-      openSrsEditorDialog(blockId);
+      openSrsEditorDialog(blockId, cardId);
     } else {
       logger.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
     }
@@ -1078,8 +1367,8 @@ function handleOpenAsMenu(ev: MouseEvent) {
 }
 
 // Part 4: 打开 SRS 编辑器对话框
-function openSrsEditorDialog(blockId: string) {
-  logger.debug('[SiYuanMemo][ReviewView] openSrsEditorDialog called with blockId:', blockId);
+function openSrsEditorDialog(blockId: string, cardId?: string) {
+  logger.debug('[SiYuanMemo][ReviewView] openSrsEditorDialog called with card reference:', { blockId, cardId });
 
   if (!props.app) {
     logger.error('[SiYuanMemo][ReviewView] ERROR: props.app is undefined!');
@@ -1099,9 +1388,11 @@ function openSrsEditorDialog(blockId: string) {
     return;
   }
 
-  const card = context?.getStorage?.()?.getCardByBlockId(blockId);
+  const card = cardId
+    ? context?.getStorage?.()?.getCard(cardId)
+    : context?.getStorage?.()?.getCardByBlockId(blockId);
   if (!card) {
-    logger.error('[SiYuanMemo][ReviewView] ERROR: Card not found for blockId:', blockId);
+    logger.error('[SiYuanMemo][ReviewView] ERROR: Card not found for card reference:', { blockId, cardId });
     return;
   }
 
@@ -1118,6 +1409,16 @@ function openSrsEditorDialog(blockId: string) {
       i18n: props.i18n || {},
       plugin: props.plugin,
       reviewService,
+    },
+    events: {
+      scheduled: async (payload: unknown) => {
+        const scheduledPayload = isRecord(payload) ? payload as ScheduledReviewCardPayload : {};
+        await advanceScheduledCurrentCard({
+          cardId: typeof scheduledPayload.cardId === 'string' ? scheduledPayload.cardId : card.id,
+          blockId,
+          dueTimestamp: typeof scheduledPayload.dueTimestamp === 'number' ? scheduledPayload.dueTimestamp : undefined,
+        });
+      },
     },
     width: '860px',
     height: '80vh',
@@ -1369,6 +1670,7 @@ function refreshNavigationState() {
 watch(
   () => state.value.content.id,
   () => {
+    escRepeatLatch = false;
     refreshNavigationState();
   }
 );

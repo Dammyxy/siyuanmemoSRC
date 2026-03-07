@@ -8,6 +8,16 @@ type QueueMock = {
   getSize: ReturnType<typeof vi.fn>;
 };
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createCard(
   id: string,
   options?: { missing?: boolean },
@@ -124,5 +134,41 @@ describe('BrowserApplicationService queue counts', () => {
     expect(retrievalQueue.getSize).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getCards).not.toHaveBeenCalled();
     expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates cached counts without letting stale in-flight reads overwrite the latest result', async () => {
+    const staleRetrieval = createDeferred<FSRSCard[]>();
+    const freshRetrieval = createDeferred<FSRSCard[]>();
+    const retrievalQueue = createQueue([], 11);
+    const finalQueue = createQueue([], 0);
+    const neuralQueue = createQueue([], 0);
+    const filterQueue = createQueue([], 0);
+    const incrementalQueue = createQueue([], 0);
+
+    retrievalQueue.getCards
+      .mockReturnValueOnce(staleRetrieval.promise)
+      .mockReturnValueOnce(freshRetrieval.promise);
+
+    queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
+    queueByType.set(QueueType.FinalDrill, finalQueue);
+    queueByType.set(QueueType.NeuralRoam, neuralQueue);
+    queueByType.set(QueueType.FilterGroup, filterQueue);
+    queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
+
+    const staleCountsPromise = service.getQueueCounts();
+    service.invalidateQueueCountsCache();
+    const freshCountsPromise = service.getQueueCounts();
+
+    freshRetrieval.resolve([createCard('fresh-1'), createCard('fresh-2')]);
+    const freshCounts = await freshCountsPromise;
+    expect(freshCounts.retrieval).toBe(2);
+
+    staleRetrieval.resolve([createCard('stale-1')]);
+    const staleCounts = await staleCountsPromise;
+    expect(staleCounts.retrieval).toBe(1);
+
+    const cachedCounts = await service.getQueueCounts();
+    expect(cachedCounts.retrieval).toBe(2);
+    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(2);
   });
 });

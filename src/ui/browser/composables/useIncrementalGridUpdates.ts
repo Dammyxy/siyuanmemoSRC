@@ -9,11 +9,16 @@ interface UseIncrementalGridUpdatesOptions {
   rowsForFocus: Ref<BrowserCard[]>;
   allRows: Ref<BrowserCard[]>;
   refreshQueueCounts: () => Promise<void>;
-  loadQueueCardsSimple: (cardIds: string[]) => Promise<BrowserCard[]>;
-  onRowsDeleted?: (deletedBlockIds: string[]) => void;
+  loadVisibleRows: (rows: BrowserCard[]) => Promise<BrowserCard[]>;
+  onRowsDeleted?: (deletedRowIds: string[]) => void;
 }
 
 const logger = createLogger('useIncrementalGridUpdates');
+
+function resolveBrowserCardRowId(row: BrowserCard | null | undefined): string {
+  if (!row) return '';
+  return String(row.fsrsCardId || row.id || row.blockId || '').trim();
+}
 
 function isRowMatchedByEventIds(row: BrowserCard, eventIdSet: Set<string>): boolean {
   if (row.blockId && eventIdSet.has(row.blockId)) return true;
@@ -22,14 +27,10 @@ function isRowMatchedByEventIds(row: BrowserCard, eventIdSet: Set<string>): bool
   return false;
 }
 
-function collectUniqueBlockIds(rows: BrowserCard[]): string[] {
-  return Array.from(new Set(rows.map((row) => String(row.blockId || '')).filter(Boolean)));
-}
-
 export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOptions) {
   let rafId: number | null = null;
   const pendingUpdateMap = new Map<string, BrowserCard>();
-  const pendingDeletedBlockIds = new Set<string>();
+  const pendingDeletedRowIds = new Set<string>();
 
   const refreshQueueCountsSafely = async () => {
     try {
@@ -43,7 +44,7 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
     const api = options.gridApi.value;
     if (!api || (typeof api.isDestroyed === 'function' && api.isDestroyed())) {
       pendingUpdateMap.clear();
-      pendingDeletedBlockIds.clear();
+      pendingDeletedRowIds.clear();
       return;
     }
 
@@ -51,8 +52,9 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       let patched = 0;
       api.forEachNode((node) => {
         const current = node.data as BrowserCard | undefined;
-        if (!current?.blockId) return;
-        const updated = pendingUpdateMap.get(current.blockId);
+        const rowId = resolveBrowserCardRowId(current);
+        if (!rowId) return;
+        const updated = pendingUpdateMap.get(rowId);
         if (!updated) return;
         node.setData(updated);
         patched++;
@@ -61,9 +63,9 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       logger.debug('Incremental grid patch flushed', { patched });
     }
 
-    if (pendingDeletedBlockIds.size > 0) {
-      const deleted = Array.from(pendingDeletedBlockIds);
-      pendingDeletedBlockIds.clear();
+    if (pendingDeletedRowIds.size > 0) {
+      const deleted = Array.from(pendingDeletedRowIds);
+      pendingDeletedRowIds.clear();
       options.onRowsDeleted?.(deleted);
       logger.debug('Incremental delete flushed', { deletedCount: deleted.length });
     }
@@ -102,11 +104,22 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
     const end = Math.min(targetRows.length, scanLimit);
     for (let i = 0; i < end; i++) {
       const row = targetRows[i];
-      const updated = updatedMap.get(row.blockId);
+      const updated = updatedMap.get(resolveBrowserCardRowId(row));
       if (updated) {
         targetRows[i] = updated;
       }
     }
+  };
+
+  const removeRowsByIds = (
+    targetRows: BrowserCard[],
+    deletedRowIds: Set<string>,
+  ): BrowserCard[] => {
+    if (deletedRowIds.size === 0) {
+      return targetRows;
+    }
+
+    return targetRows.filter((row) => !deletedRowIds.has(resolveBrowserCardRowId(row)));
   };
 
   const handleCardUpdatedIncremental = async (cardIds: string[]) => {
@@ -126,24 +139,41 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
         return;
       }
 
-      const blockIdsToReload = collectUniqueBlockIds(impactedRows);
-      const updatedCards = await options.loadQueueCardsSimple(blockIdsToReload);
-      if (updatedCards.length === 0) {
+      const updatedCards = await options.loadVisibleRows(impactedRows);
+      const updatedMap = new Map(
+        updatedCards
+          .map((card) => [resolveBrowserCardRowId(card), card] as const)
+          .filter(([rowId]) => Boolean(rowId))
+      );
+      const deletedRowIds = new Set(
+        impactedRows
+          .map((row) => resolveBrowserCardRowId(row))
+          .filter((rowId) => rowId && !updatedMap.has(rowId))
+      );
+
+      if (updatedMap.size === 0 && deletedRowIds.size === 0) {
         await refreshQueueCountsSafely();
-        logger.warn('Incremental update returned no card payload', {
+        logger.warn('Incremental update returned no visible card payload', {
           cardIds,
-          blockIdsToReload,
         });
         return;
       }
 
-      const updatedMap = new Map(updatedCards.map((card) => [card.blockId, card]));
-      options.rows.value = options.rows.value.map((row) => updatedMap.get(row.blockId) || row);
+      options.rows.value = removeRowsByIds(
+        options.rows.value.map((row) => updatedMap.get(resolveBrowserCardRowId(row)) || row),
+        deletedRowIds,
+      );
+      options.rowsForFocus.value = removeRowsByIds(options.rowsForFocus.value, deletedRowIds);
       patchRowsInPlace(options.rowsForFocus.value, updatedMap);
+      options.allRows.value = removeRowsByIds(options.allRows.value, deletedRowIds);
       patchRowsInPlace(options.allRows.value, updatedMap, 2000);
 
       for (const card of updatedCards) {
-        pendingUpdateMap.set(card.blockId, card);
+        pendingUpdateMap.set(resolveBrowserCardRowId(card), card);
+      }
+      for (const rowId of deletedRowIds) {
+        pendingUpdateMap.delete(rowId);
+        pendingDeletedRowIds.add(rowId);
       }
       scheduleGridUpdate();
 
@@ -151,6 +181,7 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       logger.info('Incremental update completed', {
         requested: cardIds.length,
         updated: updatedCards.length,
+        removed: deletedRowIds.size,
       });
     } catch (error) {
       logger.error('Incremental update failed:', error);
@@ -175,9 +206,13 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
         return;
       }
 
-      const removedBlockIds = new Set(rowsToRemove.map((row) => row.blockId));
+      const removedRowIds = new Set(
+        rowsToRemove
+          .map((row) => resolveBrowserCardRowId(row))
+          .filter(Boolean)
+      );
       const shouldRemoveRow = (row: BrowserCard): boolean => (
-        isRowMatchedByEventIds(row, eventIdSet) || removedBlockIds.has(row.blockId)
+        isRowMatchedByEventIds(row, eventIdSet) || removedRowIds.has(resolveBrowserCardRowId(row))
       );
 
       options.rows.value = options.rows.value.filter((row) => !shouldRemoveRow(row));
@@ -187,10 +222,10 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       }
 
       for (const row of rowsToRemove) {
-        pendingUpdateMap.delete(row.blockId);
+        pendingUpdateMap.delete(resolveBrowserCardRowId(row));
       }
-      for (const blockId of removedBlockIds) {
-        pendingDeletedBlockIds.add(blockId);
+      for (const rowId of removedRowIds) {
+        pendingDeletedRowIds.add(rowId);
       }
       scheduleGridUpdate();
 
@@ -211,7 +246,7 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       rafId = null;
     }
     pendingUpdateMap.clear();
-    pendingDeletedBlockIds.clear();
+    pendingDeletedRowIds.clear();
   };
 
   return {

@@ -315,6 +315,49 @@
   color: var(--b3-theme-on-surface);
 }
 
+.preview__meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--b3-border-color);
+  border-bottom: 1px solid var(--b3-border-color);
+  background: color-mix(in srgb, var(--b3-theme-surface) 78%, var(--b3-theme-background));
+}
+
+.preview__meta-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.preview__meta-badge {
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--b3-theme-primary-rgb), 0.12);
+  color: var(--b3-theme-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.preview__document-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--b3-theme-on-surface);
+  word-break: break-word;
+}
+
+.preview__meta-return {
+  flex-shrink: 0;
+  align-self: center;
+}
+
 .preview__body {
   flex: 1;
   overflow: hidden;  /* 改为 hidden,让 Protyle 自己管理滚动 */
@@ -433,7 +476,7 @@
 }
 
 /* 垂直面包屑样式 */
-.preview__breadcrumb {
+.card-browser__preview .card-breadcrumb--preview {
   display: flex;
   flex-direction: column;
   padding: 8px 0;
@@ -442,7 +485,7 @@
   background: transparent;
 }
 
-.breadcrumb__item {
+.card-browser__preview .card-breadcrumb--preview .card-breadcrumb__item {
   display: flex;
   align-items: center;
   padding: 2px 8px;
@@ -453,13 +496,23 @@
   border-radius: 4px;
 }
 
-.breadcrumb__item:hover {
+.card-browser__preview .card-breadcrumb--preview .card-breadcrumb__item--active {
+  background: rgba(var(--b3-theme-primary-rgb), 0.12);
+  color: var(--b3-theme-primary);
+}
+
+.card-browser__preview .card-breadcrumb--preview .card-breadcrumb__item--active .card-breadcrumb__icon {
+  opacity: 0.9;
+  fill: var(--b3-theme-primary);
+}
+
+.card-browser__preview .card-breadcrumb--preview .card-breadcrumb__item--interactive:hover {
   text-decoration: underline;
   color: var(--b3-theme-primary); /* 悬浮时变蓝 */
   background-color: var(--b3-list-hover); /* 悬浮时添加轻微背景 */
 }
 
-.breadcrumb__text {
+.card-browser__preview .card-breadcrumb--preview .card-breadcrumb__text {
   display: flex;
   align-items: center;
   font-size: 13px;
@@ -472,7 +525,7 @@
   min-width: 0;
 }
 
-.breadcrumb__icon {
+.card-browser__preview .card-breadcrumb--preview .card-breadcrumb__icon {
   width: 12px;
   height: 12px;
   margin-right: 6px;

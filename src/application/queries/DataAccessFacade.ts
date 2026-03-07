@@ -360,25 +360,16 @@ export class DataAccessFacade implements IDataRouter {
      */
     async updateCard(card: FSRSCard): Promise<void> {
         // 通过 CardApplicationService 更新卡片
-        const result = await this.cardService.updateFSRSCard({
-            cardId: card.id,
-            updates: {
-                due: card.due,
-                stability: card.stability,
-                difficulty: card.difficulty,
-                elapsed_days: card.elapsed_days,
-                scheduled_days: card.scheduled_days,
-                reps: card.reps,
-                lapses: card.lapses,
-                state: card.state,
-                last_review: card.last_review,
-                priority: card.priority,
-                meta: card.meta,
-            }
-        });
-        
+        const result = await this.cardService.batchUpdateCardsWithoutEvents([card]);
+
         if (!result.ok) {
             throw new Error(`Failed to update card ${card.id}: ${result.error}`);
+        }
+
+        if (result.value.updatedCount !== 1 || result.value.failedCount !== 0) {
+            throw new Error(
+                `Failed to fully persist card ${card.id}: updated=${result.value.updatedCount}, failed=${result.value.failedCount}`
+            );
         }
         
         // 🚀 性能优化：失效缓存

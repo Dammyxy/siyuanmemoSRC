@@ -16,6 +16,10 @@ interface UseQueueBridgeOptions {
   isDevMode?: boolean;
 }
 
+interface RefreshQueueCountsOptions {
+  forceRefresh?: boolean;
+}
+
 export function useQueueBridge(options: UseQueueBridgeOptions) {
   const isDevMode = Boolean(options.isDevMode);
   const logger = createLogger('QueueBridge');
@@ -47,7 +51,10 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
     return queue;
   };
 
-  const refreshQueueCounts = async (target: Ref<Record<string, number>>): Promise<void> => {
+  const refreshQueueCounts = async (
+    target: Ref<Record<string, number>>,
+    refreshOptions: RefreshQueueCountsOptions = {},
+  ): Promise<void> => {
     const service = getBrowserService('refreshQueueCounts');
     if (!service) {
       target.value = { ...EMPTY_QUEUE_COUNTS };
@@ -55,6 +62,9 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
     }
 
     try {
+      if (refreshOptions.forceRefresh) {
+        service.invalidateQueueCountsCache();
+      }
       target.value = await service.getQueueCounts();
     } catch (error) {
       logger.error('failed to refresh counts via browserService:', error);

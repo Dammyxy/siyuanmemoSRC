@@ -48,6 +48,7 @@ import { CardScheduleService } from '@/core/card/domain/services/CardScheduleSer
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
+import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 
@@ -93,6 +94,7 @@ interface ApplicationServiceRegistry {
   cardService: CardApplicationService;
   browserService: BrowserApplicationService;
   reviewService: ReviewApplicationService;
+  cardEditorService: CardEditorApplicationService;
 }
 
 type ServiceName = keyof ApplicationServiceRegistry;
@@ -441,8 +443,15 @@ export class ApplicationContext {
     // ✅ 注册复习应用服务工厂
     this.registerServiceFactory('reviewService', (context) => {
       return new ReviewApplicationService(
-        context.getUnifiedStorage(),  // ✅ 使用 UnifiedStorageManager
+        context.getUnifiedDataSourceManager(),
         context.getScheduler()
+      );
+    });
+
+    this.registerServiceFactory('cardEditorService', (context) => {
+      return new CardEditorApplicationService(
+        context.getUnifiedDataSourceManager(),
+        context.getReviewService()
       );
     });
     
@@ -1355,6 +1364,10 @@ export class ApplicationContext {
    */
   getReviewService(): ReviewApplicationService {
     return this.getService('reviewService');
+  }
+
+  getCardEditorService(): CardEditorApplicationService {
+    return this.getService('cardEditorService');
   }
   
   // TODO: Phase 3 - 实现其他应用服务访问方法

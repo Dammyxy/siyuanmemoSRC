@@ -28,6 +28,10 @@ export interface IBrowserQueryableDataSource {
   getRowsByIds(ids: string[]): Promise<BrowserCard[]>;
 }
 
+export interface IBrowserQuerySessionInvalidation {
+  invalidateQuerySession(): void;
+}
+
 export function isBrowserQueryableDataSource(
   value: unknown
 ): value is IBrowserQueryableDataSource {
@@ -40,4 +44,13 @@ export function isBrowserQueryableDataSource(
     typeof target.getAllMatchedIds === 'function' &&
     typeof target.getRowsByIds === 'function'
   );
+}
+
+export function hasQuerySessionInvalidation(
+  value: unknown
+): value is IBrowserQuerySessionInvalidation {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  return typeof (value as Partial<IBrowserQuerySessionInvalidation>).invalidateQuerySession === 'function';
 }

@@ -3,7 +3,6 @@ import {
   batchReset,
   batchSuspend,
   invalidateCardCache,
-  setBrowserCardPriority,
 } from '../browserService';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
 import type {
@@ -316,13 +315,6 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
       scope: 'DeckDataSource',
     });
 
-    await Promise.all(
-      result.updated
-        .map((row) => String(row.blockId || ''))
-        .filter(Boolean)
-        .map((blockId) => setBrowserCardPriority(blockId, priority))
-    );
-
     invalidateCardCache();
     this.invalidateQuerySession();
     return result;
@@ -371,7 +363,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     };
   }
 
-  private invalidateQuerySession(): void {
+  public invalidateQuerySession(): void {
     this.dataGeneration += 1;
     this.querySession.invalidate();
   }

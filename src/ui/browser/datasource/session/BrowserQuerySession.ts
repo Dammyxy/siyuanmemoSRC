@@ -2,6 +2,7 @@ import type { BrowserCard } from '../../types';
 import { LRUCache } from '@/utils/queryCache';
 import { createLogger } from '@/utils/logger';
 import { PerformanceMonitor } from '@/utils/performance';
+import { resolveBrowserCardStableId } from '../../utils/browserCardIdentity';
 
 const logger = createLogger('BrowserQuerySession');
 
@@ -35,9 +36,7 @@ function normalizeBoundary(value: number | undefined, fallback: number): number 
 }
 
 function resolveSessionIdFromCard(card: BrowserCard): string {
-  // blockId is not unique when one block maps to multiple cards.
-  // Session identity must be card-level stable to keep sort/page order deterministic.
-  return String(card.fsrsCardId || card.id || card.blockId || '');
+  return resolveBrowserCardStableId(card);
 }
 
 function toUniqueIds(ids: string[]): string[] {

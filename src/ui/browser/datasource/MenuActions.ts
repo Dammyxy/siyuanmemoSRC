@@ -12,6 +12,7 @@ import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { CardReadPort } from '@/core/storage/ports';
 import type { QueueAddSource } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
+import { resolveBrowserCardActionId } from '../utils/browserCardIdentity';
 
 const logger = createLogger('MenuActions');
 
@@ -268,7 +269,7 @@ const conceptOnlyMessage: Record<'retrieval' | 'final-drill' | 'neural-roam', st
 };
 
 function resolveCardId(card: BrowserCard): string {
-  return card.fsrsCardId || card.id || card.blockId;
+  return resolveBrowserCardActionId(card);
 }
 
 function normalizeCount(value: unknown, fallback = 0): number {

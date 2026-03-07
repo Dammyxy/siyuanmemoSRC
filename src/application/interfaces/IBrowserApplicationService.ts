@@ -95,6 +95,11 @@ export interface IBrowserApplicationService {
   getQueueCounts(): Promise<Record<string, number>>;
 
   /**
+   * Drop any cached queue counts so the next read reflects the latest queue state.
+   */
+  invalidateQueueCountsCache(): void;
+
+  /**
    * Set filter on FilterGroup queue.
    */
   setFilterGroupFilter(filter: CardFilter): Promise<boolean>;

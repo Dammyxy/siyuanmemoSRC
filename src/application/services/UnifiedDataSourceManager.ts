@@ -548,14 +548,23 @@ export class UnifiedDataSourceManager {
      * 供 SchedulerRouter 路径复用，避免重复写入存储。
      */
     public async onCardUpdatedFromScheduler(card: FSRSCard): Promise<void> {
-        this.invalidateQueuesForCardMutation();
+        const affectedQueueTypes = this.invalidateQueuesForCardMutation();
 
         const affectedIds = Array.from(new Set([card.id, card.blockId].filter(Boolean)));
+        const timestamp = Date.now();
         this.notifyObservers({
             type: 'card-updated',
             cardIds: affectedIds,
-            timestamp: Date.now(),
+            timestamp,
         });
+
+        for (const queueType of affectedQueueTypes) {
+            this.notifyObservers({
+                type: 'queue-changed',
+                queueType,
+                timestamp,
+            });
+        }
     }
     
     /**
@@ -759,11 +768,19 @@ export class UnifiedDataSourceManager {
         logger.debug(`Queue cache invalidated: ${type}`);
     }
 
-    private invalidateQueuesForCardMutation(): void {
+    private invalidateQueuesForCardMutation(): QueueType[] {
         // 卡片更新会影响动态队列的可见集与排序
-        this.invalidateQueue(QueueType.RetrievalPractice);
-        this.invalidateQueue(QueueType.IncrementalLearning);
-        this.invalidateQueue(QueueType.FilterGroup);
+        const affectedQueueTypes = [
+            QueueType.RetrievalPractice,
+            QueueType.IncrementalLearning,
+            QueueType.FilterGroup,
+        ];
+
+        for (const queueType of affectedQueueTypes) {
+            this.invalidateQueue(queueType);
+        }
+
+        return affectedQueueTypes;
     }
     
     /**

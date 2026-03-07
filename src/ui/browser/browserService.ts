@@ -195,11 +195,6 @@ export async function pushBrowserErrMsg(msg: string, timeout?: number): Promise<
     await resolveSiyuanApi().pushErrMsg(msg, timeout);
 }
 
-export async function setBrowserCardPriority(blockId: string, priority: number): Promise<void> {
-    const siyuanApi = resolveSiyuanApi();
-    await siyuanApi.setBlockAttrs(blockId, { [siyuanApi.ATTR_PRIORITY]: String(priority) });
-}
-
 export async function setBrowserCardSuspended(blockId: string, suspended: boolean): Promise<void> {
     const siyuanApi = resolveSiyuanApi();
     await siyuanApi.setBlockAttrs(blockId, {
@@ -424,7 +419,8 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
     
     // 🔧 修复：优先使用块属性，但如果块属性不存在，使用 FSRSCard.type
     // 这样可以确保所有概念卡都能被正确识别
-    const finalCardType = (customAttrs[attrKeys.cardType] as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined) || cardType;
+    const finalCardType = cardType
+      || (customAttrs[attrKeys.cardType] as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined);
     
     return {
         id: card.id,
@@ -1403,10 +1399,8 @@ export async function batchSetPriority(
         logger.error('batchSetPriority failed: manager is not available');
         return 0;
     }
-    let updatedBlocks = 0;
-
     try {
-        updatedBlocks = await updateCardsByBlockIds(
+        const updatedBlocks = await updateCardsByBlockIds(
             uniqueBlockIds,
             resolvedManager,
             (card) =>
@@ -1415,28 +1409,20 @@ export async function batchSetPriority(
                     priority: clampedPriority,
                 }) as FSRSCard
         );
+        for (const blockId of uniqueBlockIds) {
+            cardCache.updateCard(blockId, { priority: clampedPriority });
+        }
+
+        logger.info('Batch set priority completed', {
+            requestedBlocks: uniqueBlockIds.length,
+            updatedBlocks,
+            priority: clampedPriority,
+        });
+        return updatedBlocks;
     } catch (err) {
         logger.error('Batch priority card update error:', err);
+        return 0;
     }
-
-    let attrUpdatedBlocks = 0;
-    for (const blockId of uniqueBlockIds) {
-        try {
-            await setBrowserCardPriority(blockId, clampedPriority);
-            cardCache.updateCard(blockId, { priority: clampedPriority });
-            attrUpdatedBlocks++;
-        } catch (err) {
-            logger.error('Set priority error:', blockId, err);
-        }
-    }
-
-    logger.info('Batch set priority completed', {
-        requestedBlocks: uniqueBlockIds.length,
-        updatedBlocks,
-        attrUpdatedBlocks,
-        priority: clampedPriority,
-    });
-    return Math.max(updatedBlocks, attrUpdatedBlocks);
 }
 
 /**

@@ -51,7 +51,7 @@ describe('useIncrementalGridUpdates', () => {
     const rowsForFocus = ref<BrowserCard[]>([]);
     const allRows = ref<BrowserCard[]>([]);
     const refreshQueueCounts = vi.fn().mockResolvedValue(undefined);
-    const loadQueueCardsSimple = vi.fn().mockResolvedValue([updated]);
+    const loadVisibleRows = vi.fn().mockResolvedValue([updated]);
 
     const { handleCardUpdatedIncremental } = useIncrementalGridUpdates({
       gridApi: ref(gridApi),
@@ -59,7 +59,7 @@ describe('useIncrementalGridUpdates', () => {
       rowsForFocus,
       allRows,
       refreshQueueCounts,
-      loadQueueCardsSimple,
+      loadVisibleRows,
     });
 
     await handleCardUpdatedIncremental(['b1']);
@@ -67,7 +67,71 @@ describe('useIncrementalGridUpdates', () => {
       expect(setData).toHaveBeenCalledWith(updated);
     });
 
-    expect(loadQueueCardsSimple).toHaveBeenCalledWith(['b1']);
+    expect(loadVisibleRows).toHaveBeenCalledWith([initial]);
     expect(refreshQueueCounts).toHaveBeenCalled();
+  });
+
+  it('removes rows that no longer match the current queue after an update', async () => {
+    const initial = buildCard('b1');
+    const gridApi = {
+      forEachNode: (cb: (node: { data: BrowserCard; setData: (row: BrowserCard) => void }) => void) => {
+        cb({ data: initial, setData: vi.fn() });
+      },
+      isDestroyed: () => false,
+    } as unknown as GridApi;
+    const rows = ref<BrowserCard[]>([initial]);
+    const rowsForFocus = ref<BrowserCard[]>([initial]);
+    const allRows = ref<BrowserCard[]>([initial]);
+    const refreshQueueCounts = vi.fn().mockResolvedValue(undefined);
+    const loadVisibleRows = vi.fn().mockResolvedValue([]);
+    const onRowsDeleted = vi.fn();
+
+    const { handleCardUpdatedIncremental } = useIncrementalGridUpdates({
+      gridApi: ref(gridApi),
+      rows,
+      rowsForFocus,
+      allRows,
+      refreshQueueCounts,
+      loadVisibleRows,
+      onRowsDeleted,
+    });
+
+    await handleCardUpdatedIncremental(['b1']);
+
+    expect(rows.value).toEqual([]);
+    expect(rowsForFocus.value).toEqual([]);
+    expect(allRows.value).toEqual([]);
+    await vi.waitFor(() => {
+      expect(onRowsDeleted).toHaveBeenCalledWith(['b1']);
+    });
+    expect(refreshQueueCounts).toHaveBeenCalled();
+  });
+
+  it('disposes cleanly after delete bookkeeping has been populated', async () => {
+    const initial = buildCard('b1');
+    const gridApi = {
+      forEachNode: (cb: (node: { data: BrowserCard; setData: (row: BrowserCard) => void }) => void) => {
+        cb({ data: initial, setData: vi.fn() });
+      },
+      isDestroyed: () => false,
+    } as unknown as GridApi;
+    const rows = ref<BrowserCard[]>([initial]);
+    const rowsForFocus = ref<BrowserCard[]>([initial]);
+    const allRows = ref<BrowserCard[]>([initial]);
+    const refreshQueueCounts = vi.fn().mockResolvedValue(undefined);
+    const loadVisibleRows = vi.fn().mockResolvedValue([]);
+
+    const { handleCardDeletedIncremental, disposeIncrementalGridUpdates } = useIncrementalGridUpdates({
+      gridApi: ref(gridApi),
+      rows,
+      rowsForFocus,
+      allRows,
+      refreshQueueCounts,
+      loadVisibleRows,
+    });
+
+    await handleCardDeletedIncremental(['b1']);
+
+    expect(() => disposeIncrementalGridUpdates()).not.toThrow();
   });
 });

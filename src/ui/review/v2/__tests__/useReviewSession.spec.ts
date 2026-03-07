@@ -240,4 +240,54 @@ describe('useReviewSession', () => {
 
     wrapper.unmount();
   });
+
+  it('rebuilds UI state when refreshCurrentItem replaces the active card', async () => {
+    const queue = createQueue();
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string; priority?: number } | null) => ({
+        ...createEmptyReviewUIState(),
+        header: {
+          ...createEmptyReviewUIState().header,
+          priorityBadge: {
+            label: 'P',
+            value: item ? String(item.priority ?? '-') : '-',
+            priority: item?.priority ?? null,
+            ariaLabel: item ? `Priority ${item.priority ?? '-'}` : 'Priority -',
+          },
+          stats: {
+            current: 1,
+            total: 1,
+            label: '1 due',
+            queueName: 'Unified Queue',
+          },
+        },
+        content: {
+          type: 'html',
+          data: item?.id ?? 'empty',
+          id: item?.id ?? 'empty',
+          card: item as never,
+        },
+      })),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+
+    await hook.refreshCurrentItem({
+      id: 'card-1',
+      cardID: 'card-1',
+      blockId: 'block-card-1',
+      blockID: 'block-card-1',
+      priority: 7,
+    });
+
+    expect(hook.state.value.content.id).toBe('card-1');
+    expect(hook.state.value.header.priorityBadge.value).toBe('7');
+    expect(hook.state.value.header.priorityBadge.priority).toBe(7);
+
+    wrapper.unmount();
+  });
 });
