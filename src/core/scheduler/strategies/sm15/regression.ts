@@ -176,7 +176,6 @@ export function powerLawRegression(points: Point[]): RegressionResult {
  * 其中 p, q 是固定点
  */
 export function fixedPointPowerLawRegression(points: Point[], fixedPoint: Point): RegressionModel {
-    const n = points.length;
     const p = fixedPoint[0];
     const q = fixedPoint[1];
     const logQ = Math.log(q);

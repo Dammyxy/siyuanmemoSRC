@@ -40,15 +40,9 @@ const INITIAL_INTERVALS: Record<Rating, number> = {
  * 实现动态 A-Factor 更新的调度算法
  */
 export class ImprovedTopicScheduler implements SchedulerEngineAdapter {
-    private params: FSRSParameters;
+    constructor(_params: FSRSParameters) {}
 
-    constructor(params: FSRSParameters) {
-        this.params = params;
-    }
-
-    updateParams(params: FSRSParameters): void {
-        this.params = params;
-    }
+    updateParams(_params: FSRSParameters): void {}
 
     /**
      * 预览所有评分选项的结果
@@ -107,7 +101,6 @@ export class ImprovedTopicScheduler implements SchedulerEngineAdapter {
             state: CardState.Review,
             due: dueMs,
             lastReview: nowMs,
-            interval,
             scheduledDays: interval,
             elapsedDays: 0,
             reps: 1,
@@ -130,7 +123,7 @@ export class ImprovedTopicScheduler implements SchedulerEngineAdapter {
      */
     private _handleSubsequentReview(card: FSRSCard, rating: Rating, nowMs: number): FSRSCard {
         const aFactor = card.aFactor ?? 2.5;
-        const oldInterval = card.interval ?? 2;
+        const oldInterval = card.scheduledDays ?? 2;
 
         // 计算新间隔
         let newInterval = Math.round(oldInterval * aFactor);
@@ -163,7 +156,6 @@ export class ImprovedTopicScheduler implements SchedulerEngineAdapter {
             ...card,
             due: dueMs,
             lastReview: nowMs,
-            interval: newInterval,
             scheduledDays: newInterval,
             elapsedDays,
             reps: card.reps + 1,
@@ -190,12 +182,12 @@ export class ImprovedTopicScheduler implements SchedulerEngineAdapter {
      * 3. 使用加权平均计算新 A-Factor
      * 4. 量化到 1.2-6.0（步长 0.3）
      */
-    private _updateAFactor(card: FSRSCard, rating: Rating, newInterval: number, nowMs: number): number {
+    private _updateAFactor(card: FSRSCard, rating: Rating, _newInterval: number, nowMs: number): number {
         const aFactor = card.aFactor ?? 2.5;
         const history = this._getAFactorHistory(card);
 
         // 计算使用因子（UF）
-        const uf = this._calculateUF(card, newInterval, nowMs);
+        const uf = this._calculateUF(card, nowMs);
 
         // 根据评分调整 UF
         let adjustedUF = uf;
@@ -226,9 +218,9 @@ export class ImprovedTopicScheduler implements SchedulerEngineAdapter {
      * - UF > 1：用户能承受更长间隔（A-Factor 应增加）
      * - UF < 1：用户需要更短间隔（A-Factor 应减少）
      */
-    private _calculateUF(card: FSRSCard, actualInterval: number, nowMs: number): number {
+    private _calculateUF(card: FSRSCard, nowMs: number): number {
         const aFactor = card.aFactor ?? 2.5;
-        const lastInterval = card.interval ?? 2;
+        const lastInterval = card.scheduledDays ?? 2;
         const elapsedDays = Math.max(1, Math.round((nowMs - card.lastReview) / (1000 * 60 * 60 * 24)));
 
         // 预期间隔 = 上次间隔 * A-Factor

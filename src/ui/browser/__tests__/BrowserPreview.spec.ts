@@ -70,6 +70,9 @@ describe('BrowserPreview', () => {
       'doc-1': [
         { id: 'doc-1', name: 'Document Title', type: 'NodeDocument' },
       ],
+      'doc-root': [
+        { id: 'doc-root', name: 'Root Document', type: 'NodeDocument' },
+      ],
       'block-1': [
         { id: 'doc-1', name: 'Document Title', type: 'NodeDocument' },
         { id: 'heading-1', name: '1. Intro', type: 'NodeHeading' },
@@ -100,6 +103,10 @@ describe('BrowserPreview', () => {
             code: 0,
             data: body.id === 'doc-1'
               ? { box: 'box-1', path: '/parent-doc.sy/doc-1.sy' }
+              : body.id === 'doc-2'
+                ? { box: 'box-1', path: '/doc-2.sy' }
+              : body.id === 'doc-root'
+                ? { box: 'box-1', path: '/doc-root.sy' }
               : {},
           }),
         };
@@ -118,6 +125,19 @@ describe('BrowserPreview', () => {
                 type: 'NodeDocument',
               },
             ],
+          }),
+        };
+      }
+
+      if (url.endsWith('/api/notebook/lsNotebooks')) {
+        return {
+          json: async () => ({
+            code: 0,
+            data: {
+              notebooks: [
+                { id: 'box-1', name: 'Notebook One' },
+              ],
+            },
           }),
         };
       }
@@ -157,13 +177,43 @@ describe('BrowserPreview', () => {
     await settle();
 
     const breadcrumbItems = wrapper.findAll('.card-breadcrumb__item');
-    expect(breadcrumbItems).toHaveLength(1);
-    expect(breadcrumbItems[0]?.text()).toContain('Parent Document');
+    expect(breadcrumbItems).toHaveLength(2);
+    expect(breadcrumbItems[0]?.text()).toContain('Notebook One');
+    expect(breadcrumbItems[1]?.text()).toContain('Parent Document');
     expect(wrapper.get('.preview__document-title').text()).toBe('Document Title');
     expect(mockState.createdBlockIds).toEqual(['doc-1']);
 
     await wrapper.get('button[title="Jump to Block"]').trigger('click');
     expect(wrapper.emitted('jump')?.[0]).toEqual(['doc-1']);
+  });
+
+  it('falls back to the current document breadcrumb when a root document has no parent path', async () => {
+    const wrapper = mount(BrowserPreview, {
+      props: {
+        app: {} as never,
+        card: createCard({
+          blockId: 'doc-root',
+          content: 'Root Document',
+          fullContent: 'Root Document',
+          meta: {},
+        }),
+        mode: 'dialog',
+        size: 360,
+        i18n: {
+          preview: 'Preview',
+          jumpToBlock: 'Jump to Block',
+        },
+      },
+    });
+
+    await settle();
+
+    const breadcrumbItems = wrapper.findAll('.card-breadcrumb__item');
+    expect(breadcrumbItems).toHaveLength(2);
+    expect(breadcrumbItems[0]?.text()).toContain('Notebook One');
+    expect(breadcrumbItems[1]?.text()).toContain('Root Document');
+    expect(wrapper.get('.preview__document-title').text()).toBe('Root Document');
+    expect(mockState.createdBlockIds).toEqual(['doc-root']);
   });
 
   it('enters temporary ancestor preview and returns to the selected card', async () => {
@@ -192,11 +242,18 @@ describe('BrowserPreview', () => {
     await settle();
 
     const breadcrumbs = wrapper.findAll('.card-breadcrumb__item');
-    expect(breadcrumbs).toHaveLength(2);
-    expect(breadcrumbs[0]?.text()).toContain('Document Title');
-    expect(breadcrumbs[1]?.text()).toContain('Intro');
+    expect(breadcrumbs).toHaveLength(3);
+    expect(breadcrumbs[0]?.text()).toContain('Notebook One');
+    expect(breadcrumbs[1]?.text()).toContain('Document Title');
+    expect(breadcrumbs[2]?.text()).toContain('Intro');
 
     await breadcrumbs[0]!.trigger('click');
+    await settle();
+
+    expect(wrapper.find('.preview__meta-badge').exists()).toBe(false);
+    expect(mockState.createdBlockIds.at(-1)).toBe('block-1');
+
+    await breadcrumbs[1]!.trigger('click');
     await settle();
 
     expect(wrapper.get('.preview__meta-badge').text()).toBe('Temporary Preview');
@@ -237,7 +294,7 @@ describe('BrowserPreview', () => {
     });
 
     await settle();
-    await wrapper.findAll('.card-breadcrumb__item')[0]!.trigger('click');
+    await wrapper.findAll('.card-breadcrumb__item')[1]!.trigger('click');
     await settle();
 
     expect(wrapper.find('.preview__meta-badge').exists()).toBe(true);
@@ -256,8 +313,9 @@ describe('BrowserPreview', () => {
 
     expect(wrapper.find('.preview__meta-badge').exists()).toBe(false);
     expect(wrapper.find('.card-breadcrumb__item--active').exists()).toBe(false);
-    expect(wrapper.findAll('.card-breadcrumb__item')).toHaveLength(1);
-    expect(wrapper.findAll('.card-breadcrumb__item')[0]?.text()).toContain('Second Document');
+    expect(wrapper.findAll('.card-breadcrumb__item')).toHaveLength(2);
+    expect(wrapper.findAll('.card-breadcrumb__item')[0]?.text()).toContain('Notebook One');
+    expect(wrapper.findAll('.card-breadcrumb__item')[1]?.text()).toContain('Second Document');
     expect(mockState.createdBlockIds.at(-1)).toBe('block-2');
   });
 
@@ -300,6 +358,6 @@ describe('BrowserPreview', () => {
 
     expect(mockState.createdBlockIds).toEqual(initialCreated);
     expect(fetchMock.mock.calls).toHaveLength(initialFetchCalls);
-    expect(wrapper.findAll('.card-breadcrumb__item')).toHaveLength(2);
+    expect(wrapper.findAll('.card-breadcrumb__item')).toHaveLength(3);
   });
 });

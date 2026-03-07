@@ -97,8 +97,17 @@ function resolveAnswerBlockId(item: SubsetReviewItem | null): string {
   if (!item || !isRecord(item.meta)) {
     return '';
   }
+  const templateID = typeof item.meta.templateID === 'string' ? item.meta.templateID : '';
+  if (templateID === 'builtin-riff-sync') {
+    return resolveBlockId(item);
+  }
+
   const raw = item.meta.answerBlockID;
-  return raw == null ? '' : String(raw);
+  if (raw != null) {
+    return String(raw);
+  }
+
+  return '';
 }
 
 function getNextDue(item: SubsetReviewItem | null, rating: RatingValue): string {

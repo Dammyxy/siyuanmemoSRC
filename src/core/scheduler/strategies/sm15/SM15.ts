@@ -12,7 +12,6 @@ import { ForgettingCurves } from './ForgettingCurves';
 import { FI_G } from './FI_G';
 import { OFM, RFM } from './OFM';
 import { SM15Item } from './SM15Item';
-import { SM15_CONSTANTS } from './types';
 import type { SM15Data } from './types';
 
 /**

@@ -39,7 +39,7 @@ export class ConfigMigrator {
      * @param config - 配置对象
      * @returns 是否需要迁移
      */
-    static needsMigration(config: unknown): boolean {
+    static needsMigration(config: unknown): config is LegacyRiffIntegrationConfig {
         return isLegacyConfig(config);
     }
     

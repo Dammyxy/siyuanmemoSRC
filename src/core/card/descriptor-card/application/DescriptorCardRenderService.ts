@@ -11,7 +11,7 @@ import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRe
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { DescriptorCard } from '../domain/DescriptorCard';
 import type { DescriptorCardRepository } from '../infrastructure/DescriptorCardRepository';
-import type { ParentConceptBlock, SiblingDescriptor } from '../infrastructure/DescriptorCardRepository';
+import type { SiblingDescriptor } from '../infrastructure/DescriptorCardRepository';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DescriptorCardRenderService');

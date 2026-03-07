@@ -1,13 +1,14 @@
 ﻿import type { IQueueCommand } from '../abstraction/Command';
 import type { IMutableTrait } from '../abstraction/types';
+import type { QueueItem } from '../types';
 
-export type InsertAtCommandContext<TItem> = {
+export type InsertAtCommandContext<TItem extends QueueItem> = {
   trait: IMutableTrait<TItem>;
   items: TItem[];
   index: number;
 };
 
-export class InsertAtCommand<TItem> implements IQueueCommand<InsertAtCommandContext<TItem>> {
+export class InsertAtCommand<TItem extends QueueItem> implements IQueueCommand<InsertAtCommandContext<TItem>> {
   id = 'insert-at';
   label = 'Insert at';
 

@@ -26,7 +26,7 @@
  * 6. 返回创建的卡片
  */
 
-import { Result, ok, err } from '@/types/result';
+import { ok, err, isErr, type Result } from '@/types/result';
 import { CreateCardCommand, validateCreateCardCommand } from '../../commands/card/CreateCardCommand';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { CardCreationService } from '@/core/xiuyuan/domain/services/CardCreationService';
@@ -85,7 +85,7 @@ export class CreateCardUseCase {
       ...command,
       templateId,
     });
-    if (!conversionResult.ok) {
+    if (isErr(conversionResult)) {
       return conversionResult;
     }
 
@@ -108,7 +108,7 @@ export class CreateCardUseCase {
       }
     });
 
-    if (!xiuyuanResult.ok) {
+    if (isErr(xiuyuanResult)) {
       return xiuyuanResult;
     }
 
@@ -117,7 +117,7 @@ export class CreateCardUseCase {
     // 6. 使用 CardCreationService 创建卡片
     // 默认为第一个面创建卡片
     const cardResult = this.cardCreationService.createCard(xiuyuan, 0);
-    if (!cardResult.ok) {
+    if (isErr(cardResult)) {
       return cardResult;
     }
 
@@ -125,7 +125,7 @@ export class CreateCardUseCase {
 
     // 7. 持久化 Xiuyuan（包括卡片）
     const saveResult = await this.xiuyuanRepo.save(xiuyuan);
-    if (!saveResult.ok) {
+    if (isErr(saveResult)) {
       return saveResult;
     }
 
@@ -327,7 +327,7 @@ export class CreateCardUseCase {
     
     if (command.blockId) {
       const blockIdResult = BlockId.create(command.blockId);
-      if (!blockIdResult.ok) {
+      if (isErr(blockIdResult)) {
         return blockIdResult;
       }
       blockIds.push(blockIdResult.value);
@@ -336,7 +336,7 @@ export class CreateCardUseCase {
     if (command.blockIds) {
       for (const blockIdStr of command.blockIds) {
         const blockIdResult = BlockId.create(blockIdStr);
-        if (!blockIdResult.ok) {
+        if (isErr(blockIdResult)) {
           return blockIdResult;
         }
         blockIds.push(blockIdResult.value);
@@ -352,7 +352,7 @@ export class CreateCardUseCase {
       return err(new Error('templateId is required'));
     }
     const templateIdResult = TemplateId.create(command.templateId);
-    if (!templateIdResult.ok) {
+    if (isErr(templateIdResult)) {
       return templateIdResult;
     }
 
@@ -368,7 +368,7 @@ export class CreateCardUseCase {
           answerBlockId: faceData.answerBlockId
         });
 
-        if (!faceResult.ok) {
+        if (isErr(faceResult)) {
           return faceResult;
         }
 
@@ -391,7 +391,7 @@ export class CreateCardUseCase {
             answerBlockId: blockIds[1].getValue(),
           });
 
-          if (!defaultFaceResult.ok) {
+          if (isErr(defaultFaceResult)) {
             return defaultFaceResult;
           }
 
@@ -408,7 +408,7 @@ export class CreateCardUseCase {
           answerBlockId: blockIds[0].getValue(),
         });
 
-        if (!defaultFaceResult.ok) {
+        if (isErr(defaultFaceResult)) {
           return defaultFaceResult;
         }
 
@@ -428,7 +428,7 @@ export class CreateCardUseCase {
       }
       
       const priorityResult = Priority.create(priorityValue);
-      if (!priorityResult.ok) {
+      if (isErr(priorityResult)) {
         return priorityResult;
       }
       priority = priorityResult.value;

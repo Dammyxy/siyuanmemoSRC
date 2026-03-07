@@ -5,16 +5,16 @@
     :class="[`card-breadcrumb--${variant}`]"
   >
     <component
-      :is="interactive ? 'button' : 'div'"
+      :is="resolveItemTag(item)"
       v-for="(item, index) in items"
       :key="item.id"
       class="card-breadcrumb__item"
       :class="{
-        'card-breadcrumb__item--interactive': interactive,
-        'card-breadcrumb__item--active': variant === 'preview' && activeId === item.id,
+        'card-breadcrumb__item--interactive': isInteractiveItem(item),
+        'card-breadcrumb__item--active': variant === 'preview' && activeId === item.id && isSelectableItem(item),
       }"
       :style="{ paddingLeft: `${index * 16 + 8}px` }"
-      v-bind="interactive ? { type: 'button' } : {}"
+      v-bind="resolveItemAttrs(item)"
       @click="handleSelect(item, index)"
     >
       <span class="card-breadcrumb__text">
@@ -46,11 +46,30 @@ const emit = defineEmits<{
 }>();
 
 function getIcon(type: string): string {
+  if (type === 'Notebook') {
+    return '#iconBook';
+  }
   return type === 'NodeDocument' ? '#iconFile' : '#iconALIGN';
 }
 
+function isSelectableItem(item: BreadcrumbItem): boolean {
+  return item.type !== 'Notebook';
+}
+
+function isInteractiveItem(item: BreadcrumbItem): boolean {
+  return props.interactive && isSelectableItem(item);
+}
+
+function resolveItemTag(item: BreadcrumbItem): 'button' | 'div' {
+  return isInteractiveItem(item) ? 'button' : 'div';
+}
+
+function resolveItemAttrs(item: BreadcrumbItem): { type?: 'button' } {
+  return isInteractiveItem(item) ? { type: 'button' } : {};
+}
+
 function handleSelect(item: BreadcrumbItem, index: number): void {
-  if (!props.interactive) {
+  if (!isInteractiveItem(item)) {
     return;
   }
 

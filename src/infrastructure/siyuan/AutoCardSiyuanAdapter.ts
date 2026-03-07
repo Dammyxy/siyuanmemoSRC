@@ -14,8 +14,8 @@ export class AutoCardSiyuanAdapter implements AutoCardSiyuanPort {
     return getBlockKramdown(blockId);
   }
 
-  async sql(stmt: string): Promise<unknown[]> {
-    return sql(stmt);
+  async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
+    return sql<TRow>(stmt);
   }
 
   async getBlockAttrs(blockId: string): Promise<Record<string, string>> {

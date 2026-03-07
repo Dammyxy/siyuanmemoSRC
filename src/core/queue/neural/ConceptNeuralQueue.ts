@@ -746,8 +746,8 @@ export class ConceptNeuralQueue {
       this.restoreSeedPoolState(state.seedPool);
     } else if (Array.isArray(state.focusPool)) {
       const legacyEntries = state.focusPool.map((entry) => ({
-        ...(entry as Record<string, unknown>),
-        nodeKind: normalizeNodeKind((entry as Record<string, unknown>).nodeKind) === 'concept'
+        ...(entry as unknown as Record<string, unknown>),
+        nodeKind: normalizeNodeKind((entry as unknown as Record<string, unknown>).nodeKind) === 'concept'
           ? 'concept'
           : 'virtual',
       }));
@@ -921,33 +921,6 @@ export class ConceptNeuralQueue {
     return this.anchorPool.get(nodeId)?.nodeKind ?? 'virtual';
   }
 
-  private async getNextCardFromPath(): Promise<QueueItem | null> {
-    if (this.followCurrentNodeOnce) {
-      this.followCurrentNodeOnce = false;
-      const currentNodeId = this.getCurrentPathNodeId();
-      if (currentNodeId) {
-        const currentCard = await this.getPathItemByNodeId(currentNodeId, { focusPath: false });
-        if (currentCard) {
-          return currentCard;
-        }
-      }
-    }
-
-    const nextIndex = this.currentPathIndex + 1;
-    if (nextIndex < 0 || nextIndex >= this.displayPath.length) {
-      return null;
-    }
-
-    const nodeId = this.displayPath[nextIndex];
-    const card = await this.getPathItemByNodeId(nodeId, { focusPath: false });
-    if (!card) {
-      return null;
-    }
-
-    this.currentPathIndex = nextIndex;
-    return card;
-  }
-
   private async activateNode(nodeId: string, meta: ActivateNodeMeta): Promise<QueueItem | null> {
     const blockData = await this.queryEngine.fetchBlockData(nodeId);
     if (!blockData) {
@@ -985,38 +958,6 @@ export class ConceptNeuralQueue {
     }
 
     return this.buildQueueItem(blockData, meta.associationType, meta.reason);
-  }
-
-  private shouldRotateFocus(): boolean {
-    if (!this.currentFocus) return true;
-
-    const focusState = this.seedPool.get(this.currentFocus);
-    // Manually selected non-seed current focus can still do one-hop spreading activation.
-    if (!focusState) return false;
-
-    return focusState.neighborsViewed >= this.neighborsPerRound;
-  }
-
-  private rotateFocus(): void {
-    if (this.currentFocus) {
-      const focusState = this.seedPool.get(this.currentFocus);
-      if (focusState) {
-        focusState.neighborsViewed = 0;
-      }
-    }
-    this.currentFocus = null;
-  }
-
-  private selectNextFocus(): string | null {
-    const candidateFocuses = Array.from(this.seedPool.entries())
-      .filter(([id]) => !this.exhaustedFocuses.has(id))
-      .map(([id, state]) => ({ id, ...state }));
-
-    if (candidateFocuses.length === 0) {
-      return null;
-    }
-
-    return this.weightedRandomSelectFocus(candidateFocuses);
   }
 
   private weightedRandomSelectFocus(focuses: Array<FocusState & { id: string }>): string {

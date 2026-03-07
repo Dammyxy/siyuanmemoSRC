@@ -23,7 +23,7 @@ export class FI_G {
     public points: Point[];
     private _graph: RegressionModel | null = null;
 
-    constructor(sm: SM15, points?: Point[] | undefined) {
+    constructor(_sm: SM15, points?: Point[] | undefined) {
         if (points === undefined) {
             // 初始化默认点
             this.points = [];

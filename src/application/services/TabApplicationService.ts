@@ -6,13 +6,13 @@
  * @module application/services/TabApplicationService
  */
 
-import type { App } from 'siyuan';
+import type { App, TProtyleAction } from 'siyuan';
 import { openTab } from 'siyuan';
 
 /**
  * 标签页位置
  */
-export type TabPosition = 'right' | 'bottom' | 'left';
+export type TabPosition = 'right' | 'bottom';
 
 /**
  * 打开文档标签页选项
@@ -25,7 +25,7 @@ export interface OpenDocumentTabOptions {
   /** 是否保持光标位置 */
   keepCursor?: boolean;
   /** 原型动作 */
-  action?: string[];
+  action?: TProtyleAction[];
   /** 是否缩放 */
   zoomIn?: boolean;
 }
@@ -47,6 +47,20 @@ export interface OpenCustomTabOptions {
     /** ID */
     id?: string;
   };
+}
+
+function buildCustomTabId(custom: OpenCustomTabOptions['custom']): string {
+  if (custom.id && custom.id.trim().length > 0) {
+    return custom.id;
+  }
+
+  const titleSlug = custom.title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return `siyuanmemo-${titleSlug || custom.icon || 'custom-tab'}`;
 }
 
 /**
@@ -112,10 +126,14 @@ export class TabApplicationService {
    */
   async openCustomTab(options: OpenCustomTabOptions): Promise<void> {
     const { position = 'right', custom } = options;
+    const normalizedCustom = {
+      ...custom,
+      id: buildCustomTabId(custom),
+    };
 
     await openTab({
       app: this.app,
-      custom,
+      custom: normalizedCustom,
       position,
     });
   }

@@ -94,7 +94,7 @@ export function measureWithBudget<T extends (...args: unknown[]) => unknown>(
   return (async (...args: Parameters<T>): Promise<Awaited<ReturnType<T>>> => {
     const start = performance.now();
     try {
-      return await fn(...args);
+      return await fn(...args) as Awaited<ReturnType<T>>;
     } finally {
       const duration = performance.now() - start;
       checkBudget(budgetKey, duration, context);

@@ -1,4 +1,5 @@
 import type { BrowserCard } from '../types';
+import { CardState as BrowserCardState } from '../types';
 import {
   batchReset,
   batchSuspend,
@@ -162,6 +163,16 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     this.cardTypeConsistencyDeps = deps.cardTypeConsistencyDeps;
   }
 
+  private async reconcileBrowserRows<T extends { blockId: string; cardType?: string }>(rows: T[]): Promise<T[]> {
+    const reconcile = this.reconcileCardTypes as <TRow extends { blockId: string; cardType?: string }>(
+      value: TRow[],
+      options?: { deps?: CardTypeConsistencyDependencies }
+    ) => Promise<{ rows: TRow[] }>;
+    return (await reconcile(rows, {
+      deps: this.cardTypeConsistencyDeps,
+    })).rows;
+  }
+
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
     try {
       const sortModel = (params?.sortModel || []) as SortModel[];
@@ -290,9 +301,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserCard[]): Promise<unknown> {
     const queue = this.manager.getQueue(route.queueType);
     const rowsForAdd = route.actionType === 'neural-roam'
-      ? (await this.reconcileCardTypes(selectedRows, {
-          deps: this.cardTypeConsistencyDeps,
-        })).rows
+      ? await this.reconcileBrowserRows(selectedRows)
       : selectedRows;
     const result = await addToQueue(queue, rowsForAdd, route.actionType, route.source ?? 'manual');
     this.invalidateQuerySession();
@@ -340,9 +349,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
     const allCards = await this.manager.getCards();
     let rows = allCards.map((card) => this.convertToBrowserCard(card as DeckCardRecord));
-    rows = (await this.reconcileCardTypes(rows, {
-      deps: this.cardTypeConsistencyDeps,
-    })).rows;
+    rows = await this.reconcileBrowserRows(rows);
 
     rows = applyLegacyPresetFilter(rows, this.options.preset);
     rows = applyCardTypeFilter(rows, this.options.cardType);
@@ -372,7 +379,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     const now = Date.now();
     const elapsedDays = card.lastReview ? Math.floor((now - card.lastReview) / (1000 * 60 * 60 * 24)) : 0;
     const retrievability = this.calculateRetrievability(card.stability || 0, elapsedDays);
-    const state = card.state || 0;
+    const state = this.normalizeBrowserState(card.state);
 
     const dueDate = new Date(card.due);
     const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
@@ -461,6 +468,19 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
       month: '2-digit',
       day: '2-digit',
     });
+  }
+
+  private normalizeBrowserState(state: FSRSCard['state'] | undefined): BrowserCardState {
+    switch (state) {
+      case BrowserCardState.Learning:
+      case BrowserCardState.Review:
+      case BrowserCardState.Relearning:
+        return state as BrowserCardState;
+      case 4:
+        return BrowserCardState.Review;
+      default:
+        return BrowserCardState.New;
+    }
   }
 
   private getStateLabel(state: number): string {

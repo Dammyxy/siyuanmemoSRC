@@ -1358,12 +1358,7 @@ function handleOpenAsMenu(ev: MouseEvent) {
   }
 
   // 打开菜单
-  const target = ev.currentTarget as HTMLElement;
-  const rect = target.getBoundingClientRect();
-  menu.open({
-    x: rect.left,
-    y: rect.bottom,
-  });
+  openMenuAtEvent(menu, ev);
 }
 
 // Part 4: 打开 SRS 编辑器对话框

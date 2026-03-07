@@ -559,7 +559,7 @@ export class TransactionObserver {
                 deckId: BUILTIN_DECK_ID
             });
             
-            if (result.ok) {
+            if (result.ok === true) {
                 logger.info(
                     `[SiYuanMemo] 鉁?Created list template split-v2: created=${result.value.created.length}, skipped=${result.value.skippedChildBlockIds.length}`
                 );

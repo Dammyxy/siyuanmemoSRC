@@ -7,6 +7,10 @@ const items = [
   { id: 'heading-1', name: 'Heading', type: 'NodeHeading' },
 ];
 
+const notebookItems = [
+  { id: 'notebook:box-1', name: 'Notebook One', type: 'Notebook' },
+];
+
 describe('CardBreadcrumb', () => {
   it('renders preview variant with active state and emits select when interactive', async () => {
     const wrapper = mount(CardBreadcrumb, {
@@ -35,6 +39,23 @@ describe('CardBreadcrumb', () => {
     });
 
     await wrapper.findAll('.card-breadcrumb__item')[0]!.trigger('click');
+    expect(wrapper.emitted('select')).toBeUndefined();
+  });
+
+  it('renders notebook breadcrumbs with book icon and keeps them non-interactive', async () => {
+    const wrapper = mount(CardBreadcrumb, {
+      props: {
+        items: notebookItems,
+        interactive: true,
+      },
+    });
+
+    const renderedItem = wrapper.get('.card-breadcrumb__item');
+    expect(renderedItem.element.tagName).toBe('DIV');
+    expect(renderedItem.classes()).not.toContain('card-breadcrumb__item--interactive');
+    expect(wrapper.html()).toContain('#iconBook');
+
+    await renderedItem.trigger('click');
     expect(wrapper.emitted('select')).toBeUndefined();
   });
 });

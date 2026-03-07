@@ -35,7 +35,7 @@ export class RescheduleService {
 
   constructor(
     private readonly unifiedStorage: RescheduleStoragePort,
-    private readonly cardUpdater: CardUpdatePort = NOOP_CARD_UPDATER,
+    cardUpdater: CardUpdatePort = NOOP_CARD_UPDATER,
     private readonly errorNotifier?: ErrorNotificationPort
   ) {
     this.postponeEngine = new PostponeEngine(unifiedStorage, cardUpdater);
@@ -120,7 +120,7 @@ export class RescheduleService {
     }
 
     const result = await this.executeWithErrorHandling(execute, operationName);
-    if (!result.ok) {
+    if (result.ok === false) {
       await this.notifyError(`${operationName} failed: ${result.error.message}`);
       return buildFailureResult(result.error.message);
     }

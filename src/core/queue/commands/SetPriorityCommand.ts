@@ -1,13 +1,14 @@
 ﻿import type { IQueueCommand } from '../abstraction/Command';
 import type { IPrioritizableTrait } from '../abstraction/types';
+import type { QueueItem } from '../types';
 
-export type SetPriorityCommandContext<TItem> = {
+export type SetPriorityCommandContext<TItem extends QueueItem> = {
   trait: IPrioritizableTrait<TItem>;
   items: TItem[];
   priority: number;
 };
 
-export class SetPriorityCommand<TItem> implements IQueueCommand<SetPriorityCommandContext<TItem>> {
+export class SetPriorityCommand<TItem extends QueueItem> implements IQueueCommand<SetPriorityCommandContext<TItem>> {
   id = 'set-priority';
   label = 'Set Priority';
   icon = 'iconMark';

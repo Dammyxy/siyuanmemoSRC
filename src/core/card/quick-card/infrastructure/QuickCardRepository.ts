@@ -25,6 +25,24 @@ interface CardTypeInfo {
   symbol: string;
 }
 
+interface BlockIdRow extends Record<string, unknown> {
+  id?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readStringMeta(meta: Record<string, unknown>, key: string): string | undefined {
+  const value = meta[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readNumberMeta(meta: Record<string, unknown>, key: string): number | undefined {
+  const value = meta[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 /**
  * 快速卡片仓储
  * 
@@ -126,26 +144,31 @@ export class QuickCardRepository {
         logger.debug('[SiYuanMemo][QuickCardRepository] FSRSCard:', fsrsCard);
         logger.debug('[SiYuanMemo][QuickCardRepository] FSRSCard meta:', fsrsCard?.meta);
         
-        if (fsrsCard?.meta) {
+        if (isRecord(fsrsCard?.meta)) {
+          const fsrsMeta = fsrsCard.meta;
           // 提取 typeMarker
-          if (fsrsCard.meta.typeMarker) {
-            metadata.typeMarker = fsrsCard.meta.typeMarker;
+          const typeMarker = readStringMeta(fsrsMeta, 'typeMarker');
+          if (typeMarker) {
+            metadata.typeMarker = typeMarker;
             logger.debug(`[SiYuanMemo][QuickCardRepository] ✅ Found typeMarker: ${metadata.typeMarker} for cardId: ${cardId}`);
           }
           
           // 🆕 提取挖空信息
-          if (fsrsCard.meta.clozeIndex !== undefined) {
-            metadata.clozeIndex = fsrsCard.meta.clozeIndex;
+          const clozeIndex = readNumberMeta(fsrsMeta, 'clozeIndex');
+          if (clozeIndex !== undefined) {
+            metadata.clozeIndex = clozeIndex;
             logger.debug(`[SiYuanMemo][QuickCardRepository] ✅ Found clozeIndex: ${metadata.clozeIndex} for cardId: ${cardId}`);
           }
           
-          if (fsrsCard.meta.totalClozes !== undefined) {
-            metadata.totalClozes = fsrsCard.meta.totalClozes;
+          const totalClozes = readNumberMeta(fsrsMeta, 'totalClozes');
+          if (totalClozes !== undefined) {
+            metadata.totalClozes = totalClozes;
             logger.debug(`[SiYuanMemo][QuickCardRepository] ✅ Found totalClozes: ${metadata.totalClozes} for cardId: ${cardId}`);
           }
           
-          if (fsrsCard.meta.direction) {
-            metadata.direction = fsrsCard.meta.direction;
+          const direction = readStringMeta(fsrsMeta, 'direction');
+          if (direction === 'forward' || direction === 'reverse') {
+            metadata.direction = direction;
             logger.debug(`[SiYuanMemo][QuickCardRepository] ✅ Found direction: ${metadata.direction} for cardId: ${cardId}`);
           }
         } else {
@@ -354,7 +377,7 @@ export class QuickCardRepository {
       const { sql } = await import('@/core/siyuan/api');
       
       // 1. 获取列表容器
-      const listContainerResult = await sql(`
+      const listContainerResult = await sql<BlockIdRow>(`
         SELECT id FROM blocks
         WHERE parent_id = '${blockId}'
         AND type = 'l'
@@ -365,10 +388,15 @@ export class QuickCardRepository {
         return false;
       }
       
-      const listContainerId = listContainerResult[0].id;
+      const listContainerId = typeof listContainerResult[0]?.id === 'string'
+        ? listContainerResult[0].id
+        : '';
+      if (!listContainerId) {
+        return false;
+      }
       
       // 2. 检查是否有子列表项（排除有序列表）
-      const childrenResult = await sql(`
+      const childrenResult = await sql<BlockIdRow>(`
         SELECT id FROM blocks
         WHERE parent_id = '${listContainerId}'
         AND type = 'i'

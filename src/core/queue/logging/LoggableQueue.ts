@@ -153,7 +153,7 @@ function resolveItemId<TItem extends QueueLoggableItem>(item: TItem | null | und
  * console.log(`Total operations: ${logs.length}`);
  * ```
  */
-export class LoggableQueue<TItem extends QueueLoggableItem> implements ILoggableQueue<TItem> {
+export class LoggableQueue<TItem extends QueueLoggableItem> implements ILoggableQueue {
   /** The wrapped queue instance */
   private readonly wrappedQueue: WrappedQueuePort<TItem>;
   

@@ -66,6 +66,11 @@ const FIXED_CARD_TYPE_ORDER: Array<Exclude<HeaderBucket, 'all'>> = [
   'concept',
 ];
 
+function shouldLogBidirectionalTemplateDiagnostic(card: UnifiedReviewItem | null | undefined): boolean {
+  void card;
+  return false;
+}
+
 function t(i18n: Record<string, string> | undefined, key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
@@ -127,7 +132,19 @@ function isTopicLikeCardType(cardType: ReviewCardKind): boolean {
   return cardType === 'topic' || cardType === 'concept';
 }
 
+function isTopicDocumentCard(item: UnifiedReviewItem, cardType: ReviewCardKind): boolean {
+  if (cardType !== 'topic') {
+    return false;
+  }
+
+  return item.meta?.isDocument === true || item.meta?.blockType === 'd';
+}
+
 function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
+  if (isXiuyuanCard(card) && card.meta.templateID === 'builtin-riff-sync') {
+    return fallbackBlockId || card.meta.frontBlockIDs[0] || '';
+  }
+
   if (card.type === 'descriptor' && isXiuyuanCard(card)) {
     const descriptorId = card.meta.fieldMapping?.descriptor;
     if (descriptorId) {
@@ -169,13 +186,18 @@ function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string)
   return fallbackBlockId;
 }
 
-function resolveAnswerBlockId(card: UnifiedReviewItem): string {
+function resolveAnswerBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
   if (!isXiuyuanCard(card)) {
     return '';
   }
 
   const templateID = card.meta.templateID;
   const backBlockIDs = card.meta.backBlockIDs;
+  if (templateID === 'builtin-riff-sync') {
+    // Native riff-sync cards must render from the container/root block.
+    return fallbackBlockId || card.meta.frontBlockIDs[0] || backBlockIDs[0] || '';
+  }
+
   if (ANSWER_TEMPLATE_IDS.has(templateID) && backBlockIDs.length > 0) {
     return backBlockIDs[0];
   }
@@ -342,10 +364,30 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const blockId = resolveBlockId(item);
     const cardId = resolveCardId(item);
     const cardType = normalizeCardType(item.type);
-    const contentBlockId = resolveContentBlockId(item, blockId);
-    const answerBlockID = resolveAnswerBlockId(item);
+    const isTopicDocument = isTopicDocumentCard(item, cardType);
+    const contentBlockId = isTopicDocument
+      ? blockId
+      : resolveContentBlockId(item, blockId);
+    const answerBlockID = isTopicDocument
+      ? ''
+      : resolveAnswerBlockId(item, blockId);
     const isTopicLike = isTopicLikeCardType(cardType);
     const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
+
+    if (shouldLogBidirectionalTemplateDiagnostic(item)) {
+      logger.warn('[SiYuanMemo][BidirectionalTemplateDiagnostic] adapter mapped review content', {
+        cardId,
+        blockId,
+        contentBlockId,
+        answerBlockID,
+        templateID: item.meta.templateID,
+        typeMarker: item.meta.typeMarker,
+        faceIndex: item.meta.faceIndex,
+        frontBlockIDs: item.meta.frontBlockIDs,
+        backBlockIDs: item.meta.backBlockIDs,
+        showAnswer: context.showAnswer,
+      });
+    }
 
     logger.debug('Building review UI state', {
       cardId,

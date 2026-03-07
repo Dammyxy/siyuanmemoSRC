@@ -16,7 +16,7 @@
  * - 确保业务不变性
  */
 
-import { Result, ok, err } from '../../../../types/result';
+import { Result, ok, err, isErr } from '../../../../types/result';
 import { Xiuyuan } from '../Xiuyuan';
 import { CardId } from '../CardId';
 
@@ -89,7 +89,7 @@ export class CardDeletionService {
     // 删除所有卡片
     for (const cardId of cardIds) {
       const deleteResult = this.deleteCard(xiuyuan, cardId);
-      if (!deleteResult.ok) {
+      if (isErr(deleteResult)) {
         return err(new Error(
           `Failed to delete card ${cardId.getValue()}: ${deleteResult.error.message}`
         ));

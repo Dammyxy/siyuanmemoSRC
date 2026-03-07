@@ -10,13 +10,13 @@
  */
 
 import type { IQueueStrategy, QueueFeedback } from '../queue/abstraction/Strategy.ts';
-import type { QueueStats, QueueUIConfig } from '../queue/types.ts';
+import type { QueueItem, QueueStats, QueueUIConfig } from '../queue/types.ts';
 import type { QueueProvider } from './QueueProvider.ts';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ProviderBackedQueueStrategy');
 
-type Options<TItem> = {
+type Options<TItem extends QueueItem> = {
   providerOptions?: Record<string, unknown>;
   uiConfig?: QueueUIConfig;
   getCardId?: (item: TItem) => string;
@@ -42,7 +42,7 @@ function defaultGetCardId(item: unknown): string {
   return raw == null ? '' : String(raw);
 }
 
-export class ProviderBackedQueueStrategy<TItem = unknown> implements IQueueStrategy<TItem> {
+export class ProviderBackedQueueStrategy<TItem extends QueueItem = QueueItem> implements IQueueStrategy<TItem> {
   private readonly provider: QueueProvider<TItem>;
   private readonly providerOptions: Record<string, unknown>;
   private readonly uiConfig: QueueUIConfig;

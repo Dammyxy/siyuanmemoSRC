@@ -146,7 +146,7 @@ export function getSortContractRawValue(row: BrowserCard, colId: unknown): unkno
     return undefined;
   }
 
-  return (row as Record<string, unknown>)?.[normalizedColId];
+  return (row as unknown as Record<string, unknown>)?.[normalizedColId];
 }
 
 export function getSortContractValueType(colId: unknown): SortValueType | null {
@@ -161,4 +161,3 @@ export function formatSortContractDisplayValue(row: BrowserCard, colId: unknown)
 
   return contract.formatDisplayValue(row);
 }
-

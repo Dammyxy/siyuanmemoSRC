@@ -219,7 +219,7 @@ export function getRenderTargetLabel(
 export function getRenderTargetOptions(
   t: (key: string, fallback: string) => string,
 ): RenderTargetOption[] {
-  return [
+  return ([
     'default',
     'quick',
     'concept',
@@ -227,7 +227,7 @@ export function getRenderTargetOptions(
     'concept-definition-reverse',
     'descriptor-forward',
     'descriptor-reverse',
-  ].map((value) => ({
+  ] as EditableRenderTarget[]).map((value) => ({
     value,
     label: getRenderTargetLabel(value, t),
   }));

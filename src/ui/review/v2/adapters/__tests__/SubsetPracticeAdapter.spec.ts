@@ -63,4 +63,25 @@ describe('SubsetPracticeAdapter', () => {
       ariaLabel: 'Priority 12',
     });
   });
+
+  it('falls back to same-block answer panes for native builtin-riff-sync subset cards', async () => {
+    const adapter = new SubsetPracticeAdapter();
+    const ui = await adapter.toUIState(
+      createQueue(2),
+      {
+        id: 'card-riff',
+        cardID: 'card-riff',
+        blockID: 'block-riff',
+        priority: 10,
+        type: 'item',
+        meta: {
+          templateID: 'builtin-riff-sync',
+          answerBlockID: 'child-answer-block',
+        },
+      },
+      createContext(),
+    );
+
+    expect(ui.content.answerBlockID).toBe('block-riff');
+  });
 });

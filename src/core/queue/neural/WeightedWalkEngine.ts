@@ -25,6 +25,7 @@ const DEFAULT_WEIGHTS: WeightMap = {
   [AssociationType.BACKLINK]: 15,
   [AssociationType.CONCEPT_LINK]: 8,
   [AssociationType.DESCRIPTOR]: 3,
+  [AssociationType.SEED]: 0,
 };
 
 export class WeightedWalkEngine {

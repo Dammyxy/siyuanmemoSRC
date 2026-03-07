@@ -1,158 +1,117 @@
-/**
- * RiffMapper - Riff 数据映射器
- * 
- * @module RiffMapper
- * @description
- * 负责将 Riff 系统的数据（RiffBlock）转换为领域模型（FSRSCard）。
- * 
- * **职责**：
- * - Riff 数据 → FSRSCard
- * - 处理 Riff 特有的字段映射
- * - 提取块属性（custom-card-type, custom-fsrs-a-factor, etc.）
- * 
- * @see RiffBlock
- * @see FSRSCard
- */
-
-import type { FSRSCard, CardType, CardState } from '../../../types/card';
+import { CardState, CardType, type FSRSCard } from '../../../types/card';
 import type { RiffBlock } from '../../../core/siyuan/riff';
 
-/**
- * Riff 映射器
- */
+function parseTimestamp(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toCardState(value: number | undefined): CardState {
+  switch (value) {
+    case CardState.Learning:
+      return CardState.Learning;
+    case CardState.Review:
+      return CardState.Review;
+    case CardState.Relearning:
+      return CardState.Relearning;
+    case CardState.Suspended:
+      return CardState.Suspended;
+    case CardState.New:
+    default:
+      return CardState.New;
+  }
+}
+
+function resolveCardType(
+  cardTypeAttr: string | undefined,
+  cardTypeMarkerAttr: string | undefined
+): { type: CardType; cardTypeMarker?: 'concept' | 'descriptor' } {
+  if (cardTypeMarkerAttr === 'concept') {
+    return { type: CardType.Concept, cardTypeMarker: 'concept' };
+  }
+
+  if (cardTypeMarkerAttr === 'descriptor') {
+    return { type: CardType.Descriptor, cardTypeMarker: 'descriptor' };
+  }
+
+  switch (cardTypeAttr) {
+    case CardType.Topic:
+      return { type: CardType.Topic };
+    case CardType.Concept:
+      return { type: CardType.Concept };
+    case CardType.Descriptor:
+      return { type: CardType.Descriptor };
+    case CardType.Item:
+    default:
+      return { type: CardType.Item };
+  }
+}
+
 export class RiffMapper {
-  /**
-   * Riff 数据 → 领域模型
-   * 
-   * 映射规则：
-   * 1. 基础字段：id, due, stability, difficulty, etc.
-   * 2. 块属性：custom-card-type, custom-fsrs-a-factor, etc.
-   * 3. 优先级：从块属性或默认值
-   * 4. 类型检测：concept/descriptor/topic/item
-   * 
-   * @param riffBlock Riff 数据
-   * @returns 领域模型
-   */
   static toDomain(riffBlock: RiffBlock): FSRSCard {
-    // 1. 提取块属性
     const ial = riffBlock.ial || {};
     const cardTypeAttr = ial['custom-card-type'];
     const cardTypeMarkerAttr = ial['custom-fsrs-card-type'];
-    // 🔧 修复：不再从块属性读取 A-Factor
-    // A-Factor 只存储在 FSRSCard.aFactor 中
     const priorityAttr = ial['custom-riff-priority'];
+    const { type, cardTypeMarker } = resolveCardType(cardTypeAttr, cardTypeMarkerAttr);
+    const riffPriority = priorityAttr ? parseInt(priorityAttr, 10) : 5;
+    const priority = Math.min(100, Math.max(0, riffPriority * 10));
+    const riffCard = riffBlock.riffCard;
+    const xiuyuanAttrs = this.extractXiuyuanAttributes(riffBlock);
+    const createdAt = parseTimestamp(riffBlock.created, Date.now());
+    const updatedAt = parseTimestamp(riffBlock.updated, createdAt);
 
-    // 2. 确定卡片类型
-    let type: CardType = 'item'; // 默认
-    let cardTypeMarker: 'concept' | 'descriptor' | undefined;
-
-    if (cardTypeMarkerAttr === 'concept' || cardTypeMarkerAttr === 'descriptor') {
-      // 用户手动标记的类型（优先级最高）
-      cardTypeMarker = cardTypeMarkerAttr;
-      type = cardTypeMarkerAttr as CardType;
-    } else if (cardTypeAttr === 'topic' || cardTypeAttr === 'item' || 
-               cardTypeAttr === 'concept' || cardTypeAttr === 'descriptor') {
-      // 自动检测的类型
-      type = cardTypeAttr as CardType;
-    }
-
-    // 3. 提取优先级
-    // ⚠️ Riff 系统的 priority 范围是 0-10，需要转换为 0-100
-    const riffPriority = priorityAttr ? parseInt(priorityAttr, 10) : 5; // Riff 默认值 5
-    const priority = Math.min(100, Math.max(0, riffPriority * 10)); // 转换为 0-100
-
-    // 4. 提取 A-Factor（仅 Topic 卡片）
-    // 🔧 修复：A-Factor 不再从块属性读取，将在后续从卡片数据中获取
-    // 如果是新卡片，会在创建时初始化
-    const aFactor = undefined;
-
-    // 5. 构建 FSRSCard
-    const card: FSRSCard = {
-      // 标识
+    return {
       id: riffBlock.id,
+      xiuyuanID: xiuyuanAttrs.xiuyuanID || '',
       blockId: riffBlock.id,
-
-      // FSRS 核心（从 Riff 数据提取）
-      due: riffBlock.due || Date.now(),
-      stability: riffBlock.stability || 0,
-      difficulty: riffBlock.difficulty || 0,
-      reps: riffBlock.reps || 0,
-      lapses: riffBlock.lapses || 0,
-      state: (riffBlock.state as CardState) || 0,
-      lastReview: riffBlock.lastReview || 0,
-      elapsedDays: riffBlock.elapsedDays || 0,
-      scheduledDays: riffBlock.scheduledDays || 0,
-
-      // 扩展功能
+      due: parseTimestamp(riffCard?.due, Date.now()),
+      stability: riffCard?.stability || 0,
+      difficulty: riffCard?.difficulty || 0,
+      reps: riffCard?.reps || 0,
+      lapses: riffCard?.lapses || 0,
+      state: toCardState(riffCard?.state),
+      lastReview: parseTimestamp(riffCard?.lastReview, 0),
+      elapsedDays: riffCard?.elapsedDays || 0,
+      scheduledDays: riffCard?.scheduledDays || 0,
       priority,
       type,
       tags: [],
       cardTypeMarker,
-
-      // 难点攻克
       leechCount: 0,
       isLeech: false,
-
-      // 跳过/留言
       skipped: false,
-
-      // 元数据
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-
-      // Topic/Item
-      aFactor,
-
-      // 调度器
-      schedulerType: type === 'topic' ? 'a-factor' : 'fsrs-v6',
+      createdAt,
+      updatedAt,
+      aFactor: undefined,
+      schedulerType: type === CardType.Topic ? 'a-factor' : 'fsrs-v6',
       syncToRiff: true,
-      riffCardId: riffBlock.id,
-
-      // meta（保留原始 Riff 数据）
+      riffCardId: riffCard?.id || riffBlock.riffCardID || riffBlock.riffCardId || riffBlock.id,
       meta: {
-        riffBlock: riffBlock,
+        riffBlock,
       },
     };
-
-    return card;
   }
 
-  /**
-   * 批量转换：Riff 数据 → 领域模型
-   * 
-   * @param riffBlocks Riff 数据数组
-   * @returns 领域模型数组
-   */
   static toDomainBatch(riffBlocks: RiffBlock[]): FSRSCard[] {
-    return riffBlocks.map(block => this.toDomain(block));
+    return riffBlocks.map((block) => this.toDomain(block));
   }
 
-  /**
-   * 提取 Xiuyuan 相关属性
-   * 
-   * 从 Riff 块属性中提取 Xiuyuan 相关信息
-   * 
-   * @param riffBlock Riff 数据
-   * @returns Xiuyuan 相关属性
-   */
   static extractXiuyuanAttributes(riffBlock: RiffBlock): {
     xiuyuanID?: string;
     templateID?: string;
   } {
     const ial = riffBlock.ial || {};
-    // ✅ 兼容新旧两种块属性命名
     return {
       xiuyuanID: ial['custom-xiuyuan-id'] || ial['custom-fsrs-xiuyuan-id'],
       templateID: ial['custom-xiuyuan-template'] || ial['custom-fsrs-template-id'],
     };
   }
 
-  /**
-   * 判断是否为 Xiuyuan 卡片
-   * 
-   * @param riffBlock Riff 数据
-   * @returns 是否为 Xiuyuan 卡片
-   */
   static isXiuyuanCard(riffBlock: RiffBlock): boolean {
     const attrs = this.extractXiuyuanAttributes(riffBlock);
     return !!attrs.xiuyuanID;

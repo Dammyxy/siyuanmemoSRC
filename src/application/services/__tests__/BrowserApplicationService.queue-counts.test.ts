@@ -7,10 +7,19 @@ type QueueMock = {
   getRemainingSize: ReturnType<typeof vi.fn>;
   getStats: ReturnType<typeof vi.fn>;
   getSize: ReturnType<typeof vi.fn>;
+  getConceptBlocks?: ReturnType<typeof vi.fn>;
 };
 
-function createQueue(remaining: number, due = remaining, fallbackSize = remaining): QueueMock {
-  return {
+function createQueue(
+  remaining: number,
+  due = remaining,
+  fallbackSize = remaining,
+  options: {
+    conceptBlocks?: string[];
+    conceptBlocksError?: Error;
+  } = {},
+): QueueMock {
+  const queue: QueueMock = {
     getCounterSnapshot: vi.fn().mockResolvedValue({
       version: 1,
       remaining,
@@ -35,6 +44,16 @@ function createQueue(remaining: number, due = remaining, fallbackSize = remainin
     }),
     getSize: vi.fn().mockResolvedValue(fallbackSize),
   };
+
+  if (options.conceptBlocksError) {
+    queue.getConceptBlocks = vi.fn(() => {
+      throw options.conceptBlocksError;
+    });
+  } else if (options.conceptBlocks) {
+    queue.getConceptBlocks = vi.fn(() => options.conceptBlocks ?? []);
+  }
+
+  return queue;
 }
 
 describe('BrowserApplicationService queue counts', () => {
@@ -66,7 +85,9 @@ describe('BrowserApplicationService queue counts', () => {
   it('reads counts from counter snapshots without calling getCards', async () => {
     const retrievalQueue = createQueue(2);
     const finalQueue = createQueue(1);
-    const neuralQueue = createQueue(77);
+    const neuralQueue = createQueue(77, 77, 77, {
+      conceptBlocks: Array.from({ length: 5 }, (_, index) => `concept-${index}`),
+    });
     const filterQueue = createQueue(3);
     const incrementalQueue = createQueue(4);
 
@@ -81,14 +102,15 @@ describe('BrowserApplicationService queue counts', () => {
     expect(counts).toEqual({
       retrieval: 2,
       'final-drill': 1,
-      'neural-roam': 77,
+      'neural-roam': 5,
       'filter-group': 3,
       'incremental-learning': 4,
     });
 
     expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
-    expect(neuralQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getCounterSnapshot).not.toHaveBeenCalled();
     expect(filterQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(incrementalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
     expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
@@ -97,7 +119,9 @@ describe('BrowserApplicationService queue counts', () => {
   it('falls back to getRemainingSize and getSize when snapshot reads fail', async () => {
     const retrievalQueue = createQueue(1, 1, 11);
     const finalQueue = createQueue(2, 2, 22);
-    const neuralQueue = createQueue(3, 3, 33);
+    const neuralQueue = createQueue(3, 3, 33, {
+      conceptBlocksError: new Error('neural-concepts-unavailable'),
+    });
     const filterQueue = createQueue(4, 4, 44);
     const incrementalQueue = createQueue(5, 5, 55);
 
@@ -115,6 +139,7 @@ describe('BrowserApplicationService queue counts', () => {
     expect(counts.retrieval).toBe(11);
     expect(counts['neural-roam']).toBe(3);
     expect(retrievalQueue.getRemainingSize).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getConceptBlocks).toHaveBeenCalledTimes(1);
     expect(neuralQueue.getRemainingSize).not.toHaveBeenCalled();
   });
 

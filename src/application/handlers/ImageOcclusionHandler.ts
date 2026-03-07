@@ -1,6 +1,7 @@
 import { Dialog, showMessage } from 'siyuan';
 import type FSRSPlugin from '@/index';
 import { getBlockAttrs, getBlockKramdown, setBlockAttrs } from '@/infrastructure/siyuan/api';
+import { isErr } from '@/types/result';
 import { clamp01, normalizeRectFromPixels, toPercentMaskStyle } from '@/utils/imageOcclusionGeometry';
 import { createLogger } from '@/utils/logger';
 
@@ -78,6 +79,8 @@ interface SyncImageOcclusionResult {
   orderedCardIds: string[];
   maskToCardId: Record<string, string>;
 }
+
+type CardServiceLike = ReturnType<ReturnType<FSRSPlugin['getContext']>['getCardService']>;
 
 function parseImageSourceFromKramdown(kramdown: string): string | null {
   if (!kramdown) return null;
@@ -706,7 +709,7 @@ export class ImageOcclusionHandler {
       });
     });
 
-    bind(window, 'keydown', (event) => {
+    bind(window, 'keydown', (event: KeyboardEvent) => {
       if (actionsBusy) return;
       if (event.key === 'Delete' && state.selectedMaskId) {
         state.masks = state.masks.filter((mask) => mask.id !== state.selectedMaskId);
@@ -855,7 +858,7 @@ export class ImageOcclusionHandler {
   }
 
   private async queryLatestMaskMap(
-    cardService: ReturnType<FSRSPlugin['getContext']>['getCardService'],
+    cardService: CardServiceLike,
     blockId: string,
     masks: OcclusionMask[],
   ): Promise<Map<string, string>> {
@@ -1033,7 +1036,7 @@ export class ImageOcclusionHandler {
               },
             },
           });
-          if (!updateResult.ok) {
+          if (isErr(updateResult)) {
             throw updateResult.error;
           }
           traceImageOcclusion('sync.updatedExisting', {
@@ -1069,7 +1072,7 @@ export class ImageOcclusionHandler {
         priority: 50,
         meta: nextMeta,
       });
-      if (!createResult.ok) {
+      if (isErr(createResult)) {
         throw createResult.error;
       }
 
@@ -1091,7 +1094,7 @@ export class ImageOcclusionHandler {
       const maskId = typeof meta?.imageOcclusionMaskId === 'string' ? meta.imageOcclusionMaskId.trim() : '';
       if (!expectedMaskIds.has(maskId)) {
         const deleteResult = await cardService.deleteCard({ cardId: leftover.id });
-        if (!deleteResult.ok) {
+        if (isErr(deleteResult)) {
           throw deleteResult.error;
         }
         traceImageOcclusion('sync.deletedLeftover', {
@@ -1104,7 +1107,7 @@ export class ImageOcclusionHandler {
 
     for (const legacyCard of legacyCards) {
       const deleteResult = await cardService.deleteCard({ cardId: legacyCard.id });
-      if (!deleteResult.ok) {
+      if (isErr(deleteResult)) {
         throw deleteResult.error;
       }
       traceImageOcclusion('sync.deletedLegacy', {
@@ -1115,7 +1118,7 @@ export class ImageOcclusionHandler {
 
     for (const duplicatedCard of duplicatedMaskCards) {
       const deleteResult = await cardService.deleteCard({ cardId: duplicatedCard.id });
-      if (!deleteResult.ok) {
+      if (isErr(deleteResult)) {
         throw deleteResult.error;
       }
       traceImageOcclusion('sync.deletedDuplicateMaskCard', {

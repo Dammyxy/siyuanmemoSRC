@@ -22,7 +22,7 @@
  * - 用例协调领域层和基础设施层
  */
 
-import { Result } from '@/types/result';
+import { Result, isErr } from '@/types/result';
 import { CreateCardCommand } from '../commands/card/CreateCardCommand';
 import { DeleteCardCommand } from '../commands/card/DeleteCardCommand';
 import { DeleteCardsCommand, DeleteCardsResult } from '../commands/card/DeleteCardsCommand';
@@ -586,7 +586,7 @@ export class CardApplicationService {
         const result = await this.deleteCard({ cardId });
         if (result.ok) {
           deletedCount++;
-        } else {
+        } else if (isErr(result)) {
           failedCount++;
           logger.error(`Failed to delete card ${cardId}:`, result.error);
         }

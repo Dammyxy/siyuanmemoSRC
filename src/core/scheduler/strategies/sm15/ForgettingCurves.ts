@@ -21,14 +21,14 @@ const { RANGE_REPETITION, RANGE_AF, MIN_AF, NOTCH_AF, REMEMBERED } = SM15_CONSTA
 export class ForgettingCurves {
     public readonly curves: ForgettingCurve[][];
 
-    constructor(sm: SM15, points?: number[][][]) {
+    constructor(sm: SM15, points?: Point[][][]) {
         this.curves = this._initializeCurves(sm, points);
     }
 
     /**
      * 初始化 400 条遗忘曲线 (20 × 20)
      */
-    private _initializeCurves(sm: SM15, points?: number[][][]): ForgettingCurve[][] {
+    private _initializeCurves(sm: SM15, points?: Point[][][]): ForgettingCurve[][] {
         const curves: ForgettingCurve[][] = [];
 
         for (let r = 0; r < RANGE_REPETITION; r++) {
@@ -111,9 +111,9 @@ export class ForgettingCurves {
     /**
      * 序列化数据
      */
-    data(): number[][][] {
-        return this.curves.map((repRow, r) =>
-            repRow.map((curve, a) => curve.data())
+    data(): Point[][][] {
+        return this.curves.map((repRow) =>
+            repRow.map((curve) => curve.data())
         );
     }
 
@@ -123,7 +123,7 @@ export class ForgettingCurves {
      * @param sm SM15 实例
      * @param data 序列化的数据
      */
-    static load(sm: SM15, data: number[][][]): ForgettingCurves {
+    static load(sm: SM15, data: Point[][][]): ForgettingCurves {
         return new ForgettingCurves(sm, data);
     }
 }

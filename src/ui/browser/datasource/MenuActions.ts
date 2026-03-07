@@ -9,6 +9,7 @@ import type { CardBrowserAction } from './types';
 import type { BrowserCard } from '../../browser/types';
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
+import type { RescheduleStoragePort } from '@/core/scheduler/ports';
 import type { CardReadPort } from '@/core/storage/ports';
 import type { QueueAddSource } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
@@ -23,7 +24,7 @@ const logger = createLogger('MenuActions');
  * @param t - i18n 翻译函数
  */
 export function getBaseActions(t?: (key: string, fallback: string) => string) {
-  const translate = t || ((key: string, fallback: string) => fallback);
+  const translate = t || ((_key: string, fallback: string) => fallback);
   
   return {
     open: { id: 'open', label: translate('openInTab', 'Open'), icon: 'iconOpen' } as CardBrowserAction,
@@ -70,7 +71,7 @@ export function buildAddToQueueAction(
   },
   t?: (key: string, fallback: string) => string
 ): CardBrowserAction | null {
-  const translate = t || ((key: string, fallback: string) => fallback);
+  const translate = t || ((_key: string, fallback: string) => fallback);
   
   logger.debug('[MenuActions] buildAddToQueueAction 被调用，参数:', hasQueues);
   
@@ -331,6 +332,12 @@ function resolveUnifiedStorage(plugin: PluginLike | undefined): UnifiedStorageLi
   return context?.getUnifiedStorage?.();
 }
 
+function supportsRescheduleConfigStorage(
+  storage: UnifiedStorageLike | undefined
+): storage is UnifiedStorageLike & RescheduleStoragePort {
+  return Boolean(storage && typeof (storage as unknown as RescheduleStoragePort).getCardsByBlockId === 'function');
+}
+
 /**
  * 时间调整（推迟/提前/分散）
  */
@@ -476,7 +483,7 @@ export async function adjustTime(
   }
 
   const storage = resolveUnifiedStorage(plugin);
-  const configManager = storage ? new ConfigManager(storage) : null;
+  const configManager = supportsRescheduleConfigStorage(storage) ? new ConfigManager(storage) : null;
   const config = context?.config ?? buildLegacyConfig(action, configManager, context);
   if (!config) {
     return buildEmptyAdjustResult(action, rows.length);

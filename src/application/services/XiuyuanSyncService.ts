@@ -117,7 +117,7 @@ export class XiuyuanSyncService {
     private xiuyuanRepository: IXiuyuanRepository;
     private deletionTracker: IDeletionTracker;
     private lastSyncTime: number = 0;
-    private lastFullSyncTime: number = 0;
+    public lastFullSyncTime: number = 0;
     private legacyCardTypeMigrationDone = false;
     private syncMutex: Promise<void> = Promise.resolve();
     private readonly inFlightSyncs: Map<SyncType, Promise<SyncResult>> = new Map();

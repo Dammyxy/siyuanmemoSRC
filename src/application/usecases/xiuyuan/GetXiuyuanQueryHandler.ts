@@ -24,6 +24,7 @@
 import { GetXiuyuanQuery, GetXiuyuanQueryResult } from '../../queries/xiuyuan/GetXiuyuanQuery';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
+import { isErr } from '@/types/result';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('GetXiuyuanQueryHandler');
@@ -60,23 +61,26 @@ export class GetXiuyuanQueryHandler {
   async handle(query: GetXiuyuanQuery): Promise<GetXiuyuanQueryResult> {
     // 1. 创建 XiuyuanId 值对象
     const idResult = XiuyuanId.create(query.xiuyuanId);
-    if (!idResult.ok) {
+    if (isErr(idResult)) {
       throw new Error(`Invalid xiuyuanId: ${query.xiuyuanId}`);
     }
 
     // 2. 从 Repository 查询
     const findResult = await this.xiuyuanRepository.findById(idResult.value);
     
+    if (isErr(findResult)) {
+      logger.debug('findResult failed:', {
+        ok: findResult.ok,
+        error: findResult.error,
+      });
+      throw findResult.error;
+    }
+
     logger.debug('findResult:', {
       ok: findResult.ok,
       hasValue: !!findResult.value,
       value: findResult.value,
-      error: findResult.ok ? null : findResult.error
     });
-    
-    if (!findResult.ok) {
-      throw findResult.error;
-    }
 
     if (!findResult.value) {
       throw new Error(`Xiuyuan not found: ${query.xiuyuanId}`);

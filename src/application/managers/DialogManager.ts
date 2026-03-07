@@ -12,6 +12,7 @@
 import type { Plugin } from 'siyuan';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { IDialogManager } from '../interfaces/IDialogManager';
+import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { createVueDialog } from '@/utils/dialog';
 import { SettingsPanel } from '@/ui/settings';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
@@ -34,6 +35,7 @@ import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { createLogger } from '@/utils/logger';
+import { isErr } from '@/types/result';
 import type { PluginSettings, RiffIntegrationConfig } from '@/types/settings';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
@@ -45,11 +47,11 @@ import {
   hasExpectedCdfTailMarkerFromSources,
   type CdfMultilineTemplateId,
 } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
-import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import {
   BlockAttrCleanupService,
   type BlockAttrCleanupMode,
 } from '@/application/services';
+import type { PracticeQueueFilter } from './PracticeQueueManager';
 
 const logger = createLogger('DialogManager');
 
@@ -96,7 +98,7 @@ function hasTemporaryBlacklistCleaner(queue: IReviewQueue | null): queue is Filt
   return Boolean(queue && typeof (queue as FilterGroupQueueLike).clearTemporaryBlacklist === 'function');
 }
 
-interface BlockSqlRow {
+interface BlockSqlRow extends Record<string, unknown> {
   id: string;
   type?: string;
   subtype?: string;
@@ -278,8 +280,8 @@ export class DialogManager implements IDialogManager {
         defaultTab,
         queueCount,
         queueHandlers: {
-          preview: (filter: CardFilter) => practiceQueueManager.previewPracticeQueue(filter),
-          add: (filter: CardFilter) => practiceQueueManager.addPracticeQueue(filter),
+          preview: (filter: PracticeQueueFilter) => practiceQueueManager.previewPracticeQueue(filter),
+          add: (filter: PracticeQueueFilter) => practiceQueueManager.addPracticeQueue(filter),
           start: () => practiceQueueManager.startPracticeQueue(() => {
             void this.openReviewDialog();
           }),
@@ -845,7 +847,7 @@ export class DialogManager implements IDialogManager {
       
       // 创建对话框（使用依赖注入）
       const eventBus = this.context.getEventBus();
-      const schedulerRouter = this.context.getSchedulerRouter();
+      const schedulerRouter = this.context.getSchedulerRouter() as unknown as ISchedulerRouter;
       const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
       const adapter = new UnifiedReviewAdapter({
         i18n: this.context.getI18n() || {},
@@ -943,7 +945,7 @@ export class DialogManager implements IDialogManager {
       
       // 创建对话框（使用依赖注入）
       const eventBus = this.context.getEventBus();
-      const schedulerRouter = this.context.getSchedulerRouter();
+      const schedulerRouter = this.context.getSchedulerRouter() as unknown as ISchedulerRouter;
       const queue = new UnifiedQueueStrategy(QueueType.FilterGroup, manager, eventBus, schedulerRouter);
       const adapter = new UnifiedReviewAdapter({
         i18n: this.context.getI18n() || {},
@@ -1127,83 +1129,6 @@ export class DialogManager implements IDialogManager {
     });
   }
 
-  private async resolveConceptDocumentIdFromReference(parentKramdown: string): Promise<string | null> {
-    const refMatches = [...parentKramdown.matchAll(/\(\((\d{14}-[a-z0-9]{7})/g)];
-    if (refMatches.length === 0) {
-      return null;
-    }
-
-    for (const match of refMatches) {
-      const conceptBlockId = match[1];
-      const safeConceptBlockId = conceptBlockId.replace(/'/g, "''");
-      const typeResult = await this.siyuanApi.sql<BlockSqlRow>(`
-        SELECT type
-        FROM blocks
-        WHERE id = '${safeConceptBlockId}'
-        LIMIT 1
-      `);
-      if (typeResult && typeResult.length > 0 && typeResult[0].type === 'd') {
-        return conceptBlockId;
-      }
-    }
-
-    return null;
-  }
-
-  private async ensureConceptCardById(
-    conceptBlockId: string,
-    xiuyuanAppService: XiuyuanApplicationService
-  ): Promise<void> {
-    if (!conceptBlockId) {
-      return;
-    }
-
-    if (this.conceptCardEnsureInFlight.has(conceptBlockId)) {
-      logger.debug('[DialogManager] Concept card ensure already in flight, skipping:', conceptBlockId);
-      return;
-    }
-
-    this.conceptCardEnsureInFlight.add(conceptBlockId);
-    try {
-      const safeConceptBlockId = conceptBlockId.replace(/'/g, "''");
-      const conceptRows = await this.siyuanApi.sql<BlockSqlRow>(`
-        SELECT id, content
-        FROM blocks
-        WHERE id = '${safeConceptBlockId}'
-        LIMIT 1
-      `);
-      if (!conceptRows || conceptRows.length === 0) {
-        logger.warn('[DialogManager] Concept block not found:', conceptBlockId);
-        return;
-      }
-
-      const conceptName = conceptRows[0].content || '未命名概念';
-      const attrs = await this.siyuanApi.getBlockAttrs(conceptBlockId);
-      if (this.hasXiuyuanBinding(attrs) || this.isLocalConceptCard(conceptBlockId)) {
-        return;
-      }
-
-      const result = await xiuyuanAppService.createFromBlocks({
-        blockIds: [conceptBlockId],
-        templateId: 'builtin-concept-simple',
-        fieldMapping: {
-          concept: conceptBlockId,
-        },
-        deckId: this.siyuanApi.BUILTIN_DECK_ID,
-      });
-      if (!result.ok) {
-        logger.error('[DialogManager] Failed to auto-create concept card:', result.error);
-        return;
-      }
-
-      this.siyuanApi.pushMsg(`✅ 已为概念「${conceptName}」创建概念卡`);
-    } catch (error) {
-      logger.error('[DialogManager] Failed to ensure concept card:', error);
-    } finally {
-      this.conceptCardEnsureInFlight.delete(conceptBlockId);
-    }
-  }
-
   private async handleCdfMultilineTemplateCard(
     blockIds: string[],
     templateId: CdfMultilineTemplateId,
@@ -1259,7 +1184,7 @@ export class DialogManager implements IDialogManager {
         deckId: this.siyuanApi.BUILTIN_DECK_ID,
       });
 
-      if (!result.ok) {
+      if (isErr(result)) {
         await this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
         return;
       }
@@ -1358,7 +1283,7 @@ export class DialogManager implements IDialogManager {
           listKind: 'default',
         });
 
-        if (!orderedResult.ok) {
+        if (isErr(orderedResult)) {
           logger.error('[DialogManager] Failed to create split list template cards:', orderedResult.error);
           this.siyuanApi.pushErrMsg(`创建失败：${orderedResult.error.message}`);
           return;
@@ -1377,7 +1302,7 @@ export class DialogManager implements IDialogManager {
           listKind: 'default',
         });
 
-        if (!unorderedResult.ok) {
+        if (isErr(unorderedResult)) {
           logger.error('[DialogManager] Failed to create summary list template cards:', unorderedResult.error);
           this.siyuanApi.pushErrMsg(`创建失败：${unorderedResult.error.message}`);
           return;
@@ -1433,7 +1358,7 @@ export class DialogManager implements IDialogManager {
       // 🆕 1. 读取块内容，检测是否有方向符号
 
       // 获取所有子块（只查询段落块）
-      const children = await this.siyuanApi.sql(`
+      const children = await this.siyuanApi.sql<BlockSqlRow>(`
         SELECT id, markdown 
         FROM blocks 
         WHERE parent_id = '${parentBlockId}' AND type = 'p'
@@ -1516,7 +1441,7 @@ export class DialogManager implements IDialogManager {
           deckId: this.siyuanApi.BUILTIN_DECK_ID
         });
 
-        if (!result.ok) {
+        if (isErr(result)) {
           logger.error('[DialogManager] Failed to create concept descriptor cards:', result.error);
           this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
           return;
@@ -1624,7 +1549,7 @@ export class DialogManager implements IDialogManager {
         cardType: 'descriptor'  // 概念定义卡的类型是 descriptor
       });
 
-      if (!result.ok) {
+      if (isErr(result)) {
         logger.error('[DialogManager] Failed to create concept definition card:', result.error);
         this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
         return;
@@ -1710,15 +1635,14 @@ export class DialogManager implements IDialogManager {
       // 对于反向和双向模板，需要使用特殊的创建逻辑
       if (actualTemplateId === 'builtin-concept-descriptor-reverse' || actualTemplateId === 'builtin-concept-descriptor-both') {
         // 🆕 使用通用的 createFromBlocks 方法，但需要先找到概念块
-        const { findConceptByUpwardSearch } = await import('@/application/usecases/xiuyuan/CreateConceptDescriptorAutoUseCase');
         const conceptResult = await findConceptByUpwardSearch(blockIds[0]);
-        
-        if (!conceptResult.ok) {
-          this.siyuanApi.pushErrMsg(`未找到概念块：${conceptResult.error.message}`);
+
+        if (!conceptResult) {
+          this.siyuanApi.pushErrMsg('未找到概念块');
           return;
         }
-        
-        const { conceptBlockId } = conceptResult.value;
+
+        const conceptBlockId = conceptResult.conceptId;
         
         // 为每个描述符块创建卡片
         let createdCount = 0;
@@ -1751,7 +1675,7 @@ export class DialogManager implements IDialogManager {
           deckId: this.siyuanApi.BUILTIN_DECK_ID
         });
 
-        if (!result.ok) {
+        if (isErr(result)) {
           logger.error('[DialogManager] Failed to create concept descriptor auto cards:', result.error);
           this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
           return;
@@ -1799,7 +1723,7 @@ export class DialogManager implements IDialogManager {
       const blockId = blockIds[0];
 
       // 1. 读取块内容
-      const blocks = await this.siyuanApi.sql(`SELECT * FROM blocks WHERE id = '${blockId}'`);
+      const blocks = await this.siyuanApi.sql<BlockSqlRow>(`SELECT * FROM blocks WHERE id = '${blockId}'`);
       if (!blocks || blocks.length === 0) {
         this.siyuanApi.pushErrMsg('无法读取块内容');
         return;
@@ -1849,7 +1773,7 @@ export class DialogManager implements IDialogManager {
         },
       });
 
-      if (!result.ok) {
+      if (isErr(result)) {
         logger.error('[DialogManager] Failed to create multi-cloze card:', result.error);
         this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
         return;
@@ -2078,7 +2002,7 @@ export class DialogManager implements IDialogManager {
                 cardType: templateId === 'builtin-concept-definition' ? 'descriptor' : undefined  // 🆕 概念定义卡的类型是 descriptor
               });
 
-              if (!result.ok) {
+              if (isErr(result)) {
                 logger.error('[DialogManager] Failed to create template card:', result.error);
                 this.siyuanApi.pushErrMsg(`创建失败：${result.error.message}`);
                 this.templateSelectDialog?.destroy();
@@ -2220,8 +2144,8 @@ export class DialogManager implements IDialogManager {
           deckId: this.siyuanApi.BUILTIN_DECK_ID,
         });
 
-        if (!result.ok) {
-          const error = (result as { ok: false; error: Error }).error;
+        if (isErr(result)) {
+          const error = result.error;
           const errorMsg = error instanceof Error ? error.message : String(error);
           logger.error('[DialogManager] Failed to create concept card:', errorMsg);
           return;

@@ -7,13 +7,15 @@ import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAda
 import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter';
 import { createLogger } from '@/utils/logger';
 import { ClozeDetector } from '@/utils/cloze-detector';
-import type { Result } from '@/types/result';
+import { isErr, type Result } from '@/types/result';
 import { UnifiedPostCreationPlanner } from '@/core/card/post-creation/UnifiedPostCreationPlanner';
 import type { CreationDecision } from '@/core/card/post-creation/contracts';
 import { PostCreationConflictMediator } from '@/application/services/PostCreationConflictMediator';
 import { DocumentPostCreationScanService } from '@/application/services/DocumentPostCreationScanService';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
+import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
+import type { CardApplicationService } from '../services/CardApplicationService';
 
 const logger = createLogger('AutoCardHandler');
 
@@ -57,19 +59,7 @@ type SettingsServiceLike = {
     };
 };
 
-type CardCreationResult = Result<{
-    id: string;
-    priority: number;
-}>;
-
 type CardServiceLike = {
-    createCard: (command: {
-        blockId: string;
-        cardType?: string;
-        deckId?: string;
-        priority?: 'normal' | 'high' | number;
-        meta?: Record<string, unknown>;
-    }) => Promise<CardCreationResult>;
     getCardByBlockId: (blockId: string) => unknown;
     saveCards: () => Promise<void>;
 };
@@ -84,7 +74,7 @@ type XiuyuanCreateResult = Result<{
 }>;
 
 type XiuyuanApplicationServiceLike = {
-    createFromBlocks: (command: Record<string, unknown>) => Promise<XiuyuanCreateResult>;
+    createFromBlocks: (command: CreateXiuyuanFromBlocksCommand) => Promise<XiuyuanCreateResult>;
     createTemplate: (template: Record<string, unknown>) => Promise<Result<void>>;
 };
 
@@ -109,6 +99,23 @@ type ListChildBlock = {
     id: string;
 };
 
+type BlockTypeRow = {
+    type?: string;
+};
+
+type BlockTypeContentRow = {
+    type?: string;
+    content?: string;
+};
+
+type BlockContentRow = {
+    content?: string;
+};
+
+type ParentIdRow = {
+    parent_id?: string;
+};
+
 /**
  * Auto card handler for quick symbol based card creation.
  *
@@ -127,23 +134,11 @@ export class AutoCardHandler implements ITransactionHandler {
 
     private cardHelper: CardCreationHelper | null = null;
     
-
-    private quickQueue: Set<string> = new Set();
-    private listQueue: Set<string> = new Set();
     private processing: Set<string> = new Set();
     private readonly conceptCardEnsureInFlight = new Set<string>();
     
-    private quickTimer: NodeJS.Timeout | null = null;
-    private listTimer: NodeJS.Timeout | null = null;
-    
-
-    private lastEditTime: Map<string, number> = new Map();
-    
 
     private currentEditingBlock: string | null = null;
-    
-    private readonly QUICK_DEBOUNCE = 1000;
-    private readonly LIST_DEBOUNCE = 2000;
     
 
     // Supported quick-card symbol patterns (half-width and full-width variants).
@@ -179,7 +174,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
     private getContext(): AutoCardContextLike | null {
         try {
-            return (this.plugin?.getContext?.() as AutoCardContextLike | null) ?? null;
+            return (this.plugin?.getContext?.() as unknown as AutoCardContextLike | null) ?? null;
         } catch (error) {
             logger.warn('[AutoCard] Failed to get ApplicationContext:', error);
             return null;
@@ -270,7 +265,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
         if (!this.cardHelper) {
             const cardService = this.getCardService();
-            this.cardHelper = new CardCreationHelper(cardService);
+            this.cardHelper = new CardCreationHelper(cardService as unknown as CardApplicationService);
         }
         return this.cardHelper;
     }
@@ -285,10 +280,6 @@ export class AutoCardHandler implements ITransactionHandler {
 
     private getLocalCardByBlockId(blockId: string): unknown {
         return this.getCardService().getCardByBlockId(blockId);
-    }
-
-    private hasLocalCard(blockId: string): boolean {
-        return Boolean(this.getLocalCardByBlockId(blockId));
     }
 
     private isLocalConceptCard(card: unknown): boolean {
@@ -307,40 +298,9 @@ export class AutoCardHandler implements ITransactionHandler {
     private hasLocalConceptCard(blockId: string): boolean {
         return this.isLocalConceptCard(this.getLocalCardByBlockId(blockId));
     }
-    
-    private async createConceptCardViaDDD(
-        blockId: string,
-        options: {
-            priority?: 'normal' | 'high';
-            metadata?: Record<string, unknown>;
-        } = {}
-    ): Promise<boolean> {
-        try {
-            const cardService = this.getCardService();
 
-                        const result = await cardService.createCard({
-                blockId: blockId,
-                cardType: 'concept',
-                deckId: this.riffApi.BUILTIN_DECK_ID,
-                priority: options.priority || 'normal',
-                meta: {
-                    autoCreated: true,
-                    source: 'auto',
-                    ...options.metadata,
-                },
-            });
-
-            if (result.ok) {
-                logger.debug(`[AutoCard] Concept card created via DDD: ${blockId}`);
-                return true;
-            } else {
-                logger.error(`[AutoCard] Failed to create concept card: ${result.error.message}`);
-                return false;
-            }
-        } catch (error) {
-            logger.error('[AutoCard] Error creating concept card via DDD:', error);
-            return false;
-        }
+    private async sqlRows<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
+        return this.siyuanApi.sql<TRow>(stmt);
     }
     
     handle(transactions: Transaction[]): void {
@@ -397,7 +357,10 @@ export class AutoCardHandler implements ITransactionHandler {
         }
 
         const scanner = new DocumentPostCreationScanService(
-            this.siyuanApi,
+            {
+                sql: (stmt: string) => this.siyuanApi.sql<Record<string, unknown>>(stmt),
+                getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
+            },
             {
                 executeSingleBlockDecision: async ({ blockId, content, decision }) => {
                     return this.executePlannerDecision({
@@ -439,95 +402,6 @@ export class AutoCardHandler implements ITransactionHandler {
         };
     }
     
-    private queueQuickCheck(blockId: string): void {
-        this.quickQueue.add(blockId);
-        
-
-        this.lastEditTime.set(blockId, Date.now());
-        
-        if (this.quickTimer) {
-            clearTimeout(this.quickTimer);
-        }
-        
-
-        const quickCardSettings = this.settingsService.getSettings().quickCard;
-        const debounceDelay = quickCardSettings?.debounceDelay?.quick || this.QUICK_DEBOUNCE;
-        
-
-        if (debounceDelay === 0) {
-            logger.debug('[SiYuanMemo][AutoCard] Debounce disabled, only blur detection will trigger');
-            return;
-        }
-        
-        this.quickTimer = setTimeout(() => {
-            this.processQuickQueue();
-        }, debounceDelay);
-    }
-    
-    private queueListCheck(blockId: string): void {
-
-
-
-        return;
-        
-    }
-    
-    // Process all pending quick-symbol blocks in one batch window.
-    private async processQuickQueue(): Promise<void> {
-        const blocks = Array.from(this.quickQueue);
-        this.quickQueue.clear();
-        
-        logger.debug('[SiYuanMemo][AutoCard] Processing quick queue, count:', blocks.length);
-        
-        for (const blockId of blocks) {
-
-            if (this.processing.has(blockId)) {
-                logger.debug('[SiYuanMemo][AutoCard] Block already processing:', blockId);
-                continue;
-            }
-            
-            this.processing.add(blockId);
-            
-            try {
-                await this.checkQuickSymbols(blockId);
-            } catch (error) {
-                logger.error('[SiYuanMemo][AutoCard] Failed to check quick symbols:', blockId, error);
-            } finally {
-                this.processing.delete(blockId);
-            }
-        }
-    }
-    
-    // Process all pending list-template blocks in one batch window.
-    private async processListQueue(): Promise<void> {
-        const blocks = Array.from(this.listQueue);
-        this.listQueue.clear();
-        
-        logger.debug('[SiYuanMemo][AutoCard] Processing list queue, count:', blocks.length);
-        
-        for (const blockId of blocks) {
-
-            if (this.processing.has(blockId)) {
-                logger.debug('[SiYuanMemo][AutoCard] Block already processing:', blockId);
-                continue;
-            }
-            
-            this.processing.add(blockId);
-            
-            try {
-                await this.checkListTemplate(blockId);
-            } catch (error) {
-                logger.error('[SiYuanMemo][AutoCard] Failed to check list template:', blockId, error);
-            } finally {
-                this.processing.delete(blockId);
-            }
-        }
-        
-
-        const cardService = this.getCardService();
-        await cardService.saveCards();
-    }
-    
     // Check a block for quick symbols and create all matched cards in one pass.
     private async checkQuickSymbols(blockId: string, options?: { force?: boolean }): Promise<void> {
         try {
@@ -551,14 +425,19 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.debug('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
             
 
-                        const typeResult = await this.siyuanApi.sql(`SELECT type FROM blocks WHERE id = '${blockId}' LIMIT 1`);
+            const typeResult = await this.sqlRows<BlockTypeRow>(`
+                SELECT type
+                FROM blocks
+                WHERE id = '${blockId}'
+                LIMIT 1
+            `);
             
             if (!typeResult || typeResult.length === 0) {
                 logger.debug('[SiYuanMemo][AutoCard] Block not found:', blockId);
                 return;
             }
             
-            const blockType = typeResult[0].type;
+            const blockType = typeof typeResult[0]?.type === 'string' ? typeResult[0].type : '';
             if (!this.isQuickSymbolSupportedBlockType(blockType)) {
                 logger.debug(
                     '[SiYuanMemo][AutoCard] Block type not supported for symbol detection (type:',
@@ -854,7 +733,8 @@ export class AutoCardHandler implements ITransactionHandler {
             xiuyuanAppService,
             {
                 BUILTIN_DECK_ID: this.riffApi.BUILTIN_DECK_ID,
-                sql: async (stmt: string) => this.siyuanApi.sql(stmt) as Array<Record<string, unknown>>,
+                sql: <TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string) =>
+                    this.siyuanApi.sql<TRow>(stmt),
                 getBlockAttrs: (blockId: string) => this.siyuanApi.getBlockAttrs(blockId),
                 getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
             }
@@ -866,7 +746,7 @@ export class AutoCardHandler implements ITransactionHandler {
             deckId: this.riffApi.BUILTIN_DECK_ID,
         });
 
-        if (!result.ok) {
+        if (isErr(result)) {
             logger.warn('[SiYuanMemo][AutoCard] Failed to create CDF multiline cards by planner:', {
                 parentBlockId,
                 templateId,
@@ -891,160 +771,6 @@ export class AutoCardHandler implements ITransactionHandler {
         });
         return true;
     }
-    
-    // Detect all supported symbols with deterministic priority.
-    private detectAllSymbols(content: string, settings: QuickCardSettings): Array<{
-        type: 'basic-both' | 'basic-forward' | 'basic-backward' | 'concept' | 'concept-forward' | 'concept-reverse' | 'descriptor' | 'descriptor-reverse' | 'descriptor-both' | 'cloze';
-        match: RegExpMatchArray;
-    }> {
-        const enabledSymbols = settings.enabledSymbols ?? {};
-        const symbols: Array<{
-            type: 'basic-both' | 'basic-forward' | 'basic-backward' | 'concept' | 'concept-forward' | 'concept-reverse' | 'descriptor' | 'descriptor-reverse' | 'descriptor-both' | 'cloze';
-            match: RegExpMatchArray;
-        }> = [];
-        
-
-        let cleanContent = content.replace(/\{:[^}]*\}/g, '').trim();
-        
-        logger.debug('[SiYuanMemo][AutoCard] detectAllSymbols - original:', content.substring(0, 100));
-        logger.debug('[SiYuanMemo][AutoCard] detectAllSymbols - cleaned:', cleanContent.substring(0, 100));
-        logger.debug('[SiYuanMemo][AutoCard] detectAllSymbols - descriptor enabled:', enabledSymbols.descriptor);
-        
-
-
-
-        cleanContent = cleanContent.replace(/`[^`]*`/g, '');
-        cleanContent = cleanContent.replace(/```[\s\S]*?```/g, '');
-        
-        const hasConceptTripleMarker = /:::|：：：/.test(cleanContent);
-        const hasDescriptorTripleMarker = /;;;|；；；/.test(cleanContent);
-
-        if (hasConceptTripleMarker) {
-            logger.debug('[SiYuanMemo][AutoCard] Detected ::: marker, skip :: concept detection');
-        }
-        if (hasDescriptorTripleMarker) {
-            logger.debug('[SiYuanMemo][AutoCard] Detected ;;; marker, skip ;; descriptor detection');
-        }
-
-
-
-        
-        logger.debug('[SiYuanMemo][AutoCard] Starting symbol detection...');
-        
-        let matched = false;
-        
-
-        if (!matched && enabledSymbols.descriptor && this.patterns.descriptorBoth.test(cleanContent)) {
-            logger.debug('[SiYuanMemo][AutoCard] Matched: descriptorBoth');
-            const match = cleanContent.match(this.patterns.descriptorBoth);
-            if (match) {
-                symbols.push({ type: 'descriptor-both', match });
-                matched = true;
-            }
-        }
-        
-
-        if (!matched && enabledSymbols.basic && this.patterns.basicBoth.test(cleanContent)) {
-            logger.debug('[SiYuanMemo][AutoCard] Matched: basicBoth');
-            const match = cleanContent.match(this.patterns.basicBoth);
-            if (match) {
-                symbols.push({ type: 'basic-both', match });
-                matched = true;
-            }
-        }
-        
-
-        if (!matched && enabledSymbols.basic && this.patterns.basicForward.test(cleanContent) && !this.patterns.multiLine.test(cleanContent)) {
-            logger.debug('[SiYuanMemo][AutoCard] Matched: basicForward');
-            const match = cleanContent.match(this.patterns.basicForward);
-            if (match) {
-                symbols.push({ type: 'basic-forward', match });
-                matched = true;
-            }
-        }
-        
-
-        if (!matched && enabledSymbols.basic && this.patterns.basicBackward.test(cleanContent)) {
-            logger.debug('[SiYuanMemo][AutoCard] Matched: basicBackward');
-            const match = cleanContent.match(this.patterns.basicBackward);
-            if (match) {
-                symbols.push({ type: 'basic-backward', match });
-                matched = true;
-            }
-        }
-        
-
-        if (!matched && enabledSymbols.concept && !hasConceptTripleMarker) {
-            logger.debug('[SiYuanMemo][AutoCard] Checking concept patterns...');
-
-            if (this.patterns.conceptForward.test(cleanContent)) {
-                logger.debug('[SiYuanMemo][AutoCard] Matched: conceptForward');
-                const match = cleanContent.match(this.patterns.conceptForward);
-                if (match) {
-                    symbols.push({ type: 'concept-forward', match });
-                    matched = true;
-                }
-            }
-
-            else if (this.patterns.conceptReverse.test(cleanContent)) {
-                logger.debug('[SiYuanMemo][AutoCard] Matched: conceptReverse');
-                const match = cleanContent.match(this.patterns.conceptReverse);
-                if (match) {
-                    symbols.push({ type: 'concept-reverse', match });
-                    matched = true;
-                }
-            }
-
-            else if (this.patterns.concept.test(cleanContent)) {
-                logger.debug('[SiYuanMemo][AutoCard] Matched: concept');
-                const match = cleanContent.match(this.patterns.concept);
-                if (match) {
-                    symbols.push({ type: 'concept', match });
-                    matched = true;
-                }
-            } else {
-                logger.debug('[SiYuanMemo][AutoCard] No concept pattern matched');
-            }
-        }
-        
-
-        if (!matched && enabledSymbols.descriptor && !hasDescriptorTripleMarker) {
-            logger.debug('[SiYuanMemo][AutoCard] Checking descriptor patterns...');
-
-            if (this.patterns.descriptorReverse.test(cleanContent)) {
-                const match = cleanContent.match(this.patterns.descriptorReverse);
-                logger.debug('[SiYuanMemo][AutoCard] Matched descriptorReverse:', match);
-                if (match) {
-                    symbols.push({ type: 'descriptor-reverse', match });
-                    matched = true;
-                }
-            }
-
-            else if (this.patterns.descriptor.test(cleanContent)) {
-                const match = cleanContent.match(this.patterns.descriptor);
-                logger.debug('[SiYuanMemo][AutoCard] Matched descriptor:', match);
-                if (match) {
-                    symbols.push({ type: 'descriptor', match });
-                    matched = true;
-                }
-            } else {
-                logger.debug('[SiYuanMemo][AutoCard] No descriptor pattern matched');
-                logger.debug('[SiYuanMemo][AutoCard] descriptorReverse test:', this.patterns.descriptorReverse.test(cleanContent));
-                logger.debug('[SiYuanMemo][AutoCard] descriptor test:', this.patterns.descriptor.test(cleanContent));
-            }
-        }
-        
-
-        if (!matched && enabledSymbols.cloze && ClozeDetector.hasClozes(cleanContent)) {
-            logger.debug('[SiYuanMemo][AutoCard] Matched: cloze');
-            symbols.push({ type: 'cloze', match: [cleanContent] as unknown as RegExpMatchArray });
-            matched = true;
-        }
-        
-        logger.debug('[SiYuanMemo][AutoCard] Symbol detection complete, matched:', matched, 'symbols:', symbols.length);
-        
-        return symbols;
-    }
 
     private isQuickSymbolSupportedBlockType(blockType: string): boolean {
         // `p`: paragraph, `m`: formula block.
@@ -1054,11 +780,6 @@ export class AutoCardHandler implements ITransactionHandler {
     // Trigger immediate processing when focus moves away from the previous block.
     private async processBlockImmediately(blockId: string): Promise<void> {
         logger.debug('[SiYuanMemo][AutoCard] Processing block immediately:', blockId);
-        
-
-        this.quickQueue.delete(blockId);
-        this.listQueue.delete(blockId);
-        
 
         if (this.processing.has(blockId)) {
             logger.debug('[SiYuanMemo][AutoCard] Block already processing:', blockId);
@@ -1074,72 +795,6 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.error('[SiYuanMemo][AutoCard] Failed to process block immediately:', blockId, error);
         } finally {
             this.processing.delete(blockId);
-            this.lastEditTime.delete(blockId);
-        }
-    }
-    
-    // Handle list template marker (>>> + child list items).
-    private async checkListTemplate(blockId: string, options?: { force?: boolean }): Promise<void> {
-        try {
-            if (!options?.force) {
-                return;
-            }
-
-            const quickCardSettings = this.settingsService.getSettings().quickCard;
-            if (!quickCardSettings) {
-                return;
-            }
-
-            if (!quickCardSettings.enabled && !options?.force) {
-                return;
-            }
-
-            if (!(quickCardSettings.enabledSymbols?.multiLine ?? true)) {
-                return;
-            }
-            
-
-            const { kramdown } = await this.siyuanApi.getBlockKramdown(blockId);
-            if (!kramdown) {
-                logger.debug('[SiYuanMemo][AutoCard] Block has no content:', blockId);
-                return;
-            }
-            
-            logger.debug('[SiYuanMemo][AutoCard] Checking list template:', blockId, 'content:', kramdown);
-            
-
-            if (!this.patterns.multiLine.test(kramdown)) {
-                logger.debug('[SiYuanMemo][AutoCard] No list template symbol detected:', blockId);
-                return;
-            }
-            
-
-            const typeResult = await this.siyuanApi.sql(`
-                SELECT type FROM blocks WHERE id = '${blockId}' LIMIT 1
-            `);
-            
-            if (!typeResult || typeResult.length === 0 || typeResult[0]?.type !== 'i') {
-                logger.debug('[SiYuanMemo][AutoCard] Block is not a list item:', blockId);
-                return;
-            }
-            
-
-            const childrenResult = await this.siyuanApi.sql(`
-                SELECT id FROM blocks
-                WHERE parent_id = '${blockId}' AND type = 'i'
-            `);
-            
-            if (!childrenResult || childrenResult.length < 2) {
-                logger.debug('[SiYuanMemo][AutoCard] Not enough child list items:', blockId, 'count:', childrenResult?.length || 0);
-                return;
-            }
-            
-            logger.debug('[SiYuanMemo][AutoCard] List template detected:', blockId, 'children:', childrenResult.length);
-            
-
-            await this.createListTemplateCards(blockId, childrenResult);
-        } catch (error) {
-            logger.error('[SiYuanMemo][AutoCard] Error checking list template:', blockId, error);
         }
     }
     
@@ -1214,7 +869,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     }
                 });
                 
-                if (!result.ok) {
+                if (isErr(result)) {
                     throw new Error(`Failed to create cards with back cloze: ${result.error?.message}`);
                 }
                 
@@ -1236,8 +891,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 }
             });
             
-            if (!result.ok) {
-                throw new Error(`Failed to create symbol card: ${result.error}`);
+            if (isErr(result)) {
+                throw new Error(`Failed to create symbol card: ${this.getErrorMessage(result.error)}`);
             }
             
 
@@ -1292,7 +947,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     }
                 });
                 
-                if (!result.ok) {
+                if (isErr(result)) {
                     throw new Error(`Failed to create bidirectional card with back cloze: ${result.error?.message}`);
                 }
                 
@@ -1311,7 +966,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 deckId: this.riffApi.BUILTIN_DECK_ID,
             });
             
-            if (!result.ok) {
+            if (isErr(result)) {
                 throw new Error('Failed to create bidirectional card via Xiuyuan');
             }
             
@@ -1369,7 +1024,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     WHERE id = '${refId}' 
                     LIMIT 1
                 `;
-                const typeResult = await this.siyuanApi.sql(blockTypeQuery);
+                const typeResult = await this.sqlRows<BlockTypeContentRow>(blockTypeQuery);
                 
                 if (!typeResult || typeResult.length === 0) {
                     logger.error('[SiYuanMemo][AutoCard] Block reference not found:', refId);
@@ -1382,7 +1037,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     return;
                 }
                 
-                const conceptName = typeResult[0].content;
+                const conceptName = typeof typeResult[0]?.content === 'string' ? typeResult[0].content : '';
                 logger.debug('[SiYuanMemo][AutoCard] Concept name from document block:', conceptName);
                 
 
@@ -1446,9 +1101,8 @@ export class AutoCardHandler implements ITransactionHandler {
                         deckId: this.riffApi.BUILTIN_DECK_ID
                     });
                     
-                    if (!result.ok) {
-                        const error = (result as { ok: false; error: Error }).error;
-                        const errorMsg = error instanceof Error ? error.message : String(error);
+                    if (isErr(result)) {
+                        const errorMsg = this.getErrorMessage(result.error);
                         logger.error('[SiYuanMemo][AutoCard] Failed to create multi-cloze concept card:', errorMsg);
                         return;
                     }
@@ -1488,9 +1142,8 @@ export class AutoCardHandler implements ITransactionHandler {
                         cardType: 'descriptor'
                     });
                     
-                    if (!result.ok) {
-                        const error = (result as { ok: false; error: Error }).error;
-                        const errorMsg = error instanceof Error ? error.message : String(error);
+                    if (isErr(result)) {
+                        const errorMsg = this.getErrorMessage(result.error);
                         logger.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan concept card:', errorMsg);
                         return;
                     }
@@ -1641,7 +1294,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 cardType: 'descriptor'
             });
             
-            if (!result.ok) {
+            if (isErr(result)) {
                 const errorMsg = this.getErrorMessage(result.error);
                 logger.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan descriptor card:', errorMsg);
                 await this.siyuanApi.pushErrMsg(`创建描述符卡片失败：${errorMsg}`);
@@ -1702,7 +1355,7 @@ export class AutoCardHandler implements ITransactionHandler {
             });
 
             if (!useMultiFaceMode && clozes.length === 1 && clozes[0].type !== 'latex') {
-                await this.createSingleClozeCard(blockId, content, clozes, resolvedCardType);
+                await this.createSingleClozeCard(blockId, clozes, resolvedCardType);
                 return;
             }
             
@@ -1723,7 +1376,6 @@ export class AutoCardHandler implements ITransactionHandler {
     // Create single cloze card with CardCreationHelper.
     private async createSingleClozeCard(
         blockId: string,
-        content: string,
         clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' | 'latex' }>,
         cardType: 'topic' | 'item'
     ): Promise<void> {
@@ -1747,9 +1399,9 @@ export class AutoCardHandler implements ITransactionHandler {
             }
         });
         
-        if (!result.ok) {
+        if (isErr(result)) {
             logger.error('[SiYuanMemo][AutoCard] Failed to create cloze card:', result.error);
-                        await this.siyuanApi.pushErrMsg(`创建填空卡片失败：${result.error}`);
+                        await this.siyuanApi.pushErrMsg(`创建填空卡片失败：${this.getErrorMessage(result.error)}`);
             return;
         }
         
@@ -1807,7 +1459,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 }
             });
             
-            if (!result.ok) {
+            if (isErr(result)) {
                 const errorMsg = this.getErrorMessage(result.error);
                 logger.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan cloze cards:', errorMsg);
                 await this.siyuanApi.pushErrMsg(`创建填空卡片失败：${errorMsg}`);
@@ -1925,9 +1577,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 cardType
             });
             
-            if (!result.ok) {
-                const error = (result as { ok: false; error: Error }).error;
-                const errorMsg = error instanceof Error ? error.message : String(error);
+            if (isErr(result)) {
+                const errorMsg = this.getErrorMessage(result.error);
                 logger.error('[SiYuanMemo][AutoCard] Failed to create Xiuyuan cards:', errorMsg);
                                 await this.siyuanApi.pushErrMsg(`创建列表模板卡片失败：${errorMsg}`);
                 return;
@@ -1975,9 +1626,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 deckId: this.riffApi.BUILTIN_DECK_ID
             });
             
-            if (!result.ok) {
-                const error = (result as { ok: false; error: Error }).error;
-                const errorMsg = error instanceof Error ? error.message : String(error);
+            if (isErr(result)) {
+                const errorMsg = this.getErrorMessage(result.error);
                 logger.error('[SiYuanMemo][AutoCard] Failed to create concept card:', errorMsg);
                 return;
             }
@@ -1995,56 +1645,10 @@ export class AutoCardHandler implements ITransactionHandler {
     
     // Cleanup timers and in-memory queues.
     dispose(): void {
-        if (this.quickTimer) {
-            clearTimeout(this.quickTimer);
-            this.quickTimer = null;
-        }
-        
-        if (this.listTimer) {
-            clearTimeout(this.listTimer);
-            this.listTimer = null;
-        }
-        
-        this.quickQueue.clear();
-        this.listQueue.clear();
         this.processing.clear();
-        
-
-        this.lastEditTime.clear();
         this.currentEditingBlock = null;
         
         logger.debug('[SiYuanMemo][AutoCard] Handler disposed');
-    }
-
-    // Find concept card ID from block references in current block content.
-    private async findConceptCardInBlockRef(content: string): Promise<string | null> {
-        try {
-
-            const refPattern = /\(\((\d{14}-[a-z0-9]{7})/g;
-            const matches = [...content.matchAll(refPattern)];
-
-            logger.debug('[SiYuanMemo][AutoCard] Block reference matches:', matches.length);
-            
-            if (matches.length === 0) {
-                return null;
-            }
-
-
-            for (const match of matches) {
-                const refId = match[1];
-                logger.debug('[SiYuanMemo][AutoCard] Checking block reference:', refId);
-
-                if (this.hasLocalConceptCard(refId)) {
-                    logger.debug('[SiYuanMemo][AutoCard] Found concept card in block reference:', refId);
-                    return refId;
-                }
-            }
-
-            return null;
-        } catch (error) {
-            logger.error('[SiYuanMemo][AutoCard] Error finding concept card in block ref:', error);
-            return null;
-        }
     }
     // Find or create concept card from block reference content.
     private async findOrCreateConceptFromBlockRef(content: string): Promise<string | null> {
@@ -2072,7 +1676,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     WHERE id = '${refId}' 
                     LIMIT 1
                 `;
-                const typeResult = await this.siyuanApi.sql(blockTypeQuery);
+                const typeResult = await this.sqlRows<BlockTypeRow>(blockTypeQuery);
                 
                 if (!typeResult || typeResult.length === 0 || typeResult[0].type !== 'd') {
                     logger.debug('[SiYuanMemo][AutoCard] Block reference is not a document block, skipping:', refId);
@@ -2098,14 +1702,14 @@ export class AutoCardHandler implements ITransactionHandler {
                 
 
                 const blockQuery = `SELECT content FROM blocks WHERE id = '${refId}' LIMIT 1`;
-                const blockResult = await this.siyuanApi.sql(blockQuery);
+                const blockResult = await this.sqlRows<BlockContentRow>(blockQuery);
                 
                 if (!blockResult || blockResult.length === 0) {
                     logger.warn('[SiYuanMemo][AutoCard] Block not found:', refId);
                     continue;
                 }
                 
-                const conceptName = blockResult[0].content;
+                const conceptName = typeof blockResult[0]?.content === 'string' ? blockResult[0].content : '';
                 logger.debug('[SiYuanMemo][AutoCard] Marking as concept card:', conceptName);
                 
 
@@ -2120,7 +1724,7 @@ export class AutoCardHandler implements ITransactionHandler {
                         }
                     });
                     
-                    if (!result.ok) {
+                    if (isErr(result)) {
                         logger.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', result.error);
                         continue;
                     }
@@ -2164,13 +1768,16 @@ export class AutoCardHandler implements ITransactionHandler {
                 WHERE id = '${currentId}' 
                 LIMIT 1
             `;
-            const result = await this.siyuanApi.sql(query);
+            const result = await this.sqlRows<ParentIdRow>(query);
             
             if (!result || result.length === 0 || !result[0]?.parent_id) {
                 break;
             }
             
-            const parentId = result[0].parent_id;
+            const parentId = typeof result[0]?.parent_id === 'string' ? result[0].parent_id : '';
+            if (!parentId) {
+                break;
+            }
             
 
             const parentQuery = `
@@ -2179,10 +1786,10 @@ export class AutoCardHandler implements ITransactionHandler {
                 WHERE id = '${parentId}' 
                 LIMIT 1
             `;
-            const parentResult = await this.siyuanApi.sql(parentQuery);
+            const parentResult = await this.sqlRows<BlockTypeRow>(parentQuery);
             
             if (parentResult && parentResult.length > 0) {
-                const parentType = parentResult[0].type;
+                const parentType = typeof parentResult[0]?.type === 'string' ? parentResult[0].type : '';
                 
 
                 if (parentType === 'i') {
@@ -2221,13 +1828,16 @@ export class AutoCardHandler implements ITransactionHandler {
                 WHERE id = '${currentId}' 
                 LIMIT 1
             `;
-            const result = await this.siyuanApi.sql(query);
+            const result = await this.sqlRows<ParentIdRow>(query);
             
             if (!result || result.length === 0 || !result[0]?.parent_id) {
                 break;
             }
             
-            const parentId = result[0].parent_id;
+            const parentId = typeof result[0]?.parent_id === 'string' ? result[0].parent_id : '';
+            if (!parentId) {
+                break;
+            }
             
 
             const parentQuery = `
@@ -2236,11 +1846,11 @@ export class AutoCardHandler implements ITransactionHandler {
                 WHERE id = '${parentId}' 
                 LIMIT 1
             `;
-            const parentResult = await this.siyuanApi.sql(parentQuery);
+            const parentResult = await this.sqlRows<BlockTypeContentRow>(parentQuery);
             
             if (parentResult && parentResult.length > 0) {
-                const parentType = parentResult[0].type;
-                const parentContent = parentResult[0].content;
+                const parentType = typeof parentResult[0]?.type === 'string' ? parentResult[0].type : '';
+                const parentContent = typeof parentResult[0]?.content === 'string' ? parentResult[0].content : '';
                 
 
                 if (parentType === 'h' && !firstHeadingId) {
@@ -2298,8 +1908,8 @@ export class AutoCardHandler implements ITransactionHandler {
         try {
 
             const blockQuery = `SELECT content FROM blocks WHERE id = '${conceptId}' LIMIT 1`;
-            const blockResult = await this.siyuanApi.sql(blockQuery);
-            const conceptName = blockResult && blockResult.length > 0 ? blockResult[0].content : 'unknown concept';
+            const blockResult = await this.sqlRows<BlockContentRow>(blockQuery);
+            const conceptName = typeof blockResult?.[0]?.content === 'string' ? blockResult[0].content : 'unknown concept';
             
             const helper = this.getCardHelper();
             
@@ -2311,7 +1921,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 }
             });
             
-            if (!result.ok) {
+            if (isErr(result)) {
                 logger.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', result.error);
                 return null;
             }
@@ -2343,14 +1953,18 @@ export class AutoCardHandler implements ITransactionHandler {
         
         for (let depth = 0; depth < maxDepth; depth++) {
             const parentQuery = `SELECT parent_id FROM blocks WHERE id = '${currentId}' LIMIT 1`;
-            const parentResult = await this.siyuanApi.sql(parentQuery);
+            const parentResult = await this.sqlRows<ParentIdRow>(parentQuery);
             
             if (!parentResult || parentResult.length === 0 || !parentResult[0]?.parent_id) {
                 logger.debug(`[SiYuanMemo][AutoCard] No parent at depth ${depth}`);
                 break;
             }
             
-            const parentId = parentResult[0].parent_id;
+            const parentId = typeof parentResult[0]?.parent_id === 'string' ? parentResult[0].parent_id : '';
+            if (!parentId) {
+                logger.debug(`[SiYuanMemo][AutoCard] Empty parent id at depth ${depth}`);
+                break;
+            }
             logger.debug(`[SiYuanMemo][AutoCard] Checking parent at depth ${depth}:`, parentId);
             
 

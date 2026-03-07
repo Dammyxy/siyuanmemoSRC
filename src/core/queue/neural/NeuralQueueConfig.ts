@@ -51,7 +51,7 @@ export class NeuralQueueConfigManager {
 
     // 验证权重值
     if (config.weights) {
-      const { refLink, hierarchy, tag, sibling } = config.weights;
+      const { refLink, hierarchy, tag, sibling, backlink, conceptLink, descriptor } = config.weights;
       
       if (refLink !== undefined && (refLink < 0 || !Number.isFinite(refLink))) {
         errors.push('weights.refLink must be a non-negative number');
@@ -64,6 +64,15 @@ export class NeuralQueueConfigManager {
       }
       if (sibling !== undefined && (sibling < 0 || !Number.isFinite(sibling))) {
         errors.push('weights.sibling must be a non-negative number');
+      }
+      if (backlink !== undefined && (backlink < 0 || !Number.isFinite(backlink))) {
+        errors.push('weights.backlink must be a non-negative number');
+      }
+      if (conceptLink !== undefined && (conceptLink < 0 || !Number.isFinite(conceptLink))) {
+        errors.push('weights.conceptLink must be a non-negative number');
+      }
+      if (descriptor !== undefined && (descriptor < 0 || !Number.isFinite(descriptor))) {
+        errors.push('weights.descriptor must be a non-negative number');
       }
     }
 
@@ -142,6 +151,9 @@ export class NeuralQueueConfigManager {
         hierarchy: config.weights?.hierarchy ?? DEFAULT_NEURAL_QUEUE_CONFIG.weights.hierarchy,
         tag: config.weights?.tag ?? DEFAULT_NEURAL_QUEUE_CONFIG.weights.tag,
         sibling: config.weights?.sibling ?? DEFAULT_NEURAL_QUEUE_CONFIG.weights.sibling,
+        backlink: config.weights?.backlink ?? DEFAULT_NEURAL_QUEUE_CONFIG.weights.backlink,
+        conceptLink: config.weights?.conceptLink ?? DEFAULT_NEURAL_QUEUE_CONFIG.weights.conceptLink,
+        descriptor: config.weights?.descriptor ?? DEFAULT_NEURAL_QUEUE_CONFIG.weights.descriptor,
       },
       blockWeights: {
         flashcard: config.blockWeights?.flashcard ?? DEFAULT_NEURAL_QUEUE_CONFIG.blockWeights.flashcard,

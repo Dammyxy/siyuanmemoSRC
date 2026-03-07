@@ -14,22 +14,23 @@ import { ReviewView } from '@/ui/review/v2';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
-import type { QueueProvider } from '@/core/extensions/QueueProvider';
-import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
 import type { IAdapter, ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
 import { QueueType } from '@/types/unified-data-source';
+import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
 import { resolveReviewHeaderVariant } from '@/ui/review/v2/types';
 import { createLogger } from '@/utils/logger';
-/// #if !BROWSER
-import { ipcRenderer } from 'electron';
-/// #endif
 
 const logger = createLogger('TabManager');
 
-type ReviewProviderRef = Pick<QueueProvider<unknown>, 'id'>;
-type ReviewQueueRef = Pick<IQueueStrategy<unknown>, 'getType'>;
+type ReviewProviderRef = {
+  id: string;
+};
+
+type ReviewQueueRef = {
+  getType?: () => unknown;
+};
 
 interface ReviewTabData {
   providerId: string;
@@ -47,6 +48,29 @@ interface TabRuntimeContext {
 type PluginWithI18n = Plugin & {
   i18n?: Record<string, string>;
 };
+
+type ElectronIpcRenderer = {
+  send(channel: string, payload: unknown): void;
+};
+
+function resolveIpcRenderer(): ElectronIpcRenderer | undefined {
+  const runtimeWindow = window as Window & {
+    require?: (id: string) => unknown;
+  };
+
+  if (typeof runtimeWindow.require !== 'function') {
+    return undefined;
+  }
+
+  try {
+    const electronModule = runtimeWindow.require('electron') as {
+      ipcRenderer?: ElectronIpcRenderer;
+    };
+    return electronModule.ipcRenderer;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Review tab options.
@@ -98,19 +122,21 @@ export class TabManager {
 
     this.plugin.addTab({
       type: this.TAB_TYPE,
-      init(this: TabRuntimeContext) {
+      init() {
+        const runtime = this as unknown as TabRuntimeContext;
         const app = createApp(SRSBrowser, {
           app: self.plugin.app,
           i18n: self.context.getI18n() || {},
           mode: 'tab',
           plugin: self.plugin,
         });
-        app.mount(this.element);
-        this.vueApp = app;
+        app.mount(runtime.element);
+        runtime.vueApp = app;
       },
-      destroy(this: TabRuntimeContext) {
-        this.vueApp?.unmount();
-        this.vueApp = undefined;
+      destroy() {
+        const runtime = this as unknown as TabRuntimeContext;
+        runtime.vueApp?.unmount();
+        runtime.vueApp = undefined;
       },
     });
   }
@@ -120,8 +146,9 @@ export class TabManager {
 
     this.plugin.addTab({
       type: this.REVIEW_TAB_TYPE,
-      init(this: TabRuntimeContext) {
-        const data = self.normalizeReviewTabData(this.data);
+      init() {
+        const runtime = this as unknown as TabRuntimeContext;
+        const data = self.normalizeReviewTabData(runtime.data);
         logger.info('Restoring review tab', {
           providerId: data.providerId,
           queueType: data.queueType,
@@ -146,12 +173,13 @@ export class TabManager {
           plugin: self.plugin,
         });
 
-        app.mount(this.element);
-        this.vueApp = app;
+        app.mount(runtime.element);
+        runtime.vueApp = app;
       },
-      destroy(this: TabRuntimeContext) {
-        this.vueApp?.unmount();
-        this.vueApp = undefined;
+      destroy() {
+        const runtime = this as unknown as TabRuntimeContext;
+        runtime.vueApp?.unmount();
+        runtime.vueApp = undefined;
       },
     });
   }
@@ -296,7 +324,7 @@ export class TabManager {
       queueType,
       this.context.getUnifiedDataSourceManager(),
       this.context.getEventBus(),
-      this.context.getSchedulerRouter()
+      this.context.getSchedulerRouter() as unknown as ISchedulerRouter
     );
   }
 
@@ -336,7 +364,8 @@ export class TabManager {
   }
 
   private canOpenInNewWindow(): boolean {
-    return typeof ipcRenderer !== 'undefined' && typeof ipcRenderer.send === 'function';
+    const ipcRenderer = resolveIpcRenderer();
+    return typeof ipcRenderer?.send === 'function';
   }
 
   private async openReviewTabInternal(
@@ -371,6 +400,10 @@ export class TabManager {
   private async openReviewInNewWindowInternal(options: ReviewTabOptions): Promise<void> {
     try {
       if (!this.canOpenInNewWindow()) {
+        throw new Error('ipcRenderer is unavailable');
+      }
+      const ipcRenderer = resolveIpcRenderer();
+      if (!ipcRenderer) {
         throw new Error('ipcRenderer is unavailable');
       }
       const tabData = this.resolveReviewTabData(options);

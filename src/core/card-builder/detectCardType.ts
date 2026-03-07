@@ -18,6 +18,15 @@ interface ChildBlockRow {
   content?: string;
 }
 
+interface BlockTypeRow extends Record<string, unknown> {
+  type?: unknown;
+}
+
+interface BlockContentRow extends Record<string, unknown> {
+  markdown?: unknown;
+  content?: unknown;
+}
+
 /**
  * 获取块类型（通过 SQL 查询）
  *
@@ -25,12 +34,12 @@ interface ChildBlockRow {
  */
 async function getBlockType(blockId: string): Promise<string | null> {
   try {
-    const result = await sql(`
+    const result = await sql<BlockTypeRow>(`
       SELECT type FROM blocks
       WHERE id = '${blockId}'
       LIMIT 1
     `);
-    return result && result.length > 0 ? result[0].type : null;
+    return result && result.length > 0 && typeof result[0].type === 'string' ? result[0].type : null;
   } catch (err) {
     logger.error('Failed to get block type:', err);
     return null;
@@ -57,14 +66,14 @@ async function getBlockType(blockId: string): Promise<string | null> {
 export async function hasAnswerBlocks(blockId: string): Promise<boolean> {
   try {
     // 使用 SQL 查询获取 markdown 字段，而不是 getBlockText（会去除标记）
-    const blockData = await sql(`
+    const blockData = await sql<BlockContentRow>(`
       SELECT markdown, content FROM blocks
       WHERE id = '${blockId}'
       LIMIT 1
     `);
 
-    const markdown = blockData && blockData.length > 0 ? blockData[0].markdown : '';
-    const content = blockData && blockData.length > 0 ? blockData[0].content : '';
+    const markdown = blockData && blockData.length > 0 ? String(blockData[0].markdown || '') : '';
+    const content = blockData && blockData.length > 0 ? String(blockData[0].content || '') : '';
 
     const syntaxReason = detectAnswerSyntax(markdown, content, 'basic');
     if (syntaxReason) {

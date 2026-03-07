@@ -14,9 +14,11 @@
  * **Validates: Requirements 1.1, 1.7**
  */
 
-import type SiyuanMemoPlugin from '../../index';
+import type { Plugin } from 'siyuan';
 import type { UnifiedCardStore } from './UnifiedStorageManager';
 import { createLogger } from '@/utils/logger';
+
+type PersistencePlugin = Pick<Plugin, 'saveData' | 'loadData'>;
 
 const logger = createLogger('UnifiedStoragePersistence');
 
@@ -29,7 +31,7 @@ export const UNIFIED_STORAGE_KEY = 'unified-cards.msgpack';
  * @param plugin - SiyuanMemo 插件实例
  * @returns 包含 save 和 load 回调的对象
  */
-export function createPersistenceCallbacks(plugin: SiyuanMemoPlugin) {
+export function createPersistenceCallbacks(plugin: PersistencePlugin) {
   /**
    * 保存回调：将数据序列化为 MessagePack 并保存到文件
    */

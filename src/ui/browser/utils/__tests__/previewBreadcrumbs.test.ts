@@ -59,6 +59,22 @@ describe('previewBreadcrumbs', () => {
     })).toBe('NodeDocument');
   });
 
+  it('falls back to a matching breadcrumb self item for selected document preview type', () => {
+    const card = createCard({
+      blockId: 'doc-root',
+      fullContent: 'Root Document',
+      meta: {},
+    });
+
+    expect(resolvePreviewTargetType({
+      card,
+      activePreviewBlockId: 'doc-root',
+      breadcrumbs: [
+        { id: 'doc-root', name: 'Root Document', type: 'NodeDocument' },
+      ],
+    })).toBe('NodeDocument');
+  });
+
   it('prefers selected document content for title resolution', () => {
     const card = createCard({
       blockId: 'doc-1',

@@ -17,7 +17,7 @@
  * @see .kiro/specs/ddd-refactoring/browser-ddd-migration.md - Phase 1
  */
 
-import type { FSRSCard } from '@/types';
+import type { FSRSCard } from '@/types/card';
 
 /**
  * 排序字段类型
@@ -70,10 +70,10 @@ export class CardSortService {
    * @returns 排序后的卡片列表（不修改原数组）
    */
   sort(
-    cards: Card[],
+    cards: FSRSCard[],
     sortBy: SortField,
     sortOrder: SortOrder = 'asc'
-  ): Card[] {
+  ): FSRSCard[] {
     const sorted = [...cards];
     const multiplier = sortOrder === 'asc' ? 1 : -1;
     
@@ -151,9 +151,9 @@ export class CardSortService {
    * ```
    */
   sortMultiple(
-    cards: Card[],
+    cards: FSRSCard[],
     sortRules: Array<{ field: SortField; order: SortOrder }>
-  ): Card[] {
+  ): FSRSCard[] {
     if (!sortRules || sortRules.length === 0) {
       return cards;
     }
@@ -213,7 +213,7 @@ export class CardSortService {
    * @param ascending - 是否升序（默认为 true）
    * @returns 排序后的卡片列表
    */
-  sortByDueTime(cards: Card[], ascending: boolean = true): Card[] {
+  sortByDueTime(cards: FSRSCard[], ascending: boolean = true): FSRSCard[] {
     return this.sort(cards, 'due', ascending ? 'asc' : 'desc');
   }
   
@@ -224,7 +224,7 @@ export class CardSortService {
    * @param ascending - 是否升序（默认为 true）
    * @returns 排序后的卡片列表
    */
-  sortByStability(cards: Card[], ascending: boolean = true): Card[] {
+  sortByStability(cards: FSRSCard[], ascending: boolean = true): FSRSCard[] {
     return this.sort(cards, 'stability', ascending ? 'asc' : 'desc');
   }
   
@@ -235,7 +235,7 @@ export class CardSortService {
    * @param ascending - 是否升序（默认为 true）
    * @returns 排序后的卡片列表
    */
-  sortByDifficulty(cards: Card[], ascending: boolean = true): Card[] {
+  sortByDifficulty(cards: FSRSCard[], ascending: boolean = true): FSRSCard[] {
     return this.sort(cards, 'difficulty', ascending ? 'asc' : 'desc');
   }
   
@@ -246,7 +246,7 @@ export class CardSortService {
    * @param ascending - 是否升序（默认为 false，高优先级在前）
    * @returns 排序后的卡片列表
    */
-  sortByPriority(cards: Card[], ascending: boolean = false): Card[] {
+  sortByPriority(cards: FSRSCard[], ascending: boolean = false): FSRSCard[] {
     return this.sort(cards, 'priority', ascending ? 'asc' : 'desc');
   }
   
@@ -276,7 +276,7 @@ export class CardSortService {
    * @param card - 卡片对象
    * @returns 优先级（默认为 50）
    */
-  private getPriority(card: Card): number {
+  private getPriority(card: FSRSCard): number {
     const priority = card.meta?.priority as number | undefined;
     return priority !== undefined ? priority : 50;
   }

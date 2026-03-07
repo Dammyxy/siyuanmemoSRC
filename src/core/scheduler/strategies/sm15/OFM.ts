@@ -8,7 +8,7 @@
 import { exponentialRegression, fixedPointPowerLawRegression, linearRegression, powerLawModel } from './regression';
 import { SM15_CONSTANTS } from './types';
 import type { SM15 } from './SM15';
-import type { RegressionModel } from './types';
+import type { Point, RegressionModel } from './types';
 
 const { RANGE_AF, RANGE_REPETITION, MIN_AF, NOTCH_AF } = SM15_CONSTANTS;
 

@@ -11,7 +11,7 @@
 
 import type { IScheduler } from '../abstraction/types';
 
-export type SchedulerSelector<TCard, TGrade> = (card: TCard) => string;
+export type SchedulerSelector<TCard> = (card: TCard) => string;
 
 export type CompositeSchedulerConfig<TCard, TGrade> = {
   /**
@@ -23,7 +23,7 @@ export type CompositeSchedulerConfig<TCard, TGrade> = {
    * Function to determine which scheduler to use for a given card
    * Returns the scheduler ID
    */
-  selector: SchedulerSelector<TCard, TGrade>;
+  selector: SchedulerSelector<TCard>;
 
   /**
    * Default scheduler ID (used if selector returns unknown ID)
@@ -36,7 +36,7 @@ export type CompositeSchedulerConfig<TCard, TGrade> = {
  */
 export class CompositeScheduler<TCard = unknown, TGrade = number> implements IScheduler<TCard, TGrade> {
   private readonly schedulers: Record<string, IScheduler<TCard, TGrade>>;
-  private readonly selector: SchedulerSelector<TCard, TGrade>;
+  private readonly selector: SchedulerSelector<TCard>;
   private readonly defaultScheduler?: string;
 
   constructor(config: CompositeSchedulerConfig<TCard, TGrade>) {

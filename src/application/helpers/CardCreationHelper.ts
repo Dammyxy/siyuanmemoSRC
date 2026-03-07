@@ -35,7 +35,7 @@ export interface CardCreationOptions {
   /** 扩展元数据 */
   metadata?: Record<string, unknown>;
   /** 卡片类型（可选，用于覆盖默认类型） */
-  cardType?: 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
+  cardType?: 'item' | 'topic' | 'concept' | 'descriptor';
 }
 
 /**

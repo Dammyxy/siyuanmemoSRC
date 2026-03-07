@@ -40,6 +40,23 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('GetBrowserCardsQueryHandler');
 
+interface RootIdRow extends Record<string, unknown> {
+  id: string;
+  root_id: string | null;
+}
+
+interface ContentRow extends Record<string, unknown> {
+  id: string;
+  content: string | null;
+}
+
+interface BlockInfoRow extends Record<string, unknown> {
+  id: string;
+  root_id: string | null;
+  content: string | null;
+  attrs: string | null;
+}
+
 /**
  * GetBrowserCardsQueryHandler 类
  * 
@@ -275,7 +292,7 @@ export class GetBrowserCardsQueryHandler {
           WHERE id IN (${idsStr})
         `;
         
-        const result = await this.siyuanApi.sql(query);
+        const result = await this.siyuanApi.sql<RootIdRow>(query);
         
         // 创建 blockId -> rootId 的映射
         const rootIdMap = new Map<string, string>();
@@ -337,7 +354,7 @@ export class GetBrowserCardsQueryHandler {
           WHERE id IN (${idsStr})
         `;
         
-        const result = await this.siyuanApi.sql(query);
+        const result = await this.siyuanApi.sql<ContentRow>(query);
         
         // 创建 blockId -> content 的映射
         const contentMap = new Map<string, string>();
@@ -514,7 +531,7 @@ export class GetBrowserCardsQueryHandler {
           GROUP BY b.id
         `;
         
-        const result = await this.siyuanApi.sql(query);
+        const result = await this.siyuanApi.sql<BlockInfoRow>(query);
         
         for (const row of result) {
           const blockId = row.id;

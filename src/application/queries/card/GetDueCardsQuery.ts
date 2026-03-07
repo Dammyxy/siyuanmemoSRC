@@ -39,7 +39,7 @@ export interface GetDueCardsQueryResult {
   /**
    * 到期卡片列表
    */
-  cards: Card[];
+  cards: FSRSCard[];
   
   /**
    * 到期卡片数量

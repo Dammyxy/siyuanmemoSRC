@@ -30,6 +30,21 @@ export interface QueryBlock {
   content: string;
 }
 
+interface BlockRow extends Record<string, unknown> {
+  id: string;
+  content: string | null;
+  parent_id: string | null;
+}
+
+interface AttributeRow extends Record<string, unknown> {
+  value: string | null;
+}
+
+interface QueryBlockRow extends Record<string, unknown> {
+  id: string;
+  content: string | null;
+}
+
 export class SiyuanBlockAdapter {
   private readonly kramdownGateway = new SiyuanKramdownGateway(logger);
 
@@ -45,7 +60,7 @@ export class SiyuanBlockAdapter {
         WHERE id = '${blockId}'
       `;
 
-      const results = await sql(query);
+      const results = await sql<BlockRow>(query);
       
       if (!results || results.length === 0) {
         logger.warn('[SiYuanMemo][SiyuanBlockAdapter] Block not found:', blockId);
@@ -114,9 +129,9 @@ export class SiyuanBlockAdapter {
           AND name = '${attrName}'
       `;
 
-      const results = await sql(query);
+      const results = await sql<AttributeRow>(query);
       if (results && results.length > 0) {
-        return results[0].value;
+        return results[0].value || null;
       }
 
       return null;
@@ -147,8 +162,11 @@ export class SiyuanBlockAdapter {
         ORDER BY b.created ASC
       `;
 
-      const results = await sql(query);
-      return results || [];
+      const results = await sql<QueryBlockRow>(query);
+      return results.map((row) => ({
+        id: row.id,
+        content: row.content || '',
+      }));
     } catch (error) {
       logger.error('[SiYuanMemo][SiyuanBlockAdapter] Error querying sibling descriptors:', error);
       return [];

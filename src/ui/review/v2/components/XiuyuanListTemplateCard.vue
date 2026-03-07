@@ -43,14 +43,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
-import { normalizeRawBreadcrumbs } from '@/core/card/common/application/breadcrumbNormalization';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
+import { loadBreadcrumbTrail } from '@/ui/review/shared/loadBreadcrumbTrail';
 import { createLogger } from '@/utils/logger';
 
 type SiyuanApiLike = {
   getBlockDOM: (blockId: string) => Promise<{ dom?: string } | null | undefined>;
-  getBlockBreadcrumb: (blockId: string) => Promise<unknown>;
 };
 
 type ReviewServiceLike = {
@@ -114,9 +113,11 @@ onMounted(async () => {
     const result = await siyuanApi.getBlockDOM(props.questionBlockId);
     questionHtml.value = result?.dom || '';
 
-    const breadcrumbResult = await siyuanApi.getBlockBreadcrumb(props.questionBlockId);
-    breadcrumbs.value = normalizeRawBreadcrumbs(breadcrumbResult, {
+    breadcrumbs.value = await loadBreadcrumbTrail(props.questionBlockId, {
       trimTrailingCount: 2,
+    }).catch((breadcrumbError) => {
+      logger.warn('[XiuyuanListTemplateCard] Failed to load breadcrumbs:', breadcrumbError);
+      return [];
     });
   }
   catch (error) {

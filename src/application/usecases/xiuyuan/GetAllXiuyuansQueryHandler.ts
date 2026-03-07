@@ -21,6 +21,7 @@
 
 import { GetAllXiuyuansQuery, GetAllXiuyuansQueryResult } from '../../queries/xiuyuan/GetAllXiuyuansQuery';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
+import { isErr } from '@/types/result';
 
 /**
  * 获取所有 Xiuyuan 查询处理器
@@ -54,7 +55,7 @@ export class GetAllXiuyuansQueryHandler {
   async handle(_query: GetAllXiuyuansQuery = {}): Promise<GetAllXiuyuansQueryResult> {
     // 1. 从 Repository 查询所有 Xiuyuan
     const findResult = await this.xiuyuanRepository.findAll();
-    if (!findResult.ok) {
+    if (isErr(findResult)) {
       throw findResult.error;
     }
 

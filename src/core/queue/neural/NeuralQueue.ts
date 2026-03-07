@@ -629,9 +629,9 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
    * @returns Orbit 状态对象
    * Requirements: 10.1, 10.2
    */
-  public getOrbitState(): import('./types.ts').OrbitState {
+  public async getOrbitState(): Promise<import('./types.ts').OrbitState> {
     return {
-      historyPath: this.getNavigationPath(),
+      historyPath: await this.getNavigationPath(),
       missedBlocks: new Map(this.missedBlocks),
       currentNodeId: this.currentSeedId,
       candidateNodes: this.getCurrentCandidates(),
@@ -761,12 +761,12 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
   ): Promise<import('./types.ts').WeightedNeighbor[]> {
     const allNeighbors = await this.queryEngine.fetchNeighbors(nodeId);
     return allNeighbors
-      .filter(n => n.associationType === direction)
+      .filter((neighbor) => neighbor.type === direction)
       .map(n => ({
         id: n.id,
-        weight: n.weight || 0,
-        associationType: n.associationType,
-        reason: this.getReasonText(n.associationType),
+        weight: this.weightedWalkEngine.getWeight(n.type),
+        associationType: n.type,
+        reason: this.getReasonText(n.type),
       }));
   }
 
@@ -792,11 +792,10 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       }
       grouped.get(neighbor.type)!.push({
         id: neighbor.id,
-        blockId: neighbor.id, // 修复：添加缺失的 blockId 字段
         title: contentMap.get(neighbor.id) || neighbor.id.substring(0, 8) + '...', // 添加块内容
-        weight: 0,
-        associationType: neighbor.type, // 修复：使用正确的字段名 type
-        reason: this.getReasonText(neighbor.type), // 修复：使用正确的字段名 type
+        weight: this.weightedWalkEngine.getWeight(neighbor.type),
+        associationType: neighbor.type,
+        reason: this.getReasonText(neighbor.type),
       });
     }
 
@@ -816,7 +815,6 @@ export class NeuralQueue implements QueueInterface<QueueItem> {
       direction,
       candidateIds.map(id => ({
         id,
-        blockId: id,
         associationType: direction,
         missedAt: Date.now(),
       }))

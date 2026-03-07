@@ -2,6 +2,7 @@ import type { FSRSCard } from '@/types/card';
 import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { CardUpdatePort } from '@/core/scheduler/ports';
 import { createLogger } from '@/utils/logger';
+import { isErr } from '@/types/result';
 
 const logger = createLogger('UnifiedStorageCardUpdateAdapter');
 
@@ -31,7 +32,7 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
 
     for (const [cardId, card] of dedupedCards.entries()) {
       const result = await this.storage.updateCard(card);
-      if (!result.ok) {
+      if (isErr(result)) {
         throw new Error(
           `Failed to persist card "${cardId}" in scheduler adapter: ${result.error.message}`
         );

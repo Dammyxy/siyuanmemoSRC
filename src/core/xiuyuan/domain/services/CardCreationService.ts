@@ -16,7 +16,7 @@
  * - 确保业务不变性
  */
 
-import { Result, ok, err } from '../../../../types/result';
+import { Result, ok, err, isErr } from '../../../../types/result';
 import { Xiuyuan } from '../Xiuyuan';
 import { Card } from '../Card';
 import { CardId } from '../CardId';
@@ -89,7 +89,7 @@ export class CardCreationService {
 
     for (let i = 0; i < faces.length; i++) {
       const cardResult = this.createCard(xiuyuan, i);
-      if (!cardResult.ok) {
+      if (isErr(cardResult)) {
         return err(new Error(
           `Failed to create card for face ${i}: ${cardResult.error.message}`
         ));

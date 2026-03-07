@@ -8,13 +8,14 @@
 
 import type { FSRSCard, ReviewLog, PluginSettings, RescheduleLog } from '@/types';
 import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, normalizePluginSettings, type RiffIntegrationConfig } from '@/types';
-import { CardType } from '@/types/card';
+import { CardType, CardState } from '@/types/card';
 import * as siyuanApi from '@/core/siyuan/api';
 import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 import { encode, decode } from '@msgpack/msgpack';
 import { migrateCard } from '@/utils/cardMigration';
 import { createLogger } from '@/utils/logger';
+import type { RescheduleHistoryEntry } from '@/types/reschedule';
 
 /** 存储文件名 */
 const STORAGE_FILES = {
@@ -114,6 +115,19 @@ function toBooleanOrDefault(value: unknown, fallback: boolean): boolean {
     return fallback;
 }
 
+function toBoolean(value: unknown): boolean | undefined {
+    return typeof value === 'boolean' ? value : undefined;
+}
+
+function toStringOrUndefined(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function toNumberOrUndefined(value: unknown): number | undefined {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : undefined;
+}
+
 function toStringArray(value: unknown): string[] {
     if (!Array.isArray(value)) {
         return [];
@@ -121,6 +135,63 @@ function toStringArray(value: unknown): string[] {
     return value
         .map((item) => String(item || '').trim())
         .filter(Boolean);
+}
+
+function isCardType(value: unknown): value is CardType {
+    return typeof value === 'string' && Object.values(CardType).includes(value as CardType);
+}
+
+function isSchedulerType(value: unknown): value is NonNullable<FSRSCard['schedulerType']> {
+    return value === 'fsrs-v6'
+        || value === 'sm2'
+        || value === 'sm15'
+        || value === 'a-factor'
+        || value === 'a-factor-v2'
+        || value === 'riff';
+}
+
+function toCardState(value: unknown): CardState {
+    switch (value) {
+        case CardState.Learning:
+        case CardState.Review:
+        case CardState.Relearning:
+        case CardState.Suspended:
+            return value;
+        default:
+            return CardState.New;
+    }
+}
+
+function toRescheduleHistory(value: unknown): RescheduleHistoryEntry[] | undefined {
+    if (!Array.isArray(value)) {
+        return undefined;
+    }
+
+    const entries = value.flatMap((entry): RescheduleHistoryEntry[] => {
+        if (!isRecord(entry)) {
+            return [];
+        }
+        const type = entry.type;
+        if (type !== 'postpone' && type !== 'advance' && type !== 'spread' && type !== 'dilute') {
+            return [];
+        }
+        const timestamp = toNumberOrUndefined(entry.timestamp);
+        const oldDue = toNumberOrUndefined(entry.oldDue);
+        const newDue = toNumberOrUndefined(entry.newDue);
+        if (timestamp === undefined || oldDue === undefined || newDue === undefined) {
+            return [];
+        }
+        const reason = toStringOrUndefined(entry.reason);
+        return [{
+            type,
+            timestamp,
+            oldDue,
+            newDue,
+            ...(reason ? { reason } : {}),
+        }];
+    });
+
+    return entries.length > 0 ? entries : undefined;
 }
 
 /**
@@ -350,7 +421,7 @@ export class StorageManager {
      * 
      * 🔧 自动规范化混合类型数据
      */
-    private async loadCards(): Promise<void> {
+    async loadCards(): Promise<void> {
         try {
             const { data, source } = await this.loadWithLegacyFallback(STORAGE_FILES.CARDS, STORAGE_FILES.CARDS_JSON);
             if (source === 'none') {
@@ -482,14 +553,26 @@ export class StorageManager {
         };
         
         // 构造纯 FSRSCard（移除 QueueItem 字段）
+        const meta = isRecord(source.meta) ? source.meta : undefined;
+        const syncToRiff = toBoolean(source.syncToRiff);
+        const riffCardId = toStringOrUndefined(source.riffCardId);
+        const skipUntil = toNumberOrUndefined(source.skipUntil);
+        const postponeCount = toNumberOrUndefined(source.postponeCount);
+        const lastPostponeDate = toNumberOrUndefined(source.lastPostponeDate);
+        const rescheduleHistory = toRescheduleHistory(source.rescheduleHistory);
         const normalized: FSRSCard = {
             // 标识字段
             id: String(id || blockId),
+            xiuyuanID: typeof source.xiuyuanID === 'string'
+                ? source.xiuyuanID
+                : (typeof source.meta === 'object' && source.meta !== null && typeof (source.meta as Record<string, unknown>).xiuyuanID === 'string'
+                    ? String((source.meta as Record<string, unknown>).xiuyuanID)
+                    : ''),
             blockId: String(blockId || id),
             
             // FSRS 核心字段（🆕 验证日期）
             due: validateTimestamp(source.due, 'due') || Date.now(),
-            state: toNumberOrDefault(source.state, 0),
+            state: toCardState(source.state),
             stability: toNumberOrDefault(source.stability, 0),
             difficulty: toNumberOrDefault(source.difficulty, 0),
             reps: toNumberOrDefault(source.reps, 0),
@@ -501,7 +584,7 @@ export class StorageManager {
             // 扩展字段（填充默认值）
             priority: toNumberOrDefault(source.priority, 50),
             // ✅ 修复：为 null/undefined 提供默认值 CardType.Item
-            type: typeof source.type === 'string' ? source.type : CardType.Item,
+            type: isCardType(source.type) ? source.type : CardType.Item,
             tags: toStringArray(source.tags),
             leechCount: toNumberOrDefault(source.leechCount, 0),
             isLeech: toBooleanOrDefault(source.isLeech, false),
@@ -512,16 +595,16 @@ export class StorageManager {
             updatedAt: toNumberOrDefault(source.updatedAt, Date.now()),
             
             // 保留其他字段（但不包括 deckID）
-            ...(typeof source.schedulerType === 'string' && { schedulerType: source.schedulerType }),
-            ...(source.syncToRiff !== undefined && { syncToRiff: source.syncToRiff }),
-            ...(source.riffCardId && { riffCardId: source.riffCardId }),
-            ...(source.skipUntil && { skipUntil: source.skipUntil }),
-            ...(source.meta && { meta: source.meta }),
+            ...(isSchedulerType(source.schedulerType) && { schedulerType: source.schedulerType }),
+            ...(syncToRiff !== undefined && { syncToRiff }),
+            ...(riffCardId && { riffCardId }),
+            ...(skipUntil !== undefined && { skipUntil }),
+            ...(meta && { meta }),
             
             // 🆕 保留 SuperMemo 重新调度字段（如果存在）
-            ...(source.postponeCount !== undefined && { postponeCount: source.postponeCount }),
-            ...(source.lastPostponeDate !== undefined && { lastPostponeDate: source.lastPostponeDate }),
-            ...(source.rescheduleHistory !== undefined && { rescheduleHistory: source.rescheduleHistory }),
+            ...(postponeCount !== undefined && { postponeCount }),
+            ...(lastPostponeDate !== undefined && { lastPostponeDate }),
+            ...(rescheduleHistory && { rescheduleHistory }),
         };
         
         // ✅ 应用迁移逻辑：确保所有必需字段存在（learning_step、postponeCount、rescheduleHistory）
@@ -804,7 +887,7 @@ export class StorageManager {
         };
     }
 
-    private async loadPracticeQueue(): Promise<void> {
+    async loadPracticeQueue(): Promise<void> {
         try {
             const { data, source } = await this.loadWithLegacyFallback(
                 STORAGE_FILES.PRACTICE_QUEUE,
@@ -849,7 +932,7 @@ export class StorageManager {
         await this.saveIncrementalLearningQueue();
     }
 
-    private async loadIncrementalLearningQueue(): Promise<void> {
+    async loadIncrementalLearningQueue(): Promise<void> {
         try {
             const { data, source } = await this.loadWithLegacyFallback(
                 STORAGE_FILES.INCREMENTAL_LEARNING_QUEUE,

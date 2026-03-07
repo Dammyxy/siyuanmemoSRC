@@ -23,6 +23,7 @@ import type FSRSPlugin from '@/index';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import { createLogger } from '@/utils/logger';
 import type { FSRSCard } from '@/types/card';
+import { isErr } from '@/types/result';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { buildClearedBlockAttrs } from '@/application/usecases/card/shared/CardBlockAttrCleaner';
 import {
@@ -669,7 +670,9 @@ export class MenuManager {
         return;
       }
 
-      logger.error('[MenuManager] One-click cancel cards failed:', batchResult.error);
+      if (isErr(batchResult)) {
+        logger.error('[MenuManager] One-click cancel cards failed:', batchResult.error);
+      }
       showMessage(this.i18n?.oneClickCancelCardsFailed || '一键取消闪卡失败');
     } catch (error) {
       logger.error('[MenuManager] One-click cancel cards threw error:', error);

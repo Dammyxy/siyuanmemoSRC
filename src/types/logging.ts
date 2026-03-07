@@ -66,8 +66,6 @@
  * @module logging
  */
 
-import type { QueueItem } from '../core/queue/types';
-
 /**
  * Queue Operation Type
  * 
@@ -212,7 +210,7 @@ export interface QueueOperation {
  * }
  * ```
  */
-export interface ILoggableQueue<TItem extends QueueItem> {
+export interface ILoggableQueue {
   /**
    * Get operation history
    * 

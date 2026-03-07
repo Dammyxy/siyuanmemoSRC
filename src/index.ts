@@ -5,7 +5,7 @@
  * @implements {IPluginFacade}
  */
 
-import { Plugin, getFrontend, showMessage } from 'siyuan';
+import { Plugin, getFrontend, showMessage, type IProtyle } from 'siyuan';
 import { pushErrMsg, pushMsg } from '@/infrastructure/siyuan/api';
 import { ApplicationContext } from '@/application/ApplicationContext';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
@@ -72,6 +72,10 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
    */
   openSettings(defaultTab?: string): void {
     this.context.getDialogManager()?.openSettingsDialog(defaultTab);
+  }
+
+  openSRSBrowser(): void {
+    this.context.getDialogManager()?.openBrowserDialog();
   }
 
   /**
@@ -293,10 +297,11 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private registerImageOcclusionCommands(): void {
     this.addCommand({
       langKey: 'imageOcclusionCardCurrentBlock',
+      hotkey: '',
       callback: () => {
         void this.imageOcclusionHandler?.openFromActiveEditor();
       },
-      editorCallback: (protyle: unknown) => {
+      editorCallback: (protyle: IProtyle) => {
         void this.imageOcclusionHandler?.openFromEditor(protyle);
       },
     });
@@ -310,10 +315,11 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     for (const definition of TOPBAR_QUICK_ENTRY_DEFINITIONS) {
       this.addCommand({
         langKey: definition.commandLangKey,
+        hotkey: '',
         callback: () => {
           void this.runTopBarQuickEntryAction(definition.id);
         },
-        editorCallback: (protyle: unknown) => {
+        editorCallback: (protyle: IProtyle) => {
           void this.runTopBarQuickEntryAction(definition.id, { protyle });
         },
       });
@@ -324,10 +330,11 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     for (const definition of CORE_REVIEW_ENTRY_DEFINITIONS) {
       this.addCommand({
         langKey: definition.commandLangKey,
+        hotkey: '',
         callback: () => {
           void this.runCoreReviewEntryAction(definition.id);
         },
-        editorCallback: (protyle: unknown) => {
+        editorCallback: (protyle: IProtyle) => {
           void this.runCoreReviewEntryAction(definition.id, { protyle });
         },
       });
@@ -337,20 +344,22 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private registerBlockToolCommands(): void {
     this.addCommand({
       langKey: 'editSrsData',
+      hotkey: '',
       callback: () => {
         void this.runEditSrsDataAction();
       },
-      editorCallback: (protyle: unknown) => {
+      editorCallback: (protyle: IProtyle) => {
         void this.runEditSrsDataAction({ protyle });
       },
     });
 
     this.addCommand({
       langKey: 'rebindDescriptorConcept',
+      hotkey: '',
       callback: () => {
         void this.runRebindDescriptorConceptAction();
       },
-      editorCallback: (protyle: unknown) => {
+      editorCallback: (protyle: IProtyle) => {
         void this.runRebindDescriptorConceptAction({ protyle });
       },
     });
@@ -867,9 +876,10 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     const riffConfig = settings.riffIntegration;
 
     if (riffConfig && ConfigMigrator.needsMigration(riffConfig)) {
-      const migratedConfig = ConfigMigrator.migrate(riffConfig);
+      const legacyRiffConfig = riffConfig as Parameters<typeof ConfigMigrator.migrate>[0];
+      const migratedConfig = ConfigMigrator.migrate(legacyRiffConfig);
       await settingsService.updateSettings({ ...settings, riffIntegration: migratedConfig });
-      setTimeout(() => pushMsg(ConfigMigrator.getMigrationMessage(riffConfig.mode)), 1000);
+      setTimeout(() => pushMsg(ConfigMigrator.getMigrationMessage(legacyRiffConfig.mode)), 1000);
     }
 
     const { SimpleModeRemovalMigrator } = await import('./utils/simpleModeRemovalMigrator');

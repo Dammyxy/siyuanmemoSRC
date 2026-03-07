@@ -17,5 +17,4 @@ export {
   BUILTIN_TEMPLATES,
 } from './builtin';
 export { BUILTIN_CONCEPT_TEMPLATE } from './builtin-concept';
-export { BUILTIN_SYMBOL_TEMPLATE } from './builtin-symbol';
 export { BUILTIN_QUICK_TEMPLATE, BUILTIN_BIDIRECTIONAL_SINGLE_TEMPLATE } from './builtin-quick';

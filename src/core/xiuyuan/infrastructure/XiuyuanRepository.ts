@@ -26,7 +26,7 @@
  * ```
  */
 
-import { Result, ok, err } from '../../../types/result';
+import { ok, err, isErr, type Result } from '../../../types/result';
 import { IXiuyuanRepository } from '../domain/repositories/IXiuyuanRepository';
 import { Xiuyuan, XiuyuanProps } from '../domain/Xiuyuan';
 import { XiuyuanId } from '../domain/XiuyuanId';
@@ -127,6 +127,10 @@ function normalizeFieldMapping(value: unknown): Record<string, string> | undefin
   }
 
   return Object.fromEntries(entries);
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 const IMAGE_OCCLUSION_META_KEYS = [
@@ -255,7 +259,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       if (cardsToDelete.length > 0) {
         logger.info(`Deleted ${cardsToDelete.length} cards, forcing immediate save`);
         const saveResult = await this.storage.save();
-        if (!saveResult.ok) {
+        if (isErr(saveResult)) {
           const error = saveResult.error || new Error('Failed to save after deletion');
           logger.error('Failed to save after deletion:', error);
           return err(error);
@@ -344,7 +348,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
 
       const result = this.toDomain(data);
-      if (!result.ok) {
+      if (isErr(result)) {
         return result;
       }
 
@@ -540,11 +544,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     return children.filter(isListTemplateChild);
   }
 
-  private isLegacyListTemplate(meta: Record<string, unknown>): boolean {
-    const typedMeta = this.toXiuyuanMeta(meta);
-    return typedMeta.listTemplate?.mode === undefined;
-  }
-
   private resolveListTemplateCurrentIndex(meta: Record<string, unknown>): number | null {
     const typedMeta = this.toXiuyuanMeta(meta);
     const currentIndex = typedMeta.listTemplate?.currentIndex;
@@ -671,7 +670,6 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       
       // 绫诲瀷鍜屾ā鏉?
       type: this.toFsrsCardType(cardType),
-      templateID: xiuyuan.getTemplateID().getValue(),
       schedulerType: schedulerType, // Use schedulerType from meta (Requirement 5.5)
       
       // 浼樺厛绾?
@@ -799,10 +797,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       });
       if (!scheduleInfoResult.ok) return err(new Error('Invalid ScheduleInfo'));
 
+      const faceIndex = readFiniteNumber(dto.meta?.faceIndex) ?? readFiniteNumber(dto.meta?.ruleIndex) ?? 0;
+
       const cardResult = Card.create({
         id: cardIdResult.value,
         xiuyuanId: xiuyuanId,
-        faceIndex: dto.meta?.faceIndex ?? dto.meta?.ruleIndex ?? 0, // 鍏煎鏃ф暟鎹?
+        faceIndex,
         scheduleInfo: scheduleInfoResult.value,
         createdAt: new Date(dto.createdAt),
         updatedAt: new Date(dto.updatedAt)
@@ -908,7 +908,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       };
 
       const xiuyuanResult = Xiuyuan.reconstitute(xiuyuanProps);
-      if (!xiuyuanResult.ok) {
+      if (isErr(xiuyuanResult)) {
         return xiuyuanResult;
       }
 
@@ -1011,7 +1011,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       });
 
       const saveResult = await this.storage.save();
-      if (!saveResult.ok) {
+      if (isErr(saveResult)) {
         logger.error('Failed to persist repaired Xiuyuan cardIds', {
           source,
           error: saveResult.error,

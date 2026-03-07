@@ -6,9 +6,6 @@
 import type { ICard, ICardData } from '@/global';
 import { riff } from '@/core/siyuan';
 import type { QueueItem } from '@/core/queue';
-import { createLogger } from '@/utils/logger';
-
-const logger = createLogger('NativeReviewAdapter');
 
 type NativeQueueItem = QueueItem & {
   cardID?: string;

@@ -1,4 +1,4 @@
-import type { FSRSCard } from '../../core/card/fsrs-card/domain/FSRSCard';
+import type { FSRSCard } from '@/types/card';
 
 /**
  * 卡片存储接口

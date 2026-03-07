@@ -34,7 +34,7 @@
  * 5. 返回删除结果
  */
 
-import { Result, ok, err } from '@/types/result';
+import { Result, ok, err, isErr } from '@/types/result';
 import { DeleteCardsCommand, DeleteCardsResult, validateDeleteCardsCommand } from '../../commands/card/DeleteCardsCommand';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletionService';
@@ -82,7 +82,7 @@ export class DeleteCardsUseCase {
     }
 
     const warmupResult = await warmupXiuyuanCardIndex(this.xiuyuanRepo);
-    if (!warmupResult.ok) {
+    if (isErr(warmupResult)) {
       return warmupResult as Result<DeleteCardsResult>;
     }
 
@@ -103,7 +103,7 @@ export class DeleteCardsUseCase {
     for (const [xiuyuanIdStr, cardIdsInGroup] of xiuyuanGroups) {
       // 3.1 处理有 Xiuyuan 的卡片
       const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
-      if (!xiuyuanIdResult.ok) {
+      if (isErr(xiuyuanIdResult)) {
         logger.error(`[DeleteCardsUseCase] ❌ 无效的 xiuyuanId: ${xiuyuanIdStr}`);
         failedCardIds.push(...cardIdsInGroup);
         continue;
@@ -111,7 +111,7 @@ export class DeleteCardsUseCase {
 
       // 3.2 加载 Xiuyuan（每个 Xiuyuan 只加载一次）
       const xiuyuanResult = await this.xiuyuanRepo.findById(xiuyuanIdResult.value);
-      if (!xiuyuanResult.ok || !xiuyuanResult.value) {
+      if (isErr(xiuyuanResult) || !xiuyuanResult.value) {
         logger.error(`[DeleteCardsUseCase] ❌ 无法加载 Xiuyuan: ${xiuyuanIdStr}`);
         failedCardIds.push(...cardIdsInGroup);
         continue;
@@ -127,7 +127,7 @@ export class DeleteCardsUseCase {
 
       // 3.4 持久化更新后的 Xiuyuan（每个 Xiuyuan 只保存一次）
       const saveResult = await this.xiuyuanRepo.save(xiuyuan);
-      if (!saveResult.ok) {
+      if (isErr(saveResult)) {
         logger.error(`[DeleteCardsUseCase] ❌ 保存 Xiuyuan 失败: ${xiuyuanIdStr}`, saveResult.error);
         // 已删除的卡片标记为失败
         failedCardIds.push(...deleteResult.deleted);
@@ -241,7 +241,7 @@ export class DeleteCardsUseCase {
 
         // 删除卡片
         const deleteResult = this.cardDeletionService.deleteCard(xiuyuan, actualCardId);
-        if (!deleteResult.ok) {
+        if (isErr(deleteResult)) {
           logger.error(`[DeleteCardsUseCase] ❌ 删除卡片失败: ${cardIdStr}`, deleteResult.error);
           failed.push(cardIdStr);
           continue;

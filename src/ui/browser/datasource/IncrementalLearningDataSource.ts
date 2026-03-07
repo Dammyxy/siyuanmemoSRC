@@ -89,7 +89,8 @@ export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQ
     this.manager = manager;
     this.options = options || {};
     this.plugin = plugin;
-    this.i18n = plugin?.getContext?.()?.getI18n?.() || plugin?.i18n;
+    const context = plugin?.getContext?.() as { getI18n?: () => I18nDictionary | undefined } | undefined;
+    this.i18n = context?.getI18n?.() || plugin?.i18n;
   }
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {

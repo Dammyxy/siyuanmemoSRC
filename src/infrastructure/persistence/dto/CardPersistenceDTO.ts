@@ -19,6 +19,7 @@
  */
 
 import type { CardState, CardType } from '../../../types/card';
+import type { RescheduleHistoryEntry } from '../../../types/reschedule';
 
 /**
  * 卡片持久化 DTO
@@ -93,13 +94,7 @@ export interface CardPersistenceDTO {
   // ==================== 重新调度相关 ====================
   postponeCount?: number;
   lastPostponeDate?: number;
-  rescheduleHistory?: Array<{
-    timestamp: number;
-    type: string;
-    oldDue: number;
-    newDue: number;
-    reason?: string;
-  }>;
+  rescheduleHistory?: RescheduleHistoryEntry[];
 
   // ==================== 🆕 Xiuyuan 字段（提取到顶层）====================
   /**

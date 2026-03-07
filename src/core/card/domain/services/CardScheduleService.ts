@@ -14,7 +14,7 @@
  * @see .kiro/specs/ddd-refactoring/long-term-improvements.md - 阶段 1
  */
 
-import type { FSRSCard } from '@/types';
+import type { FSRSCard } from '@/types/card';
 
 /**
  * 卡片状态枚举
@@ -58,7 +58,7 @@ export class CardScheduleService {
    * @param now - 当前时间（可选，默认为当前时间）
    * @returns 是否到期
    */
-  isDue(card: Card, now: Date = new Date()): boolean {
+  isDue(card: FSRSCard, now: Date = new Date()): boolean {
     // 暂停的卡片不算到期
     if (card.state === CardState.Suspended) {
       return false;
@@ -75,7 +75,7 @@ export class CardScheduleService {
    * @param now - 当前时间（可选，默认为当前时间）
    * @returns 到期卡片列表
    */
-  filterDueCards(cards: Card[], now: Date = new Date()): Card[] {
+  filterDueCards(cards: FSRSCard[], now: Date = new Date()): FSRSCard[] {
     return cards.filter(card => this.isDue(card, now));
   }
   
@@ -86,7 +86,7 @@ export class CardScheduleService {
    * @param now - 当前时间（可选，默认为当前时间）
    * @returns 到期卡片数量
    */
-  countDueCards(cards: Card[], now: Date = new Date()): number {
+  countDueCards(cards: FSRSCard[], now: Date = new Date()): number {
     return this.filterDueCards(cards, now).length;
   }
   
@@ -98,7 +98,7 @@ export class CardScheduleService {
    * @param endTime - 结束时间
    * @returns 是否在时间范围内到期
    */
-  isDueInRange(card: Card, startTime: Date, endTime: Date): boolean {
+  isDueInRange(card: FSRSCard, startTime: Date, endTime: Date): boolean {
     if (card.state === CardState.Suspended) {
       return false;
     }
@@ -115,7 +115,7 @@ export class CardScheduleService {
    * @param endTime - 结束时间
    * @returns 在时间范围内到期的卡片列表
    */
-  filterDueCardsInRange(cards: Card[], startTime: Date, endTime: Date): Card[] {
+  filterDueCardsInRange(cards: FSRSCard[], startTime: Date, endTime: Date): FSRSCard[] {
     return cards.filter(card => this.isDueInRange(card, startTime, endTime));
   }
   
@@ -126,7 +126,7 @@ export class CardScheduleService {
    * @param ascending - 是否升序（默认为 true）
    * @returns 排序后的卡片列表
    */
-  sortByDueTime(cards: Card[], ascending: boolean = true): Card[] {
+  sortByDueTime(cards: FSRSCard[], ascending: boolean = true): FSRSCard[] {
     const sorted = [...cards];
     sorted.sort((a, b) => {
       const diff = a.due - b.due;

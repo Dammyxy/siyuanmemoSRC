@@ -144,4 +144,5 @@ export interface SiyuanBlock {
    * @description 用于判断 Xiuyuan 模版
    */
   parentID?: string;
+  type?: string;
 }

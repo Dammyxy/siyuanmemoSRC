@@ -78,9 +78,21 @@ export class UpdateFSRSCardUseCase {
       });
       
       // 2. 应用更新（合并字段）
+      const updates = command.updates;
       const updatedCard: FSRSCard = {
         ...card,
-        ...command.updates
+        ...(updates.due instanceof Date && { due: updates.due.getTime() }),
+        ...(typeof updates.stability === 'number' && { stability: updates.stability }),
+        ...(typeof updates.difficulty === 'number' && { difficulty: updates.difficulty }),
+        ...(typeof updates.elapsed_days === 'number' && { elapsedDays: updates.elapsed_days }),
+        ...(typeof updates.scheduled_days === 'number' && { scheduledDays: updates.scheduled_days }),
+        ...(typeof updates.reps === 'number' && { reps: updates.reps }),
+        ...(typeof updates.lapses === 'number' && { lapses: updates.lapses }),
+        ...(updates.state !== undefined && { state: updates.state }),
+        ...(updates.last_review instanceof Date && { lastReview: updates.last_review.getTime() }),
+        ...(typeof updates.priority === 'number' && { priority: updates.priority }),
+        ...(updates.type !== undefined && { type: updates.type }),
+        ...(updates.meta && { meta: updates.meta }),
       };
       
       logger.debug('Persisting updated card:', updatedCard.id);

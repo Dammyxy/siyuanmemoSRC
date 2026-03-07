@@ -1,4 +1,4 @@
-import { Result, ok, err } from '@/types/result';
+import { Result, ok, err, isErr } from '@/types/result';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
@@ -273,7 +273,7 @@ export class CreateConceptDescriptorCardsUseCase {
           cardType: 'descriptor',
         });
 
-        if (result.ok) {
+        if (!isErr(result)) {
           descriptorCards.push({
             xiuyuanId: result.value.xiuyuan.id,
             descriptorBlockId,

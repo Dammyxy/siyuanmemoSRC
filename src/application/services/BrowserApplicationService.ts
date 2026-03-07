@@ -129,6 +129,17 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return 0;
     }
 
+    if (queueId === 'neural-roam' && typeof queue.getConceptBlocks === 'function') {
+      try {
+        return Math.max(0, queue.getConceptBlocks().length);
+      } catch (error) {
+        logger.debug('Failed to read neural-roam concept blocks, falling back to visible counters:', {
+          queueId,
+          error,
+        });
+      }
+    }
+
     try {
       const snapshot = await queue.getCounterSnapshot();
       return Math.max(0, Number(snapshot.remaining) || 0);

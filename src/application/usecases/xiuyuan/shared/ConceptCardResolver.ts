@@ -1,6 +1,7 @@
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
+import { isErr } from '@/types/result';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('XiuyuanConceptCardResolver');
@@ -22,10 +23,14 @@ export interface ResolvedConceptCard {
   createdConceptCard: boolean;
 }
 
+interface ConceptContentRow extends Record<string, unknown> {
+  content?: string;
+}
+
 export async function resolveConceptCard(params: ResolveConceptCardParams): Promise<ResolvedConceptCard> {
   const { conceptId, deckId, xiuyuanRepository, templateRegistry, siyuanApi } = params;
 
-  const conceptQuery = await siyuanApi.sql(`
+  const conceptQuery = await siyuanApi.sql<ConceptContentRow>(`
     SELECT content FROM blocks
     WHERE id = '${conceptId}'
     LIMIT 1
@@ -33,7 +38,7 @@ export async function resolveConceptCard(params: ResolveConceptCardParams): Prom
   if (!conceptQuery || conceptQuery.length === 0) {
     throw new Error('Concept block does not exist');
   }
-  const conceptName = conceptQuery[0].content;
+  const conceptName = typeof conceptQuery[0]?.content === 'string' ? conceptQuery[0].content : '';
 
   const conceptAttrs = await siyuanApi.getBlockAttrs(conceptId);
   if (!conceptAttrs || (!conceptAttrs['custom-xiuyuan-id'] && !conceptAttrs['custom-fsrs-xiuyuan-id'])) {
@@ -53,8 +58,8 @@ export async function resolveConceptCard(params: ResolveConceptCardParams): Prom
       cardType: 'concept',
     });
 
-    if (!createResult.ok) {
-      const errorMsg = createResult.error?.message || 'Unknown error';
+    if (isErr(createResult)) {
+      const errorMsg = createResult.error.message || 'Unknown error';
       throw new Error(`Failed to create concept card: ${errorMsg}`);
     }
 

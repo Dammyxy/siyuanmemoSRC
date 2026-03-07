@@ -23,6 +23,10 @@ interface GetXiuyuanQueryResult {
   xiuyuan: XiuyuanEntityPort;
 }
 
+interface ConceptContentRow extends Record<string, unknown> {
+  content?: string;
+}
+
 export interface ConceptDefinitionCardInput {
   xiuyuanID?: string;
   meta?: {
@@ -347,7 +351,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
    */
   private async getConceptName(conceptBlockId: string): Promise<string> {
     const conceptQuery = `SELECT content FROM blocks WHERE id = '${conceptBlockId}' LIMIT 1`;
-    const conceptResult = await sql(conceptQuery);
+    const conceptResult = await sql<ConceptContentRow>(conceptQuery);
     
     logger.debug('[ConceptDefinitionCardRenderService] getConceptName query result:', {
       conceptBlockId,
@@ -359,7 +363,9 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       throw new Error(`Concept block not found: ${conceptBlockId}`);
     }
 
-    let conceptName = conceptResult[0].content;
+    let conceptName = typeof conceptResult[0]?.content === 'string'
+      ? conceptResult[0].content
+      : '';
     
     // 如果概念名称包含方向符号（::, :>, :<），说明这是定义块而不是概念文档块
     // 需要从符号前面提取块引用中的概念名称
@@ -378,9 +384,11 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
         if (blockIdMatch) {
           const refBlockId = blockIdMatch[1];
           const refQuery = `SELECT content FROM blocks WHERE id = '${refBlockId}' LIMIT 1`;
-          const refResult = await sql(refQuery);
+          const refResult = await sql<ConceptContentRow>(refQuery);
           if (refResult && refResult.length > 0) {
-            conceptName = refResult[0].content;
+            conceptName = typeof refResult[0]?.content === 'string'
+              ? refResult[0].content
+              : conceptName;
             logger.debug('[ConceptDefinitionCardRenderService] Extracted concept name from referenced block:', conceptName);
           }
         }
@@ -556,14 +564,6 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     }
 
     return { clozeIndex: 0, isReverse: false, hasExplicitDirection: false };
-  }
-
-  /**
-   * 获取当前挖空索引（兼容旧方法）
-   * @deprecated 使用 parseTypeMarker 替代
-   */
-  private getCurrentClozeIndex(typeMarker?: string): number {
-    return this.parseTypeMarker(typeMarker).clozeIndex;
   }
 
   /**

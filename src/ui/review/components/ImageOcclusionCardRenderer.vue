@@ -8,6 +8,11 @@
       class="image-occlusion-card-renderer__content"
       :class="{ 'is-image-fullscreen': isImageFullscreen }"
     >
+      <CardBreadcrumb
+        v-if="viewModel.breadcrumbs.length > 0"
+        :items="viewModel.breadcrumbs"
+      />
+
       <div v-if="viewModel.prompt" class="image-occlusion-card-renderer__question">
         {{ viewModel.prompt }}
       </div>
@@ -99,10 +104,13 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import type { BreadcrumbItem } from '@/core/card/common/application/types';
+import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import { getBlockAttrs, getBlockKramdown } from '@/infrastructure/siyuan/api';
 import type { FSRSCard } from '@/types/card';
+import { loadBreadcrumbTrail } from '@/ui/review/shared/loadBreadcrumbTrail';
 import {
   clamp01,
   computeFitWidthScale,
@@ -140,6 +148,7 @@ interface ViewMask extends OcclusionMask {
 }
 
 interface ViewModel {
+  breadcrumbs: BreadcrumbItem[];
   imageSrc: string;
   masks: ViewMask[];
   prompt: string;
@@ -637,6 +646,13 @@ function handleStageWheel(event: WheelEvent): void {
 
 async function loadViewModel(): Promise<void> {
   const seq = ++loadSeq;
+  const breadcrumbsPromise = loadBreadcrumbTrail(props.blockId, {
+    trimTrailingCount: 1,
+    clipAtLastDocument: true,
+  }).catch((breadcrumbError) => {
+    logger.warn('[ImageOcclusionCardRenderer] Failed to load breadcrumbs:', breadcrumbError);
+    return [];
+  });
 
   try {
     loading.value = true;
@@ -722,7 +738,13 @@ async function loadViewModel(): Promise<void> {
       throw new Error(t('imageOcclusionMaskNotFound', 'Failed to locate this card\'s occlusion area. Please resave the image occlusion.'));
     }
 
+    const breadcrumbs = await breadcrumbsPromise;
+    if (seq !== loadSeq) {
+      return;
+    }
+
     const nextViewModel: ViewModel = {
+      breadcrumbs,
       imageSrc,
       masks: viewMasks,
       prompt: viewMasks[0]?.prompt?.trim() || '',

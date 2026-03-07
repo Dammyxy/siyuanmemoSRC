@@ -38,7 +38,12 @@ export class GetCardsQueryHandler {
       
       // 按 deckId 过滤
       if (filter.deckId) {
-        cards = cards.filter(card => card.deckId === filter.deckId);
+        cards = cards.filter(card => {
+          const deckId = (card.meta && typeof card.meta === 'object')
+            ? String((card.meta as Record<string, unknown>).deckId || '')
+            : '';
+          return deckId === filter.deckId;
+        });
       }
       
       // 按标签过滤

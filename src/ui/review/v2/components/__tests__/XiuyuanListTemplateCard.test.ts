@@ -1,7 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
 import XiuyuanListTemplateCard from '../XiuyuanListTemplateCard.vue';
+
+const getBlockBreadcrumbMock = vi.fn();
+
+vi.mock('@/infrastructure/siyuan/api', () => ({
+  getBlockBreadcrumb: (...args: unknown[]) => getBlockBreadcrumbMock(...args),
+}));
 
 function createMeta(overrides?: Partial<XiuyuanCardMeta>): XiuyuanCardMeta {
   return {
@@ -18,13 +24,12 @@ function createMeta(overrides?: Partial<XiuyuanCardMeta>): XiuyuanCardMeta {
   };
 }
 
-function createPluginMock(getBlockBreadcrumb = vi.fn().mockResolvedValue([])) {
+function createPluginMock() {
   return {
     getContext: () => ({
       getReviewService: () => ({
         getSiyuanApi: () => ({
           getBlockDOM: vi.fn().mockResolvedValue({ dom: '<p>Question</p>' }),
-          getBlockBreadcrumb,
         }),
       }),
     }),
@@ -32,6 +37,11 @@ function createPluginMock(getBlockBreadcrumb = vi.fn().mockResolvedValue([])) {
 }
 
 describe('XiuyuanListTemplateCard', () => {
+  beforeEach(() => {
+    getBlockBreadcrumbMock.mockReset();
+    getBlockBreadcrumbMock.mockResolvedValue([]);
+  });
+
   it('does not render front cue area when cue is empty', () => {
     const wrapper = mount(XiuyuanListTemplateCard, {
       props: {
@@ -61,18 +71,20 @@ describe('XiuyuanListTemplateCard', () => {
   });
 
   it('uses shared breadcrumb normalization and keeps same-name ancestors with different ids', async () => {
+    getBlockBreadcrumbMock.mockResolvedValue([
+      { id: 'doc-1', name: 'Doc', type: 'NodeDocument' },
+      { id: 'heading-1', name: '1. Intro', type: 'NodeHeading' },
+      { id: 'heading-2', name: '1. Intro', type: 'NodeHeading' },
+      { id: 'list-item-1', name: 'Question Container', type: 'NodeListItem' },
+      { id: 'q_1', name: 'Question Paragraph', type: 'NodeParagraph' },
+    ]);
+
     const wrapper = mount(XiuyuanListTemplateCard, {
       props: {
         meta: createMeta(),
         showAnswer: false,
         questionBlockId: 'q_1',
-        plugin: createPluginMock(vi.fn().mockResolvedValue([
-          { id: 'doc-1', name: 'Doc', type: 'NodeDocument' },
-          { id: 'heading-1', name: '1. Intro', type: 'NodeHeading' },
-          { id: 'heading-2', name: '1. Intro', type: 'NodeHeading' },
-          { id: 'list-item-1', name: 'Question Container', type: 'NodeListItem' },
-          { id: 'q_1', name: 'Question Paragraph', type: 'NodeParagraph' },
-        ])),
+        plugin: createPluginMock(),
       },
     });
 

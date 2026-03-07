@@ -64,8 +64,9 @@ import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiy
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
-import type { RiffSyncEventHandler } from '@/infrastructure/events/RiffSyncEventHandler';
-import { DEFAULT_SETTINGS, type RiffIntegrationConfig } from '@/types/settings';
+import { DEFAULT_SETTINGS } from '@/types/settings';
+import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService.types';
+import { isErr } from '@/types/result';
 
 const logger = createLogger('ApplicationContext');
 
@@ -152,7 +153,6 @@ export class ApplicationContext {
   
   // 基础设施服务
   private hybridSyncService?: XiuyuanSyncService;
-  private riffSyncEventHandler?: RiffSyncEventHandler;
   private transactionWebSocketService?: TransactionWebSocketService;
   private autoCardHandler?: AutoCardHandler;
   private fullSyncTimer?: NodeJS.Timeout;
@@ -275,7 +275,7 @@ export class ApplicationContext {
     // ✅ EventBus 已经在构造函数中设置（如果提供了 sharedEventBus）
     // 如果没有提供，则懒加载创建
     if (!this.serviceContainer.has('eventBus')) {
-      this.registerServiceFactory('eventBus', (context) => {
+      this.registerServiceFactory('eventBus', () => {
         return new EventBus(false);  // false = 不启用调试日志
       });
     }
@@ -336,7 +336,7 @@ export class ApplicationContext {
     });
     
     // ✅ 卡片内容查询服务
-    this.registerServiceFactory('cardContentQueryService', (context) => {
+    this.registerServiceFactory('cardContentQueryService', () => {
       return new CardContentQueryService();
     });
     
@@ -364,7 +364,7 @@ export class ApplicationContext {
     });
     // ✅ Task 3.4: DockManager 已注册
     this.registerServiceFactory('dockManager', (context) => {
-      return new DockManager(context.getPlugin(), context.getStorage(), context.getI18n());
+      return new DockManager(context.getPlugin(), context, context.getI18n());
     });
     // ✅ Task 3.4: PracticeQueueManager 已注册
     this.registerServiceFactory('practiceQueueManager', (context) => {
@@ -627,7 +627,7 @@ export class ApplicationContext {
     
     // 尝试加载数据，如果文件不存在则初始化为空
     const loadResult = await unifiedStorageManager.load();
-    if (!loadResult.ok) {
+    if (isErr(loadResult)) {
       logger.error('[ApplicationContext] Failed to load UnifiedStorageManager, aborting startup to protect data:', loadResult.error);
       throw new Error(`[ApplicationContext] Failed to load unified storage: ${loadResult.error.message}`);
     } else {
@@ -640,7 +640,7 @@ export class ApplicationContext {
       const migratedLegacyFSRSCount = unifiedStorageManager.migrateLegacyFSRSV5SchedulerType();
       if (migratedLegacyFSRSCount > 0) {
         const migrationSaveResult = await unifiedStorageManager.save();
-        if (!migrationSaveResult.ok) {
+        if (isErr(migrationSaveResult)) {
           logger.error('[ApplicationContext] Failed to persist fsrs-v5 -> fsrs-v6 card migration:', migrationSaveResult.error);
           throw new Error(`[ApplicationContext] Failed to persist fsrs-v5 migration: ${migrationSaveResult.error.message}`);
         }
@@ -747,10 +747,10 @@ export class ApplicationContext {
             const xiuyuanRepo = new (await import('@/core/xiuyuan/infrastructure/XiuyuanRepository')).XiuyuanRepository(unifiedStorageManager);
             const saveResult = await xiuyuanRepo.save(xiuyuan);
             
-            if (saveResult.ok) {
-              fixedCount++;
-            } else {
+            if (isErr(saveResult)) {
               logger.error(`[ApplicationContext] Failed to save Xiuyuan for card ${orphanCard.id}:`, saveResult.error);
+            } else {
+              fixedCount++;
             }
           } catch (error) {
             logger.error(`[ApplicationContext] Error fixing orphan card ${orphanCard.id}:`, error);
@@ -890,7 +890,6 @@ export class ApplicationContext {
           }
         }
       },
-      plugin: config.plugin,
       applicationContext: undefined as unknown as ApplicationContext, // 🆕 将在 ApplicationContext 创建后设置
     });
     
@@ -969,7 +968,6 @@ export class ApplicationContext {
       const syncSiyuanApi = new XiuyuanSyncSiyuanAdapter();
       
       // 获取依赖服务
-      const cardService = context.getCardService();
       const eventBus = context.getEventBus();
       
       // ✅ 创建 CardTypeDetectionService
@@ -1021,8 +1019,7 @@ export class ApplicationContext {
       logger.info('[ApplicationContext] Importing RiffSyncEventHandler...');
       const { RiffSyncEventHandler } = await import('@/infrastructure/events/RiffSyncEventHandler');
       logger.info('[ApplicationContext] Creating RiffSyncEventHandler...');
-      const riffSyncEventHandler = new RiffSyncEventHandler(sharedEventBus, hybridSyncService);
-      context.riffSyncEventHandler = riffSyncEventHandler;
+      new RiffSyncEventHandler(sharedEventBus, hybridSyncService);
       logger.info('[ApplicationContext] ✅ RiffSyncEventHandler registered');
       logger.info('[ApplicationContext] EventBus subscriber count for CardDeleted:', sharedEventBus.getSubscriberCount('CardDeleted'));
       
@@ -1225,7 +1222,7 @@ export class ApplicationContext {
    * 
    * @param config - 新的同步配置
    */
-  async updateHybridSyncConfig(config: Partial<RiffIntegrationConfig>): Promise<void> {
+  async updateHybridSyncConfig(config: Partial<HybridSyncConfig>): Promise<void> {
     if (!this.hybridSyncService) {
       logger.warn('[ApplicationContext] HybridSyncService not initialized');
       return;
@@ -1617,8 +1614,8 @@ export class ApplicationContext {
         try {
           logger.info('[ApplicationContext] Saving storage data...');
           const saveResult = await this.unifiedStorageManager.save();  // ✅ 使用新架构 UnifiedStorageManager
-          if (!saveResult.ok) {
-            throw new Error(saveResult.error?.message || 'Unknown error');
+          if (isErr(saveResult)) {
+            throw new Error(saveResult.error.message || 'Unknown error');
           }
           logger.info('[ApplicationContext] Storage data saved successfully');
         } catch (error) {
@@ -1675,9 +1672,10 @@ export class ApplicationContext {
       
       try {
         // 如果服务有 dispose 方法，调用它
-        if (service && typeof service.dispose === 'function') {
+        const disposableService = service as { dispose?: () => Promise<void> | void } | undefined;
+        if (disposableService && typeof disposableService.dispose === 'function') {
           logger.info(`[ApplicationContext] Disposing service: ${serviceName}...`);
-          await service.dispose();
+          await disposableService.dispose();
           logger.info(`[ApplicationContext] Disposed service: ${serviceName}`);
         }
       } catch (error) {

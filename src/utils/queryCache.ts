@@ -188,7 +188,7 @@ export function withCache<T extends (...args: unknown[]) => Promise<unknown>>(
     }
 
     // 执行函数并缓存结果
-    const result = await fn(...args);
+    const result = await fn(...args) as Awaited<ReturnType<T>>;
     cache.set(key, result);
     return result;
   }) as T;

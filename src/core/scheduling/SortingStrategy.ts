@@ -1,7 +1,6 @@
 ﻿import type { QueueItem } from '../queue/types.ts';
 import type { SchedulerEngineAdapter } from '../scheduler/types';
 import { CardStorage } from './CardStorage';
-import type { FSRSCard } from '@/types';
 import { Rating } from '@/types';
 
 /**
@@ -36,7 +35,7 @@ export class SchedulerSortingStrategy {
 
 		// 返回排序后的 QueueItem（保持引用）
 		return cards.map(card =>
-			items.find(item => String(item.cardID) === card.id)!
+			items.find(item => String(item.id) === card.id)!
 		);
 	}
 

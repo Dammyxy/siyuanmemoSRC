@@ -29,6 +29,7 @@ interface BlockInfoData {
   parentID?: string;
   box: string;
   path: string;
+  type?: string;
 }
 
 /**
@@ -102,6 +103,7 @@ export class SiyuanBlockAdapter {
         id: infoResult.data.id,
         content: kramdown,
         parentID: infoResult.data.parentID,
+        type: infoResult.data.type,
       };
     } catch (error) {
       logger.error(`[SiYuanMemo][SiyuanBlockAdapter] Failed to get block ${blockId}:`, error);

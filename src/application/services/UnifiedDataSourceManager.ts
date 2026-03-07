@@ -259,7 +259,7 @@ export class UnifiedDataSourceManager {
                 fsrs?: { dayStartHour?: unknown };
                 queues?: { dayStartHour?: unknown };
             } | undefined;
-            const hour = settings?.fsrs?.dayStartHour ?? settings?.queues?.dayStartHour;
+            const hour = Number(settings?.fsrs?.dayStartHour ?? settings?.queues?.dayStartHour);
             if (Number.isFinite(hour)) {
                 return hour;
             }

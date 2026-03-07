@@ -24,7 +24,7 @@
  * 5. 返回删除结果
  */
 
-import { Result, ok, err } from '@/types/result';
+import { Result, ok, err, isErr } from '@/types/result';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
 import { createLogger } from '@/utils/logger';
@@ -72,13 +72,13 @@ export class DeleteXiuyuanUseCase {
     try {
       // 1. 创建 XiuyuanId 值对象
       const idResult = XiuyuanId.create(xiuyuanId);
-      if (!idResult.ok) {
+      if (isErr(idResult)) {
         return idResult as Result<boolean>;
       }
 
       // 2. 查找 Xiuyuan
       const findResult = await this.xiuyuanRepository.findById(idResult.value);
-      if (!findResult.ok) {
+      if (isErr(findResult)) {
         return err(findResult.error);
       }
 
@@ -91,7 +91,7 @@ export class DeleteXiuyuanUseCase {
 
       // 3. 通过 Repository 删除（会级联删除卡片、清理块属性）
       const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
-      if (!deleteResult.ok) {
+      if (isErr(deleteResult)) {
         return err(deleteResult.error);
       }
 

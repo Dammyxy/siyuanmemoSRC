@@ -14,11 +14,12 @@
  */
 
 import { SortedSequencer } from '@/core/queue/sequencers/SortedSequencer';
+import type { QueueItem } from '@/core/queue/types';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SessionManager');
 
-type LapseTrackableCard = {
+type LapseTrackableCard = QueueItem & {
   lapses?: number;
 };
 

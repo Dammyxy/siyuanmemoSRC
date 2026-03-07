@@ -23,7 +23,7 @@
 import type { FSRSCard, CardType } from '../../types/card';
 import type { IXiuyuan } from '../xiuyuan/types';
 import type { Result } from '../../types/result';
-import { ok, err } from '../../types/result';
+import { ok, err, isErr } from '../../types/result';
 import type { CardPersistenceDTO } from '../../infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '../../infrastructure/persistence/mappers/CardMapper';
 import { createLogger } from '@/utils/logger';
@@ -187,6 +187,10 @@ export class UnifiedStorageManager {
 
   getConflictResolutionStrategy(): StorageConflictResolutionStrategy {
     return this.conflictResolutionStrategy;
+  }
+
+  isDirty(): boolean {
+    return this.dirty;
   }
 
   /**
@@ -654,7 +658,7 @@ export class UnifiedStorageManager {
       }
 
       // xiuyuanID 绱㈠紩
-      const xiuyuanID = card.meta?.xiuyuanID;
+      const xiuyuanID = card.xiuyuanID;
       if (xiuyuanID) {
         const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID) || [];
         if (!xiuyuanCards.includes(card.id)) {
@@ -693,7 +697,7 @@ export class UnifiedStorageManager {
       }
 
       // 绉婚櫎 xiuyuanID 绱㈠紩
-      const xiuyuanID = card.meta?.xiuyuanID;
+      const xiuyuanID = card.xiuyuanID;
       if (xiuyuanID) {
         const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID);
         if (xiuyuanCards) {
@@ -825,7 +829,7 @@ export class UnifiedStorageManager {
         if (!card.id) {
           return err(new Error('Invalid card: missing id'));
         }
-        const cardXiuyuanID = card.meta?.xiuyuanID as string | undefined;
+        const cardXiuyuanID = card.xiuyuanID;
         if (cardXiuyuanID && cardXiuyuanID !== xiuyuan.id) {
           return err(new Error(`Card ${card.id} xiuyuanID mismatch: expected ${xiuyuan.id}, got ${cardXiuyuanID}`));
         }
@@ -1223,7 +1227,7 @@ export class UnifiedStorageManager {
       this.cardDTOs.delete(cardId);
 
       // 妫€鏌ユ槸鍚﹂渶瑕佸垹闄?XiuYuan
-      const xiuyuanID = card.meta?.xiuyuanID;
+      const xiuyuanID = card.xiuyuanID;
       if (xiuyuanID) {
         const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID);
         if (!xiuyuanCards || xiuyuanCards.length === 0) {
@@ -1379,7 +1383,7 @@ export class UnifiedStorageManager {
     // 妫€鏌ュ鍎垮崱鐗囷紙娌℃湁 xiuyuanID 鎴?xiuyuanID 鏃犳晥锛?
     for (const dto of this.cardDTOs.values()) {
       const card = CardMapper.toDomain(dto);
-      const xiuyuanID = card.meta?.xiuyuanID;
+      const xiuyuanID = card.xiuyuanID;
       if (!xiuyuanID) {
         issues.push(`Card ${card.id} has no xiuyuanID`);
       } else if (!this.xiuyuans.has(xiuyuanID)) {
@@ -1409,7 +1413,7 @@ export class UnifiedStorageManager {
     const orphanCards: string[] = [];
     for (const dto of this.cardDTOs.values()) {
       const card = CardMapper.toDomain(dto);
-      const xiuyuanID = card.meta?.xiuyuanID;
+      const xiuyuanID = card.xiuyuanID;
       if (!xiuyuanID || !this.xiuyuans.has(xiuyuanID)) {
         orphanCards.push(card.id);
       }
@@ -1514,7 +1518,7 @@ export class UnifiedStorageManager {
 
     this.riffBlacklist.clear();
     const result = await this.save();
-    if (!result.ok) {
+    if (isErr(result)) {
       throw result.error;
     }
   }
@@ -1538,10 +1542,7 @@ export class UnifiedStorageManager {
       this.updateCard(card);
     } else {
       // 鍒涘缓鏂板崱鐗?- 蹇呴』鏈?xiuyuanID
-      const xiuyuanId =
-        typeof card.meta === 'object' && card.meta !== null
-          ? (card.meta as { xiuyuanID?: string }).xiuyuanID
-          : undefined;
+      const xiuyuanId = card.xiuyuanID;
       if (!xiuyuanId) {
         throw new Error(`[UnifiedStorageManager] Cannot create card without xiuyuanID: ${card.id}. All cards must belong to a Xiuyuan aggregate.`);
       }
@@ -1586,7 +1587,7 @@ export class UnifiedStorageManager {
    */
   async saveCards(): Promise<void> {
     const result = await this.save();
-    if (!result.ok) {
+    if (isErr(result)) {
       const errorMsg = result.error?.message ?? 'Failed to save cards';
       throw new Error(errorMsg);
     }

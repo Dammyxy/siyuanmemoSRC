@@ -16,6 +16,7 @@ import type { IReviewQueue, QueueType } from '@/types/unified-data-source';
 import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
+import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('createUnifiedReviewDialog');
@@ -26,7 +27,7 @@ type ReviewDialogPluginLike = {
     i18n?: Record<string, string>;
     reviewSyncManager?: { reviewCount?: number };
     getContext?: () => {
-        getSchedulerRouter: () => unknown;
+        getSchedulerRouter: () => ISchedulerRouter;
         getHybridSyncService?: () => { incrementalSync: () => Promise<unknown> } | undefined;
     } | undefined;
 };

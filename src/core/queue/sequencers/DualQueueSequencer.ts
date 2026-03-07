@@ -89,7 +89,7 @@ export class DualQueueSequencer<TItem extends QueueItem> implements ISequencer<T
     return item;
   }
 
-  reorder?(orderedItems: TItem[]): void {
+  reorder?(_orderedItems: TItem[]): void {
     // Cannot reorder dual queue (no concept of order)
     logger.warn('Reorder not supported');
   }

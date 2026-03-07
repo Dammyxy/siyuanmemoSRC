@@ -20,7 +20,7 @@
 
 import { getAllCardBlockIds, getCardBlocksInDoc, ATTR_CARD_TYPE, ATTR_A_FACTOR, ATTR_PRIORITY } from '@/core/siyuan/block';
 import { detectCardType, initializeAFactor } from '@/core/card-builder/detectCardType';
-import { getBlockAttrs, setBlockAttrs, sql } from '@/core/siyuan/api';
+import { getBlockAttrs, setBlockAttrs } from '@/core/siyuan/api';
 import { getRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import { createLogger } from '@/utils/logger';
 

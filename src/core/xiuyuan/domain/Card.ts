@@ -11,11 +11,11 @@
  * - 不可变性：通过方法返回新实例而不是修改自身
  */
 
-import { Result, ok, err } from '../../../types/result';
+import { Result, ok, err, isErr } from '../../../types/result';
 import { CardId } from './CardId';
 import { XiuyuanId } from './XiuyuanId';
 import { ScheduleInfo } from './ScheduleInfo';
-import { Rating, CardState } from '../../../types/card';
+import { Rating } from '../../../types/card';
 
 export interface CardProps {
   id: CardId;
@@ -164,7 +164,7 @@ export class Card {
       learning_step: this.scheduleInfo.learning_step
     });
 
-    if (!newScheduleInfoResult.ok) {
+    if (isErr(newScheduleInfoResult)) {
       return err(newScheduleInfoResult.error);
     }
 

@@ -178,6 +178,8 @@ export interface ICardTemplate {
   id: string;
   /** 模板名称 */
   name: string;
+  /** 模板版本 */
+  version?: string;
   /** 模板名称 i18n key（优先使用） */
   nameKey?: string;
   /** 模板描述 */
@@ -187,7 +189,13 @@ export interface ICardTemplate {
   /** 模板分类（用于 UI 分组显示） */
   category?: TemplateCategory;
   /** 字段定义（定义模板需要哪些字段） */
-  fields: Array<{ name: string; description?: string }>;
+  fields: Array<{
+    name: string;
+    description?: string;
+    label?: string;
+    type?: string;
+    required?: boolean;
+  }>;
   /** 卡片生成规则（定义如何从字段生成卡片） */
   cardRules: Array<{
     /** 卡片类型标记 */
@@ -196,6 +204,8 @@ export interface ICardTemplate {
     frontFields: string[];
     /** 反面使用的字段名称列表 */
     backFields: string[];
+    /** 逻辑卡片类型（可选） */
+    cardType?: string;
   }>;
 }
 

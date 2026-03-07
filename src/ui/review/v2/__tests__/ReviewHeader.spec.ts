@@ -51,7 +51,7 @@ function createHeaderState(): ReviewUIState['header'] {
 describe('ReviewHeader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (window as Window & { siyuan?: unknown }).siyuan = {
+    (window as unknown as { siyuan?: unknown }).siyuan = {
       languages: {
         flashcard: {},
       },
@@ -152,9 +152,9 @@ describe('ReviewHeader', () => {
       },
     });
 
-    expect(wrapper.find('.siyuanmemo-review-header__toolbar button[data-type="close-review"]').exists()).toBe(false);
+    expect(wrapper.findAll('.siyuanmemo-review-header__toolbar button[data-type="close-review"]')).toHaveLength(0);
     expect(wrapper.get('.siyuanmemo-review-header__mobile-close').attributes('data-type')).toBe('close-review');
-    expect(wrapper.get('.siyuanmemo-review-header__summary').exists()).toBe(true);
+    expect(wrapper.findAll('.siyuanmemo-review-header__summary')).toHaveLength(1);
 
     await wrapper.get('button[data-type="close-review"]').trigger('click');
     expect(wrapper.emitted('toolbar-action')?.[0]).toEqual(['close-review', expect.any(Object)]);

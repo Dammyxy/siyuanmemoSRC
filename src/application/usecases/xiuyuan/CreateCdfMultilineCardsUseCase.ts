@@ -1,4 +1,5 @@
-import { err, ok, type Result } from '@/types/result';
+import { err, ok, isErr, type Result } from '@/types/result';
+import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import { resolveCdfMultilineScan } from './shared/CdfMultilineScanner';
 import {
   detectDescriptorOrDefinitionKind,
@@ -13,7 +14,7 @@ const logger = createLogger('CreateCdfMultilineCardsUseCase');
 export type CdfMultilineTemplateId = 'builtin-list-concept-multiline' | 'builtin-list-descriptor-multiline';
 
 type XiuyuanAppLike = {
-  createFromBlocks: (command: Record<string, unknown>) => Promise<Result<{
+  createFromBlocks: (command: CreateXiuyuanFromBlocksCommand) => Promise<Result<{
     xiuyuan: { id: string };
     cards: Array<{ id: string }>;
   }>>;
@@ -21,7 +22,7 @@ type XiuyuanAppLike = {
 
 type CdfSiyuanPort = {
   BUILTIN_DECK_ID: string;
-  sql: (stmt: string) => Promise<Array<Record<string, unknown>>>;
+  sql: <TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string) => Promise<TRow[]>;
   getBlockAttrs?: (blockId: string) => Promise<Record<string, string>>;
   getBlockKramdown: (blockId: string) => Promise<{ kramdown: string }>;
 };
@@ -215,7 +216,7 @@ async function ensureConceptCard(
     deckId: deckId || siyuanApi.BUILTIN_DECK_ID,
     cardType: 'concept',
   });
-  if (!createResult.ok) {
+  if (isErr(createResult)) {
     return err(createResult.error);
   }
   return ok(undefined);
@@ -256,7 +257,7 @@ export class CreateCdfMultilineCardsUseCase {
         this.siyuanApi,
         command.deckId
       );
-      if (!ensureResult.ok) {
+      if (isErr(ensureResult)) {
         return err(ensureResult.error);
       }
 
@@ -326,7 +327,7 @@ export class CreateCdfMultilineCardsUseCase {
           cardType: 'descriptor',
         });
 
-        if (!createResult.ok) {
+        if (isErr(createResult)) {
           failed += 1;
           setFirstError(createResult.error.message);
           return;

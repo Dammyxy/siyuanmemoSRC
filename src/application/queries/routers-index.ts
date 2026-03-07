@@ -5,5 +5,5 @@
  * 导出所有数据路由器实现
  */
 
-export { AdvancedDataRouter } from '../application/queries/DataAccessFacade';
+export { AdvancedDataRouter } from './DataAccessFacade';
 

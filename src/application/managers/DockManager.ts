@@ -7,7 +7,7 @@ import type { ApplicationContext } from '@/application/ApplicationContext';
 
 export class DockManager {
   constructor(
-    private plugin: Plugin,
+    _plugin: Plugin,
     private context: ApplicationContext,
     private i18n: Record<string, string>
   ) {}

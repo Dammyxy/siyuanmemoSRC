@@ -93,7 +93,7 @@ export class GroupSequencer<TItem extends QueueItem> implements ISequencer<TItem
   /**
    * Reorder items within groups (not supported)
    */
-  reorder?(orderedItems: TItem[]): void {
+  reorder?(_orderedItems: TItem[]): void {
     // GroupSequencer doesn't support reordering across groups
     logger.warn('Reorder not supported');
   }

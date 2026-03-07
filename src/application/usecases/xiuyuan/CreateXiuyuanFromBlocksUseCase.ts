@@ -25,7 +25,7 @@
  * 6. 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
  */
 
-import { Result, err } from '@/types/result';
+import { Result, err, isErr } from '@/types/result';
 import { CreateXiuyuanFromBlocksCommand } from '../../commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
@@ -46,6 +46,30 @@ import {
 } from './shared/FinalizeXiuyuanCreation';
 
 const logger = createLogger('CreateXiuyuanFromBlocksUseCase');
+
+function isTemplateRule(value: unknown): value is ICardTemplate['cardRules'][number] {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const rule = value as Record<string, unknown>;
+  return typeof rule.typeMarker === 'string'
+    && Array.isArray(rule.frontFields)
+    && rule.frontFields.every((field) => typeof field === 'string')
+    && Array.isArray(rule.backFields)
+    && rule.backFields.every((field) => typeof field === 'string');
+}
+
+function isCardTemplate(value: unknown): value is ICardTemplate {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const template = value as Record<string, unknown>;
+  return typeof template.id === 'string'
+    && typeof template.name === 'string'
+    && Array.isArray(template.fields)
+    && Array.isArray(template.cardRules)
+    && template.cardRules.every((rule) => isTemplateRule(rule));
+}
 
 /**
  * 浠庡潡鍒涘缓 Xiuyuan 鐢ㄤ緥
@@ -102,11 +126,13 @@ export class CreateXiuyuanFromBlocksUseCase {
       if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
         const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
         logger.info(`Block ${blockToCheck} already has Xiuyuan: ${existingXiuyuanId}`);
-        return err(new Error('姝ゅ潡宸茬粡鍒涘缓杩囦慨缂樺崱鐗囷紝璇峰嬁閲嶅鍒涘缓'));
+        return err(new Error('\u6b64\u5757\u5df2\u7ecf\u521b\u5efa\u8fc7\u95ea\u5361\uff0c\u8bf7\u5148\u53d6\u6d88\u73b0\u6709\u95ea\u5361\u518d\u91cd\u65b0\u521b\u5efa'));
       }
       
       // 2. 楠岃瘉妯℃澘锛堜紭鍏堜娇鐢ㄨ嚜瀹氫箟妯＄増锛?
-      let template = command.template || this.templateRegistry.get(command.templateId);
+      let template = isCardTemplate(command.template)
+        ? command.template
+        : this.templateRegistry.get(command.templateId);
       if (!template) {
         return err(new Error(`Template not found: ${command.templateId}`));
       }
@@ -121,13 +147,11 @@ export class CreateXiuyuanFromBlocksUseCase {
               typeMarker: 'forward',
               frontFields: ['content'],
               backFields: ['content'],
-              cardType: 'basic',
             },
             {
               typeMarker: 'reverse',
               frontFields: ['content'],
               backFields: ['content'],
-              cardType: 'basic',
             },
           ],
         };
@@ -151,19 +175,21 @@ export class CreateXiuyuanFromBlocksUseCase {
       }
       
       const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
-      if (!xiuyuanIdResult.ok) {
+      if (isErr(xiuyuanIdResult)) {
         return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
       }
 
-      const blockIdResults = command.blockIds.map(id => BlockId.create(id));
-      const failedBlockId = blockIdResults.find(r => !r.ok);
-      if (failedBlockId && !failedBlockId.ok) {
-        return err(this.toError(failedBlockId.error, 'Invalid block ID'));
+      const blockIds: BlockId[] = [];
+      for (const blockId of command.blockIds) {
+        const blockIdResult = BlockId.create(blockId);
+        if (isErr(blockIdResult)) {
+          return err(this.toError(blockIdResult.error, 'Invalid block ID'));
+        }
+        blockIds.push(blockIdResult.value);
       }
-      const blockIds = blockIdResults.map((r) => r.value);
 
       const templateIdResult = TemplateId.create(command.templateId);
-      if (!templateIdResult.ok) {
+      if (isErr(templateIdResult)) {
         return err(this.toError(templateIdResult.error, 'Invalid template ID'));
       }
 
@@ -182,7 +208,7 @@ export class CreateXiuyuanFromBlocksUseCase {
           command.blockIds[0]
         );
         
-        if (!facesResult.ok) {
+        if (isErr(facesResult)) {
           return err(this.toError(facesResult.error, 'Failed to generate cloze faces'));
         }
         
@@ -206,14 +232,9 @@ export class CreateXiuyuanFromBlocksUseCase {
               answer: back,
               questionBlockId: blockId,
               answerBlockId: blockId,
-              metadata: {
-                clozeIndex: i,
-                totalClozes: clozes.length,
-                direction: 'forward'
-              }
             });
             
-            if (!faceResult.ok) {
+            if (isErr(faceResult)) {
               return err(this.toError(faceResult.error, 'Failed to create forward cloze face'));
             }
             
@@ -228,13 +249,9 @@ export class CreateXiuyuanFromBlocksUseCase {
             answer: front,    // 鍘熷姝ｉ潰
             questionBlockId: blockId,
             answerBlockId: blockId,
-            metadata: {
-              clozeIndex: -1,  // -1 琛ㄧず涓嶆寲绌?
-              direction: 'reverse'
-            }
           });
           
-          if (!faceResult.ok) {
+          if (isErr(faceResult)) {
             return err(this.toError(faceResult.error, 'Failed to create reverse cloze face'));
           }
           
@@ -256,7 +273,7 @@ export class CreateXiuyuanFromBlocksUseCase {
           answerBlockId: blockId
         });
         
-        if (!forwardFaceResult.ok) {
+        if (isErr(forwardFaceResult)) {
           return err(this.toError(forwardFaceResult.error, 'Failed to create bidirectional forward face'));
         }
         
@@ -268,7 +285,7 @@ export class CreateXiuyuanFromBlocksUseCase {
           answerBlockId: blockId
         });
         
-        if (!reverseFaceResult.ok) {
+        if (isErr(reverseFaceResult)) {
           return err(this.toError(reverseFaceResult.error, 'Failed to create bidirectional reverse face'));
         }
         
@@ -297,7 +314,7 @@ export class CreateXiuyuanFromBlocksUseCase {
             answerBlockId
           });
 
-          if (!faceResult.ok) {
+          if (isErr(faceResult)) {
             return err(this.toError(faceResult.error, 'Failed to create face from template rule'));
           }
 
@@ -324,7 +341,7 @@ export class CreateXiuyuanFromBlocksUseCase {
         }
       });
 
-      if (!xiuyuanResult.ok) {
+      if (isErr(xiuyuanResult)) {
         return err(this.toError(xiuyuanResult.error, 'Failed to create Xiuyuan aggregate'));
       }
 

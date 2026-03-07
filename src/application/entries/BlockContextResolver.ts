@@ -150,7 +150,7 @@ export class BlockContextResolver {
     return blockElements;
   }
 
-  private normalizeBlockElement(element: HTMLElement | null): HTMLElement | null {
+  private normalizeBlockElement(element: Element | null): HTMLElement | null {
     if (!element) {
       return null;
     }

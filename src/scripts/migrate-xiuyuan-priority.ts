@@ -8,7 +8,7 @@
  */
 
 import { UnifiedStorageManager } from '../core/storage/UnifiedStorageManager';
-import { Priority } from '../core/xiuyuan/domain/Priority';
+import { isErr } from '../types/result';
 import { createLogger } from '../utils/logger';
 
 const logger = createLogger('migrateXiuyuanPriority');
@@ -36,7 +36,10 @@ export async function migrateXiuyuanPriority(storage: UnifiedStorageManager): Pr
     // 2. 遍历并迁移
     for (const xiuyuan of xiuyuans) {
       try {
-        const currentPriority = xiuyuan.priority;
+        const meta: Record<string, unknown> = (xiuyuan.meta && typeof xiuyuan.meta === 'object')
+          ? { ...xiuyuan.meta }
+          : {};
+        const currentPriority = typeof meta.priority === 'number' ? meta.priority : undefined;
         
         // 检查是否需要迁移（priority <= 10 表示使用旧范围）
         if (currentPriority !== undefined && currentPriority <= 10) {
@@ -46,7 +49,10 @@ export async function migrateXiuyuanPriority(storage: UnifiedStorageManager): Pr
           logger.info(`[MigrateXiuyuanPriority] Migrating Xiuyuan ${xiuyuan.id}: priority ${currentPriority} → ${newPriority}`);
           
           // 更新 priority
-          xiuyuan.priority = newPriority;
+          xiuyuan.meta = {
+            ...meta,
+            priority: newPriority,
+          };
           
           // 保存到 storage
           storage.upsertXiuYuan(xiuyuan);
@@ -64,7 +70,7 @@ export async function migrateXiuyuanPriority(storage: UnifiedStorageManager): Pr
       logger.info(`[MigrateXiuyuanPriority] Saving ${stats.migrated} migrated Xiuyuans...`);
       const saveResult = await storage.save();
       
-      if (!saveResult.ok) {
+      if (isErr(saveResult)) {
         logger.error('[MigrateXiuyuanPriority] Failed to save:', saveResult.error);
         throw new Error('Failed to save migrated data');
       }

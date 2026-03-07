@@ -1095,5 +1095,21 @@
   "prioritySaved": "Priority updated",
   "prioritySaveFailed": "Failed to update priority",
   "resetConfirmContent": "This clears the review history for this card and cannot be undone. Continue?",
-  "locateSourceBlock": "Locate Source Block"
+  "locateSourceBlock": "Locate Source Block",
+  "unifiedQueue": "Unified Queue",
+  "headerRemaining": "Remaining",
+  "headerAnswered": "Answered",
+  "headerCorrect": "Correct",
+  "headerRoamed": "Roamed",
+  "headerCardsUnit": "cards",
+  "headerDue": "Due",
+  "headerPriority": "Priority",
+  "headerDescriptor": "Descriptor",
+  "headerTopic": "Topic",
+  "headerConcept": "Concept",
+  "headerItem": "Item",
+  "migrateConfirmMessage": "This operation will automatically detect all card types: Topic cards are pure reading material and use the A-Factor scheduler; Item cards are Q&A cards and use the FSRS scheduler. Continue?",
+  "reviewSubsetTitle": "Review Subset",
+  "filterGroup": "Filter Group",
+  "msg_no_flashcard": "No flashcard found. Please convert the block to a flashcard first."
 }

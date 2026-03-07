@@ -7,8 +7,8 @@
 
 import type { FSRSCard, FSRSParameters, Rating } from '@/types';
 import type { SchedulerEngineAdapter } from '../types';
-import { SM15, SM15Item, createDefaultSM15 } from './sm15';
-import type { SM15Data, SM15ItemData } from './sm15';
+import { SM15, SM15Item } from './sm15';
+import type { SM15ItemData } from './sm15';
 
 /**
  * 评分映射

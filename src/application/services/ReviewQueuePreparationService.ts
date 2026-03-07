@@ -38,6 +38,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -159,8 +163,8 @@ export class ReviewQueuePreparationService {
 
   private resolveAutoPostponeRuntimeConfig(): AutoPostponeRuntimeConfig {
     const settings = this.settingsService.getSettings();
-    const queues = isRecord(settings.queues) ? settings.queues : {};
-    const autoPostpone = isRecord(queues.autoPostpone) ? queues.autoPostpone : {};
+    const queues = asRecord(settings.queues);
+    const autoPostpone = asRecord(queues.autoPostpone);
 
     const minInterval = clampInt(autoPostpone.minInterval, 1, 1, 36500);
     const maxInterval = clampInt(autoPostpone.maxInterval, 365, minInterval, 36500);

@@ -23,7 +23,8 @@
 // 鍙傝€冩€濇簮鍘熺敓瀹炵幇锛歴iyuan/app/src/card/openCard.ts
 
 // 闅愯棌瓒呯骇鍧?
-.card__block--hidemark span[data-type~="mark"] {
+.card__block--hidemark span[data-type~="mark"],
+.siyuanmemo-review-card__block--hidemark span[data-type~="mark"] {
   font-size: 0 !important;
 
   &::before {
@@ -36,17 +37,21 @@
 
 // 闅愯棌鍒楄〃椤圭殑瀛愬垪琛紙淇濈暀闂鍒楄〃椤规湰韬€侊級
 .card__block--hideli .list[custom-riff-decks] .li > .list,
-.card__block--hideli .li[custom-riff-decks] > .list {
+.card__block--hideli .li[custom-riff-decks] > .list,
+.siyuanmemo-review-card__block--hideli .list[custom-riff-decks] .li > .list,
+.siyuanmemo-review-card__block--hideli .li[custom-riff-decks] > .list {
   display: none;
 }
 
 // 闅愯棌瓒呯骇鍧椾腑绗?2 涓強涔嬪悗鐨勫瓙鍧楋紙淇濈暀绗?1 涓棶棰樺潡锛?
-.card__block--hidesb .protyle-wysiwyg > .sb[custom-riff-decks] > div:not(.protyle-attr) ~ div:not(.protyle-attr) {
+.card__block--hidesb .protyle-wysiwyg > .sb[custom-riff-decks] > [data-node-id] ~ [data-node-id],
+.siyuanmemo-review-card__block--hidesb .protyle-wysiwyg > .sb[custom-riff-decks] > [data-node-id] ~ [data-node-id] {
   display: none;
 }
 
 // 闅愯棌鏍囬鍚庣画鍚岀骇鍧楋紙淇濈暀鏍囬鏈韩锛?
-.card__block--hideh .protyle-wysiwyg > div[data-type="NodeHeading"][custom-riff-decks] ~ div {
+.card__block--hideh .protyle-wysiwyg > div[data-type="NodeHeading"][custom-riff-decks] ~ div,
+.siyuanmemo-review-card__block--hideh .protyle-wysiwyg > div[data-type="NodeHeading"][custom-riff-decks] ~ div {
   display: none;
 }
 

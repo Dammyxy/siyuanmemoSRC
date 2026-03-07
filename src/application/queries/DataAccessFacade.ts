@@ -33,6 +33,7 @@ import { getDayStartHour } from '../../utils/configUtils';
 import { migrateCard } from '../../utils/cardMigration';
 import type { QuerySiyuanPort } from '../ports/QuerySiyuanPort';
 import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
+import { isErr } from '@/types/result';
 import { createLogger } from '@/utils/logger';
 
 type BlockContentResult = {
@@ -226,7 +227,7 @@ export class DataAccessFacade implements IDataRouter {
             throw new Error(`Card not found: ${cardId}`);
         }
         
-        const card = migrateCard(result.card);
+        const card = migrateCard(result.card as FSRSCard);
         const blockId = String(card.blockId || '').trim();
         if (!blockId) {
             throw new Error(`Card has invalid blockId: ${cardId}`);
@@ -362,7 +363,7 @@ export class DataAccessFacade implements IDataRouter {
         // 通过 CardApplicationService 更新卡片
         const result = await this.cardService.batchUpdateCardsWithoutEvents([card]);
 
-        if (!result.ok) {
+        if (isErr(result)) {
             throw new Error(`Failed to update card ${card.id}: ${result.error}`);
         }
 
@@ -404,7 +405,7 @@ export class DataAccessFacade implements IDataRouter {
             deleteFromRiff
         });
         
-        if (!result.ok) {
+        if (isErr(result)) {
             throw new Error(`Failed to delete card ${cardId}: ${result.error}`);
         }
     }

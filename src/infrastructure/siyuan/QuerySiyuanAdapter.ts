@@ -8,8 +8,8 @@ export class QuerySiyuanAdapter implements QuerySiyuanPort {
   readonly ATTR_SUSPENDED = ATTR_SUSPENDED;
   readonly ATTR_CARD_TYPE = ATTR_CARD_TYPE;
 
-  async sql(stmt: string): Promise<unknown[]> {
-    return sql(stmt);
+  async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
+    return sql<TRow>(stmt);
   }
 
   async batchSetRiffCardsDueTime(cards: RiffDueTimeUpdate[]): Promise<void> {

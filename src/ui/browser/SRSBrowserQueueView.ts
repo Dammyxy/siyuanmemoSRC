@@ -127,7 +127,10 @@ export class SRSBrowserQueueView implements IDataSourceObserver {
             
             // 更新 AG-Grid
             if (this.gridApi) {
-                this.gridApi.setRowData(cards);
+                const gridApi = this.gridApi as GridApi & {
+                    setGridOption?: (key: 'rowData', value: unknown[]) => void;
+                };
+                gridApi.setGridOption?.('rowData', cards);
                 logger.info('[SRSBrowserQueueView] Grid updated with queue data');
             } else {
                 logger.warn('[SRSBrowserQueueView] Grid API not initialized');

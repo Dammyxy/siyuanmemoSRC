@@ -27,6 +27,12 @@ export interface CardData {
 }
 
 type UnknownRecord = Record<string, unknown>;
+type IdRow = { id?: string };
+type BlockContentRow = { id?: string; content?: string };
+type LocalCardRow = { type?: string; card_type_marker?: string; block_id?: string; id?: string };
+type RootIdRow = { root_id?: string };
+type ParentIdRow = { parent_id?: string };
+type IalRow = { ial?: string };
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null;
@@ -41,6 +47,13 @@ function getBacklinkId(backlink: unknown): string | null {
     return null;
   }
   return toNonEmptyString(backlink.blockID) ?? toNonEmptyString(backlink.id);
+}
+
+function toNeighborResults(rows: Array<{ id?: string }>, type: AssociationType): NeighborQueryResult[] {
+  return rows
+    .map((row) => toNonEmptyString(row.id))
+    .filter((id): id is string => typeof id === 'string')
+    .map((id) => ({ id, type }));
 }
 
 export class QueryEngine {
@@ -68,15 +81,19 @@ export class QueryEngine {
         WHERE id IN (${escapedIds})
       `;
 
-      const rows = await api.sql(stmt);
+      const rows = await api.sql<BlockContentRow>(stmt);
       const contentMap = new Map<string, string>();
 
       for (const row of rows) {
         // 提取纯文本内容（去除 Markdown 标记）
-        const content = (row.content || '').replace(/[#*`\[\]()]/g, '').trim();
+        const content = (typeof row.content === 'string' ? row.content : '').replace(/[#*`\[\]()]/g, '').trim();
         // 限制长度为 50 字符
         const truncated = content.length > 50 ? content.substring(0, 50) + '...' : content;
-        contentMap.set(row.id, truncated);
+        const id = toNonEmptyString(row.id);
+        if (!id) {
+          continue;
+        }
+        contentMap.set(id, truncated);
       }
 
       return contentMap;
@@ -164,7 +181,7 @@ export class QueryEngine {
     try {
       const escapedId = this.escapeSQL(blockId);
       try {
-        const localRows = await api.sql(`
+        const localRows = await api.sql<LocalCardRow>(`
           SELECT type, card_type_marker
           FROM fsrs_cards
           WHERE block_id = '${escapedId}'
@@ -179,7 +196,7 @@ export class QueryEngine {
         // fsrs_cards table may be unavailable in some environments
       }
 
-      const blockRows = await api.sql(`
+      const blockRows = await api.sql<BlockContentRow>(`
         SELECT content
         FROM blocks
         WHERE id = '${escapedId}'
@@ -270,7 +287,7 @@ export class QueryEngine {
           )
       `;
 
-      const rows = await api.sql(stmt);
+      const rows = await api.sql<IdRow>(stmt);
       
       // 🔧 修复：检查 rows 是否为 null
       if (!rows || !Array.isArray(rows)) {
@@ -280,10 +297,7 @@ export class QueryEngine {
       
       // 🔧 返回所有出链（包括普通块，会创建虚拟卡）
       // 概念卡的邻居包括：反链、正链（所有出链）、描述符卡
-      const conceptLinks: NeighborQueryResult[] = rows.map(row => ({
-        id: row.id,
-        type: AssociationType.CONCEPT_LINK,
-      }));
+      const conceptLinks = toNeighborResults(rows, AssociationType.CONCEPT_LINK);
 
       logger.info(`Found ${conceptLinks.length} concept links (all outgoing links)`);
       return conceptLinks;
@@ -306,7 +320,7 @@ export class QueryEngine {
   async fetchDescriptorCards(blockId: string): Promise<NeighborQueryResult[]> {
     try {
       const escapedId = this.escapeSQL(blockId);
-      const childRows = await api.sql(`
+      const childRows = await api.sql<IdRow>(`
         SELECT DISTINCT b.id
         FROM blocks b
         WHERE b.parent_id = '${escapedId}'
@@ -321,7 +335,7 @@ export class QueryEngine {
 
       try {
         const idList = childIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
-        const localRows = await api.sql(`
+        const localRows = await api.sql<LocalCardRow>(`
           SELECT DISTINCT block_id
           FROM fsrs_cards
           WHERE block_id IN (${idList})
@@ -342,7 +356,7 @@ export class QueryEngine {
       }
 
       // Syntax fallback: treat descriptor-like lines as descriptor cards.
-      const syntaxRows = await api.sql(`
+      const syntaxRows = await api.sql<IdRow>(`
         SELECT DISTINCT b.id
         FROM blocks b
         WHERE b.parent_id = '${escapedId}'
@@ -352,10 +366,7 @@ export class QueryEngine {
             OR b.content LIKE '%;<>%'
           )
       `);
-      return syntaxRows.map((row) => ({
-        id: row.id,
-        type: AssociationType.DESCRIPTOR,
-      }));
+      return toNeighborResults(syntaxRows, AssociationType.DESCRIPTOR);
     } catch (error) {
       logger.error('Failed to fetch descriptor cards:', error);
       return [];
@@ -389,11 +400,11 @@ export class QueryEngine {
           INNER JOIN fsrs_cards c ON r.block_id = c.block_id
           WHERE r.def_block_id = '${this.escapeSQL(blockId)}'
         `;
-        const outgoing = await api.sql(outgoingStmt);
-        const incoming = await api.sql(incomingStmt);
+        const outgoing = await api.sql<IdRow>(outgoingStmt);
+        const incoming = await api.sql<IdRow>(incomingStmt);
         return [
-          ...outgoing.map(row => ({ id: row.id, type: AssociationType.REF_LINK })),
-          ...incoming.map(row => ({ id: row.id, type: AssociationType.REF_LINK })),
+          ...toNeighborResults(outgoing, AssociationType.REF_LINK),
+          ...toNeighborResults(incoming, AssociationType.REF_LINK),
         ];
       }
 
@@ -440,12 +451,12 @@ export class QueryEngine {
           AND LENGTH(b.content) >= ${minLength}
       `;
 
-      const outgoing = await api.sql(outgoingStmt);
-      const incoming = await api.sql(incomingStmt);
+      const outgoing = await api.sql<IdRow>(outgoingStmt);
+      const incoming = await api.sql<IdRow>(incomingStmt);
 
       return [
-        ...outgoing.map(row => ({ id: row.id, type: AssociationType.REF_LINK })),
-        ...incoming.map(row => ({ id: row.id, type: AssociationType.REF_LINK })),
+        ...toNeighborResults(outgoing, AssociationType.REF_LINK),
+        ...toNeighborResults(incoming, AssociationType.REF_LINK),
       ];
     } catch (error) {
       logger.error('Failed to fetch ref links:', error);
@@ -481,8 +492,8 @@ export class QueryEngine {
             AND b.id != '${this.escapeSQL(blockId)}'
           LIMIT ${limit}
         `;
-        const rows = await api.sql(stmt);
-        return rows.map(row => ({ id: row.id, type: AssociationType.HIERARCHY }));
+        const rows = await api.sql<IdRow>(stmt);
+        return toNeighborResults(rows, AssociationType.HIERARCHY);
       }
 
       // 查询所有有意义的块（闪卡 + 主题）
@@ -507,8 +518,8 @@ export class QueryEngine {
         LIMIT ${limit}
       `;
 
-      const rows = await api.sql(stmt);
-      return rows.map(row => ({ id: row.id, type: AssociationType.HIERARCHY }));
+      const rows = await api.sql<IdRow>(stmt);
+      return toNeighborResults(rows, AssociationType.HIERARCHY);
     } catch (error) {
       logger.error('Failed to fetch context cards:', error);
       return [];
@@ -540,8 +551,8 @@ export class QueryEngine {
         LIMIT ${limit}
       `;
 
-      const rows = await api.sql(stmt);
-      return rows.map(row => ({ id: row.id, type: AssociationType.TAG }));
+      const rows = await api.sql<IdRow>(stmt);
+      return toNeighborResults(rows, AssociationType.TAG);
     } catch (error) {
       logger.error('Failed to fetch tag related cards:', error);
       return [];
@@ -571,8 +582,8 @@ export class QueryEngine {
         LIMIT 10
       `;
 
-      const rows = await api.sql(stmt);
-      return rows.map(row => ({ id: row.id, type: AssociationType.SIBLING }));
+      const rows = await api.sql<IdRow>(stmt);
+      return toNeighborResults(rows, AssociationType.SIBLING);
     } catch (error) {
       logger.error('Failed to fetch sibling cards:', error);
       return [];
@@ -588,7 +599,7 @@ export class QueryEngine {
   async fetchRandomCard(): Promise<string | null> {
     try {
       try {
-        const localRows = await api.sql(`
+        const localRows = await api.sql<IdRow>(`
           SELECT DISTINCT block_id AS id
           FROM fsrs_cards
           WHERE type = 'concept' OR card_type_marker = 'concept'
@@ -602,7 +613,7 @@ export class QueryEngine {
         // fsrs_cards table may be unavailable in some environments
       }
 
-      const syntaxRows = await api.sql(`
+      const syntaxRows = await api.sql<IdRow>(`
         SELECT id
         FROM blocks
         WHERE content LIKE '%::%' OR content LIKE '%：：%'
@@ -613,7 +624,7 @@ export class QueryEngine {
         logger.warn('No concept cards found for neural roaming seed');
         return null;
       }
-      return syntaxRows[0].id;
+      return toNonEmptyString(syntaxRows[0]?.id);
     } catch (error) {
       logger.error('Failed to fetch random card:', error);
       return null;
@@ -714,8 +725,8 @@ export class QueryEngine {
   private async getRootId(blockId: string): Promise<string | null> {
     try {
       const stmt = `SELECT root_id FROM blocks WHERE id = '${this.escapeSQL(blockId)}'`;
-      const rows = await api.sql(stmt);
-      return rows.length > 0 ? rows[0].root_id : null;
+      const rows = await api.sql<RootIdRow>(stmt);
+      return toNonEmptyString(rows[0]?.root_id);
     } catch (error) {
       logger.error('Failed to get root_id:', error);
       return null;
@@ -732,8 +743,8 @@ export class QueryEngine {
   private async getParentId(blockId: string): Promise<string | null> {
     try {
       const stmt = `SELECT parent_id FROM blocks WHERE id = '${this.escapeSQL(blockId)}'`;
-      const rows = await api.sql(stmt);
-      return rows.length > 0 ? rows[0].parent_id : null;
+      const rows = await api.sql<ParentIdRow>(stmt);
+      return toNonEmptyString(rows[0]?.parent_id);
     } catch (error) {
       logger.error('Failed to get parent_id:', error);
       return null;
@@ -750,10 +761,10 @@ export class QueryEngine {
   private async extractTags(blockId: string): Promise<string[]> {
     try {
       const stmt = `SELECT ial FROM blocks WHERE id = '${this.escapeSQL(blockId)}'`;
-      const rows = await api.sql(stmt);
+      const rows = await api.sql<IalRow>(stmt);
       if (rows.length === 0) return [];
 
-      const ial = rows[0].ial || '';
+      const ial = typeof rows[0]?.ial === 'string' ? rows[0].ial : '';
       // 从 IAL 中提取标签（格式：#tag#）
       const tagMatches = ial.match(/#[^#\s]+#/g);
       if (!tagMatches) return [];
@@ -815,8 +826,11 @@ export class QueryEngine {
         SELECT DISTINCT id FROM descendants
       `;
       
-      const rows = await api.sql(stmt);
-      return rows.map(row => ({ id: row.id }));
+      const rows = await api.sql<IdRow>(stmt);
+      return rows
+        .map((row) => toNonEmptyString(row.id))
+        .filter((id): id is string => typeof id === 'string')
+        .map((id) => ({ id }));
     } catch (error) {
       logger.error(`Failed to fetch descendants for ${blockId}:`, error);
       return [];

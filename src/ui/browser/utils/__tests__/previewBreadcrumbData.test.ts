@@ -48,6 +48,12 @@ describe('previewBreadcrumbData', () => {
       'doc-1': [
         { id: 'doc-1', name: 'Document Title', type: 'NodeDocument' },
       ],
+      'doc-root': [
+        { id: 'doc-root', name: 'Root Document', type: 'NodeDocument' },
+      ],
+      'doc-meta-less': [
+        { id: 'doc-meta-less', name: 'Meta Less Document', type: 'NodeDocument' },
+      ],
     };
 
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -69,6 +75,10 @@ describe('previewBreadcrumbData', () => {
             code: 0,
             data: body.id === 'doc-1'
               ? { box: 'box-1', path: '/parent-doc.sy/doc-1.sy' }
+              : body.id === 'doc-root'
+                ? { box: 'box-1', path: '/doc-root.sy' }
+                : body.id === 'doc-meta-less'
+                  ? { box: 'box-1', path: '/doc-meta-less.sy' }
               : {},
           }),
         };
@@ -87,6 +97,19 @@ describe('previewBreadcrumbData', () => {
                 type: 'NodeDocument',
               },
             ],
+          }),
+        };
+      }
+
+      if (url.endsWith('/api/notebook/lsNotebooks')) {
+        return {
+          json: async () => ({
+            code: 0,
+            data: {
+              notebooks: [
+                { id: 'box-1', name: 'Notebook One' },
+              ],
+            },
           }),
         };
       }
@@ -124,6 +147,7 @@ describe('previewBreadcrumbData', () => {
     }));
 
     expect(breadcrumbs).toEqual([
+      { id: 'notebook:box-1', name: 'Notebook One', type: 'Notebook' },
       { id: 'doc-1', name: 'Doc', type: 'NodeDocument' },
       { id: 'heading-1', name: 'Intro', type: 'NodeHeading' },
       { id: 'heading-2', name: 'Intro', type: 'NodeHeading' },
@@ -141,7 +165,37 @@ describe('previewBreadcrumbData', () => {
     }));
 
     expect(breadcrumbs).toEqual([
+      { id: 'notebook:box-1', name: 'Notebook One', type: 'Notebook' },
       { id: 'parent-doc', name: 'Parent Document', type: 'NodeDocument' },
+    ]);
+  });
+
+  it('falls back to the current document itself when a root document has no parent path', async () => {
+    const breadcrumbs = await loadPreviewBreadcrumbTrail('doc-root', createCard({
+      blockId: 'doc-root',
+      fullContent: 'Root Document',
+      meta: {
+        isDocument: true,
+        blockType: 'd',
+      },
+    }));
+
+    expect(breadcrumbs).toEqual([
+      { id: 'notebook:box-1', name: 'Notebook One', type: 'Notebook' },
+      { id: 'doc-root', name: 'Root Document', type: 'NodeDocument' },
+    ]);
+  });
+
+  it('infers document breadcrumbs from the raw self breadcrumb even without document meta markers', async () => {
+    const breadcrumbs = await loadPreviewBreadcrumbTrail('doc-meta-less', createCard({
+      blockId: 'doc-meta-less',
+      fullContent: 'Meta Less Document',
+      meta: {},
+    }));
+
+    expect(breadcrumbs).toEqual([
+      { id: 'notebook:box-1', name: 'Notebook One', type: 'Notebook' },
+      { id: 'doc-meta-less', name: 'Meta Less Document', type: 'NodeDocument' },
     ]);
   });
 });

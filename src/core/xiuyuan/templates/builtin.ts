@@ -5,7 +5,6 @@
  */
 
 import type { ICardTemplate } from '../types';
-import { BUILTIN_CONCEPT_TEMPLATE } from './builtin-concept';
 import { BUILTIN_QUICK_TEMPLATE, BUILTIN_BIDIRECTIONAL_SINGLE_TEMPLATE } from './builtin-quick';
 
 /** 基础问答模板 */

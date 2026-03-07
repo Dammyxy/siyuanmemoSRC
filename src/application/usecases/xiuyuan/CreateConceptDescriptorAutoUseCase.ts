@@ -155,7 +155,7 @@ export class CreateConceptDescriptorAutoUseCase {
           // 从块内容中检测
           const blockQuery = await this.siyuanApi.sql(`SELECT content FROM blocks WHERE id = '${descriptorBlockId}' LIMIT 1`);
           if (blockQuery && blockQuery.length > 0) {
-            direction = detectDescriptorDirection(blockQuery[0].content);
+            direction = detectDescriptorDirection(String(blockQuery[0].content || ''));
             logger.debug('Detected direction from content:', direction);
           } else {
             direction = 'forward';  // 默认正向

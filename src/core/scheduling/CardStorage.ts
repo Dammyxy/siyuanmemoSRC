@@ -1,6 +1,6 @@
 ﻿import type { QueueItem } from '../queue/types.ts';
 import type { FSRSCard } from '@/types';
-import { CardType } from '@/types';
+import { CardType, CardState } from '@/types';
 
 /**
  * QueueItem 与 FSRSCard 之间的适配器
@@ -30,14 +30,15 @@ export class CardStorage {
 		};
 
 		return {
-			id: String(item.cardID),
-			blockId: String(item.blockID),
+			id: String(item.id),
+			xiuyuanID: typeof base?.xiuyuanID === 'string' ? base.xiuyuanID : '',
+			blockId: String(item.blockId),
 			due: getDueTime(3), // 默认使用 Good 的到期时间
 			stability: item.stability ?? 0,
 			difficulty: item.difficulty ?? 0,
 			reps: item.reps ?? 0,
 			lapses: item.lapses ?? 0,
-			state: item.state ?? 0, // 0=New, 1=Learning, 2=Review
+			state: (item.state ?? CardState.New) as CardState,
 			lastReview: item.lastReview ?? now,
 			elapsedDays: item.elapsedDays ?? 0,
 			scheduledDays: item.scheduledDays ?? 0,

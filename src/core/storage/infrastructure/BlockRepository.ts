@@ -17,6 +17,11 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BlockRepository');
 
+interface BlockRootRow extends Record<string, unknown> {
+  id?: unknown;
+  root_id?: unknown;
+}
+
 /**
  * BlockRepository 类
  * 
@@ -45,10 +50,14 @@ export class BlockRepository {
       const inClause = batchIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
       
       try {
-        const result = await sql(`SELECT id, root_id FROM blocks WHERE id IN (${inClause}) LIMIT ${batchIds.length}`);
+        const result = await sql<BlockRootRow>(`SELECT id, root_id FROM blocks WHERE id IN (${inClause}) LIMIT ${batchIds.length}`);
         
         for (const row of result || []) {
-          rootIdMap.set(row.id, row.root_id || '');
+          const blockId = String(row.id || '');
+          if (!blockId) {
+            continue;
+          }
+          rootIdMap.set(blockId, String(row.root_id || ''));
         }
       } catch (error) {
         logger.error('Failed to query rootIds', error);

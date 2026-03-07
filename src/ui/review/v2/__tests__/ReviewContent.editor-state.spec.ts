@@ -8,6 +8,7 @@ const reviewContentMocks = vi.hoisted(() => {
     enableCallCount: number;
     destroyCallCount: number;
     host: HTMLElement;
+    options: { render?: Record<string, unknown>; blockId?: string };
     protyle: { wysiwyg: { element: HTMLElement } };
   }> = [];
   const blockFixtures = new Map<string, string>();
@@ -19,6 +20,7 @@ const reviewContentMocks = vi.hoisted(() => {
     enableCallCount = 0;
     destroyCallCount = 0;
     host: HTMLElement;
+    options: { render?: Record<string, unknown>; blockId?: string };
     protyle: { wysiwyg: { element: HTMLElement } };
 
     constructor(
@@ -27,6 +29,7 @@ const reviewContentMocks = vi.hoisted(() => {
       options: { after?: (protyle: MockProtyle) => void; blockId?: string },
     ) {
       this.host = host;
+      this.options = options;
       const wysiwygElement = document.createElement('div');
       wysiwygElement.className = 'protyle-wysiwyg';
       const fixture = typeof options.blockId === 'string'
@@ -179,11 +182,46 @@ function createNativeRiffContent() {
     type: 'protyle' as const,
     id: 'block-native-riff',
     data: '',
+    answerBlockID: 'block-native-riff',
     card: {
       id: 'card-native-riff',
       type: 'item',
       meta: {
         templateID: 'builtin-riff-sync',
+      },
+    },
+  };
+}
+
+function createBidirectionalTemplateContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'question-block',
+    data: '',
+    answerBlockID: 'answer-block',
+    card: {
+      id: 'card-bidirectional-forward',
+      type: 'item',
+      meta: {
+        templateID: 'builtin-bidirectional',
+        forceProtyleRender: true,
+      },
+    },
+  };
+}
+
+function createTopicDocumentContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'topic-doc-root',
+    data: '',
+    answerBlockID: 'topic-doc-answer-should-be-ignored',
+    card: {
+      id: 'card-topic-doc',
+      type: 'topic',
+      meta: {
+        isDocument: true,
+        blockType: 'd',
       },
     },
   };
@@ -269,18 +307,7 @@ describe('ReviewContent editor state', () => {
     actionWrap.appendChild(actionButton);
     attachTarget.appendChild(actionWrap);
     document.body.appendChild(attachTarget);
-    (window as Window & {
-      siyuan?: {
-        config?: {
-          flashcard?: {
-            superBlock?: boolean;
-            heading?: boolean;
-            list?: boolean;
-            mark?: boolean;
-          };
-        };
-      };
-    }).siyuan = {
+    (window as unknown as { siyuan?: unknown }).siyuan = {
       config: {
         flashcard: {
           superBlock: true,
@@ -289,12 +316,12 @@ describe('ReviewContent editor state', () => {
           mark: true,
         },
       },
-    };
+    } as unknown;
   });
 
   afterEach(() => {
     attachTarget.remove();
-    delete (window as Window & { siyuan?: unknown }).siyuan;
+    delete (window as unknown as { siyuan?: unknown }).siyuan;
   });
 
   it('tracks main Protyle edit state and re-enables double-click editing after Escape exit', async () => {
@@ -531,14 +558,11 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('loads native riff-sync hidden cards through doc content instead of direct blockId rendering', async () => {
-    reviewContentApiMocks.getBlockDocInfo.mockResolvedValue({ ial: {} });
-    reviewContentApiMocks.getDocContent.mockResolvedValue({
-      content: '<div class="sb" custom-riff-decks="deck-1"><div class="protyle-attr"></div><div data-node-id="front"></div><div data-node-id="back"></div></div>',
-      type: 'NodeDocument',
-      rootID: 'doc-native-riff',
-      id: 'block-native-riff',
-    });
+  it('reveals native riff-sync answers inline on the main Protyle without creating a separate answer pane', async () => {
+    setBlockFixture(
+      'block-native-riff',
+      '<div class="sb" custom-riff-decks="deck-1"><div class="protyle-action"></div><div class="protyle-attr"></div><div data-node-id="front">front</div><div data-node-id="back">back</div></div>',
+    );
 
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -573,8 +597,190 @@ describe('ReviewContent editor state', () => {
     await settleProtyleInit();
 
     expect(reviewContentMocks.instances).toHaveLength(1);
-    expect(reviewContentApiMocks.getBlockDocInfo).toHaveBeenCalledWith('block-native-riff');
-    expect(reviewContentApiMocks.getDocContent).toHaveBeenCalledWith('block-native-riff');
+    expect(reviewContentApiMocks.getBlockDocInfo).not.toHaveBeenCalled();
+    expect(reviewContentApiMocks.getDocContent).not.toHaveBeenCalled();
+
+    const hostsBeforeReveal = wrapper.findAll('.fsrs-review-v2-content__protyle-host');
+    expect(hostsBeforeReveal).toHaveLength(1);
+    expect((hostsBeforeReveal[0].element as HTMLDivElement).classList.contains('siyuanmemo-review-card__block--hidesb')).toBe(true);
+    expect((hostsBeforeReveal[0].element as HTMLDivElement).classList.contains('card__block--hidesb')).toBe(false);
+    expect(reviewContentMocks.instances[0]?.options.render).toMatchObject({
+      breadcrumbDocName: false,
+      title: false,
+      hideTitleOnZoom: false,
+    });
+
+    await wrapper.setProps({
+      showAnswer: false,
+      hasHiddenContent: true,
+    });
+    await settleReviewContent();
+
+    const hostsAfterReveal = wrapper.findAll('.fsrs-review-v2-content__protyle-host');
+    expect(hostsAfterReveal).toHaveLength(1);
+    expect((hostsAfterReveal[0].element as HTMLDivElement).style.display).not.toBe('none');
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentMocks.instances[0]?.destroyCallCount).toBe(0);
+
+    wrapper.unmount();
+  });
+
+  it('renders template-backed question blocks with compact Protyle options before showing the answer pane', async () => {
+    setBlockFixture('question-block', '<div data-node-id="question-block">question</div>');
+    setBlockFixture('answer-block', '<div data-node-id="answer-block">answer</div>');
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createBidirectionalTemplateContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleProtyleInit();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentMocks.instances[0]?.options.blockId).toBe('question-block');
+    expect(reviewContentMocks.instances[0]?.options.render).toMatchObject({
+      breadcrumbDocName: false,
+      title: false,
+      hideTitleOnZoom: false,
+    });
+
+    const hostBeforeReveal = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
+    expect(hostBeforeReveal.querySelector('.protyle-wysiwyg')?.textContent).toContain('question');
+
+    await wrapper.setProps({
+      showAnswer: false,
+    });
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(2);
+    expect(reviewContentMocks.instances[1]?.options.blockId).toBe('answer-block');
+    expect(hostBeforeReveal.style.display).not.toBe('none');
+
+    wrapper.unmount();
+  });
+
+  it('uses native document render options for topic document cards and suppresses answer panes', async () => {
+    setBlockFixture('topic-doc-root', '<div data-node-id="topic-doc-root">topic document</div>');
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createTopicDocumentContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleProtyleInit();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentMocks.instances[0]?.options.blockId).toBe('topic-doc-root');
+    expect(reviewContentMocks.instances[0]?.options.render).toMatchObject({
+      breadcrumbDocName: true,
+      title: true,
+      hideTitleOnZoom: true,
+    });
+    expect(wrapper.find('.fsrs-review-v2-content__answer').exists()).toBe(false);
+
+    await wrapper.setProps({
+      showAnswer: false,
+    });
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(wrapper.find('.fsrs-review-v2-content__answer').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('retries main Protyle rendering when the host was not connected during the first pass', async () => {
+    setBlockFixture('question-block', '<div data-node-id="question-block">question</div>');
+
+    const wrapper = mount(ReviewContent, {
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createBidirectionalTemplateContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 280));
+    await flushPromises();
+    expect(reviewContentMocks.instances).toHaveLength(0);
+
+    document.body.appendChild(wrapper.element);
+    await new Promise(resolve => setTimeout(resolve, 180));
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentMocks.instances[0]?.options.blockId).toBe('question-block');
 
     wrapper.unmount();
   });
@@ -582,7 +788,7 @@ describe('ReviewContent editor state', () => {
   it('reveals inline hidden content by removing hide classes without rebuilding Protyle', async () => {
     setBlockFixture(
       'block-1',
-      '<div class="sb" custom-riff-decks="deck-1"><div class="protyle-attr"></div><div data-node-id="front"></div><div data-node-id="back"></div></div>',
+      '<div class="sb" custom-riff-decks="deck-1"><div class="protyle-action"></div><div class="protyle-attr"></div><div data-node-id="front">front</div><div data-node-id="back">back</div></div>',
     );
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
@@ -618,7 +824,8 @@ describe('ReviewContent editor state', () => {
 
     const host = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
     const protyle = reviewContentMocks.instances[0];
-    expect(host.classList.contains('card__block--hidesb')).toBe(true);
+    expect(host.classList.contains('siyuanmemo-review-card__block--hidesb')).toBe(true);
+    expect(host.classList.contains('card__block--hidesb')).toBe(false);
 
     await wrapper.setProps({
       showAnswer: false,
@@ -626,7 +833,7 @@ describe('ReviewContent editor state', () => {
     });
     await settleReviewContent();
 
-    expect(host.classList.contains('card__block--hidesb')).toBe(false);
+    expect(host.classList.contains('siyuanmemo-review-card__block--hidesb')).toBe(false);
     expect(protyle.destroyCallCount).toBe(0);
 
     wrapper.unmount();
@@ -668,10 +875,59 @@ describe('ReviewContent editor state', () => {
     await settleProtyleInit();
 
     const host = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
+    expect(host.classList.contains('siyuanmemo-review-card__block--hidesb')).toBe(false);
+    expect(host.classList.contains('siyuanmemo-review-card__block--hideli')).toBe(false);
+    expect(host.classList.contains('siyuanmemo-review-card__block--hideh')).toBe(false);
+    expect(host.classList.contains('siyuanmemo-review-card__block--hidemark')).toBe(false);
     expect(host.classList.contains('card__block--hidesb')).toBe(false);
     expect(host.classList.contains('card__block--hideli')).toBe(false);
     expect(host.classList.contains('card__block--hideh')).toBe(false);
     expect(host.classList.contains('card__block--hidemark')).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('keeps superblock hidden classes off when there is only one direct block child', async () => {
+    setBlockFixture(
+      'block-1',
+      '<div class="sb" custom-riff-decks="deck-1"><div class="protyle-action"></div><div class="protyle-attr"></div><div data-node-id="front">front</div></div>',
+    );
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent(),
+        showAnswer: true,
+        hasHiddenContent: true,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleProtyleInit();
+
+    const host = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
+    expect(host.classList.contains('siyuanmemo-review-card__block--hidesb')).toBe(false);
+    expect(host.classList.contains('card__block--hidesb')).toBe(false);
 
     wrapper.unmount();
   });

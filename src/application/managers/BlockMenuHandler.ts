@@ -23,6 +23,7 @@ import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/sha
 import { resolveCdfTailMarkerFromSources } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
 import { CoreReviewEntryService } from '@/application/entries/CoreReviewEntryService';
 import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
+import { isErr } from '@/types/result';
 
 const logger = createLogger('BlockMenuHandler');
 
@@ -74,7 +75,7 @@ interface DrillCardPayload {
   reps: number;
 }
 
-interface BlockSqlRow {
+interface BlockSqlRow extends Record<string, unknown> {
   id: string;
   type?: string;
   parent_id?: string;
@@ -83,12 +84,12 @@ interface BlockSqlRow {
   markdown?: string;
 }
 
-interface BlockTypeRow {
+interface BlockTypeRow extends Record<string, unknown> {
   type?: string;
   content?: string;
 }
 
-interface BlockIdRow {
+interface BlockIdRow extends Record<string, unknown> {
   id?: string;
 }
 
@@ -749,15 +750,12 @@ export class BlockMenuHandler {
 
         const cardIds = cards.map((card) => card.id);
         const batchResult = await cardService.deleteCards({ cardIds });
-        if (batchResult.ok) {
-          deletedCount += batchResult.value.deletedCount;
-          failedCount += batchResult.value.failedCardIds.length;
-        } else {
+        if (isErr(batchResult)) {
           logger.error('[BlockMenuHandler] Failed to batch delete cards from selected subtree:', batchResult.error);
 
           for (const cardId of cardIds) {
             const result = await cardService.deleteCard({ cardId });
-            if (result.ok) {
+            if (!isErr(result)) {
               deletedCount++;
               continue;
             }
@@ -765,6 +763,9 @@ export class BlockMenuHandler {
             failedCount++;
             logger.error(`[BlockMenuHandler] Failed to delete card ${cardId}:`, result.error);
           }
+        } else {
+          deletedCount += batchResult.value.deletedCount;
+          failedCount += batchResult.value.failedCardIds.length;
         }
 
         if (deletedCount > 0) {
@@ -1002,12 +1003,12 @@ export class BlockMenuHandler {
 
   private async resolveListItemAnchorBlockId(selectedBlockId: string): Promise<string | null> {
     const safeSelectedBlockId = this.escapeSQL(selectedBlockId);
-    const selectedRows = await this.siyuanApi.sql(`
+    const selectedRows = await this.siyuanApi.sql<BlockSqlRow>(`
       SELECT id, type, parent_id
       FROM blocks
       WHERE id = '${safeSelectedBlockId}'
       LIMIT 1
-    `) as BlockSqlRow[];
+    `);
     if (!selectedRows || selectedRows.length === 0) {
       return null;
     }
@@ -1021,12 +1022,12 @@ export class BlockMenuHandler {
     }
 
     const safeParentId = this.escapeSQL(selected.parent_id);
-    const parentRows = await this.siyuanApi.sql(`
+    const parentRows = await this.siyuanApi.sql<BlockSqlRow>(`
       SELECT id, type
       FROM blocks
       WHERE id = '${safeParentId}'
       LIMIT 1
-    `) as BlockSqlRow[];
+    `);
     if (!parentRows || parentRows.length === 0 || parentRows[0].type !== 'i') {
       return null;
     }
@@ -1177,7 +1178,7 @@ export class BlockMenuHandler {
           listKind: 'default',
         });
 
-        if (!orderedResult.ok) {
+        if (isErr(orderedResult)) {
           await this.siyuanApi.pushErrMsg(`创建失败：${orderedResult.error.message}`);
           return;
         }
@@ -1195,7 +1196,7 @@ export class BlockMenuHandler {
           listKind: 'default',
         });
 
-        if (!unorderedResult.ok) {
+        if (isErr(unorderedResult)) {
           await this.siyuanApi.pushErrMsg(`创建失败：${unorderedResult.error.message}`);
           return;
         }
@@ -1243,7 +1244,7 @@ export class BlockMenuHandler {
           },
         });
         
-        if (result.ok) {
+        if (!isErr(result)) {
           // 概念卡采用本地卡数据模型，不再写入块级 legacy 卡片属性。
 
           // ✅ 添加到 Riff（确保同步）
@@ -1270,7 +1271,7 @@ export class BlockMenuHandler {
             }
           });
           
-          if (result.ok) {
+          if (!isErr(result)) {
             logger.info(`[BlockMenuHandler] Updated card type to concept for block: ${blockId}`);
             await this.siyuanApi.pushMsg('✅ 已更新为概念卡');
           } else {
@@ -1393,7 +1394,7 @@ export class BlockMenuHandler {
         descriptorBlockId: blockId,
       });
       
-      if (result.ok) {
+      if (!isErr(result)) {
         const { newConceptName, createdConceptCard } = result.value;
         
         if (createdConceptCard) {

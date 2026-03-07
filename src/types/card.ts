@@ -20,10 +20,10 @@ export enum CardType {
     Topic = 'topic',             // 主题（增量阅读）
     Concept = 'concept',         // 概念卡（使用 FSRS 调度器）
     Descriptor = 'descriptor',   // 描述符卡（使用 FSRS 调度器）
-    // Incremental 和 Webpage 类型已在 XiuYuan 统一化中移除
-    // @deprecated Use Item or Topic instead
-    // Incremental = 'incremental',
-    // Webpage = 'webpage',
+    /** @deprecated Use Item or Topic instead */
+    Incremental = 'incremental',
+    /** @deprecated Use Item or Topic instead */
+    Webpage = 'webpage',
 }
 
 /** 评分 */
@@ -140,7 +140,7 @@ export interface WebpageCard extends FSRSCard {
  * const helper = new CardCreationHelper(cardService);
  * const result = await helper.createQuickCard(blockId);
  */
-export function createDefaultCard(blockId: string): FSRSCard {
+export function createDefaultCard(_blockId: string): FSRSCard {
     throw new Error(
         'DeprecationError: createDefaultCard() is deprecated. ' +
         'Please use CardApplicationService.createCard() or CardCreationHelper instead. ' +
@@ -154,7 +154,7 @@ export function createDefaultCard(blockId: string): FSRSCard {
  * @deprecated Webpage 卡片类型已被移除，此函数已废弃
  * @throws {Error} 抛出 DeprecationError
  */
-export function createWebpageCard(url: string, title: string): WebpageCard {
+export function createWebpageCard(_url: string, _title: string): WebpageCard {
     throw new Error(
         'DeprecationError: createWebpageCard() is deprecated. ' +
         'Webpage card type has been removed in XiuYuan unification.'
@@ -166,13 +166,4 @@ export function isWebpageCard(card: FSRSCard): card is WebpageCard {
     return card.type === CardType.Webpage;
 }
 
-/** 生成卡片 ID */
-function generateCardId(): string {
-    const now = new Date();
-    const timestamp = now.toISOString()
-        .replace(/[-:T]/g, '')
-        .slice(0, 14);
-    const random = Math.random().toString(36).slice(2, 9);
-    return `${timestamp}-${random}`;
-}
 

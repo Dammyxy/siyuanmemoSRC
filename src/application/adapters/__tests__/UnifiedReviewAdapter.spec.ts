@@ -491,12 +491,12 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
-  it('keeps native builtin-riff-sync cards on inline hidden reveal path without answer pane block', async () => {
+  it('maps native builtin-riff-sync cards to a same-block answer pane while keeping inline hidden reveal metadata', async () => {
     const card = createCard('riff-native-1', CardType.Item, {
       meta: createXiuyuanMeta({
         templateID: 'builtin-riff-sync',
-        frontBlockIDs: ['native-front'],
-        backBlockIDs: ['native-back'],
+        frontBlockIDs: ['native-front-child'],
+        backBlockIDs: ['native-back-child'],
       }),
     });
     const adapter = new UnifiedReviewAdapter();
@@ -515,10 +515,35 @@ describe('UnifiedReviewAdapter', () => {
       },
     );
 
-    expect(hiddenUi.content.answerBlockID).toBe('');
+    expect(hiddenUi.content.id).toBe('block-riff-native-1');
+    expect(hiddenUi.content.answerBlockID).toBe('block-riff-native-1');
     expect(hiddenUi.meta.hasHiddenContent).toBe(true);
-    expect(revealedUi.content.answerBlockID).toBe('');
+    expect(revealedUi.content.id).toBe('block-riff-native-1');
+    expect(revealedUi.content.answerBlockID).toBe('block-riff-native-1');
     expect(revealedUi.meta.hasHiddenContent).toBe(true);
+  });
+
+  it('keeps topic document cards on the document render path even when Xiuyuan answer blocks exist', async () => {
+    const card = createCard('topic-doc-1', CardType.Topic, {
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-bidirectional',
+        frontBlockIDs: ['topic-front-child'],
+        backBlockIDs: ['topic-answer-child'],
+        isDocument: true,
+        blockType: 'd',
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('block-topic-doc-1');
+    expect(ui.content.data).toBe('block-topic-doc-1');
+    expect(ui.content.answerBlockID).toBe('');
   });
 
   it('keeps answerBlockID for template-backed cards that render a separate answer pane', async () => {

@@ -11,7 +11,7 @@
  * @see .kiro/specs/filter-group-queue-ui/design.md
  */
 
-import type { CardFilter, NumericRangeFilter, DateRangeFilter } from '@/types/unified-data-source';
+import type { CardFilter } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FilterService');
@@ -51,7 +51,7 @@ export interface FilterValues {
     difficulty: { min: number; max: number };
     stability: { min: number; max: number };
     retrievability: { min: number; max: number };
-    cardType: Set<'item' | 'topic'>;
+    cardType: Set<'item' | 'topic' | 'concept' | 'descriptor' | 'incremental' | 'webpage'>;
     cardStatus: Set<'new' | 'learning' | 'review' | 'relearning'>;
     keyword: string;
 }
@@ -128,6 +128,14 @@ const FILTER_RANGES: Record<string, NumericRange> = {
 export class FilterService {
     private readonly STORAGE_KEY = 'filter-group-queue-settings';
     private readonly PRESETS_KEY = 'filter-group-queue-presets';
+
+    private isDate(value: unknown): value is Date {
+        return value instanceof Date && !isNaN(value.getTime());
+    }
+
+    private isString(value: unknown): value is string {
+        return typeof value === 'string';
+    }
 
     /**
      * 保存过滤设置到 localStorage
@@ -644,14 +652,16 @@ export class FilterService {
 
             if (value && typeof value === 'object') {
                 const dateRangeValue = value as { gte?: unknown; lte?: unknown };
-                const hasGte = dateRangeValue.gte instanceof Date;
-                const hasLte = dateRangeValue.lte instanceof Date;
+                const gte = dateRangeValue.gte;
+                const lte = dateRangeValue.lte;
+                const hasGte = this.isDate(gte);
+                const hasLte = this.isDate(lte);
 
                 if (hasGte || hasLte) {
                     serialized[key] = {
                         ...dateRangeValue,
-                        ...(hasGte ? { gte: dateRangeValue.gte.toISOString() } : {}),
-                        ...(hasLte ? { lte: dateRangeValue.lte.toISOString() } : {}),
+                        ...(hasGte ? { gte: gte.toISOString() } : {}),
+                        ...(hasLte ? { lte: lte.toISOString() } : {}),
                     };
                     continue;
                 }
@@ -675,14 +685,16 @@ export class FilterService {
 
             if (value && typeof value === 'object') {
                 const dateRangeValue = value as { gte?: unknown; lte?: unknown };
-                const hasGte = typeof dateRangeValue.gte === 'string';
-                const hasLte = typeof dateRangeValue.lte === 'string';
+                const gte = dateRangeValue.gte;
+                const lte = dateRangeValue.lte;
+                const hasGte = this.isString(gte);
+                const hasLte = this.isString(lte);
 
                 if (hasGte || hasLte) {
                     target[key] = {
                         ...dateRangeValue,
-                        ...(hasGte ? { gte: new Date(dateRangeValue.gte) } : {}),
-                        ...(hasLte ? { lte: new Date(dateRangeValue.lte) } : {}),
+                        ...(hasGte ? { gte: new Date(gte) } : {}),
+                        ...(hasLte ? { lte: new Date(lte) } : {}),
                     };
                     continue;
                 }

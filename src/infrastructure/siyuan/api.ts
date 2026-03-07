@@ -18,6 +18,18 @@ interface ListDocsByPathResponse<TFile extends JsonRecord> {
     files?: TFile[];
 }
 
+interface NotebookSummary {
+    id: string;
+    name: string;
+    icon: string;
+    sort: number;
+    closed: boolean;
+}
+
+interface ListNotebooksResponse {
+    notebooks?: NotebookSummary[];
+}
+
 function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null;
 }
@@ -268,6 +280,14 @@ export async function getDocInfo(id: string): Promise<JsonRecord> {
 
 export async function getDocContent(id: string, size = 102400, mode = 0): Promise<JsonRecord> {
     return request<JsonRecord>('/filetree/getDoc', { id, size, mode });
+}
+
+/**
+ * 获取笔记本列表
+ */
+export async function listNotebooks(): Promise<NotebookSummary[]> {
+    const result = await request<ListNotebooksResponse>('/notebook/lsNotebooks', {});
+    return Array.isArray(result.notebooks) ? result.notebooks : [];
 }
 
 /**

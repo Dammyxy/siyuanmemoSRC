@@ -1,4 +1,4 @@
-import { err, ok, Result } from '@/types/result';
+import { err, ok, isErr, Result } from '@/types/result';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 
 /**
@@ -9,7 +9,7 @@ export async function warmupXiuyuanCardIndex(
   xiuyuanRepo: IXiuyuanRepository
 ): Promise<Result<void>> {
   const xiuyuansResult = await xiuyuanRepo.findAll();
-  if (!xiuyuansResult.ok) {
+  if (isErr(xiuyuansResult)) {
     const error = xiuyuansResult.error ?? new Error('Failed to warm up Xiuyuan card index');
     return err(error);
   }

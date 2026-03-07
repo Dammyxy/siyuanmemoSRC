@@ -36,6 +36,11 @@ function getLanguages(): Record<string, string> {
   return getRuntimeWindow().siyuan?.languages ?? {};
 }
 
+function readHotkeyDetail(event: MouseEvent): string | null {
+  const detail = (event as unknown as { detail?: unknown }).detail;
+  return typeof detail === 'string' ? detail.toLowerCase() : null;
+}
+
 /**
  * 生成卡片计数 HTML
  */
@@ -297,9 +302,9 @@ export class NativeReviewSession {
         });
 
         // 处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
-        if (typeof event.detail === 'string') {
-          logger.debug('Hotkey CustomEvent received:', event.detail);
-          const key = event.detail.toLowerCase();
+        const key = readHotkeyDetail(event);
+        if (key) {
+          logger.debug('Hotkey CustomEvent received:', key);
 
           // 检查是否已显示答案（第二个 action div 是否隐藏）
           const actionElements = this.dialog?.element.querySelectorAll('.card__action');
@@ -380,9 +385,9 @@ export class NativeReviewSession {
       const target = event.target as HTMLElement;
 
       // 处理来自思源热键系统的 CustomEvent（event.detail 为字符串）
-      if (typeof event.detail === 'string') {
-        logger.debug('Hotkey CustomEvent received:', event.detail);
-        const key = event.detail.toLowerCase();
+      const key = readHotkeyDetail(event);
+      if (key) {
+        logger.debug('Hotkey CustomEvent received:', key);
 
         // 评分按钮 (1/j/a = 1, 2/k/s = 2, 3/l/d = 3, 4/;/f = 4)
         if (['1', 'j', 'a'].includes(key)) {
@@ -764,60 +769,6 @@ export class NativeReviewSession {
 
       fullscreen(cardMain, fullscreenBtn);
       resize(this.protyle);
-    }
-  }
-
-  /**
-   * 打开更多菜单
-   */
-  private openMoreMenu(event: MouseEvent) {
-    logger.debug('openMoreMenu called:', {
-      currentTarget: event.currentTarget,
-      target: event.target,
-      clientX: event.clientX,
-      clientY: event.clientY,
-    });
-
-    const languages = getLanguages();
-
-    const menu = new Menu();
-    menu.addItem({
-      icon: 'iconPause',
-      label: languages.skip || 'Skip',
-      click: () => {
-        void this.handleSkip();
-      },
-    });
-    menu.addSeparator();
-    menu.addItem({
-      icon: 'iconFullscreen',
-      label: languages.fullscreen || 'Fullscreen',
-      click: () => {
-        this.toggleFullscreen();
-      },
-    });
-
-    const anchor = (event.currentTarget || event.target) as HTMLElement | null;
-    const rect = anchor?.getBoundingClientRect?.();
-
-    logger.debug('Menu positioning:', {
-      anchor,
-      rect,
-    });
-
-    if (rect) {
-      menu.open({
-        x: rect.left,
-        y: rect.bottom,
-        isLeft: true,
-      });
-    } else {
-      logger.warn('Could not get anchor rect, using mouse position');
-      menu.open({
-        x: event.clientX,
-        y: event.clientY,
-        isLeft: true,
-      });
     }
   }
 

@@ -1,7 +1,15 @@
 import type { IQueueStrategy, QueueFeedback } from '../queue/abstraction/Strategy.ts';
 import type { QueueStats, QueueUIConfig } from '../queue/types.ts';
-import type { IReviewQueue } from '@/types/unified-data-source';
-import type { FSRSCard } from '@/types/fsrs';
+import type { IReviewQueue, QueueUIConfig as ReviewQueueUIConfig } from '@/types/unified-data-source';
+import type { FSRSCard } from '@/types/card';
+
+function toLegacyQueueUIConfig(config: ReviewQueueUIConfig): QueueUIConfig {
+  return {
+    statsType: 'queue-size',
+    showRatingButtons: config.buttons.some((button) => button.type === 'rating'),
+    allowSkip: config.showSkipButton,
+  };
+}
 
 /**
  * 直接基于新架构 Queue 的 Strategy
@@ -21,7 +29,7 @@ export class QueueBackedStrategy implements IQueueStrategy<FSRSCard> {
   }
 
   getUIConfig(_currentItem: FSRSCard | null): QueueUIConfig {
-    return this.queue.getUIConfig();
+    return toLegacyQueueUIConfig(this.queue.getUIConfig());
   }
 
   getProgress(): unknown {

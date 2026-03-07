@@ -9,6 +9,32 @@ type ReviewedCardsPayload = {
     reviewedCards?: RiffReviewCard[];
 };
 
+type RiffCardsByBlockIdsResponse = {
+    blocks?: RiffBlock[];
+};
+
+type BlockInfoRow = Record<string, unknown> & {
+    id?: unknown;
+    created_time?: unknown;
+    created?: unknown;
+    createdAt?: unknown;
+    created_at?: unknown;
+    last_edited_time?: unknown;
+    updated?: unknown;
+    updatedAt?: unknown;
+    updated_at?: unknown;
+};
+
+function toRiffTimestamp(value: unknown, fallback: string): string {
+    if (typeof value === 'string' && value.trim()) {
+        return value;
+    }
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        return new Date(value).toISOString();
+    }
+    return fallback;
+}
+
 function withReviewedCards<T extends Record<string, unknown>>(
     payload: T,
     reviewedCards: readonly RiffReviewCard[]
@@ -27,7 +53,7 @@ function withReviewedCards<T extends Record<string, unknown>>(
 
 /** 获取所有闪卡卡包 */
 export async function getRiffDecks(): Promise<RiffDeck[]> {
-    const data = await request('/riff/getRiffDecks', {});
+    const data = await request<RiffDeck[]>('/riff/getRiffDecks', {});
     return data || [];
 }
 
@@ -60,18 +86,22 @@ export async function removeRiffCards(deckID: string, blockIDs: string[]): Promi
 
 /** 根据块 ID 获取闪卡信息 */
 export async function getRiffCardsByBlockIDs(blockIDs: string[]): Promise<RiffBlock[]> {
-    const data = await request('/riff/getRiffCardsByBlockIDs', { blockIDs });
+    const data = await request<RiffCardsByBlockIdsResponse>('/riff/getRiffCardsByBlockIDs', { blockIDs });
     const blocks: RiffBlock[] = data?.blocks || [];
     if (!blocks.length) return blocks;
     try {
-        const blockInfos = await getBlocksByIds(blocks.map(b => b.id));
+        const blockInfos = await getBlocksByIds<BlockInfoRow>(blocks.map(b => b.id));
         const infoMap = new Map(blockInfos.map(info => [info.id, info]));
         return blocks.map((block) => {
             const info = infoMap.get(block.id);
             if (!info) return block;
             const created = info?.created_time ?? info?.created ?? info?.createdAt ?? info?.created_at ?? block.created;
             const updated = info?.last_edited_time ?? info?.updated ?? info?.updatedAt ?? info?.updated_at ?? block.updated;
-            return { ...block, created, updated };
+            return {
+                ...block,
+                created: toRiffTimestamp(created, block.created),
+                updated: toRiffTimestamp(updated, block.updated),
+            };
         });
     } catch {
         return blocks;

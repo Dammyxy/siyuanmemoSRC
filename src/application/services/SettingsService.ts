@@ -77,7 +77,6 @@ export class SettingsService implements ISettingsService {
   
   // 存储文件名
   private readonly SETTINGS_FILE = 'settings.json';
-  private readonly RIFF_CONFIG_FILE = 'riff-integration.json';
 
   constructor(private readonly fileService: IFileService) {
     // 初始化为默认设置
@@ -383,7 +382,7 @@ export class SettingsService implements ISettingsService {
    * 防抖保存 Riff 配置
    * @deprecated 不再使用，Riff 配置现在保存在 settings.json 中
    */
-  private debouncedSaveRiffConfig(): void {
+  public debouncedSaveRiffConfig(): void {
     // 🔧 修复：Riff 配置现在保存在 settings.json 中
     this.debouncedSaveSettings();
   }
@@ -405,7 +404,7 @@ export class SettingsService implements ISettingsService {
    * 立即保存 Riff 配置
    * @deprecated 不再使用，Riff 配置现在保存在 settings.json 中
    */
-  private async saveRiffConfig(): Promise<void> {
+  public async saveRiffConfig(): Promise<void> {
     // 🔧 修复：Riff 配置现在保存在 settings.json 中
     await this.saveSettings();
   }

@@ -66,7 +66,6 @@ export function createVueDialog<T extends Component>(options: {
     
     if (options.responsive) {
         const vw = window.innerWidth;
-        const vh = window.innerHeight;
         
         // 根据视口大小调整对话框尺寸
         // 小屏幕（< 768px）：使用 90% 视口宽度
@@ -146,7 +145,7 @@ export function createVueDialog<T extends Component>(options: {
     }
 
     // 立即挂载 Vue 组件
-    const container = dialog.element.querySelector(`#${containerId}`);
+    const container = dialog.element.querySelector(`#${containerId}`) as HTMLElement | null;
     if (container) {
         app.mount(container);
 

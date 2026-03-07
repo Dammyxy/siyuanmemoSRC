@@ -20,6 +20,11 @@ export function resolvePreviewTargetType(params: {
       return 'NodeDocument';
     }
 
+    const selectedBreadcrumb = breadcrumbs.find(item => item.id === activePreviewBlockId);
+    if (selectedBreadcrumb && isDocumentPreviewType(selectedBreadcrumb.type)) {
+      return 'NodeDocument';
+    }
+
     const blockType = typeof card.meta?.blockType === 'string'
       ? card.meta.blockType
       : '';

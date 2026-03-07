@@ -28,7 +28,7 @@
  * 8. 返回更新结果
  */
 
-import { Result, ok, err } from '@/types/result';
+import { Result, ok, err, isErr } from '@/types/result';
 import { UpdateCardCommand, validateUpdateCardCommand } from '../../commands/card/UpdateCardCommand';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
@@ -56,12 +56,12 @@ export class UpdateCardUseCase {
 
     // 2. 将命令转换为领域对象
     const xiuyuanIdResult = XiuyuanId.create(command.xiuyuanId);
-    if (!xiuyuanIdResult.ok) {
+    if (isErr(xiuyuanIdResult)) {
       return err(new Error(`Invalid xiuyuanId: ${xiuyuanIdResult.error.message}`));
     }
 
     const cardIdResult = CardId.create(command.cardId);
-    if (!cardIdResult.ok) {
+    if (isErr(cardIdResult)) {
       return err(new Error(`Invalid cardId: ${cardIdResult.error.message}`));
     }
 

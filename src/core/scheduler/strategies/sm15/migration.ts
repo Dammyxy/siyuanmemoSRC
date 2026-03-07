@@ -11,10 +11,10 @@
  */
 
 import type { FSRSCard } from '@/types';
-import type { SchedulerType } from '../../SchedulerRouter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SchedulerMigration');
+type MigratableSchedulerType = Exclude<NonNullable<FSRSCard['schedulerType']>, 'riff'>;
 
 // === 类型转换工具函数 ===
 
@@ -277,7 +277,7 @@ export function migrateToImprovedTopicScheduler(card: FSRSCard): FSRSCard {
  */
 export function migrateCard(
     card: FSRSCard,
-    targetScheduler: SchedulerType
+    targetScheduler: MigratableSchedulerType
 ): FSRSCard {
     const currentScheduler = card.schedulerType || 'fsrs-v6';
 

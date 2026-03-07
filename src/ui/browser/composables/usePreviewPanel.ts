@@ -1,4 +1,4 @@
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed } from 'vue';
 import { Protyle, openTab, type App } from 'siyuan';
 import { BrowserCard, IBreadcrumbItem } from '../types';
 import { applyProtyleReadonly } from '../utils/protyleControl';

@@ -212,7 +212,7 @@ export class SchedulerRouter {
         // 3. 转换卡片状态（如果需要）
         const convertedCard = this._convertCardState(
             card,
-            card.schedulerType || this.config.defaultScheduler,
+            this.resolveCardSchedulerType(card.schedulerType) ?? this.config.defaultScheduler,
             newScheduler
         );
 

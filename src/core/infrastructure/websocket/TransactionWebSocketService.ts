@@ -42,7 +42,6 @@ export interface ITransactionHandler {
  * 原因：思源只向主 WebSocket 广播 transaction 事件
  */
 export class TransactionWebSocketService {
-    private plugin: FSRSPlugin;
     private enabled: boolean = false;
     
     // 注册的处理器列表
@@ -57,9 +56,7 @@ export class TransactionWebSocketService {
     private readonly HEALTH_CHECK_INTERVAL = 60000; // 60秒检查一次
     private readonly MESSAGE_TIMEOUT = 300000; // 5分钟没有消息认为连接异常
     
-    constructor(plugin: FSRSPlugin) {
-        this.plugin = plugin;
-    }
+    constructor(_plugin: FSRSPlugin) {}
     
     /**
      * 获取思源主 WebSocket

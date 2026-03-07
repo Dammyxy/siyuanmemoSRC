@@ -9,6 +9,15 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SiyuanBlock');
 
+type IdRow = {
+    id: string;
+};
+
+type IdContentRow = {
+    id: string;
+    content: string;
+};
+
 /** 块属性前缀 */
 export const ATTR_PREFIX = 'custom-fsrs-';
 export const ATTR_CARD_ID = `${ATTR_PREFIX}card-id`;
@@ -104,7 +113,7 @@ export async function getBlockText(blockId: string): Promise<string> {
  * 获取所有带闪卡标记的块 ID
  */
 export async function getAllCardBlockIds(): Promise<string[]> {
-    const blocks = await api.getBlocksByAttr(ATTR_CARD_ID);
+    const blocks = await api.getBlocksByAttr<IdContentRow>(ATTR_CARD_ID);
     return blocks.map(b => b.id);
 }
 
@@ -129,7 +138,7 @@ export async function getCardBlockIds(filter: CardBlockIdFilter): Promise<string
  */
 export async function getCardBlocksInDoc(docId: string): Promise<string[]> {
     const stmt = buildCardBlockIdStmt({ type: 'doc', docId });
-    const blocks = await api.sql(stmt);
+    const blocks = await api.sql<IdRow>(stmt);
     return blocks.map(b => b.id);
 }
 
@@ -141,12 +150,13 @@ export async function getCardBlocksInDocTree(docId: string): Promise<string[]> {
     const docInfo = await api.getDocInfo(docId);
     if (!docInfo) return [];
 
-    const path = docInfo.path;
-    const box = docInfo.box;
+    const path = typeof docInfo.path === 'string' ? docInfo.path : '';
+    const box = typeof docInfo.box === 'string' ? docInfo.box : '';
+    if (!path || !box) return [];
 
     // 查询该路径下所有文档的闪卡
     const stmt = buildCardBlockIdStmt({ type: 'tree', box, pathPrefix: path });
-    const blocks = await api.sql(stmt);
+    const blocks = await api.sql<IdRow>(stmt);
     return blocks.map(b => b.id);
 }
 
@@ -155,7 +165,7 @@ export async function getCardBlocksInDocTree(docId: string): Promise<string[]> {
  */
 export async function getCardBlocksByBacklink(blockId: string): Promise<string[]> {
     const stmt = buildCardBlockIdStmt({ type: 'backlink', defBlockId: blockId });
-    const blocks = await api.sql(stmt);
+    const blocks = await api.sql<IdRow>(stmt);
     return blocks.map(b => b.id);
 }
 
@@ -165,6 +175,6 @@ export async function getCardBlocksByBacklink(blockId: string): Promise<string[]
 export async function getCardBlocksBySql(customSql: string): Promise<string[]> {
     // 将用户 SQL 包装为获取闪卡的查询
     const stmt = buildCardBlockIdStmt({ type: 'sql', stmt: customSql });
-    const blocks = await api.sql(stmt);
+    const blocks = await api.sql<IdRow>(stmt);
     return blocks.map(b => b.id);
 }

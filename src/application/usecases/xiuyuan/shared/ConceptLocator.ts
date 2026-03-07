@@ -12,6 +12,14 @@ export interface LocatedConcept {
   conceptType: LocatedConceptType;
 }
 
+interface ParentRow extends Record<string, unknown> {
+  parent_id?: unknown;
+}
+
+interface TypeRow extends Record<string, unknown> {
+  type?: unknown;
+}
+
 async function getParentId(blockId: string, siyuanApi: XiuyuanSiyuanPort): Promise<string | null> {
   const query = `
     SELECT parent_id
@@ -19,11 +27,11 @@ async function getParentId(blockId: string, siyuanApi: XiuyuanSiyuanPort): Promi
     WHERE id = '${blockId}'
     LIMIT 1
   `;
-  const result = await siyuanApi.sql(query);
+  const result = await siyuanApi.sql<ParentRow>(query);
   if (!result || result.length === 0 || !result[0]?.parent_id) {
     return null;
   }
-  return result[0].parent_id;
+  return String(result[0].parent_id);
 }
 
 async function getBlockType(blockId: string, siyuanApi: XiuyuanSiyuanPort): Promise<string | null> {
@@ -33,11 +41,11 @@ async function getBlockType(blockId: string, siyuanApi: XiuyuanSiyuanPort): Prom
     WHERE id = '${blockId}'
     LIMIT 1
   `;
-  const result = await siyuanApi.sql(query);
+  const result = await siyuanApi.sql<TypeRow>(query);
   if (!result || result.length === 0) {
     return null;
   }
-  return result[0].type ?? null;
+  return typeof result[0].type === 'string' ? result[0].type : null;
 }
 
 async function hasListItemParent(blockId: string, siyuanApi: XiuyuanSiyuanPort): Promise<boolean> {

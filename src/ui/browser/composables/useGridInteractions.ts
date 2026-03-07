@@ -53,7 +53,12 @@ export function useGridInteractions(props: GridInteractionsOptions) {
   };
 
   const onSortChanged = (params: GridSortParams) => {
-    currentSortModel.value = (params.api?.getSortModel?.() ?? []) as SortModel[];
+    const columnState = params.api?.getColumnState?.() ?? [];
+    currentSortModel.value = columnState
+      .filter((column): column is ColumnState & { colId: string; sort: 'asc' | 'desc' } =>
+        typeof column.colId === 'string' && (column.sort === 'asc' || column.sort === 'desc')
+      )
+      .map((column) => ({ colId: column.colId, sort: column.sort }));
     const sortArray = [...currentSortModel.value];
 
     // 如果有列排序状态，清除随机排序标志
@@ -67,10 +72,9 @@ export function useGridInteractions(props: GridInteractionsOptions) {
       sortModel: currentSortModel.value,
       sortModelLength: currentSortModel.value.length,
       sortModelArray: sortArray,
-      hasGetSortModel: typeof api?.getSortModel === 'function',
       hasGetDisplayedRowCount: typeof api?.getDisplayedRowCount === 'function',
       hasGetColumnState: typeof api?.getColumnState === 'function',
-      columnState: (api?.getColumnState?.() ?? []).filter((column: ColumnState) => column.colId === 'priority'),
+      columnState: columnState.filter((column: ColumnState) => column.colId === 'priority'),
     });
 
     // 强制刷新 NO 列以更新行号（使用 colId）

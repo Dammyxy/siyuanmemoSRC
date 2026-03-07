@@ -6,7 +6,8 @@
  */
 
 import { SM15_CONSTANTS } from './types';
-import type { SM15, SM15ItemData } from './SM15';
+import type { SM15 } from './SM15';
+import type { SM15ItemData } from './types';
 
 const {
     RANGE_AF,
@@ -14,7 +15,6 @@ const {
     MIN_AF,
     NOTCH_AF,
     MAX_AF,
-    MAX_GRADE,
     THRESHOLD_RECALL,
     MAX_AFS_COUNT,
 } = SM15_CONSTANTS;

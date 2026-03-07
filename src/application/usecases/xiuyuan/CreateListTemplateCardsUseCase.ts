@@ -1,5 +1,6 @@
 ﻿import { Result, err, ok } from '@/types/result';
 import { CreateListTemplateCardsCommand } from '../../commands/xiuyuan/CreateListTemplateCardsCommand';
+import { isErr } from '@/types/result';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
@@ -26,6 +27,14 @@ type ChildContentRow = {
 type ChildListItemRow = {
   id: string;
   parent_id?: string;
+};
+
+type BlockIdRow = {
+  id?: string;
+};
+
+type BlockTypeRow = {
+  type?: string;
 };
 
 type ListTemplateChildData = {
@@ -126,7 +135,7 @@ export class CreateListTemplateCardsUseCase {
       }
 
       const safeParentBlockId = command.parentBlockId.replace(/'/g, "''");
-      const paragraphResult = await this.siyuanApi.sql(`
+      const paragraphResult = await this.siyuanApi.sql<BlockIdRow>(`
         SELECT id
         FROM blocks
         WHERE parent_id = '${safeParentBlockId}'
@@ -136,10 +145,10 @@ export class CreateListTemplateCardsUseCase {
       if (!paragraphResult || paragraphResult.length === 0 || typeof paragraphResult[0]?.id !== 'string') {
         return err(new Error('Parent list item has no paragraph block'));
       }
-      const parentParagraphId = paragraphResult[0].id as string;
+      const parentParagraphId = paragraphResult[0].id;
 
       const inClause = command.childBlockIds.map(quoteSqlValue).join(',');
-      const childParagraphRowsResult = await this.siyuanApi.sql(`
+      const childParagraphRowsResult = await this.siyuanApi.sql<ChildContentRow>(`
         SELECT id, parent_id, content
         FROM blocks
         WHERE parent_id IN (${inClause})
@@ -150,9 +159,8 @@ export class CreateListTemplateCardsUseCase {
         return err(new Error('Failed to fetch child paragraph content'));
       }
 
-      const childParagraphRows = childParagraphRowsResult as ChildContentRow[];
       const childParagraphByListItemId = new Map<string, ChildContentRow>();
-      for (const row of childParagraphRows) {
+      for (const row of childParagraphRowsResult) {
         if (typeof row.parent_id !== 'string' || typeof row.id !== 'string') {
           continue;
         }
@@ -183,7 +191,7 @@ export class CreateListTemplateCardsUseCase {
       }
 
       const templateIdResult = TemplateId.create(command.templateId);
-      if (!templateIdResult.ok) {
+      if (isErr(templateIdResult)) {
         return err(this.toError(templateIdResult.error, 'Invalid template ID'));
       }
 
@@ -238,16 +246,18 @@ export class CreateListTemplateCardsUseCase {
       }
 
       const xiuyuanIdResult = XiuyuanId.create(`xy_${childData.paragraphId}`);
-      if (!xiuyuanIdResult.ok) {
+      if (isErr(xiuyuanIdResult)) {
         return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
       }
 
       const blockIdResults = [childData.paragraphId, parentParagraphId].map((id) => BlockId.create(id));
-      const failedBlockId = blockIdResults.find((result) => !result.ok);
-      if (failedBlockId && !failedBlockId.ok) {
-        return err(this.toError(failedBlockId.error, 'Invalid block ID'));
+      const blockIds: BlockId[] = [];
+      for (const blockIdResult of blockIdResults) {
+        if (isErr(blockIdResult)) {
+          return err(this.toError(blockIdResult.error, 'Invalid block ID'));
+        }
+        blockIds.push(blockIdResult.value);
       }
-      const blockIds = blockIdResults.map((result) => result.value);
 
       const faceResult = CardFace.create({
         question: parentParagraphId,
@@ -255,7 +265,7 @@ export class CreateListTemplateCardsUseCase {
         questionBlockId: parentParagraphId,
         answerBlockId: childData.paragraphId,
       });
-      if (!faceResult.ok) {
+      if (isErr(faceResult)) {
         return err(this.toError(faceResult.error, 'Failed to create list-template face'));
       }
 
@@ -284,7 +294,7 @@ export class CreateListTemplateCardsUseCase {
           },
         },
       });
-      if (!xiuyuanResult.ok) {
+      if (isErr(xiuyuanResult)) {
         return err(this.toError(xiuyuanResult.error, 'Failed to create Xiuyuan aggregate'));
       }
 
@@ -309,7 +319,7 @@ export class CreateListTemplateCardsUseCase {
         },
       });
 
-      if (!creationResult.ok) {
+      if (isErr(creationResult)) {
         return err(this.toError(creationResult.error, 'Failed to finalize split list-template Xiuyuan'));
       }
 
@@ -379,12 +389,12 @@ export class CreateListTemplateCardsUseCase {
       .filter((answer) => answer.length > 0)
       .join('\n');
 
-    const sharedParentRows = await this.siyuanApi.sql(`
+    const sharedParentRows = await this.siyuanApi.sql<ChildListItemRow>(`
       SELECT id, parent_id
       FROM blocks
       WHERE id IN (${command.childBlockIds.map(quoteSqlValue).join(',')})
         AND type = 'i'
-    `) as ChildListItemRow[];
+    `);
     const sharedParents = new Set(
       sharedParentRows
         .map((row) => row.parent_id)
@@ -395,7 +405,7 @@ export class CreateListTemplateCardsUseCase {
     if (sharedParents.size === 1) {
       const onlySharedParentId = Array.from(sharedParents)[0];
       const safeOnlySharedParentId = onlySharedParentId.replace(/'/g, "''");
-      const sharedParentTypeRows = await this.siyuanApi.sql(`
+      const sharedParentTypeRows = await this.siyuanApi.sql<BlockTypeRow>(`
         SELECT type
         FROM blocks
         WHERE id = '${safeOnlySharedParentId}'
@@ -408,7 +418,7 @@ export class CreateListTemplateCardsUseCase {
 
     if (!summaryAnswerBlockId) {
       const safeParentBlockId = command.parentBlockId.replace(/'/g, "''");
-      const directContainerRows = await this.siyuanApi.sql(`
+      const directContainerRows = await this.siyuanApi.sql<BlockIdRow>(`
         SELECT id
         FROM blocks
         WHERE parent_id = '${safeParentBlockId}'
@@ -439,16 +449,18 @@ export class CreateListTemplateCardsUseCase {
     }
 
     const xiuyuanIdResult = XiuyuanId.create(`xy_${summaryAnswerBlockId}`);
-    if (!xiuyuanIdResult.ok) {
+    if (isErr(xiuyuanIdResult)) {
       return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
     }
 
     const blockIdResults = [summaryAnswerBlockId, parentParagraphId].map((id) => BlockId.create(id));
-    const failedBlockId = blockIdResults.find((result) => !result.ok);
-    if (failedBlockId && !failedBlockId.ok) {
-      return err(this.toError(failedBlockId.error, 'Invalid block ID'));
+    const blockIds: BlockId[] = [];
+    for (const blockIdResult of blockIdResults) {
+      if (isErr(blockIdResult)) {
+        return err(this.toError(blockIdResult.error, 'Invalid block ID'));
+      }
+      blockIds.push(blockIdResult.value);
     }
-    const blockIds = blockIdResults.map((result) => result.value);
 
     const faceResult = CardFace.create({
       question: parentParagraphId,
@@ -456,7 +468,7 @@ export class CreateListTemplateCardsUseCase {
       questionBlockId: parentParagraphId,
       answerBlockId: summaryAnswerBlockId,
     });
-    if (!faceResult.ok) {
+    if (isErr(faceResult)) {
       return err(this.toError(faceResult.error, 'Failed to create summary list-template face'));
     }
 
@@ -483,12 +495,12 @@ export class CreateListTemplateCardsUseCase {
               index: 0,
             },
           ],
-          sourceChildIds: childrenData.map((child) => child.id),
+          sourceChildIds: childrenData.map((child) => child.listItemId),
           ...listMetaBase,
         },
       },
     });
-    if (!xiuyuanResult.ok) {
+    if (isErr(xiuyuanResult)) {
       return err(this.toError(xiuyuanResult.error, 'Failed to create summary Xiuyuan aggregate'));
     }
 
@@ -511,7 +523,7 @@ export class CreateListTemplateCardsUseCase {
       },
     });
 
-    if (!creationResult.ok) {
+    if (isErr(creationResult)) {
       return err(this.toError(creationResult.error, 'Failed to finalize summary list-template Xiuyuan'));
     }
 

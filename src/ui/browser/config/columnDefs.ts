@@ -35,7 +35,7 @@ export const STATE_COLORS: Record<string, string> = {
  * @param t - 翻译函数
  */
 export function createColumnDefs(t?: (key: string, fallback: string) => string): ColDef[] {
-  const translate = t || ((key: string, fallback: string) => fallback);
+  const translate = t || ((_key: string, fallback: string) => fallback);
   
   return [
     // No - 行号（第一列，AG-Grid 会在其前自动添加复选框列）

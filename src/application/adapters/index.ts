@@ -7,5 +7,5 @@
 
 export { UnifiedQueueStrategy } from './UnifiedQueueStrategy';
 export { UnifiedReviewAdapter } from './UnifiedReviewAdapter';
-export { createUnifiedReviewDialog, getQueueDisplayName } from './createUnifiedReviewDialog';
-export type { CreateUnifiedReviewDialogOptions } from './createUnifiedReviewDialog';
+export { createUnifiedReviewDialog, getQueueDisplayName } from '../factories/createUnifiedReviewDialog';
+export type { CreateUnifiedReviewDialogOptions } from '../factories/createUnifiedReviewDialog';

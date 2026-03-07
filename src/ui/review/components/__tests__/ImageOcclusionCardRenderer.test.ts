@@ -5,10 +5,12 @@ import type { FSRSCard } from '@/types/card';
 
 const getBlockAttrsMock = vi.fn();
 const getBlockKramdownMock = vi.fn();
+const getBlockBreadcrumbMock = vi.fn();
 
 vi.mock('@/infrastructure/siyuan/api', () => ({
   getBlockAttrs: (...args: unknown[]) => getBlockAttrsMock(...args),
   getBlockKramdown: (...args: unknown[]) => getBlockKramdownMock(...args),
+  getBlockBreadcrumb: (...args: unknown[]) => getBlockBreadcrumbMock(...args),
 }));
 
 function flushPromises(): Promise<void> {
@@ -62,6 +64,8 @@ describe('ImageOcclusionCardRenderer.vue', () => {
   beforeEach(() => {
     getBlockAttrsMock.mockReset();
     getBlockKramdownMock.mockReset();
+    getBlockBreadcrumbMock.mockReset();
+    getBlockBreadcrumbMock.mockResolvedValue([]);
   });
 
   it('shows blue mask + mask label + bottom hint before reveal', async () => {
@@ -87,6 +91,36 @@ describe('ImageOcclusionCardRenderer.vue', () => {
     expect(wrapper.find('.image-occlusion-card-renderer__mask-label').exists()).toBe(true);
     expect(wrapper.find('.image-occlusion-card-renderer__hint').exists()).toBe(true);
     expect(wrapper.find('.image-occlusion-card-renderer__mask.is-revealed').exists()).toBe(false);
+  });
+
+  it('renders breadcrumbs above the prompt when breadcrumb data exists', async () => {
+    const cardId = 'card-breadcrumb';
+    getBlockAttrsMock.mockResolvedValue({
+      'custom-fsrs-image-occlusion': createPayload(cardId),
+      'custom-fsrs-image-occlusion-card-ids': JSON.stringify([cardId]),
+    });
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '' });
+    getBlockBreadcrumbMock.mockResolvedValue([
+      { id: 'doc-1', name: 'Document Title', type: 'NodeDocument' },
+      { id: 'heading-1', name: 'Section', type: 'NodeHeading' },
+      { id: 'block-1', name: 'Image Block', type: 'NodeParagraph' },
+    ]);
+
+    const wrapper = mount(ImageOcclusionCardRenderer, {
+      props: {
+        blockId: 'block-1',
+        showAnswer: false,
+        card: createImageOcclusionCard(cardId),
+      },
+    });
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const breadcrumbItems = wrapper.findAll('.card-breadcrumb__item');
+    expect(breadcrumbItems).toHaveLength(1);
+    expect(breadcrumbItems[0]?.text()).toContain('Document Title');
+    expect(wrapper.find('.image-occlusion-card-renderer__question').exists()).toBe(true);
   });
 
   it('keeps black frame only and hides mask label + bottom hint after reveal', async () => {

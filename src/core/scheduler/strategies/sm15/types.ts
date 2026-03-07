@@ -45,11 +45,9 @@ export interface SM15Data {
     requestedFI: number;        // 请求的遗忘指数 (0-100)
     intervalBase: number;       // 基础间隔（毫秒）
     fi_g: {
-        points: number[][];     // FI-Grade 关系点
+        points: Point[];        // FI-Grade 关系点
     };
-    forgettingCurves: {
-        points: number[][][];   // 遗忘曲线数据
-    };
+    forgettingCurves: Point[][][]; // 遗忘曲线数据
 }
 
 /**
@@ -67,6 +65,7 @@ export interface RegressionModel {
  */
 export interface RegressionResult extends RegressionModel {
     r2: number;  // 决定系数（拟合优度）
+    mse: () => number;  // 均方误差
 }
 
 /**

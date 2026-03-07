@@ -31,6 +31,9 @@ export interface BlockData {
 }
 
 type UnknownRecord = Record<string, unknown>;
+type IdRow = { id?: string };
+type LocalCardRow = { block_id?: string; type?: string; card_type_marker?: string };
+type BlockContentRow = { id?: string; content?: string; type?: string; parent_id?: string; root_id?: string };
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null;
@@ -202,14 +205,16 @@ export class ConceptQueryEngineOptimized {
              )
         `;
 
-        const rows = await api.sql(stmt);
+        const rows = await api.sql<IdRow>(stmt);
         
         if (!rows || !Array.isArray(rows)) {
           logger.debug('No outgoing links found');
           return [];
         }
 
-        const linkIds = rows.map(row => row.id);
+        const linkIds = rows
+          .map((row) => (typeof row.id === 'string' ? row.id : ''))
+          .filter((id): id is string => id.length > 0);
         logger.debug(`Found ${linkIds.length} outgoing links`);
         return linkIds;
       } catch (error) {
@@ -226,7 +231,7 @@ export class ConceptQueryEngineOptimized {
     return PerformanceMonitor.measure('fetchDescriptors', async () => {
       try {
         const escapedConceptId = this.escapeSQL(conceptId);
-        const childRows = await api.sql(`
+        const childRows = await api.sql<IdRow>(`
           SELECT DISTINCT id
           FROM blocks
           WHERE parent_id = '${escapedConceptId}'
@@ -244,7 +249,7 @@ export class ConceptQueryEngineOptimized {
 
         try {
           const idsStr = childIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
-          const localRows = await api.sql(`
+          const localRows = await api.sql<IdRow>(`
             SELECT DISTINCT block_id AS id
             FROM fsrs_cards
             WHERE block_id IN (${idsStr})
@@ -261,7 +266,7 @@ export class ConceptQueryEngineOptimized {
           // fsrs_cards table may be unavailable in some environments
         }
 
-        const syntaxRows = await api.sql(`
+        const syntaxRows = await api.sql<IdRow>(`
           SELECT DISTINCT id
           FROM blocks
           WHERE parent_id = '${escapedConceptId}'
@@ -294,9 +299,9 @@ export class ConceptQueryEngineOptimized {
     return PerformanceMonitor.measure('areConceptCards', async () => {
       try {
         const idsStr = blockIds.map(id => `'${this.escapeSQL(id)}'`).join(',');
-        let rows: unknown[] = [];
+        let rows: LocalCardRow[] = [];
         try {
-          rows = await api.sql(`
+          rows = await api.sql<LocalCardRow>(`
             SELECT block_id, type, card_type_marker
             FROM fsrs_cards
             WHERE block_id IN (${idsStr})
@@ -325,7 +330,7 @@ export class ConceptQueryEngineOptimized {
         const unresolvedIds = blockIds.filter((id) => result.get(id) !== true);
         if (unresolvedIds.length > 0) {
           const unresolvedStr = unresolvedIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
-          const syntaxRows = await api.sql(`
+          const syntaxRows = await api.sql<BlockContentRow>(`
             SELECT id, content
             FROM blocks
             WHERE id IN (${unresolvedStr})
@@ -377,7 +382,7 @@ export class ConceptQueryEngineOptimized {
           WHERE b.id IN (${idsStr})
         `;
 
-        const rows = await api.sql(stmt);
+        const rows = await api.sql<BlockContentRow>(stmt);
         const result = new Map<string, BlockData>();
         
         for (const row of rows || []) {

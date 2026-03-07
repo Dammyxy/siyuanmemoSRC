@@ -18,6 +18,7 @@ import {
     Rating as TSRating, 
     Card as TSCard,
     State as TSState,
+    type Grade,
     type FSRSParameters as TSFSRSParameters,
     type RecordLog,
 } from 'ts-fsrs';
@@ -59,8 +60,6 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
     private f: ReturnType<typeof fsrs>;
     
     /** 当前使用的参数配置 */
-    private params: FSRSParameters;
-    
     /** 预览结果缓存 */
     private previewCache: Map<string, PreviewCacheEntry> = new Map();
     
@@ -78,7 +77,6 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @param params.enableShortTerm - 是否启用短期记忆模式，为新卡片提供更密集的复习计划
      */
     constructor(params: FSRSParameters) {
-        this.params = params;
         this.f = this.createScheduler(params);
     }
     
@@ -120,7 +118,6 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @param params - 新的参数配置
      */
     updateParams(params: FSRSParameters): void {
-        this.params = params;
         this.f = this.createScheduler(params);
         // 清空缓存，因为参数变化会影响预览结果
         this.previewCache.clear();
@@ -346,6 +343,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
             difficulty: card.difficulty ?? 5,
             elapsed_days: card.elapsedDays ?? 0,
             scheduled_days: card.scheduledDays ?? 0,
+            learning_steps: card.learning_step ?? 0,
             reps: card.reps ?? 0,
             lapses: card.lapses ?? 0,
             state: this.toTSState(card.state),
@@ -425,11 +423,21 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @param rating - 我们的评分格式
      * @returns ts-fsrs 的评分格式
      */
-    private toTSRating(rating: Rating): TSRating {
+    private toTSRating(rating: Rating): Grade {
         // 我们的 Rating: 1=Again, 2=Hard, 3=Good, 4=Easy
         // ts-fsrs 的 Rating: 1=Again, 2=Hard, 3=Good, 4=Easy
         // 完全一致，直接返回
-        return rating as TSRating;
+        switch (rating) {
+            case 1:
+                return TSRating.Again;
+            case 2:
+                return TSRating.Hard;
+            case 3:
+                return TSRating.Good;
+            case 4:
+            default:
+                return TSRating.Easy;
+        }
     }
     
     /**
@@ -450,7 +458,17 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         // 我们的 CardState: 0=New, 1=Learning, 2=Review, 3=Relearning
         // ts-fsrs 的 State: 0=New, 1=Learning, 2=Review, 3=Relearning
         // 完全一致，直接返回
-        return state as TSState;
+        switch (state) {
+            case 1:
+                return TSState.Learning;
+            case 2:
+                return TSState.Review;
+            case 3:
+                return TSState.Relearning;
+            case 0:
+            default:
+                return TSState.New;
+        }
     }
     
     /**
@@ -469,6 +487,16 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      */
     private fromTSState(state: TSState): CardState {
         // 完全一致，直接返回
-        return state as CardState;
+        switch (state) {
+            case TSState.Learning:
+                return 1;
+            case TSState.Review:
+                return 2;
+            case TSState.Relearning:
+                return 3;
+            case TSState.New:
+            default:
+                return 0;
+        }
     }
 }

@@ -1,4 +1,4 @@
-import { Result, ok, err } from '@/types/result';
+import { Result, ok, err, isErr } from '@/types/result';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
@@ -60,7 +60,7 @@ export async function finalizeXiuyuanCreation(
   const faceCount = xiuyuan.getFaces().length;
   for (let i = 0; i < faceCount; i++) {
     const cardResult = xiuyuan.createCard(i);
-    if (!cardResult.ok) {
+    if (isErr(cardResult)) {
       const error = cardResult.error || new Error(`Failed to create card for face ${i}`);
       logger.error(`Failed to create card for face ${i}:`, error);
       return err(error);
