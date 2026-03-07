@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
-import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
-import type { FSRSCard } from '@/types/card';
+import { QueueType, type IReviewQueue, type QueueReviewResult } from '@/types/unified-data-source';
+import { CardType, type FSRSCard } from '@/types/card';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
@@ -19,7 +19,7 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     elapsedDays: 1,
     scheduledDays: 1,
     priority: 50,
-    type: 'item',
+    type: CardType.Item,
     tags: [],
     leechCount: 0,
     isLeech: false,
@@ -34,7 +34,11 @@ function createQueueStub(
   queueType: QueueType,
   cards: FSRSCard[],
   options?: {
-    handleReview?: (cardId: string, rating: number) => Promise<void>;
+    handleReview?: (
+      cardId: string,
+      rating: number,
+      liveCards: FSRSCard[],
+    ) => Promise<Partial<QueueReviewResult> | void>;
     createRollbackSnapshot?: () => Promise<unknown>;
     restoreRollbackSnapshot?: (snapshot: unknown) => Promise<void>;
   }
@@ -42,25 +46,69 @@ function createQueueStub(
   createRollbackSnapshot?: () => Promise<unknown>;
   restoreRollbackSnapshot?: (snapshot: unknown) => Promise<void>;
 } {
+  const liveCards = cards.map((card) => ({ ...card }));
+  const buildSnapshot = () => ({
+    version: 1,
+    remaining: liveCards.length,
+    due: liveCards.length,
+    total: liveCards.length,
+    buckets: {
+      all: liveCards.length,
+      item: liveCards.length,
+      descriptor: 0,
+      topic: 0,
+      concept: 0,
+    },
+    source: 'hot' as const,
+  });
+
   return {
     name: `Queue-${queueType}`,
     type: queueType,
     getType: () => queueType,
-    getCards: vi.fn(async () => cards.map((card) => ({ ...card }))),
-    getAllCards: vi.fn(async () => cards.map((card) => ({ ...card }))),
-    getNextCard: vi.fn(async () => cards[0] ?? null),
+    getCards: vi.fn(async () => liveCards.map((card) => ({ ...card }))),
+    getAllCards: vi.fn(async () => liveCards.map((card) => ({ ...card }))),
+    getNextCard: vi.fn(async () => liveCards[0] ?? null),
     addCard: vi.fn(async () => {}),
     removeCard: vi.fn(async () => {}),
     updateCard: vi.fn(async () => {}),
     handleReview: vi.fn(async (cardId: string, rating: number) => {
+      const defaultResult: QueueReviewResult = {
+        updatedCard: liveCards.find((card) => card.id === cardId) ?? null,
+        removedFromQueue: false,
+        remainsInQueue: true,
+        queueChanged: false,
+        requiresCurrentViewReorder: false,
+        counterSnapshot: buildSnapshot(),
+        version: 1,
+      };
       if (options?.handleReview) {
-        await options.handleReview(cardId, rating);
+        const partial = await options.handleReview(cardId, rating, liveCards);
+        return {
+          ...defaultResult,
+          ...partial,
+          counterSnapshot: buildSnapshot(),
+          version: 1,
+        };
       }
+      const index = liveCards.findIndex((card) => card.id === cardId);
+      if (index >= 0 && rating >= 3) {
+        liveCards.splice(index, 1);
+      }
+      return {
+        updatedCard: liveCards.find((card) => card.id === cardId) ?? null,
+        removedFromQueue: rating >= 3,
+        remainsInQueue: rating < 3,
+        queueChanged: rating >= 3,
+        requiresCurrentViewReorder: false,
+        counterSnapshot: buildSnapshot(),
+        version: 1,
+      };
     }),
     skip: vi.fn(async () => {}),
     getStats: vi.fn(async () => ({
-      total: cards.length,
-      due: cards.length,
+      total: liveCards.length,
+      due: liveCards.length,
       new: 0,
       learning: 0,
       reviewed: 0,
@@ -83,10 +131,9 @@ function createQueueStub(
     notifyObservers: vi.fn(),
     reorder: vi.fn(async () => true),
     clearCustomOrder: vi.fn(),
-    getTemporaryBlacklistSize: vi.fn(() => 0),
-    clearTemporaryBlacklist: vi.fn(),
     insertAt: vi.fn(async () => {}),
-    getRemainingSize: vi.fn(async () => cards.length),
+    getRemainingSize: vi.fn(async () => liveCards.length),
+    getCounterSnapshot: vi.fn(async () => buildSnapshot()),
     createRollbackSnapshot: options?.createRollbackSnapshot,
     restoreRollbackSnapshot: options?.restoreRollbackSnapshot,
   };
@@ -119,7 +166,6 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
   it('keeps a single getCards reload on onFeedback-next-getStats path', async () => {
     const card = createCard();
     const queue = createQueueStub(QueueType.RetrievalPractice, [card], {
-      handleReview: async () => {},
       createRollbackSnapshot: async () => ({ ok: true }),
       restoreRollbackSnapshot: async () => {},
     });
@@ -154,7 +200,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     await strategy.next();
     await strategy.getStats();
 
-    expect(getCardsSpy).toHaveBeenCalledTimes(1);
+    expect(getCardsSpy).toHaveBeenCalledTimes(0);
   });
 
   it('rotates low-rated card once when there are alternative cards', async () => {
@@ -162,7 +208,16 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
     const thirdCard = createCard({ id: 'card-3', xiuyuanID: 'xy-3', blockId: 'block-3' });
     const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard, thirdCard], {
-      handleReview: async () => {},
+      handleReview: async (cardId, _rating, liveCards) => {
+        const current = liveCards.find((card) => card.id === cardId) ?? null;
+        return {
+          updatedCard: current,
+          removedFromQueue: false,
+          remainsInQueue: true,
+          queueChanged: false,
+          requiresCurrentViewReorder: false,
+        };
+      },
       createRollbackSnapshot: async () => ({ ok: true }),
       restoreRollbackSnapshot: async () => {},
     });
@@ -201,7 +256,13 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
   it('keeps immediate repeat when low-rated card is the only candidate', async () => {
     const card = createCard();
     const queue = createQueueStub(QueueType.RetrievalPractice, [card], {
-      handleReview: async () => {},
+      handleReview: async (cardId, _rating, liveCards) => ({
+        updatedCard: liveCards.find((candidate) => candidate.id === cardId) ?? null,
+        removedFromQueue: false,
+        remainsInQueue: true,
+        queueChanged: false,
+        requiresCurrentViewReorder: false,
+      }),
       createRollbackSnapshot: async () => ({ ok: true }),
       restoreRollbackSnapshot: async () => {},
     });
@@ -240,7 +301,6 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
     const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
     const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard], {
-      handleReview: async () => {},
       createRollbackSnapshot: async () => ({ ok: true }),
       restoreRollbackSnapshot: async () => {},
     });
@@ -272,7 +332,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
     await strategy.onFeedback(first, { action: 'rate', rating: 4 });
     const next = await strategy.next();
-    expect(next?.id).toBe(firstCard.id);
+    expect(next?.id).toBe(secondCard.id);
   });
 
   it('restores queue snapshots and card state when going back after rating', async () => {
@@ -288,7 +348,15 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       handleReview: async (cardId: string, rating: number) => {
         if (cardId === card.id && rating === 2) {
           cardStore = { ...cardStore, due: Date.now() + 86_400_000, reps: cardStore.reps + 1 };
+          return {
+            updatedCard: cardStore,
+            removedFromQueue: false,
+            remainsInQueue: true,
+            queueChanged: false,
+            requiresCurrentViewReorder: false,
+          };
         }
+        return {};
       },
       createRollbackSnapshot: async () => ({ primary: true }),
       restoreRollbackSnapshot: primaryRestore,

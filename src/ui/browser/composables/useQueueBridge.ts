@@ -1,5 +1,8 @@
 import type { ComputedRef, Ref } from 'vue';
-import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
+import type {
+  BrowserQueueCountsRequest,
+  IBrowserApplicationService,
+} from '@/application/interfaces/IBrowserApplicationService';
 import type { CardFilter, IReviewQueue } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
@@ -14,10 +17,6 @@ export const EMPTY_QUEUE_COUNTS: Record<string, number> = {
 interface UseQueueBridgeOptions {
   browserService: ComputedRef<IBrowserApplicationService | null | undefined>;
   isDevMode?: boolean;
-}
-
-interface RefreshQueueCountsOptions {
-  forceRefresh?: boolean;
 }
 
 export function useQueueBridge(options: UseQueueBridgeOptions) {
@@ -53,7 +52,7 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
 
   const refreshQueueCounts = async (
     target: Ref<Record<string, number>>,
-    refreshOptions: RefreshQueueCountsOptions = {},
+    refreshOptions: BrowserQueueCountsRequest = {},
   ): Promise<void> => {
     const service = getBrowserService('refreshQueueCounts');
     if (!service) {
@@ -65,7 +64,7 @@ export function useQueueBridge(options: UseQueueBridgeOptions) {
       if (refreshOptions.forceRefresh) {
         service.invalidateQueueCountsCache();
       }
-      target.value = await service.getQueueCounts();
+      target.value = await service.getQueueCounts(refreshOptions);
     } catch (error) {
       logger.error('failed to refresh counts via browserService:', error);
       target.value = { ...EMPTY_QUEUE_COUNTS };

@@ -32,9 +32,13 @@ function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
 
 describe('applyRenderTargetTransition', () => {
   it('forces standard render for default target', () => {
-    const result = applyRenderTargetTransition(buildCard({ meta: { forceQuickRender: true } }), 'default');
+    const result = applyRenderTargetTransition(
+      buildCard({ meta: { forceQuickRender: true, quickDetectReason: 'cloze-latex-numbered' } }),
+      'default',
+    );
     expect(result.card.meta).toMatchObject({ forceProtyleRender: true });
     expect(result.card.meta).not.toHaveProperty('forceQuickRender');
+    expect(result.card.meta).not.toHaveProperty('quickDetectReason');
     expect(resolveEditableRenderTarget(result.card)).toBe('default');
   });
 

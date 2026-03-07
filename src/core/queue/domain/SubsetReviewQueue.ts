@@ -1,5 +1,5 @@
 import { OrderedStaticSubsetQueueBase } from './OrderedStaticSubsetQueueBase';
-import { QueueType } from '@/types/unified-data-source';
+import { QueueReviewResult, QueueType } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 
@@ -16,12 +16,24 @@ export class SubsetReviewQueue extends OrderedStaticSubsetQueueBase {
     super(manager, QueueType.FilterGroup, blockIds, options);
   }
 
-  public async handleReview(cardId: string, rating: number): Promise<void> {
+  public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+    let result: QueueReviewResult;
     try {
-      await this.handleReviewWithScheduler(cardId, rating);
+      result = await this.handleReviewWithScheduler(cardId, rating);
     } finally {
       await this.removeCard(cardId);
     }
+
+    const counterSnapshot = await this.getCounterSnapshot(true);
+    return {
+      ...result!,
+      removedFromQueue: true,
+      remainsInQueue: false,
+      queueChanged: true,
+      requiresCurrentViewReorder: false,
+      counterSnapshot,
+      version: counterSnapshot.version,
+    };
   }
 
   public async skip(cardId: string): Promise<void> {

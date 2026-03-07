@@ -26,6 +26,7 @@ import type {
   CardFilter,
   IReviewQueue,
   IUnifiedDataSourceManagerFacade,
+  QueueType,
 } from '@/types/unified-data-source';
 import type { BrowserSiyuanPort } from '../ports/BrowserSiyuanPort';
 
@@ -36,6 +37,11 @@ export type BrowserQueueId =
   | 'filter-group'
   | 'neural-roam'
   | 'neural';
+
+export interface BrowserQueueCountsRequest {
+  forceRefresh?: boolean;
+  affectedQueueTypes?: QueueType[] | null;
+}
 
 /**
  * 数据源创建选项
@@ -92,7 +98,7 @@ export interface IBrowserApplicationService {
   /**
    * Get queue counts used by hierarchy panel.
    */
-  getQueueCounts(): Promise<Record<string, number>>;
+  getQueueCounts(request?: BrowserQueueCountsRequest): Promise<Record<string, number>>;
 
   /**
    * Drop any cached queue counts so the next read reflects the latest queue state.

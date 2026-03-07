@@ -96,7 +96,7 @@ export class ReviewViewController {
         try {
             // 对于神经漫游队列，使用扩散激活获取下一张卡片
             if (queue.getType() === QueueTypeEnum.NeuralRoam) {
-                const neuralQueue = queue as NeuralRoamQueue;
+                const neuralQueue = queue as unknown as NeuralRoamQueue;
                 this.currentCard = await neuralQueue.getNextCard();
             } else {
                 // 对于其他队列，获取队列中的第一张卡片
@@ -140,8 +140,9 @@ export class ReviewViewController {
     public getButtonsForCard(card: FSRSCard): ReviewButtonConfig[] {
         // 检查是否在神经漫游队列中
         const isNeuralRoam = this.currentQueue?.getType() === QueueTypeEnum.NeuralRoam;
+        const cardKind = card.cardTypeMarker ?? card.type;
         
-        if (card.cardType === 'item') {
+        if (cardKind === 'item' || cardKind === 'descriptor') {
             // 项目卡片：显示 4 个评分按钮
             const buttons: ReviewButtonConfig[] = [
                 { type: 'rating', label: '1', value: 1 },
@@ -356,7 +357,7 @@ export class ReviewViewController {
             } else if (action === 'lock-focus') {
                 // 开新世界线：仅神经漫游队列支持
                 if (this.currentQueue.getType() === QueueTypeEnum.NeuralRoam) {
-                    const neuralQueue = this.currentQueue as NeuralRoamQueue;
+                    const neuralQueue = this.currentQueue as unknown as NeuralRoamQueue;
                     await neuralQueue.lockCurrentAsFocus(this.currentCard.id);
                     
                     // 显示通知

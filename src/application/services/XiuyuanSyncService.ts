@@ -603,8 +603,15 @@ export class XiuyuanSyncService {
         return /\\cloze\{c\d+\}\{/.test(String(content || ''));
     }
 
-    private buildQuickRenderHintMeta(content: string, cardType: SyncCardType | undefined): QuickRenderHintMeta {
-        if (cardType === 'item' && this.hasNumberedLatexCloze(content)) {
+    private buildQuickRenderHintMeta(
+        content: string,
+        cardType: SyncCardType | undefined,
+        plan: PostCreationPlan
+    ): QuickRenderHintMeta {
+        const renderProfile = this.resolveRiffRenderProfile(plan);
+        const canForceQuickRender = renderProfile === 'quick-default' || renderProfile === 'quick-inline-formula';
+
+        if (canForceQuickRender && cardType === 'item' && this.hasNumberedLatexCloze(content)) {
             return {
                 forceQuickRender: true,
                 quickDetectReason: 'cloze-latex-numbered',
@@ -617,10 +624,11 @@ export class XiuyuanSyncService {
     private syncQuickRenderHintMeta(
         xiuyuan: Xiuyuan,
         riffBlock: RiffBlock,
-        cardType: SyncCardType | undefined
+        cardType: SyncCardType | undefined,
+        plan: PostCreationPlan
     ): boolean {
         const currentMeta = xiuyuan.getMeta();
-        const hintMeta = this.buildQuickRenderHintMeta(riffBlock.content, cardType);
+        const hintMeta = this.buildQuickRenderHintMeta(riffBlock.content, cardType, plan);
         const shouldForceQuickRender = hintMeta.forceQuickRender === true;
         const expectedReason = hintMeta.quickDetectReason;
         const currentForceQuickRender = currentMeta.forceQuickRender === true;
@@ -888,7 +896,7 @@ export class XiuyuanSyncService {
                             }
                         }
 
-                        if (this.syncQuickRenderHintMeta(existingXiuyuan, riffCard, newCardType)) {
+                        if (this.syncQuickRenderHintMeta(existingXiuyuan, riffCard, newCardType, postCreationPlan)) {
                             needsUpdate = true;
                         }
 
@@ -1356,7 +1364,7 @@ export class XiuyuanSyncService {
         const postCreationPlan = this.planPostCreation(riffBlock, resolvedType.cardType);
         const cardType = postCreationPlan.cardType;
         const cardTypeMarker = resolvedType.cardTypeMarker;
-        const quickRenderHintMeta = this.buildQuickRenderHintMeta(riffBlock.content, cardType);
+        const quickRenderHintMeta = this.buildQuickRenderHintMeta(riffBlock.content, cardType, postCreationPlan);
 
         const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
         if (!xiuyuanIdResult.ok) {

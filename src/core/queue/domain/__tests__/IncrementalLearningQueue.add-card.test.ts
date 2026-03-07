@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { FSRSCard } from '@/types/card';
+import { CardType, type FSRSCard } from '@/types/card';
 import { IncrementalLearningQueue } from '../IncrementalLearningQueue';
 import { NOOP_QUEUE_PERSISTENCE } from '../ports';
 
@@ -19,7 +19,7 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     elapsedDays: 1,
     scheduledDays: 1,
     priority: 50,
-    type: 'item',
+    type: CardType.Item,
     tags: [],
     leechCount: 0,
     isLeech: false,

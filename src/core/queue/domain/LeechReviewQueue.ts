@@ -1,5 +1,5 @@
 import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
-import { QueueType } from '@/types/unified-data-source';
+import { QueueReviewResult, QueueType } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { QueueItem } from '@/core/queue/types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -67,7 +67,7 @@ export class LeechReviewQueue extends ManualCardCollectionQueue {
         return Number(b.priority || 0) - Number(a.priority || 0);
       });
 
-    return this.applyCustomOrder(filtered);
+    return this.cacheResolvedCards(this.applyCustomOrder(filtered), 'reconciled');
   }
 
   public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
@@ -96,8 +96,8 @@ export class LeechReviewQueue extends ManualCardCollectionQueue {
     });
   }
 
-  public async handleReview(cardId: string, rating: number): Promise<void> {
-    await this.handleReviewWithScheduler(cardId, rating);
+  public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+    const result = await this.handleReviewWithScheduler(cardId, rating);
 
     try {
       const card = await this.manager.getCard(cardId, { silent: true });
@@ -107,6 +107,8 @@ export class LeechReviewQueue extends ManualCardCollectionQueue {
     } catch {
       // Card may have been deleted after review; no follow-up action is required.
     }
+
+    return result;
   }
 
   private async applyLeechAction(card: FSRSCard): Promise<void> {

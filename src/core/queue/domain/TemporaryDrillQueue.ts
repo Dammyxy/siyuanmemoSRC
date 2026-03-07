@@ -1,5 +1,5 @@
 import { OrderedStaticSubsetQueueBase } from './OrderedStaticSubsetQueueBase';
-import { QueueType } from '@/types/unified-data-source';
+import { QueueReviewResult, QueueType } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 
@@ -14,13 +14,32 @@ export class TemporaryDrillQueue extends OrderedStaticSubsetQueueBase {
     super(manager, QueueType.FinalDrill, blockIds);
   }
 
-  public async handleReview(cardId: string, rating: number): Promise<void> {
+  public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
     if (rating === 4) {
       await this.removeCard(cardId);
-      return;
+      const counterSnapshot = await this.getCounterSnapshot(true);
+      return {
+        updatedCard: null,
+        removedFromQueue: true,
+        remainsInQueue: false,
+        queueChanged: true,
+        requiresCurrentViewReorder: false,
+        counterSnapshot,
+        version: counterSnapshot.version,
+      };
     }
 
     await this.moveCardToBack(cardId);
+    const counterSnapshot = await this.getCounterSnapshot(true);
+    return {
+      updatedCard: null,
+      removedFromQueue: false,
+      remainsInQueue: true,
+      queueChanged: true,
+      requiresCurrentViewReorder: true,
+      counterSnapshot,
+      version: counterSnapshot.version,
+    };
   }
 
   public async skip(cardId: string): Promise<void> {

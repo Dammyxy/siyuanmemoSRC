@@ -260,4 +260,46 @@ describe('BrowserPreview', () => {
     expect(wrapper.findAll('.card-breadcrumb__item')[0]?.text()).toContain('Second Document');
     expect(mockState.createdBlockIds.at(-1)).toBe('block-2');
   });
+
+  it('reuses the existing preview instance when the selected block does not change', async () => {
+    const wrapper = mount(BrowserPreview, {
+      props: {
+        app: {} as never,
+        card: createCard({
+          blockId: 'block-1',
+          content: 'Current Block',
+          fullContent: 'Current Block',
+          meta: {
+            blockType: 'p',
+          },
+        }),
+        mode: 'dialog',
+        size: 360,
+        i18n: {},
+      },
+    });
+
+    await settle();
+
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    const initialFetchCalls = fetchMock.mock.calls.length;
+    const initialCreated = [...mockState.createdBlockIds];
+
+    await wrapper.setProps({
+      card: createCard({
+        id: 'card-1b',
+        blockId: 'block-1',
+        content: 'Current Block Updated',
+        fullContent: 'Current Block Updated',
+        meta: {
+          blockType: 'p',
+        },
+      }),
+    });
+    await settle();
+
+    expect(mockState.createdBlockIds).toEqual(initialCreated);
+    expect(fetchMock.mock.calls).toHaveLength(initialFetchCalls);
+    expect(wrapper.findAll('.card-breadcrumb__item')).toHaveLength(2);
+  });
 });

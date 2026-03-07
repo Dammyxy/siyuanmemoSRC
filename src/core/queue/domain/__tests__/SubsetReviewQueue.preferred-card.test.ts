@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { FSRSCard } from '@/types/card';
+import { CardType, type FSRSCard } from '@/types/card';
 import { SubsetReviewQueue } from '../SubsetReviewQueue';
 
 function createCard(id: string, blockId: string): FSRSCard {
@@ -18,7 +18,7 @@ function createCard(id: string, blockId: string): FSRSCard {
     elapsedDays: 1,
     scheduledDays: 1,
     priority: 50,
-    type: 'item',
+    type: CardType.Item,
     tags: [],
     leechCount: 0,
     isLeech: false,

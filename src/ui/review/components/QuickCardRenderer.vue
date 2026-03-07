@@ -55,6 +55,7 @@ const renderedHtml = ref('');
 const cardContentRef = ref<HTMLElement | null>(null);
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
+const localViewModelCache = new Map<string, QuickCardViewModel>();
 
 function renderDisplayHtml(result: QuickCardViewModel): string {
   const isLatexCloze = result.metadata.symbol === '\\cloze';
@@ -79,12 +80,21 @@ const contentClasses = computed(() => {
 
 async function loadViewModel() {
   const seq = ++loadSeq;
+  const side = props.showAnswer ? 'back' : 'front';
+  const cacheKey = `${props.blockId}:${props.cardId || ''}:${side}`;
+  const cached = localViewModelCache.get(cacheKey);
+  if (cached) {
+    viewModel.value = cached;
+    renderedHtml.value = renderDisplayHtml(cached);
+    error.value = null;
+    loading.value = false;
+    emit('loaded', cached);
+    return;
+  }
 
   try {
     loading.value = true;
     error.value = null;
-
-    const side = props.showAnswer ? 'back' : 'front';
 
     logger.info('[QuickCardRenderer] loadViewModel called:', {
       blockId: props.blockId,
@@ -113,6 +123,7 @@ async function loadViewModel() {
     });
 
     viewModel.value = result;
+    localViewModelCache.set(cacheKey, result);
     renderedHtml.value = renderDisplayHtml(result);
     emit('loaded', result);
   } catch (err) {

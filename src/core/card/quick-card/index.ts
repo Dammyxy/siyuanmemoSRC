@@ -4,6 +4,9 @@
  * @description 提供快速卡片渲染相关的所有导出
  */
 
+import type { QuickCardRenderService } from './application/QuickCardRenderService';
+import type { IQuickCardConfigProvider } from './infrastructure/QuickCardConfigProvider';
+
 // Domain Layer
 export { QuickCard } from './domain/QuickCard';
 export { CardFace } from './domain/CardFace';

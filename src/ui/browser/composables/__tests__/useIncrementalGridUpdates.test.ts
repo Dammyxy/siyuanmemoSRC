@@ -50,7 +50,6 @@ describe('useIncrementalGridUpdates', () => {
     const rows = ref<BrowserCard[]>([]);
     const rowsForFocus = ref<BrowserCard[]>([]);
     const allRows = ref<BrowserCard[]>([]);
-    const refreshQueueCounts = vi.fn().mockResolvedValue(undefined);
     const loadVisibleRows = vi.fn().mockResolvedValue([updated]);
 
     const { handleCardUpdatedIncremental } = useIncrementalGridUpdates({
@@ -58,17 +57,20 @@ describe('useIncrementalGridUpdates', () => {
       rows,
       rowsForFocus,
       allRows,
-      refreshQueueCounts,
       loadVisibleRows,
     });
 
-    await handleCardUpdatedIncremental(['b1']);
+    const result = await handleCardUpdatedIncremental(['b1']);
     await vi.waitFor(() => {
       expect(setData).toHaveBeenCalledWith(updated);
     });
 
+    expect(result).toEqual({
+      updatedVisibleRows: 1,
+      removedRowIds: [],
+      requiresReorder: false,
+    });
     expect(loadVisibleRows).toHaveBeenCalledWith([initial]);
-    expect(refreshQueueCounts).toHaveBeenCalled();
   });
 
   it('removes rows that no longer match the current queue after an update', async () => {
@@ -82,7 +84,6 @@ describe('useIncrementalGridUpdates', () => {
     const rows = ref<BrowserCard[]>([initial]);
     const rowsForFocus = ref<BrowserCard[]>([initial]);
     const allRows = ref<BrowserCard[]>([initial]);
-    const refreshQueueCounts = vi.fn().mockResolvedValue(undefined);
     const loadVisibleRows = vi.fn().mockResolvedValue([]);
     const onRowsDeleted = vi.fn();
 
@@ -91,20 +92,23 @@ describe('useIncrementalGridUpdates', () => {
       rows,
       rowsForFocus,
       allRows,
-      refreshQueueCounts,
       loadVisibleRows,
       onRowsDeleted,
     });
 
-    await handleCardUpdatedIncremental(['b1']);
+    const result = await handleCardUpdatedIncremental(['b1']);
 
     expect(rows.value).toEqual([]);
     expect(rowsForFocus.value).toEqual([]);
     expect(allRows.value).toEqual([]);
+    expect(result).toEqual({
+      updatedVisibleRows: 0,
+      removedRowIds: ['b1'],
+      requiresReorder: false,
+    });
     await vi.waitFor(() => {
       expect(onRowsDeleted).toHaveBeenCalledWith(['b1']);
     });
-    expect(refreshQueueCounts).toHaveBeenCalled();
   });
 
   it('disposes cleanly after delete bookkeeping has been populated', async () => {
@@ -118,7 +122,6 @@ describe('useIncrementalGridUpdates', () => {
     const rows = ref<BrowserCard[]>([initial]);
     const rowsForFocus = ref<BrowserCard[]>([initial]);
     const allRows = ref<BrowserCard[]>([initial]);
-    const refreshQueueCounts = vi.fn().mockResolvedValue(undefined);
     const loadVisibleRows = vi.fn().mockResolvedValue([]);
 
     const { handleCardDeletedIncremental, disposeIncrementalGridUpdates } = useIncrementalGridUpdates({
@@ -126,7 +129,6 @@ describe('useIncrementalGridUpdates', () => {
       rows,
       rowsForFocus,
       allRows,
-      refreshQueueCounts,
       loadVisibleRows,
     });
 

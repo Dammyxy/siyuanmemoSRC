@@ -45,6 +45,8 @@ export interface QuickCardRenderResult {
  * - 继承基类提供面包屑等通用功能
  */
 export class QuickCardRenderService extends BaseCardRenderService {
+  private readonly viewModelCache = new Map<string, QuickCardViewModel>();
+
   constructor(private readonly repository: QuickCardRepository) {
     super();
   }
@@ -66,6 +68,19 @@ export class QuickCardRenderService extends BaseCardRenderService {
     side: 'front' | 'back',
     cardId?: string
   ): Promise<QuickCardViewModel | null> {
+    const cacheKey = `${blockId}:${cardId || ''}:${side}`;
+    const cached = this.viewModelCache.get(cacheKey);
+    if (cached) {
+      return {
+        ...cached,
+        breadcrumbs: cached.breadcrumbs.map((item) => ({ ...item })),
+        cssClasses: [...cached.cssClasses],
+        metadata: {
+          ...cached.metadata,
+        },
+      };
+    }
+
     try {
       const card = await this.repository.loadCard(blockId, cardId);
       if (!card) {
@@ -85,7 +100,7 @@ export class QuickCardRenderService extends BaseCardRenderService {
       // 使用基类方法加载面包屑
       const breadcrumbs = await this.loadBreadcrumbs(blockId);
 
-      return {
+      const viewModel: QuickCardViewModel = {
         blockId,
         breadcrumbs,
         html: face.html,
@@ -93,6 +108,15 @@ export class QuickCardRenderService extends BaseCardRenderService {
         cardType: card.type,
         metadata: card.metadata,
       };
+      this.viewModelCache.set(cacheKey, {
+        ...viewModel,
+        breadcrumbs: viewModel.breadcrumbs.map((item) => ({ ...item })),
+        cssClasses: [...viewModel.cssClasses],
+        metadata: {
+          ...viewModel.metadata,
+        },
+      });
+      return viewModel;
     } catch (error) {
       logger.error('[QuickCardRenderService] Failed to prepare view model:', error);
       throw error;

@@ -10,6 +10,7 @@ function createItem(id: string) {
     cardID: id,
     blockId: `block-${id}`,
     blockID: `block-${id}`,
+    deckId: 'deck-1',
   };
 }
 
@@ -21,6 +22,20 @@ function createQueue() {
     next: vi.fn(async () => items[index++] ?? null),
     onFeedback: vi.fn(async () => undefined),
     getStats: vi.fn(async () => ({ size: items.length, label: `${items.length} due` })),
+    getCounterSnapshot: vi.fn(async () => ({
+      version: 1,
+      remaining: Math.max(0, items.length - Math.max(0, index - 1)),
+      due: Math.max(0, items.length - Math.max(0, index - 1)),
+      total: items.length,
+      buckets: {
+        all: items.length,
+        item: items.length,
+        descriptor: 0,
+        topic: 0,
+        concept: 0,
+      },
+      source: 'hot' as const,
+    })),
     getUIConfig: vi.fn(() => ({
       statsType: 'queue-size' as const,
       showRatingButtons: true,
@@ -31,10 +46,18 @@ function createQueue() {
     resetSessionState: vi.fn(() => {
       index = 0;
     }),
+    cleanup: vi.fn(),
   };
 }
 
-function createAdapter(overrides: Record<string, unknown> = {}) {
+type AdapterStub = {
+  toUIState: ReturnType<typeof vi.fn>;
+  fetchAuxiliaryData?: ReturnType<typeof vi.fn>;
+  resetSessionState: ReturnType<typeof vi.fn>;
+  cleanup: ReturnType<typeof vi.fn>;
+};
+
+function createAdapter(overrides: Partial<AdapterStub> = {}): AdapterStub {
   return {
     toUIState: vi.fn(async () => createEmptyReviewUIState()),
     resetSessionState: vi.fn(),
@@ -95,6 +118,25 @@ function createReviewState(itemId: string): ReviewUIState {
       type: 'html',
       data: itemId,
       id: itemId,
+    },
+  };
+}
+
+function createAuxState(current: number, total: number, label: string): Partial<ReviewUIState> {
+  return {
+    header: {
+      ...createEmptyReviewUIState().header,
+      stats: {
+        current,
+        total,
+        label,
+        queueName: 'Unified Queue',
+      },
+    },
+    meta: {
+      ...createEmptyReviewUIState().meta,
+      queueSize: total,
+      remainingSize: current,
     },
   };
 }
@@ -199,18 +241,7 @@ describe('useReviewSession', () => {
     expect(hook.state.value.header.stats.label).toBe('');
 
     card1Aux.resolve({
-      header: {
-        stats: {
-          current: 99,
-          total: 100,
-          label: 'stale',
-          queueName: 'Unified Queue',
-        },
-      },
-      meta: {
-        queueSize: 100,
-        remainingSize: 99,
-      },
+      ...createAuxState(99, 100, 'stale'),
     });
     await flushAsync();
 
@@ -219,18 +250,7 @@ describe('useReviewSession', () => {
     expect(hook.state.value.meta.queueSize).not.toBe(100);
 
     card2Aux.resolve({
-      header: {
-        stats: {
-          current: 2,
-          total: 3,
-          label: '2 due',
-          queueName: 'Unified Queue',
-        },
-      },
-      meta: {
-        queueSize: 3,
-        remainingSize: 2,
-      },
+      ...createAuxState(2, 3, '2 due'),
     });
     await flushAsync();
 
@@ -289,5 +309,31 @@ describe('useReviewSession', () => {
     expect(hook.state.value.header.priorityBadge.priority).toBe(7);
 
     wrapper.unmount();
+  });
+
+  it('does not fetch auxiliary data on reveal', async () => {
+    const adapter = createAdapter({
+      toUIState: vi.fn(async () => createEmptyReviewUIState()),
+      fetchAuxiliaryData: vi.fn(async () => createAuxState(1, 3, '1 due')),
+    });
+    const { getHook, wrapper } = mountHook({ adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    const initialCalls = (adapter.fetchAuxiliaryData as ReturnType<typeof vi.fn>).mock.calls.length;
+    hook.reveal();
+    await flushAsync();
+
+    expect((adapter.fetchAuxiliaryData as ReturnType<typeof vi.fn>).mock.calls.length).toBe(initialCalls);
+    wrapper.unmount();
+  });
+
+  it('calls queue cleanup on unmount', async () => {
+    const { queue, wrapper } = mountHook();
+    await flushAsync();
+
+    wrapper.unmount();
+
+    expect(queue.cleanup).toHaveBeenCalledTimes(1);
   });
 });

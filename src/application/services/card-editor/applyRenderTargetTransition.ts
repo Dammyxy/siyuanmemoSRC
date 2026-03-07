@@ -78,6 +78,11 @@ function clearForceRenderFlags(meta: CardMetaRecord): boolean {
     changed = true;
   }
 
+  if (Object.prototype.hasOwnProperty.call(meta, 'quickDetectReason')) {
+    delete meta.quickDetectReason;
+    changed = true;
+  }
+
   return changed;
 }
 

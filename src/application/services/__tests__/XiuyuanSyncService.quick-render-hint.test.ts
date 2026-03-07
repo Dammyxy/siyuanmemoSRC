@@ -218,4 +218,32 @@ describe('XiuyuanSyncService quick render hint', () => {
     expect(meta.clozeRenderMode).toBeUndefined();
     expect(meta.forceQuickRender).toBeUndefined();
   });
+
+  it.each([
+    {
+      label: 'list',
+      id: '20260301190000-list001',
+      content: '- question\n  - answer',
+    },
+    {
+      label: 'heading',
+      id: '20260301190000-head001',
+      content: '# question\nanswer',
+    },
+  ])('keeps native $label riff cards on standard renderer metadata', async ({ id, content }) => {
+    const { xiuyuanEntity } = await (service as any).convertRiffCardToFSRSCard(
+      createRiffBlock({
+        id,
+        content,
+        ial: { 'custom-fsrs-card-type': 'item' },
+      })
+    );
+
+    const meta = xiuyuanEntity.getMeta() as Record<string, unknown>;
+    expect(xiuyuanEntity.getTemplateID().getValue()).toBe('builtin-riff-sync');
+    expect(meta.renderProfile).toBeUndefined();
+    expect(meta.clozeRenderMode).toBeUndefined();
+    expect(meta.forceQuickRender).toBeUndefined();
+    expect(meta.quickDetectReason).toBeUndefined();
+  });
 });

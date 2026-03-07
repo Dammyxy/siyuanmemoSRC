@@ -55,9 +55,13 @@ describe('useBrowserAdapterSync queue-changed aggregation', () => {
     await vi.advanceTimersByTimeAsync(350);
 
     expect(onQueueChanged).toHaveBeenCalledTimes(1);
-    const arg = onQueueChanged.mock.calls[0]?.[0] as QueueType[] | null;
-    expect(arg).not.toBeNull();
-    expect(new Set(arg ?? [])).toEqual(new Set([QueueType.RetrievalPractice, QueueType.FinalDrill]));
+    const arg = onQueueChanged.mock.calls[0]?.[0] as {
+      affectedQueueTypes: QueueType[] | null;
+      invalidateAllCounts: boolean;
+    };
+    expect(arg.invalidateAllCounts).toBe(false);
+    expect(arg.affectedQueueTypes).not.toBeNull();
+    expect(new Set(arg.affectedQueueTypes ?? [])).toEqual(new Set([QueueType.RetrievalPractice, QueueType.FinalDrill]));
 
     destroyBrowserAdapter();
   });
@@ -92,7 +96,10 @@ describe('useBrowserAdapterSync queue-changed aggregation', () => {
     await vi.advanceTimersByTimeAsync(350);
 
     expect(onQueueChanged).toHaveBeenCalledTimes(1);
-    expect(onQueueChanged).toHaveBeenCalledWith(null);
+    expect(onQueueChanged).toHaveBeenCalledWith({
+      affectedQueueTypes: null,
+      invalidateAllCounts: true,
+    });
 
     destroyBrowserAdapter();
   });

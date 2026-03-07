@@ -1,4 +1,4 @@
-import type { CardFilter, QueueType } from '../../../types/unified-data-source';
+import type { CardFilter, QueueReviewResult, QueueType } from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -346,7 +346,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     }
 
     const sortedCards = this.sortByDuePriority(filteredCards);
-    return this.applyCustomOrder(sortedCards);
+    return this.cacheResolvedCards(this.applyCustomOrder(sortedCards), 'reconciled');
   }
 
   private insertCardsSparsely(
@@ -427,7 +427,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
       total: sparseQueue.length,
     });
 
-    return this.applyCustomOrder(sparseQueue);
+    return this.cacheResolvedCards(this.applyCustomOrder(sparseQueue), 'reconciled');
   }
 
   protected async buildDynamicCardsFromBase(
@@ -509,6 +509,7 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     }
 
     await this.saveManualCardState(logger);
+    this.invalidateCachedCards();
     this.clearSizeCache();
     this.emitQueueChangedEvent();
     if (options.notifyObservers !== false) {
@@ -535,6 +536,8 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
       if (notifyQueueChanged) {
         this.emitQueueChangedEvent();
       }
+      this.invalidateCachedCards();
+      this.clearSizeCache();
       if (notifyObservers) {
         this.notifyObservers();
       }
@@ -568,6 +571,8 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
         addToTemporaryBlacklist,
         persist,
       });
+      this.invalidateCachedCards();
+      this.clearSizeCache();
       if (notifyObservers) {
         this.notifyObservers();
       }
@@ -596,16 +601,17 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     cardId: string,
     rating: number,
     options: HandleReviewWithAutoFailedOptions
-  ): Promise<void> {
+  ): Promise<QueueReviewResult> {
     const { logger, autoFailedSink, logEscalation = false } = options;
     try {
-      await this.handleReviewWithScheduler(cardId, rating);
+      const result = await this.handleReviewWithScheduler(cardId, rating);
       if (rating < 3) {
         await autoFailedSink.addAutoFailed(cardId);
         if (logEscalation) {
           logger.info(`Card ${cardId} with rating ${rating} added to FinalDrill`);
         }
       }
+      return result;
     } catch (error) {
       logger.error('Failed to handle review:', error);
       throw error;
@@ -629,6 +635,8 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
 
     this.customOrder = cards.map((card) => card.id);
     this.cards = [...cards];
+    this.cardsTrusted = true;
+    this.commitCounterSnapshot(this.buildCounterSnapshot(this.cards), 'reconciled');
     this.clearSizeCache();
     this.emitQueueChangedEvent();
     this.notifyObservers();

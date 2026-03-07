@@ -8,8 +8,9 @@
 import { describe, it, expect } from 'vitest';
 import { BaseReviewQueue } from '../../core/queue/domain/BaseReviewQueue';
 import { QueueType } from '../../types/unified-data-source';
-import type { FSRSCard } from '../../types/card';
+import { CardType, type FSRSCard } from '../../types/card';
 import type { QueueItem } from '../../core/queue/types';
+import type { QueueReviewResult } from '../../types/unified-data-source';
 import { fc, PROPERTY_TEST_CONFIG } from './setup';
 
 class TestQueue extends BaseReviewQueue {
@@ -32,7 +33,18 @@ class TestQueue extends BaseReviewQueue {
 
     public async removeCard(_cardIdOrBlockId: string): Promise<void> {}
 
-    public async handleReview(_cardId: string, _rating: number): Promise<void> {}
+    public async handleReview(_cardId: string, _rating: number): Promise<QueueReviewResult> {
+        const counterSnapshot = await this.getCounterSnapshot();
+        return {
+            updatedCard: null,
+            removedFromQueue: false,
+            remainsInQueue: false,
+            queueChanged: false,
+            requiresCurrentViewReorder: false,
+            counterSnapshot,
+            version: counterSnapshot.version,
+        };
+    }
 
     public isDynamic(): boolean {
         return false;
@@ -56,7 +68,7 @@ describe('BaseReviewQueue Properties', () => {
                     elapsedDays: fc.nat(),
                     scheduledDays: fc.nat(),
                     priority: fc.integer({ min: 0, max: 100 }),
-                    type: fc.constantFrom('item', 'topic', 'incremental', 'webpage'),
+                    type: fc.constantFrom(CardType.Item, CardType.Topic, CardType.Concept, CardType.Descriptor),
                     tags: fc.array(fc.string(), { maxLength: 3 }),
                     leechCount: fc.nat(),
                     isLeech: fc.boolean(),

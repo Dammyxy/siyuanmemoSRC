@@ -16,7 +16,7 @@
  */
 
 import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
-import { QueueAddSource, QueueType } from '../../../types/unified-data-source';
+import { QueueAddSource, QueueReviewResult, QueueType } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -229,8 +229,8 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
      * @see 需求 7.1, 7.2, 7.7, 9.1, 18.2, 18.3
      * @see .kiro/specs/queue-scheduler-separation/requirements.md
      */
-    public async handleReview(cardId: string, rating: number): Promise<void> {
-        await this.handleReviewWithAutoFailed(cardId, rating, {
+    public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+        return this.handleReviewWithAutoFailed(cardId, rating, {
             logger,
             autoFailedSink: this.autoFailedSink,
         });

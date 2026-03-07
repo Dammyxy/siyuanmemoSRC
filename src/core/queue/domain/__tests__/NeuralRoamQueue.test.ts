@@ -270,7 +270,7 @@ describe('NeuralRoamQueue', () => {
       persistence,
       {
         cardTypeResolver: {
-          resolveCardType: vi.fn(async () => 'item'),
+          resolveCardType: vi.fn(async (): Promise<'item' | 'topic'> => 'item'),
         },
       }
     );
@@ -304,7 +304,7 @@ describe('NeuralRoamQueue', () => {
       persistence,
       {
         cardTypeResolver: {
-          resolveCardType: vi.fn(async () => 'item'),
+          resolveCardType: vi.fn(async (): Promise<'item' | 'topic'> => 'item'),
         },
       }
     );

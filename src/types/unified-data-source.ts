@@ -72,6 +72,33 @@ export interface DataChangeEvent {
     timestamp: number;
 }
 
+export type QueueCounterBuckets = {
+    all: number;
+    item: number;
+    descriptor: number;
+    topic: number;
+    concept: number;
+};
+
+export interface QueueCounterSnapshot {
+    version: number;
+    remaining: number;
+    due: number;
+    total: number | null;
+    buckets: QueueCounterBuckets;
+    source: 'hot' | 'reconciled';
+}
+
+export interface QueueReviewResult {
+    updatedCard: FSRSCard | null;
+    removedFromQueue: boolean;
+    remainsInQueue: boolean;
+    queueChanged: boolean;
+    requiresCurrentViewReorder: boolean;
+    counterSnapshot: QueueCounterSnapshot | null;
+    version: number;
+}
+
 // ============================================================================
 // 观察者接口
 // ============================================================================
@@ -514,7 +541,7 @@ export interface IReviewQueue {
      * @param cardId 卡片 ID
      * @param rating 评分 (1-4)
      */
-    handleReview(cardId: string, rating: number): Promise<void>;
+    handleReview(cardId: string, rating: number): Promise<QueueReviewResult>;
     
     /**
      * 跳过卡片
@@ -531,6 +558,34 @@ export interface IReviewQueue {
      * @returns 队列统计数据
      */
     getStats(): Promise<QueueStats>;
+
+    /**
+     * 获取轻量实时计数快照
+     *
+     * 用于复习头部与浏览器队列计数，优先读取队列自身缓存，
+     * 仅在必要时才回退到权威重建。
+     */
+    getCounterSnapshot(forceRefresh?: boolean): Promise<QueueCounterSnapshot>;
+
+    /**
+     * 获取当前队列剩余可见数量
+     */
+    getRemainingSize(): Promise<number>;
+
+    /**
+     * 可选的插入操作，供支持手动插队的队列实现。
+     */
+    insertAt?(cardId: string, position: number): Promise<void>;
+
+    /**
+     * 可选清理钩子，供会话销毁时释放观察者或缓存。
+     */
+    cleanup?(): void;
+
+    /**
+     * 神经漫游等队列的概念节点读取能力。
+     */
+    getConceptBlocks?(): string[];
     
     /**
      * 获取队列 UI 配置

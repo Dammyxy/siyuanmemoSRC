@@ -5,4 +5,4 @@
  * 导出所有控制器类。
  */
 
-export { ReviewViewController } from '../application/controllers/ReviewViewController';
+export { ReviewViewController } from './ReviewViewController';

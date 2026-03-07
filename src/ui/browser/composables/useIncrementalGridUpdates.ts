@@ -8,7 +8,6 @@ interface UseIncrementalGridUpdatesOptions {
   rows: Ref<BrowserCard[]>;
   rowsForFocus: Ref<BrowserCard[]>;
   allRows: Ref<BrowserCard[]>;
-  refreshQueueCounts: () => Promise<void>;
   loadVisibleRows: (rows: BrowserCard[]) => Promise<BrowserCard[]>;
   onRowsDeleted?: (deletedRowIds: string[]) => void;
 }
@@ -31,14 +30,6 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
   let rafId: number | null = null;
   const pendingUpdateMap = new Map<string, BrowserCard>();
   const pendingDeletedRowIds = new Set<string>();
-
-  const refreshQueueCountsSafely = async () => {
-    try {
-      await options.refreshQueueCounts();
-    } catch (error) {
-      logger.error('Failed to refresh queue counts:', error);
-    }
-  };
 
   const flushPendingToGrid = () => {
     const api = options.gridApi.value;
@@ -124,8 +115,11 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
 
   const handleCardUpdatedIncremental = async (cardIds: string[]) => {
     if (cardIds.length === 0) {
-      await refreshQueueCountsSafely();
-      return;
+      return {
+        updatedVisibleRows: 0,
+        removedRowIds: [],
+        requiresReorder: false,
+      };
     }
 
     try {
@@ -134,9 +128,12 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       const impactedRows = visibleRows.filter((row) => isRowMatchedByEventIds(row, eventIdSet));
 
       if (impactedRows.length === 0) {
-        await refreshQueueCountsSafely();
         logger.debug('No visible rows matched update event IDs');
-        return;
+        return {
+          updatedVisibleRows: 0,
+          removedRowIds: [],
+          requiresReorder: false,
+        };
       }
 
       const updatedCards = await options.loadVisibleRows(impactedRows);
@@ -152,11 +149,14 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       );
 
       if (updatedMap.size === 0 && deletedRowIds.size === 0) {
-        await refreshQueueCountsSafely();
         logger.warn('Incremental update returned no visible card payload', {
           cardIds,
         });
-        return;
+        return {
+          updatedVisibleRows: 0,
+          removedRowIds: [],
+          requiresReorder: false,
+        };
       }
 
       options.rows.value = removeRowsByIds(
@@ -177,22 +177,33 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       }
       scheduleGridUpdate();
 
-      await refreshQueueCountsSafely();
       logger.info('Incremental update completed', {
         requested: cardIds.length,
         updated: updatedCards.length,
         removed: deletedRowIds.size,
       });
+      return {
+        updatedVisibleRows: updatedCards.length,
+        removedRowIds: Array.from(deletedRowIds),
+        requiresReorder: false,
+      };
     } catch (error) {
       logger.error('Incremental update failed:', error);
-      await refreshQueueCountsSafely();
+      return {
+        updatedVisibleRows: 0,
+        removedRowIds: [],
+        requiresReorder: false,
+      };
     }
   };
 
   const handleCardDeletedIncremental = async (cardIds: string[]) => {
     if (cardIds.length === 0) {
-      await refreshQueueCountsSafely();
-      return;
+      return {
+        updatedVisibleRows: 0,
+        removedRowIds: [],
+        requiresReorder: false,
+      };
     }
 
     try {
@@ -201,9 +212,12 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       const rowsToRemove = visibleRows.filter((row) => isRowMatchedByEventIds(row, eventIdSet));
 
       if (rowsToRemove.length === 0) {
-        await refreshQueueCountsSafely();
         logger.debug('No visible rows matched delete event IDs');
-        return;
+        return {
+          updatedVisibleRows: 0,
+          removedRowIds: [],
+          requiresReorder: false,
+        };
       }
 
       const removedRowIds = new Set(
@@ -229,14 +243,22 @@ export function useIncrementalGridUpdates(options: UseIncrementalGridUpdatesOpti
       }
       scheduleGridUpdate();
 
-      await refreshQueueCountsSafely();
       logger.info('Incremental delete completed', {
         requested: cardIds.length,
         removed: rowsToRemove.length,
       });
+      return {
+        updatedVisibleRows: 0,
+        removedRowIds: Array.from(removedRowIds),
+        requiresReorder: false,
+      };
     } catch (error) {
       logger.error('Incremental delete failed:', error);
-      await refreshQueueCountsSafely();
+      return {
+        updatedVisibleRows: 0,
+        removedRowIds: [],
+        requiresReorder: false,
+      };
     }
   };
 

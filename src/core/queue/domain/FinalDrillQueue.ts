@@ -16,7 +16,7 @@
  */
 
 import { BaseReviewQueue } from './BaseReviewQueue';
-import { QueueAddSource, QueueType } from '../../../types/unified-data-source';
+import { QueueAddSource, QueueReviewResult, QueueType } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -263,7 +263,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 logger.debug(`Applied FlipElement algorithm to ${cards.length} cards`);
             }
             
-            return cards;
+            return this.cacheResolvedCards(cards, 'reconciled');
         } catch (error) {
             logger.error('Failed to get cards:', error);
             throw error;
@@ -335,7 +335,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
      * @param rating 评分 (1-4)
      * @see 需求 8.1, 8.2, 8.3
      */
-    public async handleReview(cardId: string, rating: number): Promise<void> {
+    public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
         try {
             await this.ensureInitialLoad();
             // 注意：评分不计入调度算法
@@ -345,15 +345,34 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 // 评分 4：从队列移除
                 await this.removeCard(cardId);
                 logger.info(`Card ${cardId} reviewed with rating 4, removed from queue`);
+                this.emitQueueChangedEvent();
+                const counterSnapshot = await this.getCounterSnapshot(true);
+                return {
+                    updatedCard: null,
+                    removedFromQueue: true,
+                    remainsInQueue: false,
+                    queueChanged: true,
+                    requiresCurrentViewReorder: false,
+                    counterSnapshot,
+                    version: counterSnapshot.version,
+                };
             } else {
                 // 评分 1/2/3：将卡片移到队列后面
                 // 这样下次 FlipElement 可以选中它，避免总是复习同一张卡片
                 await this.moveCardToBack(cardId);
                 logger.info(`Card ${cardId} reviewed with rating ${rating}, moved to back`);
+                this.emitQueueChangedEvent();
+                const counterSnapshot = await this.getCounterSnapshot(true);
+                return {
+                    updatedCard: null,
+                    removedFromQueue: false,
+                    remainsInQueue: true,
+                    queueChanged: true,
+                    requiresCurrentViewReorder: true,
+                    counterSnapshot,
+                    version: counterSnapshot.version,
+                };
             }
-            
-            // 通知观察者队列已变化
-            this.emitQueueChangedEvent();
         } catch (error) {
             logger.error('Failed to handle review:', error);
             throw error;
@@ -463,6 +482,8 @@ export class FinalDrillQueue extends BaseReviewQueue {
             
             // 持久化新顺序
             await this.save();
+            this.invalidateCachedCards();
+            this.clearSizeCache();
             
             logger.info('Reorder completed successfully');
             return true;
@@ -510,6 +531,8 @@ export class FinalDrillQueue extends BaseReviewQueue {
 
     private async persistEntries(options: { emitQueueChanged?: boolean } = {}): Promise<void> {
         await this.save();
+        this.invalidateCachedCards();
+        this.clearSizeCache();
         if (options.emitQueueChanged) {
             this.emitQueueChangedEvent();
         }
@@ -540,6 +563,8 @@ export class FinalDrillQueue extends BaseReviewQueue {
         
         // 持久化
         await this.save();
+        this.invalidateCachedCards();
+        this.clearSizeCache();
         
         logger.debug(`Card ${cardId} moved to back of queue`);
     }

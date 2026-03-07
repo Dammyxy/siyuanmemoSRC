@@ -10,6 +10,7 @@ const reviewContentMocks = vi.hoisted(() => {
     host: HTMLElement;
     protyle: { wysiwyg: { element: HTMLElement } };
   }> = [];
+  const blockFixtures = new Map<string, string>();
 
   class MockApp {}
 
@@ -20,10 +21,20 @@ const reviewContentMocks = vi.hoisted(() => {
     host: HTMLElement;
     protyle: { wysiwyg: { element: HTMLElement } };
 
-    constructor(_app: unknown, host: HTMLElement, options: { after?: (protyle: MockProtyle) => void }) {
+    constructor(
+      _app: unknown,
+      host: HTMLElement,
+      options: { after?: (protyle: MockProtyle) => void; blockId?: string },
+    ) {
       this.host = host;
       const wysiwygElement = document.createElement('div');
       wysiwygElement.className = 'protyle-wysiwyg';
+      const fixture = typeof options.blockId === 'string'
+        ? blockFixtures.get(options.blockId)
+        : undefined;
+      if (fixture) {
+        wysiwygElement.innerHTML = fixture;
+      }
       host.appendChild(wysiwygElement);
       this.protyle = {
         wysiwyg: {
@@ -48,11 +59,26 @@ const reviewContentMocks = vi.hoisted(() => {
   }
 
   return {
+    blockFixtures,
     instances,
     MockApp,
     MockProtyle,
   };
 });
+
+const reviewContentLoggerMocks = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  info: vi.fn(),
+  log: vi.fn(),
+  trace: vi.fn(),
+}));
+
+const reviewContentApiMocks = vi.hoisted(() => ({
+  getBlockDocInfo: vi.fn(async () => ({ ial: {} })),
+  getDocContent: vi.fn(async () => ({ content: '', type: 'NodeDocument' })),
+}));
 
 vi.mock('siyuan', () => ({
   App: reviewContentMocks.MockApp,
@@ -103,6 +129,18 @@ vi.mock('@/core/card/descriptor-card/application/DescriptorCardRenderService', (
   },
 }));
 
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => reviewContentLoggerMocks,
+  logger: reviewContentLoggerMocks,
+  setGlobalLogLevel: vi.fn(),
+  getGlobalLogLevel: vi.fn(() => 'warn'),
+}));
+
+vi.mock('@/infrastructure/siyuan/api', () => ({
+  getBlockDocInfo: reviewContentApiMocks.getBlockDocInfo,
+  getDocContent: reviewContentApiMocks.getDocContent,
+}));
+
 import ReviewContent from '../ReviewContent.vue';
 
 function createProtyleContent() {
@@ -115,6 +153,37 @@ function createProtyleContent() {
       type: 'item',
       meta: {
         forceProtyleRender: true,
+      },
+    },
+  };
+}
+
+function createForcedQuickContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-force-quick',
+    data: '',
+    card: {
+      id: 'card-force-quick',
+      type: 'item',
+      meta: {
+        forceQuickRender: true,
+        quickDetectReason: 'cloze-latex-numbered',
+      },
+    },
+  };
+}
+
+function createNativeRiffContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-native-riff',
+    data: '',
+    card: {
+      id: 'card-native-riff',
+      type: 'item',
+      meta: {
+        templateID: 'builtin-riff-sync',
       },
     },
   };
@@ -153,6 +222,10 @@ function createEmptyContent() {
   };
 }
 
+function setBlockFixture(blockId: string, html: string): void {
+  reviewContentMocks.blockFixtures.set(blockId, html);
+}
+
 function getEditorStates(wrapper: ReturnType<typeof mount>): ReviewEditorState[] {
   return (wrapper.emitted('editor-state-change') ?? []).map(([state]) => state as ReviewEditorState);
 }
@@ -163,12 +236,29 @@ async function settleReviewContent(): Promise<void> {
   await flushPromises();
 }
 
+async function settleProtyleInit(): Promise<void> {
+  await flushPromises();
+  await new Promise(resolve => setTimeout(resolve, 140));
+  await flushPromises();
+}
+
 describe('ReviewContent editor state', () => {
   let attachTarget: HTMLDivElement;
   let actionButton: HTMLButtonElement;
 
   beforeEach(() => {
     reviewContentMocks.instances.length = 0;
+    reviewContentMocks.blockFixtures.clear();
+    reviewContentLoggerMocks.warn.mockReset();
+    reviewContentLoggerMocks.error.mockReset();
+    reviewContentLoggerMocks.debug.mockReset();
+    reviewContentLoggerMocks.info.mockReset();
+    reviewContentLoggerMocks.log.mockReset();
+    reviewContentLoggerMocks.trace.mockReset();
+    reviewContentApiMocks.getBlockDocInfo.mockReset();
+    reviewContentApiMocks.getDocContent.mockReset();
+    reviewContentApiMocks.getBlockDocInfo.mockResolvedValue({ ial: {} });
+    reviewContentApiMocks.getDocContent.mockResolvedValue({ content: '', type: 'NodeDocument' });
     attachTarget = document.createElement('div');
     attachTarget.className = 'fsrs-review-v2';
     actionButton = document.createElement('button');
@@ -179,10 +269,32 @@ describe('ReviewContent editor state', () => {
     actionWrap.appendChild(actionButton);
     attachTarget.appendChild(actionWrap);
     document.body.appendChild(attachTarget);
+    (window as Window & {
+      siyuan?: {
+        config?: {
+          flashcard?: {
+            superBlock?: boolean;
+            heading?: boolean;
+            list?: boolean;
+            mark?: boolean;
+          };
+        };
+      };
+    }).siyuan = {
+      config: {
+        flashcard: {
+          superBlock: true,
+          heading: true,
+          list: true,
+          mark: true,
+        },
+      },
+    };
   });
 
   afterEach(() => {
     attachTarget.remove();
+    delete (window as Window & { siyuan?: unknown }).siyuan;
   });
 
   it('tracks main Protyle edit state and re-enables double-click editing after Escape exit', async () => {
@@ -318,6 +430,248 @@ describe('ReviewContent editor state', () => {
       supportsNativeEdit: false,
       isEditing: false,
     });
+
+    wrapper.unmount();
+  });
+
+  it('destroys the old Protyle instance when switching from main renderer to special renderer', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const initialProtyle = reviewContentMocks.instances[0];
+    expect(initialProtyle).toBeTruthy();
+
+    await wrapper.setProps({
+      content: createSpecialContent(),
+    });
+    await settleReviewContent();
+
+    expect(initialProtyle.destroyCallCount).toBeGreaterThan(0);
+
+    wrapper.unmount();
+  });
+
+  it('falls back to standard Protyle once when forceQuickRender metadata is invalid', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createForcedQuickContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentLoggerMocks.warn).toHaveBeenCalledTimes(1);
+    expect(reviewContentLoggerMocks.warn).toHaveBeenCalledWith(
+      '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
+      expect.objectContaining({
+        blockId: 'block-force-quick',
+        cardId: 'card-force-quick',
+      }),
+    );
+
+    await wrapper.setProps({ showAnswer: false });
+    await settleReviewContent();
+
+    expect(reviewContentLoggerMocks.warn).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
+  it('loads native riff-sync hidden cards through doc content instead of direct blockId rendering', async () => {
+    reviewContentApiMocks.getBlockDocInfo.mockResolvedValue({ ial: {} });
+    reviewContentApiMocks.getDocContent.mockResolvedValue({
+      content: '<div class="sb" custom-riff-decks="deck-1"><div class="protyle-attr"></div><div data-node-id="front"></div><div data-node-id="back"></div></div>',
+      type: 'NodeDocument',
+      rootID: 'doc-native-riff',
+      id: 'block-native-riff',
+    });
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createNativeRiffContent(),
+        showAnswer: true,
+        hasHiddenContent: true,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleProtyleInit();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentApiMocks.getBlockDocInfo).toHaveBeenCalledWith('block-native-riff');
+    expect(reviewContentApiMocks.getDocContent).toHaveBeenCalledWith('block-native-riff');
+
+    wrapper.unmount();
+  });
+
+  it('reveals inline hidden content by removing hide classes without rebuilding Protyle', async () => {
+    setBlockFixture(
+      'block-1',
+      '<div class="sb" custom-riff-decks="deck-1"><div class="protyle-attr"></div><div data-node-id="front"></div><div data-node-id="back"></div></div>',
+    );
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent(),
+        showAnswer: true,
+        hasHiddenContent: true,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleProtyleInit();
+
+    const host = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
+    const protyle = reviewContentMocks.instances[0];
+    expect(host.classList.contains('card__block--hidesb')).toBe(true);
+
+    await wrapper.setProps({
+      showAnswer: false,
+      hasHiddenContent: true,
+    });
+    await settleReviewContent();
+
+    expect(host.classList.contains('card__block--hidesb')).toBe(false);
+    expect(protyle.destroyCallCount).toBe(0);
+
+    wrapper.unmount();
+  });
+
+  it('keeps native hidden classes off when rendered content does not match flashcard DOM', async () => {
+    setBlockFixture('block-1', '<div class="p" data-node-id="plain"></div>');
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent(),
+        showAnswer: true,
+        hasHiddenContent: true,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleProtyleInit();
+
+    const host = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
+    expect(host.classList.contains('card__block--hidesb')).toBe(false);
+    expect(host.classList.contains('card__block--hideli')).toBe(false);
+    expect(host.classList.contains('card__block--hideh')).toBe(false);
+    expect(host.classList.contains('card__block--hidemark')).toBe(false);
 
     wrapper.unmount();
   });

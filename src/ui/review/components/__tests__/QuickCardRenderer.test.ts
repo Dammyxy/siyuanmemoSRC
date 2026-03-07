@@ -131,4 +131,35 @@ describe('QuickCardRenderer.vue', () => {
     expect(wrapper.find('.card-loading-state').exists()).toBe(false);
     expect(wrapper.find('.quick-card-renderer__content').exists()).toBe(true);
   });
+
+  it('reuses the local cache when flipping back to an already rendered side', async () => {
+    const frontViewModel = createViewModel({ html: '<div>Front</div>' });
+    const backViewModel = createViewModel({ html: '<div>Back</div>' });
+    const prepareViewModel = vi.fn()
+      .mockResolvedValueOnce(frontViewModel)
+      .mockResolvedValueOnce(backViewModel);
+
+    const wrapper = mount(QuickCardRenderer, {
+      props: {
+        blockId: '123',
+        renderService: { prepareViewModel } as unknown as QuickCardRenderService,
+      },
+    });
+
+    await flushMicrotasks();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.setProps({ showAnswer: true });
+    await flushMicrotasks();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.setProps({ showAnswer: false });
+    await flushMicrotasks();
+    await wrapper.vm.$nextTick();
+
+    expect(prepareViewModel).toHaveBeenCalledTimes(2);
+    expect(prepareViewModel).toHaveBeenNthCalledWith(1, '123', 'front', undefined);
+    expect(prepareViewModel).toHaveBeenNthCalledWith(2, '123', 'back', undefined);
+    expect(wrapper.html()).toContain('Front');
+  });
 });

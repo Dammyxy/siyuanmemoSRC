@@ -229,6 +229,7 @@ import {
   pushBrowserMsg,
 } from './browserService';
 import { PerformanceMonitor } from '@/utils/performance';
+import { runBrowserForceRefresh } from './forceRefreshDataPlan';
 import { type BrowserCard, type CardTypeFilter } from './types';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
 import type {
@@ -306,7 +307,10 @@ import { useBrowserAdapterSync } from './composables/useBrowserAdapterSync';
 import { shouldRefreshQueueData } from './composables/queueChangeScope';
 import { useGlobalSelection } from './composables/useGlobalSelection';
 import { createLogger } from '@/utils/logger';
-import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
+import type {
+  BrowserQueueCountsRequest,
+  IBrowserApplicationService,
+} from '@/application/interfaces/IBrowserApplicationService';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
@@ -1183,6 +1187,7 @@ async function ensureAllRowsSnapshotReady(): Promise<BrowserCard[]> {
 type LoadDataOptions = {
   refreshQueueCounts?: boolean;
   snapshotDelayMs?: number;
+  origin?: 'default' | 'queue-sync';
 };
 
 function scheduleBackgroundSnapshots(delayMs = 80): void {
@@ -1205,6 +1210,7 @@ let loadDataAbortController: AbortController | null = null;
 async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
   const shouldRefreshQueueCounts = options.refreshQueueCounts ?? true;
   const snapshotDelayMs = options.snapshotDelayMs ?? 80;
+  const origin = options.origin ?? 'default';
 
   if (loadDataAbortController) {
     loadDataAbortController.abort();
@@ -1229,9 +1235,11 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
       return;
     }
     
-    selectedRows.value = [];
-    globalSelection.clear();
-    previewCard.value = null;
+    if (origin !== 'queue-sync') {
+      selectedRows.value = [];
+      globalSelection.clear();
+      previewCard.value = null;
+    }
 
     const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
 
@@ -1314,7 +1322,9 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
 
     rebuildInfiniteDatasource(forceRefresh);
     datasourceTriggered = true;
-    scheduleBackgroundSnapshots(snapshotDelayMs);
+    if (origin !== 'queue-sync') {
+      scheduleBackgroundSnapshots(snapshotDelayMs);
+    }
 
     if (currentQueueType.value === 'neural-roam') {
       await refreshNeuralSubviewData();
@@ -2355,11 +2365,14 @@ async function refreshData(
 ) {
   const mergedOptions: LoadDataOptions = {
     refreshQueueCounts: false,
+    origin: 'default',
     ...options,
   };
 
-  clearSelectionState(false);
-  previewCard.value = null;
+  if (mergedOptions.origin !== 'queue-sync') {
+    clearSelectionState(false);
+    previewCard.value = null;
+  }
 
 
   if (!preserveFocusState) {
@@ -2390,7 +2403,6 @@ const {
   rows,
   rowsForFocus,
   allRows,
-  refreshQueueCounts,
   loadVisibleRows: async (impactedRows) => {
     const queryable = resolveQueryableDataSource(currentDataSource.value);
     if (queryable) {
@@ -2426,13 +2438,17 @@ const {
   manager: pluginUnifiedDataSourceManager,
   onCardUpdated: handleCardUpdatedIncremental,
   onCardDeleted: handleCardDeletedIncremental,
-  onQueueChanged: (affectedQueueTypes) => {
+  onQueueChanged: ({ affectedQueueTypes, invalidateAllCounts }) => {
     logger.info('[SiYuanMemo][SRSBrowser] Refreshing queue counts due to queue changes', {
       affectedQueueTypes: affectedQueueTypes ?? 'all',
+      invalidateAllCounts,
       activeQueueId: activeQueueId.value,
       activeQueueType: activeQueueTypeForRefresh.value,
     });
-    void refreshQueueCounts();
+    void refreshQueueCounts({
+      forceRefresh: invalidateAllCounts,
+      affectedQueueTypes,
+    });
 
     const activeQueueType = activeQueueTypeForRefresh.value;
     const shouldRefreshActiveQueue = shouldRefreshQueueData(
@@ -2442,7 +2458,20 @@ const {
     );
 
     if (shouldRefreshActiveQueue) {
-      void refreshData(true);
+      const queryable = resolveQueryableDataSource(currentDataSource.value);
+      if (queryable) {
+        if (hasQuerySessionInvalidation(queryable)) {
+          queryable.invalidateQuerySession();
+        }
+        const currentApi = gridApi.value as (GridApi & { refreshInfiniteCache?: () => void }) | null;
+        currentApi?.refreshInfiniteCache?.();
+      } else {
+        void refreshData(true, false, {
+          origin: 'queue-sync',
+          refreshQueueCounts: false,
+          snapshotDelayMs: 0,
+        });
+      }
     }
 
     if (shouldRefreshActiveQueue && isNeuralRoamQueueActive.value) {
@@ -2466,16 +2495,19 @@ function handleCardTypeChange() {
 }
 
 // Force refresh data (clear cache)
-function forceRefreshData() {
-  invalidateCardCache();
-  void refreshGlobalStats(true);
-  void refreshData(true);
+async function forceRefreshData() {
+  await runBrowserForceRefresh({
+    invalidateCardCache,
+    refreshGlobalStats,
+    refreshData,
+    refreshQueueCounts,
+  });
 }
 
 // 🆕 处理同步完成事件
 function handleSyncComplete(type: 'incremental' | 'full') {
   logger.info('[SiYuanMemo][SRSBrowser] Sync completed:', type);
-  forceRefreshData();
+  void forceRefreshData();
 }
 
 // Show performance report
@@ -3118,8 +3150,8 @@ async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
   return cards;
 }
 
-async function refreshQueueCounts(forceRefresh = true) {
-  await refreshQueueCountsBridge(queueCounts, { forceRefresh });
+async function refreshQueueCounts(request: BrowserQueueCountsRequest = { forceRefresh: true }) {
+  await refreshQueueCountsBridge(queueCounts, request);
 }
 
 async function handleSelectQueue(queueId: string) {

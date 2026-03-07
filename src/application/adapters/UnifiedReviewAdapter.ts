@@ -2,12 +2,11 @@ import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats } from '@/core/queue/types';
 import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
 import type { FSRSCard } from '@/types/card';
-import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
+import { isNeuralRoamSessionQueue, type QueueCounterSnapshot } from '@/types/unified-data-source';
 import {
   type AdapterContext,
   type IAdapter,
   type ReviewCardKind,
-  type ReviewHeaderCounterSummaryPart,
   type ReviewHeaderPriorityBadge,
   type ReviewHeaderVariant,
   type ReviewUIState,
@@ -22,7 +21,7 @@ import { createLogger } from '@/utils/logger';
 const logger = createLogger('UnifiedReviewAdapter');
 
 type RatingValue = 1 | 2 | 3 | 4;
-type NextDuesMap = Partial<Record<RatingValue, string>>;
+type NextDuesMap = Record<RatingValue, string>;
 type HeaderBucket = 'all' | 'item' | 'descriptor' | 'topic' | 'concept';
 
 type UnifiedReviewItem = FSRSCard & {
@@ -43,11 +42,6 @@ type UnderlyingQueueLike = {
 
 type QueueWithUnderlying = {
   getUnderlyingQueue?: () => unknown;
-};
-
-type HeaderBaselineSnapshot = {
-  totalCards: number;
-  buckets: Map<HeaderBucket, number>;
 };
 
 type CachedHeaderState = {
@@ -129,14 +123,6 @@ function normalizeCardType(type: unknown): ReviewCardKind {
   return 'item';
 }
 
-function normalizeHeaderBucket(type: unknown): HeaderBucket | null {
-  const normalized = normalizeCardType(type);
-  if (normalized === 'item' || normalized === 'descriptor' || normalized === 'topic' || normalized === 'concept') {
-    return normalized;
-  }
-  return null;
-}
-
 function isTopicLikeCardType(cardType: ReviewCardKind): boolean {
   return cardType === 'topic' || cardType === 'concept';
 }
@@ -197,6 +183,23 @@ function resolveAnswerBlockId(card: UnifiedReviewItem): string {
   return '';
 }
 
+function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
+  if (!isXiuyuanCard(card)) {
+    return false;
+  }
+
+  if (normalizeCardType(card.type) !== 'item') {
+    return false;
+  }
+
+  if (card.meta.templateID !== 'builtin-riff-sync') {
+    return false;
+  }
+
+  const renderProfile = card.meta.renderProfile;
+  return typeof renderProfile !== 'string' || renderProfile.length === 0;
+}
+
 function normalizeStats(stats: QueueStats | undefined): { size: number; label: string } {
   if (!stats) {
     return { size: 0, label: '' };
@@ -231,30 +234,27 @@ function createEmptyBucketMap(): Map<HeaderBucket, number> {
   ]);
 }
 
-function countHeaderBuckets(cards: FSRSCard[]): Map<HeaderBucket, number> {
-  const buckets = createEmptyBucketMap();
-  buckets.set('all', cards.length);
-
-  for (const card of cards) {
-    const bucket = normalizeHeaderBucket(card.type);
-    if (!bucket) {
-      continue;
-    }
-    buckets.set(bucket, (buckets.get(bucket) || 0) + 1);
-  }
-
-  return buckets;
-}
-
 function readCount(buckets: Map<HeaderBucket, number>, bucket: HeaderBucket): number {
   return Math.max(0, Number(buckets.get(bucket)) || 0);
+}
+
+function toBucketMap(snapshot: QueueCounterSnapshot | null | undefined): Map<HeaderBucket, number> {
+  const buckets = createEmptyBucketMap();
+  if (!snapshot) {
+    return buckets;
+  }
+
+  buckets.set('all', Math.max(0, Number(snapshot.buckets.all) || 0));
+  buckets.set('item', Math.max(0, Number(snapshot.buckets.item) || 0));
+  buckets.set('descriptor', Math.max(0, Number(snapshot.buckets.descriptor) || 0));
+  buckets.set('topic', Math.max(0, Number(snapshot.buckets.topic) || 0));
+  buckets.set('concept', Math.max(0, Number(snapshot.buckets.concept) || 0));
+  return buckets;
 }
 
 export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   private readonly i18n?: Record<string, string>;
   private readonly headerVariant?: ReviewHeaderVariant;
-  private headerBaselineVersion = -1;
-  private headerBaseline: HeaderBaselineSnapshot | null = null;
   private cachedHeaderState: CachedHeaderState | null = null;
 
   constructor(options?: { i18n?: Record<string, string>; headerVariant?: ReviewHeaderVariant }) {
@@ -345,6 +345,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const contentBlockId = resolveContentBlockId(item, blockId);
     const answerBlockID = resolveAnswerBlockId(item);
     const isTopicLike = isTopicLikeCardType(cardType);
+    const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
 
     logger.debug('Building review UI state', {
       cardId,
@@ -399,7 +400,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       },
       meta: {
         transition: 'slide-left',
-        hasHiddenContent: isTopicLike ? false : !context.showAnswer,
+        hasHiddenContent: isTopicLike ? false : hasInlineHiddenContent,
         queueSize,
         remainingSize,
       },
@@ -421,59 +422,27 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const stats = normalizeStats(await queue.getStats?.());
     const safeContext = context ?? { showAnswer: false };
 
-    let liveBuckets = createEmptyBucketMap();
-    let overallRemaining = Math.max(0, stats.size);
-    let overallTotal = Math.max(0, Number(safeContext.session?.initialTotal) || 0, overallRemaining);
-
-    if (queueType === 'neural-roam') {
-      liveBuckets.set('all', overallRemaining);
-      const baseline = this.ensureHeaderBaseline([], liveBuckets, safeContext);
-      overallTotal = Math.max(
-        baseline.totalCards,
-        overallRemaining,
-        Number(safeContext.session?.initialTotal) || 0,
-      );
-      const presentation = this.buildCounterPresentation({
-        headerVariant,
-        liveBuckets,
-        baseline,
-        context: safeContext,
-        queue,
-        total: overallTotal,
-      });
-
-      return this.cacheAndBuildAuxHeader(queueType, {
-        stats: {
-          current: overallRemaining,
-          total: overallTotal,
-          label: stats.label,
-          queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
-        },
-        counterSummary: presentation.counterSummary,
-        counterBadges: presentation.counterBadges,
-      });
-    }
-
-    const liveCards = await this.loadLiveCards(queue);
-    liveBuckets = countHeaderBuckets(liveCards);
-    const baseline = this.ensureHeaderBaseline(liveCards, liveBuckets, safeContext);
-    overallRemaining = stats.size || readCount(liveBuckets, 'all');
-    overallTotal = Math.max(baseline.totalCards, overallRemaining, readCount(liveBuckets, 'all'));
-
+    const snapshot = await queue.getCounterSnapshot?.().catch((error) => {
+      logger.warn('Failed to read live queue counter snapshot:', error);
+      return null;
+    });
+    const overallRemaining = Math.max(0, Number(snapshot?.remaining) || stats.size);
+    const overallTotal = Math.max(0, Number(snapshot?.total) || overallRemaining);
     const presentation = this.buildCounterPresentation({
       headerVariant,
-      liveBuckets,
-      baseline,
-      context: safeContext,
       queue,
-      total: overallTotal,
+      snapshot,
+      context: safeContext,
     });
+    const label = snapshot
+      ? `${Math.max(0, Number(snapshot.due) || 0)} due · ${overallRemaining} remaining`
+      : (stats.label || `${overallRemaining} due`);
 
     return this.cacheAndBuildAuxHeader(queueType, {
       stats: {
         current: overallRemaining,
         total: overallTotal,
-        label: stats.label,
+        label,
         queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
       },
       counterSummary: presentation.counterSummary,
@@ -482,28 +451,11 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   }
 
   resetSessionState(): void {
-    this.headerBaseline = null;
-    this.headerBaselineVersion = -1;
     this.cachedHeaderState = null;
   }
 
   cleanup(): void {
     this.resetSessionState();
-  }
-
-  private async loadLiveCards(queue: IQueueStrategy<UnifiedReviewItem>): Promise<FSRSCard[]> {
-    const underlying = resolveUnderlyingQueue(queue);
-    if (!underlying || typeof underlying.getCards !== 'function') {
-      return [];
-    }
-
-    try {
-      const cards = await underlying.getCards();
-      return Array.isArray(cards) ? cards : [];
-    } catch (error) {
-      logger.warn('Failed to load live header cards from underlying queue:', error);
-      return [];
-    }
   }
 
   private resolveHeaderPlaceholder(
@@ -553,89 +505,32 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     };
 
     return {
-      header: payload,
+      header: {
+        stats: payload.stats,
+        counterSummary: payload.counterSummary,
+        counterBadges: payload.counterBadges,
+      } as Partial<ReviewUIState['header']> as ReviewUIState['header'],
       meta: {
+        transition: 'none',
         queueSize: payload.stats.total,
         remainingSize: payload.stats.current,
-      },
+      } as ReviewUIState['meta'],
     };
-  }
-
-  private ensureHeaderBaseline(
-    liveCards: FSRSCard[],
-    liveBuckets: Map<HeaderBucket, number>,
-    context: AdapterContext,
-  ): HeaderBaselineSnapshot {
-    const baselineVersion = Math.max(0, Number(context.session?.baselineVersion) || 0);
-    if (!this.headerBaseline || this.headerBaselineVersion !== baselineVersion) {
-      this.headerBaselineVersion = baselineVersion;
-      this.headerBaseline = {
-        totalCards: liveCards.length,
-        buckets: countHeaderBuckets(liveCards),
-      };
-      return this.headerBaseline;
-    }
-
-    this.headerBaseline.totalCards = Math.max(
-      this.headerBaseline.totalCards,
-      liveCards.length,
-      readCount(liveBuckets, 'all'),
-    );
-
-    for (const bucket of ['item', 'descriptor', 'topic', 'concept'] as const) {
-      const liveCount = readCount(liveBuckets, bucket);
-      const baselineCount = readCount(this.headerBaseline.buckets, bucket);
-      if (liveCount > baselineCount) {
-        this.headerBaseline.buckets.set(bucket, liveCount);
-      }
-    }
-
-    this.headerBaseline.buckets.set(
-      'all',
-      Math.max(readCount(this.headerBaseline.buckets, 'all'), readCount(liveBuckets, 'all')),
-    );
-
-    return this.headerBaseline;
   }
 
   private buildCounterPresentation(options: {
     headerVariant: ReviewHeaderVariant;
-    liveBuckets: Map<HeaderBucket, number>;
-    baseline: HeaderBaselineSnapshot;
+    snapshot: QueueCounterSnapshot | null;
     context: AdapterContext;
     queue: IQueueStrategy<UnifiedReviewItem>;
-    total: number;
   }) {
-    const { headerVariant, liveBuckets, baseline, context, queue, total } = options;
+    const { headerVariant, snapshot, context, queue } = options;
+    const liveBuckets = toBucketMap(snapshot);
     const answeredCount = Math.max(0, Number(context.session?.answeredCount) || 0);
     const correctCount = Math.max(0, Number(context.session?.correctCount) || 0);
-    const makeTotal = (bucket: HeaderBucket): number =>
-      Math.max(readCount(baseline.buckets, bucket), readCount(liveBuckets, bucket));
-    const makeRatioPart = (
-      id: string,
-      label: string,
-      bucket: HeaderBucket,
-      tone: ReviewHeaderCounterSummaryPart['tone'],
-    ): ReviewHeaderCounterSummaryPart => ({
-      id,
-      label,
-      tone,
-      remaining: readCount(liveBuckets, bucket),
-      total: makeTotal(bucket),
-    });
-    const makeRatioBadge = (
-      id: string,
-      label: string,
-      bucket: HeaderBucket,
-      tone: ReviewHeaderCounterBadgeInput['tone'],
-    ): ReviewHeaderCounterBadgeInput => ({
-      id,
-      label,
-      kind: 'ratio',
-      tone,
-      remaining: readCount(liveBuckets, bucket),
-      total: makeTotal(bucket),
-    });
+    const total = Math.max(0, Number(snapshot?.total) || Number(snapshot?.remaining) || 0);
+    const due = Math.max(0, Number(snapshot?.due) || 0);
+    const remaining = Math.max(0, Number(snapshot?.remaining) || 0);
     const makeValueBadge = (
       id: string,
       label: string,
@@ -648,51 +543,41 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       tone,
       value,
     });
-
     switch (headerVariant) {
       case 'retrieval-practice':
-        return createReviewHeaderCounterPresentation({
-          total,
-          parts: [
-            makeRatioPart('item', t(this.i18n, 'headerItem', 'Item'), 'item', 'item'),
-            makeRatioPart('descriptor', t(this.i18n, 'headerDescriptor', 'Descriptor'), 'descriptor', 'descriptor'),
-          ],
-        });
       case 'incremental-learning':
+      case 'filter-group':
         return createReviewHeaderCounterPresentation({
           total,
-          forceParentheses: true,
-          showZeroVisible: true,
-          parts: [
-            makeRatioPart('item', t(this.i18n, 'headerItem', 'Item'), 'item', 'item'),
-            makeRatioPart('descriptor', t(this.i18n, 'headerDescriptor', 'Descriptor'), 'descriptor', 'descriptor'),
-            makeRatioPart('topic', t(this.i18n, 'headerTopic', 'Topic'), 'topic', 'topic'),
-            makeRatioPart('concept', t(this.i18n, 'headerConcept', 'Concept'), 'concept', 'concept'),
-          ],
+          summaryValue: {
+            label: t(this.i18n, 'headerRemaining', 'Remaining'),
+            value: remaining,
+            tooltip: `${remaining} remaining · ${due} due`,
+            ariaLabel: `${remaining} remaining · ${due} due`,
+          },
+          badges: FIXED_CARD_TYPE_ORDER
+            .filter((bucket) => readCount(liveBuckets, bucket) > 0)
+            .map((bucket) => makeValueBadge(
+              bucket,
+              this.getCardTypeLabel(bucket),
+              readCount(liveBuckets, bucket),
+              bucket,
+            )),
         });
       case 'final-drill':
         return createReviewHeaderCounterPresentation({
           total,
-          parts: [
-            makeRatioPart('item', t(this.i18n, 'headerItem', 'Item'), 'item', 'item'),
-            makeRatioPart('descriptor', t(this.i18n, 'headerDescriptor', 'Descriptor'), 'descriptor', 'descriptor'),
-          ],
+          summaryValue: {
+            label: t(this.i18n, 'headerRemaining', 'Remaining'),
+            value: remaining,
+            tooltip: `${remaining} remaining`,
+            ariaLabel: `${remaining} remaining`,
+          },
           badges: [
             makeValueBadge('answered', t(this.i18n, 'headerAnswered', '\u5df2\u7b54'), answeredCount, 'progress'),
             makeValueBadge('correct', t(this.i18n, 'headerCorrect', '\u7b54\u5bf9'), correctCount, 'success'),
           ],
         });
-      case 'filter-group': {
-        const dynamicBuckets = FIXED_CARD_TYPE_ORDER.filter((bucket) =>
-          readCount(baseline.buckets, bucket) > 0 || readCount(liveBuckets, bucket) > 0,
-        );
-        return createReviewHeaderCounterPresentation({
-          total,
-          parts: dynamicBuckets.map((bucket) =>
-            makeRatioPart(bucket, this.getCardTypeLabel(bucket), bucket, bucket),
-          ),
-        });
-      }
       case 'neural-roam': {
         const roamedCount = this.getNeuralRoamedCount(queue);
         const roamedTooltip = `${t(this.i18n, 'headerRoamed', '\u5df2\u6f2b\u6e38')} ${roamedCount} ${t(this.i18n, 'headerCardsUnit', '\u5f20\u5361')}`;
@@ -712,9 +597,15 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       default:
         return createReviewHeaderCounterPresentation({
           total,
-          badges: [
-            makeRatioBadge('remaining', t(this.i18n, 'headerRemaining', '\u5269\u4f59'), 'all', 'neutral'),
-          ],
+          summaryValue: {
+            label: t(this.i18n, 'headerRemaining', '\u5269\u4f59'),
+            value: remaining,
+            tooltip: `${remaining} remaining`,
+            ariaLabel: `${remaining} remaining`,
+          },
+          badges: total > 0 ? [
+            makeValueBadge('due', t(this.i18n, 'headerDue', 'Due'), due, 'neutral'),
+          ] : [],
         });
     }
   }

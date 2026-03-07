@@ -4,12 +4,14 @@
 
 import { BaseReviewQueue } from './BaseReviewQueue';
 import {
+  QueueAddSource,
   QueueType,
   type NeuralRoamAnchorEntry,
   type NeuralNavigationMode,
   type NeuralNavigationState,
   type NeuralRoamFocusEntry,
   type NeuralRoamHistoryEntry,
+  type QueueReviewResult,
   type NeuralRoamSeedEntry,
 } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
@@ -193,7 +195,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       persistence: this.queuePersistence,
       key: this.STORAGE_KEY,
       initialValue: null,
-      validate: () => true,
+      validate: (_value: unknown): _value is unknown => true,
       logger,
       context: 'NeuralRoamQueue',
     });
@@ -302,15 +304,22 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       })
     );
 
-    return cards.filter((card): card is FSRSCard => Boolean(card));
+    return this.cacheResolvedCards(cards.filter((card): card is FSRSCard => Boolean(card)), 'reconciled');
   }
 
-  public async addCard(card: FSRSCard | ReviewQueueItem | string, priority: 'normal' | 'high' = 'normal'): Promise<void> {
+  public async addCard(
+    card: FSRSCard | ReviewQueueItem | string,
+    priorityOrSource: 'normal' | 'high' | QueueAddSource = 'normal',
+  ): Promise<void> {
     await this.ensureInitialLoad();
     const { blockId, conceptHint } = this.resolveAddTarget(card);
     if (!blockId) {
       throw new Error('Invalid card or block ID');
     }
+
+    const priority = priorityOrSource === 'high'
+      ? 'high'
+      : 'normal';
 
     let skipConceptValidation = conceptHint;
     if (!skipConceptValidation) {
@@ -337,8 +346,18 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     await this.save();
   }
 
-  public async handleReview(cardId: string, rating: number): Promise<void> {
+  public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
     logger.debug(`Review handled by FSRS system: ${cardId}, rating: ${rating}`);
+    const counterSnapshot = await this.getCounterSnapshot(true);
+    return {
+      updatedCard: null,
+      removedFromQueue: false,
+      remainsInQueue: true,
+      queueChanged: false,
+      requiresCurrentViewReorder: false,
+      counterSnapshot,
+      version: counterSnapshot.version,
+    };
   }
 
   public async getNextCard(): Promise<FSRSCard | null> {
@@ -390,6 +409,19 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   public async setSeedEntry(nodeId: string, enabled = true): Promise<void> {
     await this.ensureInitialLoad();
     await this.conceptQueue.setSeedEntry(nodeId, enabled);
+    await this.save();
+  }
+
+  public async lockCurrentAsSeed(nodeId: string, priority: 'normal' | 'high' = 'high'): Promise<void> {
+    await this.ensureInitialLoad();
+    await this.conceptQueue.addConceptBlock(nodeId, priority);
+    if (priority === 'high') {
+      await this.conceptQueue.setCurrentFocus(nodeId, {
+        includeFocusAsFirst: true,
+        resetHistory: true,
+        bookmarkCurrentPath: true,
+      });
+    }
     await this.save();
   }
 
@@ -544,7 +576,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       };
     }
 
-    const raw = card as Record<string, unknown>;
+    const raw = card as unknown as Record<string, unknown>;
     const blockId = typeof raw.blockId === 'string' && raw.blockId.trim().length > 0
       ? raw.blockId
       : resolveCardId(card);

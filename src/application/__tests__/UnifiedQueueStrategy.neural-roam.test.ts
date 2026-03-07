@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
-import type { FSRSCard } from '@/types/card';
+import { CardType, type FSRSCard } from '@/types/card';
 import type { QueueFeedback } from '@/core/queue/abstraction/Strategy';
 
 function createSyntheticNeuralCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
@@ -20,7 +20,7 @@ function createSyntheticNeuralCard(overrides: Partial<FSRSCard> = {}): FSRSCard 
     elapsedDays: 0,
     scheduledDays: 0,
     priority: 50,
-    type: 'topic',
+    type: CardType.Topic,
     tags: [],
     leechCount: 0,
     isLeech: false,
@@ -41,24 +41,56 @@ function createQueueStub(): IReviewQueue {
     getNextCard: vi.fn(async () => null),
     addCard: vi.fn(async () => {}),
     removeCard: vi.fn(async () => {}),
-    handleReview: vi.fn(async () => {}),
+    updateCard: vi.fn(async () => {}),
+    handleReview: vi.fn(async () => ({
+      updatedCard: null,
+      removedFromQueue: false,
+      remainsInQueue: true,
+      queueChanged: false,
+      requiresCurrentViewReorder: false,
+      counterSnapshot: {
+        version: 1,
+        remaining: 0,
+        due: 0,
+        total: 0,
+        buckets: {
+          all: 0,
+          item: 0,
+          descriptor: 0,
+          topic: 0,
+          concept: 0,
+        },
+        source: 'hot' as const,
+      },
+      version: 1,
+    })),
     skip: vi.fn(async () => {}),
-    getStats: vi.fn(async () => ({ total: 0, due: 0, new: 0, learning: 0, reviewed: 0 })),
+    getStats: vi.fn(async () => ({ size: 0, label: '0 due', extra: '0 total' })),
+    getCounterSnapshot: vi.fn(async () => ({
+      version: 1,
+      remaining: 0,
+      due: 0,
+      total: 0,
+      buckets: {
+        all: 0,
+        item: 0,
+        descriptor: 0,
+        topic: 0,
+        concept: 0,
+      },
+      source: 'hot' as const,
+    })),
     getUIConfig: vi.fn(() => ({ displayName: 'Neural Roam', buttons: [], showSkipButton: true, showProgressBar: true })),
     isDynamic: vi.fn(() => false),
     refresh: vi.fn(async () => {}),
     clear: vi.fn(async () => {}),
     getSize: vi.fn(async () => 0),
-    isEmpty: vi.fn(async () => true),
     sort: vi.fn(async () => {}),
-    filter: vi.fn(async () => []),
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
     notifyObservers: vi.fn(),
     reorder: vi.fn(async () => true),
     clearCustomOrder: vi.fn(),
-    getTemporaryBlacklistSize: vi.fn(() => 0),
-    clearTemporaryBlacklist: vi.fn(),
     insertAt: vi.fn(async () => {}),
     getRemainingSize: vi.fn(async () => 0),
   } as unknown as IReviewQueue;

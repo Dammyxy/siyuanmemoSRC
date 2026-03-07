@@ -9,6 +9,8 @@ import { createLogger } from '@/utils/logger';
 import type { BrowserCard } from '../types';
 
 const logger = createLogger('PreviewBreadcrumbData');
+const PREVIEW_BREADCRUMB_CACHE_LIMIT = 100;
+const breadcrumbCache = new Map<string, BreadcrumbItem[]>();
 
 type DocumentInfoLike = {
   box?: unknown;
@@ -137,18 +139,45 @@ export async function loadPreviewBreadcrumbTrail(
   blockId: string,
   card: Pick<BrowserCard, 'blockId' | 'meta'> | null | undefined,
 ): Promise<BreadcrumbItem[]> {
+  const cacheKey = [
+    blockId,
+    String(getPreviewBreadcrumbTrimCount(card)),
+    isSelectedDocumentCard(blockId, card) ? 'doc' : 'node',
+  ].join(':');
+  const cached = breadcrumbCache.get(cacheKey);
+  if (cached) {
+    breadcrumbCache.delete(cacheKey);
+    breadcrumbCache.set(cacheKey, cached);
+    return cached.map((item) => ({ ...item }));
+  }
+
   const rawBreadcrumbs = await getBlockBreadcrumb(blockId);
   const normalizedTrail = normalizeRawBreadcrumbs(rawBreadcrumbs, {
     trimTrailingCount: getPreviewBreadcrumbTrimCount(card),
   }).filter(item => item.id !== blockId);
 
   if (!isSelectedDocumentCard(blockId, card) || normalizedTrail.length > 0) {
+    breadcrumbCache.set(cacheKey, normalizedTrail.map((item) => ({ ...item })));
+    if (breadcrumbCache.size > PREVIEW_BREADCRUMB_CACHE_LIMIT) {
+      const oldestKey = breadcrumbCache.keys().next().value;
+      if (oldestKey) {
+        breadcrumbCache.delete(oldestKey);
+      }
+    }
     return normalizedTrail;
   }
 
   try {
     const documentParentTrail = await loadDocumentParentTrail(blockId, card);
-    return documentParentTrail.length > 0 ? documentParentTrail : normalizedTrail;
+    const trail = documentParentTrail.length > 0 ? documentParentTrail : normalizedTrail;
+    breadcrumbCache.set(cacheKey, trail.map((item) => ({ ...item })));
+    if (breadcrumbCache.size > PREVIEW_BREADCRUMB_CACHE_LIMIT) {
+      const oldestKey = breadcrumbCache.keys().next().value;
+      if (oldestKey) {
+        breadcrumbCache.delete(oldestKey);
+      }
+    }
+    return trail;
   }
   catch (error) {
     logger.warn('[PreviewBreadcrumbData] Failed to resolve document parent trail', error);

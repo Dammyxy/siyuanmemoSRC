@@ -34,6 +34,17 @@ function createCard(
   };
 }
 
+function createXiuyuanMeta(overrides: Record<string, unknown> = {}) {
+  return {
+    xiuyuanID: 'xy-test-1',
+    faceIndex: 0,
+    templateID: 'builtin-riff-sync',
+    frontBlockIDs: ['front-block-1'],
+    backBlockIDs: [],
+    ...overrides,
+  };
+}
+
 function createContext(overrides?: Partial<NonNullable<AdapterContext['session']>>): AdapterContext {
   return {
     showAnswer: false,
@@ -88,14 +99,49 @@ function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1, histo
   };
 }
 
+type QueueSnapshotInput = {
+  remaining: number;
+  due: number;
+  total: number | null;
+  buckets: {
+    all: number;
+    item: number;
+    descriptor: number;
+    topic: number;
+    concept: number;
+  };
+};
+
 function createQueue(options: {
   queueType: string;
   liveCards: FSRSCard[];
   underlyingQueue?: unknown;
+  snapshot?: QueueSnapshotInput;
 }) {
+  const snapshot = options.snapshot ?? {
+    remaining: options.liveCards.length,
+    due: options.liveCards.length,
+    total: options.liveCards.length,
+    buckets: {
+      all: options.liveCards.length,
+      item: options.liveCards.filter(card => card.type === CardType.Item).length,
+      descriptor: options.liveCards.filter(card => card.type === CardType.Descriptor).length,
+      topic: options.liveCards.filter(card => card.type === CardType.Topic).length,
+      concept: options.liveCards.filter(card => card.type === CardType.Concept).length,
+    },
+  };
+
   return {
     getType: () => options.queueType,
     getStats: async () => ({ size: options.liveCards.length, label: `${options.liveCards.length} due`, extra: '' }),
+    getCounterSnapshot: async () => ({
+      version: 1,
+      remaining: snapshot.remaining,
+      due: snapshot.due,
+      total: snapshot.total,
+      buckets: { ...snapshot.buckets },
+      source: 'hot' as const,
+    }),
     getUIConfig: () => ({
       statsType: 'queue-size' as const,
       showRatingButtons: true,
@@ -155,7 +201,7 @@ async function renderState(
 }
 
 describe('UnifiedReviewAdapter', () => {
-  it('builds retrieval-practice compact summary and priority badge', async () => {
+  it('builds retrieval-practice live value summary and priority badge', async () => {
     const liveCards = [
       createCard('item-1', CardType.Item, { priority: 12 }),
       createCard('item-2', CardType.Item),
@@ -171,18 +217,32 @@ describe('UnifiedReviewAdapter', () => {
     );
 
     expect(ui.header.counterSummary).toEqual({
-      kind: 'ratio',
-      text: '(2+1)/3',
-      tooltip: 'Item 2/2 · Descriptor 1/1',
-      ariaLabel: 'Item 2/2 · Descriptor 1/1',
-      parts: [
-        { id: 'item', label: 'Item', remaining: 2, total: 2, tone: 'item' },
-        { id: 'descriptor', label: 'Descriptor', remaining: 1, total: 1, tone: 'descriptor' },
-      ],
-      total: 3,
-      forceParentheses: false,
+      kind: 'value',
+      text: '3',
+      tooltip: '3 remaining · 3 due',
+      ariaLabel: '3 remaining · 3 due',
+      value: 3,
     });
-    expect(ui.header.counterBadges).toEqual([]);
+    expect(ui.header.counterBadges).toEqual([
+      {
+        id: 'item',
+        label: 'Item',
+        kind: 'value',
+        tone: 'item',
+        text: '2',
+        value: 2,
+        ariaLabel: 'Item 2',
+      },
+      {
+        id: 'descriptor',
+        label: 'Descriptor',
+        kind: 'value',
+        tone: 'descriptor',
+        text: '1',
+        value: 1,
+        ariaLabel: 'Descriptor 1',
+      },
+    ]);
     expect(ui.header.priorityBadge).toEqual({
       label: 'P',
       value: '12',
@@ -191,7 +251,7 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
-  it('builds incremental-learning summary with four fixed slots including zero values', async () => {
+  it('builds incremental-learning live value summary with live badges', async () => {
     const liveCards = [
       createCard('item-1', CardType.Item),
       createCard('desc-1', CardType.Descriptor),
@@ -206,18 +266,45 @@ describe('UnifiedReviewAdapter', () => {
       createContext(),
     );
 
-    expect(ui.header.counterSummary?.text).toBe('(1+1+0+1)/3');
-    expect(ui.header.counterSummary?.tooltip).toBe('Item 1/1 · Descriptor 1/1 · Topic 0/0 · Concept 1/1');
-    expect(ui.header.counterSummary?.parts?.map(part => part.id)).toEqual([
-      'item',
-      'descriptor',
-      'topic',
-      'concept',
+    expect(ui.header.counterSummary).toEqual({
+      kind: 'value',
+      text: '3',
+      tooltip: '3 remaining · 3 due',
+      ariaLabel: '3 remaining · 3 due',
+      value: 3,
+    });
+    expect(ui.header.counterBadges).toEqual([
+      {
+        id: 'item',
+        label: 'Item',
+        kind: 'value',
+        tone: 'item',
+        text: '1',
+        value: 1,
+        ariaLabel: 'Item 1',
+      },
+      {
+        id: 'descriptor',
+        label: 'Descriptor',
+        kind: 'value',
+        tone: 'descriptor',
+        text: '1',
+        value: 1,
+        ariaLabel: 'Descriptor 1',
+      },
+      {
+        id: 'concept',
+        label: 'Concept',
+        kind: 'value',
+        tone: 'concept',
+        text: '1',
+        value: 1,
+        ariaLabel: 'Concept 1',
+      },
     ]);
-    expect(ui.header.counterBadges).toEqual([]);
   });
 
-  it('builds final-drill summary with answered and correct badges', async () => {
+  it('builds final-drill summary with live remaining plus answered and correct badges', async () => {
     const liveCards = [
       createCard('item-1', CardType.Item),
       createCard('desc-1', CardType.Descriptor),
@@ -231,7 +318,13 @@ describe('UnifiedReviewAdapter', () => {
       createContext({ answeredCount: 3, correctCount: 2 }),
     );
 
-    expect(ui.header.counterSummary?.text).toBe('(1+1)/2');
+    expect(ui.header.counterSummary).toEqual({
+      kind: 'value',
+      text: '2',
+      tooltip: '2 remaining',
+      ariaLabel: '2 remaining',
+      value: 2,
+    });
     expect(ui.header.counterBadges).toEqual([
       {
         id: 'answered',
@@ -254,33 +347,37 @@ describe('UnifiedReviewAdapter', () => {
     ]);
   });
 
-  it('keeps filter-group tooltip complete while compact text hides zero-remaining buckets', async () => {
-    const baselineCards = [
-      createCard('desc-1', CardType.Descriptor),
+  it('keeps filter-group header live and scope control visible', async () => {
+    const liveCards = [
       createCard('concept-1', CardType.Concept),
     ];
     const adapter = new UnifiedReviewAdapter({ headerVariant: 'filter-group' });
-    const context = createContext();
 
-    await renderState(
-      adapter,
-      createQueue({ queueType: 'filter-group', liveCards: baselineCards }),
-      baselineCards[0],
-      context,
-    );
-
-    const remainingCards = [
-      createCard('concept-1', CardType.Concept),
-    ];
     const ui = await renderState(
       adapter,
-      createQueue({ queueType: 'filter-group', liveCards: remainingCards }),
-      remainingCards[0],
-      context,
+      createQueue({ queueType: 'filter-group', liveCards }),
+      liveCards[0],
+      createContext(),
     );
 
-    expect(ui.header.counterSummary?.text).toBe('1/2');
-    expect(ui.header.counterSummary?.tooltip).toBe('Descriptor 0/1 · Concept 1/1');
+    expect(ui.header.counterSummary).toEqual({
+      kind: 'value',
+      text: '1',
+      tooltip: '1 remaining · 1 due',
+      ariaLabel: '1 remaining · 1 due',
+      value: 1,
+    });
+    expect(ui.header.counterBadges).toEqual([
+      {
+        id: 'concept',
+        label: 'Concept',
+        kind: 'value',
+        tone: 'concept',
+        text: '1',
+        value: 1,
+        ariaLabel: 'Concept 1',
+      },
+    ]);
     expect(ui.header.toolbar?.some(item => item.type === 'plan-review-scope')).toBe(true);
   });
 
@@ -325,7 +422,7 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
-  it('falls back to P - when current item has no finite priority', async () => {
+  it('falls back to P - when current item has no finite priority while keeping live subset counters', async () => {
     const liveCards = [
       createCard('item-1', CardType.Item, { priority: Number.NaN as unknown as number }),
     ];
@@ -338,17 +435,22 @@ describe('UnifiedReviewAdapter', () => {
       createContext(),
     );
 
-    expect(ui.header.counterSummary).toBeNull();
+    expect(ui.header.counterSummary).toEqual({
+      kind: 'value',
+      text: '1',
+      tooltip: '1 remaining',
+      ariaLabel: '1 remaining',
+      value: 1,
+    });
     expect(ui.header.counterBadges).toEqual([
       {
-        id: 'remaining',
-        label: '\u5269\u4f59',
-        kind: 'ratio',
+        id: 'due',
+        label: 'Due',
+        kind: 'value',
         tone: 'neutral',
-        text: '1/1',
-        remaining: 1,
-        total: 1,
-        ariaLabel: '\u5269\u4f59 1/1',
+        text: '1',
+        value: 1,
+        ariaLabel: 'Due 1',
       },
     ]);
     expect(ui.header.priorityBadge).toEqual({
@@ -387,5 +489,55 @@ describe('UnifiedReviewAdapter', () => {
       ariaLabel: '\u5df2\u6f2b\u6e38 7 \u5f20\u5361',
       value: 7,
     });
+  });
+
+  it('keeps native builtin-riff-sync cards on inline hidden reveal path without answer pane block', async () => {
+    const card = createCard('riff-native-1', CardType.Item, {
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-riff-sync',
+        frontBlockIDs: ['native-front'],
+        backBlockIDs: ['native-back'],
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const hiddenUi = await adapter.toUIState(queue as never, card as never, createContext());
+    const revealedUi = await adapter.toUIState(
+      queue as never,
+      card as never,
+      {
+        ...createContext(),
+        showAnswer: true,
+      },
+    );
+
+    expect(hiddenUi.content.answerBlockID).toBe('');
+    expect(hiddenUi.meta.hasHiddenContent).toBe(true);
+    expect(revealedUi.content.answerBlockID).toBe('');
+    expect(revealedUi.meta.hasHiddenContent).toBe(true);
+  });
+
+  it('keeps answerBlockID for template-backed cards that render a separate answer pane', async () => {
+    const card = createCard('template-1', CardType.Item, {
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-list-item',
+        frontBlockIDs: ['question-block'],
+        backBlockIDs: ['answer-block'],
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.answerBlockID).toBe('answer-block');
+    expect(ui.meta.hasHiddenContent).toBe(false);
   });
 });

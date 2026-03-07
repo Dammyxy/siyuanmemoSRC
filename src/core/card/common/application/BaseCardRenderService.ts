@@ -23,6 +23,8 @@ import { createLogger } from '@/utils/logger';
 const logger = createLogger('BaseCardRenderService');
 
 export abstract class BaseCardRenderService {
+  private readonly breadcrumbCache = new Map<string, BreadcrumbItem[]>();
+  private readonly conceptContextCache = new Map<string, BreadcrumbItem[]>();
   /**
    * 鍔犺浇鍧楃殑闈㈠寘灞?
    * 
@@ -42,6 +44,12 @@ export abstract class BaseCardRenderService {
     blockId: string,
     excludeLast: number = 1
   ): Promise<BreadcrumbItem[]> {
+    const cacheKey = `${blockId}:${excludeLast}`;
+    const cached = this.breadcrumbCache.get(cacheKey);
+    if (cached) {
+      return cached.map((item) => ({ ...item }));
+    }
+
     try {
       const breadcrumbResult = await getBlockBreadcrumb(blockId);
       
@@ -75,7 +83,9 @@ export abstract class BaseCardRenderService {
         })
       );
 
-      return clipBreadcrumbsAtLastDocument(dedupeBreadcrumbsById(processedBreadcrumbs));
+      const result = clipBreadcrumbsAtLastDocument(dedupeBreadcrumbsById(processedBreadcrumbs));
+      this.breadcrumbCache.set(cacheKey, result.map((item) => ({ ...item })));
+      return result;
     } catch (error) {
       logger.error('[BaseCardRenderService] Failed to load breadcrumbs:', error);
       return [];
@@ -99,6 +109,12 @@ export abstract class BaseCardRenderService {
     blockId: string,
     excludeLast: number = 1
   ): Promise<BreadcrumbItem[]> {
+    const cacheKey = `${blockId}:${excludeLast}`;
+    const cached = this.conceptContextCache.get(cacheKey);
+    if (cached) {
+      return cached.map((item) => ({ ...item }));
+    }
+
     try {
       const breadcrumbResult = await getBlockBreadcrumb(blockId);
       
@@ -146,7 +162,9 @@ export abstract class BaseCardRenderService {
       
       logger.debug('[BaseCardRenderService] loadConceptContext - final contextItems:', contextItems);
       
-      return dedupeBreadcrumbsById(contextItems);
+      const result = dedupeBreadcrumbsById(contextItems);
+      this.conceptContextCache.set(cacheKey, result.map((item) => ({ ...item })));
+      return result;
     } catch (error) {
       logger.error('[BaseCardRenderService] Failed to load concept context:', error);
       return [];
@@ -199,8 +217,8 @@ export abstract class BaseCardRenderService {
         `);
         
         if (paragraphResult && paragraphResult.length > 0) {
-          const paragraphContent = paragraphResult[0].content || '';
-          const paragraphMarkdown = paragraphResult[0].markdown || '';
+          const paragraphContent = String(paragraphResult[0].content || '');
+          const paragraphMarkdown = String(paragraphResult[0].markdown || '');
           logger.debug('[BaseCardRenderService] isConceptBlock - list item paragraph:', { 
             blockId, 
             paragraphContent, 
@@ -211,8 +229,8 @@ export abstract class BaseCardRenderService {
       }
       
       // 鏂规硶 4锛氬叾浠栫被鍨嬪潡锛岀洿鎺ユ鏌?content 鍜?markdown
-      const blockContent = blockResult[0].content || '';
-      const blockMarkdown = blockResult[0].markdown || '';
+      const blockContent = String(blockResult[0].content || '');
+      const blockMarkdown = String(blockResult[0].markdown || '');
       logger.debug('[BaseCardRenderService] isConceptBlock - block data:', { 
         blockId, 
         blockContent, 

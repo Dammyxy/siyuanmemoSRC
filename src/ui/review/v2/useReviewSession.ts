@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
+import type { QueueItem } from '@/core/queue/types';
 import type { AdapterContext, IAdapter, ReviewSessionHook, ReviewUIState } from './types';
 import { createEmptyReviewUIState } from './types';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
@@ -24,7 +25,7 @@ type NeuralContextLike = {
   isFlashcard?: unknown;
 };
 
-type UnderlyingQueueBridge<TItem> = {
+type UnderlyingQueueBridge = {
   getUnderlyingQueue: () => unknown;
 };
 
@@ -37,6 +38,17 @@ type SessionHistoryEntry = NonNullable<NonNullable<AdapterContext['session']>['r
 type NeuralPathLoader<TItem> = {
   getPathItemByNodeId: (blockId: string) => Promise<TItem | null>;
 };
+
+type SessionUpdateReason =
+  | 'mount'
+  | 'reveal'
+  | 'grade'
+  | 'skip'
+  | 'custom'
+  | 'back'
+  | 'reload'
+  | 'refresh-current'
+  | 'load-by-block';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -85,13 +97,13 @@ function shouldShowAnswerForNeuralItem(item: unknown): boolean {
   return isFlashcard === false || blockType === 'topic';
 }
 
-function resolveNeuralPathLoader<TItem>(queue: IQueueStrategy<TItem>): NeuralPathLoader<TItem> | null {
+function resolveNeuralPathLoader<TItem extends QueueItem>(queue: IQueueStrategy<TItem>): NeuralPathLoader<TItem> | null {
   const queueCandidate = queue as unknown;
   if (!isRecord(queueCandidate)) {
     return null;
   }
 
-  const bridge = queueCandidate as Partial<UnderlyingQueueBridge<TItem>>;
+  const bridge = queueCandidate as Partial<UnderlyingQueueBridge>;
   if (typeof bridge.getUnderlyingQueue !== 'function') {
     return null;
   }
@@ -197,7 +209,7 @@ function mergeAux(base: ReviewUIState, aux: Partial<ReviewUIState>): ReviewUISta
   };
 }
 
-export function useReviewSession<TItem>(
+export function useReviewSession<TItem extends QueueItem>(
   queue: IQueueStrategy<TItem>,
   adapter: IAdapter<TItem>,
   options?: {
@@ -239,13 +251,13 @@ export function useReviewSession<TItem>(
     },
   });
 
-  const updateState = async (): Promise<void> => {
+  const updateState = async (reason: SessionUpdateReason): Promise<void> => {
     const seq = ++updateSeq;
     const mainState = await adapter.toUIState(queue, currentItem.value, context.value);
     if (seq !== updateSeq) return;
     state.value = withSessionMeta(mainState);
 
-    if (adapter.fetchAuxiliaryData) {
+    if (reason !== 'reveal' && adapter.fetchAuxiliaryData) {
       adapter.fetchAuxiliaryData(currentItem.value, queue, context.value)
         .then((aux) => {
           if (seq !== updateSeq) return;
@@ -260,7 +272,7 @@ export function useReviewSession<TItem>(
   const reveal = (): void => {
     if (context.value.showAnswer) return;
     context.value.showAnswer = true;
-    void updateState();
+    void updateState('reveal');
   };
 
   const grade = async (rating: number): Promise<void> => {
@@ -285,11 +297,11 @@ export function useReviewSession<TItem>(
 
       currentItem.value = nextItem;
       context.value.showAnswer = false;
-      await updateState();
+      await updateState('grade');
     } catch (error) {
       logger.error('Failed to load next card:', error);
       currentItem.value = null;
-      await updateState();
+      await updateState('grade');
     }
   };
 
@@ -303,11 +315,11 @@ export function useReviewSession<TItem>(
       });
       currentItem.value = await queue.next();
       context.value.showAnswer = false;
-      await updateState();
+      await updateState('skip');
     } catch (error) {
       logger.error('Failed to skip card:', error);
       currentItem.value = null;
-      await updateState();
+      await updateState('skip');
     }
   };
 
@@ -323,11 +335,11 @@ export function useReviewSession<TItem>(
         correctDelta: 0,
       });
       currentItem.value = await queue.next();
-      await updateState();
+      await updateState('custom');
     } catch (error) {
       logger.error('Failed to execute command:', error);
       currentItem.value = null;
-      await updateState();
+      await updateState('custom');
     }
   };
 
@@ -345,25 +357,28 @@ export function useReviewSession<TItem>(
       rollbackReviewHistory(context.value);
 
       if (!previous) {
-        await updateState();
+        await updateState('back');
         return;
       }
 
       currentItem.value = previous;
       context.value.showAnswer = false;
-      await updateState();
+      await updateState('back');
     } catch (error) {
       logger.error('Failed to go back:', error);
-      await updateState();
+      await updateState('back');
     }
   };
 
   const mounted = (): void => {
     void (async () => {
       const initialTotal = await queue
-        .getStats?.()
-        .then((stats) => Math.max(0, Number(stats?.size) || 0))
-        .catch(() => undefined);
+        .getCounterSnapshot?.()
+        .then((snapshot) => Math.max(0, Number(snapshot?.total ?? snapshot?.remaining) || 0))
+        .catch(async () => queue
+          .getStats?.()
+          .then((stats) => Math.max(0, Number(stats?.size) || 0))
+          .catch(() => undefined));
 
       adapter.resetSessionState?.();
       context.value.session = {
@@ -377,11 +392,12 @@ export function useReviewSession<TItem>(
       };
 
       currentItem.value = await queue.next();
-      await updateState();
+      await updateState('mount');
     })();
   };
 
   const unmounted = (): void => {
+    (queue as unknown as { cleanup?: () => void }).cleanup?.();
     adapter.cleanup?.();
   };
 
@@ -399,18 +415,18 @@ export function useReviewSession<TItem>(
       (queue as unknown as SessionResettableQueue).resetSessionState?.();
       currentItem.value = await queue.next();
       context.value.showAnswer = false;
-      await updateState();
+      await updateState('reload');
     } catch (error) {
       logger.error('Failed to reload review session:', error);
       currentItem.value = null;
       context.value.showAnswer = false;
-      await updateState();
+      await updateState('reload');
     }
   };
 
   const refreshCurrentItem = async (item: unknown): Promise<void> => {
     currentItem.value = (item as TItem | null) ?? null;
-    await updateState();
+    await updateState('refresh-current');
   };
 
   const loadCardByBlockId = async (blockId: string): Promise<void> => {
@@ -429,7 +445,7 @@ export function useReviewSession<TItem>(
 
       currentItem.value = realItem;
       context.value.showAnswer = shouldShowAnswerForNeuralItem(realItem);
-      await updateState();
+      await updateState('load-by-block');
 
       logger.debug(
         `Loaded card by blockId: ${blockId}, showAnswer: ${context.value.showAnswer}`

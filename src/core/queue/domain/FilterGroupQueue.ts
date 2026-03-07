@@ -16,7 +16,7 @@
  */
 
 import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
-import { QueueType, CardFilter } from '../../../types/unified-data-source';
+import { QueueType, CardFilter, QueueReviewResult } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -270,8 +270,8 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      * @see 需求 7.5, 7.6, 7.7, 9.3, 18.2, 18.3
      * @see .kiro/specs/queue-scheduler-separation/requirements.md
      */
-    public async handleReview(cardId: string, rating: number): Promise<void> {
-        await this.handleReviewWithAutoFailed(cardId, rating, {
+    public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+        return this.handleReviewWithAutoFailed(cardId, rating, {
             logger,
             autoFailedSink: this.autoFailedSink,
             logEscalation: true,
@@ -286,8 +286,8 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      * @returns 筛选后的卡片数量
      */
     public async getSize(): Promise<number> {
-        const cards = await this.getCards();
-        return cards.length;
+        const snapshot = await this.getCounterSnapshot();
+        return snapshot.total ?? snapshot.remaining;
     }
     
     /**
@@ -301,6 +301,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
     public async setFilter(filter: CardFilter): Promise<void> {
         await this.ensureInitialLoad();
         this.cardFilter = filter;
+        this.invalidateCachedCards();
         await this.save();
         logger.info('Filter updated and saved:', filter);
     }
@@ -335,6 +336,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             
             // 清除临时黑名单（重新开始）
             this.temporaryBlacklist.clear();
+            this.invalidateCachedCards();
             await this.save();
             
             // 触发观察者通知，让 UI 重新加载数据

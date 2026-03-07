@@ -1,7 +1,7 @@
 import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import type { FSRSCard } from '@/types/card';
-import type { IReviewQueue } from '@/types/unified-data-source';
+import type { IReviewQueue, QueueCounterSnapshot, QueueReviewResult } from '@/types/unified-data-source';
 import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
@@ -96,6 +96,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     private forwardBuffer: FSRSCard[] = [];
     private pendingRotateCardId: string | null = null;
     private readonly maxHistorySize = 100;
+    private lastCounterSnapshot: QueueCounterSnapshot | null = null;
+    private queueChangedHandler: ((event: unknown) => void) | null = null;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -173,17 +175,24 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 return cardWithNextDues;
             }
 
-            if (!this.cacheValid || this.currentIndex >= this.cachedCards.length) {
+            if (!this.cacheValid || this.currentIndex > this.cachedCards.length) {
                 await this.reloadCards();
             }
 
             if (this.cachedCards.length === 0) {
                 this.pendingRotateCardId = null;
+                this.currentItem = null;
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue is empty: ${this.queueType}`);
                 return null;
             }
 
             this.applyPendingRotationIfNeeded();
+            if (this.currentIndex >= this.cachedCards.length) {
+                this.pendingRotateCardId = null;
+                this.currentItem = null;
+                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue exhausted without reload: ${this.queueType}`);
+                return null;
+            }
             const card = this.cachedCards[this.currentIndex++];
             const cardWithNextDues = await this.maybeAddNextDues(card);
 
@@ -227,23 +236,37 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             if (feedback.action === 'rate' && feedback.rating) {
                 const transaction = await this.createReviewTransaction(activeItem, feedback);
                 this.forwardBuffer = [];
-                await this.queue.handleReview(activeItem.id, feedback.rating);
+                const reviewResult = await this.queue.handleReview(activeItem.id, feedback.rating);
                 this.pushHistory(activeItem, transaction);
                 this.currentItem = null;
-                if (this.shouldRotateAfterLowRating(feedback)) {
+                if (reviewResult.counterSnapshot) {
+                    this.lastCounterSnapshot = reviewResult.counterSnapshot;
+                } else {
+                    this.lastCounterSnapshot = null;
+                }
+
+                const patched = this.applyReviewResultToCache(activeItem, reviewResult);
+                if (this.shouldRotateAfterLowRating(feedback) && reviewResult.remainsInQueue) {
                     this.pendingRotateCardId = activeItem.id;
+                    if (patched && this.currentIndex >= this.cachedCards.length && this.cachedCards.length > 0) {
+                        this.currentIndex = this.cachedCards.length - 1;
+                    }
                 } else {
                     this.pendingRotateCardId = null;
                 }
 
-                if (this.queueType !== QueueType.FinalDrill) {
+                if (!patched || this.shouldReloadAfterReviewResult(reviewResult)) {
                     this.invalidateCache();
+                } else {
+                    this.cacheValid = true;
                 }
 
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card rated:`, {
                     queueType: this.queueType,
                     cardId: activeItem.id,
                     rating: feedback.rating,
+                    removedFromQueue: reviewResult.removedFromQueue,
+                    requiresCurrentViewReorder: reviewResult.requiresCurrentViewReorder,
                 });
                 return;
             }
@@ -257,7 +280,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 this.forwardBuffer = [];
                 this.currentItem = null;
                 this.pendingRotateCardId = null;
-                this.invalidateCache();
+                const patched = this.applySkipToCache(activeItem.id);
+                this.lastCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => this.lastCounterSnapshot);
+                if (!patched) {
+                    this.invalidateCache();
+                } else {
+                    this.cacheValid = true;
+                }
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card skipped:`, {
                     queueType: this.queueType,
                     cardId: activeItem.id,
@@ -373,8 +402,20 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 return stats;
             }
 
-            if (!this.cacheValid) {
-                await this.reloadCards();
+            const counterSnapshot = await this.getCounterSnapshot();
+            if (counterSnapshot) {
+                const stats: QueueStats = {
+                    size: counterSnapshot.remaining,
+                    label: `${counterSnapshot.due} due`,
+                    extra: `${counterSnapshot.total ?? counterSnapshot.remaining} total`,
+                };
+
+                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Stats:`, {
+                    queueType: this.queueType,
+                    ...stats,
+                });
+
+                return stats;
             }
 
             const { size, dueToday } = this.calculateStatsFromCards(this.cachedCards, Date.now());
@@ -469,6 +510,74 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         });
     }
 
+    private supportsHotPatchAfterReview(): boolean {
+        return this.queueType === QueueType.RetrievalPractice
+            || this.queueType === QueueType.IncrementalLearning
+            || this.queueType === QueueType.FilterGroup;
+    }
+
+    private applyReviewResultToCache(reviewedCard: FSRSCard, result: QueueReviewResult): boolean {
+        if (!this.cacheValid) {
+            return false;
+        }
+
+        const cachedIndex = this.cachedCards.findIndex((card) =>
+            card.id === reviewedCard.id || card.blockId === reviewedCard.blockId,
+        );
+        if (cachedIndex === -1) {
+            return false;
+        }
+
+        if (result.removedFromQueue) {
+            this.cachedCards.splice(cachedIndex, 1);
+            if (cachedIndex < this.currentIndex) {
+                this.currentIndex = Math.max(0, this.currentIndex - 1);
+            }
+        } else if (result.updatedCard) {
+            this.cachedCards[cachedIndex] = this.cloneCard(result.updatedCard);
+        }
+
+        if (this.currentIndex > this.cachedCards.length) {
+            this.currentIndex = this.cachedCards.length;
+        }
+
+        return true;
+    }
+
+    private applySkipToCache(cardId: string): boolean {
+        if (!this.cacheValid) {
+            return false;
+        }
+
+        const cachedIndex = this.cachedCards.findIndex((card) => card.id === cardId || card.blockId === cardId);
+        if (cachedIndex === -1) {
+            return false;
+        }
+
+        const [skippedCard] = this.cachedCards.splice(cachedIndex, 1);
+        if (!skippedCard) {
+            return false;
+        }
+
+        this.cachedCards.push(skippedCard);
+        if (cachedIndex < this.currentIndex) {
+            this.currentIndex = Math.max(0, this.currentIndex - 1);
+        }
+        return true;
+    }
+
+    private shouldReloadAfterReviewResult(result: QueueReviewResult): boolean {
+        if (!result.counterSnapshot) {
+            return true;
+        }
+
+        if (!this.supportsHotPatchAfterReview()) {
+            return result.requiresCurrentViewReorder || result.queueChanged;
+        }
+
+        return result.requiresCurrentViewReorder;
+    }
+
     async insertAt(cardId: string, position: number): Promise<void> {
         try {
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] insertAt called:`, {
@@ -486,6 +595,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             }
 
             await this.queue.insertAt(cardId, position);
+            this.lastCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => this.lastCounterSnapshot);
             this.invalidateCache();
 
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Card inserted via queue.insertAt:`, {
@@ -511,6 +621,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
                 return await this.queue.getSize();
             }
 
+            const counterSnapshot = await this.getCounterSnapshot();
+            if (counterSnapshot) {
+                return counterSnapshot.remaining;
+            }
+
             if (this.cacheValid) {
                 return Math.max(0, this.cachedCards.length - this.currentIndex);
             }
@@ -527,14 +642,48 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         }
     }
 
+    async getCounterSnapshot(): Promise<QueueCounterSnapshot | null> {
+        if (this.lastCounterSnapshot) {
+            return {
+                ...this.lastCounterSnapshot,
+                buckets: {
+                    ...this.lastCounterSnapshot.buckets,
+                },
+            };
+        }
+
+        if (typeof this.queue.getCounterSnapshot !== 'function') {
+            return null;
+        }
+
+        try {
+            const snapshot = await this.queue.getCounterSnapshot();
+            this.lastCounterSnapshot = snapshot;
+            return {
+                ...snapshot,
+                buckets: {
+                    ...snapshot.buckets,
+                },
+            };
+        } catch (error) {
+            logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Failed to read queue counter snapshot:', {
+                queueType: this.queueType,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+        }
+    }
+
     private subscribeToQueueChanges(): void {
-        this.eventBus.subscribe('queue.changed', (event) => {
+        this.queueChangedHandler = (event) => {
             const queueType = toQueueType((event as { queueType?: unknown })?.queueType);
             if (queueType === this.queueType) {
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue changed, invalidating cache: ${this.queueType}`);
+                this.lastCounterSnapshot = null;
                 this.invalidateCache();
             }
-        });
+        };
+        this.eventBus.subscribe('queue.changed', this.queueChangedHandler);
     }
 
     private async addNextDues(card: FSRSCard): Promise<CardWithNextDues> {
@@ -608,6 +757,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             this.cachedCards = await this.queue.getCards();
             this.currentIndex = 0;
             this.cacheValid = true;
+            this.lastCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => null);
             const duration = Date.now() - startTime;
 
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Cards reloaded:`, {
@@ -631,6 +781,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
     private invalidateCache(): void {
         this.cacheValid = false;
+        this.lastCounterSnapshot = null;
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Cache invalidated: ${this.queueType}`);
     }
 
@@ -769,6 +920,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             await this.manager.updateCard(this.cloneCard(transaction.cardBefore));
         }
 
+        this.lastCounterSnapshot = null;
         this.invalidateCache();
     }
 
@@ -791,6 +943,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         this.currentItem = null;
         this.currentIndex = 0;
         this.cachedCards = [];
+        this.lastCounterSnapshot = null;
         this.cacheManager.clear();
         this.invalidateCache();
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Session state reset: ${this.queueType}`);
@@ -802,6 +955,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
     cleanup(): void {
         this.queue.unsubscribe(this.cacheManager);
+        if (this.queueChangedHandler) {
+            this.eventBus.unsubscribe('queue.changed', this.queueChangedHandler);
+            this.queueChangedHandler = null;
+        }
         this.cacheManager.clear();
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Cleaned up: ${this.queueType}`);
     }

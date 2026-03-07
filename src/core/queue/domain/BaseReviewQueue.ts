@@ -11,6 +11,9 @@
 import {
     IReviewQueue,
     QueueObserver,
+    QueueCounterBuckets,
+    QueueCounterSnapshot,
+    QueueReviewResult,
     QueueType,
     QueueStats,
     QueueUIConfig,
@@ -54,6 +57,18 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 队列卡片缓存
      */
     protected cards: FSRSCard[] = [];
+
+    /**
+     * cards 是否可作为当前队列可见集的权威快照使用。
+     */
+    protected cardsTrusted = false;
+
+    /**
+     * 轻量实时计数快照
+     */
+    protected counterSnapshot: QueueCounterSnapshot | null = null;
+    protected counterVersion = 0;
+    protected counterSnapshotDirty = true;
 
     /**
      * 队列观察者
@@ -114,6 +129,146 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public getType(): QueueType {
         return this.type;
+    }
+
+    protected getCounterBucket(card: FSRSCard): keyof QueueCounterBuckets {
+        switch (String(card.type || 'item')) {
+            case 'descriptor':
+                return 'descriptor';
+            case 'topic':
+                return 'topic';
+            case 'concept':
+                return 'concept';
+            default:
+                return 'item';
+        }
+    }
+
+    protected createEmptyCounterBuckets(): QueueCounterBuckets {
+        return {
+            all: 0,
+            item: 0,
+            descriptor: 0,
+            topic: 0,
+            concept: 0,
+        };
+    }
+
+    protected buildCounterSnapshot(cards: FSRSCard[]): QueueCounterSnapshot {
+        const now = Date.now();
+        const buckets = this.createEmptyCounterBuckets();
+        let due = 0;
+
+        for (const card of cards) {
+            buckets.all += 1;
+            buckets[this.getCounterBucket(card)] += 1;
+            if (Number(card.due) <= now) {
+                due += 1;
+            }
+        }
+
+        return {
+            version: this.counterVersion,
+            remaining: cards.length,
+            due,
+            total: cards.length,
+            buckets,
+            source: 'reconciled',
+        };
+    }
+
+    protected cloneCounterSnapshot(snapshot: QueueCounterSnapshot): QueueCounterSnapshot {
+        return {
+            ...snapshot,
+            buckets: {
+                ...snapshot.buckets,
+            },
+        };
+    }
+
+    protected markCounterSnapshotDirty(): void {
+        this.counterSnapshotDirty = true;
+    }
+
+    protected commitCounterSnapshot(
+        snapshot: QueueCounterSnapshot,
+        source: QueueCounterSnapshot['source'],
+    ): QueueCounterSnapshot {
+        const committed: QueueCounterSnapshot = {
+            ...snapshot,
+            source,
+            version: ++this.counterVersion,
+            buckets: {
+                ...snapshot.buckets,
+            },
+        };
+        this.counterSnapshot = committed;
+        this.counterSnapshotDirty = false;
+        return this.cloneCounterSnapshot(committed);
+    }
+
+    protected cacheResolvedCards(
+        cards: FSRSCard[],
+        source: QueueCounterSnapshot['source'] = 'reconciled',
+    ): FSRSCard[] {
+        const normalized = normalizeToFSRSCard(cards);
+        this.cards = [...normalized];
+        this.cardsTrusted = true;
+        this.clearSizeCache();
+        this.commitCounterSnapshot(this.buildCounterSnapshot(normalized), source);
+        return normalized;
+    }
+
+    protected invalidateCachedCards(): void {
+        this.cardsTrusted = false;
+        this.markCounterSnapshotDirty();
+        this.clearSizeCache();
+    }
+
+    protected applySnapshotOnCardRemoved(card: FSRSCard): QueueCounterSnapshot | null {
+        if (!this.counterSnapshot || this.counterSnapshotDirty) {
+            return null;
+        }
+
+        const snapshot = this.cloneCounterSnapshot(this.counterSnapshot);
+        const bucket = this.getCounterBucket(card);
+        snapshot.remaining = Math.max(0, snapshot.remaining - 1);
+        snapshot.total = snapshot.total == null ? null : Math.max(0, snapshot.total - 1);
+        snapshot.buckets.all = Math.max(0, snapshot.buckets.all - 1);
+        snapshot.buckets[bucket] = Math.max(0, snapshot.buckets[bucket] - 1);
+        if (Number(card.due) <= Date.now()) {
+            snapshot.due = Math.max(0, snapshot.due - 1);
+        }
+
+        return this.commitCounterSnapshot(snapshot, 'hot');
+    }
+
+    protected applySnapshotOnCardRetained(beforeCard: FSRSCard, afterCard: FSRSCard): QueueCounterSnapshot | null {
+        if (!this.counterSnapshot || this.counterSnapshotDirty) {
+            return null;
+        }
+
+        const snapshot = this.cloneCounterSnapshot(this.counterSnapshot);
+        const beforeBucket = this.getCounterBucket(beforeCard);
+        const afterBucket = this.getCounterBucket(afterCard);
+        if (beforeBucket !== afterBucket) {
+            snapshot.buckets[beforeBucket] = Math.max(0, snapshot.buckets[beforeBucket] - 1);
+            snapshot.buckets[afterBucket] += 1;
+        }
+
+        const beforeDue = Number(beforeCard.due) <= Date.now();
+        const afterDue = Number(afterCard.due) <= Date.now();
+        if (beforeDue !== afterDue) {
+            snapshot.due = Math.max(0, snapshot.due + (afterDue ? 1 : -1));
+        }
+
+        return this.commitCounterSnapshot(snapshot, 'hot');
+    }
+
+    protected findCachedCardIndex(cardIdOrBlockId: string): number {
+        return this.cards.findIndex(
+            (card) => card.id === cardIdOrBlockId || card.blockId === cardIdOrBlockId,
+        );
     }
 
     protected getPriorityRandomness(): number {
@@ -177,17 +332,37 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     public async getAllCards(): Promise<FSRSCard[]> {
         await this.ensureInitialLoad();
         const rawCards = await this.getCards();
-        const cards = normalizeToFSRSCard(rawCards);
-        this.cards = [...cards];
+        const cards = this.cacheResolvedCards(rawCards, 'reconciled');
         validateQueueReturnType(this.name ?? this.type, 'getAllCards', cards);
         return cards;
+    }
+
+    public async getCounterSnapshot(forceRefresh = false): Promise<QueueCounterSnapshot> {
+        await this.ensureInitialLoad();
+
+        if (!forceRefresh && this.counterSnapshot && !this.counterSnapshotDirty) {
+            return this.cloneCounterSnapshot(this.counterSnapshot);
+        }
+
+        if (this.cardsTrusted) {
+            const snapshot = this.commitCounterSnapshot(
+                this.buildCounterSnapshot(this.cards),
+                'reconciled',
+            );
+            return this.cloneCounterSnapshot(snapshot);
+        }
+
+        const cards = normalizeToFSRSCard(await this.getCards());
+        validateQueueReturnType(this.name ?? this.type, 'getCounterSnapshot', cards);
+        this.cacheResolvedCards(cards, 'reconciled');
+        return this.cloneCounterSnapshot(this.counterSnapshot!);
     }
 
     /**
      * 获取下一张卡片
      */
     public async getNextCard(): Promise<FSRSCard | null> {
-        if (this.cards.length === 0) {
+        if (!this.cardsTrusted || this.cards.length === 0) {
             await this.getAllCards();
         }
         return this.cards.length > 0 ? this.cards[0] : null;
@@ -230,9 +405,15 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     public async updateCard(card: FSRSCard): Promise<void> {
         const index = this.cards.findIndex(c => c.blockId === card.blockId);
         if (index !== -1) {
+            const beforeCard = this.cards[index];
             this.cards[index] = card;
+            this.cardsTrusted = true;
+            this.applySnapshotOnCardRetained(beforeCard, card);
             this.notifyObservers();
+            return;
         }
+
+        this.invalidateCachedCards();
     }
     
     /**
@@ -248,7 +429,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @param rating 评分 (1-4)
      * @see 需求 7.1-7.7, 8.1-8.3, 9.1-9.3
      */
-    public abstract handleReview(cardId: string, rating: number): Promise<void>;
+    public abstract handleReview(cardId: string, rating: number): Promise<QueueReviewResult>;
     
     // ========================================================================
     // 调度器集成辅助方法（队列-调度器职责分离）
@@ -406,10 +587,12 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 1.1, 1.2, 1.3, 2.1
      * @see .kiro/specs/queue-scheduler-separation/design.md
      */
-    protected async handleReviewWithScheduler(cardId: string, rating: number): Promise<void> {
+    protected async handleReviewWithScheduler(cardId: string, rating: number): Promise<QueueReviewResult> {
         try {
             // 1. 获取卡片
             const card = await this.manager.getCard(cardId);
+            const cachedIndex = this.findCachedCardIndex(cardId);
+            const beforeCard = cachedIndex >= 0 ? this.cards[cachedIndex] : card;
             
             logger.debug(`[${this.type}] handleReviewWithScheduler - Before scheduling:`, {
                 cardId: card.id,
@@ -450,15 +633,56 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             // 4. 判断是否应该从队列移除
             const shouldRemove = this.shouldRemoveFromQueue(updatedCard);
+            let counterSnapshot: QueueCounterSnapshot | null = null;
             
             // 5. 移除或保留卡片
             if (shouldRemove) {
                 await this.removeCardAfterReview(cardId);
+                const removalIndex = this.findCachedCardIndex(cardId);
+                if (removalIndex >= 0) {
+                    this.cards.splice(removalIndex, 1);
+                    this.cardsTrusted = true;
+                    counterSnapshot = this.applySnapshotOnCardRemoved(beforeCard);
+                } else if (this.cardsTrusted) {
+                    counterSnapshot = this.commitCounterSnapshot(
+                        this.buildCounterSnapshot(this.cards),
+                        'reconciled',
+                    );
+                }
+                this.clearSizeCache();
                 logger.info(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, removed from queue`);
+                return {
+                    updatedCard,
+                    removedFromQueue: true,
+                    remainsInQueue: false,
+                    queueChanged: true,
+                    requiresCurrentViewReorder: false,
+                    counterSnapshot,
+                    version: counterSnapshot?.version ?? this.counterVersion,
+                };
             } else {
+                if (cachedIndex >= 0) {
+                    this.cards[cachedIndex] = updatedCard;
+                    this.cardsTrusted = true;
+                    counterSnapshot = this.applySnapshotOnCardRetained(beforeCard, updatedCard);
+                } else if (this.cardsTrusted) {
+                    counterSnapshot = this.commitCounterSnapshot(
+                        this.buildCounterSnapshot(this.cards),
+                        'reconciled',
+                    );
+                }
+                this.clearSizeCache();
                 logger.info(`[${this.type}] Card ${cardId} reviewed with rating ${rating}, kept in queue`);
+                return {
+                    updatedCard,
+                    removedFromQueue: false,
+                    remainsInQueue: true,
+                    queueChanged: false,
+                    requiresCurrentViewReorder: false,
+                    counterSnapshot,
+                    version: counterSnapshot?.version ?? this.counterVersion,
+                };
             }
-            
         } catch (error) {
             logger.error(`[${this.type}] Failed to handle review:`, error);
             throw error;
@@ -475,7 +699,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async skip(cardId: string): Promise<void> {
         try {
-            if (this.cards.length === 0) {
+            if (!this.cardsTrusted || this.cards.length === 0) {
                 await this.getAllCards();
             }
             
@@ -488,6 +712,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             const card = this.cards[index];
             this.cards.splice(index, 1);
             this.cards.push(card);
+            this.cardsTrusted = true;
+            this.commitCounterSnapshot(this.buildCounterSnapshot(this.cards), 'reconciled');
+            this.clearSizeCache();
             
             logger.info(`[${this.type}] Card ${cardId} skipped (moved to end)`);
             this.notifyObservers();
@@ -507,22 +734,29 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async getStats(): Promise<QueueStats> {
         try {
-            if (this.cards.length === 0) {
-                await this.getAllCards();
+            if (this.cardsTrusted) {
+                const now = Date.now();
+                const total = this.cards.length;
+                const due = this.cards.filter(c => c.due <= now).length;
+                const newCards = this.cards.filter(c => c.reps === 0).length;
+                const learning = this.cards.filter(c => c.state === 1).length;
+
+                return {
+                    total,
+                    due,
+                    new: newCards,
+                    learning,
+                    reviewed: 0,
+                };
             }
-            
-            const now = Date.now();
-            const total = this.cards.length;
-            const due = this.cards.filter(c => c.due <= now).length;
-            const newCards = this.cards.filter(c => c.reps === 0).length;
-            const learning = this.cards.filter(c => c.state === 1).length;
-            
+
+            const snapshot = await this.getCounterSnapshot();
             return {
-                total,
-                due,
-                new: newCards,
-                learning,
-                reviewed: 0, // 默认不跟踪已复习数量
+                total: snapshot.total ?? snapshot.remaining,
+                due: snapshot.due,
+                new: 0,
+                learning: 0,
+                reviewed: 0,
             };
         } catch (error) {
             logger.error(`[${this.type}] Failed to get stats:`, error);
@@ -592,6 +826,8 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async clear(): Promise<void> {
         this.cards = [];
+        this.cardsTrusted = true;
+        this.commitCounterSnapshot(this.buildCounterSnapshot([]), 'reconciled');
         this.clearSizeCache();
         this.notifyObservers();
     }
@@ -602,9 +838,21 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 注意：总是调用 getCards() 以确保返回最新的队列大小
      */
     public async getSize(): Promise<number> {
-        const cards = await this.getCards();
-        logger.debug(`[${this.name}] getSize: returning ${cards.length} cards`);
-        return cards.length;
+        if (this.counterSnapshot && !this.counterSnapshotDirty) {
+            const total = this.counterSnapshot.total ?? this.counterSnapshot.remaining;
+            logger.debug(`[${this.name}] getSize: returning ${total} from counter snapshot`);
+            return total;
+        }
+
+        if (this.cardsTrusted) {
+            logger.debug(`[${this.name}] getSize: returning ${this.cards.length} from trusted cache`);
+            return this.cards.length;
+        }
+
+        const snapshot = await this.getCounterSnapshot();
+        const total = snapshot.total ?? snapshot.remaining;
+        logger.debug(`[${this.name}] getSize: returning ${total} after snapshot rebuild`);
+        return total;
     }
 
     /**
@@ -618,7 +866,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 排序队列
      */
     public async sort(compareFn?: (a: FSRSCard, b: FSRSCard) => number): Promise<void> {
-        if (this.cards.length === 0) {
+        if (!this.cardsTrusted || this.cards.length === 0) {
             await this.getAllCards();
         }
         if (compareFn) {
@@ -626,6 +874,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         } else {
             this.cards.sort((a, b) => a.due - b.due);
         }
+        this.cardsTrusted = true;
+        this.commitCounterSnapshot(this.buildCounterSnapshot(this.cards), 'reconciled');
+        this.clearSizeCache();
         this.notifyObservers();
     }
 
@@ -633,7 +884,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 过滤队列
      */
     public async filter(predicate: (card: FSRSCard) => boolean): Promise<FSRSCard[]> {
-        if (this.cards.length === 0) {
+        if (!this.cardsTrusted || this.cards.length === 0) {
             await this.getAllCards();
         }
         return this.cards.filter(predicate);
@@ -718,6 +969,8 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             // 将排序顺序存储在内存中
             this.customOrder = orderedCards.map(card => card.id);
+            this.markCounterSnapshotDirty();
+            this.clearSizeCache();
             
             // 通知观察者队列已变更（触发复习界面刷新）
             this.emitQueueChangedEvent();
@@ -737,6 +990,8 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public clearCustomOrder(): void {
         this.customOrder = null;
+        this.markCounterSnapshotDirty();
+        this.clearSizeCache();
         logger.info(`[${this.type}] Custom order cleared`);
     }
 
@@ -774,7 +1029,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
 
         this.temporaryBlacklist = new Set(temporaryBlacklist);
         this.customOrder = customOrder;
-        this.clearSizeCache();
+        this.cards = [];
+        this.cardsTrusted = false;
+        this.invalidateCachedCards();
     }
     
     /**
@@ -858,6 +1115,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public clearTemporaryBlacklist(): void {
         this.temporaryBlacklist.clear();
+        this.invalidateCachedCards();
         logger.info(`[${this.constructor.name}] Temporary blacklist cleared`);
     }
     
@@ -876,7 +1134,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             }
             
             // 2. 获取当前队列
-            if (this.cards.length === 0) {
+            if (!this.cardsTrusted || this.cards.length === 0) {
                 await this.getAllCards();
             }
             
@@ -894,6 +1152,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             // 6. 更新自定义排序
             this.customOrder = this.cards.map(c => c.id);
+            this.cardsTrusted = true;
+            this.commitCounterSnapshot(this.buildCounterSnapshot(this.cards), 'reconciled');
+            this.clearSizeCache();
             
             logger.info(`[${this.type}] Card ${cardId} inserted at position ${position}`);
             
@@ -910,19 +1171,26 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public async getRemainingSize(): Promise<number> {
         const now = Date.now();
-        
-        // 使用缓存
+
         if (this.cachedSize !== null && now - this.cacheTimestamp < this.CACHE_TTL) {
             return this.cachedSize;
         }
-        
-        // 重新计算
-        if (this.cards.length === 0) {
-            await this.getAllCards();
+
+        if (this.counterSnapshot && !this.counterSnapshotDirty) {
+            this.cachedSize = this.counterSnapshot.remaining;
+            this.cacheTimestamp = now;
+            return this.cachedSize;
         }
-        this.cachedSize = this.cards.length;
+
+        if (this.cardsTrusted) {
+            this.cachedSize = this.cards.length;
+            this.cacheTimestamp = now;
+            return this.cachedSize;
+        }
+
+        const snapshot = await this.getCounterSnapshot();
+        this.cachedSize = snapshot.remaining;
         this.cacheTimestamp = now;
-        
         return this.cachedSize;
     }
     
@@ -931,6 +1199,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     protected clearSizeCache(): void {
         this.cachedSize = null;
+        this.cacheTimestamp = 0;
     }
     
     /**

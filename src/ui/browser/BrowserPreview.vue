@@ -100,6 +100,8 @@ const previewSource = ref<BrowserPreviewSource>('selected-card');
 const activePreviewBlockId = ref('');
 const activePreviewType = ref('');
 const activePreviewTitle = ref('');
+const lastLoadedBlockId = ref('');
+const lastBreadcrumbBlockId = ref('');
 
 let currentProtyle: Protyle | null = null;
 let currentHostElement: HTMLElement | null = null;
@@ -169,6 +171,8 @@ function clearPreviewState(): void {
   activePreviewBlockId.value = '';
   activePreviewType.value = '';
   activePreviewTitle.value = '';
+  lastLoadedBlockId.value = '';
+  lastBreadcrumbBlockId.value = '';
 }
 
 function toggleLock(): void {
@@ -342,6 +346,7 @@ function destroyCurrentProtyle(): void {
     currentHostElement.parentElement.removeChild(currentHostElement);
   }
   currentHostElement = null;
+  lastLoadedBlockId.value = '';
 }
 
 function createProtyleHost(): HTMLElement | null {
@@ -367,6 +372,10 @@ async function fetchBreadcrumbs(blockId: string, token: number = loadToken): Pro
     return;
   }
 
+  if (blockId && blockId === lastBreadcrumbBlockId.value && breadcrumbs.value.length > 0) {
+    return;
+  }
+
   breadcrumbs.value = [];
   syncActivePreviewMetadata();
 
@@ -380,6 +389,7 @@ async function fetchBreadcrumbs(blockId: string, token: number = loadToken): Pro
       return;
     }
     breadcrumbs.value = nextBreadcrumbs;
+    lastBreadcrumbBlockId.value = blockId;
     syncActivePreviewMetadata();
   }
   catch (err) {
@@ -387,6 +397,7 @@ async function fetchBreadcrumbs(blockId: string, token: number = loadToken): Pro
       return;
     }
     logger.error('[BrowserPreview] Fetch breadcrumbs error:', err);
+    lastBreadcrumbBlockId.value = '';
     syncActivePreviewMetadata();
   }
 }
@@ -396,6 +407,10 @@ async function loadContent(blockId: string, token: number = loadToken): Promise<
     return;
   }
   if (token !== loadToken) {
+    return;
+  }
+
+  if (blockId === lastLoadedBlockId.value && currentProtyle) {
     return;
   }
 
@@ -440,6 +455,7 @@ async function loadContent(blockId: string, token: number = loadToken): Promise<
     }
 
     currentProtyle = nextProtyle;
+    lastLoadedBlockId.value = blockId;
   }
   catch (err) {
     if (token !== loadToken) {
@@ -455,6 +471,9 @@ async function loadContent(blockId: string, token: number = loadToken): Promise<
 
 async function previewBreadcrumb(item: BreadcrumbItem): Promise<void> {
   if (!item.id) {
+    return;
+  }
+  if (item.id === activePreviewBlockId.value && currentProtyle) {
     return;
   }
 
@@ -474,6 +493,9 @@ async function previewBreadcrumb(item: BreadcrumbItem): Promise<void> {
 async function returnToSelectedCard(): Promise<void> {
   const blockId = selectedCardBlockId.value;
   if (!blockId) {
+    return;
+  }
+  if (blockId === activePreviewBlockId.value && currentProtyle) {
     return;
   }
 

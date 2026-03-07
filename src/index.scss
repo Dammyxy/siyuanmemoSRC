@@ -41,7 +41,7 @@
 }
 
 // 闅愯棌瓒呯骇鍧椾腑绗?2 涓強涔嬪悗鐨勫瓙鍧楋紙淇濈暀绗?1 涓棶棰樺潡锛?
-.card__block--hidesb .protyle-wysiwyg > .sb[custom-riff-decks] > div:nth-of-type(n+2):not(.protyle-attr) {
+.card__block--hidesb .protyle-wysiwyg > .sb[custom-riff-decks] > div:not(.protyle-attr) ~ div:not(.protyle-attr) {
   display: none;
 }
 

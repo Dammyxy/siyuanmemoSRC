@@ -5,9 +5,12 @@ import { createLogger } from '@/utils/logger';
 
 interface UseBrowserAdapterSyncOptions {
   manager: ComputedRef<IUnifiedDataSourceManagerFacade | null | undefined>;
-  onCardUpdated: (cardIds: string[]) => Promise<void>;
-  onCardDeleted: (cardIds: string[]) => Promise<void>;
-  onQueueChanged: (affectedQueueTypes: QueueType[] | null) => void;
+  onCardUpdated: (cardIds: string[]) => Promise<unknown>;
+  onCardDeleted: (cardIds: string[]) => Promise<unknown>;
+  onQueueChanged: (payload: {
+    affectedQueueTypes: QueueType[] | null;
+    invalidateAllCounts: boolean;
+  }) => void;
   onModeSwitched: () => void;
 }
 
@@ -61,6 +64,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
         const affectedQueueTypes = pendingQueueChangedAll
           ? null
           : Array.from(pendingQueueChangedTypes);
+        const invalidateAllCounts = pendingQueueChangedAll || (!queueChanged && deletedIds.length > 0);
         const modeSwitched = pendingModeSwitched;
 
         resetPendingState();
@@ -73,8 +77,11 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
           await options.onCardUpdated(updatedIds);
         }
 
-        if (queueChanged) {
-          options.onQueueChanged(affectedQueueTypes);
+        if (queueChanged || invalidateAllCounts) {
+          options.onQueueChanged({
+            affectedQueueTypes: invalidateAllCounts ? null : affectedQueueTypes,
+            invalidateAllCounts,
+          });
         }
 
         if (modeSwitched) {

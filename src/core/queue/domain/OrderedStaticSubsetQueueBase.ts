@@ -64,7 +64,7 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
     }
 
     this.cardOrder = nextOrder;
-    return this.postProcessCards(cards);
+    return this.cacheResolvedCards(this.postProcessCards(cards), 'reconciled');
   }
 
   public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {
@@ -77,6 +77,9 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
 
     this.cardOrder.push(cardId);
     this.temporaryBlacklist.delete(cardId);
+    this.invalidateCachedCards();
+    this.clearSizeCache();
+    this.emitQueueChangedEvent();
     this.notifyObservers();
   }
 
@@ -107,6 +110,9 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
       this.temporaryBlacklist.add(targetBlockId);
     }
 
+    this.invalidateCachedCards();
+    this.clearSizeCache();
+    this.emitQueueChangedEvent();
     this.notifyObservers();
   }
 
@@ -125,6 +131,9 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
 
     const [cardId] = this.cardOrder.splice(index, 1);
     this.cardOrder.push(cardId);
+    this.invalidateCachedCards();
+    this.clearSizeCache();
+    this.emitQueueChangedEvent();
     this.notifyObservers();
   }
 

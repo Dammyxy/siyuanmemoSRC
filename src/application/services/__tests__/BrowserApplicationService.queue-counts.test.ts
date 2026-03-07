@@ -1,56 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserApplicationService } from '../BrowserApplicationService';
-import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 
 type QueueMock = {
-  getCards: ReturnType<typeof vi.fn>;
+  getCounterSnapshot: ReturnType<typeof vi.fn>;
+  getRemainingSize: ReturnType<typeof vi.fn>;
+  getStats: ReturnType<typeof vi.fn>;
   getSize: ReturnType<typeof vi.fn>;
 };
 
-function createDeferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-function createCard(
-  id: string,
-  options?: { missing?: boolean },
-): FSRSCard {
-  const now = Date.now();
+function createQueue(remaining: number, due = remaining, fallbackSize = remaining): QueueMock {
   return {
-    id,
-    xiuyuanID: `xy-${id}`,
-    blockId: `block-${id}`,
-    due: now,
-    stability: 1,
-    difficulty: 1,
-    reps: 0,
-    lapses: 0,
-    state: CardState.New,
-    lastReview: now,
-    elapsedDays: 0,
-    scheduledDays: 0,
-    priority: 50,
-    type: CardType.Item,
-    tags: [],
-    leechCount: 0,
-    isLeech: false,
-    skipped: false,
-    createdAt: now,
-    updatedAt: now,
-    meta: options?.missing ? { blockType: 'missing' } : {},
-  };
-}
-
-function createQueue(cards: FSRSCard[], fallbackSize = cards.length): QueueMock {
-  return {
-    getCards: vi.fn().mockResolvedValue(cards),
+    getCounterSnapshot: vi.fn().mockResolvedValue({
+      version: 1,
+      remaining,
+      due,
+      total: remaining,
+      buckets: {
+        all: remaining,
+        item: remaining,
+        descriptor: 0,
+        topic: 0,
+        concept: 0,
+      },
+      source: 'reconciled' as const,
+    }),
+    getRemainingSize: vi.fn().mockResolvedValue(remaining),
+    getStats: vi.fn().mockResolvedValue({
+      total: remaining,
+      due,
+      new: 0,
+      learning: 0,
+      reviewed: 0,
+    }),
     getSize: vi.fn().mockResolvedValue(fallbackSize),
   };
 }
@@ -81,12 +63,12 @@ describe('BrowserApplicationService queue counts', () => {
     );
   });
 
-  it('uses getSize for neural-roam and visible cards for other queues', async () => {
-    const retrievalQueue = createQueue([createCard('r1'), createCard('r2', { missing: true })], 99);
-    const finalQueue = createQueue([createCard('f1', { missing: true })], 88);
-    const neuralQueue = createQueue([createCard('n1'), createCard('n2')], 77);
-    const filterQueue = createQueue([createCard('g1'), createCard('g2', { missing: true }), createCard('g3')], 66);
-    const incrementalQueue = createQueue([createCard('i1', { missing: true }), createCard('i2')], 55);
+  it('reads counts from counter snapshots without calling getCards', async () => {
+    const retrievalQueue = createQueue(2);
+    const finalQueue = createQueue(1);
+    const neuralQueue = createQueue(77);
+    const filterQueue = createQueue(3);
+    const incrementalQueue = createQueue(4);
 
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
     queueByType.set(QueueType.FinalDrill, finalQueue);
@@ -97,29 +79,30 @@ describe('BrowserApplicationService queue counts', () => {
     const counts = await service.getQueueCounts();
 
     expect(counts).toEqual({
-      retrieval: 1,
-      'final-drill': 0,
+      retrieval: 2,
+      'final-drill': 1,
       'neural-roam': 77,
-      'filter-group': 2,
-      'incremental-learning': 1,
+      'filter-group': 3,
+      'incremental-learning': 4,
     });
 
-    expect(neuralQueue.getCards).not.toHaveBeenCalled();
-    expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
-    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(1);
-    expect(finalQueue.getCards).toHaveBeenCalledTimes(1);
-    expect(filterQueue.getCards).toHaveBeenCalledTimes(1);
-    expect(incrementalQueue.getCards).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(filterQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(incrementalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(retrievalQueue.getRemainingSize).not.toHaveBeenCalled();
   });
 
-  it('falls back to getSize when non-neural getCards throws', async () => {
-    const retrievalQueue = createQueue([createCard('r1')], 11);
-    const finalQueue = createQueue([createCard('f1')], 22);
-    const neuralQueue = createQueue([createCard('n1')], 33);
-    const filterQueue = createQueue([createCard('g1')], 44);
-    const incrementalQueue = createQueue([createCard('i1')], 55);
+  it('falls back to getRemainingSize and getSize when snapshot reads fail', async () => {
+    const retrievalQueue = createQueue(1, 1, 11);
+    const finalQueue = createQueue(2, 2, 22);
+    const neuralQueue = createQueue(3, 3, 33);
+    const filterQueue = createQueue(4, 4, 44);
+    const incrementalQueue = createQueue(5, 5, 55);
 
-    retrievalQueue.getCards.mockRejectedValueOnce(new Error('boom'));
+    retrievalQueue.getCounterSnapshot.mockRejectedValueOnce(new Error('boom'));
+    retrievalQueue.getRemainingSize.mockResolvedValueOnce(11);
 
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
     queueByType.set(QueueType.FinalDrill, finalQueue);
@@ -130,24 +113,17 @@ describe('BrowserApplicationService queue counts', () => {
     const counts = await service.getQueueCounts();
 
     expect(counts.retrieval).toBe(11);
-    expect(counts['neural-roam']).toBe(33);
-    expect(retrievalQueue.getSize).toHaveBeenCalledTimes(1);
-    expect(neuralQueue.getCards).not.toHaveBeenCalled();
-    expect(neuralQueue.getSize).toHaveBeenCalledTimes(1);
+    expect(counts['neural-roam']).toBe(3);
+    expect(retrievalQueue.getRemainingSize).toHaveBeenCalledTimes(1);
+    expect(neuralQueue.getRemainingSize).not.toHaveBeenCalled();
   });
 
-  it('invalidates cached counts without letting stale in-flight reads overwrite the latest result', async () => {
-    const staleRetrieval = createDeferred<FSRSCard[]>();
-    const freshRetrieval = createDeferred<FSRSCard[]>();
-    const retrievalQueue = createQueue([], 11);
-    const finalQueue = createQueue([], 0);
-    const neuralQueue = createQueue([], 0);
-    const filterQueue = createQueue([], 0);
-    const incrementalQueue = createQueue([], 0);
-
-    retrievalQueue.getCards
-      .mockReturnValueOnce(staleRetrieval.promise)
-      .mockReturnValueOnce(freshRetrieval.promise);
+  it('invalidates only affected queue caches on targeted refresh', async () => {
+    const retrievalQueue = createQueue(1);
+    const finalQueue = createQueue(2);
+    const neuralQueue = createQueue(3);
+    const filterQueue = createQueue(4);
+    const incrementalQueue = createQueue(5);
 
     queueByType.set(QueueType.RetrievalPractice, retrievalQueue);
     queueByType.set(QueueType.FinalDrill, finalQueue);
@@ -155,20 +131,21 @@ describe('BrowserApplicationService queue counts', () => {
     queueByType.set(QueueType.FilterGroup, filterQueue);
     queueByType.set(QueueType.IncrementalLearning, incrementalQueue);
 
-    const staleCountsPromise = service.getQueueCounts();
-    service.invalidateQueueCountsCache();
-    const freshCountsPromise = service.getQueueCounts();
+    await service.getQueueCounts();
+    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
 
-    freshRetrieval.resolve([createCard('fresh-1'), createCard('fresh-2')]);
-    const freshCounts = await freshCountsPromise;
-    expect(freshCounts.retrieval).toBe(2);
+    retrievalQueue.getCounterSnapshot.mockClear();
+    finalQueue.getCounterSnapshot.mockClear();
 
-    staleRetrieval.resolve([createCard('stale-1')]);
-    const staleCounts = await staleCountsPromise;
-    expect(staleCounts.retrieval).toBe(1);
+    const counts = await service.getQueueCounts({
+      forceRefresh: true,
+      affectedQueueTypes: [QueueType.RetrievalPractice],
+    });
 
-    const cachedCounts = await service.getQueueCounts();
-    expect(cachedCounts.retrieval).toBe(2);
-    expect(retrievalQueue.getCards).toHaveBeenCalledTimes(2);
+    expect(counts.retrieval).toBe(1);
+    expect(counts['final-drill']).toBe(2);
+    expect(retrievalQueue.getCounterSnapshot).toHaveBeenCalledTimes(1);
+    expect(finalQueue.getCounterSnapshot).not.toHaveBeenCalled();
   });
 });

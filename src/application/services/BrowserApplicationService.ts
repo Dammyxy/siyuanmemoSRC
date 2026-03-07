@@ -12,6 +12,7 @@ import type {
 } from '../queries/browser/GetBrowserCardsQuery';
 import type {
   IBrowserApplicationService,
+  BrowserQueueCountsRequest,
   DataSourceOptions,
   BrowserQueueId,
 } from '../interfaces/IBrowserApplicationService';
@@ -20,7 +21,6 @@ import { DeckDataSource } from '@/ui/browser/datasource/DeckDataSource';
 import { createQueueDataSource, createQueryDataSource } from '@/ui/browser/utils/dataSourceFactory';
 import { createLogger } from '@/utils/logger';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
-import type { FSRSCard } from '@/types/card';
 
 const EMPTY_QUEUE_COUNTS: Record<string, number> = {
   retrieval: 0,
@@ -39,18 +39,22 @@ const QUEUE_ID_TO_TYPE: Record<BrowserQueueId, QueueType> = {
   neural: QueueType.NeuralRoam,
 };
 
+const QUEUE_TYPE_TO_BROWSER_KEY: Partial<Record<QueueType, BrowserQueueId>> = {
+  [QueueType.RetrievalPractice]: 'retrieval',
+  [QueueType.FinalDrill]: 'final-drill',
+  [QueueType.IncrementalLearning]: 'incremental-learning',
+  [QueueType.FilterGroup]: 'filter-group',
+  [QueueType.NeuralRoam]: 'neural-roam',
+};
+
 const logger = createLogger('BrowserApplicationService');
 
 export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly getBrowserCardsQueryHandler: GetBrowserCardsQueryHandler;
   private readonly unifiedDataSourceManager: IUnifiedDataSourceManagerFacade | null;
   private readonly siyuanApi: BrowserSiyuanPort;
-  private queueCountsInFlight: Promise<Record<string, number>> | null = null;
-  private queueCountsRequestSeq = 0;
-  private queueCountsCache = {
-    value: { ...EMPTY_QUEUE_COUNTS },
-    timestamp: 0,
-  };
+  private readonly queueCountInFlight = new Map<BrowserQueueId, Promise<number>>();
+  private readonly queueCountCache = new Map<BrowserQueueId, { value: number; timestamp: number }>();
   private static readonly QUEUE_COUNTS_CACHE_TTL_MS = 150;
 
   constructor(
@@ -117,14 +121,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
   }
 
-  private isMissingBlockCard(card: FSRSCard | null | undefined): boolean {
-    if (!card || typeof card !== 'object') {
-      return false;
-    }
-    const meta = card.meta as Record<string, unknown> | undefined;
-    return meta?.blockType === 'missing';
-  }
-
   private async readQueueVisibleCount(
     queue: IReviewQueue | null,
     queueId: string,
@@ -133,17 +129,30 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return 0;
     }
 
-    if (queueId === 'neural-roam') {
-      return this.readQueueSize(queue, queueId);
+    try {
+      const snapshot = await queue.getCounterSnapshot();
+      return Math.max(0, Number(snapshot.remaining) || 0);
+    } catch (error) {
+      logger.debug('Failed to read queue counter snapshot, falling back to size methods:', {
+        queueId,
+        error,
+      });
     }
 
     try {
-      const cards = await queue.getCards();
-      if (Array.isArray(cards)) {
-        return cards.filter((card) => !this.isMissingBlockCard(card)).length;
-      }
+      return await queue.getRemainingSize();
     } catch (error) {
-      logger.warn('Failed to read queue cards for visible count, fallback to getSize:', {
+      logger.debug('Failed to read queue remaining size, falling back to getStats:', {
+        queueId,
+        error,
+      });
+    }
+
+    try {
+      const stats = await queue.getStats();
+      return Math.max(0, Number(stats.due) || Number(stats.total) || 0);
+    } catch (error) {
+      logger.debug('Failed to read queue stats, fallback to getSize:', {
         queueId,
         error,
       });
@@ -161,77 +170,97 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
   }
 
-  private async readQueueCountsFromManager(manager: IUnifiedDataSourceManagerFacade): Promise<Record<string, number>> {
-    const retrievalQueue = manager.getQueue(QueueType.RetrievalPractice);
-    const finalDrillQueue = manager.getQueue(QueueType.FinalDrill);
-    const neuralRoamQueue = manager.getQueue(QueueType.NeuralRoam);
-    const filterGroupQueue = manager.getQueue(QueueType.FilterGroup);
-    const incrementalQueue = manager.getQueue(QueueType.IncrementalLearning);
+  private resolveAffectedBrowserQueueIds(affectedQueueTypes?: QueueType[] | null): BrowserQueueId[] {
+    if (!affectedQueueTypes || affectedQueueTypes.length === 0) {
+      return Object.keys(QUEUE_ID_TO_TYPE)
+        .filter((id) => id !== 'neural')
+        .map((id) => id as BrowserQueueId);
+    }
 
-    const [retrieval, finalDrill, neuralRoam, filterGroup, incrementalLearning] = await Promise.all([
-      this.readQueueVisibleCount(retrievalQueue, 'retrieval'),
-      this.readQueueVisibleCount(finalDrillQueue, 'final-drill'),
-      this.readQueueVisibleCount(neuralRoamQueue, 'neural-roam'),
-      this.readQueueVisibleCount(filterGroupQueue, 'filter-group'),
-      this.readQueueVisibleCount(incrementalQueue, 'incremental-learning'),
-    ]);
+    return Array.from(new Set(
+      affectedQueueTypes
+        .map((queueType) => QUEUE_TYPE_TO_BROWSER_KEY[queueType])
+        .filter((queueId): queueId is BrowserQueueId => Boolean(queueId)),
+    ));
+  }
 
-    return {
-      retrieval,
-      'final-drill': finalDrill,
-      'neural-roam': neuralRoam,
-      'filter-group': filterGroup,
-      'incremental-learning': incrementalLearning,
-    };
+  private async readSingleQueueCount(
+    manager: IUnifiedDataSourceManagerFacade,
+    queueId: BrowserQueueId,
+    forceRefresh = false,
+  ): Promise<number> {
+    const cacheEntry = this.queueCountCache.get(queueId);
+    const now = Date.now();
+    if (!forceRefresh && cacheEntry && now - cacheEntry.timestamp < BrowserApplicationService.QUEUE_COUNTS_CACHE_TTL_MS) {
+      return cacheEntry.value;
+    }
+
+    const inFlight = this.queueCountInFlight.get(queueId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const queueType = QUEUE_ID_TO_TYPE[queueId];
+    const request = this.readQueueVisibleCount(manager.getQueue(queueType), queueId)
+      .then((value) => {
+        const normalized = Math.max(0, Number(value) || 0);
+        this.queueCountCache.set(queueId, {
+          value: normalized,
+          timestamp: Date.now(),
+        });
+        return normalized;
+      })
+      .catch((error) => {
+        logger.error('Failed to get queue count:', { queueId, error });
+        this.queueCountCache.set(queueId, {
+          value: 0,
+          timestamp: Date.now(),
+        });
+        return 0;
+      })
+      .finally(() => {
+        this.queueCountInFlight.delete(queueId);
+      });
+
+    this.queueCountInFlight.set(queueId, request);
+    return request;
   }
 
   invalidateQueueCountsCache(): void {
-    this.queueCountsInFlight = null;
-    this.queueCountsRequestSeq += 1;
-    this.queueCountsCache = {
-      value: { ...this.queueCountsCache.value },
-      timestamp: 0,
-    };
+    this.queueCountInFlight.clear();
+    this.queueCountCache.clear();
   }
 
-  async getQueueCounts(): Promise<Record<string, number>> {
+  async getQueueCounts(request: BrowserQueueCountsRequest = {}): Promise<Record<string, number>> {
     const manager = this.unifiedDataSourceManager;
     if (!manager) {
       return { ...EMPTY_QUEUE_COUNTS };
     }
 
-    if (this.queueCountsInFlight) {
-      return this.queueCountsInFlight;
+    const affectedQueueIds = this.resolveAffectedBrowserQueueIds(request.affectedQueueTypes);
+    if (request.forceRefresh) {
+      for (const queueId of affectedQueueIds) {
+        this.queueCountCache.delete(queueId);
+        this.queueCountInFlight.delete(queueId);
+      }
     }
 
-    const now = Date.now();
-    if (now - this.queueCountsCache.timestamp < BrowserApplicationService.QUEUE_COUNTS_CACHE_TTL_MS) {
-      return { ...this.queueCountsCache.value };
+    const entries = await Promise.all(
+      affectedQueueIds.map(async (queueId) => [
+        queueId,
+        await this.readSingleQueueCount(manager, queueId, Boolean(request.forceRefresh)),
+      ] as const),
+    );
+
+    const counts = { ...EMPTY_QUEUE_COUNTS };
+    for (const [queueId, value] of this.queueCountCache.entries()) {
+      counts[queueId] = value.value;
+    }
+    for (const [queueId, value] of entries) {
+      counts[queueId] = value;
     }
 
-    const requestSeq = ++this.queueCountsRequestSeq;
-    const requestPromise = this.readQueueCountsFromManager(manager)
-      .then((counts) => {
-        if (requestSeq === this.queueCountsRequestSeq) {
-          this.queueCountsCache = { value: counts, timestamp: Date.now() };
-        }
-        return { ...counts };
-      })
-      .catch((error) => {
-        logger.error('Failed to get queue counts:', error);
-        if (requestSeq === this.queueCountsRequestSeq) {
-          this.queueCountsCache = { value: { ...EMPTY_QUEUE_COUNTS }, timestamp: Date.now() };
-        }
-        return { ...EMPTY_QUEUE_COUNTS };
-      })
-      .finally(() => {
-        if (this.queueCountsInFlight === requestPromise) {
-          this.queueCountsInFlight = null;
-        }
-      });
-
-    this.queueCountsInFlight = requestPromise;
-    return requestPromise;
+    return counts;
   }
 
   async setFilterGroupFilter(filter: CardFilter): Promise<boolean> {
