@@ -52,11 +52,13 @@ function createDialogManager(templates: ICardTemplate[]) {
     BUILTIN_DECK_ID: 'builtin-deck',
     pushMsg: vi.fn().mockResolvedValue(undefined),
     pushErrMsg: vi.fn().mockResolvedValue(undefined),
+    sql: vi.fn().mockResolvedValue([]),
   };
 
   const xiuyuanAppService = {
     getAllTemplates: vi.fn().mockResolvedValue(templates),
     getTemplate: vi.fn(),
+    createConceptDescriptorCards: vi.fn(),
   };
 
   const context = {
@@ -97,5 +99,39 @@ describe('DialogManager quick template filter', () => {
 
     expect(createVueDialog).not.toHaveBeenCalled();
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('暂无可用模板，请先创建模板');
+  });
+  it('normalizes a paragraph selection to its parent list item for concept descriptor cards', async () => {
+    const template = createTemplate('builtin-concept-descriptor', 'Concept Descriptor', 'concept');
+    const { dialogManager, siyuanApi } = createDialogManager([template]);
+    const context = (dialogManager as any).context;
+    const xiuyuanAppService = await context.getXiuyuanApplicationService();
+
+    siyuanApi.sql
+      .mockResolvedValueOnce([{ id: 'paragraph-1', type: 'p', parent_id: 'list-item-1' }])
+      .mockResolvedValueOnce([{ id: 'list-item-1', type: 'i' }])
+      .mockResolvedValueOnce([]);
+
+    xiuyuanAppService.getTemplate.mockResolvedValue(template);
+    xiuyuanAppService.createConceptDescriptorCards.mockResolvedValue({
+      ok: true,
+      value: {
+        conceptCardId: undefined,
+        descriptorCards: [],
+        skipped: [],
+      },
+    });
+
+    await dialogManager.openCreateTemplateCardDialog(['paragraph-1']);
+
+    const dialogConfig = vi.mocked(createVueDialog).mock.calls[0]?.[0] as {
+      events?: { confirm?: (templateId: string) => Promise<void> };
+    };
+    await dialogConfig.events?.confirm?.('builtin-concept-descriptor');
+
+    expect(xiuyuanAppService.createConceptDescriptorCards).toHaveBeenCalledWith({
+      parentBlockId: 'list-item-1',
+      deckId: 'builtin-deck',
+    });
+    expect(siyuanApi.pushErrMsg).not.toHaveBeenCalled();
   });
 });

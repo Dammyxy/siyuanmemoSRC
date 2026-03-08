@@ -32,11 +32,13 @@ import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanR
 import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletionService';
 import { CardId } from '@/core/xiuyuan/domain/CardId';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
+import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { persistXiuyuanAfterCardDeletion } from './shared/PersistXiuyuanAfterCardDeletion';
 import { isIgnorableMissingBlockError } from './shared/SiyuanBlockErrorClassifier';
 import { warmupXiuyuanCardIndex } from './shared/WarmupXiuyuanCardIndex';
 import { createLogger } from '@/utils/logger';
@@ -45,14 +47,16 @@ const logger = createLogger('DeleteCardUseCase');
 
 export class DeleteCardUseCase {
   private readonly siyuanApi: CardDeletionSiyuanPort;
+  private readonly deletionTracker?: IDeletionTracker;
 
   constructor(
     private readonly xiuyuanRepo: IXiuyuanRepository,
     private readonly cardDeletionService: CardDeletionService,
     private readonly eventBus: EventBus,
-    ports?: { siyuanApi?: CardDeletionSiyuanPort }
+    ports?: { siyuanApi?: CardDeletionSiyuanPort; deletionTracker?: IDeletionTracker }
   ) {
     this.siyuanApi = ports?.siyuanApi ?? new CardDeletionSiyuanAdapter();
+    this.deletionTracker = ports?.deletionTracker;
   }
 
   /**
@@ -97,7 +101,7 @@ export class DeleteCardUseCase {
     }
 
     // 5. 持久化更新后的 Xiuyuan
-    const saveResult = await this.xiuyuanRepo.save(xiuyuan);
+    const saveResult = await persistXiuyuanAfterCardDeletion(this.xiuyuanRepo, xiuyuan);
     if (!saveResult.ok) {
       return saveResult;
     }
@@ -107,6 +111,7 @@ export class DeleteCardUseCase {
       try {
         await this.removeCardBlockAttrs(blockId, [actualCardId.getValue()]);
         logger.info(`[DeleteCardUseCase] Removed block attrs for: ${blockId}`);
+        this.deletionTracker?.markAsDeleted(blockId);
       } catch (error) {
         if (isIgnorableMissingBlockError(error)) {
           logger.info(`[DeleteCardUseCase] Skip removing attrs for missing block: ${blockId}`);

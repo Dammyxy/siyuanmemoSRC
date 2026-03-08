@@ -444,11 +444,14 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
       
-      // 馃殌 娓呯悊绱㈠紩锛氬垹闄ゆ墍鏈夊叧鑱斿崱鐗囩殑绱㈠紩
-      const cards = xiuyuan.getCards();
-      for (const card of cards) {
-        this.cardToXiuyuanIndex.delete(card.getId().getValue());
+      // 允许传入“已删空”的聚合，因此删除时按 xiuyuanId 清整组索引。
+      for (const [cardId, indexedXiuyuanId] of this.cardToXiuyuanIndex.entries()) {
+        if (indexedXiuyuanId === xiuyuanId) {
+          this.cardToXiuyuanIndex.delete(cardId);
+        }
       }
+
+      const cards = xiuyuan.getCards();
       
       // 1. 浣跨敤 UnifiedStorageManager 鍒犻櫎 XiuYuan锛堜細绾ц仈鍒犻櫎鎵€鏈夊叧鑱斿崱鐗囷級
       const deleteResult = await this.storage.deleteXiuYuan(xiuyuanId);

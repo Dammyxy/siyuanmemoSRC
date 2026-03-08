@@ -20,6 +20,7 @@ import type { CardApplicationService } from '@/application/services/CardApplicat
 import type { IReviewQueue } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
+import { resolveListItemAnchorBlockId as resolveListItemAnchorBlockIdHelper } from '@/application/usecases/xiuyuan/shared/ListItemAnchorResolver';
 import { resolveCdfTailMarkerFromSources } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
 import { CoreReviewEntryService } from '@/application/entries/CoreReviewEntryService';
 import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
@@ -1002,37 +1003,7 @@ export class BlockMenuHandler {
   }
 
   private async resolveListItemAnchorBlockId(selectedBlockId: string): Promise<string | null> {
-    const safeSelectedBlockId = this.escapeSQL(selectedBlockId);
-    const selectedRows = await this.siyuanApi.sql<BlockSqlRow>(`
-      SELECT id, type, parent_id
-      FROM blocks
-      WHERE id = '${safeSelectedBlockId}'
-      LIMIT 1
-    `);
-    if (!selectedRows || selectedRows.length === 0) {
-      return null;
-    }
-
-    const selected = selectedRows[0];
-    if (selected.type === 'i') {
-      return selected.id;
-    }
-    if (selected.type !== 'p' || typeof selected.parent_id !== 'string' || selected.parent_id.length === 0) {
-      return null;
-    }
-
-    const safeParentId = this.escapeSQL(selected.parent_id);
-    const parentRows = await this.siyuanApi.sql<BlockSqlRow>(`
-      SELECT id, type
-      FROM blocks
-      WHERE id = '${safeParentId}'
-      LIMIT 1
-    `);
-    if (!parentRows || parentRows.length === 0 || parentRows[0].type !== 'i') {
-      return null;
-    }
-
-    return parentRows[0].id;
+    return resolveListItemAnchorBlockIdHelper(selectedBlockId, this.siyuanApi);
   }
 
   private async getParentParagraphSources(parentBlockId: string): Promise<{

@@ -401,7 +401,7 @@ export class ApplicationContext {
 
       // 创建用例
       const createCardUseCase = new CreateCardUseCase(xiuyuanRepo, cardCreationService, context.getEventBus());
-      const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus());
+      const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus(), { deletionTracker });
       const deleteCardsUseCase = new DeleteCardsUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus(), deletionTracker);
       const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepo);
 
@@ -814,7 +814,7 @@ export class ApplicationContext {
     
     // 创建用例
     const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService, sharedEventBus);
-    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus);
+    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus, { deletionTracker });
     const deleteCardsUseCase = new DeleteCardsUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus, deletionTracker);
     const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
     

@@ -41,6 +41,7 @@ import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
+import { resolveListItemAnchorBlockId as resolveListItemAnchorBlockIdHelper } from '@/application/usecases/xiuyuan/shared/ListItemAnchorResolver';
 import { resolveCdfMultilineScan } from '@/application/usecases/xiuyuan/shared/CdfMultilineScanner';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import {
@@ -1045,37 +1046,7 @@ export class DialogManager implements IDialogManager {
   }
 
   private async resolveListItemAnchorBlockId(selectedBlockId: string): Promise<string | null> {
-    const safeSelectedBlockId = selectedBlockId.replace(/'/g, "''");
-    const selectedRows = await this.siyuanApi.sql<BlockSqlRow>(`
-      SELECT id, type, parent_id
-      FROM blocks
-      WHERE id = '${safeSelectedBlockId}'
-      LIMIT 1
-    `);
-    if (!selectedRows || selectedRows.length === 0) {
-      return null;
-    }
-
-    const selected = selectedRows[0];
-    if (selected.type === 'i') {
-      return selected.id;
-    }
-    if (selected.type !== 'p' || typeof selected.parent_id !== 'string' || selected.parent_id.length === 0) {
-      return null;
-    }
-
-    const safeParentId = selected.parent_id.replace(/'/g, "''");
-    const parentRows = await this.siyuanApi.sql<BlockSqlRow>(`
-      SELECT id, type
-      FROM blocks
-      WHERE id = '${safeParentId}'
-      LIMIT 1
-    `);
-    if (!parentRows || parentRows.length === 0 || parentRows[0].type !== 'i') {
-      return null;
-    }
-
-    return parentRows[0].id;
+    return resolveListItemAnchorBlockIdHelper(selectedBlockId, this.siyuanApi);
   }
 
   private hasExpectedTailMarker(
@@ -1239,7 +1210,11 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
-      const parentBlockId = blockIds[0];
+      const parentBlockId = await this.resolveListItemAnchorBlockId(blockIds[0]);
+      if (!parentBlockId) {
+        await this.siyuanApi.pushErrMsg('仅支持列表项块或其直属段落块');
+        return;
+      }
 
       // 1. 检查块类型
       const typeResult = await this.siyuanApi.sql(`
@@ -1353,7 +1328,11 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
-      const parentBlockId = blockIds[0];
+      const parentBlockId = await this.resolveListItemAnchorBlockId(blockIds[0]);
+      if (!parentBlockId) {
+        await this.siyuanApi.pushErrMsg('仅支持列表项块或其直属段落块');
+        return;
+      }
 
       // 🆕 1. 读取块内容，检测是否有方向符号
 

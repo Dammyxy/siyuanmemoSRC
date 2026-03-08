@@ -46,6 +46,7 @@ import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionT
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
 import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
+import { persistXiuyuanAfterCardDeletion } from './shared/PersistXiuyuanAfterCardDeletion';
 import { warmupXiuyuanCardIndex } from './shared/WarmupXiuyuanCardIndex';
 import { createLogger } from '@/utils/logger';
 
@@ -126,7 +127,7 @@ export class DeleteCardsUseCase {
       failedCardIds.push(...deleteResult.failed);
 
       // 3.4 持久化更新后的 Xiuyuan（每个 Xiuyuan 只保存一次）
-      const saveResult = await this.xiuyuanRepo.save(xiuyuan);
+      const saveResult = await persistXiuyuanAfterCardDeletion(this.xiuyuanRepo, xiuyuan);
       if (isErr(saveResult)) {
         logger.error(`[DeleteCardsUseCase] ❌ 保存 Xiuyuan 失败: ${xiuyuanIdStr}`, saveResult.error);
         // 已删除的卡片标记为失败

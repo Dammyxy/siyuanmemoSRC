@@ -9,6 +9,7 @@ import {
   containsDescriptorOrDefinitionSymbol,
   resolveDescriptorTemplateByMarkdown,
 } from './shared/DescriptorTemplateStrategy';
+import { resolveListItemAnchorBlockId } from './shared/ListItemAnchorResolver';
 
 const logger = createLogger('CreateConceptDescriptorCardsUseCase');
 
@@ -99,11 +100,18 @@ export class CreateConceptDescriptorCardsUseCase {
 
   async execute(command: CreateConceptDescriptorCardsCommand): Promise<Result<ConceptDescriptorCardsResult>> {
     try {
+      const anchorBlockId = await resolveListItemAnchorBlockId(command.parentBlockId, this.siyuanApi);
+      if (!anchorBlockId) {
+        return err(new Error('Only list-item blocks or their direct paragraph blocks are supported'));
+      }
+
+      const safeAnchorBlockId = anchorBlockId.replace(/'/g, "''");
       const parentParagraphRows = toRows(
         await this.siyuanApi.sql(`
           SELECT id, content, markdown FROM blocks
-          WHERE parent_id = '${command.parentBlockId}'
+          WHERE parent_id = '${safeAnchorBlockId}'
             AND type = 'p'
+          ORDER BY sort ASC, id ASC
           LIMIT 1
         `)
       );
@@ -156,7 +164,7 @@ export class CreateConceptDescriptorCardsUseCase {
         }
       };
 
-      const { kramdown: parentKramdown } = await this.siyuanApi.getBlockKramdown(command.parentBlockId);
+      const { kramdown: parentKramdown } = await this.siyuanApi.getBlockKramdown(anchorBlockId);
       if (parentKramdown && containsDescriptorOrDefinitionSymbol(parentKramdown)) {
         addDescriptorRows(parentParagraphRows);
         logger.debug('Added parent paragraph as descriptor/definition block');
@@ -165,7 +173,7 @@ export class CreateConceptDescriptorCardsUseCase {
       const listContainerRows = toRows(
         await this.siyuanApi.sql(`
           SELECT id FROM blocks
-          WHERE parent_id = '${command.parentBlockId}'
+          WHERE parent_id = '${safeAnchorBlockId}'
             AND type = 'l'
           LIMIT 1
         `)
@@ -200,7 +208,7 @@ export class CreateConceptDescriptorCardsUseCase {
         const parentContainerRows = toRows(
           await this.siyuanApi.sql(`
             SELECT parent_id FROM blocks
-            WHERE id = '${command.parentBlockId}'
+            WHERE id = '${safeAnchorBlockId}'
             LIMIT 1
           `)
         );
@@ -211,7 +219,7 @@ export class CreateConceptDescriptorCardsUseCase {
               SELECT id FROM blocks
               WHERE parent_id = '${parentContainerId}'
                 AND type = 'i'
-                AND id > '${command.parentBlockId}'
+                AND id > '${safeAnchorBlockId}'
               ORDER BY id ASC
             `)
           );

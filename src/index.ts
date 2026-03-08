@@ -24,6 +24,7 @@ import {
   getTopBarQuickEntryDefinition,
   type TopBarQuickEntryActionId,
 } from '@/application/entries/TopBarQuickEntryRegistry';
+import { ensureSiyuanMenuComponentFallbacks } from '@/utils/siyuanMenuComponentFallbacks';
 import '@/index.scss';
 
 export default class FSRSPlugin extends Plugin implements IPluginFacade {
@@ -143,6 +144,10 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     const frontEnd = getFrontend();
     this.isMobile = frontEnd === 'mobile' || frontEnd === 'browser-mobile';
     this.isBrowser = frontEnd.includes('browser');
+    const patchedMenuFallbacks = ensureSiyuanMenuComponentFallbacks();
+    if (patchedMenuFallbacks.length > 0) {
+      this.logger.info('Installed menu component fallbacks:', patchedMenuFallbacks);
+    }
     this.setupTopBar();
     this.startMobileMenuObserver();
     this.startMobileSidebarToolbarObserver();

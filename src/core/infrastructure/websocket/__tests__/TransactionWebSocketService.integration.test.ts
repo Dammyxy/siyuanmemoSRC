@@ -12,9 +12,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TransactionWebSocketService, type Transaction } from '../../core/infrastructure/websocket/TransactionWebSocketService';
-import { RiffSyncHandler } from '../../application/handlers/RiffSyncHandler';
-import { AutoCardHandler } from '../../application/handlers/AutoCardHandler';
+import { TransactionWebSocketService, type Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
+import { RiffSyncHandler } from '@/application/handlers/RiffSyncHandler';
+import { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import type FSRSPlugin from '@/index';
 import { STORAGE_NAME } from '@/types';
 
@@ -113,6 +113,12 @@ describe('TransactionWebSocketService Integration Tests', () => {
         // 创建 mock hybrid sync service
         mockHybridSyncService = {
             incrementalSync: vi.fn().mockResolvedValue({
+                success: true,
+                addedCount: 0,
+                deletedCount: 0,
+                skippedCount: 0
+            }),
+            fullSync: vi.fn().mockResolvedValue({
                 success: true,
                 addedCount: 0,
                 deletedCount: 0,
@@ -261,10 +267,11 @@ describe('TransactionWebSocketService Integration Tests', () => {
             }
             
             // 等待防抖（300ms）
-            await vi.advanceTimersByTimeAsync(300);
+            await vi.advanceTimersByTimeAsync(800);
             
             // 应该触发增量同步
             expect(mockHybridSyncService.incrementalSync).toHaveBeenCalledTimes(1);
+            expect(mockHybridSyncService.fullSync).not.toHaveBeenCalled();
         });
         
         it('应该检测 removeFlashcards 并触发增量同步', async () => {
@@ -290,9 +297,10 @@ describe('TransactionWebSocketService Integration Tests', () => {
                 } as MessageEvent);
             }
             
-            await vi.advanceTimersByTimeAsync(300);
+            await vi.advanceTimersByTimeAsync(800);
             
-            expect(mockHybridSyncService.incrementalSync).toHaveBeenCalledTimes(1);
+            expect(mockHybridSyncService.fullSync).toHaveBeenCalledTimes(1);
+            expect(mockHybridSyncService.incrementalSync).not.toHaveBeenCalled();
         });
         
         it('应该检测 custom-riff-decks 变化并触发增量同步', async () => {
@@ -322,7 +330,7 @@ describe('TransactionWebSocketService Integration Tests', () => {
                 } as MessageEvent);
             }
             
-            await vi.advanceTimersByTimeAsync(300);
+            await vi.advanceTimersByTimeAsync(800);
             
             expect(mockHybridSyncService.incrementalSync).toHaveBeenCalledTimes(1);
         });
@@ -359,7 +367,7 @@ describe('TransactionWebSocketService Integration Tests', () => {
             }
             
             // 等待快速符号防抖（300ms）
-            await vi.advanceTimersByTimeAsync(300);
+            await vi.advanceTimersByTimeAsync(800);
             
             // 验证卡片创建
             expect(mockStorage.setCard).toHaveBeenCalled();
