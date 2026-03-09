@@ -11,7 +11,11 @@
 
 import { ConceptQueryEngine, type Neighbor, type BlockData } from './ConceptQueryEngine';
 import type {
+  NeuralActivationKind,
+  NeuralActivationTrace,
+  NeuralActivationTraceStep,
   NeuralFocusNodeKind,
+  NeuralPropagationOrigin,
   NeuralRoamAnchorEntry,
   NeuralRoamSeedEntry,
   NeuralNavigationMode,
@@ -52,11 +56,14 @@ export interface FocusPoolPersistedEntry {
 
 export interface ConceptNeuralSessionState {
   displayPath: string[];
+  displayPathEventIds?: string[];
   currentPathIndex: number;
   navigationMode: NeuralNavigationMode;
   bookmarkPathIndex: number | null;
   history: NeuralRoamHistoryEntry[];
   currentFocus: string | null;
+  currentFocusEventId?: string | null;
+  branchRootNodeId?: string | null;
   currentSessionId: string | null;
   visitedBlocks: string[];
   exhaustedFocuses: string[];
@@ -72,6 +79,11 @@ interface ActivateNodeMeta {
   reason: string;
   focusId: string | null;
   isVirtual: boolean;
+  activationKind?: NeuralActivationKind;
+  origin?: NeuralPropagationOrigin | null;
+  sourceNodeId?: string | null;
+  sourceEventId?: string | null;
+  branchRootNodeId?: string | null;
 }
 
 interface PathItemOptions {
@@ -80,10 +92,13 @@ interface PathItemOptions {
 
 interface TraversalStateSnapshot {
   currentFocus: string | null;
+  currentFocusEventId: string | null;
+  branchRootNodeId: string | null;
   currentSessionId: string | null;
   visitedBlocks: Set<string>;
   exhaustedFocuses: Set<string>;
   displayPath: string[];
+  displayPathEventIds: string[];
   seedPool: Map<string, FocusState>;
   anchorPool: Map<string, FocusState>;
   history: NeuralRoamHistoryEntry[];
@@ -124,6 +139,32 @@ function createSessionId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function createHistoryEventId(): string {
+  return `evt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function resolveOrbitOrigin(value: unknown): NeuralPropagationOrigin | null {
+  switch (value) {
+    case 'backlink':
+      return 'backlink';
+    case 'outgoing-direct':
+      return 'direct-ref';
+    case 'outgoing-indirect':
+      return 'indirect-ref';
+    case 'descriptor':
+      return 'descriptor';
+    case 'focus':
+      return 'source';
+    case 'follow-path':
+      return 'follow-path';
+    case 'manual-jump':
+    case 'path':
+      return 'manual-jump';
+    default:
+      return null;
+  }
+}
+
 function normalizeNodeKind(value: unknown): NeuralFocusNodeKind {
   return value === 'virtual' ? 'virtual' : 'concept';
 }
@@ -138,10 +179,13 @@ function normalizePriority(value: unknown, fallback = 0.6): number {
 
 export class ConceptNeuralQueue {
   private currentFocus: string | null = null;
+  private currentFocusEventId: string | null = null;
+  private branchRootNodeId: string | null = null;
   private currentSessionId: string | null = null;
   private visitedBlocks: Set<string> = new Set();
   private exhaustedFocuses: Set<string> = new Set();
   private displayPath: string[] = [];
+  private displayPathEventIds: string[] = [];
   private seedPool: Map<string, FocusState> = new Map();
   private anchorPool: Map<string, FocusState> = new Map();
   private history: NeuralRoamHistoryEntry[] = [];
@@ -217,6 +261,8 @@ export class ConceptNeuralQueue {
     this.exhaustedFocuses.delete(blockId);
     if (this.currentFocus === blockId) {
       this.currentFocus = null;
+      this.currentFocusEventId = null;
+      this.branchRootNodeId = null;
     }
   }
 
@@ -287,6 +333,8 @@ export class ConceptNeuralQueue {
     this.anchorPool.clear();
     if (this.currentFocus && !this.seedPool.has(this.currentFocus)) {
       this.currentFocus = null;
+      this.currentFocusEventId = null;
+      this.branchRootNodeId = null;
     }
   }
 
@@ -360,6 +408,7 @@ export class ConceptNeuralQueue {
       .map((entry) => {
         const latest = this.findLatestHistoryEntry(entry.nodeId);
         return {
+          eventId: latest?.eventId ?? `focus-pool-${entry.nodeId}`,
           nodeId: entry.nodeId,
           focusId: entry.nodeId,
           sessionId: latest?.sessionId ?? this.currentSessionId ?? 'focus-pool',
@@ -368,6 +417,15 @@ export class ConceptNeuralQueue {
           visitedAt: entry.visitedAt,
           isVirtual: entry.isVirtual,
           nodePreview: entry.nodePreview,
+          traceQuality: latest?.traceQuality ?? 'legacy',
+          engineMode: latest?.engineMode ?? 'orbit',
+          sourceRole: latest?.sourceRole ?? 'orbit-center',
+          sourceNodeId: latest?.sourceNodeId ?? null,
+          sourceEventId: latest?.sourceEventId ?? null,
+          branchRootNodeId: latest?.branchRootNodeId ?? entry.nodeId,
+          activationKind: latest?.activationKind ?? 'focus-root',
+          depth: latest?.depth ?? null,
+          conductionScore: latest?.conductionScore ?? null,
         } satisfies NeuralRoamHistoryEntry;
       })
       .sort((a, b) => b.visitedAt - a.visitedAt);
@@ -426,6 +484,8 @@ export class ConceptNeuralQueue {
       this.currentSessionId = createSessionId();
     }
     this.currentFocus = focusId;
+    this.currentFocusEventId = this.findFocusEventIdForSession(focusId, this.currentSessionId);
+    this.branchRootNodeId = focusId;
     this.navigationMode = 'explore';
     this.followCurrentNodeOnce = false;
     this.exhaustedFocuses.delete(focusId);
@@ -436,6 +496,10 @@ export class ConceptNeuralQueue {
         reason: this.getReasonText('focus'),
         focusId,
         isVirtual: !isConcept,
+        activationKind: 'focus-root',
+        sourceNodeId: null,
+        sourceEventId: null,
+        branchRootNodeId: focusId,
       });
       if (!card) {
         throw new Error(`Failed to start roaming from focus ${focusId}`);
@@ -458,9 +522,12 @@ export class ConceptNeuralQueue {
 
       if (pathForSession.length > 0) {
         this.displayPath = pathForSession;
+        this.displayPathEventIds = this.buildPathEventIdsForSession(target.sessionId);
         this.currentPathIndex = pathForSession.lastIndexOf(nodeId);
         this.currentSessionId = target.sessionId;
         this.currentFocus = target.focusId ?? this.currentFocus;
+        this.currentFocusEventId = this.findFocusEventIdForSession(this.currentFocus, this.currentSessionId);
+        this.branchRootNodeId = target.branchRootNodeId ?? this.currentFocus ?? target.nodeId;
         this.visitedBlocks = new Set(pathForSession);
       } else {
         const targetIndex = this.findLatestPathIndex(nodeId);
@@ -468,6 +535,8 @@ export class ConceptNeuralQueue {
           this.currentPathIndex = targetIndex;
           this.currentSessionId = target.sessionId;
           this.currentFocus = target.focusId ?? this.currentFocus;
+          this.currentFocusEventId = this.findFocusEventIdForSession(this.currentFocus, this.currentSessionId);
+          this.branchRootNodeId = target.branchRootNodeId ?? this.currentFocus ?? target.nodeId;
         }
       }
 
@@ -491,6 +560,10 @@ export class ConceptNeuralQueue {
       reason: this.getReasonText('path'),
       focusId: this.currentFocus,
       isVirtual: this.getNodeKind(nodeId) === 'virtual',
+      activationKind: 'manual-jump',
+      sourceNodeId: this.getCurrentPathNodeId(),
+      sourceEventId: this.getCurrentPathEventId(),
+      branchRootNodeId: this.branchRootNodeId ?? this.currentFocus ?? nodeId,
     });
     if (!card) {
       return false;
@@ -524,6 +597,76 @@ export class ConceptNeuralQueue {
     return this.history.map((entry) => ({ ...entry }));
   }
 
+  getActivationTrace(eventId: string): NeuralActivationTrace | null {
+    const target = this.findHistoryEntryByEventId(eventId);
+    if (!target) {
+      return null;
+    }
+
+    if (target.traceQuality === 'legacy') {
+      return {
+        targetEventId: target.eventId,
+        targetNodeId: target.nodeId,
+        branchRootNodeId: target.branchRootNodeId,
+        isExact: false,
+        degradedReason: 'legacy',
+        steps: [this.toTraceStep(target)],
+      };
+    }
+
+    const seen = new Set<string>();
+    const reversedSteps: NeuralActivationTraceStep[] = [];
+    let current: NeuralRoamHistoryEntry | null = target;
+    let degradedReason: string | null = null;
+
+    while (current) {
+      if (seen.has(current.eventId)) {
+        degradedReason = degradedReason ?? 'cycle-detected';
+        break;
+      }
+      seen.add(current.eventId);
+      reversedSteps.push(this.toTraceStep(current));
+
+      if (!current.sourceEventId) {
+        if (current.sourceNodeId && current.sourceNodeId !== current.nodeId) {
+          reversedSteps.push(this.buildSyntheticRootStep(current));
+        }
+        break;
+      }
+
+      const sourceEntry = this.findHistoryEntryByEventId(current.sourceEventId);
+      if (!sourceEntry) {
+        degradedReason = degradedReason ?? 'missing-source-event';
+        if (current.sourceNodeId && current.sourceNodeId !== current.nodeId) {
+          reversedSteps.push(this.buildSyntheticRootStep(current));
+        }
+        break;
+      }
+
+      current = sourceEntry;
+    }
+
+    const steps = reversedSteps.reverse();
+    const branchRootNodeId = target.branchRootNodeId;
+    if (
+      branchRootNodeId
+      && steps.length > 0
+      && !steps.some((step) => step.nodeId === branchRootNodeId)
+    ) {
+      steps.unshift(this.buildSyntheticRootStep(target, branchRootNodeId));
+      degradedReason = degradedReason ?? 'branch-root-unresolved';
+    }
+
+    return {
+      targetEventId: target.eventId,
+      targetNodeId: target.nodeId,
+      branchRootNodeId,
+      isExact: degradedReason === null,
+      degradedReason,
+      steps,
+    };
+  }
+
   getDisplayPathSnapshot(): string[] {
     return [...this.displayPath];
   }
@@ -540,7 +683,10 @@ export class ConceptNeuralQueue {
     return {
       currentPathIndex: this.currentPathIndex,
       currentNodeId: this.getCurrentPathNodeId(),
+      currentEventId: this.getCurrentPathEventId(),
       navigationMode: this.navigationMode,
+      engineMode: 'orbit',
+      engineSessionId: this.currentSessionId,
       hasBookmark: this.bookmarkPathIndex !== null,
       pathLength: this.displayPath.length,
       sessionId: this.currentSessionId,
@@ -694,11 +840,14 @@ export class ConceptNeuralQueue {
   exportSessionState(): ConceptNeuralSessionState {
     return {
       displayPath: [...this.displayPath],
+      displayPathEventIds: [...this.displayPathEventIds],
       currentPathIndex: this.currentPathIndex,
       navigationMode: this.navigationMode,
       bookmarkPathIndex: this.bookmarkPathIndex,
       history: this.getHistorySnapshot(),
       currentFocus: this.currentFocus,
+      currentFocusEventId: this.currentFocusEventId,
+      branchRootNodeId: this.branchRootNodeId,
       currentSessionId: this.currentSessionId,
       visitedBlocks: Array.from(this.visitedBlocks),
       exhaustedFocuses: Array.from(this.exhaustedFocuses),
@@ -714,6 +863,9 @@ export class ConceptNeuralQueue {
 
     const displayPath = Array.isArray(state.displayPath)
       ? state.displayPath.map((id) => String(id)).filter(Boolean)
+      : [];
+    const displayPathEventIds = Array.isArray(state.displayPathEventIds)
+      ? state.displayPathEventIds.map((id) => String(id)).filter(Boolean)
       : [];
 
     const rawPathIndex = Number(state.currentPathIndex);
@@ -731,7 +883,7 @@ export class ConceptNeuralQueue {
 
     const history = Array.isArray(state.history)
       ? state.history
-          .map((entry) => this.normalizeHistoryEntry(entry))
+          .map((entry, index) => this.normalizeHistoryEntry(entry, index))
           .filter((entry): entry is NeuralRoamHistoryEntry => Boolean(entry))
       : [];
 
@@ -767,15 +919,28 @@ export class ConceptNeuralQueue {
       })));
     }
 
+    const normalizedHistory = history.slice(-this.historyLimit);
+    const resolvedSessionId = typeof state.currentSessionId === 'string' && state.currentSessionId
+      ? state.currentSessionId
+      : this.resolveLatestSessionId(normalizedHistory);
+    const resolvedCurrentFocus = typeof state.currentFocus === 'string' && state.currentFocus ? state.currentFocus : null;
+
     this.displayPath = displayPath;
+    this.displayPathEventIds = displayPathEventIds.length === displayPath.length
+      ? displayPathEventIds
+      : this.rebuildDisplayPathEventIds(displayPath, normalizedHistory);
     this.currentPathIndex = currentPathIndex;
     this.navigationMode = navigationMode;
     this.bookmarkPathIndex = bookmarkPathIndex;
-    this.history = history.slice(-this.historyLimit);
-    this.currentFocus = typeof state.currentFocus === 'string' && state.currentFocus ? state.currentFocus : null;
-    this.currentSessionId = typeof state.currentSessionId === 'string' && state.currentSessionId
-      ? state.currentSessionId
-      : this.resolveLatestSessionId(this.history);
+    this.history = normalizedHistory;
+    this.currentFocus = resolvedCurrentFocus;
+    this.currentSessionId = resolvedSessionId;
+    this.currentFocusEventId = typeof state.currentFocusEventId === 'string' && state.currentFocusEventId
+      ? state.currentFocusEventId
+      : this.findFocusEventIdForSession(this.currentFocus, this.currentSessionId);
+    this.branchRootNodeId = typeof state.branchRootNodeId === 'string' && state.branchRootNodeId
+      ? state.branchRootNodeId
+      : this.resolveBranchRootNodeId(this.history, this.currentFocus);
     this.visitedBlocks = visitedBlocks;
     this.exhaustedFocuses = exhaustedFocuses;
     this.followCurrentNodeOnce = false;
@@ -821,6 +986,8 @@ export class ConceptNeuralQueue {
     const removedSet = new Set(removedNodeIds);
     if (this.currentFocus && removedSet.has(this.currentFocus) && !this.anchorPool.has(this.currentFocus)) {
       this.currentFocus = null;
+      this.currentFocusEventId = null;
+      this.branchRootNodeId = null;
       if (this.navigationMode === 'follow') {
         this.navigationMode = 'explore';
       }
@@ -843,6 +1010,8 @@ export class ConceptNeuralQueue {
       this.exhaustedFocuses.delete(nodeId);
       if (this.currentFocus === nodeId && !this.anchorPool.has(nodeId)) {
         this.currentFocus = null;
+        this.currentFocusEventId = null;
+        this.branchRootNodeId = null;
       }
       return;
     }
@@ -882,6 +1051,8 @@ export class ConceptNeuralQueue {
       this.anchorPool.delete(nodeId);
       if (this.currentFocus === nodeId && !this.seedPool.has(nodeId)) {
         this.currentFocus = null;
+        this.currentFocusEventId = null;
+        this.branchRootNodeId = null;
       }
       return;
     }
@@ -933,26 +1104,29 @@ export class ConceptNeuralQueue {
 
     if (this.currentPathIndex >= 0 && this.currentPathIndex < this.displayPath.length - 1) {
       this.displayPath = this.displayPath.slice(0, this.currentPathIndex + 1);
+      this.displayPathEventIds = this.displayPathEventIds.slice(0, this.currentPathIndex + 1);
     }
 
+    const historyEntry = this.createHistoryEntry(
+      nodeId,
+      this.currentSessionId,
+      this.compressText(blockData.content || nodeId),
+      meta,
+    );
     this.displayPath.push(nodeId);
+    this.displayPathEventIds.push(historyEntry.eventId);
     this.currentPathIndex = this.displayPath.length - 1;
     this.navigationMode = 'explore';
     this.bookmarkPathIndex = null;
     this.followCurrentNodeOnce = false;
     this.visitedBlocks.add(nodeId);
 
-    const nodePreview = this.compressText(blockData.content || nodeId);
-    this.history.push({
-      nodeId,
-      focusId: meta.focusId,
-      sessionId: this.currentSessionId,
-      associationType: meta.associationType,
-      reason: meta.reason,
-      visitedAt: Date.now(),
-      isVirtual: meta.isVirtual,
-      nodePreview,
-    });
+    this.history.push(historyEntry);
+    if (historyEntry.activationKind === 'focus-root') {
+      this.currentFocus = nodeId;
+      this.currentFocusEventId = historyEntry.eventId;
+      this.branchRootNodeId = historyEntry.branchRootNodeId ?? nodeId;
+    }
     if (this.history.length > this.historyLimit) {
       this.history.splice(0, this.history.length - this.historyLimit);
     }
@@ -1062,7 +1236,7 @@ export class ConceptNeuralQueue {
     return null;
   }
 
-  private normalizeHistoryEntry(entry: unknown): NeuralRoamHistoryEntry | null {
+  private normalizeHistoryEntry(entry: unknown, index = 0): NeuralRoamHistoryEntry | null {
     if (!isRecord(entry)) {
       return null;
     }
@@ -1085,8 +1259,35 @@ export class ConceptNeuralQueue {
       : this.currentSessionId || 'legacy';
     const isVirtual = Boolean(entry.isVirtual);
     const nodePreview = this.compressText(typeof entry.nodePreview === 'string' ? entry.nodePreview : nodeId);
+    const eventId = typeof entry.eventId === 'string' && entry.eventId
+      ? entry.eventId
+      : `legacy-${sessionId}-${nodeId}-${Math.trunc(Number.isFinite(visitedAt) ? visitedAt : Date.now())}-${index}`;
+    const traceQuality = entry.traceQuality === 'exact' ? 'exact' : 'legacy';
+    const sourceNodeId = typeof entry.sourceNodeId === 'string' && entry.sourceNodeId ? entry.sourceNodeId : null;
+    const sourceEventId = typeof entry.sourceEventId === 'string' && entry.sourceEventId ? entry.sourceEventId : null;
+    const branchRootNodeId = typeof entry.branchRootNodeId === 'string' && entry.branchRootNodeId
+      ? entry.branchRootNodeId
+      : focusId ?? nodeId;
+    const activationKind = entry.activationKind === 'focus-root'
+      || entry.activationKind === 'source-root'
+      || entry.activationKind === 'graph-edge'
+      || entry.activationKind === 'tree-edge'
+      || entry.activationKind === 'follow-path'
+      || entry.activationKind === 'manual-jump'
+      ? entry.activationKind
+      : (associationType === 'focus' ? 'focus-root' : associationType === 'path' ? 'manual-jump' : 'graph-edge');
+    const engineMode = entry.engineMode === 'hyperspace' ? 'hyperspace' : 'orbit';
+    const sourceRole = entry.sourceRole === 'activation-source'
+      ? 'activation-source'
+      : entry.sourceRole === 'orbit-center'
+        ? 'orbit-center'
+        : (associationType === 'focus' ? 'orbit-center' : null);
+    const origin = resolveOrbitOrigin(entry.origin ?? associationType);
+    const depth = Number(entry.depth);
+    const conductionScore = Number(entry.conductionScore);
 
     return {
+      eventId,
       nodeId,
       focusId,
       sessionId,
@@ -1095,6 +1296,16 @@ export class ConceptNeuralQueue {
       visitedAt: Number.isFinite(visitedAt) ? visitedAt : Date.now(),
       isVirtual,
       nodePreview,
+      traceQuality,
+      engineMode,
+      sourceRole,
+      origin,
+      sourceNodeId,
+      sourceEventId,
+      branchRootNodeId,
+      activationKind,
+      depth: Number.isFinite(depth) ? depth : null,
+      conductionScore: Number.isFinite(conductionScore) ? conductionScore : null,
     };
   }
 
@@ -1103,6 +1314,13 @@ export class ConceptNeuralQueue {
       return null;
     }
     return this.displayPath[this.currentPathIndex];
+  }
+
+  private getCurrentPathEventId(): string | null {
+    if (this.currentPathIndex < 0 || this.currentPathIndex >= this.displayPathEventIds.length) {
+      return null;
+    }
+    return this.displayPathEventIds[this.currentPathIndex];
   }
 
   private buildFocusStackEntry(
@@ -1124,6 +1342,7 @@ export class ConceptNeuralQueue {
       ?? this.compressText(focusNodeId);
 
     return {
+      eventId: latestNodeEntry?.eventId ?? sessionReference?.eventId ?? `focus-stack-${focusNodeId}`,
       nodeId: focusNodeId,
       focusId: focusNodeId,
       sessionId,
@@ -1134,17 +1353,34 @@ export class ConceptNeuralQueue {
         ? focusState.nodeKind === 'virtual'
         : Boolean(latestNodeEntry?.isVirtual ?? sessionReference?.isVirtual),
       nodePreview,
+      traceQuality: latestNodeEntry?.traceQuality ?? sessionReference?.traceQuality ?? 'legacy',
+      engineMode: latestNodeEntry?.engineMode ?? sessionReference?.engineMode ?? 'orbit',
+      sourceRole: latestNodeEntry?.sourceRole ?? sessionReference?.sourceRole ?? 'orbit-center',
+      sourceNodeId: latestNodeEntry?.sourceNodeId ?? sessionReference?.sourceNodeId ?? null,
+      sourceEventId: latestNodeEntry?.sourceEventId ?? sessionReference?.sourceEventId ?? null,
+      branchRootNodeId: latestNodeEntry?.branchRootNodeId ?? sessionReference?.branchRootNodeId ?? focusNodeId,
+      activationKind: latestNodeEntry?.activationKind ?? sessionReference?.activationKind ?? 'focus-root',
+      depth: latestNodeEntry?.depth ?? sessionReference?.depth ?? null,
+      conductionScore: latestNodeEntry?.conductionScore ?? sessionReference?.conductionScore ?? null,
     };
   }
 
   private buildPathForSession(sessionId: string): string[] {
-    const path: string[] = [];
+    return this.buildPathEntriesForSession(sessionId).map((entry) => entry.nodeId);
+  }
+
+  private buildPathEventIdsForSession(sessionId: string): string[] {
+    return this.buildPathEntriesForSession(sessionId).map((entry) => entry.eventId);
+  }
+
+  private buildPathEntriesForSession(sessionId: string): NeuralRoamHistoryEntry[] {
+    const path: NeuralRoamHistoryEntry[] = [];
     for (const entry of this.history) {
       if (entry.sessionId !== sessionId) {
         continue;
       }
-      if (path[path.length - 1] !== entry.nodeId) {
-        path.push(entry.nodeId);
+      if (path[path.length - 1]?.nodeId !== entry.nodeId) {
+        path.push(entry);
       }
     }
     return path;
@@ -1173,7 +1409,10 @@ export class ConceptNeuralQueue {
     this.visitedBlocks.clear();
     this.exhaustedFocuses.clear();
     this.displayPath = [];
+    this.displayPathEventIds = [];
     this.currentFocus = null;
+    this.currentFocusEventId = null;
+    this.branchRootNodeId = null;
     this.currentPathIndex = -1;
     this.bookmarkPathIndex = null;
     this.currentSessionId = null;
@@ -1191,10 +1430,13 @@ export class ConceptNeuralQueue {
   private cloneTraversalState(): TraversalStateSnapshot {
     return {
       currentFocus: this.currentFocus,
+      currentFocusEventId: this.currentFocusEventId,
+      branchRootNodeId: this.branchRootNodeId,
       currentSessionId: this.currentSessionId,
       visitedBlocks: new Set(this.visitedBlocks),
       exhaustedFocuses: new Set(this.exhaustedFocuses),
       displayPath: [...this.displayPath],
+      displayPathEventIds: [...this.displayPathEventIds],
       seedPool: this.cloneFocusPool(this.seedPool),
       anchorPool: this.cloneFocusPool(this.anchorPool),
       history: this.history.map((entry) => ({ ...entry })),
@@ -1213,10 +1455,13 @@ export class ConceptNeuralQueue {
 
   private applyTraversalState(snapshot: TraversalStateSnapshot): void {
     this.currentFocus = snapshot.currentFocus;
+    this.currentFocusEventId = snapshot.currentFocusEventId;
+    this.branchRootNodeId = snapshot.branchRootNodeId;
     this.currentSessionId = snapshot.currentSessionId;
     this.visitedBlocks = new Set(snapshot.visitedBlocks);
     this.exhaustedFocuses = new Set(snapshot.exhaustedFocuses);
     this.displayPath = [...snapshot.displayPath];
+    this.displayPathEventIds = [...snapshot.displayPathEventIds];
     this.seedPool = this.cloneFocusPool(snapshot.seedPool);
     this.anchorPool = this.cloneFocusPool(snapshot.anchorPool);
     this.history = snapshot.history.map((entry) => ({ ...entry }));
@@ -1284,6 +1529,8 @@ export class ConceptNeuralQueue {
           logger.debug('No unvisited focus blocks available');
           return { item: null, nextState: snapshot };
         }
+        snapshot.currentFocusEventId = this.findFocusEventIdInHistory(snapshot.history, snapshot.currentFocus, snapshot.currentSessionId);
+        snapshot.branchRootNodeId = snapshot.currentFocus;
       }
 
       const neighborsResult = await this.queryEngine.fetchNeighbors(snapshot.currentFocus);
@@ -1298,6 +1545,10 @@ export class ConceptNeuralQueue {
           reason: this.getReasonText(selected.type),
           focusId,
           isVirtual: this.getNodeKindFromState(snapshot, selected.id) === 'virtual',
+          activationKind: 'graph-edge',
+          sourceNodeId: focusId,
+          sourceEventId: snapshot.currentFocusEventId,
+          branchRootNodeId: snapshot.branchRootNodeId ?? focusId ?? selected.id,
         }, snapshot);
 
         if (!card) {
@@ -1321,11 +1572,16 @@ export class ConceptNeuralQueue {
           reason: this.getReasonText('focus'),
           focusId: currentFocus,
           isVirtual: this.getNodeKindFromState(snapshot, currentFocus) === 'virtual',
+          activationKind: 'graph-edge',
+          sourceNodeId: currentFocus,
+          sourceEventId: snapshot.currentFocusEventId,
+          branchRootNodeId: snapshot.branchRootNodeId ?? currentFocus,
         }, snapshot);
         if (focusCard) {
           return { item: focusCard, nextState: snapshot };
         }
         snapshot.currentFocus = null;
+        snapshot.currentFocusEventId = null;
         continue;
       }
 
@@ -1379,26 +1635,29 @@ export class ConceptNeuralQueue {
 
     if (snapshot.currentPathIndex >= 0 && snapshot.currentPathIndex < snapshot.displayPath.length - 1) {
       snapshot.displayPath = snapshot.displayPath.slice(0, snapshot.currentPathIndex + 1);
+      snapshot.displayPathEventIds = snapshot.displayPathEventIds.slice(0, snapshot.currentPathIndex + 1);
     }
 
+    const historyEntry = this.createHistoryEntry(
+      nodeId,
+      snapshot.currentSessionId,
+      this.compressText(blockData.content || nodeId),
+      meta,
+    );
     snapshot.displayPath.push(nodeId);
+    snapshot.displayPathEventIds.push(historyEntry.eventId);
     snapshot.currentPathIndex = snapshot.displayPath.length - 1;
     snapshot.navigationMode = 'explore';
     snapshot.bookmarkPathIndex = null;
     snapshot.followCurrentNodeOnce = false;
     snapshot.visitedBlocks.add(nodeId);
 
-    const nodePreview = this.compressText(blockData.content || nodeId);
-    snapshot.history.push({
-      nodeId,
-      focusId: meta.focusId,
-      sessionId: snapshot.currentSessionId,
-      associationType: meta.associationType,
-      reason: meta.reason,
-      visitedAt: Date.now(),
-      isVirtual: meta.isVirtual,
-      nodePreview,
-    });
+    snapshot.history.push(historyEntry);
+    if (historyEntry.activationKind === 'focus-root') {
+      snapshot.currentFocus = nodeId;
+      snapshot.currentFocusEventId = historyEntry.eventId;
+      snapshot.branchRootNodeId = historyEntry.branchRootNodeId ?? nodeId;
+    }
     if (snapshot.history.length > this.historyLimit) {
       snapshot.history.splice(0, snapshot.history.length - this.historyLimit);
     }
@@ -1427,6 +1686,7 @@ export class ConceptNeuralQueue {
       }
     }
     snapshot.currentFocus = null;
+    snapshot.currentFocusEventId = null;
   }
 
   private selectNextFocusState(snapshot: TraversalStateSnapshot): string | null {
@@ -1439,6 +1699,10 @@ export class ConceptNeuralQueue {
     }
 
     return this.weightedRandomSelectFocus(candidateFocuses);
+  }
+
+  private selectNextFocus(): string | null {
+    return this.selectNextFocusState(this.cloneTraversalState());
   }
 
   private getNodeKindFromState(snapshot: TraversalStateSnapshot, nodeId: string): NeuralFocusNodeKind {
@@ -1510,5 +1774,160 @@ export class ConceptNeuralQueue {
       }
     }
     return null;
+  }
+
+  private findHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {
+    for (let index = this.history.length - 1; index >= 0; index -= 1) {
+      const entry = this.history[index];
+      if (entry.eventId === eventId) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  private findFocusEventIdForSession(focusId: string | null, sessionId: string | null): string | null {
+    return this.findFocusEventIdInHistory(this.history, focusId, sessionId);
+  }
+
+  private findFocusEventIdInHistory(
+    history: NeuralRoamHistoryEntry[],
+    focusId: string | null,
+    sessionId: string | null,
+  ): string | null {
+    if (!focusId || !sessionId) {
+      return null;
+    }
+
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const entry = history[index];
+      if (entry.sessionId !== sessionId || entry.nodeId !== focusId) {
+        continue;
+      }
+      if (entry.activationKind === 'focus-root' || entry.activationKind === 'source-root' || entry.associationType === 'focus') {
+        return entry.eventId;
+      }
+    }
+
+    return null;
+  }
+
+  private rebuildDisplayPathEventIds(
+    displayPath: string[],
+    history: NeuralRoamHistoryEntry[],
+  ): string[] {
+    const remaining = history.map((entry) => entry.eventId);
+    const result: string[] = [];
+
+    for (const nodeId of displayPath) {
+      const matchIndex = remaining.findIndex((eventId) => {
+        const entry = history.find((candidate) => candidate.eventId === eventId);
+        return entry?.nodeId === nodeId;
+      });
+      if (matchIndex >= 0) {
+        result.push(remaining.splice(matchIndex, 1)[0]);
+      }
+    }
+
+    return result;
+  }
+
+  private resolveBranchRootNodeId(
+    history: NeuralRoamHistoryEntry[],
+    currentFocus: string | null,
+  ): string | null {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const entry = history[index];
+      if (entry.branchRootNodeId) {
+        return entry.branchRootNodeId;
+      }
+    }
+    return currentFocus;
+  }
+
+  private createHistoryEntry(
+    nodeId: string,
+    sessionId: string,
+    nodePreview: string,
+    meta: ActivateNodeMeta,
+  ): NeuralRoamHistoryEntry {
+    const eventId = createHistoryEventId();
+    const activationKind = meta.activationKind ?? (meta.associationType === 'focus' ? 'focus-root' : 'graph-edge');
+    const branchRootNodeId = meta.branchRootNodeId ?? this.branchRootNodeId ?? meta.focusId ?? nodeId;
+    return {
+      eventId,
+      nodeId,
+      focusId: meta.focusId,
+      sessionId,
+      associationType: meta.associationType,
+      reason: meta.reason,
+      visitedAt: Date.now(),
+      isVirtual: meta.isVirtual,
+      nodePreview,
+      traceQuality: 'exact',
+      engineMode: 'orbit',
+      sourceRole: activationKind === 'focus-root' ? 'orbit-center' : null,
+      origin: meta.origin ?? resolveOrbitOrigin(meta.associationType),
+      sourceNodeId: meta.sourceNodeId ?? null,
+      sourceEventId: meta.sourceEventId ?? null,
+      branchRootNodeId,
+      activationKind,
+      depth: null,
+      conductionScore: null,
+    };
+  }
+
+  private toTraceStep(entry: NeuralRoamHistoryEntry): NeuralActivationTraceStep {
+    return {
+      eventId: entry.eventId,
+      nodeId: entry.nodeId,
+      nodePreview: entry.nodePreview,
+      isVirtual: entry.isVirtual,
+      associationType: entry.associationType,
+      reason: entry.reason,
+      activationKind: entry.activationKind,
+      visitedAt: entry.visitedAt,
+      focusId: entry.focusId,
+      engineMode: entry.engineMode,
+      sourceRole: entry.sourceRole,
+      sourceNodeId: entry.sourceNodeId,
+      sourceEventId: entry.sourceEventId,
+      branchRootNodeId: entry.branchRootNodeId,
+      traceQuality: entry.traceQuality,
+      depth: entry.depth,
+      conductionScore: entry.conductionScore,
+      origin: entry.origin ?? null,
+      isSyntheticRoot: false,
+    };
+  }
+
+  private buildSyntheticRootStep(
+    entry: NeuralRoamHistoryEntry,
+    forcedNodeId?: string | null,
+  ): NeuralActivationTraceStep {
+    const nodeId = forcedNodeId ?? entry.sourceNodeId ?? entry.branchRootNodeId ?? entry.focusId ?? entry.nodeId;
+    const latest = this.findLatestHistoryEntry(nodeId);
+    const nodeState = this.getNodeState(nodeId);
+    return {
+      eventId: `synthetic-root-${entry.eventId}-${nodeId}`,
+      nodeId,
+      nodePreview: latest?.nodePreview ?? nodeState?.preview ?? this.compressText(nodeId),
+      isVirtual: latest?.isVirtual ?? this.getNodeKind(nodeId) === 'virtual',
+      associationType: 'focus',
+      reason: this.getReasonText('focus'),
+      activationKind: 'focus-root',
+      visitedAt: latest?.visitedAt ?? entry.visitedAt,
+      focusId: nodeId,
+      engineMode: 'orbit',
+      sourceRole: 'orbit-center',
+      origin: 'source',
+      sourceNodeId: null,
+      sourceEventId: null,
+      branchRootNodeId: nodeId,
+      traceQuality: 'exact',
+      depth: 0,
+      conductionScore: latest?.conductionScore ?? 1,
+      isSyntheticRoot: true,
+    };
   }
 }

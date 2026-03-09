@@ -170,6 +170,30 @@ export interface FilterGroupDefinition {
     weight: number;
 }
 
+export interface HyperspaceTreeChannels {
+    blockTree: boolean;
+    documentTree: boolean;
+}
+
+export interface HyperspaceSettings {
+    treeChannels: HyperspaceTreeChannels;
+    maxLayersPerRepetition: number;
+    maxTotalDepth: number;
+    conceptLinkGroupPriority: number;
+    elementLinkGroupPriority: number;
+    treeChildGroupPriority: number;
+    treeParentGroupPriority: number;
+    treeSiblingBaseGroupPriority: number;
+    siblingDistancePenalty: number;
+    articleRootParentConductionProbability: number;
+    activationCarryDecay: number;
+    raceRandomness: number;
+}
+
+export interface NeuralRoamSettings {
+    hyperspace: HyperspaceSettings;
+}
+
 export interface QueueSettings {
     defaultQueue: 'retrieval' | 'final-drill' | 'neural-roam' | 'filter-group';
     /**
@@ -224,6 +248,7 @@ export interface QueueSettings {
             sibling: number;
         };
     };
+    neuralRoam?: NeuralRoamSettings;
     filterGroup: {
         enabled: boolean;
         groups: FilterGroupDefinition[];
@@ -318,6 +343,34 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         ...settings,
         fsrs: { ...settings.fsrs },
         scheduler: settings.scheduler ? { ...settings.scheduler } : settings.scheduler,
+        queues: {
+            ...DEFAULT_SETTINGS.queues,
+            ...(settings.queues || {}),
+            neuralWandering: {
+                ...DEFAULT_SETTINGS.queues.neuralWandering,
+                ...(settings.queues?.neuralWandering || {}),
+                weights: {
+                    ...DEFAULT_SETTINGS.queues.neuralWandering.weights,
+                    ...(settings.queues?.neuralWandering?.weights || {}),
+                },
+            },
+            neuralRoam: {
+                ...DEFAULT_SETTINGS.queues.neuralRoam,
+                ...(settings.queues?.neuralRoam || {}),
+                hyperspace: {
+                    ...DEFAULT_SETTINGS.queues.neuralRoam?.hyperspace,
+                    ...(settings.queues?.neuralRoam?.hyperspace || {}),
+                    treeChannels: {
+                        ...DEFAULT_SETTINGS.queues.neuralRoam?.hyperspace.treeChannels,
+                        ...(settings.queues?.neuralRoam?.hyperspace?.treeChannels || {}),
+                    },
+                },
+            },
+            filterGroup: {
+                ...DEFAULT_SETTINGS.queues.filterGroup,
+                ...(settings.queues?.filterGroup || {}),
+            },
+        },
         quickCard: {
             ...DEFAULT_SETTINGS.quickCard,
             ...(settings.quickCard || {}),
@@ -370,6 +423,32 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         }
 
         if ((sourceQuickCard.flashcardSeededFromSiyuan ?? false) !== normalizedQuickCard.flashcardSeededFromSiyuan) {
+            changed = true;
+        }
+    }
+
+    if (!settings.queues?.neuralRoam?.hyperspace) {
+        changed = true;
+    } else {
+        const sourceHyperspace = settings.queues.neuralRoam.hyperspace;
+        const normalizedHyperspace = normalized.queues.neuralRoam?.hyperspace;
+        if (!normalizedHyperspace) {
+            changed = true;
+        } else if (
+            sourceHyperspace.maxLayersPerRepetition !== normalizedHyperspace.maxLayersPerRepetition
+            || sourceHyperspace.maxTotalDepth !== normalizedHyperspace.maxTotalDepth
+            || sourceHyperspace.conceptLinkGroupPriority !== normalizedHyperspace.conceptLinkGroupPriority
+            || sourceHyperspace.elementLinkGroupPriority !== normalizedHyperspace.elementLinkGroupPriority
+            || sourceHyperspace.treeChildGroupPriority !== normalizedHyperspace.treeChildGroupPriority
+            || sourceHyperspace.treeParentGroupPriority !== normalizedHyperspace.treeParentGroupPriority
+            || sourceHyperspace.treeSiblingBaseGroupPriority !== normalizedHyperspace.treeSiblingBaseGroupPriority
+            || sourceHyperspace.siblingDistancePenalty !== normalizedHyperspace.siblingDistancePenalty
+            || sourceHyperspace.articleRootParentConductionProbability !== normalizedHyperspace.articleRootParentConductionProbability
+            || sourceHyperspace.activationCarryDecay !== normalizedHyperspace.activationCarryDecay
+            || sourceHyperspace.raceRandomness !== normalizedHyperspace.raceRandomness
+            || sourceHyperspace.treeChannels?.blockTree !== normalizedHyperspace.treeChannels.blockTree
+            || sourceHyperspace.treeChannels?.documentTree !== normalizedHyperspace.treeChannels.documentTree
+        ) {
             changed = true;
         }
     }
@@ -503,6 +582,25 @@ export const DEFAULT_SETTINGS: PluginSettings = {
                 context: 5,
                 tag: 3,
                 sibling: 1,
+            },
+        },
+        neuralRoam: {
+            hyperspace: {
+                treeChannels: {
+                    blockTree: false,
+                    documentTree: false,
+                },
+                maxLayersPerRepetition: 2,
+                maxTotalDepth: 8,
+                conceptLinkGroupPriority: 0.01,
+                elementLinkGroupPriority: 0.05,
+                treeChildGroupPriority: 0.16,
+                treeParentGroupPriority: 0.20,
+                treeSiblingBaseGroupPriority: 0.26,
+                siblingDistancePenalty: 0.75,
+                articleRootParentConductionProbability: 0.35,
+                activationCarryDecay: 0.72,
+                raceRandomness: 0.12,
             },
         },
         filterGroup: {

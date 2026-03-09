@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NeuralRoamQueue } from '../NeuralRoamQueue';
 import type { QueuePersistencePort } from '../ports';
+import type { QueueCounterSnapshot } from '@/types/unified-data-source';
 
 function createPersistence(initial: unknown): {
   persistence: QueuePersistencePort;
@@ -90,7 +91,41 @@ function mockNeuralEngine(queue: NeuralRoamQueue): void {
 }
 
 describe('NeuralRoamQueue', () => {
-  it('migrates v4 state to v5 by splitting seedPool and anchorPool', async () => {
+  it('reuses a cached counter snapshot during review instead of force-refreshing cards', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager();
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+
+    const snapshot: QueueCounterSnapshot = {
+      version: 7,
+      remaining: 2,
+      due: 2,
+      total: 2,
+      buckets: {
+        all: 2,
+        item: 1,
+        descriptor: 0,
+        topic: 1,
+        concept: 0,
+      },
+      source: 'reconciled',
+    };
+
+    (queue as any).counterSnapshot = snapshot;
+    (queue as any).counterSnapshotDirty = false;
+    const getCardsSpy = vi.spyOn(queue, 'getCards').mockResolvedValue([]);
+
+    const result = await queue.handleReview('card-1', 3);
+
+    expect(getCardsSpy).not.toHaveBeenCalled();
+    expect(result.counterSnapshot).toEqual(snapshot);
+    expect(result.queueChanged).toBe(false);
+    expect(result.requiresCurrentViewReorder).toBe(false);
+  });
+
+  it('migrates v4 state to v7 by splitting seedPool and anchorPool', async () => {
     const { persistence, store } = createPersistence({
       version: 4,
       focusPool: [
@@ -135,11 +170,12 @@ describe('NeuralRoamQueue', () => {
     expect(queue.getAnchorSnapshot().map((entry) => entry.nodeId)).toContain('virtual-1');
 
     const saved = store.get('neuralRoamQueue') as any;
-    expect(saved?.version).toBe(5);
-    expect(Array.isArray(saved?.seedPool)).toBe(true);
-    expect(Array.isArray(saved?.anchorPool)).toBe(true);
-    expect(saved?.seedPool.map((entry: { nodeId: string }) => entry.nodeId)).toContain('concept-a');
-    expect(saved?.anchorPool.map((entry: { nodeId: string }) => entry.nodeId)).toContain('virtual-1');
+    expect(saved?.version).toBe(7);
+    expect(saved?.engineMode).toBe('orbit');
+    expect(Array.isArray(saved?.orbit?.seedPool)).toBe(true);
+    expect(Array.isArray(saved?.orbit?.anchorPool)).toBe(true);
+    expect(saved?.orbit?.seedPool.map((entry: { nodeId: string }) => entry.nodeId)).toContain('concept-a');
+    expect(saved?.orbit?.anchorPool.map((entry: { nodeId: string }) => entry.nodeId)).toContain('virtual-1');
   });
 
   it('normalizes seed pool on load and removes non-concept entries', async () => {
@@ -188,9 +224,10 @@ describe('NeuralRoamQueue', () => {
     expect(conceptQueue.currentFocus).toBeNull();
 
     const saved = store.get('neuralRoamQueue') as any;
-    expect(saved?.version).toBe(5);
-    expect(saved?.seedPool.map((entry: { nodeId: string }) => entry.nodeId)).toEqual(['concept-a']);
-    expect(saved?.anchorPool).toEqual([]);
+    expect(saved?.version).toBe(7);
+    expect(saved?.engineMode).toBe('orbit');
+    expect(saved?.orbit?.seedPool.map((entry: { nodeId: string }) => entry.nodeId)).toEqual(['concept-a']);
+    expect(saved?.orbit?.anchorPool).toEqual([]);
   });
 
   it('keeps seed pool unchanged when local concept lookup fails during load normalization', async () => {
@@ -400,5 +437,28 @@ describe('NeuralRoamQueue', () => {
     await queue.getPathItemByNodeId('virtual-1');
 
     expect(resolveCardType).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards activation trace lookup from concept queue', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-a')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const history = queue.getHistorySnapshot();
+    const trace = queue.getActivationTrace(history[0].eventId);
+
+    expect(trace).not.toBeNull();
+    expect(trace?.targetNodeId).toBe('concept-a');
+    expect(trace?.steps[0]?.nodeId).toBe('concept-a');
   });
 });

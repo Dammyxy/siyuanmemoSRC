@@ -16,8 +16,8 @@
 
     <!-- 设置区域 -->
     <div class="settings-content">
-      <!-- 参数设置 -->
-      <div v-show="activeTab === 'params'" class="settings-section">
+      <!-- 学习与队列 -->
+      <div v-show="activeTab === 'study'" class="settings-section">
         <h3>{{ t('fsrsParamsTitle', 'FSRS 参数') }}</h3>
         
         <!-- 请求保留率 -->
@@ -95,90 +95,7 @@
 
         <div class="fn__hr"></div>
 
-        <h3>{{ t('featuresTitle', '功能开关') }}</h3>
-
-        <div class="fn__hr"></div>
-
-        <h3>{{ t('storageConflictTitle', '多端冲突处理') }}</h3>
-        <div class="form-item">
-          <label>{{ t('storageConflictStrategy', '冲突策略') }}</label>
-          <div class="form-control">
-            <select v-model="riffIntegrationConfig.storageConflictResolution" class="scheduler-select">
-              <option value="merge">{{ t('storageConflictMerge', '自动合并（推荐）') }}</option>
-              <option value="prefer-remote">{{ t('storageConflictPreferRemote', '云端覆盖本地') }}</option>
-              <option value="prefer-local">{{ t('storageConflictPreferLocal', '本地覆盖云端') }}</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            {{ t('storageConflictHint', '检测到多实例写入冲突时，选择自动合并或单向覆盖策略。') }}
-          </p>
-        </div>
-
-        <div class="fn__hr"></div>
-
-        <!-- Quick Card Symbols -->
-        <h3>{{ t('quickCardTitle', '监听符号制卡') }}</h3>
-        
-        <!-- 启用开关 -->
-        <div class="form-item">
-          <label>{{ t('quickCardEnabled', '启用监听符号制卡') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="settings.quickCard.enabled">
-          </div>
-          <p class="form-hint">
-            {{ t('quickCardEnabledHint', '启用后，插件会监听块内容变化，自动检测符号并创建卡片。默认关闭，避免误触发。') }}
-          </p>
-        </div>
-        
-        <p class="form-hint" style="margin-bottom: 16px;" v-if="settings.quickCard.enabled">
-          ✅ {{ t('quickCardSymbolsInfo', '支持的符号类型') }}：&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;
-        </p>
-
-        <p class="form-hint" v-if="settings.quickCard.enabled">
-          {{ t('quickCardFlashcardHint', '只影响 SiyuanMemo 对新卡的 Topic/Item 识别，不回写思源原生设置。') }}
-        </p>
-
-        <div v-if="settings.quickCard.enabled" class="form-item">
-          <label>{{ t('quickCardFlashcardMarkLabel', '标记制卡') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="settings.quickCard.flashcard.mark">
-          </div>
-          <p class="form-hint">
-            {{ t('quickCardFlashcardMarkHint', '启用后支持标记制卡，标记的文本被识别为挖空填空') }}
-          </p>
-        </div>
-
-        <div v-if="settings.quickCard.enabled" class="form-item">
-          <label>{{ t('quickCardFlashcardListLabel', '列表块制卡') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="settings.quickCard.flashcard.list">
-          </div>
-          <p class="form-hint">
-            {{ t('quickCardFlashcardListHint', '启用后支持列表块制卡，列表的第一个列表项被识别为问题，子列表识别为答案') }}
-          </p>
-        </div>
-
-        <div v-if="settings.quickCard.enabled" class="form-item">
-          <label>{{ t('quickCardFlashcardHeadingLabel', '标题块制卡') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="settings.quickCard.flashcard.heading">
-          </div>
-          <p class="form-hint">
-            {{ t('quickCardFlashcardHeadingHint', '启用后支持标题块制卡，标题块被识别为问题，下方块识别为答案') }}
-          </p>
-        </div>
-
-        <div v-if="settings.quickCard.enabled" class="form-item">
-          <label>{{ t('quickCardFlashcardSuperBlockLabel', '超级块制卡') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="settings.quickCard.flashcard.superBlock">
-          </div>
-          <p class="form-hint">
-            {{ t('quickCardFlashcardSuperBlockHint', '启用后支持超级块制卡，超级块的第一个子块被识别为问题，其余子块识别为答案') }}
-          </p>
-        </div>
-
-        <div class="fn__hr"></div>
+        <h3>{{ t('learningQueueTitle', '学习与队列') }}</h3>
 
         <!-- 🆕 每日刷新时间 -->
         <div class="form-item">
@@ -305,13 +222,91 @@
           </p>
         </div>
 
-        <!-- 当前参数展示 -->
         <div class="form-item">
           <label>{{ t('modelParams', `模型参数 (${FSRS_WEIGHT_COUNT})`) }}</label>
           <div class="params-preview">
             <code>{{ paramsPreview }}</code>
           </div>
           <p class="form-hint">{{ t('modelParamsHint', '使用优化器可以根据你的复习数据自动优化这些参数') }}</p>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'capture-sync'" class="settings-section">
+        <h3>{{ t('storageConflictTitle', '多端冲突处理') }}</h3>
+        <div class="form-item">
+          <label>{{ t('storageConflictStrategy', '冲突策略') }}</label>
+          <div class="form-control">
+            <select v-model="riffIntegrationConfig.storageConflictResolution" class="scheduler-select">
+              <option value="merge">{{ t('storageConflictMerge', '自动合并（推荐）') }}</option>
+              <option value="prefer-remote">{{ t('storageConflictPreferRemote', '云端覆盖本地') }}</option>
+              <option value="prefer-local">{{ t('storageConflictPreferLocal', '本地覆盖云端') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('storageConflictHint', '检测到多实例写入冲突时，选择自动合并或单向覆盖策略。') }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h3>{{ t('quickCardTitle', '监听符号制卡') }}</h3>
+
+        <div class="form-item">
+          <label>{{ t('quickCardEnabled', '启用监听符号制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.enabled">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardEnabledHint', '启用后，插件会监听块内容变化，自动检测符号并创建卡片。默认关闭，避免误触发。') }}
+          </p>
+        </div>
+
+        <p class="form-hint" style="margin-bottom: 16px;" v-if="settings.quickCard.enabled">
+          ✅ {{ t('quickCardSymbolsInfo', '支持的符号类型') }}：&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;
+        </p>
+
+        <p class="form-hint" v-if="settings.quickCard.enabled">
+          {{ t('quickCardFlashcardHint', '只影响 SiyuanMemo 对新卡的 Topic/Item 识别，不回写思源原生设置。') }}
+        </p>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('quickCardFlashcardMarkLabel', '标记制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.flashcard.mark">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardFlashcardMarkHint', '启用后支持标记制卡，标记的文本被识别为挖空填空') }}
+          </p>
+        </div>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('quickCardFlashcardListLabel', '列表块制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.flashcard.list">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardFlashcardListHint', '启用后支持列表块制卡，列表的第一个列表项被识别为问题，子列表识别为答案') }}
+          </p>
+        </div>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('quickCardFlashcardHeadingLabel', '标题块制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.flashcard.heading">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardFlashcardHeadingHint', '启用后支持标题块制卡，标题块被识别为问题，下方块识别为答案') }}
+          </p>
+        </div>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('quickCardFlashcardSuperBlockLabel', '超级块制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.flashcard.superBlock">
+          </div>
+          <p class="form-hint">
+            {{ t('quickCardFlashcardSuperBlockHint', '启用后支持超级块制卡，超级块的第一个子块被识别为问题，其余子块识别为答案') }}
+          </p>
         </div>
 
         <div class="fn__hr"></div>
@@ -389,16 +384,134 @@
             {{ t('blockAttrsCleanupSkippedTreeNotFound', 'tree not found 跳过数') }}: {{ blockAttrsCleanupRunResult.skippedTreeNotFoundCount }}
           </div>
         </div>
+      </div>
 
-        <div class="form-actions">
-          <button class="btn-primary" @click="saveSettings">{{ t('saveSettings', '保存设置') }}</button>
-          <button class="btn-secondary" @click="resetSettings">{{ t('resetDefault', '重置默认') }}</button>
+      <div v-show="activeTab === 'neural'" class="settings-section">
+        <h3>{{ t('hyperspaceSettingsTitle', 'Hyperspace / 超空间远征') }}</h3>
+        <p class="form-hint form-hint--section">
+          {{ t('neuralSettingsIntro', '当前可配置的是超空间远征传播参数；Orbit / 轨道暂不提供独立设置项。') }}
+        </p>
+
+        <h4>{{ t('hyperspaceChannelsSection', '传播通道') }}</h4>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceEnableBlockTree', '启用块树传播') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="queueSettings.neuralRoam!.hyperspace.treeChannels.blockTree">
+          </div>
+          <p class="form-hint">
+            {{ t('hyperspaceEnableBlockTreeHint', '允许通过块的父子与同级结构传播。默认关闭，避免把普通排版结构误当知识树。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceEnableDocumentTree', '启用文档树传播') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="queueSettings.neuralRoam!.hyperspace.treeChannels.documentTree">
+          </div>
+          <p class="form-hint">
+            {{ t('hyperspaceEnableDocumentTreeHint', '允许通过文档父子与同级关系传播。默认关闭，适合明确把文档层级当知识树使用的库。') }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h4>{{ t('hyperspaceRangeSection', '扩散范围') }}</h4>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceMaxLayersPerRepetition', '每次复习扩层数') }}</label>
+          <div class="form-control">
+            <input type="number" min="1" max="5" step="1" v-model.number="queueSettings.neuralRoam!.hyperspace.maxLayersPerRepetition">
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceMaxTotalDepth', '最大传播深度') }}</label>
+          <div class="form-control">
+            <input type="number" min="1" max="16" step="1" v-model.number="queueSettings.neuralRoam!.hyperspace.maxTotalDepth">
+          </div>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h4>{{ t('hyperspaceWeightsSection', '传播权重') }}</h4>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceConceptLinkPriority', '概念链接权重') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="1" step="0.01" v-model.number="queueSettings.neuralRoam!.hyperspace.conceptLinkGroupPriority">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.conceptLinkGroupPriority.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceElementLinkPriority', '块链接权重') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="1" step="0.01" v-model.number="queueSettings.neuralRoam!.hyperspace.elementLinkGroupPriority">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.elementLinkGroupPriority.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceTreeChildPriority', '子节点传导权重') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="1" step="0.01" v-model.number="queueSettings.neuralRoam!.hyperspace.treeChildGroupPriority">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.treeChildGroupPriority.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceTreeParentPriority', '父节点传导权重') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="1" step="0.01" v-model.number="queueSettings.neuralRoam!.hyperspace.treeParentGroupPriority">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.treeParentGroupPriority.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceTreeSiblingPriority', '同级传导基础权重') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="1" step="0.01" v-model.number="queueSettings.neuralRoam!.hyperspace.treeSiblingBaseGroupPriority">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.treeSiblingBaseGroupPriority.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceSiblingDistancePenalty', '同级距离衰减') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="5" step="0.05" v-model.number="queueSettings.neuralRoam!.hyperspace.siblingDistancePenalty">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.siblingDistancePenalty.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceRootParentProbability', '文章根父节点导通概率') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="1" step="0.01" v-model.number="queueSettings.neuralRoam!.hyperspace.articleRootParentConductionProbability">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.articleRootParentConductionProbability.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceActivationCarryDecay', '激活携带衰减') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="1" step="0.01" v-model.number="queueSettings.neuralRoam!.hyperspace.activationCarryDecay">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.activationCarryDecay.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('hyperspaceRaceRandomness', '竞争随机性') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="1" step="0.01" v-model.number="queueSettings.neuralRoam!.hyperspace.raceRandomness">
+            <span class="form-value">{{ queueSettings.neuralRoam!.hyperspace.raceRandomness.toFixed(2) }}</span>
+          </div>
+          <p class="form-hint">
+            {{ t('hyperspaceRaceRandomnessHint', '值越大，前沿候选之间越容易出现轻微顺序波动；值越小，结果越稳定。') }}
+          </p>
         </div>
       </div>
 
-
-
-      <!-- About -->
       <div v-show="activeTab === 'about'" class="settings-section about-section">
         <div class="guide-section">
           <h4>ℹ️ About</h4>
@@ -406,6 +519,13 @@
             Dedicated to the past, present, and future of the SiYuan and spaced repetition community.
           </p>
         </div>
+      </div>
+    </div>
+
+    <div v-if="activeTab !== 'about'" class="settings-footer">
+      <div class="form-actions">
+        <button class="btn-primary" @click="saveSettings">{{ t('saveSettings', '保存设置') }}</button>
+        <button class="btn-secondary" @click="resetSettings">{{ t('resetDefault', '重置默认') }}</button>
       </div>
     </div>
   </div>
@@ -463,6 +583,42 @@ function mergeQuickCardSettings(source?: Partial<QuickCardSettings>): QuickCardS
   };
 }
 
+function createDefaultQueueSettings(): QueueSettings {
+  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.queues)) as QueueSettings;
+}
+
+function mergeQueueSettings(source?: Partial<QueueSettings>): QueueSettings {
+  const defaults = createDefaultQueueSettings();
+  return {
+    ...defaults,
+    ...(source || {}),
+    neuralWandering: {
+      ...defaults.neuralWandering,
+      ...(source?.neuralWandering || {}),
+      weights: {
+        ...defaults.neuralWandering.weights,
+        ...(source?.neuralWandering?.weights || {}),
+      },
+    },
+    neuralRoam: {
+      ...defaults.neuralRoam,
+      ...(source?.neuralRoam || {}),
+      hyperspace: {
+        ...defaults.neuralRoam?.hyperspace,
+        ...(source?.neuralRoam?.hyperspace || {}),
+        treeChannels: {
+          ...defaults.neuralRoam?.hyperspace.treeChannels,
+          ...(source?.neuralRoam?.hyperspace?.treeChannels || {}),
+        },
+      },
+    },
+    filterGroup: {
+      ...defaults.filterGroup,
+      ...(source?.filterGroup || {}),
+    },
+  };
+}
+
 // Emits
 const emit = defineEmits<{
   (e: 'save', settings: Record<string, unknown>): void;
@@ -499,29 +655,31 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-const tabs = computed(() => [
-  { key: 'params', label: t('settingsParamsTab', '参数设置'), icon: '#iconSettings' },
+type SettingsTabKey = 'study' | 'capture-sync' | 'neural' | 'about';
+
+function normalizeSettingsTabKey(tab?: string): SettingsTabKey {
+  switch (tab) {
+  case 'capture-sync':
+  case 'neural':
+  case 'about':
+  case 'study':
+    return tab;
+  case 'params':
+  default:
+    return 'study';
+  }
+}
+
+const tabs = computed<Array<{ key: SettingsTabKey; label: string; icon: string }>>(() => [
+  { key: 'study', label: t('settingsStudyTab', '学习与队列'), icon: '#iconSettings' },
+  { key: 'capture-sync', label: t('settingsCaptureSyncTab', '制卡与同步'), icon: '#iconSettings' },
+  { key: 'neural', label: t('settingsNeuralTab', '神经漫游'), icon: '#iconSettings' },
   { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo' },
 ]);
 
-const activeTab = ref(props.defaultTab || 'params');
+const activeTab = ref<SettingsTabKey>(normalizeSettingsTabKey(props.defaultTab));
 
-const queueSettings = ref<QueueSettings>({
-  defaultQueue: 'retrieval',
-  addToOutstandingEveryNth: 2,
-  neuralWandering: {
-    enabled: false,
-    maxPool: 200,
-    historyLimit: 50,
-    maxContext: 30,
-    enableTags: false,
-    maxTags: 10,
-    enableSiblings: false,
-    maxSiblings: 10,
-    weights: { ref: 10, context: 5, tag: 3, sibling: 1 },
-  },
-  filterGroup: { enabled: false, groups: [] },
-});
+const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 
 // 设置
 interface Settings {
@@ -762,22 +920,7 @@ function loadSettings() {
   
   if (props.queueSettings) {
     const incoming = JSON.parse(JSON.stringify(props.queueSettings));
-    queueSettings.value = {
-      ...queueSettings.value,
-      ...incoming,
-      neuralWandering: {
-        ...queueSettings.value.neuralWandering,
-        ...(incoming.neuralWandering || {}),
-        weights: {
-          ...queueSettings.value.neuralWandering.weights,
-          ...(incoming.neuralWandering?.weights || {}),
-        },
-      },
-      filterGroup: {
-        ...queueSettings.value.filterGroup,
-        ...(incoming.filterGroup || {}),
-      },
-    };
+    queueSettings.value = mergeQueueSettings(incoming);
 
     settings.value.addToOutstandingEveryNth = normalizeOutstandingEveryNth(
       (incoming as QueueSettings & { outstandingEveryNth?: unknown; outstandingSpacing?: unknown })
@@ -949,6 +1092,7 @@ function resetSettings() {
     priorityRandomness: 0.1,
     quickCard: createDefaultQuickCardSettings(),
   };
+  queueSettings.value = createDefaultQueueSettings();
 }
 
 // 🆕 重置调度器设置
@@ -1036,6 +1180,7 @@ async function handleRepairDates() {
 
 .settings-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--b3-border-color);
@@ -1072,8 +1217,15 @@ async function handleRepairDates() {
 
 .settings-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
+}
+
+.settings-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
 }
 
 .settings-section h3 {
@@ -1150,6 +1302,10 @@ async function handleRepairDates() {
   margin: 6px 0 0 0;
   font-size: 12px;
   color: var(--b3-theme-on-surface-light);
+}
+
+.form-hint--section {
+  margin-bottom: 16px;
 }
 
 .params-preview {

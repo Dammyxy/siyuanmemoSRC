@@ -648,7 +648,7 @@ export async function addToQueue(
   }
 
   if (queueType === 'neural-roam') {
-    let message = `已将 ${addResult.added} 张卡片设置为神经漫游种子块`;
+    let message = `已将 ${addResult.added} 张卡片加入起点`;
     if (filtered.skippedConceptCount > 0) {
       message += `（过滤了 ${filtered.skippedConceptCount} 张非 Concept 卡片）`;
     }

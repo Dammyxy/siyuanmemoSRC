@@ -129,11 +129,14 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return 0;
     }
 
-    if (queueId === 'neural-roam' && typeof queue.getConceptBlocks === 'function') {
+    if (
+      queueId === 'neural-roam'
+      && typeof (queue as { getSourceSnapshot?: () => unknown[] }).getSourceSnapshot === 'function'
+    ) {
       try {
-        return Math.max(0, queue.getConceptBlocks().length);
+        return Math.max(0, ((queue as { getSourceSnapshot: () => unknown[] }).getSourceSnapshot() || []).length);
       } catch (error) {
-        logger.debug('Failed to read neural-roam concept blocks, falling back to visible counters:', {
+        logger.debug('Failed to read neural-roam source snapshot, falling back to visible counters:', {
           queueId,
           error,
         });

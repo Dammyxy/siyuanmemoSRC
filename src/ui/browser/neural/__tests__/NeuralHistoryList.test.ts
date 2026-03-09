@@ -5,6 +5,7 @@ import type { NeuralListEntry } from '../types';
 
 function entry(partial: Partial<NeuralListEntry>): NeuralListEntry {
   return {
+    eventId: 'event-1',
     nodeId: 'node-1',
     focusId: 'focus-1',
     sessionId: 'session-1',
@@ -13,14 +14,19 @@ function entry(partial: Partial<NeuralListEntry>): NeuralListEntry {
     visitedAt: 100,
     isVirtual: false,
     nodePreview: 'Node preview',
+    traceQuality: 'exact',
+    sourceNodeId: null,
+    sourceEventId: null,
+    branchRootNodeId: 'focus-1',
+    activationKind: 'focus-root',
     ...partial,
   };
 }
 
 describe('NeuralHistoryList', () => {
   const entries: NeuralListEntry[] = [
-    entry({ nodeId: 'node-a', nodePreview: 'Alpha history', visitedAt: 200 }),
-    entry({ nodeId: 'node-b', nodePreview: 'Beta history', visitedAt: 300, isAnchored: true, isVirtual: true }),
+    entry({ eventId: 'event-a', nodeId: 'node-a', nodePreview: 'Alpha history', visitedAt: 200 }),
+    entry({ eventId: 'event-b', nodeId: 'node-b', nodePreview: 'Beta history', visitedAt: 300, isAnchored: true, isVirtual: true }),
   ];
 
   it('renders timeline in descending time order (latest on top)', () => {
@@ -35,6 +41,7 @@ describe('NeuralHistoryList', () => {
     expect(titles[0]).toContain('Beta history');
     expect(titles[1]).toContain('Alpha history');
     expect(wrapper.find('.neural-history-list__direction').exists()).toBe(true);
+    expect(wrapper.find('.neural-history-list__content').exists()).toBe(true);
   });
 
   it('emits preview on click and jump on double click/Enter', async () => {
@@ -70,10 +77,11 @@ describe('NeuralHistoryList', () => {
     expect(wrapper.emitted('toggle-anchor')?.[0]).toEqual(['node-b', false]);
   });
 
-  it('shows star icon and aria-label by anchor state', () => {
+  it('shows Orbit action labels by anchor state', () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {
         entries,
+        engineMode: 'orbit',
       },
     });
 
@@ -81,10 +89,11 @@ describe('NeuralHistoryList', () => {
     const firstRowActions = rows[0].findAll('.neural-list__action');
     const secondRowActions = rows[1].findAll('.neural-list__action');
 
-    expect(firstRowActions[1].text()).toBe('★');
-    expect(secondRowActions[1].text()).toBe('☆');
-    expect(firstRowActions[1].attributes('aria-label')).toBe('Unstar');
-    expect(secondRowActions[1].attributes('aria-label')).toBe('Star');
+    expect(firstRowActions[0].attributes('aria-label')).toBe('Set as Orbit Center');
+    expect(firstRowActions[1].text()).toBe('\u2605');
+    expect(secondRowActions[1].text()).toBe('\u2606');
+    expect(firstRowActions[1].attributes('aria-label')).toBe('Remove Anchor');
+    expect(secondRowActions[1].attributes('aria-label')).toBe('Add Anchor');
   });
 
   it('filters entries by search input', async () => {
@@ -110,5 +119,27 @@ describe('NeuralHistoryList', () => {
 
     await wrapper.find('.neural-list__toolbar-action').trigger('click');
     expect(wrapper.emitted('clear-history')?.[0]).toEqual([]);
+  });
+  it('hides internal graph-edge labels while keeping concrete relation labels', () => {
+    const wrapper = mount(NeuralHistoryList, {
+      props: {
+        entries: [
+          entry({
+            eventId: 'event-graph',
+            nodeId: 'node-graph',
+            nodePreview: 'Graph node',
+            associationType: 'element-link',
+            activationKind: 'graph-edge',
+            origin: 'backlink',
+          }),
+        ],
+      },
+    });
+
+    const meta = wrapper.find('.neural-list__meta').text();
+    expect(meta).toContain('Block Link');
+    expect(meta).toContain('Backlink');
+    expect(meta).not.toContain('Graph Edge Activation');
+    expect(meta).not.toContain('Tree Edge Activation');
   });
 });

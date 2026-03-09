@@ -124,8 +124,33 @@ flowchart TD
 - focus 选择加权：
   - 概念节点会额外获得 `1.6x` 加成
 
-## 6. 补充说明
+## 6. 当前实现 vs SuperMemo spreading activation
+
+基于 `H:/project-F/flashcard/资料/supermemo/Neural creativity - SuperMemo Help.md` 对照，当前插件的神经漫游和 SuperMemo 的 `spreading activation` 不是同一类算法。
+
+当前实现已经具备：
+
+- concept seeds，也就是只允许 Concept 节点进入 `seedPool`
+- focus-based weighted selection，也就是围绕当前 `focus` 做加权邻居选择
+- `backlink / outgoing-direct / outgoing-indirect / descriptor` 四类邻居来源
+- `history / displayPath / branch / bookmark` 这一套会话导航能力
+
+当前实现明确缺失：
+
+- inter-element link registry 驱动的层级传播
+- knowledge tree 的 `descendants / siblings / parents` 传播通道
+- 多层 frontier queue 的递归扩张
+- “每次 repetition 再继续扩张更多层”的持续扩散
+- 真正意义上的 spreading activation budget / conduction model
+
+所以当前实现的准确表述是：
+
+- 它是 concept-centered roam，也就是围绕概念种子和当前焦点做局部邻居漫游
+- 它不是 SuperMemo-style spreading activation，不会把普通元素自动当成持续传播导体
+- 它可以访问非概念节点，但这些节点主要是作为 Concept 焦点的一跳邻居被取出，而不是作为新的传播前沿持续扩散
+
+## 7. 补充说明
 
 - `NeuralRoamQueue.handleReview()` 中的评分结果，不直接决定漫游路径的下一跳。
-- 当前代码持久化使用的是 `v5` 状态结构。
-- 有些旧文档还写着 `v3`，以当前源码实现为准。
+- 当前代码持久化使用的是 `v6` 状态结构。
+- 有些旧文档还写着 `v3` 或 `v5`，以当前源码实现为准。

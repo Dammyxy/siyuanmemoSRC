@@ -122,7 +122,13 @@ describe('ConceptNeuralQueue', () => {
       focusId: 'virtual-focus-1',
       associationType: 'focus',
       isVirtual: true,
+      traceQuality: 'exact',
+      activationKind: 'focus-root',
+      branchRootNodeId: 'virtual-focus-1',
+      sourceNodeId: null,
+      sourceEventId: null,
     });
+    expect(history[0].eventId).toBeTruthy();
 
     const navState = queue.getNavigationState();
     expect(navState.currentNodeId).toBe('virtual-focus-1');
@@ -189,7 +195,14 @@ describe('ConceptNeuralQueue', () => {
 
     const history = queue.getHistorySnapshot();
     expect(history).toHaveLength(2);
-    expect(history[1].nodeId).toBe('virtual-neighbor-1');
+    expect(history[1]).toMatchObject({
+      nodeId: 'virtual-neighbor-1',
+      associationType: 'backlink',
+      activationKind: 'graph-edge',
+      sourceNodeId: 'virtual-focus-1',
+      sourceEventId: history[0].eventId,
+      branchRootNodeId: 'virtual-focus-1',
+    });
   });
 
   it('selects next auto focus from seed pool only (anchors are ignored)', async () => {
@@ -354,6 +367,93 @@ describe('ConceptNeuralQueue', () => {
     await customQueue.setSeedEntry('concept-seed-1', true);
     await expect(customQueue.setSeedEntry('virtual-seed-1', true)).rejects.toThrow('not a concept card');
     expect(customQueue.getSeedSnapshot().map((entry) => entry.nodeId)).toEqual(['concept-seed-1']);
+  });
+
+  it('builds exact activation trace from branch root to current node', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn(async () => [
+      { id: 'neighbor-1', type: 'backlink', weight: 10 },
+    ]);
+
+    await queue.addConceptBlock('concept-1');
+    await queue.startRoamingFromFocus('concept-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.getNextCard();
+
+    const history = queue.getHistorySnapshot();
+    const target = history[1];
+    const trace = queue.getActivationTrace(target.eventId);
+
+    expect(trace).not.toBeNull();
+    expect(trace?.isExact).toBe(true);
+    expect(trace?.branchRootNodeId).toBe('concept-1');
+    expect(trace?.steps.map((step) => step.nodeId)).toEqual(['concept-1', 'neighbor-1']);
+  });
+
+  it('uses cached focus preview for synthetic root steps instead of raw block id', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: blockId === 'concept-root' ? '概念根节点内容' : `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn(async () => [
+      { id: 'neighbor-1', type: 'backlink', weight: 10 },
+    ]);
+
+    await queue.addConceptBlock('concept-root');
+    await queue.startRoamingFromFocus('concept-root', {
+      includeFocusAsFirst: false,
+      resetHistory: true,
+    });
+
+    await queue.getNextCard();
+    const history = queue.getHistorySnapshot();
+    const trace = queue.getActivationTrace(history[0].eventId);
+
+    expect(trace?.steps[0]?.nodeId).toBe('concept-root');
+    expect(trace?.steps[0]?.nodePreview).toBe('概念根节点内容');
+  });
+
+  it('marks migrated history entries as legacy activation trace', () => {
+    const now = Date.now();
+    queue.restoreSessionState({
+      displayPath: ['legacy-node'],
+      currentPathIndex: 0,
+      navigationMode: 'follow',
+      bookmarkPathIndex: null,
+      history: [
+        {
+          nodeId: 'legacy-node',
+          focusId: 'legacy-focus',
+          sessionId: 'legacy-session',
+          associationType: 'backlink',
+          reason: '反向链接',
+          visitedAt: now,
+          isVirtual: false,
+          nodePreview: 'Legacy node',
+        } as any,
+      ],
+      currentFocus: 'legacy-focus',
+      currentSessionId: 'legacy-session',
+      visitedBlocks: ['legacy-node'],
+      exhaustedFocuses: [],
+    });
+
+    const history = queue.getHistorySnapshot();
+    const trace = queue.getActivationTrace(history[0].eventId);
+
+    expect(history[0].traceQuality).toBe('legacy');
+    expect(trace?.isExact).toBe(false);
+    expect(trace?.degradedReason).toBe('legacy');
+    expect(trace?.steps).toHaveLength(1);
   });
 
   it('preserves seed entries on validation errors when normalization policy is keep', async () => {

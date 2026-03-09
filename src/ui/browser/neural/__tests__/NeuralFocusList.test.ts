@@ -1,40 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import NeuralFocusList from '../NeuralFocusList.vue';
-import type { NeuralListEntry } from '../types';
+import type { NeuralSourceListEntry } from '../types';
 
-function entry(partial: Partial<NeuralListEntry>): NeuralListEntry {
+function entry(partial: Partial<NeuralSourceListEntry>): NeuralSourceListEntry {
   return {
     nodeId: 'node-1',
-    focusId: 'focus-1',
-    sessionId: 'session-1',
-    associationType: 'focus',
-    reason: 'focus',
+    nodePreview: 'Node preview',
+    nodeKind: 'concept',
+    role: 'orbit-center',
+    priority: 1,
+    addedAt: 100,
     visitedAt: 100,
     isVirtual: false,
-    nodePreview: 'Node preview',
-    inPool: false,
     ...partial,
   };
 }
 
 describe('NeuralFocusList', () => {
-  const sessionEntries: NeuralListEntry[] = [
-    entry({ nodeId: 'node-a', nodePreview: 'Alpha node', visitedAt: 300, inPool: true }),
-    entry({ nodeId: 'virtual-b', nodePreview: 'Virtual beta', visitedAt: 200, isVirtual: true, inPool: false }),
+  const entries: NeuralSourceListEntry[] = [
+    entry({ nodeId: 'node-a', nodePreview: 'Alpha node', visitedAt: 300, isAnchored: true }),
+    entry({ nodeId: 'node-b', nodePreview: 'Beta node', visitedAt: 200, isCurrent: true }),
   ];
 
-  const focusPoolEntries: NeuralListEntry[] = [
-    entry({ nodeId: 'node-a', nodePreview: 'Alpha node', visitedAt: 300, inPool: true }),
-    entry({ nodeId: 'node-c', nodePreview: 'Gamma worldline', visitedAt: 250, inPool: true }),
-  ];
-
-  function mountComponent() {
+  function mountComponent(engineMode: 'orbit' | 'hyperspace' = 'orbit') {
     return mount(NeuralFocusList, {
       props: {
-        sessionEntries,
-        focusPoolEntries,
-        currentNodeId: null,
+        entries,
+        engineMode,
       },
     });
   }
@@ -44,79 +37,51 @@ describe('NeuralFocusList', () => {
 
     await wrapper.find('.neural-list__item-main').trigger('click');
 
-    expect(wrapper.emitted('preview')).toBeTruthy();
     expect(wrapper.emitted('preview')?.[0]).toEqual(['node-a']);
   });
 
-  it('emits jump on double click and Enter', async () => {
+  it('emits set-current-focus on double click and Enter', async () => {
     const wrapper = mountComponent();
 
     const firstItem = wrapper.find('.neural-list__item-main');
     await firstItem.trigger('dblclick');
     await firstItem.trigger('keydown.enter');
 
-    expect(wrapper.emitted('jump')).toBeTruthy();
-    expect(wrapper.emitted('jump')?.[0]).toEqual(['node-a']);
-    expect(wrapper.emitted('jump')?.[1]).toEqual(['node-a']);
+    expect(wrapper.emitted('set-current-focus')?.[0]).toEqual(['node-a']);
+    expect(wrapper.emitted('set-current-focus')?.[1]).toEqual(['node-a']);
   });
 
   it('filters entries by search input', async () => {
-    const wrapper = mount(NeuralFocusList, {
-      props: {
-        sessionEntries,
-        focusPoolEntries: [],
-        currentNodeId: null,
-      },
-    });
+    const wrapper = mountComponent();
 
-    await wrapper.find('.neural-list__toolbar input').setValue('virtual');
+    await wrapper.find('.neural-list__toolbar input').setValue('beta');
 
     const titles = wrapper.findAll('.neural-list__title').map((item) => item.text());
-    expect(titles).toContain('Virtual beta');
-    expect(titles).not.toContain('Alpha node');
+    expect(titles).toHaveLength(1);
+    expect(titles[0]).toContain('Beta node');
   });
 
-  it('defaults to current mainline and can switch to worldline view', async () => {
+  it('renders orbit-specific title and emits row actions', async () => {
     const wrapper = mountComponent();
 
-    expect(wrapper.text()).toContain('Alpha node');
-    expect(wrapper.text()).toContain('Virtual beta');
-    expect(wrapper.text()).not.toContain('Gamma worldline');
+    expect(wrapper.text()).toContain('Orbit Centers');
+    expect(wrapper.text()).toContain('Start points work as orbit centers in this mode.');
 
-    await wrapper.find('[data-view="worldline"]').trigger('click');
-
-    expect(wrapper.text()).toContain('Gamma worldline');
-    expect(wrapper.text()).not.toContain('Virtual beta');
-  });
-
-  it('emits set-current-focus and toggle-pool for mainline entry', async () => {
-    const wrapper = mountComponent();
-
-    const startButtons = wrapper.findAll('[data-action="start-worldline"]');
-    const toggleButtons = wrapper.findAll('[data-action="toggle-worldline"]');
-    await startButtons[0].trigger('click');
-    await toggleButtons[0].trigger('click');
+    const actions = wrapper.findAll('.neural-list__action');
+    await actions[0].trigger('click');
+    await actions[1].trigger('click');
+    await actions[2].trigger('click');
 
     expect(wrapper.emitted('set-current-focus')?.[0]).toEqual(['node-a']);
-    expect(wrapper.emitted('toggle-pool')?.[0]).toEqual(['node-a', false]);
+    expect(wrapper.emitted('toggle-anchor')?.[0]).toEqual(['node-a', false]);
+    expect(wrapper.emitted('toggle-source')?.[0]).toEqual(['node-a', false]);
   });
 
-  it('emits toggle-pool for virtual node entry', async () => {
-    const wrapper = mountComponent();
+  it('switches wording in hyperspace mode', () => {
+    const wrapper = mountComponent('hyperspace');
 
-    const virtualToggle = wrapper.findAll('[data-action="toggle-worldline"]')[1];
-    await virtualToggle.trigger('click');
-
-    expect(wrapper.emitted('toggle-pool')?.[0]).toEqual(['virtual-b', true]);
-  });
-
-  it('shows clear-pool only in worldline view and emits clear-pool', async () => {
-    const wrapper = mountComponent();
-
-    expect(wrapper.find('[data-action="clear-worldline"]').exists()).toBe(false);
-    await wrapper.find('[data-view="worldline"]').trigger('click');
-    await wrapper.find('[data-action="clear-worldline"]').trigger('click');
-
-    expect(wrapper.emitted('clear-pool')).toBeTruthy();
+    expect(wrapper.text()).toContain('Activation Sources');
+    expect(wrapper.text()).toContain('Start points work as activation sources in this mode.');
+    expect(wrapper.findAll('.neural-list__action')[0].text()).toBe('Set as Primary Activation Source');
   });
 });

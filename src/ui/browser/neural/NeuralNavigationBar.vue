@@ -1,23 +1,43 @@
 <template>
   <div v-if="navigationState" class="neural-nav-bar">
     <div class="neural-nav-bar__status">
-      {{ statusText }}
+      <div class="neural-nav-bar__status-main">
+        <span class="neural-nav-bar__engine">{{ engineText }}</span>
+        <span class="neural-nav-bar__divider" aria-hidden="true">&middot;</span>
+        <span>{{ statusText }}</span>
+      </div>
+      <div class="neural-nav-bar__intro" :title="engineIntroLongText">
+        {{ engineIntroText }}
+      </div>
     </div>
     <div class="neural-nav-bar__actions">
       <button
         type="button"
         class="b3-button b3-button--outline neural-nav-bar__button"
+        :aria-label="engineButtonAriaLabel"
+        :title="engineButtonAriaLabel"
+        @click="$emit('toggle-engine-mode')"
+      >
+        {{ engineText }}
+      </button>
+      <button
+        type="button"
+        class="b3-button b3-button--outline neural-nav-bar__button"
+        :aria-label="statusText"
+        :title="statusText"
         @click="$emit('toggle-nav-mode')"
       >
-        {{ t('switchNavMode', 'Switch Roam Direction') }}
+        {{ navigationModeText }}
       </button>
       <button
         type="button"
         class="b3-button b3-button--outline neural-nav-bar__button"
         :disabled="!navigationState.hasBookmark"
+        :aria-label="bookmarkLabel"
+        :title="bookmarkLabel"
         @click="$emit('return-bookmark')"
       >
-        {{ t('returnToBookmark', 'Return to Mainline Anchor') }}
+        {{ bookmarkLabel }}
       </button>
     </div>
   </div>
@@ -33,6 +53,7 @@ const props = defineProps<{
 }>();
 
 defineEmits<{
+  (e: 'toggle-engine-mode'): void;
   (e: 'toggle-nav-mode'): void;
   (e: 'return-bookmark'): void;
 }>();
@@ -49,13 +70,46 @@ function interpolate(template: string, values: Record<string, string | number>):
   return output;
 }
 
-const modeText = computed(() => {
+const engineText = computed(() => {
+  if (!props.navigationState) {
+    return '';
+  }
+  return props.navigationState.engineMode === 'hyperspace'
+    ? t('engineHyperspace', 'Hyperspace Expedition')
+    : t('engineOrbit', 'Orbit');
+});
+
+const navigationModeText = computed(() => {
   if (!props.navigationState) {
     return '';
   }
   return props.navigationState.navigationMode === 'follow'
-    ? t('navModeFollow', 'Follow Mainline')
-    : t('navModeExplore', 'Explore Worldline Branches');
+    ? t('navModeFollow', 'Follow Path')
+    : t('navModeExplore', 'Free Explore');
+});
+
+const engineIntroText = computed(() => {
+  if (!props.navigationState) {
+    return '';
+  }
+  return props.navigationState.engineMode === 'hyperspace'
+    ? t('engineHyperspaceIntro', 'Propagate outward layer by layer from activation sources through links and optional tree relations.')
+    : t('engineOrbitIntro', 'Roam locally around orbit centers, concept cards, and nearby anchors.');
+});
+
+const engineIntroLongText = computed(() => {
+  if (!props.navigationState) {
+    return '';
+  }
+  return props.navigationState.engineMode === 'hyperspace'
+    ? t(
+        'engineHyperspaceIntroLong',
+        'Propagate outward from one or more activation sources through concept links, block links, and optional tree relations instead of orbiting a single center.',
+      )
+    : t(
+        'engineOrbitIntroLong',
+        'Roam locally around an orbit center through backlinks, direct references, indirect references, and descriptors near concept cards and anchors.',
+      );
 });
 
 const statusText = computed(() => {
@@ -67,16 +121,28 @@ const statusText = computed(() => {
     return interpolate(
       t('navStatusFollow', 'Current: {mode} ({current}/{total})'),
       {
-        mode: modeText.value,
+        mode: navigationModeText.value,
         current: props.navigationState.currentPathIndex + 1,
         total: props.navigationState.pathLength,
-      }
+      },
     );
   }
 
   return interpolate(
     t('navStatusExplore', 'Current: {mode}'),
-    { mode: modeText.value }
+    { mode: navigationModeText.value },
   );
 });
+
+const engineButtonAriaLabel = computed(() => {
+  if (!props.navigationState) {
+    return '';
+  }
+  return `${interpolate(
+    t('switchEngineMode', 'Switch Engine: {mode}'),
+    { mode: engineText.value },
+  )} ${engineIntroLongText.value}`.trim();
+});
+
+const bookmarkLabel = computed(() => t('returnToBookmark', 'Return to Anchor'));
 </script>

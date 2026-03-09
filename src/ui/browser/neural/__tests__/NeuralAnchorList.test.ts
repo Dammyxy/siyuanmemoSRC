@@ -58,13 +58,18 @@ describe('NeuralAnchorList', () => {
     const wrapper = mount(NeuralAnchorList, {
       props: {
         entries,
+        engineMode: 'orbit',
       },
     });
 
     const rows = wrapper.findAll('.neural-anchor-list__item');
+    const setOrbitCenterButton = rows[0].findAll('.neural-list__action')[0];
     const inPathJumpButton = rows[0].findAll('.neural-list__action')[1];
     const notInPathJumpButton = rows[1].findAll('.neural-list__action')[1];
 
+    expect(setOrbitCenterButton.attributes('aria-label')).toBe('Set as Orbit Center');
+    expect(inPathJumpButton.attributes('aria-label')).toBe('Jump in current path');
+    expect(notInPathJumpButton.attributes('aria-label')).toBe('Anchor is not in current path');
     expect(inPathJumpButton.attributes('disabled')).toBeUndefined();
     expect(notInPathJumpButton.attributes('disabled')).toBeDefined();
 

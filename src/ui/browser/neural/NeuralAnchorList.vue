@@ -8,11 +8,11 @@
       >
     </div>
     <div class="neural-anchor-list__hint">
-      {{ t('worldlineNodeLongDesc', 'Reusable branch anchors (worldline branch nodes)') }}
+      {{ t('worldlineNodeLongDesc', 'Reusable anchors') }}
     </div>
 
     <div v-if="filteredEntries.length === 0" class="neural-list__empty">
-      {{ t('noWorldlineAnchors', 'No worldline anchors') }}
+      {{ t('noWorldlineAnchors', 'No anchors') }}
     </div>
 
     <div v-else class="neural-anchor-list__items">
@@ -43,11 +43,11 @@
           <button
             type="button"
             class="b3-button b3-button--outline neural-list__action neural-list__action--icon neural-list__action--primary"
-            :title="t('startNewWorldline', 'Start New Worldline')"
-            :aria-label="t('startNewWorldline', 'Start New Worldline')"
+            :title="focusActionLabel"
+            :aria-label="focusActionLabel"
             @click.stop="$emit('set-current-focus', entry.nodeId)"
           >
-            ⎇
+            &#x2387;
           </button>
           <button
             type="button"
@@ -57,7 +57,7 @@
             :aria-label="entry.inHistory ? t('jumpAnchorInPath', 'Jump in current path') : t('anchorNotInPath', 'Anchor is not in current path')"
             @click.stop="$emit('jump-anchor', entry.nodeId)"
           >
-            ↩
+            &#x21AA;
           </button>
         </div>
       </div>
@@ -73,6 +73,7 @@ const props = defineProps<{
   i18n?: Record<string, string>;
   entries: NeuralAnchorListEntry[];
   currentNodeId?: string | null;
+  engineMode?: 'orbit' | 'hyperspace';
 }>();
 
 defineEmits<{
@@ -109,12 +110,18 @@ const filteredEntries = computed(() =>
     }))
 );
 
+const focusActionLabel = computed(() =>
+  props.engineMode === 'hyperspace'
+    ? t('setPrimaryActivationSource', 'Set as Primary Activation Source')
+    : t('setCurrentFocus', 'Set as Orbit Center')
+);
+
 function formatMeta(entry: NeuralAnchorListEntry): string {
   const base = entry.inHistory
-    ? t('routeMetaMainline', 'Mainline pass')
-    : t('routeMetaWorldline', 'Node updated');
+    ? t('routeMetaMainline', 'Current Path')
+    : t('routeMetaWorldline', 'Anchor');
   const timestamp = formatTime(entry.visitedAt);
-  return timestamp === '-' ? base : `${base} · ${timestamp}`;
+  return timestamp === '-' ? base : `${base} | ${timestamp}`;
 }
 
 function formatTime(timestamp: number): string {

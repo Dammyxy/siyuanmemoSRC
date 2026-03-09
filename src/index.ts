@@ -264,6 +264,12 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.topBarElement?.classList.add('fsrs-topbar');
     this.topBarContextMenuHandler = (ev: MouseEvent) => {
       ev.preventDefault();
+      ev.stopPropagation();
+      ev.stopImmediatePropagation?.();
+      if (!this.isInitialized) {
+        pushMsg(this.i18n?.loading || '插件初始化中...');
+        return;
+      }
       this.context.getMenuManager()?.openTopBarMenu(ev);
     };
     this.topBarElement?.addEventListener('contextmenu', this.topBarContextMenuHandler);

@@ -133,25 +133,54 @@
         <NeuralNavigationBar
           :i18n="props.i18n"
           :navigation-state="neuralNavigationState"
+          @toggle-engine-mode="handleNeuralToggleEngineMode"
           @toggle-nav-mode="handleNeuralToggleNavigationMode"
           @return-bookmark="handleNeuralReturnToBookmark"
         />
-        <NeuralHistoryList
-          v-if="neuralSubview === 'roam-history'"
+        <NeuralFocusList
+          v-if="neuralSubview === 'concept-cards'"
           :i18n="props.i18n"
-          :entries="neuralHistoryEntries"
-          :current-node-id="neuralCurrentNodeId"
+          :entries="neuralSourceEntries"
+          :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
           @preview="handleNeuralPreview"
-          @jump="handleNeuralJump"
           @set-current-focus="handleNeuralSetCurrentFocus"
+          @toggle-source="handleNeuralToggleSource"
           @toggle-anchor="handleNeuralToggleAnchor"
-          @clear-history="handleNeuralClearHistory"
         />
+        <template v-else-if="neuralSubview === 'roam-history'">
+          <div class="card-browser__neural-roam-layout">
+            <NeuralHistoryList
+              class="card-browser__neural-roam-pane card-browser__neural-roam-pane--history"
+              :i18n="props.i18n"
+              :entries="neuralHistoryEntries"
+              :current-node-id="neuralCurrentNodeId"
+              :selected-event-id="selectedNeuralHistoryEventId"
+              :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
+              @select="handleNeuralSelectHistoryEntry"
+              @preview="handleNeuralPreview"
+              @jump="handleNeuralJump"
+              @set-current-focus="handleNeuralSetCurrentFocus"
+              @toggle-anchor="handleNeuralToggleAnchor"
+              @clear-history="handleNeuralClearHistory"
+            />
+            <NeuralActivationTracePanel
+              class="card-browser__neural-roam-pane card-browser__neural-roam-pane--trace"
+              :i18n="props.i18n"
+              :trace="neuralActivationTrace"
+              :current-node-id="neuralCurrentNodeId"
+              :anchor-node-ids="neuralAnchorEntries.map((entry) => entry.nodeId)"
+              @preview="handleNeuralTracePreview"
+              @jump="handleNeuralTraceJump"
+              @select-step="handleNeuralSelectTraceStep"
+            />
+          </div>
+        </template>
         <NeuralAnchorList
           v-else-if="neuralSubview === 'worldline-anchors'"
           :i18n="props.i18n"
           :entries="neuralAnchorEntries"
           :current-node-id="neuralCurrentNodeId"
+          :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
           @preview="handleNeuralPreview"
           @set-current-focus="handleNeuralSetCurrentFocus"
           @jump-anchor="handleNeuralJumpAnchor"
@@ -244,6 +273,8 @@ import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
 import NeuralAnchorList from './neural/NeuralAnchorList.vue';
+import NeuralActivationTracePanel from './neural/NeuralActivationTracePanel.vue';
+import NeuralFocusList from './neural/NeuralFocusList.vue';
 import NeuralHistoryList from './neural/NeuralHistoryList.vue';
 import NeuralNavigationBar from './neural/NeuralNavigationBar.vue';
 import NeuralSubviewTabs from './neural/NeuralSubviewTabs.vue';
@@ -258,18 +289,30 @@ import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { RescheduleStoragePort } from '@/core/scheduler/ports';
 import { createColumnDefs } from './config';
 import type {
+  NeuralActivationTrace,
   BrowserCardTypeFilter,
   CardFilter,
   IReviewQueue,
   IUnifiedDataSourceManagerFacade,
+  NeuralEngineMode,
   NeuralNavigationState,
+  NeuralPropagationOrigin,
   NeuralRoamAnchorEntry,
   NeuralRoamHistoryEntry,
+  NeuralRoamSourceEntry,
   QueueType,
 } from '@/types/unified-data-source';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
 import { filterService } from './services/FilterService';
-import type { NeuralAnchorListEntry, NeuralListEntry, NeuralSubview } from './neural/types';
+import type {
+  NeuralActivationTraceStepViewModel,
+  NeuralActivationTraceViewModel,
+  NeuralAnchorListEntry,
+  NeuralHistoryEventRef,
+  NeuralListEntry,
+  NeuralSourceListEntry,
+  NeuralSubview,
+} from './neural/types';
 import { 
   CARD_STATE_COLORS, 
   DEFAULT_PRIORITY, 
@@ -431,10 +474,16 @@ const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({ ...EMPTY_QUEUE_COUNTS });
 const neuralSubview = ref<NeuralSubview>('concept-cards');
+const neuralSourceEntries = ref<NeuralSourceListEntry[]>([]);
 const neuralHistoryEntries = ref<NeuralListEntry[]>([]);
 const neuralAnchorEntries = ref<NeuralAnchorListEntry[]>([]);
 const neuralCurrentNodeId = ref<string | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
+const selectedNeuralHistoryEventId = ref<string | null>(null);
+const neuralActivationTrace = ref<NeuralActivationTraceViewModel | null>(null);
+const neuralTracePinnedToSelection = ref(false);
+const selectedNeuralTraceEventId = ref<string | null>(null);
+const selectedNeuralTraceNodeId = ref<string | null>(null);
 let neuralPreviewRequestSeq = 0;
 
 const appliedFilter = ref<CardFilter | null>(null);
@@ -587,12 +636,12 @@ const activeQueueTypeForRefresh = computed<QueueType | null>(() => {
   return null;
 });
 const showNeuralCustomSubview = computed(() =>
-  isNeuralRoamQueueActive.value && neuralSubview.value !== 'concept-cards'
+  isNeuralRoamQueueActive.value
 );
 const neuralSubviewTabs = computed(() => ([
-  { id: 'concept-cards' as const, label: t('roamSeeds', 'Roam Seeds') },
-  { id: 'roam-history' as const, label: t('roamHistory', 'Roam Path') },
-  { id: 'worldline-anchors' as const, label: t('worldlineAnchors', 'Worldline Anchors') },
+  { id: 'concept-cards' as const, label: t('roamSeeds', '起点') },
+  { id: 'roam-history' as const, label: t('roamHistory', '路径') },
+  { id: 'worldline-anchors' as const, label: t('worldlineAnchors', '锚点') },
 ]));
 
 // 始终启用 sortable，过 canApplySortToQueue 控制按钮显示
@@ -1394,6 +1443,13 @@ watch(currentCardType, () => {
 });
 
 watch(neuralSubview, () => {
+  if (neuralSubview.value !== 'roam-history') {
+    selectedNeuralHistoryEventId.value = null;
+    neuralActivationTrace.value = null;
+    neuralTracePinnedToSelection.value = false;
+    selectedNeuralTraceEventId.value = null;
+    selectedNeuralTraceNodeId.value = null;
+  }
   if (isNeuralRoamQueueActive.value) {
     void refreshNeuralSubviewData();
   }
@@ -2164,8 +2220,8 @@ function onCellContextMenu(event: CellContextMenuEvent) {
       menu.addItem({
         icon: 'iconList',
         label: allInSeedPool
-          ? t('removeSeedEntry', '移出漫游种子')
-          : t('addSeedEntry', '加入漫游种子'),
+          ? t('removeSeedEntry', '移出起点')
+          : t('addSeedEntry', '加入起点'),
         click: () => {
           void (async () => {
             for (const blockId of selectedIds) {
@@ -2855,8 +2911,29 @@ function toNeuralHistoryListEntries(
   options?: {
     anchorIds?: Set<string>;
     currentNodeId?: string | null;
+    selectedEventId?: string | null;
   }
 ): NeuralListEntry[] {
+  const anchorIds = options?.anchorIds ?? new Set<string>();
+  const currentNodeId = options?.currentNodeId ?? null;
+  const selectedEventId = options?.selectedEventId ?? null;
+  return [...entries]
+    .sort((a, b) => b.visitedAt - a.visitedAt)
+    .map((entry) => ({
+      ...entry,
+      isCurrent: currentNodeId ? entry.nodeId === currentNodeId : false,
+      isAnchored: anchorIds.has(entry.nodeId),
+      isSelected: selectedEventId ? entry.eventId === selectedEventId : false,
+    }));
+}
+
+function toNeuralSourceListEntries(
+  entries: NeuralRoamSourceEntry[],
+  options?: {
+    anchorIds?: Set<string>;
+    currentNodeId?: string | null;
+  }
+): NeuralSourceListEntry[] {
   const anchorIds = options?.anchorIds ?? new Set<string>();
   const currentNodeId = options?.currentNodeId ?? null;
   return [...entries]
@@ -2887,10 +2964,315 @@ function toNeuralAnchorListEntries(
 }
 
 function clearNeuralSubviewData(): void {
+  neuralSourceEntries.value = [];
   neuralHistoryEntries.value = [];
   neuralAnchorEntries.value = [];
   neuralCurrentNodeId.value = null;
   neuralNavigationState.value = null;
+  selectedNeuralHistoryEventId.value = null;
+  neuralActivationTrace.value = null;
+  neuralTracePinnedToSelection.value = false;
+  selectedNeuralTraceEventId.value = null;
+  selectedNeuralTraceNodeId.value = null;
+}
+
+function resolveNeuralRelationLabel(type: string): string {
+  const map: Record<string, string> = {
+    backlink: t('relationBacklink', '反链'),
+    'outgoing-direct': t('relationOutgoingDirect', '直接正链'),
+    'outgoing-indirect': t('relationOutgoingIndirect', '间接正链'),
+    descriptor: t('relationDescriptor', '描述符'),
+    focus: t('activationKindFocusRoot', '轨道中心节点'),
+    source: t('activationKindSourceRoot', '激活源'),
+    'concept-link': t('relationConceptLink', '概念链接'),
+    'element-link': t('relationElementLink', '块链接'),
+    'tree-child': t('relationTreeChild', '子块'),
+    'tree-sibling': t('relationTreeSibling', '同级块'),
+    'tree-parent': t('relationTreeParent', '父块'),
+    path: t('activationKindManualJump', '手动跳转'),
+  };
+  return map[type] || type || t('routeMetaWorldline', '锚点记录');
+}
+
+function resolveNeuralOriginLabel(origin: NeuralPropagationOrigin | string | null | undefined): string | null {
+  const map: Record<string, string> = {
+    backlink: t('relationOriginBacklink', '反向链接'),
+    'direct-ref': t('relationOriginDirectRef', '直接引用'),
+    'indirect-ref': t('relationOriginIndirectRef', '间接引用'),
+    descriptor: t('relationDescriptor', '描述符'),
+    'block-tree': t('relationOriginBlockTree', '块树'),
+    'document-tree': t('relationOriginDocumentTree', '文档树'),
+  };
+  const normalizedOrigin = String(origin || '').trim();
+  return map[normalizedOrigin] || null;
+}
+
+function resolveNeuralActivationLabel(type: string): string {
+  const map: Record<string, string> = {
+    'focus-root': t('activationKindFocusRoot', '轨道中心节点'),
+    'source-root': t('activationKindSourceRoot', '激活源'),
+    'graph-edge': t('activationKindGraphEdge', '图关系激活'),
+    'tree-edge': t('activationKindTreeEdge', '树关系激活'),
+    'follow-path': t('activationKindFollowPath', '沿当前路径'),
+    'manual-jump': t('activationKindManualJump', '手动跳转'),
+  };
+  return map[type] || type || t('activationTrace', '激活轨迹树');
+}
+
+function buildNeuralTraceRelationBadges(
+  step: NeuralActivationTraceStep,
+): NeuralActivationTraceStepViewModel['displayBadges'] {
+  const badges: NeuralActivationTraceStepViewModel['displayBadges'] = [];
+  const relationLabel = resolveNeuralRelationLabel(step.associationType);
+  const originLabel = resolveNeuralOriginLabel(step.origin);
+  const supportsOriginDetail =
+    step.associationType === 'concept-link'
+    || step.associationType === 'element-link'
+    || step.associationType === 'tree-child'
+    || step.associationType === 'tree-sibling'
+    || step.associationType === 'tree-parent';
+
+  pushTraceBadge(badges, `relation:${step.associationType}`, relationLabel, 'soft');
+  if (supportsOriginDetail && originLabel && originLabel !== relationLabel) {
+    pushTraceBadge(badges, `origin:${step.origin}`, originLabel, 'soft');
+  }
+  return badges;
+}
+
+function pushTraceBadge(
+  badges: NeuralActivationTraceStepViewModel['displayBadges'],
+  key: string,
+  label: string | null | undefined,
+  tone: 'default' | 'soft' | 'root' | 'current' = 'soft',
+): void {
+  const normalizedLabel = String(label || '').trim();
+  if (!normalizedLabel) {
+    return;
+  }
+  if (badges.some((badge) => badge.label === normalizedLabel || badge.key === key)) {
+    return;
+  }
+  badges.push({ key, label: normalizedLabel, tone });
+}
+
+function buildNeuralTraceBadges(
+  step: NeuralActivationTraceStep,
+  options: {
+    engineMode: NeuralEngineMode;
+    isRoot: boolean;
+    isTarget: boolean;
+    isCurrent: boolean;
+  },
+): NeuralActivationTraceStepViewModel['displayBadges'] {
+  const badges = buildNeuralTraceRelationBadges(step);
+
+  if (step.isSyntheticRoot) {
+    badges.length = 0;
+    pushTraceBadge(badges, 'synthetic-root', t('traceStepSyntheticRoot', '合成根节点'), 'root');
+  } else if (options.isRoot) {
+    const rootLabel = options.engineMode === 'hyperspace'
+      ? t('traceBadgePrimarySource', '主激活源')
+      : t('traceBadgeCurrentOrbitCenter', '当前轨道中心');
+    badges.length = 0;
+    pushTraceBadge(badges, 'root-role', rootLabel, 'root');
+  }
+
+  if (step.isVirtual) {
+    pushTraceBadge(badges, 'virtual', t('virtualNode', '虚拟节点'), 'soft');
+  }
+
+  if (options.isTarget || options.isCurrent) {
+    pushTraceBadge(badges, 'current', t('currentNodeTag', '当前'), 'current');
+  }
+
+  return badges;
+}
+
+function resolveNeuralHistoryEventRef(
+  historyEntries: NeuralRoamHistoryEntry[],
+  navState: NeuralNavigationState,
+): NeuralHistoryEventRef | null {
+  if (neuralTracePinnedToSelection.value && selectedNeuralHistoryEventId.value) {
+    const selectedEntry = historyEntries.find((entry) => entry.eventId === selectedNeuralHistoryEventId.value);
+    if (selectedEntry) {
+      return {
+        eventId: selectedEntry.eventId,
+        nodeId: selectedEntry.nodeId,
+      };
+    }
+    selectedNeuralHistoryEventId.value = null;
+    neuralTracePinnedToSelection.value = false;
+  }
+
+  if (navState.currentEventId) {
+    const currentEntry = historyEntries.find((entry) => entry.eventId === navState.currentEventId);
+    if (currentEntry) {
+      return {
+        eventId: currentEntry.eventId,
+        nodeId: currentEntry.nodeId,
+      };
+    }
+  }
+
+  const latestEntry = [...historyEntries].sort((a, b) => b.visitedAt - a.visitedAt)[0];
+  if (!latestEntry) {
+    return null;
+  }
+
+  return {
+    eventId: latestEntry.eventId,
+    nodeId: latestEntry.nodeId,
+  };
+}
+
+function buildNeuralActivationTraceViewModel(
+  trace: NeuralActivationTrace,
+  options: {
+    currentNodeId?: string | null;
+    selectedTraceEventId?: string | null;
+    selectedTraceNodeId?: string | null;
+  } = {},
+): NeuralActivationTraceViewModel {
+  const currentNodeId = options.currentNodeId ?? null;
+  const selectedTraceEventId = options.selectedTraceEventId ?? null;
+  const selectedTraceNodeId = options.selectedTraceNodeId ?? null;
+  const engineMode = trace.steps[trace.steps.length - 1]?.engineMode ?? trace.steps[0]?.engineMode ?? 'orbit';
+  const steps = trace.steps.map((step, index) => ({
+    ...step,
+    relationLabel: resolveNeuralRelationLabel(step.associationType),
+    activationLabel: resolveNeuralActivationLabel(step.activationKind),
+    isCurrent: currentNodeId ? step.nodeId === currentNodeId : false,
+    isTarget: index === trace.steps.length - 1,
+    isRoot: index === 0,
+    isSelected: selectedTraceEventId
+      ? step.eventId === selectedTraceEventId
+      : selectedTraceNodeId
+        ? step.nodeId === selectedTraceNodeId
+        : index === trace.steps.length - 1,
+    previewable: Boolean(step.nodeId),
+    jumpable: Boolean(step.nodeId),
+    displayBadges: buildNeuralTraceBadges(step, {
+      engineMode,
+      isRoot: index === 0,
+      isTarget: index === trace.steps.length - 1,
+      isCurrent: currentNodeId ? step.nodeId === currentNodeId : false,
+    }),
+  }));
+  const directActivator = steps.length > 1 ? steps[steps.length - 2] : null;
+  const branchRoot = steps[0] ?? null;
+  const target = steps[steps.length - 1];
+
+  return {
+    ...trace,
+    engineMode,
+    steps,
+    targetTitle: target?.nodePreview || target?.nodeId || trace.targetNodeId,
+    directActivatorTitle: directActivator?.nodePreview || directActivator?.nodeId || null,
+    directRelationLabel: resolveNeuralRelationLabel(target?.associationType || ''),
+    directRelationBadges: target ? buildNeuralTraceRelationBadges(target) : [],
+    branchRootTitle: branchRoot?.nodePreview || branchRoot?.nodeId || trace.branchRootNodeId,
+  };
+}
+
+function isBlockIdFallbackLabel(label: string | null | undefined, nodeId: string): boolean {
+  const normalizedLabel = String(label || '').trim();
+  const normalizedNodeId = String(nodeId || '').trim();
+  if (!normalizedNodeId) {
+    return false;
+  }
+  return !normalizedLabel || normalizedLabel === normalizedNodeId;
+}
+
+async function enrichNeuralActivationTraceViewModel(
+  trace: NeuralActivationTraceViewModel,
+): Promise<NeuralActivationTraceViewModel> {
+  const missingPreviewIds = Array.from(new Set(
+    trace.steps
+      .filter((step) => isBlockIdFallbackLabel(step.nodePreview, step.nodeId))
+      .map((step) => step.nodeId)
+      .filter(Boolean)
+  ));
+
+  if (missingPreviewIds.length === 0) {
+    return trace;
+  }
+
+  const cards = await loadQueueCardsSimple(missingPreviewIds);
+  const contentByNodeId = new Map(
+    cards.map((card) => [
+      card.blockId,
+      String(card.content || card.fullContent || '').trim(),
+    ]),
+  );
+
+  const steps = trace.steps.map((step) => {
+    const resolvedContent = contentByNodeId.get(step.nodeId);
+    if (!resolvedContent || !isBlockIdFallbackLabel(step.nodePreview, step.nodeId)) {
+      return step;
+    }
+    return {
+      ...step,
+      nodePreview: resolvedContent,
+    };
+  });
+
+  const directActivator = steps.length > 1 ? steps[steps.length - 2] : null;
+  const branchRoot = steps[0] ?? null;
+  const target = steps[steps.length - 1] ?? null;
+
+  return {
+    ...trace,
+    steps,
+    targetTitle: target?.nodePreview || target?.nodeId || trace.targetNodeId,
+    directActivatorTitle: directActivator?.nodePreview || directActivator?.nodeId || null,
+    branchRootTitle: branchRoot?.nodePreview || branchRoot?.nodeId || trace.branchRootNodeId,
+  };
+}
+
+async function syncNeuralActivationTrace(
+  neuralQueue: ReturnType<typeof getNeuralRoamQueue>,
+  historyEntries: NeuralRoamHistoryEntry[],
+  navState: NeuralNavigationState,
+): Promise<void> {
+  if (!neuralQueue || historyEntries.length === 0) {
+    selectedNeuralHistoryEventId.value = null;
+    neuralActivationTrace.value = null;
+    neuralTracePinnedToSelection.value = false;
+    selectedNeuralTraceEventId.value = null;
+    selectedNeuralTraceNodeId.value = null;
+    return;
+  }
+
+  const targetRef = resolveNeuralHistoryEventRef(historyEntries, navState);
+  if (!targetRef) {
+    selectedNeuralHistoryEventId.value = null;
+    neuralActivationTrace.value = null;
+    selectedNeuralTraceEventId.value = null;
+    selectedNeuralTraceNodeId.value = null;
+    return;
+  }
+
+  selectedNeuralHistoryEventId.value = targetRef.eventId;
+  const trace = neuralQueue.getActivationTrace(targetRef.eventId);
+  if (!trace) {
+    neuralActivationTrace.value = null;
+    return;
+  }
+
+  const availableEventIds = new Set(trace.steps.map((step) => step.eventId));
+  const availableNodeIds = new Set(trace.steps.map((step) => step.nodeId));
+  if (!selectedNeuralTraceEventId.value || !availableEventIds.has(selectedNeuralTraceEventId.value)) {
+    selectedNeuralTraceEventId.value = trace.targetEventId;
+  }
+  if (!selectedNeuralTraceNodeId.value || !availableNodeIds.has(selectedNeuralTraceNodeId.value)) {
+    selectedNeuralTraceNodeId.value = trace.targetNodeId;
+  }
+  const traceViewModel = buildNeuralActivationTraceViewModel(trace, {
+    currentNodeId: navState.currentNodeId,
+    selectedTraceEventId: selectedNeuralTraceEventId.value,
+    selectedTraceNodeId: selectedNeuralTraceNodeId.value,
+  });
+  neuralActivationTrace.value = await enrichNeuralActivationTraceViewModel(traceViewModel);
 }
 
 async function refreshNeuralSubviewData(): Promise<void> {
@@ -2901,12 +3283,19 @@ async function refreshNeuralSubviewData(): Promise<void> {
   }
 
   const navState = neuralQueue.getNavigationState();
+  const sourceSnapshot = neuralQueue.getSourceSnapshot();
   const historySnapshot = neuralQueue.getHistorySnapshot();
   const anchorSnapshot = neuralQueue.getAnchorSnapshot();
+  await syncNeuralActivationTrace(neuralQueue, historySnapshot, navState);
   const anchorIds = new Set(anchorSnapshot.map((entry) => entry.nodeId));
+  neuralSourceEntries.value = toNeuralSourceListEntries(sourceSnapshot, {
+    anchorIds,
+    currentNodeId: navState.currentNodeId,
+  });
   neuralHistoryEntries.value = toNeuralHistoryListEntries(historySnapshot, {
     anchorIds,
     currentNodeId: navState.currentNodeId,
+    selectedEventId: selectedNeuralHistoryEventId.value,
   });
   const currentSessionNodeIds = new Set(
     historySnapshot
@@ -2928,6 +3317,75 @@ async function handleNeuralPreview(nodeId: string): Promise<void> {
     return;
   }
   previewCard.value = cards[0] || null;
+}
+
+async function handleNeuralSelectHistoryEntry(entry: NeuralListEntry): Promise<void> {
+  selectedNeuralHistoryEventId.value = entry.eventId;
+  neuralTracePinnedToSelection.value = true;
+  selectedNeuralTraceEventId.value = entry.eventId;
+  selectedNeuralTraceNodeId.value = entry.nodeId;
+
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    neuralActivationTrace.value = null;
+    return;
+  }
+
+  const trace = neuralQueue.getActivationTrace(entry.eventId);
+  if (trace) {
+    const traceViewModel = buildNeuralActivationTraceViewModel(trace, {
+      currentNodeId: neuralCurrentNodeId.value,
+      selectedTraceEventId: selectedNeuralTraceEventId.value,
+      selectedTraceNodeId: selectedNeuralTraceNodeId.value,
+    });
+    neuralActivationTrace.value = await enrichNeuralActivationTraceViewModel(traceViewModel);
+  } else {
+    neuralActivationTrace.value = null;
+  }
+  neuralHistoryEntries.value = toNeuralHistoryListEntries(neuralQueue.getHistorySnapshot(), {
+    anchorIds: new Set(neuralAnchorEntries.value.map((item) => item.nodeId)),
+    currentNodeId: neuralCurrentNodeId.value,
+    selectedEventId: entry.eventId,
+  });
+}
+
+async function handleNeuralSelectTraceStep(eventId: string): Promise<void> {
+  selectedNeuralTraceEventId.value = eventId;
+  const traceStep = neuralActivationTrace.value?.steps.find((step) => step.eventId === eventId) ?? null;
+  selectedNeuralTraceNodeId.value = traceStep?.nodeId ?? null;
+  if (!neuralActivationTrace.value) {
+    return;
+  }
+  neuralActivationTrace.value = {
+    ...neuralActivationTrace.value,
+    steps: neuralActivationTrace.value.steps.map((step) => ({
+      ...step,
+      isSelected: step.eventId === eventId,
+    })),
+  };
+  if (eventId === neuralActivationTrace.value.targetEventId) {
+    selectedNeuralHistoryEventId.value = eventId;
+  }
+}
+
+async function handleNeuralTracePreview(nodeId: string): Promise<void> {
+  const traceStep = neuralActivationTrace.value?.steps.find((step) => step.nodeId === nodeId) ?? null;
+  if (traceStep) {
+    await handleNeuralSelectTraceStep(traceStep.eventId);
+  } else {
+    selectedNeuralTraceNodeId.value = nodeId;
+  }
+  await handleNeuralPreview(nodeId);
+}
+
+async function handleNeuralTraceJump(nodeId: string): Promise<void> {
+  const traceStep = neuralActivationTrace.value?.steps.find((step) => step.nodeId === nodeId) ?? null;
+  if (traceStep) {
+    await handleNeuralSelectTraceStep(traceStep.eventId);
+  } else {
+    selectedNeuralTraceNodeId.value = nodeId;
+  }
+  await handleNeuralJump(nodeId);
 }
 
 async function handleNeuralJump(nodeId: string): Promise<void> {
@@ -2986,6 +3444,40 @@ async function handleNeuralSetCurrentFocus(nodeId: string): Promise<void> {
   }
 }
 
+async function handleNeuralToggleSource(nodeId: string, enabled: boolean): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    return;
+  }
+
+  await neuralQueue.setSourceEntry(nodeId, enabled);
+  await refreshNeuralSubviewData();
+  await refreshQueueCounts();
+}
+
+async function handleNeuralToggleEngineMode(): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    return;
+  }
+
+  const currentMode = neuralQueue.getEngineMode();
+  const nextMode = currentMode === 'hyperspace' ? 'orbit' : 'hyperspace';
+  await neuralQueue.setEngineMode(nextMode, { carryCurrentNode: true });
+  await refreshNeuralSubviewData();
+  await refreshQueueCounts();
+
+  const navState = neuralQueue.getNavigationState();
+  if (navState.currentNodeId) {
+    await handleNeuralPreview(navState.currentNodeId);
+  }
+
+  const modeText = nextMode === 'hyperspace'
+    ? t('engineHyperspace', 'Hyperspace Expedition / 超空间远征')
+    : t('engineOrbit', 'Orbit / 轨道');
+  await pushMsg(t('engineModeSwitched', '已切换引擎：{mode}').replace('{mode}', modeText));
+}
+
 async function handleNeuralToggleNavigationMode(): Promise<void> {
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue) {
@@ -2998,9 +3490,9 @@ async function handleNeuralToggleNavigationMode(): Promise<void> {
   await refreshNeuralSubviewData();
 
   const modeText = nextMode === 'follow'
-    ? t('navModeFollow', '沿主线前进')
-    : t('navModeExplore', '探索世界线分支');
-  await pushMsg(t('navModeSwitched', '已切换为: {mode}').replace('{mode}', modeText));
+    ? t('navModeFollow', '沿当前路径')
+    : t('navModeExplore', '自由展开');
+  await pushMsg(t('navModeSwitched', '已切换为：{mode}').replace('{mode}', modeText));
 }
 
 async function handleNeuralReturnToBookmark(): Promise<void> {
@@ -3046,8 +3538,8 @@ async function handleNeuralClearHistory(): Promise<void> {
   }
 
   const ok = await confirmDialog({
-    title: t('clearHistory', '清空历史记录'),
-    content: t('confirmClearHistoryAll', '确认清空全部漫游历史？'),
+    title: t('clearHistory', '清空轨迹历史'),
+    content: t('confirmClearHistoryAll', '确认清空全部轨迹历史？'),
     confirmText: t('confirm', '确认'),
     cancelText: t('cancel', '取消'),
   });
@@ -3059,10 +3551,10 @@ async function handleNeuralClearHistory(): Promise<void> {
     neuralQueue.clearHistory('all');
     await refreshNeuralSubviewData();
     await refreshQueueCounts();
-    await pushMsg(t('historyClearedSuccess', '历史记录已清空'));
+    await pushMsg(t('historyClearedSuccess', '轨迹历史已清空'));
   } catch (error) {
     logger.error('Failed to clear neural history:', error);
-    await pushErrMsg(t('clearHistoryFailed', '清空历史记录失败'));
+    await pushErrMsg(t('clearHistoryFailed', '清空轨迹历史失败'));
   }
 }
 

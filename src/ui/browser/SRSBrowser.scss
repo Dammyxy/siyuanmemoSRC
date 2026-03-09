@@ -644,6 +644,24 @@
 .card-browser__neural-subview--roam-path {
   position: relative;
   isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.card-browser__neural-roam-layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.card-browser__neural-roam-pane {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .neural-nav-bar {
@@ -659,9 +677,38 @@
 }
 
 .neural-nav-bar__status {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
   font-size: 12px;
   color: var(--b3-theme-on-surface);
   min-width: 0;
+}
+
+.neural-nav-bar__status-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.neural-nav-bar__engine {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.neural-nav-bar__divider {
+  flex-shrink: 0;
+}
+
+.neural-nav-bar__intro {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--b3-theme-on-surface-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .neural-nav-bar__actions {
@@ -880,6 +927,13 @@
   padding: 0 2px;
 }
 
+.neural-history-list__content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .neural-history-list__timeline-wrap {
   --neural-timeline-axis-x: 8px;
   position: relative;
@@ -960,6 +1014,11 @@
   border-color: var(--b3-theme-warning);
 }
 
+.neural-history-list__timeline-item--selected .neural-list__item {
+  border-color: rgba(var(--b3-theme-primary-rgb), 0.45);
+  box-shadow: 0 0 0 1px rgba(var(--b3-theme-primary-rgb), 0.12);
+}
+
 .neural-history-list__timeline-item .neural-list__item {
   position: relative;
   z-index: 1;
@@ -1033,12 +1092,288 @@
   border-color: rgba(var(--b3-theme-primary-rgb), 0.45);
 }
 
+.neural-trace-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  padding: 12px;
+  background: linear-gradient(
+    180deg,
+    rgba(var(--b3-theme-primary-rgb), 0.04) 0%,
+    var(--b3-theme-background) 36%
+  );
+}
+
+.neural-trace-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.neural-trace-panel__title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.neural-trace-panel__subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.neural-trace-panel__banner {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.neural-trace-panel__banner--warning {
+  background: color-mix(in srgb, var(--b3-theme-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--b3-theme-warning) 28%, transparent);
+  color: var(--b3-theme-on-surface);
+}
+
+.neural-trace-panel__content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.neural-trace-panel__summary-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.neural-trace-panel__summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.neural-trace-panel__card {
+  border: 1px solid color-mix(in srgb, var(--b3-theme-on-surface-light) 12%, transparent);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  padding: 12px;
+  min-width: 0;
+}
+
+.neural-trace-panel__card--interactive {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.neural-trace-panel__card--interactive:hover {
+  border-color: rgba(var(--b3-theme-primary-rgb), 0.45);
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 35%, var(--b3-theme-background));
+}
+
+.neural-trace-panel__card--interactive:focus-visible {
+  outline: 2px solid rgba(var(--b3-theme-primary-rgb), 0.35);
+  outline-offset: 2px;
+}
+
+.neural-trace-panel__card--disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.neural-trace-panel__card--target {
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 22%, transparent);
+}
+
+.neural-trace-panel__card-label {
+  font-size: 11px;
+  color: var(--b3-theme-on-surface-light);
+  margin-bottom: 8px;
+}
+
+.neural-trace-panel__card-title {
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.neural-trace-panel__card-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.neural-trace-panel__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
+  font-size: 11px;
+}
+
+.neural-trace-panel__pill--soft {
+  background: rgba(var(--b3-theme-primary-rgb), 0.06);
+}
+
+.neural-trace-panel__pill--current {
+  color: var(--b3-theme-primary);
+  border-color: rgba(var(--b3-theme-primary-rgb), 0.35);
+}
+
+.neural-trace-panel__pill--root {
+  color: var(--b3-theme-warning);
+  border-color: color-mix(in srgb, var(--b3-theme-warning) 35%, transparent);
+}
+
+.neural-trace-panel__pill--anchor {
+  color: var(--b3-theme-warning);
+  border-color: color-mix(in srgb, var(--b3-theme-warning) 35%, transparent);
+}
+
+.neural-trace-panel__time {
+  font-size: 11px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.neural-trace-panel__empty {
+  flex: 1;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  border: 1px dashed var(--b3-border-color);
+  border-radius: 10px;
+}
+
+.neural-trace-panel__steps-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.neural-trace-panel__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.neural-trace-panel__step {
+  position: relative;
+  padding-left: 24px;
+}
+
+.neural-trace-panel__step-line {
+  position: absolute;
+  top: 0;
+  bottom: -10px;
+  left: 6px;
+  width: 2px;
+  background: var(--b3-border-color);
+}
+
+.neural-trace-panel__step:last-child .neural-trace-panel__step-line {
+  display: none;
+}
+
+.neural-trace-panel__step-dot {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--b3-theme-primary);
+  background: var(--b3-theme-background);
+}
+
+.neural-trace-panel__step--target .neural-trace-panel__step-dot,
+.neural-trace-panel__step--current .neural-trace-panel__step-dot {
+  background: var(--b3-theme-primary);
+}
+
+.neural-trace-panel__step-card {
+  border: 1px solid color-mix(in srgb, var(--b3-theme-on-surface-light) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--b3-theme-background) 98%, var(--b3-theme-surface));
+  padding: 12px;
+}
+
+.neural-trace-panel__step-card--interactive {
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.neural-trace-panel__step-card--interactive:hover {
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 38%, var(--b3-theme-background));
+  background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+}
+
+.neural-trace-panel__step-card--interactive:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--b3-theme-primary) 46%, transparent);
+  outline-offset: 2px;
+}
+
+.neural-trace-panel__step--selected .neural-trace-panel__step-card {
+  border-color: var(--b3-theme-primary);
+  background: color-mix(in srgb, var(--b3-theme-primary) 11%, var(--b3-theme-background));
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 24%, transparent),
+    0 8px 18px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+}
+
+.neural-trace-panel__step-topline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.neural-trace-panel__step-title {
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.neural-trace-panel__step-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.neural-trace-panel__step-reason {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
 .card-browser--mobile .neural-subview-tabs {
   padding: 8px;
 }
 
 .card-browser--mobile .card-browser__neural-subview {
   padding: 8px;
+}
+
+.card-browser--mobile .card-browser__neural-roam-layout {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .card-browser--mobile .card-browser__neural-subview--roam-path .neural-history-list__timeline-wrap::before {
@@ -1061,6 +1396,15 @@
 
 .card-browser--mobile .neural-nav-bar__actions {
   width: 100%;
+}
+
+.card-browser--mobile .neural-nav-bar {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.card-browser--mobile .neural-nav-bar__status-main {
+  flex-wrap: wrap;
 }
 
 .card-browser--mobile .neural-nav-bar__button {
@@ -1105,10 +1449,22 @@
   --neural-timeline-axis-x: 6px;
 }
 
+.card-browser--mobile .neural-history-list__content {
+  max-height: 36vh;
+}
+
 .card-browser--mobile .neural-history-list__timeline-dot {
   left: calc(var(--neural-timeline-axis-x) - 5px);
 }
 
 .card-browser--mobile .neural-history-list__timeline-item .neural-list__actions {
   padding: 0 8px 8px;
+}
+
+.card-browser--mobile .neural-trace-panel__summary {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.card-browser--mobile .neural-trace-panel__steps-wrap {
+  max-height: 42vh;
 }

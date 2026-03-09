@@ -314,6 +314,90 @@ export class SettingsService implements ISettingsService {
         }
       }
     }
+
+    const hyperspace = settings.queues?.neuralRoam?.hyperspace;
+    if (hyperspace) {
+      if (hyperspace.treeChannels?.blockTree !== undefined && typeof hyperspace.treeChannels.blockTree !== 'boolean') {
+        throw new SettingsValidationError(
+          'queues.neuralRoam.hyperspace.treeChannels.blockTree must be a boolean',
+          'queues.neuralRoam.hyperspace.treeChannels.blockTree'
+        );
+      }
+
+      if (hyperspace.treeChannels?.documentTree !== undefined && typeof hyperspace.treeChannels.documentTree !== 'boolean') {
+        throw new SettingsValidationError(
+          'queues.neuralRoam.hyperspace.treeChannels.documentTree must be a boolean',
+          'queues.neuralRoam.hyperspace.treeChannels.documentTree'
+        );
+      }
+
+      this.validateFiniteRange(
+        hyperspace.maxLayersPerRepetition,
+        1,
+        5,
+        'queues.neuralRoam.hyperspace.maxLayersPerRepetition'
+      );
+      this.validateFiniteRange(
+        hyperspace.maxTotalDepth,
+        1,
+        16,
+        'queues.neuralRoam.hyperspace.maxTotalDepth'
+      );
+      this.validateFiniteRange(
+        hyperspace.conceptLinkGroupPriority,
+        0,
+        1,
+        'queues.neuralRoam.hyperspace.conceptLinkGroupPriority'
+      );
+      this.validateFiniteRange(
+        hyperspace.elementLinkGroupPriority,
+        0,
+        1,
+        'queues.neuralRoam.hyperspace.elementLinkGroupPriority'
+      );
+      this.validateFiniteRange(
+        hyperspace.treeChildGroupPriority,
+        0,
+        1,
+        'queues.neuralRoam.hyperspace.treeChildGroupPriority'
+      );
+      this.validateFiniteRange(
+        hyperspace.treeParentGroupPriority,
+        0,
+        1,
+        'queues.neuralRoam.hyperspace.treeParentGroupPriority'
+      );
+      this.validateFiniteRange(
+        hyperspace.treeSiblingBaseGroupPriority,
+        0,
+        1,
+        'queues.neuralRoam.hyperspace.treeSiblingBaseGroupPriority'
+      );
+      this.validateFiniteRange(
+        hyperspace.siblingDistancePenalty,
+        0,
+        5,
+        'queues.neuralRoam.hyperspace.siblingDistancePenalty'
+      );
+      this.validateFiniteRange(
+        hyperspace.articleRootParentConductionProbability,
+        0,
+        1,
+        'queues.neuralRoam.hyperspace.articleRootParentConductionProbability'
+      );
+      this.validateFiniteRange(
+        hyperspace.activationCarryDecay,
+        0,
+        1,
+        'queues.neuralRoam.hyperspace.activationCarryDecay'
+      );
+      this.validateFiniteRange(
+        hyperspace.raceRandomness,
+        0,
+        1,
+        'queues.neuralRoam.hyperspace.raceRandomness'
+      );
+    }
   }
 
   /**
@@ -471,6 +555,19 @@ export class SettingsService implements ISettingsService {
       !Array.isArray(value) &&
       Object.prototype.toString.call(value) === '[object Object]'
     );
+  }
+
+  private validateFiniteRange(value: unknown, min: number, max: number, field: string): void {
+    if (value === undefined) {
+      return;
+    }
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized) || normalized < min || normalized > max) {
+      throw new SettingsValidationError(
+        `${field} must be between ${min} and ${max}`,
+        field
+      );
+    }
   }
 
   /**

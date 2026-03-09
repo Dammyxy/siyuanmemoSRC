@@ -51,6 +51,7 @@
           class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
           :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
           :aria-label="btn.ariaLabel"
+          :title="btn.ariaLabel"
           @click="handleToolbarClick(btn, $event)"
         >
           <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
@@ -74,6 +75,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { getHeaderToneColor, getPriorityVisualToken } from '@/ui/shared/cardVisualTokens';
+import type { NeuralNavigationState } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import type { ReviewHeaderCounterBadge, ReviewUIState } from './types';
 
@@ -86,12 +88,7 @@ const props = defineProps<{
   showSidebarToggle?: boolean;
   sidebarCollapsed?: boolean;
   isMobile?: boolean;
-  navigationState?: {
-    currentPathIndex: number;
-    navigationMode: 'explore' | 'follow';
-    hasBookmark: boolean;
-    pathLength: number;
-  } | null;
+  navigationState?: NeuralNavigationState | null;
 }>();
 
 const emit = defineEmits<{
@@ -141,9 +138,21 @@ const filteredToolbar = computed(() => {
   const navState = props.navigationState;
   if (navState) {
     const navButtons: typeof toolbar = [];
+    const engineText = navState.engineMode === 'hyperspace'
+      ? t('engineHyperspace', 'Hyperspace Expedition / 超空间远征')
+      : t('engineOrbit', 'Orbit / 轨道');
+    const engineIntroLong = navState.engineMode === 'hyperspace'
+      ? t(
+          'engineHyperspaceIntroLong',
+          '从一个或多个激活源出发，沿概念链接、块链接和可选树关系逐层向外传导，不围绕单一中心打转。',
+        )
+      : t(
+          'engineOrbitIntroLong',
+          '围绕轨道中心，在概念卡与锚点周围的反向链接、直接引用、间接引用与描述符之间做局部航行。',
+        );
     const modeText = navState.navigationMode === 'follow'
-      ? t('navModeFollow', 'Follow Mainline')
-      : t('navModeExplore', 'Explore Worldline Branches');
+      ? t('navModeFollow', 'Follow Path')
+      : t('navModeExplore', 'Free Explore');
     const navStatusLabel = navState.navigationMode === 'follow'
       ? interpolate(
           t('navStatusFollow', 'Current: {mode} ({current}/{total})'),
@@ -159,6 +168,16 @@ const filteredToolbar = computed(() => {
         );
 
     navButtons.push({
+      type: 'neural-engine-mode',
+      icon: '#iconRefresh',
+      ariaLabel: `${interpolate(
+        t('switchEngineMode', 'Switch Engine: {mode}'),
+        { mode: engineText },
+      )} ${engineIntroLong}`.trim(),
+      disabled: false,
+    });
+
+    navButtons.push({
       type: 'neural-nav-mode',
       icon: '#iconMove',
       ariaLabel: navStatusLabel,
@@ -168,7 +187,7 @@ const filteredToolbar = computed(() => {
     navButtons.push({
       type: 'neural-return-bookmark',
       icon: '#iconBookmark',
-      ariaLabel: t('returnToBookmark', 'Return to Mainline Anchor'),
+      ariaLabel: t('returnToBookmark', 'Return to Anchor'),
       disabled: !navState.hasBookmark,
     });
 

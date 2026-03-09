@@ -198,23 +198,35 @@ describe('ReviewHeader', () => {
       props: {
         header: createHeaderState(),
         i18n: {
-          navModeFollow: 'Follow Mainline',
+          engineOrbit: 'Orbit',
+          engineOrbitIntroLong: 'Roam locally around an orbit center through backlinks, direct references, indirect references, and descriptors near concept cards and anchors.',
+          switchEngineMode: 'Switch Engine: {mode}',
+          navModeFollow: 'Follow Path',
           navStatusFollow: 'Current: {mode} ({current}/{total})',
-          returnToBookmark: 'Return to Mainline Anchor',
+          returnToBookmark: 'Return to Anchor',
         },
         navigationState: {
+          engineMode: 'orbit',
+          engineSessionId: 'engine-session-1',
           currentPathIndex: 2,
           navigationMode: 'follow',
           hasBookmark: true,
           pathLength: 10,
+          currentNodeId: 'node-1',
+          currentEventId: 'event-1',
+          sessionId: 'session-1',
         },
       },
     });
 
+    const engineButton = wrapper.get('button[data-type="neural-engine-mode"]');
     const navModeButton = wrapper.get('button[data-type="neural-nav-mode"]');
     const returnButton = wrapper.get('button[data-type="neural-return-bookmark"]');
 
-    expect(navModeButton.attributes('aria-label')).toBe('Current: Follow Mainline (3/10)');
-    expect(returnButton.attributes('aria-label')).toBe('Return to Mainline Anchor');
+    expect(engineButton.attributes('aria-label')).toContain('Switch Engine: Orbit');
+    expect(engineButton.attributes('aria-label')).toContain('Roam locally around an orbit center');
+    expect(engineButton.attributes('title')).toContain('Roam locally around an orbit center');
+    expect(navModeButton.attributes('aria-label')).toBe('Current: Follow Path (3/10)');
+    expect(returnButton.attributes('aria-label')).toBe('Return to Anchor');
   });
 });

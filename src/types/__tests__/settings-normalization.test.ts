@@ -67,6 +67,36 @@ describe('settings normalization', () => {
     expect(normalized.settings.quickCard.flashcardSeededFromSiyuan).toBe(false);
   });
 
+  it('fills hyperspace defaults when neural roam settings are missing', () => {
+    const legacy = cloneSettings();
+    delete (legacy.queues as Partial<typeof legacy.queues>).neuralRoam;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.queues.neuralRoam?.hyperspace).toEqual(
+      DEFAULT_SETTINGS.queues.neuralRoam?.hyperspace
+    );
+  });
+
+  it('fills nested hyperspace tree channel defaults when partially configured', () => {
+    const legacy = cloneSettings();
+    legacy.queues.neuralRoam = {
+      hyperspace: {
+        ...DEFAULT_SETTINGS.queues.neuralRoam!.hyperspace,
+        treeChannels: {
+          blockTree: true,
+        },
+      },
+    } as typeof legacy.queues.neuralRoam;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.queues.neuralRoam?.hyperspace.treeChannels.blockTree).toBe(true);
+    expect(normalized.settings.queues.neuralRoam?.hyperspace.treeChannels.documentTree).toBe(false);
+  });
+
   it('is idempotent after first normalization', () => {
     const legacy = cloneSettings();
     legacy.fsrs.weights = legacy.fsrs.weights.slice(0, FSRS_WEIGHT_COUNT - 2);

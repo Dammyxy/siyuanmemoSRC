@@ -144,25 +144,106 @@ export interface IUnifiedDataSourceManagerFacade {
 // ============================================================================
 
 export type NeuralNavigationMode = 'explore' | 'follow';
+export type NeuralEngineMode = 'orbit' | 'hyperspace';
+export type NeuralTraceQuality = 'exact' | 'legacy';
+export type NeuralSourceRole = 'orbit-center' | 'activation-source';
+export type NeuralSourceNodeKind = 'concept' | 'element' | 'virtual';
+export type NeuralPropagationOrigin =
+    | 'source'
+    | 'backlink'
+    | 'direct-ref'
+    | 'indirect-ref'
+    | 'descriptor'
+    | 'block-tree'
+    | 'document-tree'
+    | 'follow-path'
+    | 'manual-jump';
+export type NeuralAssociationType =
+    | 'backlink'
+    | 'outgoing-direct'
+    | 'outgoing-indirect'
+    | 'descriptor'
+    | 'focus'
+    | 'path'
+    | 'source'
+    | 'concept-link'
+    | 'element-link'
+    | 'tree-child'
+    | 'tree-sibling'
+    | 'tree-parent'
+    | 'follow-path'
+    | 'manual-jump';
+export type NeuralActivationKind =
+    | 'focus-root'
+    | 'source-root'
+    | 'graph-edge'
+    | 'tree-edge'
+    | 'follow-path'
+    | 'manual-jump';
 
 export interface NeuralNavigationState {
     currentPathIndex: number;
     currentNodeId: string | null;
+    currentEventId: string | null;
     navigationMode: NeuralNavigationMode;
+    engineMode: NeuralEngineMode;
+    engineSessionId: string | null;
     hasBookmark: boolean;
     pathLength: number;
     sessionId: string | null;
 }
 
 export interface NeuralRoamHistoryEntry {
+    eventId: string;
     nodeId: string;
     focusId: string | null;
     sessionId: string;
-    associationType: string;
+    associationType: NeuralAssociationType;
     reason: string;
     visitedAt: number;
     isVirtual: boolean;
     nodePreview: string;
+    traceQuality: NeuralTraceQuality;
+    engineMode: NeuralEngineMode;
+    sourceRole: NeuralSourceRole | null;
+    origin?: NeuralPropagationOrigin | null;
+    sourceNodeId: string | null;
+    sourceEventId: string | null;
+    branchRootNodeId: string | null;
+    activationKind: NeuralActivationKind;
+    depth: number | null;
+    conductionScore: number | null;
+}
+
+export interface NeuralActivationTraceStep {
+    eventId: string;
+    nodeId: string;
+    nodePreview: string;
+    isVirtual: boolean;
+    associationType: NeuralAssociationType;
+    reason: string;
+    activationKind: NeuralActivationKind;
+    visitedAt: number;
+    focusId: string | null;
+    engineMode: NeuralEngineMode;
+    sourceRole: NeuralSourceRole | null;
+    origin?: NeuralPropagationOrigin | null;
+    sourceNodeId: string | null;
+    sourceEventId: string | null;
+    branchRootNodeId: string | null;
+    traceQuality: NeuralTraceQuality;
+    depth: number | null;
+    conductionScore: number | null;
+    isSyntheticRoot: boolean;
+}
+
+export interface NeuralActivationTrace {
+    targetEventId: string;
+    targetNodeId: string;
+    branchRootNodeId: string | null;
+    isExact: boolean;
+    degradedReason: string | null;
+    steps: NeuralActivationTraceStep[];
 }
 
 export type NeuralFocusNodeKind = 'concept' | 'virtual';
@@ -195,7 +276,26 @@ export interface NeuralRoamAnchorEntry {
     visitedAt: number;
 }
 
+export interface NeuralRoamSourceEntry {
+    nodeId: string;
+    nodePreview: string;
+    nodeKind: NeuralSourceNodeKind;
+    role: NeuralSourceRole;
+    priority: number;
+    addedAt: number;
+    visitedAt: number;
+}
+
 export interface NeuralRoamSessionQueue {
+    getEngineMode(): NeuralEngineMode;
+    setEngineMode(
+        mode: NeuralEngineMode,
+        options?: {
+            carryCurrentNode?: boolean;
+        }
+    ): Promise<void>;
+    getSourceSnapshot(): NeuralRoamSourceEntry[];
+    setSourceEntry(nodeId: string, enabled?: boolean): Promise<void>;
     getSeedSnapshot(): NeuralRoamSeedEntry[];
     setSeedEntry(nodeId: string, enabled?: boolean): Promise<void>;
     getAnchorSnapshot(): NeuralRoamAnchorEntry[];
@@ -233,6 +333,7 @@ export interface NeuralRoamSessionQueue {
         }
     ): Promise<void>;
     getHistorySnapshot(): NeuralRoamHistoryEntry[];
+    getActivationTrace(eventId: string): NeuralActivationTrace | null;
     getSessionFocusStack(): NeuralRoamHistoryEntry[];
     /**
      * @deprecated Use getFocusPoolSnapshot instead.
@@ -254,7 +355,11 @@ export function isNeuralRoamSessionQueue(
     queue: unknown
 ): queue is IReviewQueue & NeuralRoamSessionQueue {
     const candidate = queue as Partial<NeuralRoamSessionQueue>;
-    return typeof candidate?.getSeedSnapshot === 'function'
+    return typeof candidate?.getEngineMode === 'function'
+        && typeof candidate?.setEngineMode === 'function'
+        && typeof candidate?.getSourceSnapshot === 'function'
+        && typeof candidate?.setSourceEntry === 'function'
+        && typeof candidate?.getSeedSnapshot === 'function'
         && typeof candidate?.setSeedEntry === 'function'
         && typeof candidate?.getAnchorSnapshot === 'function'
         && typeof candidate?.setAnchorEntry === 'function'
@@ -266,6 +371,7 @@ export function isNeuralRoamSessionQueue(
         && typeof candidate?.setCurrentFocus === 'function'
         && typeof candidate?.startRoamingFromFocus === 'function'
         && typeof candidate?.getHistorySnapshot === 'function'
+        && typeof candidate?.getActivationTrace === 'function'
         && typeof candidate?.getSessionFocusStack === 'function'
         && typeof candidate?.getPinnedFocusBlocks === 'function'
         && typeof candidate?.setPinnedFocusBlock === 'function'

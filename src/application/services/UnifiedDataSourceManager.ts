@@ -30,6 +30,7 @@ import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLe
 import type { QueueInitialLoadAware, QueueSchedulerPort } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type { AutoFailedCardSinkPort, QueuePersistencePort } from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
+import type { HyperspaceSettings } from '@/types/settings';
 
 const logger = createLogger('UnifiedDataSourceManager');
 
@@ -45,6 +46,9 @@ interface UnifiedManagerPluginContextLike {
                 outstandingSpacing?: unknown;
                 autoSort?: {
                     enabled?: unknown;
+                };
+                neuralRoam?: {
+                    hyperspace?: HyperspaceSettings;
                 };
             };
             priorityRandomness?: unknown;
@@ -324,6 +328,37 @@ export class UnifiedDataSourceManager {
         }
 
         return 2;
+    }
+
+    public getNeuralRoamHyperspaceSettings(): HyperspaceSettings {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const hyperspace = settingsService?.getSettings?.()?.queues?.neuralRoam?.hyperspace;
+            if (hyperspace) {
+                return hyperspace;
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve neuralRoam.hyperspace settings from settings service:', error);
+        }
+
+        return {
+            treeChannels: {
+                blockTree: false,
+                documentTree: false,
+            },
+            maxLayersPerRepetition: 2,
+            maxTotalDepth: 8,
+            conceptLinkGroupPriority: 0.01,
+            elementLinkGroupPriority: 0.05,
+            treeChildGroupPriority: 0.16,
+            treeParentGroupPriority: 0.2,
+            treeSiblingBaseGroupPriority: 0.26,
+            siblingDistancePenalty: 0.75,
+            articleRootParentConductionProbability: 0.35,
+            activationCarryDecay: 0.72,
+            raceRandomness: 0.12,
+        };
     }
 
     private isLoadableQueue(queue: IReviewQueue): queue is IReviewQueue & { load: () => Promise<void> } {
@@ -697,6 +732,7 @@ export class UnifiedDataSourceManager {
                     cardTypeResolver: {
                         resolveCardType: async (blockId: string) => this.resolveNeuralRoamCardTypeFromLocalCard(blockId),
                     },
+                    getHyperspaceSettings: () => this.getNeuralRoamHyperspaceSettings(),
                 });
             
             case QueueType.Leech:
