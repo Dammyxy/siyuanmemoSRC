@@ -85,7 +85,7 @@ const navigationModeText = computed(() => {
   }
   return props.navigationState.navigationMode === 'follow'
     ? t('navModeFollow', 'Follow Path')
-    : t('navModeExplore', 'Free Explore');
+    : t('navModeExplore', 'Free Roam');
 });
 
 const engineIntroText = computed(() => {
@@ -94,7 +94,7 @@ const engineIntroText = computed(() => {
   }
   return props.navigationState.engineMode === 'hyperspace'
     ? t('engineHyperspaceIntro', 'Propagate outward layer by layer from activation sources through links and optional tree relations.')
-    : t('engineOrbitIntro', 'Roam locally around orbit centers, concept cards, and nearby anchors.');
+    : t('engineOrbitIntro', 'Roam locally around orbit centers, concept cards, and nearby stations.');
 });
 
 const engineIntroLongText = computed(() => {
@@ -108,7 +108,7 @@ const engineIntroLongText = computed(() => {
       )
     : t(
         'engineOrbitIntroLong',
-        'Roam locally around an orbit center through backlinks, direct references, indirect references, and descriptors near concept cards and anchors.',
+        'Roam locally around an orbit center through backlinks, direct references, indirect references, and descriptors near concept cards and stations.',
       );
 });
 
@@ -157,5 +157,5 @@ const engineButtonTooltip = computed(() => {
   ].join('\n');
 });
 
-const bookmarkLabel = computed(() => t('returnToBookmark', 'Return to Anchor'));
+const bookmarkLabel = computed(() => t('returnToBookmark', 'Return to Station'));
 </script>

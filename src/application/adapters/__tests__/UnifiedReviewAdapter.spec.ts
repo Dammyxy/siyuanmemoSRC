@@ -422,6 +422,31 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
+  it('uses build-station and source-list fallbacks for neural roam review toolbar buttons', async () => {
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
+    const currentItem = createCard('concept-toolbar', CardType.Concept);
+
+    const ui = await renderState(
+      adapter,
+      createQueue({
+        queueType: 'neural-roam',
+        liveCards: [currentItem],
+        underlyingQueue: createNeuralUnderlyingQueue(5, 1, 0),
+      }),
+      currentItem,
+      createContext(),
+    );
+
+    expect(ui.header.toolbar?.find(item => item.type === 'lock-focus')).toMatchObject({
+      icon: '#iconPin',
+      ariaLabel: 'Build Station',
+    });
+    expect(ui.header.toolbar?.find(item => item.type === 'neural-focuses')).toMatchObject({
+      icon: '#iconList',
+      ariaLabel: 'View Source List',
+    });
+  });
+
   it('falls back to P - when current item has no finite priority while keeping live subset counters', async () => {
     const liveCards = [
       createCard('item-1', CardType.Item, { priority: Number.NaN as unknown as number }),

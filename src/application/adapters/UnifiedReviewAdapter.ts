@@ -322,9 +322,9 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
 
     if (queueType === 'neural-roam') {
       toolbar.push(
-        { icon: '#iconLock', type: 'lock-focus', ariaLabel: t(this.i18n, 'lockAsFocus', 'Set as Start Point') },
-        { icon: '#iconList', type: 'neural-focuses', ariaLabel: t(this.i18n, 'neuralFocusMenu', 'View Start Points') },
-        { icon: '#iconHistory', type: 'neural-history', ariaLabel: t(this.i18n, 'neuralHistoryMenu', 'View Paths') },
+        { icon: '#iconPin', type: 'lock-focus', ariaLabel: t(this.i18n, 'addAnchor', 'Build Station') },
+        { icon: '#iconList', type: 'neural-focuses', ariaLabel: t(this.i18n, 'viewSourceList', 'View Source List') },
+        { icon: '#iconHistory', type: 'neural-history', ariaLabel: t(this.i18n, 'neuralHistoryMenu', 'View Trajectory Path') },
       );
     }
     toolbar = toolbarWithFilterScope(toolbar);

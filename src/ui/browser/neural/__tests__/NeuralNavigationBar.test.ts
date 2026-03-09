@@ -33,8 +33,8 @@ describe('NeuralNavigationBar', () => {
       props: {
         i18n: {
           engineOrbit: 'Orbit',
-          engineOrbitIntro: 'Roam locally around orbit centers, concept cards, and nearby anchors.',
-          engineOrbitIntroLong: 'Roam locally around an orbit center through backlinks, direct references, indirect references, and descriptors near concept cards and anchors.',
+          engineOrbitIntro: 'Roam locally around orbit centers, concept cards, and nearby stations.',
+          engineOrbitIntroLong: 'Roam locally around an orbit center through backlinks, direct references, indirect references, and descriptors near concept cards and stations.',
           switchEngineMode: 'Switch Engine: {mode}',
           navModeFollow: 'Follow Path',
           navStatusFollow: 'Current: {mode} ({current}/{total})',
@@ -49,7 +49,7 @@ describe('NeuralNavigationBar', () => {
 
     expect(wrapper.get('.neural-nav-bar__engine').text()).toBe('Orbit');
     expect(wrapper.get('.neural-nav-bar__status').text()).toContain('Current: Follow Path (4/10)');
-    expect(wrapper.get('.neural-nav-bar__intro').text()).toBe('Roam locally around orbit centers, concept cards, and nearby anchors.');
+    expect(wrapper.get('.neural-nav-bar__intro').text()).toBe('Roam locally around orbit centers, concept cards, and nearby stations.');
     expect(wrapper.get('.neural-nav-bar__button').attributes('aria-label')).toContain('Roam locally around an orbit center');
     expect(wrapper.get('.neural-nav-bar__button').attributes('title')).toContain('\n');
     expect(wrapper.get('.neural-nav-bar__button').attributes('title')).toContain('Roam locally around an orbit center');
@@ -63,7 +63,7 @@ describe('NeuralNavigationBar', () => {
           engineHyperspaceIntro: 'Propagate outward layer by layer from activation sources through links and optional tree relations.',
           engineHyperspaceIntroLong: 'Propagate outward from one or more activation sources through concept links, block links, and optional tree relations instead of orbiting a single center.',
           switchEngineMode: 'Switch Engine: {mode}',
-          navModeExplore: 'Free Explore',
+          navModeExplore: 'Free Roam',
           navStatusExplore: 'Current: {mode}',
         },
         navigationState: createNavigationState({
@@ -74,7 +74,7 @@ describe('NeuralNavigationBar', () => {
     });
 
     expect(wrapper.get('.neural-nav-bar__engine').text()).toBe('Hyperspace Expedition');
-    expect(wrapper.get('.neural-nav-bar__status').text()).toContain('Current: Free Explore');
+    expect(wrapper.get('.neural-nav-bar__status').text()).toContain('Current: Free Roam');
     expect(wrapper.get('.neural-nav-bar__intro').text()).toBe('Propagate outward layer by layer from activation sources through links and optional tree relations.');
     expect(wrapper.findAll('.neural-nav-bar__button')[0]?.attributes('aria-label')).toContain('instead of orbiting a single center');
     expect(wrapper.findAll('.neural-nav-bar__button')[0]?.attributes('title')).toContain('\n');

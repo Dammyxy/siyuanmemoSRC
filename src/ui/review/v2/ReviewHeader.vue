@@ -1,74 +1,86 @@
 <template>
-  <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
-    <div class="block__logo">
-      <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
-      <span>{{ title || header.stats.queueName || '\u95ea\u5361' }}</span>
-    </div>
+  <div
+    class="siyuanmemo-review-header-shell"
+    :class="{
+      'siyuanmemo-review-header-shell--with-nav': !!neuralEngineIntro,
+      'siyuanmemo-review-header-shell--mobile': props.isMobile,
+    }"
+  >
+    <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
+      <div class="block__logo">
+        <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
+        <span>{{ title || header.stats.queueName || '\u95ea\u5361' }}</span>
+      </div>
 
-    <span v-if="!props.isMobile" class="fn__flex-1 resize__move" style="min-height: 100%"></span>
+      <span v-if="!props.isMobile" class="fn__flex-1 resize__move" style="min-height: 100%"></span>
 
-    <div data-type="count" class="siyuanmemo-review-header__metrics">
-      <span
-        v-if="counterSummary"
-        class="b3-tooltips b3-tooltips__sw siyuanmemo-review-header__summary"
-        :class="{ 'siyuanmemo-review-header__summary--value': counterSummary.kind === 'value' }"
-        :aria-label="counterSummary.ariaLabel"
-        :title="counterSummary.tooltip"
-      >
-        {{ counterSummary.text }}
-      </span>
+      <div data-type="count" class="siyuanmemo-review-header__metrics">
+        <span
+          v-if="counterSummary"
+          class="b3-tooltips b3-tooltips__sw siyuanmemo-review-header__summary"
+          :class="{ 'siyuanmemo-review-header__summary--value': counterSummary.kind === 'value' }"
+          :aria-label="counterSummary.ariaLabel"
+          :title="counterSummary.tooltip"
+        >
+          {{ counterSummary.text }}
+        </span>
+
+        <div
+          v-for="badge in counterBadges"
+          :key="badge.id"
+          class="siyuanmemo-review-header__badge"
+          :style="getBadgeStyle(badge.tone)"
+          :aria-label="badge.ariaLabel"
+          :title="badge.ariaLabel"
+        >
+          <span class="siyuanmemo-review-header__badge-label">{{ badge.label }}</span>
+          <span class="siyuanmemo-review-header__badge-text">{{ badge.text }}</span>
+        </div>
+      </div>
+
+      <span class="fn__flex-1"></span>
 
       <div
-        v-for="badge in counterBadges"
-        :key="badge.id"
-        class="siyuanmemo-review-header__badge"
-        :style="getBadgeStyle(badge.tone)"
-        :aria-label="badge.ariaLabel"
-        :title="badge.ariaLabel"
+        class="siyuanmemo-review-header__priority"
+        :style="priorityBadgeStyle"
+        :aria-label="header.priorityBadge.ariaLabel"
+        :title="header.priorityBadge.ariaLabel"
       >
-        <span class="siyuanmemo-review-header__badge-label">{{ badge.label }}</span>
-        <span class="siyuanmemo-review-header__badge-text">{{ badge.text }}</span>
+        <span class="siyuanmemo-review-header__priority-label">{{ header.priorityBadge.label }}</span>
+        <span class="siyuanmemo-review-header__priority-value">{{ header.priorityBadge.value }}</span>
       </div>
+
+      <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
+        <template v-for="btn in filteredToolbar" :key="btn.type">
+          <button
+            v-if="!btn.disabled"
+            :data-type="btn.type"
+            class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
+            :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
+            :aria-label="btn.ariaLabel"
+            :title="btn.tooltip || btn.ariaLabel"
+            @click="handleToolbarClick(btn, $event)"
+          >
+            <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
+            <span v-if="btn.label" class="siyuanmemo-review-header__toolbar-label">{{ btn.label }}</span>
+          </button>
+        </template>
+      </div>
+
+      <button
+        v-if="showMobileClose"
+        data-type="close-review"
+        class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__mobile-close"
+        :aria-label="t('mobileClose', 'Close')"
+        @click="handleCloseClick"
+      >
+        <svg><use xlink:href="#iconCloseRound"></use></svg>
+      </button>
     </div>
 
-    <span class="fn__flex-1"></span>
-
-    <div
-      class="siyuanmemo-review-header__priority"
-      :style="priorityBadgeStyle"
-      :aria-label="header.priorityBadge.ariaLabel"
-      :title="header.priorityBadge.ariaLabel"
-    >
-      <span class="siyuanmemo-review-header__priority-label">{{ header.priorityBadge.label }}</span>
-      <span class="siyuanmemo-review-header__priority-value">{{ header.priorityBadge.value }}</span>
+    <div v-if="neuralEngineIntro" class="siyuanmemo-review-header__nav-strip">
+      <span class="siyuanmemo-review-header__nav-strip-text">{{ neuralEngineIntro }}</span>
     </div>
-
-    <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
-      <template v-for="btn in filteredToolbar" :key="btn.type">
-        <button
-          v-if="!btn.disabled"
-          :data-type="btn.type"
-          class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
-          :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
-          :aria-label="btn.ariaLabel"
-          :title="btn.tooltip || btn.ariaLabel"
-          @click="handleToolbarClick(btn, $event)"
-        >
-          <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
-          <span v-if="btn.label" class="siyuanmemo-review-header__toolbar-label">{{ btn.label }}</span>
-        </button>
-      </template>
-    </div>
-
-    <button
-      v-if="showMobileClose"
-      data-type="close-review"
-      class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__mobile-close"
-      :aria-label="t('mobileClose', 'Close')"
-      @click="handleCloseClick"
-    >
-      <svg><use xlink:href="#iconCloseRound"></use></svg>
-    </button>
   </div>
 </template>
 
@@ -99,6 +111,7 @@ const emit = defineEmits<{
 }>();
 
 const logger = createLogger('ReviewHeader');
+type ReviewToolbarButton = NonNullable<ReviewUIState['header']['toolbar']>[number];
 
 type WindowWithSiyuanLanguages = Window & {
   siyuan?: {
@@ -124,6 +137,50 @@ const priorityBadgeStyle = computed(() => {
   return createGhostStyle(token.color);
 });
 
+const neuralEngineIntro = computed(() => {
+  if (!props.navigationState) {
+    return '';
+  }
+  return props.navigationState.engineMode === 'hyperspace'
+    ? t(
+        'engineHyperspaceIntro',
+        'Propagate outward layer by layer from activation sources through links and optional tree relations.',
+      )
+    : t(
+        'engineOrbitIntro',
+        'Roam locally around orbit centers, concept cards, and nearby stations.',
+      );
+});
+
+function getReviewSourceListButtonLabel(engineMode: NonNullable<NeuralNavigationState>['engineMode']): string {
+  return engineMode === 'hyperspace'
+    ? t('viewActivationSourceList', 'View Activation Source List')
+    : t('viewOrbitCenterList', 'View Orbit Center List');
+}
+
+function overrideReviewToolbarButton(btn: ReviewToolbarButton, navState: NeuralNavigationState): ReviewToolbarButton {
+  if (btn.type === 'lock-focus') {
+    const ariaLabel = t('addAnchor', 'Build Station');
+    return {
+      ...btn,
+      icon: '#iconPin',
+      ariaLabel,
+      tooltip: ariaLabel,
+    };
+  }
+
+  if (btn.type === 'neural-focuses') {
+    const ariaLabel = getReviewSourceListButtonLabel(navState.engineMode);
+    return {
+      ...btn,
+      ariaLabel,
+      tooltip: ariaLabel,
+    };
+  }
+
+  return btn;
+}
+
 const filteredToolbar = computed(() => {
   let toolbar = props.header?.toolbar || [];
   logger.debug('[SiYuanMemo][ReviewHeader] filteredToolbar computed:', {
@@ -141,18 +198,13 @@ const filteredToolbar = computed(() => {
     const engineText = navState.engineMode === 'hyperspace'
       ? t('engineHyperspace', 'Hyperspace Expedition / 超空间远征')
       : t('engineOrbit', 'Orbit / 轨道');
-    const engineIntroLong = navState.engineMode === 'hyperspace'
-      ? t(
-          'engineHyperspaceIntroLong',
-          '从一个或多个激活源出发，沿概念链接、块链接和可选树关系逐层向外传导，不围绕单一中心打转。',
-        )
-      : t(
-          'engineOrbitIntroLong',
-          '围绕轨道中心，在概念卡与锚点周围的反向链接、直接引用、间接引用与描述符之间做局部航行。',
-        );
     const modeText = navState.navigationMode === 'follow'
       ? t('navModeFollow', 'Follow Path')
-      : t('navModeExplore', 'Free Explore');
+      : t('navModeExplore', 'Free Roam');
+    const switchEngineLabel = interpolate(
+      t('switchEngineMode', 'Switch Engine: {mode}'),
+      { mode: engineText },
+    );
     const navStatusLabel = navState.navigationMode === 'follow'
       ? interpolate(
           t('navStatusFollow', 'Current: {mode} ({current}/{total})'),
@@ -170,14 +222,8 @@ const filteredToolbar = computed(() => {
     navButtons.push({
       type: 'neural-engine-mode',
       icon: '#iconRefresh',
-      ariaLabel: `${interpolate(
-        t('switchEngineMode', 'Switch Engine: {mode}'),
-        { mode: engineText },
-      )} ${engineIntroLong}`.trim(),
-      tooltip: `${interpolate(
-        t('switchEngineMode', 'Switch Engine: {mode}'),
-        { mode: engineText },
-      )}\n${engineIntroLong}`.trim(),
+      ariaLabel: switchEngineLabel,
+      tooltip: switchEngineLabel,
       disabled: false,
     });
 
@@ -191,7 +237,7 @@ const filteredToolbar = computed(() => {
     navButtons.push({
       type: 'neural-return-bookmark',
       icon: '#iconBookmark',
-      ariaLabel: t('returnToBookmark', 'Return to Anchor'),
+      ariaLabel: t('returnToBookmark', 'Return to Station'),
       disabled: !navState.hasBookmark,
     });
 
@@ -199,6 +245,8 @@ const filteredToolbar = computed(() => {
       ...navButtons,
       ...toolbar,
     ];
+
+    toolbar = toolbar.map(btn => overrideReviewToolbarButton(btn, navState));
   }
 
   if (props.isMobile) {
@@ -245,6 +293,12 @@ function handleCloseClick(event: MouseEvent): void {
 </script>
 
 <style scoped>
+.siyuanmemo-review-header-shell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .block__icons.siyuanmemo-review-header {
   display: flex;
   align-items: center;
@@ -252,6 +306,28 @@ function handleCloseClick(event: MouseEvent): void {
   min-width: 0;
   background-color: var(--b3-theme-surface) !important;
   border-bottom: 1px solid var(--b3-theme-background);
+}
+
+.siyuanmemo-review-header-shell--with-nav .block__icons.siyuanmemo-review-header {
+  border-bottom: none;
+}
+
+.siyuanmemo-review-header__nav-strip {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 12px 6px;
+  color: var(--b3-theme-on-surface-light);
+  background-color: var(--b3-theme-surface);
+  border-bottom: 1px solid var(--b3-theme-background);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.siyuanmemo-review-header__nav-strip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .block__logo {
@@ -479,5 +555,9 @@ function handleCloseClick(event: MouseEvent): void {
     overflow: hidden;
     text-overflow: ellipsis;
   }
+}
+
+.siyuanmemo-review-header-shell--mobile .siyuanmemo-review-header__nav-strip {
+  padding: 4px 8px 6px;
 }
 </style>

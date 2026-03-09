@@ -19,7 +19,7 @@
       </header>
 
       <div v-if="filteredEntries.length === 0" class="neural-list__empty">
-        {{ t('noStartPoints', 'No start points') }}
+        {{ labels.emptyState }}
       </div>
 
       <ul v-else class="neural-list__items">
@@ -33,8 +33,8 @@
             type="button"
             class="neural-list__item-main"
             @click="$emit('preview', entry.nodeId)"
-            @dblclick="$emit('set-current-focus', entry.nodeId)"
-            @keydown.enter.prevent="$emit('set-current-focus', entry.nodeId)"
+            @dblclick="handlePromote(entry.nodeId, entry.isCurrent)"
+            @keydown.enter.prevent="handlePromote(entry.nodeId, entry.isCurrent)"
           >
             <span class="neural-list__title">
               {{ entry.nodePreview || entry.nodeId }}
@@ -42,7 +42,7 @@
                 {{ t('currentNodeTag', 'Current') }}
               </span>
               <span v-if="entry.isAnchored" class="neural-list__tag neural-list__tag--anchored">
-                {{ t('anchoredTag', 'Anchored') }}
+                {{ t('anchoredTag', 'Station') }}
               </span>
             </span>
             <span class="neural-list__meta">
@@ -54,27 +54,17 @@
             <button
               type="button"
               class="neural-list__action neural-list__action--primary b3-button"
-              @click="$emit('set-current-focus', entry.nodeId)"
+              :disabled="entry.isCurrent"
+              @click="handlePromote(entry.nodeId, entry.isCurrent)"
             >
-              {{ primaryActionLabel }}
-            </button>
-            <button
-              type="button"
-              class="neural-list__action b3-button b3-button--outline"
-              @click="$emit('toggle-anchor', entry.nodeId, !entry.isAnchored)"
-            >
-              {{
-                entry.isAnchored
-                  ? t('removeAnchor', 'Remove Anchor')
-                  : t('addAnchor', 'Add Anchor')
-              }}
+              {{ entry.isCurrent ? labels.currentAction : labels.primaryAction }}
             </button>
             <button
               type="button"
               class="neural-list__action b3-button b3-button--outline"
               @click="$emit('toggle-source', entry.nodeId, false)"
             >
-              {{ t('removeStartPoint', 'Remove Start Point') }}
+              {{ labels.removeItem }}
             </button>
           </div>
         </li>
@@ -86,6 +76,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { NeuralEngineMode } from '@/types/unified-data-source';
+import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import type { NeuralSourceListEntry } from './types';
 
 const props = defineProps<{
@@ -94,11 +85,10 @@ const props = defineProps<{
   engineMode: NeuralEngineMode;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'preview', nodeId: string): void;
   (e: 'set-current-focus', nodeId: string): void;
   (e: 'toggle-source', nodeId: string, enabled: boolean): void;
-  (e: 'toggle-anchor', nodeId: string, enabled: boolean): void;
 }>();
 
 const search = ref('');
@@ -119,6 +109,13 @@ function formatTime(timestamp: number): string {
   return new Date(value).toLocaleString();
 }
 
+function handlePromote(nodeId: string, isCurrent?: boolean): void {
+  if (isCurrent) {
+    return;
+  }
+  emit('set-current-focus', nodeId);
+}
+
 const filteredEntries = computed(() => {
   const query = normalize(search.value).trim();
   return [...props.entries]
@@ -131,21 +128,7 @@ const filteredEntries = computed(() => {
     .sort((a, b) => b.visitedAt - a.visitedAt);
 });
 
-const sectionTitle = computed(() =>
-  props.engineMode === 'hyperspace'
-    ? t('activationSources', 'Activation Sources')
-    : t('orbitCenters', 'Orbit Centers')
-);
-
-const primaryActionLabel = computed(() =>
-  props.engineMode === 'hyperspace'
-    ? t('setPrimaryActivationSource', 'Set as Primary Activation Source')
-    : t('setCurrentFocus', 'Set as Orbit Center')
-);
-
-const modeHint = computed(() =>
-  props.engineMode === 'hyperspace'
-    ? t('sourceModeHintHyperspace', 'Start points work as activation sources in this mode.')
-    : t('sourceModeHintOrbit', 'Start points work as orbit centers in this mode.')
-);
+const labels = computed(() => getNeuralSourceLabelSet(props.engineMode, t));
+const sectionTitle = computed(() => labels.value.sectionTitle);
+const modeHint = computed(() => labels.value.modeHint);
 </script>

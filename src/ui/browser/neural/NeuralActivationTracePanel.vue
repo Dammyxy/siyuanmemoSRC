@@ -41,7 +41,7 @@
             <div class="neural-trace-panel__card-title">{{ trace.targetTitle }}</div>
             <div class="neural-trace-panel__card-meta">
               <span v-if="isCurrentTarget" class="neural-trace-panel__pill neural-trace-panel__pill--current">{{ t('currentNodeTag', '当前') }}</span>
-              <span v-if="isAnchoredTarget" class="neural-trace-panel__pill neural-trace-panel__pill--anchor">{{ t('anchoredTag', '已锚定') }}</span>
+              <span v-if="isAnchoredTarget" class="neural-trace-panel__pill neural-trace-panel__pill--anchor">{{ t('anchoredTag', '空间站') }}</span>
               <span v-if="lastStep?.isVirtual" class="neural-trace-panel__pill">{{ t('virtualNode', '虚拟节点') }}</span>
               <span class="neural-trace-panel__time">{{ formatTime(lastStep?.visitedAt ?? 0) }}</span>
             </div>

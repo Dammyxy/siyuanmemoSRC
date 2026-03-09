@@ -106,6 +106,7 @@ import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensio
 import { createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
+import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import {
   type DataChangeEvent,
@@ -555,6 +556,53 @@ let subscribedReviewManager: IUnifiedDataSourceManagerFacade | null = null;
 
 function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
+}
+
+function resolveNeuralSourceLabels(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()) {
+  const engineMode = neuralQueue?.getNavigationState().engineMode ?? neuralNavigationState.value?.engineMode ?? 'orbit';
+  return getNeuralSourceLabelSet(engineMode, t);
+}
+
+function getReviewSourceListLabel(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
+  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
+    ? t('viewActivationSourceList', '查看激活源列表')
+    : t('viewOrbitCenterList', '查看轨道中心列表');
+}
+
+function getBuildStationSuccessMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
+  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
+    ? t('stationBuiltAndSetPrimaryActivationSource', '已建立空间站，并切换为当前主激活源')
+    : t('stationBuiltAndSetOrbitCenter', '已建立空间站，并切换为当前轨道中心');
+}
+
+function getBuildStationFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
+  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
+    ? t('buildStationAndSetPrimaryActivationSourceFailed', '建立空间站并切换主激活源失败')
+    : t('buildStationAndSetOrbitCenterFailed', '建立空间站并切换轨道中心失败');
+}
+
+function getLockCurrentCenterFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
+  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
+    ? t('lockPrimaryActivationSourceFailed', '设为主激活源失败')
+    : t('lockCurrentOrbitCenterFailed', '设为当前轨道中心失败');
+}
+
+function getStartPathFromSourceMessage(nodeId: string, neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
+  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
+    ? t('roamStartedFromActivationSource', '已从激活源 {id} 开始新的路径').replace('{id}', nodeId)
+    : t('roamStartedFromOrbitCenter', '已从轨道中心 {id} 开始新的路径').replace('{id}', nodeId);
+}
+
+function getSourceRemovedMessage(nodeId: string, neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
+  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
+    ? t('activationSourceRemoved', '已移除激活源 {id}').replace('{id}', nodeId)
+    : t('orbitCenterRemoved', '已移除轨道中心 {id}').replace('{id}', nodeId);
+}
+
+function getRemoveSourceFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
+  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
+    ? t('removeActivationSourceFailed', '移除激活源失败')
+    : t('removeOrbitCenterFailed', '移除轨道中心失败');
 }
 
 function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
@@ -1226,7 +1274,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
     const neuralQueue = getNeuralRoamQueue();
     if (!neuralQueue) {
       logger.error('[SiYuanMemo][ReviewView] Queue does not support orbit center actions');
-      showMessage(t('queueNoFocusSupport', 'This queue does not support start-point actions'), 3000, 'error');
+      showMessage(t('queueNoFocusSupport', 'This queue does not support center actions'), 3000, 'error');
       return;
     }
 
@@ -1234,10 +1282,10 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       await startWorldlineFromCurrentNode(neuralQueue, blockId);
       refreshNavigationState();
       logger.debug('[SiYuanMemo][ReviewView] Started a new orbit from center node:', blockId);
-      showMessage(t('lockedAsFocus', 'Set as new start point'), 3000, 'info');
+      showMessage(getBuildStationSuccessMessage(neuralQueue), 3000, 'info');
     })().catch((error: Error) => {
       logger.error('[SiYuanMemo][ReviewView] Failed to set orbit center:', error);
-      showMessage(t('lockFocusFailed', 'Failed to set start point'), 3000, 'error');
+      showMessage(getBuildStationFailedMessage(neuralQueue), 3000, 'error');
     });
   } else if (actionType === 'neural-engine-mode') {
     logger.debug('[SiYuanMemo][ReviewView] Engine mode toggle button clicked');
@@ -1283,18 +1331,18 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       const blockId = resolveCurrentReviewBlockId();
       if (!blockId) {
         logger.error('[SiYuanMemo][ReviewView] Cannot start branch exploration without current block id');
-        showMessage(t('lockFocusFailed', 'Failed to set start point'), 3000, 'error');
+        showMessage(getLockCurrentCenterFailedMessage(neuralQueue), 3000, 'error');
         return;
       }
 
       void (async () => {
         await startWorldlineFromCurrentNode(neuralQueue, blockId);
         refreshNavigationState();
-        const modeText = t('navModeExplore', '自由展开');
+        const modeText = t('navModeExplore', '自由航行');
         showMessage(t('navModeSwitched', '已切换为：{mode}').replace('{mode}', modeText), 2000, 'info');
       })().catch((error: Error) => {
         logger.error('[SiYuanMemo][ReviewView] Failed to promote current node as worldline focus:', error);
-        showMessage(t('lockFocusFailed', 'Failed to set start point'), 3000, 'error');
+        showMessage(getLockCurrentCenterFailedMessage(neuralQueue), 3000, 'error');
       });
       return;
     }
@@ -1304,7 +1352,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
     const modeText = newMode === 'follow'
       ? t('navModeFollow', '沿当前路径')
-      : t('navModeExplore', '自由展开');
+      : t('navModeExplore', '自由航行');
     showMessage(t('navModeSwitched', '已切换为：{mode}').replace('{mode}', modeText), 2000, 'info');
   } else if (actionType === 'neural-return-bookmark') {
     logger.debug('[SiYuanMemo][ReviewView] Return to bookmark button clicked');
@@ -1323,7 +1371,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       void hook.loadCardByBlockId(navState.currentNodeId);
     }
     refreshNavigationState();
-    showMessage(t('navReturnedToBookmark', '已返回锚点'), 2000, 'info');
+    showMessage(t('navReturnedToBookmark', '已返回空间站'), 2000, 'info');
   }
 }
 
@@ -1577,16 +1625,17 @@ function resolveAssociationTypeLabel(entry: NeuralRoamHistoryEntry): string {
 function handleNeuralFocusMenu(ev: MouseEvent): void {
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue) {
-    showMessage(t('queueNoFocusSupport', '当前队列不支持起点操作'), 3000, 'error');
+    showMessage(t('queueNoFocusSupport', '当前队列不支持中心操作'), 3000, 'error');
     return;
   }
 
+  const sourceLabels = resolveNeuralSourceLabels(neuralQueue);
   const seedEntries = neuralQueue.getSourceSnapshot().sort((a, b) => b.visitedAt - a.visitedAt);
   const menu = new Menu('neural-focuses-menu');
 
   menu.addItem({
     icon: 'iconList',
-    label: t('viewFocusList', '查看起点'),
+    label: getReviewSourceListLabel(neuralQueue),
     click: () => {
       openNeuralBrowserSubview('concept-cards');
     },
@@ -1594,7 +1643,7 @@ function handleNeuralFocusMenu(ev: MouseEvent): void {
 
   menu.addItem({
     icon: 'iconPlay',
-    label: t('roamFromFocus', '从起点开始新的路径'),
+    label: sourceLabels.startPath,
     disabled: seedEntries.length === 0,
     submenu: seedEntries.map((entry) => ({
       label: buildSeedMenuLabel(entry),
@@ -1607,11 +1656,7 @@ function handleNeuralFocusMenu(ev: MouseEvent): void {
           });
           await hook.loadCardByBlockId(entry.nodeId);
           refreshNavigationState();
-          showMessage(
-            t('roamStartedFromFocus', '已从起点 {id} 开始新的路径').replace('{id}', entry.nodeId),
-            3000,
-            'info'
-          );
+          showMessage(getStartPathFromSourceMessage(entry.nodeId, neuralQueue), 3000, 'info');
         } catch (error) {
           logger.error('[SiYuanMemo][ReviewView] Failed to start roaming from focus:', error);
           showMessage(t('roamStartFailed', '开始漫游失败'), 3000, 'error');
@@ -1622,7 +1667,7 @@ function handleNeuralFocusMenu(ev: MouseEvent): void {
 
   menu.addItem({
     icon: 'iconTrashcan',
-    label: t('removeFocus', '移除起点'),
+    label: sourceLabels.removeItem,
     disabled: seedEntries.length === 0,
     submenu: seedEntries.map((entry) => ({
       label: buildSeedMenuLabel(entry),
@@ -1630,10 +1675,10 @@ function handleNeuralFocusMenu(ev: MouseEvent): void {
         try {
           await neuralQueue.setSourceEntry(entry.nodeId, false);
           refreshNavigationState();
-          showMessage(t('focusRemoved', '已移除起点 {id}').replace('{id}', entry.nodeId), 3000, 'info');
+          showMessage(getSourceRemovedMessage(entry.nodeId, neuralQueue), 3000, 'info');
         } catch (error) {
           logger.error('[SiYuanMemo][ReviewView] Failed to remove focus:', error);
-          showMessage(t('removeFocusFailed', '移除起点失败'), 3000, 'error');
+          showMessage(getRemoveSourceFailedMessage(neuralQueue), 3000, 'error');
         }
       },
     })),
@@ -1668,7 +1713,7 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
 
   menu.addItem({
     icon: 'iconBookmark',
-    label: t('viewAnchors', '查看锚点'),
+    label: t('viewAnchors', '查看空间站'),
     click: () => {
       openNeuralBrowserSubview('worldline-anchors');
     },
@@ -1677,14 +1722,14 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
   const jumpCandidates = history.slice(-20);
   menu.addItem({
     icon: 'iconOpen',
-    label: t('jumpHistoryNode', '跳转历史节点'),
+    label: t('jumpHistoryNode', '跳转轨迹节点'),
     disabled: jumpCandidates.length === 0,
     submenu: jumpCandidates.map((entry, index) => ({
       label: buildHistoryLabel(entry, history.length - jumpCandidates.length + index + 1),
       click: async () => {
         const jumped = await neuralQueue.jumpToHistoryNode(entry.nodeId);
         if (!jumped) {
-          showMessage(t('jumpHistoryNodeFailed', '跳转历史节点失败'), 3000, 'error');
+          showMessage(t('jumpHistoryNodeFailed', '跳转轨迹节点失败'), 3000, 'error');
           return;
         }
         const currentNodeId = neuralQueue.getNavigationState().currentNodeId || entry.nodeId;

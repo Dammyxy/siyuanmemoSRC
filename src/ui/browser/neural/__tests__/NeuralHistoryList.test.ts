@@ -69,12 +69,13 @@ describe('NeuralHistoryList', () => {
       },
     });
 
-    const actions = wrapper.findAll('.neural-list__action');
-    await actions[0].trigger('click');
-    await actions[1].trigger('click');
+    const rows = wrapper.findAll('.neural-history-list__timeline-item');
+    const secondRowActions = rows[1].findAll('.neural-list__action');
+    await secondRowActions[0].trigger('click');
+    await secondRowActions[1].trigger('click');
 
-    expect(wrapper.emitted('set-current-focus')?.[0]).toEqual(['node-b']);
-    expect(wrapper.emitted('toggle-anchor')?.[0]).toEqual(['node-b', false]);
+    expect(wrapper.emitted('set-current-focus')?.[0]).toEqual(['node-a']);
+    expect(wrapper.emitted('toggle-anchor')?.[0]).toEqual(['node-a', true]);
   });
 
   it('shows Orbit action labels by anchor state', () => {
@@ -82,6 +83,7 @@ describe('NeuralHistoryList', () => {
       props: {
         entries,
         engineMode: 'orbit',
+        currentNodeId: 'node-b',
       },
     });
 
@@ -89,11 +91,13 @@ describe('NeuralHistoryList', () => {
     const firstRowActions = rows[0].findAll('.neural-list__action');
     const secondRowActions = rows[1].findAll('.neural-list__action');
 
-    expect(firstRowActions[0].attributes('aria-label')).toBe('Set as Orbit Center');
+    expect(firstRowActions[0].attributes('aria-label')).toBe('Current Orbit Center');
+    expect(firstRowActions[0].attributes('disabled')).toBeDefined();
     expect(firstRowActions[1].text()).toBe('\u2605');
     expect(secondRowActions[1].text()).toBe('\u2606');
-    expect(firstRowActions[1].attributes('aria-label')).toBe('Remove Anchor');
-    expect(secondRowActions[1].attributes('aria-label')).toBe('Add Anchor');
+    expect(secondRowActions[0].attributes('aria-label')).toBe('Set as Current Orbit Center');
+    expect(firstRowActions[1].attributes('aria-label')).toBe('Remove Station');
+    expect(secondRowActions[1].attributes('aria-label')).toBe('Build Station');
   });
 
   it('filters entries by search input', async () => {

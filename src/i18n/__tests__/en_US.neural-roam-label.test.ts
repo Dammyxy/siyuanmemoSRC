@@ -9,18 +9,31 @@ describe('en_US neural roam labels', () => {
 
   it('separates engine labels from neutral navigation and subview labels', () => {
     expect(enUS.navModeFollow).toBe('Follow Path');
-    expect(enUS.navModeExplore).toBe('Free Explore');
-    expect(enUS.lockAsFocus).toBe('Set as Start Point');
-    expect(enUS.roamSeeds).toBe('Start Points');
-    expect(enUS.roamHistory).toBe('Paths');
-    expect(enUS.worldlineAnchors).toBe('Anchors');
+    expect(enUS.navModeExplore).toBe('Free Roam');
+    expect(enUS.lockAsFocus).toBe('Set as Current Center');
+    expect(enUS.neuralFocusMenu).toBe('View Source List');
+    expect(enUS.viewSourceList).toBe('View Source List');
+    expect(enUS.roamSeeds).toBe('Centers');
+    expect(enUS.roamHistory).toBe('Trajectory Path');
+    expect(enUS.viewHistory).toBe('View Trajectory Path');
+    expect(enUS.neuralHistoryMenu).toBe('View Trajectory Path');
+    expect(enUS.worldlineAnchors).toBe('Stations');
     expect(enUS.engineOrbit).toBe('Orbit');
     expect(enUS.engineHyperspace).toBe('Hyperspace Expedition');
-    expect(enUS.engineOrbitIntro).toBe('Roam locally around orbit centers, concept cards, and nearby anchors.');
-    expect(enUS.engineOrbitIntroLong).toContain('backlinks');
+    expect(enUS.engineOrbitIntro).toBe('Roam locally around orbit centers, concept cards, and nearby stations.');
+    expect(enUS.engineOrbitIntroLong).toContain('stations');
     expect(enUS.engineHyperspaceIntro).toBe('Propagate outward layer by layer from activation sources through links and optional tree relations.');
     expect(enUS.engineHyperspaceIntroLong).toContain('block links');
     expect(enUS.activationTrace).toBe('Wake');
+    expect(enUS.returnToBookmark).toBe('Return to Station');
+    expect(enUS.addAnchor).toBe('Build Station');
+    expect(enUS.removeAnchor).toBe('Remove Station');
+    expect(enUS.viewOrbitCenterList).toBe('View Orbit Center List');
+    expect(enUS.viewActivationSourceList).toBe('View Activation Source List');
+    expect(enUS.stationBuiltAndSetOrbitCenter).toBe('Built station and switched to current orbit center');
+    expect(enUS.stationBuiltAndSetPrimaryActivationSource).toBe('Built station and switched to current primary activation source');
+    expect(enUS.buildStationAndSetOrbitCenterFailed).toBe('Failed to build station and switch orbit center');
+    expect(enUS.buildStationAndSetPrimaryActivationSourceFailed).toBe('Failed to build station and switch primary activation source');
   });
 
   it('uses block-link wording for hyperspace edge labels', () => {

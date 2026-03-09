@@ -54,26 +54,39 @@ describe('NeuralAnchorList', () => {
     expect(wrapper.emitted('set-current-focus')?.[1]).toEqual(['anchor-b']);
   });
 
-  it('disables jump-anchor action when anchor is not in current path', async () => {
+  it('shows jump and remove-station actions with the correct availability', async () => {
     const wrapper = mount(NeuralAnchorList, {
       props: {
         entries,
         engineMode: 'orbit',
+        currentNodeId: 'anchor-b',
       },
     });
 
     const rows = wrapper.findAll('.neural-anchor-list__item');
     const setOrbitCenterButton = rows[0].findAll('.neural-list__action')[0];
     const inPathJumpButton = rows[0].findAll('.neural-list__action')[1];
+    const inPathRemoveButton = rows[0].findAll('.neural-list__action')[2];
     const notInPathJumpButton = rows[1].findAll('.neural-list__action')[1];
+    const notInPathRemoveButton = rows[1].findAll('.neural-list__action')[2];
 
-    expect(setOrbitCenterButton.attributes('aria-label')).toBe('Set as Orbit Center');
+    expect(setOrbitCenterButton.attributes('aria-label')).toBe('Current Orbit Center');
+    expect(setOrbitCenterButton.attributes('disabled')).toBeDefined();
     expect(inPathJumpButton.attributes('aria-label')).toBe('Jump in current path');
-    expect(notInPathJumpButton.attributes('aria-label')).toBe('Anchor is not in current path');
+    expect(inPathRemoveButton.attributes('aria-label')).toBe('Remove Station');
+    expect(notInPathJumpButton.attributes('aria-label')).toBe('Station is not in the current path');
+    expect(notInPathRemoveButton.attributes('aria-label')).toBe('Remove Station');
     expect(inPathJumpButton.attributes('disabled')).toBeUndefined();
     expect(notInPathJumpButton.attributes('disabled')).toBeDefined();
+    expect(inPathRemoveButton.attributes('disabled')).toBeUndefined();
+    expect(notInPathRemoveButton.attributes('disabled')).toBeUndefined();
 
     await inPathJumpButton.trigger('click');
+    await inPathRemoveButton.trigger('click');
+    await notInPathRemoveButton.trigger('click');
+
     expect(wrapper.emitted('jump-anchor')?.[0]).toEqual(['anchor-b']);
+    expect(wrapper.emitted('toggle-anchor')?.[0]).toEqual(['anchor-b', false]);
+    expect(wrapper.emitted('toggle-anchor')?.[1]).toEqual(['anchor-a', false]);
   });
 });

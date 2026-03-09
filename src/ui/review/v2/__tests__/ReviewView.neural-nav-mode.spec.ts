@@ -48,9 +48,12 @@ function buildCard() {
   };
 }
 
-function createNeuralQueue(navigationMode: 'follow' | 'explore' = 'follow') {
+function createNeuralQueue(
+  navigationMode: 'follow' | 'explore' = 'follow',
+  engineMode: 'orbit' | 'hyperspace' = 'orbit',
+) {
   return {
-    getEngineMode: vi.fn(() => 'orbit' as const),
+    getEngineMode: vi.fn(() => engineMode),
     setEngineMode: vi.fn(async () => undefined),
     getSourceSnapshot: vi.fn(() => []),
     setSourceEntry: vi.fn(async () => undefined),
@@ -73,7 +76,7 @@ function createNeuralQueue(navigationMode: 'follow' | 'explore' = 'follow') {
     jumpToHistoryNode: vi.fn(async () => true),
     getPathItemByNodeId: vi.fn(async () => null),
     getNavigationState: vi.fn(() => ({
-      engineMode: 'orbit' as const,
+      engineMode,
       engineSessionId: 'engine-session-1',
       navigationMode,
       currentPathIndex: 0,
@@ -217,8 +220,56 @@ describe('ReviewView neural nav mode', () => {
     });
     expect(neuralQueue.setNavigationMode).not.toHaveBeenCalled();
     expect(reviewViewNeuralModeMocks.showMessage).toHaveBeenLastCalledWith(
-      expect.stringContaining('自由展开'),
+      expect.stringContaining('自由航行'),
       2000,
+      'info',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('builds a station and switches the orbit center from the review toolbar', async () => {
+    const neuralQueue = createNeuralQueue('follow', 'orbit');
+    const wrapper = mountReviewView(neuralQueue);
+
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'lock-focus', new MouseEvent('click'));
+    await flushPromises();
+
+    expect(neuralQueue.setAnchorEntry).toHaveBeenCalledWith('block-1', true);
+    expect(neuralQueue.setCurrentFocus).toHaveBeenCalledWith('block-1', {
+      includeFocusAsFirst: false,
+      resetHistory: false,
+      bookmarkCurrentPath: true,
+    });
+    expect(reviewViewNeuralModeMocks.showMessage).toHaveBeenLastCalledWith(
+      '已建立空间站，并切换为当前轨道中心',
+      3000,
+      'info',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('builds a station and switches the primary activation source from the review toolbar', async () => {
+    const neuralQueue = createNeuralQueue('follow', 'hyperspace');
+    const wrapper = mountReviewView(neuralQueue);
+
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'lock-focus', new MouseEvent('click'));
+    await flushPromises();
+
+    expect(neuralQueue.setAnchorEntry).toHaveBeenCalledWith('block-1', true);
+    expect(neuralQueue.setCurrentFocus).toHaveBeenCalledWith('block-1', {
+      includeFocusAsFirst: false,
+      resetHistory: false,
+      bookmarkCurrentPath: true,
+    });
+    expect(reviewViewNeuralModeMocks.showMessage).toHaveBeenLastCalledWith(
+      '已建立空间站，并切换为当前主激活源',
+      3000,
       'info',
     );
 

@@ -146,7 +146,6 @@
           @preview="handleNeuralPreview"
           @set-current-focus="handleNeuralSetCurrentFocus"
           @toggle-source="handleNeuralToggleSource"
-          @toggle-anchor="handleNeuralToggleAnchor"
         />
         <template v-else-if="neuralSubview === 'roam-history'">
           <div class="card-browser__neural-roam-layout">
@@ -184,6 +183,7 @@
           :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
           @preview="handleNeuralPreview"
           @set-current-focus="handleNeuralSetCurrentFocus"
+          @toggle-anchor="handleNeuralToggleAnchor"
           @jump-anchor="handleNeuralJumpAnchor"
         />
       </div>
@@ -289,6 +289,7 @@ import { useCardTypeDetection } from './composables/useCardTypeDetection';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { RescheduleStoragePort } from '@/core/scheduler/ports';
 import { createColumnDefs } from './config';
+import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import type {
   NeuralActivationTrace,
   BrowserCardTypeFilter,
@@ -558,6 +559,10 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
+function resolveNeuralSourceLabels(engineMode: NeuralEngineMode = neuralNavigationState.value?.engineMode || 'orbit') {
+  return getNeuralSourceLabelSet(engineMode, t);
+}
+
 function normalizeQueueId(value: string | null | undefined): string | null {
   const qid = String(value || '').trim();
   if (!qid) {
@@ -641,9 +646,9 @@ const showNeuralCustomSubview = computed(() =>
   isNeuralRoamQueueActive.value
 );
 const neuralSubviewTabs = computed(() => ([
-  { id: 'concept-cards' as const, label: t('roamSeeds', '起点') },
-  { id: 'roam-history' as const, label: t('roamHistory', '路径') },
-  { id: 'worldline-anchors' as const, label: t('worldlineAnchors', '锚点') },
+  { id: 'concept-cards' as const, label: resolveNeuralSourceLabels().sectionTitle },
+  { id: 'roam-history' as const, label: t('roamHistory', '轨迹路径') },
+  { id: 'worldline-anchors' as const, label: t('worldlineAnchors', '空间站') },
 ]));
 
 // 始终启用 sortable，过 canApplySortToQueue 控制按钮显示
@@ -2229,6 +2234,7 @@ function onCellContextMenu(event: CellContextMenuEvent) {
   if (isNeuralRoamQueueActive.value && neuralSubview.value === 'concept-cards') {
     const neuralQueue = getNeuralRoamQueue();
     if (neuralQueue) {
+      const sourceLabels = resolveNeuralSourceLabels(neuralQueue.getNavigationState().engineMode);
       const seedIds = new Set(neuralQueue.getSeedSnapshot().map((entry) => entry.nodeId));
       const selectedIds = selected.map((row) => String(row.blockId || '')).filter(Boolean);
       const allInSeedPool = selectedIds.length > 0 && selectedIds.every((id) => seedIds.has(id));
@@ -2236,8 +2242,8 @@ function onCellContextMenu(event: CellContextMenuEvent) {
       menu.addItem({
         icon: 'iconList',
         label: allInSeedPool
-          ? t('removeSeedEntry', '移出起点')
-          : t('addSeedEntry', '加入起点'),
+          ? sourceLabels.removeItem
+          : sourceLabels.addItem,
         click: () => {
           void (async () => {
             for (const blockId of selectedIds) {
@@ -3007,7 +3013,7 @@ function resolveNeuralRelationLabel(type: string): string {
     'tree-parent': t('relationTreeParent', '父块'),
     path: t('activationKindManualJump', '手动跳转'),
   };
-  return map[type] || type || t('routeMetaWorldline', '锚点记录');
+  return map[type] || type || t('routeMetaWorldline', '空间站');
 }
 
 function resolveNeuralOriginLabel(origin: NeuralPropagationOrigin | string | null | undefined): string | null {
@@ -3409,7 +3415,7 @@ async function handleNeuralJump(nodeId: string): Promise<void> {
 
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue) {
-    await pushErrMsg(t('jumpHistoryNodeFailed', 'Failed to jump history node'));
+    await pushErrMsg(t('jumpHistoryNodeFailed', 'Failed to jump trajectory node'));
     return;
   }
 
@@ -3424,7 +3430,7 @@ async function handleNeuralJump(nodeId: string): Promise<void> {
 
   const dialogManager = pluginContext.value?.getDialogManager?.();
   if (!jumped) {
-    await pushErrMsg(t('jumpHistoryNodeFailed', 'Failed to jump history node'));
+    await pushErrMsg(t('jumpHistoryNodeFailed', 'Failed to jump trajectory node'));
     return;
   }
 
@@ -3507,7 +3513,7 @@ async function handleNeuralToggleNavigationMode(): Promise<void> {
 
   const modeText = nextMode === 'follow'
     ? t('navModeFollow', '沿当前路径')
-    : t('navModeExplore', '自由展开');
+    : t('navModeExplore', '自由航行');
   await pushMsg(t('navModeSwitched', '已切换为：{mode}').replace('{mode}', modeText));
 }
 

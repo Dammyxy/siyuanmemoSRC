@@ -65,15 +65,14 @@ describe('NeuralFocusList', () => {
     const wrapper = mountComponent();
 
     expect(wrapper.text()).toContain('Orbit Centers');
-    expect(wrapper.text()).toContain('Start points work as orbit centers in this mode.');
+    expect(wrapper.text()).toContain('Orbit centers work as the current observation center in this mode.');
 
-    const actions = wrapper.findAll('.neural-list__action');
-    await actions[0].trigger('click');
-    await actions[1].trigger('click');
-    await actions[2].trigger('click');
+    const firstRowActions = wrapper.findAll('.neural-list__item')[0]?.findAll('.neural-list__action') || [];
+    await firstRowActions[0]?.trigger('click');
+    await firstRowActions[1]?.trigger('click');
 
+    expect(firstRowActions).toHaveLength(2);
     expect(wrapper.emitted('set-current-focus')?.[0]).toEqual(['node-a']);
-    expect(wrapper.emitted('toggle-anchor')?.[0]).toEqual(['node-a', false]);
     expect(wrapper.emitted('toggle-source')?.[0]).toEqual(['node-a', false]);
   });
 
@@ -81,7 +80,23 @@ describe('NeuralFocusList', () => {
     const wrapper = mountComponent('hyperspace');
 
     expect(wrapper.text()).toContain('Activation Sources');
-    expect(wrapper.text()).toContain('Start points work as activation sources in this mode.');
+    expect(wrapper.text()).toContain('Activation sources work as propagation roots in this mode.');
     expect(wrapper.findAll('.neural-list__action')[0].text()).toBe('Set as Primary Activation Source');
+  });
+
+  it('renders current row as disabled current center action', () => {
+    const wrapper = mountComponent();
+
+    const secondRowActions = wrapper.findAll('.neural-list__item')[1]?.findAll('.neural-list__action') || [];
+    expect(secondRowActions[0]?.text()).toBe('Current Orbit Center');
+    expect(secondRowActions[0]?.attributes('disabled')).toBeDefined();
+  });
+
+  it('renders current row as disabled current primary activation source action', () => {
+    const wrapper = mountComponent('hyperspace');
+
+    const secondRowActions = wrapper.findAll('.neural-list__item')[1]?.findAll('.neural-list__action') || [];
+    expect(secondRowActions[0]?.text()).toBe('Current Primary Activation Source');
+    expect(secondRowActions[0]?.attributes('disabled')).toBeDefined();
   });
 });

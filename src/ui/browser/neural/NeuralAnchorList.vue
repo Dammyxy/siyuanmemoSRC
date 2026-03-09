@@ -8,11 +8,11 @@
       >
     </div>
     <div class="neural-anchor-list__hint">
-      {{ t('worldlineNodeLongDesc', 'Reusable anchors') }}
+      {{ t('worldlineNodeLongDesc', 'Reusable stations') }}
     </div>
 
     <div v-if="filteredEntries.length === 0" class="neural-list__empty">
-      {{ t('noWorldlineAnchors', 'No anchors') }}
+      {{ t('noWorldlineAnchors', 'No stations') }}
     </div>
 
     <div v-else class="neural-anchor-list__items">
@@ -26,8 +26,8 @@
           type="button"
           class="neural-list__item-main"
           @click="$emit('preview', entry.nodeId)"
-          @dblclick="$emit('set-current-focus', entry.nodeId)"
-          @keydown.enter.prevent="$emit('set-current-focus', entry.nodeId)"
+          @dblclick="handlePromote(entry.nodeId, entry.isCurrent)"
+          @keydown.enter.prevent="handlePromote(entry.nodeId, entry.isCurrent)"
         >
           <span class="neural-list__title">
             {{ entry.nodePreview || entry.nodeId }}
@@ -43,9 +43,10 @@
           <button
             type="button"
             class="b3-button b3-button--outline neural-list__action neural-list__action--icon neural-list__action--primary"
-            :title="focusActionLabel"
-            :aria-label="focusActionLabel"
-            @click.stop="$emit('set-current-focus', entry.nodeId)"
+            :disabled="entry.isCurrent"
+            :title="entry.isCurrent ? labels.currentAction : labels.primaryAction"
+            :aria-label="entry.isCurrent ? labels.currentAction : labels.primaryAction"
+            @click.stop="handlePromote(entry.nodeId, entry.isCurrent)"
           >
             &#x2387;
           </button>
@@ -53,11 +54,20 @@
             type="button"
             class="b3-button b3-button--outline neural-list__action neural-list__action--icon"
             :disabled="!entry.inHistory"
-            :title="entry.inHistory ? t('jumpAnchorInPath', 'Jump in current path') : t('anchorNotInPath', 'Anchor is not in current path')"
-            :aria-label="entry.inHistory ? t('jumpAnchorInPath', 'Jump in current path') : t('anchorNotInPath', 'Anchor is not in current path')"
+            :title="entry.inHistory ? t('jumpAnchorInPath', 'Jump in current path') : t('anchorNotInPath', 'Station is not in the current path')"
+            :aria-label="entry.inHistory ? t('jumpAnchorInPath', 'Jump in current path') : t('anchorNotInPath', 'Station is not in the current path')"
             @click.stop="$emit('jump-anchor', entry.nodeId)"
           >
             &#x21AA;
+          </button>
+          <button
+            type="button"
+            class="b3-button b3-button--outline neural-list__action neural-list__action--icon"
+            :title="t('removeAnchor', 'Remove Station')"
+            :aria-label="t('removeAnchor', 'Remove Station')"
+            @click.stop="$emit('toggle-anchor', entry.nodeId, false)"
+          >
+            &#x2715;
           </button>
         </div>
       </div>
@@ -67,6 +77,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import type { NeuralAnchorListEntry } from './types';
 
 const props = defineProps<{
@@ -76,10 +87,11 @@ const props = defineProps<{
   engineMode?: 'orbit' | 'hyperspace';
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'preview', nodeId: string): void;
   (e: 'set-current-focus', nodeId: string): void;
   (e: 'jump-anchor', nodeId: string): void;
+  (e: 'toggle-anchor', nodeId: string, enabled: boolean): void;
 }>();
 
 const search = ref('');
@@ -110,16 +122,12 @@ const filteredEntries = computed(() =>
     }))
 );
 
-const focusActionLabel = computed(() =>
-  props.engineMode === 'hyperspace'
-    ? t('setPrimaryActivationSource', 'Set as Primary Activation Source')
-    : t('setCurrentFocus', 'Set as Orbit Center')
-);
+const labels = computed(() => getNeuralSourceLabelSet(props.engineMode || 'orbit', t));
 
 function formatMeta(entry: NeuralAnchorListEntry): string {
   const base = entry.inHistory
     ? t('routeMetaMainline', 'Current Path')
-    : t('routeMetaWorldline', 'Anchor');
+    : t('routeMetaWorldline', 'Station');
   const timestamp = formatTime(entry.visitedAt);
   return timestamp === '-' ? base : `${base} | ${timestamp}`;
 }
@@ -130,5 +138,12 @@ function formatTime(timestamp: number): string {
     return '-';
   }
   return new Date(value).toLocaleString();
+}
+
+function handlePromote(nodeId: string, isCurrent?: boolean): void {
+  if (isCurrent) {
+    return;
+  }
+  emit('set-current-focus', nodeId);
 }
 </script>

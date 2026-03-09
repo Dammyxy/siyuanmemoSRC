@@ -193,17 +193,25 @@ describe('ReviewHeader', () => {
     expect(button.text()).toContain('Plan Scope');
   });
 
-  it('uses i18n labels for neural navigation buttons', () => {
+  it('uses i18n labels for orbit review toolbar buttons', () => {
+    const header = createHeaderState();
+    header.toolbar?.push(
+      { type: 'lock-focus', icon: '#iconLock', ariaLabel: 'Legacy Lock Focus' },
+      { type: 'neural-focuses', icon: '#iconList', ariaLabel: 'Legacy Focus Menu' },
+    );
+
     const wrapper = mount(ReviewHeader, {
       props: {
-        header: createHeaderState(),
+        header,
         i18n: {
           engineOrbit: 'Orbit',
-          engineOrbitIntroLong: 'Roam locally around an orbit center through backlinks, direct references, indirect references, and descriptors near concept cards and anchors.',
+          engineOrbitIntro: 'Roam locally around orbit centers, concept cards, and nearby stations.',
           switchEngineMode: 'Switch Engine: {mode}',
           navModeFollow: 'Follow Path',
           navStatusFollow: 'Current: {mode} ({current}/{total})',
-          returnToBookmark: 'Return to Anchor',
+          addAnchor: 'Build Station',
+          viewOrbitCenterList: 'View Orbit Center List',
+          returnToBookmark: 'Return to Station',
         },
         navigationState: {
           engineMode: 'orbit',
@@ -222,12 +230,63 @@ describe('ReviewHeader', () => {
     const engineButton = wrapper.get('button[data-type="neural-engine-mode"]');
     const navModeButton = wrapper.get('button[data-type="neural-nav-mode"]');
     const returnButton = wrapper.get('button[data-type="neural-return-bookmark"]');
+    const lockFocusButton = wrapper.get('button[data-type="lock-focus"]');
+    const focusMenuButton = wrapper.get('button[data-type="neural-focuses"]');
+    const introStrip = wrapper.get('.siyuanmemo-review-header__nav-strip');
+    const lockFocusIconUse = lockFocusButton.get('use');
+    const lockFocusIcon = lockFocusIconUse.attributes('xlink:href') || lockFocusIconUse.attributes('href');
 
-    expect(engineButton.attributes('aria-label')).toContain('Switch Engine: Orbit');
-    expect(engineButton.attributes('aria-label')).toContain('Roam locally around an orbit center');
-    expect(engineButton.attributes('title')).toContain('\n');
-    expect(engineButton.attributes('title')).toContain('Roam locally around an orbit center');
+    expect(engineButton.attributes('aria-label')).toBe('Switch Engine: Orbit');
+    expect(engineButton.attributes('title')).toBe('Switch Engine: Orbit');
+    expect(introStrip.text()).toBe('Roam locally around orbit centers, concept cards, and nearby stations.');
     expect(navModeButton.attributes('aria-label')).toBe('Current: Follow Path (3/10)');
-    expect(returnButton.attributes('aria-label')).toBe('Return to Anchor');
+    expect(lockFocusButton.attributes('aria-label')).toBe('Build Station');
+    expect(lockFocusButton.attributes('title')).toBe('Build Station');
+    expect(lockFocusIcon).toBe('#iconPin');
+    expect(focusMenuButton.attributes('aria-label')).toBe('View Orbit Center List');
+    expect(focusMenuButton.attributes('title')).toBe('View Orbit Center List');
+    expect(returnButton.attributes('aria-label')).toBe('Return to Station');
+  });
+
+  it('uses hyperspace-specific source list label in review toolbar', () => {
+    const header = createHeaderState();
+    header.toolbar?.push(
+      { type: 'lock-focus', icon: '#iconLock', ariaLabel: 'Legacy Lock Focus' },
+      { type: 'neural-focuses', icon: '#iconList', ariaLabel: 'Legacy Focus Menu' },
+    );
+
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header,
+        i18n: {
+          engineHyperspace: 'Hyperspace Expedition',
+          engineHyperspaceIntro: 'Propagate outward layer by layer from activation sources through links and optional tree relations.',
+          switchEngineMode: 'Switch Engine: {mode}',
+          navStatusFollow: 'Current: {mode} ({current}/{total})',
+          navModeFollow: 'Follow Path',
+          addAnchor: 'Build Station',
+          viewActivationSourceList: 'View Activation Source List',
+          returnToBookmark: 'Return to Station',
+        },
+        navigationState: {
+          engineMode: 'hyperspace',
+          engineSessionId: 'engine-session-2',
+          currentPathIndex: 1,
+          navigationMode: 'follow',
+          hasBookmark: true,
+          pathLength: 4,
+          currentNodeId: 'node-2',
+          currentEventId: 'event-2',
+          sessionId: 'session-2',
+        },
+      },
+    });
+
+    const lockFocusButton = wrapper.get('button[data-type="lock-focus"]');
+    const focusMenuButton = wrapper.get('button[data-type="neural-focuses"]');
+
+    expect(lockFocusButton.attributes('aria-label')).toBe('Build Station');
+    expect(focusMenuButton.attributes('aria-label')).toBe('View Activation Source List');
+    expect(focusMenuButton.attributes('title')).toBe('View Activation Source List');
   });
 });

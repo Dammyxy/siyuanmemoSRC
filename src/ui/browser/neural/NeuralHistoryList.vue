@@ -54,7 +54,7 @@
                     {{ t('currentNodeTag', 'Current') }}
                   </span>
                   <span v-if="entry.isAnchored" class="neural-list__tag neural-list__tag--anchored">
-                    {{ t('anchoredTag', 'Anchored') }}
+                    {{ t('anchoredTag', 'Station') }}
                   </span>
                   <span v-if="entry.isVirtual" class="neural-list__tag">{{ t('virtualNode', 'Virtual') }}</span>
                 </span>
@@ -64,17 +64,18 @@
                 <button
                   type="button"
                   class="b3-button b3-button--outline neural-list__action neural-list__action--icon neural-list__action--primary"
-                  :title="focusActionLabel"
-                  :aria-label="focusActionLabel"
-                  @click.stop="$emit('set-current-focus', entry.nodeId)"
+                  :disabled="entry.isCurrent"
+                  :title="entry.isCurrent ? labels.currentAction : labels.primaryAction"
+                  :aria-label="entry.isCurrent ? labels.currentAction : labels.primaryAction"
+                  @click.stop="handlePromote(entry.nodeId, entry.isCurrent)"
                 >
                   &#x2387;
                 </button>
                 <button
                   type="button"
                   class="b3-button b3-button--outline neural-list__action neural-list__action--icon"
-                  :title="entry.isAnchored ? t('removeAnchor', 'Remove Anchor') : t('addAnchor', 'Add Anchor')"
-                  :aria-label="entry.isAnchored ? t('removeAnchor', 'Remove Anchor') : t('addAnchor', 'Add Anchor')"
+                  :title="entry.isAnchored ? t('removeAnchor', 'Remove Station') : t('addAnchor', 'Build Station')"
+                  :aria-label="entry.isAnchored ? t('removeAnchor', 'Remove Station') : t('addAnchor', 'Build Station')"
                   @click.stop="$emit('toggle-anchor', entry.nodeId, !entry.isAnchored)"
                 >
                   {{ entry.isAnchored ? '\u2605' : '\u2606' }}
@@ -90,6 +91,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import type { NeuralListEntry } from './types';
 
 const props = defineProps<{
@@ -139,11 +141,7 @@ const filteredEntries = computed(() =>
 );
 
 const canClearHistory = computed(() => filteredEntries.value.length > 0);
-const focusActionLabel = computed(() =>
-  props.engineMode === 'hyperspace'
-    ? t('setPrimaryActivationSource', 'Set as Primary Activation Source')
-    : t('setCurrentFocus', 'Set as Orbit Center')
-);
+const labels = computed(() => getNeuralSourceLabelSet(props.engineMode || 'orbit', t));
 
 function formatMeta(entry: NeuralListEntry): string {
   const relationMap: Record<string, string> = {
@@ -174,7 +172,7 @@ function formatMeta(entry: NeuralListEntry): string {
     'follow-path': t('activationKindFollowPath', 'Follow Current Path'),
     'manual-jump': t('activationKindManualJump', 'Manual Jump'),
   };
-  const base = relationMap[entry.associationType] || entry.reason || t('routeMetaWorldline', 'Anchor');
+  const base = relationMap[entry.associationType] || entry.reason || t('routeMetaWorldline', 'Station');
   const supportsOriginDetail = entry.associationType === 'concept-link'
     || entry.associationType === 'element-link'
     || entry.associationType === 'tree-child'
@@ -202,6 +200,13 @@ function formatTime(timestamp: number): string {
     return '-';
   }
   return new Date(value).toLocaleString();
+}
+
+function handlePromote(nodeId: string, isCurrent?: boolean): void {
+  if (isCurrent) {
+    return;
+  }
+  emit('set-current-focus', nodeId);
 }
 
 function handleSelect(entry: NeuralListEntry): void {
