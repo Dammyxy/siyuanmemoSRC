@@ -14,10 +14,10 @@ import type {
   SortModel,
 } from './types';
 import {
-  BASE_ACTIONS,
   addToQueue,
   adjustTime,
   buildAddToQueueAction,
+  getBaseActions,
   type PluginLike as MenuActionPluginLike,
 } from './MenuActions';
 import {
@@ -26,6 +26,7 @@ import {
   type QueueAddSource,
 } from '@/types/unified-data-source';
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import type { FSRSCard } from '@/types/card';
 import {
   applyCardTypeFilter,
@@ -201,7 +202,8 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   }
 
   getSupportedActions(): CardBrowserAction[] {
-    const actions: CardBrowserAction[] = [BASE_ACTIONS.open, BASE_ACTIONS.deleteCard];
+    const baseActions = getBaseActions((key, fallback) => this.t(key, fallback));
+    const actions: CardBrowserAction[] = [baseActions.open, baseActions.deleteCard];
 
     const addToQueueAction = buildAddToQueueAction({
       retrieval: true,
@@ -209,17 +211,18 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
       finalDrill: true,
       filterGroup: true,
       neuralRoam: true,
-    });
+    }, (key, fallback) => this.t(key, fallback));
     if (addToQueueAction) {
       actions.push(addToQueueAction);
     }
 
     actions.push(
-      BASE_ACTIONS.setPriority,
-      BASE_ACTIONS.postpone,
-      BASE_ACTIONS.advance,
-      BASE_ACTIONS.spread,
-      BASE_ACTIONS.reset
+      baseActions.setPriority,
+      baseActions.postpone,
+      baseActions.advance,
+      baseActions.spread,
+      baseActions.reset,
+      this.options.preset === 'suspended' ? baseActions.unsuspend : baseActions.suspend,
     );
 
     if (this.plugin?.openSubsetReviewDialog) {
@@ -265,6 +268,13 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     if (actionId === 'suspend') {
       const blockIds = selectedRows.map((row) => row.blockId).filter(Boolean);
       await batchSuspend(blockIds, true, this.createBatchManager());
+      this.invalidateQuerySession();
+      return;
+    }
+
+    if (actionId === 'unsuspend') {
+      const blockIds = selectedRows.map((row) => row.blockId).filter(Boolean);
+      await batchSuspend(blockIds, false, this.createBatchManager());
       this.invalidateQuerySession();
       return;
     }
@@ -430,7 +440,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
       firstReview: firstReviewDate,
       firstReviewFormatted: this.formatHistoryDate(firstReviewDate),
       priority: card.priority ?? 50,
-      suspended: (card.meta?.suspended as boolean) || false,
+      suspended: isCardDismissed(card),
       tags: card.tags || [],
       note: (card.meta?.note as string) || '',
       cardType,

@@ -134,7 +134,8 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
             const cardTypeFilter = ['item', 'concept', 'descriptor', 'topic', 'incremental', 'webpage'] as const;
             const baseCards = await this.manager.getCards({
                 cardType: [...cardTypeFilter],
-                dueDate: { lte: new Date(now) }
+                dueDate: { lte: new Date(now) },
+                includeSuspended: false,
             });
             const manualCount = this.manualCards.size();
             let manualCards: FSRSCard[] = [];

@@ -8,6 +8,7 @@ import {
   getIconByType,
   pushErrMsg,
   pushMsg,
+  setBlockAttrs,
   sql,
 } from './api';
 import { BUILTIN_DECK_ID, reviewRiffCard, skipReviewRiffCard } from '@/core/siyuan/riff';
@@ -21,6 +22,10 @@ export class ReviewSiyuanAdapter implements ReviewSiyuanPort {
 
   async getBlockAttrs(blockId: string): Promise<Record<string, string>> {
     return getBlockAttrs(blockId);
+  }
+
+  async setBlockAttrs(blockId: string, attrs: Record<string, string>): Promise<void> {
+    await setBlockAttrs(blockId, attrs);
   }
 
   async getBlockInfo(blockId: string): Promise<Record<string, unknown>> {

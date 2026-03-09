@@ -121,7 +121,8 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
 
             const baseCards = await this.manager.getCards({
                 cardType: ['item', 'descriptor'],
-                dueDate: { lte: new Date(dayEnd) }
+                dueDate: { lte: new Date(dayEnd) },
+                includeSuspended: false,
             });
             const manualCount = this.manualCards.size();
             let manualCards: FSRSCard[] = [];

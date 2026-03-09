@@ -12,6 +12,7 @@
           :queues="{ active: activeQueueId || '', counts: queueCounts }"
           :focusedDocIds="focusedDocIds"
           :globalStats="globalStats"
+          :activeGlobal="activeGlobalScope"
           :mobile-mode="isMobileMode"
           :i18n="props.i18n"
           @selectQueue="handleSelectQueue"
@@ -457,6 +458,7 @@ const allRowsSnapshotReady = ref(false);
 const hasFirstDataBlockLoaded = ref(false);
 const globalTotalCount = ref<number | null>(null);
 const globalLostCount = ref<number | null>(null);
+const globalDismissedCount = ref<number | null>(null);
 const currentDataSource = ref<ICardDataSource | null>(null);
 const currentPreset = ref<PresetFilter>('all');
 const currentCardType = ref<CardTypeFilter>('all');
@@ -720,10 +722,22 @@ const focusedDocIds = computed(() => {
 const globalStats = computed(() => {
   const total = globalTotalCount.value ?? 0;
   const lost = globalLostCount.value ?? 0;
+  const dismissed = globalDismissedCount.value ?? 0;
   return {
     total,
     lost,
+    dismissed,
   };
+});
+
+const activeGlobalScope = computed<'__all__' | '__dismissed__' | null>(() => {
+  if (currentPreset.value === 'suspended' && !activeQueueId.value && !activeDocId.value) {
+    return '__dismissed__';
+  }
+  if (!activeQueueId.value && !activeDocId.value) {
+    return '__all__';
+  }
+  return null;
 });
 
 function clearLoadedRowsCache(): void {
@@ -1014,6 +1028,7 @@ async function refreshGlobalStats(force = false): Promise<void> {
 
     globalTotalCount.value = visibleCards.length;
     globalLostCount.value = 0;
+    globalDismissedCount.value = visibleCards.filter((card) => card.suspended).length;
   } catch (error) {
     if (taskId !== globalStatsTaskId) {
       return;
@@ -1025,6 +1040,7 @@ async function refreshGlobalStats(force = false): Promise<void> {
     logger.error('[SiYuanMemo][SRSBrowser] Failed to refresh global stats:', error);
     globalTotalCount.value = 0;
     globalLostCount.value = 0;
+    globalDismissedCount.value = 0;
   }
 }
 
@@ -1900,6 +1916,7 @@ function getActionLabel(action: { id: string; label: string }): string {
     spread: { key: 'spread', fallback: 'Spread' },
     reset: { key: 'resetCard', fallback: 'Reset' },
     suspend: { key: 'suspend', fallback: 'Suspend' },
+    unsuspend: { key: 'restore', fallback: 'Restore' },
     'remove-from-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
     'remove-from-current-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
     'delete-card': { key: 'deleteCard', fallback: '鍙栨秷闂崱' },
@@ -1911,7 +1928,6 @@ function getActionLabel(action: { id: string; label: string }): string {
     'add-to-final-drill-queue': { key: 'addToFinalDrillQueue', fallback: '鍒绘剰缁冧範' },
     'add-to-filter-group-queue': { key: 'addToFilterGroupQueue', fallback: 'Filter Group Review' },
     'add-to-neural-roam-queue': { key: 'addToNeuralRoamQueue', fallback: '绁炵粡婕父' },
-    dismiss: { key: 'dismiss', fallback: 'Dismiss' },
     'insert-at': { key: 'insertAt', fallback: 'Insert at' },
     'set-priority': { key: 'setPriority', fallback: 'Set Priority' },
     'auto-sort': { key: 'autoSortQueue', fallback: 'Auto Sort' },
@@ -2160,12 +2176,12 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     if (
       actionId === 'remove-from-queue'
       || actionId === 'remove-from-current-queue'
-      || actionId === 'dismiss'
       || actionId === 'delete-card'
       || actionId === 'insert-at'
       || actionId === 'auto-sort'
       || actionId === 'reset'
       || actionId === 'suspend'
+      || actionId === 'unsuspend'
       || actionId === 'postpone'
       || actionId === 'advance'
     ) {
@@ -3717,13 +3733,13 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
   }
 }
 
-function handleSelectGlobal(_type: '__all__') {
+function handleSelectGlobal(type: '__all__' | '__dismissed__') {
   syncSelectionForQueryChange();
   activeQueueId.value = null;
   clearNeuralSubviewData();
   activeDocId.value = null;
 
-  currentPreset.value = 'all';
+  currentPreset.value = type === '__dismissed__' ? 'suspended' : 'all';
   currentCardType.value = 'all';
   searchQuery.value = '';
   shouldFocusDocList.value = false;

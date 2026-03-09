@@ -264,6 +264,12 @@ type ScheduledReviewCardPayload = {
   dueTimestamp?: number;
 };
 
+type DismissedReviewCardPayload = {
+  cardId?: string;
+  blockId?: string;
+  dismissed?: boolean;
+};
+
 type ReviewContentExpose = {
   exitEditorByEscape: () => boolean;
 };
@@ -589,6 +595,43 @@ async function advanceScheduledCurrentCard(payload: ScheduledReviewCardPayload):
       await removableQueue.removeCard(removalTarget);
     } catch (error) {
       logger.warn('[SiYuanMemo][ReviewView] Failed to remove scheduled current card from queue:', {
+        removalTarget,
+        error,
+      });
+    }
+  }
+
+  await hook.skip();
+}
+
+async function advanceDismissedCurrentCard(payload: DismissedReviewCardPayload): Promise<void> {
+  if (payload.dismissed !== true) {
+    return;
+  }
+
+  const dismissedCardId = String(payload.cardId || '').trim();
+  const dismissedBlockId = String(payload.blockId || '').trim();
+  const currentReference = getCurrentReviewCardReference();
+  const matchesCurrentCard =
+    (dismissedCardId && dismissedCardId === currentReference.cardId)
+    || (dismissedBlockId && dismissedBlockId === currentReference.blockId);
+
+  if (!matchesCurrentCard) {
+    logger.debug('[SiYuanMemo][ReviewView] Ignore dismissed event for non-current card:', {
+      payload,
+      currentReference,
+    });
+    return;
+  }
+
+  const removableQueue = getActiveRemovableReviewQueue();
+  const removalTarget = dismissedCardId || dismissedBlockId;
+
+  if (removableQueue && typeof removableQueue.removeCard === 'function' && removalTarget) {
+    try {
+      await removableQueue.removeCard(removalTarget);
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewView] Failed to remove dismissed current card from queue:', {
         removalTarget,
         error,
       });
@@ -1449,6 +1492,14 @@ function openSrsEditorDialog(blockId: string, cardId?: string) {
           cardId: typeof scheduledPayload.cardId === 'string' ? scheduledPayload.cardId : card.id,
           blockId,
           dueTimestamp: typeof scheduledPayload.dueTimestamp === 'number' ? scheduledPayload.dueTimestamp : undefined,
+        });
+      },
+      dismissed: async (payload: unknown) => {
+        const dismissedPayload = isRecord(payload) ? payload as DismissedReviewCardPayload : {};
+        await advanceDismissedCurrentCard({
+          cardId: typeof dismissedPayload.cardId === 'string' ? dismissedPayload.cardId : card.id,
+          blockId: typeof dismissedPayload.blockId === 'string' ? dismissedPayload.blockId : blockId,
+          dismissed: dismissedPayload.dismissed === true,
         });
       },
     },

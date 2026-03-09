@@ -19,6 +19,11 @@ import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import { CardScheduleService, CardState } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
+import {
+  applyDismissState,
+  hasExplicitDismissedMeta,
+  isCardDismissed,
+} from '@/core/card/domain/services/dismissState';
 import type { FSRSCard } from '@/types';
 import type {
   GetBrowserCardsQuery,
@@ -55,6 +60,11 @@ interface BlockInfoRow extends Record<string, unknown> {
   root_id: string | null;
   content: string | null;
   attrs: string | null;
+}
+
+interface SuspendedAttrRow extends Record<string, unknown> {
+  block_id: string;
+  value: string | null;
 }
 
 /**
@@ -100,7 +110,7 @@ export class GetBrowserCardsQueryHandler {
     // 1. 获取所有卡片（使用新架构 UnifiedStorageManager）
     // ✅ 修复：UnifiedStorageManager 实现了 StorageManager 接口
     // getAllCards() 返回内存中的最新数据（已经通过 updateCard 更新）
-    const allCards = this.storageManager.getAllCards();
+    const allCards = await this.hydrateDismissedCards(this.storageManager.getAllCards());
     
     logger.debug('getAllCards returned:', {
       totalCards: allCards.length,
@@ -203,6 +213,10 @@ export class GetBrowserCardsQueryHandler {
     if (!preset || preset === 'all') {
       return cards;
     }
+
+    if (preset === 'suspended') {
+      return cards.filter((card) => isCardDismissed(card));
+    }
     
     switch (preset) {
       case 'due':
@@ -243,7 +257,7 @@ export class GetBrowserCardsQueryHandler {
       newCards: this.cardFilterService.countByState(cards, CardState.New),
       learningCards: this.cardFilterService.countByState(cards, CardState.Learning),
       reviewCards: this.cardFilterService.countByState(cards, CardState.Review),
-      suspendedCards: this.cardFilterService.countByState(cards, CardState.Suspended),
+      suspendedCards: cards.filter((card) => isCardDismissed(card)).length,
     };
   }
 
@@ -265,6 +279,70 @@ export class GetBrowserCardsQueryHandler {
 
     const value = card.meta[key];
     return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+  }
+
+  private async hydrateDismissedCards(cards: FSRSCard[]): Promise<FSRSCard[]> {
+    if (cards.length === 0) {
+      return cards;
+    }
+
+    const blockIds = cards
+      .filter((card) => !hasExplicitDismissedMeta(card))
+      .map((card) => String(card.blockId || '').trim())
+      .filter(Boolean);
+
+    if (blockIds.length === 0) {
+      return cards;
+    }
+
+    const dismissedBlockIds = await this.loadDismissedBlockIds(blockIds);
+    if (dismissedBlockIds.size === 0) {
+      return cards;
+    }
+
+    return cards.map((card) => {
+      if (hasExplicitDismissedMeta(card)) {
+        return card;
+      }
+      if (!dismissedBlockIds.has(card.blockId)) {
+        return card;
+      }
+      return applyDismissState(card, true, { touchUpdatedAt: false });
+    });
+  }
+
+  private async loadDismissedBlockIds(blockIds: string[]): Promise<Set<string>> {
+    const dismissedBlockIds = new Set<string>();
+    if (blockIds.length === 0) {
+      return dismissedBlockIds;
+    }
+
+    const normalizedBlockIds = Array.from(new Set(blockIds));
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < normalizedBlockIds.length; i += BATCH_SIZE) {
+      const batchIds = normalizedBlockIds.slice(i, i + BATCH_SIZE);
+      const idsStr = batchIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+      const query = `
+        SELECT block_id, value
+        FROM attributes
+        WHERE name = '${this.siyuanApi.ATTR_SUSPENDED}'
+          AND value = 'true'
+          AND block_id IN (${idsStr})
+      `;
+
+      try {
+        const result = await this.siyuanApi.sql<SuspendedAttrRow>(query);
+        for (const row of result) {
+          if (row.block_id) {
+            dismissedBlockIds.add(row.block_id);
+          }
+        }
+      } catch (error) {
+        logger.error('Failed to load dismissed attrs for browser cards:', error);
+      }
+    }
+
+    return dismissedBlockIds;
   }
   
   /**
@@ -474,7 +552,7 @@ export class GetBrowserCardsQueryHandler {
       firstReviewFormatted,
       
       priority: card.priority ?? 50,
-      suspended: customAttrs[this.siyuanApi.ATTR_SUSPENDED] === 'true',
+      suspended: isCardDismissed(card) || customAttrs[this.siyuanApi.ATTR_SUSPENDED] === 'true',
       
       cardType: finalCardType,
       aFactor: card.aFactor,  // 🔧 修复：从卡片数据读取，不再从块属性读取

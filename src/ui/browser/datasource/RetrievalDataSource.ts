@@ -20,6 +20,7 @@ import {
   removeCardsFromQueue,
   setBrowserCardsPriority,
   sortBrowserCards,
+  toggleBrowserCardsSuspended,
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
@@ -105,6 +106,8 @@ export class RetrievalDataSource implements ICardDataSource, IBrowserQueryableDa
         withPriority: true,
         withTimeAdjust: true,
         withDelete: true,
+        withSuspend: true,
+        preset: this.options.preset,
       },
       undefined
     );
@@ -151,6 +154,14 @@ export class RetrievalDataSource implements ICardDataSource, IBrowserQueryableDa
         });
         this.invalidateQuerySession();
         return result;
+      }
+
+      if (actionId === 'suspend' || actionId === 'unsuspend') {
+        await toggleBrowserCardsSuspended(this.manager, selectedRows, actionId === 'suspend', {
+          scope: 'RetrievalDataSource',
+        });
+        this.invalidateQuerySession();
+        return;
       }
 
       if (isQueueDueAdjustAction(actionId)) {

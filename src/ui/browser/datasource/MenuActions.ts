@@ -47,7 +47,8 @@ export function getBaseActions(t?: (key: string, fallback: string) => string) {
     advance: { id: 'advance', label: translate('advance', '提前'), icon: 'iconCalendar' } as CardBrowserAction,
     spread: { id: 'spread', label: translate('spread', '平摊复习'), icon: 'iconCalendar' } as CardBrowserAction,
     reset: { id: 'reset', label: translate('reset', '重置'), icon: 'iconRefresh', danger: true } as CardBrowserAction,
-    suspend: { id: 'suspend', label: translate('suspend', '暂停'), icon: 'iconPause' } as CardBrowserAction,
+    suspend: { id: 'suspend', label: translate('suspend', 'Suspend'), icon: 'iconPause' } as CardBrowserAction,
+    unsuspend: { id: 'unsuspend', label: translate('restore', 'Restore'), icon: 'iconPlay' } as CardBrowserAction,
   };
 }
 
@@ -159,6 +160,8 @@ export function buildQueueActions(
     withPriority?: boolean;
     withTimeAdjust?: boolean;
     withDelete?: boolean;
+    withSuspend?: boolean;
+    preset?: string;
   },
   t?: (key: string, fallback: string) => string
 ): CardBrowserAction[] {
@@ -178,6 +181,9 @@ export function buildQueueActions(
   // }
   if (options.withPriority) {
     actions.push(BASE.setPriority);
+  }
+  if (options.withSuspend) {
+    actions.push(options.preset === 'suspended' ? BASE.unsuspend : BASE.suspend);
   }
   // 🆕 移除"自动排序"功能（已有顶部的排序菜单）
   // if (options.withSort) {

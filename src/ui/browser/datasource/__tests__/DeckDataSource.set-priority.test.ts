@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const setBrowserCardsPriorityMock = vi.fn();
 const invalidateCardCacheMock = vi.fn();
+const batchSuspendMock = vi.fn();
 
 vi.mock('../DataSourceUtils', () => ({
   applyCardTypeFilter: (rows: unknown[]) => rows,
@@ -15,7 +16,7 @@ vi.mock('../DataSourceUtils', () => ({
 
 vi.mock('../../browserService', () => ({
   batchReset: vi.fn(),
-  batchSuspend: vi.fn(),
+  batchSuspend: (...args: unknown[]) => batchSuspendMock(...args),
   invalidateCardCache: (...args: unknown[]) => invalidateCardCacheMock(...args),
 }));
 
@@ -43,5 +44,37 @@ describe('DeckDataSource set-priority regression', () => {
       { scope: 'DeckDataSource' },
     );
     expect(invalidateCardCacheMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes dismiss in normal list and restore in dismissed preset', async () => {
+    const manager = {} as never;
+
+    const defaultSource = new DeckDataSource(manager, { preset: 'all' });
+    expect(defaultSource.getSupportedActions().some((action) => action.id === 'suspend')).toBe(true);
+    expect(defaultSource.getSupportedActions().some((action) => action.id === 'unsuspend')).toBe(false);
+
+    const dismissedSource = new DeckDataSource(manager, { preset: 'suspended' });
+    expect(dismissedSource.getSupportedActions().some((action) => action.id === 'unsuspend')).toBe(true);
+    expect(dismissedSource.getSupportedActions().some((action) => action.id === 'suspend')).toBe(false);
+  });
+
+  it('routes restore through batchSuspend(false)', async () => {
+    const selectedRow = {
+      id: 'row-1',
+      fsrsCardId: 'card-1',
+      blockId: 'block-1',
+      priority: 50,
+    };
+    const manager = {
+      getCards: vi.fn(),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+    } as never;
+    batchSuspendMock.mockResolvedValue(1);
+
+    const ds = new DeckDataSource(manager, { preset: 'suspended' });
+    await ds.performAction('unsuspend', [selectedRow] as never[]);
+
+    expect(batchSuspendMock).toHaveBeenCalledWith(['block-1'], false, expect.any(Object));
   });
 });

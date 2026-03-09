@@ -8,7 +8,7 @@ const reviewContentMocks = vi.hoisted(() => {
     enableCallCount: number;
     destroyCallCount: number;
     host: HTMLElement;
-    options: { render?: Record<string, unknown>; blockId?: string };
+    options: { render?: Record<string, unknown>; blockId?: string; action?: string[] };
     protyle: { wysiwyg: { element: HTMLElement } };
   }> = [];
   const blockFixtures = new Map<string, string>();
@@ -20,13 +20,13 @@ const reviewContentMocks = vi.hoisted(() => {
     enableCallCount = 0;
     destroyCallCount = 0;
     host: HTMLElement;
-    options: { render?: Record<string, unknown>; blockId?: string };
+    options: { render?: Record<string, unknown>; blockId?: string; action?: string[] };
     protyle: { wysiwyg: { element: HTMLElement } };
 
     constructor(
       _app: unknown,
       host: HTMLElement,
-      options: { after?: (protyle: MockProtyle) => void; blockId?: string },
+      options: { after?: (protyle: MockProtyle) => void; blockId?: string; action?: string[]; render?: Record<string, unknown> },
     ) {
       this.host = host;
       this.options = options;
@@ -873,6 +873,7 @@ describe('ReviewContent editor state', () => {
 
     expect(reviewContentMocks.instances).toHaveLength(1);
     expect(reviewContentMocks.instances[0]?.options.blockId).toBe('topic-doc-root');
+    expect(reviewContentMocks.instances[0]?.options.action).toEqual([]);
     expect(reviewContentMocks.instances[0]?.options.render).toMatchObject({
       breadcrumbDocName: true,
       title: true,
@@ -887,6 +888,48 @@ describe('ReviewContent editor state', () => {
 
     expect(reviewContentMocks.instances).toHaveLength(1);
     expect(wrapper.find('.fsrs-review-v2-content__answer').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('keeps cb-get-all for non-document Protyle cards', async () => {
+    setBlockFixture('block-1', '<div data-node-id="block-1">question</div>');
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentMocks.instances[0]?.options.blockId).toBe('block-1');
+    expect(reviewContentMocks.instances[0]?.options.action).toEqual(['cb-get-all']);
 
     wrapper.unmount();
   });

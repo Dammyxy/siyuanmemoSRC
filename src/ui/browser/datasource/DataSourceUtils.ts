@@ -2,7 +2,7 @@ import type { BrowserCard } from '../types';
 import type { SortModel } from './types';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
-import { parseQuery } from '../browserService';
+import { batchSuspend, parseQuery } from '../browserService';
 import {
   getSortContractRawValue,
   getSortContractValueType,
@@ -41,6 +41,11 @@ type QueueInsertLike = {
 type UnifiedCardManagerLike = {
   getCard: (cardId: string, options?: { silent?: boolean }) => Promise<FSRSCard>;
   updateCard: (card: FSRSCard) => Promise<void>;
+};
+type SuspendCardsManagerLike = {
+  getCards: () => Promise<FSRSCard[]>;
+  updateCard: (card: FSRSCard) => Promise<void>;
+  deleteCard?: (cardId: string) => Promise<void>;
 };
 
 type QueueDueConfigLike = Partial<
@@ -209,6 +214,33 @@ export async function setBrowserCardsPriority(
   }
 
   return { updated, skipped };
+}
+
+export async function toggleBrowserCardsSuspended(
+  manager: SuspendCardsManagerLike,
+  selectedRows: BrowserCard[],
+  suspended: boolean,
+  options?: { scope?: string }
+): Promise<number> {
+  const scope = options?.scope || 'DataSource';
+  const blockIds = uniqueStrings(
+    (selectedRows || []).map((row) => String(row?.blockId || '')).filter(Boolean)
+  );
+
+  if (blockIds.length === 0) {
+    return 0;
+  }
+
+  try {
+    return await batchSuspend(
+      blockIds,
+      suspended,
+      manager as Parameters<typeof batchSuspend>[2]
+    );
+  } catch (error) {
+    logger.error(`[${scope}] Failed to toggle suspended state`, error);
+    throw error;
+  }
 }
 
 function parsePositiveDays(candidate: unknown): number | null {
@@ -582,6 +614,8 @@ export function applyLegacyPresetFilter(cards: BrowserCard[], preset?: string): 
         return card.state === 0;
       case 'leech':
         return (card.lapses || 0) > 0;
+      case 'suspended':
+        return card.suspended === true;
       default:
         return true;
     }

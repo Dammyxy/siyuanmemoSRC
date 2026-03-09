@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BrowserCard } from '../../types';
 import {
   applyDocFilter,
+  applyLegacyPresetFilter,
   applySimpleQueryFilter,
   sortAndPaginateBrowserCards,
 } from '../DataSourceUtils';
@@ -204,6 +205,17 @@ describe('DataSourceUtils pagination', () => {
 
     expect(allVisible).toEqual(['b1', 'b3']);
     expect(docAVisible).toEqual(['b1']);
+  });
+
+  it('keeps suspended cards in all view but filters them in suspended preset', () => {
+    const rows: BrowserCard[] = [
+      buildCard({ id: 'c1', blockId: 'b1', suspended: false }),
+      buildCard({ id: 'c2', blockId: 'b2', suspended: true }),
+      buildCard({ id: 'c3', blockId: 'b3', suspended: false }),
+    ];
+
+    expect(applyLegacyPresetFilter(rows, 'all').map((card) => card.blockId)).toEqual(['b1', 'b2', 'b3']);
+    expect(applyLegacyPresetFilter(rows, 'suspended').map((card) => card.blockId)).toEqual(['b2']);
   });
 
   it('applies advanced query semantics via parseQuery matcher', () => {

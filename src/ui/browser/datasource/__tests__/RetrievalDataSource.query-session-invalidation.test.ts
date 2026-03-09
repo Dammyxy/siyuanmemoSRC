@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { RetrievalDataSource } from '../RetrievalDataSource';
 
+const toggleBrowserCardsSuspendedMock = vi.fn();
+
 vi.mock('../DataSourceUtils', () => ({
   applyQueueFilters: (rows: unknown[]) => rows,
   deleteBrowserCards: vi.fn(),
   removeCardsFromQueue: vi.fn(),
   setBrowserCardsPriority: vi.fn(),
   sortBrowserCards: (rows: unknown[]) => rows,
+  toggleBrowserCardsSuspended: (...args: unknown[]) => toggleBrowserCardsSuspendedMock(...args),
 }));
 
 function buildCard(id: string): FSRSCard {
@@ -40,6 +43,36 @@ function buildCard(id: string): FSRSCard {
 }
 
 describe('RetrievalDataSource query session invalidation', () => {
+  it('exposes suspend in queue view and routes the action through the suspend helper', async () => {
+    toggleBrowserCardsSuspendedMock.mockReset();
+    const card = buildCard('card-1');
+    const queue = {
+      getCards: vi.fn(async () => [card]),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getCards: vi.fn(async () => [card]),
+      updateCard: vi.fn(),
+    } as never;
+
+    const dataSource = new RetrievalDataSource(manager, { preset: 'all' });
+    const rows = await dataSource.fetchRows({ startRow: 0, endRow: 20, sortModel: [], filterModel: {} });
+    const selectedRow = rows.rows[0];
+
+    expect(selectedRow).toBeDefined();
+    expect(dataSource.getSupportedActions().some((action) => action.id === 'suspend')).toBe(true);
+    expect(dataSource.getSupportedActions().some((action) => action.id === 'unsuspend')).toBe(false);
+
+    await dataSource.performAction('suspend', [selectedRow!]);
+
+    expect(toggleBrowserCardsSuspendedMock).toHaveBeenCalledWith(
+      manager,
+      [selectedRow],
+      true,
+      { scope: 'RetrievalDataSource' },
+    );
+  });
+
   it('rebuilds queue membership after external card updates invalidate the session', async () => {
     let cards = [buildCard('card-1')];
     const queue = {

@@ -32,6 +32,12 @@ import { getCurrentDayEnd } from '../../utils/dateUtils';
 import { getDayStartHour } from '../../utils/configUtils';
 import { migrateCard } from '../../utils/cardMigration';
 import type { QuerySiyuanPort } from '../ports/QuerySiyuanPort';
+import {
+    applyDismissState,
+    hasExplicitDismissedMeta,
+    isCardDismissed,
+} from '@/core/card/domain/services/dismissState';
+import { ATTR_SUSPENDED } from '@/core/siyuan/block';
 import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import { isErr } from '@/types/result';
 import { createLogger } from '@/utils/logger';
@@ -245,8 +251,9 @@ export class DataAccessFacade implements IDataRouter {
         if (needsRootId || needsContent) {
             await this.fillMissingRootIds([card]);
         }
-        
-        return card;
+
+        const [hydratedCard] = await this.hydrateDismissedCards([card]);
+        return hydratedCard ?? card;
     }
     
     /**
@@ -318,6 +325,8 @@ export class DataAccessFacade implements IDataRouter {
             logger.debug(`[SiYuanMemo][DataAccessFacade] Filling missing rootId/content for ${cardsNeedingData.length} cards`);
             await this.fillMissingRootIds(cardsNeedingData);
         }
+
+        cards = await this.hydrateDismissedCards(cards);
 
         if (!filter) {
             this.cardsCache = cards;
@@ -594,6 +603,10 @@ export class DataAccessFacade implements IDataRouter {
             filtered = this.cardFilterService.filterByKeyword(filtered, keyword);
             logger.debug(`[SiYuanMemo][DataAccessFacade] After keyword filter: ${filtered.length} cards`);
         }
+
+        if (filter.includeSuspended === false) {
+            filtered = filtered.filter((card) => !isCardDismissed(card));
+        }
         
         return filtered;
     }
@@ -628,6 +641,21 @@ export class DataAccessFacade implements IDataRouter {
         }
 
         const value = (row as Record<string, unknown>).id;
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (typeof value === 'number') {
+            return String(value);
+        }
+        return '';
+    }
+
+    private readSqlRowValue(row: unknown, key: string): string {
+        if (!row || typeof row !== 'object') {
+            return '';
+        }
+
+        const value = (row as Record<string, unknown>)[key];
         if (typeof value === 'string') {
             return value;
         }
@@ -691,6 +719,75 @@ export class DataAccessFacade implements IDataRouter {
         }
 
         return { missingBlockIds, uncheckedBlockIds };
+    }
+
+    private async hydrateDismissedCards(cards: FSRSCard[]): Promise<FSRSCard[]> {
+        if (cards.length === 0) {
+            return cards;
+        }
+
+        const blockIdsToCheck = cards
+            .filter((card) => !hasExplicitDismissedMeta(card))
+            .map((card) => String(card.blockId || '').trim())
+            .filter(Boolean);
+
+        if (blockIdsToCheck.length === 0) {
+            return cards;
+        }
+
+        const dismissedBlockIds = await this.loadDismissedBlockIds(blockIdsToCheck);
+        if (dismissedBlockIds.size === 0) {
+            return cards;
+        }
+
+        return cards.map((card) => {
+            if (hasExplicitDismissedMeta(card)) {
+                return card;
+            }
+            if (!dismissedBlockIds.has(card.blockId)) {
+                return card;
+            }
+            return applyDismissState(card, true, { touchUpdatedAt: false });
+        });
+    }
+
+    private async loadDismissedBlockIds(blockIds: string[]): Promise<Set<string>> {
+        const dismissedBlockIds = new Set<string>();
+        const normalizedBlockIds = this.normalizeBlockIds(blockIds);
+        if (normalizedBlockIds.length === 0) {
+            return dismissedBlockIds;
+        }
+
+        for (let i = 0; i < normalizedBlockIds.length; i += this.BLOCK_CHECK_BATCH_SIZE) {
+            const batchBlockIds = normalizedBlockIds.slice(i, i + this.BLOCK_CHECK_BATCH_SIZE);
+            const query = `
+                SELECT block_id, value
+                FROM attributes
+                WHERE name = '${ATTR_SUSPENDED}'
+                  AND value = 'true'
+                  AND block_id IN (${this.toSqlInClauseValues(batchBlockIds)})
+            `;
+
+            try {
+                const rows = await this.siyuanApi.sql(query);
+                for (const row of rows) {
+                    const blockId = this.readSqlRowValue(row, 'block_id');
+                    if (blockId) {
+                        dismissedBlockIds.add(blockId);
+                    }
+                }
+            } catch (error) {
+                logger.debug(
+                    `[SiYuanMemo][DataAccessFacade] Dismissed attrs lookup failed, leaving cards unchanged`,
+                    {
+                        batchSize: batchBlockIds.length,
+                        error,
+                    }
+                );
+            }
+        }
+
+        return dismissedBlockIds;
     }
     
     // ========================================================================

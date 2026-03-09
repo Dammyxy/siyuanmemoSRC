@@ -177,7 +177,7 @@ export const BATCH_ACTIONS: BatchActionDef[] = [
     { key: 'reschedule', i18nKey: 'batchReschedule', label: '重新调度', icon: 'iconCalendar', shortcut: 'Ctrl+J' },
     { key: 'reset',      i18nKey: 'batchReset',      label: '重置为新卡', icon: 'iconRefresh', shortcut: 'Ctrl+Shift+R' },
     { key: 'suspend',    i18nKey: 'batchSuspend',    label: '暂停卡片', icon: 'iconPause', shortcut: 'Ctrl+K' },
-    { key: 'unsuspend',  i18nKey: 'batchUnsuspend',  label: '取消暂停', icon: 'iconPlay', shortcut: 'Ctrl+Shift+K' },
+    { key: 'unsuspend',  i18nKey: 'batchUnsuspend',  label: '恢复卡片', icon: 'iconPlay', shortcut: 'Ctrl+Shift+K' },
     { key: 'priority',   i18nKey: 'batchSetPriority',label: '设置优先级', icon: 'iconMark', shortcut: 'Ctrl+P' },
     { key: 'delete',     i18nKey: 'batchDeleteCard', label: '取消闪卡', icon: 'iconTrashcan', shortcut: 'Del', danger: true },
 ];

@@ -8,7 +8,8 @@
       <div v-if="currentCard" class="srs-editor__hero-meta">
         <span class="srs-editor__chip">{{ formatCardType(currentCard.type) }}</span>
         <span class="srs-editor__chip">{{ currentRenderLabel }}</span>
-        <span class="srs-editor__chip srs-editor__chip--muted">{{ formatState(currentCard.state) }}</span>
+        <span v-if="isDismissed" class="srs-editor__chip srs-editor__chip--warning">{{ t('suspended', 'Suspended') }}</span>
+        <span class="srs-editor__chip srs-editor__chip--muted">{{ currentStateLabel }}</span>
       </div>
     </section>
 
@@ -81,6 +82,17 @@
                 {{ t('scheduleDate', '安排复习日期') }}
               </button>
             </div>
+            <div v-else-if="field.kind === 'dismiss-toggle'" class="srs-field-stack">
+              <div class="srs-field-card__value">{{ field.value }}</div>
+              <button
+                class="b3-button"
+                :class="isDismissed ? 'b3-button--outline' : 'b3-button--warning'"
+                :disabled="isLoading(field.loadingKey)"
+                @click="commitDismissed(!isDismissed)"
+              >
+                {{ isDismissed ? t('restore', 'Restore') : t('suspend', 'Suspend') }}
+              </button>
+            </div>
           </article>
         </div>
       </section>
@@ -138,6 +150,7 @@ import type { CardEditorApplicationService, CardEditorSnapshot } from '@/applica
 import type { DataChangeEvent, IDataSourceObserver, IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { resolveRecommendedRenderTargetForType, type EditableCardType } from '@/application/services/card-editor/applyCardTypeTransition';
 import { getRenderTargetLabel, getRenderTargetOptions, resolveEditableRenderTarget, type EditableRenderTarget } from '@/application/services/card-editor/applyRenderTargetTransition';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import type { SrsEditorFieldDefinition } from './types';
 
 const logger = createLogger('SrsEditorDialog');
@@ -156,6 +169,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: 'scheduled', payload: { cardId: string; dueTimestamp: number }): void;
+  (e: 'dismissed', payload: { cardId: string; blockId: string; dismissed: boolean }): void;
 }>();
 
 const snapshot = ref<CardEditorSnapshot | null>(null);
@@ -175,6 +189,8 @@ const getCardEditorService = (): CardEditorApplicationService | null => getConte
 const getUnifiedManager = (): IUnifiedDataSourceManagerFacade | null => getContext()?.getUnifiedDataSourceManager?.() || null;
 const getSiyuanApi = () => getReviewService()?.getSiyuanApi?.();
 const currentCard = computed(() => snapshot.value?.card ?? null);
+const isDismissed = computed(() => currentCard.value ? isCardDismissed(currentCard.value) : false);
+const currentStateLabel = computed(() => isDismissed.value ? t('suspended', 'Suspended') : formatState(currentCard.value?.state));
 const currentRenderTarget = computed<EditableRenderTarget | null>(() => currentCard.value ? resolveEditableRenderTarget(currentCard.value) : null);
 const currentRenderLabel = computed(() => currentRenderTarget.value ? getRenderTargetLabel(currentRenderTarget.value, t) : '-');
 const recommendedRenderTarget = computed<EditableRenderTarget | null>(() => {
@@ -270,6 +286,7 @@ const quickFields = computed<SrsEditorFieldDefinition[]>(() => currentCard.value
   { id: 'render', label: t('render', '渲染'), kind: 'render-target', commitMode: 'immediate', editable: true, value: currentRenderLabel.value, helperText: t('renderHelper', '仅修改渲染元数据，不改卡片类型。'), loadingKey: 'render' },
   { id: 'nextReview', label: t('nextReview', '下次复习'), kind: 'schedule-date', commitMode: 'dialog', editable: true, value: formatDateTime(currentCard.value.due, t('pending', '待安排')), helperText: t('nextReviewHelper', '继续复用现有安排日期对话框。'), loadingKey: 'nextReview' },
   { id: 'priority', label: t('priority', '优先级'), kind: 'priority', commitMode: 'immediate', editable: true, value: `${formatNumber(currentCard.value.priority)} / 100`, helperText: t('priorityHelper', '范围 0-100，数值越小越优先。'), loadingKey: 'priority' },
+  { id: 'dismiss', label: t('suspend', 'Suspend'), kind: 'dismiss-toggle', commitMode: 'immediate', editable: true, value: isDismissed.value ? t('suspended', 'Suspended') : t('active', 'Active'), helperText: t('dismissHelper', 'Suspend this card without changing its SRS history.'), loadingKey: 'dismiss' },
 ] : []);
 
 const snapshotItems = computed<DetailItem[]>(() => currentCard.value ? [
@@ -335,6 +352,27 @@ async function commitPriority(): Promise<void> {
   await withLoading('priority', async () => {
     try { snapshot.value = await service.updatePriority(currentCard.value!.id, nextPriority); syncDrafts(snapshot.value); await announce('success', t('prioritySaved', '优先级已更新')); }
     catch (error) { logger.error('Failed to update priority', error); await announce('error', t('prioritySaveFailed', '优先级更新失败')); }
+  });
+}
+
+async function commitDismissed(nextDismissed: boolean): Promise<void> {
+  if (!currentCard.value) return;
+  const service = getCardEditorService();
+  if (!service) { await announce('error', t('envNotInit', 'Environment not initialized')); return; }
+  await withLoading('dismiss', async () => {
+    try {
+      const cardId = String(currentCard.value!.id || '').trim();
+      const targetBlockId = String(currentCard.value!.blockId || blockId).trim();
+      snapshot.value = await service.setDismissed(cardId, nextDismissed);
+      syncDrafts(snapshot.value);
+      if (cardId && targetBlockId) {
+        emit('dismissed', { cardId, blockId: targetBlockId, dismissed: nextDismissed });
+      }
+      await announce('success', nextDismissed ? t('dismissedDone', 'Card suspended') : t('restoredDone', 'Card restored'));
+    } catch (error) {
+      logger.error('Failed to update dismissed state', error);
+      await announce('error', nextDismissed ? t('dismissedFailed', 'Failed to suspend card') : t('restoredFailed', 'Failed to restore card'));
+    }
   });
 }
 
@@ -414,6 +452,7 @@ onBeforeUnmount(() => { unbindManagerObserver(); });
 .srs-editor__chip,.srs-field-card__status{display:inline-flex;align-items:center;border-radius:999px;font-size:12px;font-weight:600}
 .srs-editor__chip{min-height:32px;padding:0 12px;background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.7);color:var(--b3-theme-on-surface)}
 .srs-editor__chip--muted{background:transparent;border-color:var(--srs-border)}
+.srs-editor__chip--warning{background:color-mix(in srgb,var(--b3-theme-warning-lightest) 78%,white 22%);border-color:color-mix(in srgb,var(--b3-theme-warning) 35%,var(--srs-border) 65%)}
 .srs-editor__banner,.srs-editor__notice,.srs-panel,.srs-field-card,.srs-stat,.srs-detail{border:1px solid var(--srs-border);border-radius:16px}
 .srs-editor__banner{padding:12px 14px;background:var(--srs-surface);color:var(--b3-theme-on-surface)}
 .srs-editor__banner--success{border-color:color-mix(in srgb,var(--b3-theme-success) 40%,var(--srs-border) 60%);background:color-mix(in srgb,var(--b3-theme-success-lightest) 72%,white 28%)}

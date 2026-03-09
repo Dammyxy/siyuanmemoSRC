@@ -204,7 +204,10 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             // 根据过滤条件获取卡片
             // ✅ 修复：不强制添加 dueDate 过滤，只使用用户设置的过滤条件
             // 筛选复习队列应该显示所有符合过滤条件的卡片，而不是只显示到期的卡片
-            const filteredCards = await this.manager.getCards(this.cardFilter);
+            const filteredCards = await this.manager.getCards({
+                ...this.cardFilter,
+                includeSuspended: false,
+            });
 
             return this.buildDynamicCardsFromBase(filteredCards, {
                 logger,

@@ -7,6 +7,7 @@ import { BaseReviewQueue } from './BaseReviewQueue';
 import { ManualCardSetStrategy } from './ManualCardSetStrategy';
 import { loadQueueState, saveQueueState } from './queuePersistence';
 import { resolveCardId } from '../../../diagnostics/type-guards';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 
 interface ManualCardQueueLogger {
   info(...args: unknown[]): void;
@@ -330,7 +331,12 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     const allCards = this.mergeUniqueCards(baseCards, manualCards);
     logger.debug(`After merge: ${allCards.length} cards`);
 
-    const filteredCards = allCards.filter((card) => !this.temporaryBlacklist.has(card.id));
+    const filteredCards = allCards.filter((card) => {
+      if (this.temporaryBlacklist.has(card.id)) {
+        return false;
+      }
+      return !isCardDismissed(card);
+    });
     if (filteredCards.length < allCards.length) {
       logger.debug(`Filtered ${allCards.length - filteredCards.length} cards from temporary blacklist`);
     }
@@ -393,10 +399,18 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     logger.debug(`Got ${baseCards.length} ${baseCardsLabel}`);
     logger.debug(`Got ${manualCards.length} manually added cards`);
 
-    const filteredBaseCards = baseCards.filter((card) => !this.temporaryBlacklist.has(card.id));
+    const filteredBaseCards = baseCards.filter((card) => {
+      if (this.temporaryBlacklist.has(card.id)) {
+        return false;
+      }
+      return !isCardDismissed(card);
+    });
     const existingIds = new Set(filteredBaseCards.map((card) => card.id));
     const manualOutstandingCards = manualCards.filter((card) => {
       if (this.temporaryBlacklist.has(card.id)) {
+        return false;
+      }
+      if (isCardDismissed(card)) {
         return false;
       }
       return !existingIds.has(card.id);

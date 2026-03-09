@@ -7,6 +7,7 @@ export interface ReviewSiyuanPort {
 
   sql<TRow extends SiyuanRecord = SiyuanRecord>(stmt: string): Promise<TRow[]>;
   getBlockAttrs(blockId: string): Promise<Record<string, string>>;
+  setBlockAttrs(blockId: string, attrs: Record<string, string>): Promise<void>;
   getBlockInfo(blockId: string): Promise<SiyuanRecord>;
   getBlockDOM(blockId: string): Promise<{ dom: string }>;
   getBlockBreadcrumb(blockId: string): Promise<SiyuanRecord[]>;

@@ -181,6 +181,7 @@ describe('ReviewView SRS editor scheduling', () => {
     const dialogOptions = createVueDialogMock.mock.calls[0]?.[0] as {
       events?: {
         scheduled?: (payload: unknown) => Promise<void> | void;
+        dismissed?: (payload: unknown) => Promise<void> | void;
       };
     };
 
@@ -196,6 +197,71 @@ describe('ReviewView SRS editor scheduling', () => {
       { action: 'skip' },
     );
     expect(queue.next).toHaveBeenCalledTimes(2);
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
+
+    wrapper.unmount();
+  });
+
+  it('removes the current review card and advances when the SRS editor dismisses it', async () => {
+    const firstCard = buildCard('card-1', 42);
+    const secondCard = buildCard('card-2', 7);
+    const queue = createQueue([firstCard, secondCard]);
+    const adapter = createAdapter();
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+              getCard: (cardId: string) => (cardId === firstCard.id ? firstCard : secondCard),
+              getCardByBlockId: (blockId: string) => (blockId === firstCard.blockId ? firstCard : secondCard),
+            }),
+            getReviewService: () => ({
+              getSiyuanApi: () => ({
+                BUILTIN_DECK_ID: 'deck-1',
+              }),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'edit-srs', new MouseEvent('click'));
+    await flushPromises();
+
+    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0] as {
+      events?: {
+        dismissed?: (payload: unknown) => Promise<void> | void;
+      };
+    };
+
+    await dialogOptions.events?.dismissed?.({
+      cardId: firstCard.id,
+      blockId: firstCard.blockId,
+      dismissed: true,
+    });
+    await flushPromises();
+
+    expect(queue.removeCard).toHaveBeenCalledWith(firstCard.id);
+    expect(queue.onFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ id: firstCard.id }),
+      { action: 'skip' },
+    );
     expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
 
     wrapper.unmount();

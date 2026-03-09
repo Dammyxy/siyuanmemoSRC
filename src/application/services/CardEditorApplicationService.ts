@@ -1,5 +1,6 @@
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import type { RescheduleOptions, ReviewApplicationService } from '@/application/services/ReviewApplicationService';
+import { ATTR_SUSPENDED } from '@/core/siyuan/block';
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { CardState, type FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
@@ -12,6 +13,10 @@ import {
   applyRenderTargetTransition,
   type EditableRenderTarget,
 } from './card-editor/applyRenderTargetTransition';
+import {
+  applyDismissState,
+  hasExplicitDismissedMeta,
+} from '@/core/card/domain/services/dismissState';
 
 const logger = createLogger('CardEditorApplicationService');
 
@@ -33,7 +38,11 @@ export class CardEditorApplicationService {
   ) {}
 
   async loadSnapshot(blockId: string, preferredCardId?: string): Promise<CardEditorSnapshot> {
-    const card = await this.loadCardByReference(blockId, preferredCardId);
+    const loadedCard = await this.loadCardByReference(blockId, preferredCardId);
+    const attrs = await this.siyuanApi.getBlockAttrs(loadedCard.blockId).catch(() => ({}));
+    const card = !hasExplicitDismissedMeta(loadedCard) && attrs[ATTR_SUSPENDED] === 'true'
+      ? applyDismissState(loadedCard, true, { touchUpdatedAt: false })
+      : loadedCard;
     return this.createSnapshot(card);
   }
 
@@ -108,6 +117,18 @@ export class CardEditorApplicationService {
   async scheduleCard(cardId: string, options: RescheduleOptions): Promise<CardEditorSnapshot> {
     const card = await this.reviewService.rescheduleCard(cardId, options);
     return this.createSnapshot(card);
+  }
+
+  async setDismissed(cardId: string, dismissed: boolean): Promise<CardEditorSnapshot> {
+    const card = await this.manager.getCard(cardId);
+    const nextCard = applyDismissState(card, dismissed, { touchUpdatedAt: true });
+
+    await this.manager.updateCard(nextCard);
+    await this.siyuanApi.setBlockAttrs(nextCard.blockId, {
+      [ATTR_SUSPENDED]: dismissed ? 'true' : '',
+    });
+
+    return this.createSnapshot(nextCard);
   }
 
   private async loadCardByReference(blockId: string, preferredCardId?: string): Promise<FSRSCard> {

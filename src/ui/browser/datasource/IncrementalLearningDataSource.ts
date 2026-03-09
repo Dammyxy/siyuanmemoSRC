@@ -25,6 +25,7 @@ import {
   removeCardsFromQueue,
   setBrowserCardsPriority,
   sortBrowserCards,
+  toggleBrowserCardsSuspended,
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
@@ -140,6 +141,8 @@ export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQ
         withPriority: true,
         withTimeAdjust: true,
         withDelete: true,
+        withSuspend: true,
+        preset: this.options.preset,
       },
       (key, fallback) => this.t(key, fallback)
     );
@@ -186,6 +189,14 @@ export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQ
         });
         this.invalidateQuerySession();
         return result;
+      }
+
+      if (actionId === 'suspend' || actionId === 'unsuspend') {
+        await toggleBrowserCardsSuspended(this.manager, selectedRows, actionId === 'suspend', {
+          scope: 'IncrementalLearningDataSource',
+        });
+        this.invalidateQuerySession();
+        return;
       }
 
       if (isIncrementalTimeAction(actionId)) {

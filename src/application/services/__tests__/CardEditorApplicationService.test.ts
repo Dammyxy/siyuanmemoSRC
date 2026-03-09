@@ -48,6 +48,8 @@ describe('CardEditorApplicationService', () => {
   let updateCard: ReturnType<typeof vi.fn>;
   let rescheduleCard: ReturnType<typeof vi.fn>;
   let getBlockInfo: ReturnType<typeof vi.fn>;
+  let getBlockAttrs: ReturnType<typeof vi.fn>;
+  let setBlockAttrs: ReturnType<typeof vi.fn>;
   let service: CardEditorApplicationService;
 
   beforeEach(() => {
@@ -88,6 +90,8 @@ describe('CardEditorApplicationService', () => {
       created_time: '20260307093000',
       last_edited_time: '20260307100000',
     }));
+    getBlockAttrs = vi.fn(async () => ({}));
+    setBlockAttrs = vi.fn(async () => undefined);
 
     rescheduleCard = vi.fn(async (_cardId: string, _options: unknown) => {
       const nextCard = buildCard({
@@ -103,6 +107,8 @@ describe('CardEditorApplicationService', () => {
       rescheduleCard,
       getSiyuanApi: () => ({
         getBlockInfo,
+        getBlockAttrs,
+        setBlockAttrs,
       }),
     } as unknown as ReviewApplicationService;
 
@@ -188,5 +194,37 @@ describe('CardEditorApplicationService', () => {
     });
     expect(snapshot.card.due).toBe(1_800_000_000_000);
     expect(getBlockInfo).toHaveBeenCalledWith('block-1');
+  });
+
+  it('sets dismissed state without mutating schedule fields', async () => {
+    const original = cards.get('card-1');
+    const snapshot = await service.setDismissed('card-1', true);
+
+    expect(updateCard).toHaveBeenCalledTimes(1);
+    expect(setBlockAttrs).toHaveBeenCalledWith('block-1', { 'custom-fsrs-suspended': 'true' });
+    expect(snapshot.card.meta).toMatchObject({ suspended: true });
+    expect(snapshot.card.due).toBe(original?.due);
+    expect(snapshot.card.state).toBe(original?.state);
+    expect(snapshot.card.scheduledDays).toBe(original?.scheduledDays);
+    expect(snapshot.card.lastReview).toBe(original?.lastReview);
+  });
+
+  it('restores dismissed state without mutating schedule fields', async () => {
+    cards.set('card-1', buildCard({
+      id: 'card-1',
+      blockId: 'block-1',
+      meta: { suspended: true },
+    }));
+
+    const original = cards.get('card-1');
+    const snapshot = await service.setDismissed('card-1', false);
+
+    expect(updateCard).toHaveBeenCalledTimes(1);
+    expect(setBlockAttrs).toHaveBeenCalledWith('block-1', { 'custom-fsrs-suspended': '' });
+    expect(snapshot.card.meta?.suspended).toBeUndefined();
+    expect(snapshot.card.due).toBe(original?.due);
+    expect(snapshot.card.state).toBe(original?.state);
+    expect(snapshot.card.scheduledDays).toBe(original?.scheduledDays);
+    expect(snapshot.card.lastReview).toBe(original?.lastReview);
   });
 });

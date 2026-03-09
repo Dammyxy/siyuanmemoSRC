@@ -4,6 +4,7 @@ import { CardFilterService } from '@/core/card/domain/services/CardFilterService
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
+import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -90,5 +91,54 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
     });
 
     expect(result.cardType).toBe(CardType.Concept);
+  });
+
+  it('hydrates dismissed cards from block attrs for suspended preset and stats', async () => {
+    const card = buildCard({
+      id: 'card-dismissed',
+      blockId: 'block-dismissed',
+      state: CardState.Review,
+      meta: { content: 'dismiss me' },
+    });
+    const siyuanApi: QuerySiyuanPort = {
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      sql: async (stmt: string) => {
+        if (stmt.includes('FROM attributes') && stmt.includes('custom-fsrs-suspended')) {
+          return [{ block_id: 'block-dismissed', value: 'true' }] as never[];
+        }
+        if (stmt.includes('GROUP_CONCAT')) {
+          return [{
+            id: 'block-dismissed',
+            root_id: 'doc-1',
+            content: 'dismiss me',
+            attrs: 'custom-fsrs-suspended=true',
+          }] as never[];
+        }
+        return [] as never[];
+      },
+      batchSetRiffCardsDueTime: async () => undefined,
+    };
+    const handler = new GetBrowserCardsQueryHandler(
+      {
+        getCard: () => undefined,
+        getAllCards: () => [card],
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      siyuanApi,
+    );
+
+    const result = await handler.execute({
+      preset: 'suspended',
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(result.stats.suspendedCards).toBe(1);
+    expect(result.cards).toHaveLength(1);
+    expect(result.cards[0]?.suspended).toBe(true);
   });
 });

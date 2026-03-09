@@ -23,6 +23,7 @@ import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceMana
 import type { QueuePersistencePort } from './ports';
 import { loadQueueState, saveQueueState } from './queuePersistence';
 import { resolveCardId } from '../../../diagnostics/type-guards';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FinalDrillQueue');
@@ -258,12 +259,14 @@ export class FinalDrillQueue extends BaseReviewQueue {
             
             // ⚠️ 重要：每次调用都执行 FlipElement 算法
             // 这样可以确保每次复习前都重新洗牌，避免总是复习同一张卡片
-            if (cards.length > 0) {
-                this.applyFlipElement(cards);
-                logger.debug(`Applied FlipElement algorithm to ${cards.length} cards`);
+            const visibleCards = cards.filter((card) => !isCardDismissed(card));
+
+            if (visibleCards.length > 0) {
+                this.applyFlipElement(visibleCards);
+                logger.debug(`Applied FlipElement algorithm to ${visibleCards.length} cards`);
             }
             
-            return this.cacheResolvedCards(cards, 'reconciled');
+            return this.cacheResolvedCards(visibleCards, 'reconciled');
         } catch (error) {
             logger.error('Failed to get cards:', error);
             throw error;

@@ -17,6 +17,7 @@ import {
   removeCardsFromQueue,
   setBrowserCardsPriority,
   sortBrowserCards,
+  toggleBrowserCardsSuspended,
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
@@ -101,6 +102,8 @@ export class FinalDrillDataSource implements ICardDataSource, IBrowserQueryableD
       withPriority: true,
       withTimeAdjust: false,
       withDelete: true,
+      withSuspend: true,
+      preset: this.options.preset,
     });
   }
 
@@ -146,6 +149,14 @@ export class FinalDrillDataSource implements ICardDataSource, IBrowserQueryableD
         });
         this.invalidateQuerySession();
         return result;
+      }
+
+      if (actionId === 'suspend' || actionId === 'unsuspend') {
+        await toggleBrowserCardsSuspended(this.manager, selectedRows, actionId === 'suspend', {
+          scope: 'FinalDrillDataSource',
+        });
+        this.invalidateQuerySession();
+        return;
       }
 
       if (actionId === 'auto-sort') {

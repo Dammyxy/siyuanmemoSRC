@@ -871,6 +871,14 @@ function buildMainProtyleRenderOptions() {
   };
 }
 
+function buildMainProtyleActions(cbGetAll: ProtyleAction): ProtyleAction[] {
+  if (isTopicDocumentCard.value) {
+    return [];
+  }
+
+  return [cbGetAll];
+}
+
 function logBidirectionalTemplateDiagnostic(stage: string, details?: Record<string, unknown>): void {
   void stage;
   void details;
@@ -1519,13 +1527,14 @@ async function renderProtyle(blockId: string): Promise<void> {
     seq,
     hostChildCount: hostElement.childElementCount,
     hostConnected: hostElement.isConnected,
+    actions: buildMainProtyleActions(cbGetAll),
     renderOptions: buildMainProtyleRenderOptions(),
   });
 
   // Create new instance with blockId - Protyle will auto-load content
   editorRef.value = new ProtyleCtor(props.app, hostElement, {
     blockId,
-    action: [cbGetAll],
+    action: buildMainProtyleActions(cbGetAll),
     render: buildMainProtyleRenderOptions(),
     typewriterMode: false,
     after: (protyle: siyuan.Protyle) => {

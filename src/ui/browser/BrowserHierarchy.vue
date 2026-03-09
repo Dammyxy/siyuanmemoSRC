@@ -19,9 +19,13 @@
     <div class="fsrs-browser-hierarchy__section">
       <div class="fsrs-browser-hierarchy__title">{{ t('all', 'All') }}</div>
       <div class="b3-list b3-list--background">
-        <div class="b3-list-item" @click="emit('selectGlobal', '__all__')">
+        <div class="b3-list-item" :class="{ 'b3-list-item--focus': props.activeGlobal === '__all__' }" @click="emit('selectGlobal', '__all__')">
           <span class="b3-list-item__text">{{ t('allFlashcards', 'All flashcards') }}</span>
           <span class="b3-list-item__meta">{{ globalStats.total }}</span>
+        </div>
+        <div class="b3-list-item" :class="{ 'b3-list-item--focus': props.activeGlobal === '__dismissed__' }" @click="emit('selectGlobal', '__dismissed__')">
+          <span class="b3-list-item__text">{{ t('filterPresetSuspended', 'Suspended') }}</span>
+          <span class="b3-list-item__meta">{{ globalStats.dismissed }}</span>
         </div>
       </div>
     </div>
@@ -54,7 +58,8 @@ const props = defineProps<{
   queues: { active: string; counts: Record<string, number> };
   mobileMode?: boolean;
   focusedDocIds?: string[] | null;
-  globalStats: { total: number; lost: number };
+  globalStats: { total: number; lost: number; dismissed: number };
+  activeGlobal?: '__all__' | '__dismissed__' | null;
   i18n?: Record<string, string>;
 }>();
 
@@ -62,7 +67,7 @@ const emit = defineEmits<{
   (e: 'selectQueue', queueId: string): void;
   (e: 'selectDoc', docId: string): void;
   (e: 'filterDoc', docId: string): void;
-  (e: 'selectGlobal', type: '__all__'): void;
+  (e: 'selectGlobal', type: '__all__' | '__dismissed__'): void;
 }>();
 
 function t(key: string, fallback: string): string {

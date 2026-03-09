@@ -7,6 +7,7 @@ import {
   truncateContent,
 } from '../types';
 import type { FSRSCard } from '@/types/card';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 
 export type QueueCardFirstReviewMode = 'created-or-last' | 'last-review';
 
@@ -121,7 +122,7 @@ export function mapQueueFsrsCardToBrowserCard(
     firstReview: firstReviewDate,
     firstReviewFormatted: formatHistoryDate(firstReviewDate),
     priority: card.priority ?? 50,
-    suspended: (card.meta?.suspended as boolean) || false,
+    suspended: isCardDismissed(card),
     tags: card.tags || [],
     note: (card.meta?.note as string) || '',
     cardType,

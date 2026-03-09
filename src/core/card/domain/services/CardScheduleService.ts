@@ -15,6 +15,7 @@
  */
 
 import type { FSRSCard } from '@/types/card';
+import { isCardDismissed } from './dismissState';
 
 /**
  * 卡片状态枚举
@@ -60,7 +61,7 @@ export class CardScheduleService {
    */
   isDue(card: FSRSCard, now: Date = new Date()): boolean {
     // 暂停的卡片不算到期
-    if (card.state === CardState.Suspended) {
+    if (isCardDismissed(card)) {
       return false;
     }
     
@@ -99,7 +100,7 @@ export class CardScheduleService {
    * @returns 是否在时间范围内到期
    */
   isDueInRange(card: FSRSCard, startTime: Date, endTime: Date): boolean {
-    if (card.state === CardState.Suspended) {
+    if (isCardDismissed(card)) {
       return false;
     }
     

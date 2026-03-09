@@ -13,6 +13,7 @@ import type { Plugin } from 'siyuan';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { FSRSCard } from '@/types';
+import { applyDismissState } from '@/core/card/domain/services/dismissState';
 import { PerformanceMonitor } from '@/utils/performance';
 import { getCurrentDayEnd } from '@/utils/dateUtils';
 import { getDayStartHour } from '@/utils/configUtils';
@@ -1348,16 +1349,12 @@ export async function batchSuspend(
     }
 
     try {
-        const farFuture = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000;
         const uniqueBlockIds = Array.from(new Set(blockIds.filter(Boolean)));
         const updatedBlocks = await updateCardsByBlockIds(
             uniqueBlockIds,
             resolvedManager,
             (card) => {
-                return {
-                    ...card,
-                    due: suspend ? farFuture : Date.now(),
-                } as FSRSCard;
+                return applyDismissState(card, suspend, { touchUpdatedAt: true }) as FSRSCard;
             }
         );
 

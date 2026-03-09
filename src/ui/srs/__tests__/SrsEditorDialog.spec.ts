@@ -76,7 +76,7 @@ describe('SrsEditorDialog', () => {
     confirmDialogMock.mockResolvedValue(true);
   });
 
-  it('renders four schema-driven quick edit fields and the conversion notice', async () => {
+  it('renders five schema-driven quick edit fields and the conversion notice', async () => {
     const loadSnapshot = vi.fn(async () => buildSnapshot());
     const manager = { registerObserver: vi.fn(), unregisterObserver: vi.fn() };
     const plugin = createPlugin({
@@ -85,6 +85,7 @@ describe('SrsEditorDialog', () => {
       updateRender: vi.fn(),
       updatePriority: vi.fn(),
       scheduleCard: vi.fn(),
+      setDismissed: vi.fn(),
       resetProgress: vi.fn(),
     }, {
       getSiyuanApi: () => ({ pushMsg: vi.fn(), pushErrMsg: vi.fn() }),
@@ -102,11 +103,12 @@ describe('SrsEditorDialog', () => {
 
     expect(loadSnapshot).toHaveBeenCalledWith('block-1', 'card-1');
     expect(manager.registerObserver).toHaveBeenCalledTimes(1);
-    expect(wrapper.findAll('.srs-field-card')).toHaveLength(4);
+    expect(wrapper.findAll('.srs-field-card')).toHaveLength(5);
     expect(wrapper.find('[data-field="cardType"]').exists()).toBe(true);
     expect(wrapper.find('[data-field="render"]').exists()).toBe(true);
     expect(wrapper.find('[data-field="nextReview"]').exists()).toBe(true);
     expect(wrapper.find('[data-field="priority"]').exists()).toBe(true);
+    expect(wrapper.find('[data-field="dismiss"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('转换提示');
     expect(wrapper.text()).not.toContain('schema');
   });
@@ -126,6 +128,7 @@ describe('SrsEditorDialog', () => {
           updateRender: vi.fn(),
           updatePriority,
           scheduleCard: vi.fn(),
+          setDismissed: vi.fn(),
           resetProgress: vi.fn(),
         }, {
           getSiyuanApi: () => ({ pushMsg: vi.fn(), pushErrMsg: vi.fn() }),
@@ -170,6 +173,7 @@ describe('SrsEditorDialog', () => {
           updateRender,
           updatePriority: vi.fn(),
           scheduleCard,
+          setDismissed: vi.fn(),
           resetProgress: vi.fn(),
         }, {
           getSiyuanApi: () => ({ pushMsg: vi.fn(), pushErrMsg: vi.fn() }),
@@ -224,6 +228,7 @@ describe('SrsEditorDialog', () => {
           updateRender: vi.fn(),
           updatePriority: vi.fn(),
           scheduleCard: vi.fn(),
+          setDismissed: vi.fn(),
           resetProgress: vi.fn(),
         }, {
           getSiyuanApi: () => ({ pushMsg: vi.fn(), pushErrMsg: vi.fn() }),
@@ -238,6 +243,48 @@ describe('SrsEditorDialog', () => {
 
     expect(wrapper.text()).toContain('当前渲染与该类型的推荐渲染不一致');
     expect(wrapper.text()).toContain('推荐渲染');
+  });
+
+  it('toggles dismissed state from the quick action and emits dismissed event', async () => {
+    const setDismissed = vi.fn(async (_cardId: string, dismissed: boolean) =>
+      buildSnapshot({
+        meta: dismissed ? { suspended: true } : {},
+      }),
+    );
+
+    const wrapper = mount(SrsEditorDialog, {
+      props: {
+        card: { id: 'card-1', blockId: 'block-1' },
+        plugin: createPlugin({
+          loadSnapshot: vi.fn(async () => buildSnapshot()),
+          updateCardType: vi.fn(),
+          updateRender: vi.fn(),
+          updatePriority: vi.fn(),
+          scheduleCard: vi.fn(),
+          setDismissed,
+          resetProgress: vi.fn(),
+        }, {
+          getSiyuanApi: () => ({ pushMsg: vi.fn(), pushErrMsg: vi.fn() }),
+        }, {
+          registerObserver: vi.fn(),
+          unregisterObserver: vi.fn(),
+        }) as never,
+      },
+    });
+
+    await flushPromises();
+
+    const dismissField = wrapper.get('[data-field="dismiss"]');
+    expect(dismissField.text()).toContain('Suspend');
+
+    await dismissField.get('button').trigger('click');
+    await flushPromises();
+
+    expect(setDismissed).toHaveBeenCalledWith('card-1', true);
+    expect(wrapper.emitted('dismissed')?.[0]).toEqual([
+      { cardId: 'card-1', blockId: 'block-1', dismissed: true },
+    ]);
+    expect(dismissField.text()).toContain('Restore');
   });
 
   it('refreshes the same card when unified manager emits a matching update', async () => {
@@ -259,6 +306,7 @@ describe('SrsEditorDialog', () => {
           updateRender: vi.fn(),
           updatePriority: vi.fn(),
           scheduleCard: vi.fn(),
+          setDismissed: vi.fn(),
           resetProgress: vi.fn(),
         }, {
           getSiyuanApi: () => ({ pushMsg: vi.fn(), pushErrMsg: vi.fn() }),
