@@ -623,6 +623,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       const orbitCenter = this.conceptQueue.getNavigationState().currentNodeId
         ?? this.conceptQueue.getSeedSnapshot()[0]?.nodeId
         ?? null;
+      const hyperspaceCarryTarget = orbitCurrentNode ?? orbitCenter;
 
       if (orbitCurrentNode) {
         await this.hyperspaceEngine.setSourceEntry(orbitCurrentNode, true);
@@ -630,12 +631,14 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       if (orbitCenter && orbitCenter !== orbitCurrentNode) {
         await this.hyperspaceEngine.setSourceEntry(orbitCenter, true);
       }
-      if (orbitCurrentNode) {
-        await this.hyperspaceEngine.setAnchorEntry(orbitCurrentNode, true);
-        await this.hyperspaceEngine.setCurrentFocus(orbitCurrentNode, {
-          includeFocusAsFirst: true,
+      if (hyperspaceCarryTarget) {
+        if (orbitCurrentNode) {
+          await this.hyperspaceEngine.setAnchorEntry(orbitCurrentNode, true);
+        }
+        await this.hyperspaceEngine.setCurrentFocus(hyperspaceCarryTarget, {
+          includeFocusAsFirst: Boolean(orbitCurrentNode),
           resetHistory: false,
-          bookmarkCurrentPath: true,
+          bookmarkCurrentPath: Boolean(orbitCurrentNode),
         });
       }
       this.engineMode = 'hyperspace';
@@ -655,9 +658,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         await this.conceptQueue.setAnchorEntry(orbitCarryTarget, true);
       }
       await this.conceptQueue.setCurrentFocus(orbitCarryTarget, {
-        includeFocusAsFirst: true,
+        includeFocusAsFirst: Boolean(previousCurrentNodeId && orbitCarryTarget === previousCurrentNodeId),
         resetHistory: false,
-        bookmarkCurrentPath: true,
+        bookmarkCurrentPath: Boolean(previousCurrentNodeId && orbitCarryTarget === previousCurrentNodeId),
       });
     }
     this.engineMode = 'orbit';

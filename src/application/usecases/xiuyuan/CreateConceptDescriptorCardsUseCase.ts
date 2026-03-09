@@ -164,8 +164,7 @@ export class CreateConceptDescriptorCardsUseCase {
         }
       };
 
-      const { kramdown: parentKramdown } = await this.siyuanApi.getBlockKramdown(anchorBlockId);
-      if (parentKramdown && containsDescriptorOrDefinitionSymbol(parentKramdown)) {
+      if (containsDescriptorOrDefinitionSymbol(parentMarkdown)) {
         addDescriptorRows(parentParagraphRows);
         logger.debug('Added parent paragraph as descriptor/definition block');
       }

@@ -225,6 +225,7 @@ describe('ReviewHeader', () => {
 
     expect(engineButton.attributes('aria-label')).toContain('Switch Engine: Orbit');
     expect(engineButton.attributes('aria-label')).toContain('Roam locally around an orbit center');
+    expect(engineButton.attributes('title')).toContain('\n');
     expect(engineButton.attributes('title')).toContain('Roam locally around an orbit center');
     expect(navModeButton.attributes('aria-label')).toBe('Current: Follow Path (3/10)');
     expect(returnButton.attributes('aria-label')).toBe('Return to Anchor');

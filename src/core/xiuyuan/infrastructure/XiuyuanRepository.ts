@@ -81,6 +81,13 @@ type XiuyuanMeta = Record<string, unknown> & {
   cardType?: XiuyuanCardType;
   schedulerType?: SchedulerType;
   aFactor?: number;
+  source?: string;
+  symbolDetected?: boolean;
+  cardSource?: string;
+  symbolType?: string;
+  clozeRenderMode?: string;
+  forceQuickRender?: boolean;
+  quickDetectReason?: string;
   fieldMapping?: Record<string, unknown>;
   listTemplate?: {
     mode?: 'split-v2' | 'summary-v1';
@@ -694,6 +701,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         templateID: xiuyuan.getTemplateID().getValue(),
         faceIndex: faceIndex,
         ...(typeof meta.source === 'string' ? { source: meta.source } : {}),
+        ...(meta.symbolDetected === true ? { symbolDetected: true } : {}),
+        ...(typeof meta.cardSource === 'string' ? { cardSource: meta.cardSource } : {}),
+        ...(typeof meta.symbolType === 'string' ? { symbolType: meta.symbolType } : {}),
         ...(typeof meta.clozeRenderMode === 'string' ? { clozeRenderMode: meta.clozeRenderMode } : {}),
         ...(typeof meta.forceQuickRender === 'boolean' ? { forceQuickRender: meta.forceQuickRender } : {}),
         ...(typeof meta.quickDetectReason === 'string' ? { quickDetectReason: meta.quickDetectReason } : {}),

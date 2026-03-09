@@ -157,6 +157,7 @@ import {
   buildReviewRenderCacheKey,
   buildReviewRenderWatchKey,
   isNeuralRoamNonFlashcard,
+  shouldPreferStableQuickForcePath,
   shouldBypassSemanticFallback,
   shouldVerifyQuickDefaultProfile,
 } from './reviewRenderPolicy';
@@ -297,7 +298,6 @@ const isTopicDocumentCard = computed(() => (
     || props.content.card?.meta?.blockType === 'd'
   )
 ));
-const forceQuickRenderRaw = computed(() => props.content.card?.meta?.forceQuickRender === true);
 const neuralIsFlashcard = computed(() => resolveNeuralIsFlashcard(props.content.card));
 const isNeuralRoamNonFlashcardCard = computed(() => isNeuralRoamNonFlashcard(props.content.card));
 const quickRenderCardId = computed(() => String(props.content.card?.id || props.content.id || ''));
@@ -317,7 +317,28 @@ const quickDetectReason = computed(() => {
   return typeof reason === 'string' ? reason : '';
 });
 const resolvedRenderProfile = computed(() => resolveRenderProfile(props.content.card));
+const preferStableQuickForcePath = computed(() => shouldPreferStableQuickForcePath(
+  props.content.card,
+  resolvedRenderProfile.value,
+));
 const isLatexNumberedQuickHint = computed(() => quickDetectReason.value === 'cloze-latex-numbered');
+const quickIndicatorSource = computed(() => {
+  const source = props.content.card?.meta?.source;
+  return typeof source === 'string' ? source : '';
+});
+const quickIndicatorSymbolDetected = computed(() => props.content.card?.meta?.symbolDetected === true);
+const quickIndicatorCardSource = computed(() => {
+  const cardSource = props.content.card?.meta?.cardSource;
+  return typeof cardSource === 'string' ? cardSource : '';
+});
+const quickIndicatorSymbolType = computed(() => {
+  const symbolType = props.content.card?.meta?.symbolType;
+  return typeof symbolType === 'string' ? symbolType : '';
+});
+const forceQuickRenderRaw = computed(() => (
+  props.content.card?.meta?.forceQuickRender === true
+  || preferStableQuickForcePath.value
+));
 const forceQuickRender = computed(() => {
   invalidForcedQuickRenderVersion.value;
   if (forceProtyleRender.value) return false;
@@ -339,6 +360,12 @@ const renderCacheKey = computed(() =>
     neuralIsFlashcard: neuralIsFlashcard.value,
     forceProtyleRender: forceProtyleRender.value,
     forceQuickRender: forceQuickRender.value,
+    source: quickIndicatorSource.value,
+    symbolDetected: quickIndicatorSymbolDetected.value,
+    cardSource: quickIndicatorCardSource.value,
+    symbolType: quickIndicatorSymbolType.value,
+    renderProfile: resolvedRenderProfile.value || '',
+    quickDetectReason: quickDetectReason.value,
   }),
 );
 
@@ -352,6 +379,12 @@ const renderWatchKey = computed(() =>
     neuralIsFlashcard: neuralIsFlashcard.value,
     forceProtyleRender: forceProtyleRender.value,
     forceQuickRender: forceQuickRender.value,
+    source: quickIndicatorSource.value,
+    symbolDetected: quickIndicatorSymbolDetected.value,
+    cardSource: quickIndicatorCardSource.value,
+    symbolType: quickIndicatorSymbolType.value,
+    renderProfile: resolvedRenderProfile.value || '',
+    quickDetectReason: quickDetectReason.value,
   }),
 );
 
@@ -462,7 +495,23 @@ const shouldUseDescriptorCardRenderer = computed(() => {
 });
 
 // 判断是否应该使用快速卡片渲染器
+const shouldUseImmediateQuickRenderer = computed(() => (
+  preferStableQuickForcePath.value
+  && props.content.type === 'protyle'
+  && !isTopicReadModeCard.value
+  && !forceProtyleRender.value
+  && !isNeuralRoamNonFlashcardCard.value
+  && !isImageOcclusionCard.value
+  && !isConceptDefinitionCard.value
+  && !isConceptCard.value
+  && !isDescriptorCard.value
+));
+
 const shouldUseQuickCardRenderer = computed(() => {
+  if (shouldUseImmediateQuickRenderer.value) {
+    return true;
+  }
+
   if (resolvedRenderProfile.value === 'quick-default') {
     return props.content.type === 'protyle'
       && !isTopicReadModeCard.value
@@ -1624,6 +1673,9 @@ watch(
   () => renderWatchKey.value,
   () => {
     if (props.content.type !== 'protyle') return;
+    if (currentRendererKind.value !== 'main-protyle') {
+      return;
+    }
     const blockId = String(props.content.id || '');
     if (!blockId) return;
     logger.debug('[SiYuanMemo][ReviewContent] Watch triggered, blockId:', blockId);

@@ -11,6 +11,12 @@ export interface ReviewRenderPolicyKeyInput {
   neuralIsFlashcard?: NullableBoolean;
   forceProtyleRender?: NullableBoolean;
   forceQuickRender?: NullableBoolean;
+  source?: string | null;
+  symbolDetected?: NullableBoolean;
+  cardSource?: string | null;
+  symbolType?: string | null;
+  renderProfile?: string | null;
+  quickDetectReason?: string | null;
 }
 
 export type ReviewRenderProfile = string | null | undefined;
@@ -38,6 +44,12 @@ function buildBaseSegments(input: ReviewRenderPolicyKeyInput): string[] {
     `n:${toBooleanToken(input.neuralIsFlashcard)}`,
     `fp:${toBooleanToken(input.forceProtyleRender)}`,
     `fq:${toBooleanToken(input.forceQuickRender)}`,
+    `src:${toToken(input.source)}`,
+    `sd:${toBooleanToken(input.symbolDetected)}`,
+    `cs:${toToken(input.cardSource)}`,
+    `st:${toToken(input.symbolType)}`,
+    `rp:${toToken(input.renderProfile)}`,
+    `qd:${toToken(input.quickDetectReason)}`,
   ];
 }
 
@@ -60,6 +72,58 @@ export function shouldVerifyQuickDefaultProfile(profile: ReviewRenderProfile): b
   return profile === 'quick-default';
 }
 
+function hasQuickRenderIndicators(meta: Record<string, unknown> | undefined): boolean {
+  if (!meta) {
+    return false;
+  }
+
+  const source = typeof meta.source === 'string' ? meta.source : '';
+  const cardSource = typeof meta.cardSource === 'string' ? meta.cardSource : '';
+  const symbolType = typeof meta.symbolType === 'string' ? meta.symbolType : '';
+  const renderProfile = typeof meta.renderProfile === 'string' ? meta.renderProfile : '';
+
+  return meta.symbolDetected === true
+    || source === 'symbol'
+    || source === 'quick'
+    || cardSource === 'quick-symbol'
+    || symbolType.length > 0
+    || renderProfile === 'quick-default'
+    || renderProfile === 'quick-inline-formula';
+}
+
+export function shouldPreferStableQuickForcePath(
+  card?: FSRSCard | null,
+  profile?: ReviewRenderProfile,
+): boolean {
+  if (!card || card.type !== 'item') {
+    return false;
+  }
+
+  const meta = card.meta as Record<string, unknown> | undefined;
+  if (!meta || meta.forceProtyleRender === true) {
+    return false;
+  }
+
+  if (
+    profile === 'descriptor'
+    || profile === 'concept'
+    || profile === 'concept-definition'
+    || profile === 'quick-inline-formula'
+  ) {
+    return false;
+  }
+
+  const source = typeof meta.source === 'string' ? meta.source : '';
+  const cardSource = typeof meta.cardSource === 'string' ? meta.cardSource : '';
+  const symbolType = typeof meta.symbolType === 'string' ? meta.symbolType : '';
+
+  return meta.symbolDetected === true
+    || source === 'symbol'
+    || cardSource === 'quick-symbol'
+    || symbolType.length > 0
+    || profile === 'quick-default';
+}
+
 export function shouldBypassSemanticFallback(
   card?: FSRSCard | null,
   profile?: ReviewRenderProfile
@@ -70,6 +134,10 @@ export function shouldBypassSemanticFallback(
 
   const meta = card.meta as Record<string, unknown> | undefined;
   if (meta?.forceProtyleRender === true || meta?.forceQuickRender === true) {
+    return false;
+  }
+
+  if (hasQuickRenderIndicators(meta)) {
     return false;
   }
 

@@ -5,6 +5,7 @@ import {
   buildReviewRenderWatchKey,
   isNeuralRoamNonFlashcard,
   shouldBypassSemanticFallback,
+  shouldPreferStableQuickForcePath,
   shouldVerifyQuickDefaultProfile,
 } from '../reviewRenderPolicy';
 
@@ -135,5 +136,45 @@ describe('reviewRenderPolicy', () => {
       },
     }), null)).toBe(false);
     expect(shouldBypassSemanticFallback(createCard(), 'descriptor')).toBe(false);
+  });
+
+  it('does not bypass semantic fallback for persisted symbol/quick cards', () => {
+    expect(shouldBypassSemanticFallback(createCard({
+      meta: {
+        source: 'symbol',
+        symbolDetected: true,
+      },
+    }), null)).toBe(false);
+
+    expect(shouldBypassSemanticFallback(createCard({
+      meta: {
+        source: 'quick',
+      },
+    }), null)).toBe(false);
+  });
+
+  it('promotes persisted symbol quick metadata into the forced quick path', () => {
+    expect(shouldPreferStableQuickForcePath(createCard({
+      meta: {
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '>>',
+      },
+    }), null)).toBe(true);
+
+    expect(shouldPreferStableQuickForcePath(createCard({
+      meta: {
+        source: 'symbol',
+        symbolDetected: true,
+      },
+    }), 'quick-inline-formula')).toBe(false);
+
+    expect(shouldPreferStableQuickForcePath(createCard({
+      meta: {
+        source: 'symbol',
+        symbolDetected: true,
+      },
+    }), 'descriptor')).toBe(false);
   });
 });

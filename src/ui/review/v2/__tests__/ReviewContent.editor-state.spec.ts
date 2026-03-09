@@ -78,6 +78,10 @@ const reviewContentLoggerMocks = vi.hoisted(() => ({
   trace: vi.fn(),
 }));
 
+const reviewContentQuickCardMocks = vi.hoisted(() => ({
+  isQuickCard: vi.fn(async () => false),
+}));
+
 const reviewContentApiMocks = vi.hoisted(() => ({
   getBlockDocInfo: vi.fn(async () => ({ ial: {} })),
   getDocContent: vi.fn(async () => ({ content: '', type: 'NodeDocument' })),
@@ -110,8 +114,8 @@ vi.mock('@/core/card/quick-card/infrastructure/QuickCardRepository', () => ({
 
 vi.mock('@/core/card/quick-card/application/QuickCardRenderService', () => ({
   QuickCardRenderService: class {
-    async isQuickCard(): Promise<boolean> {
-      return false;
+    async isQuickCard(blockId?: string, cardId?: string): Promise<boolean> {
+      return reviewContentQuickCardMocks.isQuickCard(blockId, cardId);
     }
   },
 }));
@@ -172,6 +176,39 @@ function createForcedQuickContent() {
       meta: {
         forceQuickRender: true,
         quickDetectReason: 'cloze-latex-numbered',
+      },
+    },
+  };
+}
+
+function createSymbolQuickContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-symbol-quick',
+    data: '',
+    card: {
+      id: 'card-symbol-quick',
+      type: 'item',
+      meta: {
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '>>',
+      },
+    },
+  };
+}
+
+function createSymbolQuickContentWithoutIndicators() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-symbol-quick',
+    data: '',
+    card: {
+      id: 'card-symbol-quick',
+      type: 'item',
+      meta: {
+        typeMarker: 'Q',
       },
     },
   };
@@ -268,6 +305,10 @@ function getEditorStates(wrapper: ReturnType<typeof mount>): ReviewEditorState[]
   return (wrapper.emitted('editor-state-change') ?? []).map(([state]) => state as ReviewEditorState);
 }
 
+function findWarnCall(message: string): unknown[] | undefined {
+  return reviewContentLoggerMocks.warn.mock.calls.find(([firstArg]) => firstArg === message);
+}
+
 async function settleReviewContent(): Promise<void> {
   await flushPromises();
   await new Promise(resolve => setTimeout(resolve, 25));
@@ -293,6 +334,8 @@ describe('ReviewContent editor state', () => {
     reviewContentLoggerMocks.info.mockReset();
     reviewContentLoggerMocks.log.mockReset();
     reviewContentLoggerMocks.trace.mockReset();
+    reviewContentQuickCardMocks.isQuickCard.mockReset();
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(false);
     reviewContentApiMocks.getBlockDocInfo.mockReset();
     reviewContentApiMocks.getDocContent.mockReset();
     reviewContentApiMocks.getBlockDocInfo.mockResolvedValue({ ial: {} });
@@ -541,19 +584,128 @@ describe('ReviewContent editor state', () => {
     await settleReviewContent();
 
     expect(reviewContentMocks.instances).toHaveLength(1);
-    expect(reviewContentLoggerMocks.warn).toHaveBeenCalledTimes(1);
-    expect(reviewContentLoggerMocks.warn).toHaveBeenCalledWith(
+    expect(findWarnCall(
+      '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
+    )).toEqual([
       '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
       expect.objectContaining({
         blockId: 'block-force-quick',
         cardId: 'card-force-quick',
       }),
-    );
+    ]);
 
     await wrapper.setProps({ showAnswer: false });
     await settleReviewContent();
 
-    expect(reviewContentLoggerMocks.warn).toHaveBeenCalledTimes(1);
+    expect(
+      reviewContentLoggerMocks.warn.mock.calls.filter(
+        ([firstArg]) => firstArg === '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
+      ),
+    ).toHaveLength(1);
+
+    wrapper.unmount();
+  });
+
+  it('routes persisted symbol quick cards to the quick renderer without building Protyle', async () => {
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createSymbolQuickContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'special',
+      supportsNativeEdit: false,
+      isEditing: false,
+    });
+    expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it('reruns renderer detection when quick-card metadata arrives for the same card identity', async () => {
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(false);
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createSymbolQuickContentWithoutIndicators(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    const initialProtyle = reviewContentMocks.instances[0];
+    expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(false);
+
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+    await wrapper.setProps({
+      content: createSymbolQuickContent(),
+    });
+    await settleReviewContent();
+
+    expect(reviewContentQuickCardMocks.isQuickCard).toHaveBeenLastCalledWith('block-symbol-quick', 'card-symbol-quick');
+    expect(initialProtyle.destroyCallCount).toBeGreaterThan(0);
+    expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'special',
+      supportsNativeEdit: false,
+      isEditing: false,
+    });
 
     wrapper.unmount();
   });

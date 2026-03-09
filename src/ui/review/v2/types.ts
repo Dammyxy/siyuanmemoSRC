@@ -97,6 +97,7 @@ export interface ReviewUIState {
       type: string;
       label?: string;
       ariaLabel?: string;
+      tooltip?: string;
       disabled?: boolean;
     }>;
     navigationState?: {

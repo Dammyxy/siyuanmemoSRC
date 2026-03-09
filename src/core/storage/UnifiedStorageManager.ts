@@ -51,6 +51,15 @@ export interface StorageSyncMetadata {
   lastModifiedBy: string;
 }
 
+type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
+
+const STABLE_QUICK_META_STRING_KEYS = ['source', 'cardSource', 'symbolType', 'clozeRenderMode'] as const;
+const STABLE_QUICK_META_BOOLEAN_KEYS = ['symbolDetected'] as const;
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 function stableStringify(value: unknown): string {
   if (value === null) {
     return 'null';
@@ -136,6 +145,61 @@ export class UnifiedStorageManager {
   private readonly instanceId = `storage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   private lastKnownContentHash: string | null = null;
   private lastKnownRevision: number = 0;
+
+  private getXiuyuanFromLookup(
+    xiuyuanId: string | undefined,
+    xiuyuanLookup: XiuyuanLookup
+  ): IXiuyuan | undefined {
+    if (!xiuyuanId) {
+      return undefined;
+    }
+
+    if (xiuyuanLookup instanceof Map) {
+      return xiuyuanLookup.get(xiuyuanId);
+    }
+
+    return xiuyuanLookup[xiuyuanId];
+  }
+
+  private toDomainCard(
+    dto: CardPersistenceDTO,
+    xiuyuanLookup: XiuyuanLookup = this.xiuyuans
+  ): FSRSCard {
+    const card = CardMapper.toDomain(dto);
+    const xiuyuanId = dto.xiuyuanID || card.xiuyuanID;
+    const xiuyuan = this.getXiuyuanFromLookup(xiuyuanId, xiuyuanLookup);
+    const xiuyuanMeta = isObjectRecord(xiuyuan?.meta) ? xiuyuan.meta : undefined;
+
+    if (!xiuyuanMeta) {
+      return card;
+    }
+
+    const nextMeta = isObjectRecord(card.meta) ? { ...card.meta } : {};
+    let hydrated = false;
+
+    for (const key of STABLE_QUICK_META_STRING_KEYS) {
+      if (nextMeta[key] === undefined && typeof xiuyuanMeta[key] === 'string') {
+        nextMeta[key] = xiuyuanMeta[key];
+        hydrated = true;
+      }
+    }
+
+    for (const key of STABLE_QUICK_META_BOOLEAN_KEYS) {
+      if (nextMeta[key] === undefined && typeof xiuyuanMeta[key] === 'boolean') {
+        nextMeta[key] = xiuyuanMeta[key];
+        hydrated = true;
+      }
+    }
+
+    if (!hydrated) {
+      return card;
+    }
+
+    return {
+      ...card,
+      meta: nextMeta,
+    };
+  }
 
   /**
    * 鉁?鏋勯€犲嚱鏁帮細纭繚鎵€鏈?Map 閮藉凡鍒濆鍖?
@@ -447,7 +511,7 @@ export class UnifiedStorageManager {
 
     const mergedCards: Record<string, FSRSCard> = {};
     for (const [id, dto] of Object.entries(mergedCardDTOs)) {
-      mergedCards[id] = CardMapper.toDomain(dto);
+      mergedCards[id] = this.toDomainCard(dto, mergedXiuyuans);
     }
 
     return {
@@ -514,7 +578,7 @@ export class UnifiedStorageManager {
 
     const cards: Record<string, FSRSCard> = {};
     for (const [id, dto] of Object.entries(cardDTOs)) {
-      cards[id] = CardMapper.toDomain(dto);
+      cards[id] = this.toDomainCard(dto, xiuyuans);
     }
 
     const syncMetadata = store.syncMetadata
@@ -635,7 +699,7 @@ export class UnifiedStorageManager {
 
     // 閲嶅缓绱㈠紩
     for (const dto of this.cardDTOs.values()) {
-      const card = CardMapper.toDomain(dto);
+      const card = this.toDomainCard(dto);
       this.updateIndexesForCard(card, 'add');
     }
 
@@ -760,7 +824,7 @@ export class UnifiedStorageManager {
     // 鉁?涓轰簡鍚戝悗鍏煎锛屼粛鐒朵繚瀛?cards 瀛楁锛堜粠 cardDTOs 杞崲锛?
     const cards: Record<string, FSRSCard> = {};
     for (const [id, dto] of this.cardDTOs.entries()) {
-      cards[id] = CardMapper.toDomain(dto);
+      cards[id] = this.toDomainCard(dto);
     }
 
     return {
@@ -1118,7 +1182,7 @@ export class UnifiedStorageManager {
         }
 
         // due 绱㈠紩锛堜娇鐢?FSRSCard锛屽洜涓?indexByDue 瀛樺偍鐨勬槸 FSRSCard锛?
-        const fsrsCard = CardMapper.toDomain(dto);
+        const fsrsCard = this.toDomainCard(dto);
         this.indexByDue.push(fsrsCard);
       } else {
         // 绉婚櫎 blockID 绱㈠紩
@@ -1188,7 +1252,7 @@ export class UnifiedStorageManager {
   getCard(cardId: string): FSRSCard | undefined {
     const dto = this.cardDTOs.get(cardId);
     if (!dto) return undefined;
-    return CardMapper.toDomain(dto);  // 鉁?鍔ㄦ€佽浆鎹?
+    return this.toDomainCard(dto);  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
@@ -1218,7 +1282,7 @@ export class UnifiedStorageManager {
         return err(new Error(`Card not found: ${cardId}`));
       }
 
-      const card = CardMapper.toDomain(dto);
+      const card = this.toDomainCard(dto);
 
       // 绉婚櫎绱㈠紩
       this.updateIndexesForCard(card, 'remove');
@@ -1263,7 +1327,7 @@ export class UnifiedStorageManager {
       for (const cardId of [...cardIds]) {
         const dto = this.cardDTOs.get(cardId);
         if (dto) {
-          const card = CardMapper.toDomain(dto);
+          const card = this.toDomainCard(dto);
           this.updateIndexesForCard(card, 'remove');
           this.cardDTOs.delete(cardId);
         }
@@ -1312,7 +1376,7 @@ export class UnifiedStorageManager {
     return cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
-      .map(dto => CardMapper.toDomain(dto));  // 鉁?鍔ㄦ€佽浆鎹?
+      .map(dto => this.toDomainCard(dto));  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
@@ -1324,7 +1388,7 @@ export class UnifiedStorageManager {
     return cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
-      .map(dto => CardMapper.toDomain(dto));  // 鉁?鍔ㄦ€佽浆鎹?
+      .map(dto => this.toDomainCard(dto));  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
@@ -1336,14 +1400,14 @@ export class UnifiedStorageManager {
     return cardIds
       .map(id => this.cardDTOs.get(id))
       .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
-      .map(dto => CardMapper.toDomain(dto));  // 鉁?鍔ㄦ€佽浆鎹?
+      .map(dto => this.toDomainCard(dto));  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
    * 鑾峰彇鎵€鏈夊崱鐗?
    */
   getAllCards(): FSRSCard[] {
-    return Array.from(this.cardDTOs.values()).map(dto => CardMapper.toDomain(dto));  // 鉁?鍔ㄦ€佽浆鎹?
+    return Array.from(this.cardDTOs.values()).map(dto => this.toDomainCard(dto));  // 鉁?鍔ㄦ€佽浆鎹?
   }
 
   /**
@@ -1382,7 +1446,7 @@ export class UnifiedStorageManager {
 
     // 妫€鏌ュ鍎垮崱鐗囷紙娌℃湁 xiuyuanID 鎴?xiuyuanID 鏃犳晥锛?
     for (const dto of this.cardDTOs.values()) {
-      const card = CardMapper.toDomain(dto);
+      const card = this.toDomainCard(dto);
       const xiuyuanID = card.xiuyuanID;
       if (!xiuyuanID) {
         issues.push(`Card ${card.id} has no xiuyuanID`);
@@ -1412,7 +1476,7 @@ export class UnifiedStorageManager {
     // 鍒犻櫎瀛ゅ効鍗＄墖
     const orphanCards: string[] = [];
     for (const dto of this.cardDTOs.values()) {
-      const card = CardMapper.toDomain(dto);
+      const card = this.toDomainCard(dto);
       const xiuyuanID = card.xiuyuanID;
       if (!xiuyuanID || !this.xiuyuans.has(xiuyuanID)) {
         orphanCards.push(card.id);
@@ -1422,7 +1486,7 @@ export class UnifiedStorageManager {
     for (const cardId of orphanCards) {
       const dto = this.cardDTOs.get(cardId);
       if (dto) {
-        const card = CardMapper.toDomain(dto);
+        const card = this.toDomainCard(dto);
         this.updateIndexesForCard(card, 'remove');
         this.cardDTOs.delete(cardId);
         fixedCount++;
@@ -1467,7 +1531,7 @@ export class UnifiedStorageManager {
     const now = Date.now();
 
     for (const dto of this.cardDTOs.values()) {
-      const card = CardMapper.toDomain(dto);
+      const card = this.toDomainCard(dto);
       // 鎸夌被鍨嬬粺璁?
       stats.cardsByType[card.type] = (stats.cardsByType[card.type] || 0) + 1;
 
@@ -1566,7 +1630,7 @@ export class UnifiedStorageManager {
       return false;
     }
 
-    const card = CardMapper.toDomain(dto);
+    const card = this.toDomainCard(dto);
 
     // 浠?Map 涓垹闄?
     this.cardDTOs.delete(cardId);

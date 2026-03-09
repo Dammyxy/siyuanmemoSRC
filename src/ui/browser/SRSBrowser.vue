@@ -3430,7 +3430,7 @@ async function handleNeuralSetCurrentFocus(nodeId: string): Promise<void> {
   }
 
   await neuralQueue.setCurrentFocus(nodeId, {
-    includeFocusAsFirst: true,
+    includeFocusAsFirst: false,
     resetHistory: false,
     bookmarkCurrentPath: true,
   });

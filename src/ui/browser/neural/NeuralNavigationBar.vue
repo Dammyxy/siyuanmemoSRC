@@ -15,7 +15,7 @@
         type="button"
         class="b3-button b3-button--outline neural-nav-bar__button"
         :aria-label="engineButtonAriaLabel"
-        :title="engineButtonAriaLabel"
+        :title="engineButtonTooltip"
         @click="$emit('toggle-engine-mode')"
       >
         {{ engineText }}
@@ -142,6 +142,19 @@ const engineButtonAriaLabel = computed(() => {
     t('switchEngineMode', 'Switch Engine: {mode}'),
     { mode: engineText.value },
   )} ${engineIntroLongText.value}`.trim();
+});
+
+const engineButtonTooltip = computed(() => {
+  if (!props.navigationState) {
+    return '';
+  }
+  return [
+    interpolate(
+      t('switchEngineMode', 'Switch Engine: {mode}'),
+      { mode: engineText.value },
+    ),
+    engineIntroLongText.value,
+  ].join('\n');
 });
 
 const bookmarkLabel = computed(() => t('returnToBookmark', 'Return to Anchor'));

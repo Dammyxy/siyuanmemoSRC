@@ -51,7 +51,7 @@
           class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
           :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
           :aria-label="btn.ariaLabel"
-          :title="btn.ariaLabel"
+          :title="btn.tooltip || btn.ariaLabel"
           @click="handleToolbarClick(btn, $event)"
         >
           <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
@@ -174,6 +174,10 @@ const filteredToolbar = computed(() => {
         t('switchEngineMode', 'Switch Engine: {mode}'),
         { mode: engineText },
       )} ${engineIntroLong}`.trim(),
+      tooltip: `${interpolate(
+        t('switchEngineMode', 'Switch Engine: {mode}'),
+        { mode: engineText },
+      )}\n${engineIntroLong}`.trim(),
       disabled: false,
     });
 

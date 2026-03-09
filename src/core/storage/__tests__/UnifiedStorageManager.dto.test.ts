@@ -564,6 +564,52 @@ describe('UnifiedStorageManager DTO Operations', () => {
       expect(loadedDTO).toBeDefined();
       expect(loadedDTO?.id).toBe(dto.id);
     });
+
+    it('should hydrate symbol quick-card metadata from Xiuyuan meta after reload', async () => {
+      const xiuyuan = {
+        ...createTestXiuYuan(),
+        meta: {
+          source: 'symbol',
+          symbolDetected: true,
+          cardSource: 'quick-symbol',
+          symbolType: '>>',
+        },
+      };
+      const dto = {
+        ...createTestDTO(),
+        meta: undefined,
+      };
+
+      mockLoadCallback = async () => ({
+        version: 1,
+        xiuyuans: {
+          [xiuyuan.id]: xiuyuan,
+        },
+        cards: {},
+        cardDTOs: {
+          [dto.id]: dto,
+        },
+      });
+
+      storage.setPersistenceCallbacks(mockSaveCallback, mockLoadCallback);
+      const result = await storage.load();
+
+      expect(result.ok).toBe(true);
+
+      const card = storage.getCard(dto.id);
+      expect(card?.meta?.source).toBe('symbol');
+      expect(card?.meta?.symbolDetected).toBe(true);
+      expect(card?.meta?.cardSource).toBe('quick-symbol');
+      expect(card?.meta?.symbolType).toBe('>>');
+
+      const cardsByBlock = storage.getCardsByBlockId(dto.blockId);
+      expect(cardsByBlock).toHaveLength(1);
+      expect(cardsByBlock[0].meta?.source).toBe('symbol');
+
+      const allCards = storage.getAllCards();
+      expect(allCards).toHaveLength(1);
+      expect(allCards[0].meta?.cardSource).toBe('quick-symbol');
+    });
   });
 
   describe('Statistics with DTO operations', () => {
