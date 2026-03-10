@@ -837,6 +837,53 @@ async function fetchAllRowsFromDataSource(
   return full.rows;
 }
 
+async function loadAllRowsFromQueryableDataSource(
+  dataSource: ICardDataSource,
+  sortModel: SortModel[] = [],
+  options: {
+    chunkSize?: number;
+    shouldAbort?: () => boolean;
+  } = {},
+): Promise<BrowserCard[]> {
+  const queryable = resolveQueryableDataSource(dataSource);
+  if (!queryable) {
+    return fetchAllRowsFromDataSource(dataSource, sortModel);
+  }
+
+  await dataSource.fetchRows({
+    sortModel,
+    filterModel: {},
+    startRow: 0,
+    endRow: 0,
+  });
+
+  if (options.shouldAbort?.()) {
+    return [];
+  }
+
+  const allIds = await queryable.getAllMatchedIds();
+  if (allIds.length === 0) {
+    return [];
+  }
+
+  const chunkSize = Math.max(1, Math.floor(Number(options.chunkSize) || 500));
+  const rows: BrowserCard[] = [];
+  for (let index = 0; index < allIds.length; index += chunkSize) {
+    if (options.shouldAbort?.()) {
+      return rows;
+    }
+
+    const chunkIds = allIds.slice(index, index + chunkSize);
+    const hydratedRows = await queryable.getRowsByIds(chunkIds);
+    if (options.shouldAbort?.()) {
+      return rows;
+    }
+    rows.push(...hydratedRows);
+  }
+
+  return rows;
+}
+
 function resolveQueryableDataSource(
   dataSource: ICardDataSource | null
 ): IBrowserQueryableDataSource | null {
@@ -1007,6 +1054,39 @@ function applyGlobalSelectionToLoadedRows(): void {
 }
 
 async function refreshGlobalStats(force = false): Promise<void> {
+  const browserService = browserAppServiceRef.value;
+  if (browserService?.getStats) {
+    const taskId = ++globalStatsTaskId;
+    try {
+      const stats = await browserService.getStats();
+      if (taskId !== globalStatsTaskId) {
+        return;
+      }
+
+      const normalized = stats as {
+        totalCards?: number;
+        suspendedCards?: number;
+      };
+      globalTotalCount.value = Number(normalized.totalCards) || 0;
+      globalLostCount.value = 0;
+      globalDismissedCount.value = Number(normalized.suspendedCards) || 0;
+      return;
+    } catch (error) {
+      if (taskId !== globalStatsTaskId) {
+        return;
+      }
+
+      if (!force && globalTotalCount.value != null) {
+        return;
+      }
+      logger.error('[SiYuanMemo][SRSBrowser] Failed to refresh global stats via browser service:', error);
+      globalTotalCount.value = 0;
+      globalLostCount.value = 0;
+      globalDismissedCount.value = 0;
+      return;
+    }
+  }
+
   const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
   if (!unifiedDataSourceManager) {
     return;
@@ -1023,7 +1103,8 @@ async function refreshGlobalStats(force = false): Promise<void> {
         cardType: 'all',
       },
       props.currentDocId || null,
-      props.plugin
+      props.plugin,
+      browserAppServiceRef.value || null,
     );
 
     const visibleCards = await fetchAllRowsFromDataSource(allCardsDataSource, []);
@@ -1113,6 +1194,10 @@ function createInfiniteDatasource(
           scheduleDatasourceUiUpdate(version, () => {
             totalRowCount.value = totalCount;
             hasFirstDataBlockLoaded.value = true;
+            rows.value = rowsForBlock;
+            if (!shouldFocusDocList.value && !activeDocId.value) {
+              rowsForFocus.value = [...rowsForBlock];
+            }
             mergeLoadedRows(rowsForBlock);
             applyGlobalSelectionToLoadedRows();
             loading.value = false;
@@ -1179,7 +1264,10 @@ function startAllRowsSnapshot(): void {
     try {
       const fullRows = randomSortRows.value
         ? [...randomSortRows.value]
-        : await fetchAllRowsFromDataSource(dataSource, currentSortModel.value || []);
+        : await loadAllRowsFromQueryableDataSource(dataSource, currentSortModel.value || [], {
+          chunkSize: 500,
+          shouldAbort: () => taskId !== allRowsSnapshotTaskId,
+        });
       if (taskId !== allRowsSnapshotTaskId) {
         return;
       }
@@ -1218,7 +1306,8 @@ function startFocusRowsSnapshot(): void {
       queryText: searchQuery.value,
       cardType: currentCardType.value as BrowserCardTypeFilter,
     },
-    props.plugin
+    props.plugin,
+    browserAppServiceRef.value || null,
   );
 
   if (!focusDataSource) {
@@ -1229,7 +1318,10 @@ function startFocusRowsSnapshot(): void {
   const taskId = ++focusRowsTaskId;
   void (async () => {
     try {
-      const focusRows = await fetchAllRowsFromDataSource(focusDataSource, []);
+      const focusRows = await loadAllRowsFromQueryableDataSource(focusDataSource, [], {
+        chunkSize: 500,
+        shouldAbort: () => taskId !== focusRowsTaskId,
+      });
       if (taskId !== focusRowsTaskId) {
         return;
       }
@@ -1248,6 +1340,9 @@ async function ensureAllRowsSnapshotReady(): Promise<BrowserCard[]> {
   if (allRowsSnapshotReady.value) {
     return allRows.value;
   }
+  if (!allRowsSnapshotPromise) {
+    startAllRowsSnapshot();
+  }
   if (allRowsSnapshotPromise) {
     await allRowsSnapshotPromise;
   }
@@ -1260,26 +1355,10 @@ type LoadDataOptions = {
   origin?: 'default' | 'queue-sync';
 };
 
-function scheduleBackgroundSnapshots(delayMs = 80): void {
-  if (backgroundSnapshotTimer) {
-    clearTimeout(backgroundSnapshotTimer);
-    backgroundSnapshotTimer = null;
-  }
-
-  const normalizedDelay = Math.max(0, Math.floor(Number(delayMs) || 0));
-  backgroundSnapshotTimer = setTimeout(() => {
-    backgroundSnapshotTimer = null;
-    startAllRowsSnapshot();
-    startFocusRowsSnapshot();
-  }, normalizedDelay);
-}
-
-
 let loadDataAbortController: AbortController | null = null;
 
 async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
   const shouldRefreshQueueCounts = options.refreshQueueCounts ?? true;
-  const snapshotDelayMs = options.snapshotDelayMs ?? 80;
   const origin = options.origin ?? 'default';
 
   if (loadDataAbortController) {
@@ -1372,7 +1451,8 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
             cardType: currentCardType.value as BrowserCardTypeFilter,
           },
           props.currentDocId || null,
-          props.plugin
+          props.plugin,
+          browserAppServiceRef.value || null,
         );
       }
     }
@@ -1392,9 +1472,10 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
 
     rebuildInfiniteDatasource(forceRefresh);
     datasourceTriggered = true;
-    if (origin !== 'queue-sync') {
-      scheduleBackgroundSnapshots(snapshotDelayMs);
+    if (shouldFocusDocList.value) {
+      startFocusRowsSnapshot();
     }
+    void origin;
 
     if (currentQueueType.value === 'neural-roam') {
       await refreshNeuralSubviewData();
@@ -1612,8 +1693,6 @@ function onSortChanged(params: SortChangedEvent<BrowserCard>) {
     }, 0);
   }
   syncSelectionForQueryChange();
-  startAllRowsSnapshot();
-  startFocusRowsSnapshot();
 }
 
 function onSelectionChanged() {
@@ -3586,13 +3665,14 @@ async function loadAllRowsForCurrentView(sortModel: SortModel[] = []): Promise<B
     return [...randomSortRows.value];
   }
 
-  return fetchAllRowsFromDataSource(dataSource, sortModel);
+  return loadAllRowsFromQueryableDataSource(dataSource, sortModel, {
+    chunkSize: 500,
+  });
 }
 
 function applyRandomSortRows(rowsForRandom: BrowserCard[] | null): void {
   randomSortRows.value = rowsForRandom ? [...rowsForRandom] : null;
   rebuildInfiniteDatasource(false);
-  startAllRowsSnapshot();
 }
 
 const {

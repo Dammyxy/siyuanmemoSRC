@@ -20,7 +20,12 @@ import type { ICardDataSource } from './ICardDataSource';
 import type {
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,
+  BrowserCard,
 } from '../queries/browser/GetBrowserCardsQuery';
+import type {
+  BrowserDeckSnapshotQuery,
+  BrowserDeckSnapshotResult,
+} from '../queries/browser/browser-deck-query';
 import type {
   BrowserCardTypeFilter,
   CardFilter,
@@ -75,6 +80,10 @@ export interface IBrowserApplicationService {
    * @returns 查询结果，包含卡片列表、分页信息和统计信息
    */
   getBrowserCards(query?: GetBrowserCardsQuery): Promise<GetBrowserCardsQueryResult>;
+
+  getDeckQuerySnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult>;
+
+  getDeckRowsByIds(ids: string[]): Promise<BrowserCard[]>;
   
   /**
    * 获取到期卡片数量

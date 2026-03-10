@@ -17,6 +17,7 @@
  */
 
 import type { FSRSCard } from '@/types/card';
+import type { StructuredCardQuery } from '@/types/card-query';
 
 /**
  * 卡片读取模型接口
@@ -36,6 +37,11 @@ export interface ICardReadModel {
    * ```
    */
   getAllCards(): FSRSCard[];
+
+  /**
+   * Query cards through the indexed storage read path.
+   */
+  queryCards(query?: StructuredCardQuery): FSRSCard[];
   
   /**
    * 获取到期卡片

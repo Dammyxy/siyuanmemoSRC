@@ -32,6 +32,7 @@ import { getCurrentDayEnd } from '../../utils/dateUtils';
 import { getDayStartHour } from '../../utils/configUtils';
 import { migrateCard } from '../../utils/cardMigration';
 import type { QuerySiyuanPort } from '../ports/QuerySiyuanPort';
+import type { CardFilter as QueryCardFilter } from './card/GetCardsQuery';
 import {
     applyDismissState,
     hasExplicitDismissedMeta,
@@ -274,6 +275,7 @@ export class DataAccessFacade implements IDataRouter {
         // 🚀 性能优化：使用缓存避免重复加载
         const now = Date.now();
         const cacheValid = this.cardsCache && (now - this.cardsCacheTimestamp) < this.CACHE_TTL;
+        const { prefilter, residual } = this.splitFilter(filter);
         
         let cards: FSRSCard[];
         
@@ -283,7 +285,7 @@ export class DataAccessFacade implements IDataRouter {
             cards = this.cardsCache!;
         } else {
             // 通过 CardApplicationService 获取所有卡片
-            const result = await this.cardService.getCards({});
+            const result = await this.cardService.getCards(prefilter ? { filter: prefilter } : {});
             cards = result.cards;
             
             logger.debug(`[SiYuanMemo][DataAccessFacade] getCards() returned ${cards.length} cards`);
@@ -337,9 +339,9 @@ export class DataAccessFacade implements IDataRouter {
         }
         
         // 应用过滤器
-        if (filter) {
-            logger.debug(`[SiYuanMemo][DataAccessFacade] Applying filter:`, filter);
-            cards = this.applyFilter(cards, filter);
+        if (residual) {
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Applying residual filter:`, residual);
+            cards = this.applyFilter(cards, residual);
             logger.debug(`[SiYuanMemo][DataAccessFacade] After applyFilter: ${cards.length} cards`);
         }
         
@@ -514,36 +516,98 @@ export class DataAccessFacade implements IDataRouter {
      * @param filter 过滤条件
      * @returns 过滤后的卡片数组
      */
+    private splitFilter(filter?: CardFilter): { prefilter?: QueryCardFilter; residual?: CardFilter } {
+        if (!filter) {
+            return {};
+        }
+
+        const cardTypes = filter.cardType
+            ? (Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType]) as QueryCardFilter['cardTypes']
+            : undefined;
+
+        const dueDate = filter.dueDate
+            ? {
+                lte: filter.dueDate.lte
+                    ? new Date(this.getDueDateUpperBound(filter.dueDate.lte))
+                    : undefined,
+                gte: filter.dueDate.gte
+                    ? new Date(this.getDueDateLowerBound(filter.dueDate.gte))
+                    : undefined,
+            }
+            : undefined;
+
+        const prefilter: QueryCardFilter = {
+            blockIds: filter.blockIds,
+            cardTypes,
+            dueDate,
+            cardStatus: filter.cardStatus,
+        };
+
+        const residual: CardFilter = {
+            tags: filter.tags,
+            priority: filter.priority,
+            repetitions: filter.repetitions,
+            lapses: filter.lapses,
+            interval: filter.interval,
+            lastReview: filter.lastReview,
+            difficulty: filter.difficulty,
+            stability: filter.stability,
+            retrievability: filter.retrievability,
+            includeSuspended: filter.includeSuspended,
+            keyword: filter.keyword,
+        };
+
+        return {
+            prefilter: this.hasStructuredPrefilter(prefilter) ? prefilter : undefined,
+            residual: this.hasResidualFilter(residual) ? residual : undefined,
+        };
+    }
+
+    private hasStructuredPrefilter(filter: QueryCardFilter): boolean {
+        return !!(
+            (filter.blockIds && filter.blockIds.length > 0) ||
+            (filter.cardTypes && filter.cardTypes.length > 0) ||
+            filter.dueDate ||
+            (filter.cardStatus && filter.cardStatus.length > 0)
+        );
+    }
+
+    private hasResidualFilter(filter: CardFilter): boolean {
+        return !!(
+            (filter.tags && filter.tags.length > 0) ||
+            filter.priority ||
+            filter.repetitions ||
+            filter.lapses ||
+            filter.interval ||
+            filter.lastReview ||
+            filter.difficulty ||
+            filter.stability ||
+            filter.retrievability ||
+            filter.includeSuspended === false ||
+            (filter.keyword && filter.keyword.trim())
+        );
+    }
+
+    private getDueDateUpperBound(_lte: Date): number {
+        const dayStartHour = this.plugin ? getDayStartHour(this.plugin) : 4;
+        return getCurrentDayEnd(dayStartHour);
+    }
+
+    private getDueDateLowerBound(gte: Date): number {
+        const next = new Date(gte);
+        next.setHours(0, 0, 0, 0);
+        return next.getTime();
+    }
+
+    /*
     private applyFilter(cards: FSRSCard[], filter: CardFilter): FSRSCard[] {
         let filtered = cards;
         
         // 过滤块 ID
-        if (filter.blockIds && filter.blockIds.length > 0) {
-            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by blockIds: ${filter.blockIds.length} blocks`);
-            filtered = this.cardFilterService.filterByBlockIds(filtered, filter.blockIds);
-            logger.debug(`[SiYuanMemo][DataAccessFacade] After blockIds filter: ${filtered.length} cards`);
-        }
-        
         // 过滤卡片类型
-        if (filter.cardType) {
-            const allowedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
-            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by cardType:`, allowedTypes);
-            filtered = this.cardFilterService.filterByCardTypes(filtered, allowedTypes);
-            logger.debug(`[SiYuanMemo][DataAccessFacade] After cardType filter: ${filtered.length} cards`);
-        }
-        
         // 过滤到期日期
-        if (filter.dueDate) {
-            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by dueDate:`, filter.dueDate);
             
             // 获取自定义每日刷新时间
-            const dayStartHour = this.plugin ? getDayStartHour(this.plugin) : 4;
-            const dayEnd = getCurrentDayEnd(dayStartHour);
-            
-            logger.debug(`[SiYuanMemo][DataAccessFacade] Using dayStartHour=${dayStartHour}, dayEnd=${new Date(dayEnd).toISOString()}`);
-            
-            filtered = this.cardFilterService.filterByDueDate(filtered, filter.dueDate, dayEnd);
-            logger.debug(`[SiYuanMemo][DataAccessFacade] After dueDate filter: ${filtered.length} cards`);
         }
         
         // 过滤标签
@@ -592,11 +656,61 @@ export class DataAccessFacade implements IDataRouter {
         }
         
         // 过滤卡片状态
-        if (filter.cardStatus && filter.cardStatus.length > 0) {
-            filtered = this.cardFilterService.filterByCardStatus(filtered, filter.cardStatus);
+        // 过滤关键词
+        if (filter.keyword && filter.keyword.trim()) {
+            const keyword = filter.keyword.trim();
+            logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by keyword: "${keyword}"`);
+            filtered = this.cardFilterService.filterByKeyword(filtered, keyword);
+            logger.debug(`[SiYuanMemo][DataAccessFacade] After keyword filter: ${filtered.length} cards`);
+
+        if (filter.includeSuspended === false) {
+            filtered = filtered.filter((card) => !isCardDismissed(card));
         }
         
-        // 过滤关键词
+        return filtered;
+    }
+
+    */
+
+    private applyFilter(cards: FSRSCard[], filter: CardFilter): FSRSCard[] {
+        let filtered = cards;
+
+        if (filter.tags && filter.tags.length > 0) {
+            filtered = this.cardFilterService.filterByTags(filtered, filter.tags);
+        }
+
+        if (filter.priority) {
+            filtered = this.cardFilterService.filterByPriority(filtered, filter.priority);
+        }
+
+        if (filter.repetitions) {
+            filtered = this.cardFilterService.filterByRepetitions(filtered, filter.repetitions);
+        }
+
+        if (filter.lapses) {
+            filtered = this.cardFilterService.filterByLapses(filtered, filter.lapses);
+        }
+
+        if (filter.interval) {
+            filtered = this.cardFilterService.filterByInterval(filtered, filter.interval);
+        }
+
+        if (filter.lastReview) {
+            filtered = this.cardFilterService.filterByLastReview(filtered, filter.lastReview);
+        }
+
+        if (filter.difficulty) {
+            filtered = this.cardFilterService.filterByDifficulty(filtered, filter.difficulty);
+        }
+
+        if (filter.stability) {
+            filtered = this.cardFilterService.filterByStability(filtered, filter.stability);
+        }
+
+        if (filter.retrievability) {
+            filtered = this.cardFilterService.filterByRetrievability(filtered, filter.retrievability);
+        }
+
         if (filter.keyword && filter.keyword.trim()) {
             const keyword = filter.keyword.trim();
             logger.debug(`[SiYuanMemo][DataAccessFacade] Filtering by keyword: "${keyword}"`);
@@ -607,7 +721,7 @@ export class DataAccessFacade implements IDataRouter {
         if (filter.includeSuspended === false) {
             filtered = filtered.filter((card) => !isCardDismissed(card));
         }
-        
+
         return filtered;
     }
 

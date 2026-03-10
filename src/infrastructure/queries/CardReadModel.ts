@@ -19,6 +19,7 @@
 import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { ICardReadModel } from '@/application/queries/card/ICardReadModel';
 import type { FSRSCard } from '@/types/card';
+import type { StructuredCardQuery } from '@/types/card-query';
 
 /**
  * 卡片读取模型实现
@@ -43,6 +44,10 @@ export class CardReadModel implements ICardReadModel {
    */
   getAllCards(): FSRSCard[] {
     return this.storage.getAllCards();
+  }
+
+  queryCards(query?: StructuredCardQuery): FSRSCard[] {
+    return this.storage.queryCards(query);
   }
   
   /**

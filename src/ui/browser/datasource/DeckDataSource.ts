@@ -6,6 +6,8 @@ import {
   invalidateCardCache,
 } from '../browserService';
 import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
+import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
+import type { BrowserDeckSnapshotQuery } from '@/application/queries/browser/browser-deck-query';
 import type {
   CardBrowserAction,
   FetchRowsOptions,
@@ -95,6 +97,7 @@ type BrowserBatchManagerLike = {
 type DeckDataSourceDependencies = {
   reconcileBrowserCardTypes?: typeof reconcileBrowserCardTypes;
   cardTypeConsistencyDeps?: CardTypeConsistencyDependencies;
+  browserService?: Pick<IBrowserApplicationService, 'getDeckQuerySnapshot' | 'getDeckRowsByIds'> | null;
 };
 
 type I18nContextLike = {
@@ -147,6 +150,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   private readonly options: DeckDataSourceOptions;
   private readonly reconcileCardTypes: typeof reconcileBrowserCardTypes;
   private readonly cardTypeConsistencyDeps?: CardTypeConsistencyDependencies;
+  private readonly browserService?: Pick<IBrowserApplicationService, 'getDeckQuerySnapshot' | 'getDeckRowsByIds'> | null;
   private readonly querySession = new BrowserQuerySession('DeckDataSource');
   private lastSortModel: SortModel[] = [];
   private dataGeneration = 0;
@@ -162,6 +166,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     this.plugin = plugin;
     this.reconcileCardTypes = deps.reconcileBrowserCardTypes ?? reconcileBrowserCardTypes;
     this.cardTypeConsistencyDeps = deps.cardTypeConsistencyDeps;
+    this.browserService = deps.browserService ?? null;
   }
 
   private async reconcileBrowserRows<T extends { blockId: string; cardType?: string }>(rows: T[]): Promise<T[]> {
@@ -370,7 +375,48 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return sortBrowserCards(rows, sortModel);
   }
 
+  private buildBrowserServiceQuery(sortModel: SortModel[]): BrowserDeckSnapshotQuery {
+    const cardTypes = this.mapCardTypeFilterToQueryCardTypes(this.options.cardType);
+    return {
+      preset: this.options.preset as BrowserDeckSnapshotQuery['preset'],
+      docId: this.options.currentDocId,
+      searchText: this.options.queryText,
+      cardTypes,
+      sortModel,
+    };
+  }
+
+  private mapCardTypeFilterToQueryCardTypes(cardType?: DeckCardTypeFilter): string[] | undefined {
+    switch (cardType) {
+      case 'topic-only':
+        return ['topic'];
+      case 'item-only':
+        return ['item'];
+      case 'concept-only':
+        return ['concept'];
+      case 'descriptor-only':
+        return ['descriptor'];
+      case 'missing-block-only':
+        return ['missing-block-only'];
+      default:
+        return undefined;
+    }
+  }
+
   private buildSessionOptions(sortModel: SortModel[]) {
+    if (this.browserService?.getDeckQuerySnapshot && this.browserService?.getDeckRowsByIds) {
+      return {
+        queryFingerprint: this.buildQueryFingerprint(sortModel),
+        buildLiteRows: async () => {
+          const snapshot = await this.browserService!.getDeckQuerySnapshot(
+            this.buildBrowserServiceQuery(sortModel)
+          );
+          return snapshot.rows;
+        },
+        hydrateRows: async (ids: string[]) => this.browserService!.getDeckRowsByIds(ids),
+      };
+    }
+
     return {
       queryFingerprint: this.buildQueryFingerprint(sortModel),
       buildLiteRows: async () => {

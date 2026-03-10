@@ -139,4 +139,42 @@ describe('BrowserQuerySession', () => {
     });
     expect(matchedIds).toEqual(['fsrs-1', 'fsrs-2', 'fsrs-3']);
   });
+
+  it('hydrates lite rows on demand without row snapshots and preserves requested order', async () => {
+    const buildLiteRows = vi.fn().mockResolvedValue([
+      { id: 'card-a', blockId: 'block-a' },
+      { id: 'card-b', blockId: 'block-b' },
+      { id: 'card-c', blockId: 'block-c' },
+    ]);
+    const hydrateRows = vi.fn(async (ids: string[]) => ids.map((id) => makeCard(`block-${id}`, {
+      id,
+      fsrsCardId: id,
+      content: id,
+    })));
+    const session = new BrowserQuerySession('test');
+
+    const matchedIds = await session.getAllMatchedIds({
+      queryFingerprint: 'fp-lite-only',
+      buildLiteRows,
+      hydrateRows,
+    });
+    expect(matchedIds).toEqual(['card-a', 'card-b', 'card-c']);
+    expect(hydrateRows).not.toHaveBeenCalled();
+
+    const rows = await session.getRowsByIds(['card-c', 'card-a'], {
+      queryFingerprint: 'fp-lite-only',
+      buildLiteRows,
+      hydrateRows,
+    });
+    expect(rows.map((row) => row.fsrsCardId)).toEqual(['card-c', 'card-a']);
+    expect(hydrateRows).toHaveBeenCalledTimes(1);
+    expect(hydrateRows).toHaveBeenCalledWith(['card-c', 'card-a']);
+
+    await session.getRowsByIds(['card-c'], {
+      queryFingerprint: 'fp-lite-only',
+      buildLiteRows,
+      hydrateRows,
+    });
+    expect(hydrateRows).toHaveBeenCalledTimes(1);
+  });
 });

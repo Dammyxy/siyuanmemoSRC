@@ -122,6 +122,74 @@ describe('DataAccessFacade missing block filtering', () => {
     expect(cards.map((card) => card.id)).toEqual(['card-a', 'card-b']);
   });
 
+  it('keeps pure residual filters local and calls cardService without structured prefilter', async () => {
+    const card = createCard({
+      id: 'card-keyword',
+      xiuyuanID: 'xiuyuan-keyword',
+      blockId: 'block-keyword',
+      meta: {
+        rootId: 'doc-keyword',
+        content: 'needle content',
+      },
+    });
+
+    cardService.getCards.mockResolvedValue({
+      cards: [card],
+      total: 1,
+    });
+    siyuanApi.sql.mockResolvedValue([{ id: 'block-keyword' }]);
+
+    const result = await facade.getCards({
+      keyword: 'needle',
+    });
+
+    expect(cardService.getCards).toHaveBeenCalledWith({});
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe('card-keyword');
+  });
+
+  it('pushes structured filters to cardService while keeping keyword local', async () => {
+    const card = createCard({
+      id: 'card-filtered',
+      xiuyuanID: 'xiuyuan-filtered',
+      blockId: 'block-filtered',
+      state: CardState.New,
+      type: CardType.Item,
+      due: Date.now(),
+      meta: {
+        rootId: 'doc-filtered',
+        content: 'this content does not match',
+      },
+    });
+
+    cardService.getCards.mockResolvedValue({
+      cards: [card],
+      total: 1,
+    });
+    siyuanApi.sql.mockResolvedValue([{ id: 'block-filtered' }]);
+
+    const result = await facade.getCards({
+      blockIds: ['block-filtered'],
+      cardType: 'item',
+      cardStatus: ['new'],
+      dueDate: { lte: new Date() },
+      keyword: 'needle',
+    });
+
+    expect(cardService.getCards).toHaveBeenCalledWith({
+      filter: expect.objectContaining({
+        blockIds: ['block-filtered'],
+        cardTypes: ['item'],
+        cardStatus: ['new'],
+        dueDate: expect.objectContaining({
+          lte: expect.any(Date),
+        }),
+      }),
+    });
+    expect((cardService.getCards.mock.calls[0]?.[0] as { filter?: { keyword?: string } }).filter?.keyword).toBeUndefined();
+    expect(result).toHaveLength(0);
+  });
+
   it('throws when getCard resolves to a card whose block is missing', async () => {
     const missingCard = createCard({
       id: 'card-missing',

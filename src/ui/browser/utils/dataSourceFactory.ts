@@ -18,6 +18,7 @@ import {
   type IUnifiedDataSourceManagerFacade,
 } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
+import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
 
 const logger = createLogger('DataSourceFactory');
 
@@ -199,7 +200,8 @@ export function createDeckDataSource(
   manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptionsWithDoc,
   currentDocId?: string | null,
-  plugin?: unknown
+  plugin?: unknown,
+  browserService?: IBrowserApplicationService | null
 ): ICardDataSource {
   const { docId, preset, queryText, cardType } = options;
 
@@ -211,7 +213,8 @@ export function createDeckDataSource(
       queryText,
       cardType,
     },
-    asDeckDataSourcePlugin(plugin)
+    asDeckDataSourcePlugin(plugin),
+    { browserService }
   );
 }
 
@@ -238,7 +241,8 @@ export function createFocusDataSource(
   queueId: string | null,
   manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptions,
-  plugin?: unknown
+  plugin?: unknown,
+  browserService?: IBrowserApplicationService | null
 ): ICardDataSource | null {
   const { preset, queryText, cardType } = options;
 
@@ -303,7 +307,8 @@ export function createFocusDataSource(
         queryText,
         cardType,
       },
-      asDeckDataSourcePlugin(plugin)
+      asDeckDataSourcePlugin(plugin),
+      { browserService }
     );
   }
 

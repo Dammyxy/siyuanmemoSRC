@@ -5,7 +5,8 @@
  * 用于查询卡片列表的查询对象，支持可选的过滤条件
  */
 
-import type { FSRSCard } from '@/types/card';
+import type { CardType, FSRSCard } from '@/types/card';
+import type { DateRangeFilter, PriorityRangeFilter } from '@/types/unified-data-source';
 
 /**
  * 卡片过滤条件
@@ -15,6 +16,11 @@ export interface CardFilter {
    * 按卡片状态过滤
    */
   state?: number;
+  states?: number[];
+  blockIds?: string[];
+  cardTypes?: CardType[];
+  dueDate?: DateRangeFilter;
+  cardStatus?: Array<'new' | 'learning' | 'review' | 'relearning'>;
   
   /**
    * 按 deckId 过滤
@@ -25,6 +31,7 @@ export interface CardFilter {
    * 按标签过滤
    */
   tags?: string[];
+  priority?: PriorityRangeFilter;
   
   /**
    * 自定义过滤函数

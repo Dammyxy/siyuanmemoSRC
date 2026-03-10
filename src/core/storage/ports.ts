@@ -1,4 +1,5 @@
 import type { FSRSCard } from '@/types/card';
+import type { StructuredCardQuery } from '@/types/card-query';
 import type { Result } from '@/types/result';
 
 /**
@@ -8,6 +9,7 @@ export interface CardReadPort {
   getCard(cardId: string): FSRSCard | undefined;
   getCardByBlockId?(blockId: string): FSRSCard | undefined;
   getAllCards(): FSRSCard[];
+  queryCards(query?: StructuredCardQuery): FSRSCard[];
 }
 
 /**

@@ -5,11 +5,17 @@ import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { QueueType, type CardFilter, type IReviewQueue, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
+import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQueryHandler';
+import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
 import type {
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,
 } from '../queries/browser/GetBrowserCardsQuery';
+import type {
+  BrowserDeckSnapshotQuery,
+  BrowserDeckSnapshotResult,
+} from '../queries/browser/browser-deck-query';
 import type {
   IBrowserApplicationService,
   BrowserQueueCountsRequest,
@@ -51,6 +57,7 @@ const logger = createLogger('BrowserApplicationService');
 
 export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly getBrowserCardsQueryHandler: GetBrowserCardsQueryHandler;
+  private readonly browserDeckQueryKernel: BrowserDeckQueryKernel;
   private readonly unifiedDataSourceManager: IUnifiedDataSourceManagerFacade | null;
   private readonly siyuanApi: BrowserSiyuanPort;
   private readonly queueCountInFlight = new Map<BrowserQueueId, Promise<number>>();
@@ -65,11 +72,19 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     unifiedDataSourceManager?: IUnifiedDataSourceManagerFacade | null,
     siyuanApi: BrowserSiyuanPort = new BrowserSiyuanAdapter(),
   ) {
+    this.browserDeckQueryKernel = new BrowserDeckQueryKernel(
+      storageManager,
+      cardScheduleService,
+      cardFilterService,
+      siyuanApi as unknown as QuerySiyuanPort,
+    );
+
     this.getBrowserCardsQueryHandler = new GetBrowserCardsQueryHandler(
       storageManager,
       cardScheduleService,
       cardFilterService,
       cardSortService,
+      siyuanApi as unknown as QuerySiyuanPort,
     );
 
     this.unifiedDataSourceManager = unifiedDataSourceManager ?? null;
@@ -88,14 +103,23 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return this.getBrowserCardsQueryHandler.execute(query);
   }
 
+  async getDeckQuerySnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult> {
+    return this.browserDeckQueryKernel.buildSnapshot(query);
+  }
+
+  async getDeckRowsByIds(ids: string[]) {
+    return this.browserDeckQueryKernel.getBrowserCardsByIds(ids);
+  }
+
   async getDueCount(): Promise<number> {
-    const result = await this.getBrowserCards({ preset: 'due', pageSize: 1 });
+    const result = await this.browserDeckQueryKernel.buildSnapshot({
+      preset: 'due',
+    });
     return result.total;
   }
 
   async getStats() {
-    const result = await this.getBrowserCards({ pageSize: 1 });
-    return result.stats;
+    return this.browserDeckQueryKernel.getStats();
   }
 
   private normalizeQueueId(queueId: string): BrowserQueueId | null {
@@ -305,6 +329,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         this.unifiedDataSourceManager,
         { preset, queryText, cardType },
         plugin,
+        { browserService: this },
       );
     }
 

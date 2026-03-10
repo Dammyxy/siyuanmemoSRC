@@ -18,6 +18,10 @@ type CardTypeFilterValue = 'all' | 'topic-only' | 'item-only' | 'concept-only' |
 type QuerySecondaryField = 'headline' | 'fullContent';
 
 type BrowserCardWithHeadline = BrowserCard & { headline?: string };
+type BrowserSortRowLike = {
+  id?: unknown;
+  blockId?: unknown;
+} & Record<string, unknown>;
 type QueueFilterOptions = {
   docId?: string;
   preset?: string;
@@ -387,10 +391,10 @@ function toTimestamp(value: unknown): number | null {
 }
 
 function toComparableSortValue(
-  row: BrowserCard,
+  row: BrowserSortRowLike,
   sortKey: string
 ): string | number | boolean | null {
-  const rawValue = getSortContractRawValue(row, sortKey);
+  const rawValue = getSortContractRawValue(row as BrowserCard, sortKey);
   const valueType = getSortContractValueType(sortKey);
   return normalizeComparableSortValue(rawValue, valueType);
 }
@@ -490,7 +494,10 @@ function compareSortValues(left: unknown, right: unknown): number {
   return 0;
 }
 
-export function sortBrowserCards(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
+export function sortBrowserRows<TRow extends BrowserSortRowLike>(
+  rows: TRow[],
+  sortModel: SortModel[]
+): TRow[] {
   if (!sortModel?.length) return rows;
 
   const normalizedSortModel = normalizeSortModel(sortModel);
@@ -530,6 +537,10 @@ export function sortBrowserCards(rows: BrowserCard[], sortModel: SortModel[]): B
   });
 
   return copy;
+}
+
+export function sortBrowserCards(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
+  return sortBrowserRows(rows, sortModel);
 }
 
 export type PaginationSliceResult = {

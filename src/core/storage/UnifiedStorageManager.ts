@@ -20,13 +20,15 @@
  * **Validates: Requirements 1.1, 1.2, 1.6**
  */
 
-import type { FSRSCard, CardType } from '../../types/card';
+import { CardState, type FSRSCard, type CardType } from '../../types/card';
+import type { StructuredCardQuery } from '../../types/card-query';
 import type { IXiuyuan } from '../xiuyuan/types';
 import type { Result } from '../../types/result';
 import { ok, err, isErr } from '../../types/result';
 import type { CardPersistenceDTO } from '../../infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '../../infrastructure/persistence/mappers/CardMapper';
 import { createLogger } from '@/utils/logger';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 
 const logger = createLogger('UnifiedStorageManager');
 
@@ -130,6 +132,7 @@ export class UnifiedStorageManager {
   private indexByBlockID: Map<string, string[]> = new Map();
   private indexByXiuyuanID: Map<string, string[]> = new Map();
   private indexByType: Map<CardType, string[]> = new Map();
+  private indexByState: Map<number, string[]> = new Map();
   private indexByDue: FSRSCard[] = [];
   private indexByPriority: Map<number, string[]> = new Map();
 
@@ -222,6 +225,9 @@ export class UnifiedStorageManager {
     }
     if (!this.indexByType) {
       this.indexByType = new Map();
+    }
+    if (!this.indexByState) {
+      this.indexByState = new Map();
     }
     if (!this.indexByDue) {
       this.indexByDue = [];
@@ -694,6 +700,7 @@ export class UnifiedStorageManager {
     this.indexByBlockID.clear();
     this.indexByXiuyuanID.clear();
     this.indexByType.clear();
+    this.indexByState.clear();
     this.indexByDue = [];
     this.indexByPriority.clear();
 
@@ -712,98 +719,84 @@ export class UnifiedStorageManager {
    * @param card 鍗＄墖
    * @param action 鎿嶄綔绫诲瀷锛坅dd 鎴?remove锛?
    */
+  private cloneStringIndexMap<K>(source: Map<K, string[]>): Map<K, string[]> {
+    const clone = new Map<K, string[]>();
+    for (const [key, ids] of source.entries()) {
+      clone.set(key, [...ids]);
+    }
+    return clone;
+  }
+
+  private addIdToIndex<K>(index: Map<K, string[]>, key: K, cardId: string): void {
+    const ids = index.get(key) || [];
+    if (!ids.includes(cardId)) {
+      ids.push(cardId);
+      index.set(key, ids);
+    }
+  }
+
+  private removeIdFromIndex<K>(index: Map<K, string[]>, key: K, cardId: string): void {
+    const ids = index.get(key);
+    if (!ids) {
+      return;
+    }
+
+    const position = ids.indexOf(cardId);
+    if (position !== -1) {
+      ids.splice(position, 1);
+    }
+
+    if (ids.length === 0) {
+      index.delete(key);
+    }
+  }
+
+  private removeCardFromDueIndex(cardId: string): void {
+    const dueIndex = this.indexByDue.findIndex((candidate) => candidate.id === cardId);
+    if (dueIndex !== -1) {
+      this.indexByDue.splice(dueIndex, 1);
+    }
+  }
+
   private updateIndexesForCard(card: FSRSCard, action: 'add' | 'remove'): void {
     if (action === 'add') {
       // blockID 绱㈠紩
-      const blockCards = this.indexByBlockID.get(card.blockId) || [];
-      if (!blockCards.includes(card.id)) {
-        blockCards.push(card.id);
-        this.indexByBlockID.set(card.blockId, blockCards);
-      }
+      this.addIdToIndex(this.indexByBlockID, card.blockId, card.id);
 
       // xiuyuanID 绱㈠紩
       const xiuyuanID = card.xiuyuanID;
       if (xiuyuanID) {
-        const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID) || [];
-        if (!xiuyuanCards.includes(card.id)) {
-          xiuyuanCards.push(card.id);
-          this.indexByXiuyuanID.set(xiuyuanID, xiuyuanCards);
-        }
+        this.addIdToIndex(this.indexByXiuyuanID, xiuyuanID, card.id);
       }
 
       // type 绱㈠紩
-      const typeCards = this.indexByType.get(card.type) || [];
-      if (!typeCards.includes(card.id)) {
-        typeCards.push(card.id);
-        this.indexByType.set(card.type, typeCards);
-      }
+      this.addIdToIndex(this.indexByType, card.type, card.id);
+      this.addIdToIndex(this.indexByState, card.state, card.id);
 
       // due 绱㈠紩
       this.indexByDue.push(card);
 
       // priority 绱㈠紩
-      const priorityCards = this.indexByPriority.get(card.priority) || [];
-      if (!priorityCards.includes(card.id)) {
-        priorityCards.push(card.id);
-        this.indexByPriority.set(card.priority, priorityCards);
-      }
+      this.addIdToIndex(this.indexByPriority, card.priority, card.id);
     } else {
       // 绉婚櫎 blockID 绱㈠紩
-      const blockCards = this.indexByBlockID.get(card.blockId);
-      if (blockCards) {
-        const index = blockCards.indexOf(card.id);
-        if (index !== -1) {
-          blockCards.splice(index, 1);
-        }
-        if (blockCards.length === 0) {
-          this.indexByBlockID.delete(card.blockId);
-        }
-      }
+      this.removeIdFromIndex(this.indexByBlockID, card.blockId, card.id);
 
       // 绉婚櫎 xiuyuanID 绱㈠紩
       const xiuyuanID = card.xiuyuanID;
       if (xiuyuanID) {
-        const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID);
-        if (xiuyuanCards) {
-          const index = xiuyuanCards.indexOf(card.id);
-          if (index !== -1) {
-            xiuyuanCards.splice(index, 1);
-          }
-          if (xiuyuanCards.length === 0) {
-            this.indexByXiuyuanID.delete(xiuyuanID);
-          }
-        }
+        this.removeIdFromIndex(this.indexByXiuyuanID, xiuyuanID, card.id);
       }
 
       // 绉婚櫎 type 绱㈠紩
-      const typeCards = this.indexByType.get(card.type);
-      if (typeCards) {
-        const index = typeCards.indexOf(card.id);
-        if (index !== -1) {
-          typeCards.splice(index, 1);
-        }
-        if (typeCards.length === 0) {
-          this.indexByType.delete(card.type);
-        }
-      }
+      this.removeIdFromIndex(this.indexByType, card.type, card.id);
+      this.removeIdFromIndex(this.indexByState, card.state, card.id);
 
       // 绉婚櫎 due 绱㈠紩
-      const dueIndex = this.indexByDue.findIndex(c => c.id === card.id);
-      if (dueIndex !== -1) {
-        this.indexByDue.splice(dueIndex, 1);
-      }
+      this.removeCardFromDueIndex(card.id);
 
       // 绉婚櫎 priority 绱㈠紩
-      const priorityCards = this.indexByPriority.get(card.priority);
-      if (priorityCards) {
-        const index = priorityCards.indexOf(card.id);
-        if (index !== -1) {
-          priorityCards.splice(index, 1);
-        }
-        if (priorityCards.length === 0) {
-          this.indexByPriority.delete(card.priority);
-        }
-      }
+      this.removeIdFromIndex(this.indexByPriority, card.priority, card.id);
     }
   }
 
@@ -907,10 +900,11 @@ export class UnifiedStorageManager {
       const originalXiuyuan = xiuyuanExisted ? this.xiuyuans.get(xiuyuan.id) : undefined;
 
       // 淇濆瓨鍘熷绱㈠紩鐘舵€侊紙鐢ㄤ簬鍥炴粴锛?
-      const originalIndexByBlockID = new Map(this.indexByBlockID);
-      const originalIndexByXiuyuanID = new Map(this.indexByXiuyuanID);
-      const originalIndexByType = new Map(this.indexByType);
-      const originalIndexByPriority = new Map(this.indexByPriority);
+      const originalIndexByBlockID = this.cloneStringIndexMap(this.indexByBlockID);
+      const originalIndexByXiuyuanID = this.cloneStringIndexMap(this.indexByXiuyuanID);
+      const originalIndexByType = this.cloneStringIndexMap(this.indexByType);
+      const originalIndexByState = this.cloneStringIndexMap(this.indexByState);
+      const originalIndexByPriority = this.cloneStringIndexMap(this.indexByPriority);
       const originalIndexByDue = [...this.indexByDue];
 
       try {
@@ -956,6 +950,7 @@ export class UnifiedStorageManager {
         this.indexByBlockID = originalIndexByBlockID;
         this.indexByXiuyuanID = originalIndexByXiuyuanID;
         this.indexByType = originalIndexByType;
+        this.indexByState = originalIndexByState;
         this.indexByPriority = originalIndexByPriority;
         this.indexByDue = originalIndexByDue;
 
@@ -1089,10 +1084,11 @@ export class UnifiedStorageManager {
       const originalXiuyuan = xiuyuanExisted ? this.xiuyuans.get(xiuyuan.id) : undefined;
 
       // 淇濆瓨鍘熷绱㈠紩鐘舵€侊紙鐢ㄤ簬鍥炴粴锛?
-      const originalIndexByBlockID = new Map(this.indexByBlockID);
-      const originalIndexByXiuyuanID = new Map(this.indexByXiuyuanID);
-      const originalIndexByType = new Map(this.indexByType);
-      const originalIndexByPriority = new Map(this.indexByPriority);
+      const originalIndexByBlockID = this.cloneStringIndexMap(this.indexByBlockID);
+      const originalIndexByXiuyuanID = this.cloneStringIndexMap(this.indexByXiuyuanID);
+      const originalIndexByType = this.cloneStringIndexMap(this.indexByType);
+      const originalIndexByState = this.cloneStringIndexMap(this.indexByState);
+      const originalIndexByPriority = this.cloneStringIndexMap(this.indexByPriority);
       const originalIndexByDue = [...this.indexByDue];
 
       try {
@@ -1137,6 +1133,7 @@ export class UnifiedStorageManager {
         this.indexByBlockID = originalIndexByBlockID;
         this.indexByXiuyuanID = originalIndexByXiuyuanID;
         this.indexByType = originalIndexByType;
+        this.indexByState = originalIndexByState;
         this.indexByPriority = originalIndexByPriority;
         this.indexByDue = originalIndexByDue;
 
@@ -1152,94 +1149,41 @@ export class UnifiedStorageManager {
     private updateIndexesForDTO(dto: CardPersistenceDTO, action: 'add' | 'remove'): void {
       if (action === 'add') {
         // blockID 绱㈠紩
-        const blockCards = this.indexByBlockID.get(dto.blockId) || [];
-        if (!blockCards.includes(dto.id)) {
-          blockCards.push(dto.id);
-          this.indexByBlockID.set(dto.blockId, blockCards);
-        }
+        this.addIdToIndex(this.indexByBlockID, dto.blockId, dto.id);
 
         // xiuyuanID 绱㈠紩锛堜娇鐢ㄩ《灞傚瓧娈碉紝閬垮厤瑙ｆ瀽 meta锛?
         if (dto.xiuyuanID) {
-          const xiuyuanCards = this.indexByXiuyuanID.get(dto.xiuyuanID) || [];
-          if (!xiuyuanCards.includes(dto.id)) {
-            xiuyuanCards.push(dto.id);
-            this.indexByXiuyuanID.set(dto.xiuyuanID, xiuyuanCards);
-          }
+          this.addIdToIndex(this.indexByXiuyuanID, dto.xiuyuanID, dto.id);
         }
 
         // type 绱㈠紩
-        const typeCards = this.indexByType.get(dto.type) || [];
-        if (!typeCards.includes(dto.id)) {
-          typeCards.push(dto.id);
-          this.indexByType.set(dto.type, typeCards);
-        }
+        this.addIdToIndex(this.indexByType, dto.type, dto.id);
+        this.addIdToIndex(this.indexByState, dto.state, dto.id);
 
         // priority 绱㈠紩
-        const priorityCards = this.indexByPriority.get(dto.priority) || [];
-        if (!priorityCards.includes(dto.id)) {
-          priorityCards.push(dto.id);
-          this.indexByPriority.set(dto.priority, priorityCards);
-        }
+        this.addIdToIndex(this.indexByPriority, dto.priority, dto.id);
 
         // due 绱㈠紩锛堜娇鐢?FSRSCard锛屽洜涓?indexByDue 瀛樺偍鐨勬槸 FSRSCard锛?
         const fsrsCard = this.toDomainCard(dto);
         this.indexByDue.push(fsrsCard);
       } else {
         // 绉婚櫎 blockID 绱㈠紩
-        const blockCards = this.indexByBlockID.get(dto.blockId);
-        if (blockCards) {
-          const index = blockCards.indexOf(dto.id);
-          if (index !== -1) {
-            blockCards.splice(index, 1);
-          }
-          if (blockCards.length === 0) {
-            this.indexByBlockID.delete(dto.blockId);
-          }
-        }
+        this.removeIdFromIndex(this.indexByBlockID, dto.blockId, dto.id);
 
         // 绉婚櫎 xiuyuanID 绱㈠紩
         if (dto.xiuyuanID) {
-          const xiuyuanCards = this.indexByXiuyuanID.get(dto.xiuyuanID);
-          if (xiuyuanCards) {
-            const index = xiuyuanCards.indexOf(dto.id);
-            if (index !== -1) {
-              xiuyuanCards.splice(index, 1);
-            }
-            if (xiuyuanCards.length === 0) {
-              this.indexByXiuyuanID.delete(dto.xiuyuanID);
-            }
-          }
+          this.removeIdFromIndex(this.indexByXiuyuanID, dto.xiuyuanID, dto.id);
         }
 
         // 绉婚櫎 type 绱㈠紩
-        const typeCards = this.indexByType.get(dto.type);
-        if (typeCards) {
-          const index = typeCards.indexOf(dto.id);
-          if (index !== -1) {
-            typeCards.splice(index, 1);
-          }
-          if (typeCards.length === 0) {
-            this.indexByType.delete(dto.type);
-          }
-        }
+        this.removeIdFromIndex(this.indexByType, dto.type, dto.id);
+        this.removeIdFromIndex(this.indexByState, dto.state, dto.id);
 
         // 绉婚櫎 priority 绱㈠紩
-        const priorityCards = this.indexByPriority.get(dto.priority);
-        if (priorityCards) {
-          const index = priorityCards.indexOf(dto.id);
-          if (index !== -1) {
-            priorityCards.splice(index, 1);
-          }
-          if (priorityCards.length === 0) {
-            this.indexByPriority.delete(dto.priority);
-          }
-        }
+        this.removeIdFromIndex(this.indexByPriority, dto.priority, dto.id);
 
         // 绉婚櫎 due 绱㈠紩
-        const dueIndex = this.indexByDue.findIndex(c => c.id === dto.id);
-        if (dueIndex !== -1) {
-          this.indexByDue.splice(dueIndex, 1);
-        }
+        this.removeCardFromDueIndex(dto.id);
       }
     }
 
@@ -1414,6 +1358,187 @@ export class UnifiedStorageManager {
    * 鑾峰彇 XiuYuan
    * @param xiuyuanId XiuYuan ID
    */
+  getCardsByState(state: number): FSRSCard[] {
+    const cardIds = this.indexByState.get(state) || [];
+    return cardIds
+      .map(id => this.cardDTOs.get(id))
+      .filter((dto): dto is CardPersistenceDTO => dto !== undefined)
+      .map(dto => this.toDomainCard(dto));
+  }
+
+  getCardsByStates(states: number[]): FSRSCard[] {
+    const cardIds = new Set<string>();
+    for (const state of states) {
+      const ids = this.indexByState.get(state) || [];
+      for (const id of ids) {
+        cardIds.add(id);
+      }
+    }
+    return this.getCardsByIds(cardIds);
+  }
+
+  getCardsByBlockIds(blockIds: string[]): FSRSCard[] {
+    const cardIds = new Set<string>();
+    for (const blockId of blockIds) {
+      const ids = this.indexByBlockID.get(blockId) || [];
+      for (const id of ids) {
+        cardIds.add(id);
+      }
+    }
+    return this.getCardsByIds(cardIds);
+  }
+
+  queryCards(query?: StructuredCardQuery): FSRSCard[] {
+    if (!query) {
+      return this.getAllCards();
+    }
+
+    const candidateSets: Array<{ name: string; ids: Set<string> }> = [];
+
+    if (query.blockIds && query.blockIds.length > 0) {
+      const blockIds = new Set<string>();
+      for (const blockId of query.blockIds) {
+        const normalized = String(blockId || '').trim();
+        if (!normalized) {
+          continue;
+        }
+        const ids = this.indexByBlockID.get(normalized) || [];
+        for (const id of ids) {
+          blockIds.add(id);
+        }
+      }
+      candidateSets.push({ name: 'blockIds', ids: blockIds });
+    }
+
+    if (query.cardTypes && query.cardTypes.length > 0) {
+      const typeIds = new Set<string>();
+      for (const type of query.cardTypes) {
+        const ids = this.indexByType.get(type) || [];
+        for (const id of ids) {
+          typeIds.add(id);
+        }
+      }
+      candidateSets.push({ name: 'cardTypes', ids: typeIds });
+    }
+
+    if (query.states && query.states.length > 0) {
+      const stateIds = new Set<string>();
+      for (const state of query.states) {
+        const ids = this.indexByState.get(state) || [];
+        for (const id of ids) {
+          stateIds.add(id);
+        }
+      }
+      candidateSets.push({ name: 'states', ids: stateIds });
+    }
+
+    if (query.dueDate?.lte !== undefined) {
+      candidateSets.push({ name: 'dueDate.lte', ids: this.collectDueCardIdsUpTo(query.dueDate.lte) });
+    }
+
+    let cards: FSRSCard[];
+    if (candidateSets.length === 0) {
+      cards = this.getAllCards();
+    } else {
+      candidateSets.sort((left, right) => left.ids.size - right.ids.size);
+      const [baseCandidate, ...remainingCandidates] = candidateSets;
+      const selectedIds = new Set<string>(baseCandidate.ids);
+
+      for (const candidate of remainingCandidates) {
+        for (const id of [...selectedIds]) {
+          if (!candidate.ids.has(id)) {
+            selectedIds.delete(id);
+          }
+        }
+      }
+
+      logger.debug('[UnifiedStorageManager] queryCards planner', {
+        candidates: candidateSets.map((candidate) => ({
+          name: candidate.name,
+          size: candidate.ids.size,
+        })),
+        base: baseCandidate.name,
+        selected: selectedIds.size,
+      });
+
+      cards = this.getCardsByIds(selectedIds);
+    }
+
+    return cards.filter((card) => this.matchesStructuredQueryResiduals(card, query));
+  }
+
+  private getCardsByIds(cardIds: Iterable<string>): FSRSCard[] {
+    const cards: FSRSCard[] = [];
+    for (const id of cardIds) {
+      const dto = this.cardDTOs.get(id);
+      if (dto) {
+        cards.push(this.toDomainCard(dto));
+      }
+    }
+    return cards;
+  }
+
+  private collectDueCardIdsUpTo(maxDue: number): Set<string> {
+    const ids = new Set<string>();
+    let left = 0;
+    let right = this.indexByDue.length;
+
+    while (left < right) {
+      const middle = Math.floor((left + right) / 2);
+      if (this.indexByDue[middle]!.due <= maxDue) {
+        left = middle + 1;
+      } else {
+        right = middle;
+      }
+    }
+
+    for (let index = 0; index < left; index++) {
+      ids.add(this.indexByDue[index]!.id);
+    }
+
+    return ids;
+  }
+
+  private matchesStructuredQueryResiduals(card: FSRSCard, query: StructuredCardQuery): boolean {
+    if (query.dueDate?.gte !== undefined && card.due < query.dueDate.gte) {
+      return false;
+    }
+
+    if (query.priority) {
+      if (query.priority.min !== undefined && card.priority < query.priority.min) {
+        return false;
+      }
+      if (query.priority.max !== undefined && card.priority > query.priority.max) {
+        return false;
+      }
+    }
+
+    if (query.tags && query.tags.length > 0) {
+      const cardTags = new Set<string>(card.tags || []);
+      const metaTags = isObjectRecord(card.meta) && Array.isArray(card.meta.tags)
+        ? (card.meta.tags as unknown[])
+        : [];
+      for (const tag of metaTags) {
+        if (typeof tag === 'string') {
+          cardTags.add(tag);
+        }
+      }
+      if (!query.tags.some((tag) => cardTags.has(tag))) {
+        return false;
+      }
+    }
+
+    if (query.includeSuspended === false && isCardDismissed(card)) {
+      return false;
+    }
+
+    if (query.customFilter && !query.customFilter(card)) {
+      return false;
+    }
+
+    return true;
+  }
+
   getXiuYuan(xiuyuanId: string): IXiuyuan | undefined {
     return this.xiuyuans.get(xiuyuanId);
   }
