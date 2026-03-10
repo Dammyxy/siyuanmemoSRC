@@ -2952,18 +2952,15 @@ function toNeuralHistoryListEntries(
 function toNeuralSourceListEntries(
   entries: NeuralRoamSourceEntry[],
   options?: {
-    anchorIds?: Set<string>;
     currentNodeId?: string | null;
   }
 ): NeuralSourceListEntry[] {
-  const anchorIds = options?.anchorIds ?? new Set<string>();
   const currentNodeId = options?.currentNodeId ?? null;
   return [...entries]
     .sort((a, b) => b.visitedAt - a.visitedAt)
     .map((entry) => ({
       ...entry,
       isCurrent: currentNodeId ? entry.nodeId === currentNodeId : false,
-      isAnchored: anchorIds.has(entry.nodeId),
     }));
 }
 
@@ -3311,7 +3308,6 @@ async function refreshNeuralSubviewData(): Promise<void> {
   await syncNeuralActivationTrace(neuralQueue, historySnapshot, navState);
   const anchorIds = new Set(anchorSnapshot.map((entry) => entry.nodeId));
   neuralSourceEntries.value = toNeuralSourceListEntries(sourceSnapshot, {
-    anchorIds,
     currentNodeId: navState.currentNodeId,
   });
   neuralHistoryEntries.value = toNeuralHistoryListEntries(historySnapshot, {

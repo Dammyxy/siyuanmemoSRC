@@ -1,5 +1,7 @@
 # SiYuanMemo——间隔重复系统插件
-
+使用说明：
+[基本功能介绍](https://ld246.com/article/1773097574147)
+[神经漫游使用说明](https://ld246.com/article/1773097707973)
 [English](https://github.com/Dammyxy/siyuan-plugin-siyuanmemo/blob/main/README.md)
 
 这个插件能让你：

@@ -39,6 +39,7 @@ function createStorageMock() {
       getXiuYuan: vi.fn(() => undefined),
       upsertXiuYuan: vi.fn(),
       getAllCards: vi.fn(() => []),
+      getCardsByXiuyuanId: vi.fn(() => []),
       deleteCard: vi.fn(async () => undefined),
       getCard: vi.fn((cardId: string) => cardStore.get(cardId)),
       updateCard,
@@ -169,5 +170,48 @@ describe('XiuyuanRepository list-template split-v2 mapping', () => {
     expect(savedFsrsCard.meta?.currentIndex).toBe(1);
     expect(savedFsrsCard.meta?.cue).toBe('提示2');
     expect(savedFsrsCard.meta?.answer).toBe('答案2');
+  });
+  it('deletes stale cards for the same xiuyuan via xiuyuan index without scanning all cards', async () => {
+    const { mock: storageMock } = createStorageMock();
+    storageMock.getAllCards.mockImplementation(() => {
+      throw new Error('save() should not scan all cards');
+    });
+
+    const repository = new XiuyuanRepository(storageMock as any);
+    const blockId = '20260104000001-abc1234';
+    const staleCardId = '20260104000002-def5678';
+    const xiuyuan = must(
+      Xiuyuan.create({
+        blockIDs: [must(BlockId.create(blockId))],
+        templateID: must(TemplateId.create('builtin-multi-cloze')),
+        faces: [
+          must(
+            CardFace.create({
+              question: 'Q',
+              answer: 'A',
+              questionBlockId: blockId,
+              answerBlockId: blockId,
+            })
+          ),
+        ],
+      })
+    );
+    must(xiuyuan.createCard(0));
+
+    const xiuyuanId = xiuyuan.getId().getValue();
+    storageMock.getCardsByXiuyuanId.mockReturnValue([
+      {
+        id: staleCardId,
+        blockId,
+        meta: { xiuyuanID: xiuyuanId },
+      } as unknown as FSRSCard,
+    ]);
+
+    const saveResult = await repository.save(xiuyuan);
+
+    expect(saveResult.ok).toBe(true);
+    expect(storageMock.getCardsByXiuyuanId).toHaveBeenCalledWith(xiuyuanId);
+    expect(storageMock.getAllCards).not.toHaveBeenCalled();
+    expect(storageMock.deleteCard).toHaveBeenCalledWith(staleCardId);
   });
 });

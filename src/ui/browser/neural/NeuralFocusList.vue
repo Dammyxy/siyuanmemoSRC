@@ -41,9 +41,6 @@
               <span v-if="entry.isCurrent" class="neural-list__tag neural-list__tag--current">
                 {{ t('currentNodeTag', 'Current') }}
               </span>
-              <span v-if="entry.isAnchored" class="neural-list__tag neural-list__tag--anchored">
-                {{ t('anchoredTag', 'Station') }}
-              </span>
             </span>
             <span class="neural-list__meta">
               {{ formatTime(entry.visitedAt) }}

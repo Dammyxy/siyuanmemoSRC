@@ -19,7 +19,7 @@ function entry(partial: Partial<NeuralSourceListEntry>): NeuralSourceListEntry {
 
 describe('NeuralFocusList', () => {
   const entries: NeuralSourceListEntry[] = [
-    entry({ nodeId: 'node-a', nodePreview: 'Alpha node', visitedAt: 300, isAnchored: true }),
+    entry({ nodeId: 'node-a', nodePreview: 'Alpha node', visitedAt: 300 }),
     entry({ nodeId: 'node-b', nodePreview: 'Beta node', visitedAt: 200, isCurrent: true }),
   ];
 
@@ -66,6 +66,7 @@ describe('NeuralFocusList', () => {
 
     expect(wrapper.text()).toContain('Orbit Centers');
     expect(wrapper.text()).toContain('Orbit centers work as the current observation center in this mode.');
+    expect(wrapper.text()).not.toContain('Station');
 
     const firstRowActions = wrapper.findAll('.neural-list__item')[0]?.findAll('.neural-list__action') || [];
     await firstRowActions[0]?.trigger('click');

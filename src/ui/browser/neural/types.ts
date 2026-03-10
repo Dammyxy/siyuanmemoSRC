@@ -31,7 +31,6 @@ export interface NeuralHistoryEventRef {
 
 export interface NeuralSourceListEntry extends NeuralRoamSourceEntry {
   isCurrent?: boolean;
-  isAnchored?: boolean;
 }
 
 export interface NeuralActivationTraceStepViewModel extends NeuralActivationTraceStep {

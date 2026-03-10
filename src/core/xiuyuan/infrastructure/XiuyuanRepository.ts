@@ -221,9 +221,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       const currentCardIds = new Set(cards.map(card => card.getId().getValue()));
       
       // 3.1 鏌ユ壘闇€瑕佸垹闄ょ殑鍗＄墖锛堝瓨鍦ㄤ簬 storage 浣嗕笉鍦?xiuyuan 涓級
-      const allStorageCards = this.storage.getAllCards();
-      const cardsToDelete = allStorageCards.filter(
-        storageCard => storageCard.meta?.xiuyuanID === xiuyuanId && !currentCardIds.has(storageCard.id)
+      const existingXiuyuanCards = this.storage.getCardsByXiuyuanId(xiuyuanId);
+      const cardsToDelete = existingXiuyuanCards.filter(
+        storageCard => !currentCardIds.has(storageCard.id)
       );
       
       // 3.2 鍒犻櫎宸茬Щ闄ょ殑鍗＄墖
