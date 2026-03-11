@@ -101,7 +101,8 @@ export function createQueueDataSource(
   queueId: string,
   manager: IUnifiedDataSourceManagerFacade,
   options: DataSourceOptionsWithDoc,
-  plugin?: unknown
+  plugin?: unknown,
+  browserService?: IBrowserApplicationService | null
 ): ICardDataSource | null {
   const { docId, preset, queryText, cardType } = options;
 
@@ -113,7 +114,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, asQueueDataSourcePlugin(plugin));
+      }, asQueueDataSourcePlugin(plugin), { browserService });
 
     case 'retrieval':
       return new RetrievalDataSource(manager, {
@@ -121,7 +122,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, asRetrievalDataSourcePlugin(plugin));
+      }, asRetrievalDataSourcePlugin(plugin), { browserService });
 
     case 'filter-group':
       return new FilterGroupDataSource(manager, {
@@ -129,7 +130,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, asFilterGroupDataSourcePlugin(plugin));
+      }, asFilterGroupDataSourcePlugin(plugin), { browserService });
 
     case 'incremental-learning':
       return new IncrementalLearningDataSource(manager, {
@@ -137,7 +138,7 @@ export function createQueueDataSource(
         preset,
         queryText,
         cardType,
-      }, asIncrementalDataSourcePlugin(plugin));
+      }, asIncrementalDataSourcePlugin(plugin), { browserService });
 
     case 'neural-roam':
       // 神经漫游队列：使用 BlockIds 数据源
@@ -149,6 +150,7 @@ export function createQueueDataSource(
         blockIds: [],  // 初始为空，使用动态获取函数
         plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
         queueId: 'neural-roam',
+        queryText,
         getBlockIdsFn: () => {
           // 每次 fetchRows 时都获取最新的概念列表
           const conceptBlocks = neuralQueue?.getConceptBlocks?.() || [];
@@ -175,7 +177,8 @@ export function createBlockIdsDataSource(
   queueId: string,
   blockIds: string[],
   plugin: unknown,
-  getBlockIdsFn?: () => string[]
+  getBlockIdsFn?: () => string[],
+  queryText?: string
 ): ICardDataSource {
   return new BlockIdsDataSource({
     id: queueId,
@@ -184,6 +187,7 @@ export function createBlockIdsDataSource(
     plugin: asBlockIdsPlugin(plugin),
     queueId,
     getBlockIdsFn,
+    queryText,
   });
 }
 
@@ -252,7 +256,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, asQueueDataSourcePlugin(plugin));
+    }, asQueueDataSourcePlugin(plugin), { browserService });
   }
 
   if (queueId === 'retrieval') {
@@ -260,7 +264,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, asRetrievalDataSourcePlugin(plugin));
+    }, asRetrievalDataSourcePlugin(plugin), { browserService });
   }
 
   if (queueId === 'filter-group') {
@@ -268,7 +272,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, asFilterGroupDataSourcePlugin(plugin));
+    }, asFilterGroupDataSourcePlugin(plugin), { browserService });
   }
 
   // ✅ 新增：渐进学习队列
@@ -277,7 +281,7 @@ export function createFocusDataSource(
       preset,
       queryText,
       cardType,
-    }, asIncrementalDataSourcePlugin(plugin));
+    }, asIncrementalDataSourcePlugin(plugin), { browserService });
   }
 
   // 神经漫游队列：使用 BlockIds，支持动态获取
@@ -289,6 +293,7 @@ export function createFocusDataSource(
       blockIds: [],  // 初始为空，使用动态获取函数
       plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
       queueId: 'neural-roam',
+      queryText,
       getBlockIdsFn: () => {
         const conceptBlocks = neuralQueue?.getConceptBlocks?.() || [];
         logger.info(`Neural roam concept blocks (focus): ${conceptBlocks.length}`, conceptBlocks);

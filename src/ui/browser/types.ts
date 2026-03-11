@@ -3,6 +3,8 @@
  */
 
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
+import type { CardFilter } from '@/types/unified-data-source';
+import type { NeuralSubview } from './neural/types';
 
 /** 卡片状态枚举 */
 
@@ -301,6 +303,19 @@ export function getCardTypeFilterDisplayLabel(value: CardTypeFilter): string | u
 
 /** 浏览器模式 */
 export type BrowserMode = 'dialog' | 'tab' | 'dock';
+
+export type BrowserGlobalScope = '__all__' | '__dismissed__';
+
+export interface BrowserOpenState {
+    queueId?: string | null;
+    globalScope?: BrowserGlobalScope | null;
+    docId?: string | null;
+    queryText?: string;
+    preset?: string | null;
+    cardType?: CardTypeFilter | null;
+    filter?: CardFilter | null;
+    neuralSubview?: NeuralSubview | null;
+}
 
 /** 全局统计信息 */
 export interface GlobalStats {

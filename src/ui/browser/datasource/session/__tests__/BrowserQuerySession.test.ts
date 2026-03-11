@@ -177,4 +177,33 @@ describe('BrowserQuerySession', () => {
     });
     expect(hydrateRows).toHaveBeenCalledTimes(1);
   });
+
+  it('returns action targets from lite rows without hydrating browser cards', async () => {
+    const buildLiteRows = vi.fn().mockResolvedValue([
+      {
+        id: 'card-a',
+        blockId: 'block-a',
+        actionTarget: { id: 'row-a', blockId: 'block-a', fsrsCardId: 'card-a', priority: 10 },
+      },
+      {
+        id: 'card-b',
+        blockId: 'block-b',
+        actionTarget: { id: 'row-b', blockId: 'block-b', fsrsCardId: 'card-b', priority: 20 },
+      },
+    ]);
+    const hydrateRows = vi.fn();
+    const session = new BrowserQuerySession('test');
+
+    const targets = await session.getActionTargetsByIds(['card-b', 'card-a'], {
+      queryFingerprint: 'fp-action-targets',
+      buildLiteRows,
+      hydrateRows,
+    });
+
+    expect(targets).toEqual([
+      { id: 'row-b', blockId: 'block-b', fsrsCardId: 'card-b', priority: 20 },
+      { id: 'row-a', blockId: 'block-a', fsrsCardId: 'card-a', priority: 10 },
+    ]);
+    expect(hydrateRows).not.toHaveBeenCalled();
+  });
 });

@@ -9,6 +9,7 @@ import type { ICardDataSource } from '@/application/interfaces/ICardDataSource';
 import type { IBrowserApplicationService } from '@/application/interfaces/IBrowserApplicationService';
 import type { BrowserDeckSnapshotQuery } from '@/application/queries/browser/browser-deck-query';
 import type {
+  BrowserActionTarget,
   CardBrowserAction,
   FetchRowsOptions,
   FetchRowsResult,
@@ -206,6 +207,10 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
+  async getActionTargetsByIds(ids: string[]): Promise<BrowserActionTarget[]> {
+    return this.querySession.getActionTargetsByIds(ids, this.buildSessionOptions(this.lastSortModel));
+  }
+
   getSupportedActions(): CardBrowserAction[] {
     const baseActions = getBaseActions((key, fallback) => this.t(key, fallback));
     const actions: CardBrowserAction[] = [baseActions.open, baseActions.deleteCard];
@@ -241,7 +246,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return actions;
   }
 
-  async performAction(actionId: string, selectedRows: BrowserCard[], context?: DeckActionContext): Promise<unknown> {
+  async performAction(actionId: string, selectedRows: BrowserActionTarget[], context?: DeckActionContext): Promise<unknown> {
     if (actionId === 'open') {
       return;
     }
@@ -297,7 +302,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return this.id;
   }
 
-  private async handleDeleteCards(selectedRows: BrowserCard[]): Promise<number> {
+  private async handleDeleteCards(selectedRows: BrowserActionTarget[]): Promise<number> {
     const deletion = await deleteBrowserCards(this.plugin, selectedRows, {
       preferBatch: false,
       scope: 'DeckDataSource',
@@ -313,17 +318,14 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return deletion.deletedCount;
   }
 
-  private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserCard[]): Promise<unknown> {
+  private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserActionTarget[]): Promise<unknown> {
     const queue = this.manager.getQueue(route.queueType);
-    const rowsForAdd = route.actionType === 'neural-roam'
-      ? await this.reconcileBrowserRows(selectedRows)
-      : selectedRows;
-    const result = await addToQueue(queue, rowsForAdd, route.actionType, route.source ?? 'manual');
+    const result = await addToQueue(queue, selectedRows, route.actionType, route.source ?? 'manual');
     this.invalidateQuerySession();
     return result;
   }
 
-  private async handleReviewSubset(selectedRows: BrowserCard[]): Promise<void> {
+  private async handleReviewSubset(selectedRows: BrowserActionTarget[]): Promise<void> {
     const blockIds = selectedRows.map((row) => String(row.blockId || '')).filter(Boolean);
     if (blockIds.length === 0) {
       return;
@@ -332,7 +334,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     await Promise.resolve(this.plugin?.openSubsetReviewDialog?.(blockIds));
   }
 
-  private async handleSetPriority(selectedRows: BrowserCard[], context?: DeckActionContext): Promise<unknown> {
+  private async handleSetPriority(selectedRows: BrowserActionTarget[], context?: DeckActionContext): Promise<unknown> {
     const priority = this.resolvePriority(context?.priority);
 
     const result = await setBrowserCardsPriority(this.manager, selectedRows, priority, {

@@ -439,6 +439,65 @@ describe('NeuralRoamQueue', () => {
     expect(queue.getNavigationState().currentNodeId).toBeNull();
   });
 
+  it('does not duplicate the carried activation source when switching back into hyperspace', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-a')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: true });
+
+    expect(queue.getEngineMode()).toBe('hyperspace');
+    expect(queue.getSourceSnapshot().map((entry) => entry.nodeId)).toContain('concept-a');
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
+
+    await queue.setEngineMode('orbit', { carryCurrentNode: true });
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: true });
+
+    expect(queue.getEngineMode()).toBe('hyperspace');
+    expect(queue.getNavigationState().currentNodeId).toBe('concept-a');
+    expect(queue.getSourceSnapshot().map((entry) => entry.nodeId)).toContain('concept-a');
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
+    expect(queue.getHistorySnapshot().filter((entry) => entry.activationKind === 'source-root')).toHaveLength(1);
+  });
+
+  it('does not duplicate the carried orbit focus when switching back into orbit', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-a')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    expect(queue.getEngineMode()).toBe('orbit');
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
+    expect(queue.getHistorySnapshot().filter((entry) => entry.activationKind === 'focus-root')).toHaveLength(1);
+
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: true });
+    await queue.setEngineMode('orbit', { carryCurrentNode: true });
+
+    expect(queue.getEngineMode()).toBe('orbit');
+    expect(queue.getNavigationState().currentNodeId).toBe('concept-a');
+    expect(queue.getSeedSnapshot().map((entry) => entry.nodeId)).toContain('concept-a');
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
+    expect(queue.getHistorySnapshot().filter((entry) => entry.activationKind === 'focus-root')).toHaveLength(1);
+  });
+
   it('clears history by current/all scope', async () => {
     const { persistence } = createPersistence(undefined);
     const manager = createManager();

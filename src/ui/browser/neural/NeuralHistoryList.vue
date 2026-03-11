@@ -57,6 +57,9 @@
                     {{ t('anchoredTag', 'Station') }}
                   </span>
                   <span v-if="entry.isVirtual" class="neural-list__tag">{{ t('virtualNode', 'Virtual') }}</span>
+                  <span v-if="entry.repeatHitCount && entry.repeatHitCount > 1" class="neural-list__tag">
+                    {{ formatCountLabel('historyHitCountTag', '{count} hits', entry.repeatHitCount) }}
+                  </span>
                 </span>
                 <span class="neural-list__meta">{{ formatMeta(entry) }}</span>
               </button>
@@ -119,6 +122,10 @@ function t(key: string, fallback: string): string {
 
 function normalize(text: string): string {
   return String(text || '').toLowerCase();
+}
+
+function formatCountLabel(key: string, fallback: string, count: number): string {
+  return t(key, fallback).replace('{count}', String(Math.max(0, Math.floor(count))));
 }
 
 function matchesQuery(entry: NeuralListEntry): boolean {

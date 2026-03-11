@@ -32,14 +32,18 @@ const baseProps = {
   loading: false,
   showPreview: false,
   mode: 'dialog' as const,
+  layoutProfile: 'dialog' as const,
   mobileMode: false,
   queueType: '',
   appliedFilter: null,
   activeQueueId: null,
+  activeGlobalScope: '__all__' as const,
   selectedCount: 0,
   selectionMode: 'explicit' as const,
   canSelectAllMatching: true,
   activeDocId: null,
+  showNavigatorToggle: false,
+  navigatorOpen: false,
 };
 
 let resizeObserverCallback: ResizeObserverCallback | null = null;

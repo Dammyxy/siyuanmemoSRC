@@ -1,4 +1,5 @@
 import type { BrowserCard } from '../../types';
+import type { BrowserActionTarget } from '@/application/interfaces/ICardDataSource';
 import { LRUCache } from '@/utils/queryCache';
 import { createLogger } from '@/utils/logger';
 import { PerformanceMonitor } from '@/utils/performance';
@@ -10,6 +11,7 @@ export interface LiteRow {
   id: string;
   blockId: string;
   fsrsCardId?: string;
+  actionTarget?: BrowserActionTarget;
   rowSnapshot?: BrowserCard;
 }
 
@@ -49,6 +51,13 @@ export function toLiteRowFromBrowserCard(card: BrowserCard): LiteRow {
     id,
     blockId: String(card.blockId || ''),
     fsrsCardId: String(card.fsrsCardId || ''),
+    actionTarget: {
+      id: String(card.id || ''),
+      blockId: String(card.blockId || ''),
+      fsrsCardId: String(card.fsrsCardId || '') || undefined,
+      cardType: card.cardType,
+      priority: typeof card.priority === 'number' ? card.priority : undefined,
+    },
     rowSnapshot: card,
   };
 }
@@ -117,6 +126,14 @@ export class BrowserQuerySession {
     await this.ensureSession(options);
     const uniqueIds = toUniqueIds(ids);
     return this.materializeRows(uniqueIds, options.hydrateRows);
+  }
+
+  async getActionTargetsByIds(ids: string[], options: BuildSessionOptions): Promise<BrowserActionTarget[]> {
+    await this.ensureSession(options);
+    const uniqueIds = toUniqueIds(ids);
+    return uniqueIds
+      .map((id) => this.liteRowById.get(id)?.actionTarget)
+      .filter((target): target is BrowserActionTarget => Boolean(target));
   }
 
   private async ensureSession(options: BuildSessionOptions): Promise<void> {

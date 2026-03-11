@@ -153,6 +153,14 @@ export class MenuManager {
         },
       });
     }
+
+    menu.addItem({
+      icon: 'iconLayoutRight',
+      label: this.i18n?.openSrsBrowserTab || 'Open Browser Tab',
+      click: () => {
+        this.openSRSBrowserTab();
+      },
+    });
     
     menu.addSeparator();
     
@@ -347,6 +355,13 @@ export class MenuManager {
    */
   private openSRSBrowser(): void {
     this.dialogManager.openBrowserDialog();
+  }
+
+  private openSRSBrowserTab(): void {
+    const opened = this.context.getTabManager().openBrowserTab();
+    if (!opened) {
+      showMessage(this.i18n?.openBrowserTabFailed || 'Failed to open browser tab');
+    }
   }
   
   /**

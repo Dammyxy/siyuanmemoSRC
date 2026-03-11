@@ -39,6 +39,7 @@ let globalUnifiedDataSourceManager: UnifiedDataSourceManager | null = null;
 let globalBrowserSiyuanApi: BrowserSiyuanPort | null = null;
 let globalQueryText: string = '';
 type BrowserBatchManagerPort = Pick<UnifiedDataSourceManager, 'getCards' | 'updateCard' | 'deleteCard'>;
+export type BrowserCardProjection = Omit<BrowserCard, 'note' | 'meta'>;
 
 type BrowserAttrKeys = {
     cardId: string;
@@ -207,13 +208,29 @@ function resolveBatchManager(manager?: BrowserBatchManagerPort): BrowserBatchMan
     return manager ?? null;
 }
 
+function toUniqueBlockIds(blockIds: string[]): string[] {
+    return Array.from(new Set((blockIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+}
+
+async function loadFsrsCardsByBlockIds(
+    blockIds: string[],
+    manager: Pick<UnifiedDataSourceManager, 'getCards'>
+): Promise<FSRSCard[]> {
+    const uniqueBlockIds = toUniqueBlockIds(blockIds);
+    if (uniqueBlockIds.length === 0) {
+        return [];
+    }
+
+    return manager.getCards({ blockIds: uniqueBlockIds });
+}
+
 async function buildBlockCardMap(
     blockIds: string[],
     manager: BrowserBatchManagerPort
 ): Promise<Map<string, FSRSCard[]>> {
-    const targetBlockIds = new Set(blockIds.filter(Boolean));
+    const targetBlockIds = new Set(toUniqueBlockIds(blockIds));
     const blockCardMap = new Map<string, FSRSCard[]>();
-    const cards = await manager.getCards();
+    const cards = await loadFsrsCardsByBlockIds(Array.from(targetBlockIds), manager);
 
     for (const card of cards) {
         if (!targetBlockIds.has(card.blockId)) {
@@ -1107,6 +1124,12 @@ export async function loadQueueCards(
     queryText: string | undefined,
     unifiedDataSourceManager: UnifiedDataSourceManager
 ): Promise<BrowserCard[]> {
+    return buildBrowserCardsByBlockIds(blockIds, {
+        queryText,
+        applyQueryFilter: true,
+        manager: unifiedDataSourceManager,
+    });
+
     const ids = Array.from(new Set((blockIds || []).filter(Boolean)));
     if (ids.length === 0) return [];
     const attrKeys = getAttrKeys();
@@ -1251,6 +1274,148 @@ export async function loadQueueCardsSimple(
         return [];
     }
     return loadQueueCards(blockIds, globalQueryText, globalUnifiedDataSourceManager);
+}
+
+function toBrowserCardProjection(card: BrowserCard): BrowserCardProjection {
+    const { note: _note, meta: _meta, ...projection } = card;
+    return projection;
+}
+
+type LoadBrowserCardsByBlockIdsOptions = {
+    queryText?: string;
+    applyQueryFilter?: boolean;
+    manager?: UnifiedDataSourceManager;
+};
+
+function resolveBrowserManager(manager?: UnifiedDataSourceManager): UnifiedDataSourceManager | null {
+    return manager ?? globalUnifiedDataSourceManager;
+}
+
+async function buildBrowserCardsByBlockIds(
+    blockIds: string[],
+    options: LoadBrowserCardsByBlockIdsOptions = {}
+): Promise<BrowserCard[]> {
+    const ids = toUniqueBlockIds(blockIds);
+    if (ids.length === 0) return [];
+
+    const manager = resolveBrowserManager(options.manager);
+    if (!manager) {
+        logger.error('Browser manager not initialized for blockId load');
+        return [];
+    }
+
+    const attrKeys = getAttrKeys();
+    const applyQueryFilter = options.applyQueryFilter !== false;
+    const normalizedQueryText = applyQueryFilter ? options.queryText : undefined;
+
+    try {
+        const cachedCards = cardCache.get();
+        if (cachedCards) {
+            const cachedByBlockId = cardCache.getByBlockIds(ids);
+            if (cachedByBlockId.size === ids.length) {
+                let cards = ids
+                    .map((id) => cachedByBlockId.get(id))
+                    .filter(Boolean) as BrowserCard[];
+
+                if (normalizedQueryText) {
+                    cards = applyParsedQuery(cards, parseQuery(normalizedQueryText));
+                }
+
+                const byBlockId = new Map(cards.map((card) => [card.blockId, card]));
+                return ids.map((id) => byBlockId.get(id)).filter(Boolean) as BrowserCard[];
+            }
+        }
+
+        const scopedCards = await loadFsrsCardsByBlockIds(ids, manager);
+        const cardMap = new Map(scopedCards.map((card) => [card.blockId, card]));
+        const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids);
+        const parsed = normalizedQueryText ? parseQuery(normalizedQueryText) : null;
+        const cards: BrowserCard[] = [];
+
+        for (const id of ids) {
+            const card = cardMap.get(id);
+
+            if (!card) {
+                const customAttrs = attrsMap.get(id) || {};
+                const parsedPriority = Number(customAttrs[attrKeys.priority]);
+                const dbContent = contentMap.get(id) || '';
+                const rootId = rootIdMap.get(id) || '';
+                const tags = tagsMap.get(id) || [];
+                const virtualCard: BrowserCard = {
+                    id,
+                    fsrsCardId: id,
+                    blockId: id,
+                    deckId: '',
+                    content: truncateContent(dbContent, 100),
+                    fullContent: dbContent,
+                    rootId,
+                    state: 0,
+                    stateLabel: STATE_LABELS[CardState.New] || 'New',
+                    due: new Date(),
+                    dueFormatted: '-',
+                    stability: 0,
+                    difficulty: 0,
+                    retrievability: 0,
+                    reps: 0,
+                    lapses: 0,
+                    elapsedDays: 0,
+                    scheduledDays: 0,
+                    lastReview: null,
+                    lastReviewFormatted: '-',
+                    interval: 0,
+                    firstReview: null,
+                    firstReviewFormatted: '-',
+                    priority: Number.isFinite(parsedPriority) ? parsedPriority : 50,
+                    suspended: customAttrs[attrKeys.suspended] === 'true',
+                    tags,
+                    note: '',
+                    cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',
+                    aFactor: undefined,
+                };
+
+                if (!parsed || matchesParsedQuery(virtualCard, parsed)) {
+                    cards.push(virtualCard);
+                }
+                continue;
+            }
+
+            const customAttrs = attrsMap.get(card.blockId) || {};
+            const browserCard = transformFSRSCard(card, customAttrs);
+            browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
+            browserCard.tags = tagsMap.get(card.blockId) || [];
+
+            const currentContent = (browserCard.fullContent || '').replace(/[\s\u200B]/g, '');
+            const dbContent = contentMap.get(card.blockId);
+            if (!currentContent && dbContent) {
+                browserCard.fullContent = dbContent;
+                browserCard.content = truncateContent(dbContent, 100);
+            }
+
+            if (!parsed || matchesParsedQuery(browserCard, parsed)) {
+                cards.push(browserCard);
+            }
+        }
+
+        return cards;
+    } catch (err) {
+        logger.error('[SiYuanMemo][CardBrowser] blockId card load error:', err);
+        return [];
+    }
+}
+
+export async function loadBrowserCardsByBlockIds(
+    blockIds: string[],
+    options: LoadBrowserCardsByBlockIdsOptions = {}
+): Promise<BrowserCard[]> {
+    return buildBrowserCardsByBlockIds(blockIds, options);
+}
+
+export async function loadBrowserCardProjectionsByBlockIds(
+    blockIds: string[],
+    options: LoadBrowserCardsByBlockIdsOptions = {}
+): Promise<BrowserCardProjection[]> {
+    const cards = await buildBrowserCardsByBlockIds(blockIds, options);
+    return cards.map(toBrowserCardProjection);
 }
 
 

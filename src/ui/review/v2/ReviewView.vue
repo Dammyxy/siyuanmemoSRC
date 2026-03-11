@@ -100,7 +100,7 @@ import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import { useReviewSession } from './useReviewSession';
-import type { ReviewHeaderVariant } from './types';
+import type { ReviewHeaderVariant, ReviewViewTabBridge } from './types';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
 import { createVueDialog } from '@/utils/dialog';
@@ -1819,6 +1819,31 @@ function refreshNavigationState() {
 
   neuralNavigationState.value = null;
 }
+
+async function syncToNeuralQueueCurrentNode(fallbackNodeId?: string | null): Promise<boolean> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    return false;
+  }
+
+  const currentNodeId = String(
+    neuralQueue.getNavigationState().currentNodeId
+    || fallbackNodeId
+    || '',
+  ).trim();
+
+  if (!currentNodeId) {
+    return false;
+  }
+
+  await hook.loadCardByBlockId(currentNodeId);
+  refreshNavigationState();
+  return resolveCurrentReviewBlockId() === currentNodeId;
+}
+
+defineExpose<ReviewViewTabBridge>({
+  syncToNeuralQueueCurrentNode,
+});
 
 watch(
   () => state.value.content.id,

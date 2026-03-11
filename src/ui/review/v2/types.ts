@@ -192,6 +192,10 @@ export interface ReviewSessionHook {
   onUnmounted: () => void;
 }
 
+export interface ReviewViewTabBridge {
+  syncToNeuralQueueCurrentNode: (fallbackNodeId?: string | null) => Promise<boolean>;
+}
+
 export function createEmptyReviewUIState(): ReviewUIState {
   return {
     header: {

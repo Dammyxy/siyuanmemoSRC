@@ -624,22 +624,24 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         ?? this.conceptQueue.getSeedSnapshot()[0]?.nodeId
         ?? null;
       const hyperspaceCarryTarget = orbitCurrentNode ?? orbitCenter;
+      const shouldReuseHyperspaceFocus = hyperspaceCarryTarget
+        ? this.shouldReuseHyperspaceCarryTarget(hyperspaceCarryTarget)
+        : false;
 
-      if (orbitCurrentNode) {
-        await this.hyperspaceEngine.setSourceEntry(orbitCurrentNode, true);
-      }
-      if (orbitCenter && orbitCenter !== orbitCurrentNode) {
+      if (orbitCenter && orbitCenter !== hyperspaceCarryTarget) {
         await this.hyperspaceEngine.setSourceEntry(orbitCenter, true);
       }
       if (hyperspaceCarryTarget) {
-        if (orbitCurrentNode) {
-          await this.hyperspaceEngine.setAnchorEntry(orbitCurrentNode, true);
+        if (shouldReuseHyperspaceFocus) {
+          await this.hyperspaceEngine.setSourceEntry(hyperspaceCarryTarget, true);
+          await this.hyperspaceEngine.setAnchorEntry(hyperspaceCarryTarget, true);
+        } else {
+          await this.hyperspaceEngine.setCurrentFocus(hyperspaceCarryTarget, {
+            includeFocusAsFirst: Boolean(orbitCurrentNode),
+            resetHistory: false,
+            bookmarkCurrentPath: Boolean(orbitCurrentNode),
+          });
         }
-        await this.hyperspaceEngine.setCurrentFocus(hyperspaceCarryTarget, {
-          includeFocusAsFirst: Boolean(orbitCurrentNode),
-          resetHistory: false,
-          bookmarkCurrentPath: Boolean(orbitCurrentNode),
-        });
       }
       this.engineMode = 'hyperspace';
       await this.save();
@@ -647,6 +649,9 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     }
 
     const orbitCarryTarget = await this.resolveOrbitCarryTarget(previousCurrentNodeId);
+    const shouldReuseOrbitFocus = orbitCarryTarget
+      ? this.shouldReuseOrbitCarryTarget(orbitCarryTarget)
+      : false;
     if (previousCurrentNodeId) {
       await this.conceptQueue.setAnchorEntry(previousCurrentNodeId, true);
     }
@@ -657,14 +662,48 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       } else {
         await this.conceptQueue.setAnchorEntry(orbitCarryTarget, true);
       }
-      await this.conceptQueue.setCurrentFocus(orbitCarryTarget, {
-        includeFocusAsFirst: Boolean(previousCurrentNodeId && orbitCarryTarget === previousCurrentNodeId),
-        resetHistory: false,
-        bookmarkCurrentPath: Boolean(previousCurrentNodeId && orbitCarryTarget === previousCurrentNodeId),
-      });
+      if (!shouldReuseOrbitFocus) {
+        await this.conceptQueue.setCurrentFocus(orbitCarryTarget, {
+          includeFocusAsFirst: Boolean(previousCurrentNodeId && orbitCarryTarget === previousCurrentNodeId),
+          resetHistory: false,
+          bookmarkCurrentPath: Boolean(previousCurrentNodeId && orbitCarryTarget === previousCurrentNodeId),
+        });
+      }
     }
     this.engineMode = 'orbit';
     await this.save();
+  }
+
+  private shouldReuseHyperspaceCarryTarget(nodeId: string): boolean {
+    const normalized = String(nodeId || '').trim();
+    if (!normalized) {
+      return false;
+    }
+
+    const hyperspaceState = this.hyperspaceEngine.getNavigationState();
+    if (hyperspaceState.currentNodeId === normalized) {
+      return true;
+    }
+
+    const history = this.hyperspaceEngine.getHistorySnapshot();
+    const latest = history[history.length - 1];
+    return latest?.nodeId === normalized && latest.activationKind === 'source-root';
+  }
+
+  private shouldReuseOrbitCarryTarget(nodeId: string): boolean {
+    const normalized = String(nodeId || '').trim();
+    if (!normalized) {
+      return false;
+    }
+
+    const orbitState = this.conceptQueue.getNavigationState();
+    if (orbitState.currentNodeId === normalized) {
+      return true;
+    }
+
+    const history = this.conceptQueue.getHistorySnapshot();
+    const latest = history[history.length - 1];
+    return latest?.nodeId === normalized && latest.activationKind === 'focus-root';
   }
 
   public getSourceSnapshot(): NeuralRoamSourceEntry[] {

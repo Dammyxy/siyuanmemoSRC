@@ -5,7 +5,7 @@
  * 通过复用代码减少重复，同时保持灵活性
  */
 
-import type { CardBrowserAction } from './types';
+import type { BrowserActionTarget, CardBrowserAction } from './types';
 import type { BrowserCard } from '../../browser/types';
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
@@ -206,14 +206,14 @@ type RescheduleAction = 'postpone' | 'advance' | 'spread';
 type QueueCandidate = {
   cardId: string;
   blockId: string;
-  cardType?: BrowserCard['cardType'];
+  cardType?: BrowserActionTarget['cardType'];
 };
 
 type QueueAddInput = string | {
   id: string;
   blockId: string;
   type?: string;
-  cardType?: BrowserCard['cardType'];
+  cardType?: BrowserActionTarget['cardType'];
   cardTypeMarker?: string;
   meta?: {
     cardTypeMarker?: string;
@@ -275,8 +275,8 @@ const conceptOnlyMessage: Record<'retrieval' | 'final-drill' | 'neural-roam', st
   'neural-roam': '神经漫游队列只接受 Concept 卡片',
 };
 
-function resolveCardId(card: BrowserCard): string {
-  return resolveBrowserCardActionId(card);
+function resolveCardId(card: BrowserActionTarget): string {
+  return resolveBrowserCardActionId(card as BrowserCard);
 }
 
 function normalizeCount(value: unknown, fallback = 0): number {
@@ -287,25 +287,6 @@ function normalizeCount(value: unknown, fallback = 0): number {
     return value.length;
   }
   return Math.max(0, fallback);
-}
-
-function parseSiyuanTime14(timeStr: string | undefined): Date | null {
-  if (!timeStr) return null;
-  if (/^\d{14}$/.test(timeStr)) {
-    const y = Number.parseInt(timeStr.slice(0, 4), 10);
-    const m = Number.parseInt(timeStr.slice(4, 6), 10) - 1;
-    const d = Number.parseInt(timeStr.slice(6, 8), 10);
-    const h = Number.parseInt(timeStr.slice(8, 10), 10);
-    const min = Number.parseInt(timeStr.slice(10, 12), 10);
-    const s = Number.parseInt(timeStr.slice(12, 14), 10);
-    return new Date(Date.UTC(y, m, d, h, min, s));
-  }
-
-  const isoParsed = new Date(timeStr);
-  if (!Number.isNaN(isoParsed.getTime())) {
-    return isoParsed;
-  }
-  return null;
 }
 
 function resolvePluginContext(plugin: PluginLike | undefined): PluginContextLike | undefined {
@@ -410,30 +391,6 @@ function buildLegacyConfig(
   return config;
 }
 
-function updateDueInMemory(selectedRows: BrowserCard[], updated: unknown): void {
-  if (!Array.isArray(updated)) {
-    return;
-  }
-
-  const rowByBlockId = new Map(selectedRows.map((row) => [row.blockId, row]));
-  for (const item of updated as Array<{ blockId?: string; newDue?: string }>) {
-    const blockId = item?.blockId;
-    if (!blockId) {
-      continue;
-    }
-
-    const due = parseSiyuanTime14(item?.newDue);
-    if (!due) {
-      continue;
-    }
-
-    const row = rowByBlockId.get(blockId);
-    if (row) {
-      row.due = due;
-    }
-  }
-}
-
 function buildEmptyAdjustResult(action: RescheduleAction, rowCount: number): {
   updated: number;
   skipped: number;
@@ -472,7 +429,7 @@ async function executeReschedule(
 
 export async function adjustTime(
   plugin: PluginLike | undefined,
-  selectedRows: BrowserCard[],
+  selectedRows: BrowserActionTarget[],
   action: RescheduleAction,
   context?: Record<string, unknown>
 ): Promise<{ updated: number; skipped: number; averageCardsPerDay?: number } | null> {
@@ -504,8 +461,6 @@ export async function adjustTime(
   if (!rawResult) {
     return buildEmptyAdjustResult(action, rows.length);
   }
-
-  updateDueInMemory(selectedRows, rawResult.updated);
 
   const updated = normalizeCount(rawResult.updated);
   if (action === 'postpone') {
@@ -572,7 +527,7 @@ async function addCardsDeterministically(
   return { added, failed, firstError, conceptTypeConflict };
 }
 
-function prepareQueueItems(selectedRows: BrowserCard[]): QueueCandidate[] {
+function prepareQueueItems(selectedRows: BrowserActionTarget[]): QueueCandidate[] {
   return selectedRows.map((row) => ({
     cardId: resolveCardId(row),
     blockId: row.blockId,
@@ -599,7 +554,7 @@ function filterQueueItems(
 
 export async function addToQueue(
   queue: QueueAddLike | undefined,
-  selectedRows: BrowserCard[],
+  selectedRows: BrowserActionTarget[],
   queueType: QueueActionType,
   source: QueueAddSource = 'manual'
 ): Promise<{ added: number; message: string }> {

@@ -53,6 +53,7 @@ import {
   type BlockAttrCleanupMode,
 } from '@/application/services';
 import type { PracticeQueueFilter } from './PracticeQueueManager';
+import type { BrowserOpenState } from '@/ui/browser/types';
 
 const logger = createLogger('DialogManager');
 
@@ -499,6 +500,16 @@ export class DialogManager implements IDialogManager {
       },
       events: {
         close: () => this.closeBrowserDialog(),
+        convertToTab: (state: BrowserOpenState) => {
+          const opened = this.context.getTabManager().openBrowserTab({
+            initialState: state,
+          });
+          if (opened) {
+            this.closeBrowserDialog();
+            return;
+          }
+          void this.siyuanApi.pushErrMsg(this.context.getI18n()?.openBrowserTabFailed || 'Failed to open browser tab');
+        },
       },
       width,
       height,

@@ -10,6 +10,7 @@
  */
 
 import { FSRSCard } from './card';
+import type { QueueSnapshotRow } from './queue-browser';
 import type { QueueItem } from '../core/queue/types';
 
 // ============================================================================
@@ -607,6 +608,16 @@ export interface IReviewQueue {
      * @returns 卡片数组
      */
     getCards(): Promise<FSRSCard[]>;
+
+    /**
+     * 获取当前队列可见卡片的轻量快照行。
+     */
+    getSnapshotRows(forceRefresh?: boolean): Promise<QueueSnapshotRow[]>;
+
+    /**
+     * 按 snapshot row id 定位并返回对应的 FSRS 卡片。
+     */
+    getCardsBySnapshotIds(ids: string[], forceRefresh?: boolean): Promise<FSRSCard[]>;
     
     /**
      * 获取队列中的所有卡片（包括过滤后的结果）

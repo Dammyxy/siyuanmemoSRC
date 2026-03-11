@@ -12,6 +12,7 @@ import type { BrowserCard } from '../types';
 // ✅ 重新导出应用层接口（统一接口定义）
 export type { 
   ICardDataSource,
+  BrowserActionTarget,
   SortModel,
   FilterModel,
   FetchRowsOptions,
@@ -26,6 +27,7 @@ export interface IBrowserQueryableDataSource {
   getQueryFingerprint(): string;
   getAllMatchedIds(): Promise<string[]>;
   getRowsByIds(ids: string[]): Promise<BrowserCard[]>;
+  getActionTargetsByIds(ids: string[]): Promise<import('@/application/interfaces/ICardDataSource').BrowserActionTarget[]>;
 }
 
 export interface IBrowserQuerySessionInvalidation {
@@ -42,7 +44,8 @@ export function isBrowserQueryableDataSource(
   return (
     typeof target.getQueryFingerprint === 'function' &&
     typeof target.getAllMatchedIds === 'function' &&
-    typeof target.getRowsByIds === 'function'
+    typeof target.getRowsByIds === 'function' &&
+    typeof target.getActionTargetsByIds === 'function'
   );
 }
 

@@ -27,6 +27,10 @@ import type {
   BrowserDeckSnapshotResult,
 } from '../queries/browser/browser-deck-query';
 import type {
+  QueueBrowserSnapshotQuery,
+  QueueBrowserSnapshotResult,
+} from '../queries/browser/queue-browser-query';
+import type {
   BrowserCardTypeFilter,
   CardFilter,
   IReviewQueue,
@@ -84,6 +88,10 @@ export interface IBrowserApplicationService {
   getDeckQuerySnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult>;
 
   getDeckRowsByIds(ids: string[]): Promise<BrowserCard[]>;
+
+  getQueueQuerySnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult>;
+
+  getQueueRowsByIds(queueId: BrowserQueueId, ids: string[]): Promise<BrowserCard[]>;
   
   /**
    * 获取到期卡片数量

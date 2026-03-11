@@ -58,6 +58,9 @@ describe('MenuManager top bar menu rendering', () => {
         getAllCards: vi.fn().mockReturnValue([]),
       }),
       getAutoCardHandler: vi.fn().mockReturnValue(null),
+      getTabManager: vi.fn().mockReturnValue({
+        openBrowserTab: vi.fn().mockReturnValue(true),
+      }),
     } as any;
 
     const i18n = {
@@ -67,6 +70,7 @@ describe('MenuManager top bar menu rendering', () => {
       startNeuralReview: 'L4',
       startFilterGroupPractice: 'L5',
       srsBrowser: 'L6',
+      openSrsBrowserTab: 'L7',
       oneClickSymbolCardsCurrentDoc: 'L7',
       oneClickCancelCardsCurrentDoc: 'L8',
       settings: 'Settings',
@@ -89,6 +93,7 @@ describe('MenuManager top bar menu rendering', () => {
     const menu = menuInstances[0];
     const allItemArgs = menu.addItem.mock.calls.map((call) => call[0]);
     const visibleTopbarItems = allItemArgs.slice(0, 6);
+    const browserTabItem = allItemArgs[6];
     const hiddenActionIds = new Set<TopBarQuickEntryActionId>([
       'one-click-symbol-current-doc',
       'one-click-cancel-current-doc',
@@ -98,6 +103,7 @@ describe('MenuManager top bar menu rendering', () => {
     );
 
     expect(visibleTopbarItems.map((item) => item.label)).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']);
+    expect(browserTabItem.label).toBe('L7');
     expect(visibleTopbarItems.map((item) => item.label)).not.toContain('L7');
     expect(visibleTopbarItems.map((item) => item.label)).not.toContain('L8');
 
@@ -109,5 +115,8 @@ describe('MenuManager top bar menu rendering', () => {
     visibleDefinitions.forEach((definition, index) => {
       expect(runSpy).toHaveBeenNthCalledWith(index + 1, definition.id);
     });
+
+    browserTabItem.click?.();
+    expect(context.getTabManager().openBrowserTab).toHaveBeenCalledTimes(1);
   });
 });

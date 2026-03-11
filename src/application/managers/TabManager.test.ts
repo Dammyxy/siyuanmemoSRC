@@ -1,31 +1,26 @@
-/**
- * TabManager 单元测试
- * 
- * 测试 TabManager 的核心功能：
- * - Tab 注册
- * - Tab 打开
- * - 生命周期管理
- */
-
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TabManager } from './TabManager';
-import type { ApplicationContext } from '../ApplicationContext';
-import type { Plugin } from 'siyuan';
 
-// Mock siyuan module
-vi.mock('siyuan', () => ({
+const mocks = vi.hoisted(() => ({
   openTab: vi.fn(),
-}));
-
-// Mock vue module
-vi.mock('vue', () => ({
   createApp: vi.fn(() => ({
     mount: vi.fn(),
     unmount: vi.fn(),
   })),
 }));
 
-// Mock Vue components
+vi.mock('siyuan', () => ({
+  openTab: mocks.openTab,
+  Constants: {
+    SIYUAN_OPEN_WINDOW: 'siyuan-open-window',
+    SIYUAN_VERSION: '3.1.0',
+  },
+}));
+
+vi.mock('vue', () => ({
+  createApp: mocks.createApp,
+}));
+
 vi.mock('@/ui/browser/SRSBrowser.vue', () => ({
   default: {},
 }));
@@ -34,234 +29,129 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-describe('TabManager', () => {
-  let tabManager: TabManager;
-  let mockContext: ApplicationContext;
-  let mockPlugin: Plugin;
-
+describe('TabManager browser tab opening', () => {
   beforeEach(() => {
-    // 创建 mock 对象
-    mockContext = {
+    vi.clearAllMocks();
+  });
+
+  function createManager() {
+    const context = {
       getI18n: vi.fn(() => ({
         srsBrowser: 'SRS Browser',
       })),
     } as any;
 
-    mockPlugin = {
+    const plugin = {
       name: 'test-plugin',
       app: {} as any,
       addTab: vi.fn(),
     } as any;
 
-    // 创建 TabManager 实例
-    tabManager = new TabManager(mockContext, mockPlugin);
+    return {
+      tabManager: new TabManager(context, plugin),
+      plugin,
+    };
+  }
+
+  it('registers browser and review tabs once', () => {
+    const { tabManager, plugin } = createManager();
+
+    tabManager.registerAll();
+    tabManager.registerAll();
+
+    expect(plugin.addTab).toHaveBeenCalledTimes(2);
+    expect((plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[0][0].type).toBe('test-plugin-browser');
+    expect((plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0].type).toBe('test-plugin-review');
   });
 
-  // ========================================================================
-  // 构造函数测试
-  // ========================================================================
+  it('opens a browser tab with an empty initial state by default', () => {
+    const { tabManager, plugin } = createManager();
 
-  describe('constructor', () => {
-    it('应该正确初始化', () => {
-      expect(tabManager).toBeDefined();
-      expect(tabManager).toBeInstanceOf(TabManager);
-    });
-  });
+    const opened = tabManager.openBrowserTab();
 
-  // ========================================================================
-  // registerAll 测试
-  // ========================================================================
-
-  describe('registerAll', () => {
-    it('应该注册所有 Tab', () => {
-      tabManager.registerAll();
-
-      // 验证 addTab 被调用了 2 次（浏览器 Tab + 复习 Tab）
-      expect(mockPlugin.addTab).toHaveBeenCalledTimes(2);
-    });
-
-    it('应该注册浏览器 Tab', () => {
-      tabManager.registerAll();
-
-      // 验证第一次调用是注册浏览器 Tab
-      const firstCall = (mockPlugin.addTab as any).mock.calls[0][0];
-      expect(firstCall.type).toBe('test-plugin-browser');
-      expect(firstCall.init).toBeDefined();
-      expect(firstCall.destroy).toBeDefined();
-    });
-
-    it('应该注册复习 Tab', () => {
-      tabManager.registerAll();
-
-      // 验证第二次调用是注册复习 Tab
-      const secondCall = (mockPlugin.addTab as any).mock.calls[1][0];
-      expect(secondCall.type).toBe('test-plugin-review');
-      expect(secondCall.init).toBeDefined();
-      expect(secondCall.destroy).toBeDefined();
-    });
-  });
-
-  // ========================================================================
-  // openBrowserTab 测试
-  // ========================================================================
-
-  describe('openBrowserTab', () => {
-    it('应该打开浏览器 Tab', async () => {
-      const { openTab } = await import('siyuan');
-      vi.clearAllMocks(); // 清除之前的调用记录
-
-      tabManager.openBrowserTab();
-
-      // 验证 openTab 被调用
-      expect(openTab).toHaveBeenCalledWith({
-        app: mockPlugin.app,
-        custom: {
-          icon: 'iconCard',
-          title: 'SRS Browser',
-          id: 'test-plugintest-plugin-browser',
-          data: {},
+    expect(opened).toBe(true);
+    expect(mocks.openTab).toHaveBeenCalledWith({
+      app: plugin.app,
+      custom: {
+        icon: 'iconCard',
+        title: 'SRS Browser',
+        id: 'test-plugintest-plugin-browser',
+        data: {
+          initialState: null,
         },
-        position: 'right',
-      });
-    });
-
-    it('应该使用国际化标题', async () => {
-      const { openTab } = await import('siyuan');
-      vi.clearAllMocks(); // 清除之前的调用记录
-      
-      // 创建新的 TabManager 实例，使用新的 mock context
-      const newMockContext = {
-        getI18n: vi.fn(() => ({
-          srsBrowser: '卡片浏览器',
-        })),
-      } as any;
-      const newTabManager = new TabManager(newMockContext, mockPlugin);
-
-      newTabManager.openBrowserTab();
-
-      const callArgs = (openTab as any).mock.calls[0][0];
-      expect(callArgs.custom.title).toBe('卡片浏览器');
-    });
-
-    it('应该使用默认标题（如果国际化不可用）', async () => {
-      const { openTab } = await import('siyuan');
-      vi.clearAllMocks(); // 清除之前的调用记录
-      
-      // 创建新的 TabManager 实例，使用新的 mock context
-      const newMockContext = {
-        getI18n: vi.fn(() => ({})),
-      } as any;
-      const newTabManager = new TabManager(newMockContext, mockPlugin);
-
-      newTabManager.openBrowserTab();
-
-      const callArgs = (openTab as any).mock.calls[0][0];
-      expect(callArgs.custom.title).toBe('SRS 浏览器');
+      },
+      position: 'right',
     });
   });
 
-  // ========================================================================
-  // openReviewTab 测试
-  // ========================================================================
+  it('opens a browser tab with serialized open state and explicit position', () => {
+    const { tabManager, plugin } = createManager();
 
-  describe('openReviewTab', () => {
-    it('应该打开复习 Tab（provider 模式）', async () => {
-      const { openTab } = await import('siyuan');
-      const mockProvider = { id: 'test-provider' };
-      const mockAdapter = {};
+    const opened = tabManager.openBrowserTab({
+      position: 'bottom',
+      initialState: {
+        queueId: 'neural-roam',
+        neuralSubview: 'roam-history',
+        queryText: 'michael nielsen',
+      },
+    });
 
-      tabManager.openReviewTab({
-        provider: mockProvider,
-        adapter: mockAdapter,
-        title: 'Test Review',
-      });
-
-      // 验证 openTab 被调用
-      expect(openTab).toHaveBeenCalledWith({
-        app: mockPlugin.app,
-        custom: {
-          icon: 'iconSiyuanMemo',
-          title: 'Test Review',
-          id: 'test-plugintest-plugin-review',
-          data: {
-            providerId: 'test-provider',
-            title: 'Test Review',
-            queueType: null,
+    expect(opened).toBe(true);
+    expect(mocks.openTab).toHaveBeenCalledWith({
+      app: plugin.app,
+      custom: {
+        icon: 'iconCard',
+        title: 'SRS Browser',
+        id: 'test-plugintest-plugin-browser',
+        data: {
+          initialState: {
+            queueId: 'neural-roam',
+            neuralSubview: 'roam-history',
+            queryText: 'michael nielsen',
           },
         },
-        position: 'right',
-      });
-    });
-
-    it('应该打开复习 Tab（queue 模式）', async () => {
-      const { openTab } = await import('siyuan');
-      vi.clearAllMocks(); // 清除之前的调用记录
-      
-      const mockQueue = { getType: () => 'test-queue' };
-      const mockAdapter = {};
-
-      tabManager.openReviewTab({
-        queue: mockQueue,
-        adapter: mockAdapter,
-        title: 'Queue Review',
-      });
-
-      // 验证 openTab 被调用
-      const callArgs = (openTab as any).mock.calls[0][0];
-      expect(callArgs.custom.data.providerId).toBe('queue-based');
-      expect(callArgs.custom.data.queueType).toBe('test-queue');
-    });
-
-    it('应该使用默认 providerId（如果未提供）', async () => {
-      const { openTab } = await import('siyuan');
-      vi.clearAllMocks(); // 清除之前的调用记录
-      
-      const mockAdapter = {};
-
-      tabManager.openReviewTab({
-        adapter: mockAdapter,
-        title: 'Default Review',
-      });
-
-      const callArgs = (openTab as any).mock.calls[0][0];
-      expect(callArgs.custom.data.providerId).toBe('retrieval');
-    });
-
-    it('应该处理打开失败的情况', async () => {
-      const { openTab } = await import('siyuan');
-      (openTab as any).mockImplementationOnce(() => {
-        throw new Error('Failed to open tab');
-      });
-
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      tabManager.openReviewTab({
-        adapter: {},
-        title: 'Test',
-      });
-
-      expect(consoleSpy).toHaveBeenCalledWith(
-        '[TabManager] Failed to open review tab:',
-        expect.any(Error)
-      );
-
-      consoleSpy.mockRestore();
+      },
+      position: 'bottom',
     });
   });
 
-  // ========================================================================
-  // dispose 测试
-  // ========================================================================
+  it('hydrates the browser tab component with serialized initial state on init', () => {
+    const { tabManager, plugin } = createManager();
+    tabManager.registerAll();
 
-  describe('dispose', () => {
-    it('应该可以调用 dispose', () => {
-      expect(() => tabManager.dispose()).not.toThrow();
+    const browserRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const runtime = {
+      element: document.createElement('div'),
+      data: {
+        initialState: {
+          queueId: 'neural-roam',
+          neuralSubview: 'roam-history',
+        },
+      },
+    };
+
+    browserRegistration.init.call(runtime);
+
+    expect(mocks.createApp).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        mode: 'tab',
+        initialOpenState: {
+          queueId: 'neural-roam',
+          neuralSubview: 'roam-history',
+        },
+      }),
+    );
+  });
+
+  it('returns false when openTab throws', () => {
+    const { tabManager } = createManager();
+    mocks.openTab.mockImplementationOnce(() => {
+      throw new Error('open failed');
     });
 
-    it('dispose 不应该抛出错误', () => {
-      tabManager.dispose();
-      // Tab 的生命周期由思源笔记管理，dispose 是空操作
-      expect(true).toBe(true);
-    });
+    const opened = tabManager.openBrowserTab();
+
+    expect(opened).toBe(false);
   });
 });

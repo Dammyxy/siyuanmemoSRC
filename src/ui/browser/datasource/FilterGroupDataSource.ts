@@ -1,10 +1,9 @@
 import type { BrowserCard } from '../types';
 import type {
+  BrowserActionTarget,
   ICardDataSource,
   IBrowserQueryableDataSource,
   CardBrowserAction,
-  FetchRowsOptions,
-  FetchRowsResult,
   SortModel,
 } from './types';
 import {
@@ -24,7 +23,10 @@ import {
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
-import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
+import {
+  BaseQueueSnapshotDataSource,
+  type QueueSnapshotDataSourceDeps,
+} from './shared/BaseQueueSnapshotDataSource';
 
 const logger = createLogger('FilterGroupDataSource');
 
@@ -56,52 +58,19 @@ function isQueueDueAdjustAction(actionId: string): actionId is 'postpone' | 'adv
   return actionId === 'postpone' || actionId === 'advance';
 }
 
-export class FilterGroupDataSource implements ICardDataSource, IBrowserQueryableDataSource {
+export class FilterGroupDataSource
+  extends BaseQueueSnapshotDataSource<FilterGroupPluginLike>
+  implements ICardDataSource, IBrowserQueryableDataSource {
   id = 'filter-group';
   label = 'Filter Group';
-
-  private readonly manager: IUnifiedDataSourceManagerFacade;
-  private readonly options: FilterGroupDataSourceOptions;
-  private readonly plugin?: FilterGroupPluginLike;
-  private readonly querySession = new BrowserQuerySession('FilterGroupDataSource');
-  private lastSortModel: SortModel[] = [];
-  private dataGeneration = 0;
 
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
     options?: FilterGroupDataSourceOptions,
-    plugin?: FilterGroupPluginLike
+    plugin?: FilterGroupPluginLike,
+    deps: QueueSnapshotDataSourceDeps = {},
   ) {
-    this.manager = manager;
-    this.options = options || {};
-    this.plugin = plugin;
-  }
-
-  async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
-    try {
-      const sortModel = (params?.sortModel || []) as SortModel[];
-      this.lastSortModel = [...sortModel];
-      return this.querySession.fetchRows({
-        ...this.buildSessionOptions(sortModel),
-        startRow: params?.startRow,
-        endRow: params?.endRow,
-      });
-    } catch (error) {
-      logger.error('Failed to fetch rows', error);
-      throw error;
-    }
-  }
-
-  getQueryFingerprint(): string {
-    return this.buildQueryFingerprint(this.lastSortModel);
-  }
-
-  async getAllMatchedIds(): Promise<string[]> {
-    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
-  }
-
-  async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
-    return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
+    super('FilterGroupDataSource', manager, options, plugin, deps);
   }
 
   getSupportedActions(): CardBrowserAction[] {
@@ -118,7 +87,7 @@ export class FilterGroupDataSource implements ICardDataSource, IBrowserQueryable
 
   async performAction(
     actionId: string,
-    selectedRows: BrowserCard[],
+    selectedRows: BrowserActionTarget[],
     context?: FilterGroupActionContext
   ): Promise<unknown> {
     if (actionId === 'open') {
@@ -182,40 +151,15 @@ export class FilterGroupDataSource implements ICardDataSource, IBrowserQueryable
     }
   }
 
-  getId(): string {
-    return this.id;
+  protected getQueueBrowserId() {
+    return 'filter-group' as const;
   }
 
-  private buildQueryFingerprint(sortModel: SortModel[]): string {
-    return JSON.stringify({
-      dataSource: 'filter-group',
-      queueId: QueueType.FilterGroup,
-      options: this.options,
-      sortModel,
-      generation: this.dataGeneration,
-    });
-  }
-
-  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
+  protected async buildLegacyOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
     const queue = this.manager.getQueue(QueueType.FilterGroup);
     const cards = await queue.getCards();
     const browserCards = cards.map((card, index) => mapQueueFsrsCardToBrowserCard(card, { queueIndex: index + 1 }));
     const filtered = applyQueueFilters(browserCards, this.options, 'headline');
     return sortBrowserCards(filtered, sortModel);
-  }
-
-  private buildSessionOptions(sortModel: SortModel[]) {
-    return {
-      queryFingerprint: this.buildQueryFingerprint(sortModel),
-      buildLiteRows: async () => {
-        const rows = await this.buildOrderedRows(sortModel);
-        return rows.map(toLiteRowFromBrowserCard);
-      },
-    };
-  }
-
-  public invalidateQuerySession(): void {
-    this.dataGeneration += 1;
-    this.querySession.invalidate();
   }
 }

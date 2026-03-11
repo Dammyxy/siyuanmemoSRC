@@ -6,7 +6,7 @@
  * - restore queue/adapter from current architecture on init
  */
 
-import type { Plugin } from 'siyuan';
+import type { Custom, Plugin } from 'siyuan';
 import { openTab, Constants } from 'siyuan';
 import { createApp, type App as VueApp } from 'vue';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
@@ -14,13 +14,14 @@ import { ReviewView } from '@/ui/review/v2';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
-import type { IAdapter, ReviewHeaderVariant } from '@/ui/review/v2/types';
+import type { IAdapter, ReviewHeaderVariant, ReviewViewTabBridge } from '@/ui/review/v2/types';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
 import { QueueType } from '@/types/unified-data-source';
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
 import { resolveReviewHeaderVariant } from '@/ui/review/v2/types';
 import { createLogger } from '@/utils/logger';
+import type { BrowserOpenState } from '@/ui/browser/types';
 
 const logger = createLogger('TabManager');
 
@@ -39,10 +40,22 @@ interface ReviewTabData {
   headerVariant: ReviewHeaderVariant;
 }
 
-interface TabRuntimeContext {
-  element: HTMLElement;
-  data?: Partial<ReviewTabData>;
+interface BrowserTabData {
+  initialState?: BrowserOpenState | null;
+}
+
+type TabRuntimeContext = Custom & {
   vueApp?: VueApp<Element>;
+};
+
+interface ReviewTabRuntimeHandle {
+  customId: string;
+  queueType: QueueType | null;
+  title: string;
+  custom: TabRuntimeContext;
+  bridge: ReviewViewTabBridge | null;
+  lastActiveAt: number;
+  removeActivityListeners: () => void;
 }
 
 type PluginWithI18n = Plugin & {
@@ -92,11 +105,17 @@ interface ReviewTabOpenOptions {
   removeCurrentTab?: boolean;
 }
 
+export interface BrowserTabOpenOptions {
+  initialState?: BrowserOpenState | null;
+  position?: 'right' | 'bottom';
+}
+
 export class TabManager {
   private readonly TAB_TYPE: string;
   private readonly REVIEW_TAB_TYPE: string;
   private readonly siyuanApi: ManagerSiyuanPort;
   private tabsRegistered = false;
+  private readonly reviewTabRuntimes = new Map<string, ReviewTabRuntimeHandle>();
 
   constructor(
     private context: ApplicationContext,
@@ -124,11 +143,13 @@ export class TabManager {
       type: this.TAB_TYPE,
       init() {
         const runtime = this as unknown as TabRuntimeContext;
+        const data = self.normalizeBrowserTabData(runtime.data);
         const app = createApp(SRSBrowser, {
           app: self.plugin.app,
           i18n: self.context.getI18n() || {},
           mode: 'tab',
           plugin: self.plugin,
+          initialOpenState: data.initialState ?? null,
         });
         app.mount(runtime.element);
         runtime.vueApp = app;
@@ -173,29 +194,39 @@ export class TabManager {
           plugin: self.plugin,
         });
 
-        app.mount(runtime.element);
+        const vm = app.mount(runtime.element);
         runtime.vueApp = app;
+        self.registerReviewTabRuntime(runtime, data, self.resolveReviewViewBridge(vm));
       },
       destroy() {
         const runtime = this as unknown as TabRuntimeContext;
+        self.unregisterReviewTabRuntime(runtime);
         runtime.vueApp?.unmount();
         runtime.vueApp = undefined;
       },
     });
   }
 
-  openBrowserTab(): void {
-    const browserModelType = this.buildCustomModelType(this.TAB_TYPE);
-    openTab({
-      app: this.plugin.app,
-      custom: {
-        icon: 'iconCard',
-        title: this.context.getI18n()?.srsBrowser || 'SRS Browser',
-        id: browserModelType,
-        data: {},
-      },
-      position: 'right',
-    });
+  openBrowserTab(options?: BrowserTabOpenOptions): boolean {
+    try {
+      const browserModelType = this.buildCustomModelType(this.TAB_TYPE);
+      openTab({
+        app: this.plugin.app,
+        custom: {
+          icon: 'iconCard',
+          title: this.context.getI18n()?.srsBrowser || 'SRS Browser',
+          id: browserModelType,
+          data: {
+            initialState: options?.initialState ?? null,
+          } satisfies BrowserTabData,
+        },
+        position: options?.position ?? 'right',
+      });
+      return true;
+    } catch (error) {
+      logger.error('Failed to open browser tab', error);
+      return false;
+    }
   }
 
   openReviewTab(options: ReviewTabOptions): void {
@@ -242,6 +273,50 @@ export class TabManager {
     // Tab lifecycle is managed by SiYuan.
   }
 
+  async syncExistingNeuralReviewTabToCurrentNode(options?: {
+    fallbackNodeId?: string | null;
+    focus?: boolean;
+  }): Promise<'synced' | 'missing' | 'failed'> {
+    const runtime = this.getLatestNeuralReviewTabRuntime();
+    if (!runtime) {
+      return 'missing';
+    }
+
+    if (!runtime.bridge || typeof runtime.bridge.syncToNeuralQueueCurrentNode !== 'function') {
+      logger.warn('Neural review tab bridge is unavailable', {
+        customId: runtime.customId,
+        title: runtime.title,
+      });
+      return 'failed';
+    }
+
+    try {
+      const synced = await runtime.bridge.syncToNeuralQueueCurrentNode(options?.fallbackNodeId);
+      if (!synced) {
+        logger.warn('Neural review tab declined sync request', {
+          customId: runtime.customId,
+          title: runtime.title,
+          fallbackNodeId: options?.fallbackNodeId ?? null,
+        });
+        return 'failed';
+      }
+
+      if (options?.focus !== false && !this.focusReviewTab(runtime)) {
+        return 'failed';
+      }
+
+      runtime.lastActiveAt = Date.now();
+      return 'synced';
+    } catch (error) {
+      logger.error('Failed to sync neural review tab', {
+        customId: runtime.customId,
+        title: runtime.title,
+        error,
+      });
+      return 'failed';
+    }
+  }
+
   private getPluginI18n(): Record<string, string> {
     const candidate = (this.plugin as PluginWithI18n).i18n;
     return candidate && typeof candidate === 'object' ? candidate : {};
@@ -253,6 +328,147 @@ export class TabManager {
 
   private buildCustomModelType(tabType: string): string {
     return this.plugin.name + tabType;
+  }
+
+  private resolveReviewViewBridge(vm: unknown): ReviewViewTabBridge | null {
+    const candidate = vm as
+      | (Partial<ReviewViewTabBridge> & {
+          $?: {
+            exposed?: Partial<ReviewViewTabBridge> | null;
+            exposeProxy?: Partial<ReviewViewTabBridge> | null;
+          } | null;
+        })
+      | null
+      | undefined;
+
+    if (typeof candidate?.syncToNeuralQueueCurrentNode === 'function') {
+      return candidate as ReviewViewTabBridge;
+    }
+
+    const exposedCandidate = candidate?.$?.exposed;
+    if (typeof exposedCandidate?.syncToNeuralQueueCurrentNode === 'function') {
+      return exposedCandidate as ReviewViewTabBridge;
+    }
+
+    const exposeProxyCandidate = candidate?.$?.exposeProxy;
+    if (typeof exposeProxyCandidate?.syncToNeuralQueueCurrentNode === 'function') {
+      return exposeProxyCandidate as ReviewViewTabBridge;
+    }
+
+    return null;
+  }
+
+  private normalizeBrowserTabData(data: Partial<BrowserTabData> | undefined): BrowserTabData {
+    return {
+      initialState: data?.initialState ?? null,
+    };
+  }
+
+  private resolveReviewTabRuntimeId(runtime: TabRuntimeContext): string {
+    return String(runtime.tab?.id || runtime.id || '').trim();
+  }
+
+  private registerReviewTabRuntime(
+    runtime: TabRuntimeContext,
+    data: ReviewTabData,
+    bridge: ReviewViewTabBridge | null,
+  ): void {
+    const customId = this.resolveReviewTabRuntimeId(runtime);
+    if (!customId) {
+      logger.warn('Skip review tab runtime registration because runtime id is empty', {
+        title: data.title,
+        queueType: data.queueType,
+      });
+      return;
+    }
+
+    this.unregisterReviewTabRuntime(customId);
+
+    const markActive = () => {
+      const handle = this.reviewTabRuntimes.get(customId);
+      if (handle) {
+        handle.lastActiveAt = Date.now();
+      }
+    };
+
+    const attachListener = (
+      target: EventTarget | null | undefined,
+      type: string,
+      listener: EventListener,
+    ): (() => void) => {
+      if (!target || typeof (target as { addEventListener?: unknown }).addEventListener !== 'function') {
+        return () => undefined;
+      }
+      target.addEventListener(type, listener);
+      return () => {
+        target.removeEventListener(type, listener);
+      };
+    };
+
+    const detachFns = [
+      attachListener(runtime.tab?.headElement ?? null, 'click', markActive),
+      attachListener(runtime.element ?? null, 'mousedown', markActive),
+      attachListener(runtime.element ?? null, 'focusin', markActive),
+    ];
+
+    this.reviewTabRuntimes.set(customId, {
+      customId,
+      queueType: data.queueType,
+      title: data.title,
+      custom: runtime,
+      bridge,
+      lastActiveAt: Date.now(),
+      removeActivityListeners: () => {
+        detachFns.forEach((detach) => detach());
+      },
+    });
+  }
+
+  private unregisterReviewTabRuntime(customIdOrRuntime: string | TabRuntimeContext | null | undefined): void {
+    const normalizedId = typeof customIdOrRuntime === 'string'
+      ? String(customIdOrRuntime || '').trim()
+      : customIdOrRuntime
+        ? this.resolveReviewTabRuntimeId(customIdOrRuntime)
+        : '';
+    if (!normalizedId) {
+      return;
+    }
+
+    const existing = this.reviewTabRuntimes.get(normalizedId);
+    if (!existing) {
+      return;
+    }
+
+    existing.removeActivityListeners();
+    this.reviewTabRuntimes.delete(normalizedId);
+  }
+
+  private getLatestNeuralReviewTabRuntime(): ReviewTabRuntimeHandle | null {
+    let selected: ReviewTabRuntimeHandle | null = null;
+    for (const runtime of this.reviewTabRuntimes.values()) {
+      if (runtime.queueType !== QueueType.NeuralRoam) {
+        continue;
+      }
+      if (!selected || runtime.lastActiveAt > selected.lastActiveAt) {
+        selected = runtime;
+      }
+    }
+    return selected;
+  }
+
+  private focusReviewTab(runtime: ReviewTabRuntimeHandle): boolean {
+    try {
+      runtime.custom.tab?.parent?.switchTab(runtime.custom.tab.headElement);
+      runtime.lastActiveAt = Date.now();
+      return true;
+    } catch (error) {
+      logger.error('Failed to focus neural review tab', {
+        customId: runtime.customId,
+        title: runtime.title,
+        error,
+      });
+      return false;
+    }
   }
 
   private resolveReviewTabData(options: ReviewTabOptions): ReviewTabData {

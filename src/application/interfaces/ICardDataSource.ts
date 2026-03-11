@@ -84,6 +84,19 @@ export interface CardBrowserAction {
 }
 
 /**
+ * Lightweight target payload used by browser actions.
+ *
+ * BrowserCard is structurally compatible with this contract.
+ */
+export interface BrowserActionTarget {
+  id?: string;
+  blockId: string;
+  fsrsCardId?: string;
+  cardType?: BrowserCard['cardType'];
+  priority?: number;
+}
+
+/**
  * 卡片数据源接口
  * 
  * 所有数据源实现都必须实现此接口。
@@ -138,7 +151,7 @@ export interface ICardDataSource {
    * @param selectedRows - 选中的卡片
    * @param context - 上下文信息（可选）
    */
-  performAction(actionId: string, selectedRows: BrowserCard[], context?: unknown): Promise<unknown>;
+  performAction(actionId: string, selectedRows: BrowserActionTarget[], context?: unknown): Promise<unknown>;
   
   /**
    * 获取统计信息（可选）

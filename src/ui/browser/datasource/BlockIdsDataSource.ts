@@ -1,9 +1,14 @@
 import type { BrowserCard } from '../types';
-import { loadQueueCardsSimple } from '../browserService';
+import {
+  loadBrowserCardProjectionsByBlockIds,
+  loadBrowserCardsByBlockIds,
+  type BrowserCardProjection,
+} from '../browserService';
 import type {
   ICardDataSource,
   IBrowserQueryableDataSource,
   CardBrowserAction,
+  BrowserActionTarget,
   FetchRowsOptions,
   FetchRowsResult,
   SortModel,
@@ -23,10 +28,11 @@ import {
   removeCardsFromQueue,
   resolveBrowserCardId,
   setBrowserCardsPriority,
-  sortBrowserCards,
+  sortBrowserRows,
 } from './DataSourceUtils';
 import { createLogger } from '@/utils/logger';
-import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
+import { BrowserQuerySession } from './session/BrowserQuerySession';
+import { resolveBrowserCardStableId } from '../utils/browserCardIdentity';
 
 const logger = createLogger('BlockIdsDataSource');
 
@@ -80,9 +86,11 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
   private readonly plugin?: BlockIdsPluginLike;
   private readonly queueId?: string;
   private readonly getBlockIdsFn?: () => string[];
+  private readonly queryText?: string;
   private readonly querySession = new BrowserQuerySession('BlockIdsDataSource');
   private lastSortModel: SortModel[] = [];
   private dataGeneration = 0;
+  private liteRowBlockIdById = new Map<string, string>();
 
   constructor(options: {
     id: string;
@@ -91,6 +99,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
     plugin?: BlockIdsPluginLike;
     queueId?: string;
     getBlockIdsFn?: () => string[];
+    queryText?: string;
   }) {
     this.id = options.id;
     this.label = options.label;
@@ -98,6 +107,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
     this.plugin = options.plugin;
     this.queueId = options.queueId;
     this.getBlockIdsFn = options.getBlockIdsFn;
+    this.queryText = options.queryText;
   }
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
@@ -122,6 +132,10 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
     return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
+  async getActionTargetsByIds(ids: string[]): Promise<BrowserActionTarget[]> {
+    return this.querySession.getActionTargetsByIds(ids, this.buildSessionOptions(this.lastSortModel));
+  }
+
   getSupportedActions(): CardBrowserAction[] {
     if (this.queueId === 'neural-roam') {
       return buildQueueActions({
@@ -142,7 +156,7 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
 
   async performAction(
     actionId: string,
-    selectedRows: BrowserCard[],
+    selectedRows: BrowserActionTarget[],
     context?: BlockIdsActionContext
   ): Promise<unknown> {
     if (actionId === 'open') {
@@ -215,15 +229,19 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
       id: this.id,
       queueId: this.queueId || '',
       blockCount: liveBlockIds.length,
+      queryText: this.queryText || '',
       sortModel,
       generation: this.dataGeneration,
     });
   }
 
-  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
+  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCardProjection[]> {
     const blockIds = this.getBlockIdsFn ? this.getBlockIdsFn() : this.blockIds;
-    const cards = await loadQueueCardsSimple(blockIds);
-    return sortBrowserCards(cards, sortModel);
+    const rows = await loadBrowserCardProjectionsByBlockIds(blockIds, {
+      queryText: this.queryText,
+      applyQueryFilter: true,
+    });
+    return sortBrowserRows(rows, sortModel);
   }
 
   private buildSessionOptions(sortModel: SortModel[]) {
@@ -231,13 +249,43 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
       queryFingerprint: this.buildQueryFingerprint(sortModel),
       buildLiteRows: async () => {
         const rows = await this.buildOrderedRows(sortModel);
-        return rows.map(toLiteRowFromBrowserCard);
+        this.liteRowBlockIdById.clear();
+        return rows.map((row) => {
+          const id = resolveBrowserCardStableId(row as BrowserCard);
+          this.liteRowBlockIdById.set(id, row.blockId);
+          return {
+            id,
+            blockId: row.blockId,
+            fsrsCardId: row.fsrsCardId ? String(row.fsrsCardId) : undefined,
+            actionTarget: {
+              id: String(row.id || ''),
+              blockId: row.blockId,
+              fsrsCardId: row.fsrsCardId ? String(row.fsrsCardId) : undefined,
+              cardType: row.cardType,
+              priority: typeof row.priority === 'number' ? row.priority : undefined,
+            },
+          };
+        });
+      },
+      hydrateRows: async (ids: string[]) => {
+        const blockIds = ids
+          .map((id) => this.liteRowBlockIdById.get(id))
+          .filter((blockId): blockId is string => Boolean(blockId));
+        const rows = await loadBrowserCardsByBlockIds(blockIds, { applyQueryFilter: false });
+        const rowByBlockId = new Map(rows.map((row) => [row.blockId, row]));
+        return ids
+          .map((id) => {
+            const blockId = this.liteRowBlockIdById.get(id);
+            return blockId ? rowByBlockId.get(blockId) : undefined;
+          })
+          .filter((row): row is BrowserCard => Boolean(row));
       },
     };
   }
 
   public invalidateQuerySession(): void {
     this.dataGeneration += 1;
+    this.liteRowBlockIdById.clear();
     this.querySession.invalidate();
   }
 

@@ -1,4 +1,4 @@
-import type { SortModel } from '@/application/interfaces/ICardDataSource';
+import type { BrowserActionTarget, SortModel } from '@/application/interfaces/ICardDataSource';
 import type { CardState } from '@/core/card/domain/services/CardScheduleService';
 import type { PresetFilter } from './GetBrowserCardsQuery';
 
@@ -17,6 +17,7 @@ export interface BrowserDeckLiteRow {
   id: string;
   blockId: string;
   fsrsCardId?: string;
+  actionTarget?: BrowserActionTarget;
 }
 
 export interface BrowserDeckSnapshotResult {

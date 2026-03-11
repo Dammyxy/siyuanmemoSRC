@@ -1,12 +1,18 @@
 ﻿<template>
-  <div class="card-browser" :class="[
+  <div
+    ref="browserRootRef"
+    class="card-browser"
+    :class="[
     `card-browser--${mode}`,
     isMobileMode ? 'card-browser--mobile' : '',
-    showPreview ? 'card-browser--preview-open' : ''
-  ]">
+    `card-browser--${layoutProfile}`,
+    showPreview ? 'card-browser--preview-open' : '',
+    showNavigatorDrawer ? 'card-browser--navigator-open' : '',
+  ]"
+  >
     <!-- Main area: toolbar + grid -->
     <div class="card-browser__main">
-      <div v-if="viewMode === 'hierarchy'" class="card-browser__hierarchy">
+      <div v-if="showInlineHierarchy" class="card-browser__hierarchy">
         <BrowserHierarchy
           :cards="rowsForFocus"
           :queues="{ active: activeQueueId || '', counts: queueCounts }"
@@ -37,18 +43,23 @@
         :viewMode="viewMode"
         :loading="loading"
         :mode="mode"
+        :layout-profile="layoutProfile"
         :mobile-mode="isMobileMode"
         :queue-type="currentQueueType"
         :applied-filter="appliedFilter"
         :active-queue-id="activeQueueId"
         :active-doc-id="activeDocId"
+        :active-global-scope="activeGlobalScope"
         :selected-count="globalSelection.selectedCount.value"
         :selection-mode="globalSelection.mode.value"
         :can-select-all-matching="canSelectAllMatching"
+        :show-navigator-toggle="showNavigatorToggle"
+        :navigator-open="navigatorOpen"
         @exitFocus="handleExitFocus"
         @openPracticeMenu="openPracticeMenu"
         @applySortToQueue="handleApplySortToQueue"
         @toggleViewMode="toggleViewMode"
+        @toggleNavigator="toggleNavigator"
         @forceRefresh="forceRefreshData"
         @migrateTopicItem="migrateTopicItem"
         @showPerformanceReport="showPerformanceReport"
@@ -148,7 +159,55 @@
           @toggle-source="handleNeuralToggleSource"
         />
         <template v-else-if="neuralSubview === 'roam-history'">
-          <div class="card-browser__neural-roam-layout">
+          <div v-if="showNarrowRoamLayout" class="card-browser__neural-roam-stack">
+            <div class="card-browser__neural-roam-segments" role="tablist" :aria-label="t('roamHistory', '轨迹路径')">
+              <button
+                type="button"
+                class="b3-button b3-button--outline card-browser__neural-roam-segment"
+                :class="{ 'card-browser__neural-roam-segment--active': narrowRoamPane === 'history' }"
+                @click="narrowRoamPane = 'history'"
+              >
+                {{ t('history', 'History') }}
+              </button>
+              <button
+                type="button"
+                class="b3-button b3-button--outline card-browser__neural-roam-segment"
+                :class="{ 'card-browser__neural-roam-segment--active': narrowRoamPane === 'wake' }"
+                @click="narrowRoamPane = 'wake'"
+              >
+                Wake
+              </button>
+            </div>
+            <NeuralHistoryList
+              v-if="narrowRoamPane === 'history'"
+              class="card-browser__neural-roam-pane card-browser__neural-roam-pane--history"
+              :i18n="props.i18n"
+              :entries="neuralHistoryEntries"
+              :current-node-id="neuralCurrentNodeId"
+              :selected-event-id="selectedNeuralHistoryEventId"
+              :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
+              @select="handleNeuralSelectHistoryEntry"
+              @preview="handleNeuralPreview"
+              @jump="handleNeuralJump"
+              @set-current-focus="handleNeuralSetCurrentFocus"
+              @toggle-anchor="handleNeuralToggleAnchor"
+              @clear-history="handleNeuralClearHistory"
+            />
+            <NeuralActivationTracePanel
+              v-else
+              class="card-browser__neural-roam-pane card-browser__neural-roam-pane--trace"
+              :i18n="props.i18n"
+              :trace="neuralActivationTrace"
+              :current-node-id="neuralCurrentNodeId"
+              :anchor-node-ids="neuralAnchorEntries.map((entry) => entry.nodeId)"
+              @preview="handleNeuralTracePreview"
+              @jump="handleNeuralTraceJump"
+              @select-step="handleNeuralSelectTraceStep"
+              @request-convergence-details="handleNeuralRequestConvergenceDetails"
+              @switch-trace-event="handleNeuralSwitchTraceEvent"
+            />
+          </div>
+          <div v-else class="card-browser__neural-roam-layout">
             <NeuralHistoryList
               class="card-browser__neural-roam-pane card-browser__neural-roam-pane--history"
               :i18n="props.i18n"
@@ -172,6 +231,8 @@
               @preview="handleNeuralTracePreview"
               @jump="handleNeuralTraceJump"
               @select-step="handleNeuralSelectTraceStep"
+              @request-convergence-details="handleNeuralRequestConvergenceDetails"
+              @switch-trace-event="handleNeuralSwitchTraceEvent"
             />
           </div>
         </template>
@@ -187,6 +248,23 @@
           @jump-anchor="handleNeuralJumpAnchor"
         />
       </div>
+      </div>
+
+      <div v-if="showNavigatorDrawer" class="card-browser__navigator-scrim" @click="closeNavigatorDrawer"></div>
+      <div v-if="showNavigatorDrawer" class="card-browser__navigator-drawer">
+        <BrowserHierarchy
+          :cards="rowsForFocus"
+          :queues="{ active: activeQueueId || '', counts: queueCounts }"
+          :focusedDocIds="focusedDocIds"
+          :globalStats="globalStats"
+          :activeGlobal="activeGlobalScope"
+          :mobile-mode="isMobileMode"
+          :i18n="props.i18n"
+          @selectQueue="handleSelectQueue"
+          @selectDoc="handleSelectDoc"
+          @filterDoc="handleFilterDoc"
+          @selectGlobal="handleSelectGlobal"
+        />
       </div>
     </div>
     
@@ -249,7 +327,7 @@ import type {
 import { openTab, Menu, Protyle, type App } from 'siyuan';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import {
-  loadQueueCardsSimple,
+  loadBrowserCardsByBlockIds,
   setGlobalBrowserContext,
   clearGlobalBrowserContext,
   invalidateCardCache,
@@ -260,9 +338,27 @@ import {
 } from './browserService';
 import { PerformanceMonitor } from '@/utils/performance';
 import { runBrowserForceRefresh } from './forceRefreshDataPlan';
-import { type BrowserCard, type CardTypeFilter } from './types';
+import {
+  type BrowserCard,
+  type BrowserMode,
+  type BrowserOpenState,
+  type BrowserViewMode,
+  type CardTypeFilter,
+} from './types';
+import {
+  buildBrowserPreferenceKey,
+  LEGACY_BROWSER_VIEW_MODE_KEY,
+  resolveBrowserLayoutProfile,
+  resolveDefaultBrowserNavigatorOpen,
+  resolveDefaultBrowserNarrowRoamPane,
+  resolveDefaultBrowserShowPreview,
+  resolveDefaultBrowserViewMode,
+  type BrowserLayoutProfile,
+  type BrowserNarrowRoamPane,
+} from './layoutProfile';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
 import type {
+  BrowserActionTarget,
   ICardDataSource,
   IBrowserQueryableDataSource,
   SortModel,
@@ -279,6 +375,12 @@ import NeuralFocusList from './neural/NeuralFocusList.vue';
 import NeuralHistoryList from './neural/NeuralHistoryList.vue';
 import NeuralNavigationBar from './neural/NeuralNavigationBar.vue';
 import NeuralSubviewTabs from './neural/NeuralSubviewTabs.vue';
+import {
+  buildNeuralHistoryIndex,
+  resolveNeuralTraceConvergenceForStep,
+  type NeuralHistoryIndex,
+} from './neural/traceAggregation';
+import { handoffNeuralNavigationToReviewSurface } from './neural/reviewSurfaceHandoff';
 import FilterDialog from './dialogs/FilterDialog.vue';
 import PostponeDialog from './dialogs/PostponeDialog.vue';
 import AdvanceDialog from './dialogs/AdvanceDialog.vue';
@@ -313,6 +415,7 @@ import type {
   NeuralHistoryEventRef,
   NeuralListEntry,
   NeuralSourceListEntry,
+  NeuralTraceConvergenceViewModel,
   NeuralSubview,
 } from './neural/types';
 import { 
@@ -360,7 +463,6 @@ import type { PresetFilter } from '@/application/queries/browser/GetBrowserCards
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
-import type { FSRSCard } from '@/types/card';
 import type { WsSyncEvent } from '@/application/services/XiuyuanSyncService.types';
 
 // Register AG-Grid modules
@@ -380,7 +482,8 @@ type BrowserPluginContext = {
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null;
   getTabApplicationService?: () => BrowserTabApplicationServicePort | null;
   getHybridSyncService?: () => unknown;
-  getDialogManager?: () => unknown;
+  getDialogManager?: () => BrowserDialogManagerPort | null;
+  getTabManager?: () => BrowserTabManagerPort | null;
 };
 
 type BrowserPluginPort = IPluginFacade & {
@@ -392,17 +495,29 @@ type BrowserTabApplicationServicePort = {
   openDocumentTab: (params: { docId: string }) => Promise<void> | void;
 };
 
+type BrowserDialogManagerPort = {
+  openNeuralRoamDialog?: () => Promise<void> | void;
+};
+
+type BrowserTabManagerPort = {
+  syncExistingNeuralReviewTabToCurrentNode?: (options?: {
+    fallbackNodeId?: string | null;
+    focus?: boolean;
+  }) => Promise<'synced' | 'missing' | 'failed'> | 'synced' | 'missing' | 'failed';
+};
+
 const props = defineProps<{
   app?: App;
   i18n?: Record<string, string>;
   currentDocId?: string;
-  mode?: 'dialog' | 'tab' | 'dock';
+  mode?: BrowserMode;
   mobileMode?: boolean;
   plugin?: BrowserPluginPort;
   browserService?: IBrowserApplicationService;
   tabApplicationService?: BrowserTabApplicationServicePort;
   initialQueueId?: string;
   initialNeuralSubview?: NeuralSubview;
+  initialOpenState?: BrowserOpenState | null;
 }>();
 
 const mode = computed(() => props.mode || 'dialog');
@@ -412,6 +527,14 @@ const isMobileMode = computed(() => {
   }
   return props.plugin?.isMobile === true;
 });
+const browserRootRef = ref<HTMLElement | null>(null);
+const layoutProfile = ref<BrowserLayoutProfile>(
+  resolveBrowserLayoutProfile({
+    mode: mode.value,
+    width: typeof window !== 'undefined' ? window.innerWidth : 1440,
+    isMobile: isMobileMode.value,
+  }),
+);
 
 const pluginContext = computed(() => props.plugin?.getContext?.() || null);
 const tabApplicationServiceRef = computed(
@@ -447,7 +570,7 @@ const showSyncIndicator = computed(() => {
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'convertToTab'): void;
+  (e: 'convertToTab', state: BrowserOpenState): void;
 }>();
 
 // State
@@ -472,11 +595,13 @@ const sortModelRevision = ref(0);
 const currentSortField = ref<SortField>('due');
 const currentSortOrder = ref<SortOrder>('asc');
 const searchQuery = ref('');
-const viewMode = ref<'flat' | 'hierarchy'>(isMobileMode.value ? 'flat' : 'hierarchy');
+const viewMode = ref<BrowserViewMode>(isMobileMode.value ? 'flat' : 'hierarchy');
 const activeQueueId = ref<string | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({ ...EMPTY_QUEUE_COUNTS });
 const neuralSubview = ref<NeuralSubview>('concept-cards');
+const navigatorOpen = ref(false);
+const narrowRoamPane = ref<BrowserNarrowRoamPane>(resolveDefaultBrowserNarrowRoamPane());
 const neuralSourceEntries = ref<NeuralSourceListEntry[]>([]);
 const neuralHistoryEntries = ref<NeuralListEntry[]>([]);
 const neuralAnchorEntries = ref<NeuralAnchorListEntry[]>([]);
@@ -488,6 +613,10 @@ const neuralTracePinnedToSelection = ref(false);
 const selectedNeuralTraceEventId = ref<string | null>(null);
 const selectedNeuralTraceNodeId = ref<string | null>(null);
 let neuralPreviewRequestSeq = 0;
+let neuralTraceConvergenceRequestSeq = 0;
+let neuralTraceHistoryIndex: NeuralHistoryIndex | null = null;
+const neuralTraceConvergenceCache = new Map<string, NeuralTraceConvergenceViewModel | null>();
+const neuralTraceRouteViewModelCache = new Map<string, NeuralActivationTraceViewModel | null>();
 
 const appliedFilter = ref<CardFilter | null>(null);
 const showFilterDialog = ref(false);
@@ -495,7 +624,7 @@ const canSelectAllMatching = computed(() => isBrowserQueryableDataSource(current
 
 let detectionTriggered = false;
 
-const showPreview = ref(!isMobileMode.value);
+const showPreview = ref(resolveDefaultBrowserShowPreview(layoutProfile.value));
 const previewCard = ref<BrowserCard | null>(null);
 
 const isResizing = ref(false);
@@ -518,6 +647,9 @@ let loadedRowsDirty = false;
 let longTaskObserver: PerformanceObserver | null = null;
 let globalStatsTaskId = 0;
 let isApplyingSelectionToGrid = false;
+let browserRootResizeObserver: ResizeObserver | null = null;
+let suspendBrowserChromePersistence = false;
+let suspendBrowserStateBootstrap = false;
 
 const calculateInitialPreviewSize = (): number => {
   if (isMobileMode.value) {
@@ -525,7 +657,8 @@ const calculateInitialPreviewSize = (): number => {
   }
 
   if (mode.value !== 'dialog') {
-    return DEFAULT_PREVIEW_SIZE.tab;
+    const target = Math.round(window.innerHeight * 0.34);
+    return Math.min(360, Math.max(240, target));
   }
   
   const dialogWidth = window.innerWidth;
@@ -554,9 +687,266 @@ const previewStyle = computed(() => {
     return { height: `${previewSize.value}px` };
   }
 });
+const showNavigatorToggle = computed(() => layoutProfile.value === 'tab-narrow' && !isMobileMode.value);
+const showInlineHierarchy = computed(() => {
+  if (isMobileMode.value || layoutProfile.value === 'tab-narrow') {
+    return false;
+  }
+  return viewMode.value === 'hierarchy';
+});
+const showNavigatorDrawer = computed(() =>
+  !isMobileMode.value
+  && layoutProfile.value === 'tab-narrow'
+  && viewMode.value === 'hierarchy'
+  && navigatorOpen.value
+);
+const showNarrowRoamLayout = computed(() =>
+  layoutProfile.value === 'tab-narrow' && !isMobileMode.value
+);
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
+}
+
+function getBrowserRootWidth(): number {
+  const root = browserRootRef.value;
+  if (!root) {
+    return typeof window !== 'undefined' ? window.innerWidth : 1440;
+  }
+  const rectWidth = Number(root.getBoundingClientRect().width || 0);
+  const clientWidth = Number(root.clientWidth || 0);
+  const offsetWidth = Number(root.offsetWidth || 0);
+  return Math.max(rectWidth, clientWidth, offsetWidth, 0);
+}
+
+function updateLayoutProfile(): void {
+  layoutProfile.value = resolveBrowserLayoutProfile({
+    mode: mode.value,
+    width: getBrowserRootWidth(),
+    isMobile: isMobileMode.value,
+  });
+}
+
+function setupBrowserLayoutObserver(): void {
+  updateLayoutProfile();
+  if (typeof ResizeObserver === 'undefined') {
+    return;
+  }
+
+  const root = browserRootRef.value;
+  if (!root) {
+    return;
+  }
+
+  browserRootResizeObserver = new ResizeObserver(() => {
+    updateLayoutProfile();
+  });
+  browserRootResizeObserver.observe(root);
+}
+
+function readStoredViewMode(profile: BrowserLayoutProfile): BrowserViewMode {
+  const key = buildBrowserPreferenceKey('viewMode', profile);
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored === 'flat' || stored === 'hierarchy') {
+      return stored;
+    }
+
+    if (profile === 'dialog') {
+      const legacy = localStorage.getItem(LEGACY_BROWSER_VIEW_MODE_KEY);
+      if (legacy === 'flat' || legacy === 'hierarchy') {
+        localStorage.setItem(key, legacy);
+        return legacy;
+      }
+    }
+  } catch {}
+
+  return resolveDefaultBrowserViewMode(profile);
+}
+
+function readStoredBooleanPreference(
+  key: 'showPreview' | 'navigatorOpen',
+  profile: BrowserLayoutProfile,
+  fallback: boolean,
+): boolean {
+  try {
+    const stored = localStorage.getItem(buildBrowserPreferenceKey(key, profile));
+    if (stored === '1') {
+      return true;
+    }
+    if (stored === '0') {
+      return false;
+    }
+  } catch {}
+
+  return fallback;
+}
+
+function readStoredNarrowRoamPane(profile: BrowserLayoutProfile): BrowserNarrowRoamPane {
+  try {
+    const stored = localStorage.getItem(buildBrowserPreferenceKey('narrowRoamPane', profile));
+    if (stored === 'history' || stored === 'wake') {
+      return stored;
+    }
+  } catch {}
+
+  return resolveDefaultBrowserNarrowRoamPane();
+}
+
+function persistBrowserChromePreference(key: string, value: string): void {
+  if (isMobileMode.value || suspendBrowserChromePersistence) {
+    return;
+  }
+
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+}
+
+function applyBrowserChromePreferences(profile: BrowserLayoutProfile): void {
+  suspendBrowserChromePersistence = true;
+  try {
+    if (isMobileMode.value) {
+      viewMode.value = 'flat';
+      showPreview.value = false;
+      navigatorOpen.value = false;
+      narrowRoamPane.value = resolveDefaultBrowserNarrowRoamPane();
+      return;
+    }
+
+    viewMode.value = readStoredViewMode(profile);
+    showPreview.value = readStoredBooleanPreference(
+      'showPreview',
+      profile,
+      resolveDefaultBrowserShowPreview(profile),
+    );
+    navigatorOpen.value = readStoredBooleanPreference(
+      'navigatorOpen',
+      profile,
+      resolveDefaultBrowserNavigatorOpen(profile),
+    );
+    narrowRoamPane.value = readStoredNarrowRoamPane(profile);
+
+    if (profile === 'tab-narrow' && viewMode.value !== 'hierarchy') {
+      navigatorOpen.value = false;
+    }
+  } finally {
+    suspendBrowserChromePersistence = false;
+  }
+}
+
+function cloneCardFilter(filter: CardFilter | null): CardFilter | null {
+  if (!filter) {
+    return null;
+  }
+
+  try {
+    const structuredCloneFn = (globalThis as { structuredClone?: <T>(value: T) => T }).structuredClone;
+    if (typeof structuredCloneFn === 'function') {
+      return structuredCloneFn(filter);
+    }
+  } catch {}
+
+  try {
+    return JSON.parse(JSON.stringify(filter)) as CardFilter;
+  } catch {
+    return filter;
+  }
+}
+
+function normalizeNeuralSubview(value: NeuralSubview | null | undefined): NeuralSubview | null {
+  if (
+    value === 'concept-cards'
+    || value === 'roam-history'
+    || value === 'worldline-anchors'
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function captureCurrentBrowserOpenState(): BrowserOpenState {
+  return {
+    queueId: activeQueueId.value,
+    globalScope: activeGlobalScope.value,
+    docId: activeDocId.value,
+    queryText: searchQuery.value,
+    preset: currentPreset.value,
+    cardType: currentCardType.value,
+    filter: activeQueueId.value === 'filter-group' ? cloneCardFilter(appliedFilter.value) : null,
+    neuralSubview: isNeuralQueueId(activeQueueId.value)
+      ? normalizeNeuralSubview(neuralSubview.value)
+      : null,
+  };
+}
+
+async function applyInitialBrowserOpenState(
+  state: BrowserOpenState,
+  forceRefresh = false,
+): Promise<void> {
+  suspendBrowserStateBootstrap = true;
+  try {
+    const nextQueueId = normalizeQueueId(state.queueId);
+    const nextDocId = String(state.docId || '').trim() || null;
+    const nextGlobalScope = state.globalScope === '__dismissed__' ? '__dismissed__' : '__all__';
+    const nextPreset = nextGlobalScope === '__dismissed__'
+      ? 'suspended'
+      : (state.preset || 'all') as PresetFilter;
+    const nextCardType = (state.cardType || 'all') as CardTypeFilter;
+    const nextQueryText = String(state.queryText || '');
+    const nextFilter = nextQueueId === 'filter-group' ? cloneCardFilter(state.filter ?? null) : null;
+    const nextNeuralSubview = nextQueueId === 'neural-roam'
+      ? normalizeNeuralSubview(state.neuralSubview) || 'concept-cards'
+      : 'concept-cards';
+
+    syncSelectionForQueryChange();
+
+    const cardTypeTransition = resolveQueueCardTypeOnSwitch({
+      fromQueueId: activeQueueId.value,
+      toQueueId: nextQueueId,
+      currentCardType: nextCardType,
+      previousNonNeuralCardType: previousNonNeuralCardType.value,
+    });
+
+    activeQueueId.value = nextQueueId;
+    activeDocId.value = nextDocId;
+    shouldFocusDocList.value = Boolean(nextQueueId) && !nextDocId;
+
+    currentPreset.value = nextPreset;
+    currentCardType.value = cardTypeTransition.nextCardType;
+    previousNonNeuralCardType.value = cardTypeTransition.nextPreviousNonNeuralCardType;
+    searchQuery.value = nextQueryText;
+    appliedFilter.value = nextFilter;
+
+    if (nextQueueId === 'neural-roam') {
+      neuralSubview.value = nextNeuralSubview;
+    } else {
+      neuralSubview.value = 'concept-cards';
+      clearNeuralSubviewData();
+    }
+
+    const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
+    if (unifiedDataSourceManager) {
+      setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value, browserSiyuanApi.value);
+    }
+
+    if (nextQueueId === 'filter-group') {
+      try {
+        await setFilterGroupFilterBridge(nextFilter ?? {});
+      } catch (error) {
+        logger.error('[SiYuanMemo][SRSBrowser] Failed to apply initial filter-group browser state:', error);
+      }
+    }
+
+    await loadData(forceRefresh, { refreshQueueCounts: false, snapshotDelayMs: 120 });
+    await refreshQueueCounts();
+
+    if (nextQueueId === 'neural-roam' && nextNeuralSubview !== 'concept-cards') {
+      await refreshNeuralSubviewData();
+    }
+  } finally {
+    suspendBrowserStateBootstrap = false;
+  }
 }
 
 function resolveNeuralSourceLabels(engineMode: NeuralEngineMode = neuralNavigationState.value?.engineMode || 'orbit') {
@@ -1412,7 +1802,8 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
           queryText: searchQuery.value,
           cardType: currentCardType.value as BrowserCardTypeFilter,
         },
-        props.plugin
+        props.plugin,
+        browserAppServiceRef.value || null,
       );
 
       if (!currentDataSource.value) {
@@ -1526,6 +1917,9 @@ function handleSearchInput() {
 
 // Watch searchQuery changes
 watch(searchQuery, () => {
+  if (suspendBrowserStateBootstrap) {
+    return;
+  }
   handleSearchInput();
   // Update global browser context (DDD)
   const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
@@ -1535,16 +1929,25 @@ watch(searchQuery, () => {
 });
 
 watch(currentPreset, () => {
+  if (suspendBrowserStateBootstrap) {
+    return;
+  }
   syncSelectionForQueryChange();
   void refreshData(false, false, { refreshQueueCounts: false });
 });
 
 watch(currentCardType, () => {
+  if (suspendBrowserStateBootstrap) {
+    return;
+  }
   syncSelectionForQueryChange();
   void refreshData(true, false, { refreshQueueCounts: false });
 });
 
 watch(neuralSubview, () => {
+  if (suspendBrowserStateBootstrap) {
+    return;
+  }
   if (neuralSubview.value !== 'roam-history') {
     selectedNeuralHistoryEventId.value = null;
     neuralActivationTrace.value = null;
@@ -1555,6 +1958,44 @@ watch(neuralSubview, () => {
   if (isNeuralRoamQueueActive.value) {
     void refreshNeuralSubviewData();
   }
+});
+
+watch(layoutProfile, (profile, previousProfile) => {
+  if (profile === previousProfile) {
+    return;
+  }
+  applyBrowserChromePreferences(profile);
+});
+
+watch(viewMode, (value) => {
+  if (layoutProfile.value === 'tab-narrow' && value !== 'hierarchy') {
+    navigatorOpen.value = false;
+  }
+  persistBrowserChromePreference(
+    buildBrowserPreferenceKey('viewMode', layoutProfile.value),
+    value,
+  );
+});
+
+watch(showPreview, (value) => {
+  persistBrowserChromePreference(
+    buildBrowserPreferenceKey('showPreview', layoutProfile.value),
+    value ? '1' : '0',
+  );
+});
+
+watch(navigatorOpen, (value) => {
+  persistBrowserChromePreference(
+    buildBrowserPreferenceKey('navigatorOpen', layoutProfile.value),
+    value ? '1' : '0',
+  );
+});
+
+watch(narrowRoamPane, (value) => {
+  persistBrowserChromePreference(
+    buildBrowserPreferenceKey('narrowRoamPane', layoutProfile.value),
+    value,
+  );
 });
 
 /*
@@ -1838,7 +2279,7 @@ function openNumberDialog(options: {
 }
 
 function convertToTab() {
-  emit('convertToTab');
+  emit('convertToTab', captureCurrentBrowserOpenState());
 }
 
 type BrowserMenuItem = {
@@ -1861,7 +2302,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-type ActionParamBuilder = (targetCards: BrowserCard[]) => Promise<ActionParams | null>;
+type ActionParamBuilder = (targetCards: BrowserActionTarget[]) => Promise<ActionParams | null>;
 
 const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
   postpone: async (cards) => {
@@ -1970,9 +2411,6 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
     let len = 0;
     if (typeof q?.getSize === 'function') {
       len = Number(await q.getSize()) || 0;
-    } else if (typeof q?.getAllCards === 'function') {
-      const cards = await q.getAllCards();
-      len = Array.isArray(cards) ? cards.length : 0;
     }
     const pos = await openNumberDialog({
       title: t('insertAt', 'Insert At Position'),
@@ -2041,7 +2479,7 @@ function ensureReviewSubsetAction(actions: Array<{ id: string; label: string; ic
   return [getReviewSubsetAction(), ...actions];
 }
 
-function resolveSubsetBlockIds(cards: BrowserCard[]): string[] {
+function resolveSubsetBlockIds(cards: BrowserActionTarget[]): string[] {
   return Array.from(
     new Set(
       (cards || [])
@@ -2051,15 +2489,15 @@ function resolveSubsetBlockIds(cards: BrowserCard[]): string[] {
   );
 }
 
-function resolvePreferredSubsetCardId(cards: BrowserCard[], anchorRow?: BrowserCard): string {
+function resolvePreferredSubsetCardId(cards: BrowserActionTarget[], anchorRow?: BrowserCard): string {
   const preferredFromAnchor = resolveBrowserCardActionId(anchorRow);
   if (preferredFromAnchor) {
     return preferredFromAnchor;
   }
-  return resolveBrowserCardActionId(cards?.[0]);
+  return resolveBrowserCardActionId(cards?.[0] as BrowserCard | undefined);
 }
 
-async function openSubsetReviewFromSelection(cards: BrowserCard[], anchorRow?: BrowserCard): Promise<void> {
+async function openSubsetReviewFromSelection(cards: BrowserActionTarget[], anchorRow?: BrowserCard): Promise<void> {
   if (typeof props.plugin?.openSubsetReviewDialog !== 'function') {
     await pushErrMsg(t('initFailed', 'FSRS plugin initialization failed, please check console for errors'));
     return;
@@ -2079,10 +2517,10 @@ async function openSubsetReviewFromSelection(cards: BrowserCard[], anchorRow?: B
   );
 }
 
-async function resolveActionTargetCards(
+async function resolveActionTargets(
   actionId: string,
   targetCards: BrowserCard[]
-): Promise<BrowserCard[]> {
+): Promise<BrowserActionTarget[]> {
   if (actionId === 'open') {
     return targetCards;
   }
@@ -2101,8 +2539,8 @@ async function resolveActionTargetCards(
       return targetCards;
     }
 
-    return PerformanceMonitor.measure('browser.action.materialize.ms', async () => {
-      return queryable.getRowsByIds(explicitIds);
+    return PerformanceMonitor.measure('browser.action.targets.ms', async () => {
+      return queryable.getActionTargetsByIds(explicitIds);
     });
   }
 
@@ -2122,13 +2560,19 @@ async function resolveActionTargetCards(
     return [];
   }
 
-  return PerformanceMonitor.measure('browser.action.materialize.ms', async () => {
-    return queryable.getRowsByIds(selectedIds);
+  return PerformanceMonitor.measure('browser.action.targets.ms', async () => {
+    const targets: BrowserActionTarget[] = [];
+    for (let index = 0; index < selectedIds.length; index += 500) {
+      const chunkIds = selectedIds.slice(index, index + 500);
+      const chunkTargets = await queryable.getActionTargetsByIds(chunkIds);
+      targets.push(...chunkTargets);
+    }
+    return targets;
   });
 }
 
 async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
-  const materializedTargets = await resolveActionTargetCards(actionId, targetCards);
+  const materializedTargets = await resolveActionTargets(actionId, targetCards);
 
   logger.debug('handleAction called:', {
     actionId,
@@ -2262,6 +2706,8 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
       || actionId === 'remove-from-current-queue'
       || actionId === 'delete-card'
       || actionId === 'insert-at'
+      || actionId === 'set-priority'
+      || actionId === 'spread'
       || actionId === 'auto-sort'
       || actionId === 'reset'
       || actionId === 'suspend'
@@ -2575,7 +3021,7 @@ const {
     const blockIds = Array.from(
       new Set(impactedRows.map((row) => String(row.blockId || '').trim()).filter(Boolean))
     );
-    return loadQueueCardsSimple(blockIds);
+    return loadBrowserCardsByBlockIds(blockIds, { applyQueryFilter: false });
   },
   onRowsDeleted: () => {
     setTimeout(() => {
@@ -2751,31 +3197,14 @@ onBeforeUnmount(() => {
     unsubscribe = null;
   }
 
+  browserRootResizeObserver?.disconnect();
+  browserRootResizeObserver = null;
   gridApi.value = null;
 });
 
 onMounted(() => {
-  if (isMobileMode.value) {
-    viewMode.value = 'flat';
-    showPreview.value = false;
-  } else {
-    try {
-      const stored = localStorage.getItem('fsrs-card-browser:viewMode');
-      if (stored === 'flat' || stored === 'hierarchy') {
-        viewMode.value = stored;
-      }
-    } catch {}
-  }
-
-  if (isMobileMode.value) {
-    try {
-      localStorage.removeItem('fsrs-card-browser:viewMode');
-    } catch {}
-  } else {
-    try {
-      localStorage.setItem('fsrs-card-browser:viewMode', viewMode.value);
-    } catch {}
-  }
+  setupBrowserLayoutObserver();
+  applyBrowserChromePreferences(layoutProfile.value);
 
   // 🆕 初始化全屢浏览器上下文（DDD 化）
   const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
@@ -2873,13 +3302,30 @@ onMounted(() => {
 });
 
 function toggleViewMode() {
-  viewMode.value = viewMode.value === 'flat' ? 'hierarchy' : 'flat';
-  if (isMobileMode.value) {
+  const nextViewMode = viewMode.value === 'flat' ? 'hierarchy' : 'flat';
+  viewMode.value = nextViewMode;
+
+  if (layoutProfile.value === 'tab-narrow') {
+    navigatorOpen.value = nextViewMode === 'hierarchy';
+  }
+}
+
+function toggleNavigator() {
+  if (isMobileMode.value || !showNavigatorToggle.value) {
     return;
   }
-  try {
-    localStorage.setItem('fsrs-card-browser:viewMode', viewMode.value);
-  } catch {}
+
+  if (viewMode.value !== 'hierarchy') {
+    viewMode.value = 'hierarchy';
+    navigatorOpen.value = true;
+    return;
+  }
+
+  navigatorOpen.value = !navigatorOpen.value;
+}
+
+function closeNavigatorDrawer() {
+  navigatorOpen.value = false;
 }
 
 function openPracticeMenu(ev: MouseEvent) {
@@ -3018,6 +3464,10 @@ function toNeuralHistoryListEntries(
   const anchorIds = options?.anchorIds ?? new Set<string>();
   const currentNodeId = options?.currentNodeId ?? null;
   const selectedEventId = options?.selectedEventId ?? null;
+  const repeatHitCountByNodeId = entries.reduce((map, entry) => {
+    map.set(entry.nodeId, (map.get(entry.nodeId) ?? 0) + 1);
+    return map;
+  }, new Map<string, number>());
   return [...entries]
     .sort((a, b) => b.visitedAt - a.visitedAt)
     .map((entry) => ({
@@ -3025,6 +3475,7 @@ function toNeuralHistoryListEntries(
       isCurrent: currentNodeId ? entry.nodeId === currentNodeId : false,
       isAnchored: anchorIds.has(entry.nodeId),
       isSelected: selectedEventId ? entry.eventId === selectedEventId : false,
+      repeatHitCount: repeatHitCountByNodeId.get(entry.nodeId) ?? 1,
     }));
 }
 
@@ -3072,6 +3523,7 @@ function clearNeuralSubviewData(): void {
   neuralTracePinnedToSelection.value = false;
   selectedNeuralTraceEventId.value = null;
   selectedNeuralTraceNodeId.value = null;
+  resetNeuralTraceConvergenceState();
 }
 
 function resolveNeuralRelationLabel(type: string): string {
@@ -3137,6 +3589,64 @@ function buildNeuralTraceRelationBadges(
   return badges;
 }
 
+type NeuralTraceSummaryStep = Pick<
+  NeuralActivationTraceStep,
+  'eventId' | 'nodeId' | 'activationKind' | 'sourceRole' | 'isSyntheticRoot'
+>;
+
+function isNeuralTraceRootSemanticStep(
+  step: NeuralTraceSummaryStep | null | undefined,
+  engineMode: NeuralEngineMode,
+): boolean {
+  if (!step) {
+    return false;
+  }
+  if (engineMode === 'hyperspace') {
+    return step.sourceRole === 'activation-source' || step.activationKind === 'source-root';
+  }
+  return step.sourceRole === 'orbit-center' || step.activationKind === 'focus-root';
+}
+
+function pickPreferredNeuralTraceStep<T extends Pick<NeuralTraceSummaryStep, 'isSyntheticRoot'>>(
+  steps: T[],
+): T | null {
+  return steps.find((step) => !step.isSyntheticRoot) ?? steps[0] ?? null;
+}
+
+function resolveNeuralDirectActivatorStep<T extends Pick<NeuralTraceSummaryStep, 'eventId'>>(
+  steps: T[],
+): T | null {
+  return steps.length > 1 ? steps[steps.length - 2] ?? null : null;
+}
+
+function resolveNeuralBranchRootStep<T extends NeuralTraceSummaryStep>(
+  steps: T[],
+  branchRootNodeId: string | null,
+  engineMode: NeuralEngineMode,
+): T | null {
+  const rootedBranchCandidates = branchRootNodeId
+    ? steps.filter((step) => step.nodeId === branchRootNodeId && isNeuralTraceRootSemanticStep(step, engineMode))
+    : [];
+  const matchedBranchRoot = pickPreferredNeuralTraceStep(rootedBranchCandidates);
+  if (matchedBranchRoot) {
+    return matchedBranchRoot;
+  }
+
+  const rootedSteps = steps.filter((step) => isNeuralTraceRootSemanticStep(step, engineMode));
+  return pickPreferredNeuralTraceStep(rootedSteps) ?? steps[0] ?? null;
+}
+
+function resolveNeuralTraceStepByEventId<T extends Pick<NeuralTraceSummaryStep, 'eventId'>>(
+  steps: T[],
+  eventId: string | null | undefined,
+): T | null {
+  const normalizedEventId = String(eventId || '').trim();
+  if (!normalizedEventId) {
+    return null;
+  }
+  return steps.find((step) => step.eventId === normalizedEventId) ?? null;
+}
+
 function pushTraceBadge(
   badges: NeuralActivationTraceStepViewModel['displayBadges'],
   key: string,
@@ -3158,21 +3668,28 @@ function buildNeuralTraceBadges(
   options: {
     engineMode: NeuralEngineMode;
     isRoot: boolean;
+    isDirectActivator: boolean;
     isTarget: boolean;
     isCurrent: boolean;
   },
 ): NeuralActivationTraceStepViewModel['displayBadges'] {
   const badges = buildNeuralTraceRelationBadges(step);
+  const inferredLabel = t('traceStepSyntheticRoot', '推定');
+  const isSemanticRoot = isNeuralTraceRootSemanticStep(step, options.engineMode);
+  const shouldShowInferred = step.isSyntheticRoot || (options.isRoot && !isSemanticRoot);
 
-  if (step.isSyntheticRoot) {
-    badges.length = 0;
-    pushTraceBadge(badges, 'synthetic-root', t('traceStepSyntheticRoot', '合成根节点'), 'root');
-  } else if (options.isRoot) {
+  if (options.isRoot) {
     const rootLabel = options.engineMode === 'hyperspace'
       ? t('traceBadgePrimarySource', '主激活源')
       : t('traceBadgeCurrentOrbitCenter', '当前轨道中心');
     badges.length = 0;
     pushTraceBadge(badges, 'root-role', rootLabel, 'root');
+  } else if (options.engineMode === 'hyperspace' && options.isDirectActivator) {
+    pushTraceBadge(badges, 'direct-role', t('directConductor', '直接传导节点'));
+  }
+
+  if (shouldShowInferred) {
+    pushTraceBadge(badges, 'synthetic-root', inferredLabel);
   }
 
   if (step.isVirtual) {
@@ -3235,13 +3752,17 @@ function buildNeuralActivationTraceViewModel(
   const selectedTraceEventId = options.selectedTraceEventId ?? null;
   const selectedTraceNodeId = options.selectedTraceNodeId ?? null;
   const engineMode = trace.steps[trace.steps.length - 1]?.engineMode ?? trace.steps[0]?.engineMode ?? 'orbit';
+  const directActivator = resolveNeuralDirectActivatorStep(trace.steps);
+  const branchRoot = resolveNeuralBranchRootStep(trace.steps, trace.branchRootNodeId, engineMode);
+  const directActivatorEventId = directActivator?.eventId ?? null;
+  const branchRootEventId = branchRoot?.eventId ?? null;
   const steps = trace.steps.map((step, index) => ({
     ...step,
     relationLabel: resolveNeuralRelationLabel(step.associationType),
     activationLabel: resolveNeuralActivationLabel(step.activationKind),
     isCurrent: currentNodeId ? step.nodeId === currentNodeId : false,
     isTarget: index === trace.steps.length - 1,
-    isRoot: index === 0,
+    isRoot: branchRootEventId ? step.eventId === branchRootEventId : false,
     isSelected: selectedTraceEventId
       ? step.eventId === selectedTraceEventId
       : selectedTraceNodeId
@@ -3251,24 +3772,27 @@ function buildNeuralActivationTraceViewModel(
     jumpable: Boolean(step.nodeId),
     displayBadges: buildNeuralTraceBadges(step, {
       engineMode,
-      isRoot: index === 0,
+      isRoot: branchRootEventId ? step.eventId === branchRootEventId : false,
+      isDirectActivator: directActivatorEventId ? step.eventId === directActivatorEventId : false,
       isTarget: index === trace.steps.length - 1,
       isCurrent: currentNodeId ? step.nodeId === currentNodeId : false,
     }),
   }));
-  const directActivator = steps.length > 1 ? steps[steps.length - 2] : null;
-  const branchRoot = steps[0] ?? null;
-  const target = steps[steps.length - 1];
+  const resolvedDirectActivator = resolveNeuralTraceStepByEventId(steps, directActivatorEventId);
+  const resolvedBranchRoot = resolveNeuralTraceStepByEventId(steps, branchRootEventId);
+  const target = steps[steps.length - 1] ?? null;
 
   return {
     ...trace,
     engineMode,
     steps,
     targetTitle: target?.nodePreview || target?.nodeId || trace.targetNodeId,
-    directActivatorTitle: directActivator?.nodePreview || directActivator?.nodeId || null,
+    directActivatorTitle: resolvedDirectActivator?.nodePreview || resolvedDirectActivator?.nodeId || null,
+    directActivatorEventId,
     directRelationLabel: resolveNeuralRelationLabel(target?.associationType || ''),
     directRelationBadges: target ? buildNeuralTraceRelationBadges(target) : [],
-    branchRootTitle: branchRoot?.nodePreview || branchRoot?.nodeId || trace.branchRootNodeId,
+    branchRootTitle: resolvedBranchRoot?.nodePreview || resolvedBranchRoot?.nodeId || trace.branchRootNodeId,
+    branchRootEventId,
   };
 }
 
@@ -3295,7 +3819,7 @@ async function enrichNeuralActivationTraceViewModel(
     return trace;
   }
 
-  const cards = await loadQueueCardsSimple(missingPreviewIds);
+  const cards = await loadBrowserCardsByBlockIds(missingPreviewIds, { applyQueryFilter: false });
   const contentByNodeId = new Map(
     cards.map((card) => [
       card.blockId,
@@ -3314,8 +3838,8 @@ async function enrichNeuralActivationTraceViewModel(
     };
   });
 
-  const directActivator = steps.length > 1 ? steps[steps.length - 2] : null;
-  const branchRoot = steps[0] ?? null;
+  const directActivator = resolveNeuralTraceStepByEventId(steps, trace.directActivatorEventId);
+  const branchRoot = resolveNeuralTraceStepByEventId(steps, trace.branchRootEventId);
   const target = steps[steps.length - 1] ?? null;
 
   return {
@@ -3325,6 +3849,152 @@ async function enrichNeuralActivationTraceViewModel(
     directActivatorTitle: directActivator?.nodePreview || directActivator?.nodeId || null,
     branchRootTitle: branchRoot?.nodePreview || branchRoot?.nodeId || trace.branchRootNodeId,
   };
+}
+
+function resetNeuralTraceConvergenceState(): void {
+  neuralTraceConvergenceRequestSeq += 1;
+  neuralTraceHistoryIndex = null;
+  neuralTraceConvergenceCache.clear();
+  neuralTraceRouteViewModelCache.clear();
+}
+
+function buildNeuralTraceConvergenceCacheKey(traceTargetEventId: string, stepEventId: string): string {
+  return `${traceTargetEventId}::${stepEventId}`;
+}
+
+function withNeuralTraceRepeatHitState(
+  trace: NeuralActivationTraceViewModel,
+  historyIndex: NeuralHistoryIndex,
+): NeuralActivationTraceViewModel {
+  return {
+    ...trace,
+    steps: trace.steps.map((step) => ({
+      ...step,
+      repeatHitCount: historyIndex.repeatHitCountByNodeId.get(step.nodeId) ?? 1,
+      convergenceStatus: 'idle' as const,
+      convergence: null,
+    })),
+  };
+}
+
+function updateNeuralTraceStepConvergenceState(
+  trace: NeuralActivationTraceViewModel,
+  stepEventId: string,
+  updates: Pick<NeuralActivationTraceStepViewModel, 'convergenceStatus' | 'convergence'>,
+): NeuralActivationTraceViewModel {
+  return {
+    ...trace,
+    steps: trace.steps.map((step) => (
+      step.eventId === stepEventId
+        ? {
+          ...step,
+          convergenceStatus: updates.convergenceStatus,
+          convergence: updates.convergence,
+        }
+        : step
+    )),
+  };
+}
+
+function resolveNeuralTraceRouteViewModelByEventId(
+  neuralQueue: ReturnType<typeof getNeuralRoamQueue>,
+  eventId: string,
+  options: {
+    currentNodeId?: string | null;
+    currentTrace?: NeuralActivationTraceViewModel | null;
+  } = {},
+): NeuralActivationTraceViewModel | null {
+  const normalizedEventId = String(eventId || '').trim();
+  if (!normalizedEventId) {
+    return null;
+  }
+  if (options.currentTrace?.targetEventId === normalizedEventId) {
+    return options.currentTrace;
+  }
+  if (neuralTraceRouteViewModelCache.has(normalizedEventId)) {
+    return neuralTraceRouteViewModelCache.get(normalizedEventId) ?? null;
+  }
+  const routeTrace = neuralQueue?.getActivationTrace(normalizedEventId);
+  if (!routeTrace) {
+    neuralTraceRouteViewModelCache.set(normalizedEventId, null);
+    return null;
+  }
+  const viewModel = buildNeuralActivationTraceViewModel(routeTrace, {
+    currentNodeId: options.currentNodeId ?? null,
+  });
+  neuralTraceRouteViewModelCache.set(normalizedEventId, viewModel);
+  return viewModel;
+}
+
+function resolveNeuralConvergenceForTraceStep(
+  neuralQueue: ReturnType<typeof getNeuralRoamQueue>,
+  trace: NeuralActivationTraceViewModel,
+  stepEventId: string,
+  options: {
+    currentNodeId?: string | null;
+  } = {},
+): NeuralTraceConvergenceViewModel | null {
+  if (!neuralQueue || !neuralTraceHistoryIndex) {
+    return null;
+  }
+  const step = trace.steps.find((candidate) => candidate.eventId === stepEventId) ?? null;
+  if (!step || (step.repeatHitCount ?? 1) <= 1) {
+    return null;
+  }
+  return resolveNeuralTraceConvergenceForStep({
+    step,
+    historyIndex: neuralTraceHistoryIndex,
+    currentTrace: trace.targetEventId === stepEventId ? trace : null,
+    getActivationTrace: (eventId) => neuralQueue.getActivationTrace(eventId),
+    buildTraceViewModel: (routeTrace) => resolveNeuralTraceRouteViewModelByEventId(
+      neuralQueue,
+      routeTrace.targetEventId,
+      { currentNodeId: options.currentNodeId ?? null },
+    ) ?? buildNeuralActivationTraceViewModel(routeTrace, {
+      currentNodeId: options.currentNodeId ?? null,
+    }),
+    traceViewModelCache: neuralTraceRouteViewModelCache,
+  });
+}
+
+async function buildAggregatedNeuralActivationTraceViewModel(
+  neuralQueue: ReturnType<typeof getNeuralRoamQueue>,
+  trace: NeuralActivationTrace,
+  historyEntries: NeuralRoamHistoryEntry[],
+  options: {
+    currentNodeId?: string | null;
+    selectedTraceEventId?: string | null;
+    selectedTraceNodeId?: string | null;
+  } = {},
+): Promise<NeuralActivationTraceViewModel> {
+  resetNeuralTraceConvergenceState();
+  const traceViewModel = buildNeuralActivationTraceViewModel(trace, options);
+  const enrichedTrace = await enrichNeuralActivationTraceViewModel(traceViewModel);
+  neuralTraceHistoryIndex = buildNeuralHistoryIndex(historyEntries);
+  let preparedTrace = withNeuralTraceRepeatHitState(enrichedTrace, neuralTraceHistoryIndex);
+  neuralTraceRouteViewModelCache.set(preparedTrace.targetEventId, preparedTrace);
+
+  const targetStep = preparedTrace.steps[preparedTrace.steps.length - 1] ?? null;
+  if (!targetStep || (targetStep.repeatHitCount ?? 1) <= 1) {
+    return preparedTrace;
+  }
+
+  const targetConvergence = resolveNeuralConvergenceForTraceStep(
+    neuralQueue,
+    preparedTrace,
+    targetStep.eventId,
+    { currentNodeId: options.currentNodeId ?? null },
+  );
+  neuralTraceConvergenceCache.set(
+    buildNeuralTraceConvergenceCacheKey(preparedTrace.targetEventId, targetStep.eventId),
+    targetConvergence,
+  );
+  preparedTrace = updateNeuralTraceStepConvergenceState(preparedTrace, targetStep.eventId, {
+    convergenceStatus: 'ready',
+    convergence: targetConvergence,
+  });
+  neuralTraceRouteViewModelCache.set(preparedTrace.targetEventId, preparedTrace);
+  return preparedTrace;
 }
 
 async function syncNeuralActivationTrace(
@@ -3338,6 +4008,7 @@ async function syncNeuralActivationTrace(
     neuralTracePinnedToSelection.value = false;
     selectedNeuralTraceEventId.value = null;
     selectedNeuralTraceNodeId.value = null;
+    resetNeuralTraceConvergenceState();
     return;
   }
 
@@ -3347,6 +4018,7 @@ async function syncNeuralActivationTrace(
     neuralActivationTrace.value = null;
     selectedNeuralTraceEventId.value = null;
     selectedNeuralTraceNodeId.value = null;
+    resetNeuralTraceConvergenceState();
     return;
   }
 
@@ -3354,6 +4026,7 @@ async function syncNeuralActivationTrace(
   const trace = neuralQueue.getActivationTrace(targetRef.eventId);
   if (!trace) {
     neuralActivationTrace.value = null;
+    resetNeuralTraceConvergenceState();
     return;
   }
 
@@ -3365,12 +4038,11 @@ async function syncNeuralActivationTrace(
   if (!selectedNeuralTraceNodeId.value || !availableNodeIds.has(selectedNeuralTraceNodeId.value)) {
     selectedNeuralTraceNodeId.value = trace.targetNodeId;
   }
-  const traceViewModel = buildNeuralActivationTraceViewModel(trace, {
+  neuralActivationTrace.value = await buildAggregatedNeuralActivationTraceViewModel(neuralQueue, trace, historyEntries, {
     currentNodeId: navState.currentNodeId,
     selectedTraceEventId: selectedNeuralTraceEventId.value,
     selectedTraceNodeId: selectedNeuralTraceNodeId.value,
   });
-  neuralActivationTrace.value = await enrichNeuralActivationTraceViewModel(traceViewModel);
 }
 
 async function refreshNeuralSubviewData(): Promise<void> {
@@ -3409,14 +4081,14 @@ async function refreshNeuralSubviewData(): Promise<void> {
 
 async function handleNeuralPreview(nodeId: string): Promise<void> {
   const requestSeq = ++neuralPreviewRequestSeq;
-  const cards = await loadQueueCardsSimple([nodeId]);
+  const cards = await loadBrowserCardsByBlockIds([nodeId], { applyQueryFilter: false });
   if (requestSeq !== neuralPreviewRequestSeq) {
     return;
   }
   previewCard.value = cards[0] || null;
 }
 
-async function handleNeuralSelectHistoryEntry(entry: NeuralListEntry): Promise<void> {
+async function handleNeuralSelectHistoryEntry(entry: Pick<NeuralRoamHistoryEntry, 'eventId' | 'nodeId'>): Promise<void> {
   selectedNeuralHistoryEventId.value = entry.eventId;
   neuralTracePinnedToSelection.value = true;
   selectedNeuralTraceEventId.value = entry.eventId;
@@ -3425,25 +4097,84 @@ async function handleNeuralSelectHistoryEntry(entry: NeuralListEntry): Promise<v
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue) {
     neuralActivationTrace.value = null;
+    resetNeuralTraceConvergenceState();
     return;
   }
 
+  const historySnapshot = neuralQueue.getHistorySnapshot();
   const trace = neuralQueue.getActivationTrace(entry.eventId);
   if (trace) {
-    const traceViewModel = buildNeuralActivationTraceViewModel(trace, {
+    neuralActivationTrace.value = await buildAggregatedNeuralActivationTraceViewModel(neuralQueue, trace, historySnapshot, {
       currentNodeId: neuralCurrentNodeId.value,
       selectedTraceEventId: selectedNeuralTraceEventId.value,
       selectedTraceNodeId: selectedNeuralTraceNodeId.value,
     });
-    neuralActivationTrace.value = await enrichNeuralActivationTraceViewModel(traceViewModel);
   } else {
     neuralActivationTrace.value = null;
+    resetNeuralTraceConvergenceState();
   }
-  neuralHistoryEntries.value = toNeuralHistoryListEntries(neuralQueue.getHistorySnapshot(), {
+  neuralHistoryEntries.value = toNeuralHistoryListEntries(historySnapshot, {
     anchorIds: new Set(neuralAnchorEntries.value.map((item) => item.nodeId)),
     currentNodeId: neuralCurrentNodeId.value,
     selectedEventId: entry.eventId,
   });
+}
+
+async function ensureNeuralStepConvergenceResolved(stepEventId: string): Promise<void> {
+  const currentTrace = neuralActivationTrace.value;
+  const currentTargetEventId = currentTrace?.targetEventId ?? null;
+  const currentStep = currentTrace?.steps.find((step) => step.eventId === stepEventId) ?? null;
+  if (!currentTrace || !currentStep || (currentStep.repeatHitCount ?? 1) <= 1) {
+    return;
+  }
+  if (currentStep.convergenceStatus === 'ready' || currentStep.convergenceStatus === 'loading') {
+    return;
+  }
+
+  const cacheKey = buildNeuralTraceConvergenceCacheKey(currentTargetEventId, stepEventId);
+  if (neuralTraceConvergenceCache.has(cacheKey)) {
+    neuralActivationTrace.value = updateNeuralTraceStepConvergenceState(currentTrace, stepEventId, {
+      convergenceStatus: 'ready',
+      convergence: neuralTraceConvergenceCache.get(cacheKey) ?? null,
+    });
+    return;
+  }
+
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue || !neuralTraceHistoryIndex) {
+    return;
+  }
+
+  const requestSeq = ++neuralTraceConvergenceRequestSeq;
+  neuralActivationTrace.value = updateNeuralTraceStepConvergenceState(currentTrace, stepEventId, {
+    convergenceStatus: 'loading',
+    convergence: null,
+  });
+
+  await nextTick();
+
+  const latestTrace = neuralActivationTrace.value;
+  if (!latestTrace || latestTrace.targetEventId !== currentTargetEventId || requestSeq !== neuralTraceConvergenceRequestSeq) {
+    return;
+  }
+
+  const resolvedConvergence = resolveNeuralConvergenceForTraceStep(
+    neuralQueue,
+    latestTrace,
+    stepEventId,
+    { currentNodeId: neuralCurrentNodeId.value },
+  );
+
+  if (!neuralActivationTrace.value || neuralActivationTrace.value.targetEventId !== currentTargetEventId || requestSeq !== neuralTraceConvergenceRequestSeq) {
+    return;
+  }
+
+  neuralTraceConvergenceCache.set(cacheKey, resolvedConvergence);
+  neuralActivationTrace.value = updateNeuralTraceStepConvergenceState(neuralActivationTrace.value, stepEventId, {
+    convergenceStatus: 'ready',
+    convergence: resolvedConvergence,
+  });
+  neuralTraceRouteViewModelCache.set(neuralActivationTrace.value.targetEventId, neuralActivationTrace.value);
 }
 
 async function handleNeuralSelectTraceStep(eventId: string): Promise<void> {
@@ -3463,26 +4194,56 @@ async function handleNeuralSelectTraceStep(eventId: string): Promise<void> {
   if (eventId === neuralActivationTrace.value.targetEventId) {
     selectedNeuralHistoryEventId.value = eventId;
   }
+  if ((traceStep?.repeatHitCount ?? 1) > 1 && traceStep?.convergenceStatus !== 'ready') {
+    void ensureNeuralStepConvergenceResolved(eventId);
+  }
+}
+
+async function handleNeuralRequestConvergenceDetails(eventId: string): Promise<void> {
+  await ensureNeuralStepConvergenceResolved(eventId);
 }
 
 async function handleNeuralTracePreview(nodeId: string): Promise<void> {
-  const traceStep = neuralActivationTrace.value?.steps.find((step) => step.nodeId === nodeId) ?? null;
-  if (traceStep) {
-    await handleNeuralSelectTraceStep(traceStep.eventId);
-  } else {
-    selectedNeuralTraceNodeId.value = nodeId;
-  }
+  selectedNeuralTraceNodeId.value = nodeId;
   await handleNeuralPreview(nodeId);
 }
 
 async function handleNeuralTraceJump(nodeId: string): Promise<void> {
-  const traceStep = neuralActivationTrace.value?.steps.find((step) => step.nodeId === nodeId) ?? null;
-  if (traceStep) {
-    await handleNeuralSelectTraceStep(traceStep.eventId);
-  } else {
-    selectedNeuralTraceNodeId.value = nodeId;
-  }
+  selectedNeuralTraceNodeId.value = nodeId;
   await handleNeuralJump(nodeId);
+}
+
+async function handleNeuralSwitchTraceEvent(eventId: string): Promise<void> {
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue) {
+    return;
+  }
+  const historyEntry = neuralQueue.getHistorySnapshot().find((entry) => entry.eventId === eventId);
+  if (!historyEntry) {
+    return;
+  }
+  await handleNeuralSelectHistoryEntry(historyEntry);
+}
+
+async function handoffNeuralReviewSurface(fallbackNodeId?: string | null): Promise<void> {
+  const result = await handoffNeuralNavigationToReviewSurface(
+    {
+      tabManager: pluginContext.value?.getTabManager?.() ?? null,
+      dialogManager: pluginContext.value?.getDialogManager?.() ?? null,
+    },
+    {
+      fallbackNodeId: fallbackNodeId ?? null,
+    },
+  );
+
+  if (result === 'tab' && mode.value === 'dialog') {
+    emit('close');
+    return;
+  }
+
+  if (result === 'failed') {
+    await pushErrMsg(t('syncOpenReviewTabFailed', 'Failed to sync the open review tab'));
+  }
 }
 
 async function handleNeuralJump(nodeId: string): Promise<void> {
@@ -3503,17 +4264,12 @@ async function handleNeuralJump(nodeId: string): Promise<void> {
     await handleNeuralPreview(navState.currentNodeId);
   }
 
-  const dialogManager = pluginContext.value?.getDialogManager?.();
   if (!jumped) {
     await pushErrMsg(t('jumpHistoryNodeFailed', 'Failed to jump trajectory node'));
     return;
   }
 
-  if (!dialogManager?.openNeuralRoamDialog) {
-    return;
-  }
-
-  await dialogManager.openNeuralRoamDialog();
+  await handoffNeuralReviewSurface(navState.currentNodeId || nodeId);
 }
 
 async function handleNeuralJumpAnchor(nodeId: string): Promise<void> {
@@ -3534,11 +4290,7 @@ async function handleNeuralSetCurrentFocus(nodeId: string): Promise<void> {
   await refreshNeuralSubviewData();
   await refreshQueueCounts();
   await handleNeuralPreview(nodeId);
-
-  const dialogManager = pluginContext.value?.getDialogManager?.();
-  if (dialogManager?.openNeuralRoamDialog) {
-    await dialogManager.openNeuralRoamDialog();
-  }
+  await handoffNeuralReviewSurface(nodeId);
 }
 
 async function handleNeuralToggleSource(nodeId: string, enabled: boolean): Promise<void> {
@@ -3610,11 +4362,7 @@ async function handleNeuralReturnToBookmark(): Promise<void> {
   if (navState.currentNodeId) {
     await handleNeuralPreview(navState.currentNodeId);
   }
-
-  const dialogManager = pluginContext.value?.getDialogManager?.();
-  if (dialogManager?.openNeuralRoamDialog) {
-    await dialogManager.openNeuralRoamDialog();
-  }
+  await handoffNeuralReviewSurface(navState.currentNodeId);
 }
 
 async function handleNeuralToggleAnchor(nodeId: string, enabled: boolean): Promise<void> {
@@ -3711,35 +4459,6 @@ const {
 const cardTypeDetection = useCardTypeDetection(() => rows.value);
 
 
-async function loadQueueAllCards(queueId: string): Promise<BrowserCard[]> {
-  const queue = getQueueById(queueId);
-  if (!queue) return [];
-
-  const items: FSRSCard[] = await queue.getAllCards();
-  if (isDevMode) {
-    logger.info('[SiYuanMemo][SRSBrowser] loadQueueAllCards:', {
-      queueId,
-      itemsCount: items.length,
-      items: items.map((it) => ({
-        id: it.id,
-        blockId: it.blockId,
-        deckId: it.deckId,
-      })),
-    });
-  }
-
-  const blockIds = extractBlockIds(items);
-  if (isDevMode) {
-    logger.info('[SiYuanMemo][SRSBrowser] Extracted blockIds:', blockIds);
-  }
-
-  const cards = await loadQueueCardsSimple(blockIds);
-  if (isDevMode) {
-    logger.info('[SiYuanMemo][SRSBrowser] Loaded cards:', cards.length);
-  }
-  return cards;
-}
-
 async function refreshQueueCounts(request: BrowserQueueCountsRequest = { forceRefresh: true }) {
   await refreshQueueCountsBridge(queueCounts, request);
 }
@@ -3786,6 +4505,11 @@ async function handleSelectQueue(queueId: string) {
 }
 
 async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
+  if (props.initialOpenState) {
+    await applyInitialBrowserOpenState(props.initialOpenState, forceRefresh);
+    return;
+  }
+
   const initialQueueId = normalizeQueueId(props.initialQueueId);
   if (!initialQueueId) {
     await loadData(forceRefresh);

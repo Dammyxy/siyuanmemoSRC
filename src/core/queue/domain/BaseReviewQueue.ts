@@ -21,10 +21,12 @@ import {
     QueueAddSource,
 } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
+import type { QueueSnapshotRow } from '../../../types/queue-browser';
 import type { QueueItem } from '../types';
 import type { QueueSchedulerPort, UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { normalizeToFSRSCard, validateQueueReturnType } from '../../../diagnostics/type-guards';
 import { PriorityQueueService } from './PriorityQueueService';
+import { buildQueueSnapshotRow } from './queueCardProjection';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BaseReviewQueue');
@@ -69,6 +71,9 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     protected counterSnapshot: QueueCounterSnapshot | null = null;
     protected counterVersion = 0;
     protected counterSnapshotDirty = true;
+    protected snapshotRows: QueueSnapshotRow[] = [];
+    protected snapshotRowsTrusted = false;
+    protected snapshotCardIdByRowId = new Map<string, string>();
 
     /**
      * 队列观察者
@@ -214,6 +219,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         const normalized = normalizeToFSRSCard(cards);
         this.cards = [...normalized];
         this.cardsTrusted = true;
+        this.invalidateSnapshotRows();
         this.clearSizeCache();
         this.commitCounterSnapshot(this.buildCounterSnapshot(normalized), source);
         return normalized;
@@ -221,8 +227,15 @@ export abstract class BaseReviewQueue implements IReviewQueue {
 
     protected invalidateCachedCards(): void {
         this.cardsTrusted = false;
+        this.invalidateSnapshotRows();
         this.markCounterSnapshotDirty();
         this.clearSizeCache();
+    }
+
+    protected invalidateSnapshotRows(): void {
+        this.snapshotRowsTrusted = false;
+        this.snapshotRows = [];
+        this.snapshotCardIdByRowId.clear();
     }
 
     protected applySnapshotOnCardRemoved(card: FSRSCard): QueueCounterSnapshot | null {
@@ -315,6 +328,63 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 5.1, 5.2, 5.3, 6.1, 6.2
      */
     public abstract getCards(): Promise<FSRSCard[]>;
+
+    protected buildSnapshotRows(cards: FSRSCard[]): QueueSnapshotRow[] {
+        return cards.map((card, index) => buildQueueSnapshotRow(card, {
+            queueIndex: index + 1,
+        }));
+    }
+
+    public async getSnapshotRows(forceRefresh = false): Promise<QueueSnapshotRow[]> {
+        await this.ensureInitialLoad();
+
+        if (forceRefresh) {
+            this.invalidateSnapshotRows();
+            this.invalidateCachedCards();
+        }
+
+        if (!this.cardsTrusted || this.cards.length === 0) {
+            await this.getAllCards();
+        }
+
+        if (!this.snapshotRowsTrusted) {
+            const rows = this.buildSnapshotRows(this.cards);
+            this.snapshotRows = rows;
+            this.snapshotRowsTrusted = true;
+            this.snapshotCardIdByRowId.clear();
+            for (const row of rows) {
+                this.snapshotCardIdByRowId.set(row.id, row.fsrsCardId);
+            }
+        }
+
+        return this.snapshotRows.map((row) => ({
+            ...row,
+            tags: [...row.tags],
+        }));
+    }
+
+    public async getCardsBySnapshotIds(ids: string[], forceRefresh = false): Promise<FSRSCard[]> {
+        const orderedIds = ids.map((id) => String(id || '')).filter(Boolean);
+        if (orderedIds.length === 0) {
+            return [];
+        }
+
+        await this.getSnapshotRows(forceRefresh);
+        const cardById = new Map<string, FSRSCard>();
+        for (const card of this.cards) {
+            cardById.set(card.id, card);
+            if (card.riffCardId) {
+                cardById.set(card.riffCardId, card);
+            }
+        }
+
+        return orderedIds
+            .map((rowId) => {
+                const cardId = this.snapshotCardIdByRowId.get(rowId) || rowId;
+                return cardById.get(cardId);
+            })
+            .filter((card): card is FSRSCard => Boolean(card));
+    }
     
     /**
      * 获取队列中的所有卡片（包括过滤后的结果）
@@ -408,6 +478,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             const beforeCard = this.cards[index];
             this.cards[index] = card;
             this.cardsTrusted = true;
+            this.invalidateSnapshotRows();
             this.applySnapshotOnCardRetained(beforeCard, card);
             this.notifyObservers();
             return;
@@ -642,8 +713,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 if (removalIndex >= 0) {
                     this.cards.splice(removalIndex, 1);
                     this.cardsTrusted = true;
+                    this.invalidateSnapshotRows();
                     counterSnapshot = this.applySnapshotOnCardRemoved(beforeCard);
                 } else if (this.cardsTrusted) {
+                    this.invalidateSnapshotRows();
                     counterSnapshot = this.commitCounterSnapshot(
                         this.buildCounterSnapshot(this.cards),
                         'reconciled',
@@ -664,8 +737,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 if (cachedIndex >= 0) {
                     this.cards[cachedIndex] = updatedCard;
                     this.cardsTrusted = true;
+                    this.invalidateSnapshotRows();
                     counterSnapshot = this.applySnapshotOnCardRetained(beforeCard, updatedCard);
                 } else if (this.cardsTrusted) {
+                    this.invalidateSnapshotRows();
                     counterSnapshot = this.commitCounterSnapshot(
                         this.buildCounterSnapshot(this.cards),
                         'reconciled',
@@ -713,6 +788,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             this.cards.splice(index, 1);
             this.cards.push(card);
             this.cardsTrusted = true;
+            this.invalidateSnapshotRows();
             this.commitCounterSnapshot(this.buildCounterSnapshot(this.cards), 'reconciled');
             this.clearSizeCache();
             
@@ -827,6 +903,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     public async clear(): Promise<void> {
         this.cards = [];
         this.cardsTrusted = true;
+        this.invalidateSnapshotRows();
         this.commitCounterSnapshot(this.buildCounterSnapshot([]), 'reconciled');
         this.clearSizeCache();
         this.notifyObservers();
@@ -875,6 +952,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             this.cards.sort((a, b) => a.due - b.due);
         }
         this.cardsTrusted = true;
+        this.invalidateSnapshotRows();
         this.commitCounterSnapshot(this.buildCounterSnapshot(this.cards), 'reconciled');
         this.clearSizeCache();
         this.notifyObservers();
@@ -969,8 +1047,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             // 将排序顺序存储在内存中
             this.customOrder = orderedCards.map(card => card.id);
-            this.markCounterSnapshotDirty();
-            this.clearSizeCache();
+            this.invalidateCachedCards();
             
             // 通知观察者队列已变更（触发复习界面刷新）
             this.emitQueueChangedEvent();
@@ -990,8 +1067,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      */
     public clearCustomOrder(): void {
         this.customOrder = null;
-        this.markCounterSnapshotDirty();
-        this.clearSizeCache();
+        this.invalidateCachedCards();
         logger.info(`[${this.type}] Custom order cleared`);
     }
 
@@ -1153,6 +1229,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             // 6. 更新自定义排序
             this.customOrder = this.cards.map(c => c.id);
             this.cardsTrusted = true;
+            this.invalidateSnapshotRows();
             this.commitCounterSnapshot(this.buildCounterSnapshot(this.cards), 'reconciled');
             this.clearSizeCache();
             

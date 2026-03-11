@@ -40,5 +40,10 @@ describe('en_US neural roam labels', () => {
     expect(enUS.relationElementLink).toBe('Block Link');
     expect(enUS.relationOriginBacklink).toBe('Backlink');
     expect(enUS.relationOriginDirectRef).toBe('Direct Reference');
+    expect(enUS.directConductor).toBe('Immediate Conductor');
+    expect(enUS.traceStepSyntheticRoot).toBe('Inferred');
+    expect(enUS.convergentNode).toBe('Convergent Node');
+    expect(enUS.otherSources).toBe('Other Sources');
+    expect(enUS.loadingWakeDetails).toBe('Loading route details...');
   });
 });

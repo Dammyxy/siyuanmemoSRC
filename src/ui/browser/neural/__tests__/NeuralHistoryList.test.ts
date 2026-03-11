@@ -114,6 +114,31 @@ describe('NeuralHistoryList', () => {
     expect(titles[0]).toContain('Alpha history');
   });
 
+  it('shows repeat-hit count tags for nodes that were activated multiple times', () => {
+    const wrapper = mount(NeuralHistoryList, {
+      props: {
+        entries: [
+          entry({
+            eventId: 'event-repeat-a',
+            nodeId: 'node-repeat',
+            nodePreview: 'Repeated node',
+            visitedAt: 200,
+            repeatHitCount: 2,
+          }),
+          entry({
+            eventId: 'event-repeat-b',
+            nodeId: 'node-repeat',
+            nodePreview: 'Repeated node',
+            visitedAt: 100,
+            repeatHitCount: 2,
+          }),
+        ],
+      },
+    });
+
+    expect(wrapper.text()).toContain('2 hits');
+  });
+
   it('emits clear-history without scope payload', async () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {

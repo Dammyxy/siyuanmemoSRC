@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div
     ref="toolbarRootRef"
     class="card-browser__toolbar"
@@ -7,22 +7,22 @@
       'card-browser__toolbar--normal': !props.mobileMode && toolbarDensity === 'normal',
       'card-browser__toolbar--compact': !props.mobileMode && toolbarDensity === 'compact',
       'card-browser__toolbar--tight': !props.mobileMode && toolbarDensity === 'tight',
+      'card-browser__toolbar--tab-wide': isTabWide,
+      'card-browser__toolbar--tab-narrow': isTabNarrow,
     }"
   >
     <div class="toolbar__left">
-      <!-- 搜索框 -->
       <div class="b3-form__icon toolbar__search">
         <svg class="b3-form__icon-icon"><use xlink:href="#iconSearch"></use></svg>
-        <input 
-          type="text" 
+        <input
+          type="text"
           class="b3-text-field b3-form__icon-input"
           :value="searchQuery"
           @input="$emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
           :placeholder="t('searchPlaceholderAdvanced', '')"
         />
       </div>
-      
-      <!-- 筛选器 -->
+
       <select :value="currentPreset" class="b3-select" @change="$emit('update:currentPreset', ($event.target as HTMLSelectElement).value)">
         <option value="all">{{ t('allCards', 'All') }}</option>
         <option value="due">{{ t('dueToday', 'Due Today') }}</option>
@@ -31,16 +31,15 @@
         <option value="new">{{ t('new', 'New') }}</option>
       </select>
       <select :value="currentCardType" class="b3-select" @change="$emit('update:currentCardType', ($event.target as HTMLSelectElement).value)">
-        <option 
-          v-for="option in availableCardTypeFilters" 
-          :key="option.value" 
+        <option
+          v-for="option in availableCardTypeFilters"
+          :key="option.value"
           :value="option.value"
         >
           {{ getCardTypeLabel(option.i18nKey, option.label) }}
         </option>
       </select>
 
-      <!-- 过滤按钮 (需求 1.1, 1.2, 1.3) -->
       <FilterButton
         :queue-type="queueType"
         :applied-filter="appliedFilter"
@@ -48,8 +47,8 @@
         @open-dialog="$emit('openFilterDialog')"
       />
     </div>
-    
-    <div v-if="!props.mobileMode" class="toolbar__center">
+
+    <div v-if="!props.mobileMode && !isTabNarrow" class="toolbar__center">
       <span class="toolbar__count">{{ cardCount }} {{ t('cards', '张卡片') }}</span>
       <span v-if="selectedCount > 0" class="toolbar__count">
         · {{ t('selectedCount', '已选 {count}').replace('{count}', String(selectedCount)) }}
@@ -58,9 +57,8 @@
         · {{ t('allMatchingMode', '全匹配模式') }}
       </span>
     </div>
-    
+
     <div class="toolbar__right">
-      <!-- 退出队列按钮 -->
       <button
         class="b3-button b3-button--outline"
         @click="handleSelectAllToggle"
@@ -91,7 +89,6 @@
         {{ t('exitFocus', 'Exit Queue') }}
       </button>
 
-      <!-- 开始练习按钮 -->
       <button
         class="b3-button b3-button--outline"
         @click.stop.prevent="$emit('openPracticeMenu', $event)"
@@ -102,7 +99,6 @@
         {{ startPracticeButtonLabel }}
       </button>
 
-      <!-- 应用排序到队列按钮 -->
       <button
         v-if="canApplySortToQueue && !props.mobileMode"
         class="b3-button b3-button--outline"
@@ -114,11 +110,10 @@
         {{ t('applySortToQueue', '应用排序') }}
       </button>
 
-      <!-- 分摊复习压力按钮 -->
-      <button 
+      <button
         v-if="showSpreadButton && !props.mobileMode"
-        class="b3-button b3-button--outline" 
-        @click="$emit('openSpreadDialog')" 
+        class="b3-button b3-button--outline"
+        @click="$emit('openSpreadDialog')"
         :disabled="loading"
         :title="t('spreadReviews', '分摊复习压力 - 将积压的复习任务均匀分散')"
       >
@@ -126,10 +121,8 @@
         {{ t('spread', '分摊压力') }}
       </button>
 
-      <!-- 分隔线 -->
-      <div v-if="!props.mobileMode" class="toolbar__divider"></div>
+      <div v-if="!props.mobileMode && !isTabNarrow" class="toolbar__divider"></div>
 
-      <!-- 视图切换按钮 -->
       <button
         class="b3-button b3-button--outline"
         @click="$emit('toggleViewMode')"
@@ -138,9 +131,8 @@
         <svg><use :xlink:href="viewMode === 'flat' ? '#iconFiles' : '#iconList'"></use></svg>
       </button>
 
-      <!-- 预览切换按钮 -->
-      <button 
-        class="b3-button b3-button--outline" 
+      <button
+        class="b3-button b3-button--outline"
         :class="{ 'b3-button--text': showPreview }"
         @click="$emit('update:showPreview', !showPreview)"
         :title="t('togglePreview', '切换预览')"
@@ -148,73 +140,55 @@
         <svg><use xlink:href="#iconPreview"></use></svg>
       </button>
 
-      <!-- 强制刷新按钮 -->
-      <button 
+      <button
+        v-if="showNavigatorToggle"
+        class="b3-button b3-button--outline"
+        :class="{ 'b3-button--text': navigatorOpen }"
+        @click="$emit('toggleNavigator')"
+        :title="t('browserNavigator', 'Navigator')"
+      >
+        <svg><use xlink:href="#iconFiles"></use></svg>
+      </button>
+
+      <button
         v-if="!props.mobileMode"
-        class="b3-button b3-button--outline" 
-        @click="$emit('forceRefresh')" 
-        :disabled="loading" 
+        class="b3-button b3-button--outline"
+        @click="$emit('forceRefresh')"
+        :disabled="loading"
         :title="t('forceRefresh', '强制刷新数据（清除缓存）')"
       >
         <svg><use xlink:href="#iconRefresh"></use></svg>
       </button>
 
-      <!-- 更多菜单按钮 -->
-      <!-- 🔇 已隐藏：更多菜单
-      <button 
-        class="b3-button b3-button--outline" 
-        @click="toggleMoreMenu"
-        :title="t('more', '更多')"
-        ref="moreButtonRef"
+      <button
+        v-if="mode === 'dialog' && !props.mobileMode"
+        class="b3-button b3-button--outline"
+        @click="$emit('convertToTab')"
+        :title="t('openInTab', 'Open')"
       >
-        <svg><use xlink:href="#iconMore"></use></svg>
+        <svg><use xlink:href="#iconLayoutRight"></use></svg>
+        {{ openInTabButtonLabel }}
       </button>
-      -->
+    </div>
 
-      <!-- 更多菜单下拉 -->
-      <!-- 🔇 已隐藏：更多菜单下拉
-      <div v-if="showMoreMenu" class="toolbar__more-menu" ref="moreMenuRef">
-        <div class="b3-menu__items">
-          <button 
-            class="b3-menu__item" 
-            @click="handleMenuAction('migrateTopicItem')"
-            :disabled="loading"
-          >
-            <svg class="b3-menu__icon"><use xlink:href="#iconTags"></use></svg>
-            <span class="b3-menu__label">{{ t('migrateTopicItem', '识别 Topic/Item 类型') }}</span>
-          </button>
-          <button 
-            class="b3-menu__item" 
-            @click="handleMenuAction('showPerformanceReport')"
-            :disabled="loading"
-          >
-            <svg class="b3-menu__icon"><use xlink:href="#iconInfo"></use></svg>
-            <span class="b3-menu__label">{{ t('perfReport', '性能报告') }}</span>
-          </button>
-          <button 
-            v-if="mode === 'dialog'"
-            class="b3-menu__item" 
-            @click="handleMenuAction('convertToTab')"
-          >
-            <svg class="b3-menu__icon"><use xlink:href="#iconLayoutRight"></use></svg>
-            <span class="b3-menu__label">{{ t('openInTab', '在 Tab 中打开') }}</span>
-          </button>
-        </div>
-      </div>
-      -->
+    <div v-if="showScopeChips" class="toolbar__chips" role="list">
+      <span v-for="chip in toolbarChipItems" :key="chip.key" class="toolbar__chip" role="listitem">
+        {{ chip.label }}
+      </span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import FilterButton from './components/FilterButton.vue';
 import type { CardFilter } from '@/types/unified-data-source';
+import type { BrowserGlobalScope, CardTypeFilter } from './types';
 import { getAvailableCardTypeFilters } from './types';
+import type { BrowserLayoutProfile } from './layoutProfile';
 
 type ToolbarDensity = 'normal' | 'compact' | 'tight';
 
-// Props
 const props = defineProps<{
   i18n?: Record<string, string>;
   searchQuery: string;
@@ -228,35 +202,32 @@ const props = defineProps<{
   loading: boolean;
   showPreview: boolean;
   mode: 'dialog' | 'tab' | 'dock';
+  layoutProfile: BrowserLayoutProfile;
   mobileMode?: boolean;
   queueType: string;
   appliedFilter: CardFilter | null;
-  activeQueueId: string | null;  // 🆕 添加当前队列 ID
+  activeQueueId: string | null;
   activeDocId?: string | null;
+  activeGlobalScope?: BrowserGlobalScope | null;
   selectedCount: number;
   selectionMode: 'explicit' | 'all-matching';
   canSelectAllMatching: boolean;
+  showNavigatorToggle?: boolean;
+  navigatorOpen?: boolean;
 }>();
 
-// 🆕 根据队列类型计算可用的卡片类型筛选选项
 const availableCardTypeFilters = computed(() => {
   return getAvailableCardTypeFilters(props.activeQueueId, { docId: props.activeDocId });
 });
 
-// 🆕 计算是否显示"分摊压力"按钮
 const showSpreadButton = computed(() => {
-  // 只在以下情况显示：
-  // 1. 全部闪卡（没有激活队列）
-  // 2. 提取练习队列
-  // 3. 渐进学习队列
   if (!props.activeQueueId) {
-    return true;  // 全部闪卡
+    return true;
   }
-  
+
   return props.activeQueueId === 'retrieval' || props.activeQueueId === 'incremental-learning';
 });
 
-// Emits
 const emit = defineEmits<{
   (e: 'update:searchQuery', value: string): void;
   (e: 'update:currentPreset', value: string): void;
@@ -270,20 +241,23 @@ const emit = defineEmits<{
   (e: 'migrateTopicItem'): void;
   (e: 'showPerformanceReport'): void;
   (e: 'convertToTab'): void;
+  (e: 'toggleNavigator'): void;
   (e: 'openFilterDialog'): void;
   (e: 'openSpreadDialog'): void;
   (e: 'selectAllMatching'): void;
   (e: 'clearSelection'): void;
 }>();
 
-// 更多菜单状态
-const showMoreMenu = ref(false);
-const moreButtonRef = ref<HTMLElement | null>(null);
-const moreMenuRef = ref<HTMLElement | null>(null);
 const toolbarRootRef = ref<HTMLElement | null>(null);
 const isAllMatchingActive = computed(() => props.selectionMode === 'all-matching');
 const toolbarDensity = ref<ToolbarDensity>('normal');
 let toolbarResizeObserver: ResizeObserver | null = null;
+
+const isTabWide = computed(() => props.layoutProfile === 'tab-wide');
+const isTabNarrow = computed(() => props.layoutProfile === 'tab-narrow');
+const showScopeChips = computed(() => !props.mobileMode && isTabNarrow.value);
+const showNavigatorToggle = computed(() => props.showNavigatorToggle === true);
+const navigatorOpen = computed(() => props.navigatorOpen === true);
 
 const isCompactDesktop = computed(() => {
   if (props.mobileMode) {
@@ -320,18 +294,20 @@ const startPracticeButtonLabel = computed(() => {
   return t('startPractice', '开始练习');
 });
 
-// 切换更多菜单
-function toggleMoreMenu() {
-  showMoreMenu.value = !showMoreMenu.value;
-}
+const openInTabButtonLabel = computed(() => t('openInTab', 'Open'));
 
-type ToolbarMenuAction = 'migrateTopicItem' | 'showPerformanceReport' | 'convertToTab';
+const toolbarChipItems = computed(() => {
+  const viewLabel = props.viewMode === 'hierarchy'
+    ? t('hierarchyView', '层级视图')
+    : t('flatView', '平铺视图');
 
-// 处理菜单项点击
-function handleMenuAction(action: ToolbarMenuAction) {
-  showMoreMenu.value = false;
-  emit(action);
-}
+  return [
+    { key: 'scope', label: resolveScopeLabel() },
+    { key: 'preset', label: resolvePresetLabel(props.currentPreset) },
+    { key: 'cardType', label: resolveCardTypeLabel(props.currentCardType) },
+    { key: 'view', label: viewLabel },
+  ];
+});
 
 function handleSelectAllToggle() {
   if (isAllMatchingActive.value) {
@@ -389,34 +365,64 @@ function setupToolbarDensityObserver(): void {
   toolbarResizeObserver.observe(root);
 }
 
-// 点击外部关闭菜单
-function handleClickOutside(event: MouseEvent) {
-  if (showMoreMenu.value && 
-      moreButtonRef.value && 
-      moreMenuRef.value &&
-      !moreButtonRef.value.contains(event.target as Node) &&
-      !moreMenuRef.value.contains(event.target as Node)) {
-    showMoreMenu.value = false;
-  }
-}
-
 onMounted(() => {
-  document.addEventListener('click', handleClickOutside);
   setupToolbarDensityObserver();
 });
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', handleClickOutside);
   toolbarResizeObserver?.disconnect();
   toolbarResizeObserver = null;
 });
 
-// 国际化
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
 function getCardTypeLabel(i18nKey: string, fallback: string): string {
   return t(i18nKey, fallback);
+}
+
+function resolveScopeLabel(): string {
+  if (props.activeQueueId) {
+    const queueLabels: Record<string, string> = {
+      retrieval: t('queueExtract', 'Retrieval Practice'),
+      'incremental-learning': t('queueIncremental', 'Incremental Learning'),
+      'final-drill': t('queueDeliberate', 'Final Drill'),
+      'neural-roam': t('queueNeural', 'Neural Roam'),
+      'filter-group': t('queueFilterGroup', 'Filter Group'),
+    };
+    return queueLabels[props.activeQueueId] || props.activeQueueId;
+  }
+
+  if (props.activeGlobalScope === '__dismissed__') {
+    return t('filterPresetSuspended', 'Suspended');
+  }
+
+  return t('allFlashcards', 'All flashcards');
+}
+
+function resolvePresetLabel(preset: string): string {
+  const presetLabels: Record<string, string> = {
+    all: t('allCards', 'All'),
+    due: t('dueToday', 'Due Today'),
+    overdue: t('overdue', 'Overdue'),
+    leech: t('leech', 'Leech'),
+    new: t('new', 'New'),
+    suspended: t('filterPresetSuspended', 'Suspended'),
+  };
+  return presetLabels[preset] || preset;
+}
+
+function resolveCardTypeLabel(cardType: string): string {
+  const cardTypeLabels: Record<CardTypeFilter, string> = {
+    all: t('cardTypeAll', 'All types'),
+    'topic-only': t('cardTypeTopicOnly', 'Topic'),
+    'item-only': t('cardTypeItemOnly', 'Item'),
+    'concept-only': t('cardTypeConceptOnly', 'Concept'),
+    'descriptor-only': t('cardTypeDescriptorOnly', 'Descriptor'),
+    'missing-block-only': t('missingBlocks', 'Missing blocks'),
+  };
+
+  return cardTypeLabels[cardType as CardTypeFilter] || cardType;
 }
 </script>

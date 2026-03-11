@@ -328,6 +328,13 @@ export class BrowserDeckQueryKernel {
       id,
       blockId: String(row.blockId || ''),
       fsrsCardId: String(row.fsrsCardId || '') || undefined,
+      actionTarget: {
+        id: String(row.id || ''),
+        blockId: String(row.blockId || ''),
+        fsrsCardId: String(row.fsrsCardId || '') || undefined,
+        cardType: row.cardType,
+        priority: typeof row.priority === 'number' ? row.priority : undefined,
+      },
     };
   }
 

@@ -1,15 +1,12 @@
 import type { BrowserCard } from '../types';
-import {
-  CardState,
-  calculateRetrievability,
-  formatDueDate,
-  formatHistoryDate,
-  truncateContent,
-} from '../types';
+import { CardState, formatDueDate, formatHistoryDate } from '../types';
 import type { FSRSCard } from '@/types/card';
-import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import {
+  buildQueueCardProjection,
+  type QueueCardFirstReviewMode,
+} from '@/core/queue/domain/queueCardProjection';
 
-export type QueueCardFirstReviewMode = 'created-or-last' | 'last-review';
+export type { QueueCardFirstReviewMode };
 
 export type QueueBrowserCardMapOptions = {
   firstReviewMode?: QueueCardFirstReviewMode;
@@ -34,104 +31,66 @@ function convertCardState(state: number): CardState {
 function getStateLabel(state: CardState): string {
   switch (state) {
     case CardState.New:
-      return '新卡';
+      return '鏂板崱';
     case CardState.Learning:
-      return '学习中';
+      return '瀛︿範涓?';
     case CardState.Review:
-      return '复习';
+      return '澶嶄範';
     case CardState.Relearning:
-      return '重学';
+      return '閲嶅';
     default:
-      return '未知';
+      return '鏈煡';
   }
-}
-
-function resolveFirstReview(
-  card: FSRSCard,
-  lastReviewDate: Date | null,
-  mode: QueueCardFirstReviewMode
-): Date | null {
-  if (mode === 'last-review') {
-    return lastReviewDate;
-  }
-
-  if ((card.reps || 0) <= 0) {
-    return null;
-  }
-
-  if (card.createdAt) {
-    return new Date(card.createdAt);
-  }
-
-  return lastReviewDate;
 }
 
 export function mapQueueFsrsCardToBrowserCard(
   card: FSRSCard,
   options?: QueueBrowserCardMapOptions
 ): BrowserCard {
-  const firstReviewMode = options?.firstReviewMode ?? 'last-review';
-
-  const now = Date.now();
-  const elapsedDays = card.lastReview
-    ? Math.floor((now - card.lastReview) / (1000 * 60 * 60 * 24))
-    : 0;
-
-  const stability = card.stability || 0;
-  const difficulty = card.difficulty || 0;
-  const scheduledDays = card.scheduledDays || 0;
-  const dueDate = new Date(card.due);
-  const lastReviewDate = card.lastReview ? new Date(card.lastReview) : null;
-  const firstReviewDate = resolveFirstReview(card, lastReviewDate, firstReviewMode);
-  const imagePrompt = (card.meta?.imageOcclusionPrompt as string) || '';
-  const title = (card.meta?.title as string) || '';
-  const fullContent = (card.meta?.content as string) || imagePrompt || title || '';
-  const deckId = (card.meta?.deckId as string) || '';
-  const cardType = card.type as
-    | 'topic'
-    | 'item'
-    | 'concept'
-    | 'descriptor'
-    | 'incremental'
-    | 'webpage'
-    | undefined;
-  const state = convertCardState(card.state);
+  const projection = buildQueueCardProjection(card, {
+    firstReviewMode: options?.firstReviewMode,
+    queueIndex: options?.queueIndex,
+  });
+  const state = convertCardState(projection.state);
+  const dueDate = new Date(projection.due);
+  const lastReviewDate = projection.lastReview ? new Date(projection.lastReview) : null;
+  const firstReviewDate = projection.firstReview ? new Date(projection.firstReview) : null;
 
   const browserCard: BrowserCard = {
-    id: card.riffCardId || card.id,
-    fsrsCardId: card.id,
-    blockId: card.blockId,
-    deckId,
-    content: truncateContent(fullContent, 100),
-    fullContent,
-    rootId: (card.meta?.rootId as string) || '',
+    id: projection.id,
+    fsrsCardId: projection.fsrsCardId,
+    blockId: projection.blockId,
+    deckId: projection.deckId,
+    content: projection.content,
+    fullContent: projection.fullContent,
+    rootId: projection.rootId,
     state,
     stateLabel: getStateLabel(state),
     due: dueDate,
     dueFormatted: formatDueDate(dueDate),
-    stability,
-    difficulty,
-    retrievability: calculateRetrievability(stability, elapsedDays),
-    reps: card.reps || 0,
-    lapses: card.lapses || 0,
-    elapsedDays,
-    scheduledDays,
+    stability: projection.stability,
+    difficulty: projection.difficulty,
+    retrievability: projection.retrievability,
+    reps: projection.reps,
+    lapses: projection.lapses,
+    elapsedDays: projection.elapsedDays,
+    scheduledDays: projection.scheduledDays,
     lastReview: lastReviewDate,
     lastReviewFormatted: formatHistoryDate(lastReviewDate),
-    interval: scheduledDays,
+    interval: projection.interval,
     firstReview: firstReviewDate,
     firstReviewFormatted: formatHistoryDate(firstReviewDate),
-    priority: card.priority ?? 50,
-    suspended: isCardDismissed(card),
-    tags: card.tags || [],
-    note: (card.meta?.note as string) || '',
-    cardType,
-    aFactor: card.aFactor,
+    priority: projection.priority,
+    suspended: projection.suspended,
+    tags: projection.tags,
+    note: projection.note,
+    cardType: projection.cardType,
+    aFactor: projection.aFactor,
     meta: card.meta,
   };
 
-  if (typeof options?.queueIndex === 'number' && Number.isFinite(options.queueIndex)) {
-    browserCard.queueIndex = options.queueIndex;
+  if (typeof projection.queueIndex === 'number' && Number.isFinite(projection.queueIndex)) {
+    browserCard.queueIndex = projection.queueIndex;
   }
 
   return browserCard;

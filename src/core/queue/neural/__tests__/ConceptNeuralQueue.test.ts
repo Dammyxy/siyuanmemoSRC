@@ -420,6 +420,7 @@ describe('ConceptNeuralQueue', () => {
 
     expect(trace?.steps[0]?.nodeId).toBe('concept-root');
     expect(trace?.steps[0]?.nodePreview).toBe('概念根节点内容');
+    expect(trace?.steps[0]?.isSyntheticRoot).toBe(true);
   });
 
   it('marks migrated history entries as legacy activation trace', () => {

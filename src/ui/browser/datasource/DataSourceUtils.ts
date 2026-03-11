@@ -1,6 +1,7 @@
 import type { BrowserCard } from '../types';
-import type { SortModel } from './types';
+import type { BrowserActionTarget, SortModel } from './types';
 import type { FSRSCard } from '@/types/card';
+import type { QueueSnapshotRow } from '@/types/queue-browser';
 import { createLogger } from '@/utils/logger';
 import { batchSuspend, parseQuery } from '../browserService';
 import {
@@ -15,14 +16,37 @@ import { resolveBrowserCardActionId } from '../utils/browserCardIdentity';
 const logger = createLogger('DataSourceUtils');
 
 type CardTypeFilterValue = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
-type QuerySecondaryField = 'headline' | 'fullContent';
+export type QuerySecondaryField = 'headline' | 'fullContent';
 
 type BrowserCardWithHeadline = BrowserCard & { headline?: string };
+type QueueFilterRowLike = {
+  id?: string;
+  blockId?: string;
+  rootId?: string;
+  cardType?: string;
+  state?: number;
+  due?: unknown;
+  suspended?: boolean;
+  content?: string;
+  fullContent?: string;
+  deckId?: string;
+  tags?: string[];
+  priority?: number;
+  interval?: number;
+  reps?: number;
+  lapses?: number;
+  difficulty?: number;
+  retrievability?: number;
+  stability?: number;
+  blockType?: string | null;
+  meta?: unknown;
+  headline?: string;
+};
 type BrowserSortRowLike = {
   id?: unknown;
   blockId?: unknown;
 } & Record<string, unknown>;
-type QueueFilterOptions = {
+export type QueueFilterOptions = {
   docId?: string;
   preset?: string;
   queryText?: string;
@@ -81,8 +105,8 @@ export type DeleteCardsExecutionResult = {
 };
 
 export type QueueCardActionResult = {
-  updated: BrowserCard[];
-  skipped: BrowserCard[];
+  updated: BrowserActionTarget[];
+  skipped: BrowserActionTarget[];
 };
 
 export type QueueRemovalResult = {
@@ -109,14 +133,14 @@ export type QueueDueAdjustResult = QueueCardActionResult & {
   averageCardsPerDay?: number;
 };
 
-export function resolveBrowserCardId(card: BrowserCard): string {
-  return resolveBrowserCardActionId(card);
+export function resolveBrowserCardId(card: BrowserActionTarget): string {
+  return resolveBrowserCardActionId(card as BrowserCard);
 }
 
 export async function removeCardsFromQueue(
   queue: QueueRemoveLike | undefined,
-  selectedRows: BrowserCard[],
-  options?: { scope?: string; resolveId?: (row: BrowserCard) => string }
+  selectedRows: BrowserActionTarget[],
+  options?: { scope?: string; resolveId?: (row: BrowserActionTarget) => string }
 ): Promise<QueueRemovalResult> {
   const scope = options?.scope || 'DataSource';
   if (!queue || typeof queue.removeCard !== 'function') {
@@ -150,7 +174,7 @@ export async function removeCardsFromQueue(
 
 export async function insertCardsIntoQueue(
   queue: QueueInsertLike | undefined,
-  selectedRows: BrowserCard[],
+  selectedRows: BrowserActionTarget[],
   index: number,
   options?: { scope?: string }
 ): Promise<QueueInsertResult> {
@@ -189,7 +213,7 @@ export async function insertCardsIntoQueue(
 
 export async function setBrowserCardsPriority(
   manager: UnifiedCardManagerLike,
-  selectedRows: BrowserCard[],
+  selectedRows: BrowserActionTarget[],
   priority: number,
   options?: { scope?: string }
 ): Promise<QueueCardActionResult> {
@@ -222,7 +246,7 @@ export async function setBrowserCardsPriority(
 
 export async function toggleBrowserCardsSuspended(
   manager: SuspendCardsManagerLike,
-  selectedRows: BrowserCard[],
+  selectedRows: BrowserActionTarget[],
   suspended: boolean,
   options?: { scope?: string }
 ): Promise<number> {
@@ -285,7 +309,7 @@ function resolveAdjustDays(action: QueueDueAdjustAction, context?: QueueDueAdjus
 
 export async function adjustBrowserCardsDue(
   manager: UnifiedCardManagerLike,
-  selectedRows: BrowserCard[],
+  selectedRows: BrowserActionTarget[],
   action: QueueDueAdjustAction,
   context?: QueueDueAdjustContext,
   options?: { scope?: string; postponeFromNow?: boolean; allowSpread?: boolean }
@@ -327,7 +351,6 @@ export async function adjustBrowserCardsDue(
       card.due = newDue;
       await manager.updateCard(card);
 
-      row.due = new Date(newDue);
       updated.push(row);
     } catch (error) {
       skipped.push(row);
@@ -543,6 +566,13 @@ export function sortBrowserCards(rows: BrowserCard[], sortModel: SortModel[]): B
   return sortBrowserRows(rows, sortModel);
 }
 
+export function sortQueueSnapshotRows(
+  rows: QueueSnapshotRow[],
+  sortModel: SortModel[]
+): QueueSnapshotRow[] {
+  return sortBrowserRows(rows as unknown as BrowserSortRowLike[], sortModel) as QueueSnapshotRow[];
+}
+
 export type PaginationSliceResult = {
   rows: BrowserCard[];
   totalCount: number;
@@ -588,11 +618,38 @@ export function sortAndPaginateBrowserCards(
   return paginateBrowserCards(sortedRows, startRow, endRow);
 }
 
-export function isMissingBlockCard(card: BrowserCard): boolean {
-  return (card.meta as { blockType?: unknown } | undefined)?.blockType === 'missing';
+function hasMissingBlockType(card: QueueFilterRowLike): boolean {
+  const metaBlockType = (
+    card.meta && typeof card.meta === 'object'
+      ? (card.meta as { blockType?: unknown }).blockType
+      : undefined
+  );
+  return card.blockType === 'missing' || metaBlockType === 'missing';
 }
 
-export function applyDocFilter(cards: BrowserCard[], docId?: string): BrowserCard[] {
+export function isMissingBlockCard(card: QueueFilterRowLike): boolean {
+  return hasMissingBlockType(card);
+}
+
+function toDueTimestamp(value: unknown): number | null {
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+export function applyDocFilter<TRow extends QueueFilterRowLike>(cards: TRow[], docId?: string): TRow[] {
   const normalizedDocId = String(docId || '').trim();
 
   if (normalizedDocId === '__lost__') {
@@ -607,20 +664,21 @@ export function applyDocFilter(cards: BrowserCard[], docId?: string): BrowserCar
   return nonMissingCards.filter((card) => card.rootId === normalizedDocId);
 }
 
-export function applyLegacyPresetFilter(cards: BrowserCard[], preset?: string): BrowserCard[] {
+export function applyLegacyPresetFilter<TRow extends QueueFilterRowLike>(cards: TRow[], preset?: string): TRow[] {
   if (!preset || preset === 'all') {
     return cards;
   }
 
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
   return cards.filter((card) => {
+    const dueTimestamp = toDueTimestamp(card.due);
     switch (preset) {
       case 'due':
-        return card.due && new Date(card.due) <= today;
+        return dueTimestamp != null && dueTimestamp <= today;
       case 'overdue':
-        return card.due && new Date(card.due) < today;
+        return dueTimestamp != null && dueTimestamp < today;
       case 'new':
         return card.state === 0;
       case 'leech':
@@ -633,7 +691,7 @@ export function applyLegacyPresetFilter(cards: BrowserCard[], preset?: string): 
   });
 }
 
-export function applyCardTypeFilter(cards: BrowserCard[], cardType?: string): BrowserCard[] {
+export function applyCardTypeFilter<TRow extends QueueFilterRowLike>(cards: TRow[], cardType?: string): TRow[] {
   if (!cardType || cardType === 'all') {
     return cards;
   }
@@ -680,18 +738,18 @@ function normalizeSimpleQuery(queryText?: string): string | null {
   return query;
 }
 
-export function applySimpleQueryFilter(
-  cards: BrowserCard[],
+export function applySimpleQueryFilter<TRow extends QueueFilterRowLike>(
+  cards: TRow[],
   queryText?: string,
   options?: { secondaryField?: QuerySecondaryField }
-): BrowserCard[] {
+): TRow[] {
   const normalizedQuery = String(queryText || '').trim();
   if (!normalizedQuery) {
     return cards;
   }
 
   const parsed = parseQuery(normalizedQuery);
-  const filtered = cards.filter((card) => matchesParsedQuery(card, parsed));
+  const filtered = cards.filter((card) => matchesParsedQuery(card as BrowserCard, parsed));
   if (filtered.length > 0 || !options?.secondaryField) {
     return filtered;
   }
@@ -713,17 +771,25 @@ export function applySimpleQueryFilter(
   });
 }
 
-export function applyQueueFilters(
-  cards: BrowserCard[],
+export function applyQueueFilters<TRow extends QueueFilterRowLike>(
+  cards: TRow[],
   options: QueueFilterOptions,
   querySecondaryField: QuerySecondaryField = 'headline'
-): BrowserCard[] {
+): TRow[] {
   let result = cards;
   result = applyDocFilter(result, options.docId);
   result = applyLegacyPresetFilter(result, options.preset);
   result = applySimpleQueryFilter(result, options.queryText, { secondaryField: querySecondaryField });
   result = applyCardTypeFilter(result, options.cardType);
   return result;
+}
+
+export function applyQueueFiltersToSnapshotRows(
+  rows: QueueSnapshotRow[],
+  options: QueueFilterOptions,
+  querySecondaryField: QuerySecondaryField = 'headline'
+): QueueSnapshotRow[] {
+  return applyQueueFilters(rows, options, querySecondaryField);
 }
 
 function resolveCardService(plugin: CardServicePluginLike | undefined): CardServiceLike | undefined {
@@ -820,7 +886,7 @@ async function executeBatchDelete(
 
 export async function deleteBrowserCards(
   plugin: CardServicePluginLike | undefined,
-  selectedRows: BrowserCard[],
+  selectedRows: BrowserActionTarget[],
   options?: { preferBatch?: boolean; scope?: string }
 ): Promise<DeleteCardsExecutionResult | null> {
   const scope = options?.scope || 'DataSource';

@@ -4,11 +4,11 @@
 
 import type { BrowserCard } from '../types';
 import type {
+  BrowserActionTarget,
   ICardDataSource,
   IBrowserQueryableDataSource,
   CardBrowserAction,
   FetchRowsOptions,
-  FetchRowsResult,
   SortModel,
 } from './types';
 import {
@@ -29,7 +29,10 @@ import {
 } from './DataSourceUtils';
 import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import { createLogger } from '@/utils/logger';
-import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
+import {
+  BaseQueueSnapshotDataSource,
+  type QueueSnapshotDataSourceDeps,
+} from './shared/BaseQueueSnapshotDataSource';
 
 const logger = createLogger('IncrementalLearningDataSource');
 
@@ -70,26 +73,20 @@ function isIncrementalTimeAction(actionId: string): actionId is 'postpone' | 'ad
   return actionId === 'postpone' || actionId === 'advance';
 }
 
-export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQueryableDataSource {
+export class IncrementalLearningDataSource
+  extends BaseQueueSnapshotDataSource<IncrementalPluginLike>
+  implements ICardDataSource, IBrowserQueryableDataSource {
   id = 'incremental-learning';
   label = 'Incremental Learning';
-
-  private readonly manager: IUnifiedDataSourceManagerFacade;
-  private readonly options: IncrementalLearningDataSourceOptions;
-  private readonly plugin?: IncrementalPluginLike;
   private readonly i18n?: I18nDictionary;
-  private readonly querySession = new BrowserQuerySession('IncrementalLearningDataSource');
-  private lastSortModel: SortModel[] = [];
-  private dataGeneration = 0;
 
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
     options?: IncrementalLearningDataSourceOptions,
-    plugin?: IncrementalPluginLike
+    plugin?: IncrementalPluginLike,
+    deps: QueueSnapshotDataSourceDeps = {},
   ) {
-    this.manager = manager;
-    this.options = options || {};
-    this.plugin = plugin;
+    super('IncrementalLearningDataSource', manager, options, plugin, deps);
     const context = plugin?.getContext?.() as { getI18n?: () => I18nDictionary | undefined } | undefined;
     this.i18n = context?.getI18n?.() || plugin?.i18n;
   }
@@ -121,18 +118,6 @@ export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQ
     }
   }
 
-  getQueryFingerprint(): string {
-    return this.buildQueryFingerprint(this.lastSortModel);
-  }
-
-  async getAllMatchedIds(): Promise<string[]> {
-    return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
-  }
-
-  async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
-    return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
-  }
-
   getSupportedActions(): CardBrowserAction[] {
     return buildQueueActions(
       {
@@ -150,7 +135,7 @@ export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQ
 
   async performAction(
     actionId: string,
-    selectedRows: BrowserCard[],
+    selectedRows: BrowserActionTarget[],
     context?: IncrementalLearningActionContext
   ): Promise<unknown> {
     if (actionId === 'open') {
@@ -215,45 +200,20 @@ export class IncrementalLearningDataSource implements ICardDataSource, IBrowserQ
     }
   }
 
-  getId(): string {
-    return this.id;
-  }
-
   private t(key: string, fallback: string): string {
     return this.i18n?.[key] || fallback;
   }
 
-  private buildQueryFingerprint(sortModel: SortModel[]): string {
-    return JSON.stringify({
-      dataSource: 'incremental-learning',
-      queueId: QueueType.IncrementalLearning,
-      options: this.options,
-      sortModel,
-      generation: this.dataGeneration,
-    });
+  protected getQueueBrowserId() {
+    return 'incremental-learning' as const;
   }
 
-  private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
+  protected async buildLegacyOrderedRows(sortModel: SortModel[]): Promise<BrowserCard[]> {
     const queue = this.manager.getQueue(QueueType.IncrementalLearning);
     const cards = await queue.getCards();
     validateConsumerCardType('IncrementalLearningDataSource', cards);
     const browserCards = cards.map((card) => mapQueueFsrsCardToBrowserCard(card));
     const filtered = applyQueueFilters(browserCards, this.options, 'fullContent');
     return sortBrowserCards(filtered, sortModel);
-  }
-
-  private buildSessionOptions(sortModel: SortModel[]) {
-    return {
-      queryFingerprint: this.buildQueryFingerprint(sortModel),
-      buildLiteRows: async () => {
-        const rows = await this.buildOrderedRows(sortModel);
-        return rows.map(toLiteRowFromBrowserCard);
-      },
-    };
-  }
-
-  public invalidateQuerySession(): void {
-    this.dataGeneration += 1;
-    this.querySession.invalidate();
   }
 }
