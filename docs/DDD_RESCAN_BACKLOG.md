@@ -7,6 +7,46 @@ Last update: 2026-03-11 (Round 33)
 Use this section for task-level debt tracking when a task touches production code under `src/`.
 Do not add an entry for skill-only or docs-only work.
 
+### 2026-03-11 - neural history selected-frame override alignment
+
+- Task: Fix the roam-history selected row so it no longer looks dimmer than Wake due to its own timeline-specific selected-style override.
+- Touched slice: Browser neural history styling in `src/ui/browser/SRSBrowser.scss`.
+- Debt fixed now: Removed the split visual treatment where history selection bypassed the shared selected-frame overlay and instead used a softer local background/shadow combination, which made the same selected state read inconsistently.
+- Debt deferred: Selected styling is still managed by adjacent CSS rules instead of one shared reusable neural selected-frame primitive.
+- Why deferred: The concrete problem was one history-specific override; consolidating all selected-state styling would be a broader stylesheet refactor.
+- Next safe step: If more selection visuals drift, extract one reusable browser-side neural selected-frame pattern and make history/source/anchor all consume it.
+- Validation: `pnpm build`.
+
+### 2026-03-11 - neural list selected-frame contrast alignment
+
+- Task: Tune browser-side neural selected rows so their blue frame matches the Wake selected-step brightness instead of staying slightly dimmer.
+- Touched slice: Browser neural list styling in `src/ui/browser/SRSBrowser.scss`.
+- Debt fixed now: Removed the remaining contrast gap between Wake selected cards and selected rows in history/source/anchor lists, so one selected-state model now reads with one consistent emphasis level.
+- Debt deferred: The browser still uses separate selectors for timeline rows and generic neural list rows rather than one shared selected-state token block.
+- Why deferred: This task is a bounded contrast adjustment; collapsing the selectors further would be style architecture work beyond the immediate visual bug.
+- Next safe step: If more neural list variants appear, extract one shared selected-frame mixin/token set for all browser-side neural cards.
+- Validation: `pnpm build`.
+
+### 2026-03-11 - neural selection blue-frame parity for browser lists
+
+- Task: Make selected neural history/source/anchor rows render a clearly visible blue frame comparable to the Wake selected-step card instead of only a subtle tint or timeline-dot change.
+- Touched slice: Browser neural list styling in `src/ui/browser/SRSBrowser.scss`.
+- Debt fixed now: Removed the visual mismatch where Wake had a strong selected frame but browser-side neural lists only showed low-contrast selection hints, which made the newly wired selection state look broken in real use.
+- Debt deferred: Selected-row styling is still implemented by shared browser CSS selectors rather than a dedicated reusable neural selection token set.
+- Why deferred: The bounded issue here is purely visual parity; extracting a fuller token system would broaden the task from a concrete UX fix into style architecture work.
+- Next safe step: If neural browser visuals keep evolving, extract one shared selected-state token/mixin for history, source, anchor, and wake cards so contrast and shadow tuning stay aligned.
+- Validation: `pnpm build`.
+
+### 2026-03-11 - neural wake selected-node propagation across source and anchor surfaces
+
+- Task: Make orbit centers, activation sources, worldline stations, and node-directed neural navigation actions push their selected node into the Wake selection state so the corresponding wake step gets the same blue selected frame.
+- Touched slice: Browser neural roam UI in `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/neural/{NeuralFocusList,NeuralAnchorList}.vue`, related browser neural styles, and targeted neural list tests.
+- Debt fixed now: Removed the stale ownership split where only history or wake step selection updated the trace `isSelected` state, and deduped wake selection recomputation into one parent helper instead of scattering ad hoc event/node assignments.
+- Debt deferred: History rows and source/anchor rows still do not share one unified cross-subview selection model; hidden subviews can retain their prior selected row semantics until the user reopens them.
+- Why deferred: Solving the visible wake-highlight bug only requires parent-side trace selection propagation, while a full browser-wide selection model would broaden the slice into history selection persistence and subview state ownership.
+- Next safe step: If cross-subview selection consistency becomes more important, extract one browser-level neural selection store that drives history, wake, source, and anchor selection from the same explicit mode (`event` vs `node`).
+- Validation: Targeted `vitest` for `NeuralFocusList` and `NeuralAnchorList`, plus `pnpm build`.
+
 ### 2026-03-11 - browser explicit tab entry and split-screen tab workspace redesign
 
 - Task: Restore an explicit browser-as-tab entry, let dialog browser sessions convert into stateful browser tabs, and make the browser tab layout usable in split-screen neural roam workflows without changing the default dialog-first entry path.

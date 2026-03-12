@@ -808,6 +808,7 @@
 }
 
 .neural-list__item {
+  position: relative;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -840,6 +841,27 @@
 
 .neural-list__item--active .neural-list__item-main {
   background: rgba(var(--b3-theme-primary-rgb), 0.12);
+}
+
+.neural-list__item--selected {
+  background: color-mix(in srgb, var(--b3-theme-primary) 11%, var(--b3-theme-background));
+}
+
+.neural-list__item--selected::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid var(--b3-theme-primary);
+  border-radius: 8px;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 24%, transparent),
+    0 8px 18px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+}
+
+.neural-list__item--selected .neural-list__item-main {
+  background: transparent;
+  box-shadow: none;
 }
 
 .neural-list__title {
@@ -1017,8 +1039,25 @@
 }
 
 .neural-history-list__timeline-item--selected .neural-list__item {
-  border-color: rgba(var(--b3-theme-primary-rgb), 0.45);
-  box-shadow: 0 0 0 1px rgba(var(--b3-theme-primary-rgb), 0.12);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--b3-theme-primary) 13%, var(--b3-theme-background));
+}
+
+.neural-history-list__timeline-item--selected .neural-list__item::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid var(--b3-theme-primary);
+  border-radius: 8px;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 24%, transparent),
+    0 8px 18px color-mix(in srgb, var(--b3-theme-primary) 10%, transparent);
+}
+
+.neural-history-list__timeline-item--selected .neural-history-list__timeline-dot {
+  background: var(--b3-theme-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--b3-theme-primary) 14%, transparent);
 }
 
 .neural-history-list__timeline-item .neural-list__item {

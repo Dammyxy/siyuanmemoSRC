@@ -20,7 +20,10 @@
         v-for="entry in filteredEntries"
         :key="`${entry.nodeId}-${entry.addedAt}`"
         class="neural-list__item neural-anchor-list__item"
-        :class="{ 'neural-anchor-list__item--current': entry.isCurrent }"
+        :class="{
+          'neural-anchor-list__item--current': entry.isCurrent,
+          'neural-list__item--selected': entry.nodeId === props.selectedNodeId,
+        }"
       >
         <button
           type="button"
@@ -84,6 +87,7 @@ const props = defineProps<{
   i18n?: Record<string, string>;
   entries: NeuralAnchorListEntry[];
   currentNodeId?: string | null;
+  selectedNodeId?: string | null;
   engineMode?: 'orbit' | 'hyperspace';
 }>();
 

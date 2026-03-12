@@ -89,4 +89,17 @@ describe('NeuralAnchorList', () => {
     expect(wrapper.emitted('toggle-anchor')?.[0]).toEqual(['anchor-b', false]);
     expect(wrapper.emitted('toggle-anchor')?.[1]).toEqual(['anchor-a', false]);
   });
+
+  it('marks the externally selected anchor row', () => {
+    const wrapper = mount(NeuralAnchorList, {
+      props: {
+        entries,
+        selectedNodeId: 'anchor-a',
+      },
+    });
+
+    const rows = wrapper.findAll('.neural-anchor-list__item');
+    expect(rows[0]?.classes()).not.toContain('neural-list__item--selected');
+    expect(rows[1]?.classes()).toContain('neural-list__item--selected');
+  });
 });

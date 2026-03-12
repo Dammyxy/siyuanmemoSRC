@@ -27,7 +27,10 @@
           v-for="entry in filteredEntries"
           :key="`${entry.nodeId}-${entry.addedAt}`"
           class="neural-list__item"
-          :class="{ 'neural-list__item--active': entry.isCurrent }"
+          :class="{
+            'neural-list__item--active': entry.isCurrent,
+            'neural-list__item--selected': entry.nodeId === props.selectedNodeId,
+          }"
         >
           <button
             type="button"
@@ -79,6 +82,7 @@ import type { NeuralSourceListEntry } from './types';
 const props = defineProps<{
   i18n?: Record<string, string>;
   entries: NeuralSourceListEntry[];
+  selectedNodeId?: string | null;
   engineMode: NeuralEngineMode;
 }>();
 

@@ -23,11 +23,15 @@ describe('NeuralFocusList', () => {
     entry({ nodeId: 'node-b', nodePreview: 'Beta node', visitedAt: 200, isCurrent: true }),
   ];
 
-  function mountComponent(engineMode: 'orbit' | 'hyperspace' = 'orbit') {
+  function mountComponent(
+    engineMode: 'orbit' | 'hyperspace' = 'orbit',
+    selectedNodeId: string | null = null,
+  ) {
     return mount(NeuralFocusList, {
       props: {
         entries,
         engineMode,
+        selectedNodeId,
       },
     });
   }
@@ -99,5 +103,12 @@ describe('NeuralFocusList', () => {
     const secondRowActions = wrapper.findAll('.neural-list__item')[1]?.findAll('.neural-list__action') || [];
     expect(secondRowActions[0]?.text()).toBe('Current Primary Activation Source');
     expect(secondRowActions[0]?.attributes('disabled')).toBeDefined();
+  });
+
+  it('marks the externally selected node row', () => {
+    const wrapper = mountComponent('orbit', 'node-a');
+
+    expect(wrapper.findAll('.neural-list__item')[0]?.classes()).toContain('neural-list__item--selected');
+    expect(wrapper.findAll('.neural-list__item')[1]?.classes()).not.toContain('neural-list__item--selected');
   });
 });

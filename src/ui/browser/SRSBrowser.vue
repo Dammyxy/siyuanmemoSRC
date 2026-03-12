@@ -153,8 +153,9 @@
           v-if="neuralSubview === 'concept-cards'"
           :i18n="props.i18n"
           :entries="neuralSourceEntries"
+          :selected-node-id="selectedNeuralTraceNodeId"
           :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
-          @preview="handleNeuralPreview"
+          @preview="handleNeuralExternalNodePreview"
           @set-current-focus="handleNeuralSetCurrentFocus"
           @toggle-source="handleNeuralToggleSource"
         />
@@ -241,8 +242,9 @@
           :i18n="props.i18n"
           :entries="neuralAnchorEntries"
           :current-node-id="neuralCurrentNodeId"
+          :selected-node-id="selectedNeuralTraceNodeId"
           :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
-          @preview="handleNeuralPreview"
+          @preview="handleNeuralExternalNodePreview"
           @set-current-focus="handleNeuralSetCurrentFocus"
           @toggle-anchor="handleNeuralToggleAnchor"
           @jump-anchor="handleNeuralJumpAnchor"
@@ -3763,11 +3765,10 @@ function buildNeuralActivationTraceViewModel(
     isCurrent: currentNodeId ? step.nodeId === currentNodeId : false,
     isTarget: index === trace.steps.length - 1,
     isRoot: branchRootEventId ? step.eventId === branchRootEventId : false,
-    isSelected: selectedTraceEventId
-      ? step.eventId === selectedTraceEventId
-      : selectedTraceNodeId
-        ? step.nodeId === selectedTraceNodeId
-        : index === trace.steps.length - 1,
+    isSelected: resolveNeuralTraceStepIsSelected(step, index, trace.steps, {
+      selectedTraceEventId,
+      selectedTraceNodeId,
+    }),
     previewable: Boolean(step.nodeId),
     jumpable: Boolean(step.nodeId),
     displayBadges: buildNeuralTraceBadges(step, {
@@ -3894,6 +3895,59 @@ function updateNeuralTraceStepConvergenceState(
         : step
     )),
   };
+}
+
+function resolveNeuralTraceStepIsSelected(
+  step: Pick<NeuralActivationTraceStepViewModel, 'eventId' | 'nodeId'>,
+  index: number,
+  steps: readonly Pick<NeuralActivationTraceStepViewModel, 'eventId' | 'nodeId'>[],
+  options: {
+    selectedTraceEventId?: string | null;
+    selectedTraceNodeId?: string | null;
+  } = {},
+): boolean {
+  const selectedTraceEventId = options.selectedTraceEventId ?? null;
+  const selectedTraceNodeId = options.selectedTraceNodeId ?? null;
+  if (selectedTraceEventId) {
+    return step.eventId === selectedTraceEventId;
+  }
+  if (selectedTraceNodeId) {
+    return step.nodeId === selectedTraceNodeId;
+  }
+  return index === steps.length - 1;
+}
+
+function applyNeuralTraceSelectionState(
+  trace: NeuralActivationTraceViewModel | null,
+  options: {
+    selectedTraceEventId?: string | null;
+    selectedTraceNodeId?: string | null;
+  } = {},
+): NeuralActivationTraceViewModel | null {
+  if (!trace) {
+    return trace;
+  }
+  return {
+    ...trace,
+    steps: trace.steps.map((step, index, steps) => ({
+      ...step,
+      isSelected: resolveNeuralTraceStepIsSelected(step, index, steps, options),
+    })),
+  };
+}
+
+function setSelectedNeuralTraceState(
+  options: {
+    selectedTraceEventId?: string | null;
+    selectedTraceNodeId?: string | null;
+  } = {},
+): void {
+  selectedNeuralTraceEventId.value = options.selectedTraceEventId ?? null;
+  selectedNeuralTraceNodeId.value = options.selectedTraceNodeId ?? null;
+  neuralActivationTrace.value = applyNeuralTraceSelectionState(neuralActivationTrace.value, options);
+  if (neuralActivationTrace.value) {
+    neuralTraceRouteViewModelCache.set(neuralActivationTrace.value.targetEventId, neuralActivationTrace.value);
+  }
 }
 
 function resolveNeuralTraceRouteViewModelByEventId(
@@ -4088,11 +4142,21 @@ async function handleNeuralPreview(nodeId: string): Promise<void> {
   previewCard.value = cards[0] || null;
 }
 
+async function handleNeuralExternalNodePreview(nodeId: string): Promise<void> {
+  setSelectedNeuralTraceState({
+    selectedTraceEventId: null,
+    selectedTraceNodeId: nodeId,
+  });
+  await handleNeuralPreview(nodeId);
+}
+
 async function handleNeuralSelectHistoryEntry(entry: Pick<NeuralRoamHistoryEntry, 'eventId' | 'nodeId'>): Promise<void> {
   selectedNeuralHistoryEventId.value = entry.eventId;
   neuralTracePinnedToSelection.value = true;
-  selectedNeuralTraceEventId.value = entry.eventId;
-  selectedNeuralTraceNodeId.value = entry.nodeId;
+  setSelectedNeuralTraceState({
+    selectedTraceEventId: entry.eventId,
+    selectedTraceNodeId: entry.nodeId,
+  });
 
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue) {
@@ -4178,19 +4242,14 @@ async function ensureNeuralStepConvergenceResolved(stepEventId: string): Promise
 }
 
 async function handleNeuralSelectTraceStep(eventId: string): Promise<void> {
-  selectedNeuralTraceEventId.value = eventId;
   const traceStep = neuralActivationTrace.value?.steps.find((step) => step.eventId === eventId) ?? null;
-  selectedNeuralTraceNodeId.value = traceStep?.nodeId ?? null;
+  setSelectedNeuralTraceState({
+    selectedTraceEventId: eventId,
+    selectedTraceNodeId: traceStep?.nodeId ?? null,
+  });
   if (!neuralActivationTrace.value) {
     return;
   }
-  neuralActivationTrace.value = {
-    ...neuralActivationTrace.value,
-    steps: neuralActivationTrace.value.steps.map((step) => ({
-      ...step,
-      isSelected: step.eventId === eventId,
-    })),
-  };
   if (eventId === neuralActivationTrace.value.targetEventId) {
     selectedNeuralHistoryEventId.value = eventId;
   }
@@ -4247,6 +4306,10 @@ async function handoffNeuralReviewSurface(fallbackNodeId?: string | null): Promi
 }
 
 async function handleNeuralJump(nodeId: string): Promise<void> {
+  setSelectedNeuralTraceState({
+    selectedTraceEventId: null,
+    selectedTraceNodeId: nodeId,
+  });
   await handleNeuralPreview(nodeId);
 
   const neuralQueue = getNeuralRoamQueue();
@@ -4282,6 +4345,10 @@ async function handleNeuralSetCurrentFocus(nodeId: string): Promise<void> {
     return;
   }
 
+  setSelectedNeuralTraceState({
+    selectedTraceEventId: null,
+    selectedTraceNodeId: nodeId,
+  });
   await neuralQueue.setCurrentFocus(nodeId, {
     includeFocusAsFirst: false,
     resetHistory: false,
@@ -4318,6 +4385,10 @@ async function handleNeuralToggleEngineMode(): Promise<void> {
 
   const navState = neuralQueue.getNavigationState();
   if (navState.currentNodeId) {
+    setSelectedNeuralTraceState({
+      selectedTraceEventId: null,
+      selectedTraceNodeId: navState.currentNodeId,
+    });
     await handleNeuralPreview(navState.currentNodeId);
   }
 
@@ -4360,6 +4431,10 @@ async function handleNeuralReturnToBookmark(): Promise<void> {
 
   const navState = neuralQueue.getNavigationState();
   if (navState.currentNodeId) {
+    setSelectedNeuralTraceState({
+      selectedTraceEventId: null,
+      selectedTraceNodeId: navState.currentNodeId,
+    });
     await handleNeuralPreview(navState.currentNodeId);
   }
   await handoffNeuralReviewSurface(navState.currentNodeId);
