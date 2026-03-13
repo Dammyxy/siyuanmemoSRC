@@ -184,6 +184,9 @@
               class="card-browser__neural-roam-pane card-browser__neural-roam-pane--history"
               :i18n="props.i18n"
               :entries="neuralHistoryEntries"
+              :total-count="neuralHistoryTotalCount"
+              :has-more="neuralHistoryHasMore"
+              :loading-more="neuralHistoryLoadingMore"
               :current-node-id="neuralCurrentNodeId"
               :selected-event-id="selectedNeuralHistoryEventId"
               :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
@@ -193,6 +196,7 @@
               @set-current-focus="handleNeuralSetCurrentFocus"
               @toggle-anchor="handleNeuralToggleAnchor"
               @clear-history="handleNeuralClearHistory"
+              @load-more="handleNeuralLoadMoreHistory"
             />
             <NeuralActivationTracePanel
               v-else
@@ -213,6 +217,9 @@
               class="card-browser__neural-roam-pane card-browser__neural-roam-pane--history"
               :i18n="props.i18n"
               :entries="neuralHistoryEntries"
+              :total-count="neuralHistoryTotalCount"
+              :has-more="neuralHistoryHasMore"
+              :loading-more="neuralHistoryLoadingMore"
               :current-node-id="neuralCurrentNodeId"
               :selected-event-id="selectedNeuralHistoryEventId"
               :engine-mode="neuralNavigationState?.engineMode || 'orbit'"
@@ -222,6 +229,7 @@
               @set-current-focus="handleNeuralSetCurrentFocus"
               @toggle-anchor="handleNeuralToggleAnchor"
               @clear-history="handleNeuralClearHistory"
+              @load-more="handleNeuralLoadMoreHistory"
             />
             <NeuralActivationTracePanel
               class="card-browser__neural-roam-pane card-browser__neural-roam-pane--trace"
@@ -380,7 +388,6 @@ import NeuralSubviewTabs from './neural/NeuralSubviewTabs.vue';
 import {
   buildNeuralHistoryIndex,
   resolveNeuralTraceConvergenceForStep,
-  type NeuralHistoryIndex,
 } from './neural/traceAggregation';
 import { handoffNeuralNavigationToReviewSurface } from './neural/reviewSurfaceHandoff';
 import FilterDialog from './dialogs/FilterDialog.vue';
@@ -606,6 +613,9 @@ const navigatorOpen = ref(false);
 const narrowRoamPane = ref<BrowserNarrowRoamPane>(resolveDefaultBrowserNarrowRoamPane());
 const neuralSourceEntries = ref<NeuralSourceListEntry[]>([]);
 const neuralHistoryEntries = ref<NeuralListEntry[]>([]);
+const neuralHistoryTotalCount = ref(0);
+const neuralHistoryHasMore = ref(false);
+const neuralHistoryLoadingMore = ref(false);
 const neuralAnchorEntries = ref<NeuralAnchorListEntry[]>([]);
 const neuralCurrentNodeId = ref<string | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
@@ -616,9 +626,10 @@ const selectedNeuralTraceEventId = ref<string | null>(null);
 const selectedNeuralTraceNodeId = ref<string | null>(null);
 let neuralPreviewRequestSeq = 0;
 let neuralTraceConvergenceRequestSeq = 0;
-let neuralTraceHistoryIndex: NeuralHistoryIndex | null = null;
 const neuralTraceConvergenceCache = new Map<string, NeuralTraceConvergenceViewModel | null>();
 const neuralTraceRouteViewModelCache = new Map<string, NeuralActivationTraceViewModel | null>();
+const NEURAL_HISTORY_PAGE_SIZE = 200;
+const neuralHistoryRequestedCount = ref(NEURAL_HISTORY_PAGE_SIZE);
 
 const appliedFilter = ref<CardFilter | null>(null);
 const showFilterDialog = ref(false);
@@ -3461,15 +3472,19 @@ function toNeuralHistoryListEntries(
     anchorIds?: Set<string>;
     currentNodeId?: string | null;
     selectedEventId?: string | null;
+    getRepeatHitCount?: (nodeId: string) => number;
   }
 ): NeuralListEntry[] {
   const anchorIds = options?.anchorIds ?? new Set<string>();
   const currentNodeId = options?.currentNodeId ?? null;
   const selectedEventId = options?.selectedEventId ?? null;
-  const repeatHitCountByNodeId = entries.reduce((map, entry) => {
-    map.set(entry.nodeId, (map.get(entry.nodeId) ?? 0) + 1);
-    return map;
-  }, new Map<string, number>());
+  const getRepeatHitCount = options?.getRepeatHitCount;
+  const repeatHitCountByNodeId = getRepeatHitCount
+    ? null
+    : entries.reduce((map, entry) => {
+      map.set(entry.nodeId, (map.get(entry.nodeId) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>());
   return [...entries]
     .sort((a, b) => b.visitedAt - a.visitedAt)
     .map((entry) => ({
@@ -3477,7 +3492,9 @@ function toNeuralHistoryListEntries(
       isCurrent: currentNodeId ? entry.nodeId === currentNodeId : false,
       isAnchored: anchorIds.has(entry.nodeId),
       isSelected: selectedEventId ? entry.eventId === selectedEventId : false,
-      repeatHitCount: repeatHitCountByNodeId.get(entry.nodeId) ?? 1,
+      repeatHitCount: getRepeatHitCount
+        ? Math.max(1, getRepeatHitCount(entry.nodeId))
+        : (repeatHitCountByNodeId?.get(entry.nodeId) ?? 1),
     }));
 }
 
@@ -3517,6 +3534,10 @@ function toNeuralAnchorListEntries(
 function clearNeuralSubviewData(): void {
   neuralSourceEntries.value = [];
   neuralHistoryEntries.value = [];
+  neuralHistoryTotalCount.value = 0;
+  neuralHistoryHasMore.value = false;
+  neuralHistoryLoadingMore.value = false;
+  neuralHistoryRequestedCount.value = NEURAL_HISTORY_PAGE_SIZE;
   neuralAnchorEntries.value = [];
   neuralCurrentNodeId.value = null;
   neuralNavigationState.value = null;
@@ -3706,11 +3727,13 @@ function buildNeuralTraceBadges(
 }
 
 function resolveNeuralHistoryEventRef(
-  historyEntries: NeuralRoamHistoryEntry[],
+  neuralQueue: ReturnType<typeof getNeuralRoamQueue>,
+  historyEntries: Pick<NeuralRoamHistoryEntry, 'eventId' | 'nodeId'>[],
   navState: NeuralNavigationState,
 ): NeuralHistoryEventRef | null {
   if (neuralTracePinnedToSelection.value && selectedNeuralHistoryEventId.value) {
-    const selectedEntry = historyEntries.find((entry) => entry.eventId === selectedNeuralHistoryEventId.value);
+    const selectedEntry = historyEntries.find((entry) => entry.eventId === selectedNeuralHistoryEventId.value)
+      ?? neuralQueue?.getHistoryEntryByEventId(selectedNeuralHistoryEventId.value);
     if (selectedEntry) {
       return {
         eventId: selectedEntry.eventId,
@@ -3722,7 +3745,8 @@ function resolveNeuralHistoryEventRef(
   }
 
   if (navState.currentEventId) {
-    const currentEntry = historyEntries.find((entry) => entry.eventId === navState.currentEventId);
+    const currentEntry = historyEntries.find((entry) => entry.eventId === navState.currentEventId)
+      ?? neuralQueue?.getHistoryEntryByEventId(navState.currentEventId);
     if (currentEntry) {
       return {
         eventId: currentEntry.eventId,
@@ -3731,7 +3755,9 @@ function resolveNeuralHistoryEventRef(
     }
   }
 
-  const latestEntry = [...historyEntries].sort((a, b) => b.visitedAt - a.visitedAt)[0];
+  const latestEntry = historyEntries[0]
+    ?? neuralQueue?.getHistoryPage({ offset: 0, limit: 1 }).entries[0]
+    ?? null;
   if (!latestEntry) {
     return null;
   }
@@ -3854,7 +3880,6 @@ async function enrichNeuralActivationTraceViewModel(
 
 function resetNeuralTraceConvergenceState(): void {
   neuralTraceConvergenceRequestSeq += 1;
-  neuralTraceHistoryIndex = null;
   neuralTraceConvergenceCache.clear();
   neuralTraceRouteViewModelCache.clear();
 }
@@ -3865,16 +3890,27 @@ function buildNeuralTraceConvergenceCacheKey(traceTargetEventId: string, stepEve
 
 function withNeuralTraceRepeatHitState(
   trace: NeuralActivationTraceViewModel,
-  historyIndex: NeuralHistoryIndex,
+  neuralQueue: ReturnType<typeof getNeuralRoamQueue>,
 ): NeuralActivationTraceViewModel {
-  return {
-    ...trace,
-    steps: trace.steps.map((step) => ({
+  const repeatHitCountByNodeId = new Map<string, number>();
+  const steps = trace.steps.map((step) => {
+    let repeatHitCount = repeatHitCountByNodeId.get(step.nodeId);
+    if (repeatHitCount === undefined) {
+      repeatHitCount = Math.max(1, neuralQueue?.getHistoryHitCount(step.nodeId) ?? 1);
+      repeatHitCountByNodeId.set(step.nodeId, repeatHitCount);
+    }
+
+    return {
       ...step,
-      repeatHitCount: historyIndex.repeatHitCountByNodeId.get(step.nodeId) ?? 1,
+      repeatHitCount,
       convergenceStatus: 'idle' as const,
       convergence: null,
-    })),
+    };
+  });
+
+  return {
+    ...trace,
+    steps,
   };
 }
 
@@ -3988,16 +4024,20 @@ function resolveNeuralConvergenceForTraceStep(
     currentNodeId?: string | null;
   } = {},
 ): NeuralTraceConvergenceViewModel | null {
-  if (!neuralQueue || !neuralTraceHistoryIndex) {
+  if (!neuralQueue) {
     return null;
   }
   const step = trace.steps.find((candidate) => candidate.eventId === stepEventId) ?? null;
   if (!step || (step.repeatHitCount ?? 1) <= 1) {
     return null;
   }
+  const matchingEntries = neuralQueue.getHistoryEntriesByNodeId(step.nodeId);
+  if (matchingEntries.length <= 1) {
+    return null;
+  }
   return resolveNeuralTraceConvergenceForStep({
     step,
-    historyIndex: neuralTraceHistoryIndex,
+    historyIndex: buildNeuralHistoryIndex(matchingEntries),
     currentTrace: trace.targetEventId === stepEventId ? trace : null,
     getActivationTrace: (eventId) => neuralQueue.getActivationTrace(eventId),
     buildTraceViewModel: (routeTrace) => resolveNeuralTraceRouteViewModelByEventId(
@@ -4014,7 +4054,6 @@ function resolveNeuralConvergenceForTraceStep(
 async function buildAggregatedNeuralActivationTraceViewModel(
   neuralQueue: ReturnType<typeof getNeuralRoamQueue>,
   trace: NeuralActivationTrace,
-  historyEntries: NeuralRoamHistoryEntry[],
   options: {
     currentNodeId?: string | null;
     selectedTraceEventId?: string | null;
@@ -4024,8 +4063,7 @@ async function buildAggregatedNeuralActivationTraceViewModel(
   resetNeuralTraceConvergenceState();
   const traceViewModel = buildNeuralActivationTraceViewModel(trace, options);
   const enrichedTrace = await enrichNeuralActivationTraceViewModel(traceViewModel);
-  neuralTraceHistoryIndex = buildNeuralHistoryIndex(historyEntries);
-  let preparedTrace = withNeuralTraceRepeatHitState(enrichedTrace, neuralTraceHistoryIndex);
+  let preparedTrace = withNeuralTraceRepeatHitState(enrichedTrace, neuralQueue);
   neuralTraceRouteViewModelCache.set(preparedTrace.targetEventId, preparedTrace);
 
   const targetStep = preparedTrace.steps[preparedTrace.steps.length - 1] ?? null;
@@ -4053,10 +4091,10 @@ async function buildAggregatedNeuralActivationTraceViewModel(
 
 async function syncNeuralActivationTrace(
   neuralQueue: ReturnType<typeof getNeuralRoamQueue>,
-  historyEntries: NeuralRoamHistoryEntry[],
+  historyEntries: Pick<NeuralRoamHistoryEntry, 'eventId' | 'nodeId'>[],
   navState: NeuralNavigationState,
 ): Promise<void> {
-  if (!neuralQueue || historyEntries.length === 0) {
+  if (!neuralQueue || neuralQueue.getHistoryCount() === 0) {
     selectedNeuralHistoryEventId.value = null;
     neuralActivationTrace.value = null;
     neuralTracePinnedToSelection.value = false;
@@ -4066,7 +4104,7 @@ async function syncNeuralActivationTrace(
     return;
   }
 
-  const targetRef = resolveNeuralHistoryEventRef(historyEntries, navState);
+  const targetRef = resolveNeuralHistoryEventRef(neuralQueue, historyEntries, navState);
   if (!targetRef) {
     selectedNeuralHistoryEventId.value = null;
     neuralActivationTrace.value = null;
@@ -4092,7 +4130,7 @@ async function syncNeuralActivationTrace(
   if (!selectedNeuralTraceNodeId.value || !availableNodeIds.has(selectedNeuralTraceNodeId.value)) {
     selectedNeuralTraceNodeId.value = trace.targetNodeId;
   }
-  neuralActivationTrace.value = await buildAggregatedNeuralActivationTraceViewModel(neuralQueue, trace, historyEntries, {
+  neuralActivationTrace.value = await buildAggregatedNeuralActivationTraceViewModel(neuralQueue, trace, {
     currentNodeId: navState.currentNodeId,
     selectedTraceEventId: selectedNeuralTraceEventId.value,
     selectedTraceNodeId: selectedNeuralTraceNodeId.value,
@@ -4108,20 +4146,26 @@ async function refreshNeuralSubviewData(): Promise<void> {
 
   const navState = neuralQueue.getNavigationState();
   const sourceSnapshot = neuralQueue.getSourceSnapshot();
-  const historySnapshot = neuralQueue.getHistorySnapshot();
+  const historyPage = neuralQueue.getHistoryPage({
+    offset: 0,
+    limit: Math.max(NEURAL_HISTORY_PAGE_SIZE, neuralHistoryRequestedCount.value),
+  });
   const anchorSnapshot = neuralQueue.getAnchorSnapshot();
-  await syncNeuralActivationTrace(neuralQueue, historySnapshot, navState);
+  await syncNeuralActivationTrace(neuralQueue, historyPage.entries, navState);
   const anchorIds = new Set(anchorSnapshot.map((entry) => entry.nodeId));
   neuralSourceEntries.value = toNeuralSourceListEntries(sourceSnapshot, {
     currentNodeId: navState.currentNodeId,
   });
-  neuralHistoryEntries.value = toNeuralHistoryListEntries(historySnapshot, {
+  neuralHistoryEntries.value = toNeuralHistoryListEntries(historyPage.entries, {
     anchorIds,
     currentNodeId: navState.currentNodeId,
     selectedEventId: selectedNeuralHistoryEventId.value,
+    getRepeatHitCount: (nodeId) => neuralQueue.getHistoryHitCount(nodeId),
   });
+  neuralHistoryTotalCount.value = historyPage.totalCount;
+  neuralHistoryHasMore.value = historyPage.hasMore;
   const currentSessionNodeIds = new Set(
-    historySnapshot
+    historyPage.entries
       .filter((entry) => entry.sessionId === navState.sessionId)
       .map((entry) => entry.nodeId)
   );
@@ -4165,10 +4209,9 @@ async function handleNeuralSelectHistoryEntry(entry: Pick<NeuralRoamHistoryEntry
     return;
   }
 
-  const historySnapshot = neuralQueue.getHistorySnapshot();
   const trace = neuralQueue.getActivationTrace(entry.eventId);
   if (trace) {
-    neuralActivationTrace.value = await buildAggregatedNeuralActivationTraceViewModel(neuralQueue, trace, historySnapshot, {
+    neuralActivationTrace.value = await buildAggregatedNeuralActivationTraceViewModel(neuralQueue, trace, {
       currentNodeId: neuralCurrentNodeId.value,
       selectedTraceEventId: selectedNeuralTraceEventId.value,
       selectedTraceNodeId: selectedNeuralTraceNodeId.value,
@@ -4177,11 +4220,11 @@ async function handleNeuralSelectHistoryEntry(entry: Pick<NeuralRoamHistoryEntry
     neuralActivationTrace.value = null;
     resetNeuralTraceConvergenceState();
   }
-  neuralHistoryEntries.value = toNeuralHistoryListEntries(historySnapshot, {
-    anchorIds: new Set(neuralAnchorEntries.value.map((item) => item.nodeId)),
-    currentNodeId: neuralCurrentNodeId.value,
-    selectedEventId: entry.eventId,
-  });
+  neuralHistoryEntries.value = neuralHistoryEntries.value.map((item) => ({
+    ...item,
+    isCurrent: neuralCurrentNodeId.value ? item.nodeId === neuralCurrentNodeId.value : false,
+    isSelected: item.eventId === entry.eventId,
+  }));
 }
 
 async function ensureNeuralStepConvergenceResolved(stepEventId: string): Promise<void> {
@@ -4205,7 +4248,7 @@ async function ensureNeuralStepConvergenceResolved(stepEventId: string): Promise
   }
 
   const neuralQueue = getNeuralRoamQueue();
-  if (!neuralQueue || !neuralTraceHistoryIndex) {
+  if (!neuralQueue) {
     return;
   }
 
@@ -4277,11 +4320,25 @@ async function handleNeuralSwitchTraceEvent(eventId: string): Promise<void> {
   if (!neuralQueue) {
     return;
   }
-  const historyEntry = neuralQueue.getHistorySnapshot().find((entry) => entry.eventId === eventId);
+  const historyEntry = neuralQueue.getHistoryEntryByEventId(eventId);
   if (!historyEntry) {
     return;
   }
   await handleNeuralSelectHistoryEntry(historyEntry);
+}
+
+async function handleNeuralLoadMoreHistory(): Promise<void> {
+  if (neuralHistoryLoadingMore.value || !neuralHistoryHasMore.value) {
+    return;
+  }
+
+  neuralHistoryLoadingMore.value = true;
+  neuralHistoryRequestedCount.value += NEURAL_HISTORY_PAGE_SIZE;
+  try {
+    await refreshNeuralSubviewData();
+  } finally {
+    neuralHistoryLoadingMore.value = false;
+  }
 }
 
 async function handoffNeuralReviewSurface(fallbackNodeId?: string | null): Promise<void> {
@@ -4468,6 +4525,7 @@ async function handleNeuralClearHistory(): Promise<void> {
   }
 
   try {
+    neuralHistoryRequestedCount.value = NEURAL_HISTORY_PAGE_SIZE;
     neuralQueue.clearHistory('all');
     await refreshNeuralSubviewData();
     await refreshQueueCounts();

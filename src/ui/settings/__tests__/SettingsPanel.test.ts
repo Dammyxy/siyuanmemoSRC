@@ -17,6 +17,10 @@ function mountPanel(defaultTab = 'params') {
         settingsCaptureSyncTab: 'Capture & Sync',
         settingsNeuralTab: 'Neural Roam',
         settingsAboutTab: 'About',
+        neuralHistorySettingsTitle: 'Path History',
+        neuralHistorySettingsIntro: 'Path history settings live here.',
+        neuralHistoryMaxEntries: 'Path history limit',
+        neuralHistoryMaxEntriesHint: 'Recommended range 200-5000.',
         hyperspaceSettingsTitle: 'Hyperspace / SuperMemo Fidelity',
         learningQueueTitle: 'Learning & Queue',
         neuralSettingsIntro: 'Hyperspace settings live here.',
@@ -53,11 +57,17 @@ describe('SettingsPanel', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.text()).toContain('Hyperspace / SuperMemo Fidelity');
+    expect(wrapper.text()).toContain('Path History');
     expect(wrapper.text()).toContain('Enable block tree conduction');
     expect(wrapper.text()).toContain('Enable document tree conduction');
     expect(wrapper.text()).toContain('Block-link weight');
 
     const formItems = wrapper.findAll('.form-item');
+    const historyLimitItem = formItems.find((item) => item.text().includes('Path history limit'));
+    const historyLimitInput = historyLimitItem?.find('input[type="number"]');
+    expect(historyLimitInput).toBeDefined();
+    await historyLimitInput!.setValue(4200);
+
     const blockTreeItem = formItems.find((item) => item.text().includes('Enable block tree conduction'));
     const blockTreeToggle = blockTreeItem?.find('input[type="checkbox"]');
     expect(blockTreeToggle).toBeDefined();
@@ -73,6 +83,7 @@ describe('SettingsPanel', () => {
     await saveButton!.trigger('click');
 
     const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.queues.neuralRoam?.history.maxEntries).toBe(4200);
     expect(payload.queues.neuralRoam?.hyperspace.treeChannels.blockTree).toBe(true);
     expect(payload.queues.neuralRoam?.hyperspace.maxLayersPerRepetition).toBe(4);
     expect(payload.queues.neuralRoam?.hyperspace.treeChannels.documentTree).toBe(false);

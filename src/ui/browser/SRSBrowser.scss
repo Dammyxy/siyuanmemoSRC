@@ -999,6 +999,12 @@
   gap: 8px;
 }
 
+.neural-history-list__load-more {
+  position: relative;
+  z-index: 3;
+  margin: 12px 0 4px 24px;
+}
+
 .neural-history-list__timeline-item {
   position: relative;
   padding-left: 22px;

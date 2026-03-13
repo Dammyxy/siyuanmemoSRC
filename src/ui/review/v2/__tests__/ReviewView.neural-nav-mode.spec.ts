@@ -52,6 +52,7 @@ function createNeuralQueue(
   navigationMode: 'follow' | 'explore' = 'follow',
   engineMode: 'orbit' | 'hyperspace' = 'orbit',
 ) {
+  const historyEntries: Array<{ eventId: string; nodeId: string }> = [];
   return {
     getEngineMode: vi.fn(() => engineMode),
     setEngineMode: vi.fn(async () => undefined),
@@ -68,7 +69,16 @@ function createNeuralQueue(
     clearFocusPool: vi.fn(async () => undefined),
     setCurrentFocus: vi.fn(async () => undefined),
     startRoamingFromFocus: vi.fn(async () => undefined),
-    getHistorySnapshot: vi.fn(() => []),
+    getHistoryCount: vi.fn(() => historyEntries.length),
+    getHistoryPage: vi.fn(({ offset, limit }: { offset: number; limit: number }) => ({
+      entries: historyEntries.slice().reverse().slice(offset, offset + limit),
+      totalCount: historyEntries.length,
+      hasMore: offset + limit < historyEntries.length,
+    })),
+    getHistorySnapshot: vi.fn(() => historyEntries),
+    getHistoryEntryByEventId: vi.fn((eventId: string) => historyEntries.find((entry) => entry.eventId === eventId) ?? null),
+    getHistoryEntriesByNodeId: vi.fn((nodeId: string) => historyEntries.filter((entry) => entry.nodeId === nodeId)),
+    getHistoryHitCount: vi.fn((nodeId: string) => historyEntries.filter((entry) => entry.nodeId === nodeId).length),
     getActivationTrace: vi.fn(() => null),
     getSessionFocusStack: vi.fn(() => []),
     getPinnedFocusBlocks: vi.fn(() => []),

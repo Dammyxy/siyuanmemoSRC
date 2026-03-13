@@ -15,6 +15,8 @@ import type {
   NeuralActivationTrace,
   NeuralActivationTraceStep,
   NeuralFocusNodeKind,
+  NeuralHistoryPageRequest,
+  NeuralHistoryPageResult,
   NeuralPropagationOrigin,
   NeuralRoamAnchorEntry,
   NeuralRoamSeedEntry,
@@ -24,6 +26,7 @@ import type {
   NeuralRoamHistoryEntry,
 } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
+import { NeuralHistoryStore } from './NeuralHistoryStore';
 
 const logger = createLogger('ConceptNeuralQueue');
 
@@ -123,6 +126,7 @@ export type ConceptCardValidator = (blockId: string) => Promise<boolean>;
 
 export interface ConceptNeuralQueueOptions {
   isConceptCard?: ConceptCardValidator;
+  getHistoryLimit?: () => number;
 }
 
 export type SeedValidationErrorPolicy = 'remove' | 'keep';
@@ -188,7 +192,6 @@ export class ConceptNeuralQueue {
   private displayPathEventIds: string[] = [];
   private seedPool: Map<string, FocusState> = new Map();
   private anchorPool: Map<string, FocusState> = new Map();
-  private history: NeuralRoamHistoryEntry[] = [];
   private navigationMode: NeuralNavigationMode = 'explore';
   private currentPathIndex = -1;
   private bookmarkPathIndex: number | null = null;
@@ -200,15 +203,26 @@ export class ConceptNeuralQueue {
   private neighborsPerRound = 5;
   private prefetchNeighborCount = 2;
   private prefetchingBlockIds = new Set<string>();
-  private historyLimit = 300;
   private previewLength = 28;
 
   private queryEngine: ConceptQueryEngine;
   private readonly conceptCardValidator: ConceptCardValidator;
+  private readonly getHistoryLimit: () => number;
+  private readonly historyStore: NeuralHistoryStore;
 
   constructor(options: ConceptNeuralQueueOptions = {}) {
     this.queryEngine = new ConceptQueryEngine();
     this.conceptCardValidator = options.isConceptCard ?? (async (blockId: string) => this.queryEngine.isConceptCard(blockId));
+    this.getHistoryLimit = options.getHistoryLimit ?? (() => 3000);
+    this.historyStore = new NeuralHistoryStore(this.resolveHistoryLimit());
+  }
+
+  private resolveHistoryLimit(): number {
+    return clamp(this.getHistoryLimit(), 200, 5000);
+  }
+
+  private syncHistoryCapacity(): void {
+    this.historyStore.setCapacity(this.resolveHistoryLimit());
   }
 
   async getNextCard(): Promise<QueueItem | null> {
@@ -343,7 +357,7 @@ export class ConceptNeuralQueue {
       return [];
     }
 
-    const sessionEntries = this.history
+    const sessionEntries = this.historyStore.toArray()
       .filter((entry) => entry.sessionId === this.currentSessionId)
       .sort((a, b) => b.visitedAt - a.visitedAt);
 
@@ -580,10 +594,10 @@ export class ConceptNeuralQueue {
   clearHistory(scope: 'current' | 'all' = 'current'): void {
     this.invalidatePreload();
     if (scope === 'all') {
-      this.history = [];
+      this.historyStore.clear();
     } else if (this.currentSessionId) {
       const sessionId = this.currentSessionId;
-      this.history = this.history.filter((entry) => entry.sessionId !== sessionId);
+      this.historyStore.removeBySession(sessionId);
     }
 
     this.resetNavigationState();
@@ -593,8 +607,34 @@ export class ConceptNeuralQueue {
     return this.seedPool.size;
   }
 
+  getHistoryCount(sessionId?: string | null): number {
+    this.syncHistoryCapacity();
+    return this.historyStore.getCount(sessionId);
+  }
+
+  getHistoryPage(request: NeuralHistoryPageRequest): NeuralHistoryPageResult {
+    this.syncHistoryCapacity();
+    return this.historyStore.getPage(request);
+  }
+
   getHistorySnapshot(): NeuralRoamHistoryEntry[] {
-    return this.history.map((entry) => ({ ...entry }));
+    this.syncHistoryCapacity();
+    return this.historyStore.toArray();
+  }
+
+  getHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {
+    this.syncHistoryCapacity();
+    return this.historyStore.findByEventId(eventId);
+  }
+
+  getHistoryEntriesByNodeId(nodeId: string): NeuralRoamHistoryEntry[] {
+    this.syncHistoryCapacity();
+    return this.historyStore.getEntriesByNodeId(nodeId);
+  }
+
+  getHistoryHitCount(nodeId: string): number {
+    this.syncHistoryCapacity();
+    return this.historyStore.getHitCount(nodeId);
   }
 
   getActivationTrace(eventId: string): NeuralActivationTrace | null {
@@ -838,13 +878,14 @@ export class ConceptNeuralQueue {
   }
 
   exportSessionState(): ConceptNeuralSessionState {
+    this.syncHistoryCapacity();
     return {
       displayPath: [...this.displayPath],
       displayPathEventIds: [...this.displayPathEventIds],
       currentPathIndex: this.currentPathIndex,
       navigationMode: this.navigationMode,
       bookmarkPathIndex: this.bookmarkPathIndex,
-      history: this.getHistorySnapshot(),
+      history: this.historyStore.toArray(),
       currentFocus: this.currentFocus,
       currentFocusEventId: this.currentFocusEventId,
       branchRootNodeId: this.branchRootNodeId,
@@ -856,8 +897,10 @@ export class ConceptNeuralQueue {
 
   restoreSessionState(state: Partial<ConceptNeuralSessionState> | null | undefined): void {
     this.invalidatePreload();
+    this.syncHistoryCapacity();
     if (!isRecord(state)) {
       this.resetNavigationState();
+      this.historyStore.clear();
       return;
     }
 
@@ -919,7 +962,7 @@ export class ConceptNeuralQueue {
       })));
     }
 
-    const normalizedHistory = history.slice(-this.historyLimit);
+    const normalizedHistory = history.slice(-this.resolveHistoryLimit());
     const resolvedSessionId = typeof state.currentSessionId === 'string' && state.currentSessionId
       ? state.currentSessionId
       : this.resolveLatestSessionId(normalizedHistory);
@@ -932,7 +975,7 @@ export class ConceptNeuralQueue {
     this.currentPathIndex = currentPathIndex;
     this.navigationMode = navigationMode;
     this.bookmarkPathIndex = bookmarkPathIndex;
-    this.history = normalizedHistory;
+    this.historyStore.replaceAll(normalizedHistory);
     this.currentFocus = resolvedCurrentFocus;
     this.currentSessionId = resolvedSessionId;
     this.currentFocusEventId = typeof state.currentFocusEventId === 'string' && state.currentFocusEventId
@@ -940,7 +983,7 @@ export class ConceptNeuralQueue {
       : this.findFocusEventIdForSession(this.currentFocus, this.currentSessionId);
     this.branchRootNodeId = typeof state.branchRootNodeId === 'string' && state.branchRootNodeId
       ? state.branchRootNodeId
-      : this.resolveBranchRootNodeId(this.history, this.currentFocus);
+      : this.resolveBranchRootNodeId(this.historyStore.toArray(), this.currentFocus);
     this.visitedBlocks = visitedBlocks;
     this.exhaustedFocuses = exhaustedFocuses;
     this.followCurrentNodeOnce = false;
@@ -1121,14 +1164,12 @@ export class ConceptNeuralQueue {
     this.followCurrentNodeOnce = false;
     this.visitedBlocks.add(nodeId);
 
-    this.history.push(historyEntry);
+    this.syncHistoryCapacity();
+    this.historyStore.append(historyEntry);
     if (historyEntry.activationKind === 'focus-root') {
       this.currentFocus = nodeId;
       this.currentFocusEventId = historyEntry.eventId;
       this.branchRootNodeId = historyEntry.branchRootNodeId ?? nodeId;
-    }
-    if (this.history.length > this.historyLimit) {
-      this.history.splice(0, this.history.length - this.historyLimit);
     }
 
     return this.buildQueueItem(blockData, meta.associationType, meta.reason);
@@ -1227,13 +1268,8 @@ export class ConceptNeuralQueue {
   }
 
   private findLatestHistoryEntry(blockId: string): NeuralRoamHistoryEntry | null {
-    for (let index = this.history.length - 1; index >= 0; index -= 1) {
-      const entry = this.history[index];
-      if (entry.nodeId === blockId) {
-        return entry;
-      }
-    }
-    return null;
+    const entries = this.historyStore.getEntriesByNodeId(blockId);
+    return entries.length > 0 ? entries[entries.length - 1] : null;
   }
 
   private normalizeHistoryEntry(entry: unknown, index = 0): NeuralRoamHistoryEntry | null {
@@ -1375,7 +1411,7 @@ export class ConceptNeuralQueue {
 
   private buildPathEntriesForSession(sessionId: string): NeuralRoamHistoryEntry[] {
     const path: NeuralRoamHistoryEntry[] = [];
-    for (const entry of this.history) {
+    for (const entry of this.historyStore.toArray()) {
       if (entry.sessionId !== sessionId) {
         continue;
       }
@@ -1428,6 +1464,7 @@ export class ConceptNeuralQueue {
   }
 
   private cloneTraversalState(): TraversalStateSnapshot {
+    this.syncHistoryCapacity();
     return {
       currentFocus: this.currentFocus,
       currentFocusEventId: this.currentFocusEventId,
@@ -1439,7 +1476,7 @@ export class ConceptNeuralQueue {
       displayPathEventIds: [...this.displayPathEventIds],
       seedPool: this.cloneFocusPool(this.seedPool),
       anchorPool: this.cloneFocusPool(this.anchorPool),
-      history: this.history.map((entry) => ({ ...entry })),
+      history: this.historyStore.toArray(),
       navigationMode: this.navigationMode,
       currentPathIndex: this.currentPathIndex,
       bookmarkPathIndex: this.bookmarkPathIndex,
@@ -1464,7 +1501,7 @@ export class ConceptNeuralQueue {
     this.displayPathEventIds = [...snapshot.displayPathEventIds];
     this.seedPool = this.cloneFocusPool(snapshot.seedPool);
     this.anchorPool = this.cloneFocusPool(snapshot.anchorPool);
-    this.history = snapshot.history.map((entry) => ({ ...entry }));
+    this.historyStore.replaceAll(snapshot.history);
     this.navigationMode = snapshot.navigationMode;
     this.currentPathIndex = snapshot.currentPathIndex;
     this.bookmarkPathIndex = snapshot.bookmarkPathIndex;
@@ -1658,8 +1695,9 @@ export class ConceptNeuralQueue {
       snapshot.currentFocusEventId = historyEntry.eventId;
       snapshot.branchRootNodeId = historyEntry.branchRootNodeId ?? nodeId;
     }
-    if (snapshot.history.length > this.historyLimit) {
-      snapshot.history.splice(0, snapshot.history.length - this.historyLimit);
+    const maxEntries = this.resolveHistoryLimit();
+    if (snapshot.history.length > maxEntries) {
+      snapshot.history.splice(0, snapshot.history.length - maxEntries);
     }
 
     return this.buildQueueItem(blockData, meta.associationType, meta.reason);
@@ -1777,17 +1815,11 @@ export class ConceptNeuralQueue {
   }
 
   private findHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {
-    for (let index = this.history.length - 1; index >= 0; index -= 1) {
-      const entry = this.history[index];
-      if (entry.eventId === eventId) {
-        return entry;
-      }
-    }
-    return null;
+    return this.historyStore.findByEventId(eventId);
   }
 
   private findFocusEventIdForSession(focusId: string | null, sessionId: string | null): string | null {
-    return this.findFocusEventIdInHistory(this.history, focusId, sessionId);
+    return this.findFocusEventIdInHistory(this.historyStore.toArray(), focusId, sessionId);
   }
 
   private findFocusEventIdInHistory(

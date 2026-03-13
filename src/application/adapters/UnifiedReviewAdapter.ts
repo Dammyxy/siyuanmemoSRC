@@ -655,7 +655,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   private getNeuralRoamedCount(queue: IQueueStrategy<UnifiedReviewItem>): number {
     const underlying = resolveUnderlyingQueue(queue);
     if (underlying && isNeuralRoamSessionQueue(underlying)) {
-      return Math.max(0, underlying.getHistorySnapshot().length);
+      return Math.max(0, underlying.getHistoryCount());
     }
     return 0;
   }

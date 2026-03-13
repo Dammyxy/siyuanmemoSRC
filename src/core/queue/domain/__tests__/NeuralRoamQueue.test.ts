@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NeuralRoamQueue } from '../NeuralRoamQueue';
 import type { QueuePersistencePort } from '../ports';
-import type { QueueCounterSnapshot } from '@/types/unified-data-source';
+import type { NeuralRoamHistoryEntry, QueueCounterSnapshot } from '@/types/unified-data-source';
 
 function createPersistence(initial: unknown): {
   persistence: QueuePersistencePort;
@@ -74,6 +74,38 @@ function itemCard(blockId: string): LocalCardSeed {
   return {
     blockId,
     type: 'item',
+  };
+}
+
+function createHistoryEntry(
+  index: number,
+  options: {
+    nodeId?: string;
+    sessionId?: string;
+    engineMode?: 'orbit' | 'hyperspace';
+  } = {},
+): NeuralRoamHistoryEntry {
+  const engineMode = options.engineMode ?? 'orbit';
+  return {
+    eventId: `event-${engineMode}-${index}`,
+    nodeId: options.nodeId ?? `node-${index}`,
+    focusId: `focus-${engineMode}`,
+    sessionId: options.sessionId ?? `${engineMode}-session-1`,
+    associationType: engineMode === 'hyperspace' ? 'source' : 'focus',
+    reason: engineMode === 'hyperspace' ? 'source' : 'focus',
+    visitedAt: index + 1,
+    isVirtual: false,
+    nodePreview: `${engineMode}-${index}`,
+    traceQuality: 'exact',
+    engineMode,
+    sourceRole: engineMode === 'hyperspace' ? 'activation-source' : 'orbit-center',
+    origin: engineMode === 'hyperspace' ? 'source' : null,
+    sourceNodeId: null,
+    sourceEventId: null,
+    branchRootNodeId: `focus-${engineMode}`,
+    activationKind: engineMode === 'hyperspace' ? 'source-root' : 'focus-root',
+    depth: null,
+    conductionScore: null,
   };
 }
 
@@ -531,13 +563,20 @@ describe('NeuralRoamQueue', () => {
     expect(firstSessionId).toBeTruthy();
     expect(secondSessionId).toBeTruthy();
     expect(secondSessionId).not.toBe(firstSessionId);
-    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['virtual-1', 'virtual-2']);
+    const historyBeforeClear = queue.getHistorySnapshot();
+    expect(historyBeforeClear.map((entry) => entry.nodeId)).toEqual(['virtual-1', 'virtual-2']);
 
     queue.clearHistory('current');
     expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['virtual-1']);
+    expect(queue.getHistoryCount()).toBe(1);
+    expect(queue.getHistoryEntryByEventId(historyBeforeClear[1].eventId)).toBeNull();
+    expect(queue.getHistoryPage({ offset: 0, limit: 5 }).entries.map((entry) => entry.nodeId)).toEqual(['virtual-1']);
 
     queue.clearHistory('all');
     expect(queue.getHistorySnapshot()).toEqual([]);
+    expect(queue.getHistoryCount()).toBe(0);
+    expect(queue.getHistoryEntriesByNodeId('virtual-1')).toEqual([]);
+    expect(queue.getHistoryHitCount('virtual-1')).toBe(0);
   });
 
   it('forwards seed/anchor wrapper calls', async () => {
@@ -625,5 +664,111 @@ describe('NeuralRoamQueue', () => {
     expect(trace).not.toBeNull();
     expect(trace?.targetNodeId).toBe('concept-a');
     expect(trace?.steps[0]?.nodeId).toBe('concept-a');
+  });
+
+  it('exposes paged history lookups without requiring a full history snapshot', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-a'), conceptCard('concept-b')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.setCurrentFocus('concept-b', {
+      includeFocusAsFirst: true,
+      resetHistory: false,
+    });
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: false,
+    });
+
+    const history = queue.getHistorySnapshot();
+    const latestPage = queue.getHistoryPage({ offset: 0, limit: 2 });
+
+    expect(queue.getHistoryCount()).toBe(3);
+    expect(latestPage.entries.map((entry) => entry.nodeId)).toEqual(['concept-a', 'concept-b']);
+    expect(latestPage.totalCount).toBe(3);
+    expect(latestPage.hasMore).toBe(true);
+    expect(queue.getHistoryEntryByEventId(history[0].eventId)?.nodeId).toBe('concept-a');
+    expect(queue.getHistoryEntriesByNodeId('concept-a').map((entry) => entry.eventId)).toEqual([
+      history[0].eventId,
+      history[2].eventId,
+    ]);
+    expect(queue.getHistoryHitCount('concept-a')).toBe(2);
+  });
+
+  it('applies one shared configured history limit to both orbit and hyperspace on restore', async () => {
+    const orbitHistory = Array.from({ length: 205 }, (_, index) => createHistoryEntry(index, {
+      engineMode: 'orbit',
+      nodeId: `orbit-node-${index}`,
+      sessionId: 'orbit-session-1',
+    }));
+    const hyperspaceHistory = Array.from({ length: 205 }, (_, index) => createHistoryEntry(index, {
+      engineMode: 'hyperspace',
+      nodeId: `hyperspace-node-${index}`,
+      sessionId: 'hyperspace-session-1',
+    }));
+    const { persistence } = createPersistence({
+      version: 7,
+      engineMode: 'orbit',
+      orbit: {
+        seedPool: [],
+        anchorPool: [],
+        session: {
+          displayPath: ['orbit-node-204'],
+          displayPathEventIds: ['event-orbit-204'],
+          currentPathIndex: 0,
+          navigationMode: 'follow',
+          bookmarkPathIndex: null,
+          history: orbitHistory,
+          currentFocus: 'orbit-node-204',
+          currentFocusEventId: 'event-orbit-204',
+          branchRootNodeId: 'focus-orbit',
+          currentSessionId: 'orbit-session-1',
+          visitedBlocks: orbitHistory.map((entry) => entry.nodeId),
+          exhaustedFocuses: [],
+        },
+      },
+      hyperspace: {
+        sourcePool: [],
+        anchorPool: [],
+        session: {
+          displayPath: ['hyperspace-node-204'],
+          displayPathEventIds: ['event-hyperspace-204'],
+          currentPathIndex: 0,
+          navigationMode: 'follow',
+          bookmarkPathIndex: null,
+          history: hyperspaceHistory,
+          currentLeadSource: 'hyperspace-node-204',
+          currentLeadSourceEventId: 'event-hyperspace-204',
+          branchRootNodeId: 'focus-hyperspace',
+          currentSessionId: 'hyperspace-session-1',
+          visitedBlocks: hyperspaceHistory.map((entry) => entry.nodeId),
+          frontier: [],
+          exhaustedSources: [],
+        },
+      },
+    });
+    const manager = createManager();
+    const queue = new NeuralRoamQueue(manager.manager, persistence, {
+      getHistoryLimit: () => 200,
+    });
+
+    await queue.load();
+
+    const conceptQueue = (queue as any).conceptQueue;
+    const hyperspaceEngine = (queue as any).hyperspaceEngine;
+
+    expect(conceptQueue.getHistoryCount()).toBe(200);
+    expect(conceptQueue.getHistorySnapshot()[0]?.nodeId).toBe('orbit-node-5');
+    expect(hyperspaceEngine.getHistoryCount()).toBe(200);
+    expect(hyperspaceEngine.getHistorySnapshot()[0]?.nodeId).toBe('hyperspace-node-5');
   });
 });

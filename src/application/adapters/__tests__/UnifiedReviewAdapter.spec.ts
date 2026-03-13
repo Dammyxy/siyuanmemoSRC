@@ -61,11 +61,19 @@ function createContext(overrides?: Partial<NonNullable<AdapterContext['session']
 }
 
 function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1, historyLength = 0) {
+  const historyEntries = Array.from({ length: historyLength }, (_, index) => ({
+    eventId: `event-${index}`,
+    nodeId: `node-${index}`,
+  }));
   return {
     getCards: async () => [
       createCard('concept-1', CardType.Concept),
       createCard('concept-2', CardType.Concept),
     ],
+    getEngineMode: () => 'orbit' as const,
+    setEngineMode: async () => undefined,
+    getSourceSnapshot: () => [],
+    setSourceEntry: async () => undefined,
     getSeedSnapshot: () => [],
     setSeedEntry: async () => undefined,
     getAnchorSnapshot: () => [],
@@ -77,9 +85,23 @@ function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1, histo
     clearFocusPool: async () => undefined,
     setCurrentFocus: async () => undefined,
     startRoamingFromFocus: async () => undefined,
-    getHistorySnapshot: () => Array.from({ length: historyLength }, (_, index) => ({
-      nodeId: `node-${index}`,
-    })),
+    getHistoryCount: () => historyEntries.length,
+    getHistoryPage: ({ offset, limit }: { offset: number; limit: number }) => {
+      const ordered = historyEntries.slice().reverse();
+      const safeOffset = Math.max(0, offset);
+      const safeLimit = Math.max(1, limit);
+      const entries = ordered.slice(safeOffset, safeOffset + safeLimit);
+      return {
+        entries,
+        totalCount: ordered.length,
+        hasMore: safeOffset + entries.length < ordered.length,
+      };
+    },
+    getHistorySnapshot: () => historyEntries,
+    getHistoryEntryByEventId: (eventId: string) => historyEntries.find((entry) => entry.eventId === eventId) ?? null,
+    getHistoryEntriesByNodeId: (nodeId: string) => historyEntries.filter((entry) => entry.nodeId === nodeId),
+    getHistoryHitCount: (nodeId: string) => historyEntries.filter((entry) => entry.nodeId === nodeId).length,
+    getActivationTrace: () => null,
     getSessionFocusStack: () => [],
     getPinnedFocusBlocks: () => [],
     setPinnedFocusBlock: async () => undefined,

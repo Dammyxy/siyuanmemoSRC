@@ -13,6 +13,8 @@ import {
   type NeuralNavigationMode,
   type NeuralNavigationState,
   type NeuralRoamFocusEntry,
+  type NeuralHistoryPageRequest,
+  type NeuralHistoryPageResult,
   type NeuralRoamHistoryEntry,
   type QueueReviewResult,
   type NeuralRoamSeedEntry,
@@ -83,6 +85,7 @@ interface NeuralRoamPersistedStateV7 {
 
 interface NeuralRoamQueueOptions {
   cardTypeResolver?: NeuralRoamCardTypeResolverPort;
+  getHistoryLimit?: () => number;
   getHyperspaceSettings?: () => HyperspaceSettings;
 }
 
@@ -227,6 +230,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private readonly STORAGE_KEY = 'neuralRoamQueue';
   private readonly queuePersistence: QueuePersistencePort;
   private readonly cardTypeResolver: NeuralRoamCardTypeResolverPort;
+  private readonly getHistoryLimit?: () => number;
   private readonly getHyperspaceSettings?: () => HyperspaceSettings;
   private readonly cardTypeCache = new Map<string, CachedCardType>();
   private readonly cardTypeCacheTtlMs = 60_000;
@@ -241,6 +245,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     super(manager, QueueType.NeuralRoam);
     this.queuePersistence = queuePersistence;
     this.cardTypeResolver = options.cardTypeResolver ?? DEFAULT_CARD_TYPE_RESOLVER;
+    this.getHistoryLimit = options.getHistoryLimit;
     this.getHyperspaceSettings = options.getHyperspaceSettings;
     this.conceptQueue = new ConceptNeuralQueue({
       isConceptCard: async (blockId: string) => {
@@ -250,8 +255,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         }
         return conceptStatus === 'concept';
       },
+      getHistoryLimit: this.getHistoryLimit,
     });
     this.hyperspaceEngine = new HyperspaceEngine(undefined, {
+      getHistoryLimit: this.getHistoryLimit,
       getSettings: this.getHyperspaceSettings,
     });
   }
@@ -310,18 +317,40 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private getSessionVisibleNodeIds(limit = 80): string[] {
     const activeEngine = this.getActiveEngine();
     const navState = activeEngine.getNavigationState();
-    const history = activeEngine.getHistorySnapshot();
     const sessionId = navState.sessionId;
-    const path = history
-      .filter((entry) => !sessionId || entry.sessionId === sessionId)
-      .reduce<string[]>((result, entry) => {
-        if (result[result.length - 1] !== entry.nodeId) {
-          result.push(entry.nodeId);
-        }
-        return result;
-      }, []);
     const safeLimit = Math.max(1, Math.min(Math.floor(limit), 500));
-    return path.slice(Math.max(0, path.length - safeLimit));
+    const pageSize = Math.max(40, Math.min(200, safeLimit * 2));
+    const dedupedNewestFirst: string[] = [];
+    let lastNodeId: string | null = null;
+    let offset = 0;
+
+    while (dedupedNewestFirst.length < safeLimit) {
+      const page = activeEngine.getHistoryPage({
+        offset,
+        limit: pageSize,
+        sessionId,
+      });
+      if (page.entries.length === 0) {
+        break;
+      }
+
+      for (const entry of page.entries) {
+        if (entry.nodeId !== lastNodeId) {
+          dedupedNewestFirst.push(entry.nodeId);
+          lastNodeId = entry.nodeId;
+          if (dedupedNewestFirst.length >= safeLimit) {
+            break;
+          }
+        }
+      }
+
+      if (!page.hasMore) {
+        break;
+      }
+      offset += page.entries.length;
+    }
+
+    return dedupedNewestFirst.reverse();
   }
 
   async load(): Promise<void> {
@@ -685,8 +714,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       return true;
     }
 
-    const history = this.hyperspaceEngine.getHistorySnapshot();
-    const latest = history[history.length - 1];
+    const latest = this.hyperspaceEngine.getHistoryPage({ offset: 0, limit: 1 }).entries[0];
     return latest?.nodeId === normalized && latest.activationKind === 'source-root';
   }
 
@@ -701,8 +729,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       return true;
     }
 
-    const history = this.conceptQueue.getHistorySnapshot();
-    const latest = history[history.length - 1];
+    const latest = this.conceptQueue.getHistoryPage({ offset: 0, limit: 1 }).entries[0];
     return latest?.nodeId === normalized && latest.activationKind === 'focus-root';
   }
 
@@ -805,6 +832,26 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public getHistorySnapshot(): NeuralRoamHistoryEntry[] {
     return this.getActiveEngine().getHistorySnapshot();
+  }
+
+  public getHistoryCount(sessionId?: string | null): number {
+    return this.getActiveEngine().getHistoryCount(sessionId);
+  }
+
+  public getHistoryPage(request: NeuralHistoryPageRequest): NeuralHistoryPageResult {
+    return this.getActiveEngine().getHistoryPage(request);
+  }
+
+  public getHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {
+    return this.getActiveEngine().getHistoryEntryByEventId(eventId);
+  }
+
+  public getHistoryEntriesByNodeId(nodeId: string): NeuralRoamHistoryEntry[] {
+    return this.getActiveEngine().getHistoryEntriesByNodeId(nodeId);
+  }
+
+  public getHistoryHitCount(nodeId: string): number {
+    return this.getActiveEngine().getHistoryHitCount(nodeId);
   }
 
   public getActivationTrace(eventId: string): NeuralActivationTrace | null {

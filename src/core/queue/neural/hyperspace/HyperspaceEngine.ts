@@ -6,6 +6,8 @@ import type {
   NeuralActivationTraceStep,
   NeuralAssociationType,
   NeuralEngineMode,
+  NeuralHistoryPageRequest,
+  NeuralHistoryPageResult,
   NeuralNavigationMode,
   NeuralNavigationState,
   NeuralRoamAnchorEntry,
@@ -19,6 +21,7 @@ import type {
 import { createLogger } from '@/utils/logger';
 import type { BlockData } from '../ConceptQueryEngine';
 import { NeuralGraphProvider, type NeuralGraphChannel, type NeuralGraphEdge } from '../graph/NeuralGraphProvider';
+import { NeuralHistoryStore } from '../NeuralHistoryStore';
 
 const logger = createLogger('HyperspaceEngine');
 const ENGINE_MODE: NeuralEngineMode = 'hyperspace';
@@ -116,6 +119,7 @@ interface PathItemOptions {
 
 interface HyperspaceEngineOptions {
   getSettings?: () => HyperspaceSettings;
+  getHistoryLimit?: () => number;
   random?: () => number;
 }
 
@@ -221,14 +225,14 @@ function buildReasonText(type: NeuralAssociationType | NeuralPropagationOrigin):
 
 export class HyperspaceEngine {
   private readonly graphProvider: NeuralGraphProvider;
-  private readonly historyLimit = 400;
   private readonly previewLength = 72;
   private readonly getSettingsSnapshot: () => HyperspaceSettings;
+  private readonly getHistoryLimit: () => number;
   private readonly random: () => number;
+  private readonly historyStore: NeuralHistoryStore;
 
   private sourcePool = new Map<string, SourceState>();
   private anchorPool = new Map<string, SourceState>();
-  private history: NeuralRoamHistoryEntry[] = [];
   private displayPath: string[] = [];
   private displayPathEventIds: string[] = [];
   private currentPathIndex = -1;
@@ -252,7 +256,17 @@ export class HyperspaceEngine {
   constructor(graphProvider?: NeuralGraphProvider, options: HyperspaceEngineOptions = {}) {
     this.graphProvider = graphProvider ?? new NeuralGraphProvider();
     this.getSettingsSnapshot = options.getSettings ?? (() => DEFAULT_HYPERSPACE_SETTINGS);
+    this.getHistoryLimit = options.getHistoryLimit ?? (() => 3000);
     this.random = options.random ?? (() => Math.random());
+    this.historyStore = new NeuralHistoryStore(this.resolveHistoryLimit());
+  }
+
+  private resolveHistoryLimit(): number {
+    return clamp(this.getHistoryLimit(), 200, 5000);
+  }
+
+  private syncHistoryCapacity(): void {
+    this.historyStore.setCapacity(this.resolveHistoryLimit());
   }
 
   getEngineMode(): NeuralEngineMode {
@@ -436,19 +450,49 @@ export class HyperspaceEngine {
     this.followCurrentNodeOnce = true;
     this.currentSessionId = target.sessionId;
     this.currentLeadSource = target.branchRootNodeId ?? target.focusId ?? target.nodeId;
-    this.currentLeadSourceEventId = this.findSourceEventIdInHistory(this.history, this.currentLeadSource, target.sessionId);
+    this.currentLeadSourceEventId = this.findSourceEventIdInHistory(
+      this.historyStore.toArray(),
+      this.currentLeadSource,
+      target.sessionId,
+    );
     this.branchRootNodeId = target.branchRootNodeId ?? target.focusId ?? target.nodeId;
     return true;
   }
 
+  getHistoryCount(sessionId?: string | null): number {
+    this.syncHistoryCapacity();
+    return this.historyStore.getCount(sessionId);
+  }
+
+  getHistoryPage(request: NeuralHistoryPageRequest): NeuralHistoryPageResult {
+    this.syncHistoryCapacity();
+    return this.historyStore.getPage(request);
+  }
+
   getHistorySnapshot(): NeuralRoamHistoryEntry[] {
-    return this.history.map((entry) => ({ ...entry }));
+    this.syncHistoryCapacity();
+    return this.historyStore.toArray();
+  }
+
+  getHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {
+    this.syncHistoryCapacity();
+    return this.historyStore.findByEventId(eventId);
+  }
+
+  getHistoryEntriesByNodeId(nodeId: string): NeuralRoamHistoryEntry[] {
+    this.syncHistoryCapacity();
+    return this.historyStore.getEntriesByNodeId(nodeId);
+  }
+
+  getHistoryHitCount(nodeId: string): number {
+    this.syncHistoryCapacity();
+    return this.historyStore.getHitCount(nodeId);
   }
 
   getSessionFocusStack(): NeuralRoamHistoryEntry[] {
     if (!this.currentSessionId) return [];
     const deduped = new Map<string, NeuralRoamHistoryEntry>();
-    for (const entry of this.history) {
+    for (const entry of this.historyStore.toArray()) {
       if (entry.sessionId !== this.currentSessionId || entry.activationKind !== 'source-root') {
         continue;
       }
@@ -490,9 +534,9 @@ export class HyperspaceEngine {
 
   clearHistory(scope: 'current' | 'all' = 'current'): void {
     if (scope === 'all' || !this.currentSessionId) {
-      this.history = [];
+      this.historyStore.clear();
     } else {
-      this.history = this.history.filter((entry) => entry.sessionId !== this.currentSessionId);
+      this.historyStore.removeBySession(this.currentSessionId);
     }
     this.displayPath = [];
     this.displayPathEventIds = [];
@@ -620,13 +664,14 @@ export class HyperspaceEngine {
   }
 
   exportSessionState(): HyperspaceSessionState {
+    this.syncHistoryCapacity();
     return {
       displayPath: [...this.displayPath],
       displayPathEventIds: [...this.displayPathEventIds],
       currentPathIndex: this.currentPathIndex,
       navigationMode: this.navigationMode,
       bookmarkPathIndex: this.bookmarkPathIndex,
-      history: this.getHistorySnapshot(),
+      history: this.historyStore.toArray(),
       currentLeadSource: this.currentLeadSource,
       currentLeadSourceEventId: this.currentLeadSourceEventId,
       branchRootNodeId: this.branchRootNodeId,
@@ -677,20 +722,22 @@ export class HyperspaceEngine {
 
   restoreSessionState(state: Partial<HyperspaceSessionState> | null | undefined): void {
     this.clearDeferredExpansionState();
+    this.syncHistoryCapacity();
     if (!isRecord(state)) {
       this.clearHistory('all');
       return;
     }
 
     this.displayPath = Array.isArray(state.displayPath) ? state.displayPath.map(String).filter(Boolean) : [];
-    this.history = Array.isArray(state.history)
+    const normalizedHistory = Array.isArray(state.history)
       ? state.history
         .map((entry, index) => this.normalizeHistoryEntry(entry, index))
         .filter((entry): entry is NeuralRoamHistoryEntry => Boolean(entry))
       : [];
+    this.historyStore.replaceAll(normalizedHistory);
     this.displayPathEventIds = Array.isArray(state.displayPathEventIds)
       ? state.displayPathEventIds.map(String).filter(Boolean)
-      : this.rebuildDisplayPathEventIds(this.displayPath, this.history);
+      : this.rebuildDisplayPathEventIds(this.displayPath, normalizedHistory);
     this.currentPathIndex = this.displayPath.length > 0
       ? clamp(Number(state.currentPathIndex) || 0, 0, this.displayPath.length - 1)
       : -1;
@@ -1277,7 +1324,7 @@ export class HyperspaceEngine {
 
   private hasSourceRootInCurrentSession(nodeId: string): boolean {
     if (!this.currentSessionId) return false;
-    return this.history.some((entry) =>
+    return this.historyStore.toArray().some((entry) =>
       entry.sessionId === this.currentSessionId
       && entry.nodeId === nodeId
       && entry.activationKind === 'source-root'
@@ -1332,10 +1379,8 @@ export class HyperspaceEngine {
   private commitHistoryEntry(entry: NeuralRoamHistoryEntry): void {
     this.touchSource(entry.branchRootNodeId ?? entry.focusId ?? entry.nodeId);
     this.touchAnchor(entry.nodeId);
-    this.history.push(entry);
-    if (this.history.length > this.historyLimit) {
-      this.history = this.history.slice(-this.historyLimit);
-    }
+    this.syncHistoryCapacity();
+    this.historyStore.append(entry);
 
     if (this.currentPathIndex >= 0 && this.currentPathIndex < this.displayPath.length - 1) {
       this.displayPath = this.displayPath.slice(0, this.currentPathIndex + 1);
@@ -1393,22 +1438,17 @@ export class HyperspaceEngine {
   }
 
   private findLatestHistoryEntry(blockId: string): NeuralRoamHistoryEntry | null {
-    for (let index = this.history.length - 1; index >= 0; index -= 1) {
-      if (this.history[index].nodeId === blockId) return this.history[index];
-    }
-    return null;
+    const entries = this.historyStore.getEntriesByNodeId(blockId);
+    return entries.length > 0 ? entries[entries.length - 1] : null;
   }
 
   private findHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null {
-    for (let index = this.history.length - 1; index >= 0; index -= 1) {
-      if (this.history[index].eventId === eventId) return this.history[index];
-    }
-    return null;
+    return this.historyStore.findByEventId(eventId);
   }
 
   private buildPathEntriesForSession(sessionId: string): NeuralRoamHistoryEntry[] {
     const result: NeuralRoamHistoryEntry[] = [];
-    for (const entry of this.history) {
+    for (const entry of this.historyStore.toArray()) {
       if (entry.sessionId !== sessionId) continue;
       if (result[result.length - 1]?.eventId !== entry.eventId) {
         result.push(entry);

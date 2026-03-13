@@ -19,7 +19,7 @@
       {{ t('historyTimelineHint', 'Timeline from latest to earliest. Click to preview, double-click to jump.') }}
     </div>
 
-    <div class="neural-history-list__content">
+    <div ref="contentRef" class="neural-history-list__content" @scroll="handleScroll">
       <div v-if="filteredEntries.length === 0" class="neural-list__empty">
         {{ t('noHistory', 'No path history') }}
       </div>
@@ -27,9 +27,15 @@
         <div class="neural-history-list__direction" aria-hidden="true">
           <span class="neural-history-list__direction-arrow"></span>
         </div>
-        <ol class="neural-history-list__timeline">
+        <ol
+          class="neural-history-list__timeline"
+          :style="{
+            paddingTop: `${virtualTopPadding}px`,
+            paddingBottom: `${virtualBottomPadding}px`,
+          }"
+        >
           <li
-            v-for="entry in filteredEntries"
+            v-for="entry in visibleEntries"
             :key="entry.eventId"
             class="neural-history-list__timeline-item"
             :class="{
@@ -87,19 +93,39 @@
             </div>
           </li>
         </ol>
+        <button
+          v-if="hasMore"
+          type="button"
+          class="b3-button b3-button--outline neural-history-list__load-more"
+          :disabled="loadingMore"
+          @click="$emit('load-more')"
+        >
+          {{
+            loadingMore
+              ? t('loadingOlderHistory', 'Loading earlier history...')
+              : t('loadOlderHistory', 'Load earlier history')
+          }}
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import type { NeuralListEntry } from './types';
+
+const VIRTUAL_ITEM_HEIGHT = 88;
+const VIRTUAL_OVERSCAN = 20;
+const DEFAULT_VIEWPORT_HEIGHT = VIRTUAL_ITEM_HEIGHT * 6;
 
 const props = defineProps<{
   i18n?: Record<string, string>;
   entries: NeuralListEntry[];
+  totalCount?: number;
+  hasMore?: boolean;
+  loadingMore?: boolean;
   currentNodeId?: string | null;
   selectedEventId?: string | null;
   engineMode?: 'orbit' | 'hyperspace';
@@ -112,9 +138,14 @@ const emit = defineEmits<{
   (e: 'clear-history'): void;
   (e: 'set-current-focus', nodeId: string): void;
   (e: 'toggle-anchor', nodeId: string, enabled: boolean): void;
+  (e: 'load-more'): void;
 }>();
 
 const search = ref('');
+const contentRef = ref<HTMLDivElement | null>(null);
+const viewportHeight = ref(DEFAULT_VIEWPORT_HEIGHT);
+const scrollTop = ref(0);
+let resizeObserver: ResizeObserver | null = null;
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -149,6 +180,20 @@ const filteredEntries = computed(() =>
 
 const canClearHistory = computed(() => filteredEntries.value.length > 0);
 const labels = computed(() => getNeuralSourceLabelSet(props.engineMode || 'orbit', t));
+const totalVirtualHeight = computed(() => filteredEntries.value.length * VIRTUAL_ITEM_HEIGHT);
+const visibleRange = computed(() => {
+  const start = Math.max(0, Math.floor(scrollTop.value / VIRTUAL_ITEM_HEIGHT) - VIRTUAL_OVERSCAN);
+  const visibleCount = Math.max(1, Math.ceil(viewportHeight.value / VIRTUAL_ITEM_HEIGHT) + (VIRTUAL_OVERSCAN * 2));
+  const end = Math.min(filteredEntries.value.length, start + visibleCount);
+  return { start, end };
+});
+const visibleEntries = computed(() => filteredEntries.value.slice(visibleRange.value.start, visibleRange.value.end));
+const virtualTopPadding = computed(() => visibleRange.value.start * VIRTUAL_ITEM_HEIGHT);
+const virtualBottomPadding = computed(() =>
+  Math.max(0, totalVirtualHeight.value - virtualTopPadding.value - (visibleEntries.value.length * VIRTUAL_ITEM_HEIGHT))
+);
+const hasMore = computed(() => Boolean(props.hasMore));
+const loadingMore = computed(() => Boolean(props.loadingMore));
 
 function formatMeta(entry: NeuralListEntry): string {
   const relationMap: Record<string, string> = {
@@ -220,4 +265,35 @@ function handleSelect(entry: NeuralListEntry): void {
   emit('select', entry);
   emit('preview', entry.nodeId);
 }
+
+function updateViewportMetrics(): void {
+  const root = contentRef.value;
+  if (!root) {
+    viewportHeight.value = DEFAULT_VIEWPORT_HEIGHT;
+    return;
+  }
+  viewportHeight.value = Math.max(root.clientHeight || 0, DEFAULT_VIEWPORT_HEIGHT);
+  scrollTop.value = root.scrollTop || 0;
+}
+
+function handleScroll(): void {
+  scrollTop.value = contentRef.value?.scrollTop || 0;
+}
+
+onMounted(async () => {
+  await nextTick();
+  updateViewportMetrics();
+  if (typeof ResizeObserver === 'undefined' || !contentRef.value) {
+    return;
+  }
+  resizeObserver = new ResizeObserver(() => {
+    updateViewportMetrics();
+  });
+  resizeObserver.observe(contentRef.value);
+});
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+});
 </script>

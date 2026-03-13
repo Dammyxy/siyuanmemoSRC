@@ -1700,7 +1700,11 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
     return;
   }
 
-  const history = neuralQueue.getHistorySnapshot();
+  const totalHistoryCount = neuralQueue.getHistoryCount();
+  const jumpCandidates = neuralQueue.getHistoryPage({
+    offset: 0,
+    limit: 20,
+  }).entries.slice().reverse();
   const menu = new Menu('neural-history-menu');
 
   menu.addItem({
@@ -1719,13 +1723,12 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
     },
   });
 
-  const jumpCandidates = history.slice(-20);
   menu.addItem({
     icon: 'iconOpen',
     label: t('jumpHistoryNode', '跳转轨迹节点'),
     disabled: jumpCandidates.length === 0,
     submenu: jumpCandidates.map((entry, index) => ({
-      label: buildHistoryLabel(entry, history.length - jumpCandidates.length + index + 1),
+      label: buildHistoryLabel(entry, totalHistoryCount - jumpCandidates.length + index + 1),
       click: async () => {
         const jumped = await neuralQueue.jumpToHistoryNode(entry.nodeId);
         if (!jumped) {

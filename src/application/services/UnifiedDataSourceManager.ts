@@ -48,6 +48,9 @@ interface UnifiedManagerPluginContextLike {
                     enabled?: unknown;
                 };
                 neuralRoam?: {
+                    history?: {
+                        maxEntries?: unknown;
+                    };
                     hyperspace?: HyperspaceSettings;
                 };
             };
@@ -359,6 +362,21 @@ export class UnifiedDataSourceManager {
             activationCarryDecay: 0.72,
             raceRandomness: 0.12,
         };
+    }
+
+    public getNeuralRoamHistoryMaxEntries(): number {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const value = Number(settingsService?.getSettings?.()?.queues?.neuralRoam?.history?.maxEntries);
+            if (Number.isFinite(value)) {
+                return Math.max(200, Math.min(5000, Math.floor(value)));
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve neuralRoam.history.maxEntries from settings service:', error);
+        }
+
+        return 3000;
     }
 
     private isLoadableQueue(queue: IReviewQueue): queue is IReviewQueue & { load: () => Promise<void> } {
@@ -732,6 +750,7 @@ export class UnifiedDataSourceManager {
                     cardTypeResolver: {
                         resolveCardType: async (blockId: string) => this.resolveNeuralRoamCardTypeFromLocalCard(blockId),
                     },
+                    getHistoryLimit: () => this.getNeuralRoamHistoryMaxEntries(),
                     getHyperspaceSettings: () => this.getNeuralRoamHyperspaceSettings(),
                 });
             

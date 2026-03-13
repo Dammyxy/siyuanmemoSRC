@@ -7,6 +7,16 @@ Last update: 2026-03-11 (Round 33)
 Use this section for task-level debt tracking when a task touches production code under `src/`.
 Do not add an entry for skill-only or docs-only work.
 
+### 2026-03-13 - neural roam history ring buffer, paging, and virtualized browser path
+
+- Task: Expand neural roam history past the old 300/400-entry split limit without dragging down queue responsiveness or browser-side trajectory-path rendering.
+- Touched slice: Neural roam queue/history core in `src/core/queue/domain/NeuralRoamQueue.ts`, `src/core/queue/neural/ConceptNeuralQueue.ts`, `src/core/queue/neural/NeuralHistoryStore.ts`, and `src/core/queue/neural/hyperspace/HyperspaceEngine.ts`; browser neural history/wake surfaces in `src/ui/browser/SRSBrowser.vue` and `src/ui/browser/neural/NeuralHistoryList.vue`; plus settings/i18n and targeted tests.
+- Debt fixed now: Replaced divergent orbit/hyperspace hard caps with one configurable shared history store, moved browser neural refresh off the eager full-history snapshot path, added paged history/event/node-hit queries, and bounded history DOM cost with explicit load-more plus windowed rendering.
+- Debt deferred: Anchor `inHistory` highlighting still derives from the currently loaded history window instead of an exact full-session node-membership index, and there is still no mounted `SRSBrowser` integration spec that exercises first-page load, load-more, selection, and wake convergence together.
+- Why deferred: Exact session-wide membership needs either another queue-side read model or a broader history query surface, while a realistic browser integration harness would be heavier and more brittle than the bounded unit coverage added in this task.
+- Next safe step: Extract one queue-level session history membership query/index and add one focused browser integration spec around paged history loading plus wake selection/convergence behavior.
+- Validation: `pnpm vitest run src/core/queue/neural/__tests__/NeuralHistoryStore.test.ts src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/ui/browser/neural/__tests__/NeuralHistoryList.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/ui/review/v2/__tests__/ReviewView.neural-nav-mode.spec.ts src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts`; `pnpm build`.
+
 ### 2026-03-11 - neural history selected-frame override alignment
 
 - Task: Fix the roam-history selected row so it no longer looks dimmer than Wake due to its own timeline-specific selected-style override.

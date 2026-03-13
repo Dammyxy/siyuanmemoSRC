@@ -149,6 +149,36 @@ describe('NeuralHistoryList', () => {
     await wrapper.find('.neural-list__toolbar-action').trigger('click');
     expect(wrapper.emitted('clear-history')?.[0]).toEqual([]);
   });
+
+  it('emits load-more when the older-history button is clicked', async () => {
+    const wrapper = mount(NeuralHistoryList, {
+      props: {
+        entries,
+        hasMore: true,
+      },
+    });
+
+    await wrapper.find('.neural-history-list__load-more').trigger('click');
+    expect(wrapper.emitted('load-more')?.[0]).toEqual([]);
+  });
+
+  it('window-renders large history lists instead of mounting every row', () => {
+    const wrapper = mount(NeuralHistoryList, {
+      props: {
+        entries: Array.from({ length: 5000 }, (_, index) => entry({
+          eventId: `event-${index}`,
+          nodeId: `node-${index}`,
+          nodePreview: `History ${index}`,
+          visitedAt: 10_000 - index,
+        })),
+      },
+    });
+
+    const renderedRows = wrapper.findAll('.neural-history-list__timeline-item');
+    expect(renderedRows.length).toBeGreaterThan(0);
+    expect(renderedRows.length).toBeLessThan(80);
+  });
+
   it('hides internal graph-edge labels while keeping concrete relation labels', () => {
     const wrapper = mount(NeuralHistoryList, {
       props: {

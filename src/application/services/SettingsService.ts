@@ -315,6 +315,16 @@ export class SettingsService implements ISettingsService {
       }
     }
 
+    const neuralHistory = settings.queues?.neuralRoam?.history;
+    if (neuralHistory) {
+      this.validateFiniteRange(
+        neuralHistory.maxEntries,
+        200,
+        5000,
+        'queues.neuralRoam.history.maxEntries'
+      );
+    }
+
     const hyperspace = settings.queues?.neuralRoam?.hyperspace;
     if (hyperspace) {
       if (hyperspace.treeChannels?.blockTree !== undefined && typeof hyperspace.treeChannels.blockTree !== 'boolean') {

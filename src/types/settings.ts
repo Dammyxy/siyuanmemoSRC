@@ -190,7 +190,12 @@ export interface HyperspaceSettings {
     raceRandomness: number;
 }
 
+export interface NeuralRoamHistorySettings {
+    maxEntries: number;
+}
+
 export interface NeuralRoamSettings {
+    history: NeuralRoamHistorySettings;
     hyperspace: HyperspaceSettings;
 }
 
@@ -357,6 +362,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             neuralRoam: {
                 ...DEFAULT_SETTINGS.queues.neuralRoam,
                 ...(settings.queues?.neuralRoam || {}),
+                history: {
+                    ...DEFAULT_SETTINGS.queues.neuralRoam?.history,
+                    ...(settings.queues?.neuralRoam?.history || {}),
+                },
                 hyperspace: {
                     ...DEFAULT_SETTINGS.queues.neuralRoam?.hyperspace,
                     ...(settings.queues?.neuralRoam?.hyperspace || {}),
@@ -585,6 +594,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
             },
         },
         neuralRoam: {
+            history: {
+                maxEntries: 3000,
+            },
             hyperspace: {
                 treeChannels: {
                     blockTree: false,

@@ -387,6 +387,23 @@
       </div>
 
       <div v-show="activeTab === 'neural'" class="settings-section">
+        <h3>{{ t('neuralHistorySettingsTitle', '轨迹历史') }}</h3>
+        <p class="form-hint form-hint--section">
+          {{ t('neuralHistorySettingsIntro', '控制神经漫游跨重启保留的轨迹历史上限。更大的历史有助于回溯路径，但会增加持久化体积。') }}
+        </p>
+
+        <div class="form-item">
+          <label>{{ t('neuralHistoryMaxEntries', '轨迹历史上限') }}</label>
+          <div class="form-control">
+            <input type="number" min="200" max="5000" step="100" v-model.number="queueSettings.neuralRoam!.history.maxEntries">
+          </div>
+          <p class="form-hint">
+            {{ t('neuralHistoryMaxEntriesHint', '建议范围 200-5000。浏览器默认只渲染最近窗口，较大的历史不会直接把全部节点挂到 DOM。') }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
         <h3>{{ t('hyperspaceSettingsTitle', 'Hyperspace / 超空间远征') }}</h3>
         <p class="form-hint form-hint--section">
           {{ t('neuralSettingsIntro', '当前可配置的是超空间远征传播参数；Orbit / 轨道暂不提供独立设置项。') }}
@@ -603,6 +620,10 @@ function mergeQueueSettings(source?: Partial<QueueSettings>): QueueSettings {
     neuralRoam: {
       ...defaults.neuralRoam,
       ...(source?.neuralRoam || {}),
+      history: {
+        ...defaults.neuralRoam?.history,
+        ...(source?.neuralRoam?.history || {}),
+      },
       hyperspace: {
         ...defaults.neuralRoam?.hyperspace,
         ...(source?.neuralRoam?.hyperspace || {}),

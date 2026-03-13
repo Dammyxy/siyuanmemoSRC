@@ -216,6 +216,18 @@ export interface NeuralRoamHistoryEntry {
     conductionScore: number | null;
 }
 
+export interface NeuralHistoryPageRequest {
+    offset: number;
+    limit: number;
+    sessionId?: string | null;
+}
+
+export interface NeuralHistoryPageResult {
+    entries: NeuralRoamHistoryEntry[];
+    totalCount: number;
+    hasMore: boolean;
+}
+
 export interface NeuralActivationTraceStep {
     eventId: string;
     nodeId: string;
@@ -333,7 +345,12 @@ export interface NeuralRoamSessionQueue {
             resetHistory?: boolean;
         }
     ): Promise<void>;
+    getHistoryCount(sessionId?: string | null): number;
+    getHistoryPage(request: NeuralHistoryPageRequest): NeuralHistoryPageResult;
     getHistorySnapshot(): NeuralRoamHistoryEntry[];
+    getHistoryEntryByEventId(eventId: string): NeuralRoamHistoryEntry | null;
+    getHistoryEntriesByNodeId(nodeId: string): NeuralRoamHistoryEntry[];
+    getHistoryHitCount(nodeId: string): number;
     getActivationTrace(eventId: string): NeuralActivationTrace | null;
     getSessionFocusStack(): NeuralRoamHistoryEntry[];
     /**
@@ -371,7 +388,12 @@ export function isNeuralRoamSessionQueue(
         && typeof candidate?.clearFocusPool === 'function'
         && typeof candidate?.setCurrentFocus === 'function'
         && typeof candidate?.startRoamingFromFocus === 'function'
+        && typeof candidate?.getHistoryCount === 'function'
+        && typeof candidate?.getHistoryPage === 'function'
         && typeof candidate?.getHistorySnapshot === 'function'
+        && typeof candidate?.getHistoryEntryByEventId === 'function'
+        && typeof candidate?.getHistoryEntriesByNodeId === 'function'
+        && typeof candidate?.getHistoryHitCount === 'function'
         && typeof candidate?.getActivationTrace === 'function'
         && typeof candidate?.getSessionFocusStack === 'function'
         && typeof candidate?.getPinnedFocusBlocks === 'function'
