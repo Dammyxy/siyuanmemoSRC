@@ -162,6 +162,11 @@ export interface DrillSettings {
     shuffleCards: boolean;     // 随机打乱顺序
 }
 
+export interface ProgressiveReadingSettings {
+    altXExcerptEnabled: boolean;
+    dailyTraceEnabled: boolean;
+}
+
 export interface FilterGroupDefinition {
     id: string;
     name: string;
@@ -333,6 +338,7 @@ export interface PluginSettings {
     incremental: IncrementalSettings;
     quickCard: QuickCardSettings;
     drill: DrillSettings;
+    progressiveReading: ProgressiveReadingSettings;
     queues: QueueSettings;
 
     // 保存的筛选器
@@ -388,6 +394,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
                 ...(settings.quickCard?.flashcard || {}),
             },
         },
+        progressiveReading: {
+            ...DEFAULT_SETTINGS.progressiveReading,
+            ...(settings.progressiveReading || {}),
+        },
     };
 
     const normalizedWeights = normalizeFSRSWeights(normalized.fsrs?.weights);
@@ -434,6 +444,15 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         if ((sourceQuickCard.flashcardSeededFromSiyuan ?? false) !== normalizedQuickCard.flashcardSeededFromSiyuan) {
             changed = true;
         }
+    }
+
+    if (!settings.progressiveReading) {
+        changed = true;
+    } else if (
+        settings.progressiveReading.altXExcerptEnabled !== normalized.progressiveReading.altXExcerptEnabled
+        || settings.progressiveReading.dailyTraceEnabled !== normalized.progressiveReading.dailyTraceEnabled
+    ) {
+        changed = true;
     }
 
     if (!settings.queues?.neuralRoam?.hyperspace) {
@@ -561,6 +580,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         enabled: true,
         maxCards: 50,
         shuffleCards: true,
+    },
+    progressiveReading: {
+        altXExcerptEnabled: false,
+        dailyTraceEnabled: false,
     },
     queues: {
         defaultQueue: 'retrieval',

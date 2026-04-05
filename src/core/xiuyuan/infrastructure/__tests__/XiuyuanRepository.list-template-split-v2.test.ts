@@ -112,7 +112,7 @@ describe('XiuyuanRepository list-template split-v2 mapping', () => {
     expect(setBlockAttrsMock).toHaveBeenCalledWith(
       childBlockId,
       expect.objectContaining({
-        'custom-fsrs-card-type': 'item',
+        'custom-xiuyuan-id': xiuyuan.getId().getValue(),
       })
     );
   });
@@ -213,5 +213,47 @@ describe('XiuyuanRepository list-template split-v2 mapping', () => {
     expect(storageMock.getCardsByXiuyuanId).toHaveBeenCalledWith(xiuyuanId);
     expect(storageMock.getAllCards).not.toHaveBeenCalled();
     expect(storageMock.deleteCard).toHaveBeenCalledWith(staleCardId);
+  });
+
+  it('does not persist custom-fsrs-card-type for progressive excerpt documents', async () => {
+    const { mock: storageMock } = createStorageMock();
+    const repository = new XiuyuanRepository(storageMock as any);
+    const excerptDocId = '20260405000001-exc1234';
+
+    const xiuyuan = must(
+      Xiuyuan.create({
+        blockIDs: [must(BlockId.create(excerptDocId))],
+        templateID: must(TemplateId.create('builtin-topic')),
+        faces: [
+          must(
+            CardFace.create({
+              question: excerptDocId,
+              answer: '',
+              questionBlockId: excerptDocId,
+            })
+          ),
+        ],
+        priority: must(Priority.create(50)),
+        meta: {
+          cardType: 'topic',
+          progressive: {
+            kind: 'excerpt',
+            sourceDocId: 'doc-source-1',
+            sourceBlockId: 'block-source-1',
+          },
+        },
+      })
+    );
+    must(xiuyuan.createCard(0));
+
+    const saveResult = await repository.save(xiuyuan);
+    expect(saveResult.ok).toBe(true);
+
+    expect(setBlockAttrsMock).toHaveBeenCalledWith(
+      excerptDocId,
+      {
+        'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+      },
+    );
   });
 });

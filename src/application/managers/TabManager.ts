@@ -181,6 +181,7 @@ export class TabManager {
         const adapter = new UnifiedReviewAdapter({
           i18n: self.getPluginI18n(),
           headerVariant: data.headerVariant,
+          progressiveExcerptEnabled: self.context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
         });
 
         const app = createApp(ReviewView, {

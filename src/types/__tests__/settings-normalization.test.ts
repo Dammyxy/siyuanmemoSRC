@@ -97,6 +97,17 @@ describe('settings normalization', () => {
     expect(normalized.settings.queues.neuralRoam?.hyperspace.treeChannels.documentTree).toBe(false);
   });
 
+  it('fills progressiveReading defaults when missing', () => {
+    const legacy = cloneSettings();
+    delete (legacy as Partial<typeof legacy>).progressiveReading;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.progressiveReading.altXExcerptEnabled).toBe(false);
+    expect(normalized.settings.progressiveReading.dailyTraceEnabled).toBe(false);
+  });
+
   it('is idempotent after first normalization', () => {
     const legacy = cloneSettings();
     legacy.fsrs.weights = legacy.fsrs.weights.slice(0, FSRS_WEIGHT_COUNT - 2);

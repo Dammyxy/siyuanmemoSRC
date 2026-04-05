@@ -105,6 +105,8 @@ export class CreateCardUseCase {
         ...(command.metadata || {}),
         schedulerType: schedulerType, // Store schedulerType in meta (Requirement 5.5)
         cardType: command.cardType,   // 🆕 传递卡片类型到 meta
+        ...(command.extractedFrom ? { extractedFrom: command.extractedFrom } : {}),
+        ...(command.progressiveLineage ? { progressive: command.progressiveLineage } : {}),
       }
     });
 
@@ -400,12 +402,13 @@ export class CreateCardUseCase {
           return err(new Error(`Template ${templateId} requires at least 2 blocks`));
         }
       } else {
-        // 其他模板：使用第一个 blockId 作为问题和答案
+        const isTopicFace = templateId === 'builtin-topic' || command.cardType === 'topic';
+        // Topic 卡默认只有正面，没有答案块；其他模板沿用单块问答默认面。
         const defaultFaceResult = CardFace.create({
           question: blockIds[0].getValue(),
-          answer: blockIds[0].getValue(),
+          answer: isTopicFace ? '' : blockIds[0].getValue(),
           questionBlockId: blockIds[0].getValue(),
-          answerBlockId: blockIds[0].getValue(),
+          answerBlockId: isTopicFace ? undefined : blockIds[0].getValue(),
         });
 
         if (isErr(defaultFaceResult)) {

@@ -315,6 +315,22 @@ export class SettingsService implements ISettingsService {
       }
     }
 
+    const altXExcerptEnabled = settings.progressiveReading?.altXExcerptEnabled;
+    if (altXExcerptEnabled !== undefined && typeof altXExcerptEnabled !== 'boolean') {
+      throw new SettingsValidationError(
+        'progressiveReading.altXExcerptEnabled must be a boolean',
+        'progressiveReading.altXExcerptEnabled'
+      );
+    }
+
+    const dailyTraceEnabled = settings.progressiveReading?.dailyTraceEnabled;
+    if (dailyTraceEnabled !== undefined && typeof dailyTraceEnabled !== 'boolean') {
+      throw new SettingsValidationError(
+        'progressiveReading.dailyTraceEnabled must be a boolean',
+        'progressiveReading.dailyTraceEnabled'
+      );
+    }
+
     const neuralHistory = settings.queues?.neuralRoam?.history;
     if (neuralHistory) {
       this.validateFiniteRange(

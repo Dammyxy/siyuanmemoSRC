@@ -12,6 +12,7 @@ function mountPanel(defaultTab = 'params') {
       schedulerSettings: DEFAULT_SETTINGS.scheduler,
       priorityRandomness: DEFAULT_SETTINGS.priorityRandomness,
       quickCardSettings: DEFAULT_SETTINGS.quickCard,
+      progressiveReadingSettings: DEFAULT_SETTINGS.progressiveReading,
       i18n: {
         settingsStudyTab: 'Learning & Queue',
         settingsCaptureSyncTab: 'Capture & Sync',
@@ -31,6 +32,11 @@ function mountPanel(defaultTab = 'params') {
         hyperspaceEnableDocumentTree: 'Enable document tree conduction',
         hyperspaceMaxLayersPerRepetition: 'Layers per repetition',
         hyperspaceElementLinkPriority: 'Block-link weight',
+        progressiveReadingSettingsTitle: 'Progressive Reading',
+        progressiveAltXExcerptEnabled: 'Enable Alt+X excerpt',
+        progressiveAltXExcerptEnabledHint: 'When disabled, the plugin will not create excerpts from Alt+X.',
+        progressiveDailyTraceEnabled: 'Write Daily Notes trace after excerpting',
+        progressiveDailyTraceEnabledHint: 'Leave trace entries in Daily Notes after creating excerpts.',
         saveSettings: 'Save Settings',
       },
     },
@@ -95,5 +101,32 @@ describe('SettingsPanel', () => {
 
     expect(wrapper.text()).not.toContain('Save Settings');
     expect(wrapper.find('.settings-footer').exists()).toBe(false);
+  });
+
+  it('saves progressive Alt+X excerpt and daily trace settings independently', async () => {
+    const wrapper = mountPanel('capture-sync');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain('Progressive Reading');
+    const formItems = wrapper.findAll('.form-item');
+    const altXItem = formItems.find((item) => item.text().includes('Enable Alt+X excerpt'));
+    const altXToggle = altXItem?.find('input[type="checkbox"]');
+    const progressiveItem = formItems.find((item) => item.text().includes('Write Daily Notes trace after excerpting'));
+    const progressiveToggle = progressiveItem?.find('input[type="checkbox"]');
+    expect(altXToggle).toBeDefined();
+    expect((altXToggle!.element as HTMLInputElement).checked).toBe(false);
+    expect(progressiveToggle).toBeDefined();
+    expect((progressiveToggle!.element as HTMLInputElement).checked).toBe(false);
+
+    await altXToggle!.setValue(true);
+    await progressiveToggle!.setValue(true);
+
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+    expect(saveButton).toBeDefined();
+    await saveButton!.trigger('click');
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.progressiveReading.altXExcerptEnabled).toBe(true);
+    expect(payload.progressiveReading.dailyTraceEnabled).toBe(true);
   });
 });

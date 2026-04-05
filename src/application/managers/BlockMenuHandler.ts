@@ -34,6 +34,7 @@ interface SiyuanMenuItem {
   type?: 'separator';
   submenu?: SiyuanMenuItem[];
   click?: () => void | Promise<void>;
+  disabled?: boolean;
 }
 
 interface SiyuanMenu {
@@ -158,20 +159,6 @@ export class BlockMenuHandler {
     return this.deps.applicationContext.getUnifiedDataSourceManager().getQueue(type);
   }
 
-  private extractMetaRootId(card: FSRSCard): string | undefined {
-    const meta = card.meta as unknown;
-    if (typeof meta !== 'object' || meta === null) {
-      return undefined;
-    }
-    const metaRecord = meta as Record<string, unknown>;
-    const rootId = metaRecord.rootId ?? metaRecord.rootID ?? metaRecord.root_id;
-    if (typeof rootId !== 'string') {
-      return undefined;
-    }
-    const normalized = rootId.trim();
-    return normalized.length > 0 ? normalized : undefined;
-  }
-
   private escapeAttr(value: string): string {
     if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
       return CSS.escape(value);
@@ -221,18 +208,16 @@ export class BlockMenuHandler {
     return Array.from(cardsById.values());
   }
 
-  private collectCardsFromDocScope(docId: string): FSRSCard[] {
-    const cardsInDom = this.collectCardsFromDocumentDom(docId);
-    if (cardsInDom.length > 0) {
-      return cardsInDom;
+  private mergeUniqueCards(...groups: FSRSCard[][]): FSRSCard[] {
+    const cardsById = new Map<string, FSRSCard>();
+    for (const group of groups) {
+      for (const card of group) {
+        if (card?.id) {
+          cardsById.set(card.id, card);
+        }
+      }
     }
-
-    return this.getStorage()
-      .getAllCards()
-      .filter((card) => {
-        const rootId = this.extractMetaRootId(card);
-        return rootId === docId || card.blockId === docId;
-      });
+    return Array.from(cardsById.values());
   }
 
   /**
@@ -640,12 +625,171 @@ export class BlockMenuHandler {
     ];
   }
 
+  private buildProgressiveDocActions(docId: string): SiyuanMenuItem[] {
+    return [
+      {
+        icon: 'iconFiles',
+        label: this.deps.i18n?.progressiveSplitLinear || '渐进 Split（线性）',
+        click: async () => {
+          try {
+            const result = await this.deps.applicationContext.getProgressiveReadingService().splitDocument(docId, 'linear');
+            await this.siyuanApi.pushMsg(
+              (this.deps.i18n?.progressiveSplitLinearCreated || '已创建 {count} 个线性 piece 子文档')
+                .replace('{count}', String(result.pieceDocIds.length))
+            );
+          } catch (error) {
+            logger.error('[BlockMenuHandler] Failed to create linear split session:', error);
+            await this.siyuanApi.pushErrMsg(
+              (this.deps.i18n?.progressiveSplitFailed || 'Split 失败：{message}')
+                .replace('{message}', (error as Error).message)
+            );
+          }
+        },
+      },
+      {
+        icon: 'iconFiles',
+        label: this.deps.i18n?.progressiveSplitNonlinear || '渐进 Split（非线性）',
+        click: async () => {
+          try {
+            const result = await this.deps.applicationContext.getProgressiveReadingService().splitDocument(docId, 'nonlinear');
+            await this.siyuanApi.pushMsg(
+              (this.deps.i18n?.progressiveSplitNonlinearCreated || '已创建 {count} 个非线性 piece 子文档')
+                .replace('{count}', String(result.pieceDocIds.length))
+            );
+          } catch (error) {
+            logger.error('[BlockMenuHandler] Failed to create nonlinear split session:', error);
+            await this.siyuanApi.pushErrMsg(
+              (this.deps.i18n?.progressiveSplitFailed || 'Split 失败：{message}')
+                .replace('{message}', (error as Error).message)
+            );
+          }
+        },
+      },
+    ];
+  }
+
   private addSiyuanMemoMenu(menu: SiyuanMenu, submenu: SiyuanMenuItem[]): void {
     menu.addItem({
       icon: 'iconRiffCard',
       label: 'SiyuanMemo',
       submenu,
     });
+  }
+
+  private buildDocReviewMenuItems(docId: string, cards: FSRSCard[]): SiyuanMenuItem[] {
+    return [
+      ...this.buildReviewActions(cards),
+      this.separator(),
+      ...this.buildConceptActions(docId),
+      this.separator(),
+      ...this.buildProgressiveDocActions(docId),
+    ];
+  }
+
+  private buildDocLoadingMenuItems(docId: string): SiyuanMenuItem[] {
+    const loadingText = this.deps.i18n?.loading || '加载中...';
+    const retrievalLabel = this.deps.i18n?.retrievalPractice || '提取练习';
+    const incrementalLabel = this.deps.i18n?.incrementalLearning || '渐进学习';
+    const temporaryLabel = this.deps.i18n?.temporaryDrill || '临时练习';
+    const dueLabel = this.deps.i18n?.dueMode || '到期';
+    const allLabel = this.deps.i18n?.allMode || '全部';
+    const finalDrillLabel = this.deps.i18n?.addToFinalDrillQueue || '添加到刻意练习';
+    const pendingSuffix = `<span class="ft__secondary">(${loadingText})</span>`;
+
+    return [
+      { icon: 'iconRiffCard', label: `${retrievalLabel} - ${dueLabel} ${pendingSuffix}`, disabled: true },
+      { icon: 'iconRiffCard', label: `${retrievalLabel} - ${allLabel} ${pendingSuffix}`, disabled: true },
+      this.separator(),
+      { icon: 'iconBook', label: `${incrementalLabel} - ${dueLabel} ${pendingSuffix}`, disabled: true },
+      { icon: 'iconBook', label: `${incrementalLabel} - ${allLabel} ${pendingSuffix}`, disabled: true },
+      this.separator(),
+      { icon: 'iconEye', label: `${temporaryLabel} ${pendingSuffix}`, disabled: true },
+      this.separator(),
+      { icon: 'iconAdd', label: `${finalDrillLabel} ${pendingSuffix}`, disabled: true },
+      this.separator(),
+      ...this.buildConceptActions(docId),
+      this.separator(),
+      ...this.buildProgressiveDocActions(docId),
+    ];
+  }
+
+  private buildReviewLoadingActions(): SiyuanMenuItem[] {
+    const loadingText = this.deps.i18n?.loading || '加载中...';
+    const retrievalLabel = this.deps.i18n?.retrievalPractice || '提取练习';
+    const incrementalLabel = this.deps.i18n?.incrementalLearning || '渐进学习';
+    const temporaryLabel = this.deps.i18n?.temporaryDrill || '临时练习';
+    const dueLabel = this.deps.i18n?.dueMode || '到期';
+    const allLabel = this.deps.i18n?.allMode || '全部';
+    const finalDrillLabel = this.deps.i18n?.addToFinalDrillQueue || '添加到刻意练习';
+    const pendingSuffix = `<span class="ft__secondary">(${loadingText})</span>`;
+
+    return [
+      { icon: 'iconRiffCard', label: `${retrievalLabel} - ${dueLabel} ${pendingSuffix}`, disabled: true },
+      { icon: 'iconRiffCard', label: `${retrievalLabel} - ${allLabel} ${pendingSuffix}`, disabled: true },
+      this.separator(),
+      { icon: 'iconBook', label: `${incrementalLabel} - ${dueLabel} ${pendingSuffix}`, disabled: true },
+      { icon: 'iconBook', label: `${incrementalLabel} - ${allLabel} ${pendingSuffix}`, disabled: true },
+      this.separator(),
+      { icon: 'iconEye', label: `${temporaryLabel} ${pendingSuffix}`, disabled: true },
+      this.separator(),
+      { icon: 'iconAdd', label: `${finalDrillLabel} ${pendingSuffix}`, disabled: true },
+    ];
+  }
+
+  private collectDocReviewCards(docId: string): FSRSCard[] | null {
+    const scope = this.deps.applicationContext.getDocTreeReviewScopeService().collectDocReviewScope(docId);
+    if (!scope) {
+      return null;
+    }
+
+    const domCards = this.collectCardsFromDocumentDom(docId);
+    return this.mergeUniqueCards(scope.cards, domCards);
+  }
+
+  private isDocumentBlockElement(element: HTMLElement, blockId: string): boolean {
+    const root = (element.closest('[data-node-id]') as HTMLElement) || element;
+    const dataTypeCandidates = [
+      root.getAttribute('data-type'),
+      element.getAttribute('data-type'),
+      root.dataset?.type,
+      element.dataset?.type,
+    ];
+
+    if (dataTypeCandidates.some((value) => value === 'NodeDocument' || value === 'd')) {
+      return true;
+    }
+
+    return this.deps.applicationContext.getDocTreeReviewScopeService().hasDoc(blockId);
+  }
+
+  private collectCardsFromBlockIconScope(blockElements: HTMLElement[]): FSRSCard[] | null {
+    const rootEntries = blockElements
+      .map((element) => ((element.closest('[data-node-id]') as HTMLElement) || element))
+      .map((element) => ({
+        element,
+        blockId: element.getAttribute('data-node-id') || '',
+      }))
+      .filter((entry): entry is { element: HTMLElement; blockId: string } => entry.blockId.length > 0);
+
+    if (rootEntries.length === 0) {
+      return [];
+    }
+
+    const docEntries = rootEntries.filter(({ element, blockId }) => this.isDocumentBlockElement(element, blockId));
+    if (docEntries.length === 0 || docEntries.length !== rootEntries.length) {
+      return this.collectCardsFromElements(blockElements);
+    }
+
+    const groups: FSRSCard[][] = [];
+    for (const entry of docEntries) {
+      const cards = this.collectDocReviewCards(entry.blockId);
+      if (!cards) {
+        return null;
+      }
+      groups.push(cards);
+    }
+
+    return this.mergeUniqueCards(...groups);
   }
 
   private getEventDetail<T extends object>(event: unknown): T | null {
@@ -679,9 +823,10 @@ export class BlockMenuHandler {
       return;
     }
 
-    const cards = this.collectCardsFromElements(blockElements);
+    const cards = this.collectCardsFromBlockIconScope(blockElements);
+    const reviewActions = cards ? this.buildReviewActions(cards) : this.buildReviewLoadingActions();
     const submenu: SiyuanMenuItem[] = [
-      ...this.buildReviewActions(cards),
+      ...reviewActions,
       this.separator(),
       {
         icon: 'iconEdit',
@@ -794,13 +939,11 @@ export class BlockMenuHandler {
    * 为文档树生成复习菜单项（同步版本，用于事件处理）
    */
   private generateReviewMenuForDocSync(docId: string): SiyuanMenuItem[] {
-    const cardsInDoc = this.collectCardsFromDocScope(docId);
-
-    return [
-      ...this.buildReviewActions(cardsInDoc),
-      this.separator(),
-      ...this.buildConceptActions(docId),
-    ];
+    const cardsInDocTree = this.collectDocReviewCards(docId);
+    if (!cardsInDocTree) {
+      return this.buildDocLoadingMenuItems(docId);
+    }
+    return this.buildDocReviewMenuItems(docId, cardsInDocTree);
   }
 
   /**
@@ -815,7 +958,8 @@ export class BlockMenuHandler {
     }
 
     try {
-      this.addSiyuanMemoMenu(menu, this.generateReviewMenuForDocSync(docId));
+      const submenu = this.generateReviewMenuForDocSync(docId);
+      this.addSiyuanMemoMenu(menu, submenu);
     } catch (err) {
       logger.error('[SiYuanMemo] Failed to generate doctree menu:', err);
     }
@@ -833,7 +977,8 @@ export class BlockMenuHandler {
     }
 
     try {
-      this.addSiyuanMemoMenu(menu, this.generateReviewMenuForDocSync(docId));
+      const submenu = this.generateReviewMenuForDocSync(docId);
+      this.addSiyuanMemoMenu(menu, submenu);
     } catch (err) {
       logger.error('[SiYuanMemo] Failed to generate doc menu:', err);
     }
@@ -851,7 +996,8 @@ export class BlockMenuHandler {
     }
 
     try {
-      this.addSiyuanMemoMenu(menu, this.generateReviewMenuForDocSync(docId));
+      const submenu = this.generateReviewMenuForDocSync(docId);
+      this.addSiyuanMemoMenu(menu, submenu);
     } catch (err) {
       logger.error('[SiYuanMemo] Failed to generate breadcrumb menu:', err);
     }

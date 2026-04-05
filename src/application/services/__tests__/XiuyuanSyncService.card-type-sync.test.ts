@@ -142,9 +142,9 @@ describe('XiuyuanSyncService card type sync', () => {
 
   it('migrates legacy custom-card-type on start and runs only once per instance', async () => {
     (siyuanApi.getRiffCards as ReturnType<typeof vi.fn>).mockResolvedValue([
-      createRiffBlock('block-1', { 'custom-card-type': 'item' }),
-      createRiffBlock('block-2', { 'custom-card-type': 'concept' }),
-      createRiffBlock('block-3', {
+      createRiffBlock('20260301211700-abcde11', { 'custom-card-type': 'item' }),
+      createRiffBlock('20260301211700-abcde12', { 'custom-card-type': 'concept' }),
+      createRiffBlock('20260301211700-abcde13', {
         'custom-card-type': 'item',
         'custom-fsrs-card-type': 'topic',
       }),
@@ -155,11 +155,11 @@ describe('XiuyuanSyncService card type sync', () => {
 
     expect(siyuanApi.getRiffCards).toHaveBeenCalledTimes(1);
     expect(siyuanApi.setBlockAttrs).toHaveBeenCalledTimes(2);
-    expect(siyuanApi.setBlockAttrs).toHaveBeenCalledWith('block-1', {
+    expect(siyuanApi.setBlockAttrs).toHaveBeenCalledWith('20260301211700-abcde11', {
       'custom-fsrs-card-type': 'item',
       'custom-card-type': '',
     });
-    expect(siyuanApi.setBlockAttrs).toHaveBeenCalledWith('block-2', {
+    expect(siyuanApi.setBlockAttrs).toHaveBeenCalledWith('20260301211700-abcde12', {
       'custom-fsrs-card-type': 'concept',
       'custom-card-type': '',
     });
@@ -167,8 +167,8 @@ describe('XiuyuanSyncService card type sync', () => {
 
   it('does not throw when part of legacy migration fails', async () => {
     (siyuanApi.getRiffCards as ReturnType<typeof vi.fn>).mockResolvedValue([
-      createRiffBlock('block-fail', { 'custom-card-type': 'item' }),
-      createRiffBlock('block-ok', { 'custom-card-type': 'topic' }),
+      createRiffBlock('20260301211700-abcde14', { 'custom-card-type': 'item' }),
+      createRiffBlock('20260301211700-abcde15', { 'custom-card-type': 'topic' }),
     ]);
     (siyuanApi.setBlockAttrs as ReturnType<typeof vi.fn>)
       .mockRejectedValueOnce(new Error('write failed'))

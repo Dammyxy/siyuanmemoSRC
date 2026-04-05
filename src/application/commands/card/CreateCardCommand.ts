@@ -31,6 +31,16 @@ export type SchedulerType = 'fsrs-v6' | 'a-factor' | 'sm2';
  */
 export type CardSource = 'manual' | 'auto' | 'symbol' | 'quick';
 
+export interface ProgressiveLineage {
+  kind?: 'piece' | 'excerpt' | 'daily-trace';
+  sessionId?: string;
+  mode?: 'linear' | 'nonlinear';
+  pieceDocId?: string;
+  sourceDocId?: string;
+  sourceBlockId?: string;
+  parentExcerptId?: string;
+}
+
 /**
  * 创建卡片命令接口
  * 
@@ -72,6 +82,12 @@ export interface CreateCardCommand {
   
   /** 优先级（可选，默认为 50） */
   priority?: number;
+
+  /** 摘抄来源块 ID（如果该卡片来自摘抄） */
+  extractedFrom?: string;
+
+  /** 渐进阅读 lineage 信息 */
+  progressiveLineage?: ProgressiveLineage;
   
   /** 扩展元数据（可选） */
   metadata?: {

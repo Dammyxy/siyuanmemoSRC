@@ -81,6 +81,9 @@ type XiuyuanMeta = Record<string, unknown> & {
   cardType?: XiuyuanCardType;
   schedulerType?: SchedulerType;
   aFactor?: number;
+  extractedFrom?: string;
+  isDocument?: boolean;
+  progressive?: Record<string, unknown>;
   source?: string;
   symbolDetected?: boolean;
   cardSource?: string;
@@ -336,6 +339,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   private resolvePersistedCardType(xiuyuan: Xiuyuan): 'topic' | 'item' | undefined {
     const meta = xiuyuan.getMeta() as XiuyuanMeta | undefined;
+    const progressiveKind = meta?.progressive && typeof meta.progressive === 'object'
+      ? (meta.progressive as Record<string, unknown>).kind
+      : undefined;
+    if (progressiveKind === 'excerpt') {
+      return undefined;
+    }
     return meta?.cardType === 'topic' || meta?.cardType === 'item'
       ? meta.cardType
       : undefined;
@@ -687,6 +696,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       
       // 馃敡 淇锛欰-Factor锛堜粠 Xiuyuan.meta 澶嶅埗鍒?FSRSCard锛?
       aFactor: meta.aFactor,
+      extractedFrom: typeof meta.extractedFrom === 'string' ? meta.extractedFrom : undefined,
       
       // 鎵╁睍鍔熻兘
       tags: [],
@@ -701,6 +711,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         templateID: xiuyuan.getTemplateID().getValue(),
         faceIndex: faceIndex,
         ...(typeof meta.source === 'string' ? { source: meta.source } : {}),
+        ...(meta.isDocument === true ? { isDocument: true } : {}),
+        ...(meta.progressive && typeof meta.progressive === 'object' ? { progressive: meta.progressive } : {}),
         ...(meta.symbolDetected === true ? { symbolDetected: true } : {}),
         ...(typeof meta.cardSource === 'string' ? { cardSource: meta.cardSource } : {}),
         ...(typeof meta.symbolType === 'string' ? { symbolType: meta.symbolType } : {}),

@@ -61,6 +61,11 @@ import { RiffBlacklistService } from '@/application/services/RiffBlacklistServic
 import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
+import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
+import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
+import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
+import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
+import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
@@ -85,6 +90,9 @@ interface ApplicationServiceRegistry {
   reviewLogService: ReviewLogService;
   riffBlacklistService: RiffBlacklistService;
   cardTypeDetectionService: CardTypeDetectionService;
+  docTreeReviewScopeService: DocTreeReviewScopeService;
+  progressiveReadingService: ProgressiveReadingService;
+  selectionExcerptService: SelectionExcerptService;
   cardContentQueryService: CardContentQueryService;
   dialogManager: DialogManager;
   menuManager: MenuManager;
@@ -312,6 +320,27 @@ export class ApplicationContext {
           }
         },
       });
+    });
+
+    this.registerServiceFactory('docTreeReviewScopeService', (context) => {
+      return new DocTreeReviewScopeService(
+        new ManagerSiyuanAdapter(),
+        context.getStorage(),
+      );
+    });
+
+    this.registerServiceFactory('progressiveReadingService', (context) => {
+      return new ProgressiveReadingService(
+        new ProgressiveSiyuanAdapter(),
+        context.getFileService(),
+        context.getCardService(),
+        context.getSettingsService(),
+        context.getDocTreeReviewScopeService(),
+      );
+    });
+
+    this.registerServiceFactory('selectionExcerptService', (context) => {
+      return new SelectionExcerptService(context.getProgressiveReadingService());
     });
     
     this.registerServiceFactory('reviewQueuePreparationService', (context) => {
@@ -957,6 +986,10 @@ export class ApplicationContext {
     // 🔧 修复：初始化 QueuePersistenceService
     await queuePersistenceService.init();
     logger.info('[ApplicationContext] ✅ QueuePersistenceService initialized');
+
+    const docTreeReviewScopeService = context.getDocTreeReviewScopeService();
+    await docTreeReviewScopeService.hydrate();
+    logger.info('[ApplicationContext] ✅ DocTreeReviewScopeService hydrated');
     
     unifiedDataSourceManager.setQueuePersistence(queuePersistenceService);
     logger.info('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
@@ -1042,6 +1075,7 @@ export class ApplicationContext {
         const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
         
         transactionWebSocketService = new TransactionWebSocketService(config.plugin as unknown as SiyuanMemoPlugin);
+        transactionWebSocketService.registerHandler(docTreeReviewScopeService);
         transactionWebSocketService.registerHandler(new RiffSyncHandler(hybridSyncService));
         const autoCardHandler = new AutoCardHandler(config.plugin as unknown as SiyuanMemoPlugin);
         transactionWebSocketService.registerHandler(autoCardHandler);
@@ -1272,6 +1306,8 @@ export class ApplicationContext {
         const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
         
         this.transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as unknown as SiyuanMemoPlugin);
+        await this.getDocTreeReviewScopeService().hydrate();
+        this.transactionWebSocketService.registerHandler(this.getDocTreeReviewScopeService());
         
         // 创建并注册 RiffSyncHandler
         const riffSyncHandler = new RiffSyncHandler(this.hybridSyncService);
@@ -1470,6 +1506,18 @@ export class ApplicationContext {
 
   getCardTypeDetectionService(): CardTypeDetectionService {
     return this.getService('cardTypeDetectionService');
+  }
+
+  getDocTreeReviewScopeService(): DocTreeReviewScopeService {
+    return this.getService('docTreeReviewScopeService');
+  }
+
+  getProgressiveReadingService(): ProgressiveReadingService {
+    return this.getService('progressiveReadingService');
+  }
+
+  getSelectionExcerptService(): SelectionExcerptService {
+    return this.getService('selectionExcerptService');
   }
   
   /**

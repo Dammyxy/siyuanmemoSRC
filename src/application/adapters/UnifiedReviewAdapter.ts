@@ -205,6 +205,44 @@ function resolveAnswerBlockId(card: UnifiedReviewItem, fallbackBlockId: string):
   return '';
 }
 
+function resolveProgressiveMeta(card: UnifiedReviewItem | null | undefined): Record<string, unknown> | null {
+  const progressive = card?.meta?.progressive;
+  return progressive && typeof progressive === 'object'
+    ? progressive as Record<string, unknown>
+    : null;
+}
+
+function resolveExcerptSourceBlockId(card: UnifiedReviewItem | null | undefined): string {
+  if (!card) {
+    return '';
+  }
+  if (typeof card.extractedFrom === 'string' && card.extractedFrom.trim().length > 0) {
+    return card.extractedFrom.trim();
+  }
+  const progressive = resolveProgressiveMeta(card);
+  const sourceBlockId = progressive?.sourceBlockId;
+  return typeof sourceBlockId === 'string' ? sourceBlockId.trim() : '';
+}
+
+function resolveProgressiveSourceTargetId(card: UnifiedReviewItem | null | undefined): string {
+  const excerptSourceBlockId = resolveExcerptSourceBlockId(card);
+  if (excerptSourceBlockId) {
+    return excerptSourceBlockId;
+  }
+
+  const progressive = resolveProgressiveMeta(card);
+  const sourceDocId = progressive?.sourceDocId;
+  return typeof sourceDocId === 'string' ? sourceDocId.trim() : '';
+}
+
+function isLinearPieceTopic(card: UnifiedReviewItem | null | undefined, cardType: ReviewCardKind): boolean {
+  if (!card || cardType !== 'topic') {
+    return false;
+  }
+  const progressive = resolveProgressiveMeta(card);
+  return progressive?.kind === 'piece' && progressive?.mode === 'linear';
+}
+
 function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
   if (!isXiuyuanCard(card)) {
     return false;
@@ -277,11 +315,17 @@ function toBucketMap(snapshot: QueueCounterSnapshot | null | undefined): Map<Hea
 export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   private readonly i18n?: Record<string, string>;
   private readonly headerVariant?: ReviewHeaderVariant;
+  private readonly progressiveExcerptEnabled: boolean;
   private cachedHeaderState: CachedHeaderState | null = null;
 
-  constructor(options?: { i18n?: Record<string, string>; headerVariant?: ReviewHeaderVariant }) {
+  constructor(options?: {
+    i18n?: Record<string, string>;
+    headerVariant?: ReviewHeaderVariant;
+    progressiveExcerptEnabled?: boolean;
+  }) {
     this.i18n = options?.i18n;
     this.headerVariant = options?.headerVariant;
+    this.progressiveExcerptEnabled = options?.progressiveExcerptEnabled ?? true;
   }
 
   async toUIState(
@@ -373,6 +417,30 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       : resolveAnswerBlockId(item, blockId);
     const isTopicLike = isTopicLikeCardType(cardType);
     const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
+    const sourceTargetId = resolveProgressiveSourceTargetId(item);
+
+    if (cardType === 'topic' && this.progressiveExcerptEnabled) {
+      toolbar.push({
+        icon: '#iconQuote',
+        type: 'progressive-excerpt',
+        ariaLabel: t(this.i18n, 'progressiveExcerptSelection', 'Excerpt Selection (Alt+X)'),
+      });
+    }
+    if (sourceTargetId) {
+      toolbar.push({
+        icon: '#iconOpen',
+        type: 'progressive-open-source',
+        ariaLabel: t(this.i18n, 'progressiveOpenSource', 'Jump to Source'),
+      });
+    }
+    if (isLinearPieceTopic(item, cardType)) {
+      toolbar.push({
+        icon: '#iconRight',
+        type: 'progressive-complete-piece',
+        label: t(this.i18n, 'progressiveCompletePiece', '完成当前片'),
+        ariaLabel: t(this.i18n, 'progressiveCompletePiece', 'Complete Current Piece'),
+      });
+    }
 
     if (shouldLogBidirectionalTemplateDiagnostic(item)) {
       logger.warn('[SiYuanMemo][BidirectionalTemplateDiagnostic] adapter mapped review content', {

@@ -9,3 +9,5 @@ export { CardApplicationService } from './CardApplicationService';
 export { BlockAttrCleanupService } from './BlockAttrCleanupService';
 export type { CleanupRunResult, CleanupScanResult } from './BlockAttrCleanupService';
 export { type BlockAttrCleanupMode, type CleanupMode } from './BlockAttrPolicy';
+export { ProgressiveReadingService } from './ProgressiveReadingService';
+export { SelectionExcerptService } from './SelectionExcerptService';

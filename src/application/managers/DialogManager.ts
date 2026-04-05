@@ -78,6 +78,7 @@ type SettingsPanelSavePayload = {
   riffIntegration?: RiffIntegrationConfig;
   incremental?: PluginSettings['incremental'];
   quickCard?: PluginSettings['quickCard'];
+  progressiveReading?: PluginSettings['progressiveReading'];
   ui?: PluginSettings['ui'];
 };
 
@@ -277,6 +278,7 @@ export class DialogManager implements IDialogManager {
         riffIntegrationSettings: currentSettings.riffIntegration,
         incrementalSettings: currentSettings.incremental,
         quickCardSettings: currentSettings.quickCard,
+        progressiveReadingSettings: currentSettings.progressiveReading,
         uiSettings: { enableDebugLogs: currentSettings.ui?.enableDebugLogs ?? false },
         i18n: this.context.getI18n() || {},
         defaultTab,
@@ -311,6 +313,7 @@ export class DialogManager implements IDialogManager {
             riffIntegration: settings.riffIntegration || currentSettings.riffIntegration,
             incremental: settings.incremental || currentSettings.incremental,
             quickCard: settings.quickCard || currentSettings.quickCard,
+            progressiveReading: settings.progressiveReading || currentSettings.progressiveReading,
             ui: settings.ui || currentSettings.ui,
           };
           
@@ -864,6 +867,7 @@ export class DialogManager implements IDialogManager {
       const adapter = new UnifiedReviewAdapter({
         i18n: this.context.getI18n() || {},
         headerVariant: 'retrieval-practice',
+        progressiveExcerptEnabled: this.context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
       });
       const { width, height } = this.resolveReviewDialogSize();
       const isMobile = this.isMobileFrontend();
@@ -962,6 +966,7 @@ export class DialogManager implements IDialogManager {
       const adapter = new UnifiedReviewAdapter({
         i18n: this.context.getI18n() || {},
         headerVariant: 'incremental-learning',
+        progressiveExcerptEnabled: this.context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
       });
       const { width, height } = this.resolveReviewDialogSize();
       const isMobile = this.isMobileFrontend();

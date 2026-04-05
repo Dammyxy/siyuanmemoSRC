@@ -16,6 +16,14 @@ function createFixture(cardsByBlockId: Record<string, FSRSCard[]>) {
     openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
   };
 
+  const docTreeReviewScopeService = {
+    collectDocReviewScope: vi.fn(() => ({ cards: [], docIds: [] })),
+    isReady: vi.fn(() => true),
+    hydrate: vi.fn().mockResolvedValue(undefined),
+    scheduleRebuild: vi.fn(),
+    hasDoc: vi.fn(() => false),
+  };
+
   const handler = new BlockMenuHandler({
     app: {} as any,
     i18n: {
@@ -36,6 +44,7 @@ function createFixture(cardsByBlockId: Record<string, FSRSCard[]>) {
       getReviewService: vi.fn(),
       getXiuyuanApplicationService: vi.fn(),
       getUnifiedDataSourceManager: vi.fn(),
+      getDocTreeReviewScopeService: () => docTreeReviewScopeService,
     } as any,
     cardCreationHelper: {} as any,
     siyuanApi: {
@@ -73,6 +82,14 @@ function createFixtureWithDeferredDialogManager(cardsByBlockId: Record<string, F
     openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
   };
 
+  const docTreeReviewScopeService = {
+    collectDocReviewScope: vi.fn(() => ({ cards: [], docIds: [] })),
+    isReady: vi.fn(() => true),
+    hydrate: vi.fn().mockResolvedValue(undefined),
+    scheduleRebuild: vi.fn(),
+    hasDoc: vi.fn(() => false),
+  };
+
   const handler = new BlockMenuHandler({
     app: {} as any,
     i18n: {
@@ -93,6 +110,7 @@ function createFixtureWithDeferredDialogManager(cardsByBlockId: Record<string, F
       getReviewService: vi.fn(),
       getXiuyuanApplicationService: vi.fn(),
       getUnifiedDataSourceManager: vi.fn(),
+      getDocTreeReviewScopeService: () => docTreeReviewScopeService,
     } as any,
     cardCreationHelper: {} as any,
     siyuanApi: {

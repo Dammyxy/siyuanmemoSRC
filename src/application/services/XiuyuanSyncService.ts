@@ -44,6 +44,7 @@ import { createLogger } from '@/utils/logger';
 import { CardState } from '@/types/card';
 import { ClozeDetector } from '@/utils/cloze-detector';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
+import { normalizeBlockId } from '@/core/siyuan/riff/normalizers';
 import {
     QuickCardPostCreationPlanner,
     type PostCreationPlan,
@@ -64,6 +65,11 @@ type QuickRenderHintMeta = {
     forceQuickRender?: boolean;
     quickDetectReason?: QuickDetectReason;
 };
+type PreparedRiffBlocks = {
+    blocks: RiffBlock[];
+    skippedCount: number;
+};
+type RiffInputStage = 'legacy-card-type-migration' | 'incremental' | 'full';
 
 type RiffSyncMetaSource = 'riff-sync';
 type RiffClozeRenderMode = 'inline-formula-cloze';
@@ -437,15 +443,16 @@ export class XiuyuanSyncService {
         this.legacyCardTypeMigrationDone = true;
 
         try {
-            const riffCards = await this.siyuanApi.getRiffCards(this.config.deckId, {
+            const rawRiffCards = await this.siyuanApi.getRiffCards(this.config.deckId, {
                 dueOnly: false,
                 includeNew: true,
             });
+            const preparedRiffCards = this.prepareRiffBlocks('legacy-card-type-migration', rawRiffCards);
 
             let migrated = 0;
-            let skipped = 0;
+            let skipped = preparedRiffCards.skippedCount;
 
-            for (const riffCard of riffCards) {
+            for (const riffCard of preparedRiffCards.blocks) {
                 const attrs = riffCard.ial;
                 const currentCardType = attrs?.[this.siyuanApi.ATTR_CARD_TYPE];
                 const legacyCardType = attrs?.['custom-card-type'];
@@ -482,6 +489,69 @@ export class XiuyuanSyncService {
         } catch (error) {
             logger.warn('[XiuyuanSyncService] Failed to scan legacy card type attrs on startup:', error);
         }
+    }
+
+    private prepareRiffBlocks(stage: RiffInputStage, riffBlocks: RiffBlock[]): PreparedRiffBlocks {
+        const preparedBlocks: RiffBlock[] = [];
+        let skippedCount = 0;
+
+        for (const riffBlock of riffBlocks) {
+            const normalizedId = String(normalizeBlockId(riffBlock) || '').trim();
+            const blockIdResult = BlockId.create(normalizedId);
+            if (!blockIdResult.ok) {
+                skippedCount++;
+                const errorMsg = blockIdResult.ok === false ? blockIdResult.error.message : 'Invalid BlockId';
+                this.logMalformedRiffBlock(stage, riffBlock, errorMsg);
+                continue;
+            }
+
+            if (normalizedId === riffBlock.id) {
+                preparedBlocks.push(riffBlock);
+                continue;
+            }
+
+            preparedBlocks.push({
+                ...riffBlock,
+                id: normalizedId,
+            });
+        }
+
+        if (skippedCount > 0) {
+            logger.warn('[XiuyuanSyncService] Skipped malformed Riff blocks', {
+                stage,
+                skippedCount,
+            });
+        }
+
+        return {
+            blocks: preparedBlocks,
+            skippedCount,
+        };
+    }
+
+    private logMalformedRiffBlock(stage: RiffInputStage, riffBlock: RiffBlock, reason: string): void {
+        const rawRiffBlock = riffBlock as unknown as Record<string, unknown>;
+        logger.warn('[XiuyuanSyncService] Skipping malformed Riff block without recoverable block ID', {
+            stage,
+            reason,
+            id: this.readRiffField(rawRiffBlock, 'id'),
+            blockID: this.readRiffField(rawRiffBlock, 'blockID'),
+            blockId: this.readRiffField(rawRiffBlock, 'blockId'),
+            riffCardID: this.readRiffField(rawRiffBlock, 'riffCardID'),
+            riffCardId: this.readRiffField(rawRiffBlock, 'riffCardId'),
+            path: this.readRiffField(rawRiffBlock, 'path'),
+        });
+    }
+
+    private readRiffField(record: Record<string, unknown>, key: string): string | undefined {
+        const value = record[key];
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+            return String(value);
+        }
+        return undefined;
     }
 
     private resolveRiffRenderProfile(plan: PostCreationPlan): RiffRenderProfile | undefined {
@@ -774,13 +844,17 @@ export class XiuyuanSyncService {
 
                     const newCards = await this.siyuanApi.getRiffNewCards(this.config.deckId, since);
                     logger.info(`Fetched ${newCards.length} cards from Riff`);
-                
+                    const preparedNewCards = this.prepareRiffBlocks('incremental', newCards);
+                    const malformedNewCards = preparedNewCards.skippedCount;
+
                 // 2. 过滤黑名单
                 this.reportProgress(onProgress, 'incremental', 'filtering', 1, 7, '正在过滤黑名单...');
-                let filtered = newCards;
+                let filtered = preparedNewCards.blocks;
+                let skippedCount = malformedNewCards;
                 if (this.config.incrementalSync.useBlacklist) {
-                    filtered = await this.riffBlacklistService.filterBlacklist(newCards);
-                    logger.info(`Filtered ${newCards.length - filtered.length} blacklisted cards`);
+                    const beforeBlacklist = filtered.length;
+                    filtered = await this.riffBlacklistService.filterBlacklist(filtered);
+                    logger.info(`Filtered ${beforeBlacklist - filtered.length} blacklisted cards`);
                 }
                 
                 logger.info(`Processing ${filtered.length} cards for incremental sync`);
@@ -789,7 +863,6 @@ export class XiuyuanSyncService {
                 this.reportProgress(onProgress, 'incremental', 'adding', 2, 7, '正在同步卡片...');
                 let addedCount = 0;
                 let updatedCount = 0;
-                let skippedCount = 0;
                 const addedCards: RiffBlock[] = [];
                 
                 for (const riffCard of filtered) {
@@ -927,40 +1000,46 @@ export class XiuyuanSyncService {
                     this.reportProgress(onProgress, 'incremental', 'deleting', 4, 7, '正在检测删除的卡片...');
                     let deletedCount = 0;
                     if (since === undefined) {
-                        const allXiuyuansResult = await this.xiuyuanRepository.findAll();
-                        if (!allXiuyuansResult.ok) {
-                            const errorMsg = 'error' in allXiuyuansResult ? allXiuyuansResult.error : 'Unknown error';
-                            logger.error('Failed to get all Xiuyuans:', errorMsg);
-                        } else {
-                            const allXiuyuans = allXiuyuansResult.value;
-                            const riffBlockIds = new Set(filtered.map(c => c.id));
-
-                            const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
-                                if (!this.isManagedRiffXiuyuan(xiuyuan)) {
-                                    return false;
-                                }
-
-                                const blockIds = xiuyuan.getBlockIDs();
-                                if (blockIds.length === 0) {
-                                    return false;
-                                }
-
-                                const blockId = blockIds[0].getValue();
-                                return !riffBlockIds.has(blockId);
+                        if (malformedNewCards > 0) {
+                            logger.warn('Skip incremental delete detection: malformed Riff blocks made startup window incomplete', {
+                                malformedCount: malformedNewCards,
                             });
+                        } else {
+                            const allXiuyuansResult = await this.xiuyuanRepository.findAll();
+                            if (!allXiuyuansResult.ok) {
+                                const errorMsg = 'error' in allXiuyuansResult ? allXiuyuansResult.error : 'Unknown error';
+                                logger.error('Failed to get all Xiuyuans:', errorMsg);
+                            } else {
+                                const allXiuyuans = allXiuyuansResult.value;
+                                const riffBlockIds = new Set(filtered.map(c => c.id));
 
-                            if (xiuyuansToDelete.length > 0) {
-                                logger.info(`Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
-                                for (const xiuyuan of xiuyuansToDelete) {
-                                    const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
-                                    if (deleteResult.ok) {
-                                        deletedCount++;
-                                    } else {
-                                        const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
-                                        logger.error(`Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
+                                const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
+                                    if (!this.isManagedRiffXiuyuan(xiuyuan)) {
+                                        return false;
                                     }
+
+                                    const blockIds = xiuyuan.getBlockIDs();
+                                    if (blockIds.length === 0) {
+                                        return false;
+                                    }
+
+                                    const blockId = blockIds[0].getValue();
+                                    return !riffBlockIds.has(blockId);
+                                });
+
+                                if (xiuyuansToDelete.length > 0) {
+                                    logger.info(`Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
+                                    for (const xiuyuan of xiuyuansToDelete) {
+                                        const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
+                                        if (deleteResult.ok) {
+                                            deletedCount++;
+                                        } else {
+                                            const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
+                                            logger.error(`Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
+                                        }
+                                    }
+                                    logger.info(`Deleted ${deletedCount} Xiuyuans via Repository`);
                                 }
-                                logger.info(`Deleted ${deletedCount} Xiuyuans via Repository`);
                             }
                         }
                     } else {
@@ -1018,10 +1097,13 @@ export class XiuyuanSyncService {
                 try {
                 // 1. 获取所有卡片（使用 blockId 而不是 cardId）
                 this.reportProgress(onProgress, 'full', 'fetching', 0, 7, '正在获取所有卡片...');
-                const riffCards = await this.siyuanApi.getRiffCards(this.config.deckId, {
+                const rawRiffCards = await this.siyuanApi.getRiffCards(this.config.deckId, {
                     dueOnly: false,
                     includeNew: true
                 });
+                const preparedRiffCards = this.prepareRiffBlocks('full', rawRiffCards);
+                const riffCards = preparedRiffCards.blocks;
+                const malformedRiffCards = preparedRiffCards.skippedCount;
                 // 🔧 修改：使用 Repository 查询所有 Xiuyuan
                 const riffBlockIds = new Set(riffCards.map(c => c.id));
                 
@@ -1039,7 +1121,7 @@ export class XiuyuanSyncService {
                 // 2. 🔧 只添加新卡片（本地没有的），不更新已有卡片的复习数据
                 this.reportProgress(onProgress, 'full', 'adding', 2, 7, '正在添加新卡片...');
                 let addedCount = 0;
-                let skippedCount = 0;
+                let skippedCount = malformedRiffCards;
                 const addedCards: RiffBlock[] = [];
                 
                 for (const riffCard of riffCards) {
@@ -1086,34 +1168,40 @@ export class XiuyuanSyncService {
                 
                 // 3. 删除：本地有但 Riff 没有（通过 blockId 判断）
                 this.reportProgress(onProgress, 'full', 'deleting', 3, 7, '正在删除过期卡片...');
-                
-                // ✅ 使用 Repository 查询和删除（符合 DDD 架构）
-                const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
-                    if (!this.isManagedRiffXiuyuan(xiuyuan)) {
-                        return false;
-                    }
-                    
-                    // 检查对应的块是否还在 Riff 中
-                    const blockIds = xiuyuan.getBlockIDs();
-                    if (blockIds.length === 0) {
-                        return false;
-                    }
-                    
-                    const blockId = blockIds[0].getValue();
-                    return !riffBlockIds.has(blockId);
-                });
-                
+
                 let deletedCount = 0;
-                if (xiuyuansToDelete.length > 0) {
-                    logger.info(`Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
-                    
-                    for (const xiuyuan of xiuyuansToDelete) {
-                        const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
-                        if (deleteResult.ok) {
-                            deletedCount++;
-                        } else {
-                            const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
-                            logger.error(`Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
+                if (malformedRiffCards > 0) {
+                    logger.warn('Skip full delete detection: malformed Riff blocks made full-sync snapshot incomplete', {
+                        malformedCount: malformedRiffCards,
+                    });
+                } else {
+                    // ✅ 使用 Repository 查询和删除（符合 DDD 架构）
+                    const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
+                        if (!this.isManagedRiffXiuyuan(xiuyuan)) {
+                            return false;
+                        }
+
+                        // 检查对应的块是否还在 Riff 中
+                        const blockIds = xiuyuan.getBlockIDs();
+                        if (blockIds.length === 0) {
+                            return false;
+                        }
+
+                        const blockId = blockIds[0].getValue();
+                        return !riffBlockIds.has(blockId);
+                    });
+
+                    if (xiuyuansToDelete.length > 0) {
+                        logger.info(`Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
+
+                        for (const xiuyuan of xiuyuansToDelete) {
+                            const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
+                            if (deleteResult.ok) {
+                                deletedCount++;
+                            } else {
+                                const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
+                                logger.error(`Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
+                            }
                         }
                     }
                 }
@@ -1124,8 +1212,14 @@ export class XiuyuanSyncService {
                 let blacklistCleanedCount = 0;
                 if (this.config.fullSync.cleanupBlacklist) {
                     this.reportProgress(onProgress, 'full', 'cleanup', 4, 7, '正在清理黑名单...');
-                    blacklistCleanedCount = await this.riffBlacklistService.cleanupBlacklist(riffBlockIds);
-                    logger.info(`Cleaned ${blacklistCleanedCount} IDs from blacklist`);
+                    if (malformedRiffCards > 0) {
+                        logger.warn('Skip blacklist cleanup: malformed Riff blocks made full-sync snapshot incomplete', {
+                            malformedCount: malformedRiffCards,
+                        });
+                    } else {
+                        blacklistCleanedCount = await this.riffBlacklistService.cleanupBlacklist(riffBlockIds);
+                        logger.info(`Cleaned ${blacklistCleanedCount} IDs from blacklist`);
+                    }
                 }
                 
                 // 5. 保存

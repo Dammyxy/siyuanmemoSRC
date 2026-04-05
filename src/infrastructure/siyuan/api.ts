@@ -30,6 +30,33 @@ interface ListNotebooksResponse {
     notebooks?: NotebookSummary[];
 }
 
+interface NotebookConfRecord {
+    name: string;
+    closed: boolean;
+    refCreateSavePath: string;
+    createDocNameTemplate: string;
+    dailyNoteSavePath: string;
+    dailyNoteTemplatePath: string;
+}
+
+interface NotebookConfResponse {
+    box: string;
+    conf: NotebookConfRecord;
+    name: string;
+}
+
+interface BlockMutationOperation {
+    id?: string;
+    parentID?: string;
+    previousID?: string;
+}
+
+interface BlockMutationEntry {
+    doOperations?: BlockMutationOperation[];
+}
+
+type BlockMutationResponse = BlockMutationEntry[];
+
 function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null;
 }
@@ -104,6 +131,10 @@ export async function getBlockByID(id: string): Promise<JsonRecord | null> {
  */
 export async function getBlockKramdown(id: string): Promise<{ kramdown: string }> {
     return request('/block/getBlockKramdown', { id });
+}
+
+export async function copyStdMarkdown(id: string): Promise<string> {
+    return request<string>('/lute/copyStdMarkdown', { id });
 }
 
 /**
@@ -282,6 +313,10 @@ export async function getDocContent(id: string, size = 102400, mode = 0): Promis
     return request<JsonRecord>('/filetree/getDoc', { id, size, mode });
 }
 
+export async function createDocWithMd(notebook: string, path: string, markdown: string): Promise<string> {
+    return request<string>('/filetree/createDocWithMd', { notebook, path, markdown });
+}
+
 /**
  * 获取笔记本列表
  */
@@ -296,6 +331,78 @@ export async function listNotebooks(): Promise<NotebookSummary[]> {
 export async function listDocsByPath<TFile extends JsonRecord = JsonRecord>(notebook: string, path: string): Promise<TFile[]> {
     const result = await request<ListDocsByPathResponse<TFile>>('/filetree/listDocsByPath', { notebook, path });
     return Array.isArray(result.files) ? result.files : [];
+}
+
+export async function getNotebookConf(notebook: string): Promise<NotebookConfResponse> {
+    return request<NotebookConfResponse>('/notebook/getNotebookConf', { notebook });
+}
+
+// ==================== 模板 / 内容写入 ====================
+
+export async function renderSprig(template: string): Promise<string> {
+    return request<string>('/template/renderSprig', { template });
+}
+
+function extractFirstMutationId(result: BlockMutationResponse): string {
+    for (const entry of result) {
+        const operations = Array.isArray(entry.doOperations) ? entry.doOperations : [];
+        for (const operation of operations) {
+            if (typeof operation.id === 'string' && operation.id.length > 0) {
+                return operation.id;
+            }
+        }
+    }
+    throw new Error('Failed to resolve block mutation id from Siyuan response');
+}
+
+export async function insertBlock(params: {
+    dataType: 'markdown' | 'dom';
+    data: string;
+    nextID?: string;
+    previousID?: string;
+    parentID?: string;
+}): Promise<string> {
+    const result = await request<BlockMutationResponse>('/block/insertBlock', params);
+    return extractFirstMutationId(result);
+}
+
+export async function prependBlock(params: {
+    dataType: 'markdown' | 'dom';
+    data: string;
+    parentID?: string;
+}): Promise<string> {
+    const result = await request<BlockMutationResponse>('/block/prependBlock', params);
+    return extractFirstMutationId(result);
+}
+
+export async function appendBlock(params: {
+    dataType: 'markdown' | 'dom';
+    data: string;
+    parentID?: string;
+}): Promise<string> {
+    const result = await request<BlockMutationResponse>('/block/appendBlock', params);
+    return extractFirstMutationId(result);
+}
+
+export async function updateBlock(params: {
+    dataType: 'markdown' | 'dom';
+    data: string;
+    id: string;
+}): Promise<string> {
+    const result = await request<BlockMutationResponse>('/block/updateBlock', params);
+    return extractFirstMutationId(result);
+}
+
+export async function moveBlock(params: {
+    id: string;
+    parentID?: string;
+    previousID?: string;
+}): Promise<void> {
+    await request('/block/moveBlock', params);
+}
+
+export async function deleteBlock(id: string): Promise<void> {
+    await request('/block/deleteBlock', { id });
 }
 
 // ==================== 文件存储 ====================

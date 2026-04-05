@@ -273,6 +273,95 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
+  it('adds open-source toolbar action for excerpt topic cards', async () => {
+    const excerptCard = createCard('topic-excerpt', CardType.Topic, {
+      extractedFrom: 'source-block-1',
+      meta: {
+        progressive: {
+          kind: 'excerpt',
+          sourceBlockId: 'source-block-1',
+          sourceDocId: 'doc-source-1',
+        },
+      },
+    });
+    const adapter = new UnifiedReviewAdapter();
+
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'retrieval-practice', liveCards: [excerptCard] }),
+      excerptCard,
+      createContext(),
+    );
+
+    expect(ui.header.toolbar).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'progressive-open-source',
+      }),
+    ]));
+  });
+
+  it('hides progressive excerpt toolbar action when the feature is disabled', async () => {
+    const excerptCard = createCard('topic-excerpt', CardType.Topic, {
+      extractedFrom: 'source-block-1',
+      meta: {
+        progressive: {
+          kind: 'excerpt',
+          sourceBlockId: 'source-block-1',
+          sourceDocId: 'doc-source-1',
+        },
+      },
+    });
+    const adapter = new UnifiedReviewAdapter({ progressiveExcerptEnabled: false });
+
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'retrieval-practice', liveCards: [excerptCard] }),
+      excerptCard,
+      createContext(),
+    );
+
+    expect(ui.header.toolbar).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'progressive-excerpt',
+      }),
+    ]));
+    expect(ui.header.toolbar).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'progressive-open-source',
+      }),
+    ]));
+  });
+
+  it('adds open-source toolbar action for split piece topic cards', async () => {
+    const pieceCard = createCard('topic-piece', CardType.Topic, {
+      meta: {
+        progressive: {
+          kind: 'piece',
+          mode: 'linear',
+          sourceDocId: 'doc-source-1',
+          pieceDocId: 'piece-1',
+        },
+      },
+    });
+    const adapter = new UnifiedReviewAdapter();
+
+    const ui = await renderState(
+      adapter,
+      createQueue({ queueType: 'retrieval-practice', liveCards: [pieceCard] }),
+      pieceCard,
+      createContext(),
+    );
+
+    expect(ui.header.toolbar).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'progressive-open-source',
+      }),
+      expect.objectContaining({
+        type: 'progressive-complete-piece',
+      }),
+    ]));
+  });
+
   it('builds incremental-learning live value summary with live badges', async () => {
     const liveCards = [
       createCard('item-1', CardType.Item),

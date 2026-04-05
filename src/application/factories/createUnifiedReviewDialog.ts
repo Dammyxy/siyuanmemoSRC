@@ -103,6 +103,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
         const adapter = new UnifiedReviewAdapter({
             i18n: plugin.i18n || {},
             headerVariant,
+            progressiveExcerptEnabled: context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
         });
         
         // 创建对话框

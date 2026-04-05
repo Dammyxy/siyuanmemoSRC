@@ -311,6 +311,30 @@
 
         <div class="fn__hr"></div>
 
+        <h3>{{ t('progressiveReadingSettingsTitle', '渐进阅读') }}</h3>
+
+        <div class="form-item">
+          <label>{{ t('progressiveAltXExcerptEnabled', '启用 Alt+X 自动摘录') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.progressiveAltXExcerptEnabled">
+          </div>
+          <p class="form-hint">
+            {{ t('progressiveAltXExcerptEnabledHint', '关闭时插件不再接管 Alt+X 摘录；原生 Protyle 中只保留思源自己的最近外观功能。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('progressiveDailyTraceEnabled', '摘录后写入 Daily Notes 痕迹') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.progressiveDailyTraceEnabled">
+          </div>
+          <p class="form-hint">
+            {{ t('progressiveDailyTraceEnabledHint', '关闭时只创建摘录子文档与 Topic 卡，不在当天 Daily Notes 里追加索引痕迹。') }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
         <h3>{{ t('blockAttrsCleanupTitle', '块属性清理') }}</h3>
 
         <div class="form-item">
@@ -658,6 +682,7 @@ const props = defineProps<{
   riffIntegrationSettings?: Record<string, unknown>;  // 🆕 Riff 集成配置
   incrementalSettings?: { autoCardEnabled: boolean };
   quickCardSettings?: Partial<QuickCardSettings>;  // 🆕 快速制卡配置
+  progressiveReadingSettings?: { altXExcerptEnabled?: boolean; dailyTraceEnabled?: boolean };
   i18n?: Record<string, string>;
   defaultTab?: string;
   queueCount?: number;
@@ -715,6 +740,8 @@ interface Settings {
   addToOutstandingEveryNth: number;
   priorityRandomness: number;
   quickCard: QuickCardSettings;  // 🆕 快速制卡设置
+  progressiveAltXExcerptEnabled: boolean;
+  progressiveDailyTraceEnabled: boolean;
 }
 
 const settings = ref<Settings>({
@@ -729,6 +756,8 @@ const settings = ref<Settings>({
   addToOutstandingEveryNth: 2,
   priorityRandomness: 0.1,
   quickCard: createDefaultQuickCardSettings(),
+  progressiveAltXExcerptEnabled: false,
+  progressiveDailyTraceEnabled: false,
 });
 
 // 🆕 调度器配置
@@ -931,6 +960,8 @@ function loadSettings() {
       addToOutstandingEveryNth: 2,
       priorityRandomness: normalizePriorityRandomness(props.priorityRandomness),
       quickCard: mergeQuickCardSettings(props.quickCardSettings),
+      progressiveAltXExcerptEnabled: props.progressiveReadingSettings?.altXExcerptEnabled === true,
+      progressiveDailyTraceEnabled: props.progressiveReadingSettings?.dailyTraceEnabled === true,
     };
     
     // 🔍 调试日志：检查初始化后的 settings.quickCard
@@ -938,6 +969,8 @@ function loadSettings() {
   }
 
   settings.value.quickCard = mergeQuickCardSettings(props.quickCardSettings);
+  settings.value.progressiveAltXExcerptEnabled = props.progressiveReadingSettings?.altXExcerptEnabled === true;
+  settings.value.progressiveDailyTraceEnabled = props.progressiveReadingSettings?.dailyTraceEnabled === true;
   
   if (props.queueSettings) {
     const incoming = JSON.parse(JSON.stringify(props.queueSettings));
@@ -1064,6 +1097,8 @@ function saveSettings() {
     autoSortEnabled: _autoSortEnabled,
     autoPostponeEnabled: _autoPostponeEnabled,
     autoPostponeSkipTopN: _autoPostponeSkipTopN,
+    progressiveAltXExcerptEnabled: _progressiveAltXExcerptEnabled,
+    progressiveDailyTraceEnabled: _progressiveDailyTraceEnabled,
     ...settingsBase
   } = settings.value;
 
@@ -1090,6 +1125,10 @@ function saveSettings() {
       deleteSync: riffIntegrationConfig.value.deleteSync,
       storageConflictResolution: riffIntegrationConfig.value.storageConflictResolution,
     },
+    progressiveReading: {
+      altXExcerptEnabled: settings.value.progressiveAltXExcerptEnabled,
+      dailyTraceEnabled: settings.value.progressiveDailyTraceEnabled,
+    },
   };
   
   // 🔍 调试日志：检查 quickCard 配置
@@ -1112,6 +1151,8 @@ function resetSettings() {
     addToOutstandingEveryNth: 2,
     priorityRandomness: 0.1,
     quickCard: createDefaultQuickCardSettings(),
+    progressiveAltXExcerptEnabled: false,
+    progressiveDailyTraceEnabled: false,
   };
   queueSettings.value = createDefaultQueueSettings();
 }

@@ -14,6 +14,7 @@ import { createLogger } from '@/utils/logger';
 import type { RiffIntegrationConfig } from '@/types/settings';
 import { FormulaClozeAssistant } from '@/application/handlers/FormulaClozeAssistant';
 import { ImageOcclusionHandler } from '@/application/handlers/ImageOcclusionHandler';
+import { ProgressiveExcerptHotkeyHandler } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
 import { BlockContextResolver } from '@/application/entries/BlockContextResolver';
 import {
   CORE_REVIEW_ENTRY_DEFINITIONS,
@@ -44,6 +45,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private mobileSidebarToolbarEntryClickHandler: ((ev: MouseEvent) => void) | null = null;
   private formulaClozeAssistant: FormulaClozeAssistant | null = null;
   private imageOcclusionHandler: ImageOcclusionHandler | null = null;
+  private progressiveExcerptHotkeyHandler: ProgressiveExcerptHotkeyHandler | null = null;
   private readonly topBarQuickSlashIds = TOPBAR_QUICK_ENTRY_DEFINITIONS.map((definition) => definition.slashId);
   private readonly coreReviewSlashIds = CORE_REVIEW_ENTRY_DEFINITIONS.map((definition) => definition.slashId);
   private readonly blockToolSlashIds = [
@@ -162,6 +164,8 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       
       // ✅ 只有在初始化成功后才注册事件处理器
       this.imageOcclusionHandler = new ImageOcclusionHandler(this);
+      this.progressiveExcerptHotkeyHandler = new ProgressiveExcerptHotkeyHandler(this.context);
+      this.progressiveExcerptHotkeyHandler.start();
       this.registerDock();
       this.registerEventHandlers();
       this.registerImageOcclusionCommands();
@@ -181,6 +185,8 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       // ❌ 初始化失败时不注册事件处理器
       this.formulaClozeAssistant?.stop();
       this.formulaClozeAssistant = null;
+      this.progressiveExcerptHotkeyHandler?.stop();
+      this.progressiveExcerptHotkeyHandler = null;
       return;
     }
 
@@ -212,6 +218,8 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.unregisterBlockToolSlash();
     this.formulaClozeAssistant?.stop();
     this.formulaClozeAssistant = null;
+    this.progressiveExcerptHotkeyHandler?.stop();
+    this.progressiveExcerptHotkeyHandler = null;
     this.imageOcclusionHandler?.dispose();
     this.imageOcclusionHandler = null;
     if (this.context) {

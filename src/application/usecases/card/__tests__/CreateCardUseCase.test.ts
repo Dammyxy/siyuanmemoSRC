@@ -392,5 +392,28 @@ describe('CreateCardUseCase', () => {
         expect(faces[0].answerBlockId).toBe('20210808180117-def5678');
       }
     });
+
+    it('应该为 Topic 默认创建无答案块的单面卡', async () => {
+      const command: CreateCardCommand = {
+        blockId: '20210808180117-6v0mkxr',
+        cardType: 'topic',
+      };
+
+      vi.mocked(mockRepo.save).mockResolvedValue(ok(undefined));
+
+      const result = await useCase.execute(command);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const savedXiuyuan = vi.mocked(mockRepo.save).mock.calls[0][0];
+        const faces = savedXiuyuan.getFaces();
+        expect(savedXiuyuan.getTemplateID().getValue()).toBe('builtin-topic');
+        expect(faces).toHaveLength(1);
+        expect(faces[0].question).toBe('20210808180117-6v0mkxr');
+        expect(faces[0].answer).toBe('');
+        expect(faces[0].questionBlockId).toBe('20210808180117-6v0mkxr');
+        expect(faces[0].answerBlockId).toBeUndefined();
+      }
+    });
   });
 });

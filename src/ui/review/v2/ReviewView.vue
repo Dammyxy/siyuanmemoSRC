@@ -130,6 +130,11 @@ import {
   normalizeReviewKeyboardKey,
   rememberModifiedReviewHotkey,
 } from './reviewKeyboardGuard';
+import {
+  isProgressiveSelectionInsideNativeProtyle,
+  resolveProgressiveSelection,
+} from '@/application/entries/ProgressiveSelectionResolver';
+import type { ProgressiveExcerptResult } from '@/application/services/ProgressiveReadingService';
 
 const logger = createLogger('ReviewView');
 
@@ -218,6 +223,24 @@ type ReviewPluginContextLike = {
       BUILTIN_DECK_ID: string;
     } | undefined;
   };
+  getProgressiveReadingService?: () => {
+    completeCurrentPiece: (pieceDocId: string) => Promise<{ nextPieceDocId?: string }>;
+  } | undefined;
+  getSelectionExcerptService?: () => {
+    createFromSelection: (input: {
+      sourceBlockId: string;
+      selectedText: string;
+      origin: 'editor' | 'review';
+      currentCardId?: string;
+    }) => Promise<ProgressiveExcerptResult>;
+  } | undefined;
+  getSettingsService?: () => {
+    getSettings?: () => {
+      progressiveReading?: {
+        altXExcerptEnabled?: boolean;
+      };
+    };
+  } | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
 };
 
@@ -243,10 +266,15 @@ type FilterGroupQueueLike = {
   setFilter?: (filter: CardFilter) => Promise<void> | void;
   getFilter?: () => CardFilter;
   rebuild?: () => Promise<void> | void;
+  addCard?: (card: string) => Promise<void> | void;
 };
 
 type QueueStrategyWithUnderlying = {
   getUnderlyingQueue?: () => unknown;
+};
+
+type QueueStrategyWithInsertAt = {
+  insertAt?: (cardId: string, position: number) => Promise<void> | void;
 };
 
 type CommandLike = {
@@ -368,6 +396,8 @@ let lastKeyPressTime = 0;
 let lastKeyPressed = '';
 let isProcessingKey = false; // 标记是否正在处理按键
 const KEY_PRESS_DEBOUNCE = 30; // 30ms 内的重复按键视为同一次（进一步降低延迟）
+let pendingNativeProgressiveExcerptTimer: number | null = null;
+let pendingNativeProgressiveExcerptSignature = '';
 
 function shouldIgnoreDuplicateKey(key: string): boolean {
   const now = Date.now();
@@ -421,6 +451,15 @@ function getUnderlyingQueue(): UnderlyingQueueLike | null {
   return getUnderlyingQueueFromStrategy(hook.getQueueStrategy());
 }
 
+function getQueueStrategyWithInsertAt(): QueueStrategyWithInsertAt | null {
+  const strategy = hook.getQueueStrategy();
+  if (!isRecord(strategy)) {
+    return null;
+  }
+  const candidate = strategy as QueueStrategyWithInsertAt;
+  return typeof candidate.insertAt === 'function' ? candidate : null;
+}
+
 function getFilterGroupQueue(): FilterGroupQueueLike | null {
   const queue = getUnderlyingQueue();
   if (!queue) {
@@ -451,6 +490,81 @@ function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
   return contextFromProps?.getUnifiedDataSourceManager?.() || contextFromWindow?.getUnifiedDataSourceManager?.() || null;
+}
+
+function getProgressiveReadingService() {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getProgressiveReadingService?.() || contextFromWindow?.getProgressiveReadingService?.() || null;
+}
+
+function getSelectionExcerptService() {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getSelectionExcerptService?.() || contextFromWindow?.getSelectionExcerptService?.() || null;
+}
+
+function isProgressiveExcerptEnabled(): boolean {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  const candidates = [contextFromProps, contextFromWindow];
+  for (const candidate of candidates) {
+    try {
+      const enabled = candidate?.getSettingsService?.()?.getSettings?.()?.progressiveReading?.altXExcerptEnabled;
+      if (typeof enabled === 'boolean') {
+        return enabled;
+      }
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewView] Failed to read progressive excerpt setting:', error);
+    }
+  }
+  return false;
+}
+
+function isCurrentProgressivePieceCard(): boolean {
+  const progressive = state.value.content.card?.meta?.progressive;
+  return Boolean(progressive && typeof progressive === 'object' && (progressive as Record<string, unknown>).kind === 'piece');
+}
+
+async function enqueueExcerptIntoCurrentProgressiveReview(excerptDocId: string): Promise<boolean> {
+  if (!isCurrentProgressivePieceCard()) {
+    return false;
+  }
+
+  const normalizedBlockId = String(excerptDocId || '').trim();
+  if (!normalizedBlockId) {
+    return false;
+  }
+
+  const filterQueue = getFilterGroupQueue();
+  const queueStrategy = getQueueStrategyWithInsertAt();
+  if (!filterQueue || typeof filterQueue.getFilter !== 'function' || typeof filterQueue.setFilter !== 'function' || !queueStrategy?.insertAt) {
+    return false;
+  }
+
+  const currentFilter = filterQueue.getFilter() || {};
+  const currentBlockIds = Array.isArray(currentFilter.blockIds)
+    ? currentFilter.blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean)
+    : [];
+
+  if (currentBlockIds.length === 0) {
+    return false;
+  }
+
+  const nextBlockIds = Array.from(new Set([...currentBlockIds, normalizedBlockId]));
+  if (nextBlockIds.length !== currentBlockIds.length) {
+    await filterQueue.setFilter({
+      ...currentFilter,
+      blockIds: nextBlockIds,
+    });
+    appliedReviewFilter.value = {
+      ...currentFilter,
+      blockIds: nextBlockIds,
+    };
+  }
+
+  await queueStrategy.insertAt(normalizedBlockId, 1);
+  return true;
 }
 
 function openNeuralBrowserSubview(subview: 'concept-cards' | 'roam-history' | 'worldline-anchors'): void {
@@ -510,6 +624,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown, true);
   document.removeEventListener('keyup', handleKeyUp, true);
+  clearPendingNativeProgressiveExcerpt();
   recentModifiedHotkeys.clear();
   escRepeatLatch = false;
   unbindReviewDataObserver();
@@ -804,6 +919,25 @@ function handleEditorStateChange(nextState: ReviewEditorState): void {
   }
 }
 
+function isCurrentReviewNativeProtyleSurface(target: EventTarget | null): boolean {
+  if (editorState.value.renderer !== 'main-protyle') {
+    return false;
+  }
+  const root = rootRef.value;
+  if (!root || !root.querySelector('.protyle')) {
+    return false;
+  }
+  return isInsideReviewRoot(target) || isInsideReviewRoot(document.activeElement);
+}
+
+function clearPendingNativeProgressiveExcerpt(): void {
+  if (pendingNativeProgressiveExcerptTimer !== null) {
+    window.clearTimeout(pendingNativeProgressiveExcerptTimer);
+    pendingNativeProgressiveExcerptTimer = null;
+  }
+  pendingNativeProgressiveExcerptSignature = '';
+}
+
 function maybeHandleReviewEscape(event: KeyboardEvent): boolean {
   if (!isReviewKeyboardContext(event.target)) {
     return false;
@@ -934,6 +1068,23 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 
   const key = normalizeReviewKeyboardKey(e.key);
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && key === 'x') {
+    const excerptEnabled = isProgressiveExcerptEnabled();
+    if (isCurrentReviewNativeProtyleSurface(e.target)) {
+      const selection = resolveProgressiveSelection({ root: rootRef.value });
+      if (excerptEnabled && selection && state.value.content.card?.type === 'topic') {
+        scheduleNativeProgressiveExcerptFromReview(selection);
+      }
+      return;
+    }
+    if (!excerptEnabled) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    void handleProgressiveExcerptFromReview('hotkey');
+    return;
+  }
   if (hasReviewKeyboardModifier(e)) {
     rememberModifiedReviewHotkey(recentModifiedHotkeys, {
       key,
@@ -1186,6 +1337,21 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   if (actionType === 'plan-review-scope') {
     syncReviewFilterFromQueue();
     showReviewFilterDialog.value = true;
+    return;
+  }
+
+  if (actionType === 'progressive-excerpt') {
+    void handleProgressiveExcerptFromReview('toolbar');
+    return;
+  }
+
+  if (actionType === 'progressive-open-source') {
+    handleProgressiveOpenSource();
+    return;
+  }
+
+  if (actionType === 'progressive-complete-piece') {
+    void handleProgressiveCompletePiece();
     return;
   }
 
@@ -1771,6 +1937,162 @@ function resolveCurrentReviewBlockId(): string {
     || state.value.content.id
     || '',
   ).trim();
+}
+
+function resolveCurrentReviewCardId(): string {
+  return String(
+    state.value.actions.cardMeta?.cardID
+    || state.value.content.card?.id
+    || '',
+  ).trim();
+}
+
+function resolveProgressiveSourceTargetId(): string {
+  const card = state.value.content.card;
+  if (typeof card?.extractedFrom === 'string' && card.extractedFrom.trim().length > 0) {
+    return card.extractedFrom.trim();
+  }
+  const progressive = card?.meta?.progressive;
+  if (!progressive || typeof progressive !== 'object') {
+    return '';
+  }
+  const sourceBlockId = (progressive as Record<string, unknown>).sourceBlockId;
+  if (typeof sourceBlockId === 'string' && sourceBlockId.trim().length > 0) {
+    return sourceBlockId.trim();
+  }
+  const sourceDocId = (progressive as Record<string, unknown>).sourceDocId;
+  return typeof sourceDocId === 'string' ? sourceDocId.trim() : '';
+}
+
+async function handleProgressiveExcerptFromReview(trigger: 'hotkey' | 'toolbar'): Promise<void> {
+  if (!isProgressiveExcerptEnabled()) {
+    showMessage(t('progressiveExcerptDisabled', 'Alt+X 自动摘录已关闭，请先在设置中开启'), 3000, 'info');
+    return;
+  }
+
+  const currentCard = state.value.content.card;
+  if (!currentCard || currentCard.type !== 'topic') {
+    showMessage(t('progressiveExcerptTopicOnly', 'Alt+X 当前先只支持 Topic 卡'), 3000, 'error');
+    return;
+  }
+
+  const selectionService = getSelectionExcerptService();
+  if (!selectionService) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  const selection = resolveProgressiveSelection({ root: rootRef.value });
+  if (!selection) {
+    showMessage(t('progressiveExcerptNoSelection', '请先在同一块内选中文本再摘抄'), 3000, 'error');
+    return;
+  }
+
+  await createProgressiveExcerptFromReviewSelection(selection, trigger);
+}
+
+function scheduleNativeProgressiveExcerptFromReview(selection: { blockId: string; text: string }): void {
+  const signature = `${selection.blockId}::${selection.text}`;
+  if (pendingNativeProgressiveExcerptTimer !== null && pendingNativeProgressiveExcerptSignature === signature) {
+    return;
+  }
+
+  clearPendingNativeProgressiveExcerpt();
+  pendingNativeProgressiveExcerptSignature = signature;
+  pendingNativeProgressiveExcerptTimer = window.setTimeout(() => {
+    clearPendingNativeProgressiveExcerpt();
+    if (
+      !isCurrentReviewNativeProtyleSurface(document.activeElement)
+      && !isProgressiveSelectionInsideNativeProtyle({ root: rootRef.value })
+    ) {
+      return;
+    }
+    void createProgressiveExcerptFromReviewSelection(selection, 'hotkey');
+  }, 0);
+}
+
+async function createProgressiveExcerptFromReviewSelection(
+  selection: { blockId: string; text: string },
+  trigger: 'hotkey' | 'toolbar',
+): Promise<void> {
+  const selectionService = getSelectionExcerptService();
+  if (!selectionService) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  try {
+    const result = await selectionService.createFromSelection({
+      sourceBlockId: selection.blockId,
+      selectedText: selection.text,
+      origin: 'review',
+      currentCardId: resolveCurrentReviewCardId(),
+    });
+    const insertedIntoCurrentReview = await enqueueExcerptIntoCurrentProgressiveReview(result.excerptDocId)
+      .catch((error) => {
+        logger.warn('[SiYuanMemo][ReviewView] Failed to enqueue progressive excerpt into current review:', error);
+        return false;
+      });
+    showMessage(
+      insertedIntoCurrentReview
+        ? t('progressiveExcerptCreatedInserted', '摘抄已创建、制为 Topic，并插入当前渐进复习')
+        : trigger === 'hotkey'
+          ? t('progressiveExcerptCreatedHotkey', '摘抄已创建并制为 Topic')
+          : t('progressiveExcerptCreated', '摘抄已创建并制为 Topic'),
+      3000,
+      'info',
+    );
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to create excerpt from review:', error);
+    showMessage(
+      t('progressiveExcerptFailed', '摘抄失败：{message}')
+        .replace('{message}', error instanceof Error ? error.message : String(error)),
+      5000,
+      'error',
+    );
+  }
+}
+
+function handleProgressiveOpenSource(): void {
+  const sourceTargetId = resolveProgressiveSourceTargetId();
+  if (!props.app || !sourceTargetId) {
+    showMessage(t('progressiveOpenSourceUnavailable', '当前卡片没有可回源的来源块'), 3000, 'error');
+    return;
+  }
+
+  void openReviewBlockAtSource({
+    app: props.app,
+    blockId: sourceTargetId,
+  });
+}
+
+async function handleProgressiveCompletePiece(): Promise<void> {
+  const service = getProgressiveReadingService();
+  const pieceDocId = resolveCurrentReviewBlockId();
+  if (!service || !pieceDocId) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  try {
+    const result = await service.completeCurrentPiece(pieceDocId);
+    showMessage(
+      result.nextPieceDocId
+        ? t('progressivePieceCompletedNext', '当前片已完成，下一片已激活')
+        : t('progressivePieceCompletedFinal', '当前片已完成，已到最后一片'),
+      3000,
+      'info',
+    );
+    handleGrade(3);
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to complete current progressive piece:', error);
+    showMessage(
+      t('progressiveCompletePieceFailed', '完成当前片失败：{message}')
+        .replace('{message}', error instanceof Error ? error.message : String(error)),
+      5000,
+      'error',
+    );
+  }
 }
 
 async function startWorldlineFromCurrentNode(
