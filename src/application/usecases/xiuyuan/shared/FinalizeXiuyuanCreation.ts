@@ -1,6 +1,7 @@
 import { Result, ok, err, isErr } from '@/types/result';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
+import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 
 interface FinalizerLogger {
@@ -32,6 +33,7 @@ interface FinalizeRiffOptions {
 export interface FinalizeXiuyuanCreationOptions {
   xiuyuan: Xiuyuan;
   xiuyuanRepository: IXiuyuanRepository;
+  eventBus: EventBus;
   logger: FinalizerLogger;
   siyuanApi: XiuyuanSiyuanPort;
   riff?: FinalizeRiffOptions;
@@ -55,7 +57,7 @@ export function toXiuyuanCreationPayload(xiuyuan: Xiuyuan): XiuyuanCreationPaylo
 export async function finalizeXiuyuanCreation(
   options: FinalizeXiuyuanCreationOptions
 ): Promise<Result<XiuyuanCreationPayload>> {
-  const { xiuyuan, xiuyuanRepository, logger, riff, siyuanApi } = options;
+  const { xiuyuan, xiuyuanRepository, eventBus, logger, riff, siyuanApi } = options;
 
   const faceCount = xiuyuan.getFaces().length;
   for (let i = 0; i < faceCount; i++) {
@@ -86,6 +88,9 @@ export async function finalizeXiuyuanCreation(
   if (!saveResult.ok) {
     return saveResult as Result<XiuyuanCreationPayload>;
   }
+
+  await eventBus.publishAll(xiuyuan.getDomainEvents());
+  xiuyuan.clearDomainEvents();
 
   return ok(toXiuyuanCreationPayload(xiuyuan));
 }

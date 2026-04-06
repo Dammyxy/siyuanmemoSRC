@@ -68,6 +68,25 @@ function createReviewOptions() {
     queue: {
       getType: () => QueueType.RetrievalPractice,
     },
+    transferState: {
+      kind: 'filter-group-session' as const,
+      filterSession: {
+        filter: {
+          blockIds: ['block-1'],
+          scopeDocIds: ['doc-1'],
+        },
+        rollbackSnapshot: {
+          temporaryBlacklist: ['blocked-card'],
+          customOrder: ['card-1'],
+          manualCards: ['manual-1'],
+        },
+      },
+      session: {
+        initialTotal: 5,
+        answeredCount: 2,
+        correctCount: 1,
+      },
+    },
   };
 }
 
@@ -110,6 +129,18 @@ function createManager(prepareBeforeReview: (() => Promise<void>) | null = null)
 describe('TabManager.openReviewInNewWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (window as Window & {
+      require?: (id: string) => unknown;
+    }).require = vi.fn((id: string) => {
+      if (id === 'electron') {
+        return {
+          ipcRenderer: {
+            send: mocks.ipcSend,
+          },
+        };
+      }
+      throw new Error(`Unknown module: ${id}`);
+    });
   });
 
   it('opens new window immediately without waiting for queue preparation', async () => {
@@ -126,9 +157,17 @@ describe('TabManager.openReviewInNewWindow', () => {
     expect(channel).toBe('siyuan-open-window');
     expect(payload.url).toContain('window.html?v=3.1.0');
     const windowJson = parseOpenWindowJson(payload.url) as Array<{
-      children?: { customModelType?: string };
+      children?: { customModelType?: string; customModelData?: { transferState?: unknown } };
     }>;
     expect(windowJson[0]?.children?.customModelType).toBe('test-plugintest-plugin-review');
+    expect(windowJson[0]?.children?.customModelData?.transferState).toMatchObject({
+      kind: 'filter-group-session',
+      session: {
+        initialTotal: 5,
+        answeredCount: 2,
+        correctCount: 1,
+      },
+    });
 
     deferred.resolve();
     await flushMicrotasks();

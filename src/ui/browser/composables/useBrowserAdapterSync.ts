@@ -10,6 +10,7 @@ interface UseBrowserAdapterSyncOptions {
   onQueueChanged: (payload: {
     affectedQueueTypes: QueueType[] | null;
     invalidateAllCounts: boolean;
+    requiresFullRefresh: boolean;
   }) => void;
   onModeSwitched: () => void;
 }
@@ -23,6 +24,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
   let pendingDeletedCardIds = new Set<string>();
   let pendingQueueChangedAll = false;
   let pendingQueueChangedTypes = new Set<QueueType>();
+  let pendingQueueChangedFullRefresh = false;
   let pendingModeSwitched = false;
   let flushInProgress = false;
   let flushQueued = false;
@@ -41,6 +43,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
     pendingDeletedCardIds.clear();
     pendingQueueChangedAll = false;
     pendingQueueChangedTypes.clear();
+    pendingQueueChangedFullRefresh = false;
     pendingModeSwitched = false;
   };
 
@@ -65,6 +68,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
           ? null
           : Array.from(pendingQueueChangedTypes);
         const invalidateAllCounts = pendingQueueChangedAll || (!queueChanged && deletedIds.length > 0);
+        const requiresFullRefresh = pendingQueueChangedFullRefresh;
         const modeSwitched = pendingModeSwitched;
 
         resetPendingState();
@@ -81,6 +85,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
           options.onQueueChanged({
             affectedQueueTypes: invalidateAllCounts ? null : affectedQueueTypes,
             invalidateAllCounts,
+            requiresFullRefresh,
           });
         }
 
@@ -113,6 +118,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
         if (isDestroyed) return;
 
         switch (event.type) {
+          case 'card-created':
           case 'card-updated':
             event.cardIds?.forEach((id) => pendingUpdatedCardIds.add(id));
             break;
@@ -124,6 +130,9 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
               pendingQueueChangedTypes.add(event.queueType);
             } else {
               pendingQueueChangedAll = true;
+            }
+            if (event.requiresFullRefresh === true) {
+              pendingQueueChangedFullRefresh = true;
             }
             break;
           case 'mode-switched':

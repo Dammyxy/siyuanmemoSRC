@@ -125,6 +125,11 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             this.initialLoadCompleted = true;
         }
     }
+
+    protected markInitialLoadCompleted(): void {
+        this.pendingInitialLoad = null;
+        this.initialLoadCompleted = true;
+    }
     
     /**
      * 获取队列类型
@@ -991,10 +996,11 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         this.observers.forEach(observer => observer.onQueueUpdate(this));
     }
 
-    protected emitQueueChangedEvent(): void {
+    protected emitQueueChangedEvent(options: { requiresFullRefresh?: boolean } = {}): void {
         this.manager.notifyObservers({
             type: 'queue-changed',
             queueType: this.type,
+            requiresFullRefresh: options.requiresFullRefresh === true ? true : undefined,
             timestamp: Date.now(),
         });
     }

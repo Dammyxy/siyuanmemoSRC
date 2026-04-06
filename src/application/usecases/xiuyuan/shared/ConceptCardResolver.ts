@@ -1,6 +1,7 @@
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
+import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import { isErr } from '@/types/result';
 import { createLogger } from '@/utils/logger';
 
@@ -15,6 +16,7 @@ interface ResolveConceptCardParams extends ConceptCardResolverDeps {
   conceptId: string;
   deckId?: string;
   siyuanApi: XiuyuanSiyuanPort;
+  eventBus?: EventBus;
 }
 
 export interface ResolvedConceptCard {
@@ -28,7 +30,7 @@ interface ConceptContentRow extends Record<string, unknown> {
 }
 
 export async function resolveConceptCard(params: ResolveConceptCardParams): Promise<ResolvedConceptCard> {
-  const { conceptId, deckId, xiuyuanRepository, templateRegistry, siyuanApi } = params;
+  const { conceptId, deckId, xiuyuanRepository, templateRegistry, siyuanApi, eventBus } = params;
 
   const conceptQuery = await siyuanApi.sql<ConceptContentRow>(`
     SELECT content FROM blocks
@@ -48,7 +50,7 @@ export async function resolveConceptCard(params: ResolveConceptCardParams): Prom
     const createXiuyuanUseCase = new CreateXiuyuanFromBlocksUseCase(
       xiuyuanRepository,
       templateRegistry,
-      { siyuanApi }
+      { siyuanApi, eventBus }
     );
     const createResult = await createXiuyuanUseCase.execute({
       blockIds: [conceptId],

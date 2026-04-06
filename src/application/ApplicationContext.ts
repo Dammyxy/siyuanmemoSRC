@@ -64,6 +64,7 @@ import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiy
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
+import { ReviewScopeCardCreationSyncService } from '@/application/services/ReviewScopeCardCreationSyncService';
 import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
@@ -92,6 +93,7 @@ interface ApplicationServiceRegistry {
   cardTypeDetectionService: CardTypeDetectionService;
   docTreeReviewScopeService: DocTreeReviewScopeService;
   progressiveReadingService: ProgressiveReadingService;
+  reviewScopeCardCreationSyncService: ReviewScopeCardCreationSyncService;
   selectionExcerptService: SelectionExcerptService;
   cardContentQueryService: CardContentQueryService;
   dialogManager: DialogManager;
@@ -335,6 +337,15 @@ export class ApplicationContext {
         context.getFileService(),
         context.getCardService(),
         context.getSettingsService(),
+        context.getDocTreeReviewScopeService(),
+      );
+    });
+
+    this.registerServiceFactory('reviewScopeCardCreationSyncService', (context) => {
+      return new ReviewScopeCardCreationSyncService(
+        context.getEventBus(),
+        context.getCardService(),
+        context.getUnifiedDataSourceManager(),
         context.getDocTreeReviewScopeService(),
       );
     });
@@ -990,6 +1001,9 @@ export class ApplicationContext {
     const docTreeReviewScopeService = context.getDocTreeReviewScopeService();
     await docTreeReviewScopeService.hydrate();
     logger.info('[ApplicationContext] ✅ DocTreeReviewScopeService hydrated');
+
+    context.getReviewScopeCardCreationSyncService();
+    logger.info('[ApplicationContext] ✅ ReviewScopeCardCreationSyncService initialized');
     
     unifiedDataSourceManager.setQueuePersistence(queuePersistenceService);
     logger.info('[ApplicationContext] ✅ UnifiedDataSourceManager initialized with Advanced mode and QueuePersistence');
@@ -1222,7 +1236,8 @@ export class ApplicationContext {
       
       this.xiuyuanApplicationService = new XiuyuanApplicationService(
         xiuyuanRepository,
-        templateRegistry
+        templateRegistry,
+        this.getEventBus()
       );
     }
     return this.xiuyuanApplicationService;
@@ -1510,6 +1525,10 @@ export class ApplicationContext {
 
   getDocTreeReviewScopeService(): DocTreeReviewScopeService {
     return this.getService('docTreeReviewScopeService');
+  }
+
+  getReviewScopeCardCreationSyncService(): ReviewScopeCardCreationSyncService {
+    return this.getService('reviewScopeCardCreationSyncService');
   }
 
   getProgressiveReadingService(): ProgressiveReadingService {

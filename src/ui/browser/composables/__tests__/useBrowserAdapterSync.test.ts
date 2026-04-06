@@ -58,8 +58,10 @@ describe('useBrowserAdapterSync queue-changed aggregation', () => {
     const arg = onQueueChanged.mock.calls[0]?.[0] as {
       affectedQueueTypes: QueueType[] | null;
       invalidateAllCounts: boolean;
+      requiresFullRefresh: boolean;
     };
     expect(arg.invalidateAllCounts).toBe(false);
+    expect(arg.requiresFullRefresh).toBe(false);
     expect(arg.affectedQueueTypes).not.toBeNull();
     expect(new Set(arg.affectedQueueTypes ?? [])).toEqual(new Set([QueueType.RetrievalPractice, QueueType.FinalDrill]));
 
@@ -99,6 +101,48 @@ describe('useBrowserAdapterSync queue-changed aggregation', () => {
     expect(onQueueChanged).toHaveBeenCalledWith({
       affectedQueueTypes: null,
       invalidateAllCounts: true,
+      requiresFullRefresh: false,
+    });
+
+    destroyBrowserAdapter();
+  });
+
+  it('preserves a queued full-refresh hint across aggregated queue-changed events', async () => {
+    vi.useFakeTimers();
+    const manager = createManagerStub();
+    const onQueueChanged = vi.fn();
+
+    const { browserAdapter, initBrowserAdapter, destroyBrowserAdapter } = useBrowserAdapterSync({
+      manager: computed(() => manager),
+      onCardUpdated: vi.fn(async () => {}),
+      onCardDeleted: vi.fn(async () => {}),
+      onQueueChanged,
+      onModeSwitched: vi.fn(),
+    });
+
+    initBrowserAdapter();
+    const adapter = browserAdapter.value;
+    expect(adapter).not.toBeNull();
+
+    adapter?.onDataChanged({
+      type: 'queue-changed',
+      queueType: QueueType.FilterGroup,
+      requiresFullRefresh: true,
+      timestamp: Date.now(),
+    });
+    adapter?.onDataChanged({
+      type: 'queue-changed',
+      queueType: QueueType.FinalDrill,
+      timestamp: Date.now(),
+    });
+
+    await vi.advanceTimersByTimeAsync(350);
+
+    expect(onQueueChanged).toHaveBeenCalledTimes(1);
+    expect(onQueueChanged).toHaveBeenCalledWith({
+      affectedQueueTypes: [QueueType.FilterGroup, QueueType.FinalDrill],
+      invalidateAllCounts: false,
+      requiresFullRefresh: true,
     });
 
     destroyBrowserAdapter();

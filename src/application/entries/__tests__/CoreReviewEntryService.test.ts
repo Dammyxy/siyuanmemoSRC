@@ -106,4 +106,20 @@ describe('CoreReviewEntryService', () => {
     expect(dialogManager.openTemporaryDrill).toHaveBeenCalledWith(['same-block', 'other-block']);
     expect(notify).not.toHaveBeenCalled();
   });
+
+  it('forwards scopeDocIds to filter-backed review dialogs', async () => {
+    const cards: FSRSCard[] = [
+      { id: 'item-1', blockId: 'block-item-1', type: 'item', due: now - 1 } as FSRSCard,
+    ];
+
+    await service.execute('retrieval-all', cards, {
+      scopeDocIds: ['doc-1', 'doc-2'],
+    });
+
+    expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
+      blockIds: ['block-item-1'],
+      scopeDocIds: ['doc-1', 'doc-2'],
+      dueOnly: false,
+    });
+  });
 });

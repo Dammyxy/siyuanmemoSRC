@@ -32,6 +32,7 @@ export function createVueDialog<T extends Component>(options: {
     isReview?: boolean;  // 添加标识：是否为复习对话框（用于控制 maxWidth）
     isMobile?: boolean;  // 是否为移动端（用于全屏策略）
     responsive?: boolean;  // 🆕 添加响应式选项
+    disableClose?: boolean;
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
 
@@ -91,7 +92,7 @@ export function createVueDialog<T extends Component>(options: {
         width: dialogWidth,
         height: dialogHeight,
         transparent: options.transparent,  // 传递 transparent 选项
-        disableClose: false,  // 允许点击遮罩层关闭（与原生复习界面一致）
+        disableClose: options.disableClose === true,
         destroyCallback: () => {
             // 销毁 Vue 应用
             try {

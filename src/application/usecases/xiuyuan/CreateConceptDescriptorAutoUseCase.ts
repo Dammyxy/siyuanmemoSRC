@@ -35,6 +35,7 @@
  */
 
 import { Result, ok, err } from '@/types/result';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
@@ -77,6 +78,7 @@ export interface ConceptDescriptorAutoResult {
 
 export class CreateConceptDescriptorAutoUseCase {
   private readonly siyuanApi: XiuyuanSiyuanPort;
+  private readonly eventBus: EventBus;
 
   /**
    * 构造函数
@@ -87,9 +89,10 @@ export class CreateConceptDescriptorAutoUseCase {
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
     private readonly templateRegistry: Map<string, ICardTemplate>,
-    ports?: { siyuanApi?: XiuyuanSiyuanPort }
+    ports?: { siyuanApi?: XiuyuanSiyuanPort; eventBus?: EventBus }
   ) {
     this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
+    this.eventBus = ports?.eventBus ?? new EventBus(false);
   }
 
   /**
@@ -122,6 +125,7 @@ export class CreateConceptDescriptorAutoUseCase {
         xiuyuanRepository: this.xiuyuanRepository,
         templateRegistry: this.templateRegistry,
         siyuanApi: this.siyuanApi,
+        eventBus: this.eventBus,
       });
       logger.debug('Concept name:', conceptName);
       
@@ -137,7 +141,7 @@ export class CreateConceptDescriptorAutoUseCase {
         const createXiuyuanUseCase = new CreateXiuyuanFromBlocksUseCase(
           this.xiuyuanRepository,
           this.templateRegistry,
-          { siyuanApi: this.siyuanApi }
+          { siyuanApi: this.siyuanApi, eventBus: this.eventBus }
         );
       
       for (const descriptorBlockId of command.descriptorBlockIds) {

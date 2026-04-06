@@ -152,10 +152,12 @@ describe('DialogManager review header variants', () => {
 
     await dialogManager.openRetrievalPracticeWithFilter({
       blockIds: ['block-1'],
+      scopeDocIds: ['doc-1'],
       dueOnly: false,
     });
     await dialogManager.openIncrementalLearningWithFilter({
       blockIds: ['block-2'],
+      scopeDocIds: ['doc-2'],
       dueOnly: true,
     });
 
@@ -171,5 +173,14 @@ describe('DialogManager review header variants', () => {
     const propsList = vi.mocked(createVueDialog).mock.calls.map(([config]) => config.props);
     expect(propsList[0]?.headerVariant).toBe('retrieval-practice');
     expect(propsList[1]?.headerVariant).toBe('incremental-learning');
+    expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      blockIds: ['block-1'],
+      scopeDocIds: ['doc-1'],
+      cardType: 'item',
+    }));
+    expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      blockIds: ['block-2'],
+      scopeDocIds: ['doc-2'],
+    }));
   });
 });

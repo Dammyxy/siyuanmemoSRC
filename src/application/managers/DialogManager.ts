@@ -10,6 +10,7 @@
  */
 
 import type { Plugin } from 'siyuan';
+import { reactive } from 'vue';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { IDialogManager } from '../interfaces/IDialogManager';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
@@ -52,8 +53,15 @@ import {
   BlockAttrCleanupService,
   type BlockAttrCleanupMode,
 } from '@/application/services';
+import {
+  ProgressiveSplitCancelledError,
+  type ProgressiveSplitConfig,
+  type ProgressiveSplitMode,
+  type ProgressiveSplitProgress,
+} from '@/application/services/ProgressiveReadingService';
 import type { PracticeQueueFilter } from './PracticeQueueManager';
 import type { BrowserOpenState } from '@/ui/browser/types';
+import ProgressiveSplitDialog from '@/ui/progressive/ProgressiveSplitDialog.vue';
 
 const logger = createLogger('DialogManager');
 
@@ -110,6 +118,13 @@ interface BlockSqlRow extends Record<string, unknown> {
   markdown?: string;
 }
 
+type ProgressiveSplitDialogStatus = 'config' | 'running' | 'cancelling';
+
+interface ProgressiveSplitDialogState {
+  status: ProgressiveSplitDialogStatus;
+  progress: ProgressiveSplitProgress | null;
+}
+
 const HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG = new Set<string>(['builtin-concept-simple']);
 
 /**
@@ -139,6 +154,7 @@ export class DialogManager implements IDialogManager {
   private srsBrowserDialog: VueDialogHandle | null = null;
   private mobileQueueLauncherDialog: VueDialogHandle | null = null;
   private templateSelectDialog: VueDialogHandle | null = null;
+  private progressiveSplitDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
   private readonly conceptCardEnsureInFlight = new Set<string>();
   
@@ -531,6 +547,147 @@ export class DialogManager implements IDialogManager {
       this.srsBrowserDialog = null;
     }
   }
+
+  private closeProgressiveSplitDialog(): void {
+    if (this.progressiveSplitDialog) {
+      this.progressiveSplitDialog.destroy();
+      this.progressiveSplitDialog = null;
+    }
+  }
+
+  private validateProgressiveSplitConfig(config: ProgressiveSplitConfig): string | null {
+    const trimmedCustomString = String(config.customString || '').trim();
+    if (config.customStringEnabled && trimmedCustomString.length === 0) {
+      return this.context.getI18n()?.progressiveSplitCustomRequired || '请输入自定义切割字符串';
+    }
+
+    const hasAnyMarker = config.horizontalRule
+      || config.headingLevels.length > 0
+      || (config.customStringEnabled && trimmedCustomString.length > 0);
+    if (!hasAnyMarker) {
+      return this.context.getI18n()?.progressiveSplitMarkerRequired || '至少选择一个切割标记';
+    }
+
+    return null;
+  }
+
+  async openProgressiveSplitDialog(docId: string, mode: ProgressiveSplitMode): Promise<void> {
+    const sourceDocId = String(docId || '').trim();
+    if (!sourceDocId) {
+      await this.siyuanApi.pushErrMsg(this.context.getI18n()?.progressiveSplitDocRequired || '未找到目标文档');
+      return;
+    }
+
+    this.closeProgressiveSplitDialog();
+    const i18n = this.context.getI18n() || {};
+    const progressState = reactive<ProgressiveSplitDialogState>({
+      status: 'config',
+      progress: null,
+    });
+    let cancelRequested = false;
+    let splitRunning = false;
+
+    this.progressiveSplitDialog = createVueDialog({
+      title: i18n.progressiveSplitDialogTitle || '选择切割标记',
+      component: ProgressiveSplitDialog,
+      props: {
+        i18n,
+        progressState,
+      },
+      width: '520px',
+      height: '460px',
+      responsive: true,
+      disableClose: true,
+      events: {
+        confirm: async (config: ProgressiveSplitConfig) => {
+          if (splitRunning) {
+            return;
+          }
+
+          const normalizedConfig: ProgressiveSplitConfig = {
+            horizontalRule: config.horizontalRule === true,
+            headingLevels: Array.from(new Set(config.headingLevels || [])),
+            customStringEnabled: config.customStringEnabled === true,
+            customString: String(config.customString || '').trim(),
+          };
+          const validationError = this.validateProgressiveSplitConfig(normalizedConfig);
+          if (validationError) {
+            await this.siyuanApi.pushErrMsg(validationError);
+            return;
+          }
+
+          splitRunning = true;
+          cancelRequested = false;
+          progressState.status = 'running';
+          progressState.progress = {
+            phase: 'scan',
+            current: 0,
+            total: 1,
+            percentage: 0,
+            message: 'Scanning source blocks',
+            createdDocCount: 0,
+            createdCardCount: 0,
+          };
+
+          try {
+            const result = await this.context
+              .getProgressiveReadingService()
+              .splitDocument(sourceDocId, mode, normalizedConfig, {
+                onProgress: (progress) => {
+                  progressState.progress = progress;
+                  if (cancelRequested && progressState.status !== 'cancelling') {
+                    progressState.status = 'cancelling';
+                  }
+                },
+                isCancellationRequested: () => cancelRequested,
+              });
+            const successTemplate = mode === 'linear'
+              ? (i18n.progressiveSplitLinearCreated || '已创建 {count} 个线性 piece 子文档')
+              : (i18n.progressiveSplitNonlinearCreated || '已创建 {count} 个非线性 piece 子文档');
+            await this.siyuanApi.pushMsg(
+              successTemplate.replace('{count}', String(result.pieceDocIds.length)),
+            );
+            this.closeProgressiveSplitDialog();
+          } catch (error) {
+            if (error instanceof ProgressiveSplitCancelledError) {
+              const cancelledMessage = error.cleanupIncomplete
+                ? `${i18n.progressiveSplitCancelled || '已取消 Split'}\n${i18n.progressiveSplitCancelledCleanupPartial || '部分已创建内容可能保留'}`
+                : (i18n.progressiveSplitCancelled || '已取消 Split');
+              await this.siyuanApi.pushMsg(cancelledMessage);
+              this.closeProgressiveSplitDialog();
+            } else {
+              logger.error('[DialogManager] Failed to create progressive split session:', error);
+              const message = error instanceof Error ? error.message : String(error);
+              await this.siyuanApi.pushErrMsg(
+                (i18n.progressiveSplitFailed || 'Split 失败：{message}')
+                  .replace('{message}', message),
+              );
+              this.closeProgressiveSplitDialog();
+            }
+          } finally {
+            splitRunning = false;
+          }
+        },
+        cancel: async () => {
+          if (!splitRunning) {
+            await this.siyuanApi.pushMsg(i18n.progressiveSplitCancelled || '已取消 Split');
+            this.closeProgressiveSplitDialog();
+            return;
+          }
+
+          if (cancelRequested) {
+            return;
+          }
+
+          cancelRequested = true;
+          progressState.status = 'cancelling';
+        },
+      },
+      onClose: () => {
+        this.progressiveSplitDialog = null;
+      },
+    });
+  }
   
   // ========================================================================
   // 复习对话框
@@ -822,6 +979,7 @@ export class DialogManager implements IDialogManager {
    */
   async openRetrievalPracticeWithFilter(options: {
     blockIds: string[];
+    scopeDocIds?: string[];
     dueOnly: boolean;
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
@@ -834,6 +992,7 @@ export class DialogManager implements IDialogManager {
       // 设置临时过滤条件
       const filter: CardFilter = {
         blockIds: options.blockIds,
+        scopeDocIds: options.scopeDocIds,
         cardType: 'item',  // 只接受 Item
       };
       
@@ -846,6 +1005,7 @@ export class DialogManager implements IDialogManager {
       logger.info('[DialogManager] 🔍 openRetrievalPracticeWithFilter - Setting filter:', {
         dueOnly: options.dueOnly,
         blockIdsCount: options.blockIds.length,
+        scopeDocIdsCount: options.scopeDocIds?.length ?? 0,
         hasDueDate: !!filter.dueDate,
       });
       
@@ -921,6 +1081,7 @@ export class DialogManager implements IDialogManager {
    */
   async openIncrementalLearningWithFilter(options: {
     blockIds: string[];
+    scopeDocIds?: string[];
     dueOnly: boolean;
   }): Promise<void> {
     if (!(await this.checkInitialized())) return;
@@ -933,6 +1094,7 @@ export class DialogManager implements IDialogManager {
       // 设置临时过滤条件
       const filter: CardFilter = {
         blockIds: options.blockIds,
+        scopeDocIds: options.scopeDocIds,
         // 渐进学习接受所有类型（Item + Topic）
       };
       
@@ -945,6 +1107,7 @@ export class DialogManager implements IDialogManager {
       logger.info('[DialogManager] 🔍 openIncrementalLearningWithFilter - Setting filter:', {
         dueOnly: options.dueOnly,
         blockIdsCount: options.blockIds.length,
+        scopeDocIdsCount: options.scopeDocIds?.length ?? 0,
         hasDueDate: !!filter.dueDate,
       });
       
@@ -2167,6 +2330,7 @@ export class DialogManager implements IDialogManager {
     this.closeSettingsDialog();
     this.closeMobileQueueLauncherDialog();
     this.closeBrowserDialog();
+    this.closeProgressiveSplitDialog();
     this.destroyCurrentReviewDialog();
     if (this.templateSelectDialog) {
       this.templateSelectDialog.destroy();

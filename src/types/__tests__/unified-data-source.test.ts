@@ -165,6 +165,7 @@ describe('Unified Data Source Types', () => {
         it('should allow creating CardFilter', () => {
             const filter: CardFilter = {
                 cardType: 'item',
+                scopeDocIds: ['doc-1'],
                 dueDate: {
                     lte: new Date(),
                 },
@@ -175,6 +176,7 @@ describe('Unified Data Source Types', () => {
                 },
             };
             expect(filter.cardType).toBe('item');
+            expect(filter.scopeDocIds).toEqual(['doc-1']);
             expect(filter.tags).toHaveLength(2);
         });
 
@@ -202,7 +204,7 @@ describe('Unified Data Source Types', () => {
 
             const observer = new TestObserver();
             const event: DataChangeEvent = {
-                type: 'card-updated',
+                type: 'card-created',
                 cardIds: ['card-1'],
                 timestamp: Date.now(),
             };

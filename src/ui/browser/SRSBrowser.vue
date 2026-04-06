@@ -3054,10 +3054,11 @@ const {
   manager: pluginUnifiedDataSourceManager,
   onCardUpdated: handleCardUpdatedIncremental,
   onCardDeleted: handleCardDeletedIncremental,
-  onQueueChanged: ({ affectedQueueTypes, invalidateAllCounts }) => {
+  onQueueChanged: ({ affectedQueueTypes, invalidateAllCounts, requiresFullRefresh }) => {
     logger.info('[SiYuanMemo][SRSBrowser] Refreshing queue counts due to queue changes', {
       affectedQueueTypes: affectedQueueTypes ?? 'all',
       invalidateAllCounts,
+      requiresFullRefresh,
       activeQueueId: activeQueueId.value,
       activeQueueType: activeQueueTypeForRefresh.value,
     });
@@ -3072,21 +3073,30 @@ const {
       activeQueueType,
       affectedQueueTypes ?? null,
     );
+    const shouldForceFullActiveReload = requiresFullRefresh && activeQueueType === QueueType.FilterGroup;
 
     if (shouldRefreshActiveQueue) {
-      const queryable = resolveQueryableDataSource(currentDataSource.value);
-      if (queryable) {
-        if (hasQuerySessionInvalidation(queryable)) {
-          queryable.invalidateQuerySession();
-        }
-        const currentApi = gridApi.value as (GridApi & { refreshInfiniteCache?: () => void }) | null;
-        currentApi?.refreshInfiniteCache?.();
-      } else {
+      if (shouldForceFullActiveReload) {
         void refreshData(true, false, {
           origin: 'queue-sync',
           refreshQueueCounts: false,
           snapshotDelayMs: 0,
         });
+      } else {
+        const queryable = resolveQueryableDataSource(currentDataSource.value);
+        if (queryable) {
+          if (hasQuerySessionInvalidation(queryable)) {
+            queryable.invalidateQuerySession();
+          }
+          const currentApi = gridApi.value as (GridApi & { refreshInfiniteCache?: () => void }) | null;
+          currentApi?.refreshInfiniteCache?.();
+        } else {
+          void refreshData(true, false, {
+            origin: 'queue-sync',
+            refreshQueueCounts: false,
+            snapshotDelayMs: 0,
+          });
+        }
       }
     }
 

@@ -615,6 +615,39 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         }
     }
 
+    appendCardsToTail(cards: FSRSCard[]): number {
+        if (!Array.isArray(cards) || cards.length === 0) {
+            return 0;
+        }
+
+        const existingCardIds = new Set(this.cachedCards.map((card) => String(card.id || '').trim()).filter(Boolean));
+        const appendedCards = cards
+            .filter((card) => {
+                const cardId = String(card.id || '').trim();
+                return cardId.length > 0 && !existingCardIds.has(cardId);
+            })
+            .map((card) => {
+                existingCardIds.add(String(card.id || '').trim());
+                return this.cloneCard(card);
+            });
+
+        if (appendedCards.length === 0) {
+            return 0;
+        }
+
+        this.cachedCards.push(...appendedCards);
+        this.lastCounterSnapshot = null;
+
+        logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Appended cards to tail without resetting session pointer:`, {
+            queueType: this.queueType,
+            appendedCount: appendedCards.length,
+            currentIndex: this.currentIndex,
+            cachedSize: this.cachedCards.length,
+        });
+
+        return appendedCards.length;
+    }
+
     async getRemainingSize(): Promise<number> {
         try {
             if (this.queueType === QueueType.NeuralRoam) {

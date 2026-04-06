@@ -45,6 +45,25 @@ describe('ConceptQueryEngine - backlink normalization', () => {
     expect(api.sql).toHaveBeenCalledTimes(1);
   });
 
+  it('prefers the exact paragraph flashcard when a backlink row was normalized to its parent list item', async () => {
+    vi.mocked(api.sql)
+      .mockResolvedValueOnce([
+        {
+          id: 'list-item-1',
+          source_id: 'paragraph-card-1',
+          source_type: 'p',
+          normalized_to_parent: 1,
+        },
+      ] as any)
+      .mockResolvedValueOnce([
+        { type: 'item', card_type_marker: '' },
+      ] as any);
+
+    const result = await engine.fetchBacklinks('concept-1');
+
+    expect(result).toEqual(['paragraph-card-1']);
+  });
+
   it('fetches indirect outgoing links from backlinks and descendants', async () => {
     vi.mocked(api.sql).mockResolvedValue([{ id: 'outgoing-1' }] as any);
 
@@ -63,5 +82,37 @@ describe('ConceptQueryEngine - backlink normalization', () => {
 
     expect(result).toEqual([]);
     expect(api.sql).not.toHaveBeenCalled();
+  });
+
+  it('finds descriptor flashcards nested inside direct child list items', async () => {
+    vi.mocked(api.sql).mockResolvedValue([
+      { id: 'descriptor-paragraph-1' },
+    ] as any);
+
+    const result = await engine.fetchDescriptors('concept-1');
+
+    expect(result).toEqual(['descriptor-paragraph-1']);
+
+    const stmt = vi.mocked(api.sql).mock.calls[0]?.[0] as string;
+    expect(stmt).toContain('WITH RECURSIVE descriptor_scope');
+    expect(stmt).toContain("WHERE scope.type = 'i'");
+    expect(stmt).toContain("COALESCE(fc.type, '') NOT IN ('concept', 'topic')");
+  });
+
+  it('deduplicates neighbors after multiple relations resolve to the same real flashcard', async () => {
+    vi.spyOn(engine, 'fetchBacklinks').mockResolvedValue(['real-card-1']);
+    vi.spyOn(engine, 'fetchDirectOutgoingLinks').mockResolvedValue(['real-card-1']);
+    vi.spyOn(engine, 'fetchIndirectOutgoingLinks').mockResolvedValue(['real-card-1']);
+    vi.spyOn(engine, 'fetchDescriptors').mockResolvedValue(['real-card-1']);
+
+    const result = await engine.fetchNeighbors('concept-1');
+
+    expect(result).toEqual([
+      {
+        id: 'real-card-1',
+        type: 'backlink',
+        weight: 15,
+      },
+    ]);
   });
 });

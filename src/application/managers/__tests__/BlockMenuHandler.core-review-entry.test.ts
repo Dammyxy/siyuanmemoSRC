@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FSRSCard } from '@/types/card';
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 
-function createFixture(cardsByBlockId: Record<string, FSRSCard[]>) {
+function createFixture(
+  cardsByBlockId: Record<string, FSRSCard[]>,
+  options?: {
+    docScope?: { cards: FSRSCard[]; docIds: string[] } | null;
+    hasDoc?: boolean;
+  },
+) {
   const storage = {
     getCardsByBlockId: vi.fn((blockId: string) => cardsByBlockId[blockId] || []),
     getCardByBlockId: vi.fn((blockId: string) => (cardsByBlockId[blockId] || [])[0] || null),
@@ -17,11 +23,11 @@ function createFixture(cardsByBlockId: Record<string, FSRSCard[]>) {
   };
 
   const docTreeReviewScopeService = {
-    collectDocReviewScope: vi.fn(() => ({ cards: [], docIds: [] })),
+    collectDocReviewScope: vi.fn(() => options?.docScope ?? { cards: [], docIds: [] }),
     isReady: vi.fn(() => true),
     hydrate: vi.fn().mockResolvedValue(undefined),
     scheduleRebuild: vi.fn(),
-    hasDoc: vi.fn(() => false),
+    hasDoc: vi.fn(() => options?.hasDoc ?? false),
   };
 
   const handler = new BlockMenuHandler({
@@ -214,5 +220,39 @@ describe('BlockMenuHandler core review entry integration', () => {
     await handler.runCoreEntryAction('temporary-drill', [element]);
 
     expect(deferredDialogManager.openTemporaryDrill).toHaveBeenCalledWith(['block-1']);
+  });
+
+  it('passes doc scope ids through doc tree review menu actions', async () => {
+    const now = Date.now();
+    const scopeCards: FSRSCard[] = [
+      { id: 'item-1', blockId: 'topic-block-1', type: 'item', due: now - 1, meta: { rootId: 'doc-1' } } as FSRSCard,
+    ];
+    const { handler, dialogManager } = createFixture({}, {
+      docScope: {
+        cards: scopeCards,
+        docIds: ['doc-1', 'doc-1-child'],
+      },
+      hasDoc: true,
+    });
+
+    const menu = { addItem: vi.fn() };
+    const element = document.createElement('div');
+    element.setAttribute('data-node-id', 'doc-1');
+
+    handler.handleDocTreeMenu({
+      detail: {
+        menu,
+        elements: [element],
+      },
+    });
+
+    const submenu = menu.addItem.mock.calls[0][0].submenu as Array<{ click?: () => Promise<void> }>;
+    await submenu[1]?.click?.();
+
+    expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
+      blockIds: ['topic-block-1'],
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      dueOnly: false,
+    });
   });
 });

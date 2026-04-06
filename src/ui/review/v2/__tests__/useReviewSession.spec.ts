@@ -76,6 +76,11 @@ async function flushAsync(): Promise<void> {
 function mountHook(options: {
   queue?: ReturnType<typeof createQueue>;
   adapter?: ReturnType<typeof createAdapter>;
+  initialSessionState?: {
+    initialTotal?: number;
+    answeredCount?: number;
+    correctCount?: number;
+  };
 } = {}) {
   const queue = options.queue ?? createQueue();
   const adapter = options.adapter ?? createAdapter();
@@ -83,7 +88,9 @@ function mountHook(options: {
 
   const Harness = defineComponent({
     setup() {
-      hook = useReviewSession(queue as never, adapter as never);
+      hook = useReviewSession(queue as never, adapter as never, {
+        initialSessionState: options.initialSessionState,
+      });
       return () => h('div');
     },
   });
@@ -161,6 +168,24 @@ describe('useReviewSession', () => {
 
     expect(hook.context.value.session?.answeredCount).toBe(1);
     expect(hook.context.value.session?.correctCount).toBe(1);
+
+    wrapper.unmount();
+  });
+
+  it('hydrates initial session counters on mount when provided', async () => {
+    const { getHook, wrapper } = mountHook({
+      initialSessionState: {
+        initialTotal: 8,
+        answeredCount: 3,
+        correctCount: 2,
+      },
+    });
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.context.value.session?.initialTotal).toBe(8);
+    expect(hook.context.value.session?.answeredCount).toBe(3);
+    expect(hook.context.value.session?.correctCount).toBe(2);
 
     wrapper.unmount();
   });

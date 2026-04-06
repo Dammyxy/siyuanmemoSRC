@@ -8,6 +8,7 @@ import { BlockId } from '@/core/xiuyuan/domain/BlockId';
 import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
@@ -102,13 +103,15 @@ function buildListMetaBase(command: CreateListTemplateCardsCommand): Record<stri
 
 export class CreateListTemplateCardsUseCase {
   private readonly siyuanApi: XiuyuanSiyuanPort;
+  private readonly eventBus: EventBus;
 
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
     private readonly templateRegistry: Map<string, ICardTemplate>,
-    ports?: { siyuanApi?: XiuyuanSiyuanPort }
+    ports?: { siyuanApi?: XiuyuanSiyuanPort; eventBus?: EventBus }
   ) {
     this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
+    this.eventBus = ports?.eventBus ?? new EventBus(false);
   }
 
   async execute(command: CreateListTemplateCardsCommand): Promise<Result<ListTemplateCardsCreationPayload>> {
@@ -302,6 +305,7 @@ export class CreateListTemplateCardsUseCase {
       const creationResult = await finalizeXiuyuanCreation({
         xiuyuan,
         xiuyuanRepository: this.xiuyuanRepository,
+        eventBus: this.eventBus,
         logger,
         siyuanApi: this.siyuanApi,
         riff: {
@@ -507,6 +511,7 @@ export class CreateListTemplateCardsUseCase {
     const creationResult = await finalizeXiuyuanCreation({
       xiuyuan: xiuyuanResult.value,
       xiuyuanRepository: this.xiuyuanRepository,
+      eventBus: this.eventBus,
       logger,
       siyuanApi: this.siyuanApi,
       riff: {

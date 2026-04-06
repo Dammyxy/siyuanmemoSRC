@@ -39,13 +39,38 @@ type ProgressiveKind =
 
 type ProgressiveTraceKind = 'ordinary-note' | 'split-material';
 export type ProgressiveSplitMode = 'linear' | 'nonlinear';
+export type ProgressiveHeadingSplitLevel = 'h1' | 'h2' | 'h3ToH6';
+export interface ProgressiveSplitConfig {
+  horizontalRule: boolean;
+  headingLevels: ProgressiveHeadingSplitLevel[];
+  customStringEnabled: boolean;
+  customString?: string;
+}
+export type ProgressiveSplitProgressPhase = 'scan' | 'plan' | 'createDocs' | 'createCards' | 'save' | 'cleanup';
+export interface ProgressiveSplitProgress {
+  phase: ProgressiveSplitProgressPhase;
+  current: number;
+  total: number;
+  percentage: number;
+  message: string;
+  currentTitle?: string;
+  createdDocCount: number;
+  createdCardCount: number;
+}
+export interface ProgressiveSplitExecutionOptions {
+  onProgress?: (progress: ProgressiveSplitProgress) => void;
+  isCancellationRequested?: () => boolean;
+}
 type PieceState = 'pending' | 'active' | 'completed';
+type ExactHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 interface ProgressiveSessionPieceRecord {
   pieceDocId: string;
   title: string;
   order: number;
   state: PieceState;
+  depth?: number;
+  parentPieceDocId?: string;
   topicCardId?: string;
   workbenchDocId?: string;
 }
@@ -69,10 +94,58 @@ interface ProgressiveState {
   sourceDocToWorkbench: Record<string, string>;
 }
 
-interface PiecePlan {
-  title: string;
+interface SplitDocPlan {
+  baseTitle: string;
   markdown: string;
-  order: number;
+  depth: number;
+  kind: 'heading' | 'leading' | 'segment';
+  children: SplitDocPlan[];
+}
+
+interface NormalizedProgressiveSplitConfig {
+  horizontalRule: boolean;
+  enabledHeadingLevels: ExactHeadingLevel[];
+  customString?: string;
+}
+
+interface SourceBlockNode {
+  row: ProgressiveBlockRow;
+  children: SourceBlockNode[];
+}
+
+interface RenderableBlockPart {
+  block: ProgressiveBlockRow;
+  localOnly: boolean;
+}
+
+type ProjectedItem =
+  | { type: 'content'; parts: RenderableBlockPart[] }
+  | { type: 'child'; plan: SplitDocPlan };
+
+interface ContentSegment {
+  baseTitle: string;
+  markdown: string;
+}
+
+interface SegmentedContentResult {
+  explicitSplit: boolean;
+  segments: ContentSegment[];
+}
+
+interface CreatedSplitDocArtifact {
+  docId: string;
+  depth: number;
+  creationOrder: number;
+}
+
+interface EnsureDocByHPathResult {
+  docId: string;
+  created: boolean;
+}
+
+interface EnsureTopicCardResult {
+  cardId: string;
+  created: boolean;
 }
 
 interface DailyTraceWriteInput {
@@ -132,6 +205,35 @@ export interface ProgressiveCompletePieceResult {
   completedPieceDocId: string;
   nextPieceDocId?: string;
   nextTopicCardId?: string;
+}
+
+export class ProgressiveSplitCancelledError extends Error {
+  readonly cleanupIncomplete: boolean;
+
+  constructor(message = 'Split cancelled', cleanupIncomplete = false) {
+    super(message);
+    this.name = 'ProgressiveSplitCancelledError';
+    this.cleanupIncomplete = cleanupIncomplete;
+  }
+}
+
+const DEFAULT_PROGRESSIVE_HEADING_SPLIT_LEVELS: ProgressiveHeadingSplitLevel[] = ['h1', 'h2', 'h3ToH6'];
+const SPLIT_PROGRESS_PHASE_RANGES: Record<ProgressiveSplitProgressPhase, readonly [number, number]> = {
+  scan: [0, 15],
+  plan: [15, 30],
+  createDocs: [30, 80],
+  createCards: [80, 95],
+  save: [95, 100],
+  cleanup: [95, 100],
+};
+
+export function createDefaultProgressiveSplitConfig(): ProgressiveSplitConfig {
+  return {
+    horizontalRule: true,
+    headingLevels: [...DEFAULT_PROGRESSIVE_HEADING_SPLIT_LEVELS],
+    customStringEnabled: false,
+    customString: '',
+  };
 }
 
 function createEmptyState(): ProgressiveState {
@@ -211,96 +313,222 @@ export class ProgressiveReadingService {
     this.cardCreationHelper = new CardCreationHelper(cardService);
   }
 
-  async splitDocument(docId: string, mode: ProgressiveSplitMode): Promise<ProgressiveSplitResult> {
+  async splitDocument(
+    docId: string,
+    mode: ProgressiveSplitMode,
+    splitConfig?: ProgressiveSplitConfig,
+    options?: ProgressiveSplitExecutionOptions,
+  ): Promise<ProgressiveSplitResult> {
     const sourceDocId = String(docId || '').trim();
     if (!sourceDocId) {
       throw new Error('docId is required');
     }
+    const normalizedSplitConfig = this.normalizeSplitConfig(splitConfig);
+    const createdDocs: CreatedSplitDocArtifact[] = [];
+    const createdCardIds: string[] = [];
+    let createdDocCount = 0;
+    let createdCardCount = 0;
+    let createdDocSequence = 0;
 
-    const state = await this.readState();
-    const existingSession = await this.reconcileExistingSplitSession(state, sourceDocId);
-    if (existingSession) {
-      const existingPieceCount = await this.countExistingPieceDocs(existingSession);
-      throw new Error(
-        existingPieceCount > 0
-          ? `当前文档已经存在渐进 split 会话，仍有 ${existingPieceCount} 个 piece 子文档存在`
-          : '当前文档已经存在渐进 split 会话'
-      );
-    }
+    const reportProgress = (input: {
+      phase: ProgressiveSplitProgressPhase;
+      current: number;
+      total: number;
+      message: string;
+      currentTitle?: string;
+    }): void => {
+      this.emitSplitProgress({
+        onProgress: options?.onProgress,
+        phase: input.phase,
+        current: input.current,
+        total: input.total,
+        message: input.message,
+        currentTitle: input.currentTitle,
+        createdDocCount,
+        createdCardCount,
+      });
+    };
 
-    const docInfo = await this.resolveDocInfo(sourceDocId);
-    const topLevelBlocks = await this.getTopLevelBlocks(sourceDocId);
-    const piecePlans = await this.buildPiecePlans(topLevelBlocks);
-    if (piecePlans.length === 0) {
-      throw new Error('当前文档没有可拆分的内容');
-    }
-
-    const sessionId = this.createSessionId();
-    const pieces: ProgressiveSessionPieceRecord[] = [];
-    for (const plan of piecePlans) {
-      const pieceTitle = this.buildPieceDocTitle(plan);
-      const piecePath = `${docInfo.hpath}/${pieceTitle}`;
-      const pieceDocId = await this.ensureDocByHPath(docInfo.box, piecePath, plan.markdown);
-      const pieceState: PieceState = mode === 'linear'
-        ? (plan.order === 0 ? 'active' : 'pending')
-        : 'active';
-
-      await this.setProgressiveAttrs(pieceDocId, {
-        [ATTR_PROGRESSIVE_KIND]: 'piece',
-        [ATTR_PROGRESSIVE_SESSION_ID]: sessionId,
-        [ATTR_PROGRESSIVE_MODE]: mode,
-        [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
-        [ATTR_PROGRESSIVE_PIECE_INDEX]: plan.order,
-        [ATTR_PROGRESSIVE_PIECE_COUNT]: piecePlans.length,
-        [ATTR_PROGRESSIVE_PIECE_STATE]: pieceState,
+    try {
+      this.throwIfSplitCancelled(options);
+      reportProgress({
+        phase: 'scan',
+        current: 0,
+        total: 1,
+        message: 'Scanning source blocks',
       });
 
-      const pieceRecord: ProgressiveSessionPieceRecord = {
-        pieceDocId,
-        title: pieceTitle,
-        order: plan.order,
-        state: pieceState,
-      };
-
-      if (mode === 'nonlinear' || plan.order === 0) {
-        pieceRecord.topicCardId = await this.ensurePieceTopicCard({
-          sessionId,
-          mode,
-          pieceDocId,
-          sourceDocId,
-          pieceIndex: plan.order,
-        });
+      const state = await this.readState();
+      const existingSession = await this.reconcileExistingSplitSession(state, sourceDocId);
+      if (existingSession) {
+        const existingPieceCount = await this.countExistingPieceDocs(existingSession);
+        throw new Error(
+          existingPieceCount > 0
+            ? `当前文档已经存在渐进 split 会话，仍有 ${existingPieceCount} 个 piece 子文档存在`
+            : '当前文档已经存在渐进 split 会话'
+        );
       }
 
-      pieces.push(pieceRecord);
-      state.pieceToSession[pieceDocId] = sessionId;
+      const docInfo = await this.resolveDocInfo(sourceDocId);
+      const rootNodes = await this.loadBlockTree(sourceDocId);
+      reportProgress({
+        phase: 'scan',
+        current: 1,
+        total: 1,
+        message: 'Source blocks scanned',
+      });
+      this.throwIfSplitCancelled(options);
+
+      reportProgress({
+        phase: 'plan',
+        current: 0,
+        total: 1,
+        message: 'Building split plan',
+      });
+      const splitPlans = await this.buildSplitPlansForRoot(rootNodes, normalizedSplitConfig);
+      if (splitPlans.length === 0) {
+        throw new Error('当前文档没有可拆分的内容');
+      }
+      reportProgress({
+        phase: 'plan',
+        current: 1,
+        total: 1,
+        message: 'Split plan ready',
+        currentTitle: docInfo.name || truncateText(docInfo.hpath || sourceDocId),
+      });
+      this.throwIfSplitCancelled(options);
+
+      const sessionId = this.createSessionId();
+      const pieces: ProgressiveSessionPieceRecord[] = [];
+      const totalPieceCount = this.countSplitPlans(splitPlans);
+      const hpathCache = new Map<string, string>();
+      reportProgress({
+        phase: 'createDocs',
+        current: 0,
+        total: totalPieceCount,
+        message: 'Creating piece documents',
+      });
+      await this.materializeSplitPlans({
+        notebook: docInfo.box,
+        parentHPath: docInfo.hpath,
+        sessionId,
+        sourceDocId,
+        mode,
+        totalPieceCount,
+        plans: splitPlans,
+        pieces,
+        hpathCache,
+        options,
+        onPieceCreated: (piece, context) => {
+          if (context.createdDoc) {
+            createdDocs.push({
+              docId: piece.pieceDocId,
+              depth: piece.depth ?? 0,
+              creationOrder: createdDocSequence,
+            });
+            createdDocCount += 1;
+            createdDocSequence += 1;
+          }
+          reportProgress({
+            phase: 'createDocs',
+            current: pieces.length,
+            total: totalPieceCount,
+            message: 'Creating piece documents',
+            currentTitle: piece.title,
+          });
+        },
+      });
+      this.throwIfSplitCancelled(options);
+
+      const totalCardCount = mode === 'nonlinear' ? pieces.length : Math.min(pieces.length, 1);
+      reportProgress({
+        phase: 'createCards',
+        current: 0,
+        total: totalCardCount,
+        message: 'Creating topic cards',
+      });
+      await this.createSplitPieceTopicCards({
+        sessionId,
+        mode,
+        sourceDocId,
+        pieces,
+        options,
+        onPieceCardReady: (piece, context) => {
+          if (context.createdCard) {
+            createdCardIds.push(context.cardId);
+            createdCardCount += 1;
+          }
+          reportProgress({
+            phase: 'createCards',
+            current: context.processedCount,
+            total: totalCardCount,
+            message: 'Creating topic cards',
+            currentTitle: piece.title,
+          });
+        },
+      });
+      this.throwIfSplitCancelled(options);
+
+      reportProgress({
+        phase: 'save',
+        current: 0,
+        total: 1,
+        message: 'Saving split session',
+      });
+      state.sessions[sessionId] = {
+        id: sessionId,
+        sourceDocId,
+        sourceDocTitle: docInfo.name || truncateText(docInfo.hpath || sourceDocId),
+        notebook: docInfo.box,
+        mode,
+        createdAt: Date.now(),
+        activePieceIndex: 0,
+        pieces,
+      };
+      state.sourceDocToSession[sourceDocId] = sessionId;
+      for (const piece of pieces) {
+        state.pieceToSession[piece.pieceDocId] = sessionId;
+      }
+
+      await this.writeState(state);
+      reportProgress({
+        phase: 'save',
+        current: 1,
+        total: 1,
+        message: 'Split session saved',
+      });
+      this.docTreeScopeRefresher?.scheduleRebuild();
+      logger.info('Split session created', {
+        sessionId,
+        sourceDocId,
+        mode,
+        pieceCount: pieces.length,
+      });
+
+      return {
+        sessionId,
+        pieceDocIds: pieces.map((piece) => piece.pieceDocId),
+      };
+    } catch (error) {
+      if (error instanceof ProgressiveSplitCancelledError) {
+        const cleanupIncomplete = await this.cleanupCancelledSplitArtifacts({
+          createdDocs,
+          createdCardIds,
+          onProgress: options?.onProgress,
+          createdDocCount,
+          createdCardCount,
+        });
+        if (createdDocs.length > 0) {
+          this.docTreeScopeRefresher?.scheduleRebuild();
+        }
+        throw new ProgressiveSplitCancelledError(error.message, cleanupIncomplete);
+      }
+
+      if (createdDocs.length > 0) {
+        this.docTreeScopeRefresher?.scheduleRebuild();
+      }
+      throw error;
     }
-
-    state.sessions[sessionId] = {
-      id: sessionId,
-      sourceDocId,
-      sourceDocTitle: docInfo.name || truncateText(docInfo.hpath || sourceDocId),
-      notebook: docInfo.box,
-      mode,
-      createdAt: Date.now(),
-      activePieceIndex: 0,
-      pieces,
-    };
-    state.sourceDocToSession[sourceDocId] = sessionId;
-
-    await this.writeState(state);
-    this.docTreeScopeRefresher?.scheduleRebuild();
-    logger.info('Split session created', {
-      sessionId,
-      sourceDocId,
-      mode,
-      pieceCount: pieces.length,
-    });
-
-    return {
-      sessionId,
-      pieceDocIds: pieces.map((piece) => piece.pieceDocId),
-    };
   }
 
   async completeCurrentPiece(pieceDocId: string): Promise<ProgressiveCompletePieceResult> {
@@ -328,13 +556,13 @@ export class ProgressiveReadingService {
     let nextTopicCardId: string | undefined;
     if (nextPiece) {
       nextPiece.state = 'active';
-      nextTopicCardId = await this.ensurePieceTopicCard({
+      nextTopicCardId = (await this.ensurePieceTopicCard({
         sessionId: session.id,
         mode: session.mode,
         pieceDocId: nextPiece.pieceDocId,
         sourceDocId: session.sourceDocId,
         pieceIndex: nextPiece.order,
-      });
+      })).cardId;
       nextPiece.topicCardId = nextTopicCardId;
       session.activePieceIndex = nextPiece.order;
       await this.setProgressiveAttrs(nextPiece.pieceDocId, {
@@ -536,25 +764,7 @@ export class ProgressiveReadingService {
   }
 
   private async countExistingPieceDocs(session: ProgressiveSessionRecord): Promise<number> {
-    const existence = await Promise.all(
-      session.pieces.map((piece) => this.blockExists(piece.pieceDocId))
-    );
-    return existence.filter(Boolean).length;
-  }
-
-  private async blockExists(blockId: string): Promise<boolean> {
-    const normalizedBlockId = String(blockId || '').trim();
-    if (!normalizedBlockId) {
-      return false;
-    }
-
-    const rows = await this.siyuanApi.sql<Pick<ProgressiveBlockRow, 'id'>>(`
-      SELECT id
-      FROM blocks
-      WHERE id = '${this.escapeSql(normalizedBlockId)}'
-      LIMIT 1
-    `);
-    return Boolean(asString(rows[0]?.id));
+    return (await this.findExistingBlockIds(session.pieces.map((piece) => piece.pieceDocId))).size;
   }
 
   private createSessionId(): string {
@@ -583,22 +793,13 @@ export class ProgressiveReadingService {
     };
   }
 
-  private async getTopLevelBlocks(docId: string): Promise<ProgressiveBlockRow[]> {
+  private async getBlocksByRoot(rootId: string): Promise<ProgressiveBlockRow[]> {
     return this.siyuanApi.sql<ProgressiveBlockRow>(`
       SELECT id, root_id, parent_id, box, type, subtype, content, markdown, sort
       FROM blocks
-      WHERE root_id = '${this.escapeSql(docId)}'
-        AND parent_id = '${this.escapeSql(docId)}'
-      ORDER BY sort ASC, id ASC
-    `);
-  }
-
-  private async getChildBlocks(parentId: string): Promise<ProgressiveBlockRow[]> {
-    return this.siyuanApi.sql<ProgressiveBlockRow>(`
-      SELECT id, root_id, parent_id, box, type, subtype, content, markdown, sort
-      FROM blocks
-      WHERE parent_id = '${this.escapeSql(parentId)}'
-      ORDER BY sort ASC, id ASC
+      WHERE root_id = '${this.escapeSql(rootId)}'
+        AND id != '${this.escapeSql(rootId)}'
+      ORDER BY parent_id ASC, sort ASC, id ASC
     `);
   }
 
@@ -612,51 +813,368 @@ export class ProgressiveReadingService {
     `);
   }
 
-  private async buildPiecePlans(blocks: ProgressiveBlockRow[]): Promise<PiecePlan[]> {
-    const pieces: PiecePlan[] = [];
-    let current: ProgressiveBlockRow[] = [];
+  private async loadBlockTree(rootId: string): Promise<SourceBlockNode[]> {
+    const rows = await this.getBlocksByRoot(rootId);
+    return this.buildBlockTree(rows, rootId);
+  }
 
-    const flushCurrent = async (): Promise<void> => {
-      if (current.length === 0) {
-        return;
+  private buildBlockTree(rows: ProgressiveBlockRow[], rootId: string): SourceBlockNode[] {
+    const nodesById = new Map<string, SourceBlockNode>();
+    const childrenByParent = new Map<string, SourceBlockNode[]>();
+
+    for (const row of rows) {
+      if (!row.id) {
+        continue;
       }
-      const title = this.resolvePieceTitle(current, pieces.length);
-      const markdown = (await Promise.all(
-        current.map((block) => this.copyBlockSubtreeMarkdown(block))
-      ))
-        .filter((value) => value.length > 0)
-        .join('\n\n')
-        .trim();
-      if (markdown.length > 0) {
-        pieces.push({
-          title,
-          markdown,
-          order: pieces.length,
-        });
+      nodesById.set(row.id, {
+        row,
+        children: [],
+      });
+    }
+
+    for (const row of rows) {
+      if (!row.id) {
+        continue;
       }
-      current = [];
+      const node = nodesById.get(row.id);
+      if (!node) {
+        continue;
+      }
+      const parentId = asString(row.parent_id) || rootId;
+      const siblings = childrenByParent.get(parentId) || [];
+      siblings.push(node);
+      childrenByParent.set(parentId, siblings);
+    }
+
+    const compareNodes = (left: SourceBlockNode, right: SourceBlockNode): number => {
+      const sortCompare = String(left.row.sort || '').localeCompare(String(right.row.sort || ''));
+      if (sortCompare !== 0) {
+        return sortCompare;
+      }
+      return String(left.row.id || '').localeCompare(String(right.row.id || ''));
     };
 
-    for (const block of blocks) {
-      const preview = this.toBlockPreview(block);
-      if (this.isHorizontalRule(block, preview)) {
-        await flushCurrent();
+    for (const [parentId, children] of childrenByParent.entries()) {
+      children.sort(compareNodes);
+      const parentNode = nodesById.get(parentId);
+      if (parentNode) {
+        parentNode.children = children;
+      }
+    }
+
+    return childrenByParent.get(rootId) || [];
+  }
+
+  private async findExistingBlockIds(blockIds: string[]): Promise<Set<string>> {
+    const normalizedIds = Array.from(new Set(
+      blockIds
+        .map((value) => String(value || '').trim())
+        .filter((value) => value.length > 0),
+    ));
+    if (normalizedIds.length === 0) {
+      return new Set();
+    }
+
+    const existingIds = new Set<string>();
+    const chunkSize = 200;
+    for (let index = 0; index < normalizedIds.length; index += chunkSize) {
+      const chunk = normalizedIds.slice(index, index + chunkSize);
+      const rows = await this.siyuanApi.sql<Pick<ProgressiveBlockRow, 'id'>>(`
+        SELECT id
+        FROM blocks
+        WHERE id IN (${chunk.map((blockId) => `'${this.escapeSql(blockId)}'`).join(', ')})
+      `);
+      for (const row of rows) {
+        const id = asString(row.id);
+        if (id) {
+          existingIds.add(id);
+        }
+      }
+    }
+
+    return existingIds;
+  }
+
+  private normalizeSplitConfig(splitConfig?: ProgressiveSplitConfig): NormalizedProgressiveSplitConfig {
+    const raw = splitConfig ?? createDefaultProgressiveSplitConfig();
+    const enabledHeadingLevels = Array.from(new Set(
+      (raw.headingLevels || []).flatMap((level): ExactHeadingLevel[] => {
+        switch (level) {
+          case 'h1':
+            return [1];
+          case 'h2':
+            return [2];
+          case 'h3ToH6':
+            return [3, 4, 5, 6];
+          default:
+            return [];
+        }
+      }),
+    )).sort((a, b) => a - b) as ExactHeadingLevel[];
+    const customStringEnabled = raw.customStringEnabled === true;
+    const customString = customStringEnabled ? String(raw.customString || '').trim() : undefined;
+
+    if (customStringEnabled && !customString) {
+      throw new Error('请输入自定义切割字符串');
+    }
+
+    if (!raw.horizontalRule && enabledHeadingLevels.length === 0 && !customString) {
+      throw new Error('至少选择一个切割标记');
+    }
+
+    return {
+      horizontalRule: raw.horizontalRule === true,
+      enabledHeadingLevels,
+      customString,
+    };
+  }
+
+  private async buildSplitPlansForRoot(
+    rootNodes: SourceBlockNode[],
+    splitConfig: NormalizedProgressiveSplitConfig,
+  ): Promise<SplitDocPlan[]> {
+    const projected = await this.projectNodesForContainer(rootNodes, 0, splitConfig, 0);
+    const hasHeadingPlans = projected.some((item) => item.type === 'child');
+    return this.buildPlansFromProjectedItems(
+      projected,
+      splitConfig,
+      0,
+      hasHeadingPlans ? '[前言]' : undefined,
+    );
+  }
+
+  private async buildSelectedHeadingPlan(
+    node: SourceBlockNode,
+    headingLevel: ExactHeadingLevel,
+    splitConfig: NormalizedProgressiveSplitConfig,
+    depth: number,
+  ): Promise<SplitDocPlan> {
+    const projectedChildren = await this.projectNodesForContainer(node.children, headingLevel, splitConfig, depth + 1);
+    const headingMarkdown = this.getLocalOnlyMarkdown(node.row);
+    const markdownParts = [headingMarkdown].filter((value) => value.length > 0);
+    const childPlans: SplitDocPlan[] = [];
+    let seenChildPlan = false;
+
+    for (const item of projectedChildren) {
+      if (item.type === 'child') {
+        seenChildPlan = true;
+        childPlans.push(item.plan);
         continue;
       }
 
-      if (this.isHeadingBlock(block, preview) && current.length > 0) {
-        await flushCurrent();
+      const segmented = await this.segmentContentParts(item.parts, splitConfig);
+      if (segmented.segments.length === 0) {
+        continue;
       }
 
-      current.push(block);
+      if (!seenChildPlan && segmented.segments.length === 1 && !segmented.explicitSplit) {
+        markdownParts.push(segmented.segments[0].markdown);
+        continue;
+      }
+
+      childPlans.push(...this.createSegmentPlans(segmented.segments, depth + 1));
     }
 
-    await flushCurrent();
-    return pieces;
+    const markdown = markdownParts.join('\n\n').trim() || headingMarkdown || this.resolveHeadingPlanBaseTitle(node.row);
+    return {
+      baseTitle: this.resolveHeadingPlanBaseTitle(node.row),
+      markdown,
+      depth,
+      kind: 'heading',
+      children: childPlans,
+    };
+  }
+
+  private async projectNodesForContainer(
+    nodes: SourceBlockNode[],
+    currentSelectedLevel: number,
+    splitConfig: NormalizedProgressiveSplitConfig,
+    depth: number,
+  ): Promise<ProjectedItem[]> {
+    const items: ProjectedItem[] = [];
+    let bufferedParts: RenderableBlockPart[] = [];
+
+    const flushBufferedParts = (): void => {
+      if (bufferedParts.length === 0) {
+        return;
+      }
+      items.push({
+        type: 'content',
+        parts: bufferedParts,
+      });
+      bufferedParts = [];
+    };
+
+    for (const node of nodes) {
+      const preview = this.toBlockPreview(node.row);
+      const headingLevel = this.resolveHeadingLevelNumber(node.row, preview);
+      const isSelectedHeading = headingLevel !== null
+        && headingLevel > currentSelectedLevel
+        && splitConfig.enabledHeadingLevels.includes(headingLevel);
+
+      if (isSelectedHeading) {
+        flushBufferedParts();
+        items.push({
+          type: 'child',
+          plan: await this.buildSelectedHeadingPlan(node, headingLevel, splitConfig, depth),
+        });
+        continue;
+      }
+
+      if (headingLevel !== null) {
+        bufferedParts.push({
+          block: node.row,
+          localOnly: true,
+        });
+        const childItems = await this.projectNodesForContainer(node.children, currentSelectedLevel, splitConfig, depth);
+        for (const childItem of childItems) {
+          if (childItem.type === 'content') {
+            bufferedParts.push(...childItem.parts);
+            continue;
+          }
+          flushBufferedParts();
+          items.push(childItem);
+        }
+        continue;
+      }
+
+      bufferedParts.push({
+        block: node.row,
+        localOnly: false,
+      });
+    }
+
+    flushBufferedParts();
+    return items;
+  }
+
+  private async buildPlansFromProjectedItems(
+    items: ProjectedItem[],
+    splitConfig: NormalizedProgressiveSplitConfig,
+    depth: number,
+    leadingLabel?: string,
+  ): Promise<SplitDocPlan[]> {
+    const plans: SplitDocPlan[] = [];
+    let beforeFirstChild = true;
+
+    for (const item of items) {
+      if (item.type === 'child') {
+        beforeFirstChild = false;
+        plans.push(item.plan);
+        continue;
+      }
+
+      const segmented = await this.segmentContentParts(item.parts, splitConfig);
+      if (segmented.segments.length === 0) {
+        continue;
+      }
+
+      const label = beforeFirstChild && plans.length === 0 ? leadingLabel : undefined;
+      plans.push(...this.createSegmentPlans(segmented.segments, depth, label));
+    }
+
+    return plans;
+  }
+
+  private async segmentContentParts(
+    parts: RenderableBlockPart[],
+    splitConfig: NormalizedProgressiveSplitConfig,
+  ): Promise<SegmentedContentResult> {
+    const groupedParts: RenderableBlockPart[][] = [];
+    let current: RenderableBlockPart[] = [];
+    let explicitSplit = false;
+
+    const flushCurrent = (): void => {
+      if (current.length === 0) {
+        return;
+      }
+      groupedParts.push(current);
+      current = [];
+    };
+
+    for (const part of parts) {
+      const preview = this.toBlockPreview(part.block);
+      if (splitConfig.horizontalRule && this.isHorizontalRule(part.block, preview)) {
+        if (current.length > 0) {
+          explicitSplit = true;
+          flushCurrent();
+        }
+        continue;
+      }
+
+      if (this.shouldSplitAtCustomString(preview, splitConfig) && current.length > 0) {
+        explicitSplit = true;
+        flushCurrent();
+      }
+
+      current.push(part);
+    }
+
+    flushCurrent();
+
+    const segments: ContentSegment[] = [];
+    for (const group of groupedParts) {
+      const markdown = await this.renderBlockPartsMarkdown(group);
+      if (!markdown) {
+        continue;
+      }
+      segments.push({
+        baseTitle: this.resolveContentSegmentBaseTitle(group),
+        markdown,
+      });
+    }
+
+    return {
+      explicitSplit,
+      segments,
+    };
+  }
+
+  private createSegmentPlans(
+    segments: ContentSegment[],
+    depth: number,
+    leadingLabel?: string,
+  ): SplitDocPlan[] {
+    return segments.map((segment, index) => ({
+      baseTitle: index === 0 && leadingLabel ? leadingLabel : segment.baseTitle,
+      markdown: segment.markdown,
+      depth,
+      kind: index === 0 && leadingLabel ? 'leading' : 'segment',
+      children: [],
+    }));
+  }
+
+  private async renderBlockPartsMarkdown(parts: RenderableBlockPart[]): Promise<string> {
+    return (await Promise.all(parts.map((part) => this.copyBlockMarkdownPart(part))))
+      .filter((value) => value.length > 0)
+      .join('\n\n')
+      .trim();
+  }
+
+  private async copyBlockMarkdownPart(part: RenderableBlockPart): Promise<string> {
+    if (part.localOnly) {
+      return this.getLocalOnlyMarkdown(part.block);
+    }
+    return this.copyBlockSubtreeMarkdown(part.block);
   }
 
   private toBlockPreview(block: ProgressiveBlockRow): string {
     return asString(block.markdown) || asString(block.content) || '';
+  }
+
+  private getLocalOnlyMarkdown(block: ProgressiveBlockRow): string {
+    const markdown = asString(block.markdown);
+    if (markdown) {
+      return markdown;
+    }
+
+    const content = asString(block.content) || '';
+    const headingLevel = this.resolveHeadingLevelNumber(block, '');
+    if (headingLevel !== null && content) {
+      return `${'#'.repeat(headingLevel)} ${content}`.trim();
+    }
+
+    return content;
   }
 
   private async copyBlockSubtreeMarkdown(block: ProgressiveBlockRow): Promise<string> {
@@ -679,11 +1197,46 @@ export class ProgressiveReadingService {
     return this.toBlockPreview(block);
   }
 
-  private isHeadingBlock(block: ProgressiveBlockRow, preview: string): boolean {
-    if (block.type === 'h') {
-      return true;
+  private resolveHeadingLevelNumber(
+    block: ProgressiveBlockRow,
+    preview: string,
+  ): ExactHeadingLevel | null {
+    switch (asString(block.subtype)) {
+      case 'h1':
+        return 1;
+      case 'h2':
+        return 2;
+      case 'h3':
+        return 3;
+      case 'h4':
+        return 4;
+      case 'h5':
+        return 5;
+      case 'h6':
+        return 6;
+      default:
+        break;
     }
-    return /^#{1,6}\s+/u.test(preview.trim());
+
+    const headingMatch = preview.trim().match(/^(#{1,6})\s+/u);
+    if (headingMatch) {
+      return headingMatch[1].length as ExactHeadingLevel;
+    }
+
+    if (block.type === 'h') {
+      return 3;
+    }
+
+    return null;
+  }
+
+  private shouldSplitAtCustomString(
+    preview: string,
+    splitConfig: NormalizedProgressiveSplitConfig,
+  ): boolean {
+    return typeof splitConfig.customString === 'string'
+      && splitConfig.customString.length > 0
+      && preview.includes(splitConfig.customString);
   }
 
   private isHorizontalRule(block: ProgressiveBlockRow, preview: string): boolean {
@@ -693,30 +1246,178 @@ export class ProgressiveReadingService {
     return /^(?:-{3,}|\*{3,}|_{3,})$/u.test(preview.trim());
   }
 
-  private resolvePieceTitle(blocks: ProgressiveBlockRow[], index: number): string {
-    const heading = blocks.find((block) => this.isHeadingBlock(block, this.toBlockPreview(block)));
-    if (heading?.content) {
-      return truncateText(heading.content, 48);
+  private resolveHeadingPlanBaseTitle(block: ProgressiveBlockRow): string {
+    const content = asString(block.content);
+    if (content) {
+      return truncateText(content, 48);
     }
-    const first = blocks[0];
-    if (first?.content) {
-      return truncateText(first.content, 48);
+    const preview = this.toBlockPreview(block).replace(/^#{1,6}\s+/u, '').trim();
+    if (preview) {
+      return truncateText(preview, 48);
     }
-    return `Piece ${String(index + 1).padStart(2, '0')}`;
+    return '[标题]';
   }
 
-  private buildPieceDocTitle(plan: PiecePlan): string {
-    const prefix = String(plan.order + 1).padStart(2, '0');
-    return sanitizeDocTitle(`${prefix} ${plan.title}`);
+  private resolveContentSegmentBaseTitle(parts: RenderableBlockPart[]): string {
+    const firstPreview = parts
+      .map((part) => this.toBlockPreview(part.block).replace(/^#{1,6}\s+/u, '').trim())
+      .find((value) => value.length > 0);
+    if (firstPreview) {
+      return truncateText(firstPreview, 48);
+    }
+    return '[片段]';
   }
 
-  private async ensureDocByHPath(notebook: string, hpath: string, markdown: string): Promise<string> {
+  private countSplitPlans(plans: SplitDocPlan[]): number {
+    return plans.reduce((total, plan) => total + 1 + this.countSplitPlans(plan.children), 0);
+  }
+
+  private async materializeSplitPlans(input: {
+    notebook: string;
+    parentHPath: string;
+    sessionId: string;
+    sourceDocId: string;
+    mode: ProgressiveSplitMode;
+    totalPieceCount: number;
+    plans: SplitDocPlan[];
+    pieces: ProgressiveSessionPieceRecord[];
+    hpathCache: Map<string, string>;
+    options?: ProgressiveSplitExecutionOptions;
+    onPieceCreated?: (piece: ProgressiveSessionPieceRecord, context: { createdDoc: boolean }) => void;
+    parentPieceDocId?: string;
+  }): Promise<void> {
+    let siblingIndex = 0;
+
+    for (const plan of input.plans) {
+      this.throwIfSplitCancelled(input.options);
+      siblingIndex += 1;
+      const prefix = String(siblingIndex).padStart(2, '0');
+      const titledName = sanitizeDocTitle(`${prefix} ${plan.baseTitle || '[片段]'}`);
+      const piecePath = `${input.parentHPath}/${titledName}`;
+      const docResult = await this.ensureDocByHPath(input.notebook, piecePath, plan.markdown, input.hpathCache);
+      const pieceDocId = docResult.docId;
+      const pieceOrder = input.pieces.length;
+      const pieceState: PieceState = input.mode === 'linear'
+        ? (pieceOrder === 0 ? 'active' : 'pending')
+        : 'active';
+
+      await this.setProgressiveAttrs(pieceDocId, {
+        [ATTR_PROGRESSIVE_KIND]: 'piece',
+        [ATTR_PROGRESSIVE_SESSION_ID]: input.sessionId,
+        [ATTR_PROGRESSIVE_MODE]: input.mode,
+        [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: input.sourceDocId,
+        [ATTR_PROGRESSIVE_PIECE_INDEX]: pieceOrder,
+        [ATTR_PROGRESSIVE_PIECE_COUNT]: input.totalPieceCount,
+        [ATTR_PROGRESSIVE_PIECE_STATE]: pieceState,
+      });
+
+      const pieceRecord: ProgressiveSessionPieceRecord = {
+        pieceDocId,
+        title: titledName,
+        order: pieceOrder,
+        state: pieceState,
+        depth: plan.depth,
+        parentPieceDocId: input.parentPieceDocId,
+      };
+
+      input.pieces.push(pieceRecord);
+      input.onPieceCreated?.(pieceRecord, {
+        createdDoc: docResult.created,
+      });
+      this.throwIfSplitCancelled(input.options);
+
+      if (plan.children.length > 0) {
+        await this.materializeSplitPlans({
+          ...input,
+          parentHPath: piecePath,
+          plans: plan.children,
+          parentPieceDocId: pieceDocId,
+        });
+      }
+    }
+  }
+
+  private async createSplitPieceTopicCards(input: {
+    sessionId: string;
+    mode: ProgressiveSplitMode;
+    sourceDocId: string;
+    pieces: ProgressiveSessionPieceRecord[];
+    options?: ProgressiveSplitExecutionOptions;
+    onPieceCardReady?: (piece: ProgressiveSessionPieceRecord, context: {
+      processedCount: number;
+      cardId: string;
+      createdCard: boolean;
+    }) => void;
+  }): Promise<void> {
+    const targetPieces = input.mode === 'nonlinear'
+      ? input.pieces
+      : input.pieces.slice(0, 1);
+    let processedCount = 0;
+
+    for (const piece of targetPieces) {
+      this.throwIfSplitCancelled(input.options);
+      const cardResult = await this.ensurePieceTopicCard({
+        sessionId: input.sessionId,
+        mode: input.mode,
+        pieceDocId: piece.pieceDocId,
+        sourceDocId: input.sourceDocId,
+        pieceIndex: piece.order,
+      });
+      piece.topicCardId = cardResult.cardId;
+      processedCount += 1;
+      input.onPieceCardReady?.(piece, {
+        processedCount,
+        cardId: cardResult.cardId,
+        createdCard: cardResult.created,
+      });
+      this.throwIfSplitCancelled(input.options);
+    }
+  }
+
+  private async ensureDocByHPath(
+    notebook: string,
+    hpath: string,
+    markdown: string,
+    hpathCache?: Map<string, string>,
+  ): Promise<EnsureDocByHPathResult> {
+    const cachedDocId = hpathCache?.get(hpath);
+    if (cachedDocId) {
+      return {
+        docId: cachedDocId,
+        created: false,
+      };
+    }
+
+    let createError: unknown;
+    try {
+      const createdDocId = String(await this.siyuanApi.createDocWithMarkdown(notebook, hpath, markdown) || '').trim();
+      if (createdDocId) {
+        hpathCache?.set(hpath, createdDocId);
+        return {
+          docId: createdDocId,
+          created: true,
+        };
+      }
+    } catch (error) {
+      createError = error;
+    }
+
     const existing = await this.findDocIdByHPath(notebook, hpath);
     if (existing) {
-      return existing;
+      hpathCache?.set(hpath, existing);
+      return {
+        docId: existing,
+        created: false,
+      };
     }
-    const created = await this.siyuanApi.createDocWithMarkdown(notebook, hpath, markdown);
-    return created || (await this.findDocIdByHPath(notebook, hpath)) || created;
+
+    if (createError instanceof Error) {
+      throw createError;
+    }
+    if (createError) {
+      throw new Error(String(createError));
+    }
+    throw new Error(`文档创建后无法定位：${hpath}`);
   }
 
   private async findDocIdByHPath(notebook: string, hpath: string): Promise<string | null> {
@@ -745,10 +1446,13 @@ export class ProgressiveReadingService {
     pieceDocId: string;
     sourceDocId: string;
     pieceIndex: number;
-  }): Promise<string> {
+  }): Promise<EnsureTopicCardResult> {
     const existing = this.cardService.getCardByBlockId(input.pieceDocId);
     if (existing) {
-      return existing.id;
+      return {
+        cardId: existing.id,
+        created: false,
+      };
     }
 
     const result = await this.cardCreationHelper.createQuickCard(input.pieceDocId, {
@@ -775,7 +1479,89 @@ export class ProgressiveReadingService {
     if (!created) {
       throw new Error('Piece topic card created but could not be reloaded from storage');
     }
-    return created.id;
+    return {
+      cardId: created.id,
+      created: true,
+    };
+  }
+
+  private async cleanupCancelledSplitArtifacts(input: {
+    createdDocs: CreatedSplitDocArtifact[];
+    createdCardIds: string[];
+    onProgress?: (progress: ProgressiveSplitProgress) => void;
+    createdDocCount: number;
+    createdCardCount: number;
+  }): Promise<boolean> {
+    const docsToDelete = [...input.createdDocs]
+      .sort((left, right) => right.depth - left.depth || right.creationOrder - left.creationOrder);
+    const cardsToDelete = [...input.createdCardIds].reverse();
+    const total = cardsToDelete.length + docsToDelete.length;
+    let current = 0;
+    let cleanupIncomplete = false;
+
+    this.emitSplitProgress({
+      onProgress: input.onProgress,
+      phase: 'cleanup',
+      current: 0,
+      total,
+      message: 'Cleaning up cancelled split',
+      createdDocCount: input.createdDocCount,
+      createdCardCount: input.createdCardCount,
+    });
+
+    for (const cardId of cardsToDelete) {
+      try {
+        const result = await this.cardService.deleteCard({ cardId });
+        if (isErr(result)) {
+          throw result.error;
+        }
+      } catch (error) {
+        cleanupIncomplete = true;
+        logger.warn('Failed to delete split topic card during cancellation cleanup', {
+          cardId,
+          error,
+        });
+      }
+
+      current += 1;
+      this.emitSplitProgress({
+        onProgress: input.onProgress,
+        phase: 'cleanup',
+        current,
+        total,
+        message: 'Cleaning up cancelled split',
+        currentTitle: cardId,
+        createdDocCount: input.createdDocCount,
+        createdCardCount: input.createdCardCount,
+      });
+    }
+
+    for (const doc of docsToDelete) {
+      try {
+        await this.siyuanApi.deleteBlock(doc.docId);
+      } catch (error) {
+        cleanupIncomplete = true;
+        logger.warn('Failed to delete split doc during cancellation cleanup', {
+          docId: doc.docId,
+          depth: doc.depth,
+          error,
+        });
+      }
+
+      current += 1;
+      this.emitSplitProgress({
+        onProgress: input.onProgress,
+        phase: 'cleanup',
+        current,
+        total,
+        message: 'Cleaning up cancelled split',
+        currentTitle: doc.docId,
+        createdDocCount: input.createdDocCount,
+        createdCardCount: input.createdCardCount,
+      });
+    }
+
+    return cleanupIncomplete;
   }
 
   private async createExcerptDocUnderSource(input: {
@@ -872,11 +1658,11 @@ export class ProgressiveReadingService {
 
     const pieceDocInfo = await this.resolveDocInfo(piece.pieceDocId);
     const workbenchPath = `${pieceDocInfo.hpath}/${WORKBENCH_DOC_TITLE}`;
-    const workbenchDocId = await this.ensureDocByHPath(
+    const workbenchDocId = (await this.ensureDocByHPath(
       session.notebook,
       workbenchPath,
       `# ${WORKBENCH_DOC_TITLE}\n\n> ${(piece.title || WORKBENCH_DOC_TITLE).trim()}`
-    );
+    )).docId;
 
     piece.workbenchDocId = workbenchDocId;
     await this.setProgressiveAttrs(workbenchDocId, {
@@ -913,11 +1699,11 @@ export class ProgressiveReadingService {
 
     const sourceDocInfo = await this.resolveDocInfo(sourceDocId);
     const workbenchPath = `${sourceDocInfo.hpath}/${WORKBENCH_DOC_TITLE}`;
-    const workbenchDocId = await this.ensureDocByHPath(
+    const workbenchDocId = (await this.ensureDocByHPath(
       notebook,
       workbenchPath,
       `# ${WORKBENCH_DOC_TITLE}\n\n> ${(sourceDocInfo.name || WORKBENCH_DOC_TITLE).trim()}`
-    );
+    )).docId;
 
     state.sourceDocToWorkbench[sourceDocId] = workbenchDocId;
     await this.setProgressiveAttrs(workbenchDocId, {
@@ -935,12 +1721,12 @@ export class ProgressiveReadingService {
     const notebookConf = await this.siyuanApi.getNotebookConf(notebook);
     const template = notebookConf.dailyNoteSavePath || '/daily note/{{now | date "2006/01"}}/{{now | date "2006-01-02"}}';
     const renderedPath = await this.siyuanApi.renderTemplate(template);
-    return this.ensureDocByHPath(notebook, renderedPath, '');
+    return (await this.ensureDocByHPath(notebook, renderedPath, '')).docId;
   }
 
   private async ensureDailyAnchorDoc(notebook: string): Promise<string> {
     const anchorPath = `/${sanitizeDocTitle(DAILY_TRACE_DOC_TITLE)}`;
-    return this.ensureDocByHPath(notebook, anchorPath, `# ${DAILY_TRACE_DOC_TITLE}`);
+    return (await this.ensureDocByHPath(notebook, anchorPath, `# ${DAILY_TRACE_DOC_TITLE}`)).docId;
   }
 
   private async ensureDailyAnchorRef(dailyNoteDocId: string, notebook: string): Promise<string> {
@@ -1383,6 +2169,46 @@ export class ProgressiveReadingService {
       Object.entries(attrs).map(([key, value]) => [key, toAttrValue(value)])
     );
     await this.siyuanApi.setBlockAttrs(blockId, normalized);
+  }
+
+  private emitSplitProgress(input: {
+    onProgress?: (progress: ProgressiveSplitProgress) => void;
+    phase: ProgressiveSplitProgressPhase;
+    current: number;
+    total: number;
+    message: string;
+    currentTitle?: string;
+    createdDocCount: number;
+    createdCardCount: number;
+  }): void {
+    if (!input.onProgress) {
+      return;
+    }
+
+    const [start, end] = SPLIT_PROGRESS_PHASE_RANGES[input.phase];
+    const total = Math.max(0, input.total);
+    const current = total > 0
+      ? Math.min(Math.max(0, input.current), total)
+      : Math.max(0, input.current);
+    const ratio = total > 0 ? current / total : 1;
+    const percentage = Math.round(start + ((end - start) * ratio));
+
+    input.onProgress({
+      phase: input.phase,
+      current,
+      total,
+      percentage,
+      message: input.message,
+      currentTitle: input.currentTitle,
+      createdDocCount: input.createdDocCount,
+      createdCardCount: input.createdCardCount,
+    });
+  }
+
+  private throwIfSplitCancelled(options?: ProgressiveSplitExecutionOptions): void {
+    if (options?.isCancellationRequested?.()) {
+      throw new ProgressiveSplitCancelledError();
+    }
   }
 
   private escapeSql(value: string): string {

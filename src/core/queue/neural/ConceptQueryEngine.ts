@@ -30,6 +30,13 @@ export interface BlockData {
 
 type UnknownRecord = Record<string, unknown>;
 
+interface BacklinkCandidate {
+  normalizedId: string;
+  sourceId: string | null;
+  sourceType: string | null;
+  normalizedToParent: boolean;
+}
+
 export class ConceptQueryEngine {
   private readonly neighborsCache = new QueryCache<Neighbor[]>(5000, 80);
   private readonly backlinksCache = new QueryCache<string[]>(10000, 120);
@@ -114,7 +121,18 @@ export class ConceptQueryEngine {
             ) THEN b.parent_id
             WHEN b.type IN ('h', 'p', 't') THEN b.id
             ELSE NULL
-          END AS id
+          END AS id,
+          b.id AS source_id,
+          b.type AS source_type,
+          CASE
+            WHEN b.type != 'i'
+              AND b.parent_id IN (
+                SELECT li.id
+                FROM blocks li
+                WHERE li.type = 'i'
+              ) THEN 1
+            ELSE 0
+          END AS normalized_to_parent
         FROM refs r
         INNER JOIN blocks b ON b.id = r.block_id
         WHERE r.def_block_id = '${escapedConceptId}'
@@ -129,7 +147,8 @@ export class ConceptQueryEngine {
       `;
 
       const rows = await api.sql(stmt);
-      const backlinkIds = this.extractIds(rows, conceptId);
+      const backlinkCandidates = this.extractBacklinkCandidates(rows, conceptId);
+      const backlinkIds = await this.resolveBacklinkIds(backlinkCandidates);
 
       logger.debug(`Found ${backlinkIds.length} normalized backlink blocks`, backlinkIds.slice(0, 10));
 
@@ -244,41 +263,57 @@ export class ConceptQueryEngine {
   async fetchDescriptors(conceptId: string): Promise<string[]> {
     try {
       const escapedConceptId = this.escapeSQL(conceptId);
-      const childRows = await api.sql(`
-        SELECT DISTINCT id
-        FROM blocks
-        WHERE parent_id = '${escapedConceptId}'
-      `);
-      const childIds = this.extractIds(childRows);
-      if (childIds.length === 0) {
-        return [];
-      }
+      const descriptorScopeCte = `
+        WITH RECURSIVE descriptor_scope AS (
+          SELECT id, type
+          FROM blocks
+          WHERE parent_id = '${escapedConceptId}'
+          UNION ALL
+          SELECT child.id, child.type
+          FROM blocks child
+          INNER JOIN descriptor_scope scope ON child.parent_id = scope.id
+          WHERE scope.type = 'i'
+        )
+      `;
 
-      try {
-        const childIdsStr = childIds.map((id) => `'${this.escapeSQL(id)}'`).join(',');
+      if (this.fsrsCardsTableAvailable !== false) {
+        try {
         const localRows = await api.sql(`
-          SELECT DISTINCT block_id AS id
-          FROM fsrs_cards
-          WHERE block_id IN (${childIdsStr})
-            AND (type = 'descriptor' OR card_type_marker = 'descriptor')
+          ${descriptorScopeCte}
+          SELECT DISTINCT fc.block_id AS id
+          FROM fsrs_cards fc
+          WHERE fc.block_id IN (SELECT id FROM descriptor_scope)
+            AND COALESCE(fc.type, '') NOT IN ('concept', 'topic')
+            AND COALESCE(fc.card_type_marker, '') != 'concept'
         `);
+        this.fsrsCardsTableAvailable = true;
         const descriptorIds = this.extractIds(localRows, conceptId);
         if (descriptorIds.length > 0) {
           logger.debug(`Found ${descriptorIds.length} descriptors from local cards`);
           return descriptorIds;
         }
-      } catch {
-        // fsrs_cards table may be unavailable in some environments
+        } catch (error) {
+          if (this.isMissingFsrsCardsTableError(error)) {
+            this.fsrsCardsTableAvailable = false;
+            if (!this.hasLoggedMissingFsrsCardsTable) {
+              this.hasLoggedMissingFsrsCardsTable = true;
+              logger.warn('fsrs_cards table not found; descriptor SQL checks will skip local card lookup in this environment');
+            }
+          } else {
+            logger.error('Failed to fetch descriptors from local cards:', error);
+          }
+        }
       }
 
       const syntaxRows = await api.sql(`
-        SELECT DISTINCT id
-        FROM blocks
-        WHERE parent_id = '${escapedConceptId}'
+        ${descriptorScopeCte}
+        SELECT DISTINCT b.id
+        FROM blocks b
+        WHERE b.id IN (SELECT id FROM descriptor_scope)
           AND (
-            content LIKE '%;;%'
-            OR content LIKE '%;<%'
-            OR content LIKE '%;<>%'
+            b.content LIKE '%;;%'
+            OR b.content LIKE '%;<%'
+            OR b.content LIKE '%;<>%'
           )
       `);
       const descriptorIds = this.extractIds(syntaxRows, conceptId);
@@ -332,6 +367,164 @@ export class ConceptQueryEngine {
       }
       logger.error('Failed to check if concept card:', error);
       return false;
+    }
+  }
+
+  private extractBacklinkCandidates(rows: unknown, excludeId?: string): BacklinkCandidate[] {
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+
+    const candidates: BacklinkCandidate[] = [];
+    const seen = new Set<string>();
+
+    for (const row of rows) {
+      const rowRecord = row as UnknownRecord;
+      const normalizedId = typeof rowRecord.id === 'string' ? rowRecord.id : '';
+      if (!normalizedId || normalizedId === excludeId) {
+        continue;
+      }
+
+      const sourceId = typeof rowRecord.source_id === 'string' && rowRecord.source_id.trim().length > 0
+        ? rowRecord.source_id
+        : null;
+      const sourceType = typeof rowRecord.source_type === 'string' && rowRecord.source_type.trim().length > 0
+        ? rowRecord.source_type
+        : null;
+      const normalizedToParent = Number(rowRecord.normalized_to_parent) === 1;
+      const dedupeKey = `${normalizedId}::${sourceId ?? ''}::${sourceType ?? ''}::${normalizedToParent ? '1' : '0'}`;
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+      candidates.push({
+        normalizedId,
+        sourceId,
+        sourceType,
+        normalizedToParent,
+      });
+    }
+
+    return candidates;
+  }
+
+  private async resolveBacklinkIds(candidates: BacklinkCandidate[]): Promise<string[]> {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+
+    for (const candidate of candidates) {
+      const preferredId = await this.resolvePreferredReviewBlockId(candidate);
+      if (!preferredId || seen.has(preferredId)) {
+        continue;
+      }
+      seen.add(preferredId);
+      ids.push(preferredId);
+    }
+
+    return ids;
+  }
+
+  private async resolvePreferredReviewBlockId(candidate: BacklinkCandidate): Promise<string> {
+    if (!candidate.normalizedToParent && candidate.sourceType !== 'i') {
+      return candidate.normalizedId;
+    }
+
+    if (
+      candidate.sourceId
+      && candidate.sourceId !== candidate.normalizedId
+      && await this.isReviewFlashcard(candidate.sourceId)
+    ) {
+      return candidate.sourceId;
+    }
+
+    if (await this.isReviewFlashcard(candidate.normalizedId)) {
+      return candidate.normalizedId;
+    }
+
+    const normalizedBlock = await this.fetchBlockData(candidate.normalizedId);
+    if (normalizedBlock?.type !== 'i') {
+      return candidate.normalizedId;
+    }
+
+    const descendantFlashcardId = await this.findUniqueListItemFlashcardDescendant(candidate.normalizedId);
+    return descendantFlashcardId ?? candidate.normalizedId;
+  }
+
+  private async isReviewFlashcard(blockId: string): Promise<boolean> {
+    if (this.fsrsCardsTableAvailable === false) {
+      return false;
+    }
+
+    try {
+      const rows = await api.sql(`
+        SELECT type, card_type_marker
+        FROM fsrs_cards
+        WHERE block_id = '${this.escapeSQL(blockId)}'
+        LIMIT 1
+      `);
+      this.fsrsCardsTableAvailable = true;
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return false;
+      }
+
+      const row = rows[0] as UnknownRecord;
+      const type = typeof row.type === 'string' ? row.type : '';
+      const marker = typeof row.card_type_marker === 'string' ? row.card_type_marker : '';
+      return type !== 'concept'
+        && type !== 'topic'
+        && marker !== 'concept';
+    } catch (error) {
+      if (this.isMissingFsrsCardsTableError(error)) {
+        this.fsrsCardsTableAvailable = false;
+        if (!this.hasLoggedMissingFsrsCardsTable) {
+          this.hasLoggedMissingFsrsCardsTable = true;
+          logger.warn('fsrs_cards table not found; flashcard SQL checks will return false in this environment');
+        }
+        return false;
+      }
+      logger.error(`Failed to resolve flashcard status for block ${blockId}:`, error);
+      return false;
+    }
+  }
+
+  private async findUniqueListItemFlashcardDescendant(listItemId: string): Promise<string | null> {
+    if (this.fsrsCardsTableAvailable === false) {
+      return null;
+    }
+
+    try {
+      const rows = await api.sql(`
+        WITH RECURSIVE descendants AS (
+          SELECT id
+          FROM blocks
+          WHERE parent_id = '${this.escapeSQL(listItemId)}'
+          UNION ALL
+          SELECT child.id
+          FROM blocks child
+          INNER JOIN descendants scope ON child.parent_id = scope.id
+        )
+        SELECT DISTINCT fc.block_id AS id
+        FROM fsrs_cards fc
+        WHERE fc.block_id IN (SELECT id FROM descendants)
+          AND COALESCE(fc.type, '') NOT IN ('concept', 'topic')
+          AND COALESCE(fc.card_type_marker, '') != 'concept'
+      `);
+      this.fsrsCardsTableAvailable = true;
+
+      const descendantIds = this.extractIds(rows, listItemId);
+      return descendantIds.length === 1 ? descendantIds[0] ?? null : null;
+    } catch (error) {
+      if (this.isMissingFsrsCardsTableError(error)) {
+        this.fsrsCardsTableAvailable = false;
+        if (!this.hasLoggedMissingFsrsCardsTable) {
+          this.hasLoggedMissingFsrsCardsTable = true;
+          logger.warn('fsrs_cards table not found; descendant flashcard resolution will be skipped in this environment');
+        }
+        return null;
+      }
+      logger.error(`Failed to resolve descendant flashcards for list item ${listItemId}:`, error);
+      return null;
     }
   }
 

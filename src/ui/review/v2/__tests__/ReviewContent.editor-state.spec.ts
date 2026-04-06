@@ -367,7 +367,7 @@ describe('ReviewContent editor state', () => {
     delete (window as unknown as { siyuan?: unknown }).siyuan;
   });
 
-  it('tracks main Protyle edit state and re-enables double-click editing after Escape exit', async () => {
+  it('keeps main Protyle editable by default and does not relock it on Escape', async () => {
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -404,41 +404,24 @@ describe('ReviewContent editor state', () => {
     expect(initialStates.at(-1)).toEqual({
       renderer: 'main-protyle',
       supportsNativeEdit: true,
-      isEditing: false,
+      isEditing: true,
     });
 
     const protyle = reviewContentMocks.instances[0];
     expect(protyle).toBeTruthy();
-    protyle.protyle.wysiwyg.element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-    await flushPromises();
-
-    expect(getEditorStates(wrapper).at(-1)).toEqual({
-      renderer: 'main-protyle',
-      supportsNativeEdit: true,
-      isEditing: true,
-    });
+    expect(protyle.disableCallCount).toBe(0);
 
     const exposed = wrapper.vm as unknown as { exitEditorByEscape: () => boolean };
-    expect(exposed.exitEditorByEscape()).toBe(true);
+    expect(exposed.exitEditorByEscape()).toBe(false);
     await flushPromises();
 
-    expect(protyle.disableCallCount).toBeGreaterThanOrEqual(2);
-    expect(getEditorStates(wrapper).at(-1)).toEqual({
-      renderer: 'main-protyle',
-      supportsNativeEdit: true,
-      isEditing: false,
-    });
-    expect(document.activeElement).toBe(actionButton);
-
-    protyle.protyle.wysiwyg.element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-    await flushPromises();
-
-    expect(protyle.enableCallCount).toBe(2);
     expect(getEditorStates(wrapper).at(-1)).toEqual({
       renderer: 'main-protyle',
       supportsNativeEdit: true,
       isEditing: true,
     });
+    expect(document.activeElement).not.toBe(actionButton);
+    expect(protyle.enableCallCount).toBe(0);
 
     wrapper.unmount();
   });

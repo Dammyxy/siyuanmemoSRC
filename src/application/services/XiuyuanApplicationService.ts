@@ -23,6 +23,7 @@
  */
 
 import { Result } from '@/types/result';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 import { CreateXiuyuanFromBlocksCommand } from '../commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import { CreateListTemplateCardsCommand } from '../commands/xiuyuan/CreateListTemplateCardsCommand';
 import { CreateConceptDescriptorCardsCommand, ConceptDescriptorCardsResult } from '../usecases/xiuyuan/CreateConceptDescriptorCardsUseCase';
@@ -75,31 +76,37 @@ export class XiuyuanApplicationService {
    */
   constructor(
     xiuyuanRepository: IXiuyuanRepository,
-    templateRegistry: Map<string, ICardTemplate>
+    templateRegistry: Map<string, ICardTemplate>,
+    eventBus: EventBus
   ) {
     // 初始化 UseCase 实例
     this.createXiuyuanFromBlocksUseCase = new CreateXiuyuanFromBlocksUseCase(
       xiuyuanRepository,
-      templateRegistry
+      templateRegistry,
+      { eventBus }
     );
     this.deleteXiuyuanUseCase = new DeleteXiuyuanUseCase(xiuyuanRepository);
     this.getXiuyuanQueryHandler = new GetXiuyuanQueryHandler(xiuyuanRepository);
     this.getAllXiuyuansQueryHandler = new GetAllXiuyuansQueryHandler(xiuyuanRepository);
     this.createListTemplateCardsUseCase = new CreateListTemplateCardsUseCase(
       xiuyuanRepository,
-      templateRegistry
+      templateRegistry,
+      { eventBus }
     );
     this.createConceptDescriptorCardsUseCase = new CreateConceptDescriptorCardsUseCase(
       xiuyuanRepository,
-      templateRegistry
+      templateRegistry,
+      { eventBus }
     );
     this.createConceptDescriptorAutoUseCase = new CreateConceptDescriptorAutoUseCase(
       xiuyuanRepository,
-      templateRegistry
+      templateRegistry,
+      { eventBus }
     );
     this.rebindDescriptorConceptUseCase = new RebindDescriptorConceptUseCase(
       xiuyuanRepository,
-      templateRegistry
+      templateRegistry,
+      { eventBus }
     );
     this.createTemplateUseCase = new CreateTemplateUseCase(templateRegistry);
     this.getTemplateQueryHandler = new GetTemplateQueryHandler(templateRegistry);

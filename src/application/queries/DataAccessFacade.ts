@@ -544,6 +544,7 @@ export class DataAccessFacade implements IDataRouter {
         };
 
         const residual: CardFilter = {
+            scopeDocIds: filter.scopeDocIds,
             tags: filter.tags,
             priority: filter.priority,
             repetitions: filter.repetitions,
@@ -574,6 +575,7 @@ export class DataAccessFacade implements IDataRouter {
 
     private hasResidualFilter(filter: CardFilter): boolean {
         return !!(
+            (filter.scopeDocIds && filter.scopeDocIds.length > 0) ||
             (filter.tags && filter.tags.length > 0) ||
             filter.priority ||
             filter.repetitions ||
@@ -674,6 +676,10 @@ export class DataAccessFacade implements IDataRouter {
 
     private applyFilter(cards: FSRSCard[], filter: CardFilter): FSRSCard[] {
         let filtered = cards;
+
+        if (filter.scopeDocIds && filter.scopeDocIds.length > 0) {
+            filtered = this.cardFilterService.filterByDocIds(filtered, filter.scopeDocIds);
+        }
 
         if (filter.tags && filter.tags.length > 0) {
             filtered = this.cardFilterService.filterByTags(filtered, filter.tags);

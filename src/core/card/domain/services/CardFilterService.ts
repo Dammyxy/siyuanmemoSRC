@@ -232,6 +232,32 @@ export class CardFilterService {
     const blockIdSet = new Set(blockIds);
     return cards.filter(card => blockIdSet.has(card.blockId));
   }
+
+  /**
+   * 按文档 rootId 过滤
+   */
+  filterByDocIds(cards: Card[], docIds: string[]): Card[] {
+    if (!docIds || docIds.length === 0) {
+      return cards;
+    }
+
+    const docIdSet = new Set(
+      docIds
+        .map((docId) => String(docId || '').trim())
+        .filter((docId) => docId.length > 0)
+    );
+
+    if (docIdSet.size === 0) {
+      return cards;
+    }
+
+    return cards.filter((card) => {
+      const rootId = readMetaString(card, 'rootId')
+        || readMetaString(card, 'rootID')
+        || readMetaString(card, 'root_id');
+      return rootId.length > 0 && docIdSet.has(rootId);
+    });
+  }
   
   /**
    * 按到期日期过滤

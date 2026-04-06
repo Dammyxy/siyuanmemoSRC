@@ -15,10 +15,14 @@ export interface CoreReviewMenuAction {
   execute: () => Promise<void>;
 }
 
+export interface CoreReviewScopeOptions {
+  scopeDocIds?: string[];
+}
+
 export class CoreReviewEntryService {
   constructor(private readonly deps: CoreReviewEntryServiceDeps) {}
 
-  createMenuActions(cards: FSRSCard[]): CoreReviewMenuAction[] {
+  createMenuActions(cards: FSRSCard[], options?: CoreReviewScopeOptions): CoreReviewMenuAction[] {
     const itemCards = this.toItemCards(cards);
     const dueItemCards = this.filterDueCards(itemCards);
     const dueAllCards = this.filterDueCards(cards);
@@ -28,36 +32,36 @@ export class CoreReviewEntryService {
         id: 'retrieval-due',
         icon: 'iconRiffCard',
         label: `${this.text('retrievalPractice', '提取练习')} - ${this.text('dueMode', '到期')} <span class="ft__secondary">(${dueItemCards.length}/${itemCards.length})</span>`,
-        execute: async () => this.execute('retrieval-due', cards),
+        execute: async () => this.execute('retrieval-due', cards, options),
       },
       {
         id: 'retrieval-all',
         icon: 'iconRiffCard',
         label: `${this.text('retrievalPractice', '提取练习')} - ${this.text('allMode', '全部')} <span class="ft__secondary">(${itemCards.length})</span>`,
-        execute: async () => this.execute('retrieval-all', cards),
+        execute: async () => this.execute('retrieval-all', cards, options),
       },
       {
         id: 'incremental-due',
         icon: 'iconBook',
         label: `${this.text('incrementalLearning', '渐进学习')} - ${this.text('dueMode', '到期')} <span class="ft__secondary">(${dueAllCards.length}/${cards.length})</span>`,
-        execute: async () => this.execute('incremental-due', cards),
+        execute: async () => this.execute('incremental-due', cards, options),
       },
       {
         id: 'incremental-all',
         icon: 'iconBook',
         label: `${this.text('incrementalLearning', '渐进学习')} - ${this.text('allMode', '全部')} <span class="ft__secondary">(${cards.length})</span>`,
-        execute: async () => this.execute('incremental-all', cards),
+        execute: async () => this.execute('incremental-all', cards, options),
       },
       {
         id: 'temporary-drill',
         icon: 'iconEye',
         label: `${this.text('temporaryDrill', '临时练习')} <span class="ft__secondary">(${cards.length})</span>`,
-        execute: async () => this.execute('temporary-drill', cards),
+        execute: async () => this.execute('temporary-drill', cards, options),
       },
     ];
   }
 
-  async execute(actionId: CoreReviewEntryActionId, cards: FSRSCard[]): Promise<void> {
+  async execute(actionId: CoreReviewEntryActionId, cards: FSRSCard[], options?: CoreReviewScopeOptions): Promise<void> {
     switch (actionId) {
       case 'retrieval-due': {
         const dueItemCards = this.filterDueCards(this.toItemCards(cards));
@@ -67,6 +71,7 @@ export class CoreReviewEntryService {
         }
         await this.deps.dialogManager.openRetrievalPracticeWithFilter({
           blockIds: dueItemCards.map((card) => card.blockId),
+          scopeDocIds: options?.scopeDocIds,
           dueOnly: true,
         });
         return;
@@ -79,6 +84,7 @@ export class CoreReviewEntryService {
         }
         await this.deps.dialogManager.openRetrievalPracticeWithFilter({
           blockIds: itemCards.map((card) => card.blockId),
+          scopeDocIds: options?.scopeDocIds,
           dueOnly: false,
         });
         return;
@@ -91,6 +97,7 @@ export class CoreReviewEntryService {
         }
         await this.deps.dialogManager.openIncrementalLearningWithFilter({
           blockIds: dueAllCards.map((card) => card.blockId),
+          scopeDocIds: options?.scopeDocIds,
           dueOnly: true,
         });
         return;
@@ -102,6 +109,7 @@ export class CoreReviewEntryService {
         }
         await this.deps.dialogManager.openIncrementalLearningWithFilter({
           blockIds: cards.map((card) => card.blockId),
+          scopeDocIds: options?.scopeDocIds,
           dueOnly: false,
         });
         return;

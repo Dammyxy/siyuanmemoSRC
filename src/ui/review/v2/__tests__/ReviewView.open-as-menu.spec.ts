@@ -8,15 +8,21 @@ import { createEmptyReviewUIState } from '../types';
 
 const reviewViewMenuMocks = vi.hoisted(() => {
   const menuOpen = vi.fn();
+  const instances: Array<{ addItem: ReturnType<typeof vi.fn>; addSeparator: ReturnType<typeof vi.fn> }> = [];
 
   class MockMenu {
     addItem = vi.fn();
     addSeparator = vi.fn();
     open = menuOpen;
+
+    constructor() {
+      instances.push(this);
+    }
   }
 
   return {
     menuOpen,
+    instances,
     MockMenu,
   };
 });
@@ -151,6 +157,7 @@ const ReviewActionsStub = defineComponent({
 describe('ReviewView open-as menu', () => {
   beforeEach(() => {
     reviewViewMenuMocks.menuOpen.mockReset();
+    reviewViewMenuMocks.instances.length = 0;
     reviewViewLoggerMocks.error.mockReset();
     reviewViewLoggerMocks.warn.mockReset();
     reviewViewLoggerMocks.debug.mockReset();
@@ -204,6 +211,130 @@ describe('ReviewView open-as menu', () => {
     expect(reviewViewLoggerMocks.error).toHaveBeenCalledWith(
       '[SiYuanMemo][ReviewView] Cannot open menu: target element is null',
     );
+
+    wrapper.unmount();
+  });
+
+  it('passes transferred filter-group session state to open-as tab actions', async () => {
+    const card = buildCard();
+    const filterSnapshot = {
+      filter: {
+        blockIds: ['block-1'],
+        scopeDocIds: ['doc-1'],
+        cardType: 'item',
+        dueDate: {
+          lte: new Date('2026-04-06T00:00:00.000Z'),
+        },
+      },
+      rollbackSnapshot: {
+        temporaryBlacklist: ['blocked-card'],
+        customOrder: ['card-1', 'card-2'],
+        manualCards: ['manual-1'],
+      },
+      visibleCardIds: ['card-1', 'card-2'],
+    };
+    const filterQueue = {
+      setFilter: vi.fn(),
+      getFilter: vi.fn(() => filterSnapshot.filter),
+      rebuild: vi.fn(),
+      getSize: vi.fn(async () => 2),
+      serializeSessionSnapshot: vi.fn(() => filterSnapshot),
+    };
+    const queue = {
+      ...createQueue(card),
+      getUnderlyingQueue: vi.fn(() => filterQueue),
+    };
+    const adapter = createAdapter();
+    const tabManager = {
+      openReviewTab: vi.fn(),
+      openReviewTabInNewTab: vi.fn(),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        title: '提取练习',
+        headerVariant: 'retrieval-practice',
+        initialSessionState: {
+          initialTotal: 8,
+          answeredCount: 3,
+          correctCount: 2,
+        },
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+            getTabManager: () => tabManager,
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const target = document.createElement('button');
+    Object.defineProperty(target, 'getBoundingClientRect', {
+      value: () => ({ left: 10, bottom: 20 }),
+    });
+    const event = new MouseEvent('click');
+    Object.defineProperty(event, 'currentTarget', {
+      value: target,
+    });
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'sticktab', event);
+    await flushPromises();
+
+    expect(reviewViewMenuMocks.menuOpen).toHaveBeenCalledTimes(1);
+    const latestMenu = reviewViewMenuMocks.instances.at(-1);
+    expect(latestMenu).toBeDefined();
+    const openByTabItem = latestMenu?.addItem.mock.calls
+      .map(([item]) => item)
+      .find((item) => item.id === 'openByTab');
+    expect(openByTabItem).toBeDefined();
+
+    openByTabItem?.click();
+
+    expect(tabManager.openReviewTabInNewTab).toHaveBeenCalledWith(expect.objectContaining({
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      transferState: expect.objectContaining({
+        kind: 'filter-group-session',
+        filterSession: expect.objectContaining({
+          filter: expect.objectContaining({
+            blockIds: ['block-1'],
+            scopeDocIds: ['doc-1'],
+            cardType: 'item',
+            dueDate: expect.objectContaining({
+              lte: expect.any(Date),
+            }),
+          }),
+          rollbackSnapshot: expect.objectContaining({
+            temporaryBlacklist: ['blocked-card'],
+            customOrder: ['card-1', 'card-2'],
+            manualCards: ['manual-1'],
+          }),
+          visibleCardIds: ['card-1', 'card-2'],
+        }),
+        session: {
+          initialTotal: 8,
+          answeredCount: 3,
+          correctCount: 2,
+        },
+      }),
+    }));
 
     wrapper.unmount();
   });

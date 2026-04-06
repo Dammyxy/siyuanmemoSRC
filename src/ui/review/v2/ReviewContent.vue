@@ -234,7 +234,6 @@ let mainRenderRetryAttempts = 0;
 let protyleInitialized = false;  // 🆕 跟踪 Protyle 是否已初始化
 let protyleInitTimer: ReturnType<typeof setTimeout> | null = null;
 let currentEditorState = createReviewEditorState();
-let unlockOnDoubleClickCleanup: (() => void) | null = null;
 const invalidForcedQuickRenderVersion = ref(0);
 const invalidForcedQuickRenderKeys = new Set<string>();
 const MAX_MAIN_RENDER_RETRIES = 6;
@@ -573,8 +572,8 @@ function emitEditorState(state: ReviewEditorState): void {
 }
 
 function removeUnlockOnDoubleClick(): void {
-  unlockOnDoubleClickCleanup?.();
-  unlockOnDoubleClickCleanup = null;
+  // Main Protyle stays editable by default; unlock cleanup remains a no-op
+  // so destroy paths can keep calling the same helper without branching.
 }
 
 function clearProtyleInitTimer(): void {
@@ -626,56 +625,15 @@ function scheduleMainRenderRetry(blockId: string): void {
   }, 50);
 }
 
-function focusFirstReviewActionButton(): void {
-  const reviewRoot = hostRef.value?.closest('.fsrs-review-v2') as HTMLElement | null;
-  const actionButton = reviewRoot?.querySelector('.card__action button:not([disabled])') as HTMLButtonElement | null;
-  actionButton?.focus();
-}
-
-function attachUnlockOnDoubleClick(protyle: siyuan.Protyle): void {
-  const wysiwygElement = protyle.protyle?.wysiwyg?.element as HTMLElement | undefined;
-  if (!wysiwygElement || typeof protyle.enable !== 'function') {
-    return;
-  }
-
-  removeUnlockOnDoubleClick();
-  const handleDoubleClick = () => {
-    protyle.enable?.();
-    emitEditorState(createReviewEditorState('main-protyle', {
-      supportsNativeEdit: true,
-      isEditing: true,
-    }));
-    removeUnlockOnDoubleClick();
-  };
-
-  wysiwygElement.addEventListener('dblclick', handleDoubleClick);
-  unlockOnDoubleClickCleanup = () => {
-    wysiwygElement.removeEventListener('dblclick', handleDoubleClick);
-  };
-}
-
-function setMainProtyleReadOnly(protyle: siyuan.Protyle): void {
-  protyle.disable?.();
-  attachUnlockOnDoubleClick(protyle);
+function emitMainProtyleEditableState(): void {
   emitEditorState(createReviewEditorState('main-protyle', {
     supportsNativeEdit: true,
-    isEditing: false,
+    isEditing: true,
   }));
 }
 
 function exitEditorByEscape(): boolean {
-  if (
-    currentEditorState.renderer !== 'main-protyle'
-    || !currentEditorState.supportsNativeEdit
-    || !currentEditorState.isEditing
-    || !editorRef.value
-  ) {
-    return false;
-  }
-
-  setMainProtyleReadOnly(editorRef.value);
-  focusFirstReviewActionButton();
-  return true;
+  return false;
 }
 
 defineExpose({
@@ -1551,7 +1509,7 @@ async function renderProtyle(blockId: string): Promise<void> {
         return;
       }
       logger.debug('[SiYuanMemo][ReviewContent] Protyle after callback called');
-      setMainProtyleReadOnly(protyle);
+      emitMainProtyleEditableState();
       applyAnswerVisibility();
       logBidirectionalTemplateDiagnostic('main-after', {
         blockId,

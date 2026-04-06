@@ -35,6 +35,7 @@ import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
@@ -78,6 +79,7 @@ function isCardTemplate(value: unknown): value is ICardTemplate {
  */
 export class CreateXiuyuanFromBlocksUseCase {
   private readonly siyuanApi: XiuyuanSiyuanPort;
+  private readonly eventBus: EventBus;
 
   /**
    * 鏋勯€犲嚱鏁?
@@ -88,9 +90,10 @@ export class CreateXiuyuanFromBlocksUseCase {
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
     private readonly templateRegistry: Map<string, ICardTemplate>,
-    ports?: { siyuanApi?: XiuyuanSiyuanPort }
+    ports?: { siyuanApi?: XiuyuanSiyuanPort; eventBus?: EventBus }
   ) {
     this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
+    this.eventBus = ports?.eventBus ?? new EventBus(false);
   }
 
   /**
@@ -356,6 +359,7 @@ export class CreateXiuyuanFromBlocksUseCase {
       return finalizeXiuyuanCreation({
         xiuyuan,
         xiuyuanRepository: this.xiuyuanRepository,
+        eventBus: this.eventBus,
         logger,
         siyuanApi: this.siyuanApi,
         riff: {

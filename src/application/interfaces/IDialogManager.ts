@@ -23,14 +23,37 @@
  */
 export interface IDialogManager {
   /**
+   * 打开渐进 Split 标记选择对话框
+   */
+  openProgressiveSplitDialog(docId: string, mode: 'linear' | 'nonlinear'): Promise<void>;
+
+  /**
    * 打开提取练习对话框
    */
   openReviewDialog(): Promise<void>;
+
+  /**
+   * 打开带过滤条件的提取练习对话框
+   */
+  openRetrievalPracticeWithFilter(options: {
+    blockIds: string[];
+    scopeDocIds?: string[];
+    dueOnly: boolean;
+  }): Promise<void>;
   
   /**
    * 打开渐进学习对话框
    */
   openIncrementalLearningDialog(): Promise<void>;
+
+  /**
+   * 打开带过滤条件的渐进学习对话框
+   */
+  openIncrementalLearningWithFilter(options: {
+    blockIds: string[];
+    scopeDocIds?: string[];
+    dueOnly: boolean;
+  }): Promise<void>;
   
   /**
    * 打开刻意练习对话框

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { NeuralRoamQueue } from '../NeuralRoamQueue';
 import type { QueuePersistencePort } from '../ports';
 import type { NeuralRoamHistoryEntry, QueueCounterSnapshot } from '@/types/unified-data-source';
+import type { FSRSCard } from '@/types/card';
 
 function createPersistence(initial: unknown): {
   persistence: QueuePersistencePort;
@@ -25,19 +26,63 @@ function createPersistence(initial: unknown): {
 }
 
 type LocalCardSeed = {
+  id?: string;
   blockId: string;
-  type: 'concept' | 'item' | 'topic';
+  type: 'concept' | 'item' | 'topic' | 'descriptor';
   cardTypeMarker?: 'concept' | 'descriptor';
   meta?: { cardTypeMarker?: 'concept' | 'descriptor' };
+  due?: number;
+  reps?: number;
+  lapses?: number;
+  state?: number;
+  stability?: number;
+  difficulty?: number;
+  elapsedDays?: number;
+  scheduledDays?: number;
+  lastReview?: number;
+  createdAt?: number;
+  updatedAt?: number;
 };
+
+function toStoredCard(seed: LocalCardSeed): FSRSCard {
+  const now = Date.now();
+  return {
+    id: seed.id ?? `card-${seed.blockId}`,
+    xiuyuanID: seed.id ?? `card-${seed.blockId}`,
+    blockId: seed.blockId,
+    due: seed.due ?? (now + 86_400_000),
+    stability: seed.stability ?? 3,
+    difficulty: seed.difficulty ?? 5,
+    reps: seed.reps ?? 2,
+    lapses: seed.lapses ?? 0,
+    state: (seed.state ?? 2) as FSRSCard['state'],
+    lastReview: seed.lastReview ?? (now - 86_400_000),
+    elapsedDays: seed.elapsedDays ?? 1,
+    scheduledDays: seed.scheduledDays ?? 1,
+    priority: 50,
+    type: seed.type as FSRSCard['type'],
+    tags: [],
+    cardTypeMarker: seed.cardTypeMarker,
+    leechCount: 0,
+    isLeech: false,
+    skipped: false,
+    createdAt: seed.createdAt ?? (now - 172_800_000),
+    updatedAt: seed.updatedAt ?? (now - 60_000),
+    meta: seed.meta ? { ...seed.meta } : undefined,
+  };
+}
 
 function createManager(options: {
   cards?: LocalCardSeed[];
   throwOnLookup?: boolean;
+  schedulerRoute?: (card: FSRSCard, rating: number) => Promise<FSRSCard>;
 } = {}) {
-  const cardByBlockId = new Map<string, LocalCardSeed>();
-  for (const card of options.cards ?? []) {
+  const cardByBlockId = new Map<string, FSRSCard>();
+  const cardById = new Map<string, FSRSCard>();
+  for (const seed of options.cards ?? []) {
+    const card = toStoredCard(seed);
     cardByBlockId.set(card.blockId, card);
+    cardById.set(card.id, card);
   }
 
   const getCards = vi.fn(async (filter?: { blockIds?: string[] }) => {
@@ -46,18 +91,61 @@ function createManager(options: {
     }
     const blockIds = Array.isArray(filter?.blockIds) ? filter?.blockIds : [];
     if (blockIds.length === 0) {
-      return Array.from(cardByBlockId.values()) as any[];
+      return Array.from(cardByBlockId.values()).map((card) => JSON.parse(JSON.stringify(card))) as any[];
     }
     return blockIds
       .map((blockId) => cardByBlockId.get(blockId))
-      .filter((card): card is LocalCardSeed => Boolean(card)) as any[];
+      .filter((card): card is FSRSCard => Boolean(card))
+      .map((card) => JSON.parse(JSON.stringify(card))) as any[];
+  });
+
+  const getCard = vi.fn(async (cardId: string) => {
+    const card = cardById.get(cardId);
+    if (!card) {
+      throw new Error(`missing card ${cardId}`);
+    }
+    return JSON.parse(JSON.stringify(card)) as FSRSCard;
+  });
+
+  const route = vi.fn(async (card: FSRSCard, rating: number) => {
+    if (options.schedulerRoute) {
+      const updated = await options.schedulerRoute(card, rating);
+      cardByBlockId.set(updated.blockId, JSON.parse(JSON.stringify(updated)));
+      cardById.set(updated.id, JSON.parse(JSON.stringify(updated)));
+      return JSON.parse(JSON.stringify(updated));
+    }
+
+    const updated: FSRSCard = {
+      ...card,
+      due: Date.now() + 2 * 86_400_000,
+      scheduledDays: Math.max(1, Number(card.scheduledDays || 0) + 1),
+      reps: Number(card.reps || 0) + 1,
+      updatedAt: Date.now(),
+      lastReview: Date.now(),
+    };
+    cardByBlockId.set(updated.blockId, JSON.parse(JSON.stringify(updated)));
+    cardById.set(updated.id, JSON.parse(JSON.stringify(updated)));
+    return JSON.parse(JSON.stringify(updated));
+  });
+
+  const onCardUpdatedFromScheduler = vi.fn(async (card: FSRSCard) => {
+    cardByBlockId.set(card.blockId, JSON.parse(JSON.stringify(card)));
+    cardById.set(card.id, JSON.parse(JSON.stringify(card)));
   });
 
   return {
     manager: {
+      getCard,
       getCards,
+      getSchedulerRouter: vi.fn(() => ({
+        route,
+      })),
+      onCardUpdatedFromScheduler,
     } as never,
+    getCard,
     getCards,
+    route,
+    onCardUpdatedFromScheduler,
   };
 }
 
@@ -74,6 +162,15 @@ function itemCard(blockId: string): LocalCardSeed {
   return {
     blockId,
     type: 'item',
+  };
+}
+
+function descriptorCard(blockId: string): LocalCardSeed {
+  return {
+    blockId,
+    type: 'descriptor',
+    cardTypeMarker: 'descriptor',
+    meta: { cardTypeMarker: 'descriptor' },
   };
 }
 
@@ -641,6 +738,56 @@ describe('NeuralRoamQueue', () => {
     await queue.getPathItemByNodeId('virtual-1');
 
     expect(resolveCardType).toHaveBeenCalledTimes(1);
+  });
+
+  it('hydrates backed flashcards with their persisted local card data', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [descriptorCard('descriptor-1')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    const card = await queue.getPathItemByNodeId('descriptor-1');
+
+    expect(card).not.toBeNull();
+    expect(card?.id).toBe('card-descriptor-1');
+    expect(card?.type).toBe('descriptor');
+    expect(card?.meta).toEqual(expect.objectContaining({
+      cardTypeMarker: 'descriptor',
+      neuralContext: expect.objectContaining({
+        isFlashcard: true,
+        blockType: 'p',
+      }),
+    }));
+  });
+
+  it('writes back formal SRS reviews for real neural-roam flashcards without removing them from the roam queue', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [
+        {
+          ...descriptorCard('descriptor-1'),
+          id: 'review-card-1',
+          due: Date.now() - 60_000,
+          scheduledDays: 0,
+        },
+      ],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+
+    const result = await queue.handleReview('review-card-1', 3);
+
+    expect(manager.route).toHaveBeenCalledTimes(1);
+    expect(manager.onCardUpdatedFromScheduler).toHaveBeenCalledTimes(1);
+    expect(result.updatedCard).not.toBeNull();
+    expect(result.removedFromQueue).toBe(false);
+    expect(result.remainsInQueue).toBe(true);
+    expect(result.queueChanged).toBe(false);
   });
 
   it('forwards activation trace lookup from concept queue', async () => {

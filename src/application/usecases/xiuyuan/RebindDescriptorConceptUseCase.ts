@@ -16,6 +16,7 @@
  */
 
 import { Result, ok, err } from '@/types/result';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
@@ -47,13 +48,15 @@ export interface RebindDescriptorConceptResult {
 
 export class RebindDescriptorConceptUseCase {
   private readonly siyuanApi: XiuyuanSiyuanPort;
+  private readonly eventBus: EventBus;
 
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
     private readonly templateRegistry: Map<string, ICardTemplate>,
-    ports?: { siyuanApi?: XiuyuanSiyuanPort }
+    ports?: { siyuanApi?: XiuyuanSiyuanPort; eventBus?: EventBus }
   ) {
     this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
+    this.eventBus = ports?.eventBus ?? new EventBus(false);
   }
 
   async execute(command: RebindDescriptorConceptCommand): Promise<Result<RebindDescriptorConceptResult>> {
@@ -86,6 +89,7 @@ export class RebindDescriptorConceptUseCase {
         xiuyuanRepository: this.xiuyuanRepository,
         templateRegistry: this.templateRegistry,
         siyuanApi: this.siyuanApi,
+        eventBus: this.eventBus,
       });
       logger.debug('New concept name:', conceptName);
       

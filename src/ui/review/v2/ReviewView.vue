@@ -111,7 +111,10 @@ import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import {
   type DataChangeEvent,
   type CardFilter,
+  type FilterGroupQueueSessionSnapshot,
   type IDataSourceObserver,
+  type InitialReviewSessionState,
+  type ReviewTabTransferState,
   type IUnifiedDataSourceManagerFacade,
   isNeuralRoamSessionQueue,
   type NeuralNavigationState,
@@ -119,6 +122,7 @@ import {
   type NeuralRoamHistoryEntry,
   type NeuralRoamSessionQueue,
 } from '@/types/unified-data-source';
+import type { FSRSCard } from '@/types/card';
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
@@ -187,6 +191,7 @@ type ReviewPluginContextLike = {
           adapter?: unknown;
           title: string;
           headerVariant?: ReviewHeaderVariant;
+          transferState?: ReviewTabTransferState;
         }) => void;
         openReviewTabInNewTab?: (options: {
           provider?: unknown;
@@ -194,6 +199,7 @@ type ReviewPluginContextLike = {
           adapter?: unknown;
           title: string;
           headerVariant?: ReviewHeaderVariant;
+          transferState?: ReviewTabTransferState;
         }) => void;
         openReviewInNewWindow?: (options: {
           provider?: unknown;
@@ -201,6 +207,7 @@ type ReviewPluginContextLike = {
           adapter?: unknown;
           title: string;
           headerVariant?: ReviewHeaderVariant;
+          transferState?: ReviewTabTransferState;
         }) => void;
       }
     | undefined;
@@ -253,6 +260,7 @@ type ReviewPluginLike = {
     adapter?: unknown;
     title: string;
     headerVariant?: ReviewHeaderVariant;
+    transferState?: ReviewTabTransferState;
   }) => void;
 };
 
@@ -266,7 +274,8 @@ type FilterGroupQueueLike = {
   setFilter?: (filter: CardFilter) => Promise<void> | void;
   getFilter?: () => CardFilter;
   rebuild?: () => Promise<void> | void;
-  addCard?: (card: string) => Promise<void> | void;
+  getSize?: () => Promise<number>;
+  serializeSessionSnapshot?: () => FilterGroupQueueSessionSnapshot;
 };
 
 type QueueStrategyWithUnderlying = {
@@ -275,6 +284,10 @@ type QueueStrategyWithUnderlying = {
 
 type QueueStrategyWithInsertAt = {
   insertAt?: (cardId: string, position: number) => Promise<void> | void;
+};
+
+type QueueStrategyWithTailAppend = {
+  appendCardsToTail?: (cards: FSRSCard[]) => number;
 };
 
 type CommandLike = {
@@ -377,6 +390,7 @@ const props = defineProps<{
   plugin?: unknown; // 🆕 插件实例，用于访问 hybridSyncService
   isMobile?: boolean;
   onReview?: (cardId: string, rating: number) => void; // 🆕 复习回调（用于刻意练习黑名单）
+  initialSessionState?: InitialReviewSessionState;
 }>();
 
 const emit = defineEmits<{
@@ -460,6 +474,20 @@ function getQueueStrategyWithInsertAt(): QueueStrategyWithInsertAt | null {
   return typeof candidate.insertAt === 'function' ? candidate : null;
 }
 
+function getQueueStrategyWithTailAppend(): QueueStrategyWithTailAppend | null {
+  const strategy = hook.getQueueStrategy();
+  if (!isRecord(strategy)) {
+    return null;
+  }
+  const candidate = strategy as QueueStrategyWithTailAppend;
+  return typeof candidate.appendCardsToTail === 'function' ? candidate : null;
+}
+
+function getActiveQueueStrategy(): { next?: () => Promise<unknown> } | null {
+  const activeQueue = providerQueue || props.queue;
+  return isRecord(activeQueue) ? activeQueue as { next?: () => Promise<unknown> } : null;
+}
+
 function getFilterGroupQueue(): FilterGroupQueueLike | null {
   const queue = getUnderlyingQueue();
   if (!queue) {
@@ -490,6 +518,83 @@ function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
   return contextFromProps?.getUnifiedDataSourceManager?.() || contextFromWindow?.getUnifiedDataSourceManager?.() || null;
+}
+
+function normalizeCardFilterIds(ids: string[] | undefined): string[] {
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+
+  return ids
+    .map((id) => String(id || '').trim())
+    .filter((id) => id.length > 0);
+}
+
+function getInitialReviewSessionState(): InitialReviewSessionState | undefined {
+  const session = hook.context.value.session;
+  if (!session) {
+    return undefined;
+  }
+
+  const initialTotal = Math.max(0, Number(session.initialTotal) || 0);
+  const answeredCount = Math.max(0, Number(session.answeredCount) || 0);
+  const correctCount = Math.max(0, Number(session.correctCount) || 0);
+
+  if (initialTotal === 0 && answeredCount === 0 && correctCount === 0) {
+    return undefined;
+  }
+
+  return {
+    initialTotal,
+    answeredCount,
+    correctCount,
+  };
+}
+
+function buildReviewTabTransferState(): ReviewTabTransferState | undefined {
+  const filterQueue = getFilterGroupQueue();
+  if (!filterQueue || typeof filterQueue.serializeSessionSnapshot !== 'function') {
+    return undefined;
+  }
+
+  try {
+    return {
+      kind: 'filter-group-session',
+      filterSession: filterQueue.serializeSessionSnapshot(),
+      session: getInitialReviewSessionState(),
+    };
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to serialize filter-group transfer state:', error);
+    return undefined;
+  }
+}
+
+function readCardRootId(card: FSRSCard): string {
+  const meta = card.meta;
+  if (!isRecord(meta)) {
+    return '';
+  }
+
+  const value = meta.rootId ?? meta.rootID ?? meta.root_id;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function matchesFilterCardType(card: FSRSCard, filter: CardFilter): boolean {
+  if (!filter.cardType) {
+    return true;
+  }
+
+  const requestedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
+  return requestedTypes.includes(card.type as typeof requestedTypes[number]);
+}
+
+function isProgressiveExcerptCard(card: FSRSCard): boolean {
+  if (card.type !== 'topic') {
+    return false;
+  }
+
+  const progressive = isRecord(card.meta) ? card.meta.progressive : null;
+  return isRecord(progressive) && String(progressive.kind || '').trim() === 'excerpt';
 }
 
 function getProgressiveReadingService() {
@@ -659,6 +764,7 @@ const hook = useReviewSession(
   bridgedAdapter || props.adapter,
   {
     onReview: props.onReview, // 🆕 传递 onReview 回调
+    initialSessionState: props.initialSessionState,
   }
 );
 const state = hook.state;
@@ -826,8 +932,115 @@ async function refreshCurrentReviewCard(): Promise<void> {
   }
 }
 
+async function appendCreatedCardsToActiveScopeQueue(cardIds: string[]): Promise<void> {
+  const manager = subscribedReviewManager;
+  const filterQueue = getFilterGroupQueue();
+  const queueStrategy = getQueueStrategyWithTailAppend();
+  if (!manager || !filterQueue || typeof filterQueue.getFilter !== 'function' || typeof filterQueue.setFilter !== 'function' || !queueStrategy?.appendCardsToTail) {
+    return;
+  }
+
+  const currentFilter = filterQueue.getFilter() || {};
+  const scopeDocIds = normalizeCardFilterIds(currentFilter.scopeDocIds);
+  if (scopeDocIds.length === 0) {
+    return;
+  }
+
+  const normalizedCardIds = Array.from(new Set(
+    cardIds
+      .map((cardId) => String(cardId || '').trim())
+      .filter((cardId) => cardId.length > 0)
+  ));
+  if (normalizedCardIds.length === 0) {
+    return;
+  }
+
+  const loadedCards = await Promise.all(
+    normalizedCardIds.map(async (cardId) => {
+      try {
+        return await manager.getCard(cardId, { silent: true });
+      } catch (error) {
+        logger.warn('[SiYuanMemo][ReviewView] Failed to load created card for doc-scope enqueue:', {
+          cardId,
+          error,
+        });
+        return null;
+      }
+    })
+  );
+
+  const cardsToAppend = loadedCards
+    .filter((card): card is FSRSCard => Boolean(card))
+    .filter((card) => {
+      const rootId = readCardRootId(card);
+      return rootId.length > 0 && scopeDocIds.includes(rootId);
+    })
+    .filter((card) => matchesFilterCardType(card, currentFilter))
+    .filter((card) => !isProgressiveExcerptCard(card));
+
+  if (cardsToAppend.length === 0) {
+    return;
+  }
+
+  const currentBlockIds = normalizeCardFilterIds(currentFilter.blockIds);
+  const nextBlockIds = Array.from(new Set([
+    ...currentBlockIds,
+    ...cardsToAppend.map((card) => String(card.blockId || '').trim()).filter((blockId) => blockId.length > 0),
+  ]));
+
+  const nextFilter = nextBlockIds.length === currentBlockIds.length
+    ? currentFilter
+    : {
+        ...currentFilter,
+        blockIds: nextBlockIds,
+      };
+
+  if (nextFilter !== currentFilter) {
+    await filterQueue.setFilter(nextFilter);
+    appliedReviewFilter.value = nextFilter;
+  }
+
+  const appendedCount = queueStrategy.appendCardsToTail(cardsToAppend);
+  if (appendedCount === 0) {
+    return;
+  }
+
+  const session = hook.context.value.session;
+  if (session) {
+    const currentInitialTotal = Math.max(0, Number(session.initialTotal) || 0);
+    session.initialTotal = currentInitialTotal + appendedCount;
+  }
+
+  const currentCard = state.value.content.card as FSRSCard | null | undefined;
+  if (currentCard) {
+    await hook.refreshCurrentItem(currentCard);
+    return;
+  }
+
+  const activeQueue = getActiveQueueStrategy();
+  if (typeof activeQueue?.next !== 'function') {
+    return;
+  }
+
+  try {
+    const nextItem = await activeQueue.next();
+    if (!nextItem) {
+      return;
+    }
+    hook.context.value.showAnswer = false;
+    await hook.refreshCurrentItem(nextItem);
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to advance into newly appended scope card:', error);
+  }
+}
+
 const reviewDataObserver: IDataSourceObserver = {
   onDataChanged(event: DataChangeEvent) {
+    if (event.type === 'card-created') {
+      void appendCreatedCardsToActiveScopeQueue(event.cardIds || []);
+      return;
+    }
+
     if (event.type !== 'card-updated') {
       return;
     }
@@ -1564,12 +1777,14 @@ function handleOpenAsMenu(ev: MouseEvent) {
     return;
   }
 
+  const transferState = buildReviewTabTransferState();
   const reviewTabOptions = {
     provider: props.provider,
     queue: props.queue,
     adapter: props.adapter,
     title: props.title || t('reviewTitle', 'Review'),
     headerVariant: props.headerVariant,
+    transferState,
   };
 
   menu.addItem({

@@ -95,6 +95,11 @@ type CachedCardType = {
   expiresAt: number;
 };
 
+type CachedLocalCard = {
+  value: FSRSCard;
+  expiresAt: number;
+};
+
 const DEFAULT_CARD_TYPE_RESOLVER: NeuralRoamCardTypeResolverPort = {
   async resolveCardType(): Promise<'item' | 'topic'> {
     return 'topic';
@@ -233,8 +238,11 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private readonly getHistoryLimit?: () => number;
   private readonly getHyperspaceSettings?: () => HyperspaceSettings;
   private readonly cardTypeCache = new Map<string, CachedCardType>();
+  private readonly localCardCache = new Map<string, CachedLocalCard>();
   private readonly cardTypeCacheTtlMs = 60_000;
   private readonly maxCardTypeCacheSize = 256;
+  private readonly localCardCacheTtlMs = 60_000;
+  private readonly maxLocalCardCacheSize = 256;
   private engineMode: NeuralEngineMode = 'orbit';
 
   constructor(
@@ -557,6 +565,22 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   }
 
   public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
+    try {
+      const localCard = await this.manager.getCard(cardId, { silent: true });
+      if (this.isLocalReviewCard(localCard)) {
+        const result = await this.handleReviewWithScheduler(cardId, rating);
+        if (result.updatedCard?.blockId) {
+          this.setCachedLocalCard(result.updatedCard.blockId, result.updatedCard);
+        }
+        return result;
+      }
+    } catch (error) {
+      logger.debug('[NeuralRoamQueue] Reviewed node has no persisted flashcard backing, keeping practice-only semantics', {
+        cardId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     logger.debug(`Review handled by FSRS system: ${cardId}, rating: ${rating}`);
     const counterSnapshot = this.counterSnapshot && !this.counterSnapshotDirty
       ? this.cloneCounterSnapshot(this.counterSnapshot)
@@ -570,6 +594,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       counterSnapshot,
       version: counterSnapshot.version,
     };
+  }
+
+  protected override shouldRemoveFromQueue(_card: FSRSCard): boolean {
+    return false;
   }
 
   public async getNextCard(): Promise<FSRSCard | null> {
@@ -1035,11 +1063,59 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return card.type === 'concept' || marker === 'concept' || metaMarker === 'concept';
   }
 
+  private isLocalReviewCard(card: FSRSCard): boolean {
+    return !this.isLocalConceptCard(card) && card.type !== 'topic';
+  }
+
   private async convertToFSRSCard(queueItem: ConceptQueueItem | HyperspaceQueueItem): Promise<FSRSCard> {
     const now = Date.now();
+    const localCard = await this.resolveLocalCard(queueItem.blockId);
+    const isFlashcard = Boolean(localCard && this.isLocalReviewCard(localCard));
+    const cardType = isFlashcard
+      ? 'item'
+      : await this.resolveCachedCardType(queueItem.blockId);
+    const neuralContext = {
+      associationType: queueItem.associationType,
+      reason: queueItem.reason,
+      blockType: queueItem.blockData.type,
+      isFlashcard,
+    };
+    const fallbackCard = this.buildSyntheticNeuralCard(queueItem, now, cardType, neuralContext);
 
-    const cardType = await this.resolveCachedCardType(queueItem.blockId);
+    if (!localCard || !isFlashcard) {
+      return fallbackCard;
+    }
 
+    const mergedMeta = isRecord(localCard.meta)
+      ? {
+          ...localCard.meta,
+          neuralContext,
+        }
+      : {
+          neuralContext,
+        };
+
+    return {
+      ...fallbackCard,
+      ...this.cloneLocalCard(localCard),
+      id: String(localCard.id || queueItem.blockId),
+      xiuyuanID: String(localCard.xiuyuanID || localCard.id || queueItem.blockId),
+      blockId: queueItem.blockId,
+      meta: mergedMeta,
+    };
+  }
+
+  private buildSyntheticNeuralCard(
+    queueItem: ConceptQueueItem | HyperspaceQueueItem,
+    now: number,
+    cardType: 'item' | 'topic',
+    neuralContext: {
+      associationType: string;
+      reason: string;
+      blockType: string;
+      isFlashcard: boolean;
+    },
+  ): FSRSCard {
     return {
       id: queueItem.blockId,
       xiuyuanID: queueItem.blockId,
@@ -1062,14 +1138,37 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       createdAt: now,
       updatedAt: now,
       meta: {
-        neuralContext: {
-          associationType: queueItem.associationType,
-          reason: queueItem.reason,
-          blockType: queueItem.blockData.type,
-          isFlashcard: cardType === 'item',
-        },
+        neuralContext,
       },
     };
+  }
+
+  private async resolveLocalCard(blockId: string): Promise<FSRSCard | null> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return null;
+    }
+
+    const cached = this.getCachedLocalCard(normalizedBlockId);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      const cards = await this.manager.getCards({
+        blockIds: [normalizedBlockId],
+      });
+      const localCard = cards.find((card) => card.blockId === normalizedBlockId) ?? cards[0] ?? null;
+      if (!localCard) {
+        return null;
+      }
+
+      this.setCachedLocalCard(normalizedBlockId, localCard);
+      return this.cloneLocalCard(localCard);
+    } catch (error) {
+      logger.warn(`Failed to resolve local neural roam card for block ${normalizedBlockId}:`, error);
+      return null;
+    }
   }
 
   private async resolveCachedCardType(blockId: string): Promise<'item' | 'topic'> {
@@ -1084,10 +1183,15 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     }
 
     let resolved: 'item' | 'topic' = 'topic';
-    try {
-      resolved = await this.cardTypeResolver.resolveCardType(normalizedBlockId);
-    } catch (error) {
-      logger.warn('Failed to resolve neural roam card type, fallback to topic:', error);
+    const localCard = await this.resolveLocalCard(normalizedBlockId);
+    if (localCard) {
+      resolved = this.isLocalReviewCard(localCard) ? 'item' : 'topic';
+    } else {
+      try {
+        resolved = await this.cardTypeResolver.resolveCardType(normalizedBlockId);
+      } catch (error) {
+        logger.warn('Failed to resolve neural roam card type, fallback to topic:', error);
+      }
     }
 
     this.setCachedCardType(normalizedBlockId, resolved);
@@ -1130,6 +1234,42 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     }
   }
 
+  private getCachedLocalCard(blockId: string): FSRSCard | null {
+    const cached = this.localCardCache.get(blockId);
+    if (!cached) {
+      return null;
+    }
+
+    if (cached.expiresAt <= Date.now()) {
+      this.localCardCache.delete(blockId);
+      return null;
+    }
+
+    this.localCardCache.delete(blockId);
+    this.localCardCache.set(blockId, cached);
+    return this.cloneLocalCard(cached.value);
+  }
+
+  private setCachedLocalCard(blockId: string, card: FSRSCard): void {
+    this.evictExpiredLocalCards();
+    if (this.localCardCache.has(blockId)) {
+      this.localCardCache.delete(blockId);
+    }
+
+    this.localCardCache.set(blockId, {
+      value: this.cloneLocalCard(card),
+      expiresAt: Date.now() + this.localCardCacheTtlMs,
+    });
+
+    while (this.localCardCache.size > this.maxLocalCardCacheSize) {
+      const oldestKey = this.localCardCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.localCardCache.delete(oldestKey);
+    }
+  }
+
   private evictExpiredCardTypes(): void {
     const now = Date.now();
     for (const [blockId, cached] of this.cardTypeCache.entries()) {
@@ -1137,5 +1277,18 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         this.cardTypeCache.delete(blockId);
       }
     }
+  }
+
+  private evictExpiredLocalCards(): void {
+    const now = Date.now();
+    for (const [blockId, cached] of this.localCardCache.entries()) {
+      if (cached.expiresAt <= now) {
+        this.localCardCache.delete(blockId);
+      }
+    }
+  }
+
+  private cloneLocalCard(card: FSRSCard): FSRSCard {
+    return JSON.parse(JSON.stringify(card)) as FSRSCard;
   }
 }

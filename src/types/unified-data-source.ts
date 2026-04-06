@@ -47,6 +47,7 @@ export enum QueueType {
  * @see 需求 11.1, 14.3
  */
 export type DataChangeEventType =
+    | 'card-created'    // 卡片创建
     | 'card-updated'    // 卡片数据更新
     | 'card-deleted'    // 卡片删除
     | 'queue-changed'   // 队列内容变化
@@ -68,6 +69,9 @@ export interface DataChangeEvent {
     
     /** 受影响的队列类型（可选） */
     queueType?: QueueType;
+
+    /** 本次队列变更是否需要消费者执行完整重载（可选） */
+    requiresFullRefresh?: boolean;
     
     /** 事件发生时间戳 */
     timestamp: number;
@@ -479,6 +483,9 @@ export interface CardFilter {
     
     /** 块 ID 列表过滤（只显示这些块的卡片） */
     blockIds?: string[];
+
+    /** 文档范围过滤（rootId 命中文档集合时可见） */
+    scopeDocIds?: string[];
     
     // ========================================================================
     // 新增过滤字段（filter-group-queue-ui 功能）
@@ -514,6 +521,30 @@ export interface CardFilter {
     /** 关键词过滤（搜索卡片内容） */
     keyword?: string;
 }
+
+export interface FilterGroupQueueRollbackSnapshot {
+    temporaryBlacklist: string[];
+    customOrder: string[] | null;
+    manualCards: string[];
+}
+
+export interface FilterGroupQueueSessionSnapshot {
+    filter: CardFilter;
+    rollbackSnapshot: FilterGroupQueueRollbackSnapshot;
+    visibleCardIds?: string[];
+}
+
+export interface InitialReviewSessionState {
+    initialTotal?: number;
+    answeredCount?: number;
+    correctCount?: number;
+}
+
+export type ReviewTabTransferState = {
+    kind: 'filter-group-session';
+    filterSession: FilterGroupQueueSessionSnapshot;
+    session?: InitialReviewSessionState;
+};
 
 // ============================================================================
 // 数据路由器接口
@@ -713,6 +744,16 @@ export interface IReviewQueue {
      * 获取当前队列剩余可见数量
      */
     getRemainingSize(): Promise<number>;
+
+    /**
+     * 可选会话转移快照，供筛选复习等 surface handoff 使用。
+     */
+    serializeSessionSnapshot?(): FilterGroupQueueSessionSnapshot;
+
+    /**
+     * 可选会话恢复钩子，供 detached transfer queue 使用。
+     */
+    restoreSessionSnapshot?(snapshot: FilterGroupQueueSessionSnapshot): void;
 
     /**
      * 可选的插入操作，供支持手动插队的队列实现。

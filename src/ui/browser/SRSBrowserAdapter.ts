@@ -275,6 +275,7 @@ export class SRSBrowserAdapter implements IDataSourceObserver {
         
         // 根据事件类型处理
         switch (event.type) {
+            case 'card-created':
             case 'card-updated':
                 this.handleCardUpdated(event.cardIds || []);
                 break;

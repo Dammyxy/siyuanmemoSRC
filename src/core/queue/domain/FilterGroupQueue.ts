@@ -16,7 +16,12 @@
  */
 
 import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
-import { QueueType, CardFilter, QueueReviewResult } from '../../../types/unified-data-source';
+import {
+    QueueType,
+    CardFilter,
+    QueueReviewResult,
+    type FilterGroupQueueSessionSnapshot,
+} from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -26,6 +31,21 @@ import { loadQueueState, saveQueueState } from './queuePersistence';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FilterGroupQueue');
+
+function cloneCardFilter(filter: CardFilter): CardFilter {
+    try {
+        const structuredCloneFn = (globalThis as { structuredClone?: <T>(value: T) => T }).structuredClone;
+        if (typeof structuredCloneFn === 'function') {
+            return structuredCloneFn(filter);
+        }
+    } catch {}
+
+    try {
+        return JSON.parse(JSON.stringify(filter)) as CardFilter;
+    } catch {
+        return { ...filter };
+    }
+}
 
 interface FilterGroupQueueOptions {
     autoFailedSink?: AutoFailedCardSinkPort;
@@ -69,6 +89,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      */
     private cardFilter: CardFilter;
     private readonly autoFailedSink: AutoFailedCardSinkPort;
+    private pendingFullRefreshOnRebuild = false;
     
     /**
      * 构造函数
@@ -305,6 +326,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
         await this.ensureInitialLoad();
         this.cardFilter = filter;
         this.invalidateCachedCards();
+        this.pendingFullRefreshOnRebuild = true;
         await this.save();
         logger.info('Filter updated and saved:', filter);
     }
@@ -316,6 +338,59 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      */
     public getFilter(): CardFilter {
         return { ...this.cardFilter };
+    }
+
+    public serializeSessionSnapshot(): FilterGroupQueueSessionSnapshot {
+        return {
+            filter: cloneCardFilter(this.cardFilter),
+            rollbackSnapshot: {
+                temporaryBlacklist: Array.from(this.temporaryBlacklist),
+                customOrder: this.customOrder ? [...this.customOrder] : null,
+                manualCards: this.manualCards.toArray(),
+            },
+            visibleCardIds: this.cardsTrusted
+                ? this.cards
+                    .map((card) => String(card.id || '').trim())
+                    .filter(Boolean)
+                : undefined,
+        };
+    }
+
+    public restoreSessionSnapshot(snapshot: FilterGroupQueueSessionSnapshot): void {
+        const rollbackSnapshot = snapshot?.rollbackSnapshot;
+        const visibleCardIds = Array.isArray(snapshot?.visibleCardIds)
+            ? snapshot.visibleCardIds
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+            : [];
+
+        this.cardFilter = cloneCardFilter(snapshot?.filter ?? {});
+        this.temporaryBlacklist = new Set(
+            Array.isArray(rollbackSnapshot?.temporaryBlacklist)
+                ? rollbackSnapshot.temporaryBlacklist.map((id) => String(id || '').trim()).filter(Boolean)
+                : [],
+        );
+        this.manualCards.replace(
+            Array.isArray(rollbackSnapshot?.manualCards)
+                ? rollbackSnapshot.manualCards.map((id) => String(id || '').trim()).filter(Boolean)
+                : [],
+        );
+        this.customOrder = visibleCardIds.length > 0
+            ? visibleCardIds
+            : Array.isArray(rollbackSnapshot?.customOrder)
+                ? rollbackSnapshot.customOrder.map((id) => String(id || '').trim()).filter(Boolean)
+                : null;
+        this.markInitialLoadCompleted();
+        this.cards = [];
+        this.cardsTrusted = false;
+        this.invalidateCachedCards();
+        this.clearSizeCache();
+        logger.info('Filter-group transfer session restored', {
+            filterKeys: Object.keys(this.cardFilter),
+            temporaryBlacklistSize: this.temporaryBlacklist.size,
+            manualCardCount: this.manualCards.size(),
+            customOrderSize: this.customOrder?.length ?? 0,
+        });
     }
     
     /**
@@ -336,6 +411,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
         try {
             await this.ensureInitialLoad();
             logger.info('Rebuilding queue with filter:', this.cardFilter);
+            const requiresFullRefresh = this.pendingFullRefreshOnRebuild;
             
             // 清除临时黑名单（重新开始）
             this.temporaryBlacklist.clear();
@@ -343,7 +419,10 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             await this.save();
             
             // 触发观察者通知，让 UI 重新加载数据
-            this.emitQueueChangedEvent();
+            this.emitQueueChangedEvent({
+                requiresFullRefresh,
+            });
+            this.pendingFullRefreshOnRebuild = false;
             
             logger.info('Queue rebuilt successfully');
         } catch (error) {

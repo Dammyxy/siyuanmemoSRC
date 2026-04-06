@@ -4,6 +4,7 @@ import type { QueueItem } from '@/core/queue/types';
 import type { AdapterContext, IAdapter, ReviewSessionHook, ReviewUIState } from './types';
 import { createEmptyReviewUIState } from './types';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
+import type { InitialReviewSessionState } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('useReviewSession');
@@ -214,6 +215,7 @@ export function useReviewSession<TItem extends QueueItem>(
   adapter: IAdapter<TItem>,
   options?: {
     onReview?: (cardId: string, rating: number) => void;
+    initialSessionState?: InitialReviewSessionState;
   }
 ): ReviewSessionHook {
   const state = ref<ReviewUIState>(createEmptyReviewUIState());
@@ -384,9 +386,9 @@ export function useReviewSession<TItem extends QueueItem>(
       context.value.session = {
         startTime: Date.now(),
         resumed: false,
-        initialTotal,
-        answeredCount: 0,
-        correctCount: 0,
+        initialTotal: Math.max(0, Number(options?.initialSessionState?.initialTotal) || Number(initialTotal) || 0),
+        answeredCount: Math.max(0, Number(options?.initialSessionState?.answeredCount) || 0),
+        correctCount: Math.max(0, Number(options?.initialSessionState?.correctCount) || 0),
         baselineVersion: 0,
         reviewHistory: [],
       };

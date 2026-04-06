@@ -67,6 +67,16 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
     return this.docLocations.has(String(docId || '').trim());
   }
 
+  registerCardRootId(blockId: string, rootId: string): void {
+    const normalizedBlockId = asString(blockId);
+    const normalizedRootId = asString(rootId);
+    if (!normalizedBlockId || !normalizedRootId) {
+      return;
+    }
+
+    this.blockRootIds.set(normalizedBlockId, normalizedRootId);
+  }
+
   async hydrate(): Promise<void> {
     if (this.hydratePromise) {
       return this.hydratePromise;

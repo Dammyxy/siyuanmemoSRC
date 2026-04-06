@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ok } from '@/types/result';
 import type { CardApplicationService } from '../CardApplicationService';
-import { ProgressiveReadingService } from '../ProgressiveReadingService';
-import type { ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
+import { ProgressiveReadingService, ProgressiveSplitCancelledError } from '../ProgressiveReadingService';
+import type { ProgressiveBlockRow, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { PluginSettings } from '@/types/settings';
 
@@ -83,6 +83,15 @@ function createCardServiceMock() {
       });
       return ok({} as never);
     }),
+    deleteCard: vi.fn(async (command: { cardId: string }) => {
+      for (const [blockId, card] of cardsByBlockId.entries()) {
+        if (card.id === command.cardId) {
+          cardsByBlockId.delete(blockId);
+          break;
+        }
+      }
+      return ok(undefined);
+    }),
     getCardByBlockId: vi.fn((blockId: string) => cardsByBlockId.get(blockId) || null),
   };
   return {
@@ -91,13 +100,71 @@ function createCardServiceMock() {
   };
 }
 
+function createSplitTreeSqlMock(
+  rows: Array<ProgressiveBlockRow & { id: string; parent_id: string }>,
+  existingDocIds: string[] = [],
+) {
+  const existingIdSet = new Set(existingDocIds);
+  const normalizedRows = [...rows];
+
+  return vi.fn(async (stmt: string) => {
+    const rootMatch = stmt.match(/WHERE root_id = '([^']+)'/);
+    if (rootMatch) {
+      return normalizedRows
+        .filter((row) => row.root_id === rootMatch[1] && row.id !== rootMatch[1])
+        .sort((left, right) => {
+          const parentCompare = String(left.parent_id || '').localeCompare(String(right.parent_id || ''));
+          if (parentCompare !== 0) {
+            return parentCompare;
+          }
+          const sortCompare = String(left.sort || '').localeCompare(String(right.sort || ''));
+          if (sortCompare !== 0) {
+            return sortCompare;
+          }
+          return String(left.id || '').localeCompare(String(right.id || ''));
+        });
+    }
+
+    const inMatch = stmt.match(/WHERE id IN \((.+)\)/s);
+    if (inMatch) {
+      const ids = Array.from(inMatch[1].matchAll(/'([^']+)'/g)).map((match) => match[1]);
+      return ids
+        .filter((id) => existingIdSet.has(id))
+        .map((id) => ({ id }));
+    }
+
+    const idMatch = stmt.match(/WHERE id = '([^']+)'/);
+    if (idMatch) {
+      return existingIdSet.has(idMatch[1]) ? [{ id: idMatch[1] }] : [];
+    }
+
+    if (stmt.includes("WHERE type = 'd'")) {
+      return [];
+    }
+
+    throw new Error(`Unexpected SQL: ${stmt}`);
+  });
+}
+
 describe('ProgressiveReadingService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('splits a document by heading/hr and copies each piece root subtree markdown', async () => {
+  it('splits nested H1-H3 sections into a real document tree and keeps linear preorder session order', async () => {
     const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'preface', root_id: 'doc-1', parent_id: 'doc-1', type: 'p', content: 'Opening note', markdown: 'Opening note', sort: '001' },
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '002' },
+      { id: 'h1-next', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Next', markdown: '# Next', sort: '003' },
+      { id: 'intro-body', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Intro body', markdown: 'Intro body', sort: '001' },
+      { id: 'h2-detail', root_id: 'doc-1', parent_id: 'h1-intro', type: 'h', subtype: 'h2', content: 'Detail', markdown: '## Detail', sort: '002' },
+      { id: 'intro-tail', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'After detail', markdown: 'After detail', sort: '003' },
+      { id: 'detail-body', root_id: 'doc-1', parent_id: 'h2-detail', type: 'p', content: 'Detail body', markdown: 'Detail body', sort: '001' },
+      { id: 'h3-deep', root_id: 'doc-1', parent_id: 'h2-detail', type: 'h', subtype: 'h3', content: 'Deep', markdown: '### Deep', sort: '002' },
+      { id: 'deep-body', root_id: 'doc-1', parent_id: 'h3-deep', type: 'p', content: 'Deep body', markdown: 'Deep body', sort: '001' },
+      { id: 'next-body', root_id: 'doc-1', parent_id: 'h1-next', type: 'p', content: 'Next body', markdown: 'Next body', sort: '001' },
+    ]);
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async () => ({
         id: 'doc-1',
@@ -106,25 +173,139 @@ describe('ProgressiveReadingService', () => {
         hpath: '/reading/article',
         name: 'Article',
       })),
-      sql: vi.fn(async (stmt: string) => {
-        if (stmt.includes("root_id = 'doc-1'") && stmt.includes("parent_id = 'doc-1'")) {
-          return [
-            { id: 'block-1', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', content: 'Intro', markdown: '# Intro', sort: '1' },
-            { id: 'block-hr', root_id: 'doc-1', parent_id: 'doc-1', type: 'hr', content: '---', markdown: '---', sort: '2' },
-            { id: 'block-2', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', content: 'Next', markdown: '## Next', sort: '3' },
-          ];
-        }
-        if (stmt.includes("WHERE type = 'd'")) {
-          return [];
-        }
-        throw new Error(`Unexpected SQL: ${stmt}`);
-      }),
+      sql,
       copyStdMarkdown: vi.fn(async (blockId: string) => {
-        if (blockId === 'block-1') {
-          return '# Intro\n\nAlpha body\n\n- child list';
+        switch (blockId) {
+          case 'preface':
+            return 'Opening note';
+          case 'intro-body':
+            return 'Intro body';
+          case 'intro-tail':
+            return 'After detail';
+          case 'detail-body':
+            return 'Detail body';
+          case 'deep-body':
+            return 'Deep body';
+          case 'next-body':
+            return 'Next body';
+          default:
+            throw new Error(`Unexpected block copy: ${blockId}`);
         }
-        if (blockId === 'block-2') {
-          return '## Next\n\nBeta body\n\n> quote child';
+      }),
+      createDocWithMarkdown: vi
+        .fn()
+        .mockResolvedValueOnce('piece-1')
+        .mockResolvedValueOnce('piece-2')
+        .mockResolvedValueOnce('piece-3')
+        .mockResolvedValueOnce('piece-4')
+        .mockResolvedValueOnce('piece-5')
+        .mockResolvedValueOnce('piece-6'),
+    });
+    const cardService = createCardServiceMock();
+    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+
+    const result = await service.splitDocument('doc-1', 'linear');
+
+    expect(result.pieceDocIds).toEqual(['piece-1', 'piece-2', 'piece-3', 'piece-4', 'piece-5', 'piece-6']);
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      1,
+      'notebook-a',
+      '/reading/article/01 [前言]',
+      'Opening note',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      2,
+      'notebook-a',
+      '/reading/article/02 Intro',
+      '# Intro\n\nIntro body',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      3,
+      'notebook-a',
+      '/reading/article/02 Intro/01 Detail',
+      '## Detail\n\nDetail body',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      4,
+      'notebook-a',
+      '/reading/article/02 Intro/01 Detail/01 Deep',
+      '### Deep\n\nDeep body',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      5,
+      'notebook-a',
+      '/reading/article/02 Intro/02 After detail',
+      'After detail',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      6,
+      'notebook-a',
+      '/reading/article/03 Next',
+      '# Next\n\nNext body',
+    );
+    expect(port.sql).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(port.sql).mock.calls[0]?.[0]).toContain("WHERE root_id = 'doc-1'");
+    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      blockIds: ['piece-1'],
+      metadata: expect.objectContaining({
+        progressive: expect.objectContaining({
+          pieceIndex: 0,
+          pieceDocId: 'piece-1',
+        }),
+      }),
+    }));
+
+    const stored = fileService.getStored() as {
+      sessions: Record<string, {
+        pieces: Array<{
+          pieceDocId: string;
+          depth?: number;
+          parentPieceDocId?: string;
+          state: 'active' | 'pending' | 'completed';
+        }>;
+      }>;
+    };
+    const session = Object.values(stored.sessions)[0];
+    expect(session.pieces.map((piece) => ({
+      pieceDocId: piece.pieceDocId,
+      depth: piece.depth,
+      parentPieceDocId: piece.parentPieceDocId,
+      state: piece.state,
+    }))).toEqual([
+      { pieceDocId: 'piece-1', depth: 0, parentPieceDocId: undefined, state: 'active' },
+      { pieceDocId: 'piece-2', depth: 0, parentPieceDocId: undefined, state: 'pending' },
+      { pieceDocId: 'piece-3', depth: 1, parentPieceDocId: 'piece-2', state: 'pending' },
+      { pieceDocId: 'piece-4', depth: 2, parentPieceDocId: 'piece-3', state: 'pending' },
+      { pieceDocId: 'piece-5', depth: 1, parentPieceDocId: 'piece-2', state: 'pending' },
+      { pieceDocId: 'piece-6', depth: 0, parentPieceDocId: undefined, state: 'pending' },
+    ]);
+  });
+
+  it('reports staged progress and avoids per-piece hpath lookups when createDoc returns doc ids', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
+      { id: 'intro-body', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Intro body', markdown: 'Intro body', sort: '001' },
+      { id: 'h2-detail', root_id: 'doc-1', parent_id: 'h1-intro', type: 'h', subtype: 'h2', content: 'Detail', markdown: '## Detail', sort: '002' },
+      { id: 'detail-body', root_id: 'doc-1', parent_id: 'h2-detail', type: 'p', content: 'Detail body', markdown: 'Detail body', sort: '001' },
+    ]);
+    const progressEvents: Array<{ phase: string; percentage: number; current: number; total: number }> = [];
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === 'intro-body') {
+          return 'Intro body';
+        }
+        if (blockId === 'detail-body') {
+          return 'Detail body';
         }
         throw new Error(`Unexpected block copy: ${blockId}`);
       }),
@@ -136,38 +317,401 @@ describe('ProgressiveReadingService', () => {
     const cardService = createCardServiceMock();
     const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
 
-    const result = await service.splitDocument('doc-1', 'linear');
+    await service.splitDocument('doc-1', 'linear', undefined, {
+      onProgress: (progress) => {
+        progressEvents.push({
+          phase: progress.phase,
+          percentage: progress.percentage,
+          current: progress.current,
+          total: progress.total,
+        });
+      },
+    });
+
+    expect(progressEvents.some((progress) => progress.phase === 'scan')).toBe(true);
+    expect(progressEvents.some((progress) => progress.phase === 'plan')).toBe(true);
+    expect(progressEvents.some((progress) => progress.phase === 'createDocs')).toBe(true);
+    expect(progressEvents.some((progress) => progress.phase === 'createCards')).toBe(true);
+    expect(progressEvents.some((progress) => progress.phase === 'save' && progress.percentage === 100)).toBe(true);
+    expect(progressEvents.every((progress, index, values) => index === 0 || progress.percentage >= values[index - 1].percentage)).toBe(true);
+    expect(vi.mocked(port.sql).mock.calls.some(([stmt]) => String(stmt).includes("WHERE type = 'd'"))).toBe(false);
+  });
+
+  it('stops at the next cancellation checkpoint, skips session persistence, and cleans up created docs', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
+      { id: 'intro-body', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Intro body', markdown: 'Intro body', sort: '001' },
+      { id: 'h1-next', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Next', markdown: '# Next', sort: '002' },
+      { id: 'next-body', root_id: 'doc-1', parent_id: 'h1-next', type: 'p', content: 'Next body', markdown: 'Next body', sort: '001' },
+    ]);
+    let cancelRequested = false;
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === 'intro-body') {
+          return 'Intro body';
+        }
+        if (blockId === 'next-body') {
+          return 'Next body';
+        }
+        throw new Error(`Unexpected block copy: ${blockId}`);
+      }),
+      createDocWithMarkdown: vi
+        .fn()
+        .mockResolvedValueOnce('piece-1')
+        .mockResolvedValueOnce('piece-2'),
+    });
+    const cardService = createCardServiceMock();
+    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+
+    await expect(service.splitDocument('doc-1', 'linear', undefined, {
+      onProgress: (progress) => {
+        if (progress.phase === 'createDocs' && progress.current >= 1) {
+          cancelRequested = true;
+        }
+      },
+      isCancellationRequested: () => cancelRequested,
+    })).rejects.toBeInstanceOf(ProgressiveSplitCancelledError);
+
+    expect(fileService.writeJSON).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(port.deleteBlock).toHaveBeenCalledWith('piece-1');
+    expect(port.deleteBlock).not.toHaveBeenCalledWith('piece-2');
+  });
+
+  it('marks cancellation cleanup as incomplete when artifact deletion fails', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
+      { id: 'intro-body', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Intro body', markdown: 'Intro body', sort: '001' },
+      { id: 'h1-next', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Next', markdown: '# Next', sort: '002' },
+      { id: 'next-body', root_id: 'doc-1', parent_id: 'h1-next', type: 'p', content: 'Next body', markdown: 'Next body', sort: '001' },
+    ]);
+    let cancelRequested = false;
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === 'intro-body') {
+          return 'Intro body';
+        }
+        if (blockId === 'next-body') {
+          return 'Next body';
+        }
+        throw new Error(`Unexpected block copy: ${blockId}`);
+      }),
+      createDocWithMarkdown: vi
+        .fn()
+        .mockResolvedValueOnce('piece-1')
+        .mockResolvedValueOnce('piece-2'),
+      deleteBlock: vi.fn(async () => {
+        throw new Error('cleanup failed');
+      }),
+    });
+    const cardService = createCardServiceMock();
+    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+
+    await expect(service.splitDocument('doc-1', 'linear', undefined, {
+      onProgress: (progress) => {
+        if (progress.phase === 'createDocs' && progress.current >= 1) {
+          cancelRequested = true;
+        }
+      },
+      isCancellationRequested: () => cancelRequested,
+    })).rejects.toMatchObject({
+      cleanupIncomplete: true,
+    });
+  });
+
+  it('activates every generated document immediately in nonlinear mode and creates topic cards for all preorder pieces', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
+      { id: 'intro-body', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Intro body', markdown: 'Intro body', sort: '001' },
+      { id: 'h2-detail', root_id: 'doc-1', parent_id: 'h1-intro', type: 'h', subtype: 'h2', content: 'Detail', markdown: '## Detail', sort: '002' },
+      { id: 'detail-body', root_id: 'doc-1', parent_id: 'h2-detail', type: 'p', content: 'Detail body', markdown: 'Detail body', sort: '001' },
+    ]);
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === 'intro-body') {
+          return 'Intro body';
+        }
+        if (blockId === 'detail-body') {
+          return 'Detail body';
+        }
+        throw new Error(`Unexpected block copy: ${blockId}`);
+      }),
+      createDocWithMarkdown: vi
+        .fn()
+        .mockResolvedValueOnce('piece-1')
+        .mockResolvedValueOnce('piece-2'),
+    });
+    const cardService = createCardServiceMock();
+    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+
+    const result = await service.splitDocument('doc-1', 'nonlinear');
 
     expect(result.pieceDocIds).toEqual(['piece-1', 'piece-2']);
-    expect(port.copyStdMarkdown).toHaveBeenCalledTimes(2);
-    expect(port.copyStdMarkdown).toHaveBeenNthCalledWith(1, 'block-1');
-    expect(port.copyStdMarkdown).toHaveBeenNthCalledWith(2, 'block-2');
+    expect(cardService.service.createCard).toHaveBeenCalledTimes(2);
+    expect(cardService.service.createCard).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      blockIds: ['piece-1'],
+    }));
+    expect(cardService.service.createCard).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      blockIds: ['piece-2'],
+    }));
+
+    const stored = fileService.getStored() as {
+      sessions: Record<string, {
+        mode: 'linear' | 'nonlinear';
+        pieces: Array<{
+          pieceDocId: string;
+          state: 'active' | 'pending' | 'completed';
+          topicCardId?: string;
+        }>;
+      }>;
+    };
+    const session = Object.values(stored.sessions)[0];
+    expect(session.mode).toBe('nonlinear');
+    expect(session.pieces.map((piece) => ({
+      pieceDocId: piece.pieceDocId,
+      state: piece.state,
+      topicCardId: piece.topicCardId,
+    }))).toEqual([
+      { pieceDocId: 'piece-1', state: 'active', topicCardId: 'card-1' },
+      { pieceDocId: 'piece-2', state: 'active', topicCardId: 'card-2' },
+    ]);
+  });
+
+  it('keeps skipped heading levels inside the nearest selected ancestor and promotes deeper selected headings', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
+      { id: 'intro-body', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Intro body', markdown: 'Intro body', sort: '001' },
+      { id: 'h2-detail', root_id: 'doc-1', parent_id: 'h1-intro', type: 'h', subtype: 'h2', content: 'Detail', markdown: '## Detail', sort: '002' },
+      { id: 'detail-body', root_id: 'doc-1', parent_id: 'h2-detail', type: 'p', content: 'Detail body', markdown: 'Detail body', sort: '001' },
+      { id: 'h3-deep', root_id: 'doc-1', parent_id: 'h2-detail', type: 'h', subtype: 'h3', content: 'Deep', markdown: '### Deep', sort: '002' },
+      { id: 'deep-body', root_id: 'doc-1', parent_id: 'h3-deep', type: 'p', content: 'Deep body', markdown: 'Deep body', sort: '001' },
+    ]);
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        switch (blockId) {
+          case 'intro-body':
+            return 'Intro body';
+          case 'detail-body':
+            return 'Detail body';
+          case 'deep-body':
+            return 'Deep body';
+          default:
+            throw new Error(`Unexpected block copy: ${blockId}`);
+        }
+      }),
+      createDocWithMarkdown: vi
+        .fn()
+        .mockResolvedValueOnce('piece-1')
+        .mockResolvedValueOnce('piece-2'),
+    });
+    const cardService = createCardServiceMock();
+    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+
+    const result = await service.splitDocument('doc-1', 'linear', {
+      horizontalRule: false,
+      headingLevels: ['h1', 'h3ToH6'],
+      customStringEnabled: false,
+      customString: '',
+    });
+
+    expect(result.pieceDocIds).toEqual(['piece-1', 'piece-2']);
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
       '/reading/article/01 Intro',
-      '# Intro\n\nAlpha body\n\n- child list',
+      '# Intro\n\nIntro body\n\n## Detail\n\nDetail body',
     );
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       2,
       'notebook-a',
-      '/reading/article/02 Next',
-      '## Next\n\nBeta body\n\n> quote child',
+      '/reading/article/01 Intro/01 Deep',
+      '### Deep\n\nDeep body',
     );
-    expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
-    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
-      blockIds: ['piece-1'],
-      cardType: 'topic',
-      metadata: expect.objectContaining({
-        progressive: expect.objectContaining({
-          kind: 'piece',
-          mode: 'linear',
-          pieceDocId: 'piece-1',
-          sourceDocId: 'doc-1',
-          pieceIndex: 0,
-        }),
+  });
+
+  it('creates supplemental child documents for hr-based local content splits inside the current heading level', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
+      { id: 'part-a', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Alpha', markdown: 'Alpha', sort: '001' },
+      { id: 'hr-1', root_id: 'doc-1', parent_id: 'h1-intro', type: 'hr', content: '---', markdown: '---', sort: '002' },
+      { id: 'part-b', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Beta', markdown: 'Beta', sort: '003' },
+      { id: 'h2-detail', root_id: 'doc-1', parent_id: 'h1-intro', type: 'h', subtype: 'h2', content: 'Detail', markdown: '## Detail', sort: '004' },
+      { id: 'detail-body', root_id: 'doc-1', parent_id: 'h2-detail', type: 'p', content: 'Detail body', markdown: 'Detail body', sort: '001' },
+    ]);
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === 'part-a') {
+          return 'Alpha';
+        }
+        if (blockId === 'part-b') {
+          return 'Beta';
+        }
+        if (blockId === 'detail-body') {
+          return 'Detail body';
+        }
+        throw new Error(`Unexpected block copy: ${blockId}`);
       }),
-    }));
+      createDocWithMarkdown: vi
+        .fn()
+        .mockResolvedValueOnce('piece-1')
+        .mockResolvedValueOnce('piece-2')
+        .mockResolvedValueOnce('piece-3')
+        .mockResolvedValueOnce('piece-4'),
+    });
+    const cardService = createCardServiceMock();
+    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+
+    const result = await service.splitDocument('doc-1', 'linear', {
+      horizontalRule: true,
+      headingLevels: ['h1', 'h2'],
+      customStringEnabled: false,
+      customString: '',
+    });
+
+    expect(result.pieceDocIds).toEqual(['piece-1', 'piece-2', 'piece-3', 'piece-4']);
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      1,
+      'notebook-a',
+      '/reading/article/01 Intro',
+      '# Intro',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      2,
+      'notebook-a',
+      '/reading/article/01 Intro/01 Alpha',
+      'Alpha',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      3,
+      'notebook-a',
+      '/reading/article/01 Intro/02 Beta',
+      'Beta',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      4,
+      'notebook-a',
+      '/reading/article/01 Intro/03 Detail',
+      '## Detail\n\nDetail body',
+    );
+  });
+
+  it('falls back to flat segment documents when no heading levels are enabled', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'block-1', root_id: 'doc-1', parent_id: 'doc-1', type: 'p', content: 'Alpha', markdown: 'Alpha', sort: '001' },
+      { id: 'block-cut', root_id: 'doc-1', parent_id: 'doc-1', type: 'p', content: '###CUT### Start here', markdown: '###CUT### Start here', sort: '002' },
+      { id: 'block-2', root_id: 'doc-1', parent_id: 'doc-1', type: 'p', content: 'After', markdown: 'After', sort: '003' },
+    ]);
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === 'block-1') {
+          return 'Alpha';
+        }
+        if (blockId === 'block-cut') {
+          return '###CUT### Start here';
+        }
+        if (blockId === 'block-2') {
+          return 'After';
+        }
+        throw new Error(`Unexpected block copy: ${blockId}`);
+      }),
+      createDocWithMarkdown: vi
+        .fn()
+        .mockResolvedValueOnce('piece-1')
+        .mockResolvedValueOnce('piece-2'),
+    });
+    const cardService = createCardServiceMock();
+    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+
+    const result = await service.splitDocument('doc-1', 'linear', {
+      horizontalRule: false,
+      headingLevels: [],
+      customStringEnabled: true,
+      customString: '###CUT###',
+    });
+
+    expect(result.pieceDocIds).toEqual(['piece-1', 'piece-2']);
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      1,
+      'notebook-a',
+      '/reading/article/01 Alpha',
+      'Alpha',
+    );
+    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
+      2,
+      'notebook-a',
+      '/reading/article/02 ###CUT### Start here',
+      '###CUT### Start here\n\nAfter',
+    );
+  });
+
+  it('rejects split requests when no valid markers are selected', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock();
+    const cardService = createCardServiceMock();
+    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+
+    await expect(service.splitDocument('doc-1', 'linear', {
+      horizontalRule: false,
+      headingLevels: [],
+      customStringEnabled: false,
+      customString: '',
+    })).rejects.toThrow('至少选择一个切割标记');
+
+    expect(port.sql).not.toHaveBeenCalled();
   });
 
   it('allows re-splitting when the recorded session has no remaining piece docs', async () => {
@@ -198,6 +742,10 @@ describe('ProgressiveReadingService', () => {
       sourceDocToWorkbench: {},
     };
     const fileService = createFileServiceMock(initialState);
+    const sql = createSplitTreeSqlMock([
+      { id: 'block-1', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Fresh', markdown: '# Fresh', sort: '001' },
+      { id: 'block-1-body', root_id: 'doc-1', parent_id: 'block-1', type: 'p', content: 'Rebuilt body', markdown: 'Rebuilt body', sort: '001' },
+    ]);
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async () => ({
         id: 'doc-1',
@@ -206,24 +754,13 @@ describe('ProgressiveReadingService', () => {
         hpath: '/reading/article',
         name: 'Article',
       })),
-      sql: vi.fn(async (stmt: string) => {
-        if (stmt.includes("WHERE id = 'piece-old-1'")) {
-          return [];
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === 'block-1-body') {
+          return 'Rebuilt body';
         }
-        if (stmt.includes("WHERE id = 'piece-old-2'")) {
-          return [];
-        }
-        if (stmt.includes("root_id = 'doc-1'") && stmt.includes("parent_id = 'doc-1'")) {
-          return [
-            { id: 'block-1', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', content: 'Fresh', markdown: '# Fresh', sort: '1' },
-          ];
-        }
-        if (stmt.includes("WHERE type = 'd'")) {
-          return [];
-        }
-        throw new Error(`Unexpected SQL: ${stmt}`);
+        throw new Error(`Unexpected block copy: ${blockId}`);
       }),
-      copyStdMarkdown: vi.fn(async () => '# Fresh\n\nRebuilt body'),
       createDocWithMarkdown: vi.fn(async () => 'piece-new-1'),
     });
     const cardService = createCardServiceMock();
@@ -274,11 +811,8 @@ describe('ProgressiveReadingService', () => {
     const fileService = createFileServiceMock(initialState);
     const port = createProgressiveSiyuanPortMock({
       sql: vi.fn(async (stmt: string) => {
-        if (stmt.includes("WHERE id = 'piece-old-1'")) {
+        if (stmt.includes('WHERE id IN')) {
           return [{ id: 'piece-old-1' }];
-        }
-        if (stmt.includes("WHERE id = 'piece-old-2'")) {
-          return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),

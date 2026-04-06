@@ -17,11 +17,20 @@ import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapt
 import type { IAdapter, ReviewHeaderVariant, ReviewViewTabBridge } from '@/ui/review/v2/types';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
-import { QueueType } from '@/types/unified-data-source';
+import {
+  QueueType,
+  type CardFilter,
+  type FilterGroupQueueSessionSnapshot,
+  type InitialReviewSessionState,
+  type ReviewTabTransferState,
+  type IReviewQueue,
+} from '@/types/unified-data-source';
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
 import { resolveReviewHeaderVariant } from '@/ui/review/v2/types';
 import { createLogger } from '@/utils/logger';
 import type { BrowserOpenState } from '@/ui/browser/types';
+import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
+import { NOOP_QUEUE_PERSISTENCE } from '@/core/queue/domain/ports';
 
 const logger = createLogger('TabManager');
 
@@ -38,6 +47,7 @@ interface ReviewTabData {
   title: string;
   queueType: QueueType | null;
   headerVariant: ReviewHeaderVariant;
+  transferState?: ReviewTabTransferState | null;
 }
 
 interface BrowserTabData {
@@ -85,6 +95,157 @@ function resolveIpcRenderer(): ElectronIpcRenderer | undefined {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeDateValue(value: unknown): Date | undefined {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return new Date(value.getTime());
+  }
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function cloneCardFilter(filter: CardFilter): CardFilter {
+  try {
+    const structuredCloneFn = (globalThis as { structuredClone?: <T>(value: T) => T }).structuredClone;
+    if (typeof structuredCloneFn === 'function') {
+      return structuredCloneFn(filter);
+    }
+  } catch {}
+
+  try {
+    return JSON.parse(JSON.stringify(filter)) as CardFilter;
+  } catch {
+    return { ...filter };
+  }
+}
+
+function normalizeCardFilter(value: unknown): CardFilter {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const candidate = value as CardFilter;
+  const normalized: CardFilter = {
+    ...candidate,
+  };
+
+  if ('blockIds' in candidate) {
+    normalized.blockIds = normalizeStringArray(candidate.blockIds);
+  }
+  if ('scopeDocIds' in candidate) {
+    normalized.scopeDocIds = normalizeStringArray(candidate.scopeDocIds);
+  }
+  if ('tags' in candidate) {
+    normalized.tags = normalizeStringArray(candidate.tags);
+  }
+  if ('cardStatus' in candidate) {
+    normalized.cardStatus = Array.isArray(candidate.cardStatus)
+      ? candidate.cardStatus.filter((item): item is 'new' | 'learning' | 'review' | 'relearning' => (
+          item === 'new' || item === 'learning' || item === 'review' || item === 'relearning'
+        ))
+      : undefined;
+  }
+  if ('dueDate' in candidate && isRecord(candidate.dueDate)) {
+    normalized.dueDate = {
+      lte: normalizeDateValue(candidate.dueDate.lte),
+      gte: normalizeDateValue(candidate.dueDate.gte),
+    };
+  }
+  if ('lastReview' in candidate && isRecord(candidate.lastReview)) {
+    normalized.lastReview = {
+      lte: normalizeDateValue(candidate.lastReview.lte),
+      gte: normalizeDateValue(candidate.lastReview.gte),
+    };
+  }
+
+  return normalized;
+}
+
+function normalizeInitialReviewSessionState(value: unknown): InitialReviewSessionState | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const normalized: InitialReviewSessionState = {};
+  const initialTotal = Number(value.initialTotal);
+  const answeredCount = Number(value.answeredCount);
+  const correctCount = Number(value.correctCount);
+
+  if (Number.isFinite(initialTotal) && initialTotal >= 0) {
+    normalized.initialTotal = initialTotal;
+  }
+  if (Number.isFinite(answeredCount) && answeredCount >= 0) {
+    normalized.answeredCount = answeredCount;
+  }
+  if (Number.isFinite(correctCount) && correctCount >= 0) {
+    normalized.correctCount = correctCount;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeFilterGroupQueueSessionSnapshot(value: unknown): FilterGroupQueueSessionSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const rollbackSnapshot = isRecord(value.rollbackSnapshot) ? value.rollbackSnapshot : {};
+  const normalized: FilterGroupQueueSessionSnapshot = {
+    filter: cloneCardFilter(normalizeCardFilter(value.filter)),
+    rollbackSnapshot: {
+      temporaryBlacklist: normalizeStringArray(rollbackSnapshot.temporaryBlacklist) ?? [],
+      customOrder: normalizeStringArray(rollbackSnapshot.customOrder) ?? null,
+      manualCards: normalizeStringArray(rollbackSnapshot.manualCards) ?? [],
+    },
+  };
+
+  const visibleCardIds = normalizeStringArray(value.visibleCardIds);
+  if (visibleCardIds && visibleCardIds.length > 0) {
+    normalized.visibleCardIds = visibleCardIds;
+  }
+
+  return normalized;
+}
+
+function normalizeReviewTabTransferState(value: unknown): ReviewTabTransferState | null {
+  if (!isRecord(value) || value.kind !== 'filter-group-session') {
+    return null;
+  }
+
+  const filterSession = normalizeFilterGroupQueueSessionSnapshot(value.filterSession);
+  if (!filterSession) {
+    return null;
+  }
+
+  return {
+    kind: 'filter-group-session',
+    filterSession,
+    session: normalizeInitialReviewSessionState(value.session),
+  };
+}
+
 /**
  * Review tab options.
  *
@@ -97,6 +258,7 @@ export interface ReviewTabOptions {
   adapter?: IAdapter<unknown>;
   title: string;
   headerVariant?: ReviewHeaderVariant;
+  transferState?: ReviewTabTransferState;
 }
 
 interface ReviewTabOpenOptions {
@@ -177,7 +339,7 @@ export class TabManager {
           title: data.title,
         });
 
-        const queue = self.buildReviewQueue(data.queueType);
+        const queue = self.buildReviewQueueFromTabData(data);
         const adapter = new UnifiedReviewAdapter({
           i18n: self.getPluginI18n(),
           headerVariant: data.headerVariant,
@@ -193,6 +355,7 @@ export class TabManager {
           queue,
           adapter,
           plugin: self.plugin,
+          initialSessionState: data.transferState?.session,
         });
 
         const vm = app.mount(runtime.element);
@@ -479,6 +642,7 @@ export class TabManager {
       title: String(options.title || this.getDefaultReviewTitle()),
       queueType,
       headerVariant: options.headerVariant || resolveReviewHeaderVariant(queueType),
+      transferState: normalizeReviewTabTransferState(options.transferState),
     };
   }
 
@@ -498,6 +662,7 @@ export class TabManager {
       headerVariant: typeof data?.headerVariant === 'string'
         ? data.headerVariant
         : resolveReviewHeaderVariant(queueType),
+      transferState: normalizeReviewTabTransferState(data?.transferState),
     };
   }
 
@@ -543,6 +708,39 @@ export class TabManager {
       this.context.getEventBus(),
       this.context.getSchedulerRouter() as unknown as ISchedulerRouter
     );
+  }
+
+  private buildReviewQueueFromTabData(data: ReviewTabData): UnifiedQueueStrategy {
+    const transferredQueue = this.buildTransferredReviewQueue(data.transferState);
+    return new UnifiedQueueStrategy(
+      transferredQueue ?? data.queueType,
+      this.context.getUnifiedDataSourceManager(),
+      this.context.getEventBus(),
+      this.context.getSchedulerRouter() as unknown as ISchedulerRouter,
+    );
+  }
+
+  private buildTransferredReviewQueue(transferState?: ReviewTabTransferState | null): IReviewQueue | null {
+    if (!transferState || transferState.kind !== 'filter-group-session') {
+      return null;
+    }
+
+    try {
+      const manager = this.context.getUnifiedDataSourceManager();
+      const queue = new FilterGroupQueue(manager, NOOP_QUEUE_PERSISTENCE, {}, {
+        autoFailedSink: {
+          addAutoFailed: async (cardId: string): Promise<void> => {
+            const finalDrillQueue = manager.getQueue(QueueType.FinalDrill);
+            await finalDrillQueue.addCard(cardId, 'auto-failed');
+          },
+        },
+      });
+      queue.restoreSessionSnapshot(transferState.filterSession);
+      return queue;
+    } catch (error) {
+      logger.error('Failed to restore transferred filter-group review queue, falling back to shared queue', error);
+      return null;
+    }
   }
 
   private prepareQueueBeforeOpen(queueType: QueueType): Promise<void> | null {

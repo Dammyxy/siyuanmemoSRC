@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ok } from '@/types/result';
+import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { XiuyuanBlockAttrs, XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
@@ -171,6 +172,46 @@ describe('CreateListTemplateCardsUseCase (split-v2)', () => {
       expect(listMeta.childrenData).toHaveLength(3);
       expect(listMeta.childrenData[index].id).toBe(childParagraphId);
     });
+  });
+
+  it('publishes CardCreated after each child Xiuyuan is saved', async () => {
+    const { repo, saveMock } = createRepositoryMock();
+    const { siyuanApi } = createSiyuanApiMock();
+    const eventBus = new EventBus(false);
+    const order: string[] = [];
+    const createdCardIds: string[] = [];
+
+    saveMock.mockImplementation(async (xiuyuan) => {
+      order.push(`save:${xiuyuan.getId().getValue()}`);
+      return ok(undefined);
+    });
+
+    eventBus.subscribe('CardCreated', (event) => {
+      order.push(`event:${event.cardId}`);
+      createdCardIds.push(event.cardId);
+    });
+
+    const useCase = new CreateListTemplateCardsUseCase(
+      repo,
+      new Map([[LIST_TEMPLATE.id, LIST_TEMPLATE]]),
+      { siyuanApi, eventBus }
+    );
+
+    const result = await useCase.execute({
+      parentBlockId: PARENT_BLOCK_ID,
+      childBlockIds: CHILD_BLOCK_IDS,
+      templateId: 'builtin-list-item',
+      deckId: 'deck-1',
+      priority: 50,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(createdCardIds).toHaveLength(CHILD_BLOCK_IDS.length);
+    expect(order).toHaveLength(CHILD_BLOCK_IDS.length * 2);
+    for (let index = 0; index < order.length; index += 2) {
+      expect(order[index]?.startsWith('save:')).toBe(true);
+      expect(order[index + 1]?.startsWith('event:')).toBe(true);
+    }
   });
 
   it('skips children that already have list-item xiuyuan binding and creates missing ones', async () => {

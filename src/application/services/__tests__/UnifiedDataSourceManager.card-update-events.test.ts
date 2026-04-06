@@ -85,4 +85,47 @@ describe('UnifiedDataSourceManager card update notifications', () => {
       }),
     ]);
   });
+
+  it('emits card-created and queue-changed for dynamic queues after card creation sync', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const router: IDataRouter = {
+      getCard: vi.fn(),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      deleteCard: vi.fn(async () => {}),
+      getAvailableQueueTypes: vi.fn(() => []),
+    } as unknown as IDataRouter;
+    manager.setAdvancedRouter(router);
+
+    const events: DataChangeEvent[] = [];
+    const observer: IDataSourceObserver = {
+      onDataChanged: (event) => {
+        events.push(event);
+      },
+    };
+    manager.registerObserver(observer);
+
+    const card = createCard();
+    await manager.onCardCreated(card);
+    await flushMicrotasks();
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'card-created',
+        cardIds: [card.id, card.blockId],
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.RetrievalPractice,
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.IncrementalLearning,
+      }),
+      expect.objectContaining({
+        type: 'queue-changed',
+        queueType: QueueType.FilterGroup,
+      }),
+    ]);
+  });
 });

@@ -619,6 +619,29 @@ export class UnifiedDataSourceManager {
             });
         }
     }
+
+    /**
+     * 处理“卡片已创建并持久化完成”后的统一数据流。
+     */
+    public async onCardCreated(card: FSRSCard): Promise<void> {
+        const affectedQueueTypes = this.invalidateQueuesForCardMutation();
+
+        const affectedIds = Array.from(new Set([card.id, card.blockId].filter(Boolean)));
+        const timestamp = Date.now();
+        this.notifyObservers({
+            type: 'card-created',
+            cardIds: affectedIds,
+            timestamp,
+        });
+
+        for (const queueType of affectedQueueTypes) {
+            this.notifyObservers({
+                type: 'queue-changed',
+                queueType,
+                timestamp,
+            });
+        }
+    }
     
     /**
      * 删除卡片

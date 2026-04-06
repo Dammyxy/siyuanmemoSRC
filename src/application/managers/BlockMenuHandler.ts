@@ -22,7 +22,7 @@ import { createLogger } from '@/utils/logger';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { resolveListItemAnchorBlockId as resolveListItemAnchorBlockIdHelper } from '@/application/usecases/xiuyuan/shared/ListItemAnchorResolver';
 import { resolveCdfTailMarkerFromSources } from '@/application/usecases/xiuyuan/shared/CdfTailMarker';
-import { CoreReviewEntryService } from '@/application/entries/CoreReviewEntryService';
+import { CoreReviewEntryService, type CoreReviewScopeOptions } from '@/application/entries/CoreReviewEntryService';
 import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
 import { isErr } from '@/types/result';
 
@@ -97,6 +97,11 @@ interface BlockIdRow extends Record<string, unknown> {
 
 interface NeuralRoamQueueLike {
   addCard(card: FSRSCard | string, priority?: 'normal' | 'high'): Promise<void>;
+}
+
+interface ReviewScopeSnapshot {
+  cards: FSRSCard[];
+  scopeDocIds?: string[];
 }
 
 export interface BlockMenuHandlerDeps {
@@ -308,9 +313,11 @@ export class BlockMenuHandler {
       return;
     }
 
-    const cards = this.collectCardsFromElements(elements);
+    const scope = this.collectReviewScopeFromBlockIcon(elements) ?? { cards: this.collectCardsFromElements(elements) };
     const coreReviewEntryService = this.createCoreReviewEntryService();
-    await coreReviewEntryService.execute(actionId, cards);
+    await coreReviewEntryService.execute(actionId, scope.cards, {
+      scopeDocIds: scope.scopeDocIds,
+    });
   }
 
   async runEditSrsDataAction(blockElements: HTMLElement[]): Promise<void> {
@@ -559,9 +566,9 @@ export class BlockMenuHandler {
     return { type: 'separator' };
   }
 
-  private buildReviewActions(cards: FSRSCard[]): SiyuanMenuItem[] {
+  private buildReviewActions(cards: FSRSCard[], options?: CoreReviewScopeOptions): SiyuanMenuItem[] {
     const coreReviewEntryService = this.createCoreReviewEntryService();
-    const coreReviewActions = coreReviewEntryService.createMenuActions(cards);
+    const coreReviewActions = coreReviewEntryService.createMenuActions(cards, options);
 
     return [
       {
@@ -631,38 +638,14 @@ export class BlockMenuHandler {
         icon: 'iconFiles',
         label: this.deps.i18n?.progressiveSplitLinear || '渐进 Split（线性）',
         click: async () => {
-          try {
-            const result = await this.deps.applicationContext.getProgressiveReadingService().splitDocument(docId, 'linear');
-            await this.siyuanApi.pushMsg(
-              (this.deps.i18n?.progressiveSplitLinearCreated || '已创建 {count} 个线性 piece 子文档')
-                .replace('{count}', String(result.pieceDocIds.length))
-            );
-          } catch (error) {
-            logger.error('[BlockMenuHandler] Failed to create linear split session:', error);
-            await this.siyuanApi.pushErrMsg(
-              (this.deps.i18n?.progressiveSplitFailed || 'Split 失败：{message}')
-                .replace('{message}', (error as Error).message)
-            );
-          }
+          await this.deps.dialogManager.openProgressiveSplitDialog(docId, 'linear');
         },
       },
       {
         icon: 'iconFiles',
         label: this.deps.i18n?.progressiveSplitNonlinear || '渐进 Split（非线性）',
         click: async () => {
-          try {
-            const result = await this.deps.applicationContext.getProgressiveReadingService().splitDocument(docId, 'nonlinear');
-            await this.siyuanApi.pushMsg(
-              (this.deps.i18n?.progressiveSplitNonlinearCreated || '已创建 {count} 个非线性 piece 子文档')
-                .replace('{count}', String(result.pieceDocIds.length))
-            );
-          } catch (error) {
-            logger.error('[BlockMenuHandler] Failed to create nonlinear split session:', error);
-            await this.siyuanApi.pushErrMsg(
-              (this.deps.i18n?.progressiveSplitFailed || 'Split 失败：{message}')
-                .replace('{message}', (error as Error).message)
-            );
-          }
+          await this.deps.dialogManager.openProgressiveSplitDialog(docId, 'nonlinear');
         },
       },
     ];
@@ -676,9 +659,11 @@ export class BlockMenuHandler {
     });
   }
 
-  private buildDocReviewMenuItems(docId: string, cards: FSRSCard[]): SiyuanMenuItem[] {
+  private buildDocReviewMenuItems(docId: string, scope: ReviewScopeSnapshot): SiyuanMenuItem[] {
     return [
-      ...this.buildReviewActions(cards),
+      ...this.buildReviewActions(scope.cards, {
+        scopeDocIds: scope.scopeDocIds,
+      }),
       this.separator(),
       ...this.buildConceptActions(docId),
       this.separator(),
@@ -736,14 +721,17 @@ export class BlockMenuHandler {
     ];
   }
 
-  private collectDocReviewCards(docId: string): FSRSCard[] | null {
+  private collectDocReviewScope(docId: string): ReviewScopeSnapshot | null {
     const scope = this.deps.applicationContext.getDocTreeReviewScopeService().collectDocReviewScope(docId);
     if (!scope) {
       return null;
     }
 
     const domCards = this.collectCardsFromDocumentDom(docId);
-    return this.mergeUniqueCards(scope.cards, domCards);
+    return {
+      cards: this.mergeUniqueCards(scope.cards, domCards),
+      scopeDocIds: scope.docIds,
+    };
   }
 
   private isDocumentBlockElement(element: HTMLElement, blockId: string): boolean {
@@ -762,7 +750,7 @@ export class BlockMenuHandler {
     return this.deps.applicationContext.getDocTreeReviewScopeService().hasDoc(blockId);
   }
 
-  private collectCardsFromBlockIconScope(blockElements: HTMLElement[]): FSRSCard[] | null {
+  private collectReviewScopeFromBlockIcon(blockElements: HTMLElement[]): ReviewScopeSnapshot | null {
     const rootEntries = blockElements
       .map((element) => ((element.closest('[data-node-id]') as HTMLElement) || element))
       .map((element) => ({
@@ -777,19 +765,28 @@ export class BlockMenuHandler {
 
     const docEntries = rootEntries.filter(({ element, blockId }) => this.isDocumentBlockElement(element, blockId));
     if (docEntries.length === 0 || docEntries.length !== rootEntries.length) {
-      return this.collectCardsFromElements(blockElements);
+      return {
+        cards: this.collectCardsFromElements(blockElements),
+      };
     }
 
     const groups: FSRSCard[][] = [];
+    const scopeDocIds = new Set<string>();
     for (const entry of docEntries) {
-      const cards = this.collectDocReviewCards(entry.blockId);
-      if (!cards) {
+      const scope = this.collectDocReviewScope(entry.blockId);
+      if (!scope) {
         return null;
       }
-      groups.push(cards);
+      groups.push(scope.cards);
+      for (const docId of scope.scopeDocIds ?? []) {
+        scopeDocIds.add(docId);
+      }
     }
 
-    return this.mergeUniqueCards(...groups);
+    return {
+      cards: this.mergeUniqueCards(...groups),
+      scopeDocIds: scopeDocIds.size > 0 ? Array.from(scopeDocIds) : undefined,
+    };
   }
 
   private getEventDetail<T extends object>(event: unknown): T | null {
@@ -823,8 +820,10 @@ export class BlockMenuHandler {
       return;
     }
 
-    const cards = this.collectCardsFromBlockIconScope(blockElements);
-    const reviewActions = cards ? this.buildReviewActions(cards) : this.buildReviewLoadingActions();
+    const scope = this.collectReviewScopeFromBlockIcon(blockElements);
+    const reviewActions = scope
+      ? this.buildReviewActions(scope.cards, { scopeDocIds: scope.scopeDocIds })
+      : this.buildReviewLoadingActions();
     const submenu: SiyuanMenuItem[] = [
       ...reviewActions,
       this.separator(),
@@ -939,11 +938,11 @@ export class BlockMenuHandler {
    * 为文档树生成复习菜单项（同步版本，用于事件处理）
    */
   private generateReviewMenuForDocSync(docId: string): SiyuanMenuItem[] {
-    const cardsInDocTree = this.collectDocReviewCards(docId);
-    if (!cardsInDocTree) {
+    const scope = this.collectDocReviewScope(docId);
+    if (!scope) {
       return this.buildDocLoadingMenuItems(docId);
     }
-    return this.buildDocReviewMenuItems(docId, cardsInDocTree);
+    return this.buildDocReviewMenuItems(docId, scope);
   }
 
   /**
