@@ -1,11 +1,41 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-06 (Round 42)
+Last update: 2026-04-06 (Round 45)
 
 ## 0. Task Deltas (newest first)
 
 Use this section for task-level debt tracking when a task touches production code under `src/`.
 Do not add an entry for skill-only or docs-only work.
+
+### 2026-04-06 - neural-roam virtual navigation plus associated real-card follow-ups
+
+- Task: Collapse neural roam back to a cleaner model where orbit/hyperspace only navigate virtual blocks, while exact local review cards found under the current virtual node are injected as follow-up review cards instead of being expanded into the main roam graph.
+- Touched slice: Neural navigation/query flow in `src/core/queue/neural/ConceptQueryEngine.ts` and `src/core/queue/domain/NeuralRoamQueue.ts`, with regression coverage in the corresponding neural queue/query tests and graph-provider tests.
+- Debt fixed now: Removed the old "wide expand real flashcards into main neighbors" behavior from the active roam path, split virtual navigation cards from associated real review cards at the queue boundary instead of inside review UI, and added persisted pending/seen associated-card session state so deduped follow-up reviews survive queue save/load.
+- Debt deferred: Associated real-card discovery still scans live block descendants at runtime and rebuilds pending follow-up card metadata from local storage instead of using a persisted graph/index or a richer serialized associated-card payload with full source provenance.
+- Why deferred: A persisted relation index or a broader typed neural metadata/session protocol would widen this bounded behavior reset into a larger graph-storage and review-contract redesign beyond the active-path regression.
+- Next safe step: If users want stronger control over associated-card cadence or provenance display, extract the new pending-associated-review state into an explicit neural session capability contract shared by queue, strategy, and review UI before adding more knobs.
+- Validation: `pnpm vitest run src/core/queue/neural/__tests__/ConceptQueryEngine.backlinks.test.ts src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/core/queue/neural/graph/__tests__/NeuralGraphProvider.test.ts src/core/queue/neural/hyperspace/__tests__/HyperspaceEngine.test.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`; `pnpm build`.
+
+### 2026-04-06 - neural-roam wide paragraph-node expansion and exact local node typing
+
+- Task: Fix neural-roam wrapper list items that still rendered as packaging blocks instead of expanding into paragraph flashcards, and make syntax-only paragraph nodes roam as real item nodes without incorrectly writing formal SRS reviews.
+- Touched slice: Neural queue/query typing in `src/core/queue/neural/ConceptQueryEngine.ts`, `src/core/queue/domain/NeuralRoamQueue.ts`, `src/core/queue/neural/ConceptNeuralQueue.ts`, and `src/core/queue/neural/graph/NeuralGraphProvider.ts`, plus neural queue wiring in `src/application/services/UnifiedDataSourceManager.ts` and targeted neural regression tests.
+- Debt fixed now: Split "renderable roam node" from "formal review flashcard" semantics, removed the old exact-block lookup fallback that could silently grab a parent card when a paragraph block had no exact local match, and reused one injected node-type detector across orbit and hyperspace so wrapper expansion and item/topic typing no longer diverge between engines.
+- Debt deferred: Wrapper descendant expansion still walks live SQL descendant trees plus per-node detection instead of using a persisted wrapper-to-card relation index, and the neural metadata contract still exposes only the older `isFlashcard` bit instead of a richer explicit node-capability payload.
+- Why deferred: A persisted relation index or a broader neural metadata redesign would widen this bounded bugfix into a larger graph-storage and review-render policy project beyond the active-path regression.
+- Next safe step: If neural-roam keeps needing finer distinctions between exact local cards, syntax-only roam nodes, and practice-only topic nodes, add one focused follow-up that promotes those states into a typed neural node-capability contract shared by queue, adapter, and review UI.
+- Validation: `pnpm vitest run src/core/queue/neural/__tests__/ConceptQueryEngine.backlinks.test.ts src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/core/queue/neural/graph/__tests__/NeuralGraphProvider.test.ts src/core/queue/neural/hyperspace/__tests__/HyperspaceEngine.test.ts`; `pnpm build`.
+
+### 2026-04-06 - filter-group count cache flush and neural-roam paragraph flashcard expansion
+
+- Task: Fix filter-group review-scope confirmation so the browser hierarchy queue counts stop reading stale count cache, and remove the remaining neural-roam top-level list-item constraint so paragraph flashcards under wrapper list items can roam as independent nodes instead of collapsing back to the wrapper.
+- Touched slice: Browser queue-sync payload handling in `src/ui/browser/composables/useBrowserAdapterSync.ts` and `src/ui/browser/SRSBrowser.vue`, neural neighbor expansion in `src/core/queue/neural/ConceptQueryEngine.ts`, and hyperspace graph edge classification in `src/core/queue/neural/graph/NeuralGraphProvider.ts`, plus targeted browser/neural graph regression tests.
+- Debt fixed now: Extended the browser's internal queue-change sync payload with one narrow `forceRefreshCounts` signal so targeted queue-changed events can invalidate only the affected queue-count cache, replaced the old single-choice list-item descendant resolution with full real-flashcard expansion for wrapper hits, and removed the lingering "current concept source implies concept-link" assumption from hyperspace edge classification.
+- Debt deferred: Browser queue sync still relies on loosely coupled booleans instead of one typed queue-refresh plan object, and neural-roam flashcard expansion still derives exact descendants from best-effort SQL scans rather than a persisted relation index or precomputed wrapper-to-card mapping.
+- Why deferred: A richer queue-refresh contract or persisted graph/index layer would widen this bounded bugfix across browser and neural infrastructure instead of staying on the active-path defects reported here.
+- Next safe step: If more queue surfaces need differentiated refresh semantics or if list-wrapper expansion logic keeps recurring outside neural roam, extract the new count-refresh hint and flashcard-expansion rules into explicit reusable queue/graph contracts instead of keeping them as local helper behavior.
+- Validation: `pnpm vitest run src/ui/browser/composables/__tests__/useBrowserAdapterSync.test.ts src/core/queue/neural/__tests__/ConceptQueryEngine.backlinks.test.ts src/core/queue/neural/graph/__tests__/NeuralGraphProvider.test.ts src/core/queue/neural/hyperspace/__tests__/HyperspaceEngine.test.ts src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`; `pnpm build`.
 
 ### 2026-04-06 - filter-group queue sync, unlocked review editor, and strict-card neural roam reviews
 

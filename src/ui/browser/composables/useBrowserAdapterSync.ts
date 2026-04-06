@@ -11,6 +11,7 @@ interface UseBrowserAdapterSyncOptions {
     affectedQueueTypes: QueueType[] | null;
     invalidateAllCounts: boolean;
     requiresFullRefresh: boolean;
+    forceRefreshCounts: boolean;
   }) => void;
   onModeSwitched: () => void;
 }
@@ -69,6 +70,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
           : Array.from(pendingQueueChangedTypes);
         const invalidateAllCounts = pendingQueueChangedAll || (!queueChanged && deletedIds.length > 0);
         const requiresFullRefresh = pendingQueueChangedFullRefresh;
+        const forceRefreshCounts = queueChanged;
         const modeSwitched = pendingModeSwitched;
 
         resetPendingState();
@@ -86,6 +88,7 @@ export function useBrowserAdapterSync(options: UseBrowserAdapterSyncOptions) {
             affectedQueueTypes: invalidateAllCounts ? null : affectedQueueTypes,
             invalidateAllCounts,
             requiresFullRefresh,
+            forceRefreshCounts,
           });
         }
 

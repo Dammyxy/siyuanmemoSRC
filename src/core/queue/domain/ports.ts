@@ -21,6 +21,12 @@ export interface NeuralRoamCardTypeResolverPort {
   resolveCardType(blockId: string): Promise<'item' | 'topic'>;
 }
 
+export type NeuralRoamNodeType = 'concept' | 'item' | 'topic' | 'descriptor' | 'unknown';
+
+export interface NeuralRoamNodeTypeResolverPort {
+  resolveNodeType(blockId: string): Promise<NeuralRoamNodeType>;
+}
+
 export const NOOP_QUEUE_PERSISTENCE: QueuePersistencePort = {
   get() {
     return null;

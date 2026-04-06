@@ -9,8 +9,10 @@
  */
 
 import * as api from '../../siyuan/api';
+import { detectAnswerSyntaxReasons } from '@/core/card-type/detectionRules';
 import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
+import type { NeuralRoamNodeType, NeuralRoamNodeTypeResolverPort } from '../domain/ports';
 
 const logger = createLogger('ConceptQueryEngine');
 
@@ -37,12 +39,37 @@ interface BacklinkCandidate {
   normalizedToParent: boolean;
 }
 
+interface ResolvedReviewBlockIds {
+  ids: string[];
+  hasResolvedRenderableNodes: boolean;
+}
+
+export interface ConceptQueryEngineOptions {
+  nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
+}
+
+const SYNTAX_ITEM_REASONS = new Set([
+  'separator-colon',
+  'separator-semicolon',
+  'direction-symbol',
+  'cloze-double-brace',
+  'cloze-latex-numbered',
+]);
+
+function isRenderableRoamNodeType(nodeType: NeuralRoamNodeType): boolean {
+  return nodeType === 'item' || nodeType === 'descriptor' || nodeType === 'topic';
+}
+
 export class ConceptQueryEngine {
   private readonly neighborsCache = new QueryCache<Neighbor[]>(5000, 80);
   private readonly backlinksCache = new QueryCache<string[]>(10000, 120);
   private readonly blockDataCache = new QueryCache<BlockData>(30000, 300);
+  private readonly nodeTypeCache = new QueryCache<NeuralRoamNodeType>(30000, 300);
+  private readonly formalReviewCardCache = new QueryCache<boolean>(30000, 300);
   private fsrsCardsTableAvailable: boolean | null = null;
   private hasLoggedMissingFsrsCardsTable = false;
+
+  constructor(private readonly options: ConceptQueryEngineOptions = {}) {}
 
   /**
    * 获取概念卡的所有邻居
@@ -61,26 +88,24 @@ export class ConceptQueryEngine {
       const backlinksPromise = this.fetchBacklinks(conceptId);
 
       // 并行查询所有类型（性能提升 3 倍）
-      const [backlinks, directOutgoing, indirectOutgoing, descriptors] = await Promise.all([
+      const [backlinks, directOutgoing, indirectOutgoing] = await Promise.all([
         backlinksPromise,
         this.fetchDirectOutgoingLinks(conceptId),
         backlinksPromise.then((ids) => this.fetchIndirectOutgoingLinks(conceptId, ids)),
-        this.fetchDescriptors(conceptId),
       ]);
 
-      const neighbors: Neighbor[] = [
+      const neighbors = await this.filterFormalReviewNeighbors([
         ...backlinks.map(id => ({ id, type: 'backlink' as const, weight: 15 })),
         ...directOutgoing.map(id => ({ id, type: 'outgoing-direct' as const, weight: 10 })),
         ...indirectOutgoing.map(id => ({ id, type: 'outgoing-indirect' as const, weight: 6 })),
-        ...descriptors.map(id => ({ id, type: 'descriptor' as const, weight: 3 })),
-      ];
+      ], conceptId);
 
       // 去重（同一个块可能同时是反链和正链）
       const uniqueNeighbors = this.deduplicateNeighbors(neighbors);
 
       this.neighborsCache.set(conceptId, uniqueNeighbors);
       
-      logger.log(`Found ${uniqueNeighbors.length} unique neighbors for ${conceptId} (backlinks: ${backlinks.length}, direct: ${directOutgoing.length}, indirect: ${indirectOutgoing.length}, descriptors: ${descriptors.length})`);
+      logger.log(`Found ${uniqueNeighbors.length} unique neighbors for ${conceptId} (backlinks: ${backlinks.length}, direct: ${directOutgoing.length}, indirect: ${indirectOutgoing.length})`);
       return uniqueNeighbors;
     } catch (error) {
       logger.error('Failed to fetch neighbors:', error);
@@ -413,46 +438,243 @@ export class ConceptQueryEngine {
     const seen = new Set<string>();
 
     for (const candidate of candidates) {
-      const preferredId = await this.resolvePreferredReviewBlockId(candidate);
-      if (!preferredId || seen.has(preferredId)) {
+      const normalizedId = String(candidate.normalizedId || '').trim();
+      if (!normalizedId || seen.has(normalizedId)) {
         continue;
       }
-      seen.add(preferredId);
-      ids.push(preferredId);
+      seen.add(normalizedId);
+      ids.push(normalizedId);
     }
 
     return ids;
   }
 
-  private async resolvePreferredReviewBlockId(candidate: BacklinkCandidate): Promise<string> {
-    if (!candidate.normalizedToParent && candidate.sourceType !== 'i') {
-      return candidate.normalizedId;
+  async fetchSubtreeBlockIds(blockId: string): Promise<string[]> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return [];
     }
+
+    try {
+      const rows = await api.sql(`
+        WITH RECURSIVE subtree AS (
+          SELECT id
+          FROM blocks
+          WHERE id = '${this.escapeSQL(normalizedBlockId)}'
+          UNION ALL
+          SELECT child.id
+          FROM blocks child
+          INNER JOIN subtree scope ON child.parent_id = scope.id
+        )
+        SELECT id
+        FROM subtree
+      `);
+      return this.extractIds(rows);
+    } catch (error) {
+      logger.error(`Failed to fetch subtree block ids for ${normalizedBlockId}:`, error);
+      return [normalizedBlockId];
+    }
+  }
+
+  private async filterFormalReviewNeighbors(neighbors: Neighbor[], excludeId?: string): Promise<Neighbor[]> {
+    const filtered: Neighbor[] = [];
+    for (const neighbor of neighbors) {
+      const normalizedId = String(neighbor.id || '').trim();
+      if (!normalizedId || normalizedId === excludeId) {
+        continue;
+      }
+      if (await this.isExactFormalReviewCardBlock(normalizedId)) {
+        continue;
+      }
+      filtered.push({
+        ...neighbor,
+        id: normalizedId,
+      });
+    }
+    return filtered;
+  }
+
+  private async isExactFormalReviewCardBlock(blockId: string): Promise<boolean> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return false;
+    }
+
+    const cached = this.formalReviewCardCache.get(normalizedBlockId);
+    if (cached !== null) {
+      return cached;
+    }
+
+    const resolved = await this.resolveNodeTypeFromFsrsCards(normalizedBlockId);
+    const isFormalReviewCard = resolved === 'item' || resolved === 'descriptor';
+    this.formalReviewCardCache.set(normalizedBlockId, isFormalReviewCard);
+    return isFormalReviewCard;
+  }
+
+  private async resolvePreferredReviewBlockIds(candidate: BacklinkCandidate): Promise<string[]> {
+    const preferredIds = new Set<string>();
 
     if (
       candidate.sourceId
       && candidate.sourceId !== candidate.normalizedId
-      && await this.isReviewFlashcard(candidate.sourceId)
+      && isRenderableRoamNodeType(await this.resolveNodeType(candidate.sourceId))
     ) {
-      return candidate.sourceId;
+      preferredIds.add(candidate.sourceId);
     }
 
-    if (await this.isReviewFlashcard(candidate.normalizedId)) {
-      return candidate.normalizedId;
+    const normalizedResolution = await this.resolveExpandedReviewBlockIds(candidate.normalizedId);
+    if (normalizedResolution.hasResolvedRenderableNodes) {
+      for (const id of normalizedResolution.ids) {
+        preferredIds.add(id);
+      }
     }
 
-    const normalizedBlock = await this.fetchBlockData(candidate.normalizedId);
-    if (normalizedBlock?.type !== 'i') {
-      return candidate.normalizedId;
+    if (preferredIds.size > 0) {
+      return Array.from(preferredIds);
     }
 
-    const descendantFlashcardId = await this.findUniqueListItemFlashcardDescendant(candidate.normalizedId);
-    return descendantFlashcardId ?? candidate.normalizedId;
+    return normalizedResolution.ids;
   }
 
-  private async isReviewFlashcard(blockId: string): Promise<boolean> {
+  private async findListItemDescendantBlockIds(listItemId: string): Promise<string[]> {
+    try {
+      const rows = await api.sql(`
+        WITH RECURSIVE descendants AS (
+          SELECT id
+          FROM blocks
+          WHERE parent_id = '${this.escapeSQL(listItemId)}'
+          UNION ALL
+          SELECT child.id
+          FROM blocks child
+          INNER JOIN descendants scope ON child.parent_id = scope.id
+        )
+        SELECT DISTINCT id
+        FROM descendants
+      `);
+      return this.extractIds(rows, listItemId);
+    } catch (error) {
+      logger.error(`Failed to resolve descendant block ids for list item ${listItemId}:`, error);
+      return [];
+    }
+  }
+
+  private async findListItemRenderableDescendants(listItemId: string): Promise<string[]> {
+    const descendantIds = await this.findListItemDescendantBlockIds(listItemId);
+    if (descendantIds.length === 0) {
+      return [];
+    }
+
+    const resolvedIds: string[] = [];
+    const seen = new Set<string>();
+
+    for (const descendantId of descendantIds) {
+      const resolution = await this.resolveExpandedReviewBlockIds(descendantId);
+      if (!resolution.hasResolvedRenderableNodes) {
+        continue;
+      }
+
+      for (const resolvedId of resolution.ids) {
+        if (!resolvedId || resolvedId === listItemId || seen.has(resolvedId)) {
+          continue;
+        }
+        seen.add(resolvedId);
+        resolvedIds.push(resolvedId);
+      }
+    }
+
+    return resolvedIds;
+  }
+
+  private async expandResolvedReviewBlockIds(blockIds: string[], excludeId?: string): Promise<string[]> {
+    const expandedIds: string[] = [];
+    const seen = new Set<string>();
+
+    for (const blockId of blockIds) {
+      const resolution = await this.resolveExpandedReviewBlockIds(blockId);
+      for (const resolvedId of resolution.ids) {
+        if (!resolvedId || resolvedId === excludeId || seen.has(resolvedId)) {
+          continue;
+        }
+        seen.add(resolvedId);
+        expandedIds.push(resolvedId);
+      }
+    }
+
+    return expandedIds;
+  }
+
+  private async resolveExpandedReviewBlockIds(blockId: string): Promise<ResolvedReviewBlockIds> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return {
+        ids: [],
+        hasResolvedRenderableNodes: false,
+      };
+    }
+
+    const blockData = await this.fetchBlockData(normalizedBlockId);
+    if (blockData?.type === 'i') {
+      const descendantIds = await this.findListItemRenderableDescendants(normalizedBlockId);
+      if (descendantIds.length > 0) {
+        return {
+          ids: descendantIds,
+          hasResolvedRenderableNodes: true,
+        };
+      }
+    }
+
+    if (isRenderableRoamNodeType(await this.resolveNodeType(normalizedBlockId))) {
+      return {
+        ids: [normalizedBlockId],
+        hasResolvedRenderableNodes: true,
+      };
+    }
+
+    return {
+      ids: [normalizedBlockId],
+      hasResolvedRenderableNodes: false,
+    };
+  }
+
+  private async resolveNodeType(blockId: string): Promise<NeuralRoamNodeType> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return 'unknown';
+    }
+
+    const cached = this.nodeTypeCache.get(normalizedBlockId);
+    if (cached !== null) {
+      return cached;
+    }
+
+    let resolvedType = await this.resolveNodeTypeFromResolver(normalizedBlockId);
+    if (resolvedType === 'unknown') {
+      resolvedType = await this.resolveNodeTypeFromFsrsCards(normalizedBlockId);
+    }
+    if (resolvedType === 'unknown') {
+      resolvedType = await this.resolveNodeTypeFromSyntax(normalizedBlockId);
+    }
+
+    this.nodeTypeCache.set(normalizedBlockId, resolvedType);
+    return resolvedType;
+  }
+
+  private async resolveNodeTypeFromResolver(blockId: string): Promise<NeuralRoamNodeType> {
+    if (!this.options.nodeTypeResolver) {
+      return 'unknown';
+    }
+
+    try {
+      return await this.options.nodeTypeResolver.resolveNodeType(blockId);
+    } catch (error) {
+      logger.warn(`Failed to resolve roam node type via injected resolver for ${blockId}:`, error);
+      return 'unknown';
+    }
+  }
+
+  private async resolveNodeTypeFromFsrsCards(blockId: string): Promise<NeuralRoamNodeType> {
     if (this.fsrsCardsTableAvailable === false) {
-      return false;
+      return 'unknown';
     }
 
     try {
@@ -465,67 +687,55 @@ export class ConceptQueryEngine {
       this.fsrsCardsTableAvailable = true;
 
       if (!Array.isArray(rows) || rows.length === 0) {
-        return false;
+        return 'unknown';
       }
 
       const row = rows[0] as UnknownRecord;
       const type = typeof row.type === 'string' ? row.type : '';
       const marker = typeof row.card_type_marker === 'string' ? row.card_type_marker : '';
-      return type !== 'concept'
-        && type !== 'topic'
-        && marker !== 'concept';
+
+      if (type === 'concept' || marker === 'concept') {
+        return 'concept';
+      }
+      if (type === 'descriptor' || marker === 'descriptor') {
+        return 'descriptor';
+      }
+      if (type === 'topic') {
+        return 'topic';
+      }
+      if (type.length > 0) {
+        return 'item';
+      }
+
+      return 'unknown';
     } catch (error) {
       if (this.isMissingFsrsCardsTableError(error)) {
         this.fsrsCardsTableAvailable = false;
         if (!this.hasLoggedMissingFsrsCardsTable) {
           this.hasLoggedMissingFsrsCardsTable = true;
-          logger.warn('fsrs_cards table not found; flashcard SQL checks will return false in this environment');
+          logger.warn('fsrs_cards table not found; local roam-node SQL checks will fall back to syntax detection in this environment');
         }
-        return false;
+        return 'unknown';
       }
-      logger.error(`Failed to resolve flashcard status for block ${blockId}:`, error);
-      return false;
+      logger.error(`Failed to resolve local roam node type for block ${blockId}:`, error);
+      return 'unknown';
     }
   }
 
-  private async findUniqueListItemFlashcardDescendant(listItemId: string): Promise<string | null> {
-    if (this.fsrsCardsTableAvailable === false) {
-      return null;
+  private async resolveNodeTypeFromSyntax(blockId: string): Promise<NeuralRoamNodeType> {
+    const blockData = await this.fetchBlockData(blockId);
+    if (!blockData) {
+      return 'unknown';
     }
 
-    try {
-      const rows = await api.sql(`
-        WITH RECURSIVE descendants AS (
-          SELECT id
-          FROM blocks
-          WHERE parent_id = '${this.escapeSQL(listItemId)}'
-          UNION ALL
-          SELECT child.id
-          FROM blocks child
-          INNER JOIN descendants scope ON child.parent_id = scope.id
-        )
-        SELECT DISTINCT fc.block_id AS id
-        FROM fsrs_cards fc
-        WHERE fc.block_id IN (SELECT id FROM descendants)
-          AND COALESCE(fc.type, '') NOT IN ('concept', 'topic')
-          AND COALESCE(fc.card_type_marker, '') != 'concept'
-      `);
-      this.fsrsCardsTableAvailable = true;
-
-      const descendantIds = this.extractIds(rows, listItemId);
-      return descendantIds.length === 1 ? descendantIds[0] ?? null : null;
-    } catch (error) {
-      if (this.isMissingFsrsCardsTableError(error)) {
-        this.fsrsCardsTableAvailable = false;
-        if (!this.hasLoggedMissingFsrsCardsTable) {
-          this.hasLoggedMissingFsrsCardsTable = true;
-          logger.warn('fsrs_cards table not found; descendant flashcard resolution will be skipped in this environment');
-        }
-        return null;
-      }
-      logger.error(`Failed to resolve descendant flashcards for list item ${listItemId}:`, error);
-      return null;
+    if (blockData.type === 'd') {
+      return 'topic';
     }
+
+    const syntaxReasons = detectAnswerSyntaxReasons('', blockData.content, 'extended');
+    return syntaxReasons.some((reason) => SYNTAX_ITEM_REASONS.has(reason))
+      ? 'item'
+      : 'unknown';
   }
 
   /**

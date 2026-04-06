@@ -59,9 +59,11 @@ describe('useBrowserAdapterSync queue-changed aggregation', () => {
       affectedQueueTypes: QueueType[] | null;
       invalidateAllCounts: boolean;
       requiresFullRefresh: boolean;
+      forceRefreshCounts: boolean;
     };
     expect(arg.invalidateAllCounts).toBe(false);
     expect(arg.requiresFullRefresh).toBe(false);
+    expect(arg.forceRefreshCounts).toBe(true);
     expect(arg.affectedQueueTypes).not.toBeNull();
     expect(new Set(arg.affectedQueueTypes ?? [])).toEqual(new Set([QueueType.RetrievalPractice, QueueType.FinalDrill]));
 
@@ -102,6 +104,7 @@ describe('useBrowserAdapterSync queue-changed aggregation', () => {
       affectedQueueTypes: null,
       invalidateAllCounts: true,
       requiresFullRefresh: false,
+      forceRefreshCounts: true,
     });
 
     destroyBrowserAdapter();
@@ -143,6 +146,7 @@ describe('useBrowserAdapterSync queue-changed aggregation', () => {
       affectedQueueTypes: [QueueType.FilterGroup, QueueType.FinalDrill],
       invalidateAllCounts: false,
       requiresFullRefresh: true,
+      forceRefreshCounts: true,
     });
 
     destroyBrowserAdapter();

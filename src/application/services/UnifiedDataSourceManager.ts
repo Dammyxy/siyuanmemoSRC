@@ -18,7 +18,7 @@ import {
     CardFilter,
     QueueError,
 } from '@/types/unified-data-source';
-import { FSRSCard } from '@/types/card';
+import type { FSRSCard } from '@/types/card';
 // ✅ DDD 架构：UnifiedDataSourceManager（应用层）直接创建队列，不依赖 QueueFactory（基础设施层）
 import { RetrievalPracticeQueue } from '@/core/queue/domain/RetrievalPracticeQueue';
 import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearningQueue';
@@ -28,7 +28,11 @@ import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import type { QueueInitialLoadAware, QueueSchedulerPort } from '@/core/queue/managers/UnifiedDataSourceManager';
-import type { AutoFailedCardSinkPort, QueuePersistencePort } from '@/core/queue/domain/ports';
+import type {
+    AutoFailedCardSinkPort,
+    NeuralRoamNodeType,
+    QueuePersistencePort,
+} from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
 import type { HyperspaceSettings } from '@/types/settings';
 
@@ -36,6 +40,9 @@ const logger = createLogger('UnifiedDataSourceManager');
 
 interface UnifiedManagerPluginContextLike {
     getScheduler?: () => unknown;
+    getCardTypeDetectionService?: () => {
+        detectCardType?: (blockId: string) => Promise<'item' | 'topic'>;
+    } | null | undefined;
     getSettingsService?: () => {
         getSettings?: () => {
             fsrs?: { dayStartHour?: unknown };
@@ -773,6 +780,9 @@ export class UnifiedDataSourceManager {
                     cardTypeResolver: {
                         resolveCardType: async (blockId: string) => this.resolveNeuralRoamCardTypeFromLocalCard(blockId),
                     },
+                    nodeTypeResolver: {
+                        resolveNodeType: async (blockId: string) => this.resolveNeuralRoamNodeType(blockId),
+                    },
                     getHistoryLimit: () => this.getNeuralRoamHistoryMaxEntries(),
                     getHyperspaceSettings: () => this.getNeuralRoamHyperspaceSettings(),
                 });
@@ -788,37 +798,72 @@ export class UnifiedDataSourceManager {
     }
 
     private async resolveNeuralRoamCardTypeFromLocalCard(blockId: string): Promise<'item' | 'topic'> {
+        const nodeType = await this.resolveNeuralRoamNodeType(blockId);
+        return nodeType === 'item' || nodeType === 'descriptor'
+            ? 'item'
+            : 'topic';
+    }
+
+    private async resolveNeuralRoamNodeType(blockId: string): Promise<NeuralRoamNodeType> {
         const normalizedBlockId = String(blockId || '').trim();
         if (!normalizedBlockId) {
+            return 'unknown';
+        }
+
+        try {
+            const localCard = await this.findExactLocalCardByBlockId(normalizedBlockId);
+            if (localCard) {
+                return this.mapLocalCardToNeuralRoamNodeType(localCard);
+            }
+
+            const detected = await this.resolveDetectedNeuralRoamCardType(normalizedBlockId);
+            if (detected === 'item') {
+                return 'item';
+            }
+
+            return 'topic';
+        } catch (error) {
+            logger.warn(`Failed to resolve neural roam node type from local card ${normalizedBlockId}:`, error);
+            return 'unknown';
+        }
+    }
+
+    private async findExactLocalCardByBlockId(blockId: string): Promise<FSRSCard | null> {
+        const cards = await this.getCards({
+            blockIds: [blockId],
+        });
+        return cards.find((card) => card.blockId === blockId) ?? null;
+    }
+
+    private mapLocalCardToNeuralRoamNodeType(card: FSRSCard): NeuralRoamNodeType {
+        const marker = typeof card.cardTypeMarker === 'string' ? card.cardTypeMarker : '';
+        const metaMarker = typeof (card.meta as { cardTypeMarker?: unknown } | undefined)?.cardTypeMarker === 'string'
+            ? String((card.meta as { cardTypeMarker?: string }).cardTypeMarker)
+            : '';
+
+        if (card.type === 'concept' || marker === 'concept' || metaMarker === 'concept') {
+            return 'concept';
+        }
+        if (card.type === 'descriptor' || marker === 'descriptor' || metaMarker === 'descriptor') {
+            return 'descriptor';
+        }
+        if (card.type === 'topic') {
+            return 'topic';
+        }
+        return 'item';
+    }
+
+    private async resolveDetectedNeuralRoamCardType(blockId: string): Promise<'item' | 'topic'> {
+        const plugin = this.resolvePlugin();
+        const service = plugin?.getContext?.()?.getCardTypeDetectionService?.();
+        if (!service || typeof service.detectCardType !== 'function') {
             return 'topic';
         }
 
         try {
-            const cards = await this.getCards({
-                blockIds: [normalizedBlockId],
-            });
-            const localCard = cards.find((card) => card.blockId === normalizedBlockId) ?? cards[0] ?? null;
-            if (!localCard) {
-                return 'topic';
-            }
-
-            const marker = typeof localCard.cardTypeMarker === 'string' ? localCard.cardTypeMarker : '';
-            const metaMarker = typeof (localCard.meta as { cardTypeMarker?: unknown } | undefined)?.cardTypeMarker === 'string'
-                ? String((localCard.meta as { cardTypeMarker?: string }).cardTypeMarker)
-                : '';
-
-            if (
-                localCard.type === 'topic'
-                || localCard.type === 'concept'
-                || marker === 'concept'
-                || metaMarker === 'concept'
-            ) {
-                return 'topic';
-            }
-
-            return 'item';
+            return await service.detectCardType(blockId);
         } catch (error) {
-            logger.warn(`Failed to resolve neural roam card type from local card ${normalizedBlockId}:`, error);
+            logger.warn(`Failed to detect neural roam card type for ${blockId}:`, error);
             return 'topic';
         }
     }

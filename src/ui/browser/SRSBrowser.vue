@@ -3054,16 +3054,17 @@ const {
   manager: pluginUnifiedDataSourceManager,
   onCardUpdated: handleCardUpdatedIncremental,
   onCardDeleted: handleCardDeletedIncremental,
-  onQueueChanged: ({ affectedQueueTypes, invalidateAllCounts, requiresFullRefresh }) => {
+  onQueueChanged: ({ affectedQueueTypes, invalidateAllCounts, requiresFullRefresh, forceRefreshCounts }) => {
     logger.info('[SiYuanMemo][SRSBrowser] Refreshing queue counts due to queue changes', {
       affectedQueueTypes: affectedQueueTypes ?? 'all',
       invalidateAllCounts,
       requiresFullRefresh,
+      forceRefreshCounts,
       activeQueueId: activeQueueId.value,
       activeQueueType: activeQueueTypeForRefresh.value,
     });
     void refreshQueueCounts({
-      forceRefresh: invalidateAllCounts,
+      forceRefresh: invalidateAllCounts || forceRefreshCounts,
       affectedQueueTypes,
     });
 

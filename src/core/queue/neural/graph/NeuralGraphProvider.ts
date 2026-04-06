@@ -141,19 +141,35 @@ function resolveNeighborOrigin(type: 'backlink' | 'outgoing-direct' | 'outgoing-
 }
 
 export class NeuralGraphProvider {
-  private readonly queryEngine = new ConceptQueryEngine();
+  private readonly queryEngine: ConceptQueryEngine;
   private readonly blockTreeCache = new Map<string, NeuralGraphEdge[]>();
   private readonly documentTreeCache = new Map<string, NeuralGraphEdge[]>();
   private readonly nodePriorityCache = new Map<string, number | null>();
+  private readonly nodeConceptCache = new Map<string, boolean>();
   private readonly documentMetaCache = new Map<string, DocumentMeta | null>();
   private readonly blockRowCache = new Map<string, BlockRow | null>();
+
+  constructor(queryEngine?: ConceptQueryEngine) {
+    this.queryEngine = queryEngine ?? new ConceptQueryEngine();
+  }
 
   async fetchBlockData(nodeId: string): Promise<BlockData | null> {
     return this.queryEngine.fetchBlockData(nodeId);
   }
 
   async isConceptCard(nodeId: string): Promise<boolean> {
-    return this.queryEngine.isConceptCard(nodeId);
+    const normalizedNodeId = String(nodeId || '').trim();
+    if (!normalizedNodeId) {
+      return false;
+    }
+
+    if (this.nodeConceptCache.has(normalizedNodeId)) {
+      return this.nodeConceptCache.get(normalizedNodeId) ?? false;
+    }
+
+    const isConcept = await this.queryEngine.isConceptCard(normalizedNodeId);
+    this.nodeConceptCache.set(normalizedNodeId, isConcept);
+    return isConcept;
   }
 
   async fetchEdges(nodeId: string): Promise<NeuralGraphEdge[]> {
@@ -426,13 +442,13 @@ export class NeuralGraphProvider {
       };
     }
 
-    const [currentIsConcept, sourcePriority, neighbors] = await Promise.all([
-      this.isConceptCard(normalizedNodeId),
+    const [sourcePriority, neighbors] = await Promise.all([
       this.fetchNodePriority(normalizedNodeId),
       this.queryEngine.fetchNeighbors(normalizedNodeId),
     ]);
 
     const targetPriorityPromises = new Map<string, Promise<number | null>>();
+    const targetConceptPromises = new Map<string, Promise<boolean>>();
     const rootIdPromises = new Map<string, Promise<string | null>>();
 
     const getTargetPriority = (targetNodeId: string): Promise<number | null> => {
@@ -463,36 +479,43 @@ export class NeuralGraphProvider {
       return promise;
     };
 
-    const conceptNeighbors = currentIsConcept
-      ? neighbors.filter((neighbor) => neighbor.type !== 'descriptor')
-      : [];
-    const elementNeighbors = neighbors.filter((neighbor) => !currentIsConcept || neighbor.type === 'descriptor');
+    const getTargetIsConcept = (targetNodeId: string): Promise<boolean> => {
+      const normalizedTargetId = String(targetNodeId || '').trim();
+      if (!normalizedTargetId) {
+        return Promise.resolve(false);
+      }
+      const existing = targetConceptPromises.get(normalizedTargetId);
+      if (existing) {
+        return existing;
+      }
+      const promise = this.isConceptCard(normalizedTargetId);
+      targetConceptPromises.set(normalizedTargetId, promise);
+      return promise;
+    };
 
-    const conceptMapEdges = await Promise.all(
-      conceptNeighbors.map(async (neighbor) => ({
-        nodeId: neighbor.id,
-        associationType: 'concept-link' as const,
-        weight: neighbor.weight,
-        channel: 'concept-map' as const,
-        origin: resolveNeighborOrigin(neighbor.type),
-        sourcePriority,
-        targetPriority: await getTargetPriority(neighbor.id),
-        rootId: await getRootId(neighbor.id),
-      }))
+    const edges = await Promise.all(
+      neighbors.map(async (neighbor) => {
+        const associationType = neighbor.type === 'descriptor'
+          ? 'descriptor' as const
+          : await getTargetIsConcept(neighbor.id)
+            ? 'concept-link' as const
+            : 'element-link' as const;
+
+        return {
+          nodeId: neighbor.id,
+          associationType,
+          weight: neighbor.weight,
+          channel: associationType === 'concept-link' ? 'concept-map' as const : 'element-link' as const,
+          origin: resolveNeighborOrigin(neighbor.type),
+          sourcePriority,
+          targetPriority: await getTargetPriority(neighbor.id),
+          rootId: await getRootId(neighbor.id),
+        } satisfies NeuralGraphEdge;
+      }),
     );
 
-    const elementLinkEdges = await Promise.all(
-      elementNeighbors.map(async (neighbor) => ({
-        nodeId: neighbor.id,
-        associationType: neighbor.type === 'descriptor' ? 'descriptor' as const : 'element-link' as const,
-        weight: neighbor.weight,
-        channel: 'element-link' as const,
-        origin: resolveNeighborOrigin(neighbor.type),
-        sourcePriority,
-        targetPriority: await getTargetPriority(neighbor.id),
-        rootId: await getRootId(neighbor.id),
-      }))
-    );
+    const conceptMapEdges = edges.filter((edge) => edge.channel === 'concept-map');
+    const elementLinkEdges = edges.filter((edge) => edge.channel === 'element-link');
 
     return {
       conceptMapEdges,

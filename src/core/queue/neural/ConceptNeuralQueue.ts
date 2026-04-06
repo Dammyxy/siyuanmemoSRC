@@ -127,6 +127,7 @@ export type ConceptCardValidator = (blockId: string) => Promise<boolean>;
 export interface ConceptNeuralQueueOptions {
   isConceptCard?: ConceptCardValidator;
   getHistoryLimit?: () => number;
+  queryEngine?: ConceptQueryEngine;
 }
 
 export type SeedValidationErrorPolicy = 'remove' | 'keep';
@@ -211,7 +212,7 @@ export class ConceptNeuralQueue {
   private readonly historyStore: NeuralHistoryStore;
 
   constructor(options: ConceptNeuralQueueOptions = {}) {
-    this.queryEngine = new ConceptQueryEngine();
+    this.queryEngine = options.queryEngine ?? new ConceptQueryEngine();
     this.conceptCardValidator = options.isConceptCard ?? (async (blockId: string) => this.queryEngine.isConceptCard(blockId));
     this.getHistoryLimit = options.getHistoryLimit ?? (() => 3000);
     this.historyStore = new NeuralHistoryStore(this.resolveHistoryLimit());

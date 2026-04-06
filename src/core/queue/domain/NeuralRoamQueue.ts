@@ -22,7 +22,11 @@ import {
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem as ReviewQueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
-import type { NeuralRoamCardTypeResolverPort, QueuePersistencePort } from './ports';
+import type {
+  NeuralRoamCardTypeResolverPort,
+  NeuralRoamNodeTypeResolverPort,
+  QueuePersistencePort,
+} from './ports';
 import { loadQueueState, saveQueueState } from './queuePersistence';
 import {
   ConceptNeuralQueue,
@@ -30,12 +34,14 @@ import {
   type FocusPoolPersistedEntry,
   type QueueItem as ConceptQueueItem,
 } from '../neural/ConceptNeuralQueue';
+import { ConceptQueryEngine } from '../neural/ConceptQueryEngine';
 import {
   HyperspaceEngine,
   type QueueItem as HyperspaceQueueItem,
   type HyperspacePersistedEntry,
   type HyperspaceSessionState,
 } from '../neural/hyperspace/HyperspaceEngine';
+import { NeuralGraphProvider } from '../neural/graph/NeuralGraphProvider';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { createLogger } from '@/utils/logger';
 import type { HyperspaceSettings } from '@/types/settings';
@@ -83,8 +89,26 @@ interface NeuralRoamPersistedStateV7 {
   };
 }
 
+interface NeuralRoamPersistedStateV8 {
+  version: 8;
+  engineMode: NeuralEngineMode;
+  orbit: {
+    seedPool: FocusPoolPersistedEntry[];
+    anchorPool: FocusPoolPersistedEntry[];
+    session: ConceptNeuralSessionState;
+  };
+  hyperspace: {
+    sourcePool: HyperspacePersistedEntry[];
+    anchorPool: HyperspacePersistedEntry[];
+    session: HyperspaceSessionState;
+  };
+  pendingAssociatedReviewCardIds: string[];
+  seenAssociatedReviewCardIds: string[];
+}
+
 interface NeuralRoamQueueOptions {
   cardTypeResolver?: NeuralRoamCardTypeResolverPort;
+  nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
   getHistoryLimit?: () => number;
   getHyperspaceSettings?: () => HyperspaceSettings;
 }
@@ -98,6 +122,11 @@ type CachedCardType = {
 type CachedLocalCard = {
   value: FSRSCard;
   expiresAt: number;
+};
+
+type AssociatedReviewSource = {
+  sourceVirtualNodeId?: string | null;
+  sourceVirtualReason?: string | null;
 };
 
 const DEFAULT_CARD_TYPE_RESOLVER: NeuralRoamCardTypeResolverPort = {
@@ -162,6 +191,24 @@ function isNeuralRoamPersistedStateV7(value: unknown): value is NeuralRoamPersis
     && Array.isArray((value.hyperspace as Record<string, unknown>).sourcePool)
     && Array.isArray((value.hyperspace as Record<string, unknown>).anchorPool)
     && isRecord((value.hyperspace as Record<string, unknown>).session);
+}
+
+function isNeuralRoamPersistedStateV8(value: unknown): value is NeuralRoamPersistedStateV8 {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Number(value.version) === 8
+    && (value.engineMode === 'orbit' || value.engineMode === 'hyperspace')
+    && isRecord(value.orbit)
+    && Array.isArray((value.orbit as Record<string, unknown>).seedPool)
+    && Array.isArray((value.orbit as Record<string, unknown>).anchorPool)
+    && isRecord((value.orbit as Record<string, unknown>).session)
+    && isRecord(value.hyperspace)
+    && Array.isArray((value.hyperspace as Record<string, unknown>).sourcePool)
+    && Array.isArray((value.hyperspace as Record<string, unknown>).anchorPool)
+    && isRecord((value.hyperspace as Record<string, unknown>).session)
+    && Array.isArray((value as Record<string, unknown>).pendingAssociatedReviewCardIds)
+    && Array.isArray((value as Record<string, unknown>).seenAssociatedReviewCardIds);
 }
 
 function mergeLegacyFocusPool(
@@ -230,11 +277,13 @@ function splitFocusPoolToSeedAndAnchor(
 export class NeuralRoamQueue extends BaseReviewQueue {
   public name = 'NeuralRoamQueue';
 
+  private readonly queryEngine: ConceptQueryEngine;
   private readonly conceptQueue: ConceptNeuralQueue;
   private readonly hyperspaceEngine: HyperspaceEngine;
   private readonly STORAGE_KEY = 'neuralRoamQueue';
   private readonly queuePersistence: QueuePersistencePort;
   private readonly cardTypeResolver: NeuralRoamCardTypeResolverPort;
+  private readonly nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
   private readonly getHistoryLimit?: () => number;
   private readonly getHyperspaceSettings?: () => HyperspaceSettings;
   private readonly cardTypeCache = new Map<string, CachedCardType>();
@@ -244,6 +293,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   private readonly localCardCacheTtlMs = 60_000;
   private readonly maxLocalCardCacheSize = 256;
   private engineMode: NeuralEngineMode = 'orbit';
+  private pendingAssociatedReviewCards: FSRSCard[] = [];
+  private readonly seenAssociatedReviewCardIds = new Set<string>();
 
   constructor(
     manager: UnifiedDataSourceManager,
@@ -253,9 +304,14 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     super(manager, QueueType.NeuralRoam);
     this.queuePersistence = queuePersistence;
     this.cardTypeResolver = options.cardTypeResolver ?? DEFAULT_CARD_TYPE_RESOLVER;
+    this.nodeTypeResolver = options.nodeTypeResolver;
     this.getHistoryLimit = options.getHistoryLimit;
     this.getHyperspaceSettings = options.getHyperspaceSettings;
+    this.queryEngine = new ConceptQueryEngine({
+      nodeTypeResolver: this.nodeTypeResolver,
+    });
     this.conceptQueue = new ConceptNeuralQueue({
+      queryEngine: this.queryEngine,
       isConceptCard: async (blockId: string) => {
         const conceptStatus = await this.resolveConceptStatusFromLocalCards(blockId);
         if (conceptStatus === 'unknown') {
@@ -265,7 +321,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       },
       getHistoryLimit: this.getHistoryLimit,
     });
-    this.hyperspaceEngine = new HyperspaceEngine(undefined, {
+    this.hyperspaceEngine = new HyperspaceEngine(new NeuralGraphProvider(this.queryEngine), {
       getHistoryLimit: this.getHistoryLimit,
       getSettings: this.getHyperspaceSettings,
     });
@@ -378,7 +434,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
     let persistRequired = false;
 
-    if (isNeuralRoamPersistedStateV7(rawState)) {
+    if (isNeuralRoamPersistedStateV8(rawState)) {
       this.engineMode = rawState.engineMode;
       this.conceptQueue.restoreSeedPoolState(rawState.orbit.seedPool);
       this.conceptQueue.restoreAnchorPoolState(rawState.orbit.anchorPool);
@@ -386,8 +442,26 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       this.hyperspaceEngine.restoreSourcePoolState(rawState.hyperspace.sourcePool);
       this.hyperspaceEngine.restoreAnchorPoolState(rawState.hyperspace.anchorPool);
       this.hyperspaceEngine.restoreSessionState(rawState.hyperspace.session);
+      const associatedChanged = await this.restoreAssociatedReviewState(
+        rawState.pendingAssociatedReviewCardIds,
+        rawState.seenAssociatedReviewCardIds,
+      );
+      persistRequired = associatedChanged;
       if (fromStorage) {
-        logger.info(`Loaded neural roam state (v7), engineMode=${this.engineMode}`);
+        logger.info(`Loaded neural roam state (v8), engineMode=${this.engineMode}`);
+      }
+    } else if (isNeuralRoamPersistedStateV7(rawState)) {
+      this.engineMode = rawState.engineMode;
+      this.conceptQueue.restoreSeedPoolState(rawState.orbit.seedPool);
+      this.conceptQueue.restoreAnchorPoolState(rawState.orbit.anchorPool);
+      this.conceptQueue.restoreSessionState(rawState.orbit.session);
+      this.hyperspaceEngine.restoreSourcePoolState(rawState.hyperspace.sourcePool);
+      this.hyperspaceEngine.restoreAnchorPoolState(rawState.hyperspace.anchorPool);
+      this.hyperspaceEngine.restoreSessionState(rawState.hyperspace.session);
+      this.resetAssociatedReviewState();
+      persistRequired = true;
+      if (fromStorage) {
+        logger.info(`Migrated neural roam state v7->v8, engineMode=${this.engineMode}`);
       }
     } else if (isNeuralRoamPersistedStateV6(rawState)) {
       this.engineMode = 'orbit';
@@ -395,11 +469,12 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       this.conceptQueue.restoreAnchorPoolState(rawState.anchorPool);
       this.conceptQueue.restoreSessionState(rawState.session);
       if (fromStorage) {
-        logger.info(`Migrated neural roam state v6->v7, seedPool=${rawState.seedPool.length}, anchorPool=${rawState.anchorPool.length}`);
+        logger.info(`Migrated neural roam state v6->v8, seedPool=${rawState.seedPool.length}, anchorPool=${rawState.anchorPool.length}`);
       }
       this.hyperspaceEngine.restoreSourcePoolState([]);
       this.hyperspaceEngine.restoreAnchorPoolState([]);
       this.hyperspaceEngine.restoreSessionState(null);
+      this.resetAssociatedReviewState();
       persistRequired = true;
     } else if (isNeuralRoamPersistedStateV5(rawState)) {
       this.engineMode = 'orbit';
@@ -407,11 +482,12 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       this.conceptQueue.restoreAnchorPoolState(rawState.anchorPool);
       this.conceptQueue.restoreSessionState(rawState.session);
       if (fromStorage) {
-        logger.info(`Migrated neural roam state v5->v7, seedPool=${rawState.seedPool.length}, anchorPool=${rawState.anchorPool.length}`);
+        logger.info(`Migrated neural roam state v5->v8, seedPool=${rawState.seedPool.length}, anchorPool=${rawState.anchorPool.length}`);
       }
       this.hyperspaceEngine.restoreSourcePoolState([]);
       this.hyperspaceEngine.restoreAnchorPoolState([]);
       this.hyperspaceEngine.restoreSessionState(null);
+      this.resetAssociatedReviewState();
       persistRequired = true;
     } else if (isNeuralRoamPersistedStateV4(rawState)) {
       this.engineMode = 'orbit';
@@ -424,11 +500,12 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         anchorPool,
       });
       if (fromStorage) {
-        logger.info(`Migrated neural roam state v4->v7, seedPool=${seedPool.length}, anchorPool=${anchorPool.length}`);
+        logger.info(`Migrated neural roam state v4->v8, seedPool=${seedPool.length}, anchorPool=${anchorPool.length}`);
       }
       this.hyperspaceEngine.restoreSourcePoolState([]);
       this.hyperspaceEngine.restoreAnchorPoolState([]);
       this.hyperspaceEngine.restoreSessionState(null);
+      this.resetAssociatedReviewState();
       persistRequired = true;
     } else if (isNeuralRoamPersistedStateV3(rawState)) {
       this.engineMode = 'orbit';
@@ -442,14 +519,15 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         anchorPool,
       });
       if (fromStorage) {
-        logger.info(`Migrated neural roam state v3->v7, seedPool=${seedPool.length}, anchorPool=${anchorPool.length}`);
+        logger.info(`Migrated neural roam state v3->v8, seedPool=${seedPool.length}, anchorPool=${anchorPool.length}`);
       }
       this.hyperspaceEngine.restoreSourcePoolState([]);
       this.hyperspaceEngine.restoreAnchorPoolState([]);
       this.hyperspaceEngine.restoreSessionState(null);
+      this.resetAssociatedReviewState();
       persistRequired = true;
     } else {
-      logger.info('Legacy neural roam state detected, reset to v7 schema');
+      logger.info('Legacy neural roam state detected, reset to v8 schema');
       this.engineMode = 'orbit';
       this.conceptQueue.restoreSeedPoolState([]);
       this.conceptQueue.restoreAnchorPoolState([]);
@@ -458,6 +536,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       this.hyperspaceEngine.restoreSourcePoolState([]);
       this.hyperspaceEngine.restoreAnchorPoolState([]);
       this.hyperspaceEngine.restoreSessionState(null);
+      this.resetAssociatedReviewState();
       persistRequired = true;
     }
 
@@ -477,8 +556,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   }
 
   async save(): Promise<void> {
-    const data: NeuralRoamPersistedStateV7 = {
-      version: 7,
+    const data: NeuralRoamPersistedStateV8 = {
+      version: 8,
       engineMode: this.engineMode,
       orbit: {
         seedPool: this.conceptQueue.exportSeedPoolState(),
@@ -490,6 +569,10 @@ export class NeuralRoamQueue extends BaseReviewQueue {
         anchorPool: this.hyperspaceEngine.exportAnchorPoolState(),
         session: this.hyperspaceEngine.exportSessionState(),
       },
+      pendingAssociatedReviewCardIds: this.pendingAssociatedReviewCards
+        .map((card) => String(card.blockId || '').trim())
+        .filter((blockId) => blockId.length > 0),
+      seenAssociatedReviewCardIds: Array.from(this.seenAssociatedReviewCardIds.values()),
     };
 
     await saveQueueState({
@@ -602,10 +685,19 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async getNextCard(): Promise<FSRSCard | null> {
     await this.ensureInitialLoad();
+    const pendingAssociatedCard = this.dequeuePendingAssociatedReviewCard();
+    if (pendingAssociatedCard) {
+      void this.save().catch((error) => {
+        logger.warn('Failed to persist neural roam session after draining associated review buffer:', error);
+      });
+      return pendingAssociatedCard;
+    }
+
     const queueItem = await this.getActiveEngine().getNextCard();
     if (!queueItem) {
       return null;
     }
+    await this.enqueueAssociatedReviewCards(queueItem.blockId, queueItem.reason);
     void this.save().catch((error) => {
       logger.warn('Failed to persist neural roam session after getNextCard:', error);
     });
@@ -644,6 +736,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public clearHistory(scope: 'current' | 'all' = 'current'): void {
     this.getActiveEngine().clearHistory(scope);
+    this.resetAssociatedReviewState();
     void this.save().catch((error) => {
       logger.warn('Failed to persist neural roam state after clearHistory:', error);
     });
@@ -670,6 +763,8 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     if (mode === this.engineMode) {
       return;
     }
+
+    this.clearPendingAssociatedReviewCards();
 
     const carryCurrentNode = options.carryCurrentNode !== false;
     const previousMode = this.engineMode;
@@ -759,6 +854,145 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
     const latest = this.conceptQueue.getHistoryPage({ offset: 0, limit: 1 }).entries[0];
     return latest?.nodeId === normalized && latest.activationKind === 'focus-root';
+  }
+
+  private dequeuePendingAssociatedReviewCard(): FSRSCard | null {
+    const card = this.pendingAssociatedReviewCards.shift() ?? null;
+    if (card) {
+      this.clearSizeCache();
+    }
+    return card;
+  }
+
+  private clearPendingAssociatedReviewCards(): void {
+    if (this.pendingAssociatedReviewCards.length === 0) {
+      return;
+    }
+    this.pendingAssociatedReviewCards = [];
+    this.clearSizeCache();
+  }
+
+  private resetAssociatedReviewState(): void {
+    this.pendingAssociatedReviewCards = [];
+    this.seenAssociatedReviewCardIds.clear();
+    this.clearSizeCache();
+  }
+
+  private async enqueueAssociatedReviewCards(sourceBlockId: string, sourceReason: string): Promise<void> {
+    const associatedCards = await this.resolveAssociatedReviewCards(sourceBlockId, {
+      sourceVirtualNodeId: sourceBlockId,
+      sourceVirtualReason: sourceReason,
+    });
+
+    if (associatedCards.length === 0) {
+      return;
+    }
+
+    this.pendingAssociatedReviewCards.push(...associatedCards);
+    this.clearSizeCache();
+  }
+
+  private async resolveAssociatedReviewCards(
+    sourceBlockId: string,
+    source: AssociatedReviewSource = {},
+  ): Promise<FSRSCard[]> {
+    const subtreeBlockIds = await this.queryEngine.fetchSubtreeBlockIds(sourceBlockId);
+    if (subtreeBlockIds.length === 0) {
+      return [];
+    }
+
+    try {
+      const localCards = await this.manager.getCards({
+        blockIds: subtreeBlockIds,
+      });
+      const localCardsByBlockId = new Map(
+        localCards
+          .map((card) => this.cloneLocalCard(card))
+          .filter((card) => this.isLocalReviewCard(card))
+          .map((card) => [card.blockId, card] as const),
+      );
+
+      const associatedCards: FSRSCard[] = [];
+      for (const blockId of subtreeBlockIds) {
+        const localCard = localCardsByBlockId.get(blockId);
+        if (!localCard) {
+          continue;
+        }
+        if (this.seenAssociatedReviewCardIds.has(localCard.blockId)) {
+          continue;
+        }
+        this.seenAssociatedReviewCardIds.add(localCard.blockId);
+        this.setCachedLocalCard(localCard.blockId, localCard);
+        associatedCards.push(await this.buildAssociatedReviewCard(localCard, source));
+      }
+
+      return associatedCards;
+    } catch (error) {
+      logger.warn(`Failed to resolve associated review cards for virtual node ${sourceBlockId}:`, error);
+      return [];
+    }
+  }
+
+  private async restoreAssociatedReviewState(
+    pendingAssociatedReviewCardIds: unknown,
+    seenAssociatedReviewCardIds: unknown,
+  ): Promise<boolean> {
+    const pendingBlockIds = this.normalizeAssociatedReviewIds(pendingAssociatedReviewCardIds);
+    const seenBlockIds = this.normalizeAssociatedReviewIds(seenAssociatedReviewCardIds);
+
+    this.pendingAssociatedReviewCards = [];
+    this.seenAssociatedReviewCardIds.clear();
+    for (const blockId of seenBlockIds) {
+      this.seenAssociatedReviewCardIds.add(blockId);
+    }
+
+    if (pendingBlockIds.length === 0) {
+      return false;
+    }
+
+    try {
+      const localCards = await this.manager.getCards({
+        blockIds: pendingBlockIds,
+      });
+      const localCardsByBlockId = new Map(
+        localCards
+          .map((card) => this.cloneLocalCard(card))
+          .filter((card) => this.isLocalReviewCard(card))
+          .map((card) => [card.blockId, card] as const),
+      );
+
+      let changed = false;
+      for (const blockId of pendingBlockIds) {
+        const localCard = localCardsByBlockId.get(blockId);
+        if (!localCard) {
+          changed = true;
+          continue;
+        }
+        this.setCachedLocalCard(localCard.blockId, localCard);
+        this.pendingAssociatedReviewCards.push(await this.buildAssociatedReviewCard(localCard));
+        this.seenAssociatedReviewCardIds.add(localCard.blockId);
+      }
+
+      this.clearSizeCache();
+      return changed || this.pendingAssociatedReviewCards.length !== pendingBlockIds.length;
+    } catch (error) {
+      logger.warn('Failed to restore associated neural review cards from persisted state:', error);
+      this.pendingAssociatedReviewCards = [];
+      this.clearSizeCache();
+      return pendingBlockIds.length > 0;
+    }
+  }
+
+  private normalizeAssociatedReviewIds(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return Array.from(new Set(
+      value
+        .map((entry) => String(entry || '').trim())
+        .filter((entry) => entry.length > 0),
+    ));
   }
 
   public getSourceSnapshot(): NeuralRoamSourceEntry[] {
@@ -854,6 +1088,11 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     } = {}
   ): Promise<void> {
     await this.ensureInitialLoad();
+    if (options.resetHistory === true) {
+      this.resetAssociatedReviewState();
+    } else {
+      this.clearPendingAssociatedReviewCards();
+    }
     await this.getActiveEngine().startRoamingFromFocus(focusId, options);
     await this.save();
   }
@@ -919,6 +1158,11 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     } = {}
   ): Promise<void> {
     await this.ensureInitialLoad();
+    if (options.resetHistory === true) {
+      this.resetAssociatedReviewState();
+    } else {
+      this.clearPendingAssociatedReviewCards();
+    }
     await this.getActiveEngine().setCurrentFocus(focusId, options);
     await this.save();
   }
@@ -943,6 +1187,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     await this.ensureInitialLoad();
     const jumped = await this.getActiveEngine().jumpToHistoryNode(nodeId);
     if (jumped) {
+      this.clearPendingAssociatedReviewCards();
       await this.save();
     }
     return jumped;
@@ -974,6 +1219,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
   public returnToBookmark(): boolean {
     const moved = this.getActiveEngine().returnToBookmark();
     if (moved) {
+      this.clearPendingAssociatedReviewCards();
       void this.save().catch((error) => {
         logger.warn('Failed to persist neural roam state after returnToBookmark:', error);
       });
@@ -996,7 +1242,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   public async getSize(): Promise<number> {
     await this.ensureInitialLoad();
-    return this.getSourceSnapshot().length;
+    return this.getSourceSnapshot().length + this.pendingAssociatedReviewCards.length;
   }
 
   private resolveAddTarget(card: FSRSCard | ReviewQueueItem | string): { blockId: string; conceptHint: boolean } {
@@ -1043,7 +1289,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       const cards = await this.manager.getCards({
         blockIds: [normalizedBlockId],
       });
-      const localCard = cards.find((card) => card.blockId === normalizedBlockId) ?? cards[0] ?? null;
+      const localCard = this.findExactLocalCardByBlockId(cards, normalizedBlockId);
       if (!localCard) {
         return 'non-concept';
       }
@@ -1067,22 +1313,25 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return !this.isLocalConceptCard(card) && card.type !== 'topic';
   }
 
+  private isLocalRenderableRoamNode(card: FSRSCard): boolean {
+    return !this.isLocalConceptCard(card);
+  }
+
   private async convertToFSRSCard(queueItem: ConceptQueueItem | HyperspaceQueueItem): Promise<FSRSCard> {
     const now = Date.now();
     const localCard = await this.resolveLocalCard(queueItem.blockId);
-    const isFlashcard = Boolean(localCard && this.isLocalReviewCard(localCard));
-    const cardType = isFlashcard
-      ? 'item'
-      : await this.resolveCachedCardType(queueItem.blockId);
+    const isConceptNode = Boolean(localCard && this.isLocalConceptCard(localCard));
     const neuralContext = {
       associationType: queueItem.associationType,
       reason: queueItem.reason,
       blockType: queueItem.blockData.type,
-      isFlashcard,
+      isFlashcard: false,
+      nodeRole: 'virtual' as const,
     };
+    const cardType = isConceptNode ? 'concept' : 'topic';
     const fallbackCard = this.buildSyntheticNeuralCard(queueItem, now, cardType, neuralContext);
 
-    if (!localCard || !isFlashcard) {
+    if (!localCard || !isConceptNode) {
       return fallbackCard;
     }
 
@@ -1105,15 +1354,46 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     };
   }
 
+  private async buildAssociatedReviewCard(
+    localCard: FSRSCard,
+    source: AssociatedReviewSource = {},
+  ): Promise<FSRSCard> {
+    const blockData = await this.queryEngine.fetchBlockData(localCard.blockId);
+    const neuralContext = {
+      associationType: 'associated-review',
+      reason: source.sourceVirtualReason ?? 'associated-review',
+      blockType: blockData?.type ?? '',
+      isFlashcard: true,
+      nodeRole: 'associated-review' as const,
+      sourceVirtualNodeId: source.sourceVirtualNodeId ?? null,
+      sourceVirtualReason: source.sourceVirtualReason ?? null,
+    };
+
+    return {
+      ...this.cloneLocalCard(localCard),
+      meta: isRecord(localCard.meta)
+        ? {
+            ...localCard.meta,
+            neuralContext,
+          }
+        : {
+            neuralContext,
+          },
+    };
+  }
+
   private buildSyntheticNeuralCard(
     queueItem: ConceptQueueItem | HyperspaceQueueItem,
     now: number,
-    cardType: 'item' | 'topic',
+    cardType: FSRSCard['type'],
     neuralContext: {
       associationType: string;
       reason: string;
       blockType: string;
       isFlashcard: boolean;
+      nodeRole: 'virtual' | 'associated-review';
+      sourceVirtualNodeId?: string | null;
+      sourceVirtualReason?: string | null;
     },
   ): FSRSCard {
     return {
@@ -1158,7 +1438,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       const cards = await this.manager.getCards({
         blockIds: [normalizedBlockId],
       });
-      const localCard = cards.find((card) => card.blockId === normalizedBlockId) ?? cards[0] ?? null;
+      const localCard = this.findExactLocalCardByBlockId(cards, normalizedBlockId);
       if (!localCard) {
         return null;
       }
@@ -1185,7 +1465,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     let resolved: 'item' | 'topic' = 'topic';
     const localCard = await this.resolveLocalCard(normalizedBlockId);
     if (localCard) {
-      resolved = this.isLocalReviewCard(localCard) ? 'item' : 'topic';
+      resolved = this.resolveSyntheticCardTypeFromLocalCard(localCard);
     } else {
       try {
         resolved = await this.cardTypeResolver.resolveCardType(normalizedBlockId);
@@ -1290,5 +1570,13 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
   private cloneLocalCard(card: FSRSCard): FSRSCard {
     return JSON.parse(JSON.stringify(card)) as FSRSCard;
+  }
+
+  private findExactLocalCardByBlockId(cards: FSRSCard[], blockId: string): FSRSCard | null {
+    return cards.find((card) => card.blockId === blockId) ?? null;
+  }
+
+  private resolveSyntheticCardTypeFromLocalCard(card: FSRSCard): 'item' | 'topic' {
+    return this.isLocalReviewCard(card) ? 'item' : 'topic';
   }
 }
