@@ -393,6 +393,17 @@ export class CardApplicationService {
       return null;
     }
   }
+
+  /**
+   * 通过块 ID 获取该块关联的全部卡片。
+   */
+  getCardsByBlockId(blockId: string): FSRSCard[] {
+    try {
+      return this.readModel.getCardsByBlockId(blockId);
+    } catch (error) {
+      return [];
+    }
+  }
   
   /**
    * 保存卡片到存储

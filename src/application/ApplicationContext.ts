@@ -66,6 +66,7 @@ import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewS
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
 import { ReviewScopeCardCreationSyncService } from '@/application/services/ReviewScopeCardCreationSyncService';
 import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
+import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
@@ -95,6 +96,7 @@ interface ApplicationServiceRegistry {
   progressiveReadingService: ProgressiveReadingService;
   reviewScopeCardCreationSyncService: ReviewScopeCardCreationSyncService;
   selectionExcerptService: SelectionExcerptService;
+  topicDerivedItemService: TopicDerivedItemService;
   cardContentQueryService: CardContentQueryService;
   dialogManager: DialogManager;
   menuManager: MenuManager;
@@ -352,6 +354,14 @@ export class ApplicationContext {
 
     this.registerServiceFactory('selectionExcerptService', (context) => {
       return new SelectionExcerptService(context.getProgressiveReadingService());
+    });
+
+    this.registerServiceFactory('topicDerivedItemService', (context) => {
+      return new TopicDerivedItemService(
+        context.getCardService(),
+        context.getProgressiveReadingService(),
+        context.getSettingsService(),
+      );
     });
     
     this.registerServiceFactory('reviewQueuePreparationService', (context) => {
@@ -1537,6 +1547,10 @@ export class ApplicationContext {
 
   getSelectionExcerptService(): SelectionExcerptService {
     return this.getService('selectionExcerptService');
+  }
+
+  getTopicDerivedItemService(): TopicDerivedItemService {
+    return this.getService('topicDerivedItemService');
   }
   
   /**

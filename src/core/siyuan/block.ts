@@ -48,6 +48,10 @@ export const ATTR_PROGRESSIVE_PIECE_STATE = `${ATTR_PREFIX}reading-piece-state`;
 export const ATTR_PROGRESSIVE_WORKBENCH_ID = `${ATTR_PREFIX}reading-workbench-id`;
 export const ATTR_PROGRESSIVE_PARENT_EXCERPT_ID = `${ATTR_PREFIX}reading-parent-excerpt-id`;
 export const ATTR_PROGRESSIVE_TRACE_KIND = `${ATTR_PREFIX}reading-trace-kind`;
+export const ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID = `${ATTR_PREFIX}reading-parent-topic-card-id`;
+export const ATTR_PROGRESSIVE_STORAGE_MODE = `${ATTR_PREFIX}reading-storage-mode`;
+export const ATTR_PROGRESSIVE_CREATION_RULE_ID = `${ATTR_PREFIX}reading-creation-rule-id`;
+export const ATTR_PROGRESSIVE_ANSWER_FINGERPRINT = `${ATTR_PREFIX}reading-answer-fingerprint`;
 
 export const LEGACY_ATTR_PROGRESSIVE_KIND = `${ATTR_PREFIX}progressive-kind`;
 export const LEGACY_ATTR_PROGRESSIVE_SESSION_ID = `${ATTR_PREFIX}progressive-session-id`;

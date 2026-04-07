@@ -234,6 +234,8 @@ let mainRenderRetryAttempts = 0;
 let protyleInitialized = false;  // 🆕 跟踪 Protyle 是否已初始化
 let protyleInitTimer: ReturnType<typeof setTimeout> | null = null;
 let currentEditorState = createReviewEditorState();
+let mainProtyleFocusCleanup: (() => void) | null = null;
+let mainProtyleFocusTimer: ReturnType<typeof setTimeout> | null = null;
 const invalidForcedQuickRenderVersion = ref(0);
 const invalidForcedQuickRenderKeys = new Set<string>();
 const MAX_MAIN_RENDER_RETRIES = 6;
@@ -576,6 +578,19 @@ function removeUnlockOnDoubleClick(): void {
   // so destroy paths can keep calling the same helper without branching.
 }
 
+function clearMainProtyleFocusTimer(): void {
+  if (mainProtyleFocusTimer !== null) {
+    clearTimeout(mainProtyleFocusTimer);
+    mainProtyleFocusTimer = null;
+  }
+}
+
+function removeMainProtyleFocusTracking(): void {
+  clearMainProtyleFocusTimer();
+  mainProtyleFocusCleanup?.();
+  mainProtyleFocusCleanup = null;
+}
+
 function clearProtyleInitTimer(): void {
   if (protyleInitTimer !== null) {
     clearTimeout(protyleInitTimer);
@@ -625,15 +640,100 @@ function scheduleMainRenderRetry(blockId: string): void {
   }, 50);
 }
 
-function emitMainProtyleEditableState(): void {
+function emitMainProtyleEditingState(isEditing: boolean): void {
   emitEditorState(createReviewEditorState('main-protyle', {
     supportsNativeEdit: true,
-    isEditing: true,
+    isEditing,
   }));
 }
 
+function isActiveElementInsideMainProtyle(wysiwygElement: HTMLElement): boolean {
+  const activeElement = document.activeElement;
+  return activeElement instanceof HTMLElement
+    && (activeElement === wysiwygElement || wysiwygElement.contains(activeElement));
+}
+
+function attachMainProtyleFocusTracking(protyle: siyuan.Protyle): void {
+  const wysiwygElement = protyle.protyle?.wysiwyg?.element as HTMLElement | undefined;
+  removeMainProtyleFocusTracking();
+
+  if (!(wysiwygElement instanceof HTMLElement)) {
+    emitMainProtyleEditingState(false);
+    return;
+  }
+
+  const syncEditingState = () => {
+    emitMainProtyleEditingState(isActiveElementInsideMainProtyle(wysiwygElement));
+  };
+
+  const scheduleEditingStateSync = () => {
+    clearMainProtyleFocusTimer();
+    mainProtyleFocusTimer = setTimeout(() => {
+      mainProtyleFocusTimer = null;
+      syncEditingState();
+    }, 0);
+  };
+
+  const handleFocusIn = () => {
+    syncEditingState();
+  };
+
+  const handleFocusOut = () => {
+    scheduleEditingStateSync();
+  };
+
+  wysiwygElement.addEventListener('focusin', handleFocusIn);
+  wysiwygElement.addEventListener('focusout', handleFocusOut);
+  mainProtyleFocusCleanup = () => {
+    wysiwygElement.removeEventListener('focusin', handleFocusIn);
+    wysiwygElement.removeEventListener('focusout', handleFocusOut);
+  };
+
+  syncEditingState();
+}
+
+function focusPrimaryReviewActionButton(): boolean {
+  const reviewRoot = hostRef.value?.closest('.fsrs-review-v2') as HTMLElement | null;
+  const actionButton = reviewRoot?.querySelector(
+    '.card__action-main:not([disabled]), .card__action button:not([disabled])',
+  ) as HTMLButtonElement | null;
+  actionButton?.focus();
+  return Boolean(actionButton);
+}
+
+function blurMainProtyleSurface(): boolean {
+  const wysiwygElement = editorRef.value?.protyle?.wysiwyg?.element as HTMLElement | undefined;
+  const activeElement = document.activeElement;
+  let blurred = false;
+
+  if (activeElement instanceof HTMLElement && wysiwygElement && (
+    activeElement === wysiwygElement || wysiwygElement.contains(activeElement)
+  )) {
+    activeElement.blur();
+    blurred = true;
+  } else if (wysiwygElement instanceof HTMLElement) {
+    wysiwygElement.blur();
+    blurred = true;
+  }
+
+  window.getSelection?.()?.removeAllRanges();
+  return blurred;
+}
+
 function exitEditorByEscape(): boolean {
-  return false;
+  if (
+    currentEditorState.renderer !== 'main-protyle'
+    || !currentEditorState.supportsNativeEdit
+    || !currentEditorState.isEditing
+    || !editorRef.value
+  ) {
+    return false;
+  }
+
+  const didBlur = blurMainProtyleSurface();
+  emitMainProtyleEditingState(false);
+  const focusedAction = focusPrimaryReviewActionButton();
+  return didBlur || focusedAction;
 }
 
 defineExpose({
@@ -939,6 +1039,7 @@ function destroyMainProtyle(options?: { invalidatePending?: boolean }): void {
   }
   clearMainRenderRetryTimer();
   clearProtyleInitTimer();
+  removeMainProtyleFocusTracking();
   removeUnlockOnDoubleClick();
   protyleInitialized = false;
   resetCssState();
@@ -1509,7 +1610,7 @@ async function renderProtyle(blockId: string): Promise<void> {
         return;
       }
       logger.debug('[SiYuanMemo][ReviewContent] Protyle after callback called');
-      emitMainProtyleEditableState();
+      attachMainProtyleFocusTracking(protyle);
       applyAnswerVisibility();
       logBidirectionalTemplateDiagnostic('main-after', {
         blockId,

@@ -28,6 +28,7 @@ const DAILY_TRACE_DOC_TITLE = 'SiYuan Memo 渐进阅读';
 type ProgressiveKind =
   | 'piece'
   | 'excerpt-doc'
+  | 'derived-item-doc'
   | 'piece-workbench'
   | 'source-workbench'
   | 'excerpt'
@@ -198,6 +199,28 @@ export interface ProgressiveExcerptResult {
   topicCardId: string;
   sourceBlockId: string;
   dailyNoteDocId: string;
+}
+
+export type ProgressiveChildDocStorageMode = 'workbench' | 'source-child';
+
+export interface ProgressiveChildDocInput {
+  sourceDocId: string;
+  kind: Extract<ProgressiveKind, 'excerpt-doc' | 'derived-item-doc'>;
+  titlePrefix: string;
+  previewText: string;
+  previewMax?: number;
+  storageMode?: ProgressiveChildDocStorageMode;
+  attrs: Record<string, string | number | undefined>;
+  contentDom?: string;
+  contentMarkdown?: string;
+}
+
+export interface ProgressiveChildDocResult {
+  docId: string;
+  parentDocId: string;
+  storageMode: ProgressiveChildDocStorageMode;
+  sequence: number;
+  contentBlockId?: string;
 }
 
 export interface ProgressiveCompletePieceResult {
@@ -691,6 +714,61 @@ export class ProgressiveReadingService {
       topicCardId,
       sourceBlockId,
       dailyNoteDocId,
+    };
+  }
+
+  async createChildDocFromSource(input: ProgressiveChildDocInput): Promise<ProgressiveChildDocResult> {
+    const sourceDocId = String(input.sourceDocId || '').trim();
+    if (!sourceDocId) {
+      throw new Error('sourceDocId is required');
+    }
+    if (!input.contentDom && !input.contentMarkdown) {
+      throw new Error('child doc content is required');
+    }
+
+    const sourceDocInfo = await this.resolveDocInfo(sourceDocId);
+    const storageMode: ProgressiveChildDocStorageMode = input.storageMode === 'source-child'
+      ? 'source-child'
+      : 'workbench';
+    const sequence = await this.resolveNextChildDocSequence({
+      sourceDocId,
+      kind: input.kind,
+      titlePrefix: input.titlePrefix,
+    });
+
+    let parentDocId = sourceDocId;
+    let parentHPath = sourceDocInfo.hpath;
+    if (storageMode === 'workbench') {
+      parentDocId = await this.ensureReusableSourceWorkbenchDoc(sourceDocId, sourceDocInfo.box);
+      parentHPath = `${sourceDocInfo.hpath}/${WORKBENCH_DOC_TITLE}`;
+    }
+
+    const childTitle = this.buildNumberedChildDocTitle(
+      input.titlePrefix,
+      sequence,
+      input.previewText,
+      input.previewMax,
+    );
+    const childPath = `${parentHPath}/${childTitle}`;
+    const created = await this.siyuanApi.createDocWithMarkdown(sourceDocInfo.box, childPath, '');
+    const docId = created || await this.findDocIdByHPath(sourceDocInfo.box, childPath);
+    if (!docId) {
+      throw new Error('子文档创建后无法定位');
+    }
+
+    const contentBlockId = input.contentDom
+      ? await this.siyuanApi.appendDomBlock(docId, input.contentDom)
+      : await this.siyuanApi.appendMarkdownBlock(docId, input.contentMarkdown || '');
+
+    await this.setProgressiveAttrs(docId, input.attrs);
+    this.docTreeScopeRefresher?.scheduleRebuild();
+
+    return {
+      docId,
+      parentDocId,
+      storageMode,
+      sequence,
+      contentBlockId: asString(contentBlockId),
     };
   }
 
@@ -1575,61 +1653,17 @@ export class ProgressiveReadingService {
       throw new Error('无法解析摘录目标文档路径');
     }
 
-    const sequence = await this.resolveNextExcerptDocSequence(input.sourceDocId);
-    const excerptTitle = this.buildExcerptDocTitle(sequence, input.selectedText);
-    const excerptPath = `${input.sourceDocInfo.hpath}/${excerptTitle}`;
-    const created = await this.siyuanApi.createDocWithMarkdown(input.sourceDocInfo.box, excerptPath, '');
-    const excerptDocId = created || await this.findDocIdByHPath(input.sourceDocInfo.box, excerptPath);
-    if (!excerptDocId) {
-      throw new Error('摘录子文档创建后无法定位');
-    }
-
-    await this.siyuanApi.appendDomBlock(
-      excerptDocId,
-      this.buildCanonicalExcerptDom(input.selectedText, input.sourceBlockId),
-    );
-    await this.setProgressiveAttrs(excerptDocId, input.attrs);
-    return excerptDocId;
-  }
-
-  private async resolveNextExcerptDocSequence(sourceDocId: string): Promise<number> {
-    const rows = await this.siyuanApi.sql<ProgressiveBlockRow>(`
-      SELECT b.id, b.content
-      FROM blocks b
-      ${this.buildCompatAttrJoin('a0', 'b.id', ATTR_PROGRESSIVE_KIND, 'excerpt-doc')}
-      ${this.buildCompatAttrJoin('a1', 'b.id', ATTR_PROGRESSIVE_SOURCE_DOC_ID, sourceDocId)}
-      WHERE b.type = 'd'
-      ORDER BY b.id ASC
-    `);
-
-    let maxSequence = 0;
-    let hasExplicitSequence = false;
-    for (const row of rows) {
-      const sequence = this.parseExcerptDocSequence(asString(row.content) || '');
-      if (sequence > 0) {
-        hasExplicitSequence = true;
-        maxSequence = Math.max(maxSequence, sequence);
-      }
-    }
-
-    if (hasExplicitSequence) {
-      return maxSequence + 1;
-    }
-    return rows.length + 1;
-  }
-
-  private parseExcerptDocSequence(title: string): number {
-    const matched = title.match(/^\[摘录\s*(\d+)\]/u);
-    return matched ? Math.max(0, Number(matched[1]) || 0) : 0;
-  }
-
-  private buildExcerptDocTitle(sequence: number, selectedText: string): string {
-    const prefix = String(Math.max(1, sequence)).padStart(3, '0');
-    const preview = buildExcerptTitlePreview(selectedText, 12);
-    if (!preview) {
-      return sanitizeDocTitle(`[摘录 ${prefix}]`);
-    }
-    return sanitizeDocTitle(`[摘录 ${prefix}] ${preview}`);
+    const result = await this.createChildDocFromSource({
+      sourceDocId: input.sourceDocId,
+      kind: 'excerpt-doc',
+      titlePrefix: '摘录',
+      previewText: input.selectedText,
+      previewMax: 12,
+      storageMode: 'source-child',
+      attrs: input.attrs,
+      contentDom: this.buildCanonicalExcerptDom(input.selectedText, input.sourceBlockId),
+    });
+    return result.docId;
   }
 
   private async resolveParentExcerptId(sourceDocId: string): Promise<string | undefined> {
@@ -1713,6 +1747,18 @@ export class ProgressiveReadingService {
     await this.setProgressiveAttrs(sourceDocId, {
       [ATTR_PROGRESSIVE_WORKBENCH_ID]: workbenchDocId,
     });
+
+    return workbenchDocId;
+  }
+
+  private async ensureReusableSourceWorkbenchDoc(sourceDocId: string, notebook: string): Promise<string> {
+    const state = await this.readState();
+    const previousWorkbenchId = state.sourceDocToWorkbench[sourceDocId];
+    const workbenchDocId = await this.ensureSourceWorkbenchDoc(state, sourceDocId, notebook);
+
+    if (state.sourceDocToWorkbench[sourceDocId] !== previousWorkbenchId) {
+      await this.writeState(state);
+    }
 
     return workbenchDocId;
   }
@@ -2111,6 +2157,57 @@ export class ProgressiveReadingService {
 
   private buildSourceAliasDom(sourceBlockId: string): string {
     return `<span data-type="block-ref" data-id="${this.escapeHtmlAttribute(sourceBlockId)}" data-subtype="d">*</span>`;
+  }
+
+  private async resolveNextChildDocSequence(input: {
+    sourceDocId: string;
+    kind: Extract<ProgressiveKind, 'excerpt-doc' | 'derived-item-doc'>;
+    titlePrefix: string;
+  }): Promise<number> {
+    const rows = await this.siyuanApi.sql<ProgressiveBlockRow>(`
+      SELECT b.id, b.content
+      FROM blocks b
+      ${this.buildCompatAttrJoin('a0', 'b.id', ATTR_PROGRESSIVE_KIND, input.kind)}
+      ${this.buildCompatAttrJoin('a1', 'b.id', ATTR_PROGRESSIVE_SOURCE_DOC_ID, input.sourceDocId)}
+      WHERE b.type = 'd'
+      ORDER BY b.id ASC
+    `);
+
+    let maxSequence = 0;
+    let hasExplicitSequence = false;
+    for (const row of rows) {
+      const sequence = this.parseNumberedChildDocSequence(asString(row.content) || '', input.titlePrefix);
+      if (sequence > 0) {
+        hasExplicitSequence = true;
+        maxSequence = Math.max(maxSequence, sequence);
+      }
+    }
+
+    if (hasExplicitSequence) {
+      return maxSequence + 1;
+    }
+
+    return rows.length + 1;
+  }
+
+  private parseNumberedChildDocSequence(title: string, titlePrefix: string): number {
+    const escapedPrefix = titlePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matched = title.match(new RegExp(`^\\[${escapedPrefix}\\s*(\\d+)\\]`, 'u'));
+    return matched ? Math.max(0, Number(matched[1]) || 0) : 0;
+  }
+
+  private buildNumberedChildDocTitle(
+    titlePrefix: string,
+    sequence: number,
+    previewText: string,
+    previewMax = 12,
+  ): string {
+    const prefix = String(Math.max(1, sequence)).padStart(3, '0');
+    const preview = buildExcerptTitlePreview(previewText, previewMax);
+    if (!preview) {
+      return sanitizeDocTitle(`[${titlePrefix} ${prefix}]`);
+    }
+    return sanitizeDocTitle(`[${titlePrefix} ${prefix}] ${preview}`);
   }
 
   private isDailyTraceEnabled(): boolean {

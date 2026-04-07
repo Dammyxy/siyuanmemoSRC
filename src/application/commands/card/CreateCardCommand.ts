@@ -32,13 +32,17 @@ export type SchedulerType = 'fsrs-v6' | 'a-factor' | 'sm2';
 export type CardSource = 'manual' | 'auto' | 'symbol' | 'quick';
 
 export interface ProgressiveLineage {
-  kind?: 'piece' | 'excerpt' | 'daily-trace';
+  kind?: 'piece' | 'excerpt' | 'derived-item' | 'daily-trace';
   sessionId?: string;
   mode?: 'linear' | 'nonlinear';
   pieceDocId?: string;
   sourceDocId?: string;
   sourceBlockId?: string;
   parentExcerptId?: string;
+  parentTopicCardId?: string;
+  storageMode?: 'workbench' | 'source-child';
+  creationRuleId?: string;
+  answerFingerprint?: string;
 }
 
 /**

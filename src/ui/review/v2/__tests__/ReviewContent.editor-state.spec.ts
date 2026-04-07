@@ -32,6 +32,8 @@ const reviewContentMocks = vi.hoisted(() => {
       this.options = options;
       const wysiwygElement = document.createElement('div');
       wysiwygElement.className = 'protyle-wysiwyg';
+      wysiwygElement.contentEditable = 'true';
+      wysiwygElement.tabIndex = -1;
       const fixture = typeof options.blockId === 'string'
         ? blockFixtures.get(options.blockId)
         : undefined;
@@ -344,6 +346,7 @@ describe('ReviewContent editor state', () => {
     attachTarget.className = 'fsrs-review-v2';
     actionButton = document.createElement('button');
     actionButton.type = 'button';
+    actionButton.className = 'card__action-main';
     actionButton.textContent = 'grade';
     const actionWrap = document.createElement('div');
     actionWrap.className = 'card__action';
@@ -367,7 +370,7 @@ describe('ReviewContent editor state', () => {
     delete (window as unknown as { siyuan?: unknown }).siyuan;
   });
 
-  it('keeps main Protyle editable by default and does not relock it on Escape', async () => {
+  it('tracks main Protyle focus and returns Escape back to the primary review action without relocking', async () => {
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -404,15 +407,14 @@ describe('ReviewContent editor state', () => {
     expect(initialStates.at(-1)).toEqual({
       renderer: 'main-protyle',
       supportsNativeEdit: true,
-      isEditing: true,
+      isEditing: false,
     });
 
     const protyle = reviewContentMocks.instances[0];
     expect(protyle).toBeTruthy();
     expect(protyle.disableCallCount).toBe(0);
 
-    const exposed = wrapper.vm as unknown as { exitEditorByEscape: () => boolean };
-    expect(exposed.exitEditorByEscape()).toBe(false);
+    protyle.protyle.wysiwyg.element.focus();
     await flushPromises();
 
     expect(getEditorStates(wrapper).at(-1)).toEqual({
@@ -420,8 +422,29 @@ describe('ReviewContent editor state', () => {
       supportsNativeEdit: true,
       isEditing: true,
     });
-    expect(document.activeElement).not.toBe(actionButton);
+
+    const exposed = wrapper.vm as unknown as { exitEditorByEscape: () => boolean };
+    expect(exposed.exitEditorByEscape()).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await flushPromises();
+
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'main-protyle',
+      supportsNativeEdit: true,
+      isEditing: false,
+    });
+    expect(document.activeElement).toBe(actionButton);
     expect(protyle.enableCallCount).toBe(0);
+    expect(protyle.disableCallCount).toBe(0);
+
+    protyle.protyle.wysiwyg.element.focus();
+    await flushPromises();
+
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'main-protyle',
+      supportsNativeEdit: true,
+      isEditing: true,
+    });
 
     wrapper.unmount();
   });

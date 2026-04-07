@@ -10,6 +10,11 @@
 
 import * as api from '../../siyuan/api';
 import { detectAnswerSyntaxReasons } from '@/core/card-type/detectionRules';
+import {
+  ATTR_PROGRESSIVE_KIND,
+  ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
+  getLegacyProgressiveAttrName,
+} from '@/core/siyuan/block';
 import { createLogger } from '@/utils/logger';
 import { QueryCache } from '@/utils/queryCache';
 import type { NeuralRoamNodeType, NeuralRoamNodeTypeResolverPort } from '../domain/ports';
@@ -44,6 +49,11 @@ interface ResolvedReviewBlockIds {
   hasResolvedRenderableNodes: boolean;
 }
 
+interface AttributeRow {
+  name?: string;
+  value?: string;
+}
+
 export interface ConceptQueryEngineOptions {
   nodeTypeResolver?: NeuralRoamNodeTypeResolverPort;
 }
@@ -66,6 +76,7 @@ export class ConceptQueryEngine {
   private readonly blockDataCache = new QueryCache<BlockData>(30000, 300);
   private readonly nodeTypeCache = new QueryCache<NeuralRoamNodeType>(30000, 300);
   private readonly formalReviewCardCache = new QueryCache<boolean>(30000, 300);
+  private readonly progressiveExcerptRootCache = new Map<string, string | null>();
   private fsrsCardsTableAvailable: boolean | null = null;
   private hasLoggedMissingFsrsCardsTable = false;
 
@@ -438,7 +449,8 @@ export class ConceptQueryEngine {
     const seen = new Set<string>();
 
     for (const candidate of candidates) {
-      const normalizedId = String(candidate.normalizedId || '').trim();
+      const normalizedId = await this.resolveProgressiveExcerptBacklinkId(candidate)
+        ?? String(candidate.normalizedId || '').trim();
       if (!normalizedId || seen.has(normalizedId)) {
         continue;
       }
@@ -447,6 +459,108 @@ export class ConceptQueryEngine {
     }
 
     return ids;
+  }
+
+  private async resolveProgressiveExcerptBacklinkId(candidate: BacklinkCandidate): Promise<string | null> {
+    const sourceId = String(candidate.sourceId || '').trim();
+    if (sourceId) {
+      const fromSource = await this.resolveProgressiveExcerptRootFromBlock(sourceId);
+      if (fromSource) {
+        return fromSource;
+      }
+    }
+
+    const normalizedId = String(candidate.normalizedId || '').trim();
+    if (!normalizedId) {
+      return null;
+    }
+
+    return this.resolveProgressiveExcerptRootFromBlock(normalizedId);
+  }
+
+  private async resolveProgressiveExcerptRootFromBlock(blockId: string): Promise<string | null> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return null;
+    }
+
+    if (this.progressiveExcerptRootCache.has(normalizedBlockId)) {
+      return this.progressiveExcerptRootCache.get(normalizedBlockId) ?? null;
+    }
+
+    const directAttrs = await this.readProgressiveExcerptAttrs(normalizedBlockId);
+    if (directAttrs.kind === 'excerpt-doc') {
+      this.progressiveExcerptRootCache.set(normalizedBlockId, normalizedBlockId);
+      return normalizedBlockId;
+    }
+    if (directAttrs.kind === 'daily-excerpt-ref' && directAttrs.parentExcerptId) {
+      this.progressiveExcerptRootCache.set(normalizedBlockId, directAttrs.parentExcerptId);
+      return directAttrs.parentExcerptId;
+    }
+
+    const blockData = await this.fetchBlockData(normalizedBlockId);
+    const rootId = String(blockData?.root_id || '').trim();
+    if (rootId && rootId !== normalizedBlockId) {
+      const rootAttrs = await this.readProgressiveExcerptAttrs(rootId);
+      if (rootAttrs.kind === 'excerpt-doc') {
+        this.progressiveExcerptRootCache.set(normalizedBlockId, rootId);
+        return rootId;
+      }
+    }
+
+    this.progressiveExcerptRootCache.set(normalizedBlockId, null);
+    return null;
+  }
+
+  private async readProgressiveExcerptAttrs(blockId: string): Promise<{
+    kind?: string;
+    parentExcerptId?: string;
+  }> {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return {};
+    }
+
+    const attrNames = [
+      ATTR_PROGRESSIVE_KIND,
+      getLegacyProgressiveAttrName(ATTR_PROGRESSIVE_KIND),
+      ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
+      getLegacyProgressiveAttrName(ATTR_PROGRESSIVE_PARENT_EXCERPT_ID),
+    ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+    if (attrNames.length === 0) {
+      return {};
+    }
+
+    try {
+      const rows = await api.sql<AttributeRow>(`
+        SELECT name, value
+        FROM attributes
+        WHERE block_id = '${this.escapeSQL(normalizedBlockId)}'
+          AND name IN (${attrNames.map((name) => `'${this.escapeSQL(name)}'`).join(', ')})
+      `);
+      const values = new Map<string, string>();
+      for (const row of rows) {
+        const name = typeof row?.name === 'string' ? row.name : '';
+        const value = typeof row?.value === 'string' ? row.value.trim() : '';
+        if (!name || !value) {
+          continue;
+        }
+        values.set(name, value);
+      }
+
+      const kind = values.get(ATTR_PROGRESSIVE_KIND)
+        ?? values.get(getLegacyProgressiveAttrName(ATTR_PROGRESSIVE_KIND) ?? '');
+      const parentExcerptId = values.get(ATTR_PROGRESSIVE_PARENT_EXCERPT_ID)
+        ?? values.get(getLegacyProgressiveAttrName(ATTR_PROGRESSIVE_PARENT_EXCERPT_ID) ?? '');
+      return {
+        kind,
+        parentExcerptId,
+      };
+    } catch (error) {
+      logger.warn(`Failed to read progressive excerpt attrs for ${normalizedBlockId}:`, error);
+      return {};
+    }
   }
 
   async fetchSubtreeBlockIds(blockId: string): Promise<string[]> {

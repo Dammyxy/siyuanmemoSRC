@@ -4,6 +4,7 @@
 
 import { BaseReviewQueue } from './BaseReviewQueue';
 import {
+  type HyperspaceExcerptInjectionContext,
   type NeuralActivationTrace,
   type NeuralEngineMode,
   type NeuralRoamSourceEntry,
@@ -1011,6 +1012,22 @@ export class NeuralRoamQueue extends BaseReviewQueue {
 
     await this.conceptQueue.setSeedEntry(nodeId, enabled);
     await this.save();
+  }
+
+  public async injectExcerptIntoHyperspace(
+    excerptNodeId: string,
+    context: HyperspaceExcerptInjectionContext = {},
+  ): Promise<boolean> {
+    await this.ensureInitialLoad();
+    if (this.engineMode !== 'hyperspace') {
+      return false;
+    }
+
+    const injected = await this.hyperspaceEngine.injectExcerptIntoCurrentSession(excerptNodeId, context);
+    if (injected) {
+      await this.save();
+    }
+    return injected;
   }
 
   public getSeedSnapshot(): NeuralRoamSeedEntry[] {

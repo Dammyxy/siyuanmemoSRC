@@ -7,6 +7,36 @@ Last update: 2026-04-06 (Round 45)
 Use this section for task-level debt tracking when a task touches production code under `src/`.
 Do not add an entry for skill-only or docs-only work.
 
+### 2026-04-07 - review escape returns focus to grading without relocking
+
+- Task: Restore the long-press `Escape` optimization in dialog review so users can leave the always-editable main Protyle and jump back to the grading/reveal controls after the auto-lock removal.
+- Touched slice: Review editor interaction state in `src/ui/review/v2/ReviewContent.vue` plus the focused regression coverage in `src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts`.
+- Debt fixed now: Decoupled “can edit” from the removed read-only lock flow, made main-Protyle editing state follow real focus instead of assuming the surface is always actively editing, and redirected repeated-`Escape` exit back to the primary review action button instead of silently doing nothing.
+- Debt deferred: Dialog-level `Escape` behavior still relies on DOM focus heuristics local to `ReviewContent`/`ReviewView`, and there is still no broader cross-surface keyboard contract shared with tab mode, auxiliary dialogs, or non-Protyle renderers.
+- Why deferred: Generalizing review keyboard focus semantics across every review surface would widen this bounded regression fix into a broader interaction-contract redesign beyond the active dialog Protyle path.
+- Next safe step: If more review surfaces need the same “leave editor and resume grading” behavior, extract the new Protyle-focus tracking and primary-action targeting into a small shared review keyboard/focus helper used by dialog and tab review shells.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/reviewDialogEscape.test.ts`; `pnpm build`.
+
+### 2026-04-07 - hyperspace progressive excerpt additive routing
+
+- Task: Implement SuperMemo-style `Alt+X` additive routing in hyperspace so newly created excerpt Topic roots merge back into the active hyperspace roam without forcing an immediate focus jump or auto-building a station.
+- Touched slice: Review excerpt routing in `src/ui/review/v2/ReviewView.vue`, neural session/public contracts in `src/types/unified-data-source.ts` and `src/core/queue/domain/NeuralRoamQueue.ts`, hyperspace live expansion in `src/core/queue/neural/hyperspace/HyperspaceEngine.ts`, progressive backlink normalization in `src/core/queue/neural/ConceptQueryEngine.ts` plus `src/core/queue/neural/graph/NeuralGraphProvider.ts`, related i18n, and targeted neural/review regression tests.
+- Debt fixed now: Added a hyperspace-only live excerpt injection path that registers excerpt roots as hot source candidates without mutating anchors or current focus, normalized excerpt backlinks away from inner `【*】`/`daily-excerpt-ref` blocks onto the excerpt Topic root so future sessions can rediscover the right node, and kept `Alt+X` additive routing separate from manual station/focus semantics.
+- Debt deferred: `orbit` and other neural modes still do not get the same additive excerpt routing, the injected branch still reuses existing source/frontier semantics instead of exposing a dedicated user-visible trace/origin type, and backlink caches are not explicitly invalidated when an excerpt is created mid-session.
+- Why deferred: Cross-engine parity, a richer neural trace contract, or proactive cache invalidation would widen this bounded hyperspace/review fix into a broader neural session protocol redesign.
+- Next safe step: If users want parity across engines or more inspectable live excerpt traces, extract the new injection behavior behind an explicit neural session policy interface and add one typed excerpt-origin trace plus targeted cache invalidation hooks.
+- Validation: `pnpm vitest run src/core/queue/neural/hyperspace/__tests__/HyperspaceEngine.test.ts src/core/queue/neural/__tests__/ConceptQueryEngine.backlinks.test.ts src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/ui/review/v2/__tests__/ReviewView.progressive-excerpt-hyperspace.spec.ts`; `pnpm build`.
+
+### 2026-04-06 - progressive topic-derived item flow
+
+- Task: Implement the Topic-to-item natural derivation flow so existing Topic cards can keep their Topic identity while later highlights or inline symbols spawn new derived practice child documents plus item cards.
+- Touched slice: Progressive reading / auto-card application slice in `src/application/handlers/AutoCardHandler.ts`, `src/application/services/{TopicDerivedItemService,ProgressiveReadingService,CardApplicationService}.ts`, `src/application/ApplicationContext.ts`, `src/application/commands/card/CreateCardCommand.ts`, `src/core/siyuan/block.ts`, `src/application/services/BlockAttrPolicy.ts`, and quick-card/settings surfaces in `src/{types/settings.ts,ui/settings/SettingsPanel.vue,core/card/quick-card/infrastructure/QuickCardConfigProvider.ts}`.
+- Debt fixed now: Removed the active-path short-circuit that skipped symbol-listener follow-up extraction on existing Topic contexts, extracted reusable child-doc creation from the progressive reading service instead of duplicating excerpt doc logic, and added explicit derived-item lineage plus fingerprint/storage metadata so repeated scans dedupe instead of mutating or duplicating Topic cards.
+- Debt deferred: Inline semantic derivation still normalizes concept-definition and descriptor symbols into one derived item child-doc/card path instead of preserving full Xiuyuan multi-card parity for bidirectional or richer semantic variants, and derived items are snapshot children that do not live-refresh if the source Topic later changes.
+- Why deferred: Preserving full Xiuyuan multi-card semantics or live source-sync would widen this bounded listener/progressive-reading fix into a larger creation-executor and sync-contract redesign.
+- Next safe step: If users want richer parity with SuperMemo/Xiuyuan semantics, extract a dedicated derived-item executor that keeps the current fingerprint/storage contract but can optionally fan out into multi-card semantic creation without mutating the Topic source.
+- Validation: `pnpm vitest run src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts src/types/__tests__/settings-normalization.test.ts`; `pnpm build`.
+
 ### 2026-04-06 - neural-roam virtual navigation plus associated real-card follow-ups
 
 - Task: Collapse neural roam back to a cleaner model where orbit/hyperspace only navigate virtual blocks, while exact local review cards found under the current virtual node are injected as follow-up review cards instead of being expanded into the main roam graph.

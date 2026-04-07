@@ -1,6 +1,7 @@
 import type { HyperspaceSettings } from '@/types/settings';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 import type {
+  HyperspaceExcerptInjectionContext,
   NeuralActivationKind,
   NeuralActivationTrace,
   NeuralActivationTraceStep,
@@ -317,6 +318,7 @@ export class HyperspaceEngine {
     const descriptor = await this.resolveNodeDescriptor(normalized);
     const existing = this.sourcePool.get(normalized);
     const now = Date.now();
+    this.exhaustedSources.delete(normalized);
     this.sourcePool.set(normalized, {
       nodeId: normalized,
       nodeKind: descriptor.nodeKind,
@@ -326,6 +328,55 @@ export class HyperspaceEngine {
       visitedAt: existing?.visitedAt ?? now,
       preview: descriptor.preview,
     });
+  }
+
+  async injectExcerptIntoCurrentSession(
+    excerptNodeId: string,
+    context: HyperspaceExcerptInjectionContext = {},
+  ): Promise<boolean> {
+    const normalized = String(excerptNodeId || '').trim();
+    if (!normalized) {
+      return false;
+    }
+
+    await this.setSourceEntry(normalized, true);
+    this.touchSource(normalized);
+
+    const currentEntry = this.resolveExcerptInjectionSource(context);
+    if (!currentEntry) {
+      return true;
+    }
+
+    if (currentEntry.nodeId === normalized || this.hasSourceRootInCurrentSession(normalized)) {
+      return false;
+    }
+
+    const descriptor = await this.resolveNodeDescriptor(normalized);
+    const activationScore = this.computeExcerptInjectionScore(currentEntry.conductionScore);
+    const candidate: FrontierNode = {
+      nodeId: normalized,
+      fromNodeId: currentEntry.nodeId,
+      fromEventId: currentEntry.eventId,
+      rootSourceNodeId: normalized,
+      associationType: 'source',
+      channel: 'source',
+      origin: 'source',
+      depth: 0,
+      treeDistance: null,
+      activationScore,
+      inheritedPriority: await this.resolveNodePriority(normalized, descriptor.nodeKind === 'concept' ? 0.7 : 0.58),
+      conductionProbability: 1,
+    };
+
+    const existing = this.frontier.get(normalized);
+    if (existing?.associationType === 'source' && existing.rootSourceNodeId === normalized) {
+      return false;
+    }
+    if (!existing || activationScore > existing.activationScore) {
+      this.frontier.set(normalized, candidate);
+    }
+    this.exhaustedSources.delete(normalized);
+    return true;
   }
 
   async setAnchorEntry(nodeId: string, enabled = true): Promise<void> {
@@ -779,6 +830,37 @@ export class HyperspaceEngine {
     return this.getSettingsSnapshot() ?? DEFAULT_HYPERSPACE_SETTINGS;
   }
 
+  private resolveExcerptInjectionSource(
+    context: HyperspaceExcerptInjectionContext,
+  ): NeuralRoamHistoryEntry | null {
+    const explicitEventId = String(context.currentEventId || '').trim();
+    if (explicitEventId) {
+      return this.findHistoryEntryByEventId(explicitEventId);
+    }
+
+    const explicitNodeId = String(context.currentNodeId || '').trim();
+    if (explicitNodeId && this.currentSessionId) {
+      const entries = this.getHistoryEntriesByNodeId(explicitNodeId)
+        .filter((entry) => entry.sessionId === this.currentSessionId);
+      if (entries.length > 0) {
+        return entries[entries.length - 1];
+      }
+    }
+
+    const currentEventId = this.getCurrentPathEventId();
+    if (currentEventId) {
+      return this.findHistoryEntryByEventId(currentEventId);
+    }
+
+    return null;
+  }
+
+  private computeExcerptInjectionScore(sourceScore: number | null | undefined): number {
+    const carryDecay = clamp(this.getSettings().activationCarryDecay, 0.1, 1);
+    const baseScore = clamp(Number(sourceScore) || 1, 0.05, 1);
+    return clamp(baseScore * carryDecay, 0.05, 1);
+  }
+
   private async consumeFollowPath(): Promise<QueueItem | null> {
     if (!this.followCurrentNodeOnce && this.navigationMode !== 'follow') return null;
     if (this.followCurrentNodeOnce) {
@@ -831,7 +913,11 @@ export class HyperspaceEngine {
         continue;
       }
 
-      const activationKind: NeuralActivationKind = this.isTreeAssociation(candidate.associationType) ? 'tree-edge' : 'graph-edge';
+      const activationKind: NeuralActivationKind = candidate.associationType === 'source'
+        ? 'source-root'
+        : this.isTreeAssociation(candidate.associationType)
+          ? 'tree-edge'
+          : 'graph-edge';
       const historyEntry = this.createHistoryEntry(
         candidate.nodeId,
         this.currentSessionId ?? createSessionId(),
@@ -846,18 +932,24 @@ export class HyperspaceEngine {
           sourceNodeId: candidate.fromNodeId,
           sourceEventId: candidate.fromEventId,
           branchRootNodeId: candidate.rootSourceNodeId ?? candidate.nodeId,
-          depth: candidate.depth,
+          sourceRole: candidate.associationType === 'source' ? 'activation-source' : null,
+          depth: candidate.associationType === 'source' ? 0 : candidate.depth,
           conductionScore: candidate.activationScore,
         },
       );
 
       this.commitHistoryEntry(historyEntry);
+      if (candidate.associationType === 'source') {
+        this.currentLeadSource = candidate.nodeId;
+        this.currentLeadSourceEventId = historyEntry.eventId;
+        this.branchRootNodeId = candidate.nodeId;
+      }
       this.queueDeferredExpansion({
         nodeId: candidate.nodeId,
         fromNodeId: candidate.nodeId,
         fromEventId: historyEntry.eventId,
         rootSourceNodeId: candidate.rootSourceNodeId ?? candidate.nodeId,
-        depth: candidate.depth + 1,
+        depth: Math.max(1, candidate.depth + 1),
         baseScore: candidate.activationScore,
         layersRemaining: this.getSettings().maxLayersPerRepetition,
         epoch: this.expansionEpoch,
@@ -1509,6 +1601,7 @@ export class HyperspaceEngine {
       case 'element-link':
       case 'block-tree':
       case 'document-tree':
+      case 'source':
         return value;
       default:
         return 'concept-map';

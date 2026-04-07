@@ -137,6 +137,83 @@ describe('HyperspaceEngine', () => {
     expect(engine.getHistorySnapshot().at(-1)?.origin).toBe('backlink');
   });
 
+  it('injects excerpt roots as hot hyperspace sources without changing the current focus', async () => {
+    const graphProvider = {
+      fetchBlockData: vi.fn(async (nodeId: string) => createBlockData(nodeId, nodeId)),
+      fetchHyperspaceEdges: vi.fn(async () => []),
+      fetchNodePriority: vi.fn(async () => 0.7),
+      isConceptCard: vi.fn(async () => true),
+    } as const;
+
+    const engine = new HyperspaceEngine(graphProvider as any, {
+      getSettings: () => createSettings(),
+      random: () => 0,
+    });
+
+    await engine.setCurrentFocus('source-1', {
+      includeFocusAsFirst: false,
+      resetHistory: true,
+    });
+
+    const first = await engine.getNextCard();
+    const navigationBefore = engine.getNavigationState();
+    const injected = await engine.injectExcerptIntoCurrentSession('excerpt-1', {
+      currentNodeId: navigationBefore.currentNodeId,
+      currentEventId: navigationBefore.currentEventId,
+    });
+
+    expect(first?.blockId).toBe('source-1');
+    expect(injected).toBe(true);
+    expect(engine.getNavigationState().currentNodeId).toBe('source-1');
+    expect(engine.getSourceSnapshot().map((entry) => entry.nodeId)).toEqual(
+      expect.arrayContaining(['source-1', 'excerpt-1']),
+    );
+    expect(engine.getAnchorSnapshot().map((entry) => entry.nodeId)).toEqual(['source-1']);
+
+    const next = await engine.getNextCard();
+    expect(next?.blockId).toBe('excerpt-1');
+    expect(engine.getHistorySnapshot().at(-1)).toEqual(expect.objectContaining({
+      nodeId: 'excerpt-1',
+      activationKind: 'source-root',
+      sourceEventId: navigationBefore.currentEventId,
+      branchRootNodeId: 'excerpt-1',
+    }));
+  });
+
+  it('dedupes repeated excerpt injections within the same hyperspace session', async () => {
+    const graphProvider = {
+      fetchBlockData: vi.fn(async (nodeId: string) => createBlockData(nodeId, nodeId)),
+      fetchHyperspaceEdges: vi.fn(async () => []),
+      fetchNodePriority: vi.fn(async () => 0.7),
+      isConceptCard: vi.fn(async () => true),
+    } as const;
+
+    const engine = new HyperspaceEngine(graphProvider as any, {
+      getSettings: () => createSettings(),
+      random: () => 0,
+    });
+
+    await engine.setCurrentFocus('source-1', {
+      includeFocusAsFirst: false,
+      resetHistory: true,
+    });
+    await engine.getNextCard();
+
+    const context = engine.getNavigationState();
+    const first = await engine.injectExcerptIntoCurrentSession('excerpt-1', {
+      currentNodeId: context.currentNodeId,
+      currentEventId: context.currentEventId,
+    });
+    const second = await engine.injectExcerptIntoCurrentSession('excerpt-1', {
+      currentNodeId: context.currentNodeId,
+      currentEventId: context.currentEventId,
+    });
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    expect(engine.getSourceSnapshot().filter((entry) => entry.nodeId === 'excerpt-1')).toHaveLength(1);
+  });
+
   it('rebuilds frontier from the current activation after restoring a session with no pending expansion state', async () => {
     vi.useFakeTimers();
     try {

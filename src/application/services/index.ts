@@ -11,3 +11,4 @@ export type { CleanupRunResult, CleanupScanResult } from './BlockAttrCleanupServ
 export { type BlockAttrCleanupMode, type CleanupMode } from './BlockAttrPolicy';
 export { ProgressiveReadingService } from './ProgressiveReadingService';
 export { SelectionExcerptService } from './SelectionExcerptService';
+export { TopicDerivedItemService } from './TopicDerivedItemService';

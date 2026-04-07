@@ -41,6 +41,10 @@ type QuickCardSettings = {
     };
     enableDebounce?: boolean;
     descriptorUseXiuyuan?: boolean;
+    topicDerivation?: {
+        enabled?: boolean;
+        storageMode?: 'workbench' | 'source-child';
+    };
 };
 
 export interface AutoCardDocumentScanResult {
@@ -61,6 +65,7 @@ type SettingsServiceLike = {
 
 type CardServiceLike = {
     getCardByBlockId: (blockId: string) => unknown;
+    getCardsByBlockId?: (blockId: string) => unknown[];
     saveCards: () => Promise<void>;
 };
 
@@ -93,6 +98,30 @@ type AutoCardContextLike = {
     getCardService?: () => CardServiceLike;
     getXiuyuanApplicationService?: () => Promise<XiuyuanApplicationServiceLike>;
     getCardTypeDetectionService?: () => CardTypeDetectionServiceLike;
+    getTopicDerivedItemService?: () => TopicDerivedItemServiceLike;
+};
+
+type TopicDerivedItemServiceLike = {
+    createFromTopicSource: (input: {
+        sourceBlockId: string;
+        sourceDocId: string;
+        parentTopicCardId: string;
+        content: string;
+        decisions: CreationDecision[];
+        storageMode?: 'workbench' | 'source-child';
+    }) => Promise<{
+        created: number;
+        skipped: number;
+        items: Array<{
+            derivedDocId: string;
+            derivedBlockId: string;
+            derivedCardId: string;
+            sourceBlockId: string;
+            storageMode: 'workbench' | 'source-child';
+            creationRuleId: string;
+            answerFingerprint: string;
+        }>;
+    }>;
 };
 
 type ListChildBlock = {
@@ -101,6 +130,7 @@ type ListChildBlock = {
 
 type BlockTypeRow = {
     type?: string;
+    root_id?: string;
 };
 
 type BlockTypeContentRow = {
@@ -114,6 +144,13 @@ type BlockContentRow = {
 
 type ParentIdRow = {
     parent_id?: string;
+};
+
+type TopicContext = {
+    topicCardId: string;
+    topicBlockId: string;
+    sourceDocId: string;
+    scope: 'block' | 'doc-root';
 };
 
 /**
@@ -230,6 +267,14 @@ export class AutoCardHandler implements ITransactionHandler {
         throw new Error('[AutoCard] CardTypeDetectionService is unavailable');
     }
 
+    private getTopicDerivedItemService(): TopicDerivedItemServiceLike {
+        const context = this.requireContext();
+        if (context.getTopicDerivedItemService) {
+            return context.getTopicDerivedItemService();
+        }
+        throw new Error('[AutoCard] TopicDerivedItemService is unavailable');
+    }
+
     private async resolveDetectedCardType(
         blockId: string,
         blockType: string,
@@ -282,6 +327,15 @@ export class AutoCardHandler implements ITransactionHandler {
         return this.getCardService().getCardByBlockId(blockId);
     }
 
+    private getLocalCardsByBlockId(blockId: string): unknown[] {
+        const cardService = this.getCardService();
+        if (typeof cardService.getCardsByBlockId === 'function') {
+            return cardService.getCardsByBlockId(blockId);
+        }
+        const single = cardService.getCardByBlockId(blockId);
+        return single ? [single] : [];
+    }
+
     private isLocalConceptCard(card: unknown): boolean {
         if (!card || typeof card !== 'object') {
             return false;
@@ -297,6 +351,67 @@ export class AutoCardHandler implements ITransactionHandler {
 
     private hasLocalConceptCard(blockId: string): boolean {
         return this.isLocalConceptCard(this.getLocalCardByBlockId(blockId));
+    }
+
+    private isTopicLikeLocalCard(card: unknown): card is { id: string } {
+        if (!card || typeof card !== 'object') {
+            return false;
+        }
+        const candidate = card as {
+            id?: string;
+            type?: string;
+        };
+        return typeof candidate.id === 'string' && candidate.type === 'topic';
+    }
+
+    private resolveTopicContext(blockId: string, rootId: string, existingCards: unknown[]): TopicContext | null {
+        const blockTopicCard = existingCards.find((card) => this.isTopicLikeLocalCard(card));
+        if (blockTopicCard && this.isTopicLikeLocalCard(blockTopicCard)) {
+            return {
+                topicCardId: blockTopicCard.id,
+                topicBlockId: blockId,
+                sourceDocId: rootId || blockId,
+                scope: 'block',
+            };
+        }
+
+        const normalizedRootId = rootId.trim();
+        if (!normalizedRootId || normalizedRootId === blockId) {
+            return null;
+        }
+
+        const rootTopicCard = this.getLocalCardsByBlockId(normalizedRootId).find((card) => this.isTopicLikeLocalCard(card));
+        if (rootTopicCard && this.isTopicLikeLocalCard(rootTopicCard)) {
+            return {
+                topicCardId: rootTopicCard.id,
+                topicBlockId: normalizedRootId,
+                sourceDocId: normalizedRootId,
+                scope: 'doc-root',
+            };
+        }
+
+        return null;
+    }
+
+    private shouldUseTopicDerivation(
+        settings: QuickCardSettings,
+        topicContext: TopicContext | null,
+        decisions: CreationDecision[],
+    ): boolean {
+        if (!topicContext) {
+            return false;
+        }
+
+        if (settings.topicDerivation?.enabled === false) {
+            return false;
+        }
+
+        return decisions.some((decision) => (
+            decision.family === 'basic'
+            || decision.family === 'cloze'
+            || decision.family === 'concept-definition'
+            || decision.family === 'descriptor'
+        ));
     }
 
     private async sqlRows<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
@@ -426,7 +541,7 @@ export class AutoCardHandler implements ITransactionHandler {
             
 
             const typeResult = await this.sqlRows<BlockTypeRow>(`
-                SELECT type
+                SELECT type, root_id
                 FROM blocks
                 WHERE id = '${blockId}'
                 LIMIT 1
@@ -438,6 +553,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
             const blockType = typeof typeResult[0]?.type === 'string' ? typeResult[0].type : '';
+            const rootId = typeof typeResult[0]?.root_id === 'string' ? typeResult[0].root_id.trim() : '';
             if (!this.isQuickSymbolSupportedBlockType(blockType)) {
                 logger.debug(
                     '[SiYuanMemo][AutoCard] Block type not supported for symbol detection (type:',
@@ -455,16 +571,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-
-            const cardService = this.getCardService();
-            const existingCard = cardService.getCardByBlockId(blockId);
-
-            if (existingCard) {
-                logger.debug('[SiYuanMemo][AutoCard] Block already has card:', blockId);
-                return;
-            }
-            
-
             const normalizedSettings: QuickCardSettings = {
                 ...quickCardSettings,
                 flashcard: {
@@ -479,6 +585,10 @@ export class AutoCardHandler implements ITransactionHandler {
                     descriptor: quickCardSettings.enabledSymbols?.descriptor ?? true,
                     cloze: quickCardSettings.enabledSymbols?.cloze ?? true,
                     multiLine: quickCardSettings.enabledSymbols?.multiLine ?? true,
+                },
+                topicDerivation: {
+                    enabled: quickCardSettings.topicDerivation?.enabled ?? true,
+                    storageMode: quickCardSettings.topicDerivation?.storageMode === 'source-child' ? 'source-child' : 'workbench',
                 },
             };
 
@@ -499,6 +609,36 @@ export class AutoCardHandler implements ITransactionHandler {
                 logger.debug('[SiYuanMemo][AutoCard] No enabled planner decision detected:', {
                     blockId,
                     matchedRules: plan.diagnostics.matchedRuleIds,
+                });
+                return;
+            }
+
+            const existingCards = this.getLocalCardsByBlockId(blockId);
+            const topicContext = this.resolveTopicContext(blockId, rootId, existingCards);
+
+            if (this.shouldUseTopicDerivation(normalizedSettings, topicContext, enabledDecisions)) {
+                const derivedResult = await this.getTopicDerivedItemService().createFromTopicSource({
+                    sourceBlockId: blockId,
+                    sourceDocId: topicContext!.sourceDocId,
+                    parentTopicCardId: topicContext!.topicCardId,
+                    content: kramdown,
+                    decisions: enabledDecisions,
+                    storageMode: normalizedSettings.topicDerivation?.storageMode,
+                });
+
+                if (derivedResult.created > 0) {
+                    await this.siyuanApi.pushMsg(
+                        `已从 Topic 派生 ${derivedResult.created} 张练习卡${derivedResult.skipped > 0 ? `，跳过 ${derivedResult.skipped} 个重复项` : ''}`
+                    );
+                }
+                return;
+            }
+
+            if (existingCards.length > 0) {
+                logger.debug('[SiYuanMemo][AutoCard] Block already has non-topic card and no topic derivation context:', {
+                    blockId,
+                    existingCardCount: existingCards.length,
+                    rootId,
                 });
                 return;
             }

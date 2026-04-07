@@ -45,6 +45,10 @@ export class DefaultQuickCardConfigProvider implements IQuickCardConfigProvider 
       list: 2000,
     },
     descriptorUseXiuyuan: false,
+    topicDerivation: {
+      enabled: true,
+      storageMode: 'workbench',
+    },
   };
 
   getConfig(): QuickCardSettings {
@@ -88,6 +92,10 @@ export class PluginQuickCardConfigProvider implements IQuickCardConfigProvider {
         debounceDelay: {
           ...defaults.debounceDelay,
           ...(quickCardConfig.debounceDelay || {}),
+        },
+        topicDerivation: {
+          ...defaults.topicDerivation,
+          ...(quickCardConfig.topicDerivation || {}),
         },
       };
     } catch (error) {

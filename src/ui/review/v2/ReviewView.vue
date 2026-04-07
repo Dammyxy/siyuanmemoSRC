@@ -672,6 +672,28 @@ async function enqueueExcerptIntoCurrentProgressiveReview(excerptDocId: string):
   return true;
 }
 
+async function injectExcerptIntoCurrentHyperspaceReview(excerptDocId: string): Promise<boolean> {
+  const normalizedBlockId = String(excerptDocId || '').trim();
+  if (!normalizedBlockId) {
+    return false;
+  }
+
+  const neuralQueue = getNeuralRoamQueue();
+  if (!neuralQueue || neuralQueue.getEngineMode() !== 'hyperspace') {
+    return false;
+  }
+
+  if (typeof neuralQueue.injectExcerptIntoHyperspace !== 'function') {
+    return false;
+  }
+
+  const navigationState = neuralQueue.getNavigationState();
+  return neuralQueue.injectExcerptIntoHyperspace(normalizedBlockId, {
+    currentNodeId: navigationState.currentNodeId ?? null,
+    currentEventId: navigationState.currentEventId ?? null,
+  });
+}
+
 function openNeuralBrowserSubview(subview: 'concept-cards' | 'roam-history' | 'worldline-anchors'): void {
   const dialogManager = getDialogManager();
   if (!dialogManager || typeof dialogManager.openBrowserDialog !== 'function') {
@@ -2243,14 +2265,24 @@ async function createProgressiveExcerptFromReviewSelection(
       origin: 'review',
       currentCardId: resolveCurrentReviewCardId(),
     });
-    const insertedIntoCurrentReview = await enqueueExcerptIntoCurrentProgressiveReview(result.excerptDocId)
+    const routedExcerptTarget = await enqueueExcerptIntoCurrentProgressiveReview(result.excerptDocId)
+      .then((inserted) => (inserted ? 'progressive' as const : null))
+      .then(async (target) => {
+        if (target) {
+          return target;
+        }
+        const injected = await injectExcerptIntoCurrentHyperspaceReview(result.excerptDocId);
+        return injected ? 'hyperspace' as const : null;
+      })
       .catch((error) => {
-        logger.warn('[SiYuanMemo][ReviewView] Failed to enqueue progressive excerpt into current review:', error);
-        return false;
+        logger.warn('[SiYuanMemo][ReviewView] Failed to route progressive excerpt into current review:', error);
+        return null;
       });
     showMessage(
-      insertedIntoCurrentReview
+      routedExcerptTarget === 'progressive'
         ? t('progressiveExcerptCreatedInserted', '摘抄已创建、制为 Topic，并插入当前渐进复习')
+        : routedExcerptTarget === 'hyperspace'
+          ? t('progressiveExcerptCreatedMergedHyperspace', '摘抄已创建、制为 Topic，并并入当前超空间神经漫游')
         : trigger === 'hotkey'
           ? t('progressiveExcerptCreatedHotkey', '摘抄已创建并制为 Topic')
           : t('progressiveExcerptCreated', '摘抄已创建并制为 Topic'),

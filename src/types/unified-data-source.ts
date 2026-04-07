@@ -303,6 +303,11 @@ export interface NeuralRoamSourceEntry {
     visitedAt: number;
 }
 
+export interface HyperspaceExcerptInjectionContext {
+    currentNodeId?: string | null;
+    currentEventId?: string | null;
+}
+
 export interface NeuralRoamSessionQueue {
     getEngineMode(): NeuralEngineMode;
     setEngineMode(
@@ -313,6 +318,10 @@ export interface NeuralRoamSessionQueue {
     ): Promise<void>;
     getSourceSnapshot(): NeuralRoamSourceEntry[];
     setSourceEntry(nodeId: string, enabled?: boolean): Promise<void>;
+    injectExcerptIntoHyperspace?(
+        excerptNodeId: string,
+        context?: HyperspaceExcerptInjectionContext,
+    ): Promise<boolean>;
     getSeedSnapshot(): NeuralRoamSeedEntry[];
     setSeedEntry(nodeId: string, enabled?: boolean): Promise<void>;
     getAnchorSnapshot(): NeuralRoamAnchorEntry[];

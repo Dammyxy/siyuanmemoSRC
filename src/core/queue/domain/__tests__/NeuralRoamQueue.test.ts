@@ -224,6 +224,12 @@ function mockNeuralEngine(queue: NeuralRoamQueue): void {
     root_id: 'doc-1',
   }));
   mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([]);
+  mockQueryEngine.fetchSubtreeBlockIds = vi.fn(async () => []);
+
+  const queueQueryEngine = (queue as any).queryEngine;
+  if (queueQueryEngine) {
+    queueQueryEngine.fetchSubtreeBlockIds = vi.fn(async () => []);
+  }
 
   const hyperspaceEngine = (queue as any).hyperspaceEngine;
   const graphProvider = hyperspaceEngine.graphProvider;
@@ -603,6 +609,40 @@ describe('NeuralRoamQueue', () => {
     expect(queue.getSourceSnapshot().map((entry) => entry.nodeId)).toContain('concept-a');
     expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
     expect(queue.getHistorySnapshot().filter((entry) => entry.activationKind === 'source-root')).toHaveLength(1);
+  });
+
+  it('injects excerpt topics into the current hyperspace session without building stations', async () => {
+    const { persistence, store } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-a'), topicCard('excerpt-1')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+    await queue.setEngineMode('hyperspace', { carryCurrentNode: false });
+    await queue.setCurrentFocus('concept-a', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+
+    const current = queue.getNavigationState();
+    const injected = await queue.injectExcerptIntoHyperspace('excerpt-1', {
+      currentNodeId: current.currentNodeId,
+      currentEventId: current.currentEventId,
+    });
+
+    expect(injected).toBe(true);
+    expect(queue.getNavigationState().currentNodeId).toBe('concept-a');
+    expect(queue.getSourceSnapshot().map((entry) => entry.nodeId)).toEqual(expect.arrayContaining(['concept-a', 'excerpt-1']));
+    expect(queue.getAnchorSnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a']);
+
+    const next = await queue.getNextCard();
+    expect(next?.blockId).toBe('excerpt-1');
+    expect(queue.getHistorySnapshot().map((entry) => entry.nodeId)).toEqual(['concept-a', 'excerpt-1']);
+
+    const saved = store.get('neuralRoamQueue') as { hyperspace?: { sourcePool?: Array<{ nodeId: string }> } } | undefined;
+    expect(saved?.hyperspace?.sourcePool?.map((entry) => entry.nodeId)).toEqual(expect.arrayContaining(['excerpt-1']));
   });
 
   it('does not duplicate the carried orbit focus when switching back into orbit', async () => {

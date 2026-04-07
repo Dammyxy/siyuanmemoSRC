@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../../../siyuan/api';
+import {
+  ATTR_PROGRESSIVE_KIND,
+  ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
+} from '@/core/siyuan/block';
 import { ConceptQueryEngine } from '../ConceptQueryEngine';
 
 vi.mock('../../../siyuan/api', () => ({
@@ -72,6 +76,57 @@ describe('ConceptQueryEngine - backlink normalization', () => {
     expect(first).toEqual(['cached-backlink']);
     expect(second).toEqual(['cached-backlink']);
     expect(api.sql).toHaveBeenCalledTimes(initialCalls);
+  });
+
+  it('normalizes excerpt paragraph backlinks to the excerpt topic root', async () => {
+    vi.mocked(api.sql).mockImplementation(async (stmt: string) => {
+      if (stmt.includes('FROM refs r')) {
+        return [
+          { id: 'excerpt-paragraph-1', source_id: 'excerpt-paragraph-1', source_type: 'p', normalized_to_parent: 0 },
+        ] as any;
+      }
+      if (stmt.includes("WHERE block_id = 'excerpt-paragraph-1'")) {
+        return [] as any;
+      }
+      if (stmt.includes("WHERE b.id = 'excerpt-paragraph-1'")) {
+        return [{
+          id: 'excerpt-paragraph-1',
+          content: 'excerpt paragraph',
+          type: 'p',
+          parent_id: 'excerpt-doc-1',
+          root_id: 'excerpt-doc-1',
+        }] as any;
+      }
+      if (stmt.includes("WHERE block_id = 'excerpt-doc-1'")) {
+        return [{ name: ATTR_PROGRESSIVE_KIND, value: 'excerpt-doc' }] as any;
+      }
+      return [] as any;
+    });
+
+    const result = await engine.fetchBacklinks('concept-1');
+
+    expect(result).toEqual(['excerpt-doc-1']);
+  });
+
+  it('normalizes daily excerpt refs to their parent excerpt topic root', async () => {
+    vi.mocked(api.sql).mockImplementation(async (stmt: string) => {
+      if (stmt.includes('FROM refs r')) {
+        return [
+          { id: 'trace-ref-1', source_id: 'trace-ref-1', source_type: 'p', normalized_to_parent: 0 },
+        ] as any;
+      }
+      if (stmt.includes("WHERE block_id = 'trace-ref-1'")) {
+        return [
+          { name: ATTR_PROGRESSIVE_KIND, value: 'daily-excerpt-ref' },
+          { name: ATTR_PROGRESSIVE_PARENT_EXCERPT_ID, value: 'excerpt-doc-2' },
+        ] as any;
+      }
+      return [] as any;
+    });
+
+    const result = await engine.fetchBacklinks('concept-1');
+
+    expect(result).toEqual(['excerpt-doc-2']);
   });
 
   it('keeps normalized parent list items as virtual backlink nodes even when children are real flashcards', async () => {

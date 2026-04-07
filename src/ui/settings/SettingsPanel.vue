@@ -309,6 +309,36 @@
           </p>
         </div>
 
+        <div v-if="settings.quickCard.enabled" class="fn__hr"></div>
+
+        <h3 v-if="settings.quickCard.enabled">{{ t('topicDerivationTitle', 'Topic 派生练习') }}</h3>
+
+        <div v-if="settings.quickCard.enabled" class="form-item">
+          <label>{{ t('topicDerivationEnabled', '启用 Topic 自然派生练习') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.topicDerivation.enabled">
+          </div>
+          <p class="form-hint">
+            {{ t('topicDerivationEnabledHint', '当当前块本身已是 Topic，或当前块位于 Topic 子文档内时，继续高亮/符号制卡会保留原 Topic，并新建派生练习子文档。') }}
+          </p>
+        </div>
+
+        <div
+          v-if="settings.quickCard.enabled && settings.quickCard.topicDerivation.enabled"
+          class="form-item"
+        >
+          <label>{{ t('topicDerivationStorageMode', '派生练习存放位置') }}</label>
+          <div class="form-control">
+            <select v-model="settings.quickCard.topicDerivation.storageMode" class="scheduler-select">
+              <option value="workbench">{{ t('topicDerivationStorageWorkbench', '工作台文档（默认）') }}</option>
+              <option value="source-child">{{ t('topicDerivationStorageSourceChild', '直接挂在源文档下') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('topicDerivationStorageModeHint', '工作台模式会把派生练习集中收纳到源文档的“摘抄工作台”下；源文档模式则直接在当前 Topic 下创建子文档。') }}
+          </p>
+        </div>
+
         <div class="fn__hr"></div>
 
         <h3>{{ t('progressiveReadingSettingsTitle', '渐进阅读') }}</h3>
@@ -618,6 +648,10 @@ function mergeQuickCardSettings(source?: Partial<QuickCardSettings>): QuickCardS
     debounceDelay: {
       ...defaults.debounceDelay,
       ...(source?.debounceDelay || {}),
+    },
+    topicDerivation: {
+      ...defaults.topicDerivation,
+      ...(source?.topicDerivation || {}),
     },
     descriptorUseXiuyuan: source?.descriptorUseXiuyuan ?? defaults.descriptorUseXiuyuan,
     flashcardSeededFromSiyuan: source?.flashcardSeededFromSiyuan ?? defaults.flashcardSeededFromSiyuan,

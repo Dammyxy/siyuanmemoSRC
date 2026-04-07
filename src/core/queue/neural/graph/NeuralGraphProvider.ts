@@ -6,7 +6,7 @@ import type {
 } from '@/types/unified-data-source';
 import { ConceptQueryEngine, type BlockData } from '../ConceptQueryEngine';
 
-export type NeuralGraphChannel = 'concept-map' | 'element-link' | 'block-tree' | 'document-tree';
+export type NeuralGraphChannel = 'concept-map' | 'element-link' | 'block-tree' | 'document-tree' | 'source';
 
 export interface NeuralGraphEdge {
   nodeId: string;

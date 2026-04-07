@@ -153,6 +153,12 @@ export interface QuickCardSettings {
     
     /** Descriptor 是否使用 Xiuyuan */
     descriptorUseXiuyuan: boolean;
+
+    /** Topic 卡上的自然派生 item 配置 */
+    topicDerivation?: {
+        enabled: boolean;
+        storageMode: 'workbench' | 'source-child';
+    };
 }
 
 /** 机械练习设置 */
@@ -393,6 +399,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
                 ...DEFAULT_SETTINGS.quickCard.flashcard,
                 ...(settings.quickCard?.flashcard || {}),
             },
+            topicDerivation: {
+                ...DEFAULT_SETTINGS.quickCard.topicDerivation,
+                ...(settings.quickCard?.topicDerivation || {}),
+            },
         },
         progressiveReading: {
             ...DEFAULT_SETTINGS.progressiveReading,
@@ -442,6 +452,16 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         }
 
         if ((sourceQuickCard.flashcardSeededFromSiyuan ?? false) !== normalizedQuickCard.flashcardSeededFromSiyuan) {
+            changed = true;
+        }
+
+        const sourceTopicDerivation = sourceQuickCard.topicDerivation;
+        if (!sourceTopicDerivation) {
+            changed = true;
+        } else if (
+            (sourceTopicDerivation.enabled ?? DEFAULT_SETTINGS.quickCard.topicDerivation.enabled) !== normalizedQuickCard.topicDerivation.enabled
+            || (sourceTopicDerivation.storageMode ?? DEFAULT_SETTINGS.quickCard.topicDerivation.storageMode) !== normalizedQuickCard.topicDerivation.storageMode
+        ) {
             changed = true;
         }
     }
@@ -575,6 +595,10 @@ export const DEFAULT_SETTINGS: PluginSettings = {
             list: 2000,
         },
         descriptorUseXiuyuan: true,
+        topicDerivation: {
+            enabled: true,
+            storageMode: 'workbench',
+        },
     },
     drill: {
         enabled: true,

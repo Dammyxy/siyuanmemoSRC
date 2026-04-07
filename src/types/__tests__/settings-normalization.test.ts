@@ -67,6 +67,18 @@ describe('settings normalization', () => {
     expect(normalized.settings.quickCard.flashcardSeededFromSiyuan).toBe(false);
   });
 
+  it('fills quickCard.topicDerivation defaults when missing', () => {
+    const legacy = cloneSettings();
+    delete (legacy.quickCard as Partial<typeof legacy.quickCard>).topicDerivation;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.quickCard.topicDerivation).toEqual(
+      DEFAULT_SETTINGS.quickCard.topicDerivation
+    );
+  });
+
   it('fills hyperspace defaults when neural roam settings are missing', () => {
     const legacy = cloneSettings();
     delete (legacy.queues as Partial<typeof legacy.queues>).neuralRoam;
