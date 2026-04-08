@@ -505,6 +505,12 @@ export class XiuyuanSyncService {
                 continue;
             }
 
+            if (!this.hasMeaningfulRiffQuestion(riffBlock.content)) {
+                skippedCount++;
+                this.logMalformedRiffBlock(stage, riffBlock, 'Question cannot be empty');
+                continue;
+            }
+
             if (normalizedId === riffBlock.id) {
                 preparedBlocks.push(riffBlock);
                 continue;
@@ -529,9 +535,21 @@ export class XiuyuanSyncService {
         };
     }
 
+    private hasMeaningfulRiffQuestion(content: string | undefined): boolean {
+        return this.normalizeRiffQuestion(content).length > 0;
+    }
+
+    private normalizeRiffQuestion(content: string | undefined): string {
+        if (typeof content !== 'string') {
+            return '';
+        }
+
+        return content.replace(/\u200B/g, '').trim();
+    }
+
     private logMalformedRiffBlock(stage: RiffInputStage, riffBlock: RiffBlock, reason: string): void {
         const rawRiffBlock = riffBlock as unknown as Record<string, unknown>;
-        logger.warn('[XiuyuanSyncService] Skipping malformed Riff block without recoverable block ID', {
+        logger.warn('[XiuyuanSyncService] Skipping malformed Riff block', {
             stage,
             reason,
             id: this.readRiffField(rawRiffBlock, 'id'),
@@ -540,6 +558,7 @@ export class XiuyuanSyncService {
             riffCardID: this.readRiffField(rawRiffBlock, 'riffCardID'),
             riffCardId: this.readRiffField(rawRiffBlock, 'riffCardId'),
             path: this.readRiffField(rawRiffBlock, 'path'),
+            contentLength: typeof rawRiffBlock.content === 'string' ? rawRiffBlock.content.length : undefined,
         });
     }
 
@@ -1612,9 +1631,13 @@ export class XiuyuanSyncService {
             quickRenderHintMeta,
             postCreationPlan,
         } = params;
+        const question = this.normalizeRiffQuestion(riffBlock.content);
+        if (!question) {
+            throw new Error(`Malformed Riff block ${riffBlock.id}: Question cannot be empty`);
+        }
 
         const cardFaceResult = CardFace.create({
-            question: riffBlock.content || `Block ${riffBlock.id}`,
+            question,
             answer: '',
             questionBlockId: riffBlock.id,
             answerBlockId: riffBlock.id,

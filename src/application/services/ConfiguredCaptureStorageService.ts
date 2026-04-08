@@ -90,7 +90,7 @@ export class ConfiguredCaptureStorageService {
     }
 
     if (normalizeString(targetBlock.type) === 'd') {
-      const parentDoc = await this.port.getDocInfo(targetBlock.id);
+      const parentDoc = await this.resolveDocInfo(targetBlock.id);
       return {
         notebookId,
         containerDocId: parentDoc.id,
@@ -108,7 +108,7 @@ export class ConfiguredCaptureStorageService {
     if (!rootDocId) {
       throw new Error('无法解析目标块所属文档。');
     }
-    const parentDoc = await this.port.getDocInfo(rootDocId);
+    const parentDoc = await this.resolveDocInfo(rootDocId);
     return {
       notebookId,
       containerDocId: parentDoc.id,
@@ -141,19 +141,55 @@ export class ConfiguredCaptureStorageService {
     const path = `/${sanitizeDocTitle(title)}`;
     const existingDocId = await this.findDocIdByHPath(notebookId, path);
     if (existingDocId) {
-      return this.port.getDocInfo(existingDocId);
+      return this.resolveDocInfo(existingDocId);
     }
 
     const createdDocId = normalizeString(await this.port.createDocWithMarkdown(notebookId, path, `# ${title}`));
     if (createdDocId) {
-      return this.port.getDocInfo(createdDocId);
+      return this.resolveDocInfo(createdDocId);
     }
 
     const resolvedDocId = await this.findDocIdByHPath(notebookId, path);
     if (!resolvedDocId) {
       throw new Error(`无法定位 ${title} 根文档。`);
     }
-    return this.port.getDocInfo(resolvedDocId);
+    return this.resolveDocInfo(resolvedDocId);
+  }
+
+  private async resolveDocInfo(docId: string): Promise<ConfiguredCaptureDocInfo> {
+    const info = await this.port.getDocInfo(docId);
+    if (normalizeString(info.box) && normalizeString(info.hpath)) {
+      return {
+        id: normalizeString(info.id) || docId,
+        box: normalizeString(info.box),
+        path: normalizeString(info.path),
+        hpath: normalizeString(info.hpath),
+        name: normalizeString(info.name),
+      };
+    }
+
+    const rows = await this.port.sql<ConfiguredCaptureBlockRow>(`
+      SELECT id, box, path, hpath, content
+      FROM blocks
+      WHERE id = '${escapeSql(docId)}'
+      LIMIT 1
+    `);
+    const row = rows[0];
+    const resolved = {
+      id: normalizeString(info.id) || normalizeString(row?.id) || docId,
+      box: normalizeString(info.box) || normalizeString(row?.box),
+      path: normalizeString(info.path) || normalizeString(row?.path),
+      hpath: normalizeString(info.hpath) || normalizeString(row?.hpath),
+      name: normalizeString(info.name) || normalizeString(row?.content),
+    };
+    if (!resolved.box || !resolved.hpath) {
+      logger.debug('Configured capture doc info remains incomplete after SQL hydration', {
+        docId,
+        box: resolved.box,
+        hpath: resolved.hpath,
+      });
+    }
+    return resolved;
   }
 
   private async resolveTargetBlock(targetBlockId: string): Promise<ConfiguredCaptureBlockRow> {

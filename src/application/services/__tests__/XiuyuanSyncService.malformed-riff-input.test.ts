@@ -201,6 +201,27 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expect(vi.mocked(xiuyuanRepository.save)).not.toHaveBeenCalled();
   });
 
+  it('skips blank-content riff records during incremental sync without touching storage', async () => {
+    const { service, xiuyuanRepository, siyuanApi } = createHarness();
+    const validBlockId = '20260301195500-abc1234';
+
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock({
+        id: validBlockId,
+        content: '  \u200B  ',
+      }),
+    ]);
+
+    const result = await service.incrementalSync();
+
+    expectSyncSuccess(result);
+    expect(result.addedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(vi.mocked(siyuanApi.getBlockAttrs)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.findById)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.save)).not.toHaveBeenCalled();
+  });
+
   it('skips malformed legacy migration cards during startup and still completes start()', async () => {
     const { service, siyuanApi } = createHarness({ incrementalEnabled: true });
 
@@ -216,6 +237,23 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     await expect(service.start()).resolves.toBeUndefined();
 
     expect(vi.mocked(siyuanApi.setBlockAttrs)).not.toHaveBeenCalled();
+    expect(vi.mocked(siyuanApi.getRiffNewCards)).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps startup alive when incremental sync sees blank-content riff records', async () => {
+    const { service, siyuanApi } = createHarness({ incrementalEnabled: true });
+    const validBlockId = '20260301200000-abc1234';
+
+    vi.mocked(siyuanApi.getRiffCards).mockResolvedValue([]);
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock({
+        id: validBlockId,
+        content: ' \u200B ',
+      }),
+    ]);
+
+    await expect(service.start()).resolves.toBeUndefined();
+
     expect(vi.mocked(siyuanApi.getRiffNewCards)).toHaveBeenCalledTimes(1);
   });
 
@@ -243,5 +281,43 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expect(vi.mocked(xiuyuanRepository.save)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(xiuyuanRepository.delete)).not.toHaveBeenCalled();
     expect(vi.mocked((riffBlacklistService as unknown as { cleanupBlacklist: ReturnType<typeof vi.fn> }).cleanupBlacklist)).not.toHaveBeenCalled();
+  });
+
+  it('skips blank-content full-sync records but still processes valid cards and avoids destructive cleanup', async () => {
+    const { service, xiuyuanRepository, siyuanApi, riffBlacklistService } = createHarness({ cleanupBlacklist: true });
+    const validBlockId = '20260302200000-abc1234';
+
+    vi.mocked(siyuanApi.getRiffCards).mockResolvedValue([
+      createRiffBlock({
+        id: '20260302200000-abc1235',
+        content: ' \u200B ',
+      }),
+      createRiffBlock({
+        id: validBlockId,
+        content: 'good full sync card',
+      }),
+    ]);
+
+    const result = await service.fullSync();
+
+    expectSyncSuccess(result);
+    expect(result.addedCount).toBe(1);
+    expect(result.skippedCount).toBe(1);
+    expect(vi.mocked(xiuyuanRepository.save)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.delete)).not.toHaveBeenCalled();
+    expect(vi.mocked((riffBlacklistService as unknown as { cleanupBlacklist: ReturnType<typeof vi.fn> }).cleanupBlacklist)).not.toHaveBeenCalled();
+  });
+
+  it('rejects direct single-face conversion for blank-content riff cards instead of synthesizing placeholder text', async () => {
+    const { service } = createHarness();
+
+    await expect(
+      (service as any).convertRiffCardToFSRSCard(
+        createRiffBlock({
+          id: '20260302201500-abc1234',
+          content: '\u200B \n\t',
+        })
+      )
+    ).rejects.toThrow('Malformed Riff block 20260302201500-abc1234: Question cannot be empty');
   });
 });

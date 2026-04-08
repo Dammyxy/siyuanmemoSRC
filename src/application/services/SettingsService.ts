@@ -323,14 +323,6 @@ export class SettingsService implements ISettingsService {
       );
     }
 
-    const dailyTraceEnabled = settings.progressiveReading?.dailyTraceEnabled;
-    if (dailyTraceEnabled !== undefined && typeof dailyTraceEnabled !== 'boolean') {
-      throw new SettingsValidationError(
-        'progressiveReading.dailyTraceEnabled must be a boolean',
-        'progressiveReading.dailyTraceEnabled'
-      );
-    }
-
     const neuralHistory = settings.queues?.neuralRoam?.history;
     if (neuralHistory) {
       this.validateFiniteRange(

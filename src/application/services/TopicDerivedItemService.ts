@@ -140,7 +140,7 @@ export class TopicDerivedItemService {
 
       const derivedBlockId = String(childDoc.contentBlockId || '').trim();
       if (!derivedBlockId) {
-        throw new Error('派生练习子文档创建成功，但内容块未返回');
+        throw new Error('Topic 下继续制卡的子文档创建成功，但内容块未返回');
       }
 
       const derivedCardId = await this.createDerivedItemCard({

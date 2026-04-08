@@ -58,13 +58,12 @@ function createProgressiveSiyuanPortMock(
 }
 
 function createSettingsProviderMock(
-  overrides: Partial<PluginSettings['progressiveReading']> = {},
+  overrides: Partial<PluginSettings['progressiveReading'] & { dailyTraceEnabled?: boolean }> = {},
 ) {
   return {
     getSettings: () => ({
       progressiveReading: {
         altXExcerptEnabled: false,
-        dailyTraceEnabled: false,
         storage: {
           mode: 'library',
           notebookId: '',
@@ -90,7 +89,11 @@ function createServiceUnderTest(
   port: ProgressiveSiyuanPort,
   fileService: IFileService,
   cardService: CardApplicationService,
-  settingsProvider: ReturnType<typeof createSettingsProviderMock>,
+  settingsProvider: {
+    getSettings: () => {
+      progressiveReading: PluginSettings['progressiveReading'] & { dailyTraceEnabled?: boolean };
+    };
+  },
   configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock(),
 ) {
   return new ProgressiveReadingService(
@@ -905,7 +908,7 @@ describe('ProgressiveReadingService', () => {
     });
   });
 
-  it('creates ordinary-note excerpts as child excerpt documents and only leaves doc refs in daily notes', async () => {
+  it('creates ordinary-note excerpts as child excerpt documents without writing Daily Notes trace, even when legacy trace settings are present', async () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async (docId: string) => {
@@ -938,37 +941,33 @@ describe('ProgressiveReadingService', () => {
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
           return [];
         }
-        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/SiYuan Memo 渐进阅读'")) {
-          return [];
-        }
-        if (stmt.includes("a0.value = 'daily-anchor-ref'")) {
-          return [];
-        }
-        if (stmt.includes("a0.value = 'daily-source-group'")) {
-          return [];
-        }
-        if (stmt.includes("a0.value = 'daily-excerpt-ref'")) {
-          return [];
-        }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       getBlockKramdown: vi.fn(async () => ({
         kramdown: 'Before Focus text after',
       })),
-      renderTemplate: vi.fn(async () => '/daily note/2026/2026-04-05'),
-      createDocWithMarkdown: vi
-        .fn()
-        .mockResolvedValueOnce('excerpt-doc-1')
-        .mockResolvedValueOnce('daily-note-1')
-        .mockResolvedValueOnce('anchor-doc-1'),
-      appendMarkdownBlock: vi
-        .fn()
-        .mockResolvedValueOnce('daily-anchor-ref-1')
-        .mockResolvedValueOnce('daily-source-group-1')
-        .mockResolvedValueOnce('daily-excerpt-ref-1'),
+      createDocWithMarkdown: vi.fn().mockResolvedValueOnce('excerpt-doc-1'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock({ dailyTraceEnabled: true }));
+    const legacySettingsProvider = {
+      getSettings: () => ({
+        progressiveReading: {
+          altXExcerptEnabled: false,
+          storage: {
+            mode: 'library',
+            notebookId: '',
+            targetBlockId: '',
+          },
+          dailyTraceEnabled: true,
+        },
+      }),
+    };
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      legacySettingsProvider,
+    );
 
     const result = await service.createExcerptFromSelection({
       sourceBlockId: 'source-1',
@@ -1009,20 +1008,13 @@ describe('ProgressiveReadingService', () => {
       'excerpt-doc-1',
       expect.stringContaining('data-subtype="s"'),
     );
-    expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
-      3,
-      'notebook-a',
-      '/SiYuan Memo 渐进阅读',
-      '# SiYuan Memo 渐进阅读',
-    );
     expect(port.setBlockAttrs).toHaveBeenCalledWith('excerpt-doc-1', expect.objectContaining({
       'custom-fsrs-reading-kind': 'excerpt-doc',
       'custom-fsrs-reading-source-doc-id': 'doc-ordinary',
       'custom-fsrs-reading-source-block-id': 'source-1',
     }));
-    expect(port.appendMarkdownBlock).toHaveBeenNthCalledWith(1, 'daily-note-1', '((anchor-doc-1))');
-    expect(port.appendMarkdownBlock).toHaveBeenNthCalledWith(2, 'daily-anchor-ref-1', '((doc-ordinary))');
-    expect(port.appendMarkdownBlock).toHaveBeenNthCalledWith(3, 'daily-source-group-1', '((excerpt-doc-1))');
+    expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
+    expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
     expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
     expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
       blockIds: ['excerpt-doc-1'],
@@ -1041,7 +1033,7 @@ describe('ProgressiveReadingService', () => {
     expect(fileService.writeJSON).not.toHaveBeenCalled();
   });
 
-  it('creates split-piece excerpts as child excerpt documents, increments numbering, and appends doc refs to daily notes', async () => {
+  it('creates split-piece excerpts as child excerpt documents without writing Daily Notes trace', async () => {
     const initialState = {
       version: 2 as const,
       sessions: {
@@ -1092,45 +1084,20 @@ describe('ProgressiveReadingService', () => {
             { id: 'piece-block-1', root_id: 'piece-1', parent_id: 'piece-1', box: 'notebook-a', type: 'p', content: 'Before Piece text after', markdown: 'Before Piece text after' },
           ];
         }
-        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/daily note/2026/2026-04-05'")) {
-          return [];
-        }
         if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'piece-1'")) {
           return [
             { id: 'excerpt-doc-old-1', content: '[摘录 001] Earlier' },
           ];
-        }
-        if (stmt.includes("WHERE type = 'd'") && stmt.includes("hpath = '/SiYuan Memo 渐进阅读'")) {
-          return [];
-        }
-        if (stmt.includes("a0.value = 'daily-anchor-ref'")) {
-          return [];
-        }
-        if (stmt.includes("a0.value = 'daily-source-group'")) {
-          return [];
-        }
-        if (stmt.includes("a0.value = 'daily-excerpt-ref'")) {
-          return [];
         }
         throw new Error(`Unexpected SQL: ${stmt}`);
       }),
       getBlockKramdown: vi.fn(async () => ({
         kramdown: 'Before Piece text after',
       })),
-      renderTemplate: vi.fn(async () => '/daily note/2026/2026-04-05'),
-      createDocWithMarkdown: vi
-        .fn()
-        .mockResolvedValueOnce('excerpt-doc-2')
-        .mockResolvedValueOnce('daily-note-1')
-        .mockResolvedValueOnce('anchor-doc-1'),
-      appendMarkdownBlock: vi
-        .fn()
-        .mockResolvedValueOnce('daily-anchor-ref-1')
-        .mockResolvedValueOnce('daily-source-group-1')
-        .mockResolvedValueOnce('daily-excerpt-ref-1'),
+      createDocWithMarkdown: vi.fn().mockResolvedValueOnce('excerpt-doc-2'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock({ dailyTraceEnabled: true }));
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.createExcerptFromSelection({
       sourceBlockId: 'piece-block-1',
@@ -1168,9 +1135,7 @@ describe('ProgressiveReadingService', () => {
       'excerpt-doc-2',
       expect.stringContaining('>*</span>'),
     );
-    expect(port.appendMarkdownBlock).toHaveBeenNthCalledWith(1, 'daily-note-1', '((anchor-doc-1))');
-    expect(port.appendMarkdownBlock).toHaveBeenNthCalledWith(2, 'daily-anchor-ref-1', '((piece-1))');
-    expect(port.appendMarkdownBlock).toHaveBeenNthCalledWith(3, 'daily-source-group-1', '((excerpt-doc-2))');
+    expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
     expect(port.setBlockAttrs).toHaveBeenCalledWith('excerpt-doc-2', expect.objectContaining({
       'custom-fsrs-reading-kind': 'excerpt-doc',
       'custom-fsrs-reading-session-id': 'session-1',
@@ -1203,7 +1168,7 @@ describe('ProgressiveReadingService', () => {
     expect(fileService.writeJSON).not.toHaveBeenCalled();
   });
 
-  it('skips Daily Notes trace by default while still creating excerpt docs and topic cards', async () => {
+  it('does not write any Daily Notes trace by default while still creating excerpt docs and topic cards', async () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock({
       getDocInfo: vi.fn(async (docId: string) => ({

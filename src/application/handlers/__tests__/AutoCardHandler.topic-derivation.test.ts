@@ -130,7 +130,7 @@ describe('AutoCardHandler topic derivation routing', () => {
         }),
       ]),
     }));
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已从 Topic 派生 1 张练习卡');
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
   });
 
   it('derives from topic doc root context instead of skipping child blocks inside a topic document', async () => {
@@ -149,6 +149,6 @@ describe('AutoCardHandler topic derivation routing', () => {
       parentTopicCardId: 'topic-card-root-1',
       content: 'Alpha >> Beta',
     }));
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已从 Topic 派生 1 张练习卡');
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
   });
 });

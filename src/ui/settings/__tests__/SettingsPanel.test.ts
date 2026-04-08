@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils';
 import SettingsPanel from '../SettingsPanel.vue';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 
-function mountPanel(defaultTab = 'params') {
+function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> = {}) {
   return mount(SettingsPanel, {
     props: {
       defaultTab,
@@ -43,9 +43,6 @@ function mountPanel(defaultTab = 'params') {
         progressiveAltXExcerptEnabledHint: 'Registers ⌥⇧X for excerpting while native Alt+X stays bound to SiYuan recent appearance.',
         progressiveStorageModeLabel: 'Excerpt storage mode',
         progressiveStorageModeHint: 'Choose where excerpts should be stored.',
-        progressiveDailyTraceEnabled: 'Write Daily Notes trace after excerpting',
-        progressiveDailyTraceEnabledHint: 'Leave trace entries in Daily Notes after creating excerpts.',
-        progressiveDailyTraceDisabledHint: 'Daily trace is disabled while the main storage is already Daily Note.',
         captureStorageModeLibrary: 'Library',
         captureStorageModeDailyNote: 'Daily Note',
         captureStorageNotebookLabel: 'Target notebook',
@@ -54,6 +51,13 @@ function mountPanel(defaultTab = 'params') {
         captureStorageTargetBlockIdLabel: 'Target block ID (optional)',
         progressiveStorageTargetBlockHint: 'Library mode accepts a target document block ID.',
         progressiveStorageTargetBlockIgnoredHint: 'Target block ID is ignored in Daily Note mode.',
+        topicDerivationTitle: 'Continue card creation under Topic',
+        topicDerivationEnabled: 'Enable continuing card creation under Topic',
+        topicDerivationEnabledHint: 'When the current block already belongs to a Topic, further highlights or symbol-based card creation keep the original Topic and add new practice child documents and cards under it. This is not the excerpt flow.',
+        topicDerivationStorageMode: 'Storage for continued card creation',
+        topicDerivationStorageWorkbench: 'Workbench document (default)',
+        topicDerivationStorageSourceChild: 'Direct child under current Topic',
+        topicDerivationStorageModeHint: 'Workbench mode collects continued card-creation content under the source reading workbench; source mode places it directly under the current Topic.',
         aiDraftStorageModeLabel: 'AI draft storage mode',
         aiDraftStorageModeHint: 'Choose where AI drafts should be saved.',
         aiDraftStorageTargetBlockHint: 'Library mode accepts a target document or block ID.',
@@ -84,6 +88,7 @@ function mountPanel(defaultTab = 'params') {
         aiPromptStatusEmptyHint: 'The editor is empty right now; saving will fall back to the recommended template.',
         saveSettings: 'Save Settings',
       },
+      ...extraProps,
     },
   });
 }
@@ -150,12 +155,26 @@ describe('SettingsPanel', () => {
   });
 
   it('saves the excerpt shortcut toggle and explicit excerpt storage settings', async () => {
-    const wrapper = mountPanel('capture-sync');
+    const wrapper = mountPanel('capture-sync', {
+      quickCardSettings: {
+        ...DEFAULT_SETTINGS.quickCard,
+        enabled: true,
+        topicDerivation: {
+          ...DEFAULT_SETTINGS.quickCard.topicDerivation,
+          enabled: true,
+        },
+      },
+    });
     await wrapper.vm.$nextTick();
 
     expect(wrapper.text()).toContain('Progressive Reading');
+    expect(wrapper.text()).toContain('Continue card creation under Topic');
+    expect(wrapper.text()).toContain('Enable continuing card creation under Topic');
+    expect(wrapper.text()).toContain('Storage for continued card creation');
+    expect(wrapper.text()).toContain('This is not the excerpt flow.');
     expect(wrapper.text()).toContain('⌥⇧X');
     expect(wrapper.text()).toContain('Alt+X');
+    expect(wrapper.text()).not.toContain('Write Daily Notes trace after excerpting');
     const formItems = wrapper.findAll('.form-item');
     const altXItem = formItems.find((item) => item.text().includes('Enable excerpt shortcut'));
     const altXToggle = altXItem?.find('input[type="checkbox"]');
@@ -165,21 +184,16 @@ describe('SettingsPanel', () => {
     const notebookSelect = notebookItem?.find('select');
     const targetBlockItem = formItems.find((item) => item.text().includes('Target block ID'));
     const targetBlockInput = targetBlockItem?.find('input[type="text"]');
-    const progressiveItem = formItems.find((item) => item.text().includes('Write Daily Notes trace after excerpting'));
-    const progressiveToggle = progressiveItem?.find('input[type="checkbox"]');
     expect(altXToggle).toBeDefined();
     expect((altXToggle!.element as HTMLInputElement).checked).toBe(false);
     expect(storageModeSelect).toBeDefined();
     expect(notebookSelect).toBeDefined();
     expect(targetBlockInput).toBeDefined();
-    expect(progressiveToggle).toBeDefined();
-    expect((progressiveToggle!.element as HTMLInputElement).checked).toBe(false);
 
     await altXToggle!.setValue(true);
     await storageModeSelect!.setValue('library');
     await notebookSelect!.setValue('notebook-a');
     await targetBlockInput!.setValue('doc-root-1');
-    await progressiveToggle!.setValue(true);
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
     expect(saveButton).toBeDefined();
@@ -187,7 +201,7 @@ describe('SettingsPanel', () => {
 
     const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
     expect(payload.progressiveReading.altXExcerptEnabled).toBe(true);
-    expect(payload.progressiveReading.dailyTraceEnabled).toBe(true);
+    expect(payload.progressiveReading).not.toHaveProperty('dailyTraceEnabled');
     expect(payload.progressiveReading.storage).toEqual({
       mode: 'library',
       notebookId: 'notebook-a',

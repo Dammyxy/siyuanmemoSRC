@@ -9,14 +9,12 @@ import { createLogger } from '@/utils/logger';
 import {
   ATTR_PROGRESSIVE_KIND,
   ATTR_PROGRESSIVE_MODE,
-  ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
   ATTR_PROGRESSIVE_PIECE_COUNT,
   ATTR_PROGRESSIVE_PIECE_INDEX,
   ATTR_PROGRESSIVE_PIECE_STATE,
   ATTR_PROGRESSIVE_SESSION_ID,
   ATTR_PROGRESSIVE_SOURCE_BLOCK_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
-  ATTR_PROGRESSIVE_TRACE_KIND,
   ATTR_PROGRESSIVE_WORKBENCH_ID,
   getLegacyProgressiveAttrName,
 } from '@/core/siyuan/block';
@@ -24,7 +22,6 @@ import {
 const logger = createLogger('ProgressiveReadingService');
 const STORAGE_KEY = 'progressive-reading.json';
 const WORKBENCH_DOC_TITLE = '摘抄工作台';
-const DAILY_TRACE_DOC_TITLE = 'SiYuan Memo 渐进阅读';
 const DAILY_EXCERPT_ROOT_TITLE = 'SiYuanMemo 摘录';
 
 type ProgressiveKind =
@@ -35,13 +32,7 @@ type ProgressiveKind =
   | 'source-workbench'
   | 'excerpt'
   | 'daily-excerpt-root'
-  | 'excerpt-source-ref'
-  | 'daily-anchor-ref'
-  | 'daily-source-group'
-  | 'daily-excerpt-ref'
-  | 'daily-trace';
-
-type ProgressiveTraceKind = 'ordinary-note' | 'split-material';
+  | 'excerpt-source-ref';
 export type ProgressiveSplitMode = 'linear' | 'nonlinear';
 export type ProgressiveHeadingSplitLevel = 'h1' | 'h2' | 'h3ToH6';
 export interface ProgressiveSplitConfig {
@@ -150,31 +141,6 @@ interface EnsureDocByHPathResult {
 interface EnsureTopicCardResult {
   cardId: string;
   created: boolean;
-}
-
-interface DailyTraceWriteInput {
-  dailyNoteDocId: string;
-  notebook: string;
-  traceKind: ProgressiveTraceKind;
-  sourceDocId: string;
-  sourceBlockId: string;
-  excerptEntityId: string;
-  sessionId?: string;
-  mode?: ProgressiveSplitMode;
-}
-
-interface LegacyDailyTraceRepairInput {
-  dailyNoteDocId: string;
-  notebook: string;
-  state: ProgressiveState;
-}
-
-interface LegacyDailyTraceContext {
-  traceKind: ProgressiveTraceKind;
-  sourceDocId: string;
-  sourceBlockId: string;
-  sessionId?: string;
-  mode?: ProgressiveSplitMode;
 }
 
 interface ProgressiveReadingSettingsProvider {
@@ -642,7 +608,6 @@ export class ProgressiveReadingService {
 
     const excerptStorage = this.settingsProvider.getSettings().progressiveReading?.storage;
     const hasExplicitStorage = this.configuredCaptureStorageService.hasExplicitConfiguration(excerptStorage);
-    const dailyTraceEnabled = this.isDailyTraceEnabled() && (!hasExplicitStorage || excerptStorage?.mode === 'library');
     const excerptAttrs: Record<string, string | number | undefined> = {
       [ATTR_PROGRESSIVE_KIND]: hasExplicitStorage && excerptStorage?.mode === 'daily-note' ? 'excerpt' : 'excerpt-doc',
       [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
@@ -650,7 +615,6 @@ export class ProgressiveReadingService {
       [ATTR_PROGRESSIVE_SESSION_ID]: sessionId,
       [ATTR_PROGRESSIVE_MODE]: mode,
     };
-    const traceKind: ProgressiveTraceKind = session ? 'split-material' : 'ordinary-note';
     let excerptEntityId = '';
     let excerptEntityType: 'doc' | 'block' = 'doc';
     let containerDocId = '';
@@ -708,24 +672,6 @@ export class ProgressiveReadingService {
       pieceDocId,
       sourceDocId,
     });
-
-    if (dailyTraceEnabled) {
-      const traceTarget = hasExplicitStorage
-        ? await this.configuredCaptureStorageService.resolveDailyNoteTarget(excerptStorage)
-        : { notebookId: blockInfo.box, containerDocId: await this.ensureDailyNoteDoc(blockInfo.box) };
-      if (traceTarget) {
-        await this.ensureDailyExcerptTrace({
-          dailyNoteDocId: traceTarget.containerDocId,
-          notebook: traceTarget.notebookId,
-          traceKind,
-          sourceDocId,
-          sourceBlockId,
-          excerptEntityId,
-          sessionId,
-          mode,
-        });
-      }
-    }
 
     logger.info('Excerpt created', {
       sourceBlockId,
@@ -907,16 +853,6 @@ export class ProgressiveReadingService {
       WHERE root_id = '${this.escapeSql(rootId)}'
         AND id != '${this.escapeSql(rootId)}'
       ORDER BY parent_id ASC, sort ASC, id ASC
-    `);
-  }
-
-  private async getBlocksByProgressiveKind(rootId: string, kind: ProgressiveKind): Promise<ProgressiveBlockRow[]> {
-    return this.siyuanApi.sql<ProgressiveBlockRow>(`
-      SELECT b.id, b.root_id, b.parent_id, b.box, b.type, b.subtype, b.content, b.markdown, b.sort
-      FROM blocks b
-      ${this.buildCompatAttrJoin('a', 'b.id', ATTR_PROGRESSIVE_KIND, kind)}
-      WHERE b.root_id = '${this.escapeSql(rootId)}'
-      ORDER BY b.sort ASC, b.id ASC
     `);
   }
 
@@ -1855,102 +1791,6 @@ export class ProgressiveReadingService {
     return workbenchDocId;
   }
 
-  private async ensureDailyNoteDoc(notebook: string): Promise<string> {
-    const notebookConf = await this.siyuanApi.getNotebookConf(notebook);
-    const template = notebookConf.dailyNoteSavePath || '/daily note/{{now | date "2006/01"}}/{{now | date "2006-01-02"}}';
-    const renderedPath = await this.siyuanApi.renderTemplate(template);
-    return (await this.ensureDocByHPath(notebook, renderedPath, '')).docId;
-  }
-
-  private async ensureDailyAnchorDoc(notebook: string): Promise<string> {
-    const anchorPath = `/${sanitizeDocTitle(DAILY_TRACE_DOC_TITLE)}`;
-    return (await this.ensureDocByHPath(notebook, anchorPath, `# ${DAILY_TRACE_DOC_TITLE}`)).docId;
-  }
-
-  private async ensureDailyAnchorRef(dailyNoteDocId: string, notebook: string): Promise<string> {
-    const existing = await this.findDirectChildByKind(dailyNoteDocId, 'daily-anchor-ref');
-    if (existing) {
-      return existing;
-    }
-
-    const anchorDocId = await this.ensureDailyAnchorDoc(notebook);
-    const anchorRefId = await this.siyuanApi.appendMarkdownBlock(dailyNoteDocId, `((${anchorDocId}))`);
-    await this.setProgressiveAttrs(anchorRefId, {
-      [ATTR_PROGRESSIVE_KIND]: 'daily-anchor-ref',
-      [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: anchorDocId,
-    });
-    return anchorRefId;
-  }
-
-  private async ensureDailySourceGroup(
-    parentId: string,
-    context: LegacyDailyTraceContext,
-  ): Promise<string> {
-    const existing = await this.findDirectChildByKind(parentId, 'daily-source-group', {
-      [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: context.sourceDocId,
-      [ATTR_PROGRESSIVE_TRACE_KIND]: context.traceKind,
-    });
-    if (existing) {
-      return existing;
-    }
-
-    const sourceGroupId = await this.siyuanApi.appendMarkdownBlock(parentId, `((${context.sourceDocId}))`);
-    await this.setProgressiveAttrs(sourceGroupId, {
-      [ATTR_PROGRESSIVE_KIND]: 'daily-source-group',
-      [ATTR_PROGRESSIVE_TRACE_KIND]: context.traceKind,
-      [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: context.sourceDocId,
-      [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: context.sourceBlockId,
-      [ATTR_PROGRESSIVE_SESSION_ID]: context.sessionId,
-      [ATTR_PROGRESSIVE_MODE]: context.mode,
-    });
-    return sourceGroupId;
-  }
-
-  private async ensureDailyExcerptRef(
-    parentId: string,
-    input: {
-      excerptEntityId: string;
-    } & LegacyDailyTraceContext,
-  ): Promise<string> {
-    const existing = await this.findDirectChildByKind(parentId, 'daily-excerpt-ref', {
-      [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: input.excerptEntityId,
-    });
-    if (existing) {
-      return existing;
-    }
-
-    const excerptRefId = await this.siyuanApi.appendMarkdownBlock(parentId, `((${input.excerptEntityId}))`);
-    await this.setProgressiveAttrs(excerptRefId, {
-      [ATTR_PROGRESSIVE_KIND]: 'daily-excerpt-ref',
-      [ATTR_PROGRESSIVE_TRACE_KIND]: input.traceKind,
-      [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: input.sourceDocId,
-      [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: input.sourceBlockId,
-      [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: input.excerptEntityId,
-      [ATTR_PROGRESSIVE_SESSION_ID]: input.sessionId,
-      [ATTR_PROGRESSIVE_MODE]: input.mode,
-    });
-    return excerptRefId;
-  }
-
-  private async ensureDailyExcerptTrace(input: DailyTraceWriteInput): Promise<void> {
-    const anchorRefId = await this.ensureDailyAnchorRef(input.dailyNoteDocId, input.notebook);
-    const sourceGroupId = await this.ensureDailySourceGroup(anchorRefId, {
-      traceKind: input.traceKind,
-      sourceDocId: input.sourceDocId,
-      sourceBlockId: input.sourceBlockId,
-      sessionId: input.sessionId,
-      mode: input.mode,
-    });
-    await this.ensureDailyExcerptRef(sourceGroupId, {
-      excerptEntityId: input.excerptEntityId,
-      traceKind: input.traceKind,
-      sourceDocId: input.sourceDocId,
-      sourceBlockId: input.sourceBlockId,
-      sessionId: input.sessionId,
-      mode: input.mode,
-    });
-  }
-
   private async ensureExcerptTopicCard(input: {
     excerptEntityId: string;
     excerptEntityType: 'doc' | 'block';
@@ -2039,145 +1879,6 @@ export class ProgressiveReadingService {
       }
       await this.siyuanApi.deleteBlock(child.id);
     }
-  }
-
-  private async repairLegacyDailyTraceStructures(input: LegacyDailyTraceRepairInput): Promise<void> {
-    const legacyParents = await this.getBlocksByProgressiveKind(input.dailyNoteDocId, 'daily-trace');
-    if (legacyParents.length === 0) {
-      return;
-    }
-
-    const anchorRefId = await this.ensureDailyAnchorRef(input.dailyNoteDocId, input.notebook);
-    const candidateLegacyHeadingIds = new Set(
-      legacyParents
-        .map((parent) => asString(parent.parent_id))
-        .filter((value): value is string => Boolean(value))
-    );
-
-    for (const legacyParent of legacyParents) {
-      const legacyAttrs = await this.siyuanApi.getBlockAttrs(legacyParent.id);
-      const sourceBlockId = this.readProgressiveAttr(legacyAttrs, ATTR_PROGRESSIVE_SOURCE_BLOCK_ID)
-        || this.parseBlockRefTarget(await this.getBlockMarkdown(legacyParent))
-        || '';
-      if (!sourceBlockId) {
-        continue;
-      }
-
-      const traceKind = this.readProgressiveAttr(legacyAttrs, ATTR_PROGRESSIVE_TRACE_KIND) === 'split-material'
-        ? 'split-material'
-        : 'ordinary-note';
-      const sourceDocId = this.readProgressiveAttr(legacyAttrs, ATTR_PROGRESSIVE_SOURCE_DOC_ID)
-        || (await this.resolveSourceDocIdFromBlock(sourceBlockId));
-      if (!sourceDocId) {
-        continue;
-      }
-
-      const sessionId = this.readProgressiveAttr(legacyAttrs, ATTR_PROGRESSIVE_SESSION_ID);
-      const mode = normalizeProgressiveMode(this.readProgressiveAttr(legacyAttrs, ATTR_PROGRESSIVE_MODE));
-      const sourceGroupId = await this.ensureDailySourceGroup(anchorRefId, {
-        traceKind,
-        sourceDocId,
-        sourceBlockId,
-        sessionId,
-        mode,
-      });
-
-      const legacyChildren = await this.getChildBlocks(legacyParent.id);
-      for (const legacyChild of legacyChildren) {
-        const childAttrs = await this.siyuanApi.getBlockAttrs(legacyChild.id);
-        if (this.readProgressiveAttr(childAttrs, ATTR_PROGRESSIVE_KIND) === 'excerpt') {
-          const excerptBlockId = await this.repairLegacyExcerptBlock({
-            state: input.state,
-            notebook: input.notebook,
-            traceKind,
-            sourceDocId,
-            legacyExcerptBlock: legacyChild,
-            sourceBlockId,
-          });
-          await this.ensureDailyExcerptRef(sourceGroupId, {
-            excerptEntityId: excerptBlockId,
-            traceKind,
-            sourceDocId,
-            sourceBlockId,
-            sessionId,
-            mode,
-          });
-          continue;
-        }
-
-        const childMarkdown = await this.getBlockMarkdown(legacyChild);
-        const excerptBlockId = this.parseBlockRefTarget(childMarkdown);
-        if (!excerptBlockId) {
-          continue;
-        }
-
-        await this.siyuanApi.moveBlockAsChild(legacyChild.id, sourceGroupId);
-        await this.setProgressiveAttrs(legacyChild.id, {
-          [ATTR_PROGRESSIVE_KIND]: 'daily-excerpt-ref',
-          [ATTR_PROGRESSIVE_TRACE_KIND]: traceKind,
-          [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
-          [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
-          [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: excerptBlockId,
-          [ATTR_PROGRESSIVE_SESSION_ID]: sessionId,
-          [ATTR_PROGRESSIVE_MODE]: mode,
-        });
-      }
-
-      await this.siyuanApi.deleteBlock(legacyParent.id);
-    }
-
-    for (const headingId of candidateLegacyHeadingIds) {
-      const heading = await this.getBlockInfoOrNull(headingId);
-      if (!heading || heading.parent_id !== input.dailyNoteDocId || heading.type !== 'h' || heading.content !== DAILY_TRACE_DOC_TITLE) {
-        continue;
-      }
-      const remainingChildren = await this.getChildBlocks(headingId);
-      if (remainingChildren.length === 0) {
-        await this.siyuanApi.deleteBlock(headingId);
-      }
-    }
-  }
-
-  private async repairLegacyExcerptBlock(input: {
-    state: ProgressiveState;
-    notebook: string;
-    traceKind: ProgressiveTraceKind;
-    sourceDocId: string;
-    legacyExcerptBlock: ProgressiveBlockRow;
-    sourceBlockId: string;
-  }): Promise<string> {
-    if (input.traceKind === 'split-material') {
-      const session = this.getSessionByPieceDocId(input.state, input.sourceDocId);
-      const piece = session?.pieces.find((entry) => entry.pieceDocId === input.sourceDocId);
-      if (session && piece) {
-        const workbenchDocId = await this.ensurePieceWorkbenchDoc(input.state, session, piece);
-        if (input.legacyExcerptBlock.root_id !== workbenchDocId) {
-          await this.siyuanApi.moveBlockAsChild(input.legacyExcerptBlock.id, workbenchDocId);
-        }
-      }
-      return input.legacyExcerptBlock.id;
-    }
-
-    const workbenchDocId = await this.ensureSourceWorkbenchDoc(input.state, input.sourceDocId, input.notebook);
-    if (input.legacyExcerptBlock.root_id !== workbenchDocId) {
-      await this.siyuanApi.moveBlockAsChild(input.legacyExcerptBlock.id, workbenchDocId);
-    }
-    return input.legacyExcerptBlock.id;
-  }
-
-  private async getBlockInfoOrNull(blockId: string): Promise<ProgressiveBlockRow | null> {
-    const rows = await this.siyuanApi.sql<ProgressiveBlockRow>(`
-      SELECT id, root_id, parent_id, box, type, subtype, content, markdown
-      FROM blocks
-      WHERE id = '${this.escapeSql(blockId)}'
-      LIMIT 1
-    `);
-    return rows[0] || null;
-  }
-
-  private async resolveSourceDocIdFromBlock(blockId: string): Promise<string> {
-    const info = await this.getBlockInfo(blockId);
-    return asString(info.root_id) || '';
   }
 
   private async findDirectChildByKind(
@@ -2301,15 +2002,6 @@ export class ProgressiveReadingService {
       return sanitizeDocTitle(`[${titlePrefix} ${prefix}]`);
     }
     return sanitizeDocTitle(`[${titlePrefix} ${prefix}] ${preview}`);
-  }
-
-  private isDailyTraceEnabled(): boolean {
-    try {
-      return this.settingsProvider.getSettings().progressiveReading?.dailyTraceEnabled === true;
-    } catch (error) {
-      logger.warn('Failed to read progressive reading settings, falling back to daily trace disabled', error);
-      return false;
-    }
   }
 
   private escapeHtml(value: string): string {

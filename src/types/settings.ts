@@ -170,7 +170,6 @@ export interface DrillSettings {
 
 export interface ProgressiveReadingSettings {
     altXExcerptEnabled: boolean;
-    dailyTraceEnabled: boolean;
     storage: ConfiguredCaptureStorageSettings;
 }
 
@@ -399,6 +398,10 @@ export interface PluginSettings {
 
 export function normalizePluginSettings(settings: PluginSettings): { settings: PluginSettings; changed: boolean } {
     let changed = false;
+    const sourceProgressiveReading = settings.progressiveReading as (PluginSettings['progressiveReading'] & {
+        dailyTraceEnabled?: boolean;
+    }) | undefined;
+    const { dailyTraceEnabled: _legacyDailyTraceEnabled, ...sourceProgressiveReadingWithoutLegacy } = sourceProgressiveReading || {};
     const normalizedPromptProfiles = normalizeAIPromptProfiles(
         settings.ai?.promptProfiles,
         settings.ai?.prompts,
@@ -457,10 +460,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         },
         progressiveReading: {
             ...DEFAULT_SETTINGS.progressiveReading,
-            ...(settings.progressiveReading || {}),
+            ...sourceProgressiveReadingWithoutLegacy,
             storage: {
                 ...DEFAULT_SETTINGS.progressiveReading.storage,
-                ...(settings.progressiveReading?.storage || {}),
+                ...(sourceProgressiveReadingWithoutLegacy.storage || {}),
             },
         },
         ai: {
@@ -537,8 +540,8 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     if (!settings.progressiveReading) {
         changed = true;
     } else if (
-        settings.progressiveReading.altXExcerptEnabled !== normalized.progressiveReading.altXExcerptEnabled
-        || settings.progressiveReading.dailyTraceEnabled !== normalized.progressiveReading.dailyTraceEnabled
+        Object.prototype.hasOwnProperty.call(settings.progressiveReading, 'dailyTraceEnabled')
+        || settings.progressiveReading.altXExcerptEnabled !== normalized.progressiveReading.altXExcerptEnabled
         || settings.progressiveReading.storage?.mode !== normalized.progressiveReading.storage.mode
         || settings.progressiveReading.storage?.notebookId !== normalized.progressiveReading.storage.notebookId
         || (settings.progressiveReading.storage?.targetBlockId || '') !== normalized.progressiveReading.storage.targetBlockId
@@ -856,7 +859,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     },
     progressiveReading: {
         altXExcerptEnabled: false,
-        dailyTraceEnabled: false,
         storage: {
             mode: 'library',
             notebookId: '',

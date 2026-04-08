@@ -118,8 +118,19 @@ describe('settings normalization', () => {
 
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.progressiveReading.altXExcerptEnabled).toBe(false);
-    expect(normalized.settings.progressiveReading.dailyTraceEnabled).toBe(false);
     expect(normalized.settings.progressiveReading.storage).toEqual(DEFAULT_SETTINGS.progressiveReading.storage);
+  });
+
+  it('drops the removed progressiveReading.dailyTraceEnabled field during normalization', () => {
+    const legacy = cloneSettings() as PluginSettings & {
+      progressiveReading: PluginSettings['progressiveReading'] & { dailyTraceEnabled?: boolean };
+    };
+    legacy.progressiveReading.dailyTraceEnabled = true;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.progressiveReading).not.toHaveProperty('dailyTraceEnabled');
   });
 
   it('fills progressive storage defaults when the nested storage config is missing', () => {

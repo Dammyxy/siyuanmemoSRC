@@ -311,15 +311,15 @@
 
         <div v-if="settings.quickCard.enabled" class="fn__hr"></div>
 
-        <h3 v-if="settings.quickCard.enabled">{{ t('topicDerivationTitle', 'Topic 派生练习') }}</h3>
+        <h3 v-if="settings.quickCard.enabled">{{ t('topicDerivationTitle', 'Topic 下继续制卡') }}</h3>
 
         <div v-if="settings.quickCard.enabled" class="form-item">
-          <label>{{ t('topicDerivationEnabled', '启用 Topic 自然派生练习') }}</label>
+          <label>{{ t('topicDerivationEnabled', '启用 Topic 下继续制卡') }}</label>
           <div class="form-control">
             <input type="checkbox" v-model="settings.quickCard.topicDerivation.enabled">
           </div>
           <p class="form-hint">
-            {{ t('topicDerivationEnabledHint', '当当前块本身已是 Topic，或当前块位于 Topic 子文档内时，继续高亮/符号制卡会保留原 Topic，并新建派生练习子文档。') }}
+            {{ t('topicDerivationEnabledHint', '当当前块本身已经属于某个 Topic，或当前块位于 Topic 子文档内时，继续高亮或符号制卡会保留原 Topic，并在其下新增练习子文档和卡片。这不是摘录流程，而是沿用已有 Topic 继续制卡。') }}
           </p>
         </div>
 
@@ -327,7 +327,7 @@
           v-if="settings.quickCard.enabled && settings.quickCard.topicDerivation.enabled"
           class="form-item"
         >
-          <label>{{ t('topicDerivationStorageMode', '派生练习存放位置') }}</label>
+          <label>{{ t('topicDerivationStorageMode', '继续制卡内容存放位置') }}</label>
           <div class="form-control">
             <select v-model="settings.quickCard.topicDerivation.storageMode" class="scheduler-select">
               <option value="workbench">{{ t('topicDerivationStorageWorkbench', '工作台文档（默认）') }}</option>
@@ -335,7 +335,7 @@
             </select>
           </div>
           <p class="form-hint">
-            {{ t('topicDerivationStorageModeHint', '工作台模式会把派生练习集中收纳到源文档的“摘抄工作台”下；源文档模式则直接在当前 Topic 下创建子文档。') }}
+            {{ t('topicDerivationStorageModeHint', '工作台模式会把继续制卡生成的内容集中收纳到源文档的“摘抄工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
           </p>
         </div>
 
@@ -400,20 +400,6 @@
               settings.progressiveStorage.mode === 'library'
                 ? t('progressiveStorageTargetBlockHint', '固定库模式下可填写文档块 ID，摘录会创建到该文档树下；留空则自动使用 SiYuanMemo 摘录库。')
                 : t('progressiveStorageTargetBlockIgnoredHint', '今日日记模式下暂不使用目标块 ID，留空即可。')
-            }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('progressiveDailyTraceEnabled', '摘录后写入 Daily Notes 痕迹') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="settings.progressiveDailyTraceEnabled" :disabled="progressiveUsesDailyNoteStorage">
-          </div>
-          <p class="form-hint">
-            {{
-              progressiveUsesDailyNoteStorage
-                ? t('progressiveDailyTraceDisabledHint', '当前主存放位置已经是今日日记，额外 Daily Notes 痕迹会自动停用。')
-                : t('progressiveDailyTraceEnabledHint', '关闭时只创建摘录子文档与 Topic 卡，不在当天 Daily Notes 里追加索引痕迹。')
             }}
           </p>
         </div>
@@ -1166,7 +1152,6 @@ interface Settings {
   priorityRandomness: number;
   quickCard: QuickCardSettings;  // 🆕 快速制卡设置
   progressiveAltXExcerptEnabled: boolean;
-  progressiveDailyTraceEnabled: boolean;
   progressiveStorage: ConfiguredCaptureStorageSettings;
 }
 
@@ -1183,7 +1168,6 @@ const settings = ref<Settings>({
   priorityRandomness: 0.1,
   quickCard: createDefaultQuickCardSettings(),
   progressiveAltXExcerptEnabled: false,
-  progressiveDailyTraceEnabled: false,
   progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
 });
 
@@ -1271,8 +1255,6 @@ const captureStorageNotebookOptions = computed(() => (props.captureStorageNotebo
     name: String(notebook.name || '').trim() || String(notebook.id || '').trim(),
   }))
   .filter((notebook) => notebook.id.length > 0));
-
-const progressiveUsesDailyNoteStorage = computed(() => settings.value.progressiveStorage.mode === 'daily-note');
 
 const blockAttrsCleanupMode = ref<CleanupMode>('safe');
 const blockAttrsCleanupScanResult = ref<CleanupScanResult | null>(null);
@@ -1422,7 +1404,6 @@ function loadSettings() {
       priorityRandomness: normalizePriorityRandomness(props.priorityRandomness),
       quickCard: mergeQuickCardSettings(props.quickCardSettings),
       progressiveAltXExcerptEnabled: props.progressiveReadingSettings?.altXExcerptEnabled === true,
-      progressiveDailyTraceEnabled: props.progressiveReadingSettings?.dailyTraceEnabled === true,
       progressiveStorage: mergeConfiguredCaptureStorageSettings(
         props.progressiveReadingSettings?.storage,
         DEFAULT_SETTINGS.progressiveReading.storage,
@@ -1435,7 +1416,6 @@ function loadSettings() {
 
   settings.value.quickCard = mergeQuickCardSettings(props.quickCardSettings);
   settings.value.progressiveAltXExcerptEnabled = props.progressiveReadingSettings?.altXExcerptEnabled === true;
-  settings.value.progressiveDailyTraceEnabled = props.progressiveReadingSettings?.dailyTraceEnabled === true;
   settings.value.progressiveStorage = mergeConfiguredCaptureStorageSettings(
     props.progressiveReadingSettings?.storage,
     DEFAULT_SETTINGS.progressiveReading.storage,
@@ -1574,7 +1554,6 @@ function saveSettings() {
     autoPostponeEnabled: _autoPostponeEnabled,
     autoPostponeSkipTopN: _autoPostponeSkipTopN,
     progressiveAltXExcerptEnabled: _progressiveAltXExcerptEnabled,
-    progressiveDailyTraceEnabled: _progressiveDailyTraceEnabled,
     ...settingsBase
   } = settings.value;
 
@@ -1603,7 +1582,6 @@ function saveSettings() {
     },
     progressiveReading: {
       altXExcerptEnabled: settings.value.progressiveAltXExcerptEnabled,
-      dailyTraceEnabled: settings.value.progressiveDailyTraceEnabled,
       storage: mergeConfiguredCaptureStorageSettings(
         settings.value.progressiveStorage,
         DEFAULT_SETTINGS.progressiveReading.storage,
@@ -1647,7 +1625,6 @@ function resetSettings() {
     priorityRandomness: 0.1,
     quickCard: createDefaultQuickCardSettings(),
     progressiveAltXExcerptEnabled: false,
-    progressiveDailyTraceEnabled: false,
     progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
   };
   queueSettings.value = createDefaultQueueSettings();

@@ -1,11 +1,51 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-08 (Round 53)
+Last update: 2026-04-09 (Round 54)
 
 ## 0. Task Deltas (newest first)
 
 Use this section for task-level debt tracking when a task touches production code under `src/`.
 Do not add an entry for skill-only or docs-only work.
+
+### 2026-04-09 - hydrate configured library doc info before excerpt creation
+
+- Task: Fix progressive excerpts failing in configured library mode on some devices with `无法解析固定库摘录目标路径`, caused by incomplete doc metadata returned for the configured parent document.
+- Touched slice: Configured capture storage resolution in `src/application/services/ConfiguredCaptureStorageService.ts` and focused regression coverage in `src/application/services/__tests__/ConfiguredCaptureStorageService.test.ts`.
+- Debt fixed now: Removed the hidden assumption that `getDocInfo` always returns a usable `hpath` for configured library docs; centralized a SQL-backed hydration step so feature-root docs and explicit target docs are both normalized before progressive excerpt or AI draft flows consume them; and fixed the active shared storage path instead of adding an excerpt-only fallback branch.
+- Debt deferred: `ProgressiveReadingService` still carries its own similar doc-info hydration helper instead of both slices sharing one adapter-level normalization path.
+- Why deferred: Moving doc-info normalization into a shared infrastructure helper would touch multiple ports/adapters across the progressive slice and widen this bounded production bugfix beyond the configured-capture path that is actually failing in 3.6.0.
+- Next safe step: If more `getDocInfo` shape drift shows up elsewhere, extract one shared Siyuan doc-info normalization utility and migrate both `ConfiguredCaptureStorageService` and `ProgressiveReadingService` onto it in a dedicated refactor.
+- Validation: `pnpm vitest run src/application/services/__tests__/ConfiguredCaptureStorageService.test.ts`; `pnpm build`.
+
+### 2026-04-09 - remove progressive excerpt Daily Notes trace feature
+
+- Task: Remove the progressive excerpt "Daily Notes trace" feature so excerpts no longer create extra Daily Notes index artifacts, and remove the related settings/UI surface instead of leaving a dead optional toggle behind.
+- Touched slice: Progressive excerpt persistence in `src/application/services/ProgressiveReadingService.ts`, progressive settings schema/validation/normalization in `src/types/settings.ts` and `src/application/services/SettingsService.ts`, settings UI in `src/ui/settings/SettingsPanel.vue`, i18n copy, and focused regression coverage.
+- Debt fixed now: Removed the user-facing setting that no longer matched the new configured storage model; stopped honoring the old runtime branch that appended Daily Notes trace blocks after excerpt creation; and deleted a now-dead cluster of Daily Notes trace repair/helpers in `ProgressiveReadingService` instead of keeping dormant legacy scaffolding around the active excerpt path.
+- Debt deferred: Legacy trace attrs/constants still remain in `core/siyuan/block.ts` because they are still referenced by non-excerpt concepts/neural queries and older data may still exist in user workspaces, and historical backlog entries still mention Daily Notes trace as past behavior.
+- Why deferred: Removing the cross-slice legacy attr vocabulary would widen this bounded feature removal into a broader storage/query compatibility audit, while rewriting historical backlog entries would make the debt ledger less truthful about prior architecture states.
+- Next safe step: If we later decide to fully retire all legacy Daily Notes trace data, audit `core/queue/neural` and any surviving attr readers first, then do one explicit compatibility cleanup for the old trace attrs and query semantics.
+- Validation: `pnpm vitest run src/types/__tests__/settings-normalization.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/application/services/__tests__/ProgressiveReadingService.test.ts`; `pnpm build`.
+
+### 2026-04-09 - clearer Topic continuation naming in settings and feedback
+
+- Task: Rename the user-facing "Topic 派生练习 / Topic-derived practice" wording to clearer "Topic 下继续制卡 / Continue card creation under Topic" copy so users do not confuse this quick-card behavior with progressive excerpts.
+- Touched slice: User-visible wording in `src/ui/settings/SettingsPanel.vue`, `src/i18n/{zh_CN,en_US}.json`, and quick-card feedback/error messages in `src/application/{handlers/AutoCardHandler.ts,services/TopicDerivedItemService.ts}`, plus focused regression coverage in settings and topic-routing tests.
+- Debt fixed now: Removed the main UX ambiguity where the feature name sounded like an excerpt variant instead of "keep the current Topic and continue creating cards under it"; aligned the settings title, toggle label, storage hint, success toast, and one surfaced error message around the same continuation mental model; and kept internal config/schema names stable so the wording cleanup does not create migration churn.
+- Debt deferred: Internal symbol/type names still use `topicDerivation`, and other developer-facing comments/tests continue to use "derivation" terminology even though the UI now presents the feature as continuing card creation under Topic.
+- Why deferred: Renaming internal settings keys and type/service symbols would widen this bounded copy clarification into a behavior-neutral but high-churn refactor with compatibility surface and little user-facing value.
+- Next safe step: If the new wording proves clearer, do one separate implementation-level cleanup that renames `topicDerivation` internals behind an explicit compatibility plan instead of mixing that churn into this UI copy pass.
+- Validation: `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts`; `pnpm build`.
+
+### 2026-04-09 - xiuyuan startup blank riff question fail-open
+
+- Task: Let Xiuyuan startup and sync survive Riff cards whose block IDs are valid but whose question content is blank or zero-width-only, instead of aborting plugin initialization with `Question cannot be empty`.
+- Touched slice: Xiuyuan active sync path in `src/application/services/XiuyuanSyncService.ts`, focused malformed-input coverage in `src/application/services/__tests__/XiuyuanSyncService.malformed-riff-input.test.ts`, and backlog truth sync.
+- Debt fixed now: Extended the existing malformed-Riff preparation step to reject blank/zero-width-only question content before any create/save path runs; unified the malformed log path so blank-question cards reuse the same skipped-count / partial-snapshot protections as bad block IDs; and removed the Riff single-face placeholder fallback that previously synthesized `Block <id>` pseudo-questions instead of enforcing real content.
+- Debt deferred: Other non-Riff Xiuyuan creation paths still contain legacy `Block <id>` placeholder question/answer fallbacks, so placeholder-text cleanup is not yet consistent outside the active Riff startup/sync path.
+- Why deferred: The user-facing crash lived specifically in the Xiuyuan Riff startup flow, while widening this change into all other Xiuyuan creation entrypoints would be a broader cross-slice behavior decision with more compatibility surface than this bounded fail-open repair needs.
+- Next safe step: Audit the remaining non-Riff Xiuyuan creation paths that still use `Block <id>` fallbacks and decide, slice by slice, whether they should hard-fail on blank content or migrate onto one shared explicit blank-block policy.
+- Validation: `pnpm vitest run src/application/services/__tests__/XiuyuanSyncService.malformed-riff-input.test.ts src/application/services/__tests__/XiuyuanSyncService.card-type-sync.test.ts`; `pnpm build`.
 
 ### 2026-04-08 - configurable storage strategy for excerpts and AI drafts
 

@@ -81,6 +81,103 @@ describe('ConfiguredCaptureStorageService', () => {
     });
   });
 
+  it('hydrates feature root doc info from blocks SQL when getDocInfo omits hpath', async () => {
+    const sql = vi.fn(async (stmt: string) => {
+      if (stmt.includes("hpath = '/SiYuanMemo 摘录库'")) {
+        return [{ id: 'created-doc-1' }];
+      }
+      if (stmt.includes("WHERE id = 'created-doc-1'")) {
+        return [{
+          id: 'created-doc-1',
+          box: 'box-1',
+          path: '/SiYuanMemo 摘录库.sy',
+          hpath: '/SiYuanMemo 摘录库',
+          content: 'SiYuanMemo 摘录库',
+        }];
+      }
+      return [];
+    });
+    const getDocInfo = vi.fn(async () => ({
+      id: 'created-doc-1',
+      box: 'box-1',
+      path: '/SiYuanMemo 摘录库.sy',
+      hpath: '',
+      name: '',
+    }));
+    const service = new ConfiguredCaptureStorageService(createPort({
+      sql,
+      getDocInfo,
+    }));
+
+    const target = await service.resolveLibraryTarget({
+      mode: 'library',
+      notebookId: 'box-1',
+      targetBlockId: '',
+    }, {
+      feature: 'progressive-excerpt',
+      allowNonDocTarget: false,
+    });
+
+    expect(target?.parentDoc).toEqual({
+      id: 'created-doc-1',
+      box: 'box-1',
+      path: '/SiYuanMemo 摘录库.sy',
+      hpath: '/SiYuanMemo 摘录库',
+      name: 'SiYuanMemo 摘录库',
+    });
+  });
+
+  it('hydrates explicit document targets from blocks SQL when getDocInfo omits hpath', async () => {
+    const sql = vi.fn(async (stmt: string) => {
+      if (stmt.includes("WHERE id = 'doc-target-1'")) {
+        return [{
+          id: 'doc-target-1',
+          box: 'box-1',
+          root_id: 'doc-target-1',
+          type: 'd',
+          path: '/Fixed Library/Topic.sy',
+          hpath: '/Fixed Library/Topic',
+          content: 'Topic',
+        }];
+      }
+      return [];
+    });
+    const getDocInfo = vi.fn(async () => ({
+      id: 'doc-target-1',
+      box: 'box-1',
+      path: '/Fixed Library/Topic.sy',
+      hpath: '',
+      name: '',
+    }));
+    const service = new ConfiguredCaptureStorageService(createPort({
+      sql,
+      getDocInfo,
+    }));
+
+    const target = await service.resolveLibraryTarget({
+      mode: 'library',
+      notebookId: 'box-1',
+      targetBlockId: 'doc-target-1',
+    }, {
+      feature: 'progressive-excerpt',
+      allowNonDocTarget: false,
+    });
+
+    expect(target).toEqual({
+      notebookId: 'box-1',
+      containerDocId: 'doc-target-1',
+      parentBlockId: 'doc-target-1',
+      parentDoc: {
+        id: 'doc-target-1',
+        box: 'box-1',
+        path: '/Fixed Library/Topic.sy',
+        hpath: '/Fixed Library/Topic',
+        name: 'Topic',
+      },
+      targetKind: 'doc',
+    });
+  });
+
   it('rejects non-document excerpt targets when the feature only supports document roots', async () => {
     const sql = vi.fn(async () => [{
       id: 'paragraph-1',
