@@ -144,9 +144,11 @@ import {
 } from './reviewKeyboardGuard';
 import {
   isProgressiveSelectionInsideNativeProtyle,
-  resolveProgressiveSelection,
+  type ProgressiveExcerptSelectionSnapshot,
+  resolveProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
+import { applyProgressiveExcerptHighlight } from '@/application/entries/ProgressiveExcerptHighlight';
 import type { ProgressiveExcerptResult } from '@/application/services/ProgressiveReadingService';
 import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
@@ -321,6 +323,16 @@ type CommandLike = {
 
 type ProtyleLike = {
   resize?: () => void;
+  protyle?: {
+    wysiwyg?: {
+      element?: HTMLElement;
+    };
+    toolbar?: unknown;
+  };
+  wysiwyg?: {
+    element?: HTMLElement;
+  };
+  toolbar?: unknown;
 };
 
 type ScheduledReviewCardPayload = {
@@ -2484,7 +2496,13 @@ async function handleProgressiveExcerptFromReview(trigger: 'hotkey' | 'toolbar' 
     return;
   }
 
-  const selection = resolveProgressiveSelection({ root: rootRef.value });
+  const selection = resolveProgressiveExcerptSelectionSnapshot({
+    root: rootRef.value,
+    resolveProtyle: (commonElement) => {
+      const host = commonElement.closest('.fsrs-review-v2-content__protyle-host');
+      return host ? getProtyleFromHost(host) : null;
+    },
+  });
   if (!selection) {
     showMessage(t('progressiveExcerptNoSelection', '请先在同一块内选中文本再摘抄'), 3000, 'error');
     return;
@@ -2494,7 +2512,7 @@ async function handleProgressiveExcerptFromReview(trigger: 'hotkey' | 'toolbar' 
 }
 
 async function createProgressiveExcerptFromReviewSelection(
-  selection: { blockId: string; text: string },
+  selection: ProgressiveExcerptSelectionSnapshot,
   trigger: 'hotkey' | 'toolbar' | 'command',
 ): Promise<void> {
   const selectionService = getSelectionExcerptService();
@@ -2510,6 +2528,11 @@ async function createProgressiveExcerptFromReviewSelection(
       origin: 'review',
       currentCardId: resolveCurrentReviewCardId(),
     });
+    try {
+      applyProgressiveExcerptHighlight(selection);
+    } catch (highlightError) {
+      logger.warn('[SiYuanMemo][ReviewView] Failed to apply progressive excerpt highlight:', highlightError);
+    }
     const routedExcerptTarget = await enqueueExcerptIntoCurrentProgressiveReview(result.excerptDocId)
       .then((inserted) => (inserted ? 'progressive' as const : null))
       .then(async (target) => {

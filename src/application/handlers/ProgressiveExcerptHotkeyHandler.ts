@@ -2,8 +2,9 @@ import { showMessage, type IProtyle } from 'siyuan';
 import type { ApplicationContext } from '@/application/ApplicationContext';
 import {
   isProgressiveSelectionInsideNativeProtyle,
-  resolveProgressiveSelection,
+  resolveProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
+import { applyProgressiveExcerptHighlight } from '@/application/entries/ProgressiveExcerptHighlight';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ProgressiveExcerptHotkeyHandler');
@@ -30,6 +31,7 @@ function getProtyleRoot(protyle: unknown): HTMLElement | null {
 
 type ProgressiveExcerptSelectionOptions = {
   root?: HTMLElement | null;
+  protyle?: IProtyle | unknown;
 };
 
 export class ProgressiveExcerptHotkeyHandler {
@@ -48,6 +50,7 @@ export class ProgressiveExcerptHotkeyHandler {
   async runFromEditor(protyle: IProtyle | unknown): Promise<void> {
     await this.runExcerptFromSelection({
       root: getProtyleRoot(protyle),
+      protyle,
     });
   }
 
@@ -74,7 +77,10 @@ export class ProgressiveExcerptHotkeyHandler {
       return;
     }
 
-    const selection = resolveProgressiveSelection(selectionOptions);
+    const selection = resolveProgressiveExcerptSelectionSnapshot({
+      ...selectionOptions,
+      protyle: options?.protyle,
+    });
     if (!selection) {
       this.showMissingSelectionMessage();
       return;
@@ -86,6 +92,7 @@ export class ProgressiveExcerptHotkeyHandler {
         selectedText: selection.text,
         origin: 'editor',
       });
+      this.tryApplyExcerptHighlight(selection);
       showMessage(
         this.translate('progressiveExcerptCreatedHotkey', '已创建摘录 Topic，已进入今日渐进学习'),
         3000,
@@ -142,6 +149,14 @@ export class ProgressiveExcerptHotkeyHandler {
       3000,
       'info',
     );
+  }
+
+  private tryApplyExcerptHighlight(selection: Parameters<typeof applyProgressiveExcerptHighlight>[0]): void {
+    try {
+      applyProgressiveExcerptHighlight(selection);
+    } catch (error) {
+      logger.warn('Failed to apply progressive excerpt highlight after excerpt creation', error);
+    }
   }
 
   private translate(key: string, fallback: string): string {

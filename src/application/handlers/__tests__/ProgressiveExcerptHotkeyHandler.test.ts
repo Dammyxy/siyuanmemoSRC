@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   showMessage,
-  resolveProgressiveSelection,
+  resolveProgressiveExcerptSelectionSnapshot,
   isProgressiveSelectionInsideNativeProtyle,
+  applyProgressiveExcerptHighlight,
 } = vi.hoisted(() => ({
   showMessage: vi.fn(),
-  resolveProgressiveSelection: vi.fn(),
+  resolveProgressiveExcerptSelectionSnapshot: vi.fn(),
   isProgressiveSelectionInsideNativeProtyle: vi.fn(),
+  applyProgressiveExcerptHighlight: vi.fn(),
 }));
 
 vi.mock('siyuan', () => ({
@@ -15,8 +17,12 @@ vi.mock('siyuan', () => ({
 }));
 
 vi.mock('@/application/entries/ProgressiveSelectionResolver', () => ({
-  resolveProgressiveSelection,
+  resolveProgressiveExcerptSelectionSnapshot,
   isProgressiveSelectionInsideNativeProtyle,
+}));
+
+vi.mock('@/application/entries/ProgressiveExcerptHighlight', () => ({
+  applyProgressiveExcerptHighlight,
 }));
 
 import {
@@ -86,9 +92,13 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     }
 
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
-    resolveProgressiveSelection.mockReturnValue({
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue({
       blockId: 'block-1',
       text: 'Hello',
+      range: document.createRange(),
+      commonElement: root,
+      root,
+      protyle: { wysiwyg: { element: root } },
     });
 
     const { handler, createFromSelection } = createHandler();
@@ -99,12 +109,20 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     } as any);
 
     expect(isProgressiveSelectionInsideNativeProtyle).toHaveBeenCalledWith({ root });
-    expect(resolveProgressiveSelection).toHaveBeenCalledWith({ root });
+    expect(resolveProgressiveExcerptSelectionSnapshot).toHaveBeenCalledWith({
+      root,
+      protyle: {
+        wysiwyg: {
+          element: root,
+        },
+      },
+    });
     expect(createFromSelection).toHaveBeenCalledWith({
       sourceBlockId: 'block-1',
       selectedText: 'Hello',
       origin: 'editor',
     });
+    expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(showMessage).toHaveBeenCalledWith('Excerpt Topic created and added to today', 3000, 'info');
   });
 
@@ -116,7 +134,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     }
 
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
-    resolveProgressiveSelection.mockReturnValue(null);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(null);
 
     const { handler, createFromSelection } = createHandler();
     await handler.runFromEditor({
@@ -149,21 +167,66 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
 
   it('falls back to the active native editor selection after the command-panel tick when review does not claim it', async () => {
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
-    resolveProgressiveSelection.mockReturnValue({
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue({
       blockId: 'block-1',
       text: 'Hello',
+      range: document.createRange(),
+      commonElement: document.body,
+      root: null,
+      protyle: { wysiwyg: { element: document.body } },
     });
 
     const { handler, createFromSelection } = createHandler();
     handler.runFromCommand();
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(resolveProgressiveSelection).toHaveBeenCalledWith(undefined);
+    expect(resolveProgressiveExcerptSelectionSnapshot).toHaveBeenCalledWith({
+      protyle: undefined,
+    });
     expect(createFromSelection).toHaveBeenCalledWith({
       sourceBlockId: 'block-1',
       selectedText: 'Hello',
       origin: 'editor',
     });
+    expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
+    expect(showMessage).toHaveBeenCalledWith('Excerpt Topic created and added to today', 3000, 'info');
+  });
+
+  it('keeps excerpt creation successful when highlight replay throws', async () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="block-1">
+          <span id="target" contenteditable="true">Hello world</span>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue({
+      blockId: 'block-1',
+      text: 'Hello',
+      range: document.createRange(),
+      commonElement: root,
+      root,
+      protyle: { wysiwyg: { element: root } },
+    });
+    applyProgressiveExcerptHighlight.mockImplementation(() => {
+      throw new Error('highlight failed');
+    });
+
+    const { handler, createFromSelection } = createHandler();
+    await handler.runFromEditor({
+      wysiwyg: {
+        element: root,
+      },
+    } as any);
+
+    expect(createFromSelection).toHaveBeenCalledTimes(1);
     expect(showMessage).toHaveBeenCalledWith('Excerpt Topic created and added to today', 3000, 'info');
   });
 });

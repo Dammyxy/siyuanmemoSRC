@@ -7,6 +7,16 @@ Last update: 2026-04-08 (Round 53)
 Use this section for task-level debt tracking when a task touches production code under `src/`.
 Do not add an entry for skill-only or docs-only work.
 
+### 2026-04-08 - progressive excerpt static anchors and safe source highlighting
+
+- Task: Finish the progressive excerpt stabilization work by fixing excerpt source anchor text so excerpt docs render `原文 *` instead of expanding the source block inline, and by replaying excerpt selections into a plugin-owned non-mark source highlight right after excerpt creation across editor and review entrypoints.
+- Touched slice: Progressive excerpt selection/highlight wiring in `src/application/entries/{ProgressiveSelectionResolver,ProgressiveExcerptHighlight}.ts` and `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`, review excerpt orchestration in `src/ui/review/v2/ReviewView.vue`, excerpt doc rendering in `src/application/services/ProgressiveReadingService.ts`, plus focused regression coverage.
+- Debt fixed now: Removed the local excerpt/render mismatch where source suffix refs used a dynamic block-ref subtype and therefore expanded into redundant full-text anchors; introduced one shared live selection snapshot shape so editor/review excerpt paths no longer duplicate selection replay concerns; and kept auto-card isolation by applying excerpt source highlights through non-`mark` Protyle text background styling instead of reusing cloze-sensitive mark syntax.
+- Debt deferred: Command-palette fallback highlight still depends on best-effort native Protyle discovery from the live DOM, and the highlight color is still a hard-coded plugin constant rather than a documented progressive-reading setting or theme token policy.
+- Why deferred: A first-class app-wide “current active Protyle” contract does not yet exist on the active path, while making excerpt highlight user-configurable would widen this bounded behavior fix into a settings/product decision beyond the current source-anchor and safe-highlighting repair.
+- Next safe step: If command-palette fallback still misses highlights in some editor surfaces, extract one shared active-Protyle locator at the plugin/application boundary and then decide whether excerpt highlight color belongs in progressive-reading settings or should stay as a fixed plugin affordance.
+- Validation: `pnpm vitest run src/application/entries/__tests__/ProgressiveExcerptHighlight.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/ui/review/v2/__tests__/ReviewView.progressive-excerpt-hyperspace.spec.ts src/application/services/__tests__/ProgressiveReadingService.test.ts`; `pnpm build`.
+
 ### 2026-04-08 - stable progressive excerpt command and shortcut routing
 
 - Task: Replace the fragile review/editor `Alt+X` piggyback path with one officially registered progressive excerpt command that keeps Siyuan native `Alt+X` untouched and uses plugin-owned `⌥⇧X` routing across editor, review, command palette, and keymap settings.

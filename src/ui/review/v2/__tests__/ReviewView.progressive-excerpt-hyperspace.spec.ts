@@ -9,8 +9,9 @@ import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/Progre
 
 const reviewViewExcerptMocks = vi.hoisted(() => ({
   showMessage: vi.fn(),
-  resolveProgressiveSelection: vi.fn(),
+  resolveProgressiveExcerptSelectionSnapshot: vi.fn(),
   isProgressiveSelectionInsideNativeProtyle: vi.fn(),
+  applyProgressiveExcerptHighlight: vi.fn(),
 }));
 
 vi.mock('siyuan', () => ({
@@ -23,8 +24,12 @@ vi.mock('siyuan', () => ({
 }));
 
 vi.mock('@/application/entries/ProgressiveSelectionResolver', () => ({
-  resolveProgressiveSelection: reviewViewExcerptMocks.resolveProgressiveSelection,
+  resolveProgressiveExcerptSelectionSnapshot: reviewViewExcerptMocks.resolveProgressiveExcerptSelectionSnapshot,
   isProgressiveSelectionInsideNativeProtyle: reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle,
+}));
+
+vi.mock('@/application/entries/ProgressiveExcerptHighlight', () => ({
+  applyProgressiveExcerptHighlight: reviewViewExcerptMocks.applyProgressiveExcerptHighlight,
 }));
 
 function buildCard() {
@@ -233,11 +238,20 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     reviewViewExcerptMocks.showMessage.mockReset();
-    reviewViewExcerptMocks.resolveProgressiveSelection.mockReset();
+    reviewViewExcerptMocks.resolveProgressiveExcerptSelectionSnapshot.mockReset();
     reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReset();
-    reviewViewExcerptMocks.resolveProgressiveSelection.mockReturnValue({
+    reviewViewExcerptMocks.applyProgressiveExcerptHighlight.mockReset();
+    reviewViewExcerptMocks.resolveProgressiveExcerptSelectionSnapshot.mockReturnValue({
       blockId: 'source-block-1',
       text: 'Selected excerpt text',
+      range: document.createRange(),
+      commonElement: document.body,
+      root: document.body,
+      protyle: {
+        wysiwyg: {
+          element: document.body,
+        },
+      },
     });
     reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReturnValue(false);
   });
@@ -270,6 +284,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
+    expect(reviewViewExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(neuralQueue.injectExcerptIntoHyperspace).toHaveBeenCalledWith('excerpt-doc-1', {
       currentNodeId: 'topic-root-1',
       currentEventId: 'event-1',
@@ -327,6 +342,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
+    expect(reviewViewExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
 
     wrapper.unmount();
   });
@@ -362,6 +378,37 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
+    expect(reviewViewExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
+  it('keeps review excerpt creation successful when highlight replay throws', async () => {
+    reviewViewExcerptMocks.applyProgressiveExcerptHighlight.mockImplementation(() => {
+      throw new Error('highlight failed');
+    });
+    const createFromSelection = vi.fn(async () => ({
+      excerptDocId: 'excerpt-doc-1',
+      topicCardId: 'topic-card-1',
+      sourceBlockId: 'source-block-1',
+      dailyNoteDocId: 'daily-note-1',
+    }));
+    const wrapper = mountReviewView({
+      neuralQueue: createNeuralQueue(),
+      createFromSelection,
+    });
+
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'progressive-excerpt', new MouseEvent('click'));
+    await flushPromises();
+
+    expect(createFromSelection).toHaveBeenCalledTimes(1);
+    expect(reviewViewExcerptMocks.showMessage).toHaveBeenLastCalledWith(
+      '摘抄已创建、制为 Topic，并并入当前超空间神经漫游',
+      3000,
+      'info',
+    );
 
     wrapper.unmount();
   });

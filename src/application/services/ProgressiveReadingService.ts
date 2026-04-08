@@ -2156,7 +2156,7 @@ export class ProgressiveReadingService {
   }
 
   private buildSourceAliasDom(sourceBlockId: string): string {
-    return `<span data-type="block-ref" data-id="${this.escapeHtmlAttribute(sourceBlockId)}" data-subtype="d">*</span>`;
+    return `<span data-type="block-ref" data-id="${this.escapeHtmlAttribute(sourceBlockId)}" data-subtype="s">*</span>`;
   }
 
   private async resolveNextChildDocSequence(input: {

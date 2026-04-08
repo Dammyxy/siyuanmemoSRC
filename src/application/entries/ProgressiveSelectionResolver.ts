@@ -1,7 +1,22 @@
+import type { IProtyle } from 'siyuan';
+
 export interface ProgressiveSelectionResult {
   blockId: string;
   text: string;
 }
+
+export interface ProgressiveExcerptSelectionSnapshot extends ProgressiveSelectionResult {
+  range: Range;
+  commonElement: HTMLElement;
+  root: HTMLElement | null;
+  protyle: IProtyle | null;
+}
+
+type ProgressiveSelectionResolveOptions = {
+  root?: HTMLElement | null;
+  protyle?: unknown;
+  resolveProtyle?: (commonElement: HTMLElement) => unknown;
+};
 
 function getElementFromNode(node: Node | null): HTMLElement | null {
   if (!node) {
@@ -11,6 +26,80 @@ function getElementFromNode(node: Node | null): HTMLElement | null {
     return node;
   }
   return node.parentElement;
+}
+
+function getProtyleFromUnknown(value: unknown): IProtyle | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const direct = value as {
+    wysiwyg?: { element?: HTMLElement };
+  };
+  if (direct.wysiwyg?.element instanceof HTMLElement) {
+    return direct as IProtyle;
+  }
+
+  const nested = (value as {
+    protyle?: {
+      wysiwyg?: { element?: HTMLElement };
+    };
+  }).protyle;
+  if (nested?.wysiwyg?.element instanceof HTMLElement) {
+    return nested as IProtyle;
+  }
+
+  const getInstance = (value as { getInstance?: () => unknown }).getInstance;
+  if (typeof getInstance === 'function') {
+    return getProtyleFromUnknown(getInstance.call(value));
+  }
+
+  return null;
+}
+
+function getPotentialProtyleHosts(commonElement: HTMLElement): HTMLElement[] {
+  const seen = new Set<HTMLElement>();
+  const hosts: HTMLElement[] = [];
+  const candidates = [
+    commonElement,
+    commonElement.closest<HTMLElement>('.protyle-wysiwyg'),
+    commonElement.closest<HTMLElement>('.protyle-content'),
+    commonElement.closest<HTMLElement>('.protyle'),
+  ];
+
+  for (const candidate of candidates) {
+    if (!(candidate instanceof HTMLElement) || seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    hosts.push(candidate);
+  }
+
+  return hosts;
+}
+
+function resolveNativeProtyleFromElement(commonElement: HTMLElement): IProtyle | null {
+  const hosts = getPotentialProtyleHosts(commonElement);
+  for (const host of hosts) {
+    const candidates = [
+      host,
+      (host as { protyle?: unknown }).protyle,
+      (host as { __protyle?: unknown }).__protyle,
+      (host as { __vnode__?: { ctx?: { protyle?: unknown } } }).__vnode__?.ctx?.protyle,
+      (host as { __vnode__?: { component?: { ctx?: { protyle?: unknown } } } }).__vnode__?.component?.ctx?.protyle,
+      (host as { __vueParentComponent?: { ctx?: { protyle?: unknown }; protyle?: unknown } }).__vueParentComponent?.ctx?.protyle,
+      (host as { __vueParentComponent?: { ctx?: { protyle?: unknown }; protyle?: unknown } }).__vueParentComponent?.protyle,
+    ];
+
+    for (const candidate of candidates) {
+      const resolved = getProtyleFromUnknown(candidate);
+      if (resolved) {
+        return resolved;
+      }
+    }
+  }
+
+  return null;
 }
 
 function getClosestBlockId(node: Node | null): string | null {
@@ -43,9 +132,9 @@ function getSelectionCommonElement(options?: {
   return commonElement;
 }
 
-export function resolveProgressiveSelection(options?: {
-  root?: HTMLElement | null;
-}): ProgressiveSelectionResult | null {
+export function resolveProgressiveExcerptSelectionSnapshot(
+  options?: ProgressiveSelectionResolveOptions,
+): ProgressiveExcerptSelectionSnapshot | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
     return null;
@@ -72,6 +161,28 @@ export function resolveProgressiveSelection(options?: {
   return {
     blockId: startBlockId,
     text,
+    range: range.cloneRange(),
+    commonElement,
+    root: options?.root || null,
+    protyle: getProtyleFromUnknown(options?.protyle)
+      || (typeof options?.resolveProtyle === 'function'
+        ? getProtyleFromUnknown(options.resolveProtyle(commonElement))
+        : null)
+      || resolveNativeProtyleFromElement(commonElement),
+  };
+}
+
+export function resolveProgressiveSelection(
+  options?: ProgressiveSelectionResolveOptions,
+): ProgressiveSelectionResult | null {
+  const snapshot = resolveProgressiveExcerptSelectionSnapshot(options);
+  if (!snapshot) {
+    return null;
+  }
+
+  return {
+    blockId: snapshot.blockId,
+    text: snapshot.text,
   };
 }
 

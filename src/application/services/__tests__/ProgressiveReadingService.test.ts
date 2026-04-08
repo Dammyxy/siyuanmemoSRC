@@ -973,6 +973,10 @@ describe('ProgressiveReadingService', () => {
       'excerpt-doc-1',
       expect.stringContaining('>*</span>'),
     );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'excerpt-doc-1',
+      expect.stringContaining('data-subtype="s"'),
+    );
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       3,
       'notebook-a',
