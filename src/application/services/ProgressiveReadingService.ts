@@ -1,5 +1,6 @@
 import type { ProgressiveBlockRow, ProgressiveDocInfo, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
+import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { isErr } from '@/types/result';
@@ -24,6 +25,7 @@ const logger = createLogger('ProgressiveReadingService');
 const STORAGE_KEY = 'progressive-reading.json';
 const WORKBENCH_DOC_TITLE = '摘抄工作台';
 const DAILY_TRACE_DOC_TITLE = 'SiYuan Memo 渐进阅读';
+const DAILY_EXCERPT_ROOT_TITLE = 'SiYuanMemo 摘录';
 
 type ProgressiveKind =
   | 'piece'
@@ -32,6 +34,7 @@ type ProgressiveKind =
   | 'piece-workbench'
   | 'source-workbench'
   | 'excerpt'
+  | 'daily-excerpt-root'
   | 'excerpt-source-ref'
   | 'daily-anchor-ref'
   | 'daily-source-group'
@@ -155,7 +158,7 @@ interface DailyTraceWriteInput {
   traceKind: ProgressiveTraceKind;
   sourceDocId: string;
   sourceBlockId: string;
-  excerptDocId: string;
+  excerptEntityId: string;
   sessionId?: string;
   mode?: ProgressiveSplitMode;
 }
@@ -195,10 +198,11 @@ export interface ProgressiveExcerptInput {
 }
 
 export interface ProgressiveExcerptResult {
-  excerptDocId: string;
+  excerptEntityId: string;
+  excerptEntityType: 'doc' | 'block';
   topicCardId: string;
   sourceBlockId: string;
-  dailyNoteDocId: string;
+  containerDocId: string;
 }
 
 export type ProgressiveChildDocStorageMode = 'workbench' | 'source-child';
@@ -331,6 +335,7 @@ export class ProgressiveReadingService {
     private readonly fileService: IFileService,
     private readonly cardService: CardApplicationService,
     private readonly settingsProvider: ProgressiveReadingSettingsProvider,
+    private readonly configuredCaptureStorageService: ConfiguredCaptureStorageService,
     private readonly docTreeScopeRefresher?: ProgressiveDocTreeScopeRefresher,
   ) {
     this.cardCreationHelper = new CardCreationHelper(cardService);
@@ -618,102 +623,126 @@ export class ProgressiveReadingService {
     }
 
     const state = await this.readState();
-    const dailyTraceEnabled = this.isDailyTraceEnabled();
-    const dailyNoteDocId = dailyTraceEnabled
-      ? await this.ensureDailyNoteDoc(blockInfo.box)
-      : '';
     const session = this.getSessionByPieceDocId(state, blockInfo.root_id);
-    let excerptDocId = '';
-    let topicCardId = '';
+    let sourceDocId = blockInfo.root_id;
+    let sessionId: string | undefined;
+    let mode: ProgressiveSplitMode | undefined;
+    let pieceDocId: string | undefined;
 
     if (session) {
       const piece = session.pieces.find((entry) => entry.pieceDocId === blockInfo.root_id);
       if (!piece) {
         throw new Error('渐进阅读 piece 状态不完整');
       }
+      sourceDocId = piece.pieceDocId;
+      sessionId = session.id;
+      mode = session.mode;
+      pieceDocId = piece.pieceDocId;
+    }
 
-      const pieceDocInfo = await this.resolveDocInfo(piece.pieceDocId);
-      excerptDocId = await this.createExcerptDocUnderSource({
-        sourceDocInfo: pieceDocInfo,
-        sourceDocId: piece.pieceDocId,
-        selectedText,
-        sourceBlockId,
-        attrs: {
-          [ATTR_PROGRESSIVE_KIND]: 'excerpt-doc',
-          [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: piece.pieceDocId,
-          [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
-          [ATTR_PROGRESSIVE_SESSION_ID]: session.id,
-          [ATTR_PROGRESSIVE_MODE]: session.mode,
-        },
-      });
+    const excerptStorage = this.settingsProvider.getSettings().progressiveReading?.storage;
+    const hasExplicitStorage = this.configuredCaptureStorageService.hasExplicitConfiguration(excerptStorage);
+    const dailyTraceEnabled = this.isDailyTraceEnabled() && (!hasExplicitStorage || excerptStorage?.mode === 'library');
+    const excerptAttrs: Record<string, string | number | undefined> = {
+      [ATTR_PROGRESSIVE_KIND]: hasExplicitStorage && excerptStorage?.mode === 'daily-note' ? 'excerpt' : 'excerpt-doc',
+      [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
+      [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
+      [ATTR_PROGRESSIVE_SESSION_ID]: sessionId,
+      [ATTR_PROGRESSIVE_MODE]: mode,
+    };
+    const traceKind: ProgressiveTraceKind = session ? 'split-material' : 'ordinary-note';
+    let excerptEntityId = '';
+    let excerptEntityType: 'doc' | 'block' = 'doc';
+    let containerDocId = '';
+    let topicCardId = '';
 
-      topicCardId = await this.ensureExcerptTopicCard({
-        excerptDocId,
-        sourceBlockId,
-        sessionId: session.id,
-        mode: session.mode,
-        pieceDocId: piece.pieceDocId,
-        sourceDocId: piece.pieceDocId,
-      });
-
-      if (dailyTraceEnabled && dailyNoteDocId) {
-        await this.ensureDailyExcerptTrace({
-          dailyNoteDocId,
-          notebook: blockInfo.box,
-          traceKind: 'split-material',
-          sourceDocId: piece.pieceDocId,
+    if (hasExplicitStorage) {
+      if (excerptStorage?.mode === 'daily-note') {
+        const dailyNoteTarget = await this.configuredCaptureStorageService.resolveDailyNoteTarget(excerptStorage);
+        if (!dailyNoteTarget) {
+          throw new Error('未能解析摘录今日日记存放位置。');
+        }
+        containerDocId = dailyNoteTarget.containerDocId;
+        excerptEntityId = await this.createDailyNoteExcerptBlock({
+          dailyNoteDocId: dailyNoteTarget.containerDocId,
+          selectedText,
           sourceBlockId,
-          excerptDocId,
-          sessionId: session.id,
-          mode: session.mode,
+          attrs: excerptAttrs,
+        });
+        excerptEntityType = 'block';
+      } else {
+        const libraryTarget = await this.configuredCaptureStorageService.resolveLibraryTarget(excerptStorage, {
+          feature: 'progressive-excerpt',
+          allowNonDocTarget: false,
+        });
+        if (!libraryTarget) {
+          throw new Error('未能解析摘录固定库存放位置。');
+        }
+        containerDocId = libraryTarget.containerDocId;
+        excerptEntityId = await this.createExcerptDocUnderConfiguredParent({
+          parentDocInfo: libraryTarget.parentDoc,
+          sourceDocId,
+          selectedText,
+          sourceBlockId,
+          attrs: excerptAttrs,
         });
       }
     } else {
-      const sourceDocInfo = await this.resolveDocInfo(blockInfo.root_id);
-      excerptDocId = await this.createExcerptDocUnderSource({
+      const sourceDocInfo = await this.resolveDocInfo(sourceDocId);
+      excerptEntityId = await this.createExcerptDocUnderSource({
         sourceDocInfo,
-        sourceDocId: blockInfo.root_id,
+        sourceDocId,
         selectedText,
         sourceBlockId,
-        attrs: {
-          [ATTR_PROGRESSIVE_KIND]: 'excerpt-doc',
-          [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: blockInfo.root_id,
-          [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
-        },
+        attrs: excerptAttrs,
       });
+      containerDocId = excerptEntityId;
+    }
 
-      topicCardId = await this.ensureExcerptTopicCard({
-        excerptDocId,
-        sourceBlockId,
-        sourceDocId: blockInfo.root_id,
-      });
+    topicCardId = await this.ensureExcerptTopicCard({
+      excerptEntityId,
+      excerptEntityType,
+      sourceBlockId,
+      sessionId,
+      mode,
+      pieceDocId,
+      sourceDocId,
+    });
 
-      if (dailyTraceEnabled && dailyNoteDocId) {
+    if (dailyTraceEnabled) {
+      const traceTarget = hasExplicitStorage
+        ? await this.configuredCaptureStorageService.resolveDailyNoteTarget(excerptStorage)
+        : { notebookId: blockInfo.box, containerDocId: await this.ensureDailyNoteDoc(blockInfo.box) };
+      if (traceTarget) {
         await this.ensureDailyExcerptTrace({
-          dailyNoteDocId,
-          notebook: blockInfo.box,
-          traceKind: 'ordinary-note',
-          sourceDocId: blockInfo.root_id,
+          dailyNoteDocId: traceTarget.containerDocId,
+          notebook: traceTarget.notebookId,
+          traceKind,
+          sourceDocId,
           sourceBlockId,
-          excerptDocId,
+          excerptEntityId,
+          sessionId,
+          mode,
         });
       }
     }
 
     logger.info('Excerpt created', {
       sourceBlockId,
-      sourceDocId: blockInfo.root_id,
-      excerptDocId,
-      dailyNoteDocId,
+      sourceDocId,
+      excerptEntityId,
+      excerptEntityType,
+      containerDocId,
       origin: input.origin,
     });
     this.docTreeScopeRefresher?.scheduleRebuild();
 
     return {
-      excerptDocId,
+      excerptEntityId,
+      excerptEntityType,
       topicCardId,
       sourceBlockId,
-      dailyNoteDocId,
+      containerDocId,
     };
   }
 
@@ -1666,6 +1695,69 @@ export class ProgressiveReadingService {
     return result.docId;
   }
 
+  private async createExcerptDocUnderConfiguredParent(input: {
+    parentDocInfo: ProgressiveDocInfo;
+    sourceDocId: string;
+    selectedText: string;
+    sourceBlockId: string;
+    attrs: Record<string, string | number | undefined>;
+  }): Promise<string> {
+    if (!input.parentDocInfo.box || !input.parentDocInfo.hpath) {
+      throw new Error('无法解析固定库摘录目标路径');
+    }
+
+    const sequence = await this.resolveNextChildDocSequence({
+      sourceDocId: input.sourceDocId,
+      kind: 'excerpt-doc',
+      titlePrefix: '摘录',
+    });
+    const childTitle = this.buildNumberedChildDocTitle(
+      '摘录',
+      sequence,
+      input.selectedText,
+      12,
+    );
+    const childPath = `${input.parentDocInfo.hpath}/${childTitle}`;
+    const created = await this.siyuanApi.createDocWithMarkdown(input.parentDocInfo.box, childPath, '');
+    const docId = created || await this.findDocIdByHPath(input.parentDocInfo.box, childPath);
+    if (!docId) {
+      throw new Error('固定库摘录创建后无法定位');
+    }
+
+    await this.siyuanApi.appendDomBlock(docId, this.buildCanonicalExcerptDom(input.selectedText, input.sourceBlockId));
+    await this.setProgressiveAttrs(docId, input.attrs);
+    this.docTreeScopeRefresher?.scheduleRebuild();
+    return docId;
+  }
+
+  private async createDailyNoteExcerptBlock(input: {
+    dailyNoteDocId: string;
+    selectedText: string;
+    sourceBlockId: string;
+    attrs: Record<string, string | number | undefined>;
+  }): Promise<string> {
+    const dailyRootBlockId = await this.ensureDailyExcerptRootBlock(input.dailyNoteDocId);
+    const excerptBlockId = await this.siyuanApi.appendDomBlock(
+      dailyRootBlockId,
+      this.buildCanonicalExcerptDom(input.selectedText, input.sourceBlockId),
+    );
+    await this.setProgressiveAttrs(excerptBlockId, input.attrs);
+    return excerptBlockId;
+  }
+
+  private async ensureDailyExcerptRootBlock(dailyNoteDocId: string): Promise<string> {
+    const existing = await this.findDirectChildByKind(dailyNoteDocId, 'daily-excerpt-root');
+    if (existing) {
+      return existing;
+    }
+
+    const rootBlockId = await this.siyuanApi.appendMarkdownBlock(dailyNoteDocId, `## ${DAILY_EXCERPT_ROOT_TITLE}`);
+    await this.setProgressiveAttrs(rootBlockId, {
+      [ATTR_PROGRESSIVE_KIND]: 'daily-excerpt-root',
+    });
+    return rootBlockId;
+  }
+
   private async resolveParentExcerptId(sourceDocId: string): Promise<string | undefined> {
     const attrs = await this.siyuanApi.getBlockAttrs(sourceDocId);
     if (this.readProgressiveAttr(attrs, ATTR_PROGRESSIVE_KIND) !== 'excerpt-doc') {
@@ -1817,23 +1909,23 @@ export class ProgressiveReadingService {
   private async ensureDailyExcerptRef(
     parentId: string,
     input: {
-      excerptDocId: string;
+      excerptEntityId: string;
     } & LegacyDailyTraceContext,
   ): Promise<string> {
     const existing = await this.findDirectChildByKind(parentId, 'daily-excerpt-ref', {
-      [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: input.excerptDocId,
+      [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: input.excerptEntityId,
     });
     if (existing) {
       return existing;
     }
 
-    const excerptRefId = await this.siyuanApi.appendMarkdownBlock(parentId, `((${input.excerptDocId}))`);
+    const excerptRefId = await this.siyuanApi.appendMarkdownBlock(parentId, `((${input.excerptEntityId}))`);
     await this.setProgressiveAttrs(excerptRefId, {
       [ATTR_PROGRESSIVE_KIND]: 'daily-excerpt-ref',
       [ATTR_PROGRESSIVE_TRACE_KIND]: input.traceKind,
       [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: input.sourceDocId,
       [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: input.sourceBlockId,
-      [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: input.excerptDocId,
+      [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: input.excerptEntityId,
       [ATTR_PROGRESSIVE_SESSION_ID]: input.sessionId,
       [ATTR_PROGRESSIVE_MODE]: input.mode,
     });
@@ -1850,7 +1942,7 @@ export class ProgressiveReadingService {
       mode: input.mode,
     });
     await this.ensureDailyExcerptRef(sourceGroupId, {
-      excerptDocId: input.excerptDocId,
+      excerptEntityId: input.excerptEntityId,
       traceKind: input.traceKind,
       sourceDocId: input.sourceDocId,
       sourceBlockId: input.sourceBlockId,
@@ -1860,20 +1952,21 @@ export class ProgressiveReadingService {
   }
 
   private async ensureExcerptTopicCard(input: {
-    excerptDocId: string;
+    excerptEntityId: string;
+    excerptEntityType: 'doc' | 'block';
     sourceBlockId: string;
     sessionId?: string;
     mode?: ProgressiveSplitMode;
     pieceDocId?: string;
     sourceDocId: string;
   }): Promise<string> {
-    const existing = this.cardService.getCardByBlockId(input.excerptDocId);
+    const existing = this.cardService.getCardByBlockId(input.excerptEntityId);
     if (existing) {
       return existing.id;
     }
 
     const result = await this.cardService.createCard({
-      blockIds: [input.excerptDocId],
+      blockIds: [input.excerptEntityId],
       cardType: 'topic',
       extractedFrom: input.sourceBlockId,
       progressiveLineage: {
@@ -1886,7 +1979,7 @@ export class ProgressiveReadingService {
       },
       metadata: {
         source: 'manual',
-        isDocument: true,
+        isDocument: input.excerptEntityType === 'doc',
       },
     });
 
@@ -1894,7 +1987,7 @@ export class ProgressiveReadingService {
       throw result.error;
     }
 
-    const created = this.cardService.getCardByBlockId(input.excerptDocId);
+    const created = this.cardService.getCardByBlockId(input.excerptEntityId);
     if (!created) {
       throw new Error('Excerpt topic card created but could not be reloaded from storage');
     }
@@ -2002,7 +2095,7 @@ export class ProgressiveReadingService {
             sourceBlockId,
           });
           await this.ensureDailyExcerptRef(sourceGroupId, {
-            excerptDocId: excerptBlockId,
+            excerptEntityId: excerptBlockId,
             traceKind,
             sourceDocId,
             sourceBlockId,

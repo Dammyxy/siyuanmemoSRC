@@ -36,10 +36,11 @@ function createHandler(options?: {
   i18n?: Record<string, string>;
 }) {
   const createFromSelection = options?.createFromSelection ?? vi.fn(async () => ({
-    excerptDocId: 'excerpt-doc-1',
+    excerptEntityId: 'excerpt-doc-1',
+    excerptEntityType: 'doc',
     topicCardId: 'card-1',
     sourceBlockId: 'block-1',
-    dailyNoteDocId: '',
+    containerDocId: '',
   }));
 
   return {

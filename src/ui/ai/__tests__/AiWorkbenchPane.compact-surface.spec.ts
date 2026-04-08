@@ -151,6 +151,7 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     runActiveView: async () => {},
     saveSelectedCandidatesToDailyNote: async () => {},
     createSelectedCandidates: async () => {},
+    getDraftStorageMode: () => 'daily-note' as const,
     submitFollowUp: async () => {},
     toggleCandidateDiscarded: () => {},
     updateCandidateTitle: () => {},

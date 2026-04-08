@@ -263,10 +263,11 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
   it('merges review excerpts into the current hyperspace session without building stations', async () => {
     const neuralQueue = createNeuralQueue();
     const createFromSelection = vi.fn(async () => ({
-      excerptDocId: 'excerpt-doc-1',
+      excerptEntityId: 'excerpt-doc-1',
+      excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
-      dailyNoteDocId: 'daily-note-1',
+      containerDocId: 'daily-note-1',
     }));
     const wrapper = mountReviewView({
       neuralQueue,
@@ -302,10 +303,11 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
 
   it('uses the new Alt+Shift+X hotkey inside review and no longer reacts to Alt+X', async () => {
     const createFromSelection = vi.fn(async () => ({
-      excerptDocId: 'excerpt-doc-1',
+      excerptEntityId: 'excerpt-doc-1',
+      excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
-      dailyNoteDocId: 'daily-note-1',
+      containerDocId: 'daily-note-1',
     }));
     const wrapper = mountReviewView({
       neuralQueue: createNeuralQueue(),
@@ -350,10 +352,11 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
   it('claims the window-level command request when review owns the current excerpt context', async () => {
     reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     const createFromSelection = vi.fn(async () => ({
-      excerptDocId: 'excerpt-doc-1',
+      excerptEntityId: 'excerpt-doc-1',
+      excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
-      dailyNoteDocId: 'daily-note-1',
+      containerDocId: 'daily-note-1',
     }));
     const wrapper = mountReviewView({
       neuralQueue: createNeuralQueue(),
@@ -388,10 +391,11 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       throw new Error('highlight failed');
     });
     const createFromSelection = vi.fn(async () => ({
-      excerptDocId: 'excerpt-doc-1',
+      excerptEntityId: 'excerpt-doc-1',
+      excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
-      dailyNoteDocId: 'daily-note-1',
+      containerDocId: 'daily-note-1',
     }));
     const wrapper = mountReviewView({
       neuralQueue: createNeuralQueue(),

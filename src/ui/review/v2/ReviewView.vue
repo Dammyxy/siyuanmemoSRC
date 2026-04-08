@@ -750,12 +750,12 @@ function isCurrentProgressivePieceCard(): boolean {
   return Boolean(progressive && typeof progressive === 'object' && (progressive as Record<string, unknown>).kind === 'piece');
 }
 
-async function enqueueExcerptIntoCurrentProgressiveReview(excerptDocId: string): Promise<boolean> {
+async function enqueueExcerptIntoCurrentProgressiveReview(excerptEntityId: string): Promise<boolean> {
   if (!isCurrentProgressivePieceCard()) {
     return false;
   }
 
-  const normalizedBlockId = String(excerptDocId || '').trim();
+  const normalizedBlockId = String(excerptEntityId || '').trim();
   if (!normalizedBlockId) {
     return false;
   }
@@ -791,8 +791,8 @@ async function enqueueExcerptIntoCurrentProgressiveReview(excerptDocId: string):
   return true;
 }
 
-async function injectExcerptIntoCurrentHyperspaceReview(excerptDocId: string): Promise<boolean> {
-  const normalizedBlockId = String(excerptDocId || '').trim();
+async function injectExcerptIntoCurrentHyperspaceReview(excerptEntityId: string): Promise<boolean> {
+  const normalizedBlockId = String(excerptEntityId || '').trim();
   if (!normalizedBlockId) {
     return false;
   }
@@ -2533,13 +2533,13 @@ async function createProgressiveExcerptFromReviewSelection(
     } catch (highlightError) {
       logger.warn('[SiYuanMemo][ReviewView] Failed to apply progressive excerpt highlight:', highlightError);
     }
-    const routedExcerptTarget = await enqueueExcerptIntoCurrentProgressiveReview(result.excerptDocId)
+    const routedExcerptTarget = await enqueueExcerptIntoCurrentProgressiveReview(result.excerptEntityId)
       .then((inserted) => (inserted ? 'progressive' as const : null))
       .then(async (target) => {
         if (target) {
           return target;
         }
-        const injected = await injectExcerptIntoCurrentHyperspaceReview(result.excerptDocId);
+        const injected = await injectExcerptIntoCurrentHyperspaceReview(result.excerptEntityId);
         return injected ? 'hyperspace' as const : null;
       })
       .catch((error) => {

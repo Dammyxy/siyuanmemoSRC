@@ -119,7 +119,7 @@ export interface IDialogManager {
    * 
    * @param defaultTab - 默认标签页（可选）
    */
-  openSettingsDialog(defaultTab?: string): void;
+  openSettingsDialog(defaultTab?: string): Promise<void>;
   
   /**
    * 关闭设置对话框

@@ -17,6 +17,11 @@ function createAISettings(): AISettings {
       cardCandidate: 'Card candidate prompt',
     },
     promptProfiles: createDefaultAIPromptProfileSet(),
+    draftStorage: {
+      mode: 'daily-note',
+      notebookId: '',
+      targetBlockId: '',
+    },
   };
 }
 
@@ -537,16 +542,18 @@ describe('AIWorkbenchService review-session behavior', () => {
     draftService.saveCandidates
       .mockImplementationOnce(async (input) => ({
         notebook: 'box-1',
-        dailyNoteDocId: 'daily-doc-1',
-        rootBlockId: 'root-block-1',
+        storageMode: 'daily-note',
+        containerDocId: 'daily-doc-1',
+        containerBlockId: 'root-block-1',
         sessionBlockId: 'session-block-1',
         sourceRefsBlockId: 'refs-block-1',
         sessionId: 'session-id-1',
         savedAt: 1,
         session: {
           notebook: 'box-1',
-          dailyNoteDocId: 'daily-doc-1',
-          rootBlockId: 'root-block-1',
+          storageMode: 'daily-note',
+          containerDocId: 'daily-doc-1',
+          containerBlockId: 'root-block-1',
           sessionBlockId: 'session-block-1',
           sourceRefsBlockId: 'refs-block-1',
           sourceBlockIds: ['source-1'],
@@ -559,8 +566,9 @@ describe('AIWorkbenchService review-session behavior', () => {
             candidateId: input.candidates[0].candidateId,
             location: {
               notebook: 'box-1',
-              dailyNoteDocId: 'daily-doc-1',
-              rootBlockId: 'root-block-1',
+              storageMode: 'daily-note',
+              containerDocId: 'daily-doc-1',
+              containerBlockId: 'root-block-1',
               sessionBlockId: 'session-block-1',
               sourceRefsBlockId: 'refs-block-1',
               sessionId: 'session-id-1',
@@ -578,16 +586,18 @@ describe('AIWorkbenchService review-session behavior', () => {
       }))
       .mockImplementationOnce(async (input) => ({
         notebook: 'box-1',
-        dailyNoteDocId: 'daily-doc-1',
-        rootBlockId: 'root-block-1',
+        storageMode: 'daily-note',
+        containerDocId: 'daily-doc-1',
+        containerBlockId: 'root-block-1',
         sessionBlockId: 'session-block-1',
         sourceRefsBlockId: 'refs-block-1',
         sessionId: 'session-id-1',
         savedAt: 2,
         session: {
           notebook: 'box-1',
-          dailyNoteDocId: 'daily-doc-1',
-          rootBlockId: 'root-block-1',
+          storageMode: 'daily-note',
+          containerDocId: 'daily-doc-1',
+          containerBlockId: 'root-block-1',
           sessionBlockId: 'session-block-1',
           sourceRefsBlockId: 'refs-block-1',
           sourceBlockIds: ['source-1'],
@@ -600,8 +610,9 @@ describe('AIWorkbenchService review-session behavior', () => {
             candidateId: input.candidates[0].candidateId,
             location: {
               notebook: 'box-1',
-              dailyNoteDocId: 'daily-doc-1',
-              rootBlockId: 'root-block-1',
+              storageMode: 'daily-note',
+              containerDocId: 'daily-doc-1',
+              containerBlockId: 'root-block-1',
               sessionBlockId: 'session-block-1',
               sourceRefsBlockId: 'refs-block-1',
               sessionId: 'session-id-1',
@@ -639,6 +650,11 @@ describe('AIWorkbenchService review-session behavior', () => {
       existingSession: null,
       authoritativeCandidateIds: [candidate!.id],
       authoritativeSourceBlockIds: ['source-1', 'front-1', 'back-1', 'card-block-1'],
+      storage: {
+        mode: 'daily-note',
+        notebookId: '',
+        targetBlockId: '',
+      },
       candidates: [
         expect.objectContaining({
           templateId: 'builtin-basic-qa',
@@ -664,7 +680,7 @@ describe('AIWorkbenchService review-session behavior', () => {
 
     expect(candidate?.draftState).toBe('dirty');
     expect(candidate?.draftLocation?.sessionBlockId).toBe('session-block-1');
-    await expect(service.createSelectedCandidates()).rejects.toThrow('请先把候选保存到 Daily Note 草稿后再创建卡片');
+    await expect(service.createSelectedCandidates()).rejects.toThrow('请先把候选保存成草稿后再创建卡片');
 
     await service.saveSelectedCandidatesToDailyNote();
     await service.createSelectedCandidates();
@@ -677,6 +693,11 @@ describe('AIWorkbenchService review-session behavior', () => {
       }),
       authoritativeCandidateIds: [candidate!.id],
       authoritativeSourceBlockIds: ['source-1', 'front-1', 'back-1', 'card-block-1'],
+      storage: {
+        mode: 'daily-note',
+        notebookId: '',
+        targetBlockId: '',
+      },
       candidates: [
         expect.objectContaining({
           sourceBlockIds: ['source-1', 'front-1', 'back-1', 'card-block-1'],

@@ -617,6 +617,11 @@ export class AIWorkbenchService {
     this.markCandidateDirty(candidate);
   }
 
+  getDraftStorageMode(): AISettings['draftStorage']['mode'] {
+    const storage = this.deps.getAISettings().draftStorage;
+    return storage?.mode === 'library' ? 'library' : 'daily-note';
+  }
+
   async saveSelectedCandidatesToDailyNote(candidateIds?: string[]): Promise<number> {
     if (this.isViewStale('make-cards')) {
       throw this.fail('当前候选基于旧上下文生成，请先重新生成候选卡。');
@@ -657,10 +662,11 @@ export class AIWorkbenchService {
         authoritativeSourceBlockIds: bulkSave
           ? uniqueIds(targets.flatMap((candidate) => candidate.sourceBlockIds))
           : undefined,
+        storage: this.deps.getAISettings().draftStorage,
         candidates: saveTargets.map((candidate) => {
           const resolved = resolvedSaveInputs.get(candidate.id);
           if (!resolved) {
-            throw new Error(`候选 ${candidate.id} 缺少模板字段映射，无法保存到 Daily Note。`);
+            throw new Error(`候选 ${candidate.id} 缺少模板字段映射，无法保存草稿。`);
           }
           return {
             candidateId: candidate.id,
@@ -688,7 +694,7 @@ export class AIWorkbenchService {
           continue;
         }
 
-        const failedError = failedById.get(candidate.id) || new Error('保存到 Daily Note 失败。');
+        const failedError = failedById.get(candidate.id) || new Error('保存草稿失败。');
         candidate.draftState = 'error';
         candidate.draftError = failedError.message;
         candidate.draftErrorOperation = 'save';
@@ -698,7 +704,7 @@ export class AIWorkbenchService {
       this.applyDeletedDraftCandidates(saveResult.deletedCandidateIds, saveResult.session);
 
       if (saveResult.failed.length > 0) {
-        this.state.error = `${saveResult.failed.length} 条候选保存到 Daily Note 失败，请检查后重试。`;
+        this.state.error = `${saveResult.failed.length} 条候选保存草稿失败，请检查后重试。`;
       }
 
       return saveResult.saved.length;
@@ -738,7 +744,7 @@ export class AIWorkbenchService {
     }
 
     if (targets.some((candidate) => !this.canCreateCandidateFromDraft(candidate))) {
-      throw this.fail('请先把候选保存到 Daily Note 草稿后再创建卡片。');
+      throw this.fail('请先把候选保存成草稿后再创建卡片。');
     }
 
     this.state.isLoading = true;
@@ -751,7 +757,7 @@ export class AIWorkbenchService {
       for (const candidate of targets) {
         const draftLocation = candidate.draftLocation;
         if (!draftLocation) {
-          throw this.fail('候选缺少 Daily Note 草稿位置，请先重新保存草稿。');
+          throw this.fail('候选缺少草稿位置，请先重新保存草稿。');
         }
 
         candidate.draftState = 'creating';
@@ -1383,7 +1389,7 @@ export class AIWorkbenchService {
     const fieldMapping = Object.fromEntries(template.fields.map((field) => {
       const fieldBlockId = normalizeString(draftLocation.fieldBlockIds[field.name]);
       if (!fieldBlockId) {
-        throw new Error(`字段 ${field.name} 缺少 Daily Note 草稿块，请先重新保存草稿。`);
+        throw new Error(`字段 ${field.name} 缺少草稿块，请先重新保存草稿。`);
       }
       return [field.name, fieldBlockId];
     }));

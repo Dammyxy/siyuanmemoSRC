@@ -18,7 +18,7 @@ interface ListDocsByPathResponse<TFile extends JsonRecord> {
     files?: TFile[];
 }
 
-interface NotebookSummary {
+export interface NotebookSummary {
     id: string;
     name: string;
     icon: string;

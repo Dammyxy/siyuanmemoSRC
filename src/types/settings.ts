@@ -171,6 +171,15 @@ export interface DrillSettings {
 export interface ProgressiveReadingSettings {
     altXExcerptEnabled: boolean;
     dailyTraceEnabled: boolean;
+    storage: ConfiguredCaptureStorageSettings;
+}
+
+export type ConfiguredCaptureStorageMode = 'library' | 'daily-note';
+
+export interface ConfiguredCaptureStorageSettings {
+    mode: ConfiguredCaptureStorageMode;
+    notebookId: string;
+    targetBlockId?: string;
 }
 
 export interface AIPromptTemplates {
@@ -203,6 +212,7 @@ export interface AISettings {
     defaultOutputLanguage: string;
     prompts: AIPromptTemplates;
     promptProfiles: AIPromptProfileSet;
+    draftStorage: ConfiguredCaptureStorageSettings;
 }
 
 export interface FilterGroupDefinition {
@@ -401,12 +411,6 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         ...settings,
         fsrs: { ...settings.fsrs },
         scheduler: settings.scheduler ? { ...settings.scheduler } : settings.scheduler,
-        ai: {
-            ...DEFAULT_SETTINGS.ai,
-            ...(settings.ai || {}),
-            prompts: normalizedPrompts,
-            promptProfiles: normalizedPromptProfiles,
-        },
         queues: {
             ...DEFAULT_SETTINGS.queues,
             ...(settings.queues || {}),
@@ -454,6 +458,23 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         progressiveReading: {
             ...DEFAULT_SETTINGS.progressiveReading,
             ...(settings.progressiveReading || {}),
+            storage: {
+                ...DEFAULT_SETTINGS.progressiveReading.storage,
+                ...(settings.progressiveReading?.storage || {}),
+            },
+        },
+        ai: {
+            ...DEFAULT_SETTINGS.ai,
+            ...(settings.ai || {}),
+            prompts: {
+                ...DEFAULT_SETTINGS.ai.prompts,
+                ...(settings.ai?.prompts || {}),
+            },
+            promptProfiles: normalizeAIPromptProfiles(settings.ai?.promptProfiles, settings.ai?.prompts),
+            draftStorage: {
+                ...DEFAULT_SETTINGS.ai.draftStorage,
+                ...(settings.ai?.draftStorage || {}),
+            },
         },
     };
 
@@ -518,6 +539,9 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     } else if (
         settings.progressiveReading.altXExcerptEnabled !== normalized.progressiveReading.altXExcerptEnabled
         || settings.progressiveReading.dailyTraceEnabled !== normalized.progressiveReading.dailyTraceEnabled
+        || settings.progressiveReading.storage?.mode !== normalized.progressiveReading.storage.mode
+        || settings.progressiveReading.storage?.notebookId !== normalized.progressiveReading.storage.notebookId
+        || (settings.progressiveReading.storage?.targetBlockId || '') !== normalized.progressiveReading.storage.targetBlockId
     ) {
         changed = true;
     }
@@ -547,6 +571,9 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             || sourceAi.promptProfiles?.cardCandidate?.preset !== normalizedAi.promptProfiles.cardCandidate.preset
             || sourceAi.promptProfiles?.cardCandidate?.overrideEnabled !== normalizedAi.promptProfiles.cardCandidate.overrideEnabled
             || sourceAi.promptProfiles?.cardCandidate?.overrideTemplate !== normalizedAi.promptProfiles.cardCandidate.overrideTemplate
+            || sourceAi.draftStorage?.mode !== normalizedAi.draftStorage.mode
+            || sourceAi.draftStorage?.notebookId !== normalizedAi.draftStorage.notebookId
+            || (sourceAi.draftStorage?.targetBlockId || '') !== normalizedAi.draftStorage.targetBlockId
         ) {
             changed = true;
         }
@@ -743,6 +770,11 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     defaultOutputLanguage: 'zh-CN',
     prompts: DEFAULT_AI_PROMPTS,
     promptProfiles: createDefaultAIPromptProfileSet(),
+    draftStorage: {
+        mode: 'daily-note',
+        notebookId: '',
+        targetBlockId: '',
+    },
 };
 
 /** 默认设置 */
@@ -825,6 +857,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     progressiveReading: {
         altXExcerptEnabled: false,
         dailyTraceEnabled: false,
+        storage: {
+            mode: 'library',
+            notebookId: '',
+            targetBlockId: '',
+        },
     },
     ai: DEFAULT_AI_SETTINGS,
     queues: {

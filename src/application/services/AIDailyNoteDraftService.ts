@@ -1,14 +1,16 @@
 import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
+import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import type {
   AICandidateDraftLocation,
   AIDraftSessionLocation,
   AIMakeCardMode,
 } from '@/types/ai';
+import type { ConfiguredCaptureStorageSettings } from '@/types/settings';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('AIDailyNoteDraftService');
 
-const AI_DRAFT_ROOT_TITLE = 'SiYuanMemo AI 制卡';
+const AI_DRAFT_DAILY_ROOT_TITLE = 'SiYuanMemo AI 制卡';
 
 export const ATTR_AI_KIND = 'custom-fsrs-ai-kind';
 export const ATTR_AI_SESSION_ID = 'custom-fsrs-ai-session-id';
@@ -46,6 +48,7 @@ export interface AIDailyNoteDraftSaveBatchInput {
   existingSession?: AIDraftSessionLocation | null;
   authoritativeCandidateIds?: string[];
   authoritativeSourceBlockIds?: string[];
+  storage?: ConfiguredCaptureStorageSettings | null;
 }
 
 export interface AIDailyNoteDraftCandidateSaveSuccess {
@@ -60,8 +63,9 @@ export interface AIDailyNoteDraftCandidateSaveFailure {
 
 export interface AIDailyNoteDraftSaveBatchResult {
   notebook: string;
-  dailyNoteDocId: string;
-  rootBlockId: string;
+  storageMode: AIDraftSessionLocation['storageMode'];
+  containerDocId: string;
+  containerBlockId: string;
   sessionBlockId: string;
   sourceRefsBlockId: string | null;
   sessionId: string;
@@ -75,6 +79,13 @@ export interface AIDailyNoteDraftSaveBatchResult {
 type CandidateBlockRow = AISiyuanBlockRow & {
   candidateId?: string;
   status?: string;
+};
+
+type ResolvedDraftStorageTarget = {
+  notebookId: string;
+  storageMode: AIDraftSessionLocation['storageMode'];
+  containerDocId: string;
+  containerBlockId: string;
 };
 
 function escapeSql(value: string): string {
@@ -124,27 +135,27 @@ function createSessionId(savedAt: number): string {
 }
 
 export class AIDailyNoteDraftService {
-  constructor(private readonly siyuanPort: AISiyuanPort) {}
+  constructor(
+    private readonly siyuanPort: AISiyuanPort,
+    private readonly configuredCaptureStorageService: ConfiguredCaptureStorageService,
+  ) {}
 
   async saveCandidates(input: AIDailyNoteDraftSaveBatchInput): Promise<AIDailyNoteDraftSaveBatchResult> {
     const candidates = input.candidates.filter((candidate) => candidate.fieldOrder.length > 0);
     const hasAuthoritySnapshot = Array.isArray(input.authoritativeCandidateIds);
     if (candidates.length === 0 && !hasAuthoritySnapshot) {
-      throw new Error('当前没有可写入 Daily Note 的候选卡。');
+      throw new Error('当前没有可写入草稿区的候选卡。');
     }
 
     const savedAt = Date.now();
     const desiredSourceBlockIds = this.resolveDesiredSourceBlockIds(input, candidates);
-    const notebook = normalizeString(input.existingSession?.notebook)
-      || await this.resolveNotebook(desiredSourceBlockIds);
-    const dailyNoteDocId = normalizeString(input.existingSession?.dailyNoteDocId)
-      || await this.siyuanPort.ensureTodayDailyNote(notebook);
-    const rootBlockId = await this.ensureRootBlock(dailyNoteDocId);
+    const storageTarget = await this.resolveStorageTarget(input, desiredSourceBlockIds);
     const session = await this.ensureSession({
       existingSession: input.existingSession || null,
-      notebook,
-      dailyNoteDocId,
-      rootBlockId,
+      notebook: storageTarget.notebookId,
+      storageMode: storageTarget.storageMode,
+      containerDocId: storageTarget.containerDocId,
+      containerBlockId: storageTarget.containerBlockId,
       mode: input.mode,
       savedAt,
       sourceBlockIds: desiredSourceBlockIds,
@@ -176,7 +187,7 @@ export class AIDailyNoteDraftService {
         });
       } catch (error) {
         const normalized = error instanceof Error ? error : new Error(String(error));
-        logger.warn('Failed to save AI draft candidate to daily note:', {
+        logger.warn('Failed to save AI draft candidate to configured storage:', {
           candidateId: candidate.candidateId,
           error: normalized,
         });
@@ -192,9 +203,10 @@ export class AIDailyNoteDraftService {
       : [];
 
     return {
-      notebook,
-      dailyNoteDocId,
-      rootBlockId,
+      notebook: storageTarget.notebookId,
+      storageMode: storageTarget.storageMode,
+      containerDocId: storageTarget.containerDocId,
+      containerBlockId: storageTarget.containerBlockId,
       sessionBlockId: finalSession.sessionBlockId,
       sourceRefsBlockId,
       sessionId: finalSession.sessionId,
@@ -234,8 +246,9 @@ export class AIDailyNoteDraftService {
   private async ensureSession(input: {
     existingSession: AIDraftSessionLocation | null;
     notebook: string;
-    dailyNoteDocId: string;
-    rootBlockId: string;
+    storageMode: AIDraftSessionLocation['storageMode'];
+    containerDocId: string;
+    containerBlockId: string;
     mode: AIMakeCardMode;
     savedAt: number;
     sourceBlockIds: string[];
@@ -254,8 +267,9 @@ export class AIDailyNoteDraftService {
       return {
         ...input.existingSession,
         notebook: input.notebook,
-        dailyNoteDocId: input.dailyNoteDocId,
-        rootBlockId: input.rootBlockId,
+        storageMode: input.storageMode,
+        containerDocId: input.containerDocId,
+        containerBlockId: input.containerBlockId,
         sourceBlockIds: input.sourceBlockIds,
         savedAt: input.savedAt,
       };
@@ -264,7 +278,7 @@ export class AIDailyNoteDraftService {
     const sessionId = createSessionId(input.savedAt);
     const sessionBlockId = await this.siyuanPort.appendBlockUnderParent(
       `### ${formatTimestamp(input.savedAt)} · ${modeLabel(input.mode)}`,
-      input.rootBlockId,
+      input.containerBlockId,
     );
     await this.setDraftAttrs(sessionBlockId, {
       [ATTR_AI_KIND]: 'session',
@@ -274,8 +288,9 @@ export class AIDailyNoteDraftService {
     });
     return {
       notebook: input.notebook,
-      dailyNoteDocId: input.dailyNoteDocId,
-      rootBlockId: input.rootBlockId,
+      storageMode: input.storageMode,
+      containerDocId: input.containerDocId,
+      containerBlockId: input.containerBlockId,
       sessionBlockId,
       sourceRefsBlockId: null,
       sourceBlockIds: input.sourceBlockIds,
@@ -325,7 +340,7 @@ export class AIDailyNoteDraftService {
     const resolvedFieldEntries = candidate.fieldOrder.map((fieldName) => {
       const rawValue = String(candidate.fieldValues[fieldName] || '').trim();
       if (!rawValue) {
-        throw new Error(`字段 ${fieldName} 为空，无法保存到 Daily Note。`);
+        throw new Error(`字段 ${fieldName} 为空，无法保存草稿。`);
       }
       return [fieldName, rawValue] as const;
     });
@@ -436,7 +451,7 @@ export class AIDailyNoteDraftService {
   private async resolveNotebook(sourceBlockIds: string[]): Promise<string> {
     const normalizedSourceBlockIds = uniqueIds(sourceBlockIds);
     if (normalizedSourceBlockIds.length === 0) {
-      throw new Error('当前上下文没有来源块，无法定位 Daily Note。');
+      throw new Error('当前上下文没有来源块，无法定位草稿保存位置。');
     }
 
     const escapedIds = normalizedSourceBlockIds.map((id) => `'${escapeSql(id)}'`).join(',');
@@ -454,20 +469,20 @@ export class AIDailyNoteDraftService {
         return notebook;
       }
     }
-    throw new Error('无法从来源块解析所属笔记本，无法定位 Daily Note。');
+    throw new Error('无法从来源块解析所属笔记本，无法定位草稿保存位置。');
   }
 
-  private async ensureRootBlock(dailyNoteDocId: string): Promise<string> {
-    const existing = await this.findDirectChildByKind(dailyNoteDocId, 'root');
+  private async ensureDailyRootBlock(containerDocId: string): Promise<string> {
+    const existing = await this.findDirectChildByKind(containerDocId, 'root');
     if (existing) {
       const title = normalizeString(existing.content);
-      if (title !== AI_DRAFT_ROOT_TITLE) {
-        await this.siyuanPort.updateBlockMarkdown(existing.id, `## ${AI_DRAFT_ROOT_TITLE}`);
+      if (title !== AI_DRAFT_DAILY_ROOT_TITLE) {
+        await this.siyuanPort.updateBlockMarkdown(existing.id, `## ${AI_DRAFT_DAILY_ROOT_TITLE}`);
       }
       return existing.id;
     }
 
-    const rootBlockId = await this.siyuanPort.appendBlockUnderParent(`## ${AI_DRAFT_ROOT_TITLE}`, dailyNoteDocId);
+    const rootBlockId = await this.siyuanPort.appendBlockUnderParent(`## ${AI_DRAFT_DAILY_ROOT_TITLE}`, containerDocId);
     await this.setDraftAttrs(rootBlockId, {
       [ATTR_AI_KIND]: 'root',
       [ATTR_AI_STATUS]: 'saved',
@@ -510,6 +525,65 @@ export class AIDailyNoteDraftService {
       deletedCandidateIds.push(candidateId);
     }
     return deletedCandidateIds;
+  }
+
+  private async resolveStorageTarget(
+    input: AIDailyNoteDraftSaveBatchInput,
+    desiredSourceBlockIds: string[],
+  ): Promise<ResolvedDraftStorageTarget> {
+    const existingSession = input.existingSession;
+    if (
+      existingSession
+      && normalizeString(existingSession.notebook)
+      && normalizeString(existingSession.containerDocId)
+      && normalizeString(existingSession.containerBlockId)
+    ) {
+      return {
+        notebookId: existingSession.notebook,
+        storageMode: existingSession.storageMode,
+        containerDocId: existingSession.containerDocId,
+        containerBlockId: existingSession.containerBlockId,
+      };
+    }
+
+    const storage = input.storage || null;
+    if (this.configuredCaptureStorageService.hasExplicitConfiguration(storage)) {
+      if (storage?.mode === 'library') {
+        const libraryTarget = await this.configuredCaptureStorageService.resolveLibraryTarget(storage, {
+          feature: 'ai-draft',
+          allowNonDocTarget: true,
+        });
+        if (!libraryTarget) {
+          throw new Error('未能解析 AI 草稿固定库存放位置。');
+        }
+        return {
+          notebookId: libraryTarget.notebookId,
+          storageMode: 'library',
+          containerDocId: libraryTarget.containerDocId,
+          containerBlockId: libraryTarget.parentBlockId,
+        };
+      }
+
+      const dailyNoteTarget = await this.configuredCaptureStorageService.resolveDailyNoteTarget(storage);
+      if (!dailyNoteTarget) {
+        throw new Error('未能解析 AI 草稿今日日记存放位置。');
+      }
+      return {
+        notebookId: dailyNoteTarget.notebookId,
+        storageMode: 'daily-note',
+        containerDocId: dailyNoteTarget.containerDocId,
+        containerBlockId: await this.ensureDailyRootBlock(dailyNoteTarget.containerDocId),
+      };
+    }
+
+    const notebookId = await this.resolveNotebook(desiredSourceBlockIds);
+    const containerDocId = await this.siyuanPort.ensureTodayDailyNote(notebookId);
+    return {
+      notebookId,
+      storageMode: 'daily-note',
+      containerDocId,
+      containerBlockId: await this.ensureDailyRootBlock(containerDocId),
+    };
   }
 
   private async findDirectChildByKind(parentId: string, kind: AIDraftBlockKind): Promise<{ id: string; content: string } | null> {

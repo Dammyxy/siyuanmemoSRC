@@ -1,4 +1,5 @@
 import type { FSRSCard } from '@/types/card';
+import type { ConfiguredCaptureStorageMode } from './settings';
 import type {
   NeuralRoamBatchSnapshot,
   ReviewQueueProgressSnapshot,
@@ -55,8 +56,9 @@ export interface ReviewAIContextSnapshot extends AIWorkbenchContextSnapshot {
 
 export interface AIDraftSessionLocation {
   notebook: string;
-  dailyNoteDocId: string;
-  rootBlockId: string;
+  storageMode: ConfiguredCaptureStorageMode;
+  containerDocId: string;
+  containerBlockId: string;
   sessionBlockId: string;
   sourceRefsBlockId: string | null;
   sourceBlockIds: string[];

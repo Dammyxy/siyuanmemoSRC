@@ -9,6 +9,7 @@ import {
   ATTR_AI_STATUS,
   ATTR_AI_TEMPLATE_ID,
 } from '@/application/services/AIDailyNoteDraftService';
+import { DEFAULT_AI_SETTINGS } from '@/types/settings';
 
 function createPort(options?: {
   sql?: ReturnType<typeof vi.fn>;
@@ -34,6 +35,33 @@ function createPort(options?: {
   };
 }
 
+function createConfiguredCaptureStorageService(options?: {
+  hasExplicitConfiguration?: boolean;
+  resolveDailyNoteTarget?: ReturnType<typeof vi.fn>;
+  resolveLibraryTarget?: ReturnType<typeof vi.fn>;
+}) {
+  return {
+    hasExplicitConfiguration: vi.fn((settings) => options?.hasExplicitConfiguration ?? Boolean(settings?.notebookId)),
+    resolveDailyNoteTarget: options?.resolveDailyNoteTarget || vi.fn(async () => ({
+      notebookId: 'box-1',
+      containerDocId: 'daily-doc-1',
+    })),
+    resolveLibraryTarget: options?.resolveLibraryTarget || vi.fn(async () => ({
+      notebookId: 'box-1',
+      containerDocId: 'library-doc-1',
+      parentBlockId: 'library-parent-1',
+      parentDoc: {
+        id: 'library-doc-1',
+        box: 'box-1',
+        path: '/SiYuanMemo AI 草稿.sy',
+        hpath: '/SiYuanMemo AI 草稿',
+        name: 'SiYuanMemo AI 草稿',
+      },
+      targetKind: 'root-doc',
+    })),
+  };
+}
+
 describe('AIDailyNoteDraftService', () => {
   it('uses today daily note lookup, reuses the root block, and normalizes the SiYuanMemo root title', async () => {
     const sql = vi.fn(async (stmt: string) => {
@@ -54,13 +82,16 @@ describe('AIDailyNoteDraftService', () => {
       .mockResolvedValueOnce('field-back-1');
     const updateBlockMarkdown = vi.fn(async (blockId: string) => blockId);
     const setBlockAttrs = vi.fn();
+    const configuredCaptureStorageService = createConfiguredCaptureStorageService({
+      hasExplicitConfiguration: false,
+    });
     const service = new AIDailyNoteDraftService(createPort({
       sql,
       ensureTodayDailyNote,
       appendBlockUnderParent,
       updateBlockMarkdown,
       setBlockAttrs,
-    }));
+    }), configuredCaptureStorageService as never);
 
     const result = await service.saveCandidates({
       mode: 'qa',
@@ -81,8 +112,9 @@ describe('AIDailyNoteDraftService', () => {
 
     expect(ensureTodayDailyNote).toHaveBeenCalledWith('box-1');
     expect(updateBlockMarkdown).toHaveBeenCalledWith('root-block-1', '## SiYuanMemo AI 制卡');
-    expect(result.dailyNoteDocId).toBe('daily-doc-1');
-    expect(result.rootBlockId).toBe('root-block-1');
+    expect(result.storageMode).toBe('daily-note');
+    expect(result.containerDocId).toBe('daily-doc-1');
+    expect(result.containerBlockId).toBe('root-block-1');
     expect(result.session.sessionBlockId).toBe('session-block-1');
     expect(result.session.sourceBlockIds).toEqual(['source-1', 'source-2']);
     expect(appendBlockUnderParent).toHaveBeenNthCalledWith(1, expect.stringContaining('### '), 'root-block-1');
@@ -116,20 +148,24 @@ describe('AIDailyNoteDraftService', () => {
     const appendBlockUnderParent = vi.fn().mockResolvedValueOnce('field-hint-1');
     const deleteBlock = vi.fn();
     const setBlockAttrs = vi.fn();
+    const configuredCaptureStorageService = createConfiguredCaptureStorageService({
+      hasExplicitConfiguration: false,
+    });
     const service = new AIDailyNoteDraftService(createPort({
       sql,
       appendBlockUnderParent,
       updateBlockMarkdown,
       deleteBlock,
       setBlockAttrs,
-    }));
+    }), configuredCaptureStorageService as never);
 
     const result = await service.saveCandidates({
       mode: 'qa',
       existingSession: {
         notebook: 'box-1',
-        dailyNoteDocId: 'daily-doc-1',
-        rootBlockId: 'root-block-1',
+        storageMode: 'daily-note',
+        containerDocId: 'daily-doc-1',
+        containerBlockId: 'root-block-1',
         sessionBlockId: 'session-block-1',
         sourceRefsBlockId: 'refs-block-1',
         sourceBlockIds: ['source-1', 'source-old'],
@@ -151,8 +187,9 @@ describe('AIDailyNoteDraftService', () => {
           fieldOrder: ['front', 'hint'],
           existingLocation: {
             notebook: 'box-1',
-            dailyNoteDocId: 'daily-doc-1',
-            rootBlockId: 'root-block-1',
+            storageMode: 'daily-note',
+            containerDocId: 'daily-doc-1',
+            containerBlockId: 'root-block-1',
             sessionBlockId: 'session-block-1',
             sourceRefsBlockId: 'refs-block-1',
             sourceBlockIds: ['source-1'],
@@ -208,10 +245,13 @@ describe('AIDailyNoteDraftService', () => {
     const appendBlockUnderParent = vi.fn()
       .mockResolvedValueOnce('session-block-1')
       .mockResolvedValueOnce('refs-block-1');
+    const configuredCaptureStorageService = createConfiguredCaptureStorageService({
+      hasExplicitConfiguration: false,
+    });
     const service = new AIDailyNoteDraftService(createPort({
       sql,
       appendBlockUnderParent,
-    }));
+    }), configuredCaptureStorageService as never);
 
     const result = await service.saveCandidates({
       mode: 'qa',
@@ -253,18 +293,22 @@ describe('AIDailyNoteDraftService', () => {
     const appendBlockUnderParent = vi.fn()
       .mockResolvedValueOnce('field-question-1')
       .mockResolvedValueOnce('field-answer-1');
+    const configuredCaptureStorageService = createConfiguredCaptureStorageService({
+      hasExplicitConfiguration: false,
+    });
     const service = new AIDailyNoteDraftService(createPort({
       sql,
       appendBlockUnderParent,
       updateBlockMarkdown,
-    }));
+    }), configuredCaptureStorageService as never);
 
     const result = await service.saveCandidates({
       mode: 'qa',
       existingSession: {
         notebook: 'box-1',
-        dailyNoteDocId: 'daily-doc-1',
-        rootBlockId: 'root-block-1',
+        storageMode: 'daily-note',
+        containerDocId: 'daily-doc-1',
+        containerBlockId: 'root-block-1',
         sessionBlockId: 'session-block-1',
         sourceRefsBlockId: 'refs-block-1',
         sourceBlockIds: ['source-1'],
@@ -295,5 +339,119 @@ describe('AIDailyNoteDraftService', () => {
       question: 'field-question-1',
       answer: 'field-answer-1',
     });
+  });
+
+  it('uses explicitly configured daily-note storage instead of inferring the source notebook', async () => {
+    const appendBlockUnderParent = vi.fn()
+      .mockResolvedValueOnce('root-block-1')
+      .mockResolvedValueOnce('session-block-1')
+      .mockResolvedValueOnce('refs-block-1')
+      .mockResolvedValueOnce('candidate-block-1')
+      .mockResolvedValueOnce('field-front-1');
+    const configuredCaptureStorageService = createConfiguredCaptureStorageService({
+      hasExplicitConfiguration: true,
+      resolveDailyNoteTarget: vi.fn(async () => ({
+        notebookId: 'configured-box',
+        containerDocId: 'configured-daily-doc',
+      })),
+    });
+    const service = new AIDailyNoteDraftService(createPort({
+      appendBlockUnderParent,
+    }), configuredCaptureStorageService as never);
+
+    const result = await service.saveCandidates({
+      mode: 'qa',
+      storage: {
+        ...DEFAULT_AI_SETTINGS.draftStorage,
+        mode: 'daily-note',
+        notebookId: 'configured-box',
+      },
+      candidates: [
+        {
+          candidateId: 'candidate-1',
+          title: '候选 1',
+          templateId: 'builtin-basic-qa',
+          sourceBlockIds: ['source-1'],
+          fieldValues: {
+            question: 'Question body',
+          },
+          fieldOrder: ['question'],
+        },
+      ],
+    });
+
+    expect(configuredCaptureStorageService.resolveDailyNoteTarget).toHaveBeenCalledWith({
+      ...DEFAULT_AI_SETTINGS.draftStorage,
+      mode: 'daily-note',
+      notebookId: 'configured-box',
+    });
+    expect(result.notebook).toBe('configured-box');
+    expect(result.storageMode).toBe('daily-note');
+    expect(result.containerDocId).toBe('configured-daily-doc');
+    expect(result.containerBlockId).toBe('root-block-1');
+  });
+
+  it('uses explicitly configured library storage and appends drafts under the resolved parent block', async () => {
+    const appendBlockUnderParent = vi.fn()
+      .mockResolvedValueOnce('session-block-1')
+      .mockResolvedValueOnce('refs-block-1')
+      .mockResolvedValueOnce('candidate-block-1')
+      .mockResolvedValueOnce('field-front-1');
+    const configuredCaptureStorageService = createConfiguredCaptureStorageService({
+      hasExplicitConfiguration: true,
+      resolveLibraryTarget: vi.fn(async () => ({
+        notebookId: 'library-box',
+        containerDocId: 'library-doc-1',
+        parentBlockId: 'library-parent-1',
+        parentDoc: {
+          id: 'library-doc-1',
+          box: 'library-box',
+          path: '/SiYuanMemo AI 草稿.sy',
+          hpath: '/SiYuanMemo AI 草稿',
+          name: 'SiYuanMemo AI 草稿',
+        },
+        targetKind: 'block',
+      })),
+    });
+    const service = new AIDailyNoteDraftService(createPort({
+      appendBlockUnderParent,
+    }), configuredCaptureStorageService as never);
+
+    const result = await service.saveCandidates({
+      mode: 'qa',
+      storage: {
+        ...DEFAULT_AI_SETTINGS.draftStorage,
+        mode: 'library',
+        notebookId: 'library-box',
+        targetBlockId: 'library-parent-1',
+      },
+      candidates: [
+        {
+          candidateId: 'candidate-1',
+          title: '候选 1',
+          templateId: 'builtin-basic-qa',
+          sourceBlockIds: ['source-1'],
+          fieldValues: {
+            question: 'Question body',
+          },
+          fieldOrder: ['question'],
+        },
+      ],
+    });
+
+    expect(configuredCaptureStorageService.resolveLibraryTarget).toHaveBeenCalledWith({
+      ...DEFAULT_AI_SETTINGS.draftStorage,
+      mode: 'library',
+      notebookId: 'library-box',
+      targetBlockId: 'library-parent-1',
+    }, {
+      feature: 'ai-draft',
+      allowNonDocTarget: true,
+    });
+    expect(result.notebook).toBe('library-box');
+    expect(result.storageMode).toBe('library');
+    expect(result.containerDocId).toBe('library-doc-1');
+    expect(result.containerBlockId).toBe('library-parent-1');
+    expect(appendBlockUnderParent).toHaveBeenNthCalledWith(1, expect.stringContaining('### '), 'library-parent-1');
   });
 });

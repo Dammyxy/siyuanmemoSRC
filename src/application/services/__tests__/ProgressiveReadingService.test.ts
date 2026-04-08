@@ -65,10 +65,41 @@ function createSettingsProviderMock(
       progressiveReading: {
         altXExcerptEnabled: false,
         dailyTraceEnabled: false,
+        storage: {
+          mode: 'library',
+          notebookId: '',
+          targetBlockId: '',
+        },
         ...overrides,
       },
     }),
   };
+}
+
+function createConfiguredCaptureStorageServiceMock(overrides: Record<string, unknown> = {}) {
+  return {
+    hasExplicitConfiguration: vi.fn(() => false),
+    resolveLibraryTarget: vi.fn(),
+    resolveDailyNoteTarget: vi.fn(),
+    listOpenNotebooks: vi.fn(async () => []),
+    ...overrides,
+  };
+}
+
+function createServiceUnderTest(
+  port: ProgressiveSiyuanPort,
+  fileService: IFileService,
+  cardService: CardApplicationService,
+  settingsProvider: ReturnType<typeof createSettingsProviderMock>,
+  configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock(),
+) {
+  return new ProgressiveReadingService(
+    port,
+    fileService,
+    cardService,
+    settingsProvider,
+    configuredCaptureStorageService as never,
+  );
 }
 
 function createCardServiceMock() {
@@ -202,7 +233,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-6'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.splitDocument('doc-1', 'linear');
 
@@ -315,7 +346,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     await service.splitDocument('doc-1', 'linear', undefined, {
       onProgress: (progress) => {
@@ -370,7 +401,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     await expect(service.splitDocument('doc-1', 'linear', undefined, {
       onProgress: (progress) => {
@@ -423,7 +454,7 @@ describe('ProgressiveReadingService', () => {
       }),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     await expect(service.splitDocument('doc-1', 'linear', undefined, {
       onProgress: (progress) => {
@@ -469,7 +500,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.splitDocument('doc-1', 'nonlinear');
 
@@ -541,7 +572,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.splitDocument('doc-1', 'linear', {
       horizontalRule: false,
@@ -604,7 +635,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-4'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.splitDocument('doc-1', 'linear', {
       horizontalRule: true,
@@ -674,7 +705,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.splitDocument('doc-1', 'linear', {
       horizontalRule: false,
@@ -702,7 +733,7 @@ describe('ProgressiveReadingService', () => {
     const fileService = createFileServiceMock();
     const port = createProgressiveSiyuanPortMock();
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     await expect(service.splitDocument('doc-1', 'linear', {
       horizontalRule: false,
@@ -764,7 +795,7 @@ describe('ProgressiveReadingService', () => {
       createDocWithMarkdown: vi.fn(async () => 'piece-new-1'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.splitDocument('doc-1', 'linear');
 
@@ -818,7 +849,7 @@ describe('ProgressiveReadingService', () => {
       }),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     await expect(service.splitDocument('doc-1', 'linear')).rejects.toThrow(
       '当前文档已经存在渐进 split 会话，仍有 1 个 piece 子文档存在'
@@ -856,7 +887,7 @@ describe('ProgressiveReadingService', () => {
     const fileService = createFileServiceMock(initialState);
     const port = createProgressiveSiyuanPortMock();
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.completeCurrentPiece('piece-1');
 
@@ -927,8 +958,8 @@ describe('ProgressiveReadingService', () => {
       renderTemplate: vi.fn(async () => '/daily note/2026/2026-04-05'),
       createDocWithMarkdown: vi
         .fn()
-        .mockResolvedValueOnce('daily-note-1')
         .mockResolvedValueOnce('excerpt-doc-1')
+        .mockResolvedValueOnce('daily-note-1')
         .mockResolvedValueOnce('anchor-doc-1'),
       appendMarkdownBlock: vi
         .fn()
@@ -937,7 +968,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('daily-excerpt-ref-1'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock({ dailyTraceEnabled: true }));
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock({ dailyTraceEnabled: true }));
 
     const result = await service.createExcerptFromSelection({
       sourceBlockId: 'source-1',
@@ -946,13 +977,14 @@ describe('ProgressiveReadingService', () => {
     });
 
     expect(result).toEqual({
-      excerptDocId: 'excerpt-doc-1',
+      excerptEntityId: 'excerpt-doc-1',
+      excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-1',
-      dailyNoteDocId: 'daily-note-1',
+      containerDocId: 'excerpt-doc-1',
     });
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
-      2,
+      1,
       'notebook-a',
       '/reading/ordinary/[摘录 001] Focus text',
       '',
@@ -1088,8 +1120,8 @@ describe('ProgressiveReadingService', () => {
       renderTemplate: vi.fn(async () => '/daily note/2026/2026-04-05'),
       createDocWithMarkdown: vi
         .fn()
-        .mockResolvedValueOnce('daily-note-1')
         .mockResolvedValueOnce('excerpt-doc-2')
+        .mockResolvedValueOnce('daily-note-1')
         .mockResolvedValueOnce('anchor-doc-1'),
       appendMarkdownBlock: vi
         .fn()
@@ -1098,7 +1130,7 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('daily-excerpt-ref-1'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock({ dailyTraceEnabled: true }));
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock({ dailyTraceEnabled: true }));
 
     const result = await service.createExcerptFromSelection({
       sourceBlockId: 'piece-block-1',
@@ -1108,13 +1140,14 @@ describe('ProgressiveReadingService', () => {
     });
 
     expect(result).toEqual({
-      excerptDocId: 'excerpt-doc-2',
+      excerptEntityId: 'excerpt-doc-2',
+      excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'piece-block-1',
-      dailyNoteDocId: 'daily-note-1',
+      containerDocId: 'excerpt-doc-2',
     });
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
-      2,
+      1,
       'notebook-a',
       '/reading/article/01 Intro/[摘录 002] Piece text',
       '',
@@ -1194,7 +1227,7 @@ describe('ProgressiveReadingService', () => {
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-plain-1'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.createExcerptFromSelection({
       sourceBlockId: 'source-plain-1',
@@ -1203,10 +1236,11 @@ describe('ProgressiveReadingService', () => {
     });
 
     expect(result).toEqual({
-      excerptDocId: 'excerpt-doc-plain-1',
+      excerptEntityId: 'excerpt-doc-plain-1',
+      excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-plain-1',
-      dailyNoteDocId: '',
+      containerDocId: 'excerpt-doc-plain-1',
     });
     expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
@@ -1246,7 +1280,7 @@ describe('ProgressiveReadingService', () => {
       createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-long-1'),
     });
     const cardService = createCardServiceMock();
-    const service = new ProgressiveReadingService(port, fileService, cardService.service, createSettingsProviderMock());
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
 
     const result = await service.createExcerptFromSelection({
       sourceBlockId: 'source-long-1',
@@ -1255,10 +1289,11 @@ describe('ProgressiveReadingService', () => {
     });
 
     expect(result).toEqual({
-      excerptDocId: 'excerpt-doc-long-1',
+      excerptEntityId: 'excerpt-doc-long-1',
+      excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-long-1',
-      dailyNoteDocId: '',
+      containerDocId: 'excerpt-doc-long-1',
     });
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',

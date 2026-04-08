@@ -32,6 +32,14 @@ vi.mock('@/ui/browser', () => ({
   SRSBrowser: {},
 }));
 
+const { createUnifiedReviewDialogMock } = vi.hoisted(() => ({
+  createUnifiedReviewDialogMock: vi.fn(() => ({ destroy: vi.fn() })),
+}));
+
+vi.mock('@/application/factories/createUnifiedReviewDialog', () => ({
+  createUnifiedReviewDialog: createUnifiedReviewDialogMock,
+}));
+
 describe('DialogManager', () => {
   let dialogManager: DialogManager;
   let mockContext: ApplicationContext;
@@ -39,6 +47,10 @@ describe('DialogManager', () => {
   let mockStorage: any;
   let mockScheduler: any;
   let mockI18n: any;
+  let mockSettingsService: any;
+  let mockSiyuanApi: any;
+  let mockPracticeQueueManager: any;
+  let mockRetrievalQueue: any;
 
   beforeEach(() => {
     // 创建 mock 对象
@@ -47,6 +59,24 @@ describe('DialogManager', () => {
     };
 
     mockScheduler = {};
+    mockSettingsService = {
+      getSettings: vi.fn(() => ({})),
+      updateSettings: vi.fn(async () => undefined),
+    };
+    mockPracticeQueueManager = {
+      previewPracticeQueue: vi.fn(),
+      addPracticeQueue: vi.fn(),
+      startPracticeQueue: vi.fn(),
+      clearPracticeQueue: vi.fn(),
+    };
+    mockRetrievalQueue = {
+      localBuffer: [],
+      cards: [],
+      buffer: [],
+    };
+    mockSiyuanApi = {
+      pushErrMsg: vi.fn(async () => undefined),
+    };
 
     mockI18n = {
       settings: 'Settings',
@@ -55,14 +85,25 @@ describe('DialogManager', () => {
 
     mockContext = {
       getStorage: vi.fn(() => mockStorage),
+      getSettingsService: vi.fn(() => mockSettingsService),
       getScheduler: vi.fn(() => mockScheduler),
+      getBrowserService: vi.fn(() => ({})),
+      getTabApplicationService: vi.fn(() => ({})),
+      getEventBus: vi.fn(() => ({})),
+      getHybridSyncService: vi.fn(() => undefined),
+      getReviewQueuePreparationService: vi.fn(() => null),
+      getPracticeQueueManager: vi.fn(() => mockPracticeQueueManager),
+      getRetrievalQueue: vi.fn(() => mockRetrievalQueue),
       getI18n: vi.fn(() => mockI18n),
       getPlugin: vi.fn(() => mockPlugin),
+      getConfiguredCaptureStorageService: vi.fn(() => ({
+        listOpenNotebooks: vi.fn(async () => []),
+      })),
     } as any;
 
     mockPlugin = {} as Plugin;
 
-    dialogManager = new DialogManager(mockContext, mockPlugin);
+    dialogManager = new DialogManager(mockContext, mockPlugin, { siyuanApi: mockSiyuanApi });
   });
 
   afterEach(() => {
@@ -77,27 +118,27 @@ describe('DialogManager', () => {
   });
 
   describe('设置对话框', () => {
-    it('应该能够打开设置对话框', () => {
-      dialogManager.openSettingsDialog();
+    it('应该能够打开设置对话框', async () => {
+      await dialogManager.openSettingsDialog();
       
-      expect(mockContext.getStorage).toHaveBeenCalled();
-      expect(mockStorage.getSettings).toHaveBeenCalled();
+      expect(mockContext.getSettingsService).toHaveBeenCalled();
+      expect(mockSettingsService.getSettings).toHaveBeenCalled();
     });
 
-    it('应该能够打开设置对话框并指定默认标签页', () => {
-      dialogManager.openSettingsDialog('general');
+    it('应该能够打开设置对话框并指定默认标签页', async () => {
+      await dialogManager.openSettingsDialog('general');
       
-      expect(mockContext.getStorage).toHaveBeenCalled();
-      expect(mockStorage.getSettings).toHaveBeenCalled();
+      expect(mockContext.getSettingsService).toHaveBeenCalled();
+      expect(mockSettingsService.getSettings).toHaveBeenCalled();
     });
 
-    it('应该能够关闭设置对话框', () => {
-      dialogManager.openSettingsDialog();
+    it('应该能够关闭设置对话框', async () => {
+      await dialogManager.openSettingsDialog();
       dialogManager.closeSettingsDialog();
       
       // 验证对话框已被销毁
       // 注意：由于 mock 的限制，这里只能验证方法被调用
-      expect(mockContext.getStorage).toHaveBeenCalled();
+      expect(mockContext.getSettingsService).toHaveBeenCalled();
     });
 
     it('关闭不存在的设置对话框不应该报错', () => {
@@ -132,41 +173,36 @@ describe('DialogManager', () => {
   });
 
   describe('复习对话框', () => {
-    it('应该能够打开复习对话框（通过 ReviewDialogManager）', async () => {
-      const mockReviewDialogManager = {
-        openRetrievalPractice: vi.fn(),
-      };
-      
-      (mockPlugin as any).reviewDialogManager = mockReviewDialogManager;
-      
+    it('应该能够打开复习对话框', async () => {
       await dialogManager.openReviewDialog();
       
-      expect(mockReviewDialogManager.openRetrievalPractice).toHaveBeenCalled();
+      expect(createUnifiedReviewDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+        title: '提取练习',
+        headerVariant: 'retrieval-practice',
+      }));
     });
 
-    it('如果 ReviewDialogManager 不存在，应该记录错误', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      
-      (mockPlugin as any).reviewDialogManager = null;
-      
+    it('如果创建复习对话框失败，应该推送错误消息', async () => {
+      createUnifiedReviewDialogMock.mockImplementationOnce(() => {
+        throw new Error('boom');
+      });
+
       await dialogManager.openReviewDialog();
       
-      expect(consoleErrorSpy).toHaveBeenCalledWith('[DialogManager] ReviewDialogManager not found');
-      
-      consoleErrorSpy.mockRestore();
+      expect(mockSiyuanApi.pushErrMsg).toHaveBeenCalled();
     });
   });
 
   describe('生命周期管理', () => {
-    it('dispose 应该关闭所有对话框', () => {
-      dialogManager.openSettingsDialog();
+    it('dispose 应该关闭所有对话框', async () => {
+      await dialogManager.openSettingsDialog();
       dialogManager.openBrowserDialog();
       
       dialogManager.dispose();
       
       // 验证所有对话框都被关闭
       // 注意：由于 mock 的限制，这里只能验证方法被调用
-      expect(mockContext.getStorage).toHaveBeenCalled();
+      expect(mockContext.getSettingsService).toHaveBeenCalled();
     });
 
     it('dispose 多次调用不应该报错', () => {
@@ -181,7 +217,7 @@ describe('DialogManager', () => {
     it('应该使用国际化文本作为对话框标题', async () => {
       const { createVueDialog } = await import('@/utils/dialog');
       
-      dialogManager.openSettingsDialog();
+      await dialogManager.openSettingsDialog();
       
       expect(createVueDialog).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -198,7 +234,7 @@ describe('DialogManager', () => {
       
       const { createVueDialog } = await import('@/utils/dialog');
       
-      dialogManager.openSettingsDialog();
+      await dialogManager.openSettingsDialog();
       
       expect(createVueDialog).toHaveBeenCalledWith(
         expect.objectContaining({

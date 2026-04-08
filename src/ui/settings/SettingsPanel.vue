@@ -354,12 +354,67 @@
         </div>
 
         <div class="form-item">
-          <label>{{ t('progressiveDailyTraceEnabled', '摘录后写入 Daily Notes 痕迹') }}</label>
+          <label>{{ t('progressiveStorageModeLabel', '摘录存放位置') }}</label>
           <div class="form-control">
-            <input type="checkbox" v-model="settings.progressiveDailyTraceEnabled">
+            <select v-model="settings.progressiveStorage.mode" class="scheduler-select">
+              <option value="library">{{ t('captureStorageModeLibrary', '固定库') }}</option>
+              <option value="daily-note">{{ t('captureStorageModeDailyNote', '今日日记') }}</option>
+            </select>
           </div>
           <p class="form-hint">
-            {{ t('progressiveDailyTraceEnabledHint', '关闭时只创建摘录子文档与 Topic 卡，不在当天 Daily Notes 里追加索引痕迹。') }}
+            {{
+              t(
+                'progressiveStorageModeHint',
+                '固定库模式会把摘录集中到指定笔记本；今日日记模式会把摘录写进所选笔记本当天的 Daily Notes。'
+              )
+            }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('captureStorageNotebookLabel', '目标笔记本') }}</label>
+          <div class="form-control">
+            <select v-model="settings.progressiveStorage.notebookId" class="scheduler-select">
+              <option value="">{{ t('captureStorageNotebookPlaceholder', '请选择笔记本') }}</option>
+              <option
+                v-for="notebook in captureStorageNotebookOptions"
+                :key="`progressive-${notebook.id}`"
+                :value="notebook.id"
+              >
+                {{ notebook.name }}
+              </option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('captureStorageNotebookHint', '这里是手动固定目标笔记本，不会自动跟随当前文档或来源文档切换。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('captureStorageTargetBlockIdLabel', '目标块 ID（可选）') }}</label>
+          <div class="form-control">
+            <input type="text" v-model="settings.progressiveStorage.targetBlockId">
+          </div>
+          <p class="form-hint">
+            {{
+              settings.progressiveStorage.mode === 'library'
+                ? t('progressiveStorageTargetBlockHint', '固定库模式下可填写文档块 ID，摘录会创建到该文档树下；留空则自动使用 SiYuanMemo 摘录库。')
+                : t('progressiveStorageTargetBlockIgnoredHint', '今日日记模式下暂不使用目标块 ID，留空即可。')
+            }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('progressiveDailyTraceEnabled', '摘录后写入 Daily Notes 痕迹') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.progressiveDailyTraceEnabled" :disabled="progressiveUsesDailyNoteStorage">
+          </div>
+          <p class="form-hint">
+            {{
+              progressiveUsesDailyNoteStorage
+                ? t('progressiveDailyTraceDisabledHint', '当前主存放位置已经是今日日记，额外 Daily Notes 痕迹会自动停用。')
+                : t('progressiveDailyTraceEnabledHint', '关闭时只创建摘录子文档与 Topic 卡，不在当天 Daily Notes 里追加索引痕迹。')
+            }}
           </p>
         </div>
 
@@ -645,6 +700,57 @@
           </div>
         </div>
 
+        <div class="form-item">
+          <label>{{ t('aiDraftStorageModeLabel', 'AI 草稿存放位置') }}</label>
+          <div class="form-control">
+            <select v-model="aiSettings.draftStorage.mode" class="scheduler-select">
+              <option value="library">{{ t('captureStorageModeLibrary', '固定库') }}</option>
+              <option value="daily-note">{{ t('captureStorageModeDailyNote', '今日日记') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{
+              t(
+                'aiDraftStorageModeHint',
+                'AI 草稿会按这里的模式保存到固定库或今日日记；生成候选本身仍停留在工作台里，只有保存草稿时才落地。'
+              )
+            }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('captureStorageNotebookLabel', '目标笔记本') }}</label>
+          <div class="form-control">
+            <select v-model="aiSettings.draftStorage.notebookId" class="scheduler-select">
+              <option value="">{{ t('captureStorageNotebookPlaceholder', '请选择笔记本') }}</option>
+              <option
+                v-for="notebook in captureStorageNotebookOptions"
+                :key="`ai-${notebook.id}`"
+                :value="notebook.id"
+              >
+                {{ notebook.name }}
+              </option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('captureStorageNotebookHint', '这里是手动固定目标笔记本，不会自动跟随当前文档或来源文档切换。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('captureStorageTargetBlockIdLabel', '目标块 ID（可选）') }}</label>
+          <div class="form-control">
+            <input type="text" v-model="aiSettings.draftStorage.targetBlockId">
+          </div>
+          <p class="form-hint">
+            {{
+              aiSettings.draftStorage.mode === 'library'
+                ? t('aiDraftStorageTargetBlockHint', '固定库模式下可填写文档块或普通块 ID；留空则自动使用 SiYuanMemo AI 草稿。')
+                : t('progressiveStorageTargetBlockIgnoredHint', '今日日记模式下暂不使用目标块 ID，留空即可。')
+            }}
+          </p>
+        </div>
+
         <div class="fn__hr"></div>
 
         <h4>{{ t('aiPromptTemplates', 'Prompt 模板') }}</h4>
@@ -744,6 +850,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { AI_PROMPT_PRESET_DESCRIPTORS, getRecommendedPromptTemplate } from '@/application/services/AIPromptComposer';
 import {
+  type ConfiguredCaptureStorageSettings,
   createDefaultAIPromptProfileSet,
   DEFAULT_AI_SETTINGS,
   DEFAULT_FSRS_WEIGHTS,
@@ -821,6 +928,27 @@ function createDefaultAISettings(): AISettings {
   return JSON.parse(JSON.stringify(DEFAULT_AI_SETTINGS)) as AISettings;
 }
 
+function createDefaultConfiguredCaptureStorageSettings(
+  source?: Partial<ConfiguredCaptureStorageSettings>,
+): ConfiguredCaptureStorageSettings {
+  return {
+    mode: source?.mode === 'daily-note' ? 'daily-note' : 'library',
+    notebookId: String(source?.notebookId || '').trim(),
+    targetBlockId: String(source?.targetBlockId || '').trim(),
+  };
+}
+
+function mergeConfiguredCaptureStorageSettings(
+  source: Partial<ConfiguredCaptureStorageSettings> | undefined,
+  defaults: ConfiguredCaptureStorageSettings,
+): ConfiguredCaptureStorageSettings {
+  return {
+    mode: source?.mode === 'daily-note' ? 'daily-note' : source?.mode === 'library' ? 'library' : defaults.mode,
+    notebookId: String(source?.notebookId || defaults.notebookId || '').trim(),
+    targetBlockId: String(source?.targetBlockId || defaults.targetBlockId || '').trim(),
+  };
+}
+
 function mergeAISettings(source?: Partial<AISettings>): AISettings {
   const defaults = createDefaultAISettings();
   const promptProfiles = normalizeAIPromptProfiles(source?.promptProfiles, source?.prompts);
@@ -833,6 +961,7 @@ function mergeAISettings(source?: Partial<AISettings>): AISettings {
     ...(source || {}),
     prompts,
     promptProfiles,
+    draftStorage: mergeConfiguredCaptureStorageSettings(source?.draftStorage, defaults.draftStorage),
   };
 }
 
@@ -919,8 +1048,9 @@ const props = defineProps<{
   riffIntegrationSettings?: Record<string, unknown>;  // 🆕 Riff 集成配置
   incrementalSettings?: { autoCardEnabled: boolean };
   quickCardSettings?: Partial<QuickCardSettings>;  // 🆕 快速制卡配置
-  progressiveReadingSettings?: { altXExcerptEnabled?: boolean; dailyTraceEnabled?: boolean };
+  progressiveReadingSettings?: Partial<typeof DEFAULT_SETTINGS.progressiveReading>;
   aiSettings?: Partial<AISettings>;
+  captureStorageNotebooks?: Array<{ id: string; name: string; icon?: string }>;
   i18n?: Record<string, string>;
   defaultTab?: string;
   queueCount?: number;
@@ -1037,6 +1167,7 @@ interface Settings {
   quickCard: QuickCardSettings;  // 🆕 快速制卡设置
   progressiveAltXExcerptEnabled: boolean;
   progressiveDailyTraceEnabled: boolean;
+  progressiveStorage: ConfiguredCaptureStorageSettings;
 }
 
 const settings = ref<Settings>({
@@ -1053,6 +1184,7 @@ const settings = ref<Settings>({
   quickCard: createDefaultQuickCardSettings(),
   progressiveAltXExcerptEnabled: false,
   progressiveDailyTraceEnabled: false,
+  progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
 });
 
 function toggleAiPromptAdvancedEditor(settingKey: AIPromptSettingKey): void {
@@ -1132,6 +1264,15 @@ const todayRangeText = computed(() => {
   const range = getTodayRange(settings.value.dayStartHour);
   return formatTodayRange(range);
 });
+
+const captureStorageNotebookOptions = computed(() => (props.captureStorageNotebooks || [])
+  .map((notebook) => ({
+    id: String(notebook.id || '').trim(),
+    name: String(notebook.name || '').trim() || String(notebook.id || '').trim(),
+  }))
+  .filter((notebook) => notebook.id.length > 0));
+
+const progressiveUsesDailyNoteStorage = computed(() => settings.value.progressiveStorage.mode === 'daily-note');
 
 const blockAttrsCleanupMode = ref<CleanupMode>('safe');
 const blockAttrsCleanupScanResult = ref<CleanupScanResult | null>(null);
@@ -1282,6 +1423,10 @@ function loadSettings() {
       quickCard: mergeQuickCardSettings(props.quickCardSettings),
       progressiveAltXExcerptEnabled: props.progressiveReadingSettings?.altXExcerptEnabled === true,
       progressiveDailyTraceEnabled: props.progressiveReadingSettings?.dailyTraceEnabled === true,
+      progressiveStorage: mergeConfiguredCaptureStorageSettings(
+        props.progressiveReadingSettings?.storage,
+        DEFAULT_SETTINGS.progressiveReading.storage,
+      ),
     };
     
     // 🔍 调试日志：检查初始化后的 settings.quickCard
@@ -1291,6 +1436,10 @@ function loadSettings() {
   settings.value.quickCard = mergeQuickCardSettings(props.quickCardSettings);
   settings.value.progressiveAltXExcerptEnabled = props.progressiveReadingSettings?.altXExcerptEnabled === true;
   settings.value.progressiveDailyTraceEnabled = props.progressiveReadingSettings?.dailyTraceEnabled === true;
+  settings.value.progressiveStorage = mergeConfiguredCaptureStorageSettings(
+    props.progressiveReadingSettings?.storage,
+    DEFAULT_SETTINGS.progressiveReading.storage,
+  );
   
   if (props.queueSettings) {
     const incoming = JSON.parse(JSON.stringify(props.queueSettings));
@@ -1455,6 +1604,10 @@ function saveSettings() {
     progressiveReading: {
       altXExcerptEnabled: settings.value.progressiveAltXExcerptEnabled,
       dailyTraceEnabled: settings.value.progressiveDailyTraceEnabled,
+      storage: mergeConfiguredCaptureStorageSettings(
+        settings.value.progressiveStorage,
+        DEFAULT_SETTINGS.progressiveReading.storage,
+      ),
     },
     ai: {
       enabled: aiSettings.value.enabled,
@@ -1466,6 +1619,10 @@ function saveSettings() {
       defaultOutputLanguage: String(aiSettings.value.defaultOutputLanguage || '').trim(),
       prompts: effectivePrompts,
       promptProfiles,
+      draftStorage: mergeConfiguredCaptureStorageSettings(
+        aiSettings.value.draftStorage,
+        DEFAULT_AI_SETTINGS.draftStorage,
+      ),
     },
   };
   
@@ -1491,6 +1648,7 @@ function resetSettings() {
     quickCard: createDefaultQuickCardSettings(),
     progressiveAltXExcerptEnabled: false,
     progressiveDailyTraceEnabled: false,
+    progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
   };
   queueSettings.value = createDefaultQueueSettings();
   aiSettings.value = createDefaultAISettings();

@@ -447,7 +447,7 @@
                   {{ t('generateCandidates', '生成候选') }}
                 </button>
                 <button class="b3-button b3-button--outline" :disabled="state.isLoading || activeViewState.stale || draftSyncCandidates.length === 0" @click="saveKeptCandidates()">
-                  {{ t('saveToDailyNote', '保存到 Daily Note') }} ({{ draftSyncCandidates.length }})
+                  {{ saveDraftActionLabel }} ({{ draftSyncCandidates.length }})
                 </button>
                 <button class="b3-button b3-button--outline" :disabled="bulkCreateDisabled" @click="createKeptCandidates()">
                   {{ t('bulkCreate', '批量创建') }} ({{ readyToCreateCandidates.length }})
@@ -502,7 +502,7 @@
                 {{ t('generateCandidates', '生成候选') }}
               </button>
               <button class="b3-button b3-button--outline" type="button" :disabled="state.isLoading || activeViewState.stale || draftSyncCandidates.length === 0" @click="saveKeptCandidates()">
-                {{ t('saveToDailyNote', '保存到 Daily Note') }} ({{ draftSyncCandidates.length }})
+                {{ saveDraftActionLabel }} ({{ draftSyncCandidates.length }})
               </button>
               <button class="b3-button b3-button--outline" type="button" :disabled="bulkCreateDisabled" @click="createKeptCandidates()">
                 {{ t('bulkCreate', '批量创建') }} ({{ readyToCreateCandidates.length }})
@@ -633,6 +633,18 @@ const currentCard = computed(() => state.context?.currentCard || null);
 const visibleBlocks = computed(() => (state.context?.blocks || []).slice(0, 4));
 const hiddenBlockCount = computed(() => Math.max(0, (state.context?.blocks.length || 0) - visibleBlocks.value.length));
 const followUps = computed(() => service.getFollowUps());
+const draftStorageMode = computed(() => {
+  if (typeof service.getDraftStorageMode === 'function') {
+    return service.getDraftStorageMode();
+  }
+  return 'daily-note' as const;
+});
+const usesDailyNoteDraftStorage = computed(() => draftStorageMode.value === 'daily-note');
+const saveDraftActionLabel = computed(() => (
+  usesDailyNoteDraftStorage.value
+    ? t('saveToDailyNote', '保存到 Daily Note')
+    : t('saveDraft', '保存草稿')
+));
 
 const revealLocked = computed(() => {
   return state.context?.source === 'review'
@@ -821,18 +833,26 @@ const activeViewMeta = computed(() => {
   }
   return {
     title: t('aiMakeCards', 'AI 辅助制卡'),
-    description: t('aiMakeCardsDescription', '从当前材料生成候选卡，先筛、再改、再保存到 Daily Note，最后才真正落卡。'),
+    description: usesDailyNoteDraftStorage.value
+      ? t('aiMakeCardsDescription', '从当前材料生成候选卡，先筛、再改、再保存到 Daily Note，最后才真正落卡。')
+      : t('aiMakeCardsDescriptionConfiguredStorage', '从当前材料生成候选卡，先筛、再改、再保存到配置位置，最后才真正落卡。'),
     kicker: 'Candidate Mode',
     headline: t('aiMakeCardsHeadline', '把 AI 放在“起草候选和草稿保存”而不是“直接写入建卡”的位置'),
-    helper: t('aiMakeCardsHelper', '先把确认过的候选写进当天 Daily Note，再从这些实体草稿块正式建卡。'),
+    helper: usesDailyNoteDraftStorage.value
+      ? t('aiMakeCardsHelper', '先把确认过的候选写进当天 Daily Note，再从这些实体草稿块正式建卡。')
+      : t('aiMakeCardsHelperConfiguredStorage', '先把确认过的候选写进配置好的草稿区，再从这些实体草稿块正式建卡。'),
     emptyBody: t('aiMakeCardsEmptyBody', '适合在浏览器里选一批块，或者从解释结果里继续转成候选卡，然后显式保存草稿再建卡。'),
     bullets: [
       t('aiMakeCardsBullet1', '先选模式并生成候选。'),
-      t('aiMakeCardsBullet2', '每条候选都能轻改、删除、保留，再保存到 Daily Note。'),
+      usesDailyNoteDraftStorage.value
+        ? t('aiMakeCardsBullet2', '每条候选都能轻改、删除、保留，再保存到 Daily Note。')
+        : t('aiMakeCardsBullet2ConfiguredStorage', '每条候选都能轻改、删除、保留，再保存到配置位置。'),
       t('aiMakeCardsBullet3', '只有保存成草稿后，才会真正走现有制卡链路。'),
     ],
     dockTitle: t('aiMakeCardsDockTitle', '三步走：生成、存草稿、建卡'),
-    dockHint: t('aiMakeCardsDockHint', 'Daily Note 草稿块会直接作为卡面来源，避免 AI 候选和最终卡面脱节。'),
+    dockHint: usesDailyNoteDraftStorage.value
+      ? t('aiMakeCardsDockHint', 'Daily Note 草稿块会直接作为卡面来源，避免 AI 候选和最终卡面脱节。')
+      : t('aiMakeCardsDockHintConfiguredStorage', '配置位置里的草稿块会直接作为卡面来源，避免 AI 候选和最终卡面脱节。'),
     followUpHint: t('aiMakeCardsFollowUpHint', '可以继续问候选为什么这样拆、有没有更好的模板选择，或让它缩窄成更少但更稳定的卡。'),
   };
 });
@@ -1014,9 +1034,13 @@ function canCreateCandidate(candidate: AICardCandidate): boolean {
 function candidateStatusText(candidate: AICardCandidate): string {
   switch (candidate.draftState) {
     case 'saving':
-      return t('savingDraft', '保存到 Daily Note 中');
+      return usesDailyNoteDraftStorage.value
+        ? t('savingDraft', '保存到 Daily Note 中')
+        : t('savingDraftGeneric', '保存草稿中');
     case 'saved':
-      return t('draftSaved', '已保存到 Daily Note');
+      return usesDailyNoteDraftStorage.value
+        ? t('draftSaved', '已保存到 Daily Note')
+        : t('draftSavedGeneric', '已保存草稿');
     case 'dirty':
       return t('draftDirty', '已修改，需重新保存');
     case 'creating':
@@ -1032,7 +1056,9 @@ function candidateStatusText(candidate: AICardCandidate): string {
         : t('saveFailedRetryable', '保存失败，请重试');
     case 'unsaved':
     default:
-      return t('draftUnsaved', '待保存到 Daily Note');
+      return usesDailyNoteDraftStorage.value
+        ? t('draftUnsaved', '待保存到 Daily Note')
+        : t('draftUnsavedGeneric', '待保存草稿');
   }
 }
 

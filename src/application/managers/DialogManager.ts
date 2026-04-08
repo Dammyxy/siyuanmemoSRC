@@ -284,14 +284,19 @@ export class DialogManager implements IDialogManager {
    * 
    * @param defaultTab - 默认打开的标签页（可选）
    */
-  openSettingsDialog(defaultTab?: string): void {
+  async openSettingsDialog(defaultTab?: string): Promise<void> {
     const settingsService = this.context.getSettingsService();
     const currentSettings = settingsService.getSettings();
     const schedulerRouter = this.context.getScheduler();
     const storage = this.context.getStorage();
     const hybridSyncService = this.context.getHybridSyncService();
+    const configuredCaptureStorageService = this.context.getConfiguredCaptureStorageService();
     const practiceQueueManager = this.context.getPracticeQueueManager();
     const retrievalQueue = this.context.getRetrievalQueue() as QueueBufferSnapshot;
+    const captureStorageNotebooks = await configuredCaptureStorageService.listOpenNotebooks().catch((error) => {
+      logger.warn('[DialogManager] Failed to load configured capture notebooks:', error);
+      return [];
+    });
     const queueCount = (() => {
       try {
         const candidates = [
@@ -328,6 +333,7 @@ export class DialogManager implements IDialogManager {
         quickCardSettings: currentSettings.quickCard,
         progressiveReadingSettings: currentSettings.progressiveReading,
         aiSettings: currentSettings.ai,
+        captureStorageNotebooks,
         uiSettings: { enableDebugLogs: currentSettings.ui?.enableDebugLogs ?? false },
         i18n: this.context.getI18n() || {},
         defaultTab,

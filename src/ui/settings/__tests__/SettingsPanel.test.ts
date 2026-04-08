@@ -14,6 +14,10 @@ function mountPanel(defaultTab = 'params') {
       quickCardSettings: DEFAULT_SETTINGS.quickCard,
       progressiveReadingSettings: DEFAULT_SETTINGS.progressiveReading,
       aiSettings: DEFAULT_SETTINGS.ai,
+      captureStorageNotebooks: [
+        { id: 'notebook-a', name: 'Notebook A' },
+        { id: 'notebook-b', name: 'Notebook B' },
+      ],
       i18n: {
         settingsStudyTab: 'Learning & Queue',
         settingsCaptureSyncTab: 'Capture & Sync',
@@ -37,8 +41,22 @@ function mountPanel(defaultTab = 'params') {
         progressiveReadingSettingsTitle: 'Progressive Reading',
         progressiveAltXExcerptEnabled: 'Enable excerpt shortcut (default ⌥⇧X)',
         progressiveAltXExcerptEnabledHint: 'Registers ⌥⇧X for excerpting while native Alt+X stays bound to SiYuan recent appearance.',
+        progressiveStorageModeLabel: 'Excerpt storage mode',
+        progressiveStorageModeHint: 'Choose where excerpts should be stored.',
         progressiveDailyTraceEnabled: 'Write Daily Notes trace after excerpting',
         progressiveDailyTraceEnabledHint: 'Leave trace entries in Daily Notes after creating excerpts.',
+        progressiveDailyTraceDisabledHint: 'Daily trace is disabled while the main storage is already Daily Note.',
+        captureStorageModeLibrary: 'Library',
+        captureStorageModeDailyNote: 'Daily Note',
+        captureStorageNotebookLabel: 'Target notebook',
+        captureStorageNotebookPlaceholder: 'Select notebook',
+        captureStorageNotebookHint: 'Notebook is manually fixed here.',
+        captureStorageTargetBlockIdLabel: 'Target block ID (optional)',
+        progressiveStorageTargetBlockHint: 'Library mode accepts a target document block ID.',
+        progressiveStorageTargetBlockIgnoredHint: 'Target block ID is ignored in Daily Note mode.',
+        aiDraftStorageModeLabel: 'AI draft storage mode',
+        aiDraftStorageModeHint: 'Choose where AI drafts should be saved.',
+        aiDraftStorageTargetBlockHint: 'Library mode accepts a target document or block ID.',
         aiSettingsTitle: 'AI Workbench',
         aiBaseUrl: 'Base URL',
         aiApiKey: 'API Key',
@@ -131,7 +149,7 @@ describe('SettingsPanel', () => {
     expect(wrapper.find('.settings-footer').exists()).toBe(false);
   });
 
-  it('saves the excerpt shortcut toggle and daily trace settings independently', async () => {
+  it('saves the excerpt shortcut toggle and explicit excerpt storage settings', async () => {
     const wrapper = mountPanel('capture-sync');
     await wrapper.vm.$nextTick();
 
@@ -141,14 +159,26 @@ describe('SettingsPanel', () => {
     const formItems = wrapper.findAll('.form-item');
     const altXItem = formItems.find((item) => item.text().includes('Enable excerpt shortcut'));
     const altXToggle = altXItem?.find('input[type="checkbox"]');
+    const storageModeItem = formItems.find((item) => item.text().includes('Excerpt storage mode'));
+    const storageModeSelect = storageModeItem?.find('select');
+    const notebookItem = formItems.find((item) => item.text().includes('Target notebook'));
+    const notebookSelect = notebookItem?.find('select');
+    const targetBlockItem = formItems.find((item) => item.text().includes('Target block ID'));
+    const targetBlockInput = targetBlockItem?.find('input[type="text"]');
     const progressiveItem = formItems.find((item) => item.text().includes('Write Daily Notes trace after excerpting'));
     const progressiveToggle = progressiveItem?.find('input[type="checkbox"]');
     expect(altXToggle).toBeDefined();
     expect((altXToggle!.element as HTMLInputElement).checked).toBe(false);
+    expect(storageModeSelect).toBeDefined();
+    expect(notebookSelect).toBeDefined();
+    expect(targetBlockInput).toBeDefined();
     expect(progressiveToggle).toBeDefined();
     expect((progressiveToggle!.element as HTMLInputElement).checked).toBe(false);
 
     await altXToggle!.setValue(true);
+    await storageModeSelect!.setValue('library');
+    await notebookSelect!.setValue('notebook-a');
+    await targetBlockInput!.setValue('doc-root-1');
     await progressiveToggle!.setValue(true);
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
@@ -158,6 +188,11 @@ describe('SettingsPanel', () => {
     const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
     expect(payload.progressiveReading.altXExcerptEnabled).toBe(true);
     expect(payload.progressiveReading.dailyTraceEnabled).toBe(true);
+    expect(payload.progressiveReading.storage).toEqual({
+      mode: 'library',
+      notebookId: 'notebook-a',
+      targetBlockId: 'doc-root-1',
+    });
   });
 
   it('renders AI settings tab and saves AI configuration', async () => {
@@ -185,14 +220,26 @@ describe('SettingsPanel', () => {
     const modelInput = modelItem?.find('input[type="text"]');
     const apiKeyItem = formItems.find((item) => item.text().includes('API Key'));
     const passwordInput = apiKeyItem?.find('input[type="password"]');
+    const aiStorageModeItem = formItems.find((item) => item.text().includes('AI draft storage mode'));
+    const aiStorageModeSelect = aiStorageModeItem?.find('select');
+    const notebookItems = formItems.filter((item) => item.text().includes('Target notebook'));
+    const aiNotebookSelect = notebookItems[notebookItems.length - 1]?.find('select');
+    const targetBlockItems = formItems.filter((item) => item.text().includes('Target block ID'));
+    const aiTargetBlockInput = targetBlockItems[targetBlockItems.length - 1]?.find('input[type="text"]');
     expect(baseUrlInput).toBeDefined();
     expect(modelInput).toBeDefined();
     expect(passwordInput).toBeDefined();
+    expect(aiStorageModeSelect).toBeDefined();
+    expect(aiNotebookSelect).toBeDefined();
+    expect(aiTargetBlockInput).toBeDefined();
 
     await baseUrlInput!.setValue('https://example.test/v1');
     await modelInput!.setValue('gpt-test');
     await passwordInput!.setValue('secret-key');
     await enableToggle!.setValue(false);
+    await aiStorageModeSelect!.setValue('library');
+    await aiNotebookSelect!.setValue('notebook-b');
+    await aiTargetBlockInput!.setValue('block-parent-1');
 
     expect(wrapper.findAll('textarea')).toHaveLength(0);
 
@@ -227,6 +274,11 @@ describe('SettingsPanel', () => {
     expect(payload.ai.prompts.tutor).toContain('AI 导师');
     expect(payload.ai.prompts.explain).toBe('Explain prompt body');
     expect(payload.ai.prompts.cardCandidate).toBe('Card prompt body');
+    expect(payload.ai.draftStorage).toEqual({
+      mode: 'library',
+      notebookId: 'notebook-b',
+      targetBlockId: 'block-parent-1',
+    });
     expect(payload.ai.promptProfiles.tutor).toEqual({
       preset: 'recommended',
       overrideEnabled: false,

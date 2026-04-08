@@ -119,6 +119,17 @@ describe('settings normalization', () => {
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.progressiveReading.altXExcerptEnabled).toBe(false);
     expect(normalized.settings.progressiveReading.dailyTraceEnabled).toBe(false);
+    expect(normalized.settings.progressiveReading.storage).toEqual(DEFAULT_SETTINGS.progressiveReading.storage);
+  });
+
+  it('fills progressive storage defaults when the nested storage config is missing', () => {
+    const legacy = cloneSettings();
+    delete (legacy.progressiveReading as Partial<typeof legacy.progressiveReading>).storage;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.progressiveReading.storage).toEqual(DEFAULT_SETTINGS.progressiveReading.storage);
   });
 
   it('fills AI defaults when ai settings are missing', () => {
@@ -129,6 +140,16 @@ describe('settings normalization', () => {
 
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.ai).toEqual(DEFAULT_SETTINGS.ai);
+  });
+
+  it('fills AI draft storage defaults when the nested storage config is missing', () => {
+    const legacy = cloneSettings();
+    delete (legacy.ai as Partial<typeof legacy.ai>).draftStorage;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.ai.draftStorage).toEqual(DEFAULT_SETTINGS.ai.draftStorage);
   });
 
   it('fills nested AI prompt defaults when partially configured', () => {

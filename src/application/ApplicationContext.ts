@@ -68,10 +68,12 @@ import { ReviewScopeCardCreationSyncService } from '@/application/services/Revie
 import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
 import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
 import { AIDailyNoteDraftService } from '@/application/services/AIDailyNoteDraftService';
+import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
+import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
 import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
@@ -98,6 +100,7 @@ interface ApplicationServiceRegistry {
   riffBlacklistService: RiffBlacklistService;
   cardTypeDetectionService: CardTypeDetectionService;
   docTreeReviewScopeService: DocTreeReviewScopeService;
+  configuredCaptureStorageService: ConfiguredCaptureStorageService;
   progressiveReadingService: ProgressiveReadingService;
   reviewScopeCardCreationSyncService: ReviewScopeCardCreationSyncService;
   selectionExcerptService: SelectionExcerptService;
@@ -340,12 +343,19 @@ export class ApplicationContext {
       );
     });
 
+    this.registerServiceFactory('configuredCaptureStorageService', (context) => {
+      return new ConfiguredCaptureStorageService(
+        new ConfiguredCaptureStorageSiyuanAdapter(context.getPlugin().app),
+      );
+    });
+
     this.registerServiceFactory('progressiveReadingService', (context) => {
       return new ProgressiveReadingService(
         new ProgressiveSiyuanAdapter(),
         context.getFileService(),
         context.getCardService(),
         context.getSettingsService(),
+        context.getConfiguredCaptureStorageService(),
         context.getDocTreeReviewScopeService(),
       );
     });
@@ -404,7 +414,7 @@ export class ApplicationContext {
         cardContentQueryService: context.getCardContentQueryService(),
         getXiuyuanApplicationService: () => context.getXiuyuanApplicationService(),
         siyuanPort,
-        draftService: new AIDailyNoteDraftService(siyuanPort),
+        draftService: new AIDailyNoteDraftService(siyuanPort, context.getConfiguredCaptureStorageService()),
         llmPort: new OpenAICompatibleLLMAdapter(),
       });
     });
@@ -1558,6 +1568,10 @@ export class ApplicationContext {
 
   getDocTreeReviewScopeService(): DocTreeReviewScopeService {
     return this.getService('docTreeReviewScopeService');
+  }
+
+  getConfiguredCaptureStorageService(): ConfiguredCaptureStorageService {
+    return this.getService('configuredCaptureStorageService');
   }
 
   getReviewScopeCardCreationSyncService(): ReviewScopeCardCreationSyncService {
