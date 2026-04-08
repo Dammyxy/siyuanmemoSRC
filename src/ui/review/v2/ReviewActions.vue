@@ -1,14 +1,23 @@
 ﻿<template>
-  <div class="card__action fn__flex" :class="{ 'card__action--mobile': props.isMobile }">
-    <button
-      class="b3-button b3-button--cancel card__action-back"
-      :disabled="!canBack"
-      @click="emit('back')"
-    >
-      <svg><use xlink:href="#iconLeft"></use></svg>
-      <span v-if="props.isMobile">{{ t('backToPractice', '返回') }}</span>
-      <span v-else>(p / q)</span>
-    </button>
+  <div
+    class="card__action fn__flex"
+    :class="{
+      'card__action--mobile': props.isMobile,
+      'card__action--expanded': usesExpandedLayout,
+    }"
+  >
+    <div class="card__action-side card__action-side--back">
+      <span v-if="showSideMetaRow" class="card__action-side-spacer" aria-hidden="true"></span>
+      <button
+        class="b3-button b3-button--cancel card__action-back"
+        :disabled="!canBack"
+        @click="handleBackClick"
+      >
+        <svg><use xlink:href="#iconLeft"></use></svg>
+        <span v-if="props.isMobile">{{ t('backToPractice', '返回') }}</span>
+        <span v-else>(p / q)</span>
+      </button>
+    </div>
 
     <div class="card__action-center" :style="actionCenterStyle">
       <button
@@ -16,7 +25,7 @@
         data-type="-1"
         aria-label="Space/Enter"
         class="b3-button b3-tooltips__n b3-tooltips card__action-main card__action-main--reveal"
-        @click="emit('reveal')"
+        @click="handleRevealClick"
       >
         <div class="card__icon">👀</div>
         {{ t('showAnswer', '显示答案') }}
@@ -29,7 +38,7 @@
             data-type="3"
             aria-label="Space/Enter"
             class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-main"
-            @click="emit('grade', 3)"
+            @click="handleGradeClick(3, $event)"
           >
             <div class="card__icon">📖</div>
             {{ t('nextCard', '下一张') }}
@@ -46,7 +55,7 @@
             :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
             class="b3-button b3-tooltips__n b3-tooltips card__action-main"
             :class="getButtonVariant(g.value)"
-            @click="emit('grade', g.value)"
+            @click="handleGradeClick(g.value, $event)"
           >
             <div class="card__icon">{{ g.emoji }}</div>
             {{ g.label }}
@@ -56,16 +65,19 @@
       </template>
     </div>
 
-    <div class="card__action-right">
-      <SkipMenuButton
-        :i18n="i18n"
-        :queue-size="remainingSize"
-        :is-mobile="props.isMobile"
-        :can-schedule-date="canScheduleDate"
-        @skip="emit('skip')"
-        @insert="handleInsert"
-        @schedule="handleSchedule"
-      />
+    <div class="card__action-side card__action-side--right">
+      <span v-if="showSideMetaRow" class="card__action-side-spacer" aria-hidden="true"></span>
+      <div class="card__action-right">
+        <SkipMenuButton
+          :i18n="i18n"
+          :queue-size="remainingSize"
+          :is-mobile="props.isMobile"
+          :can-schedule-date="canScheduleDate"
+          @skip="emit('skip')"
+          @insert="handleInsert"
+          @schedule="handleSchedule"
+        />
+      </div>
     </div>
   </div>
   
@@ -160,6 +172,19 @@ const cardType = computed<'item' | 'topic'>(() => {
 
 const canScheduleDate = computed(() => !isNeuralRoamNonFlashcard(props.currentCard));
 
+const isRatingState = computed(() => (
+  !isTopicCard.value
+  && !props.actions.showAnswer
+  && props.actions.grades.length > 0
+));
+
+const usesExpandedLayout = computed(() => (
+  !props.isMobile
+  && (isTopicCard.value || isRatingState.value)
+));
+
+const showSideMetaRow = computed(() => usesExpandedLayout.value);
+
 // 剩余卡片数量
 const remainingSize = computed(() => {
   return props.meta?.remainingSize || 0;
@@ -221,6 +246,32 @@ function getRatingButtonAriaLabel(rating: number, kb: string): string {
   return buildRatingAriaLabel(rating as ReviewRatingValue, kb, {
     includeSpaceEnterForGood: true,
   });
+}
+
+function blurActionButtonAfterPointerClick(event: MouseEvent): void {
+  if (event.detail <= 0) {
+    return;
+  }
+
+  const button = event.currentTarget;
+  if (button instanceof HTMLButtonElement) {
+    button.blur();
+  }
+}
+
+function handleBackClick(event: MouseEvent): void {
+  blurActionButtonAfterPointerClick(event);
+  emit('back');
+}
+
+function handleRevealClick(event: MouseEvent): void {
+  blurActionButtonAfterPointerClick(event);
+  emit('reveal');
+}
+
+function handleGradeClick(rating: number, event: MouseEvent): void {
+  blurActionButtonAfterPointerClick(event);
+  emit('grade', rating);
 }
 
 // 插入位置逻辑
@@ -408,11 +459,18 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 .card__action-back {
   min-width: 96px;
+  width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   min-height: 44px;
+}
+
+.card__action-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .card__action-center {
@@ -426,12 +484,12 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .card__action-right {
   width: 132px;
   display: flex;
-  height: 100%;
+  min-height: 44px;
 }
 
 .card__action-right :deep(.skip-menu-button) {
   width: 100%;
-  height: 100%;
+  min-height: 44px;
 }
 
 .card__action-column {
@@ -440,7 +498,8 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   flex-direction: column;
 }
 
-.card__action-column > span {
+.card__action-column > span,
+.card__action-side-spacer {
   display: flex;
   color: var(--b3-theme-on-surface);
   text-align: center;
@@ -452,6 +511,11 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   align-items: center;
 }
 
+.card__action-side-spacer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .card__action-main {
   width: 100%;
   min-width: 0;
@@ -460,6 +524,21 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 .card__action-main--reveal {
   grid-column: 1 / -1;
+}
+
+.card__action--expanded .card__action-back,
+.card__action--expanded .card__action-right {
+  flex: 1;
+}
+
+.card__action--expanded .card__action-back {
+  min-height: 0;
+}
+
+.card__action--expanded .card__action-right :deep(.skip-menu-button),
+.card__action--expanded .card__action-right :deep(.skip-menu-button__skip),
+.card__action--expanded .card__action-right :deep(.skip-menu-button__dropdown) {
+  height: 100%;
 }
 
 .card__icon {
@@ -479,6 +558,10 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 .card__action--mobile .card__action-back {
   min-width: 78px;
+}
+
+.card__action--mobile .card__action-side-spacer {
+  display: none;
 }
 
 .card__action--mobile .card__action-right {

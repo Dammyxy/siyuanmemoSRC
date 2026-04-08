@@ -114,6 +114,8 @@ function toggleMenu(ev: MouseEvent) {
   display: flex;
   gap: 0; /* 移除间隙，让按钮无缝连接 */
   align-items: stretch; /* 确保两个按钮高度一致 */
+  min-height: 44px;
+  height: 100%;
 }
 
 .skip-menu-button__skip {
@@ -122,6 +124,8 @@ function toggleMenu(ev: MouseEvent) {
   border-right: none; /* 移除右边框，避免重叠 */
   flex: 1; /* 占据剩余空间 */
   min-width: 0; /* 允许按钮收缩 */
+  min-height: 44px;
+  height: 100%;
 }
 
 .skip-menu-button__skip--mobile {
@@ -134,6 +138,8 @@ function toggleMenu(ev: MouseEvent) {
   padding: 4px 8px;
   min-width: 32px;
   max-width: 40px;
+  min-height: 44px;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;

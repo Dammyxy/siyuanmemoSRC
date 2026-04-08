@@ -1,3 +1,5 @@
+import { AI_DRAFT_BLOCK_ATTR_KEYS } from '@/application/services/AIDailyNoteDraftService';
+
 export type BlockAttrCleanupMode = 'safe' | 'full';
 export type CleanupMode = BlockAttrCleanupMode;
 
@@ -38,6 +40,7 @@ export const BLOCK_ATTR_FUNCTIONAL_KEYS = Object.freeze([
   'custom-fsrs-progressive-workbench-id',
   'custom-fsrs-progressive-parent-excerpt-id',
   'custom-fsrs-progressive-trace-kind',
+  ...AI_DRAFT_BLOCK_ATTR_KEYS,
 ]);
 
 export const BLOCK_ATTR_DEPRECATED_KEYS = Object.freeze([

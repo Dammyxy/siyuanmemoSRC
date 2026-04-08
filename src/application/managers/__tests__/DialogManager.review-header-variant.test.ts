@@ -172,7 +172,9 @@ describe('DialogManager review header variants', () => {
 
     const propsList = vi.mocked(createVueDialog).mock.calls.map(([config]) => config.props);
     expect(propsList[0]?.headerVariant).toBe('retrieval-practice');
+    expect(propsList[0]?.mode).toBe('dialog');
     expect(propsList[1]?.headerVariant).toBe('incremental-learning');
+    expect(propsList[1]?.mode).toBe('dialog');
     expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(1, expect.objectContaining({
       blockIds: ['block-1'],
       scopeDocIds: ['doc-1'],

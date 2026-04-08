@@ -1,4 +1,4 @@
-import { showMessage } from 'siyuan';
+import { showMessage, type IProtyle } from 'siyuan';
 import type { ApplicationContext } from '@/application/ApplicationContext';
 import {
   isProgressiveSelectionInsideNativeProtyle,
@@ -8,101 +8,82 @@ import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ProgressiveExcerptHotkeyHandler');
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  const element = target instanceof HTMLElement ? target : null;
-  if (!element) {
-    return false;
+export const PROGRESSIVE_EXCERPT_REQUEST_EVENT = 'siyuanmemo:progressive-excerpt-request';
+
+function getProtyleRoot(protyle: unknown): HTMLElement | null {
+  if (!protyle || typeof protyle !== 'object') {
+    return null;
   }
-  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-    return true;
+
+  const direct = (protyle as { wysiwyg?: { element?: HTMLElement } }).wysiwyg?.element;
+  if (direct instanceof HTMLElement) {
+    return direct;
   }
-  return element.isContentEditable;
+
+  const nested = (protyle as { protyle?: { wysiwyg?: { element?: HTMLElement } } }).protyle?.wysiwyg?.element;
+  if (nested instanceof HTMLElement) {
+    return nested;
+  }
+
+  return null;
 }
 
-function isReviewSurface(target: EventTarget | null): boolean {
-  const element = target instanceof HTMLElement ? target : null;
-  return Boolean(element?.closest('.fsrs-review-v2'));
-}
+type ProgressiveExcerptSelectionOptions = {
+  root?: HTMLElement | null;
+};
 
 export class ProgressiveExcerptHotkeyHandler {
-  private started = false;
-  private pendingExcerptTimer: number | null = null;
-  private pendingExcerptSignature = '';
+  private pendingCommandTimer: number | null = null;
 
   constructor(private readonly context: ApplicationContext) {}
 
   start(): void {
-    if (this.started) {
-      return;
-    }
-    this.started = true;
-    document.addEventListener('keydown', this.handleKeyDown, true);
+    // Kept as a compatibility no-op while the handler is now command-driven.
   }
 
   stop(): void {
-    if (!this.started) {
-      return;
-    }
-    this.started = false;
-    document.removeEventListener('keydown', this.handleKeyDown, true);
-    this.clearPendingExcerpt();
+    this.clearPendingCommand();
   }
 
-  private readonly handleKeyDown = (event: KeyboardEvent): void => {
-    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
-      return;
-    }
-    if (event.key.toLowerCase() !== 'x') {
-      return;
-    }
-    if (isReviewSurface(event.target)) {
-      return;
-    }
-    if (!isTypingTarget(event.target) && !isProgressiveSelectionInsideNativeProtyle()) {
-      return;
-    }
-    if (!isProgressiveSelectionInsideNativeProtyle()) {
-      return;
-    }
-    if (!this.isExcerptEnabled()) {
-      return;
-    }
+  async runFromEditor(protyle: IProtyle | unknown): Promise<void> {
+    await this.runExcerptFromSelection({
+      root: getProtyleRoot(protyle),
+    });
+  }
 
-    const selection = resolveProgressiveSelection();
-    if (!selection) {
-      return;
-    }
-
-    this.scheduleExcerptAfterNative(selection.blockId, selection.text);
-  };
-
-  private scheduleExcerptAfterNative(blockId: string, text: string): void {
-    const signature = `${blockId}::${text}`;
-    if (this.pendingExcerptTimer !== null && this.pendingExcerptSignature === signature) {
-      return;
-    }
-
-    this.clearPendingExcerpt();
-    this.pendingExcerptSignature = signature;
-    this.pendingExcerptTimer = window.setTimeout(() => {
-      this.clearPendingExcerpt();
-      void this.runExcerpt(blockId, text);
+  runFromCommand(): void {
+    this.clearPendingCommand();
+    this.pendingCommandTimer = window.setTimeout(() => {
+      this.pendingCommandTimer = null;
+      if (this.requestReviewExcerpt()) {
+        return;
+      }
+      void this.runExcerptFromSelection();
     }, 0);
   }
 
-  private clearPendingExcerpt(): void {
-    if (this.pendingExcerptTimer !== null) {
-      window.clearTimeout(this.pendingExcerptTimer);
-      this.pendingExcerptTimer = null;
+  private async runExcerptFromSelection(options?: ProgressiveExcerptSelectionOptions): Promise<void> {
+    if (!this.isExcerptEnabled()) {
+      this.showDisabledMessage();
+      return;
     }
-    this.pendingExcerptSignature = '';
-  }
 
-  private async runExcerpt(blockId: string, text: string): Promise<void> {
+    const selectionOptions = options?.root ? { root: options.root } : undefined;
+    if (!isProgressiveSelectionInsideNativeProtyle(selectionOptions)) {
+      this.showMissingSelectionMessage();
+      return;
+    }
+
+    const selection = resolveProgressiveSelection(selectionOptions);
+    if (!selection) {
+      this.showMissingSelectionMessage();
+      return;
+    }
+
     try {
       await this.context.getSelectionExcerptService().createFromSelection({
-        sourceBlockId: blockId,
-        selectedText: text,
+        sourceBlockId: selection.blockId,
+        selectedText: selection.text,
         origin: 'editor',
       });
       showMessage(
@@ -111,13 +92,30 @@ export class ProgressiveExcerptHotkeyHandler {
         'info',
       );
     } catch (error) {
-      logger.error('Failed to create excerpt from editor hotkey', error);
+      logger.error('Failed to create excerpt from editor command', error);
       showMessage(
         this.translate('progressiveExcerptFailed', '摘抄失败：{message}')
           .replace('{message}', error instanceof Error ? error.message : String(error)),
         5000,
         'error',
       );
+    }
+  }
+
+  private requestReviewExcerpt(): boolean {
+    const requestEvent = new CustomEvent(PROGRESSIVE_EXCERPT_REQUEST_EVENT, {
+      bubbles: false,
+      cancelable: true,
+      detail: { source: 'command' },
+    });
+    window.dispatchEvent(requestEvent);
+    return requestEvent.defaultPrevented;
+  }
+
+  private clearPendingCommand(): void {
+    if (this.pendingCommandTimer !== null) {
+      window.clearTimeout(this.pendingCommandTimer);
+      this.pendingCommandTimer = null;
     }
   }
 
@@ -128,6 +126,22 @@ export class ProgressiveExcerptHotkeyHandler {
       logger.warn('Failed to read progressive excerpt setting, defaulting to disabled', error);
       return false;
     }
+  }
+
+  private showMissingSelectionMessage(): void {
+    showMessage(
+      this.translate('progressiveExcerptNoSelection', '请先在同一块内选中文本再摘抄'),
+      3000,
+      'error',
+    );
+  }
+
+  private showDisabledMessage(): void {
+    showMessage(
+      this.translate('progressiveExcerptDisabled', '摘抄快捷键已关闭，请先在设置中开启'),
+      3000,
+      'info',
+    );
   }
 
   private translate(key: string, fallback: string): string {

@@ -66,6 +66,7 @@
         @convertToTab="convertToTab"
         @openFilterDialog="showFilterDialog = true"
         @openSpreadDialog="handleOpenSpreadDialog"
+        @openAiWorkbench="handleOpenAiWorkbench"
         @rebuildQueue="handleRebuildQueue"
         @selectAllMatching="handleSelectAllMatching"
         @clearSelection="handleClearSelection"
@@ -473,6 +474,7 @@ import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
 import type { WsSyncEvent } from '@/application/services/XiuyuanSyncService.types';
+import type { AIWorkbenchOpenOptions } from '@/types/ai';
 
 // Register AG-Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -506,6 +508,7 @@ type BrowserTabApplicationServicePort = {
 
 type BrowserDialogManagerPort = {
   openNeuralRoamDialog?: () => Promise<void> | void;
+  openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
 };
 
 type BrowserTabManagerPort = {
@@ -3995,6 +3998,40 @@ function setSelectedNeuralTraceState(
   if (neuralActivationTrace.value) {
     neuralTraceRouteViewModelCache.set(neuralActivationTrace.value.targetEventId, neuralActivationTrace.value);
   }
+}
+
+async function handleOpenAiWorkbench(): Promise<void> {
+  const dialogManager = pluginContext.value?.getDialogManager?.();
+  if (!dialogManager?.openAiWorkbenchDialog) {
+    await pushErrMsg(t('pluginNotReady', 'Plugin not ready'));
+    return;
+  }
+
+  const selectedBlockIds = Array.from(new Set(
+    (selectedRows.value || [])
+      .map((row) => String(row?.blockId || '').trim())
+      .filter((blockId) => blockId.length > 0),
+  ));
+  const previewBlockId = String(previewCard.value?.blockId || '').trim();
+  const effectiveBlockIds = selectedBlockIds.length > 0
+    ? selectedBlockIds
+    : previewBlockId
+      ? [previewBlockId]
+      : [];
+
+  if (effectiveBlockIds.length === 0) {
+    await pushMsg(t('browserAiNoSelection', '请先选择卡片或打开一个预览块'), 3000, 'error');
+    return;
+  }
+
+  await dialogManager.openAiWorkbenchDialog({
+    view: selectedBlockIds.length > 0 ? 'make-cards' : 'explain',
+    source: 'browser',
+    selectedBlockIds: effectiveBlockIds,
+    currentBlockId: selectedBlockIds.length === 0 ? previewBlockId || null : null,
+    queueType: currentQueueType.value || null,
+    neuralBatch: getNeuralRoamQueue()?.getCurrentBatchSnapshot() ?? null,
+  });
 }
 
 function resolveNeuralTraceRouteViewModelByEventId(

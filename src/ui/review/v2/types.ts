@@ -1,7 +1,7 @@
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import type { AdapterContext as CoreAdapterContext, IAdapter as CoreAdapter } from '@/core/extensions';
 import type { FSRSCard } from '@/types/card';
-import type { QueueType } from '@/types/unified-data-source';
+import type { QueueType, ReviewQueueProgressSnapshot } from '@/types/unified-data-source';
 import type { HeaderVisualTone } from '@/ui/shared/cardVisualTokens';
 import type { Ref } from 'vue';
 
@@ -170,6 +170,7 @@ export interface ReviewUIState {
     canBack?: boolean;
     queueSize?: number;
     remainingSize?: number;
+    queueProgress?: ReviewQueueProgressSnapshot | null;
   };
 }
 
@@ -228,6 +229,7 @@ export function createEmptyReviewUIState(): ReviewUIState {
     },
     meta: {
       transition: 'none',
+      queueProgress: null,
     },
   };
 }

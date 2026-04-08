@@ -6,99 +6,106 @@
     data-key="dialog-opencard"
     @click="handleRootClick"
   >
-    <!-- 📝 复习内容区 -->
-    <div class="fsrs-review-v2__content-wrapper">
-      <ReviewHeader
-        :header="state.header"
-        :i18n="i18n"
-        :is-tab-mode="!!props.reviewUI"
-        :title="props.title"
-        :mode="props.mode"
-        :is-mobile="props.isMobile"
-        :navigation-state="neuralNavigationState"
-        @toolbar-action="handleToolbarAction"
-        @action="hook.executeCommand"
-        @context="handleContext"
-        @breadcrumb-click="handleBreadcrumbClick"
-      />
+    <div class="fsrs-review-v2__workspace" :class="{ 'fsrs-review-v2__workspace--with-ai': showReviewAISidecar }">
+      <!-- 📝 复习内容区 -->
+      <div class="fsrs-review-v2__content-wrapper">
+        <ReviewHeader
+          :header="state.header"
+          :i18n="i18n"
+          :is-tab-mode="!!props.reviewUI"
+          :title="props.title"
+          :mode="props.mode"
+          :is-mobile="props.isMobile"
+          :navigation-state="neuralNavigationState"
+          @toolbar-action="handleToolbarAction"
+          @action="hook.executeCommand"
+          @context="handleContext"
+          @breadcrumb-click="handleBreadcrumbClick"
+        />
 
-      <ReviewContent
-        ref="contentRef"
-        :app="app"
-        :plugin="props.plugin"
-        :content="state.content"
-        :overlay="state.overlay"
-        :has-hidden-content="state.meta.hasHiddenContent"
-        :show-answer="state.actions.showAnswer"
-        :meta="state.meta"
-        :i18n="i18n"
-        @editor-state-change="handleEditorStateChange"
-      />
+        <ReviewContent
+          ref="contentRef"
+          :app="app"
+          :plugin="props.plugin"
+          :content="state.content"
+          :overlay="state.overlay"
+          :has-hidden-content="state.meta.hasHiddenContent"
+          :show-answer="state.actions.showAnswer"
+          :meta="state.meta"
+          :i18n="i18n"
+          @editor-state-change="handleEditorStateChange"
+        />
 
-      <ReviewActions
-        :actions="state.actions"
-        :meta="state.meta"
-        :current-card="state.content.card"
-        :i18n="i18n"
-        :queue="providerQueue || props.queue"
-        :plugin="props.plugin"
-        :is-mobile="props.isMobile"
-        @reveal="handleReveal"
-        @grade="handleGrade"
-        @skip="handleSkip"
-        @back="handleBack"
-        @command="hook.executeCommand"
-        @openMenu="handleOpenMenu"
-      />
+        <ReviewActions
+          :actions="state.actions"
+          :meta="state.meta"
+          :current-card="state.content.card"
+          :i18n="i18n"
+          :queue="providerQueue || props.queue"
+          :plugin="props.plugin"
+          :is-mobile="props.isMobile"
+          @reveal="handleReveal"
+          @grade="handleGrade"
+          @skip="handleSkip"
+          @back="handleBack"
+          @command="hook.executeCommand"
+          @openMenu="handleOpenMenu"
+        />
 
-      <div v-if="state.meta.resumePrompt" class="fsrs-review-v2-resume">
-        <div class="fsrs-review-v2-resume__panel b3-card">
-          <div class="fsrs-review-v2-resume__title">{{ t('resumePromptTitle', '发现未完成的练习') }}</div>
-          <div class="fsrs-review-v2-resume__desc ft__secondary">
-            {{ state.meta.resumePrompt.message }}
-          </div>
-          <div class="fsrs-review-v2-resume__actions">
-            <button class="b3-button b3-button--cancel" type="button" @click="hook.executeCommand('resume-start-over')">
-              {{ t('resumeStartOver', '从头开始') }}
-            </button>
-            <button class="b3-button b3-button--text" type="button" @click="hook.executeCommand('resume-continue')">
-              {{ t('resumeContinue', '继续练习') }}
-            </button>
+        <div v-if="state.meta.resumePrompt" class="fsrs-review-v2-resume">
+          <div class="fsrs-review-v2-resume__panel b3-card">
+            <div class="fsrs-review-v2-resume__title">{{ t('resumePromptTitle', '发现未完成的练习') }}</div>
+            <div class="fsrs-review-v2-resume__desc ft__secondary">
+              {{ state.meta.resumePrompt.message }}
+            </div>
+            <div class="fsrs-review-v2-resume__actions">
+              <button class="b3-button b3-button--cancel" type="button" @click="hook.executeCommand('resume-start-over')">
+                {{ t('resumeStartOver', '从头开始') }}
+              </button>
+              <button class="b3-button b3-button--text" type="button" @click="hook.executeCommand('resume-continue')">
+                {{ t('resumeContinue', '继续练习') }}
+              </button>
+            </div>
           </div>
         </div>
+
+        <teleport to="body">
+          <div
+            v-if="showReviewFilterDialog"
+            class="review-filter-dialog-overlay"
+            :class="{ 'review-filter-dialog-overlay--mobile': props.isMobile }"
+            @click.self="showReviewFilterDialog = false"
+          >
+            <div class="review-filter-dialog-container">
+              <FilterDialog
+                :is-open="showReviewFilterDialog"
+                :initial-filter="appliedReviewFilter"
+                :i18n="i18n"
+                @apply="handleApplyReviewFilter"
+                @cancel="showReviewFilterDialog = false"
+                @clear="handleClearReviewFilter"
+                @rebuild="handleRebuildReviewFilterQueue"
+              />
+            </div>
+          </div>
+        </teleport>
       </div>
 
-      <teleport to="body">
-        <div
-          v-if="showReviewFilterDialog"
-          class="review-filter-dialog-overlay"
-          :class="{ 'review-filter-dialog-overlay--mobile': props.isMobile }"
-          @click.self="showReviewFilterDialog = false"
-        >
-          <div class="review-filter-dialog-container">
-            <FilterDialog
-              :is-open="showReviewFilterDialog"
-              :initial-filter="appliedReviewFilter"
-              :i18n="i18n"
-              @apply="handleApplyReviewFilter"
-              @cancel="showReviewFilterDialog = false"
-              @clear="handleClearReviewFilter"
-              @rebuild="handleRebuildReviewFilterQueue"
-            />
-          </div>
-        </div>
-      </teleport>
+      <aside v-if="showReviewAISidecar && reviewAIService" class="fsrs-review-v2__ai-sidecar">
+        <AiWorkbenchPane :service="reviewAIService" :i18n="i18n" @close="closeReviewAISidebar" />
+      </aside>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { Menu, showMessage, type App } from 'siyuan';
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
+import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import { useReviewSession } from './useReviewSession';
 import type { ReviewHeaderVariant, ReviewViewTabBridge } from './types';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
@@ -121,6 +128,7 @@ import {
   type NeuralRoamSourceEntry,
   type NeuralRoamHistoryEntry,
   type NeuralRoamSessionQueue,
+  type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import { isTopicLikeCard } from './reviewCardSemantics';
@@ -138,7 +146,10 @@ import {
   isProgressiveSelectionInsideNativeProtyle,
   resolveProgressiveSelection,
 } from '@/application/entries/ProgressiveSelectionResolver';
+import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
 import type { ProgressiveExcerptResult } from '@/application/services/ProgressiveReadingService';
+import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
+import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 
 const logger = createLogger('ReviewView');
 
@@ -181,6 +192,16 @@ type ReviewPluginContextLike = {
           initialQueueId?: string;
           initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
         }) => void;
+        openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
+      }
+    | undefined;
+  getReviewAIWorkbenchRegistry?: () =>
+    | {
+        hasReviewSession?: (sessionId: string) => boolean;
+        getReviewSession?: (sessionId: string) => AIWorkbenchService | null;
+        openReviewSession?: (options: AIWorkbenchOpenOptions & { sessionId: string; surface: 'review-dialog-sidecar' | 'review-tab-companion' }) => Promise<AIWorkbenchService>;
+        updateReviewSessionContext?: (options: AIWorkbenchOpenOptions & { sessionId: string; surface: 'review-dialog-sidecar' | 'review-tab-companion' }) => Promise<AIWorkbenchService>;
+        disposeReviewSession?: (sessionId: string) => void;
       }
     | undefined;
   getTabManager?: () =>
@@ -209,6 +230,8 @@ type ReviewPluginContextLike = {
           headerVariant?: ReviewHeaderVariant;
           transferState?: ReviewTabTransferState;
         }) => void;
+        openReviewAICompanionTab?: (options: AIWorkbenchOpenOptions & { sessionId: string; title: string }) => Promise<void> | void;
+        focusReviewAICompanionTab?: (reviewSessionId: string) => boolean;
       }
     | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
@@ -389,6 +412,7 @@ const props = defineProps<{
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
   plugin?: unknown; // 🆕 插件实例，用于访问 hybridSyncService
   isMobile?: boolean;
+  reviewSessionId?: string;
   onReview?: (cardId: string, rating: number) => void; // 🆕 复习回调（用于刻意练习黑名单）
   initialSessionState?: InitialReviewSessionState;
 }>();
@@ -399,10 +423,20 @@ const emit = defineEmits<{
   (e: 'convert-to-tab'): void; // 🆕 转换为 Tab 模式（kebab-case）
 }>();
 
+function createReviewSessionId(): string {
+  return `review-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+const reviewSessionId = ref(String(props.reviewSessionId || '').trim() || createReviewSessionId());
+const reviewAIService = ref<AIWorkbenchService | null>(null);
+const reviewAISidebarOpen = ref(false);
+const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440);
+
 const rootRef = ref<HTMLDivElement | null>(null);
 const contentRef = ref<ReviewContentExpose | null>(null);
 const recentModifiedHotkeys = new Map<string, number>();
 const editorState = ref<ReviewEditorState>(createReviewEditorState());
+let reviewResizeHandler: (() => void) | null = null;
 let escRepeatLatch = false;
 
 // 🆕 防重复触发机制 - 使用更智能的策略
@@ -410,8 +444,6 @@ let lastKeyPressTime = 0;
 let lastKeyPressed = '';
 let isProcessingKey = false; // 标记是否正在处理按键
 const KEY_PRESS_DEBOUNCE = 30; // 30ms 内的重复按键视为同一次（进一步降低延迟）
-let pendingNativeProgressiveExcerptTimer: number | null = null;
-let pendingNativeProgressiveExcerptSignature = '';
 
 function shouldIgnoreDuplicateKey(key: string): boolean {
   const now = Date.now();
@@ -512,6 +544,81 @@ function getDialogManager() {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
   return contextFromProps?.getDialogManager?.() || contextFromWindow?.getDialogManager?.() || null;
+}
+
+function getReviewAIWorkbenchRegistry() {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getReviewAIWorkbenchRegistry?.() || contextFromWindow?.getReviewAIWorkbenchRegistry?.() || null;
+}
+
+function resolveActiveReviewQueueType(): string | null {
+  const activeQueue = providerQueue || props.queue;
+  if (!isRecord(activeQueue)) {
+    return null;
+  }
+
+  if (typeof activeQueue.queueType === 'string' && activeQueue.queueType.trim().length > 0) {
+    return activeQueue.queueType.trim();
+  }
+  if (typeof activeQueue.id === 'string' && activeQueue.id.trim().length > 0) {
+    return activeQueue.id.trim();
+  }
+  if (typeof activeQueue.name === 'string' && activeQueue.name.trim().length > 0) {
+    return activeQueue.name.trim();
+  }
+  return null;
+}
+
+function resolveActiveReviewQueueLabel(): string {
+  const title = String(props.title || '').trim();
+  if (title.length > 0) {
+    return title;
+  }
+
+  const activeQueue = providerQueue || props.queue;
+  if (isRecord(activeQueue)) {
+    const displayName = String(activeQueue.displayName || '').trim();
+    if (displayName.length > 0) {
+      return displayName;
+    }
+    const name = String(activeQueue.name || '').trim();
+    if (name.length > 0) {
+      return name;
+    }
+  }
+
+  return resolveActiveReviewQueueType() || t('reviewTitle', 'Review');
+}
+
+function buildReviewQueueProgress(): ReviewQueueProgressSnapshot | null {
+  const meta = isRecord(state.value.meta) ? state.value.meta as Record<string, unknown> : null;
+  const candidate = meta?.queueProgress;
+  if (isRecord(candidate)) {
+    return {
+      queueType: typeof candidate.queueType === 'string' ? candidate.queueType : resolveActiveReviewQueueType(),
+      queueLabel: resolveActiveReviewQueueLabel(),
+      completed: Math.max(0, Number(candidate.completed) || 0),
+      remaining: Math.max(0, Number(candidate.remaining) || 0),
+      total: Number.isFinite(Number(candidate.total)) && Number(candidate.total) > 0 ? Number(candidate.total) : null,
+    };
+  }
+
+  const rawTotal = Number(meta?.queueSize);
+  const total = Number.isFinite(rawTotal) && rawTotal > 0 ? rawTotal : null;
+  const rawRemaining = Number(meta?.remainingSize);
+  const remaining = Number.isFinite(rawRemaining) && rawRemaining >= 0
+    ? Math.max(0, total !== null ? Math.min(rawRemaining, total) : rawRemaining)
+    : (total ?? 0);
+  const completed = total !== null ? Math.max(0, total - remaining) : 0;
+
+  return {
+    queueType: resolveActiveReviewQueueType(),
+    queueLabel: resolveActiveReviewQueueLabel(),
+    completed,
+    remaining,
+    total,
+  };
 }
 
 function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
@@ -721,6 +828,7 @@ onMounted(() => {
   // 🆕 添加键盘事件监听器
   document.addEventListener('keydown', handleKeyDown, true);
   document.addEventListener('keyup', handleKeyUp, true);
+  window.addEventListener(PROGRESSIVE_EXCERPT_REQUEST_EVENT, handleProgressiveExcerptCommandRequest as EventListener);
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener added');
 
   // 🌌 恢复侧边栏状态（已删除）
@@ -745,16 +853,28 @@ onMounted(() => {
   refreshNavigationState();
   syncReviewFilterFromQueue();
   bindReviewDataObserver();
+  reviewResizeHandler = () => {
+    viewportWidth.value = window.innerWidth;
+    updateReviewDialogContainerLayout();
+  };
+  window.addEventListener('resize', reviewResizeHandler);
 });
 
 // 🆕 组件卸载时移除键盘事件监听器
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown, true);
   document.removeEventListener('keyup', handleKeyUp, true);
-  clearPendingNativeProgressiveExcerpt();
+  window.removeEventListener(PROGRESSIVE_EXCERPT_REQUEST_EVENT, handleProgressiveExcerptCommandRequest as EventListener);
   recentModifiedHotkeys.clear();
   escRepeatLatch = false;
   unbindReviewDataObserver();
+  if (reviewResizeHandler) {
+    window.removeEventListener('resize', reviewResizeHandler);
+    reviewResizeHandler = null;
+  }
+  if (props.mode !== 'tab') {
+    getReviewAIWorkbenchRegistry()?.disposeReviewSession?.(reviewSessionId.value);
+  }
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener removed');
 });
 
@@ -796,6 +916,16 @@ const showReviewFilterDialog = ref(false);
 const appliedReviewFilter = ref<CardFilter | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
 let subscribedReviewManager: IUnifiedDataSourceManagerFacade | null = null;
+
+const REVIEW_AI_SIDECAR_MIN_VIEWPORT = 1040;
+
+const canUseEmbeddedReviewAISidecar = computed(() => (
+  props.mode === 'dialog' && props.isMobile !== true && viewportWidth.value >= REVIEW_AI_SIDECAR_MIN_VIEWPORT
+));
+
+const showReviewAISidecar = computed(() => (
+  canUseEmbeddedReviewAISidecar.value && reviewAISidebarOpen.value && reviewAIService.value !== null
+));
 
 function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
@@ -1165,12 +1295,22 @@ function isCurrentReviewNativeProtyleSurface(target: EventTarget | null): boolea
   return isInsideReviewRoot(target) || isInsideReviewRoot(document.activeElement);
 }
 
-function clearPendingNativeProgressiveExcerpt(): void {
-  if (pendingNativeProgressiveExcerptTimer !== null) {
-    window.clearTimeout(pendingNativeProgressiveExcerptTimer);
-    pendingNativeProgressiveExcerptTimer = null;
+function hasProgressiveExcerptRequestContext(): boolean {
+  return isCurrentReviewNativeProtyleSurface(document.activeElement)
+    || isProgressiveSelectionInsideNativeProtyle({ root: rootRef.value })
+    || isInsideReviewRoot(document.activeElement);
+}
+
+function handleProgressiveExcerptCommandRequest(event: Event): void {
+  if (event.defaultPrevented) {
+    return;
   }
-  pendingNativeProgressiveExcerptSignature = '';
+  if (!hasProgressiveExcerptRequestContext()) {
+    return;
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation?.();
+  void handleProgressiveExcerptFromReview('command');
 }
 
 function maybeHandleReviewEscape(event: KeyboardEvent): boolean {
@@ -1303,16 +1443,8 @@ function handleKeyDown(e: KeyboardEvent) {
   }
 
   const key = normalizeReviewKeyboardKey(e.key);
-  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && key === 'x') {
-    const excerptEnabled = isProgressiveExcerptEnabled();
-    if (isCurrentReviewNativeProtyleSurface(e.target)) {
-      const selection = resolveProgressiveSelection({ root: rootRef.value });
-      if (excerptEnabled && selection && state.value.content.card?.type === 'topic') {
-        scheduleNativeProgressiveExcerptFromReview(selection);
-      }
-      return;
-    }
-    if (!excerptEnabled) {
+  if (e.altKey && !e.ctrlKey && !e.metaKey && e.shiftKey && key === 'x') {
+    if (isTypingTarget(e.target) && !isCurrentReviewNativeProtyleSurface(e.target)) {
       return;
     }
     e.preventDefault();
@@ -1561,6 +1693,124 @@ async function handleRebuildReviewFilterQueue(): Promise<void> {
   }
 }
 
+function buildReviewAIOptions(view: 'tutor' | 'explain' | 'make-cards', surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
+  const neuralQueue = getNeuralRoamQueue();
+  return {
+    view,
+    source: 'review',
+    surface,
+    sessionId: reviewSessionId.value,
+    sourceReviewSessionId: reviewSessionId.value,
+    currentCard: state.value.content.card as FSRSCard | null,
+    currentBlockId: resolveCurrentReviewBlockId() || null,
+    queueType: resolveActiveReviewQueueType(),
+    queueProgress: buildReviewQueueProgress(),
+    revealed: hook.context.value.showAnswer === true,
+    neuralBatch: neuralQueue?.getCurrentBatchSnapshot() ?? null,
+  };
+}
+
+function getReviewAICompanionTitle(view: 'tutor' | 'explain' | 'make-cards'): string {
+  const viewTitle = view === 'tutor'
+    ? t('aiTutor', 'AI 导师')
+    : view === 'explain'
+      ? t('aiExplainCard', 'AI 解释卡片')
+      : t('aiMakeCards', 'AI 辅助制卡');
+  const reviewTitle = String(props.title || t('reviewTitle', 'Review')).trim();
+  return `${viewTitle} · ${reviewTitle || t('reviewTitle', 'Review')}`;
+}
+
+function updateReviewDialogContainerLayout(): void {
+  const dialogContainer = rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container') as HTMLElement | null;
+  if (!dialogContainer || props.mode !== 'dialog' || props.isMobile) {
+    return;
+  }
+
+  if (dialogContainer.classList.contains('fullscreen')) {
+    return;
+  }
+
+  dialogContainer.style.transition = 'width 180ms ease, max-width 180ms ease';
+  if (showReviewAISidecar.value) {
+    dialogContainer.style.width = 'min(1320px, 98vw)';
+    dialogContainer.style.maxWidth = '1320px';
+  } else {
+    dialogContainer.style.width = 'min(860px, 96vw)';
+    dialogContainer.style.maxWidth = '1024px';
+  }
+}
+
+function closeReviewAISidebar(): void {
+  reviewAISidebarOpen.value = false;
+  updateReviewDialogContainerLayout();
+}
+
+async function syncReviewAIContextIfNeeded(surface: 'review-dialog-sidecar' | 'review-tab-companion'): Promise<void> {
+  const registry = getReviewAIWorkbenchRegistry();
+  if (!registry?.hasReviewSession?.(reviewSessionId.value) || !registry.updateReviewSessionContext) {
+    return;
+  }
+
+  const activeView = reviewAIService.value?.state.activeView
+    || registry.getReviewSession?.(reviewSessionId.value)?.state.activeView
+    || 'explain';
+  const service = await registry.updateReviewSessionContext({
+    ...buildReviewAIOptions(activeView, surface),
+    view: activeView,
+    surface,
+    sessionId: reviewSessionId.value,
+  });
+  reviewAIService.value = service;
+}
+
+async function openReviewAIAssistant(view: 'tutor' | 'explain' | 'make-cards'): Promise<void> {
+  const surface: 'review-dialog-sidecar' | 'review-tab-companion' = props.mode === 'tab'
+    ? 'review-tab-companion'
+    : 'review-dialog-sidecar';
+
+  if (surface === 'review-dialog-sidecar' && !canUseEmbeddedReviewAISidecar.value) {
+    const dialogManager = getDialogManager();
+    if (!dialogManager?.openAiWorkbenchDialog) {
+      showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+      return;
+    }
+    await dialogManager.openAiWorkbenchDialog(buildReviewAIOptions(view, 'standalone-dialog'));
+    return;
+  }
+
+  const registry = getReviewAIWorkbenchRegistry();
+  if (!registry?.openReviewSession) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  if (surface === 'review-tab-companion') {
+    const context = getPluginContext(props.plugin) || getWindowPlugin()?.getContext?.();
+    const tabManager = context?.getTabManager?.();
+    if (!tabManager?.openReviewAICompanionTab) {
+      showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+      return;
+    }
+
+    await tabManager.openReviewAICompanionTab({
+      ...buildReviewAIOptions(view, surface),
+      sessionId: reviewSessionId.value,
+      title: getReviewAICompanionTitle(view),
+    });
+    reviewAIService.value = registry.getReviewSession?.(reviewSessionId.value) || null;
+    return;
+  }
+
+  const service = await registry.openReviewSession({
+    ...buildReviewAIOptions(view, surface),
+    sessionId: reviewSessionId.value,
+    surface,
+  });
+  reviewAIService.value = service;
+  reviewAISidebarOpen.value = true;
+  updateReviewDialogContainerLayout();
+}
+
 function handleToolbarAction(actionType: string, ev: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleToolbarAction called:', actionType);
 
@@ -1587,6 +1837,21 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
   if (actionType === 'progressive-complete-piece') {
     void handleProgressiveCompletePiece();
+    return;
+  }
+
+  if (actionType === 'ai-explain') {
+    void openReviewAIAssistant('explain');
+    return;
+  }
+
+  if (actionType === 'ai-tutor') {
+    void openReviewAIAssistant('tutor');
+    return;
+  }
+
+  if (actionType === 'ai-make-cards') {
+    void openReviewAIAssistant('make-cards');
     return;
   }
 
@@ -2201,15 +2466,15 @@ function resolveProgressiveSourceTargetId(): string {
   return typeof sourceDocId === 'string' ? sourceDocId.trim() : '';
 }
 
-async function handleProgressiveExcerptFromReview(trigger: 'hotkey' | 'toolbar'): Promise<void> {
+async function handleProgressiveExcerptFromReview(trigger: 'hotkey' | 'toolbar' | 'command'): Promise<void> {
   if (!isProgressiveExcerptEnabled()) {
-    showMessage(t('progressiveExcerptDisabled', 'Alt+X 自动摘录已关闭，请先在设置中开启'), 3000, 'info');
+    showMessage(t('progressiveExcerptDisabled', '摘抄快捷键已关闭，请先在设置中开启'), 3000, 'info');
     return;
   }
 
   const currentCard = state.value.content.card;
   if (!currentCard || currentCard.type !== 'topic') {
-    showMessage(t('progressiveExcerptTopicOnly', 'Alt+X 当前先只支持 Topic 卡'), 3000, 'error');
+    showMessage(t('progressiveExcerptTopicOnly', '⌥⇧X 当前先只支持 Topic 卡'), 3000, 'error');
     return;
   }
 
@@ -2228,29 +2493,9 @@ async function handleProgressiveExcerptFromReview(trigger: 'hotkey' | 'toolbar')
   await createProgressiveExcerptFromReviewSelection(selection, trigger);
 }
 
-function scheduleNativeProgressiveExcerptFromReview(selection: { blockId: string; text: string }): void {
-  const signature = `${selection.blockId}::${selection.text}`;
-  if (pendingNativeProgressiveExcerptTimer !== null && pendingNativeProgressiveExcerptSignature === signature) {
-    return;
-  }
-
-  clearPendingNativeProgressiveExcerpt();
-  pendingNativeProgressiveExcerptSignature = signature;
-  pendingNativeProgressiveExcerptTimer = window.setTimeout(() => {
-    clearPendingNativeProgressiveExcerpt();
-    if (
-      !isCurrentReviewNativeProtyleSurface(document.activeElement)
-      && !isProgressiveSelectionInsideNativeProtyle({ root: rootRef.value })
-    ) {
-      return;
-    }
-    void createProgressiveExcerptFromReviewSelection(selection, 'hotkey');
-  }, 0);
-}
-
 async function createProgressiveExcerptFromReviewSelection(
   selection: { blockId: string; text: string },
-  trigger: 'hotkey' | 'toolbar',
+  trigger: 'hotkey' | 'toolbar' | 'command',
 ): Promise<void> {
   const selectionService = getSelectionExcerptService();
   if (!selectionService) {
@@ -2283,7 +2528,7 @@ async function createProgressiveExcerptFromReviewSelection(
         ? t('progressiveExcerptCreatedInserted', '摘抄已创建、制为 Topic，并插入当前渐进复习')
         : routedExcerptTarget === 'hyperspace'
           ? t('progressiveExcerptCreatedMergedHyperspace', '摘抄已创建、制为 Topic，并并入当前超空间神经漫游')
-        : trigger === 'hotkey'
+        : trigger !== 'toolbar'
           ? t('progressiveExcerptCreatedHotkey', '摘抄已创建并制为 Topic')
           : t('progressiveExcerptCreated', '摘抄已创建并制为 Topic'),
       3000,
@@ -2425,6 +2670,36 @@ watch(
   }
 );
 
+watch(
+  () => [
+    resolveCurrentReviewCardId(),
+    resolveCurrentReviewBlockId(),
+    hook.context.value.showAnswer === true,
+    JSON.stringify(getNeuralRoamQueue()?.getCurrentBatchSnapshot() ?? null),
+  ],
+  () => {
+    const surface = props.mode === 'tab' ? 'review-tab-companion' : 'review-dialog-sidecar';
+    void syncReviewAIContextIfNeeded(surface);
+  },
+);
+
+watch(
+  showReviewAISidecar,
+  () => {
+    updateReviewDialogContainerLayout();
+  },
+);
+
+watch(
+  canUseEmbeddedReviewAISidecar,
+  (enabled) => {
+    if (!enabled && reviewAISidebarOpen.value) {
+      reviewAISidebarOpen.value = false;
+      updateReviewDialogContainerLayout();
+    }
+  },
+);
+
 </script>
 
 <style scoped>
@@ -2442,6 +2717,21 @@ watch(
   width: 100vw;
 }
 
+.fsrs-review-v2__workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+
+.fsrs-review-v2__workspace--with-ai {
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 420px);
+  gap: 0;
+  background:
+    linear-gradient(180deg, rgba(248, 249, 255, 0.98), rgba(242, 244, 251, 0.98));
+}
+
 /* 🌌 内容包装器（占据剩余空间） */
 .fsrs-review-v2__content-wrapper {
   flex: 1;
@@ -2450,6 +2740,18 @@ watch(
   min-width: 0; /* 防止 flex 子元素溢出 */
   height: 100%; /* 确保容器有明确的高度 */
   overflow: hidden; /* 防止整体滚动，只允许 ReviewContent 滚动 */
+}
+
+.fsrs-review-v2__workspace--with-ai .fsrs-review-v2__content-wrapper {
+  border-right: 1px solid rgba(112, 102, 173, 0.12);
+  background: var(--b3-theme-background);
+}
+
+.fsrs-review-v2__ai-sidecar {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(249, 249, 255, 0.98), rgba(242, 243, 251, 0.98));
 }
 
 .fsrs-review-v2-resume {

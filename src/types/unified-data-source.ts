@@ -104,6 +104,14 @@ export interface QueueReviewResult {
     version: number;
 }
 
+export interface ReviewQueueProgressSnapshot {
+    queueType: string | null;
+    queueLabel: string;
+    completed: number;
+    remaining: number;
+    total: number | null;
+}
+
 // ============================================================================
 // 观察者接口
 // ============================================================================
@@ -303,6 +311,37 @@ export interface NeuralRoamSourceEntry {
     visitedAt: number;
 }
 
+export type NeuralRoamBatchKind = 'orbit-round' | 'hyperspace-current-node';
+
+export interface NeuralRoamBatchNode {
+    eventId: string;
+    nodeId: string;
+    nodePreview: string;
+    isVirtual: boolean;
+    associationType: NeuralAssociationType;
+    reason: string;
+    visitedAt: number;
+    sourceNodeId: string | null;
+    sourceEventId: string | null;
+}
+
+export interface NeuralRoamBatchSnapshot {
+    kind: NeuralRoamBatchKind;
+    engineMode: NeuralEngineMode;
+    navigationState: NeuralNavigationState;
+    focusNodeId: string | null;
+    focusNodePreview: string | null;
+    currentNodeId: string | null;
+    roundSize: number;
+    viewedCount: number;
+    remainingCount: number;
+    roundNodes: NeuralRoamBatchNode[];
+    recentPath: NeuralRoamHistoryEntry[];
+    sourceSnapshot: NeuralRoamSourceEntry[];
+    seedSnapshot: NeuralRoamSeedEntry[];
+    anchorSnapshot: NeuralRoamAnchorEntry[];
+}
+
 export interface HyperspaceExcerptInjectionContext {
     currentNodeId?: string | null;
     currentEventId?: string | null;
@@ -327,6 +366,7 @@ export interface NeuralRoamSessionQueue {
     getAnchorSnapshot(): NeuralRoamAnchorEntry[];
     setAnchorEntry(nodeId: string, enabled?: boolean): Promise<void>;
     clearAnchors(): Promise<void>;
+    getCurrentBatchSnapshot(): NeuralRoamBatchSnapshot | null;
     /**
      * @deprecated Use getSeedSnapshot instead.
      */
@@ -395,6 +435,7 @@ export function isNeuralRoamSessionQueue(
         && typeof candidate?.getAnchorSnapshot === 'function'
         && typeof candidate?.setAnchorEntry === 'function'
         && typeof candidate?.clearAnchors === 'function'
+        && typeof candidate?.getCurrentBatchSnapshot === 'function'
         && typeof candidate?.getConceptBlocks === 'function'
         && typeof candidate?.getFocusPoolSnapshot === 'function'
         && typeof candidate?.setFocusPoolEntry === 'function'

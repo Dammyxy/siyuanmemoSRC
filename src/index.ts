@@ -165,10 +165,10 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       // ✅ 只有在初始化成功后才注册事件处理器
       this.imageOcclusionHandler = new ImageOcclusionHandler(this);
       this.progressiveExcerptHotkeyHandler = new ProgressiveExcerptHotkeyHandler(this.context);
-      this.progressiveExcerptHotkeyHandler.start();
       this.registerDock();
       this.registerEventHandlers();
       this.registerImageOcclusionCommands();
+      this.registerProgressiveExcerptCommand();
       this.registerTopBarQuickCommands();
       if (this.shouldExposeCoreReviewContextEntries()) {
         this.registerCoreReviewCommands();
@@ -322,6 +322,19 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       },
       editorCallback: (protyle: IProtyle) => {
         void this.imageOcclusionHandler?.openFromEditor(protyle);
+      },
+    });
+  }
+
+  private registerProgressiveExcerptCommand(): void {
+    this.addCommand({
+      langKey: 'progressiveExcerptSelection',
+      hotkey: '⌥⇧X',
+      callback: () => {
+        this.progressiveExcerptHotkeyHandler?.runFromCommand();
+      },
+      editorCallback: (protyle: IProtyle) => {
+        void this.progressiveExcerptHotkeyHandler?.runFromEditor(protyle);
       },
     });
   }

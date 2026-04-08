@@ -14,6 +14,7 @@ function t(key: string, fallback: string): string {
 
 const emit = defineEmits<{
   confirm: [templateId: string];
+  ai: [];
   cancel: [];
 }>();
 
@@ -69,6 +70,10 @@ function handleConfirm() {
 
 function handleCancel() {
   emit('cancel');
+}
+
+function handleAiAssist() {
+  emit('ai');
 }
 
 // 根据模版获取卡片类型标签
@@ -138,6 +143,7 @@ function getCardTypeLabel(template: ICardTemplate): string {
     </div>
 
     <div class="dialog-actions">
+      <button class="btn btn-ai" @click="handleAiAssist">{{ t('aiMakeCards', 'AI 辅助制卡') }}</button>
       <button class="btn btn-cancel" @click="handleCancel">{{ t('cancel', '取消') }}</button>
       <button class="btn btn-confirm" :disabled="!selectedId" @click="handleConfirm">
         {{ t('templateConfirmCreate', '确认创建') }}
@@ -330,6 +336,16 @@ function getCardTypeLabel(template: ICardTemplate): string {
 .btn-cancel {
   background: transparent;
   border: 1px solid var(--b3-border-color);
+}
+
+.btn-ai {
+  background: var(--b3-theme-surface);
+  border: 1px solid var(--b3-theme-primary);
+  color: var(--b3-theme-primary);
+}
+
+.btn-ai:hover {
+  background: var(--b3-theme-primary-lightest);
 }
 
 .btn-cancel:hover {

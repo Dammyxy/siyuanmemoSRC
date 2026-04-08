@@ -87,15 +87,17 @@ describe('ReviewActions layout', () => {
 
     const root = wrapper.get('.card__action');
     const children = Array.from(root.element.children).map((node) => (node as HTMLElement).className);
-    expect(children[0]).toContain('card__action-back');
+    expect(root.classes()).not.toContain('card__action--expanded');
+    expect(children[0]).toContain('card__action-side--back');
     expect(children[1]).toContain('card__action-center');
-    expect(children[2]).toContain('card__action-right');
+    expect(children[2]).toContain('card__action-side--right');
+    expect(wrapper.findAll('.card__action-side-spacer')).toHaveLength(0);
 
     const center = wrapper.get('.card__action-center');
     expect(center.attributes('style')).toContain('--review-action-columns: 4');
     expect(center.get('button[data-type="-1"]').classes()).toContain('card__action-main--reveal');
 
-    const right = wrapper.get('.card__action-right');
+    const right = wrapper.get('.card__action-side--right');
     expect(right.find('skip-menu-button-stub').exists()).toBe(true);
   });
 
@@ -104,11 +106,14 @@ describe('ReviewActions layout', () => {
       showAnswer: false,
     }));
 
+    expect(wrapper.get('.card__action').classes()).toContain('card__action--expanded');
+    expect(wrapper.findAll('.card__action-side-spacer')).toHaveLength(2);
+
     const center = wrapper.get('.card__action-center');
     expect(center.find('button[data-type="-1"]').exists()).toBe(false);
     expect(center.findAll('.card__action-column')).toHaveLength(4);
 
-    const right = wrapper.get('.card__action-right');
+    const right = wrapper.get('.card__action-side--right');
     expect(right.find('skip-menu-button-stub').exists()).toBe(true);
   });
 
@@ -128,7 +133,77 @@ describe('ReviewActions layout', () => {
     }), true);
 
     expect(wrapper.get('.card__action').classes()).toContain('card__action--mobile');
-    expect(wrapper.get('.card__action-right').find('skip-menu-button-stub').exists()).toBe(true);
+    expect(wrapper.get('.card__action').classes()).not.toContain('card__action--expanded');
+    expect(wrapper.get('.card__action-side--right').find('skip-menu-button-stub').exists()).toBe(true);
+  });
+
+  it('uses the expanded equal-height layout for topic next-card mode on desktop', () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: true,
+      cardMeta: {
+        type: 'topic',
+        cardType: 'topic',
+        blockID: 'block-topic',
+        cardID: 'card-topic',
+      },
+    }));
+
+    const root = wrapper.get('.card__action');
+    expect(root.classes()).toContain('card__action--expanded');
+    expect(wrapper.findAll('.card__action-side-spacer')).toHaveLength(2);
+    expect(wrapper.get('.card__action-center').attributes('style')).toContain('--review-action-columns: 1');
+    expect(wrapper.find('button[data-type="-1"]').exists()).toBe(false);
+    expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
+  });
+
+  it('blurs the topic next-card button after pointer clicks so the highlight does not stick', async () => {
+    const attachTarget = document.createElement('div');
+    document.body.appendChild(attachTarget);
+
+    const wrapper = mount(ReviewActions, {
+      attachTo: attachTarget,
+      props: {
+        actions: createActions({
+          showAnswer: true,
+          cardMeta: {
+            type: 'topic',
+            cardType: 'topic',
+            blockID: 'block-topic',
+            cardID: 'card-topic',
+          },
+        }),
+        meta: { canBack: true, remainingSize: 3, transition: 'none' },
+        i18n: {
+          space: 'Space',
+          enterKey: 'Enter',
+        },
+      },
+      global: {
+        stubs: {
+          SkipMenuButton: true,
+          InsertPositionDialog: true,
+          ScheduleDateDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    try {
+      const button = wrapper.get('button[data-type="3"]').element as HTMLButtonElement;
+      button.focus();
+      expect(document.activeElement).toBe(button);
+
+      button.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        detail: 1,
+      }));
+      await flushPromises();
+
+      expect(document.activeElement).not.toBe(button);
+    } finally {
+      wrapper.unmount();
+      attachTarget.remove();
+    }
   });
 
   it('opens schedule dialog for regular cards when skip menu emits schedule', async () => {

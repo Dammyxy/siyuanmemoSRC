@@ -205,6 +205,37 @@ describe('ConceptNeuralQueue', () => {
     });
   });
 
+  it('exposes the current orbit batch snapshot for the active round', async () => {
+    mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
+    mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({
+      id: blockId,
+      content: `${blockId} content`,
+      type: 'p',
+    }));
+    mockQueryEngine.fetchNeighbors = vi.fn().mockResolvedValue([
+      { id: 'neighbor-1', type: 'backlink', weight: 10 },
+    ]);
+
+    await queue.addConceptBlock('concept-1');
+    await queue.startRoamingFromFocus('concept-1', {
+      includeFocusAsFirst: true,
+      resetHistory: true,
+    });
+    await queue.getNextCard();
+
+    const batch = queue.getCurrentBatchSnapshot();
+
+    expect(batch).not.toBeNull();
+    expect(batch?.kind).toBe('orbit-round');
+    expect(batch?.engineMode).toBe('orbit');
+    expect(batch?.focusNodeId).toBe('concept-1');
+    expect(batch?.roundSize).toBe(5);
+    expect(batch?.viewedCount).toBe(1);
+    expect(batch?.remainingCount).toBe(4);
+    expect(batch?.roundNodes.map((entry) => entry.nodeId)).toEqual(['concept-1', 'neighbor-1']);
+    expect(batch?.recentPath.map((entry) => entry.nodeId)).toEqual(['concept-1', 'neighbor-1']);
+  });
+
   it('selects next auto focus from seed pool only (anchors are ignored)', async () => {
     mockQueryEngine.isConceptCard = vi.fn(async (blockId: string) => blockId.startsWith('concept-'));
     mockQueryEngine.fetchBlockData = vi.fn(async (blockId: string) => ({

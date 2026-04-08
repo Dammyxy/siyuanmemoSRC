@@ -45,6 +45,10 @@ interface NotebookConfResponse {
     name: string;
 }
 
+interface CreateDailyNoteResponse {
+    id?: string;
+}
+
 interface BlockMutationOperation {
     id?: string;
     parentID?: string;
@@ -315,6 +319,11 @@ export async function getDocContent(id: string, size = 102400, mode = 0): Promis
 
 export async function createDocWithMd(notebook: string, path: string, markdown: string): Promise<string> {
     return request<string>('/filetree/createDocWithMd', { notebook, path, markdown });
+}
+
+export async function createDailyNote(notebook: string, app?: string): Promise<CreateDailyNoteResponse> {
+    const payload = app ? { notebook, app } : { notebook };
+    return request<CreateDailyNoteResponse>('/filetree/createDailyNote', payload);
 }
 
 /**

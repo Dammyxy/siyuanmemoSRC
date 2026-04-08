@@ -153,6 +153,16 @@
       <button
         v-if="!props.mobileMode"
         class="b3-button b3-button--outline"
+        @click="$emit('openAiWorkbench')"
+        :disabled="loading"
+        :title="t('aiWorkbench', 'AI 工作台')"
+      >
+        <svg><use xlink:href="#iconSparkles"></use></svg>
+      </button>
+
+      <button
+        v-if="!props.mobileMode"
+        class="b3-button b3-button--outline"
         @click="$emit('forceRefresh')"
         :disabled="loading"
         :title="t('forceRefresh', '强制刷新数据（清除缓存）')"
@@ -244,6 +254,7 @@ const emit = defineEmits<{
   (e: 'toggleNavigator'): void;
   (e: 'openFilterDialog'): void;
   (e: 'openSpreadDialog'): void;
+  (e: 'openAiWorkbench'): void;
   (e: 'selectAllMatching'): void;
   (e: 'clearSelection'): void;
 }>();

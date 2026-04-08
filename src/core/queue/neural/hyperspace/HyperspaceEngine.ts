@@ -7,6 +7,8 @@ import type {
   NeuralActivationTraceStep,
   NeuralAssociationType,
   NeuralEngineMode,
+  NeuralRoamBatchNode,
+  NeuralRoamBatchSnapshot,
   NeuralHistoryPageRequest,
   NeuralHistoryPageResult,
   NeuralNavigationMode,
@@ -563,6 +565,54 @@ export class HyperspaceEngine {
       hasBookmark: this.bookmarkPathIndex !== null,
       pathLength: this.displayPath.length,
       sessionId: this.currentSessionId,
+    };
+  }
+
+  getCurrentBatchSnapshot(): NeuralRoamBatchSnapshot | null {
+    const navigationState = this.getNavigationState();
+    const currentEntry = navigationState.currentEventId
+      ? this.findHistoryEntryByEventId(navigationState.currentEventId)
+      : null;
+    const roundNodes: NeuralRoamBatchNode[] = currentEntry ? [{
+      eventId: currentEntry.eventId,
+      nodeId: currentEntry.nodeId,
+      nodePreview: currentEntry.nodePreview,
+      isVirtual: currentEntry.isVirtual,
+      associationType: currentEntry.associationType,
+      reason: currentEntry.reason,
+      visitedAt: currentEntry.visitedAt,
+      sourceNodeId: currentEntry.sourceNodeId,
+      sourceEventId: currentEntry.sourceEventId,
+    }] : [];
+    const focusNodeId = this.currentLeadSource;
+    const focusPreview = focusNodeId
+      ? this.sourcePool.get(focusNodeId)?.preview
+        ?? this.anchorPool.get(focusNodeId)?.preview
+        ?? this.findLatestHistoryEntry(focusNodeId)?.nodePreview
+        ?? normalizePreview(focusNodeId, this.previewLength)
+      : null;
+
+    return {
+      kind: 'hyperspace-current-node',
+      engineMode: ENGINE_MODE,
+      navigationState,
+      focusNodeId,
+      focusNodePreview: focusPreview,
+      currentNodeId: navigationState.currentNodeId,
+      roundSize: roundNodes.length,
+      viewedCount: roundNodes.length,
+      remainingCount: 0,
+      roundNodes,
+      recentPath: this.buildRecentPathEntries(),
+      sourceSnapshot: this.getSourceSnapshot(),
+      seedSnapshot: this.getSourceSnapshot().map((entry) => ({
+        nodeId: entry.nodeId,
+        nodePreview: entry.nodePreview,
+        priority: entry.priority,
+        addedAt: entry.addedAt,
+        visitedAt: entry.visitedAt,
+      })),
+      anchorSnapshot: this.getAnchorSnapshot(),
     };
   }
 
@@ -1547,6 +1597,17 @@ export class HyperspaceEngine {
       }
     }
     return result;
+  }
+
+  private buildRecentPathEntries(limit = 8): NeuralRoamHistoryEntry[] {
+    if (!this.currentSessionId) {
+      return [];
+    }
+
+    return this.historyStore.toArray()
+      .filter((entry) => entry.sessionId === this.currentSessionId)
+      .slice(-Math.max(1, Math.min(limit, 32)))
+      .map((entry) => ({ ...entry }));
   }
 
   private findSourceEventIdInHistory(history: NeuralRoamHistoryEntry[], sourceId: string | null, sessionId: string | null): string | null {

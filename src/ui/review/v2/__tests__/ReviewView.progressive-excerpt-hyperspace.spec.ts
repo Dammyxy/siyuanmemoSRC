@@ -2,9 +2,10 @@
 
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
+import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
 
 const reviewViewExcerptMocks = vi.hoisted(() => ({
   showMessage: vi.fn(),
@@ -68,6 +69,7 @@ function createNeuralQueue() {
     getAnchorSnapshot: vi.fn(() => []),
     setAnchorEntry: vi.fn(async () => undefined),
     clearAnchors: vi.fn(async () => undefined),
+    getCurrentBatchSnapshot: vi.fn(() => []),
     getConceptBlocks: vi.fn(() => []),
     getFocusPoolSnapshot: vi.fn(() => []),
     setFocusPoolEntry: vi.fn(async () => undefined),
@@ -191,6 +193,7 @@ function mountReviewView(options: {
   const adapter = createAdapter();
 
   return mount(ReviewView, {
+    attachTo: document.body,
     props: {
       app: {} as never,
       queue: queue as never,
@@ -228,6 +231,7 @@ function mountReviewView(options: {
 
 describe('ReviewView progressive excerpt hyperspace routing', () => {
   beforeEach(() => {
+    document.body.innerHTML = '';
     reviewViewExcerptMocks.showMessage.mockReset();
     reviewViewExcerptMocks.resolveProgressiveSelection.mockReset();
     reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReset();
@@ -236,6 +240,10 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       text: 'Selected excerpt text',
     });
     reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
   });
 
   it('merges review excerpts into the current hyperspace session without building stations', async () => {
@@ -273,6 +281,87 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       3000,
       'info',
     );
+
+    wrapper.unmount();
+  });
+
+  it('uses the new Alt+Shift+X hotkey inside review and no longer reacts to Alt+X', async () => {
+    const createFromSelection = vi.fn(async () => ({
+      excerptDocId: 'excerpt-doc-1',
+      topicCardId: 'topic-card-1',
+      sourceBlockId: 'source-block-1',
+      dailyNoteDocId: 'daily-note-1',
+    }));
+    const wrapper = mountReviewView({
+      neuralQueue: createNeuralQueue(),
+      createFromSelection,
+    });
+
+    await flushPromises();
+
+    const legacyEvent = new KeyboardEvent('keydown', {
+      key: 'x',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    wrapper.element.dispatchEvent(legacyEvent);
+    await flushPromises();
+
+    expect(createFromSelection).not.toHaveBeenCalled();
+
+    const nextHotkeyEvent = new KeyboardEvent('keydown', {
+      key: 'x',
+      altKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    wrapper.element.dispatchEvent(nextHotkeyEvent);
+    await flushPromises();
+
+    expect(createFromSelection).toHaveBeenCalledTimes(1);
+    expect(createFromSelection).toHaveBeenCalledWith({
+      sourceBlockId: 'source-block-1',
+      selectedText: 'Selected excerpt text',
+      origin: 'review',
+      currentCardId: 'card-topic-1',
+    });
+
+    wrapper.unmount();
+  });
+
+  it('claims the window-level command request when review owns the current excerpt context', async () => {
+    reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    const createFromSelection = vi.fn(async () => ({
+      excerptDocId: 'excerpt-doc-1',
+      topicCardId: 'topic-card-1',
+      sourceBlockId: 'source-block-1',
+      dailyNoteDocId: 'daily-note-1',
+    }));
+    const wrapper = mountReviewView({
+      neuralQueue: createNeuralQueue(),
+      createFromSelection,
+    });
+
+    await flushPromises();
+
+    const requestEvent = new CustomEvent(PROGRESSIVE_EXCERPT_REQUEST_EVENT, {
+      cancelable: true,
+      detail: { source: 'command' },
+    });
+    const dispatchResult = window.dispatchEvent(requestEvent);
+    await flushPromises();
+
+    expect(dispatchResult).toBe(false);
+    expect(requestEvent.defaultPrevented).toBe(true);
+    expect(createFromSelection).toHaveBeenCalledTimes(1);
+    expect(createFromSelection).toHaveBeenCalledWith({
+      sourceBlockId: 'source-block-1',
+      selectedText: 'Selected excerpt text',
+      origin: 'review',
+      currentCardId: 'card-topic-1',
+    });
 
     wrapper.unmount();
   });

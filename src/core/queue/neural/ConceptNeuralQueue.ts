@@ -14,6 +14,8 @@ import type {
   NeuralActivationKind,
   NeuralActivationTrace,
   NeuralActivationTraceStep,
+  NeuralRoamBatchNode,
+  NeuralRoamBatchSnapshot,
   NeuralFocusNodeKind,
   NeuralHistoryPageRequest,
   NeuralHistoryPageResult,
@@ -70,6 +72,7 @@ export interface ConceptNeuralSessionState {
   currentSessionId: string | null;
   visitedBlocks: string[];
   exhaustedFocuses: string[];
+  currentRoundStartedAt?: number | null;
   seedPool?: FocusPoolPersistedEntry[];
   anchorPool?: FocusPoolPersistedEntry[];
   focusPool?: FocusPoolPersistedEntry[];
@@ -109,6 +112,7 @@ interface TraversalStateSnapshot {
   currentPathIndex: number;
   bookmarkPathIndex: number | null;
   followCurrentNodeOnce: boolean;
+  currentRoundStartedAt: number | null;
 }
 
 interface TraversalResolution {
@@ -197,6 +201,7 @@ export class ConceptNeuralQueue {
   private currentPathIndex = -1;
   private bookmarkPathIndex: number | null = null;
   private followCurrentNodeOnce = false;
+  private currentRoundStartedAt: number | null = null;
   private preloadedNext: PreloadedNextState | null = null;
   private stateVersion = 0;
   private isPreloading = false;
@@ -278,6 +283,7 @@ export class ConceptNeuralQueue {
       this.currentFocus = null;
       this.currentFocusEventId = null;
       this.branchRootNodeId = null;
+      this.currentRoundStartedAt = null;
     }
   }
 
@@ -350,6 +356,7 @@ export class ConceptNeuralQueue {
       this.currentFocus = null;
       this.currentFocusEventId = null;
       this.branchRootNodeId = null;
+      this.currentRoundStartedAt = null;
     }
   }
 
@@ -503,6 +510,7 @@ export class ConceptNeuralQueue {
     this.branchRootNodeId = focusId;
     this.navigationMode = 'explore';
     this.followCurrentNodeOnce = false;
+    this.currentRoundStartedAt = Date.now();
     this.exhaustedFocuses.delete(focusId);
 
     if (options.includeFocusAsFirst) {
@@ -734,6 +742,44 @@ export class ConceptNeuralQueue {
     };
   }
 
+  getCurrentBatchSnapshot(): NeuralRoamBatchSnapshot | null {
+    const navigationState = this.getNavigationState();
+    const focusNodeId = this.currentFocus;
+    const focusState = focusNodeId
+      ? this.seedPool.get(focusNodeId) ?? this.anchorPool.get(focusNodeId) ?? null
+      : null;
+    const viewedCount = focusNodeId
+      ? Math.max(0, Number(this.seedPool.get(focusNodeId)?.neighborsViewed) || 0)
+      : 0;
+    const focusPreview = focusState?.preview
+      ?? (focusNodeId ? this.findLatestHistoryEntry(focusNodeId)?.nodePreview ?? this.compressText(focusNodeId) : null);
+
+    return {
+      kind: 'orbit-round',
+      engineMode: 'orbit',
+      navigationState,
+      focusNodeId,
+      focusNodePreview: focusPreview,
+      currentNodeId: navigationState.currentNodeId,
+      roundSize: this.neighborsPerRound,
+      viewedCount,
+      remainingCount: Math.max(0, this.neighborsPerRound - viewedCount),
+      roundNodes: this.buildCurrentRoundNodes(),
+      recentPath: this.buildRecentPathEntries(),
+      sourceSnapshot: this.getSeedSnapshot().map((entry) => ({
+        nodeId: entry.nodeId,
+        nodePreview: entry.nodePreview,
+        nodeKind: 'concept',
+        role: 'orbit-center',
+        priority: entry.priority,
+        addedAt: entry.addedAt,
+        visitedAt: entry.visitedAt,
+      })),
+      seedSnapshot: this.getSeedSnapshot(),
+      anchorSnapshot: this.getAnchorSnapshot(),
+    };
+  }
+
   setNavigationMode(mode: NeuralNavigationMode): void {
     this.invalidatePreload();
     this.navigationMode = mode;
@@ -893,6 +939,7 @@ export class ConceptNeuralQueue {
       currentSessionId: this.currentSessionId,
       visitedBlocks: Array.from(this.visitedBlocks),
       exhaustedFocuses: Array.from(this.exhaustedFocuses),
+      currentRoundStartedAt: this.currentRoundStartedAt,
     };
   }
 
@@ -988,6 +1035,9 @@ export class ConceptNeuralQueue {
     this.visitedBlocks = visitedBlocks;
     this.exhaustedFocuses = exhaustedFocuses;
     this.followCurrentNodeOnce = false;
+    this.currentRoundStartedAt = Number.isFinite(Number(state.currentRoundStartedAt))
+      ? Number(state.currentRoundStartedAt)
+      : null;
   }
 
   async normalizeSeedPoolToConceptCards(
@@ -1032,6 +1082,7 @@ export class ConceptNeuralQueue {
       this.currentFocus = null;
       this.currentFocusEventId = null;
       this.branchRootNodeId = null;
+      this.currentRoundStartedAt = null;
       if (this.navigationMode === 'follow') {
         this.navigationMode = 'explore';
       }
@@ -1056,6 +1107,7 @@ export class ConceptNeuralQueue {
         this.currentFocus = null;
         this.currentFocusEventId = null;
         this.branchRootNodeId = null;
+        this.currentRoundStartedAt = null;
       }
       return;
     }
@@ -1097,6 +1149,7 @@ export class ConceptNeuralQueue {
         this.currentFocus = null;
         this.currentFocusEventId = null;
         this.branchRootNodeId = null;
+        this.currentRoundStartedAt = null;
       }
       return;
     }
@@ -1423,6 +1476,48 @@ export class ConceptNeuralQueue {
     return path;
   }
 
+  private buildCurrentRoundNodes(): NeuralRoamBatchNode[] {
+    if (!this.currentFocus || !this.currentSessionId) {
+      return [];
+    }
+
+    const roundStart = this.currentRoundStartedAt ?? 0;
+    const entries = this.historyStore.toArray()
+      .filter((entry) => {
+        if (entry.sessionId !== this.currentSessionId) {
+          return false;
+        }
+        if (entry.visitedAt < roundStart) {
+          return false;
+        }
+        return entry.focusId === this.currentFocus || entry.nodeId === this.currentFocus;
+      })
+      .slice(-this.neighborsPerRound);
+
+    return entries.map((entry) => ({
+      eventId: entry.eventId,
+      nodeId: entry.nodeId,
+      nodePreview: entry.nodePreview,
+      isVirtual: entry.isVirtual,
+      associationType: entry.associationType,
+      reason: entry.reason,
+      visitedAt: entry.visitedAt,
+      sourceNodeId: entry.sourceNodeId,
+      sourceEventId: entry.sourceEventId,
+    }));
+  }
+
+  private buildRecentPathEntries(limit = 8): NeuralRoamHistoryEntry[] {
+    if (!this.currentSessionId) {
+      return [];
+    }
+
+    return this.historyStore.toArray()
+      .filter((entry) => entry.sessionId === this.currentSessionId)
+      .slice(-Math.max(1, Math.min(limit, 32)))
+      .map((entry) => ({ ...entry }));
+  }
+
   private resolveLatestSessionId(history: NeuralRoamHistoryEntry[]): string | null {
     if (!history.length) {
       return null;
@@ -1455,6 +1550,7 @@ export class ConceptNeuralQueue {
     this.currentSessionId = null;
     this.navigationMode = 'explore';
     this.followCurrentNodeOnce = false;
+    this.currentRoundStartedAt = null;
 
     for (const focus of this.seedPool.values()) {
       focus.neighborsViewed = 0;
@@ -1482,6 +1578,7 @@ export class ConceptNeuralQueue {
       currentPathIndex: this.currentPathIndex,
       bookmarkPathIndex: this.bookmarkPathIndex,
       followCurrentNodeOnce: this.followCurrentNodeOnce,
+      currentRoundStartedAt: this.currentRoundStartedAt,
     };
   }
 
@@ -1507,6 +1604,7 @@ export class ConceptNeuralQueue {
     this.currentPathIndex = snapshot.currentPathIndex;
     this.bookmarkPathIndex = snapshot.bookmarkPathIndex;
     this.followCurrentNodeOnce = snapshot.followCurrentNodeOnce;
+    this.currentRoundStartedAt = snapshot.currentRoundStartedAt;
   }
 
   private invalidatePreload(): void {
@@ -1569,6 +1667,7 @@ export class ConceptNeuralQueue {
         }
         snapshot.currentFocusEventId = this.findFocusEventIdInHistory(snapshot.history, snapshot.currentFocus, snapshot.currentSessionId);
         snapshot.branchRootNodeId = snapshot.currentFocus;
+        snapshot.currentRoundStartedAt = Date.now();
       }
 
       const neighborsResult = await this.queryEngine.fetchNeighbors(snapshot.currentFocus);
@@ -1620,6 +1719,7 @@ export class ConceptNeuralQueue {
         }
         snapshot.currentFocus = null;
         snapshot.currentFocusEventId = null;
+        snapshot.currentRoundStartedAt = null;
         continue;
       }
 
@@ -1695,6 +1795,7 @@ export class ConceptNeuralQueue {
       snapshot.currentFocus = nodeId;
       snapshot.currentFocusEventId = historyEntry.eventId;
       snapshot.branchRootNodeId = historyEntry.branchRootNodeId ?? nodeId;
+      snapshot.currentRoundStartedAt = historyEntry.visitedAt;
     }
     const maxEntries = this.resolveHistoryLimit();
     if (snapshot.history.length > maxEntries) {
@@ -1726,6 +1827,7 @@ export class ConceptNeuralQueue {
     }
     snapshot.currentFocus = null;
     snapshot.currentFocusEventId = null;
+    snapshot.currentRoundStartedAt = null;
   }
 
   private selectNextFocusState(snapshot: TraversalStateSnapshot): string | null {

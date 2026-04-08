@@ -117,6 +117,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             props: {
                 app: plugin.app,
                 i18n: plugin.i18n || {},
+                mode: 'dialog',
                 title: title,
                 headerVariant,
                 queue,

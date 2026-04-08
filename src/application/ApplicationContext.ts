@@ -67,7 +67,12 @@ import { ProgressiveReadingService } from '@/application/services/ProgressiveRea
 import { ReviewScopeCardCreationSyncService } from '@/application/services/ReviewScopeCardCreationSyncService';
 import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
 import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
+import { AIDailyNoteDraftService } from '@/application/services/AIDailyNoteDraftService';
+import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
+import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
+import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
+import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
@@ -98,6 +103,8 @@ interface ApplicationServiceRegistry {
   selectionExcerptService: SelectionExcerptService;
   topicDerivedItemService: TopicDerivedItemService;
   cardContentQueryService: CardContentQueryService;
+  reviewAIWorkbenchRegistry: ReviewAIWorkbenchRegistry;
+  aiWorkbenchService: AIWorkbenchService;
   dialogManager: DialogManager;
   menuManager: MenuManager;
   tabManager: TabManager;
@@ -388,6 +395,22 @@ export class ApplicationContext {
     // ✅ 卡片内容查询服务
     this.registerServiceFactory('cardContentQueryService', () => {
       return new CardContentQueryService();
+    });
+
+    this.registerServiceFactory('reviewAIWorkbenchRegistry', (context) => {
+      const siyuanPort = new AISiyuanAdapter(context.getPlugin().app);
+      return new ReviewAIWorkbenchRegistry({
+        getAISettings: () => context.getSettingsService().getSettings().ai,
+        cardContentQueryService: context.getCardContentQueryService(),
+        getXiuyuanApplicationService: () => context.getXiuyuanApplicationService(),
+        siyuanPort,
+        draftService: new AIDailyNoteDraftService(siyuanPort),
+        llmPort: new OpenAICompatibleLLMAdapter(),
+      });
+    });
+
+    this.registerServiceFactory('aiWorkbenchService', (context) => {
+      return context.getReviewAIWorkbenchRegistry().getStandaloneService();
     });
     
     // TODO: Phase 1 Task 2 - 注册 UI 管理器工厂
@@ -1582,6 +1605,14 @@ export class ApplicationContext {
    */
   getCardContentQueryService(): CardContentQueryService {
     return this.getService('cardContentQueryService');
+  }
+
+  getReviewAIWorkbenchRegistry(): ReviewAIWorkbenchRegistry {
+    return this.getService('reviewAIWorkbenchRegistry');
+  }
+
+  getAIWorkbenchService(): AIWorkbenchService {
+    return this.getService('aiWorkbenchService');
   }
 
   /**

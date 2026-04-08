@@ -173,6 +173,38 @@ export interface ProgressiveReadingSettings {
     dailyTraceEnabled: boolean;
 }
 
+export interface AIPromptTemplates {
+    tutor: string;
+    explain: string;
+    cardCandidate: string;
+}
+
+export type AIPromptPresetId = 'recommended';
+
+export interface AIPromptProfile {
+    preset: AIPromptPresetId;
+    overrideEnabled: boolean;
+    overrideTemplate: string;
+}
+
+export interface AIPromptProfileSet {
+    tutor: AIPromptProfile;
+    explain: AIPromptProfile;
+    cardCandidate: AIPromptProfile;
+}
+
+export interface AISettings {
+    enabled: boolean;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    timeoutMs: number;
+    temperature: number;
+    defaultOutputLanguage: string;
+    prompts: AIPromptTemplates;
+    promptProfiles: AIPromptProfileSet;
+}
+
 export interface FilterGroupDefinition {
     id: string;
     name: string;
@@ -345,6 +377,7 @@ export interface PluginSettings {
     quickCard: QuickCardSettings;
     drill: DrillSettings;
     progressiveReading: ProgressiveReadingSettings;
+    ai: AISettings;
     queues: QueueSettings;
 
     // 保存的筛选器
@@ -356,10 +389,24 @@ export interface PluginSettings {
 
 export function normalizePluginSettings(settings: PluginSettings): { settings: PluginSettings; changed: boolean } {
     let changed = false;
+    const normalizedPromptProfiles = normalizeAIPromptProfiles(
+        settings.ai?.promptProfiles,
+        settings.ai?.prompts,
+    );
+    const normalizedPrompts = resolveAIEffectivePromptTemplates({
+        prompts: settings.ai?.prompts,
+        promptProfiles: normalizedPromptProfiles,
+    });
     const normalized: PluginSettings = {
         ...settings,
         fsrs: { ...settings.fsrs },
         scheduler: settings.scheduler ? { ...settings.scheduler } : settings.scheduler,
+        ai: {
+            ...DEFAULT_SETTINGS.ai,
+            ...(settings.ai || {}),
+            prompts: normalizedPrompts,
+            promptProfiles: normalizedPromptProfiles,
+        },
         queues: {
             ...DEFAULT_SETTINGS.queues,
             ...(settings.queues || {}),
@@ -475,6 +522,36 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         changed = true;
     }
 
+    if (!settings.ai) {
+        changed = true;
+    } else {
+        const sourceAi = settings.ai;
+        const normalizedAi = normalized.ai;
+        if (
+            sourceAi.enabled !== normalizedAi.enabled
+            || sourceAi.baseUrl !== normalizedAi.baseUrl
+            || sourceAi.apiKey !== normalizedAi.apiKey
+            || sourceAi.model !== normalizedAi.model
+            || sourceAi.timeoutMs !== normalizedAi.timeoutMs
+            || sourceAi.temperature !== normalizedAi.temperature
+            || sourceAi.defaultOutputLanguage !== normalizedAi.defaultOutputLanguage
+            || sourceAi.prompts?.tutor !== normalizedAi.prompts.tutor
+            || sourceAi.prompts?.explain !== normalizedAi.prompts.explain
+            || sourceAi.prompts?.cardCandidate !== normalizedAi.prompts.cardCandidate
+            || sourceAi.promptProfiles?.tutor?.preset !== normalizedAi.promptProfiles.tutor.preset
+            || sourceAi.promptProfiles?.tutor?.overrideEnabled !== normalizedAi.promptProfiles.tutor.overrideEnabled
+            || sourceAi.promptProfiles?.tutor?.overrideTemplate !== normalizedAi.promptProfiles.tutor.overrideTemplate
+            || sourceAi.promptProfiles?.explain?.preset !== normalizedAi.promptProfiles.explain.preset
+            || sourceAi.promptProfiles?.explain?.overrideEnabled !== normalizedAi.promptProfiles.explain.overrideEnabled
+            || sourceAi.promptProfiles?.explain?.overrideTemplate !== normalizedAi.promptProfiles.explain.overrideTemplate
+            || sourceAi.promptProfiles?.cardCandidate?.preset !== normalizedAi.promptProfiles.cardCandidate.preset
+            || sourceAi.promptProfiles?.cardCandidate?.overrideEnabled !== normalizedAi.promptProfiles.cardCandidate.overrideEnabled
+            || sourceAi.promptProfiles?.cardCandidate?.overrideTemplate !== normalizedAi.promptProfiles.cardCandidate.overrideTemplate
+        ) {
+            changed = true;
+        }
+    }
+
     if (!settings.queues?.neuralRoam?.hyperspace) {
         changed = true;
     } else {
@@ -526,6 +603,146 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
         enabled: true,
         useBlacklistFallback: true
     }
+};
+
+export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
+    tutor: [
+        '你是帮助用户搭建隐性知识网络的 AI 导师。',
+        '请把重点放在“当前这轮复习或当前这条路径里，什么值得继续想”上，而不是替用户提前定稿。',
+        '默认围绕这些角度组织你的判断：当前批次或路径里的核心线索、值得辨析的边界与张力、关系或因果、整体位置、下一步追哪条线、哪些点值得延后制卡。',
+        '当上下文是 orbit 时，优先结合当前 round、focus 和 recent path；当上下文是 hyperspace 时，优先结合当前节点、路径位置和激活来源，不要假装它也是固定批次。',
+        '除非 requestBatchSummary=true 或用户明确要求，否则不要写成正式总结稿。',
+    ].join('\n'),
+    explain: [
+        '你是一位擅长帮助学习者“真正理解当前卡片”的学习教练。你的任务不是简单复述答案，而是帮助用户看清：这张卡在抓什么、为什么这样抓、它和哪些相近概念容易混、以后什么时候该想起它。',
+        '你会收到一个 JSON payload，其中至少包含 language、context.currentCard、context.selectedBlocks、context.queueProgress、context.neuralBatch，以及当前卡片的来源材料。',
+        '你的工作对象是“正在复习或理解这张卡片的现在的自己”，不是未来制卡系统。',
+        '严格以当前卡片和当前材料为锚点；可以做少量必要的背景桥接，但凡超出材料直接支持的地方，必须明确说明“这是补充理解，不是材料原文直接说明”。',
+        '不要把回答写成百科条目，不要空泛复述术语。解释的目标是“下次想得起来、分得清、用得上”，不是“看起来讲得很完整”。',
+        '如果当前卡是阅读型 topic / concept，请把它当作理解节点，而不是问答卡；如果当前卡是检索型卡片，可以先用一句话点明答案或工作定义，但不要整段重复答案。',
+        '请先在内部按这个顺序思考，再输出结果：1. 给出 1-2 句抓本质的工作定义；2. 判断这张卡真正测试的点；3. 找出最关键的易错点或混淆边界；4. 把它放回知识网络；5. 提取以后可触发回忆的现实线索。',
+        '输出时只保留压缩结果，不要输出你的中间推理草稿。',
+    ].join('\n'),
+    cardCandidate: [
+        '你是一位擅长把知识转化为“可理解、可回忆、可应用”的学习教练。',
+        '你会收到一个 JSON，里面至少包含 mode、allowedTemplateIds、context、learnerProfile。',
+        '你的任务不是直接复述材料，而是先在内部建立结构化理解，再把关键点压缩成少而精的高质量候选卡。',
+        '请在内部遵循 Andy 的方法论思考，但不要把中间草稿直接输出给用户：先给工作定义，再从特性和倾向、辨析异同、部分和整体、因果关系、意义和影响五个视角理解材料，最后整合成可迁移的理解。',
+        '优先提取边界、关系、作用、适用场景、常见误解；不重要的视角可以判断为当前不关键，不要硬凑。',
+        '候选卡默认目标区间是 6-10 张，但这是理想区间，不是硬指标。材料不够清楚、卡点不够稳定时，宁可少出，也不要硬凑；必要时允许只输出 0-3 张真正值得复习的候选。',
+        '请把这些卡片质量标准当成硬约束：一题只测一个点；问法具体不空泛；答案短且稳定；需要回忆；不能靠题面直接猜出来。',
+        '优先产出辨析、因果、应用、边界、触发器类候选；纯定义复述题只保留少数真正关键的锚点。',
+        '如果材料没说清楚，请明确写“材料未说明”或“这里有不确定性”，不要脑补。',
+        '默认把 learnerProfile 视为：已有水平=略懂，目标=理解概念，输出深度=标准；若 payload 已提供，以 payload 为准。',
+        '当 mode=qa 时，优先输出最适合自测的问答候选；当 mode=cloze 时，只保留真正稳定且边界清晰的短事实或关键短语；当 mode=concept-descriptor 时，优先提炼概念定义、关键属性、对比线索和适用边界。',
+    ].join('\n'),
+};
+
+export function createDefaultAIPromptProfileSet(): AIPromptProfileSet {
+    return {
+        tutor: {
+            preset: 'recommended',
+            overrideEnabled: false,
+            overrideTemplate: '',
+        },
+        explain: {
+            preset: 'recommended',
+            overrideEnabled: false,
+            overrideTemplate: '',
+        },
+        cardCandidate: {
+            preset: 'recommended',
+            overrideEnabled: false,
+            overrideTemplate: '',
+        },
+    };
+}
+
+function normalizePromptText(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function resolvePromptPresetTemplate(settingKey: keyof AIPromptTemplates, preset: AIPromptPresetId): string {
+    switch (preset) {
+        case 'recommended':
+        default:
+            return DEFAULT_AI_PROMPTS[settingKey];
+    }
+}
+
+function normalizePromptProfile(
+    settingKey: keyof AIPromptTemplates,
+    source: unknown,
+    legacyPrompt: unknown,
+): AIPromptProfile {
+    const defaults = createDefaultAIPromptProfileSet()[settingKey];
+    if (typeof source === 'object' && source !== null) {
+        const candidate = source as Partial<AIPromptProfile>;
+        const preset = candidate.preset === 'recommended' ? candidate.preset : defaults.preset;
+        const overrideTemplate = normalizePromptText(candidate.overrideTemplate);
+        const overrideEnabled = candidate.overrideEnabled === true && overrideTemplate.length > 0;
+        return {
+            preset,
+            overrideEnabled,
+            overrideTemplate,
+        };
+    }
+
+    const recommended = resolvePromptPresetTemplate(settingKey, defaults.preset);
+    const legacy = normalizePromptText(legacyPrompt);
+    if (legacy.length > 0 && legacy !== recommended) {
+        return {
+            preset: defaults.preset,
+            overrideEnabled: true,
+            overrideTemplate: legacy,
+        };
+    }
+
+    return defaults;
+}
+
+export function normalizeAIPromptProfiles(
+    promptProfiles: Partial<AIPromptProfileSet> | undefined,
+    legacyPrompts?: Partial<AIPromptTemplates> | undefined,
+): AIPromptProfileSet {
+    return {
+        tutor: normalizePromptProfile('tutor', promptProfiles?.tutor, legacyPrompts?.tutor),
+        explain: normalizePromptProfile('explain', promptProfiles?.explain, legacyPrompts?.explain),
+        cardCandidate: normalizePromptProfile('cardCandidate', promptProfiles?.cardCandidate, legacyPrompts?.cardCandidate),
+    };
+}
+
+export function resolveAIEffectivePromptTemplate(
+    settingKey: keyof AIPromptTemplates,
+    input: Pick<AISettings, 'prompts' | 'promptProfiles'> | Partial<Pick<AISettings, 'prompts' | 'promptProfiles'>>,
+): string {
+    const profile = normalizeAIPromptProfiles(input.promptProfiles, input.prompts)[settingKey];
+    if (profile.overrideEnabled && profile.overrideTemplate.length > 0) {
+        return profile.overrideTemplate;
+    }
+    return resolvePromptPresetTemplate(settingKey, profile.preset);
+}
+
+export function resolveAIEffectivePromptTemplates(
+    input: Pick<AISettings, 'prompts' | 'promptProfiles'> | Partial<Pick<AISettings, 'prompts' | 'promptProfiles'>>,
+): AIPromptTemplates {
+    return {
+        tutor: resolveAIEffectivePromptTemplate('tutor', input),
+        explain: resolveAIEffectivePromptTemplate('explain', input),
+        cardCandidate: resolveAIEffectivePromptTemplate('cardCandidate', input),
+    };
+}
+
+export const DEFAULT_AI_SETTINGS: AISettings = {
+    enabled: false,
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    model: 'gpt-4.1-mini',
+    timeoutMs: 30000,
+    temperature: 0.3,
+    defaultOutputLanguage: 'zh-CN',
+    prompts: DEFAULT_AI_PROMPTS,
+    promptProfiles: createDefaultAIPromptProfileSet(),
 };
 
 /** 默认设置 */
@@ -609,6 +826,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         altXExcerptEnabled: false,
         dailyTraceEnabled: false,
     },
+    ai: DEFAULT_AI_SETTINGS,
     queues: {
         defaultQueue: 'retrieval',
         addToOutstandingEveryNth: 2,

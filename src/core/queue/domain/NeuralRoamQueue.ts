@@ -19,6 +19,7 @@ import {
   type NeuralRoamHistoryEntry,
   type QueueReviewResult,
   type NeuralRoamSeedEntry,
+  type NeuralRoamBatchSnapshot,
 } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem as ReviewQueueItem } from '../types';
@@ -1095,6 +1096,16 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     await this.ensureInitialLoad();
     await this.getActiveEngine().clearAnchors();
     await this.save();
+  }
+
+  public getCurrentBatchSnapshot(): NeuralRoamBatchSnapshot | null {
+    const engine = this.getActiveEngine() as {
+      getCurrentBatchSnapshot?: () => NeuralRoamBatchSnapshot | null;
+    };
+    if (typeof engine.getCurrentBatchSnapshot !== 'function') {
+      return null;
+    }
+    return engine.getCurrentBatchSnapshot();
   }
 
   public async startRoamingFromFocus(

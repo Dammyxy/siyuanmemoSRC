@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PluginSettings } from '../settings';
 import {
   ACTIVE_FSRS_VERSION,
+  createDefaultAIPromptProfileSet,
   DEFAULT_FSRS_WEIGHTS,
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
@@ -118,6 +119,82 @@ describe('settings normalization', () => {
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.progressiveReading.altXExcerptEnabled).toBe(false);
     expect(normalized.settings.progressiveReading.dailyTraceEnabled).toBe(false);
+  });
+
+  it('fills AI defaults when ai settings are missing', () => {
+    const legacy = cloneSettings();
+    delete (legacy as Partial<typeof legacy>).ai;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.ai).toEqual(DEFAULT_SETTINGS.ai);
+  });
+
+  it('fills nested AI prompt defaults when partially configured', () => {
+    const legacy = cloneSettings();
+    legacy.ai = {
+      ...DEFAULT_SETTINGS.ai,
+      prompts: {
+        tutor: 'custom tutor',
+      },
+    } as typeof legacy.ai;
+    delete (legacy.ai as Partial<typeof legacy.ai>).promptProfiles;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.ai.prompts.tutor).toBe('custom tutor');
+    expect(normalized.settings.ai.prompts.explain).toBe(DEFAULT_SETTINGS.ai.prompts.explain);
+    expect(normalized.settings.ai.prompts.cardCandidate).toBe(DEFAULT_SETTINGS.ai.prompts.cardCandidate);
+    expect(normalized.settings.ai.promptProfiles.tutor).toEqual({
+      preset: 'recommended',
+      overrideEnabled: true,
+      overrideTemplate: 'custom tutor',
+    });
+  });
+
+  it('ships layered AI default prompts aligned with tutor, explain, and candidate tasks', () => {
+    expect(DEFAULT_SETTINGS.ai.prompts.tutor).toContain('AI 导师');
+    expect(DEFAULT_SETTINGS.ai.prompts.tutor).toContain('当前批次或路径里的核心线索');
+    expect(DEFAULT_SETTINGS.ai.prompts.explain).toContain('学习教练');
+    expect(DEFAULT_SETTINGS.ai.prompts.explain).toContain('工作定义');
+    expect(DEFAULT_SETTINGS.ai.prompts.explain).toContain('补充理解，不是材料原文直接说明');
+    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate).toContain('6-10 张');
+    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate).toContain('五个视角');
+    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate).toContain('宁可少出');
+    expect(DEFAULT_SETTINGS.ai.promptProfiles).toEqual(createDefaultAIPromptProfileSet());
+  });
+
+  it('migrates legacy prompt overrides into prompt profiles', () => {
+    const legacy = cloneSettings();
+    delete (legacy.ai as Partial<typeof legacy.ai>).promptProfiles;
+    legacy.ai.prompts = {
+      tutor: 'custom tutor profile',
+      explain: DEFAULT_SETTINGS.ai.prompts.explain,
+      cardCandidate: 'custom card profile',
+    };
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.ai.prompts.tutor).toBe('custom tutor profile');
+    expect(normalized.settings.ai.prompts.cardCandidate).toBe('custom card profile');
+    expect(normalized.settings.ai.promptProfiles.tutor).toEqual({
+      preset: 'recommended',
+      overrideEnabled: true,
+      overrideTemplate: 'custom tutor profile',
+    });
+    expect(normalized.settings.ai.promptProfiles.explain).toEqual({
+      preset: 'recommended',
+      overrideEnabled: false,
+      overrideTemplate: '',
+    });
+    expect(normalized.settings.ai.promptProfiles.cardCandidate).toEqual({
+      preset: 'recommended',
+      overrideEnabled: true,
+      overrideTemplate: 'custom card profile',
+    });
   });
 
   it('is idempotent after first normalization', () => {

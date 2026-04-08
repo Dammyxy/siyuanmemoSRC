@@ -344,12 +344,12 @@
         <h3>{{ t('progressiveReadingSettingsTitle', '渐进阅读') }}</h3>
 
         <div class="form-item">
-          <label>{{ t('progressiveAltXExcerptEnabled', '启用 Alt+X 自动摘录') }}</label>
+          <label>{{ t('progressiveAltXExcerptEnabled', '启用摘抄快捷键（默认 ⌥⇧X）') }}</label>
           <div class="form-control">
             <input type="checkbox" v-model="settings.progressiveAltXExcerptEnabled">
           </div>
           <p class="form-hint">
-            {{ t('progressiveAltXExcerptEnabledHint', '关闭时插件不再接管 Alt+X 摘录；原生 Protyle 中只保留思源自己的最近外观功能。') }}
+            {{ t('progressiveAltXExcerptEnabledHint', '开启后插件会注册 ⌥⇧X 为摘抄命令；思源原生 Alt+X 仍用于最近外观，可在思源快捷键设置中修改插件命令。') }}
           </p>
         </div>
 
@@ -583,6 +583,144 @@
         </div>
       </div>
 
+      <div v-show="activeTab === 'ai'" class="settings-section">
+        <h3>{{ t('aiSettingsTitle', 'AI 工作台') }}</h3>
+        <p class="form-hint form-hint--section">
+          {{ t('aiSettingsIntro', '统一配置 AI 导师、AI 解释卡片和 AI 辅助制卡。v1 默认停留在工作台，不会自动写回原文。') }}
+        </p>
+
+        <div class="form-item">
+          <label>{{ t('aiEnabled', '启用 AI 功能') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="aiSettings.enabled">
+          </div>
+          <p class="form-hint">
+            {{ t('aiEnabledHint', '关闭后入口仍保留，但执行前会提示先启用 AI。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiBaseUrl', 'Base URL') }}</label>
+          <div class="form-control">
+            <input type="text" v-model="aiSettings.baseUrl">
+          </div>
+          <p class="form-hint">
+            {{ t('aiBaseUrlHint', '使用 OpenAI 兼容 Chat Completions 服务地址，例如 https://api.openai.com/v1。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiApiKey', 'API Key') }}</label>
+          <div class="form-control">
+            <input type="password" v-model="aiSettings.apiKey">
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiModel', '模型名') }}</label>
+          <div class="form-control">
+            <input type="text" v-model="aiSettings.model">
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiTimeoutMs', '超时时间（毫秒）') }}</label>
+          <div class="form-control">
+            <input type="number" min="1000" max="300000" step="1000" v-model.number="aiSettings.timeoutMs">
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiTemperature', 'Temperature') }}</label>
+          <div class="form-control">
+            <input type="range" min="0" max="2" step="0.05" v-model.number="aiSettings.temperature">
+            <span class="form-value">{{ aiSettings.temperature.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiDefaultOutputLanguage', '默认输出语言') }}</label>
+          <div class="form-control">
+            <input type="text" v-model="aiSettings.defaultOutputLanguage">
+          </div>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h4>{{ t('aiPromptTemplates', 'Prompt 模板') }}</h4>
+
+        <div
+          v-for="preset in aiPromptPresetCards"
+          :key="preset.settingKey"
+          class="ai-prompt-preset-card"
+        >
+          <div class="ai-prompt-preset-card__head">
+            <div>
+              <div class="ai-prompt-preset-card__title">{{ preset.title }}</div>
+              <p class="ai-prompt-preset-card__summary">{{ preset.audience }}</p>
+            </div>
+            <button class="btn-small" type="button" @click="resetAiPromptTemplate(preset.settingKey)">
+              {{ t('aiRestoreRecommendedPrompt', '恢复推荐模板') }}
+            </button>
+          </div>
+
+          <div class="ai-prompt-preset-card__grid">
+            <div class="ai-prompt-preset-card__row ai-prompt-preset-card__row--status">
+              <span>{{ t('aiPromptCurrentStatus', '当前状态') }}</span>
+              <p class="ai-prompt-preset-card__status-copy">
+                <span
+                  class="ai-prompt-preset-card__status-badge"
+                  :class="`ai-prompt-preset-card__status-badge--${preset.usageState}`"
+                >
+                  {{ preset.usageLabel }}
+                </span>
+              </p>
+              <p class="ai-prompt-preset-card__status-hint">{{ preset.usageHint }}</p>
+            </div>
+            <div class="ai-prompt-preset-card__row">
+              <span>{{ t('aiPromptAudience', '适用对象') }}</span>
+              <p>{{ preset.audience }}</p>
+            </div>
+            <div class="ai-prompt-preset-card__row">
+              <span>{{ t('aiPromptBehavior', '默认行为') }}</span>
+              <p>{{ preset.behavior }}</p>
+            </div>
+            <div class="ai-prompt-preset-card__row">
+              <span>{{ t('aiPromptOutput', '输出特点') }}</span>
+              <p>{{ preset.output }}</p>
+            </div>
+          </div>
+
+          <div class="ai-prompt-preset-card__actions">
+            <button class="btn-small" type="button" @click="toggleAiPromptAdvancedEditor(preset.settingKey)">
+              {{
+                aiPromptAdvancedEditors[preset.settingKey]
+                  ? t('aiHideAdvancedEditor', '收起高级编辑')
+                  : t('aiShowAdvancedEditor', '高级编辑')
+              }}
+            </button>
+          </div>
+
+          <div v-if="aiPromptAdvancedEditors[preset.settingKey]" class="ai-prompt-preset-card__editor">
+            <label class="ai-prompt-preset-card__editor-label">
+              {{
+                preset.settingKey === 'tutor'
+                  ? t('aiTutorPrompt', 'AI 导师 Prompt')
+                  : preset.settingKey === 'explain'
+                    ? t('aiExplainPrompt', 'AI 解释 Prompt')
+                    : t('aiCardCandidatePrompt', 'AI 制卡 Prompt')
+              }}
+            </label>
+            <p class="form-hint form-hint--section">{{ preset.usageHint }}</p>
+            <textarea
+              v-model="aiSettings.prompts[preset.settingKey]"
+              :rows="preset.settingKey === 'cardCandidate' ? 12 : 10"
+              class="form-textarea"
+            ></textarea>
+          </div>
+        </div>
+      </div>
+
       <div v-show="activeTab === 'about'" class="settings-section about-section">
         <div class="guide-section">
           <h4>ℹ️ About</h4>
@@ -604,13 +742,30 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { DEFAULT_FSRS_WEIGHTS, DEFAULT_SETTINGS, FSRS_WEIGHT_COUNT, type FilterGroupDefinition, type FSRSParameters, type QueueSettings, type SchedulerConfig, type QuickCardSettings } from '../../types';
+import { AI_PROMPT_PRESET_DESCRIPTORS, getRecommendedPromptTemplate } from '@/application/services/AIPromptComposer';
+import {
+  createDefaultAIPromptProfileSet,
+  DEFAULT_AI_SETTINGS,
+  DEFAULT_FSRS_WEIGHTS,
+  DEFAULT_SETTINGS,
+  FSRS_WEIGHT_COUNT,
+  normalizeAIPromptProfiles,
+  resolveAIEffectivePromptTemplates,
+  type AISettings,
+  type FilterGroupDefinition,
+  type FSRSParameters,
+  type QueueSettings,
+  type SchedulerConfig,
+  type QuickCardSettings,
+} from '../../types';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
 
 type OptimizationConfig = Record<string, unknown>;
 type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
 type CleanupMode = 'safe' | 'full';
+type AIPromptSettingKey = keyof AISettings['prompts'];
+type AIPromptUsageState = 'recommended' | 'custom' | 'empty';
 type CleanupScanResult = {
   totalBlocks: number;
   removableBlocks: number;
@@ -660,6 +815,54 @@ function mergeQuickCardSettings(source?: Partial<QuickCardSettings>): QuickCardS
 
 function createDefaultQueueSettings(): QueueSettings {
   return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.queues)) as QueueSettings;
+}
+
+function createDefaultAISettings(): AISettings {
+  return JSON.parse(JSON.stringify(DEFAULT_AI_SETTINGS)) as AISettings;
+}
+
+function mergeAISettings(source?: Partial<AISettings>): AISettings {
+  const defaults = createDefaultAISettings();
+  const promptProfiles = normalizeAIPromptProfiles(source?.promptProfiles, source?.prompts);
+  const prompts = resolveAIEffectivePromptTemplates({
+    prompts: source?.prompts,
+    promptProfiles,
+  });
+  return {
+    ...defaults,
+    ...(source || {}),
+    prompts,
+    promptProfiles,
+  };
+}
+
+function getRecommendedPromptTemplateForSetting(settingKey: AIPromptSettingKey): string {
+  return getRecommendedPromptTemplate(settingKey === 'cardCandidate' ? 'card-candidate' : settingKey);
+}
+
+function resetAiPromptToRecommended(settingsState: AISettings, settingKey: AIPromptSettingKey): void {
+  switch (settingKey) {
+    case 'tutor':
+      settingsState.prompts.tutor = getRecommendedPromptTemplateForSetting('tutor');
+      settingsState.promptProfiles.tutor = {
+        ...createDefaultAIPromptProfileSet().tutor,
+      };
+      return;
+    case 'explain':
+      settingsState.prompts.explain = getRecommendedPromptTemplateForSetting('explain');
+      settingsState.promptProfiles.explain = {
+        ...createDefaultAIPromptProfileSet().explain,
+      };
+      return;
+    case 'cardCandidate':
+      settingsState.prompts.cardCandidate = getRecommendedPromptTemplateForSetting('cardCandidate');
+      settingsState.promptProfiles.cardCandidate = {
+        ...createDefaultAIPromptProfileSet().cardCandidate,
+      };
+      return;
+    default:
+      return;
+  }
 }
 
 function mergeQueueSettings(source?: Partial<QueueSettings>): QueueSettings {
@@ -717,6 +920,7 @@ const props = defineProps<{
   incrementalSettings?: { autoCardEnabled: boolean };
   quickCardSettings?: Partial<QuickCardSettings>;  // 🆕 快速制卡配置
   progressiveReadingSettings?: { altXExcerptEnabled?: boolean; dailyTraceEnabled?: boolean };
+  aiSettings?: Partial<AISettings>;
   i18n?: Record<string, string>;
   defaultTab?: string;
   queueCount?: number;
@@ -735,12 +939,13 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-type SettingsTabKey = 'study' | 'capture-sync' | 'neural' | 'about';
+type SettingsTabKey = 'study' | 'capture-sync' | 'neural' | 'ai' | 'about';
 
 function normalizeSettingsTabKey(tab?: string): SettingsTabKey {
   switch (tab) {
   case 'capture-sync':
   case 'neural':
+  case 'ai':
   case 'about':
   case 'study':
     return tab;
@@ -754,12 +959,68 @@ const tabs = computed<Array<{ key: SettingsTabKey; label: string; icon: string }
   { key: 'study', label: t('settingsStudyTab', '学习与队列'), icon: '#iconSettings' },
   { key: 'capture-sync', label: t('settingsCaptureSyncTab', '制卡与同步'), icon: '#iconSettings' },
   { key: 'neural', label: t('settingsNeuralTab', '神经漫游'), icon: '#iconSettings' },
+  { key: 'ai', label: t('settingsAiTab', 'AI'), icon: '#iconSparkles' },
   { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo' },
 ]);
 
 const activeTab = ref<SettingsTabKey>(normalizeSettingsTabKey(props.defaultTab));
 
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
+const aiSettings = ref<AISettings>(createDefaultAISettings());
+const aiPromptAdvancedEditors = ref<Record<AIPromptSettingKey, boolean>>({
+  tutor: false,
+  explain: false,
+  cardCandidate: false,
+});
+
+function resolveAiPromptUsageState(settingKey: AIPromptSettingKey): AIPromptUsageState {
+  const currentValue = String(aiSettings.value.prompts[settingKey] || '').trim();
+  if (currentValue.length === 0) {
+    return 'empty';
+  }
+
+  return currentValue === getRecommendedPromptTemplateForSetting(settingKey).trim()
+    ? 'recommended'
+    : 'custom';
+}
+
+function getAiPromptUsageCopy(settingKey: AIPromptSettingKey): {
+  usageState: AIPromptUsageState;
+  usageLabel: string;
+  usageHint: string;
+} {
+  const usageState = resolveAiPromptUsageState(settingKey);
+  switch (usageState) {
+    case 'custom':
+      return {
+        usageState,
+        usageLabel: t('aiPromptStatusCustom', '当前使用自定义覆盖'),
+        usageHint: t('aiPromptStatusCustomHint', '高级编辑里显示的是你保存或正在编辑的自定义覆盖，不是内置推荐模板。'),
+      };
+    case 'empty':
+      return {
+        usageState,
+        usageLabel: t('aiPromptStatusEmpty', '当前编辑区为空'),
+        usageHint: t('aiPromptStatusEmptyHint', '当前编辑区为空；保存后会回退为推荐模板。'),
+      };
+    case 'recommended':
+    default:
+      return {
+        usageState: 'recommended',
+        usageLabel: t('aiPromptStatusRecommended', '当前使用推荐模板'),
+        usageHint: t('aiPromptStatusRecommendedHint', '高级编辑里显示的是当前内置推荐模板正文。'),
+      };
+  }
+}
+
+const aiPromptPresetCards = computed(() => AI_PROMPT_PRESET_DESCRIPTORS.map((descriptor) => ({
+  ...descriptor,
+  title: t(descriptor.titleKey, descriptor.titleFallback),
+  audience: t(descriptor.audienceKey, descriptor.audienceFallback),
+  behavior: t(descriptor.behaviorKey, descriptor.behaviorFallback),
+  output: t(descriptor.outputKey, descriptor.outputFallback),
+  ...getAiPromptUsageCopy(descriptor.settingKey),
+})));
 
 // 设置
 interface Settings {
@@ -793,6 +1054,31 @@ const settings = ref<Settings>({
   progressiveAltXExcerptEnabled: false,
   progressiveDailyTraceEnabled: false,
 });
+
+function toggleAiPromptAdvancedEditor(settingKey: AIPromptSettingKey): void {
+  aiPromptAdvancedEditors.value[settingKey] = !aiPromptAdvancedEditors.value[settingKey];
+}
+
+function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
+  resetAiPromptToRecommended(aiSettings.value, settingKey);
+}
+
+function buildPromptProfilesFromEditor(settingsState: AISettings): AISettings['promptProfiles'] {
+  const defaults = createDefaultAIPromptProfileSet();
+  const next = normalizeAIPromptProfiles(settingsState.promptProfiles, settingsState.prompts);
+
+  (Object.keys(defaults) as AIPromptSettingKey[]).forEach((settingKey) => {
+    const recommended = getRecommendedPromptTemplateForSetting(settingKey);
+    const currentValue = String(settingsState.prompts[settingKey] || '').trim();
+    next[settingKey] = {
+      preset: 'recommended',
+      overrideEnabled: currentValue.length > 0 && currentValue !== recommended,
+      overrideTemplate: currentValue.length > 0 && currentValue !== recommended ? currentValue : '',
+    };
+  });
+
+  return next;
+}
 
 // 🆕 调度器配置
 const schedulerConfig = ref<SchedulerConfig>({
@@ -1093,10 +1379,17 @@ function loadSettings() {
     browserOpen: riffIntegrationConfig.value.incrementalSync.triggers.includes('browser-open'),
     reviewOpen: riffIntegrationConfig.value.incrementalSync.triggers.includes('review-open'),
   };
+
+  aiSettings.value = mergeAISettings(props.aiSettings);
 }
 
 // 保存设置
 function saveSettings() {
+  const promptProfiles = buildPromptProfilesFromEditor(aiSettings.value);
+  const effectivePrompts = resolveAIEffectivePromptTemplates({
+    prompts: aiSettings.value.prompts,
+    promptProfiles,
+  });
   const queueInput = queueSettings.value as QueueSettings & {
     outstandingEveryNth?: number;
     outstandingSpacing?: number;
@@ -1163,6 +1456,17 @@ function saveSettings() {
       altXExcerptEnabled: settings.value.progressiveAltXExcerptEnabled,
       dailyTraceEnabled: settings.value.progressiveDailyTraceEnabled,
     },
+    ai: {
+      enabled: aiSettings.value.enabled,
+      baseUrl: String(aiSettings.value.baseUrl || '').trim(),
+      apiKey: String(aiSettings.value.apiKey || '').trim(),
+      model: String(aiSettings.value.model || '').trim(),
+      timeoutMs: Math.max(1000, Number(aiSettings.value.timeoutMs) || DEFAULT_AI_SETTINGS.timeoutMs),
+      temperature: Math.min(2, Math.max(0, Number(aiSettings.value.temperature) || DEFAULT_AI_SETTINGS.temperature)),
+      defaultOutputLanguage: String(aiSettings.value.defaultOutputLanguage || '').trim(),
+      prompts: effectivePrompts,
+      promptProfiles,
+    },
   };
   
   // 🔍 调试日志：检查 quickCard 配置
@@ -1189,6 +1493,7 @@ function resetSettings() {
     progressiveDailyTraceEnabled: false,
   };
   queueSettings.value = createDefaultQueueSettings();
+  aiSettings.value = createDefaultAISettings();
 }
 
 // 🆕 重置调度器设置
@@ -1353,6 +1658,10 @@ async function handleRepairDates() {
   gap: 12px;
 }
 
+.form-control--stacked {
+  align-items: stretch;
+}
+
 .form-control input[type="range"] {
   flex: 1;
   height: 4px;
@@ -1471,7 +1780,8 @@ async function handleRepairDates() {
 }
 
 .form-control select,
-.form-control input[type="text"] {
+.form-control input[type="text"],
+.form-control input[type="password"] {
   height: 34px;
   padding: 6px 10px;
   border: 1px solid var(--b3-border-color);
@@ -1479,6 +1789,130 @@ async function handleRepairDates() {
   background: var(--b3-theme-surface);
   color: var(--b3-theme-on-background);
   font-size: 14px;
+}
+
+.form-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  font-family: var(--b3-font-family-code, monospace);
+}
+
+.ai-prompt-preset-card {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(250, 250, 255, 0.98), rgba(245, 246, 252, 0.98));
+}
+
+.ai-prompt-preset-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-prompt-preset-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.ai-prompt-preset-card__summary {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.ai-prompt-preset-card__grid {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-prompt-preset-card__row {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--b3-border-color);
+}
+
+.ai-prompt-preset-card__row span,
+.ai-prompt-preset-card__editor-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.ai-prompt-preset-card__row p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ai-prompt-preset-card__row--status {
+  gap: 6px;
+}
+
+.ai-prompt-preset-card__status-copy,
+.ai-prompt-preset-card__status-hint {
+  margin: 0;
+}
+
+.ai-prompt-preset-card__status-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.ai-prompt-preset-card__status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.ai-prompt-preset-card__status-badge--recommended {
+  color: var(--b3-theme-primary);
+  background: rgba(76, 110, 245, 0.1);
+  border-color: rgba(76, 110, 245, 0.18);
+}
+
+.ai-prompt-preset-card__status-badge--custom {
+  color: #a55d00;
+  background: rgba(255, 183, 77, 0.18);
+  border-color: rgba(255, 183, 77, 0.3);
+}
+
+.ai-prompt-preset-card__status-badge--empty {
+  color: var(--b3-theme-on-surface-light);
+  background: rgba(127, 140, 141, 0.12);
+  border-color: rgba(127, 140, 141, 0.2);
+}
+
+.ai-prompt-preset-card__actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.ai-prompt-preset-card__editor {
+  display: grid;
+  gap: 8px;
 }
 
 .practice-filter {

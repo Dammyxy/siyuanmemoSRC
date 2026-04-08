@@ -15,6 +15,8 @@
  * @see .kiro/specs/ddd-refactoring/COMPREHENSIVE-DDD-REFACTORING-PLAN.md - 阶段 1
  */
 
+import type { AIWorkbenchOpenOptions } from '@/types/ai';
+
 /**
  * 对话框管理器接口
  * 
@@ -22,6 +24,11 @@
  * 其他组件只依赖此接口，不依赖具体实现。
  */
 export interface IDialogManager {
+  /**
+   * 打开 AI 工作台
+   */
+  openAiWorkbenchDialog(options?: AIWorkbenchOpenOptions): Promise<void>;
+
   /**
    * 打开渐进 Split 标记选择对话框
    */

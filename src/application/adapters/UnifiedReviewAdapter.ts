@@ -2,7 +2,11 @@ import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats } from '@/core/queue/types';
 import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
 import type { FSRSCard } from '@/types/card';
-import { isNeuralRoamSessionQueue, type QueueCounterSnapshot } from '@/types/unified-data-source';
+import {
+  isNeuralRoamSessionQueue,
+  type QueueCounterSnapshot,
+  type ReviewQueueProgressSnapshot,
+} from '@/types/unified-data-source';
 import {
   type AdapterContext,
   type IAdapter,
@@ -51,6 +55,7 @@ type CachedHeaderState = {
   counterBadges: ReviewUIState['header']['counterBadges'];
   queueSize: number;
   remainingSize: number;
+  queueProgress: ReviewQueueProgressSnapshot;
 };
 
 const ANSWER_TEMPLATE_IDS = new Set<string>([
@@ -271,6 +276,41 @@ function normalizeStats(stats: QueueStats | undefined): { size: number; label: s
   };
 }
 
+function resolveQueueLabel(i18n: Record<string, string> | undefined, queueType: string): string {
+  switch (queueType) {
+    case 'retrieval-practice':
+      return t(i18n, 'retrievalPractice', '提取练习');
+    case 'incremental-learning':
+      return t(i18n, 'incrementalLearning', '渐进学习');
+    case 'final-drill':
+      return t(i18n, 'finalDrill', '刻意练习');
+    case 'filter-group':
+      return t(i18n, 'filterGroup', '筛选组');
+    case 'neural-roam':
+      return t(i18n, 'neuralRoam', '神经漫游');
+    default:
+      return t(i18n, 'unifiedQueue', '统一队列');
+  }
+}
+
+function buildQueueProgressSnapshot(
+  i18n: Record<string, string> | undefined,
+  queueType: string,
+  queueSize: number,
+  remainingSize: number,
+): ReviewQueueProgressSnapshot {
+  const total = Number.isFinite(queueSize) && queueSize > 0 ? queueSize : null;
+  const remaining = Math.max(0, Number(remainingSize) || 0);
+  const completed = total !== null ? Math.max(0, total - remaining) : 0;
+  return {
+    queueType: queueType || null,
+    queueLabel: resolveQueueLabel(i18n, queueType),
+    completed,
+    remaining,
+    total,
+  };
+}
+
 function isRealFlashcardPriority(item: UnifiedReviewItem, queueType: string): boolean {
   if (queueType !== 'neural-roam') {
     return true;
@@ -334,7 +374,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     context: AdapterContext,
   ): Promise<ReviewUIState> {
     const queueType = hasQueueType(queue) ? queue.getType() : '';
-    const { stats, counterSummary, counterBadges, queueSize, remainingSize } = this.resolveHeaderPlaceholder(
+    const { stats, counterSummary, counterBadges, queueSize, remainingSize, queueProgress } = this.resolveHeaderPlaceholder(
       queueType,
       context,
     );
@@ -361,11 +401,14 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     let toolbar: NonNullable<ReviewUIState['header']['toolbar']> = [
       { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', 'Fullscreen') },
       { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', 'Edit SRS Data') },
+      { icon: '#iconSparkles', type: 'ai-explain', ariaLabel: t(this.i18n, 'aiExplainCard', 'AI Explain Card') },
+      { icon: '#iconCard', type: 'ai-make-cards', ariaLabel: t(this.i18n, 'aiMakeCards', 'AI Flashcard Assist') },
       { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', 'Open By') },
     ];
 
     if (queueType === 'neural-roam') {
       toolbar.push(
+        { icon: '#iconRobot', type: 'ai-tutor', ariaLabel: t(this.i18n, 'aiTutor', 'AI Tutor') },
         { icon: '#iconPin', type: 'lock-focus', ariaLabel: t(this.i18n, 'addAnchor', 'Build Station') },
         { icon: '#iconList', type: 'neural-focuses', ariaLabel: t(this.i18n, 'viewSourceList', 'View Source List') },
         { icon: '#iconHistory', type: 'neural-history', ariaLabel: t(this.i18n, 'neuralHistoryMenu', 'View Trajectory Path') },
@@ -399,6 +442,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
           hasHiddenContent: false,
           queueSize,
           remainingSize,
+          queueProgress,
         },
         overlay: null,
       };
@@ -423,7 +467,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       toolbar.push({
         icon: '#iconQuote',
         type: 'progressive-excerpt',
-        ariaLabel: t(this.i18n, 'progressiveExcerptSelection', 'Excerpt Selection (Alt+X)'),
+        ariaLabel: t(this.i18n, 'progressiveExcerptSelection', 'Excerpt Selection (⌥⇧X)'),
       });
     }
     if (sourceTargetId) {
@@ -513,6 +557,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         hasHiddenContent: isTopicLike ? false : hasInlineHiddenContent,
         queueSize,
         remainingSize,
+        queueProgress,
       },
       overlay: null,
     };
@@ -571,7 +616,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   private resolveHeaderPlaceholder(
     queueType: string,
     context: AdapterContext,
-  ): Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'> & Pick<ReviewUIState['meta'], 'queueSize' | 'remainingSize'> {
+  ): Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'> & Pick<ReviewUIState['meta'], 'queueSize' | 'remainingSize' | 'queueProgress'> {
     if (this.cachedHeaderState && this.cachedHeaderState.queueType === queueType) {
       return {
         stats: this.cachedHeaderState.stats,
@@ -579,6 +624,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         counterBadges: this.cachedHeaderState.counterBadges,
         queueSize: this.cachedHeaderState.queueSize,
         remainingSize: this.cachedHeaderState.remainingSize,
+        queueProgress: this.cachedHeaderState.queueProgress,
       };
     }
 
@@ -598,6 +644,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       counterBadges: [],
       queueSize,
       remainingSize,
+      queueProgress: buildQueueProgressSnapshot(this.i18n, queueType, queueSize, remainingSize),
     };
   }
 
@@ -612,6 +659,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       counterBadges: payload.counterBadges,
       queueSize: payload.stats.total,
       remainingSize: payload.stats.current,
+      queueProgress: buildQueueProgressSnapshot(this.i18n, queueType, payload.stats.total, payload.stats.current),
     };
 
     return {
@@ -624,6 +672,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         transition: 'none',
         queueSize: payload.stats.total,
         remainingSize: payload.stats.current,
+        queueProgress: this.cachedHeaderState.queueProgress,
       } as ReviewUIState['meta'],
     };
   }

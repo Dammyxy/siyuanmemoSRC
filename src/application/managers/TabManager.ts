@@ -10,6 +10,7 @@ import type { Custom, Plugin } from 'siyuan';
 import { openTab, Constants } from 'siyuan';
 import { createApp, type App as VueApp } from 'vue';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
+import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import { ReviewView } from '@/ui/review/v2';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
@@ -29,6 +30,7 @@ import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter
 import { resolveReviewHeaderVariant } from '@/ui/review/v2/types';
 import { createLogger } from '@/utils/logger';
 import type { BrowserOpenState } from '@/ui/browser/types';
+import type { AIWorkbenchOpenOptions } from '@/types/ai';
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { NOOP_QUEUE_PERSISTENCE } from '@/core/queue/domain/ports';
 
@@ -54,6 +56,12 @@ interface BrowserTabData {
   initialState?: BrowserOpenState | null;
 }
 
+interface ReviewAICompanionTabData {
+  reviewSessionId: string;
+  sourceReviewSessionId: string;
+  title: string;
+}
+
 type TabRuntimeContext = Custom & {
   vueApp?: VueApp<Element>;
 };
@@ -66,6 +74,14 @@ interface ReviewTabRuntimeHandle {
   bridge: ReviewViewTabBridge | null;
   lastActiveAt: number;
   removeActivityListeners: () => void;
+}
+
+interface ReviewAICompanionRuntimeHandle {
+  customId: string;
+  reviewSessionId: string;
+  sourceReviewSessionId: string;
+  title: string;
+  custom: TabRuntimeContext;
 }
 
 type PluginWithI18n = Plugin & {
@@ -275,9 +291,11 @@ export interface BrowserTabOpenOptions {
 export class TabManager {
   private readonly TAB_TYPE: string;
   private readonly REVIEW_TAB_TYPE: string;
+  private readonly REVIEW_AI_TAB_TYPE: string;
   private readonly siyuanApi: ManagerSiyuanPort;
   private tabsRegistered = false;
   private readonly reviewTabRuntimes = new Map<string, ReviewTabRuntimeHandle>();
+  private readonly reviewAICompanionRuntimes = new Map<string, ReviewAICompanionRuntimeHandle>();
 
   constructor(
     private context: ApplicationContext,
@@ -287,6 +305,7 @@ export class TabManager {
     this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
     this.TAB_TYPE = this.plugin.name + '-browser';
     this.REVIEW_TAB_TYPE = this.plugin.name + '-review';
+    this.REVIEW_AI_TAB_TYPE = this.plugin.name + '-review-ai';
   }
 
   registerAll(): void {
@@ -296,6 +315,7 @@ export class TabManager {
     this.tabsRegistered = true;
     this.registerBrowserTab();
     this.registerReviewTab();
+    this.registerReviewAICompanionTab();
   }
 
   private registerBrowserTab(): void {
@@ -350,6 +370,7 @@ export class TabManager {
           app: self.plugin.app,
           i18n: self.getPluginI18n(),
           mode: 'tab',
+          reviewSessionId: self.resolveReviewTabRuntimeId(runtime) || data.providerId,
           title: data.title,
           headerVariant: data.headerVariant,
           queue,
@@ -365,6 +386,37 @@ export class TabManager {
       destroy() {
         const runtime = this as unknown as TabRuntimeContext;
         self.unregisterReviewTabRuntime(runtime);
+        runtime.vueApp?.unmount();
+        runtime.vueApp = undefined;
+      },
+    });
+  }
+
+  private registerReviewAICompanionTab(): void {
+    const self = this;
+
+    this.plugin.addTab({
+      type: this.REVIEW_AI_TAB_TYPE,
+      init() {
+        const runtime = this as unknown as TabRuntimeContext;
+        const data = self.normalizeReviewAICompanionTabData(runtime.data);
+        const service = self.context.getReviewAIWorkbenchRegistry().getOrCreateReviewSession(data.reviewSessionId, {
+          surface: 'review-tab-companion',
+          sourceReviewSessionId: data.sourceReviewSessionId,
+        });
+
+        const app = createApp(AiWorkbenchPane, {
+          service,
+          i18n: self.getPluginI18n(),
+        });
+
+        app.mount(runtime.element);
+        runtime.vueApp = app;
+        self.registerReviewAICompanionRuntime(runtime, data);
+      },
+      destroy() {
+        const runtime = this as unknown as TabRuntimeContext;
+        self.unregisterReviewAICompanionRuntime(runtime);
         runtime.vueApp?.unmount();
         runtime.vueApp = undefined;
       },
@@ -390,6 +442,57 @@ export class TabManager {
     } catch (error) {
       logger.error('Failed to open browser tab', error);
       return false;
+    }
+  }
+
+  async openReviewAICompanionTab(
+    options: AIWorkbenchOpenOptions & {
+      sessionId: string;
+      title: string;
+    }
+  ): Promise<void> {
+    const reviewSessionId = String(options.sessionId || '').trim();
+    if (!reviewSessionId) {
+      logger.warn('Skip opening review AI companion tab because review session id is empty');
+      return;
+    }
+
+    await this.context.getReviewAIWorkbenchRegistry().openReviewSession({
+      ...options,
+      source: 'review',
+      surface: 'review-tab-companion',
+      sessionId: reviewSessionId,
+      sourceReviewSessionId: options.sourceReviewSessionId ?? reviewSessionId,
+    });
+
+    const existing = this.reviewAICompanionRuntimes.get(reviewSessionId);
+    if (existing) {
+      this.focusReviewAICompanionRuntime(existing);
+      return;
+    }
+
+    const tabData: ReviewAICompanionTabData = {
+      reviewSessionId,
+      sourceReviewSessionId: options.sourceReviewSessionId ?? reviewSessionId,
+      title: String(options.title || this.getPluginI18n()?.aiWorkbench || 'AI Workbench'),
+    };
+
+    try {
+      const reviewAiModelType = this.buildCustomModelType(this.REVIEW_AI_TAB_TYPE);
+      openTab({
+        app: this.plugin.app,
+        custom: {
+          icon: 'iconSparkles',
+          title: tabData.title,
+          id: reviewAiModelType,
+          data: tabData,
+        },
+        position: 'right',
+        keepCursor: false,
+        removeCurrentTab: false,
+      });
+    } catch (error) {
+      logger.error('Failed to open review AI companion tab', error);
     }
   }
 
@@ -528,6 +631,18 @@ export class TabManager {
     };
   }
 
+  private normalizeReviewAICompanionTabData(data: Partial<ReviewAICompanionTabData> | undefined): ReviewAICompanionTabData {
+    const reviewSessionId = typeof data?.reviewSessionId === 'string' ? data.reviewSessionId.trim() : '';
+    const sourceReviewSessionId = typeof data?.sourceReviewSessionId === 'string' ? data.sourceReviewSessionId.trim() : reviewSessionId;
+    return {
+      reviewSessionId,
+      sourceReviewSessionId,
+      title: typeof data?.title === 'string' && data.title.trim()
+        ? data.title.trim()
+        : this.getPluginI18n()?.aiWorkbench || 'AI Workbench',
+    };
+  }
+
   private resolveReviewTabRuntimeId(runtime: TabRuntimeContext): string {
     return String(runtime.tab?.id || runtime.id || '').trim();
   }
@@ -588,6 +703,25 @@ export class TabManager {
     });
   }
 
+  private registerReviewAICompanionRuntime(
+    runtime: TabRuntimeContext,
+    data: ReviewAICompanionTabData,
+  ): void {
+    const customId = this.resolveReviewTabRuntimeId(runtime);
+    if (!customId || !data.sourceReviewSessionId) {
+      return;
+    }
+
+    this.unregisterReviewAICompanionRuntime(data.sourceReviewSessionId);
+    this.reviewAICompanionRuntimes.set(data.sourceReviewSessionId, {
+      customId,
+      reviewSessionId: data.reviewSessionId,
+      sourceReviewSessionId: data.sourceReviewSessionId,
+      title: data.title,
+      custom: runtime,
+    });
+  }
+
   private unregisterReviewTabRuntime(customIdOrRuntime: string | TabRuntimeContext | null | undefined): void {
     const normalizedId = typeof customIdOrRuntime === 'string'
       ? String(customIdOrRuntime || '').trim()
@@ -605,6 +739,24 @@ export class TabManager {
 
     existing.removeActivityListeners();
     this.reviewTabRuntimes.delete(normalizedId);
+    this.closeReviewAICompanionTab(normalizedId);
+    this.context.getReviewAIWorkbenchRegistry().disposeReviewSession(normalizedId);
+  }
+
+  private unregisterReviewAICompanionRuntime(sourceReviewSessionIdOrRuntime: string | TabRuntimeContext | null | undefined): void {
+    const normalizedId = typeof sourceReviewSessionIdOrRuntime === 'string'
+      ? String(sourceReviewSessionIdOrRuntime || '').trim()
+      : sourceReviewSessionIdOrRuntime
+        ? Array.from(this.reviewAICompanionRuntimes.values())
+            .find((runtime) => this.resolveReviewTabRuntimeId(sourceReviewSessionIdOrRuntime) === runtime.customId)
+            ?.sourceReviewSessionId || ''
+        : '';
+
+    if (!normalizedId) {
+      return;
+    }
+
+    this.reviewAICompanionRuntimes.delete(normalizedId);
   }
 
   private getLatestNeuralReviewTabRuntime(): ReviewTabRuntimeHandle | null {
@@ -632,6 +784,59 @@ export class TabManager {
         error,
       });
       return false;
+    }
+  }
+
+  private focusReviewAICompanionRuntime(runtime: ReviewAICompanionRuntimeHandle): boolean {
+    try {
+      runtime.custom.tab?.parent?.switchTab(runtime.custom.tab.headElement);
+      return true;
+    } catch (error) {
+      logger.error('Failed to focus review AI companion tab', {
+        customId: runtime.customId,
+        sourceReviewSessionId: runtime.sourceReviewSessionId,
+        error,
+      });
+      return false;
+    }
+  }
+
+  focusReviewAICompanionTab(reviewSessionId: string): boolean {
+    const normalizedId = String(reviewSessionId || '').trim();
+    if (!normalizedId) {
+      return false;
+    }
+    const runtime = this.reviewAICompanionRuntimes.get(normalizedId);
+    if (!runtime) {
+      return false;
+    }
+    return this.focusReviewAICompanionRuntime(runtime);
+  }
+
+  closeReviewAICompanionTab(reviewSessionId: string): void {
+    const normalizedId = String(reviewSessionId || '').trim();
+    if (!normalizedId) {
+      return;
+    }
+
+    const runtime = this.reviewAICompanionRuntimes.get(normalizedId);
+    if (!runtime) {
+      return;
+    }
+
+    try {
+      if (typeof runtime.custom.tab?.close === 'function') {
+        runtime.custom.tab.close();
+      } else if (runtime.custom.tab?.parent && typeof runtime.custom.tab.parent.removeTab === 'function') {
+        runtime.custom.tab.parent.removeTab(runtime.custom.tab.id);
+      }
+    } catch (error) {
+      logger.error('Failed to close review AI companion tab', {
+        sourceReviewSessionId: normalizedId,
+        error,
+      });
+    } finally {
+      this.reviewAICompanionRuntimes.delete(normalizedId);
     }
   }
 
