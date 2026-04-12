@@ -18,6 +18,7 @@ import {
   renderSprig,
   setBlockAttrs,
   sql,
+  updateBlock,
 } from './api';
 
 function toProgressiveDocInfo(value: Record<string, unknown>): ProgressiveDocInfo {
@@ -81,6 +82,14 @@ export class ProgressiveSiyuanAdapter implements ProgressiveSiyuanPort {
       dataType: 'dom',
       data: dom,
       parentID,
+    });
+  }
+
+  async updateDomBlock(blockId: string, dom: string): Promise<string> {
+    return updateBlock({
+      dataType: 'dom',
+      data: dom,
+      id: blockId,
     });
   }
 

@@ -46,6 +46,7 @@ describe('MenuManager top bar menu rendering', () => {
       openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
       openNeuralRoamDialog: vi.fn().mockResolvedValue(undefined),
       openFilterGroupPracticeDialog: vi.fn().mockResolvedValue(undefined),
+      openExcerptRecordCenterDialog: vi.fn().mockResolvedValue(undefined),
       openBrowserDialog: vi.fn(),
       openSettingsDialog: vi.fn(),
     };
@@ -71,6 +72,7 @@ describe('MenuManager top bar menu rendering', () => {
       startFilterGroupPractice: 'L5',
       srsBrowser: 'L6',
       openSrsBrowserTab: 'L7',
+      progressiveExcerptRecordCenter: 'Excerpt Center',
       oneClickSymbolCardsCurrentDoc: 'L7',
       oneClickCancelCardsCurrentDoc: 'L8',
       settings: 'Settings',
@@ -94,6 +96,7 @@ describe('MenuManager top bar menu rendering', () => {
     const allItemArgs = menu.addItem.mock.calls.map((call) => call[0]);
     const visibleTopbarItems = allItemArgs.slice(0, 6);
     const browserTabItem = allItemArgs[6];
+    const excerptCenterItem = allItemArgs[7];
     const hiddenActionIds = new Set<TopBarQuickEntryActionId>([
       'one-click-symbol-current-doc',
       'one-click-cancel-current-doc',
@@ -104,6 +107,7 @@ describe('MenuManager top bar menu rendering', () => {
 
     expect(visibleTopbarItems.map((item) => item.label)).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']);
     expect(browserTabItem.label).toBe('L7');
+    expect(excerptCenterItem.label).toBe('Excerpt Center');
     expect(visibleTopbarItems.map((item) => item.label)).not.toContain('L7');
     expect(visibleTopbarItems.map((item) => item.label)).not.toContain('L8');
 
@@ -118,5 +122,8 @@ describe('MenuManager top bar menu rendering', () => {
 
     browserTabItem.click?.();
     expect(context.getTabManager().openBrowserTab).toHaveBeenCalledTimes(1);
+
+    excerptCenterItem.click?.();
+    expect(dialogManager.openExcerptRecordCenterDialog).toHaveBeenCalledTimes(1);
   });
 });

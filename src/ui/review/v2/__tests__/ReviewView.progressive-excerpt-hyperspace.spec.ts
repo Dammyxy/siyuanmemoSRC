@@ -11,6 +11,7 @@ const reviewViewExcerptMocks = vi.hoisted(() => ({
   showMessage: vi.fn(),
   resolveProgressiveExcerptSelectionSnapshot: vi.fn(),
   isProgressiveSelectionInsideNativeProtyle: vi.fn(),
+  prepareProgressiveExcerptHighlight: vi.fn(),
   applyProgressiveExcerptHighlight: vi.fn(),
 }));
 
@@ -29,6 +30,7 @@ vi.mock('@/application/entries/ProgressiveSelectionResolver', () => ({
 }));
 
 vi.mock('@/application/entries/ProgressiveExcerptHighlight', () => ({
+  prepareProgressiveExcerptHighlight: reviewViewExcerptMocks.prepareProgressiveExcerptHighlight,
   applyProgressiveExcerptHighlight: reviewViewExcerptMocks.applyProgressiveExcerptHighlight,
 }));
 
@@ -192,10 +194,18 @@ const ReviewActionsStub = defineComponent({
 function mountReviewView(options: {
   neuralQueue: ReturnType<typeof createNeuralQueue>;
   createFromSelection: ReturnType<typeof vi.fn>;
+  tabApplicationService?: {
+    openDocumentTab: ReturnType<typeof vi.fn>;
+    openBlockTab: ReturnType<typeof vi.fn>;
+  };
 }) {
   const card = buildCard();
   const queue = createQueue(card, options.neuralQueue);
   const adapter = createAdapter();
+  const tabApplicationService = options.tabApplicationService || {
+    openDocumentTab: vi.fn(async () => undefined),
+    openBlockTab: vi.fn(async () => undefined),
+  };
 
   return mount(ReviewView, {
     attachTo: document.body,
@@ -215,7 +225,9 @@ function mountReviewView(options: {
           }),
           getSelectionExcerptService: () => ({
             createFromSelection: options.createFromSelection,
+            updateSourceBlockDom: vi.fn(async () => undefined),
           }),
+          getTabApplicationService: () => tabApplicationService,
           getStorage: () => ({
             getSettings: () => ({}),
           }),
@@ -240,7 +252,17 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     reviewViewExcerptMocks.showMessage.mockReset();
     reviewViewExcerptMocks.resolveProgressiveExcerptSelectionSnapshot.mockReset();
     reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReset();
+    reviewViewExcerptMocks.prepareProgressiveExcerptHighlight.mockReset();
+    reviewViewExcerptMocks.prepareProgressiveExcerptHighlight.mockReturnValue({
+      blockId: 'source-block-1',
+      previousBlockHtml: '<div data-node-id="source-block-1">Selected excerpt text</div>',
+      nextBlockHtml: '<div data-node-id="source-block-1"><span data-type="text" style="background-color: var(--b3-font-background4);">Selected excerpt text</span></div>',
+      root: document.body,
+      protyle: { getInstance: () => ({ reload: vi.fn() }) },
+      alreadyApplied: false,
+    });
     reviewViewExcerptMocks.applyProgressiveExcerptHighlight.mockReset();
+    reviewViewExcerptMocks.applyProgressiveExcerptHighlight.mockResolvedValue(true);
     reviewViewExcerptMocks.resolveProgressiveExcerptSelectionSnapshot.mockReturnValue({
       blockId: 'source-block-1',
       text: 'Selected excerpt text',
@@ -263,11 +285,14 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
   it('merges review excerpts into the current hyperspace session without building stations', async () => {
     const neuralQueue = createNeuralQueue();
     const createFromSelection = vi.fn(async () => ({
+      kind: 'created' as const,
       excerptEntityId: 'excerpt-doc-1',
       excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
       containerDocId: 'daily-note-1',
+      recordId: 'record-1',
+      colorApplied: false,
     }));
     const wrapper = mountReviewView({
       neuralQueue,
@@ -285,6 +310,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
+    expect(reviewViewExcerptMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(reviewViewExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(neuralQueue.injectExcerptIntoHyperspace).toHaveBeenCalledWith('excerpt-doc-1', {
       currentNodeId: 'topic-root-1',
@@ -303,11 +329,14 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
 
   it('uses the new Alt+Shift+X hotkey inside review and no longer reacts to Alt+X', async () => {
     const createFromSelection = vi.fn(async () => ({
+      kind: 'created' as const,
       excerptEntityId: 'excerpt-doc-1',
       excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
       containerDocId: 'daily-note-1',
+      recordId: 'record-1',
+      colorApplied: false,
     }));
     const wrapper = mountReviewView({
       neuralQueue: createNeuralQueue(),
@@ -344,6 +373,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
+    expect(reviewViewExcerptMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(reviewViewExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
 
     wrapper.unmount();
@@ -352,11 +382,14 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
   it('claims the window-level command request when review owns the current excerpt context', async () => {
     reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     const createFromSelection = vi.fn(async () => ({
+      kind: 'created' as const,
       excerptEntityId: 'excerpt-doc-1',
       excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
       containerDocId: 'daily-note-1',
+      recordId: 'record-1',
+      colorApplied: false,
     }));
     const wrapper = mountReviewView({
       neuralQueue: createNeuralQueue(),
@@ -381,21 +414,25 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
+    expect(reviewViewExcerptMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(reviewViewExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
 
     wrapper.unmount();
   });
 
   it('keeps review excerpt creation successful when highlight replay throws', async () => {
-    reviewViewExcerptMocks.applyProgressiveExcerptHighlight.mockImplementation(() => {
+    reviewViewExcerptMocks.applyProgressiveExcerptHighlight.mockImplementation(async () => {
       throw new Error('highlight failed');
     });
     const createFromSelection = vi.fn(async () => ({
+      kind: 'created' as const,
       excerptEntityId: 'excerpt-doc-1',
       excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
       containerDocId: 'daily-note-1',
+      recordId: 'record-1',
+      colorApplied: false,
     }));
     const wrapper = mountReviewView({
       neuralQueue: createNeuralQueue(),
@@ -408,12 +445,56 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     await flushPromises();
 
     expect(createFromSelection).toHaveBeenCalledTimes(1);
+    expect(reviewViewExcerptMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(reviewViewExcerptMocks.showMessage).toHaveBeenLastCalledWith(
       '摘抄已创建、制为 Topic，并并入当前超空间神经漫游',
       3000,
       'info',
     );
 
+    wrapper.unmount();
+  });
+
+  it('opens the existing excerpt instead of reinserting it when review excerpting hits a duplicate', async () => {
+    const tabApplicationService = {
+      openDocumentTab: vi.fn(async () => undefined),
+      openBlockTab: vi.fn(async () => undefined),
+    };
+    const createFromSelection = vi.fn(async () => ({
+      kind: 'duplicate' as const,
+      record: {
+        recordId: 'record-1',
+        excerptEntityId: 'excerpt-doc-1',
+        excerptEntityType: 'doc' as const,
+        sourceDocId: 'doc-1',
+        sourceBlockId: 'source-block-1',
+        selectedText: 'Selected excerpt text',
+        normalizedFingerprint: 'Selected excerpt text',
+        colorToken: 'var(--b3-font-background4)',
+        origin: 'review' as const,
+        createdAt: Date.now(),
+        status: 'active' as const,
+      },
+    }));
+    const wrapper = mountReviewView({
+      neuralQueue: createNeuralQueue(),
+      createFromSelection,
+      tabApplicationService,
+    });
+
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'progressive-excerpt', new MouseEvent('click'));
+    await flushPromises();
+
+    expect(reviewViewExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
+    expect(reviewViewExcerptMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
+    expect(tabApplicationService.openDocumentTab).toHaveBeenCalledWith({ docId: 'excerpt-doc-1' });
+    expect(reviewViewExcerptMocks.showMessage).toHaveBeenLastCalledWith(
+      '这段原文已摘录过，已跳到现有摘录',
+      3000,
+      'info',
+    );
     wrapper.unmount();
   });
 });

@@ -148,8 +148,12 @@ import {
   resolveProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
-import { applyProgressiveExcerptHighlight } from '@/application/entries/ProgressiveExcerptHighlight';
-import type { ProgressiveExcerptResult } from '@/application/services/ProgressiveReadingService';
+import {
+  applyProgressiveExcerptHighlight,
+  prepareProgressiveExcerptHighlight,
+} from '@/application/entries/ProgressiveExcerptHighlight';
+import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
+import type { ProgressiveExcerptCreationResult } from '@/application/services/ProgressiveReadingService';
 import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 
@@ -264,7 +268,12 @@ type ReviewPluginContextLike = {
       selectedText: string;
       origin: 'editor' | 'review';
       currentCardId?: string;
-    }) => Promise<ProgressiveExcerptResult>;
+    }) => Promise<ProgressiveExcerptCreationResult>;
+    updateSourceBlockDom: (blockId: string, dom: string) => Promise<void>;
+  } | undefined;
+  getTabApplicationService?: () => {
+    openDocumentTab: (options: { docId: string }) => Promise<void>;
+    openBlockTab: (options: { blockId: string }) => Promise<void>;
   } | undefined;
   getSettingsService?: () => {
     getSettings?: () => {
@@ -726,6 +735,12 @@ function getSelectionExcerptService() {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
   return contextFromProps?.getSelectionExcerptService?.() || contextFromWindow?.getSelectionExcerptService?.() || null;
+}
+
+function getTabApplicationService() {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getTabApplicationService?.() || contextFromWindow?.getTabApplicationService?.() || null;
 }
 
 function isProgressiveExcerptEnabled(): boolean {
@@ -2521,6 +2536,8 @@ async function createProgressiveExcerptFromReviewSelection(
     return;
   }
 
+  const preparedHighlight = tryPrepareProgressiveExcerptHighlight(selection);
+
   try {
     const result = await selectionService.createFromSelection({
       sourceBlockId: selection.blockId,
@@ -2528,11 +2545,18 @@ async function createProgressiveExcerptFromReviewSelection(
       origin: 'review',
       currentCardId: resolveCurrentReviewCardId(),
     });
-    try {
-      applyProgressiveExcerptHighlight(selection);
-    } catch (highlightError) {
-      logger.warn('[SiYuanMemo][ReviewView] Failed to apply progressive excerpt highlight:', highlightError);
+    if (result.kind === 'duplicate') {
+      await tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight);
+      await tryOpenExistingExcerptFromReview(result.record);
+      showMessage(
+        t('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
+        3000,
+        'info',
+      );
+      return;
     }
+
+    result.colorApplied = await tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight);
     const routedExcerptTarget = await enqueueExcerptIntoCurrentProgressiveReview(result.excerptEntityId)
       .then((inserted) => (inserted ? 'progressive' as const : null))
       .then(async (target) => {
@@ -2565,6 +2589,51 @@ async function createProgressiveExcerptFromReviewSelection(
       5000,
       'error',
     );
+  }
+}
+
+function tryPrepareProgressiveExcerptHighlight(selection: ProgressiveExcerptSelectionSnapshot) {
+  try {
+    return prepareProgressiveExcerptHighlight(selection);
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to prepare progressive excerpt highlight:', error);
+    return null;
+  }
+}
+
+async function tryApplyPreparedProgressiveExcerptHighlight(
+  preparedHighlight: ReturnType<typeof prepareProgressiveExcerptHighlight>,
+): Promise<boolean> {
+  const selectionService = getSelectionExcerptService();
+  if (!selectionService) {
+    return false;
+  }
+
+  try {
+    return await applyProgressiveExcerptHighlight(preparedHighlight, {
+      persistDomBlock: (blockId, dom) => selectionService.updateSourceBlockDom(blockId, dom),
+    });
+  } catch (highlightError) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to apply progressive excerpt highlight:', highlightError);
+    return false;
+  }
+}
+
+async function tryOpenExistingExcerptFromReview(record: ExcerptRecord): Promise<void> {
+  try {
+    const tabApplicationService = getTabApplicationService();
+    if (!tabApplicationService) {
+      return;
+    }
+
+    if (record.excerptEntityType === 'doc') {
+      await tabApplicationService.openDocumentTab({ docId: record.excerptEntityId });
+      return;
+    }
+
+    await tabApplicationService.openBlockTab({ blockId: record.excerptEntityId });
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to open existing duplicate excerpt:', error);
   }
 }
 

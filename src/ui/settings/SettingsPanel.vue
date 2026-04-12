@@ -357,6 +357,7 @@
           <label>{{ t('progressiveStorageModeLabel', '摘录存放位置') }}</label>
           <div class="form-control">
             <select v-model="settings.progressiveStorage.mode" class="scheduler-select">
+              <option value="source-child">{{ t('captureStorageModeSourceChild', '在原文档块目录下') }}</option>
               <option value="library">{{ t('captureStorageModeLibrary', '固定库') }}</option>
               <option value="daily-note">{{ t('captureStorageModeDailyNote', '今日日记') }}</option>
             </select>
@@ -365,7 +366,7 @@
             {{
               t(
                 'progressiveStorageModeHint',
-                '固定库模式会把摘录集中到指定笔记本；今日日记模式会把摘录写进所选笔记本当天的 Daily Notes。'
+                '可选择跟随原文档创建摘录子文档、集中到固定库，或写进所选笔记本当天的 Daily Notes。'
               )
             }}
           </p>
@@ -374,7 +375,11 @@
         <div class="form-item">
           <label>{{ t('captureStorageNotebookLabel', '目标笔记本') }}</label>
           <div class="form-control">
-            <select v-model="settings.progressiveStorage.notebookId" class="scheduler-select">
+            <select
+              v-model="settings.progressiveStorage.notebookId"
+              class="scheduler-select"
+              :disabled="progressiveUsesSourceChildStorage"
+            >
               <option value="">{{ t('captureStorageNotebookPlaceholder', '请选择笔记本') }}</option>
               <option
                 v-for="notebook in captureStorageNotebookOptions"
@@ -386,20 +391,30 @@
             </select>
           </div>
           <p class="form-hint">
-            {{ t('captureStorageNotebookHint', '这里是手动固定目标笔记本，不会自动跟随当前文档或来源文档切换。') }}
+            {{
+              progressiveUsesSourceChildStorage
+                ? t('progressiveStorageNotebookIgnoredHint', '原文档模式会跟随来源文档创建摘录子文档，不使用固定目标笔记本。')
+                : t('captureStorageNotebookHint', '这里是手动固定目标笔记本，不会自动跟随当前文档或来源文档切换。')
+            }}
           </p>
         </div>
 
         <div class="form-item">
           <label>{{ t('captureStorageTargetBlockIdLabel', '目标块 ID（可选）') }}</label>
           <div class="form-control">
-            <input type="text" v-model="settings.progressiveStorage.targetBlockId">
+            <input
+              type="text"
+              v-model="settings.progressiveStorage.targetBlockId"
+              :disabled="!progressiveUsesLibraryStorage"
+            >
           </div>
           <p class="form-hint">
             {{
-              settings.progressiveStorage.mode === 'library'
+              progressiveUsesLibraryStorage
                 ? t('progressiveStorageTargetBlockHint', '固定库模式下可填写文档块 ID，摘录会创建到该文档树下；留空则自动使用 SiYuanMemo 摘录库。')
-                : t('progressiveStorageTargetBlockIgnoredHint', '今日日记模式下暂不使用目标块 ID，留空即可。')
+                : progressiveUsesSourceChildStorage
+                  ? t('progressiveStorageTargetBlockIgnoredSourceChildHint', '原文档模式下不使用目标块 ID，摘录会直接创建到来源文档目录下。')
+                  : t('progressiveStorageTargetBlockIgnoredHint', '今日日记模式下暂不使用目标块 ID，留空即可。')
             }}
           </p>
         </div>
@@ -836,6 +851,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { AI_PROMPT_PRESET_DESCRIPTORS, getRecommendedPromptTemplate } from '@/application/services/AIPromptComposer';
 import {
+  normalizeConfiguredCaptureStorageSettings as normalizeCaptureStorageSettings,
   type ConfiguredCaptureStorageSettings,
   createDefaultAIPromptProfileSet,
   DEFAULT_AI_SETTINGS,
@@ -917,22 +933,30 @@ function createDefaultAISettings(): AISettings {
 function createDefaultConfiguredCaptureStorageSettings(
   source?: Partial<ConfiguredCaptureStorageSettings>,
 ): ConfiguredCaptureStorageSettings {
-  return {
-    mode: source?.mode === 'daily-note' ? 'daily-note' : 'library',
-    notebookId: String(source?.notebookId || '').trim(),
-    targetBlockId: String(source?.targetBlockId || '').trim(),
-  };
+  return normalizeCaptureStorageSettings(source, {
+    allowSourceChild: true,
+    fallback: DEFAULT_SETTINGS.progressiveReading.storage,
+  });
 }
 
 function mergeConfiguredCaptureStorageSettings(
   source: Partial<ConfiguredCaptureStorageSettings> | undefined,
   defaults: ConfiguredCaptureStorageSettings,
 ): ConfiguredCaptureStorageSettings {
-  return {
-    mode: source?.mode === 'daily-note' ? 'daily-note' : source?.mode === 'library' ? 'library' : defaults.mode,
-    notebookId: String(source?.notebookId || defaults.notebookId || '').trim(),
-    targetBlockId: String(source?.targetBlockId || defaults.targetBlockId || '').trim(),
-  };
+  return normalizeCaptureStorageSettings(source, {
+    allowSourceChild: true,
+    fallback: defaults,
+  });
+}
+
+function mergeAIDraftStorageSettings(
+  source: Partial<ConfiguredCaptureStorageSettings> | undefined,
+  defaults: ConfiguredCaptureStorageSettings,
+): ConfiguredCaptureStorageSettings {
+  return normalizeCaptureStorageSettings(source, {
+    allowSourceChild: false,
+    fallback: defaults,
+  });
 }
 
 function mergeAISettings(source?: Partial<AISettings>): AISettings {
@@ -947,7 +971,7 @@ function mergeAISettings(source?: Partial<AISettings>): AISettings {
     ...(source || {}),
     prompts,
     promptProfiles,
-    draftStorage: mergeConfiguredCaptureStorageSettings(source?.draftStorage, defaults.draftStorage),
+    draftStorage: mergeAIDraftStorageSettings(source?.draftStorage, defaults.draftStorage),
   };
 }
 
@@ -1255,6 +1279,9 @@ const captureStorageNotebookOptions = computed(() => (props.captureStorageNotebo
     name: String(notebook.name || '').trim() || String(notebook.id || '').trim(),
   }))
   .filter((notebook) => notebook.id.length > 0));
+
+const progressiveUsesSourceChildStorage = computed(() => settings.value.progressiveStorage.mode === 'source-child');
+const progressiveUsesLibraryStorage = computed(() => settings.value.progressiveStorage.mode === 'library');
 
 const blockAttrsCleanupMode = ref<CleanupMode>('safe');
 const blockAttrsCleanupScanResult = ref<CleanupScanResult | null>(null);
@@ -1597,7 +1624,7 @@ function saveSettings() {
       defaultOutputLanguage: String(aiSettings.value.defaultOutputLanguage || '').trim(),
       prompts: effectivePrompts,
       promptProfiles,
-      draftStorage: mergeConfiguredCaptureStorageSettings(
+      draftStorage: mergeAIDraftStorageSettings(
         aiSettings.value.draftStorage,
         DEFAULT_AI_SETTINGS.draftStorage,
       ),

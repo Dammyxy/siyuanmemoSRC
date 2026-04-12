@@ -43,13 +43,16 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         progressiveAltXExcerptEnabledHint: 'Registers ⌥⇧X for excerpting while native Alt+X stays bound to SiYuan recent appearance.',
         progressiveStorageModeLabel: 'Excerpt storage mode',
         progressiveStorageModeHint: 'Choose where excerpts should be stored.',
+        captureStorageModeSourceChild: 'Under source document',
         captureStorageModeLibrary: 'Library',
         captureStorageModeDailyNote: 'Daily Note',
         captureStorageNotebookLabel: 'Target notebook',
         captureStorageNotebookPlaceholder: 'Select notebook',
         captureStorageNotebookHint: 'Notebook is manually fixed here.',
+        progressiveStorageNotebookIgnoredHint: 'Source-document mode follows the source document.',
         captureStorageTargetBlockIdLabel: 'Target block ID (optional)',
         progressiveStorageTargetBlockHint: 'Library mode accepts a target document block ID.',
+        progressiveStorageTargetBlockIgnoredSourceChildHint: 'Target block ID is ignored in source-document mode.',
         progressiveStorageTargetBlockIgnoredHint: 'Target block ID is ignored in Daily Note mode.',
         topicDerivationTitle: 'Continue card creation under Topic',
         topicDerivationEnabled: 'Enable continuing card creation under Topic',
@@ -189,6 +192,9 @@ describe('SettingsPanel', () => {
     expect(storageModeSelect).toBeDefined();
     expect(notebookSelect).toBeDefined();
     expect(targetBlockInput).toBeDefined();
+    expect((storageModeSelect!.element as HTMLSelectElement).value).toBe('source-child');
+    expect((notebookSelect!.element as HTMLSelectElement).disabled).toBe(true);
+    expect((targetBlockInput!.element as HTMLInputElement).disabled).toBe(true);
 
     await altXToggle!.setValue(true);
     await storageModeSelect!.setValue('library');
@@ -206,6 +212,38 @@ describe('SettingsPanel', () => {
       mode: 'library',
       notebookId: 'notebook-a',
       targetBlockId: 'doc-root-1',
+    });
+  });
+
+  it('keeps source-document excerpt storage without forcing notebook or target block fields', async () => {
+    const wrapper = mountPanel('capture-sync');
+    await wrapper.vm.$nextTick();
+
+    const formItems = wrapper.findAll('.form-item');
+    const storageModeItem = formItems.find((item) => item.text().includes('Excerpt storage mode'));
+    const storageModeSelect = storageModeItem?.find('select');
+    const notebookItem = formItems.find((item) => item.text().includes('Target notebook'));
+    const notebookSelect = notebookItem?.find('select');
+    const targetBlockItem = formItems.find((item) => item.text().includes('Target block ID'));
+    const targetBlockInput = targetBlockItem?.find('input[type="text"]');
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+
+    expect(storageModeSelect).toBeDefined();
+    expect(notebookSelect).toBeDefined();
+    expect(targetBlockInput).toBeDefined();
+    expect(saveButton).toBeDefined();
+
+    await storageModeSelect!.setValue('library');
+    await notebookSelect!.setValue('notebook-b');
+    await targetBlockInput!.setValue('ignored-block');
+    await storageModeSelect!.setValue('source-child');
+    await saveButton!.trigger('click');
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.progressiveReading.storage).toEqual({
+      mode: 'source-child',
+      notebookId: 'notebook-b',
+      targetBlockId: 'ignored-block',
     });
   });
 

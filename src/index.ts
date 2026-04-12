@@ -169,6 +169,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.registerEventHandlers();
       this.registerImageOcclusionCommands();
       this.registerProgressiveExcerptCommand();
+      this.registerExcerptRecordCenterCommand();
       this.registerTopBarQuickCommands();
       if (this.shouldExposeCoreReviewContextEntries()) {
         this.registerCoreReviewCommands();
@@ -307,6 +308,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     const blockMenuHandler = this.context.getBlockMenuHandler();
     this.eventBus.on('click-blockicon', (e) => blockMenuHandler.handleBlockIconClick(e));
     this.eventBus.on('click-editortitleicon', (e) => blockMenuHandler.handleEditorTitleIconClick(e));
+    this.eventBus.on('open-menu-content', (e) => this.progressiveExcerptHotkeyHandler?.handleContentMenu(e));
     this.eventBus.on('open-menu-breadcrumbmore', (e) => blockMenuHandler.handleBreadcrumbMore(e));
     this.eventBus.on('open-menu-doctree', (e) => blockMenuHandler.handleDocTreeMenu(e));
     this.eventBus.on('open-menu-blockref', (e) => blockMenuHandler.handleBlockRefMenu(e));
@@ -335,6 +337,16 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       },
       editorCallback: (protyle: IProtyle) => {
         void this.progressiveExcerptHotkeyHandler?.runFromEditor(protyle);
+      },
+    });
+  }
+
+  private registerExcerptRecordCenterCommand(): void {
+    this.addCommand({
+      langKey: 'progressiveExcerptRecordCenter',
+      hotkey: '',
+      callback: () => {
+        void this.context.getDialogManager()?.openExcerptRecordCenterDialog();
       },
     });
   }

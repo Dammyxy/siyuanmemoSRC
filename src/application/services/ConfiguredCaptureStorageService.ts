@@ -56,6 +56,9 @@ export class ConfiguredCaptureStorageService {
   }
 
   hasExplicitConfiguration(settings?: ConfiguredCaptureStorageSettings | null): boolean {
+    if (settings?.mode === 'source-child') {
+      return true;
+    }
     return normalizeString(settings?.notebookId).length > 0;
   }
 

@@ -173,12 +173,56 @@ export interface ProgressiveReadingSettings {
     storage: ConfiguredCaptureStorageSettings;
 }
 
-export type ConfiguredCaptureStorageMode = 'library' | 'daily-note';
+export type ConfiguredCaptureStorageMode = 'source-child' | 'library' | 'daily-note';
 
 export interface ConfiguredCaptureStorageSettings {
     mode: ConfiguredCaptureStorageMode;
     notebookId: string;
     targetBlockId?: string;
+}
+
+export function normalizeConfiguredCaptureStorageMode(
+    value: unknown,
+    options?: {
+        allowSourceChild?: boolean;
+        fallback?: ConfiguredCaptureStorageMode;
+    },
+): ConfiguredCaptureStorageMode {
+    const allowSourceChild = options?.allowSourceChild !== false;
+    if (value === 'library' || value === 'daily-note' || (allowSourceChild && value === 'source-child')) {
+        return value;
+    }
+    if (options?.fallback) {
+        return options.fallback;
+    }
+    return allowSourceChild ? 'source-child' : 'daily-note';
+}
+
+export function normalizeConfiguredCaptureStorageSettings(
+    value: unknown,
+    options?: {
+        allowSourceChild?: boolean;
+        fallback?: ConfiguredCaptureStorageSettings;
+    },
+): ConfiguredCaptureStorageSettings {
+    const allowSourceChild = options?.allowSourceChild !== false;
+    const fallback = options?.fallback ?? {
+        mode: allowSourceChild ? 'source-child' : 'daily-note',
+        notebookId: '',
+        targetBlockId: '',
+    };
+    const source = typeof value === 'object' && value !== null
+        ? value as Partial<ConfiguredCaptureStorageSettings>
+        : {};
+
+    return {
+        mode: normalizeConfiguredCaptureStorageMode(source.mode, {
+            allowSourceChild,
+            fallback: fallback.mode,
+        }),
+        notebookId: String(source.notebookId ?? fallback.notebookId ?? '').trim(),
+        targetBlockId: String(source.targetBlockId ?? fallback.targetBlockId ?? '').trim(),
+    };
 }
 
 export interface AIPromptTemplates {
@@ -461,10 +505,13 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         progressiveReading: {
             ...DEFAULT_SETTINGS.progressiveReading,
             ...sourceProgressiveReadingWithoutLegacy,
-            storage: {
-                ...DEFAULT_SETTINGS.progressiveReading.storage,
-                ...(sourceProgressiveReadingWithoutLegacy.storage || {}),
-            },
+            storage: normalizeConfiguredCaptureStorageSettings(
+                sourceProgressiveReadingWithoutLegacy.storage,
+                {
+                    allowSourceChild: true,
+                    fallback: DEFAULT_SETTINGS.progressiveReading.storage,
+                },
+            ),
         },
         ai: {
             ...DEFAULT_SETTINGS.ai,
@@ -474,10 +521,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
                 ...(settings.ai?.prompts || {}),
             },
             promptProfiles: normalizeAIPromptProfiles(settings.ai?.promptProfiles, settings.ai?.prompts),
-            draftStorage: {
-                ...DEFAULT_SETTINGS.ai.draftStorage,
-                ...(settings.ai?.draftStorage || {}),
-            },
+            draftStorage: normalizeConfiguredCaptureStorageSettings(settings.ai?.draftStorage, {
+                allowSourceChild: false,
+                fallback: DEFAULT_SETTINGS.ai.draftStorage,
+            }),
         },
     };
 
@@ -860,7 +907,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     progressiveReading: {
         altXExcerptEnabled: false,
         storage: {
-            mode: 'library',
+            mode: 'source-child',
             notebookId: '',
             targetBlockId: '',
         },

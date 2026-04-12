@@ -14,7 +14,7 @@ import { reactive } from 'vue';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { IDialogManager } from '../interfaces/IDialogManager';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
-import { createVueDialog } from '@/utils/dialog';
+import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { SettingsPanel } from '@/ui/settings';
 import AiWorkbenchDialog from '@/ui/ai/AiWorkbenchDialog.vue';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
@@ -63,6 +63,14 @@ import {
 } from '@/application/services/ProgressiveReadingService';
 import type { PracticeQueueFilter } from './PracticeQueueManager';
 import type { BrowserOpenState } from '@/ui/browser/types';
+import type { ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
+import {
+  normalizeExcerptFingerprint,
+  type ExcerptRecord,
+  type ExcerptRecordStatus,
+} from '@/application/services/ExcerptRecordService';
+import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
+import ExcerptRecordCenterDialog from '@/ui/progressive/ExcerptRecordCenterDialog.vue';
 import ProgressiveSplitDialog from '@/ui/progressive/ProgressiveSplitDialog.vue';
 
 const logger = createLogger('DialogManager');
@@ -128,6 +136,15 @@ interface ProgressiveSplitDialogState {
   progress: ProgressiveSplitProgress | null;
 }
 
+type ExcerptRecordCenterItem = ExcerptRecord & {
+  sourceDocTitle?: string;
+};
+
+interface ExcerptRecordCenterDialogState {
+  loading: boolean;
+  records: ExcerptRecordCenterItem[];
+}
+
 const HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG = new Set<string>(['builtin-concept-simple']);
 
 /**
@@ -159,6 +176,7 @@ export class DialogManager implements IDialogManager {
   private templateSelectDialog: VueDialogHandle | null = null;
   private aiWorkbenchDialog: VueDialogHandle | null = null;
   private progressiveSplitDialog: VueDialogHandle | null = null;
+  private excerptRecordCenterDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
   private readonly conceptCardEnsureInFlight = new Set<string>();
   
@@ -167,13 +185,15 @@ export class DialogManager implements IDialogManager {
   // ========================================================================
   
   private readonly siyuanApi: ManagerSiyuanPort;
+  private readonly progressiveSiyuanApi: ProgressiveSiyuanPort;
 
   constructor(
     private context: ApplicationContext,
     private plugin: Plugin,
-    ports?: { siyuanApi?: ManagerSiyuanPort }
+    ports?: { siyuanApi?: ManagerSiyuanPort; progressiveSiyuanApi?: ProgressiveSiyuanPort }
   ) {
     this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
+    this.progressiveSiyuanApi = ports?.progressiveSiyuanApi ?? new ProgressiveSiyuanAdapter();
   }
 
   private isMobileFrontend(): boolean {
@@ -586,6 +606,235 @@ export class DialogManager implements IDialogManager {
       this.srsBrowserDialog.destroy();
       this.srsBrowserDialog = null;
     }
+  }
+
+  private closeExcerptRecordCenterDialog(): void {
+    if (this.excerptRecordCenterDialog) {
+      this.excerptRecordCenterDialog.destroy();
+      this.excerptRecordCenterDialog = null;
+    }
+  }
+
+  async openExcerptRecordCenterDialog(): Promise<void> {
+    this.closeExcerptRecordCenterDialog();
+
+    const state = reactive<ExcerptRecordCenterDialogState>({
+      loading: true,
+      records: [],
+    });
+
+    this.excerptRecordCenterDialog = createVueDialog({
+      title: this.context.getI18n()?.progressiveExcerptRecordCenterTitle || '摘录记录中心',
+      component: ExcerptRecordCenterDialog,
+      props: {
+        state,
+        i18n: this.context.getI18n() || {},
+      },
+      events: {
+        refresh: async () => {
+          await this.loadExcerptRecordCenterState(state);
+        },
+        close: () => {
+          this.closeExcerptRecordCenterDialog();
+        },
+        openSource: async (recordId: string) => {
+          await this.openExcerptRecordTarget(recordId, 'source');
+        },
+        openExcerpt: async (recordId: string) => {
+          await this.openExcerptRecordTarget(recordId, 'excerpt');
+        },
+        archiveRecord: async (recordId: string) => {
+          await this.archiveExcerptRecord(recordId, state);
+        },
+        deleteRecord: async (recordId: string) => {
+          await this.deleteExcerptRecord(recordId, state);
+        },
+      },
+      width: this.isMobileFrontend() ? '100vw' : 'min(1120px, 96vw)',
+      height: this.isMobileFrontend() ? '100vh' : 'min(780px, 92vh)',
+      onClose: () => {
+        this.excerptRecordCenterDialog = null;
+      },
+    });
+
+    await this.loadExcerptRecordCenterState(state);
+  }
+
+  private async loadExcerptRecordCenterState(state: ExcerptRecordCenterDialogState): Promise<void> {
+    state.loading = true;
+    try {
+      const recordService = this.context.getExcerptRecordService();
+      const records = await recordService.list();
+      const sourceDocTitles = await this.resolveExcerptRecordSourceTitles(records);
+      const items = await Promise.all(records.map(async (record) => {
+        const reconciledStatus = await this.reconcileExcerptRecordStatus(record);
+        if (reconciledStatus === 'stale' && record.status !== 'stale' && record.status !== 'archived') {
+          await recordService.markStale(record.recordId);
+        }
+        return {
+          ...record,
+          status: reconciledStatus,
+          sourceDocTitle: sourceDocTitles.get(record.sourceDocId) || record.sourceDocId,
+        } satisfies ExcerptRecordCenterItem;
+      }));
+      state.records = items;
+    } catch (error) {
+      logger.error('[DialogManager] Failed to load excerpt record center state:', error);
+      await this.siyuanApi.pushErrMsg(
+        this.context.getI18n()?.progressiveExcerptRecordLoadFailed || '加载摘录记录失败',
+      );
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  private async resolveExcerptRecordSourceTitles(records: ExcerptRecord[]): Promise<Map<string, string>> {
+    const titles = new Map<string, string>();
+    const uniqueDocIds = Array.from(new Set(records.map((record) => record.sourceDocId).filter((value) => value.length > 0)));
+    await Promise.all(uniqueDocIds.map(async (docId) => {
+      try {
+        const docInfo = await this.progressiveSiyuanApi.getDocInfo(docId);
+        titles.set(docId, String(docInfo.name || docId).trim() || docId);
+      } catch (error) {
+        logger.warn('[DialogManager] Failed to resolve source doc info for excerpt record:', { docId, error });
+        titles.set(docId, docId);
+      }
+    }));
+    return titles;
+  }
+
+  private async reconcileExcerptRecordStatus(record: ExcerptRecord): Promise<ExcerptRecordStatus> {
+    if (record.status === 'archived') {
+      return 'archived';
+    }
+
+    try {
+      const { kramdown } = await this.progressiveSiyuanApi.getBlockKramdown(record.sourceBlockId);
+      const normalizedSource = normalizeExcerptFingerprint(String(kramdown || ''));
+      if (!normalizedSource || !normalizedSource.includes(record.normalizedFingerprint)) {
+        return 'stale';
+      }
+      return 'active';
+    } catch (error) {
+      logger.warn('[DialogManager] Failed to reconcile excerpt record source text, marking stale:', {
+        recordId: record.recordId,
+        sourceBlockId: record.sourceBlockId,
+        error,
+      });
+      return 'stale';
+    }
+  }
+
+  private async openExcerptRecordTarget(recordId: string, target: 'source' | 'excerpt'): Promise<void> {
+    const record = await this.context.getExcerptRecordService().get(recordId);
+    if (!record) {
+      await this.siyuanApi.pushErrMsg(
+        this.context.getI18n()?.progressiveExcerptRecordMissing || '未找到摘录记录',
+      );
+      return;
+    }
+
+    const tabApplicationService = this.context.getTabApplicationService();
+    if (target === 'source') {
+      await tabApplicationService.openBlockTab({ blockId: record.sourceBlockId });
+      return;
+    }
+
+    if (record.excerptEntityType === 'doc') {
+      await tabApplicationService.openDocumentTab({ docId: record.excerptEntityId });
+      return;
+    }
+
+    await tabApplicationService.openBlockTab({ blockId: record.excerptEntityId });
+  }
+
+  private async archiveExcerptRecord(
+    recordId: string,
+    state: ExcerptRecordCenterDialogState,
+  ): Promise<void> {
+    const record = await this.context.getExcerptRecordService().get(recordId);
+    if (!record) {
+      await this.siyuanApi.pushErrMsg(
+        this.context.getI18n()?.progressiveExcerptRecordMissing || '未找到摘录记录',
+      );
+      return;
+    }
+
+    const confirmed = await confirmDialog({
+      title: this.context.getI18n()?.progressiveExcerptRecordArchiveConfirmTitle || '确认归档摘录',
+      content: this.context.getI18n()?.progressiveExcerptRecordArchiveConfirmContent
+        || '归档会删除摘录实体并保留记录历史，原文高亮不会回退。是否继续？',
+      confirmText: this.context.getI18n()?.confirm || '确认',
+      cancelText: this.context.getI18n()?.cancel || '取消',
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await this.deleteExcerptEntity(record);
+      await this.context.getExcerptRecordService().archive(recordId);
+      await this.loadExcerptRecordCenterState(state);
+      await this.siyuanApi.pushMsg(
+        this.context.getI18n()?.progressiveExcerptRecordArchived || '摘录已归档',
+      );
+    } catch (error) {
+      logger.error('[DialogManager] Failed to archive excerpt record:', error);
+      await this.siyuanApi.pushErrMsg(
+        this.context.getI18n()?.progressiveExcerptRecordArchiveFailed || '归档摘录失败',
+      );
+    }
+  }
+
+  private async deleteExcerptRecord(
+    recordId: string,
+    state: ExcerptRecordCenterDialogState,
+  ): Promise<void> {
+    const record = await this.context.getExcerptRecordService().get(recordId);
+    if (!record) {
+      await this.siyuanApi.pushErrMsg(
+        this.context.getI18n()?.progressiveExcerptRecordMissing || '未找到摘录记录',
+      );
+      return;
+    }
+
+    const confirmed = await confirmDialog({
+      title: this.context.getI18n()?.progressiveExcerptRecordDeleteConfirmTitle || '确认删除摘录',
+      content: this.context.getI18n()?.progressiveExcerptRecordDeleteConfirmContent
+        || '删除会移除摘录实体和记录，原文高亮会保留。是否继续？',
+      confirmText: this.context.getI18n()?.delete || '删除',
+      cancelText: this.context.getI18n()?.cancel || '取消',
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await this.deleteExcerptEntity(record);
+      await this.context.getExcerptRecordService().delete(recordId);
+      await this.loadExcerptRecordCenterState(state);
+      await this.siyuanApi.pushMsg(
+        this.context.getI18n()?.progressiveExcerptRecordDeleted || '摘录已删除',
+      );
+    } catch (error) {
+      logger.error('[DialogManager] Failed to delete excerpt record:', error);
+      await this.siyuanApi.pushErrMsg(
+        this.context.getI18n()?.progressiveExcerptRecordDeleteFailed || '删除摘录失败',
+      );
+    }
+  }
+
+  private async deleteExcerptEntity(record: ExcerptRecord): Promise<void> {
+    const cardService = this.context.getCardService();
+    const linkedCard = cardService.getCardByBlockId(record.excerptEntityId);
+    if (linkedCard) {
+      const deleteCardResult = await cardService.deleteCard({ cardId: linkedCard.id });
+      if (isErr(deleteCardResult)) {
+        throw deleteCardResult.error;
+      }
+    }
+
+    await this.progressiveSiyuanApi.deleteBlock(record.excerptEntityId);
   }
 
   private closeProgressiveSplitDialog(): void {
@@ -2383,6 +2632,7 @@ export class DialogManager implements IDialogManager {
     this.closeSettingsDialog();
     this.closeMobileQueueLauncherDialog();
     this.closeBrowserDialog();
+    this.closeExcerptRecordCenterDialog();
     this.closeProgressiveSplitDialog();
     this.destroyCurrentReviewDialog();
     if (this.aiWorkbenchDialog) {

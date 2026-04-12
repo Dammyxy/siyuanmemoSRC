@@ -1,6 +1,11 @@
 import type { ProgressiveBlockRow, ProgressiveDocInfo, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
+import {
+  ExcerptRecordService,
+  PROGRESSIVE_EXCERPT_COLOR_TOKEN,
+  type ExcerptRecord,
+} from '@/application/services/ExcerptRecordService';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { isErr } from '@/types/result';
@@ -171,6 +176,21 @@ export interface ProgressiveExcerptResult {
   containerDocId: string;
 }
 
+export interface ProgressiveCreatedExcerptResult extends ProgressiveExcerptResult {
+  kind: 'created';
+  recordId: string;
+  colorApplied: boolean;
+}
+
+export interface ProgressiveDuplicateExcerptResult {
+  kind: 'duplicate';
+  record: ExcerptRecord;
+}
+
+export type ProgressiveExcerptCreationResult =
+  | ProgressiveCreatedExcerptResult
+  | ProgressiveDuplicateExcerptResult;
+
 export type ProgressiveChildDocStorageMode = 'workbench' | 'source-child';
 
 export interface ProgressiveChildDocInput {
@@ -302,6 +322,7 @@ export class ProgressiveReadingService {
     private readonly cardService: CardApplicationService,
     private readonly settingsProvider: ProgressiveReadingSettingsProvider,
     private readonly configuredCaptureStorageService: ConfiguredCaptureStorageService,
+    private readonly excerptRecordService: ExcerptRecordService,
     private readonly docTreeScopeRefresher?: ProgressiveDocTreeScopeRefresher,
   ) {
     this.cardCreationHelper = new CardCreationHelper(cardService);
@@ -576,7 +597,7 @@ export class ProgressiveReadingService {
     };
   }
 
-  async createExcerptFromSelection(input: ProgressiveExcerptInput): Promise<ProgressiveExcerptResult> {
+  async createExcerptFromSelection(input: ProgressiveExcerptInput): Promise<ProgressiveExcerptCreationResult> {
     const sourceBlockId = String(input.sourceBlockId || '').trim();
     const selectedText = this.toExcerptMarkdown(input.selectedText);
     if (!sourceBlockId || !selectedText) {
@@ -606,90 +627,126 @@ export class ProgressiveReadingService {
       pieceDocId = piece.pieceDocId;
     }
 
-    const excerptStorage = this.settingsProvider.getSettings().progressiveReading?.storage;
-    const hasExplicitStorage = this.configuredCaptureStorageService.hasExplicitConfiguration(excerptStorage);
-    const excerptAttrs: Record<string, string | number | undefined> = {
-      [ATTR_PROGRESSIVE_KIND]: hasExplicitStorage && excerptStorage?.mode === 'daily-note' ? 'excerpt' : 'excerpt-doc',
-      [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
-      [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
-      [ATTR_PROGRESSIVE_SESSION_ID]: sessionId,
-      [ATTR_PROGRESSIVE_MODE]: mode,
-    };
-    let excerptEntityId = '';
-    let excerptEntityType: 'doc' | 'block' = 'doc';
-    let containerDocId = '';
-    let topicCardId = '';
-
-    if (hasExplicitStorage) {
-      if (excerptStorage?.mode === 'daily-note') {
-        const dailyNoteTarget = await this.configuredCaptureStorageService.resolveDailyNoteTarget(excerptStorage);
-        if (!dailyNoteTarget) {
-          throw new Error('未能解析摘录今日日记存放位置。');
-        }
-        containerDocId = dailyNoteTarget.containerDocId;
-        excerptEntityId = await this.createDailyNoteExcerptBlock({
-          dailyNoteDocId: dailyNoteTarget.containerDocId,
-          selectedText,
-          sourceBlockId,
-          attrs: excerptAttrs,
-        });
-        excerptEntityType = 'block';
-      } else {
-        const libraryTarget = await this.configuredCaptureStorageService.resolveLibraryTarget(excerptStorage, {
-          feature: 'progressive-excerpt',
-          allowNonDocTarget: false,
-        });
-        if (!libraryTarget) {
-          throw new Error('未能解析摘录固定库存放位置。');
-        }
-        containerDocId = libraryTarget.containerDocId;
-        excerptEntityId = await this.createExcerptDocUnderConfiguredParent({
-          parentDocInfo: libraryTarget.parentDoc,
-          sourceDocId,
-          selectedText,
-          sourceBlockId,
-          attrs: excerptAttrs,
-        });
-      }
-    } else {
-      const sourceDocInfo = await this.resolveDocInfo(sourceDocId);
-      excerptEntityId = await this.createExcerptDocUnderSource({
-        sourceDocInfo,
-        sourceDocId,
-        selectedText,
-        sourceBlockId,
-        attrs: excerptAttrs,
-      });
-      containerDocId = excerptEntityId;
-    }
-
-    topicCardId = await this.ensureExcerptTopicCard({
-      excerptEntityId,
-      excerptEntityType,
-      sourceBlockId,
-      sessionId,
-      mode,
-      pieceDocId,
+    const excerptAttempt = await this.excerptRecordService.createOrRejectDuplicate({
       sourceDocId,
+      sourceBlockId,
+      selectedText,
+      origin: input.origin,
+      colorToken: PROGRESSIVE_EXCERPT_COLOR_TOKEN,
+      createExcerpt: async () => {
+        const excerptStorage = this.settingsProvider.getSettings().progressiveReading?.storage;
+        const configuredStorageMode = excerptStorage?.mode;
+        const hasExplicitStorage = this.configuredCaptureStorageService.hasExplicitConfiguration(excerptStorage);
+        const useSourceChildStorage = configuredStorageMode === 'source-child' || !hasExplicitStorage;
+        const excerptAttrs: Record<string, string | number | undefined> = {
+          [ATTR_PROGRESSIVE_KIND]: !useSourceChildStorage && configuredStorageMode === 'daily-note' ? 'excerpt' : 'excerpt-doc',
+          [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
+          [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
+          [ATTR_PROGRESSIVE_SESSION_ID]: sessionId,
+          [ATTR_PROGRESSIVE_MODE]: mode,
+        };
+        let excerptEntityId = '';
+        let excerptEntityType: 'doc' | 'block' = 'doc';
+        let containerDocId = '';
+
+        if (useSourceChildStorage) {
+          const sourceDocInfo = await this.resolveDocInfo(sourceDocId);
+          excerptEntityId = await this.createExcerptDocUnderSource({
+            sourceDocInfo,
+            sourceDocId,
+            selectedText,
+            sourceBlockId,
+            attrs: excerptAttrs,
+          });
+          containerDocId = excerptEntityId;
+        } else if (configuredStorageMode === 'daily-note') {
+          const dailyNoteTarget = await this.configuredCaptureStorageService.resolveDailyNoteTarget(excerptStorage);
+          if (!dailyNoteTarget) {
+            throw new Error('未能解析摘录今日日记存放位置。');
+          }
+          containerDocId = dailyNoteTarget.containerDocId;
+          excerptEntityId = await this.createDailyNoteExcerptBlock({
+            dailyNoteDocId: dailyNoteTarget.containerDocId,
+            selectedText,
+            sourceBlockId,
+            attrs: excerptAttrs,
+          });
+          excerptEntityType = 'block';
+        } else {
+          const libraryTarget = await this.configuredCaptureStorageService.resolveLibraryTarget(excerptStorage, {
+            feature: 'progressive-excerpt',
+            allowNonDocTarget: false,
+          });
+          if (!libraryTarget) {
+            throw new Error('未能解析摘录固定库存放位置。');
+          }
+          containerDocId = libraryTarget.containerDocId;
+          excerptEntityId = await this.createExcerptDocUnderConfiguredParent({
+            parentDocInfo: libraryTarget.parentDoc,
+            sourceDocId,
+            selectedText,
+            sourceBlockId,
+            attrs: excerptAttrs,
+          });
+        }
+
+        const topicCardId = await this.ensureExcerptTopicCard({
+          excerptEntityId,
+          excerptEntityType,
+          sourceBlockId,
+          sessionId,
+          mode,
+          pieceDocId,
+          sourceDocId,
+        });
+
+        return {
+          excerptEntityId,
+          excerptEntityType,
+          topicCardId,
+          sourceBlockId,
+          containerDocId,
+        };
+      },
     });
+
+    if (excerptAttempt.kind === 'duplicate') {
+      logger.info('Duplicate excerpt prevented', {
+        sourceBlockId,
+        sourceDocId,
+        recordId: excerptAttempt.record.recordId,
+        origin: input.origin,
+      });
+      return excerptAttempt;
+    }
 
     logger.info('Excerpt created', {
       sourceBlockId,
       sourceDocId,
-      excerptEntityId,
-      excerptEntityType,
-      containerDocId,
+      excerptEntityId: excerptAttempt.created.excerptEntityId,
+      excerptEntityType: excerptAttempt.created.excerptEntityType,
+      containerDocId: excerptAttempt.created.containerDocId,
+      recordId: excerptAttempt.record.recordId,
       origin: input.origin,
     });
     this.docTreeScopeRefresher?.scheduleRebuild();
 
     return {
-      excerptEntityId,
-      excerptEntityType,
-      topicCardId,
-      sourceBlockId,
-      containerDocId,
+      kind: 'created',
+      ...excerptAttempt.created,
+      recordId: excerptAttempt.record.recordId,
+      colorApplied: false,
     };
+  }
+
+  async updateSourceBlockDom(blockId: string, dom: string): Promise<void> {
+    const normalizedBlockId = String(blockId || '').trim();
+    const normalizedDom = String(dom || '').trim();
+    if (!normalizedBlockId || !normalizedDom) {
+      throw new Error('更新摘录原文高亮需要有效的块 ID 和 DOM 内容');
+    }
+
+    await this.siyuanApi.updateDomBlock(normalizedBlockId, normalizedDom);
   }
 
   async createChildDocFromSource(input: ProgressiveChildDocInput): Promise<ProgressiveChildDocResult> {

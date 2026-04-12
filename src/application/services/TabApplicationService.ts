@@ -6,8 +6,7 @@
  * @module application/services/TabApplicationService
  */
 
-import type { App, TProtyleAction } from 'siyuan';
-import { openTab } from 'siyuan';
+import { Constants, type App, openTab, type TProtyleAction } from 'siyuan';
 
 /**
  * 标签页位置
@@ -47,6 +46,22 @@ export interface OpenCustomTabOptions {
     /** ID */
     id?: string;
   };
+}
+
+export interface OpenBlockTabOptions {
+  blockId: string;
+  position?: TabPosition;
+  openNewTab?: boolean;
+  openInNewWindow?: boolean;
+  zoomIn?: boolean;
+}
+
+function resolveFocusAction(): TProtyleAction {
+  const focusAction = Constants?.CB_GET_FOCUS;
+  if (typeof focusAction === 'string' && focusAction.length > 0) {
+    return focusAction as TProtyleAction;
+  }
+  return 'cb-get-focus' as TProtyleAction;
 }
 
 function buildCustomTabId(custom: OpenCustomTabOptions['custom']): string {
@@ -103,6 +118,28 @@ export class TabApplicationService {
       },
       position,
       keepCursor,
+    });
+  }
+
+  async openBlockTab(options: OpenBlockTabOptions): Promise<void> {
+    const {
+      blockId,
+      position = 'right',
+      openNewTab,
+      openInNewWindow,
+      zoomIn,
+    } = options;
+
+    await openTab({
+      app: this.app,
+      doc: {
+        id: blockId,
+        action: [resolveFocusAction()],
+        zoomIn,
+      },
+      position,
+      openNewTab,
+      openInNewWindow,
     });
   }
 

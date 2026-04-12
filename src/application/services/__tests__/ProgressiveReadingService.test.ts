@@ -1,23 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ok } from '@/types/result';
 import type { CardApplicationService } from '../CardApplicationService';
+import { EXCERPT_RECORD_STORAGE_KEY, ExcerptRecordService } from '../ExcerptRecordService';
 import { ProgressiveReadingService, ProgressiveSplitCancelledError } from '../ProgressiveReadingService';
 import type { ProgressiveBlockRow, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { PluginSettings } from '@/types/settings';
 
-function createFileServiceMock(initialData: unknown = null): IFileService & { getStored: () => unknown } {
-  let stored = initialData;
+function createFileServiceMock(initialData: unknown = null): IFileService & { getStored: (fileName?: string) => unknown } {
+  const store = new Map<string, unknown>();
+  if (initialData !== null) {
+    store.set('progressive-reading.json', initialData);
+  }
   return {
     readFile: vi.fn(async () => null),
     writeFile: vi.fn(async () => undefined),
-    readJSON: vi.fn(async () => stored),
+    readJSON: vi.fn(async (fileName: string) => (store.has(fileName) ? store.get(fileName) ?? null : null)),
     writeJSON: vi.fn(async (_fileName: string, data: unknown) => {
-      stored = data;
+      store.set(_fileName, data);
     }),
     readMsgpack: vi.fn(async () => null),
     writeMsgpack: vi.fn(async () => undefined),
-    getStored: () => stored,
+    getStored: (fileName = 'progressive-reading.json') => store.get(fileName),
   };
 }
 
@@ -42,6 +46,7 @@ function createProgressiveSiyuanPortMock(
     createDocWithMarkdown: vi.fn(async () => 'created-doc'),
     appendMarkdownBlock: vi.fn(async () => 'appended-block'),
     appendDomBlock: vi.fn(async () => 'appended-dom-block'),
+    updateDomBlock: vi.fn(async () => 'updated-dom-block'),
     moveBlockAsChild: vi.fn(async () => undefined),
     deleteBlock: vi.fn(async () => undefined),
     renderTemplate: vi.fn(async (template: string) => template),
@@ -65,7 +70,7 @@ function createSettingsProviderMock(
       progressiveReading: {
         altXExcerptEnabled: false,
         storage: {
-          mode: 'library',
+          mode: 'source-child',
           notebookId: '',
           targetBlockId: '',
         },
@@ -96,12 +101,14 @@ function createServiceUnderTest(
   },
   configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock(),
 ) {
+  const excerptRecordService = new ExcerptRecordService(fileService);
   return new ProgressiveReadingService(
     port,
     fileService,
     cardService,
     settingsProvider,
     configuredCaptureStorageService as never,
+    excerptRecordService,
   );
 }
 
@@ -183,6 +190,27 @@ function createSplitTreeSqlMock(
 describe('ProgressiveReadingService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('updates excerpt source blocks through the progressive Siyuan port DOM update path', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock();
+    const { service: cardService } = createCardServiceMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+    );
+
+    await expect(
+      service.updateSourceBlockDom('source-block-1', '<div data-node-id="source-block-1">Updated</div>'),
+    ).resolves.toBeUndefined();
+
+    expect(port.updateDomBlock).toHaveBeenCalledWith(
+      'source-block-1',
+      '<div data-node-id="source-block-1">Updated</div>',
+    );
   });
 
   it('splits nested H1-H3 sections into a real document tree and keeps linear preorder session order', async () => {
@@ -976,11 +1004,14 @@ describe('ProgressiveReadingService', () => {
     });
 
     expect(result).toEqual({
+      kind: 'created',
       excerptEntityId: 'excerpt-doc-1',
       excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-1',
       containerDocId: 'excerpt-doc-1',
+      recordId: expect.any(String),
+      colorApplied: false,
     });
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
@@ -1030,7 +1061,19 @@ describe('ProgressiveReadingService', () => {
         sourceBlockId: 'source-1',
       }),
     }));
-    expect(fileService.writeJSON).not.toHaveBeenCalled();
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
+      version: 1,
+      records: [
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-doc-1',
+          sourceDocId: 'doc-ordinary',
+          sourceBlockId: 'source-1',
+          selectedText: 'Focus text',
+          normalizedFingerprint: 'Focus text',
+          status: 'active',
+        }),
+      ],
+    }));
   });
 
   it('creates split-piece excerpts as child excerpt documents without writing Daily Notes trace', async () => {
@@ -1107,11 +1150,14 @@ describe('ProgressiveReadingService', () => {
     });
 
     expect(result).toEqual({
+      kind: 'created',
       excerptEntityId: 'excerpt-doc-2',
       excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'piece-block-1',
       containerDocId: 'excerpt-doc-2',
+      recordId: expect.any(String),
+      colorApplied: false,
     });
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
@@ -1165,7 +1211,69 @@ describe('ProgressiveReadingService', () => {
       topicCardId: 'card-piece-1',
     }));
     expect(stored.sessions['session-1'].pieces[0]).not.toHaveProperty('workbenchDocId');
-    expect(fileService.writeJSON).not.toHaveBeenCalled();
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
+      version: 1,
+      records: [
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-doc-2',
+          sourceDocId: 'piece-1',
+          sourceBlockId: 'piece-block-1',
+        }),
+      ],
+    }));
+  });
+
+  it('rejects duplicate excerpts on the same source block before creating a second excerpt entity', async () => {
+    const fileService = createFileServiceMock();
+    const recordService = new ExcerptRecordService(fileService);
+    await recordService.createOrRejectDuplicate({
+      sourceDocId: 'doc-ordinary',
+      sourceBlockId: 'source-dup-1',
+      selectedText: 'Focus text',
+      origin: 'editor',
+      createExcerpt: async () => ({
+        excerptEntityId: 'excerpt-existing-1',
+        excerptEntityType: 'doc' as const,
+      }),
+    });
+
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-dup-1'")) {
+          return [
+            { id: 'source-dup-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Before Focus text after', markdown: 'Before Focus text after' },
+          ];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+    });
+    const cardService = createCardServiceMock();
+    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+
+    const result = await service.createExcerptFromSelection({
+      sourceBlockId: 'source-dup-1',
+      selectedText: 'Focus text',
+      origin: 'editor',
+    });
+
+    expect(result).toEqual({
+      kind: 'duplicate',
+      record: expect.objectContaining({
+        excerptEntityId: 'excerpt-existing-1',
+        sourceBlockId: 'source-dup-1',
+        normalizedFingerprint: 'Focus text',
+      }),
+    });
+    expect(port.createDocWithMarkdown).not.toHaveBeenCalled();
+    expect(port.appendDomBlock).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
   });
 
   it('does not write any Daily Notes trace by default while still creating excerpt docs and topic cards', async () => {
@@ -1201,11 +1309,14 @@ describe('ProgressiveReadingService', () => {
     });
 
     expect(result).toEqual({
+      kind: 'created',
       excerptEntityId: 'excerpt-doc-plain-1',
       excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-plain-1',
       containerDocId: 'excerpt-doc-plain-1',
+      recordId: expect.any(String),
+      colorApplied: false,
     });
     expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
@@ -1218,6 +1329,63 @@ describe('ProgressiveReadingService', () => {
       expect.stringContaining('data-id="source-plain-1"'),
     );
     expect(port.appendMarkdownBlock).not.toHaveBeenCalled();
+  });
+
+  it('treats explicit source-child excerpt storage as source-adjacent even when notebook fields are present', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-source-child-1'")) {
+          return [
+            { id: 'source-source-child-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Focus beta', markdown: 'Alpha Focus beta' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-source-child-1'),
+    });
+    const cardService = createCardServiceMock();
+    const configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock({
+      hasExplicitConfiguration: vi.fn(() => true),
+    });
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock({
+        storage: {
+          mode: 'source-child',
+          notebookId: 'library-box',
+          targetBlockId: 'library-parent-1',
+        },
+      }),
+      configuredCaptureStorageService,
+    );
+
+    const result = await service.createExcerptFromSelection({
+      sourceBlockId: 'source-source-child-1',
+      selectedText: 'Focus',
+      origin: 'editor',
+    });
+
+    expect(result.kind).toBe('created');
+    expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
+      'notebook-a',
+      '/reading/ordinary/[摘录 001] Focus',
+      '',
+    );
+    expect(configuredCaptureStorageService.resolveLibraryTarget).not.toHaveBeenCalled();
+    expect(configuredCaptureStorageService.resolveDailyNoteTarget).not.toHaveBeenCalled();
   });
 
   it('uses a short normalized preview for new excerpt document titles while keeping full excerpt content', async () => {
@@ -1254,11 +1422,14 @@ describe('ProgressiveReadingService', () => {
     });
 
     expect(result).toEqual({
+      kind: 'created',
       excerptEntityId: 'excerpt-doc-long-1',
       excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-long-1',
       containerDocId: 'excerpt-doc-long-1',
+      recordId: expect.any(String),
+      colorApplied: false,
     });
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',

@@ -163,6 +163,34 @@ describe('settings normalization', () => {
     expect(normalized.settings.ai.draftStorage).toEqual(DEFAULT_SETTINGS.ai.draftStorage);
   });
 
+  it('keeps progressive excerpt storage in source-child mode but clamps AI draft storage away from it', () => {
+    const legacy = cloneSettings();
+    legacy.progressiveReading.storage = {
+      mode: 'source-child',
+      notebookId: 'notebook-a',
+      targetBlockId: 'source-block-1',
+    };
+    legacy.ai.draftStorage = {
+      mode: 'source-child' as typeof legacy.ai.draftStorage.mode,
+      notebookId: 'notebook-b',
+      targetBlockId: 'draft-block-1',
+    };
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.progressiveReading.storage).toEqual({
+      mode: 'source-child',
+      notebookId: 'notebook-a',
+      targetBlockId: 'source-block-1',
+    });
+    expect(normalized.settings.ai.draftStorage).toEqual({
+      mode: DEFAULT_SETTINGS.ai.draftStorage.mode,
+      notebookId: 'notebook-b',
+      targetBlockId: 'draft-block-1',
+    });
+  });
+
   it('fills nested AI prompt defaults when partially configured', () => {
     const legacy = cloneSettings();
     legacy.ai = {

@@ -63,6 +63,7 @@ import { CardContentQueryService } from '@/application/queries/CardContentQueryS
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
+import { ExcerptRecordService } from '@/application/services/ExcerptRecordService';
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
 import { ReviewScopeCardCreationSyncService } from '@/application/services/ReviewScopeCardCreationSyncService';
 import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
@@ -101,6 +102,7 @@ interface ApplicationServiceRegistry {
   cardTypeDetectionService: CardTypeDetectionService;
   docTreeReviewScopeService: DocTreeReviewScopeService;
   configuredCaptureStorageService: ConfiguredCaptureStorageService;
+  excerptRecordService: ExcerptRecordService;
   progressiveReadingService: ProgressiveReadingService;
   reviewScopeCardCreationSyncService: ReviewScopeCardCreationSyncService;
   selectionExcerptService: SelectionExcerptService;
@@ -349,6 +351,10 @@ export class ApplicationContext {
       );
     });
 
+    this.registerServiceFactory('excerptRecordService', (context) => {
+      return new ExcerptRecordService(context.getFileService());
+    });
+
     this.registerServiceFactory('progressiveReadingService', (context) => {
       return new ProgressiveReadingService(
         new ProgressiveSiyuanAdapter(),
@@ -356,6 +362,7 @@ export class ApplicationContext {
         context.getCardService(),
         context.getSettingsService(),
         context.getConfiguredCaptureStorageService(),
+        context.getExcerptRecordService(),
         context.getDocTreeReviewScopeService(),
       );
     });
@@ -1572,6 +1579,10 @@ export class ApplicationContext {
 
   getConfiguredCaptureStorageService(): ConfiguredCaptureStorageService {
     return this.getService('configuredCaptureStorageService');
+  }
+
+  getExcerptRecordService(): ExcerptRecordService {
+    return this.getService('excerptRecordService');
   }
 
   getReviewScopeCardCreationSyncService(): ReviewScopeCardCreationSyncService {
