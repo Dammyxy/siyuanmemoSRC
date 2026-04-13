@@ -50,6 +50,7 @@ import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { BrowserApplicationService } from '@/application/services/BrowserApplicationService';
 import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
+import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 
 // ✅ DDD 重构服务导入
@@ -73,6 +74,7 @@ import { ConfiguredCaptureStorageService } from '@/application/services/Configur
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
+import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
 import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
 import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
@@ -120,6 +122,7 @@ interface ApplicationServiceRegistry {
   browserService: BrowserApplicationService;
   reviewService: ReviewApplicationService;
   cardEditorService: CardEditorApplicationService;
+  srsTransparencyService: SrsTransparencyApplicationService;
 }
 
 type ServiceName = keyof ApplicationServiceRegistry;
@@ -358,6 +361,7 @@ export class ApplicationContext {
     this.registerServiceFactory('progressiveReadingService', (context) => {
       return new ProgressiveReadingService(
         new ProgressiveSiyuanAdapter(),
+        new ProgressiveNativeRiffAdapter(),
         context.getFileService(),
         context.getCardService(),
         context.getSettingsService(),
@@ -384,6 +388,7 @@ export class ApplicationContext {
       return new TopicDerivedItemService(
         context.getCardService(),
         context.getProgressiveReadingService(),
+        new ProgressiveNativeRiffAdapter(),
         context.getSettingsService(),
       );
     });
@@ -543,6 +548,10 @@ export class ApplicationContext {
         context.getUnifiedDataSourceManager(),
         context.getReviewService()
       );
+    });
+
+    this.registerServiceFactory('srsTransparencyService', (context) => {
+      return new SrsTransparencyApplicationService(context.getScheduler());
     });
     
     // TODO: Phase 3 - 注册其他应用服务工厂
@@ -1466,6 +1475,10 @@ export class ApplicationContext {
 
   getCardEditorService(): CardEditorApplicationService {
     return this.getService('cardEditorService');
+  }
+
+  getSrsTransparencyService(): SrsTransparencyApplicationService {
+    return this.getService('srsTransparencyService');
   }
   
   // TODO: Phase 3 - 实现其他应用服务访问方法

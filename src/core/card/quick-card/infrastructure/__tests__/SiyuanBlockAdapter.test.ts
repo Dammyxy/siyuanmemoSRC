@@ -17,6 +17,7 @@ describe('SiyuanBlockAdapter', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    delete (window as Window & { Lute?: unknown }).Lute;
   });
 
   describe('getBlock', () => {
@@ -197,6 +198,76 @@ describe('SiyuanBlockAdapter', () => {
         content: '什么是 DDD？ >> 领域驱动设计',
         parentID: undefined,
       });
+    });
+  });
+
+  describe('renderQuickFaceHtml', () => {
+    it('keeps visible SpinBlockDOM output without retrying Md2BlockDOM', () => {
+      const spinBlockDOM = vi.fn(() => '<div class="p">北京</div>');
+      const md2BlockDOM = vi.fn(() => '<div class="p">首都</div>');
+      (window as Window & { Lute?: unknown }).Lute = {
+        New: () => ({
+          SpinBlockDOM: spinBlockDOM,
+          Md2BlockDOM: md2BlockDOM,
+        }),
+      };
+
+      const html = adapter.renderQuickFaceHtml('北京');
+
+      expect(html).toBe('<div class="p">北京</div>');
+      expect(spinBlockDOM).toHaveBeenCalledWith('北京');
+      expect(md2BlockDOM).not.toHaveBeenCalled();
+    });
+
+    it('retries Md2BlockDOM when SpinBlockDOM returns structurally blank scaffold', () => {
+      const spinBlockDOM = vi.fn(() => '<div class="p"><div class="protyle-action"></div><div class="protyle-attr"></div></div>');
+      const md2BlockDOM = vi.fn(() => '<div class="p">北京</div>');
+      (window as Window & { Lute?: unknown }).Lute = {
+        New: () => ({
+          SpinBlockDOM: spinBlockDOM,
+          Md2BlockDOM: md2BlockDOM,
+        }),
+      };
+
+      const html = adapter.renderQuickFaceHtml('北京');
+
+      expect(html).toBe('<div class="p">北京</div>');
+      expect(spinBlockDOM).toHaveBeenCalledWith('北京');
+      expect(md2BlockDOM).toHaveBeenCalledWith('北京');
+    });
+
+    it('strips attribute-only lines and trailing attribute tails before rendering', () => {
+      const spinBlockDOM = vi.fn(() => '<div class="p">北京</div>');
+      const md2BlockDOM = vi.fn(() => '<div class="p">首都</div>');
+      (window as Window & { Lute?: unknown }).Lute = {
+        New: () => ({
+          SpinBlockDOM: spinBlockDOM,
+          Md2BlockDOM: md2BlockDOM,
+        }),
+      };
+
+      adapter.renderQuickFaceHtml('北京 {: id="inline"}\n* {: id="line"}');
+
+      expect(spinBlockDOM).toHaveBeenCalledWith('北京');
+      expect(md2BlockDOM).not.toHaveBeenCalled();
+    });
+
+    it('falls back to normalized raw kramdown when both renderers stay structurally blank', () => {
+      const blankShell = '<div class="p"><div class="protyle-action"></div><div class="protyle-attr"></div></div>';
+      const spinBlockDOM = vi.fn(() => blankShell);
+      const md2BlockDOM = vi.fn(() => blankShell);
+      (window as Window & { Lute?: unknown }).Lute = {
+        New: () => ({
+          SpinBlockDOM: spinBlockDOM,
+          Md2BlockDOM: md2BlockDOM,
+        }),
+      };
+
+      const html = adapter.renderQuickFaceHtml('北京\n* {: id="line"}');
+
+      expect(html).toBe('北京');
+      expect(spinBlockDOM).toHaveBeenCalledWith('北京');
+      expect(md2BlockDOM).toHaveBeenCalledWith('北京');
     });
   });
 });

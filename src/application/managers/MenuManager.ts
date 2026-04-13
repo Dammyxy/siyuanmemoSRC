@@ -162,14 +162,6 @@ export class MenuManager {
       },
     });
 
-    menu.addItem({
-      icon: 'iconQuote',
-      label: this.i18n?.progressiveExcerptRecordCenter || '摘录记录中心',
-      click: () => {
-        void this.dialogManager.openExcerptRecordCenterDialog();
-      },
-    });
-    
     menu.addSeparator();
     
     // 设置

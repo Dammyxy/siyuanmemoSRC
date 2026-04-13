@@ -516,7 +516,7 @@
 
         <h3>{{ t('hyperspaceSettingsTitle', 'Hyperspace / 超空间远征') }}</h3>
         <p class="form-hint form-hint--section">
-          {{ t('neuralSettingsIntro', '当前可配置的是超空间远征传播参数；Orbit / 轨道暂不提供独立设置项。') }}
+          {{ t('neuralSettingsIntro', '当前可配置的是 Hyperspace Expedition / 超空间远征模式 的传播参数；Orbit / 轨道环绕模式 暂不提供独立设置项。') }}
         </p>
 
         <h4>{{ t('hyperspaceChannelsSection', '传播通道') }}</h4>

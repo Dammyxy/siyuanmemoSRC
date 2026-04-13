@@ -11,6 +11,7 @@ import {
   ATTR_PROGRESSIVE_STORAGE_MODE,
 } from '@/core/siyuan/block';
 import type { CardApplicationService } from '../CardApplicationService';
+import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
 import type { ProgressiveReadingService } from '../ProgressiveReadingService';
 import { TopicDerivedItemService } from '../TopicDerivedItemService';
 
@@ -37,6 +38,7 @@ function createCardServiceMock(existingCards: Array<Record<string, unknown>> = [
           getValue: () => `card-${++createdCount}`,
         }),
       })),
+      deleteCard: vi.fn(async () => ok(undefined)),
     } as unknown as CardApplicationService,
   };
 }
@@ -54,7 +56,21 @@ function createProgressiveReadingServiceMock() {
         sequence: createdCount,
         contentBlockId: `derived-block-${createdCount}`,
       })),
+      deleteProgressiveArtifact: vi.fn(async () => undefined),
     } as unknown as ProgressiveReadingService,
+  };
+}
+
+function createNativeRiffPortMock(
+  overrides: Partial<ProgressiveNativeRiffPort> = {},
+): ProgressiveNativeRiffPort {
+  return {
+    BUILTIN_DECK_ID: 'builtin-deck',
+    addRiffCards: vi.fn(async () => ({
+      name: 'builtin-deck',
+      size: 0,
+    })),
+    ...overrides,
   };
 }
 
@@ -96,9 +112,11 @@ describe('TopicDerivedItemService', () => {
   it('creates one derived item per cloze and keeps only the target answer marked in each child doc', async () => {
     const cardService = createCardServiceMock();
     const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
+      nativeRiffApi,
       createSettingsProvider(),
     );
 
@@ -114,6 +132,7 @@ describe('TopicDerivedItemService', () => {
     expect(result.skipped).toBe(0);
     expect(progressiveReadingService.service.createChildDocFromSource).toHaveBeenCalledTimes(2);
     expect(cardService.service.createCard).toHaveBeenCalledTimes(2);
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledTimes(2);
 
     const firstChildInput = vi.mocked(progressiveReadingService.service.createChildDocFromSource).mock.calls[0]?.[0];
     const secondChildInput = vi.mocked(progressiveReadingService.service.createChildDocFromSource).mock.calls[1]?.[0];
@@ -161,15 +180,19 @@ describe('TopicDerivedItemService', () => {
         symbolType: '==',
       }),
     }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(1, 'builtin-deck', ['derived-block-1']);
+    expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(2, 'builtin-deck', ['derived-block-2']);
     expect(result.items.map((item) => item.derivedCardId)).toEqual(['card-1', 'card-2']);
   });
 
   it('normalizes concept-definition derivation into a standalone item document and respects explicit storage mode', async () => {
     const cardService = createCardServiceMock();
     const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
+      nativeRiffApi,
       createSettingsProvider('workbench'),
     );
 
@@ -203,6 +226,7 @@ describe('TopicDerivedItemService', () => {
       creationRuleId: 'ConceptDefinitionInlineRule',
       answerFingerprint: 'source-block-2::ConceptDefinitionInlineRule::((concept-doc)) <> Definition body',
     }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['derived-block-1']);
   });
 
   it('skips already-derived fingerprints instead of creating duplicate child docs', async () => {
@@ -220,9 +244,11 @@ describe('TopicDerivedItemService', () => {
     ];
     const cardService = createCardServiceMock(existingCards);
     const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
     const service = new TopicDerivedItemService(
       cardService.service,
       progressiveReadingService.service,
+      nativeRiffApi,
       createSettingsProvider(),
     );
 
@@ -241,5 +267,33 @@ describe('TopicDerivedItemService', () => {
     });
     expect(progressiveReadingService.service.createChildDocFromSource).not.toHaveBeenCalled();
     expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the new child doc and local card when native Riff sync fails', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock({
+      addRiffCards: vi.fn(async () => {
+        throw new Error('native riff failed');
+      }),
+    });
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider(),
+    );
+
+    await expect(service.createFromTopicSource({
+      sourceBlockId: 'source-block-4',
+      sourceDocId: 'doc-root-4',
+      parentTopicCardId: 'topic-card-4',
+      content: 'Alpha ==Beta==',
+      decisions: [CLOZE_DECISION],
+    })).rejects.toThrow('native riff failed');
+
+    expect(cardService.service.deleteCard).toHaveBeenCalledWith({ cardId: 'card-1' });
+    expect(progressiveReadingService.service.deleteProgressiveArtifact).toHaveBeenCalledWith('derived-doc-1');
   });
 });

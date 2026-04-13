@@ -103,7 +103,7 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
             nodePreview: '幂函数',
             isVirtual: false,
             associationType: 'focus',
-            reason: '轨道中心节点',
+            reason: '概念卡：轨道中心节点',
             visitedAt: 1,
             sourceNodeId: null,
             sourceEventId: null,

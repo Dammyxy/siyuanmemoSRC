@@ -14,6 +14,22 @@ export interface NeuralSourceLabelSet {
   modeHint: string;
 }
 
+export function getNeuralEngineLabel(
+  engineMode: NeuralEngineMode,
+  t: TranslateFn,
+  variant: 'short' | 'full' = 'short',
+): string {
+  if (engineMode === 'hyperspace') {
+    return variant === 'full'
+      ? t('engineHyperspaceFull', 'Hyperspace Expedition Mode')
+      : t('engineHyperspace', 'Hyperspace Expedition');
+  }
+
+  return variant === 'full'
+    ? t('engineOrbitFull', 'Orbit Mode')
+    : t('engineOrbit', 'Orbit');
+}
+
 export function getNeuralSourceLabelSet(
   engineMode: NeuralEngineMode,
   t: TranslateFn,

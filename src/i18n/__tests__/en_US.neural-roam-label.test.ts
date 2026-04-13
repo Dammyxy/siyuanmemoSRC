@@ -20,6 +20,8 @@ describe('en_US neural roam labels', () => {
     expect(enUS.worldlineAnchors).toBe('Stations');
     expect(enUS.engineOrbit).toBe('Orbit');
     expect(enUS.engineHyperspace).toBe('Hyperspace Expedition');
+    expect(enUS.engineOrbitFull).toBe('Orbit Mode');
+    expect(enUS.engineHyperspaceFull).toBe('Hyperspace Expedition Mode');
     expect(enUS.engineOrbitIntro).toBe('Roam locally around orbit centers, concept cards, and nearby stations.');
     expect(enUS.engineOrbitIntroLong).toContain('stations');
     expect(enUS.engineHyperspaceIntro).toBe('Propagate outward layer by layer from activation sources through links and optional tree relations.');

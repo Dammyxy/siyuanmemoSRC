@@ -1,0 +1,151 @@
+import { describe, expect, it, vi } from 'vitest';
+import { CardState, CardType, Rating, type FSRSCard } from '@/types/card';
+import type { CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
+import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
+
+function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
+  const now = 1_700_000_000_000;
+  return {
+    id: overrides.id ?? 'card-1',
+    xiuyuanID: overrides.xiuyuanID ?? 'xiuyuan-1',
+    blockId: overrides.blockId ?? 'block-1',
+    due: overrides.due ?? now + 86_400_000,
+    stability: overrides.stability ?? 4,
+    difficulty: overrides.difficulty ?? 6,
+    reps: overrides.reps ?? 3,
+    lapses: overrides.lapses ?? 1,
+    state: overrides.state ?? CardState.Review,
+    lastReview: overrides.lastReview ?? now,
+    elapsedDays: overrides.elapsedDays ?? 1,
+    scheduledDays: overrides.scheduledDays ?? 7,
+    priority: overrides.priority ?? 50,
+    type: overrides.type ?? CardType.Item,
+    tags: overrides.tags ?? [],
+    neuralRoamSeed: overrides.neuralRoamSeed ?? false,
+    leechCount: overrides.leechCount ?? 0,
+    isLeech: overrides.isLeech ?? false,
+    skipped: overrides.skipped ?? false,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+    meta: overrides.meta ? { ...overrides.meta } : {},
+    aFactor: overrides.aFactor,
+    cardTypeMarker: overrides.cardTypeMarker,
+    schedulerType: overrides.schedulerType,
+    schedulerMeta: overrides.schedulerMeta,
+  };
+}
+
+function buildSnapshot(cardOverrides: Partial<FSRSCard> = {}): CardEditorSnapshot {
+  return {
+    card: buildCard(cardOverrides),
+    blockInfo: {
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_100_000,
+    },
+  };
+}
+
+function createTranslator() {
+  return (key: string, fallback: string) => {
+    const overrides: Record<string, string> = {
+      days: 'd',
+      schedulerFsrsV6: 'FSRS v6',
+      schedulerSm15: 'SM-15',
+      schedulerAFactorV2: 'A-Factor v2',
+      afHistorySummary: '{count} 条，最新值 {latest}',
+    };
+    return overrides[key] ?? fallback;
+  };
+}
+
+describe('SrsTransparencyApplicationService', () => {
+  it('builds FSRS transparency from router preview using shared next-due formatting', () => {
+    const now = 1_700_000_000_000;
+    const router = {
+      getSchedulerType: vi.fn(() => 'fsrs-v6' as const),
+      preview: vi.fn(() => new Map([
+        [Rating.Again, buildCard({ due: now + 30_000 })],
+        [Rating.Hard, buildCard({ due: now + 3_600_000 })],
+        [Rating.Good, buildCard({ due: now + 86_400_000 })],
+        [Rating.Easy, buildCard({ due: now + 3 * 86_400_000 })],
+      ])),
+    };
+
+    const service = new SrsTransparencyApplicationService(router);
+    const model = service.build(buildSnapshot(), { now, t: createTranslator() });
+
+    expect(router.getSchedulerType).toHaveBeenCalled();
+    expect(router.preview).toHaveBeenCalled();
+    expect(model.schedulerLabel).toBe('FSRS v6');
+    expect(model.gradePreviews.map((item) => item.nextDue)).toEqual(['< 1 min', '1 h', '1 d', '3 d']);
+    expect(model.summary).toContain('FSRS v6');
+    expect(model.algorithmFacts).toEqual([
+      { label: '调度器', value: 'FSRS v6' },
+      { label: '调度依据', value: '根据稳定度与难度预测间隔扩张，并对不同评分给出不同增长幅度。' },
+    ]);
+  });
+
+  it('surfaces SM-15 specific facts from schedulerMeta', () => {
+    const router = {
+      getSchedulerType: vi.fn(() => 'sm15' as const),
+      preview: vi.fn(() => new Map([
+        [Rating.Again, buildCard()],
+        [Rating.Hard, buildCard()],
+        [Rating.Good, buildCard()],
+        [Rating.Easy, buildCard()],
+      ])),
+    };
+
+    const service = new SrsTransparencyApplicationService(router);
+    const model = service.build(buildSnapshot({
+      schedulerMeta: {
+        sm15: {
+          of: 1.8,
+          optimumInterval: 2 * 86_400_000,
+          afs: [1.4, 1.6, 1.8],
+        },
+      },
+    }), { t: createTranslator() });
+
+    expect(model.schedulerType).toBe('sm15');
+    expect(model.algorithmFacts).toEqual([
+      { label: '调度器', value: 'SM-15' },
+      { label: 'O-Factor', value: '1.80' },
+      { label: '最优间隔', value: '2.0 d' },
+      { label: 'AF 历史', value: '3 条，最新值 1.80' },
+    ]);
+  });
+
+  it('surfaces A-Factor v2 facts from topic scheduler metadata', () => {
+    const router = {
+      getSchedulerType: vi.fn(() => 'a-factor-v2' as const),
+      preview: vi.fn(() => new Map([
+        [Rating.Again, buildCard()],
+        [Rating.Hard, buildCard()],
+        [Rating.Good, buildCard()],
+        [Rating.Easy, buildCard()],
+      ])),
+    };
+
+    const service = new SrsTransparencyApplicationService(router);
+    const model = service.build(buildSnapshot({
+      aFactor: 2.7,
+      schedulerMeta: {
+        topic: {
+          afs: [2.3, 2.5, 2.7],
+          of: 2.7,
+          optimalInterval: 9,
+        },
+      },
+    }), { t: createTranslator() });
+
+    expect(model.schedulerType).toBe('a-factor-v2');
+    expect(model.algorithmFacts).toEqual([
+      { label: '调度器', value: 'A-Factor v2' },
+      { label: 'A-Factor', value: '2.70' },
+      { label: 'O-Factor', value: '2.70' },
+      { label: '最优间隔', value: '9.0 d' },
+      { label: 'AF 历史', value: '3 条，最新值 2.70' },
+    ]);
+  });
+});

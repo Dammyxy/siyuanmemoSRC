@@ -57,6 +57,7 @@ describe('ExcerptRecordService', () => {
       record: expect.objectContaining({
         excerptEntityId: 'excerpt-1',
         sourceBlockId: 'block-1',
+        sourceBlockIds: ['block-1'],
         normalizedFingerprint: 'Alpha Beta',
       }),
     });
@@ -65,11 +66,76 @@ describe('ExcerptRecordService', () => {
       records: [
         expect.objectContaining({
           excerptEntityId: 'excerpt-1',
+          sourceBlockIds: ['block-1'],
           normalizedFingerprint: 'Alpha Beta',
           status: 'active',
         }),
       ],
     }));
+  });
+
+  it('dedupes multi-block excerpts by ordered block range plus normalized fingerprint', async () => {
+    const fileService = createFileServiceMock();
+    const service = new ExcerptRecordService(fileService);
+
+    const first = await service.createOrRejectDuplicate({
+      sourceDocId: 'doc-1',
+      sourceBlockId: 'block-1',
+      sourceBlockIds: ['block-1', 'block-2'],
+      selectedText: 'Alpha Beta',
+      origin: 'editor',
+      createExcerpt: async () => ({
+        excerptEntityId: 'excerpt-1',
+        excerptEntityType: 'doc' as const,
+      }),
+    });
+    const duplicate = await service.createOrRejectDuplicate({
+      sourceDocId: 'doc-1',
+      sourceBlockId: 'block-1',
+      sourceBlockIds: ['block-1', 'block-2'],
+      selectedText: 'Alpha   Beta',
+      origin: 'review',
+      createExcerpt: async () => ({
+        excerptEntityId: 'excerpt-2',
+        excerptEntityType: 'doc' as const,
+      }),
+    });
+    const distinct = await service.createOrRejectDuplicate({
+      sourceDocId: 'doc-1',
+      sourceBlockId: 'block-1',
+      sourceBlockIds: ['block-1', 'block-3'],
+      selectedText: 'Alpha Beta',
+      origin: 'review',
+      createExcerpt: async () => ({
+        excerptEntityId: 'excerpt-3',
+        excerptEntityType: 'doc' as const,
+      }),
+    });
+
+    expect(first.kind).toBe('created');
+    expect(duplicate).toEqual({
+      kind: 'duplicate',
+      record: expect.objectContaining({
+        excerptEntityId: 'excerpt-1',
+        sourceBlockIds: ['block-1', 'block-2'],
+      }),
+    });
+    expect(distinct.kind).toBe('created');
+    const stored = fileService.getStored() as { version: number; records: Array<Record<string, unknown>> };
+    expect(stored).toEqual(expect.objectContaining({
+      version: 1,
+      records: expect.arrayContaining([
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-1',
+          sourceBlockIds: ['block-1', 'block-2'],
+        }),
+        expect.objectContaining({
+          excerptEntityId: 'excerpt-3',
+          sourceBlockIds: ['block-1', 'block-3'],
+        }),
+      ]),
+    }));
+    expect(stored.records).toHaveLength(2);
   });
 
   it('archives records without deleting them from storage and removes them on delete', async () => {

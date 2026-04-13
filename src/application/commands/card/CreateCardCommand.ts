@@ -38,6 +38,7 @@ export interface ProgressiveLineage {
   pieceDocId?: string;
   sourceDocId?: string;
   sourceBlockId?: string;
+  sourceBlockIds?: string[];
   parentExcerptId?: string;
   parentTopicCardId?: string;
   storageMode?: 'workbench' | 'source-child';

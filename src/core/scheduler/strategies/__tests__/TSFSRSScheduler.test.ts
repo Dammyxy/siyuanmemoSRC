@@ -193,6 +193,29 @@ describe('TSFSRSScheduler', () => {
             expect(result.lastReview).toBeGreaterThanOrEqual(beforeTime);
             expect(result.lastReview).toBeLessThanOrEqual(afterTime);
         });
+
+        it('应该修复脏复习卡状态并返回有效的 Good 评分结果', () => {
+            const now = new Date('2026-04-12T15:41:50+08:00');
+            const corruptedReviewCard: FSRSCard = {
+                ...testCard,
+                due: now.getTime(),
+                stability: Number.NaN,
+                difficulty: 1,
+                elapsedDays: 45,
+                scheduledDays: Number.NaN,
+                reps: 3,
+                lapses: 0,
+                state: CardState.Review,
+                lastReview: new Date('2026-04-07T17:36:24+08:00').getTime(),
+            };
+
+            const result = scheduler.review(corruptedReviewCard, Rating.Good, now);
+
+            expect(Number.isFinite(result.due)).toBe(true);
+            expect(result.due).toBeGreaterThan(now.getTime());
+            expect(result.scheduledDays).toBeGreaterThan(0);
+            expect(result.stability).toBeGreaterThan(0);
+        });
     });
     
     describe('preview() 方法', () => {
@@ -259,6 +282,38 @@ describe('TSFSRSScheduler', () => {
             
             expect(result).toBeDefined();
             expect(result.size).toBe(4);
+        });
+
+        it('应该修复脏复习卡预览而不是退回伪 1 天排期', () => {
+            const now = new Date('2026-04-12T15:41:50+08:00');
+            const corruptedReviewCard: FSRSCard = {
+                ...testCard,
+                due: now.getTime(),
+                stability: Number.NaN,
+                difficulty: 1,
+                elapsedDays: 45,
+                scheduledDays: Number.NaN,
+                reps: 3,
+                lapses: 0,
+                state: CardState.Review,
+                lastReview: new Date('2026-04-07T17:36:24+08:00').getTime(),
+            };
+
+            const result = scheduler.preview(corruptedReviewCard, now);
+            const againCard = result.get(Rating.Again)!;
+            const hardCard = result.get(Rating.Hard)!;
+            const goodCard = result.get(Rating.Good)!;
+            const easyCard = result.get(Rating.Easy)!;
+
+            [againCard, hardCard, goodCard, easyCard].forEach((card) => {
+                expect(Number.isFinite(card.due)).toBe(true);
+                expect(card.due).toBeGreaterThan(now.getTime());
+            });
+
+            expect(againCard.due).toBeLessThan(hardCard.due);
+            expect(hardCard.due).toBeLessThan(goodCard.due);
+            expect(goodCard.due).toBeLessThan(easyCard.due);
+            expect(new Set([hardCard.due, goodCard.due, easyCard.due]).size).toBe(3);
         });
     });
     
@@ -360,16 +415,52 @@ describe('TSFSRSScheduler', () => {
         });
         
         it('应该正确转换卡片状态', () => {
-            const states = [CardState.New, CardState.Learning, CardState.Review, CardState.Relearning];
-            
-            states.forEach((state) => {
-                const card: FSRSCard = {
+            const now = new Date();
+            const validStateCards: FSRSCard[] = [
+                {
                     ...testCard,
-                    state,
-                };
-                
-                const result = scheduler.review(card, Rating.Good);
-                
+                    state: CardState.New,
+                },
+                {
+                    ...testCard,
+                    state: CardState.Learning,
+                    due: now.getTime() + 10 * 60 * 1000,
+                    stability: 2.4,
+                    difficulty: 5,
+                    elapsedDays: 0,
+                    scheduledDays: 0,
+                    learning_step: 1,
+                    reps: 1,
+                    lastReview: now.getTime(),
+                },
+                {
+                    ...testCard,
+                    state: CardState.Review,
+                    stability: 10,
+                    difficulty: 5,
+                    elapsedDays: 3,
+                    scheduledDays: 3,
+                    reps: 5,
+                    lastReview: now.getTime() - 3 * 86400000,
+                },
+                {
+                    ...testCard,
+                    state: CardState.Relearning,
+                    due: now.getTime() + 10 * 60 * 1000,
+                    stability: 1.5,
+                    difficulty: 6,
+                    elapsedDays: 0,
+                    scheduledDays: 0,
+                    learning_step: 0,
+                    reps: 6,
+                    lapses: 1,
+                    lastReview: now.getTime(),
+                },
+            ];
+
+            validStateCards.forEach((card) => {
+                const result = scheduler.review(card, Rating.Good, now);
+
                 // 验证状态字段存在且有效
                 expect(result.state).toBeDefined();
                 expect([CardState.New, CardState.Learning, CardState.Review, CardState.Relearning]).toContain(result.state);

@@ -22,11 +22,14 @@ import {
     type FSRSParameters as TSFSRSParameters,
     type RecordLog,
 } from 'ts-fsrs';
-import type { FSRSCard, FSRSParameters, Rating, CardState } from '@/types';
+import { CardState, type FSRSCard, type FSRSParameters, type Rating } from '@/types';
 import type { SchedulerEngineAdapter } from '../types';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('TSFSRSScheduler');
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_REVIEW_STABILITY = 0.01;
+const MIN_REVIEW_SCHEDULED_DAYS = 1;
 
 /**
  * 预览缓存项
@@ -149,7 +152,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         }
         
         // 缓存未命中或已过期，重新计算
-        const tsCard = this.toTSCard(card);
+        const tsCard = this.toTSCard(card, now);
         const scheduling: RecordLog = this.f.repeat(tsCard, now);
         
         const result = new Map<Rating, FSRSCard>();
@@ -185,7 +188,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @returns 更新后的卡片状态
      */
     review(card: FSRSCard, rating: Rating, now: Date = new Date()): FSRSCard {
-        const tsCard = this.toTSCard(card);
+        const tsCard = this.toTSCard(card, now);
         const tsRating = this.toTSRating(rating);
         
         // 使用 ts-fsrs 的 next 方法直接获取指定评分的结果
@@ -215,7 +218,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         const results: FSRSCard[] = [];
         
         for (const { card, rating } of reviews) {
-            const tsCard = this.toTSCard(card);
+            const tsCard = this.toTSCard(card, now);
             const tsRating = this.toTSRating(rating);
             
             // 使用 ts-fsrs 的 next 方法
@@ -238,7 +241,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @returns 可提取性值 (0-1)，1 表示完全能回忆，0 表示完全遗忘
      */
     getRetrievability(card: FSRSCard, now: Date = new Date()): number {
-        const tsCard = this.toTSCard(card);
+        const tsCard = this.toTSCard(card, now);
         return this.f.get_retrievability(tsCard, now, false) as number;
     }
 
@@ -320,33 +323,35 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @param card - 我们的卡片格式
      * @returns ts-fsrs 的卡片格式
      */
-    private toTSCard(card: FSRSCard): TSCard {
+    private toTSCard(card: FSRSCard, now: Date = new Date()): TSCard {
+        const normalizedCard = this.normalizeCardForScheduler(card, now);
+
         // 安全地转换 due 日期，确保不会产生 Invalid Date
         let dueDate: Date;
-        if (card.due && !isNaN(card.due) && isFinite(card.due)) {
-            dueDate = new Date(card.due);
+        if (normalizedCard.due && !isNaN(normalizedCard.due) && isFinite(normalizedCard.due)) {
+            dueDate = new Date(normalizedCard.due);
         } else {
             // 如果 due 无效，使用当前时间
-            dueDate = new Date();
+            dueDate = new Date(now);
             logger.warn('Invalid due date for card:', card.id, 'using current time');
         }
         
         // 安全地转换 lastReview 日期
         let lastReviewDate: Date | undefined;
-        if (card.lastReview && !isNaN(card.lastReview) && isFinite(card.lastReview)) {
-            lastReviewDate = new Date(card.lastReview);
+        if (normalizedCard.lastReview && !isNaN(normalizedCard.lastReview) && isFinite(normalizedCard.lastReview)) {
+            lastReviewDate = new Date(normalizedCard.lastReview);
         }
         
         return {
             due: dueDate,
-            stability: card.stability ?? 0,
-            difficulty: card.difficulty ?? 5,
-            elapsed_days: card.elapsedDays ?? 0,
-            scheduled_days: card.scheduledDays ?? 0,
-            learning_steps: card.learning_step ?? 0,
-            reps: card.reps ?? 0,
-            lapses: card.lapses ?? 0,
-            state: this.toTSState(card.state),
+            stability: normalizedCard.stability,
+            difficulty: normalizedCard.difficulty,
+            elapsed_days: normalizedCard.elapsedDays,
+            scheduled_days: normalizedCard.scheduledDays,
+            learning_steps: normalizedCard.learning_step ?? 0,
+            reps: normalizedCard.reps,
+            lapses: normalizedCard.lapses,
+            state: this.toTSState(normalizedCard.state),
             last_review: lastReviewDate,
         };
     }
@@ -376,13 +381,11 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         if (tsCard.due && tsCard.due instanceof Date && !isNaN(tsCard.due.getTime())) {
             dueTime = tsCard.due.getTime();
         } else {
-            // 如果 due 无效，使用当前时间 + 1天
-            dueTime = Date.now() + 86400000;
             logger.error('Invalid due date from ts-fsrs:', {
                 cardId: originalCard.id,
                 tsCardDue: tsCard.due,
-                fallbackDue: new Date(dueTime).toISOString(),
             });
+            throw new Error(`TS-FSRS produced invalid due date for card ${originalCard.id}`);
         }
         
         // 安全地转换 lastReview 日期
@@ -390,23 +393,87 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         if (tsCard.last_review && tsCard.last_review instanceof Date && !isNaN(tsCard.last_review.getTime())) {
             lastReviewTime = tsCard.last_review.getTime();
         } else {
-            // 如果 lastReview 无效，使用当前时间
-            lastReviewTime = Date.now();
+            lastReviewTime = Number.isFinite(originalCard.lastReview) && originalCard.lastReview > 0
+                ? originalCard.lastReview
+                : Date.now();
         }
         
         return {
             ...originalCard,
             due: dueTime,
-            stability: tsCard.stability,
-            difficulty: tsCard.difficulty,
-            elapsedDays: tsCard.elapsed_days,
-            scheduledDays: tsCard.scheduled_days,
-            reps: tsCard.reps,
-            lapses: tsCard.lapses,
+            stability: this.normalizePositiveNumber(tsCard.stability, originalCard.state === CardState.Review ? MIN_REVIEW_STABILITY : 0),
+            difficulty: this.normalizeClampedNumber(tsCard.difficulty, this.normalizeClampedNumber(originalCard.difficulty, 5, 1, 10), 1, 10),
+            elapsedDays: this.normalizeNonNegativeNumber(tsCard.elapsed_days, 0),
+            scheduledDays: this.normalizeNonNegativeNumber(tsCard.scheduled_days, 0),
+            learning_step: this.normalizeNonNegativeInteger(tsCard.learning_steps, originalCard.learning_step ?? 0),
+            reps: this.normalizeNonNegativeInteger(tsCard.reps, originalCard.reps ?? 0),
+            lapses: this.normalizeNonNegativeInteger(tsCard.lapses, originalCard.lapses ?? 0),
             state: this.fromTSState(tsCard.state),
             lastReview: lastReviewTime,
             updatedAt: Date.now(),
         };
+    }
+
+    private normalizeCardForScheduler(card: FSRSCard, now: Date): FSRSCard {
+        const normalized: FSRSCard = {
+            ...card,
+            due: this.normalizeTimestamp(card.due, now.getTime()),
+            stability: this.normalizeNonNegativeNumber(card.stability, 0),
+            difficulty: this.normalizeClampedNumber(card.difficulty, 5, 1, 10),
+            elapsedDays: this.normalizeNonNegativeNumber(card.elapsedDays, 0),
+            scheduledDays: this.normalizeNonNegativeNumber(card.scheduledDays, 0),
+            learning_step: this.normalizeNonNegativeInteger(card.learning_step, 0),
+            reps: this.normalizeNonNegativeInteger(card.reps, 0),
+            lapses: this.normalizeNonNegativeInteger(card.lapses, 0),
+            lastReview: this.normalizeTimestamp(card.lastReview, 0),
+        };
+
+        if (normalized.state === CardState.Review) {
+            normalized.stability = this.normalizePositiveNumber(normalized.stability, MIN_REVIEW_STABILITY);
+            normalized.scheduledDays = this.normalizePositiveNumber(normalized.scheduledDays, MIN_REVIEW_SCHEDULED_DAYS);
+
+            if (!normalized.lastReview) {
+                normalized.lastReview = now.getTime() - normalized.scheduledDays * DAY_MS;
+            }
+
+            normalized.elapsedDays = Math.max(
+                0,
+                Math.floor((now.getTime() - normalized.lastReview) / DAY_MS),
+            );
+        }
+
+        return normalized;
+    }
+
+    private normalizeTimestamp(value: unknown, fallback: number): number {
+        const num = Number(value);
+        return Number.isFinite(num) && num > 0 ? num : fallback;
+    }
+
+    private normalizeNonNegativeNumber(value: unknown, fallback: number): number {
+        const num = Number(value);
+        return Number.isFinite(num) && num >= 0 ? num : fallback;
+    }
+
+    private normalizePositiveNumber(value: unknown, fallback: number): number {
+        const num = Number(value);
+        return Number.isFinite(num) && num > 0 ? num : fallback;
+    }
+
+    private normalizeClampedNumber(value: unknown, fallback: number, min: number, max: number): number {
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+            return fallback;
+        }
+        return Math.min(Math.max(num, min), max);
+    }
+
+    private normalizeNonNegativeInteger(value: unknown, fallback: number): number {
+        const num = Number(value);
+        if (!Number.isFinite(num) || num < 0) {
+            return fallback;
+        }
+        return Math.floor(num);
     }
     
     /**

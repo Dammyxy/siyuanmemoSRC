@@ -662,6 +662,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
     const normalizedFieldMapping = normalizeFieldMapping(meta.fieldMapping);
     const imageOcclusionMeta = pickImageOcclusionMeta(meta);
+    const explicitRenderProfile = typeof meta.renderProfile === 'string' ? meta.renderProfile : '';
+    const templateCategory = template?.category || '';
+    const fallbackQuickRenderProfile = !explicitRenderProfile && templateCategory === 'quick'
+      ? 'quick-default'
+      : '';
     
     // 馃啎 鎻愬彇 typeMarker锛堢敤浜庡弻鍚戝崱鐗囪瘑鍒鍙嶉潰锛?
     let typeMarker: string | undefined;
@@ -717,6 +722,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         ...(typeof meta.cardSource === 'string' ? { cardSource: meta.cardSource } : {}),
         ...(typeof meta.symbolType === 'string' ? { symbolType: meta.symbolType } : {}),
         ...(typeof meta.clozeRenderMode === 'string' ? { clozeRenderMode: meta.clozeRenderMode } : {}),
+        ...(explicitRenderProfile ? { renderProfile: explicitRenderProfile } : {}),
+        ...(!explicitRenderProfile && fallbackQuickRenderProfile ? { renderProfile: fallbackQuickRenderProfile } : {}),
         ...(typeof meta.forceQuickRender === 'boolean' ? { forceQuickRender: meta.forceQuickRender } : {}),
         ...(typeof meta.quickDetectReason === 'string' ? { quickDetectReason: meta.quickDetectReason } : {}),
         // 鉁?浣跨敤 Xiuyuan 瀹炰綋鏂规硶鑾峰彇 blockIDs锛圖omain 灞傞€昏緫锛?

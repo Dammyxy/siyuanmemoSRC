@@ -1,4 +1,5 @@
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
+import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
 import {
   type ProgressiveChildDocStorageMode,
   ProgressiveReadingService,
@@ -78,6 +79,7 @@ export class TopicDerivedItemService {
   constructor(
     private readonly cardService: CardApplicationService,
     private readonly progressiveReadingService: ProgressiveReadingService,
+    private readonly nativeRiffApi: ProgressiveNativeRiffPort,
     private readonly settingsProvider: TopicDerivationSettingsProvider,
   ) {}
 
@@ -119,49 +121,63 @@ export class TopicDerivedItemService {
         continue;
       }
 
-      const childDoc = await this.progressiveReadingService.createChildDocFromSource({
-        sourceDocId,
-        kind: 'derived-item-doc',
-        titlePrefix: '练习',
-        previewText: candidate.previewText,
-        previewMax: 16,
-        storageMode,
-        attrs: {
-          [ATTR_PROGRESSIVE_KIND]: 'derived-item-doc',
-          [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
-          [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
-          [ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID]: parentTopicCardId,
-          [ATTR_PROGRESSIVE_STORAGE_MODE]: storageMode,
-          [ATTR_PROGRESSIVE_CREATION_RULE_ID]: candidate.creationRuleId,
-          [ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]: candidate.answerFingerprint,
-        },
-        contentMarkdown: candidate.contentMarkdown,
-      });
+      let derivedDocId = '';
+      try {
+        const childDoc = await this.progressiveReadingService.createChildDocFromSource({
+          sourceDocId,
+          kind: 'derived-item-doc',
+          titlePrefix: '练习',
+          previewText: candidate.previewText,
+          previewMax: 16,
+          storageMode,
+          attrs: {
+            [ATTR_PROGRESSIVE_KIND]: 'derived-item-doc',
+            [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
+            [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
+            [ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID]: parentTopicCardId,
+            [ATTR_PROGRESSIVE_STORAGE_MODE]: storageMode,
+            [ATTR_PROGRESSIVE_CREATION_RULE_ID]: candidate.creationRuleId,
+            [ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]: candidate.answerFingerprint,
+          },
+          contentMarkdown: candidate.contentMarkdown,
+        });
+        derivedDocId = childDoc.docId;
 
-      const derivedBlockId = String(childDoc.contentBlockId || '').trim();
-      if (!derivedBlockId) {
-        throw new Error('Topic 下继续制卡的子文档创建成功，但内容块未返回');
+        const derivedBlockId = String(childDoc.contentBlockId || '').trim();
+        if (!derivedBlockId) {
+          throw new Error('Topic 下继续制卡的子文档创建成功，但内容块未返回');
+        }
+
+        const derivedCardId = await this.createDerivedItemCard({
+          candidate,
+          derivedBlockId,
+          sourceBlockId,
+          sourceDocId,
+          parentTopicCardId,
+          storageMode,
+        });
+
+        existingFingerprints.add(candidate.answerFingerprint);
+        items.push({
+          derivedDocId: childDoc.docId,
+          derivedBlockId,
+          derivedCardId,
+          sourceBlockId,
+          storageMode,
+          creationRuleId: candidate.creationRuleId,
+          answerFingerprint: candidate.answerFingerprint,
+        });
+      } catch (error) {
+        await this.rollbackDerivedDoc(derivedDocId, {
+          sourceBlockId,
+          sourceDocId,
+          parentTopicCardId,
+          answerFingerprint: candidate.answerFingerprint,
+          creationRuleId: candidate.creationRuleId,
+          error,
+        });
+        throw error;
       }
-
-      const derivedCardId = await this.createDerivedItemCard({
-        candidate,
-        derivedBlockId,
-        sourceBlockId,
-        sourceDocId,
-        parentTopicCardId,
-        storageMode,
-      });
-
-      existingFingerprints.add(candidate.answerFingerprint);
-      items.push({
-        derivedDocId: childDoc.docId,
-        derivedBlockId,
-        derivedCardId,
-        sourceBlockId,
-        storageMode,
-        creationRuleId: candidate.creationRuleId,
-        answerFingerprint: candidate.answerFingerprint,
-      });
     }
 
     logger.info('Derived item creation completed', {
@@ -474,6 +490,51 @@ export class TopicDerivedItemService {
       throw result.error;
     }
 
-    return result.value.getId().getValue();
+    const derivedCardId = result.value.getId().getValue();
+    try {
+      await this.nativeRiffApi.addRiffCards(this.nativeRiffApi.BUILTIN_DECK_ID, [input.derivedBlockId]);
+    } catch (error) {
+      await this.rollbackLocalCard(derivedCardId, {
+        derivedBlockId: input.derivedBlockId,
+        sourceBlockId: input.sourceBlockId,
+        parentTopicCardId: input.parentTopicCardId,
+        error,
+      });
+      throw error;
+    }
+
+    return derivedCardId;
+  }
+
+  private async rollbackDerivedDoc(docId: string, context: Record<string, unknown>): Promise<void> {
+    const normalizedDocId = String(docId || '').trim();
+    if (!normalizedDocId) {
+      return;
+    }
+
+    try {
+      await this.progressiveReadingService.deleteProgressiveArtifact(normalizedDocId);
+    } catch (cleanupError) {
+      logger.warn('Failed to rollback derived item document after progressive item creation error', {
+        docId: normalizedDocId,
+        ...context,
+        cleanupError,
+      });
+    }
+  }
+
+  private async rollbackLocalCard(cardId: string, context: Record<string, unknown>): Promise<void> {
+    try {
+      const result = await this.cardService.deleteCard({ cardId });
+      if (isErr(result)) {
+        throw result.error;
+      }
+    } catch (cleanupError) {
+      logger.warn('Failed to rollback derived item local card after native Riff sync error', {
+        cardId,
+        ...context,
+        cleanupError,
+      });
+    }
   }
 }

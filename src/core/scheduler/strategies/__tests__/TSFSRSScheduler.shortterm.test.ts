@@ -145,6 +145,20 @@ describe('TSFSRSScheduler - 短期记忆模式', () => {
             // 验证所有评分都有预览
             expect(preview.size).toBe(4);
         });
+
+        it('应该回写 short-term 的 learning_step', () => {
+            const scheduler = new TSFSRSScheduler({
+                ...defaultParams,
+                enableShortTerm: true,
+            });
+
+            const now = new Date('2026-04-12T15:41:50+08:00');
+            const result = scheduler.review(testCard, Rating.Good, now);
+
+            expect(result.state).toBe(CardState.Learning);
+            expect(result.learning_step).toBe(1);
+            expect(result.due).toBeGreaterThan(now.getTime());
+        });
     });
     
     describe('对比测试：启用 vs 禁用短期记忆', () => {

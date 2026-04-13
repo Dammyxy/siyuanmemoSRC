@@ -205,6 +205,7 @@ describe('ReviewHeader', () => {
         header,
         i18n: {
           engineOrbit: 'Orbit',
+          engineOrbitFull: 'Orbit Mode',
           engineOrbitIntro: 'Roam locally around orbit centers, concept cards, and nearby stations.',
           switchEngineMode: 'Switch Engine: {mode}',
           navModeFollow: 'Follow Path',
@@ -236,8 +237,8 @@ describe('ReviewHeader', () => {
     const lockFocusIconUse = lockFocusButton.get('use');
     const lockFocusIcon = lockFocusIconUse.attributes('xlink:href') || lockFocusIconUse.attributes('href');
 
-    expect(engineButton.attributes('aria-label')).toBe('Switch Engine: Orbit');
-    expect(engineButton.attributes('title')).toBe('Switch Engine: Orbit');
+    expect(engineButton.attributes('aria-label')).toBe('Switch Engine: Orbit Mode');
+    expect(engineButton.attributes('title')).toBe('Switch Engine: Orbit Mode');
     expect(introStrip.text()).toBe('Roam locally around orbit centers, concept cards, and nearby stations.');
     expect(navModeButton.attributes('aria-label')).toBe('Current: Follow Path (3/10)');
     expect(lockFocusButton.attributes('aria-label')).toBe('Build Station');
@@ -260,6 +261,7 @@ describe('ReviewHeader', () => {
         header,
         i18n: {
           engineHyperspace: 'Hyperspace Expedition',
+          engineHyperspaceFull: 'Hyperspace Expedition Mode',
           engineHyperspaceIntro: 'Propagate outward layer by layer from activation sources through links and optional tree relations.',
           switchEngineMode: 'Switch Engine: {mode}',
           navStatusFollow: 'Current: {mode} ({current}/{total})',

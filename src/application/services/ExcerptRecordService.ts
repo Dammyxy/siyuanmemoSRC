@@ -13,6 +13,7 @@ export interface ExcerptRecord {
   excerptEntityType: ExcerptRecordEntityType;
   sourceDocId: string;
   sourceBlockId: string;
+  sourceBlockIds: string[];
   selectedText: string;
   normalizedFingerprint: string;
   colorToken: string;
@@ -41,6 +42,7 @@ export interface CreateExcerptRecordArtifact {
 export interface CreateExcerptRecordAttemptInput<TCreated extends CreateExcerptRecordArtifact> {
   sourceDocId: string;
   sourceBlockId: string;
+  sourceBlockIds?: string[];
   selectedText: string;
   origin: ExcerptRecordOrigin;
   colorToken?: string;
@@ -69,6 +71,38 @@ function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+export function normalizeExcerptBlockIds(
+  value: unknown,
+  fallbackSourceBlockId?: string,
+): string[] {
+  const sourceBlockId = normalizeString(fallbackSourceBlockId);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  if (sourceBlockId) {
+    seen.add(sourceBlockId);
+    result.push(sourceBlockId);
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const normalized = normalizeString(entry);
+      if (!normalized || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      result.push(normalized);
+    }
+  }
+
+  return result;
+}
+
+function buildNormalizedBlockRangeKey(blockIds: string[]): string {
+  return normalizeExcerptBlockIds(blockIds)
+    .join('::');
+}
+
 function normalizeStatus(value: unknown): ExcerptRecordStatus {
   return value === 'stale' || value === 'archived' ? value : 'active';
 }
@@ -95,10 +129,11 @@ function sanitizeRecord(value: unknown): ExcerptRecord | null {
   const excerptEntityId = normalizeString(candidate.excerptEntityId);
   const sourceDocId = normalizeString(candidate.sourceDocId);
   const sourceBlockId = normalizeString(candidate.sourceBlockId);
+  const sourceBlockIds = normalizeExcerptBlockIds(candidate.sourceBlockIds, candidate.sourceBlockId);
   const selectedText = normalizeString(candidate.selectedText);
   const normalizedFingerprint = normalizeExcerptFingerprint(candidate.normalizedFingerprint || candidate.selectedText || '');
 
-  if (!recordId || !excerptEntityId || !sourceDocId || !sourceBlockId || !selectedText || !normalizedFingerprint) {
+  if (!recordId || !excerptEntityId || !sourceDocId || !sourceBlockId || sourceBlockIds.length === 0 || !selectedText || !normalizedFingerprint) {
     return null;
   }
 
@@ -108,6 +143,7 @@ function sanitizeRecord(value: unknown): ExcerptRecord | null {
     excerptEntityType: normalizeEntityType(candidate.excerptEntityType),
     sourceDocId,
     sourceBlockId,
+    sourceBlockIds,
     selectedText,
     normalizedFingerprint,
     colorToken: normalizeString(candidate.colorToken) || PROGRESSIVE_EXCERPT_COLOR_TOKEN,
@@ -145,15 +181,17 @@ export class ExcerptRecordService {
   ): Promise<CreateExcerptRecordAttemptResult<TCreated>> {
     const sourceDocId = normalizeString(input.sourceDocId);
     const sourceBlockId = normalizeString(input.sourceBlockId);
+    const sourceBlockIds = normalizeExcerptBlockIds(input.sourceBlockIds, input.sourceBlockId);
     const selectedText = normalizeString(input.selectedText);
     const normalizedFingerprint = normalizeExcerptFingerprint(selectedText);
-    if (!sourceDocId || !sourceBlockId || !selectedText || !normalizedFingerprint) {
+    if (!sourceDocId || !sourceBlockId || sourceBlockIds.length === 0 || !selectedText || !normalizedFingerprint) {
       throw new Error('摘录记录需要有效的来源与文本');
     }
 
     const state = await this.readState();
+    const normalizedRangeKey = buildNormalizedBlockRangeKey(sourceBlockIds);
     const duplicate = state.records.find((record) =>
-      record.sourceBlockId === sourceBlockId
+      buildNormalizedBlockRangeKey(record.sourceBlockIds) === normalizedRangeKey
       && record.normalizedFingerprint === normalizedFingerprint
       && record.status !== 'archived'
     );
@@ -176,6 +214,7 @@ export class ExcerptRecordService {
       excerptEntityType: normalizeEntityType(created.excerptEntityType),
       sourceDocId,
       sourceBlockId,
+      sourceBlockIds,
       selectedText,
       normalizedFingerprint,
       colorToken: normalizeString(input.colorToken) || PROGRESSIVE_EXCERPT_COLOR_TOKEN,
@@ -235,7 +274,10 @@ export class ExcerptRecordService {
       return [];
     }
     const state = await this.readState();
-    return sortRecords(state.records.filter((record) => record.sourceBlockId === normalizedSourceBlockId));
+    return sortRecords(state.records.filter((record) =>
+      record.sourceBlockId === normalizedSourceBlockId
+      || record.sourceBlockIds.includes(normalizedSourceBlockId),
+    ));
   }
 
   async archive(recordId: string): Promise<ExcerptRecord | null> {

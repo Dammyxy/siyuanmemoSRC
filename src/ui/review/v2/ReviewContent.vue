@@ -389,7 +389,9 @@ const renderWatchKey = computed(() =>
   }),
 );
 
-// 🆕 判断是否应该使用多挖空卡渲染器
+// 🆕 多填空维持专用 renderer：
+//    它通过 source-kramdown 还原当前洞位并做原位回填，
+//    而不是复用仅对 builtin-riff-sync 契约完整的主 Protyle inline reveal。
 const shouldUseMultiClozeRenderer = computed(() => {
   if (props.content.type !== 'protyle') return false;
   if (isTopicReadModeCard.value) return false;

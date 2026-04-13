@@ -1,5 +1,8 @@
 import type { IProtyle } from 'siyuan';
-import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
+import type {
+  ProgressiveExcerptBlockSelectionSnapshot,
+  ProgressiveExcerptSelectionSnapshot,
+} from '@/application/entries/ProgressiveSelectionResolver';
 import { PROGRESSIVE_EXCERPT_COLOR_TOKEN } from '@/application/services/ExcerptRecordService';
 import { createLogger } from '@/utils/logger';
 
@@ -7,10 +10,19 @@ export const PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR = PROGRESSIVE_EXCERPT_COLOR_TOK
 
 const logger = createLogger('ProgressiveExcerptHighlight');
 
-export interface PreparedProgressiveExcerptHighlight {
+export interface PreparedProgressiveExcerptHighlightMutation {
   blockId: string;
   previousBlockHtml: string;
   nextBlockHtml: string;
+  alreadyApplied: boolean;
+}
+
+export interface PreparedProgressiveExcerptHighlight {
+  blockId: string;
+  blockIds: string[];
+  previousBlockHtml: string;
+  nextBlockHtml: string;
+  blockMutations: PreparedProgressiveExcerptHighlightMutation[];
   root: HTMLElement | null;
   protyle: IProtyle | null;
   alreadyApplied: boolean;
@@ -125,7 +137,7 @@ function resolveNodePath(root: Node, path: number[]): Node | null {
 function cloneHighlightRange(
   blockElement: HTMLElement,
   snapshotRange: Range,
-): { previousBlockHtml: string; nextBlockHtml: string; alreadyApplied: boolean } | null {
+): PreparedProgressiveExcerptHighlightMutation | null {
   const startPath = buildNodePath(blockElement, snapshotRange.startContainer);
   const endPath = buildNodePath(blockElement, snapshotRange.endContainer);
   if (!startPath || !endPath) {
@@ -146,6 +158,7 @@ function cloneHighlightRange(
 
   if (isRangeInsideHighlightedText(clonedRange)) {
     return {
+      blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),
       previousBlockHtml,
       nextBlockHtml: previousBlockHtml,
       alreadyApplied: true,
@@ -159,6 +172,91 @@ function cloneHighlightRange(
   clonedRange.insertNode(wrapper);
 
   return {
+    blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),
+    previousBlockHtml,
+    nextBlockHtml: clonedBlock.outerHTML,
+    alreadyApplied: false,
+  };
+}
+
+function appendBackgroundColor(style: string | null | undefined): string {
+  const normalized = String(style || '').trim().replace(/;+\s*$/u, '');
+  if (!normalized) {
+    return `background-color: ${PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR};`;
+  }
+  if (normalized.includes('background-color') && normalized.includes(PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR)) {
+    return `${normalized};`;
+  }
+  return `${normalized}; background-color: ${PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR};`;
+}
+
+function isSuperBlockElement(blockElement: HTMLElement): boolean {
+  return blockElement.getAttribute('data-type') === 'NodeSuperBlock'
+    || blockElement.classList.contains('sb');
+}
+
+function resolveSuperBlockHighlightTargets(blockElement: HTMLElement): HTMLElement[] {
+  return Array.from(blockElement.querySelectorAll<HTMLElement>('[contenteditable="true"]'))
+    .filter((element) => element.closest('.protyle-attr') === null);
+}
+
+function resolveFullBlockHighlightTarget(blockElement: HTMLElement): HTMLElement {
+  return blockElement.querySelector<HTMLElement>('[contenteditable="true"]') || blockElement;
+}
+
+function cloneSuperBlockHighlight(blockElement: HTMLElement): PreparedProgressiveExcerptHighlightMutation | null {
+  const previousBlockHtml = blockElement.outerHTML;
+  const clonedBlock = blockElement.cloneNode(true) as HTMLElement;
+  const targets = resolveSuperBlockHighlightTargets(clonedBlock);
+  if (targets.length === 0) {
+    return null;
+  }
+
+  if (targets.every((target) => {
+    const currentStyle = target.getAttribute('style') || '';
+    return currentStyle.includes('background-color') && currentStyle.includes(PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR);
+  })) {
+    return {
+      blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),
+      previousBlockHtml,
+      nextBlockHtml: previousBlockHtml,
+      alreadyApplied: true,
+    };
+  }
+
+  for (const target of targets) {
+    target.setAttribute('style', appendBackgroundColor(target.getAttribute('style')));
+  }
+
+  return {
+    blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),
+    previousBlockHtml,
+    nextBlockHtml: clonedBlock.outerHTML,
+    alreadyApplied: false,
+  };
+}
+
+function cloneFullBlockHighlight(blockElement: HTMLElement): PreparedProgressiveExcerptHighlightMutation | null {
+  if (isSuperBlockElement(blockElement)) {
+    return cloneSuperBlockHighlight(blockElement);
+  }
+
+  const previousBlockHtml = blockElement.outerHTML;
+  const clonedBlock = blockElement.cloneNode(true) as HTMLElement;
+  const target = resolveFullBlockHighlightTarget(clonedBlock);
+  const currentStyle = target.getAttribute('style') || '';
+  if (currentStyle.includes('background-color') && currentStyle.includes(PROGRESSIVE_EXCERPT_HIGHLIGHT_COLOR)) {
+    return {
+      blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),
+      previousBlockHtml,
+      nextBlockHtml: previousBlockHtml,
+      alreadyApplied: true,
+    };
+  }
+
+  target.setAttribute('style', appendBackgroundColor(currentStyle));
+  return {
+    blockId: String(blockElement.getAttribute('data-node-id') || '').trim(),
     previousBlockHtml,
     nextBlockHtml: clonedBlock.outerHTML,
     alreadyApplied: false,
@@ -170,10 +268,14 @@ function isPreparedProgressiveExcerptHighlight(value: unknown): value is Prepare
     return false;
   }
 
-  return typeof (value as PreparedProgressiveExcerptHighlight).blockId === 'string'
-    && typeof (value as PreparedProgressiveExcerptHighlight).previousBlockHtml === 'string'
-    && typeof (value as PreparedProgressiveExcerptHighlight).nextBlockHtml === 'string'
-    && typeof (value as PreparedProgressiveExcerptHighlight).alreadyApplied === 'boolean';
+  const candidate = value as Partial<PreparedProgressiveExcerptHighlight>;
+  const hasLegacyShape = typeof candidate.blockId === 'string'
+    && typeof candidate.previousBlockHtml === 'string'
+    && typeof candidate.nextBlockHtml === 'string'
+    && typeof candidate.alreadyApplied === 'boolean';
+  const hasMutationShape = Array.isArray(candidate.blockMutations);
+
+  return hasLegacyShape || hasMutationShape;
 }
 
 function createElementFromHtml(html: string): HTMLElement | null {
@@ -184,19 +286,38 @@ function createElementFromHtml(html: string): HTMLElement | null {
     : null;
 }
 
+function normalizePreparedMutations(
+  prepared: PreparedProgressiveExcerptHighlight,
+): PreparedProgressiveExcerptHighlightMutation[] {
+  if (Array.isArray(prepared.blockMutations) && prepared.blockMutations.length > 0) {
+    return prepared.blockMutations;
+  }
+
+  return [{
+    blockId: prepared.blockId,
+    previousBlockHtml: prepared.previousBlockHtml,
+    nextBlockHtml: prepared.nextBlockHtml,
+    alreadyApplied: prepared.alreadyApplied,
+  }];
+}
+
 function syncLiveBlockHtml(prepared: PreparedProgressiveExcerptHighlight): void {
   const liveRoot = prepared.root || prepared.protyle?.wysiwyg?.element || null;
-  const liveBlock = resolveBlockElement(liveRoot, prepared.blockId);
-  if (!liveBlock) {
-    return;
-  }
+  const mutations = normalizePreparedMutations(prepared);
 
-  const nextBlock = createElementFromHtml(prepared.nextBlockHtml);
-  if (!nextBlock) {
-    return;
-  }
+  for (const mutation of mutations) {
+    const liveBlock = resolveBlockElement(liveRoot, mutation.blockId);
+    if (!liveBlock) {
+      continue;
+    }
 
-  liveBlock.replaceWith(nextBlock);
+    const nextBlock = createElementFromHtml(mutation.nextBlockHtml);
+    if (!nextBlock) {
+      continue;
+    }
+
+    liveBlock.replaceWith(nextBlock);
+  }
 }
 
 async function applyPreparedProgressiveExcerptHighlight(
@@ -207,13 +328,15 @@ async function applyPreparedProgressiveExcerptHighlight(
     return false;
   }
 
-  if (prepared.alreadyApplied || prepared.previousBlockHtml === prepared.nextBlockHtml) {
+  const mutations = normalizePreparedMutations(prepared)
+    .filter((mutation) => !mutation.alreadyApplied && mutation.previousBlockHtml !== mutation.nextBlockHtml);
+  if (mutations.length === 0) {
     return true;
   }
 
   if (typeof options?.persistDomBlock !== 'function') {
     logger.warn('Missing DOM persistence callback for prepared progressive excerpt highlight', {
-      blockId: prepared.blockId,
+      blockIds: normalizePreparedMutations(prepared).map((mutation) => mutation.blockId),
     });
     return false;
   }
@@ -223,19 +346,43 @@ async function applyPreparedProgressiveExcerptHighlight(
     : null;
 
   try {
-    await options.persistDomBlock(prepared.blockId, prepared.nextBlockHtml);
+    for (const mutation of mutations) {
+      await options.persistDomBlock(mutation.blockId, mutation.nextBlockHtml);
+    }
     syncLiveBlockHtml(prepared);
-    if (typeof instance.reload === 'function') {
+    if (typeof instance?.reload === 'function') {
       instance.reload(false);
     }
     return true;
   } catch (error) {
     logger.warn('Failed to persist prepared progressive excerpt highlight', {
-      blockId: prepared.blockId,
+      blockIds: mutations.map((mutation) => mutation.blockId),
       error,
     });
     return false;
   }
+}
+
+function buildPreparedHighlight(
+  mutations: PreparedProgressiveExcerptHighlightMutation[],
+  root: HTMLElement | null,
+  protyle: IProtyle | null,
+): PreparedProgressiveExcerptHighlight | null {
+  if (mutations.length === 0) {
+    return null;
+  }
+
+  const [first] = mutations;
+  return {
+    blockId: first.blockId,
+    blockIds: mutations.map((mutation) => mutation.blockId),
+    previousBlockHtml: first.previousBlockHtml,
+    nextBlockHtml: first.nextBlockHtml,
+    blockMutations: mutations,
+    root,
+    protyle,
+    alreadyApplied: mutations.every((mutation) => mutation.alreadyApplied),
+  };
 }
 
 export function prepareProgressiveExcerptHighlight(
@@ -246,29 +393,46 @@ export function prepareProgressiveExcerptHighlight(
   }
 
   const liveRoot = resolveLiveRoot(snapshot);
-  const range = snapshot.range.cloneRange();
-  if (!isAttachedToRoot(range.startContainer, liveRoot) || !isAttachedToRoot(range.endContainer, liveRoot)) {
-    return null;
+  const sourceSelections = Array.isArray(snapshot.blockSelections) && snapshot.blockSelections.length > 0
+    ? snapshot.blockSelections
+    : [{
+      blockId: snapshot.blockId,
+      mode: 'range' as const,
+      excerptHtml: snapshot.contentDom,
+      range: snapshot.range.cloneRange(),
+    }];
+
+  const mutations: PreparedProgressiveExcerptHighlightMutation[] = [];
+  for (const selection of sourceSelections) {
+    const blockElement = resolveBlockElement(liveRoot, selection.blockId);
+    if (!blockElement) {
+      return null;
+    }
+
+    if (selection.mode === 'full-block') {
+      const prepared = cloneFullBlockHighlight(blockElement);
+      if (!prepared) {
+        return null;
+      }
+      mutations.push(prepared);
+      continue;
+    }
+
+    const selectionRange = selection.range?.cloneRange();
+    if (!selectionRange) {
+      return null;
+    }
+    if (!isAttachedToRoot(selectionRange.startContainer, liveRoot) || !isAttachedToRoot(selectionRange.endContainer, liveRoot)) {
+      return null;
+    }
+    const prepared = cloneHighlightRange(blockElement, selectionRange);
+    if (!prepared) {
+      return null;
+    }
+    mutations.push(prepared);
   }
 
-  const blockElement = resolveBlockElement(liveRoot, snapshot.blockId);
-  if (!blockElement) {
-    return null;
-  }
-
-  const clonedHighlight = cloneHighlightRange(blockElement, range);
-  if (!clonedHighlight) {
-    return null;
-  }
-
-  return {
-    blockId: snapshot.blockId,
-    previousBlockHtml: clonedHighlight.previousBlockHtml,
-    nextBlockHtml: clonedHighlight.nextBlockHtml,
-    root: liveRoot,
-    protyle: snapshot.protyle,
-    alreadyApplied: clonedHighlight.alreadyApplied,
-  };
+  return buildPreparedHighlight(mutations, liveRoot, snapshot.protyle);
 }
 
 export async function applyProgressiveExcerptHighlight(

@@ -115,11 +115,14 @@ export class ProgressiveExcerptHotkeyHandler {
   }
 
   private async runExcerptFromSnapshot(selection: ProgressiveExcerptSelectionSnapshot): Promise<void> {
-    const preparedHighlight = this.tryPrepareExcerptHighlight(selection);
     try {
+      const materialized = await this.context.getSelectionExcerptService().materializeExcerptSource(selection);
+      const preparedHighlight = this.tryPrepareExcerptHighlight(materialized.highlightSnapshot);
       const result = await this.context.getSelectionExcerptService().createFromSelection({
-        sourceBlockId: selection.blockId,
+        sourceBlockId: materialized.sourceBlockId,
+        sourceBlockIds: materialized.sourceBlockIds,
         selectedText: selection.text,
+        contentDom: materialized.contentDom,
         origin: 'editor',
       });
       if (result.kind === 'duplicate') {
@@ -203,7 +206,7 @@ export class ProgressiveExcerptHotkeyHandler {
 
   private showMissingSelectionMessage(): void {
     showMessage(
-      this.translate('progressiveExcerptNoSelection', '请先在同一块内选中文本再摘抄'),
+      this.translate('progressiveExcerptNoSelection', '请先选中文本后再摘抄'),
       3000,
       'error',
     );

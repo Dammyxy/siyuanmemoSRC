@@ -87,6 +87,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { getHeaderToneColor, getPriorityVisualToken } from '@/ui/shared/cardVisualTokens';
+import { getNeuralEngineLabel } from '@/ui/shared/neuralRoamLabels';
 import type { NeuralNavigationState } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import type { ReviewHeaderCounterBadge, ReviewUIState } from './types';
@@ -195,15 +196,14 @@ const filteredToolbar = computed(() => {
   const navState = props.navigationState;
   if (navState) {
     const navButtons: typeof toolbar = [];
-    const engineText = navState.engineMode === 'hyperspace'
-      ? t('engineHyperspace', 'Hyperspace Expedition / 超空间远征')
-      : t('engineOrbit', 'Orbit / 轨道');
+    const engineText = getNeuralEngineLabel(navState.engineMode, t, 'short');
+    const engineFullText = getNeuralEngineLabel(navState.engineMode, t, 'full');
     const modeText = navState.navigationMode === 'follow'
       ? t('navModeFollow', 'Follow Path')
       : t('navModeExplore', 'Free Roam');
     const switchEngineLabel = interpolate(
       t('switchEngineMode', 'Switch Engine: {mode}'),
-      { mode: engineText },
+      { mode: engineFullText },
     );
     const navStatusLabel = navState.navigationMode === 'follow'
       ? interpolate(

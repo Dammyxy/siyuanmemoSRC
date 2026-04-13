@@ -10,6 +10,9 @@ import { createLogger } from '@/utils/logger';
 import { SiyuanKramdownGateway } from '@/core/card/common/infrastructure/SiyuanKramdownGateway';
 
 const logger = createLogger('QuickCardSiyuanBlockAdapter');
+const QUICK_ATTRIBUTE_ONLY_LINE = /^(?:[*+-]\s*)?\{:\s*[^}]*\}\s*$/;
+const QUICK_TRAILING_ATTRIBUTE_TAIL = /\s+\{:\s*[^}]*\}\s*$/;
+const VISIBLE_MEDIA_SELECTOR = 'img,svg,video,audio,canvas,iframe,math,.katex,[data-type="NodeMathBlock"]';
 
 /**
  * 思源 API 响应结构
@@ -124,8 +127,95 @@ export class SiyuanBlockAdapter {
    * ```
    */
   kramdownToHtml(kramdown: string): string {
-    return this.kramdownGateway.kramdownToHtml(kramdown, {
+    return this.renderQuickFaceHtml(kramdown);
+  }
+
+  /**
+   * 为 quick-card face 提供安全渲染：
+   * 1. 清理属性尾巴/属性行
+   * 2. 优先 SpinBlockDOM
+   * 3. 若结果结构性空白，重试 Md2BlockDOM
+   * 4. 若仍为空白，回退到清理后的原始 kramdown
+   */
+  renderQuickFaceHtml(kramdown: string): string {
+    const normalized = this.normalizeQuickKramdown(kramdown);
+    if (!normalized) {
+      return '';
+    }
+
+    const spinHtml = this.kramdownGateway.kramdownToHtml(normalized, {
+      stripAttributeLines: true,
       preferSpinBlockDOM: true,
     });
+    if (!this.isStructurallyBlankHtml(spinHtml)) {
+      return spinHtml;
+    }
+
+    logger.debug('[SiYuanMemo][SiyuanBlockAdapter] SpinBlockDOM produced structurally blank quick-card HTML, retrying Md2BlockDOM', {
+      preview: normalized.substring(0, 120),
+    });
+
+    const mdHtml = this.kramdownGateway.kramdownToHtml(normalized, {
+      stripAttributeLines: true,
+      preferSpinBlockDOM: false,
+    });
+    if (!this.isStructurallyBlankHtml(mdHtml)) {
+      return mdHtml;
+    }
+
+    logger.warn('[SiYuanMemo][SiyuanBlockAdapter] Both quick-card renderers produced structurally blank HTML, falling back to normalized kramdown', {
+      preview: normalized.substring(0, 120),
+    });
+    return normalized;
+  }
+
+  private normalizeQuickKramdown(kramdown: string): string {
+    return kramdown
+      .split(/\r?\n/)
+      .filter((line) => !QUICK_ATTRIBUTE_ONLY_LINE.test(line.trim()))
+      .map((line) => line.replace(QUICK_TRAILING_ATTRIBUTE_TAIL, ''))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  private isStructurallyBlankHtml(html: string): boolean {
+    if (!html || html.trim().length === 0) {
+      return true;
+    }
+
+    if (typeof DOMParser === 'undefined') {
+      return this.isStructurallyBlankHtmlByString(html);
+    }
+
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      doc.querySelectorAll('.protyle-action, .protyle-attr, script, style, template').forEach((node) => node.remove());
+
+      if (doc.body.querySelector(VISIBLE_MEDIA_SELECTOR)) {
+        return false;
+      }
+
+      const visibleText = (doc.body.textContent || '')
+        .replace(/[\s\u00A0\u200B-\u200D\uFEFF]+/g, '')
+        .trim();
+      return visibleText.length === 0;
+    } catch (error) {
+      logger.warn('[SiYuanMemo][SiyuanBlockAdapter] Failed to inspect quick-card HTML structure, using string fallback', error);
+      return this.isStructurallyBlankHtmlByString(html);
+    }
+  }
+
+  private isStructurallyBlankHtmlByString(html: string): boolean {
+    const textOnly = html
+      .replace(/<div[^>]*class="[^"]*protyle-action[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+      .replace(/<div[^>]*class="[^"]*protyle-attr[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, '')
+      .replace(/[\s\u00A0\u200B-\u200D\uFEFF]+/g, '')
+      .trim();
+    return textOnly.length === 0;
   }
 }

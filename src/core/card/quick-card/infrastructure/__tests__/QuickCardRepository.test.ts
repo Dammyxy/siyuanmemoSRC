@@ -6,6 +6,7 @@ import type { ICardStorage } from '@/application/interfaces/ICardStorage';
 
 type MockAdapter = {
   getBlock: ReturnType<typeof vi.fn>;
+  renderQuickFaceHtml: ReturnType<typeof vi.fn>;
   kramdownToHtml: ReturnType<typeof vi.fn>;
 };
 
@@ -25,6 +26,7 @@ describe('QuickCardRepository', () => {
   beforeEach(() => {
     mockAdapter = {
       getBlock: vi.fn(),
+      renderQuickFaceHtml: vi.fn((input: string) => input),
       kramdownToHtml: vi.fn((input: string) => input),
     };
 
@@ -127,7 +129,7 @@ describe('QuickCardRepository', () => {
     mockAdapter.getBlock.mockResolvedValue(
       createBlock('$$ E = \\\\cloze{c1}{mc^2} $$')
     );
-    mockAdapter.kramdownToHtml.mockReturnValue('');
+    mockAdapter.renderQuickFaceHtml.mockReturnValue('');
 
     const card = await repository.loadCard('20260301120000-quick01');
 
@@ -136,7 +138,7 @@ describe('QuickCardRepository', () => {
     expect(card?.getFace('front').html).toContain('$$');
     expect(card?.getFace('front').html).toContain('\\boxed{\\text{[...]}}');
     expect(card?.getFace('back').html).toContain('{\\color{#166534}mc^2}');
-    expect(mockAdapter.kramdownToHtml).not.toHaveBeenCalled();
+    expect(mockAdapter.renderQuickFaceHtml).not.toHaveBeenCalled();
   });
 
   it('does not treat superblock triple braces as quick cloze card', async () => {
@@ -147,5 +149,73 @@ describe('QuickCardRepository', () => {
     const card = await repository.loadCard('20260301120000-quick01');
 
     expect(card).toBeNull();
+  });
+
+  it('renders bidirectional single-block quick cards in forward direction through the safe face renderer', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('北京<>首都')
+    );
+    mockAdapter.renderQuickFaceHtml.mockImplementation((input: string) => `rendered:${input}`);
+
+    const card = await repository.loadCard('20260301120000-quick01');
+
+    expect(card).not.toBeNull();
+    expect(card?.metadata.symbol).toBe('<>');
+    expect(card?.getFace('front').html).toBe('rendered:北京');
+    expect(card?.getFace('back').html).toBe('rendered:北京<br/><br/>首都');
+    expect(mockAdapter.renderQuickFaceHtml).toHaveBeenNthCalledWith(1, '北京');
+    expect(mockAdapter.renderQuickFaceHtml).toHaveBeenNthCalledWith(2, '北京<br/><br/>首都');
+  });
+
+  it('renders bidirectional single-block quick cards in reverse direction through the safe face renderer', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('北京<>首都')
+    );
+    vi.mocked(mockCardStorage.getCard).mockResolvedValue({
+      meta: {
+        typeMarker: 'reverse',
+      },
+    } as Awaited<ReturnType<ICardStorage['getCard']>>);
+    mockAdapter.renderQuickFaceHtml.mockImplementation((input: string) => `rendered:${input}`);
+
+    const card = await repository.loadCard('20260301120000-quick01', 'card-reverse');
+
+    expect(card).not.toBeNull();
+    expect(card?.metadata.typeMarker).toBe('reverse');
+    expect(card?.getFace('front').html).toBe('rendered:首都');
+    expect(card?.getFace('back').html).toBe('rendered:首都<br/><br/>北京');
+    expect(mockAdapter.renderQuickFaceHtml).toHaveBeenNthCalledWith(1, '首都');
+    expect(mockAdapter.renderQuickFaceHtml).toHaveBeenNthCalledWith(2, '首都<br/><br/>北京');
+  });
+
+  it.each([
+    ['>>', '问题>>答案', '问题', '问题<br/><br/>答案'],
+    ['<<', '答案<<问题', '问题', '问题<br/><br/>答案'],
+    ['{{}}', '核心是{{领域模型}}', '核心是[...]', '核心是<mark>领域模型</mark>'],
+  ])('keeps visible quick faces for %s cards through the shared safe renderer', async (_symbol, content, expectedFront, expectedBack) => {
+    mockAdapter.getBlock.mockResolvedValue(createBlock(content));
+    mockAdapter.renderQuickFaceHtml.mockImplementation((input: string) => `rendered:${input}`);
+
+    const card = await repository.loadCard('20260301120000-quick01');
+
+    expect(card).not.toBeNull();
+    expect(card?.getFace('front').html).toBe(`rendered:${expectedFront}`);
+    expect(card?.getFace('back').html).toBe(`rendered:${expectedBack}`);
+    expect(mockAdapter.renderQuickFaceHtml).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to source face text when the safe renderer unexpectedly returns empty output', async () => {
+    mockAdapter.getBlock.mockResolvedValue(
+      createBlock('北京<>首都')
+    );
+    mockAdapter.renderQuickFaceHtml
+      .mockReturnValueOnce('')
+      .mockReturnValueOnce('');
+
+    const card = await repository.loadCard('20260301120000-quick01');
+
+    expect(card).not.toBeNull();
+    expect(card?.getFace('front').html).toBe('北京');
+    expect(card?.getFace('back').html).toBe('北京<br/><br/>首都');
   });
 });

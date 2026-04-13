@@ -5,6 +5,7 @@ import type { IReviewQueue, QueueCounterSnapshot, QueueReviewResult } from '@/ty
 import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
+import { formatNextDue } from '@/application/helpers/formatNextDue';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { CacheManagerObserver } from '../observers/CacheManagerObserver';
 import { createLogger } from '@/utils/logger';
@@ -63,22 +64,6 @@ function toQueueType(value: unknown): QueueType | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
-}
-
-function formatNextDue(diffMs: number): string {
-    if (diffMs < 60 * 1000) {
-        return '< 1 min';
-    }
-    if (diffMs < 60 * 60 * 1000) {
-        const minutes = Math.round(diffMs / (60 * 1000));
-        return `${minutes} min`;
-    }
-    if (diffMs < 24 * 60 * 60 * 1000) {
-        const hours = Math.round(diffMs / (60 * 60 * 1000));
-        return `${hours} h`;
-    }
-    const days = Math.round(diffMs / (24 * 60 * 60 * 1000));
-    return `${days} d`;
 }
 
 export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {

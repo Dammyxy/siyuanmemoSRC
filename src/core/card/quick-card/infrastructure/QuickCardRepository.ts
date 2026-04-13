@@ -71,6 +71,17 @@ export class QuickCardRepository {
     private configProvider: IQuickCardConfigProvider = new DefaultQuickCardConfigProvider(),
   ) {}
 
+  private renderFaceHtml(faceHtml: string): string {
+    const rendered = this.adapter.renderQuickFaceHtml(faceHtml);
+    if (faceHtml.trim().length > 0 && rendered.trim().length === 0) {
+      logger.warn('[SiYuanMemo][QuickCardRepository] Quick face render unexpectedly empty, falling back to source face text', {
+        preview: faceHtml.substring(0, 120),
+      });
+      return faceHtml.trim();
+    }
+    return rendered;
+  }
+
   /**
    * 加载快速卡片
    * 
@@ -214,10 +225,10 @@ export class QuickCardRepository {
       const shouldKeepRawLatexKramdown = metadata.symbol === '\\cloze';
       const frontHtmlRendered = shouldKeepRawLatexKramdown
         ? front.html
-        : this.adapter.kramdownToHtml(front.html);
+        : this.renderFaceHtml(front.html);
       const backHtmlRendered = shouldKeepRawLatexKramdown
         ? back.html
-        : this.adapter.kramdownToHtml(back.html);
+        : this.renderFaceHtml(back.html);
 
       logger.debug('[SiYuanMemo][QuickCardRepository] Rendered HTML:', {
         shouldKeepRawLatexKramdown,

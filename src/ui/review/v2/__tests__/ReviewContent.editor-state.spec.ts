@@ -183,7 +183,7 @@ function createForcedQuickContent() {
   };
 }
 
-function createSymbolQuickContent() {
+function createSymbolQuickContent(symbolType = '>>') {
   return {
     type: 'protyle' as const,
     id: 'block-symbol-quick',
@@ -195,7 +195,40 @@ function createSymbolQuickContent() {
         source: 'symbol',
         symbolDetected: true,
         cardSource: 'quick-symbol',
-        symbolType: '>>',
+        symbolType,
+      },
+    },
+  };
+}
+
+function createBidirectionalSingleQuickContent(typeMarker: 'forward' | 'reverse' = 'forward') {
+  return {
+    type: 'protyle' as const,
+    id: 'block-bidirectional-single',
+    data: '',
+    card: {
+      id: `card-bidirectional-single-${typeMarker}`,
+      type: 'item',
+      meta: {
+        templateID: 'builtin-bidirectional-single',
+        renderProfile: 'quick-default',
+        typeMarker,
+      },
+    },
+  };
+}
+
+function createBidirectionalSingleQuickContentWithoutProfile(typeMarker: 'forward' | 'reverse' = 'forward') {
+  return {
+    type: 'protyle' as const,
+    id: 'block-bidirectional-single',
+    data: '',
+    card: {
+      id: `card-bidirectional-single-${typeMarker}`,
+      type: 'item',
+      meta: {
+        templateID: 'builtin-bidirectional-single',
+        typeMarker,
       },
     },
   };
@@ -261,6 +294,26 @@ function createTopicDocumentContent() {
       meta: {
         isDocument: true,
         blockType: 'd',
+      },
+    },
+  };
+}
+
+function createMultiClozeContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-multi-cloze',
+    data: '',
+    card: {
+      id: 'card-multi-cloze',
+      type: 'item',
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        faceIndex: 0,
+        faces: [{
+          question: 'Alpha <mark>[...]</mark> beta',
+          answer: 'gamma',
+        }],
       },
     },
   };
@@ -655,6 +708,197 @@ describe('ReviewContent editor state', () => {
       isEditing: false,
     });
     expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it('routes persisted bidirectional symbol quick cards to the quick renderer without building Protyle', async () => {
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createSymbolQuickContent('<>'),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'special',
+      supportsNativeEdit: false,
+      isEditing: false,
+    });
+
+    wrapper.unmount();
+  });
+
+  it('routes builtin bidirectional single quick-default cards to the quick renderer without building Protyle', async () => {
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createBidirectionalSingleQuickContent('reverse'),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentQuickCardMocks.isQuickCard).toHaveBeenCalledWith(
+      'block-bidirectional-single',
+      'card-bidirectional-single-reverse',
+    );
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'special',
+      supportsNativeEdit: false,
+      isEditing: false,
+    });
+
+    wrapper.unmount();
+  });
+
+  it('routes builtin bidirectional single cards without renderProfile to the quick renderer', async () => {
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createBidirectionalSingleQuickContentWithoutProfile('forward'),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentQuickCardMocks.isQuickCard).toHaveBeenCalledWith(
+      'block-bidirectional-single',
+      'card-bidirectional-single-forward',
+    );
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'special',
+      supportsNativeEdit: false,
+      isEditing: false,
+    });
+
+    wrapper.unmount();
+  });
+
+  it('routes builtin multi-cloze cards to the dedicated renderer without building Protyle', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createMultiClozeContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'special',
+      supportsNativeEdit: false,
+      isEditing: false,
+    });
+    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(true);
 
     wrapper.unmount();
   });

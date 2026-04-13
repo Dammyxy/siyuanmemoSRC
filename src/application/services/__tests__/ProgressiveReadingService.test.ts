@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import { ok } from '@/types/result';
 import type { CardApplicationService } from '../CardApplicationService';
 import { EXCERPT_RECORD_STORAGE_KEY, ExcerptRecordService } from '../ExcerptRecordService';
 import { ProgressiveReadingService, ProgressiveSplitCancelledError } from '../ProgressiveReadingService';
+import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
 import type { ProgressiveBlockRow, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import type { PluginSettings } from '@/types/settings';
+
+const NODE_ID_PATTERN = /^\d{14}-[0-9a-z]{7}$/u;
 
 function createFileServiceMock(initialData: unknown = null): IFileService & { getStored: (fileName?: string) => unknown } {
   const store = new Map<string, unknown>();
@@ -80,6 +84,19 @@ function createSettingsProviderMock(
   };
 }
 
+function createProgressiveNativeRiffPortMock(
+  overrides: Partial<ProgressiveNativeRiffPort> = {},
+): ProgressiveNativeRiffPort {
+  return {
+    BUILTIN_DECK_ID: 'builtin-deck',
+    addRiffCards: vi.fn(async () => ({
+      name: 'builtin-deck',
+      size: 0,
+    })),
+    ...overrides,
+  };
+}
+
 function createConfiguredCaptureStorageServiceMock(overrides: Record<string, unknown> = {}) {
   return {
     hasExplicitConfiguration: vi.fn(() => false),
@@ -100,10 +117,12 @@ function createServiceUnderTest(
     };
   },
   configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock(),
+  nativeRiffApi = createProgressiveNativeRiffPortMock(),
 ) {
   const excerptRecordService = new ExcerptRecordService(fileService);
   return new ProgressiveReadingService(
     port,
+    nativeRiffApi,
     fileService,
     cardService,
     settingsProvider,
@@ -112,15 +131,18 @@ function createServiceUnderTest(
   );
 }
 
-function createCardServiceMock() {
-  const cardsByBlockId = new Map<string, { id: string; blockId: string }>();
-  let counter = 0;
+function createCardServiceMock(initialCards: Array<{ id: string; blockId: string; type?: string }> = []) {
+  const cardsByBlockId = new Map<string, { id: string; blockId: string; type?: string }>(
+    initialCards.map((card) => [card.blockId, card]),
+  );
+  let counter = initialCards.length;
   const service = {
     createCard: vi.fn(async (command: { blockIds: string[] }) => {
       const blockId = command.blockIds[0];
       cardsByBlockId.set(blockId, {
         id: `card-${++counter}`,
         blockId,
+        type: String((command as { cardType?: string }).cardType || '').trim() || undefined,
       });
       return ok({} as never);
     }),
@@ -134,6 +156,10 @@ function createCardServiceMock() {
       return ok(undefined);
     }),
     getCardByBlockId: vi.fn((blockId: string) => cardsByBlockId.get(blockId) || null),
+    getCardsByBlockId: vi.fn((blockId: string) => {
+      const card = cardsByBlockId.get(blockId);
+      return card ? [card] : [];
+    }),
   };
   return {
     service: service as unknown as CardApplicationService,
@@ -187,6 +213,40 @@ function createSplitTreeSqlMock(
   });
 }
 
+function createExcerptSelectionSnapshot(
+  overrides: Partial<ProgressiveExcerptSelectionSnapshot> = {},
+): ProgressiveExcerptSelectionSnapshot {
+  const range = document.createRange();
+  const commonElement = document.body;
+  return {
+    blockId: 'block-1',
+    sourceBlockId: 'block-1',
+    sourceBlockIds: ['block-1', 'block-2'],
+    text: 'Alpha\nBeta',
+    contentDom: [
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+    ].join(''),
+    range,
+    blockSelections: [
+      {
+        blockId: 'block-1',
+        mode: 'full-block',
+        excerptHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      },
+      {
+        blockId: 'block-2',
+        mode: 'full-block',
+        excerptHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      },
+    ],
+    commonElement,
+    root: document.body,
+    protyle: { wysiwyg: { element: document.body } } as never,
+    ...overrides,
+  };
+}
+
 describe('ProgressiveReadingService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -211,6 +271,246 @@ describe('ProgressiveReadingService', () => {
       'source-block-1',
       '<div data-node-id="source-block-1">Updated</div>',
     );
+  });
+
+  it('keeps cross-block excerpt selections on the original source range without mutating source blocks', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id IN ('block-1', 'block-2', 'block-3')")) {
+          return [
+            { id: 'block-1', root_id: 'doc-1', parent_id: 'doc-1', type: 'p', sort: '001' },
+            { id: 'block-2', root_id: 'doc-1', parent_id: 'doc-1', type: 'p', sort: '002' },
+            { id: 'block-3', root_id: 'doc-1', parent_id: 'doc-1', type: 'p', sort: '003' },
+          ];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+    });
+    const { service: cardService } = createCardServiceMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+    );
+
+    const snapshot = createExcerptSelectionSnapshot({
+      sourceBlockIds: ['block-1', 'block-2', 'block-3'],
+      text: 'lpha\nMiddle block\nTail',
+      contentDom: [
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true">lpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Middle block</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Tail</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      ].join(''),
+      blockSelections: [
+        {
+          blockId: 'block-1',
+          mode: 'range',
+          excerptHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">lpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+          beforeHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">A</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+          range: document.createRange(),
+        },
+        {
+          blockId: 'block-2',
+          mode: 'full-block',
+          excerptHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Middle block</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        },
+        {
+          blockId: 'block-3',
+          mode: 'range',
+          excerptHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Tail</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+          afterHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true"> end</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+          range: document.createRange(),
+        },
+      ],
+    });
+
+    const result = await service.materializeExcerptSource(snapshot);
+
+    expect(port.updateDomBlock).not.toHaveBeenCalled();
+    expect(port.moveBlockAsChild).not.toHaveBeenCalled();
+    expect(port.deleteBlock).not.toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({
+      sourceBlockId: 'block-1',
+      sourceBlockIds: ['block-1', 'block-2', 'block-3'],
+      reused: false,
+      contentDom: snapshot.contentDom,
+    }));
+    expect(result.highlightSnapshot).toBe(snapshot);
+    expect(result.highlightSnapshot.sourceBlockId).toBe('block-1');
+    expect(result.highlightSnapshot.sourceBlockIds).toEqual(['block-1', 'block-2', 'block-3']);
+    expect(result.highlightSnapshot.blockSelections.map((selection) => selection.blockId)).toEqual([
+      'block-1',
+      'block-2',
+      'block-3',
+    ]);
+    expect(result.highlightSnapshot.blockSelections.map((selection) => selection.mode)).toEqual([
+      'range',
+      'full-block',
+      'range',
+    ]);
+  });
+
+  it('keeps selections inside an existing native super block anchored to the first selected child', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id IN ('child-1', 'child-2')")) {
+          return [
+            { id: 'child-1', root_id: 'doc-1', parent_id: 'super-block-1', type: 'p', sort: '001' },
+            { id: 'child-2', root_id: 'doc-1', parent_id: 'super-block-1', type: 'p', sort: '002' },
+          ];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+    });
+    const { service: cardService } = createCardServiceMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+    );
+
+    const snapshot = createExcerptSelectionSnapshot({
+      blockId: 'child-1',
+      sourceBlockId: 'child-1',
+      sourceBlockIds: ['child-1', 'child-2'],
+      blockSelections: [
+        {
+          blockId: 'child-1',
+          mode: 'full-block',
+          excerptHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        },
+        {
+          blockId: 'child-2',
+          mode: 'full-block',
+          excerptHtml: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        },
+      ],
+    });
+
+    const result = await service.materializeExcerptSource(snapshot);
+
+    expect(port.updateDomBlock).not.toHaveBeenCalled();
+    expect(port.moveBlockAsChild).not.toHaveBeenCalled();
+    expect(port.deleteBlock).not.toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({
+      sourceBlockId: 'child-1',
+      sourceBlockIds: ['child-1', 'child-2'],
+      reused: false,
+      contentDom: snapshot.contentDom,
+    }));
+    expect(result.highlightSnapshot).toBe(snapshot);
+    expect(result.highlightSnapshot.blockSelections.map((selection) => selection.blockId)).toEqual(['child-1', 'child-2']);
+  });
+
+  it('keeps multi-block full selections on the original child ids without rewriting list containers', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id IN ('list-item-1', 'list-item-2')")) {
+          return [
+            { id: 'list-item-1', root_id: 'doc-1', parent_id: 'list-1', type: 'i', sort: '001' },
+            { id: 'list-item-2', root_id: 'doc-1', parent_id: 'list-1', type: 'i', sort: '002' },
+          ];
+        }
+        if (stmt.includes("WHERE id = 'list-1'")) {
+          return [
+            { id: 'list-1', root_id: 'doc-1', parent_id: 'doc-1', type: 'l', sort: '000' },
+          ];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+    });
+    const { service: cardService } = createCardServiceMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+    );
+
+    const snapshot = createExcerptSelectionSnapshot({
+      blockId: 'list-item-1',
+      sourceBlockId: 'list-item-1',
+      sourceBlockIds: ['list-item-1', 'list-item-2'],
+      text: 'Alpha\nBeta',
+      contentDom: [
+        '<div data-type="NodeListItem" class="li"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        '<div data-type="NodeListItem" class="li"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      ].join(''),
+      blockSelections: [
+        {
+          blockId: 'list-item-1',
+          mode: 'full-block',
+          excerptHtml: '<div data-type="NodeListItem" class="li"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        },
+        {
+          blockId: 'list-item-2',
+          mode: 'full-block',
+          excerptHtml: '<div data-type="NodeListItem" class="li"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        },
+      ],
+    });
+
+    const result = await service.materializeExcerptSource(snapshot);
+
+    expect(port.updateDomBlock).not.toHaveBeenCalled();
+    expect(port.moveBlockAsChild).not.toHaveBeenCalled();
+    expect(port.deleteBlock).not.toHaveBeenCalled();
+    expect(result).toEqual(expect.objectContaining({
+      sourceBlockId: 'list-item-1',
+      sourceBlockIds: ['list-item-1', 'list-item-2'],
+      reused: false,
+      contentDom: snapshot.contentDom,
+    }));
+    expect(result.highlightSnapshot).toBe(snapshot);
+    expect(result.highlightSnapshot.sourceBlockId).toBe('list-item-1');
+    expect(result.highlightSnapshot.sourceBlockIds).toEqual(['list-item-1', 'list-item-2']);
+    expect(result.highlightSnapshot.blockSelections.map((selection) => selection.blockId)).toEqual([
+      'list-item-1',
+      'list-item-2',
+    ]);
+  });
+
+  it('stamps valid block ids onto multi-block excerpt entity DOM and appends only the first source ref', () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock();
+    const { service: cardService } = createCardServiceMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+    );
+
+    const excerptEntityDom = (service as unknown as {
+      buildExcerptEntityDom: (input: {
+        selectedText: string;
+        contentDom?: string;
+        sourceBlockIds: string[];
+      }) => string;
+    }).buildExcerptEntityDom({
+      selectedText: 'Alpha\nBeta',
+      sourceBlockIds: ['source-1', 'source-2'],
+      contentDom: [
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+        '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      ].join(''),
+    });
+
+    const template = document.createElement('template');
+    template.innerHTML = excerptEntityDom;
+    const blockElements = Array.from(template.content.querySelectorAll<HTMLElement>('[data-type]'))
+      .filter((element) => String(element.getAttribute('data-type') || '').startsWith('Node'));
+
+    expect(blockElements.length).toBeGreaterThanOrEqual(3);
+    expect(blockElements.every((element) => NODE_ID_PATTERN.test(String(element.getAttribute('data-node-id') || '').trim()))).toBe(true);
+    expect(excerptEntityDom).toContain('data-id="source-1"');
+    expect(excerptEntityDom).not.toContain('data-id="source-2"');
+    expect((excerptEntityDom.match(/data-type="block-ref"/g) || [])).toHaveLength(1);
   });
 
   it('splits nested H1-H3 sections into a real document tree and keeps linear preorder session order', async () => {
@@ -264,7 +564,15 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-6'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     const result = await service.splitDocument('doc-1', 'linear');
 
@@ -317,6 +625,8 @@ describe('ProgressiveReadingService', () => {
         }),
       }),
     }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledTimes(1);
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['piece-1']);
 
     const stored = fileService.getStored() as {
       sessions: Record<string, {
@@ -377,7 +687,15 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     await service.splitDocument('doc-1', 'linear', undefined, {
       onProgress: (progress) => {
@@ -432,7 +750,15 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     await expect(service.splitDocument('doc-1', 'linear', undefined, {
       onProgress: (progress) => {
@@ -485,7 +811,15 @@ describe('ProgressiveReadingService', () => {
       }),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     await expect(service.splitDocument('doc-1', 'linear', undefined, {
       onProgress: (progress) => {
@@ -531,7 +865,15 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     const result = await service.splitDocument('doc-1', 'nonlinear');
 
@@ -543,6 +885,9 @@ describe('ProgressiveReadingService', () => {
     expect(cardService.service.createCard).toHaveBeenNthCalledWith(2, expect.objectContaining({
       blockIds: ['piece-2'],
     }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledTimes(2);
+    expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(1, 'builtin-deck', ['piece-1']);
+    expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(2, 'builtin-deck', ['piece-2']);
 
     const stored = fileService.getStored() as {
       sessions: Record<string, {
@@ -603,7 +948,15 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-2'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     const result = await service.splitDocument('doc-1', 'linear', {
       horizontalRule: false,
@@ -666,7 +1019,15 @@ describe('ProgressiveReadingService', () => {
         .mockResolvedValueOnce('piece-4'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     const result = await service.splitDocument('doc-1', 'linear', {
       horizontalRule: true,
@@ -977,6 +1338,7 @@ describe('ProgressiveReadingService', () => {
       createDocWithMarkdown: vi.fn().mockResolvedValueOnce('excerpt-doc-1'),
     });
     const cardService = createCardServiceMock();
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
     const legacySettingsProvider = {
       getSettings: () => ({
         progressiveReading: {
@@ -995,6 +1357,8 @@ describe('ProgressiveReadingService', () => {
       fileService,
       cardService.service,
       legacySettingsProvider,
+      undefined,
+      nativeRiffApi,
     );
 
     const result = await service.createExcerptFromSelection({
@@ -1009,6 +1373,7 @@ describe('ProgressiveReadingService', () => {
       excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-1',
+      sourceBlockIds: ['source-1'],
       containerDocId: 'excerpt-doc-1',
       recordId: expect.any(String),
       colorApplied: false,
@@ -1061,6 +1426,7 @@ describe('ProgressiveReadingService', () => {
         sourceBlockId: 'source-1',
       }),
     }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['excerpt-doc-1']);
     expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toEqual(expect.objectContaining({
       version: 1,
       records: [
@@ -1140,7 +1506,15 @@ describe('ProgressiveReadingService', () => {
       createDocWithMarkdown: vi.fn().mockResolvedValueOnce('excerpt-doc-2'),
     });
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     const result = await service.createExcerptFromSelection({
       sourceBlockId: 'piece-block-1',
@@ -1155,6 +1529,7 @@ describe('ProgressiveReadingService', () => {
       excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'piece-block-1',
+      sourceBlockIds: ['piece-block-1'],
       containerDocId: 'excerpt-doc-2',
       recordId: expect.any(String),
       colorApplied: false,
@@ -1204,6 +1579,7 @@ describe('ProgressiveReadingService', () => {
         sourceBlockId: 'piece-block-1',
       }),
     }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['excerpt-doc-2']);
 
     const stored = fileService.getStored() as typeof initialState;
     expect(stored.sessions['session-1'].pieces[0]).toEqual(expect.objectContaining({
@@ -1314,6 +1690,7 @@ describe('ProgressiveReadingService', () => {
       excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-plain-1',
+      sourceBlockIds: ['source-plain-1'],
       containerDocId: 'excerpt-doc-plain-1',
       recordId: expect.any(String),
       colorApplied: false,
@@ -1388,6 +1765,285 @@ describe('ProgressiveReadingService', () => {
     expect(configuredCaptureStorageService.resolveDailyNoteTarget).not.toHaveBeenCalled();
   });
 
+  it('creates multi-block library excerpts with preserved rich content and only the first visible source ref', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => {
+        if (docId === 'source-rich-1') {
+          return {
+            id: 'source-rich-1',
+            box: 'notebook-a',
+            path: '/reading/ordinary.sy',
+            hpath: '/reading/ordinary',
+            name: 'Ordinary',
+          };
+        }
+        return {
+          id: docId,
+          box: 'library-box',
+          path: '/SiYuanMemo 摘录库.sy',
+          hpath: '/SiYuanMemo 摘录库',
+          name: 'SiYuanMemo 摘录库',
+        };
+      }),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-rich-1'")) {
+          return [
+            { id: 'source-rich-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Link Beta', markdown: 'Alpha Link Beta' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-rich-1'),
+    });
+    const cardService = createCardServiceMock();
+    const configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock({
+      hasExplicitConfiguration: vi.fn(() => true),
+      resolveLibraryTarget: vi.fn(async () => ({
+        notebookId: 'library-box',
+        containerDocId: 'library-root-1',
+        parentBlockId: 'library-root-1',
+        parentDoc: {
+          id: 'library-root-1',
+          box: 'library-box',
+          path: '/SiYuanMemo 摘录库.sy',
+          hpath: '/SiYuanMemo 摘录库',
+          name: 'SiYuanMemo 摘录库',
+        },
+        targetKind: 'root-doc' as const,
+      })),
+    });
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock({
+        storage: {
+          mode: 'library',
+          notebookId: 'library-box',
+          targetBlockId: '',
+        },
+      }),
+      configuredCaptureStorageService,
+    );
+
+    const contentDom = [
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha <span data-type="a" data-href="https://example.com">Link</span></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+    ].join('');
+
+    const result = await service.createExcerptFromSelection({
+      sourceBlockId: 'source-rich-1',
+      sourceBlockIds: ['source-rich-1', 'source-rich-2'],
+      selectedText: 'Alpha Link\nBeta',
+      contentDom,
+      origin: 'editor',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-doc-rich-1',
+      excerptEntityType: 'doc',
+      sourceBlockId: 'source-rich-1',
+      sourceBlockIds: ['source-rich-1', 'source-rich-2'],
+      containerDocId: 'library-root-1',
+    }));
+    expect(configuredCaptureStorageService.resolveLibraryTarget).toHaveBeenCalledTimes(1);
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'excerpt-doc-rich-1',
+      expect.stringContaining('data-type="a"'),
+    );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'excerpt-doc-rich-1',
+      expect.stringContaining('data-id="source-rich-1"'),
+    );
+    expect(port.appendDomBlock).not.toHaveBeenCalledWith(
+      'excerpt-doc-rich-1',
+      expect.stringContaining('data-id="source-rich-2"'),
+    );
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      blockIds: ['excerpt-doc-rich-1'],
+      progressiveLineage: expect.objectContaining({
+        sourceBlockIds: ['source-rich-1', 'source-rich-2'],
+      }),
+    }));
+  });
+
+  it('creates multi-block daily-note excerpts as ordinary blocks with only the first visible source ref', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-daily-1'")) {
+          return [
+            { id: 'source-daily-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Alpha Link Beta', markdown: 'Alpha Link Beta' },
+          ];
+        }
+        if (stmt.includes("WHERE b.parent_id = 'daily-doc-1'")) {
+          return [];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      appendMarkdownBlock: vi.fn(async () => 'daily-root-1'),
+      appendDomBlock: vi.fn(async () => 'excerpt-block-1'),
+    });
+    const cardService = createCardServiceMock();
+    const configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock({
+      hasExplicitConfiguration: vi.fn(() => true),
+      resolveDailyNoteTarget: vi.fn(async () => ({
+        notebookId: 'daily-box',
+        containerDocId: 'daily-doc-1',
+      })),
+    });
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock({
+        storage: {
+          mode: 'daily-note',
+          notebookId: 'daily-box',
+          targetBlockId: '',
+        },
+      }),
+      configuredCaptureStorageService,
+    );
+
+    const contentDom = [
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha <span data-type="a" data-href="https://example.com">Link</span></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+    ].join('');
+
+    const result = await service.createExcerptFromSelection({
+      sourceBlockId: 'source-daily-1',
+      sourceBlockIds: ['source-daily-1', 'source-daily-2'],
+      selectedText: 'Alpha Link\nBeta',
+      contentDom,
+      origin: 'editor',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-block-1',
+      excerptEntityType: 'block',
+      sourceBlockId: 'source-daily-1',
+      sourceBlockIds: ['source-daily-1', 'source-daily-2'],
+      containerDocId: 'daily-doc-1',
+    }));
+    expect(configuredCaptureStorageService.resolveDailyNoteTarget).toHaveBeenCalledTimes(1);
+    expect(port.appendMarkdownBlock).toHaveBeenCalledWith(
+      'daily-doc-1',
+      expect.stringContaining('##'),
+    );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'daily-root-1',
+      expect.not.stringContaining('NodeSuperBlock'),
+    );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'daily-root-1',
+      expect.stringContaining('data-type="a"'),
+    );
+    expect(port.appendDomBlock).toHaveBeenCalledWith(
+      'daily-root-1',
+      expect.stringContaining('data-id="source-daily-1"'),
+    );
+    expect(port.appendDomBlock).not.toHaveBeenCalledWith(
+      'daily-root-1',
+      expect.stringContaining('data-id="source-daily-2"'),
+    );
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      blockIds: ['excerpt-block-1'],
+      metadata: expect.objectContaining({
+        isDocument: false,
+      }),
+      progressiveLineage: expect.objectContaining({
+        sourceBlockIds: ['source-daily-1', 'source-daily-2'],
+      }),
+    }));
+  });
+
+  it('keeps a single-source super block without adding a second daily-note wrapper', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-super-1'")) {
+          return [
+            { id: 'source-super-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 's', content: 'Source super block', markdown: 'Source super block' },
+          ];
+        }
+        if (stmt.includes("WHERE b.parent_id = 'daily-doc-1'")) {
+          return [];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      appendMarkdownBlock: vi.fn(async () => 'daily-root-1'),
+      appendDomBlock: vi.fn(async () => 'excerpt-block-1'),
+    });
+    const cardService = createCardServiceMock();
+    const configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock({
+      hasExplicitConfiguration: vi.fn(() => true),
+      resolveDailyNoteTarget: vi.fn(async () => ({
+        notebookId: 'daily-box',
+        containerDocId: 'daily-doc-1',
+      })),
+    });
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock({
+        storage: {
+          mode: 'daily-note',
+          notebookId: 'daily-box',
+          targetBlockId: '',
+        },
+      }),
+      configuredCaptureStorageService,
+    );
+
+    const materializedSuperBlockDom = [
+      '<div data-type="NodeSuperBlock" class="sb" data-sb-layout="row">',
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Beta</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      '<div class="protyle-attr" contenteditable="false">\u200b</div>',
+      '</div>',
+    ].join('');
+
+    await service.createExcerptFromSelection({
+      sourceBlockId: 'source-super-1',
+      sourceBlockIds: ['source-super-1'],
+      selectedText: 'Alpha\nBeta',
+      contentDom: materializedSuperBlockDom,
+      origin: 'editor',
+    });
+
+    const appendedDom = vi.mocked(port.appendDomBlock).mock.calls.find(([parentId]) => parentId === 'daily-root-1')?.[1];
+    expect(typeof appendedDom).toBe('string');
+    expect((String(appendedDom).match(/NodeSuperBlock/g) || [])).toHaveLength(1);
+  });
+
   it('uses a short normalized preview for new excerpt document titles while keeping full excerpt content', async () => {
     const longSelection = '人的思考并不只发生在大脑里，\n  而是分布在工具、符号与制度之间';
     const fileService = createFileServiceMock();
@@ -1427,6 +2083,7 @@ describe('ProgressiveReadingService', () => {
       excerptEntityType: 'doc',
       topicCardId: 'card-1',
       sourceBlockId: 'source-long-1',
+      sourceBlockIds: ['source-long-1'],
       containerDocId: 'excerpt-doc-long-1',
       recordId: expect.any(String),
       colorApplied: false,
@@ -1444,5 +2101,263 @@ describe('ProgressiveReadingService', () => {
       'excerpt-doc-long-1',
       expect.stringContaining('而是分布在工具、符号与制度之间'),
     );
+  });
+
+  it('creates nested excerpt topics inside excerpt docs with parent lineage and native Riff sync', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => {
+        if (docId === 'excerpt-doc-root-1') {
+          return {
+            id: 'excerpt-doc-root-1',
+            box: 'notebook-a',
+            path: '/reading/ordinary/[摘录 001] Root.sy',
+            hpath: '/reading/ordinary/[摘录 001] Root',
+            name: '[摘录 001] Root',
+          };
+        }
+        return {
+          id: docId,
+          box: 'notebook-a',
+          path: '/unknown.sy',
+          hpath: '/unknown',
+          name: docId,
+        };
+      }),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'excerpt-child-source-1'")) {
+          return [
+            { id: 'excerpt-child-source-1', root_id: 'excerpt-doc-root-1', parent_id: 'excerpt-doc-root-1', box: 'notebook-a', type: 'p', content: 'Nested focus line', markdown: 'Nested focus line' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'excerpt-doc-root-1'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      getBlockAttrs: vi.fn(async (blockId: string) => {
+        if (blockId === 'excerpt-doc-root-1') {
+          return {
+            'custom-fsrs-reading-kind': 'excerpt-doc',
+            'custom-fsrs-reading-source-doc-id': 'doc-ordinary',
+            'custom-fsrs-reading-source-block-id': 'source-root-1',
+          };
+        }
+        return {};
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-child-1'),
+    });
+    const cardService = createCardServiceMock([
+      { id: 'topic-card-excerpt-root-1', blockId: 'excerpt-doc-root-1', type: 'topic' },
+    ]);
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
+
+    const result = await service.createExcerptFromSelection({
+      sourceBlockId: 'excerpt-child-source-1',
+      selectedText: 'Nested focus line',
+      origin: 'editor',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      kind: 'created',
+      excerptEntityId: 'excerpt-doc-child-1',
+      excerptEntityType: 'doc',
+      topicCardId: 'card-2',
+      sourceBlockId: 'excerpt-child-source-1',
+      containerDocId: 'excerpt-doc-child-1',
+    }));
+    expect(port.setBlockAttrs).toHaveBeenCalledWith('excerpt-doc-child-1', expect.objectContaining({
+      'custom-fsrs-reading-kind': 'excerpt-doc',
+      'custom-fsrs-reading-source-doc-id': 'excerpt-doc-root-1',
+      'custom-fsrs-reading-source-block-id': 'excerpt-child-source-1',
+      'custom-fsrs-reading-parent-topic-card-id': 'topic-card-excerpt-root-1',
+      'custom-fsrs-reading-parent-excerpt-id': 'excerpt-doc-root-1',
+    }));
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      blockIds: ['excerpt-doc-child-1'],
+      progressiveLineage: expect.objectContaining({
+        kind: 'excerpt',
+        sourceDocId: 'excerpt-doc-root-1',
+        sourceBlockId: 'excerpt-child-source-1',
+        parentTopicCardId: 'topic-card-excerpt-root-1',
+        parentExcerptId: 'excerpt-doc-root-1',
+      }),
+    }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['excerpt-doc-child-1']);
+  });
+
+  it('creates nested excerpt topics inside topic docs without inventing parent excerpt lineage', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => {
+        if (docId === 'topic-doc-root-1') {
+          return {
+            id: 'topic-doc-root-1',
+            box: 'notebook-a',
+            path: '/reading/topic-doc.sy',
+            hpath: '/reading/topic-doc',
+            name: 'Topic Doc',
+          };
+        }
+        return {
+          id: docId,
+          box: 'notebook-a',
+          path: '/unknown.sy',
+          hpath: '/unknown',
+          name: docId,
+        };
+      }),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'topic-doc-source-1'")) {
+          return [
+            { id: 'topic-doc-source-1', root_id: 'topic-doc-root-1', parent_id: 'topic-doc-root-1', box: 'notebook-a', type: 'p', content: 'Topic child excerpt', markdown: 'Topic child excerpt' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'topic-doc-root-1'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      getBlockAttrs: vi.fn(async () => ({})),
+      createDocWithMarkdown: vi.fn(async () => 'topic-doc-excerpt-1'),
+    });
+    const cardService = createCardServiceMock([
+      { id: 'topic-card-root-1', blockId: 'topic-doc-root-1', type: 'topic' },
+    ]);
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
+
+    await service.createExcerptFromSelection({
+      sourceBlockId: 'topic-doc-source-1',
+      selectedText: 'Topic child excerpt',
+      origin: 'editor',
+    });
+
+    const setAttrsCall = vi.mocked(port.setBlockAttrs).mock.calls.find(([blockId]) => blockId === 'topic-doc-excerpt-1');
+    expect(setAttrsCall?.[1]).toEqual(expect.objectContaining({
+      'custom-fsrs-reading-kind': 'excerpt-doc',
+      'custom-fsrs-reading-source-doc-id': 'topic-doc-root-1',
+      'custom-fsrs-reading-source-block-id': 'topic-doc-source-1',
+      'custom-fsrs-reading-parent-topic-card-id': 'topic-card-root-1',
+    }));
+    expect(setAttrsCall?.[1]).not.toHaveProperty('custom-fsrs-reading-parent-excerpt-id');
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['topic-doc-excerpt-1']);
+  });
+
+  it('rolls back split piece documents when native Riff sync fails for a new piece topic', async () => {
+    const fileService = createFileServiceMock();
+    const sql = createSplitTreeSqlMock([
+      { id: 'h1-intro', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Intro', markdown: '# Intro', sort: '001' },
+      { id: 'intro-body', root_id: 'doc-1', parent_id: 'h1-intro', type: 'p', content: 'Intro body', markdown: 'Intro body', sort: '001' },
+      { id: 'h1-next', root_id: 'doc-1', parent_id: 'doc-1', type: 'h', subtype: 'h1', content: 'Next', markdown: '# Next', sort: '002' },
+      { id: 'next-body', root_id: 'doc-1', parent_id: 'h1-next', type: 'p', content: 'Next body', markdown: 'Next body', sort: '001' },
+    ]);
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async () => ({
+        id: 'doc-1',
+        box: 'notebook-a',
+        path: '/reading/article.sy',
+        hpath: '/reading/article',
+        name: 'Article',
+      })),
+      sql,
+      copyStdMarkdown: vi.fn(async (blockId: string) => {
+        if (blockId === 'intro-body') {
+          return 'Intro body';
+        }
+        if (blockId === 'next-body') {
+          return 'Next body';
+        }
+        throw new Error(`Unexpected block copy: ${blockId}`);
+      }),
+      createDocWithMarkdown: vi.fn()
+        .mockResolvedValueOnce('piece-1')
+        .mockResolvedValueOnce('piece-2'),
+    });
+    const cardService = createCardServiceMock();
+    const nativeRiffApi = createProgressiveNativeRiffPortMock({
+      addRiffCards: vi.fn(async () => {
+        throw new Error('native riff failed');
+      }),
+    });
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
+
+    await expect(service.splitDocument('doc-1', 'linear')).rejects.toThrow('native riff failed');
+
+    expect(cardService.service.deleteCard).toHaveBeenCalledWith({ cardId: 'card-1' });
+    expect(port.deleteBlock).toHaveBeenCalledWith('piece-1');
+    expect(port.deleteBlock).toHaveBeenCalledWith('piece-2');
+    expect(fileService.writeJSON).not.toHaveBeenCalled();
+  });
+
+  it('rolls back new excerpt artifacts when native Riff registration fails', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      getDocInfo: vi.fn(async (docId: string) => ({
+        id: docId,
+        box: 'notebook-a',
+        path: '/reading/ordinary.sy',
+        hpath: '/reading/ordinary',
+        name: 'Ordinary',
+      })),
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-riff-fail-1'")) {
+          return [
+            { id: 'source-riff-fail-1', root_id: 'doc-ordinary', parent_id: 'doc-ordinary', box: 'notebook-a', type: 'p', content: 'Focus text', markdown: 'Focus text' },
+          ];
+        }
+        if (stmt.includes("a0.value = 'excerpt-doc'") && stmt.includes("a1.value = 'doc-ordinary'")) {
+          return [];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+      createDocWithMarkdown: vi.fn(async () => 'excerpt-doc-riff-fail-1'),
+    });
+    const cardService = createCardServiceMock();
+    const nativeRiffApi = createProgressiveNativeRiffPortMock({
+      addRiffCards: vi.fn(async () => {
+        throw new Error('native riff failed');
+      }),
+    });
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
+
+    await expect(service.createExcerptFromSelection({
+      sourceBlockId: 'source-riff-fail-1',
+      selectedText: 'Focus text',
+      origin: 'editor',
+    })).rejects.toThrow('native riff failed');
+
+    expect(cardService.service.deleteCard).toHaveBeenCalledWith({ cardId: 'card-1' });
+    expect(port.deleteBlock).toHaveBeenCalledWith('excerpt-doc-riff-fail-1');
+    expect(fileService.getStored(EXCERPT_RECORD_STORAGE_KEY)).toBeUndefined();
   });
 });

@@ -34,6 +34,35 @@ vi.mock('@/application/entries/ProgressiveExcerptHighlight', () => ({
   applyProgressiveExcerptHighlight: reviewViewExcerptMocks.applyProgressiveExcerptHighlight,
 }));
 
+const REVIEW_CONTENT_DOM = '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Selected <span data-type="a" data-href="https://example.com">excerpt</span> text</div><div class="protyle-attr" contenteditable="false">\u200b</div></div>';
+
+function createExcerptSelectionSnapshot(root: HTMLElement | null, overrides: Record<string, unknown> = {}) {
+  const range = document.createRange();
+  const commonElement = root || document.body;
+  return {
+    blockId: 'source-block-1',
+    sourceBlockId: 'source-block-1',
+    sourceBlockIds: ['source-block-1'],
+    text: 'Selected excerpt text',
+    contentDom: REVIEW_CONTENT_DOM,
+    range,
+    blockSelections: [{
+      blockId: 'source-block-1',
+      mode: 'range',
+      excerptHtml: REVIEW_CONTENT_DOM,
+      range: range.cloneRange(),
+    }],
+    commonElement,
+    root,
+    protyle: {
+      wysiwyg: {
+        element: commonElement,
+      },
+    },
+    ...overrides,
+  };
+}
+
 function buildCard() {
   const now = Date.now();
   return {
@@ -194,6 +223,7 @@ const ReviewActionsStub = defineComponent({
 function mountReviewView(options: {
   neuralQueue: ReturnType<typeof createNeuralQueue>;
   createFromSelection: ReturnType<typeof vi.fn>;
+  materializeExcerptSource?: ReturnType<typeof vi.fn>;
   tabApplicationService?: {
     openDocumentTab: ReturnType<typeof vi.fn>;
     openBlockTab: ReturnType<typeof vi.fn>;
@@ -206,6 +236,13 @@ function mountReviewView(options: {
     openDocumentTab: vi.fn(async () => undefined),
     openBlockTab: vi.fn(async () => undefined),
   };
+  const materializeExcerptSource = options.materializeExcerptSource || vi.fn(async (selection: ReturnType<typeof createExcerptSelectionSnapshot>) => ({
+    sourceBlockId: selection.sourceBlockId,
+    sourceBlockIds: selection.sourceBlockIds,
+    contentDom: selection.contentDom,
+    highlightSnapshot: selection,
+    reused: false,
+  }));
 
   return mount(ReviewView, {
     attachTo: document.body,
@@ -224,6 +261,7 @@ function mountReviewView(options: {
             }),
           }),
           getSelectionExcerptService: () => ({
+            materializeExcerptSource,
             createFromSelection: options.createFromSelection,
             updateSourceBlockDom: vi.fn(async () => undefined),
           }),
@@ -263,18 +301,9 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     });
     reviewViewExcerptMocks.applyProgressiveExcerptHighlight.mockReset();
     reviewViewExcerptMocks.applyProgressiveExcerptHighlight.mockResolvedValue(true);
-    reviewViewExcerptMocks.resolveProgressiveExcerptSelectionSnapshot.mockReturnValue({
-      blockId: 'source-block-1',
-      text: 'Selected excerpt text',
-      range: document.createRange(),
-      commonElement: document.body,
-      root: document.body,
-      protyle: {
-        wysiwyg: {
-          element: document.body,
-        },
-      },
-    });
+    reviewViewExcerptMocks.resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(
+      createExcerptSelectionSnapshot(document.body),
+    );
     reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReturnValue(false);
   });
 
@@ -290,6 +319,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
       containerDocId: 'daily-note-1',
       recordId: 'record-1',
       colorApplied: false,
@@ -306,7 +336,9 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
 
     expect(createFromSelection).toHaveBeenCalledWith({
       sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
       selectedText: 'Selected excerpt text',
+      contentDom: REVIEW_CONTENT_DOM,
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
@@ -334,6 +366,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
       containerDocId: 'daily-note-1',
       recordId: 'record-1',
       colorApplied: false,
@@ -369,7 +402,9 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     expect(createFromSelection).toHaveBeenCalledTimes(1);
     expect(createFromSelection).toHaveBeenCalledWith({
       sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
       selectedText: 'Selected excerpt text',
+      contentDom: REVIEW_CONTENT_DOM,
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
@@ -380,13 +415,13 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
   });
 
   it('claims the window-level command request when review owns the current excerpt context', async () => {
-    reviewViewExcerptMocks.isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     const createFromSelection = vi.fn(async () => ({
       kind: 'created' as const,
       excerptEntityId: 'excerpt-doc-1',
       excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
       containerDocId: 'daily-note-1',
       recordId: 'record-1',
       colorApplied: false,
@@ -397,6 +432,8 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     });
 
     await flushPromises();
+    (wrapper.element as HTMLElement).setAttribute('tabindex', '-1');
+    (wrapper.element as HTMLElement).focus();
 
     const requestEvent = new CustomEvent(PROGRESSIVE_EXCERPT_REQUEST_EVENT, {
       cancelable: true,
@@ -410,7 +447,9 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     expect(createFromSelection).toHaveBeenCalledTimes(1);
     expect(createFromSelection).toHaveBeenCalledWith({
       sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
       selectedText: 'Selected excerpt text',
+      contentDom: REVIEW_CONTENT_DOM,
       origin: 'review',
       currentCardId: 'card-topic-1',
     });
@@ -430,6 +469,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
       excerptEntityType: 'doc',
       topicCardId: 'topic-card-1',
       sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
       containerDocId: 'daily-note-1',
       recordId: 'record-1',
       colorApplied: false,
@@ -468,6 +508,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
         excerptEntityType: 'doc' as const,
         sourceDocId: 'doc-1',
         sourceBlockId: 'source-block-1',
+        sourceBlockIds: ['source-block-1'],
         selectedText: 'Selected excerpt text',
         normalizedFingerprint: 'Selected excerpt text',
         colorToken: 'var(--b3-font-background4)',

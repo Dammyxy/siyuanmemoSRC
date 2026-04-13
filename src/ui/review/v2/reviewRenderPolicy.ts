@@ -137,6 +137,11 @@ export function shouldBypassSemanticFallback(
     return false;
   }
 
+  const templateId = typeof meta?.templateID === 'string' ? meta.templateID : '';
+  if (templateId === 'builtin-quick-card' || templateId === 'builtin-bidirectional-single') {
+    return false;
+  }
+
   if (hasQuickRenderIndicators(meta)) {
     return false;
   }

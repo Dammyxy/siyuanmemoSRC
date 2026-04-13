@@ -1,18 +1,21 @@
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
+import { SiyuanKramdownGateway } from '@/core/card/common/infrastructure/SiyuanKramdownGateway';
 import {
   FORMULA_CLOZE_RENDER_MODE_INLINE,
+  createFormulaClozeAnswerExpression,
+  createFormulaClozePlaceholderExpression,
   ensureDisplayMathDelimiters,
   hasMathDelimiters,
 } from '@/core/card/post-creation/formula-cloze-style';
+import { type ClozeInfo, ClozeDetector } from '@/utils/cloze-detector';
+import { createLogger } from '@/utils/logger';
 
 export type MultiClozeRenderMode = typeof FORMULA_CLOZE_RENDER_MODE_INLINE | 'default';
 
 export interface MultiClozeCardViewModel extends BaseCardViewModel {
-  currentFace: {
-    question: string;
-    answer: string;
-  };
+  frontHtml: string;
+  backHtml: string;
   faceIndex: number;
   totalFaces: number;
   renderMode: MultiClozeRenderMode;
@@ -32,35 +35,33 @@ interface MultiClozeCardInput {
   };
 }
 
+interface MultiClozeCardRenderResult {
+  frontHtml: string;
+  backHtml: string;
+}
+
+const logger = createLogger('MultiClozeCardRenderService');
+const CLOZE_PLACEHOLDER_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_PLACEHOLDER_TOKEN';
+const CLOZE_ANSWER_START_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_ANSWER_START_TOKEN';
+const CLOZE_ANSWER_END_TOKEN = 'SIYUANMEMO_MULTI_CLOZE_ANSWER_END_TOKEN';
+const CLOZE_PLACEHOLDER_HTML =
+  '<span data-type="mark" class="siyuanmemo-multi-cloze__placeholder">[...]</span>';
+
 export class MultiClozeCardRenderService extends BaseCardRenderService {
+  private readonly kramdownGateway = new SiyuanKramdownGateway(logger);
+
   async prepareViewModel(card: MultiClozeCardInput): Promise<MultiClozeCardViewModel> {
     const faces = card.meta?.faces || [];
     const faceIndex = card.meta?.faceIndex ?? 0;
-    const currentFaceRaw = faces[faceIndex] || { question: '', answer: '' };
     const renderMode = this.resolveRenderMode(card.meta?.clozeRenderMode);
-    const normalizedQuestion = this.normalizeQuestionForMath(
-      currentFaceRaw.question,
-      renderMode
-    );
-    const normalizedAnswer = this.normalizeAnswerForMath(
-      this.stripMarkTags(currentFaceRaw.answer),
-      normalizedQuestion,
-      renderMode
-    );
-
-    const currentFace = {
-      question: renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE
-        ? normalizedQuestion
-        : this.wrapClozeWithMark(normalizedQuestion),
-      answer: normalizedAnswer,
-    };
-
+    const rendered = await this.renderCardFaces(card.blockId, faces, faceIndex, renderMode);
     const breadcrumbs = await this.loadBreadcrumbs(card.blockId);
 
     return {
       blockId: card.blockId,
       breadcrumbs,
-      currentFace,
+      frontHtml: rendered.frontHtml,
+      backHtml: rendered.backHtml,
       faceIndex,
       totalFaces: faces.length,
       renderMode,
@@ -74,10 +75,176 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     return 'default';
   }
 
-  private wrapClozeWithMark(text: string): string {
-    if (!text) return text;
-    if (text.includes('<mark>')) return text;
-    return this.replacePlaceholderOutsideMath(text, '<mark>[...]</mark>');
+  protected async loadSourceKramdown(blockId: string): Promise<string | null> {
+    return this.kramdownGateway.getBlockKramdown(blockId);
+  }
+
+  protected renderRichKramdown(kramdown: string): string {
+    return this.kramdownGateway.kramdownToHtml(kramdown, {
+      stripAttributeLines: true,
+      preferSpinBlockDOM: true,
+    });
+  }
+
+  private async renderCardFaces(
+    blockId: string,
+    faces: MultiClozeCardFace[],
+    faceIndex: number,
+    renderMode: MultiClozeRenderMode,
+  ): Promise<MultiClozeCardRenderResult> {
+    const sourceKramdown = await this.loadSourceKramdown(blockId);
+    if (sourceKramdown) {
+      const renderedFromSource = this.renderFromSourceKramdown(sourceKramdown, faces, faceIndex, renderMode);
+      if (renderedFromSource) {
+        return renderedFromSource;
+      }
+    }
+
+    return this.renderFromStoredFaces(faces, faceIndex, renderMode);
+  }
+
+  private renderFromSourceKramdown(
+    sourceKramdown: string,
+    faces: MultiClozeCardFace[],
+    faceIndex: number,
+    renderMode: MultiClozeRenderMode,
+  ): MultiClozeCardRenderResult | null {
+    const clozes = ClozeDetector.extractClozes(sourceKramdown);
+    if (clozes.length === 0) {
+      return null;
+    }
+    if (faceIndex < 0 || faceIndex >= clozes.length) {
+      return null;
+    }
+    if (faces.length > 0 && clozes.length !== faces.length) {
+      return null;
+    }
+
+    const frontKramdown = this.processSourceKramdown(
+      sourceKramdown,
+      clozes,
+      faceIndex,
+      renderMode,
+      false,
+    );
+    const backKramdown = this.processSourceKramdown(
+      sourceKramdown,
+      clozes,
+      faceIndex,
+      renderMode,
+      true,
+    );
+
+    return this.finalizeRenderedFaces(frontKramdown, backKramdown, renderMode);
+  }
+
+  private renderFromStoredFaces(
+    faces: MultiClozeCardFace[],
+    faceIndex: number,
+    renderMode: MultiClozeRenderMode,
+  ): MultiClozeCardRenderResult {
+    const currentFaceRaw = faces[faceIndex] || { question: '', answer: '' };
+    const normalizedQuestion = this.normalizeQuestionForMath(currentFaceRaw.question, renderMode);
+    const normalizedAnswer = this.normalizeAnswerForMath(
+      this.stripMarkTags(currentFaceRaw.answer),
+      normalizedQuestion,
+      renderMode,
+    );
+
+    if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE) {
+      return {
+        frontHtml: normalizedQuestion,
+        backHtml: normalizedAnswer,
+      };
+    }
+
+    const frontKramdown = this.replaceFirstPlaceholderOutsideMath(
+      normalizedQuestion,
+      CLOZE_PLACEHOLDER_TOKEN,
+    );
+    const backKramdown = this.restoreAnswerIntoPlaceholder(
+      frontKramdown,
+      `${CLOZE_ANSWER_START_TOKEN}${normalizedAnswer}${CLOZE_ANSWER_END_TOKEN}`,
+    );
+    return {
+      frontHtml: this.finalizeRichHtml(frontKramdown),
+      backHtml: this.finalizeRichHtml(backKramdown),
+    };
+  }
+
+  private finalizeRenderedFaces(
+    frontKramdown: string,
+    backKramdown: string,
+    renderMode: MultiClozeRenderMode,
+  ): MultiClozeCardRenderResult {
+    if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE) {
+      const normalizedFront = this.normalizeQuestionForMath(frontKramdown, renderMode);
+      const normalizedBack = this.normalizeAnswerForMath(backKramdown, normalizedFront, renderMode);
+      return {
+        frontHtml: normalizedFront,
+        backHtml: normalizedBack,
+      };
+    }
+
+    return {
+      frontHtml: this.finalizeRichHtml(frontKramdown),
+      backHtml: this.finalizeRichHtml(backKramdown),
+    };
+  }
+
+  private processSourceKramdown(
+    sourceKramdown: string,
+    clozes: ClozeInfo[],
+    faceIndex: number,
+    renderMode: MultiClozeRenderMode,
+    revealCurrent: boolean,
+  ): string {
+    const currentCloze = clozes[faceIndex];
+    const sortedClozes = [...clozes].sort((a, b) => b.start - a.start);
+    let processedKramdown = sourceKramdown;
+
+    for (const cloze of sortedClozes) {
+      const before = processedKramdown.substring(0, cloze.start);
+      const after = processedKramdown.substring(cloze.end);
+      const replacement = this.resolveSourceReplacement(
+        cloze,
+        currentCloze,
+        renderMode,
+        revealCurrent,
+      );
+      processedKramdown = before + replacement + after;
+    }
+
+    return processedKramdown;
+  }
+
+  private resolveSourceReplacement(
+    cloze: ClozeInfo,
+    currentCloze: ClozeInfo,
+    renderMode: MultiClozeRenderMode,
+    revealCurrent: boolean,
+  ): string {
+    const isCurrent =
+      cloze.start === currentCloze.start
+      && cloze.end === currentCloze.end
+      && cloze.type === currentCloze.type;
+
+    if (!isCurrent) {
+      return cloze.text;
+    }
+
+    if (revealCurrent) {
+      if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE && cloze.type === 'latex') {
+        return createFormulaClozeAnswerExpression(cloze.text);
+      }
+      return `${CLOZE_ANSWER_START_TOKEN}${cloze.text}${CLOZE_ANSWER_END_TOKEN}`;
+    }
+
+    if (renderMode === FORMULA_CLOZE_RENDER_MODE_INLINE && cloze.type === 'latex') {
+      return createFormulaClozePlaceholderExpression();
+    }
+
+    return CLOZE_PLACEHOLDER_TOKEN;
   }
 
   private stripMarkTags(text: string): string {
@@ -98,13 +265,12 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
   private normalizeAnswerForMath(
     answer: string,
     question: string,
-    renderMode: MultiClozeRenderMode
+    renderMode: MultiClozeRenderMode,
   ): string {
     const trimmed = answer.trim();
     if (!trimmed) return answer;
     const prefersDisplayMode = this.prefersDisplayMathAnswer(question);
 
-    // Normalize legacy `$$...$$` short answers according to question math mode.
     const displayMathOnlyMatch = trimmed.match(/^\$\$([\s\S]+)\$\$$/);
     if (displayMathOnlyMatch) {
       const expression = displayMathOnlyMatch[1].trim();
@@ -153,16 +319,98 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     return /\\(?:color|textcolor|boxed|cloze|frac|sqrt|left|right|begin|end)\b/.test(text);
   }
 
-  private replacePlaceholderOutsideMath(text: string, replacement: string): string {
-    const segments = text.split(/(\$\$[\s\S]+?\$\$|\$(?!\$)[\s\S]+?\$)/g);
+  private restoreAnswerIntoPlaceholder(question: string, answer: string): string {
+    if (!question) {
+      return answer;
+    }
+
+    let replaced = false;
+    const segments = question.split(/(\$\$[\s\S]+?\$\$|\$(?!\$)[\s\S]+?\$)/g);
     return segments
       .map((segment) => {
-        if (!segment) return segment;
-        if (segment.startsWith('$$') || segment.startsWith('$')) {
+        if (!segment || segment.startsWith('$$') || segment.startsWith('$') || replaced) {
           return segment;
         }
-        return segment.replace(/\[\.\.\.]/g, replacement);
+
+        const next = this.replaceFirstPlaceholder(segment, answer);
+        if (next !== segment) {
+          replaced = true;
+        }
+        return next;
       })
       .join('');
+  }
+
+  private replaceFirstPlaceholder(text: string, replacement: string): string {
+    const patterns = [
+      new RegExp(this.escapeRegExp(CLOZE_PLACEHOLDER_TOKEN), 'i'),
+      /<mark>\s*\[\.\.\.]\s*<\/mark>/i,
+      /<span[^>]*data-type=(["'])mark\1[^>]*>\s*\[\.\.\.]\s*<\/span>/i,
+      /==\s*\[\.\.\.]\s*==/i,
+      /\[\.\.\.]/,
+    ];
+
+    for (const pattern of patterns) {
+      if (pattern.test(text)) {
+        return text.replace(pattern, replacement);
+      }
+    }
+
+    return text;
+  }
+
+  private stripAttributeArtifacts(kramdown: string): string {
+    return kramdown
+      .split('\n')
+      .filter((line) => !/^(?:[*+-]\s*)?\{:/u.test(line.trim()))
+      .join('\n')
+      .trim();
+  }
+
+  private replaceFirstPlaceholderOutsideMath(text: string, replacement: string): string {
+    const segments = text.split(/(\$\$[\s\S]+?\$\$|\$(?!\$)[\s\S]+?\$)/g);
+    let replaced = false;
+    return segments
+      .map((segment) => {
+        if (!segment || segment.startsWith('$$') || segment.startsWith('$') || replaced) {
+          return segment;
+        }
+
+        const next = this.replaceFirstPlaceholder(segment, replacement);
+        if (next !== segment) {
+          replaced = true;
+        }
+        return next;
+      })
+      .join('');
+  }
+
+  private finalizeRichHtml(kramdown: string): string {
+    const renderedHtml = this.renderRichKramdown(this.stripAttributeArtifacts(kramdown));
+    return this.normalizeRenderedHtml(renderedHtml);
+  }
+
+  private normalizeRenderedHtml(html: string): string {
+    if (!html) {
+      return html;
+    }
+
+    const answerPattern = new RegExp(
+      `${this.escapeRegExp(CLOZE_ANSWER_START_TOKEN)}([\\s\\S]*?)${this.escapeRegExp(CLOZE_ANSWER_END_TOKEN)}`,
+      'g',
+    );
+
+    return html
+      .split(CLOZE_PLACEHOLDER_TOKEN)
+      .join(CLOZE_PLACEHOLDER_HTML)
+      .replace(answerPattern, (_match, innerHtml: string) => this.wrapAnswerHtml(innerHtml));
+  }
+
+  private wrapAnswerHtml(innerHtml: string): string {
+    return `<span data-type="mark" class="siyuanmemo-multi-cloze__answer">${innerHtml}</span>`;
+  }
+
+  private escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 }

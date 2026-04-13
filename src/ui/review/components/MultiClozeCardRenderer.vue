@@ -1,28 +1,18 @@
 <template>
-  <div class="multi-cloze-card-renderer">
+  <div
+    class="multi-cloze-card-renderer"
+    :class="showAnswer ? 'multi-cloze-card-renderer--show-answer' : 'multi-cloze-card-renderer--question'"
+  >
     <CardLoadingState v-if="showLoading" text="加载中..." />
     <CardErrorState v-else-if="error" :message="error" />
 
     <div v-else-if="viewModel" class="multi-cloze-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
-      <div v-if="!showAnswer" class="multi-cloze-card-renderer__front">
-        <div class="multi-cloze-card-renderer__question" v-html="renderedQuestionHtml"></div>
-      </div>
-
-      <div
-        v-else
-        class="multi-cloze-card-renderer__back"
-        :class="{ 'multi-cloze-card-renderer__back--inline': isInlineFormulaMode }"
-      >
-        <template v-if="isInlineFormulaMode">
-          <div class="multi-cloze-card-renderer__answer" v-html="renderedAnswerHtml"></div>
-        </template>
-        <template v-else>
-          <div class="multi-cloze-card-renderer__front-preview" v-html="renderedQuestionHtml"></div>
-          <div class="multi-cloze-card-renderer__answer-divider"><span>答案</span></div>
-          <div class="multi-cloze-card-renderer__answer" v-html="renderedAnswerHtml"></div>
-        </template>
+      <div class="multi-cloze-card-renderer__card">
+        <div class="multi-cloze-card-renderer__protyle protyle">
+          <div class="multi-cloze-card-renderer__body protyle-content" v-html="renderedHtml"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -54,19 +44,14 @@ const renderService = new MultiClozeCardRenderService();
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 
-const isInlineFormulaMode = computed(() => viewModel.value?.renderMode === 'inline-formula-cloze');
-
-const renderedQuestionHtml = computed(() => {
-  const question = viewModel.value?.currentFace.question || '';
-  return renderMathWithKatex(question, (renderError) => {
-    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX question:', renderError);
-  });
+const rawHtml = computed(() => {
+  if (!viewModel.value) return '';
+  return props.showAnswer ? viewModel.value.backHtml : viewModel.value.frontHtml;
 });
 
-const renderedAnswerHtml = computed(() => {
-  const answer = viewModel.value?.currentFace.answer || '';
-  return renderMathWithKatex(answer, (renderError) => {
-    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX answer:', renderError);
+const renderedHtml = computed(() => {
+  return renderMathWithKatex(rawHtml.value, (renderError) => {
+    logger.warn('[MultiClozeCardRenderer] Failed to render KaTeX content:', renderError);
   });
 });
 
@@ -103,7 +88,7 @@ watch(
   () => {
     void loadViewModel();
   },
-  { deep: true }
+  { deep: true },
 );
 </script>
 
@@ -122,106 +107,47 @@ watch(
   overflow: auto;
 }
 
-.multi-cloze-card-renderer__front {
+.multi-cloze-card-renderer__card {
+  --siyuanmemo-multi-cloze-font-size: clamp(19px, 0.55vw + 15px, 22px);
+  --siyuanmemo-multi-cloze-line-height: 1.64;
   flex: 1;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  padding: 48px 32px;
-  min-height: 200px;
+  min-height: 0;
+  padding: 36px 28px 48px;
 }
 
-.multi-cloze-card-renderer__question {
-  font-size: 24px;
-  line-height: 1.6;
-  text-align: left;
-  color: var(--b3-theme-on-surface);
+.multi-cloze-card-renderer__protyle {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+}
+
+.multi-cloze-card-renderer__body {
   width: 100%;
-}
-
-.multi-cloze-card-renderer__back {
-  flex: 1;
-  padding: 48px 32px 32px;
-  display: flex;
-  flex-direction: column;
-}
-
-.multi-cloze-card-renderer__back--inline {
-  align-items: flex-start;
-  justify-content: flex-start;
-}
-
-.multi-cloze-card-renderer__front-preview {
-  opacity: 0.4;
-  font-size: 24px;
-  line-height: 1.6;
-  margin-bottom: 20px;
-  text-align: left;
-}
-
-.multi-cloze-card-renderer__answer-divider {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  margin: 16px 0 24px 0;
-  color: var(--b3-theme-on-surface-light);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.multi-cloze-card-renderer__answer-divider::before {
-  content: '';
-  width: 60px;
-  height: 1px;
-  background: var(--b3-border-color);
-  margin-right: 12px;
-}
-
-.multi-cloze-card-renderer__answer-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--b3-border-color);
-  margin-left: 12px;
-}
-
-.multi-cloze-card-renderer__answer {
-  font-size: 24px;
-  line-height: 1.6;
-  color: var(--b3-theme-on-surface);
-  text-align: left;
-  width: 100%;
-}
-
-.multi-cloze-card-renderer__question :deep(mark) {
-  background-color: var(--siyuanmemo-cloze-success-bg, var(--b3-button-background-success, #b8d7ba));
-  color: var(--siyuanmemo-cloze-success-fg, var(--b3-theme-success, #166534));
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: 500;
-}
-
-.multi-cloze-card-renderer__answer :deep(mark) {
-  background-color: transparent;
-  color: inherit;
+  min-height: 100%;
+  font-size: var(--siyuanmemo-multi-cloze-font-size);
+  line-height: var(--siyuanmemo-multi-cloze-line-height);
   padding: 0;
-  border-radius: 0;
-  font-weight: inherit;
+}
+
+.multi-cloze-card-renderer__body :deep(.protyle-wysiwyg) {
+  background: transparent;
+  font-size: inherit;
+  line-height: inherit;
+  padding: 0;
+}
+
+.multi-cloze-card-renderer__body :deep(.protyle) {
+  height: 100%;
+}
+
+.multi-cloze-card-renderer__body :deep(.katex-display) {
+  margin: 0.4em 0;
 }
 
 @media screen and (max-width: 768px) {
-  .multi-cloze-card-renderer__front,
-  .multi-cloze-card-renderer__back {
-    padding: 32px 24px;
-  }
-
-  .multi-cloze-card-renderer__question,
-  .multi-cloze-card-renderer__answer {
-    font-size: 20px;
-  }
-
-  .multi-cloze-card-renderer__front-preview {
-    font-size: 20px;
+  .multi-cloze-card-renderer__card {
+    --siyuanmemo-multi-cloze-font-size: clamp(18px, 3.8vw, 20px);
+    padding: 28px 20px 40px;
   }
 }
 </style>

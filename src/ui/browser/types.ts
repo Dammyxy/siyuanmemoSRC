@@ -112,10 +112,10 @@ export const FILTER_PRESETS: FilterPreset[] = [
     { key: 'suspended',       i18nKey: 'filterPresetSuspended',       label: '已暂停',     icon: 'iconPause' },
     { key: 'current-doc',     i18nKey: 'filterPresetCurrentDoc',      label: '当前文档',   icon: 'iconFile' },
     // Topic/Item/Concept/Descriptor 筛选
-    { key: 'topic-only',      i18nKey: 'filterPresetTopicOnly',       label: '仅主题',     icon: 'iconFile' },
-    { key: 'item-only',       i18nKey: 'filterPresetItemOnly',        label: '仅卡片',     icon: 'iconCheck' },
-    { key: 'concept-only',    i18nKey: 'filterPresetConceptOnly',     label: '仅概念卡',   icon: 'iconBrain' },
-    { key: 'descriptor-only', i18nKey: 'filterPresetDescriptorOnly',  label: '仅描述符卡', icon: 'iconTag' },
+    { key: 'topic-only',      i18nKey: 'filterPresetTopicOnly',       label: '仅 Topic',      icon: 'iconFile' },
+    { key: 'item-only',       i18nKey: 'filterPresetItemOnly',        label: '仅 Item',       icon: 'iconCheck' },
+    { key: 'concept-only',    i18nKey: 'filterPresetConceptOnly',     label: '仅 Concept',    icon: 'iconBrain' },
+    { key: 'descriptor-only', i18nKey: 'filterPresetDescriptorOnly',  label: '仅 Descriptor', icon: 'iconTag' },
 ];
 
 /**
@@ -133,25 +133,25 @@ export function getAvailableCardTypeFilters(
     if (queueId === 'retrieval' || queueId === 'final-drill') {
         return [
             { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
-            { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅 item' },
-            { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅 descriptor' },
+            { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅 Item' },
+            { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅 Descriptor' },
         ];
     }
 
     // 神经漫游队列：固定概念卡
     if (queueId === 'neural' || queueId === 'neural-roam') {
         return [
-            { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅 concept' },
+            { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅 Concept' },
         ];
     }
 
     // 其他队列（渐进学习、筛选组、全部卡片等）：显示标准选项
     return [
         { value: 'all',             i18nKey: 'cardTypeAll',             label: '所有类型' },
-        { value: 'topic-only',      i18nKey: 'cardTypeTopicOnly',       label: '仅 topic' },
-        { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅 item' },
-        { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅 concept' },
-        { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅 descriptor' },
+        { value: 'topic-only',      i18nKey: 'cardTypeTopicOnly',       label: '仅 Topic' },
+        { value: 'item-only',       i18nKey: 'cardTypeItemOnly',        label: '仅 Item' },
+        { value: 'concept-only',    i18nKey: 'cardTypeConceptOnly',     label: '仅 Concept' },
+        { value: 'descriptor-only', i18nKey: 'cardTypeDescriptorOnly',  label: '仅 Descriptor' },
     ];
 }
 
@@ -291,10 +291,10 @@ export type BrowserViewMode = 'flat' | 'hierarchy';
 export type CardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 'descriptor-only' | 'missing-block-only';
 
 const NON_TRANSLATED_CARD_TYPE_FILTER_LABELS: Partial<Record<CardTypeFilter, string>> = {
-    'topic-only': '仅 topic',
-    'item-only': '仅 item',
-    'concept-only': '仅 concept',
-    'descriptor-only': '仅 descriptor',
+    'topic-only': '仅 Topic',
+    'item-only': '仅 Item',
+    'concept-only': '仅 Concept',
+    'descriptor-only': '仅 Descriptor',
 };
 
 export function getCardTypeFilterDisplayLabel(value: CardTypeFilter): string | undefined {

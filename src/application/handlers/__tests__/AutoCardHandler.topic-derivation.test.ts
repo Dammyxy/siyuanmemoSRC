@@ -6,6 +6,7 @@ function createHandler(input: {
   rootId: string;
   currentBlockCards?: Array<{ id: string; type: string }>;
   rootBlockCards?: Array<{ id: string; type: string }>;
+  blockAttrsById?: Record<string, Record<string, string>>;
 }) {
   const topicDerivedItemService = {
     createFromTopicSource: vi.fn(async () => ({
@@ -83,7 +84,7 @@ function createHandler(input: {
       }
       return [];
     }),
-    getBlockAttrs: vi.fn(async () => ({})),
+    getBlockAttrs: vi.fn(async (blockId: string) => input.blockAttrsById?.[blockId] || {}),
     pushMsg: vi.fn(async () => undefined),
     pushErrMsg: vi.fn(async () => undefined),
     setBlockAttrs: vi.fn(async () => undefined),
@@ -113,6 +114,11 @@ describe('AutoCardHandler topic derivation routing', () => {
       blockId: 'topic-block-1',
       rootId: 'doc-root-1',
       currentBlockCards: [{ id: 'topic-card-1', type: 'topic' }],
+      blockAttrsById: {
+        'topic-block-1': {
+          'custom-xiuyuan-id': 'topic-xiuyuan-1',
+        },
+      },
     });
 
     await (handler as any).checkQuickSymbols('topic-block-1');
@@ -150,5 +156,23 @@ describe('AutoCardHandler topic derivation routing', () => {
       content: 'Alpha >> Beta',
     }));
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
+  });
+
+  it('still skips non-topic Xiuyuan bindings even when the root document is a topic doc', async () => {
+    const { handler, topicDerivedItemService, siyuanApi } = createHandler({
+      blockId: 'descriptor-block-1',
+      rootId: 'topic-doc-1',
+      rootBlockCards: [{ id: 'topic-card-root-1', type: 'topic' }],
+      blockAttrsById: {
+        'descriptor-block-1': {
+          'custom-xiuyuan-id': 'descriptor-xiuyuan-1',
+        },
+      },
+    });
+
+    await (handler as any).checkQuickSymbols('descriptor-block-1');
+
+    expect(topicDerivedItemService.createFromTopicSource).not.toHaveBeenCalled();
+    expect(siyuanApi.pushMsg).not.toHaveBeenCalled();
   });
 });

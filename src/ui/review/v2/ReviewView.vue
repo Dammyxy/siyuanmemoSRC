@@ -113,7 +113,7 @@ import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensio
 import { createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
-import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
+import { getNeuralEngineLabel, getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import {
   type DataChangeEvent,
@@ -263,9 +263,18 @@ type ReviewPluginContextLike = {
     completeCurrentPiece: (pieceDocId: string) => Promise<{ nextPieceDocId?: string }>;
   } | undefined;
   getSelectionExcerptService?: () => {
+    materializeExcerptSource: (snapshot: ProgressiveExcerptSelectionSnapshot) => Promise<{
+      sourceBlockId: string;
+      sourceBlockIds: string[];
+      contentDom: string;
+      highlightSnapshot: ProgressiveExcerptSelectionSnapshot;
+      reused: boolean;
+    }>;
     createFromSelection: (input: {
       sourceBlockId: string;
+      sourceBlockIds?: string[];
       selectedText: string;
+      contentDom?: string;
       origin: 'editor' | 'review';
       currentCardId?: string;
     }) => Promise<ProgressiveExcerptCreationResult>;
@@ -965,44 +974,44 @@ function resolveNeuralSourceLabels(neuralQueue: NeuralRoamSessionQueue | null = 
 
 function getReviewSourceListLabel(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
   return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('viewActivationSourceList', '查看激活源列表')
-    : t('viewOrbitCenterList', '查看轨道中心列表');
+    ? t('viewActivationSourceList', '查看概念卡：激活源列表')
+    : t('viewOrbitCenterList', '查看概念卡：轨道中心列表');
 }
 
 function getBuildStationSuccessMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
   return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('stationBuiltAndSetPrimaryActivationSource', '已建立空间站，并切换为当前主激活源')
-    : t('stationBuiltAndSetOrbitCenter', '已建立空间站，并切换为当前轨道中心');
+    ? t('stationBuiltAndSetPrimaryActivationSource', '已建立空间站，并切换为当前主概念卡：激活源')
+    : t('stationBuiltAndSetOrbitCenter', '已建立空间站，并切换为当前概念卡：轨道中心');
 }
 
 function getBuildStationFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
   return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('buildStationAndSetPrimaryActivationSourceFailed', '建立空间站并切换主激活源失败')
-    : t('buildStationAndSetOrbitCenterFailed', '建立空间站并切换轨道中心失败');
+    ? t('buildStationAndSetPrimaryActivationSourceFailed', '建立空间站并切换主概念卡：激活源失败')
+    : t('buildStationAndSetOrbitCenterFailed', '建立空间站并切换概念卡：轨道中心失败');
 }
 
 function getLockCurrentCenterFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
   return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('lockPrimaryActivationSourceFailed', '设为主激活源失败')
-    : t('lockCurrentOrbitCenterFailed', '设为当前轨道中心失败');
+    ? t('lockPrimaryActivationSourceFailed', '设为主概念卡：激活源失败')
+    : t('lockCurrentOrbitCenterFailed', '设为当前概念卡：轨道中心失败');
 }
 
 function getStartPathFromSourceMessage(nodeId: string, neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
   return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('roamStartedFromActivationSource', '已从激活源 {id} 开始新的路径').replace('{id}', nodeId)
-    : t('roamStartedFromOrbitCenter', '已从轨道中心 {id} 开始新的路径').replace('{id}', nodeId);
+    ? t('roamStartedFromActivationSource', '已从概念卡：激活源 {id} 开始新的路径').replace('{id}', nodeId)
+    : t('roamStartedFromOrbitCenter', '已从概念卡：轨道中心 {id} 开始新的路径').replace('{id}', nodeId);
 }
 
 function getSourceRemovedMessage(nodeId: string, neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
   return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('activationSourceRemoved', '已移除激活源 {id}').replace('{id}', nodeId)
-    : t('orbitCenterRemoved', '已移除轨道中心 {id}').replace('{id}', nodeId);
+    ? t('activationSourceRemoved', '已移除概念卡：激活源 {id}').replace('{id}', nodeId)
+    : t('orbitCenterRemoved', '已移除概念卡：轨道中心 {id}').replace('{id}', nodeId);
 }
 
 function getRemoveSourceFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
   return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('removeActivationSourceFailed', '移除激活源失败')
-    : t('removeOrbitCenterFailed', '移除轨道中心失败');
+    ? t('removeActivationSourceFailed', '移除概念卡：激活源失败')
+    : t('removeOrbitCenterFailed', '移除概念卡：轨道中心失败');
 }
 
 function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
@@ -1995,9 +2004,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
       if (navState.currentNodeId) {
         await hook.loadCardByBlockId(navState.currentNodeId);
       }
-      const modeText = nextMode === 'hyperspace'
-        ? t('engineHyperspace', 'Hyperspace Expedition / 超空间远征')
-        : t('engineOrbit', 'Orbit / 轨道');
+      const modeText = getNeuralEngineLabel(nextMode, t, 'full');
       showMessage(t('engineModeSwitched', '已切换引擎：{mode}').replace('{mode}', modeText), 2000, 'info');
     })().catch((error: Error) => {
       logger.error('[SiYuanMemo][ReviewView] Failed to switch engine mode:', error);
@@ -2246,8 +2253,8 @@ function openSrsEditorDialog(blockId: string, cardId?: string) {
         });
       },
     },
-    width: '860px',
-    height: '80vh',
+    width: 'min(680px, 92vw)',
+    height: 'min(640px, 66vh)',
   });
 }
 
@@ -2294,8 +2301,8 @@ function shortenBlockId(blockId: string): string {
 function buildSeedMenuLabel(entry: NeuralRoamSourceEntry): string {
   const preview = entry.nodePreview || shortenBlockId(entry.nodeId);
   const typeLabel = entry.role === 'activation-source'
-    ? t('activationKindSourceRoot', '激活源')
-    : t('activationKindFocusRoot', '轨道中心节点');
+    ? t('activationKindSourceRoot', '概念卡：激活源')
+    : t('activationKindFocusRoot', '概念卡：轨道中心节点');
   return `${preview} — ${typeLabel}`;
 }
 
@@ -2310,8 +2317,8 @@ function resolveAssociationTypeLabel(entry: NeuralRoamHistoryEntry): string {
     'outgoing-direct': t('associationOutgoingDirect', '直接引用'),
     'outgoing-indirect': t('associationOutgoingIndirect', '间接引用'),
     descriptor: t('descriptorCard', '描述符卡'),
-    focus: t('associationFocusNode', '轨道中心节点'),
-    source: t('activationKindSourceRoot', '激活源'),
+    focus: t('associationFocusNode', '概念卡：轨道中心节点'),
+    source: t('activationKindSourceRoot', '概念卡：激活源'),
     path: t('associationPathNode', '轨迹节点'),
   };
   return associationTypeMap[entry.associationType] || entry.associationType || t('unknown', '未知');
@@ -2404,7 +2411,7 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
 
   menu.addItem({
     icon: 'iconHistory',
-    label: t('viewHistory', '查看轨迹路径'),
+    label: t('viewHistory', '查看双链轨道'),
     click: () => {
       openNeuralBrowserSubview('roam-history');
     },
@@ -2519,7 +2526,7 @@ async function handleProgressiveExcerptFromReview(trigger: 'hotkey' | 'toolbar' 
     },
   });
   if (!selection) {
-    showMessage(t('progressiveExcerptNoSelection', '请先在同一块内选中文本再摘抄'), 3000, 'error');
+    showMessage(t('progressiveExcerptNoSelection', '请先选中文本后再摘抄'), 3000, 'error');
     return;
   }
 
@@ -2536,12 +2543,14 @@ async function createProgressiveExcerptFromReviewSelection(
     return;
   }
 
-  const preparedHighlight = tryPrepareProgressiveExcerptHighlight(selection);
-
   try {
+    const materialized = await selectionService.materializeExcerptSource(selection);
+    const preparedHighlight = tryPrepareProgressiveExcerptHighlight(materialized.highlightSnapshot);
     const result = await selectionService.createFromSelection({
-      sourceBlockId: selection.blockId,
+      sourceBlockId: materialized.sourceBlockId,
+      sourceBlockIds: materialized.sourceBlockIds,
       selectedText: selection.text,
+      contentDom: materialized.contentDom,
       origin: 'review',
       currentCardId: resolveCurrentReviewCardId(),
     });

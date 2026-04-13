@@ -54,18 +54,50 @@ function buildSnapshot(cardOverrides: Partial<FSRSCard> = {}) {
   };
 }
 
+function buildTransparencyModel(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    schedulerType: overrides.schedulerType ?? 'fsrs-v6',
+    schedulerLabel: overrides.schedulerLabel ?? 'FSRS v6',
+    summary: overrides.summary ?? 'FSRS v6 会根据当前稳定度和难度预测遗忘速度，再为四个评分给出不同的下次复习区间。',
+    gradePreviews: overrides.gradePreviews ?? [
+      { rating: 1, tone: 'again', label: '重来', nextDue: '< 1 min', dueAt: '2023/11/15 06:13:20', explanation: '收紧到最短可接受间隔，优先避免再次遗忘。' },
+      { rating: 2, tone: 'hard', label: '困难', nextDue: '1 h', dueAt: '2023/11/15 07:12:50', explanation: '保守延长，并留出更多巩固次数。' },
+      { rating: 3, tone: 'good', label: '良好', nextDue: '1 d', dueAt: '2023/11/16 06:12:50', explanation: '按当前算法的默认增长推进。' },
+      { rating: 4, tone: 'easy', label: '简单', nextDue: '3 d', dueAt: '2023/11/18 06:12:50', explanation: '如果回忆轻松，就放大下一次间隔。' },
+    ],
+    stateFacts: overrides.stateFacts ?? [
+      { label: '状态', value: '复习卡' },
+      { label: '复习次数', value: '3' },
+    ],
+    algorithmFacts: overrides.algorithmFacts ?? [
+      { label: '调度器', value: 'FSRS v6' },
+      { label: '调度依据', value: '根据稳定度与难度预测间隔扩张，并对不同评分给出不同增长幅度。' },
+    ],
+  };
+}
+
 function createPlugin(
   cardEditorService: Record<string, unknown>,
   reviewService?: Record<string, unknown>,
   manager?: Record<string, unknown>,
+  transparencyService?: Record<string, unknown>,
 ) {
   return {
     getContext: () => ({
       getCardEditorService: () => cardEditorService,
       getReviewService: () => reviewService,
       getUnifiedDataSourceManager: () => manager,
+      getSrsTransparencyService: () => transparencyService || { build: vi.fn(() => buildTransparencyModel()) },
     }),
   };
+}
+
+async function openDetails(wrapper: ReturnType<typeof mount>, selector: string) {
+  const details = wrapper.get(selector);
+  (details.element as HTMLDetailsElement).open = true;
+  await details.trigger('toggle');
+  await flushPromises();
+  return details;
 }
 
 describe('SrsEditorDialog', () => {
@@ -76,8 +108,9 @@ describe('SrsEditorDialog', () => {
     confirmDialogMock.mockResolvedValue(true);
   });
 
-  it('renders five schema-driven quick edit fields and the conversion notice', async () => {
+  it('renders a compact inspector without the grade preview strip and keeps secondary sections folded', async () => {
     const loadSnapshot = vi.fn(async () => buildSnapshot());
+    const buildTransparency = vi.fn(() => buildTransparencyModel());
     const manager = { registerObserver: vi.fn(), unregisterObserver: vi.fn() };
     const plugin = createPlugin({
       loadSnapshot,
@@ -89,7 +122,9 @@ describe('SrsEditorDialog', () => {
       resetProgress: vi.fn(),
     }, {
       getSiyuanApi: () => ({ pushMsg: vi.fn(), pushErrMsg: vi.fn() }),
-    }, manager);
+    }, manager, {
+      build: buildTransparency,
+    });
 
     const wrapper = mount(SrsEditorDialog, {
       props: {
@@ -103,14 +138,19 @@ describe('SrsEditorDialog', () => {
 
     expect(loadSnapshot).toHaveBeenCalledWith('block-1', 'card-1');
     expect(manager.registerObserver).toHaveBeenCalledTimes(1);
-    expect(wrapper.findAll('.srs-field-card')).toHaveLength(5);
-    expect(wrapper.find('[data-field="cardType"]').exists()).toBe(true);
-    expect(wrapper.find('[data-field="render"]').exists()).toBe(true);
-    expect(wrapper.find('[data-field="nextReview"]').exists()).toBe(true);
-    expect(wrapper.find('[data-field="priority"]').exists()).toBe(true);
-    expect(wrapper.find('[data-field="dismiss"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain('转换提示');
-    expect(wrapper.text()).not.toContain('schema');
+    expect(buildTransparency).toHaveBeenCalledTimes(1);
+    expect(wrapper.find('.srs-editor__hero').exists()).toBe(false);
+    expect(wrapper.findAll('.srs-preview-pill')).toHaveLength(0);
+    expect(wrapper.findAll('.srs-preview-detail')).toHaveLength(0);
+    expect(wrapper.findAll('.srs-grade-card')).toHaveLength(0);
+    expect(wrapper.findAll('.srs-field-card')).toHaveLength(0);
+    expect(wrapper.findAll('[data-action]')).toHaveLength(3);
+    expect((wrapper.get('[data-section="more-edit"]').element as HTMLDetailsElement).open).toBe(false);
+    expect((wrapper.get('[data-section="scheduling-details"]').element as HTMLDetailsElement).open).toBe(false);
+    expect((wrapper.get('[data-section="danger-zone"]').element as HTMLDetailsElement).open).toBe(false);
+    expect(wrapper.text()).toContain('当前状态');
+    expect(wrapper.text()).not.toContain('评分预览');
+    expect(wrapper.text()).not.toContain('转换提示');
   });
 
   it('shows loading state while saving priority and refreshes after resolve', async () => {
@@ -140,6 +180,8 @@ describe('SrsEditorDialog', () => {
     });
 
     await flushPromises();
+
+    await openDetails(wrapper, '[data-section="more-edit"]');
 
     const input = wrapper.get('[data-field="priority"] input');
     await input.setValue('12');
@@ -186,6 +228,8 @@ describe('SrsEditorDialog', () => {
 
     await flushPromises();
 
+    await openDetails(wrapper, '[data-section="more-edit"]');
+
     await wrapper.findAll('.srs-type-option')[2].trigger('click');
     await flushPromises();
     expect(updateCardType).toHaveBeenCalledWith('card-1', CardType.Concept);
@@ -194,7 +238,7 @@ describe('SrsEditorDialog', () => {
     await flushPromises();
     expect(updateRender).toHaveBeenCalledWith('card-1', 'descriptor-reverse');
 
-    await wrapper.get('[data-field="nextReview"] .b3-button').trigger('click');
+    await wrapper.get('[data-action="schedule"]').trigger('click');
     expect(createVueDialogMock).toHaveBeenCalledTimes(1);
 
     const dialogOptions = createVueDialogMock.mock.calls[0][0] as {
@@ -241,6 +285,8 @@ describe('SrsEditorDialog', () => {
 
     await flushPromises();
 
+    await openDetails(wrapper, '[data-section="more-edit"]');
+
     expect(wrapper.text()).toContain('当前渲染与该类型的推荐渲染不一致');
     expect(wrapper.text()).toContain('推荐渲染');
   });
@@ -274,17 +320,17 @@ describe('SrsEditorDialog', () => {
 
     await flushPromises();
 
-    const dismissField = wrapper.get('[data-field="dismiss"]');
-    expect(dismissField.text()).toContain('Suspend');
+    const dismissButton = wrapper.get('[data-action="dismiss"]');
+    expect(dismissButton.text()).toContain('Suspend');
 
-    await dismissField.get('button').trigger('click');
+    await dismissButton.trigger('click');
     await flushPromises();
 
     expect(setDismissed).toHaveBeenCalledWith('card-1', true);
     expect(wrapper.emitted('dismissed')?.[0]).toEqual([
       { cardId: 'card-1', blockId: 'block-1', dismissed: true },
     ]);
-    expect(dismissField.text()).toContain('Restore');
+    expect(wrapper.get('[data-action="dismiss"]').text()).toContain('Restore');
   });
 
   it('refreshes the same card when unified manager emits a matching update', async () => {

@@ -46,6 +46,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { NeuralNavigationState } from '@/types/unified-data-source';
+import { getNeuralEngineLabel } from '@/ui/shared/neuralRoamLabels';
 
 const props = defineProps<{
   i18n?: Record<string, string>;
@@ -74,9 +75,14 @@ const engineText = computed(() => {
   if (!props.navigationState) {
     return '';
   }
-  return props.navigationState.engineMode === 'hyperspace'
-    ? t('engineHyperspace', 'Hyperspace Expedition')
-    : t('engineOrbit', 'Orbit');
+  return getNeuralEngineLabel(props.navigationState.engineMode, t, 'short');
+});
+
+const engineFullText = computed(() => {
+  if (!props.navigationState) {
+    return '';
+  }
+  return getNeuralEngineLabel(props.navigationState.engineMode, t, 'full');
 });
 
 const navigationModeText = computed(() => {
@@ -140,7 +146,7 @@ const engineButtonAriaLabel = computed(() => {
   }
   return `${interpolate(
     t('switchEngineMode', 'Switch Engine: {mode}'),
-    { mode: engineText.value },
+    { mode: engineFullText.value },
   )} ${engineIntroLongText.value}`.trim();
 });
 
@@ -151,7 +157,7 @@ const engineButtonTooltip = computed(() => {
   return [
     interpolate(
       t('switchEngineMode', 'Switch Engine: {mode}'),
-      { mode: engineText.value },
+      { mode: engineFullText.value },
     ),
     engineIntroLongText.value,
   ].join('\n');

@@ -63,6 +63,7 @@ function createNeuralQueue(
     getAnchorSnapshot: vi.fn(() => []),
     setAnchorEntry: vi.fn(async () => undefined),
     clearAnchors: vi.fn(async () => undefined),
+    getCurrentBatchSnapshot: vi.fn(() => null),
     getConceptBlocks: vi.fn(() => []),
     getFocusPoolSnapshot: vi.fn(() => []),
     setFocusPoolEntry: vi.fn(async () => undefined),
@@ -254,7 +255,7 @@ describe('ReviewView neural nav mode', () => {
       bookmarkCurrentPath: true,
     });
     expect(reviewViewNeuralModeMocks.showMessage).toHaveBeenLastCalledWith(
-      '已建立空间站，并切换为当前轨道中心',
+      '已建立空间站，并切换为当前概念卡：轨道中心',
       3000,
       'info',
     );
@@ -278,7 +279,7 @@ describe('ReviewView neural nav mode', () => {
       bookmarkCurrentPath: true,
     });
     expect(reviewViewNeuralModeMocks.showMessage).toHaveBeenLastCalledWith(
-      '已建立空间站，并切换为当前主激活源',
+      '已建立空间站，并切换为当前主概念卡：激活源',
       3000,
       'info',
     );

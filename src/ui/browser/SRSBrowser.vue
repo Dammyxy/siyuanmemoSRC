@@ -162,7 +162,7 @@
         />
         <template v-else-if="neuralSubview === 'roam-history'">
           <div v-if="showNarrowRoamLayout" class="card-browser__neural-roam-stack">
-            <div class="card-browser__neural-roam-segments" role="tablist" :aria-label="t('roamHistory', '轨迹路径')">
+            <div class="card-browser__neural-roam-segments" role="tablist" :aria-label="t('roamHistory', '双链轨道')">
               <button
                 type="button"
                 class="b3-button b3-button--outline card-browser__neural-roam-segment"
@@ -367,6 +367,12 @@ import {
   type BrowserLayoutProfile,
   type BrowserNarrowRoamPane,
 } from './layoutProfile';
+import {
+  DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+  normalizeHierarchySnapshotDelayMs,
+  resolveBrowserHierarchySnapshotMode,
+} from './hierarchySnapshotPlan';
+import { getNeuralEngineLabel } from '@/ui/shared/neuralRoamLabels';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
 import type {
   BrowserActionTarget,
@@ -851,6 +857,42 @@ function applyBrowserChromePreferences(profile: BrowserLayoutProfile): void {
   }
 }
 
+function syncGlobalBrowserContext(): void {
+  const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
+  if (unifiedDataSourceManager) {
+    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value, browserSiyuanApi.value);
+  }
+}
+
+function clearBackgroundSnapshotTimer(): void {
+  if (!backgroundSnapshotTimer) {
+    return;
+  }
+
+  clearTimeout(backgroundSnapshotTimer);
+  backgroundSnapshotTimer = null;
+}
+
+function invalidateHierarchySnapshots(): void {
+  clearBackgroundSnapshotTimer();
+  allRowsSnapshotTaskId += 1;
+  allRowsSnapshotPromise = null;
+  allRowsSnapshotReady.value = false;
+  focusRowsTaskId += 1;
+}
+
+async function runWithSuspendedBrowserStateBootstrap<T>(
+  operation: () => Promise<T> | T,
+): Promise<T> {
+  const previous = suspendBrowserStateBootstrap;
+  suspendBrowserStateBootstrap = true;
+  try {
+    return await operation();
+  } finally {
+    suspendBrowserStateBootstrap = previous;
+  }
+}
+
 function cloneCardFilter(filter: CardFilter | null): CardFilter | null {
   if (!filter) {
     return null;
@@ -941,10 +983,7 @@ async function applyInitialBrowserOpenState(
       clearNeuralSubviewData();
     }
 
-    const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
-    if (unifiedDataSourceManager) {
-      setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value, browserSiyuanApi.value);
-    }
+    syncGlobalBrowserContext();
 
     if (nextQueueId === 'filter-group') {
       try {
@@ -1053,7 +1092,7 @@ const showNeuralCustomSubview = computed(() =>
 );
 const neuralSubviewTabs = computed(() => ([
   { id: 'concept-cards' as const, label: resolveNeuralSourceLabels().sectionTitle },
-  { id: 'roam-history' as const, label: t('roamHistory', '轨迹路径') },
+  { id: 'roam-history' as const, label: t('roamHistory', '双链轨道') },
   { id: 'worldline-anchors' as const, label: t('worldlineAnchors', '空间站') },
 ]));
 
@@ -1693,6 +1732,27 @@ function startAllRowsSnapshot(): void {
   })();
 }
 
+function scheduleAllRowsSnapshot(delayMs?: number): void {
+  clearBackgroundSnapshotTimer();
+
+  const normalizedDelay = normalizeHierarchySnapshotDelayMs(
+    delayMs,
+    DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+  );
+  if (normalizedDelay === 0) {
+    startAllRowsSnapshot();
+    return;
+  }
+
+  backgroundSnapshotTimer = setTimeout(() => {
+    backgroundSnapshotTimer = null;
+    if (shouldFocusDocList.value || activeDocId.value) {
+      return;
+    }
+    startAllRowsSnapshot();
+  }, normalizedDelay);
+}
+
 function startFocusRowsSnapshot(): void {
   if (!shouldFocusDocList.value) {
     return;
@@ -1771,10 +1831,7 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
     loadDataAbortController.abort();
     logger.info('[SiYuanMemo][SRSBrowser] Previous loadData() aborted');
   }
-  if (backgroundSnapshotTimer) {
-    clearTimeout(backgroundSnapshotTimer);
-    backgroundSnapshotTimer = null;
-  }
+  invalidateHierarchySnapshots();
   
   // Create a new AbortController
   loadDataAbortController = new AbortController();
@@ -1879,8 +1936,14 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
 
     rebuildInfiniteDatasource(forceRefresh);
     datasourceTriggered = true;
-    if (shouldFocusDocList.value) {
+    const hierarchySnapshotMode = resolveBrowserHierarchySnapshotMode({
+      shouldFocusDocList: shouldFocusDocList.value,
+      activeDocId: activeDocId.value,
+    });
+    if (hierarchySnapshotMode === 'focus') {
       startFocusRowsSnapshot();
+    } else if (hierarchySnapshotMode === 'all') {
+      scheduleAllRowsSnapshot(options.snapshotDelayMs);
     }
     void origin;
 
@@ -1937,11 +2000,7 @@ watch(searchQuery, () => {
     return;
   }
   handleSearchInput();
-  // Update global browser context (DDD)
-  const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
-  if (unifiedDataSourceManager) {
-    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value, browserSiyuanApi.value);
-  }
+  syncGlobalBrowserContext();
 });
 
 watch(currentPreset, () => {
@@ -3205,10 +3264,7 @@ onBeforeUnmount(() => {
     clearTimeout(gridDatasourceApplyTimer);
     gridDatasourceApplyTimer = null;
   }
-  if (backgroundSnapshotTimer) {
-    clearTimeout(backgroundSnapshotTimer);
-    backgroundSnapshotTimer = null;
-  }
+  clearBackgroundSnapshotTimer();
   if (searchDebounceTimer) {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = null;
@@ -3236,7 +3292,7 @@ onMounted(() => {
   // 🆕 初始化全屢浏览器上下文（DDD 化）
   const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
   if (unifiedDataSourceManager) {
-    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value, browserSiyuanApi.value);
+    syncGlobalBrowserContext();
     logger.info('[SiYuanMemo][SRSBrowser] Global browser context initialized');
   } else {
     logger.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available, global context not initialized');
@@ -3569,8 +3625,8 @@ function resolveNeuralRelationLabel(type: string): string {
     'outgoing-direct': t('relationOutgoingDirect', '直接正链'),
     'outgoing-indirect': t('relationOutgoingIndirect', '间接正链'),
     descriptor: t('relationDescriptor', '描述符'),
-    focus: t('activationKindFocusRoot', '轨道中心节点'),
-    source: t('activationKindSourceRoot', '激活源'),
+    focus: t('activationKindFocusRoot', '概念卡：轨道中心节点'),
+    source: t('activationKindSourceRoot', '概念卡：激活源'),
     'concept-link': t('relationConceptLink', '概念链接'),
     'element-link': t('relationElementLink', '块链接'),
     'tree-child': t('relationTreeChild', '子块'),
@@ -3596,8 +3652,8 @@ function resolveNeuralOriginLabel(origin: NeuralPropagationOrigin | string | nul
 
 function resolveNeuralActivationLabel(type: string): string {
   const map: Record<string, string> = {
-    'focus-root': t('activationKindFocusRoot', '轨道中心节点'),
-    'source-root': t('activationKindSourceRoot', '激活源'),
+    'focus-root': t('activationKindFocusRoot', '概念卡：轨道中心节点'),
+    'source-root': t('activationKindSourceRoot', '概念卡：激活源'),
     'graph-edge': t('activationKindGraphEdge', '图关系激活'),
     'tree-edge': t('activationKindTreeEdge', '树关系激活'),
     'follow-path': t('activationKindFollowPath', '沿当前路径'),
@@ -3717,8 +3773,8 @@ function buildNeuralTraceBadges(
 
   if (options.isRoot) {
     const rootLabel = options.engineMode === 'hyperspace'
-      ? t('traceBadgePrimarySource', '主激活源')
-      : t('traceBadgeCurrentOrbitCenter', '当前轨道中心');
+      ? t('traceBadgePrimarySource', '主概念卡：激活源')
+      : t('traceBadgeCurrentOrbitCenter', '当前概念卡：轨道中心');
     badges.length = 0;
     pushTraceBadge(badges, 'root-role', rootLabel, 'root');
   } else if (options.engineMode === 'hyperspace' && options.isDirectActivator) {
@@ -4497,9 +4553,7 @@ async function handleNeuralToggleEngineMode(): Promise<void> {
     await handleNeuralPreview(navState.currentNodeId);
   }
 
-  const modeText = nextMode === 'hyperspace'
-    ? t('engineHyperspace', 'Hyperspace Expedition / 超空间远征')
-    : t('engineOrbit', 'Orbit / 轨道');
+  const modeText = getNeuralEngineLabel(nextMode, t, 'full');
   await pushMsg(t('engineModeSwitched', '已切换引擎：{mode}').replace('{mode}', modeText));
 }
 
@@ -4663,26 +4717,30 @@ async function handleSelectQueue(queueId: string) {
     beforeActiveDocId: activeDocId.value,
   });
   
-  activeQueueId.value = queueId;
-  activeDocId.value = null;
-  shouldFocusDocList.value = true;
-  syncSelectionForQueryChange();
+  await runWithSuspendedBrowserStateBootstrap(async () => {
+    activeQueueId.value = queueId;
+    activeDocId.value = null;
+    shouldFocusDocList.value = true;
+    syncSelectionForQueryChange();
 
-  currentCardType.value = cardTypeTransition.nextCardType;
-  previousNonNeuralCardType.value = cardTypeTransition.nextPreviousNonNeuralCardType;
+    currentCardType.value = cardTypeTransition.nextCardType;
+    previousNonNeuralCardType.value = cardTypeTransition.nextPreviousNonNeuralCardType;
 
-  if (isNeuralQueueId(queueId)) {
-    neuralSubview.value = 'concept-cards';
-  }
-  
-  logger.info('[SiYuanMemo][SRSBrowser] 馃攳 After clearing activeDocId:', {
-    activeDocId: activeDocId.value,
-    shouldFocusDocList: shouldFocusDocList.value,
-    currentCardType: currentCardType.value,
-    previousNonNeuralCardType: previousNonNeuralCardType.value,
+    if (isNeuralQueueId(queueId)) {
+      neuralSubview.value = 'concept-cards';
+    }
+
+    syncGlobalBrowserContext();
+
+    logger.info('[SiYuanMemo][SRSBrowser] 馃攳 After clearing activeDocId:', {
+      activeDocId: activeDocId.value,
+      shouldFocusDocList: shouldFocusDocList.value,
+      currentCardType: currentCardType.value,
+      previousNonNeuralCardType: previousNonNeuralCardType.value,
+    });
+
+    await loadData(false, { refreshQueueCounts: false, snapshotDelayMs: 120 });
   });
-  
-  await loadData(false, { refreshQueueCounts: false, snapshotDelayMs: 120 });
 }
 
 async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
@@ -4720,17 +4778,24 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
   }
 }
 
-function handleSelectGlobal(type: '__all__' | '__dismissed__') {
-  syncSelectionForQueryChange();
-  activeQueueId.value = null;
-  clearNeuralSubviewData();
-  activeDocId.value = null;
+async function handleSelectGlobal(type: '__all__' | '__dismissed__') {
+  await runWithSuspendedBrowserStateBootstrap(async () => {
+    syncSelectionForQueryChange();
+    activeQueueId.value = null;
+    clearNeuralSubviewData();
+    activeDocId.value = null;
 
-  currentPreset.value = type === '__dismissed__' ? 'suspended' : 'all';
-  currentCardType.value = 'all';
-  searchQuery.value = '';
-  shouldFocusDocList.value = false;
-  void loadData(false, { refreshQueueCounts: false });
+    currentPreset.value = type === '__dismissed__' ? 'suspended' : 'all';
+    currentCardType.value = 'all';
+    searchQuery.value = '';
+    shouldFocusDocList.value = false;
+    syncGlobalBrowserContext();
+
+    await loadData(false, {
+      refreshQueueCounts: false,
+      snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+    });
+  });
 }
 
 function handleExitFocus() {
