@@ -108,6 +108,8 @@ export interface UISettings {
     showStats: boolean;        // 显示本次统计
     autoAdvance: boolean;      // 自动翻到下一张
     autoAdvanceDelay: number;  // 自动翻卡延迟（秒）
+    reviewOpenInNewTabByDefault: boolean; // 桌面端默认以新页签打开复习
+    reviewOpenFullscreenByDefault: boolean; // 桌面端对话框复习默认全屏
     enableDebugLogs: boolean;  // 启用调试日志（开发用）
 }
 
@@ -526,6 +528,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
                 fallback: DEFAULT_SETTINGS.ai.draftStorage,
             }),
         },
+        ui: {
+            ...DEFAULT_SETTINGS.ui,
+            ...(settings.ui || {}),
+        },
     };
 
     const normalizedWeights = normalizeFSRSWeights(normalized.fsrs?.weights);
@@ -624,6 +630,30 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             || sourceAi.draftStorage?.mode !== normalizedAi.draftStorage.mode
             || sourceAi.draftStorage?.notebookId !== normalizedAi.draftStorage.notebookId
             || (sourceAi.draftStorage?.targetBlockId || '') !== normalizedAi.draftStorage.targetBlockId
+        ) {
+            changed = true;
+        }
+    }
+
+    if (!settings.ui) {
+        changed = true;
+    } else {
+        const sourceUi = settings.ui;
+        const normalizedUi = normalized.ui;
+        const hasReviewOpenInNewTabDefault = Object.prototype.hasOwnProperty.call(sourceUi, 'reviewOpenInNewTabByDefault');
+        const hasReviewOpenFullscreenDefault = Object.prototype.hasOwnProperty.call(sourceUi, 'reviewOpenFullscreenByDefault');
+        if (
+            sourceUi.defaultMode !== normalizedUi.defaultMode
+            || sourceUi.showTimer !== normalizedUi.showTimer
+            || sourceUi.showProgress !== normalizedUi.showProgress
+            || sourceUi.showStats !== normalizedUi.showStats
+            || sourceUi.autoAdvance !== normalizedUi.autoAdvance
+            || sourceUi.autoAdvanceDelay !== normalizedUi.autoAdvanceDelay
+            || !hasReviewOpenInNewTabDefault
+            || !hasReviewOpenFullscreenDefault
+            || (sourceUi.reviewOpenInNewTabByDefault ?? DEFAULT_SETTINGS.ui.reviewOpenInNewTabByDefault) !== normalizedUi.reviewOpenInNewTabByDefault
+            || (sourceUi.reviewOpenFullscreenByDefault ?? DEFAULT_SETTINGS.ui.reviewOpenFullscreenByDefault) !== normalizedUi.reviewOpenFullscreenByDefault
+            || sourceUi.enableDebugLogs !== normalizedUi.enableDebugLogs
         ) {
             changed = true;
         }
@@ -864,6 +894,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         showStats: true,
         autoAdvance: false,
         autoAdvanceDelay: 0.5,
+        reviewOpenInNewTabByDefault: false,
+        reviewOpenFullscreenByDefault: false,
         enableDebugLogs: false,  // 默认关闭调试日志
     },
     incremental: {

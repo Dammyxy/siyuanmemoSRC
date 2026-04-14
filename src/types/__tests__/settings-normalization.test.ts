@@ -121,6 +121,18 @@ describe('settings normalization', () => {
     expect(normalized.settings.progressiveReading.storage).toEqual(DEFAULT_SETTINGS.progressiveReading.storage);
   });
 
+  it('fills missing review UI open-mode defaults and marks settings as changed', () => {
+    const legacy = cloneSettings();
+    delete (legacy.ui as Partial<typeof legacy.ui>).reviewOpenInNewTabByDefault;
+    delete (legacy.ui as Partial<typeof legacy.ui>).reviewOpenFullscreenByDefault;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.ui.reviewOpenInNewTabByDefault).toBe(false);
+    expect(normalized.settings.ui.reviewOpenFullscreenByDefault).toBe(false);
+  });
+
   it('drops the removed progressiveReading.dailyTraceEnabled field during normalization', () => {
     const legacy = cloneSettings() as PluginSettings & {
       progressiveReading: PluginSettings['progressiveReading'] & { dailyTraceEnabled?: boolean };

@@ -29,16 +29,19 @@ import {
   QueueType,
   isNeuralRoamSessionQueue,
   type CardFilter,
+  type FilterGroupQueueSessionSnapshot,
   type IReviewQueue,
+  type ReviewTabTransferState,
 } from '@/types/unified-data-source';
 import { ReviewView } from '@/ui/review/v2';
+import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { createLogger } from '@/utils/logger';
 import { isErr } from '@/types/result';
-import type { PluginSettings, RiffIntegrationConfig } from '@/types/settings';
+import { DEFAULT_SETTINGS, type PluginSettings, type RiffIntegrationConfig } from '@/types/settings';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
@@ -104,6 +107,7 @@ interface QueueBufferSnapshot {
 interface FilterGroupQueueLike extends IReviewQueue {
   setFilter?: (filter: CardFilter) => void | Promise<void>;
   clearTemporaryBlacklist?: () => void | Promise<void>;
+  serializeSessionSnapshot?: () => FilterGroupQueueSessionSnapshot;
 }
 
 function hasFilterSetter(queue: IReviewQueue | null): queue is FilterGroupQueueLike {
@@ -112,6 +116,12 @@ function hasFilterSetter(queue: IReviewQueue | null): queue is FilterGroupQueueL
 
 function hasTemporaryBlacklistCleaner(queue: IReviewQueue | null): queue is FilterGroupQueueLike {
   return Boolean(queue && typeof (queue as FilterGroupQueueLike).clearTemporaryBlacklist === 'function');
+}
+
+function hasFilterSessionSerializer(queue: IReviewQueue | null): queue is FilterGroupQueueLike & {
+  serializeSessionSnapshot: () => FilterGroupQueueSessionSnapshot;
+} {
+  return Boolean(queue && typeof (queue as FilterGroupQueueLike).serializeSessionSnapshot === 'function');
 }
 
 interface BlockSqlRow extends Record<string, unknown> {
@@ -229,6 +239,99 @@ export class DialogManager implements IDialogManager {
     return { width: 'min(860px, 96vw)', height: 'min(720px, 90vh)' };
   }
 
+  private getReviewUISettings(): PluginSettings['ui'] {
+    try {
+      const current = this.context.getSettingsService().getSettings().ui;
+      return {
+        ...DEFAULT_SETTINGS.ui,
+        ...(current || {}),
+      };
+    } catch (error) {
+      logger.warn('[DialogManager] Failed to resolve review UI settings, falling back to defaults:', error);
+      return { ...DEFAULT_SETTINGS.ui };
+    }
+  }
+
+  private shouldOpenReviewInNewTabByDefault(): boolean {
+    return !this.isMobileFrontend() && this.getReviewUISettings().reviewOpenInNewTabByDefault === true;
+  }
+
+  private shouldStartReviewFullscreenByDefault(): boolean {
+    return !this.isMobileFrontend()
+      && this.shouldOpenReviewInNewTabByDefault() === false
+      && this.getReviewUISettings().reviewOpenFullscreenByDefault === true;
+  }
+
+  private buildReviewTabOptions(options: {
+    queueType: QueueType;
+    title: string;
+    headerVariant: ReviewHeaderVariant;
+    queueInstance?: IReviewQueue;
+    transferState?: ReviewTabTransferState;
+  }): {
+    queue: IReviewQueue;
+    title: string;
+    headerVariant: ReviewHeaderVariant;
+    transferState?: ReviewTabTransferState;
+  } {
+    return {
+      queue: options.queueInstance ?? this.context.getUnifiedDataSourceManager().getQueue(options.queueType),
+      title: options.title,
+      headerVariant: options.headerVariant,
+      transferState: options.transferState,
+    };
+  }
+
+  private openStandardReviewEntry(options: {
+    queueType: QueueType;
+    title: string;
+    headerVariant: ReviewHeaderVariant;
+    queueInstance?: IReviewQueue;
+    allowNewTab?: boolean;
+  }): void {
+    const allowNewTab = options.allowNewTab !== false;
+    if (allowNewTab && this.shouldOpenReviewInNewTabByDefault()) {
+      const tabManager = this.context.getTabManager?.();
+      if (tabManager?.openReviewTabInNewTab) {
+        tabManager.openReviewTabInNewTab(this.buildReviewTabOptions(options));
+        logger.info('[DialogManager] Opened standard review entry in new tab', {
+          queueType: options.queueType,
+          headerVariant: options.headerVariant,
+        });
+        return;
+      }
+    }
+
+    this.currentReviewDialog = createUnifiedReviewDialog({
+      plugin: this.plugin,
+      queueType: options.queueType,
+      queueInstance: options.queueInstance,
+      title: options.title,
+      headerVariant: options.headerVariant,
+      eventBus: this.context.getEventBus(),
+      startFullscreen: this.shouldStartReviewFullscreenByDefault(),
+      onClose: () => {
+        this.currentReviewDialog = null;
+      },
+    });
+  }
+
+  private buildFilterGroupTransferState(filterQueue: IReviewQueue | null): ReviewTabTransferState | undefined {
+    if (!hasFilterSessionSerializer(filterQueue)) {
+      return undefined;
+    }
+
+    try {
+      return {
+        kind: 'filter-group-session',
+        filterSession: filterQueue.serializeSessionSnapshot(),
+      };
+    } catch (error) {
+      logger.warn('[DialogManager] Failed to serialize filter-group transfer state:', error);
+      return undefined;
+    }
+  }
+
   private async openQueueFromMobileLauncher(queueId: MobileLauncherQueueId): Promise<void> {
     switch (queueId) {
       case 'retrieval':
@@ -338,7 +441,10 @@ export class DialogManager implements IDialogManager {
         progressiveReadingSettings: currentSettings.progressiveReading,
         aiSettings: currentSettings.ai,
         captureStorageNotebooks,
-        uiSettings: { enableDebugLogs: currentSettings.ui?.enableDebugLogs ?? false },
+        uiSettings: {
+          ...DEFAULT_SETTINGS.ui,
+          ...(currentSettings.ui || {}),
+        },
         i18n: this.context.getI18n() || {},
         defaultTab,
         queueCount,
@@ -787,18 +893,13 @@ export class DialogManager implements IDialogManager {
     await this.prepareQueueBeforeReview(QueueType.RetrievalPractice);
 
     try {
-      this.currentReviewDialog = createUnifiedReviewDialog({
-        plugin: this.plugin,
+      this.openStandardReviewEntry({
         queueType: QueueType.RetrievalPractice,
         title: this.context.getI18n()?.retrievalPractice || '提取练习',
         headerVariant: 'retrieval-practice',
-        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
-        onClose: () => {
-          this.currentReviewDialog = null;
-        }
       });
-      
-      logger.info('[DialogManager] ✅ Retrieval practice dialog created');
+
+      logger.info('[DialogManager] ✅ Retrieval practice opened');
     } catch (err) {
       logger.error('[DialogManager] Failed to open retrieval practice dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.loadFailed || '加载失败');
@@ -814,18 +915,13 @@ export class DialogManager implements IDialogManager {
     await this.prepareQueueBeforeReview(QueueType.IncrementalLearning);
 
     try {
-      this.currentReviewDialog = createUnifiedReviewDialog({
-        plugin: this.plugin,
+      this.openStandardReviewEntry({
         queueType: QueueType.IncrementalLearning,
         title: this.context.getI18n()?.incrementalLearning || '渐进学习',
         headerVariant: 'incremental-learning',
-        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
-        onClose: () => {
-          this.currentReviewDialog = null;
-        }
       });
-      
-      logger.info('[DialogManager] ✅ Incremental learning dialog created');
+
+      logger.info('[DialogManager] ✅ Incremental learning opened');
     } catch (err) {
       logger.error('[DialogManager] Failed to open incremental learning dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || '打开渐进学习失败');
@@ -840,18 +936,13 @@ export class DialogManager implements IDialogManager {
     this.destroyCurrentReviewDialog();
 
     try {
-      this.currentReviewDialog = createUnifiedReviewDialog({
-        plugin: this.plugin,
+      this.openStandardReviewEntry({
         queueType: QueueType.FinalDrill,
         title: this.context.getI18n()?.finalDrill || '刻意练习',
         headerVariant: 'final-drill',
-        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
-        onClose: () => {
-          this.currentReviewDialog = null;
-        }
       });
-      
-      logger.info('[DialogManager] ✅ Final drill dialog created');
+
+      logger.info('[DialogManager] ✅ Final drill opened');
     } catch (err) {
       logger.error('[DialogManager] Failed to open final drill dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.drillFailed || '机械练习启动失败');
@@ -866,18 +957,13 @@ export class DialogManager implements IDialogManager {
     this.destroyCurrentReviewDialog();
 
     try {
-      this.currentReviewDialog = createUnifiedReviewDialog({
-        plugin: this.plugin,
+      this.openStandardReviewEntry({
         queueType: QueueType.FilterGroup,
         title: this.context.getI18n()?.filterGroupPractice || '分组队列',
         headerVariant: 'filter-group',
-        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
-        onClose: () => {
-          this.currentReviewDialog = null;
-        }
       });
-      
-      logger.info('[DialogManager] ✅ Filter group dialog created');
+
+      logger.info('[DialogManager] ✅ Filter group review opened');
     } catch (err) {
       logger.error('[DialogManager] Failed to open filter group practice dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || '打开分组队列失败');
@@ -918,18 +1004,13 @@ export class DialogManager implements IDialogManager {
         }
       }
 
-      this.currentReviewDialog = createUnifiedReviewDialog({
-        plugin: this.plugin,
+      this.openStandardReviewEntry({
         queueType: QueueType.NeuralRoam,
         title: this.context.getI18n()?.neuralReviewTitle || '神经漫游',
         headerVariant: 'neural-roam',
-        eventBus: this.context.getEventBus(),  // ✅ 显式传递 EventBus
-        onClose: () => {
-          this.currentReviewDialog = null;
-        }
       });
 
-      logger.info('[DialogManager] ✅ Neural roam dialog created');
+      logger.info('[DialogManager] ✅ Neural roam opened');
     } catch (err) {
       logger.error('[DialogManager] Failed to open neural roam dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.neuralReviewFailed || '神经复习启动失败');
@@ -962,6 +1043,7 @@ export class DialogManager implements IDialogManager {
         title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
         headerVariant: 'leech',
         eventBus: this.context.getEventBus(),
+        startFullscreen: this.shouldStartReviewFullscreenByDefault(),
         onClose: () => {
           this.currentReviewDialog = null;
         },
@@ -1004,6 +1086,7 @@ export class DialogManager implements IDialogManager {
         title,
         headerVariant: 'subset-review',
         eventBus: this.context.getEventBus(),
+        startFullscreen: this.shouldStartReviewFullscreenByDefault(),
         onClose: () => {
           this.currentReviewDialog = null;
         },
@@ -1063,6 +1146,26 @@ export class DialogManager implements IDialogManager {
         await filterGroupQueue.clearTemporaryBlacklist();
         logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
+
+      if (this.shouldOpenReviewInNewTabByDefault()) {
+        const transferState = this.buildFilterGroupTransferState(filterGroupQueue);
+        const tabManager = this.context.getTabManager?.();
+        if (transferState && tabManager?.openReviewTabInNewTab) {
+          tabManager.openReviewTabInNewTab({
+            queue: filterGroupQueue,
+            title: this.context.getI18n()?.retrievalPractice || '提取练习',
+            headerVariant: 'retrieval-practice',
+            transferState,
+          });
+          logger.info('[DialogManager] ✅ Retrieval practice opened in new tab with filter session transfer state');
+          return;
+        }
+
+        logger.warn('[DialogManager] Review is configured to open in new tab, but filter session transfer is unavailable. Falling back to dialog.', {
+          hasTransferState: Boolean(transferState),
+          hasTabManager: Boolean(tabManager?.openReviewTabInNewTab),
+        });
+      }
       
       // 创建对话框（使用依赖注入）
       const eventBus = this.context.getEventBus();
@@ -1093,6 +1196,7 @@ export class DialogManager implements IDialogManager {
           adapter,
           plugin: this.plugin,
           isMobile,
+          startFullscreen: this.shouldStartReviewFullscreenByDefault(),
         },
         events: {
           close: () => {
@@ -1110,7 +1214,7 @@ export class DialogManager implements IDialogManager {
         },
       });
       
-      logger.info('[DialogManager] ✅ Retrieval practice dialog created with blockIds filter');
+      logger.info('[DialogManager] ✅ Retrieval practice opened with blockIds filter');
     } catch (err) {
       logger.error('[DialogManager] Failed to open retrieval practice dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.loadFailed || '加载失败');
@@ -1166,6 +1270,26 @@ export class DialogManager implements IDialogManager {
         await filterGroupQueue.clearTemporaryBlacklist();
         logger.info('[DialogManager] ✅ Cleared temporary blacklist for "all" mode');
       }
+
+      if (this.shouldOpenReviewInNewTabByDefault()) {
+        const transferState = this.buildFilterGroupTransferState(filterGroupQueue);
+        const tabManager = this.context.getTabManager?.();
+        if (transferState && tabManager?.openReviewTabInNewTab) {
+          tabManager.openReviewTabInNewTab({
+            queue: filterGroupQueue,
+            title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+            headerVariant: 'incremental-learning',
+            transferState,
+          });
+          logger.info('[DialogManager] ✅ Incremental learning opened in new tab with filter session transfer state');
+          return;
+        }
+
+        logger.warn('[DialogManager] Review is configured to open in new tab, but filter session transfer is unavailable. Falling back to dialog.', {
+          hasTransferState: Boolean(transferState),
+          hasTabManager: Boolean(tabManager?.openReviewTabInNewTab),
+        });
+      }
       
       // 创建对话框（使用依赖注入）
       const eventBus = this.context.getEventBus();
@@ -1196,6 +1320,7 @@ export class DialogManager implements IDialogManager {
           adapter,
           plugin: this.plugin,
           isMobile,
+          startFullscreen: this.shouldStartReviewFullscreenByDefault(),
         },
         events: {
           close: () => {
@@ -1213,7 +1338,7 @@ export class DialogManager implements IDialogManager {
         },
       });
       
-      logger.info('[DialogManager] ✅ Incremental learning dialog created with blockIds filter');
+      logger.info('[DialogManager] ✅ Incremental learning opened with blockIds filter');
     } catch (err) {
       logger.error('[DialogManager] Failed to open incremental learning dialog:', err);
       await this.siyuanApi.pushErrMsg(this.context.getI18n()?.openFailed || '打开渐进学习失败');
@@ -1246,6 +1371,7 @@ export class DialogManager implements IDialogManager {
         title,
         headerVariant: 'temporary-drill',
         eventBus: this.context.getEventBus(),
+        startFullscreen: this.shouldStartReviewFullscreenByDefault(),
         onClose: () => {
           this.currentReviewDialog = null;
         },

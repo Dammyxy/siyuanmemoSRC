@@ -97,6 +97,26 @@
 
         <h3>{{ t('learningQueueTitle', '学习与队列') }}</h3>
 
+        <div class="form-item">
+          <label>{{ t('reviewOpenInNewTabByDefault', '复习界面默认以新页签打开') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="uiSettings.reviewOpenInNewTabByDefault">
+          </div>
+          <p class="form-hint">
+            {{ t('reviewOpenInNewTabByDefaultHint', '桌面端从全局复习入口启动时，默认在新页签中打开复习界面。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('reviewOpenFullscreenByDefault', '复习界面默认全屏打开') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="uiSettings.reviewOpenFullscreenByDefault">
+          </div>
+          <p class="form-hint">
+            {{ t('reviewOpenFullscreenByDefaultHint', '只对桌面端对话框模式生效；若同时选择新页签打开，则此选项会被忽略。') }}
+          </p>
+        </div>
+
         <!-- 🆕 每日刷新时间 -->
         <div class="form-item">
           <label>{{ t('dayStartHour', '每日刷新时间') }}</label>
@@ -866,6 +886,7 @@ import {
   type QueueSettings,
   type SchedulerConfig,
   type QuickCardSettings,
+  type UISettings,
 } from '../../types';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
@@ -928,6 +949,18 @@ function createDefaultQueueSettings(): QueueSettings {
 
 function createDefaultAISettings(): AISettings {
   return JSON.parse(JSON.stringify(DEFAULT_AI_SETTINGS)) as AISettings;
+}
+
+function createDefaultUISettings(): UISettings {
+  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.ui)) as UISettings;
+}
+
+function mergeUISettings(source?: Partial<UISettings>): UISettings {
+  const defaults = createDefaultUISettings();
+  return {
+    ...defaults,
+    ...(source || {}),
+  };
 }
 
 function createDefaultConfiguredCaptureStorageSettings(
@@ -1060,6 +1093,7 @@ const props = defineProps<{
   quickCardSettings?: Partial<QuickCardSettings>;  // 🆕 快速制卡配置
   progressiveReadingSettings?: Partial<typeof DEFAULT_SETTINGS.progressiveReading>;
   aiSettings?: Partial<AISettings>;
+  uiSettings?: Partial<UISettings>;
   captureStorageNotebooks?: Array<{ id: string; name: string; icon?: string }>;
   i18n?: Record<string, string>;
   defaultTab?: string;
@@ -1107,6 +1141,7 @@ const activeTab = ref<SettingsTabKey>(normalizeSettingsTabKey(props.defaultTab))
 
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 const aiSettings = ref<AISettings>(createDefaultAISettings());
+const uiSettings = ref<UISettings>(createDefaultUISettings());
 const aiPromptAdvancedEditors = ref<Record<AIPromptSettingKey, boolean>>({
   tutor: false,
   explain: false,
@@ -1537,6 +1572,7 @@ function loadSettings() {
   };
 
   aiSettings.value = mergeAISettings(props.aiSettings);
+  uiSettings.value = mergeUISettings(props.uiSettings);
 }
 
 // 保存设置
@@ -1629,6 +1665,9 @@ function saveSettings() {
         DEFAULT_AI_SETTINGS.draftStorage,
       ),
     },
+    ui: {
+      ...uiSettings.value,
+    },
   };
   
   // 🔍 调试日志：检查 quickCard 配置
@@ -1656,6 +1695,7 @@ function resetSettings() {
   };
   queueSettings.value = createDefaultQueueSettings();
   aiSettings.value = createDefaultAISettings();
+  uiSettings.value = createDefaultUISettings();
 }
 
 // 🆕 重置调度器设置

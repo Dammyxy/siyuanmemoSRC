@@ -41,6 +41,10 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         progressiveReadingSettingsTitle: 'Progressive Reading',
         progressiveAltXExcerptEnabled: 'Enable excerpt shortcut (default ⌥⇧X)',
         progressiveAltXExcerptEnabledHint: 'Registers ⌥⇧X for excerpting while native Alt+X stays bound to SiYuan recent appearance.',
+        reviewOpenInNewTabByDefault: 'Open review in a new tab by default',
+        reviewOpenInNewTabByDefaultHint: 'Desktop global review entries open in a new tab by default.',
+        reviewOpenFullscreenByDefault: 'Open review fullscreen by default',
+        reviewOpenFullscreenByDefaultHint: 'Only applies to desktop dialog mode and is ignored when new-tab open is enabled.',
         progressiveStorageModeLabel: 'Excerpt storage mode',
         progressiveStorageModeHint: 'Choose where excerpts should be stored.',
         captureStorageModeSourceChild: 'Under source document',
@@ -346,5 +350,29 @@ describe('SettingsPanel', () => {
       overrideEnabled: true,
       overrideTemplate: 'Card prompt body',
     });
+  });
+
+  it('saves the default review open-mode UI toggles', async () => {
+    const wrapper = mountPanel('params');
+    await wrapper.vm.$nextTick();
+
+    const formItems = wrapper.findAll('.form-item');
+    const newTabItem = formItems.find((item) => item.text().includes('Open review in a new tab by default'));
+    const fullscreenItem = formItems.find((item) => item.text().includes('Open review fullscreen by default'));
+    const newTabToggle = newTabItem?.find('input[type="checkbox"]');
+    const fullscreenToggle = fullscreenItem?.find('input[type="checkbox"]');
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+
+    expect(newTabToggle).toBeDefined();
+    expect(fullscreenToggle).toBeDefined();
+    expect(saveButton).toBeDefined();
+
+    await newTabToggle!.setValue(true);
+    await fullscreenToggle!.setValue(true);
+    await saveButton!.trigger('click');
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.ui.reviewOpenInNewTabByDefault).toBe(true);
+    expect(payload.ui.reviewOpenFullscreenByDefault).toBe(true);
   });
 });

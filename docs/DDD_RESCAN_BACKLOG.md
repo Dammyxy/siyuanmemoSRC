@@ -4,6 +4,16 @@ Last update: 2026-04-14 (Round 62)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-14 - review more-menu priority actions and default review open routing
+
+- Task: Add current-card priority editing plus current-card review commands to the review more-menu, register empty-default hotkey commands for priority/suspend/delete, and let global desktop review entries respect new-tab/fullscreen UI defaults.
+- Touched slice: Review surface actions in `src/ui/review/v2/ReviewView.vue`, review command integration in `src/index.ts` and `src/application/handlers/ReviewCommandRequestEvents.ts`, review dialog routing in `src/application/managers/DialogManager.ts` plus `src/application/factories/createUnifiedReviewDialog.ts`, settings normalization/panel flow in `src/types/settings.ts` and `src/ui/settings/SettingsPanel.vue`, and focused review/settings/dialog-manager coverage.
+- Debt fixed now: The review more-menu can now show and edit the current card priority in place without detouring through the full SRS editor; current-card priority/suspend/delete actions are exposed through proper SiYuan command registrations with empty default hotkeys; and desktop global review entry routing is centralized so dialog-vs-tab plus dialog fullscreen defaults come from one UI settings source.
+- Debt deferred: `subset-review`, `temporary-drill`, `leech`, and other context/live-queue review sessions still do not have tab restore parity, so they intentionally remain dialog-only even when the global new-tab default is enabled.
+- Why deferred: Those sessions depend on ephemeral queue instances or runtime-only context that the current review tab payload cannot reconstruct safely; forcing them through tabs now would hide state loss behind an apparently working entry path.
+- Next safe step: When we want tab parity for contextual review sessions, first design a serializable transfer-state contract for subset/temporary/live queue instances, then let `DialogManager` opt those entry points into the same standard review routing helper.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/types/__tests__/settings-normalization.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts`; `pnpm build`.
+
 ### 2026-04-14 - review header hover counter and local hide notice
 
 - Task: Remove the duplicated centered queue title from the review header, switch desktop counter details to hover-open behavior, and let desktop clicks toggle a session-local hidden counter state with a header-local notice.

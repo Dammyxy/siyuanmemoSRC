@@ -5,6 +5,11 @@ import { defineComponent, h } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
+import {
+  REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
+  REVIEW_SET_PRIORITY_REQUEST_EVENT,
+  REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
+} from '@/application/handlers/ReviewCommandRequestEvents';
 
 const reviewViewMoreMenuMocks = vi.hoisted(() => {
   const menuOpen = vi.fn();
@@ -223,6 +228,7 @@ function createPluginContext(overrides?: {
     deleteCards: ReturnType<typeof vi.fn>;
   };
   cardEditorService?: {
+    updatePriority: ReturnType<typeof vi.fn>;
     setDismissed: ReturnType<typeof vi.fn>;
     setDismissedMany: ReturnType<typeof vi.fn>;
   };
@@ -273,6 +279,7 @@ function mountReviewView(options?: {
     deleteCards: ReturnType<typeof vi.fn>;
   };
   cardEditorService?: {
+    updatePriority: ReturnType<typeof vi.fn>;
     setDismissed: ReturnType<typeof vi.fn>;
     setDismissedMany: ReturnType<typeof vi.fn>;
   };
@@ -301,6 +308,13 @@ function mountReviewView(options?: {
     })),
   };
   const cardEditorService = options?.cardEditorService ?? {
+    updatePriority: vi.fn(async (_cardId: string, priority: number) => ({
+      card: {
+        ...cards[0],
+        priority,
+      },
+      blockInfo: { createdAt: null, updatedAt: null },
+    })),
     setDismissed: vi.fn(async () => ({
       card: cards[0],
       blockInfo: { createdAt: null, updatedAt: null },
@@ -432,6 +446,36 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
+  it('shows the current priority and updates it from the more menu', async () => {
+    const { wrapper, cardEditorService } = mountReviewView();
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    let items = getLatestMenuItems();
+    const priorityItem = items.find((item) => item.id === 'edit-current-priority');
+    expect(priorityItem?.label).toBe('优先级：42');
+
+    await priorityItem?.click?.();
+    await flushPromises();
+
+    const priorityDialogConfig = reviewViewDialogMocks.createVueDialogMock.mock.calls.at(-1)?.[0];
+    expect(priorityDialogConfig?.props?.defaultValue).toBe(42);
+    priorityDialogConfig?.events?.confirm?.(18);
+    await flushPromises();
+
+    expect(cardEditorService.updatePriority).toHaveBeenCalledWith('card-1', 18);
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    items = getLatestMenuItems();
+    expect(items.find((item) => item.id === 'edit-current-priority')?.label).toBe('优先级：18');
+
+    wrapper.unmount();
+  });
+
   it('suspends the current card from the more menu and advances to the next card', async () => {
     const { wrapper, queue, cardEditorService } = mountReviewView();
     await flushPromises();
@@ -518,6 +562,55 @@ describe('ReviewView more menu', () => {
       { action: 'skip' },
     );
     expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
+
+    wrapper.unmount();
+  });
+
+  it('handles current-card review command requests on the active review surface', async () => {
+    const { wrapper, cardEditorService, cardService } = mountReviewView({ attachInDialog: true });
+    await flushPromises();
+
+    const priorityEvent = new CustomEvent(REVIEW_SET_PRIORITY_REQUEST_EVENT, { cancelable: true });
+    window.dispatchEvent(priorityEvent);
+    await flushPromises();
+
+    expect(priorityEvent.defaultPrevented).toBe(true);
+    const priorityDialogConfig = reviewViewDialogMocks.createVueDialogMock.mock.calls.at(-1)?.[0];
+    priorityDialogConfig?.events?.confirm?.(12);
+    await flushPromises();
+    expect(cardEditorService.updatePriority).toHaveBeenCalledWith('card-1', 12);
+
+    const suspendEvent = new CustomEvent(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, { cancelable: true });
+    window.dispatchEvent(suspendEvent);
+    await flushPromises();
+    expect(suspendEvent.defaultPrevented).toBe(true);
+    expect(cardEditorService.setDismissed).toHaveBeenCalledWith('card-1', true);
+
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(true);
+    const deleteEvent = new CustomEvent(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, { cancelable: true });
+    window.dispatchEvent(deleteEvent);
+    await flushPromises();
+    expect(deleteEvent.defaultPrevented).toBe(true);
+    expect(cardService.deleteCard).toHaveBeenCalledWith({ cardId: 'card-2' });
+
+    wrapper.unmount();
+  });
+
+  it('shows a no-current-card message when review commands are consumed without an actionable card', async () => {
+    const { wrapper, cardEditorService } = mountReviewView({
+      cards: [],
+      peerCards: [],
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    const suspendEvent = new CustomEvent(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, { cancelable: true });
+    window.dispatchEvent(suspendEvent);
+    await flushPromises();
+
+    expect(suspendEvent.defaultPrevented).toBe(true);
+    expect(cardEditorService.setDismissed).not.toHaveBeenCalled();
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith('当前没有可操作的卡片', 3000, 'info');
 
     wrapper.unmount();
   });

@@ -15,6 +15,12 @@ import type { RiffIntegrationConfig } from '@/types/settings';
 import { FormulaClozeAssistant } from '@/application/handlers/FormulaClozeAssistant';
 import { ImageOcclusionHandler } from '@/application/handlers/ImageOcclusionHandler';
 import { ProgressiveExcerptHotkeyHandler } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
+import {
+  dispatchReviewCommandRequest,
+  REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
+  REVIEW_SET_PRIORITY_REQUEST_EVENT,
+  REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
+} from '@/application/handlers/ReviewCommandRequestEvents';
 import { BlockContextResolver } from '@/application/entries/BlockContextResolver';
 import {
   CORE_REVIEW_ENTRY_DEFINITIONS,
@@ -396,6 +402,30 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         void this.runRebindDescriptorConceptAction({ protyle });
       },
     });
+
+    this.addCommand({
+      langKey: 'reviewSetCurrentCardPriorityCommand',
+      hotkey: '',
+      callback: () => {
+        this.runReviewSurfaceCommandRequest(REVIEW_SET_PRIORITY_REQUEST_EVENT);
+      },
+    });
+
+    this.addCommand({
+      langKey: 'reviewSuspendCurrentCardCommand',
+      hotkey: '',
+      callback: () => {
+        this.runReviewSurfaceCommandRequest(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT);
+      },
+    });
+
+    this.addCommand({
+      langKey: 'reviewDeleteCurrentCardCommand',
+      hotkey: '',
+      callback: () => {
+        this.runReviewSurfaceCommandRequest(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT);
+      },
+    });
   }
 
   private registerTopBarQuickSlash(): void {
@@ -555,6 +585,24 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       ? this.extractDocIdFromProtyle(input?.protyle)
       : null;
     await this.context.getMenuManager().runTopBarQuickEntryAction(actionId, { docId });
+  }
+
+  private runReviewSurfaceCommandRequest(eventName: string): void {
+    const handled = dispatchReviewCommandRequest(
+      eventName as
+        | typeof REVIEW_SET_PRIORITY_REQUEST_EVENT
+        | typeof REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT
+        | typeof REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
+    );
+    if (handled) {
+      return;
+    }
+
+    showMessage(
+      this.i18n?.reviewCommandRequiresOpenSurface || '请先打开复习界面',
+      3000,
+      'info',
+    );
   }
 
   private resolveCoreReviewBlockContext(

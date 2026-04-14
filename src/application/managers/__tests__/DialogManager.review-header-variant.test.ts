@@ -56,11 +56,20 @@ vi.mock('@/core/queue/domain/TemporaryDrillQueue', () => ({
   TemporaryDrillQueue: vi.fn().mockImplementation(() => ({ getType: () => 'final-drill' })),
 }));
 
-function createDialogManager() {
+function createDialogManager(options?: {
+  reviewOpenInNewTabByDefault?: boolean;
+  reviewOpenFullscreenByDefault?: boolean;
+}) {
   const filterGroupQueue = {
     getType: () => 'filter-group',
     setFilter: vi.fn().mockResolvedValue(undefined),
     clearTemporaryBlacklist: vi.fn().mockResolvedValue(undefined),
+    serializeSessionSnapshot: vi.fn(() => ({
+      filter: { blockIds: ['block-1'] },
+      visibleCardIds: ['card-1'],
+      temporaryBlacklistCardIds: [],
+      currentIndex: 0,
+    })),
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
   };
@@ -82,6 +91,10 @@ function createDialogManager() {
     prepareBeforeReview: vi.fn().mockResolvedValue(undefined),
   };
 
+  const tabManager = {
+    openReviewTabInNewTab: vi.fn(),
+  };
+
   const context = {
     getI18n: vi.fn().mockReturnValue({
       retrievalPractice: '提取练习',
@@ -97,9 +110,17 @@ function createDialogManager() {
     getUnifiedDataSourceManager: vi.fn().mockReturnValue(manager),
     getSchedulerRouter: vi.fn().mockReturnValue({}),
     getSettingsService: vi.fn().mockReturnValue({
-      getSettings: () => ({ leech: {} }),
+      getSettings: () => ({
+        leech: {},
+        ui: {
+          reviewOpenInNewTabByDefault: options?.reviewOpenInNewTabByDefault ?? false,
+          reviewOpenFullscreenByDefault: options?.reviewOpenFullscreenByDefault ?? false,
+          enableDebugLogs: false,
+        },
+      }),
     }),
     getReviewQueuePreparationService: vi.fn().mockReturnValue(preparationService),
+    getTabManager: vi.fn().mockReturnValue(tabManager),
   } as any;
 
   const plugin = {
@@ -115,6 +136,7 @@ function createDialogManager() {
       } as any,
     }),
     filterGroupQueue,
+    tabManager,
   };
 }
 
@@ -145,6 +167,38 @@ describe('DialogManager review header variants', () => {
       'subset-review',
       'temporary-drill',
     ]);
+  });
+
+  it('opens standard desktop review entries in new tabs when configured', async () => {
+    const { dialogManager, tabManager } = createDialogManager({
+      reviewOpenInNewTabByDefault: true,
+    });
+
+    await dialogManager.openReviewDialog();
+
+    expect(tabManager.openReviewTabInNewTab).toHaveBeenCalledWith(expect.objectContaining({
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+    }));
+    expect(createUnifiedReviewDialog).not.toHaveBeenCalled();
+  });
+
+  it('passes startFullscreen to dialog review entries when fullscreen-default is enabled', async () => {
+    const { dialogManager } = createDialogManager({
+      reviewOpenFullscreenByDefault: true,
+    });
+
+    await dialogManager.openReviewDialog();
+    await dialogManager.openLeechReviewDialog();
+
+    expect(vi.mocked(createUnifiedReviewDialog).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      headerVariant: 'retrieval-practice',
+      startFullscreen: true,
+    }));
+    expect(vi.mocked(createUnifiedReviewDialog).mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      headerVariant: 'leech',
+      startFullscreen: true,
+    }));
   });
 
   it('passes explicit headerVariant through filter-backed review dialogs', async () => {
@@ -184,5 +238,39 @@ describe('DialogManager review header variants', () => {
       blockIds: ['block-2'],
       scopeDocIds: ['doc-2'],
     }));
+  });
+
+  it('transfers filter-backed retrieval and incremental sessions into new tabs when configured', async () => {
+    const { dialogManager, tabManager, filterGroupQueue } = createDialogManager({
+      reviewOpenInNewTabByDefault: true,
+    });
+
+    await dialogManager.openRetrievalPracticeWithFilter({
+      blockIds: ['block-1'],
+      scopeDocIds: ['doc-1'],
+      dueOnly: false,
+    });
+    await dialogManager.openIncrementalLearningWithFilter({
+      blockIds: ['block-2'],
+      scopeDocIds: ['doc-2'],
+      dueOnly: true,
+    });
+
+    expect(filterGroupQueue.serializeSessionSnapshot).toHaveBeenCalledTimes(2);
+    expect(tabManager.openReviewTabInNewTab).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      transferState: expect.objectContaining({
+        kind: 'filter-group-session',
+      }),
+    }));
+    expect(tabManager.openReviewTabInNewTab).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      title: '渐进学习',
+      headerVariant: 'incremental-learning',
+      transferState: expect.objectContaining({
+        kind: 'filter-group-session',
+      }),
+    }));
+    expect(createVueDialog).not.toHaveBeenCalled();
   });
 });

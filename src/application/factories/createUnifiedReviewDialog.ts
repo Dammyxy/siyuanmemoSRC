@@ -28,6 +28,13 @@ type ReviewDialogPluginLike = {
     reviewSyncManager?: { reviewCount?: number };
     getContext?: () => {
         getSchedulerRouter: () => ISchedulerRouter;
+        getSettingsService: () => {
+            getSettings: () => {
+                progressiveReading?: {
+                    altXExcerptEnabled?: boolean;
+                };
+            };
+        };
         getHybridSyncService?: () => { incrementalSync: () => Promise<unknown> } | undefined;
     } | undefined;
 };
@@ -53,6 +60,9 @@ export interface CreateUnifiedReviewDialogOptions {
     
     /** 事件总线（必需，用于依赖注入） */
     eventBus: EventBus;
+
+    /** 对话框模式下是否默认进入全屏 */
+    startFullscreen?: boolean;
     
     /** 关闭回调 */
     onClose?: () => void;
@@ -80,7 +90,7 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, queueInstance, title, headerVariant, eventBus, onClose } = options;
+    const { plugin, queueType, queueInstance, title, headerVariant, eventBus, startFullscreen, onClose } = options;
     const isMobile = plugin.isMobile === true;
     
     try {
@@ -124,6 +134,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 adapter,
                 plugin: plugin,  // 传递插件实例，用于访问 hybridSyncService
                 isMobile,
+                startFullscreen,
             },
             events: {
                 close: () => {

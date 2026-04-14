@@ -106,6 +106,7 @@ import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
+import ActionParamsDialog from '@/ui/browser/ActionParamsDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import { useReviewSession } from './useReviewSession';
 import type { ReviewHeaderVariant, ReviewViewTabBridge } from './types';
@@ -151,6 +152,11 @@ import {
   resolveProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
+import {
+  REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
+  REVIEW_SET_PRIORITY_REQUEST_EVENT,
+  REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
+} from '@/application/handlers/ReviewCommandRequestEvents';
 import {
   applyProgressiveExcerptHighlight,
   prepareProgressiveExcerptHighlight,
@@ -464,6 +470,7 @@ const props = defineProps<{
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
   plugin?: unknown; // 🆕 插件实例，用于访问 hybridSyncService
   isMobile?: boolean;
+  startFullscreen?: boolean;
   reviewSessionId?: string;
   onReview?: (cardId: string, rating: number) => void; // 🆕 复习回调（用于刻意练习黑名单）
   initialSessionState?: InitialReviewSessionState;
@@ -489,6 +496,7 @@ const contentRef = ref<ReviewContentExpose | null>(null);
 const recentModifiedHotkeys = new Map<string, number>();
 const editorState = ref<ReviewEditorState>(createReviewEditorState());
 let reviewResizeHandler: (() => void) | null = null;
+let initialFullscreenTimer: number | null = null;
 let escRepeatLatch = false;
 
 // 🆕 防重复触发机制 - 使用更智能的策略
@@ -899,6 +907,9 @@ onMounted(() => {
   document.addEventListener('keydown', handleKeyDown, true);
   document.addEventListener('keyup', handleKeyUp, true);
   window.addEventListener(PROGRESSIVE_EXCERPT_REQUEST_EVENT, handleProgressiveExcerptCommandRequest as EventListener);
+  window.addEventListener(REVIEW_SET_PRIORITY_REQUEST_EVENT, handleReviewSetPriorityCommandRequest as EventListener);
+  window.addEventListener(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, handleReviewSuspendCurrentCardCommandRequest as EventListener);
+  window.addEventListener(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, handleReviewDeleteCurrentCardCommandRequest as EventListener);
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener added');
 
   // 🌌 恢复侧边栏状态（已删除）
@@ -928,6 +939,10 @@ onMounted(() => {
     updateReviewDialogContainerLayout();
   };
   window.addEventListener('resize', reviewResizeHandler);
+  initialFullscreenTimer = window.setTimeout(() => {
+    initialFullscreenTimer = null;
+    applyInitialReviewFullscreen();
+  }, 0);
 });
 
 // 🆕 组件卸载时移除键盘事件监听器
@@ -935,12 +950,19 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyDown, true);
   document.removeEventListener('keyup', handleKeyUp, true);
   window.removeEventListener(PROGRESSIVE_EXCERPT_REQUEST_EVENT, handleProgressiveExcerptCommandRequest as EventListener);
+  window.removeEventListener(REVIEW_SET_PRIORITY_REQUEST_EVENT, handleReviewSetPriorityCommandRequest as EventListener);
+  window.removeEventListener(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, handleReviewSuspendCurrentCardCommandRequest as EventListener);
+  window.removeEventListener(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, handleReviewDeleteCurrentCardCommandRequest as EventListener);
   recentModifiedHotkeys.clear();
   escRepeatLatch = false;
   unbindReviewDataObserver();
   if (reviewResizeHandler) {
     window.removeEventListener('resize', reviewResizeHandler);
     reviewResizeHandler = null;
+  }
+  if (initialFullscreenTimer !== null) {
+    window.clearTimeout(initialFullscreenTimer);
+    initialFullscreenTimer = null;
   }
   if (props.mode !== 'tab') {
     getReviewAIWorkbenchRegistry()?.disposeReviewSession?.(reviewSessionId.value);
@@ -1001,6 +1023,49 @@ function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
 }
 
+function openNumberDialog(options: {
+  title: string;
+  label: string;
+  description?: string;
+  unit?: string;
+  defaultValue?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  integer?: boolean;
+}): Promise<number | null> {
+  return new Promise((resolve) => {
+    const dialog = createVueDialog({
+      title: options.title,
+      component: ActionParamsDialog,
+      props: {
+        label: options.label,
+        description: options.description,
+        unit: options.unit,
+        defaultValue: options.defaultValue,
+        min: options.min,
+        max: options.max,
+        step: options.step,
+        integer: options.integer,
+        confirmText: t('confirm', '确认'),
+        cancelText: t('cancel', '取消'),
+      },
+      events: {
+        confirm: (value: number) => {
+          dialog.destroy();
+          resolve(value);
+        },
+        cancel: () => {
+          dialog.destroy();
+          resolve(null);
+        },
+      },
+      width: '520px',
+      height: '220px',
+    });
+  });
+}
+
 function resolveNeuralSourceLabels(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()) {
   const engineMode = neuralQueue?.getNavigationState().engineMode ?? neuralNavigationState.value?.engineMode ?? 'orbit';
   return getNeuralSourceLabelSet(engineMode, t);
@@ -1055,6 +1120,33 @@ function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
     cardId: String(cardMeta?.cardID || currentCard?.id || '').trim(),
     blockId: String(cardMeta?.blockID || currentCard?.blockId || '').trim(),
   };
+}
+
+function hasCurrentReviewCard(): boolean {
+  const reference = getCurrentReviewCardReference();
+  return reference.cardId.length > 0 && reference.blockId.length > 0;
+}
+
+function resolveCurrentReviewCardActionReference(): { cardId: string; blockId: string } | null {
+  const reference = getCurrentReviewCardReference();
+  if (reference.cardId.length === 0 || reference.blockId.length === 0) {
+    showMessage(t('reviewNoCurrentCardAction', '当前没有可操作的卡片'), 3000, 'info');
+    return null;
+  }
+  return reference;
+}
+
+function resolveCurrentReviewCardPriority(): number | null {
+  const currentCard = state.value.content.card as FSRSCard | null | undefined;
+  if (!currentCard) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, Math.floor(Number(currentCard.priority) || 0)));
+}
+
+function buildReviewPriorityMenuLabel(priority: number | null): string {
+  const displayValue = priority === null ? '-' : String(priority);
+  return t('reviewPriorityMenuLabel', '优先级：{value}').replace('{value}', displayValue);
 }
 
 function getActiveRemovableReviewQueue(): { removeCard?: (cardIdOrBlockId: string) => Promise<void> } | null {
@@ -1340,6 +1432,40 @@ function isInsideReviewRoot(target: EventTarget | null): boolean {
   return !!root && !!element && root.contains(element);
 }
 
+function isVisibleReviewRoot(root: HTMLElement | null): root is HTMLElement {
+  if (!root || !root.isConnected) {
+    return false;
+  }
+  if (root.hidden) {
+    return false;
+  }
+  const style = window.getComputedStyle(root);
+  return style.display !== 'none' && style.visibility !== 'hidden';
+}
+
+function getVisibleReviewRoots(): HTMLElement[] {
+  return Array.from(document.querySelectorAll('.fsrs-review-v2'))
+    .filter((element): element is HTMLDivElement => element instanceof HTMLDivElement)
+    .filter((element) => isVisibleReviewRoot(element));
+}
+
+function isActiveReviewSurface(): boolean {
+  const root = rootRef.value;
+  if (!isVisibleReviewRoot(root)) {
+    return false;
+  }
+
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLElement && root.contains(activeElement)) {
+    return true;
+  }
+
+  const visibleRoots = getVisibleReviewRoots();
+  return visibleRoots.length === 1
+    && visibleRoots[0] === root
+    && (activeElement === document.body || activeElement === document.documentElement || activeElement === null);
+}
+
 function isReviewKeyboardContext(target: EventTarget | null): boolean {
   if (isInsideReviewRoot(target) || isInsideReviewRoot(document.activeElement)) {
     return true;
@@ -1398,6 +1524,30 @@ function handleProgressiveExcerptCommandRequest(event: Event): void {
   event.preventDefault();
   event.stopImmediatePropagation?.();
   void handleProgressiveExcerptFromReview('command');
+}
+
+function handleReviewCommandRequest(
+  event: Event,
+  action: () => void | Promise<void>,
+): void {
+  if (event.defaultPrevented || !isActiveReviewSurface()) {
+    return;
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation?.();
+  void action();
+}
+
+function handleReviewSetPriorityCommandRequest(event: Event): void {
+  handleReviewCommandRequest(event, handleEditCurrentCardPriority);
+}
+
+function handleReviewSuspendCurrentCardCommandRequest(event: Event): void {
+  handleReviewCommandRequest(event, handleDismissCurrentCard);
+}
+
+function handleReviewDeleteCurrentCardCommandRequest(event: Event): void {
+  handleReviewCommandRequest(event, handleDeleteCurrentCard);
 }
 
 function maybeHandleReviewEscape(event: KeyboardEvent): boolean {
@@ -1926,16 +2076,41 @@ function openCurrentSrsEditor(): void {
   }
 }
 
+function getReviewDialogContainer(): HTMLElement | null {
+  return (rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container')
+    || document.querySelector('.b3-dialog__container.siyuanmemo-review-dialog-container')) as HTMLElement | null;
+}
+
+function getReviewContentMain(): HTMLElement | null {
+  return (rootRef.value?.querySelector('.fsrs-review-v2-content')
+    || document.querySelector('.fsrs-review-v2-content')) as HTMLElement | null;
+}
+
+function isReviewFullscreenActive(): boolean {
+  const dialogContainer = getReviewDialogContainer();
+  const contentMain = getReviewContentMain();
+  return Boolean(
+    dialogContainer?.classList.contains('fullscreen')
+    || contentMain?.classList.contains('fullscreen'),
+  );
+}
+
+function applyInitialReviewFullscreen(): void {
+  if (props.startFullscreen !== true || props.mode === 'tab' || props.isMobile === true || isReviewFullscreenActive()) {
+    return;
+  }
+  toggleReviewFullscreen();
+}
+
 function toggleReviewFullscreen(): void {
-  if (props.isMobile) {
+  if (props.isMobile || props.mode === 'tab') {
     return;
   }
 
   logger.debug('[SiYuanMemo][ReviewView] Fullscreen button clicked');
 
-  const dialogContainer = rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container')
-    || document.querySelector('.b3-dialog__container.siyuanmemo-review-dialog-container');
-  const contentMain = rootRef.value?.querySelector('.fsrs-review-v2-content') || document.querySelector('.fsrs-review-v2-content');
+  const dialogContainer = getReviewDialogContainer();
+  const contentMain = getReviewContentMain();
   logger.debug('[SiYuanMemo][ReviewView] dialogContainer found:', !!dialogContainer);
   logger.debug('[SiYuanMemo][ReviewView] contentMain found:', !!contentMain);
 
@@ -1986,19 +2161,61 @@ function isLinearPieceReviewCard(card: FSRSCard | null | undefined): boolean {
     && String(progressive.mode || '').trim() === 'linear';
 }
 
+async function handleEditCurrentCardPriority(): Promise<void> {
+  const cardEditorService = getCardEditorService();
+  const reference = resolveCurrentReviewCardActionReference();
+  if (!reference) {
+    return;
+  }
+  if (!cardEditorService) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  const nextPriority = await openNumberDialog({
+    title: t('priority', '优先级'),
+    label: t('priorityLabel', '优先级'),
+    description: t('priorityHelper', '范围 0-100，数值越小越优先。'),
+    defaultValue: resolveCurrentReviewCardPriority() ?? 0,
+    min: 0,
+    max: 100,
+    step: 1,
+    integer: true,
+  });
+  if (nextPriority === null) {
+    return;
+  }
+
+  try {
+    const snapshot = await cardEditorService.updatePriority(reference.cardId, nextPriority);
+    await hook.refreshCurrentItem(snapshot.card);
+    showMessage(t('prioritySaved', '优先级已更新'), 3000, 'info');
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to update current card priority:', error);
+    showMessage(
+      t('prioritySaveFailed', '优先级更新失败'),
+      5000,
+      'error',
+    );
+  }
+}
+
 async function handleDismissCurrentCard(): Promise<void> {
   const cardEditorService = getCardEditorService();
-  const { cardId, blockId } = getCurrentReviewCardReference();
-  if (!cardEditorService || !cardId || !blockId) {
+  const reference = resolveCurrentReviewCardActionReference();
+  if (!reference) {
+    return;
+  }
+  if (!cardEditorService) {
     showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
     return;
   }
 
   try {
-    await cardEditorService.setDismissed(cardId, true);
+    await cardEditorService.setDismissed(reference.cardId, true);
     await advanceDismissedCurrentCard({
-      cardId,
-      blockId,
+      cardId: reference.cardId,
+      blockId: reference.blockId,
       dismissed: true,
     });
     showMessage(t('reviewCardSuspended', '已暂停这张卡片'), 3000, 'info');
@@ -2057,8 +2274,11 @@ async function handleDismissPeerCards(): Promise<void> {
 
 async function handleDeleteCurrentCard(): Promise<void> {
   const cardService = getCardService();
-  const { cardId, blockId } = getCurrentReviewCardReference();
-  if (!cardService || !cardId || !blockId) {
+  const reference = resolveCurrentReviewCardActionReference();
+  if (!reference) {
+    return;
+  }
+  if (!cardService) {
     showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
     return;
   }
@@ -2074,11 +2294,14 @@ async function handleDeleteCurrentCard(): Promise<void> {
   }
 
   try {
-    const result = await cardService.deleteCard({ cardId });
+    const result = await cardService.deleteCard({ cardId: reference.cardId });
     if (!result.ok) {
       throw result.error;
     }
-    await advanceCurrentReviewCardByReference({ cardId, blockId });
+    await advanceCurrentReviewCardByReference({
+      cardId: reference.cardId,
+      blockId: reference.blockId,
+    });
     showMessage(t('reviewCardDeleted', '已删除当前卡片'), 3000, 'info');
   } catch (error) {
     logger.error('[SiYuanMemo][ReviewView] Failed to delete current card:', error);
@@ -2152,6 +2375,10 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
   const openAsItems = buildOpenAsMenuItems();
   const peerInfo = resolveCurrentBlockPeerCards();
   const peerCount = peerInfo?.peerCards.length ?? 0;
+  const currentPriority = resolveCurrentReviewCardPriority();
+  const canEditCurrentPriority = hasCurrentReviewCard() && Boolean(getCardEditorService());
+  const canSuspendCurrentCard = hasCurrentReviewCard() && Boolean(getCardEditorService());
+  const canDeleteCurrentCard = hasCurrentReviewCard() && Boolean(getCardService());
   const items: ReviewMenuItem[] = [];
 
   if (currentCard?.type === 'topic' && isProgressiveExcerptEnabled()) {
@@ -2218,9 +2445,18 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
   });
 
   items.push({
+    id: 'edit-current-priority',
+    icon: 'iconSort',
+    label: buildReviewPriorityMenuLabel(currentPriority),
+    disabled: !canEditCurrentPriority,
+    click: () => void handleEditCurrentCardPriority(),
+  });
+
+  items.push({
     id: 'pause-current-card',
     icon: 'iconPause',
     label: t('suspendCurrentCard', '暂停这张卡片'),
+    disabled: !canSuspendCurrentCard,
     click: () => void handleDismissCurrentCard(),
   });
 
@@ -2237,6 +2473,7 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
     id: 'delete-current-card',
     icon: 'iconTrashcan',
     label: t('deleteCurrentCard', '删除卡片'),
+    disabled: !canDeleteCurrentCard,
     click: () => void handleDeleteCurrentCard(),
   });
 
