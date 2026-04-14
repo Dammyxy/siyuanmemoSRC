@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { PluginSettings } from '../settings';
 import {
   ACTIVE_FSRS_VERSION,
-  createDefaultAIPromptProfileSet,
   DEFAULT_FSRS_WEIGHTS,
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
@@ -239,65 +238,63 @@ describe('settings normalization', () => {
     legacy.ai = {
       ...DEFAULT_SETTINGS.ai,
       prompts: {
-        tutor: 'custom tutor',
+        tutor: {
+          run: 'custom tutor',
+        },
       },
     } as typeof legacy.ai;
-    delete (legacy.ai as Partial<typeof legacy.ai>).promptProfiles;
 
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.ai.prompts.tutor).toBe('custom tutor');
-    expect(normalized.settings.ai.prompts.explain).toBe(DEFAULT_SETTINGS.ai.prompts.explain);
-    expect(normalized.settings.ai.prompts.cardCandidate).toBe(DEFAULT_SETTINGS.ai.prompts.cardCandidate);
-    expect(normalized.settings.ai.promptProfiles.tutor).toEqual({
-      preset: 'recommended',
-      overrideEnabled: true,
-      overrideTemplate: 'custom tutor',
+    expect(normalized.settings.ai.prompts.tutor).toEqual({
+      run: 'custom tutor',
+      followUp: DEFAULT_SETTINGS.ai.prompts.tutor.followUp,
     });
+    expect(normalized.settings.ai.prompts.explain).toEqual(DEFAULT_SETTINGS.ai.prompts.explain);
+    expect(normalized.settings.ai.prompts.cardCandidate).toEqual(DEFAULT_SETTINGS.ai.prompts.cardCandidate);
+    expect(normalized.settings.ai.prompts.cardCandidateCdf).toEqual(DEFAULT_SETTINGS.ai.prompts.cardCandidateCdf);
   });
 
-  it('ships layered AI default prompts aligned with tutor, explain, and candidate tasks', () => {
-    expect(DEFAULT_SETTINGS.ai.prompts.tutor).toContain('AI 导师');
-    expect(DEFAULT_SETTINGS.ai.prompts.tutor).toContain('当前批次或路径里的核心线索');
-    expect(DEFAULT_SETTINGS.ai.prompts.explain).toContain('学习教练');
-    expect(DEFAULT_SETTINGS.ai.prompts.explain).toContain('工作定义');
-    expect(DEFAULT_SETTINGS.ai.prompts.explain).toContain('补充理解，不是材料原文直接说明');
-    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate).toContain('6-10 张');
-    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate).toContain('五个视角');
-    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate).toContain('宁可少出');
-    expect(DEFAULT_SETTINGS.ai.promptProfiles).toEqual(createDefaultAIPromptProfileSet());
+  it('ships full-text AI default prompt pairs aligned with tutor, explain, candidate, and CDF tasks', () => {
+    expect(DEFAULT_SETTINGS.ai.prompts.tutor.run).toContain('AI 导师');
+    expect(DEFAULT_SETTINGS.ai.prompts.tutor.run).toContain('正在神经漫游中的现在的自己');
+    expect(DEFAULT_SETTINGS.ai.prompts.tutor.followUp).toContain('不要输出 JSON');
+    expect(DEFAULT_SETTINGS.ai.prompts.explain.run).toContain('学习教练');
+    expect(DEFAULT_SETTINGS.ai.prompts.explain.run).toContain('workingDefinition');
+    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate.run).toContain('6-10 张');
+    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate.run).toContain('candidates');
+    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidateCdf.run).toContain('CDF 辅助制卡');
+    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidateCdf.run).toContain('概念锚点');
   });
 
-  it('migrates legacy prompt overrides into prompt profiles', () => {
+  it('migrates legacy flat prompt strings into run prompts and ignores legacy promptProfiles', () => {
     const legacy = cloneSettings();
-    delete (legacy.ai as Partial<typeof legacy.ai>).promptProfiles;
+    (legacy.ai as typeof legacy.ai & { promptProfiles?: Record<string, unknown> }).promptProfiles = {
+      tutor: {
+        preset: 'recommended',
+        overrideEnabled: true,
+        overrideTemplate: 'should be ignored',
+      },
+    };
     legacy.ai.prompts = {
       tutor: 'custom tutor profile',
-      explain: DEFAULT_SETTINGS.ai.prompts.explain,
+      explain: DEFAULT_SETTINGS.ai.prompts.explain.run,
       cardCandidate: 'custom card profile',
-    };
+    } as unknown as typeof legacy.ai.prompts;
 
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.ai.prompts.tutor).toBe('custom tutor profile');
-    expect(normalized.settings.ai.prompts.cardCandidate).toBe('custom card profile');
-    expect(normalized.settings.ai.promptProfiles.tutor).toEqual({
-      preset: 'recommended',
-      overrideEnabled: true,
-      overrideTemplate: 'custom tutor profile',
+    expect(normalized.settings.ai.prompts.tutor).toEqual({
+      run: 'custom tutor profile',
+      followUp: DEFAULT_SETTINGS.ai.prompts.tutor.followUp,
     });
-    expect(normalized.settings.ai.promptProfiles.explain).toEqual({
-      preset: 'recommended',
-      overrideEnabled: false,
-      overrideTemplate: '',
+    expect(normalized.settings.ai.prompts.cardCandidate).toEqual({
+      run: 'custom card profile',
+      followUp: DEFAULT_SETTINGS.ai.prompts.cardCandidate.followUp,
     });
-    expect(normalized.settings.ai.promptProfiles.cardCandidate).toEqual({
-      preset: 'recommended',
-      overrideEnabled: true,
-      overrideTemplate: 'custom card profile',
-    });
+    expect(normalized.settings.ai.prompts.explain.run).toBe(DEFAULT_SETTINGS.ai.prompts.explain.run);
   });
 
   it('is idempotent after first normalization', () => {

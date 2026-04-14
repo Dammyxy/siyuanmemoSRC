@@ -227,24 +227,16 @@ export function normalizeConfiguredCaptureStorageSettings(
     };
 }
 
+export interface AIPromptTextPair {
+    run: string;
+    followUp: string;
+}
+
 export interface AIPromptTemplates {
-    tutor: string;
-    explain: string;
-    cardCandidate: string;
-}
-
-export type AIPromptPresetId = 'recommended';
-
-export interface AIPromptProfile {
-    preset: AIPromptPresetId;
-    overrideEnabled: boolean;
-    overrideTemplate: string;
-}
-
-export interface AIPromptProfileSet {
-    tutor: AIPromptProfile;
-    explain: AIPromptProfile;
-    cardCandidate: AIPromptProfile;
+    tutor: AIPromptTextPair;
+    explain: AIPromptTextPair;
+    cardCandidate: AIPromptTextPair;
+    cardCandidateCdf: AIPromptTextPair;
 }
 
 export interface AISettings {
@@ -256,7 +248,6 @@ export interface AISettings {
     temperature: number;
     defaultOutputLanguage: string;
     prompts: AIPromptTemplates;
-    promptProfiles: AIPromptProfileSet;
     draftStorage: ConfiguredCaptureStorageSettings;
 }
 
@@ -533,15 +524,11 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     const sourceProgressiveReading = settings.progressiveReading as (PluginSettings['progressiveReading'] & {
         dailyTraceEnabled?: boolean;
     }) | undefined;
+    const sourceAi = settings.ai as (PluginSettings['ai'] & {
+        promptProfiles?: unknown;
+    }) | undefined;
     const { dailyTraceEnabled: _legacyDailyTraceEnabled, ...sourceProgressiveReadingWithoutLegacy } = sourceProgressiveReading || {};
-    const normalizedPromptProfiles = normalizeAIPromptProfiles(
-        settings.ai?.promptProfiles,
-        settings.ai?.prompts,
-    );
-    const normalizedPrompts = resolveAIEffectivePromptTemplates({
-        prompts: settings.ai?.prompts,
-        promptProfiles: normalizedPromptProfiles,
-    });
+    const { promptProfiles: _legacyPromptProfiles, ...sourceAiWithoutLegacy } = sourceAi || {};
     const normalizedRiffIntegration = normalizeRiffIntegrationConfig(settings.riffIntegration);
     const normalized: PluginSettings = {
         ...settings,
@@ -605,13 +592,9 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         },
         ai: {
             ...DEFAULT_SETTINGS.ai,
-            ...(settings.ai || {}),
-            prompts: {
-                ...DEFAULT_SETTINGS.ai.prompts,
-                ...(settings.ai?.prompts || {}),
-            },
-            promptProfiles: normalizeAIPromptProfiles(settings.ai?.promptProfiles, settings.ai?.prompts),
-            draftStorage: normalizeConfiguredCaptureStorageSettings(settings.ai?.draftStorage, {
+            ...sourceAiWithoutLegacy,
+            prompts: normalizeAIPromptTemplates(sourceAiWithoutLegacy.prompts),
+            draftStorage: normalizeConfiguredCaptureStorageSettings(sourceAiWithoutLegacy.draftStorage, {
                 allowSourceChild: false,
                 fallback: DEFAULT_SETTINGS.ai.draftStorage,
             }),
@@ -693,7 +676,6 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     if (!settings.ai) {
         changed = true;
     } else {
-        const sourceAi = settings.ai;
         const normalizedAi = normalized.ai;
         if (
             sourceAi.enabled !== normalizedAi.enabled
@@ -703,18 +685,9 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             || sourceAi.timeoutMs !== normalizedAi.timeoutMs
             || sourceAi.temperature !== normalizedAi.temperature
             || sourceAi.defaultOutputLanguage !== normalizedAi.defaultOutputLanguage
-            || sourceAi.prompts?.tutor !== normalizedAi.prompts.tutor
-            || sourceAi.prompts?.explain !== normalizedAi.prompts.explain
-            || sourceAi.prompts?.cardCandidate !== normalizedAi.prompts.cardCandidate
-            || sourceAi.promptProfiles?.tutor?.preset !== normalizedAi.promptProfiles.tutor.preset
-            || sourceAi.promptProfiles?.tutor?.overrideEnabled !== normalizedAi.promptProfiles.tutor.overrideEnabled
-            || sourceAi.promptProfiles?.tutor?.overrideTemplate !== normalizedAi.promptProfiles.tutor.overrideTemplate
-            || sourceAi.promptProfiles?.explain?.preset !== normalizedAi.promptProfiles.explain.preset
-            || sourceAi.promptProfiles?.explain?.overrideEnabled !== normalizedAi.promptProfiles.explain.overrideEnabled
-            || sourceAi.promptProfiles?.explain?.overrideTemplate !== normalizedAi.promptProfiles.explain.overrideTemplate
-            || sourceAi.promptProfiles?.cardCandidate?.preset !== normalizedAi.promptProfiles.cardCandidate.preset
-            || sourceAi.promptProfiles?.cardCandidate?.overrideEnabled !== normalizedAi.promptProfiles.cardCandidate.overrideEnabled
-            || sourceAi.promptProfiles?.cardCandidate?.overrideTemplate !== normalizedAi.promptProfiles.cardCandidate.overrideTemplate
+            || !hasNormalizedPromptTemplateShape(sourceAi.prompts)
+            || !arePromptTemplatesEqual(sourceAi.prompts, normalizedAi.prompts)
+            || Object.prototype.hasOwnProperty.call(sourceAi, 'promptProfiles')
             || sourceAi.draftStorage?.mode !== normalizedAi.draftStorage.mode
             || sourceAi.draftStorage?.notebookId !== normalizedAi.draftStorage.notebookId
             || (sourceAi.draftStorage?.targetBlockId || '') !== normalizedAi.draftStorage.targetBlockId
@@ -805,55 +778,102 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
 };
 
 export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
-    tutor: [
-        '你是帮助用户搭建隐性知识网络的 AI 导师。',
-        '请把重点放在“当前这轮复习或当前这条路径里，什么值得继续想”上，而不是替用户提前定稿。',
-        '默认围绕这些角度组织你的判断：当前批次或路径里的核心线索、值得辨析的边界与张力、关系或因果、整体位置、下一步追哪条线、哪些点值得延后制卡。',
-        '当上下文是 orbit 时，优先结合当前 round、focus 和 recent path；当上下文是 hyperspace 时，优先结合当前节点、路径位置和激活来源，不要假装它也是固定批次。',
-        '除非 requestBatchSummary=true 或用户明确要求，否则不要写成正式总结稿。',
-    ].join('\n'),
-    explain: [
-        '你是一位擅长帮助学习者“真正理解当前卡片”的学习教练。你的任务不是简单复述答案，而是帮助用户看清：这张卡在抓什么、为什么这样抓、它和哪些相近概念容易混、以后什么时候该想起它。',
-        '你会收到一个 JSON payload，其中至少包含 language、context.currentCard、context.selectedBlocks、context.queueProgress、context.neuralBatch，以及当前卡片的来源材料。',
-        '你的工作对象是“正在复习或理解这张卡片的现在的自己”，不是未来制卡系统。',
-        '严格以当前卡片和当前材料为锚点；可以做少量必要的背景桥接，但凡超出材料直接支持的地方，必须明确说明“这是补充理解，不是材料原文直接说明”。',
-        '不要把回答写成百科条目，不要空泛复述术语。解释的目标是“下次想得起来、分得清、用得上”，不是“看起来讲得很完整”。',
-        '如果当前卡是阅读型 topic / concept，请把它当作理解节点，而不是问答卡；如果当前卡是检索型卡片，可以先用一句话点明答案或工作定义，但不要整段重复答案。',
-        '请先在内部按这个顺序思考，再输出结果：1. 给出 1-2 句抓本质的工作定义；2. 判断这张卡真正测试的点；3. 找出最关键的易错点或混淆边界；4. 把它放回知识网络；5. 提取以后可触发回忆的现实线索。',
-        '输出时只保留压缩结果，不要输出你的中间推理草稿。',
-    ].join('\n'),
-    cardCandidate: [
-        '你是一位擅长把知识转化为“可理解、可回忆、可应用”的学习教练。',
-        '你会收到一个 JSON，里面至少包含 mode、allowedTemplateIds、context、learnerProfile。',
-        '你的任务不是直接复述材料，而是先在内部建立结构化理解，再把关键点压缩成少而精的高质量候选卡。',
-        '请在内部遵循 Andy 的方法论思考，但不要把中间草稿直接输出给用户：先给工作定义，再从特性和倾向、辨析异同、部分和整体、因果关系、意义和影响五个视角理解材料，最后整合成可迁移的理解。',
-        '优先提取边界、关系、作用、适用场景、常见误解；不重要的视角可以判断为当前不关键，不要硬凑。',
-        '候选卡默认目标区间是 6-10 张，但这是理想区间，不是硬指标。材料不够清楚、卡点不够稳定时，宁可少出，也不要硬凑；必要时允许只输出 0-3 张真正值得复习的候选。',
-        '请把这些卡片质量标准当成硬约束：一题只测一个点；问法具体不空泛；答案短且稳定；需要回忆；不能靠题面直接猜出来。',
-        '优先产出辨析、因果、应用、边界、触发器类候选；纯定义复述题只保留少数真正关键的锚点。',
-        '如果材料没说清楚，请明确写“材料未说明”或“这里有不确定性”，不要脑补。',
-        '默认把 learnerProfile 视为：已有水平=略懂，目标=理解概念，输出深度=标准；若 payload 已提供，以 payload 为准。',
-        '当 mode=qa 时，优先输出最适合自测的问答候选；当 mode=cloze 时，只保留真正稳定且边界清晰的短事实或关键短语；当 mode=concept-descriptor 时，优先提炼概念定义、关键属性、对比线索和适用边界。',
-    ].join('\n'),
+    tutor: {
+        run: [
+            '你是 SiyuanMemo 的 AI 导师。',
+            '你的工作对象是“正在神经漫游中的现在的自己”。',
+            '目标是帮助用户继续理解、继续辨析、继续连接，而不是过早替用户定稿。',
+            '严格基于 payload.language、payload.context、当前卡片、当前路径、当前材料和已给结果回答；材料未说明就明确说“材料未说明”或“这里有不确定性”，不要脑补。',
+            '如果 context.neuralBatch.engineMode=orbit，请优先结合当前 round、focus 和 recent path；如果是 hyperspace，请优先结合当前节点、路径位置和激活来源。',
+            '除非 payload.requestBatchSummary=true 或用户明确要求，否则不要写成正式总结稿。',
+            '只返回合法 JSON，不要附带 Markdown 代码块。',
+            'JSON 字段固定为 blindSpots、patterns、nextLines、cardIdeas、batchSummary。',
+            'blindSpots / patterns / nextLines / cardIdeas 必须是字符串数组。',
+            'batchSummary 必须是字符串或 null。',
+        ].join('\n'),
+        followUp: [
+            '你是 SiyuanMemo 的 AI 导师，正在基于已有导师结果继续追问。',
+            '你的工作对象是“正在神经漫游中的现在的自己”。',
+            '请结合已给 structuredResult、最新 context 和用户最新问题，用简洁自然语言继续回答。',
+            '不要输出 JSON，不要重复整份结构化结果，不要突然改写成正式总结。',
+            '材料未说明就明确说“材料未说明”或“这里有不确定性”，不要脑补。',
+        ].join('\n'),
+    },
+    explain: {
+        run: [
+            '你是一位擅长帮助学习者真正理解当前卡片的学习教练。',
+            '你的工作对象是“正在复习或理解这张卡片的现在的自己”，不是未来制卡系统。',
+            '你会收到一个 JSON payload，其中至少包含 language、context.currentCard、context.selectedBlocks、context.queueProgress、context.neuralBatch，以及当前卡片的来源材料。',
+            '严格以当前卡片和当前材料为锚点；可以做少量必要的背景桥接，但凡超出材料直接支持的地方，必须明确说明“这是补充理解，不是材料原文直接说明”。',
+            '不要把回答写成百科条目，不要空泛复述术语。解释的目标是下次想得起来、分得清、用得上。',
+            '如果当前卡是阅读型 topic / concept，请把它当作理解节点，而不是问答卡；如果当前卡是检索型卡片，可以先用一句话点明答案或工作定义，但不要整段重复答案。',
+            '只返回合法 JSON，不要附带 Markdown 代码块。',
+            'JSON 字段固定为 workingDefinition、whatItTests、whyItsTricky、connections、triggers、cardIdeas。',
+            'connections / triggers / cardIdeas 必须是字符串数组。',
+        ].join('\n'),
+        followUp: [
+            '你是一位学习教练，正在基于已有解释结果继续追问。',
+            '请结合 structuredResult、最新 context 和用户最新问题，用简洁自然语言继续解释。',
+            '延续“工作定义 / 边界 / 因果 / 触发器”的风格，不要输出 JSON，不要重复整份结构化结果。',
+            '超出材料直接支持的地方，必须明确说明“这是补充理解，不是材料原文直接说明”。',
+        ].join('\n'),
+    },
+    cardCandidate: {
+        run: [
+            '你是一位擅长把知识转化为“可理解、可回忆、可应用”的学习教练。',
+            '你会收到一个 JSON，里面至少包含 mode、allowedTemplateIds、context、learnerProfile。',
+            '你的任务不是直接复述材料，而是先建立结构化理解，再把关键点压缩成少而精的高质量候选卡。',
+            '优先提取边界、关系、作用、适用场景、常见误解；不重要的视角可以判断为当前不关键，不要硬凑。',
+            '候选卡默认目标区间是 6-10 张，但这是理想区间，不是硬指标。材料不够清楚、卡点不够稳定时，宁可少出，也不要硬凑；必要时允许只输出 0-3 张真正值得复习的候选。',
+            '卡片质量标准：一题只测一个点；问法具体不空泛；答案短且稳定；需要回忆；不能靠题面直接猜出来。',
+            '优先产出辨析、因果、应用、边界、触发器类候选；纯定义复述题只保留少数真正关键的锚点。',
+            '如果材料没说清楚，请明确写“材料未说明”或“这里有不确定性”，不要脑补。',
+            '只返回合法 JSON，不要附带 Markdown 代码块。',
+            '顶层字段必须是 mode、candidates。',
+            'mode 必须回显 payload.mode。',
+            'candidates 必须是数组，且每项都包含 templateId、title、preview、fieldMapping、sourceBlockIds、rationale、confidence。',
+            'templateId 必须来自 allowedTemplateIds。',
+            'fieldMapping 中填的是字段文本草稿，不是块 ID。',
+            'sourceBlockIds 必须引用 context.currentCard.sourceBlockIds 或 context.selectedBlocks 里的 blockId。',
+            'confidence 必须是 0 到 1 之间的数字。',
+        ].join('\n'),
+        followUp: [
+            '你正在回答 AI 辅助制卡候选上的追问。',
+            '请基于已有候选结果、最新 context 和用户问题，用简洁自然语言直接回答。',
+            '可以解释为什么这样拆、哪些候选该删、怎样收窄成更稳的少数卡。',
+            '不要输出 JSON，不要重新生成整批候选，除非用户明确要求重新生成。',
+        ].join('\n'),
+    },
+    cardCandidateCdf: {
+        run: [
+            '你正在执行 CDF 辅助制卡。',
+            'CDF 指概念描述符框架：先找概念锚点与稳定定义，再从材料中抽取可复用的描述维度，帮助未来复习时稳定回忆同一个知识点。',
+            '你会收到一个 JSON，里面至少包含 mode、allowedTemplateIds、context、learnerProfile。',
+            '先在内部完成这件事：1. 找出材料里的核心概念或少数概念锚点；2. 为每个概念提炼一句稳定定义；3. 从材料里抽取高价值描述维度，例如边界、特征、机制、条件、证据、对比、例子、用途、影响；4. 只保留真正值得复习且能稳定提问的维度。',
+            '优先输出能落到概念定义卡和概念描述符卡上的候选；描述符要尽量短、稳、可复用，不要把整段原文塞进字段。',
+            '材料未说明的维度不要脑补，可以明确写“材料未说明”或直接放弃该候选。',
+            '质量优先，宁可少出，也不要凑数；必要时只输出 0-5 张真正成立的候选。',
+            '只返回合法 JSON，不要附带 Markdown 代码块。',
+            '顶层字段必须是 mode、candidates。',
+            'mode 必须回显 payload.mode。',
+            'candidates 必须是数组，且每项都包含 templateId、title、preview、fieldMapping、sourceBlockIds、rationale、confidence。',
+            'templateId 必须来自 allowedTemplateIds，优先选择概念定义或概念描述符模板族。',
+            'fieldMapping 中填的是字段文本草稿，不是块 ID。',
+            'sourceBlockIds 必须引用 context.currentCard.sourceBlockIds 或 context.selectedBlocks 里的 blockId。',
+            'confidence 必须是 0 到 1 之间的数字。',
+        ].join('\n'),
+        followUp: [
+            '你正在回答 CDF 辅助制卡结果上的追问。',
+            '请基于已有候选结果、最新 context 和用户问题，用简洁自然语言继续说明概念锚点、描述维度、删减理由或更稳的模板选择。',
+            '不要输出 JSON，不要整批重生成，除非用户明确要求重新生成。',
+        ].join('\n'),
+    },
 };
 
-export function createDefaultAIPromptProfileSet(): AIPromptProfileSet {
+function clonePromptPair(pair: AIPromptTextPair): AIPromptTextPair {
     return {
-        tutor: {
-            preset: 'recommended',
-            overrideEnabled: false,
-            overrideTemplate: '',
-        },
-        explain: {
-            preset: 'recommended',
-            overrideEnabled: false,
-            overrideTemplate: '',
-        },
-        cardCandidate: {
-            preset: 'recommended',
-            overrideEnabled: false,
-            overrideTemplate: '',
-        },
+        run: pair.run,
+        followUp: pair.followUp,
     };
 }
 
@@ -861,75 +881,67 @@ function normalizePromptText(value: unknown): string {
     return typeof value === 'string' ? value.trim() : '';
 }
 
-function resolvePromptPresetTemplate(settingKey: keyof AIPromptTemplates, preset: AIPromptPresetId): string {
-    switch (preset) {
-        case 'recommended':
-        default:
-            return DEFAULT_AI_PROMPTS[settingKey];
-    }
+function isPromptPairLike(value: unknown): value is Partial<AIPromptTextPair> {
+    return typeof value === 'object' && value !== null;
 }
 
-function normalizePromptProfile(
+function normalizePromptPair(
     settingKey: keyof AIPromptTemplates,
     source: unknown,
-    legacyPrompt: unknown,
-): AIPromptProfile {
-    const defaults = createDefaultAIPromptProfileSet()[settingKey];
-    if (typeof source === 'object' && source !== null) {
-        const candidate = source as Partial<AIPromptProfile>;
-        const preset = candidate.preset === 'recommended' ? candidate.preset : defaults.preset;
-        const overrideTemplate = normalizePromptText(candidate.overrideTemplate);
-        const overrideEnabled = candidate.overrideEnabled === true && overrideTemplate.length > 0;
+): AIPromptTextPair {
+    const defaults = DEFAULT_AI_PROMPTS[settingKey];
+
+    if (typeof source === 'string') {
         return {
-            preset,
-            overrideEnabled,
-            overrideTemplate,
+            run: normalizePromptText(source),
+            followUp: defaults.followUp,
         };
     }
 
-    const recommended = resolvePromptPresetTemplate(settingKey, defaults.preset);
-    const legacy = normalizePromptText(legacyPrompt);
-    if (legacy.length > 0 && legacy !== recommended) {
+    if (isPromptPairLike(source)) {
+        const hasRun = Object.prototype.hasOwnProperty.call(source, 'run');
+        const hasFollowUp = Object.prototype.hasOwnProperty.call(source, 'followUp');
         return {
-            preset: defaults.preset,
-            overrideEnabled: true,
-            overrideTemplate: legacy,
+            run: hasRun ? normalizePromptText(source.run) : defaults.run,
+            followUp: hasFollowUp ? normalizePromptText(source.followUp) : defaults.followUp,
         };
     }
 
-    return defaults;
+    return clonePromptPair(defaults);
 }
 
-export function normalizeAIPromptProfiles(
-    promptProfiles: Partial<AIPromptProfileSet> | undefined,
-    legacyPrompts?: Partial<AIPromptTemplates> | undefined,
-): AIPromptProfileSet {
+export function normalizeAIPromptTemplates(prompts: unknown): AIPromptTemplates {
+    const source = typeof prompts === 'object' && prompts !== null
+        ? prompts as Partial<Record<keyof AIPromptTemplates, unknown>>
+        : undefined;
+
     return {
-        tutor: normalizePromptProfile('tutor', promptProfiles?.tutor, legacyPrompts?.tutor),
-        explain: normalizePromptProfile('explain', promptProfiles?.explain, legacyPrompts?.explain),
-        cardCandidate: normalizePromptProfile('cardCandidate', promptProfiles?.cardCandidate, legacyPrompts?.cardCandidate),
+        tutor: normalizePromptPair('tutor', source?.tutor),
+        explain: normalizePromptPair('explain', source?.explain),
+        cardCandidate: normalizePromptPair('cardCandidate', source?.cardCandidate),
+        cardCandidateCdf: normalizePromptPair('cardCandidateCdf', source?.cardCandidateCdf),
     };
 }
 
-export function resolveAIEffectivePromptTemplate(
-    settingKey: keyof AIPromptTemplates,
-    input: Pick<AISettings, 'prompts' | 'promptProfiles'> | Partial<Pick<AISettings, 'prompts' | 'promptProfiles'>>,
-): string {
-    const profile = normalizeAIPromptProfiles(input.promptProfiles, input.prompts)[settingKey];
-    if (profile.overrideEnabled && profile.overrideTemplate.length > 0) {
-        return profile.overrideTemplate;
+function hasNormalizedPromptTemplateShape(prompts: unknown): boolean {
+    if (typeof prompts !== 'object' || prompts === null) {
+        return false;
     }
-    return resolvePromptPresetTemplate(settingKey, profile.preset);
+
+    const source = prompts as Partial<Record<keyof AIPromptTemplates, unknown>>;
+    return ['tutor', 'explain', 'cardCandidate', 'cardCandidateCdf'].every((key) => {
+        const value = source[key as keyof AIPromptTemplates];
+        return typeof value === 'object'
+            && value !== null
+            && typeof (value as Partial<AIPromptTextPair>).run === 'string'
+            && typeof (value as Partial<AIPromptTextPair>).followUp === 'string';
+    });
 }
 
-export function resolveAIEffectivePromptTemplates(
-    input: Pick<AISettings, 'prompts' | 'promptProfiles'> | Partial<Pick<AISettings, 'prompts' | 'promptProfiles'>>,
-): AIPromptTemplates {
-    return {
-        tutor: resolveAIEffectivePromptTemplate('tutor', input),
-        explain: resolveAIEffectivePromptTemplate('explain', input),
-        cardCandidate: resolveAIEffectivePromptTemplate('cardCandidate', input),
-    };
+function arePromptTemplatesEqual(left: unknown, right: unknown): boolean {
+    const normalizedLeft = normalizeAIPromptTemplates(left);
+    const normalizedRight = normalizeAIPromptTemplates(right);
+    return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
 }
 
 export const DEFAULT_AI_SETTINGS: AISettings = {
@@ -941,7 +953,6 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     temperature: 0.3,
     defaultOutputLanguage: 'zh-CN',
     prompts: DEFAULT_AI_PROMPTS,
-    promptProfiles: createDefaultAIPromptProfileSet(),
     draftStorage: {
         mode: 'daily-note',
         notebookId: '',

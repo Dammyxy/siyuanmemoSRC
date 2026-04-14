@@ -120,7 +120,7 @@ describe('DialogManager quick template filter', () => {
       view: 'make-cards',
       source: 'template-dialog',
       selectedBlockIds: ['block-1', 'block-2'],
-      makeCardMode: 'qa',
+      makeCardMode: 'cdf',
       autoRun: true,
     });
   });

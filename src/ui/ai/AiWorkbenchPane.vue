@@ -442,9 +442,10 @@
                   <option value="qa">{{ t('qaMode', '问答') }}</option>
                   <option value="cloze">{{ t('clozeMode', '挖空') }}</option>
                   <option value="concept-descriptor">{{ t('conceptDescriptorMode', '概念 / 描述符') }}</option>
+                  <option value="cdf">{{ t('cdfMode', 'CDF 辅助制卡') }}</option>
                 </select>
                 <button class="b3-button b3-button--text" :disabled="state.isLoading" @click="service.runMakeCards()">
-                  {{ t('generateCandidates', '生成候选') }}
+                  {{ generateCandidatesLabel }}
                 </button>
                 <button class="b3-button b3-button--outline" :disabled="state.isLoading || activeViewState.stale || draftSyncCandidates.length === 0" @click="saveKeptCandidates()">
                   {{ saveDraftActionLabel }} ({{ draftSyncCandidates.length }})
@@ -497,9 +498,10 @@
                 <option value="qa">{{ t('qaMode', '问答') }}</option>
                 <option value="cloze">{{ t('clozeMode', '挖空') }}</option>
                 <option value="concept-descriptor">{{ t('conceptDescriptorMode', '概念 / 描述符') }}</option>
+                <option value="cdf">{{ t('cdfMode', 'CDF 辅助制卡') }}</option>
               </select>
               <button class="b3-button b3-button--text" type="button" :disabled="state.isLoading" @click="service.runMakeCards()">
-                {{ t('generateCandidates', '生成候选') }}
+                {{ generateCandidatesLabel }}
               </button>
               <button class="b3-button b3-button--outline" type="button" :disabled="state.isLoading || activeViewState.stale || draftSyncCandidates.length === 0" @click="saveKeptCandidates()">
                 {{ saveDraftActionLabel }} ({{ draftSyncCandidates.length }})
@@ -602,6 +604,12 @@ const templateOptions = computed(() => {
     { value: 'builtin-concept-descriptor-both', label: t('conceptDescriptorTemplateBoth', '概念描述符卡（双向）') },
   ];
 });
+
+const generateCandidatesLabel = computed(() => (
+  state.makeCardMode === 'cdf'
+    ? t('generateCdfCandidates', '生成 CDF 候选')
+    : t('generateCandidates', '生成候选')
+));
 
 const keptCandidates = computed(() => state.makeCardsResult?.candidates.filter((candidate) => !candidate.discarded) || []);
 const activeViewState = computed(() => state.viewState[state.activeView]);
@@ -829,6 +837,24 @@ const activeViewMeta = computed(() => {
       dockTitle: t('aiExplainDockTitle', '解释，不是代答'),
       dockHint: t('aiExplainDockHint', '在 review 流里先 reveal，再解释，会更符合提取练习的节奏。'),
       followUpHint: t('aiExplainFollowUpHint', '可以继续追问这张卡的边界、因果、和哪些旧知识容易混，或以后遇到什么情境该想起它。'),
+    };
+  }
+  if (state.makeCardMode === 'cdf') {
+    return {
+      title: t('cdfMode', 'CDF 辅助制卡'),
+      description: t('aiMakeCardsCdfDescription', '按 CDF 先立概念锚点，再拆高价值描述维度，生成更稳的概念定义 / 描述符候选卡。'),
+      kicker: 'CDF Mode',
+      headline: t('aiMakeCardsCdfHeadline', '让 AI 先找概念，再用描述维度把材料拆成真正值得复习的候选卡'),
+      helper: t('aiMakeCardsCdfHelper', '优先提炼概念定义、边界、特征、机制、条件、证据、对比和例子，并继续走现有草稿保存与建卡链路。'),
+      emptyBody: t('aiMakeCardsCdfEmptyBody', '适合面对一段信息时，先按 CDF 找概念锚点和稳定描述符，再决定哪些候选真的值得落卡。'),
+      bullets: [
+        t('aiMakeCardsCdfBullet1', '先按 CDF 找概念锚点与稳定定义。'),
+        t('aiMakeCardsCdfBullet2', '再抽高价值描述维度，如边界、机制、条件、证据、对比和例子。'),
+        t('aiMakeCardsCdfBullet3', '最后筛掉凑数项，只保留能稳定回忆的候选卡。'),
+      ],
+      dockTitle: t('aiMakeCardsCdfDockTitle', '三步走：概念锚点、描述维度、候选落卡'),
+      dockHint: t('aiMakeCardsCdfDockHint', 'CDF 结果仍会先落到草稿，再走现有概念定义 / 描述符建卡链路。'),
+      followUpHint: t('aiMakeCardsCdfFollowUpHint', '可以继续追问概念锚点是否稳、哪些描述维度该删、该用概念定义还是概念描述符模板。'),
     };
   }
   return {

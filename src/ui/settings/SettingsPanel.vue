@@ -859,30 +859,25 @@
             </div>
           </div>
 
-          <div class="ai-prompt-preset-card__actions">
-            <button class="btn-small" type="button" @click="toggleAiPromptAdvancedEditor(preset.settingKey)">
-              {{
-                aiPromptAdvancedEditors[preset.settingKey]
-                  ? t('aiHideAdvancedEditor', '收起高级编辑')
-                  : t('aiShowAdvancedEditor', '高级编辑')
-              }}
-            </button>
-          </div>
-
-          <div v-if="aiPromptAdvancedEditors[preset.settingKey]" class="ai-prompt-preset-card__editor">
+          <div class="ai-prompt-preset-card__editor">
             <label class="ai-prompt-preset-card__editor-label">
-              {{
-                preset.settingKey === 'tutor'
-                  ? t('aiTutorPrompt', 'AI 导师 Prompt')
-                  : preset.settingKey === 'explain'
-                    ? t('aiExplainPrompt', 'AI 解释 Prompt')
-                    : t('aiCardCandidatePrompt', 'AI 制卡 Prompt')
-              }}
+              {{ getPromptEditorLabel(preset.settingKey) }}
             </label>
             <p class="form-hint form-hint--section">{{ preset.usageHint }}</p>
+            <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
+              {{ t('aiRunPrompt', '运行 Prompt') }}
+            </label>
             <textarea
-              v-model="aiSettings.prompts[preset.settingKey]"
-              :rows="preset.settingKey === 'cardCandidate' ? 12 : 10"
+              v-model="aiSettings.prompts[preset.settingKey].run"
+              :rows="preset.settingKey === 'cardCandidate' || preset.settingKey === 'cardCandidateCdf' ? 12 : 10"
+              class="form-textarea"
+            ></textarea>
+            <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
+              {{ t('aiFollowUpPrompt', '追问 Prompt') }}
+            </label>
+            <textarea
+              v-model="aiSettings.prompts[preset.settingKey].followUp"
+              :rows="preset.settingKey === 'cardCandidate' || preset.settingKey === 'cardCandidateCdf' ? 8 : 6"
               class="form-textarea"
             ></textarea>
           </div>
@@ -916,14 +911,13 @@ import { ref, computed, nextTick, onMounted, watch } from 'vue';
 import { AI_PROMPT_PRESET_DESCRIPTORS, getRecommendedPromptTemplate } from '@/application/services/AIPromptComposer';
 import {
   normalizeConfiguredCaptureStorageSettings as normalizeCaptureStorageSettings,
+  normalizeAIPromptTemplates,
   type ConfiguredCaptureStorageSettings,
-  createDefaultAIPromptProfileSet,
   DEFAULT_AI_SETTINGS,
   DEFAULT_FSRS_WEIGHTS,
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
-  normalizeAIPromptProfiles,
-  resolveAIEffectivePromptTemplates,
+  type AIPromptTextPair,
   type AISettings,
   type FilterGroupDefinition,
   type FSRSParameters,
@@ -1038,47 +1032,35 @@ function mergeAIDraftStorageSettings(
 
 function mergeAISettings(source?: Partial<AISettings>): AISettings {
   const defaults = createDefaultAISettings();
-  const promptProfiles = normalizeAIPromptProfiles(source?.promptProfiles, source?.prompts);
-  const prompts = resolveAIEffectivePromptTemplates({
-    prompts: source?.prompts,
-    promptProfiles,
-  });
+  const legacyAwareSource = (source || {}) as Partial<AISettings> & { promptProfiles?: unknown };
+  const { promptProfiles: _legacyPromptProfiles, ...sourceWithoutLegacy } = legacyAwareSource;
   return {
     ...defaults,
-    ...(source || {}),
-    prompts,
-    promptProfiles,
-    draftStorage: mergeAIDraftStorageSettings(source?.draftStorage, defaults.draftStorage),
+    ...sourceWithoutLegacy,
+    prompts: normalizeAIPromptTemplates(sourceWithoutLegacy.prompts),
+    draftStorage: mergeAIDraftStorageSettings(sourceWithoutLegacy.draftStorage, defaults.draftStorage),
   };
 }
 
-function getRecommendedPromptTemplateForSetting(settingKey: AIPromptSettingKey): string {
-  return getRecommendedPromptTemplate(settingKey === 'cardCandidate' ? 'card-candidate' : settingKey);
+function getRecommendedPromptTemplateForSetting(settingKey: AIPromptSettingKey): AIPromptTextPair {
+  switch (settingKey) {
+    case 'tutor':
+      return getRecommendedPromptTemplate('tutor');
+    case 'explain':
+      return getRecommendedPromptTemplate('explain');
+    case 'cardCandidate':
+      return getRecommendedPromptTemplate('card-candidate');
+    case 'cardCandidateCdf':
+      return getRecommendedPromptTemplate('card-candidate-cdf');
+    default:
+      return getRecommendedPromptTemplate('explain');
+  }
 }
 
 function resetAiPromptToRecommended(settingsState: AISettings, settingKey: AIPromptSettingKey): void {
-  switch (settingKey) {
-    case 'tutor':
-      settingsState.prompts.tutor = getRecommendedPromptTemplateForSetting('tutor');
-      settingsState.promptProfiles.tutor = {
-        ...createDefaultAIPromptProfileSet().tutor,
-      };
-      return;
-    case 'explain':
-      settingsState.prompts.explain = getRecommendedPromptTemplateForSetting('explain');
-      settingsState.promptProfiles.explain = {
-        ...createDefaultAIPromptProfileSet().explain,
-      };
-      return;
-    case 'cardCandidate':
-      settingsState.prompts.cardCandidate = getRecommendedPromptTemplateForSetting('cardCandidate');
-      settingsState.promptProfiles.cardCandidate = {
-        ...createDefaultAIPromptProfileSet().cardCandidate,
-      };
-      return;
-    default:
-      return;
-  }
+  settingsState.prompts[settingKey] = {
+    ...getRecommendedPromptTemplateForSetting(settingKey),
+  };
 }
 
 function mergeQueueSettings(source?: Partial<QueueSettings>): QueueSettings {
@@ -1208,19 +1190,23 @@ watch(() => props.defaultTab, (tab) => {
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 const aiSettings = ref<AISettings>(createDefaultAISettings());
 const uiSettings = ref<UISettings>(createDefaultUISettings());
-const aiPromptAdvancedEditors = ref<Record<AIPromptSettingKey, boolean>>({
-  tutor: false,
-  explain: false,
-  cardCandidate: false,
-});
+
+function isPromptPairEmpty(pair: AIPromptTextPair): boolean {
+  return String(pair.run || '').trim().length === 0 && String(pair.followUp || '').trim().length === 0;
+}
+
+function arePromptPairsEqual(left: AIPromptTextPair, right: AIPromptTextPair): boolean {
+  return String(left.run || '').trim() === String(right.run || '').trim()
+    && String(left.followUp || '').trim() === String(right.followUp || '').trim();
+}
 
 function resolveAiPromptUsageState(settingKey: AIPromptSettingKey): AIPromptUsageState {
-  const currentValue = String(aiSettings.value.prompts[settingKey] || '').trim();
-  if (currentValue.length === 0) {
+  const currentValue = aiSettings.value.prompts[settingKey];
+  if (isPromptPairEmpty(currentValue)) {
     return 'empty';
   }
 
-  return currentValue === getRecommendedPromptTemplateForSetting(settingKey).trim()
+  return arePromptPairsEqual(currentValue, getRecommendedPromptTemplateForSetting(settingKey))
     ? 'recommended'
     : 'custom';
 }
@@ -1236,20 +1222,20 @@ function getAiPromptUsageCopy(settingKey: AIPromptSettingKey): {
       return {
         usageState,
         usageLabel: t('aiPromptStatusCustom', '当前使用自定义覆盖'),
-        usageHint: t('aiPromptStatusCustomHint', '高级编辑里显示的是你保存或正在编辑的自定义覆盖，不是内置推荐模板。'),
+        usageHint: t('aiPromptStatusCustomHint', '下面显示的是你当前保存或正在编辑的完整运行 Prompt 和追问 Prompt。'),
       };
     case 'empty':
       return {
         usageState,
         usageLabel: t('aiPromptStatusEmpty', '当前编辑区为空'),
-        usageHint: t('aiPromptStatusEmptyHint', '当前编辑区为空；保存后会回退为推荐模板。'),
+        usageHint: t('aiPromptStatusEmptyHint', '当前这组 Prompt 为空；你可以直接填写，或点击恢复推荐模板。'),
       };
     case 'recommended':
     default:
       return {
         usageState: 'recommended',
         usageLabel: t('aiPromptStatusRecommended', '当前使用推荐模板'),
-        usageHint: t('aiPromptStatusRecommendedHint', '高级编辑里显示的是当前内置推荐模板正文。'),
+        usageHint: t('aiPromptStatusRecommendedHint', '下面显示的是当前内置推荐的完整运行 Prompt 和追问 Prompt。'),
       };
   }
 }
@@ -1296,29 +1282,23 @@ const settings = ref<Settings>({
   progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
 });
 
-function toggleAiPromptAdvancedEditor(settingKey: AIPromptSettingKey): void {
-  aiPromptAdvancedEditors.value[settingKey] = !aiPromptAdvancedEditors.value[settingKey];
-}
-
 function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
   resetAiPromptToRecommended(aiSettings.value, settingKey);
 }
 
-function buildPromptProfilesFromEditor(settingsState: AISettings): AISettings['promptProfiles'] {
-  const defaults = createDefaultAIPromptProfileSet();
-  const next = normalizeAIPromptProfiles(settingsState.promptProfiles, settingsState.prompts);
-
-  (Object.keys(defaults) as AIPromptSettingKey[]).forEach((settingKey) => {
-    const recommended = getRecommendedPromptTemplateForSetting(settingKey);
-    const currentValue = String(settingsState.prompts[settingKey] || '').trim();
-    next[settingKey] = {
-      preset: 'recommended',
-      overrideEnabled: currentValue.length > 0 && currentValue !== recommended,
-      overrideTemplate: currentValue.length > 0 && currentValue !== recommended ? currentValue : '',
-    };
-  });
-
-  return next;
+function getPromptEditorLabel(settingKey: AIPromptSettingKey): string {
+  switch (settingKey) {
+    case 'tutor':
+      return t('aiTutorPrompt', 'AI 导师 Prompt');
+    case 'explain':
+      return t('aiExplainPrompt', 'AI 解释 Prompt');
+    case 'cardCandidate':
+      return t('aiCardCandidatePrompt', 'AI 制卡 Prompt');
+    case 'cardCandidateCdf':
+      return t('aiCardCandidateCdfPrompt', 'CDF 制卡 Prompt');
+    default:
+      return t('aiExplainPrompt', 'AI 解释 Prompt');
+  }
 }
 
 // 🆕 调度器配置
@@ -1643,11 +1623,7 @@ function loadSettings() {
 
 // 保存设置
 function saveSettings() {
-  const promptProfiles = buildPromptProfilesFromEditor(aiSettings.value);
-  const effectivePrompts = resolveAIEffectivePromptTemplates({
-    prompts: aiSettings.value.prompts,
-    promptProfiles,
-  });
+  const prompts = normalizeAIPromptTemplates(aiSettings.value.prompts);
   const queueInput = queueSettings.value as QueueSettings & {
     outstandingEveryNth?: number;
     outstandingSpacing?: number;
@@ -1724,8 +1700,7 @@ function saveSettings() {
       timeoutMs: Math.max(1000, Number(aiSettings.value.timeoutMs) || DEFAULT_AI_SETTINGS.timeoutMs),
       temperature: Math.min(2, Math.max(0, Number(aiSettings.value.temperature) || DEFAULT_AI_SETTINGS.temperature)),
       defaultOutputLanguage: String(aiSettings.value.defaultOutputLanguage || '').trim(),
-      prompts: effectivePrompts,
-      promptProfiles,
+      prompts,
       draftStorage: mergeAIDraftStorageSettings(
         aiSettings.value.draftStorage,
         DEFAULT_AI_SETTINGS.draftStorage,
@@ -2241,6 +2216,10 @@ async function handleRepairDates() {
 .ai-prompt-preset-card__editor {
   display: grid;
   gap: 8px;
+}
+
+.ai-prompt-preset-card__editor-label--sub {
+  margin-top: 4px;
 }
 
 .practice-filter {

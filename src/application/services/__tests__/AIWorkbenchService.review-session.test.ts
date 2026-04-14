@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
-import { createDefaultAIPromptProfileSet, type AISettings } from '@/types/settings';
+import type { AISettings } from '@/types/settings';
 
 function createAISettings(): AISettings {
   return {
@@ -12,11 +12,23 @@ function createAISettings(): AISettings {
     temperature: 0.2,
     defaultOutputLanguage: 'zh-CN',
     prompts: {
-      tutor: 'Tutor prompt',
-      explain: 'Explain prompt',
-      cardCandidate: 'Card candidate prompt',
+      tutor: {
+        run: 'Tutor prompt',
+        followUp: 'Tutor follow-up prompt',
+      },
+      explain: {
+        run: 'Explain prompt',
+        followUp: 'Explain follow-up prompt',
+      },
+      cardCandidate: {
+        run: 'Card candidate prompt',
+        followUp: 'Card candidate follow-up prompt',
+      },
+      cardCandidateCdf: {
+        run: 'CDF card candidate prompt',
+        followUp: 'CDF card candidate follow-up prompt',
+      },
     },
-    promptProfiles: createDefaultAIPromptProfileSet(),
     draftStorage: {
       mode: 'daily-note',
       notebookId: '',
@@ -367,6 +379,47 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(payload.context.currentCard.hasAnswerFace).toBe(true);
     expect(service.state.makeCardsResult?.mode).toBe('qa');
     expect(service.state.makeCardsResult?.candidates).toHaveLength(1);
+  });
+
+  it('uses the dedicated CDF prompt pair when make-card mode is cdf', async () => {
+    const llmChat = vi.fn().mockResolvedValue({
+      content: JSON.stringify({
+        mode: 'cdf',
+        candidates: [
+          {
+            templateId: 'builtin-concept-definition',
+            title: 'CDF Candidate',
+            fieldMapping: {
+              concept: '中子星',
+              definition: '超新星爆发后留下的极端致密恒星残骸',
+            },
+          },
+        ],
+      }),
+      raw: {},
+    });
+
+    const service = createService({ llmChat });
+    const card = createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1');
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-cdf',
+      view: 'make-cards',
+      currentCard: card as never,
+      revealed: true,
+      makeCardMode: 'cdf',
+    });
+
+    await service.runMakeCards();
+
+    expect(llmChat.mock.calls[0][0].messages[0].content).toBe('CDF card candidate prompt');
+    const payload = JSON.parse(llmChat.mock.calls[0][0].messages[1].content);
+    expect(payload.mode).toBe('cdf');
+    expect(payload.allowedTemplateIds).toContain('builtin-concept-definition');
+    expect(payload.allowedTemplateIds).toContain('builtin-concept-descriptor');
+    expect(service.state.makeCardsResult?.mode).toBe('cdf');
   });
 
   it('expands document blocks into markdown body for review card context and selected blocks', async () => {

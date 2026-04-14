@@ -6,7 +6,7 @@ import type {
 } from '@/types/unified-data-source';
 
 export type AITaskType = 'tutor' | 'explain' | 'make-cards';
-export type AIMakeCardMode = 'qa' | 'cloze' | 'concept-descriptor';
+export type AIMakeCardMode = 'qa' | 'cloze' | 'concept-descriptor' | 'cdf';
 export type AIWorkbenchSource = 'review' | 'browser' | 'template-dialog' | 'standalone';
 export type AIWorkbenchSurface = 'standalone-dialog' | 'review-dialog-sidecar' | 'review-tab-companion';
 export type AIFollowUpRole = 'user' | 'assistant';

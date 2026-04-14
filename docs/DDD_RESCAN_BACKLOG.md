@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-14 (Round 63)
+Last update: 2026-04-15 (Round 64)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-15 - ai prompt full exposure and cdf make-card mode
+
+- Task: Fully expose AI run/follow-up prompts as editable full text, remove legacy `promptProfiles` persistence/runtime composition, and add a dedicated `CDF` make-card mode that reuses the concept definition/descriptor candidate pipeline.
+- Touched slice: AI settings normalization in `src/types/settings.ts`, AI runtime flow in `src/application/services/{AIPromptComposer,AIWorkbenchService}.ts`, AI/settings surfaces in `src/ui/{ai/AiWorkbenchPane.vue,settings/SettingsPanel.vue}`, template-dialog entry in `src/application/managers/DialogManager.ts`, related i18n, and focused regression coverage.
+- Debt fixed now: Removed the hidden prompt-composer layer where runtime silently stitched shared prefixes and follow-up protocol around user-edited text; collapsed prompt persistence onto one explicit `run/followUp` truth source with legacy flat-string migration; and added a first-class `cdf` mode so concept-anchor/descriptor-style AI card generation no longer has to overload the older generic card-candidate prompt.
+- Debt deferred: Fully editable prompts can still drift away from the JSON response contract, and the settings surface still has no prompt-specific validator/preview that warns users before a broken template reaches runtime.
+- Why deferred: Adding schema-aware prompt linting or dry-run preview would widen this bounded prompt/runtime cleanup into a larger AI authoring-tooling project with new UX and model-coupling decisions.
+- Next safe step: If users start heavily customizing prompts, add a lightweight prompt health check in settings that validates required JSON-shape instructions per prompt group before save or first run.
+- Validation: `pnpm vitest run src/types/__tests__/settings-normalization.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/managers/__tests__/DialogManager.quick-template-filter.test.ts src/application/services/__tests__/AIPromptComposer.test.ts`; `pnpm build`.
 
 ### 2026-04-14 - settings panel left-nav regroup and large responsive dialog
 

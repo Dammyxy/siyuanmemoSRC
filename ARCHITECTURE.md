@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-14
+最后更新：2026-04-15
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -214,9 +214,17 @@ sequenceDiagram
 主链路分工：
 
 - `ReviewAIWorkbenchRegistry`：持有 standalone service 与按 review session 隔离的 AI service
-- `AIWorkbenchService`：AI 工作台状态机与动作编排
+- `AIWorkbenchService`：AI 工作台状态机、`qa/cloze/concept-descriptor/cdf` 模式编排、候选解析与动作编排
+- `src/types/settings.ts`：AI Prompt 的持久化真相源；当前使用四组全文可编辑 prompt 对：`tutor` / `explain` / `cardCandidate` / `cardCandidateCdf`，每组都包含 `run` 与 `followUp`
+- `AIPromptComposer`：只负责推荐 prompt 模板描述与默认全文，不再参与运行时隐藏前缀、任务说明或追问协议拼接
 - `AIDailyNoteDraftService`：候选内容写入 daily note / draft / capture 存储
 - `ConfiguredCaptureStorageService`：捕获存储位置与写入策略
+
+当前 make-card 主路径补充：
+
+- `AiWorkbenchPane.vue` 暴露 `CDF 辅助制卡` 独立模式，但仍复用概念定义 / 概念描述符模板族与现有候选落草稿链路
+- 模板选择弹窗里的 `AI 辅助制卡` 快捷入口默认走 `makeCardMode: 'cdf'` 并自动运行
+- 运行时直接把用户保存的全文 prompt 作为 `system` prompt，下发给模型；不再拼接隐藏共享前缀或追问协议
 
 UI surface：
 
@@ -568,7 +576,13 @@ AI 工作台的当前架构分成两层：
   - 管理 standalone service
   - 管理按 review session 隔离的 AI workbench service
 - `AIWorkbenchService`
-  - 管理状态、候选、make-card mode、surface 差异
+  - 管理状态、候选、`qa/cloze/concept-descriptor/cdf` make-card mode、surface 差异
+  - 直接读取 `settings.ai.prompts.*.{run,followUp}` 作为运行时 prompt 真相源
+  - 在 `cdf` 模式下切换到 `cardCandidateCdf` prompt 组，并复用概念定义 / 描述符模板池
+  - 保持现有 JSON 候选契约；若用户自定义 prompt 破坏结构化输出，则在错误里提示检查对应 Prompt
+- `AIPromptComposer`
+  - 只提供推荐模板描述与默认全文 prompt
+  - 不再承担运行时 prompt 拼接职责
 - `AIDailyNoteDraftService`
   - 将候选内容写入 daily note / draft / capture 目标
 - `ConfiguredCaptureStorageService`
@@ -579,6 +593,7 @@ UI 层：
 - `DialogManager.openAiWorkbenchDialog()`：standalone dialog
 - `TabManager.openReviewAICompanionTab(...)`：review companion tab
 - `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文
+- `AiWorkbenchPane.vue`：设置页暴露的四组 Prompt 与工作台的 `CDF 辅助制卡` 模式在这里汇合到同一条候选生成路径
 
 外部边界：
 
@@ -676,6 +691,8 @@ UI 层：
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
 - AI Workbench / Capture 已在主路径中，并通过 registry + session service 方式集成
+- AI Prompt 的运行时真相源已收敛为用户可直接编辑的全文 `run/followUp` 对，不再依赖隐藏 prompt composer
+- AI 制卡模式已包含 `cdf`，且模板弹窗的 AI 快捷入口默认直达该模式
 
 当前文档定位：
 

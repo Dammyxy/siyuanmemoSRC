@@ -84,22 +84,24 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         aiTutorPrompt: 'Tutor Prompt',
         aiExplainPrompt: 'Explain Prompt',
         aiCardCandidatePrompt: 'Card Prompt',
+        aiCardCandidateCdfPrompt: 'CDF Card Prompt',
         aiTutorPromptPresetTitle: 'Tutor Preset',
         aiExplainPromptPresetTitle: 'Explain Preset',
         aiCardPromptPresetTitle: 'Card Preset',
+        aiCdfPromptPresetTitle: 'CDF Preset',
         aiRestoreRecommendedPrompt: 'Restore Recommended Template',
-        aiShowAdvancedEditor: 'Advanced Editor',
-        aiHideAdvancedEditor: 'Hide Advanced Editor',
+        aiRunPrompt: 'Run Prompt',
+        aiFollowUpPrompt: 'Follow-up Prompt',
         aiPromptAudience: 'Audience',
         aiPromptBehavior: 'Default Behavior',
         aiPromptOutput: 'Output Shape',
         aiPromptCurrentStatus: 'Current Status',
         aiPromptStatusRecommended: 'Using Recommended Template',
-        aiPromptStatusRecommendedHint: 'The advanced editor is currently showing the built-in recommended template body.',
+        aiPromptStatusRecommendedHint: 'The recommended run and follow-up prompts are shown below.',
         aiPromptStatusCustom: 'Using Custom Override',
-        aiPromptStatusCustomHint: 'The advanced editor is showing your saved or in-progress custom override instead of the built-in recommended template.',
+        aiPromptStatusCustomHint: 'The saved run and follow-up prompts below are custom.',
         aiPromptStatusEmpty: 'Editor Is Empty',
-        aiPromptStatusEmptyHint: 'The editor is empty right now; saving will fall back to the recommended template.',
+        aiPromptStatusEmptyHint: 'This prompt pair is empty right now.',
         saveSettings: 'Save Settings',
       },
       ...extraProps,
@@ -336,8 +338,9 @@ describe('SettingsPanel', () => {
     expect(wrapper.text()).toContain('Tutor Preset');
     expect(wrapper.text()).toContain('Explain Preset');
     expect(wrapper.text()).toContain('Card Preset');
-    expect(wrapper.text()).toContain('压缩理解教练');
-    expect(wrapper.text()).toContain('质量优先，宁可少出');
+    expect(wrapper.text()).toContain('CDF Preset');
+    expect(wrapper.text()).toContain('讲清这张卡为什么值得记');
+    expect(wrapper.text()).toContain('优先辨析、因果、应用、边界和触发器');
     expect(wrapper.text()).toContain('Current Status');
     expect(wrapper.text()).toContain('Using Recommended Template');
 
@@ -373,24 +376,21 @@ describe('SettingsPanel', () => {
     await aiNotebookSelect!.setValue('notebook-b');
     await aiTargetBlockInput!.setValue('block-parent-1');
 
-    expect(wrapper.findAll('textarea')).toHaveLength(0);
-
-    const advancedButtons = wrapper.findAll('button').filter((btn) => btn.text().includes('Advanced Editor'));
-    expect(advancedButtons).toHaveLength(3);
-    await advancedButtons[0].trigger('click');
-    await advancedButtons[1].trigger('click');
-    await advancedButtons[2].trigger('click');
-
     const textareas = wrapper.findAll('textarea');
-    expect(textareas).toHaveLength(3);
-    await textareas[0].setValue('Tutor prompt body');
-    await textareas[1].setValue('Explain prompt body');
-    await textareas[2].setValue('Card prompt body');
+    expect(textareas).toHaveLength(8);
+    await textareas[0].setValue('Tutor run prompt body');
+    await textareas[1].setValue('Tutor follow-up prompt body');
+    await textareas[2].setValue('Explain run prompt body');
+    await textareas[3].setValue('Explain follow-up prompt body');
+    await textareas[4].setValue('Card run prompt body');
+    await textareas[5].setValue('Card follow-up prompt body');
+    await textareas[6].setValue('CDF run prompt body');
+    await textareas[7].setValue('CDF follow-up prompt body');
     expect(wrapper.text()).toContain('Using Custom Override');
-    expect(wrapper.text()).toContain('The advanced editor is showing your saved or in-progress custom override instead of the built-in recommended template.');
+    expect(wrapper.text()).toContain('The saved run and follow-up prompts below are custom.');
 
     const restoreButtons = wrapper.findAll('button').filter((btn) => btn.text().includes('Restore Recommended Template'));
-    expect(restoreButtons).toHaveLength(3);
+    expect(restoreButtons).toHaveLength(4);
     await restoreButtons[0].trigger('click');
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
@@ -402,30 +402,27 @@ describe('SettingsPanel', () => {
     expect(payload.ai.baseUrl).toBe('https://example.test/v1');
     expect(payload.ai.apiKey).toBe('secret-key');
     expect(payload.ai.model).toBe('gpt-test');
-    expect(payload.ai.prompts.tutor).not.toBe('Tutor prompt body');
-    expect(payload.ai.prompts.tutor).toContain('AI 导师');
-    expect(payload.ai.prompts.explain).toBe('Explain prompt body');
-    expect(payload.ai.prompts.cardCandidate).toBe('Card prompt body');
+    expect(payload.ai.prompts.tutor.run).not.toBe('Tutor run prompt body');
+    expect(payload.ai.prompts.tutor.run).toContain('AI 导师');
+    expect(payload.ai.prompts.tutor.followUp).not.toBe('Tutor follow-up prompt body');
+    expect(payload.ai.prompts.explain).toEqual({
+      run: 'Explain run prompt body',
+      followUp: 'Explain follow-up prompt body',
+    });
+    expect(payload.ai.prompts.cardCandidate).toEqual({
+      run: 'Card run prompt body',
+      followUp: 'Card follow-up prompt body',
+    });
+    expect(payload.ai.prompts.cardCandidateCdf).toEqual({
+      run: 'CDF run prompt body',
+      followUp: 'CDF follow-up prompt body',
+    });
     expect(payload.ai.draftStorage).toEqual({
       mode: 'library',
       notebookId: 'notebook-b',
       targetBlockId: 'block-parent-1',
     });
-    expect(payload.ai.promptProfiles.tutor).toEqual({
-      preset: 'recommended',
-      overrideEnabled: false,
-      overrideTemplate: '',
-    });
-    expect(payload.ai.promptProfiles.explain).toEqual({
-      preset: 'recommended',
-      overrideEnabled: true,
-      overrideTemplate: 'Explain prompt body',
-    });
-    expect(payload.ai.promptProfiles.cardCandidate).toEqual({
-      preset: 'recommended',
-      overrideEnabled: true,
-      overrideTemplate: 'Card prompt body',
-    });
+    expect(payload.ai).not.toHaveProperty('promptProfiles');
   });
 
   it('saves the default review open-mode UI toggles from the review tab', async () => {

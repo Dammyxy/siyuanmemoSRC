@@ -2386,7 +2386,7 @@ export class DialogManager implements IDialogManager {
               view: 'make-cards',
               source: 'template-dialog',
               selectedBlockIds: blockIds,
-              makeCardMode: 'qa',
+              makeCardMode: 'cdf',
               autoRun: true,
             });
           },

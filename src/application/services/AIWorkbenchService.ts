@@ -3,7 +3,7 @@ import type { CardContentQueryService } from '@/application/queries/CardContentQ
 import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMPort, LLMResponse } from '@/application/ports/LLMPort';
 import { LLMError } from '@/application/ports/LLMPort';
-import { composePrompt, type AIPromptTask } from '@/application/services/AIPromptComposer';
+import type { AIPromptTask } from '@/application/services/AIPromptComposer';
 import type { AIDailyNoteDraftService } from '@/application/services/AIDailyNoteDraftService';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import type { FSRSCard } from '@/types/card';
@@ -27,7 +27,7 @@ import type {
   AIReviewCardContext,
 } from '@/types/ai';
 import type { NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
-import { resolveAIEffectivePromptTemplate, type AISettings } from '@/types/settings';
+import type { AISettings } from '@/types/settings';
 
 type TemplateField = {
   name: string;
@@ -84,6 +84,15 @@ const ALLOWED_TEMPLATE_IDS_BY_MODE: Record<AIMakeCardMode, string[]> = {
   qa: ['builtin-basic-qa', 'builtin-bidirectional'],
   cloze: ['builtin-multi-cloze'],
   'concept-descriptor': [
+    'builtin-concept-definition',
+    'builtin-concept-definition-forward',
+    'builtin-concept-definition-reverse',
+    'builtin-concept-descriptor',
+    'builtin-concept-descriptor-auto',
+    'builtin-concept-descriptor-reverse',
+    'builtin-concept-descriptor-both',
+  ],
+  cdf: [
     'builtin-concept-definition',
     'builtin-concept-definition-forward',
     'builtin-concept-definition-reverse',
@@ -464,7 +473,7 @@ export class AIWorkbenchService {
           selectedBlocks: context.blocks,
         },
       });
-      const payload = extractJsonPayload(response.content);
+      const payload = this.extractStructuredPayload('AI 导师', response.content, 'tutor');
       this.state.tutorResult = this.normalizeTutorResult(payload, response.content);
       this.pushHistory('tutor', 'AI 导师');
     });
@@ -493,7 +502,7 @@ export class AIWorkbenchService {
           selectedBlocks: context.blocks,
         },
       });
-      const payload = extractJsonPayload(response.content);
+      const payload = this.extractStructuredPayload('AI 解释卡片', response.content, 'explain');
       this.state.explainResult = this.normalizeExplainResult(payload, response.content);
       this.pushHistory('explain', 'AI 解释');
     });
@@ -520,8 +529,9 @@ export class AIWorkbenchService {
           neuralBatch: context.neuralBatch,
           selectedBlocks: context.blocks,
         },
-      });
-      const payload = extractJsonPayload(response.content);
+      }, { mode });
+      const taskLabel = mode === 'cdf' ? 'CDF 辅助制卡' : 'AI 辅助制卡';
+      const payload = this.extractStructuredPayload(taskLabel, response.content, 'make-cards');
       this.state.makeCardsResult = this.normalizeMakeCardsResult(mode, payload, response.content, context);
       this.pushHistory('make-cards', 'AI 辅助制卡');
     });
@@ -981,7 +991,11 @@ export class AIWorkbenchService {
     }
   }
 
-  private async requestModel(promptTask: AIPromptTask, payload: Record<string, unknown>): Promise<LLMResponse> {
+  private async requestModel(
+    promptTask: AIPromptTask,
+    payload: Record<string, unknown>,
+    options?: { mode?: AIMakeCardMode },
+  ): Promise<LLMResponse> {
     const settings = this.deps.getAISettings();
     if (!settings.enabled) {
       throw this.fail('请先在设置中启用 AI 功能。');
@@ -1003,7 +1017,10 @@ export class AIWorkbenchService {
         messages: [
           {
             role: 'system',
-            content: composePrompt(promptTask, this.getPromptTemplate(promptTask, settings)),
+            content: this.getPromptTemplate(promptTask, settings, {
+              followUp: false,
+              mode: options?.mode,
+            }),
           },
           {
             role: 'user',
@@ -1048,11 +1065,7 @@ export class AIWorkbenchService {
         messages: [
           {
             role: 'system',
-            content: composePrompt(
-              this.getPromptTaskForView(view),
-              this.getPromptTemplateForView(view, settings),
-              { followUp: true },
-            ),
+            content: this.getPromptTemplateForView(view, settings, { followUp: true }),
           },
           {
             role: 'user',
@@ -1088,20 +1101,52 @@ export class AIWorkbenchService {
     return view === 'make-cards' ? 'card-candidate' : view;
   }
 
-  private getPromptTemplateForView(view: AITaskType, settings: AISettings): string {
-    return this.getPromptTemplate(this.getPromptTaskForView(view), settings);
+  private getPromptTemplateForView(
+    view: AITaskType,
+    settings: AISettings,
+    options?: { followUp?: boolean },
+  ): string {
+    const mode = view === 'make-cards'
+      ? (this.state.makeCardsResult?.mode || this.state.makeCardMode)
+      : undefined;
+    return this.getPromptTemplate(this.getPromptTaskForView(view), settings, {
+      followUp: options?.followUp,
+      mode,
+    });
   }
 
-  private getPromptTemplate(task: AIPromptTask, settings: AISettings): string {
+  private getPromptTemplate(
+    task: AIPromptTask,
+    settings: AISettings,
+    options?: { followUp?: boolean; mode?: AIMakeCardMode },
+  ): string {
+    const followUp = options?.followUp === true;
     switch (task) {
       case 'tutor':
-        return resolveAIEffectivePromptTemplate('tutor', settings);
+        return followUp ? settings.prompts.tutor.followUp : settings.prompts.tutor.run;
       case 'explain':
-        return resolveAIEffectivePromptTemplate('explain', settings);
+        return followUp ? settings.prompts.explain.followUp : settings.prompts.explain.run;
       case 'card-candidate':
-        return resolveAIEffectivePromptTemplate('cardCandidate', settings);
+        if (options?.mode === 'cdf') {
+          return followUp ? settings.prompts.cardCandidateCdf.followUp : settings.prompts.cardCandidateCdf.run;
+        }
+        return followUp ? settings.prompts.cardCandidate.followUp : settings.prompts.cardCandidate.run;
       default:
-        return resolveAIEffectivePromptTemplate('explain', settings);
+        return followUp ? settings.prompts.explain.followUp : settings.prompts.explain.run;
+    }
+  }
+
+  private extractStructuredPayload(taskLabel: string, rawContent: string, view: AITaskType): unknown {
+    try {
+      return extractJsonPayload(rawContent);
+    } catch (error) {
+      const promptLabel = view === 'make-cards'
+        ? (this.state.makeCardMode === 'cdf' ? 'CDF 辅助制卡 Prompt' : 'AI 制卡 Prompt')
+        : view === 'tutor'
+          ? 'AI 导师 Prompt'
+          : 'AI 解释 Prompt';
+      const reason = error instanceof Error ? error.message : String(error);
+      throw this.fail(`${taskLabel}返回的内容不是合法 JSON。请检查设置里的 ${promptLabel} 是否仍要求模型严格输出 JSON。原始原因：${reason}`);
     }
   }
 
