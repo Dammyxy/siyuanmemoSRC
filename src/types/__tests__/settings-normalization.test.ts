@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PluginSettings } from '../settings';
 import {
+  ACTIVE_AI_PROMPT_CONTRACT_VERSION,
   ACTIVE_FSRS_VERSION,
   DEFAULT_FSRS_WEIGHTS,
   DEFAULT_SETTINGS,
@@ -257,15 +258,46 @@ describe('settings normalization', () => {
   });
 
   it('ships full-text AI default prompt pairs aligned with tutor, explain, candidate, and CDF tasks', () => {
+    expect(DEFAULT_SETTINGS.ai.promptContractVersion).toBe(ACTIVE_AI_PROMPT_CONTRACT_VERSION);
     expect(DEFAULT_SETTINGS.ai.prompts.tutor.run).toContain('AI 导师');
     expect(DEFAULT_SETTINGS.ai.prompts.tutor.run).toContain('正在神经漫游中的现在的自己');
+    expect(DEFAULT_SETTINGS.ai.prompts.tutor.run).not.toContain('blindSpots');
     expect(DEFAULT_SETTINGS.ai.prompts.tutor.followUp).toContain('不要输出 JSON');
     expect(DEFAULT_SETTINGS.ai.prompts.explain.run).toContain('学习教练');
-    expect(DEFAULT_SETTINGS.ai.prompts.explain.run).toContain('workingDefinition');
+    expect(DEFAULT_SETTINGS.ai.prompts.explain.run).not.toContain('workingDefinition');
     expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate.run).toContain('6-10 张');
-    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate.run).toContain('candidates');
+    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate.run).not.toContain('candidates');
     expect(DEFAULT_SETTINGS.ai.prompts.cardCandidateCdf.run).toContain('CDF 辅助制卡');
     expect(DEFAULT_SETTINGS.ai.prompts.cardCandidateCdf.run).toContain('概念锚点');
+  });
+
+  it('resets AI prompts to the current behavior-prompt contract when legacy settings lack the new contract version', () => {
+    const legacy = cloneSettings();
+    delete (legacy.ai as Partial<typeof legacy.ai>).promptContractVersion;
+    legacy.ai.prompts = {
+      tutor: {
+        run: 'legacy tutor prompt with blindSpots',
+        followUp: 'legacy tutor follow-up',
+      },
+      explain: {
+        run: 'legacy explain prompt with workingDefinition',
+        followUp: 'legacy explain follow-up',
+      },
+      cardCandidate: {
+        run: 'legacy card prompt with candidates',
+        followUp: 'legacy card follow-up',
+      },
+      cardCandidateCdf: {
+        run: 'legacy cdf prompt with allowedTemplateIds',
+        followUp: 'legacy cdf follow-up',
+      },
+    };
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.ai.promptContractVersion).toBe(ACTIVE_AI_PROMPT_CONTRACT_VERSION);
+    expect(normalized.settings.ai.prompts).toEqual(DEFAULT_SETTINGS.ai.prompts);
   });
 
   it('migrates legacy flat prompt strings into run prompts and ignores legacy promptProfiles', () => {

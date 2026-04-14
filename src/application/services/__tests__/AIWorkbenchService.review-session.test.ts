@@ -11,6 +11,7 @@ function createAISettings(): AISettings {
     timeoutMs: 30000,
     temperature: 0.2,
     defaultOutputLanguage: 'zh-CN',
+    promptContractVersion: 2,
     prompts: {
       tutor: {
         run: 'Tutor prompt',
@@ -138,11 +139,65 @@ function createDraftService() {
   };
 }
 
+function createSessionStore() {
+  const records = new Map<string, any>();
+
+  const buildSummary = (record: any) => {
+    const activeViews = (['tutor', 'explain', 'make-cards'] as const).filter((view) => (
+      Array.isArray(record.threads?.[view]?.messages) && record.threads[view].messages.length > 0
+    ));
+    const messageCount = activeViews.reduce((count, view) => count + record.threads[view].messages.length, 0);
+    return {
+      id: record.id,
+      title: record.title,
+      source: record.source,
+      sourceReviewSessionId: record.sourceReviewSessionId,
+      surface: record.surface,
+      contextSignature: record.contextSignature,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      lastActiveView: record.lastActiveView,
+      activeViews,
+      messageCount,
+    };
+  };
+
+  return {
+    listSummaries: vi.fn(async () => (
+      Array.from(records.values())
+        .map((record) => buildSummary(record))
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+    )),
+    loadSession: vi.fn(async (sessionId: string) => {
+      const record = records.get(sessionId);
+      return record ? JSON.parse(JSON.stringify(record)) : null;
+    }),
+    saveSession: vi.fn(async (record: any) => {
+      const cloned = JSON.parse(JSON.stringify(record));
+      records.set(cloned.id, cloned);
+      return JSON.parse(JSON.stringify(cloned));
+    }),
+    renameSession: vi.fn(async (sessionId: string, title: string) => {
+      const record = records.get(sessionId);
+      if (!record) {
+        return null;
+      }
+      record.title = title;
+      record.updatedAt = Date.now();
+      return JSON.parse(JSON.stringify(record));
+    }),
+    deleteSession: vi.fn(async (sessionId: string) => {
+      records.delete(sessionId);
+    }),
+  };
+}
+
 function createService(options?: {
   llmChat?: ReturnType<typeof vi.fn>;
   getXiuyuanApplicationService?: ReturnType<typeof vi.fn>;
   siyuanPort?: ReturnType<typeof createSiyuanPort>;
   draftService?: ReturnType<typeof createDraftService>;
+  sessionStore?: ReturnType<typeof createSessionStore>;
 }) {
   return new AIWorkbenchService({
     getAISettings: () => createAISettings(),
@@ -157,6 +212,7 @@ function createService(options?: {
     llmPort: {
       chat: options?.llmChat || vi.fn(),
     },
+    sessionStore: options?.sessionStore || createSessionStore(),
   });
 }
 
@@ -165,7 +221,7 @@ describe('AIWorkbenchService review-session behavior', () => {
     vi.clearAllMocks();
   });
 
-  it('marks explain results stale when the review card changes and resets follow-ups after rerun', async () => {
+  it('starts a new session when the review card changes and keeps the previous follow-up thread in history', async () => {
     const llmChat = vi.fn()
       .mockResolvedValueOnce({
         content: JSON.stringify({
@@ -230,6 +286,8 @@ describe('AIWorkbenchService review-session behavior', () => {
       role: 'assistant',
       content: 'Follow-up answer',
     });
+    const firstSessionId = service.state.sessionId;
+    expect(firstSessionId).toBeTruthy();
 
     await service.open({
       source: 'review',
@@ -248,17 +306,20 @@ describe('AIWorkbenchService review-session behavior', () => {
     });
 
     expect(service.state.context?.currentCard?.cardId).toBe('card-b');
-    expect(service.state.viewState.explain.stale).toBe(true);
-    expect(service.getFollowUpDisabledReason('explain')).toContain('新卡片');
-    await expect(service.submitFollowUp('继续解释')).rejects.toThrow('新卡片');
+    expect(service.state.sessionId).not.toBe(firstSessionId);
+    expect(service.state.explainResult).toBeNull();
+    expect(service.getFollowUps('explain')).toHaveLength(0);
+    expect(service.state.sessionHistory).toHaveLength(2);
+    await expect(service.submitFollowUp('继续解释')).rejects.toThrow('请先运行一次当前视图');
 
     await service.runExplain();
 
     expect(service.state.explainResult?.workingDefinition).toBe('Definition B');
     expect(service.state.explainResult?.whatItTests).toBe('Test B');
     expect(service.state.explainResult?.triggers).toEqual(['Trigger B']);
-    expect(service.state.viewState.explain.stale).toBe(false);
-    expect(service.getFollowUps('explain')).toHaveLength(0);
+    await service.openSession(firstSessionId!);
+    expect(service.state.context?.currentCard?.cardId).toBe('card-a');
+    expect(service.getFollowUps('explain')).toHaveLength(2);
     expect(service.getFollowUpDisabledReason('explain')).toBeNull();
   });
 
@@ -317,6 +378,282 @@ describe('AIWorkbenchService review-session behavior', () => {
       remaining: 2,
       total: 5,
     });
+  });
+
+  it('requests json_object for structured explain runs and accepts fenced JSON payloads', async () => {
+    const llmChat = vi.fn().mockResolvedValue({
+      content: `\`\`\`json
+{
+  "workingDefinition": "Fenced definition",
+  "whatItTests": "Fenced test",
+  "whyItsTricky": "Fenced tricky",
+  "connections": ["Fenced connection"],
+  "triggers": ["Fenced trigger"],
+  "cardIdeas": ["Fenced idea"]
+}
+\`\`\``,
+      raw: {},
+    });
+
+    const service = createService({ llmChat });
+    const card = createCard('card-fenced', 'card-block-1', 'front-1', 'back-1', 'source-1');
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-fenced',
+      view: 'explain',
+      currentCard: card as never,
+      revealed: true,
+    });
+
+    await service.runExplain();
+
+    expect(llmChat.mock.calls[0][0].responseFormat).toBe('json_object');
+    expect(llmChat.mock.calls[0][0].messages[0].content).toContain('Explain prompt');
+    expect(llmChat.mock.calls[0][0].messages[0].content).toContain('workingDefinition、whatItTests、whyItsTricky、connections、triggers、cardIdeas');
+    expect(service.state.explainResult).toMatchObject({
+      workingDefinition: 'Fenced definition',
+      whatItTests: 'Fenced test',
+      whyItsTricky: 'Fenced tricky',
+      connections: ['Fenced connection'],
+      triggers: ['Fenced trigger'],
+      cardIdeas: ['Fenced idea'],
+    });
+  });
+
+  it('normalizes legacy explain field aliases into the current explain result shape', async () => {
+    const llmChat = vi.fn().mockResolvedValue({
+      content: JSON.stringify({
+        workDefinition: 'Alias definition',
+        testPoint: 'Alias test',
+        confusionBoundary: 'Alias tricky',
+        knowledgeNetwork: 'Alias connection',
+        recallTrigger: 'Alias trigger',
+      }),
+      raw: {},
+    });
+
+    const service = createService({ llmChat });
+    const card = createCard('card-alias', 'card-block-1', 'front-1', 'back-1', 'source-1');
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-alias',
+      view: 'explain',
+      currentCard: card as never,
+      revealed: true,
+    });
+
+    await service.runExplain();
+
+    expect(service.state.explainResult).toMatchObject({
+      workingDefinition: 'Alias definition',
+      whatItTests: 'Alias test',
+      whyItsTricky: 'Alias tricky',
+      connections: ['Alias connection'],
+      triggers: ['Alias trigger'],
+      cardIdeas: [],
+    });
+  });
+
+  it('keeps follow-up chat requests freeform after the structured explain run', async () => {
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          workingDefinition: 'Explain definition',
+          whatItTests: 'Explain test',
+          whyItsTricky: 'Explain tricky',
+          connections: ['Explain connection'],
+          triggers: ['Explain trigger'],
+          cardIdeas: ['Explain idea'],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: '这是追问回复',
+        raw: {},
+      });
+
+    const service = createService({ llmChat });
+    const card = createCard('card-follow-up', 'card-block-1', 'front-1', 'back-1', 'source-1');
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-follow-up-format',
+      view: 'explain',
+      currentCard: card as never,
+      revealed: true,
+    });
+
+    await service.runExplain();
+    await service.submitFollowUp('继续展开讲讲');
+
+    expect(llmChat.mock.calls[0][0].responseFormat).toBe('json_object');
+    expect(llmChat.mock.calls[1][0].responseFormat).toBeUndefined();
+  });
+
+  it('sends one-shot attached contexts with both structured runs and follow-ups, while keeping message snapshots', async () => {
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          workingDefinition: 'With context definition',
+          whatItTests: 'With context test',
+          whyItsTricky: 'With context tricky',
+          connections: ['With context connection'],
+          triggers: ['With context trigger'],
+          cardIdeas: ['With context idea'],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: 'Follow-up answer with context',
+        raw: {},
+      });
+
+    const service = createService({ llmChat });
+    const card = createCard('card-attached', 'card-block-1', 'front-1', 'back-1', 'source-1');
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-attached-context',
+      view: 'explain',
+      currentCard: card as never,
+      revealed: true,
+    });
+
+    await service.attachContextFromProvider('manual-text', '额外参考：这段材料来自旁边的笔记。');
+    expect(service.state.composerContexts.items).toHaveLength(1);
+
+    await service.runExplain();
+
+    const structuredPayload = JSON.parse(llmChat.mock.calls[0][0].messages[1].content);
+    expect(structuredPayload.attachedContexts).toEqual([
+      expect.objectContaining({
+        providerKey: 'manual-text',
+        content: '额外参考：这段材料来自旁边的笔记。',
+      }),
+    ]);
+    expect(service.state.composerContexts.items).toHaveLength(0);
+    expect(service.state.threads.explain.messages[0]).toMatchObject({
+      kind: 'assistant-result',
+      appliedContexts: [
+        expect.objectContaining({
+          providerKey: 'manual-text',
+        }),
+      ],
+    });
+
+    await service.attachContextFromProvider('manual-text', '第二段临时材料');
+    await service.submitFollowUp('继续展开');
+
+    const followUpPayload = JSON.parse(llmChat.mock.calls[1][0].messages[1].content);
+    expect(followUpPayload.attachedContexts).toEqual([
+      expect.objectContaining({
+        providerKey: 'manual-text',
+        content: '第二段临时材料',
+      }),
+    ]);
+    const threadMessages = service.state.threads.explain.messages;
+    expect(threadMessages.find((message) => message.kind === 'user')).toMatchObject({
+      attachedContexts: [
+        expect.objectContaining({
+          content: '第二段临时材料',
+        }),
+      ],
+    });
+    expect(threadMessages.find((message) => message.kind === 'assistant-text')).toMatchObject({
+      appliedContexts: [
+        expect.objectContaining({
+          content: '第二段临时材料',
+        }),
+      ],
+    });
+    expect(service.state.composerContexts.items).toHaveLength(0);
+  });
+
+  it('persists local assistant edits and structured result edits without rerunning the model', async () => {
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          workingDefinition: 'Original definition',
+          whatItTests: 'Original test',
+          whyItsTricky: 'Original tricky',
+          connections: ['Original connection'],
+          triggers: ['Original trigger'],
+          cardIdeas: ['Original idea'],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: 'Original assistant follow-up',
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: 'Second assistant follow-up',
+        raw: {},
+      });
+
+    const service = createService({ llmChat });
+    const card = createCard('card-local-edit', 'card-block-1', 'front-1', 'back-1', 'source-1');
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-local-edit',
+      view: 'explain',
+      currentCard: card as never,
+      revealed: true,
+    });
+
+    await service.runExplain();
+    const structuredMessage = service.state.threads.explain.messages.find((message) => message.kind === 'assistant-result');
+    if (!structuredMessage || structuredMessage.kind !== 'assistant-result') {
+      throw new Error('Expected structured explain message');
+    }
+
+    await service.updateAssistantResultMessage(structuredMessage.id, {
+      workingDefinition: 'Locally edited definition',
+      connections: ['Locally edited connection'],
+    });
+    expect(service.state.explainResult).toMatchObject({
+      workingDefinition: 'Locally edited definition',
+      connections: ['Locally edited connection'],
+    });
+
+    await service.submitFollowUp('先来一轮追问');
+    const firstAssistantText = service.state.threads.explain.messages.find((message) => message.kind === 'assistant-text');
+    if (!firstAssistantText || firstAssistantText.kind !== 'assistant-text') {
+      throw new Error('Expected assistant follow-up message');
+    }
+
+    await service.updateAssistantTextMessage(firstAssistantText.id, 'Locally edited assistant follow-up');
+    expect(service.getFollowUps('explain')[1]).toMatchObject({
+      role: 'assistant',
+      content: 'Locally edited assistant follow-up',
+    });
+    expect(llmChat).toHaveBeenCalledTimes(2);
+
+    await service.submitFollowUp('再追问一次');
+    const secondFollowUpPayload = JSON.parse(llmChat.mock.calls[2][0].messages[1].content);
+    expect(secondFollowUpPayload.structuredResult.workingDefinition).toBe('Locally edited definition');
+    expect(llmChat.mock.calls[2][0].messages.slice(2)).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        content: '先来一轮追问',
+      }),
+      expect.objectContaining({
+        role: 'assistant',
+        content: 'Locally edited assistant follow-up',
+      }),
+      expect.objectContaining({
+        role: 'user',
+        content: '再追问一次',
+      }),
+    ]);
   });
 
   it('adds the default Andy learner profile to make-card requests while keeping JSON candidates', async () => {
@@ -414,7 +751,8 @@ describe('AIWorkbenchService review-session behavior', () => {
 
     await service.runMakeCards();
 
-    expect(llmChat.mock.calls[0][0].messages[0].content).toBe('CDF card candidate prompt');
+    expect(llmChat.mock.calls[0][0].messages[0].content).toContain('CDF card candidate prompt');
+    expect(llmChat.mock.calls[0][0].messages[0].content).toContain('顶层字段必须是 mode、candidates。');
     const payload = JSON.parse(llmChat.mock.calls[0][0].messages[1].content);
     expect(payload.mode).toBe('cdf');
     expect(payload.allowedTemplateIds).toContain('builtin-concept-definition');

@@ -72,6 +72,7 @@ import { TopicDerivedItemService } from '@/application/services/TopicDerivedItem
 import { AIDailyNoteDraftService } from '@/application/services/AIDailyNoteDraftService';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
+import { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
 import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
@@ -110,6 +111,7 @@ interface ApplicationServiceRegistry {
   selectionExcerptService: SelectionExcerptService;
   topicDerivedItemService: TopicDerivedItemService;
   cardContentQueryService: CardContentQueryService;
+  aiWorkbenchSessionStoreService: AIWorkbenchSessionStoreService;
   reviewAIWorkbenchRegistry: ReviewAIWorkbenchRegistry;
   aiWorkbenchService: AIWorkbenchService;
   dialogManager: DialogManager;
@@ -428,7 +430,12 @@ export class ApplicationContext {
         siyuanPort,
         draftService: new AIDailyNoteDraftService(siyuanPort, context.getConfiguredCaptureStorageService()),
         llmPort: new OpenAICompatibleLLMAdapter(),
+        sessionStore: context.getAIWorkbenchSessionStoreService(),
       });
+    });
+
+    this.registerServiceFactory('aiWorkbenchSessionStoreService', (context) => {
+      return new AIWorkbenchSessionStoreService(context.getFileService());
     });
 
     this.registerServiceFactory('aiWorkbenchService', (context) => {
@@ -1643,6 +1650,10 @@ export class ApplicationContext {
    */
   getCardContentQueryService(): CardContentQueryService {
     return this.getService('cardContentQueryService');
+  }
+
+  getAIWorkbenchSessionStoreService(): AIWorkbenchSessionStoreService {
+    return this.getService('aiWorkbenchSessionStoreService');
   }
 
   getReviewAIWorkbenchRegistry(): ReviewAIWorkbenchRegistry {

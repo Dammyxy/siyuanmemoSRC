@@ -29,7 +29,7 @@ export const AI_PROMPT_PRESET_DESCRIPTORS: readonly AIPromptPresetDescriptor[] =
     behaviorKey: 'aiTutorPromptPresetBehavior',
     behaviorFallback: '默认像陪学导师一样继续理解和连接，不会急着替你定稿。',
     outputKey: 'aiTutorPromptPresetOutput',
-    outputFallback: '提供一组完整可编辑的运行 Prompt 和追问 Prompt。',
+    outputFallback: '提供一组可编辑的行为 Prompt 和追问 Prompt；结构化输出规则由系统自动附加。',
   },
   {
     task: 'explain',
@@ -41,7 +41,7 @@ export const AI_PROMPT_PRESET_DESCRIPTORS: readonly AIPromptPresetDescriptor[] =
     behaviorKey: 'aiExplainPromptPresetBehavior',
     behaviorFallback: '强调工作定义、边界、因果、连接和触发器，不空泛复述。',
     outputKey: 'aiExplainPromptPresetOutput',
-    outputFallback: '提供一组完整可编辑的运行 Prompt 和追问 Prompt。',
+    outputFallback: '提供一组可编辑的行为 Prompt 和追问 Prompt；结构化输出规则由系统自动附加。',
   },
   {
     task: 'card-candidate',
@@ -53,7 +53,7 @@ export const AI_PROMPT_PRESET_DESCRIPTORS: readonly AIPromptPresetDescriptor[] =
     behaviorKey: 'aiCardPromptPresetBehavior',
     behaviorFallback: '优先辨析、因果、应用、边界和触发器，质量优先，宁可少出。',
     outputKey: 'aiCardPromptPresetOutput',
-    outputFallback: '提供一组完整可编辑的运行 Prompt 和追问 Prompt。',
+    outputFallback: '提供一组可编辑的行为 Prompt 和追问 Prompt；结构化输出规则由系统自动附加。',
   },
   {
     task: 'card-candidate-cdf',
@@ -65,7 +65,7 @@ export const AI_PROMPT_PRESET_DESCRIPTORS: readonly AIPromptPresetDescriptor[] =
     behaviorKey: 'aiCdfPromptPresetBehavior',
     behaviorFallback: '优先概念定义、特征、机制、条件、证据、对比和例子，避免机械拆散原文。',
     outputKey: 'aiCdfPromptPresetOutput',
-    outputFallback: '提供一组完整可编辑的运行 Prompt 和追问 Prompt。',
+    outputFallback: '提供一组可编辑的行为 Prompt 和追问 Prompt；结构化输出规则由系统自动附加。',
   },
 ] as const;
 

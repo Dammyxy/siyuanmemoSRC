@@ -37,6 +37,12 @@ export interface IFileService {
    * @param content 文件内容
    */
   writeFile(fileName: string, content: string): Promise<void>;
+
+  /**
+   * 删除插件数据文件
+   * @param fileName 文件名（相对于插件数据目录）
+   */
+  deleteFile(fileName: string): Promise<void>;
   
   /**
    * 读取 JSON 文件
@@ -135,6 +141,25 @@ export class FileService implements IFileService {
       await this.plugin.saveData(fileName, content);
     } catch (error) {
       logger.error(`[FileService] Failed to write file "${fileName}":`, error);
+      throw new FileOperationError(
+        'write',
+        fileName,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * 删除插件数据文件
+   */
+  async deleteFile(fileName: string): Promise<void> {
+    try {
+      await this.plugin.removeData(fileName);
+    } catch (error) {
+      if (this.isFileNotFoundError(error)) {
+        return;
+      }
+      logger.error(`[FileService] Failed to delete file "${fileName}":`, error);
       throw new FileOperationError(
         'write',
         fileName,

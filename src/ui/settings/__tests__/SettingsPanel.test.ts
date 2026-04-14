@@ -90,6 +90,9 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         aiCardPromptPresetTitle: 'Card Preset',
         aiCdfPromptPresetTitle: 'CDF Preset',
         aiRestoreRecommendedPrompt: 'Restore Recommended Template',
+        aiBehaviorPrompt: 'Behavior Prompt',
+        aiBehaviorPromptHint: 'The system appends structured output rules automatically; use this area for role, goal, tone, and preferences.',
+        aiPromptShowSystemContract: 'Show the system-appended structured contract',
         aiRunPrompt: 'Run Prompt',
         aiFollowUpPrompt: 'Follow-up Prompt',
         aiPromptAudience: 'Audience',
@@ -97,9 +100,9 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         aiPromptOutput: 'Output Shape',
         aiPromptCurrentStatus: 'Current Status',
         aiPromptStatusRecommended: 'Using Recommended Template',
-        aiPromptStatusRecommendedHint: 'The recommended run and follow-up prompts are shown below.',
+        aiPromptStatusRecommendedHint: 'The recommended behavior and follow-up prompts are shown below; the system appends structured rules automatically.',
         aiPromptStatusCustom: 'Using Custom Override',
-        aiPromptStatusCustomHint: 'The saved run and follow-up prompts below are custom.',
+        aiPromptStatusCustomHint: 'The saved behavior and follow-up prompts below are custom; the system appends structured rules automatically.',
         aiPromptStatusEmpty: 'Editor Is Empty',
         aiPromptStatusEmptyHint: 'This prompt pair is empty right now.',
         saveSettings: 'Save Settings',
@@ -343,6 +346,8 @@ describe('SettingsPanel', () => {
     expect(wrapper.text()).toContain('优先辨析、因果、应用、边界和触发器');
     expect(wrapper.text()).toContain('Current Status');
     expect(wrapper.text()).toContain('Using Recommended Template');
+    expect(wrapper.text()).toContain('Behavior Prompt');
+    expect(wrapper.text()).toContain('Show the system-appended structured contract');
 
     const formItems = wrapper.findAll('.form-item');
     const enableItem = formItems.find((item) => item.text().includes('Enable AI'));
@@ -387,7 +392,7 @@ describe('SettingsPanel', () => {
     await textareas[6].setValue('CDF run prompt body');
     await textareas[7].setValue('CDF follow-up prompt body');
     expect(wrapper.text()).toContain('Using Custom Override');
-    expect(wrapper.text()).toContain('The saved run and follow-up prompts below are custom.');
+    expect(wrapper.text()).toContain('The saved behavior and follow-up prompts below are custom; the system appends structured rules automatically.');
 
     const restoreButtons = wrapper.findAll('button').filter((btn) => btn.text().includes('Restore Recommended Template'));
     expect(restoreButtons).toHaveLength(4);
@@ -402,6 +407,7 @@ describe('SettingsPanel', () => {
     expect(payload.ai.baseUrl).toBe('https://example.test/v1');
     expect(payload.ai.apiKey).toBe('secret-key');
     expect(payload.ai.model).toBe('gpt-test');
+    expect(payload.ai.promptContractVersion).toBe(2);
     expect(payload.ai.prompts.tutor.run).not.toBe('Tutor run prompt body');
     expect(payload.ai.prompts.tutor.run).toContain('AI 导师');
     expect(payload.ai.prompts.tutor.followUp).not.toBe('Tutor follow-up prompt body');

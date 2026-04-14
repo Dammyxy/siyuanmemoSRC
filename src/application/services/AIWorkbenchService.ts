@@ -1,10 +1,15 @@
 import { reactive } from 'vue';
+import { BlockContextResolver } from '@/application/entries/BlockContextResolver';
+import { resolveProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMPort, LLMResponse } from '@/application/ports/LLMPort';
 import { LLMError } from '@/application/ports/LLMPort';
+import { getAIContextProviders } from '@/application/services/AIWorkbenchContextProviderRegistry';
 import type { AIPromptTask } from '@/application/services/AIPromptComposer';
+import { formatStructuredPromptContract, getPromptContractForTask } from '@/application/services/AIPromptContractRegistry';
 import type { AIDailyNoteDraftService } from '@/application/services/AIDailyNoteDraftService';
+import type { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import type { FSRSCard } from '@/types/card';
 import type {
@@ -12,19 +17,30 @@ import type {
   AICardCandidate,
   AIDraftSessionLocation,
   AIBlockContext,
+  AIAttachedContextItem,
   AIExplainResult,
+  AIContextProviderKey,
   AIFollowUpEntry,
+  AIComposerContextState,
   AIMakeCardMode,
   AIMakeCardsResult,
   AITaskType,
   AITutorResult,
   AIWorkbenchContextSnapshot,
-  AIWorkbenchHistoryEntry,
+  AIWorkbenchAssistantResultMessage,
+  AIWorkbenchAssistantTextMessage,
+  AIWorkbenchCandidateBoardMessage,
+  AIWorkbenchMessage,
   AIWorkbenchOpenOptions,
+  AIWorkbenchSessionRecord,
+  AIWorkbenchSource,
   AIWorkbenchSurface,
   AIWorkbenchState,
+  AIWorkbenchThreadRecord,
+  AIWorkbenchUserMessage,
   AIViewSessionState,
   AIReviewCardContext,
+  AIWorkbenchMessageKind,
 } from '@/types/ai';
 import type { NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
 import type { AISettings } from '@/types/settings';
@@ -52,32 +68,28 @@ export type AIWorkbenchServiceDeps = {
   siyuanPort: AISiyuanPort;
   draftService: Pick<AIDailyNoteDraftService, 'saveCandidates' | 'markDraftStatus'>;
   llmPort: LLMPort;
+  sessionStore?: Pick<
+    AIWorkbenchSessionStoreService,
+    'listSummaries' | 'loadSession' | 'saveSession' | 'renameSession' | 'deleteSession'
+  >;
 };
 
-const DEFAULT_TUTOR_RESULT: AITutorResult = {
-  blindSpots: [],
-  patterns: [],
-  nextLines: [],
-  cardIdeas: [],
-  batchSummary: null,
-  rawContent: '',
-};
-
-const DEFAULT_EXPLAIN_RESULT: AIExplainResult = {
-  workingDefinition: '',
-  whatItTests: '',
-  whyItsTricky: '',
-  connections: [],
-  triggers: [],
-  cardIdeas: [],
-  rawContent: '',
-};
-
-const DEFAULT_MAKE_CARDS_RESULT: AIMakeCardsResult = {
-  mode: 'qa',
-  candidates: [],
-  draftSession: null,
-  rawContent: '',
+const NOOP_SESSION_STORE: Required<NonNullable<AIWorkbenchServiceDeps['sessionStore']>> = {
+  async listSummaries() {
+    return [];
+  },
+  async loadSession() {
+    return null;
+  },
+  async saveSession(record) {
+    return record;
+  },
+  async renameSession() {
+    return null;
+  },
+  async deleteSession() {
+    return undefined;
+  },
 };
 
 const ALLOWED_TEMPLATE_IDS_BY_MODE: Record<AIMakeCardMode, string[]> = {
@@ -146,6 +158,71 @@ function normalizeStringArray(value: unknown): string[] {
     .filter((entry) => entry.length > 0);
 }
 
+function normalizeLooseStringList(value: unknown): string[] {
+  const directList = normalizeStringArray(value);
+  if (directList.length > 0) {
+    return directList;
+  }
+  const directText = normalizeString(value);
+  return directText ? [directText] : [];
+}
+
+function truncateText(value: string, limit = 140): string {
+  const normalized = normalizeString(value).replace(/\s+/g, ' ');
+  if (normalized.length <= limit) {
+    return normalized;
+  }
+  return `${normalized.slice(0, limit)}…`;
+}
+
+function cloneAttachedContexts(items: AIAttachedContextItem[] | undefined | null): AIAttachedContextItem[] {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items.map((item) => ({
+    ...item,
+    blockIds: [...item.blockIds],
+  }));
+}
+
+function createEmptyComposerContextState(): AIComposerContextState {
+  return {
+    items: [],
+  };
+}
+
+function uniqueContextItems(items: AIAttachedContextItem[]): AIAttachedContextItem[] {
+  const seen = new Set<string>();
+  const result: AIAttachedContextItem[] = [];
+  for (const item of items) {
+    const signature = [
+      item.providerKey,
+      normalizeString(item.title),
+      normalizeString(item.content),
+      item.blockIds.join(','),
+    ].join('::');
+    if (seen.has(signature)) {
+      continue;
+    }
+    seen.add(signature);
+    result.push({
+      ...item,
+      blockIds: [...item.blockIds],
+    });
+  }
+  return result;
+}
+
+function parseBlockReferenceIds(value: string): string[] {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return [];
+  }
+
+  const matched = normalized.match(/\d{14}-[0-9a-z]{7}/ig) || [];
+  return uniqueIds(matched);
+}
+
 function createEntryId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -164,6 +241,24 @@ function createInitialViewState(): Record<AITaskType, AIViewSessionState> {
     tutor: createEmptyViewSessionState(),
     explain: createEmptyViewSessionState(),
     'make-cards': createEmptyViewSessionState(),
+  };
+}
+
+function createEmptyThreadRecord(view: AITaskType): AIWorkbenchThreadRecord {
+  return {
+    view,
+    messages: [],
+    resultContextSignature: null,
+    stale: false,
+    staleReason: null,
+  };
+}
+
+function createInitialThreads(): Record<AITaskType, AIWorkbenchThreadRecord> {
+  return {
+    tutor: createEmptyThreadRecord('tutor'),
+    explain: createEmptyThreadRecord('explain'),
+    'make-cards': createEmptyThreadRecord('make-cards'),
   };
 }
 
@@ -225,27 +320,20 @@ function buildContextSignature(context: AIWorkbenchContextSnapshot | null): stri
   });
 }
 
-function resolveContextChangeReason(
-  previous: AIWorkbenchContextSnapshot | null,
-  next: AIWorkbenchContextSnapshot | null,
-): string {
-  const previousCardId = normalizeString(previous?.currentCard?.cardId);
-  const nextCardId = normalizeString(next?.currentCard?.cardId);
-  if (previousCardId && nextCardId && previousCardId !== nextCardId) {
-    return '当前已切换到新卡片，请基于最新卡片重新运行。';
+function tryParseJson(candidate: string): { ok: true; value: unknown } | { ok: false } {
+  const normalized = candidate.trim().replace(/^json\s*[\r\n]+/i, '');
+  if (!normalized) {
+    return { ok: false };
   }
 
-  const previousBatch = JSON.stringify(serializeNeuralBatch(previous?.neuralBatch ?? null));
-  const nextBatch = JSON.stringify(serializeNeuralBatch(next?.neuralBatch ?? null));
-  if (previousBatch !== nextBatch) {
-    return '当前已切换到新批次，请基于最新批次重新运行。';
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(normalized),
+    };
+  } catch {
+    return { ok: false };
   }
-
-  if (previous?.currentCard?.revealed !== next?.currentCard?.revealed) {
-    return '当前答案可见状态已变化，请基于当前状态重新运行。';
-  }
-
-  return '当前上下文已更新，请基于最新上下文重新运行。';
 }
 
 function extractJsonPayload(raw: string): unknown {
@@ -254,22 +342,35 @@ function extractJsonPayload(raw: string): unknown {
     throw new Error('AI returned empty content');
   }
 
-  try {
-    return JSON.parse(direct);
-  } catch {
-    // fall through
+  const directParsed = tryParseJson(direct);
+  if (directParsed.ok) {
+    return directParsed.value;
+  }
+
+  const fencedMatches = direct.matchAll(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g);
+  for (const match of fencedMatches) {
+    const fencedParsed = tryParseJson(match[1] || '');
+    if (fencedParsed.ok) {
+      return fencedParsed.value;
+    }
   }
 
   const objectStart = direct.indexOf('{');
   const objectEnd = direct.lastIndexOf('}');
   if (objectStart >= 0 && objectEnd > objectStart) {
-    return JSON.parse(direct.slice(objectStart, objectEnd + 1));
+    const objectParsed = tryParseJson(direct.slice(objectStart, objectEnd + 1));
+    if (objectParsed.ok) {
+      return objectParsed.value;
+    }
   }
 
   const arrayStart = direct.indexOf('[');
   const arrayEnd = direct.lastIndexOf(']');
   if (arrayStart >= 0 && arrayEnd > arrayStart) {
-    return JSON.parse(direct.slice(arrayStart, arrayEnd + 1));
+    const arrayParsed = tryParseJson(direct.slice(arrayStart, arrayEnd + 1));
+    if (arrayParsed.ok) {
+      return arrayParsed.value;
+    }
   }
 
   throw new Error('AI response is not valid JSON');
@@ -344,6 +445,8 @@ export class AIWorkbenchService {
     viewState: createInitialViewState(),
     activeView: 'tutor',
     context: null,
+    liveContext: null,
+    contextIsHistorical: false,
     isLoading: false,
     error: null,
     tutorResult: null,
@@ -351,12 +454,27 @@ export class AIWorkbenchService {
     makeCardsResult: null,
     makeCardMode: 'qa',
     requestBatchSummary: false,
-    history: [],
+    sessionTitle: '',
+    sessionHistory: [],
+    threads: createInitialThreads(),
+    historyPanelOpen: false,
+    contextPanelOpen: false,
+    composerContexts: createEmptyComposerContextState(),
+    composerEditorOpen: false,
+    editingMessageId: null,
+    editingMessageKind: null,
   });
+
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: AIWorkbenchServiceDeps) {}
 
+  private getSessionStore() {
+    return this.deps.sessionStore || NOOP_SESSION_STORE;
+  }
+
   async open(options: AIWorkbenchOpenOptions = {}): Promise<void> {
+    await this.refreshSessionHistory();
     if (options.view) {
       this.state.activeView = options.view;
     }
@@ -364,19 +482,18 @@ export class AIWorkbenchService {
       this.state.makeCardMode = options.makeCardMode;
     }
     this.state.surface = normalizeSurface(options.surface ?? this.state.surface);
-    this.state.sessionId = normalizeString(options.sessionId) || this.state.sessionId || (
-      this.state.surface === 'standalone-dialog' ? 'standalone' : null
-    );
     this.state.sourceReviewSessionId = normalizeString(options.sourceReviewSessionId)
+      || (normalizeString(options.source) === 'review' ? normalizeString(options.sessionId) : '')
       || this.state.sourceReviewSessionId
       || null;
     this.state.error = null;
-    const previousContext = this.state.context;
     try {
       const nextContext = await this.buildContextSnapshot(options);
-      this.applyContextSnapshot(previousContext, nextContext);
+      this.state.liveContext = nextContext;
+      await this.activateLiveContext(nextContext);
     } catch (error) {
       this.state.context = null;
+      this.state.liveContext = null;
       this.state.contextSignature = null;
       this.state.error = error instanceof Error ? error.message : String(error);
       return;
@@ -388,6 +505,14 @@ export class AIWorkbenchService {
 
   getViewState(view: AITaskType = this.state.activeView): AIViewSessionState {
     return this.state.viewState[view];
+  }
+
+  getThread(view: AITaskType = this.state.activeView): AIWorkbenchThreadRecord {
+    return this.state.threads[view];
+  }
+
+  getThreadMessages(view: AITaskType = this.state.activeView): AIWorkbenchMessage[] {
+    return this.getThread(view).messages;
   }
 
   isViewStale(view: AITaskType = this.state.activeView): boolean {
@@ -424,16 +549,230 @@ export class AIWorkbenchService {
     return null;
   }
 
+  getCurrentModelLabel(): string {
+    return normalizeString(this.deps.getAISettings().model) || '未配置模型';
+  }
+
   setActiveView(view: AITaskType): void {
     this.state.activeView = view;
+    this.schedulePersistCurrentSession();
   }
 
   setMakeCardMode(mode: AIMakeCardMode): void {
     this.state.makeCardMode = mode;
+    this.schedulePersistCurrentSession();
   }
 
   setRequestBatchSummary(enabled: boolean): void {
     this.state.requestBatchSummary = enabled;
+    this.schedulePersistCurrentSession();
+  }
+
+  setHistoryPanelOpen(open: boolean): void {
+    this.state.historyPanelOpen = open;
+  }
+
+  setContextPanelOpen(open: boolean): void {
+    this.state.contextPanelOpen = open;
+  }
+
+  setComposerEditorOpen(open: boolean): void {
+    this.state.composerEditorOpen = open;
+  }
+
+  setEditingMessage(
+    messageId: string | null,
+    kind: AIWorkbenchMessageKind | null,
+  ): void {
+    this.state.editingMessageId = normalizeString(messageId) || null;
+    this.state.editingMessageKind = kind;
+  }
+
+  getAvailableContextProviders() {
+    return getAIContextProviders();
+  }
+
+  getComposerContexts(): AIAttachedContextItem[] {
+    return cloneAttachedContexts(this.state.composerContexts.items);
+  }
+
+  replaceComposerContexts(items: AIAttachedContextItem[]): void {
+    this.state.composerContexts.items = uniqueContextItems(cloneAttachedContexts(items));
+  }
+
+  removeComposerContext(contextId: string): void {
+    const normalizedId = normalizeString(contextId);
+    if (!normalizedId) {
+      return;
+    }
+    this.state.composerContexts.items = this.state.composerContexts.items.filter((item) => item.id !== normalizedId);
+  }
+
+  clearComposerContexts(): void {
+    this.state.composerContexts.items = [];
+  }
+
+  async attachContextFromProvider(
+    providerKey: AIContextProviderKey,
+    input?: string,
+  ): Promise<AIAttachedContextItem | null> {
+    let item: AIAttachedContextItem | null = null;
+    switch (providerKey) {
+      case 'manual-text':
+        item = this.createManualContextAttachment(input);
+        break;
+      case 'selected-content':
+        item = await this.createSelectedContentAttachment();
+        break;
+      case 'block-refs':
+        item = await this.createBlockRefsAttachment(input);
+        break;
+      case 'current-document':
+        item = await this.createCurrentDocumentAttachment();
+        break;
+      default:
+        item = null;
+    }
+
+    if (!item) {
+      return null;
+    }
+    this.state.composerContexts.items = uniqueContextItems([
+      ...this.state.composerContexts.items,
+      item,
+    ]);
+    return item;
+  }
+
+  async updateAssistantTextMessage(messageId: string, content: string): Promise<void> {
+    const target = this.findMessage(messageId);
+    if (!target || target.message.kind !== 'assistant-text') {
+      return;
+    }
+    target.message.sourceContent = target.message.sourceContent || target.message.content;
+    target.message.content = normalizeString(content);
+    this.syncDerivedStateFromThreads();
+    await this.persistCurrentSession();
+  }
+
+  async updateAssistantResultMessage(
+    messageId: string,
+    payload: Partial<AITutorResult> | Partial<AIExplainResult>,
+  ): Promise<void> {
+    const target = this.findMessage(messageId);
+    if (!target || target.message.kind !== 'assistant-result') {
+      return;
+    }
+
+    if (target.message.view === 'tutor' && target.message.tutorResult) {
+      target.message.tutorResult = {
+        ...target.message.tutorResult,
+        blindSpots: Array.isArray((payload as Partial<AITutorResult>).blindSpots)
+          ? normalizeLooseStringList((payload as Partial<AITutorResult>).blindSpots)
+          : target.message.tutorResult.blindSpots,
+        patterns: Array.isArray((payload as Partial<AITutorResult>).patterns)
+          ? normalizeLooseStringList((payload as Partial<AITutorResult>).patterns)
+          : target.message.tutorResult.patterns,
+        nextLines: Array.isArray((payload as Partial<AITutorResult>).nextLines)
+          ? normalizeLooseStringList((payload as Partial<AITutorResult>).nextLines)
+          : target.message.tutorResult.nextLines,
+        cardIdeas: Array.isArray((payload as Partial<AITutorResult>).cardIdeas)
+          ? normalizeLooseStringList((payload as Partial<AITutorResult>).cardIdeas)
+          : target.message.tutorResult.cardIdeas,
+        batchSummary: Object.prototype.hasOwnProperty.call(payload, 'batchSummary')
+          ? normalizeString((payload as Partial<AITutorResult>).batchSummary) || null
+          : target.message.tutorResult.batchSummary,
+      };
+      target.message.rawContent = JSON.stringify(target.message.tutorResult, null, 2);
+    }
+
+    if (target.message.view === 'explain' && target.message.explainResult) {
+      target.message.explainResult = {
+        ...target.message.explainResult,
+        workingDefinition: Object.prototype.hasOwnProperty.call(payload, 'workingDefinition')
+          ? normalizeString((payload as Partial<AIExplainResult>).workingDefinition)
+          : target.message.explainResult.workingDefinition,
+        whatItTests: Object.prototype.hasOwnProperty.call(payload, 'whatItTests')
+          ? normalizeString((payload as Partial<AIExplainResult>).whatItTests)
+          : target.message.explainResult.whatItTests,
+        whyItsTricky: Object.prototype.hasOwnProperty.call(payload, 'whyItsTricky')
+          ? normalizeString((payload as Partial<AIExplainResult>).whyItsTricky)
+          : target.message.explainResult.whyItsTricky,
+        connections: Array.isArray((payload as Partial<AIExplainResult>).connections)
+          ? normalizeLooseStringList((payload as Partial<AIExplainResult>).connections)
+          : target.message.explainResult.connections,
+        triggers: Array.isArray((payload as Partial<AIExplainResult>).triggers)
+          ? normalizeLooseStringList((payload as Partial<AIExplainResult>).triggers)
+          : target.message.explainResult.triggers,
+        cardIdeas: Array.isArray((payload as Partial<AIExplainResult>).cardIdeas)
+          ? normalizeLooseStringList((payload as Partial<AIExplainResult>).cardIdeas)
+          : target.message.explainResult.cardIdeas,
+      };
+      target.message.rawContent = JSON.stringify(target.message.explainResult, null, 2);
+    }
+
+    this.syncDerivedStateFromThreads();
+    await this.persistCurrentSession();
+  }
+
+  async createNewSession(): Promise<void> {
+    const liveContext = this.state.liveContext || this.state.context;
+    if (!liveContext) {
+      return;
+    }
+    await this.activateLiveContext(liveContext, { forceNewSession: true });
+  }
+
+  async openSession(sessionId: string): Promise<void> {
+    const record = await this.getSessionStore().loadSession(sessionId);
+    if (!record) {
+      throw this.fail('会话不存在或已被删除。');
+    }
+    this.applySessionRecord(record, this.state.liveContext);
+    await this.refreshSessionHistory();
+  }
+
+  async renameCurrentSession(title: string): Promise<void> {
+    await this.renameSession(this.state.sessionId, title);
+  }
+
+  async renameSession(sessionId: string | null, title: string): Promise<void> {
+    const normalizedId = normalizeString(sessionId);
+    if (!normalizedId) {
+      return;
+    }
+    const renamed = await this.getSessionStore().renameSession(normalizedId, title);
+    if (!renamed) {
+      return;
+    }
+    if (this.state.sessionId === normalizedId) {
+      this.applySessionRecord(renamed, this.state.liveContext);
+    }
+    await this.refreshSessionHistory();
+  }
+
+  async deleteSession(sessionId = this.state.sessionId): Promise<void> {
+    const normalizedId = normalizeString(sessionId);
+    if (!normalizedId) {
+      return;
+    }
+    await this.getSessionStore().deleteSession(normalizedId);
+    await this.refreshSessionHistory();
+
+    if (this.state.sessionId !== normalizedId) {
+      return;
+    }
+
+    const nextSummary = this.state.sessionHistory[0] || null;
+    if (nextSummary) {
+      const nextRecord = await this.getSessionStore().loadSession(nextSummary.id);
+      if (nextRecord) {
+        this.applySessionRecord(nextRecord, this.state.liveContext);
+        return;
+      }
+    }
+
+    await this.createNewSession();
   }
 
   async runActiveView(): Promise<void> {
@@ -460,10 +799,12 @@ export class AIWorkbenchService {
       if (!batch) {
         throw this.fail('AI 导师目前主要在神经漫游复习中可用。');
       }
+      const attachedContexts = this.consumeComposerContexts();
 
       const response = await this.requestModel('tutor', {
         language: this.deps.getAISettings().defaultOutputLanguage,
         requestBatchSummary: this.state.requestBatchSummary,
+        attachedContexts,
         context: {
           source: context.source,
           queueType: context.queueType,
@@ -475,7 +816,16 @@ export class AIWorkbenchService {
       });
       const payload = this.extractStructuredPayload('AI 导师', response.content, 'tutor');
       this.state.tutorResult = this.normalizeTutorResult(payload, response.content);
-      this.pushHistory('tutor', 'AI 导师');
+      this.appendMessage('tutor', {
+        id: createEntryId('ai-msg'),
+        view: 'tutor',
+        kind: 'assistant-result',
+        createdAt: Date.now(),
+        rawContent: response.content,
+        tutorResult: this.state.tutorResult,
+        explainResult: null,
+        appliedContexts: attachedContexts,
+      } satisfies AIWorkbenchAssistantResultMessage);
     });
   }
 
@@ -490,9 +840,11 @@ export class AIWorkbenchService {
       ) {
         throw this.fail('请先揭示答案，再使用 AI 解释卡片。');
       }
+      const attachedContexts = this.consumeComposerContexts();
 
       const response = await this.requestModel('explain', {
         language: this.deps.getAISettings().defaultOutputLanguage,
+        attachedContexts,
         context: {
           source: context.source,
           queueType: context.queueType,
@@ -504,7 +856,16 @@ export class AIWorkbenchService {
       });
       const payload = this.extractStructuredPayload('AI 解释卡片', response.content, 'explain');
       this.state.explainResult = this.normalizeExplainResult(payload, response.content);
-      this.pushHistory('explain', 'AI 解释');
+      this.appendMessage('explain', {
+        id: createEntryId('ai-msg'),
+        view: 'explain',
+        kind: 'assistant-result',
+        createdAt: Date.now(),
+        rawContent: response.content,
+        tutorResult: null,
+        explainResult: this.state.explainResult,
+        appliedContexts: attachedContexts,
+      } satisfies AIWorkbenchAssistantResultMessage);
     });
   }
 
@@ -512,6 +873,7 @@ export class AIWorkbenchService {
     await this.runTask('make-cards', async () => {
       const context = this.requireContext();
       const mode = this.state.makeCardMode;
+      const attachedContexts = this.consumeComposerContexts();
       const response = await this.requestModel('card-candidate', {
         language: this.deps.getAISettings().defaultOutputLanguage,
         mode,
@@ -521,6 +883,7 @@ export class AIWorkbenchService {
           goal: '理解概念',
           outputDepth: '标准',
         },
+        attachedContexts,
         context: {
           source: context.source,
           queueType: context.queueType,
@@ -533,11 +896,19 @@ export class AIWorkbenchService {
       const taskLabel = mode === 'cdf' ? 'CDF 辅助制卡' : 'AI 辅助制卡';
       const payload = this.extractStructuredPayload(taskLabel, response.content, 'make-cards');
       this.state.makeCardsResult = this.normalizeMakeCardsResult(mode, payload, response.content, context);
-      this.pushHistory('make-cards', 'AI 辅助制卡');
+      this.appendMessage('make-cards', {
+        id: createEntryId('ai-msg'),
+        view: 'make-cards',
+        kind: 'candidate-board',
+        createdAt: Date.now(),
+        mode,
+        result: this.state.makeCardsResult,
+        appliedContexts: attachedContexts,
+      } satisfies AIWorkbenchCandidateBoardMessage);
     });
   }
 
-  async submitFollowUp(question: string): Promise<void> {
+  async submitFollowUp(question: string, options?: { editedFromMessageId?: string | null }): Promise<void> {
     const normalizedQuestion = normalizeString(question);
     if (!normalizedQuestion) {
       return;
@@ -550,6 +921,7 @@ export class AIWorkbenchService {
     }
 
     const thread = this.getViewState(view).followUps;
+    const attachedContexts = this.consumeComposerContexts();
     const userEntry: AIFollowUpEntry = {
       id: createEntryId('follow-up'),
       view,
@@ -558,19 +930,38 @@ export class AIWorkbenchService {
       createdAt: Date.now(),
     };
     thread.push(userEntry);
+    this.appendMessage(view, {
+      id: createEntryId('ai-msg'),
+      view,
+      kind: 'user',
+      content: normalizedQuestion,
+      createdAt: userEntry.createdAt,
+      editedFromMessageId: normalizeString(options?.editedFromMessageId) || null,
+      attachedContexts,
+    } satisfies AIWorkbenchUserMessage);
 
     this.state.isLoading = true;
     this.state.error = null;
     try {
-      const response = await this.requestFollowUp(view);
-      thread.push({
+      const response = await this.requestFollowUp(view, attachedContexts);
+      const assistantFollowUp: AIFollowUpEntry = {
         id: createEntryId('follow-up'),
         view,
         role: 'assistant',
         content: normalizeString(response.content) || '这次没有返回可用内容。',
         createdAt: Date.now(),
-      });
-      this.pushHistory(view, 'AI 追问');
+      };
+      thread.push(assistantFollowUp);
+      this.appendMessage(view, {
+        id: createEntryId('ai-msg'),
+        view,
+        kind: 'assistant-text',
+        content: assistantFollowUp.content,
+        createdAt: assistantFollowUp.createdAt,
+        sourceContent: assistantFollowUp.content,
+        appliedContexts: attachedContexts,
+      } satisfies AIWorkbenchAssistantTextMessage);
+      await this.persistCurrentSession();
     } catch (error) {
       this.state.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -587,6 +978,7 @@ export class AIWorkbenchService {
       return;
     }
     candidate.discarded = candidate.discarded !== true;
+    this.schedulePersistCurrentSession();
   }
 
   updateCandidateField(candidateId: string, fieldName: string, value: string): void {
@@ -600,6 +992,7 @@ export class AIWorkbenchService {
     candidate.fieldMapping[fieldName] = value;
     candidate.preview = summarizeFieldMapping(candidate.fieldMapping);
     this.markCandidateDirty(candidate);
+    this.schedulePersistCurrentSession();
   }
 
   updateCandidateTitle(candidateId: string, value: string): void {
@@ -612,6 +1005,7 @@ export class AIWorkbenchService {
     }
     candidate.title = value;
     this.markCandidateDirty(candidate);
+    this.schedulePersistCurrentSession();
   }
 
   updateCandidateTemplateId(candidateId: string, value: string): void {
@@ -625,6 +1019,7 @@ export class AIWorkbenchService {
     const mode = this.state.makeCardsResult?.mode || this.state.makeCardMode;
     candidate.templateId = safeTemplateId(mode, value);
     this.markCandidateDirty(candidate);
+    this.schedulePersistCurrentSession();
   }
 
   getDraftStorageMode(): AISettings['draftStorage']['mode'] {
@@ -717,6 +1112,7 @@ export class AIWorkbenchService {
         this.state.error = `${saveResult.failed.length} 条候选保存草稿失败，请检查后重试。`;
       }
 
+      await this.persistCurrentSession();
       return saveResult.saved.length;
     } catch (error) {
       const normalized = error instanceof Error ? error : new Error(String(error));
@@ -732,6 +1128,7 @@ export class AIWorkbenchService {
         }
       }
       this.state.error = normalized.message;
+      await this.persistCurrentSession();
       throw normalized;
     } finally {
       this.state.isLoading = false;
@@ -790,44 +1187,174 @@ export class AIWorkbenchService {
       if (hasCreateError) {
         this.state.error = '部分候选创建失败，可在保留草稿的前提下重试。';
       }
+      await this.persistCurrentSession();
       return createdCount;
     } finally {
       this.state.isLoading = false;
     }
   }
 
-  private applyContextSnapshot(
-    previousContext: AIWorkbenchContextSnapshot | null,
+  private async activateLiveContext(
     nextContext: AIWorkbenchContextSnapshot,
-  ): void {
+    options?: { forceNewSession?: boolean },
+  ): Promise<void> {
     const nextSignature = buildContextSignature(nextContext);
+    const currentSignature = this.state.contextSignature;
+    const currentSource = this.state.context?.source || null;
+    const shouldCreateNewSession = options?.forceNewSession === true
+      || this.state.contextIsHistorical
+      || !this.state.sessionId
+      || currentSignature !== nextSignature
+      || currentSource !== nextContext.source;
+
+    if (shouldCreateNewSession) {
+      const record = this.createSessionRecord(nextContext, nextSignature);
+      await this.applyAndPersistSession(record, nextContext);
+      return;
+    }
+
     this.state.context = nextContext;
+    this.state.liveContext = nextContext;
     this.state.contextSignature = nextSignature;
+    this.state.contextIsHistorical = false;
+    await this.persistCurrentSession();
+  }
 
-    if (!previousContext || !nextSignature) {
-      return;
-    }
+  private createSessionRecord(
+    context: AIWorkbenchContextSnapshot,
+    contextSignature: string | null,
+  ): AIWorkbenchSessionRecord {
+    const now = Date.now();
+    return {
+      id: createEntryId('ai-session'),
+      title: this.generateSessionTitle(context),
+      source: context.source,
+      sourceReviewSessionId: this.state.sourceReviewSessionId,
+      surface: this.state.surface,
+      contextSignature,
+      createdAt: now,
+      updatedAt: now,
+      lastActiveView: this.state.activeView,
+      activeViews: [],
+      messageCount: 0,
+      context,
+      makeCardMode: this.state.makeCardMode,
+      requestBatchSummary: this.state.requestBatchSummary,
+      threads: createInitialThreads(),
+    };
+  }
 
-    const previousSignature = buildContextSignature(previousContext);
-    if (!previousSignature || previousSignature === nextSignature) {
-      return;
-    }
+  private async applyAndPersistSession(
+    record: AIWorkbenchSessionRecord,
+    liveContext: AIWorkbenchContextSnapshot | null,
+  ): Promise<void> {
+    const persisted = await this.getSessionStore().saveSession(record);
+    this.applySessionRecord(persisted, liveContext);
+    await this.refreshSessionHistory();
+  }
 
-    const staleReason = resolveContextChangeReason(previousContext, nextContext);
+  private applySessionRecord(
+    record: AIWorkbenchSessionRecord,
+    liveContext: AIWorkbenchContextSnapshot | null,
+  ): void {
+    this.state.sessionId = record.id;
+    this.state.sessionTitle = record.title;
+    this.state.surface = normalizeSurface(record.surface);
+    this.state.sourceReviewSessionId = record.sourceReviewSessionId;
+    this.state.context = record.context;
+    this.state.contextSignature = record.contextSignature;
+    this.state.liveContext = liveContext;
+    this.state.contextIsHistorical = Boolean(
+      record.contextSignature
+      && liveContext
+      && record.contextSignature !== buildContextSignature(liveContext)
+    );
+    this.state.activeView = record.lastActiveView;
+    this.state.makeCardMode = record.makeCardMode;
+    this.state.requestBatchSummary = record.requestBatchSummary;
+    this.state.threads = record.threads;
+    this.state.composerContexts = createEmptyComposerContextState();
+    this.state.composerEditorOpen = false;
+    this.state.editingMessageId = null;
+    this.state.editingMessageKind = null;
+    this.syncDerivedStateFromThreads();
+  }
+
+  private syncDerivedStateFromThreads(): void {
     for (const view of ['tutor', 'explain', 'make-cards'] as const) {
+      const thread = this.getThread(view);
       const viewState = this.getViewState(view);
-      if (!viewState.resultContextSignature) {
-        continue;
-      }
+      viewState.resultContextSignature = thread.resultContextSignature;
+      viewState.stale = thread.stale;
+      viewState.staleReason = thread.staleReason;
+      viewState.followUps = thread.messages
+        .filter((message) => message.kind === 'user' || message.kind === 'assistant-text')
+        .map((message) => ({
+          id: message.id,
+          view,
+          role: message.kind === 'user' ? 'user' : 'assistant',
+          content: message.content,
+          createdAt: message.createdAt,
+        }));
+    }
+    this.state.tutorResult = this.findLatestTutorResult();
+    this.state.explainResult = this.findLatestExplainResult();
+    this.state.makeCardsResult = this.findLatestMakeCardsResult();
+  }
 
-      if (viewState.resultContextSignature !== nextSignature) {
-        viewState.stale = true;
-        viewState.staleReason = staleReason;
-      } else {
-        viewState.stale = false;
-        viewState.staleReason = null;
+  private findLatestTutorResult(): AITutorResult | null {
+    const messages = [...this.state.threads.tutor.messages].reverse();
+    const latest = messages.find((message) => message.kind === 'assistant-result' && message.view === 'tutor');
+    return latest?.kind === 'assistant-result' ? latest.tutorResult : null;
+  }
+
+  private findLatestExplainResult(): AIExplainResult | null {
+    const messages = [...this.state.threads.explain.messages].reverse();
+    const latest = messages.find((message) => message.kind === 'assistant-result' && message.view === 'explain');
+    return latest?.kind === 'assistant-result' ? latest.explainResult : null;
+  }
+
+  private findLatestMakeCardsResult(): AIMakeCardsResult | null {
+    const messages = [...this.state.threads['make-cards'].messages].reverse();
+    const latest = messages.find((message) => message.kind === 'candidate-board');
+    return latest?.kind === 'candidate-board' ? latest.result : null;
+  }
+
+  private appendMessage(view: AITaskType, message: AIWorkbenchMessage): void {
+    this.getThread(view).messages.push(message);
+    this.syncDerivedStateFromThreads();
+    this.schedulePersistCurrentSession();
+  }
+
+  private consumeComposerContexts(): AIAttachedContextItem[] {
+    const snapshot = cloneAttachedContexts(this.state.composerContexts.items);
+    this.state.composerContexts.items = [];
+    return snapshot;
+  }
+
+  private findMessage(
+    messageId: string,
+  ): { view: AITaskType; index: number; message: AIWorkbenchMessage } | null {
+    const normalizedId = normalizeString(messageId);
+    if (!normalizedId) {
+      return null;
+    }
+    for (const view of ['tutor', 'explain', 'make-cards'] as const) {
+      const messages = this.getThread(view).messages;
+      const index = messages.findIndex((message) => message.id === normalizedId);
+      if (index >= 0) {
+        return {
+          view,
+          index,
+          message: messages[index],
+        };
       }
     }
+    return null;
+  }
+
+  private async refreshSessionHistory(): Promise<void> {
+    this.state.sessionHistory = await this.getSessionStore().listSummaries();
   }
 
   private async buildContextSnapshot(options: AIWorkbenchOpenOptions): Promise<AIWorkbenchContextSnapshot> {
@@ -924,6 +1451,141 @@ export class AIWorkbenchService {
     });
   }
 
+  private buildAttachedContextItem(input: {
+    providerKey: AIContextProviderKey;
+    title: string;
+    content: string;
+    blockIds?: string[];
+    summary?: string;
+    preview?: string;
+  }): AIAttachedContextItem | null {
+    const content = normalizeString(input.content);
+    if (!content) {
+      return null;
+    }
+    const blockIds = uniqueIds(input.blockIds || []);
+    return {
+      id: createEntryId('ai-context'),
+      providerKey: input.providerKey,
+      title: normalizeString(input.title) || '补充上下文',
+      summary: normalizeString(input.summary)
+        || `${blockIds.length > 0 ? `${blockIds.length} 个块` : '临时材料'} · ${content.length} 字`,
+      preview: normalizeString(input.preview) || truncateText(content, 80),
+      content,
+      blockIds,
+      createdAt: Date.now(),
+    };
+  }
+
+  private createManualContextAttachment(input?: string): AIAttachedContextItem | null {
+    const content = normalizeString(input);
+    return this.buildAttachedContextItem({
+      providerKey: 'manual-text',
+      title: '手工材料',
+      content,
+      summary: `手工材料 · ${content.length} 字`,
+    });
+  }
+
+  private async createSelectedContentAttachment(): Promise<AIAttachedContextItem | null> {
+    const selectionSnapshot = resolveProgressiveExcerptSelectionSnapshot();
+    if (selectionSnapshot?.text) {
+      return this.buildAttachedContextItem({
+        providerKey: 'selected-content',
+        title: '选中内容',
+        content: selectionSnapshot.text,
+        blockIds: selectionSnapshot.sourceBlockIds,
+        summary: `${selectionSnapshot.sourceBlockIds.length} 个块 · ${selectionSnapshot.text.length} 字`,
+      });
+    }
+
+    const resolver = new BlockContextResolver({
+      i18n: {},
+      notify: () => {},
+    });
+    const resolved = resolver.resolve({});
+    const blockIds = uniqueIds(
+      (resolved?.blockElements || []).map((element) => element.getAttribute('data-node-id')),
+    );
+    if (blockIds.length === 0) {
+      return null;
+    }
+    const blocks = await this.loadBlockContexts(blockIds);
+    const content = blocks
+      .map((block) => normalizeString(block.markdown || block.text))
+      .filter((entry) => entry.length > 0)
+      .join('\n\n');
+    return this.buildAttachedContextItem({
+      providerKey: 'selected-content',
+      title: '选中内容',
+      content,
+      blockIds,
+      summary: `${blockIds.length} 个块 · ${content.length} 字`,
+    });
+  }
+
+  private async createBlockRefsAttachment(input?: string): Promise<AIAttachedContextItem | null> {
+    const blockIds = parseBlockReferenceIds(normalizeString(input));
+    if (blockIds.length === 0) {
+      return null;
+    }
+    const blocks = await this.loadBlockContexts(blockIds);
+    const content = blocks
+      .map((block) => normalizeString(block.markdown || block.text))
+      .filter((entry) => entry.length > 0)
+      .join('\n\n');
+    return this.buildAttachedContextItem({
+      providerKey: 'block-refs',
+      title: '指定块内容',
+      content,
+      blockIds,
+      summary: `${blockIds.length} 个块 · ${content.length} 字`,
+    });
+  }
+
+  private async createCurrentDocumentAttachment(): Promise<AIAttachedContextItem | null> {
+    const liveOrHistoricalContext = this.state.liveContext || this.state.context;
+    const candidateRootIds = uniqueIds([
+      ...(liveOrHistoricalContext?.blocks || []).map((block) => block.rootId),
+      liveOrHistoricalContext?.currentCard?.blockId || null,
+    ]);
+
+    let documentId = candidateRootIds[0] || '';
+    if (!documentId) {
+      const resolver = new BlockContextResolver({
+        i18n: {},
+        notify: () => {},
+      });
+      const resolved = resolver.resolve({});
+      const firstBlockId = normalizeString(resolved?.blockElements?.[0]?.getAttribute('data-node-id'));
+      if (firstBlockId) {
+        const rows = await this.deps.siyuanPort.sql<{ root_id?: string }>(`
+          SELECT root_id
+          FROM blocks
+          WHERE id = '${firstBlockId.replace(/'/g, "''")}'
+          LIMIT 1
+        `);
+        documentId = normalizeString(rows[0]?.root_id);
+      }
+    }
+    if (!documentId) {
+      return null;
+    }
+
+    const [documentBlock] = await this.loadBlockContexts([documentId]);
+    if (!documentBlock) {
+      return null;
+    }
+    return this.buildAttachedContextItem({
+      providerKey: 'current-document',
+      title: '当前文档',
+      content: normalizeString(documentBlock.markdown || documentBlock.text),
+      blockIds: [documentId],
+      summary: `${documentBlock.hPath || '当前文档'} · ${normalizeString(documentBlock.text).length} 字`,
+      preview: truncateText(normalizeString(documentBlock.text), 96),
+    });
+  }
+
   private resolveSourceBlockIdsFromCard(card: FSRSCard | null): string[] {
     if (!card) {
       return [];
@@ -1014,13 +1676,11 @@ export class AIWorkbenchService {
         model: settings.model,
         timeoutMs: settings.timeoutMs,
         temperature: settings.temperature,
+        responseFormat: 'json_object',
         messages: [
           {
             role: 'system',
-            content: this.getPromptTemplate(promptTask, settings, {
-              followUp: false,
-              mode: options?.mode,
-            }),
+            content: this.buildStructuredRunSystemPrompt(promptTask, settings, options),
           },
           {
             role: 'user',
@@ -1036,7 +1696,10 @@ export class AIWorkbenchService {
     }
   }
 
-  private async requestFollowUp(view: AITaskType): Promise<LLMResponse> {
+  private async requestFollowUp(
+    view: AITaskType,
+    attachedContexts: AIAttachedContextItem[] = [],
+  ): Promise<LLMResponse> {
     const context = this.requireContext();
     const settings = this.deps.getAISettings();
     if (!settings.enabled) {
@@ -1073,6 +1736,7 @@ export class AIWorkbenchService {
               language: settings.defaultOutputLanguage,
               view,
               structuredResult,
+              attachedContexts,
               context: {
                 source: context.source,
                 queueType: context.queueType,
@@ -1136,17 +1800,37 @@ export class AIWorkbenchService {
     }
   }
 
+  private buildStructuredRunSystemPrompt(
+    task: AIPromptTask,
+    settings: AISettings,
+    options?: { mode?: AIMakeCardMode },
+  ): string {
+    const behaviorPrompt = this.getPromptTemplate(task, settings, {
+      followUp: false,
+      mode: options?.mode,
+    });
+    const contractText = formatStructuredPromptContract(
+      getPromptContractForTask(task === 'card-candidate' && options?.mode === 'cdf' ? 'card-candidate-cdf' : task, {
+        mode: options?.mode,
+      }),
+    );
+    return [behaviorPrompt, contractText]
+      .map((section) => normalizeString(section))
+      .filter((section) => section.length > 0)
+      .join('\n\n');
+  }
+
   private extractStructuredPayload(taskLabel: string, rawContent: string, view: AITaskType): unknown {
     try {
       return extractJsonPayload(rawContent);
     } catch (error) {
       const promptLabel = view === 'make-cards'
-        ? (this.state.makeCardMode === 'cdf' ? 'CDF 辅助制卡 Prompt' : 'AI 制卡 Prompt')
+        ? (this.state.makeCardMode === 'cdf' ? 'CDF 辅助制卡行为 Prompt' : 'AI 制卡行为 Prompt')
         : view === 'tutor'
-          ? 'AI 导师 Prompt'
-          : 'AI 解释 Prompt';
+          ? 'AI 导师行为 Prompt'
+          : 'AI 解释行为 Prompt';
       const reason = error instanceof Error ? error.message : String(error);
-      throw this.fail(`${taskLabel}返回的内容不是合法 JSON。请检查设置里的 ${promptLabel} 是否仍要求模型严格输出 JSON。原始原因：${reason}`);
+      throw this.fail(`${taskLabel}返回的内容不是合法 JSON。请检查设置里的 ${promptLabel} 是否把系统结构化输出要求冲掉了。原始原因：${reason}`);
     }
   }
 
@@ -1166,10 +1850,10 @@ export class AIWorkbenchService {
   private normalizeTutorResult(payload: unknown, rawContent: string): AITutorResult {
     const value = isRecord(payload) ? payload : {};
     return {
-      blindSpots: normalizeStringArray(value.blindSpots),
-      patterns: normalizeStringArray(value.patterns),
-      nextLines: normalizeStringArray(value.nextLines),
-      cardIdeas: normalizeStringArray(value.cardIdeas),
+      blindSpots: normalizeLooseStringList(value.blindSpots),
+      patterns: normalizeLooseStringList(value.patterns),
+      nextLines: normalizeLooseStringList(value.nextLines),
+      cardIdeas: normalizeLooseStringList(value.cardIdeas),
       batchSummary: normalizeString(value.batchSummary) || null,
       rawContent,
     };
@@ -1178,12 +1862,12 @@ export class AIWorkbenchService {
   private normalizeExplainResult(payload: unknown, rawContent: string): AIExplainResult {
     const value = isRecord(payload) ? payload : {};
     return {
-      workingDefinition: normalizeString(value.workingDefinition),
-      whatItTests: normalizeString(value.whatItTests),
-      whyItsTricky: normalizeString(value.whyItsTricky),
-      connections: normalizeStringArray(value.connections),
-      triggers: normalizeStringArray(value.triggers ?? value.recognizeNextTime),
-      cardIdeas: normalizeStringArray(value.cardIdeas),
+      workingDefinition: normalizeString(value.workingDefinition ?? value.workDefinition),
+      whatItTests: normalizeString(value.whatItTests ?? value.testPoint),
+      whyItsTricky: normalizeString(value.whyItsTricky ?? value.confusionBoundary),
+      connections: normalizeLooseStringList(value.connections ?? value.knowledgeNetwork),
+      triggers: normalizeLooseStringList(value.triggers ?? value.recognizeNextTime ?? value.recallTrigger),
+      cardIdeas: normalizeLooseStringList(value.cardIdeas),
       rawContent,
     };
   }
@@ -1459,28 +2143,17 @@ export class AIWorkbenchService {
   private async runTask(taskType: AITaskType, runner: () => Promise<void>): Promise<void> {
     this.state.isLoading = true;
     this.state.error = null;
-    const viewState = this.getViewState(taskType);
-    viewState.followUps = [];
-    viewState.stale = false;
-    viewState.staleReason = null;
-    if (taskType === 'tutor') {
-      this.state.tutorResult = { ...DEFAULT_TUTOR_RESULT };
-    }
-    if (taskType === 'explain') {
-      this.state.explainResult = { ...DEFAULT_EXPLAIN_RESULT };
-    }
-    if (taskType === 'make-cards') {
-      this.state.makeCardsResult = {
-        ...DEFAULT_MAKE_CARDS_RESULT,
-        mode: this.state.makeCardMode,
-      };
-    }
+    const thread = this.getThread(taskType);
+    thread.stale = false;
+    thread.staleReason = null;
 
     try {
       await runner();
-      viewState.resultContextSignature = this.state.contextSignature;
-      viewState.stale = false;
-      viewState.staleReason = null;
+      thread.resultContextSignature = this.state.contextSignature;
+      thread.stale = false;
+      thread.staleReason = null;
+      this.syncDerivedStateFromThreads();
+      await this.persistCurrentSession();
     } catch (error) {
       this.state.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -1488,19 +2161,98 @@ export class AIWorkbenchService {
     }
   }
 
-  private pushHistory(taskType: AITaskType, title: string): void {
-    const context = this.state.context;
-    const entry: AIWorkbenchHistoryEntry = {
-      id: createEntryId('history'),
-      taskType,
-      source: context?.source || 'standalone',
-      createdAt: Date.now(),
-      title,
-    };
-    this.state.history.unshift(entry);
-    if (this.state.history.length > 20) {
-      this.state.history.splice(20);
+  private generateSessionTitle(context: AIWorkbenchContextSnapshot): string {
+    const currentCard = context.currentCard;
+    if (currentCard) {
+      const cardText = normalizeString(currentCard.frontText) || normalizeString(currentCard.sourceText);
+      if (cardText) {
+        return this.truncateTitle(cardText);
+      }
     }
+
+    const firstBlockText = context.blocks
+      .map((block) => normalizeString(block.text))
+      .find((text) => text.length > 0);
+    if (firstBlockText) {
+      return this.truncateTitle(firstBlockText);
+    }
+
+    const sourceTitle = this.getSourceTitle(context.source);
+    if (context.neuralBatch) {
+      return `${sourceTitle} · 神经漫游`;
+    }
+    return `${sourceTitle} · AI 会话`;
+  }
+
+  private truncateTitle(value: string): string {
+    const singleLine = value.replace(/\s+/g, ' ').trim();
+    return singleLine.length > 28 ? `${singleLine.slice(0, 28)}…` : singleLine;
+  }
+
+  private getSourceTitle(source: AIWorkbenchSource): string {
+    switch (source) {
+      case 'review':
+        return '复习';
+      case 'browser':
+        return '浏览器';
+      case 'template-dialog':
+        return '模板制卡';
+      default:
+        return '工作台';
+    }
+  }
+
+  private buildCurrentSessionRecord(): AIWorkbenchSessionRecord | null {
+    const sessionId = normalizeString(this.state.sessionId);
+    if (!sessionId) {
+      return null;
+    }
+    return {
+      id: sessionId,
+      title: normalizeString(this.state.sessionTitle) || '未命名会话',
+      source: this.state.context?.source || this.state.liveContext?.source || 'standalone',
+      sourceReviewSessionId: this.state.sourceReviewSessionId,
+      surface: this.state.surface,
+      contextSignature: this.state.contextSignature,
+      createdAt: this.resolveExistingSummary(sessionId)?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      lastActiveView: this.state.activeView,
+      activeViews: [],
+      messageCount: 0,
+      context: this.state.context,
+      makeCardMode: this.state.makeCardMode,
+      requestBatchSummary: this.state.requestBatchSummary,
+      threads: this.state.threads,
+    };
+  }
+
+  private resolveExistingSummary(sessionId: string) {
+    return this.state.sessionHistory.find((summary) => summary.id === sessionId) || null;
+  }
+
+  private schedulePersistCurrentSession(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+    }
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.persistCurrentSession().catch((error) => {
+        this.state.error = error instanceof Error ? error.message : String(error);
+      });
+    }, 220);
+  }
+
+  private async persistCurrentSession(): Promise<void> {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    const record = this.buildCurrentSessionRecord();
+    if (!record) {
+      return;
+    }
+    await this.getSessionStore().saveSession(record);
+    await this.refreshSessionHistory();
   }
 
   private fail(message: string): Error {

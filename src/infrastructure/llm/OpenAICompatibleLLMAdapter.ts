@@ -55,6 +55,9 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
         body: JSON.stringify({
           model: request.model,
           temperature: request.temperature,
+          response_format: request.responseFormat
+            ? { type: request.responseFormat }
+            : undefined,
           messages: request.messages,
         }),
         signal: controller.signal,

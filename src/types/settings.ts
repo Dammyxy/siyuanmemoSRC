@@ -247,6 +247,7 @@ export interface AISettings {
     timeoutMs: number;
     temperature: number;
     defaultOutputLanguage: string;
+    promptContractVersion: number;
     prompts: AIPromptTemplates;
     draftStorage: ConfiguredCaptureStorageSettings;
 }
@@ -529,6 +530,8 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     }) | undefined;
     const { dailyTraceEnabled: _legacyDailyTraceEnabled, ...sourceProgressiveReadingWithoutLegacy } = sourceProgressiveReading || {};
     const { promptProfiles: _legacyPromptProfiles, ...sourceAiWithoutLegacy } = sourceAi || {};
+    const aiPromptContractVersion = normalizeAIPromptContractVersion(sourceAiWithoutLegacy.promptContractVersion);
+    const shouldResetAiPromptsToCurrentContract = aiPromptContractVersion < ACTIVE_AI_PROMPT_CONTRACT_VERSION;
     const normalizedRiffIntegration = normalizeRiffIntegrationConfig(settings.riffIntegration);
     const normalized: PluginSettings = {
         ...settings,
@@ -593,7 +596,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         ai: {
             ...DEFAULT_SETTINGS.ai,
             ...sourceAiWithoutLegacy,
-            prompts: normalizeAIPromptTemplates(sourceAiWithoutLegacy.prompts),
+            promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
+            prompts: shouldResetAiPromptsToCurrentContract
+                ? clonePromptTemplates(DEFAULT_AI_PROMPTS)
+                : normalizeAIPromptTemplates(sourceAiWithoutLegacy.prompts),
             draftStorage: normalizeConfiguredCaptureStorageSettings(sourceAiWithoutLegacy.draftStorage, {
                 allowSourceChild: false,
                 fallback: DEFAULT_SETTINGS.ai.draftStorage,
@@ -685,6 +691,7 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             || sourceAi.timeoutMs !== normalizedAi.timeoutMs
             || sourceAi.temperature !== normalizedAi.temperature
             || sourceAi.defaultOutputLanguage !== normalizedAi.defaultOutputLanguage
+            || normalizeAIPromptContractVersion(sourceAi.promptContractVersion) !== normalizedAi.promptContractVersion
             || !hasNormalizedPromptTemplateShape(sourceAi.prompts)
             || !arePromptTemplatesEqual(sourceAi.prompts, normalizedAi.prompts)
             || Object.prototype.hasOwnProperty.call(sourceAi, 'promptProfiles')
@@ -777,19 +784,17 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     }
 };
 
+export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 2;
+
 export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
     tutor: {
         run: [
             '你是 SiyuanMemo 的 AI 导师。',
             '你的工作对象是“正在神经漫游中的现在的自己”。',
             '目标是帮助用户继续理解、继续辨析、继续连接，而不是过早替用户定稿。',
-            '严格基于 payload.language、payload.context、当前卡片、当前路径、当前材料和已给结果回答；材料未说明就明确说“材料未说明”或“这里有不确定性”，不要脑补。',
-            '如果 context.neuralBatch.engineMode=orbit，请优先结合当前 round、focus 和 recent path；如果是 hyperspace，请优先结合当前节点、路径位置和激活来源。',
-            '除非 payload.requestBatchSummary=true 或用户明确要求，否则不要写成正式总结稿。',
-            '只返回合法 JSON，不要附带 Markdown 代码块。',
-            'JSON 字段固定为 blindSpots、patterns、nextLines、cardIdeas、batchSummary。',
-            'blindSpots / patterns / nextLines / cardIdeas 必须是字符串数组。',
-            'batchSummary 必须是字符串或 null。',
+            '严格基于当前上下文、当前卡片、当前路径和当前材料回答；材料未说明就明确说“材料未说明”或“这里有不确定性”，不要脑补。',
+            '如果当前处在神经漫游，请优先结合当前 round、focus、recent path、路径位置和激活来源来组织理解。',
+            '除非用户明确要求，否则不要写成正式总结稿。',
         ].join('\n'),
         followUp: [
             '你是 SiyuanMemo 的 AI 导师，正在基于已有导师结果继续追问。',
@@ -803,13 +808,9 @@ export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
         run: [
             '你是一位擅长帮助学习者真正理解当前卡片的学习教练。',
             '你的工作对象是“正在复习或理解这张卡片的现在的自己”，不是未来制卡系统。',
-            '你会收到一个 JSON payload，其中至少包含 language、context.currentCard、context.selectedBlocks、context.queueProgress、context.neuralBatch，以及当前卡片的来源材料。',
             '严格以当前卡片和当前材料为锚点；可以做少量必要的背景桥接，但凡超出材料直接支持的地方，必须明确说明“这是补充理解，不是材料原文直接说明”。',
             '不要把回答写成百科条目，不要空泛复述术语。解释的目标是下次想得起来、分得清、用得上。',
             '如果当前卡是阅读型 topic / concept，请把它当作理解节点，而不是问答卡；如果当前卡是检索型卡片，可以先用一句话点明答案或工作定义，但不要整段重复答案。',
-            '只返回合法 JSON，不要附带 Markdown 代码块。',
-            'JSON 字段固定为 workingDefinition、whatItTests、whyItsTricky、connections、triggers、cardIdeas。',
-            'connections / triggers / cardIdeas 必须是字符串数组。',
         ].join('\n'),
         followUp: [
             '你是一位学习教练，正在基于已有解释结果继续追问。',
@@ -821,21 +822,12 @@ export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
     cardCandidate: {
         run: [
             '你是一位擅长把知识转化为“可理解、可回忆、可应用”的学习教练。',
-            '你会收到一个 JSON，里面至少包含 mode、allowedTemplateIds、context、learnerProfile。',
             '你的任务不是直接复述材料，而是先建立结构化理解，再把关键点压缩成少而精的高质量候选卡。',
             '优先提取边界、关系、作用、适用场景、常见误解；不重要的视角可以判断为当前不关键，不要硬凑。',
             '候选卡默认目标区间是 6-10 张，但这是理想区间，不是硬指标。材料不够清楚、卡点不够稳定时，宁可少出，也不要硬凑；必要时允许只输出 0-3 张真正值得复习的候选。',
             '卡片质量标准：一题只测一个点；问法具体不空泛；答案短且稳定；需要回忆；不能靠题面直接猜出来。',
             '优先产出辨析、因果、应用、边界、触发器类候选；纯定义复述题只保留少数真正关键的锚点。',
             '如果材料没说清楚，请明确写“材料未说明”或“这里有不确定性”，不要脑补。',
-            '只返回合法 JSON，不要附带 Markdown 代码块。',
-            '顶层字段必须是 mode、candidates。',
-            'mode 必须回显 payload.mode。',
-            'candidates 必须是数组，且每项都包含 templateId、title、preview、fieldMapping、sourceBlockIds、rationale、confidence。',
-            'templateId 必须来自 allowedTemplateIds。',
-            'fieldMapping 中填的是字段文本草稿，不是块 ID。',
-            'sourceBlockIds 必须引用 context.currentCard.sourceBlockIds 或 context.selectedBlocks 里的 blockId。',
-            'confidence 必须是 0 到 1 之间的数字。',
         ].join('\n'),
         followUp: [
             '你正在回答 AI 辅助制卡候选上的追问。',
@@ -848,19 +840,10 @@ export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
         run: [
             '你正在执行 CDF 辅助制卡。',
             'CDF 指概念描述符框架：先找概念锚点与稳定定义，再从材料中抽取可复用的描述维度，帮助未来复习时稳定回忆同一个知识点。',
-            '你会收到一个 JSON，里面至少包含 mode、allowedTemplateIds、context、learnerProfile。',
             '先在内部完成这件事：1. 找出材料里的核心概念或少数概念锚点；2. 为每个概念提炼一句稳定定义；3. 从材料里抽取高价值描述维度，例如边界、特征、机制、条件、证据、对比、例子、用途、影响；4. 只保留真正值得复习且能稳定提问的维度。',
             '优先输出能落到概念定义卡和概念描述符卡上的候选；描述符要尽量短、稳、可复用，不要把整段原文塞进字段。',
             '材料未说明的维度不要脑补，可以明确写“材料未说明”或直接放弃该候选。',
             '质量优先，宁可少出，也不要凑数；必要时只输出 0-5 张真正成立的候选。',
-            '只返回合法 JSON，不要附带 Markdown 代码块。',
-            '顶层字段必须是 mode、candidates。',
-            'mode 必须回显 payload.mode。',
-            'candidates 必须是数组，且每项都包含 templateId、title、preview、fieldMapping、sourceBlockIds、rationale、confidence。',
-            'templateId 必须来自 allowedTemplateIds，优先选择概念定义或概念描述符模板族。',
-            'fieldMapping 中填的是字段文本草稿，不是块 ID。',
-            'sourceBlockIds 必须引用 context.currentCard.sourceBlockIds 或 context.selectedBlocks 里的 blockId。',
-            'confidence 必须是 0 到 1 之间的数字。',
         ].join('\n'),
         followUp: [
             '你正在回答 CDF 辅助制卡结果上的追问。',
@@ -875,6 +858,23 @@ function clonePromptPair(pair: AIPromptTextPair): AIPromptTextPair {
         run: pair.run,
         followUp: pair.followUp,
     };
+}
+
+function clonePromptTemplates(templates: AIPromptTemplates): AIPromptTemplates {
+    return {
+        tutor: clonePromptPair(templates.tutor),
+        explain: clonePromptPair(templates.explain),
+        cardCandidate: clonePromptPair(templates.cardCandidate),
+        cardCandidateCdf: clonePromptPair(templates.cardCandidateCdf),
+    };
+}
+
+export function normalizeAIPromptContractVersion(value: unknown): number {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return 0;
+    }
+    return Math.max(0, Math.floor(numeric));
 }
 
 function normalizePromptText(value: unknown): string {
@@ -952,6 +952,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     timeoutMs: 30000,
     temperature: 0.3,
     defaultOutputLanguage: 'zh-CN',
+    promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
     prompts: DEFAULT_AI_PROMPTS,
     draftStorage: {
         mode: 'daily-note',

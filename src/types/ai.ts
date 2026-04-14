@@ -12,6 +12,23 @@ export type AIWorkbenchSurface = 'standalone-dialog' | 'review-dialog-sidecar' |
 export type AIFollowUpRole = 'user' | 'assistant';
 export type AICandidateDraftState = 'unsaved' | 'saving' | 'saved' | 'dirty' | 'creating' | 'created' | 'error';
 export type AICandidateDraftErrorOperation = 'save' | 'create';
+export type AIWorkbenchMessageKind = 'user' | 'assistant-text' | 'assistant-result' | 'candidate-board';
+export type AIContextProviderKey = 'manual-text' | 'selected-content' | 'block-refs' | 'current-document';
+
+export interface AIAttachedContextItem {
+  id: string;
+  providerKey: AIContextProviderKey;
+  title: string;
+  summary: string;
+  preview: string;
+  content: string;
+  blockIds: string[];
+  createdAt: number;
+}
+
+export interface AIComposerContextState {
+  items: AIAttachedContextItem[];
+}
 
 export interface AIBlockContext {
   blockId: string;
@@ -113,20 +130,88 @@ export interface AIMakeCardsResult {
   rawContent: string;
 }
 
-export interface AIWorkbenchHistoryEntry {
-  id: string;
-  taskType: AITaskType;
-  source: AIWorkbenchSource;
-  createdAt: number;
-  title: string;
-}
-
 export interface AIFollowUpEntry {
   id: string;
   view: AITaskType;
   role: AIFollowUpRole;
   content: string;
   createdAt: number;
+}
+
+export interface AIWorkbenchUserMessage {
+  id: string;
+  view: AITaskType;
+  kind: 'user';
+  content: string;
+  createdAt: number;
+  editedFromMessageId: string | null;
+  attachedContexts: AIAttachedContextItem[];
+}
+
+export interface AIWorkbenchAssistantTextMessage {
+  id: string;
+  view: AITaskType;
+  kind: 'assistant-text';
+  content: string;
+  createdAt: number;
+  sourceContent: string | null;
+  appliedContexts: AIAttachedContextItem[];
+}
+
+export interface AIWorkbenchAssistantResultMessage {
+  id: string;
+  view: Extract<AITaskType, 'tutor' | 'explain'>;
+  kind: 'assistant-result';
+  createdAt: number;
+  rawContent: string;
+  tutorResult: AITutorResult | null;
+  explainResult: AIExplainResult | null;
+  appliedContexts: AIAttachedContextItem[];
+}
+
+export interface AIWorkbenchCandidateBoardMessage {
+  id: string;
+  view: 'make-cards';
+  kind: 'candidate-board';
+  createdAt: number;
+  mode: AIMakeCardMode;
+  result: AIMakeCardsResult;
+  appliedContexts: AIAttachedContextItem[];
+}
+
+export type AIWorkbenchMessage =
+  | AIWorkbenchUserMessage
+  | AIWorkbenchAssistantTextMessage
+  | AIWorkbenchAssistantResultMessage
+  | AIWorkbenchCandidateBoardMessage;
+
+export interface AIWorkbenchThreadRecord {
+  view: AITaskType;
+  messages: AIWorkbenchMessage[];
+  resultContextSignature: string | null;
+  stale: boolean;
+  staleReason: string | null;
+}
+
+export interface AIWorkbenchSessionSummary {
+  id: string;
+  title: string;
+  source: AIWorkbenchSource;
+  sourceReviewSessionId: string | null;
+  surface: AIWorkbenchSurface;
+  contextSignature: string | null;
+  createdAt: number;
+  updatedAt: number;
+  lastActiveView: AITaskType;
+  activeViews: AITaskType[];
+  messageCount: number;
+}
+
+export interface AIWorkbenchSessionRecord extends AIWorkbenchSessionSummary {
+  context: AIWorkbenchContextSnapshot | null;
+  makeCardMode: AIMakeCardMode;
+  requestBatchSummary: boolean;
+  threads: Record<AITaskType, AIWorkbenchThreadRecord>;
 }
 
 export interface AIViewSessionState {
@@ -164,6 +249,8 @@ export interface AIWorkbenchOpenOptions {
 export interface AIWorkbenchState extends ReviewAISessionState {
   activeView: AITaskType;
   context: AIWorkbenchContextSnapshot | null;
+  liveContext: AIWorkbenchContextSnapshot | null;
+  contextIsHistorical: boolean;
   isLoading: boolean;
   error: string | null;
   tutorResult: AITutorResult | null;
@@ -171,5 +258,13 @@ export interface AIWorkbenchState extends ReviewAISessionState {
   makeCardsResult: AIMakeCardsResult | null;
   makeCardMode: AIMakeCardMode;
   requestBatchSummary: boolean;
-  history: AIWorkbenchHistoryEntry[];
+  sessionTitle: string;
+  sessionHistory: AIWorkbenchSessionSummary[];
+  threads: Record<AITaskType, AIWorkbenchThreadRecord>;
+  historyPanelOpen: boolean;
+  contextPanelOpen: boolean;
+  composerContexts: AIComposerContextState;
+  composerEditorOpen: boolean;
+  editingMessageId: string | null;
+  editingMessageKind: AIWorkbenchMessageKind | null;
 }

@@ -61,6 +61,28 @@ describe('OpenAICompatibleLLMAdapter', () => {
     );
   });
 
+  it('passes json_object response_format when the caller requests structured output', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({
+        choices: [{ message: { content: '{"ok":true}' } }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await adapter.chat({
+      ...BASE_REQUEST,
+      responseFormat: 'json_object',
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      model: 'test-model',
+      response_format: {
+        type: 'json_object',
+      },
+    });
+  });
+
   it('extracts text parts from array-based content payloads', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       mockJsonResponse({

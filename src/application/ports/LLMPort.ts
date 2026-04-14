@@ -11,6 +11,7 @@ export interface LLMRequest {
   model: string;
   timeoutMs: number;
   temperature: number;
+  responseFormat?: 'json_object';
   messages: LLMMessage[];
 }
 

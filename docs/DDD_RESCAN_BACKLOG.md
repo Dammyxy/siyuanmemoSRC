@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-15 (Round 64)
+Last update: 2026-04-15 (Round 65)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-15 - ai chat rich rendering message editing and one-shot use-context
+
+- Task: Upgrade the AI workbench chat shell with selectable rich message rendering, local assistant/result editing, and one-shot `Use Context` attachments inspired by F toolbox interaction patterns without copying its implementation.
+- Touched slice: AI workbench message/context contracts in `src/types/ai.ts`, runtime orchestration in `src/application/services/AIWorkbenchService.ts`, provider metadata in `src/application/services/AIWorkbenchContextProviderRegistry.ts`, reusable rendering/editor UI in `src/ui/shared/{RichMarkdownContent,LargeTextEditorDialog}.vue` plus `src/ui/shared/rich-content.ts`, AI chat UI in `src/ui/ai/AiWorkbenchPane.vue`, related i18n, `ARCHITECTURE.md`, and focused AI workbench regression coverage.
+- Debt fixed now: AI chat messages are no longer locked to plain text and button-only copy; assistant text and structured sections now render through one reusable markdown/code/math/mermaid renderer with normal text selection enabled; temporary context attachments now travel through the active `AIWorkbenchService` payload path instead of forcing users to overload prompt text; and assistant-text / assistant-result history can now be edited locally and persisted through the same session store without creating a second chat path.
+- Debt deferred: Context provider titles/descriptions and some AI contract copy are still hardcoded inside the bounded AI slice instead of flowing through a fuller i18n/domain presentation pass, and the current document / selected-content providers still use pragmatic DOM-plus-port resolution rather than a broader shared context-provider platform.
+- Why deferred: A complete i18n sweep or a cross-plugin provider platform would widen this bounded AI chat enhancement into much larger UX/platform work with more merge risk than needed to ship the active chat improvements.
+- Next safe step: If `Use Context` keeps growing, extract provider resolution into a dedicated AI-context service with typed provider-specific tests, then fold provider metadata/copy into the normal i18n path in the same bounded slice.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`.
+
+### 2026-04-15 - ai prompt dual-layer behavior/system-contract split
+
+- Task: Replace the fully editable structured first-run prompts with a dual-layer model where users edit behavior prompts while the plugin owns the JSON/schema contract for tutor, explain, make-card, and CDF make-card runs.
+- Touched slice: AI settings normalization in `src/types/settings.ts`, structured prompt registry/runtime assembly in `src/application/services/{AIPromptContractRegistry,AIWorkbenchService,AIPromptComposer}.ts`, settings UI in `src/ui/settings/SettingsPanel.vue`, related i18n, `ARCHITECTURE.md`, and focused settings/AI regression coverage.
+- Debt fixed now: Normal users no longer have to stare at `workingDefinition` / `candidates` / `fieldMapping`-style schema text in the main prompt editor just to tune tone and behavior; the structured JSON contract now has one code-owned source of truth shared by runtime assembly and the settings read-only advanced view; and a one-time `promptContractVersion` migration resets legacy fully-exposed prompt text to the new behavior/follow-up template set instead of carrying brittle schema wording forward.
+- Debt deferred: The system contract is still fixed and internal rather than user-configurable, and settings still do not provide a richer schema-health simulator beyond the bounded runtime validation/error guidance already in place.
+- Why deferred: Opening schema customization or building a full prompt-contract simulator would widen this bounded hardening into a larger product/tooling project with new UX and compatibility decisions.
+- Next safe step: If advanced users later need controlled schema editing, add a separate expert-mode contract editor backed by explicit schema validation instead of re-exposing the raw runtime contract inside the normal prompt textarea.
+- Validation: `pnpm vitest run src/types/__tests__/settings-normalization.test.ts src/application/services/__tests__/AIPromptComposer.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts`; `pnpm build`.
+
+### 2026-04-15 - ai explain legacy-field compatibility and raw-content fallback
+
+- Task: Fix `AI 解释卡片` chat messages that rendered only the title bar because some valid JSON responses used legacy alias keys like `workDefinition` / `testPoint` / `confusionBoundary` instead of the current explain schema.
+- Touched slice: AI explain normalization in `src/application/services/AIWorkbenchService.ts`, AI chat rendering fallback in `src/ui/ai/AiWorkbenchPane.vue`, and focused regression coverage in `src/application/services/__tests__/AIWorkbenchService.review-session.test.ts` plus `src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`.
+- Debt fixed now: The active explain pipeline now accepts the legacy/alias explain field names and string-valued list fields, so new runs normalize into the current `workingDefinition / whatItTests / whyItsTricky / connections / triggers` shape; persisted historical explain messages can also recover from `rawContent` when their stored normalized payload is empty, so existing blank bubbles no longer stay blank.
+- Debt deferred: Prompt customization can still drift into completely different JSON schemas that the plugin cannot infer safely, and tutor/make-card prompts still rely on their own stricter field contracts beyond the light string-list hardening added here.
+- Why deferred: Inferring arbitrary user-defined schemas would turn this bounded compatibility fix into a generic prompt-to-UI mapping system with much broader product and UX implications.
+- Next safe step: If users continue heavily editing explain/tutor prompts, add a prompt health preview that validates required keys against the expected runtime schema before first run or save.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`.
+
+### 2026-04-15 - ai structured json-mode hardening
+
+- Task: Fix AI workbench structured runs that could fail with `AI response is not valid JSON` even when the prompt still requested JSON, by hardening the structured-output boundary for explain/tutor/make-cards.
+- Touched slice: AI workbench request/parse flow in `src/application/services/AIWorkbenchService.ts`, LLM port/adapter contract in `src/application/ports/LLMPort.ts` and `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`, focused regression coverage in `src/application/services/__tests__/AIWorkbenchService.review-session.test.ts` and `src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`, plus `ARCHITECTURE.md`.
+- Debt fixed now: Structured first-run tasks now explicitly request `json_object` output mode at the LLM boundary instead of relying only on prompt wording; the local JSON extractor now tolerates fenced JSON wrappers before falling back to brace slicing; and follow-up chat remains freeform so the new hardening stays scoped to the structured-result contract.
+- Debt deferred: Providers that advertise an OpenAI-compatible endpoint but do not actually accept `response_format` still rely on their server-side compatibility quality; the settings surface still has no prompt linter that warns users before they save a JSON-breaking template.
+- Why deferred: Adding provider-specific downgrade logic or a prompt-schema validator would widen this bounded runtime hardening into a larger compatibility/tooling project that is not required to fix the active parse failure on the main path.
+- Next safe step: If users report a specific provider rejecting `response_format`, add one bounded adapter capability check keyed to the concrete provider behavior, and if prompt customization keeps causing failures, add a lightweight JSON-contract health check in settings.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`; `pnpm build`.
+
+### 2026-04-15 - ai workbench chat sessions and persistent history
+
+- Task: Upgrade the AI workbench from single-result panels into a chat-style companion with persistent session history, unified cross-entry session semantics, collapsible context/history drawers, and make-card candidate boards embedded in the same conversation shell.
+- Touched slice: AI workbench runtime wiring in `src/application/ApplicationContext.ts`, `src/application/services/{AIWorkbenchSessionStoreService,ReviewAIWorkbenchRegistry,AIWorkbenchService}.ts`, AI chat UI in `src/ui/ai/AiWorkbenchPane.vue`, supporting `FileService` persistence, related i18n, `ARCHITECTURE.md`, and focused AI workbench / entrypoint regression coverage.
+- Debt fixed now: Removed the last ephemeral in-memory-only AI history path by moving session storage onto `FileService`; unified standalone/review/tab/template-dialog openings onto one persistent session model with context-signature-based session rollover; and replaced the old result-panel + ad hoc follow-up surface with a single message-thread shell where tutor/explain results and make-card candidate boards share the same topbar/history/context/composer contract.
+- Debt deferred: History rename/delete still use lightweight prompt/confirm interactions instead of a dedicated polished modal flow, and candidate-board edits persist through a small debounced write rather than a richer draft-presence lifecycle.
+- Why deferred: A dedicated history-management interaction model and a more granular session-write scheduler would widen this bounded AI workbench upgrade into extra UX/state tooling work without blocking the core shift to persistent chat sessions.
+- Next safe step: If users start managing large numbers of sessions or long candidate-editing passes, add a dedicated history management dialog and a more explicit draft-presence indicator around debounced session persistence.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/application/managers/__tests__/DialogManager.quick-template-filter.test.ts src/application/managers/__tests__/TabManager.review-ai-companion.spec.ts`; `pnpm build`.
 
 ### 2026-04-15 - ai prompt full exposure and cdf make-card mode
 

@@ -865,13 +865,23 @@
             </label>
             <p class="form-hint form-hint--section">{{ preset.usageHint }}</p>
             <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-              {{ t('aiRunPrompt', '运行 Prompt') }}
+              {{ t('aiBehaviorPrompt', '行为 Prompt') }}
             </label>
+            <p class="form-hint form-hint--section">
+              {{ t('aiBehaviorPromptHint', '系统会自动附加结构化输出规则；这里主要描述角色、目标、语气和偏好。') }}
+            </p>
             <textarea
               v-model="aiSettings.prompts[preset.settingKey].run"
               :rows="preset.settingKey === 'cardCandidate' || preset.settingKey === 'cardCandidateCdf' ? 12 : 10"
               class="form-textarea"
             ></textarea>
+            <details class="ai-prompt-preset-card__contract">
+              <summary>{{ t('aiPromptShowSystemContract', '查看系统自动附加的结构化规则') }}</summary>
+              <p class="form-hint form-hint--section">{{ preset.systemContractSummary }}</p>
+              <ul class="ai-prompt-preset-card__contract-list">
+                <li v-for="line in preset.systemContractLines" :key="line">{{ line }}</li>
+              </ul>
+            </details>
             <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
               {{ t('aiFollowUpPrompt', '追问 Prompt') }}
             </label>
@@ -909,8 +919,11 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue';
 import { AI_PROMPT_PRESET_DESCRIPTORS, getRecommendedPromptTemplate } from '@/application/services/AIPromptComposer';
+import { getPromptContractForSetting } from '@/application/services/AIPromptContractRegistry';
 import {
+  ACTIVE_AI_PROMPT_CONTRACT_VERSION,
   normalizeConfiguredCaptureStorageSettings as normalizeCaptureStorageSettings,
+  normalizeAIPromptContractVersion,
   normalizeAIPromptTemplates,
   type ConfiguredCaptureStorageSettings,
   DEFAULT_AI_SETTINGS,
@@ -1037,6 +1050,8 @@ function mergeAISettings(source?: Partial<AISettings>): AISettings {
   return {
     ...defaults,
     ...sourceWithoutLegacy,
+    promptContractVersion: normalizeAIPromptContractVersion(sourceWithoutLegacy.promptContractVersion)
+      || ACTIVE_AI_PROMPT_CONTRACT_VERSION,
     prompts: normalizeAIPromptTemplates(sourceWithoutLegacy.prompts),
     draftStorage: mergeAIDraftStorageSettings(sourceWithoutLegacy.draftStorage, defaults.draftStorage),
   };
@@ -1222,7 +1237,7 @@ function getAiPromptUsageCopy(settingKey: AIPromptSettingKey): {
       return {
         usageState,
         usageLabel: t('aiPromptStatusCustom', '当前使用自定义覆盖'),
-        usageHint: t('aiPromptStatusCustomHint', '下面显示的是你当前保存或正在编辑的完整运行 Prompt 和追问 Prompt。'),
+        usageHint: t('aiPromptStatusCustomHint', '下面显示的是你当前保存或正在编辑的行为 Prompt 和追问 Prompt；结构化规则会由系统自动附加。'),
       };
     case 'empty':
       return {
@@ -1235,7 +1250,7 @@ function getAiPromptUsageCopy(settingKey: AIPromptSettingKey): {
       return {
         usageState: 'recommended',
         usageLabel: t('aiPromptStatusRecommended', '当前使用推荐模板'),
-        usageHint: t('aiPromptStatusRecommendedHint', '下面显示的是当前内置推荐的完整运行 Prompt 和追问 Prompt。'),
+        usageHint: t('aiPromptStatusRecommendedHint', '下面显示的是当前内置推荐的行为 Prompt 和追问 Prompt；结构化规则会由系统自动附加。'),
       };
   }
 }
@@ -1246,6 +1261,8 @@ const aiPromptPresetCards = computed(() => AI_PROMPT_PRESET_DESCRIPTORS.map((des
   audience: t(descriptor.audienceKey, descriptor.audienceFallback),
   behavior: t(descriptor.behaviorKey, descriptor.behaviorFallback),
   output: t(descriptor.outputKey, descriptor.outputFallback),
+  systemContractSummary: getPromptContractForSetting(descriptor.settingKey).summary,
+  systemContractLines: getPromptContractForSetting(descriptor.settingKey).runtimeLines,
   ...getAiPromptUsageCopy(descriptor.settingKey),
 })));
 
@@ -1700,6 +1717,7 @@ function saveSettings() {
       timeoutMs: Math.max(1000, Number(aiSettings.value.timeoutMs) || DEFAULT_AI_SETTINGS.timeoutMs),
       temperature: Math.min(2, Math.max(0, Number(aiSettings.value.temperature) || DEFAULT_AI_SETTINGS.temperature)),
       defaultOutputLanguage: String(aiSettings.value.defaultOutputLanguage || '').trim(),
+      promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
       prompts,
       draftStorage: mergeAIDraftStorageSettings(
         aiSettings.value.draftStorage,
@@ -2216,6 +2234,30 @@ async function handleRepairDates() {
 .ai-prompt-preset-card__editor {
   display: grid;
   gap: 8px;
+}
+
+.ai-prompt-preset-card__contract {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--b3-border-color);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.ai-prompt-preset-card__contract summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.ai-prompt-preset-card__contract-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface-light);
 }
 
 .ai-prompt-preset-card__editor-label--sub {

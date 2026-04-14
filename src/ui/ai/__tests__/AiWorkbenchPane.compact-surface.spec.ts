@@ -2,9 +2,15 @@
 
 import { mount } from '@vue/test-utils';
 import { reactive, nextTick } from 'vue';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
-import type { AIWorkbenchState, AITaskType, AIViewSessionState, AIWorkbenchSurface } from '@/types/ai';
+import type {
+  AIExplainResult,
+  AIWorkbenchState,
+  AITaskType,
+  AIViewSessionState,
+  AIWorkbenchSurface,
+} from '@/types/ai';
 import AiWorkbenchPane from '../AiWorkbenchPane.vue';
 
 function createViewState(): Record<AITaskType, AIViewSessionState> {
@@ -30,9 +36,35 @@ function createViewState(): Record<AITaskType, AIViewSessionState> {
   };
 }
 
+function createThreads() {
+  return {
+    tutor: {
+      view: 'tutor' as const,
+      messages: [],
+      resultContextSignature: null,
+      stale: false,
+      staleReason: null,
+    },
+    explain: {
+      view: 'explain' as const,
+      messages: [],
+      resultContextSignature: null,
+      stale: false,
+      staleReason: null,
+    },
+    'make-cards': {
+      view: 'make-cards' as const,
+      messages: [],
+      resultContextSignature: null,
+      stale: false,
+      staleReason: null,
+    },
+  };
+}
+
 function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
   const state = reactive<AIWorkbenchState>({
-    sessionId: surface === 'standalone-dialog' ? null : 'review-session-1',
+    sessionId: 'ai-session-1',
     surface,
     sourceReviewSessionId: surface === 'standalone-dialog' ? null : 'review-session-1',
     contextSignature: 'ctx-1',
@@ -72,7 +104,7 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
         roleDescription: '阅读型卡片：用于维持对主题、概念和上下文的接触，不依赖正反面答案回忆。',
         sourceBlockIds: ['block-a'],
         frontText: '指数为定值，以 x 为自变量时，函数 y = x^a 叫什么？',
-        backText: '幂函数',
+        backText: '',
         sourceText: '数学讲义 > 理科数学',
       },
       currentCardRaw: null,
@@ -126,6 +158,8 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
         anchorSnapshot: [],
       },
     },
+    liveContext: null,
+    contextIsHistorical: false,
     isLoading: false,
     error: null,
     tutorResult: null,
@@ -133,7 +167,31 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     makeCardsResult: null,
     makeCardMode: 'qa',
     requestBatchSummary: false,
-    history: [],
+    sessionTitle: '幂函数 · AI 会话',
+    sessionHistory: [
+      {
+        id: 'ai-session-1',
+        title: '幂函数 · AI 会话',
+        source: 'review',
+        sourceReviewSessionId: 'review-session-1',
+        surface,
+        contextSignature: 'ctx-1',
+        createdAt: 1,
+        updatedAt: 2,
+        lastActiveView: 'tutor',
+        activeViews: ['tutor'],
+        messageCount: 0,
+      },
+    ],
+    threads: createThreads(),
+    historyPanelOpen: false,
+    contextPanelOpen: false,
+    composerContexts: {
+      items: [],
+    },
+    composerEditorOpen: false,
+    editingMessageId: null,
+    editingMessageKind: null,
   });
 
   const service = {
@@ -144,10 +202,26 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     setMakeCardMode(mode: AIWorkbenchState['makeCardMode']) {
       state.makeCardMode = mode;
     },
+    setHistoryPanelOpen(open: boolean) {
+      state.historyPanelOpen = open;
+    },
+    setContextPanelOpen(open: boolean) {
+      state.contextPanelOpen = open;
+    },
+    getCurrentModelLabel: () => 'test-model',
+    getThreadMessages: () => state.threads[state.activeView].messages,
+    getAvailableContextProviders: () => [],
+    getComposerContexts: () => state.composerContexts.items,
+    replaceComposerContexts: () => {},
     runTutor: async () => {},
     rerunTutorWithSummary: async () => {},
     runExplain: async () => {},
     runMakeCards: async () => {},
+    createNewSession: async () => {},
+    openSession: async () => {},
+    renameCurrentSession: async () => {},
+    renameSession: async () => {},
+    deleteSession: async () => {},
     runActiveView: async () => {},
     saveSelectedCandidatesToDailyNote: async () => {},
     createSelectedCandidates: async () => {},
@@ -157,15 +231,34 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     updateCandidateTitle: () => {},
     updateCandidateTemplateId: () => {},
     updateCandidateField: () => {},
-    getFollowUps: () => state.viewState[state.activeView].followUps,
+    attachContextFromProvider: async () => null,
+    removeComposerContext: () => {},
+    clearComposerContexts: () => {},
+    setComposerEditorOpen: () => {},
+    setEditingMessage: () => {},
+    updateAssistantTextMessage: async () => {},
+    updateAssistantResultMessage: async () => {},
     getFollowUpDisabledReason: () => null,
   };
 
   return service as unknown as AIWorkbenchService;
 }
 
+function pushExplainMessage(service: AIWorkbenchService, result: AIExplainResult) {
+  service.state.threads.explain.messages.push({
+    id: 'explain-message-1',
+    view: 'explain',
+    kind: 'assistant-result',
+    createdAt: Date.now(),
+    rawContent: '',
+    tutorResult: null,
+    explainResult: result,
+    appliedContexts: [],
+  });
+}
+
 describe('AiWorkbenchPane compact surfaces', () => {
-  it('renders the review compact shell with hidden details by default and keeps details open across view switches', async () => {
+  it('renders the compact chat shell and can reveal history/context drawers', async () => {
     const service = createService('review-dialog-sidecar');
     const wrapper = mount(AiWorkbenchPane, {
       props: {
@@ -173,48 +266,30 @@ describe('AiWorkbenchPane compact surfaces', () => {
       },
     });
 
-    expect(wrapper.find('.ai-workbench__sidebar').exists()).toBe(false);
-    expect(wrapper.find('.ai-workbench__hero').exists()).toBe(false);
-    expect(wrapper.find('.ai-workbench__compact-switcher').exists()).toBe(true);
-    expect(wrapper.find('.ai-workbench__compact-message-card').exists()).toBe(true);
-    expect(wrapper.find('.ai-workbench__compact-details-tray').exists()).toBe(false);
-    expect(wrapper.find('.ai-workbench__details-toggle').exists()).toBe(true);
-    expect(wrapper.text()).not.toContain('复习中');
-    expect(wrapper.text()).not.toContain('12/20');
-    expect(wrapper.text()).not.toContain('答案隐藏中');
+    expect(wrapper.find('.ai-chat--compact').exists()).toBe(true);
+    expect(wrapper.find('.ai-chat__history').exists()).toBe(false);
+    expect(wrapper.find('.ai-chat__context').exists()).toBe(false);
+    expect((wrapper.find('.ai-chat__title-input').element as HTMLInputElement).value).toBe('幂函数 · AI 会话');
+    expect(wrapper.text()).toContain('模型: test-model');
 
-    await wrapper.find('.ai-workbench__details-toggle').trigger('click');
+    await wrapper.findAll('.b3-button').find((button) => button.text().includes('历史'))!.trigger('click');
     await nextTick();
+    expect(wrapper.find('.ai-chat__history').exists()).toBe(true);
+    expect(wrapper.text()).toContain('会话历史');
 
-    expect(wrapper.find('.ai-workbench__compact-details-tray').exists()).toBe(true);
-    expect(wrapper.text()).toContain('阅读型卡片');
+    await wrapper.findAll('.b3-button').find((button) => button.text().includes('查看上下文'))!.trigger('click');
+    await nextTick();
+    expect(wrapper.find('.ai-chat__context').exists()).toBe(true);
     expect(wrapper.text()).toContain('当前队列');
     expect(wrapper.text()).toContain('神经漫游');
-    expect(wrapper.text()).toContain('本次复习进度');
-    expect(wrapper.text()).toContain('已复习 12/20');
-    expect(wrapper.text()).toContain('当前轨道轮次');
-    expect(wrapper.text()).toContain('1/2');
-    expect(wrapper.text()).toContain('指数为定值');
-    expect(wrapper.text()).not.toContain('答案隐藏中');
 
-    if (service.state.context?.neuralBatch?.kind === 'orbit-round') {
-      service.state.context.neuralBatch.viewedCount = 38;
-      service.state.context.neuralBatch.currentNodeId = 'node-2';
-    }
+    await wrapper.findAll('.ai-chat__tab')[1].trigger('click');
     await nextTick();
-
-    expect(wrapper.text()).toContain('2/2');
-    expect(wrapper.text()).not.toContain('38/5');
-
-    await wrapper.findAll('.ai-workbench__compact-switch')[1].trigger('click');
-    await nextTick();
-
     expect(service.state.activeView).toBe('explain');
-    expect(wrapper.find('.ai-workbench__compact-details-tray').exists()).toBe(true);
-    expect(wrapper.text()).toContain('AI 解释卡片');
+    expect(wrapper.find('.ai-chat__context').exists()).toBe(true);
   });
 
-  it('keeps the full sidebar shell for standalone dialog surface', () => {
+  it('keeps the standalone shell without compact modifier', () => {
     const service = createService('standalone-dialog');
     const wrapper = mount(AiWorkbenchPane, {
       props: {
@@ -222,18 +297,13 @@ describe('AiWorkbenchPane compact surfaces', () => {
       },
     });
 
-    expect(wrapper.find('.ai-workbench__sidebar').exists()).toBe(true);
-    expect(wrapper.find('.ai-workbench__hero').exists()).toBe(true);
-    expect(wrapper.find('.ai-workbench__compact-switcher').exists()).toBe(false);
-    expect(wrapper.text()).toContain('当前队列');
-    expect(wrapper.text()).toContain('神经漫游');
-    expect(wrapper.text()).toContain('本次复习进度');
-    expect(wrapper.text()).toContain('已复习 12/20');
-    expect(wrapper.text()).toContain('当前轨道轮次');
-    expect(wrapper.text()).not.toContain('当前批次进度');
+    expect(wrapper.find('.ai-chat--compact').exists()).toBe(false);
+    expect(wrapper.text()).toContain('AI 导师');
+    expect(wrapper.text()).toContain('新建会话');
+    expect(wrapper.text()).toContain('删除会话');
   });
 
-  it('renders hyperspace path position instead of batch progress on compact details', async () => {
+  it('renders hyperspace path position in the context drawer', async () => {
     const service = createService('review-tab-companion');
     if (service.state.context?.neuralBatch) {
       service.state.context.neuralBatch = {
@@ -255,18 +325,17 @@ describe('AiWorkbenchPane compact surfaces', () => {
       },
     });
 
-    await wrapper.find('.ai-workbench__details-toggle').trigger('click');
+    service.setContextPanelOpen(true);
     await nextTick();
 
     expect(wrapper.text()).toContain('当前路径位置');
     expect(wrapper.text()).toContain('4/9');
-    expect(wrapper.text()).not.toContain('当前批次进度');
   });
 
-  it('renders the upgraded explain schema with working definition and triggers', async () => {
+  it('renders explain results as assistant message sections', async () => {
     const service = createService('review-dialog-sidecar');
     service.state.activeView = 'explain';
-    service.state.explainResult = {
+    pushExplainMessage(service, {
       workingDefinition: '抓住概念本质的短定义',
       whatItTests: '这张卡真正测试的是定义边界',
       whyItsTricky: '容易和相近概念混淆',
@@ -274,7 +343,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
       triggers: ['看到相似表述时要想起它', '遇到这个应用场景时要调用它'],
       cardIdeas: ['可以补一张辨析题'],
       rawContent: '',
-    };
+    });
 
     const wrapper = mount(AiWorkbenchPane, {
       props: {
@@ -288,6 +357,79 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('为什么容易错');
     expect(wrapper.text()).toContain('它和现有知识网络的连接');
     expect(wrapper.text()).toContain('下次什么时候该想起它');
-    expect(wrapper.text()).not.toContain('下次遇到相似材料怎么识别');
+  });
+
+  it('shows composer context chips and assistant edit actions in the chat shell', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.state.composerContexts.items.push({
+      id: 'ctx-1',
+      providerKey: 'manual-text',
+      title: '手工材料',
+      summary: '手工材料 · 12 字',
+      preview: '补充材料',
+      content: '补充材料',
+      blockIds: [],
+      createdAt: Date.now(),
+    });
+    service.state.threads.tutor.messages.push({
+      id: 'assistant-text-1',
+      view: 'tutor',
+      kind: 'assistant-text',
+      content: '这里有一段 **Markdown** 回复。',
+      createdAt: Date.now(),
+      sourceContent: '这里有一段 **Markdown** 回复。',
+      appliedContexts: [],
+    });
+
+    const wrapper = mount(AiWorkbenchPane, {
+      props: {
+        service,
+      },
+    });
+
+    expect(wrapper.text()).toContain('Use Context');
+    expect(wrapper.text()).toContain('手工材料');
+    expect(wrapper.text()).toContain('编辑');
+  });
+
+  it('falls back to raw explain JSON when a persisted message uses legacy alias keys', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.state.activeView = 'explain';
+    service.state.threads.explain.messages.push({
+      id: 'explain-message-legacy',
+      view: 'explain',
+      kind: 'assistant-result',
+      createdAt: Date.now(),
+      rawContent: JSON.stringify({
+        workDefinition: '旧键定义',
+        testPoint: '旧键考点',
+        confusionBoundary: '旧键混淆边界',
+        knowledgeNetwork: '旧键知识连接',
+        recallTrigger: '旧键触发线索',
+      }),
+      tutorResult: null,
+      explainResult: {
+        workingDefinition: '',
+        whatItTests: '',
+        whyItsTricky: '',
+        connections: [],
+        triggers: [],
+        cardIdeas: [],
+        rawContent: '',
+      },
+      appliedContexts: [],
+    });
+
+    const wrapper = mount(AiWorkbenchPane, {
+      props: {
+        service,
+      },
+    });
+
+    expect(wrapper.text()).toContain('旧键定义');
+    expect(wrapper.text()).toContain('旧键考点');
+    expect(wrapper.text()).toContain('旧键混淆边界');
+    expect(wrapper.text()).toContain('旧键知识连接');
+    expect(wrapper.text()).toContain('旧键触发线索');
   });
 });

@@ -12,20 +12,22 @@ describe('AIPromptComposer', () => {
     const cdfPrompt = getRecommendedPromptTemplate('card-candidate-cdf');
 
     expect(tutorPrompt.run).toContain('AI 导师');
-    expect(tutorPrompt.run).toContain('blindSpots');
+    expect(tutorPrompt.run).toContain('继续理解');
+    expect(tutorPrompt.run).not.toContain('blindSpots');
     expect(tutorPrompt.followUp).toContain('不要输出 JSON');
 
     expect(explainPrompt.run).toContain('学习教练');
-    expect(explainPrompt.run).toContain('workingDefinition');
-    expect(explainPrompt.run).toContain('whatItTests');
+    expect(explainPrompt.run).toContain('分得清');
+    expect(explainPrompt.run).not.toContain('workingDefinition');
     expect(explainPrompt.followUp).toContain('工作定义 / 边界 / 因果 / 触发器');
 
     expect(candidatePrompt.run).toContain('6-10 张');
-    expect(candidatePrompt.run).toContain('candidates');
+    expect(candidatePrompt.run).not.toContain('candidates');
     expect(candidatePrompt.followUp).toContain('不要重新生成整批候选');
 
     expect(cdfPrompt.run).toContain('CDF 辅助制卡');
     expect(cdfPrompt.run).toContain('概念锚点');
+    expect(cdfPrompt.run).not.toContain('allowedTemplateIds');
     expect(cdfPrompt.followUp).toContain('概念锚点');
   });
 

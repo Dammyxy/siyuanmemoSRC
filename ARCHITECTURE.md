@@ -214,9 +214,11 @@ sequenceDiagram
 主链路分工：
 
 - `ReviewAIWorkbenchRegistry`：持有 standalone service 与按 review session 隔离的 AI service
-- `AIWorkbenchService`：AI 工作台状态机、`qa/cloze/concept-descriptor/cdf` 模式编排、候选解析与动作编排
-- `src/types/settings.ts`：AI Prompt 的持久化真相源；当前使用四组全文可编辑 prompt 对：`tutor` / `explain` / `cardCandidate` / `cardCandidateCdf`，每组都包含 `run` 与 `followUp`
-- `AIPromptComposer`：只负责推荐 prompt 模板描述与默认全文，不再参与运行时隐藏前缀、任务说明或追问协议拼接
+- `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件，承接历史列表、重命名、删除与上下文签名回放
+- `AIWorkbenchService`：AI 工作台状态机、持久化会话/线程消息流、`qa/cloze/concept-descriptor/cdf` 模式编排、候选解析与动作编排
+- `src/types/settings.ts`：AI Prompt 的持久化真相源；当前使用四组 `run/followUp` prompt 对：`run` 表示用户可编辑的行为 Prompt，`followUp` 表示用户可编辑的追问 Prompt
+- `AIPromptContractRegistry`：结构化首轮任务的系统契约注册表；统一维护 JSON 字段、必填项与来源约束，并为运行时追加和设置页只读说明提供同一份事实源
+- `AIPromptComposer`：只负责推荐 prompt 模板描述与默认行为/追问 Prompt，不再承担运行时结构化协议拼接
 - `AIDailyNoteDraftService`：候选内容写入 daily note / draft / capture 存储
 - `ConfiguredCaptureStorageService`：捕获存储位置与写入策略
 
@@ -224,7 +226,10 @@ sequenceDiagram
 
 - `AiWorkbenchPane.vue` 暴露 `CDF 辅助制卡` 独立模式，但仍复用概念定义 / 概念描述符模板族与现有候选落草稿链路
 - 模板选择弹窗里的 `AI 辅助制卡` 快捷入口默认走 `makeCardMode: 'cdf'` 并自动运行
-- 运行时直接把用户保存的全文 prompt 作为 `system` prompt，下发给模型；不再拼接隐藏共享前缀或追问协议
+- 结构化首轮任务（`tutor` / `explain` / `make-cards`）会在运行时把用户保存的行为 Prompt 与 `AIPromptContractRegistry` 中的系统结构化契约拼成最终 `system` prompt，并通过 `LLMPort` 请求 `json_object` 输出模式
+- follow-up 继续直接使用用户保存的 `followUp` Prompt，保持普通文本对话，不追加结构化契约
+- `AI 导师 / AI 解释` 结果与 follow-up 不再挂在单次结果面板下，而是写入持久化 session 的消息流；`AI 辅助制卡` 则把每次候选结果写成 `candidate-board` assistant message，旧候选板保留历史只读
+- review/browser/template-dialog/standalone 全入口统一走同一套会话仓储；当上下文签名变化时，默认新开会话，旧会话进入历史，可手动回看并明确标记为历史上下文
 
 UI surface：
 
@@ -287,6 +292,7 @@ UI surface：
 - `src/application/services/SelectionExcerptService.ts`：选择态摘录门面。
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - `src/application/services/AIDailyNoteDraftService.ts`：AI 候选内容写入 daily note / draft。
+- `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
 - `src/application/services/AIWorkbenchService.ts`：AI 工作台状态与动作编排。
 
@@ -568,21 +574,31 @@ Review 运行时要点：
 AI 工作台的当前架构分成两层：
 
 1. 服务注册与会话隔离
-2. UI surface 承载
+2. 持久化会话 / 线程消息流
+3. UI surface 承载
 
 服务层：
 
 - `ReviewAIWorkbenchRegistry`
   - 管理 standalone service
   - 管理按 review session 隔离的 AI workbench service
+- `AIWorkbenchSessionStoreService`
+  - 通过 `FileService` 落盘 `index + per-session record`
+  - 提供会话历史列表、按 id 读取、重命名、删除
+  - 让 AI 工作台不再把历史塞进 settings 或内存态里
 - `AIWorkbenchService`
+  - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
+  - 维护 `tutor / explain / make-cards` 三条模式线程的消息流
+  - `AI 导师 / AI 解释` 的结构化结果写入 assistant-result message；`AI 辅助制卡` 的候选板写入 candidate-board message
   - 管理状态、候选、`qa/cloze/concept-descriptor/cdf` make-card mode、surface 差异
-  - 直接读取 `settings.ai.prompts.*.{run,followUp}` 作为运行时 prompt 真相源
+  - 读取 `settings.ai.prompts.*.{run,followUp}` 作为用户可编辑 prompt 真相源，其中 `run` 是行为层，`followUp` 是追问层
+  - 对结构化首轮请求把行为 Prompt 与 `AIPromptContractRegistry` 的系统契约组合成最终 `system` prompt
+  - 对结构化首轮请求显式要求 `json_object` 输出，并在本地容忍 fenced JSON 包装，降低“Prompt 正确但模型包了代码块”导致的结构化失败
   - 在 `cdf` 模式下切换到 `cardCandidateCdf` prompt 组，并复用概念定义 / 描述符模板池
-  - 保持现有 JSON 候选契约；若用户自定义 prompt 破坏结构化输出，则在错误里提示检查对应 Prompt
+  - 保持现有 JSON 候选契约；若用户自定义行为 Prompt 与系统契约冲突导致结构化输出失效，则在错误里提示检查对应行为 Prompt
 - `AIPromptComposer`
-  - 只提供推荐模板描述与默认全文 prompt
-  - 不再承担运行时 prompt 拼接职责
+  - 只提供推荐模板描述与默认行为/追问 Prompt
+  - 不再承担运行时结构化协议拼接职责
 - `AIDailyNoteDraftService`
   - 将候选内容写入 daily note / draft / capture 目标
 - `ConfiguredCaptureStorageService`
@@ -593,7 +609,10 @@ UI 层：
 - `DialogManager.openAiWorkbenchDialog()`：standalone dialog
 - `TabManager.openReviewAICompanionTab(...)`：review companion tab
 - `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文
-- `AiWorkbenchPane.vue`：设置页暴露的四组 Prompt 与工作台的 `CDF 辅助制卡` 模式在这里汇合到同一条候选生成路径
+- `AiWorkbenchPane.vue`
+  - 统一渲染聊天式外壳：顶部工具条、历史抽屉、上下文抽屉、底部 composer
+  - 设置页暴露的四组 Prompt 与工作台的 `CDF 辅助制卡` 模式在这里汇合到同一条候选生成路径
+  - 最新候选板仍可编辑/落卡，旧候选板保留在消息流中只读回放
 
 外部边界：
 
@@ -691,7 +710,7 @@ UI 层：
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
 - AI Workbench / Capture 已在主路径中，并通过 registry + session service 方式集成
-- AI Prompt 的运行时真相源已收敛为用户可直接编辑的全文 `run/followUp` 对，不再依赖隐藏 prompt composer
+- AI Prompt 的持久化真相源已收敛为用户可直接编辑的 `run/followUp` 对，其中结构化首轮的 JSON 契约由系统注册表托管而不是暴露给用户编辑
 - AI 制卡模式已包含 `cdf`，且模板弹窗的 AI 快捷入口默认直达该模式
 
 当前文档定位：
