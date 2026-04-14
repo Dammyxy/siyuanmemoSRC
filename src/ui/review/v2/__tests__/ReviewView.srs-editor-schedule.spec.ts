@@ -6,15 +6,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
 
-const { createVueDialogMock } = vi.hoisted(() => ({
+const { createVueDialogMock, confirmDialogMock } = vi.hoisted(() => ({
   createVueDialogMock: vi.fn(() => ({
     dialog: {} as never,
     destroy: vi.fn(),
   })),
+  confirmDialogMock: vi.fn(async () => true),
 }));
 
 vi.mock('@/utils/dialog', () => ({
   createVueDialog: createVueDialogMock,
+  confirmDialog: confirmDialogMock,
 }));
 
 function buildCard(id: string, priority: number) {

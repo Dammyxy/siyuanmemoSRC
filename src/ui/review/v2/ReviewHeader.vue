@@ -7,72 +7,143 @@
     }"
   >
     <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
-      <div class="block__logo">
-        <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
-        <span>{{ title || header.stats.queueName || '\u95ea\u5361' }}</span>
+      <div class="siyuanmemo-review-header__left">
+        <div class="block__logo siyuanmemo-review-header__brand" :title="t('reviewTitle', 'Review')">
+          <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
+          <span class="siyuanmemo-review-header__brand-text">{{ t('reviewTitle', 'Review') }}</span>
+        </div>
+        <span v-if="!props.isMobile" class="siyuanmemo-review-header__drag resize__move"></span>
       </div>
 
-      <span v-if="!props.isMobile" class="fn__flex-1 resize__move" style="min-height: 100%"></span>
-
-      <div data-type="count" class="siyuanmemo-review-header__metrics">
-        <span
-          v-if="counterSummary"
-          class="b3-tooltips b3-tooltips__sw siyuanmemo-review-header__summary"
-          :class="{ 'siyuanmemo-review-header__summary--value': counterSummary.kind === 'value' }"
-          :aria-label="counterSummary.ariaLabel"
-          :title="counterSummary.tooltip"
-        >
-          {{ counterSummary.text }}
-        </span>
-
+      <div class="siyuanmemo-review-header__center">
         <div
-          v-for="badge in counterBadges"
-          :key="badge.id"
-          class="siyuanmemo-review-header__badge"
-          :style="getBadgeStyle(badge.tone)"
-          :aria-label="badge.ariaLabel"
-          :title="badge.ariaLabel"
+          ref="counterAreaRef"
+          class="siyuanmemo-review-header__summary-wrap"
+          @mouseenter="handleCounterMouseEnter"
+          @mouseleave="handleCounterMouseLeave"
+          @focusin="handleCounterFocusIn"
+          @focusout="handleCounterFocusOut"
         >
-          <span class="siyuanmemo-review-header__badge-label">{{ badge.label }}</span>
-          <span class="siyuanmemo-review-header__badge-text">{{ badge.text }}</span>
+          <button
+            ref="counterTriggerRef"
+            type="button"
+            class="siyuanmemo-review-header__summary"
+            :class="{ 'siyuanmemo-review-header__summary--count-hidden': isDesktopCounterValueHidden }"
+            :aria-label="summaryButtonAriaLabel"
+            :title="summaryButtonTitle"
+            @pointerdown="handleCounterPointerDown"
+            @click.stop="handleCounterClick"
+          >
+            <svg class="siyuanmemo-review-header__summary-icon"><use xlink:href="#iconRiffCard"></use></svg>
+            <span v-if="!isDesktopCounterValueHidden" class="siyuanmemo-review-header__summary-count">{{ visibleCounterText }}</span>
+          </button>
+
+          <div
+            v-if="isCounterPopoverOpen"
+            ref="counterPopoverRef"
+            class="siyuanmemo-review-header__popover"
+            @click.stop
+          >
+            <div class="siyuanmemo-review-header__popover-header">
+              <span class="siyuanmemo-review-header__popover-title">{{ displayTitle }}</span>
+              <span class="siyuanmemo-review-header__popover-subtitle">{{ t('reviewCounterDetails', '复习详情') }}</span>
+            </div>
+
+            <section class="siyuanmemo-review-header__popover-section">
+              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewQueueProgress', '队列进度') }}</div>
+              <div class="siyuanmemo-review-header__popover-grid">
+                <div
+                  v-for="metric in progressMetrics"
+                  :key="metric.id"
+                  class="siyuanmemo-review-header__popover-stat"
+                >
+                  <span class="siyuanmemo-review-header__popover-stat-label">{{ metric.label }}</span>
+                  <span class="siyuanmemo-review-header__popover-stat-value">{{ metric.value }}</span>
+                </div>
+              </div>
+              <div
+                v-if="summaryDescription"
+                class="siyuanmemo-review-header__popover-note"
+                :title="summaryDescription"
+              >
+                {{ summaryDescription }}
+              </div>
+            </section>
+
+            <section v-if="popoverCounters.length > 0" class="siyuanmemo-review-header__popover-section">
+              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewCounterBreakdown', '卡片构成') }}</div>
+              <div class="siyuanmemo-review-header__popover-counter-list">
+                <div
+                  v-for="counter in popoverCounters"
+                  :key="counter.id"
+                  class="siyuanmemo-review-header__popover-counter"
+                  :style="getPopoverCounterStyle(counter.tone)"
+                >
+                  <span class="siyuanmemo-review-header__popover-counter-label">{{ counter.label }}</span>
+                  <span class="siyuanmemo-review-header__popover-counter-value">{{ counter.text }}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="siyuanmemo-review-header__popover-section">
+              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewCurrentCard', '当前卡片') }}</div>
+              <div
+                class="siyuanmemo-review-header__priority"
+                :style="priorityBadgeStyle"
+                :aria-label="header.priorityBadge.ariaLabel"
+                :title="header.priorityBadge.ariaLabel"
+              >
+                <span class="siyuanmemo-review-header__priority-label">{{ t('headerPriority', 'Priority') }}</span>
+                <span class="siyuanmemo-review-header__priority-value">{{ header.priorityBadge.value }}</span>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
 
-      <span class="fn__flex-1"></span>
-
-      <div
-        class="siyuanmemo-review-header__priority"
-        :style="priorityBadgeStyle"
-        :aria-label="header.priorityBadge.ariaLabel"
-        :title="header.priorityBadge.ariaLabel"
-      >
-        <span class="siyuanmemo-review-header__priority-label">{{ header.priorityBadge.label }}</span>
-        <span class="siyuanmemo-review-header__priority-value">{{ header.priorityBadge.value }}</span>
-      </div>
-
-      <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
-        <template v-for="btn in filteredToolbar" :key="btn.type">
+      <div class="siyuanmemo-review-header__right">
+        <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
           <button
-            v-if="!btn.disabled"
+            v-for="btn in filteredToolbar"
+            :key="btn.type"
             :data-type="btn.type"
             class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
             :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
             :aria-label="btn.ariaLabel"
             :title="btn.tooltip || btn.ariaLabel"
+            :disabled="btn.disabled"
             @click="handleToolbarClick(btn, $event)"
           >
             <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
             <span v-if="btn.label" class="siyuanmemo-review-header__toolbar-label">{{ btn.label }}</span>
           </button>
-        </template>
-      </div>
+        </div>
 
+        <button
+          v-if="showMobileClose"
+          data-type="close-review"
+          class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__mobile-close"
+          :aria-label="t('mobileClose', 'Close')"
+          @click="handleCloseClick"
+        >
+          <svg><use xlink:href="#iconCloseRound"></use></svg>
+        </button>
+      </div>
+    </div>
+
+    <div
+      v-if="counterNotice"
+      class="siyuanmemo-review-header__notice"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="siyuanmemo-review-header__notice-text">{{ counterNotice.message }}</span>
       <button
-        v-if="showMobileClose"
-        data-type="close-review"
-        class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__mobile-close"
-        :aria-label="t('mobileClose', 'Close')"
-        @click="handleCloseClick"
+        type="button"
+        class="siyuanmemo-review-header__notice-close"
+        :aria-label="t('reviewCounterNoticeClose', '关闭提示')"
+        :title="t('reviewCounterNoticeClose', '关闭提示')"
+        @click.stop="dismissCounterNotice"
       >
         <svg><use xlink:href="#iconCloseRound"></use></svg>
       </button>
@@ -85,7 +156,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { getHeaderToneColor, getPriorityVisualToken } from '@/ui/shared/cardVisualTokens';
 import { getNeuralEngineLabel } from '@/ui/shared/neuralRoamLabels';
 import type { NeuralNavigationState } from '@/types/unified-data-source';
@@ -94,6 +165,7 @@ import type { ReviewHeaderCounterBadge, ReviewUIState } from './types';
 
 const props = defineProps<{
   header: ReviewUIState['header'];
+  meta?: ReviewUIState['meta'];
   i18n?: Record<string, string>;
   isTabMode?: boolean;
   title?: string;
@@ -122,6 +194,16 @@ type WindowWithSiyuanLanguages = Window & {
   };
 };
 
+const counterAreaRef = ref<HTMLElement | null>(null);
+const counterTriggerRef = ref<HTMLButtonElement | null>(null);
+const counterPopoverRef = ref<HTMLElement | null>(null);
+const isCounterPopoverOpen = ref(false);
+const isCounterValueHidden = ref(false);
+const isDesktopCounterValueHidden = computed(() => !props.isMobile && isCounterValueHidden.value);
+const shouldIgnoreNextDesktopFocusOpen = ref(false);
+const counterNotice = ref<{ id: number; message: string } | null>(null);
+let counterNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
 const counterSummary = computed(() => props.header?.counterSummary || null);
 const counterBadges = computed(() => props.header?.counterBadges || []);
 
@@ -136,6 +218,124 @@ function createGhostStyle(color: string) {
 const priorityBadgeStyle = computed(() => {
   const token = getPriorityVisualToken(props.header?.priorityBadge?.priority ?? null);
   return createGhostStyle(token.color);
+});
+
+const displayTitle = computed(() => (
+  String(props.title || props.header?.title || props.header?.stats?.queueName || t('reviewTitle', 'Review')).trim()
+    || t('reviewTitle', 'Review')
+));
+
+const visibleCounterValue = computed(() => {
+  const metaRemaining = Number(props.meta?.queueProgress?.remaining);
+  if (Number.isFinite(metaRemaining) && metaRemaining >= 0) {
+    return Math.max(0, Math.trunc(metaRemaining));
+  }
+
+  const headerRemaining = Number(props.header?.stats?.current);
+  if (Number.isFinite(headerRemaining) && headerRemaining >= 0) {
+    return Math.max(0, Math.trunc(headerRemaining));
+  }
+
+  const summaryValue = Number(counterSummary.value?.value);
+  if (Number.isFinite(summaryValue) && summaryValue >= 0) {
+    return Math.max(0, Math.trunc(summaryValue));
+  }
+
+  return 0;
+});
+
+const visibleCounterText = computed(() => String(visibleCounterValue.value));
+
+const queueProgress = computed(() => props.meta?.queueProgress || null);
+
+const summaryMetricText = computed(() => {
+  const progress = queueProgress.value;
+  const remaining = Math.max(0, Number(progress?.remaining) || visibleCounterValue.value);
+  const total = Number(progress?.total);
+
+  return Number.isFinite(total) && total > 0
+    ? `${t('headerRemaining', '剩余')} ${remaining} · ${t('reviewTotalCards', '总数')} ${Math.max(remaining, Math.trunc(total))}`
+    : `${t('headerRemaining', '剩余')} ${remaining}`;
+});
+
+const progressMetrics = computed(() => {
+  const progress = queueProgress.value;
+  const completed = Math.max(0, Number(progress?.completed) || 0);
+  const remaining = Math.max(0, Number(progress?.remaining) || visibleCounterValue.value);
+  const total = Number(progress?.total);
+
+  return [
+    {
+      id: 'completed',
+      label: t('reviewCompletedCards', '已学'),
+      value: String(completed),
+    },
+    {
+      id: 'remaining',
+      label: t('headerRemaining', '剩余'),
+      value: String(remaining),
+    },
+    ...(Number.isFinite(total) && total > 0
+      ? [{
+          id: 'total',
+          label: t('reviewTotalCards', '总数'),
+          value: String(Math.max(remaining, Math.trunc(total))),
+        }]
+      : []),
+  ];
+});
+
+const summaryDescription = computed(() => {
+  const description = String(counterSummary.value?.ariaLabel || counterSummary.value?.tooltip || '').trim();
+  return description;
+});
+
+const popoverCounters = computed(() => {
+  if (counterBadges.value.length > 0) {
+    return counterBadges.value;
+  }
+
+  const parts = counterSummary.value?.parts || [];
+  return parts.map((part) => ({
+    id: part.id,
+    label: part.label,
+    kind: 'ratio' as const,
+    tone: part.tone,
+    text: `${Math.max(0, Number(part.remaining) || 0)}/${Math.max(0, Number(part.total) || 0)}`,
+    ariaLabel: `${part.label} ${Math.max(0, Number(part.remaining) || 0)}/${Math.max(0, Number(part.total) || 0)}`,
+  }));
+});
+
+const summaryButtonTitle = computed(() => {
+  if (props.isMobile) {
+    return `${summaryMetricText.value} · ${t('reviewCounterTapDetailsHint', '点击查看复习详情')}`;
+  }
+
+  if (isDesktopCounterValueHidden.value) {
+    return [
+      t('reviewCounterHiddenState', '卡片计数已隐藏'),
+      t('reviewCounterHoverDetailsHint', '悬停查看复习详情'),
+      t('reviewCounterShowCountAction', '点击显示卡片数量'),
+    ].join(' · ');
+  }
+
+  return [
+    summaryMetricText.value,
+    t('reviewCounterHoverDetailsHint', '悬停查看复习详情'),
+    t('reviewCounterHideCountAction', '点击隐藏卡片数量'),
+  ].join(' · ');
+});
+
+const summaryButtonAriaLabel = computed(() => {
+  if (props.isMobile) {
+    return `${t('headerRemaining', '剩余')} ${visibleCounterText.value}，${t('reviewCounterTapDetailsHint', '点击查看复习详情')}`;
+  }
+
+  if (isDesktopCounterValueHidden.value) {
+    return `${t('reviewCounterHiddenState', '卡片计数已隐藏')}，${t('reviewCounterShowCountAction', '点击显示卡片数量')}`;
+  }
+
+  return `${t('headerRemaining', '剩余')} ${visibleCounterText.value}，${t('reviewCounterHideCountAction', '点击隐藏卡片数量')}`;
 });
 
 const neuralEngineIntro = computed(() => {
@@ -182,6 +382,16 @@ function overrideReviewToolbarButton(btn: ReviewToolbarButton, navState: NeuralN
   return btn;
 }
 
+function getToolbarSortWeight(btn: ReviewToolbarButton): number {
+  if (btn.type === 'ai-sidebar') {
+    return 20;
+  }
+  if (btn.type === 'more') {
+    return 30;
+  }
+  return 10;
+}
+
 const filteredToolbar = computed(() => {
   let toolbar = props.header?.toolbar || [];
   logger.debug('[SiYuanMemo][ReviewHeader] filteredToolbar computed:', {
@@ -196,7 +406,6 @@ const filteredToolbar = computed(() => {
   const navState = props.navigationState;
   if (navState) {
     const navButtons: typeof toolbar = [];
-    const engineText = getNeuralEngineLabel(navState.engineMode, t, 'short');
     const engineFullText = getNeuralEngineLabel(navState.engineMode, t, 'full');
     const modeText = navState.navigationMode === 'follow'
       ? t('navModeFollow', 'Follow Path')
@@ -244,15 +453,20 @@ const filteredToolbar = computed(() => {
     toolbar = [
       ...navButtons,
       ...toolbar,
-    ];
-
-    toolbar = toolbar.map(btn => overrideReviewToolbarButton(btn, navState));
+    ].map(btn => overrideReviewToolbarButton(btn, navState));
   }
 
-  if (props.isMobile) {
-    toolbar = toolbar.filter(btn => btn.type !== 'fullscreen' && btn.type !== 'close-review');
-  }
-  return toolbar;
+  const ordered = toolbar
+    .map((btn, index) => ({ btn, index }))
+    .sort((left, right) => {
+      const weightDiff = getToolbarSortWeight(left.btn) - getToolbarSortWeight(right.btn);
+      return weightDiff !== 0 ? weightDiff : left.index - right.index;
+    })
+    .map(({ btn }) => btn);
+
+  return props.isMobile
+    ? ordered.filter(btn => btn.type !== 'fullscreen' && btn.type !== 'close-review')
+    : ordered;
 });
 
 const showMobileClose = computed(() => Boolean(props.isMobile && props.mode !== 'tab'));
@@ -273,8 +487,127 @@ function interpolate(template: string, values: Record<string, string | number>):
   return output;
 }
 
-function getBadgeStyle(tone: ReviewHeaderCounterBadge['tone']) {
+function getPopoverCounterStyle(tone: ReviewHeaderCounterBadge['tone']) {
   return createGhostStyle(getHeaderToneColor(tone));
+}
+
+function clearCounterNoticeTimer(): void {
+  if (counterNoticeTimer !== null) {
+    clearTimeout(counterNoticeTimer);
+    counterNoticeTimer = null;
+  }
+}
+
+function dismissCounterNotice(): void {
+  clearCounterNoticeTimer();
+  counterNotice.value = null;
+}
+
+function showCounterNotice(message: string): void {
+  clearCounterNoticeTimer();
+  const noticeId = Date.now();
+  counterNotice.value = { id: noticeId, message };
+  counterNoticeTimer = window.setTimeout(() => {
+    if (counterNotice.value?.id === noticeId) {
+      counterNotice.value = null;
+    }
+    counterNoticeTimer = null;
+  }, 2800);
+}
+
+function openCounterPopover(): void {
+  isCounterPopoverOpen.value = true;
+}
+
+function closeCounterPopover(): void {
+  isCounterPopoverOpen.value = false;
+}
+
+function toggleCounterPopover(): void {
+  isCounterPopoverOpen.value = !isCounterPopoverOpen.value;
+}
+
+function handleCounterPointerDown(): void {
+  if (props.isMobile) {
+    return;
+  }
+  shouldIgnoreNextDesktopFocusOpen.value = true;
+}
+
+function handleCounterMouseEnter(): void {
+  if (props.isMobile) {
+    return;
+  }
+  openCounterPopover();
+}
+
+function handleCounterMouseLeave(): void {
+  if (props.isMobile) {
+    return;
+  }
+  shouldIgnoreNextDesktopFocusOpen.value = false;
+  closeCounterPopover();
+}
+
+function handleCounterFocusIn(): void {
+  if (props.isMobile) {
+    return;
+  }
+  if (shouldIgnoreNextDesktopFocusOpen.value) {
+    shouldIgnoreNextDesktopFocusOpen.value = false;
+    return;
+  }
+  openCounterPopover();
+}
+
+function handleCounterFocusOut(event: FocusEvent): void {
+  if (props.isMobile) {
+    return;
+  }
+  const nextTarget = event.relatedTarget;
+  if (nextTarget instanceof Node && counterAreaRef.value?.contains(nextTarget)) {
+    return;
+  }
+  shouldIgnoreNextDesktopFocusOpen.value = false;
+  closeCounterPopover();
+}
+
+function handleCounterClick(): void {
+  if (props.isMobile) {
+    toggleCounterPopover();
+    return;
+  }
+
+  isCounterValueHidden.value = !isCounterValueHidden.value;
+  showCounterNotice(
+    isCounterValueHidden.value
+      ? t('reviewCounterHiddenToast', '卡片计数已隐藏！享受专注练习吧。')
+      : t('reviewCounterVisibleToast', '已显示卡片数量！让我们继续刷卡吧。'),
+  );
+}
+
+function handleDocumentPointerDown(event: Event): void {
+  if (!isCounterPopoverOpen.value) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+
+  if (counterAreaRef.value?.contains(target)) {
+    return;
+  }
+
+  closeCounterPopover();
+}
+
+function handleDocumentKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !isCounterPopoverOpen.value) {
+    return;
+  }
+  closeCounterPopover();
 }
 
 function handleToolbarClick(
@@ -290,26 +623,343 @@ function handleCloseClick(event: MouseEvent): void {
   event.stopPropagation();
   emit('toolbar-action', 'close-review', event);
 }
+
+onMounted(() => {
+  document.addEventListener('pointerdown', handleDocumentPointerDown);
+  document.addEventListener('keydown', handleDocumentKeydown);
+});
+
+onUnmounted(() => {
+  clearCounterNoticeTimer();
+  document.removeEventListener('pointerdown', handleDocumentPointerDown);
+  document.removeEventListener('keydown', handleDocumentKeydown);
+});
 </script>
 
 <style scoped>
 .siyuanmemo-review-header-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
 .block__icons.siyuanmemo-review-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
-  background-color: var(--b3-theme-surface) !important;
-  border-bottom: 1px solid var(--b3-theme-background);
+  padding: 8px 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--b3-theme-surface) 92%, white), var(--b3-theme-surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--b3-border-color) 72%, transparent);
 }
 
 .siyuanmemo-review-header-shell--with-nav .block__icons.siyuanmemo-review-header {
   border-bottom: none;
+}
+
+.siyuanmemo-review-header__left,
+.siyuanmemo-review-header__right {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.siyuanmemo-review-header__right {
+  justify-self: end;
+  justify-content: flex-end;
+}
+
+.siyuanmemo-review-header__center {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-self: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.siyuanmemo-review-header__brand {
+  gap: 6px;
+  min-width: 0;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.siyuanmemo-review-header__brand-text {
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.siyuanmemo-review-header__drag {
+  width: min(20vw, 200px);
+  min-width: 36px;
+  min-height: 24px;
+  border-radius: 999px;
+}
+
+.siyuanmemo-review-header__drag:hover {
+  background: color-mix(in srgb, var(--b3-theme-on-surface-light) 6%, transparent);
+}
+
+.siyuanmemo-review-header__summary-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.siyuanmemo-review-header__summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  min-width: 82px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--b3-theme-primary-lightest) 72%, white), color-mix(in srgb, var(--b3-theme-surface) 92%, white));
+  color: var(--b3-theme-on-surface);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.siyuanmemo-review-header__summary:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 28%, transparent);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+}
+
+.siyuanmemo-review-header__summary-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--b3-theme-primary);
+}
+
+.siyuanmemo-review-header__summary--count-hidden {
+  gap: 0;
+}
+
+.siyuanmemo-review-header__summary-count {
+  font-size: 18px;
+  line-height: 1;
+  min-width: 1ch;
+}
+
+.siyuanmemo-review-header__popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(320px, calc(100vw - 24px));
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-border-color));
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--b3-theme-surface) 96%, white), var(--b3-theme-background));
+  box-shadow:
+    0 18px 48px rgba(15, 23, 42, 0.16),
+    0 2px 6px rgba(15, 23, 42, 0.08);
+  transform: translateX(-50%);
+}
+
+.siyuanmemo-review-header__popover-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.siyuanmemo-review-header__popover-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--b3-theme-on-surface);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.siyuanmemo-review-header__popover-subtitle {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+}
+
+.siyuanmemo-review-header__popover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.siyuanmemo-review-header__popover-section-title {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.siyuanmemo-review-header__popover-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.siyuanmemo-review-header__popover-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 44%, transparent);
+}
+
+.siyuanmemo-review-header__popover-stat-label {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 11px;
+}
+
+.siyuanmemo-review-header__popover-stat-value {
+  color: var(--b3-theme-on-background);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.siyuanmemo-review-header__popover-note {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.siyuanmemo-review-header__popover-counter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.siyuanmemo-review-header__popover-counter,
+.siyuanmemo-review-header__priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.siyuanmemo-review-header__popover-counter-label,
+.siyuanmemo-review-header__priority-label {
+  opacity: 0.78;
+}
+
+.siyuanmemo-review-header__popover-counter-value,
+.siyuanmemo-review-header__priority-value {
+  font-weight: 700;
+}
+
+.siyuanmemo-review-header__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.siyuanmemo-review-header__toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.siyuanmemo-review-header__toolbar-button:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+}
+
+.siyuanmemo-review-header__toolbar-button--with-label {
+  width: auto;
+  padding: 0 10px;
+}
+
+.siyuanmemo-review-header__toolbar-label {
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.siyuanmemo-review-header__mobile-close {
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+.siyuanmemo-review-header__notice {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: min(360px, calc(100vw - 28px));
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-border-color));
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--b3-theme-surface) 96%, white), var(--b3-theme-background));
+  box-shadow:
+    0 18px 36px rgba(15, 23, 42, 0.12),
+    0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+.siyuanmemo-review-header__notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.siyuanmemo-review-header__notice-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--b3-theme-on-surface-light);
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.siyuanmemo-review-header__notice-close:hover {
+  background: color-mix(in srgb, var(--b3-theme-on-surface-light) 10%, transparent);
+  color: var(--b3-theme-on-surface);
+}
+
+.siyuanmemo-review-header__notice-close svg {
+  width: 16px;
+  height: 16px;
 }
 
 .siyuanmemo-review-header__nav-strip {
@@ -330,234 +980,76 @@ function handleCloseClick(event: MouseEvent): void {
   white-space: nowrap;
 }
 
-.block__logo {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  font-weight: 500;
-}
-
-.block__logo span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.siyuanmemo-review-header__metrics {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  row-gap: 4px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.siyuanmemo-review-header__summary,
-.siyuanmemo-review-header__badge,
-.siyuanmemo-review-header__priority {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 22px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  white-space: nowrap;
-  font-size: 12px;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.siyuanmemo-review-header__summary {
-  color: var(--b3-theme-on-surface-light);
-  border-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 18%, transparent);
-  background-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 6%, transparent);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  cursor: help;
-}
-
-.siyuanmemo-review-header__summary:hover {
-  border-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 28%, transparent);
-  background-color: color-mix(in srgb, var(--b3-theme-on-surface-light) 10%, transparent);
-}
-
-.siyuanmemo-review-header__summary--value {
-  justify-content: center;
-  min-width: 34px;
-}
-
-.siyuanmemo-review-header__badge,
-.siyuanmemo-review-header__priority {
-  flex-shrink: 0;
-}
-
-.siyuanmemo-review-header__badge-label,
-.siyuanmemo-review-header__priority-label {
-  opacity: 0.8;
-}
-
-.siyuanmemo-review-header__badge-text,
-.siyuanmemo-review-header__priority-value {
-  font-weight: 600;
-}
-
-.siyuanmemo-review-header__priority-value {
-  font-weight: 700;
-}
-
-.siyuanmemo-review-header__toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.siyuanmemo-review-header__toolbar-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.siyuanmemo-review-header__toolbar-button--with-label {
-  width: auto;
-  padding: 0 10px;
-}
-
-.siyuanmemo-review-header__toolbar-label {
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.siyuanmemo-review-header__mobile-close {
-  margin-left: 2px;
-  flex-shrink: 0;
-}
-
-.protyle-breadcrumb {
-  display: flex;
-  padding: 0 8px;
-  background-color: var(--b3-theme-background);
-  flex-shrink: 0;
-  box-sizing: border-box;
-  min-height: 30px;
-  z-index: 1;
-  font-size: 14px;
-  margin-left: 12px;
-  border-radius: 4px;
-}
-
-.protyle-breadcrumb__bar {
-  align-items: center;
-  flex-wrap: wrap;
-  display: flex;
-  transition: var(--b3-transition);
-  overflow: auto;
-  min-height: 30px;
-}
-
-.protyle-breadcrumb__arrow {
-  height: 10px;
-  width: 10px;
-  color: var(--b3-theme-on-surface-light);
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-
-.protyle-breadcrumb__text {
-  margin-left: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.protyle-breadcrumb__item {
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  padding: 0 4px;
-  line-height: 24px;
-  height: 24px;
-  border-radius: var(--b3-border-radius);
-  margin: 3px 0;
-  color: var(--b3-theme-on-surface);
-  border: 0;
-  background-color: transparent;
-  box-sizing: inherit;
-
-  svg {
-    height: 14px;
-    width: 14px;
-    flex-shrink: 0;
-    color: var(--b3-theme-on-surface);
-
-    &:hover {
-      color: var(--b3-theme-on-background);
-    }
-  }
-
-  &:hover {
-    color: var(--b3-theme-on-background);
-    background-color: var(--b3-list-hover);
-  }
-
-  &.protyle-breadcrumb__item--active {
-    color: var(--b3-theme-on-background);
-    background-color: var(--b3-list-hover);
-  }
-}
-
-.popover__block {
-  cursor: pointer;
-}
-
-.fn__grab {
-  cursor: grab;
-}
-
 .siyuanmemo-review-header--mobile {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 8px;
+}
+
+.siyuanmemo-review-header--mobile .siyuanmemo-review-header__brand-text {
+  display: none;
+}
+
+.siyuanmemo-review-header--mobile .siyuanmemo-review-header__center {
+  justify-self: stretch;
+  gap: 8px;
+}
+
+.siyuanmemo-review-header--mobile .siyuanmemo-review-header__summary {
+  min-height: 32px;
+  min-width: 72px;
+  padding: 0 12px;
+}
+
+.siyuanmemo-review-header--mobile .siyuanmemo-review-header__summary-count {
+  font-size: 16px;
+}
+
+.siyuanmemo-review-header--mobile .siyuanmemo-review-header__toolbar {
   gap: 4px;
-  padding: 0 6px;
+}
 
-  .block__logo {
-    min-width: 0;
-    flex: 1 1 auto;
+.siyuanmemo-review-header--mobile .siyuanmemo-review-header__toolbar-button--with-label {
+  padding: 0 8px;
+  max-width: 160px;
+}
 
-    span {
-      max-width: 112px;
-    }
-  }
-
-  .siyuanmemo-review-header__metrics {
-    flex: 1 1 0;
-    justify-content: flex-start;
-  }
-
-  .siyuanmemo-review-header__summary,
-  .siyuanmemo-review-header__badge,
-  .siyuanmemo-review-header__priority {
-    padding: 0 7px;
-  }
-
-  .siyuanmemo-review-header__toolbar {
-    gap: 4px;
-  }
-
-  .siyuanmemo-review-header__toolbar-button--with-label {
-    padding: 0 8px;
-    max-width: 160px;
-  }
-
-  .siyuanmemo-review-header__toolbar-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+.siyuanmemo-review-header--mobile .siyuanmemo-review-header__toolbar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .siyuanmemo-review-header-shell--mobile .siyuanmemo-review-header__nav-strip {
   padding: 4px 8px 6px;
+}
+
+@media (max-width: 900px) {
+  .block__icons.siyuanmemo-review-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .siyuanmemo-review-header__drag {
+    display: none;
+  }
+
+  .siyuanmemo-review-header__center {
+    justify-self: stretch;
+  }
+}
+
+@media (max-width: 640px) {
+  .siyuanmemo-review-header__popover {
+    width: min(320px, calc(100vw - 16px));
+  }
+
+  .siyuanmemo-review-header__popover-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .siyuanmemo-review-header__notice {
+    top: 8px;
+    right: 8px;
+    width: min(320px, calc(100vw - 16px));
+  }
 }
 </style>

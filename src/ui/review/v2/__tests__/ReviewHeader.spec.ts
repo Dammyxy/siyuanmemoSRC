@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewHeader from '../ReviewHeader.vue';
 import type { ReviewUIState } from '../types';
 
@@ -48,7 +48,24 @@ function createHeaderState(): ReviewUIState['header'] {
   };
 }
 
+function createMetaState(): ReviewUIState['meta'] {
+  return {
+    transition: 'slide-left',
+    queueProgress: {
+      queueType: 'retrieval-practice',
+      queueLabel: 'retrieval',
+      completed: 0,
+      remaining: 3,
+      total: 3,
+    },
+  };
+}
+
 describe('ReviewHeader', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     (window as unknown as { siyuan?: unknown }).siyuan = {
@@ -58,34 +75,60 @@ describe('ReviewHeader', () => {
     };
   });
 
-  it('renders compact summary chip, auxiliary badge, and priority badge', () => {
+  it('renders only the centered counter chip and reveals breakdown details on desktop hover', async () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header: createHeaderState(),
+        meta: createMetaState(),
         isMobile: false,
         mode: 'dialog',
       },
     });
 
-    expect(wrapper.findAll('.siyuanmemo-review-header__metric')).toHaveLength(0);
-
     const summary = wrapper.get('.siyuanmemo-review-header__summary');
-    expect(summary.text()).toBe('(2+1)/3');
-    expect(summary.attributes('aria-label')).toBe('Item 2/2 · Descriptor 1/1');
-    expect(summary.attributes('title')).toBe('Item 2/2 · Descriptor 1/1');
+    const summaryWrap = wrapper.get('.siyuanmemo-review-header__summary-wrap');
+    expect(summary.text()).toBe('3');
+    expect(summary.attributes('aria-label')).toBe('\u5269\u4f59 3\uff0c\u70b9\u51fb\u9690\u85cf\u5361\u7247\u6570\u91cf');
+    expect(summary.attributes('title')).toContain('\u603b\u6570 3');
+    expect(summary.attributes('title')).toContain('\u60ac\u505c\u67e5\u770b\u590d\u4e60\u8be6\u60c5');
+    expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
+    expect(wrapper.find('.siyuanmemo-review-header__priority').exists()).toBe(false);
+    expect(wrapper.findAll('.siyuanmemo-review-header__badge')).toHaveLength(0);
+    expect(wrapper.find('.siyuanmemo-review-header__title').exists()).toBe(false);
 
-    const badges = wrapper.findAll('.siyuanmemo-review-header__badge');
-    expect(badges).toHaveLength(1);
-    expect(badges[0]?.text()).toContain('\u5df2\u7b54');
-    expect(badges[0]?.text()).toContain('3');
+    await summaryWrap.trigger('mouseenter');
 
-    const priority = wrapper.get('.siyuanmemo-review-header__priority');
-    expect(priority.text()).toContain('P');
-    expect(priority.text()).toContain('12');
-    expect(priority.attributes('style')).toContain('var(--b3-card-warning-color)');
+    const popover = wrapper.get('.siyuanmemo-review-header__popover');
+    expect(popover.text()).toContain('\u590d\u4e60\u8be6\u60c5');
+    expect(popover.text()).toContain('\u5df2\u7b54');
+    expect(popover.text()).toContain('3');
+    expect(popover.text()).toContain('Priority');
+    expect(popover.text()).toContain('12');
+
+    await summaryWrap.trigger('mouseleave');
+    expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
   });
 
-  it('renders fixed-slot incremental summary tooltip including zero values', () => {
+  it('closes the counter popover on Escape', async () => {
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header: createHeaderState(),
+        meta: createMetaState(),
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    await wrapper.get('.siyuanmemo-review-header__summary-wrap').trigger('mouseenter');
+    expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(true);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
+  });
+
+  it('renders breakdown from summary parts when no live badges are provided', async () => {
     const header = createHeaderState();
     header.counterSummary = {
       kind: 'ratio',
@@ -106,47 +149,96 @@ describe('ReviewHeader', () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header,
+        meta: {
+          transition: 'slide-left',
+          queueProgress: {
+            queueType: 'incremental-learning',
+            queueLabel: 'incremental',
+            completed: 1,
+            remaining: 12,
+            total: 13,
+          },
+        },
         isMobile: false,
         mode: 'dialog',
       },
     });
 
-    const summary = wrapper.get('.siyuanmemo-review-header__summary');
-    expect(summary.text()).toBe('(1+0+0+11)/12');
-    expect(summary.attributes('title')).toContain('Descriptor 0/0');
-    expect(summary.attributes('title')).toContain('Topic 0/0');
+    await wrapper.get('.siyuanmemo-review-header__summary-wrap').trigger('mouseenter');
+
+    const counters = wrapper.findAll('.siyuanmemo-review-header__popover-counter');
+    expect(counters).toHaveLength(4);
+    expect(counters[1]?.text()).toContain('Descriptor');
+    expect(counters[1]?.text()).toContain('0/0');
+    expect(counters[2]?.text()).toContain('Topic');
+    expect(counters[2]?.text()).toContain('0/0');
   });
 
-  it('renders value summary without neural path badge', () => {
-    const header = createHeaderState();
-    header.counterSummary = {
-      kind: 'value',
-      text: '40',
-      tooltip: '\u5df2\u6f2b\u6e38 40 \u5f20\u5361',
-      ariaLabel: '\u5df2\u6f2b\u6e38 40 \u5f20\u5361',
-      value: 40,
-    };
-    header.counterBadges = [];
+  it('toggles desktop counter visibility with a local notice while preserving hover details', async () => {
+    vi.useFakeTimers();
 
     const wrapper = mount(ReviewHeader, {
       props: {
-        header,
+        header: createHeaderState(),
+        meta: createMetaState(),
         isMobile: false,
         mode: 'dialog',
       },
     });
 
     const summary = wrapper.get('.siyuanmemo-review-header__summary');
-    expect(summary.text()).toBe('40');
-    expect(summary.classes()).toContain('siyuanmemo-review-header__summary--value');
-    expect(summary.attributes('title')).toBe('\u5df2\u6f2b\u6e38 40 \u5f20\u5361');
-    expect(wrapper.findAll('.siyuanmemo-review-header__badge')).toHaveLength(0);
+    const summaryWrap = wrapper.get('.siyuanmemo-review-header__summary-wrap');
+
+    await summary.trigger('click');
+
+    expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
+    expect(summary.find('.siyuanmemo-review-header__summary-count').exists()).toBe(false);
+    expect(summary.attributes('aria-label')).toBe('\u5361\u7247\u8ba1\u6570\u5df2\u9690\u85cf\uff0c\u70b9\u51fb\u663e\u793a\u5361\u7247\u6570\u91cf');
+    expect(wrapper.get('.siyuanmemo-review-header__notice').text()).toContain('\u5361\u7247\u8ba1\u6570\u5df2\u9690\u85cf\uff01\u4eab\u53d7\u4e13\u6ce8\u7ec3\u4e60\u5427\u3002');
+
+    await summaryWrap.trigger('mouseenter');
+    expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(true);
+
+    await wrapper.get('.siyuanmemo-review-header__notice-close').trigger('click');
+    expect(wrapper.find('.siyuanmemo-review-header__notice').exists()).toBe(false);
+
+    await summaryWrap.trigger('mouseleave');
+    await summary.trigger('click');
+
+    expect(summary.find('.siyuanmemo-review-header__summary-count').exists()).toBe(true);
+    expect(summary.text()).toContain('3');
+    expect(wrapper.get('.siyuanmemo-review-header__notice').text()).toContain('\u5df2\u663e\u793a\u5361\u7247\u6570\u91cf\uff01\u8ba9\u6211\u4eec\u7ee7\u7eed\u5237\u5361\u5427\u3002');
+
+    await vi.advanceTimersByTimeAsync(2800);
+    expect(wrapper.find('.siyuanmemo-review-header__notice').exists()).toBe(false);
+  });
+
+  it('keeps tap-to-toggle counter details on mobile without hiding the count', async () => {
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header: createHeaderState(),
+        meta: createMetaState(),
+        isMobile: true,
+        mode: 'dialog',
+      },
+    });
+
+    const summary = wrapper.get('.siyuanmemo-review-header__summary');
+
+    expect(summary.text()).toContain('3');
+
+    await summary.trigger('click');
+
+    expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(true);
+    expect(summary.find('.siyuanmemo-review-header__summary-count').exists()).toBe(true);
+    expect(wrapper.find('.siyuanmemo-review-header__notice').exists()).toBe(false);
   });
 
   it('renders close-review action in dedicated top-right slot on mobile dialog mode', async () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header: createHeaderState(),
+        meta: createMetaState(),
         isMobile: true,
         mode: 'dialog',
       },
@@ -164,6 +256,7 @@ describe('ReviewHeader', () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header: createHeaderState(),
+        meta: createMetaState(),
         isMobile: true,
         mode: 'tab',
       },
@@ -184,6 +277,7 @@ describe('ReviewHeader', () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header,
+        meta: createMetaState(),
         isMobile: false,
         mode: 'dialog',
       },
@@ -203,6 +297,7 @@ describe('ReviewHeader', () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header,
+        meta: createMetaState(),
         i18n: {
           engineOrbit: 'Orbit',
           engineOrbitFull: 'Orbit Mode',
@@ -259,6 +354,7 @@ describe('ReviewHeader', () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header,
+        meta: createMetaState(),
         i18n: {
           engineHyperspace: 'Hyperspace Expedition',
           engineHyperspaceFull: 'Hyperspace Expedition Mode',

@@ -145,6 +145,11 @@ flowchart TD
    - `UnifiedDataSourceManager`
 4. 挂载 `src/ui/review/v2/ReviewView.vue`
 5. `useReviewSession.ts` 驱动 `next / reveal / grade / skip / custom`
+6. review header 的二级动作仍由 `ReviewView.vue` 编排：
+   - `AI 侧栏` 统一走 `ReviewAIWorkbenchRegistry`
+   - `更多` 菜单中的暂停动作走 `CardEditorApplicationService`
+   - `更多` 菜单中的删除动作走 `CardApplicationService`
+   - progressive excerpt / open-as / fullscreen / SRS editor 继续复用既有 application / dialog 主链
 
 评分主链：
 
@@ -491,7 +496,7 @@ Review surface 的当前统一点是：
 
 Review 运行时要点：
 
-- `ReviewView.vue` 负责界面、键盘交互、progressive excerpt 触发、AI companion session 对齐
+- `ReviewView.vue` 负责界面、键盘交互、progressive excerpt 触发、AI companion session 对齐，以及 review header `更多` 菜单对 `CardEditorApplicationService` / `CardApplicationService` 的二级动作编排
 - `useReviewSession.ts` 负责 session 状态机
 - queue-specific header / actions / variant 由 adapter 与 queue config 决定
 - `TabManager` 负责 review tab、browser handoff、AI companion tab 复用

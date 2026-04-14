@@ -4,6 +4,26 @@ Last update: 2026-04-14 (Round 62)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-14 - review header hover counter and local hide notice
+
+- Task: Remove the duplicated centered queue title from the review header, switch desktop counter details to hover-open behavior, and let desktop clicks toggle a session-local hidden counter state with a header-local notice.
+- Touched slice: Review header interaction/presentation in `src/ui/review/v2/ReviewHeader.vue`, focused header interaction coverage in `src/ui/review/v2/__tests__/ReviewHeader.spec.ts`, and nearby i18n strings.
+- Debt fixed now: The review header no longer repeats the queue title in two places, desktop count inspection now matches the intended lightweight hover model instead of overloading click-open behavior, and the hidden-count state stays inside the header component instead of leaking into review/application contracts.
+- Debt deferred: The header-local notice remains an inline component implementation with no shared review toast primitive, and keyboard-first focus opening still relies on local interaction guards instead of a dedicated accessibility interaction model.
+- Why deferred: Extracting a shared review notice system or a richer input-modality abstraction would widen a bounded header polish pass into a broader review-surface UI architecture task with more regression risk than this interaction refinement needs.
+- Next safe step: If we iterate on review-header polish again, extract the counter chip/popover/notice interaction into a dedicated review-header primitive so desktop, mobile, and tab surfaces can share one tested accessibility model.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts`; `pnpm build`.
+
+### 2026-04-14 - review header and more-menu convergence
+
+- Task: Align the review header with the new RemNote-like layout by collapsing the top bar to one total counter chip plus `AI 侧栏` / `更多`, moving secondary actions into the more-menu, and adding fast suspend/delete actions for the current card and same-block peer cards.
+- Touched slice: Review header / toolbar presentation in `src/ui/review/v2/{ReviewHeader.vue,ReviewView.vue}`, review adapter shaping in `src/application/adapters/UnifiedReviewAdapter.ts`, direct card-action application flow in `src/application/services/CardEditorApplicationService.ts`, plus focused review/application/i18n tests.
+- Debt fixed now: The review surface now has a single centered counter with a detail popover, queue-specific controls stay visible while generic tools are collapsed into one more-menu, AI entry is unified into one sidecar launcher, and destructive/suspend actions now run through the existing application services instead of pushing new write logic into the UI.
+- Debt deferred: The more-menu still builds from imperative `Menu` item assembly inside `ReviewView.vue`, and the counter popover remains a local component implementation rather than a shared review/header primitive.
+- Why deferred: Extracting a generic review action-menu / popover abstraction would widen a bounded UI convergence task into a broader review-surface component refactor with a larger regression surface across dialog/tab/mobile entry points.
+- Next safe step: If we iterate on review polish again, extract the more-menu item builder and counter popover model into shared review-header utilities so dialog and tab review surfaces can evolve without growing `ReviewView.vue`.
+- Validation: `pnpm vitest run src/application/services/__tests__/CardEditorApplicationService.test.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts src/ui/review/v2/__tests__/ReviewView.srs-editor-schedule.spec.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts`; `pnpm build`.
+
 ### 2026-04-14 - Quick bidirectional render detection guard
 
 - Task: Fix blank quick bidirectional cards in review by restoring quick render detection for Xiuyuan quick templates

@@ -11,6 +11,7 @@
       <div class="fsrs-review-v2__content-wrapper">
         <ReviewHeader
           :header="state.header"
+          :meta="state.meta"
           :i18n="i18n"
           :is-tab-mode="!!props.reviewUI"
           :title="props.title"
@@ -110,11 +111,13 @@ import { useReviewSession } from './useReviewSession';
 import type { ReviewHeaderVariant, ReviewViewTabBridge } from './types';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
-import { createVueDialog } from '@/utils/dialog';
+import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import { getNeuralEngineLabel, getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
+import type { CardApplicationService } from '@/application/services/CardApplicationService';
+import type { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import {
   type DataChangeEvent,
   type CardFilter,
@@ -158,6 +161,8 @@ import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 
 const logger = createLogger('ReviewView');
+
+type ReviewAIEntryView = 'tutor' | 'explain' | 'make-cards';
 
 type ReviewProviderLike = {
   id?: string;
@@ -291,6 +296,8 @@ type ReviewPluginContextLike = {
       };
     };
   } | undefined;
+  getCardService?: () => CardApplicationService | undefined;
+  getCardEditorService?: () => CardEditorApplicationService | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
 };
 
@@ -339,6 +346,15 @@ type CommandLike = {
   icon?: string;
 };
 
+type ReviewMenuItem = {
+  id?: string;
+  icon?: string;
+  label: string;
+  disabled?: boolean;
+  click?: () => void | Promise<void>;
+  submenu?: ReviewMenuItem[];
+};
+
 type ProtyleLike = {
   resize?: () => void;
   protyle?: {
@@ -363,6 +379,12 @@ type DismissedReviewCardPayload = {
   cardId?: string;
   blockId?: string;
   dismissed?: boolean;
+};
+
+type ReviewCardPeerInfo = {
+  currentCardId: string;
+  currentBlockId: string;
+  peerCards: FSRSCard[];
 };
 
 type ReviewContentExpose = {
@@ -752,6 +774,18 @@ function getTabApplicationService() {
   return contextFromProps?.getTabApplicationService?.() || contextFromWindow?.getTabApplicationService?.() || null;
 }
 
+function getCardService(): CardApplicationService | null {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getCardService?.() || contextFromWindow?.getCardService?.() || null;
+}
+
+function getCardEditorService(): CardEditorApplicationService | null {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getCardEditorService?.() || contextFromWindow?.getCardEditorService?.() || null;
+}
+
 function isProgressiveExcerptEnabled(): boolean {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
@@ -1028,37 +1062,78 @@ function getActiveRemovableReviewQueue(): { removeCard?: (cardIdOrBlockId: strin
   return isRecord(activeQueue) ? activeQueue as { removeCard?: (cardIdOrBlockId: string) => Promise<void> } : null;
 }
 
-async function advanceScheduledCurrentCard(payload: ScheduledReviewCardPayload): Promise<void> {
-  const scheduledCardId = String(payload.cardId || '').trim();
-  const scheduledBlockId = String(payload.blockId || '').trim();
+async function removeCardIdsFromActiveQueue(cardIds: string[]): Promise<void> {
+  const removableQueue = getActiveRemovableReviewQueue();
+  if (!removableQueue || typeof removableQueue.removeCard !== 'function') {
+    return;
+  }
+
+  for (const cardId of Array.from(new Set(
+    cardIds
+      .map((value) => String(value || '').trim())
+      .filter((value) => value.length > 0),
+  ))) {
+    try {
+      await removableQueue.removeCard(cardId);
+    } catch (error) {
+      logger.warn('[SiYuanMemo][ReviewView] Failed to remove card from active review queue:', {
+        cardId,
+        error,
+      });
+    }
+  }
+}
+
+function resolveCurrentBlockPeerCards(): ReviewCardPeerInfo | null {
+  const currentCardId = resolveCurrentReviewCardId();
+  const currentBlockId = resolveCurrentReviewBlockId();
+  if (!currentCardId || !currentBlockId) {
+    return null;
+  }
+
+  const cardService = getCardService();
+  if (!cardService) {
+    return null;
+  }
+
+  const peerCards = cardService
+    .getCardsByBlockId(currentBlockId)
+    .filter((card) => String(card?.id || '').trim().length > 0 && card.id !== currentCardId);
+
+  return {
+    currentCardId,
+    currentBlockId,
+    peerCards,
+  };
+}
+
+async function advanceCurrentReviewCardByReference(payload: { cardId?: string; blockId?: string }): Promise<void> {
+  const requestedCardId = String(payload.cardId || '').trim();
+  const requestedBlockId = String(payload.blockId || '').trim();
   const currentReference = getCurrentReviewCardReference();
   const matchesCurrentCard =
-    (scheduledCardId && scheduledCardId === currentReference.cardId)
-    || (scheduledBlockId && scheduledBlockId === currentReference.blockId);
+    (requestedCardId && requestedCardId === currentReference.cardId)
+    || (requestedBlockId && requestedBlockId === currentReference.blockId);
 
   if (!matchesCurrentCard) {
-    logger.debug('[SiYuanMemo][ReviewView] Ignore scheduled event for non-current card:', {
+    logger.debug('[SiYuanMemo][ReviewView] Ignore advance request for non-current card:', {
       payload,
       currentReference,
     });
     return;
   }
 
-  const removableQueue = getActiveRemovableReviewQueue();
-  const removalTarget = scheduledCardId || scheduledBlockId;
-
-  if (removableQueue && typeof removableQueue.removeCard === 'function' && removalTarget) {
-    try {
-      await removableQueue.removeCard(removalTarget);
-    } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewView] Failed to remove scheduled current card from queue:', {
-        removalTarget,
-        error,
-      });
-    }
-  }
-
+  await removeCardIdsFromActiveQueue([requestedCardId || requestedBlockId]);
   await hook.skip();
+}
+
+async function advanceScheduledCurrentCard(payload: ScheduledReviewCardPayload): Promise<void> {
+  const scheduledCardId = String(payload.cardId || '').trim();
+  const scheduledBlockId = String(payload.blockId || '').trim();
+  await advanceCurrentReviewCardByReference({
+    cardId: scheduledCardId,
+    blockId: scheduledBlockId,
+  });
 }
 
 async function advanceDismissedCurrentCard(payload: DismissedReviewCardPayload): Promise<void> {
@@ -1068,34 +1143,10 @@ async function advanceDismissedCurrentCard(payload: DismissedReviewCardPayload):
 
   const dismissedCardId = String(payload.cardId || '').trim();
   const dismissedBlockId = String(payload.blockId || '').trim();
-  const currentReference = getCurrentReviewCardReference();
-  const matchesCurrentCard =
-    (dismissedCardId && dismissedCardId === currentReference.cardId)
-    || (dismissedBlockId && dismissedBlockId === currentReference.blockId);
-
-  if (!matchesCurrentCard) {
-    logger.debug('[SiYuanMemo][ReviewView] Ignore dismissed event for non-current card:', {
-      payload,
-      currentReference,
-    });
-    return;
-  }
-
-  const removableQueue = getActiveRemovableReviewQueue();
-  const removalTarget = dismissedCardId || dismissedBlockId;
-
-  if (removableQueue && typeof removableQueue.removeCard === 'function' && removalTarget) {
-    try {
-      await removableQueue.removeCard(removalTarget);
-    } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewView] Failed to remove dismissed current card from queue:', {
-        removalTarget,
-        error,
-      });
-    }
-  }
-
-  await hook.skip();
+  await advanceCurrentReviewCardByReference({
+    cardId: dismissedCardId,
+    blockId: dismissedBlockId,
+  });
 }
 
 async function refreshCurrentReviewCard(): Promise<void> {
@@ -1729,7 +1780,7 @@ async function handleRebuildReviewFilterQueue(): Promise<void> {
   }
 }
 
-function buildReviewAIOptions(view: 'tutor' | 'explain' | 'make-cards', surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
+function buildReviewAIOptions(view: ReviewAIEntryView, surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
   const neuralQueue = getNeuralRoamQueue();
   return {
     view,
@@ -1746,7 +1797,22 @@ function buildReviewAIOptions(view: 'tutor' | 'explain' | 'make-cards', surface?
   };
 }
 
-function getReviewAICompanionTitle(view: 'tutor' | 'explain' | 'make-cards'): string {
+function resolveDefaultReviewAIEntryView(): ReviewAIEntryView {
+  return resolveActiveReviewQueueType() === 'neural-roam' ? 'tutor' : 'explain';
+}
+
+function resolveReviewAIEntryView(requestedView?: ReviewAIEntryView): ReviewAIEntryView {
+  if (requestedView) {
+    return requestedView;
+  }
+
+  const registry = getReviewAIWorkbenchRegistry();
+  const activeView = reviewAIService.value?.state.activeView
+    || registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView;
+  return activeView || resolveDefaultReviewAIEntryView();
+}
+
+function getReviewAICompanionTitle(view: ReviewAIEntryView): string {
   const viewTitle = view === 'tutor'
     ? t('aiTutor', 'AI 导师')
     : view === 'explain'
@@ -1787,9 +1853,7 @@ async function syncReviewAIContextIfNeeded(surface: 'review-dialog-sidecar' | 'r
     return;
   }
 
-  const activeView = reviewAIService.value?.state.activeView
-    || registry.getReviewSession?.(reviewSessionId.value)?.state.activeView
-    || 'explain';
+  const activeView = resolveReviewAIEntryView();
   const service = await registry.updateReviewSessionContext({
     ...buildReviewAIOptions(activeView, surface),
     view: activeView,
@@ -1799,7 +1863,8 @@ async function syncReviewAIContextIfNeeded(surface: 'review-dialog-sidecar' | 'r
   reviewAIService.value = service;
 }
 
-async function openReviewAIAssistant(view: 'tutor' | 'explain' | 'make-cards'): Promise<void> {
+async function openReviewAIAssistant(requestedView?: ReviewAIEntryView): Promise<void> {
+  const view = resolveReviewAIEntryView(requestedView);
   const surface: 'review-dialog-sidecar' | 'review-tab-companion' = props.mode === 'tab'
     ? 'review-tab-companion'
     : 'review-dialog-sidecar';
@@ -1847,6 +1912,358 @@ async function openReviewAIAssistant(view: 'tutor' | 'explain' | 'make-cards'): 
   updateReviewDialogContainerLayout();
 }
 
+function openCurrentSrsEditor(): void {
+  logger.debug('[SiYuanMemo][ReviewView] Edit SRS button clicked');
+  const cardMeta = state.value.actions.cardMeta;
+  const blockId = resolveCurrentReviewBlockId();
+  const cardId = cardMeta?.cardID;
+  logger.debug('[SiYuanMemo][ReviewView] cardMeta:', cardMeta);
+  logger.debug('[SiYuanMemo][ReviewView] blockId:', blockId);
+  if (blockId) {
+    openSrsEditorDialog(blockId, cardId);
+  } else {
+    logger.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
+  }
+}
+
+function toggleReviewFullscreen(): void {
+  if (props.isMobile) {
+    return;
+  }
+
+  logger.debug('[SiYuanMemo][ReviewView] Fullscreen button clicked');
+
+  const dialogContainer = rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container')
+    || document.querySelector('.b3-dialog__container.siyuanmemo-review-dialog-container');
+  const contentMain = rootRef.value?.querySelector('.fsrs-review-v2-content') || document.querySelector('.fsrs-review-v2-content');
+  logger.debug('[SiYuanMemo][ReviewView] dialogContainer found:', !!dialogContainer);
+  logger.debug('[SiYuanMemo][ReviewView] contentMain found:', !!contentMain);
+
+  if (contentMain && dialogContainer) {
+    const isFullscreen = contentMain.classList.contains('fullscreen');
+    logger.debug('[SiYuanMemo][ReviewView] Current fullscreen state:', isFullscreen);
+
+    if (isFullscreen) {
+      contentMain.classList.remove('fullscreen');
+      dialogContainer.classList.remove('fullscreen');
+      (dialogContainer as HTMLElement).style.maxWidth = '1024px';
+      document.getElementById('drag')?.classList.remove('fn__hidden');
+      logger.debug('[SiYuanMemo][ReviewView] Exited fullscreen');
+    } else {
+      contentMain.classList.add('fullscreen');
+      dialogContainer.classList.add('fullscreen');
+      (dialogContainer as HTMLElement).style.maxWidth = '100vw';
+      document.getElementById('drag')?.classList.add('fn__hidden');
+      logger.debug('[SiYuanMemo][ReviewView] Entered fullscreen');
+    }
+
+    setTimeout(() => {
+      const protyleHost = contentMain.querySelector('.fsrs-review-v2-content__protyle-host');
+      logger.debug('[SiYuanMemo][ReviewView] protyleHost:', protyleHost);
+
+      if (protyleHost) {
+        const protyle = getProtyleFromHost(protyleHost);
+        logger.debug('[SiYuanMemo][ReviewView] protyle instance:', protyle);
+
+        if (protyle && typeof protyle.resize === 'function') {
+          protyle.resize();
+          logger.debug('[SiYuanMemo][ReviewView] Protyle resized');
+        }
+      }
+    }, 0);
+  } else {
+    logger.debug('[SiYuanMemo][ReviewView] ERROR: contentMain or dialogContainer not found!');
+  }
+}
+
+function isLinearPieceReviewCard(card: FSRSCard | null | undefined): boolean {
+  if (!card || card.type !== 'topic' || !isRecord(card.meta)) {
+    return false;
+  }
+  const progressive = card.meta.progressive;
+  return isRecord(progressive)
+    && String(progressive.kind || '').trim() === 'piece'
+    && String(progressive.mode || '').trim() === 'linear';
+}
+
+async function handleDismissCurrentCard(): Promise<void> {
+  const cardEditorService = getCardEditorService();
+  const { cardId, blockId } = getCurrentReviewCardReference();
+  if (!cardEditorService || !cardId || !blockId) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  try {
+    await cardEditorService.setDismissed(cardId, true);
+    await advanceDismissedCurrentCard({
+      cardId,
+      blockId,
+      dismissed: true,
+    });
+    showMessage(t('reviewCardSuspended', '已暂停这张卡片'), 3000, 'info');
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to suspend current card:', error);
+    showMessage(
+      t('reviewCardSuspendFailed', '暂停卡片失败：{message}')
+        .replace('{message}', error instanceof Error ? error.message : String(error)),
+      5000,
+      'error',
+    );
+  }
+}
+
+async function handleDismissPeerCards(): Promise<void> {
+  const cardEditorService = getCardEditorService();
+  const peerInfo = resolveCurrentBlockPeerCards();
+  if (!cardEditorService || !peerInfo || peerInfo.peerCards.length === 0) {
+    return;
+  }
+
+  try {
+    const result = await cardEditorService.setDismissedMany(
+      peerInfo.peerCards.map((card) => card.id),
+      true,
+    );
+    await removeCardIdsFromActiveQueue(result.updatedCardIds);
+
+    if (result.failedCardIds.length > 0) {
+      showMessage(
+        t('reviewPeerCardsSuspendPartial', '已暂停 {done} 张卡片，另有 {failed} 张失败')
+          .replace('{done}', String(result.updatedCardIds.length))
+          .replace('{failed}', String(result.failedCardIds.length)),
+        4000,
+        'error',
+      );
+      return;
+    }
+
+    showMessage(
+      t('reviewPeerCardsSuspended', '已暂停这个块的其余 {count} 张卡片')
+        .replace('{count}', String(result.updatedCardIds.length)),
+      3000,
+      'info',
+    );
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to suspend peer cards:', error);
+    showMessage(
+      t('reviewPeerCardsSuspendFailed', '暂停其余卡片失败：{message}')
+        .replace('{message}', error instanceof Error ? error.message : String(error)),
+      5000,
+      'error',
+    );
+  }
+}
+
+async function handleDeleteCurrentCard(): Promise<void> {
+  const cardService = getCardService();
+  const { cardId, blockId } = getCurrentReviewCardReference();
+  if (!cardService || !cardId || !blockId) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  const confirmed = await confirmDialog({
+    title: t('deleteCurrentCardConfirmTitle', '删除卡片'),
+    content: t('deleteCurrentCardConfirmContent', '确认删除当前卡片吗？此操作不可撤销。'),
+    confirmText: t('deleteCard', '删除'),
+    cancelText: t('cancel', '取消'),
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await cardService.deleteCard({ cardId });
+    if (!result.ok) {
+      throw result.error;
+    }
+    await advanceCurrentReviewCardByReference({ cardId, blockId });
+    showMessage(t('reviewCardDeleted', '已删除当前卡片'), 3000, 'info');
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to delete current card:', error);
+    showMessage(
+      t('reviewCardDeleteFailed', '删除卡片失败：{message}')
+        .replace('{message}', error instanceof Error ? error.message : String(error)),
+      5000,
+      'error',
+    );
+  }
+}
+
+async function handleDeletePeerCards(): Promise<void> {
+  const cardService = getCardService();
+  const peerInfo = resolveCurrentBlockPeerCards();
+  if (!cardService || !peerInfo || peerInfo.peerCards.length === 0) {
+    return;
+  }
+
+  const confirmed = await confirmDialog({
+    title: t('deletePeerCardsConfirmTitle', '删除其余卡片'),
+    content: t('deletePeerCardsConfirmContent', '确认删除这个块的其余 {count} 张卡片吗？此操作不可撤销。')
+      .replace('{count}', String(peerInfo.peerCards.length)),
+    confirmText: t('deleteCard', '删除'),
+    cancelText: t('cancel', '取消'),
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const result = await cardService.deleteCards({
+      cardIds: peerInfo.peerCards.map((card) => card.id),
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+
+    await removeCardIdsFromActiveQueue(result.value.deletedCardIds);
+
+    if (result.value.failedCardIds.length > 0) {
+      showMessage(
+        t('reviewPeerCardsDeletePartial', '已删除 {done} 张卡片，另有 {failed} 张失败')
+          .replace('{done}', String(result.value.deletedCardIds.length))
+          .replace('{failed}', String(result.value.failedCardIds.length)),
+        4000,
+        'error',
+      );
+      return;
+    }
+
+    showMessage(
+      t('reviewPeerCardsDeleted', '已删除这个块的其余 {count} 张卡片')
+        .replace('{count}', String(result.value.deletedCardIds.length)),
+      3000,
+      'info',
+    );
+  } catch (error) {
+    logger.error('[SiYuanMemo][ReviewView] Failed to delete peer cards:', error);
+    showMessage(
+      t('reviewPeerCardsDeleteFailed', '删除其余卡片失败：{message}')
+        .replace('{message}', error instanceof Error ? error.message : String(error)),
+      5000,
+      'error',
+    );
+  }
+}
+
+function buildMoreMenuItems(): ReviewMenuItem[] {
+  const currentCard = state.value.content.card as FSRSCard | null | undefined;
+  const openAsItems = buildOpenAsMenuItems();
+  const peerInfo = resolveCurrentBlockPeerCards();
+  const peerCount = peerInfo?.peerCards.length ?? 0;
+  const items: ReviewMenuItem[] = [];
+
+  if (currentCard?.type === 'topic' && isProgressiveExcerptEnabled()) {
+    items.push({
+      id: 'progressive-excerpt',
+      icon: 'iconQuote',
+      label: t('progressiveExcerptSelection', '摘录选区'),
+      click: () => void handleProgressiveExcerptFromReview('toolbar'),
+    });
+  }
+
+  const sourceTargetId = resolveProgressiveSourceTargetId();
+  if (sourceTargetId) {
+    items.push({
+      id: 'progressive-open-source',
+      icon: 'iconOpen',
+      label: t('progressiveOpenSource', '跳到来源'),
+      click: handleProgressiveOpenSource,
+    });
+  }
+
+  if (isLinearPieceReviewCard(currentCard)) {
+    items.push({
+      id: 'progressive-complete-piece',
+      icon: 'iconRight',
+      label: t('progressiveCompletePiece', '完成当前片'),
+      click: () => void handleProgressiveCompletePiece(),
+    });
+  }
+
+  if (items.length > 0) {
+    items.push({
+      id: 'separator-progressive',
+      label: '',
+    });
+  }
+
+  items.push({
+    id: 'open-as',
+    icon: 'iconOpen',
+    label: t('openBy', '打开为'),
+    disabled: openAsItems.length === 0,
+    submenu: openAsItems,
+  });
+
+  items.push({
+    id: 'edit-srs',
+    icon: 'iconEdit',
+    label: t('editSrsData', '编辑 SRS 数据'),
+    click: openCurrentSrsEditor,
+  });
+
+  items.push({
+    id: 'fullscreen',
+    icon: 'iconFullscreen',
+    label: t('fullscreen', '全屏'),
+    disabled: props.isMobile === true,
+    click: toggleReviewFullscreen,
+  });
+
+  items.push({
+    id: 'separator-card-actions',
+    label: '',
+  });
+
+  items.push({
+    id: 'pause-current-card',
+    icon: 'iconPause',
+    label: t('suspendCurrentCard', '暂停这张卡片'),
+    click: () => void handleDismissCurrentCard(),
+  });
+
+  if (peerCount > 0) {
+    items.push({
+      id: 'pause-peer-cards',
+      icon: 'iconPause',
+      label: t('suspendPeerCards', '暂停这个块的其余 {count} 张卡片').replace('{count}', String(peerCount)),
+      click: () => void handleDismissPeerCards(),
+    });
+  }
+
+  items.push({
+    id: 'delete-current-card',
+    icon: 'iconTrashcan',
+    label: t('deleteCurrentCard', '删除卡片'),
+    click: () => void handleDeleteCurrentCard(),
+  });
+
+  if (peerCount > 0) {
+    items.push({
+      id: 'delete-peer-cards',
+      icon: 'iconTrashcan',
+      label: t('deletePeerCards', '删除这个块的其余 {count} 张卡片').replace('{count}', String(peerCount)),
+      click: () => void handleDeletePeerCards(),
+    });
+  }
+
+  return items;
+}
+
+function handleOpenMoreMenu(ev: MouseEvent): void {
+  const menu = new Menu('review-more-menu');
+  for (const item of buildMoreMenuItems()) {
+    if (item.id?.startsWith('separator-')) {
+      menu.addSeparator();
+      continue;
+    }
+    menu.addItem(item);
+  }
+  openMenuAtEvent(menu, ev);
+}
+
 function handleToolbarAction(actionType: string, ev: MouseEvent) {
   logger.debug('[SiYuanMemo][ReviewView] handleToolbarAction called:', actionType);
 
@@ -1858,6 +2275,11 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   if (actionType === 'plan-review-scope') {
     syncReviewFilterFromQueue();
     showReviewFilterDialog.value = true;
+    return;
+  }
+
+  if (actionType === 'more') {
+    handleOpenMoreMenu(ev);
     return;
   }
 
@@ -1873,6 +2295,11 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
   if (actionType === 'progressive-complete-piece') {
     void handleProgressiveCompletePiece();
+    return;
+  }
+
+  if (actionType === 'ai-sidebar') {
+    void openReviewAIAssistant();
     return;
   }
 
@@ -1892,75 +2319,9 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   }
 
   if (actionType === 'fullscreen') {
-    if (props.isMobile) {
-      return;
-    }
-
-    // 实现全屏功能（参考思源原生实现）
-    logger.debug('[SiYuanMemo][ReviewView] Fullscreen button clicked');
-
-    // 查找对话框容器
-    const dialogContainer = rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container')
-      || document.querySelector('.b3-dialog__container.siyuanmemo-review-dialog-container');
-    // 使用自定义类名查找内容区域
-    const contentMain = rootRef.value?.querySelector('.fsrs-review-v2-content') || document.querySelector('.fsrs-review-v2-content');
-    logger.debug('[SiYuanMemo][ReviewView] dialogContainer found:', !!dialogContainer);
-    logger.debug('[SiYuanMemo][ReviewView] contentMain found:', !!contentMain);
-
-    if (contentMain && dialogContainer) {
-      const isFullscreen = contentMain.classList.contains('fullscreen');
-      logger.debug('[SiYuanMemo][ReviewView] Current fullscreen state:', isFullscreen);
-
-      if (isFullscreen) {
-        // 退出全屏
-        contentMain.classList.remove('fullscreen');
-        dialogContainer.classList.remove('fullscreen');
-        // 恢复 maxWidth
-        (dialogContainer as HTMLElement).style.maxWidth = '1024px';
-        document.getElementById('drag')?.classList.remove('fn__hidden');
-        logger.debug('[SiYuanMemo][ReviewView] Exited fullscreen');
-      } else {
-        // 进入全屏
-        contentMain.classList.add('fullscreen');
-        dialogContainer.classList.add('fullscreen');
-        // 设置为 100vw 以确保全屏效果(覆盖内联样式)
-        (dialogContainer as HTMLElement).style.maxWidth = '100vw';
-        document.getElementById('drag')?.classList.add('fn__hidden');
-        logger.debug('[SiYuanMemo][ReviewView] Entered fullscreen');
-      }
-
-      // 调整 protyle 尺寸
-      setTimeout(() => {
-        const protyleHost = contentMain.querySelector('.fsrs-review-v2-content__protyle-host');
-        logger.debug('[SiYuanMemo][ReviewView] protyleHost:', protyleHost);
-
-        if (protyleHost) {
-          // 查找 protyle 实例
-          const protyle = getProtyleFromHost(protyleHost);
-          logger.debug('[SiYuanMemo][ReviewView] protyle instance:', protyle);
-
-          if (protyle && typeof protyle.resize === 'function') {
-            protyle.resize();
-            logger.debug('[SiYuanMemo][ReviewView] Protyle resized');
-          }
-        }
-      }, 0);
-    } else {
-      logger.debug('[SiYuanMemo][ReviewView] ERROR: contentMain or dialogContainer not found!');
-    }
+    toggleReviewFullscreen();
   } else if (actionType === 'edit-srs') {
-    // 打开SRS编辑器
-    logger.debug('[SiYuanMemo][ReviewView] Edit SRS button clicked');
-    const cardMeta = state.value.actions.cardMeta;
-    const blockId = resolveCurrentReviewBlockId();
-    const cardId = cardMeta?.cardID;
-    logger.debug('[SiYuanMemo][ReviewView] cardMeta:', cardMeta);
-    logger.debug('[SiYuanMemo][ReviewView] blockId:', blockId);
-    if (blockId) {
-      openSrsEditorDialog(blockId, cardId);
-    } else {
-      logger.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
-    }
+    openCurrentSrsEditor();
   } else if (actionType === 'sticktab') {
     // 打开为菜单
     handleOpenAsMenu(ev);
@@ -2075,27 +2436,15 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   }
 }
 
-function handleOpenAsMenu(ev: MouseEvent) {
-  logger.debug('[SiYuanMemo][ReviewView] handleOpenAsMenu called', ev);
-
-  const menu = new Menu();
-  const currentBlockId = String(
-    state.value.actions.cardMeta?.blockID
-    || state.value.content.card?.blockId
-    || state.value.content.data
-    || state.value.content.id
-    || ''
-  );
-
+function buildOpenAsMenuItems(): ReviewMenuItem[] {
+  const currentBlockId = resolveCurrentReviewBlockId();
   const pluginCandidate = isRecord(props.plugin) ? (props.plugin as ReviewPluginLike) : null;
   const pluginFromWindow = getWindowPlugin();
   const context = pluginCandidate?.getContext?.() ?? pluginFromWindow?.getContext?.();
   const tabManager = context?.getTabManager?.();
 
   if (!tabManager || typeof tabManager.openReviewTab !== 'function') {
-    logger.error('[SiYuanMemo][ReviewView] TabManager not available for open-as');
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
+    return [];
   }
 
   const transferState = buildReviewTabTransferState();
@@ -2108,74 +2457,71 @@ function handleOpenAsMenu(ev: MouseEvent) {
     transferState,
   };
 
-  menu.addItem({
-    id: 'locateSourceBlock',
-    icon: 'iconOpen',
-    label: t('locateSourceBlock', '定位到原块位置'),
-    disabled: !props.app || !currentBlockId,
-    click() {
-      if (!props.app || !currentBlockId) {
-        return;
-      }
-      openReviewBlockAtSource({
-        app: props.app,
-        blockId: currentBlockId,
-      });
-    },
-  });
-  menu.addItem({
-    id: 'openRightReviewAndLocateSource',
-    icon: 'iconLayoutRight',
-    label: t('openRightReviewAndLocateSource', '右侧复习并定位原块'),
-    disabled: !props.app || !currentBlockId,
-    async click() {
-      if (!props.app || !currentBlockId) {
-        return;
-      }
-      try {
-        await openReviewBlockAtSource({
+  const menuItems: ReviewMenuItem[] = [
+    {
+      id: 'locateSourceBlock',
+      icon: 'iconOpen',
+      label: t('locateSourceBlock', '定位到原块位置'),
+      disabled: !props.app || !currentBlockId,
+      click() {
+        if (!props.app || !currentBlockId) {
+          return;
+        }
+        openReviewBlockAtSource({
           app: props.app,
           blockId: currentBlockId,
         });
-      } catch (error) {
-        logger.warn('[SiYuanMemo][ReviewView] Failed to locate source block before opening review:', error);
-      }
-      tabManager.openReviewTab(reviewTabOptions);
-      emit('close');
+      },
     },
-  });
-  menu.addSeparator();
-
-  // 在新标签中打开
-  menu.addItem({
-    id: 'openByTab',
-    icon: 'iconOpen',
-    label: t('openInNewTab', 'New Tab'),
-    click() {
-      logger.debug('[SiYuanMemo][ReviewView] Opening review in new tab and closing dialog');
-      if (typeof tabManager.openReviewTabInNewTab === 'function') {
-        tabManager.openReviewTabInNewTab(reviewTabOptions);
-      } else {
+    {
+      id: 'openRightReviewAndLocateSource',
+      icon: 'iconLayoutRight',
+      label: t('openRightReviewAndLocateSource', '右侧复习并定位原块'),
+      disabled: !props.app || !currentBlockId,
+      async click() {
+        if (!props.app || !currentBlockId) {
+          return;
+        }
+        try {
+          await openReviewBlockAtSource({
+            app: props.app,
+            blockId: currentBlockId,
+          });
+        } catch (error) {
+          logger.warn('[SiYuanMemo][ReviewView] Failed to locate source block before opening review:', error);
+        }
         tabManager.openReviewTab(reviewTabOptions);
-      }
-      emit('close');
+        emit('close');
+      },
     },
-  });
-
-  // 在右侧打开
-  menu.addItem({
-    id: 'insertRight',
-    icon: 'iconLayoutRight',
-    label: t('openInRight', 'Right Side'),
-    click() {
-      logger.debug('[SiYuanMemo][ReviewView] Opening review on right side and closing dialog');
-      tabManager.openReviewTab(reviewTabOptions);
-      emit('close');
+    {
+      id: 'openByTab',
+      icon: 'iconOpen',
+      label: t('openInNewTab', 'New Tab'),
+      click() {
+        logger.debug('[SiYuanMemo][ReviewView] Opening review in new tab and closing dialog');
+        if (typeof tabManager.openReviewTabInNewTab === 'function') {
+          tabManager.openReviewTabInNewTab(reviewTabOptions);
+        } else {
+          tabManager.openReviewTab(reviewTabOptions);
+        }
+        emit('close');
+      },
     },
-  });
+    {
+      id: 'insertRight',
+      icon: 'iconLayoutRight',
+      label: t('openInRight', 'Right Side'),
+      click() {
+        logger.debug('[SiYuanMemo][ReviewView] Opening review on right side and closing dialog');
+        tabManager.openReviewTab(reviewTabOptions);
+        emit('close');
+      },
+    },
+  ];
 
   if (typeof tabManager.openReviewInNewWindow === 'function') {
-    menu.addItem({
+    menuItems.push({
       id: 'openByNewWindow',
       icon: 'iconOpenWindow',
       label: t('openInNewWindow', 'New Window'),
@@ -2187,7 +2533,34 @@ function handleOpenAsMenu(ev: MouseEvent) {
     });
   }
 
-  // 打开菜单
+  return menuItems;
+}
+
+function handleOpenAsMenu(ev: MouseEvent) {
+  logger.debug('[SiYuanMemo][ReviewView] handleOpenAsMenu called', ev);
+
+  const menu = new Menu();
+  const menuItems = buildOpenAsMenuItems();
+  if (menuItems.length === 0) {
+    logger.error('[SiYuanMemo][ReviewView] TabManager not available for open-as');
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  const [firstItem, secondItem, ...remainingItems] = menuItems;
+  if (firstItem) {
+    menu.addItem(firstItem);
+  }
+  if (secondItem) {
+    menu.addItem(secondItem);
+  }
+  if (remainingItems.length > 0) {
+    menu.addSeparator();
+    for (const item of remainingItems) {
+      menu.addItem(item);
+    }
+  }
+
   openMenuAtEvent(menu, ev);
 }
 

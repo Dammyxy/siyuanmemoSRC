@@ -79,6 +79,7 @@ function createNeuralUnderlyingQueue(pathLength = 5, currentPathIndex = 1, histo
     getAnchorSnapshot: () => [],
     setAnchorEntry: async () => undefined,
     clearAnchors: async () => undefined,
+    getCurrentBatchSnapshot: () => null,
     getConceptBlocks: () => [],
     getFocusPoolSnapshot: () => [],
     setFocusPoolEntry: async () => undefined,
@@ -271,9 +272,21 @@ describe('UnifiedReviewAdapter', () => {
       priority: 12,
       ariaLabel: 'Priority 12',
     });
+    expect(ui.header.toolbar).toEqual([
+      {
+        icon: '#iconSparkles',
+        type: 'ai-sidebar',
+        ariaLabel: 'AI Sidebar',
+      },
+      {
+        icon: '#iconMore',
+        type: 'more',
+        ariaLabel: 'More',
+      },
+    ]);
   });
 
-  it('adds open-source toolbar action for excerpt topic cards', async () => {
+  it('keeps progressive helper actions out of the inline toolbar for excerpt topic cards', async () => {
     const excerptCard = createCard('topic-excerpt', CardType.Topic, {
       extractedFrom: 'source-block-1',
       meta: {
@@ -293,46 +306,13 @@ describe('UnifiedReviewAdapter', () => {
       createContext(),
     );
 
-    expect(ui.header.toolbar).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        type: 'progressive-open-source',
-      }),
-    ]));
+    expect(ui.header.toolbar).toEqual([
+      expect.objectContaining({ type: 'ai-sidebar' }),
+      expect.objectContaining({ type: 'more' }),
+    ]);
   });
 
-  it('hides progressive excerpt toolbar action when the feature is disabled', async () => {
-    const excerptCard = createCard('topic-excerpt', CardType.Topic, {
-      extractedFrom: 'source-block-1',
-      meta: {
-        progressive: {
-          kind: 'excerpt',
-          sourceBlockId: 'source-block-1',
-          sourceDocId: 'doc-source-1',
-        },
-      },
-    });
-    const adapter = new UnifiedReviewAdapter({ progressiveExcerptEnabled: false });
-
-    const ui = await renderState(
-      adapter,
-      createQueue({ queueType: 'retrieval-practice', liveCards: [excerptCard] }),
-      excerptCard,
-      createContext(),
-    );
-
-    expect(ui.header.toolbar).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        type: 'progressive-excerpt',
-      }),
-    ]));
-    expect(ui.header.toolbar).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        type: 'progressive-open-source',
-      }),
-    ]));
-  });
-
-  it('adds open-source toolbar action for split piece topic cards', async () => {
+  it('keeps split-piece helper actions out of the inline toolbar', async () => {
     const pieceCard = createCard('topic-piece', CardType.Topic, {
       meta: {
         progressive: {
@@ -352,14 +332,10 @@ describe('UnifiedReviewAdapter', () => {
       createContext(),
     );
 
-    expect(ui.header.toolbar).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        type: 'progressive-open-source',
-      }),
-      expect.objectContaining({
-        type: 'progressive-complete-piece',
-      }),
-    ]));
+    expect(ui.header.toolbar).toEqual([
+      expect.objectContaining({ type: 'ai-sidebar' }),
+      expect.objectContaining({ type: 'more' }),
+    ]);
   });
 
   it('builds incremental-learning live value summary with live badges', async () => {
@@ -489,7 +465,11 @@ describe('UnifiedReviewAdapter', () => {
         ariaLabel: 'Concept 1',
       },
     ]);
-    expect(ui.header.toolbar?.some(item => item.type === 'plan-review-scope')).toBe(true);
+    expect(ui.header.toolbar).toEqual([
+      expect.objectContaining({ type: 'ai-sidebar' }),
+      expect.objectContaining({ type: 'more' }),
+      expect.objectContaining({ type: 'plan-review-scope' }),
+    ]);
   });
 
   it('builds neural-roam value summary from history count while hiding priority for non-flashcard nodes', async () => {
@@ -548,6 +528,14 @@ describe('UnifiedReviewAdapter', () => {
       createContext(),
     );
 
+    expect(ui.header.toolbar?.find(item => item.type === 'ai-sidebar')).toMatchObject({
+      icon: '#iconSparkles',
+      ariaLabel: 'AI Sidebar',
+    });
+    expect(ui.header.toolbar?.find(item => item.type === 'more')).toMatchObject({
+      icon: '#iconMore',
+      ariaLabel: 'More',
+    });
     expect(ui.header.toolbar?.find(item => item.type === 'lock-focus')).toMatchObject({
       icon: '#iconPin',
       ariaLabel: 'Build Station',

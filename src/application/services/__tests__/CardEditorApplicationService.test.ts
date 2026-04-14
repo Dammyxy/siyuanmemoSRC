@@ -227,4 +227,23 @@ describe('CardEditorApplicationService', () => {
     expect(snapshot.card.scheduledDays).toBe(original?.scheduledDays);
     expect(snapshot.card.lastReview).toBe(original?.lastReview);
   });
+
+  it('batch sets dismissed state for peer cards while reporting failures', async () => {
+    cards.set('card-2', buildCard({
+      id: 'card-2',
+      blockId: 'block-1',
+      priority: 12,
+    }));
+
+    const result = await service.setDismissedMany(['card-1', 'card-2', 'missing-card'], true);
+
+    expect(result).toEqual({
+      updatedCardIds: ['card-1', 'card-2'],
+      failedCardIds: ['missing-card'],
+    });
+    expect(cards.get('card-1')?.meta).toMatchObject({ suspended: true });
+    expect(cards.get('card-2')?.meta).toMatchObject({ suspended: true });
+    expect(setBlockAttrs).toHaveBeenCalledWith('block-1', { 'custom-fsrs-suspended': 'true' });
+    expect(setBlockAttrs).toHaveBeenCalledTimes(2);
+  });
 });

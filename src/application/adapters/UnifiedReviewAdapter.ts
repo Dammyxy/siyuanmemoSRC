@@ -210,44 +210,6 @@ function resolveAnswerBlockId(card: UnifiedReviewItem, fallbackBlockId: string):
   return '';
 }
 
-function resolveProgressiveMeta(card: UnifiedReviewItem | null | undefined): Record<string, unknown> | null {
-  const progressive = card?.meta?.progressive;
-  return progressive && typeof progressive === 'object'
-    ? progressive as Record<string, unknown>
-    : null;
-}
-
-function resolveExcerptSourceBlockId(card: UnifiedReviewItem | null | undefined): string {
-  if (!card) {
-    return '';
-  }
-  if (typeof card.extractedFrom === 'string' && card.extractedFrom.trim().length > 0) {
-    return card.extractedFrom.trim();
-  }
-  const progressive = resolveProgressiveMeta(card);
-  const sourceBlockId = progressive?.sourceBlockId;
-  return typeof sourceBlockId === 'string' ? sourceBlockId.trim() : '';
-}
-
-function resolveProgressiveSourceTargetId(card: UnifiedReviewItem | null | undefined): string {
-  const excerptSourceBlockId = resolveExcerptSourceBlockId(card);
-  if (excerptSourceBlockId) {
-    return excerptSourceBlockId;
-  }
-
-  const progressive = resolveProgressiveMeta(card);
-  const sourceDocId = progressive?.sourceDocId;
-  return typeof sourceDocId === 'string' ? sourceDocId.trim() : '';
-}
-
-function isLinearPieceTopic(card: UnifiedReviewItem | null | undefined, cardType: ReviewCardKind): boolean {
-  if (!card || cardType !== 'topic') {
-    return false;
-  }
-  const progressive = resolveProgressiveMeta(card);
-  return progressive?.kind === 'piece' && progressive?.mode === 'linear';
-}
-
 function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
   if (!isXiuyuanCard(card)) {
     return false;
@@ -355,7 +317,6 @@ function toBucketMap(snapshot: QueueCounterSnapshot | null | undefined): Map<Hea
 export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   private readonly i18n?: Record<string, string>;
   private readonly headerVariant?: ReviewHeaderVariant;
-  private readonly progressiveExcerptEnabled: boolean;
   private cachedHeaderState: CachedHeaderState | null = null;
 
   constructor(options?: {
@@ -365,7 +326,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
   }) {
     this.i18n = options?.i18n;
     this.headerVariant = options?.headerVariant;
-    this.progressiveExcerptEnabled = options?.progressiveExcerptEnabled ?? true;
+    void options?.progressiveExcerptEnabled;
   }
 
   async toUIState(
@@ -399,16 +360,12 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const priorityBadge = this.buildPriorityBadge(item, queueType);
 
     let toolbar: NonNullable<ReviewUIState['header']['toolbar']> = [
-      { icon: '#iconFullscreen', type: 'fullscreen', ariaLabel: t(this.i18n, 'fullscreen', 'Fullscreen') },
-      { icon: '#iconEdit', type: 'edit-srs', ariaLabel: t(this.i18n, 'editSrsData', 'Edit SRS Data') },
-      { icon: '#iconSparkles', type: 'ai-explain', ariaLabel: t(this.i18n, 'aiExplainCard', 'AI Explain Card') },
-      { icon: '#iconCard', type: 'ai-make-cards', ariaLabel: t(this.i18n, 'aiMakeCards', 'AI Flashcard Assist') },
-      { icon: '#iconOpen', type: 'sticktab', ariaLabel: t(this.i18n, 'openBy', 'Open By') },
+      { icon: '#iconSparkles', type: 'ai-sidebar', ariaLabel: t(this.i18n, 'aiSidebar', 'AI Sidebar') },
+      { icon: '#iconMore', type: 'more', ariaLabel: t(this.i18n, 'moreActions', 'More') },
     ];
 
     if (queueType === 'neural-roam') {
       toolbar.push(
-        { icon: '#iconRobot', type: 'ai-tutor', ariaLabel: t(this.i18n, 'aiTutor', 'AI Tutor') },
         { icon: '#iconPin', type: 'lock-focus', ariaLabel: t(this.i18n, 'addAnchor', 'Build Station') },
         { icon: '#iconList', type: 'neural-focuses', ariaLabel: t(this.i18n, 'viewSourceList', 'View Source List') },
         { icon: '#iconHistory', type: 'neural-history', ariaLabel: t(this.i18n, 'neuralHistoryMenu', 'View Trajectory Path') },
@@ -461,30 +418,6 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       : resolveAnswerBlockId(item, blockId);
     const isTopicLike = isTopicLikeCardType(cardType);
     const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
-    const sourceTargetId = resolveProgressiveSourceTargetId(item);
-
-    if (cardType === 'topic' && this.progressiveExcerptEnabled) {
-      toolbar.push({
-        icon: '#iconQuote',
-        type: 'progressive-excerpt',
-        ariaLabel: t(this.i18n, 'progressiveExcerptSelection', 'Excerpt Selection (⌥⇧X)'),
-      });
-    }
-    if (sourceTargetId) {
-      toolbar.push({
-        icon: '#iconOpen',
-        type: 'progressive-open-source',
-        ariaLabel: t(this.i18n, 'progressiveOpenSource', 'Jump to Source'),
-      });
-    }
-    if (isLinearPieceTopic(item, cardType)) {
-      toolbar.push({
-        icon: '#iconRight',
-        type: 'progressive-complete-piece',
-        label: t(this.i18n, 'progressiveCompletePiece', '完成当前片'),
-        ariaLabel: t(this.i18n, 'progressiveCompletePiece', 'Complete Current Piece'),
-      });
-    }
 
     if (shouldLogBidirectionalTemplateDiagnostic(item)) {
       logger.warn('[SiYuanMemo][BidirectionalTemplateDiagnostic] adapter mapped review content', {

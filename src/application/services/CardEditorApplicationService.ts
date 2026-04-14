@@ -30,6 +30,11 @@ export interface CardEditorSnapshot {
   blockInfo: CardEditorBlockInfo;
 }
 
+export interface SetDismissedManyResult {
+  updatedCardIds: string[];
+  failedCardIds: string[];
+}
+
 export class CardEditorApplicationService {
   constructor(
     private readonly manager: IUnifiedDataSourceManagerFacade,
@@ -121,14 +126,39 @@ export class CardEditorApplicationService {
 
   async setDismissed(cardId: string, dismissed: boolean): Promise<CardEditorSnapshot> {
     const card = await this.manager.getCard(cardId);
-    const nextCard = applyDismissState(card, dismissed, { touchUpdatedAt: true });
-
-    await this.manager.updateCard(nextCard);
-    await this.siyuanApi.setBlockAttrs(nextCard.blockId, {
-      [ATTR_SUSPENDED]: dismissed ? 'true' : '',
-    });
-
+    const nextCard = await this.persistDismissedState(card, dismissed);
     return this.createSnapshot(nextCard);
+  }
+
+  async setDismissedMany(cardIds: string[], dismissed: boolean): Promise<SetDismissedManyResult> {
+    const normalizedCardIds = Array.from(new Set(
+      cardIds
+        .map((cardId) => String(cardId || '').trim())
+        .filter((cardId) => cardId.length > 0),
+    ));
+
+    const updatedCardIds: string[] = [];
+    const failedCardIds: string[] = [];
+
+    for (const cardId of normalizedCardIds) {
+      try {
+        const card = await this.manager.getCard(cardId);
+        const nextCard = await this.persistDismissedState(card, dismissed);
+        updatedCardIds.push(nextCard.id);
+      } catch (error) {
+        failedCardIds.push(cardId);
+        logger.warn('Failed to update dismissed state in batch card editor operation', {
+          cardId,
+          dismissed,
+          error,
+        });
+      }
+    }
+
+    return {
+      updatedCardIds,
+      failedCardIds,
+    };
   }
 
   private async loadCardByReference(blockId: string, preferredCardId?: string): Promise<FSRSCard> {
@@ -174,6 +204,17 @@ export class CardEditorApplicationService {
       card,
       blockInfo: await this.loadBlockInfo(card.blockId),
     };
+  }
+
+  private async persistDismissedState(card: FSRSCard, dismissed: boolean): Promise<FSRSCard> {
+    const nextCard = applyDismissState(card, dismissed, { touchUpdatedAt: true });
+
+    await this.manager.updateCard(nextCard);
+    await this.siyuanApi.setBlockAttrs(nextCard.blockId, {
+      [ATTR_SUSPENDED]: dismissed ? 'true' : '',
+    });
+
+    return nextCard;
   }
 
   private async loadBlockInfo(blockId: string): Promise<CardEditorBlockInfo> {
