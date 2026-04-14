@@ -1,23 +1,41 @@
 ﻿<template>
   <div class="settings-panel">
-    <!-- 顶部标签页 -->
-    <div class="settings-tabs">
-      <button 
-        v-for="tab in tabs" 
-        :key="tab.key"
-        class="settings-tab"
-        :class="{ 'settings-tab--active': activeTab === tab.key }"
-        @click="activeTab = tab.key"
-      >
-        <svg><use :xlink:href="tab.icon"></use></svg>
-        {{ tab.label }}
-      </button>
-    </div>
+    <!-- 设置导航 -->
+    <div class="settings-shell">
+      <aside class="settings-tabs">
+        <div class="settings-tabs__group">
+          <button
+            v-for="tab in primaryTabs"
+            :key="tab.key"
+            type="button"
+            class="settings-tab"
+            :class="{ 'settings-tab--active': activeTab === tab.key }"
+            @click="activeTab = tab.key"
+          >
+            <svg><use :xlink:href="tab.icon"></use></svg>
+            <span class="settings-tab__label">{{ tab.label }}</span>
+          </button>
+        </div>
 
-    <!-- 设置区域 -->
-    <div class="settings-content">
-      <!-- 学习与队列 -->
-      <div v-show="activeTab === 'study'" class="settings-section">
+        <div class="settings-tabs__group settings-tabs__group--secondary">
+          <button
+            v-for="tab in secondaryTabs"
+            :key="tab.key"
+            type="button"
+            class="settings-tab"
+            :class="{ 'settings-tab--active': activeTab === tab.key }"
+            @click="activeTab = tab.key"
+          >
+            <svg><use :xlink:href="tab.icon"></use></svg>
+            <span class="settings-tab__label">{{ tab.label }}</span>
+          </button>
+        </div>
+      </aside>
+
+      <div class="settings-main">
+        <div ref="settingsContentRef" class="settings-content">
+          <div v-show="activeTab === 'learning'" class="settings-section">
+            <section class="settings-card">
         <h3>{{ t('fsrsParamsTitle', 'FSRS 参数') }}</h3>
         
         <!-- 请求保留率 -->
@@ -95,29 +113,8 @@
 
         <div class="fn__hr"></div>
 
-        <h3>{{ t('learningQueueTitle', '学习与队列') }}</h3>
+        <h3>{{ t('dayStartHour', '每日刷新时间') }}</h3>
 
-        <div class="form-item">
-          <label>{{ t('reviewOpenInNewTabByDefault', '复习界面默认以新页签打开') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="uiSettings.reviewOpenInNewTabByDefault">
-          </div>
-          <p class="form-hint">
-            {{ t('reviewOpenInNewTabByDefaultHint', '桌面端从全局复习入口启动时，默认在新页签中打开复习界面。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('reviewOpenFullscreenByDefault', '复习界面默认全屏打开') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="uiSettings.reviewOpenFullscreenByDefault">
-          </div>
-          <p class="form-hint">
-            {{ t('reviewOpenFullscreenByDefaultHint', '只对桌面端对话框模式生效；若同时选择新页签打开，则此选项会被忽略。') }}
-          </p>
-        </div>
-
-        <!-- 🆕 每日刷新时间 -->
         <div class="form-item">
           <label>{{ t('dayStartHour', '每日刷新时间') }}</label>
           <div class="form-control">
@@ -169,6 +166,44 @@
         </div>
 
         <div class="form-item">
+          <label>{{ t('modelParams', `模型参数 (${FSRS_WEIGHT_COUNT})`) }}</label>
+          <div class="params-preview">
+            <code>{{ paramsPreview }}</code>
+          </div>
+          <p class="form-hint">{{ t('modelParamsHint', '使用优化器可以根据你的复习数据自动优化这些参数') }}</p>
+        </div>
+            </section>
+          </div>
+
+          <div v-show="activeTab === 'review'" class="settings-section">
+            <section class="settings-card">
+        <h3>{{ t('reviewWindowSectionTitle', '复习与队列') }}</h3>
+
+        <div class="form-item">
+          <label>{{ t('reviewOpenInNewTabByDefault', '复习界面默认以新页签打开') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="uiSettings.reviewOpenInNewTabByDefault">
+          </div>
+          <p class="form-hint">
+            {{ t('reviewOpenInNewTabByDefaultHint', '桌面端从全局复习入口启动时，默认在新页签中打开复习界面。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('reviewOpenFullscreenByDefault', '复习界面默认全屏打开') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="uiSettings.reviewOpenFullscreenByDefault">
+          </div>
+          <p class="form-hint">
+            {{ t('reviewOpenFullscreenByDefaultHint', '只对桌面端对话框模式生效；若同时选择新页签打开，则此选项会被忽略。') }}
+          </p>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h3>{{ t('queueAutomationSectionTitle', '队列自动化') }}</h3>
+
+        <div class="form-item">
           <label>{{ t('autoPostponeEnabled', '自动延期（AutoPostpone）') }}</label>
           <div class="form-control">
             <input type="checkbox" v-model="settings.autoPostponeEnabled">
@@ -195,6 +230,10 @@
             {{ t('autoPostponeSkipTopNHint', '执行 autoPostpone 时保护队列前 N 张不延期，默认 20。') }}
           </p>
         </div>
+
+        <div class="fn__hr"></div>
+
+        <h3>{{ t('queueOrderingSectionTitle', '队列排序与插入') }}</h3>
 
         <div class="form-item">
           <label>{{ t('autoSortEnabled', '自动排序（AutoSort）') }}</label>
@@ -241,34 +280,11 @@
             {{ t('priorityRandomnessHint', '0 为严格按优先级排序，越大越随机（仍保留优先级倾向）。') }}
           </p>
         </div>
-
-        <div class="form-item">
-          <label>{{ t('modelParams', `模型参数 (${FSRS_WEIGHT_COUNT})`) }}</label>
-          <div class="params-preview">
-            <code>{{ paramsPreview }}</code>
+            </section>
           </div>
-          <p class="form-hint">{{ t('modelParamsHint', '使用优化器可以根据你的复习数据自动优化这些参数') }}</p>
-        </div>
-      </div>
 
-      <div v-show="activeTab === 'capture-sync'" class="settings-section">
-        <h3>{{ t('storageConflictTitle', '多端冲突处理') }}</h3>
-        <div class="form-item">
-          <label>{{ t('storageConflictStrategy', '冲突策略') }}</label>
-          <div class="form-control">
-            <select v-model="riffIntegrationConfig.storageConflictResolution" class="scheduler-select">
-              <option value="merge">{{ t('storageConflictMerge', '自动合并（推荐）') }}</option>
-              <option value="prefer-remote">{{ t('storageConflictPreferRemote', '云端覆盖本地') }}</option>
-              <option value="prefer-local">{{ t('storageConflictPreferLocal', '本地覆盖云端') }}</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            {{ t('storageConflictHint', '检测到多实例写入冲突时，选择自动合并或单向覆盖策略。') }}
-          </p>
-        </div>
-
-        <div class="fn__hr"></div>
-
+          <div v-show="activeTab === 'card'" class="settings-section">
+            <section class="settings-card">
         <h3>{{ t('quickCardTitle', '监听符号制卡') }}</h3>
 
         <div class="form-item">
@@ -281,11 +297,11 @@
           </p>
         </div>
 
-        <p class="form-hint" style="margin-bottom: 16px;" v-if="settings.quickCard.enabled">
+        <p v-if="settings.quickCard.enabled" class="form-hint form-hint--section">
           ✅ {{ t('quickCardSymbolsInfo', '支持的符号类型') }}：&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;
         </p>
 
-        <p class="form-hint" v-if="settings.quickCard.enabled">
+        <p v-if="settings.quickCard.enabled" class="form-hint form-hint--section">
           {{ t('quickCardFlashcardHint', '只影响 SiyuanMemo 对新卡的 Topic/Item 识别，不回写思源原生设置。') }}
         </p>
 
@@ -358,9 +374,11 @@
             {{ t('topicDerivationStorageModeHint', '工作台模式会把继续制卡生成的内容集中收纳到源文档的“摘抄工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
           </p>
         </div>
+            </section>
+          </div>
 
-        <div class="fn__hr"></div>
-
+          <div v-show="activeTab === 'capture-sync'" class="settings-section">
+            <section class="settings-card">
         <h3>{{ t('progressiveReadingSettingsTitle', '渐进阅读') }}</h3>
 
         <div class="form-item">
@@ -441,6 +459,25 @@
 
         <div class="fn__hr"></div>
 
+        <h3>{{ t('storageConflictTitle', '多端冲突处理') }}</h3>
+        <div class="form-item">
+          <label>{{ t('storageConflictStrategy', '冲突策略') }}</label>
+          <div class="form-control">
+            <select v-model="riffIntegrationConfig.storageConflictResolution" class="scheduler-select">
+              <option value="merge">{{ t('storageConflictMerge', '自动合并（推荐）') }}</option>
+              <option value="prefer-remote">{{ t('storageConflictPreferRemote', '云端覆盖本地') }}</option>
+              <option value="prefer-local">{{ t('storageConflictPreferLocal', '本地覆盖云端') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('storageConflictHint', '检测到多实例写入冲突时，选择自动合并或单向覆盖策略。') }}
+          </p>
+        </div>
+            </section>
+          </div>
+
+          <div v-show="activeTab === 'maintenance'" class="settings-section">
+            <section class="settings-card">
         <h3>{{ t('blockAttrsCleanupTitle', '块属性清理') }}</h3>
 
         <div class="form-item">
@@ -514,9 +551,11 @@
             {{ t('blockAttrsCleanupSkippedTreeNotFound', 'tree not found 跳过数') }}: {{ blockAttrsCleanupRunResult.skippedTreeNotFoundCount }}
           </div>
         </div>
-      </div>
+            </section>
+          </div>
 
-      <div v-show="activeTab === 'neural'" class="settings-section">
+          <div v-show="activeTab === 'neural'" class="settings-section">
+            <section class="settings-card">
         <h3>{{ t('neuralHistorySettingsTitle', '轨迹历史') }}</h3>
         <p class="form-hint form-hint--section">
           {{ t('neuralHistorySettingsIntro', '控制神经漫游跨重启保留的轨迹历史上限。更大的历史有助于回溯路径，但会增加持久化体积。') }}
@@ -657,9 +696,11 @@
             {{ t('hyperspaceRaceRandomnessHint', '值越大，前沿候选之间越容易出现轻微顺序波动；值越小，结果越稳定。') }}
           </p>
         </div>
-      </div>
+            </section>
+          </div>
 
-      <div v-show="activeTab === 'ai'" class="settings-section">
+          <div v-show="activeTab === 'ai'" class="settings-section">
+            <section class="settings-card">
         <h3>{{ t('aiSettingsTitle', 'AI 工作台') }}</h3>
         <p class="form-hint form-hint--section">
           {{ t('aiSettingsIntro', '统一配置 AI 导师、AI 解释卡片和 AI 辅助制卡。v1 默认停留在工作台，不会自动写回原文。') }}
@@ -846,29 +887,32 @@
             ></textarea>
           </div>
         </div>
-      </div>
+            </section>
+          </div>
 
-      <div v-show="activeTab === 'about'" class="settings-section about-section">
-        <div class="guide-section">
+          <div v-show="activeTab === 'about'" class="settings-section about-section">
+            <section class="settings-card guide-section">
           <h4>ℹ️ About</h4>
           <p class="about-info">
             Dedicated to the past, present, and future of the SiYuan and spaced repetition community.
           </p>
+            </section>
+          </div>
         </div>
-      </div>
-    </div>
 
-    <div v-if="activeTab !== 'about'" class="settings-footer">
-      <div class="form-actions">
+        <div v-if="showSettingsFooter" class="settings-footer">
+          <div class="form-actions settings-footer__actions">
         <button class="btn-primary" @click="saveSettings">{{ t('saveSettings', '保存设置') }}</button>
         <button class="btn-secondary" @click="resetSettings">{{ t('resetDefault', '重置默认') }}</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, watch } from 'vue';
 import { AI_PROMPT_PRESET_DESCRIPTORS, getRecommendedPromptTemplate } from '@/application/services/AIPromptComposer';
 import {
   normalizeConfiguredCaptureStorageSettings as normalizeCaptureStorageSettings,
@@ -1113,31 +1157,53 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-type SettingsTabKey = 'study' | 'capture-sync' | 'neural' | 'ai' | 'about';
+type SettingsTabKey = 'learning' | 'review' | 'card' | 'capture-sync' | 'neural' | 'ai' | 'maintenance' | 'about';
 
 function normalizeSettingsTabKey(tab?: string): SettingsTabKey {
   switch (tab) {
+  case 'learning':
+  case 'review':
+  case 'card':
   case 'capture-sync':
   case 'neural':
   case 'ai':
+  case 'maintenance':
   case 'about':
-  case 'study':
     return tab;
+  case 'fsrs':
+  case 'general':
   case 'params':
+  case 'study':
   default:
-    return 'study';
+    return 'learning';
   }
 }
 
-const tabs = computed<Array<{ key: SettingsTabKey; label: string; icon: string }>>(() => [
-  { key: 'study', label: t('settingsStudyTab', '学习与队列'), icon: '#iconSettings' },
-  { key: 'capture-sync', label: t('settingsCaptureSyncTab', '制卡与同步'), icon: '#iconSettings' },
-  { key: 'neural', label: t('settingsNeuralTab', '神经漫游'), icon: '#iconSettings' },
-  { key: 'ai', label: t('settingsAiTab', 'AI'), icon: '#iconSparkles' },
-  { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo' },
+const tabs = computed<Array<{ key: SettingsTabKey; label: string; icon: string; section: 'primary' | 'secondary' }>>(() => [
+  { key: 'learning', label: t('settingsStudyTab', '学习与调度'), icon: '#iconSettings', section: 'primary' },
+  { key: 'review', label: t('settingsReviewQueueTab', '复习与队列'), icon: '#iconSettings', section: 'primary' },
+  { key: 'card', label: t('settingsCardTab', '制卡'), icon: '#iconSettings', section: 'primary' },
+  { key: 'capture-sync', label: t('settingsCaptureSyncTab', '摘录与同步'), icon: '#iconSettings', section: 'primary' },
+  { key: 'neural', label: t('settingsNeuralTab', '神经漫游'), icon: '#iconSettings', section: 'primary' },
+  { key: 'ai', label: t('settingsAiTab', 'AI 工作台'), icon: '#iconSparkles', section: 'primary' },
+  { key: 'maintenance', label: t('settingsMaintenanceTab', '维护'), icon: '#iconSettings', section: 'secondary' },
+  { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo', section: 'secondary' },
 ]);
 
 const activeTab = ref<SettingsTabKey>(normalizeSettingsTabKey(props.defaultTab));
+const primaryTabs = computed(() => tabs.value.filter((tab) => tab.section === 'primary'));
+const secondaryTabs = computed(() => tabs.value.filter((tab) => tab.section === 'secondary'));
+const showSettingsFooter = computed(() => activeTab.value !== 'maintenance' && activeTab.value !== 'about');
+const settingsContentRef = ref<HTMLElement | null>(null);
+
+watch(activeTab, async () => {
+  await nextTick();
+  settingsContentRef.value?.scrollTo?.({ top: 0 });
+});
+
+watch(() => props.defaultTab, (tab) => {
+  activeTab.value = normalizeSettingsTabKey(tab);
+});
 
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 const aiSettings = ref<AISettings>(createDefaultAISettings());
@@ -1781,27 +1847,57 @@ async function handleRepairDates() {
   color: var(--b3-theme-on-background);
 }
 
+.settings-shell {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
 .settings-tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--b3-border-color);
+  flex-direction: column;
+  gap: 18px;
+  width: 240px;
+  padding: 20px 18px;
+  border-right: 1px solid var(--b3-border-color);
   background: var(--b3-theme-surface);
+}
+
+.settings-tabs__group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-tabs__group--secondary {
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.settings-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .settings-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
   border: none;
-  border-radius: 6px;
+  border-radius: 12px;
   background: transparent;
   color: var(--b3-theme-on-surface-light);
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.18s ease;
 }
 
 .settings-tab:hover {
@@ -1811,46 +1907,69 @@ async function handleRepairDates() {
 .settings-tab--active {
   background: var(--b3-theme-primary);
   color: white;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
 }
 
 .settings-tab svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.settings-tab__label {
+  flex: 1;
 }
 
 .settings-content {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: 28px 30px 32px;
 }
 
 .settings-footer {
-  padding: 12px 16px;
+  padding: 16px 30px 20px;
   border-top: 1px solid var(--b3-border-color);
   background: var(--b3-theme-surface);
 }
 
-.settings-section h3 {
+.settings-footer__actions {
+  justify-content: flex-end;
+}
+
+.settings-section {
+  display: grid;
+  gap: 20px;
+}
+
+.settings-card {
+  padding: 24px 26px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 18px;
+  background: var(--b3-theme-surface);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+}
+
+.settings-card h3 {
   margin: 0 0 16px 0;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
 }
 
-.settings-section h4 {
-  margin: 16px 0 8px 0;
-  font-size: 14px;
+.settings-card h4 {
+  margin: 18px 0 10px 0;
+  font-size: 16px;
   font-weight: 500;
 }
 
 .form-item {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .form-item label {
   display: block;
-  margin-bottom: 6px;
-  font-size: 13px;
+  margin-bottom: 8px;
+  font-size: 15px;
   font-weight: 500;
 }
 
@@ -1858,6 +1977,7 @@ async function handleRepairDates() {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .form-control--stacked {
@@ -1866,82 +1986,87 @@ async function handleRepairDates() {
 
 .form-control input[type="range"] {
   flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--b3-theme-surface);
+  min-width: 180px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--b3-border-color);
   outline: none;
   -webkit-appearance: none;
 }
 
 .form-control input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--b3-theme-primary);
   cursor: pointer;
 }
 
 .form-control input[type="number"] {
-  width: 100px;
-  padding: 8px 12px;
+  width: 132px;
+  min-height: 42px;
+  padding: 10px 12px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--b3-theme-surface);
   color: var(--b3-theme-on-background);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .form-control input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   cursor: pointer;
 }
 
 .form-value {
-  min-width: 48px;
-  font-size: 14px;
+  min-width: 52px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--b3-theme-primary);
 }
 
 .form-hint {
-  margin: 6px 0 0 0;
-  font-size: 12px;
+  margin: 8px 0 0 0;
+  font-size: 13px;
+  line-height: 1.7;
   color: var(--b3-theme-on-surface-light);
 }
 
 .form-hint--section {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .params-preview {
-  padding: 12px;
+  padding: 14px 16px;
   background: var(--b3-theme-surface);
-  border-radius: 6px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 12px;
   overflow-x: auto;
 }
 
 .params-preview code {
   font-family: monospace;
-  font-size: 11px;
+  font-size: 12px;
   word-break: break-all;
-  line-height: 1.6;
+  line-height: 1.8;
 }
 
 .form-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .btn-primary, .btn-secondary {
-  padding: 10px 20px;
+  padding: 12px 20px;
   border: none;
-  border-radius: 6px;
-  font-size: 14px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.18s ease;
 }
 
 .btn-primary {
@@ -1984,36 +2109,37 @@ async function handleRepairDates() {
 .form-control select,
 .form-control input[type="text"],
 .form-control input[type="password"] {
-  height: 34px;
-  padding: 6px 10px;
+  min-height: 42px;
+  width: min(100%, 420px);
+  padding: 10px 12px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--b3-theme-surface);
   color: var(--b3-theme-on-background);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .form-textarea {
   width: 100%;
-  min-height: 120px;
-  padding: 10px 12px;
+  min-height: 140px;
+  padding: 12px 14px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--b3-theme-surface);
   color: var(--b3-theme-on-background);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.7;
   resize: vertical;
   font-family: var(--b3-font-family-code, monospace);
 }
 
 .ai-prompt-preset-card {
   display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding: 16px;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 18px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 12px;
+  border-radius: 16px;
   background: linear-gradient(180deg, rgba(250, 250, 255, 0.98), rgba(245, 246, 252, 0.98));
 }
 
@@ -2025,14 +2151,14 @@ async function handleRepairDates() {
 }
 
 .ai-prompt-preset-card__title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--b3-theme-on-background);
 }
 
 .ai-prompt-preset-card__summary {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--b3-theme-on-surface-light);
 }
@@ -2044,8 +2170,8 @@ async function handleRepairDates() {
 
 .ai-prompt-preset-card__row {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 12px 14px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid var(--b3-border-color);
@@ -2053,14 +2179,14 @@ async function handleRepairDates() {
 
 .ai-prompt-preset-card__row span,
 .ai-prompt-preset-card__editor-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--b3-theme-on-surface-light);
 }
 
 .ai-prompt-preset-card__row p {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -2074,7 +2200,7 @@ async function handleRepairDates() {
 }
 
 .ai-prompt-preset-card__status-hint {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--b3-theme-on-surface-light);
 }
@@ -2082,9 +2208,9 @@ async function handleRepairDates() {
 .ai-prompt-preset-card__status-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  padding: 5px 10px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   border: 1px solid transparent;
 }
@@ -2167,7 +2293,7 @@ async function handleRepairDates() {
 /* 🆕 调度器选择器样式 */
 .scheduler-select {
   width: 100%;
-  max-width: 300px;
+  max-width: 360px;
 }
 
 .form-hint--warning {
@@ -2187,11 +2313,12 @@ async function handleRepairDates() {
 
 /* 🆕 每日刷新时间样式 */
 .form-example {
-  margin-top: 8px;
-  padding: 8px 12px;
+  margin-top: 10px;
+  padding: 12px 14px;
   background-color: var(--b3-theme-surface);
-  border-radius: 4px;
-  font-size: 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 12px;
+  font-size: 13px;
 }
 
 .example-label {
@@ -2202,25 +2329,27 @@ async function handleRepairDates() {
 .example-value {
   color: var(--b3-theme-primary);
   font-family: monospace;
+  line-height: 1.7;
 }
 
 .form-quick-actions {
-  margin-top: 8px;
+  margin-top: 10px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .quick-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--b3-theme-on-surface-light);
 }
 
 .btn-small {
-  padding: 4px 12px;
-  font-size: 12px;
+  padding: 6px 12px;
+  font-size: 13px;
   border: 1px solid var(--b3-theme-surface-lighter);
-  border-radius: 4px;
+  border-radius: 999px;
   background-color: var(--b3-theme-surface);
   color: var(--b3-theme-on-surface);
   cursor: pointer;
@@ -2279,7 +2408,7 @@ async function handleRepairDates() {
 
 /* 🆕 关于页面样式 */
 .about-section {
-  max-width: 800px;
+  max-width: 880px;
 }
 
 .guide-section {
@@ -2288,7 +2417,7 @@ async function handleRepairDates() {
 
 .guide-section h4 {
   margin: 0 0 12px 0;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--b3-theme-on-background);
 }
@@ -2485,33 +2614,69 @@ async function handleRepairDates() {
 
 /* 关于信息 */
 .about-info {
-  padding: 16px;
-  background: var(--b3-theme-surface);
-  border-radius: 8px;
+  padding: 0;
   line-height: 1.8;
-  font-size: 13px;
+  font-size: 15px;
   color: var(--b3-theme-on-surface-light);
 }
 
 .about-info strong {
   color: var(--b3-theme-on-background);
-  font-size: 14px;
+  font-size: 15px;
+}
+
+@media (max-width: 980px) {
+  .settings-tabs {
+    width: 214px;
+    padding: 18px 14px;
+  }
+
+  .settings-content,
+  .settings-footer {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-shell {
+    flex-direction: column;
+  }
+
+  .settings-tabs {
+    width: 100%;
+    gap: 12px;
+    padding: 16px 18px;
+    border-right: none;
+    border-bottom: 1px solid var(--b3-border-color);
+  }
+
+  .settings-tabs__group {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .settings-tabs__group--secondary {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .settings-tab {
+    width: auto;
+  }
+
+  .settings-content {
+    padding: 20px 18px 24px;
+  }
+
+  .settings-footer {
+    padding: 14px 18px 18px;
+  }
+
+  .settings-card {
+    padding: 20px;
+  }
 }
 </style>
-
-
-/* 🆕 数据修复结果样式 */
-.form-result {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  background: var(--b3-theme-surface);
-  color: var(--b3-theme-on-surface);
-}
-
-.form-result--success {
-  background: var(--b3-theme-success-lighter);
-  color: var(--b3-theme-success);
-}
 

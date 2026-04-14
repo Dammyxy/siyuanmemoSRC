@@ -4,6 +4,16 @@ Last update: 2026-04-14 (Round 63)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-14 - settings panel left-nav regroup and large responsive dialog
+
+- Task: Rebuild the plugin settings surface into a larger responsive dialog with left-side vertical navigation, workflow-based category regrouping, and dedicated maintenance/about tabs while keeping the existing settings save contract unchanged.
+- Touched slice: Settings UI in `src/ui/settings/SettingsPanel.vue`, dialog sizing in `src/application/managers/DialogManager.ts`, related i18n strings, and focused settings-panel regression coverage.
+- Debt fixed now: Removed the overloaded two-tab information architecture where study/capture-sync mixed unrelated settings into long vertical lists; maintenance-only cleanup actions now live outside the normal save footer path; and the settings dialog no longer uses the cramped fixed `700x600` desktop size.
+- Debt deferred: `SettingsPanel.vue` still owns a large amount of presentation and form-state logic in one file even after the navigation regrouping.
+- Why deferred: Splitting each settings category into dedicated subcomponents would widen a bounded settings-surface redesign into a larger UI module refactor with higher merge risk and little immediate user-facing payoff.
+- Next safe step: If this settings surface changes again soon, extract category-level subcomponents around the new left-nav sections first so future UX work can stay local without revisiting one monolithic Vue file.
+- Validation: `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts`; `pnpm build`.
+
 ### 2026-04-14 - review header queue-title regression fix
 
 - Task: Fix the review header so the top-left title shows the real current review surface name instead of collapsing every queue to the generic retrieval/review label.

@@ -578,8 +578,8 @@ export class DialogManager implements IDialogManager {
           }
         }
       },
-      width: '700px',
-      height: '600px',
+      width: this.isMobileFrontend() ? '100vw' : 'min(1180px, 96vw)',
+      height: this.isMobileFrontend() ? '100vh' : 'min(860px, 92vh)',
       onClose: () => {
         this.settingsDialog = null;
       },

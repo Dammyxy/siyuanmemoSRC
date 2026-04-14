@@ -19,11 +19,18 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         { id: 'notebook-b', name: 'Notebook B' },
       ],
       i18n: {
-        settingsStudyTab: 'Learning & Queue',
-        settingsCaptureSyncTab: 'Capture & Sync',
+        settingsStudyTab: 'Learning & Scheduling',
+        settingsReviewQueueTab: 'Review & Queue',
+        settingsCardTab: 'Card Creation',
+        settingsCaptureSyncTab: 'Excerpt & Sync',
         settingsNeuralTab: 'Neural Roam',
-        settingsAiTab: 'AI',
+        settingsAiTab: 'AI Workbench',
+        settingsMaintenanceTab: 'Maintenance',
         settingsAboutTab: 'About',
+        reviewWindowSectionTitle: 'Review Surface',
+        queueAutomationSectionTitle: 'Queue Automation',
+        queueOrderingSectionTitle: 'Queue Ordering & Insertions',
+        aiDraftStorageSectionTitle: 'AI Draft Storage',
         neuralHistorySettingsTitle: 'Path History',
         neuralHistorySettingsIntro: 'Path history settings live here.',
         neuralHistoryMaxEntries: 'Path history limit',
@@ -101,19 +108,50 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
 }
 
 describe('SettingsPanel', () => {
-  it('renders split settings tabs and maps legacy params tab to study', async () => {
+  it('renders left-side settings tabs and maps legacy params/fsrs tabs to learning', async () => {
     const wrapper = mountPanel();
     await wrapper.vm.$nextTick();
 
     const tabLabels = wrapper.findAll('.settings-tab').map((tab) => tab.text());
     expect(tabLabels).toEqual([
-      'Learning & Queue',
-      'Capture & Sync',
+      'Learning & Scheduling',
+      'Review & Queue',
+      'Card Creation',
+      'Excerpt & Sync',
       'Neural Roam',
-      'AI',
+      'AI Workbench',
+      'Maintenance',
       'About',
     ]);
     expect(wrapper.text()).toContain('FSRS 参数');
+
+    const fsrsAliasWrapper = mountPanel('fsrs');
+    await fsrsAliasWrapper.vm.$nextTick();
+    expect(fsrsAliasWrapper.text()).toContain('FSRS 参数');
+  });
+
+  it('saves learning and scheduling settings from the learning tab', async () => {
+    const wrapper = mountPanel('learning');
+    await wrapper.vm.$nextTick();
+
+    const formItems = wrapper.findAll('.form-item');
+    const retentionItem = formItems.find((item) => item.text().includes('请求保留率'));
+    const retentionInput = retentionItem?.find('input[type="range"]');
+    const dayStartItem = formItems.find((item) => item.text().includes('每日刷新时间'));
+    const dayStartInput = dayStartItem?.find('input[type="number"]');
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+
+    expect(retentionInput).toBeDefined();
+    expect(dayStartInput).toBeDefined();
+    expect(saveButton).toBeDefined();
+
+    await retentionInput!.setValue(0.93);
+    await dayStartInput!.setValue(6);
+    await saveButton!.trigger('click');
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.requestRetention).toBe(0.93);
+    expect(payload.dayStartHour).toBe(6);
   });
 
   it('renders hyperspace settings section on the neural tab and saves updates', async () => {
@@ -153,16 +191,22 @@ describe('SettingsPanel', () => {
     expect(payload.queues.neuralRoam?.hyperspace.treeChannels.documentTree).toBe(false);
   });
 
-  it('hides the global actions on the about tab', async () => {
-    const wrapper = mountPanel('about');
-    await wrapper.vm.$nextTick();
+  it('hides the global actions on the maintenance and about tabs', async () => {
+    const maintenanceWrapper = mountPanel('maintenance');
+    await maintenanceWrapper.vm.$nextTick();
 
-    expect(wrapper.text()).not.toContain('Save Settings');
-    expect(wrapper.find('.settings-footer').exists()).toBe(false);
+    expect(maintenanceWrapper.text()).not.toContain('Save Settings');
+    expect(maintenanceWrapper.find('.settings-footer').exists()).toBe(false);
+
+    const aboutWrapper = mountPanel('about');
+    await aboutWrapper.vm.$nextTick();
+
+    expect(aboutWrapper.text()).not.toContain('Save Settings');
+    expect(aboutWrapper.find('.settings-footer').exists()).toBe(false);
   });
 
-  it('saves the excerpt shortcut toggle and explicit excerpt storage settings', async () => {
-    const wrapper = mountPanel('capture-sync', {
+  it('saves quick-card settings from the card tab', async () => {
+    const wrapper = mountPanel('card', {
       quickCardSettings: {
         ...DEFAULT_SETTINGS.quickCard,
         enabled: true,
@@ -174,14 +218,41 @@ describe('SettingsPanel', () => {
     });
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.text()).toContain('Progressive Reading');
     expect(wrapper.text()).toContain('Continue card creation under Topic');
     expect(wrapper.text()).toContain('Enable continuing card creation under Topic');
     expect(wrapper.text()).toContain('Storage for continued card creation');
     expect(wrapper.text()).toContain('This is not the excerpt flow.');
+    const formItems = wrapper.findAll('.form-item');
+    const enabledItem = formItems.find((item) => item.text().includes('Enable continuing card creation under Topic'));
+    const enabledToggle = enabledItem?.find('input[type="checkbox"]');
+    const storageModeItem = formItems.find((item) => item.text().includes('Storage for continued card creation'));
+    const storageModeSelect = storageModeItem?.find('select');
+    expect(enabledToggle).toBeDefined();
+    expect(storageModeSelect).toBeDefined();
+
+    await enabledToggle!.setValue(false);
+    await storageModeSelect!.setValue('source-child');
+
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+    expect(saveButton).toBeDefined();
+    await saveButton!.trigger('click');
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.quickCard.topicDerivation).toEqual({
+      enabled: false,
+      storageMode: 'source-child',
+    });
+  });
+
+  it('saves excerpt storage and conflict strategy from the excerpt tab', async () => {
+    const wrapper = mountPanel('capture-sync');
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain('Progressive Reading');
+    expect(wrapper.text()).toContain('Enable excerpt shortcut');
     expect(wrapper.text()).toContain('⌥⇧X');
     expect(wrapper.text()).toContain('Alt+X');
-    expect(wrapper.text()).not.toContain('Write Daily Notes trace after excerpting');
+
     const formItems = wrapper.findAll('.form-item');
     const altXItem = formItems.find((item) => item.text().includes('Enable excerpt shortcut'));
     const altXToggle = altXItem?.find('input[type="checkbox"]');
@@ -191,11 +262,14 @@ describe('SettingsPanel', () => {
     const notebookSelect = notebookItem?.find('select');
     const targetBlockItem = formItems.find((item) => item.text().includes('Target block ID'));
     const targetBlockInput = targetBlockItem?.find('input[type="text"]');
+    const conflictItem = formItems.find((item) => item.text().includes('冲突策略'));
+    const conflictSelect = conflictItem?.find('select');
+
     expect(altXToggle).toBeDefined();
-    expect((altXToggle!.element as HTMLInputElement).checked).toBe(false);
     expect(storageModeSelect).toBeDefined();
     expect(notebookSelect).toBeDefined();
     expect(targetBlockInput).toBeDefined();
+    expect(conflictSelect).toBeDefined();
     expect((storageModeSelect!.element as HTMLSelectElement).value).toBe('source-child');
     expect((notebookSelect!.element as HTMLSelectElement).disabled).toBe(true);
     expect((targetBlockInput!.element as HTMLInputElement).disabled).toBe(true);
@@ -204,6 +278,7 @@ describe('SettingsPanel', () => {
     await storageModeSelect!.setValue('library');
     await notebookSelect!.setValue('notebook-a');
     await targetBlockInput!.setValue('doc-root-1');
+    await conflictSelect!.setValue('prefer-local');
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
     expect(saveButton).toBeDefined();
@@ -217,6 +292,7 @@ describe('SettingsPanel', () => {
       notebookId: 'notebook-a',
       targetBlockId: 'doc-root-1',
     });
+    expect(payload.riffIntegration.storageConflictResolution).toBe('prefer-local');
   });
 
   it('keeps source-document excerpt storage without forcing notebook or target block fields', async () => {
@@ -352,27 +428,32 @@ describe('SettingsPanel', () => {
     });
   });
 
-  it('saves the default review open-mode UI toggles', async () => {
-    const wrapper = mountPanel('params');
+  it('saves the default review open-mode UI toggles from the review tab', async () => {
+    const wrapper = mountPanel('review');
     await wrapper.vm.$nextTick();
 
     const formItems = wrapper.findAll('.form-item');
     const newTabItem = formItems.find((item) => item.text().includes('Open review in a new tab by default'));
     const fullscreenItem = formItems.find((item) => item.text().includes('Open review fullscreen by default'));
+    const autoSortItem = formItems.find((item) => item.text().includes('自动排序'));
     const newTabToggle = newTabItem?.find('input[type="checkbox"]');
     const fullscreenToggle = fullscreenItem?.find('input[type="checkbox"]');
+    const autoSortToggle = autoSortItem?.find('input[type="checkbox"]');
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
 
     expect(newTabToggle).toBeDefined();
     expect(fullscreenToggle).toBeDefined();
+    expect(autoSortToggle).toBeDefined();
     expect(saveButton).toBeDefined();
 
     await newTabToggle!.setValue(true);
     await fullscreenToggle!.setValue(true);
+    await autoSortToggle!.setValue(false);
     await saveButton!.trigger('click');
 
     const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
     expect(payload.ui.reviewOpenInNewTabByDefault).toBe(true);
     expect(payload.ui.reviewOpenFullscreenByDefault).toBe(true);
+    expect(payload.queues.autoSort?.enabled).toBe(false);
   });
 });
