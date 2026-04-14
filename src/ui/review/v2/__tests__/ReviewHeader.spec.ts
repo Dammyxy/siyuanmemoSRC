@@ -89,6 +89,7 @@ describe('ReviewHeader', () => {
       props: {
         header: createHeaderState(),
         meta: createMetaState(),
+        title: '提取练习',
         isMobile: false,
         mode: 'dialog',
       },
@@ -96,7 +97,10 @@ describe('ReviewHeader', () => {
 
     const summary = wrapper.get('.siyuanmemo-review-header__summary');
     const summaryWrap = wrapper.get('.siyuanmemo-review-header__summary-wrap');
+    const brand = wrapper.get('.siyuanmemo-review-header__brand');
     expect(summary.text()).toBe('3');
+    expect(brand.attributes('title')).toBe('提取练习');
+    expect(wrapper.get('.siyuanmemo-review-header__brand-text').text()).toBe('提取练习');
     expect(summary.attributes('aria-label')).toBe('\u5269\u4f59 3\uff0c\u70b9\u51fb\u9690\u85cf\u5361\u7247\u6570\u91cf');
     expect(summary.attributes('title')).toContain('\u603b\u6570 3');
     expect(summary.attributes('title')).toContain('\u60ac\u505c\u67e5\u770b\u590d\u4e60\u8be6\u60c5');
@@ -116,6 +120,35 @@ describe('ReviewHeader', () => {
 
     await summaryWrap.trigger('mouseleave');
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
+  });
+
+  it('falls back from props.title to header.title and then stats.queueName for the brand text', () => {
+    const header = createHeaderState();
+    header.title = '神经漫游';
+    header.stats.queueName = '提取练习';
+
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header,
+        meta: createMetaState(),
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    expect(wrapper.get('.siyuanmemo-review-header__brand-text').text()).toBe('神经漫游');
+
+    header.title = '';
+    const wrapper2 = mount(ReviewHeader, {
+      props: {
+        header,
+        meta: createMetaState(),
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    expect(wrapper2.get('.siyuanmemo-review-header__brand-text').text()).toBe('提取练习');
   });
 
   it('closes the counter popover on Escape', async () => {

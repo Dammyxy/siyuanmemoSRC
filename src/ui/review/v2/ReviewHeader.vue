@@ -8,9 +8,9 @@
   >
     <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
       <div class="siyuanmemo-review-header__left">
-        <div class="block__logo siyuanmemo-review-header__brand" :title="t('reviewTitle', 'Review')">
+        <div class="block__logo siyuanmemo-review-header__brand" :title="displayTitle">
           <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
-          <span class="siyuanmemo-review-header__brand-text">{{ t('reviewTitle', 'Review') }}</span>
+          <span class="siyuanmemo-review-header__brand-text">{{ displayTitle }}</span>
         </div>
         <span v-if="!props.isMobile" class="siyuanmemo-review-header__drag resize__move"></span>
       </div>

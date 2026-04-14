@@ -234,6 +234,8 @@ describe('UnifiedReviewAdapter', () => {
     );
 
     expect(ui.content.type).toBe('empty');
+    expect(ui.header.title).toBe('提取练习');
+    expect(ui.header.stats.queueName).toBe('提取练习');
     expect(ui.actions.showAnswer).toBe(false);
     expect(ui.actions.grades).toEqual([]);
     expect(ui.meta.emptyStateMode).toBe('completed');
@@ -287,6 +289,8 @@ describe('UnifiedReviewAdapter', () => {
       priority: 12,
       ariaLabel: 'Priority 12',
     });
+    expect(ui.header.title).toBe('提取练习');
+    expect(ui.header.stats.queueName).toBe('提取练习');
     expect(ui.header.toolbar).toEqual([
       {
         icon: '#iconSparkles',
@@ -480,6 +484,8 @@ describe('UnifiedReviewAdapter', () => {
         ariaLabel: 'Concept 1',
       },
     ]);
+    expect(ui.header.title).toBe('筛选复习');
+    expect(ui.header.stats.queueName).toBe('筛选复习');
     expect(ui.header.toolbar).toEqual([
       expect.objectContaining({ type: 'ai-sidebar' }),
       expect.objectContaining({ type: 'more' }),
@@ -526,6 +532,28 @@ describe('UnifiedReviewAdapter', () => {
       priority: null,
       ariaLabel: 'Priority -',
     });
+  });
+
+  it('keeps contextual review variants on their own surface titles instead of the base queue name', async () => {
+    const liveCards = [createCard('item-1', CardType.Item)];
+
+    const temporaryUi = await renderState(
+      new UnifiedReviewAdapter({ headerVariant: 'temporary-drill' }),
+      createQueue({ queueType: 'final-drill', liveCards }),
+      liveCards[0],
+      createContext(),
+    );
+    expect(temporaryUi.header.title).toBe('临时练习');
+    expect(temporaryUi.header.stats.queueName).toBe('临时练习');
+
+    const leechUi = await renderState(
+      new UnifiedReviewAdapter({ headerVariant: 'leech' }),
+      createQueue({ queueType: 'leech', liveCards }),
+      liveCards[0],
+      createContext(),
+    );
+    expect(leechUi.header.title).toBe('难点攻坚');
+    expect(leechUi.header.stats.queueName).toBe('难点攻坚');
   });
 
   it('uses build-station and source-list fallbacks for neural roam review toolbar buttons', async () => {
@@ -598,6 +626,8 @@ describe('UnifiedReviewAdapter', () => {
       priority: null,
       ariaLabel: 'Priority -',
     });
+    expect(ui.header.title).toBe('子集复习');
+    expect(ui.header.stats.queueName).toBe('子集复习');
   });
 
   it('keeps neural-roam main path off getCards and computes auxiliary header from stats plus history only', async () => {

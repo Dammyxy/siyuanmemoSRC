@@ -4,6 +4,16 @@ Last update: 2026-04-14 (Round 63)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-14 - review header queue-title regression fix
+
+- Task: Fix the review header so the top-left title shows the real current review surface name instead of collapsing every queue to the generic retrieval/review label.
+- Touched slice: Review header presentation in `src/ui/review/v2/ReviewHeader.vue`, review surface title shaping in `src/application/adapters/UnifiedReviewAdapter.ts`, and focused header/adapter regression coverage.
+- Debt fixed now: Removed the duplicated title regression where the header brand text was hardcoded to the generic review label and the unified review adapter also emitted generic `header.title` / `stats.queueName` values, which made dialog/tab/context review surfaces lose their queue identity.
+- Debt deferred: `queueProgress.queueLabel` still follows queue-type-centric labeling instead of the full contextual surface title for every special header variant.
+- Why deferred: Extending every progress snapshot and downstream consumer to carry contextual surface titles would widen a bounded header regression fix into a broader queue-progress contract change.
+- Next safe step: If any other review surface still shows a mismatched contextual title outside the top-left header brand, audit `ReviewQueueProgressSnapshot.queueLabel` consumers and decide whether contextual variants need a second, display-only title field.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts`; `pnpm build`.
+
 ### 2026-04-14 - review header counter notifications moved to SiYuan host toast
 
 - Task: Move the review-header counter hide/show feedback from the header-local floating notice into the host SiYuan notification channel, and align the copy with the new queue-progress wording.

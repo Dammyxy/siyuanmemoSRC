@@ -255,6 +255,33 @@ function resolveQueueLabel(i18n: Record<string, string> | undefined, queueType: 
   }
 }
 
+function resolveSurfaceTitle(
+  i18n: Record<string, string> | undefined,
+  queueType: string,
+  headerVariant?: ReviewHeaderVariant,
+): string {
+  switch (headerVariant) {
+    case 'subset-review':
+      return t(i18n, 'reviewSubsetTitle', '子集复习');
+    case 'temporary-drill':
+      return t(i18n, 'temporaryDrill', '临时练习');
+    case 'leech':
+      return t(i18n, 'startLeechPractice', '难点攻坚');
+    case 'filter-group':
+      return t(i18n, 'filterGroupPractice', '筛选复习');
+    case 'neural-roam':
+      return t(i18n, 'neuralReviewTitle', '神经漫游');
+    case 'retrieval-practice':
+      return t(i18n, 'retrievalPractice', '提取练习');
+    case 'incremental-learning':
+      return t(i18n, 'incrementalLearning', '渐进学习');
+    case 'final-drill':
+      return t(i18n, 'finalDrill', '刻意练习');
+    default:
+      return resolveQueueLabel(i18n, queueType);
+  }
+}
+
 function buildQueueProgressSnapshot(
   i18n: Record<string, string> | undefined,
   queueType: string,
@@ -335,8 +362,10 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     context: AdapterContext,
   ): Promise<ReviewUIState> {
     const queueType = hasQueueType(queue) ? queue.getType() : '';
+    const headerVariant = this.headerVariant || resolveReviewHeaderVariant(queueType);
     const { stats, counterSummary, counterBadges, queueSize, remainingSize, queueProgress } = this.resolveHeaderPlaceholder(
       queueType,
+      headerVariant,
       context,
     );
     const isFilterGroup = queueType === 'filter-group';
@@ -376,7 +405,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     if (!item) {
       return {
         header: {
-          title: t(this.i18n, 'reviewTitle', 'Review'),
+          title: resolveSurfaceTitle(this.i18n, queueType, headerVariant),
           stats,
           counterSummary,
           counterBadges,
@@ -445,7 +474,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
 
     return {
       header: {
-        title: t(this.i18n, 'reviewTitle', 'Review'),
+        title: resolveSurfaceTitle(this.i18n, queueType, headerVariant),
         stats,
         counterSummary,
         counterBadges,
@@ -523,6 +552,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
       snapshot,
       context: safeContext,
     });
+    const surfaceTitle = resolveSurfaceTitle(this.i18n, queueType, headerVariant);
     const label = snapshot
       ? `${Math.max(0, Number(snapshot.due) || 0)} due · ${overallRemaining} remaining`
       : (stats.label || `${overallRemaining} due`);
@@ -532,7 +562,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         current: overallRemaining,
         total: overallTotal,
         label,
-        queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
+        queueName: surfaceTitle,
       },
       counterSummary: presentation.counterSummary,
       counterBadges: presentation.counterBadges,
@@ -549,6 +579,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
 
   private resolveHeaderPlaceholder(
     queueType: string,
+    headerVariant: ReviewHeaderVariant,
     context: AdapterContext,
   ): Pick<ReviewUIState['header'], 'stats' | 'counterSummary' | 'counterBadges'> & Pick<ReviewUIState['meta'], 'queueSize' | 'remainingSize' | 'queueProgress'> {
     if (this.cachedHeaderState && this.cachedHeaderState.queueType === queueType) {
@@ -566,13 +597,14 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const answeredCount = Math.max(0, Number(context.session?.answeredCount) || 0);
     const remainingSize = Math.max(0, initialTotal - answeredCount);
     const queueSize = Math.max(initialTotal, remainingSize);
+    const surfaceTitle = resolveSurfaceTitle(this.i18n, queueType, headerVariant);
 
     return {
       stats: {
         current: remainingSize,
         total: queueSize,
         label: initialTotal > 0 ? `${remainingSize} due` : '',
-        queueName: t(this.i18n, 'unifiedQueue', 'Unified Queue'),
+        queueName: surfaceTitle,
       },
       counterSummary: null,
       counterBadges: [],
