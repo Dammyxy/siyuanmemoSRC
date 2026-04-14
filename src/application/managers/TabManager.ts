@@ -813,6 +813,40 @@ export class TabManager {
     return this.focusReviewAICompanionRuntime(runtime);
   }
 
+  closeReviewTab(reviewSessionId: string): void {
+    const normalizedId = String(reviewSessionId || '').trim();
+    if (!normalizedId) {
+      return;
+    }
+
+    const runtime = this.reviewTabRuntimes.get(normalizedId);
+    if (!runtime) {
+      return;
+    }
+
+    try {
+      if (typeof runtime.custom.tab?.close === 'function') {
+        runtime.custom.tab.close();
+        return;
+      }
+      if (runtime.custom.tab?.parent && typeof runtime.custom.tab.parent.removeTab === 'function') {
+        runtime.custom.tab.parent.removeTab(runtime.custom.tab.id);
+        return;
+      }
+    } catch (error) {
+      logger.error('Failed to close review tab', {
+        reviewSessionId: normalizedId,
+        error,
+      });
+      return;
+    }
+
+    logger.warn('Review tab runtime does not expose a close handler, unregistering it locally', {
+      reviewSessionId: normalizedId,
+    });
+    this.unregisterReviewTabRuntime(normalizedId);
+  }
+
   closeReviewAICompanionTab(reviewSessionId: string): void {
     const normalizedId = String(reviewSessionId || '').trim();
     if (!normalizedId) {

@@ -38,6 +38,7 @@
         />
 
         <ReviewActions
+          v-if="!isEmptyReviewContent"
           :actions="state.actions"
           :meta="state.meta"
           :current-card="state.content.card"
@@ -52,6 +53,16 @@
           @command="hook.executeCommand"
           @openMenu="handleOpenMenu"
         />
+
+        <div v-if="showCompletedEmptyStateExit" class="fsrs-review-v2__empty-footer">
+          <button
+            type="button"
+            class="b3-button b3-button--outline fsrs-review-v2__empty-exit"
+            @click="closeCurrentReviewSurface"
+          >
+            {{ t('exitFocus', '退出') }}
+          </button>
+        </div>
 
         <div v-if="state.meta.resumePrompt" class="fsrs-review-v2-resume">
           <div class="fsrs-review-v2-resume__panel b3-card">
@@ -109,7 +120,7 @@ import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import ActionParamsDialog from '@/ui/browser/ActionParamsDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import { useReviewSession } from './useReviewSession';
-import type { ReviewHeaderVariant, ReviewViewTabBridge } from './types';
+import { resolveReviewHeaderVariant, type ReviewHeaderVariant, type ReviewViewTabBridge } from './types';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
@@ -120,6 +131,7 @@ import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import {
+  QueueType,
   type DataChangeEvent,
   type CardFilter,
   type FilterGroupQueueSessionSnapshot,
@@ -168,6 +180,14 @@ import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 
 const logger = createLogger('ReviewView');
 
+const STANDARD_REVIEW_DIALOG_VARIANT_BY_QUEUE_TYPE: Partial<Record<QueueType, ReviewHeaderVariant>> = {
+  [QueueType.RetrievalPractice]: 'retrieval-practice',
+  [QueueType.IncrementalLearning]: 'incremental-learning',
+  [QueueType.FinalDrill]: 'final-drill',
+  [QueueType.FilterGroup]: 'filter-group',
+  [QueueType.NeuralRoam]: 'neural-roam',
+};
+
 type ReviewAIEntryView = 'tutor' | 'explain' | 'make-cards';
 
 type ReviewProviderLike = {
@@ -210,6 +230,13 @@ type ReviewPluginContextLike = {
           initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
         }) => void;
         openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
+        openStandardReviewDialog?: (options: {
+          queueType: QueueType;
+          title: string;
+          headerVariant: ReviewHeaderVariant;
+          queueInstance?: unknown;
+          initialSessionState?: InitialReviewSessionState;
+        }) => void;
       }
     | undefined;
   getReviewAIWorkbenchRegistry?: () =>
@@ -247,6 +274,7 @@ type ReviewPluginContextLike = {
           headerVariant?: ReviewHeaderVariant;
           transferState?: ReviewTabTransferState;
         }) => void;
+        closeReviewTab?: (reviewSessionId: string) => void;
         openReviewAICompanionTab?: (options: AIWorkbenchOpenOptions & { sessionId: string; title: string }) => Promise<void> | void;
         focusReviewAICompanionTab?: (reviewSessionId: string) => boolean;
       }
@@ -606,6 +634,12 @@ function getDialogManager() {
   return contextFromProps?.getDialogManager?.() || contextFromWindow?.getDialogManager?.() || null;
 }
 
+function getTabManager() {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getTabManager?.() || contextFromWindow?.getTabManager?.() || null;
+}
+
 function getReviewAIWorkbenchRegistry() {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
@@ -734,6 +768,29 @@ function buildReviewTabTransferState(): ReviewTabTransferState | undefined {
     logger.warn('[SiYuanMemo][ReviewView] Failed to serialize filter-group transfer state:', error);
     return undefined;
   }
+}
+
+function resolveStandardReviewDialogTarget(): { queueType: QueueType; headerVariant: ReviewHeaderVariant } | null {
+  const activeQueueType = resolveActiveReviewQueueType();
+  if (!activeQueueType || !(Object.values(QueueType) as string[]).includes(activeQueueType)) {
+    return null;
+  }
+
+  const queueType = activeQueueType as QueueType;
+  const expectedHeaderVariant = STANDARD_REVIEW_DIALOG_VARIANT_BY_QUEUE_TYPE[queueType];
+  if (!expectedHeaderVariant) {
+    return null;
+  }
+
+  const activeHeaderVariant = props.headerVariant ?? resolveReviewHeaderVariant(queueType);
+  if (activeHeaderVariant !== expectedHeaderVariant) {
+    return null;
+  }
+
+  return {
+    queueType,
+    headerVariant: expectedHeaderVariant,
+  };
 }
 
 function readCardRootId(card: FSRSCard): string {
@@ -1017,6 +1074,13 @@ const canUseEmbeddedReviewAISidecar = computed(() => (
 
 const showReviewAISidecar = computed(() => (
   canUseEmbeddedReviewAISidecar.value && reviewAISidebarOpen.value && reviewAIService.value !== null
+));
+
+const isEmptyReviewContent = computed(() => state.value.content.type === 'empty');
+
+const showCompletedEmptyStateExit = computed(() => (
+  isEmptyReviewContent.value
+  && state.value.meta.emptyStateMode === 'completed'
 ));
 
 function t(key: string, fallback: string): string {
@@ -2673,12 +2737,26 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   }
 }
 
+function closeCurrentReviewSurface(): void {
+  if (props.mode === 'tab') {
+    const tabManager = getTabManager();
+    if (reviewSessionId.value && typeof tabManager?.closeReviewTab === 'function') {
+      tabManager.closeReviewTab(reviewSessionId.value);
+      return;
+    }
+    logger.warn('[SiYuanMemo][ReviewView] Failed to close tab review because TabManager.closeReviewTab is unavailable', {
+      reviewSessionId: reviewSessionId.value,
+    });
+  }
+  emit('close');
+}
+
 function buildOpenAsMenuItems(): ReviewMenuItem[] {
   const currentBlockId = resolveCurrentReviewBlockId();
-  const pluginCandidate = isRecord(props.plugin) ? (props.plugin as ReviewPluginLike) : null;
-  const pluginFromWindow = getWindowPlugin();
-  const context = pluginCandidate?.getContext?.() ?? pluginFromWindow?.getContext?.();
-  const tabManager = context?.getTabManager?.();
+  const tabManager = getTabManager();
+  const dialogManager = getDialogManager();
+  const isTabSurface = props.mode === 'tab';
+  const standardDialogTarget = isTabSurface ? resolveStandardReviewDialogTarget() : null;
 
   if (!tabManager || typeof tabManager.openReviewTab !== 'function') {
     return [];
@@ -2728,34 +2806,57 @@ function buildOpenAsMenuItems(): ReviewMenuItem[] {
           logger.warn('[SiYuanMemo][ReviewView] Failed to locate source block before opening review:', error);
         }
         tabManager.openReviewTab(reviewTabOptions);
-        emit('close');
-      },
-    },
-    {
-      id: 'openByTab',
-      icon: 'iconOpen',
-      label: t('openInNewTab', 'New Tab'),
-      click() {
-        logger.debug('[SiYuanMemo][ReviewView] Opening review in new tab and closing dialog');
-        if (typeof tabManager.openReviewTabInNewTab === 'function') {
-          tabManager.openReviewTabInNewTab(reviewTabOptions);
-        } else {
-          tabManager.openReviewTab(reviewTabOptions);
-        }
-        emit('close');
-      },
-    },
-    {
-      id: 'insertRight',
-      icon: 'iconLayoutRight',
-      label: t('openInRight', 'Right Side'),
-      click() {
-        logger.debug('[SiYuanMemo][ReviewView] Opening review on right side and closing dialog');
-        tabManager.openReviewTab(reviewTabOptions);
-        emit('close');
+        closeCurrentReviewSurface();
       },
     },
   ];
+
+  if (isTabSurface) {
+    if (standardDialogTarget && typeof dialogManager?.openStandardReviewDialog === 'function') {
+      menuItems.push({
+        id: 'openInDialog',
+        icon: 'iconOpen',
+        label: t('openInDialog', 'Dialog'),
+        click() {
+          logger.debug('[SiYuanMemo][ReviewView] Opening review in dialog and closing current tab');
+          dialogManager.openStandardReviewDialog?.({
+            queueType: standardDialogTarget.queueType,
+            title: reviewTabOptions.title,
+            headerVariant: standardDialogTarget.headerVariant,
+            queueInstance: getUnderlyingQueue(),
+            initialSessionState: getInitialReviewSessionState(),
+          });
+          closeCurrentReviewSurface();
+        },
+      });
+    }
+    return menuItems;
+  }
+
+  menuItems.push({
+    id: 'openByTab',
+    icon: 'iconOpen',
+    label: t('openInNewTab', 'New Tab'),
+    click() {
+      logger.debug('[SiYuanMemo][ReviewView] Opening review in new tab and closing dialog');
+      if (typeof tabManager.openReviewTabInNewTab === 'function') {
+        tabManager.openReviewTabInNewTab(reviewTabOptions);
+      } else {
+        tabManager.openReviewTab(reviewTabOptions);
+      }
+      closeCurrentReviewSurface();
+    },
+  });
+  menuItems.push({
+    id: 'insertRight',
+    icon: 'iconLayoutRight',
+    label: t('openInRight', 'Right Side'),
+    click() {
+      logger.debug('[SiYuanMemo][ReviewView] Opening review on right side and closing dialog');
+      tabManager.openReviewTab(reviewTabOptions);
+      closeCurrentReviewSurface();
+    },
+  });
 
   if (typeof tabManager.openReviewInNewWindow === 'function') {
     menuItems.push({
@@ -2765,7 +2866,7 @@ function buildOpenAsMenuItems(): ReviewMenuItem[] {
       click() {
         logger.debug('[SiYuanMemo][ReviewView] Opening review in new window and closing dialog');
         tabManager.openReviewInNewWindow?.(reviewTabOptions);
-        emit('close');
+        closeCurrentReviewSurface();
       },
     });
   }
@@ -3456,6 +3557,16 @@ watch(
 .fsrs-review-v2__workspace--with-ai .fsrs-review-v2__content-wrapper {
   border-right: 1px solid rgba(112, 102, 173, 0.12);
   background: var(--b3-theme-background);
+}
+
+.fsrs-review-v2__empty-footer {
+  display: flex;
+  justify-content: center;
+  padding: 0 16px 16px;
+}
+
+.fsrs-review-v2__empty-exit {
+  min-width: 140px;
 }
 
 .fsrs-review-v2__ai-sidecar {

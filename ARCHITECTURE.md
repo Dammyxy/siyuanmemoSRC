@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-13
+最后更新：2026-04-14
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -491,6 +491,12 @@ Browser 不应：
 - 绕过 application service 直接写入底层存储
 - 把 `core/siyuan/*` 当成默认调用入口
 
+当前 suspended / pause 真相源补充：
+
+- Browser 的 `已暂停` 预设、统计与卡片投影现在以统一存储中的 `meta.suspended` / dismiss-state 为主，不再把 `attributes.custom-fsrs-suspended` 当作现行查询真相源。
+- Browser 的批量暂停/恢复只更新统一存储与 cache，不再写块属性。
+- `custom-fsrs-suspended` 仅保留为旧卡片兼容读取来源，不再是后台写入目标。
+
 ---
 
 ## 8. Review 架构与数据流
@@ -514,6 +520,11 @@ Review 运行时要点：
 - 评分、跳过、custom action 先查 `useReviewSession.ts`
 - 如果是 queue semantics，继续查 `UnifiedQueueStrategy.ts`
 - 如果是 UI 展示或 header variant，继续查 `UnifiedReviewAdapter.ts`
+
+当前 review-side suspend 补充：
+
+- review header `更多` 菜单里的暂停/恢复统一走 `CardEditorApplicationService`，只更新统一存储中的 dismiss-state，不再写 `custom-fsrs-suspended`。
+- `CardEditorApplicationService.loadSnapshot()` 仍会对缺少显式 dismissed meta 的旧卡片兼容读取 `custom-fsrs-suspended=true`，但该属性不再是现行写回目标。
 
 ---
 
@@ -603,6 +614,13 @@ UI 层：
 - Browser / Review 刷新优先走事件与统一数据源通知
 - 不依赖分散轮询来维持主状态一致性
 - WebSocket、Riff、Xiuyuan 同步都属于 infrastructure / handler 边界，不应反向污染 UI 直接调用链
+
+当前 Riff / Xiuyuan 同步边界补充：
+
+- managed Riff Xiuyuan 现在按 `templateID === 'builtin-riff-sync'` 或 `meta.source === 'riff-sync'` 识别；后台同步判断“这张块是否已被治理”时，优先走 repository / unified storage 的 `blockId` 反查。
+- `custom-xiuyuan-id` / `custom-fsrs-xiuyuan-id` 已降级为旧数据兼容兜底读取来源，不再作为自动同步里的真相源，也不再对 managed Riff Xiuyuan 做后台写入、自修复清理或删除时清空。
+- 增量同步触发器的现行默认值是 `['plugin-start']`；仅当检测到遗留默认三件套 `['plugin-start', 'browser-open', 'review-open']` 时，设置归一化会自动折叠回 `['plugin-start']`。
+- 当前仍只有单实例进程内同步互斥，不提供跨设备分布式锁；因此原生 Riff 删除等真实文档写入在多端并发下仍可能产生冲突文档。
 
 ---
 

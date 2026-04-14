@@ -13,7 +13,7 @@ import type { Plugin } from 'siyuan';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { FSRSCard } from '@/types';
-import { applyDismissState } from '@/core/card/domain/services/dismissState';
+import { applyDismissState, isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { PerformanceMonitor } from '@/utils/performance';
 import { getCurrentDayEnd } from '@/utils/dateUtils';
 import { getDayStartHour } from '@/utils/configUtils';
@@ -44,7 +44,6 @@ export type BrowserCardProjection = Omit<BrowserCard, 'note' | 'meta'>;
 type BrowserAttrKeys = {
     cardId: string;
     priority: string;
-    suspended: string;
     cardType: string;
     aFactor: string;
 };
@@ -177,7 +176,6 @@ function getAttrKeys(plugin?: Plugin): BrowserAttrKeys {
     cachedAttrKeys = {
         cardId: siyuanApi.ATTR_CARD_ID,
         priority: siyuanApi.ATTR_PRIORITY,
-        suspended: siyuanApi.ATTR_SUSPENDED,
         cardType: siyuanApi.ATTR_CARD_TYPE,
         aFactor: siyuanApi.ATTR_A_FACTOR,
     };
@@ -195,13 +193,6 @@ export async function pushBrowserMsg(msg: string, timeout?: number): Promise<voi
 
 export async function pushBrowserErrMsg(msg: string, timeout?: number): Promise<void> {
     await resolveSiyuanApi().pushErrMsg(msg, timeout);
-}
-
-export async function setBrowserCardSuspended(blockId: string, suspended: boolean): Promise<void> {
-    const siyuanApi = resolveSiyuanApi();
-    await siyuanApi.setBlockAttrs(blockId, {
-        [siyuanApi.ATTR_SUSPENDED]: suspended ? 'true' : '',
-    });
 }
 
 function resolveBatchManager(manager?: BrowserBatchManagerPort): BrowserBatchManagerPort | null {
@@ -399,7 +390,6 @@ const cardCache = new CardCacheManager();
  * - 延迟计算非关键字段
  */
 function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>): BrowserCard {
-    const attrKeys = getAttrKeys();
     // 🆕 优化：使用常量避免重复计算
     const now = Date.now();
     const MS_PER_DAY = 86400000;  // 1000 * 60 * 60 * 24
@@ -469,7 +459,7 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
         
         // ✅ 优先级从 FSRSCard 读取，不再使用块属性
         priority: card.priority,
-        suspended: customAttrs[attrKeys.suspended] === 'true',
+        suspended: isCardDismissed(card),
         
         cardType: finalCardType,
         aFactor: card.aFactor,  // 🔧 修复：从卡片数据读取，不再从块属性读取
@@ -636,7 +626,6 @@ async function fetchBlockInfoBatched(
                 AND name IN (
                     '${attrKeys.cardId}',
                     '${attrKeys.priority}',
-                    '${attrKeys.suspended}',
                     '${attrKeys.cardType}',
                     '${attrKeys.aFactor}'
                 )
@@ -1204,7 +1193,7 @@ export async function loadQueueCards(
                     firstReview: null,
                     firstReviewFormatted: '-',
                     priority: Number.isFinite(parsedPriority) ? parsedPriority : 50,
-                    suspended: customAttrs[attrKeys.suspended] === 'true',
+                    suspended: false,
                     tags: tags,
                     note: '',
                     cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',  // 默认为概念卡
@@ -1366,7 +1355,7 @@ async function buildBrowserCardsByBlockIds(
                     firstReview: null,
                     firstReviewFormatted: '-',
                     priority: Number.isFinite(parsedPriority) ? parsedPriority : 50,
-                    suspended: customAttrs[attrKeys.suspended] === 'true',
+                    suspended: false,
                     tags,
                     note: '',
                     cardType: toBrowserCardType(customAttrs[attrKeys.cardType]) || 'concept',
@@ -1524,12 +1513,7 @@ export async function batchSuspend(
         );
 
         for (const blockId of uniqueBlockIds) {
-            try {
-                await setBrowserCardSuspended(blockId, suspend);
-                cardCache.updateCard(blockId, { suspended: suspend });
-            } catch (err) {
-                logger.error('Update block attr error:', blockId, err);
-            }
+            cardCache.updateCard(blockId, { suspended: suspend });
         }
 
         logger.info('Batch suspend completed', {

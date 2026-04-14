@@ -131,24 +131,6 @@
       </div>
     </div>
 
-    <div
-      v-if="counterNotice"
-      class="siyuanmemo-review-header__notice"
-      role="status"
-      aria-live="polite"
-    >
-      <span class="siyuanmemo-review-header__notice-text">{{ counterNotice.message }}</span>
-      <button
-        type="button"
-        class="siyuanmemo-review-header__notice-close"
-        :aria-label="t('reviewCounterNoticeClose', '关闭提示')"
-        :title="t('reviewCounterNoticeClose', '关闭提示')"
-        @click.stop="dismissCounterNotice"
-      >
-        <svg><use xlink:href="#iconCloseRound"></use></svg>
-      </button>
-    </div>
-
     <div v-if="neuralEngineIntro" class="siyuanmemo-review-header__nav-strip">
       <span class="siyuanmemo-review-header__nav-strip-text">{{ neuralEngineIntro }}</span>
     </div>
@@ -156,6 +138,7 @@
 </template>
 
 <script setup lang="ts">
+import { showMessage } from 'siyuan';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { getHeaderToneColor, getPriorityVisualToken } from '@/ui/shared/cardVisualTokens';
 import { getNeuralEngineLabel } from '@/ui/shared/neuralRoamLabels';
@@ -201,8 +184,6 @@ const isCounterPopoverOpen = ref(false);
 const isCounterValueHidden = ref(false);
 const isDesktopCounterValueHidden = computed(() => !props.isMobile && isCounterValueHidden.value);
 const shouldIgnoreNextDesktopFocusOpen = ref(false);
-const counterNotice = ref<{ id: number; message: string } | null>(null);
-let counterNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 
 const counterSummary = computed(() => props.header?.counterSummary || null);
 const counterBadges = computed(() => props.header?.counterBadges || []);
@@ -491,28 +472,8 @@ function getPopoverCounterStyle(tone: ReviewHeaderCounterBadge['tone']) {
   return createGhostStyle(getHeaderToneColor(tone));
 }
 
-function clearCounterNoticeTimer(): void {
-  if (counterNoticeTimer !== null) {
-    clearTimeout(counterNoticeTimer);
-    counterNoticeTimer = null;
-  }
-}
-
-function dismissCounterNotice(): void {
-  clearCounterNoticeTimer();
-  counterNotice.value = null;
-}
-
 function showCounterNotice(message: string): void {
-  clearCounterNoticeTimer();
-  const noticeId = Date.now();
-  counterNotice.value = { id: noticeId, message };
-  counterNoticeTimer = window.setTimeout(() => {
-    if (counterNotice.value?.id === noticeId) {
-      counterNotice.value = null;
-    }
-    counterNoticeTimer = null;
-  }, 2800);
+  showMessage(message, 2800, 'info');
 }
 
 function openCounterPopover(): void {
@@ -581,8 +542,8 @@ function handleCounterClick(): void {
   isCounterValueHidden.value = !isCounterValueHidden.value;
   showCounterNotice(
     isCounterValueHidden.value
-      ? t('reviewCounterHiddenToast', '卡片计数已隐藏！享受专注练习吧。')
-      : t('reviewCounterVisibleToast', '已显示卡片数量！让我们继续刷卡吧。'),
+      ? t('reviewCounterHiddenToast', '队列卡片进度已隐藏')
+      : t('reviewCounterVisibleToast', '队列卡片进度已显示'),
   );
 }
 
@@ -630,7 +591,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  clearCounterNoticeTimer();
   document.removeEventListener('pointerdown', handleDocumentPointerDown);
   document.removeEventListener('keydown', handleDocumentKeydown);
 });
@@ -907,59 +867,6 @@ onUnmounted(() => {
 .siyuanmemo-review-header__mobile-close {
   margin-left: 2px;
   flex-shrink: 0;
-}
-
-.siyuanmemo-review-header__notice {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 30;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  width: min(360px, calc(100vw - 28px));
-  padding: 13px 14px;
-  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-border-color));
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--b3-theme-surface) 96%, white), var(--b3-theme-background));
-  box-shadow:
-    0 18px 36px rgba(15, 23, 42, 0.12),
-    0 4px 10px rgba(15, 23, 42, 0.08);
-}
-
-.siyuanmemo-review-header__notice-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: var(--b3-theme-on-background);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.45;
-}
-
-.siyuanmemo-review-header__notice-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--b3-theme-on-surface-light);
-  cursor: pointer;
-  transition: background-color 160ms ease, color 160ms ease;
-}
-
-.siyuanmemo-review-header__notice-close:hover {
-  background: color-mix(in srgb, var(--b3-theme-on-surface-light) 10%, transparent);
-  color: var(--b3-theme-on-surface);
-}
-
-.siyuanmemo-review-header__notice-close svg {
-  width: 16px;
-  height: 16px;
 }
 
 .siyuanmemo-review-header__nav-strip {

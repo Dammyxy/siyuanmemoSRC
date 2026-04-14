@@ -89,7 +89,7 @@ export class ConfigMigrator {
                     useLocalScheduler: true,
                     incrementalSync: {
                         enabled: true,
-                        triggers: ['plugin-start', 'browser-open', 'review-open'],
+                        triggers: ['plugin-start'],
                         useBlacklist: true
                     },
                     fullSync: {

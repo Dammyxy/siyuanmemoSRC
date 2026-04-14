@@ -3,11 +3,7 @@ import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardScheduleService, CardState } from '@/core/card/domain/services/CardScheduleService';
-import {
-  applyDismissState,
-  hasExplicitDismissedMeta,
-  isCardDismissed,
-} from '@/core/card/domain/services/dismissState';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { batchDetectCardType } from '@/core/card-builder/detectCardType';
 import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import type { FSRSCard } from '@/types';
@@ -53,11 +49,6 @@ interface BlockInfoRow extends Record<string, unknown> {
   root_id: string | null;
   content: string | null;
   attrs: string | null;
-}
-
-interface SuspendedAttrRow extends Record<string, unknown> {
-  block_id: string;
-  value: string | null;
 }
 
 interface BlockIdRow extends Record<string, unknown> {
@@ -159,7 +150,6 @@ export class BrowserDeckQueryKernel {
       return [];
     }
 
-    await this.hydrateDismissedCards(cards);
     const browserCards = await this.transformToBrowserCards(cards);
     const rowById = new Map<string, BrowserCard>();
     for (const row of browserCards) {
@@ -226,7 +216,7 @@ export class BrowserDeckQueryKernel {
       firstReviewFormatted,
 
       priority: card.priority ?? 50,
-      suspended: isCardDismissed(card) || customAttrs[this.siyuanApi.ATTR_SUSPENDED] === 'true',
+      suspended: isCardDismissed(card),
 
       cardType: finalCardType,
       aFactor: card.aFactor,
@@ -415,18 +405,16 @@ export class BrowserDeckQueryKernel {
   }
 
   private async loadAllCards(): Promise<FSRSCard[]> {
-    const allCards = this.storageManager.queryCards({ states: ALL_CARD_QUERY_STATES });
-    return this.hydrateDismissedCards(allCards);
+    return this.storageManager.queryCards({ states: ALL_CARD_QUERY_STATES });
   }
 
   private async loadAllCardsFromFallback(): Promise<FSRSCard[]> {
-    const allCards = this.storageManager.getAllCards();
-    return this.hydrateDismissedCards(allCards);
+    return this.storageManager.getAllCards();
   }
 
   private shouldUsePureStructuredQueryPath(query: BrowserDeckSnapshotQuery): boolean {
     const simpleSearchText = this.resolveSimpleSearchText(query.searchText);
-    return !simpleSearchText && !query.docId && query.preset !== 'suspended';
+    return !simpleSearchText && !query.docId;
   }
 
   private async resolveCandidateCards(query: BrowserDeckSnapshotQuery): Promise<ResolvedCandidateCards> {
@@ -443,7 +431,7 @@ export class BrowserDeckQueryKernel {
       }
 
       return {
-        cards: await this.hydrateDismissedCards(this.storageManager.queryCards(structuredQuery)),
+        cards: this.storageManager.queryCards(structuredQuery),
         path: 'structured-query',
         sqlCandidateCount: null,
         usedFallback: false,
@@ -462,10 +450,6 @@ export class BrowserDeckQueryKernel {
         sqlCandidateSets.push(await this.loadBlockIdsBySearchText(simpleSearchText));
       }
 
-      if (query.preset === 'suspended') {
-        sqlCandidateSets.push(await this.loadAllDismissedBlockIds());
-      }
-
       if (sqlCandidateSets.length > 0) {
         const sqlCandidateBlockIds = this.intersectBlockIdCandidateSets(sqlCandidateSets);
         if (sqlCandidateBlockIds.length === 0) {
@@ -478,10 +462,10 @@ export class BrowserDeckQueryKernel {
         }
 
         return {
-          cards: await this.hydrateDismissedCards(this.storageManager.queryCards({
+          cards: this.storageManager.queryCards({
             ...structuredQuery,
             blockIds: sqlCandidateBlockIds,
-          })),
+          }),
           path: 'sql-candidate-query',
           sqlCandidateCount: sqlCandidateBlockIds.length,
           usedFallback: false,
@@ -490,7 +474,7 @@ export class BrowserDeckQueryKernel {
 
       if (structuredQuery) {
         return {
-          cards: await this.hydrateDismissedCards(this.storageManager.queryCards(structuredQuery)),
+          cards: this.storageManager.queryCards(structuredQuery),
           path: 'structured-query',
           sqlCandidateCount: null,
           usedFallback: false,
@@ -533,10 +517,15 @@ export class BrowserDeckQueryKernel {
       };
     }
 
+    if (query.preset === 'suspended') {
+      structuredQuery.suspended = true;
+    }
+
     if (
       !structuredQuery.cardTypes
       && !structuredQuery.states
       && !structuredQuery.dueDate
+      && structuredQuery.suspended === undefined
     ) {
       return undefined;
     }
@@ -604,64 +593,6 @@ export class BrowserDeckQueryKernel {
     return typeof value === 'string' && value.trim() ? value : undefined;
   }
 
-  private async hydrateDismissedCards(cards: FSRSCard[]): Promise<FSRSCard[]> {
-    const blockIds = cards
-      .filter((card) => !hasExplicitDismissedMeta(card))
-      .map((card) => String(card.blockId || '').trim())
-      .filter(Boolean);
-    if (blockIds.length === 0) {
-      return cards;
-    }
-
-    const dismissedBlockIds = await this.loadDismissedBlockIds(blockIds);
-    if (dismissedBlockIds.size === 0) {
-      return cards;
-    }
-
-    for (let index = 0; index < cards.length; index += 1) {
-      const card = cards[index];
-      if (dismissedBlockIds.has(card.blockId)) {
-        cards[index] = applyDismissState(card, true, { touchUpdatedAt: false });
-      }
-    }
-
-    return cards;
-  }
-
-  private async loadDismissedBlockIds(blockIds: string[]): Promise<Set<string>> {
-    const dismissedBlockIds = new Set<string>();
-    if (blockIds.length === 0) {
-      return dismissedBlockIds;
-    }
-
-    const normalizedBlockIds = Array.from(new Set(blockIds));
-    const BATCH_SIZE = 500;
-    for (let i = 0; i < normalizedBlockIds.length; i += BATCH_SIZE) {
-      const batchIds = normalizedBlockIds.slice(i, i + BATCH_SIZE);
-      const idsStr = this.toSqlQuotedValues(batchIds);
-      const query = `
-        SELECT block_id, value
-        FROM attributes
-        WHERE name = '${this.siyuanApi.ATTR_SUSPENDED}'
-          AND value = 'true'
-          AND block_id IN (${idsStr})
-      `;
-
-      try {
-        const result = await this.siyuanApi.sql<SuspendedAttrRow>(query);
-        for (const row of result) {
-          if (row.block_id) {
-            dismissedBlockIds.add(row.block_id);
-          }
-        }
-      } catch (error) {
-        logger.error('Failed to load dismissed attrs for browser cards:', error);
-      }
-    }
-
-    return dismissedBlockIds;
-  }
-
   private async loadBlockIdsByDocId(docId: string): Promise<string[]> {
     const normalizedDocId = this.escapeSqlString(docId.trim());
     if (!normalizedDocId) {
@@ -693,18 +624,6 @@ export class BrowserDeckQueryKernel {
 
     const rows = await this.siyuanApi.sql<BlockIdRow>(query);
     return this.normalizeBlockIds(rows.map((row) => row.id));
-  }
-
-  private async loadAllDismissedBlockIds(): Promise<string[]> {
-    const query = `
-      SELECT block_id, value
-      FROM attributes
-      WHERE name = '${this.siyuanApi.ATTR_SUSPENDED}'
-        AND value = 'true'
-    `;
-
-    const rows = await this.siyuanApi.sql<SuspendedAttrRow>(query);
-    return this.normalizeBlockIds(rows.map((row) => row.block_id));
   }
 
   private intersectBlockIdCandidateSets(candidateSets: string[][]): string[] {

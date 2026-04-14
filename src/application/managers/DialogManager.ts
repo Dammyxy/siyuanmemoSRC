@@ -30,6 +30,7 @@ import {
   isNeuralRoamSessionQueue,
   type CardFilter,
   type FilterGroupQueueSessionSnapshot,
+  type InitialReviewSessionState,
   type IReviewQueue,
   type ReviewTabTransferState,
 } from '@/types/unified-data-source';
@@ -287,6 +288,7 @@ export class DialogManager implements IDialogManager {
     title: string;
     headerVariant: ReviewHeaderVariant;
     queueInstance?: IReviewQueue;
+    initialSessionState?: InitialReviewSessionState;
     allowNewTab?: boolean;
   }): void {
     const allowNewTab = options.allowNewTab !== false;
@@ -306,6 +308,7 @@ export class DialogManager implements IDialogManager {
       plugin: this.plugin,
       queueType: options.queueType,
       queueInstance: options.queueInstance,
+      initialSessionState: options.initialSessionState,
       title: options.title,
       headerVariant: options.headerVariant,
       eventBus: this.context.getEventBus(),
@@ -313,6 +316,19 @@ export class DialogManager implements IDialogManager {
       onClose: () => {
         this.currentReviewDialog = null;
       },
+    });
+  }
+
+  openStandardReviewDialog(options: {
+    queueType: QueueType;
+    title: string;
+    headerVariant: ReviewHeaderVariant;
+    queueInstance?: IReviewQueue;
+    initialSessionState?: InitialReviewSessionState;
+  }): void {
+    this.openStandardReviewEntry({
+      ...options,
+      allowNewTab: false,
     });
   }
 

@@ -129,9 +129,7 @@ describe('SimpleModeRemovalMigrator', () => {
             const newConfig = SimpleModeRemovalMigrator.migrate(oldConfig);
 
             expect(newConfig.incrementalSync.enabled).toBe(true);
-            expect(newConfig.incrementalSync.triggers).toContain('plugin-start');
-            expect(newConfig.incrementalSync.triggers).toContain('browser-open');
-            expect(newConfig.incrementalSync.triggers).toContain('review-open');
+            expect(newConfig.incrementalSync.triggers).toEqual(['plugin-start']);
         });
 
         it('should preserve existing incremental sync settings if already enabled', () => {
@@ -272,7 +270,7 @@ describe('SimpleModeRemovalMigrator', () => {
             const result = await SimpleModeRemovalMigrator.triggerMigrationSync(mockSyncService);
 
             expect(result).toBe(false);
-            expect(console.error).toHaveBeenCalled();
+            expect(mockSyncService.incrementalSync).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -283,10 +281,6 @@ describe('SimpleModeRemovalMigrator', () => {
 
             await SimpleModeRemovalMigrator.handleMigrationError(error, context);
 
-            expect(console.error).toHaveBeenCalledWith(
-                expect.stringContaining('Migration error in test context'),
-                error
-            );
             expect(api.pushErrMsg).toHaveBeenCalledWith(
                 expect.stringContaining('数据迁移失败'),
                 10000

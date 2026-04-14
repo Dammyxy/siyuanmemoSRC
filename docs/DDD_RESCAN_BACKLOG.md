@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-14 (Round 62)
+Last update: 2026-04-14 (Round 63)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-14 - review header counter notifications moved to SiYuan host toast
+
+- Task: Move the review-header counter hide/show feedback from the header-local floating notice into the host SiYuan notification channel, and align the copy with the new queue-progress wording.
+- Touched slice: Review header interaction in `src/ui/review/v2/ReviewHeader.vue`, focused header interaction coverage in `src/ui/review/v2/__tests__/ReviewHeader.spec.ts`, and the related i18n strings.
+- Debt fixed now: Counter hide/show feedback no longer overlays the review header area itself, so the review surface stays visually cleaner while still acknowledging the action immediately through the host notification system.
+- Debt deferred: The review header now imports `showMessage(...)` directly instead of routing host notifications through a dedicated review-surface abstraction.
+- Why deferred: Building a shared notification port just for this bounded UX tweak would widen a small presentation adjustment into a larger UI infrastructure task without enough immediate payoff.
+- Next safe step: If review surfaces need richer or typed notifications later, add a tiny review notification adapter so header/content/actions can share one host-message contract instead of importing SiYuan APIs directly.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts`; `pnpm build`.
+
+### 2026-04-14 - conflicted doc mitigation for suspended state and managed riff sync
+
+- Task: Lower flashcard `Conflicted` document risk by removing plugin-owned block-attr writes from review/browser suspend flows, switching suspended queries to storage-first state, moving managed Riff Xiuyuan lookup to repository/storage `blockId` truth, and normalizing the legacy high-frequency incremental-sync trigger triplet.
+- Touched slice: Browser query/action flow in `src/ui/browser/browserService.ts` and `src/application/queries/browser/shared/BrowserDeckQueryKernel.ts`, review/card-editor suspend flow in `src/application/services/CardEditorApplicationService.ts`, unified card querying in `src/core/storage/UnifiedStorageManager.ts` and `src/application/queries/DataAccessFacade.ts`, managed Riff sync/repository behavior in `src/application/services/XiuyuanSyncService.ts` and `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`, plus settings normalization/migrators and focused regression tests.
+- Debt fixed now: `custom-fsrs-suspended` is no longer a write target for review/browser pause actions; browser suspended preset/stats now query unified storage instead of attributes SQL; managed `builtin-riff-sync` / `meta.source='riff-sync'` Xiuyuans no longer background write or clear `custom-xiuyuan-id`; stale binding attrs are no longer auto-self-healed during sync; and the untouched legacy incremental-sync trigger triplet now collapses to `['plugin-start']` to reduce background sync amplification.
+- Debt deferred: Hard delete still performs native Riff/document writes and can still race into real sync conflicts across devices; legacy `custom-fsrs-suspended` / `custom-xiuyuan-id` compatibility reads remain in place for old data.
+- Why deferred: Changing delete semantics or removing all legacy compatibility would widen this bounded conflict-risk reduction into a migration-heavy data-policy redesign with materially higher regression risk.
+- Next safe step: If users still report `Conflicted` docs after this reduction, split destructive native Riff deletion from local hide/tombstone semantics first, then add concrete cross-device concurrency diagnostics before deciding whether the remaining legacy attr-read compat can be removed.
+- Validation: `pnpm vitest run src/application/services/__tests__/CardEditorApplicationService.test.ts src/ui/browser/__tests__/browserService.block-id-paths.test.ts src/core/storage/__tests__/UnifiedStorageManager.query-cards.test.ts src/application/queries/browser/__tests__/GetBrowserCardsQueryHandler.priority-regression.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.riff-sync-binding.test.ts src/types/__tests__/riffIntegrationConfig.test.ts src/types/__tests__/settings-normalization.test.ts src/utils/__tests__/configMigrator.test.ts src/utils/__tests__/simpleModeRemovalMigrator.test.ts`; `pnpm build`.
+
+### 2026-04-14 - review tab exit parity and standard tab-dialog surface conversion
+
+- Task: Add a real completed-empty exit path for review tabs, and make standard review queues convertible from TAB back into dialog without routing through the default new-tab preference.
+- Touched slice: Review surface composition in `src/ui/review/v2/ReviewView.vue`, forced dialog opening in `src/application/managers/DialogManager.ts` and `src/application/factories/createUnifiedReviewDialog.ts`, review-tab closing in `src/application/managers/TabManager.ts`, review/dialog i18n keys, and focused review/dialog/tab manager tests.
+- Debt fixed now: The completed `No Card` state no longer strands TAB sessions without a usable close action; review surface closing is now centralized instead of split between empty-state and open-as branches; and standard queue TAB->dialog conversion uses an explicit active-path helper that bypasses the global new-tab default instead of relying on brittle UI-only branching.
+- Debt deferred: Non-standard review sessions such as `subset-review`, `temporary-drill`, `leech`, and filter-backed contextual variants still do not expose TAB->dialog conversion, and dialog->TAB still only preserves explicit transfer state for filter-group sessions rather than all queue counters.
+- Why deferred: Those sessions depend on ephemeral queue instances or header/queue combinations that the current surface-transfer contract cannot restore safely, while full counter/state parity for every dialog->TAB path would require broadening `ReviewTabTransferState` beyond the bounded fix needed here.
+- Next safe step: If we want wider surface parity later, first define a serializable review-surface transfer contract that covers contextual queue identity plus session counters, then opt additional queue/header combinations into the same conversion helper one by one.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.empty-state.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/application/factories/__tests__/createUnifiedReviewDialog.mode.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/application/managers/__tests__/TabManager.review-close.spec.ts`; `pnpm build`; `rg -n "createUnifiedReviewDialog|openStandardReviewDialog|closeReviewTab" src/application/managers/DialogManager.ts src/application/factories/createUnifiedReviewDialog.ts src/application/managers/TabManager.ts src/ui/review/v2/ReviewView.vue`.
+
+### 2026-04-14 - browser search hint removal and review empty-state exit-only flow
+
+- Task: Remove the main browser search placeholder hint text, and make completed review empty states actionless except for a dialog-only `退出` button.
+- Touched slice: Browser toolbar in `src/ui/browser/BrowserToolbar.vue`, review empty-state contract in `src/ui/review/v2/types.ts` and `src/application/adapters/UnifiedReviewAdapter.ts`, review composition in `src/ui/review/v2/ReviewView.vue`, plus focused browser/review adapter/view tests.
+- Debt fixed now: The active browser toolbar no longer leaks advanced query examples into the main search field; review empty states are now explicitly typed as placeholder-vs-completed so the dialog surface can hide invalid `显示答案` / `跳过` actions and expose one real exit path only when the queue is actually finished.
+- Debt deferred: The initial review placeholder still reuses the generic empty-content shell before the first `queue.next()` resolves, so users may still briefly see the existing `No due cards` content frame during very slow first-card loads.
+- Why deferred: Replacing that first-frame placeholder with a dedicated loading or skeleton state would widen this bounded empty-action fix into a broader review session loading-state redesign across dialog/tab/mobile flows.
+- Next safe step: If that initial empty flash becomes user-visible enough to matter, add a separate review loading state contract in `useReviewSession` / `ReviewView` instead of overloading the existing `empty` content type further.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.spec.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/ReviewView.empty-state.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts`; `pnpm build`; `rg -n "<BrowserToolbar|import BrowserToolbar from './BrowserToolbar.vue'" -S src/ui/browser/SRSBrowser.vue`.
 
 ### 2026-04-14 - review more-menu priority actions and default review open routing
 
@@ -914,6 +954,7 @@ Do not add an entry for skill-only or docs-only work.
 
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
+| P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts even after plugin-owned attr writes were reduced | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then add concurrency diagnostics around delete/sync races |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
 | P1 | Legacy compatibility service surface still exists but no longer used on active browser path | `ApplicationContext` (`tabManager` service exposure) | Evaluate bounded removal/retire plan and adjust integration tests |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |

@@ -183,6 +183,38 @@ describe('DialogManager review header variants', () => {
     expect(createUnifiedReviewDialog).not.toHaveBeenCalled();
   });
 
+  it('forces standard review surface conversions to stay in dialog mode even when new-tab default is enabled', () => {
+    const { dialogManager, tabManager } = createDialogManager({
+      reviewOpenInNewTabByDefault: true,
+    });
+    const queueInstance = {
+      getType: () => 'retrieval-practice',
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const initialSessionState = {
+      initialTotal: 7,
+      answeredCount: 4,
+      correctCount: 3,
+    };
+
+    dialogManager.openStandardReviewDialog({
+      queueType: 'retrieval-practice',
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      queueInstance: queueInstance as never,
+      initialSessionState,
+    });
+
+    expect(tabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
+    expect(createUnifiedReviewDialog).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'retrieval-practice',
+      headerVariant: 'retrieval-practice',
+      queueInstance,
+      initialSessionState,
+    }));
+  });
+
   it('passes startFullscreen to dialog review entries when fullscreen-default is enabled', async () => {
     const { dialogManager } = createDialogManager({
       reviewOpenFullscreenByDefault: true,

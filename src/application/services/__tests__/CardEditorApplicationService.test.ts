@@ -201,7 +201,7 @@ describe('CardEditorApplicationService', () => {
     const snapshot = await service.setDismissed('card-1', true);
 
     expect(updateCard).toHaveBeenCalledTimes(1);
-    expect(setBlockAttrs).toHaveBeenCalledWith('block-1', { 'custom-fsrs-suspended': 'true' });
+    expect(setBlockAttrs).not.toHaveBeenCalled();
     expect(snapshot.card.meta).toMatchObject({ suspended: true });
     expect(snapshot.card.due).toBe(original?.due);
     expect(snapshot.card.state).toBe(original?.state);
@@ -220,7 +220,7 @@ describe('CardEditorApplicationService', () => {
     const snapshot = await service.setDismissed('card-1', false);
 
     expect(updateCard).toHaveBeenCalledTimes(1);
-    expect(setBlockAttrs).toHaveBeenCalledWith('block-1', { 'custom-fsrs-suspended': '' });
+    expect(setBlockAttrs).not.toHaveBeenCalled();
     expect(snapshot.card.meta?.suspended).toBeUndefined();
     expect(snapshot.card.due).toBe(original?.due);
     expect(snapshot.card.state).toBe(original?.state);
@@ -243,7 +243,15 @@ describe('CardEditorApplicationService', () => {
     });
     expect(cards.get('card-1')?.meta).toMatchObject({ suspended: true });
     expect(cards.get('card-2')?.meta).toMatchObject({ suspended: true });
-    expect(setBlockAttrs).toHaveBeenCalledWith('block-1', { 'custom-fsrs-suspended': 'true' });
-    expect(setBlockAttrs).toHaveBeenCalledTimes(2);
+    expect(setBlockAttrs).not.toHaveBeenCalled();
+  });
+
+  it('keeps reading legacy suspended attrs when card meta has not been migrated yet', async () => {
+    getBlockAttrs.mockResolvedValueOnce({ 'custom-fsrs-suspended': 'true' });
+
+    const snapshot = await service.loadSnapshot('block-1');
+
+    expect(snapshot.card.meta).toMatchObject({ suspended: true });
+    expect(setBlockAttrs).not.toHaveBeenCalled();
   });
 });

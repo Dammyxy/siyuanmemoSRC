@@ -33,6 +33,11 @@ describe('createUnifiedReviewDialog', () => {
   });
 
   it('passes dialog mode into ReviewView props', () => {
+    const initialSessionState = {
+      initialTotal: 5,
+      answeredCount: 2,
+      correctCount: 1,
+    };
     const plugin = {
       app: {},
       isMobile: false,
@@ -52,6 +57,7 @@ describe('createUnifiedReviewDialog', () => {
       queueType: QueueType.RetrievalPractice,
       title: '提取练习',
       headerVariant: 'retrieval-practice',
+      initialSessionState,
       eventBus: { subscribe: vi.fn() } as never,
     });
 
@@ -61,6 +67,7 @@ describe('createUnifiedReviewDialog', () => {
         mode: 'dialog',
         title: '提取练习',
         headerVariant: 'retrieval-practice',
+        initialSessionState,
       }),
     }));
   });

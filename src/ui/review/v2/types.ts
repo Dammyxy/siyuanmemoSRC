@@ -152,6 +152,7 @@ export interface ReviewUIState {
 
   meta: {
     transition: 'slide-left' | 'slide-right' | 'fade' | 'none';
+    emptyStateMode?: 'placeholder' | 'completed';
     resumePrompt?: {
       message: string;
       data: unknown;
@@ -229,6 +230,7 @@ export function createEmptyReviewUIState(): ReviewUIState {
     },
     meta: {
       transition: 'none',
+      emptyStateMode: 'placeholder',
       queueProgress: null,
     },
   };

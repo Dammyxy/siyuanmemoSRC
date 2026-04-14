@@ -338,4 +338,175 @@ describe('ReviewView open-as menu', () => {
 
     wrapper.unmount();
   });
+
+  it('adds an open-in-dialog action for standard tab reviews and closes the current tab after conversion', async () => {
+    const card = buildCard();
+    const underlyingQueue = {
+      getType: vi.fn(() => 'retrieval-practice'),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const queue = {
+      ...createQueue(card),
+      queueType: 'retrieval-practice',
+      getUnderlyingQueue: vi.fn(() => underlyingQueue),
+    };
+    const adapter = createAdapter();
+    const tabManager = {
+      openReviewTab: vi.fn(),
+      closeReviewTab: vi.fn(),
+    };
+    const dialogManager = {
+      openStandardReviewDialog: vi.fn(),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        mode: 'tab',
+        reviewSessionId: 'review-tab-1',
+        title: '提取练习',
+        headerVariant: 'retrieval-practice',
+        initialSessionState: {
+          initialTotal: 6,
+          answeredCount: 2,
+          correctCount: 1,
+        },
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+            getTabManager: () => tabManager,
+            getDialogManager: () => dialogManager,
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const target = document.createElement('button');
+    Object.defineProperty(target, 'getBoundingClientRect', {
+      value: () => ({ left: 10, bottom: 20 }),
+    });
+    const event = new MouseEvent('click');
+    Object.defineProperty(event, 'currentTarget', {
+      value: target,
+    });
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'sticktab', event);
+    await flushPromises();
+
+    expect(reviewViewMenuMocks.menuOpen).toHaveBeenCalledTimes(1);
+    const latestMenu = reviewViewMenuMocks.instances.at(-1);
+    expect(latestMenu).toBeDefined();
+    const menuItems = latestMenu?.addItem.mock.calls.map(([item]) => item) || [];
+    expect(menuItems.some((item) => item.id === 'openByTab')).toBe(false);
+
+    const openInDialogItem = menuItems.find((item) => item.id === 'openInDialog');
+    expect(openInDialogItem).toBeDefined();
+
+    openInDialogItem?.click();
+
+    expect(dialogManager.openStandardReviewDialog).toHaveBeenCalledWith({
+      queueType: 'retrieval-practice',
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      queueInstance: underlyingQueue,
+      initialSessionState: {
+        initialTotal: 6,
+        answeredCount: 2,
+        correctCount: 1,
+      },
+    });
+    expect(tabManager.closeReviewTab).toHaveBeenCalledWith('review-tab-1');
+
+    wrapper.unmount();
+  });
+
+  it('keeps non-standard tab review sessions from exposing open-in-dialog conversion', async () => {
+    const card = buildCard();
+    const queue = {
+      ...createQueue(card),
+      queueType: 'filter-group',
+      getUnderlyingQueue: vi.fn(() => ({
+        getType: vi.fn(() => 'filter-group'),
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+      })),
+    };
+    const adapter = createAdapter();
+    const tabManager = {
+      openReviewTab: vi.fn(),
+      closeReviewTab: vi.fn(),
+    };
+    const dialogManager = {
+      openStandardReviewDialog: vi.fn(),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        mode: 'tab',
+        reviewSessionId: 'review-tab-filter',
+        title: '筛选提取练习',
+        headerVariant: 'retrieval-practice',
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+            getTabManager: () => tabManager,
+            getDialogManager: () => dialogManager,
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const target = document.createElement('button');
+    Object.defineProperty(target, 'getBoundingClientRect', {
+      value: () => ({ left: 10, bottom: 20 }),
+    });
+    const event = new MouseEvent('click');
+    Object.defineProperty(event, 'currentTarget', {
+      value: target,
+    });
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'sticktab', event);
+    await flushPromises();
+
+    const latestMenu = reviewViewMenuMocks.instances.at(-1);
+    expect(latestMenu).toBeDefined();
+    const menuItems = latestMenu?.addItem.mock.calls.map(([item]) => item) || [];
+    expect(menuItems.some((item) => item.id === 'openInDialog')).toBe(false);
+
+    wrapper.unmount();
+  });
 });

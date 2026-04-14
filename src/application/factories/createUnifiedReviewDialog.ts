@@ -12,7 +12,7 @@ import { createVueDialog } from '@/utils/dialog';
 import ReviewView from '@/ui/review/v2/ReviewView.vue';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
-import type { IReviewQueue, QueueType } from '@/types/unified-data-source';
+import type { IReviewQueue, InitialReviewSessionState, QueueType } from '@/types/unified-data-source';
 import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
@@ -51,6 +51,9 @@ export interface CreateUnifiedReviewDialogOptions {
 
     /** 可选：直接传入队列实例（用于临时/子集复习） */
     queueInstance?: IReviewQueue;
+
+    /** 可选：传入会话计数状态（用于 surface 间切换时延续统计） */
+    initialSessionState?: InitialReviewSessionState;
     
     /** 对话框标题 */
     title: string;
@@ -90,7 +93,7 @@ export interface CreateUnifiedReviewDialogOptions {
  * @returns 对话框实例
  */
 export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOptions) {
-    const { plugin, queueType, queueInstance, title, headerVariant, eventBus, startFullscreen, onClose } = options;
+    const { plugin, queueType, queueInstance, initialSessionState, title, headerVariant, eventBus, startFullscreen, onClose } = options;
     const isMobile = plugin.isMobile === true;
     
     try {
@@ -135,6 +138,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 plugin: plugin,  // 传递插件实例，用于访问 hybridSyncService
                 isMobile,
                 startFullscreen,
+                initialSessionState,
             },
             events: {
                 close: () => {

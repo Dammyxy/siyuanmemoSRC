@@ -19,7 +19,7 @@
           class="b3-text-field b3-form__icon-input"
           :value="searchQuery"
           @input="$emit('update:searchQuery', ($event.target as HTMLInputElement).value)"
-          :placeholder="t('searchPlaceholderAdvanced', '')"
+          placeholder=""
         />
       </div>
 

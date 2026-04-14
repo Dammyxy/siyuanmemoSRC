@@ -77,9 +77,7 @@ describe('ConfigMigrator', () => {
                 expect(newConfig.mode).toBe('advanced');
                 expect(newConfig.useLocalScheduler).toBe(true);
                 expect(newConfig.incrementalSync.enabled).toBe(true);
-                expect(newConfig.incrementalSync.triggers).toContain('plugin-start');
-                expect(newConfig.incrementalSync.triggers).toContain('browser-open');
-                expect(newConfig.incrementalSync.triggers).toContain('review-open');
+                expect(newConfig.incrementalSync.triggers).toEqual(['plugin-start']);
                 expect(newConfig.incrementalSync.useBlacklist).toBe(true);
                 expect(newConfig.fullSync.enabled).toBe(true);
                 expect(newConfig.fullSync.cleanupBlacklist).toBe(true);
@@ -123,7 +121,7 @@ describe('ConfigMigrator', () => {
                     
                     const newConfig = ConfigMigrator.migrate(oldConfig);
                     expect(newConfig.fullSync.interval).toBe(DEFAULT_RIFF_CONFIG.fullSync.interval);
-                    expect(newConfig.fullSync.interval).toBe(86400000); // 24小时
+                    expect(newConfig.fullSync.interval).toBe(604800000); // 7天
                 });
             });
         });

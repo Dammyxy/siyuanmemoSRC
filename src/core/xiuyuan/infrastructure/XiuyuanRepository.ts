@@ -194,6 +194,31 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     return this.cardToXiuyuanIndex.get(cardId);
   }
 
+  private isManagedRiffXiuyuan(xiuyuan: Xiuyuan): boolean {
+    if (xiuyuan.getTemplateID().getValue() === 'builtin-riff-sync') {
+      return true;
+    }
+
+    return xiuyuan.getMeta().source === 'riff-sync';
+  }
+
+  private buildPersistedBindingAttrs(
+    xiuyuan: Xiuyuan,
+    persistedCardType: 'topic' | 'item' | undefined
+  ): Record<string, string> | null {
+    const attrs: Record<string, string> = {};
+
+    if (!this.isManagedRiffXiuyuan(xiuyuan)) {
+      attrs['custom-xiuyuan-id'] = xiuyuan.getId().getValue();
+    }
+
+    if (persistedCardType) {
+      attrs[ATTR_CARD_TYPE] = persistedCardType;
+    }
+
+    return Object.keys(attrs).length > 0 ? attrs : null;
+  }
+
   /**
    * 淇濆瓨 Xiuyuan 鑱氬悎鏍?
    * 
@@ -278,12 +303,13 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
       // 5. 鍐欏叆鍧楀睘鎬?
       const blockIDs = xiuyuan.getBlockIDs();
+      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, persistedCardType);
       
       // 鉁?浣跨敤 Xiuyuan 瀹炰綋鏂规硶鑾峰彇浠ｈ〃鎬у潡 ID锛圖omain 灞傞€昏緫锛?
       const representativeBlockId = xiuyuan.getRepresentativeBlockId();
       const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
       
-      if (isDescriptorTemplate && blockIDs.length >= 2) {
+      if (bindingAttrs && isDescriptorTemplate && blockIDs.length >= 2) {
         // 姒傚康-鎻忚堪绗﹀崱锛氱涓€涓潡鏄蹇靛崱锛岀浜屼釜鍧楁槸鎻忚堪绗﹀崱
         // 鈿狅笍 娉ㄦ剰锛氭蹇靛崱鍙兘宸茬粡鏈夎嚜宸辩殑 Xiuyuan锛堜綔涓虹嫭绔嬬殑姒傚康鍗★級
         // 鍥犳锛屾垜浠彧璁剧疆鎻忚堪绗﹀潡鐨勫睘鎬э紝涓嶄慨鏀规蹇靛崱鐨勫睘鎬?
@@ -291,10 +317,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         
         try {
           // 鍙缃弿杩扮鍗″睘鎬?
-          await setBlockAttrs(descriptorBlockId, {
-            'custom-xiuyuan-id': xiuyuan.getId().getValue(),
-            ...(persistedCardType ? { [ATTR_CARD_TYPE]: persistedCardType } : {}),
-          });
+          await setBlockAttrs(descriptorBlockId, bindingAttrs);
           
           logger.debug(`Set descriptor attributes: descriptor=${descriptorBlockId}`);
         } catch (error) {
@@ -304,14 +327,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
             logger.warn('Failed to write descriptor attributes:', error);
           }
         }
-      } else if (blockIDs.length > 0) {
+      } else if (bindingAttrs && blockIDs.length > 0) {
         // 鍏朵粬妯℃澘锛氬彧璁剧疆浠ｈ〃鍧楋紙绗竴涓潡锛?
         const representativeBlockId = blockIDs[0].getValue();
         try {
-          await setBlockAttrs(representativeBlockId, {
-            'custom-xiuyuan-id': xiuyuan.getId().getValue(),
-            ...(persistedCardType ? { [ATTR_CARD_TYPE]: persistedCardType } : {}),
-          });
+          await setBlockAttrs(representativeBlockId, bindingAttrs);
         } catch (error) {
           // 鍧楀睘鎬у啓鍏ュけ璐ヤ笉搴旇闃绘淇濆瓨
           // 甯歌鍘熷洜锛氬潡宸茶鍒犻櫎銆佺Щ鍔ㄦ垨涓嶅瓨鍦?
@@ -477,7 +497,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
       // 2. 鍒犻櫎鍧楀睘鎬?
       const blockIDs = xiuyuan.getBlockIDs();
-      if (blockIDs.length > 0) {
+      if (!this.isManagedRiffXiuyuan(xiuyuan) && blockIDs.length > 0) {
         const representativeBlockId = blockIDs[0].getValue();
         try {
           await setBlockAttrs(representativeBlockId, {

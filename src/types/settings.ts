@@ -442,6 +442,92 @@ export interface PluginSettings {
     collectStats: boolean;     // 收集统计数据
 }
 
+type IncrementalSyncTrigger = RiffIntegrationConfig['incrementalSync']['triggers'][number];
+
+const LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET = ['plugin-start', 'browser-open', 'review-open'] as const;
+
+function isIncrementalSyncTrigger(value: unknown): value is IncrementalSyncTrigger {
+    return value === 'plugin-start' || value === 'browser-open' || value === 'review-open';
+}
+
+function isLegacyDefaultIncrementalSyncTriggerTriplet(
+    triggers: readonly IncrementalSyncTrigger[]
+): boolean {
+    return triggers.length === LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET.length
+        && triggers.every((trigger, index) => trigger === LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET[index]);
+}
+
+function normalizeIncrementalSyncTriggers(
+    triggers: unknown
+): { triggers: IncrementalSyncTrigger[]; changed: boolean } {
+    const sourceTriggers = Array.isArray(triggers)
+        ? triggers.filter(isIncrementalSyncTrigger)
+        : DEFAULT_RIFF_CONFIG.incrementalSync.triggers;
+    const dedupedTriggers = Array.from(new Set(sourceTriggers));
+    const normalizedTriggers = isLegacyDefaultIncrementalSyncTriggerTriplet(dedupedTriggers)
+        ? (['plugin-start'] as IncrementalSyncTrigger[])
+        : dedupedTriggers;
+
+    return {
+        triggers: normalizedTriggers,
+        changed: dedupedTriggers.length !== sourceTriggers.length
+            || normalizedTriggers.length !== dedupedTriggers.length
+            || normalizedTriggers.some((trigger, index) => trigger !== dedupedTriggers[index]),
+    };
+}
+
+function normalizeStorageConflictResolution(
+    value: unknown
+): StorageConflictResolutionStrategy {
+    return value === 'merge' || value === 'prefer-local' || value === 'prefer-remote'
+        ? value
+        : (DEFAULT_RIFF_CONFIG.storageConflictResolution || 'merge');
+}
+
+function normalizeRiffIntegrationConfig(
+    config: RiffIntegrationConfig | undefined
+): { config: RiffIntegrationConfig; changed: boolean } {
+    const normalizedTriggers = normalizeIncrementalSyncTriggers(config?.incrementalSync?.triggers);
+    const normalizedConfig: RiffIntegrationConfig = {
+        ...DEFAULT_RIFF_CONFIG,
+        ...(config || {}),
+        incrementalSync: {
+            ...DEFAULT_RIFF_CONFIG.incrementalSync,
+            ...(config?.incrementalSync || {}),
+            triggers: normalizedTriggers.triggers,
+        },
+        fullSync: {
+            ...DEFAULT_RIFF_CONFIG.fullSync,
+            ...(config?.fullSync || {}),
+        },
+        deleteSync: {
+            ...DEFAULT_RIFF_CONFIG.deleteSync,
+            ...(config?.deleteSync || {}),
+        },
+        storageConflictResolution: normalizeStorageConflictResolution(config?.storageConflictResolution),
+    };
+
+    const changed = !config
+        || normalizedTriggers.changed
+        || config.mode !== normalizedConfig.mode
+        || config.useLocalScheduler !== normalizedConfig.useLocalScheduler
+        || config.incrementalSync?.enabled !== normalizedConfig.incrementalSync.enabled
+        || config.incrementalSync?.useBlacklist !== normalizedConfig.incrementalSync.useBlacklist
+        || config.incrementalSync?.triggers?.length !== normalizedConfig.incrementalSync.triggers.length
+        || config.incrementalSync?.triggers?.some((trigger, index) => trigger !== normalizedConfig.incrementalSync.triggers[index])
+        || config.fullSync?.enabled !== normalizedConfig.fullSync.enabled
+        || config.fullSync?.interval !== normalizedConfig.fullSync.interval
+        || config.fullSync?.cleanupBlacklist !== normalizedConfig.fullSync.cleanupBlacklist
+        || config.deleteSync?.enabled !== normalizedConfig.deleteSync.enabled
+        || config.deleteSync?.useBlacklistFallback !== normalizedConfig.deleteSync.useBlacklistFallback
+        || config.storageConflictResolution !== normalizedConfig.storageConflictResolution;
+
+    return {
+        config: normalizedConfig,
+        changed,
+    };
+}
+
 export function normalizePluginSettings(settings: PluginSettings): { settings: PluginSettings; changed: boolean } {
     let changed = false;
     const sourceProgressiveReading = settings.progressiveReading as (PluginSettings['progressiveReading'] & {
@@ -456,10 +542,12 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         prompts: settings.ai?.prompts,
         promptProfiles: normalizedPromptProfiles,
     });
+    const normalizedRiffIntegration = normalizeRiffIntegrationConfig(settings.riffIntegration);
     const normalized: PluginSettings = {
         ...settings,
         fsrs: { ...settings.fsrs },
         scheduler: settings.scheduler ? { ...settings.scheduler } : settings.scheduler,
+        riffIntegration: normalizedRiffIntegration.config,
         queues: {
             ...DEFAULT_SETTINGS.queues,
             ...(settings.queues || {}),
@@ -657,6 +745,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         ) {
             changed = true;
         }
+    }
+
+    if (normalizedRiffIntegration.changed) {
+        changed = true;
     }
 
     if (!settings.queues?.neuralRoam?.hyperspace) {

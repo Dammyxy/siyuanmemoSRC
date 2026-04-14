@@ -149,4 +149,28 @@ describe('UnifiedStorageManager queryCards', () => {
     expect(cards.map(card => card.id)).toEqual(['card-b']);
     expect(getAllCardsSpy).toHaveBeenCalledOnce();
   });
+
+  it('filters suspended cards from unified storage metadata without block attrs', async () => {
+    await seedCards();
+    await storage.updateCard({
+      ...storage.getCard('card-c')!,
+      meta: { suspended: true },
+    });
+
+    const cards = storage.queryCards({ suspended: true });
+
+    expect(cards.map(card => card.id)).toEqual(['card-c']);
+  });
+
+  it('excludes suspended cards when includeSuspended is false', async () => {
+    await seedCards();
+    await storage.updateCard({
+      ...storage.getCard('card-b')!,
+      meta: { suspended: true },
+    });
+
+    const cards = storage.queryCards({ includeSuspended: false });
+
+    expect(cards.map(card => card.id)).toEqual(['card-a', 'card-c']);
+  });
 });

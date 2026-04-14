@@ -11,6 +11,7 @@ export interface StructuredCardQuery {
   cardTypes?: CardType[];
   states?: number[];
   dueDate?: StructuredDueDateQuery;
+  suspended?: boolean;
   includeSuspended?: boolean;
   tags?: string[];
   priority?: PriorityRangeFilter;

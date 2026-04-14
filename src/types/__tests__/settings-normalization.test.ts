@@ -133,6 +133,37 @@ describe('settings normalization', () => {
     expect(normalized.settings.ui.reviewOpenFullscreenByDefault).toBe(false);
   });
 
+  it('normalizes the legacy default incremental sync trigger triplet down to plugin-start only', () => {
+    const legacy = cloneSettings();
+    legacy.riffIntegration = {
+      ...legacy.riffIntegration!,
+      incrementalSync: {
+        ...legacy.riffIntegration!.incrementalSync,
+        triggers: ['plugin-start', 'browser-open', 'review-open'],
+      },
+    };
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.riffIntegration?.incrementalSync.triggers).toEqual(['plugin-start']);
+  });
+
+  it('preserves user-customized incremental sync trigger combinations', () => {
+    const legacy = cloneSettings();
+    legacy.riffIntegration = {
+      ...legacy.riffIntegration!,
+      incrementalSync: {
+        ...legacy.riffIntegration!.incrementalSync,
+        triggers: ['plugin-start', 'browser-open'],
+      },
+    };
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.settings.riffIntegration?.incrementalSync.triggers).toEqual(['plugin-start', 'browser-open']);
+  });
+
   it('drops the removed progressiveReading.dailyTraceEnabled field during normalization', () => {
     const legacy = cloneSettings() as PluginSettings & {
       progressiveReading: PluginSettings['progressiveReading'] & { dailyTraceEnabled?: boolean };

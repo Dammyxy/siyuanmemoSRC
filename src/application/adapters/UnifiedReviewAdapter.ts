@@ -396,6 +396,7 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
         },
         meta: {
           transition: 'fade',
+          emptyStateMode: 'completed',
           hasHiddenContent: false,
           queueSize,
           remainingSize,

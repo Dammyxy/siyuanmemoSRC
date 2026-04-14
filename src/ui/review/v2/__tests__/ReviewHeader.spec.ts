@@ -3,6 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewHeader from '../ReviewHeader.vue';
 import type { ReviewUIState } from '../types';
 
+const reviewHeaderSiyuanMocks = vi.hoisted(() => ({
+  showMessage: vi.fn(),
+}));
+
+vi.mock('siyuan', () => ({
+  showMessage: reviewHeaderSiyuanMocks.showMessage,
+}));
+
 function createHeaderState(): ReviewUIState['header'] {
   return {
     stats: {
@@ -68,6 +76,7 @@ describe('ReviewHeader', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    reviewHeaderSiyuanMocks.showMessage.mockReset();
     (window as unknown as { siyuan?: unknown }).siyuan = {
       languages: {
         flashcard: {},
@@ -174,9 +183,7 @@ describe('ReviewHeader', () => {
     expect(counters[2]?.text()).toContain('0/0');
   });
 
-  it('toggles desktop counter visibility with a local notice while preserving hover details', async () => {
-    vi.useFakeTimers();
-
+  it('toggles desktop counter visibility with a SiYuan notice while preserving hover details', async () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header: createHeaderState(),
@@ -194,23 +201,18 @@ describe('ReviewHeader', () => {
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
     expect(summary.find('.siyuanmemo-review-header__summary-count').exists()).toBe(false);
     expect(summary.attributes('aria-label')).toBe('\u5361\u7247\u8ba1\u6570\u5df2\u9690\u85cf\uff0c\u70b9\u51fb\u663e\u793a\u5361\u7247\u6570\u91cf');
-    expect(wrapper.get('.siyuanmemo-review-header__notice').text()).toContain('\u5361\u7247\u8ba1\u6570\u5df2\u9690\u85cf\uff01\u4eab\u53d7\u4e13\u6ce8\u7ec3\u4e60\u5427\u3002');
+    expect(reviewHeaderSiyuanMocks.showMessage).toHaveBeenCalledWith('\u961f\u5217\u5361\u7247\u8fdb\u5ea6\u5df2\u9690\u85cf', 2800, 'info');
+    expect(wrapper.find('.siyuanmemo-review-header__notice').exists()).toBe(false);
 
     await summaryWrap.trigger('mouseenter');
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(true);
-
-    await wrapper.get('.siyuanmemo-review-header__notice-close').trigger('click');
-    expect(wrapper.find('.siyuanmemo-review-header__notice').exists()).toBe(false);
 
     await summaryWrap.trigger('mouseleave');
     await summary.trigger('click');
 
     expect(summary.find('.siyuanmemo-review-header__summary-count').exists()).toBe(true);
     expect(summary.text()).toContain('3');
-    expect(wrapper.get('.siyuanmemo-review-header__notice').text()).toContain('\u5df2\u663e\u793a\u5361\u7247\u6570\u91cf\uff01\u8ba9\u6211\u4eec\u7ee7\u7eed\u5237\u5361\u5427\u3002');
-
-    await vi.advanceTimersByTimeAsync(2800);
-    expect(wrapper.find('.siyuanmemo-review-header__notice').exists()).toBe(false);
+    expect(reviewHeaderSiyuanMocks.showMessage).toHaveBeenLastCalledWith('\u961f\u5217\u5361\u7247\u8fdb\u5ea6\u5df2\u663e\u793a', 2800, 'info');
   });
 
   it('keeps tap-to-toggle counter details on mobile without hiding the count', async () => {
@@ -231,7 +233,7 @@ describe('ReviewHeader', () => {
 
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(true);
     expect(summary.find('.siyuanmemo-review-header__summary-count').exists()).toBe(true);
-    expect(wrapper.find('.siyuanmemo-review-header__notice').exists()).toBe(false);
+    expect(reviewHeaderSiyuanMocks.showMessage).not.toHaveBeenCalled();
   });
 
   it('renders close-review action in dedicated top-right slot on mobile dialog mode', async () => {

@@ -224,6 +224,21 @@ async function renderState(
 }
 
 describe('UnifiedReviewAdapter', () => {
+  it('marks null items as a completed empty state', async () => {
+    const adapter = new UnifiedReviewAdapter();
+
+    const ui = await adapter.toUIState(
+      createQueue({ queueType: 'retrieval-practice', liveCards: [] }) as never,
+      null as never,
+      createContext(),
+    );
+
+    expect(ui.content.type).toBe('empty');
+    expect(ui.actions.showAnswer).toBe(false);
+    expect(ui.actions.grades).toEqual([]);
+    expect(ui.meta.emptyStateMode).toBe('completed');
+  });
+
   it('builds retrieval-practice live value summary and priority badge', async () => {
     const liveCards = [
       createCard('item-1', CardType.Item, { priority: 12 }),

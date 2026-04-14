@@ -76,6 +76,14 @@ describe('BrowserToolbar surface actions', () => {
     expect(openInTabButton).toBeTruthy();
   });
 
+  it('keeps the main search placeholder empty even when advanced placeholder copy exists', () => {
+    const wrapper = mount(BrowserToolbar, {
+      props: baseProps,
+    });
+
+    expect(wrapper.get('input.b3-text-field').attributes('placeholder')).toBe('');
+  });
+
   it('hides the open-in-tab action in tab mode', () => {
     const wrapper = mount(BrowserToolbar, {
       props: {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  batchSuspend,
   batchDelete,
   clearGlobalBrowserContext,
   invalidateCardCache,
@@ -87,5 +88,22 @@ describe('browserService block-id paths', () => {
     expect(manager.deleteCard).toHaveBeenCalledTimes(2);
     expect(manager.deleteCard).toHaveBeenNthCalledWith(1, 'card-a');
     expect(manager.deleteCard).toHaveBeenNthCalledWith(2, 'card-b');
+  });
+
+  it('batchSuspend updates storage only and does not write suspended block attrs', async () => {
+    const siyuanApi = createSiyuanApi();
+    const manager = {
+      getCards: vi.fn().mockResolvedValue([makeFsrsCard('card-a', 'block-a')]),
+      deleteCard: vi.fn(),
+      updateCard: vi.fn().mockResolvedValue(undefined),
+    };
+    setGlobalBrowserContext(manager as any, '', siyuanApi as any);
+
+    const updatedBlocks = await batchSuspend(['block-a'], true, manager as any);
+
+    expect(updatedBlocks).toBe(1);
+    expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['block-a'] });
+    expect(manager.updateCard).toHaveBeenCalledTimes(1);
+    expect(siyuanApi.setBlockAttrs).not.toHaveBeenCalled();
   });
 });

@@ -41,6 +41,7 @@ function createQueryCardsMock(cards: FSRSCard[]) {
     states?: number[];
     cardTypes?: string[];
     dueDate?: { lte?: number };
+    suspended?: boolean;
   }) => {
     let result = cards;
 
@@ -61,6 +62,10 @@ function createQueryCardsMock(cards: FSRSCard[]) {
 
     if (query?.dueDate?.lte !== undefined) {
       result = result.filter((card) => card.due <= query.dueDate!.lte!);
+    }
+
+    if (query?.suspended === true) {
+      result = result.filter((card) => card.meta?.suspended === true);
     }
 
     return result;
@@ -126,16 +131,16 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
     expect(result.cardType).toBe(CardType.Concept);
   });
 
-  it('hydrates dismissed cards from candidate attrs for suspended preset and stats without getAllCards()', async () => {
+  it('uses structured storage queries for suspended preset and stats without suspended attr SQL', async () => {
     const card = buildCard({
       id: 'card-dismissed',
       blockId: 'block-dismissed',
       state: CardState.Review,
-      meta: { content: 'dismiss me', rootId: 'doc-1' },
+      meta: { content: 'dismiss me', rootId: 'doc-1', suspended: true },
     });
     const queryCards = createQueryCardsMock([card]);
     const getAllCards = vi.fn(() => {
-      throw new Error('getAllCards should not be used when suspended candidate SQL succeeds');
+      throw new Error('getAllCards should not be used when suspended structured query succeeds');
     });
     const handler = new GetBrowserCardsQueryHandler(
       {
@@ -147,15 +152,12 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
       new CardFilterService(),
       new CardSortService(),
       createSiyuanApi(async (stmt: string) => {
-        if (stmt.includes('FROM attributes') && stmt.includes('custom-fsrs-suspended')) {
-          return [{ block_id: 'block-dismissed', value: 'true' }];
-        }
         if (stmt.includes('GROUP_CONCAT')) {
           return [{
             id: 'block-dismissed',
             root_id: 'doc-1',
             content: 'dismiss me',
-            attrs: 'custom-fsrs-suspended=true',
+            attrs: '',
           }];
         }
         return [];
@@ -173,9 +175,7 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
     expect(result.cards[0]?.suspended).toBe(true);
     expect(getAllCards).not.toHaveBeenCalled();
     expect(queryCards).toHaveBeenCalledWith({ states: ALL_CARD_QUERY_STATES });
-    expect(queryCards).toHaveBeenCalledWith(expect.objectContaining({
-      blockIds: ['block-dismissed'],
-    }));
+    expect(queryCards).toHaveBeenCalledWith({ suspended: true });
   });
 
   it('uses queryCards for the due preset when searchText and docId are empty', async () => {
@@ -387,19 +387,11 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
       query: { searchText: 'priority regression' },
       failingSqlNeedle: "WHERE content LIKE '%priority regression%'",
     },
-    {
-      name: 'suspended',
-      query: { preset: 'suspended' as const },
-      failingSqlNeedle: "WHERE name = 'custom-fsrs-suspended'",
-    },
   ])('falls back to getAllCards() when $name SQL candidate loading fails', async ({ query, failingSqlNeedle }) => {
-    const isSuspendedQuery = 'preset' in query && query.preset === 'suspended';
     const card = buildCard({
       id: 'card-fallback',
       blockId: 'block-fallback',
-      meta: isSuspendedQuery
-        ? { content: 'priority regression', rootId: 'doc-1', suspended: true }
-        : { content: 'priority regression', rootId: 'doc-1' },
+      meta: { content: 'priority regression', rootId: 'doc-1' },
     });
     const queryCards = createQueryCardsMock([card]);
     const getAllCards = vi.fn(() => [card]);
@@ -424,7 +416,7 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
             id: 'block-fallback',
             root_id: 'doc-1',
             content: 'priority regression',
-            attrs: isSuspendedQuery ? 'custom-fsrs-suspended=true' : '',
+            attrs: '',
           }];
         }
         return [];

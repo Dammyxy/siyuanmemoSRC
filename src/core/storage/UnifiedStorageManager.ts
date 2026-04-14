@@ -1500,6 +1500,8 @@ export class UnifiedStorageManager {
   }
 
   private matchesStructuredQueryResiduals(card: FSRSCard, query: StructuredCardQuery): boolean {
+    const dismissed = isCardDismissed(card);
+
     if (query.dueDate?.gte !== undefined && card.due < query.dueDate.gte) {
       return false;
     }
@@ -1528,7 +1530,15 @@ export class UnifiedStorageManager {
       }
     }
 
-    if (query.includeSuspended === false && isCardDismissed(card)) {
+    if (query.suspended === true && !dismissed) {
+      return false;
+    }
+
+    if (query.suspended === false && dismissed) {
+      return false;
+    }
+
+    if (query.includeSuspended === false && dismissed) {
       return false;
     }
 

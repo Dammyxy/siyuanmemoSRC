@@ -63,7 +63,7 @@ export class SimpleModeRemovalMigrator {
             newConfig.incrementalSync = {
                 ...newConfig.incrementalSync,
                 enabled: true,
-                triggers: ['plugin-start', 'browser-open', 'review-open']
+                triggers: ['plugin-start']
             };
         }
         

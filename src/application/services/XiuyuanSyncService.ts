@@ -239,11 +239,6 @@ export class XiuyuanSyncService {
     }
 
     private isManagedRiffXiuyuan(xiuyuan: Xiuyuan): boolean {
-        const xiuyuanId = xiuyuan.getId().getValue();
-        if (!xiuyuanId.startsWith('xy_') || xiuyuanId.startsWith('xy_migrated_')) {
-            return false;
-        }
-
         // 仅同步治理由 Riff 同步路径创建的 Xiuyuan，避免误删用户手动创建卡片。
         if (xiuyuan.getTemplateID().getValue() === 'builtin-riff-sync') {
             return true;
@@ -278,73 +273,62 @@ export class XiuyuanSyncService {
         return raw.trim();
     }
 
-    private async clearStaleXiuyuanBindingAttrs(
-        blockId: string,
-        attrs: Record<string, string> | null | undefined
-    ): Promise<void> {
-        const keysToClear = [
-            'custom-xiuyuan-id',
-            'custom-fsrs-xiuyuan-id',
-            'custom-xiuyuan-template',
-            'custom-fsrs-template-id',
-        ] as const;
-
-        const nextAttrs: Record<string, string> = {};
-        for (const key of keysToClear) {
-            if (!attrs || key in attrs) {
-                nextAttrs[key] = '';
-            }
+    private async findExistingXiuyuanForBlock(blockId: string): Promise<Xiuyuan | null> {
+        const normalizedBlockIdResult = BlockId.create(blockId);
+        if (!normalizedBlockIdResult.ok) {
+            const errorMsg = normalizedBlockIdResult.ok === false
+                ? normalizedBlockIdResult.error.message
+                : 'Invalid BlockId';
+            throw new Error(`Failed to create BlockId for ${blockId}: ${errorMsg}`);
         }
 
-        if (Object.keys(nextAttrs).length === 0) {
-            return;
+        const existingByBlockResult = await this.xiuyuanRepository.findByBlockId(normalizedBlockIdResult.value);
+        if (!existingByBlockResult.ok) {
+            const errorMsg = 'error' in existingByBlockResult ? existingByBlockResult.error : 'Unknown error';
+            throw new Error(`Failed to query Xiuyuan by block ${blockId}: ${errorMsg}`);
         }
 
+        const existingByBlock = existingByBlockResult.value;
+        const managedExistingXiuyuan = existingByBlock.find((candidate) => this.isManagedRiffXiuyuan(candidate));
+        if (managedExistingXiuyuan) {
+            return managedExistingXiuyuan;
+        }
+        if (existingByBlock.length > 0) {
+            return existingByBlock[0] || null;
+        }
+
+        let attrs: Record<string, string> | null | undefined;
         try {
-            await this.siyuanApi.setBlockAttrs(blockId, nextAttrs);
-            logger.info(`Cleared stale Xiuyuan binding attrs for block ${blockId}`);
+            attrs = await this.siyuanApi.getBlockAttrs(blockId);
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            if (message.includes('tree not found')) {
-                logger.info(`Skip clearing stale Xiuyuan binding attrs for removed block ${blockId}`);
-                return;
-            }
-            logger.warn(`Failed to clear stale Xiuyuan binding attrs for block ${blockId}:`, error);
+            logger.debug(`Failed to load legacy Xiuyuan binding attrs for block ${blockId}`, error);
+            return null;
         }
-    }
 
-    private async shouldSkipByXiuyuanBinding(
-        blockId: string,
-        attrs: Record<string, string> | null | undefined
-    ): Promise<boolean> {
         const bindingId = this.extractXiuyuanBindingId(attrs);
         if (!bindingId) {
-            return false;
+            return null;
         }
 
         const boundXiuyuanIdResult = XiuyuanId.create(bindingId);
         if (!boundXiuyuanIdResult.ok) {
-            logger.warn(`Block ${blockId} has invalid Xiuyuan binding "${bindingId}", trying self-heal`);
-            await this.clearStaleXiuyuanBindingAttrs(blockId, attrs);
-            return false;
+            logger.warn(`Ignoring legacy invalid Xiuyuan binding on block ${blockId}: ${bindingId}`);
+            return null;
         }
 
         const existingByBindingResult = await this.xiuyuanRepository.findById(boundXiuyuanIdResult.value);
         if (!existingByBindingResult.ok) {
             const errorMsg = 'error' in existingByBindingResult ? existingByBindingResult.error : 'Unknown error';
-            logger.error(`Failed to verify Xiuyuan binding for block ${blockId}:`, errorMsg);
-            // Keep old conservative behavior when repository check itself fails.
-            return true;
+            throw new Error(`Failed to resolve legacy Xiuyuan binding for block ${blockId}: ${errorMsg}`);
         }
 
         if (existingByBindingResult.value) {
-            logger.info(`Block ${blockId} already has Xiuyuan: ${bindingId}, skipping`);
-            return true;
+            logger.info(`Resolved existing Xiuyuan from legacy binding attr for block ${blockId}: ${bindingId}`);
+            return existingByBindingResult.value;
         }
 
-        logger.warn(`Block ${blockId} has stale Xiuyuan binding: ${bindingId}, clearing and re-syncing`);
-        await this.clearStaleXiuyuanBindingAttrs(blockId, attrs);
-        return false;
+        logger.warn(`Ignoring stale legacy Xiuyuan binding on block ${blockId}: ${bindingId}`);
+        return null;
     }
     
     /**
@@ -891,40 +875,17 @@ export class XiuyuanSyncService {
                         skippedCount++;
                         continue;
                     }
-                    
-                    // 🔧 防护 1：检查块属性，避免重复创建
-                    try {
-                        const attrs = await this.siyuanApi.getBlockAttrs(riffCard.id);
-                        if (await this.shouldSkipByXiuyuanBinding(riffCard.id, attrs)) {
-                            skippedCount++;
-                            continue;
-                        }
-                    } catch (error) {
-                        logger.warn(`Failed to check block attrs for ${riffCard.id}:`, error);
-                        // 继续执行，不阻断流程
-                    }
-                    
-                    // 🔧 防护 2：使用 Repository 查询（统一 ID 格式，去掉 riff_ 前缀）
+
                     const xiuyuanIdStr = `xy_${riffCard.id}`;
-                    const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
-                    
-                    if (!xiuyuanIdResult.ok) {
-                        logger.error(`Invalid Xiuyuan ID: ${xiuyuanIdStr}`);
+                    let existingXiuyuan: Xiuyuan | null = null;
+                    try {
+                        existingXiuyuan = await this.findExistingXiuyuanForBlock(riffCard.id);
+                    } catch (error) {
+                        logger.error(`Failed to resolve existing Xiuyuan for block ${riffCard.id}:`, error);
                         skippedCount++;
                         continue;
                     }
-                    
-                    const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
-                    
-                    if (!existingXiuyuanResult.ok) {
-                        const errorMsg = 'error' in existingXiuyuanResult ? existingXiuyuanResult.error : 'Unknown error';
-                        logger.error('Failed to query Xiuyuan:', errorMsg);
-                        skippedCount++;
-                        continue;
-                    }
-                    
-                    const existingXiuyuan = existingXiuyuanResult.value;
-                    
+
                     logger.info(`Checking card ${riffCard.id}: existingXiuyuan=${!!existingXiuyuan}`);
                     
                     if (!existingXiuyuan) {
@@ -1144,25 +1105,16 @@ export class XiuyuanSyncService {
                 const addedCards: RiffBlock[] = [];
                 
                 for (const riffCard of riffCards) {
-                    // ✅ 使用 Repository 查询（符合 DDD 架构，统一 ID 格式）
                     const xiuyuanIdStr = `xy_${riffCard.id}`;
-                    const xiuyuanIdResult = XiuyuanId.create(xiuyuanIdStr);
-                    
-                    if (!xiuyuanIdResult.ok) {
-                        logger.error(`Invalid Xiuyuan ID: ${xiuyuanIdStr}`);
+
+                    let existingXiuyuan: Xiuyuan | null = null;
+                    try {
+                        existingXiuyuan = await this.findExistingXiuyuanForBlock(riffCard.id);
+                    } catch (error) {
+                        logger.error(`Failed to resolve existing Xiuyuan for block ${riffCard.id}:`, error);
                         continue;
                     }
-                    
-                    const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
-                    
-                    if (!existingXiuyuanResult.ok) {
-                        const errorMsg = 'error' in existingXiuyuanResult ? existingXiuyuanResult.error : 'Unknown error';
-                        logger.error('Failed to query Xiuyuan:', errorMsg);
-                        continue;
-                    }
-                    
-                    const existingXiuyuan = existingXiuyuanResult.value;
-                    
+
                     if (existingXiuyuan) {
                         // ✅ 已存在，跳过（不覆盖本地复习数据）
                         logger.info(`Xiuyuan exists locally, skipping: ${riffCard.id}`);
@@ -1485,10 +1437,15 @@ export class XiuyuanSyncService {
             throw new Error(`Failed to create XiuyuanId: ${errorMsg}`);
         }
 
-        const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
-        const priorityValue = existingXiuyuanResult.ok && existingXiuyuanResult.value
-            ? existingXiuyuanResult.value.getPriority().getValue()
-            : 50;
+        let priorityValue = 50;
+        try {
+            const existingXiuyuan = await this.findExistingXiuyuanForBlock(riffBlock.id);
+            if (existingXiuyuan) {
+                priorityValue = existingXiuyuan.getPriority().getValue();
+            }
+        } catch (error) {
+            logger.warn(`Failed to reuse existing Xiuyuan priority for block ${riffBlock.id}, using default`, error);
+        }
         const priorityResult = Priority.create(priorityValue);
         const priority = priorityResult.ok ? priorityResult.value : Priority.createDefault();
 
