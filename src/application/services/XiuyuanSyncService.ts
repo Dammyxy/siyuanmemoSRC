@@ -49,6 +49,7 @@ import {
     QuickCardPostCreationPlanner,
     type PostCreationPlan,
 } from '@/core/card/post-creation/QuickCardPostCreationPlanner';
+import type { RiffSyncState } from '@/core/storage/UnifiedStorageManager';
 
 // ==================== Xiuyuan 同步服务 ====================
 const logger = createLogger('XiuyuanSyncService');
@@ -82,6 +83,13 @@ type RiffRenderProfile =
     | 'list-progressive'
     | 'list-summary'
     | 'cdf-multiline';
+
+type RiffSyncStateStore = {
+    getRiffSyncState: () => RiffSyncState;
+    updateRiffSyncState: (patch: Partial<RiffSyncState>) => Promise<{ ok: true } | { ok: false; error: Error }>;
+};
+
+const INCREMENTAL_SYNC_OVERLAP_MS = 5_000;
 
 class XiuyuanSyncBridgeEvent<TPayload extends object> extends DomainEvent {
     constructor(
@@ -122,8 +130,8 @@ export class XiuyuanSyncService {
     private eventBus: EventBus;
     private xiuyuanRepository: IXiuyuanRepository;
     private deletionTracker: IDeletionTracker;
-    private lastSyncTime: number = 0;
     public lastFullSyncTime: number = 0;
+    private readonly syncStateStore?: RiffSyncStateStore;
     private legacyCardTypeMigrationDone = false;
     private syncMutex: Promise<void> = Promise.resolve();
     private readonly inFlightSyncs: Map<SyncType, Promise<SyncResult>> = new Map();
@@ -156,6 +164,55 @@ export class XiuyuanSyncService {
         this.eventBus = eventBus;
         this.xiuyuanRepository = xiuyuanRepository;
         this.deletionTracker = deletionTracker;
+        this.syncStateStore = this.resolveSyncStateStore(config.storage);
+    }
+
+    private resolveSyncStateStore(storage: unknown): RiffSyncStateStore | undefined {
+        if (!storage || typeof storage !== 'object') {
+            return undefined;
+        }
+
+        const candidate = storage as Partial<RiffSyncStateStore>;
+        return typeof candidate.getRiffSyncState === 'function'
+            && typeof candidate.updateRiffSyncState === 'function'
+            ? candidate as RiffSyncStateStore
+            : undefined;
+    }
+
+    private getPersistentSyncState(): RiffSyncState {
+        return this.syncStateStore?.getRiffSyncState() ?? {};
+    }
+
+    private getIncrementalSinceFromCheckpoint(): number | undefined {
+        const state = this.getPersistentSyncState();
+        const lastSuccessfulAt = state.lastSuccessfulIncrementalAt;
+        if (!lastSuccessfulAt || !Number.isFinite(lastSuccessfulAt) || lastSuccessfulAt <= 0) {
+            return undefined;
+        }
+
+        return Math.max(0, lastSuccessfulAt - INCREMENTAL_SYNC_OVERLAP_MS);
+    }
+
+    private async advanceSyncCheckpoint(patch: Partial<RiffSyncState>): Promise<void> {
+        if (!this.syncStateStore) {
+            logger.warn('[XiuyuanSyncService] Persistent Riff sync checkpoint store unavailable; checkpoint will remain process-local only');
+            return;
+        }
+
+        const result = await this.syncStateStore.updateRiffSyncState(patch);
+        if (!result.ok) {
+            throw result.error;
+        }
+    }
+
+    private isFullSyncDue(now: number = Date.now()): boolean {
+        if (!this.config.fullSync.enabled) {
+            return false;
+        }
+
+        const state = this.getPersistentSyncState();
+        const lastFullAt = state.lastSuccessfulFullAt ?? this.lastFullSyncTime;
+        return !lastFullAt || now - lastFullAt >= this.config.fullSync.interval;
     }
     
     /**
@@ -257,8 +314,10 @@ export class XiuyuanSyncService {
 
         await this.migrateLegacyCardTypeAttrsOnce();
         
-        // 执行初始增量同步
-        if (this.config.incrementalSync.enabled) {
+        if (this.isFullSyncDue()) {
+            logger.info('Full reconcile is due on plugin start; running full sync instead of incremental');
+            await this.fullSync();
+        } else if (this.config.incrementalSync.enabled && this.config.incrementalSync.triggers.includes('plugin-start')) {
             await this.incrementalSync();
         }
         
@@ -289,12 +348,13 @@ export class XiuyuanSyncService {
         }
 
         const existingByBlock = existingByBlockResult.value;
+        const localOwnedExistingXiuyuan = existingByBlock.find((candidate) => !this.isManagedRiffXiuyuan(candidate));
+        if (localOwnedExistingXiuyuan) {
+            return localOwnedExistingXiuyuan;
+        }
         const managedExistingXiuyuan = existingByBlock.find((candidate) => this.isManagedRiffXiuyuan(candidate));
         if (managedExistingXiuyuan) {
             return managedExistingXiuyuan;
-        }
-        if (existingByBlock.length > 0) {
-            return existingByBlock[0] || null;
         }
 
         let attrs: Record<string, string> | null | undefined;
@@ -837,12 +897,14 @@ export class XiuyuanSyncService {
                 const startTime = this.beginSync('incremental');
             
                 try {
-                    // 1. 获取新卡片（since lastSyncTime）
+                    // 1. 获取新卡片（since persisted checkpoint with overlap）
                     this.reportProgress(onProgress, 'incremental', 'fetching', 0, 1, '正在获取新卡片...');
-                    const since = this.lastSyncTime > 0 ? this.lastSyncTime : undefined;
+                    const since = this.getIncrementalSinceFromCheckpoint();
                     logger.info('Incremental sync fetch window:', {
                         since,
                         startTime,
+                        overlapMs: INCREMENTAL_SYNC_OVERLAP_MS,
+                        checkpoint: this.getPersistentSyncState(),
                     });
 
                     const newCards = await this.siyuanApi.getRiffNewCards(this.config.deckId, since);
@@ -888,6 +950,15 @@ export class XiuyuanSyncService {
 
                     logger.info(`Checking card ${riffCard.id}: existingXiuyuan=${!!existingXiuyuan}`);
                     
+                    if (existingXiuyuan && !this.isManagedRiffXiuyuan(existingXiuyuan)) {
+                        logger.info('Skipping Riff incremental upsert for local-owned Xiuyuan on same block', {
+                            blockId: riffCard.id,
+                            xiuyuanId: existingXiuyuan.getId().getValue(),
+                        });
+                        skippedCount++;
+                        continue;
+                    }
+
                     if (!existingXiuyuan) {
                         // ✅ 本地没有，通过 Repository 保存（完全符合 DDD）
                         logger.info('✅ Creating new Xiuyuan from Riff:', {
@@ -974,57 +1045,8 @@ export class XiuyuanSyncService {
                         }
                     }
                 }
-                
-                    // 4. 检测并删除本地有但 Riff 没有的 Xiuyuan
-                    // 仅在全量窗口（since 为空）执行删除检测，避免增量窗口误删。
-                    this.reportProgress(onProgress, 'incremental', 'deleting', 4, 7, '正在检测删除的卡片...');
-                    let deletedCount = 0;
-                    if (since === undefined) {
-                        if (malformedNewCards > 0) {
-                            logger.warn('Skip incremental delete detection: malformed Riff blocks made startup window incomplete', {
-                                malformedCount: malformedNewCards,
-                            });
-                        } else {
-                            const allXiuyuansResult = await this.xiuyuanRepository.findAll();
-                            if (!allXiuyuansResult.ok) {
-                                const errorMsg = 'error' in allXiuyuansResult ? allXiuyuansResult.error : 'Unknown error';
-                                logger.error('Failed to get all Xiuyuans:', errorMsg);
-                            } else {
-                                const allXiuyuans = allXiuyuansResult.value;
-                                const riffBlockIds = new Set(filtered.map(c => c.id));
-
-                                const xiuyuansToDelete = allXiuyuans.filter(xiuyuan => {
-                                    if (!this.isManagedRiffXiuyuan(xiuyuan)) {
-                                        return false;
-                                    }
-
-                                    const blockIds = xiuyuan.getBlockIDs();
-                                    if (blockIds.length === 0) {
-                                        return false;
-                                    }
-
-                                    const blockId = blockIds[0].getValue();
-                                    return !riffBlockIds.has(blockId);
-                                });
-
-                                if (xiuyuansToDelete.length > 0) {
-                                    logger.info(`Deleting ${xiuyuansToDelete.length} Xiuyuans that no longer exist in Riff`);
-                                    for (const xiuyuan of xiuyuansToDelete) {
-                                        const deleteResult = await this.xiuyuanRepository.delete(xiuyuan);
-                                        if (deleteResult.ok) {
-                                            deletedCount++;
-                                        } else {
-                                            const errorMsg = 'error' in deleteResult ? deleteResult.error : 'Unknown error';
-                                            logger.error(`Failed to delete Xiuyuan ${xiuyuan.getId().getValue()}:`, errorMsg);
-                                        }
-                                    }
-                                    logger.info(`Deleted ${deletedCount} Xiuyuans via Repository`);
-                                }
-                            }
-                        }
-                    } else {
-                        logger.info('Skip incremental delete detection: since-window result is partial and unsafe for delete decisions');
-                    }
+                const deletedCount = 0;
+                logger.info('Incremental reconcile never deletes local Riff-owned Xiuyuans; deletion is full-sync only');
                 
                 // 5. 保存（Repository.delete() 已经自动保存，不需要额外调用）
                 this.reportProgress(onProgress, 'incremental', 'saving', 5, 7, '正在保存数据...');
@@ -1037,12 +1059,16 @@ export class XiuyuanSyncService {
                     detectedCount = await this.detectCardTypesForNewCards(addedCards);
                 }
                 
-                // 7. 更新时间戳（使用本轮开始时间，避免同步期间新增卡片被跳过）
-                this.lastSyncTime = startTime;
+                // 7. 推进持久化 checkpoint（整轮成功提交后才推进）
+                await this.advanceSyncCheckpoint({
+                    lastSuccessfulIncrementalAt: startTime,
+                    lastSuccessfulIncrementalCursor: `timestamp:${startTime}`,
+                });
                 
                 const result: SyncResult = {
                     success: true,
                     addedCount,
+                    updatedCount,
                     deletedCount,  // 🆕 返回删除数量
                     skippedCount,
                     detectedCount
@@ -1115,7 +1141,13 @@ export class XiuyuanSyncService {
                         continue;
                     }
 
-                    if (existingXiuyuan) {
+                    if (existingXiuyuan && !this.isManagedRiffXiuyuan(existingXiuyuan)) {
+                        logger.info('Skipping full Riff reconcile for local-owned Xiuyuan on same block', {
+                            blockId: riffCard.id,
+                            xiuyuanId: existingXiuyuan.getId().getValue(),
+                        });
+                        skippedCount++;
+                    } else if (existingXiuyuan) {
                         // ✅ 已存在，跳过（不覆盖本地复习数据）
                         logger.info(`Xiuyuan exists locally, skipping: ${riffCard.id}`);
                         skippedCount++;
@@ -1205,12 +1237,16 @@ export class XiuyuanSyncService {
                     detectedCount = await this.detectCardTypesForNewCards(addedCards);
                 }
                 
-                // 7. 更新时间戳
+                // 7. 更新时间戳和持久化 full checkpoint
                 this.lastFullSyncTime = Date.now();
+                await this.advanceSyncCheckpoint({
+                    lastSuccessfulFullAt: this.lastFullSyncTime,
+                });
                 
                 const result: SyncResult = {
                     success: true,
                     addedCount,
+                    updatedCount: 0,
                     deletedCount,
                     skippedCount, // 🔧 记录跳过的已有卡片数量
                     blacklistCleanedCount,

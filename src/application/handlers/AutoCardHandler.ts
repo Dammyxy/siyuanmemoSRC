@@ -1,6 +1,5 @@
 ﻿import type { ITransactionHandler, Transaction } from '../../core/infrastructure/websocket/TransactionWebSocketService';
 import type FSRSPlugin from '@/index';
-import { CardCreationHelper } from '../helpers/CardCreationHelper';
 import type { AutoCardSiyuanPort } from '../ports/AutoCardSiyuanPort';
 import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
 import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
@@ -19,7 +18,6 @@ import {
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
-import type { CardApplicationService } from '../services/CardApplicationService';
 
 const logger = createLogger('AutoCardHandler');
 
@@ -157,6 +155,16 @@ type AutoCardTraceContext = {
     nextBlockId?: string;
 };
 
+type AutoCardExecutionSource = 'symbol-listener' | 'doc-oneclick-scan';
+
+type CandidateBlockContext = {
+    blockId: string;
+    txBatchId: string;
+    actions: string[];
+    enqueuedAt: number;
+    opIds: string[];
+};
+
 /**
  * Auto card handler for quick symbol based card creation.
  *
@@ -173,13 +181,12 @@ export class AutoCardHandler implements ITransactionHandler {
     private readonly conflictMediator = new PostCreationConflictMediator();
     
 
-    private cardHelper: CardCreationHelper | null = null;
-    
     private processing: Set<string> = new Set();
     private readonly conceptCardEnsureInFlight = new Set<string>();
-    
-
-    private currentEditingBlock: string | null = null;
+    private readonly candidateTimers = new Map<string, NodeJS.Timeout>();
+    private readonly candidateContexts = new Map<string, CandidateBlockContext>();
+    private readonly lastEvaluationFingerprintByBlock = new Map<string, string>();
+    private readonly settledEvaluationDelayMs = 300;
     private traceSequence = 0;
     private readonly activeRunContexts = new Map<string, AutoCardTraceContext>();
     
@@ -311,15 +318,6 @@ export class AutoCardHandler implements ITransactionHandler {
     private normalizeTopicItemCardType(cardType: string | undefined): 'topic' | 'item' {
         return cardType === 'topic' ? 'topic' : 'item';
     }
-    
-    private getCardHelper(): CardCreationHelper {
-
-        if (!this.cardHelper) {
-            const cardService = this.getCardService();
-            this.cardHelper = new CardCreationHelper(cardService as unknown as CardApplicationService);
-        }
-        return this.cardHelper;
-    }
 
     private hasXiuyuanBinding(attrs: Record<string, string> | null | undefined): boolean {
         if (!attrs) {
@@ -438,6 +436,113 @@ export class AutoCardHandler implements ITransactionHandler {
             isBidirectionalHint: decision.hints?.isBidirectional ?? false,
         };
     }
+
+    private mapXiuyuanSource(source: AutoCardExecutionSource): CreateXiuyuanFromBlocksCommand['source'] {
+        return source === 'symbol-listener' ? 'auto-listener' : 'doc-scan';
+    }
+
+    private getDuplicatePolicyForSource(source: AutoCardExecutionSource): CreateXiuyuanFromBlocksCommand['duplicatePolicy'] {
+        return source === 'symbol-listener' ? 'reuse-existing' : 'error';
+    }
+
+    private buildEvaluationFingerprint(input: {
+        blockType: string;
+        content: string;
+        attrs: Record<string, string> | null | undefined;
+        localCardCount: number;
+        decisions: CreationDecision[];
+    }): string {
+        return JSON.stringify({
+            blockType: input.blockType,
+            content: input.content,
+            attrs: this.summarizeAttrs(input.attrs),
+            localCardCount: input.localCardCount,
+            decisionShape: input.decisions.map((decision) => ({
+                id: decision.id,
+                family: decision.family,
+                executorKind: decision.executorKind,
+                templateId: decision.templateId,
+                direction: decision.direction ?? null,
+                cardType: decision.cardType ?? null,
+                mode: decision.mode,
+                renderProfile: decision.renderProfile ?? null,
+            })),
+        });
+    }
+
+    private enqueueCandidateBlock(blockId: string, txBatchId: string, action: string, opId: string): void {
+        const existingContext = this.candidateContexts.get(blockId);
+        const nextContext: CandidateBlockContext = existingContext
+            ? {
+                ...existingContext,
+                txBatchId,
+                actions: [...existingContext.actions, action],
+                opIds: [...existingContext.opIds, opId],
+                enqueuedAt: Date.now(),
+            }
+            : {
+                blockId,
+                txBatchId,
+                actions: [action],
+                enqueuedAt: Date.now(),
+                opIds: [opId],
+            };
+
+        this.candidateContexts.set(blockId, nextContext);
+
+        const existingTimer = this.candidateTimers.get(blockId);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+
+        this.traceAutoCard('candidate.enqueue', {
+            blockId,
+            txBatchId,
+            action,
+            opId,
+            enqueueCount: nextContext.actions.length,
+            delayMs: this.settledEvaluationDelayMs,
+        });
+
+        const timer = setTimeout(() => {
+            this.candidateTimers.delete(blockId);
+            void this.processSettledCandidate(blockId);
+        }, this.settledEvaluationDelayMs);
+
+        this.candidateTimers.set(blockId, timer);
+    }
+
+    private cancelPendingCandidate(blockId: string, txBatchId: string, reason: string): void {
+        const existingTimer = this.candidateTimers.get(blockId);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+            this.candidateTimers.delete(blockId);
+        }
+        this.candidateContexts.delete(blockId);
+        this.lastEvaluationFingerprintByBlock.delete(blockId);
+
+        this.traceAutoCard('candidate.cancel', {
+            blockId,
+            txBatchId,
+            reason,
+        });
+    }
+
+    private async createXiuyuanFromBlocks(
+        command: CreateXiuyuanFromBlocksCommand,
+        source: AutoCardExecutionSource,
+        decision?: CreationDecision
+    ): Promise<XiuyuanCreateResult> {
+        const xiuyuanAppService = await this.requireXiuyuanApplicationService();
+        return xiuyuanAppService.createFromBlocks({
+            ...command,
+            source: command.source ?? this.mapXiuyuanSource(source),
+            duplicatePolicy: command.duplicatePolicy ?? this.getDuplicatePolicyForSource(source),
+            creationRuleId: command.creationRuleId ?? decision?.id,
+            creationMode: command.creationMode ?? decision?.mode,
+            renderProfile: command.renderProfile ?? decision?.renderProfile,
+        });
+    }
     
     handle(transactions: Transaction[]): void {
 
@@ -450,7 +555,6 @@ export class AutoCardHandler implements ITransactionHandler {
         
         logger.debug('[SiYuanMemo][AutoCard] Quick card is enabled, processing transactions');
         const txBatchId = this.nextTraceId('txbatch');
-        const currentEditingBlockBefore = this.currentEditingBlock;
         const relevantOperations: Array<Record<string, unknown>> = [];
         
         for (const [txIndex, tx] of transactions.entries()) {
@@ -458,46 +562,48 @@ export class AutoCardHandler implements ITransactionHandler {
             
             for (const [opIndex, op] of tx.doOperations.entries()) {
                 const blockId = op.id;
-                
 
-                if (op.action === 'update' || op.action === 'insert') {
-                    const previousEditingBlock = this.currentEditingBlock;
-                    const triggeredPreviousBlock = previousEditingBlock && previousEditingBlock !== blockId
-                        ? previousEditingBlock
-                        : null;
-
-                    if (triggeredPreviousBlock) {
-                        logger.debug('[SiYuanMemo][AutoCard] Block unfocused:', triggeredPreviousBlock);
-
-                        void this.processBlockImmediately(triggeredPreviousBlock, {
-                            trigger: 'block-switch',
-                            txBatchId,
-                            nextBlockId: blockId,
-                        });
-                    }
-                    
-
-                    this.currentEditingBlock = blockId;
+                if (op.action === 'insert' || op.action === 'update') {
+                    this.enqueueCandidateBlock(blockId, txBatchId, op.action, op.id);
                     relevantOperations.push({
                         txIndex,
                         opIndex,
                         action: op.action,
                         opId: op.id,
                         blockId,
-                        previousEditingBlock,
-                        triggeredPreviousBlock,
-                        currentEditingBlockAfter: this.currentEditingBlock,
+                        scheduled: true,
                     });
-                    
-                    logger.debug('[SiYuanMemo][AutoCard] Current editing block:', blockId);
+                    continue;
                 }
+
+                if (op.action === 'delete') {
+                    this.cancelPendingCandidate(blockId, txBatchId, 'delete');
+                    relevantOperations.push({
+                        txIndex,
+                        opIndex,
+                        action: op.action,
+                        opId: op.id,
+                        blockId,
+                        scheduled: false,
+                        cancelled: true,
+                    });
+                    continue;
+                }
+
+                relevantOperations.push({
+                    txIndex,
+                    opIndex,
+                    action: op.action,
+                    opId: op.id,
+                    blockId,
+                    scheduled: false,
+                });
             }
         }
 
         this.traceAutoCard('handle.transactions', {
             txBatchId,
-            currentEditingBlockBefore,
-            currentEditingBlockAfter: this.currentEditingBlock,
+            pendingCandidateCount: this.candidateContexts.size,
             relevantOperations,
         });
     }
@@ -650,6 +756,14 @@ export class AutoCardHandler implements ITransactionHandler {
             const enabledDecisions = plan.decisions.filter((decision) =>
                 this.isDecisionEnabledBySettings(decision, normalizedSettings)
             );
+            const evaluationFingerprint = this.buildEvaluationFingerprint({
+                blockType,
+                content: kramdown,
+                attrs,
+                localCardCount: existingCards.length,
+                decisions: enabledDecisions,
+            });
+            const previousFingerprint = this.lastEvaluationFingerprintByBlock.get(blockId) ?? null;
 
             this.traceAutoCard('checkQuickSymbols.plan', {
                 runId: traceContext?.runId ?? null,
@@ -665,9 +779,23 @@ export class AutoCardHandler implements ITransactionHandler {
                 hasBidirectionalBasicDecision: enabledDecisions.some((decision) => (
                     decision.id === 'BasicDirectionRule' && decision.direction === 'both'
                 )),
+                evaluationFingerprint,
+                fingerprintChanged: previousFingerprint !== evaluationFingerprint,
                 trigger: traceContext?.trigger ?? null,
                 nextBlockId: traceContext?.nextBlockId ?? null,
             });
+
+            if (previousFingerprint === evaluationFingerprint) {
+                this.traceAutoCard('settledEvaluation.skipFingerprint', {
+                    runId: traceContext?.runId ?? null,
+                    txBatchId: traceContext?.txBatchId ?? null,
+                    blockId,
+                    evaluationFingerprint,
+                });
+                return;
+            }
+
+            this.lastEvaluationFingerprintByBlock.set(blockId, evaluationFingerprint);
 
             if (enabledDecisions.length === 0) {
                 logger.debug('[SiYuanMemo][AutoCard] No enabled planner decision detected:', {
@@ -801,13 +929,12 @@ export class AutoCardHandler implements ITransactionHandler {
         blockId: string;
         content: string;
         decision: CreationDecision;
-        source: 'symbol-listener' | 'doc-oneclick-scan';
+        source: AutoCardExecutionSource;
         docRootId?: string;
     }): Promise<boolean> {
         const { blockId, content, decision, source, docRootId } = params;
         const inlineContent = this.normalizeInlineSymbolContent(content);
         const clozeContent = this.normalizeClozeSymbolContent(content);
-        const cardService = this.getCardService();
         const attrs = await this.siyuanApi.getBlockAttrs(blockId);
 
         if (this.hasXiuyuanBinding(attrs)) {
@@ -820,7 +947,7 @@ export class AutoCardHandler implements ITransactionHandler {
             return false;
         }
 
-        const existedBefore = Boolean(cardService.getCardByBlockId(blockId));
+        const existedBefore = this.getLocalCardsByBlockId(blockId).length > 0;
         if (existedBefore) {
             logger.debug('[SiYuanMemo][AutoCard] Skip planner decision: card already exists in local storage', {
                 blockId,
@@ -837,7 +964,10 @@ export class AutoCardHandler implements ITransactionHandler {
                     blockId,
                     direction,
                     inlineContent,
-                    this.normalizeTopicItemCardType(decision.cardType)
+                    this.normalizeTopicItemCardType(decision.cardType),
+                    undefined,
+                    source,
+                    decision
                 );
                 break;
             }
@@ -853,7 +983,8 @@ export class AutoCardHandler implements ITransactionHandler {
                     blockId,
                     clozeContent,
                     this.normalizeTopicItemCardType(decision.cardType),
-                    decision
+                    decision,
+                    source
                 );
                 break;
             }
@@ -863,9 +994,9 @@ export class AutoCardHandler implements ITransactionHandler {
                     : decision.direction === 'forward'
                         ? 'forward'
                         : 'both';
-                await this.createConceptCard(blockId, inlineContent, undefined, direction, {
+                await this.createConceptCard(blockId, inlineContent, undefined, direction, source, {
                     skipEnsureConceptDocumentBlockId: source === 'doc-oneclick-scan' ? docRootId : undefined,
-                });
+                }, decision);
                 break;
             }
             case 'descriptor-inline': {
@@ -874,9 +1005,9 @@ export class AutoCardHandler implements ITransactionHandler {
                     : decision.direction === 'both'
                         ? 'both'
                         : 'forward';
-                await this.createDescriptorCard(blockId, inlineContent, undefined, direction, {
+                await this.createDescriptorCard(blockId, inlineContent, undefined, direction, source, {
                     skipDocumentConceptAutoCreateBlockId: source === 'doc-oneclick-scan' ? docRootId : undefined,
-                });
+                }, decision);
                 break;
             }
             case 'list-template-structural': {
@@ -913,7 +1044,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
         }
 
-        const existedAfter = Boolean(cardService.getCardByBlockId(blockId));
+        const existedAfter = this.getLocalCardsByBlockId(blockId).length > 0;
         return !existedBefore && existedAfter;
     }
 
@@ -1008,43 +1139,36 @@ export class AutoCardHandler implements ITransactionHandler {
         return blockType === 'p' || blockType === 'm';
     }
 
-    // Trigger immediate processing when focus moves away from the previous block.
-    private async processBlockImmediately(
-        blockId: string,
-        cause?: {
-            trigger: string;
-            txBatchId?: string;
-            nextBlockId?: string;
-        }
-    ): Promise<void> {
-        logger.debug('[SiYuanMemo][AutoCard] Processing block immediately:', blockId);
+    // Process one settled candidate block after the debounce window has converged.
+    private async processSettledCandidate(blockId: string): Promise<void> {
+        logger.debug('[SiYuanMemo][AutoCard] Processing settled candidate block:', blockId);
+        const candidateContext = this.candidateContexts.get(blockId);
         const runId = this.nextTraceId('run');
         const startedAt = Date.now();
         const alreadyProcessing = this.processing.has(blockId);
         const traceContext: AutoCardTraceContext = {
             runId,
-            trigger: cause?.trigger ?? 'direct-call',
-            ...(cause?.txBatchId ? { txBatchId: cause.txBatchId } : {}),
-            ...(cause?.nextBlockId ? { nextBlockId: cause.nextBlockId } : {}),
+            trigger: 'settled-candidate',
+            ...(candidateContext?.txBatchId ? { txBatchId: candidateContext.txBatchId } : {}),
         };
-        this.traceAutoCard('processBlockImmediately.begin', {
+        this.traceAutoCard('settledEvaluation.begin', {
             runId,
             blockId,
             trigger: traceContext.trigger,
             txBatchId: traceContext.txBatchId ?? null,
-            nextBlockId: traceContext.nextBlockId ?? null,
             alreadyProcessing,
             processingSizeBefore: this.processing.size,
+            candidateActions: candidateContext?.actions ?? [],
+            candidateOpIds: candidateContext?.opIds ?? [],
         });
 
         if (alreadyProcessing) {
             logger.debug('[SiYuanMemo][AutoCard] Block already processing:', blockId);
-            this.traceAutoCard('processBlockImmediately.end', {
+            this.traceAutoCard('settledEvaluation.end', {
                 runId,
                 blockId,
                 trigger: traceContext.trigger,
                 txBatchId: traceContext.txBatchId ?? null,
-                nextBlockId: traceContext.nextBlockId ?? null,
                 durationMs: Date.now() - startedAt,
                 error: null,
                 skipped: 'already-processing',
@@ -1058,20 +1182,21 @@ export class AutoCardHandler implements ITransactionHandler {
         let errorMessage: string | null = null;
         
         try {
-
             await this.checkQuickSymbols(blockId);
         } catch (error) {
             errorMessage = this.getErrorMessage(error);
-            logger.error('[SiYuanMemo][AutoCard] Failed to process block immediately:', blockId, error);
+            logger.error('[SiYuanMemo][AutoCard] Failed to process settled candidate block:', blockId, error);
         } finally {
             this.processing.delete(blockId);
             this.activeRunContexts.delete(blockId);
-            this.traceAutoCard('processBlockImmediately.end', {
+            if (!this.candidateTimers.has(blockId)) {
+                this.candidateContexts.delete(blockId);
+            }
+            this.traceAutoCard('settledEvaluation.end', {
                 runId,
                 blockId,
                 trigger: traceContext.trigger,
                 txBatchId: traceContext.txBatchId ?? null,
-                nextBlockId: traceContext.nextBlockId ?? null,
                 durationMs: Date.now() - startedAt,
                 error: errorMessage,
                 processingSizeAfter: this.processing.size,
@@ -1087,7 +1212,9 @@ export class AutoCardHandler implements ITransactionHandler {
         direction: string,
         content: string,
         cardType: 'topic' | 'item' = 'item',
-        actualSymbol?: string
+        actualSymbol?: string,
+        source: AutoCardExecutionSource = 'symbol-listener',
+        decision?: CreationDecision
     ): Promise<void> {
         try {
             logger.debug('[SiYuanMemo][AutoCard] Creating basic card:', blockId, direction, 'symbol:', actualSymbol);
@@ -1114,7 +1241,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 if (match) {
                     const term = match[1].trim();
                     const definition = match[3].trim();
-                    await this.createBidirectionalCard(blockId, term, definition);
+                    await this.createBidirectionalCard(blockId, term, definition, cardType, source, decision);
                     return;
                 }
             }
@@ -1131,15 +1258,13 @@ export class AutoCardHandler implements ITransactionHandler {
 
             if (backClozes.length > 0) {
                 logger.debug('[SiYuanMemo][AutoCard] Detected back clozes:', backClozes.length);
-                
-                const xiuyuanAppService = await this.requireXiuyuanApplicationService('修缘服务不可用');
-                
-                                
-                const result = await xiuyuanAppService.createFromBlocks({
+
+                const result = await this.createXiuyuanFromBlocks({
                     blockIds: [blockId],
                     templateId: 'builtin-quick-card',
                     fieldMapping: { content: blockId },
                     deckId: this.riffApi.BUILTIN_DECK_ID,
+                    cardType,
                     backClozeInfo: {
                         originalContent: content,
                         front: question,
@@ -1147,48 +1272,32 @@ export class AutoCardHandler implements ITransactionHandler {
                         clozes: backClozes,
                         direction: 'forward',
                         symbol: actualSymbol
-                    }
-                });
+                    },
+                }, source, decision);
                 
                 if (isErr(result)) {
                     throw new Error(`Failed to create cards with back cloze: ${result.error?.message}`);
                 }
                 
-                                await this.siyuanApi.pushMsg(`已创建 ${backClozes.length} 张卡片（背面挖空）`);
+                await this.siyuanApi.pushMsg(`已创建 ${result.value.cards.length} 张卡片（背面挖空）`);
                 return;
             }
-            
 
-            const helper = this.getCardHelper();
-            
-            const result = await helper.createSymbolCard(blockId, {
+            const result = await this.createXiuyuanFromBlocks({
+                blockIds: [blockId],
+                templateId: 'builtin-quick-card',
+                fieldMapping: { content: blockId },
+                deckId: this.riffApi.BUILTIN_DECK_ID,
                 cardType,
-                metadata: {
-                    direction,
-                    question,
-                    answer,
-                    cardSource: 'quick-symbol',
-                    symbolType: actualSymbol || (direction === 'forward' ? '>>' : '<<')
-                }
-            });
-            
+            }, source, decision);
+
             if (isErr(result)) {
                 throw new Error(`Failed to create symbol card: ${this.getErrorMessage(result.error)}`);
             }
-            
 
-                        await this.riffApi.addRiffCards(this.riffApi.BUILTIN_DECK_ID, [blockId]);
-            logger.debug('[SiYuanMemo][AutoCard] Added to Riff deck:', blockId);
-            
-
-                        const card = result.value;
-            await this.siyuanApi.markBlockAsCard(blockId, card.getId().getValue(), 50, cardType);
-            logger.debug('[SiYuanMemo][AutoCard] Marked block as card:', blockId);
-            
             logger.debug('[SiYuanMemo][AutoCard] Basic card created successfully:', blockId, direction);
             
-
-                        const symbolText = direction === 'forward' ? '>>' : '<<';
+            const symbolText = direction === 'forward' ? '>>' : '<<';
             await this.siyuanApi.pushMsg(`已创建${direction === 'forward' ? '正向' : '反向'}卡片 (${symbolText})`);
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Failed to create basic card:', blockId, error);
@@ -1197,15 +1306,18 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     // Create bidirectional concept card with term/definition.
-    private async createBidirectionalCard(blockId: string, term: string, definition: string): Promise<void> {
+    private async createBidirectionalCard(
+        blockId: string,
+        term: string,
+        definition: string,
+        cardType: 'topic' | 'item' = 'item',
+        source: AutoCardExecutionSource = 'symbol-listener',
+        decision?: CreationDecision
+    ): Promise<void> {
         try {
             const traceContext = this.getActiveRunContext(blockId);
             logger.debug('[SiYuanMemo][AutoCard] Creating bidirectional card using Xiuyuan:', blockId);
             
-
-            const xiuyuanAppService = await this.requireXiuyuanApplicationService();
-            
-
             const { ClozeDetector } = await import('@/utils/cloze-detector');
             const backClozes = ClozeDetector.extractClozes(definition);
             const templateId = backClozes.length > 0 ? 'builtin-quick-card' : 'builtin-bidirectional-single';
@@ -1224,11 +1336,12 @@ export class AutoCardHandler implements ITransactionHandler {
             if (backClozes.length > 0) {
                 logger.debug('[SiYuanMemo][AutoCard] Detected back clozes in bidirectional card:', backClozes.length);
                 
-                const result = await xiuyuanAppService.createFromBlocks({
+                const result = await this.createXiuyuanFromBlocks({
                     blockIds: [blockId],
                     templateId: 'builtin-quick-card',
                     fieldMapping: { content: blockId },
                     deckId: this.riffApi.BUILTIN_DECK_ID,
+                    cardType,
                     backClozeInfo: {
                         originalContent: `${term} <> ${definition}`,
                         front: term,
@@ -1236,8 +1349,8 @@ export class AutoCardHandler implements ITransactionHandler {
                         clozes: backClozes,
                         direction: 'both',
                         symbol: '<>'
-                    }
-                });
+                    },
+                }, source, decision);
                 
                 if (isErr(result)) {
                     throw new Error(`Failed to create bidirectional card with back cloze: ${result.error?.message}`);
@@ -1258,15 +1371,15 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             
-
-            const result = await xiuyuanAppService.createFromBlocks({
+            const result = await this.createXiuyuanFromBlocks({
                 blockIds: [blockId],
                 templateId: 'builtin-bidirectional-single',
                 fieldMapping: {
                     content: blockId
                 },
                 deckId: this.riffApi.BUILTIN_DECK_ID,
-            });
+                cardType,
+            }, source, decision);
             
             if (isErr(result)) {
                 throw new Error('Failed to create bidirectional card via Xiuyuan');
@@ -1309,9 +1422,11 @@ export class AutoCardHandler implements ITransactionHandler {
         content: string, 
         actualSymbol?: string,
         direction: 'both' | 'forward' | 'reverse' = 'both',
+        source: AutoCardExecutionSource = 'symbol-listener',
         options?: {
             skipEnsureConceptDocumentBlockId?: string;
-        }
+        },
+        decision?: CreationDecision
     ): Promise<void> {
         try {
             logger.debug('[SiYuanMemo][AutoCard] Creating concept card:', blockId, 'symbol:', actualSymbol, 'direction:', direction);
@@ -1366,9 +1481,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 logger.debug('[SiYuanMemo][AutoCard] Detected clozes in definition:', clozes.length);
                 
 
-                const xiuyuanAppService = await this.requireXiuyuanApplicationService();
-                
-                                
                 if (clozes.length > 0) {
 
                     logger.debug('[SiYuanMemo][AutoCard] Creating multi-cloze concept definition cards, direction:', direction);
@@ -1410,15 +1522,15 @@ export class AutoCardHandler implements ITransactionHandler {
                     await xiuyuanAppService.createTemplate(tempTemplate);
                     
 
-                    const result = await xiuyuanAppService.createFromBlocks({
+                    const result = await this.createXiuyuanFromBlocks({
                         blockIds: [blockId, refId],
                         templateId: tempTemplateId,
                         fieldMapping: {
                             concept: refId,
                             definition: blockId
                         },
-                        deckId: this.riffApi.BUILTIN_DECK_ID
-                    });
+                        deckId: this.riffApi.BUILTIN_DECK_ID,
+                    }, source, decision);
                     
                     if (isErr(result)) {
                         const errorMsg = this.getErrorMessage(result.error);
@@ -1450,7 +1562,7 @@ export class AutoCardHandler implements ITransactionHandler {
                         cardCount = 1;
                     }
                     
-                    const result = await xiuyuanAppService.createFromBlocks({
+                    const result = await this.createXiuyuanFromBlocks({
                         blockIds: [blockId, refId],
                         templateId: templateId,
                         fieldMapping: {
@@ -1459,7 +1571,7 @@ export class AutoCardHandler implements ITransactionHandler {
                         },
                         deckId: this.riffApi.BUILTIN_DECK_ID,
                         cardType: 'descriptor'
-                    });
+                    }, source, decision);
                     
                     if (isErr(result)) {
                         const errorMsg = this.getErrorMessage(result.error);
@@ -1484,7 +1596,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     });
                 } else {
                     logger.debug('[SiYuanMemo][AutoCard] About to ensure concept document card for:', refId, conceptName);
-                    await this.ensureConceptDocumentCard(refId, conceptName);
+                    await this.ensureConceptBlockCard(refId, conceptName);
                     logger.debug('[SiYuanMemo][AutoCard] Finished ensuring concept document card');
                 }
                 
@@ -1516,9 +1628,11 @@ export class AutoCardHandler implements ITransactionHandler {
         content: string, 
         actualSymbol?: string,
         direction: 'forward' | 'reverse' | 'both' = 'forward',
+        source: AutoCardExecutionSource = 'symbol-listener',
         options?: {
             skipDocumentConceptAutoCreateBlockId?: string;
-        }
+        },
+        decision?: CreationDecision
     ): Promise<void> {
         try {
             logger.debug('[SiYuanMemo][AutoCard] Creating descriptor card:', blockId, 'symbol:', actualSymbol, 'direction:', direction);
@@ -1601,8 +1715,7 @@ export class AutoCardHandler implements ITransactionHandler {
             }
             
 
-            const xiuyuanAppService = await this.requireXiuyuanApplicationService();
-            const result = await xiuyuanAppService.createFromBlocks({
+            const result = await this.createXiuyuanFromBlocks({
                 blockIds: [foundConceptId, blockId],
                 templateId: templateId,
                 fieldMapping: {
@@ -1611,7 +1724,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 },
                 deckId: this.riffApi.BUILTIN_DECK_ID,
                 cardType: 'descriptor'
-            });
+            }, source, decision);
             
             if (isErr(result)) {
                 const errorMsg = this.getErrorMessage(result.error);
@@ -1636,7 +1749,8 @@ export class AutoCardHandler implements ITransactionHandler {
         blockId: string,
         content: string,
         resolvedCardType: 'topic' | 'item' = 'item',
-        initialDecision?: CreationDecision
+        initialDecision?: CreationDecision,
+        source: AutoCardExecutionSource = 'symbol-listener'
     ): Promise<void> {
         try {
             logger.debug('[SiYuanMemo][AutoCard] Creating cloze card:', blockId);
@@ -1660,7 +1774,6 @@ export class AutoCardHandler implements ITransactionHandler {
             const clozeDecision = initialDecision?.executorKind === 'quick-cloze'
                 ? initialDecision
                 : postCreationPlan?.decisions.find((decision) => decision.executorKind === 'quick-cloze');
-            const useMultiFaceMode = clozeDecision?.mode === 'multi-face';
             const clozeRenderMode = clozeDecision?.renderProfile === 'quick-inline-formula'
                 ? 'inline-formula-cloze'
                 : 'default';
@@ -1668,82 +1781,24 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.debug('[SiYuanMemo][AutoCard] Post-creation plan for cloze card:', {
                 blockId,
                 mode: clozeDecision?.mode || 'single',
-                templateId: clozeDecision?.templateId || 'builtin-quick-card',
+                templateId: clozeDecision?.templateId || 'builtin-multi-cloze',
                 renderMode: clozeRenderMode,
                 ruleId: clozeDecision?.id,
             });
-
-            if (!useMultiFaceMode && clozes.length === 1 && clozes[0].type !== 'latex') {
-                await this.createSingleClozeCard(blockId, clozes, resolvedCardType);
-                return;
-            }
             
-
             await this.createMultipleClozeCards(
                 blockId,
                 content,
                 clozes,
                 clozeRenderMode,
-                resolvedCardType
+                resolvedCardType,
+                source,
+                clozeDecision ?? initialDecision
             );
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Failed to create cloze card:', blockId, error);
                         await this.siyuanApi.pushErrMsg(`创建填空卡片失败：${this.getErrorMessage(error)}`);
         }
-    }
-    
-    // Create single cloze card with CardCreationHelper.
-    private async createSingleClozeCard(
-        blockId: string,
-        clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' | 'latex' }>,
-        cardType: 'topic' | 'item'
-    ): Promise<void> {
-
-        const helper = this.getCardHelper();
-        
-        const result = await helper.createQuickCard(blockId, {
-            cardType,
-            metadata: {
-                clozes: clozes.map(c => c.text),
-                clozeCount: 1,
-                cardSource: 'quick-symbol',
-                symbolType:
-                    clozes[0].type === 'brace'
-                        ? '{{}}'
-                        : clozes[0].type === 'equal'
-                            ? '=='
-                            : clozes[0].type === 'mark'
-                                ? 'mark'
-                                : '\\cloze'
-            }
-        });
-        
-        if (isErr(result)) {
-            logger.error('[SiYuanMemo][AutoCard] Failed to create cloze card:', result.error);
-                        await this.siyuanApi.pushErrMsg(`创建填空卡片失败：${this.getErrorMessage(result.error)}`);
-            return;
-        }
-        
-        const card = result.value;
-        
-
-                await this.riffApi.addRiffCards(this.riffApi.BUILTIN_DECK_ID, [blockId]);
-        
-
-                await this.siyuanApi.markBlockAsCard(blockId, card.getId().getValue(), 50, cardType);
-        
-        logger.debug('[SiYuanMemo][AutoCard] Single cloze card created:', blockId);
-        
-
-        const symbolText =
-            clozes[0].type === 'brace'
-                ? '{{}}'
-                : clozes[0].type === 'equal'
-                    ? '=='
-                    : clozes[0].type === 'mark'
-                        ? 'mark'
-                        : '\\cloze{}';
-        await this.siyuanApi.pushMsg(`Created cloze card (${symbolText})`);
     }
     
     // Create multi-cloze cards through Xiuyuan template.
@@ -1752,10 +1807,10 @@ export class AutoCardHandler implements ITransactionHandler {
         content: string,
         clozes: Array<{ text: string; type: 'brace' | 'equal' | 'mark' | 'latex' }>,
         clozeRenderMode: 'inline-formula-cloze' | 'default' = 'default',
-        cardType: 'topic' | 'item' = 'item'
+        cardType: 'topic' | 'item' = 'item',
+        source: AutoCardExecutionSource = 'symbol-listener',
+        decision?: CreationDecision
     ): Promise<void> {
-        const xiuyuanAppService = await this.requireXiuyuanApplicationService();
-        
         try {
             const clozesWithPosition = ClozeDetector.extractClozes(content);
             clozesWithPosition.sort((a, b) => a.start - b.start);
@@ -1763,7 +1818,7 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.debug('[SiYuanMemo][AutoCard] Extracted clozes with positions:', clozesWithPosition);
             
 
-            const result = await xiuyuanAppService.createFromBlocks({
+            const result = await this.createXiuyuanFromBlocks({
                 blockIds: [blockId],
                 templateId: 'builtin-multi-cloze',
                 fieldMapping: {
@@ -1776,7 +1831,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     originalContent: content,
                     clozes: clozesWithPosition
                 }
-            });
+            }, source, decision);
             
             if (isErr(result)) {
                 const errorMsg = this.getErrorMessage(result.error);
@@ -1877,24 +1932,18 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.debug('[SiYuanMemo][AutoCard] Parsed child blocks:', childBlocks);
             
 
-            const xiuyuanAppService = await this.requireXiuyuanApplicationService();
-            
-
             const blockIDs = [blockId, ...childBlocks.map(c => c.id)];
             
-
-
-
-                        const result = await xiuyuanAppService.createFromBlocks({
+            const result = await this.createXiuyuanFromBlocks({
                 blockIds: blockIDs,
                 templateId: 'builtin-list-item',
-                        fieldMapping: {
+                fieldMapping: {
                     question: blockId,
                     items: childBlocks.map(c => c.id).join(',')
                 },
                 deckId: this.riffApi.BUILTIN_DECK_ID,
                 cardType
-            });
+            }, 'doc-oneclick-scan');
             
             if (isErr(result)) {
                 const errorMsg = this.getErrorMessage(result.error);
@@ -1914,7 +1963,7 @@ export class AutoCardHandler implements ITransactionHandler {
     }
     
     // Ensure referenced concept document has its own concept card.
-    private async ensureConceptDocumentCard(conceptBlockId: string, conceptName: string): Promise<void> {
+    private async ensureConceptBlockCard(conceptBlockId: string, conceptName: string): Promise<void> {
         if (this.conceptCardEnsureInFlight.has(conceptBlockId)) {
             logger.debug('[SiYuanMemo][AutoCard] Concept document ensure already in flight, skipping:', conceptBlockId);
             return;
@@ -1935,15 +1984,14 @@ export class AutoCardHandler implements ITransactionHandler {
 
             logger.debug('[SiYuanMemo][AutoCard] Creating Xiuyuan concept card for:', conceptName);
             
-            const xiuyuanAppService = await this.requireXiuyuanApplicationService();
-            const result = await xiuyuanAppService.createFromBlocks({
+            const result = await this.createXiuyuanFromBlocks({
                 blockIds: [conceptBlockId],
                 templateId: 'builtin-concept-simple',
                 fieldMapping: {
                     concept: conceptBlockId
                 },
                 deckId: this.riffApi.BUILTIN_DECK_ID
-            });
+            }, 'symbol-listener');
             
             if (isErr(result)) {
                 const errorMsg = this.getErrorMessage(result.error);
@@ -1964,8 +2012,15 @@ export class AutoCardHandler implements ITransactionHandler {
     
     // Cleanup timers and in-memory queues.
     dispose(): void {
+        for (const timer of this.candidateTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.candidateTimers.clear();
+        this.candidateContexts.clear();
+        this.activeRunContexts.clear();
+        this.lastEvaluationFingerprintByBlock.clear();
         this.processing.clear();
-        this.currentEditingBlock = null;
+        this.conceptCardEnsureInFlight.clear();
         
         logger.debug('[SiYuanMemo][AutoCard] Handler disposed');
     }
@@ -2033,29 +2088,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 
 
                 try {
-                    const helper = this.getCardHelper();
-                    
-                    const result = await helper.createConceptCard(refId, {
-                        metadata: {
-                            concept: conceptName,
-                            cardSource: 'auto-concept',
-                            hasDefinition: false
-                        }
-                    });
-                    
-                    if (isErr(result)) {
-                        logger.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', result.error);
-                        continue;
-                    }
-                    
-                    const card = result.value;
-                    
-
-                                        await this.riffApi.addRiffCards(this.riffApi.BUILTIN_DECK_ID, [refId]);
-                    
-
-                                        await this.siyuanApi.markBlockAsCard(refId, card.getId().getValue(), 50, 'topic');
-                    
+                    await this.ensureConceptBlockCard(refId, conceptName);
                     logger.debug('[SiYuanMemo][AutoCard] Empty concept card created:', refId);
                 } catch (error) {
                     logger.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', error);
@@ -2225,34 +2258,11 @@ export class AutoCardHandler implements ITransactionHandler {
         }
 
         try {
-
             const blockQuery = `SELECT content FROM blocks WHERE id = '${conceptId}' LIMIT 1`;
             const blockResult = await this.sqlRows<BlockContentRow>(blockQuery);
             const conceptName = typeof blockResult?.[0]?.content === 'string' ? blockResult[0].content : 'unknown concept';
-            
-            const helper = this.getCardHelper();
-            
-            const result = await helper.createConceptCard(conceptId, {
-                metadata: {
-                    concept: conceptName,
-                    cardSource: 'auto-concept',
-                    hasDefinition: false
-                }
-            });
-            
-            if (isErr(result)) {
-                logger.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', result.error);
-                return null;
-            }
-            
-            const card = result.value;
-            
 
-                        await this.riffApi.addRiffCards(this.riffApi.BUILTIN_DECK_ID, [conceptId]);
-            
-
-                        await this.siyuanApi.markBlockAsCard(conceptId, card.getId().getValue(), 50, 'topic');
-            
+            await this.ensureConceptBlockCard(conceptId, conceptName);
             logger.debug('[SiYuanMemo][AutoCard] Empty concept card created:', conceptId);
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Failed to create empty concept card:', error);

@@ -1164,22 +1164,6 @@ onMounted(() => {
 
   // 🌌 恢复侧边栏状态（已删除）
 
-  // 🆕 触发增量同步（如果启用）
-  const context = getPluginContext(props.plugin);
-  const hybridSyncService = context?.getHybridSyncService?.();
-  if (hybridSyncService) {
-    const storage = context?.getStorage?.();
-    const riffConfig = storage?.getSettings?.()?.riffIntegration;
-    if (riffConfig?.mode === 'advanced' &&
-        riffConfig?.incrementalSync?.enabled &&
-        riffConfig?.incrementalSync?.triggers?.includes('review-open')) {
-      // 后台执行增量同步，不阻塞 UI
-      void hybridSyncService.incrementalSync().catch((err: Error) => {
-        logger.error('[ReviewView] Incremental sync failed:', err);
-      });
-    }
-  }
-
   // 🆕 初始化导航状态（Phase 3: UI 控件）
   refreshNavigationState();
   syncReviewFilterFromQueue();

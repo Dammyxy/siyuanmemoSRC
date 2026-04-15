@@ -7,7 +7,7 @@
  * 
  * 架构：
  * - 复用思源主 WebSocket 连接（不创建新连接）
- * - 支持多个处理器（RiffSyncHandler, AutoCardHandler）
+ * - 支持多个 transaction 处理器（当前用于 AutoCard 与文档树复习范围）
  * - 每个处理器独立处理事件
  * 
  * @see .kiro/specs/quick-card-symbols/design.md
@@ -15,7 +15,7 @@
 
 import type FSRSPlugin from '@/index';
 import { createLogger } from '@/utils/logger';
-import { resolveMainWebSocket, resolveWorkspaceDir } from './runtime';
+import { resolveWorkspaceDir } from './runtime';
 import { parseTransactionsPayload, parseWSMessage, type Transaction } from './transaction-types';
 
 const logger = createLogger('TransactionWebSocketService');
@@ -42,13 +42,13 @@ export interface ITransactionHandler {
  * 原因：思源只向主 WebSocket 广播 transaction 事件
  */
 export class TransactionWebSocketService {
+    private readonly plugin: FSRSPlugin;
     private enabled: boolean = false;
     
     // 注册的处理器列表
     private handlers: ITransactionHandler[] = [];
-    
-    // 保存原始的 onmessage 处理器
-    private originalOnMessage: ((event: MessageEvent) => void) | null = null;
+
+    private subscribedToEventBus: boolean = false;
     
     // 🆕 WebSocket 健康检查
     private lastMessageTime: number = 0;
@@ -56,18 +56,8 @@ export class TransactionWebSocketService {
     private readonly HEALTH_CHECK_INTERVAL = 60000; // 60秒检查一次
     private readonly MESSAGE_TIMEOUT = 300000; // 5分钟没有消息认为连接异常
     
-    constructor(_plugin: FSRSPlugin) {}
-    
-    /**
-     * 获取思源主 WebSocket
-     */
-    private getMainWebSocket(): WebSocket | null {
-        try {
-            return resolveMainWebSocket();
-        } catch (error) {
-            logger.error('Failed to get main WebSocket:', error);
-            return null;
-        }
+    constructor(plugin: FSRSPlugin) {
+        this.plugin = plugin;
     }
     
     /**
@@ -103,8 +93,12 @@ export class TransactionWebSocketService {
         }
         
         logger.info('Starting service...');
+        if (!this.attachToWorkspaceEventBus()) {
+            this.enabled = false;
+            return;
+        }
+
         this.enabled = true;
-        this.attachToMainWebSocket();
         this.startHealthCheck();
     }
     
@@ -118,72 +112,66 @@ export class TransactionWebSocketService {
         // 停止健康检查
         this.stopHealthCheck();
         
-        // 恢复原始的 onmessage 处理器
-        this.detachFromMainWebSocket();
+        this.detachFromWorkspaceEventBus();
         
         logger.info('Service stopped');
     }
     
     /**
-     * 附加到思源主 WebSocket
+     * 附加到宿主 ws-main 事件流
      */
-    private attachToMainWebSocket(): void {
-        const ws = this.getMainWebSocket();
-        
-        if (!ws) {
-            logger.error('Main WebSocket not found');
-            return;
+    private attachToWorkspaceEventBus(): boolean {
+        const eventBus = this.plugin?.eventBus as {
+            on?: (event: string, listener: (payload: unknown) => void) => void;
+        } | undefined;
+
+        if (!eventBus?.on) {
+            logger.error(
+                '[TransactionWebSocketService] Unable to subscribe to ws-main: plugin.eventBus.on is unavailable. ' +
+                'Auto-card transaction listeners will remain disabled.'
+            );
+            return false;
         }
-        
-        logger.info('Attaching to main WebSocket');
-        logger.info('Main WebSocket URL:', ws.url);
-        logger.info('Main WebSocket state:', ws.readyState, '(1=OPEN)');
-        
-        // 保存原始的 onmessage 处理器
-        this.originalOnMessage = ws.onmessage;
-        
-        // 包装原始处理器
-        ws.onmessage = (event: MessageEvent) => {
-            // 先调用我们的处理器
-            this.handleMessage(event);
-            
-            // 再调用原始处理器
-            if (this.originalOnMessage) {
-                this.originalOnMessage.call(ws, event);
-            }
-        };
-        
-        logger.info('Attached to main WebSocket');
+
+        eventBus.on('ws-main', this.handleWorkspaceMessage);
+        this.subscribedToEventBus = true;
+        logger.info('Subscribed to ws-main event bus stream');
+        return true;
     }
     
     /**
-     * 从思源主 WebSocket 分离
+     * 从宿主 ws-main 事件流分离
      */
-    private detachFromMainWebSocket(): void {
-        const ws = this.getMainWebSocket();
-        
-        if (!ws) {
+    private detachFromWorkspaceEventBus(): void {
+        if (!this.subscribedToEventBus) {
             return;
         }
-        
-        // 恢复原始的 onmessage 处理器
-        if (this.originalOnMessage) {
-            ws.onmessage = this.originalOnMessage;
-            this.originalOnMessage = null;
+
+        const eventBus = this.plugin?.eventBus as {
+            off?: (event: string, listener: (payload: unknown) => void) => void;
+        } | undefined;
+
+        if (eventBus?.off) {
+            eventBus.off('ws-main', this.handleWorkspaceMessage);
         }
-        
-        logger.info('Detached from main WebSocket');
+        this.subscribedToEventBus = false;
+        logger.info('Detached from ws-main event bus stream');
     }
     
     /**
-     * 处理 WebSocket 消息
+     * 处理宿主事件总线中的 ws-main 消息
      */
-    private handleMessage(event: MessageEvent): void {
+    private readonly handleWorkspaceMessage = (event: unknown): void => {
         try {
             // 🆕 更新最后消息时间
             this.lastMessageTime = Date.now();
-            
-            const message = parseWSMessage(event.data);
+
+            const detail = this.extractWorkspaceEventDetail(event);
+            if (!detail) {
+                return;
+            }
+
+            const message = this.parseWorkspaceMessage(detail);
             if (!message) {
                 return;
             }
@@ -197,6 +185,39 @@ export class TransactionWebSocketService {
         } catch (error) {
             logger.error('Failed to parse message:', error);
         }
+    };
+
+    private extractWorkspaceEventDetail(event: unknown): { cmd?: unknown; data?: unknown } | null {
+        if (!event || typeof event !== 'object') {
+            return null;
+        }
+
+        const candidate = event as {
+            detail?: unknown;
+            cmd?: unknown;
+            data?: unknown;
+        };
+
+        if (candidate.detail && typeof candidate.detail === 'object') {
+            return candidate.detail as { cmd?: unknown; data?: unknown };
+        }
+
+        return candidate;
+    }
+
+    private parseWorkspaceMessage(detail: { cmd?: unknown; data?: unknown }): { cmd: string; data?: unknown } | null {
+        if (typeof detail.cmd === 'string') {
+            return {
+                cmd: detail.cmd,
+                data: detail.data,
+            };
+        }
+
+        if (typeof detail.data === 'string') {
+            return parseWSMessage(detail.data);
+        }
+
+        return null;
     }
     
     /**
@@ -242,13 +263,12 @@ export class TransactionWebSocketService {
             
             if (timeSinceLastMessage > this.MESSAGE_TIMEOUT) {
                 const workspaceDir = resolveWorkspaceDir();
-                const ws = this.getMainWebSocket();
                 
                 logger.warn(
                     `[SiYuanMemo][TransactionWS] ⚠️ 健康检查警告：\n` +
                     `  工作空间: ${workspaceDir}\n` +
                     `  ${Math.floor(timeSinceLastMessage / 1000)}秒内没有收到任何消息\n` +
-                    `  WebSocket 状态: ${ws?.readyState || 'null'}\n` +
+                    `  事件源: ws-main eventBus\n` +
                     `  这可能是"静默连接"问题，建议：\n` +
                     `  1. 切换到其他工作空间测试\n` +
                     `  2. 使用手动同步功能\n` +

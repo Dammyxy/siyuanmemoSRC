@@ -1338,12 +1338,12 @@ const riffIntegrationConfig = ref({
   useLocalScheduler: true,
   incrementalSync: {
     enabled: true,
-    triggers: ['plugin-start'] as Array<'plugin-start' | 'browser-open' | 'review-open'>,
+    triggers: ['plugin-start'] as Array<'plugin-start' | 'browser-open'>,
     useBlacklist: true,
   },
   fullSync: {
     enabled: true,
-    interval: 604800000,  // 7天
+    interval: 86400000,  // 24小时
     cleanupBlacklist: true,
   },
   deleteSync: {
@@ -1356,8 +1356,7 @@ const riffIntegrationConfig = ref({
 // 🆕 触发器复选框状态（用于 UI 绑定）
 const triggers = ref({
   pluginStart: true,
-  browserOpen: true,
-  reviewOpen: true,
+  browserOpen: false,
 });
 
 // 参数预览
@@ -1599,8 +1598,8 @@ function loadSettings() {
 
   const incomingTriggers = Array.isArray(incomingIncremental.triggers)
     ? incomingIncremental.triggers.filter(
-      (trigger): trigger is 'plugin-start' | 'browser-open' | 'review-open' =>
-        trigger === 'plugin-start' || trigger === 'browser-open' || trigger === 'review-open'
+      (trigger): trigger is 'plugin-start' | 'browser-open' =>
+        trigger === 'plugin-start' || trigger === 'browser-open'
     )
     : riffIntegrationConfig.value.incrementalSync.triggers;
 
@@ -1616,7 +1615,7 @@ function loadSettings() {
     },
     fullSync: {
       enabled: typeof incomingFullSync.enabled === 'boolean' ? incomingFullSync.enabled : true,
-      interval: typeof incomingFullSync.interval === 'number' ? incomingFullSync.interval : 604800000,
+      interval: typeof incomingFullSync.interval === 'number' ? incomingFullSync.interval : 86400000,
       cleanupBlacklist: typeof incomingFullSync.cleanupBlacklist === 'boolean' ? incomingFullSync.cleanupBlacklist : true,
     },
     deleteSync: {
@@ -1631,7 +1630,6 @@ function loadSettings() {
   triggers.value = {
     pluginStart: riffIntegrationConfig.value.incrementalSync.triggers.includes('plugin-start'),
     browserOpen: riffIntegrationConfig.value.incrementalSync.triggers.includes('browser-open'),
-    reviewOpen: riffIntegrationConfig.value.incrementalSync.triggers.includes('review-open'),
   };
 
   aiSettings.value = mergeAISettings(props.aiSettings);
@@ -1665,10 +1663,9 @@ function saveSettings() {
   };
 
   // 🆕 从复选框状态构建 triggers 数组
-  const triggersArray: Array<'plugin-start' | 'browser-open' | 'review-open'> = [];
+  const triggersArray: Array<'plugin-start' | 'browser-open'> = [];
   if (triggers.value.pluginStart) triggersArray.push('plugin-start');
   if (triggers.value.browserOpen) triggersArray.push('browser-open');
-  if (triggers.value.reviewOpen) triggersArray.push('review-open');
 
   const {
     addToOutstandingEveryNth: _spacingFromForm,

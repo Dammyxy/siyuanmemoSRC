@@ -25,7 +25,7 @@
  * 6. 杩斿洖鍒涘缓鐨?Xiuyuan 鍜屽崱鐗?
  */
 
-import { Result, err, isErr } from '@/types/result';
+import { Result, err, isErr, ok } from '@/types/result';
 import { CreateXiuyuanFromBlocksCommand } from '../../commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
@@ -43,6 +43,7 @@ import { createLogger } from '@/utils/logger';
 import { isDefinitionTemplate, isDescriptorTemplate } from './shared/DescriptorTemplateStrategy';
 import {
   finalizeXiuyuanCreation,
+  toXiuyuanCreationPayload,
   type XiuyuanCreationPayload,
 } from './shared/FinalizeXiuyuanCreation';
 
@@ -122,13 +123,9 @@ export class CreateXiuyuanFromBlocksUseCase {
    */
   async execute(command: CreateXiuyuanFromBlocksCommand): Promise<Result<XiuyuanCreationPayload>> {
     try {
-      // 1. 妫€鏌ユ槸鍚﹀凡缁忓垱寤鸿繃 Xiuyuan 鍗＄墖
-      
-      // 馃啎 瀵逛簬 concept-descriptor 妯℃澘锛屾鏌ョ浜屼釜鍧楋紙鎻忚堪绗﹀潡锛?
-      // 鍥犱负姒傚康鍗℃湰韬彲浠ユ湁鑷繁鐨?Xiuyuan锛屾弿杩扮鍗℃槸鍏宠仈鍒版蹇靛崱鐨?
-      // 
-      // 馃啎 瀵逛簬 concept-definition 妯℃澘锛屾鏌ョ涓€涓潡锛堝畾涔夊潡锛?
-      // 鍥犱负姒傚康鍧楀彲浠ユ湁鑷繁鐨?Xiuyuan锛屽畾涔夊潡涓烘蹇垫彁渚涘畾涔?
+      const duplicatePolicy = command.duplicatePolicy ?? 'error';
+
+      // 1. 在任何副作用前先计算代表块与稳定 XiuyuanId
       let blockToCheck = command.blockIds[0];
       const descriptorTemplate = isDescriptorTemplate(command.templateId);
       const definitionTemplate = isDefinitionTemplate(command.templateId);
@@ -141,24 +138,73 @@ export class CreateXiuyuanFromBlocksUseCase {
         logger.debug(`Concept-definition template detected, checking definition block: ${blockToCheck}`);
       }
       logger.debug(`Checking block for existing Xiuyuan: ${blockToCheck}`);
+      let representativeBlockId = command.blockIds[0];
+      if (descriptorTemplate && command.blockIds.length >= 2) {
+        representativeBlockId = command.blockIds[1];
+        logger.debug(`Using descriptor block as representative: ${representativeBlockId}`);
+      } else if (definitionTemplate && command.blockIds.length >= 1) {
+        representativeBlockId = command.blockIds[0];
+        logger.debug(`Using definition block as representative: ${representativeBlockId}`);
+      }
       
+      const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
+      if (isErr(xiuyuanIdResult)) {
+        return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
+      }
+      traceAutoCardCreation('CreateXiuyuanFromBlocksUseCase.identity', {
+        templateId: command.templateId,
+        blockToCheck,
+        representativeBlockId,
+        computedXiuyuanId: xiuyuanIdResult.value.getValue(),
+        blockIds: command.blockIds,
+        isBidirectional: Boolean(command.isBidirectional),
+        source: command.source ?? null,
+        duplicatePolicy,
+      });
+
+      const existingXiuyuanResult = await this.xiuyuanRepository.findById(xiuyuanIdResult.value);
+      if (isErr(existingXiuyuanResult)) {
+        return err(this.toError(existingXiuyuanResult.error, 'Failed to load existing Xiuyuan'));
+      }
+
       const attrs = await this.siyuanApi.getBlockAttrs(blockToCheck);
       const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'] || '';
       traceAutoCardCreation('CreateXiuyuanFromBlocksUseCase.dedupCheck', {
         templateId: command.templateId,
         blockIds: command.blockIds,
         blockToCheck,
+        representativeBlockId,
+        computedXiuyuanId: xiuyuanIdResult.value.getValue(),
         isBidirectional: Boolean(command.isBidirectional),
         source: command.source ?? null,
+        duplicatePolicy,
         attrs: summarizeTraceAttrs(attrs),
         existingXiuyuanId: existingXiuyuanId || null,
+        existingByComputedId: Boolean(existingXiuyuanResult.value),
       });
-      
-      if (existingXiuyuanId) {
-        logger.info(`Block ${blockToCheck} already has Xiuyuan: ${existingXiuyuanId}`);
+
+      if (existingXiuyuanResult.value) {
+        if (duplicatePolicy === 'reuse-existing') {
+          traceAutoCardCreation('CreateXiuyuanFromBlocksUseCase.reuseExisting', {
+            templateId: command.templateId,
+            blockIds: command.blockIds,
+            blockToCheck,
+            representativeBlockId,
+            computedXiuyuanId: xiuyuanIdResult.value.getValue(),
+            source: command.source ?? null,
+          });
+          return ok(toXiuyuanCreationPayload(existingXiuyuanResult.value));
+        }
+
+        logger.info(`Xiuyuan already exists for representative block ${representativeBlockId}: ${xiuyuanIdResult.value.getValue()}`);
         return err(new Error('\u6b64\u5757\u5df2\u7ecf\u521b\u5efa\u8fc7\u95ea\u5361\uff0c\u8bf7\u5148\u53d6\u6d88\u73b0\u6709\u95ea\u5361\u518d\u91cd\u65b0\u521b\u5efa'));
       }
-      
+
+      if (existingXiuyuanId && duplicatePolicy === 'error') {
+        logger.info(`Block ${blockToCheck} already has Xiuyuan attrs binding: ${existingXiuyuanId}`);
+        return err(new Error('\u6b64\u5757\u5df2\u7ecf\u521b\u5efa\u8fc7\u95ea\u5361\uff0c\u8bf7\u5148\u53d6\u6d88\u73b0\u6709\u95ea\u5361\u518d\u91cd\u65b0\u521b\u5efa'));
+      }
+
       // 2. 楠岃瘉妯℃澘锛堜紭鍏堜娇鐢ㄨ嚜瀹氫箟妯＄増锛?
       let template = isCardTemplate(command.template)
         ? command.template
@@ -190,33 +236,6 @@ export class CreateXiuyuanFromBlocksUseCase {
       if (!template.cardRules || template.cardRules.length === 0) {
         return err(new Error('Template has no card rules'));
       }
-
-      // 3. 鍒涘缓鍊煎璞?
-      // 馃敡 缁熶竴 ID 鏍煎紡锛氫娇鐢ㄤ唬琛ㄥ潡 ID锛堢涓€涓潡锛?
-      // 馃啎 瀵逛簬鎻忚堪绗︽ā鏉匡紝浣跨敤鎻忚堪绗﹀潡锛堢浜屼釜鍧楋級浣滀负浠ｈ〃鍧?
-      // 馃啎 瀵逛簬瀹氫箟妯℃澘锛屼娇鐢ㄥ畾涔夊潡锛堢涓€涓潡锛変綔涓轰唬琛ㄥ潡
-      let representativeBlockId = command.blockIds[0];
-      if (descriptorTemplate && command.blockIds.length >= 2) {
-        representativeBlockId = command.blockIds[1];
-        logger.debug(`Using descriptor block as representative: ${representativeBlockId}`);
-      } else if (definitionTemplate && command.blockIds.length >= 1) {
-        representativeBlockId = command.blockIds[0];
-        logger.debug(`Using definition block as representative: ${representativeBlockId}`);
-      }
-      
-      const xiuyuanIdResult = XiuyuanId.create(`xy_${representativeBlockId}`);
-      if (isErr(xiuyuanIdResult)) {
-        return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
-      }
-      traceAutoCardCreation('CreateXiuyuanFromBlocksUseCase.identity', {
-        templateId: command.templateId,
-        blockToCheck,
-        representativeBlockId,
-        computedXiuyuanId: xiuyuanIdResult.value.getValue(),
-        blockIds: command.blockIds,
-        isBidirectional: Boolean(command.isBidirectional),
-        source: command.source ?? null,
-      });
 
       const blockIds: BlockId[] = [];
       for (const blockId of command.blockIds) {

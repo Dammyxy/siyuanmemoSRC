@@ -37,10 +37,10 @@ describe('RiffIntegrationConfig', () => {
                 expect(DEFAULT_RIFF_CONFIG.fullSync.enabled).toBe(true);
             });
             
-            it('should have 7-day interval', () => {
-                const expectedInterval = 7 * 24 * 60 * 60 * 1000; // 7天（毫秒）
+            it('should have 24-hour interval', () => {
+                const expectedInterval = 24 * 60 * 60 * 1000; // 24小时（毫秒）
                 expect(DEFAULT_RIFF_CONFIG.fullSync.interval).toBe(expectedInterval);
-                expect(DEFAULT_RIFF_CONFIG.fullSync.interval).toBe(604800000);
+                expect(DEFAULT_RIFF_CONFIG.fullSync.interval).toBe(86400000);
             });
             
             it('should cleanup blacklist by default', () => {

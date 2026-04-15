@@ -30,13 +30,15 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
       dedupedCards.set(card.id, card);
     }
 
-    for (const [cardId, card] of dedupedCards.entries()) {
-      const result = await this.storage.updateCard(card);
-      if (isErr(result)) {
-        throw new Error(
-          `Failed to persist card "${cardId}" in scheduler adapter: ${result.error.message}`
-        );
+    await this.storage.runWriteTransaction('scheduler.batchUpdateCardsWithoutEvents', async () => {
+      for (const [cardId, card] of dedupedCards.entries()) {
+        const result = await this.storage.updateCard(card);
+        if (isErr(result)) {
+          throw new Error(
+            `Failed to persist card "${cardId}" in scheduler adapter: ${result.error.message}`
+          );
+        }
       }
-    }
+    });
   }
 }

@@ -42,6 +42,7 @@ export interface UnifiedCardStore {
   cardDTOs?: Record<string, CardPersistenceDTO>;
   riffBlacklist?: string[];
   syncMetadata?: StorageSyncMetadata;
+  riffSyncState?: RiffSyncState;
 }
 
 export type StorageConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
@@ -53,6 +54,13 @@ export interface StorageSyncMetadata {
   lastModifiedBy: string;
 }
 
+export interface RiffSyncState {
+  lastSuccessfulIncrementalCursor?: string;
+  lastSuccessfulIncrementalAt?: number;
+  lastSuccessfulFullAt?: number;
+}
+
+type RiffSyncStatePatch = Partial<RiffSyncState>;
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
 
 const STABLE_QUICK_META_STRING_KEYS = ['source', 'cardSource', 'symbolType', 'clozeRenderMode'] as const;
@@ -60,6 +68,19 @@ const STABLE_QUICK_META_BOOLEAN_KEYS = ['symbolDetected'] as const;
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
 }
 
 function stableStringify(value: unknown): string {
@@ -127,6 +148,7 @@ export class UnifiedStorageManager {
   private xiuyuans: Map<string, IXiuyuan> = new Map();
   private cardDTOs: Map<string, CardPersistenceDTO> = new Map();  // 鉁?鍙淮鎶?DTO Map
   private riffBlacklist: Set<string> = new Set();
+  private riffSyncState: RiffSyncState = {};
 
   // === 鍐呭瓨绱㈠紩 ===
   private indexByBlockID: Map<string, string[]> = new Map();
@@ -148,6 +170,45 @@ export class UnifiedStorageManager {
   private readonly instanceId = `storage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   private lastKnownContentHash: string | null = null;
   private lastKnownRevision: number = 0;
+  private writeQueue: Promise<void> = Promise.resolve();
+  private writeDepth = 0;
+
+  async runWriteTransaction<T>(
+    label: string,
+    operation: () => Promise<T> | T
+  ): Promise<T> {
+    if (this.writeDepth > 0) {
+      return await operation();
+    }
+
+    const previousQueue = this.writeQueue;
+    let releaseQueue: (() => void) | undefined;
+    this.writeQueue = new Promise<void>((resolve) => {
+      releaseQueue = resolve;
+    });
+
+    await previousQueue;
+    const startedAt = Date.now();
+    this.writeDepth += 1;
+    logger.debug('[UnifiedStorageManager] Local write transaction begin', { label });
+    try {
+      return await operation();
+    } finally {
+      this.writeDepth = Math.max(0, this.writeDepth - 1);
+      releaseQueue?.();
+      logger.debug('[UnifiedStorageManager] Local write transaction end', {
+        label,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+  }
+
+  private async runWriteMutation<T>(
+    label: string,
+    operation: () => Promise<T> | T
+  ): Promise<T> {
+    return this.runWriteTransaction(label, operation);
+  }
 
   private getXiuyuanFromLookup(
     xiuyuanId: string | undefined,
@@ -259,6 +320,26 @@ export class UnifiedStorageManager {
     return this.conflictResolutionStrategy;
   }
 
+  getRiffSyncState(): RiffSyncState {
+    return { ...this.sanitizeRiffSyncState(this.riffSyncState) };
+  }
+
+  async updateRiffSyncState(patch: RiffSyncStatePatch): Promise<Result<void>> {
+    return this.runWriteMutation('riff-sync-state', async () => {
+      this.riffSyncState = this.sanitizeRiffSyncState({
+        ...this.riffSyncState,
+        ...patch,
+      });
+
+      this.scheduleSave();
+      const saveResult = await this.save();
+      if (isErr(saveResult)) {
+        return saveResult;
+      }
+      return ok(undefined);
+    });
+  }
+
   isDirty(): boolean {
     return this.dirty;
   }
@@ -339,40 +420,42 @@ export class UnifiedStorageManager {
   }
 
   async save(): Promise<Result<void>> {
-    try {
-      if (!this.saveCallback) {
-        return err(new Error('Save callback not set'));
-      }
+    return this.runWriteMutation('save', async () => {
+      try {
+        if (!this.saveCallback) {
+          return err(new Error('Save callback not set'));
+        }
 
-      const localStore = this.getStoreData();
-      const remoteStore = await this.loadRemoteSnapshotForSave();
-      const { storeToPersist, skipPersist } = this.resolveConflictBeforeSave(localStore, remoteStore);
+        const localStore = this.getStoreData();
+        const remoteStore = await this.loadRemoteSnapshotForSave();
+        const { storeToPersist, skipPersist } = this.resolveConflictBeforeSave(localStore, remoteStore);
 
-      if (!skipPersist) {
-        const storeData = this.prepareStoreForPersist(storeToPersist, remoteStore);
+        if (!skipPersist) {
+          const storeData = this.prepareStoreForPersist(storeToPersist, remoteStore);
+          await this.saveCallback(storeData);
+          this.captureSnapshotFromStore(storeData);
+        }
+
+        this.dirty = false;
+        this.clearSaveTimer();
+        return ok(undefined);
+
+        // 鑾峰彇褰撳墠鏁版嵁骞朵紶閫掔粰淇濆瓨鍥炶皟
+        const storeData = this.getStoreData();
         await this.saveCallback(storeData);
-        this.captureSnapshotFromStore(storeData);
+        this.dirty = false;
+
+        // 娓呴櫎淇濆瓨瀹氭椂鍣?
+        if (this.saveTimer) {
+          clearTimeout(this.saveTimer);
+          this.saveTimer = null;
+        }
+
+        return ok(undefined);
+      } catch (error) {
+        return err(error instanceof Error ? error : new Error(String(error)));
       }
-
-      this.dirty = false;
-      this.clearSaveTimer();
-      return ok(undefined);
-
-      // 鑾峰彇褰撳墠鏁版嵁骞朵紶閫掔粰淇濆瓨鍥炶皟
-      const storeData = this.getStoreData();
-      await this.saveCallback(storeData);
-      this.dirty = false;
-
-      // 娓呴櫎淇濆瓨瀹氭椂鍣?
-      if (this.saveTimer) {
-        clearTimeout(this.saveTimer);
-        this.saveTimer = null;
-      }
-
-      return ok(undefined);
-    } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
-    }
+    });
   }
 
   /**
@@ -384,6 +467,7 @@ export class UnifiedStorageManager {
     this.xiuyuans.clear();
     this.cardDTOs.clear();
     this.riffBlacklist.clear();
+    this.riffSyncState = this.sanitizeRiffSyncState(canonicalStore.riffSyncState);
 
     for (const [id, xiuyuan] of Object.entries(canonicalStore.xiuyuans)) {
       this.xiuyuans.set(id, xiuyuan);
@@ -438,6 +522,12 @@ export class UnifiedStorageManager {
     }
 
     logger.warn('[UnifiedStorageManager] Storage conflict detected', {
+      strategy: this.conflictResolutionStrategy,
+      lastKnownHash: this.lastKnownContentHash,
+      remoteHash,
+      localHash,
+    });
+    logger.error('[UnifiedStorageManager] Abnormal local storage conflict fallback; merge is reserved for multi-window or external writer recovery, not the normal single-writer path', {
       strategy: this.conflictResolutionStrategy,
       lastKnownHash: this.lastKnownContentHash,
       remoteHash,
@@ -526,6 +616,10 @@ export class UnifiedStorageManager {
       cards: mergedCards,
       cardDTOs: mergedCardDTOs,
       riffBlacklist: mergedBlacklist,
+      riffSyncState: this.chooseMostRecentRiffSyncState(
+        this.sanitizeRiffSyncState(canonicalLocal.riffSyncState),
+        this.sanitizeRiffSyncState(canonicalRemote.riffSyncState)
+      ),
     };
   }
 
@@ -568,6 +662,94 @@ export class UnifiedStorageManager {
       : JSON.parse(JSON.stringify(remoteXiuyuan)) as IXiuyuan;
   }
 
+  private normalizeXiuyuanDuplicateCards(
+    cardDTOs: Record<string, CardPersistenceDTO>,
+    xiuyuans: Record<string, IXiuyuan>
+  ): { removedCardIds: string[]; duplicateGroupCount: number } {
+    const duplicateGroups = new Map<string, Array<{ id: string; dto: CardPersistenceDTO }>>();
+
+    for (const [id, dto] of Object.entries(cardDTOs)) {
+      const xiuyuanId = typeof dto.xiuyuanID === 'string' ? dto.xiuyuanID.trim() : '';
+      const faceIndex = readFiniteNumber(dto.meta?.faceIndex) ?? readFiniteNumber(dto.meta?.ruleIndex);
+      if (!xiuyuanId || faceIndex === undefined) {
+        continue;
+      }
+
+      const groupKey = `${xiuyuanId}::${faceIndex}`;
+      const group = duplicateGroups.get(groupKey) ?? [];
+      group.push({ id, dto });
+      duplicateGroups.set(groupKey, group);
+    }
+
+    const removedCardIds: string[] = [];
+    const affectedXiuyuanIds = new Set<string>();
+    let duplicateGroupCount = 0;
+
+    for (const [groupKey, group] of duplicateGroups.entries()) {
+      if (group.length <= 1) {
+        continue;
+      }
+
+      duplicateGroupCount += 1;
+      const [xiuyuanId, faceIndexRaw] = groupKey.split('::');
+      const faceIndex = Number(faceIndexRaw);
+      const deterministicId = `card_${xiuyuanId}_${faceIndex}`;
+      const keepCandidate = group.find((candidate) => candidate.id === deterministicId)
+        ?? group.reduce((best, current) => {
+          const bestUpdatedAt = this.toNumber(best.dto.updatedAt);
+          const currentUpdatedAt = this.toNumber(current.dto.updatedAt);
+          if (currentUpdatedAt > bestUpdatedAt) {
+            return current;
+          }
+          if (currentUpdatedAt < bestUpdatedAt) {
+            return best;
+          }
+
+          const bestCreatedAt = this.toNumber(best.dto.createdAt);
+          const currentCreatedAt = this.toNumber(current.dto.createdAt);
+          return currentCreatedAt >= bestCreatedAt ? current : best;
+        });
+
+      for (const candidate of group) {
+        if (candidate.id === keepCandidate.id) {
+          continue;
+        }
+        delete cardDTOs[candidate.id];
+        removedCardIds.push(candidate.id);
+        affectedXiuyuanIds.add(xiuyuanId);
+      }
+    }
+
+    for (const xiuyuanId of affectedXiuyuanIds) {
+      const xiuyuan = xiuyuans[xiuyuanId];
+      if (!xiuyuan || !isObjectRecord(xiuyuan.meta) || !Array.isArray(xiuyuan.meta.cardIds)) {
+        continue;
+      }
+
+      const validCardIds = new Set(
+        Object.entries(cardDTOs)
+          .filter(([, dto]) => (typeof dto.xiuyuanID === 'string' ? dto.xiuyuanID.trim() : '') === xiuyuanId)
+          .map(([cardId]) => cardId)
+      );
+      const dedupedCardIds = Array.from(new Set(
+        xiuyuan.meta.cardIds.filter((cardId): cardId is string => typeof cardId === 'string' && validCardIds.has(cardId))
+      ));
+
+      xiuyuans[xiuyuanId] = {
+        ...xiuyuan,
+        meta: {
+          ...xiuyuan.meta,
+          cardIds: dedupedCardIds,
+        },
+      };
+    }
+
+    return {
+      removedCardIds,
+      duplicateGroupCount,
+    };
+  }
+
   private prepareCanonicalStore(store: UnifiedCardStore): UnifiedCardStore {
     const sourceXiuyuans = store.xiuyuans ?? {};
     const sourceCardDTOs = this.extractCardDTOs(store);
@@ -580,6 +762,15 @@ export class UnifiedStorageManager {
 
     for (const [id, dto] of Object.entries(sourceCardDTOs)) {
       cardDTOs[id] = JSON.parse(JSON.stringify(dto)) as CardPersistenceDTO;
+    }
+
+    const normalization = this.normalizeXiuyuanDuplicateCards(cardDTOs, xiuyuans);
+    if (normalization.removedCardIds.length > 0) {
+      logger.info('[UnifiedStorageManager] Normalized duplicate Xiuyuan logical cards', {
+        duplicateGroupCount: normalization.duplicateGroupCount,
+        removedCardCount: normalization.removedCardIds.length,
+        removedCardIdsSample: normalization.removedCardIds.slice(0, 10),
+      });
     }
 
     const cards: Record<string, FSRSCard> = {};
@@ -604,6 +795,7 @@ export class UnifiedStorageManager {
       cards,
       cardDTOs,
       riffBlacklist: this.sanitizeRiffBlacklist(store.riffBlacklist),
+      riffSyncState: this.sanitizeRiffSyncState(store.riffSyncState),
       syncMetadata,
     };
   }
@@ -643,6 +835,7 @@ export class UnifiedStorageManager {
       xiuyuans: canonicalStore.xiuyuans,
       cardDTOs: canonicalStore.cardDTOs || {},
       riffBlacklist: canonicalStore.riffBlacklist || [],
+      riffSyncState: canonicalStore.riffSyncState || {},
     });
     return fnv1aHash(hashInput);
   }
@@ -676,6 +869,45 @@ export class UnifiedStorageManager {
       }
     }
     return 0;
+  }
+
+  private sanitizeRiffSyncState(value: unknown): RiffSyncState {
+    if (!isObjectRecord(value)) {
+      return {};
+    }
+
+    const lastSuccessfulIncrementalCursor = typeof value.lastSuccessfulIncrementalCursor === 'string'
+      && value.lastSuccessfulIncrementalCursor.trim().length > 0
+      ? value.lastSuccessfulIncrementalCursor.trim()
+      : undefined;
+    const lastSuccessfulIncrementalAt = readFiniteNumber(value.lastSuccessfulIncrementalAt);
+    const lastSuccessfulFullAt = readFiniteNumber(value.lastSuccessfulFullAt);
+
+    return {
+      ...(lastSuccessfulIncrementalCursor ? { lastSuccessfulIncrementalCursor } : {}),
+      ...(lastSuccessfulIncrementalAt !== undefined ? { lastSuccessfulIncrementalAt } : {}),
+      ...(lastSuccessfulFullAt !== undefined ? { lastSuccessfulFullAt } : {}),
+    };
+  }
+
+  private chooseMostRecentRiffSyncState(
+    localState: RiffSyncState,
+    remoteState: RiffSyncState
+  ): RiffSyncState {
+    return {
+      lastSuccessfulIncrementalCursor:
+        (localState.lastSuccessfulIncrementalAt ?? 0) >= (remoteState.lastSuccessfulIncrementalAt ?? 0)
+          ? localState.lastSuccessfulIncrementalCursor
+          : remoteState.lastSuccessfulIncrementalCursor,
+      lastSuccessfulIncrementalAt: Math.max(
+        localState.lastSuccessfulIncrementalAt ?? 0,
+        remoteState.lastSuccessfulIncrementalAt ?? 0
+      ) || undefined,
+      lastSuccessfulFullAt: Math.max(
+        localState.lastSuccessfulFullAt ?? 0,
+        remoteState.lastSuccessfulFullAt ?? 0
+      ) || undefined,
+    };
   }
 
   private scheduleSave(): void {
@@ -826,6 +1058,7 @@ export class UnifiedStorageManager {
       cards,  // 鍚戝悗鍏煎
       cardDTOs,  // 涓绘暟鎹簮
       riffBlacklist: Array.from(this.riffBlacklist),
+      riffSyncState: this.sanitizeRiffSyncState(this.riffSyncState),
       syncMetadata: this.lastKnownContentHash
         ? {
             revision: this.lastKnownRevision,
@@ -873,6 +1106,7 @@ export class UnifiedStorageManager {
      * - 鎬ц兘浼樺寲锛氫竴娆℃€ф洿鏂扮储寮曪紝涓€娆′繚瀛?
      */
     async batchCreateCards(xiuyuan: IXiuyuan, cards: FSRSCard[]): Promise<Result<void>> {
+      return this.runWriteMutation('batchCreateCards', async () => {
       // 楠岃瘉杈撳叆
       if (!xiuyuan || !xiuyuan.id) {
         return err(new Error('Invalid xiuyuan: missing id'));
@@ -956,6 +1190,7 @@ export class UnifiedStorageManager {
 
         return err(error instanceof Error ? error : new Error(String(error)));
       }
+      });
     }
 
     // === DTO CRUD 鎿嶄綔 ===
@@ -966,6 +1201,7 @@ export class UnifiedStorageManager {
      * @param dto CardPersistenceDTO
      */
     async createCardDTO(xiuyuan: IXiuyuan, dto: CardPersistenceDTO): Promise<Result<void>> {
+      return this.runWriteMutation('createCardDTO', async () => {
       try {
         // 淇濆瓨 XiuYuan锛堝鏋滀笉瀛樺湪锛?
         if (!this.xiuyuans.has(xiuyuan.id)) {
@@ -988,6 +1224,7 @@ export class UnifiedStorageManager {
       } catch (error) {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
+      });
     }
 
     /**
@@ -1003,6 +1240,7 @@ export class UnifiedStorageManager {
      * @param dto 鏇存柊鍚庣殑 DTO
      */
     async updateCardDTO(dto: CardPersistenceDTO): Promise<Result<void>> {
+      return this.runWriteMutation('updateCardDTO', async () => {
       try {
         // 鉁?闃插尽鎬ф鏌ワ細纭繚 cardDTOs Map 宸插垵濮嬪寲
         if (!this.cardDTOs) {
@@ -1050,6 +1288,7 @@ export class UnifiedStorageManager {
       } catch (error) {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
+      });
     }
 
     /**
@@ -1058,6 +1297,7 @@ export class UnifiedStorageManager {
      * @param dtos CardPersistenceDTO 鏁扮粍
      */
     async batchCreateCardsDTO(xiuyuan: IXiuyuan, dtos: CardPersistenceDTO[]): Promise<Result<void>> {
+      return this.runWriteMutation('batchCreateCardsDTO', async () => {
       // 楠岃瘉杈撳叆
       if (!xiuyuan || !xiuyuan.id) {
         return err(new Error('Invalid xiuyuan: missing id'));
@@ -1139,6 +1379,7 @@ export class UnifiedStorageManager {
 
         return err(error instanceof Error ? error : new Error(String(error)));
       }
+      });
     }
 
     /**
@@ -1220,6 +1461,7 @@ export class UnifiedStorageManager {
    * @param cardId 鍗＄墖 ID
    */
   async deleteCard(cardId: string): Promise<Result<void>> {
+    return this.runWriteMutation('deleteCard', async () => {
     try {
       const dto = this.cardDTOs.get(cardId);
       if (!dto) {
@@ -1251,6 +1493,7 @@ export class UnifiedStorageManager {
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
+    });
   }
 
   /**
@@ -1258,6 +1501,7 @@ export class UnifiedStorageManager {
    * @param xiuyuanId XiuYuan ID
    */
   async deleteXiuYuan(xiuyuanId: string): Promise<Result<void>> {
+    return this.runWriteMutation('deleteXiuYuan', async () => {
     try {
       const xiuyuan = this.xiuyuans.get(xiuyuanId);
       if (!xiuyuan) {
@@ -1287,6 +1531,7 @@ export class UnifiedStorageManager {
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
+    });
   }
 
   // === 鏌ヨ鏂规硶 ===

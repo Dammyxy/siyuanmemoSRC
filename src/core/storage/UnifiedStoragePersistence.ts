@@ -101,5 +101,6 @@ function createEmptyStore(): UnifiedCardStore {
     cards: {},
     cardDTOs: {},
     riffBlacklist: [],
+    riffSyncState: {},
   };
 }

@@ -526,11 +526,8 @@ export class DialogManager implements IDialogManager {
             });
           }
 
-          // 更新 TransactionWebSocketService 配置 (符合 DDD 架构)
-          if (settings.riffIntegration) {
-            const incrementalEnabled = settings.riffIntegration.incrementalSync?.enabled || false;
-            await this.context.updateTransactionWebSocketService(incrementalEnabled);
-          }
+          // TransactionWebSocketService 只服务监听制卡；Riff 对账不再由 transaction 驱动。
+          await this.context.updateTransactionWebSocketService(updatedSettings.quickCard?.enabled === true);
         },
         close: () => {
           this.closeSettingsDialog();

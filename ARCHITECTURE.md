@@ -289,6 +289,7 @@ UI surface：
 - `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务。
 - `src/application/services/ReviewApplicationService.ts`：复习流程相关编排。
 - `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务。
+- `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan。
 - `src/application/services/ReviewQueuePreparationService.ts` / `DocTreeReviewScopeService.ts`：review scope 与 queue preparation 编排。
 - `src/application/services/ConfiguredCaptureStorageService.ts`：capture 目标存储解析与写入策略。
 - `src/application/services/ExcerptRecordService.ts`：摘录记录与去重相关服务。
@@ -315,9 +316,8 @@ UI surface：
 
 Handlers / entries / helpers：
 
-- `src/application/handlers/AutoCardHandler.ts`：自动制卡、topic continuation、与 Riff / Progressive 的事件联动。
+- `src/application/handlers/AutoCardHandler.ts`：自动制卡、topic continuation、与 Riff / Progressive 的事件联动；当前监听制卡走“transaction 只标记候选块，300ms settled 后重读真实块状态再做 planner / Xiuyuan ensure”的语义触发模型。
 - `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`：编辑器 / review 摘录热键入口。
-- `src/application/handlers/RiffSyncHandler.ts`：Riff 同步事件处理。
 - `src/application/entries/*`：surface 级入口解析，如 block context、selection resolver、review entry registry。
 - `src/application/helpers/CardCreationHelper.ts`：建卡共享辅助逻辑。
 
@@ -357,7 +357,7 @@ Handlers / entries / helpers：
 共享能力：
 
 - `src/core/shared/domain/events/EventBus.ts`：共享事件总线。
-- `src/core/infrastructure/websocket/TransactionWebSocketService.ts`：事务级 websocket 监听。
+- `src/core/infrastructure/websocket/TransactionWebSocketService.ts`：事务级 `ws-main` 事件总线订阅与 handler 分发。
 - `src/core/infrastructure/websocket/QuickCardWebSocketService.ts`：快速卡 websocket。
 - `src/core/extensions/*`：可扩展 queue / review provider 抽象。
 - `src/core/siyuan/*`：核心 Siyuan API 封装；不应成为 UI / application 直连入口。
@@ -644,10 +644,9 @@ UI 层：
 
 - `EventBus`
 - `UnifiedDataSourceManager` observer 事件
-- `TransactionWebSocketService`
-- `XiuyuanSyncService`
-- `RiffSyncHandler`
-- `AutoCardHandler`
+- `TransactionWebSocketService`（订阅宿主 `eventBus.on('ws-main')`，不再 monkey-patch 主 `WebSocket.onmessage`；当前只承载 AutoCard / doc tree review scope 等 transaction-local 处理）
+- `XiuyuanSyncService`（生命周期触发的 Riff 增量/全量对账，不再由 transaction 近实时触发）
+- `AutoCardHandler`（候选块队列 -> settled 评估 -> Xiuyuan ensure/create）
 
 主设计原则：
 
@@ -659,8 +658,12 @@ UI 层：
 
 - managed Riff Xiuyuan 现在按 `templateID === 'builtin-riff-sync'` 或 `meta.source === 'riff-sync'` 识别；后台同步判断“这张块是否已被治理”时，优先走 repository / unified storage 的 `blockId` 反查。
 - `custom-xiuyuan-id` / `custom-fsrs-xiuyuan-id` 已降级为旧数据兼容兜底读取来源，不再作为自动同步里的真相源，也不再对 managed Riff Xiuyuan 做后台写入、自修复清理或删除时清空。
-- 增量同步触发器的现行默认值是 `['plugin-start']`；仅当检测到遗留默认三件套 `['plugin-start', 'browser-open', 'review-open']` 时，设置归一化会自动折叠回 `['plugin-start']`。
-- 当前仍只有单实例进程内同步互斥，不提供跨设备分布式锁；因此原生 Riff 删除等真实文档写入在多端并发下仍可能产生冲突文档。
+- 增量同步触发器现在只允许 `plugin-start` / `browser-open`；`review-open` 已无运行语义，仅作为遗留默认三件套归一化输入被折叠回 `['plugin-start']`。
+- Riff 增量对账使用 `UnifiedStorageManager.riffSyncState` 持久化 checkpoint；当 Riff API 只能按时间窗拉取时，默认从上次成功增量时间回退 5 秒，再依赖 blockId / XiuyuanId 幂等 upsert 去重。
+- 增量对账不执行删除，只拉取外部变化并同步合法的非调度元数据；删除检测只允许 full reconcile 执行，因此 full sync 默认周期为 24 小时。
+- ownership 规则固定为 local-owned 优先：同一 block 已存在 AutoCard / 手动创建的本地 Xiuyuan 时，Riff 对账不创建第二个 Xiuyuan、不改模板/卡面结构、不覆盖本地调度数据；riff-owned 仅允许同步合法元数据并在 full reconcile 中删除。
+- `UnifiedStorageManager` 提供本地写入协调与异常 merge 日志；命中存储 merge 视为多窗口/外部实例冲突兜底，不再是正常单写者流程。
+- 当前仍不提供跨设备分布式锁；多窗口/多端同时写入会由 storage merge、逻辑 face 去重与稳定 Xiuyuan/card id 收敛。
 
 ---
 

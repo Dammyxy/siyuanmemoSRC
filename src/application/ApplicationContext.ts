@@ -1155,21 +1155,20 @@ export class ApplicationContext {
         logger.info(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
       }
       
-      // 初始化 TransactionWebSocketService
-      if (riffConfig.incrementalSync?.enabled) {
-        const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
+      // 初始化 AutoCard 的事务监听；Riff 拉取不再由 transaction 触发
+      const quickCardEnabled = settingsService.getSettings().quickCard?.enabled === true;
+      if (quickCardEnabled) {
         const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
         
         transactionWebSocketService = new TransactionWebSocketService(config.plugin as unknown as SiyuanMemoPlugin);
         transactionWebSocketService.registerHandler(docTreeReviewScopeService);
-        transactionWebSocketService.registerHandler(new RiffSyncHandler(hybridSyncService));
         const autoCardHandler = new AutoCardHandler(config.plugin as unknown as SiyuanMemoPlugin);
         transactionWebSocketService.registerHandler(autoCardHandler);
         transactionWebSocketService.start();
         
         context.transactionWebSocketService = transactionWebSocketService;
         context.autoCardHandler = autoCardHandler;
-        logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized');
+        logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized for AutoCard');
       }
     }
     
@@ -1381,24 +1380,19 @@ export class ApplicationContext {
    * - 封装 WebSocket 服务管理逻辑
    * - 提供清晰的启用/禁用接口
    * 
-   * @param enabled - 是否启用增量同步
+   * @param enabled - 是否启用监听制卡事务服务
    */
   async updateTransactionWebSocketService(enabled: boolean): Promise<void> {
-    if (enabled && this.hybridSyncService) {
+    if (enabled) {
       // 需要启用 TransactionWebSocketService
       if (!this.transactionWebSocketService) {
-        logger.info('[ApplicationContext] Initializing TransactionWebSocketService...');
+        logger.info('[ApplicationContext] Initializing TransactionWebSocketService for AutoCard...');
         const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
-        const { RiffSyncHandler } = await import('@/application/handlers/RiffSyncHandler');
         const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
         
         this.transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as unknown as SiyuanMemoPlugin);
         await this.getDocTreeReviewScopeService().hydrate();
         this.transactionWebSocketService.registerHandler(this.getDocTreeReviewScopeService());
-        
-        // 创建并注册 RiffSyncHandler
-        const riffSyncHandler = new RiffSyncHandler(this.hybridSyncService);
-        this.transactionWebSocketService.registerHandler(riffSyncHandler);
         
         // 创建并注册 AutoCardHandler
         const autoCardHandler = new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
@@ -1408,7 +1402,7 @@ export class ApplicationContext {
         
         // 启动服务
         this.transactionWebSocketService.start();
-        logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized and started');
+        logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized for AutoCard and started');
       }
     } else {
       // 需要停止 TransactionWebSocketService

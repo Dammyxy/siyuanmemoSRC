@@ -167,11 +167,20 @@ export class Xiuyuan {
     if (cardId) {
       id = cardId;
     } else {
-      const idResult = CardId.create(`card-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+      const idResult = CardId.create(`card_${this.id.getValue()}_${faceIndex}`);
       if (!idResult.ok) {
         return idResult as Result<Card>;
       }
       id = idResult.value;
+    }
+
+    for (const existingCard of this.cards.values()) {
+      if (existingCard.getId().equals(id)) {
+        return err(new Error(`Card already exists: ${id.getValue()}`));
+      }
+      if (existingCard.getFaceIndex() === faceIndex) {
+        return err(new Error(`Card already exists for faceIndex: ${faceIndex}`));
+      }
     }
 
     // 创建卡片

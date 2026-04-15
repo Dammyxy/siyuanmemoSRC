@@ -22,7 +22,7 @@ export interface HybridSyncConfig {
         /** 是否启用增量同步 */
         enabled: boolean;
         /** 触发时机 */
-        triggers: Array<'plugin-start' | 'browser-open' | 'review-open'>;
+        triggers: Array<'plugin-start' | 'browser-open'>;
         /** 是否使用黑名单过滤 */
         useBlacklist: boolean;
         /** 是否自动检测卡片类型（Topic/Item） */
@@ -68,6 +68,8 @@ export interface SyncResult {
     success: boolean;
     /** 新增卡片数量 */
     addedCount: number;
+    /** 更新卡片数量 */
+    updatedCount?: number;
     /** 删除卡片数量 */
     deletedCount: number;
     /** 跳过卡片数量 */

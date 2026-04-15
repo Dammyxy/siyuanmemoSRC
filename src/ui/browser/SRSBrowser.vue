@@ -3350,12 +3350,10 @@ onMounted(() => {
       hasBrowserOpenTrigger: riffConfig?.incrementalSync?.triggers?.includes('browser-open')
     });
     
-    const isAdvancedMode = !riffConfig?.mode || riffConfig.mode === 'advanced';
-    
     const shouldSyncOnBrowserOpen = riffConfig?.incrementalSync?.enabled && 
                                     riffConfig?.incrementalSync?.triggers?.includes('browser-open');
     
-    if (isAdvancedMode && shouldSyncOnBrowserOpen) {
+    if (shouldSyncOnBrowserOpen) {
       logger.info('[SiYuanMemo][SRSBrowser] 鉁?Triggering incremental sync on browser open...');
       
       void (async () => {
@@ -3372,9 +3370,8 @@ onMounted(() => {
       return;
     } else {
       logger.info('[SiYuanMemo][SRSBrowser] 鈿狅笍 Auto-sync not triggered, loading data without sync', {
-        isAdvancedMode,
         shouldSyncOnBrowserOpen,
-        reason: !shouldSyncOnBrowserOpen ? 'browser-open trigger not configured' : 'not advanced mode'
+        reason: !shouldSyncOnBrowserOpen ? 'browser-open trigger not configured' : 'browser-open trigger skipped'
       });
     }
   } else {

@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-15 (Round 73)
+Last update: 2026-04-16 (Round 74)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-16 - Riff reconciliation-first sync and local write boundary
+
+- Task: Finish the duplicate-card repair by separating local AutoCard idempotency from Riff synchronization, removing transaction-driven Riff pulls, adding a persistent Riff checkpoint, and routing local writes through a single storage coordinator.
+- Touched slice: Siyuan integration / Riff sync / Xiuyuan storage active path in `src/application/ApplicationContext.ts`, `src/application/services/XiuyuanSyncService.ts`, `src/core/storage/UnifiedStorageManager.ts`, `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`, `src/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter.ts`, `src/types/settings.ts`, `src/ui/browser/SRSBrowser.vue`, `src/ui/review/v2/ReviewView.vue`, `src/index.ts`, and `ARCHITECTURE.md`.
+- Debt fixed now: Removed the obsolete `RiffSyncHandler` transaction path and its 500ms API-settling guess; `TransactionWebSocketService` is no longer coupled to Riff incremental sync; `review-open` no longer has runtime trigger semantics; incremental Riff sync now uses persisted `riffSyncState` with a 5s overlap window and only advances after a successful round; incremental sync no longer deletes local cards; full sync is the only deletion reconcile; browser-open remains an explicit lifecycle trigger; local-owned Xiuyuan now wins over riff-owned upserts on the same block; storage merge now logs as an abnormal conflict fallback; and manual `Sync Riff Now` gives users an explicit incremental reconcile entry.
+- Debt deferred: The storage coordinator is still an in-process writer queue, not a cross-window or cross-device distributed lock; legacy Riff delete semantics can still create native document conflicts when several clients race outside one plugin process; and the old Riff transaction integration tests were removed rather than replaced with the full new reconciliation regression matrix.
+- Why deferred: Cross-device locking and native Riff hard-delete redesign require a broader persistence and Siyuan API ownership decision, while the immediate task was to stop duplicate local card creation and remove the structurally unsafe transaction-triggered sync model.
+- Next safe step: Add focused tests for `XiuyuanSyncService` checkpoint advancement/failure retry, local-owned vs riff-owned same-block reconciliation, storage duplicate face normalization during merge, and browser-open/manual lifecycle sync behavior.
+- Validation: `pnpm vitest run src/types/__tests__/settings-normalization.test.ts src/types/__tests__/riffIntegrationConfig.test.ts`; `pnpm build`; `git diff --check`.
+
+### 2026-04-15 - autocard semantic trigger and xiuyuan idempotency boundary refactor
+
+- Task: Replace the old block-switch auto-card trigger model with settled semantic evaluation, unify auto-listener creation onto Xiuyuan, and make duplicate logical auto-cards converge through deterministic Xiuyuan/card identity plus storage normalization.
+- Touched slice: Siyuan integration and Xiuyuan active path in `src/core/infrastructure/websocket/TransactionWebSocketService.ts`, `src/application/handlers/AutoCardHandler.ts`, `src/application/usecases/xiuyuan/CreateXiuyuanFromBlocksUseCase.ts`, `src/core/xiuyuan/domain/Xiuyuan.ts`, `src/core/storage/UnifiedStorageManager.ts`, and `ARCHITECTURE.md`.
+- Debt fixed now: `TransactionWebSocketService` now subscribes to host `ws-main` events instead of monkey-patching the main WebSocket; `AutoCardHandler` no longer infers "editing finished" from unrelated block switches and now queues candidate blocks with a fixed 300ms settled window before re-reading real block state; auto-listener `>> / << / <> / cloze / concept-definition / descriptor` creation no longer uses `CardCreationHelper` or `markBlockAsCard()` and instead goes through one Xiuyuan ensure/create path with `duplicatePolicy: 'reuse-existing'`; Xiuyuan child cards now use deterministic `card_${xiuyuanId}_${faceIndex}` ids; and unified storage now collapses historical duplicate logical faces by `(xiuyuanID, faceIndex)` during canonicalization/merge.
+- Debt deferred: Cross-process or multi-device distributed locking is still not implemented, and doc-scan / non-listener creation paths still mostly rely on pre-check semantics rather than the listener's new reuse-existing boundary.
+- Why deferred: The active bug was duplicated auto-listener creation under cross-plugin transaction overlap; extending the same idempotency policy to every creation surface or adding distributed locks would widen this bounded refactor into a larger product and synchronization project with broader regression risk.
+- Next safe step: Add focused regression tests around `AutoCardHandler` settled candidate scheduling, `CreateXiuyuanFromBlocksUseCase` reuse-existing behavior, and `UnifiedStorageManager` duplicate logical-face normalization so this new boundary is protected by executable coverage rather than build-only validation.
+- Validation: `pnpm build`.
 
 ### 2026-04-15 - autocard bidirectional duplicate trace logging
 
@@ -1144,7 +1164,8 @@ Do not add an entry for skill-only or docs-only work.
 
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
-| P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts even after plugin-owned attr writes were reduced | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then add concurrency diagnostics around delete/sync races |
+| P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts beyond the in-process writer queue | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then decide whether a cross-window/device lock or tombstone reconciliation model is required |
+| P1 | New reconciliation-first Riff sync has build validation but still lacks focused executable coverage | `XiuyuanSyncService`, `UnifiedStorageManager`, browser/manual sync entrypoints | Add targeted tests for persistent checkpoint overlap, failure retry without cursor advancement, local-owned vs riff-owned reconciliation, and duplicate logical-face merge cleanup |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
 | P1 | Legacy compatibility service surface still exists but no longer used on active browser path | `ApplicationContext` (`tabManager` service exposure) | Evaluate bounded removal/retire plan and adjust integration tests |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |

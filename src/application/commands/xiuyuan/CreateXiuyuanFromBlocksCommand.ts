@@ -123,4 +123,11 @@ export interface CreateXiuyuanFromBlocksCommand {
    * 创建模式（内部字段，可选）
    */
   creationMode?: string;
+
+  /**
+   * 重复创建策略（可选）
+   * - error: 已存在时返回错误
+   * - reuse-existing: 已存在时直接复用现有 Xiuyuan 与 cards
+   */
+  duplicatePolicy?: 'error' | 'reuse-existing';
 }

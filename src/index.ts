@@ -426,6 +426,17 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         this.runReviewSurfaceCommandRequest(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT);
       },
     });
+
+    this.addCommand({
+      langKey: 'syncRiffNow',
+      hotkey: '',
+      callback: () => {
+        void this.runSyncRiffNowAction();
+      },
+      editorCallback: () => {
+        void this.runSyncRiffNowAction();
+      },
+    });
   }
 
   private registerTopBarQuickSlash(): void {
@@ -561,6 +572,28 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
 
     const blockMenuHandler = this.context.getBlockMenuHandler();
     await blockMenuHandler.runRebindDescriptorConceptAction(context.blockElements);
+  }
+
+  private async runSyncRiffNowAction(): Promise<void> {
+    const syncService = this.context?.getHybridSyncService?.();
+    if (!syncService) {
+      await pushErrMsg(this.i18n?.riffSyncUnavailable || 'Riff 同步服务未启用');
+      return;
+    }
+
+    await pushMsg(this.i18n?.riffSyncNowStarted || '正在同步 Riff...');
+    try {
+      const result = await syncService.incrementalSync();
+      const addedLabel = this.i18n?.added || 'added';
+      const updatedLabel = this.i18n?.updated || 'updated';
+      const skippedLabel = this.i18n?.skipped || 'skipped';
+      const message = `${this.i18n?.riffSyncNowCompleted || 'Riff 同步完成'}: ${addedLabel} ${result.addedCount}, ${updatedLabel} ${result.updatedCount ?? 0}, ${skippedLabel} ${result.skippedCount}`;
+      await pushMsg(message, 5000);
+    } catch (error) {
+      this.logger.error('Manual Riff sync failed:', error);
+      const reason = error instanceof Error ? error.message : String(error);
+      await pushErrMsg(`${this.i18n?.riffSyncNowFailed || 'Riff 同步失败'}: ${reason}`, 7000);
+    }
   }
 
   private async runCoreReviewEntryAction(

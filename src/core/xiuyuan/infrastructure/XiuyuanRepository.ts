@@ -260,6 +260,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<void>
    */
   async save(xiuyuan: Xiuyuan): Promise<Result<void>> {
+    return this.storage.runWriteTransaction('xiuyuan-repository.save', async () => {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
       const persistedCardType = this.resolvePersistedCardType(xiuyuan);
@@ -458,6 +459,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
+    });
   }
 
   private resolvePersistedCardType(xiuyuan: Xiuyuan): 'topic' | 'item' | undefined {
@@ -580,6 +582,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<void>
    */
   async delete(xiuyuan: Xiuyuan): Promise<Result<void>> {
+    return this.storage.runWriteTransaction('xiuyuan-repository.delete', async () => {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
       
@@ -629,6 +632,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
+    });
   }
 
   /**

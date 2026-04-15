@@ -366,7 +366,7 @@ export interface RiffIntegrationConfig {
         /** 是否启用增量同步 */
         enabled: boolean;
         /** 触发时机 */
-        triggers: Array<'plugin-start' | 'browser-open' | 'review-open'>;
+        triggers: Array<'plugin-start' | 'browser-open'>;
         /** 是否使用黑名单过滤 */
         useBlacklist: boolean;
     };
@@ -437,13 +437,14 @@ export interface PluginSettings {
 type IncrementalSyncTrigger = RiffIntegrationConfig['incrementalSync']['triggers'][number];
 
 const LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET = ['plugin-start', 'browser-open', 'review-open'] as const;
+type LegacyIncrementalSyncTrigger = typeof LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET[number];
 
 function isIncrementalSyncTrigger(value: unknown): value is IncrementalSyncTrigger {
-    return value === 'plugin-start' || value === 'browser-open' || value === 'review-open';
+    return value === 'plugin-start' || value === 'browser-open';
 }
 
 function isLegacyDefaultIncrementalSyncTriggerTriplet(
-    triggers: readonly IncrementalSyncTrigger[]
+    triggers: readonly unknown[]
 ): boolean {
     return triggers.length === LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET.length
         && triggers.every((trigger, index) => trigger === LEGACY_INCREMENTAL_SYNC_TRIGGER_TRIPLET[index]);
@@ -452,17 +453,19 @@ function isLegacyDefaultIncrementalSyncTriggerTriplet(
 function normalizeIncrementalSyncTriggers(
     triggers: unknown
 ): { triggers: IncrementalSyncTrigger[]; changed: boolean } {
-    const sourceTriggers = Array.isArray(triggers)
-        ? triggers.filter(isIncrementalSyncTrigger)
+    const rawTriggers = Array.isArray(triggers)
+        ? triggers
         : DEFAULT_RIFF_CONFIG.incrementalSync.triggers;
+    const sourceTriggers = rawTriggers.filter(isIncrementalSyncTrigger);
     const dedupedTriggers = Array.from(new Set(sourceTriggers));
-    const normalizedTriggers = isLegacyDefaultIncrementalSyncTriggerTriplet(dedupedTriggers)
+    const normalizedTriggers = isLegacyDefaultIncrementalSyncTriggerTriplet(rawTriggers as readonly LegacyIncrementalSyncTrigger[])
         ? (['plugin-start'] as IncrementalSyncTrigger[])
         : dedupedTriggers;
 
     return {
         triggers: normalizedTriggers,
-        changed: dedupedTriggers.length !== sourceTriggers.length
+        changed: rawTriggers.length !== sourceTriggers.length
+            || dedupedTriggers.length !== sourceTriggers.length
             || normalizedTriggers.length !== dedupedTriggers.length
             || normalizedTriggers.some((trigger, index) => trigger !== dedupedTriggers[index]),
     };
@@ -774,7 +777,7 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     
     fullSync: {
         enabled: true,
-        interval: 604800000,  // 🆕 7天（而不是24小时），减少频率但保持数据一致性
+        interval: 86400000,  // 24小时：删除检测只由 full reconcile 执行
         cleanupBlacklist: true
     },
     

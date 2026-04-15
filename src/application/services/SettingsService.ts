@@ -444,7 +444,7 @@ export class SettingsService implements ISettingsService {
 
     // 验证增量同步触发器
     if (config.incrementalSync?.triggers !== undefined) {
-      const validTriggers = ['plugin-start', 'browser-open', 'review-open'];
+      const validTriggers = ['plugin-start', 'browser-open'];
       for (const trigger of config.incrementalSync.triggers) {
         if (!validTriggers.includes(trigger)) {
           throw new SettingsValidationError(
