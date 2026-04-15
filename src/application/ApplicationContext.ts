@@ -69,7 +69,6 @@ import { ProgressiveReadingService } from '@/application/services/ProgressiveRea
 import { ReviewScopeCardCreationSyncService } from '@/application/services/ReviewScopeCardCreationSyncService';
 import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
 import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
-import { AIDailyNoteDraftService } from '@/application/services/AIDailyNoteDraftService';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
@@ -428,9 +427,7 @@ export class ApplicationContext {
       return new ReviewAIWorkbenchRegistry({
         getAISettings: () => context.getSettingsService().getSettings().ai,
         cardContentQueryService: context.getCardContentQueryService(),
-        getXiuyuanApplicationService: () => context.getXiuyuanApplicationService(),
         siyuanPort,
-        draftService: new AIDailyNoteDraftService(siyuanPort, context.getConfiguredCaptureStorageService()),
         llmPort: new OpenAICompatibleLLMAdapter(),
         sessionStore: context.getAIWorkbenchSessionStoreService(),
       });

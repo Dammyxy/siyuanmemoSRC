@@ -703,7 +703,7 @@
             <section class="settings-card">
         <h3>{{ t('aiSettingsTitle', 'AI 工作台') }}</h3>
         <p class="form-hint form-hint--section">
-          {{ t('aiSettingsIntro', '统一配置 AI 导师、AI 解释卡片和 AI 辅助制卡。v1 默认停留在工作台，不会自动写回原文。') }}
+          {{ t('aiSettingsIntro', '统一配置 AI 解释面板使用的模型、API 与 Prompt。解释结果默认停留在工作台，不会自动写回原文。') }}
         </p>
 
         <div class="form-item">
@@ -762,59 +762,6 @@
           </div>
         </div>
 
-        <div class="form-item">
-          <label>{{ t('aiDraftStorageModeLabel', 'AI 草稿存放位置') }}</label>
-          <div class="form-control">
-            <select v-model="aiSettings.draftStorage.mode" class="scheduler-select">
-              <option value="library">{{ t('captureStorageModeLibrary', '固定库') }}</option>
-              <option value="daily-note">{{ t('captureStorageModeDailyNote', '今日日记') }}</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            {{
-              t(
-                'aiDraftStorageModeHint',
-                'AI 草稿会按这里的模式保存到固定库或今日日记；生成候选本身仍停留在工作台里，只有保存草稿时才落地。'
-              )
-            }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('captureStorageNotebookLabel', '目标笔记本') }}</label>
-          <div class="form-control">
-            <select v-model="aiSettings.draftStorage.notebookId" class="scheduler-select">
-              <option value="">{{ t('captureStorageNotebookPlaceholder', '请选择笔记本') }}</option>
-              <option
-                v-for="notebook in captureStorageNotebookOptions"
-                :key="`ai-${notebook.id}`"
-                :value="notebook.id"
-              >
-                {{ notebook.name }}
-              </option>
-            </select>
-          </div>
-          <p class="form-hint">
-            {{ t('captureStorageNotebookHint', '这里是手动固定目标笔记本，不会自动跟随当前文档或来源文档切换。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('captureStorageTargetBlockIdLabel', '目标块 ID（可选）') }}</label>
-          <div class="form-control">
-            <input type="text" v-model="aiSettings.draftStorage.targetBlockId">
-          </div>
-          <p class="form-hint">
-            {{
-              aiSettings.draftStorage.mode === 'library'
-                ? t('aiDraftStorageTargetBlockHint', '固定库模式下可填写文档块或普通块 ID；留空则自动使用 SiYuanMemo AI 草稿。')
-                : t('progressiveStorageTargetBlockIgnoredHint', '今日日记模式下暂不使用目标块 ID，留空即可。')
-            }}
-          </p>
-        </div>
-
-        <div class="fn__hr"></div>
-
         <h4>{{ t('aiPromptTemplates', 'Prompt 模板') }}</h4>
 
         <div
@@ -872,7 +819,7 @@
             </p>
             <textarea
               v-model="aiSettings.prompts[preset.settingKey].run"
-              :rows="preset.settingKey === 'cardCandidate' || preset.settingKey === 'cardCandidateCdf' ? 12 : 10"
+              :rows="10"
               class="form-textarea"
             ></textarea>
             <details class="ai-prompt-preset-card__contract">
@@ -887,7 +834,7 @@
             </label>
             <textarea
               v-model="aiSettings.prompts[preset.settingKey].followUp"
-              :rows="preset.settingKey === 'cardCandidate' || preset.settingKey === 'cardCandidateCdf' ? 8 : 6"
+              :rows="6"
               class="form-textarea"
             ></textarea>
           </div>
@@ -1033,40 +980,30 @@ function mergeConfiguredCaptureStorageSettings(
   });
 }
 
-function mergeAIDraftStorageSettings(
-  source: Partial<ConfiguredCaptureStorageSettings> | undefined,
-  defaults: ConfiguredCaptureStorageSettings,
-): ConfiguredCaptureStorageSettings {
-  return normalizeCaptureStorageSettings(source, {
-    allowSourceChild: false,
-    fallback: defaults,
-  });
-}
-
 function mergeAISettings(source?: Partial<AISettings>): AISettings {
   const defaults = createDefaultAISettings();
-  const legacyAwareSource = (source || {}) as Partial<AISettings> & { promptProfiles?: unknown };
-  const { promptProfiles: _legacyPromptProfiles, ...sourceWithoutLegacy } = legacyAwareSource;
+  const legacyAwareSource = (source || {}) as Partial<AISettings> & {
+    promptProfiles?: unknown;
+    draftStorage?: unknown;
+  };
+  const {
+    promptProfiles: _legacyPromptProfiles,
+    draftStorage: _legacyDraftStorage,
+    ...sourceWithoutLegacy
+  } = legacyAwareSource;
   return {
     ...defaults,
     ...sourceWithoutLegacy,
     promptContractVersion: normalizeAIPromptContractVersion(sourceWithoutLegacy.promptContractVersion)
       || ACTIVE_AI_PROMPT_CONTRACT_VERSION,
     prompts: normalizeAIPromptTemplates(sourceWithoutLegacy.prompts),
-    draftStorage: mergeAIDraftStorageSettings(sourceWithoutLegacy.draftStorage, defaults.draftStorage),
   };
 }
 
 function getRecommendedPromptTemplateForSetting(settingKey: AIPromptSettingKey): AIPromptTextPair {
   switch (settingKey) {
-    case 'tutor':
-      return getRecommendedPromptTemplate('tutor');
     case 'explain':
       return getRecommendedPromptTemplate('explain');
-    case 'cardCandidate':
-      return getRecommendedPromptTemplate('card-candidate');
-    case 'cardCandidateCdf':
-      return getRecommendedPromptTemplate('card-candidate-cdf');
     default:
       return getRecommendedPromptTemplate('explain');
   }
@@ -1305,14 +1242,8 @@ function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
 
 function getPromptEditorLabel(settingKey: AIPromptSettingKey): string {
   switch (settingKey) {
-    case 'tutor':
-      return t('aiTutorPrompt', 'AI 导师 Prompt');
     case 'explain':
       return t('aiExplainPrompt', 'AI 解释 Prompt');
-    case 'cardCandidate':
-      return t('aiCardCandidatePrompt', 'AI 制卡 Prompt');
-    case 'cardCandidateCdf':
-      return t('aiCardCandidateCdfPrompt', 'CDF 制卡 Prompt');
     default:
       return t('aiExplainPrompt', 'AI 解释 Prompt');
   }
@@ -1716,10 +1647,6 @@ function saveSettings() {
       defaultOutputLanguage: String(aiSettings.value.defaultOutputLanguage || '').trim(),
       promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
       prompts,
-      draftStorage: mergeAIDraftStorageSettings(
-        aiSettings.value.draftStorage,
-        DEFAULT_AI_SETTINGS.draftStorage,
-      ),
     },
     ui: {
       ...uiSettings.value,

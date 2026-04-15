@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-15
+最后更新：2026-04-16
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -94,7 +94,7 @@ flowchart TD
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `TopicDerivedItemService`
-- 装配 `ConfiguredCaptureStorageService` / `AIDailyNoteDraftService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
+- 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
 
 这意味着：
 
@@ -219,21 +219,20 @@ sequenceDiagram
 
 - `ReviewAIWorkbenchRegistry`：持有 standalone service 与按 review session 隔离的 AI service
 - `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件，承接历史列表、重命名、删除与上下文签名回放
-- `AIWorkbenchService`：AI 工作台状态机、持久化会话/线程消息流、`qa/cloze/concept-descriptor/cdf` 模式编排、候选解析与动作编排
-- `src/types/settings.ts`：AI Prompt 的持久化真相源；当前使用四组 `run/followUp` prompt 对：`run` 表示用户可编辑的行为 Prompt，`followUp` 表示用户可编辑的追问 Prompt
-- `AIPromptContractRegistry`：结构化首轮任务的系统契约注册表；统一维护 JSON 字段、必填项与来源约束，并为运行时追加和设置页只读说明提供同一份事实源
+- `AIWorkbenchService`：解释优先的 AI 工作台状态机，负责持久化会话/消息流、解释首轮运行、follow-up 追问、上下文附加、历史管理，以及把旧 `make-cards` / `tutor` 打开请求安全归一到 `explain`
+- `src/types/settings.ts`：AI Prompt 的持久化真相源；当前只保留一组 `explain.run/followUp` prompt，`run` 表示用户可编辑的行为 Prompt，`followUp` 表示用户可编辑的追问 Prompt
+- `AIPromptContractRegistry`：解释首轮任务的系统契约注册表；统一维护 JSON 字段、必填项与来源约束，并为运行时追加和设置页只读说明提供同一份事实源
 - `AIPromptComposer`：只负责推荐 prompt 模板描述与默认行为/追问 Prompt，不再承担运行时结构化协议拼接
-- `AIDailyNoteDraftService`：候选内容写入 daily note / draft / capture 存储
-- `ConfiguredCaptureStorageService`：捕获存储位置与写入策略
+- `ConfiguredCaptureStorageService`：仍作为 Progressive / Excerpt 的捕获存储服务保留，但不再是 AI workbench 的运行依赖
 
-当前 make-card 主路径补充：
+当前 explain 主路径补充：
 
-- `AiWorkbenchPane.vue` 暴露 `CDF 辅助制卡` 独立模式，但仍复用概念定义 / 概念描述符模板族与现有候选落草稿链路
-- 模板选择弹窗里的 `AI 辅助制卡` 快捷入口默认走 `makeCardMode: 'cdf'` 并自动运行
-- 结构化首轮任务（`tutor` / `explain` / `make-cards`）会在运行时把用户保存的行为 Prompt 与 `AIPromptContractRegistry` 中的系统结构化契约拼成最终 `system` prompt，并通过 `LLMPort` 请求 `json_object` 输出模式
+- review / browser / standalone / companion tab 全入口统一打开解释视图；browser 入口根据当前预览块或选中材料附带上下文，neural roam 不再默认进入 tutor 模式
+- 模板选择弹窗不再提供 `AI 辅助制卡` 快捷入口
+- 结构化首轮任务只保留 `explain`；运行时会把用户保存的行为 Prompt 与 `AIPromptContractRegistry` 中的系统结构化契约拼成最终 `system` prompt，并通过 `LLMPort` 请求 `json_object` 输出模式
 - follow-up 继续直接使用用户保存的 `followUp` Prompt，保持普通文本对话，不追加结构化契约
-- `AI 导师 / AI 解释` 结果与 follow-up 不再挂在单次结果面板下，而是写入持久化 session 的消息流；`AI 辅助制卡` 则把每次候选结果写成 `candidate-board` assistant message，旧候选板保留历史只读
-- review/browser/template-dialog/standalone 全入口统一走同一套会话仓储；当上下文签名变化时，默认新开会话，旧会话进入历史，可手动回看并明确标记为历史上下文
+- 解释结果与 follow-up 写入同一条持久化 session 消息流；旧 session JSON 中的 `make-cards` / `candidate-board` 内容在加载时会被安全忽略，`lastActiveView: "make-cards"` 会被映射回 `explain`
+- `AiWorkbenchPane.vue` 现在是 RemNote 风格的干净解释面板：单一主动作 `解释此内容`、轻量 history/context 抽屉、底部 composer 和 icon 化操作区
 
 UI surface：
 
@@ -296,7 +295,6 @@ UI surface：
 - `src/application/services/ProgressiveReadingService.ts`：progressive split / excerpt 的主编排服务。
 - `src/application/services/SelectionExcerptService.ts`：选择态摘录门面。
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
-- `src/application/services/AIDailyNoteDraftService.ts`：AI 候选内容写入 daily note / draft。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
 - `src/application/services/SharedReviewSessionRegistry.ts`：插件托管 review 分屏的共享 session 注册中心。
@@ -594,21 +592,17 @@ AI 工作台的当前架构分成两层：
   - 让 AI 工作台不再把历史塞进 settings 或内存态里
 - `AIWorkbenchService`
   - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
-  - 维护 `tutor / explain / make-cards` 三条模式线程的消息流
-  - `AI 导师 / AI 解释` 的结构化结果写入 assistant-result message；`AI 辅助制卡` 的候选板写入 candidate-board message
-  - 管理状态、候选、`qa/cloze/concept-descriptor/cdf` make-card mode、surface 差异
-  - 读取 `settings.ai.prompts.*.{run,followUp}` 作为用户可编辑 prompt 真相源，其中 `run` 是行为层，`followUp` 是追问层
-  - 对结构化首轮请求把行为 Prompt 与 `AIPromptContractRegistry` 的系统契约组合成最终 `system` prompt
+  - 只维护 explain-first 的消息流：解释结果写入 `assistant-result` message，追问沿用同一条会话线程
+  - 管理解释结果、attached contexts、surface 差异与历史管理
+  - 读取 `settings.ai.prompts.explain.{run,followUp}` 作为用户可编辑 prompt 真相源，其中 `run` 是行为层，`followUp` 是追问层
+  - 对结构化首轮解释请求把行为 Prompt 与 `AIPromptContractRegistry` 的系统契约组合成最终 `system` prompt
   - 对结构化首轮请求显式要求 `json_object` 输出，并在本地容忍 fenced JSON 包装，降低“Prompt 正确但模型包了代码块”导致的结构化失败
-  - 在 `cdf` 模式下切换到 `cardCandidateCdf` prompt 组，并复用概念定义 / 描述符模板池
-  - 保持现有 JSON 候选契约；若用户自定义行为 Prompt 与系统契约冲突导致结构化输出失效，则在错误里提示检查对应行为 Prompt
+  - 若用户自定义行为 Prompt 与系统契约冲突导致结构化输出失效，则在错误里提示检查解释行为 Prompt
 - `AIPromptComposer`
   - 只提供推荐模板描述与默认行为/追问 Prompt
   - 不再承担运行时结构化协议拼接职责
-- `AIDailyNoteDraftService`
-  - 将候选内容写入 daily note / draft / capture 目标
 - `ConfiguredCaptureStorageService`
-  - 解析当前 capture 目标与持久化策略
+  - 解析 Progressive / Excerpt 当前 capture 目标与持久化策略；AI workbench 不再依赖它
 
 UI 层：
 
@@ -616,9 +610,9 @@ UI 层：
 - `TabManager.openReviewAICompanionTab(...)`：review companion tab
 - `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文
 - `AiWorkbenchPane.vue`
-  - 统一渲染聊天式外壳：顶部工具条、历史抽屉、上下文抽屉、底部 composer
-  - 设置页暴露的四组 Prompt 与工作台的 `CDF 辅助制卡` 模式在这里汇合到同一条候选生成路径
-  - 最新候选板仍可编辑/落卡，旧候选板保留在消息流中只读回放
+  - 统一渲染解释优先的聊天式外壳：简洁标题区、历史抽屉、上下文抽屉、底部 composer
+  - 默认空态只暴露 `解释此内容` 一个主动作，`Use Context` 退到 composer 附加工具
+  - 不再承载 make-cards 候选板、制卡 tab、落草稿或批量建卡流程
 
 外部边界：
 

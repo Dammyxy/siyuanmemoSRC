@@ -4078,7 +4078,7 @@ async function handleOpenAiWorkbench(): Promise<void> {
   }
 
   await dialogManager.openAiWorkbenchDialog({
-    view: selectedBlockIds.length > 0 ? 'make-cards' : 'explain',
+    view: 'explain',
     source: 'browser',
     selectedBlockIds: effectiveBlockIds,
     currentBlockId: selectedBlockIds.length === 0 ? previewBlockId || null : null,

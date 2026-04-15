@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-16 (Round 74)
+Last update: 2026-04-16 (Round 75)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-16 - AI explain-only sidecar and make-card path removal
+
+- Task: Rebuild the AI sidecar into a RemNote-like explain-first companion, remove the current AI make-cards path from runtime/settings/entries, and keep legacy sessions from breaking by normalizing old make-card state back to explain.
+- Touched slice: AI active path in `src/types/{ai,settings}.ts`, `src/application/{ApplicationContext.ts,managers/DialogManager.ts}`, `src/application/services/{AIWorkbenchService,AIWorkbenchSessionStoreService,AIPromptComposer,AIPromptContractRegistry,BlockAttrPolicy}.ts`, `src/ui/{ai/AiWorkbenchPane.vue,browser/SRSBrowser.vue,review/v2/ReviewView.vue,settings/SettingsPanel.vue,xiuyuan/TemplateSelectDialog.vue}`, related i18n and focused regression coverage, plus `ARCHITECTURE.md`.
+- Debt fixed now: Removed public `make-cards` / candidate-board contracts and the dedicated AI draft service/wiring; collapsed runtime prompt/settings truth onto explain-only `run/followUp`; removed the template-dialog/browser/review/sidebar make-card entrypoints; simplified the sidecar UI to one primary `解释此内容` action plus lightweight history/context drawers and bottom composer; and taught session loading/opening to drop legacy `candidate-board` payloads while mapping old `lastActiveView: "make-cards"` back to `explain`.
+- Debt deferred: Two small legacy migration guards still remain in the AI session load path to ignore historical `candidate-board` messages, and a few older tutor/make-card strings remain in historical backlog/i18n space outside the active runtime path.
+- Why deferred: Removing the compat guards now would risk breaking existing session JSON on user machines, while sweeping every historical trace in docs/backlog would add broad churn without improving the current runtime boundary.
+- Next safe step: When card-making returns, attach it as an explain-result follow-up skill/action that reuses the same session/context contract instead of reviving the old multi-tab candidate-board architecture.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/AIPromptComposer.test.ts src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/application/managers/__tests__/DialogManager.quick-template-filter.test.ts src/application/managers/__tests__/TabManager.review-ai-companion.spec.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/types/__tests__/settings-normalization.test.ts --reporter=basic`; `pnpm build`; `rg -n --glob '!src/**/__tests__/**' --glob '!docs/**' --glob '!ARCHITECTURE.md' "AI 辅助制卡|make-cards|candidate-board" src package.json`; `git diff --check`.
 
 ### 2026-04-16 - Riff reconciliation-first sync and local write boundary
 

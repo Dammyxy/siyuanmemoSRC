@@ -2376,17 +2376,6 @@ export class DialogManager implements IDialogManager {
             this.templateSelectDialog?.destroy();
             this.templateSelectDialog = null;
           },
-          ai: async () => {
-            this.templateSelectDialog?.destroy();
-            this.templateSelectDialog = null;
-            await this.openAiWorkbenchDialog({
-              view: 'make-cards',
-              source: 'template-dialog',
-              selectedBlockIds: blockIds,
-              makeCardMode: 'cdf',
-              autoRun: true,
-            });
-          },
           cancel: () => {
             this.templateSelectDialog?.destroy();
             this.templateSelectDialog = null;

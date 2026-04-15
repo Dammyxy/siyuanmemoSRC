@@ -196,42 +196,18 @@ describe('settings normalization', () => {
     expect(normalized.settings.ai).toEqual(DEFAULT_SETTINGS.ai);
   });
 
-  it('fills AI draft storage defaults when the nested storage config is missing', () => {
+  it('drops legacy AI draft storage config when it is still present', () => {
     const legacy = cloneSettings();
-    delete (legacy.ai as Partial<typeof legacy.ai>).draftStorage;
-
-    const normalized = normalizePluginSettings(legacy);
-
-    expect(normalized.changed).toBe(true);
-    expect(normalized.settings.ai.draftStorage).toEqual(DEFAULT_SETTINGS.ai.draftStorage);
-  });
-
-  it('keeps progressive excerpt storage in source-child mode but clamps AI draft storage away from it', () => {
-    const legacy = cloneSettings();
-    legacy.progressiveReading.storage = {
-      mode: 'source-child',
+    (legacy.ai as typeof legacy.ai & { draftStorage?: unknown }).draftStorage = {
+      mode: 'library',
       notebookId: 'notebook-a',
-      targetBlockId: 'source-block-1',
-    };
-    legacy.ai.draftStorage = {
-      mode: 'source-child' as typeof legacy.ai.draftStorage.mode,
-      notebookId: 'notebook-b',
-      targetBlockId: 'draft-block-1',
+      targetBlockId: 'block-a',
     };
 
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.progressiveReading.storage).toEqual({
-      mode: 'source-child',
-      notebookId: 'notebook-a',
-      targetBlockId: 'source-block-1',
-    });
-    expect(normalized.settings.ai.draftStorage).toEqual({
-      mode: DEFAULT_SETTINGS.ai.draftStorage.mode,
-      notebookId: 'notebook-b',
-      targetBlockId: 'draft-block-1',
-    });
+    expect(normalized.settings.ai).not.toHaveProperty('draftStorage');
   });
 
   it('fills nested AI prompt defaults when partially configured', () => {
@@ -239,8 +215,8 @@ describe('settings normalization', () => {
     legacy.ai = {
       ...DEFAULT_SETTINGS.ai,
       prompts: {
-        tutor: {
-          run: 'custom tutor',
+        explain: {
+          run: 'custom explain',
         },
       },
     } as typeof legacy.ai;
@@ -248,48 +224,25 @@ describe('settings normalization', () => {
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.ai.prompts.tutor).toEqual({
-      run: 'custom tutor',
-      followUp: DEFAULT_SETTINGS.ai.prompts.tutor.followUp,
+    expect(normalized.settings.ai.prompts.explain).toEqual({
+      run: 'custom explain',
+      followUp: DEFAULT_SETTINGS.ai.prompts.explain.followUp,
     });
-    expect(normalized.settings.ai.prompts.explain).toEqual(DEFAULT_SETTINGS.ai.prompts.explain);
-    expect(normalized.settings.ai.prompts.cardCandidate).toEqual(DEFAULT_SETTINGS.ai.prompts.cardCandidate);
-    expect(normalized.settings.ai.prompts.cardCandidateCdf).toEqual(DEFAULT_SETTINGS.ai.prompts.cardCandidateCdf);
   });
 
-  it('ships full-text AI default prompt pairs aligned with tutor, explain, candidate, and CDF tasks', () => {
+  it('ships the explain-only AI default prompt pair', () => {
     expect(DEFAULT_SETTINGS.ai.promptContractVersion).toBe(ACTIVE_AI_PROMPT_CONTRACT_VERSION);
-    expect(DEFAULT_SETTINGS.ai.prompts.tutor.run).toContain('AI 导师');
-    expect(DEFAULT_SETTINGS.ai.prompts.tutor.run).toContain('正在神经漫游中的现在的自己');
-    expect(DEFAULT_SETTINGS.ai.prompts.tutor.run).not.toContain('blindSpots');
-    expect(DEFAULT_SETTINGS.ai.prompts.tutor.followUp).toContain('不要输出 JSON');
     expect(DEFAULT_SETTINGS.ai.prompts.explain.run).toContain('学习教练');
     expect(DEFAULT_SETTINGS.ai.prompts.explain.run).not.toContain('workingDefinition');
-    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate.run).toContain('6-10 张');
-    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidate.run).not.toContain('candidates');
-    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidateCdf.run).toContain('CDF 辅助制卡');
-    expect(DEFAULT_SETTINGS.ai.prompts.cardCandidateCdf.run).toContain('概念锚点');
   });
 
   it('resets AI prompts to the current behavior-prompt contract when legacy settings lack the new contract version', () => {
     const legacy = cloneSettings();
     delete (legacy.ai as Partial<typeof legacy.ai>).promptContractVersion;
     legacy.ai.prompts = {
-      tutor: {
-        run: 'legacy tutor prompt with blindSpots',
-        followUp: 'legacy tutor follow-up',
-      },
       explain: {
         run: 'legacy explain prompt with workingDefinition',
         followUp: 'legacy explain follow-up',
-      },
-      cardCandidate: {
-        run: 'legacy card prompt with candidates',
-        followUp: 'legacy card follow-up',
-      },
-      cardCandidateCdf: {
-        run: 'legacy cdf prompt with allowedTemplateIds',
-        followUp: 'legacy cdf follow-up',
       },
     };
 
@@ -303,30 +256,23 @@ describe('settings normalization', () => {
   it('migrates legacy flat prompt strings into run prompts and ignores legacy promptProfiles', () => {
     const legacy = cloneSettings();
     (legacy.ai as typeof legacy.ai & { promptProfiles?: Record<string, unknown> }).promptProfiles = {
-      tutor: {
+      explain: {
         preset: 'recommended',
         overrideEnabled: true,
         overrideTemplate: 'should be ignored',
       },
     };
     legacy.ai.prompts = {
-      tutor: 'custom tutor profile',
-      explain: DEFAULT_SETTINGS.ai.prompts.explain.run,
-      cardCandidate: 'custom card profile',
+      explain: 'custom explain profile',
     } as unknown as typeof legacy.ai.prompts;
 
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.ai.prompts.tutor).toEqual({
-      run: 'custom tutor profile',
-      followUp: DEFAULT_SETTINGS.ai.prompts.tutor.followUp,
+    expect(normalized.settings.ai.prompts.explain).toEqual({
+      run: 'custom explain profile',
+      followUp: DEFAULT_SETTINGS.ai.prompts.explain.followUp,
     });
-    expect(normalized.settings.ai.prompts.cardCandidate).toEqual({
-      run: 'custom card profile',
-      followUp: DEFAULT_SETTINGS.ai.prompts.cardCandidate.followUp,
-    });
-    expect(normalized.settings.ai.prompts.explain.run).toBe(DEFAULT_SETTINGS.ai.prompts.explain.run);
   });
 
   it('is idempotent after first normalization', () => {

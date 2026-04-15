@@ -101,28 +101,18 @@ describe('DialogManager quick template filter', () => {
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('暂无可用模板，请先创建模板');
   });
 
-  it('closes the template dialog and auto-runs the AI workbench from the AI entry', async () => {
+  it('does not expose the legacy AI card-making entry in the template dialog', async () => {
     const { dialogManager } = createDialogManager([
       createTemplate('builtin-basic-qa', '基础问答', 'basic'),
     ]);
-    const openAiWorkbenchDialog = vi.spyOn(dialogManager, 'openAiWorkbenchDialog').mockResolvedValue();
 
     await dialogManager.openCreateTemplateCardDialog(['block-1', 'block-2']);
 
-    const templateDialogHandle = vi.mocked(createVueDialog).mock.results[0]?.value as { destroy: ReturnType<typeof vi.fn> };
     const dialogConfig = vi.mocked(createVueDialog).mock.calls[0]?.[0] as {
-      events?: { ai?: () => Promise<void> };
+      events?: Record<string, unknown>;
     };
-    await dialogConfig.events?.ai?.();
 
-    expect(templateDialogHandle.destroy).toHaveBeenCalledTimes(1);
-    expect(openAiWorkbenchDialog).toHaveBeenCalledWith({
-      view: 'make-cards',
-      source: 'template-dialog',
-      selectedBlockIds: ['block-1', 'block-2'],
-      makeCardMode: 'cdf',
-      autoRun: true,
-    });
+    expect(dialogConfig.events?.ai).toBeUndefined();
   });
 
   it('normalizes a paragraph selection to its parent list item for concept descriptor cards', async () => {

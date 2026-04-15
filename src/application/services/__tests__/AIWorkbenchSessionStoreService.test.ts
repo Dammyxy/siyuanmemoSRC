@@ -40,16 +40,7 @@ function createRecord(id: string, title: string): AIWorkbenchSessionRecord {
       currentCardRaw: null,
       neuralBatch: null,
     },
-    makeCardMode: 'qa',
-    requestBatchSummary: false,
     threads: {
-      tutor: {
-        view: 'tutor',
-        messages: [],
-        resultContextSignature: null,
-        stale: false,
-        staleReason: null,
-      },
       explain: {
         view: 'explain',
         messages: [
@@ -67,19 +58,12 @@ function createRecord(id: string, title: string): AIWorkbenchSessionRecord {
         stale: false,
         staleReason: null,
       },
-      'make-cards': {
-        view: 'make-cards',
-        messages: [],
-        resultContextSignature: null,
-        stale: false,
-        staleReason: null,
-      },
     },
   };
 }
 
 describe('AIWorkbenchSessionStoreService', () => {
-  it('persists, renames, lists, and deletes session records', async () => {
+  it('persists, renames, lists, and deletes explain-only session records', async () => {
     const fileService = createFileService();
     const service = new AIWorkbenchSessionStoreService(fileService);
 
@@ -109,5 +93,45 @@ describe('AIWorkbenchSessionStoreService', () => {
     await service.deleteSession('session-b');
     expect(await service.loadSession('session-b')).toBeNull();
     expect(await service.listSummaries()).toHaveLength(1);
+  });
+
+  it('drops legacy make-cards and candidate-board data when loading old records', async () => {
+    const fileService = createFileService();
+    const service = new AIWorkbenchSessionStoreService(fileService);
+
+    await fileService.writeJSON('ai-workbench/sessions/records/legacy.json', {
+      ...createRecord('legacy', 'Legacy Session'),
+      lastActiveView: 'make-cards',
+      threads: {
+        explain: {
+          view: 'explain',
+          messages: [],
+          resultContextSignature: null,
+          stale: false,
+          staleReason: null,
+        },
+        'make-cards': {
+          view: 'make-cards',
+          messages: [
+            {
+              id: 'legacy-board',
+              view: 'make-cards',
+              kind: 'candidate-board',
+              createdAt: 1,
+              result: {},
+              appliedContexts: [],
+            },
+          ],
+          resultContextSignature: null,
+          stale: false,
+          staleReason: null,
+        },
+      },
+    } as unknown);
+
+    const loaded = await service.loadSession('legacy');
+
+    expect(loaded?.lastActiveView).toBe('explain');
+    expect(loaded?.threads.explain.messages).toEqual([]);
   });
 });

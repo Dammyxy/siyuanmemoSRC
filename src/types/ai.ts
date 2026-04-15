@@ -1,18 +1,14 @@
 import type { FSRSCard } from '@/types/card';
-import type { ConfiguredCaptureStorageMode } from './settings';
 import type {
   NeuralRoamBatchSnapshot,
   ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
 
-export type AITaskType = 'tutor' | 'explain' | 'make-cards';
-export type AIMakeCardMode = 'qa' | 'cloze' | 'concept-descriptor' | 'cdf';
+export type AITaskType = 'explain';
 export type AIWorkbenchSource = 'review' | 'browser' | 'template-dialog' | 'standalone';
 export type AIWorkbenchSurface = 'standalone-dialog' | 'review-dialog-sidecar' | 'review-tab-companion';
 export type AIFollowUpRole = 'user' | 'assistant';
-export type AICandidateDraftState = 'unsaved' | 'saving' | 'saved' | 'dirty' | 'creating' | 'created' | 'error';
-export type AICandidateDraftErrorOperation = 'save' | 'create';
-export type AIWorkbenchMessageKind = 'user' | 'assistant-text' | 'assistant-result' | 'candidate-board';
+export type AIWorkbenchMessageKind = 'user' | 'assistant-text' | 'assistant-result';
 export type AIContextProviderKey = 'manual-text' | 'selected-content' | 'block-refs' | 'current-document';
 
 export interface AIAttachedContextItem {
@@ -71,48 +67,6 @@ export interface ReviewAIContextSnapshot extends AIWorkbenchContextSnapshot {
   reviewSessionId: string;
 }
 
-export interface AIDraftSessionLocation {
-  notebook: string;
-  storageMode: ConfiguredCaptureStorageMode;
-  containerDocId: string;
-  containerBlockId: string;
-  sessionBlockId: string;
-  sourceRefsBlockId: string | null;
-  sourceBlockIds: string[];
-  sessionId: string;
-  savedAt: number;
-}
-
-export interface AICandidateDraftLocation extends AIDraftSessionLocation {
-  candidateBlockId: string;
-  fieldBlockIds: Record<string, string>;
-}
-
-export interface AICardCandidate {
-  id: string;
-  templateId: string;
-  title: string;
-  preview: string;
-  fieldMapping: Record<string, string>;
-  sourceBlockIds: string[];
-  rationale: string;
-  confidence: number;
-  discarded?: boolean;
-  draftState: AICandidateDraftState;
-  draftError: string | null;
-  draftErrorOperation: AICandidateDraftErrorOperation | null;
-  draftLocation: AICandidateDraftLocation | null;
-}
-
-export interface AITutorResult {
-  blindSpots: string[];
-  patterns: string[];
-  nextLines: string[];
-  cardIdeas: string[];
-  batchSummary: string | null;
-  rawContent: string;
-}
-
 export interface AIExplainResult {
   workingDefinition: string;
   whatItTests: string;
@@ -120,13 +74,6 @@ export interface AIExplainResult {
   connections: string[];
   triggers: string[];
   cardIdeas: string[];
-  rawContent: string;
-}
-
-export interface AIMakeCardsResult {
-  mode: AIMakeCardMode;
-  candidates: AICardCandidate[];
-  draftSession: AIDraftSessionLocation | null;
   rawContent: string;
 }
 
@@ -160,30 +107,18 @@ export interface AIWorkbenchAssistantTextMessage {
 
 export interface AIWorkbenchAssistantResultMessage {
   id: string;
-  view: Extract<AITaskType, 'tutor' | 'explain'>;
+  view: AITaskType;
   kind: 'assistant-result';
   createdAt: number;
   rawContent: string;
-  tutorResult: AITutorResult | null;
   explainResult: AIExplainResult | null;
-  appliedContexts: AIAttachedContextItem[];
-}
-
-export interface AIWorkbenchCandidateBoardMessage {
-  id: string;
-  view: 'make-cards';
-  kind: 'candidate-board';
-  createdAt: number;
-  mode: AIMakeCardMode;
-  result: AIMakeCardsResult;
   appliedContexts: AIAttachedContextItem[];
 }
 
 export type AIWorkbenchMessage =
   | AIWorkbenchUserMessage
   | AIWorkbenchAssistantTextMessage
-  | AIWorkbenchAssistantResultMessage
-  | AIWorkbenchCandidateBoardMessage;
+  | AIWorkbenchAssistantResultMessage;
 
 export interface AIWorkbenchThreadRecord {
   view: AITaskType;
@@ -209,8 +144,6 @@ export interface AIWorkbenchSessionSummary {
 
 export interface AIWorkbenchSessionRecord extends AIWorkbenchSessionSummary {
   context: AIWorkbenchContextSnapshot | null;
-  makeCardMode: AIMakeCardMode;
-  requestBatchSummary: boolean;
   threads: Record<AITaskType, AIWorkbenchThreadRecord>;
 }
 
@@ -243,7 +176,6 @@ export interface AIWorkbenchOpenOptions {
   currentBlockId?: string | null;
   revealed?: boolean;
   neuralBatch?: NeuralRoamBatchSnapshot | null;
-  makeCardMode?: AIMakeCardMode;
 }
 
 export interface AIWorkbenchState extends ReviewAISessionState {
@@ -253,11 +185,7 @@ export interface AIWorkbenchState extends ReviewAISessionState {
   contextIsHistorical: boolean;
   isLoading: boolean;
   error: string | null;
-  tutorResult: AITutorResult | null;
   explainResult: AIExplainResult | null;
-  makeCardsResult: AIMakeCardsResult | null;
-  makeCardMode: AIMakeCardMode;
-  requestBatchSummary: boolean;
   sessionTitle: string;
   sessionHistory: AIWorkbenchSessionSummary[];
   threads: Record<AITaskType, AIWorkbenchThreadRecord>;

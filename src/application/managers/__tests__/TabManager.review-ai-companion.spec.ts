@@ -36,7 +36,7 @@ vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
 function createRegistryStub() {
   const sessionService = {
     state: {
-      activeView: 'tutor',
+      activeView: 'explain',
     },
   };
 
@@ -97,7 +97,7 @@ function createCompanionRuntime(sourceReviewSessionId: string) {
     data: {
       reviewSessionId: sourceReviewSessionId,
       sourceReviewSessionId,
-      title: `AI Tutor · ${sourceReviewSessionId}`,
+      title: `AI Explain · ${sourceReviewSessionId}`,
     },
     tab: {
       id: `ai-tab:${sourceReviewSessionId}`,
@@ -150,21 +150,21 @@ describe('TabManager review AI companion tab', () => {
 
     await tabManager.openReviewAICompanionTab({
       sessionId: 'review-tab-1',
-      title: 'AI Tutor · Neural',
-      view: 'tutor',
+      title: 'AI Explain · Neural',
+      view: 'explain',
     });
 
     expect(registry.openReviewSession).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: 'review-tab-1',
       surface: 'review-tab-companion',
       sourceReviewSessionId: 'review-tab-1',
-      view: 'tutor',
+      view: 'explain',
     }));
     expect(mocks.openTab).toHaveBeenCalledTimes(1);
     expect(mocks.openTab).toHaveBeenLastCalledWith(expect.objectContaining({
       position: 'right',
       custom: expect.objectContaining({
-        title: 'AI Tutor · Neural',
+        title: 'AI Explain · Neural',
       }),
     }));
 
@@ -173,7 +173,7 @@ describe('TabManager review AI companion tab', () => {
 
     await tabManager.openReviewAICompanionTab({
       sessionId: 'review-tab-1',
-      title: 'AI Tutor · Neural',
+      title: 'AI Explain · Neural',
       view: 'explain',
     });
 

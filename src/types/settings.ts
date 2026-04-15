@@ -233,10 +233,7 @@ export interface AIPromptTextPair {
 }
 
 export interface AIPromptTemplates {
-    tutor: AIPromptTextPair;
     explain: AIPromptTextPair;
-    cardCandidate: AIPromptTextPair;
-    cardCandidateCdf: AIPromptTextPair;
 }
 
 export interface AISettings {
@@ -249,7 +246,6 @@ export interface AISettings {
     defaultOutputLanguage: string;
     promptContractVersion: number;
     prompts: AIPromptTemplates;
-    draftStorage: ConfiguredCaptureStorageSettings;
 }
 
 export interface FilterGroupDefinition {
@@ -530,9 +526,14 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     }) | undefined;
     const sourceAi = settings.ai as (PluginSettings['ai'] & {
         promptProfiles?: unknown;
+        draftStorage?: unknown;
     }) | undefined;
     const { dailyTraceEnabled: _legacyDailyTraceEnabled, ...sourceProgressiveReadingWithoutLegacy } = sourceProgressiveReading || {};
-    const { promptProfiles: _legacyPromptProfiles, ...sourceAiWithoutLegacy } = sourceAi || {};
+    const {
+        promptProfiles: _legacyPromptProfiles,
+        draftStorage: _legacyDraftStorage,
+        ...sourceAiWithoutLegacy
+    } = sourceAi || {};
     const aiPromptContractVersion = normalizeAIPromptContractVersion(sourceAiWithoutLegacy.promptContractVersion);
     const shouldResetAiPromptsToCurrentContract = aiPromptContractVersion < ACTIVE_AI_PROMPT_CONTRACT_VERSION;
     const normalizedRiffIntegration = normalizeRiffIntegrationConfig(settings.riffIntegration);
@@ -603,10 +604,6 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             prompts: shouldResetAiPromptsToCurrentContract
                 ? clonePromptTemplates(DEFAULT_AI_PROMPTS)
                 : normalizeAIPromptTemplates(sourceAiWithoutLegacy.prompts),
-            draftStorage: normalizeConfiguredCaptureStorageSettings(sourceAiWithoutLegacy.draftStorage, {
-                allowSourceChild: false,
-                fallback: DEFAULT_SETTINGS.ai.draftStorage,
-            }),
         },
         ui: {
             ...DEFAULT_SETTINGS.ui,
@@ -698,9 +695,7 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             || !hasNormalizedPromptTemplateShape(sourceAi.prompts)
             || !arePromptTemplatesEqual(sourceAi.prompts, normalizedAi.prompts)
             || Object.prototype.hasOwnProperty.call(sourceAi, 'promptProfiles')
-            || sourceAi.draftStorage?.mode !== normalizedAi.draftStorage.mode
-            || sourceAi.draftStorage?.notebookId !== normalizedAi.draftStorage.notebookId
-            || (sourceAi.draftStorage?.targetBlockId || '') !== normalizedAi.draftStorage.targetBlockId
+            || Object.prototype.hasOwnProperty.call(sourceAi, 'draftStorage')
         ) {
             changed = true;
         }
@@ -790,23 +785,6 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
 export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 2;
 
 export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
-    tutor: {
-        run: [
-            '你是 SiyuanMemo 的 AI 导师。',
-            '你的工作对象是“正在神经漫游中的现在的自己”。',
-            '目标是帮助用户继续理解、继续辨析、继续连接，而不是过早替用户定稿。',
-            '严格基于当前上下文、当前卡片、当前路径和当前材料回答；材料未说明就明确说“材料未说明”或“这里有不确定性”，不要脑补。',
-            '如果当前处在神经漫游，请优先结合当前 round、focus、recent path、路径位置和激活来源来组织理解。',
-            '除非用户明确要求，否则不要写成正式总结稿。',
-        ].join('\n'),
-        followUp: [
-            '你是 SiyuanMemo 的 AI 导师，正在基于已有导师结果继续追问。',
-            '你的工作对象是“正在神经漫游中的现在的自己”。',
-            '请结合已给 structuredResult、最新 context 和用户最新问题，用简洁自然语言继续回答。',
-            '不要输出 JSON，不要重复整份结构化结果，不要突然改写成正式总结。',
-            '材料未说明就明确说“材料未说明”或“这里有不确定性”，不要脑补。',
-        ].join('\n'),
-    },
     explain: {
         run: [
             '你是一位擅长帮助学习者真正理解当前卡片的学习教练。',
@@ -822,38 +800,6 @@ export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
             '超出材料直接支持的地方，必须明确说明“这是补充理解，不是材料原文直接说明”。',
         ].join('\n'),
     },
-    cardCandidate: {
-        run: [
-            '你是一位擅长把知识转化为“可理解、可回忆、可应用”的学习教练。',
-            '你的任务不是直接复述材料，而是先建立结构化理解，再把关键点压缩成少而精的高质量候选卡。',
-            '优先提取边界、关系、作用、适用场景、常见误解；不重要的视角可以判断为当前不关键，不要硬凑。',
-            '候选卡默认目标区间是 6-10 张，但这是理想区间，不是硬指标。材料不够清楚、卡点不够稳定时，宁可少出，也不要硬凑；必要时允许只输出 0-3 张真正值得复习的候选。',
-            '卡片质量标准：一题只测一个点；问法具体不空泛；答案短且稳定；需要回忆；不能靠题面直接猜出来。',
-            '优先产出辨析、因果、应用、边界、触发器类候选；纯定义复述题只保留少数真正关键的锚点。',
-            '如果材料没说清楚，请明确写“材料未说明”或“这里有不确定性”，不要脑补。',
-        ].join('\n'),
-        followUp: [
-            '你正在回答 AI 辅助制卡候选上的追问。',
-            '请基于已有候选结果、最新 context 和用户问题，用简洁自然语言直接回答。',
-            '可以解释为什么这样拆、哪些候选该删、怎样收窄成更稳的少数卡。',
-            '不要输出 JSON，不要重新生成整批候选，除非用户明确要求重新生成。',
-        ].join('\n'),
-    },
-    cardCandidateCdf: {
-        run: [
-            '你正在执行 CDF 辅助制卡。',
-            'CDF 指概念描述符框架：先找概念锚点与稳定定义，再从材料中抽取可复用的描述维度，帮助未来复习时稳定回忆同一个知识点。',
-            '先在内部完成这件事：1. 找出材料里的核心概念或少数概念锚点；2. 为每个概念提炼一句稳定定义；3. 从材料里抽取高价值描述维度，例如边界、特征、机制、条件、证据、对比、例子、用途、影响；4. 只保留真正值得复习且能稳定提问的维度。',
-            '优先输出能落到概念定义卡和概念描述符卡上的候选；描述符要尽量短、稳、可复用，不要把整段原文塞进字段。',
-            '材料未说明的维度不要脑补，可以明确写“材料未说明”或直接放弃该候选。',
-            '质量优先，宁可少出，也不要凑数；必要时只输出 0-5 张真正成立的候选。',
-        ].join('\n'),
-        followUp: [
-            '你正在回答 CDF 辅助制卡结果上的追问。',
-            '请基于已有候选结果、最新 context 和用户问题，用简洁自然语言继续说明概念锚点、描述维度、删减理由或更稳的模板选择。',
-            '不要输出 JSON，不要整批重生成，除非用户明确要求重新生成。',
-        ].join('\n'),
-    },
 };
 
 function clonePromptPair(pair: AIPromptTextPair): AIPromptTextPair {
@@ -865,10 +811,7 @@ function clonePromptPair(pair: AIPromptTextPair): AIPromptTextPair {
 
 function clonePromptTemplates(templates: AIPromptTemplates): AIPromptTemplates {
     return {
-        tutor: clonePromptPair(templates.tutor),
         explain: clonePromptPair(templates.explain),
-        cardCandidate: clonePromptPair(templates.cardCandidate),
-        cardCandidateCdf: clonePromptPair(templates.cardCandidateCdf),
     };
 }
 
@@ -919,10 +862,7 @@ export function normalizeAIPromptTemplates(prompts: unknown): AIPromptTemplates 
         : undefined;
 
     return {
-        tutor: normalizePromptPair('tutor', source?.tutor),
         explain: normalizePromptPair('explain', source?.explain),
-        cardCandidate: normalizePromptPair('cardCandidate', source?.cardCandidate),
-        cardCandidateCdf: normalizePromptPair('cardCandidateCdf', source?.cardCandidateCdf),
     };
 }
 
@@ -932,7 +872,7 @@ function hasNormalizedPromptTemplateShape(prompts: unknown): boolean {
     }
 
     const source = prompts as Partial<Record<keyof AIPromptTemplates, unknown>>;
-    return ['tutor', 'explain', 'cardCandidate', 'cardCandidateCdf'].every((key) => {
+    return ['explain'].every((key) => {
         const value = source[key as keyof AIPromptTemplates];
         return typeof value === 'object'
             && value !== null
@@ -957,11 +897,6 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     defaultOutputLanguage: 'zh-CN',
     promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
     prompts: DEFAULT_AI_PROMPTS,
-    draftStorage: {
-        mode: 'daily-note',
-        notebookId: '',
-        targetBlockId: '',
-    },
 };
 
 /** 默认设置 */

@@ -338,12 +338,12 @@ describe('SettingsPanel', () => {
 
     expect(wrapper.text()).toContain('AI Workbench');
     expect(wrapper.text()).toContain('Prompt Templates');
-    expect(wrapper.text()).toContain('Tutor Preset');
     expect(wrapper.text()).toContain('Explain Preset');
-    expect(wrapper.text()).toContain('Card Preset');
-    expect(wrapper.text()).toContain('CDF Preset');
+    expect(wrapper.text()).not.toContain('Tutor Preset');
+    expect(wrapper.text()).not.toContain('Card Preset');
+    expect(wrapper.text()).not.toContain('CDF Preset');
     expect(wrapper.text()).toContain('讲清这张卡为什么值得记');
-    expect(wrapper.text()).toContain('优先辨析、因果、应用、边界和触发器');
+    expect(wrapper.text()).toContain('工作定义、边界、因果、连接和触发器');
     expect(wrapper.text()).toContain('Current Status');
     expect(wrapper.text()).toContain('Using Recommended Template');
     expect(wrapper.text()).toContain('Behavior Prompt');
@@ -360,43 +360,26 @@ describe('SettingsPanel', () => {
     const modelInput = modelItem?.find('input[type="text"]');
     const apiKeyItem = formItems.find((item) => item.text().includes('API Key'));
     const passwordInput = apiKeyItem?.find('input[type="password"]');
-    const aiStorageModeItem = formItems.find((item) => item.text().includes('AI draft storage mode'));
-    const aiStorageModeSelect = aiStorageModeItem?.find('select');
-    const notebookItems = formItems.filter((item) => item.text().includes('Target notebook'));
-    const aiNotebookSelect = notebookItems[notebookItems.length - 1]?.find('select');
-    const targetBlockItems = formItems.filter((item) => item.text().includes('Target block ID'));
-    const aiTargetBlockInput = targetBlockItems[targetBlockItems.length - 1]?.find('input[type="text"]');
     expect(baseUrlInput).toBeDefined();
     expect(modelInput).toBeDefined();
     expect(passwordInput).toBeDefined();
-    expect(aiStorageModeSelect).toBeDefined();
-    expect(aiNotebookSelect).toBeDefined();
-    expect(aiTargetBlockInput).toBeDefined();
 
     await baseUrlInput!.setValue('https://example.test/v1');
     await modelInput!.setValue('gpt-test');
     await passwordInput!.setValue('secret-key');
     await enableToggle!.setValue(false);
-    await aiStorageModeSelect!.setValue('library');
-    await aiNotebookSelect!.setValue('notebook-b');
-    await aiTargetBlockInput!.setValue('block-parent-1');
 
     const textareas = wrapper.findAll('textarea');
-    expect(textareas).toHaveLength(8);
-    await textareas[0].setValue('Tutor run prompt body');
-    await textareas[1].setValue('Tutor follow-up prompt body');
-    await textareas[2].setValue('Explain run prompt body');
-    await textareas[3].setValue('Explain follow-up prompt body');
-    await textareas[4].setValue('Card run prompt body');
-    await textareas[5].setValue('Card follow-up prompt body');
-    await textareas[6].setValue('CDF run prompt body');
-    await textareas[7].setValue('CDF follow-up prompt body');
+    expect(textareas).toHaveLength(2);
+    await textareas[0].setValue('Explain run prompt body');
+    await textareas[1].setValue('Explain follow-up prompt body');
     expect(wrapper.text()).toContain('Using Custom Override');
     expect(wrapper.text()).toContain('The saved behavior and follow-up prompts below are custom; the system appends structured rules automatically.');
 
     const restoreButtons = wrapper.findAll('button').filter((btn) => btn.text().includes('Restore Recommended Template'));
-    expect(restoreButtons).toHaveLength(4);
+    expect(restoreButtons).toHaveLength(1);
     await restoreButtons[0].trigger('click');
+    expect(wrapper.text()).toContain('Using Recommended Template');
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
     expect(saveButton).toBeDefined();
@@ -408,26 +391,8 @@ describe('SettingsPanel', () => {
     expect(payload.ai.apiKey).toBe('secret-key');
     expect(payload.ai.model).toBe('gpt-test');
     expect(payload.ai.promptContractVersion).toBe(2);
-    expect(payload.ai.prompts.tutor.run).not.toBe('Tutor run prompt body');
-    expect(payload.ai.prompts.tutor.run).toContain('AI 导师');
-    expect(payload.ai.prompts.tutor.followUp).not.toBe('Tutor follow-up prompt body');
-    expect(payload.ai.prompts.explain).toEqual({
-      run: 'Explain run prompt body',
-      followUp: 'Explain follow-up prompt body',
-    });
-    expect(payload.ai.prompts.cardCandidate).toEqual({
-      run: 'Card run prompt body',
-      followUp: 'Card follow-up prompt body',
-    });
-    expect(payload.ai.prompts.cardCandidateCdf).toEqual({
-      run: 'CDF run prompt body',
-      followUp: 'CDF follow-up prompt body',
-    });
-    expect(payload.ai.draftStorage).toEqual({
-      mode: 'library',
-      notebookId: 'notebook-b',
-      targetBlockId: 'block-parent-1',
-    });
+    expect(payload.ai.prompts.explain).toEqual(DEFAULT_SETTINGS.ai.prompts.explain);
+    expect(payload.ai).not.toHaveProperty('draftStorage');
     expect(payload.ai).not.toHaveProperty('promptProfiles');
   });
 

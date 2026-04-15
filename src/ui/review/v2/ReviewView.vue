@@ -216,7 +216,7 @@ const STANDARD_REVIEW_DIALOG_VARIANT_BY_QUEUE_TYPE: Partial<Record<QueueType, Re
   [QueueType.NeuralRoam]: 'neural-roam',
 };
 
-type ReviewAIEntryView = 'tutor' | 'explain' | 'make-cards';
+type ReviewAIEntryView = 'explain';
 
 type ReviewProviderLike = {
   id?: string;
@@ -2429,26 +2429,24 @@ function buildReviewAIOptions(view: ReviewAIEntryView, surface?: AIWorkbenchSurf
 }
 
 function resolveDefaultReviewAIEntryView(): ReviewAIEntryView {
-  return resolveActiveReviewQueueType() === 'neural-roam' ? 'tutor' : 'explain';
+  return 'explain';
 }
 
 function resolveReviewAIEntryView(requestedView?: ReviewAIEntryView): ReviewAIEntryView {
   if (requestedView) {
-    return requestedView;
+    return 'explain';
   }
 
   const registry = getReviewAIWorkbenchRegistry();
   const activeView = reviewAIService.value?.state.activeView
     || registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView;
-  return activeView || resolveDefaultReviewAIEntryView();
+  return activeView === 'explain' ? activeView : resolveDefaultReviewAIEntryView();
 }
 
 function getReviewAICompanionTitle(view: ReviewAIEntryView): string {
-  const viewTitle = view === 'tutor'
-    ? t('aiTutor', 'AI 导师')
-    : view === 'explain'
-      ? t('aiExplainCard', 'AI 解释卡片')
-      : t('aiMakeCards', 'AI 辅助制卡');
+  const viewTitle = view === 'explain'
+    ? t('aiExplainCard', 'AI 解释卡片')
+    : t('aiExplainCard', 'AI 解释卡片');
   const reviewTitle = String(props.title || t('reviewTitle', 'Review')).trim();
   return `${viewTitle} · ${reviewTitle || t('reviewTitle', 'Review')}`;
 }
@@ -3147,16 +3145,6 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
 
   if (actionType === 'ai-explain') {
     void openReviewAIAssistant('explain');
-    return;
-  }
-
-  if (actionType === 'ai-tutor') {
-    void openReviewAIAssistant('tutor');
-    return;
-  }
-
-  if (actionType === 'ai-make-cards') {
-    void openReviewAIAssistant('make-cards');
     return;
   }
 
