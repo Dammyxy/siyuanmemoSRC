@@ -5,11 +5,13 @@ import {
   getBlockBreadcrumb,
   getBlockDOM,
   getBlockInfo,
+  getBlockKramdown,
   getIconByType,
   pushErrMsg,
   pushMsg,
   setBlockAttrs,
   sql,
+  updateBlock,
 } from './api';
 import { BUILTIN_DECK_ID, reviewRiffCard, skipReviewRiffCard } from '@/core/siyuan/riff';
 
@@ -32,6 +34,10 @@ export class ReviewSiyuanAdapter implements ReviewSiyuanPort {
     return getBlockInfo(blockId);
   }
 
+  async getBlockKramdown(blockId: string): Promise<{ kramdown: string }> {
+    return getBlockKramdown(blockId);
+  }
+
   async getBlockDOM(blockId: string): Promise<{ dom: string }> {
     return getBlockDOM(blockId);
   }
@@ -42,6 +48,14 @@ export class ReviewSiyuanAdapter implements ReviewSiyuanPort {
 
   getIconByType(type: string, subType?: string): string {
     return getIconByType(type, subType);
+  }
+
+  async updateBlockMarkdown(blockId: string, markdown: string): Promise<string> {
+    return updateBlock({
+      dataType: 'markdown',
+      data: markdown,
+      id: blockId,
+    });
   }
 
   async reviewRiffCard(deckID: string, cardID: string, rating: Rating): Promise<void> {

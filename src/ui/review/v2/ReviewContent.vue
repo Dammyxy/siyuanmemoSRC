@@ -126,7 +126,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import * as siyuan from 'siyuan';
-import type { ReviewUIState } from './types';
+import type { ReviewEditableSource, ReviewUIState } from './types';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
 import { OVERLAY_REGISTRY } from './overlays/index';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
@@ -143,6 +143,7 @@ import { SiyuanBlockAdapter as DescriptorBlockAdapter } from '@/core/card/descri
 import { DescriptorCardRepository } from '@/core/card/descriptor-card/infrastructure/DescriptorCardRepository';
 import { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import { 
+  type XiuyuanCardMeta,
   isConceptDefinitionCard as checkIsConceptDefinitionCard, 
   isConceptCard as checkIsConceptCard 
 } from '@/core/xiuyuan/cardMeta';
@@ -174,6 +175,7 @@ const props = defineProps<{
   hasHiddenContent?: boolean;
   showAnswer?: boolean;
   meta?: ReviewUIState['meta'];
+  renderEpoch?: number;
 }>();
 const emit = defineEmits<{
   (e: 'editor-state-change', state: ReviewEditorState): void;
@@ -214,12 +216,13 @@ const transitionName = computed(() => {
   const transition = props.meta?.transition || 'none';
   return `fsrs-review-transition-${transition}`;
 });
+const renderEpoch = computed(() => Math.max(0, Number(props.renderEpoch) || 0));
 
 // 计算内容 key，用于触发过渡动画
 const contentKey = computed(() => {
   // 对于有 card 的情况，使用 card.id 确保唯一性（特别是多挖空卡片）
   const cardId = props.content.card?.id || '';
-  return `${props.content.type}-${props.content.id}-${props.content.data}-${cardId}`;
+  return `${props.content.type}-${props.content.id}-${props.content.data}-${cardId}-${renderEpoch.value}`;
 });
 
 const hostRef = ref<HTMLDivElement | null>(null);
@@ -353,7 +356,7 @@ const forceQuickRender = computed(() => {
 });
 
 const renderCacheKey = computed(() =>
-  buildReviewRenderCacheKey({
+  `${buildReviewRenderCacheKey({
     blockId: String(props.content.id || ''),
     cardId: String(props.content.card?.id || ''),
     cardType: String(props.content.card?.type || ''),
@@ -367,11 +370,11 @@ const renderCacheKey = computed(() =>
     symbolType: quickIndicatorSymbolType.value,
     renderProfile: resolvedRenderProfile.value || '',
     quickDetectReason: quickDetectReason.value,
-  }),
+  })}::${renderEpoch.value}`,
 );
 
 const renderWatchKey = computed(() =>
-  buildReviewRenderWatchKey({
+  `${buildReviewRenderWatchKey({
     contentType: String(props.content.type || ''),
     blockId: String(props.content.id || ''),
     cardId: String(props.content.card?.id || ''),
@@ -386,7 +389,7 @@ const renderWatchKey = computed(() =>
     symbolType: quickIndicatorSymbolType.value,
     renderProfile: resolvedRenderProfile.value || '',
     quickDetectReason: quickDetectReason.value,
-  }),
+  })}::${renderEpoch.value}`,
 );
 
 // 🆕 多填空维持专用 renderer：
@@ -560,6 +563,78 @@ const currentRendererKind = computed<ReviewEditorState['renderer']>(() => {
     return 'main-protyle';
   }
   return 'empty';
+});
+
+function resolveListTemplateCurrentChildBlockId(meta: unknown): string {
+  if (!meta || typeof meta !== 'object') {
+    return '';
+  }
+
+  const listMeta = meta as XiuyuanCardMeta;
+  const currentIndex = typeof listMeta.currentIndex === 'number' ? listMeta.currentIndex : -1;
+  const child = Array.isArray(listMeta.allChildren) && currentIndex >= 0
+    ? listMeta.allChildren[currentIndex]
+    : null;
+
+  return typeof child?.id === 'string' ? child.id.trim() : '';
+}
+
+function buildEditableSource(
+  blockId: string,
+  title: string,
+  rendererKind: ReviewEditableSource['rendererKind'],
+): ReviewEditableSource | null {
+  const trimmedBlockId = String(blockId || '').trim();
+  if (!trimmedBlockId) {
+    return null;
+  }
+
+  return {
+    blockId: trimmedBlockId,
+    title,
+    sourceKind: 'block-markdown',
+    rendererKind,
+  };
+}
+
+const editableSource = computed<ReviewEditableSource | null>(() => {
+  if (props.content.type !== 'protyle') {
+    return null;
+  }
+
+  if (props.content.isXiuyuanListTemplate && props.content.xiuyuanMeta) {
+    return buildEditableSource(
+      resolveListTemplateCurrentChildBlockId(props.content.xiuyuanMeta),
+      t('editCurrentListItem', '编辑当前列表项'),
+      'list-template',
+    );
+  }
+
+  if (shouldUseImageOcclusionRenderer.value) {
+    return null;
+  }
+
+  if (shouldUseMultiClozeRenderer.value) {
+    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'multi-cloze');
+  }
+
+  if (shouldUseConceptDefinitionRenderer.value) {
+    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'concept-definition');
+  }
+
+  if (shouldUseConceptCardRenderer.value) {
+    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'concept');
+  }
+
+  if (shouldUseDescriptorCardRenderer.value) {
+    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'descriptor');
+  }
+
+  if (shouldUseQuickCardRenderer.value) {
+    return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'quick');
+  }
+
+  return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'main-protyle');
 });
 
 function emitEditorState(state: ReviewEditorState): void {
@@ -738,8 +813,13 @@ function exitEditorByEscape(): boolean {
   return didBlur || focusedAction;
 }
 
+function getEditableSource(): ReviewEditableSource | null {
+  return editableSource.value;
+}
+
 defineExpose({
   exitEditorByEscape,
+  getEditableSource,
 });
 
 // 概念定义卡加载成功

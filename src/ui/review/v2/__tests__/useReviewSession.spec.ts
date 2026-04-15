@@ -81,6 +81,8 @@ function mountHook(options: {
     answeredCount?: number;
     correctCount?: number;
   };
+  initialCurrentItem?: ReturnType<typeof createItem> | null;
+  initialShowAnswer?: boolean;
 } = {}) {
   const queue = options.queue ?? createQueue();
   const adapter = options.adapter ?? createAdapter();
@@ -90,6 +92,8 @@ function mountHook(options: {
     setup() {
       hook = useReviewSession(queue as never, adapter as never, {
         initialSessionState: options.initialSessionState,
+        initialCurrentItem: options.initialCurrentItem as never,
+        initialShowAnswer: options.initialShowAnswer,
       });
       return () => h('div');
     },
@@ -186,6 +190,28 @@ describe('useReviewSession', () => {
     expect(hook.context.value.session?.initialTotal).toBe(8);
     expect(hook.context.value.session?.answeredCount).toBe(3);
     expect(hook.context.value.session?.correctCount).toBe(2);
+
+    wrapper.unmount();
+  });
+
+  it('hydrates the current item from review-tab runtime state without consuming queue.next', async () => {
+    const queue = createQueue();
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const { getHook, wrapper } = mountHook({
+      queue,
+      adapter,
+      initialCurrentItem: createItem('restored-card'),
+      initialShowAnswer: true,
+    });
+    await flushAsync();
+
+    const hook = getHook();
+    expect(queue.next).not.toHaveBeenCalled();
+    expect(hook.state.value.content.id).toBe('restored-card');
+    expect(hook.context.value.showAnswer).toBe(true);
 
     wrapper.unmount();
   });

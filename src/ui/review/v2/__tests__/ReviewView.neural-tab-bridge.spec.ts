@@ -45,6 +45,19 @@ function buildCard(blockId: string) {
   };
 }
 
+function buildAssociatedReviewCard(blockId: string, sourceVirtualNodeId: string) {
+  return {
+    ...buildCard(blockId),
+    meta: {
+      neuralContext: {
+        isFlashcard: true,
+        nodeRole: 'associated-review',
+        sourceVirtualNodeId,
+      },
+    },
+  };
+}
+
 function createNeuralQueue(currentNodeId: string | null, resolver?: (nodeId: string) => unknown) {
   const historyEntries: Array<{ eventId: string; nodeId: string }> = [];
   return {
@@ -57,6 +70,7 @@ function createNeuralQueue(currentNodeId: string | null, resolver?: (nodeId: str
     getAnchorSnapshot: vi.fn(() => []),
     setAnchorEntry: vi.fn(async () => undefined),
     clearAnchors: vi.fn(async () => undefined),
+    getCurrentBatchSnapshot: vi.fn(() => []),
     getConceptBlocks: vi.fn(() => []),
     getFocusPoolSnapshot: vi.fn(() => []),
     setFocusPoolEntry: vi.fn(async () => undefined),
@@ -243,6 +257,31 @@ describe('ReviewView neural tab bridge', () => {
     expect(neuralQueue.getPathItemByNodeId).toHaveBeenCalledWith('node-fallback');
     expect(wrapper.getComponent(ReviewActionsStub).props('currentCard')).toMatchObject({
       blockId: 'node-fallback',
+    });
+
+    wrapper.unmount();
+  });
+
+  it('accepts associated-review cards whose real block id differs from the neural current node id', async () => {
+    const requestedNodeId = 'virtual-node-1';
+    const associatedCard = buildAssociatedReviewCard('special-block-1', requestedNodeId);
+    const neuralQueue = createNeuralQueue(requestedNodeId, () => associatedCard);
+    const wrapper = mountReviewView(createQueue(buildCard('block-initial'), neuralQueue));
+
+    await flushPromises();
+
+    const bridge = wrapper.vm as unknown as ReviewViewTabBridge;
+    await expect(bridge.syncToNeuralQueueCurrentNode()).resolves.toBe(true);
+    await flushPromises();
+
+    expect(neuralQueue.getPathItemByNodeId).toHaveBeenCalledWith(requestedNodeId);
+    expect(wrapper.getComponent(ReviewActionsStub).props('currentCard')).toMatchObject({
+      blockId: 'special-block-1',
+      meta: {
+        neuralContext: {
+          sourceVirtualNodeId: requestedNodeId,
+        },
+      },
     });
 
     wrapper.unmount();

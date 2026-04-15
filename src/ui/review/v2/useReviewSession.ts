@@ -216,6 +216,8 @@ export function useReviewSession<TItem extends QueueItem>(
   options?: {
     onReview?: (cardId: string, rating: number) => void;
     initialSessionState?: InitialReviewSessionState;
+    initialCurrentItem?: TItem | null;
+    initialShowAnswer?: boolean;
   }
 ): ReviewSessionHook {
   const state = ref<ReviewUIState>(createEmptyReviewUIState());
@@ -392,6 +394,13 @@ export function useReviewSession<TItem extends QueueItem>(
         baselineVersion: 0,
         reviewHistory: [],
       };
+
+      if (options?.initialCurrentItem) {
+        currentItem.value = options.initialCurrentItem;
+        context.value.showAnswer = options.initialShowAnswer === true;
+        await updateState('mount');
+        return;
+      }
 
       currentItem.value = await queue.next();
       await updateState('mount');

@@ -119,4 +119,30 @@ describe('ReviewApplicationService reschedule queue membership', () => {
       expect.objectContaining({ due: dueTimestamp }),
     );
   });
+
+  it('loads raw block markdown through the review siyuan port', async () => {
+    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {} as never;
+    const siyuanApi = {
+      getBlockKramdown: vi.fn(async () => ({ kramdown: 'Original body' })),
+      updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
+    } as never;
+    const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
+
+    await expect(service.getBlockKramdown('block-1')).resolves.toBe('Original body');
+    expect(siyuanApi.getBlockKramdown).toHaveBeenCalledWith('block-1');
+  });
+
+  it('updates raw block markdown through the review siyuan port', async () => {
+    const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {} as never;
+    const siyuanApi = {
+      getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
+      updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
+    } as never;
+    const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
+
+    await expect(service.updateBlockMarkdown('block-1', 'Updated body')).resolves.toBe('block-1');
+    expect(siyuanApi.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
+  });
 });

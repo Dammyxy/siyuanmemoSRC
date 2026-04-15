@@ -1,8 +1,68 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-15 (Round 65)
+Last update: 2026-04-15 (Round 68)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-15 - review tab split lifecycle refresh for multi-card special renderers
+
+- Task: Fix native review TAB split flows where special-rendered cards from one block with multiple card faces could still fail to open in direct right split because the custom TAB lifecycle did not re-sync the exact current card identity after split/update/resize.
+- Touched slice: Review tab runtime normalization and lifecycle wiring in `src/application/managers/TabManager.ts`, review tab runtime contract in `src/types/review-tab.ts`, review TAB bridge typing in `src/ui/review/v2/types.ts`, review tab surface refresh/rebind logic in `src/ui/review/v2/ReviewView.vue`, and focused review-tab lifecycle regression coverage in `src/application/managers/__tests__/TabManager.review-transfer.spec.ts`.
+- Debt fixed now: Review tab runtime state now persists explicit `currentCardId/currentBlockId` in addition to the queue snapshot; old runtime snapshots without those fields are upgraded from `queueSnapshot.currentItem`; `TabManager` now keeps `runtime.data` and `tab.model.data` in sync; and review custom tabs now respond to Siyuan `resize/update` lifecycle callbacks by asking `ReviewView` to refresh the current review surface by card id and force a bounded renderer remount, which specifically protects same-block multi-card special renderers during direct split/right-pane restore.
+- Debt deferred: The review tab bridge is still a Vue exposed API rather than a smaller application-facing review-tab lifecycle service, and the refresh path still relies on a bounded renderer remount instead of a renderer-specific incremental resize protocol.
+- Why deferred: Extracting a dedicated lifecycle service or teaching every special renderer its own resize/rebind contract would widen this split bugfix into a broader review-tab architecture project with much larger regression surface than the active native split failure warrants.
+- Next safe step: If native split still shows one remaining renderer-specific edge case, move the current `refreshTabSurface` behavior behind a small review-tab lifecycle service and let individual special renderers optionally expose a lightweight resize/recover hook before considering a larger rewrite.
+- Validation: `pnpm vitest run src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/application/managers/__tests__/TabManager.openReviewInNewWindow.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts`; `pnpm build`.
+
+### 2026-04-15 - review tab runtime-state snapshot restore for special renderers
+
+- Task: Fix review TAB split/reload restores where special-rendered retrieval-practice cards could come back as blank custom panes because the tab only persisted static queue metadata and lost the current card/runtime session context that special renderers depend on.
+- Touched slice: Review tab runtime data wiring in `src/application/managers/TabManager.ts`, review queue wrapper snapshot support in `src/application/adapters/UnifiedQueueStrategy.ts`, review session bootstrap in `src/ui/review/v2/useReviewSession.ts`, review tab state emission in `src/ui/review/v2/ReviewView.vue`, shared review-tab snapshot contracts in new `src/types/review-tab.ts`, plus focused tab/session regression coverage.
+- Debt fixed now: Review custom tabs now keep a bounded serializable runtime snapshot (`showAnswer`, session counters, current card, queue wrapper position/cache state) in `runtime.data.reviewState`; `TabManager` restores that snapshot before mounting `ReviewView`; and `useReviewSession` can now hydrate from a restored current item instead of always consuming `queue.next()` on mount, which is what previously left special renderers without the card metadata they need after native split/reload restore.
+- Debt deferred: The persisted runtime snapshot still does not preserve full review back-history/rollback transactions, and filter-group native split restore still keeps using its older detached transfer-state snapshot for underlying queue membership instead of one unified review-surface snapshot model.
+- Why deferred: Serializing undo/back transactions and fully unifying filter-group transfer with review-tab runtime snapshots would widen this bounded split fix into a larger review-session persistence redesign with more compatibility risk than needed for the active blank-pane bug.
+- Next safe step: If users next need exact split-session continuation including `Back`, add a dedicated review-tab session snapshot contract that also models history/rollback state and lets `TabManager` persist live filter-group transfer state alongside the wrapper snapshot.
+- Validation: `pnpm vitest run src/application/adapters/__tests__/UnifiedQueueStrategy.scope-append.spec.ts src/ui/review/v2/__tests__/useReviewSession.spec.ts src/application/managers/__tests__/TabManager.review-transfer.spec.ts`; `pnpm build`.
+
+### 2026-04-15 - retrieval practice split locate-source target fix for special renderers
+
+- Task: Fix retrieval-practice review split/open-as flows where special-rendered cards could not reliably open in split view because the review surface used the scheduler/reference block id instead of the renderer's current source block when locating the source block.
+- Touched slice: Review open-as/source-locate handling in `src/ui/review/v2/ReviewView.vue` plus focused open-as regression coverage in `src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts`.
+- Debt fixed now: `ReviewView` now distinguishes between the "current card reference block" used for queue/scheduler semantics and the "current source block" used by locate-source split actions; open-as locate actions now prefer the active editable/source block exposed by `ReviewContent`, then fall back to the rendered content block, instead of blindly leading with `actions.cardMeta.blockID`, which was only a representative Xiuyuan block for many special renderers.
+- Debt deferred: Other review-side actions still read `resolveCurrentReviewBlockId()` directly even when their semantics are "current card identity" versus "current rendered source", and the split/open-as source-target policy still lives inside `ReviewView` instead of a smaller review navigation helper.
+- Why deferred: The active bug is strictly on the open-as locate-source path; widening this into a broader review action semantics cleanup would touch SRS editing, neural actions, and AI context payload semantics that were not broken here.
+- Next safe step: If another review action misroutes on special-render cards, extract a small review-surface target resolver that names the distinct identities explicitly (`cardReferenceBlockId`, `renderedSourceBlockId`, `editableSourceBlockId`) and migrate the remaining call sites one by one.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts`; `pnpm build`.
+
+### 2026-04-15 - neural review tab split handoff stabilization
+
+- Task: Fix review TAB splitting / neural handoff regressions where the split surface could appear blank because the review tab bridge reported sync failure before the newly loaded node had settled into the current review state.
+- Touched slice: Review tab bridge logic in `src/ui/review/v2/ReviewView.vue` plus focused tab/split regression coverage in `src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts` and `src/application/managers/__tests__/TabManager.neural-review-tab-sync.spec.ts`.
+- Debt fixed now: `ReviewView.syncToNeuralQueueCurrentNode()` no longer does a single immediate post-load comparison against the current review block id; it now waits through the reactive tick boundary and only fails after a bounded settled-state check, which keeps neural review tab handoff/split flows from falsely reporting failure while the card state is still converging.
+- Debt deferred: The neural handoff path still relies on `ReviewView` exposing a UI-level bridge method rather than a smaller dedicated application-facing review-tab sync abstraction.
+- Why deferred: Extracting a dedicated bridge service would widen this bounded split regression fix into a broader review-tab ownership refactor with little immediate benefit once the active state-settling bug is removed.
+- Next safe step: If review-tab handoff grows again, move the bridge sync contract behind a small tab-facing review session service so TabManager stops depending on a Vue exposed API.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts src/application/managers/__tests__/TabManager.neural-review-tab-sync.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts src/ui/browser/neural/__tests__/reviewSurfaceHandoff.test.ts`; `pnpm build`.
+
+### 2026-04-15 - formula review attr-tail cleanup on inline render path
+
+- Task: Fix formula cards in review that were leaking SiYuan block attribute tails like `{: custom-fsrs-card-type=...}` after the rendered math expression.
+- Touched slice: Formula/multi-cloze review rendering in `src/core/card/multi-cloze/application/MultiClozeCardRenderService.ts`, shared block-attribute cleanup in new `src/core/card/common/utils/stripSiyuanBlockAttributeArtifacts.ts`, bounded quick-card reuse cleanup in `src/core/card/quick-card/infrastructure/SiyuanBlockAdapter.ts`, and focused multi-cloze/quick renderer regression coverage.
+- Debt fixed now: The active `inline-formula-cloze` source path now strips trailing SiYuan block attrs before cloze extraction and math normalization; the stored-face fallback for formula cards now applies the same cleanup instead of re-showing raw `{: ...}` tails when source kramdown is unavailable; and the duplicated quick-card attribute cleanup regex now reuses the same helper so formula/quick renderers stop drifting apart locally.
+- Debt deferred: Other card slices such as concept-definition still keep their own nearby attribute-tail stripping logic instead of consuming the new shared helper.
+- Why deferred: Widening this bugfix into a repo-wide attribute-cleanup refactor would touch multiple unrelated renderers and increase regression surface beyond the bounded formula-card path that is actively broken.
+- Next safe step: If another renderer leaks raw SiYuan attrs again, migrate that bounded slice onto the shared helper and then collapse the remaining duplicate regexes in one dedicated cleanup pass.
+- Validation: `pnpm vitest run src/core/card/multi-cloze/application/__tests__/MultiClozeCardRenderService.inline-formula.test.ts src/core/card/multi-cloze/application/__tests__/MultiClozeCardRenderService.test.ts src/core/card/quick-card/infrastructure/__tests__/SiyuanBlockAdapter.test.ts src/ui/review/components/__tests__/MultiClozeCardRenderer.test.ts`; `pnpm build`.
+
+### 2026-04-15 - review rich renderer editing and markdown parity
+
+- Task: Reuse the shared AI-side large text editor on the review surface so special review renderers can open/edit the current source block, and fix list-template review cards that were still rendering cue/answer content as plain text instead of markdown-rich block content.
+- Touched slice: Review Siyuan port/application boundary in `src/application/ports/ReviewSiyuanPort.ts`, `src/infrastructure/siyuan/ReviewSiyuanAdapter.ts`, and `src/application/services/ReviewApplicationService.ts`; review UI/runtime in `src/ui/review/v2/{types.ts,ReviewView.vue,ReviewContent.vue}`; list-template review renderer in `src/ui/review/v2/components/XiuyuanListTemplateCard.vue`; shared cue/answer parsing in new `src/core/xiuyuan/parseCueAndAnswer.ts` plus Xiuyuan creation callers; related i18n, `ARCHITECTURE.md`, and focused review/Xiuyuan regression coverage.
+- Debt fixed now: Review no longer needs to bypass the active port boundary to read/write raw block markdown; `ReviewContent` now exposes one bounded editable-source contract and a review-local refresh token so same-block saves re-run special/main renderer detection instead of serving stale cached output; and list-template review cards now read current/previous child paragraph kramdown as runtime truth and render cue/answer through shared rich markdown instead of frozen plain-text meta strings.
+- Debt deferred: Image-occlusion review still has no current-content edit entry, and special review cards still edit raw block markdown through the large textarea instead of embedding a true in-place Protyle/WYSIWYG editor inside each renderer.
+- Why deferred: Image-occlusion editing needs separate mask-metadata modeling beyond simple block markdown writes, while embedding native Protyle inside every special renderer would widen this bounded review parity task into a much larger renderer-lifecycle and keyboard-focus redesign.
+- Next safe step: If users next want closer native editing parity, add one follow-up that models image-occlusion editable metadata separately and evaluate whether one bounded Protyle-backed editor surface can replace raw-markdown editing for selected special renderers without duplicating review session logic.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts src/application/services/__tests__/ReviewApplicationService.reschedule-membership.test.ts`; `pnpm build`.
 
 ### 2026-04-15 - ai chat rich rendering message editing and one-shot use-context
 

@@ -7,6 +7,7 @@ import {
   type DescriptorOrDefinitionKind,
 } from './shared/DescriptorTemplateStrategy';
 import { findConceptByUpwardSearch } from './shared/ConceptLocator';
+import { normalizeCueAnswerSource, parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CreateCdfMultilineCardsUseCase');
@@ -51,7 +52,6 @@ type CdfDescriptorMeta = {
 };
 
 const FW_SEMICOLON = '\uFF1B';
-const ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF\u2060]/g;
 const DESCRIPTOR_MULTILINE_TAIL_RE = new RegExp(`\\s*(;;;|${FW_SEMICOLON}{3})\\s*$`);
 
 function escapeSql(value: string): string {
@@ -59,10 +59,7 @@ function escapeSql(value: string): string {
 }
 
 function normalizeForTextParsing(text: string): string {
-  return (text || '')
-    .replace(/\{:[^}]*\}/g, '')
-    .replace(ZERO_WIDTH_RE, '')
-    .trim();
+  return normalizeCueAnswerSource(text);
 }
 
 function extractDescriptorGroupHint(source: string): string {
@@ -85,25 +82,6 @@ function extractDescriptorGroupHintFromCandidates(...sources: Array<string | und
     }
   }
   return '';
-}
-
-function parseCueAndAnswer(source: string): { cue: string; answer: string } {
-  const text = normalizeForTextParsing(source);
-  const unicodeArrow = '\u2192';
-  const delimiter = text.includes(unicodeArrow) ? unicodeArrow : '->';
-  const parts = text.split(delimiter);
-
-  if (parts.length >= 2) {
-    return {
-      cue: parts[0].trim(),
-      answer: parts.slice(1).join(delimiter).trim(),
-    };
-  }
-
-  return {
-    cue: '',
-    answer: text,
-  };
 }
 
 function isDefinitionTemplate(templateId: string): boolean {

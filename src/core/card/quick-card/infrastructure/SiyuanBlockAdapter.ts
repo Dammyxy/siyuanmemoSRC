@@ -8,10 +8,9 @@
 import type { SiyuanBlock } from '../domain/types';
 import { createLogger } from '@/utils/logger';
 import { SiyuanKramdownGateway } from '@/core/card/common/infrastructure/SiyuanKramdownGateway';
+import { stripSiyuanBlockAttributeArtifacts } from '@/core/card/common/utils/stripSiyuanBlockAttributeArtifacts';
 
 const logger = createLogger('QuickCardSiyuanBlockAdapter');
-const QUICK_ATTRIBUTE_ONLY_LINE = /^(?:[*+-]\s*)?\{:\s*[^}]*\}\s*$/;
-const QUICK_TRAILING_ATTRIBUTE_TAIL = /\s+\{:\s*[^}]*\}\s*$/;
 const VISIBLE_MEDIA_SELECTOR = 'img,svg,video,audio,canvas,iframe,math,.katex,[data-type="NodeMathBlock"]';
 
 /**
@@ -170,11 +169,7 @@ export class SiyuanBlockAdapter {
   }
 
   private normalizeQuickKramdown(kramdown: string): string {
-    return kramdown
-      .split(/\r?\n/)
-      .filter((line) => !QUICK_ATTRIBUTE_ONLY_LINE.test(line.trim()))
-      .map((line) => line.replace(QUICK_TRAILING_ATTRIBUTE_TAIL, ''))
-      .join('\n')
+    return stripSiyuanBlockAttributeArtifacts(kramdown)
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }

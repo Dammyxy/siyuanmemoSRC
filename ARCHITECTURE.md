@@ -148,9 +148,11 @@ flowchart TD
 6. review header 的二级动作仍由 `ReviewView.vue` 编排：
    - `AI 侧栏` 统一走 `ReviewAIWorkbenchRegistry`
    - `更多` 菜单中的优先级编辑走 `CardEditorApplicationService.updatePriority(...)`
+   - `更多` 菜单中的“编辑当前内容”走 `ReviewApplicationService.getBlockKramdown/updateBlockMarkdown(...)`，通过共享 `LargeTextEditorDialog` 编辑当前块原始 Markdown
    - `更多` 菜单中的暂停动作走 `CardEditorApplicationService`
    - `更多` 菜单中的删除动作走 `CardApplicationService`
    - progressive excerpt / open-as / fullscreen / SRS editor 继续复用既有 application / dialog 主链
+7. `ReviewContent.vue` 继续在 `主 Protyle / special renderer` 之间路由；special renderer 现在通过 `getEditableSource()` 向 `ReviewView.vue` 暴露当前可编辑块，并用 review-local `renderEpoch` 触发同块保存后的强制重渲染
 
 当前 review surface 路由补充：
 
@@ -524,7 +526,7 @@ Review surface 的当前统一点是：
 
 Review 运行时要点：
 
-- `ReviewView.vue` 负责界面、键盘交互、progressive excerpt 触发、AI companion session 对齐，以及 review header `更多` 菜单对 `CardEditorApplicationService` / `CardApplicationService` 的二级动作编排
+- `ReviewView.vue` 负责界面、键盘交互、progressive excerpt 触发、AI companion session 对齐，以及 review header `更多` 菜单对 `ReviewApplicationService` / `CardEditorApplicationService` / `CardApplicationService` 的二级动作编排
 - `useReviewSession.ts` 负责 session 状态机
 - queue-specific header / actions / variant 由 adapter 与 queue config 决定
 - `TabManager` 负责 review tab、browser handoff、AI companion tab 复用

@@ -81,6 +81,15 @@ export class ReviewApplicationService {
     return this.siyuanApi;
   }
 
+  async getBlockKramdown(blockId: string): Promise<string> {
+    const { kramdown } = await this.siyuanApi.getBlockKramdown(blockId);
+    return kramdown;
+  }
+
+  async updateBlockMarkdown(blockId: string, markdown: string): Promise<string> {
+    return this.siyuanApi.updateBlockMarkdown(blockId, markdown);
+  }
+
   private async reconcileQueueMembershipAfterReschedule(card: FSRSCard): Promise<void> {
     const targetQueues: QueueType[] = [
       QueueType.RetrievalPractice,

@@ -2,6 +2,7 @@ import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Str
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import type { FSRSCard } from '@/types/card';
 import type { IReviewQueue, QueueCounterSnapshot, QueueReviewResult } from '@/types/unified-data-source';
+import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
 import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
@@ -944,6 +945,58 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
     private cloneCard(card: FSRSCard): FSRSCard {
         return JSON.parse(JSON.stringify(card)) as FSRSCard;
+    }
+
+    serializeSessionSnapshot(): ReviewQueueSessionSnapshot {
+        return {
+            version: 1,
+            queueType: this.queueType,
+            cacheValid: this.cacheValid,
+            currentIndex: Math.max(0, this.currentIndex),
+            cachedCards: this.cachedCards.map((card) => this.cloneCard(card)),
+            currentItem: this.currentItem ? this.cloneCard(this.currentItem) : null,
+            forwardBuffer: this.forwardBuffer.map((card) => this.cloneCard(card)),
+            pendingRotateCardId: this.pendingRotateCardId,
+            lastCounterSnapshot: this.lastCounterSnapshot
+                ? {
+                    ...this.lastCounterSnapshot,
+                    buckets: {
+                        ...this.lastCounterSnapshot.buckets,
+                    },
+                }
+                : null,
+        };
+    }
+
+    restoreSessionSnapshot(snapshot: ReviewQueueSessionSnapshot | null | undefined): void {
+        if (!snapshot || snapshot.version !== 1 || snapshot.queueType !== this.queueType) {
+            return;
+        }
+
+        this.cachedCards = Array.isArray(snapshot.cachedCards)
+            ? snapshot.cachedCards.map((card) => this.cloneCard(card))
+            : [];
+        this.currentItem = snapshot.currentItem ? this.cloneCard(snapshot.currentItem) : null;
+        this.forwardBuffer = Array.isArray(snapshot.forwardBuffer)
+            ? snapshot.forwardBuffer.map((card) => this.cloneCard(card))
+            : [];
+        this.pendingRotateCardId = typeof snapshot.pendingRotateCardId === 'string'
+            ? snapshot.pendingRotateCardId
+            : null;
+        this.lastCounterSnapshot = snapshot.lastCounterSnapshot
+            ? {
+                ...snapshot.lastCounterSnapshot,
+                buckets: {
+                    ...snapshot.lastCounterSnapshot.buckets,
+                },
+            }
+            : null;
+        this.historyStack = [];
+        this.currentIndex = Math.max(0, Math.min(
+            Number(snapshot.currentIndex) || 0,
+            this.cachedCards.length,
+        ));
+        this.cacheValid = snapshot.cacheValid === true;
     }
 
     getType(): QueueType {

@@ -9,9 +9,11 @@ export interface ReviewSiyuanPort {
   getBlockAttrs(blockId: string): Promise<Record<string, string>>;
   setBlockAttrs(blockId: string, attrs: Record<string, string>): Promise<void>;
   getBlockInfo(blockId: string): Promise<SiyuanRecord>;
+  getBlockKramdown(blockId: string): Promise<{ kramdown: string }>;
   getBlockDOM(blockId: string): Promise<{ dom: string }>;
   getBlockBreadcrumb(blockId: string): Promise<SiyuanRecord[]>;
   getIconByType(type: string, subType?: string): string;
+  updateBlockMarkdown(blockId: string, markdown: string): Promise<string>;
 
   reviewRiffCard(deckID: string, cardID: string, rating: Rating): Promise<void>;
   skipReviewRiffCard(deckID: string, cardID: string): Promise<void>;

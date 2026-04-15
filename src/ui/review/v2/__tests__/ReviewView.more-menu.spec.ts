@@ -11,6 +11,15 @@ import {
   REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
 } from '@/application/handlers/ReviewCommandRequestEvents';
 
+let reviewContentEditableSource:
+  | {
+      blockId: string;
+      title: string;
+      sourceKind: 'block-markdown';
+      rendererKind: string;
+    }
+  | null = null;
+
 const reviewViewMoreMenuMocks = vi.hoisted(() => {
   const menuOpen = vi.fn();
   const showMessage = vi.fn();
@@ -186,11 +195,22 @@ const ReviewContentStub = defineComponent({
       type: Object,
       required: true,
     },
+    renderEpoch: {
+      type: Number,
+      default: 0,
+    },
   },
-  setup(props) {
+  setup(props, { expose }) {
+    expose({
+      exitEditorByEscape: () => false,
+      getEditableSource: () => reviewContentEditableSource,
+    });
     return () => h(
       'div',
-      { class: 'fsrs-review-v2-content review-content-card-id' },
+      {
+        class: 'fsrs-review-v2-content review-content-card-id',
+        'data-render-epoch': String((props as { renderEpoch?: number }).renderEpoch ?? 0),
+      },
       String((props.content as { card?: { id?: string } }).card?.id || ''),
     );
   },
@@ -245,6 +265,13 @@ function createPluginContext(overrides?: {
     openReviewAICompanionTab?: ReturnType<typeof vi.fn>;
     focusReviewAICompanionTab?: ReturnType<typeof vi.fn>;
   };
+  reviewService?: {
+    getBlockKramdown: ReturnType<typeof vi.fn>;
+    updateBlockMarkdown: ReturnType<typeof vi.fn>;
+    getSiyuanApi: () => {
+      BUILTIN_DECK_ID: string;
+    };
+  };
 }) {
   return {
     getUnifiedDataSourceManager: () => null,
@@ -257,7 +284,9 @@ function createPluginContext(overrides?: {
       getCard: (cardId: string) => ({ id: cardId, blockId: 'block-1' }),
       getCardByBlockId: (blockId: string) => ({ id: 'card-1', blockId }),
     }),
-    getReviewService: () => ({
+    getReviewService: () => overrides?.reviewService ?? ({
+      getBlockKramdown: vi.fn(async () => ''),
+      updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
       getSiyuanApi: () => ({
         BUILTIN_DECK_ID: 'deck-1',
       }),
@@ -288,6 +317,13 @@ function mountReviewView(options?: {
     getReviewSession?: ReturnType<typeof vi.fn>;
     openReviewSession?: ReturnType<typeof vi.fn>;
     updateReviewSessionContext?: ReturnType<typeof vi.fn>;
+  };
+  reviewService?: {
+    getBlockKramdown: ReturnType<typeof vi.fn>;
+    updateBlockMarkdown: ReturnType<typeof vi.fn>;
+    getSiyuanApi: () => {
+      BUILTIN_DECK_ID: string;
+    };
   };
   attachInDialog?: boolean;
 }) {
@@ -368,6 +404,7 @@ function mountReviewView(options?: {
           cardService,
           cardEditorService,
           registry,
+          reviewService: options?.reviewService,
           tabManager,
         }),
       },
@@ -413,6 +450,7 @@ describe('ReviewView more menu', () => {
     reviewViewLoggerMocks.info.mockReset();
     reviewViewLoggerMocks.log.mockReset();
     reviewViewLoggerMocks.trace.mockReset();
+    reviewContentEditableSource = null;
     document.body.innerHTML = '';
   });
 
@@ -472,6 +510,61 @@ describe('ReviewView more menu', () => {
 
     items = getLatestMenuItems();
     expect(items.find((item) => item.id === 'edit-current-priority')?.label).toBe('优先级：18');
+
+    wrapper.unmount();
+  });
+
+  it('shows edit-current-content for editable renderers and saves without advancing the session', async () => {
+    reviewContentEditableSource = {
+      blockId: 'block-1',
+      title: '编辑当前内容',
+      sourceKind: 'block-markdown',
+      rendererKind: 'main-protyle',
+    };
+    const reviewService = {
+      getBlockKramdown: vi.fn(async () => 'Original body'),
+      updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
+      getSiyuanApi: () => ({
+        BUILTIN_DECK_ID: 'deck-1',
+      }),
+    };
+    const { wrapper, queue } = mountReviewView({ reviewService });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    const editCurrentContentItem = getLatestMenuItems().find((item) => item.id === 'edit-current-content');
+    expect(editCurrentContentItem?.label).toBe('编辑当前内容');
+
+    await editCurrentContentItem?.click?.();
+    await flushPromises();
+    expect(reviewService.getBlockKramdown).toHaveBeenCalledWith('block-1');
+
+    const textarea = wrapper.get('textarea.large-editor__textarea');
+    await textarea.setValue('Updated body');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存');
+    expect(saveButton).toBeTruthy();
+    await saveButton!.trigger('click');
+    await flushPromises();
+
+    expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
+    expect(queue.next).toHaveBeenCalledTimes(1);
+    expect(wrapper.getComponent(ReviewContentStub).props('renderEpoch')).toBe(1);
+
+    wrapper.unmount();
+  });
+
+  it('hides edit-current-content when the active renderer is not editable', async () => {
+    const { wrapper } = mountReviewView();
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    expect(getLatestMenuItems().find((item) => item.id === 'edit-current-content')).toBeUndefined();
 
     wrapper.unmount();
   });

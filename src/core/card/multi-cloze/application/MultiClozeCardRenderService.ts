@@ -8,6 +8,7 @@ import {
   ensureDisplayMathDelimiters,
   hasMathDelimiters,
 } from '@/core/card/post-creation/formula-cloze-style';
+import { stripSiyuanBlockAttributeArtifacts } from '@/core/card/common/utils/stripSiyuanBlockAttributeArtifacts';
 import { type ClozeInfo, ClozeDetector } from '@/utils/cloze-detector';
 import { createLogger } from '@/utils/logger';
 
@@ -93,8 +94,9 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     renderMode: MultiClozeRenderMode,
   ): Promise<MultiClozeCardRenderResult> {
     const sourceKramdown = await this.loadSourceKramdown(blockId);
-    if (sourceKramdown) {
-      const renderedFromSource = this.renderFromSourceKramdown(sourceKramdown, faces, faceIndex, renderMode);
+    const normalizedSourceKramdown = this.stripAttributeArtifacts(sourceKramdown || '');
+    if (normalizedSourceKramdown) {
+      const renderedFromSource = this.renderFromSourceKramdown(normalizedSourceKramdown, faces, faceIndex, renderMode);
       if (renderedFromSource) {
         return renderedFromSource;
       }
@@ -144,9 +146,12 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     renderMode: MultiClozeRenderMode,
   ): MultiClozeCardRenderResult {
     const currentFaceRaw = faces[faceIndex] || { question: '', answer: '' };
-    const normalizedQuestion = this.normalizeQuestionForMath(currentFaceRaw.question, renderMode);
+    const normalizedQuestion = this.normalizeQuestionForMath(
+      this.stripAttributeArtifacts(currentFaceRaw.question),
+      renderMode,
+    );
     const normalizedAnswer = this.normalizeAnswerForMath(
-      this.stripMarkTags(currentFaceRaw.answer),
+      this.stripAttributeArtifacts(this.stripMarkTags(currentFaceRaw.answer)),
       normalizedQuestion,
       renderMode,
     );
@@ -360,11 +365,7 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
   }
 
   private stripAttributeArtifacts(kramdown: string): string {
-    return kramdown
-      .split('\n')
-      .filter((line) => !/^(?:[*+-]\s*)?\{:/u.test(line.trim()))
-      .join('\n')
-      .trim();
+    return stripSiyuanBlockAttributeArtifacts(kramdown);
   }
 
   private replaceFirstPlaceholderOutsideMath(text: string, replacement: string): string {

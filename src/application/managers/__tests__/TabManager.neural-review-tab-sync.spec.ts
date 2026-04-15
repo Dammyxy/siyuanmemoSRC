@@ -17,9 +17,13 @@ vi.mock('siyuan', () => ({
   },
 }));
 
-vi.mock('vue', () => ({
-  createApp: mocks.createApp,
-}));
+vi.mock('vue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue')>();
+  return {
+    ...actual,
+    createApp: mocks.createApp,
+  };
+});
 
 vi.mock('@/ui/browser/SRSBrowser.vue', () => ({
   default: {},
@@ -38,8 +42,18 @@ function createManager() {
     getI18n: vi.fn(() => ({
       reviewTitle: 'Review',
     })),
+    getSettingsService: vi.fn(() => ({
+      getSettings: () => ({
+        progressiveReading: {
+          altXExcerptEnabled: false,
+        },
+      }),
+    })),
     getUnifiedDataSourceManager: vi.fn(() => ({
       getQueue: vi.fn(() => queueStub),
+    })),
+    getReviewAIWorkbenchRegistry: vi.fn(() => ({
+      disposeReviewSession: vi.fn(),
     })),
     getEventBus: vi.fn(() => ({
       subscribe: vi.fn(),

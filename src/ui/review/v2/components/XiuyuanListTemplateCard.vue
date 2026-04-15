@@ -16,7 +16,7 @@
       >
         <span class="xiuyuan-answer-marker">✓</span>
         <span class="xiuyuan-answer-index">{{ index + 1 }}.</span>
-        <span class="xiuyuan-answer-text">{{ child.answer }}</span>
+        <RichMarkdownContent class="xiuyuan-answer-text" :content="child.answer" />
       </div>
     </div>
 
@@ -24,13 +24,13 @@
       <div v-if="!showAnswer && hasCue" class="xiuyuan-current-cue">
         <span class="xiuyuan-cue-marker">?</span>
         <span class="xiuyuan-cue-index">{{ (meta.currentIndex || 0) + 1 }}.</span>
-        <span class="xiuyuan-cue-text">{{ meta.cue }}</span>
+        <RichMarkdownContent class="xiuyuan-cue-text" :content="currentCue" />
       </div>
 
       <div v-else class="xiuyuan-current-answer">
         <span class="xiuyuan-answer-marker">✓</span>
         <span class="xiuyuan-answer-index">{{ (meta.currentIndex || 0) + 1 }}.</span>
-        <span class="xiuyuan-answer-text">{{ meta.answer }}</span>
+        <RichMarkdownContent class="xiuyuan-answer-text" :content="currentAnswer" />
       </div>
     </div>
 
@@ -41,15 +41,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
+import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import { loadBreadcrumbTrail } from '@/ui/review/shared/loadBreadcrumbTrail';
+import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import { createLogger } from '@/utils/logger';
 
 type SiyuanApiLike = {
   getBlockDOM: (blockId: string) => Promise<{ dom?: string } | null | undefined>;
+  getBlockKramdown: (blockId: string) => Promise<{ kramdown?: string } | null | undefined>;
 };
 
 type ReviewServiceLike = {
@@ -75,6 +78,8 @@ const logger = createLogger('XiuyuanListTemplateCard');
 
 const questionHtml = ref('');
 const breadcrumbs = ref<BreadcrumbItem[]>([]);
+const parsedChildren = ref<Array<{ id: string; cue: string; answer: string }>>([]);
+let loadSeq = 0;
 
 function getSiyuanApi() {
   return props.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
@@ -84,7 +89,7 @@ const previousChildren = computed(() => {
   if (!props.meta.allChildren || !props.meta.currentIndex) {
     return [];
   }
-  return props.meta.allChildren.slice(0, props.meta.currentIndex);
+  return parsedChildren.value.slice(0, props.meta.currentIndex);
 });
 
 const hasRemaining = computed(() => {
@@ -101,30 +106,82 @@ const remainingCount = computed(() => {
   return props.meta.allChildren.length - props.meta.currentIndex - 1;
 });
 
-const hasCue = computed(() => (props.meta.cue || '').trim().length > 0);
+const currentChild = computed(() => {
+  if (!Array.isArray(props.meta.allChildren) || typeof props.meta.currentIndex !== 'number') {
+    return null;
+  }
+  return parsedChildren.value[props.meta.currentIndex] || null;
+});
 
-onMounted(async () => {
+const currentCue = computed(() => currentChild.value?.cue || '');
+const currentAnswer = computed(() => currentChild.value?.answer || '');
+const hasCue = computed(() => currentCue.value.trim().length > 0);
+
+async function loadCardContent(): Promise<void> {
+  const seq = ++loadSeq;
   try {
     const siyuanApi = getSiyuanApi();
     if (!siyuanApi) {
       throw new Error('Environment not initialized');
     }
 
-    const result = await siyuanApi.getBlockDOM(props.questionBlockId);
-    questionHtml.value = result?.dom || '';
+    const childIds = Array.isArray(props.meta.allChildren)
+      ? props.meta.allChildren
+          .map((child) => String(child?.id || '').trim())
+          .filter((id) => id.length > 0)
+      : [];
 
-    breadcrumbs.value = await loadBreadcrumbTrail(props.questionBlockId, {
-      trimTrailingCount: 2,
-    }).catch((breadcrumbError) => {
-      logger.warn('[XiuyuanListTemplateCard] Failed to load breadcrumbs:', breadcrumbError);
-      return [];
-    });
+    const [questionResult, breadcrumbItems, childMarkdownList] = await Promise.all([
+      siyuanApi.getBlockDOM(props.questionBlockId),
+      loadBreadcrumbTrail(props.questionBlockId, {
+        trimTrailingCount: 2,
+      }).catch((breadcrumbError) => {
+        logger.warn('[XiuyuanListTemplateCard] Failed to load breadcrumbs:', breadcrumbError);
+        return [];
+      }),
+      Promise.all(
+        childIds.map(async (id) => {
+          const { kramdown } = await siyuanApi.getBlockKramdown(id) || {};
+          const parsed = parseCueAndAnswer(String(kramdown || ''));
+          return {
+            id,
+            cue: parsed.cue,
+            answer: parsed.answer,
+          };
+        }),
+      ),
+    ]);
+
+    if (seq !== loadSeq) {
+      return;
+    }
+
+    questionHtml.value = questionResult?.dom || '';
+    breadcrumbs.value = breadcrumbItems;
+    parsedChildren.value = childMarkdownList;
   }
   catch (error) {
+    if (seq !== loadSeq) {
+      return;
+    }
     logger.error('[XiuyuanListTemplateCard] Failed to load question block:', error);
     questionHtml.value = '<div class="ft__error">加载失败</div>';
+    parsedChildren.value = [];
   }
-});
+}
+
+watch(
+  () => [
+    props.questionBlockId,
+    props.showAnswer,
+    props.meta.currentIndex,
+    ...(props.meta.allChildren?.map((child) => String(child.id || '')) || []),
+  ],
+  () => {
+    void loadCardContent();
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>
@@ -169,7 +226,7 @@ onMounted(async () => {
 
 .xiuyuan-answer-text {
   flex: 1;
-  white-space: pre-line;
+  min-width: 0;
 }
 
 .xiuyuan-current-item {
@@ -201,6 +258,7 @@ onMounted(async () => {
 
 .xiuyuan-cue-text {
   flex: 1;
+  min-width: 0;
   font-weight: 500;
   color: var(--b3-theme-on-primary-container);
 }
@@ -223,5 +281,10 @@ onMounted(async () => {
   color: var(--b3-theme-on-surface-light);
   font-size: 14px;
   text-align: center;
+}
+
+.xiuyuan-answer-text :deep(p),
+.xiuyuan-cue-text :deep(p) {
+  margin: 0;
 }
 </style>

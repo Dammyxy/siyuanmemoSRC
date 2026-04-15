@@ -5,6 +5,16 @@ import { defineComponent, h } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
+import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
+
+let reviewContentEditableSource:
+  | {
+      blockId: string;
+      title: string;
+      sourceKind: 'block-markdown';
+      rendererKind: string;
+    }
+  | null = null;
 
 const reviewViewMenuMocks = vi.hoisted(() => {
   const menuOpen = vi.fn();
@@ -142,7 +152,10 @@ const ReviewHeaderStub = defineComponent({
 
 const ReviewContentStub = defineComponent({
   name: 'ReviewContent',
-  setup() {
+  setup(_props, { expose }) {
+    expose({
+      getEditableSource: () => reviewContentEditableSource,
+    });
     return () => h('div', { class: 'review-content-stub' });
   },
 });
@@ -164,6 +177,8 @@ describe('ReviewView open-as menu', () => {
     reviewViewLoggerMocks.info.mockReset();
     reviewViewLoggerMocks.log.mockReset();
     reviewViewLoggerMocks.trace.mockReset();
+    reviewContentEditableSource = null;
+    vi.mocked(openReviewBlockAtSource).mockReset();
   });
 
   it('does not throw when sticktab receives a toolbar event without currentTarget', async () => {
@@ -335,6 +350,220 @@ describe('ReviewView open-as menu', () => {
         },
       }),
     }));
+
+    wrapper.unmount();
+  });
+
+  it('locates the rendered content block instead of the card reference block for special-render cards', async () => {
+    const card = buildCard();
+    const queue = createQueue(card);
+    const adapter = {
+      toUIState: vi.fn(async (_queue: unknown, item: ReturnType<typeof buildCard> | null, context: { showAnswer?: boolean }) => ({
+        ...createEmptyReviewUIState(),
+        header: {
+          ...createEmptyReviewUIState().header,
+          stats: {
+            current: item ? 1 : 0,
+            total: 1,
+            label: item ? '1 due' : '0 due',
+            queueName: 'Unified Queue',
+          },
+        },
+        content: {
+          type: 'protyle' as const,
+          data: item ? 'render-block-1' : '',
+          id: item ? 'render-block-1' : 'empty',
+          card: item as never,
+        },
+        actions: {
+          ...createEmptyReviewUIState().actions,
+          showAnswer: !context.showAnswer,
+          cardMeta: item
+            ? {
+                cardID: item.id,
+                blockID: item.blockId,
+                deckID: item.deckId,
+                type: 'item',
+                cardType: 'item',
+              }
+            : undefined,
+        },
+      })),
+      cleanup: vi.fn(),
+    };
+    const tabManager = {
+      openReviewTab: vi.fn(),
+      openReviewTabInNewTab: vi.fn(),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        title: '提取练习',
+        headerVariant: 'retrieval-practice',
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+            getTabManager: () => tabManager,
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const target = document.createElement('button');
+    Object.defineProperty(target, 'getBoundingClientRect', {
+      value: () => ({ left: 10, bottom: 20 }),
+    });
+    const event = new MouseEvent('click');
+    Object.defineProperty(event, 'currentTarget', {
+      value: target,
+    });
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'sticktab', event);
+    await flushPromises();
+
+    const latestMenu = reviewViewMenuMocks.instances.at(-1);
+    const menuItems = latestMenu?.addItem.mock.calls.map(([item]) => item) || [];
+    const locateAndOpenItem = menuItems.find((item) => item.id === 'openRightReviewAndLocateSource');
+
+    await locateAndOpenItem?.click?.();
+
+    expect(openReviewBlockAtSource).toHaveBeenCalledWith({
+      app: {},
+      blockId: 'render-block-1',
+    });
+    expect(tabManager.openReviewTab).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
+  it('uses the editable source block for list-template review cards when locating source', async () => {
+    reviewContentEditableSource = {
+      blockId: 'list-child-2',
+      title: '编辑当前列表项',
+      sourceKind: 'block-markdown',
+      rendererKind: 'list-template',
+    };
+
+    const card = buildCard();
+    const queue = createQueue(card);
+    const adapter = {
+      toUIState: vi.fn(async (_queue: unknown, item: ReturnType<typeof buildCard> | null, context: { showAnswer?: boolean }) => ({
+        ...createEmptyReviewUIState(),
+        header: {
+          ...createEmptyReviewUIState().header,
+          stats: {
+            current: item ? 1 : 0,
+            total: 1,
+            label: item ? '1 due' : '0 due',
+            queueName: 'Unified Queue',
+          },
+        },
+        content: {
+          type: 'protyle' as const,
+          data: item ? 'list-question-block' : '',
+          id: item ? 'list-question-block' : 'empty',
+          card: item as never,
+          isXiuyuanListTemplate: Boolean(item),
+          xiuyuanMeta: item
+            ? {
+                currentIndex: 1,
+                allChildren: [
+                  { id: 'list-child-1' },
+                  { id: 'list-child-2' },
+                ],
+              }
+            : null,
+        },
+        actions: {
+          ...createEmptyReviewUIState().actions,
+          showAnswer: !context.showAnswer,
+          cardMeta: item
+            ? {
+                cardID: item.id,
+                blockID: item.blockId,
+                deckID: item.deckId,
+                type: 'item',
+                cardType: 'item',
+              }
+            : undefined,
+        },
+      })),
+      cleanup: vi.fn(),
+    };
+    const tabManager = {
+      openReviewTab: vi.fn(),
+      openReviewTabInNewTab: vi.fn(),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        title: '提取练习',
+        headerVariant: 'retrieval-practice',
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+            getTabManager: () => tabManager,
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const target = document.createElement('button');
+    Object.defineProperty(target, 'getBoundingClientRect', {
+      value: () => ({ left: 10, bottom: 20 }),
+    });
+    const event = new MouseEvent('click');
+    Object.defineProperty(event, 'currentTarget', {
+      value: target,
+    });
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'sticktab', event);
+    await flushPromises();
+
+    const latestMenu = reviewViewMenuMocks.instances.at(-1);
+    const menuItems = latestMenu?.addItem.mock.calls.map(([item]) => item) || [];
+    const locateItem = menuItems.find((item) => item.id === 'locateSourceBlock');
+
+    await locateItem?.click?.();
+
+    expect(openReviewBlockAtSource).toHaveBeenCalledWith({
+      app: {},
+      blockId: 'list-child-2',
+    });
 
     wrapper.unmount();
   });

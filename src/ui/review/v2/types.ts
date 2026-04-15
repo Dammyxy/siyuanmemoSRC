@@ -7,6 +7,22 @@ import type { Ref } from 'vue';
 
 export type ReviewCardKind = 'item' | 'topic' | 'concept' | 'descriptor' | 'cloze';
 
+export type ReviewEditableRendererKind =
+  | 'main-protyle'
+  | 'list-template'
+  | 'multi-cloze'
+  | 'quick'
+  | 'concept'
+  | 'concept-definition'
+  | 'descriptor';
+
+export interface ReviewEditableSource {
+  blockId: string;
+  title: string;
+  sourceKind: 'block-markdown';
+  rendererKind: ReviewEditableRendererKind;
+}
+
 export type ReviewHeaderVariant =
   | 'retrieval-practice'
   | 'incremental-learning'
@@ -196,6 +212,7 @@ export interface ReviewSessionHook {
 
 export interface ReviewViewTabBridge {
   syncToNeuralQueueCurrentNode: (fallbackNodeId?: string | null) => Promise<boolean>;
+  refreshTabSurface: (preferredCardId?: string | null) => Promise<boolean>;
 }
 
 export function createEmptyReviewUIState(): ReviewUIState {

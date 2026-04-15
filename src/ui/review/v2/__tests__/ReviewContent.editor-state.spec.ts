@@ -336,6 +336,27 @@ function createSpecialContent() {
   };
 }
 
+function createEditableListTemplateContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-list-template',
+    data: '',
+    isXiuyuanListTemplate: true,
+    xiuyuanMeta: {
+      currentIndex: 1,
+      allChildren: [
+        { id: 'child-1', cue: 'cue-1', answer: 'answer-1', index: 0 },
+        { id: 'child-2', cue: 'cue-2', answer: 'answer-2', index: 1 },
+      ],
+    },
+    card: {
+      id: 'card-list-template',
+      type: 'item',
+      meta: {},
+    },
+  };
+}
+
 function createHtmlContent() {
   return {
     type: 'html' as const,
@@ -559,6 +580,79 @@ describe('ReviewContent editor state', () => {
       supportsNativeEdit: false,
       isEditing: false,
     });
+
+    wrapper.unmount();
+  });
+
+  it('exposes editable sources for supported renderers and keeps image occlusion unsupported', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const exposed = wrapper.vm as unknown as {
+      getEditableSource: () => {
+        blockId: string;
+        rendererKind: string;
+      } | null;
+    };
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'block-1',
+      rendererKind: 'main-protyle',
+    }));
+
+    await wrapper.setProps({
+      content: createEditableListTemplateContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'child-2',
+      rendererKind: 'list-template',
+    }));
+
+    await wrapper.setProps({
+      content: {
+        type: 'protyle' as const,
+        id: 'block-image-occlusion',
+        data: '',
+        card: {
+          id: 'card-image-occlusion',
+          type: 'item',
+          meta: {
+            source: 'image-occlusion',
+          },
+        },
+      },
+    });
+    await settleReviewContent();
+    expect(exposed.getEditableSource()).toBeNull();
 
     wrapper.unmount();
   });
@@ -1226,6 +1320,56 @@ describe('ReviewContent editor state', () => {
 
     expect(reviewContentMocks.instances).toHaveLength(1);
     expect(reviewContentMocks.instances[0]?.options.blockId).toBe('question-block');
+
+    wrapper.unmount();
+  });
+
+  it('rerenders the same card when renderEpoch changes', async () => {
+    setBlockFixture('block-1', '<div data-node-id="block-1">question</div>');
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+        renderEpoch: 0,
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const initialProtyle = reviewContentMocks.instances[0];
+    expect(initialProtyle).toBeTruthy();
+
+    await wrapper.setProps({
+      renderEpoch: 1,
+    });
+    await settleProtyleInit();
+
+    expect(initialProtyle?.destroyCallCount).toBeGreaterThan(0);
+    expect(reviewContentMocks.instances).toHaveLength(2);
 
     wrapper.unmount();
   });

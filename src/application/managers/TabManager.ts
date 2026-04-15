@@ -26,6 +26,7 @@ import {
   type ReviewTabTransferState,
   type IReviewQueue,
 } from '@/types/unified-data-source';
+import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
 import { resolveReviewHeaderVariant } from '@/ui/review/v2/types';
 import { createLogger } from '@/utils/logger';
@@ -50,6 +51,7 @@ interface ReviewTabData {
   queueType: QueueType | null;
   headerVariant: ReviewHeaderVariant;
   transferState?: ReviewTabTransferState | null;
+  reviewState?: ReviewTabRuntimeState | null;
 }
 
 interface BrowserTabData {
@@ -73,6 +75,7 @@ interface ReviewTabRuntimeHandle {
   custom: TabRuntimeContext;
   bridge: ReviewViewTabBridge | null;
   lastActiveAt: number;
+  pendingSurfaceRefreshTimer: number | null;
   removeActivityListeners: () => void;
 }
 
@@ -262,6 +265,91 @@ function normalizeReviewTabTransferState(value: unknown): ReviewTabTransferState
   };
 }
 
+function cloneSerializableValue<T>(value: T): T | null {
+  try {
+    const structuredCloneFn = (globalThis as { structuredClone?: <U>(input: U) => U }).structuredClone;
+    if (typeof structuredCloneFn === 'function') {
+      return structuredCloneFn(value);
+    }
+  } catch {}
+
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeReviewQueueSessionSnapshot(value: unknown): ReviewQueueSessionSnapshot | null {
+  if (!isRecord(value) || Number(value.version) !== 1) {
+    return null;
+  }
+
+  const queueType = typeof value.queueType === 'string' ? value.queueType.trim() : '';
+  if (!queueType) {
+    return null;
+  }
+
+  const cachedCards = Array.isArray(value.cachedCards)
+    ? cloneSerializableValue(value.cachedCards)
+    : [];
+  const currentItem = value.currentItem == null
+    ? null
+    : cloneSerializableValue(value.currentItem);
+  const forwardBuffer = Array.isArray(value.forwardBuffer)
+    ? cloneSerializableValue(value.forwardBuffer)
+    : [];
+  const lastCounterSnapshot = isRecord(value.lastCounterSnapshot)
+    ? cloneSerializableValue(value.lastCounterSnapshot)
+    : null;
+
+  return {
+    version: 1,
+    queueType,
+    cacheValid: value.cacheValid === true,
+    currentIndex: Math.max(0, Number(value.currentIndex) || 0),
+    cachedCards: Array.isArray(cachedCards) ? cachedCards : [],
+    currentItem: isRecord(currentItem) ? currentItem : null,
+    forwardBuffer: Array.isArray(forwardBuffer) ? forwardBuffer : [],
+    pendingRotateCardId: typeof value.pendingRotateCardId === 'string'
+      ? value.pendingRotateCardId
+      : null,
+    lastCounterSnapshot: isRecord(lastCounterSnapshot) ? lastCounterSnapshot : null,
+  };
+}
+
+function normalizeReviewTabRuntimeState(value: unknown): ReviewTabRuntimeState | null {
+  if (!isRecord(value) || Number(value.version) !== 1) {
+    return null;
+  }
+
+  const queueSnapshot = normalizeReviewQueueSessionSnapshot(value.queueSnapshot);
+  const snapshotCurrentItem = isRecord(queueSnapshot?.currentItem)
+    ? queueSnapshot.currentItem
+    : null;
+  const snapshotCurrentCardId = typeof snapshotCurrentItem?.id === 'string'
+    ? snapshotCurrentItem.id.trim()
+    : '';
+  const snapshotCurrentBlockId = typeof snapshotCurrentItem?.blockId === 'string'
+    ? snapshotCurrentItem.blockId.trim()
+    : '';
+  const currentCardId = typeof value.currentCardId === 'string'
+    ? value.currentCardId.trim()
+    : snapshotCurrentCardId;
+  const currentBlockId = typeof value.currentBlockId === 'string'
+    ? value.currentBlockId.trim()
+    : snapshotCurrentBlockId;
+
+  return {
+    version: 1,
+    showAnswer: value.showAnswer === true,
+    currentCardId: currentCardId || undefined,
+    currentBlockId: currentBlockId || undefined,
+    session: normalizeInitialReviewSessionState(value.session),
+    queueSnapshot,
+  };
+}
+
 /**
  * Review tab options.
  *
@@ -376,7 +464,13 @@ export class TabManager {
           queue,
           adapter,
           plugin: self.plugin,
-          initialSessionState: data.transferState?.session,
+          initialSessionState: data.reviewState?.session ?? data.transferState?.session,
+          initialCurrentItem: data.reviewState?.queueSnapshot?.currentItem ?? null,
+          initialCurrentCardId: data.reviewState?.currentCardId ?? '',
+          initialShowAnswer: data.reviewState?.showAnswer === true,
+          onTabRuntimeStateChange: (reviewState: ReviewTabRuntimeState | null) => {
+            self.persistReviewTabRuntimeState(runtime, data, reviewState);
+          },
         });
 
         const vm = app.mount(runtime.element);
@@ -388,6 +482,16 @@ export class TabManager {
         self.unregisterReviewTabRuntime(runtime);
         runtime.vueApp?.unmount();
         runtime.vueApp = undefined;
+      },
+      resize() {
+        const runtime = this as unknown as TabRuntimeContext;
+        const data = self.normalizeReviewTabData(runtime.data);
+        self.refreshReviewTabRuntimeSurface(runtime, data);
+      },
+      update() {
+        const runtime = this as unknown as TabRuntimeContext;
+        const data = self.normalizeReviewTabData(runtime.data);
+        self.refreshReviewTabRuntimeSurface(runtime, data);
       },
     });
   }
@@ -697,10 +801,54 @@ export class TabManager {
       custom: runtime,
       bridge,
       lastActiveAt: Date.now(),
+      pendingSurfaceRefreshTimer: null,
       removeActivityListeners: () => {
         detachFns.forEach((detach) => detach());
       },
     });
+  }
+
+  private persistReviewTabRuntimeState(
+    runtime: TabRuntimeContext,
+    baseData: ReviewTabData,
+    reviewState: ReviewTabRuntimeState | null,
+  ): void {
+    const nextData: ReviewTabData = {
+      ...baseData,
+      reviewState: normalizeReviewTabRuntimeState(reviewState),
+    };
+    runtime.data = nextData;
+    const tabModel = runtime.tab?.model as { data?: ReviewTabData } | undefined;
+    if (tabModel) {
+      tabModel.data = nextData;
+    }
+  }
+
+  private refreshReviewTabRuntimeSurface(
+    runtime: TabRuntimeContext,
+    data: ReviewTabData,
+  ): void {
+    const customId = this.resolveReviewTabRuntimeId(runtime);
+    const handle = customId ? this.reviewTabRuntimes.get(customId) : null;
+    if (!handle?.bridge || typeof handle.bridge.refreshTabSurface !== 'function') {
+      return;
+    }
+
+    const preferredCardId = data.reviewState?.currentCardId ?? null;
+    if (handle.pendingSurfaceRefreshTimer !== null) {
+      window.clearTimeout(handle.pendingSurfaceRefreshTimer);
+    }
+
+    handle.pendingSurfaceRefreshTimer = window.setTimeout(() => {
+      handle.pendingSurfaceRefreshTimer = null;
+      void handle.bridge?.refreshTabSurface(preferredCardId).catch((error) => {
+        logger.warn('Failed to refresh review tab surface after custom tab lifecycle update', {
+          customId,
+          preferredCardId,
+          error,
+        });
+      });
+    }, 0);
   }
 
   private registerReviewAICompanionRuntime(
@@ -737,6 +885,10 @@ export class TabManager {
       return;
     }
 
+    if (existing.pendingSurfaceRefreshTimer !== null) {
+      window.clearTimeout(existing.pendingSurfaceRefreshTimer);
+      existing.pendingSurfaceRefreshTimer = null;
+    }
     existing.removeActivityListeners();
     this.reviewTabRuntimes.delete(normalizedId);
     this.closeReviewAICompanionTab(normalizedId);
@@ -882,6 +1034,7 @@ export class TabManager {
       queueType,
       headerVariant: options.headerVariant || resolveReviewHeaderVariant(queueType),
       transferState: normalizeReviewTabTransferState(options.transferState),
+      reviewState: null,
     };
   }
 
@@ -902,6 +1055,7 @@ export class TabManager {
         ? data.headerVariant
         : resolveReviewHeaderVariant(queueType),
       transferState: normalizeReviewTabTransferState(data?.transferState),
+      reviewState: normalizeReviewTabRuntimeState(data?.reviewState),
     };
   }
 
@@ -951,12 +1105,14 @@ export class TabManager {
 
   private buildReviewQueueFromTabData(data: ReviewTabData): UnifiedQueueStrategy {
     const transferredQueue = this.buildTransferredReviewQueue(data.transferState);
-    return new UnifiedQueueStrategy(
+    const strategy = new UnifiedQueueStrategy(
       transferredQueue ?? data.queueType,
       this.context.getUnifiedDataSourceManager(),
       this.context.getEventBus(),
       this.context.getSchedulerRouter() as unknown as ISchedulerRouter,
     );
+    strategy.restoreSessionSnapshot?.(data.reviewState?.queueSnapshot);
+    return strategy;
   }
 
   private buildTransferredReviewQueue(transferState?: ReviewTabTransferState | null): IReviewQueue | null {

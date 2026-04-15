@@ -25,14 +25,23 @@ function createMeta(overrides?: Partial<XiuyuanCardMeta>): XiuyuanCardMeta {
 }
 
 function createPluginMock() {
+  const blockMarkdownById: Record<string, string> = {
+    child_1: 'cue -> answer',
+  };
   return {
     getContext: () => ({
       getReviewService: () => ({
         getSiyuanApi: () => ({
           getBlockDOM: vi.fn().mockResolvedValue({ dom: '<p>Question</p>' }),
+          getBlockKramdown: vi.fn(async (blockId: string) => ({
+            kramdown: blockMarkdownById[blockId] || '',
+          })),
         }),
       }),
     }),
+    __setBlockMarkdown(nextMap: Record<string, string>) {
+      Object.assign(blockMarkdownById, nextMap);
+    },
   } as any;
 }
 
@@ -40,34 +49,66 @@ describe('XiuyuanListTemplateCard', () => {
   beforeEach(() => {
     getBlockBreadcrumbMock.mockReset();
     getBlockBreadcrumbMock.mockResolvedValue([]);
+    (window as typeof window & {
+      Lute?: {
+        New: () => {
+          Md2HTML: (markdown: string) => string;
+        };
+      };
+    }).Lute = {
+      New: () => ({
+        Md2HTML: (markdown: string) => `<p>${markdown.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')}</p>`,
+      }),
+    };
   });
 
-  it('does not render front cue area when cue is empty', () => {
+  it('does not render front cue area when the current child block has no cue separator', async () => {
+    const plugin = createPluginMock();
+    plugin.__setBlockMarkdown({
+      child_1: '纯答案内容',
+    });
+
     const wrapper = mount(XiuyuanListTemplateCard, {
       props: {
         meta: createMeta({ cue: '' }),
         showAnswer: false,
         questionBlockId: 'q_1',
-        plugin: createPluginMock(),
+        plugin,
       },
     });
+    await flushPromises();
 
     expect(wrapper.find('.xiuyuan-current-cue').exists()).toBe(false);
+    expect(wrapper.find('.xiuyuan-current-answer').text()).toContain('纯答案内容');
   });
 
-  it('renders front cue area when cue is non-empty', () => {
+  it('renders current cue and previous answers from child block kramdown with markdown styles', async () => {
+    const plugin = createPluginMock();
+    plugin.__setBlockMarkdown({
+      child_1: '提示一 -> **答案一**',
+      child_2: '**聚合提示** -> 当前答案',
+    });
+
     const wrapper = mount(XiuyuanListTemplateCard, {
       props: {
-        meta: createMeta({ cue: '聚合提示' }),
+        meta: createMeta({
+          currentIndex: 1,
+          allChildren: [
+            { id: 'child_1', cue: '提示一', answer: '答案一', index: 0 },
+            { id: 'child_2', cue: '聚合提示', answer: '当前答案', index: 1 },
+          ],
+        }),
         showAnswer: false,
         questionBlockId: 'q_1',
-        plugin: createPluginMock(),
+        plugin,
       },
     });
+    await flushPromises();
 
     const cueBlock = wrapper.find('.xiuyuan-current-cue');
     expect(cueBlock.exists()).toBe(true);
-    expect(cueBlock.text()).toContain('聚合提示');
+    expect(cueBlock.find('strong').text()).toBe('聚合提示');
+    expect(wrapper.find('.xiuyuan-previous-answers strong').text()).toBe('答案一');
   });
 
   it('uses shared breadcrumb normalization and keeps same-name ancestors with different ids', async () => {

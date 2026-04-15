@@ -83,4 +83,47 @@ describe('UnifiedQueueStrategy appendCardsToTail', () => {
 
     strategy.cleanup();
   });
+
+  it('restores a serialized review-tab session snapshot and continues from the next queued card', async () => {
+    const initialCards = [
+      createCard('card-1', 'block-1'),
+      createCard('card-2', 'block-2'),
+      createCard('card-3', 'block-3'),
+    ];
+    const queue = {
+      getType: () => QueueType.RetrievalPractice,
+      getCards: vi.fn(async () => initialCards),
+      getCounterSnapshot: vi.fn(async () => createCounterSnapshot(initialCards.length)),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+
+    const strategy = new UnifiedQueueStrategy(
+      queue as any,
+      {} as any,
+      new EventBus(false),
+      null,
+    );
+
+    const current = await strategy.next();
+    expect(current?.id).toBe('card-1');
+
+    const snapshot = strategy.serializeSessionSnapshot();
+    strategy.cleanup();
+
+    const restored = new UnifiedQueueStrategy(
+      queue as any,
+      {} as any,
+      new EventBus(false),
+      null,
+    );
+    restored.restoreSessionSnapshot(snapshot);
+
+    expect(restored.serializeSessionSnapshot().currentItem?.id).toBe('card-1');
+
+    const next = await restored.next();
+    expect(next?.id).toBe('card-2');
+
+    restored.cleanup();
+  });
 });

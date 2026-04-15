@@ -34,6 +34,7 @@
           :show-answer="state.actions.showAnswer"
           :meta="state.meta"
           :i18n="i18n"
+          :render-epoch="renderEpoch"
           @editor-state-change="handleEditorStateChange"
         />
 
@@ -101,6 +102,22 @@
             </div>
           </div>
         </teleport>
+
+        <LargeTextEditorDialog
+          :open="reviewTextEditorOpen"
+          :title="reviewTextEditorTitle"
+          :model-value="reviewTextEditorValue"
+          :readonly="reviewTextEditorReadonly"
+          :placeholder="t('editCurrentContentPlaceholder', '使用 Markdown 编辑当前块内容')"
+          :hint="reviewTextEditorHint"
+          :confirm-label="t('save', '保存')"
+          :confirm-disabled="reviewTextEditorConfirmDisabled"
+          :cancel-label="t('cancel', '取消')"
+          :close-label="t('close', '关闭')"
+          @update:model-value="reviewTextEditorValue = $event"
+          @confirm="confirmCurrentContentEditor"
+          @close="closeCurrentContentEditor"
+        />
       </div>
 
       <aside v-if="showReviewAISidecar && reviewAIService" class="fsrs-review-v2__ai-sidecar">
@@ -112,15 +129,21 @@
 
 <script setup lang="ts">
 import { Menu, showMessage, type App } from 'siyuan';
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import ActionParamsDialog from '@/ui/browser/ActionParamsDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
+import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
 import { useReviewSession } from './useReviewSession';
-import { resolveReviewHeaderVariant, type ReviewHeaderVariant, type ReviewViewTabBridge } from './types';
+import {
+  resolveReviewHeaderVariant,
+  type ReviewEditableSource,
+  type ReviewHeaderVariant,
+  type ReviewViewTabBridge,
+} from './types';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
@@ -147,6 +170,7 @@ import {
   type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
+import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
@@ -177,6 +201,7 @@ import type { ExcerptRecord } from '@/application/services/ExcerptRecordService'
 import type { ProgressiveExcerptCreationResult } from '@/application/services/ProgressiveReadingService';
 import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
+import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 
 const logger = createLogger('ReviewView');
 
@@ -293,11 +318,7 @@ type ReviewPluginContextLike = {
     getCard?: (cardId: string) => { id: string; blockId?: string } | undefined;
     getCardByBlockId?: (blockId: string) => { id: string } | undefined;
   };
-  getReviewService?: () => {
-    getSiyuanApi?: () => {
-      BUILTIN_DECK_ID: string;
-    } | undefined;
-  };
+  getReviewService?: () => ReviewApplicationService | undefined;
   getProgressiveReadingService?: () => {
     completeCurrentPiece: (pieceDocId: string) => Promise<{ nextPieceDocId?: string }>;
   } | undefined;
@@ -374,6 +395,10 @@ type QueueStrategyWithTailAppend = {
   appendCardsToTail?: (cards: FSRSCard[]) => number;
 };
 
+type QueueStrategyWithSessionSnapshot = {
+  serializeSessionSnapshot?: () => ReviewQueueSessionSnapshot;
+};
+
 type CommandLike = {
   id?: unknown;
   label?: unknown;
@@ -423,6 +448,7 @@ type ReviewCardPeerInfo = {
 
 type ReviewContentExpose = {
   exitEditorByEscape: () => boolean;
+  getEditableSource: () => ReviewEditableSource | null;
 };
 
 type ProtyleHostElement = HTMLElement & {
@@ -502,6 +528,10 @@ const props = defineProps<{
   reviewSessionId?: string;
   onReview?: (cardId: string, rating: number) => void; // 🆕 复习回调（用于刻意练习黑名单）
   initialSessionState?: InitialReviewSessionState;
+  initialCurrentItem?: FSRSCard | null;
+  initialCurrentCardId?: string;
+  initialShowAnswer?: boolean;
+  onTabRuntimeStateChange?: (state: ReviewTabRuntimeState | null) => void;
 }>();
 
 const emit = defineEmits<{
@@ -523,9 +553,37 @@ const rootRef = ref<HTMLDivElement | null>(null);
 const contentRef = ref<ReviewContentExpose | null>(null);
 const recentModifiedHotkeys = new Map<string, number>();
 const editorState = ref<ReviewEditorState>(createReviewEditorState());
+const renderEpoch = ref(0);
+const reviewTextEditorOpen = ref(false);
+const reviewTextEditorLoading = ref(false);
+const reviewTextEditorSaving = ref(false);
+const reviewTextEditorSource = ref<ReviewEditableSource | null>(null);
+const reviewTextEditorValue = ref('');
+const reviewTextEditorOriginalValue = ref('');
+let reviewTextEditorSeq = 0;
 let reviewResizeHandler: (() => void) | null = null;
 let initialFullscreenTimer: number | null = null;
+let initialTabSurfaceRefreshTimer: number | null = null;
 let escRepeatLatch = false;
+
+const reviewTextEditorTitle = computed(() => (
+  reviewTextEditorSource.value?.title || t('editCurrentContent', '编辑当前内容')
+));
+const reviewTextEditorReadonly = computed(() => reviewTextEditorLoading.value || reviewTextEditorSaving.value);
+const reviewTextEditorConfirmDisabled = computed(() => (
+  reviewTextEditorReadonly.value
+  || !reviewTextEditorSource.value
+  || reviewTextEditorValue.value === reviewTextEditorOriginalValue.value
+));
+const reviewTextEditorHint = computed(() => {
+  if (reviewTextEditorLoading.value) {
+    return t('loadingCurrentContentMarkdown', '正在读取当前块的原始 Markdown...');
+  }
+  if (reviewTextEditorSaving.value) {
+    return t('savingCurrentContentMarkdown', '正在保存到思源块...');
+  }
+  return t('editCurrentContentHint', '支持 Markdown，Ctrl/Cmd + Enter 保存');
+});
 
 // 🆕 防重复触发机制 - 使用更智能的策略
 let lastKeyPressTime = 0;
@@ -752,6 +810,38 @@ function getInitialReviewSessionState(): InitialReviewSessionState | undefined {
   };
 }
 
+function buildReviewQueueSessionSnapshot(): ReviewQueueSessionSnapshot | null {
+  const activeQueue = providerQueue || props.queue;
+  const snapshotCarrier = activeQueue as QueueStrategyWithSessionSnapshot | null | undefined;
+  if (!snapshotCarrier || typeof snapshotCarrier.serializeSessionSnapshot !== 'function') {
+    return null;
+  }
+
+  try {
+    return snapshotCarrier.serializeSessionSnapshot();
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to serialize review queue session snapshot:', error);
+    return null;
+  }
+}
+
+function buildReviewTabRuntimeState(): ReviewTabRuntimeState | null {
+  if (props.mode !== 'tab') {
+    return null;
+  }
+
+  const reference = getCurrentReviewCardReference();
+
+  return {
+    version: 1,
+    showAnswer: hook.context.value.showAnswer === true,
+    currentCardId: reference.cardId || undefined,
+    currentBlockId: reference.blockId || undefined,
+    session: getInitialReviewSessionState(),
+    queueSnapshot: buildReviewQueueSessionSnapshot(),
+  };
+}
+
 function buildReviewTabTransferState(): ReviewTabTransferState | undefined {
   const filterQueue = getFilterGroupQueue();
   if (!filterQueue || typeof filterQueue.serializeSessionSnapshot !== 'function') {
@@ -849,6 +939,12 @@ function getCardEditorService(): CardEditorApplicationService | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
   return contextFromProps?.getCardEditorService?.() || contextFromWindow?.getCardEditorService?.() || null;
+}
+
+function getReviewService(): ReviewApplicationService | null {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getReviewService?.() || contextFromWindow?.getReviewService?.() || null;
 }
 
 function isProgressiveExcerptEnabled(): boolean {
@@ -1000,6 +1096,12 @@ onMounted(() => {
     initialFullscreenTimer = null;
     applyInitialReviewFullscreen();
   }, 0);
+  if (props.mode === 'tab' && String(props.initialCurrentCardId || '').trim()) {
+    initialTabSurfaceRefreshTimer = window.setTimeout(() => {
+      initialTabSurfaceRefreshTimer = null;
+      void refreshTabSurface(props.initialCurrentCardId);
+    }, 0);
+  }
 });
 
 // 🆕 组件卸载时移除键盘事件监听器
@@ -1020,6 +1122,10 @@ onUnmounted(() => {
   if (initialFullscreenTimer !== null) {
     window.clearTimeout(initialFullscreenTimer);
     initialFullscreenTimer = null;
+  }
+  if (initialTabSurfaceRefreshTimer !== null) {
+    window.clearTimeout(initialTabSurfaceRefreshTimer);
+    initialTabSurfaceRefreshTimer = null;
   }
   if (props.mode !== 'tab') {
     getReviewAIWorkbenchRegistry()?.disposeReviewSession?.(reviewSessionId.value);
@@ -1056,6 +1162,8 @@ const hook = useReviewSession(
   {
     onReview: props.onReview, // 🆕 传递 onReview 回调
     initialSessionState: props.initialSessionState,
+    initialCurrentItem: props.initialCurrentItem ?? null,
+    initialShowAnswer: props.initialShowAnswer === true,
   }
 );
 const state = hook.state;
@@ -1325,6 +1433,59 @@ async function refreshCurrentReviewCard(): Promise<void> {
       error,
     });
   }
+}
+
+async function refreshReviewCardById(cardId: string): Promise<boolean> {
+  const normalizedCardId = String(cardId || '').trim();
+  if (!normalizedCardId) {
+    return false;
+  }
+
+  const manager = subscribedReviewManager || getUnifiedDataSourceManager();
+  if (!manager) {
+    return false;
+  }
+
+  try {
+    const nextCard = await manager.getCard(normalizedCardId, { silent: true });
+    if (String(nextCard?.id || '').trim() !== normalizedCardId) {
+      return false;
+    }
+    await hook.refreshCurrentItem(nextCard);
+    return true;
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to refresh review card by explicit card id:', {
+      cardId: normalizedCardId,
+      error,
+    });
+    return false;
+  }
+}
+
+async function refreshTabSurface(preferredCardId?: string | null): Promise<boolean> {
+  const preferred = String(preferredCardId || '').trim();
+  const currentReference = getCurrentReviewCardReference();
+  const targetCardId = preferred || currentReference.cardId;
+
+  if (targetCardId) {
+    const shouldForceCardRefresh = (
+      currentReference.cardId !== targetCardId
+      || state.value.content.type === 'empty'
+      || !state.value.content.card
+    );
+    if (shouldForceCardRefresh) {
+      await refreshReviewCardById(targetCardId);
+    }
+  }
+
+  renderEpoch.value += 1;
+  await nextTick();
+
+  return Boolean(
+    resolveCurrentReviewCardId()
+    || resolveCurrentReviewBlockId()
+    || state.value.content.id,
+  );
 }
 
 async function appendCreatedCardsToActiveScopeQueue(cardIds: string[]): Promise<void> {
@@ -2434,12 +2595,127 @@ async function handleDeletePeerCards(): Promise<void> {
   }
 }
 
+function resolveCurrentEditableSource(): ReviewEditableSource | null {
+  return contentRef.value?.getEditableSource?.() || null;
+}
+
+function closeCurrentContentEditor(): void {
+  if (reviewTextEditorSaving.value) {
+    return;
+  }
+
+  reviewTextEditorOpen.value = false;
+  reviewTextEditorLoading.value = false;
+  reviewTextEditorSource.value = null;
+  reviewTextEditorValue.value = '';
+  reviewTextEditorOriginalValue.value = '';
+  reviewTextEditorSeq += 1;
+}
+
+async function openCurrentContentEditor(): Promise<void> {
+  const editableSource = resolveCurrentEditableSource();
+  if (!editableSource) {
+    showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
+    return;
+  }
+
+  const reviewService = getReviewService();
+  if (!reviewService) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  const seq = ++reviewTextEditorSeq;
+  reviewTextEditorSource.value = editableSource;
+  reviewTextEditorOpen.value = true;
+  reviewTextEditorLoading.value = true;
+  reviewTextEditorValue.value = '';
+  reviewTextEditorOriginalValue.value = '';
+
+  try {
+    const kramdown = await reviewService.getBlockKramdown(editableSource.blockId);
+    if (seq !== reviewTextEditorSeq || !reviewTextEditorOpen.value) {
+      return;
+    }
+    reviewTextEditorValue.value = kramdown;
+    reviewTextEditorOriginalValue.value = kramdown;
+  } catch (error) {
+    if (seq !== reviewTextEditorSeq) {
+      return;
+    }
+    logger.error('[SiYuanMemo][ReviewView] Failed to load editable review content:', error);
+    closeCurrentContentEditor();
+    showMessage(
+      t('loadCurrentContentFailed', '读取当前内容失败：{message}')
+        .replace('{message}', error instanceof Error ? error.message : String(error)),
+      5000,
+      'error',
+    );
+    return;
+  } finally {
+    if (seq === reviewTextEditorSeq) {
+      reviewTextEditorLoading.value = false;
+    }
+  }
+}
+
+async function confirmCurrentContentEditor(): Promise<void> {
+  const editableSource = reviewTextEditorSource.value;
+  if (!editableSource || reviewTextEditorConfirmDisabled.value) {
+    return;
+  }
+
+  const reviewService = getReviewService();
+  if (!reviewService) {
+    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    return;
+  }
+
+  const seq = ++reviewTextEditorSeq;
+  reviewTextEditorSaving.value = true;
+
+  try {
+    await reviewService.updateBlockMarkdown(editableSource.blockId, reviewTextEditorValue.value);
+    if (seq !== reviewTextEditorSeq) {
+      return;
+    }
+
+    reviewTextEditorOriginalValue.value = reviewTextEditorValue.value;
+    renderEpoch.value += 1;
+
+    const currentCard = state.value.content.card;
+    if (currentCard) {
+      await hook.refreshCurrentItem(currentCard);
+    }
+
+    reviewTextEditorOpen.value = false;
+    reviewTextEditorSource.value = null;
+    showMessage(t('currentContentSaved', '当前内容已保存'), 2000, 'info');
+  } catch (error) {
+    if (seq !== reviewTextEditorSeq) {
+      return;
+    }
+    logger.error('[SiYuanMemo][ReviewView] Failed to save editable review content:', error);
+    showMessage(
+      t('saveCurrentContentFailed', '保存当前内容失败：{message}')
+        .replace('{message}', error instanceof Error ? error.message : String(error)),
+      5000,
+      'error',
+    );
+  } finally {
+    if (seq === reviewTextEditorSeq) {
+      reviewTextEditorSaving.value = false;
+    }
+  }
+}
+
 function buildMoreMenuItems(): ReviewMenuItem[] {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   const openAsItems = buildOpenAsMenuItems();
   const peerInfo = resolveCurrentBlockPeerCards();
   const peerCount = peerInfo?.peerCards.length ?? 0;
   const currentPriority = resolveCurrentReviewCardPriority();
+  const editableSource = resolveCurrentEditableSource();
   const canEditCurrentPriority = hasCurrentReviewCard() && Boolean(getCardEditorService());
   const canSuspendCurrentCard = hasCurrentReviewCard() && Boolean(getCardEditorService());
   const canDeleteCurrentCard = hasCurrentReviewCard() && Boolean(getCardService());
@@ -2494,6 +2770,15 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
     label: t('editSrsData', '编辑 SRS 数据'),
     click: openCurrentSrsEditor,
   });
+
+  if (editableSource) {
+    items.push({
+      id: 'edit-current-content',
+      icon: 'iconEdit',
+      label: editableSource.title,
+      click: () => void openCurrentContentEditor(),
+    });
+  }
 
   items.push({
     id: 'fullscreen',
@@ -2752,7 +3037,7 @@ function closeCurrentReviewSurface(): void {
 }
 
 function buildOpenAsMenuItems(): ReviewMenuItem[] {
-  const currentBlockId = resolveCurrentReviewBlockId();
+  const currentSourceBlockId = resolveCurrentReviewSourceBlockId();
   const tabManager = getTabManager();
   const dialogManager = getDialogManager();
   const isTabSurface = props.mode === 'tab';
@@ -2777,14 +3062,14 @@ function buildOpenAsMenuItems(): ReviewMenuItem[] {
       id: 'locateSourceBlock',
       icon: 'iconOpen',
       label: t('locateSourceBlock', '定位到原块位置'),
-      disabled: !props.app || !currentBlockId,
+      disabled: !props.app || !currentSourceBlockId,
       click() {
-        if (!props.app || !currentBlockId) {
+        if (!props.app || !currentSourceBlockId) {
           return;
         }
         openReviewBlockAtSource({
           app: props.app,
-          blockId: currentBlockId,
+          blockId: currentSourceBlockId,
         });
       },
     },
@@ -2792,15 +3077,15 @@ function buildOpenAsMenuItems(): ReviewMenuItem[] {
       id: 'openRightReviewAndLocateSource',
       icon: 'iconLayoutRight',
       label: t('openRightReviewAndLocateSource', '右侧复习并定位原块'),
-      disabled: !props.app || !currentBlockId,
+      disabled: !props.app || !currentSourceBlockId,
       async click() {
-        if (!props.app || !currentBlockId) {
+        if (!props.app || !currentSourceBlockId) {
           return;
         }
         try {
           await openReviewBlockAtSource({
             app: props.app,
-            blockId: currentBlockId,
+            blockId: currentSourceBlockId,
           });
         } catch (error) {
           logger.warn('[SiYuanMemo][ReviewView] Failed to locate source block before opening review:', error);
@@ -3186,6 +3471,39 @@ function resolveCurrentReviewBlockId(): string {
   ).trim();
 }
 
+function resolveCurrentReviewSourceBlockId(): string {
+  return String(
+    resolveCurrentEditableSource()?.blockId
+    || state.value.content.id
+    || state.value.content.data
+    || state.value.actions.cardMeta?.blockID
+    || state.value.content.card?.blockId
+    || '',
+  ).trim();
+}
+
+function resolveCurrentReviewNeuralSyncIds(): string[] {
+  const ids = new Set<string>();
+  const pushId = (value: unknown) => {
+    const normalized = String(value || '').trim();
+    if (normalized) {
+      ids.add(normalized);
+    }
+  };
+
+  pushId(state.value.actions.cardMeta?.blockID);
+  pushId(state.value.content.card?.blockId);
+  pushId(state.value.content.data);
+  pushId(state.value.content.id);
+
+  const neuralContext = state.value.content.card?.meta?.neuralContext;
+  if (neuralContext && typeof neuralContext === 'object') {
+    pushId((neuralContext as Record<string, unknown>).sourceVirtualNodeId);
+  }
+
+  return [...ids];
+}
+
 function resolveCurrentReviewCardId(): string {
   return String(
     state.value.actions.cardMeta?.cardID
@@ -3467,12 +3785,45 @@ async function syncToNeuralQueueCurrentNode(fallbackNodeId?: string | null): Pro
 
   await hook.loadCardByBlockId(currentNodeId);
   refreshNavigationState();
-  return resolveCurrentReviewBlockId() === currentNodeId;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await nextTick();
+    if (resolveCurrentReviewNeuralSyncIds().includes(currentNodeId)) {
+      return true;
+    }
+  }
+
+  logger.warn('[SiYuanMemo][ReviewView] Neural tab sync finished without matching the requested node', {
+    requestedNodeId: currentNodeId,
+    resolvedBlockId: resolveCurrentReviewBlockId(),
+    resolvedSyncIds: resolveCurrentReviewNeuralSyncIds(),
+    contentId: String(state.value.content.id || ''),
+    cardBlockId: String(state.value.content.card?.blockId || ''),
+  });
+  return false;
 }
 
 defineExpose<ReviewViewTabBridge>({
   syncToNeuralQueueCurrentNode,
+  refreshTabSurface,
 });
+
+watch(
+  () => [
+    props.mode,
+    state.value.content.card?.id || '',
+    state.value.content.card?.updatedAt || 0,
+    state.value.content.id || '',
+    hook.context.value.showAnswer ? 1 : 0,
+    hook.context.value.session?.initialTotal || 0,
+    hook.context.value.session?.answeredCount || 0,
+    hook.context.value.session?.correctCount || 0,
+  ],
+  () => {
+    props.onTabRuntimeStateChange?.(buildReviewTabRuntimeState());
+  },
+  { immediate: true },
+);
 
 watch(
   () => state.value.content.id,

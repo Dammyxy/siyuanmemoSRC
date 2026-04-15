@@ -22,12 +22,16 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('vue', () => ({
-  createApp: vi.fn(() => ({
-    mount: vi.fn(),
-    unmount: vi.fn(),
-  })),
-}));
+vi.mock('vue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue')>();
+  return {
+    ...actual,
+    createApp: vi.fn(() => ({
+      mount: vi.fn(),
+      unmount: vi.fn(),
+    })),
+  };
+});
 
 vi.mock('@/ui/browser/SRSBrowser.vue', () => ({
   default: {},
@@ -35,6 +39,10 @@ vi.mock('@/ui/browser/SRSBrowser.vue', () => ({
 
 vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
+}));
+
+vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
+  default: {},
 }));
 
 function createDeferred<T = void>() {

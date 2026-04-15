@@ -12,6 +12,7 @@ import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
+import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import { createLogger } from '@/utils/logger';
 import { finalizeXiuyuanCreation } from './shared/FinalizeXiuyuanCreation';
 
@@ -58,24 +59,6 @@ export interface ListTemplateCardsCreationPayload {
     cardIds: string[];
   }>;
   skippedChildBlockIds: string[];
-}
-
-function parseCueAndAnswer(text: string): { cue: string; answer: string } {
-  const unicodeArrow = '\u2192';
-  const delimiter = text.includes(unicodeArrow) ? unicodeArrow : '->';
-  const parts = text.split(delimiter);
-
-  if (parts.length >= 2) {
-    return {
-      cue: parts[0].trim(),
-      answer: parts.slice(1).join(delimiter).trim(),
-    };
-  }
-
-  return {
-    cue: '',
-    answer: text.trim(),
-  };
 }
 
 function quoteSqlValue(value: string): string {
