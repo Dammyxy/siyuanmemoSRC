@@ -23,6 +23,18 @@ export interface ReviewEditableSource {
   rendererKind: ReviewEditableRendererKind;
 }
 
+export type ReviewNativeSplitGuardRendererKind =
+  | ReviewEditableRendererKind
+  | 'image-occlusion'
+  | 'empty'
+  | 'html'
+  | 'unsupported';
+
+export interface ReviewNativeSplitGuardState {
+  rendererKind: ReviewNativeSplitGuardRendererKind;
+  blockNativeTabSplit: boolean;
+}
+
 export type ReviewHeaderVariant =
   | 'retrieval-practice'
   | 'incremental-learning'

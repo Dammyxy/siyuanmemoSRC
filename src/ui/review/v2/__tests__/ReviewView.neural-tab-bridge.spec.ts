@@ -226,6 +226,65 @@ function mountReviewView(queue: unknown) {
 }
 
 describe('ReviewView neural tab bridge', () => {
+  it('refreshes the tab surface by explicit card id even when the current review state already points at that card', async () => {
+    const initialCard = buildCard('block-initial');
+    const refreshedCard = {
+      ...initialCard,
+      meta: {
+        forceQuickRender: true,
+        renderProfile: 'quick-default',
+      },
+      updatedAt: initialCard.updatedAt + 1,
+    };
+    const manager = {
+      getCard: vi.fn(async () => refreshedCard),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+    };
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        mode: 'tab',
+        queue: createQueue(initialCard, {}) as never,
+        adapter: createAdapter() as never,
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => manager,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const bridge = wrapper.vm as unknown as ReviewViewTabBridge;
+    await expect(bridge.refreshTabSurface(initialCard.id)).resolves.toBe(true);
+    await flushPromises();
+
+    expect(manager.getCard).toHaveBeenCalledWith(initialCard.id, { silent: true });
+    expect(wrapper.getComponent(ReviewActionsStub).props('currentCard')).toMatchObject({
+      id: initialCard.id,
+      meta: {
+        forceQuickRender: true,
+        renderProfile: 'quick-default',
+      },
+    });
+
+    wrapper.unmount();
+  });
+
   it('loads the current neural navigation node into the review tab', async () => {
     const neuralQueue = createNeuralQueue('node-target');
     const wrapper = mountReviewView(createQueue(buildCard('block-initial'), neuralQueue));

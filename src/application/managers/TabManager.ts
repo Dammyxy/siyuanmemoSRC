@@ -50,6 +50,7 @@ interface ReviewTabData {
   title: string;
   queueType: QueueType | null;
   headerVariant: ReviewHeaderVariant;
+  sharedReviewSessionId?: string | null;
   transferState?: ReviewTabTransferState | null;
   reviewState?: ReviewTabRuntimeState | null;
 }
@@ -85,6 +86,17 @@ interface ReviewAICompanionRuntimeHandle {
   sourceReviewSessionId: string;
   title: string;
   custom: TabRuntimeContext;
+}
+
+interface ReviewTabSurfaceSnapshot {
+  customId: string;
+  providerId: string;
+  queueType: QueueType | null;
+  title: string;
+  headerVariant: ReviewHeaderVariant;
+  sharedReviewSessionId?: string | null;
+  reviewState: ReviewTabRuntimeState | null;
+  updatedAt: number;
 }
 
 type PluginWithI18n = Plugin & {
@@ -318,6 +330,11 @@ function normalizeReviewQueueSessionSnapshot(value: unknown): ReviewQueueSession
   };
 }
 
+function normalizeSharedReviewSessionId(value: unknown): string | null {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized || null;
+}
+
 function normalizeReviewTabRuntimeState(value: unknown): ReviewTabRuntimeState | null {
   if (!isRecord(value) || Number(value.version) !== 1) {
     return null;
@@ -343,6 +360,7 @@ function normalizeReviewTabRuntimeState(value: unknown): ReviewTabRuntimeState |
   return {
     version: 1,
     showAnswer: value.showAnswer === true,
+    sharedReviewSessionId: normalizeSharedReviewSessionId(value.sharedReviewSessionId) || undefined,
     currentCardId: currentCardId || undefined,
     currentBlockId: currentBlockId || undefined,
     session: normalizeInitialReviewSessionState(value.session),
@@ -362,7 +380,10 @@ export interface ReviewTabOptions {
   adapter?: IAdapter<unknown>;
   title: string;
   headerVariant?: ReviewHeaderVariant;
+  position?: 'right' | 'bottom';
+  sharedReviewSessionId?: string | null;
   transferState?: ReviewTabTransferState;
+  reviewState?: ReviewTabRuntimeState | null;
 }
 
 interface ReviewTabOpenOptions {
@@ -383,6 +404,7 @@ export class TabManager {
   private readonly siyuanApi: ManagerSiyuanPort;
   private tabsRegistered = false;
   private readonly reviewTabRuntimes = new Map<string, ReviewTabRuntimeHandle>();
+  private readonly reviewTabSurfaceSnapshots = new Map<string, ReviewTabSurfaceSnapshot>();
   private readonly reviewAICompanionRuntimes = new Map<string, ReviewAICompanionRuntimeHandle>();
 
   constructor(
@@ -439,7 +461,10 @@ export class TabManager {
       type: this.REVIEW_TAB_TYPE,
       init() {
         const runtime = this as unknown as TabRuntimeContext;
-        const data = self.normalizeReviewTabData(runtime.data);
+        const data = self.recoverReviewTabData(
+          self.normalizeReviewTabData(runtime.data),
+          self.resolveReviewTabRuntimeId(runtime),
+        );
         logger.info('Restoring review tab', {
           providerId: data.providerId,
           queueType: data.queueType,
@@ -459,11 +484,13 @@ export class TabManager {
           i18n: self.getPluginI18n(),
           mode: 'tab',
           reviewSessionId: self.resolveReviewTabRuntimeId(runtime) || data.providerId,
+          sharedReviewSessionId: data.sharedReviewSessionId ?? data.reviewState?.sharedReviewSessionId ?? null,
           title: data.title,
           headerVariant: data.headerVariant,
           queue,
           adapter,
           plugin: self.plugin,
+          reviewState: data.reviewState ?? null,
           initialSessionState: data.reviewState?.session ?? data.transferState?.session,
           initialCurrentItem: data.reviewState?.queueSnapshot?.currentItem ?? null,
           initialCurrentCardId: data.reviewState?.currentCardId ?? '',
@@ -485,12 +512,18 @@ export class TabManager {
       },
       resize() {
         const runtime = this as unknown as TabRuntimeContext;
-        const data = self.normalizeReviewTabData(runtime.data);
+        const data = self.recoverReviewTabData(
+          self.normalizeReviewTabData(runtime.data),
+          self.resolveReviewTabRuntimeId(runtime),
+        );
         self.refreshReviewTabRuntimeSurface(runtime, data);
       },
       update() {
         const runtime = this as unknown as TabRuntimeContext;
-        const data = self.normalizeReviewTabData(runtime.data);
+        const data = self.recoverReviewTabData(
+          self.normalizeReviewTabData(runtime.data),
+          self.resolveReviewTabRuntimeId(runtime),
+        );
         self.refreshReviewTabRuntimeSurface(runtime, data);
       },
     });
@@ -602,7 +635,6 @@ export class TabManager {
 
   openReviewTab(options: ReviewTabOptions): void {
     void this.openReviewTabInternal(options, {
-      position: 'right',
       keepCursor: false,
       removeCurrentTab: false,
     });
@@ -806,6 +838,7 @@ export class TabManager {
         detachFns.forEach((detach) => detach());
       },
     });
+    this.updateReviewTabSurfaceSnapshot(customId, data, data.reviewState);
   }
 
   private persistReviewTabRuntimeState(
@@ -817,11 +850,95 @@ export class TabManager {
       ...baseData,
       reviewState: normalizeReviewTabRuntimeState(reviewState),
     };
+    nextData.sharedReviewSessionId = normalizeSharedReviewSessionId(
+      nextData.reviewState?.sharedReviewSessionId ?? baseData.sharedReviewSessionId,
+    );
     runtime.data = nextData;
     const tabModel = runtime.tab?.model as { data?: ReviewTabData } | undefined;
     if (tabModel) {
       tabModel.data = nextData;
     }
+    this.updateReviewTabSurfaceSnapshot(
+      this.resolveReviewTabRuntimeId(runtime),
+      nextData,
+      nextData.reviewState,
+    );
+  }
+
+  private buildReviewTabSurfaceSnapshotKey(data: Pick<ReviewTabData, 'providerId' | 'queueType' | 'title' | 'headerVariant' | 'sharedReviewSessionId'>): string {
+    return [
+      String(data.sharedReviewSessionId || '').trim(),
+      String(data.providerId || '').trim(),
+      String(data.queueType || '').trim(),
+      String(data.headerVariant || '').trim(),
+      String(data.title || '').trim(),
+    ].join('::');
+  }
+
+  private hasRenderableReviewRuntimeState(reviewState: ReviewTabRuntimeState | null | undefined): boolean {
+    const normalizedCardId = String(reviewState?.currentCardId || '').trim();
+    if (normalizedCardId) {
+      return true;
+    }
+
+    const currentItem = reviewState?.queueSnapshot?.currentItem;
+    if (!isRecord(currentItem)) {
+      return false;
+    }
+
+    return String(currentItem.id || '').trim().length > 0;
+  }
+
+  private updateReviewTabSurfaceSnapshot(
+    customId: string | null | undefined,
+    data: ReviewTabData,
+    reviewState: ReviewTabRuntimeState | null | undefined,
+  ): void {
+    const normalizedRuntimeState = normalizeReviewTabRuntimeState(reviewState);
+    if (!this.hasRenderableReviewRuntimeState(normalizedRuntimeState)) {
+      return;
+    }
+
+    const snapshotKey = this.buildReviewTabSurfaceSnapshotKey(data);
+    this.reviewTabSurfaceSnapshots.set(snapshotKey, {
+      customId: String(customId || '').trim(),
+      providerId: data.providerId,
+      queueType: data.queueType,
+      title: data.title,
+      headerVariant: data.headerVariant,
+      sharedReviewSessionId: data.sharedReviewSessionId ?? null,
+      reviewState: normalizedRuntimeState,
+      updatedAt: Date.now(),
+    });
+  }
+
+  private recoverReviewTabData(
+    data: ReviewTabData,
+    runtimeId?: string | null,
+  ): ReviewTabData {
+    if (this.hasRenderableReviewRuntimeState(data.reviewState)) {
+      return data;
+    }
+
+    const snapshotKey = this.buildReviewTabSurfaceSnapshotKey(data);
+    const snapshot = this.reviewTabSurfaceSnapshots.get(snapshotKey);
+    if (!snapshot?.reviewState || !this.hasRenderableReviewRuntimeState(snapshot.reviewState)) {
+      return data;
+    }
+
+    const normalizedRuntimeId = String(runtimeId || '').trim();
+    if (normalizedRuntimeId && snapshot.customId && snapshot.customId === normalizedRuntimeId) {
+      return data;
+    }
+
+    if (Date.now() - snapshot.updatedAt > 10 * 60 * 1000) {
+      return data;
+    }
+
+    return {
+      ...data,
+      reviewState: snapshot.reviewState,
+    };
   }
 
   private refreshReviewTabRuntimeSurface(
@@ -1028,13 +1145,17 @@ export class TabManager {
 
   private resolveReviewTabData(options: ReviewTabOptions): ReviewTabData {
     const queueType = this.normalizeQueueType(options.queue?.getType?.(), options.provider?.id);
+    const reviewState = normalizeReviewTabRuntimeState(options.reviewState);
     return {
       providerId: this.resolveProviderId(options),
       title: String(options.title || this.getDefaultReviewTitle()),
       queueType,
       headerVariant: options.headerVariant || resolveReviewHeaderVariant(queueType),
+      sharedReviewSessionId: normalizeSharedReviewSessionId(
+        options.sharedReviewSessionId ?? reviewState?.sharedReviewSessionId,
+      ),
       transferState: normalizeReviewTabTransferState(options.transferState),
-      reviewState: null,
+      reviewState,
     };
   }
 
@@ -1046,6 +1167,7 @@ export class TabManager {
     const title = typeof data?.title === 'string' && data.title.trim()
       ? data.title
       : this.getDefaultReviewTitle();
+    const reviewState = normalizeReviewTabRuntimeState(data?.reviewState);
 
     return {
       providerId,
@@ -1054,8 +1176,11 @@ export class TabManager {
       headerVariant: typeof data?.headerVariant === 'string'
         ? data.headerVariant
         : resolveReviewHeaderVariant(queueType),
+      sharedReviewSessionId: normalizeSharedReviewSessionId(
+        data?.sharedReviewSessionId ?? reviewState?.sharedReviewSessionId,
+      ),
       transferState: normalizeReviewTabTransferState(data?.transferState),
-      reviewState: normalizeReviewTabRuntimeState(data?.reviewState),
+      reviewState,
     };
   }
 
@@ -1198,7 +1323,7 @@ export class TabManager {
           id: reviewModelType,
           data: tabData,
         },
-        position: tabOpenOptions.position,
+        position: tabOpenOptions.position ?? options.position ?? 'right',
         keepCursor: tabOpenOptions.keepCursor,
         removeCurrentTab: tabOpenOptions.removeCurrentTab,
       });

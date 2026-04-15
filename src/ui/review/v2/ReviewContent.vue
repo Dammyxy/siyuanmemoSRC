@@ -126,7 +126,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import * as siyuan from 'siyuan';
-import type { ReviewEditableSource, ReviewUIState } from './types';
+import type { ReviewEditableSource, ReviewNativeSplitGuardState, ReviewUIState } from './types';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
 import { OVERLAY_REGISTRY } from './overlays/index';
 import XiuyuanListTemplateCard from './components/XiuyuanListTemplateCard.vue';
@@ -637,6 +637,83 @@ const editableSource = computed<ReviewEditableSource | null>(() => {
   return buildEditableSource(props.content.id, t('editCurrentContent', '编辑当前内容'), 'main-protyle');
 });
 
+const nativeSplitGuardState = computed<ReviewNativeSplitGuardState>(() => {
+  if (props.content.type === 'empty') {
+    return {
+      rendererKind: 'empty',
+      blockNativeTabSplit: false,
+    };
+  }
+
+  if (props.content.type === 'html') {
+    return {
+      rendererKind: 'html',
+      blockNativeTabSplit: false,
+    };
+  }
+
+  if (props.content.type !== 'protyle') {
+    return {
+      rendererKind: 'unsupported',
+      blockNativeTabSplit: false,
+    };
+  }
+
+  if (props.content.isXiuyuanListTemplate && props.content.xiuyuanMeta) {
+    return {
+      rendererKind: 'list-template',
+      blockNativeTabSplit: true,
+    };
+  }
+
+  if (shouldUseImageOcclusionRenderer.value) {
+    return {
+      rendererKind: 'image-occlusion',
+      blockNativeTabSplit: true,
+    };
+  }
+
+  if (shouldUseMultiClozeRenderer.value) {
+    return {
+      rendererKind: 'multi-cloze',
+      blockNativeTabSplit: true,
+    };
+  }
+
+  if (shouldUseConceptDefinitionRenderer.value) {
+    return {
+      rendererKind: 'concept-definition',
+      blockNativeTabSplit: true,
+    };
+  }
+
+  if (shouldUseConceptCardRenderer.value) {
+    return {
+      rendererKind: 'concept',
+      blockNativeTabSplit: true,
+    };
+  }
+
+  if (shouldUseDescriptorCardRenderer.value) {
+    return {
+      rendererKind: 'descriptor',
+      blockNativeTabSplit: true,
+    };
+  }
+
+  if (shouldUseQuickCardRenderer.value) {
+    return {
+      rendererKind: 'quick',
+      blockNativeTabSplit: true,
+    };
+  }
+
+  return {
+    rendererKind: 'main-protyle',
+    blockNativeTabSplit: false,
+  };
+});
+
 function emitEditorState(state: ReviewEditorState): void {
   if (
     currentEditorState.renderer === state.renderer
@@ -817,9 +894,14 @@ function getEditableSource(): ReviewEditableSource | null {
   return editableSource.value;
 }
 
+function getNativeSplitGuardState(): ReviewNativeSplitGuardState {
+  return nativeSplitGuardState.value;
+}
+
 defineExpose({
   exitEditorByEscape,
   getEditableSource,
+  getNativeSplitGuardState,
 });
 
 // 概念定义卡加载成功

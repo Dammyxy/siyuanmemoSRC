@@ -144,15 +144,17 @@ flowchart TD
    - `SchedulerRouter`
    - `UnifiedDataSourceManager`
 4. 挂载 `src/ui/review/v2/ReviewView.vue`
-5. `useReviewSession.ts` 驱动 `next / reveal / grade / skip / custom`
+5. `useReviewSession.ts` 绑定 `reviewSessionController.ts`；controller 统一驱动 `next / reveal / grade / skip / custom`
 6. review header 的二级动作仍由 `ReviewView.vue` 编排：
    - `AI 侧栏` 统一走 `ReviewAIWorkbenchRegistry`
    - `更多` 菜单中的优先级编辑走 `CardEditorApplicationService.updatePriority(...)`
    - `更多` 菜单中的“编辑当前内容”走 `ReviewApplicationService.getBlockKramdown/updateBlockMarkdown(...)`，通过共享 `LargeTextEditorDialog` 编辑当前块原始 Markdown
+   - tab 模式下插件托管的“右侧/下方分屏当前复习”先通过 `SharedReviewSessionRegistry` 提升或复用共享 review session，再交给 `TabManager.openReviewTab(...)`
    - `更多` 菜单中的暂停动作走 `CardEditorApplicationService`
    - `更多` 菜单中的删除动作走 `CardApplicationService`
    - progressive excerpt / open-as / fullscreen / SRS editor 继续复用既有 application / dialog 主链
 7. `ReviewContent.vue` 继续在 `主 Protyle / special renderer` 之间路由；special renderer 现在通过 `getEditableSource()` 向 `ReviewView.vue` 暴露当前可编辑块，并用 review-local `renderEpoch` 触发同块保存后的强制重渲染
+8. review tab 现在区分 `surface id` 与 `shared review session id`：前者仍用于 tab 生命周期/AI companion 绑定，后者只用于插件托管分屏共享同一套 review controller
 
 当前 review surface 路由补充：
 
@@ -296,6 +298,7 @@ UI surface：
 - `src/application/services/AIDailyNoteDraftService.ts`：AI 候选内容写入 daily note / draft。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
+- `src/application/services/SharedReviewSessionRegistry.ts`：插件托管 review 分屏的共享 session 注册中心。
 - `src/application/services/AIWorkbenchService.ts`：AI 工作台状态与动作编排。
 
 适配器、工厂、查询、用例：
@@ -527,9 +530,10 @@ Review surface 的当前统一点是：
 Review 运行时要点：
 
 - `ReviewView.vue` 负责界面、键盘交互、progressive excerpt 触发、AI companion session 对齐，以及 review header `更多` 菜单对 `ReviewApplicationService` / `CardEditorApplicationService` / `CardApplicationService` 的二级动作编排
-- `useReviewSession.ts` 负责 session 状态机
+- `useReviewSession.ts` 负责把 Vue 生命周期绑定到共享或本地 `reviewSessionController`
+- `reviewSessionController.ts` 负责真正的 review session 状态机、动作串行化，以及多 surface 共享时的单一 authoritative controller
 - queue-specific header / actions / variant 由 adapter 与 queue config 决定
-- `TabManager` 负责 review tab、browser handoff、AI companion tab 复用
+- `TabManager` 负责 review tab、browser handoff、AI companion tab 复用；插件托管 review 分屏时会携带 `sharedReviewSessionId + reviewState`
 
 这意味着：
 

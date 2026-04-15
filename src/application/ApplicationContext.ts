@@ -74,6 +74,7 @@ import { ConfiguredCaptureStorageService } from '@/application/services/Configur
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
 import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
+import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
 import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
@@ -113,6 +114,7 @@ interface ApplicationServiceRegistry {
   cardContentQueryService: CardContentQueryService;
   aiWorkbenchSessionStoreService: AIWorkbenchSessionStoreService;
   reviewAIWorkbenchRegistry: ReviewAIWorkbenchRegistry;
+  sharedReviewSessionRegistry: SharedReviewSessionRegistry;
   aiWorkbenchService: AIWorkbenchService;
   dialogManager: DialogManager;
   menuManager: MenuManager;
@@ -440,6 +442,10 @@ export class ApplicationContext {
 
     this.registerServiceFactory('aiWorkbenchService', (context) => {
       return context.getReviewAIWorkbenchRegistry().getStandaloneService();
+    });
+
+    this.registerServiceFactory('sharedReviewSessionRegistry', () => {
+      return new SharedReviewSessionRegistry();
     });
     
     // TODO: Phase 1 Task 2 - 注册 UI 管理器工厂
@@ -1658,6 +1664,10 @@ export class ApplicationContext {
 
   getReviewAIWorkbenchRegistry(): ReviewAIWorkbenchRegistry {
     return this.getService('reviewAIWorkbenchRegistry');
+  }
+
+  getSharedReviewSessionRegistry(): SharedReviewSessionRegistry {
+    return this.getService('sharedReviewSessionRegistry');
   }
 
   getAIWorkbenchService(): AIWorkbenchService {

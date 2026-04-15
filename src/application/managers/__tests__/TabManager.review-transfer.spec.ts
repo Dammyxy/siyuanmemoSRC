@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TabManager } from '../TabManager';
 import type { FSRSCard } from '@/types/card';
+import { openTab } from 'siyuan';
 
 const mocks = vi.hoisted(() => ({
   createApp: vi.fn(() => ({
@@ -218,9 +219,11 @@ describe('TabManager filter-group review transfer restore', () => {
         title: '提取练习',
         queueType: 'retrieval-practice',
         headerVariant: 'retrieval-practice',
+        sharedReviewSessionId: 'shared-review-1',
         reviewState: {
           version: 1,
           showAnswer: true,
+          sharedReviewSessionId: 'shared-review-1',
           session: {
             initialTotal: 4,
             answeredCount: 1,
@@ -274,6 +277,11 @@ describe('TabManager filter-group review transfer restore', () => {
         forceQuickRender: true,
       },
     });
+    expect(props.sharedReviewSessionId).toBe('shared-review-1');
+    expect(props.reviewState).toEqual(expect.objectContaining({
+      sharedReviewSessionId: 'shared-review-1',
+      currentCardId: 'card-special',
+    }));
     expect(props.initialCurrentCardId).toBe('card-special');
     expect(props.initialShowAnswer).toBe(true);
     expect(props.initialSessionState).toEqual({
@@ -291,6 +299,7 @@ describe('TabManager filter-group review transfer restore', () => {
     props.onTabRuntimeStateChange({
       version: 1,
       showAnswer: false,
+      sharedReviewSessionId: 'shared-review-1',
       currentCardId: 'card-special',
       currentBlockId: 'block-special',
       session: {
@@ -313,6 +322,7 @@ describe('TabManager filter-group review transfer restore', () => {
 
     expect(runtime.data.reviewState).toMatchObject({
       showAnswer: false,
+      sharedReviewSessionId: 'shared-review-1',
       currentCardId: 'card-special',
       currentBlockId: 'block-special',
       session: {
@@ -325,9 +335,69 @@ describe('TabManager filter-group review transfer restore', () => {
       },
     });
     expect(runtime.tab.model.data.reviewState).toMatchObject({
+      sharedReviewSessionId: 'shared-review-1',
       currentCardId: 'card-special',
       currentBlockId: 'block-special',
     });
+    expect(runtime.data.sharedReviewSessionId).toBe('shared-review-1');
+    expect(runtime.tab.model.data.sharedReviewSessionId).toBe('shared-review-1');
+  });
+
+  it('opens plugin-managed review tabs on the requested split position with shared session metadata', async () => {
+    vi.mocked(openTab).mockClear();
+
+    const queue = {
+      getType: () => 'retrieval-practice',
+    };
+    const context = {
+      getI18n: vi.fn(() => ({})),
+      getUnifiedDataSourceManager: vi.fn(() => ({
+        getQueue: vi.fn(),
+      })),
+      getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+      getSchedulerRouter: vi.fn(() => ({})),
+      getSettingsService: vi.fn(() => ({
+        getSettings: () => ({
+          progressiveReading: {},
+        }),
+      })),
+    } as any;
+    const plugin = {
+      name: 'test-plugin',
+      app: {},
+      addTab: vi.fn(),
+    } as any;
+
+    const tabManager = new TabManager(context, plugin);
+
+    tabManager.openReviewTab({
+      queue,
+      title: '提取练习',
+      position: 'bottom',
+      sharedReviewSessionId: 'shared-review-open',
+      reviewState: {
+        version: 1,
+        showAnswer: true,
+        sharedReviewSessionId: 'shared-review-open',
+        currentCardId: 'card-special',
+        currentBlockId: 'block-special',
+      },
+    });
+
+    expect(openTab).toHaveBeenCalledWith(expect.objectContaining({
+      position: 'bottom',
+      custom: expect.objectContaining({
+        data: expect.objectContaining({
+          title: '提取练习',
+          sharedReviewSessionId: 'shared-review-open',
+          reviewState: expect.objectContaining({
+            sharedReviewSessionId: 'shared-review-open',
+            currentCardId: 'card-special',
+            currentBlockId: 'block-special',
+          }),
+        }),
+      }),
+    }));
   });
 
   it('refreshes the active review tab surface on custom tab resize and update using the persisted current card id', async () => {
@@ -407,5 +477,135 @@ describe('TabManager filter-group review transfer restore', () => {
     expect(refreshTabSurface).toHaveBeenCalledTimes(1);
     expect(refreshTabSurface).toHaveBeenCalledWith('card-special');
     vi.useRealTimers();
+  });
+
+  it('rehydrates a newly split review tab from the latest sibling runtime snapshot when native tab data is stale', () => {
+    const now = Date.now();
+    const currentCard = {
+      id: 'card-special',
+      blockId: 'block-special',
+      due: now,
+      stability: 1,
+      difficulty: 5,
+      reps: 0,
+      lapses: 0,
+      state: 0,
+      lastReview: now,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      priority: 50,
+      type: 'item',
+      tags: [],
+      leechCount: 0,
+      isLeech: false,
+      skipped: false,
+      createdAt: now,
+      updatedAt: now,
+      meta: {
+        forceQuickRender: true,
+      },
+    } as FSRSCard;
+
+    const sharedQueue = {
+      getType: () => 'retrieval-practice',
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const manager = {
+      getQueue: vi.fn(() => sharedQueue),
+      notifyObservers: vi.fn(),
+    };
+    const context = {
+      getI18n: vi.fn(() => ({})),
+      getUnifiedDataSourceManager: vi.fn(() => manager),
+      getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+      getSchedulerRouter: vi.fn(() => ({})),
+      getSettingsService: vi.fn(() => ({
+        getSettings: () => ({
+          progressiveReading: {},
+        }),
+      })),
+    } as any;
+    const plugin = {
+      name: 'test-plugin',
+      app: {},
+      addTab: vi.fn(),
+    } as any;
+
+    const tabManager = new TabManager(context, plugin);
+    tabManager.registerAll();
+
+    const reviewRegistration = plugin.addTab.mock.calls[1][0];
+    const sourceRuntime = {
+      id: 'review-runtime-source',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'retrieval',
+        title: '提取练习',
+        queueType: 'retrieval-practice',
+        headerVariant: 'retrieval-practice',
+      },
+      tab: {
+        id: 'review-runtime-source',
+        headElement: document.createElement('button'),
+        model: {
+          data: null,
+        },
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    };
+
+    reviewRegistration.init.call(sourceRuntime);
+    const [, sourceProps] = mocks.createApp.mock.calls[0];
+    sourceProps.onTabRuntimeStateChange({
+      version: 1,
+      showAnswer: false,
+      currentCardId: 'card-special',
+      currentBlockId: 'block-special',
+      queueSnapshot: {
+        version: 1,
+        queueType: 'retrieval-practice',
+        cacheValid: true,
+        currentIndex: 1,
+        cachedCards: [currentCard],
+        currentItem: currentCard,
+        forwardBuffer: [],
+        pendingRotateCardId: null,
+        lastCounterSnapshot: null,
+      },
+    });
+
+    const splitRuntime = {
+      id: 'review-runtime-split',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'retrieval',
+        title: '提取练习',
+        queueType: 'retrieval-practice',
+        headerVariant: 'retrieval-practice',
+        reviewState: null,
+      },
+      tab: {
+        id: 'review-runtime-split',
+        headElement: document.createElement('button'),
+        model: {
+          data: null,
+        },
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    };
+
+    reviewRegistration.init.call(splitRuntime);
+    const [, splitProps] = mocks.createApp.mock.calls[1];
+
+    expect(splitProps.initialCurrentCardId).toBe('card-special');
+    expect(splitProps.initialCurrentItem).toMatchObject({
+      id: 'card-special',
+      blockId: 'block-special',
+    });
   });
 });

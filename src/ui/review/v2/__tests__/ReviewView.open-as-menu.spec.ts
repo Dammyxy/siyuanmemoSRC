@@ -666,6 +666,102 @@ describe('ReviewView open-as menu', () => {
     wrapper.unmount();
   });
 
+  it('opens plugin-managed shared review splits from tab mode without closing the current surface', async () => {
+    const card = buildCard();
+    const queue = createQueue(card);
+    const adapter = createAdapter();
+    const tabManager = {
+      openReviewTab: vi.fn(),
+      closeReviewTab: vi.fn(),
+    };
+    const sharedSessions = new Map<string, unknown>();
+    const sharedRegistry = {
+      getSession: vi.fn((sessionId: string) => sharedSessions.get(sessionId) ?? null),
+      registerSession: vi.fn((sessionId: string, session: unknown) => {
+        sharedSessions.set(sessionId, session);
+        return session;
+      }),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        mode: 'tab',
+        reviewSessionId: 'review-tab-shared',
+        title: '提取练习',
+        headerVariant: 'retrieval-practice',
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+            getTabManager: () => tabManager,
+            getSharedReviewSessionRegistry: () => sharedRegistry,
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const target = document.createElement('button');
+    Object.defineProperty(target, 'getBoundingClientRect', {
+      value: () => ({ left: 10, bottom: 20 }),
+    });
+    const event = new MouseEvent('click');
+    Object.defineProperty(event, 'currentTarget', {
+      value: target,
+    });
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'sticktab', event);
+    await flushPromises();
+
+    const latestMenu = reviewViewMenuMocks.instances.at(-1);
+    expect(latestMenu).toBeDefined();
+    const menuItems = latestMenu?.addItem.mock.calls.map(([item]) => item) || [];
+    const splitRightItem = menuItems.find((item) => item.id === 'managedSplitRight');
+    const splitBottomItem = menuItems.find((item) => item.id === 'managedSplitBottom');
+
+    expect(splitRightItem).toBeDefined();
+    expect(splitBottomItem).toBeDefined();
+
+    splitRightItem?.click?.();
+    await flushPromises();
+
+    const firstSplitOptions = tabManager.openReviewTab.mock.calls[0]?.[0];
+    expect(firstSplitOptions.position).toBe('right');
+    expect(firstSplitOptions.sharedReviewSessionId).toMatch(/^shared-review-/);
+    expect(firstSplitOptions.reviewState).toEqual(expect.objectContaining({
+      sharedReviewSessionId: firstSplitOptions.sharedReviewSessionId,
+      currentCardId: 'card-1',
+      currentBlockId: 'block-1',
+    }));
+    expect(sharedRegistry.registerSession).toHaveBeenCalledTimes(1);
+    expect(tabManager.closeReviewTab).not.toHaveBeenCalled();
+
+    splitBottomItem?.click?.();
+    await flushPromises();
+
+    const secondSplitOptions = tabManager.openReviewTab.mock.calls[1]?.[0];
+    expect(secondSplitOptions.position).toBe('bottom');
+    expect(secondSplitOptions.sharedReviewSessionId).toBe(firstSplitOptions.sharedReviewSessionId);
+    expect(sharedRegistry.registerSession).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
   it('keeps non-standard tab review sessions from exposing open-in-dialog conversion', async () => {
     const card = buildCard();
     const queue = {

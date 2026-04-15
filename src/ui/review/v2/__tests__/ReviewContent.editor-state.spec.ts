@@ -84,6 +84,15 @@ const reviewContentQuickCardMocks = vi.hoisted(() => ({
   isQuickCard: vi.fn(async () => false),
 }));
 
+const reviewContentConceptMocks = vi.hoisted(() => ({
+  isConceptCard: vi.fn(() => false),
+  isConceptDefinitionCard: vi.fn(() => false),
+}));
+
+const reviewContentDescriptorMocks = vi.hoisted(() => ({
+  isDescriptorCard: vi.fn(async () => false),
+}));
+
 const reviewContentApiMocks = vi.hoisted(() => ({
   getBlockDocInfo: vi.fn(async () => ({ ial: {} })),
   getDocContent: vi.fn(async () => ({ content: '', type: 'NodeDocument' })),
@@ -102,8 +111,8 @@ vi.mock('@/core/card/render-profile/RenderProfileResolver', () => ({
 }));
 
 vi.mock('@/core/xiuyuan/cardMeta', () => ({
-  isConceptCard: () => false,
-  isConceptDefinitionCard: () => false,
+  isConceptCard: (...args: unknown[]) => reviewContentConceptMocks.isConceptCard(...args),
+  isConceptDefinitionCard: (...args: unknown[]) => reviewContentConceptMocks.isConceptDefinitionCard(...args),
 }));
 
 vi.mock('@/core/card/quick-card/infrastructure/SiyuanBlockAdapter', () => ({
@@ -133,7 +142,7 @@ vi.mock('@/core/card/descriptor-card/infrastructure/DescriptorCardRepository', (
 vi.mock('@/core/card/descriptor-card/application/DescriptorCardRenderService', () => ({
   DescriptorCardRenderService: class {
     async isDescriptorCard(): Promise<boolean> {
-      return false;
+      return reviewContentDescriptorMocks.isDescriptorCard();
     }
   },
 }));
@@ -319,6 +328,45 @@ function createMultiClozeContent() {
   };
 }
 
+function createConceptContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-concept',
+    data: '',
+    card: {
+      id: 'card-concept',
+      type: 'concept',
+      meta: {},
+    },
+  };
+}
+
+function createConceptDefinitionContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-concept-definition',
+    data: '',
+    card: {
+      id: 'card-concept-definition',
+      type: 'item',
+      meta: {},
+    },
+  };
+}
+
+function createDescriptorContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-descriptor',
+    data: '',
+    card: {
+      id: 'card-descriptor',
+      type: 'descriptor',
+      meta: {},
+    },
+  };
+}
+
 function createSpecialContent() {
   return {
     type: 'protyle' as const,
@@ -412,6 +460,12 @@ describe('ReviewContent editor state', () => {
     reviewContentLoggerMocks.trace.mockReset();
     reviewContentQuickCardMocks.isQuickCard.mockReset();
     reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(false);
+    reviewContentConceptMocks.isConceptCard.mockReset();
+    reviewContentConceptMocks.isConceptCard.mockReturnValue(false);
+    reviewContentConceptMocks.isConceptDefinitionCard.mockReset();
+    reviewContentConceptMocks.isConceptDefinitionCard.mockReturnValue(false);
+    reviewContentDescriptorMocks.isDescriptorCard.mockReset();
+    reviewContentDescriptorMocks.isDescriptorCard.mockResolvedValue(false);
     reviewContentApiMocks.getBlockDocInfo.mockReset();
     reviewContentApiMocks.getDocContent.mockReset();
     reviewContentApiMocks.getBlockDocInfo.mockResolvedValue({ ial: {} });
@@ -622,11 +676,19 @@ describe('ReviewContent editor state', () => {
         blockId: string;
         rendererKind: string;
       } | null;
+      getNativeSplitGuardState: () => {
+        rendererKind: string;
+        blockNativeTabSplit: boolean;
+      };
     };
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
       blockId: 'block-1',
       rendererKind: 'main-protyle',
     }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'main-protyle',
+      blockNativeTabSplit: false,
+    });
 
     await wrapper.setProps({
       content: createEditableListTemplateContent(),
@@ -636,6 +698,83 @@ describe('ReviewContent editor state', () => {
       blockId: 'child-2',
       rendererKind: 'list-template',
     }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'list-template',
+      blockNativeTabSplit: true,
+    });
+
+    await wrapper.setProps({
+      content: createMultiClozeContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'block-multi-cloze',
+      rendererKind: 'multi-cloze',
+    }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'multi-cloze',
+      blockNativeTabSplit: true,
+    });
+
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(true);
+    await wrapper.setProps({
+      content: createSymbolQuickContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'block-symbol-quick',
+      rendererKind: 'quick',
+    }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'quick',
+      blockNativeTabSplit: true,
+    });
+    reviewContentQuickCardMocks.isQuickCard.mockResolvedValue(false);
+
+    reviewContentConceptMocks.isConceptCard.mockReturnValue(true);
+    await wrapper.setProps({
+      content: createConceptContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'block-concept',
+      rendererKind: 'concept',
+    }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'concept',
+      blockNativeTabSplit: true,
+    });
+    reviewContentConceptMocks.isConceptCard.mockReturnValue(false);
+
+    reviewContentConceptMocks.isConceptDefinitionCard.mockReturnValue(true);
+    await wrapper.setProps({
+      content: createConceptDefinitionContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'block-concept-definition',
+      rendererKind: 'concept-definition',
+    }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'concept-definition',
+      blockNativeTabSplit: true,
+    });
+    reviewContentConceptMocks.isConceptDefinitionCard.mockReturnValue(false);
+
+    reviewContentDescriptorMocks.isDescriptorCard.mockResolvedValue(true);
+    await wrapper.setProps({
+      content: createDescriptorContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'block-descriptor',
+      rendererKind: 'descriptor',
+    }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'descriptor',
+      blockNativeTabSplit: true,
+    });
+    reviewContentDescriptorMocks.isDescriptorCard.mockResolvedValue(false);
 
     await wrapper.setProps({
       content: {
@@ -653,6 +792,28 @@ describe('ReviewContent editor state', () => {
     });
     await settleReviewContent();
     expect(exposed.getEditableSource()).toBeNull();
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'image-occlusion',
+      blockNativeTabSplit: true,
+    });
+
+    await wrapper.setProps({
+      content: createHtmlContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'html',
+      blockNativeTabSplit: false,
+    });
+
+    await wrapper.setProps({
+      content: createEmptyContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'empty',
+      blockNativeTabSplit: false,
+    });
 
     wrapper.unmount();
   });

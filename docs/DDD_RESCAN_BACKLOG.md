@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-15 (Round 68)
+Last update: 2026-04-15 (Round 72)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-15 - special-render review native split guard
+
+- Task: Prevent special-render review cards from going back through Siyuan native tab split paths by locally disabling host-native split hotkeys and tab-menu split entries only when the active review tab is rendering a special card.
+- Touched slice: Review renderer truth/export in `src/ui/review/v2/ReviewContent.vue` plus `src/ui/review/v2/types.ts`; host-native split guard wiring in `src/ui/review/v2/ReviewView.vue` and new `src/ui/review/v2/reviewNativeSplitHostGuard.ts`; related i18n and focused review-content/review-view regression coverage.
+- Debt fixed now: Review no longer has to guess from queue type or card type whether a tab is unsafe for native split; `ReviewContent` now exposes one bounded native-split guard state derived from the actual renderer kind; and `ReviewView` now blocks host-native split only for the active special-render review tab, covering both global split hotkeys and the native tab context menu while leaving normal `main-protyle` cards and plugin-managed split entries untouched.
+- Debt deferred: The plugin still does not alter Siyuan host behavior for non-review custom tabs, and native split is only hidden/blocked at the plugin surface level rather than being replaced globally or patched inside host `initTabMenu()` / `globalCommand()`.
+- Why deferred: Rewriting host-native split semantics or monkey-patching Siyuan tab/menu internals would widen this bounded review fix into a larger host-integration project with more compatibility risk than needed now that plugin-managed split is the supported path.
+- Next safe step: If the same policy is later needed for other custom tabs, extract the current review-local host split guard into a small plugin-level custom-tab policy service keyed by custom model type and runtime capability flags.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.native-split-guard.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts`; `pnpm build`.
+
+### 2026-04-15 - plugin-managed shared review split surfaces
+
+- Task: Stop chasing Siyuan native custom-tab split quirks for special-render review cards and ship a plugin-managed “split current review” entry that opens right/bottom review surfaces on a shared live review session instead of relying on native `copyTab()`.
+- Touched slice: Shared review-session lifecycle in new `src/application/services/SharedReviewSessionRegistry.ts` plus `src/ui/review/v2/reviewSessionController.ts` / `useReviewSession.ts`; review split/open-as flow in `src/ui/review/v2/ReviewView.vue`; review tab persistence/opening in `src/application/managers/TabManager.ts` and `src/types/review-tab.ts`; composition root wiring in `src/application/ApplicationContext.ts`; related i18n, `ARCHITECTURE.md`, and focused review/tab regression coverage.
+- Debt fixed now: Review no longer needs to depend on Siyuan native `copyTab()` semantics to duplicate a live special-rendered review surface; `useReviewSession` now binds a reusable controller instead of owning a one-off local state machine; the new shared review session registry lets multiple review tabs attach to one authoritative controller with serialized actions; and review tab runtime persistence now carries `sharedReviewSessionId` alongside `reviewState`, so plugin-managed split tabs can recover into the same logical session without conflating that id with the surface/tab runtime id used by close/focus/AI companion flows.
+- Debt deferred: Native Siyuan `splitLR/splitTB` for custom review tabs is still left as-is, and dialog/new-window review surfaces still do not participate in live shared-session synchronization.
+- Why deferred: Fixing or instrumenting host-native custom-tab split remains a separate Siyuan integration problem, while extending live shared review beyond tab surfaces would widen this bounded review-tab feature into broader product decisions around dialog lifecycle, window ownership, and cross-surface synchronization semantics.
+- Next safe step: If users next want parity beyond tab mode, add one bounded follow-up that teaches dialog/new-window review surfaces to opt into `SharedReviewSessionRegistry` with explicit UX semantics, or separately instrument native Siyuan split to decide whether its legacy entries should later delegate to the plugin-managed path.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts`; `pnpm build`.
+
+### 2026-04-15 - review tab explicit-card refresh on split surface recovery
+
+- Task: Keep chasing the remaining native split issue for special-rendered review cards by hardening the review tab surface refresh path so a copied custom tab re-fetches the exact current card by card id instead of trusting the copied runtime snapshot when re-binding the surface.
+- Touched slice: Review tab surface refresh logic in `src/ui/review/v2/ReviewView.vue` and focused review-tab bridge coverage in `src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts`.
+- Debt fixed now: `ReviewView.refreshTabSurface()` now treats an explicit `preferredCardId` as authoritative and always rehydrates that card from `UnifiedDataSourceManager` before forcing the renderer remount, even when the copied surface already appears to point at the same card id. This removes one more stale-snapshot path that can specifically hurt special renderers whose runtime-ready card payload is stricter than plain Protyle cards.
+- Debt deferred: We still have not proven from live host instrumentation whether Siyuan's failing direct-right-split path is stale `custom.data`, width/layout timing, or another custom-tab lifecycle quirk, and the plugin still does not expose its own review-tab duplicate/split action that bypasses native `copyTab()`.
+- Why deferred: Adding host-level instrumentation or a plugin-owned split clone flow would broaden this bounded review-surface refresh fix into a larger Siyuan integration/product decision; the immediate goal is to eliminate another plausible stale-card restore path without widening the surface unnecessarily.
+- Next safe step: If this still fails in real Siyuan usage, add temporary runtime diagnostics around review tab `init/resize/update` plus current card payload shape, then decide whether to ship a plugin-managed “split current review” action that bypasses native custom-tab cloning for review surfaces.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts`; `pnpm build`.
+
+### 2026-04-15 - review tab sibling snapshot recovery for native split stale data
+
+- Task: Fix the remaining native review TAB right-split failure path where special-rendered same-block multi-card sessions could still come up empty because Siyuan appears able to initialize the new custom tab from stale tab data instead of the live runtime snapshot.
+- Touched slice: Review tab restore heuristics in `src/application/managers/TabManager.ts` and focused split-runtime recovery coverage in `src/application/managers/__tests__/TabManager.review-transfer.spec.ts`.
+- Debt fixed now: `TabManager` now keeps a bounded in-memory surface snapshot per logical review surface key (`providerId + queueType + headerVariant + title`) from the latest active review runtime; when a newly initialized review tab arrives with missing/insufficient `reviewState`, it can recover the current card snapshot from the latest sibling runtime instead of trusting stale native split data. This gives direct right split a second recovery path beyond live `runtime.data` persistence, especially for special renderers that require the exact current card identity rather than just a block id.
+- Debt deferred: The recovery heuristic still matches by logical surface key instead of a stronger native split session token, and we still do not have direct visibility into Siyuan's internal custom-tab cloning implementation to prove exactly which stale field path it uses.
+- Why deferred: Introducing plugin-owned split session tokens or reverse-engineering Siyuan's internal split serializer would broaden this bounded bugfix into a larger compatibility/integration project; the active goal is to make native split robust enough without forking the host behavior.
+- Next safe step: If one more edge case remains after this, add explicit diagnostic logging around `beforeDestroy/init` for review tabs and consider persisting a short-lived split-session token in plugin-managed state so a new clone can deterministically bind back to its source runtime.
+- Validation: `pnpm vitest run src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/application/managers/__tests__/TabManager.openReviewInNewWindow.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts`; `pnpm build`.
 
 ### 2026-04-15 - review tab split lifecycle refresh for multi-card special renderers
 

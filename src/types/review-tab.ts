@@ -16,6 +16,7 @@ export interface ReviewQueueSessionSnapshot {
 export interface ReviewTabRuntimeState {
   version: 1;
   showAnswer: boolean;
+  sharedReviewSessionId?: string;
   currentCardId?: string;
   currentBlockId?: string;
   session?: InitialReviewSessionState;

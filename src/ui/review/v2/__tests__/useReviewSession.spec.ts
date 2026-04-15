@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { createEmptyReviewUIState, type ReviewSessionHook, type ReviewUIState } from '../types';
-import { useReviewSession } from '../useReviewSession';
+import { createReviewSessionController, useReviewSession } from '../useReviewSession';
 
 function createItem(id: string) {
   return {
@@ -113,6 +113,59 @@ function mountHook(options: {
   };
 }
 
+function mountSharedHooks(options: {
+  queue?: ReturnType<typeof createQueue>;
+  adapter?: ReturnType<typeof createAdapter>;
+} = {}) {
+  const queue = options.queue ?? createQueue();
+  const adapter = options.adapter ?? createAdapter({
+    toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+  });
+  const controller = createReviewSessionController(queue as never, adapter as never);
+  let hookA: ReviewSessionHook | null = null;
+  let hookB: ReviewSessionHook | null = null;
+
+  const HarnessA = defineComponent({
+    setup() {
+      hookA = useReviewSession(queue as never, adapter as never, {
+        controller: controller as never,
+        surfaceId: 'surface-a',
+      });
+      return () => h('div');
+    },
+  });
+
+  const HarnessB = defineComponent({
+    setup() {
+      hookB = useReviewSession(queue as never, adapter as never, {
+        controller: controller as never,
+        surfaceId: 'surface-b',
+      });
+      return () => h('div');
+    },
+  });
+
+  return {
+    queue,
+    adapter,
+    controller,
+    wrapperA: mount(HarnessA),
+    wrapperB: mount(HarnessB),
+    getHookA: () => {
+      if (!hookA) {
+        throw new Error('Hook A not initialized');
+      }
+      return hookA;
+    },
+    getHookB: () => {
+      if (!hookB) {
+        throw new Error('Hook B not initialized');
+      }
+      return hookB;
+    },
+  };
+}
+
 function createReviewState(itemId: string): ReviewUIState {
   return {
     ...createEmptyReviewUIState(),
@@ -214,6 +267,75 @@ describe('useReviewSession', () => {
     expect(hook.context.value.showAnswer).toBe(true);
 
     wrapper.unmount();
+  });
+
+  it('shares one controller across two surfaces without double-consuming queue.next', async () => {
+    const { queue, wrapperA, wrapperB, getHookA, getHookB } = mountSharedHooks();
+    await flushAsync();
+
+    const hookA = getHookA();
+    const hookB = getHookB();
+
+    expect(queue.next).toHaveBeenCalledTimes(1);
+    expect(hookA.state.value.content.id).toBe('card-1');
+    expect(hookB.state.value.content.id).toBe('card-1');
+
+    wrapperA.unmount();
+    wrapperB.unmount();
+  });
+
+  it('syncs graded progress across shared review surfaces', async () => {
+    const { wrapperA, wrapperB, getHookA, getHookB } = mountSharedHooks();
+    await flushAsync();
+
+    const hookA = getHookA();
+    const hookB = getHookB();
+
+    await hookA.grade(4);
+
+    expect(hookA.context.value.session?.answeredCount).toBe(1);
+    expect(hookB.context.value.session?.answeredCount).toBe(1);
+    expect(hookA.state.value.content.id).toBe('card-2');
+    expect(hookB.state.value.content.id).toBe('card-2');
+
+    wrapperA.unmount();
+    wrapperB.unmount();
+  });
+
+  it('keeps a shared controller alive until the last surface detaches', async () => {
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+    const { wrapperA, wrapperB } = mountSharedHooks({ adapter });
+    await flushAsync();
+
+    wrapperA.unmount();
+    expect(adapter.cleanup).not.toHaveBeenCalled();
+
+    wrapperB.unmount();
+    expect(adapter.cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes concurrent grade actions from shared review surfaces', async () => {
+    const { queue, wrapperA, wrapperB, getHookA, getHookB } = mountSharedHooks();
+    await flushAsync();
+
+    const hookA = getHookA();
+    const hookB = getHookB();
+
+    await Promise.all([
+      hookA.grade(4),
+      hookB.grade(2),
+    ]);
+
+    expect(queue.onFeedback).toHaveBeenCalledTimes(2);
+    expect(queue.onFeedback.mock.calls[0]?.[0]?.id).toBe('card-1');
+    expect(queue.onFeedback.mock.calls[1]?.[0]?.id).toBe('card-2');
+    expect(hookA.state.value.content.id).toBe('card-3');
+    expect(hookB.state.value.content.id).toBe('card-3');
+
+    wrapperA.unmount();
+    wrapperB.unmount();
   });
 
   it('does not increment answered count on skip', async () => {
