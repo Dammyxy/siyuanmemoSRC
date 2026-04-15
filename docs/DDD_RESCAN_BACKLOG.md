@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-15 (Round 72)
+Last update: 2026-04-15 (Round 73)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-15 - autocard bidirectional duplicate trace logging
+
+- Task: Add replayable diagnostic logging for `<>` bidirectional auto-card duplication so we can tell whether one block was fully processed twice or a single run duplicated cards internally.
+- Touched slice: Siyuan integration -> Xiuyuan creation active path in `src/application/handlers/AutoCardHandler.ts`, `src/application/usecases/xiuyuan/CreateXiuyuanFromBlocksUseCase.ts`, and `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`.
+- Debt fixed now: The active `TransactionWebSocketService -> AutoCardHandler -> CreateXiuyuanFromBlocksUseCase -> XiuyuanRepository` path now emits one bounded `AutoCardTrace` trail across transaction batches, block-switch-triggered runs, planner resolution, bidirectional template selection, Xiuyuan identity/dedup checks, and attrs write windows, which removes the previous blind spots when diagnosing duplicate `<>` creation on another user's machine.
+- Debt deferred: The actual idempotency gap is still present: ordinary quick/bidirectional creation is not made durable or atomic yet, so repeated triggers can still race past attrs/local-card checks before the binding attrs are written back.
+- Why deferred: The user explicitly asked for bounded diagnosis first, and changing idempotency/locking now would widen this task from evidence capture into behavior repair with higher regression risk across quick-card creation.
+- Next safe step: Reproduce once with the trace-enabled build and confirm whether the same `blockId` shows two different `runId`s entering creation with empty attrs/local cards; then add one bounded same-block same-rule idempotency guard at the creation boundary that survives cross-plugin transaction overlap.
+- Validation: `pnpm build`.
 
 ### 2026-04-15 - special-render review native split guard
 

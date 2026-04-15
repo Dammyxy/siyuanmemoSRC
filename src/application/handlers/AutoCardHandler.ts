@@ -150,6 +150,13 @@ type ParentIdRow = {
     parent_id?: string;
 };
 
+type AutoCardTraceContext = {
+    runId: string;
+    trigger: string;
+    txBatchId?: string;
+    nextBlockId?: string;
+};
+
 /**
  * Auto card handler for quick symbol based card creation.
  *
@@ -173,6 +180,8 @@ export class AutoCardHandler implements ITransactionHandler {
     
 
     private currentEditingBlock: string | null = null;
+    private traceSequence = 0;
+    private readonly activeRunContexts = new Map<string, AutoCardTraceContext>();
     
 
     // Supported quick-card symbol patterns (half-width and full-width variants).
@@ -374,6 +383,61 @@ export class AutoCardHandler implements ITransactionHandler {
     private async sqlRows<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
         return this.siyuanApi.sql<TRow>(stmt);
     }
+
+    private nextTraceId(prefix: string): string {
+        this.traceSequence += 1;
+        return `${prefix}-${Date.now()}-${this.traceSequence}`;
+    }
+
+    private traceAutoCard(event: string, payload: Record<string, unknown>): void {
+        logger.info('[AutoCardTrace]', { event, ...payload });
+    }
+
+    private getActiveRunContext(blockId: string): AutoCardTraceContext | undefined {
+        return this.activeRunContexts.get(blockId);
+    }
+
+    private summarizeAttrs(attrs: Record<string, string> | null | undefined): Record<string, unknown> {
+        const normalized = attrs ?? {};
+        const xiuyuanId = String(normalized['custom-xiuyuan-id'] || '').trim();
+        const legacyXiuyuanId = String(normalized['custom-fsrs-xiuyuan-id'] || '').trim();
+        const cardType = String(normalized['custom-fsrs-card-type'] || '').trim();
+        return {
+            hasXiuyuanBinding: xiuyuanId.length > 0 || legacyXiuyuanId.length > 0,
+            xiuyuanId: xiuyuanId || null,
+            legacyXiuyuanId: legacyXiuyuanId || null,
+            cardType: cardType || null,
+            attrKeys: Object.keys(normalized).sort(),
+        };
+    }
+
+    private previewContent(content: string, maxLength = 120): string {
+        const normalized = String(content || '')
+            .replace(/\r/g, '')
+            .split('\n')
+            .map((line) => line.trim())
+            .find((line) => line.length > 0) || '';
+        if (normalized.length <= maxLength) {
+            return normalized;
+        }
+        return `${normalized.slice(0, maxLength)}...`;
+    }
+
+    private summarizeDecision(decision: CreationDecision | null | undefined): Record<string, unknown> | null {
+        if (!decision) {
+            return null;
+        }
+        return {
+            id: decision.id,
+            family: decision.family,
+            executorKind: decision.executorKind,
+            templateId: decision.templateId,
+            direction: decision.direction ?? null,
+            cardType: decision.cardType ?? null,
+            mode: decision.mode,
+            isBidirectionalHint: decision.hints?.isBidirectional ?? false,
+        };
+    }
     
     handle(transactions: Transaction[]): void {
 
@@ -385,29 +449,57 @@ export class AutoCardHandler implements ITransactionHandler {
         }
         
         logger.debug('[SiYuanMemo][AutoCard] Quick card is enabled, processing transactions');
+        const txBatchId = this.nextTraceId('txbatch');
+        const currentEditingBlockBefore = this.currentEditingBlock;
+        const relevantOperations: Array<Record<string, unknown>> = [];
         
-        for (const tx of transactions) {
+        for (const [txIndex, tx] of transactions.entries()) {
             if (!tx.doOperations) continue;
             
-            for (const op of tx.doOperations) {
+            for (const [opIndex, op] of tx.doOperations.entries()) {
                 const blockId = op.id;
                 
 
                 if (op.action === 'update' || op.action === 'insert') {
+                    const previousEditingBlock = this.currentEditingBlock;
+                    const triggeredPreviousBlock = previousEditingBlock && previousEditingBlock !== blockId
+                        ? previousEditingBlock
+                        : null;
 
-                    if (this.currentEditingBlock && this.currentEditingBlock !== blockId) {
-                        logger.debug('[SiYuanMemo][AutoCard] Block unfocused:', this.currentEditingBlock);
+                    if (triggeredPreviousBlock) {
+                        logger.debug('[SiYuanMemo][AutoCard] Block unfocused:', triggeredPreviousBlock);
 
-                        this.processBlockImmediately(this.currentEditingBlock);
+                        void this.processBlockImmediately(triggeredPreviousBlock, {
+                            trigger: 'block-switch',
+                            txBatchId,
+                            nextBlockId: blockId,
+                        });
                     }
                     
 
                     this.currentEditingBlock = blockId;
+                    relevantOperations.push({
+                        txIndex,
+                        opIndex,
+                        action: op.action,
+                        opId: op.id,
+                        blockId,
+                        previousEditingBlock,
+                        triggeredPreviousBlock,
+                        currentEditingBlockAfter: this.currentEditingBlock,
+                    });
                     
                     logger.debug('[SiYuanMemo][AutoCard] Current editing block:', blockId);
                 }
             }
         }
+
+        this.traceAutoCard('handle.transactions', {
+            txBatchId,
+            currentEditingBlockBefore,
+            currentEditingBlockAfter: this.currentEditingBlock,
+            relevantOperations,
+        });
     }
 
     public async scanDocumentByRootId(rootId: string): Promise<AutoCardDocumentScanResult> {
@@ -477,6 +569,7 @@ export class AutoCardHandler implements ITransactionHandler {
     // Check a block for quick symbols and create all matched cards in one pass.
     private async checkQuickSymbols(blockId: string, options?: { force?: boolean }): Promise<void> {
         try {
+            const traceContext = this.getActiveRunContext(blockId);
 
             const quickCardSettings = this.settingsService.getSettings().quickCard;
             if (!quickCardSettings) {
@@ -522,6 +615,7 @@ export class AutoCardHandler implements ITransactionHandler {
             
 
             const attrs = await this.siyuanApi.getBlockAttrs(blockId);
+            const existingCards = this.getLocalCardsByBlockId(blockId);
             
             const normalizedSettings: QuickCardSettings = {
                 ...quickCardSettings,
@@ -557,6 +651,24 @@ export class AutoCardHandler implements ITransactionHandler {
                 this.isDecisionEnabledBySettings(decision, normalizedSettings)
             );
 
+            this.traceAutoCard('checkQuickSymbols.plan', {
+                runId: traceContext?.runId ?? null,
+                txBatchId: traceContext?.txBatchId ?? null,
+                blockId,
+                blockType,
+                rootId,
+                contentPreview: this.previewContent(kramdown),
+                attrs: this.summarizeAttrs(attrs),
+                localCardCount: existingCards.length,
+                matchedRuleIds: plan.diagnostics.matchedRuleIds,
+                enabledDecisions: enabledDecisions.map((decision) => this.summarizeDecision(decision)),
+                hasBidirectionalBasicDecision: enabledDecisions.some((decision) => (
+                    decision.id === 'BasicDirectionRule' && decision.direction === 'both'
+                )),
+                trigger: traceContext?.trigger ?? null,
+                nextBlockId: traceContext?.nextBlockId ?? null,
+            });
+
             if (enabledDecisions.length === 0) {
                 logger.debug('[SiYuanMemo][AutoCard] No enabled planner decision detected:', {
                     blockId,
@@ -564,8 +676,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 });
                 return;
             }
-
-            const existingCards = this.getLocalCardsByBlockId(blockId);
             const topicContext = resolveProgressiveTopicContext({
                 blockId,
                 rootId,
@@ -633,6 +743,15 @@ export class AutoCardHandler implements ITransactionHandler {
                     defaultStrategy: 'semantic-first',
                 }
             );
+
+            this.traceAutoCard('checkQuickSymbols.resolution', {
+                runId: traceContext?.runId ?? null,
+                txBatchId: traceContext?.txBatchId ?? null,
+                blockId,
+                strategy: resolved.strategyUsed,
+                selectedDecision: this.summarizeDecision(resolved.decision),
+                enabledDecisionIds: enabledDecisions.map((decision) => decision.id),
+            });
 
             if (!resolved.decision) {
                 logger.info('[SiYuanMemo][AutoCard] Planner decision skipped by conflict strategy', {
@@ -890,23 +1009,73 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     // Trigger immediate processing when focus moves away from the previous block.
-    private async processBlockImmediately(blockId: string): Promise<void> {
+    private async processBlockImmediately(
+        blockId: string,
+        cause?: {
+            trigger: string;
+            txBatchId?: string;
+            nextBlockId?: string;
+        }
+    ): Promise<void> {
         logger.debug('[SiYuanMemo][AutoCard] Processing block immediately:', blockId);
+        const runId = this.nextTraceId('run');
+        const startedAt = Date.now();
+        const alreadyProcessing = this.processing.has(blockId);
+        const traceContext: AutoCardTraceContext = {
+            runId,
+            trigger: cause?.trigger ?? 'direct-call',
+            ...(cause?.txBatchId ? { txBatchId: cause.txBatchId } : {}),
+            ...(cause?.nextBlockId ? { nextBlockId: cause.nextBlockId } : {}),
+        };
+        this.traceAutoCard('processBlockImmediately.begin', {
+            runId,
+            blockId,
+            trigger: traceContext.trigger,
+            txBatchId: traceContext.txBatchId ?? null,
+            nextBlockId: traceContext.nextBlockId ?? null,
+            alreadyProcessing,
+            processingSizeBefore: this.processing.size,
+        });
 
-        if (this.processing.has(blockId)) {
+        if (alreadyProcessing) {
             logger.debug('[SiYuanMemo][AutoCard] Block already processing:', blockId);
+            this.traceAutoCard('processBlockImmediately.end', {
+                runId,
+                blockId,
+                trigger: traceContext.trigger,
+                txBatchId: traceContext.txBatchId ?? null,
+                nextBlockId: traceContext.nextBlockId ?? null,
+                durationMs: Date.now() - startedAt,
+                error: null,
+                skipped: 'already-processing',
+                processingSizeAfter: this.processing.size,
+            });
             return;
         }
         
         this.processing.add(blockId);
+        this.activeRunContexts.set(blockId, traceContext);
+        let errorMessage: string | null = null;
         
         try {
 
             await this.checkQuickSymbols(blockId);
         } catch (error) {
+            errorMessage = this.getErrorMessage(error);
             logger.error('[SiYuanMemo][AutoCard] Failed to process block immediately:', blockId, error);
         } finally {
             this.processing.delete(blockId);
+            this.activeRunContexts.delete(blockId);
+            this.traceAutoCard('processBlockImmediately.end', {
+                runId,
+                blockId,
+                trigger: traceContext.trigger,
+                txBatchId: traceContext.txBatchId ?? null,
+                nextBlockId: traceContext.nextBlockId ?? null,
+                durationMs: Date.now() - startedAt,
+                error: errorMessage,
+                processingSizeAfter: this.processing.size,
+            });
         }
     }
     
@@ -1030,6 +1199,7 @@ export class AutoCardHandler implements ITransactionHandler {
     // Create bidirectional concept card with term/definition.
     private async createBidirectionalCard(blockId: string, term: string, definition: string): Promise<void> {
         try {
+            const traceContext = this.getActiveRunContext(blockId);
             logger.debug('[SiYuanMemo][AutoCard] Creating bidirectional card using Xiuyuan:', blockId);
             
 
@@ -1038,6 +1208,16 @@ export class AutoCardHandler implements ITransactionHandler {
 
             const { ClozeDetector } = await import('@/utils/cloze-detector');
             const backClozes = ClozeDetector.extractClozes(definition);
+            const templateId = backClozes.length > 0 ? 'builtin-quick-card' : 'builtin-bidirectional-single';
+            this.traceAutoCard('createBidirectionalCard.begin', {
+                runId: traceContext?.runId ?? null,
+                txBatchId: traceContext?.txBatchId ?? null,
+                blockId,
+                templateId,
+                termPreview: this.previewContent(term),
+                definitionPreview: this.previewContent(definition),
+                backClozeCount: backClozes.length,
+            });
             
                         
 
@@ -1064,6 +1244,16 @@ export class AutoCardHandler implements ITransactionHandler {
                 }
                 
                 const totalCards = backClozes.length + 1;
+                this.traceAutoCard('createBidirectionalCard.success', {
+                    runId: traceContext?.runId ?? null,
+                    txBatchId: traceContext?.txBatchId ?? null,
+                    blockId,
+                    templateId,
+                    xiuyuanId: result.value.xiuyuan.id,
+                    cardCount: result.value.cards.length,
+                    backClozeCount: backClozes.length,
+                    reportedTotalCards: totalCards,
+                });
                                 await this.siyuanApi.pushMsg(`已创建双向卡片 (<>)，共 ${totalCards} 张（背面挖空）`);
                 return;
             }
@@ -1087,10 +1277,27 @@ export class AutoCardHandler implements ITransactionHandler {
                 cardCount: result.value.cards.length,
                 blockId
             });
+            this.traceAutoCard('createBidirectionalCard.success', {
+                runId: traceContext?.runId ?? null,
+                txBatchId: traceContext?.txBatchId ?? null,
+                blockId,
+                templateId,
+                xiuyuanId: result.value.xiuyuan.id,
+                cardCount: result.value.cards.length,
+                backClozeCount: 0,
+                reportedTotalCards: result.value.cards.length,
+            });
             
 
                         await this.siyuanApi.pushMsg(`已创建双向卡片 (<>)，共 ${result.value.cards.length} 张`);
         } catch (error) {
+            const traceContext = this.getActiveRunContext(blockId);
+            this.traceAutoCard('createBidirectionalCard.error', {
+                runId: traceContext?.runId ?? null,
+                txBatchId: traceContext?.txBatchId ?? null,
+                blockId,
+                error: this.getErrorMessage(error),
+            });
             logger.error('[SiYuanMemo][AutoCard] Failed to create bidirectional card:', blockId, error);
                         await this.siyuanApi.pushErrMsg(`创建双向卡片失败：${this.getErrorMessage(error)}`);
         }

@@ -41,7 +41,7 @@ import { IXiuyuan } from '../types';
 import { CardState, CardType } from '../../../types/card';
 import type { FSRSCard } from '../../../types/card';
 import { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
-import { setBlockAttrs } from '../../siyuan/api';
+import { getBlockAttrs, setBlockAttrs } from '../../siyuan/api';
 import { ATTR_CARD_TYPE } from '../../siyuan/block';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
 import { createLogger } from '@/utils/logger';
@@ -219,6 +219,40 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     return Object.keys(attrs).length > 0 ? attrs : null;
   }
 
+  private traceAutoCard(event: string, payload: Record<string, unknown>): void {
+    logger.info('[AutoCardTrace]', { event, ...payload });
+  }
+
+  private summarizeTraceAttrs(attrs: Record<string, string> | null | undefined): Record<string, unknown> {
+    const normalized = attrs ?? {};
+    const xiuyuanId = String(normalized['custom-xiuyuan-id'] || '').trim();
+    const legacyXiuyuanId = String(normalized['custom-fsrs-xiuyuan-id'] || '').trim();
+    const cardType = String(normalized[ATTR_CARD_TYPE] || '').trim();
+    return {
+      hasXiuyuanBinding: xiuyuanId.length > 0 || legacyXiuyuanId.length > 0,
+      xiuyuanId: xiuyuanId || null,
+      legacyXiuyuanId: legacyXiuyuanId || null,
+      cardType: cardType || null,
+      attrKeys: Object.keys(normalized).sort(),
+    };
+  }
+
+  private sampleCardIds(cardIds: string[]): string[] {
+    return cardIds.slice(0, CARD_ID_DEBUG_SAMPLE_LIMIT);
+  }
+
+  private async readTraceAttrs(blockId: string): Promise<Record<string, unknown> | null> {
+    try {
+      return this.summarizeTraceAttrs(await getBlockAttrs(blockId));
+    } catch (error) {
+      this.traceAutoCard('XiuyuanRepository.save.attrsReadFailed', {
+        blockId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
   /**
    * 淇濆瓨 Xiuyuan 鑱氬悎鏍?
    * 
@@ -229,6 +263,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
       const persistedCardType = this.resolvePersistedCardType(xiuyuan);
+      const blockIDs = xiuyuan.getBlockIDs();
+      const representativeBlockId = xiuyuan.getRepresentativeBlockId();
+      const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
       
       // 1. 杞崲涓烘寔涔呭寲妯″瀷
       const persistenceModel = this.toPersistenceWithId(xiuyuan);
@@ -247,12 +284,27 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       // 3. 鍚屾鍗＄墖鐘舵€侊細淇濆瓨鐜版湁鍗＄墖锛屽垹闄ゅ凡绉婚櫎鐨勫崱鐗?
       const cards = xiuyuan.getCards();
       const currentCardIds = new Set(cards.map(card => card.getId().getValue()));
+      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, persistedCardType);
       
       // 3.1 鏌ユ壘闇€瑕佸垹闄ょ殑鍗＄墖锛堝瓨鍦ㄤ簬 storage 浣嗕笉鍦?xiuyuan 涓級
       const existingXiuyuanCards = this.storage.getCardsByXiuyuanId(xiuyuanId);
       const cardsToDelete = existingXiuyuanCards.filter(
         storageCard => !currentCardIds.has(storageCard.id)
       );
+      this.traceAutoCard('XiuyuanRepository.save.begin', {
+        xiuyuanId,
+        representativeBlockId,
+        isDescriptorTemplate,
+        persistedCardType: persistedCardType ?? null,
+        existedBefore: Boolean(existing),
+        existingXiuyuanCardsCount: existingXiuyuanCards.length,
+        currentCardCount: cards.length,
+        currentCardIds: this.sampleCardIds(Array.from(currentCardIds)),
+        currentCardIdsTruncated: currentCardIds.size > CARD_ID_DEBUG_SAMPLE_LIMIT,
+        cardsToDeleteCount: cardsToDelete.length,
+        cardsToDeleteSample: this.sampleCardIds(cardsToDelete.map((card) => card.id)),
+        bindingAttrs,
+      });
       
       // 3.2 鍒犻櫎宸茬Щ闄ょ殑鍗＄墖
       for (const cardToDelete of cardsToDelete) {
@@ -302,27 +354,49 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
 
       // 5. 鍐欏叆鍧楀睘鎬?
-      const blockIDs = xiuyuan.getBlockIDs();
-      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, persistedCardType);
-      
-      // 鉁?浣跨敤 Xiuyuan 瀹炰綋鏂规硶鑾峰彇浠ｈ〃鎬у潡 ID锛圖omain 灞傞€昏緫锛?
-      const representativeBlockId = xiuyuan.getRepresentativeBlockId();
-      const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
-      
       if (bindingAttrs && isDescriptorTemplate && blockIDs.length >= 2) {
         // 姒傚康-鎻忚堪绗﹀崱锛氱涓€涓潡鏄蹇靛崱锛岀浜屼釜鍧楁槸鎻忚堪绗﹀崱
         // 鈿狅笍 娉ㄦ剰锛氭蹇靛崱鍙兘宸茬粡鏈夎嚜宸辩殑 Xiuyuan锛堜綔涓虹嫭绔嬬殑姒傚康鍗★級
         // 鍥犳锛屾垜浠彧璁剧疆鎻忚堪绗﹀潡鐨勫睘鎬э紝涓嶄慨鏀规蹇靛崱鐨勫睘鎬?
         const descriptorBlockId = blockIDs[1].getValue();
+        const attrsBeforeWrite = await this.readTraceAttrs(descriptorBlockId);
+        this.traceAutoCard('XiuyuanRepository.save.attrWrite.begin', {
+          xiuyuanId,
+          targetKind: 'descriptor',
+          blockId: descriptorBlockId,
+          bindingAttrs,
+          attrsBeforeWrite,
+        });
         
         try {
           // 鍙缃弿杩扮鍗″睘鎬?
           await setBlockAttrs(descriptorBlockId, bindingAttrs);
+          const attrsAfterWrite = await this.readTraceAttrs(descriptorBlockId);
+          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
+            xiuyuanId,
+            targetKind: 'descriptor',
+            blockId: descriptorBlockId,
+            bindingAttrs,
+            attrsBeforeWrite,
+            attrsAfterWrite,
+            ok: true,
+          });
           
           logger.debug(`Set descriptor attributes: descriptor=${descriptorBlockId}`);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           const lowerErrorMsg = errorMsg.toLowerCase();
+          const attrsAfterWrite = await this.readTraceAttrs(descriptorBlockId);
+          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
+            xiuyuanId,
+            targetKind: 'descriptor',
+            blockId: descriptorBlockId,
+            bindingAttrs,
+            attrsBeforeWrite,
+            attrsAfterWrite,
+            ok: false,
+            error: errorMsg,
+          });
           if (!lowerErrorMsg.includes('not found') && !lowerErrorMsg.includes('tree not found')) {
             logger.warn('Failed to write descriptor attributes:', error);
           }
@@ -330,13 +404,42 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       } else if (bindingAttrs && blockIDs.length > 0) {
         // 鍏朵粬妯℃澘锛氬彧璁剧疆浠ｈ〃鍧楋紙绗竴涓潡锛?
         const representativeBlockId = blockIDs[0].getValue();
+        const attrsBeforeWrite = await this.readTraceAttrs(representativeBlockId);
+        this.traceAutoCard('XiuyuanRepository.save.attrWrite.begin', {
+          xiuyuanId,
+          targetKind: 'representative',
+          blockId: representativeBlockId,
+          bindingAttrs,
+          attrsBeforeWrite,
+        });
         try {
           await setBlockAttrs(representativeBlockId, bindingAttrs);
+          const attrsAfterWrite = await this.readTraceAttrs(representativeBlockId);
+          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
+            xiuyuanId,
+            targetKind: 'representative',
+            blockId: representativeBlockId,
+            bindingAttrs,
+            attrsBeforeWrite,
+            attrsAfterWrite,
+            ok: true,
+          });
         } catch (error) {
           // 鍧楀睘鎬у啓鍏ュけ璐ヤ笉搴旇闃绘淇濆瓨
           // 甯歌鍘熷洜锛氬潡宸茶鍒犻櫎銆佺Щ鍔ㄦ垨涓嶅瓨鍦?
           const errorMsg = error instanceof Error ? error.message : String(error);
           const lowerErrorMsg = errorMsg.toLowerCase();
+          const attrsAfterWrite = await this.readTraceAttrs(representativeBlockId);
+          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
+            xiuyuanId,
+            targetKind: 'representative',
+            blockId: representativeBlockId,
+            bindingAttrs,
+            attrsBeforeWrite,
+            attrsAfterWrite,
+            ok: false,
+            error: errorMsg,
+          });
           if (lowerErrorMsg.includes('not found') || lowerErrorMsg.includes('tree not found')) {
             // 鍧椾笉瀛樺湪锛岃繖鏄甯告儏鍐碉紙鐢ㄦ埛鍙兘鍒犻櫎浜嗗潡锛?
             logger.debug(`Block ${representativeBlockId} not found, skipping attribute write`);

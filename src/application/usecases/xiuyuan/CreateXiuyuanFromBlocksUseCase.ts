@@ -72,6 +72,24 @@ function isCardTemplate(value: unknown): value is ICardTemplate {
     && template.cardRules.every((rule) => isTemplateRule(rule));
 }
 
+function traceAutoCardCreation(event: string, payload: Record<string, unknown>): void {
+  logger.info('[AutoCardTrace]', { event, ...payload });
+}
+
+function summarizeTraceAttrs(attrs: Record<string, string> | null | undefined): Record<string, unknown> {
+  const normalized = attrs ?? {};
+  const xiuyuanId = String(normalized['custom-xiuyuan-id'] || '').trim();
+  const legacyXiuyuanId = String(normalized['custom-fsrs-xiuyuan-id'] || '').trim();
+  const cardType = String(normalized['custom-fsrs-card-type'] || '').trim();
+  return {
+    hasXiuyuanBinding: xiuyuanId.length > 0 || legacyXiuyuanId.length > 0,
+    xiuyuanId: xiuyuanId || null,
+    legacyXiuyuanId: legacyXiuyuanId || null,
+    cardType: cardType || null,
+    attrKeys: Object.keys(normalized).sort(),
+  };
+}
+
 /**
  * 浠庡潡鍒涘缓 Xiuyuan 鐢ㄤ緥
  * 
@@ -125,9 +143,18 @@ export class CreateXiuyuanFromBlocksUseCase {
       logger.debug(`Checking block for existing Xiuyuan: ${blockToCheck}`);
       
       const attrs = await this.siyuanApi.getBlockAttrs(blockToCheck);
+      const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'] || '';
+      traceAutoCardCreation('CreateXiuyuanFromBlocksUseCase.dedupCheck', {
+        templateId: command.templateId,
+        blockIds: command.blockIds,
+        blockToCheck,
+        isBidirectional: Boolean(command.isBidirectional),
+        source: command.source ?? null,
+        attrs: summarizeTraceAttrs(attrs),
+        existingXiuyuanId: existingXiuyuanId || null,
+      });
       
-      if (attrs && (attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'])) {
-        const existingXiuyuanId = attrs['custom-xiuyuan-id'] || attrs['custom-fsrs-xiuyuan-id'];
+      if (existingXiuyuanId) {
         logger.info(`Block ${blockToCheck} already has Xiuyuan: ${existingXiuyuanId}`);
         return err(new Error('\u6b64\u5757\u5df2\u7ecf\u521b\u5efa\u8fc7\u95ea\u5361\uff0c\u8bf7\u5148\u53d6\u6d88\u73b0\u6709\u95ea\u5361\u518d\u91cd\u65b0\u521b\u5efa'));
       }
@@ -181,6 +208,15 @@ export class CreateXiuyuanFromBlocksUseCase {
       if (isErr(xiuyuanIdResult)) {
         return err(this.toError(xiuyuanIdResult.error, 'Invalid Xiuyuan ID'));
       }
+      traceAutoCardCreation('CreateXiuyuanFromBlocksUseCase.identity', {
+        templateId: command.templateId,
+        blockToCheck,
+        representativeBlockId,
+        computedXiuyuanId: xiuyuanIdResult.value.getValue(),
+        blockIds: command.blockIds,
+        isBidirectional: Boolean(command.isBidirectional),
+        source: command.source ?? null,
+      });
 
       const blockIds: BlockId[] = [];
       for (const blockId of command.blockIds) {
