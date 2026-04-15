@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-16 (Round 75)
+Last update: 2026-04-16 (Round 77)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-16 - AI explain first-turn prompt and header cleanup
+
+- Task: Remove the inline session-title box from the AI Explain header, shorten the empty-state wording, make `解释此内容` fill the composer instead of auto-running, and let the first turn send arbitrary text through a dedicated structured explain path.
+- Touched slice: AI workbench active path in `src/ui/ai/AiWorkbenchPane.vue`, `src/application/services/AIWorkbenchService.ts`, `src/types/ai.ts`, related i18n in `src/i18n/{zh_CN,en_US}.json`, and focused regression coverage in `src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts` plus `src/application/services/__tests__/AIWorkbenchService.review-session.test.ts`.
+- Debt fixed now: Removed the last redundant inline rename control from the compact AI header; fixed the broken first-turn composer gate that prevented custom text from being sent before an explain result existed; split initial explain prompts from follow-up messages with an explicit user-message purpose so transcript derivation stays clean; and stopped the empty-state CTA from silently auto-running when the user only wanted seed text in the composer.
+- Debt deferred: The sidecar still relies on the local empty-state card and local textarea/composer state rather than a smaller reusable explain-composer primitive, and first-turn editing is still intentionally limited to new submission rather than “edit and resend” parity with follow-up user messages.
+- Why deferred: Extracting a shared composer primitive or designing a separate initial-message edit loop would widen this bounded explain-lane fix beyond the current usability repair.
+- Next safe step: If we continue polishing the AI sidecar, collapse the empty-state shell further and decide whether initial explain prompts should later gain a dedicated resend affordance that stays distinct from follow-up editing.
+- Validation: `pnpm exec vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts --reporter=basic`; `pnpm build`.
+
+### 2026-04-16 - AI explain sidecar compact header and inline composer chrome
+
+- Task: Compress the explain-only AI sidecar again by replacing the old brand block with a one-line `AI Explain` heading, moving composer tools into the input shell, turning `Use Context` into a `+` popover, and docking send/expand actions inside the composer.
+- Touched slice: AI sidecar UI in `src/ui/ai/AiWorkbenchPane.vue`, related i18n copy in `src/i18n/{zh_CN,en_US}.json`, and focused compact-surface regression coverage in `src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`.
+- Debt fixed now: Removed the last vertically cramped brand block from the sidecar header; tightened topbar spacing/icon sizing without changing the action set; made the composer look like one compact input surface instead of a toolbar stacked above a textarea; and added explicit pointerdown/Escape close behavior for the context-provider popover so it no longer gets stuck open.
+- Debt deferred: The sidecar still uses a local document-level pointerdown handler instead of a shared popover primitive, and the empty-state card still keeps its larger central illustration rather than adopting the fully minimal RemNote-like shell everywhere.
+- Why deferred: Extracting a shared lightweight popover utility or redesigning the entire empty-state language would widen this bounded surface refinement beyond the current AI pane pass.
+- Next safe step: If we keep polishing this lane, extract one small reusable sidecar/popover interaction helper and then decide whether the empty state should also collapse into a denser, less card-like presentation.
+- Validation: `pnpm exec vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts --reporter=basic`; `pnpm build`.
 
 ### 2026-04-16 - AI explain-only sidecar and make-card path removal
 

@@ -31,6 +31,7 @@ import type {
   AIWorkbenchState,
   AIWorkbenchSurface,
   AIWorkbenchThreadRecord,
+  AIWorkbenchUserMessagePurpose,
   AIWorkbenchUserMessage,
 } from '@/types/ai';
 import type { NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
@@ -117,6 +118,10 @@ function parseBlockReferenceIds(value: string): string[] {
 
 function createEntryId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function resolveUserMessagePurpose(purpose: unknown): AIWorkbenchUserMessagePurpose {
+  return purpose === 'initial-explain' ? 'initial-explain' : 'follow-up';
 }
 
 function createEmptyViewSessionState(): AIViewSessionState {
@@ -560,39 +565,31 @@ export class AIWorkbenchService {
 
   async runExplain(): Promise<void> {
     await this.runTask(async () => {
-      const context = this.requireContext();
-      if (
-        context.source === 'review'
-        && context.currentCard
-        && context.currentCard.explainRequiresReveal
-        && !context.currentCard.revealed
-      ) {
-        throw this.fail('请先揭示答案，再使用 AI 解释卡片。');
-      }
       const attachedContexts = this.consumeComposerContexts();
-      const response = await this.requestModel('explain', {
-        language: this.deps.getAISettings().defaultOutputLanguage,
-        attachedContexts,
-        context: {
-          source: context.source,
-          queueType: context.queueType,
-          queueProgress: context.queueProgress,
-          currentCard: context.currentCard,
-          neuralBatch: context.neuralBatch,
-          selectedBlocks: context.blocks,
-        },
-      });
-      const payload = this.extractStructuredPayload('AI 解释卡片', response.content);
-      this.state.explainResult = this.normalizeExplainResult(payload, response.content);
+      const response = await this.requestExplainResult(attachedContexts);
+      this.appendExplainResultMessage(response.content, attachedContexts);
+    });
+  }
+
+  async submitExplainPrompt(question: string): Promise<void> {
+    const normalizedQuestion = normalizeString(question);
+    if (!normalizedQuestion) {
+      return;
+    }
+    await this.runTask(async () => {
+      const attachedContexts = this.consumeComposerContexts();
       this.appendMessage({
         id: createEntryId('ai-msg'),
         view: ACTIVE_VIEW,
-        kind: 'assistant-result',
+        kind: 'user',
+        purpose: 'initial-explain',
+        content: normalizedQuestion,
         createdAt: Date.now(),
-        rawContent: response.content,
-        explainResult: this.state.explainResult,
-        appliedContexts: attachedContexts,
-      } satisfies AIWorkbenchAssistantResultMessage);
+        editedFromMessageId: null,
+        attachedContexts,
+      } satisfies AIWorkbenchUserMessage);
+      const response = await this.requestExplainResult(attachedContexts, normalizedQuestion);
+      this.appendExplainResultMessage(response.content, attachedContexts);
     });
   }
 
@@ -610,6 +607,7 @@ export class AIWorkbenchService {
       id: createEntryId('ai-msg'),
       view: ACTIVE_VIEW,
       kind: 'user',
+      purpose: 'follow-up',
       content: normalizedQuestion,
       createdAt: Date.now(),
       editedFromMessageId: normalizeString(options?.editedFromMessageId) || null,
@@ -729,7 +727,10 @@ export class AIWorkbenchService {
     viewState.stale = thread.stale;
     viewState.staleReason = thread.staleReason;
     viewState.followUps = thread.messages
-      .filter((message) => message.kind === 'user' || message.kind === 'assistant-text')
+      .filter((message) => (
+        message.kind === 'assistant-text'
+        || (message.kind === 'user' && resolveUserMessagePurpose(message.purpose) === 'follow-up')
+      ))
       .map((message) => ({
         id: message.id,
         view: ACTIVE_VIEW,
@@ -1051,6 +1052,27 @@ export class AIWorkbenchService {
     }
   }
 
+  private async requestExplainResult(
+    attachedContexts: AIAttachedContextItem[],
+    userPrompt?: string,
+  ): Promise<LLMResponse> {
+    const context = this.requireContext();
+    this.assertExplainAllowed(context);
+    return this.requestModel('explain', {
+      language: this.deps.getAISettings().defaultOutputLanguage,
+      attachedContexts,
+      ...(normalizeString(userPrompt) ? { userPrompt: normalizeString(userPrompt) } : {}),
+      context: {
+        source: context.source,
+        queueType: context.queueType,
+        queueProgress: context.queueProgress,
+        currentCard: context.currentCard,
+        neuralBatch: context.neuralBatch,
+        selectedBlocks: context.blocks,
+      },
+    });
+  }
+
   private async requestModel(promptTask: AIPromptTask, payload: Record<string, unknown>): Promise<LLMResponse> {
     const settings = this.assertModelSettings();
     try {
@@ -1173,6 +1195,31 @@ export class AIWorkbenchService {
       cardIdeas: normalizeLooseStringList(value.cardIdeas),
       rawContent,
     };
+  }
+
+  private assertExplainAllowed(context: AIWorkbenchContextSnapshot): void {
+    if (
+      context.source === 'review'
+      && context.currentCard
+      && context.currentCard.explainRequiresReveal
+      && !context.currentCard.revealed
+    ) {
+      throw this.fail('请先揭示答案，再使用 AI 解释卡片。');
+    }
+  }
+
+  private appendExplainResultMessage(rawContent: string, appliedContexts: AIAttachedContextItem[]): void {
+    const payload = this.extractStructuredPayload('AI 解释卡片', rawContent);
+    this.state.explainResult = this.normalizeExplainResult(payload, rawContent);
+    this.appendMessage({
+      id: createEntryId('ai-msg'),
+      view: ACTIVE_VIEW,
+      kind: 'assistant-result',
+      createdAt: Date.now(),
+      rawContent,
+      explainResult: this.state.explainResult,
+      appliedContexts,
+    } satisfies AIWorkbenchAssistantResultMessage);
   }
 
   private requireContext(): AIWorkbenchContextSnapshot {

@@ -2,7 +2,7 @@
 
 import { mount } from '@vue/test-utils';
 import { reactive, nextTick } from 'vue';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type {
   AIExplainResult,
@@ -153,6 +153,7 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     renameSession: async () => {},
     deleteSession: async () => {},
     runExplain: async () => {},
+    submitExplainPrompt: async () => {},
     submitFollowUp: async () => {},
     updateAssistantTextMessage: async () => {},
   };
@@ -178,10 +179,13 @@ describe('AiWorkbenchPane compact surfaces', () => {
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
 
     expect(wrapper.find('.ai-chat--compact').exists()).toBe(true);
+    expect(wrapper.find('.ai-chat__headline').text()).toBe('AI Explain');
+    expect(wrapper.find('.ai-chat__brand').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('AI 导师');
     expect(wrapper.text()).not.toContain('AI 辅助制卡');
+    expect(wrapper.text()).toContain('解释这张卡');
     expect(wrapper.text()).toContain('解释此内容');
-    expect((wrapper.find('.ai-chat__title-input').element as HTMLInputElement).value).toBe('幂函数 · AI 会话');
+    expect(wrapper.find('.ai-chat__title-input').exists()).toBe(false);
 
     await wrapper.findAll('.ai-chat__icon-button')[0]!.trigger('click');
     await nextTick();
@@ -201,8 +205,9 @@ describe('AiWorkbenchPane compact surfaces', () => {
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
 
     expect(wrapper.find('.ai-chat--compact').exists()).toBe(false);
-    expect(wrapper.text()).toContain('AI 解释卡片');
-    expect(wrapper.text()).toContain('Use Context');
+    expect(wrapper.text()).toContain('AI Explain');
+    expect(wrapper.text()).toContain('展开输入框');
+    expect(wrapper.text()).not.toContain('Use Context');
     expect(wrapper.text()).not.toContain('AI 导师');
     expect(wrapper.text()).not.toContain('AI 辅助制卡');
   });
@@ -253,7 +258,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('下次什么时候该想起它');
   });
 
-  it('shows composer context chips and assistant edit actions in the chat shell', () => {
+  it('shows composer context chips, compact composer actions, and assistant edit actions in the chat shell', () => {
     const service = createService('review-dialog-sidecar');
     service.state.composerContexts.items.push({
       id: 'ctx-1',
@@ -277,9 +282,96 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
 
-    expect(wrapper.text()).toContain('Use Context');
+    expect(wrapper.find('.ai-chat__composer-plus').exists()).toBe(true);
+    expect(wrapper.text()).toContain('展开输入框');
     expect(wrapper.text()).toContain('手工材料');
     expect(wrapper.text()).toContain('编辑');
+    expect(wrapper.find('.ai-chat__composer-send').exists()).toBe(true);
+  });
+
+  it('fills the composer with explain text from the empty-state button without auto-running explain', async () => {
+    const service = createService('review-dialog-sidecar');
+    const runExplain = vi.fn(async () => {});
+    service.runExplain = runExplain as never;
+
+    const wrapper = mount(AiWorkbenchPane, {
+      attachTo: document.body,
+      props: { service },
+    });
+
+    await wrapper.find('.ai-chat__primary-button').trigger('click');
+    await nextTick();
+
+    const textarea = wrapper.find('.ai-chat__composer-input').element as HTMLTextAreaElement;
+    expect(textarea.value).toBe('解释此内容');
+    expect(document.activeElement).toBe(textarea);
+    expect(runExplain).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('allows first-turn custom text sending with Ctrl/Cmd+Enter and routes it to submitExplainPrompt', async () => {
+    const service = createService('review-dialog-sidecar');
+    const submitExplainPrompt = vi.fn(async () => {});
+    const submitFollowUp = vi.fn(async () => {});
+    service.submitExplainPrompt = submitExplainPrompt as never;
+    service.submitFollowUp = submitFollowUp as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    const textarea = wrapper.find('.ai-chat__composer-input');
+
+    await textarea.setValue('请解释这张卡的考点');
+    await textarea.trigger('keydown', { key: 'Enter' });
+    expect(submitExplainPrompt).not.toHaveBeenCalled();
+
+    expect(wrapper.find('.ai-chat__composer-send').attributes('disabled')).toBeUndefined();
+
+    await textarea.trigger('keydown', { key: 'Enter', ctrlKey: true });
+
+    expect(submitExplainPrompt).toHaveBeenCalledWith('请解释这张卡的考点');
+    expect(submitFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('opens the context provider menu from the plus button and closes it on outside click, escape, and selection', async () => {
+    const service = createService('review-dialog-sidecar');
+    const attachContextFromProvider = vi.fn(async () => null);
+    service.getAvailableContextProviders = () => [
+      {
+        key: 'manual-text',
+        title: '手工材料',
+        description: '粘贴一段补充材料，只在下一次发送时生效。',
+        inputKind: 'none',
+      },
+      {
+        key: 'current-document',
+        title: '当前文档',
+        description: '读取当前活动文档。',
+        inputKind: 'none',
+      },
+    ] as never;
+    service.attachContextFromProvider = attachContextFromProvider as never;
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+
+    await wrapper.find('.ai-chat__composer-plus').trigger('click');
+    await nextTick();
+    expect(wrapper.find('.ai-chat__context-menu').exists()).toBe(true);
+
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await nextTick();
+    expect(wrapper.find('.ai-chat__context-menu').exists()).toBe(false);
+
+    await wrapper.find('.ai-chat__composer-plus').trigger('click');
+    await nextTick();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+    expect(wrapper.find('.ai-chat__context-menu').exists()).toBe(false);
+
+    await wrapper.find('.ai-chat__composer-plus').trigger('click');
+    await nextTick();
+    await wrapper.find('.ai-chat__context-menu-item').trigger('click');
+    await nextTick();
+    expect(attachContextFromProvider).toHaveBeenCalledWith('manual-text');
+    expect(wrapper.find('.ai-chat__context-menu').exists()).toBe(false);
   });
 
   it('falls back to legacy alias keys when rendering persisted explain results', () => {

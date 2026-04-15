@@ -281,6 +281,58 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(followUpPayload.attachedContexts[0].content).toContain('第二段临时材料');
   });
 
+  it('supports first-turn custom explain prompts without polluting the follow-up transcript', async () => {
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          workingDefinition: 'Definition A',
+          whatItTests: 'Test A',
+          whyItsTricky: 'Tricky A',
+          connections: ['Connection A'],
+          triggers: ['Trigger A'],
+          cardIdeas: ['Idea A'],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: 'Follow-up answer',
+        raw: {},
+      });
+
+    const service = createService({ llmChat });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+
+    await service.submitExplainPrompt('解释此内容');
+
+    expect(service.state.threads.explain.messages[0]).toMatchObject({
+      kind: 'user',
+      purpose: 'initial-explain',
+      content: '解释此内容',
+    });
+    expect(service.state.threads.explain.messages[1]).toMatchObject({
+      kind: 'assistant-result',
+    });
+    expect(service.getFollowUps('explain')).toEqual([]);
+
+    const explainPayload = JSON.parse(llmChat.mock.calls[0][0].messages[1].content);
+    expect(explainPayload.userPrompt).toBe('解释此内容');
+
+    await service.submitFollowUp('继续展开');
+
+    expect(service.getFollowUps('explain')).toHaveLength(2);
+    expect(service.getFollowUps('explain')[0]).toMatchObject({
+      role: 'user',
+      content: '继续展开',
+    });
+  });
+
   it('normalizes legacy make-cards opens to explain and auto-runs explain', async () => {
     const llmChat = vi.fn().mockResolvedValue({
       content: JSON.stringify({

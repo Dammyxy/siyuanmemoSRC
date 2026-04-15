@@ -35,22 +35,7 @@
     <div class="ai-chat__main">
       <header class="ai-chat__topbar">
         <div class="ai-chat__topbar-main">
-          <div class="ai-chat__brand">
-            <div class="ai-chat__brand-icon">
-              <svg><use xlink:href="#iconSparkles"></use></svg>
-            </div>
-            <div>
-              <strong>{{ t('aiExplainCard', 'AI 解释卡片') }}</strong>
-              <span>{{ sourceLabel }}</span>
-            </div>
-          </div>
-          <input
-            v-model="sessionTitleDraft"
-            class="b3-text-field ai-chat__title-input"
-            :placeholder="t('untitledAiSession', '未命名会话')"
-            @blur="commitSessionTitle"
-            @keydown.enter.prevent="commitSessionTitle"
-          >
+          <strong class="ai-chat__headline">AI Explain</strong>
         </div>
 
         <div class="ai-chat__topbar-actions">
@@ -112,9 +97,9 @@
           <div class="ai-chat__empty-icon">
             <svg><use xlink:href="#iconSparkles"></use></svg>
           </div>
-          <strong>{{ t('aiExplainCard', 'AI 解释卡片') }}</strong>
-          <p>{{ t('aiExplainBrief', '解释这张卡为什么值得记，以及它和哪些材料连在一起。') }}</p>
-          <button class="ai-chat__primary-button" type="button" :disabled="state.isLoading || revealLocked" @click="runExplain">
+          <strong>AI Explain</strong>
+          <p>{{ t('aiExplainBrief', '解释这张卡') }}</p>
+          <button class="ai-chat__primary-button" type="button" :disabled="state.isLoading || revealLocked" @click="fillExplainPrompt">
             {{ t('explainThisContent', '解释此内容') }}
           </button>
         </article>
@@ -181,36 +166,55 @@
           <button class="ai-chat__link-button" type="button" @click="service.clearComposerContexts()">{{ t('clear', '清空') }}</button>
         </div>
 
-        <div class="ai-chat__composer-tools">
-          <button class="ai-chat__composer-action" type="button" @click="toggleContextMenu">{{ t('useContext', 'Use Context') }}</button>
-          <button class="ai-chat__composer-icon" type="button" :title="t('largeEditor', '大编辑器')" @click="openComposerEditor">
-            <span>+</span>
-          </button>
-          <button class="ai-chat__composer-icon" type="button" :title="t('send', '发送')" :disabled="sendDisabled" @click="submitComposer">
-            <svg><use xlink:href="#iconForward"></use></svg>
-          </button>
-        </div>
+        <div class="ai-chat__composer-shell">
+          <div v-if="contextMenuOpen" ref="contextMenuRef" class="ai-chat__context-menu">
+            <button
+              v-for="provider in contextProviders"
+              :key="provider.key"
+              class="ai-chat__context-menu-item"
+              type="button"
+              @click="handleContextProvider(provider)"
+            >
+              <strong>{{ provider.title }}</strong>
+              <span>{{ provider.description }}</span>
+            </button>
+          </div>
 
-        <div v-if="contextMenuOpen" class="ai-chat__context-menu">
-          <button
-            v-for="provider in contextProviders"
-            :key="provider.key"
-            class="ai-chat__context-menu-item"
-            type="button"
-            @click="handleContextProvider(provider)"
-          >
-            <strong>{{ provider.title }}</strong>
-            <span>{{ provider.description }}</span>
-          </button>
-        </div>
+          <textarea
+            ref="composerInputRef"
+            v-model="composerValue"
+            class="b3-text-field ai-chat__composer-input"
+            :placeholder="composerPlaceholder"
+            @keydown.ctrl.enter.prevent="submitComposer"
+            @keydown.meta.enter.prevent="submitComposer"
+          ></textarea>
 
-        <textarea
-          v-model="composerValue"
-          class="b3-text-field ai-chat__composer-input"
-          :placeholder="composerPlaceholder"
-          @keydown.ctrl.enter.prevent="submitComposer"
-          @keydown.meta.enter.prevent="submitComposer"
-        ></textarea>
+          <div class="ai-chat__composer-footer">
+            <div class="ai-chat__composer-left-tools">
+              <button
+                ref="contextMenuToggleRef"
+                class="ai-chat__composer-plus"
+                type="button"
+                :title="t('useContext', '添加上下文')"
+                @click="toggleContextMenu"
+              >
+                <span>+</span>
+              </button>
+              <button
+                class="ai-chat__composer-expand"
+                type="button"
+                :title="t('largeEditor', '展开输入框')"
+                @click="openComposerEditor"
+              >
+                {{ t('largeEditor', '展开输入框') }}
+              </button>
+            </div>
+
+            <button class="ai-chat__composer-send" type="button" :title="t('send', '发送')" :disabled="sendDisabled" @click="submitComposer">
+              <svg><use xlink:href="#iconForward"></use></svg>
+            </button>
+          </div>
+        </div>
       </footer>
     </div>
 
@@ -232,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
@@ -280,9 +284,11 @@ const emit = defineEmits<{
 const service = props.service;
 const state = service.state;
 const historyQuery = ref('');
-const sessionTitleDraft = ref('');
 const composerValue = ref('');
+const composerInputRef = ref<HTMLTextAreaElement | null>(null);
 const contextMenuOpen = ref(false);
+const contextMenuRef = ref<HTMLElement | null>(null);
+const contextMenuToggleRef = ref<HTMLElement | null>(null);
 
 const editorOpen = ref(false);
 const editorReadonly = ref(false);
@@ -395,14 +401,6 @@ function getDialogManager() {
 }
 
 watch(
-  () => state.sessionTitle,
-  (title) => {
-    sessionTitleDraft.value = title;
-  },
-  { immediate: true },
-);
-
-watch(
   () => state.activeView,
   (view) => {
     if (view !== 'explain') {
@@ -414,7 +412,6 @@ watch(
 
 const isCompact = computed(() => state.surface !== 'standalone-dialog');
 const showInlineClose = computed(() => state.surface === 'review-dialog-sidecar');
-const sourceLabel = computed(() => sourceLabelFor(state.context?.source || 'standalone'));
 const modelLabel = computed(() => service.getCurrentModelLabel?.() || t('unconfiguredModel', '未配置模型'));
 const filteredSessionHistory = computed(() => {
   const query = historyQuery.value.trim().toLowerCase();
@@ -458,16 +455,16 @@ const contextDetailRows = computed(() => {
 const composerPlaceholder = computed(() => (
   state.explainResult
     ? t('aiFollowUpPlaceholder', '继续追问这张卡为什么值得记、哪里容易错，或补充一段材料后再问。')
-    : t('runExplainFirst', '先运行一次解释，再继续追问。')
+    : t('aiExplainComposerPlaceholder', '输入你想让 AI 解释的内容，然后按 Ctrl/Cmd + Enter 发送。')
 ));
 const sendDisabled = computed(() => {
   if (state.isLoading) {
     return true;
   }
-  if (!state.explainResult) {
-    return composerValue.value.trim().length > 0;
+  if (composerValue.value.trim().length === 0) {
+    return true;
   }
-  return composerValue.value.trim().length === 0;
+  return !state.explainResult && revealLocked.value;
 });
 
 function assistantSections(message: AIWorkbenchMessage) {
@@ -507,7 +504,7 @@ function canEditMessage(message: AIWorkbenchMessage): boolean {
 }
 
 function canEditUserMessage(message: AIWorkbenchMessage): boolean {
-  return message.kind === 'user';
+  return message.kind === 'user' && (message.purpose ?? 'follow-up') === 'follow-up';
 }
 
 function canRerunMessage(message: AIWorkbenchMessage): boolean {
@@ -515,22 +512,39 @@ function canRerunMessage(message: AIWorkbenchMessage): boolean {
 }
 
 async function runExplain(): Promise<void> {
+  closeContextMenu();
   composerValue.value = '';
   await service.runExplain();
 }
 
+function focusComposerInput(): void {
+  void nextTick(() => {
+    composerInputRef.value?.focus();
+    const end = composerValue.value.length;
+    composerInputRef.value?.setSelectionRange(end, end);
+  });
+}
+
+function fillExplainPrompt(): void {
+  closeContextMenu();
+  composerValue.value = t('explainThisContent', '解释此内容');
+  focusComposerInput();
+}
+
 async function submitComposer(): Promise<void> {
-  const content = composerValue.value.trim();
-  if (!state.explainResult) {
-    if (!content) {
-      await runExplain();
-    }
+  closeContextMenu();
+  if (sendDisabled.value) {
     return;
   }
+  const content = composerValue.value.trim();
   if (!content) {
     return;
   }
-  await service.submitFollowUp(content);
+  if (!state.explainResult) {
+    await service.submitExplainPrompt(content);
+  } else {
+    await service.submitFollowUp(content);
+  }
   composerValue.value = '';
 }
 
@@ -570,10 +584,11 @@ function prepareEditedFollowUp(message: AIWorkbenchMessage): void {
 }
 
 function openComposerEditor(): void {
+  closeContextMenu();
   editingMode.value = 'composer';
   editingMessageId.value = null;
   editorReadonly.value = false;
-  editorTitle.value = t('largeEditor', '大编辑器');
+  editorTitle.value = t('largeEditor', '展开输入框');
   editorValue.value = composerValue.value;
   editorPlaceholder.value = composerPlaceholder.value;
   editorConfirmLabel.value = t('apply', '应用');
@@ -591,12 +606,37 @@ function previewContextItem(contextItem: AIAttachedContextItem): void {
   editorOpen.value = true;
 }
 
+function closeContextMenu(): void {
+  contextMenuOpen.value = false;
+}
+
 function toggleContextMenu(): void {
   contextMenuOpen.value = !contextMenuOpen.value;
 }
 
+function handleDocumentPointerDown(event: Event): void {
+  if (!contextMenuOpen.value) {
+    return;
+  }
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+  if (contextMenuRef.value?.contains(target) || contextMenuToggleRef.value?.contains(target)) {
+    return;
+  }
+  closeContextMenu();
+}
+
+function handleDocumentKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !contextMenuOpen.value) {
+    return;
+  }
+  closeContextMenu();
+}
+
 async function handleContextProvider(provider: ContextProvider): Promise<void> {
-  contextMenuOpen.value = false;
+  closeContextMenu();
   if (provider.inputKind === 'none') {
     await service.attachContextFromProvider(provider.key);
     return;
@@ -657,18 +697,19 @@ async function deleteCurrentSession(): Promise<void> {
   await service.deleteSession();
 }
 
-async function commitSessionTitle(): Promise<void> {
-  const nextTitle = sessionTitleDraft.value.trim();
-  if (!nextTitle || nextTitle === state.sessionTitle) {
-    sessionTitleDraft.value = state.sessionTitle;
-    return;
-  }
-  await service.renameCurrentSession(nextTitle);
-}
-
 async function openAiSettings(): Promise<void> {
   await getDialogManager()?.openSettingsDialog?.('ai');
 }
+
+onMounted(() => {
+  document.addEventListener('pointerdown', handleDocumentPointerDown);
+  document.addEventListener('keydown', handleDocumentKeydown);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', handleDocumentPointerDown);
+  document.removeEventListener('keydown', handleDocumentKeydown);
+});
 </script>
 
 <style scoped>
@@ -676,18 +717,13 @@ async function openAiSettings(): Promise<void> {
 .ai-chat--compact { background: #fafbfd; }
 .ai-chat__history { width: 260px; border-right: 1px solid #e6e9f0; background: #ffffff; display: flex; flex-direction: column; min-height: 0; }
 .ai-chat__main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.ai-chat__topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #e6e9f0; background: rgba(255,255,255,0.88); backdrop-filter: blur(10px); }
-.ai-chat__topbar-main { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
-.ai-chat__brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.ai-chat__brand-icon { width: 36px; height: 36px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #6f51ff 0%, #5b3fe5 100%); color: #fff; }
-.ai-chat__brand-icon svg { width: 18px; height: 18px; }
-.ai-chat__brand strong, .ai-chat__brand span { display: block; }
-.ai-chat__brand span { color: #7f8797; font-size: 12px; }
-.ai-chat__title-input { min-width: 0; max-width: 320px; border-radius: 8px; }
-.ai-chat__topbar-actions { display: flex; align-items: center; gap: 8px; }
-.ai-chat__icon-button { width: 32px; height: 32px; border: 1px solid #d9deea; border-radius: 8px; background: #fff; display: inline-flex; align-items: center; justify-content: center; color: #667085; }
-.ai-chat__icon-button svg { width: 16px; height: 16px; }
-.ai-chat__icon-button span { font-size: 18px; line-height: 1; }
+.ai-chat__topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px 6px; border-bottom: 1px solid #e6e9f0; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); }
+.ai-chat__topbar-main { display: flex; align-items: center; gap: 0; min-width: 0; flex: 1; }
+.ai-chat__headline { white-space: nowrap; font-size: 14px; line-height: 1.2; font-weight: 700; color: #111827; }
+.ai-chat__topbar-actions { display: flex; align-items: center; gap: 6px; padding-top: 1px; }
+.ai-chat__icon-button { width: 28px; height: 28px; border: 1px solid #d9deea; border-radius: 7px; background: #fff; display: inline-flex; align-items: center; justify-content: center; color: #667085; }
+.ai-chat__icon-button svg { width: 14px; height: 14px; }
+.ai-chat__icon-button span { font-size: 16px; line-height: 1; }
 .ai-chat__history-head, .ai-chat__section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ai-chat__history-head { padding: 12px; border-bottom: 1px solid #eef1f6; }
 .ai-chat__history-search { margin: 12px; border-radius: 8px; }
@@ -708,9 +744,9 @@ async function openAiSettings(): Promise<void> {
 .ai-chat__warning { color: #a16207; font-size: 12px; }
 .ai-chat__banner { margin: 12px 14px 0; padding: 12px; border-radius: 8px; border: 1px solid #f0d2d2; background: #fff6f6; }
 .ai-chat__banner--error strong { display: block; margin-bottom: 4px; }
-.ai-chat__timeline { flex: 1; min-height: 0; overflow: auto; padding: 18px 14px; display: grid; gap: 12px; }
-.ai-chat__empty-state, .ai-chat__bubble { border: 1px solid #e6e9f0; border-radius: 8px; background: #fff; padding: 14px; }
-.ai-chat__empty-state { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 28px 18px; }
+.ai-chat__timeline { flex: 1; min-height: 0; overflow: auto; padding: 14px 12px; display: grid; gap: 10px; }
+.ai-chat__empty-state, .ai-chat__bubble { border: 1px solid #e6e9f0; border-radius: 8px; background: #fff; padding: 13px; }
+.ai-chat__empty-state { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 24px 16px; }
 .ai-chat__empty-icon { width: 56px; height: 56px; border-radius: 999px; background: linear-gradient(180deg, #6f51ff 0%, #5b3fe5 100%); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
 .ai-chat__empty-icon svg { width: 22px; height: 22px; }
 .ai-chat__primary-button { border: 0; border-radius: 8px; background: #ffffff; box-shadow: inset 0 0 0 1px #dce3f5; padding: 10px 16px; color: #1f2430; }
@@ -722,21 +758,26 @@ async function openAiSettings(): Promise<void> {
 .ai-chat__result-section { display: grid; gap: 6px; margin-top: 10px; }
 .ai-chat__result-section h4 { margin: 0; font-size: 13px; color: #3e4a60; }
 .ai-chat__result-section ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
-.ai-chat__composer { position: relative; border-top: 1px solid #e6e9f0; background: #fff; padding: 12px 14px 14px; display: grid; gap: 10px; }
-.ai-chat__composer-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.ai-chat__composer-action { border: 1px solid #d9deea; border-radius: 8px; background: #fff; padding: 8px 10px; color: #51607a; }
-.ai-chat__composer-icon { width: 36px; height: 36px; border: 1px solid #d9deea; border-radius: 8px; background: #fff; display: inline-flex; align-items: center; justify-content: center; color: #51607a; }
-.ai-chat__composer-input { min-height: 120px; resize: vertical; border-radius: 8px; }
+.ai-chat__composer { position: relative; border-top: 1px solid #e6e9f0; background: #fff; padding: 10px 12px 12px; display: grid; gap: 8px; }
+.ai-chat__composer-shell { position: relative; border: 1px solid #d9deea; border-radius: 8px; background: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4); }
+.ai-chat__composer-input { width: 100%; min-height: 126px; resize: vertical; border: 0; border-radius: 8px; padding: 12px 12px 48px; background: transparent; box-shadow: none; }
+.ai-chat__composer-input:focus { box-shadow: none; }
+.ai-chat__composer-footer { position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
+.ai-chat__composer-left-tools { display: flex; align-items: center; gap: 6px; min-width: 0; pointer-events: auto; }
+.ai-chat__composer-plus, .ai-chat__composer-send { width: 30px; height: 30px; border: 1px solid #d9deea; border-radius: 7px; background: #fff; display: inline-flex; align-items: center; justify-content: center; color: #51607a; pointer-events: auto; }
+.ai-chat__composer-plus span { font-size: 16px; line-height: 1; }
+.ai-chat__composer-send svg { width: 16px; height: 16px; }
+.ai-chat__composer-expand { border: 0; border-radius: 7px; background: transparent; color: #65758c; padding: 5px 8px; font-size: 12px; line-height: 1.2; pointer-events: auto; white-space: nowrap; }
+.ai-chat__composer-send:disabled, .ai-chat__composer-plus:disabled, .ai-chat__composer-expand:disabled { opacity: 0.5; cursor: not-allowed; }
 .ai-chat__context-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .ai-chat__context-chip { border: 1px solid #dce3f5; border-radius: 8px; background: #f8fbff; padding: 8px 10px; display: grid; gap: 2px; text-align: left; max-width: 100%; }
 .ai-chat__context-chip strong, .ai-chat__context-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-chat__context-chip span { color: #7f8797; font-size: 12px; }
-.ai-chat__context-menu { position: absolute; right: 14px; bottom: 164px; width: min(320px, calc(100% - 28px)); border: 1px solid #d9deea; border-radius: 8px; background: #fff; box-shadow: 0 16px 32px rgba(21, 27, 38, 0.12); display: grid; overflow: hidden; }
-.ai-chat__context-menu-item { border: 0; background: none; padding: 12px; text-align: left; display: grid; gap: 4px; }
+.ai-chat__context-menu { position: absolute; left: 10px; bottom: 46px; width: min(300px, calc(100% - 20px)); border: 1px solid #d9deea; border-radius: 8px; background: #fff; box-shadow: 0 16px 32px rgba(21, 27, 38, 0.12); display: grid; overflow: hidden; z-index: 2; }
+.ai-chat__context-menu-item { border: 0; background: none; padding: 11px 12px; text-align: left; display: grid; gap: 4px; }
 .ai-chat__context-menu-item + .ai-chat__context-menu-item { border-top: 1px solid #eef1f6; }
 .ai-chat__context-menu-item span { color: #7f8797; font-size: 12px; }
 @media (max-width: 900px) {
   .ai-chat__history { width: 220px; }
-  .ai-chat__title-input { max-width: 180px; }
 }
 </style>

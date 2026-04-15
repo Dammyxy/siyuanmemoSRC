@@ -8,6 +8,7 @@ export type AITaskType = 'explain';
 export type AIWorkbenchSource = 'review' | 'browser' | 'template-dialog' | 'standalone';
 export type AIWorkbenchSurface = 'standalone-dialog' | 'review-dialog-sidecar' | 'review-tab-companion';
 export type AIFollowUpRole = 'user' | 'assistant';
+export type AIWorkbenchUserMessagePurpose = 'initial-explain' | 'follow-up';
 export type AIWorkbenchMessageKind = 'user' | 'assistant-text' | 'assistant-result';
 export type AIContextProviderKey = 'manual-text' | 'selected-content' | 'block-refs' | 'current-document';
 
@@ -89,6 +90,7 @@ export interface AIWorkbenchUserMessage {
   id: string;
   view: AITaskType;
   kind: 'user';
+  purpose?: AIWorkbenchUserMessagePurpose;
   content: string;
   createdAt: number;
   editedFromMessageId: string | null;
