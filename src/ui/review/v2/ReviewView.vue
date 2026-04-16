@@ -774,6 +774,15 @@ function resolveActiveReviewQueueLabel(): string {
   return resolveActiveReviewQueueType() || t('reviewTitle', 'Review');
 }
 
+function buildReviewAIChatKey(): string | null {
+  const queueType = String(resolveActiveReviewQueueType() || '').trim();
+  const queueLabel = String(resolveActiveReviewQueueLabel() || '').trim();
+  if (!queueType || !queueLabel) {
+    return null;
+  }
+  return `${queueType}::${queueLabel}`;
+}
+
 function buildReviewQueueProgress(): ReviewQueueProgressSnapshot | null {
   const meta = isRecord(state.value.meta) ? state.value.meta as Record<string, unknown> : null;
   const candidate = meta?.queueProgress;
@@ -2431,6 +2440,7 @@ function buildReviewAIOptions(view: ReviewAIEntryView, surface?: AIWorkbenchSurf
     surface,
     sessionId: reviewSessionId.value,
     sourceReviewSessionId: reviewSessionId.value,
+    reviewChatKey: buildReviewAIChatKey(),
     currentCard: state.value.content.card as FSRSCard | null,
     currentBlockId: resolveCurrentReviewBlockId() || null,
     queueType: resolveActiveReviewQueueType(),

@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-16 (Round 82)
+Last update: 2026-04-17 (Round 84)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-17 - review queue shared AI chat and compact reply surface
+
+- Task: Make review AI chat reuse one conversation per `queueType + queue label/title` instead of switching history per flashcard, while making the main workbench timeline reply-first and folding tool/approval/runtime details by default.
+- Touched slice: AI workbench / capture active path across `src/types/ai.ts`, `src/ui/review/v2/ReviewView.vue`, `src/application/services/{AIWorkbenchService,AIWorkbenchSessionStoreService}.ts`, `src/ui/ai/AiWorkbenchPane.vue`, related i18n, focused AI service/session/pane regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Upgraded AI session persistence to schema v4 with `reviewChatKey`; taught review open/hydration to load the latest persisted queue-level session while keeping runtime instances isolated per real `reviewSessionId`; made same-queue card switches refresh only live context and stale structured results instead of creating a new AI session; added `runGroupId` / `presentation` metadata and a compact render projection so tool logs, intermediate assistant turns, approvals, reasoning, and diagnostics collapse under the final reply; and connected stale follow-up disabling in the pane.
+- Debt deferred: Concurrent independent review windows for the same queue still do not live-sync their AI runtime state, old records only get `reviewChatKey` backfilled on the next save after legacy fallback, and write-tool approval still stops at staged approval rather than executing real card writes.
+- Why deferred: Cross-window live AI synchronization and approved write execution would widen this review-chat UX pass into separate runtime coordination and write-policy slices with broader conflict semantics.
+- Next safe step: If queue-level reuse feels stable, add a small persisted-session conflict marker or last-writer hint for simultaneous same-queue review windows before expanding write-tool approval into real application-service execution.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`.
+
+### 2026-04-16 - AI workbench tree chat experience vNext
+
+- Task: Bring the F toolbox-style tree chat experience into the existing AI workbench runtime so `general-chat` and `concept-coach` share one tree-backed session model, richer message actions, and OpenAI-family true streaming without creating a second chat engine.
+- Touched slice: AI workbench / capture active path across `src/types/ai.ts`, `src/application/ports/LLMPort.ts`, `src/application/services/{AIWorkbenchService,AIWorkbenchSessionStoreService}.ts`, `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`, `src/ui/ai/AiWorkbenchPane.vue`, related i18n, focused AI/runtime/session/adapter/component regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Upgraded AI session persistence to schema v3 tree records with v2 thread migration; moved the runtime onto a unified node pool plus per skill/tab active leaf projection so `getThreadMessages()` still works while `concept-coach` keeps tabs; added node versions, branching, separators, hide/pin-to-context, tree focus, and stop-generation controls; made `general-chat` stream true OpenAI-compatible deltas with abort support; and let `concept-coach` share skill-scoped initial prompts across tabs while keeping reruns/follow-ups/tab results tab-local.
+- Debt deferred: This pass still does not add multimodal attachments, `/chat` document entry, history labels/archive/bulk management, a fully graphical world-tree page, or non-OpenAI provider true streaming parity; tree actions also stay in the workbench shell instead of becoming reusable cross-surface components.
+- Why deferred: Extending the same runtime change into multimodal surfaces, richer session management, and every provider transport would widen a bounded chat-runtime consolidation into multiple product and infrastructure slices with much larger regression surface.
+- Next safe step: If this tree-backed shell feels stable in daily review usage, extract the tree session helpers out of `AIWorkbenchService` into a smaller dedicated runtime module before adding provider streaming parity or a richer tree inspector.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-16 - AI declarative user skills
 

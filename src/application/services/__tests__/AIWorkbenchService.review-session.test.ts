@@ -115,6 +115,7 @@ function createSessionStore() {
       title: record.title,
       source: record.source,
       sourceReviewSessionId: record.sourceReviewSessionId,
+      reviewChatKey: record.reviewChatKey || null,
       surface: record.surface,
       contextSignature: record.contextSignature,
       createdAt: record.createdAt,
@@ -154,6 +155,12 @@ function createSessionStore() {
     }),
     deleteSession: vi.fn(async (sessionId: string) => {
       records.delete(sessionId);
+    }),
+    findLatestByReviewChatKey: vi.fn(async ({ reviewChatKey, source = 'review' }: { reviewChatKey: string | null; source?: string }) => {
+      const match = Array.from(records.values())
+        .filter((record) => record.source === source && (record.reviewChatKey || null) === (reviewChatKey || null))
+        .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+      return match ? buildSummary(match) : null;
     }),
   };
 }
@@ -211,6 +218,16 @@ function createDeferred<T>() {
     reject = innerReject;
   });
   return { promise, resolve, reject };
+}
+
+function createQueueProgress(queueType: string, queueLabel: string) {
+  return {
+    queueType,
+    queueLabel,
+    completed: 1,
+    remaining: 2,
+    total: 3,
+  };
 }
 
 function latestAssistantResult(service: AIWorkbenchService, tabId: (typeof AI_CONCEPT_COACH_TAB_IDS)[number]) {
@@ -285,6 +302,19 @@ describe('AIWorkbenchService review-session behavior', () => {
         expect.objectContaining({ kind: 'tool-log', toolName: 'GetCurrentContext', status: 'success' }),
         expect.objectContaining({ kind: 'assistant-text', content: '已读取当前上下文，选中块是 Front A。' }),
       ]));
+    const renderEntries = service.getRenderEntries(undefined, AI_GENERAL_CHAT_TAB_ID);
+    expect(renderEntries.map((entry) => entry.primaryMessage.kind)).toEqual(['user', 'assistant-text']);
+    expect(renderEntries.at(-1)).toMatchObject({
+      primaryMessage: expect.objectContaining({
+        kind: 'assistant-text',
+        content: '已读取当前上下文，选中块是 Front A。',
+        presentation: 'primary',
+      }),
+      stepCount: 2,
+      supplementalMessages: expect.arrayContaining([
+        expect.objectContaining({ kind: 'tool-log', presentation: 'supplemental' }),
+      ]),
+    });
     expect(llmChat.mock.calls[1][0].messages.at(-1)).toMatchObject({
       role: 'tool',
       toolCallId: 'call-context',
@@ -326,6 +356,13 @@ describe('AIWorkbenchService review-session behavior', () => {
         expect.objectContaining({ kind: 'approval' }),
         expect.objectContaining({ kind: 'assistant-text', content: expect.stringContaining('需要你审批') }),
       ]));
+    expect(service.getRenderEntries(undefined, AI_GENERAL_CHAT_TAB_ID).at(-1)?.pendingApproval)
+      .toMatchObject({
+        request: expect.objectContaining({
+          toolName: 'StageFlashcardDraft',
+          status: 'pending',
+        }),
+      });
 
     await service.resolveToolApproval(service.state.pendingApprovals[0].id, true);
 
@@ -808,5 +845,131 @@ describe('AIWorkbenchService review-session behavior', () => {
     await service.openSession('legacy-session');
 
     expect(service.state.activeView).toBe(AI_CONCEPT_COACH_SKILL_ID);
+  });
+
+  it('reuses the latest persisted review session by reviewChatKey across new runtimes and card switches', async () => {
+    const sessionStore = createSessionStore();
+    const llmChat = vi.fn().mockResolvedValue({
+      content: JSON.stringify(createConceptCoachPayload('Shared queue definition')),
+      raw: {},
+    });
+    const reviewChatKey = 'neural-roam::Neural Queue';
+    const queueProgress = createQueueProgress('neural-roam', 'Neural Queue');
+
+    const firstService = createService({ llmChat, sessionStore });
+    await firstService.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-a',
+      sourceReviewSessionId: 'review-session-a',
+      reviewChatKey,
+      queueType: 'neural-roam',
+      queueProgress,
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    await firstService.submitSkillPrompt('解释这张卡');
+    const sharedSessionId = firstService.state.sessionId;
+
+    const secondService = createService({ sessionStore });
+    await secondService.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-b',
+      sourceReviewSessionId: 'review-session-b',
+      reviewChatKey,
+      queueType: 'neural-roam',
+      queueProgress,
+      currentCard: createCard('card-b', 'card-block-2', 'front-2', 'back-2', 'source-2') as never,
+      revealed: true,
+    });
+
+    expect(secondService.state.sessionId).toBe(sharedSessionId);
+    expect(secondService.state.context?.currentCard?.cardId).toBe('card-b');
+    expect(secondService.state.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages.length).toBeGreaterThan(0);
+
+    await secondService.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-b',
+      sourceReviewSessionId: 'review-session-b',
+      reviewChatKey,
+      queueType: 'neural-roam',
+      queueProgress,
+      currentCard: createCard('card-c', 'card-block-2', 'front-2', 'back-2', 'source-2') as never,
+      revealed: true,
+    });
+
+    expect(secondService.state.sessionId).toBe(sharedSessionId);
+    expect(secondService.state.context?.currentCard?.cardId).toBe('card-c');
+  });
+
+  it('does not auto-jump away after manually creating or opening a review session in the same queue', async () => {
+    const sessionStore = createSessionStore();
+    const llmChat = vi.fn().mockResolvedValue({
+      content: JSON.stringify(createConceptCoachPayload('Manual session definition')),
+      raw: {},
+    });
+    const reviewChatKey = 'retrieval::Review Queue';
+    const queueProgress = createQueueProgress('retrieval', 'Review Queue');
+
+    const seedService = createService({ llmChat, sessionStore });
+    await seedService.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-seed',
+      sourceReviewSessionId: 'review-session-seed',
+      reviewChatKey,
+      queueType: 'retrieval',
+      queueProgress,
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    await seedService.submitSkillPrompt('解释这张卡');
+    const sharedSessionId = seedService.state.sessionId!;
+
+    const service = createService({ sessionStore });
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-live',
+      sourceReviewSessionId: 'review-session-live',
+      reviewChatKey,
+      queueType: 'retrieval',
+      queueProgress,
+      currentCard: createCard('card-b', 'card-block-2', 'front-2', 'back-2', 'source-2') as never,
+      revealed: true,
+    });
+
+    await service.createNewSession();
+    const manualNewSessionId = service.state.sessionId;
+    expect(manualNewSessionId).not.toBe(sharedSessionId);
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-live',
+      sourceReviewSessionId: 'review-session-live',
+      reviewChatKey,
+      queueType: 'retrieval',
+      queueProgress,
+      currentCard: createCard('card-c', 'card-block-2', 'front-2', 'back-2', 'source-2') as never,
+      revealed: true,
+    });
+    expect(service.state.sessionId).toBe(manualNewSessionId);
+
+    await service.openSession(sharedSessionId);
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-live',
+      sourceReviewSessionId: 'review-session-live',
+      reviewChatKey,
+      queueType: 'retrieval',
+      queueProgress,
+      currentCard: createCard('card-d', 'card-block-2', 'front-2', 'back-2', 'source-2') as never,
+      revealed: true,
+    });
+    expect(service.state.sessionId).toBe(sharedSessionId);
   });
 });

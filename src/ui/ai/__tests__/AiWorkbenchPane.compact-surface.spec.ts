@@ -51,7 +51,9 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     sessionId: 'ai-session-1',
     surface,
     sourceReviewSessionId: surface === 'standalone-dialog' ? null : 'review-session-1',
+    reviewChatKey: surface === 'standalone-dialog' ? null : 'neural-roam::神经漫游',
     contextSignature: 'ctx-1',
+    messages: [],
     viewState: createViewState(),
     activeSkillId: AI_CONCEPT_COACH_SKILL_ID,
     activeTabId: 'working-definition',
@@ -120,6 +122,7 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     error: null,
     failureDiagnostic: null,
     skillResults: { [AI_CONCEPT_COACH_SKILL_ID]: null },
+    genericSkillResults: {},
     explainResult: null,
     sessionTitle: '幂函数 · AI 会话',
     sessionHistory: [
@@ -128,10 +131,14 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
         title: '幂函数 · AI 会话',
         source: 'review',
         sourceReviewSessionId: 'review-session-1',
+        reviewChatKey: 'neural-roam::神经漫游',
         surface,
         contextSignature: 'ctx-1',
         createdAt: 1,
         updatedAt: 2,
+        activeSkillId: AI_CONCEPT_COACH_SKILL_ID,
+        activeTabId: 'working-definition',
+        activeSkills: [AI_CONCEPT_COACH_SKILL_ID],
         lastActiveView: 'explain',
         activeViews: ['explain'],
         messageCount: 0,
@@ -144,6 +151,10 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     composerEditorOpen: false,
     editingMessageId: null,
     editingMessageKind: null,
+    pendingApprovals: [],
+    toolTimeline: [],
+    vars: [],
+    diagnostics: [],
     legacyNotice: null,
   });
 
@@ -314,6 +325,164 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('手工材料');
     expect(wrapper.text()).toContain('编辑');
     expect(wrapper.find('.ai-chat__composer-send').exists()).toBe(true);
+  });
+
+  it('keeps supplemental tool steps collapsed behind a compact indicator', async () => {
+    const service = createService('review-dialog-sidecar');
+    const primaryMessage = {
+      id: 'assistant-final',
+      skillId: AI_CONCEPT_COACH_SKILL_ID,
+      tabId: 'working-definition',
+      view: 'explain',
+      kind: 'assistant-text',
+      content: '这是最终回复。',
+      createdAt: Date.now(),
+      sourceContent: '这是最终回复。',
+      appliedContexts: [],
+      presentation: 'primary',
+    } as const;
+    const supplementalMessages = [
+      {
+        id: 'assistant-step',
+        skillId: AI_CONCEPT_COACH_SKILL_ID,
+        tabId: 'working-definition',
+        view: 'explain',
+        kind: 'assistant-text',
+        content: '中间分析步骤',
+        createdAt: Date.now(),
+        sourceContent: '中间分析步骤',
+        appliedContexts: [],
+        presentation: 'supplemental',
+      },
+      {
+        id: 'tool-step',
+        skillId: AI_CONCEPT_COACH_SKILL_ID,
+        tabId: 'working-definition',
+        view: 'explain',
+        kind: 'tool-log',
+        createdAt: Date.now(),
+        toolCallId: 'tool-call-1',
+        toolName: 'ReadBlock',
+        group: 'siyuan-read',
+        status: 'success',
+        content: '工具读取内容',
+        error: null,
+        presentation: 'supplemental',
+      },
+    ] as never;
+    service.getRenderEntries = () => [{
+      key: 'assistant-final::render',
+      primaryMessage: primaryMessage as never,
+      supplementalMessages,
+      stepCount: 2,
+      pendingApproval: null,
+    }];
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+
+    expect(wrapper.text()).toContain('这是最终回复。');
+    expect(wrapper.text()).toContain('2 个步骤');
+    expect(wrapper.text()).not.toContain('工具读取内容');
+
+    await wrapper.find('.ai-chat__step-toggle').trigger('click');
+    await nextTick();
+
+    expect(wrapper.text()).toContain('工具读取内容');
+    expect(wrapper.text()).toContain('中间分析步骤');
+  });
+
+  it('renders pending approvals as a minimal strip instead of a full timeline card', async () => {
+    const service = createService('review-dialog-sidecar');
+    const resolveToolApproval = vi.fn(async () => {});
+    service.resolveToolApproval = resolveToolApproval as never;
+    service.getRenderEntries = () => [{
+      key: 'assistant-final::render',
+      primaryMessage: {
+        id: 'assistant-final',
+        skillId: AI_CONCEPT_COACH_SKILL_ID,
+        tabId: 'working-definition',
+        view: 'explain',
+        kind: 'assistant-text',
+        content: '需要你确认后我再继续。',
+        createdAt: Date.now(),
+        sourceContent: '需要你确认后我再继续。',
+        appliedContexts: [],
+        presentation: 'primary',
+      } as never,
+      supplementalMessages: [{
+        id: 'approval-1',
+        skillId: AI_CONCEPT_COACH_SKILL_ID,
+        tabId: 'working-definition',
+        view: 'explain',
+        kind: 'approval',
+        createdAt: Date.now(),
+        request: {
+          id: 'approval-request-1',
+          toolName: 'StageFlashcardDraft',
+          title: '暂存候选卡',
+          description: '写入前需要确认',
+          args: { cards: [{ question: 'Q', answer: 'A' }] },
+          status: 'pending',
+          createdAt: Date.now(),
+        },
+        presentation: 'supplemental',
+      } as never],
+      stepCount: 1,
+      pendingApproval: {
+        id: 'approval-1',
+        skillId: AI_CONCEPT_COACH_SKILL_ID,
+        tabId: 'working-definition',
+        view: 'explain',
+        kind: 'approval',
+        createdAt: Date.now(),
+        request: {
+          id: 'approval-request-1',
+          toolName: 'StageFlashcardDraft',
+          title: '暂存候选卡',
+          description: '写入前需要确认',
+          args: { cards: [{ question: 'Q', answer: 'A' }] },
+          status: 'pending',
+          createdAt: Date.now(),
+        },
+        presentation: 'supplemental',
+      } as never,
+    }];
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+
+    expect(wrapper.find('.ai-chat__approval-strip').exists()).toBe(true);
+    expect(wrapper.find('.ai-chat__approval-card').exists()).toBe(false);
+    expect(wrapper.text()).toContain('暂存候选卡');
+
+    await wrapper.find('.ai-chat__approval-strip .ai-chat__primary-button').trigger('click');
+
+    expect(resolveToolApproval).toHaveBeenCalledWith('approval-request-1', true);
+  });
+
+  it('shows and enforces stale follow-up disabled reasons for structured tabs', async () => {
+    const service = createService('review-dialog-sidecar');
+    const submitFollowUp = vi.fn(async () => {});
+    service.state.explainResult = {
+      workingDefinition: '旧结果',
+      whatItTests: '',
+      whyItsTricky: '',
+      connections: [],
+      triggers: [],
+      cardIdeas: [],
+      rawContent: '',
+    };
+    service.getFollowUpDisabledReason = () => '当前上下文已变化，请先重新运行。';
+    service.submitFollowUp = submitFollowUp as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    const textarea = wrapper.find('.ai-chat__composer-input');
+
+    await textarea.setValue('继续追问');
+    await textarea.trigger('keydown', { key: 'Enter', ctrlKey: true });
+
+    expect(wrapper.text()).toContain('当前上下文已变化，请先重新运行。');
+    expect(wrapper.find('.ai-chat__composer-send').attributes('disabled')).toBeDefined();
+    expect(submitFollowUp).not.toHaveBeenCalled();
   });
 
   it('fills the default concept-coach prompt from the empty-state button without running the model', async () => {

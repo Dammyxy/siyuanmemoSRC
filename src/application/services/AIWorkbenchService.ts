@@ -63,17 +63,22 @@ import type {
   AIWorkbenchAssistantTextMessage,
   AIWorkbenchApprovalMessage,
   AIWorkbenchContextSnapshot,
+  AIWorkbenchConversationTree,
   AIWorkbenchFailureDiagnostic,
   AIWorkbenchMessage,
   AIWorkbenchMessageKind,
+  AIWorkbenchNodeScope,
   AIWorkbenchOpenOptions,
   AIWorkbenchOpenView,
   AIWorkbenchRunMode,
   AIWorkbenchRunStatus,
+  AIWorkbenchRenderEntry,
+  AIWorkbenchSeparatorMessage,
   AIWorkbenchSessionRecord,
   AIWorkbenchSource,
   AIWorkbenchState,
   AIWorkbenchSurface,
+  AIWorkbenchTreeNode,
   AIWorkbenchThreads,
   AIWorkbenchToolLogMessage,
   AIWorkbenchUserMessage,
@@ -95,7 +100,7 @@ export type AIWorkbenchServiceDeps = {
   llmPort: LLMPort;
   sessionStore?: Pick<
     AIWorkbenchSessionStoreService,
-    'listSummaries' | 'loadSession' | 'saveSession' | 'renameSession' | 'deleteSession'
+    'listSummaries' | 'loadSession' | 'saveSession' | 'renameSession' | 'deleteSession' | 'findLatestByReviewChatKey'
   >;
 };
 
@@ -148,6 +153,7 @@ const NOOP_SESSION_STORE: Required<NonNullable<AIWorkbenchServiceDeps['sessionSt
   async saveSession(record) { return record; },
   async renameSession() { return null; },
   async deleteSession() { return undefined; },
+  async findLatestByReviewChatKey() { return null; },
 };
 
 function uniqueIds(ids: Array<string | null | undefined>): string[] {
@@ -285,6 +291,50 @@ function createEntryId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function createTreeViewKey(skillId: AISkillId, tabId: AISkillTabId): string {
+  return `${skillId}::${tabId}`;
+}
+
+function createEmptyConversationTree(): AIWorkbenchConversationTree {
+  return {
+    rootNodeId: null,
+    activeLeafNodeId: null,
+    activeLeafNodeIds: {},
+    nodes: {},
+  };
+}
+
+function cloneMessagePayload<T extends AIWorkbenchMessage>(message: T): T {
+  return JSON.parse(JSON.stringify(message)) as T;
+}
+
+function getMessageNodeKind(message: AIWorkbenchMessage): AIWorkbenchTreeNode['kind'] {
+  return message.kind === 'separator' ? 'separator' : 'message';
+}
+
+function traceTreePath(tree: AIWorkbenchConversationTree | undefined, leafId: string | null | undefined): string[] {
+  if (!tree || !leafId || !tree.nodes[leafId]) {
+    return [];
+  }
+  const path: string[] = [];
+  let currentId: string | null = leafId;
+  while (currentId && tree.nodes[currentId]) {
+    path.unshift(currentId);
+    currentId = tree.nodes[currentId].parentId;
+  }
+  return path;
+}
+
+function getSkillTabIds(skillId: AISkillId, fallbackTabId: AISkillTabId): AISkillTabId[] {
+  if (skillId === GENERAL_SKILL) {
+    return [CHAT_TAB];
+  }
+  if (skillId === CONCEPT_SKILL) {
+    return [...AI_CONCEPT_COACH_TAB_IDS];
+  }
+  return [fallbackTabId];
+}
+
 function resolveUserMessagePurpose(purpose: unknown): AIWorkbenchUserMessagePurpose {
   return purpose === 'follow-up' ? 'follow-up' : purpose === 'initial-explain' ? 'initial-explain' : 'initial-run';
 }
@@ -382,6 +432,23 @@ function buildContextSignature(context: AIWorkbenchContextSnapshot | null): stri
     } : null,
     neuralBatch: serializeNeuralBatch(context.neuralBatch),
   });
+}
+
+function buildReviewChatKey(queueType: unknown, queueLabel: unknown): string | null {
+  const normalizedQueueType = normalizeString(queueType);
+  const normalizedQueueLabel = normalizeString(queueLabel);
+  if (!normalizedQueueType || !normalizedQueueLabel) {
+    return null;
+  }
+  return `${normalizedQueueType}::${normalizedQueueLabel}`;
+}
+
+function deriveReviewChatKey(
+  context: AIWorkbenchContextSnapshot | null,
+  explicitReviewChatKey?: string | null,
+): string | null {
+  return normalizeString(explicitReviewChatKey)
+    || buildReviewChatKey(context?.queueType, context?.queueProgress?.queueLabel);
 }
 
 function tryParseJson(candidate: string): { ok: true; value: unknown } | { ok: false } {
@@ -1219,6 +1286,9 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
       content: normalizeString(message.content),
       sourceContent: normalizeString(message.sourceContent) || null,
       appliedContexts: cloneAttachedContexts(message.appliedContexts as AIAttachedContextItem[]),
+      reasoningContent: normalizeString(message.reasoningContent) || null,
+      diagnostics: Array.isArray(message.diagnostics) ? message.diagnostics.map((entry) => normalizeString(entry)).filter(Boolean) : [],
+      interrupted: message.interrupted === true,
     };
   }
   if (kind === 'assistant-result') {
@@ -1245,6 +1315,9 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
         ?? deriveTabNormalizationDiagnostic(base.tabId, tabResult, describeRawShapeFromContent(rawContent)),
       explainResult: isRecord(message.explainResult) ? message.explainResult as AIExplainResult : null,
       appliedContexts: cloneAttachedContexts(message.appliedContexts as AIAttachedContextItem[]),
+      reasoningContent: normalizeString(message.reasoningContent) || null,
+      diagnostics: Array.isArray(message.diagnostics) ? message.diagnostics.map((entry) => normalizeString(entry)).filter(Boolean) : [],
+      interrupted: message.interrupted === true,
     };
   }
   if (kind === 'tool-log') {
@@ -1266,6 +1339,13 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
       kind,
       request: message.request as AIChatApprovalRequest,
     };
+  }
+  if (kind === 'separator') {
+    return {
+      ...base,
+      kind,
+      label: normalizeString(message.label) || '分隔',
+    } satisfies AIWorkbenchSeparatorMessage;
   }
   return null;
 }
@@ -1327,6 +1407,7 @@ export class AIWorkbenchService {
     sessionId: null,
     surface: 'standalone-dialog',
     sourceReviewSessionId: null,
+    reviewChatKey: null,
     contextSignature: null,
     messages: [],
     viewState: createInitialViewState(),
@@ -1346,6 +1427,7 @@ export class AIWorkbenchService {
     sessionTitle: '',
     sessionHistory: [],
     threads: createInitialThreads(),
+    tree: createEmptyConversationTree(),
     pendingApprovals: [],
     toolTimeline: [],
     vars: [],
@@ -1360,6 +1442,7 @@ export class AIWorkbenchService {
   });
 
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private currentRunAbortController: AbortController | null = null;
   private readonly varStore = new AIChatVarStoreService();
   private readonly toolRegistry = new AIChatToolRegistry();
   private readonly toolExecutor: AIChatToolExecutorService;
@@ -1412,6 +1495,7 @@ export class AIWorkbenchService {
   async open(options: AIWorkbenchOpenOptions = {}): Promise<void> {
     await this.refreshSessionHistory();
     const settings = this.getNormalizedAISettings();
+    const previousReviewChatKey = this.state.reviewChatKey;
     const fallbackSkill = options.source === 'review' || options.surface === 'review-dialog-sidecar' || options.surface === 'review-tab-companion'
       ? CONCEPT_SKILL
       : GENERAL_SKILL;
@@ -1428,11 +1512,21 @@ export class AIWorkbenchService {
     this.state.failureDiagnostic = null;
     try {
       const nextContext = await this.buildContextSnapshot(options);
+      const nextReviewChatKey = nextContext.source === 'review'
+        ? deriveReviewChatKey(nextContext, options.reviewChatKey)
+        : null;
       this.state.liveContext = nextContext;
-      await this.activateLiveContext(nextContext);
+      this.state.reviewChatKey = nextReviewChatKey;
+      const hydratedSharedReviewSession = await this.tryHydrateReviewChatSession(nextContext);
+      if (!hydratedSharedReviewSession) {
+        await this.activateLiveContext(nextContext, {
+          previousReviewChatKey,
+        });
+      }
     } catch (error) {
       this.state.context = null;
       this.state.liveContext = null;
+      this.state.reviewChatKey = null;
       this.state.contextSignature = null;
       this.state.runStatus = null;
       this.state.error = error instanceof Error ? error.message : String(error);
@@ -1471,9 +1565,486 @@ export class AIWorkbenchService {
     return this.getSkillTabs().find((tab) => tab.id === this.state.activeTabId) || this.getSkillTabs()[0];
   }
 
+  private ensureTreeState(): AIWorkbenchConversationTree {
+    this.state.tree = this.state.tree || createEmptyConversationTree();
+    this.state.tree.activeLeafNodeIds = this.state.tree.activeLeafNodeIds || {};
+    return this.state.tree;
+  }
+
+  private getTreeNode(nodeId: string): AIWorkbenchTreeNode | null {
+    const normalizedId = normalizeString(nodeId);
+    if (!normalizedId) {
+      return null;
+    }
+    return this.ensureTreeState().nodes[normalizedId] || null;
+  }
+
+  private getActiveNodeVersion(node: AIWorkbenchTreeNode) {
+    return node.versions.find((version) => version.id === node.activeVersionId)
+      || node.versions[node.versions.length - 1]
+      || null;
+  }
+
+  private getNodeMessage(node: AIWorkbenchTreeNode): AIWorkbenchMessage | null {
+    const version = this.getActiveNodeVersion(node);
+    if (!version) {
+      return null;
+    }
+    return cloneMessagePayload({
+      ...version.message,
+      id: node.id,
+      skillId: node.skillId,
+      tabId: node.tabId,
+    });
+  }
+
+  private resolveViewLeafId(skillId: AISkillId, tabId: AISkillTabId): string | null {
+    const tree = this.ensureTreeState();
+    const exactKey = createTreeViewKey(skillId, tabId);
+    if (tree.activeLeafNodeIds?.[exactKey]) {
+      return tree.activeLeafNodeIds[exactKey] || null;
+    }
+    const fallbackNode = Object.values(tree.nodes)
+      .filter((node) => this.shouldIncludeNodeInView(node, skillId, tabId))
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .at(-1);
+    return fallbackNode?.id || tree.activeLeafNodeId || tree.rootNodeId || null;
+  }
+
+  private syncTreeLeafWithActiveView(): void {
+    const leafId = this.resolveViewLeafId(this.state.activeSkillId, this.state.activeTabId);
+    this.ensureTreeState().activeLeafNodeId = leafId;
+  }
+
+  private shouldIncludeNodeInView(node: AIWorkbenchTreeNode, skillId: AISkillId, tabId: AISkillTabId): boolean {
+    if (node.skillId !== skillId) {
+      return false;
+    }
+    if (skillId === GENERAL_SKILL) {
+      return true;
+    }
+    return node.scope === 'skill' || node.tabId === tabId;
+  }
+
+  private getProjectedMessagesForView(
+    skillId: AISkillId,
+    tabId: AISkillTabId,
+  ): AIWorkbenchMessage[] {
+    const tree = this.ensureTreeState();
+    const path = traceTreePath(tree, this.resolveViewLeafId(skillId, tabId));
+    return path
+      .map((nodeId) => tree.nodes[nodeId])
+      .filter((node): node is AIWorkbenchTreeNode => Boolean(node))
+      .filter((node) => this.shouldIncludeNodeInView(node, skillId, tabId))
+      .map((node) => this.getNodeMessage(node))
+      .filter((message): message is AIWorkbenchMessage => Boolean(message));
+  }
+
+  private getModelContextMessagesForView(
+    skillId: AISkillId,
+    tabId: AISkillTabId,
+  ): AIWorkbenchMessage[] {
+    const tree = this.ensureTreeState();
+    const pathNodes = traceTreePath(tree, this.resolveViewLeafId(skillId, tabId))
+      .map((nodeId) => tree.nodes[nodeId])
+      .filter((node): node is AIWorkbenchTreeNode => Boolean(node))
+      .filter((node) => this.shouldIncludeNodeInView(node, skillId, tabId));
+    const lastSeparatorIndex = [...pathNodes]
+      .map((node, index) => ({ node, index }))
+      .filter(({ node }) => node.kind === 'separator')
+      .at(-1)?.index ?? -1;
+    const selectedNodeIds = new Set<string>();
+    const nodesForContext = [
+      ...pathNodes.slice(0, lastSeparatorIndex + 1).filter((node) => node.pinned),
+      ...pathNodes.slice(lastSeparatorIndex + 1),
+    ]
+      .filter((node) => node.kind === 'message' && !node.hidden)
+      .filter((node) => {
+        if (selectedNodeIds.has(node.id)) {
+          return false;
+        }
+        selectedNodeIds.add(node.id);
+        return true;
+      });
+    return nodesForContext
+      .map((node) => this.getNodeMessage(node))
+      .filter((message): message is AIWorkbenchMessage => Boolean(message));
+  }
+
+  private rebuildProjectedThreads(): void {
+    const previous = this.state.threads;
+    const next = createInitialThreads();
+    const knownEntries = new Map<string, { skillId: AISkillId; tabId: AISkillTabId }>();
+
+    for (const [skillId, skillThreads] of Object.entries(previous)) {
+      for (const tabId of Object.keys(skillThreads || {})) {
+        knownEntries.set(createTreeViewKey(skillId as AISkillId, tabId as AISkillTabId), {
+          skillId: skillId as AISkillId,
+          tabId: tabId as AISkillTabId,
+        });
+      }
+    }
+    for (const node of Object.values(this.ensureTreeState().nodes)) {
+      knownEntries.set(createTreeViewKey(node.skillId, node.tabId), {
+        skillId: node.skillId,
+        tabId: node.tabId,
+      });
+      if (node.scope === 'skill') {
+        for (const tabId of getSkillTabIds(node.skillId, node.tabId)) {
+          knownEntries.set(createTreeViewKey(node.skillId, tabId), {
+            skillId: node.skillId,
+            tabId,
+          });
+        }
+      }
+    }
+
+    for (const { skillId, tabId } of knownEntries.values()) {
+      next[skillId] = next[skillId] || {};
+      const previousThread = previous[skillId]?.[tabId] || createEmptyThreadRecord(skillId, tabId);
+      next[skillId][tabId] = {
+        ...previousThread,
+        skillId,
+        tabId,
+        messages: this.getProjectedMessagesForView(skillId, tabId),
+      };
+    }
+
+    this.state.threads = next;
+  }
+
+  private appendNodeMessage(
+    tabId: AISkillTabId,
+    message: AIWorkbenchMessage,
+    options?: {
+      scope?: AIWorkbenchNodeScope;
+      parentNodeId?: string | null;
+      activateView?: boolean;
+      updateTabIds?: AISkillTabId[];
+    },
+  ): AIWorkbenchTreeNode {
+    const skillId = this.normalizeSkillForCurrentSettings(message.skillId || this.state.activeSkillId, this.state.activeSkillId);
+    const normalizedTabId = this.normalizeTabForCurrentSettings(tabId, skillId);
+    const tree = this.ensureTreeState();
+    const scope = options?.scope || (skillId === GENERAL_SKILL ? 'skill' : 'tab');
+    const payload = cloneMessagePayload({
+      ...message,
+      id: normalizeString(message.id) || createEntryId('ai-msg'),
+      skillId,
+      tabId: normalizedTabId,
+      view: message.view || skillId,
+    } as AIWorkbenchMessage);
+    const parentNodeId = options?.parentNodeId === undefined
+      ? this.resolveViewLeafId(skillId, normalizedTabId)
+      : options.parentNodeId;
+    const versionId = `${payload.id}::v${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const node: AIWorkbenchTreeNode = {
+      id: payload.id,
+      kind: getMessageNodeKind(payload),
+      skillId,
+      tabId: normalizedTabId,
+      scope,
+      parentId: parentNodeId || null,
+      childIds: [],
+      createdAt: payload.createdAt,
+      hidden: false,
+      pinned: false,
+      status: 'ready',
+      activeVersionId: versionId,
+      versions: [{
+        id: versionId,
+        createdAt: Date.now(),
+        message: payload,
+      }],
+    };
+    tree.nodes[node.id] = node;
+    if (!tree.rootNodeId) {
+      tree.rootNodeId = node.id;
+    }
+    if (node.parentId && tree.nodes[node.parentId] && !tree.nodes[node.parentId].childIds.includes(node.id)) {
+      tree.nodes[node.parentId].childIds.push(node.id);
+    }
+    const updateTabIds = options?.updateTabIds || (scope === 'skill' ? getSkillTabIds(skillId, normalizedTabId) : [normalizedTabId]);
+    for (const affectedTabId of updateTabIds) {
+      tree.activeLeafNodeIds![createTreeViewKey(skillId, affectedTabId)] = node.id;
+    }
+    if (options?.activateView !== false) {
+      tree.activeLeafNodeId = node.id;
+    }
+    this.rebuildProjectedThreads();
+    return node;
+  }
+
+  private addNodeVersion(
+    messageId: string,
+    updater: (message: AIWorkbenchMessage) => AIWorkbenchMessage,
+    options?: { status?: AIWorkbenchTreeNode['status'] },
+  ): AIWorkbenchMessage | null {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
+      return null;
+    }
+    const currentMessage = this.getNodeMessage(node);
+    if (!currentMessage) {
+      return null;
+    }
+    const nextMessage = cloneMessagePayload(updater(currentMessage));
+    nextMessage.id = node.id;
+    nextMessage.skillId = node.skillId;
+    nextMessage.tabId = node.tabId;
+    const versionId = `${node.id}::v${node.versions.length + 1}`;
+    node.versions.push({
+      id: versionId,
+      createdAt: Date.now(),
+      message: nextMessage,
+    });
+    node.activeVersionId = versionId;
+    if (options?.status) {
+      node.status = options.status;
+    }
+    this.rebuildProjectedThreads();
+    return nextMessage;
+  }
+
+  private patchActiveNodeMessage(
+    messageId: string,
+    updater: (message: AIWorkbenchMessage) => AIWorkbenchMessage,
+    options?: { status?: AIWorkbenchTreeNode['status'] },
+  ): AIWorkbenchMessage | null {
+    const node = this.getTreeNode(messageId);
+    const version = node ? this.getActiveNodeVersion(node) : null;
+    if (!node || !version) {
+      return null;
+    }
+    const nextMessage = cloneMessagePayload(updater(version.message));
+    nextMessage.id = node.id;
+    nextMessage.skillId = node.skillId;
+    nextMessage.tabId = node.tabId;
+    version.message = nextMessage;
+    if (options?.status) {
+      node.status = options.status;
+    }
+    this.rebuildProjectedThreads();
+    return nextMessage;
+  }
+
+  private isRenderablePrimaryMessage(message: AIWorkbenchMessage): boolean {
+    if (message.kind === 'tool-log' || message.kind === 'approval') {
+      return false;
+    }
+    if (message.kind === 'assistant-text' && message.presentation === 'supplemental') {
+      return false;
+    }
+    return true;
+  }
+
+  private isSupplementalMessage(messages: AIWorkbenchMessage[], index: number): boolean {
+    const message = messages[index];
+    if (!message) {
+      return false;
+    }
+    if (message.kind === 'tool-log' || message.kind === 'approval') {
+      return true;
+    }
+    if (message.kind !== 'assistant-text') {
+      return false;
+    }
+    if (message.presentation === 'supplemental') {
+      return true;
+    }
+    const nextMessage = messages[index + 1] || null;
+    return Boolean(nextMessage && (nextMessage.kind === 'tool-log' || nextMessage.kind === 'approval'));
+  }
+
+  private createRenderEntry(
+    primaryMessage: AIWorkbenchMessage,
+    supplementalMessages: AIWorkbenchMessage[],
+  ): AIWorkbenchRenderEntry {
+    const nextSupplementalMessages = supplementalMessages.filter((message) => message.id !== primaryMessage.id);
+    return {
+      key: `${primaryMessage.id}::render`,
+      primaryMessage,
+      supplementalMessages: nextSupplementalMessages,
+      stepCount: nextSupplementalMessages.length,
+      pendingApproval: nextSupplementalMessages.find((message): message is AIWorkbenchApprovalMessage => (
+        message.kind === 'approval' && message.request.status === 'pending'
+      )) || null,
+    };
+  }
+
+  getMessageMeta(messageId: string): {
+    scope: AIWorkbenchNodeScope;
+    hidden: boolean;
+    pinned: boolean;
+    versionCount: number;
+    branchCount: number;
+    status: AIWorkbenchTreeNode['status'];
+  } | null {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
+      return null;
+    }
+    return {
+      scope: node.scope,
+      hidden: node.hidden,
+      pinned: node.pinned,
+      versionCount: node.versions.length,
+      branchCount: node.childIds.length,
+      status: node.status,
+    };
+  }
+
+  getActiveTreeWorldline(): Array<{
+    id: string;
+    skillId: AISkillId;
+    tabId: AISkillTabId;
+    scope: AIWorkbenchNodeScope;
+    hidden: boolean;
+    pinned: boolean;
+    versionCount: number;
+    branchCount: number;
+    kind: AIWorkbenchTreeNode['kind'];
+    message: AIWorkbenchMessage | null;
+  }> {
+    const tree = this.ensureTreeState();
+    return traceTreePath(tree, this.resolveViewLeafId(this.state.activeSkillId, this.state.activeTabId))
+      .map((nodeId) => tree.nodes[nodeId])
+      .filter((node): node is AIWorkbenchTreeNode => Boolean(node))
+      .map((node) => ({
+        id: node.id,
+        skillId: node.skillId,
+        tabId: node.tabId,
+        scope: node.scope,
+        hidden: node.hidden,
+        pinned: node.pinned,
+        versionCount: node.versions.length,
+        branchCount: node.childIds.length,
+        kind: node.kind,
+        message: this.getNodeMessage(node),
+      }));
+  }
+
+  async focusTreeNode(nodeId: string): Promise<void> {
+    const node = this.getTreeNode(nodeId);
+    if (!node) {
+      return;
+    }
+    this.state.activeSkillId = node.skillId;
+    this.ensureSkillRuntimeState(node.skillId);
+    this.state.activeTabId = this.normalizeTabForCurrentSettings(node.tabId, node.skillId);
+    this.ensureTreeState().activeLeafNodeIds![createTreeViewKey(node.skillId, node.tabId)] = node.id;
+    this.syncTreeLeafWithActiveView();
+    this.rebuildProjectedThreads();
+    this.syncDerivedStateFromThreads();
+    await this.persistCurrentSession();
+  }
+
+  async branchFromMessage(messageId: string): Promise<void> {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
+      return;
+    }
+    this.ensureTreeState().activeLeafNodeIds![createTreeViewKey(node.skillId, node.tabId)] = node.id;
+    if (this.state.activeSkillId === node.skillId && this.state.activeTabId === node.tabId) {
+      this.ensureTreeState().activeLeafNodeId = node.id;
+    }
+    this.rebuildProjectedThreads();
+    await this.persistCurrentSession();
+  }
+
+  async insertSeparatorAfterMessage(messageId: string): Promise<void> {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
+      return;
+    }
+    this.appendNodeMessage(node.tabId, {
+      id: createEntryId('ai-separator'),
+      skillId: node.skillId,
+      tabId: node.tabId,
+      view: node.skillId,
+      kind: 'separator',
+      createdAt: Date.now(),
+      label: '新的上下文分隔',
+    } satisfies AIWorkbenchSeparatorMessage, {
+      scope: node.scope,
+      parentNodeId: node.id,
+      updateTabIds: node.scope === 'skill' ? getSkillTabIds(node.skillId, node.tabId) : [node.tabId],
+    });
+    this.syncDerivedStateFromThreads();
+    await this.persistCurrentSession();
+  }
+
+  async toggleMessageHidden(messageId: string): Promise<void> {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
+      return;
+    }
+    node.hidden = !node.hidden;
+    this.rebuildProjectedThreads();
+    await this.persistCurrentSession();
+  }
+
+  async toggleMessagePinned(messageId: string): Promise<void> {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
+      return;
+    }
+    node.pinned = !node.pinned;
+    this.rebuildProjectedThreads();
+    await this.persistCurrentSession();
+  }
+
+  async cycleMessageVersion(messageId: string): Promise<void> {
+    const node = this.getTreeNode(messageId);
+    if (!node || node.versions.length <= 1) {
+      return;
+    }
+    const currentIndex = Math.max(0, node.versions.findIndex((version) => version.id === node.activeVersionId));
+    const nextIndex = (currentIndex + 1) % node.versions.length;
+    node.activeVersionId = node.versions[nextIndex]!.id;
+    this.rebuildProjectedThreads();
+    await this.persistCurrentSession();
+  }
+
+  async rerunFromMessage(messageId: string): Promise<void> {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
+      return;
+    }
+    const tree = this.ensureTreeState();
+    const pathNodes = traceTreePath(tree, node.id)
+      .map((nodeId) => tree.nodes[nodeId])
+      .filter((entry): entry is AIWorkbenchTreeNode => Boolean(entry))
+      .filter((entry) => this.shouldIncludeNodeInView(entry, node.skillId, node.tabId));
+    const anchor = [...pathNodes]
+      .reverse()
+      .find((entry) => {
+        const message = this.getNodeMessage(entry);
+        return message?.kind === 'user';
+      }) || node;
+    this.state.activeSkillId = node.skillId;
+    this.ensureSkillRuntimeState(node.skillId);
+    this.state.activeTabId = node.tabId;
+    tree.activeLeafNodeIds![createTreeViewKey(node.skillId, node.tabId)] = anchor.id;
+    tree.activeLeafNodeId = anchor.id;
+    this.rebuildProjectedThreads();
+    this.syncDerivedStateFromThreads();
+    if (node.skillId === GENERAL_SKILL) {
+      await this.runActiveSkill();
+      return;
+    }
+    await this.runActiveTab();
+  }
+
+  cancelCurrentRun(): void {
+    this.currentRunAbortController?.abort();
+  }
+
   setActiveTab(tabId: AISkillTabId): void {
     this.ensureSkillRuntimeState(this.state.activeSkillId);
     this.state.activeTabId = this.normalizeTabForCurrentSettings(tabId, this.state.activeSkillId);
+    this.syncTreeLeafWithActiveView();
+    this.rebuildProjectedThreads();
     this.schedulePersistCurrentSession();
   }
 
@@ -1483,6 +2054,8 @@ export class AIWorkbenchService {
     this.state.activeView = normalizedSkillId;
     this.ensureSkillRuntimeState(normalizedSkillId);
     this.state.activeTabId = this.normalizeTabForCurrentSettings(this.state.activeTabId, normalizedSkillId);
+    this.syncTreeLeafWithActiveView();
+    this.rebuildProjectedThreads();
     this.schedulePersistCurrentSession();
   }
 
@@ -1498,6 +2071,56 @@ export class AIWorkbenchService {
 
   getThreadMessages(_view?: unknown, tabId: AISkillTabId = this.state.activeTabId): AIWorkbenchMessage[] {
     return this.getThread(undefined, tabId).messages;
+  }
+
+  getRenderEntries(_view?: unknown, tabId: AISkillTabId = this.state.activeTabId): AIWorkbenchRenderEntry[] {
+    const messages = this.getThreadMessages(undefined, tabId);
+    const entries: AIWorkbenchRenderEntry[] = [];
+    let pendingSupplemental: AIWorkbenchMessage[] = [];
+
+    const flushPendingIntoLastEntry = () => {
+      if (pendingSupplemental.length === 0) {
+        return;
+      }
+      if (entries.length > 0) {
+        const lastEntry = entries[entries.length - 1]!;
+        lastEntry.supplementalMessages.push(...pendingSupplemental);
+        lastEntry.stepCount = lastEntry.supplementalMessages.length;
+        lastEntry.pendingApproval = lastEntry.supplementalMessages.find((message): message is AIWorkbenchApprovalMessage => (
+          message.kind === 'approval' && message.request.status === 'pending'
+        )) || lastEntry.pendingApproval;
+        pendingSupplemental = [];
+        return;
+      }
+      const fallbackPrimary = [...pendingSupplemental]
+        .reverse()
+        .find((message) => message.kind === 'assistant-text')
+        || pendingSupplemental[0];
+      if (fallbackPrimary) {
+        entries.push(this.createRenderEntry(
+          fallbackPrimary,
+          pendingSupplemental.filter((message) => message.id !== fallbackPrimary.id),
+        ));
+      }
+      pendingSupplemental = [];
+    };
+
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index]!;
+      if (this.isSupplementalMessage(messages, index)) {
+        pendingSupplemental.push(message);
+        continue;
+      }
+      if (!this.isRenderablePrimaryMessage(message)) {
+        pendingSupplemental.push(message);
+        continue;
+      }
+      entries.push(this.createRenderEntry(message, pendingSupplemental));
+      pendingSupplemental = [];
+    }
+
+    flushPendingIntoLastEntry();
+    return entries;
   }
 
   isViewStale(_view?: unknown, tabId: AISkillTabId = this.state.activeTabId): boolean {
@@ -1548,6 +2171,8 @@ export class AIWorkbenchService {
     this.state.activeView = skillId;
     this.ensureSkillRuntimeState(skillId);
     this.state.activeTabId = this.normalizeTabForCurrentSettings(this.state.activeTabId, skillId);
+    this.syncTreeLeafWithActiveView();
+    this.rebuildProjectedThreads();
     this.schedulePersistCurrentSession();
   }
 
@@ -1628,8 +2253,11 @@ export class AIWorkbenchService {
     if (!target || target.message.kind !== 'assistant-text') {
       return;
     }
-    target.message.sourceContent = target.message.sourceContent || target.message.content;
-    target.message.content = normalizeString(content);
+    this.addNodeVersion(messageId, (message) => ({
+      ...(message as AIWorkbenchAssistantTextMessage),
+      sourceContent: (message as AIWorkbenchAssistantTextMessage).sourceContent || (message as AIWorkbenchAssistantTextMessage).content,
+      content: normalizeString(content),
+    } satisfies AIWorkbenchAssistantTextMessage));
     this.syncDerivedStateFromThreads();
     await this.persistCurrentSession();
   }
@@ -1825,27 +2453,28 @@ export class AIWorkbenchService {
     const tabIds = this.getSkillTabs(skill.id).map((tab) => tab.id);
     await this.runTask(tabIds, async () => {
       const attachedContexts = this.consumeComposerContexts();
-      for (const tab of this.getSkillTabs()) {
-        this.appendMessage(tab.id, {
-          id: createEntryId('ai-msg'),
-          skillId: skill.id,
-          tabId: tab.id,
-          view: skill.id,
-          kind: 'user',
-          purpose: 'initial-run',
-          content: normalizedQuestion,
-          createdAt: Date.now(),
-          editedFromMessageId: null,
-          attachedContexts,
-        } satisfies AIWorkbenchUserMessage);
-      }
+      const initialMessage = {
+        id: createEntryId('ai-msg'),
+        skillId: skill.id,
+        tabId: this.getPrimaryTabId(skill.id),
+        view: skill.id,
+        kind: 'user',
+        purpose: 'initial-run',
+        content: normalizedQuestion,
+        createdAt: Date.now(),
+        editedFromMessageId: null,
+        attachedContexts,
+      } satisfies AIWorkbenchUserMessage;
+      const initialNode = this.appendNodeMessage(initialMessage.tabId, initialMessage, {
+        scope: skill.id === CONCEPT_SKILL ? 'skill' : 'tab',
+      });
       if (skill.id === CONCEPT_SKILL) {
         const response = await this.requestConceptCoachResult(attachedContexts, normalizedQuestion);
-        this.appendConceptCoachFullResult(response.content, attachedContexts);
+        this.appendConceptCoachFullResult(response.content, attachedContexts, initialNode.id);
         return;
       }
       const response = await this.requestGenericStructuredResult(skill, attachedContexts, normalizedQuestion);
-      this.appendGenericStructuredFullResult(skill, response.content, attachedContexts);
+      this.appendGenericStructuredFullResult(skill, response.content, attachedContexts, initialNode.id);
     }, 'full-run');
   }
 
@@ -1869,7 +2498,8 @@ export class AIWorkbenchService {
       throw this.fail(disabledReason);
     }
     const attachedContexts = this.consumeComposerContexts();
-    this.appendMessage(tabId, {
+    const editedNode = normalizeString(options?.editedFromMessageId) ? this.getTreeNode(options?.editedFromMessageId || '') : null;
+    this.appendNodeMessage(tabId, {
       id: createEntryId('ai-msg'),
       skillId: skill.id,
       tabId,
@@ -1880,7 +2510,9 @@ export class AIWorkbenchService {
       createdAt: Date.now(),
       editedFromMessageId: normalizeString(options?.editedFromMessageId) || null,
       attachedContexts,
-    } satisfies AIWorkbenchUserMessage);
+    } satisfies AIWorkbenchUserMessage, {
+      parentNodeId: editedNode?.parentId,
+    });
 
     this.state.isLoading = true;
     this.state.runStatus = this.createRunStatus('follow-up', [tabId]);
@@ -1924,7 +2556,9 @@ export class AIWorkbenchService {
     const tabId = this.getPrimaryTabId(skill.id);
     this.ensureSkillRuntimeState(skill.id);
     const attachedContexts = this.consumeComposerContexts();
-    this.appendMessage(tabId, {
+    const runGroupId = createEntryId('ai-run');
+    const editedNode = normalizeString(options?.editedFromMessageId) ? this.getTreeNode(options?.editedFromMessageId || '') : null;
+    this.appendNodeMessage(tabId, {
       id: createEntryId('ai-msg'),
       skillId: skill.id,
       tabId,
@@ -1935,14 +2569,17 @@ export class AIWorkbenchService {
       createdAt: Date.now(),
       editedFromMessageId: normalizeString(options?.editedFromMessageId) || null,
       attachedContexts,
-    } satisfies AIWorkbenchUserMessage);
+    } satisfies AIWorkbenchUserMessage, {
+      scope: 'skill',
+      parentNodeId: editedNode?.parentId,
+    });
 
     this.state.isLoading = true;
     this.state.runStatus = this.createRunStatus('chat', [CHAT_TAB]);
     this.state.error = null;
     this.state.failureDiagnostic = null;
     try {
-      await this.runGeneralChatToolLoop(skill, tabId, attachedContexts);
+      await this.runGeneralChatToolLoop(skill, tabId, attachedContexts, runGroupId);
       this.syncDerivedStateFromThreads();
       await this.persistCurrentSession();
     } catch (error) {
@@ -1957,6 +2594,7 @@ export class AIWorkbenchService {
     skill: AIChatRegisteredSkillDescriptor,
     tabId: AISkillTabId,
     attachedContexts: AIAttachedContextItem[],
+    runGroupId: string,
   ): Promise<void> {
     const settings = this.assertModelSettings();
     const provider = this.resolveDefaultProvider(settings);
@@ -1965,25 +2603,86 @@ export class AIWorkbenchService {
     const maxRounds = Math.max(1, settings.chatDefaults.maxToolRounds || 4);
 
     for (let round = 0; round < maxRounds; round += 1) {
-      const response = await this.requestChatModel(llmMessages, {
-        settings,
-        provider,
-        tools: enabledTools,
+      const assistantMessageId = createEntryId('ai-msg');
+      const placeholderNode = this.appendNodeMessage(tabId, {
+        id: assistantMessageId,
+        skillId: skill.id,
+        tabId,
+        view: skill.id,
+        kind: 'assistant-text',
+        content: '',
+        createdAt: Date.now(),
+        sourceContent: null,
+        appliedContexts: attachedContexts,
+        reasoningContent: '',
+        diagnostics: [],
+        runGroupId,
+        presentation: 'primary',
+      } satisfies AIWorkbenchAssistantTextMessage, {
+        scope: 'skill',
       });
+      placeholderNode.status = 'streaming';
+      let response: LLMResponse;
+      try {
+        response = await this.requestChatModel(llmMessages, {
+          settings,
+          provider,
+          tools: enabledTools,
+          observer: {
+            onTextDelta: (delta) => {
+              if (!delta) {
+                return;
+              }
+              this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+                ...(message as AIWorkbenchAssistantTextMessage),
+                content: `${(message as AIWorkbenchAssistantTextMessage).content || ''}${delta}`,
+              } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
+            },
+            onReasoningDelta: (delta) => {
+              if (!delta) {
+                return;
+              }
+              this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+                ...(message as AIWorkbenchAssistantTextMessage),
+                reasoningContent: `${(message as AIWorkbenchAssistantTextMessage).reasoningContent || ''}${delta}`,
+              } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
+            },
+            onDiagnostic: (diagnostic) => {
+              if (!diagnostic) {
+                return;
+              }
+              this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+                ...(message as AIWorkbenchAssistantTextMessage),
+                diagnostics: [
+                  ...((message as AIWorkbenchAssistantTextMessage).diagnostics || []),
+                  diagnostic,
+                ].slice(-8),
+              } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
+            },
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('已停止') || message.includes('aborted')) {
+          this.patchActiveNodeMessage(assistantMessageId, (entry) => ({
+            ...(entry as AIWorkbenchAssistantTextMessage),
+            interrupted: true,
+          } satisfies AIWorkbenchAssistantTextMessage), { status: 'interrupted' });
+        }
+        throw error;
+      }
       const assistantContent = normalizeString(response.content);
       const toolCalls = response.toolCalls || [];
       if (toolCalls.length === 0) {
-        this.appendMessage(tabId, {
-          id: createEntryId('ai-msg'),
-          skillId: skill.id,
-          tabId,
-          view: skill.id,
-          kind: 'assistant-text',
+        this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+          ...(message as AIWorkbenchAssistantTextMessage),
           content: assistantContent || '这次没有返回可用内容。',
-          createdAt: Date.now(),
           sourceContent: assistantContent || null,
-          appliedContexts: attachedContexts,
-        } satisfies AIWorkbenchAssistantTextMessage);
+          reasoningContent: response.reasoningContent || (message as AIWorkbenchAssistantTextMessage).reasoningContent || null,
+          diagnostics: response.diagnostics || (message as AIWorkbenchAssistantTextMessage).diagnostics || [],
+          interrupted: false,
+          presentation: 'primary',
+        } satisfies AIWorkbenchAssistantTextMessage), { status: 'ready' });
         return;
       }
 
@@ -1991,21 +2690,18 @@ export class AIWorkbenchService {
         role: 'assistant',
         content: assistantContent,
         toolCalls,
+        reasoningContent: response.reasoningContent,
       });
 
-      if (assistantContent) {
-        this.appendMessage(tabId, {
-          id: createEntryId('ai-msg'),
-          skillId: skill.id,
-          tabId,
-          view: skill.id,
-          kind: 'assistant-text',
-          content: assistantContent,
-          createdAt: Date.now(),
-          sourceContent: assistantContent,
-          appliedContexts: attachedContexts,
-        } satisfies AIWorkbenchAssistantTextMessage);
-      }
+      this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+        ...(message as AIWorkbenchAssistantTextMessage),
+        content: assistantContent || (message as AIWorkbenchAssistantTextMessage).content || '',
+        sourceContent: assistantContent || (message as AIWorkbenchAssistantTextMessage).sourceContent || null,
+        reasoningContent: response.reasoningContent || (message as AIWorkbenchAssistantTextMessage).reasoningContent || null,
+        diagnostics: response.diagnostics || (message as AIWorkbenchAssistantTextMessage).diagnostics || [],
+        interrupted: false,
+        presentation: 'supplemental',
+      } satisfies AIWorkbenchAssistantTextMessage), { status: 'ready' });
 
       for (const llmToolCall of toolCalls) {
         const toolCall = this.toRuntimeToolCall(llmToolCall);
@@ -2014,10 +2710,10 @@ export class AIWorkbenchService {
           attachedContexts,
         });
         this.state.toolTimeline.push(outcome.result);
-        this.appendToolLogMessage(outcome.result, skill.id, tabId);
+        this.appendToolLogMessage(outcome.result, skill.id, tabId, runGroupId);
         if (outcome.approval) {
           this.state.pendingApprovals.push(outcome.approval);
-          this.appendApprovalMessage(outcome.approval, skill.id, tabId);
+          this.appendApprovalMessage(outcome.approval, skill.id, tabId, runGroupId);
           this.addRuntimeDiagnostic({
             type: 'approval',
             message: `工具 ${outcome.approval.toolName} 需要用户审批后才能执行。`,
@@ -2034,6 +2730,8 @@ export class AIWorkbenchService {
             createdAt: Date.now(),
             sourceContent: null,
             appliedContexts: attachedContexts,
+            runGroupId,
+            presentation: 'primary',
           } satisfies AIWorkbenchAssistantTextMessage);
           return;
         }
@@ -2056,20 +2754,29 @@ export class AIWorkbenchService {
       createdAt: Date.now(),
       sourceContent: null,
       appliedContexts: attachedContexts,
+      runGroupId,
+      presentation: 'primary',
     } satisfies AIWorkbenchAssistantTextMessage);
   }
 
   private async activateLiveContext(
     nextContext: AIWorkbenchContextSnapshot,
-    options?: { forceNewSession?: boolean },
+    options?: { forceNewSession?: boolean; previousReviewChatKey?: string | null },
   ): Promise<void> {
     const nextSignature = buildContextSignature(nextContext);
     const currentSignature = this.state.contextSignature;
     const currentSource = this.state.context?.source || null;
+    const normalizedPreviousReviewChatKey = normalizeString(options?.previousReviewChatKey) || null;
+    const normalizedCurrentReviewChatKey = normalizeString(this.state.reviewChatKey) || null;
+    const reuseCurrentReviewChatSession = nextContext.source === 'review'
+      && currentSource === 'review'
+      && Boolean(normalizedCurrentReviewChatKey)
+      && (!normalizedPreviousReviewChatKey || normalizedCurrentReviewChatKey === normalizedPreviousReviewChatKey)
+      && Boolean(this.state.sessionId);
     const shouldCreateNewSession = options?.forceNewSession === true
-      || this.state.contextIsHistorical
+      || (this.state.contextIsHistorical && !reuseCurrentReviewChatSession)
       || !this.state.sessionId
-      || currentSignature !== nextSignature
+      || (!reuseCurrentReviewChatSession && currentSignature !== nextSignature)
       || currentSource !== nextContext.source;
 
     if (shouldCreateNewSession) {
@@ -2078,6 +2785,45 @@ export class AIWorkbenchService {
       return;
     }
 
+    await this.refreshCurrentSessionContext(nextContext, nextSignature);
+  }
+
+  private async tryHydrateReviewChatSession(nextContext: AIWorkbenchContextSnapshot): Promise<boolean> {
+    const reviewChatKey = normalizeString(this.state.reviewChatKey) || null;
+    if (
+      nextContext.source !== 'review'
+      || !reviewChatKey
+      || this.state.sessionId
+      || !this.getSessionStore().findLatestByReviewChatKey
+    ) {
+      return false;
+    }
+
+    const summary = await this.getSessionStore().findLatestByReviewChatKey({
+      reviewChatKey,
+      source: 'review',
+    });
+    if (!summary) {
+      return false;
+    }
+    const record = await this.getSessionStore().loadSession(summary.id);
+    if (!record) {
+      return false;
+    }
+
+    const currentSourceReviewSessionId = this.state.sourceReviewSessionId;
+    this.applySessionRecord(record, nextContext);
+    this.state.reviewChatKey = reviewChatKey;
+    this.state.sourceReviewSessionId = currentSourceReviewSessionId;
+    await this.refreshCurrentSessionContext(nextContext);
+    await this.refreshSessionHistory();
+    return true;
+  }
+
+  private async refreshCurrentSessionContext(
+    nextContext: AIWorkbenchContextSnapshot,
+    nextSignature = buildContextSignature(nextContext),
+  ): Promise<void> {
     this.state.context = nextContext;
     this.state.liveContext = nextContext;
     this.state.contextSignature = nextSignature;
@@ -2102,6 +2848,7 @@ export class AIWorkbenchService {
       title: this.generateSessionTitle(context),
       source: context.source,
       sourceReviewSessionId: this.state.sourceReviewSessionId,
+      reviewChatKey: this.state.reviewChatKey,
       surface: this.state.surface,
       contextSignature,
       createdAt: now,
@@ -2113,9 +2860,10 @@ export class AIWorkbenchService {
       lastActiveView: this.state.activeSkillId,
       activeViews: [],
       context,
-      schemaVersion: 2,
+      schemaVersion: 4,
       messages: [],
       threads,
+      tree: createEmptyConversationTree(),
       skillResults: { [GENERAL_SKILL]: null, [CONCEPT_SKILL]: null },
       genericSkillResults: {},
       vars: [],
@@ -2140,6 +2888,8 @@ export class AIWorkbenchService {
     this.state.sessionTitle = record.title;
     this.state.surface = normalizeSurface(record.surface);
     this.state.sourceReviewSessionId = record.sourceReviewSessionId;
+    this.state.reviewChatKey = normalizeString(record.reviewChatKey)
+      || deriveReviewChatKey(record.context || null);
     this.state.context = record.context;
     this.state.contextSignature = record.contextSignature;
     this.state.liveContext = liveContext;
@@ -2153,6 +2903,7 @@ export class AIWorkbenchService {
     this.state.activeTabId = this.normalizeTabForCurrentSettings(record.activeTabId, this.state.activeSkillId);
     this.state.activeView = this.state.activeSkillId;
     this.state.threads = normalizeThreads(record.threads);
+    this.state.tree = record.tree || createEmptyConversationTree();
     this.ensureSkillRuntimeState(this.state.activeSkillId);
     this.state.skillResults = {
       [GENERAL_SKILL]: null,
@@ -2191,6 +2942,8 @@ export class AIWorkbenchService {
     this.state.editingMessageKind = null;
     this.state.runStatus = null;
     this.state.failureDiagnostic = null;
+    this.syncTreeLeafWithActiveView();
+    this.rebuildProjectedThreads();
     this.syncDerivedStateFromThreads();
   }
 
@@ -2212,6 +2965,7 @@ export class AIWorkbenchService {
   }
 
   private syncDerivedStateFromThreads(): void {
+    this.rebuildProjectedThreads();
     for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
       const thread = this.state.threads[CONCEPT_SKILL][tabId];
       const viewState = this.state.viewState[CONCEPT_SKILL][tabId];
@@ -2219,6 +2973,7 @@ export class AIWorkbenchService {
       viewState.stale = thread.stale;
       viewState.staleReason = thread.staleReason;
       viewState.followUps = thread.messages
+        .filter((message) => !this.getTreeNode(message.id)?.hidden)
         .filter((message) => (
           message.kind === 'assistant-text'
           || (message.kind === 'user' && resolveUserMessagePurpose(message.purpose) === 'follow-up')
@@ -2245,6 +3000,7 @@ export class AIWorkbenchService {
         viewState.stale = thread.stale;
         viewState.staleReason = thread.staleReason;
         viewState.followUps = thread.messages
+          .filter((message) => !this.getTreeNode(message.id)?.hidden)
           .filter((message) => (
             message.kind === 'assistant-text'
             || (message.kind === 'user' && resolveUserMessagePurpose(message.purpose) === 'follow-up')
@@ -2294,20 +3050,14 @@ export class AIWorkbenchService {
   }
 
   private flattenTimelineMessages(): AIWorkbenchMessage[] {
-    return Object.values(this.state.threads)
-      .flatMap((skillThreads) => Object.values(skillThreads).flatMap((thread) => thread.messages || []))
+    return Object.values(this.ensureTreeState().nodes)
+      .map((node) => this.getNodeMessage(node))
+      .filter((message): message is AIWorkbenchMessage => Boolean(message))
       .sort((left, right) => left.createdAt - right.createdAt);
   }
 
   private appendMessage(tabId: AISkillTabId, message: AIWorkbenchMessage): void {
-    const skillId = this.normalizeSkillForCurrentSettings(message.skillId || this.state.activeSkillId, this.state.activeSkillId);
-    this.ensureSkillRuntimeState(skillId);
-    const normalizedTabId = this.normalizeTabForCurrentSettings(tabId, skillId);
-    this.state.threads[skillId][normalizedTabId].messages.push({
-      ...message,
-      skillId,
-      tabId: normalizedTabId,
-    } as AIWorkbenchMessage);
+    this.appendNodeMessage(tabId, message);
     this.syncDerivedStateFromThreads();
     this.schedulePersistCurrentSession();
   }
@@ -2319,37 +3069,33 @@ export class AIWorkbenchService {
   }
 
   private findMessage(messageId: string): { tabId: AISkillTabId; index: number; message: AIWorkbenchMessage } | null {
-    const normalizedId = normalizeString(messageId);
-    if (!normalizedId) {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
       return null;
     }
-    for (const [skillId, skillThreads] of Object.entries(this.state.threads)) {
-      for (const [tabId, thread] of Object.entries(skillThreads)) {
-        const messages = thread.messages;
-        const index = messages.findIndex((message) => message.id === normalizedId);
-        if (index >= 0) {
-          return { tabId: tabId as AISkillTabId, index, message: messages[index] };
-        }
-      }
-    }
-    return null;
+    const messages = this.getProjectedMessagesForView(node.skillId, node.tabId);
+    const index = messages.findIndex((message) => message.id === node.id);
+    const message = index >= 0 ? messages[index] : this.getNodeMessage(node);
+    return message ? { tabId: node.tabId, index: Math.max(index, 0), message } : null;
   }
 
   private replaceLatestTabResultMessage(tabId: AISkillTabId, result: AIConceptCoachResult): void {
-    const messages = this.state.threads[CONCEPT_SKILL][tabId].messages;
-    const latest = [...messages].reverse().find((message): message is AIWorkbenchAssistantResultMessage => (
-      message.kind === 'assistant-result'
-    ));
-    if (!latest) {
+    const latest = [...this.state.threads[CONCEPT_SKILL][tabId].messages]
+      .reverse()
+      .find((message): message is AIWorkbenchAssistantResultMessage => message.kind === 'assistant-result');
+    if (!latest || !this.getTreeNode(latest.id)) {
       return;
     }
-    latest.conceptCoachResult = cloneConceptCoachResult(result);
-    latest.tabResult = tabResultFromConceptCoach(result, tabId);
-    latest.normalizationDiagnostic = deriveTabNormalizationDiagnostic(tabId, latest.tabResult, 'edited-result');
-    latest.explainResult = explainResultFromConceptCoach(result);
-    latest.rawContent = JSON.stringify(tabId === 'self-test-cards'
-      ? { selfTestCards: result.selfTestCards }
-      : result, null, 2);
+    this.addNodeVersion(latest.id, (message) => ({
+      ...(message as AIWorkbenchAssistantResultMessage),
+      conceptCoachResult: cloneConceptCoachResult(result),
+      tabResult: tabResultFromConceptCoach(result, tabId),
+      normalizationDiagnostic: deriveTabNormalizationDiagnostic(tabId, tabResultFromConceptCoach(result, tabId), 'edited-result'),
+      explainResult: explainResultFromConceptCoach(result),
+      rawContent: JSON.stringify(tabId === 'self-test-cards'
+        ? { selfTestCards: result.selfTestCards }
+        : result, null, 2),
+    } satisfies AIWorkbenchAssistantResultMessage));
     this.syncDerivedStateFromThreads();
   }
 
@@ -2704,7 +3450,7 @@ export class AIWorkbenchService {
       ].join('\n\n'),
     };
 
-    const historyMessages = (this.state.threads[skill.id]?.[tabId]?.messages || [])
+    const historyMessages = this.getModelContextMessagesForView(skill.id, tabId)
       .filter((message) => message.kind !== 'approval')
       .slice(-20)
       .map((message): LLMMessage | null => {
@@ -2736,10 +3482,12 @@ export class AIWorkbenchService {
       settings: AISettings;
       provider: AIProviderConfig;
       tools?: Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }>;
+      observer?: Parameters<NonNullable<LLMPort['chat']>>[0]['observer'];
     },
   ): Promise<LLMResponse> {
     const settings = input.settings;
     const provider = input.provider;
+    this.currentRunAbortController = new AbortController();
     try {
       return await this.deps.llmPort.chat({
         baseUrl: provider.baseUrl || settings.baseUrl,
@@ -2757,6 +3505,8 @@ export class AIWorkbenchService {
         tools: input.tools,
         toolChoice: input.tools?.length ? 'auto' : undefined,
         stream: settings.chatDefaults.stream,
+        abortSignal: this.currentRunAbortController.signal,
+        observer: input.observer,
       });
     } catch (error) {
       if (error instanceof LLMError) {
@@ -2764,6 +3514,8 @@ export class AIWorkbenchService {
         throw this.fail(this.mapLlmError(error));
       }
       throw error;
+    } finally {
+      this.currentRunAbortController = null;
     }
   }
 
@@ -2782,7 +3534,12 @@ export class AIWorkbenchService {
     };
   }
 
-  private appendToolLogMessage(result: AIChatToolExecutionResult, skillId: AISkillId = this.state.activeSkillId, tabId: AISkillTabId = this.state.activeTabId): void {
+  private appendToolLogMessage(
+    result: AIChatToolExecutionResult,
+    skillId: AISkillId = this.state.activeSkillId,
+    tabId: AISkillTabId = this.state.activeTabId,
+    runGroupId?: string | null,
+  ): void {
     this.appendMessage(tabId, {
       id: createEntryId('ai-tool'),
       skillId,
@@ -2797,10 +3554,17 @@ export class AIWorkbenchService {
       content: result.finalText,
       error: result.error || null,
       varRef: result.varRef || null,
+      runGroupId: normalizeString(runGroupId) || null,
+      presentation: 'supplemental',
     } satisfies AIWorkbenchToolLogMessage);
   }
 
-  private appendApprovalMessage(request: AIChatApprovalRequest, skillId: AISkillId = this.state.activeSkillId, tabId: AISkillTabId = this.state.activeTabId): void {
+  private appendApprovalMessage(
+    request: AIChatApprovalRequest,
+    skillId: AISkillId = this.state.activeSkillId,
+    tabId: AISkillTabId = this.state.activeTabId,
+    runGroupId?: string | null,
+  ): void {
     this.appendMessage(tabId, {
       id: createEntryId('ai-approval'),
       skillId,
@@ -2809,18 +3573,22 @@ export class AIWorkbenchService {
       kind: 'approval',
       createdAt: request.createdAt,
       request,
+      runGroupId: normalizeString(runGroupId) || null,
+      presentation: 'supplemental',
     } satisfies AIWorkbenchApprovalMessage);
   }
 
   private updateApprovalMessage(request: AIChatApprovalRequest): void {
-    const message = Object.values(this.state.threads)
-      .flatMap((skillThreads) => Object.values(skillThreads))
-      .flatMap((thread) => thread.messages)
-      .find((entry): entry is AIWorkbenchApprovalMessage => (
-        entry.kind === 'approval' && entry.request.id === request.id
-      ));
-    if (message) {
-      message.request = request;
+    const node = Object.values(this.ensureTreeState().nodes)
+      .find((entry) => {
+        const message = this.getNodeMessage(entry);
+        return message?.kind === 'approval' && message.request.id === request.id;
+      }) || null;
+    if (node) {
+      this.patchActiveNodeMessage(node.id, (message) => ({
+        ...(message as AIWorkbenchApprovalMessage),
+        request,
+      } satisfies AIWorkbenchApprovalMessage));
     }
     this.syncDerivedStateFromThreads();
   }
@@ -2925,6 +3693,7 @@ export class AIWorkbenchService {
   ): Promise<LLMResponse> {
     const settings = this.assertModelSettings();
     const provider = this.resolveDefaultProvider(settings);
+    this.currentRunAbortController = new AbortController();
     try {
       return await this.deps.llmPort.chat({
         baseUrl: provider.baseUrl || settings.baseUrl,
@@ -2949,6 +3718,7 @@ export class AIWorkbenchService {
             content: JSON.stringify(payload, null, 2),
           },
         ],
+        abortSignal: this.currentRunAbortController.signal,
       });
     } catch (error) {
       if (error instanceof LLMError) {
@@ -2956,6 +3726,8 @@ export class AIWorkbenchService {
         throw this.fail(this.mapLlmError(error));
       }
       throw error;
+    } finally {
+      this.currentRunAbortController = null;
     }
   }
 
@@ -2971,6 +3743,7 @@ export class AIWorkbenchService {
       throw this.fail('当前阶段没有可追问的结构化结果。');
     }
     const prompts = settings.prompts.skills.conceptCoach;
+    this.currentRunAbortController = new AbortController();
     try {
       return await this.deps.llmPort.chat({
         baseUrl: provider.baseUrl || settings.baseUrl,
@@ -3012,6 +3785,7 @@ export class AIWorkbenchService {
             content: entry.content,
           })),
         ],
+        abortSignal: this.currentRunAbortController.signal,
       });
     } catch (error) {
       if (error instanceof LLMError) {
@@ -3019,6 +3793,8 @@ export class AIWorkbenchService {
         throw this.fail(this.mapLlmError(error));
       }
       throw error;
+    } finally {
+      this.currentRunAbortController = null;
     }
   }
 
@@ -3035,6 +3811,7 @@ export class AIWorkbenchService {
     if (!section || !tabResult) {
       throw this.fail('当前 section 没有可追问的结构化结果。');
     }
+    this.currentRunAbortController = new AbortController();
     try {
       return await this.deps.llmPort.chat({
         baseUrl: provider.baseUrl || settings.baseUrl,
@@ -3080,6 +3857,7 @@ export class AIWorkbenchService {
             content: entry.content,
           })),
         ],
+        abortSignal: this.currentRunAbortController.signal,
       });
     } catch (error) {
       if (error instanceof LLMError) {
@@ -3087,6 +3865,8 @@ export class AIWorkbenchService {
         throw this.fail(this.mapLlmError(error));
       }
       throw error;
+    } finally {
+      this.currentRunAbortController = null;
     }
   }
 
@@ -3168,7 +3948,11 @@ export class AIWorkbenchService {
     }
   }
 
-  private appendConceptCoachFullResult(rawContent: string, appliedContexts: AIAttachedContextItem[]): void {
+  private appendConceptCoachFullResult(
+    rawContent: string,
+    appliedContexts: AIAttachedContextItem[],
+    parentNodeId?: string | null,
+  ): void {
     const payload = this.extractStructuredPayload('AI 理解与制卡', rawContent);
     const normalized = normalizeConceptCoachState(payload, rawContent);
     const result = normalized.result;
@@ -3176,7 +3960,7 @@ export class AIWorkbenchService {
     this.state.explainResult = explainResultFromConceptCoach(result);
     const now = Date.now();
     for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
-      this.appendMessage(tabId, {
+      this.appendNodeMessage(tabId, {
         id: createEntryId('ai-msg'),
         skillId: ACTIVE_SKILL,
         tabId,
@@ -3189,7 +3973,10 @@ export class AIWorkbenchService {
         normalizationDiagnostic: normalized.diagnostics[tabId] ?? deriveTabNormalizationDiagnostic(tabId, tabResultFromConceptCoach(result, tabId), describeRawShape(payload)),
         explainResult: explainResultFromConceptCoach(result),
         appliedContexts,
-      } satisfies AIWorkbenchAssistantResultMessage);
+      } satisfies AIWorkbenchAssistantResultMessage, {
+        scope: 'tab',
+        parentNodeId,
+      });
     }
   }
 
@@ -3223,13 +4010,14 @@ export class AIWorkbenchService {
     skill: AIChatRegisteredSkillDescriptor,
     rawContent: string,
     appliedContexts: AIAttachedContextItem[],
+    parentNodeId?: string | null,
   ): void {
     const payload = this.extractStructuredPayload(skill.title, rawContent);
     const normalized = normalizeGenericStructuredResult(skill, payload, rawContent);
     this.state.genericSkillResults[skill.id] = normalized.result;
     const now = Date.now();
     for (const section of normalized.result.sections) {
-      this.appendMessage(section.id, {
+      this.appendNodeMessage(section.id, {
         id: createEntryId('ai-msg'),
         skillId: skill.id,
         tabId: section.id,
@@ -3244,7 +4032,10 @@ export class AIWorkbenchService {
         normalizationDiagnostic: normalized.diagnostic,
         explainResult: null,
         appliedContexts,
-      } satisfies AIWorkbenchAssistantResultMessage);
+      } satisfies AIWorkbenchAssistantResultMessage, {
+        scope: 'tab',
+        parentNodeId,
+      });
     }
   }
 
@@ -3384,6 +4175,16 @@ export class AIWorkbenchService {
   }
 
   private generateSessionTitle(context: AIWorkbenchContextSnapshot): string {
+    if (context.source === 'review') {
+      const queueLabel = normalizeString(context.queueProgress?.queueLabel);
+      if (queueLabel) {
+        return this.truncateTitle(`${queueLabel} · AI 会话`);
+      }
+      const queueType = normalizeString(context.queueType);
+      if (queueType) {
+        return this.truncateTitle(`${queueType} · AI 会话`);
+      }
+    }
     const currentCard = context.currentCard;
     if (currentCard) {
       const cardText = normalizeString(currentCard.frontText) || normalizeString(currentCard.sourceText);
@@ -3424,18 +4225,20 @@ export class AIWorkbenchService {
     if (!sessionId) {
       return null;
     }
-    const messageCount = Object.values(this.state.threads).reduce((total, skillThreads) => (
-      total + Object.values(skillThreads).reduce((innerTotal, thread) => innerTotal + thread.messages.length, 0)
-    ), 0);
-    const activeSkills: AISkillId[] = Object.entries(this.state.threads)
-      .filter(([, skillThreads]) => Object.values(skillThreads).some((thread) => thread.messages.length > 0))
-      .map(([skillId]) => skillId as AISkillId);
+    const tree = this.ensureTreeState();
+    const messageCount = Object.values(tree.nodes).filter((node) => node.kind === 'message').length;
+    const activeSkills: AISkillId[] = Array.from(new Set(
+      Object.values(tree.nodes)
+        .filter((node) => node.kind === 'message')
+        .map((node) => node.skillId),
+    ));
     return {
-      schemaVersion: 2,
+      schemaVersion: 4,
       id: sessionId,
       title: normalizeString(this.state.sessionTitle) || '未命名会话',
       source: this.state.context?.source || this.state.liveContext?.source || 'standalone',
       sourceReviewSessionId: this.state.sourceReviewSessionId,
+      reviewChatKey: this.state.reviewChatKey,
       surface: this.state.surface,
       contextSignature: this.state.contextSignature,
       createdAt: this.resolveExistingSummary(sessionId)?.createdAt || Date.now(),
@@ -3449,6 +4252,7 @@ export class AIWorkbenchService {
       context: this.state.context,
       messages: this.flattenTimelineMessages(),
       threads: normalizeThreads(this.state.threads),
+      tree,
       skillResults: {
         [GENERAL_SKILL]: null,
         [CONCEPT_SKILL]: this.state.skillResults[CONCEPT_SKILL]
@@ -3520,6 +4324,8 @@ export class AIWorkbenchService {
         return 'AI 请求过于频繁，请稍后再试。';
       case 'timeout':
         return 'AI 请求超时，请检查网络或调大超时时间。';
+      case 'aborted':
+        return '已停止本次生成，已保留当前输出片段。';
       case 'empty_response':
         return 'AI 请求已发出，但模型返回了空正文。请重试；如果连续出现，请检查 Base URL、模型名，以及该模型是否支持 Chat Completions 的 json_object 输出。';
       default:

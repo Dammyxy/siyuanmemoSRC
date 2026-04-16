@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-16
+最后更新：2026-04-17
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -221,8 +221,8 @@ sequenceDiagram
 - `AIChatSkillRegistry` / `AIWorkbenchSkillRegistry`：通用聊天 Skill 注册表与旧入口兼容层；运行时会把内置 `general-chat` / `concept-coach` 与 `settings.ai.userSkills[]` 合并解析为同一种 resolved skill 描述符
 - `AIChatToolRegistry` / `AIChatToolExecutorService`：插件内工具与网页工具的描述符、启用策略、执行链和结果缓存；读工具自动执行，写工具只进入审批流
 - `AIChatVarStoreService`：会话级变量缓存，支撑长工具结果的 `ListVars` / `ReadVar`
-- `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件，承接历史列表、重命名、删除、上下文签名回放，以及旧 `skill -> tab -> thread/result` 到统一 `messages[]` 时间线的迁移
-- `AIWorkbenchService`：通用 AI chat runtime，负责会话编排、消息生命周期、Skill 切换、工具执行、审批状态、结构化结果渲染适配和历史管理；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
+- `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件；当前 schema v4 以统一树节点池 + per skill/tab active leaf 保存会话，并额外保存 review 队列级 `reviewChatKey`；旧 `skill -> tab -> thread/result` 记录会迁移到树世界线，旧 review 记录缺 key 时可从最近记录的 queue context 推导一次
+- `AIWorkbenchService`：通用 AI chat runtime，负责会话编排、树节点生命周期、消息版本/分支/分隔/隐藏/固定、Skill 切换、工具执行、审批状态、结构化结果渲染适配和历史管理；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
 - `src/types/settings.ts`：AI provider / model / tool / web-search / prompt 的持久化真相源；旧 `baseUrl/apiKey/model` 会迁移为 `providers[] + defaultModelId`，旧 explain-only prompt 在 contract version 升级后直接回落到当前默认模板
 - `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，也会根据用户 structured skill 的 sections 动态生成最小 JSON contract，并为运行时追加和设置页只读说明提供同一份事实源
 - `AIPromptComposer`：只负责推荐 Skill prompt 模板描述与默认 base/tab Prompt，不再承担运行时结构化协议拼接
@@ -231,15 +231,18 @@ sequenceDiagram
 当前 Skill 主路径补充：
 
 - standalone dialog 默认打开 `general-chat`；review sidecar / companion tab 默认打开 `concept-coach`，用户仍可在同一 shell 内切换 Skill
-- `general-chat` 使用单时间线消息流，可调用 `context-read`、`siyuan-read`、`review-read`、`web`、`vars` 工具组；未配置搜索 backend 时只保留 URL 抓取，不伪装搜索能力
+- review AI 会话按 `reviewChatKey = queueType + queueLabel/title` 复用最近持久化记录；`ReviewAIWorkbenchRegistry` 仍按真实 `reviewSessionId` 隔离 live runtime，切换闪卡只刷新 `liveContext/contextSignature` 与 stale 状态，不自动切换聊天历史
+- `general-chat` 使用树上的 skill-scoped 活动 worldline 投影，可调用 `context-read`、`siyuan-read`、`review-read`、`web`、`vars` 工具组；未配置搜索 backend 时只保留 URL 抓取，不伪装搜索能力
 - `flashcard-write` 等写入意图工具默认 `ask-always`，第一阶段只通过消息流中的审批卡暴露，不允许静默修改思源内容、卡片、摘录或 daily note
+- `general-chat` 的 OpenAI / OpenAI-compatible provider 走真 SSE 文本增量和 abort；Claude/Gemini 先继续 buffered，但复用同一套运行中/停止态 UI
 - 首轮运行把 `baseRun + 5 个 tab.run` 与 `concept-coach/full-run` 契约组合成最终 `system` prompt，并通过 `LLMPort` 请求 `json_object` 输出模式，一次性填充 5 个 tab payload
-- Tab 局部重跑只组合 `baseRun + 当前 tab.run + concept-coach/<tab>`，只替换当前 tab 的结构化结果与当前 tab 线程
-- Tab 追问只使用当前 `tab.followUp`，并携带当前 tab 结果作为上下文，避免把整份 Skill 结果混入局部讨论
+- `concept-coach` 的首轮用户 prompt 以 skill scope 节点写入，因此会在 5 个 tabs 里共享可见；Tab 局部重跑、tab 追问和 tab 结果都以 tab scope 节点写入，只影响当前 tab 的活动 leaf
+- Tab 局部重跑只组合 `baseRun + 当前 tab.run + concept-coach/<tab>`，只替换当前 tab 的结构化结果与当前 tab 世界线投影
+- Tab 追问只使用当前 `tab.followUp`，并携带“当前分隔段 + pinned 节点”的当前 tab 结果上下文，隐藏节点不会进入模型上下文
 - `多视角理解` / `整合理解` 的结构化结果归一化容忍别名、wrapper、直接 section、字符串/数组/对象混合形状；部分成功会显示可恢复内容和 warning，不再静默空白
 - `自测卡片` section 只保存结构化候选卡 `question / answer / kind / selected`，第一版支持会话内编辑/选择，不直接落库、不直接建卡
 - 旧 explain session 会保留历史消息作为 legacy session 打开，并显示“旧解释结果仅供查看，重跑后生成完整 tabs”的提示；重跑后生成新的 `concept-coach` 五阶段结果
-- `AiWorkbenchPane.vue` 现在是通用 chat shell：顶部 Skill 切换、按 Skill 显示 tab/section、消息流支持文本、结构化结果、tool timeline、审批卡、warning/diagnostic、底部 composer 和 context 附加
+- `AiWorkbenchPane.vue` 现在是通用 chat shell：顶部 Skill 切换、按 Skill 显示 tab/section、消息流支持文本、结构化结果、底部 composer 和 context 附加；主 timeline 使用 reply-first render projection，只显示用户消息/最终回复/结构化结果/分隔，tool timeline、非 pending 审批、推理和诊断默认折叠到回复下方，pending 审批显示为轻量操作条
 
 UI surface：
 
@@ -592,7 +595,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 1. 服务注册与会话隔离
 2. Skill registry / prompt contract
 3. 通用 chat runtime / tool runtime / approval runtime
-4. 版本化 session store / 统一 `messages[]` 时间线
+4. 版本化 session store / 统一树形会话与兼容投影
 5. UI surface 与结构化 renderer
 
 服务层：
@@ -601,6 +604,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 管理 standalone service
   - 管理按 review session 隔离的 AI workbench service
   - standalone 默认从 `general-chat` 启动；review sidecar / companion tab 默认从 `concept-coach` 启动
+  - review 队列共享聊天只在新 runtime 初次打开时按 `reviewChatKey` 加载最近持久化会话，不把同队列不同 review 窗口合并成一个 live runtime
 - `AIChatSkillRegistry`
   - 注册内置 Skill 描述符：`general-chat` 与 `concept-coach`
   - `general-chat` 是默认通用聊天 Skill，可使用读工具、网页工具与变量工具
@@ -616,12 +620,14 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 - `AIWorkbenchSessionStoreService`
   - 通过 `FileService` 落盘 `index + per-session record`
   - 提供会话历史列表、按 id 读取、重命名、删除
-  - 引入 `schemaVersion` 与统一 `messages[]`，读取旧 `skill -> tab -> thread/result` 时迁移为线性消息历史和结构化结果卡
+  - 当前 `schemaVersion: 4` 保存树形会话、`reviewChatKey`、线程兼容投影和结构化结果；读取 v2/v3 旧记录时继续迁移为树世界线，并可从 review context 推导缺失的队列级 key
 - `AIWorkbenchService`
   - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
-  - 维护 `activeSkillId + activeTabId`、消息流、tool timeline、pending approvals、vars、diagnostics
+  - 维护 `activeSkillId + activeTabId`、树节点、兼容 thread 投影、compact render 投影、tool timeline、pending approvals、vars、diagnostics
   - `general-chat` 走多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，审批工具暂停等待用户确认
+  - `general-chat` 每次回复链路写入 `runGroupId`，中间 assistant/tool/approval 标记为 `presentation=supplemental`，最终回复标记为 `presentation=primary`
   - `concept-coach` 仍走结构化 JSON 主链：首轮全量生成 5 个 section，局部重跑只替换当前 section，follow-up 只带当前 section 结果
+  - review 同队列切卡只更新 live context，不截断模型历史；structured skill 旧结果会按 context signature 标为 stale，Pane 在 stale 时禁用追问并提示重跑
   - `多视角理解` / `整合理解` 的归一化容忍字段别名、wrapper、直接 section、字符串/数组/对象混合形状，并把 `full / partial / empty` 诊断挂到 assistant structured result
   - 对 DeepSeek / OpenAI-compatible 等 provider 保留 `json_object` 默认路径和 prompt-only JSON 传输兜底，诊断记录 profile / transport / status / raw body
   - 旧 explain-only 会话保留历史消息作为 legacy session 查看，重跑后再生成完整 `concept-coach` sections
@@ -648,7 +654,8 @@ UI 层：
 - `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文
 - `AiWorkbenchPane.vue`
   - 渲染通用 chat shell：Skill 切换、模型/工具入口、标题、历史/上下文抽屉、底部 composer
-  - 消息区支持文本消息、结构化 Skill 结果、tool log、approval card、warning/diagnostic
+  - 消息区使用 compact render projection：主列表只显示用户消息、最终回复、结构化 Skill 结果和分隔；tool log、非 pending approval、reasoning、diagnostics 默认折叠到 `N 个步骤`
+  - pending approval 不再渲染成主 timeline 大卡片，而是在对应回复下方显示批准/拒绝轻量操作条
   - `concept-coach` 的五阶段 tab 作为结构化结果卡的 section/switch 展示；`general-chat` 隐藏 tab，直接显示单时间线
 
 外部边界：
@@ -737,7 +744,7 @@ UI 层：
 
 ---
 
-## 14. 当前状态快照（2026-04-16）
+## 14. 当前状态快照（2026-04-17）
 
 当前架构基线：
 
@@ -749,10 +756,10 @@ UI 层：
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
-- AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review sidecar 默认 `concept-coach`
+- AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review sidecar 默认 `concept-coach`，review 聊天按队列级 `reviewChatKey` 复用持久化会话但 live runtime 仍按真实 review session 隔离
 - AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
 - AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，而用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
-- AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做 world-tree 分支会话
+- AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline、树形 worldline、compact reply projection 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做独立图形化 world-tree 页面
 - AI 理解与制卡的 `自测卡片` section 支持候选卡编辑/选择，但不直接落草稿、不直接建卡；真正写入仍需后续接入审批后的应用服务写路径
 
 当前文档定位：

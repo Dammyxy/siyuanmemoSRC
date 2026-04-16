@@ -13,22 +13,56 @@
         :placeholder="t('searchSessions', '搜索会话')"
       >
       <div class="ai-chat__history-list">
-        <article
-          v-for="session in filteredSessionHistory"
-          :key="session.id"
-          class="ai-chat__history-item"
-          :class="{ 'ai-chat__history-item--active': state.sessionId === session.id }"
+        <section v-for="group in groupedSessionHistory" :key="group.label" class="ai-chat__history-group">
+          <div class="ai-chat__history-group-label">{{ group.label }}</div>
+          <article
+            v-for="session in group.sessions"
+            :key="session.id"
+            class="ai-chat__history-item"
+            :class="{ 'ai-chat__history-item--active': state.sessionId === session.id }"
+          >
+            <button class="ai-chat__history-open" type="button" @click="openHistorySession(session.id)">
+              <strong>{{ session.title }}</strong>
+              <span>{{ sourceLabelFor(session.source) }} · {{ formatTime(session.updatedAt) }}</span>
+            </button>
+            <div class="ai-chat__history-actions">
+              <button class="ai-chat__link-button" type="button" @click="renameHistorySession(session.id, session.title)">{{ t('rename', '重命名') }}</button>
+              <button class="ai-chat__link-button" type="button" @click="deleteHistorySession(session.id)">{{ t('delete', '删除') }}</button>
+            </div>
+          </article>
+        </section>
+        <p v-if="groupedSessionHistory.length === 0" class="ai-chat__empty-note">{{ t('noAiSessions', '还没有可打开的 AI 会话。') }}</p>
+      </div>
+    </aside>
+
+    <aside v-if="treePanelOpen" class="ai-chat__tree">
+      <div class="ai-chat__history-head">
+        <strong>{{ t('conversationTree', '当前分支') }}</strong>
+        <button class="ai-chat__icon-button" type="button" :title="t('close', '关闭')" @click="treePanelOpen = false">
+          <svg><use xlink:href="#iconCloseRound"></use></svg>
+        </button>
+      </div>
+      <div class="ai-chat__tree-list">
+        <button
+          v-for="node in activeWorldlineNodes"
+          :key="node.id"
+          class="ai-chat__tree-item"
+          type="button"
+          @click="focusTreeNode(node.id)"
         >
-          <button class="ai-chat__history-open" type="button" @click="openHistorySession(session.id)">
-            <strong>{{ session.title }}</strong>
-            <span>{{ sourceLabelFor(session.source) }} · {{ formatTime(session.updatedAt) }}</span>
-          </button>
-          <div class="ai-chat__history-actions">
-            <button class="ai-chat__link-button" type="button" @click="renameHistorySession(session.id, session.title)">{{ t('rename', '重命名') }}</button>
-            <button class="ai-chat__link-button" type="button" @click="deleteHistorySession(session.id)">{{ t('delete', '删除') }}</button>
+          <div class="ai-chat__tree-item-head">
+            <strong>{{ treeNodeTitle(node) }}</strong>
+            <span>{{ node.scope === 'skill' ? 'skill' : node.tabId }}</span>
           </div>
-        </article>
-        <p v-if="filteredSessionHistory.length === 0" class="ai-chat__empty-note">{{ t('noAiSessions', '还没有可打开的 AI 会话。') }}</p>
+          <p>{{ previewText(treeNodePreview(node), 84) || t('noContent', '无内容') }}</p>
+          <div class="ai-chat__tree-badges">
+            <span class="ai-chat__badge">{{ node.versionCount }}v</span>
+            <span v-if="node.branchCount > 0" class="ai-chat__badge">{{ node.branchCount }} branches</span>
+            <span v-if="node.hidden" class="ai-chat__badge ai-chat__badge--warning">{{ t('hidden', '已隐藏') }}</span>
+            <span v-if="node.pinned" class="ai-chat__badge">{{ t('pinned', '已固定') }}</span>
+          </div>
+        </button>
+        <p v-if="activeWorldlineNodes.length === 0" class="ai-chat__empty-note">{{ t('noBranchYet', '当前还没有可展示的树节点。') }}</p>
       </div>
     </aside>
 
@@ -43,8 +77,14 @@
           <button class="ai-chat__icon-button" type="button" :title="t('history', '历史')" @click="service.setHistoryPanelOpen(!state.historyPanelOpen)">
             <svg><use xlink:href="#iconHistory"></use></svg>
           </button>
+          <button class="ai-chat__icon-button" type="button" :title="t('conversationTree', '树视图')" @click="treePanelOpen = !treePanelOpen">
+            <span>≡</span>
+          </button>
           <button class="ai-chat__icon-button" type="button" :title="state.contextPanelOpen ? t('hideContext', '收起上下文') : t('viewContext', '查看上下文')" @click="service.setContextPanelOpen(!state.contextPanelOpen)">
             <svg><use xlink:href="#iconMore"></use></svg>
+          </button>
+          <button v-if="state.isLoading" class="ai-chat__icon-button" type="button" :title="t('stopGenerating', '停止生成')" @click="service.cancelCurrentRun?.()">
+            <span>■</span>
           </button>
           <button class="ai-chat__icon-button" type="button" :title="t('newAiSession', '新建会话')" @click="createNewSession">
             <span>+</span>
@@ -131,7 +171,7 @@
       </article>
 
       <section class="ai-chat__timeline">
-        <article v-if="activeMessages.length === 0 && !visibleRunStatus" class="ai-chat__empty-state">
+        <article v-if="renderEntries.length === 0 && !visibleRunStatus" class="ai-chat__empty-state">
           <div class="ai-chat__empty-icon">
             <svg><use xlink:href="#iconSparkles"></use></svg>
           </div>
@@ -143,56 +183,56 @@
         </article>
 
         <article
-          v-for="message in activeMessages"
-          :key="message.id"
+          v-for="entry in renderEntries"
+          :key="entry.key"
           class="ai-chat__bubble"
-          :class="{ 'ai-chat__bubble--user': message.kind === 'user' }"
+          :class="{ 'ai-chat__bubble--user': entry.primaryMessage.kind === 'user' }"
         >
           <div class="ai-chat__bubble-meta">
             <div>
-              <strong>{{ messageSpeaker(message) }}</strong>
-              <span>{{ formatTime(message.createdAt) }}</span>
+              <strong>{{ messageSpeaker(entry.primaryMessage) }}</strong>
+              <span>{{ formatTime(entry.primaryMessage.createdAt) }}</span>
             </div>
-            <div class="ai-chat__bubble-actions">
-              <button class="ai-chat__link-button" type="button" @click="copyMessage(message)">{{ t('copy', '复制') }}</button>
-              <button v-if="canEditMessage(message)" class="ai-chat__link-button" type="button" @click="openTextMessageEditor(message)">{{ t('edit', '编辑') }}</button>
-              <button v-if="canEditUserMessage(message)" class="ai-chat__link-button" type="button" @click="prepareEditedFollowUp(message)">{{ t('editAndResend', '编辑后重发') }}</button>
-              <button v-if="canRerunMessage(message)" class="ai-chat__link-button" type="button" :disabled="state.isLoading || revealLocked" @click="runActiveTab">{{ t('rerun', '重跑') }}</button>
-            </div>
+            <details v-if="entry.primaryMessage.kind !== 'separator'" class="ai-chat__bubble-menu">
+              <summary class="ai-chat__bubble-menu-trigger">•••</summary>
+              <div class="ai-chat__bubble-menu-panel">
+                <button class="ai-chat__link-button" type="button" @click="copyMessage(entry.primaryMessage)">{{ t('copy', '复制') }}</button>
+                <button v-if="canEditMessage(entry.primaryMessage)" class="ai-chat__link-button" type="button" @click="openTextMessageEditor(entry.primaryMessage)">{{ t('edit', '编辑') }}</button>
+                <button v-if="canEditUserMessage(entry.primaryMessage)" class="ai-chat__link-button" type="button" @click="prepareEditedFollowUp(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
+                <button v-if="canRerunMessage(entry.primaryMessage)" class="ai-chat__link-button" type="button" :disabled="state.isLoading || revealLocked" @click="rerunMessage(entry.primaryMessage)">{{ t('rerun', '重跑') }}</button>
+                <button class="ai-chat__link-button" type="button" @click="branchFromMessage(entry.primaryMessage)">{{ t('branch', '分支') }}</button>
+                <button class="ai-chat__link-button" type="button" @click="toggleMessageHidden(entry.primaryMessage)">
+                  {{ messageMeta(entry.primaryMessage)?.hidden ? t('showInContext', '恢复上下文') : t('hideFromContext', '隐藏上下文') }}
+                </button>
+                <button class="ai-chat__link-button" type="button" @click="toggleMessagePinned(entry.primaryMessage)">
+                  {{ messageMeta(entry.primaryMessage)?.pinned ? t('unpin', '取消固定') : t('pin', '固定') }}
+                </button>
+                <button v-if="(messageMeta(entry.primaryMessage)?.versionCount || 0) > 1" class="ai-chat__link-button" type="button" @click="cycleMessageVersion(entry.primaryMessage)">
+                  {{ t('switchVersion', '切版本') }}
+                </button>
+                <button class="ai-chat__link-button" type="button" @click="insertSeparatorAfter(entry.primaryMessage)">{{ t('insertSeparator', '插入分隔') }}</button>
+              </div>
+            </details>
           </div>
 
-          <template v-if="message.kind === 'user' || message.kind === 'assistant-text'">
-            <RichMarkdownContent class="ai-chat__message-copy" :content="message.content" />
+          <div
+            v-if="messageMeta(entry.primaryMessage)?.hidden || messageMeta(entry.primaryMessage)?.pinned || messageMeta(entry.primaryMessage)?.status === 'interrupted'"
+            class="ai-chat__message-badges"
+          >
+            <span v-if="messageMeta(entry.primaryMessage)?.hidden" class="ai-chat__badge ai-chat__badge--warning">{{ t('hidden', '已隐藏') }}</span>
+            <span v-if="messageMeta(entry.primaryMessage)?.pinned" class="ai-chat__badge">{{ t('pinned', '已固定') }}</span>
+            <span v-if="messageMeta(entry.primaryMessage)?.status === 'interrupted'" class="ai-chat__badge ai-chat__badge--warning">{{ t('stopped', '已停止') }}</span>
+          </div>
+
+          <template v-if="entry.primaryMessage.kind === 'user' || entry.primaryMessage.kind === 'assistant-text'">
+            <RichMarkdownContent class="ai-chat__message-copy" :content="entry.primaryMessage.content" />
           </template>
-          <template v-else-if="message.kind === 'tool-log'">
-            <div class="ai-chat__tool-log" :class="`ai-chat__tool-log--${message.status}`">
-              <strong>{{ message.toolName }} · {{ message.status }}</strong>
-              <RichMarkdownContent class="ai-chat__message-copy" :content="message.content" />
-              <p v-if="message.varRef" class="ai-chat__muted">{{ t('cachedAsVar', '完整结果缓存为') }} {{ message.varRef }}</p>
-            </div>
+          <template v-else-if="entry.primaryMessage.kind === 'separator'">
+            <div class="ai-chat__separator">{{ entry.primaryMessage.label }}</div>
           </template>
-          <template v-else-if="message.kind === 'approval'">
-            <div class="ai-chat__approval-card" :class="`ai-chat__approval-card--${message.request.status}`">
-              <strong>{{ message.request.title }}</strong>
-              <p>{{ message.request.description }}</p>
-              <pre>{{ JSON.stringify(message.request.args, null, 2) }}</pre>
-              <div v-if="message.request.status === 'pending'" class="ai-chat__approval-actions">
-                <button class="ai-chat__primary-button" type="button" @click="resolveApproval(message.request.id, true)">
-                  {{ t('approve', '批准') }}
-                </button>
-                <button class="ai-chat__link-button" type="button" @click="resolveApproval(message.request.id, false)">
-                  {{ t('reject', '拒绝') }}
-                </button>
-              </div>
-              <p v-else class="ai-chat__muted">
-                {{ message.request.status === 'approved' ? t('approved', '已批准') : t('rejected', '已拒绝') }}
-                <span v-if="message.request.rejectReason"> · {{ message.request.rejectReason }}</span>
-              </p>
-            </div>
-          </template>
-          <template v-else-if="message.kind === 'assistant-result'">
-            <div v-if="message.tabId === 'self-test-cards'" class="ai-chat__candidate-list">
-              <article v-for="card in candidateCards(message)" :key="card.id" class="ai-chat__candidate-card">
+          <template v-else-if="entry.primaryMessage.kind === 'assistant-result'">
+            <div v-if="entry.primaryMessage.tabId === 'self-test-cards'" class="ai-chat__candidate-list">
+              <article v-for="card in candidateCards(entry.primaryMessage)" :key="card.id" class="ai-chat__candidate-card">
                 <label class="ai-chat__candidate-check">
                   <input
                     type="checkbox"
@@ -208,13 +248,13 @@
             </div>
             <template v-else>
               <p
-                v-if="assistantResultNotice(message)"
+                v-if="assistantResultNotice(entry.primaryMessage)"
                 class="ai-chat__result-note"
-                :class="assistantResultNotice(message)?.status === 'empty' ? 'ai-chat__result-note--empty' : 'ai-chat__result-note--partial'"
+                :class="assistantResultNotice(entry.primaryMessage)?.status === 'empty' ? 'ai-chat__result-note--empty' : 'ai-chat__result-note--partial'"
               >
-                {{ assistantResultNotice(message)?.text }}
+                {{ assistantResultNotice(entry.primaryMessage)?.text }}
               </p>
-              <section v-for="section in assistantSections(message)" :key="section.key" class="ai-chat__result-section">
+              <section v-for="section in assistantSections(entry.primaryMessage)" :key="section.key" class="ai-chat__result-section">
                 <h4>{{ section.title }}</h4>
                 <RichMarkdownContent v-if="section.kind === 'text'" :content="section.text" />
                 <ul v-else-if="section.kind === 'list'">
@@ -236,9 +276,60 @@
             </template>
           </template>
 
-          <div v-if="messageContextItems(message).length > 0" class="ai-chat__context-chip-list ai-chat__context-chip-list--message">
+          <div v-if="entry.pendingApproval" class="ai-chat__approval-strip">
+            <div class="ai-chat__approval-strip-main">
+              <strong>{{ entry.pendingApproval.request.title }}</strong>
+              <span>{{ entry.pendingApproval.request.description }}</span>
+            </div>
+            <div class="ai-chat__approval-actions">
+              <button class="ai-chat__primary-button" type="button" @click="resolveApproval(entry.pendingApproval.request.id, true)">
+                {{ t('approve', '批准') }}
+              </button>
+              <button class="ai-chat__link-button" type="button" @click="resolveApproval(entry.pendingApproval.request.id, false)">
+                {{ t('reject', '拒绝') }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="entryHasDetails(entry)" class="ai-chat__step-block">
+            <button class="ai-chat__step-toggle" type="button" @click="toggleEntryDetails(entry.key)">
+              <span class="ai-chat__step-toggle-arrow" :class="{ 'ai-chat__step-toggle-arrow--open': isEntryExpanded(entry.key) }">▾</span>
+              <span>{{ entryDetailsLabel(entry) }}</span>
+            </button>
+            <div v-if="isEntryExpanded(entry.key)" class="ai-chat__step-panel">
+              <template v-for="detail in visibleSupplementalMessages(entry)" :key="detail.id">
+                <div v-if="detail.kind === 'tool-log'" class="ai-chat__tool-log ai-chat__tool-log--compact" :class="`ai-chat__tool-log--${detail.status}`">
+                  <strong>{{ detail.toolName }} · {{ detail.status }}</strong>
+                  <RichMarkdownContent class="ai-chat__message-copy" :content="detail.content" />
+                  <p v-if="detail.varRef" class="ai-chat__muted">{{ t('cachedAsVar', '完整结果缓存为') }} {{ detail.varRef }}</p>
+                </div>
+                <div v-else-if="detail.kind === 'approval'" class="ai-chat__approval-card ai-chat__approval-card--compact" :class="`ai-chat__approval-card--${detail.request.status}`">
+                  <strong>{{ detail.request.title }}</strong>
+                  <p>{{ detail.request.description }}</p>
+                  <pre>{{ JSON.stringify(detail.request.args, null, 2) }}</pre>
+                  <p class="ai-chat__muted">
+                    {{ detail.request.status === 'approved' ? t('approved', '已批准') : t('rejected', '已拒绝') }}
+                    <span v-if="detail.request.rejectReason"> · {{ detail.request.rejectReason }}</span>
+                  </p>
+                </div>
+                <div v-else-if="detail.kind === 'assistant-text'" class="ai-chat__step-note">
+                  <RichMarkdownContent class="ai-chat__message-copy" :content="detail.content" />
+                </div>
+              </template>
+              <details v-if="entryReasoningContent(entry)" class="ai-chat__meta-block">
+                <summary>{{ t('reasoning', '推理') }}</summary>
+                <RichMarkdownContent class="ai-chat__message-copy" :content="entryReasoningContent(entry) || ''" />
+              </details>
+              <details v-if="entryDiagnostics(entry).length > 0" class="ai-chat__meta-block">
+                <summary>{{ t('runtimeMeta', '运行元信息') }}</summary>
+                <pre class="ai-chat__banner-pre">{{ entryDiagnostics(entry).join('\n\n') }}</pre>
+              </details>
+            </div>
+          </div>
+
+          <div v-if="messageContextItems(entry.primaryMessage).length > 0" class="ai-chat__context-chip-list ai-chat__context-chip-list--message">
             <button
-              v-for="contextItem in messageContextItems(message)"
+              v-for="contextItem in messageContextItems(entry.primaryMessage)"
               :key="contextItem.id"
               class="ai-chat__context-chip"
               type="button"
@@ -265,6 +356,9 @@
       </section>
 
       <footer class="ai-chat__composer">
+        <p v-if="followUpDisabledReason" class="ai-chat__composer-hint ai-chat__composer-hint--warning">
+          {{ followUpDisabledReason }}
+        </p>
         <div v-if="composerContexts.length > 0" class="ai-chat__context-chip-list">
           <button
             v-for="contextItem in composerContexts"
@@ -368,6 +462,7 @@ import type {
   AIUserSkillStructuredKeyValue,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchMessage,
+  AIWorkbenchRenderEntry,
   AIWorkbenchSource,
 } from '@/types/ai';
 
@@ -413,6 +508,8 @@ const emit = defineEmits<{
 const service = props.service;
 const state = service.state;
 const historyQuery = ref('');
+const treePanelOpen = ref(false);
+const expandedEntryKeys = ref<string[]>([]);
 const composerValue = ref('');
 const composerInputRef = ref<HTMLTextAreaElement | null>(null);
 const contextMenuOpen = ref(false);
@@ -566,7 +663,32 @@ const filteredSessionHistory = computed(() => {
     || sourceLabelFor(session.source).toLowerCase().includes(query)
   ));
 });
-const activeMessages = computed(() => service.getThreadMessages?.(undefined, state.activeTabId) || []);
+const groupedSessionHistory = computed(() => {
+  const groups = new Map<string, typeof filteredSessionHistory.value>();
+  for (const session of filteredSessionHistory.value) {
+    const label = new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(session.updatedAt));
+    groups.set(label, [...(groups.get(label) || []), session]);
+  }
+  return Array.from(groups.entries()).map(([label, sessions]) => ({ label, sessions }));
+});
+const rawActiveMessages = computed(() => service.getThreadMessages?.(undefined, state.activeTabId) || []);
+const renderEntries = computed<AIWorkbenchRenderEntry[]>(() => {
+  if (service.getRenderEntries) {
+    return service.getRenderEntries(undefined, state.activeTabId);
+  }
+  return rawActiveMessages.value.map((message) => ({
+    key: `${message.id}::render-fallback`,
+    primaryMessage: message,
+    supplementalMessages: [],
+    stepCount: 0,
+    pendingApproval: null,
+  }));
+});
+const activeWorldlineNodes = computed(() => service.getActiveTreeWorldline?.() || []);
 const composerContexts = computed(() => service.getComposerContexts?.() || state.composerContexts.items);
 const contextProviders = computed<ContextProvider[]>(() => (
   (service.getAvailableContextProviders?.() || []) as ContextProvider[]
@@ -604,6 +726,11 @@ const composerPlaceholder = computed(() => (
     : t('aiConceptCoachComposerPlaceholder', '输入你想理解或制卡的内容，然后按 Ctrl/Cmd + Enter 发送。')
     )
 ));
+const followUpDisabledReason = computed(() => (
+  state.activeSkillId === 'general-chat' || !currentTabHasResult.value
+    ? null
+    : service.getFollowUpDisabledReason?.(undefined, state.activeTabId) || null
+));
 const sendDisabled = computed(() => {
   if (state.isLoading) {
     return true;
@@ -611,7 +738,10 @@ const sendDisabled = computed(() => {
   if (composerValue.value.trim().length === 0) {
     return true;
   }
-  return state.activeSkillId !== 'general-chat' && !currentTabHasResult.value && revealLocked.value;
+  if (state.activeSkillId !== 'general-chat' && !currentTabHasResult.value && revealLocked.value) {
+    return true;
+  }
+  return Boolean(followUpDisabledReason.value);
 });
 
 function normalizePerspectiveItems(section: AIConceptCoachPerspectiveSection): string[] {
@@ -809,6 +939,9 @@ function messageSpeaker(message: AIWorkbenchMessage): string {
 }
 
 function messageContextItems(message: AIWorkbenchMessage): AIAttachedContextItem[] {
+  if (message.kind === 'separator') {
+    return [];
+  }
   if ('attachedContexts' in message) {
     return message.attachedContexts;
   }
@@ -828,6 +961,79 @@ function canEditUserMessage(message: AIWorkbenchMessage): boolean {
 
 function canRerunMessage(message: AIWorkbenchMessage): boolean {
   return state.activeSkillId !== 'general-chat' && message.kind === 'assistant-result';
+}
+
+function messageMeta(message: AIWorkbenchMessage) {
+  return service.getMessageMeta?.(message.id) || null;
+}
+
+function isEntryExpanded(entryKey: string): boolean {
+  return expandedEntryKeys.value.includes(entryKey);
+}
+
+function toggleEntryDetails(entryKey: string): void {
+  expandedEntryKeys.value = isEntryExpanded(entryKey)
+    ? expandedEntryKeys.value.filter((key) => key !== entryKey)
+    : [...expandedEntryKeys.value, entryKey];
+}
+
+function visibleSupplementalMessages(entry: AIWorkbenchRenderEntry): AIWorkbenchMessage[] {
+  return entry.supplementalMessages.filter((message) => (
+    message.kind !== 'approval' || message.request.status !== 'pending'
+  ));
+}
+
+function entryReasoningContent(entry: AIWorkbenchRenderEntry): string | null {
+  const message = entry.primaryMessage;
+  if (message.kind !== 'assistant-text' && message.kind !== 'assistant-result') {
+    return null;
+  }
+  return message.reasoningContent || null;
+}
+
+function entryDiagnostics(entry: AIWorkbenchRenderEntry): string[] {
+  const message = entry.primaryMessage;
+  if (message.kind !== 'assistant-text' && message.kind !== 'assistant-result') {
+    return [];
+  }
+  return message.diagnostics || [];
+}
+
+function entryHasDetails(entry: AIWorkbenchRenderEntry): boolean {
+  return visibleSupplementalMessages(entry).length > 0
+    || Boolean(entryReasoningContent(entry))
+    || entryDiagnostics(entry).length > 0;
+}
+
+function entryDetailsLabel(entry: AIWorkbenchRenderEntry): string {
+  if (entry.stepCount > 0) {
+    return `${entry.stepCount} ${t('steps', '个步骤')}`;
+  }
+  return t('viewDetails', '查看详情');
+}
+
+function treeNodeTitle(node: { message: AIWorkbenchMessage | null; kind: string }): string {
+  if (node.kind === 'separator') {
+    return t('separator', '分隔');
+  }
+  return node.message ? messageSpeaker(node.message) : t('aiWorkbench', 'AI');
+}
+
+function treeNodePreview(node: { message: AIWorkbenchMessage | null; kind: string }): string {
+  const message = node.message;
+  if (!message) {
+    return '';
+  }
+  if (message.kind === 'assistant-result') {
+    return JSON.stringify(message.genericSectionResult ?? message.tabResult ?? message.genericStructuredResult ?? message.conceptCoachResult ?? null);
+  }
+  if (message.kind === 'separator') {
+    return message.label;
+  }
+  if (message.kind === 'approval') {
+    return message.request.title;
+  }
+  return message.content;
 }
 
 function prepareDefaultSkillPrompt(): void {
@@ -880,6 +1086,8 @@ async function submitComposer(): Promise<void> {
 async function copyMessage(message: AIWorkbenchMessage): Promise<void> {
   const content = message.kind === 'assistant-result'
     ? JSON.stringify(message.genericSectionResult ?? message.tabResult ?? message.genericStructuredResult ?? message.conceptCoachResult ?? null, null, 2)
+    : message.kind === 'separator'
+      ? message.label
     : message.kind === 'approval'
       ? JSON.stringify(message.request, null, 2)
       : message.content;
@@ -968,6 +1176,38 @@ async function toggleCandidate(cardId: string, event: Event): Promise<void> {
 
 async function resolveApproval(approvalId: string, approved: boolean): Promise<void> {
   await service.resolveToolApproval?.(approvalId, approved);
+}
+
+async function toggleMessageHidden(message: AIWorkbenchMessage): Promise<void> {
+  await service.toggleMessageHidden?.(message.id);
+}
+
+async function toggleMessagePinned(message: AIWorkbenchMessage): Promise<void> {
+  await service.toggleMessagePinned?.(message.id);
+}
+
+async function insertSeparatorAfter(message: AIWorkbenchMessage): Promise<void> {
+  await service.insertSeparatorAfterMessage?.(message.id);
+}
+
+async function branchFromMessage(message: AIWorkbenchMessage): Promise<void> {
+  await service.branchFromMessage?.(message.id);
+}
+
+async function cycleMessageVersion(message: AIWorkbenchMessage): Promise<void> {
+  await service.cycleMessageVersion?.(message.id);
+}
+
+async function focusTreeNode(nodeId: string): Promise<void> {
+  await service.focusTreeNode?.(nodeId);
+}
+
+async function rerunMessage(message: AIWorkbenchMessage): Promise<void> {
+  if (service.rerunFromMessage) {
+    await service.rerunFromMessage(message.id);
+    return;
+  }
+  await runActiveTab();
 }
 
 function closeContextMenu(): void {
@@ -1084,6 +1324,7 @@ onUnmounted(() => {
 .ai-chat { display: flex; height: 100%; min-height: 0; background: #f7f8fb; color: #1f2430; }
 .ai-chat--compact { background: #fafbfd; }
 .ai-chat__history { width: 260px; border-right: 1px solid #e6e9f0; background: #ffffff; display: flex; flex-direction: column; min-height: 0; }
+.ai-chat__tree { width: 280px; border-right: 1px solid #e6e9f0; background: #fcfdff; display: flex; flex-direction: column; min-height: 0; }
 .ai-chat__main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .ai-chat__topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px 6px; border-bottom: 1px solid #e6e9f0; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); }
 .ai-chat__topbar-main { display: grid; gap: 2px; min-width: 0; flex: 1; }
@@ -1107,11 +1348,19 @@ onUnmounted(() => {
 .ai-chat__history-head { padding: 12px; border-bottom: 1px solid #eef1f6; }
 .ai-chat__history-search { margin: 12px; border-radius: 8px; }
 .ai-chat__history-list { padding: 0 12px 12px; overflow: auto; display: grid; gap: 8px; }
+.ai-chat__history-group { display: grid; gap: 8px; }
+.ai-chat__history-group-label { color: #7f8797; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .ai-chat__history-item { border: 1px solid #e6e9f0; border-radius: 8px; background: #fff; }
 .ai-chat__history-item--active { border-color: #c9d4ff; box-shadow: 0 0 0 1px rgba(111,81,255,0.08); }
 .ai-chat__history-open { width: 100%; text-align: left; background: none; border: 0; padding: 10px; display: grid; gap: 4px; }
 .ai-chat__history-open span, .ai-chat__empty-note, .ai-chat__muted { color: #7f8797; font-size: 12px; }
 .ai-chat__history-actions { display: flex; gap: 10px; padding: 0 10px 10px; }
+.ai-chat__tree-list { padding: 0 12px 12px; overflow: auto; display: grid; gap: 8px; }
+.ai-chat__tree-item { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; padding: 10px; display: grid; gap: 8px; text-align: left; }
+.ai-chat__tree-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-chat__tree-item-head span { color: #7f8797; font-size: 11px; }
+.ai-chat__tree-item p { margin: 0; color: #4b5563; font-size: 12px; line-height: 1.45; }
+.ai-chat__tree-badges { display: flex; gap: 6px; flex-wrap: wrap; }
 .ai-chat__link-button { border: 0; background: none; color: #51607a; padding: 0; }
 .ai-chat__context { margin: 12px 14px 0; padding: 12px; border: 1px solid #e6e9f0; border-radius: 8px; background: #fff; display: grid; gap: 12px; }
 .ai-chat__badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eef2ff; color: #4f46e5; }
@@ -1138,10 +1387,34 @@ onUnmounted(() => {
 .ai-chat__bubble-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .ai-chat__bubble-meta span { display: block; color: #7f8797; font-size: 12px; margin-top: 2px; }
 .ai-chat__bubble-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ai-chat__bubble-menu { position: relative; }
+.ai-chat__bubble-menu[open] { z-index: 4; }
+.ai-chat__bubble-menu-trigger { list-style: none; width: 28px; height: 28px; border: 1px solid transparent; border-radius: 999px; color: #8b94a6; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; }
+.ai-chat__bubble-menu-trigger::-webkit-details-marker { display: none; }
+.ai-chat__bubble:hover .ai-chat__bubble-menu-trigger, .ai-chat__bubble-menu[open] .ai-chat__bubble-menu-trigger { border-color: #e1e6ef; background: #f8fafc; color: #51607a; }
+.ai-chat__bubble-menu-panel { position: absolute; top: 32px; right: 0; min-width: 132px; padding: 7px; border: 1px solid #dfe5ef; border-radius: 10px; background: #fff; box-shadow: 0 16px 34px rgba(21, 27, 38, 0.16); display: grid; gap: 2px; }
+.ai-chat__bubble-menu-panel .ai-chat__link-button { width: 100%; padding: 7px 8px; border-radius: 7px; text-align: left; }
+.ai-chat__bubble-menu-panel .ai-chat__link-button:hover { background: #f4f7fb; color: #1f2937; }
+.ai-chat__message-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .ai-chat__pending-body { display: flex; align-items: center; gap: 9px; color: #51607a; }
 .ai-chat__pending-body p { margin: 0; }
 .ai-chat__pending-dot { width: 8px; height: 8px; border-radius: 999px; background: #1c7d8f; box-shadow: 0 0 0 0 rgba(28,125,143,0.3); animation: ai-pending-pulse 1.1s ease-in-out infinite; flex: 0 0 auto; }
 .ai-chat__message-copy :deep(p:last-child) { margin-bottom: 0; }
+.ai-chat__approval-strip { margin-top: 12px; border: 1px solid #f0d48f; border-radius: 10px; background: #fffaf0; padding: 9px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ai-chat__approval-strip-main { display: grid; gap: 2px; min-width: 0; }
+.ai-chat__approval-strip-main strong { color: #5b4216; font-size: 12px; }
+.ai-chat__approval-strip-main span { color: #7c6230; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-chat__step-block { margin-top: 12px; }
+.ai-chat__step-toggle { border: 0; background: none; color: #8b94a6; display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; font-weight: 600; font-size: 12px; }
+.ai-chat__step-toggle:hover { color: #51607a; }
+.ai-chat__step-toggle-arrow { transition: transform 0.16s ease; display: inline-block; }
+.ai-chat__step-toggle-arrow--open { transform: rotate(90deg); }
+.ai-chat__step-panel { margin-top: 8px; border: 1px solid #e6e9f0; border-radius: 10px; background: #fbfcff; padding: 10px; display: grid; gap: 9px; }
+.ai-chat__step-note { border: 1px dashed #d8e0eb; border-radius: 9px; padding: 9px; background: #fff; color: #4b5563; }
+.ai-chat__tool-log--compact, .ai-chat__approval-card--compact { border-radius: 9px; padding: 9px; }
+.ai-chat__meta-block { margin-top: 10px; border: 1px solid #e5e9f2; border-radius: 8px; background: #fbfcff; padding: 8px 10px; }
+.ai-chat__meta-block summary { cursor: pointer; color: #51607a; font-size: 12px; user-select: none; }
+.ai-chat__separator { padding: 2px 0; color: #64748b; font-size: 12px; font-weight: 600; border-top: 1px dashed #d8e0eb; border-bottom: 1px dashed #d8e0eb; text-align: center; }
 .ai-chat__result-note { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; }
 .ai-chat__result-note--partial { background: #fff8e8; border: 1px solid #f1e0ae; color: #8a5a00; }
 .ai-chat__result-note--empty { background: #fff1ef; border: 1px solid #f2cbc5; color: #b04437; }
@@ -1167,6 +1440,8 @@ onUnmounted(() => {
 .ai-chat__candidate-card p { margin: 0; color: #4b5563; }
 .ai-chat__candidate-check { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 12px; }
 .ai-chat__composer { position: relative; border-top: 1px solid #e6e9f0; background: #fff; padding: 10px 12px 12px; display: grid; gap: 8px; }
+.ai-chat__composer-hint { margin: 0; font-size: 12px; line-height: 1.5; }
+.ai-chat__composer-hint--warning { color: #a16207; background: #fff8e8; border: 1px solid #f1e0ae; border-radius: 8px; padding: 7px 9px; }
 .ai-chat__composer-shell { position: relative; border: 1px solid #d9deea; border-radius: 8px; background: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4); }
 .ai-chat__composer-input { width: 100%; min-height: 126px; resize: vertical; border: 0; border-radius: 8px; padding: 12px 12px 48px; background: transparent; box-shadow: none; }
 .ai-chat__composer-input:focus { box-shadow: none; }

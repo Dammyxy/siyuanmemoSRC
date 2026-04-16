@@ -9,13 +9,17 @@ import {
   type AISkillId,
   type AISkillTabId,
   type AIWorkbenchContextSnapshot,
+  type AIWorkbenchConversationTree,
   type AIWorkbenchMessage,
+  type AIWorkbenchNodeScope,
   type AIWorkbenchSessionRecord,
   type AIWorkbenchSessionSummary,
   type AIWorkbenchSource,
   type AIWorkbenchSurface,
   type AIWorkbenchThreadRecord,
   type AIWorkbenchThreads,
+  type AIWorkbenchTreeNode,
+  type AIWorkbenchTreeNodeVersion,
 } from '@/types/ai';
 
 type SessionIndex = {
@@ -28,15 +32,17 @@ type FindByContextInput = {
   sourceReviewSessionId: string | null;
 };
 
+type FindByReviewChatKeyInput = {
+  reviewChatKey: string | null;
+  source?: AIWorkbenchSource;
+};
+
 const SESSION_INDEX_FILE = 'ai-workbench/sessions/index.json';
 const SESSION_RECORD_PREFIX = 'ai-workbench/sessions/records';
 const CONCEPT_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
 const GENERAL_SKILL: AISkillId = AI_GENERAL_CHAT_SKILL_ID;
 const DEFAULT_TAB: AISkillTabId = 'working-definition';
-const ALL_TAB_IDS: AISkillTabId[] = [
-  AI_GENERAL_CHAT_TAB_ID,
-  ...AI_CONCEPT_COACH_TAB_IDS,
-];
+const CURRENT_SCHEMA_VERSION = 4;
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -78,6 +84,24 @@ function isUserSkillId(value: unknown): value is AISkillId {
   return typeof value === 'string' && /^user:[a-z0-9_-]+$/.test(value);
 }
 
+function getSkillTabIds(skillId: AISkillId, fallbackTabId: AISkillTabId): AISkillTabId[] {
+  if (skillId === GENERAL_SKILL) {
+    return [AI_GENERAL_CHAT_TAB_ID];
+  }
+  if (skillId === CONCEPT_SKILL) {
+    return [...AI_CONCEPT_COACH_TAB_IDS];
+  }
+  return [fallbackTabId];
+}
+
+function buildViewKey(skillId: AISkillId, tabId: AISkillTabId): string {
+  return `${skillId}::${tabId}`;
+}
+
+function cloneMessage<T extends AIWorkbenchMessage>(message: T): T {
+  return JSON.parse(JSON.stringify(message)) as T;
+}
+
 function createEmptyThread(skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreadRecord {
   return {
     skillId,
@@ -104,16 +128,33 @@ function createEmptyThreads(): AIWorkbenchThreads {
   };
 }
 
+function createEmptyTree(): AIWorkbenchConversationTree {
+  return {
+    rootNodeId: null,
+    activeLeafNodeId: null,
+    activeLeafNodeIds: {},
+    nodes: {},
+  };
+}
+
 function normalizeMessage(value: unknown, skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchMessage | null {
   if (!isRecord(value) || value.kind === 'candidate-board') {
     return null;
   }
   const kind = normalizeString(value.kind);
-  if (kind !== 'user' && kind !== 'assistant-text' && kind !== 'assistant-result' && kind !== 'tool-log' && kind !== 'approval') {
+  if (
+    kind !== 'user'
+    && kind !== 'assistant-text'
+    && kind !== 'assistant-result'
+    && kind !== 'tool-log'
+    && kind !== 'approval'
+    && kind !== 'separator'
+  ) {
     return null;
   }
   return {
     ...value,
+    id: normalizeString(value.id) || `ai-msg-${Date.now().toString(36)}`,
     skillId: normalizeSkillId(value.skillId || skillId),
     tabId: normalizeTabId(value.tabId || tabId),
     view: value.view || skillId,
@@ -128,7 +169,9 @@ function normalizeThreadRecord(value: unknown, skillId: AISkillId, tabId: AISkil
     skillId,
     tabId,
     messages: Array.isArray(value.messages)
-      ? value.messages.map((message) => normalizeMessage(message, skillId, tabId)).filter((message): message is AIWorkbenchMessage => Boolean(message))
+      ? value.messages
+        .map((message) => normalizeMessage(message, skillId, tabId))
+        .filter((message): message is AIWorkbenchMessage => Boolean(message))
       : [],
     resultContextSignature: normalizeString(value.resultContextSignature) || null,
     stale: value.stale === true,
@@ -185,6 +228,22 @@ function normalizeContext(value: unknown): AIWorkbenchContextSnapshot | null {
   return isRecord(value) ? value as AIWorkbenchContextSnapshot : null;
 }
 
+function buildReviewChatKey(queueType: unknown, queueLabel: unknown): string | null {
+  const normalizedQueueType = normalizeString(queueType);
+  const normalizedQueueLabel = normalizeString(queueLabel);
+  if (!normalizedQueueType || !normalizedQueueLabel) {
+    return null;
+  }
+  return `${normalizedQueueType}::${normalizedQueueLabel}`;
+}
+
+function deriveReviewChatKeyFromContext(context: AIWorkbenchContextSnapshot | null): string | null {
+  if (!context || context.source !== 'review') {
+    return null;
+  }
+  return buildReviewChatKey(context.queueType, context.queueProgress?.queueLabel);
+}
+
 function normalizeSkillResults(value: unknown): Record<AISkillId, AIConceptCoachResult | null> {
   const raw = isRecord(value) ? value : {};
   const result = isRecord(raw[CONCEPT_SKILL]) ? raw[CONCEPT_SKILL] as AIConceptCoachResult : null;
@@ -211,21 +270,215 @@ function countMessages(threads: AIWorkbenchThreads): number {
   ), 0);
 }
 
-function collectActiveSkills(threads: AIWorkbenchThreads): AISkillId[] {
+function countTreeMessages(tree: AIWorkbenchConversationTree): number {
+  return Object.values(tree.nodes).filter((node) => (
+    node.kind === 'message'
+    && node.versions.some((version) => version.message.kind !== 'separator')
+  )).length;
+}
+
+function collectActiveSkillsFromThreads(threads: AIWorkbenchThreads): AISkillId[] {
   return Object.entries(threads)
     .filter(([, skillThreads]) => Object.values(skillThreads).some((thread) => thread.messages.length > 0))
     .map(([skillId]) => normalizeSkillId(skillId));
 }
 
+function collectActiveSkillsFromTree(tree: AIWorkbenchConversationTree): AISkillId[] {
+  return Array.from(new Set(
+    Object.values(tree.nodes)
+      .filter((node) => node.kind === 'message')
+      .map((node) => node.skillId),
+  )).map((skillId) => normalizeSkillId(skillId));
+}
+
+function inferNodeScope(message: AIWorkbenchMessage): AIWorkbenchNodeScope {
+  if (message.skillId === GENERAL_SKILL) {
+    return 'skill';
+  }
+  return 'tab';
+}
+
+function createVersion(message: AIWorkbenchMessage): AIWorkbenchTreeNodeVersion {
+  return {
+    id: `${message.id}::v1`,
+    createdAt: Number(message.createdAt) || Date.now(),
+    message: cloneMessage(message),
+  };
+}
+
+function pushNodeToTree(
+  tree: AIWorkbenchConversationTree,
+  node: AIWorkbenchTreeNode,
+  scope: AIWorkbenchNodeScope,
+): void {
+  tree.nodes[node.id] = node;
+  if (!tree.rootNodeId) {
+    tree.rootNodeId = node.id;
+  }
+  if (node.parentId && tree.nodes[node.parentId]) {
+    const parent = tree.nodes[node.parentId];
+    if (!parent.childIds.includes(node.id)) {
+      parent.childIds.push(node.id);
+    }
+  }
+  tree.activeLeafNodeId = node.id;
+  tree.activeLeafNodeIds = tree.activeLeafNodeIds || {};
+  for (const tabId of getSkillTabIds(node.skillId, node.tabId)) {
+    if (scope === 'skill' || tabId === node.tabId) {
+      tree.activeLeafNodeIds[buildViewKey(node.skillId, tabId)] = node.id;
+    }
+  }
+}
+
+function migrateThreadsToTree(threads: AIWorkbenchThreads): AIWorkbenchConversationTree {
+  const tree = createEmptyTree();
+  const entries = Object.entries(threads)
+    .flatMap(([skillId, skillThreads]) => Object.entries(skillThreads).flatMap(([tabId, thread]) => (
+      thread.messages.map((message, index) => ({
+        skillId: skillId as AISkillId,
+        tabId: tabId as AISkillTabId,
+        message,
+        order: index,
+      }))
+    )))
+    .sort((left, right) => (
+      (Number(left.message.createdAt) || 0) - (Number(right.message.createdAt) || 0)
+      || left.order - right.order
+      || left.skillId.localeCompare(right.skillId)
+      || left.tabId.localeCompare(right.tabId)
+    ));
+
+  for (const entry of entries) {
+    const message = cloneMessage(entry.message);
+    message.skillId = normalizeSkillId(message.skillId || entry.skillId);
+    message.tabId = normalizeTabId(message.tabId || entry.tabId);
+    const scope = inferNodeScope(message);
+    const leafKey = buildViewKey(message.skillId, message.tabId);
+    const parentId = (tree.activeLeafNodeIds || {})[leafKey] || tree.activeLeafNodeId || null;
+    const version = createVersion(message);
+    pushNodeToTree(tree, {
+      id: message.id,
+      kind: message.kind === 'separator' ? 'separator' : 'message',
+      skillId: message.skillId,
+      tabId: message.tabId,
+      scope,
+      parentId,
+      childIds: [],
+      createdAt: Number(message.createdAt) || Date.now(),
+      hidden: false,
+      pinned: false,
+      status: 'ready',
+      activeVersionId: version.id,
+      versions: [version],
+    }, scope);
+  }
+
+  return tree;
+}
+
+function normalizeVersion(value: unknown, fallbackMessage: AIWorkbenchMessage): AIWorkbenchTreeNodeVersion | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const normalizedMessage = normalizeMessage(value.message, fallbackMessage.skillId, fallbackMessage.tabId)
+    || cloneMessage(fallbackMessage);
+  normalizedMessage.id = fallbackMessage.id;
+  return {
+    id: normalizeString(value.id) || `${fallbackMessage.id}::v${Date.now().toString(36)}`,
+    createdAt: Number(value.createdAt) || normalizedMessage.createdAt || Date.now(),
+    message: normalizedMessage,
+  };
+}
+
+function normalizeNode(
+  value: unknown,
+  fallbackThreads: AIWorkbenchThreads,
+): AIWorkbenchTreeNode | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const skillId = normalizeSkillId(value.skillId);
+  const tabId = normalizeTabId(value.tabId);
+  const fallbackThread = fallbackThreads[skillId]?.[tabId];
+  const fallbackMessage = fallbackThread?.messages[0] || {
+    id: normalizeString(value.id) || `ai-node-${Date.now().toString(36)}`,
+    skillId,
+    tabId,
+    view: skillId,
+    kind: 'separator',
+    label: '分隔',
+    createdAt: Number(value.createdAt) || Date.now(),
+  } as AIWorkbenchMessage;
+  const activeMessage = normalizeMessage(value.message, skillId, tabId) || cloneMessage(fallbackMessage);
+  activeMessage.id = normalizeString(value.id) || activeMessage.id;
+  const initialVersion = createVersion(activeMessage);
+  const versions = Array.isArray(value.versions)
+    ? value.versions
+      .map((version) => normalizeVersion(version, activeMessage))
+      .filter((version): version is AIWorkbenchTreeNodeVersion => Boolean(version))
+    : [initialVersion];
+  return {
+    id: normalizeString(value.id) || activeMessage.id,
+    kind: value.kind === 'separator' ? 'separator' : 'message',
+    skillId,
+    tabId,
+    scope: value.scope === 'skill' ? 'skill' : 'tab',
+    parentId: normalizeString(value.parentId) || null,
+    childIds: Array.isArray(value.childIds)
+      ? value.childIds.map((id) => normalizeString(id)).filter(Boolean)
+      : [],
+    createdAt: Number(value.createdAt) || activeMessage.createdAt || Date.now(),
+    hidden: value.hidden === true,
+    pinned: value.pinned === true,
+    status: value.status === 'streaming' || value.status === 'interrupted' ? value.status : 'ready',
+    activeVersionId: normalizeString(value.activeVersionId) || versions[versions.length - 1]?.id || null,
+    versions: versions.length > 0 ? versions : [initialVersion],
+  };
+}
+
+function normalizeTree(value: unknown, fallbackThreads: AIWorkbenchThreads): AIWorkbenchConversationTree {
+  if (!isRecord(value) || !isRecord(value.nodes)) {
+    return migrateThreadsToTree(fallbackThreads);
+  }
+  const tree = createEmptyTree();
+  const nodes: Record<string, AIWorkbenchTreeNode> = {};
+  for (const [nodeId, nodeValue] of Object.entries(value.nodes)) {
+    const normalizedNode = normalizeNode({
+      id: nodeId,
+      ...((isRecord(nodeValue) ? nodeValue : {}) as Record<string, unknown>),
+    }, fallbackThreads);
+    if (normalizedNode) {
+      nodes[normalizedNode.id] = normalizedNode;
+    }
+  }
+  if (Object.keys(nodes).length === 0) {
+    return migrateThreadsToTree(fallbackThreads);
+  }
+  tree.nodes = nodes;
+  tree.rootNodeId = normalizeString(value.rootNodeId) || Object.keys(nodes)[0] || null;
+  tree.activeLeafNodeId = normalizeString(value.activeLeafNodeId) || tree.rootNodeId;
+  tree.activeLeafNodeIds = isRecord(value.activeLeafNodeIds)
+    ? Object.fromEntries(
+      Object.entries(value.activeLeafNodeIds)
+        .map(([key, nodeId]) => [key, normalizeString(nodeId) || null] as const),
+    )
+    : {};
+  return tree;
+}
+
 function buildSummary(record: AIWorkbenchSessionRecord): AIWorkbenchSessionSummary {
   const threads = normalizeThreads(record.threads).threads;
-  const messageCount = countMessages(threads);
-  const activeSkills = collectActiveSkills(threads);
+  const tree = normalizeTree(record.tree, threads);
+  const messageCount = Object.keys(tree.nodes).length > 0 ? countTreeMessages(tree) : countMessages(threads);
+  const activeSkills = Object.keys(tree.nodes).length > 0
+    ? collectActiveSkillsFromTree(tree)
+    : collectActiveSkillsFromThreads(threads);
   return {
     id: record.id,
     title: record.title,
     source: record.source,
     sourceReviewSessionId: record.sourceReviewSessionId,
+    reviewChatKey: normalizeString(record.reviewChatKey) || deriveReviewChatKeyFromContext(record.context),
     surface: record.surface,
     contextSignature: record.contextSignature,
     createdAt: record.createdAt,
@@ -248,14 +501,18 @@ function normalizeRecord(value: unknown): AIWorkbenchSessionRecord | null {
     return null;
   }
   const normalizedThreads = normalizeThreads(value.threads);
-  const messageCount = countMessages(normalizedThreads.threads);
-  const activeSkills = collectActiveSkills(normalizedThreads.threads);
+  const tree = normalizeTree(value.tree, normalizedThreads.threads);
+  const messageCount = Object.keys(tree.nodes).length > 0 ? countTreeMessages(tree) : countMessages(normalizedThreads.threads);
+  const activeSkills = Object.keys(tree.nodes).length > 0
+    ? collectActiveSkillsFromTree(tree)
+    : collectActiveSkillsFromThreads(normalizedThreads.threads);
   return {
-    schemaVersion: Number(value.schemaVersion) || 2,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     id,
     title: normalizeString(value.title) || '未命名会话',
     source: normalizeSource(value.source),
     sourceReviewSessionId: normalizeString(value.sourceReviewSessionId) || null,
+    reviewChatKey: normalizeString(value.reviewChatKey) || deriveReviewChatKeyFromContext(normalizeContext(value.context)),
     surface: isSurface(value.surface) ? value.surface : 'standalone-dialog',
     contextSignature: normalizeString(value.contextSignature) || null,
     createdAt: Number(value.createdAt) || Date.now(),
@@ -268,15 +525,20 @@ function normalizeRecord(value: unknown): AIWorkbenchSessionRecord | null {
     activeViews: activeSkills,
     context: normalizeContext(value.context),
     messages: Array.isArray(value.messages)
-      ? value.messages.map((message) => normalizeMessage(message, normalizeSkillId((message as { skillId?: unknown })?.skillId), normalizeTabId((message as { tabId?: unknown })?.tabId))).filter((message): message is AIWorkbenchMessage => Boolean(message))
+      ? value.messages
+        .map((message) => normalizeMessage(message, normalizeSkillId((message as { skillId?: unknown })?.skillId), normalizeTabId((message as { tabId?: unknown })?.tabId)))
+        .filter((message): message is AIWorkbenchMessage => Boolean(message))
       : undefined,
     threads: normalizedThreads.threads,
+    tree,
     skillResults: normalizeSkillResults(value.skillResults),
     genericSkillResults: normalizeGenericSkillResults(value.genericSkillResults),
     vars: Array.isArray(value.vars) ? value.vars as AIWorkbenchSessionRecord['vars'] : [],
     diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics as AIWorkbenchSessionRecord['diagnostics'] : [],
     legacyExplainMessages: Array.isArray(value.legacyExplainMessages)
-      ? value.legacyExplainMessages.map((message) => normalizeMessage(message, CONCEPT_SKILL, DEFAULT_TAB)).filter((message): message is AIWorkbenchMessage => Boolean(message))
+      ? value.legacyExplainMessages
+        .map((message) => normalizeMessage(message, CONCEPT_SKILL, DEFAULT_TAB))
+        .filter((message): message is AIWorkbenchMessage => Boolean(message))
       : normalizedThreads.legacyExplainMessages,
   };
 }
@@ -301,6 +563,7 @@ export class AIWorkbenchSessionStoreService {
           title: normalizeString(summary.title) || '未命名会话',
           source: normalizeSource(summary.source),
           sourceReviewSessionId: normalizeString(summary.sourceReviewSessionId) || null,
+          reviewChatKey: normalizeString(summary.reviewChatKey) || null,
           surface: isSurface(summary.surface) ? summary.surface : 'standalone-dialog',
           contextSignature: normalizeString(summary.contextSignature) || null,
           createdAt: Number(summary.createdAt) || Date.now(),
@@ -338,6 +601,40 @@ export class AIWorkbenchSessionStoreService {
     )) || null;
   }
 
+  async findLatestByReviewChatKey(input: FindByReviewChatKeyInput): Promise<AIWorkbenchSessionSummary | null> {
+    const normalizedReviewChatKey = normalizeString(input.reviewChatKey) || null;
+    if (!normalizedReviewChatKey) {
+      return null;
+    }
+    const targetSource = input.source || 'review';
+    const summaries = await this.listSummaries();
+    const directMatch = summaries.find((summary) => (
+      summary.source === targetSource
+      && (summary.reviewChatKey || null) === normalizedReviewChatKey
+    ));
+    if (directMatch) {
+      return directMatch;
+    }
+
+    for (const summary of summaries) {
+      if (summary.source !== targetSource) {
+        continue;
+      }
+      const record = await this.loadSession(summary.id);
+      if (!record) {
+        continue;
+      }
+      if ((record.reviewChatKey || deriveReviewChatKeyFromContext(record.context) || null) === normalizedReviewChatKey) {
+        return {
+          ...summary,
+          reviewChatKey: normalizedReviewChatKey,
+        };
+      }
+    }
+
+    return null;
+  }
+
   async saveSession(record: AIWorkbenchSessionRecord): Promise<AIWorkbenchSessionRecord> {
     const normalized = normalizeRecord(record);
     if (!normalized) {
@@ -347,7 +644,9 @@ export class AIWorkbenchSessionStoreService {
     const persisted: AIWorkbenchSessionRecord = {
       ...normalized,
       ...summary,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       threads: normalizeThreads(normalized.threads).threads,
+      tree: normalizeTree(normalized.tree, normalized.threads),
       skillResults: normalizeSkillResults(normalized.skillResults),
       genericSkillResults: normalizeGenericSkillResults(normalized.genericSkillResults),
     };

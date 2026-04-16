@@ -32,6 +32,24 @@ function mockTextResponse(body: string, status = 200): Response {
   } as unknown as Response;
 }
 
+function mockStreamResponse(chunks: string[], status = 200): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    body,
+    text: vi.fn().mockResolvedValue(chunks.join('')),
+  } as unknown as Response;
+}
+
 describe('OpenAICompatibleLLMAdapter', () => {
   const adapter = new OpenAICompatibleLLMAdapter();
 
@@ -69,6 +87,37 @@ describe('OpenAICompatibleLLMAdapter', () => {
         }),
       }),
     );
+  });
+
+  it('streams incremental OpenAI-compatible deltas through the observer', async () => {
+    const textDeltas: string[] = [];
+    const reasoningDeltas: string[] = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      mockStreamResponse([
+        'data: {"choices":[{"delta":{"content":"hello ","reasoning_content":"step 1"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"world","reasoning_content":"step 2"}}],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+    ));
+
+    const result = await adapter.chat({
+      ...BASE_REQUEST,
+      stream: true,
+      observer: {
+        onTextDelta: (delta) => textDeltas.push(delta),
+        onReasoningDelta: (delta) => reasoningDeltas.push(delta),
+      },
+    });
+
+    expect(result.content).toBe('hello world');
+    expect(result.reasoningContent).toBe('step 1step 2');
+    expect(result.usage).toEqual({
+      promptTokens: 7,
+      completionTokens: 3,
+      totalTokens: 10,
+    });
+    expect(textDeltas).toEqual(['hello ', 'world']);
+    expect(reasoningDeltas).toEqual(['step 1', 'step 2']);
   });
 
   it('passes json_object response_format when the caller requests structured output', async () => {

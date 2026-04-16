@@ -50,6 +50,7 @@ function createRecord(id: string, title: string): AIWorkbenchSessionRecord {
     title,
     source: 'review',
     sourceReviewSessionId: 'review-session-1',
+    reviewChatKey: 'retrieval::Review',
     surface: 'review-dialog-sidecar',
     contextSignature: `ctx-${id}`,
     createdAt: 1,
@@ -240,6 +241,95 @@ describe('AIWorkbenchSessionStoreService', () => {
     expect(loaded?.genericSkillResults?.['user:outline']?.sections[0]).toMatchObject({
       id: 'user:outline:summary',
       items: ['A'],
+    });
+  });
+
+  it('migrates v2 thread-only sessions into schema v3 tree sessions', async () => {
+    const fileService = createFileService();
+    const service = new AIWorkbenchSessionStoreService(fileService);
+
+    await fileService.writeJSON('ai-workbench/sessions/records/v2-session.json', {
+      ...createRecord('v2-session', 'Legacy Tree Migration'),
+      schemaVersion: 2,
+      tree: undefined,
+    });
+
+    const loaded = await service.loadSession('v2-session');
+
+    expect(loaded?.schemaVersion).toBe(4);
+    expect(loaded?.tree?.rootNodeId).toBeTruthy();
+    expect(Object.keys(loaded?.tree?.nodes || {})).toHaveLength(1);
+    expect(loaded?.tree?.nodes['msg-1']).toMatchObject({
+      skillId: AI_CONCEPT_COACH_SKILL_ID,
+      tabId: 'working-definition',
+      kind: 'message',
+      activeVersionId: expect.stringContaining('msg-1::v'),
+    });
+  });
+
+  it('finds the latest review session by reviewChatKey and falls back to legacy records without the summary key', async () => {
+    const fileService = createFileService();
+    const service = new AIWorkbenchSessionStoreService(fileService);
+
+    await service.saveSession({
+      ...createRecord('session-new', 'Queue Session'),
+      updatedAt: 20,
+    });
+    const direct = await service.findLatestByReviewChatKey({
+      reviewChatKey: 'retrieval::Review',
+      source: 'review',
+    });
+    expect(direct?.id).toBe('session-new');
+
+    const legacyFileService = createFileService();
+    const legacyService = new AIWorkbenchSessionStoreService(legacyFileService);
+    await legacyFileService.writeJSON('ai-workbench/sessions/index.json', {
+      sessions: [{
+        id: 'session-legacy',
+        title: 'Legacy Queue Session',
+        source: 'review',
+        sourceReviewSessionId: 'review-session-legacy',
+        surface: 'review-dialog-sidecar',
+        contextSignature: 'ctx-legacy',
+        createdAt: 1,
+        updatedAt: 10,
+        activeSkillId: AI_CONCEPT_COACH_SKILL_ID,
+        activeTabId: 'working-definition',
+        activeSkills: [AI_CONCEPT_COACH_SKILL_ID],
+        messageCount: 1,
+        lastActiveView: AI_CONCEPT_COACH_SKILL_ID,
+        activeViews: [AI_CONCEPT_COACH_SKILL_ID],
+      }],
+    });
+    await legacyFileService.writeJSON('ai-workbench/sessions/records/session-legacy.json', {
+      ...createRecord('session-legacy', 'Legacy Queue Session'),
+      reviewChatKey: null,
+      updatedAt: 10,
+      context: {
+        source: 'review',
+        selectedBlockIds: ['block-a'],
+        blocks: [{ blockId: 'block-a', text: 'content' }],
+        queueType: 'retrieval',
+        queueProgress: {
+          queueType: 'retrieval',
+          queueLabel: 'Review',
+          completed: 1,
+          remaining: 2,
+          total: 3,
+        },
+        currentCard: null,
+        currentCardRaw: null,
+        neuralBatch: null,
+      },
+    });
+
+    const fallback = await legacyService.findLatestByReviewChatKey({
+      reviewChatKey: 'retrieval::Review',
+      source: 'review',
+    });
+    expect(fallback).toMatchObject({
+      id: 'session-legacy',
+      reviewChatKey: 'retrieval::Review',
     });
   });
 });

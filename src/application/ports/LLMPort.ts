@@ -48,6 +48,7 @@ export interface LLMReasoningOptions {
 
 export interface LLMStreamObserver {
   onTextDelta?: (delta: string) => void;
+  onReasoningDelta?: (delta: string) => void;
   onToolCallDelta?: (toolCall: Partial<LLMToolCall>) => void;
   onDiagnostic?: (diagnostic: string) => void;
 }
@@ -67,6 +68,7 @@ export interface LLMRequest {
   toolChoice?: LLMToolChoice;
   reasoning?: LLMReasoningOptions;
   stream?: boolean;
+  abortSignal?: AbortSignal;
   observer?: LLMStreamObserver;
 }
 

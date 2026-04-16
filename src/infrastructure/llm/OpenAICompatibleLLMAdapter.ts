@@ -301,6 +301,25 @@ function buildOpenAIRequestBody(request: LLMRequest, transport: StructuredTransp
   return body;
 }
 
+function appendTextLikeContent(target: string, value: unknown): string {
+  if (typeof value === 'string') {
+    return target + value;
+  }
+  if (Array.isArray(value)) {
+    return target + value.map((entry) => extractContentPartText(entry)).filter(Boolean).join('');
+  }
+  return target;
+}
+
+function splitSsePayloads(buffer: string): { events: string[]; rest: string } {
+  const normalized = buffer.replace(/\r\n/g, '\n');
+  const parts = normalized.split('\n\n');
+  return {
+    events: parts.slice(0, -1),
+    rest: parts[parts.length - 1] || '',
+  };
+}
+
 function appendPromptJsonInstruction(messages: LLMMessage[]): LLMMessage[] {
   return messages.map((message, index) => {
     if (index !== 0 || message.role !== 'system') {
@@ -339,6 +358,12 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
     const attemptPlan = structuredProfile?.attempts || [null];
     const totalAttempts = attemptPlan.length;
     const controller = new AbortController();
+    const relayAbort = () => controller.abort();
+    if (request.abortSignal?.aborted) {
+      controller.abort();
+    } else {
+      request.abortSignal?.addEventListener('abort', relayAbort);
+    }
     const timeoutId = window.setTimeout(() => controller.abort(), Math.max(1000, request.timeoutMs));
 
     try {
@@ -358,6 +383,20 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
           body: JSON.stringify(buildOpenAIRequestBody(requestForAttempt, transport)),
           signal: controller.signal,
         });
+
+        if (
+          response.ok
+          && requestForAttempt.stream === true
+          && requestForAttempt.responseFormat !== 'json_object'
+          && response.body
+        ) {
+          return await this.parseOpenAIStreamResponse(response, requestForAttempt, endpoint, {
+            structuredProfile: structuredProfile?.id,
+            structuredTransport: transport || undefined,
+            attempt,
+            totalAttempts,
+          });
+        }
 
         let rawText = '';
         try {
@@ -455,6 +494,20 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
         }),
       });
     } catch (error) {
+      if (controller.signal.aborted && request.abortSignal?.aborted) {
+        throw new LLMError('LLM request aborted', {
+          code: 'aborted',
+          retryable: true,
+          diagnostic: buildRequestDiagnostic({
+            endpoint,
+            model: request.model,
+            protocol: resolveProtocol(request),
+            responseFormat: request.responseFormat,
+            structuredProfile: structuredProfile?.id,
+            errorMessage: 'Request aborted by caller.',
+          }),
+        });
+      }
       throw this.normalizeThrownError(error, {
         endpoint,
         model: request.model,
@@ -463,14 +516,196 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
         structuredProfile: structuredProfile?.id,
       });
     } finally {
+      request.abortSignal?.removeEventListener('abort', relayAbort);
       window.clearTimeout(timeoutId);
     }
+  }
+
+  private async parseOpenAIStreamResponse(
+    response: Response,
+    request: LLMRequest,
+    endpoint: string,
+    meta: {
+      structuredProfile?: string;
+      structuredTransport?: StructuredTransport;
+      attempt: number;
+      totalAttempts: number;
+    },
+  ): Promise<LLMResponse> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new LLMError('LLM returned an empty completion', {
+        code: 'empty_response',
+        diagnostic: buildRequestDiagnostic({
+          endpoint,
+          model: request.model,
+          protocol: resolveProtocol(request),
+          responseFormat: request.responseFormat,
+          structuredProfile: meta.structuredProfile,
+          structuredTransport: meta.structuredTransport,
+          status: response.status,
+          errorMessage: 'Streaming response body was unavailable.',
+          attempt: meta.attempt,
+          totalAttempts: meta.totalAttempts,
+        }),
+      });
+    }
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+    let reasoningContent = '';
+    let finishReason = '';
+    let usage: OpenAICompletionResponse['usage'] | undefined;
+    const toolCalls = new Map<number, LLMToolCall>();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = splitSsePayloads(buffer);
+      buffer = parsed.rest;
+      for (const eventText of parsed.events) {
+        const dataLines = eventText
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim());
+        if (dataLines.length === 0) {
+          continue;
+        }
+        const payloadText = dataLines.join('\n');
+        if (payloadText === '[DONE]') {
+          break;
+        }
+        const payload = safeJsonParse(payloadText);
+        if (!isRecord(payload)) {
+          continue;
+        }
+        if (isRecord(payload.usage)) {
+          usage = payload.usage as OpenAICompletionResponse['usage'];
+        }
+        const choices = Array.isArray(payload.choices) ? payload.choices : [];
+        for (const choice of choices) {
+          if (!isRecord(choice)) {
+            continue;
+          }
+          const delta = isRecord(choice.delta) ? choice.delta : {};
+          const textBefore = content;
+          content = appendTextLikeContent(content, delta.content);
+          if (content !== textBefore) {
+            request.observer?.onTextDelta?.(content.slice(textBefore.length));
+          }
+          const reasoningBefore = reasoningContent;
+          reasoningContent = appendTextLikeContent(reasoningContent, delta.reasoning_content);
+          if (reasoningContent !== reasoningBefore) {
+            request.observer?.onReasoningDelta?.(reasoningContent.slice(reasoningBefore.length));
+          }
+          const deltaToolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
+          for (const rawToolCall of deltaToolCalls) {
+            if (!isRecord(rawToolCall)) {
+              continue;
+            }
+            const index = Number(rawToolCall.index);
+            const toolIndex = Number.isFinite(index) ? index : toolCalls.size;
+            const current = toolCalls.get(toolIndex) || {
+              id: String(rawToolCall.id || `tool-${Date.now().toString(36)}-${toolIndex}`),
+              type: 'function' as const,
+              function: {
+                name: '',
+                arguments: '',
+              },
+            };
+            current.id = String(rawToolCall.id || current.id);
+            const fn = isRecord(rawToolCall.function) ? rawToolCall.function : {};
+            if (typeof fn.name === 'string' && fn.name.trim()) {
+              current.function.name = `${current.function.name}${fn.name}`;
+            }
+            if (typeof fn.arguments === 'string' && fn.arguments) {
+              current.function.arguments = `${current.function.arguments}${fn.arguments}`;
+            }
+            toolCalls.set(toolIndex, current);
+            request.observer?.onToolCallDelta?.(current);
+          }
+          if (typeof choice.finish_reason === 'string' && choice.finish_reason.trim()) {
+            finishReason = choice.finish_reason.trim();
+          }
+        }
+      }
+    }
+
+    if (!content && toolCalls.size === 0) {
+      throw new LLMError('LLM returned an empty completion', {
+        code: 'empty_response',
+        diagnostic: buildRequestDiagnostic({
+          endpoint,
+          model: request.model,
+          protocol: resolveProtocol(request),
+          responseFormat: request.responseFormat,
+          structuredProfile: meta.structuredProfile,
+          structuredTransport: meta.structuredTransport,
+          status: response.status,
+          payload: {
+            streamed: true,
+            finishReason,
+            usage,
+          },
+          attempt: meta.attempt,
+          totalAttempts: meta.totalAttempts,
+        }),
+      });
+    }
+
+    const diagnostic = buildRequestDiagnostic({
+      endpoint,
+      model: request.model,
+      protocol: resolveProtocol(request),
+      responseFormat: request.responseFormat,
+      structuredProfile: meta.structuredProfile,
+      structuredTransport: meta.structuredTransport,
+      status: response.status,
+      payload: {
+        streamed: true,
+        finishReason,
+        usage,
+        textLength: content.length,
+        toolCallCount: toolCalls.size,
+      },
+      attempt: meta.attempt,
+      totalAttempts: meta.totalAttempts,
+    });
+
+    return {
+      role: 'assistant',
+      content,
+      toolCalls: Array.from(toolCalls.values()),
+      finishReason,
+      reasoningContent: reasoningContent || undefined,
+      usage: {
+        promptTokens: usage?.prompt_tokens,
+        completionTokens: usage?.completion_tokens,
+        totalTokens: usage?.total_tokens,
+      },
+      diagnostics: [diagnostic],
+      raw: {
+        streamed: true,
+        finishReason,
+        usage,
+      },
+    };
   }
 
   private async chatClaude(request: LLMRequest): Promise<LLMResponse> {
     const endpoint = request.provider?.endpoints?.messages
       || `${normalizeBaseUrl(request.baseUrl || 'https://api.anthropic.com/v1')}/messages`;
     const controller = new AbortController();
+    const relayAbort = () => controller.abort();
+    if (request.abortSignal?.aborted) {
+      controller.abort();
+    } else {
+      request.abortSignal?.addEventListener('abort', relayAbort);
+    }
     const timeoutId = window.setTimeout(() => controller.abort(), Math.max(1000, request.timeoutMs));
     const system = request.messages
       .filter((message) => message.role === 'system')
@@ -531,6 +766,19 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
       });
       return await this.parseClaudeResponse(response, request, endpoint);
     } catch (error) {
+      if (controller.signal.aborted && request.abortSignal?.aborted) {
+        throw new LLMError('LLM request aborted', {
+          code: 'aborted',
+          retryable: true,
+          diagnostic: buildRequestDiagnostic({
+            endpoint,
+            model: request.model,
+            protocol: 'claude',
+            responseFormat: request.responseFormat,
+            errorMessage: 'Request aborted by caller.',
+          }),
+        });
+      }
       throw this.normalizeThrownError(error, {
         endpoint,
         model: request.model,
@@ -538,6 +786,7 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
         responseFormat: request.responseFormat,
       });
     } finally {
+      request.abortSignal?.removeEventListener('abort', relayAbort);
       window.clearTimeout(timeoutId);
     }
   }
@@ -547,6 +796,12 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
     const endpoint = request.provider?.endpoints?.generateContent
       || `${base}/models/${encodeURIComponent(request.model)}:generateContent?key=${encodeURIComponent(request.apiKey)}`;
     const controller = new AbortController();
+    const relayAbort = () => controller.abort();
+    if (request.abortSignal?.aborted) {
+      controller.abort();
+    } else {
+      request.abortSignal?.addEventListener('abort', relayAbort);
+    }
     const timeoutId = window.setTimeout(() => controller.abort(), Math.max(1000, request.timeoutMs));
     const system = request.messages
       .filter((message) => message.role === 'system')
@@ -583,6 +838,19 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
       });
       return await this.parseGeminiResponse(response, request, endpoint);
     } catch (error) {
+      if (controller.signal.aborted && request.abortSignal?.aborted) {
+        throw new LLMError('LLM request aborted', {
+          code: 'aborted',
+          retryable: true,
+          diagnostic: buildRequestDiagnostic({
+            endpoint,
+            model: request.model,
+            protocol: 'gemini',
+            responseFormat: request.responseFormat,
+            errorMessage: 'Request aborted by caller.',
+          }),
+        });
+      }
       throw this.normalizeThrownError(error, {
         endpoint,
         model: request.model,
@@ -590,6 +858,7 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
         responseFormat: request.responseFormat,
       });
     } finally {
+      request.abortSignal?.removeEventListener('abort', relayAbort);
       window.clearTimeout(timeoutId);
     }
   }

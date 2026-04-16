@@ -34,7 +34,7 @@ export type AIWorkbenchSource = 'review' | 'browser' | 'template-dialog' | 'stan
 export type AIWorkbenchSurface = 'standalone-dialog' | 'review-dialog-sidecar' | 'review-tab-companion';
 export type AIFollowUpRole = 'user' | 'assistant';
 export type AIWorkbenchUserMessagePurpose = 'initial-run' | 'initial-explain' | 'follow-up';
-export type AIWorkbenchMessageKind = 'user' | 'assistant-text' | 'assistant-result' | 'tool-log' | 'approval';
+export type AIWorkbenchMessageKind = 'user' | 'assistant-text' | 'assistant-result' | 'tool-log' | 'approval' | 'separator';
 export type AIWorkbenchRunMode = 'full-run' | 'tab-rerun' | 'follow-up' | 'chat' | 'tool-chain';
 export type AIContextProviderKey = 'manual-text' | 'selected-content' | 'block-refs' | 'current-document';
 export type AIConceptCoachCardKind = '辨析' | '因果' | '应用' | '反例' | '触发' | '定义' | '边界' | '其他';
@@ -53,6 +53,10 @@ export type AIChatToolExecutionStatus = 'success' | 'error' | 'approval-required
 export type AIChatApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type AIGenericStructuredRendererKind = 'markdown' | 'list' | 'cards' | 'keyValue';
 export type AIChatStructuredRendererKind = 'concept-coach' | AIGenericStructuredRendererKind;
+export type AIWorkbenchNodeScope = 'skill' | 'tab';
+export type AIWorkbenchTreeNodeKind = 'message' | 'separator';
+export type AIWorkbenchTreeNodeStatus = 'ready' | 'streaming' | 'interrupted';
+export type AIWorkbenchMessagePresentation = 'primary' | 'supplemental';
 
 export interface AIWorkbenchRunStatus {
   mode: AIWorkbenchRunMode;
@@ -395,6 +399,8 @@ export interface AIWorkbenchUserMessage {
   createdAt: number;
   editedFromMessageId: string | null;
   attachedContexts: AIAttachedContextItem[];
+  runGroupId?: string | null;
+  presentation?: AIWorkbenchMessagePresentation;
 }
 
 export interface AIWorkbenchAssistantTextMessage {
@@ -407,6 +413,11 @@ export interface AIWorkbenchAssistantTextMessage {
   createdAt: number;
   sourceContent: string | null;
   appliedContexts: AIAttachedContextItem[];
+  reasoningContent?: string | null;
+  diagnostics?: string[];
+  interrupted?: boolean;
+  runGroupId?: string | null;
+  presentation?: AIWorkbenchMessagePresentation;
 }
 
 export interface AIWorkbenchAssistantResultMessage {
@@ -424,6 +435,11 @@ export interface AIWorkbenchAssistantResultMessage {
   normalizationDiagnostic?: AIConceptCoachNormalizationDiagnostic | AIChatNormalizationDiagnostic | null;
   explainResult?: AIExplainResult | null;
   appliedContexts: AIAttachedContextItem[];
+  reasoningContent?: string | null;
+  diagnostics?: string[];
+  interrupted?: boolean;
+  runGroupId?: string | null;
+  presentation?: AIWorkbenchMessagePresentation;
 }
 
 export interface AIWorkbenchToolLogMessage {
@@ -440,6 +456,8 @@ export interface AIWorkbenchToolLogMessage {
   content: string;
   error: string | null;
   varRef?: string | null;
+  runGroupId?: string | null;
+  presentation?: AIWorkbenchMessagePresentation;
 }
 
 export interface AIWorkbenchApprovalMessage {
@@ -450,6 +468,20 @@ export interface AIWorkbenchApprovalMessage {
   kind: 'approval';
   createdAt: number;
   request: AIChatApprovalRequest;
+  runGroupId?: string | null;
+  presentation?: AIWorkbenchMessagePresentation;
+}
+
+export interface AIWorkbenchSeparatorMessage {
+  id: string;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
+  view?: AIWorkbenchOpenView;
+  kind: 'separator';
+  createdAt: number;
+  label: string;
+  runGroupId?: string | null;
+  presentation?: AIWorkbenchMessagePresentation;
 }
 
 export type AIWorkbenchMessage =
@@ -457,7 +489,37 @@ export type AIWorkbenchMessage =
   | AIWorkbenchAssistantTextMessage
   | AIWorkbenchAssistantResultMessage
   | AIWorkbenchToolLogMessage
-  | AIWorkbenchApprovalMessage;
+  | AIWorkbenchApprovalMessage
+  | AIWorkbenchSeparatorMessage;
+
+export interface AIWorkbenchTreeNodeVersion {
+  id: string;
+  createdAt: number;
+  message: AIWorkbenchMessage;
+}
+
+export interface AIWorkbenchTreeNode {
+  id: string;
+  kind: AIWorkbenchTreeNodeKind;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
+  scope: AIWorkbenchNodeScope;
+  parentId: string | null;
+  childIds: string[];
+  createdAt: number;
+  hidden: boolean;
+  pinned: boolean;
+  status: AIWorkbenchTreeNodeStatus;
+  activeVersionId: string | null;
+  versions: AIWorkbenchTreeNodeVersion[];
+}
+
+export interface AIWorkbenchConversationTree {
+  rootNodeId: string | null;
+  activeLeafNodeId: string | null;
+  activeLeafNodeIds?: Record<string, string | null>;
+  nodes: Record<string, AIWorkbenchTreeNode>;
+}
 
 export interface AIWorkbenchThreadRecord {
   skillId: AISkillId;
@@ -476,6 +538,7 @@ export interface AIWorkbenchSessionSummary {
   title: string;
   source: AIWorkbenchSource;
   sourceReviewSessionId: string | null;
+  reviewChatKey: string | null;
   surface: AIWorkbenchSurface;
   contextSignature: string | null;
   createdAt: number;
@@ -493,6 +556,7 @@ export interface AIWorkbenchSessionRecord extends AIWorkbenchSessionSummary {
   context: AIWorkbenchContextSnapshot | null;
   messages?: AIWorkbenchMessage[];
   threads: AIWorkbenchThreads;
+  tree?: AIWorkbenchConversationTree;
   skillResults: Record<string, AIConceptCoachResult | null>;
   genericSkillResults?: Record<string, AIUserSkillStructuredResult | null>;
   vars?: AIChatVarEntry[];
@@ -514,6 +578,7 @@ export interface ReviewAISessionState {
   sessionId: string | null;
   surface: AIWorkbenchSurface;
   sourceReviewSessionId: string | null;
+  reviewChatKey: string | null;
   contextSignature: string | null;
   messages: AIWorkbenchMessage[];
   viewState: AIWorkbenchViewState;
@@ -528,6 +593,7 @@ export interface AIWorkbenchOpenOptions {
   autoRun?: boolean;
   sessionId?: string;
   sourceReviewSessionId?: string | null;
+  reviewChatKey?: string | null;
   selectedBlockIds?: string[];
   queueType?: string | null;
   queueProgress?: ReviewQueueProgressSnapshot | null;
@@ -554,6 +620,7 @@ export interface AIWorkbenchState extends ReviewAISessionState {
   sessionTitle: string;
   sessionHistory: AIWorkbenchSessionSummary[];
   threads: AIWorkbenchThreads;
+  tree?: AIWorkbenchConversationTree;
   pendingApprovals: AIChatApprovalRequest[];
   toolTimeline: AIChatToolExecutionResult[];
   vars: AIChatVarEntry[];
@@ -565,4 +632,12 @@ export interface AIWorkbenchState extends ReviewAISessionState {
   editingMessageId: string | null;
   editingMessageKind: AIWorkbenchMessageKind | null;
   legacyNotice: string | null;
+}
+
+export interface AIWorkbenchRenderEntry {
+  key: string;
+  primaryMessage: AIWorkbenchMessage;
+  supplementalMessages: AIWorkbenchMessage[];
+  stepCount: number;
+  pendingApproval: AIWorkbenchApprovalMessage | null;
 }
