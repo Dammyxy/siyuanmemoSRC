@@ -49,10 +49,13 @@ interface CreateDailyNoteResponse {
     id?: string;
 }
 
-interface BlockMutationOperation {
+export interface BlockMutationOperation {
+    action?: string;
+    data?: string;
     id?: string;
     parentID?: string;
     previousID?: string;
+    retData?: unknown;
 }
 
 interface BlockMutationEntry {
@@ -60,6 +63,10 @@ interface BlockMutationEntry {
 }
 
 type BlockMutationResponse = BlockMutationEntry[];
+
+export interface BlockMutationResult {
+    doOperations: BlockMutationOperation[];
+}
 
 function isRecord(value: unknown): value is JsonRecord {
     return typeof value === 'object' && value !== null;
@@ -352,16 +359,30 @@ export async function renderSprig(template: string): Promise<string> {
     return request<string>('/template/renderSprig', { template });
 }
 
-function extractFirstMutationId(result: BlockMutationResponse): string {
-    for (const entry of result) {
-        const operations = Array.isArray(entry.doOperations) ? entry.doOperations : [];
-        for (const operation of operations) {
-            if (typeof operation.id === 'string' && operation.id.length > 0) {
-                return operation.id;
-            }
+function normalizeMutationResult(result: BlockMutationResponse): BlockMutationResult {
+    return {
+        doOperations: result.flatMap((entry) => Array.isArray(entry.doOperations) ? entry.doOperations : []),
+    };
+}
+
+function extractFirstMutationId(result: BlockMutationResult): string {
+    for (const operation of result.doOperations) {
+        if (typeof operation.id === 'string' && operation.id.length > 0) {
+            return operation.id;
         }
     }
     throw new Error('Failed to resolve block mutation id from Siyuan response');
+}
+
+export async function insertBlockDetailed(params: {
+    dataType: 'markdown' | 'dom';
+    data: string;
+    nextID?: string;
+    previousID?: string;
+    parentID?: string;
+}): Promise<BlockMutationResult> {
+    const result = await request<BlockMutationResponse>('/block/insertBlock', params);
+    return normalizeMutationResult(result);
 }
 
 export async function insertBlock(params: {
@@ -371,7 +392,7 @@ export async function insertBlock(params: {
     previousID?: string;
     parentID?: string;
 }): Promise<string> {
-    const result = await request<BlockMutationResponse>('/block/insertBlock', params);
+    const result = await insertBlockDetailed(params);
     return extractFirstMutationId(result);
 }
 
@@ -389,8 +410,17 @@ export async function appendBlock(params: {
     data: string;
     parentID?: string;
 }): Promise<string> {
-    const result = await request<BlockMutationResponse>('/block/appendBlock', params);
+    const result = await appendBlockDetailed(params);
     return extractFirstMutationId(result);
+}
+
+export async function appendBlockDetailed(params: {
+    dataType: 'markdown' | 'dom';
+    data: string;
+    parentID?: string;
+}): Promise<BlockMutationResult> {
+    const result = await request<BlockMutationResponse>('/block/appendBlock', params);
+    return normalizeMutationResult(result);
 }
 
 export async function updateBlock(params: {

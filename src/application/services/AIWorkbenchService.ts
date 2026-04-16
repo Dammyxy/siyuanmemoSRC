@@ -3,7 +3,11 @@ import { BlockContextResolver } from '@/application/entries/BlockContextResolver
 import { resolveProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type { CardContentQueryService } from '@/application/queries/CardContentQueryService';
-import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
+import type {
+  AISiyuanBlockRow,
+  AISiyuanMutationResult,
+  AISiyuanPort,
+} from '@/application/ports/AISiyuanPort';
 import type { LLMMessage, LLMPort, LLMResponse, LLMToolCall } from '@/application/ports/LLMPort';
 import { LLMError } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
@@ -169,13 +173,13 @@ type SelfTestCardWriteTarget = {
 };
 
 type SelfTestCardFieldBlocks = {
+  insertedRootBlockId: string;
   questionBlockId: string;
   answerBlockId: string;
 };
 
-type SelfTestCardDescendantBlockRow = AISiyuanBlockRow & {
+type SelfTestCardMutationBlockRow = AISiyuanBlockRow & {
   sort?: string | number;
-  depth?: number;
 };
 
 const NOOP_SESSION_STORE: Required<NonNullable<AIWorkbenchServiceDeps['sessionStore']>> = {
@@ -336,6 +340,12 @@ function parseBlockReferenceIds(value: string): string[] {
 
 function createEntryId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function waitFor(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function createTreeViewKey(skillId: AISkillId, tabId: AISkillTabId): string {
@@ -1542,21 +1552,29 @@ export class AIWorkbenchService {
     };
   }
 
-  private getSelectedSelfTestCardCandidates(): AIConceptCoachCandidateCard[] {
-    const resultCards = this.state.skillResults[CONCEPT_SKILL]?.selfTestCards.cards || [];
-    const fallbackCards = resultCards.length > 0
-      ? resultCards
-      : (this.state.threads[CONCEPT_SKILL]?.['self-test-cards']?.messages || [])
-        .slice()
-        .reverse()
-        .flatMap((message) => {
-          if (message.kind !== 'assistant-result') {
-            return [];
-          }
-          const selfTestCards = (message.tabResult || message.conceptCoachResult?.selfTestCards) as AIConceptCoachSelfTestCards | null;
-          return Array.isArray(selfTestCards?.cards) ? selfTestCards.cards : [];
-        });
-    return fallbackCards.filter((card) => card.selected !== false && normalizeString(card.question) && normalizeString(card.answer));
+  private getSelfTestResultMessage(messageId: string): AIWorkbenchAssistantResultMessage | null {
+    const node = this.getTreeNode(messageId);
+    if (!node || node.skillId !== CONCEPT_SKILL || node.tabId !== 'self-test-cards') {
+      return null;
+    }
+    const message = this.getNodeMessage(node);
+    return message?.kind === 'assistant-result' ? message : null;
+  }
+
+  private getSelfTestCardsForMessage(messageId: string): AIConceptCoachCandidateCard[] {
+    const message = this.getSelfTestResultMessage(messageId);
+    if (!message) {
+      return [];
+    }
+    const selfTestCards = (message.tabResult || message.conceptCoachResult?.selfTestCards) as AIConceptCoachSelfTestCards | null;
+    return Array.isArray(selfTestCards?.cards)
+      ? selfTestCards.cards.map((card) => ({ ...card }))
+      : [];
+  }
+
+  private getSelectedSelfTestCardCandidates(messageId: string): AIConceptCoachCandidateCard[] {
+    return this.getSelfTestCardsForMessage(messageId)
+      .filter((card) => card.selected !== false && normalizeString(card.question) && normalizeString(card.answer));
   }
 
   private resolveCurrentDeckId(): string | undefined {
@@ -1659,53 +1677,154 @@ export class AIWorkbenchService {
     return type === 'd' || type === 'h' || type === 'l' || type === 'i' || type === 's';
   }
 
-  private async resolveSelfTestCardFieldBlocks(insertedRootBlockId: string): Promise<SelfTestCardFieldBlocks> {
-    if (!normalizeString(insertedRootBlockId)) {
-      throw new Error('思源没有返回新写入块 ID，无法继续制卡。');
+  private updateSelfTestResultMessage(
+    messageId: string,
+    updater: (cards: AIConceptCoachCandidateCard[]) => AIConceptCoachCandidateCard[],
+  ): AIWorkbenchAssistantResultMessage | null {
+    if (!this.getSelfTestResultMessage(messageId)) {
+      return null;
     }
-    const rows = await this.deps.siyuanPort.sql<SelfTestCardDescendantBlockRow>(`
-      WITH RECURSIVE descendants(id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, depth) AS (
-        SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, 0
-        FROM blocks
-        WHERE id = '${escapeSql(insertedRootBlockId)}'
-        UNION ALL
-        SELECT b.id, b.parent_id, b.root_id, b.box, b.path, b.hpath, b.type, b.subtype, b.content, b.markdown, b.sort, descendants.depth + 1
-        FROM blocks b
-        INNER JOIN descendants ON b.parent_id = descendants.id
-      )
-      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, depth
-      FROM descendants
-      ORDER BY depth ASC, sort ASC, id ASC
+    const nextCards = normalizeSelfTestCards({
+      cards: updater(this.getSelfTestCardsForMessage(messageId)).map((card) => ({ ...card })),
+    });
+    const nextMessage = this.addNodeVersion(messageId, (current) => {
+      if (current.kind !== 'assistant-result') {
+        return current;
+      }
+      const assistantMessage = current as AIWorkbenchAssistantResultMessage;
+      const nextConceptCoachResult = assistantMessage.conceptCoachResult
+        ? cloneConceptCoachResult(assistantMessage.conceptCoachResult)
+        : null;
+      if (nextConceptCoachResult) {
+        nextConceptCoachResult.selfTestCards = nextCards;
+      }
+      return {
+        ...assistantMessage,
+        conceptCoachResult: nextConceptCoachResult,
+        tabResult: nextCards,
+        explainResult: nextConceptCoachResult
+          ? explainResultFromConceptCoach(nextConceptCoachResult)
+          : assistantMessage.explainResult ?? null,
+        rawContent: JSON.stringify({ selfTestCards: nextCards }, null, 2),
+      } satisfies AIWorkbenchAssistantResultMessage;
+    });
+    return nextMessage?.kind === 'assistant-result' ? nextMessage : null;
+  }
+
+  private collectSelfTestMutationBlockIds(result: AISiyuanMutationResult): string[] {
+    return uniqueIds(result.doOperations.map((operation) => normalizeString(operation.id)));
+  }
+
+  private async loadSelfTestMutationRows(blockIds: string[]): Promise<SelfTestCardMutationBlockRow[]> {
+    const normalizedIds = uniqueIds(blockIds);
+    if (normalizedIds.length === 0) {
+      return [];
+    }
+    const escapedIds = normalizedIds.map((id) => `'${escapeSql(id)}'`).join(', ');
+    return this.deps.siyuanPort.sql<SelfTestCardMutationBlockRow>(`
+      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort
+      FROM blocks
+      WHERE id IN (${escapedIds})
+      ORDER BY sort ASC, id ASC
+      LIMIT ${Math.max(normalizedIds.length, 1)}
     `);
+  }
+
+  private resolveSelfTestItemAncestor(
+    row: SelfTestCardMutationBlockRow,
+    rowMap: Map<string, SelfTestCardMutationBlockRow>,
+  ): SelfTestCardMutationBlockRow | null {
+    let parentId = normalizeString(row.parent_id);
+    while (parentId) {
+      const parent = rowMap.get(parentId);
+      if (!parent) {
+        return null;
+      }
+      if (normalizeString(parent.type) === 'i') {
+        return parent;
+      }
+      parentId = normalizeString(parent.parent_id);
+    }
+    return null;
+  }
+
+  private isDescendantMutationRow(
+    row: SelfTestCardMutationBlockRow,
+    ancestorId: string,
+    rowMap: Map<string, SelfTestCardMutationBlockRow>,
+  ): boolean {
+    let parentId = normalizeString(row.parent_id);
+    while (parentId) {
+      if (parentId === ancestorId) {
+        return true;
+      }
+      const parent = rowMap.get(parentId);
+      if (!parent) {
+        return false;
+      }
+      parentId = normalizeString(parent.parent_id);
+    }
+    return false;
+  }
+
+  private resolveSelfTestCardFieldBlocks(rows: SelfTestCardMutationBlockRow[]): SelfTestCardFieldBlocks {
     if (rows.length === 0) {
-      throw new Error('无法回读刚写入的自测卡片块。');
+      throw new Error('已写入列表，但尚未能读取到本次新增块。');
     }
-
-    const root = rows.find((row) => row.id === insertedRootBlockId) || rows[0];
-    const parentItem = normalizeString(root.type) === 'l'
-      ? rows.find((row) => row.parent_id === root.id && row.type === 'i')
-      : (root.type === 'i' ? root : rows.find((row) => row.type === 'i'));
-    if (!parentItem?.id) {
-      throw new Error('无法定位问题列表项。');
+    const rowMap = new Map(rows
+      .map((row) => [normalizeString(row.id), row] as const)
+      .filter(([id]) => Boolean(id)));
+    const itemRows = rows.filter((row) => normalizeString(row.type) === 'i' && normalizeString(row.id));
+    const questionItem = itemRows.find((row) => !this.resolveSelfTestItemAncestor(row, rowMap));
+    if (!questionItem?.id) {
+      throw new Error('已写入列表，但未能从本次新增列表项里定位问题列表项。');
     }
-
-    const questionBlock = rows.find((row) => row.parent_id === parentItem.id && row.type === 'p') || parentItem;
-    const nestedList = rows.find((row) => row.parent_id === parentItem.id && row.type === 'l');
-    const answerItem = nestedList
-      ? rows.find((row) => row.parent_id === nestedList.id && row.type === 'i')
-      : rows.find((row) => row.type === 'i' && row.id !== parentItem.id);
+    const answerItem = itemRows.find((row) => (
+      row.id !== questionItem.id
+      && this.isDescendantMutationRow(row, questionItem.id, rowMap)
+    ));
     if (!answerItem?.id) {
-      throw new Error('无法定位答案列表项。');
+      throw new Error('已写入列表，但未能从本次新增列表项里定位答案列表项。');
     }
-
-    const answerBlock = rows.find((row) => row.parent_id === answerItem.id && row.type === 'p') || answerItem;
-    if (!questionBlock?.id || !answerBlock?.id) {
-      throw new Error('无法定位问题或答案块。');
+    const questionBlock = rows.find((row) => (
+      normalizeString(row.parent_id) === questionItem.id && normalizeString(row.type) === 'p'
+    )) || questionItem;
+    const answerBlock = rows.find((row) => (
+      normalizeString(row.parent_id) === answerItem.id && normalizeString(row.type) === 'p'
+    )) || answerItem;
+    if (!questionBlock.id || !answerBlock.id) {
+      throw new Error('已写入列表，但未能定位问题或答案块。');
     }
     return {
+      insertedRootBlockId: questionItem.id,
       questionBlockId: questionBlock.id,
       answerBlockId: answerBlock.id,
     };
+  }
+
+  private async resolveSelfTestCardFieldBlocksFromMutation(
+    mutationResult: AISiyuanMutationResult,
+    candidate: AIConceptCoachCandidateCard,
+  ): Promise<SelfTestCardFieldBlocks> {
+    const mutationBlockIds = this.collectSelfTestMutationBlockIds(mutationResult);
+    if (mutationBlockIds.length === 0) {
+      throw new Error(`思源没有返回本次列表写入的块信息，无法继续制卡：${truncateText(candidate.question, 60)}`);
+    }
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const rows = await this.loadSelfTestMutationRows(mutationBlockIds);
+      try {
+        return this.resolveSelfTestCardFieldBlocks(rows);
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < 4) {
+        await waitFor(60);
+      }
+    }
+    throw new Error(
+      `${toErrorMessage(lastError, '已写入列表，但未能从本次新增列表项解析出问答块。')}（候选卡：${truncateText(candidate.question, 60)}）`,
+    );
   }
 
   private getNormalizedAISettings(): AISettings {
@@ -2510,28 +2629,39 @@ export class AIWorkbenchService {
     await this.persistCurrentSession();
   }
 
-  async updateCandidateCard(cardId: string, patch: Partial<Pick<AIConceptCoachCandidateCard, 'question' | 'answer' | 'selected' | 'kind'>>): Promise<void> {
-    const result = this.state.skillResults[ACTIVE_SKILL];
-    if (!result) {
+  async updateCandidateCard(
+    messageId: string,
+    cardId: string,
+    patch: Partial<Pick<AIConceptCoachCandidateCard, 'question' | 'answer' | 'selected' | 'kind'>>,
+  ): Promise<void> {
+    const updated = this.updateSelfTestResultMessage(messageId, (cards) => cards.map((card) => {
+      if (card.id !== cardId) {
+        return card;
+      }
+      return {
+        ...card,
+        question: Object.prototype.hasOwnProperty.call(patch, 'question') ? normalizeString(patch.question) : card.question,
+        answer: Object.prototype.hasOwnProperty.call(patch, 'answer') ? normalizeString(patch.answer) : card.answer,
+        kind: Object.prototype.hasOwnProperty.call(patch, 'kind') ? patch.kind || '其他' : card.kind,
+        selected: Object.prototype.hasOwnProperty.call(patch, 'selected') ? patch.selected !== false : card.selected,
+      } satisfies AIConceptCoachCandidateCard;
+    }));
+    if (!updated) {
       return;
     }
-    const card = result.selfTestCards.cards.find((entry) => entry.id === cardId);
-    if (!card) {
+    this.syncDerivedStateFromThreads();
+    await this.persistCurrentSession();
+  }
+
+  async setCandidateCardsSelected(messageId: string, selected: boolean): Promise<void> {
+    const updated = this.updateSelfTestResultMessage(messageId, (cards) => cards.map((card) => ({
+      ...card,
+      selected,
+    })));
+    if (!updated) {
       return;
     }
-    if (Object.prototype.hasOwnProperty.call(patch, 'question')) {
-      card.question = normalizeString(patch.question);
-    }
-    if (Object.prototype.hasOwnProperty.call(patch, 'answer')) {
-      card.answer = normalizeString(patch.answer);
-    }
-    if (Object.prototype.hasOwnProperty.call(patch, 'kind')) {
-      card.kind = patch.kind || '其他';
-    }
-    if (Object.prototype.hasOwnProperty.call(patch, 'selected')) {
-      card.selected = patch.selected !== false;
-    }
-    this.replaceLatestTabResultMessage('self-test-cards', result);
+    this.syncDerivedStateFromThreads();
     await this.persistCurrentSession();
   }
 
@@ -2564,12 +2694,13 @@ export class AIWorkbenchService {
 
   async createSelfTestCardsFromSelectedCandidates(
     target: AIWorkbenchSelfTestCardTargetInput,
+    messageId: string,
   ): Promise<AIWorkbenchSelfTestCardCreationResult> {
     const selfTestViewState = this.state.viewState[CONCEPT_SKILL]?.['self-test-cards'];
     if (selfTestViewState?.stale) {
       throw new Error(selfTestViewState.staleReason || '当前上下文已变化，请先重新运行。');
     }
-    const candidates = this.getSelectedSelfTestCardCandidates();
+    const candidates = this.getSelectedSelfTestCardCandidates(messageId);
     if (candidates.length === 0) {
       throw new Error('请先勾选至少一张包含问题和答案的自测卡片。');
     }
@@ -2597,12 +2728,13 @@ export class AIWorkbenchService {
       markdownParts.push(markdown);
       let insertedRootBlockId: string | null = null;
       try {
-        insertedRootBlockId = resolvedTarget.writeMode === 'append'
-          ? await this.deps.siyuanPort.appendBlockUnderParent(markdown, resolvedTarget.targetBlockId)
-          : await this.deps.siyuanPort.insertBlockAfter(markdown, previousSiblingId);
+        const mutationResult = resolvedTarget.writeMode === 'append'
+          ? await this.deps.siyuanPort.appendBlockUnderParentDetailed(markdown, resolvedTarget.targetBlockId)
+          : await this.deps.siyuanPort.insertBlockAfterDetailed(markdown, previousSiblingId);
+        const fields = await this.resolveSelfTestCardFieldBlocksFromMutation(mutationResult, candidate);
+        insertedRootBlockId = fields.insertedRootBlockId;
         previousSiblingId = insertedRootBlockId || previousSiblingId;
 
-        const fields = await this.resolveSelfTestCardFieldBlocks(insertedRootBlockId);
         const command: CreateXiuyuanFromBlocksCommand = {
           blockIds: [fields.questionBlockId, fields.answerBlockId],
           templateId: 'builtin-basic-qa',

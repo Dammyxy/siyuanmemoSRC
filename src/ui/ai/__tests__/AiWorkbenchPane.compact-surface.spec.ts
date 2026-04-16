@@ -194,6 +194,9 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     submitExplainPrompt: async () => {},
     submitFollowUp: async () => {},
     updateAssistantTextMessage: async () => {},
+    updateCandidateCard: async () => {},
+    setCandidateCardsSelected: async () => {},
+    createSelfTestCardsFromSelectedCandidates: async () => null,
   };
 
   return service as unknown as AIWorkbenchService;
@@ -211,7 +214,13 @@ function pushExplainMessage(service: AIWorkbenchService, result: AIExplainResult
   });
 }
 
-function makeSelfTestRenderEntry() {
+function makeSelfTestRenderEntry(cards = [{
+  id: 'candidate-a',
+  question: '这种引用行为发生在什么情境中？',
+  answer: '在思考探索衍生问题的过程中',
+  kind: '定义',
+  selected: true,
+}]) {
   const primaryMessage = {
     id: 'self-test-message-1',
     skillId: AI_CONCEPT_COACH_SKILL_ID,
@@ -222,15 +231,7 @@ function makeSelfTestRenderEntry() {
     rawContent: '',
     conceptCoachResult: null,
     tabResult: {
-      cards: [
-        {
-          id: 'candidate-a',
-          question: '这种引用行为发生在什么情境中？',
-          answer: '在思考探索衍生问题的过程中',
-          kind: '定义',
-          selected: true,
-        },
-      ],
+      cards,
     },
     appliedContexts: [],
   } as never;
@@ -394,9 +395,47 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(createSelfTestCardsFromSelectedCandidates).toHaveBeenCalledWith(expect.objectContaining({
       mode: 'daily-note',
       notebookId: 'notebook-1',
-    }));
+    }), 'self-test-message-1');
     expect(wrapper.text()).toContain('制卡完成');
     expect(wrapper.text()).toContain('1 张');
+  });
+
+  it('toggles select-all from the compact candidate toolbar using the current message id', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('self-test-cards');
+    service.getRenderEntries = () => [makeSelfTestRenderEntry([
+      {
+        id: 'candidate-a',
+        question: '问题 A',
+        answer: '答案 A',
+        kind: '定义',
+        selected: true,
+      },
+      {
+        id: 'candidate-b',
+        question: '问题 B',
+        answer: '答案 B',
+        kind: '应用',
+        selected: true,
+      },
+    ])] as never;
+    service.getFollowUpDisabledReason = () => null;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => []) as never;
+    service.getSelfTestCardTargetMemory = vi.fn(async () => null) as never;
+    const setCandidateCardsSelected = vi.fn(async () => {});
+    service.setCandidateCardsSelected = setCandidateCardsSelected as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    const toggleButton = wrapper.findAll('button').find((button) => button.text().includes('取消全选'))!;
+    expect(toggleButton.exists()).toBe(true);
+    await toggleButton.trigger('click');
+
+    expect(setCandidateCardsSelected).toHaveBeenCalledWith('self-test-message-1', false);
   });
 
   it('disables self-test card creation when the structured result is stale', async () => {

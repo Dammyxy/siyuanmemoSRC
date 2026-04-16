@@ -1,6 +1,12 @@
-import type { AISiyuanNotebookConf, AISiyuanNotebookSummary, AISiyuanPort } from '@/application/ports/AISiyuanPort';
+import type {
+  AISiyuanMutationResult,
+  AISiyuanNotebookConf,
+  AISiyuanNotebookSummary,
+  AISiyuanPort,
+} from '@/application/ports/AISiyuanPort';
 import {
   appendBlock,
+  appendBlockDetailed,
   copyStdMarkdown,
   createDailyNote,
   createDocWithMd,
@@ -8,6 +14,7 @@ import {
   getNotebookConf,
   listNotebooks,
   insertBlock,
+  insertBlockDetailed,
   renderSprig,
   setBlockAttrs,
   sql,
@@ -96,8 +103,24 @@ export class AISiyuanAdapter implements AISiyuanPort {
     });
   }
 
+  async insertBlockAfterDetailed(markdown: string, previousId: string): Promise<AISiyuanMutationResult> {
+    return insertBlockDetailed({
+      dataType: 'markdown',
+      data: markdown,
+      previousID: previousId,
+    });
+  }
+
   async appendBlockUnderParent(markdown: string, parentId: string): Promise<string> {
     return appendBlock({
+      dataType: 'markdown',
+      data: markdown,
+      parentID: parentId,
+    });
+  }
+
+  async appendBlockUnderParentDetailed(markdown: string, parentId: string): Promise<AISiyuanMutationResult> {
+    return appendBlockDetailed({
       dataType: 'markdown',
       data: markdown,
       parentID: parentId,

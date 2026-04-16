@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-17 (Round 86)
+Last update: 2026-04-17 (Round 87)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-17 - AI self-test list-anchor card creation hardening
+
+- Task: Make `AI 理解与制卡 / 自测卡片` selection state message-scoped, add compact `全选 / 取消全选`, and switch card creation from single-id subtree guessing to Siyuan mutation-based native list-item anchoring.
+- Touched slice: AI workbench / capture plus Siyuan/Xiuyuan integration across `src/application/ports/AISiyuanPort.ts`, `src/application/services/AIWorkbenchService.ts`, `src/infrastructure/siyuan/{api.ts,AISiyuanAdapter.ts}`, `src/ui/ai/AiWorkbenchPane.vue`, focused AI/service/pane/adapter tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Removed the self-test candidate rebound bug by making checkbox/edit/create actions target the current `assistant-result` message instead of the latest aggregated `skillResults`; added bulk select toggle in the pane; exposed detailed Siyuan block mutation operations through the active port/adapter boundary; and resolved newly written QA list trees from native list-item mutations with paragraph-first field mapping plus list-item fallback, so creation no longer depends on the first returned mutation id or recursive root rereads.
+- Debt deferred: Mutation-based block resolution still assumes one parent question item plus one nested answer item per candidate, and the pane still keeps self-test candidate editing/rendering inline rather than extracting a dedicated candidate-list subcomponent.
+- Why deferred: Supporting arbitrarily deep answer trees or broader candidate-list componentization would widen this stabilization pass into a larger self-test content-model and UI refactor.
+- Next safe step: If users start asking for multi-answer or richer nested self-test cards, extend the mutation resolver and Xiuyuan field-mapping model together before changing the list-writing format.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/infrastructure/siyuan/__tests__/AISiyuanAdapter.test.ts --reporter=basic`; `pnpm build`.
 
 ### 2026-04-17 - AI self-test card creation
 

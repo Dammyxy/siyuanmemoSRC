@@ -7,7 +7,6 @@ import {
   AI_CONCEPT_COACH_TAB_IDS,
   AI_GENERAL_CHAT_SKILL_ID,
   AI_GENERAL_CHAT_TAB_ID,
-  type AIConceptCoachResult,
   type AIWorkbenchSelfTestCardTargetMemory,
   type AIWorkbenchSessionRecord,
 } from '@/types/ai';
@@ -100,7 +99,9 @@ function createSiyuanPort(rows = siyuanRows) {
     renderTemplate: vi.fn(),
     createDocWithMarkdown: vi.fn(),
     insertBlockAfter: vi.fn(),
+    insertBlockAfterDetailed: vi.fn(),
     appendBlockUnderParent: vi.fn(),
+    appendBlockUnderParentDetailed: vi.fn(),
     updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
     deleteBlock: vi.fn(),
   };
@@ -252,14 +253,56 @@ function latestAssistantResult(service: AIWorkbenchService, tabId: (typeof AI_CO
     .find((message) => message.kind === 'assistant-result');
 }
 
-function createInsertedSelfTestRows(rootId: string, questionId = `${rootId}-question`, answerId = `${rootId}-answer`) {
-  return [
-    { id: rootId, parent_id: 'target-doc', root_id: 'target-doc', type: 'i', content: 'Question A', markdown: 'Question A', sort: '1', depth: 0 },
-    { id: questionId, parent_id: rootId, root_id: 'target-doc', type: 'p', content: 'Question A', markdown: 'Question A', sort: '1', depth: 1 },
-    { id: `${rootId}-nested-list`, parent_id: rootId, root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '2', depth: 1 },
-    { id: `${rootId}-answer-item`, parent_id: `${rootId}-nested-list`, root_id: 'target-doc', type: 'i', content: 'Answer A', markdown: 'Answer A', sort: '1', depth: 2 },
-    { id: answerId, parent_id: `${rootId}-answer-item`, root_id: 'target-doc', type: 'p', content: 'Answer A', markdown: 'Answer A', sort: '1', depth: 3 },
-  ];
+function extractQuotedSqlValues(stmt: string): string[] {
+  return Array.from(stmt.matchAll(/'((?:[^']|'')+)'/g)).map((match) => match[1]!.replace(/''/g, "'"));
+}
+
+function createSelfTestMutationFixture(
+  rootId: string,
+  options?: {
+    question?: string;
+    answer?: string;
+    includeQuestionParagraph?: boolean;
+    includeAnswerParagraph?: boolean;
+  },
+) {
+  const question = options?.question || 'Question A';
+  const answer = options?.answer || 'Answer A';
+  const includeQuestionParagraph = options?.includeQuestionParagraph !== false;
+  const includeAnswerParagraph = options?.includeAnswerParagraph !== false;
+  const listId = `${rootId}-list`;
+  const questionParagraphId = `${rootId}-question`;
+  const nestedListId = `${rootId}-nested-list`;
+  const answerItemId = `${rootId}-answer-item`;
+  const answerParagraphId = `${rootId}-answer`;
+  const rows = [
+    { id: listId, parent_id: 'target-doc', root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '1' },
+    { id: rootId, parent_id: listId, root_id: 'target-doc', type: 'i', content: question, markdown: question, sort: '1' },
+    includeQuestionParagraph
+      ? { id: questionParagraphId, parent_id: rootId, root_id: 'target-doc', type: 'p', content: question, markdown: question, sort: '1' }
+      : null,
+    { id: nestedListId, parent_id: rootId, root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '2' },
+    { id: answerItemId, parent_id: nestedListId, root_id: 'target-doc', type: 'i', content: answer, markdown: answer, sort: '1' },
+    includeAnswerParagraph
+      ? { id: answerParagraphId, parent_id: answerItemId, root_id: 'target-doc', type: 'p', content: answer, markdown: answer, sort: '1' }
+      : null,
+  ].filter(Boolean);
+  return {
+    rootId,
+    listId,
+    answerItemId,
+    questionBlockId: includeQuestionParagraph ? questionParagraphId : rootId,
+    answerBlockId: includeAnswerParagraph ? answerParagraphId : answerItemId,
+    mutation: {
+      doOperations: rows.map((row) => ({
+        id: row!.id,
+        parentID: row!.parent_id,
+        action: 'insert',
+        data: row!.markdown,
+      })),
+    },
+    rows,
+  };
 }
 
 describe('AIWorkbenchService review-session behavior', () => {
@@ -999,124 +1042,291 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(service.state.sessionId).toBe(sharedSessionId);
   });
 
-  it('creates selected self-test cards in today daily note using the basic QA template', async () => {
+  it('updates self-test candidate selection per message without rebounding and supports bulk toggle', async () => {
+    const llmChat = vi.fn(async () => ({
+      content: JSON.stringify({
+        selfTestCards: {
+          cards: [
+            { id: 'candidate-a', question: 'Question A', answer: 'Answer A', kind: '应用', selected: true },
+            { id: 'candidate-b', question: 'Question B', answer: 'Answer B', kind: '定义', selected: true },
+          ],
+        },
+      }),
+      raw: {},
+    }));
+    const service = createService({ llmChat });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    service.setActiveTab('self-test-cards');
+    await service.runActiveTab();
+
+    const message = latestAssistantResult(service, 'self-test-cards');
+    expect(message?.kind).toBe('assistant-result');
+
+    await service.updateCandidateCard(message!.id, 'candidate-a', { selected: false });
+    await service.updateCandidateCard(message!.id, 'candidate-b', { selected: false });
+
+    const updatedMessage = latestAssistantResult(service, 'self-test-cards');
+    const updatedCards = (updatedMessage?.tabResult as { cards: Array<{ id: string; selected: boolean }> }).cards;
+    expect(updatedCards).toEqual([
+      expect.objectContaining({ id: 'candidate-a', selected: false }),
+      expect.objectContaining({ id: 'candidate-b', selected: false }),
+    ]);
+
+    await service.setCandidateCardsSelected(message!.id, true);
+
+    const reselectedMessage = latestAssistantResult(service, 'self-test-cards');
+    const reselectedCards = (reselectedMessage?.tabResult as { cards: Array<{ selected: boolean }> }).cards;
+    expect(reselectedCards.every((card) => card.selected)).toBe(true);
+  });
+
+  it('creates selected self-test cards in today daily note using paragraph blocks after mutation visibility retry', async () => {
     const siyuanPort = createSiyuanPort();
-    siyuanPort.appendBlockUnderParent.mockResolvedValue('inserted-root-1');
-    siyuanPort.sql.mockImplementation(async (stmt: string) => (
-      stmt.includes('WITH RECURSIVE') ? createInsertedSelfTestRows('inserted-root-1') : []
-    ));
+    const fixture = createSelfTestMutationFixture('inserted-root-1');
+    let visibilityAttempts = 0;
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValue(fixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      const ids = extractQuotedSqlValues(stmt);
+      if (ids.some((id) => fixture.rows.some((row) => row!.id === id))) {
+        visibilityAttempts += 1;
+        return visibilityAttempts === 1
+          ? []
+          : fixture.rows.filter((row) => ids.includes(row!.id));
+      }
+      return [];
+    });
     const createFromBlocks = vi.fn(async () => ({
       ok: true,
       value: {
-        xiuyuan: { id: 'xy-question-1', blockIDs: ['question-1', 'answer-1'], templateID: 'builtin-basic-qa' },
+        xiuyuan: { id: 'xy-question-1', blockIDs: [fixture.questionBlockId, fixture.answerBlockId], templateID: 'builtin-basic-qa' },
         cards: [{ id: 'riff-card-1', xiuyuanId: 'xy-question-1', faceIndex: 0 }],
       },
     }));
     const service = createService({
       siyuanPort,
       xiuyuanService: { createFromBlocks },
+      llmChat: vi.fn(async () => ({
+        content: JSON.stringify({
+          selfTestCards: {
+            cards: [{ id: 'candidate-a', question: 'Question A', answer: 'Answer A', kind: '应用', selected: true }],
+          },
+        }),
+        raw: {},
+      })),
     });
-    service.state.skillResults[AI_CONCEPT_COACH_SKILL_ID] = createConceptCoachPayload() as AIConceptCoachResult;
-    service.state.context = {
+
+    await service.open({
       source: 'review',
-      selectedBlockIds: [],
-      blocks: [],
-      queueType: 'retrieval',
-      queueProgress: null,
-      currentCard: null,
-      currentCardRaw: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
-      neuralBatch: null,
-    };
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    service.setActiveTab('self-test-cards');
+    await service.runActiveTab();
+    const message = latestAssistantResult(service, 'self-test-cards');
 
     const result = await service.createSelfTestCardsFromSelectedCandidates({
       mode: 'daily-note',
       notebookId: 'notebook-1',
       notebookName: '学习笔记',
-    });
+    }, message!.id);
 
     expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
-    expect(siyuanPort.appendBlockUnderParent).toHaveBeenCalledWith('* Question A\n\n  * Answer A', 'daily-doc-1');
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith('* Question A\n\n  * Answer A', 'daily-doc-1');
     expect(createFromBlocks).toHaveBeenCalledWith(expect.objectContaining({
       templateId: 'builtin-basic-qa',
       fieldMapping: {
-        question: 'inserted-root-1-question',
-        answer: 'inserted-root-1-answer',
+        question: fixture.questionBlockId,
+        answer: fixture.answerBlockId,
       },
-      blockIds: ['inserted-root-1-question', 'inserted-root-1-answer'],
+      blockIds: [fixture.questionBlockId, fixture.answerBlockId],
       deckId: 'deck-1',
       source: 'ai-workbench',
       duplicatePolicy: 'reuse-existing',
     }));
+    expect(visibilityAttempts).toBe(2);
     expect(result.createdCount).toBe(1);
     expect(result.createdCardIds).toEqual(['riff-card-1']);
   });
 
-  it('inserts self-test cards after leaf targets and keeps partial failures visible', async () => {
+  it('creates cards from the requested self-test message instead of the latest aggregate result', async () => {
     const siyuanPort = createSiyuanPort();
-    siyuanPort.insertBlockAfter.mockResolvedValueOnce('inserted-root-1').mockResolvedValueOnce('inserted-root-2');
-    siyuanPort.sql.mockImplementation(async (stmt: string) => {
-      if (stmt.includes("WHERE id = 'target-leaf'")) {
-        return [{ id: 'target-leaf', box: 'notebook-1', root_id: 'target-doc', type: 'p', content: '落点', hpath: '/落点' }];
-      }
-      if (stmt.includes('inserted-root-1')) {
-        return createInsertedSelfTestRows('inserted-root-1', 'question-1', 'answer-1');
-      }
-      if (stmt.includes('inserted-root-2')) {
-        return createInsertedSelfTestRows('inserted-root-2', 'question-2', 'answer-2');
-      }
-      return [];
+    const fixture = createSelfTestMutationFixture('inserted-root-message-1', {
+      question: 'Question B',
+      answer: 'Answer B',
     });
-    const createFromBlocks = vi.fn()
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValue(fixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      const ids = extractQuotedSqlValues(stmt);
+      return fixture.rows.filter((row) => ids.includes(row!.id));
+    });
+    const createFromBlocks = vi.fn(async () => ({
+      ok: true,
+      value: {
+        xiuyuan: { id: 'xy-question-b', blockIDs: [fixture.questionBlockId, fixture.answerBlockId], templateID: 'builtin-basic-qa' },
+        cards: [{ id: 'riff-card-b', xiuyuanId: 'xy-question-b', faceIndex: 0 }],
+      },
+    }));
+    const llmChat = vi.fn()
       .mockResolvedValueOnce({
-        ok: true,
-        value: {
-          xiuyuan: { id: 'xy-question-1', blockIDs: ['question-1', 'answer-1'], templateID: 'builtin-basic-qa' },
-          cards: [{ id: 'riff-card-1', xiuyuanId: 'xy-question-1', faceIndex: 0 }],
-        },
+        content: JSON.stringify({
+          selfTestCards: {
+            cards: [
+              { id: 'candidate-a', question: 'Question A', answer: 'Answer A', kind: '应用', selected: true },
+              { id: 'candidate-b', question: 'Question B', answer: 'Answer B', kind: '定义', selected: true },
+            ],
+          },
+        }),
+        raw: {},
       })
       .mockResolvedValueOnce({
-        ok: false,
-        error: new Error('第二张失败'),
+        content: JSON.stringify({
+          selfTestCards: {
+            cards: [{ id: 'candidate-c', question: 'Latest Question', answer: 'Latest Answer', kind: '定义', selected: true }],
+          },
+        }),
+        raw: {},
       });
     const service = createService({
       siyuanPort,
       xiuyuanService: { createFromBlocks },
+      llmChat,
     });
-    const payload = createConceptCoachPayload() as AIConceptCoachResult;
-    payload.selfTestCards.cards.push({
-      id: 'candidate-b',
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    service.setActiveTab('self-test-cards');
+    await service.runActiveTab();
+    const firstMessage = latestAssistantResult(service, 'self-test-cards');
+    await service.runActiveTab();
+
+    await service.updateCandidateCard(firstMessage!.id, 'candidate-a', { selected: false });
+
+    const result = await service.createSelfTestCardsFromSelectedCandidates({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, firstMessage!.id);
+
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledTimes(1);
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith('* Question B\n\n  * Answer B', 'daily-doc-1');
+    expect(result.itemResults[0]).toMatchObject({
+      candidateId: 'candidate-b',
+      question: 'Question B',
+      status: 'created',
+    });
+  });
+
+  it('inserts self-test cards after leaf targets using parsed list-item anchors and falls back to list items when paragraph blocks are missing', async () => {
+    const siyuanPort = createSiyuanPort();
+    const firstFixture = createSelfTestMutationFixture('inserted-root-1', {
+      question: 'Question A',
+      answer: 'Answer A',
+    });
+    const secondFixture = createSelfTestMutationFixture('inserted-root-2', {
       question: 'Question B',
       answer: 'Answer B',
-      kind: '定义',
-      selected: true,
+      includeAnswerParagraph: false,
     });
-    service.state.skillResults[AI_CONCEPT_COACH_SKILL_ID] = payload;
+    siyuanPort.insertBlockAfterDetailed
+      .mockResolvedValueOnce(firstFixture.mutation)
+      .mockResolvedValueOnce(secondFixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      if (stmt.includes("WHERE id = 'target-leaf'")) {
+        return [{ id: 'target-leaf', box: 'notebook-1', root_id: 'target-doc', type: 'p', content: '落点', hpath: '/落点' }];
+      }
+      const ids = extractQuotedSqlValues(stmt);
+      return [...firstFixture.rows, ...secondFixture.rows].filter((row) => ids.includes(row!.id));
+    });
+    const createFromBlocks = vi.fn(async (command: { blockIds: string[]; fieldMapping: Record<string, string> }) => ({
+      ok: true,
+      value: {
+        xiuyuan: { id: `xy-${command.blockIds.join('-')}`, blockIDs: command.blockIds, templateID: 'builtin-basic-qa' },
+        cards: [{ id: `card-${command.blockIds[0]}`, xiuyuanId: 'xy', faceIndex: 0 }],
+      },
+    }));
+    const service = createService({
+      siyuanPort,
+      xiuyuanService: { createFromBlocks },
+      llmChat: vi.fn(async () => ({
+        content: JSON.stringify({
+          selfTestCards: {
+            cards: [
+              { id: 'candidate-a', question: 'Question A', answer: 'Answer A', kind: '应用', selected: true },
+              { id: 'candidate-b', question: 'Question B', answer: 'Answer B', kind: '定义', selected: true },
+            ],
+          },
+        }),
+        raw: {},
+      })),
+    });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    service.setActiveTab('self-test-cards');
+    await service.runActiveTab();
+    const message = latestAssistantResult(service, 'self-test-cards');
 
     const result = await service.createSelfTestCardsFromSelectedCandidates({
       mode: 'block',
       notebookId: 'notebook-1',
       notebookName: '学习笔记',
       targetBlockId: 'target-leaf',
-    });
+    }, message!.id);
 
-    expect(siyuanPort.insertBlockAfter).toHaveBeenNthCalledWith(1, '* Question A\n\n  * Answer A', 'target-leaf');
-    expect(siyuanPort.insertBlockAfter).toHaveBeenNthCalledWith(2, '* Question B\n\n  * Answer B', 'inserted-root-1');
-    expect(result.createdCount).toBe(1);
-    expect(result.failedCount).toBe(1);
-    expect(result.insertedRootBlockIds).toEqual(['inserted-root-1', 'inserted-root-2']);
-    expect(result.itemResults[1]).toMatchObject({
-      candidateId: 'candidate-b',
-      status: 'failed',
-      insertedRootBlockId: 'inserted-root-2',
-      error: '第二张失败',
-    });
+    expect(siyuanPort.insertBlockAfterDetailed).toHaveBeenNthCalledWith(1, '* Question A\n\n  * Answer A', 'target-leaf');
+    expect(siyuanPort.insertBlockAfterDetailed).toHaveBeenNthCalledWith(2, '* Question B\n\n  * Answer B', firstFixture.rootId);
+    expect(createFromBlocks).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      fieldMapping: {
+        question: secondFixture.questionBlockId,
+        answer: secondFixture.answerBlockId,
+      },
+      blockIds: [secondFixture.questionBlockId, secondFixture.answerBlockId],
+    }));
+    expect(result.insertedRootBlockIds).toEqual([firstFixture.rootId, secondFixture.rootId]);
+    expect(result.createdCount).toBe(2);
   });
 
   it('refuses self-test card creation when the self-test result is stale', async () => {
     const service = createService({
       xiuyuanService: { createFromBlocks: vi.fn() },
+      llmChat: vi.fn(async () => ({
+        content: JSON.stringify({
+          selfTestCards: {
+            cards: [{ id: 'candidate-a', question: 'Question A', answer: 'Answer A', kind: '应用', selected: true }],
+          },
+        }),
+        raw: {},
+      })),
     });
-    service.state.skillResults[AI_CONCEPT_COACH_SKILL_ID] = createConceptCoachPayload() as AIConceptCoachResult;
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    service.setActiveTab('self-test-cards');
+    await service.runActiveTab();
+    const message = latestAssistantResult(service, 'self-test-cards');
     service.state.viewState[AI_CONCEPT_COACH_SKILL_ID]['self-test-cards'].stale = true;
     service.state.viewState[AI_CONCEPT_COACH_SKILL_ID]['self-test-cards'].staleReason = '当前上下文已变化，请先重新运行。';
 
@@ -1124,6 +1334,6 @@ describe('AIWorkbenchService review-session behavior', () => {
       mode: 'daily-note',
       notebookId: 'notebook-1',
       notebookName: '学习笔记',
-    })).rejects.toThrow('当前上下文已变化，请先重新运行。');
+    }, message!.id)).rejects.toThrow('当前上下文已变化，请先重新运行。');
   });
 });

@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AISiyuanAdapter } from '../AISiyuanAdapter';
 
 const appendBlockMock = vi.fn();
+const appendBlockDetailedMock = vi.fn();
 const copyStdMarkdownMock = vi.fn();
 const createDailyNoteMock = vi.fn();
 const createDocWithMdMock = vi.fn();
 const deleteBlockMock = vi.fn();
 const getNotebookConfMock = vi.fn();
 const insertBlockMock = vi.fn();
+const insertBlockDetailedMock = vi.fn();
 const listNotebooksMock = vi.fn();
 const renderSprigMock = vi.fn();
 const setBlockAttrsMock = vi.fn();
@@ -16,12 +18,14 @@ const updateBlockMock = vi.fn();
 
 vi.mock('../api', () => ({
   appendBlock: (...args: unknown[]) => appendBlockMock(...args),
+  appendBlockDetailed: (...args: unknown[]) => appendBlockDetailedMock(...args),
   copyStdMarkdown: (...args: unknown[]) => copyStdMarkdownMock(...args),
   createDailyNote: (...args: unknown[]) => createDailyNoteMock(...args),
   createDocWithMd: (...args: unknown[]) => createDocWithMdMock(...args),
   deleteBlock: (...args: unknown[]) => deleteBlockMock(...args),
   getNotebookConf: (...args: unknown[]) => getNotebookConfMock(...args),
   insertBlock: (...args: unknown[]) => insertBlockMock(...args),
+  insertBlockDetailed: (...args: unknown[]) => insertBlockDetailedMock(...args),
   listNotebooks: (...args: unknown[]) => listNotebooksMock(...args),
   renderSprig: (...args: unknown[]) => renderSprigMock(...args),
   setBlockAttrs: (...args: unknown[]) => setBlockAttrsMock(...args),
@@ -32,12 +36,14 @@ vi.mock('../api', () => ({
 describe('AISiyuanAdapter', () => {
   beforeEach(() => {
     appendBlockMock.mockReset();
+    appendBlockDetailedMock.mockReset();
     copyStdMarkdownMock.mockReset();
     createDailyNoteMock.mockReset();
     createDocWithMdMock.mockReset();
     deleteBlockMock.mockReset();
     getNotebookConfMock.mockReset();
     insertBlockMock.mockReset();
+    insertBlockDetailedMock.mockReset();
     listNotebooksMock.mockReset();
     renderSprigMock.mockReset();
     setBlockAttrsMock.mockReset();
@@ -91,5 +97,29 @@ describe('AISiyuanAdapter', () => {
       id: 'block-1',
     });
     expect(deleteBlockMock).toHaveBeenCalledWith('block-1');
+  });
+
+  it('delegates detailed insert and append mutations to siyuan api', async () => {
+    insertBlockDetailedMock.mockResolvedValue({ doOperations: [{ id: 'inserted-item-1', previousID: 'prev-1' }] });
+    appendBlockDetailedMock.mockResolvedValue({ doOperations: [{ id: 'appended-item-1', parentID: 'parent-1' }] });
+    const adapter = new AISiyuanAdapter();
+
+    await expect(adapter.insertBlockAfterDetailed('* Question', 'prev-1')).resolves.toEqual({
+      doOperations: [{ id: 'inserted-item-1', previousID: 'prev-1' }],
+    });
+    await expect(adapter.appendBlockUnderParentDetailed('* Answer', 'parent-1')).resolves.toEqual({
+      doOperations: [{ id: 'appended-item-1', parentID: 'parent-1' }],
+    });
+
+    expect(insertBlockDetailedMock).toHaveBeenCalledWith({
+      dataType: 'markdown',
+      data: '* Question',
+      previousID: 'prev-1',
+    });
+    expect(appendBlockDetailedMock).toHaveBeenCalledWith({
+      dataType: 'markdown',
+      data: '* Answer',
+      parentID: 'parent-1',
+    });
   });
 });

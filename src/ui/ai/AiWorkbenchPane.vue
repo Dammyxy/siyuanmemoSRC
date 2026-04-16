@@ -243,6 +243,14 @@
                     {{ t('setTarget', '设置位置') }}
                   </button>
                   <button
+                    class="ai-chat__link-button"
+                    type="button"
+                    :disabled="selfTestCardCreationBusy || candidateCards(entry.primaryMessage).length === 0"
+                    @click="toggleAllCandidates(entry.primaryMessage)"
+                  >
+                    {{ allCandidateCardsSelected(entry.primaryMessage) ? t('cancelSelectAll', '取消全选') : t('selectAllShort', '全选') }}
+                  </button>
+                  <button
                     class="ai-chat__primary-button ai-chat__primary-button--small"
                     type="button"
                     :disabled="Boolean(selfTestCardCreationDisabledReason(entry.primaryMessage))"
@@ -276,13 +284,13 @@
                   <input
                     type="checkbox"
                     :checked="card.selected"
-                    @change="toggleCandidate(card.id, $event)"
+                    @change="toggleCandidate(entry.primaryMessage.id, card.id, $event)"
                   >
                   <span>{{ card.kind }}</span>
                 </label>
                 <strong>{{ card.question }}</strong>
                 <p>{{ card.answer }}</p>
-                <button class="ai-chat__link-button" type="button" @click="openCandidateEditor(card)">{{ t('edit', '编辑') }}</button>
+                <button class="ai-chat__link-button" type="button" @click="openCandidateEditor(entry.primaryMessage, card)">{{ t('edit', '编辑') }}</button>
               </article>
             </div>
             <template v-else>
@@ -1066,6 +1074,11 @@ function validSelectedCandidateCount(message: AIWorkbenchAssistantResultMessage)
   )).length;
 }
 
+function allCandidateCardsSelected(message: AIWorkbenchAssistantResultMessage): boolean {
+  const cards = candidateCards(message);
+  return cards.length > 0 && cards.every((card) => card.selected !== false);
+}
+
 function selfTestCardCreationDisabledReason(message: AIWorkbenchAssistantResultMessage): string | null {
   if (state.isLoading || selfTestCardCreationBusy.value) {
     return t('aiBusyWait', 'AI 正在处理中，请稍后再操作。');
@@ -1303,8 +1316,9 @@ function previewContextItem(contextItem: AIAttachedContextItem): void {
   editorOpen.value = true;
 }
 
-function openCandidateEditor(card: AIConceptCoachCandidateCard): void {
+function openCandidateEditor(message: AIWorkbenchAssistantResultMessage, card: AIConceptCoachCandidateCard): void {
   editingMode.value = 'candidate-card';
+  editingMessageId.value = message.id;
   editingCandidateId.value = card.id;
   editorReadonly.value = false;
   editorTitle.value = t('editCandidateCard', '编辑候选卡');
@@ -1326,10 +1340,14 @@ function parseCandidateEditorValue(value: string): Partial<Pick<AIConceptCoachCa
   return { question, answer, kind };
 }
 
-async function toggleCandidate(cardId: string, event: Event): Promise<void> {
+async function toggleCandidate(messageId: string, cardId: string, event: Event): Promise<void> {
   const target = event.target;
   const selected = target instanceof HTMLInputElement ? target.checked : true;
-  await service.updateCandidateCard(cardId, { selected });
+  await service.updateCandidateCard(messageId, cardId, { selected });
+}
+
+async function toggleAllCandidates(message: AIWorkbenchAssistantResultMessage): Promise<void> {
+  await service.setCandidateCardsSelected?.(message.id, !allCandidateCardsSelected(message));
 }
 
 function applySelfTestTargetMemory(memory: AIWorkbenchSelfTestCardTargetMemory | null): void {
@@ -1445,7 +1463,7 @@ async function createSelfTestCards(message: AIWorkbenchAssistantResultMessage): 
   selfTestCardCreationError.value = '';
   selfTestCreationResult.value = null;
   try {
-    const result = await service.createSelfTestCardsFromSelectedCandidates?.(selfTestTargetMemory.value);
+    const result = await service.createSelfTestCardsFromSelectedCandidates?.(selfTestTargetMemory.value, message.id);
     if (!result) {
       throw new Error(t('selfTestCreationUnavailable', '当前运行时暂不支持自测卡片制卡。'));
     }
@@ -1550,8 +1568,8 @@ async function confirmEditor(): Promise<void> {
     focusComposerInput();
   } else if (editingMode.value === 'provider' && pendingProvider.value) {
     await service.attachContextFromProvider(pendingProvider.value.key, editorValue.value);
-  } else if (editingMode.value === 'candidate-card' && editingCandidateId.value) {
-    await service.updateCandidateCard(editingCandidateId.value, parseCandidateEditorValue(editorValue.value));
+  } else if (editingMode.value === 'candidate-card' && editingMessageId.value && editingCandidateId.value) {
+    await service.updateCandidateCard(editingMessageId.value, editingCandidateId.value, parseCandidateEditorValue(editorValue.value));
   }
   closeEditor();
 }
