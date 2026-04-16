@@ -429,6 +429,7 @@ export class ApplicationContext {
         cardContentQueryService: context.getCardContentQueryService(),
         siyuanPort,
         llmPort: new OpenAICompatibleLLMAdapter(),
+        getXiuyuanApplicationService: () => context.getXiuyuanApplicationService(),
         sessionStore: context.getAIWorkbenchSessionStoreService(),
       });
     });

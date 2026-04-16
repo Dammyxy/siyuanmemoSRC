@@ -12,6 +12,7 @@ import {
   type AIWorkbenchConversationTree,
   type AIWorkbenchMessage,
   type AIWorkbenchNodeScope,
+  type AIWorkbenchSelfTestCardTargetMemory,
   type AIWorkbenchSessionRecord,
   type AIWorkbenchSessionSummary,
   type AIWorkbenchSource,
@@ -39,6 +40,7 @@ type FindByReviewChatKeyInput = {
 
 const SESSION_INDEX_FILE = 'ai-workbench/sessions/index.json';
 const SESSION_RECORD_PREFIX = 'ai-workbench/sessions/records';
+const SELF_TEST_CARD_TARGET_MEMORY_FILE = 'ai-workbench/self-test-card-target.json';
 const CONCEPT_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
 const GENERAL_SKILL: AISkillId = AI_GENERAL_CHAT_SKILL_ID;
 const DEFAULT_TAB: AISkillTabId = 'working-definition';
@@ -46,6 +48,29 @@ const CURRENT_SCHEMA_VERSION = 4;
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeSelfTestCardTargetMemory(value: unknown): AIWorkbenchSelfTestCardTargetMemory | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const mode = value.mode === 'block' ? 'block' : 'daily-note';
+  const notebookId = normalizeString(value.notebookId);
+  if (!notebookId) {
+    return null;
+  }
+  const targetBlockId = normalizeString(value.targetBlockId) || null;
+  if (mode === 'block' && !targetBlockId) {
+    return null;
+  }
+  return {
+    mode,
+    notebookId,
+    notebookName: normalizeString(value.notebookName) || notebookId,
+    targetBlockId: mode === 'block' ? targetBlockId : null,
+    targetLabel: normalizeString(value.targetLabel) || (mode === 'daily-note' ? '今日日记' : targetBlockId || ''),
+    updatedAt: Number(value.updatedAt) || Date.now(),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -633,6 +658,25 @@ export class AIWorkbenchSessionStoreService {
     }
 
     return null;
+  }
+
+  async loadSelfTestCardTargetMemory(): Promise<AIWorkbenchSelfTestCardTargetMemory | null> {
+    return normalizeSelfTestCardTargetMemory(
+      await this.fileService.readJSON<AIWorkbenchSelfTestCardTargetMemory>(SELF_TEST_CARD_TARGET_MEMORY_FILE),
+    );
+  }
+
+  async saveSelfTestCardTargetMemory(memory: AIWorkbenchSelfTestCardTargetMemory): Promise<AIWorkbenchSelfTestCardTargetMemory | null> {
+    const normalized = normalizeSelfTestCardTargetMemory(memory);
+    if (!normalized) {
+      return null;
+    }
+    const persisted = {
+      ...normalized,
+      updatedAt: normalized.updatedAt || Date.now(),
+    };
+    await this.fileService.writeJSON(SELF_TEST_CARD_TARGET_MEMORY_FILE, persisted);
+    return persisted;
   }
 
   async saveSession(record: AIWorkbenchSessionRecord): Promise<AIWorkbenchSessionRecord> {

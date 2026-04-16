@@ -211,6 +211,38 @@ function pushExplainMessage(service: AIWorkbenchService, result: AIExplainResult
   });
 }
 
+function makeSelfTestRenderEntry() {
+  const primaryMessage = {
+    id: 'self-test-message-1',
+    skillId: AI_CONCEPT_COACH_SKILL_ID,
+    tabId: 'self-test-cards',
+    view: AI_CONCEPT_COACH_SKILL_ID,
+    kind: 'assistant-result',
+    createdAt: Date.now(),
+    rawContent: '',
+    conceptCoachResult: null,
+    tabResult: {
+      cards: [
+        {
+          id: 'candidate-a',
+          question: '这种引用行为发生在什么情境中？',
+          answer: '在思考探索衍生问题的过程中',
+          kind: '定义',
+          selected: true,
+        },
+      ],
+    },
+    appliedContexts: [],
+  } as never;
+  return {
+    key: 'self-test-message-1::render',
+    primaryMessage,
+    supplementalMessages: [],
+    stepCount: 0,
+    pendingApproval: null,
+  };
+}
+
 describe('AiWorkbenchPane compact surfaces', () => {
   it('renders a compact explain-only shell and can reveal history/context drawers', async () => {
     const service = createService('review-dialog-sidecar');
@@ -294,6 +326,106 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('为什么容易错');
     expect(wrapper.text()).toContain('它和现有知识网络的连接');
     expect(wrapper.text()).toContain('下次什么时候该想起它');
+  });
+
+  it('creates selected self-test cards from the compact candidate toolbar', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('self-test-cards');
+    service.getRenderEntries = () => [makeSelfTestRenderEntry()] as never;
+    service.getFollowUpDisabledReason = () => null;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => [
+      { id: 'notebook-1', name: '学习笔记', closed: false },
+    ]) as never;
+    service.getSelfTestCardTargetMemory = vi.fn(async () => ({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: null,
+      targetLabel: '学习笔记 · 今日日记',
+      updatedAt: 1,
+    })) as never;
+    const createSelfTestCardsFromSelectedCandidates = vi.fn(async () => ({
+      target: {
+        mode: 'daily-note',
+        notebookId: 'notebook-1',
+        notebookName: '学习笔记',
+        targetBlockId: null,
+        targetLabel: '学习笔记 · 今日日记',
+        updatedAt: 2,
+      },
+      targetBlockId: 'daily-doc-1',
+      targetLabel: '学习笔记 · 今日日记',
+      markdown: '* 这种引用行为发生在什么情境中？\n\n  * 在思考探索衍生问题的过程中',
+      itemResults: [{
+        candidateId: 'candidate-a',
+        question: '这种引用行为发生在什么情境中？',
+        answer: '在思考探索衍生问题的过程中',
+        status: 'created',
+        insertedRootBlockId: 'root-1',
+        questionBlockId: 'question-1',
+        answerBlockId: 'answer-1',
+        xiuyuanId: 'xy-question-1',
+        cardIds: ['riff-card-1'],
+        error: null,
+      }],
+      insertedRootBlockIds: ['root-1'],
+      createdCardIds: ['riff-card-1'],
+      createdCount: 1,
+      skippedCount: 0,
+      failedCount: 0,
+    }));
+    service.createSelfTestCardsFromSelectedCandidates = createSelfTestCardsFromSelectedCandidates as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).toContain('自测卡片制卡');
+    expect(wrapper.text()).toContain('学习笔记 · 今日日记');
+
+    const createButton = wrapper.findAll('button').find((button) => button.text().includes('制卡选中项'))!;
+    expect(createButton.attributes('disabled')).toBeUndefined();
+    await createButton.trigger('click');
+    await Promise.resolve();
+    await nextTick();
+
+    expect(createSelfTestCardsFromSelectedCandidates).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+    }));
+    expect(wrapper.text()).toContain('制卡完成');
+    expect(wrapper.text()).toContain('1 张');
+  });
+
+  it('disables self-test card creation when the structured result is stale', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('self-test-cards');
+    service.getRenderEntries = () => [makeSelfTestRenderEntry()] as never;
+    service.getFollowUpDisabledReason = () => '当前上下文已变化，请先重新运行。';
+    service.getSelfTestCardTargetMemory = vi.fn(async () => ({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: null,
+      targetLabel: '学习笔记 · 今日日记',
+      updatedAt: 1,
+    })) as never;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => []) as never;
+    const createSelfTestCardsFromSelectedCandidates = vi.fn(async () => null);
+    service.createSelfTestCardsFromSelectedCandidates = createSelfTestCardsFromSelectedCandidates as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).toContain('当前上下文已变化，请先重新运行。');
+    const createButton = wrapper.findAll('button').find((button) => button.text().includes('制卡选中项'))!;
+    expect(createButton.attributes('disabled')).toBeDefined();
+    expect(createSelfTestCardsFromSelectedCandidates).not.toHaveBeenCalled();
   });
 
   it('shows composer context chips, compact composer actions, and assistant edit actions in the chat shell', () => {

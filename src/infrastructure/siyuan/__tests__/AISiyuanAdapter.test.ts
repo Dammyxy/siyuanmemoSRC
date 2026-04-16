@@ -8,6 +8,7 @@ const createDocWithMdMock = vi.fn();
 const deleteBlockMock = vi.fn();
 const getNotebookConfMock = vi.fn();
 const insertBlockMock = vi.fn();
+const listNotebooksMock = vi.fn();
 const renderSprigMock = vi.fn();
 const setBlockAttrsMock = vi.fn();
 const sqlMock = vi.fn();
@@ -21,6 +22,7 @@ vi.mock('../api', () => ({
   deleteBlock: (...args: unknown[]) => deleteBlockMock(...args),
   getNotebookConf: (...args: unknown[]) => getNotebookConfMock(...args),
   insertBlock: (...args: unknown[]) => insertBlockMock(...args),
+  listNotebooks: (...args: unknown[]) => listNotebooksMock(...args),
   renderSprig: (...args: unknown[]) => renderSprigMock(...args),
   setBlockAttrs: (...args: unknown[]) => setBlockAttrsMock(...args),
   sql: (...args: unknown[]) => sqlMock(...args),
@@ -36,6 +38,7 @@ describe('AISiyuanAdapter', () => {
     deleteBlockMock.mockReset();
     getNotebookConfMock.mockReset();
     insertBlockMock.mockReset();
+    listNotebooksMock.mockReset();
     renderSprigMock.mockReset();
     setBlockAttrsMock.mockReset();
     sqlMock.mockReset();
@@ -48,6 +51,13 @@ describe('AISiyuanAdapter', () => {
 
     await expect(adapter.copyStdMarkdown('doc-1')).resolves.toBe('# Doc body');
     expect(copyStdMarkdownMock).toHaveBeenCalledWith('doc-1');
+  });
+
+  it('delegates listNotebooks to siyuan api', async () => {
+    listNotebooksMock.mockResolvedValue([{ id: 'box-1', name: 'Box 1', icon: '', closed: false }]);
+    const adapter = new AISiyuanAdapter();
+
+    await expect(adapter.listNotebooks()).resolves.toEqual([{ id: 'box-1', name: 'Box 1', icon: '', closed: false }]);
   });
 
   it('reuses today daily note when the native custom-dailynote attr already exists', async () => {

@@ -107,7 +107,7 @@ export interface CreateXiuyuanFromBlocksCommand {
   /**
    * 创建来源（内部字段，可选）
    */
-  source?: 'riff-sync' | 'auto-listener' | 'doc-scan' | 'block-menu';
+  source?: 'riff-sync' | 'auto-listener' | 'doc-scan' | 'block-menu' | 'ai-workbench';
 
   /**
    * 渲染档案（内部字段，可选）

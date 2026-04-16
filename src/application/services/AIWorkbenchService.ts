@@ -1,10 +1,12 @@
 import { reactive } from 'vue';
 import { BlockContextResolver } from '@/application/entries/BlockContextResolver';
 import { resolveProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
+import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMMessage, LLMPort, LLMResponse, LLMToolCall } from '@/application/ports/LLMPort';
 import { LLMError } from '@/application/ports/LLMPort';
+import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import {
   getAIChatSkill,
   type AIChatRegisteredSkillDescriptor,
@@ -70,10 +72,15 @@ import type {
   AIWorkbenchNodeScope,
   AIWorkbenchOpenOptions,
   AIWorkbenchOpenView,
+  AIWorkbenchNotebookOption,
   AIWorkbenchRunMode,
   AIWorkbenchRunStatus,
   AIWorkbenchRenderEntry,
   AIWorkbenchSeparatorMessage,
+  AIWorkbenchSelfTestCardCreationItemResult,
+  AIWorkbenchSelfTestCardCreationResult,
+  AIWorkbenchSelfTestCardTargetInput,
+  AIWorkbenchSelfTestCardTargetMemory,
   AIWorkbenchSessionRecord,
   AIWorkbenchSource,
   AIWorkbenchState,
@@ -98,9 +105,17 @@ export type AIWorkbenchServiceDeps = {
   cardContentQueryService: CardContentQueryService;
   siyuanPort: AISiyuanPort;
   llmPort: LLMPort;
+  getXiuyuanApplicationService?: () => Promise<Pick<XiuyuanApplicationService, 'createFromBlocks'>>;
   sessionStore?: Pick<
     AIWorkbenchSessionStoreService,
-    'listSummaries' | 'loadSession' | 'saveSession' | 'renameSession' | 'deleteSession' | 'findLatestByReviewChatKey'
+    | 'listSummaries'
+    | 'loadSession'
+    | 'saveSession'
+    | 'renameSession'
+    | 'deleteSession'
+    | 'findLatestByReviewChatKey'
+    | 'loadSelfTestCardTargetMemory'
+    | 'saveSelfTestCardTargetMemory'
   >;
 };
 
@@ -147,6 +162,22 @@ type ConceptCoachNormalizationState = {
   diagnostics: Partial<Record<AISkillTabId, AIConceptCoachNormalizationDiagnostic | null>>;
 };
 
+type SelfTestCardWriteTarget = {
+  memory: AIWorkbenchSelfTestCardTargetMemory;
+  targetBlockId: string;
+  writeMode: 'append' | 'after';
+};
+
+type SelfTestCardFieldBlocks = {
+  questionBlockId: string;
+  answerBlockId: string;
+};
+
+type SelfTestCardDescendantBlockRow = AISiyuanBlockRow & {
+  sort?: string | number;
+  depth?: number;
+};
+
 const NOOP_SESSION_STORE: Required<NonNullable<AIWorkbenchServiceDeps['sessionStore']>> = {
   async listSummaries() { return []; },
   async loadSession() { return null; },
@@ -154,6 +185,8 @@ const NOOP_SESSION_STORE: Required<NonNullable<AIWorkbenchServiceDeps['sessionSt
   async renameSession() { return null; },
   async deleteSession() { return undefined; },
   async findLatestByReviewChatKey() { return null; },
+  async loadSelfTestCardTargetMemory() { return null; },
+  async saveSelfTestCardTargetMemory(memory) { return memory; },
 };
 
 function uniqueIds(ids: Array<string | null | undefined>): string[] {
@@ -166,6 +199,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value.trim() : fallback;
+}
+
+function escapeSql(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error.trim();
+  }
+  return fallback;
 }
 
 function normalizeStringArray(value: unknown): string[] {
@@ -1460,6 +1507,207 @@ export class AIWorkbenchService {
     return this.deps.sessionStore || NOOP_SESSION_STORE;
   }
 
+  private async requireXiuyuanApplicationService(): Promise<Pick<XiuyuanApplicationService, 'createFromBlocks'>> {
+    if (!this.deps.getXiuyuanApplicationService) {
+      throw new Error('XiuyuanApplicationService 未初始化，暂时无法创建闪卡。');
+    }
+    return this.deps.getXiuyuanApplicationService();
+  }
+
+  private normalizeSelfTestCardTargetMemory(
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    updatedAt: number,
+  ): AIWorkbenchSelfTestCardTargetMemory | null {
+    const mode = target.mode === 'block' ? 'block' : 'daily-note';
+    const notebookId = normalizeString(target.notebookId);
+    if (!notebookId) {
+      return null;
+    }
+    const targetBlockId = normalizeString(target.targetBlockId) || null;
+    if (mode === 'block' && !targetBlockId) {
+      return null;
+    }
+    const notebookName = normalizeString(target.notebookName) || notebookId;
+    const targetLabel = normalizeString(target.targetLabel)
+      || (mode === 'daily-note'
+        ? `${notebookName} · 今日日记`
+        : `${notebookName} · ${targetBlockId}`);
+    return {
+      mode,
+      notebookId,
+      notebookName,
+      targetBlockId: mode === 'block' ? targetBlockId : null,
+      targetLabel,
+      updatedAt,
+    };
+  }
+
+  private getSelectedSelfTestCardCandidates(): AIConceptCoachCandidateCard[] {
+    const resultCards = this.state.skillResults[CONCEPT_SKILL]?.selfTestCards.cards || [];
+    const fallbackCards = resultCards.length > 0
+      ? resultCards
+      : (this.state.threads[CONCEPT_SKILL]?.['self-test-cards']?.messages || [])
+        .slice()
+        .reverse()
+        .flatMap((message) => {
+          if (message.kind !== 'assistant-result') {
+            return [];
+          }
+          const selfTestCards = (message.tabResult || message.conceptCoachResult?.selfTestCards) as AIConceptCoachSelfTestCards | null;
+          return Array.isArray(selfTestCards?.cards) ? selfTestCards.cards : [];
+        });
+    return fallbackCards.filter((card) => card.selected !== false && normalizeString(card.question) && normalizeString(card.answer));
+  }
+
+  private resolveCurrentDeckId(): string | undefined {
+    const card = this.state.liveContext?.currentCardRaw || this.state.context?.currentCardRaw || null;
+    if (!card || typeof card !== 'object') {
+      return undefined;
+    }
+    return normalizeString((card as { deckId?: unknown; deckID?: unknown }).deckId)
+      || normalizeString((card as { deckId?: unknown; deckID?: unknown }).deckID)
+      || undefined;
+  }
+
+  private buildSelfTestCardMarkdown(question: string, answer: string): string {
+    const normalizeListText = (value: string) => normalizeString(value).replace(/\s*\r?\n\s*/g, ' ');
+    return `* ${normalizeListText(question)}\n\n  * ${normalizeListText(answer)}`;
+  }
+
+  private createSelfTestCardItemResult(input: {
+    candidate: AIConceptCoachCandidateCard;
+    status: AIWorkbenchSelfTestCardCreationItemResult['status'];
+    insertedRootBlockId?: string | null;
+    questionBlockId?: string | null;
+    answerBlockId?: string | null;
+    xiuyuanId?: string | null;
+    cardIds?: string[];
+    error?: string | null;
+  }): AIWorkbenchSelfTestCardCreationItemResult {
+    return {
+      candidateId: input.candidate.id,
+      question: normalizeString(input.candidate.question),
+      answer: normalizeString(input.candidate.answer),
+      status: input.status,
+      insertedRootBlockId: input.insertedRootBlockId || null,
+      questionBlockId: input.questionBlockId || null,
+      answerBlockId: input.answerBlockId || null,
+      xiuyuanId: input.xiuyuanId || null,
+      cardIds: input.cardIds || [],
+      error: input.error || null,
+    };
+  }
+
+  private async resolveSelfTestCardWriteTarget(target: AIWorkbenchSelfTestCardTargetInput): Promise<SelfTestCardWriteTarget> {
+    if (target.mode === 'daily-note') {
+      const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+      if (!memory) {
+        throw new Error('请选择要写入今日日记的目标笔记本。');
+      }
+      const dailyNoteId = await this.deps.siyuanPort.ensureTodayDailyNote(memory.notebookId);
+      return {
+        memory: {
+          ...memory,
+          targetBlockId: null,
+          targetLabel: memory.targetLabel || `${memory.notebookName} · 今日日记`,
+        },
+        targetBlockId: dailyNoteId,
+        writeMode: 'append',
+      };
+    }
+
+    const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+    if (!memory || !memory.targetBlockId) {
+      throw new Error('请填写要写入的文档或块 ID。');
+    }
+    const targetBlock = await this.loadSelfTestTargetBlock(memory.targetBlockId);
+    const targetNotebookId = normalizeString(targetBlock.box);
+    if (targetNotebookId && memory.notebookId && targetNotebookId !== memory.notebookId) {
+      throw new Error('目标块和已选择的笔记本不一致，请重新检查制卡位置。');
+    }
+    const targetLabel = normalizeString(target.targetLabel)
+      || normalizeString(targetBlock.hpath)
+      || normalizeString(targetBlock.content)
+      || memory.targetBlockId;
+    return {
+      memory: {
+        ...memory,
+        notebookId: targetNotebookId || memory.notebookId,
+        targetLabel,
+      },
+      targetBlockId: memory.targetBlockId,
+      writeMode: this.isAppendableSelfTestTarget(targetBlock) ? 'append' : 'after',
+    };
+  }
+
+  private async loadSelfTestTargetBlock(blockId: string): Promise<AISiyuanBlockRow> {
+    const rows = await this.deps.siyuanPort.sql<AISiyuanBlockRow>(`
+      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown
+      FROM blocks
+      WHERE id = '${escapeSql(blockId)}'
+      LIMIT 1
+    `);
+    const row = rows[0];
+    if (!row || !normalizeString(row.id)) {
+      throw new Error('未找到目标文档或块，请检查块 ID 是否有效。');
+    }
+    return row;
+  }
+
+  private isAppendableSelfTestTarget(block: AISiyuanBlockRow): boolean {
+    const type = normalizeString(block.type);
+    return type === 'd' || type === 'h' || type === 'l' || type === 'i' || type === 's';
+  }
+
+  private async resolveSelfTestCardFieldBlocks(insertedRootBlockId: string): Promise<SelfTestCardFieldBlocks> {
+    if (!normalizeString(insertedRootBlockId)) {
+      throw new Error('思源没有返回新写入块 ID，无法继续制卡。');
+    }
+    const rows = await this.deps.siyuanPort.sql<SelfTestCardDescendantBlockRow>(`
+      WITH RECURSIVE descendants(id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, depth) AS (
+        SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, 0
+        FROM blocks
+        WHERE id = '${escapeSql(insertedRootBlockId)}'
+        UNION ALL
+        SELECT b.id, b.parent_id, b.root_id, b.box, b.path, b.hpath, b.type, b.subtype, b.content, b.markdown, b.sort, descendants.depth + 1
+        FROM blocks b
+        INNER JOIN descendants ON b.parent_id = descendants.id
+      )
+      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, depth
+      FROM descendants
+      ORDER BY depth ASC, sort ASC, id ASC
+    `);
+    if (rows.length === 0) {
+      throw new Error('无法回读刚写入的自测卡片块。');
+    }
+
+    const root = rows.find((row) => row.id === insertedRootBlockId) || rows[0];
+    const parentItem = normalizeString(root.type) === 'l'
+      ? rows.find((row) => row.parent_id === root.id && row.type === 'i')
+      : (root.type === 'i' ? root : rows.find((row) => row.type === 'i'));
+    if (!parentItem?.id) {
+      throw new Error('无法定位问题列表项。');
+    }
+
+    const questionBlock = rows.find((row) => row.parent_id === parentItem.id && row.type === 'p') || parentItem;
+    const nestedList = rows.find((row) => row.parent_id === parentItem.id && row.type === 'l');
+    const answerItem = nestedList
+      ? rows.find((row) => row.parent_id === nestedList.id && row.type === 'i')
+      : rows.find((row) => row.type === 'i' && row.id !== parentItem.id);
+    if (!answerItem?.id) {
+      throw new Error('无法定位答案列表项。');
+    }
+
+    const answerBlock = rows.find((row) => row.parent_id === answerItem.id && row.type === 'p') || answerItem;
+    if (!questionBlock?.id || !answerBlock?.id) {
+      throw new Error('无法定位问题或答案块。');
+    }
+    return {
+      questionBlockId: questionBlock.id,
+      answerBlockId: answerBlock.id,
+    };
+  }
+
   private getNormalizedAISettings(): AISettings {
     return normalizeAISettings(this.deps.getAISettings());
   }
@@ -2285,6 +2533,131 @@ export class AIWorkbenchService {
     }
     this.replaceLatestTabResultMessage('self-test-cards', result);
     await this.persistCurrentSession();
+  }
+
+  async listSelfTestCardTargetNotebooks(): Promise<AIWorkbenchNotebookOption[]> {
+    const notebooks = await this.deps.siyuanPort.listNotebooks();
+    return notebooks
+      .map((notebook) => ({
+        id: normalizeString(notebook.id),
+        name: normalizeString(notebook.name) || normalizeString(notebook.id),
+        icon: normalizeString(notebook.icon) || undefined,
+        closed: notebook.closed === true,
+      }))
+      .filter((notebook) => notebook.id && !notebook.closed)
+      .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+  }
+
+  async getSelfTestCardTargetMemory(): Promise<AIWorkbenchSelfTestCardTargetMemory | null> {
+    return this.getSessionStore().loadSelfTestCardTargetMemory();
+  }
+
+  async saveSelfTestCardTargetMemory(
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+  ): Promise<AIWorkbenchSelfTestCardTargetMemory | null> {
+    const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+    if (!memory) {
+      return null;
+    }
+    return this.getSessionStore().saveSelfTestCardTargetMemory(memory);
+  }
+
+  async createSelfTestCardsFromSelectedCandidates(
+    target: AIWorkbenchSelfTestCardTargetInput,
+  ): Promise<AIWorkbenchSelfTestCardCreationResult> {
+    const selfTestViewState = this.state.viewState[CONCEPT_SKILL]?.['self-test-cards'];
+    if (selfTestViewState?.stale) {
+      throw new Error(selfTestViewState.staleReason || '当前上下文已变化，请先重新运行。');
+    }
+    const candidates = this.getSelectedSelfTestCardCandidates();
+    if (candidates.length === 0) {
+      throw new Error('请先勾选至少一张包含问题和答案的自测卡片。');
+    }
+
+    const resolvedTarget = await this.resolveSelfTestCardWriteTarget(target);
+    const xiuyuanService = await this.requireXiuyuanApplicationService();
+    const deckId = this.resolveCurrentDeckId();
+    const itemResults: AIWorkbenchSelfTestCardCreationItemResult[] = [];
+    const markdownParts: string[] = [];
+    let previousSiblingId = resolvedTarget.targetBlockId;
+
+    for (const candidate of candidates) {
+      const question = normalizeString(candidate.question);
+      const answer = normalizeString(candidate.answer);
+      if (!question || !answer) {
+        itemResults.push(this.createSelfTestCardItemResult({
+          candidate,
+          status: 'skipped',
+          error: '问题或答案为空，已跳过。',
+        }));
+        continue;
+      }
+
+      const markdown = this.buildSelfTestCardMarkdown(question, answer);
+      markdownParts.push(markdown);
+      let insertedRootBlockId: string | null = null;
+      try {
+        insertedRootBlockId = resolvedTarget.writeMode === 'append'
+          ? await this.deps.siyuanPort.appendBlockUnderParent(markdown, resolvedTarget.targetBlockId)
+          : await this.deps.siyuanPort.insertBlockAfter(markdown, previousSiblingId);
+        previousSiblingId = insertedRootBlockId || previousSiblingId;
+
+        const fields = await this.resolveSelfTestCardFieldBlocks(insertedRootBlockId);
+        const command: CreateXiuyuanFromBlocksCommand = {
+          blockIds: [fields.questionBlockId, fields.answerBlockId],
+          templateId: 'builtin-basic-qa',
+          fieldMapping: {
+            question: fields.questionBlockId,
+            answer: fields.answerBlockId,
+          },
+          ...(deckId ? { deckId } : {}),
+          cardType: 'item',
+          source: 'ai-workbench',
+          creationMode: 'ai-self-test-card',
+          duplicatePolicy: 'reuse-existing',
+        };
+        const creationResult = await xiuyuanService.createFromBlocks(command);
+        if (!creationResult.ok) {
+          throw creationResult.error || new Error('制卡失败。');
+        }
+
+        itemResults.push(this.createSelfTestCardItemResult({
+          candidate,
+          status: 'created',
+          insertedRootBlockId,
+          questionBlockId: fields.questionBlockId,
+          answerBlockId: fields.answerBlockId,
+          xiuyuanId: creationResult.value.xiuyuan.id,
+          cardIds: creationResult.value.cards.map((card) => card.id),
+        }));
+      } catch (error) {
+        itemResults.push(this.createSelfTestCardItemResult({
+          candidate,
+          status: 'failed',
+          insertedRootBlockId,
+          error: toErrorMessage(error, '制卡失败。'),
+        }));
+      }
+    }
+
+    const createdCount = itemResults.filter((item) => item.status === 'created').length;
+    const result: AIWorkbenchSelfTestCardCreationResult = {
+      target: resolvedTarget.memory,
+      targetBlockId: resolvedTarget.targetBlockId,
+      targetLabel: resolvedTarget.memory.targetLabel,
+      markdown: markdownParts.join('\n\n'),
+      itemResults,
+      insertedRootBlockIds: itemResults.map((item) => item.insertedRootBlockId).filter((id): id is string => Boolean(id)),
+      createdCardIds: itemResults.flatMap((item) => item.cardIds),
+      createdCount,
+      skippedCount: itemResults.filter((item) => item.status === 'skipped').length,
+      failedCount: itemResults.filter((item) => item.status === 'failed').length,
+    };
+
+    if (createdCount > 0) {
+      await this.getSessionStore().saveSelfTestCardTargetMemory(resolvedTarget.memory);
+    }
+    return result;
   }
 
   async resolveToolApproval(approvalId: string, approved: boolean, rejectReason = ''): Promise<void> {

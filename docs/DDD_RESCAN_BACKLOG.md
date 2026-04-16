@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-17 (Round 85)
+Last update: 2026-04-17 (Round 86)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-17 - AI self-test card creation
+
+- Task: Add a one-click card creation path for selected `AI 理解与制卡 / 自测卡片` candidates by writing list Markdown to a remembered SiYuan target and creating independent QA cards through Xiuyuan.
+- Touched slice: AI workbench / capture plus Siyuan/Xiuyuan integration across `src/types/ai.ts`, `src/application/{ApplicationContext.ts,ports/AISiyuanPort.ts,services/{AIWorkbenchService,AIWorkbenchSessionStoreService}.ts}`, `src/infrastructure/siyuan/AISiyuanAdapter.ts`, `src/ui/ai/AiWorkbenchPane.vue`, i18n, focused service/session/adapter/pane tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Moved self-test card creation into the active service path instead of adding UI-side Siyuan calls; added a typed target-memory file under AI workbench persistence; reused `AISiyuanPort` and `XiuyuanApplicationService.createFromBlocks()` for writes and card creation; and made stale structured results block creation from old context.
+- Debt deferred: The written-list block resolver remains scoped to the expected one-question/one-answer list shape, and card target memory is global to AI workbench rather than per queue or per skill.
+- Why deferred: Supporting arbitrary nested answer structures or per-scope target memories would widen this direct self-test creation pass into a broader content-shape and target-management product design.
+- Next safe step: If users start creating multi-answer self-test cards, extend the resolver and UI result model to support multiple answer blocks per candidate before changing template semantics.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/infrastructure/siyuan/__tests__/AISiyuanAdapter.test.ts --reporter=basic`; `pnpm build`.
 
 ### 2026-04-17 - settings secondary tab layout
 

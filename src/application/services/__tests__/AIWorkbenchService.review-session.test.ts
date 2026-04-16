@@ -7,6 +7,8 @@ import {
   AI_CONCEPT_COACH_TAB_IDS,
   AI_GENERAL_CHAT_SKILL_ID,
   AI_GENERAL_CHAT_TAB_ID,
+  type AIConceptCoachResult,
+  type AIWorkbenchSelfTestCardTargetMemory,
   type AIWorkbenchSessionRecord,
 } from '@/types/ai';
 
@@ -85,6 +87,10 @@ const siyuanRows = Array.from(contentMap.entries()).map(([id, value]) => ({
 
 function createSiyuanPort(rows = siyuanRows) {
   return {
+    listNotebooks: vi.fn(async () => [
+      { id: 'notebook-1', name: '学习笔记', icon: '', closed: false },
+      { id: 'closed-notebook', name: '已关闭', icon: '', closed: true },
+    ]),
     sql: vi.fn(async () => rows),
     getBlockText: vi.fn(async (blockId: string) => contentMap.get(blockId)?.content || ''),
     copyStdMarkdown: vi.fn(async (blockId: string) => contentMap.get(blockId)?.copyStdMarkdown || ''),
@@ -102,6 +108,7 @@ function createSiyuanPort(rows = siyuanRows) {
 
 function createSessionStore() {
   const records = new Map<string, AIWorkbenchSessionRecord>();
+  let selfTestTargetMemory: AIWorkbenchSelfTestCardTargetMemory | null = null;
 
   const countMessages = (record: AIWorkbenchSessionRecord) => AI_CONCEPT_COACH_TAB_IDS.reduce(
     (total, tabId) => total + (record.threads?.[AI_CONCEPT_COACH_SKILL_ID]?.[tabId]?.messages?.length || 0),
@@ -162,6 +169,11 @@ function createSessionStore() {
         .sort((left, right) => right.updatedAt - left.updatedAt)[0];
       return match ? buildSummary(match) : null;
     }),
+    loadSelfTestCardTargetMemory: vi.fn(async () => selfTestTargetMemory ? JSON.parse(JSON.stringify(selfTestTargetMemory)) : null),
+    saveSelfTestCardTargetMemory: vi.fn(async (memory: AIWorkbenchSelfTestCardTargetMemory) => {
+      selfTestTargetMemory = JSON.parse(JSON.stringify(memory));
+      return JSON.parse(JSON.stringify(memory));
+    }),
   };
 }
 
@@ -170,6 +182,7 @@ function createService(options?: {
   llmChat?: ReturnType<typeof vi.fn>;
   siyuanPort?: ReturnType<typeof createSiyuanPort>;
   sessionStore?: ReturnType<typeof createSessionStore>;
+  xiuyuanService?: { createFromBlocks: ReturnType<typeof vi.fn> };
 }) {
   return new AIWorkbenchService({
     getAISettings: () => options?.aiSettings || createAISettings(),
@@ -182,6 +195,9 @@ function createService(options?: {
     llmPort: {
       chat: options?.llmChat || vi.fn(),
     },
+    getXiuyuanApplicationService: options?.xiuyuanService
+      ? async () => options.xiuyuanService!
+      : undefined,
     sessionStore: options?.sessionStore || createSessionStore(),
   });
 }
@@ -202,7 +218,7 @@ function createConceptCoachPayload(workingDefinition = 'Definition A') {
       capabilities: ['Capability A'],
     },
     selfTestCards: {
-      cards: [{ question: 'Question A', answer: 'Answer A', kind: '应用', selected: true }],
+      cards: [{ id: 'candidate-a', question: 'Question A', answer: 'Answer A', kind: '应用', selected: true }],
     },
     realWorldTriggers: {
       triggers: ['Trigger A'],
@@ -234,6 +250,16 @@ function latestAssistantResult(service: AIWorkbenchService, tabId: (typeof AI_CO
   return [...service.state.threads[AI_CONCEPT_COACH_SKILL_ID][tabId].messages]
     .reverse()
     .find((message) => message.kind === 'assistant-result');
+}
+
+function createInsertedSelfTestRows(rootId: string, questionId = `${rootId}-question`, answerId = `${rootId}-answer`) {
+  return [
+    { id: rootId, parent_id: 'target-doc', root_id: 'target-doc', type: 'i', content: 'Question A', markdown: 'Question A', sort: '1', depth: 0 },
+    { id: questionId, parent_id: rootId, root_id: 'target-doc', type: 'p', content: 'Question A', markdown: 'Question A', sort: '1', depth: 1 },
+    { id: `${rootId}-nested-list`, parent_id: rootId, root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '2', depth: 1 },
+    { id: `${rootId}-answer-item`, parent_id: `${rootId}-nested-list`, root_id: 'target-doc', type: 'i', content: 'Answer A', markdown: 'Answer A', sort: '1', depth: 2 },
+    { id: answerId, parent_id: `${rootId}-answer-item`, root_id: 'target-doc', type: 'p', content: 'Answer A', markdown: 'Answer A', sort: '1', depth: 3 },
+  ];
 }
 
 describe('AIWorkbenchService review-session behavior', () => {
@@ -971,5 +997,133 @@ describe('AIWorkbenchService review-session behavior', () => {
       revealed: true,
     });
     expect(service.state.sessionId).toBe(sharedSessionId);
+  });
+
+  it('creates selected self-test cards in today daily note using the basic QA template', async () => {
+    const siyuanPort = createSiyuanPort();
+    siyuanPort.appendBlockUnderParent.mockResolvedValue('inserted-root-1');
+    siyuanPort.sql.mockImplementation(async (stmt: string) => (
+      stmt.includes('WITH RECURSIVE') ? createInsertedSelfTestRows('inserted-root-1') : []
+    ));
+    const createFromBlocks = vi.fn(async () => ({
+      ok: true,
+      value: {
+        xiuyuan: { id: 'xy-question-1', blockIDs: ['question-1', 'answer-1'], templateID: 'builtin-basic-qa' },
+        cards: [{ id: 'riff-card-1', xiuyuanId: 'xy-question-1', faceIndex: 0 }],
+      },
+    }));
+    const service = createService({
+      siyuanPort,
+      xiuyuanService: { createFromBlocks },
+    });
+    service.state.skillResults[AI_CONCEPT_COACH_SKILL_ID] = createConceptCoachPayload() as AIConceptCoachResult;
+    service.state.context = {
+      source: 'review',
+      selectedBlockIds: [],
+      blocks: [],
+      queueType: 'retrieval',
+      queueProgress: null,
+      currentCard: null,
+      currentCardRaw: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      neuralBatch: null,
+    };
+
+    const result = await service.createSelfTestCardsFromSelectedCandidates({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    });
+
+    expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
+    expect(siyuanPort.appendBlockUnderParent).toHaveBeenCalledWith('* Question A\n\n  * Answer A', 'daily-doc-1');
+    expect(createFromBlocks).toHaveBeenCalledWith(expect.objectContaining({
+      templateId: 'builtin-basic-qa',
+      fieldMapping: {
+        question: 'inserted-root-1-question',
+        answer: 'inserted-root-1-answer',
+      },
+      blockIds: ['inserted-root-1-question', 'inserted-root-1-answer'],
+      deckId: 'deck-1',
+      source: 'ai-workbench',
+      duplicatePolicy: 'reuse-existing',
+    }));
+    expect(result.createdCount).toBe(1);
+    expect(result.createdCardIds).toEqual(['riff-card-1']);
+  });
+
+  it('inserts self-test cards after leaf targets and keeps partial failures visible', async () => {
+    const siyuanPort = createSiyuanPort();
+    siyuanPort.insertBlockAfter.mockResolvedValueOnce('inserted-root-1').mockResolvedValueOnce('inserted-root-2');
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      if (stmt.includes("WHERE id = 'target-leaf'")) {
+        return [{ id: 'target-leaf', box: 'notebook-1', root_id: 'target-doc', type: 'p', content: '落点', hpath: '/落点' }];
+      }
+      if (stmt.includes('inserted-root-1')) {
+        return createInsertedSelfTestRows('inserted-root-1', 'question-1', 'answer-1');
+      }
+      if (stmt.includes('inserted-root-2')) {
+        return createInsertedSelfTestRows('inserted-root-2', 'question-2', 'answer-2');
+      }
+      return [];
+    });
+    const createFromBlocks = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        value: {
+          xiuyuan: { id: 'xy-question-1', blockIDs: ['question-1', 'answer-1'], templateID: 'builtin-basic-qa' },
+          cards: [{ id: 'riff-card-1', xiuyuanId: 'xy-question-1', faceIndex: 0 }],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: new Error('第二张失败'),
+      });
+    const service = createService({
+      siyuanPort,
+      xiuyuanService: { createFromBlocks },
+    });
+    const payload = createConceptCoachPayload() as AIConceptCoachResult;
+    payload.selfTestCards.cards.push({
+      id: 'candidate-b',
+      question: 'Question B',
+      answer: 'Answer B',
+      kind: '定义',
+      selected: true,
+    });
+    service.state.skillResults[AI_CONCEPT_COACH_SKILL_ID] = payload;
+
+    const result = await service.createSelfTestCardsFromSelectedCandidates({
+      mode: 'block',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: 'target-leaf',
+    });
+
+    expect(siyuanPort.insertBlockAfter).toHaveBeenNthCalledWith(1, '* Question A\n\n  * Answer A', 'target-leaf');
+    expect(siyuanPort.insertBlockAfter).toHaveBeenNthCalledWith(2, '* Question B\n\n  * Answer B', 'inserted-root-1');
+    expect(result.createdCount).toBe(1);
+    expect(result.failedCount).toBe(1);
+    expect(result.insertedRootBlockIds).toEqual(['inserted-root-1', 'inserted-root-2']);
+    expect(result.itemResults[1]).toMatchObject({
+      candidateId: 'candidate-b',
+      status: 'failed',
+      insertedRootBlockId: 'inserted-root-2',
+      error: '第二张失败',
+    });
+  });
+
+  it('refuses self-test card creation when the self-test result is stale', async () => {
+    const service = createService({
+      xiuyuanService: { createFromBlocks: vi.fn() },
+    });
+    service.state.skillResults[AI_CONCEPT_COACH_SKILL_ID] = createConceptCoachPayload() as AIConceptCoachResult;
+    service.state.viewState[AI_CONCEPT_COACH_SKILL_ID]['self-test-cards'].stale = true;
+    service.state.viewState[AI_CONCEPT_COACH_SKILL_ID]['self-test-cards'].staleReason = '当前上下文已变化，请先重新运行。';
+
+    await expect(service.createSelfTestCardsFromSelectedCandidates({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    })).rejects.toThrow('当前上下文已变化，请先重新运行。');
   });
 });

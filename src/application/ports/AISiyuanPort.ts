@@ -20,7 +20,15 @@ export interface AISiyuanNotebookConf {
   dailyNoteTemplatePath: string;
 }
 
+export interface AISiyuanNotebookSummary {
+  id: string;
+  name: string;
+  icon?: string;
+  closed: boolean;
+}
+
 export interface AISiyuanPort {
+  listNotebooks(): Promise<AISiyuanNotebookSummary[]>;
   sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]>;
   getBlockText(blockId: string): Promise<string>;
   copyStdMarkdown(blockId: string): Promise<string>;

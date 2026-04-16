@@ -344,6 +344,60 @@ export interface AIConceptCoachCandidateCard {
   selected: boolean;
 }
 
+export type AIWorkbenchSelfTestCardTargetMode = 'daily-note' | 'block';
+
+export interface AIWorkbenchNotebookOption {
+  id: string;
+  name: string;
+  icon?: string;
+  closed: boolean;
+}
+
+export interface AIWorkbenchSelfTestCardTargetMemory {
+  mode: AIWorkbenchSelfTestCardTargetMode;
+  notebookId: string;
+  notebookName: string;
+  targetBlockId: string | null;
+  targetLabel: string;
+  updatedAt: number;
+}
+
+export interface AIWorkbenchSelfTestCardTargetInput {
+  mode: AIWorkbenchSelfTestCardTargetMode;
+  notebookId: string;
+  notebookName?: string | null;
+  targetBlockId?: string | null;
+  targetLabel?: string | null;
+}
+
+export type AIWorkbenchSelfTestCardCreationItemStatus = 'created' | 'skipped' | 'failed';
+
+export interface AIWorkbenchSelfTestCardCreationItemResult {
+  candidateId: string;
+  question: string;
+  answer: string;
+  status: AIWorkbenchSelfTestCardCreationItemStatus;
+  insertedRootBlockId: string | null;
+  questionBlockId: string | null;
+  answerBlockId: string | null;
+  xiuyuanId: string | null;
+  cardIds: string[];
+  error: string | null;
+}
+
+export interface AIWorkbenchSelfTestCardCreationResult {
+  target: AIWorkbenchSelfTestCardTargetMemory;
+  targetBlockId: string;
+  targetLabel: string;
+  markdown: string;
+  itemResults: AIWorkbenchSelfTestCardCreationItemResult[];
+  insertedRootBlockIds: string[];
+  createdCardIds: string[];
+  createdCount: number;
+  skippedCount: number;
+  failedCount: number;
+}
+
 export interface AIConceptCoachSelfTestCards {
   cards: AIConceptCoachCandidateCard[];
 }

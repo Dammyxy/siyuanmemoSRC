@@ -34,6 +34,7 @@ function createService(options: {
       )),
     } as never,
     siyuanPort: {
+      listNotebooks: vi.fn(async () => []),
       sql: vi.fn(async () => [{
         id: 'source-1',
         parent_id: null,

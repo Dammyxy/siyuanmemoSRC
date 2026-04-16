@@ -1,4 +1,4 @@
-import type { AISiyuanNotebookConf, AISiyuanPort } from '@/application/ports/AISiyuanPort';
+import type { AISiyuanNotebookConf, AISiyuanNotebookSummary, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import {
   appendBlock,
   copyStdMarkdown,
@@ -6,6 +6,7 @@ import {
   createDocWithMd,
   deleteBlock,
   getNotebookConf,
+  listNotebooks,
   insertBlock,
   renderSprig,
   setBlockAttrs,
@@ -31,6 +32,10 @@ export class AISiyuanAdapter implements AISiyuanPort {
 
   async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
     return sql<TRow>(stmt);
+  }
+
+  async listNotebooks(): Promise<AISiyuanNotebookSummary[]> {
+    return listNotebooks();
   }
 
   async getBlockText(blockId: string): Promise<string> {

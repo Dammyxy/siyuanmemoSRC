@@ -111,6 +111,33 @@ describe('AIWorkbenchSessionStoreService', () => {
     expect(await service.listSummaries()).toHaveLength(1);
   });
 
+  it('persists self-test card target memory separately from session records', async () => {
+    const fileService = createFileService();
+    const service = new AIWorkbenchSessionStoreService(fileService);
+
+    expect(await service.loadSelfTestCardTargetMemory()).toBeNull();
+
+    await service.saveSelfTestCardTargetMemory({
+      mode: 'block',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: 'doc-block-1',
+      targetLabel: '学习笔记 · /AI 制卡',
+      updatedAt: 10,
+    });
+
+    expect(await service.loadSelfTestCardTargetMemory()).toEqual({
+      mode: 'block',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: 'doc-block-1',
+      targetLabel: '学习笔记 · /AI 制卡',
+      updatedAt: 10,
+    });
+
+    expect(await service.listSummaries()).toEqual([]);
+  });
+
   it('drops legacy make-cards and candidate-board data when loading old records', async () => {
     const fileService = createFileService();
     const service = new AIWorkbenchSessionStoreService(fileService);
