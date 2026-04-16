@@ -1242,16 +1242,22 @@ async function submitComposer(): Promise<void> {
   if (!content) {
     return;
   }
-  if (!currentTabHasResult.value) {
-    if (service.submitSkillPrompt) {
-      await service.submitSkillPrompt(content);
-    } else {
-      await service.submitExplainPrompt(content);
-    }
-  } else {
-    await service.submitFollowUp(content);
-  }
+  const previousComposerValue = composerValue.value;
   composerValue.value = '';
+  try {
+    if (!currentTabHasResult.value) {
+      if (service.submitSkillPrompt) {
+        await service.submitSkillPrompt(content);
+      } else {
+        await service.submitExplainPrompt(content);
+      }
+    } else {
+      await service.submitFollowUp(content);
+    }
+  } catch (error) {
+    composerValue.value = previousComposerValue;
+    throw error;
+  }
 }
 
 async function copyMessage(message: AIWorkbenchMessage): Promise<void> {

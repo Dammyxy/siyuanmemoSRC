@@ -11,6 +11,7 @@ import {
   createDailyNote,
   createDocWithMd,
   deleteBlock,
+  getBlockKramdown,
   getNotebookConf,
   listNotebooks,
   insertBlock,
@@ -51,6 +52,10 @@ export class AISiyuanAdapter implements AISiyuanPort {
     );
     const row = rows[0];
     return String(row?.markdown || row?.content || '').trim();
+  }
+
+  async getBlockKramdown(blockId: string): Promise<{ kramdown: string }> {
+    return getBlockKramdown(blockId);
   }
 
   async copyStdMarkdown(blockId: string): Promise<string> {

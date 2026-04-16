@@ -180,6 +180,7 @@ type SelfTestCardFieldBlocks = {
 
 type SelfTestCardMutationBlockRow = AISiyuanBlockRow & {
   sort?: string | number;
+  depth?: number;
 };
 
 const NOOP_SESSION_STORE: Required<NonNullable<AIWorkbenchServiceDeps['sessionStore']>> = {
@@ -1730,6 +1731,146 @@ export class AIWorkbenchService {
     `);
   }
 
+  private async loadSelfTestMutationSubtreeRows(rootBlockId: string): Promise<SelfTestCardMutationBlockRow[]> {
+    const normalizedRootId = normalizeString(rootBlockId);
+    if (!normalizedRootId) {
+      return [];
+    }
+    return this.deps.siyuanPort.sql<SelfTestCardMutationBlockRow>(`
+      WITH RECURSIVE descendants(id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, depth) AS (
+        SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, 0
+        FROM blocks
+        WHERE id = '${escapeSql(normalizedRootId)}'
+        UNION ALL
+        SELECT b.id, b.parent_id, b.root_id, b.box, b.path, b.hpath, b.type, b.subtype, b.content, b.markdown, b.sort, descendants.depth + 1
+        FROM blocks b
+        INNER JOIN descendants ON b.parent_id = descendants.id
+      )
+      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, depth
+      FROM descendants
+      ORDER BY depth ASC, sort ASC, id ASC
+    `);
+  }
+
+  private resolveSelfTestQuestionRootId(mutationResult: AISiyuanMutationResult): string | null {
+    const operations = mutationResult.doOperations
+      .map((operation) => ({
+        id: normalizeString(operation.id),
+        parentId: normalizeString(operation.parentID),
+      }))
+      .filter((operation) => Boolean(operation.id));
+    if (operations.length === 0) {
+      return null;
+    }
+    const operationById = new Map(operations.map((operation) => [operation.id, operation] as const));
+    const childrenByParent = new Map<string, string[]>();
+    const descendantCount = (id: string): number => {
+      const children = childrenByParent.get(id) || [];
+      return children.reduce((total, childId) => total + 1 + descendantCount(childId), 0);
+    };
+    for (const operation of operations) {
+      if (!operation.parentId) {
+        continue;
+      }
+      childrenByParent.set(operation.parentId, [...(childrenByParent.get(operation.parentId) || []), operation.id]);
+    }
+    const roots = operations
+      .filter((operation) => !operation.parentId || !operationById.has(operation.parentId))
+      .sort((left, right) => descendantCount(right.id) - descendantCount(left.id));
+    const root = roots[0] || operations[0];
+    const directChildren = childrenByParent.get(root.id) || [];
+    if (directChildren.length === 1 && (childrenByParent.get(directChildren[0]!) || []).length > 0) {
+      return directChildren[0]!;
+    }
+    return root.id;
+  }
+
+  private resolveSelfTestCardFieldBlocksFromKramdown(
+    rootBlockId: string,
+    kramdown: string,
+  ): SelfTestCardFieldBlocks | null {
+    const lines = String(kramdown || '').split(/\r?\n/);
+    const listItemLines = lines
+      .map((line, lineIndex) => {
+        const match = line.match(/^(\s*)[*+-]\s+\{:\s*id="([^"]+)"/);
+        if (!match) {
+          return null;
+        }
+        return {
+          id: normalizeString(match[2]),
+          indent: match[1]?.length || 0,
+          lineIndex,
+        };
+      })
+      .filter((entry): entry is { id: string; indent: number; lineIndex: number } => Boolean(entry?.id));
+    if (listItemLines.length === 0) {
+      return null;
+    }
+    const attrLines = lines
+      .map((line, lineIndex) => {
+        const match = line.match(/^(\s*)\{:\s*id="([^"]+)"/);
+        if (!match) {
+          return null;
+        }
+        return {
+          id: normalizeString(match[2]),
+          indent: match[1]?.length || 0,
+          lineIndex,
+        };
+      })
+      .filter((entry): entry is { id: string; indent: number; lineIndex: number } => Boolean(entry?.id));
+    const questionItem = listItemLines[0]!;
+    const answerItem = listItemLines.find((entry) => (
+      entry.lineIndex > questionItem.lineIndex
+      && entry.indent > questionItem.indent
+    )) || listItemLines[1] || null;
+    if (!answerItem?.id) {
+      return {
+        insertedRootBlockId: rootBlockId,
+        questionBlockId: rootBlockId,
+        answerBlockId: rootBlockId,
+      };
+    }
+    const questionParagraph = attrLines.find((entry) => (
+      entry.lineIndex > questionItem.lineIndex
+      && entry.lineIndex < answerItem.lineIndex
+      && entry.indent > questionItem.indent
+    ));
+    const answerParagraph = attrLines.find((entry) => (
+      entry.lineIndex > answerItem.lineIndex
+      && entry.indent > answerItem.indent
+    ));
+    return {
+      insertedRootBlockId: questionItem.id || rootBlockId,
+      questionBlockId: questionParagraph?.id || questionItem.id || rootBlockId,
+      answerBlockId: answerParagraph?.id || answerItem.id,
+    };
+  }
+
+  private async waitForSelfTestFieldBlocksVisible(fields: SelfTestCardFieldBlocks): Promise<void> {
+    const expectedIds = uniqueIds([
+      fields.insertedRootBlockId,
+      fields.questionBlockId,
+      fields.answerBlockId,
+    ]);
+    if (expectedIds.length === 0) {
+      return;
+    }
+    let lastVisibleCount = 0;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const rows = await this.loadSelfTestMutationRows(expectedIds);
+      const visibleIds = new Set(rows.map((row) => normalizeString(row.id)).filter(Boolean));
+      lastVisibleCount = visibleIds.size;
+      if (expectedIds.every((id) => visibleIds.has(id))) {
+        return;
+      }
+      if (attempt < 11) {
+        await waitFor(attempt < 4 ? 80 : 140);
+      }
+    }
+    throw new Error(`已写入列表，但问答块尚未进入可读索引（已就绪 ${lastVisibleCount}/${expectedIds.length}）。`);
+  }
+
   private resolveSelfTestItemAncestor(
     row: SelfTestCardMutationBlockRow,
     rowMap: Map<string, SelfTestCardMutationBlockRow>,
@@ -1811,15 +1952,43 @@ export class AIWorkbenchService {
       throw new Error(`思源没有返回本次列表写入的块信息，无法继续制卡：${truncateText(candidate.question, 60)}`);
     }
     let lastError: unknown = null;
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const rows = await this.loadSelfTestMutationRows(mutationBlockIds);
+    const questionRootId = this.resolveSelfTestQuestionRootId(mutationResult);
+    if (questionRootId) {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const rows = await this.loadSelfTestMutationSubtreeRows(questionRootId);
+        try {
+          const fields = this.resolveSelfTestCardFieldBlocks(rows);
+          await this.waitForSelfTestFieldBlocksVisible(fields);
+          return fields;
+        } catch (error) {
+          lastError = error;
+        }
+        if (attempt < 7) {
+          await waitFor(attempt < 3 ? 80 : 140);
+        }
+      }
       try {
-        return this.resolveSelfTestCardFieldBlocks(rows);
+        const { kramdown } = await this.deps.siyuanPort.getBlockKramdown(questionRootId);
+        const fields = this.resolveSelfTestCardFieldBlocksFromKramdown(questionRootId, kramdown || '');
+        if (fields) {
+          await this.waitForSelfTestFieldBlocksVisible(fields);
+          return fields;
+        }
       } catch (error) {
         lastError = error;
       }
-      if (attempt < 4) {
-        await waitFor(60);
+    }
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const rows = await this.loadSelfTestMutationRows(mutationBlockIds);
+      try {
+        const fields = this.resolveSelfTestCardFieldBlocks(rows);
+        await this.waitForSelfTestFieldBlocksVisible(fields);
+        return fields;
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < 5) {
+        await waitFor(attempt < 2 ? 80 : 140);
       }
     }
     throw new Error(

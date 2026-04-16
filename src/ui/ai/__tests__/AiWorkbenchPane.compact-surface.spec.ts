@@ -23,6 +23,16 @@ const CONCEPT_COACH_TABS = [
   { id: 'real-world-triggers', title: '现实触发器', emptyHint: '找到以后该想起这个概念的真实场景。' },
 ] as const;
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
+
 function createViewState(): Record<'explain', AIViewSessionState> {
   return {
     explain: {
@@ -496,6 +506,24 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('手工材料');
     expect(wrapper.text()).toContain('编辑');
     expect(wrapper.find('.ai-chat__composer-send').exists()).toBe(true);
+  });
+
+  it('clears the composer immediately after send while the AI response is still pending', async () => {
+    const service = createService('review-dialog-sidecar');
+    const pending = createDeferred<void>();
+    service.submitSkillPrompt = vi.fn(() => pending.promise) as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    const textarea = wrapper.find('textarea');
+    await textarea.setValue('请先解释这个概念');
+
+    const submitPromise = wrapper.find('.ai-chat__composer-send').trigger('click');
+    await nextTick();
+
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('');
+
+    pending.resolve();
+    await submitPromise;
   });
 
   it('keeps supplemental tool steps collapsed behind a compact indicator', async () => {

@@ -240,7 +240,7 @@ sequenceDiagram
 - Tab 局部重跑只组合 `baseRun + 当前 tab.run + concept-coach/<tab>`，只替换当前 tab 的结构化结果与当前 tab 世界线投影
 - Tab 追问只使用当前 `tab.followUp`，并携带“当前分隔段 + pinned 节点”的当前 tab 结果上下文，隐藏节点不会进入模型上下文
 - `多视角理解` / `整合理解` 的结构化结果归一化容忍别名、wrapper、直接 section、字符串/数组/对象混合形状；部分成功会显示可恢复内容和 warning，不再静默空白
-- `自测卡片` section 保存结构化候选卡 `question / answer / kind / selected`，支持会话内编辑/选择；UI 的勾选、全选/取消全选和制卡都绑定到当前这条 `assistant-result` 消息；写入时仍使用父问题 + 子答案列表 Markdown，但制卡阶段会依据思源 block mutation 返回的原生列表项结构解析“问题列表项/答案列表项”，优先取其段落子块，再通过 `XiuyuanApplicationService.createFromBlocks()` 创建 `builtin-basic-qa` 独立问答卡
+- `自测卡片` section 保存结构化候选卡 `question / answer / kind / selected`，支持会话内编辑/选择；UI 的勾选、全选/取消全选和制卡都绑定到当前这条 `assistant-result` 消息；写入时仍使用父问题 + 子答案列表 Markdown，但制卡阶段会先按 mutation 锁定根问题列表项，优先读取该根项的原生列表子树；若短时 SQL 还未能读到整棵子树，会回退到 `getBlockKramdown()` 解析根列表项里的问答块 id，再通过 `XiuyuanApplicationService.createFromBlocks()` 创建 `builtin-basic-qa` 独立问答卡
 - 旧 explain session 会保留历史消息作为 legacy session 打开，并显示“旧解释结果仅供查看，重跑后生成完整 tabs”的提示；重跑后生成新的 `concept-coach` 五阶段结果
 - `AiWorkbenchPane.vue` 现在是通用 chat shell：顶部 Skill 切换、按 Skill 显示 tab/section、消息流支持文本、结构化结果、底部 composer 和 context 附加；主 timeline 使用 reply-first render projection，只显示用户消息/最终回复/结构化结果/分隔，tool timeline、非 pending 审批、推理和诊断默认折叠到回复下方，pending 审批显示为轻量操作条
 
@@ -630,7 +630,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - `concept-coach` 仍走结构化 JSON 主链：首轮全量生成 5 个 section，局部重跑只替换当前 section，follow-up 只带当前 section 结果
   - review 同队列切卡只更新 live context，不截断模型历史；structured skill 旧结果会按 context signature 标为 stale，Pane 在 stale 时禁用追问并提示重跑
   - `多视角理解` / `整合理解` 的归一化容忍字段别名、wrapper、直接 section、字符串/数组/对象混合形状，并把 `full / partial / empty` 诊断挂到 assistant structured result
-  - `自测卡片` 的勾选项/编辑状态按当前结果消息版本保存；服务层通过 `AISiyuanPort` 的 detailed mutation API 写入目标位置，再从本次新增的原生列表项里解析问题/答案块并调用 Xiuyuan 应用服务创建 `builtin-basic-qa` 独立问答卡；UI 不直接调用思源 API 或 Xiuyuan use case
+  - `自测卡片` 的勾选项/编辑状态按当前结果消息版本保存；服务层通过 `AISiyuanPort` 的 detailed mutation API 写入目标位置，再从本次新增的原生列表项里解析问题/答案块；若新块尚未完全进入 SQL 可读索引，则会用根列表项的 `getBlockKramdown()` 做一次回退解析，并在问答块进入可读索引后调用 Xiuyuan 应用服务创建 `builtin-basic-qa` 独立问答卡；UI 不直接调用思源 API 或 Xiuyuan use case
   - 对 DeepSeek / OpenAI-compatible 等 provider 保留 `json_object` 默认路径和 prompt-only JSON 传输兜底，诊断记录 profile / transport / status / raw body
   - 旧 explain-only 会话保留历史消息作为 legacy session 查看，重跑后再生成完整 `concept-coach` sections
 - `AIPromptComposer`

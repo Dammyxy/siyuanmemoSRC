@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-17 (Round 87)
+Last update: 2026-04-17 (Round 88)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-17 - AI self-test readback and composer send responsiveness
+
+- Task: Reduce self-test card creation flakiness when freshly written list blocks are not immediately queryable, and make the AI sidecar composer clear as soon as the user sends instead of waiting for the AI response to finish.
+- Touched slice: AI workbench / capture plus Siyuan integration across `src/application/ports/AISiyuanPort.ts`, `src/application/services/AIWorkbenchService.ts`, `src/infrastructure/siyuan/AISiyuanAdapter.ts`, `src/ui/ai/AiWorkbenchPane.vue`, focused AI/service/pane/adapter tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Replaced the fragile “wait for every mutation id to become queryable” step with a root-question-item-first resolver that retries the native list subtree, falls back to `getBlockKramdown()` on the root list item, and then waits only for the resolved question/answer blocks to enter the readable index; also moved sidecar composer clearing to happen immediately on send with rollback only for synchronous throws, removing the visible lag between clicking send and the input clearing.
+- Debt deferred: Self-test list readback still assumes the current simple parent-question plus nested-answer list shape, and the composer still does not preserve failed async sends as a draft beyond the current optimistic-clear behavior.
+- Why deferred: Generalizing self-test parsing to arbitrary nested list grammars or introducing a full draft/retry queue for failed sends would widen this targeted UX/stability pass into larger content-model and messaging-state work.
+- Next safe step: If users still hit rare readback misses, add one bounded diagnostic snapshot of root-item kramdown plus resolved ids before broadening into more generic list-shape support.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/infrastructure/siyuan/__tests__/AISiyuanAdapter.test.ts --reporter=basic`; `pnpm build`.
 
 ### 2026-04-17 - AI self-test list-anchor card creation hardening
 

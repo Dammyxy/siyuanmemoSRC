@@ -92,6 +92,7 @@ function createSiyuanPort(rows = siyuanRows) {
     ]),
     sql: vi.fn(async () => rows),
     getBlockText: vi.fn(async (blockId: string) => contentMap.get(blockId)?.content || ''),
+    getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
     copyStdMarkdown: vi.fn(async (blockId: string) => contentMap.get(blockId)?.copyStdMarkdown || ''),
     ensureTodayDailyNote: vi.fn(async () => 'daily-doc-1'),
     setBlockAttrs: vi.fn(),
@@ -303,6 +304,24 @@ function createSelfTestMutationFixture(
     },
     rows,
   };
+}
+
+function createSelfTestKramdown(fixture: ReturnType<typeof createSelfTestMutationFixture>): string {
+  const questionText = fixture.rows.find((row) => row?.id === fixture.rootId)?.content || 'Question';
+  const answerText = fixture.rows.find((row) => row?.id === fixture.answerItemId)?.content || 'Answer';
+  const questionParagraphLine = fixture.questionBlockId !== fixture.rootId
+    ? `  {: id="${fixture.questionBlockId}" updated="20260417000000"}`
+    : '';
+  const answerParagraphLine = fixture.answerBlockId !== fixture.answerItemId
+    ? `    {: id="${fixture.answerBlockId}" updated="20260417000000"}`
+    : '';
+  return [
+    `* {: id="${fixture.rootId}" updated="20260417000000"}${questionText}`,
+    questionParagraphLine,
+    '',
+    `  * {: id="${fixture.answerItemId}" updated="20260417000000"}${answerText}`,
+    answerParagraphLine,
+  ].filter((line) => line.length > 0).join('\n');
 }
 
 describe('AIWorkbenchService review-session behavior', () => {
@@ -1151,9 +1170,69 @@ describe('AIWorkbenchService review-session behavior', () => {
       source: 'ai-workbench',
       duplicatePolicy: 'reuse-existing',
     }));
-    expect(visibilityAttempts).toBe(2);
+    expect(visibilityAttempts).toBeGreaterThan(1);
     expect(result.createdCount).toBe(1);
     expect(result.createdCardIds).toEqual(['riff-card-1']);
+  });
+
+  it('falls back to root list-item kramdown when the mutation subtree is not immediately queryable', async () => {
+    const siyuanPort = createSiyuanPort();
+    const fixture = createSelfTestMutationFixture('inserted-root-kramdown');
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValue(fixture.mutation);
+    siyuanPort.getBlockKramdown.mockResolvedValue({ kramdown: createSelfTestKramdown(fixture) });
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      if (stmt.includes('WITH RECURSIVE')) {
+        return [];
+      }
+      const ids = extractQuotedSqlValues(stmt);
+      return fixture.rows.filter((row) => ids.includes(row!.id));
+    });
+    const createFromBlocks = vi.fn(async () => ({
+      ok: true,
+      value: {
+        xiuyuan: { id: 'xy-kramdown', blockIDs: [fixture.questionBlockId, fixture.answerBlockId], templateID: 'builtin-basic-qa' },
+        cards: [{ id: 'riff-card-kramdown', xiuyuanId: 'xy-kramdown', faceIndex: 0 }],
+      },
+    }));
+    const service = createService({
+      siyuanPort,
+      xiuyuanService: { createFromBlocks },
+      llmChat: vi.fn(async () => ({
+        content: JSON.stringify({
+          selfTestCards: {
+            cards: [{ id: 'candidate-a', question: 'Question A', answer: 'Answer A', kind: '应用', selected: true }],
+          },
+        }),
+        raw: {},
+      })),
+    });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    service.setActiveTab('self-test-cards');
+    await service.runActiveTab();
+    const message = latestAssistantResult(service, 'self-test-cards');
+
+    const result = await service.createSelfTestCardsFromSelectedCandidates({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, message!.id);
+
+    expect(siyuanPort.getBlockKramdown).toHaveBeenCalledWith(fixture.rootId);
+    expect(createFromBlocks).toHaveBeenCalledWith(expect.objectContaining({
+      fieldMapping: {
+        question: fixture.questionBlockId,
+        answer: fixture.answerBlockId,
+      },
+      blockIds: [fixture.questionBlockId, fixture.answerBlockId],
+    }));
+    expect(result.createdCardIds).toEqual(['riff-card-kramdown']);
   });
 
   it('creates cards from the requested self-test message instead of the latest aggregate result', async () => {

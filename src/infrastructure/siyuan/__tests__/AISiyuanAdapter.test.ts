@@ -7,6 +7,7 @@ const copyStdMarkdownMock = vi.fn();
 const createDailyNoteMock = vi.fn();
 const createDocWithMdMock = vi.fn();
 const deleteBlockMock = vi.fn();
+const getBlockKramdownMock = vi.fn();
 const getNotebookConfMock = vi.fn();
 const insertBlockMock = vi.fn();
 const insertBlockDetailedMock = vi.fn();
@@ -23,6 +24,7 @@ vi.mock('../api', () => ({
   createDailyNote: (...args: unknown[]) => createDailyNoteMock(...args),
   createDocWithMd: (...args: unknown[]) => createDocWithMdMock(...args),
   deleteBlock: (...args: unknown[]) => deleteBlockMock(...args),
+  getBlockKramdown: (...args: unknown[]) => getBlockKramdownMock(...args),
   getNotebookConf: (...args: unknown[]) => getNotebookConfMock(...args),
   insertBlock: (...args: unknown[]) => insertBlockMock(...args),
   insertBlockDetailed: (...args: unknown[]) => insertBlockDetailedMock(...args),
@@ -41,6 +43,7 @@ describe('AISiyuanAdapter', () => {
     createDailyNoteMock.mockReset();
     createDocWithMdMock.mockReset();
     deleteBlockMock.mockReset();
+    getBlockKramdownMock.mockReset();
     getNotebookConfMock.mockReset();
     insertBlockMock.mockReset();
     insertBlockDetailedMock.mockReset();
@@ -64,6 +67,14 @@ describe('AISiyuanAdapter', () => {
     const adapter = new AISiyuanAdapter();
 
     await expect(adapter.listNotebooks()).resolves.toEqual([{ id: 'box-1', name: 'Box 1', icon: '', closed: false }]);
+  });
+
+  it('delegates getBlockKramdown to siyuan api', async () => {
+    getBlockKramdownMock.mockResolvedValue({ kramdown: '* {: id="item-1"}Question' });
+    const adapter = new AISiyuanAdapter();
+
+    await expect(adapter.getBlockKramdown('item-1')).resolves.toEqual({ kramdown: '* {: id="item-1"}Question' });
+    expect(getBlockKramdownMock).toHaveBeenCalledWith('item-1');
   });
 
   it('reuses today daily note when the native custom-dailynote attr already exists', async () => {

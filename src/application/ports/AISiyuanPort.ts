@@ -44,6 +44,7 @@ export interface AISiyuanPort {
   listNotebooks(): Promise<AISiyuanNotebookSummary[]>;
   sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]>;
   getBlockText(blockId: string): Promise<string>;
+  getBlockKramdown(blockId: string): Promise<{ kramdown: string }>;
   copyStdMarkdown(blockId: string): Promise<string>;
   ensureTodayDailyNote(notebook: string): Promise<string>;
   setBlockAttrs(blockId: string, attrs: Record<string, string>): Promise<void>;
