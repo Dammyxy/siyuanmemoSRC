@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-17 (Round 84)
+Last update: 2026-04-17 (Round 85)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-17 - settings secondary tab layout
+
+- Task: Replan the settings dialog from left-side category navigation only into left-side primary navigation plus top secondary tabs inside every category.
+- Touched slice: Settings UI active path in `src/ui/settings/SettingsPanel.vue`, settings panel i18n labels, and focused `SettingsPanel` regression coverage.
+- Debt fixed now: Added a local secondary-tab state model that remembers each primary category's selected subtab, keeps the disabled Topic-continuation tab visible until symbol-card listening is enabled, scrolls the content pane on tab changes, and moves the current long h3/h4 sections behind accessible top tabs without changing the persisted settings payload.
+- Debt deferred: `SettingsPanel.vue` remains a large monolithic component, and the hidden secondary panels are still mounted with `v-show` instead of being extracted into smaller subcomponents.
+- Why deferred: Splitting the settings panel into per-category components would be a larger UI refactor with more import/test churn than this information-architecture pass needs.
+- Next safe step: Extract one heavy category, likely AI 工作台 or 神经漫游, into a local child component after the secondary-tab UX settles.
+- Validation: `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts`; `pnpm build`.
 
 ### 2026-04-17 - review queue shared AI chat and compact reply surface
 

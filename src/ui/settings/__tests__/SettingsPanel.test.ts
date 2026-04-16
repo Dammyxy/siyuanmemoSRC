@@ -27,6 +27,25 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         settingsAiTab: 'AI Workbench',
         settingsMaintenanceTab: 'Maintenance',
         settingsAboutTab: 'About',
+        settingsSubtabFsrsParams: 'FSRS Parameters',
+        settingsSubtabScheduler: 'Scheduler',
+        settingsSubtabDayStart: 'Daily Refresh',
+        settingsSubtabReviewSurface: 'Review Surface',
+        settingsSubtabQueueAutomation: 'Queue Automation',
+        settingsSubtabQueueOrdering: 'Ordering & Insertion',
+        settingsSubtabQuickCard: 'Symbol Card Listener',
+        settingsSubtabTopicDerivation: 'Continue Under Topic',
+        settingsSubtabExcerptEntry: 'Excerpt Entry',
+        settingsSubtabStorage: 'Storage',
+        settingsSubtabConflict: 'Conflict Handling',
+        settingsSubtabNeuralHistory: 'Path History',
+        settingsSubtabHyperspaceChannels: 'Propagation Channels',
+        settingsSubtabHyperspaceRange: 'Spread Range',
+        settingsSubtabHyperspaceWeights: 'Propagation Weights',
+        settingsSubtabAiProvider: 'Model Access',
+        settingsSubtabAiRuntime: 'Chat & Tools',
+        settingsSubtabAiBuiltInSkill: 'Built-in Skill',
+        settingsSubtabAiUserSkills: 'User Skills',
         reviewWindowSectionTitle: 'Review Surface',
         queueAutomationSectionTitle: 'Queue Automation',
         queueOrderingSectionTitle: 'Queue Ordering & Insertions',
@@ -112,6 +131,14 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
   });
 }
 
+async function clickSubtab(wrapper: ReturnType<typeof mountPanel>, label: string) {
+  const button = wrapper.findAll('.settings-subtab').find((tab) => tab.text().includes(label));
+  expect(button).toBeDefined();
+  await button!.trigger('click');
+  await wrapper.vm.$nextTick();
+  return button!;
+}
+
 describe('SettingsPanel', () => {
   it('renders left-side settings tabs and maps legacy params/fsrs tabs to learning', async () => {
     const wrapper = mountPanel();
@@ -128,7 +155,20 @@ describe('SettingsPanel', () => {
       'Maintenance',
       'About',
     ]);
+    expect(wrapper.findAll('.settings-subtab').map((tab) => tab.text())).toEqual([
+      'FSRS Parameters',
+      'Scheduler',
+      'Daily Refresh',
+    ]);
     expect(wrapper.text()).toContain('FSRS 参数');
+
+    for (const label of tabLabels) {
+      const tab = wrapper.findAll('.settings-tab').find((entry) => entry.text() === label);
+      expect(tab).toBeDefined();
+      await tab!.trigger('click');
+      await wrapper.vm.$nextTick();
+      expect(wrapper.findAll('.settings-subtab').length).toBeGreaterThan(0);
+    }
 
     const fsrsAliasWrapper = mountPanel('fsrs');
     await fsrsAliasWrapper.vm.$nextTick();
@@ -151,6 +191,9 @@ describe('SettingsPanel', () => {
     expect(saveButton).toBeDefined();
 
     await retentionInput!.setValue(0.93);
+    await clickSubtab(wrapper, 'Scheduler');
+    expect(wrapper.findAll('.settings-subtab').find((tab) => tab.text().includes('Scheduler'))!.attributes('aria-selected')).toBe('true');
+    await clickSubtab(wrapper, 'Daily Refresh');
     await dayStartInput!.setValue(6);
     await saveButton!.trigger('click');
 
@@ -165,9 +208,6 @@ describe('SettingsPanel', () => {
 
     expect(wrapper.text()).toContain('Hyperspace / SuperMemo Fidelity');
     expect(wrapper.text()).toContain('Path History');
-    expect(wrapper.text()).toContain('Enable block tree conduction');
-    expect(wrapper.text()).toContain('Enable document tree conduction');
-    expect(wrapper.text()).toContain('Block-link weight');
 
     const formItems = wrapper.findAll('.form-item');
     const historyLimitItem = formItems.find((item) => item.text().includes('Path history limit'));
@@ -175,15 +215,23 @@ describe('SettingsPanel', () => {
     expect(historyLimitInput).toBeDefined();
     await historyLimitInput!.setValue(4200);
 
+    await clickSubtab(wrapper, 'Propagation Channels');
+    expect(wrapper.text()).toContain('Enable block tree conduction');
+    expect(wrapper.text()).toContain('Enable document tree conduction');
+
     const blockTreeItem = formItems.find((item) => item.text().includes('Enable block tree conduction'));
     const blockTreeToggle = blockTreeItem?.find('input[type="checkbox"]');
     expect(blockTreeToggle).toBeDefined();
     await blockTreeToggle!.setValue(true);
 
+    await clickSubtab(wrapper, 'Spread Range');
     const maxLayersItem = formItems.find((item) => item.text().includes('Layers per repetition'));
     const maxLayersInput = maxLayersItem?.find('input[type="number"]');
     expect(maxLayersInput).toBeDefined();
     await maxLayersInput!.setValue(4);
+
+    await clickSubtab(wrapper, 'Propagation Weights');
+    expect(wrapper.text()).toContain('Block-link weight');
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
     expect(saveButton).toBeDefined();
@@ -227,6 +275,7 @@ describe('SettingsPanel', () => {
     expect(wrapper.text()).toContain('Enable continuing card creation under Topic');
     expect(wrapper.text()).toContain('Storage for continued card creation');
     expect(wrapper.text()).toContain('This is not the excerpt flow.');
+    await clickSubtab(wrapper, 'Continue Under Topic');
     const formItems = wrapper.findAll('.form-item');
     const enabledItem = formItems.find((item) => item.text().includes('Enable continuing card creation under Topic'));
     const enabledToggle = enabledItem?.find('input[type="checkbox"]');
@@ -247,6 +296,31 @@ describe('SettingsPanel', () => {
       enabled: false,
       storageMode: 'source-child',
     });
+  });
+
+  it('disables the topic continuation subtab until symbol card listening is enabled', async () => {
+    const wrapper = mountPanel('card', {
+      quickCardSettings: {
+        ...DEFAULT_SETTINGS.quickCard,
+        enabled: false,
+      },
+    });
+    await wrapper.vm.$nextTick();
+
+    const topicSubtab = wrapper.findAll('.settings-subtab').find((tab) => tab.text().includes('Continue Under Topic'));
+    expect(topicSubtab).toBeDefined();
+    expect(topicSubtab!.attributes('disabled')).toBeDefined();
+    expect(topicSubtab!.attributes('aria-selected')).toBe('false');
+
+    const quickCardItem = wrapper.findAll('.form-item').find((item) => item.text().includes('启用监听符号制卡'));
+    const quickCardToggle = quickCardItem?.find('input[type="checkbox"]');
+    expect(quickCardToggle).toBeDefined();
+    await quickCardToggle!.setValue(true);
+    await wrapper.vm.$nextTick();
+
+    expect(topicSubtab!.attributes('disabled')).toBeUndefined();
+    await clickSubtab(wrapper, 'Continue Under Topic');
+    expect(wrapper.findAll('.settings-subtab').find((tab) => tab.text().includes('Continue Under Topic'))!.attributes('aria-selected')).toBe('true');
   });
 
   it('saves excerpt storage and conflict strategy from the excerpt tab', async () => {
@@ -271,18 +345,23 @@ describe('SettingsPanel', () => {
     const conflictSelect = conflictItem?.find('select');
 
     expect(altXToggle).toBeDefined();
+    await altXToggle!.setValue(true);
+
+    await clickSubtab(wrapper, 'Storage');
+
     expect(storageModeSelect).toBeDefined();
     expect(notebookSelect).toBeDefined();
     expect(targetBlockInput).toBeDefined();
-    expect(conflictSelect).toBeDefined();
     expect((storageModeSelect!.element as HTMLSelectElement).value).toBe('source-child');
     expect((notebookSelect!.element as HTMLSelectElement).disabled).toBe(true);
     expect((targetBlockInput!.element as HTMLInputElement).disabled).toBe(true);
 
-    await altXToggle!.setValue(true);
     await storageModeSelect!.setValue('library');
     await notebookSelect!.setValue('notebook-a');
     await targetBlockInput!.setValue('doc-root-1');
+
+    await clickSubtab(wrapper, 'Conflict Handling');
+    expect(conflictSelect).toBeDefined();
     await conflictSelect!.setValue('prefer-local');
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
@@ -312,6 +391,8 @@ describe('SettingsPanel', () => {
     const targetBlockItem = formItems.find((item) => item.text().includes('Target block ID'));
     const targetBlockInput = targetBlockItem?.find('input[type="text"]');
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+
+    await clickSubtab(wrapper, 'Storage');
 
     expect(storageModeSelect).toBeDefined();
     expect(notebookSelect).toBeDefined();
@@ -369,6 +450,8 @@ describe('SettingsPanel', () => {
     await modelInput!.setValue('gpt-test');
     await passwordInput!.setValue('secret-key');
     await enableToggle!.setValue(false);
+
+    await clickSubtab(wrapper, 'Built-in Skill');
 
     const textareas = wrapper.findAll('textarea');
     expect(textareas.length).toBeGreaterThanOrEqual(11);

@@ -33,9 +33,30 @@
       </aside>
 
       <div class="settings-main">
+        <nav
+          class="settings-subtabs"
+          role="tablist"
+          :aria-label="activeTabLabel"
+        >
+          <button
+            v-for="subTab in activeSubTabs"
+            :key="`${activeTab}-${subTab.key}`"
+            type="button"
+            class="settings-subtab"
+            :class="{ 'settings-subtab--active': activeSubTabKey === subTab.key }"
+            :disabled="subTab.disabled"
+            role="tab"
+            :aria-selected="activeSubTabKey === subTab.key"
+            @click="selectSubTab(subTab.key)"
+          >
+            {{ subTab.label }}
+          </button>
+        </nav>
+
         <div ref="settingsContentRef" class="settings-content">
           <div v-show="activeTab === 'learning'" class="settings-section">
             <section class="settings-card">
+        <div v-show="isActiveSubTab('learning', 'fsrs')" class="settings-subtab-panel">
         <h3>{{ t('fsrsParamsTitle', 'FSRS 参数') }}</h3>
         
         <!-- 请求保留率 -->
@@ -77,8 +98,16 @@
           <p class="form-hint">{{ t('enableShortTermHint', '是否使用短期调度策略（学习阶段）') }}</p>
         </div>
 
-        <div class="fn__hr"></div>
+        <div class="form-item">
+          <label>{{ t('modelParams', `模型参数 (${FSRS_WEIGHT_COUNT})`) }}</label>
+          <div class="params-preview">
+            <code>{{ paramsPreview }}</code>
+          </div>
+          <p class="form-hint">{{ t('modelParamsHint', '使用优化器可以根据你的复习数据自动优化这些参数') }}</p>
+        </div>
+        </div>
 
+        <div v-show="isActiveSubTab('learning', 'scheduler')" class="settings-subtab-panel">
         <h3>{{ t('schedulerSettingsTitle', 'Scheduler Settings') }}</h3>
         
         <p class="form-hint" style="margin-bottom: 16px;">
@@ -110,9 +139,9 @@
             💡 {{ t('topicSchedulerHint', 'For Concept and Topic cards, suitable for reading materials, dynamically adjusts difficulty factor (fixed to A-Factor v2)') }}
           </p>
         </div>
+        </div>
 
-        <div class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('learning', 'day-start')" class="settings-subtab-panel">
         <h3>{{ t('dayStartHour', '每日刷新时间') }}</h3>
 
         <div class="form-item">
@@ -164,19 +193,13 @@
             </button>
           </div>
         </div>
-
-        <div class="form-item">
-          <label>{{ t('modelParams', `模型参数 (${FSRS_WEIGHT_COUNT})`) }}</label>
-          <div class="params-preview">
-            <code>{{ paramsPreview }}</code>
-          </div>
-          <p class="form-hint">{{ t('modelParamsHint', '使用优化器可以根据你的复习数据自动优化这些参数') }}</p>
         </div>
             </section>
           </div>
 
           <div v-show="activeTab === 'review'" class="settings-section">
             <section class="settings-card">
+        <div v-show="isActiveSubTab('review', 'surface')" class="settings-subtab-panel">
         <h3>{{ t('reviewWindowSectionTitle', '复习与队列') }}</h3>
 
         <div class="form-item">
@@ -198,9 +221,9 @@
             {{ t('reviewOpenFullscreenByDefaultHint', '只对桌面端对话框模式生效；若同时选择新页签打开，则此选项会被忽略。') }}
           </p>
         </div>
+        </div>
 
-        <div class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('review', 'automation')" class="settings-subtab-panel">
         <h3>{{ t('queueAutomationSectionTitle', '队列自动化') }}</h3>
 
         <div class="form-item">
@@ -230,9 +253,9 @@
             {{ t('autoPostponeSkipTopNHint', '执行 autoPostpone 时保护队列前 N 张不延期，默认 20。') }}
           </p>
         </div>
+        </div>
 
-        <div class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('review', 'ordering')" class="settings-subtab-panel">
         <h3>{{ t('queueOrderingSectionTitle', '队列排序与插入') }}</h3>
 
         <div class="form-item">
@@ -280,11 +303,13 @@
             {{ t('priorityRandomnessHint', '0 为严格按优先级排序，越大越随机（仍保留优先级倾向）。') }}
           </p>
         </div>
+        </div>
             </section>
           </div>
 
           <div v-show="activeTab === 'card'" class="settings-section">
             <section class="settings-card">
+        <div v-show="isActiveSubTab('card', 'quick-card')" class="settings-subtab-panel">
         <h3>{{ t('quickCardTitle', '监听符号制卡') }}</h3>
 
         <div class="form-item">
@@ -344,9 +369,9 @@
             {{ t('quickCardFlashcardSuperBlockHint', '启用后支持超级块制卡，超级块的第一个子块被识别为问题，其余子块识别为答案') }}
           </p>
         </div>
+        </div>
 
-        <div v-if="settings.quickCard.enabled" class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('card', 'topic-derivation')" class="settings-subtab-panel">
         <h3 v-if="settings.quickCard.enabled">{{ t('topicDerivationTitle', 'Topic 下继续制卡') }}</h3>
 
         <div v-if="settings.quickCard.enabled" class="form-item">
@@ -374,11 +399,13 @@
             {{ t('topicDerivationStorageModeHint', '工作台模式会把继续制卡生成的内容集中收纳到源文档的“摘抄工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
           </p>
         </div>
+        </div>
             </section>
           </div>
 
           <div v-show="activeTab === 'capture-sync'" class="settings-section">
             <section class="settings-card">
+        <div v-show="isActiveSubTab('capture-sync', 'entry')" class="settings-subtab-panel">
         <h3>{{ t('progressiveReadingSettingsTitle', '渐进阅读') }}</h3>
 
         <div class="form-item">
@@ -390,6 +417,10 @@
             {{ t('progressiveAltXExcerptEnabledHint', '开启后插件会注册 ⌥⇧X 为摘抄命令；思源原生 Alt+X 仍用于最近外观，可在思源快捷键设置中修改插件命令。') }}
           </p>
         </div>
+        </div>
+
+        <div v-show="isActiveSubTab('capture-sync', 'storage')" class="settings-subtab-panel">
+        <h3>{{ t('progressiveStorageSectionTitle', '存放位置') }}</h3>
 
         <div class="form-item">
           <label>{{ t('progressiveStorageModeLabel', '摘录存放位置') }}</label>
@@ -456,9 +487,9 @@
             }}
           </p>
         </div>
+        </div>
 
-        <div class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('capture-sync', 'conflict')" class="settings-subtab-panel">
         <h3>{{ t('storageConflictTitle', '多端冲突处理') }}</h3>
         <div class="form-item">
           <label>{{ t('storageConflictStrategy', '冲突策略') }}</label>
@@ -473,11 +504,13 @@
             {{ t('storageConflictHint', '检测到多实例写入冲突时，选择自动合并或单向覆盖策略。') }}
           </p>
         </div>
+        </div>
             </section>
           </div>
 
           <div v-show="activeTab === 'maintenance'" class="settings-section">
             <section class="settings-card">
+        <div v-show="isActiveSubTab('maintenance', 'block-attrs')" class="settings-subtab-panel">
         <h3>{{ t('blockAttrsCleanupTitle', '块属性清理') }}</h3>
 
         <div class="form-item">
@@ -551,11 +584,13 @@
             {{ t('blockAttrsCleanupSkippedTreeNotFound', 'tree not found 跳过数') }}: {{ blockAttrsCleanupRunResult.skippedTreeNotFoundCount }}
           </div>
         </div>
+        </div>
             </section>
           </div>
 
           <div v-show="activeTab === 'neural'" class="settings-section">
             <section class="settings-card">
+        <div v-show="isActiveSubTab('neural', 'history')" class="settings-subtab-panel">
         <h3>{{ t('neuralHistorySettingsTitle', '轨迹历史') }}</h3>
         <p class="form-hint form-hint--section">
           {{ t('neuralHistorySettingsIntro', '控制神经漫游跨重启保留的轨迹历史上限。更大的历史有助于回溯路径，但会增加持久化体积。') }}
@@ -570,9 +605,9 @@
             {{ t('neuralHistoryMaxEntriesHint', '建议范围 200-5000。浏览器默认只渲染最近窗口，较大的历史不会直接把全部节点挂到 DOM。') }}
           </p>
         </div>
+        </div>
 
-        <div class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('neural', 'channels')" class="settings-subtab-panel">
         <h3>{{ t('hyperspaceSettingsTitle', 'Hyperspace / 超空间远征') }}</h3>
         <p class="form-hint form-hint--section">
           {{ t('neuralSettingsIntro', '当前可配置的是 Hyperspace Expedition / 超空间远征模式 的传播参数；Orbit / 轨道环绕模式 暂不提供独立设置项。') }}
@@ -599,9 +634,10 @@
             {{ t('hyperspaceEnableDocumentTreeHint', '允许通过文档父子与同级关系传播。默认关闭，适合明确把文档层级当知识树使用的库。') }}
           </p>
         </div>
+        </div>
 
-        <div class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('neural', 'range')" class="settings-subtab-panel">
+        <h3>{{ t('hyperspaceSettingsTitle', 'Hyperspace / 超空间远征') }}</h3>
         <h4>{{ t('hyperspaceRangeSection', '扩散范围') }}</h4>
 
         <div class="form-item">
@@ -617,9 +653,10 @@
             <input type="number" min="1" max="16" step="1" v-model.number="queueSettings.neuralRoam!.hyperspace.maxTotalDepth">
           </div>
         </div>
+        </div>
 
-        <div class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('neural', 'weights')" class="settings-subtab-panel">
+        <h3>{{ t('hyperspaceSettingsTitle', 'Hyperspace / 超空间远征') }}</h3>
         <h4>{{ t('hyperspaceWeightsSection', '传播权重') }}</h4>
 
         <div class="form-item">
@@ -696,11 +733,13 @@
             {{ t('hyperspaceRaceRandomnessHint', '值越大，前沿候选之间越容易出现轻微顺序波动；值越小，结果越稳定。') }}
           </p>
         </div>
+        </div>
             </section>
           </div>
 
           <div v-show="activeTab === 'ai'" class="settings-section">
             <section class="settings-card">
+        <div v-show="isActiveSubTab('ai', 'provider')" class="settings-subtab-panel">
         <h3>{{ t('aiSettingsTitle', 'AI 工作台') }}</h3>
         <p class="form-hint form-hint--section">
           {{ t('aiSettingsIntro', '统一配置 AI 理解与制卡面板使用的模型、API 与 Prompt。结构化结果默认停留在工作台，不会自动写回原文。') }}
@@ -776,9 +815,9 @@
             <input type="text" v-model="aiSettings.defaultOutputLanguage">
           </div>
         </div>
+        </div>
 
-        <div class="fn__hr"></div>
-
+        <div v-show="isActiveSubTab('ai', 'runtime')" class="settings-subtab-panel">
         <h4>{{ t('aiChatRuntimeSettings', '聊天与工具 Runtime') }}</h4>
 
         <div class="form-item">
@@ -839,7 +878,9 @@
             <input type="text" v-model="aiSettings.webSearch.googleCseId">
           </div>
         </div>
+        </div>
 
+        <div v-show="isActiveSubTab('ai', 'built-in-skill')" class="settings-subtab-panel">
         <h4>{{ t('aiPromptTemplates', 'Skill 管理') }}</h4>
 
         <div
@@ -931,7 +972,9 @@
             </div>
           </div>
         </div>
+        </div>
 
+        <div v-show="isActiveSubTab('ai', 'user-skills')" class="settings-subtab-panel">
         <div class="ai-user-skill-toolbar">
           <div>
             <strong>{{ t('aiUserSkills', '用户自定义 Skill') }}</strong>
@@ -1136,15 +1179,18 @@
             </div>
           </div>
         </article>
+        </div>
             </section>
           </div>
 
           <div v-show="activeTab === 'about'" class="settings-section about-section">
             <section class="settings-card guide-section">
+          <div v-show="isActiveSubTab('about', 'about')" class="settings-subtab-panel">
           <h4>ℹ️ About</h4>
           <p class="about-info">
             Dedicated to the past, present, and future of the SiYuan and spaced repetition community.
           </p>
+          </div>
             </section>
           </div>
         </div>
@@ -1384,6 +1430,13 @@ function t(key: string, fallback: string): string {
 }
 
 type SettingsTabKey = 'learning' | 'review' | 'card' | 'capture-sync' | 'neural' | 'ai' | 'maintenance' | 'about';
+type SettingsSubTabKey = string;
+
+interface SettingsSubTabDefinition {
+  key: SettingsSubTabKey;
+  label: string;
+  disabled?: boolean;
+}
 
 function normalizeSettingsTabKey(tab?: string): SettingsTabKey {
   switch (tab) {
@@ -1417,19 +1470,20 @@ const tabs = computed<Array<{ key: SettingsTabKey; label: string; icon: string; 
 ]);
 
 const activeTab = ref<SettingsTabKey>(normalizeSettingsTabKey(props.defaultTab));
+const activeSubTabByTab = ref<Record<SettingsTabKey, SettingsSubTabKey>>({
+  learning: 'fsrs',
+  review: 'surface',
+  card: 'quick-card',
+  'capture-sync': 'entry',
+  neural: 'history',
+  ai: 'provider',
+  maintenance: 'block-attrs',
+  about: 'about',
+});
 const primaryTabs = computed(() => tabs.value.filter((tab) => tab.section === 'primary'));
 const secondaryTabs = computed(() => tabs.value.filter((tab) => tab.section === 'secondary'));
 const showSettingsFooter = computed(() => activeTab.value !== 'maintenance' && activeTab.value !== 'about');
 const settingsContentRef = ref<HTMLElement | null>(null);
-
-watch(activeTab, async () => {
-  await nextTick();
-  settingsContentRef.value?.scrollTo?.({ top: 0 });
-});
-
-watch(() => props.defaultTab, (tab) => {
-  activeTab.value = normalizeSettingsTabKey(tab);
-});
 
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 const aiSettings = ref<AISettings>(createDefaultAISettings());
@@ -1550,6 +1604,119 @@ const settings = ref<Settings>({
   quickCard: createDefaultQuickCardSettings(),
   progressiveAltXExcerptEnabled: false,
   progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
+});
+
+const subTabsByTab = computed<Record<SettingsTabKey, SettingsSubTabDefinition[]>>(() => ({
+  learning: [
+    { key: 'fsrs', label: t('settingsSubtabFsrsParams', 'FSRS 参数') },
+    { key: 'scheduler', label: t('settingsSubtabScheduler', '调度器') },
+    { key: 'day-start', label: t('settingsSubtabDayStart', '每日刷新') },
+  ],
+  review: [
+    { key: 'surface', label: t('settingsSubtabReviewSurface', '复习界面') },
+    { key: 'automation', label: t('settingsSubtabQueueAutomation', '队列自动化') },
+    { key: 'ordering', label: t('settingsSubtabQueueOrdering', '排序与插入') },
+  ],
+  card: [
+    { key: 'quick-card', label: t('settingsSubtabQuickCard', '监听符号制卡') },
+    {
+      key: 'topic-derivation',
+      label: t('settingsSubtabTopicDerivation', 'Topic 下继续制卡'),
+      disabled: !settings.value.quickCard.enabled,
+    },
+  ],
+  'capture-sync': [
+    { key: 'entry', label: t('settingsSubtabExcerptEntry', '摘录入口') },
+    { key: 'storage', label: t('settingsSubtabStorage', '存放位置') },
+    { key: 'conflict', label: t('settingsSubtabConflict', '冲突处理') },
+  ],
+  neural: [
+    { key: 'history', label: t('settingsSubtabNeuralHistory', '轨迹历史') },
+    { key: 'channels', label: t('settingsSubtabHyperspaceChannels', '传播通道') },
+    { key: 'range', label: t('settingsSubtabHyperspaceRange', '扩散范围') },
+    { key: 'weights', label: t('settingsSubtabHyperspaceWeights', '传播权重') },
+  ],
+  ai: [
+    { key: 'provider', label: t('settingsSubtabAiProvider', '模型接入') },
+    { key: 'runtime', label: t('settingsSubtabAiRuntime', '聊天与工具') },
+    { key: 'built-in-skill', label: t('settingsSubtabAiBuiltInSkill', '内置 Skill') },
+    { key: 'user-skills', label: t('settingsSubtabAiUserSkills', '用户 Skill') },
+  ],
+  maintenance: [
+    { key: 'block-attrs', label: t('blockAttrsCleanupTitle', '块属性清理') },
+  ],
+  about: [
+    { key: 'about', label: t('settingsAboutTab', '关于') },
+  ],
+}));
+
+const activeTabLabel = computed(() => tabs.value.find((tab) => tab.key === activeTab.value)?.label || '');
+const activeSubTabs = computed(() => subTabsByTab.value[activeTab.value] || []);
+const activeSubTabKey = computed(() => {
+  const selectedKey = activeSubTabByTab.value[activeTab.value];
+  const selected = activeSubTabs.value.find((subTab) => subTab.key === selectedKey && !subTab.disabled);
+  if (selected) {
+    return selected.key;
+  }
+
+  return activeSubTabs.value.find((subTab) => !subTab.disabled)?.key || activeSubTabs.value[0]?.key || '';
+});
+
+function ensureActiveSubTab(tabKey = activeTab.value): void {
+  const availableSubTabs = subTabsByTab.value[tabKey] || [];
+  const selectedKey = activeSubTabByTab.value[tabKey];
+  const selected = availableSubTabs.find((subTab) => subTab.key === selectedKey && !subTab.disabled);
+  if (selected) {
+    return;
+  }
+
+  const fallback = availableSubTabs.find((subTab) => !subTab.disabled) || availableSubTabs[0];
+  if (fallback) {
+    activeSubTabByTab.value = {
+      ...activeSubTabByTab.value,
+      [tabKey]: fallback.key,
+    };
+  }
+}
+
+async function scrollSettingsContentToTop(): Promise<void> {
+  await nextTick();
+  settingsContentRef.value?.scrollTo?.({ top: 0 });
+}
+
+function selectSubTab(subTabKey: SettingsSubTabKey): void {
+  const target = activeSubTabs.value.find((subTab) => subTab.key === subTabKey);
+  if (!target || target.disabled) {
+    return;
+  }
+
+  activeSubTabByTab.value = {
+    ...activeSubTabByTab.value,
+    [activeTab.value]: subTabKey,
+  };
+  void scrollSettingsContentToTop();
+}
+
+function isActiveSubTab(tabKey: SettingsTabKey, subTabKey: SettingsSubTabKey): boolean {
+  return activeTab.value === tabKey && activeSubTabKey.value === subTabKey;
+}
+
+watch(activeTab, async () => {
+  ensureActiveSubTab();
+  await scrollSettingsContentToTop();
+});
+
+watch(() => props.defaultTab, (tab) => {
+  activeTab.value = normalizeSettingsTabKey(tab);
+});
+
+watch(() => settings.value.quickCard.enabled, (enabled) => {
+  if (!enabled && activeSubTabByTab.value.card === 'topic-derivation') {
+    activeSubTabByTab.value = {
+      ...activeSubTabByTab.value,
+      card: 'quick-card',
+    };
+  }
 });
 
 function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
@@ -2196,6 +2363,59 @@ async function handleRepairDates() {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+.settings-subtabs {
+  display: flex;
+  gap: 8px;
+  min-height: 58px;
+  padding: 12px 30px 0;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.settings-subtab {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.settings-subtab:hover:not(:disabled),
+.settings-subtab:focus-visible {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  outline: none;
+}
+
+.settings-subtab:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--b3-theme-primary);
+}
+
+.settings-subtab--active {
+  border-color: var(--b3-border-color);
+  border-bottom-color: var(--b3-theme-surface);
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-primary);
+}
+
+.settings-subtab:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.settings-subtab-panel {
+  display: block;
 }
 
 .settings-tab {
@@ -3060,6 +3280,7 @@ async function handleRepairDates() {
     padding: 18px 14px;
   }
 
+  .settings-subtabs,
   .settings-content,
   .settings-footer {
     padding-left: 22px;
@@ -3093,6 +3314,11 @@ async function handleRepairDates() {
 
   .settings-tab {
     width: auto;
+  }
+
+  .settings-subtabs {
+    min-height: 56px;
+    padding: 10px 18px 0;
   }
 
   .settings-content {
