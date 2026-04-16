@@ -149,4 +149,97 @@ describe('AIWorkbenchSessionStoreService', () => {
     expect(loaded?.lastActiveView).toBe(AI_CONCEPT_COACH_SKILL_ID);
     expect(loaded?.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages).toEqual([]);
   });
+
+  it('preserves user skill threads and generic structured results', async () => {
+    const fileService = createFileService();
+    const service = new AIWorkbenchSessionStoreService(fileService);
+    const record = createRecord('user-skill', 'User Skill Session');
+
+    record.activeSkillId = 'user:outline';
+    record.activeTabId = 'user:outline:summary';
+    record.activeSkills = ['user:outline'];
+    record.lastActiveView = 'user:outline';
+    record.activeViews = ['user:outline'];
+    record.threads['user:outline'] = {
+      'user:outline:summary': {
+        skillId: 'user:outline',
+        tabId: 'user:outline:summary',
+        messages: [{
+          id: 'user-msg-1',
+          skillId: 'user:outline',
+          tabId: 'user:outline:summary',
+          view: 'user:outline',
+          kind: 'assistant-result',
+          createdAt: 2,
+          rawContent: '{"summary":["A"]}',
+          conceptCoachResult: null,
+          tabResult: null,
+          genericStructuredResult: {
+            skillId: 'user:outline',
+            rawContent: '{"summary":["A"]}',
+            sections: [{
+              id: 'user:outline:summary',
+              responseKey: 'summary',
+              title: 'Summary',
+              renderer: 'list',
+              value: ['A'],
+              text: '',
+              items: ['A'],
+              cards: [],
+              keyValues: [],
+            }],
+          },
+          genericSectionResult: {
+            id: 'user:outline:summary',
+            responseKey: 'summary',
+            title: 'Summary',
+            renderer: 'list',
+            value: ['A'],
+            text: '',
+            items: ['A'],
+            cards: [],
+            keyValues: [],
+          },
+          normalizationDiagnostic: {
+            status: 'partial',
+            missingSections: ['Cues'],
+            rawShape: 'object:summary',
+            renderer: 'list',
+          },
+          explainResult: null,
+          appliedContexts: [],
+        }],
+        resultContextSignature: 'ctx-user',
+        stale: false,
+        staleReason: null,
+      },
+    };
+    record.genericSkillResults = {
+      'user:outline': {
+        skillId: 'user:outline',
+        rawContent: '{"summary":["A"]}',
+        sections: [{
+          id: 'user:outline:summary',
+          responseKey: 'summary',
+          title: 'Summary',
+          renderer: 'list',
+          value: ['A'],
+          text: '',
+          items: ['A'],
+          cards: [],
+          keyValues: [],
+        }],
+      },
+    };
+
+    await service.saveSession(record);
+    const loaded = await service.loadSession('user-skill');
+
+    expect(loaded?.activeSkillId).toBe('user:outline');
+    expect(loaded?.threads['user:outline']['user:outline:summary'].messages).toHaveLength(1);
+    expect(loaded?.genericSkillResults?.['user:outline']?.sections[0]).toMatchObject({
+      id: 'user:outline:summary',
+      items: ['A'],
+    });
+  });
 });

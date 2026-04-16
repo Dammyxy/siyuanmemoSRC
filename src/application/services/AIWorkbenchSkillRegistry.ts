@@ -10,12 +10,12 @@ import {
   getAIChatSkill,
   getAIChatSkills,
   getAIChatSkillTabs,
-  isAIChatSkillId,
   isAIChatTabId,
   normalizeAIChatSkillId,
   normalizeAIChatTabId,
   type AIChatSkillTabDescriptor,
 } from '@/application/services/AIChatSkillRegistry';
+import type { AISettings } from '@/types/settings';
 
 export type AIWorkbenchSkillTabDescriptor = AIChatSkillTabDescriptor;
 
@@ -30,8 +30,8 @@ export interface AIWorkbenchSkillDescriptor {
   hideTabs: boolean;
 }
 
-function toWorkbenchDescriptor(skillId: AISkillId): AIWorkbenchSkillDescriptor {
-  const skill = getAIChatSkill(skillId);
+function toWorkbenchDescriptor(skillId: AISkillId, settings?: AISettings): AIWorkbenchSkillDescriptor {
+  const skill = getAIChatSkill(skillId, settings);
   return {
     id: skill.id,
     title: skill.title,
@@ -44,35 +44,35 @@ function toWorkbenchDescriptor(skillId: AISkillId): AIWorkbenchSkillDescriptor {
   };
 }
 
-export function getAIWorkbenchSkills(): AIWorkbenchSkillDescriptor[] {
-  return getAIChatSkills().map((skill) => toWorkbenchDescriptor(skill.id));
+export function getAIWorkbenchSkills(settings?: AISettings): AIWorkbenchSkillDescriptor[] {
+  return getAIChatSkills(settings).map((skill) => toWorkbenchDescriptor(skill.id, settings));
 }
 
-export function getAIWorkbenchSkill(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AIWorkbenchSkillDescriptor {
-  return toWorkbenchDescriptor(normalizeAIChatSkillId(skillId));
+export function getAIWorkbenchSkill(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID, settings?: AISettings): AIWorkbenchSkillDescriptor {
+  return toWorkbenchDescriptor(normalizeAIChatSkillId(skillId, AI_GENERAL_CHAT_SKILL_ID, settings), settings);
 }
 
-export function getAIWorkbenchSkillTabs(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AIWorkbenchSkillTabDescriptor[] {
-  return getAIChatSkillTabs(normalizeAIChatSkillId(skillId));
+export function getAIWorkbenchSkillTabs(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID, settings?: AISettings): AIWorkbenchSkillTabDescriptor[] {
+  return getAIChatSkillTabs(normalizeAIChatSkillId(skillId, AI_GENERAL_CHAT_SKILL_ID, settings), settings);
 }
 
-export function isAIWorkbenchSkillTabId(value: unknown): value is AISkillTabId {
-  return isAIChatTabId(value);
+export function isAIWorkbenchSkillTabId(value: unknown, settings?: AISettings, skillId?: AISkillId): value is AISkillTabId {
+  return isAIChatTabId(value, settings, skillId);
 }
 
-export function normalizeAIWorkbenchSkillId(value: unknown, fallback: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AISkillId {
+export function normalizeAIWorkbenchSkillId(value: unknown, fallback: AISkillId = AI_GENERAL_CHAT_SKILL_ID, settings?: AISettings): AISkillId {
   if (value === 'explain' || value === 'make-cards' || value === 'tutor') {
     return AI_CONCEPT_COACH_SKILL_ID;
   }
-  return normalizeAIChatSkillId(value, fallback);
+  return normalizeAIChatSkillId(value, fallback, settings);
 }
 
-export function normalizeAIWorkbenchTabId(value: unknown, skillId: AISkillId = AI_CONCEPT_COACH_SKILL_ID): AISkillTabId {
+export function normalizeAIWorkbenchTabId(value: unknown, skillId: AISkillId = AI_CONCEPT_COACH_SKILL_ID, settings?: AISettings): AISkillTabId {
   if (skillId === AI_GENERAL_CHAT_SKILL_ID) {
     return AI_GENERAL_CHAT_TAB_ID;
   }
   if (AI_CONCEPT_COACH_TAB_IDS.includes(value as typeof AI_CONCEPT_COACH_TAB_IDS[number])) {
     return value as AISkillTabId;
   }
-  return normalizeAIChatTabId(value, skillId);
+  return normalizeAIChatTabId(value, skillId, settings);
 }

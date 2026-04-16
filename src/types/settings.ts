@@ -5,6 +5,11 @@
 
 /** 存储键名 */
 import { default_w } from 'ts-fsrs';
+import type {
+    AIGenericStructuredRendererKind,
+    AIUserSkillDefinition,
+    AIUserSkillSectionDefinition,
+} from '@/types/ai';
 
 export const STORAGE_NAME = 'fsrs-config';
 export const FSRS_WEIGHT_COUNT = default_w.length;
@@ -327,6 +332,7 @@ export interface AISettings {
     webSearch: AIWebSearchSettings;
     toolPolicies: AIToolPolicySettings;
     skillPromptOverrides: Record<string, string>;
+    userSkills: AIUserSkillDefinition[];
     /**
      * @deprecated Legacy single-provider field. Normalization migrates it to providers[].
      */
@@ -1319,6 +1325,133 @@ function normalizeAIToolPolicySettings(value: unknown): AIToolPolicySettings {
     };
 }
 
+const AI_USER_SKILL_TOOL_GROUPS: AIToolGroupKey[] = [
+    'context-read',
+    'siyuan-read',
+    'review-read',
+    'web',
+    'vars',
+    'flashcard-write',
+];
+const AI_USER_SKILL_RENDERERS: AIGenericStructuredRendererKind[] = ['markdown', 'list', 'cards', 'keyValue'];
+const AI_RESERVED_SKILL_IDS = new Set(['general-chat', 'concept-coach']);
+
+function normalizeSlug(value: unknown, fallback: string): string {
+    const normalized = String(value || '')
+        .trim()
+        .replace(/^user:/i, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48);
+    return normalized || fallback;
+}
+
+function normalizeResponseKey(value: unknown, fallback: string): string {
+    const normalized = String(value || '')
+        .trim()
+        .replace(/[^a-zA-Z0-9_$-]+/g, '')
+        .slice(0, 64);
+    return normalized || fallback;
+}
+
+function normalizeUserSkillToolGroups(value: unknown): AIToolGroupKey[] {
+    const raw = Array.isArray(value) ? value : [];
+    const groups = raw
+        .map((entry) => String(entry || '').trim() as AIToolGroupKey)
+        .filter((entry) => AI_USER_SKILL_TOOL_GROUPS.includes(entry));
+    const unique = Array.from(new Set(groups));
+    return unique.length > 0 ? unique : ['context-read', 'vars'];
+}
+
+function normalizeUserSkillRenderer(value: unknown): AIGenericStructuredRendererKind {
+    return AI_USER_SKILL_RENDERERS.includes(value as AIGenericStructuredRendererKind)
+        ? value as AIGenericStructuredRendererKind
+        : 'markdown';
+}
+
+function normalizeAIUserSkillSections(value: unknown, _skillSlug: string): AIUserSkillSectionDefinition[] {
+    const rawSections = Array.isArray(value) ? value : [];
+    const usedIds = new Set<string>();
+    return rawSections
+        .map((entry, index): AIUserSkillSectionDefinition | null => {
+            const source = typeof entry === 'object' && entry !== null
+                ? entry as Partial<AIUserSkillSectionDefinition>
+                : {};
+            let id = normalizeSlug(source.id, `section-${index + 1}`);
+            if (usedIds.has(id)) {
+                id = `${id}-${index + 1}`;
+            }
+            usedIds.add(id);
+            const title = String(source.title || '').trim() || `Section ${index + 1}`;
+            const responseKey = normalizeResponseKey(source.responseKey, id.replace(/-([a-z0-9])/g, (_, char: string) => char.toUpperCase()));
+            return {
+                id,
+                title,
+                emptyHint: String(source.emptyHint || '').trim() || '这个 section 暂时没有可展示内容。',
+                runPrompt: String(source.runPrompt || '').trim() || `生成「${title}」部分。`,
+                followUpPrompt: String(source.followUpPrompt || '').trim() || `基于「${title}」结果回答用户追问。`,
+                responseKey,
+                renderer: normalizeUserSkillRenderer(source.renderer),
+                required: source.required !== false,
+            };
+        })
+        .filter((section): section is AIUserSkillSectionDefinition => Boolean(section))
+        .slice(0, 12);
+}
+
+export function normalizeAIUserSkills(value: unknown): AIUserSkillDefinition[] {
+    const rawSkills = Array.isArray(value) ? value : [];
+    const usedIds = new Set<string>();
+    return rawSkills
+        .map((entry, index): AIUserSkillDefinition | null => {
+            if (typeof entry !== 'object' || entry === null) {
+                return null;
+            }
+            const source = entry as Partial<AIUserSkillDefinition>;
+            let slug = normalizeSlug(source.id, `skill-${index + 1}`);
+            if (AI_RESERVED_SKILL_IDS.has(slug)) {
+                slug = `${slug}-${index + 1}`;
+            }
+            if (usedIds.has(slug)) {
+                slug = `${slug}-${index + 1}`;
+            }
+            usedIds.add(slug);
+            const title = String(source.title || '').trim();
+            const mode = source.mode === 'structured' ? 'structured' : 'chat';
+            const sections = mode === 'structured'
+                ? normalizeAIUserSkillSections(source.sections, slug)
+                : [];
+            const hasUsableStructuredShape = mode === 'chat' || sections.length > 0;
+            return {
+                id: slug,
+                title: title || '未命名 Skill',
+                brief: String(source.brief || '').trim(),
+                enabled: source.enabled !== false && Boolean(title) && hasUsableStructuredShape,
+                mode,
+                systemPromptTemplate: String(source.systemPromptTemplate || '').trim()
+                    || '你是思源笔记里的学习助手。请基于当前上下文、用户补充材料和可用工具，给出准确、可执行的帮助。',
+                composerPreset: String(source.composerPreset || '').trim() || '请基于当前上下文继续处理。',
+                primaryActionLabel: String(source.primaryActionLabel || '').trim() || (mode === 'structured' ? '运行 Skill' : '开始聊天'),
+                defaultToolGroups: normalizeUserSkillToolGroups(source.defaultToolGroups),
+                sections,
+                surfaceHints: typeof source.surfaceHints === 'object' && source.surfaceHints !== null
+                    ? {
+                        compactTitle: String(source.surfaceHints.compactTitle || '').trim(),
+                        hideTabs: source.surfaceHints.hideTabs === true,
+                        composerRows: Math.max(2, Math.min(10, Math.floor(Number(source.surfaceHints.composerRows) || (mode === 'chat' ? 5 : 4)))),
+                    }
+                    : {
+                        hideTabs: mode === 'chat',
+                        composerRows: mode === 'chat' ? 5 : 4,
+                    },
+                version: Math.max(1, Math.floor(Number(source.version) || 1)),
+            };
+        })
+        .filter((skill): skill is AIUserSkillDefinition => Boolean(skill))
+        .slice(0, 30);
+}
+
 export function normalizeAISettings(source: unknown): AISettings {
     const value = typeof source === 'object' && source !== null
         ? source as Partial<AISettings> & { promptProfiles?: unknown; draftStorage?: unknown }
@@ -1373,6 +1506,7 @@ export function normalizeAISettings(source: unknown): AISettings {
         skillPromptOverrides: typeof value.skillPromptOverrides === 'object' && value.skillPromptOverrides !== null
             ? Object.fromEntries(Object.entries(value.skillPromptOverrides).map(([key, prompt]) => [key, String(prompt || '')]))
             : {},
+        userSkills: normalizeAIUserSkills(value.userSkills),
         baseUrl: activeProvider.baseUrl,
         apiKey: activeProvider.apiKey,
         model: defaultModelId || activeProvider.models[0]?.id || DEFAULT_AI_SETTINGS.model,
@@ -1442,6 +1576,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
         resultApprovalPolicies: {},
     },
     skillPromptOverrides: {},
+    userSkills: [],
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
     model: 'gpt-4.1-mini',

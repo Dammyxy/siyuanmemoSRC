@@ -840,7 +840,7 @@
           </div>
         </div>
 
-        <h4>{{ t('aiPromptTemplates', 'Prompt 模板') }}</h4>
+        <h4>{{ t('aiPromptTemplates', 'Skill 管理') }}</h4>
 
         <div
           v-for="preset in aiPromptPresetCards"
@@ -931,6 +931,211 @@
             </div>
           </div>
         </div>
+
+        <div class="ai-user-skill-toolbar">
+          <div>
+            <strong>{{ t('aiUserSkills', '用户自定义 Skill') }}</strong>
+            <p class="form-hint form-hint--section">
+              {{ t('aiUserSkillsHint', '第一版只支持声明式 Skill：Prompt、工具组、结构化 sections 和通用 renderer，不支持 JS/HTML/自定义写工具。') }}
+            </p>
+          </div>
+          <div class="ai-user-skill-toolbar__actions">
+            <button class="btn-small" type="button" @click="addUserSkill('chat')">
+              {{ t('aiAddChatSkill', '新增聊天 Skill') }}
+            </button>
+            <button class="btn-small" type="button" @click="addUserSkill('structured')">
+              {{ t('aiAddStructuredSkill', '新增结构化 Skill') }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="aiSettings.userSkills.length === 0" class="form-example">
+          <div class="example-label">{{ t('aiNoUserSkills', '还没有用户 Skill') }}</div>
+          <div class="example-value">
+            {{ t('aiNoUserSkillsHint', '可以先加一个聊天 Skill 做专用助手，或加一个结构化 Skill 生成你自己的 section 结果。') }}
+          </div>
+        </div>
+
+        <article
+          v-for="(skill, skillIndex) in aiSettings.userSkills"
+          :key="`${skill.id}-${skillIndex}`"
+          class="ai-user-skill-card"
+        >
+          <div class="ai-user-skill-card__head">
+            <div>
+              <strong>{{ skill.title || t('untitledSkill', '未命名 Skill') }}</strong>
+              <p class="form-hint form-hint--section">{{ skill.mode === 'structured' ? t('structuredSkillHint', '按 section 返回结构化 JSON，并使用通用 renderer 展示。') : t('chatSkillHint', '复用统一聊天 runtime，可调用已授权工具组。') }}</p>
+            </div>
+            <div class="ai-user-skill-card__actions">
+              <label class="ai-user-skill-card__toggle">
+                <input type="checkbox" v-model="skill.enabled">
+                <span>{{ t('enabled', '启用') }}</span>
+              </label>
+              <button class="btn-small" type="button" @click="duplicateUserSkill(skillIndex)">{{ t('duplicate', '复制') }}</button>
+              <button class="btn-small btn-danger" type="button" @click="removeUserSkill(skillIndex)">{{ t('delete', '删除') }}</button>
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>ID</label>
+            <div class="form-control">
+              <input type="text" v-model="skill.id">
+            </div>
+            <p class="form-hint">{{ t('aiSkillIdHint', '保存时会自动归一化成 user:&lt;slug&gt;，并避开内置 skill id。') }}</p>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('title', '标题') }}</label>
+            <div class="form-control">
+              <input type="text" v-model="skill.title">
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('description', '简介') }}</label>
+            <div class="form-control">
+              <textarea v-model="skill.brief" rows="2" class="form-textarea"></textarea>
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('mode', '模式') }}</label>
+            <div class="form-control">
+              <select v-model="skill.mode" class="scheduler-select">
+                <option value="chat">chat</option>
+                <option value="structured">structured</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('aiBaseRunPrompt', 'Skill 基础 Prompt') }}</label>
+            <div class="form-control">
+              <textarea v-model="skill.systemPromptTemplate" rows="5" class="form-textarea"></textarea>
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('composerPlaceholder', '输入预设') }}</label>
+            <div class="form-control">
+              <textarea v-model="skill.composerPreset" rows="2" class="form-textarea"></textarea>
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('primaryAction', '主按钮文案') }}</label>
+            <div class="form-control">
+              <input type="text" v-model="skill.primaryActionLabel">
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('tools', '工具组') }}</label>
+            <div class="ai-user-skill-tools">
+              <label
+                v-for="option in userSkillToolGroupOptions"
+                :key="option.key"
+                class="ai-user-skill-tools__option"
+              >
+                <input
+                  type="checkbox"
+                  :checked="skill.defaultToolGroups.includes(option.key)"
+                  @change="($event) => {
+                    const checked = ($event.target as HTMLInputElement).checked;
+                    skill.defaultToolGroups = checked
+                      ? Array.from(new Set([...skill.defaultToolGroups, option.key]))
+                      : skill.defaultToolGroups.filter((entry) => entry !== option.key);
+                  }"
+                >
+                <strong>{{ option.label }}</strong>
+                <span>{{ option.hint }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>{{ t('surfaceHints', 'Surface 提示') }}</label>
+            <div class="ai-user-skill-surface">
+              <label>
+                <span>{{ t('compactTitle', '紧凑标题') }}</span>
+                <input type="text" v-model="skill.surfaceHints!.compactTitle">
+              </label>
+              <label>
+                <span>{{ t('composerRows', '输入框行数') }}</span>
+                <input type="number" min="2" max="10" step="1" v-model.number="skill.surfaceHints!.composerRows">
+              </label>
+              <label class="ai-user-skill-card__toggle">
+                <input type="checkbox" v-model="skill.surfaceHints!.hideTabs">
+                <span>{{ t('hideTabs', '隐藏 tabs') }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div v-if="skill.mode === 'structured'" class="ai-user-skill-sections">
+            <div class="ai-user-skill-sections__head">
+              <strong>{{ t('sections', 'Sections') }}</strong>
+              <button class="btn-small" type="button" @click="addUserSkillSection(skill)">{{ t('addSection', '新增 Section') }}</button>
+            </div>
+            <div
+              v-for="(section, sectionIndex) in skill.sections"
+              :key="`${section.id}-${sectionIndex}`"
+              class="ai-user-skill-section-card"
+            >
+              <div class="ai-user-skill-section-card__head">
+                <strong>{{ section.title || t('untitledSection', '未命名 Section') }}</strong>
+                <button class="btn-small btn-danger" type="button" @click="removeUserSkillSection(skill, sectionIndex)">{{ t('delete', '删除') }}</button>
+              </div>
+              <div class="form-item">
+                <label>ID</label>
+                <div class="form-control">
+                  <input type="text" v-model="section.id">
+                </div>
+              </div>
+              <div class="form-item">
+                <label>{{ t('title', '标题') }}</label>
+                <div class="form-control">
+                  <input type="text" v-model="section.title">
+                </div>
+              </div>
+              <div class="form-item">
+                <label>{{ t('responseKey', '响应 key') }}</label>
+                <div class="form-control">
+                  <input type="text" v-model="section.responseKey">
+                </div>
+              </div>
+              <div class="form-item">
+                <label>{{ t('renderer', 'Renderer') }}</label>
+                <div class="form-control">
+                  <select v-model="section.renderer" class="scheduler-select">
+                    <option v-for="option in userSkillRendererOptions" :key="option.key" :value="option.key">{{ option.label }}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-item">
+                <label>{{ t('emptyHint', '空态提示') }}</label>
+                <div class="form-control">
+                  <input type="text" v-model="section.emptyHint">
+                </div>
+              </div>
+              <div class="form-item">
+                <label>{{ t('aiBehaviorPrompt', '行为 Prompt') }}</label>
+                <div class="form-control">
+                  <textarea v-model="section.runPrompt" rows="3" class="form-textarea"></textarea>
+                </div>
+              </div>
+              <div class="form-item">
+                <label>{{ t('aiFollowUpPrompt', '追问 Prompt') }}</label>
+                <div class="form-control">
+                  <textarea v-model="section.followUpPrompt" rows="3" class="form-textarea"></textarea>
+                </div>
+              </div>
+              <label class="ai-user-skill-card__toggle">
+                <input type="checkbox" v-model="section.required">
+                <span>{{ t('required', '必填 section') }}</span>
+              </label>
+            </div>
+          </div>
+        </article>
             </section>
           </div>
 
@@ -968,6 +1173,7 @@ import {
   ACTIVE_AI_PROMPT_CONTRACT_VERSION,
   normalizeConfiguredCaptureStorageSettings as normalizeCaptureStorageSettings,
   normalizeAISettings,
+  normalizeAIUserSkills,
   normalizeAIPromptContractVersion,
   normalizeAIPromptTemplates,
   type ConfiguredCaptureStorageSettings,
@@ -984,6 +1190,7 @@ import {
   type QuickCardSettings,
   type UISettings,
 } from '../../types';
+import type { AIChatToolGroupKey, AIUserSkillDefinition, AIUserSkillSectionDefinition } from '@/types/ai';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
 
@@ -1003,6 +1210,8 @@ type CleanupRunResult = CleanupScanResult & {
   cleanedBlocks: number;
   cleanedAttrs: number;
 };
+
+type UserSkillMode = 'chat' | 'structured';
 
 const logger = createLogger('SettingsPanel');
 
@@ -1226,6 +1435,20 @@ const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 const aiSettings = ref<AISettings>(createDefaultAISettings());
 const uiSettings = ref<UISettings>(createDefaultUISettings());
 const aiPromptTabs = getAIWorkbenchSkillTabs('concept-coach');
+const userSkillToolGroupOptions: Array<{ key: AIChatToolGroupKey; label: string; hint: string }> = [
+  { key: 'context-read', label: 'context-read', hint: '读取当前卡片、选中块和手工材料。' },
+  { key: 'siyuan-read', label: 'siyuan-read', hint: '检索和读取思源块内容。' },
+  { key: 'review-read', label: 'review-read', hint: '读取复习状态和当前队列。' },
+  { key: 'web', label: 'web', hint: '抓取网页或调用搜索后端。' },
+  { key: 'vars', label: 'vars', hint: '读写会话内变量缓存。' },
+  { key: 'flashcard-write', label: 'flashcard-write', hint: '写工具始终逐次审批。' },
+];
+const userSkillRendererOptions: Array<{ key: AIUserSkillSectionDefinition['renderer']; label: string }> = [
+  { key: 'markdown', label: 'Markdown' },
+  { key: 'list', label: 'List' },
+  { key: 'cards', label: 'Cards' },
+  { key: 'keyValue', label: 'Key / Value' },
+];
 
 function isConceptCoachPromptEmpty(template: AIConceptCoachPromptTemplates): boolean {
   return String(template.baseRun || '').trim().length === 0
@@ -1340,6 +1563,74 @@ function getPromptEditorLabel(settingKey: AIPromptSettingKey): string {
     default:
       return t('aiConceptCoachPrompt', 'AI 理解与制卡 Prompt');
   }
+}
+
+function createUserSkillSection(index = 0): AIUserSkillSectionDefinition {
+  return {
+    id: `section-${index + 1}`,
+    title: `Section ${index + 1}`,
+    emptyHint: '这个 section 暂时没有可展示内容。',
+    runPrompt: `生成第 ${index + 1} 个 section。`,
+    followUpPrompt: `基于第 ${index + 1} 个 section 回答用户追问。`,
+    responseKey: `section${index + 1}`,
+    renderer: 'markdown',
+    required: true,
+  };
+}
+
+function createUserSkill(mode: UserSkillMode, index = aiSettings.value.userSkills.length): AIUserSkillDefinition {
+  return normalizeAIUserSkills([{
+    id: `skill-${index + 1}`,
+    title: mode === 'structured' ? `结构化 Skill ${index + 1}` : `聊天 Skill ${index + 1}`,
+    brief: mode === 'structured' ? '按 section 生成结构化结果。' : '在统一会话里使用上下文和工具聊天。',
+    enabled: true,
+    mode,
+    systemPromptTemplate: mode === 'structured'
+      ? '你是一个结构化学习助手。请按给定 sections 返回 JSON。'
+      : '你是一个学习助手。请基于当前上下文和工具回答用户。',
+    composerPreset: mode === 'structured' ? '请基于当前材料运行这个 Skill。' : '请继续聊天或贴入材料。',
+    primaryActionLabel: mode === 'structured' ? '运行 Skill' : '开始聊天',
+    defaultToolGroups: ['context-read', 'vars'],
+    sections: mode === 'structured' ? [createUserSkillSection(0)] : [],
+    surfaceHints: {
+      hideTabs: mode === 'chat',
+      composerRows: mode === 'chat' ? 5 : 4,
+      compactTitle: '',
+    },
+    version: 1,
+  }])[0];
+}
+
+function addUserSkill(mode: UserSkillMode): void {
+  aiSettings.value.userSkills = [
+    ...aiSettings.value.userSkills,
+    createUserSkill(mode),
+  ];
+}
+
+function duplicateUserSkill(index: number): void {
+  const current = aiSettings.value.userSkills[index];
+  if (!current) {
+    return;
+  }
+  aiSettings.value.userSkills.splice(index + 1, 0, createUserSkill(current.mode, aiSettings.value.userSkills.length));
+  aiSettings.value.userSkills[index + 1] = normalizeAIUserSkills([{
+    ...current,
+    id: `${current.id}-copy`,
+    title: `${current.title} Copy`,
+  }])[0];
+}
+
+function removeUserSkill(index: number): void {
+  aiSettings.value.userSkills.splice(index, 1);
+}
+
+function addUserSkillSection(skill: AIUserSkillDefinition): void {
+  skill.sections.push(createUserSkillSection(skill.sections.length));
+}
+
+function removeUserSkillSection(skill: AIUserSkillDefinition, index: number): void {
+  skill.sections.splice(index, 1);
 }
 
 // 🆕 调度器配置
@@ -1674,6 +1965,7 @@ function saveSettings() {
   };
   const normalizedAI = normalizeAISettings({
     ...aiSettings.value,
+    userSkills: normalizeAIUserSkills(aiSettings.value.userSkills),
     providers: [
       primaryProvider,
       ...aiSettings.value.providers.slice(1),
@@ -2292,6 +2584,92 @@ async function handleRepairDates() {
 
 .ai-prompt-preset-card__editor-label--sub {
   margin-top: 4px;
+}
+
+.ai-user-skill-toolbar {
+  margin-top: 18px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-user-skill-toolbar__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-user-skill-card,
+.ai-user-skill-section-card {
+  margin-top: 14px;
+  border: 1px solid #e5e9f2;
+  border-radius: 12px;
+  background: #fbfcff;
+  padding: 14px;
+}
+
+.ai-user-skill-card__head,
+.ai-user-skill-section-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ai-user-skill-card__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-user-skill-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-user-skill-tools {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-user-skill-tools__option {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #e3e8f4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ai-user-skill-tools__option span {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+}
+
+.ai-user-skill-surface {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-user-skill-surface label {
+  display: grid;
+  gap: 6px;
+}
+
+.ai-user-skill-sections {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.ai-user-skill-sections__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .practice-filter {

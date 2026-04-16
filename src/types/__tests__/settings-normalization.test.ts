@@ -302,6 +302,69 @@ describe('settings normalization', () => {
     expect(normalized.settings.ai.prompts).toEqual(DEFAULT_SETTINGS.ai.prompts);
   });
 
+  it('normalizes declarative user skills and resolves reserved or duplicate ids', () => {
+    const normalized = normalizeAISettings({
+      ...DEFAULT_SETTINGS.ai,
+      userSkills: [
+        {
+          id: 'general-chat',
+          title: 'Chat Skill',
+          enabled: true,
+          mode: 'chat',
+          systemPromptTemplate: 'Chat prompt',
+          composerPreset: 'Ask',
+          primaryActionLabel: 'Chat',
+          defaultToolGroups: ['context-read', 'invalid-tool'],
+          sections: [],
+          version: 1,
+        },
+        {
+          id: 'outline',
+          title: 'Outline',
+          enabled: true,
+          mode: 'structured',
+          systemPromptTemplate: 'Structured prompt',
+          composerPreset: 'Run',
+          primaryActionLabel: 'Run',
+          defaultToolGroups: ['context-read'],
+          sections: [
+            {
+              id: 'summary',
+              title: 'Summary',
+              responseKey: 'summary',
+              renderer: 'list',
+              runPrompt: 'Generate summary',
+              followUpPrompt: 'Follow up',
+            },
+          ],
+          version: 1,
+        },
+        {
+          id: 'outline',
+          title: '',
+          enabled: true,
+          mode: 'structured',
+          systemPromptTemplate: 'Disabled prompt',
+          composerPreset: 'Run',
+          primaryActionLabel: 'Run',
+          defaultToolGroups: ['context-read'],
+          sections: [],
+          version: 1,
+        },
+      ],
+    });
+
+    expect(normalized.userSkills[0]?.id).toBe('general-chat-1');
+    expect(normalized.userSkills[0]?.defaultToolGroups).toEqual(['context-read']);
+    expect(normalized.userSkills[1]?.sections[0]).toMatchObject({
+      id: 'summary',
+      responseKey: 'summary',
+      renderer: 'list',
+      required: true,
+    });
+    expect(normalized.userSkills[2]?.enabled).toBe(false);
+  });
+
   it('is idempotent after first normalization', () => {
     const legacy = cloneSettings();
     legacy.fsrs.weights = legacy.fsrs.weights.slice(0, FSRS_WEIGHT_COUNT - 2);

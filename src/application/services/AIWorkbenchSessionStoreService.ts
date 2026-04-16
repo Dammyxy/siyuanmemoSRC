@@ -5,6 +5,7 @@ import {
   AI_GENERAL_CHAT_SKILL_ID,
   AI_GENERAL_CHAT_TAB_ID,
   type AIConceptCoachResult,
+  type AIUserSkillStructuredResult,
   type AISkillId,
   type AISkillTabId,
   type AIWorkbenchContextSnapshot,
@@ -56,6 +57,9 @@ function normalizeSource(value: unknown): AIWorkbenchSource {
 }
 
 function normalizeTabId(value: unknown): AISkillTabId {
+  if (typeof value === 'string' && value.startsWith('user:')) {
+    return value as AISkillTabId;
+  }
   return value === AI_GENERAL_CHAT_TAB_ID
     ? AI_GENERAL_CHAT_TAB_ID
     : AI_CONCEPT_COACH_TAB_IDS.includes(value as typeof AI_CONCEPT_COACH_TAB_IDS[number])
@@ -64,7 +68,14 @@ function normalizeTabId(value: unknown): AISkillTabId {
 }
 
 function normalizeSkillId(value: unknown): AISkillId {
+  if (typeof value === 'string' && /^user:[a-z0-9_-]+$/.test(value)) {
+    return value as AISkillId;
+  }
   return value === GENERAL_SKILL ? GENERAL_SKILL : CONCEPT_SKILL;
+}
+
+function isUserSkillId(value: unknown): value is AISkillId {
+  return typeof value === 'string' && /^user:[a-z0-9_-]+$/.test(value);
 }
 
 function createEmptyThread(skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreadRecord {
@@ -139,12 +150,11 @@ function normalizeThreads(value: unknown): { threads: AIWorkbenchThreads; legacy
     for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
       threads[CONCEPT_SKILL][tabId] = normalizeThreadRecord(conceptThreads[tabId], CONCEPT_SKILL, tabId);
     }
-    return { threads };
-  }
-
-  for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
-    if (isRecord(raw[tabId])) {
-      threads[CONCEPT_SKILL][tabId] = normalizeThreadRecord(raw[tabId], CONCEPT_SKILL, tabId);
+  } else {
+    for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
+      if (isRecord(raw[tabId])) {
+        threads[CONCEPT_SKILL][tabId] = normalizeThreadRecord(raw[tabId], CONCEPT_SKILL, tabId);
+      }
     }
   }
 
@@ -153,6 +163,18 @@ function normalizeThreads(value: unknown): { threads: AIWorkbenchThreads; legacy
     if (legacyThread.messages.length > 0) {
       threads[CONCEPT_SKILL][DEFAULT_TAB] = legacyThread;
       return { threads, legacyExplainMessages: [...legacyThread.messages] };
+    }
+  }
+
+  for (const [rawSkillId, rawSkillThreads] of Object.entries(raw)) {
+    if (!isUserSkillId(rawSkillId) || !isRecord(rawSkillThreads)) {
+      continue;
+    }
+    const skillId = normalizeSkillId(rawSkillId);
+    threads[skillId] = threads[skillId] || {};
+    for (const [rawTabId, rawThread] of Object.entries(rawSkillThreads)) {
+      const tabId = normalizeTabId(rawTabId);
+      threads[skillId][tabId] = normalizeThreadRecord(rawThread, skillId, tabId);
     }
   }
 
@@ -172,17 +194,33 @@ function normalizeSkillResults(value: unknown): Record<AISkillId, AIConceptCoach
   };
 }
 
+function normalizeGenericSkillResults(value: unknown): Record<string, AIUserSkillStructuredResult | null> {
+  const raw = isRecord(value) ? value : {};
+  const result: Record<string, AIUserSkillStructuredResult | null> = {};
+  for (const [skillId, skillResult] of Object.entries(raw)) {
+    if (isUserSkillId(skillId)) {
+      result[skillId] = isRecord(skillResult) ? skillResult as AIUserSkillStructuredResult : null;
+    }
+  }
+  return result;
+}
+
 function countMessages(threads: AIWorkbenchThreads): number {
-  return ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[]).reduce((total, skillId) => (
-    total + ALL_TAB_IDS.reduce((innerTotal, tabId) => innerTotal + (threads[skillId][tabId]?.messages.length || 0), 0)
+  return Object.values(threads).reduce((total, skillThreads) => (
+    total + Object.values(skillThreads).reduce((innerTotal, thread) => innerTotal + (thread.messages.length || 0), 0)
   ), 0);
+}
+
+function collectActiveSkills(threads: AIWorkbenchThreads): AISkillId[] {
+  return Object.entries(threads)
+    .filter(([, skillThreads]) => Object.values(skillThreads).some((thread) => thread.messages.length > 0))
+    .map(([skillId]) => normalizeSkillId(skillId));
 }
 
 function buildSummary(record: AIWorkbenchSessionRecord): AIWorkbenchSessionSummary {
   const threads = normalizeThreads(record.threads).threads;
   const messageCount = countMessages(threads);
-  const activeSkills: AISkillId[] = ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[])
-    .filter((skillId) => ALL_TAB_IDS.some((tabId) => (threads[skillId][tabId]?.messages.length || 0) > 0));
+  const activeSkills = collectActiveSkills(threads);
   return {
     id: record.id,
     title: record.title,
@@ -211,8 +249,7 @@ function normalizeRecord(value: unknown): AIWorkbenchSessionRecord | null {
   }
   const normalizedThreads = normalizeThreads(value.threads);
   const messageCount = countMessages(normalizedThreads.threads);
-  const activeSkills: AISkillId[] = ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[])
-    .filter((skillId) => ALL_TAB_IDS.some((tabId) => (normalizedThreads.threads[skillId][tabId]?.messages.length || 0) > 0));
+  const activeSkills = collectActiveSkills(normalizedThreads.threads);
   return {
     schemaVersion: Number(value.schemaVersion) || 2,
     id,
@@ -235,6 +272,7 @@ function normalizeRecord(value: unknown): AIWorkbenchSessionRecord | null {
       : undefined,
     threads: normalizedThreads.threads,
     skillResults: normalizeSkillResults(value.skillResults),
+    genericSkillResults: normalizeGenericSkillResults(value.genericSkillResults),
     vars: Array.isArray(value.vars) ? value.vars as AIWorkbenchSessionRecord['vars'] : [],
     diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics as AIWorkbenchSessionRecord['diagnostics'] : [],
     legacyExplainMessages: Array.isArray(value.legacyExplainMessages)
@@ -256,7 +294,7 @@ export class AIWorkbenchSessionStoreService {
         const messageCount = Number(summary.messageCount) || 0;
         const activeSkillId = normalizeSkillId(summary.activeSkillId || summary.lastActiveView);
         const activeSkills: AISkillId[] = Array.isArray(summary.activeSkills) && summary.activeSkills.length > 0
-          ? summary.activeSkills.map(normalizeSkillId)
+          ? Array.from(new Set(summary.activeSkills.map(normalizeSkillId)))
           : (messageCount > 0 ? [activeSkillId] : []);
         return {
           id: normalizeString(summary.id),
@@ -311,6 +349,7 @@ export class AIWorkbenchSessionStoreService {
       ...summary,
       threads: normalizeThreads(normalized.threads).threads,
       skillResults: normalizeSkillResults(normalized.skillResults),
+      genericSkillResults: normalizeGenericSkillResults(normalized.genericSkillResults),
     };
     await this.fileService.writeJSON(this.getSessionFileName(persisted.id), persisted);
 

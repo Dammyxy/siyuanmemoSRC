@@ -1,5 +1,6 @@
 import type { AIPromptSettingKey } from '@/application/services/AIPromptComposer';
-import type { AISkillId, AISkillTabId } from '@/types/ai';
+import type { AIChatRegisteredSkillDescriptor } from '@/application/services/AIChatSkillRegistry';
+import type { AIConceptCoachTabId, AISkillId, AISkillTabId } from '@/types/ai';
 
 export type AIStructuredPromptTask = 'concept-coach/full-run' | `concept-coach/${AISkillTabId}`;
 
@@ -29,7 +30,7 @@ const FULL_RUN_CONTRACT: AIPromptContractDescriptor = {
   ],
 };
 
-const TAB_CONTRACTS: Record<AISkillTabId, AIPromptContractDescriptor> = {
+const TAB_CONTRACTS: Record<AIConceptCoachTabId, AIPromptContractDescriptor> = {
   'working-definition': {
     settingKey: 'conceptCoach',
     title: '工作定义结构化规则',
@@ -100,14 +101,57 @@ export function getPromptContractForSkillRun(skillId: AISkillId, tabId?: AISkill
   if (skillId !== 'concept-coach') {
     return cloneContract(FULL_RUN_CONTRACT);
   }
-  return cloneContract(tabId ? TAB_CONTRACTS[tabId] : FULL_RUN_CONTRACT);
+  return cloneContract(tabId && tabId in TAB_CONTRACTS ? TAB_CONTRACTS[tabId as AIConceptCoachTabId] : FULL_RUN_CONTRACT);
+}
+
+export function getPromptContractForResolvedSkillRun(
+  skill: AIChatRegisteredSkillDescriptor,
+  tabId?: AISkillTabId,
+): AIPromptContractDescriptor {
+  if (skill.id === 'concept-coach') {
+    return getPromptContractForSkillRun(skill.id, tabId);
+  }
+  const sections = (tabId
+    ? (skill.sections || []).filter((section) => section.id === tabId)
+    : skill.sections || []);
+  const requiredKeys = sections.filter((section) => section.required).map((section) => section.responseKey);
+  const allKeys = sections.map((section) => section.responseKey);
+  const example = Object.fromEntries(sections.map((section) => {
+    switch (section.renderer) {
+      case 'list':
+        return [section.responseKey, []];
+      case 'cards':
+        return [section.responseKey, [{ question: '', answer: '' }]];
+      case 'keyValue':
+        return [section.responseKey, {}];
+      default:
+        return [section.responseKey, ''];
+    }
+  }));
+  return {
+    settingKey: 'conceptCoach',
+    title: `${skill.title} 结构化规则`,
+    summary: tabId
+      ? '当前 section 局部重跑时只返回这个 section 对应的顶层 JSON key。'
+      : '自定义结构化 Skill 会根据 sections 生成顶层 JSON key。缺失 section 会显示 warning，但不应省略 key。',
+    runtimeLines: [
+      '你会收到一个 JSON payload，其中至少包含 language、skillId、tabIds、context 和 attachedContexts。',
+      '只返回合法 JSON，不要附带 Markdown 代码块，也不要返回 HTML、JS 或脚本。',
+      `JSON 顶层字段必须包含：${allKeys.join('、') || '<none>'}。`,
+      requiredKeys.length > 0
+        ? `以下字段是必填 section；材料不足时也必须保留 key，并返回显式空值：${requiredKeys.join('、')}。`
+        : '所有 section 都可以为空，但仍应保留对应 key。',
+      `最小合法示例：${JSON.stringify(example)}。`,
+      'markdown renderer 返回字符串；list renderer 返回字符串数组；cards renderer 返回 question/answer 对象数组；keyValue renderer 返回对象或 key/value 数组。',
+    ],
+  };
 }
 
 export function getPromptContractForTask(task: AIStructuredPromptTask): AIPromptContractDescriptor {
   if (task === 'concept-coach/full-run') {
     return cloneContract(FULL_RUN_CONTRACT);
   }
-  const tabId = task.replace('concept-coach/', '') as AISkillTabId;
+  const tabId = task.replace('concept-coach/', '') as AIConceptCoachTabId;
   return cloneContract(TAB_CONTRACTS[tabId] || FULL_RUN_CONTRACT);
 }
 

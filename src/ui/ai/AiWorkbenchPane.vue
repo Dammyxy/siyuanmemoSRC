@@ -217,9 +217,21 @@
               <section v-for="section in assistantSections(message)" :key="section.key" class="ai-chat__result-section">
                 <h4>{{ section.title }}</h4>
                 <RichMarkdownContent v-if="section.kind === 'text'" :content="section.text" />
-                <ul v-else>
+                <ul v-else-if="section.kind === 'list'">
                   <li v-for="item in section.items" :key="item"><RichMarkdownContent :content="item" /></li>
                 </ul>
+                <div v-else-if="section.kind === 'cards'" class="ai-chat__candidate-list ai-chat__candidate-list--generic">
+                  <article v-for="card in section.cards" :key="card.id" class="ai-chat__candidate-card">
+                    <strong>{{ card.question || card.kind || t('card', '卡片') }}</strong>
+                    <p>{{ card.answer }}</p>
+                  </article>
+                </div>
+                <dl v-else class="ai-chat__key-values">
+                  <template v-for="item in section.keyValues" :key="item.key">
+                    <dt>{{ item.key }}</dt>
+                    <dd><RichMarkdownContent :content="item.value" /></dd>
+                  </template>
+                </dl>
               </section>
             </template>
           </template>
@@ -352,6 +364,8 @@ import type {
   AIConceptCoachRealWorldTriggers,
   AIConceptCoachSelfTestCards,
   AIExplainResult,
+  AIUserSkillStructuredCard,
+  AIUserSkillStructuredKeyValue,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchMessage,
   AIWorkbenchSource,
@@ -366,7 +380,9 @@ type ContextProvider = {
 
 type AssistantSection =
   | { key: string; title: string; kind: 'text'; text: string }
-  | { key: string; title: string; kind: 'list'; items: string[] };
+  | { key: string; title: string; kind: 'list'; items: string[] }
+  | { key: string; title: string; kind: 'cards'; cards: AIUserSkillStructuredCard[] }
+  | { key: string; title: string; kind: 'keyValue'; keyValues: AIUserSkillStructuredKeyValue[] };
 
 type WindowWithPlugin = Window & {
   siyuanMemoPlugin?: {
@@ -709,6 +725,33 @@ function assistantSections(message: AIWorkbenchMessage): AssistantSection[] {
   if (message.kind !== 'assistant-result') {
     return [];
   }
+  const genericSections = message.genericSectionResult
+    ? [message.genericSectionResult]
+    : message.genericStructuredResult?.sections.filter((section) => section.id === message.tabId) || [];
+  if (genericSections.length > 0) {
+    return genericSections
+      .map((section): AssistantSection | null => {
+        if (section.renderer === 'markdown') {
+          return section.text.trim()
+            ? { key: section.id, title: section.title, kind: 'text', text: section.text }
+            : null;
+        }
+        if (section.renderer === 'list') {
+          return section.items.length > 0
+            ? { key: section.id, title: section.title, kind: 'list', items: section.items }
+            : null;
+        }
+        if (section.renderer === 'cards') {
+          return section.cards.length > 0
+            ? { key: section.id, title: section.title, kind: 'cards', cards: section.cards }
+            : null;
+        }
+        return section.keyValues.length > 0
+          ? { key: section.id, title: section.title, kind: 'keyValue', keyValues: section.keyValues }
+          : null;
+      })
+      .filter((section): section is AssistantSection => Boolean(section));
+  }
   const legacyResult = !message.conceptCoachResult && !message.tabResult
     ? resolveLegacyExplainResult(message)
     : null;
@@ -836,7 +879,7 @@ async function submitComposer(): Promise<void> {
 
 async function copyMessage(message: AIWorkbenchMessage): Promise<void> {
   const content = message.kind === 'assistant-result'
-    ? JSON.stringify(message.tabResult ?? message.conceptCoachResult ?? null, null, 2)
+    ? JSON.stringify(message.genericSectionResult ?? message.tabResult ?? message.genericStructuredResult ?? message.conceptCoachResult ?? null, null, 2)
     : message.kind === 'approval'
       ? JSON.stringify(message.request, null, 2)
       : message.content;
@@ -1115,7 +1158,11 @@ onUnmounted(() => {
 .ai-chat__result-section { display: grid; gap: 6px; margin-top: 10px; }
 .ai-chat__result-section h4 { margin: 0; font-size: 13px; color: #3e4a60; }
 .ai-chat__result-section ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.ai-chat__key-values { margin: 0; display: grid; gap: 6px; }
+.ai-chat__key-values dt { font-weight: 600; color: #3e4a60; }
+.ai-chat__key-values dd { margin: 0; color: #4b5563; }
 .ai-chat__candidate-list { display: grid; gap: 10px; }
+.ai-chat__candidate-list--generic { margin-top: 2px; }
 .ai-chat__candidate-card { border: 1px solid #e5e9f2; border-radius: 10px; padding: 10px; display: grid; gap: 7px; background: #fbfcff; }
 .ai-chat__candidate-card p { margin: 0; color: #4b5563; }
 .ai-chat__candidate-check { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 12px; }

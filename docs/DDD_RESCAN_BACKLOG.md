@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-16 (Round 81)
+Last update: 2026-04-16 (Round 82)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-16 - AI declarative user skills
+
+- Task: Turn AI prompt customization into declarative user skills so the shared AI runtime can resolve built-in skills and user-defined chat/structured skills from settings.
+- Touched slice: AI workbench / capture active path across `src/types/{ai,settings}.ts`, `src/application/services/{AIChatSkillRegistry,AIWorkbenchSkillRegistry,AIPromptContractRegistry,AIWorkbenchService,AIWorkbenchSessionStoreService}.ts`, `src/ui/{ai/AiWorkbenchPane.vue,settings/SettingsPanel.vue}`, related i18n, focused AI/runtime/settings regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Extended the skill contract from fixed built-ins to built-in plus `settings.ai.userSkills[]`, normalized user skill ids/sections/tool groups/renderers at settings load/save time, taught the shared chat runtime/session store to preserve `user:<id>` skills and generic structured section results, and upgraded the settings surface from concept-only prompt editing to built-in override plus declarative user-skill management without adding a second runtime path.
+- Debt deferred: User skills are still form-defined only with shared renderers, do not support import/export, marketplace delivery, custom JS/HTML/render components, or true custom write-tool SDK behavior; chat defaults also remain pinned to built-in default skill choices for now.
+- Why deferred: Opening arbitrary code/render customization or a broader skill distribution system would widen this bounded runtime/settings consolidation into a much larger product-safety and extension-platform redesign.
+- Next safe step: If users need skill sharing next, add import/export on top of the same normalized `userSkills[]` schema before considering any executable customization surface.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIChatSkillRegistry.test.ts src/application/services/__tests__/AIWorkbenchService.user-skill.test.ts src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/types/__tests__/settings-normalization.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-16 - AI universal chat shell and skill runtime
 

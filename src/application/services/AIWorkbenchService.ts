@@ -5,14 +5,23 @@ import type { CardContentQueryService } from '@/application/queries/CardContentQ
 import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMMessage, LLMPort, LLMResponse, LLMToolCall } from '@/application/ports/LLMPort';
 import { LLMError } from '@/application/ports/LLMPort';
-import { getAIChatSkill } from '@/application/services/AIChatSkillRegistry';
+import {
+  getAIChatSkill,
+  type AIChatRegisteredSkillDescriptor,
+  type AIResolvedSkillSectionDescriptor,
+} from '@/application/services/AIChatSkillRegistry';
 import { AIChatToolExecutorService } from '@/application/services/AIChatToolExecutorService';
 import { AIChatToolRegistry } from '@/application/services/AIChatToolRegistry';
 import { AIChatVarStoreService } from '@/application/services/AIChatVarStoreService';
 import { getAIContextProviders } from '@/application/services/AIWorkbenchContextProviderRegistry';
-import { formatStructuredPromptContract, getPromptContractForSkillRun } from '@/application/services/AIPromptContractRegistry';
+import {
+  formatStructuredPromptContract,
+  getPromptContractForResolvedSkillRun,
+  getPromptContractForSkillRun,
+} from '@/application/services/AIPromptContractRegistry';
 import {
   getAIWorkbenchSkill,
+  getAIWorkbenchSkills,
   getAIWorkbenchSkillTabs,
   normalizeAIWorkbenchSkillId,
   normalizeAIWorkbenchTabId,
@@ -23,6 +32,7 @@ import type { FSRSCard } from '@/types/card';
 import type {
   AIAttachedContextItem,
   AIChatApprovalRequest,
+  AIChatNormalizationDiagnostic,
   AIChatRuntimeDiagnostic,
   AIChatToolCall,
   AIChatToolExecutionResult,
@@ -44,6 +54,10 @@ import type {
   AIReviewCardContext,
   AISkillId,
   AISkillTabId,
+  AIUserSkillStructuredCard,
+  AIUserSkillStructuredKeyValue,
+  AIUserSkillStructuredResult,
+  AIUserSkillStructuredSectionResult,
   AIViewSessionState,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchAssistantTextMessage,
@@ -294,7 +308,7 @@ function createInitialViewState(): AIWorkbenchState['viewState'] {
   };
 }
 
-function createEmptyThreadRecord(skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreads[AISkillId][AISkillTabId] {
+function createEmptyThreadRecord(skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreads[string][string] {
   return {
     skillId,
     tabId,
@@ -808,6 +822,159 @@ function normalizeConceptCoachResult(payload: unknown, rawContent: string): AICo
   return normalizeConceptCoachState(payload, rawContent).result;
 }
 
+function stringifyGenericValue(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+  if (Array.isArray(value)) {
+    return collectStringLeaves(value).join('\n');
+  }
+  if (isRecord(value)) {
+    const summary = collectStringLeaves(value).join('\n');
+    return summary || JSON.stringify(value, null, 2);
+  }
+  return '';
+}
+
+function normalizeGenericCards(value: unknown): AIUserSkillStructuredCard[] {
+  const entries = Array.isArray(value)
+    ? value
+    : isRecord(value) && Array.isArray(readAliasedValue(value, ['cards', 'items', 'questions']))
+      ? readAliasedValue(value, ['cards', 'items', 'questions']) as unknown[]
+      : [];
+  return entries.map((entry, index): AIUserSkillStructuredCard | null => {
+    if (!isRecord(entry)) {
+      const text = normalizeString(entry);
+      return text ? {
+        id: createEntryId(`ai-user-card-${index}`),
+        question: text,
+        answer: '',
+        selected: true,
+      } : null;
+    }
+    const question = normalizeString(readAliasedValue(entry, ['question', 'q', 'front', 'title']));
+    const answer = normalizeString(readAliasedValue(entry, ['answer', 'a', 'back', 'body', 'content']));
+    if (!question && !answer) {
+      return null;
+    }
+    return {
+      id: normalizeString(entry.id) || createEntryId(`ai-user-card-${index}`),
+      question,
+      answer,
+      kind: normalizeString(entry.kind ?? entry.type) || undefined,
+      selected: entry.selected !== false,
+    };
+  }).filter((card): card is AIUserSkillStructuredCard => Boolean(card));
+}
+
+function normalizeGenericKeyValues(value: unknown): AIUserSkillStructuredKeyValue[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index): AIUserSkillStructuredKeyValue[] => {
+      if (isRecord(entry)) {
+        const explicitKey = normalizeString(readAliasedValue(entry, ['key', 'name', 'title']));
+        const explicitValue = stringifyGenericValue(readAliasedValue(entry, ['value', 'content', 'text']));
+        if (explicitKey || explicitValue) {
+          return [{ key: explicitKey || `Item ${index + 1}`, value: explicitValue }];
+        }
+        return Object.entries(entry)
+          .map(([key, nestedValue]) => ({ key, value: stringifyGenericValue(nestedValue) }))
+          .filter((item) => item.value);
+      }
+      const text = stringifyGenericValue(entry);
+      return text ? [{ key: `Item ${index + 1}`, value: text }] : [];
+    });
+  }
+  if (isRecord(value)) {
+    return Object.entries(value)
+      .map(([key, entry]) => ({ key, value: stringifyGenericValue(entry) }))
+      .filter((item) => item.key && item.value);
+  }
+  const text = stringifyGenericValue(value);
+  return text ? [{ key: '内容', value: text }] : [];
+}
+
+function normalizeGenericSectionResult(
+  section: AIResolvedSkillSectionDescriptor,
+  value: unknown,
+): AIUserSkillStructuredSectionResult {
+  const text = section.renderer === 'markdown'
+    ? stringifyGenericValue(value)
+    : '';
+  const items = section.renderer === 'list'
+    ? normalizeFlexibleStringArray(value)
+    : [];
+  const cards = section.renderer === 'cards'
+    ? normalizeGenericCards(value)
+    : [];
+  const keyValues = section.renderer === 'keyValue'
+    ? normalizeGenericKeyValues(value)
+    : [];
+  return {
+    id: section.id,
+    responseKey: section.responseKey,
+    title: section.title,
+    renderer: section.renderer,
+    value,
+    text,
+    items,
+    cards,
+    keyValues,
+  };
+}
+
+function hasGenericSectionContent(section: AIUserSkillStructuredSectionResult): boolean {
+  return Boolean(
+    normalizeString(section.text)
+    || section.items.length > 0
+    || section.cards.length > 0
+    || section.keyValues.length > 0,
+  );
+}
+
+function normalizeGenericStructuredResult(
+  skill: AIChatRegisteredSkillDescriptor,
+  payload: unknown,
+  rawContent: string,
+  onlyTabId?: AISkillTabId,
+): {
+  result: AIUserSkillStructuredResult;
+  diagnostic: AIChatNormalizationDiagnostic | null;
+} {
+  const raw = isRecord(payload) ? payload : {};
+  const sections = (skill.sections || [])
+    .filter((section) => !onlyTabId || section.id === onlyTabId)
+    .map((section) => normalizeGenericSectionResult(
+      section,
+      readAliasedValue(raw, [section.responseKey, section.sourceId, section.id, section.title]) ?? (onlyTabId ? payload : undefined),
+    ));
+  const requiredSections = (skill.sections || [])
+    .filter((section) => section.required && (!onlyTabId || section.id === onlyTabId));
+  const missingSections = requiredSections
+    .filter((section) => !sections.some((result) => result.id === section.id && hasGenericSectionContent(result)))
+    .map((section) => section.title || section.responseKey);
+  const hasAnyContent = sections.some(hasGenericSectionContent);
+  const status: AIChatNormalizationDiagnostic['status'] = !hasAnyContent
+    ? 'empty'
+    : missingSections.length > 0
+      ? 'partial'
+      : 'full';
+  return {
+    result: {
+      skillId: skill.id,
+      sections,
+      rawContent,
+    },
+    diagnostic: status === 'full'
+      ? null
+      : {
+        status,
+        missingSections,
+        rawShape: describeRawShape(payload),
+        renderer: sections[0]?.renderer || 'markdown',
+      },
+  };
+}
+
 function cloneConceptCoachResult(result: AIConceptCoachResult): AIConceptCoachResult {
   return JSON.parse(JSON.stringify(result)) as AIConceptCoachResult;
 }
@@ -1008,16 +1175,30 @@ function normalizeOpenTabId(options: AIWorkbenchOpenOptions): AISkillTabId {
   return normalizeAIWorkbenchTabId(options.tabId, skillId);
 }
 
+function normalizeStoredSkillId(value: unknown, fallback: AISkillId): AISkillId {
+  if (typeof value === 'string' && /^user:[a-z0-9_-]+$/.test(value)) {
+    return value as AISkillId;
+  }
+  return normalizeAIWorkbenchSkillId(value, fallback);
+}
+
+function normalizeStoredTabId(value: unknown, skillId: AISkillId): AISkillTabId {
+  if (typeof value === 'string' && value.startsWith('user:')) {
+    return value as AISkillTabId;
+  }
+  return normalizeAIWorkbenchTabId(value, skillId);
+}
+
 function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallbackTabId: AISkillTabId): AIWorkbenchMessage | null {
   if (!isRecord(message) || message.kind === 'candidate-board') {
     return null;
   }
   const kind = normalizeString(message.kind);
-  const skillId = normalizeAIWorkbenchSkillId(message.skillId || fallbackSkillId, fallbackSkillId);
+  const skillId = normalizeStoredSkillId(message.skillId || fallbackSkillId, fallbackSkillId);
   const base = {
     id: normalizeString(message.id) || createEntryId('ai-msg'),
     skillId,
-    tabId: normalizeAIWorkbenchTabId(message.tabId || fallbackTabId, skillId),
+    tabId: normalizeStoredTabId(message.tabId || fallbackTabId, skillId),
     view: normalizeString(message.view) as AIWorkbenchOpenView || undefined,
     createdAt: Number(message.createdAt) || Date.now(),
   };
@@ -1046,12 +1227,20 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
       ? normalizeConceptCoachResult(message.conceptCoachResult, rawContent)
       : null;
     const tabResult = normalizeTabResultValue(base.tabId, message.tabResult, conceptCoachResult);
+    const genericStructuredResult = isRecord(message.genericStructuredResult)
+      ? message.genericStructuredResult as AIUserSkillStructuredResult
+      : null;
+    const genericSectionResult = isRecord(message.genericSectionResult)
+      ? message.genericSectionResult as AIUserSkillStructuredSectionResult
+      : genericStructuredResult?.sections.find((section) => section.id === base.tabId) || null;
     return {
       ...base,
       kind,
       rawContent,
       conceptCoachResult,
       tabResult,
+      genericStructuredResult,
+      genericSectionResult,
       normalizationDiagnostic: normalizeNormalizationDiagnostic(message.normalizationDiagnostic)
         ?? deriveTabNormalizationDiagnostic(base.tabId, tabResult, describeRawShapeFromContent(rawContent)),
       explainResult: isRecord(message.explainResult) ? message.explainResult as AIExplainResult : null,
@@ -1081,7 +1270,7 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
   return null;
 }
 
-function normalizeThreadRecord(thread: unknown, skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreads[AISkillId][AISkillTabId] {
+function normalizeThreadRecord(thread: unknown, skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreads[string][string] {
   if (!isRecord(thread)) {
     return createEmptyThreadRecord(skillId, tabId);
   }
@@ -1116,6 +1305,20 @@ function normalizeThreads(threads: unknown): AIWorkbenchThreads {
   if (legacyExplain && legacyExplain.messages.length > 0) {
     base[CONCEPT_SKILL][DEFAULT_TAB] = legacyExplain;
   }
+  for (const [rawSkillId, rawSkillThreads] of Object.entries(raw)) {
+    if (!/^user:[a-z0-9_-]+$/.test(rawSkillId) || !isRecord(rawSkillThreads)) {
+      continue;
+    }
+    const skillId = rawSkillId as AISkillId;
+    base[skillId] = base[skillId] || {};
+    for (const [rawTabId, rawThread] of Object.entries(rawSkillThreads)) {
+      if (typeof rawTabId !== 'string' || (!rawTabId.startsWith('user:') && rawTabId !== CHAT_TAB)) {
+        continue;
+      }
+      const tabId = rawTabId as AISkillTabId;
+      base[skillId][tabId] = normalizeThreadRecord(rawThread, skillId, tabId);
+    }
+  }
   return base;
 }
 
@@ -1138,6 +1341,7 @@ export class AIWorkbenchService {
     error: null,
     failureDiagnostic: null,
     skillResults: { [GENERAL_SKILL]: null, [CONCEPT_SKILL]: null },
+    genericSkillResults: {},
     explainResult: null,
     sessionTitle: '',
     sessionHistory: [],
@@ -1173,10 +1377,47 @@ export class AIWorkbenchService {
     return this.deps.sessionStore || NOOP_SESSION_STORE;
   }
 
+  private getNormalizedAISettings(): AISettings {
+    return normalizeAISettings(this.deps.getAISettings());
+  }
+
+  private getResolvedSkill(skillId: AISkillId = this.state.activeSkillId): AIChatRegisteredSkillDescriptor {
+    return getAIChatSkill(skillId, this.getNormalizedAISettings());
+  }
+
+  private normalizeSkillForCurrentSettings(value: unknown, fallback: AISkillId = this.state.activeSkillId): AISkillId {
+    return normalizeAIWorkbenchSkillId(value, fallback, this.getNormalizedAISettings());
+  }
+
+  private normalizeTabForCurrentSettings(value: unknown, skillId: AISkillId = this.state.activeSkillId): AISkillTabId {
+    return normalizeAIWorkbenchTabId(value, skillId, this.getNormalizedAISettings());
+  }
+
+  private getPrimaryTabId(skillId: AISkillId = this.state.activeSkillId): AISkillTabId {
+    return this.getSkillTabs(skillId)[0]?.id || CHAT_TAB;
+  }
+
+  private ensureSkillRuntimeState(skillId: AISkillId = this.state.activeSkillId): void {
+    const skill = this.getResolvedSkill(skillId);
+    this.state.threads[skill.id] = this.state.threads[skill.id] || {};
+    this.state.viewState[skill.id] = this.state.viewState[skill.id] || {};
+    for (const tab of skill.tabs) {
+      this.state.threads[skill.id][tab.id] = this.state.threads[skill.id][tab.id] || createEmptyThreadRecord(skill.id, tab.id);
+      this.state.viewState[skill.id][tab.id] = this.state.viewState[skill.id][tab.id] || createEmptyViewSessionState();
+    }
+    this.state.skillResults[skill.id] = this.state.skillResults[skill.id] ?? null;
+    this.state.genericSkillResults[skill.id] = this.state.genericSkillResults[skill.id] ?? null;
+  }
+
   async open(options: AIWorkbenchOpenOptions = {}): Promise<void> {
     await this.refreshSessionHistory();
-    this.state.activeSkillId = normalizeOpenSkillId(options);
-    this.state.activeTabId = normalizeOpenTabId(options);
+    const settings = this.getNormalizedAISettings();
+    const fallbackSkill = options.source === 'review' || options.surface === 'review-dialog-sidecar' || options.surface === 'review-tab-companion'
+      ? CONCEPT_SKILL
+      : GENERAL_SKILL;
+    this.state.activeSkillId = normalizeAIWorkbenchSkillId(options.skillId || options.view, fallbackSkill, settings);
+    this.ensureSkillRuntimeState(this.state.activeSkillId);
+    this.state.activeTabId = normalizeAIWorkbenchTabId(options.tabId, this.state.activeSkillId, settings);
     this.state.activeView = this.state.activeSkillId;
     this.state.surface = normalizeSurface(options.surface ?? this.state.surface);
     this.state.sourceReviewSessionId = normalizeString(options.sourceReviewSessionId)
@@ -1203,27 +1444,27 @@ export class AIWorkbenchService {
   }
 
   getSkillTabs(skillId: AISkillId = this.state.activeSkillId): AIWorkbenchSkillTabDescriptor[] {
-    return getAIWorkbenchSkillTabs(skillId);
+    return getAIWorkbenchSkillTabs(skillId, this.getNormalizedAISettings());
   }
 
   getSkills() {
-    return [getAIWorkbenchSkill(GENERAL_SKILL), getAIWorkbenchSkill(CONCEPT_SKILL)];
+    return getAIWorkbenchSkills(this.getNormalizedAISettings());
   }
 
   getSkillTitle(skillId: AISkillId = this.state.activeSkillId): string {
-    return getAIWorkbenchSkill(skillId).title;
+    return getAIWorkbenchSkill(skillId, this.getNormalizedAISettings()).title;
   }
 
   getSkillBrief(skillId: AISkillId = this.state.activeSkillId): string {
-    return getAIWorkbenchSkill(skillId).brief;
+    return getAIWorkbenchSkill(skillId, this.getNormalizedAISettings()).brief;
   }
 
   getPrimaryActionLabel(skillId: AISkillId = this.state.activeSkillId): string {
-    return getAIWorkbenchSkill(skillId).primaryActionLabel;
+    return getAIWorkbenchSkill(skillId, this.getNormalizedAISettings()).primaryActionLabel;
   }
 
   getDefaultUserPrompt(skillId: AISkillId = this.state.activeSkillId): string {
-    return getAIWorkbenchSkill(skillId).defaultUserPrompt;
+    return getAIWorkbenchSkill(skillId, this.getNormalizedAISettings()).defaultUserPrompt;
   }
 
   getActiveTabDescriptor(): AIWorkbenchSkillTabDescriptor {
@@ -1231,24 +1472,28 @@ export class AIWorkbenchService {
   }
 
   setActiveTab(tabId: AISkillTabId): void {
-    this.state.activeTabId = normalizeAIWorkbenchTabId(tabId, this.state.activeSkillId);
+    this.ensureSkillRuntimeState(this.state.activeSkillId);
+    this.state.activeTabId = this.normalizeTabForCurrentSettings(tabId, this.state.activeSkillId);
     this.schedulePersistCurrentSession();
   }
 
   setActiveSkill(skillId: AISkillId): void {
-    const normalizedSkillId = normalizeAIWorkbenchSkillId(skillId, this.state.activeSkillId);
+    const normalizedSkillId = this.normalizeSkillForCurrentSettings(skillId, this.state.activeSkillId);
     this.state.activeSkillId = normalizedSkillId;
     this.state.activeView = normalizedSkillId;
-    this.state.activeTabId = normalizeAIWorkbenchTabId(this.state.activeTabId, normalizedSkillId);
+    this.ensureSkillRuntimeState(normalizedSkillId);
+    this.state.activeTabId = this.normalizeTabForCurrentSettings(this.state.activeTabId, normalizedSkillId);
     this.schedulePersistCurrentSession();
   }
 
   getViewState(_view?: unknown, tabId: AISkillTabId = this.state.activeTabId): AIViewSessionState {
-    return this.state.viewState[this.state.activeSkillId][normalizeAIWorkbenchTabId(tabId, this.state.activeSkillId)];
+    this.ensureSkillRuntimeState(this.state.activeSkillId);
+    return this.state.viewState[this.state.activeSkillId][this.normalizeTabForCurrentSettings(tabId, this.state.activeSkillId)];
   }
 
   getThread(_view?: unknown, tabId: AISkillTabId = this.state.activeTabId) {
-    return this.state.threads[this.state.activeSkillId][normalizeAIWorkbenchTabId(tabId, this.state.activeSkillId)];
+    this.ensureSkillRuntimeState(this.state.activeSkillId);
+    return this.state.threads[this.state.activeSkillId][this.normalizeTabForCurrentSettings(tabId, this.state.activeSkillId)];
   }
 
   getThreadMessages(_view?: unknown, tabId: AISkillTabId = this.state.activeTabId): AIWorkbenchMessage[] {
@@ -1264,8 +1509,13 @@ export class AIWorkbenchService {
   }
 
   hasStructuredResult(_view?: unknown, tabId: AISkillTabId = this.state.activeTabId): boolean {
-    if (this.state.activeSkillId === GENERAL_SKILL) {
-      return this.getThreadMessages(undefined, CHAT_TAB).some((message) => message.kind === 'assistant-text' || message.kind === 'tool-log');
+    const skill = this.getResolvedSkill(this.state.activeSkillId);
+    if (skill.mode === 'chat') {
+      return this.getThreadMessages(undefined, this.getPrimaryTabId(skill.id)).some((message) => message.kind === 'assistant-text' || message.kind === 'tool-log');
+    }
+    if (skill.id !== CONCEPT_SKILL) {
+      const sectionResult = this.state.genericSkillResults[skill.id]?.sections.find((section) => section.id === tabId);
+      return Boolean(sectionResult && hasGenericSectionContent(sectionResult));
     }
     return hasTabResultContent(tabId, tabResultFromConceptCoach(this.state.skillResults[CONCEPT_SKILL], tabId));
   }
@@ -1274,7 +1524,7 @@ export class AIWorkbenchService {
     if (this.state.isLoading) {
       return 'AI 正在处理中，请稍后继续追问。';
     }
-    if (this.state.activeSkillId === GENERAL_SKILL) {
+    if (this.getResolvedSkill(this.state.activeSkillId).mode === 'chat') {
       return null;
     }
     if (!this.hasStructuredResult(undefined, tabId)) {
@@ -1293,10 +1543,11 @@ export class AIWorkbenchService {
   }
 
   setActiveView(_view: unknown): void {
-    const skillId = normalizeAIWorkbenchSkillId(_view, this.state.activeSkillId);
+    const skillId = this.normalizeSkillForCurrentSettings(_view, this.state.activeSkillId);
     this.state.activeSkillId = skillId;
     this.state.activeView = skillId;
-    this.state.activeTabId = normalizeAIWorkbenchTabId(this.state.activeTabId, skillId);
+    this.ensureSkillRuntimeState(skillId);
+    this.state.activeTabId = this.normalizeTabForCurrentSettings(this.state.activeTabId, skillId);
     this.schedulePersistCurrentSession();
   }
 
@@ -1435,11 +1686,16 @@ export class AIWorkbenchService {
         createdAt: Date.now(),
       });
       if (approved) {
-        this.appendMessage(CHAT_TAB, {
+        const approvalMessage = this.state.messages.find((entry): entry is AIWorkbenchApprovalMessage => (
+          entry.kind === 'approval' && entry.request.id === request.id
+        ));
+        const skillId = approvalMessage?.skillId || this.state.activeSkillId;
+        const tabId = approvalMessage?.tabId || this.state.activeTabId;
+        this.appendMessage(tabId, {
           id: createEntryId('ai-msg'),
-          skillId: GENERAL_SKILL,
-          tabId: CHAT_TAB,
-          view: GENERAL_SKILL,
+          skillId,
+          tabId,
+          view: skillId,
           kind: 'assistant-text',
           content: `已记录你批准「${request.title}」。为避免误写，第一阶段不会自动落库；你可以继续要求我根据这份审批执行下一步。`,
           createdAt: Date.now(),
@@ -1518,27 +1774,41 @@ export class AIWorkbenchService {
   }
 
   async runActiveSkill(): Promise<void> {
-    if (this.state.activeSkillId === GENERAL_SKILL) {
-      await this.submitGeneralChatPrompt(this.getDefaultUserPrompt(GENERAL_SKILL));
+    const skill = this.getResolvedSkill(this.state.activeSkillId);
+    this.ensureSkillRuntimeState(skill.id);
+    if (skill.mode === 'chat') {
+      await this.submitGeneralChatPrompt(this.getDefaultUserPrompt(skill.id));
       return;
     }
-    await this.runTask(AI_CONCEPT_COACH_TAB_IDS, async () => {
+    const tabIds = this.getSkillTabs(skill.id).map((tab) => tab.id);
+    await this.runTask(tabIds, async () => {
       const attachedContexts = this.consumeComposerContexts();
-      const response = await this.requestConceptCoachResult(attachedContexts);
-      this.appendConceptCoachFullResult(response.content, attachedContexts);
+      if (skill.id === CONCEPT_SKILL) {
+        const response = await this.requestConceptCoachResult(attachedContexts);
+        this.appendConceptCoachFullResult(response.content, attachedContexts);
+        return;
+      }
+      const response = await this.requestGenericStructuredResult(skill, attachedContexts);
+      this.appendGenericStructuredFullResult(skill, response.content, attachedContexts);
     }, 'full-run');
   }
 
   async runActiveTab(): Promise<void> {
-    if (this.state.activeSkillId === GENERAL_SKILL) {
+    const skill = this.getResolvedSkill(this.state.activeSkillId);
+    if (skill.mode === 'chat') {
       await this.runActiveSkill();
       return;
     }
     const tabId = this.state.activeTabId;
     await this.runTask([tabId], async () => {
       const attachedContexts = this.consumeComposerContexts();
-      const response = await this.requestConceptCoachTabResult(tabId, attachedContexts);
-      this.appendConceptCoachTabResult(tabId, response.content, attachedContexts);
+      if (skill.id === CONCEPT_SKILL) {
+        const response = await this.requestConceptCoachTabResult(tabId, attachedContexts);
+        this.appendConceptCoachTabResult(tabId, response.content, attachedContexts);
+        return;
+      }
+      const response = await this.requestGenericStructuredTabResult(skill, tabId, attachedContexts);
+      this.appendGenericStructuredTabResult(skill, tabId, response.content, attachedContexts);
     }, 'tab-rerun');
   }
 
@@ -1547,18 +1817,20 @@ export class AIWorkbenchService {
     if (!normalizedQuestion) {
       return;
     }
-    if (this.state.activeSkillId === GENERAL_SKILL) {
+    const skill = this.getResolvedSkill(this.state.activeSkillId);
+    if (skill.mode === 'chat') {
       await this.submitGeneralChatPrompt(normalizedQuestion);
       return;
     }
-    await this.runTask(AI_CONCEPT_COACH_TAB_IDS, async () => {
+    const tabIds = this.getSkillTabs(skill.id).map((tab) => tab.id);
+    await this.runTask(tabIds, async () => {
       const attachedContexts = this.consumeComposerContexts();
       for (const tab of this.getSkillTabs()) {
         this.appendMessage(tab.id, {
           id: createEntryId('ai-msg'),
-          skillId: ACTIVE_SKILL,
+          skillId: skill.id,
           tabId: tab.id,
-          view: ACTIVE_SKILL,
+          view: skill.id,
           kind: 'user',
           purpose: 'initial-run',
           content: normalizedQuestion,
@@ -1567,8 +1839,13 @@ export class AIWorkbenchService {
           attachedContexts,
         } satisfies AIWorkbenchUserMessage);
       }
-      const response = await this.requestConceptCoachResult(attachedContexts, normalizedQuestion);
-      this.appendConceptCoachFullResult(response.content, attachedContexts);
+      if (skill.id === CONCEPT_SKILL) {
+        const response = await this.requestConceptCoachResult(attachedContexts, normalizedQuestion);
+        this.appendConceptCoachFullResult(response.content, attachedContexts);
+        return;
+      }
+      const response = await this.requestGenericStructuredResult(skill, attachedContexts, normalizedQuestion);
+      this.appendGenericStructuredFullResult(skill, response.content, attachedContexts);
     }, 'full-run');
   }
 
@@ -1581,7 +1858,8 @@ export class AIWorkbenchService {
     if (!normalizedQuestion) {
       return;
     }
-    if (this.state.activeSkillId === GENERAL_SKILL) {
+    const skill = this.getResolvedSkill(this.state.activeSkillId);
+    if (skill.mode === 'chat') {
       await this.submitGeneralChatPrompt(normalizedQuestion, options);
       return;
     }
@@ -1593,9 +1871,9 @@ export class AIWorkbenchService {
     const attachedContexts = this.consumeComposerContexts();
     this.appendMessage(tabId, {
       id: createEntryId('ai-msg'),
-      skillId: ACTIVE_SKILL,
+      skillId: skill.id,
       tabId,
-      view: ACTIVE_SKILL,
+      view: skill.id,
       kind: 'user',
       purpose: 'follow-up',
       content: normalizedQuestion,
@@ -1609,13 +1887,15 @@ export class AIWorkbenchService {
     this.state.error = null;
     this.state.failureDiagnostic = null;
     try {
-      const response = await this.requestFollowUp(tabId, attachedContexts);
+      const response = skill.id === CONCEPT_SKILL
+        ? await this.requestFollowUp(tabId, attachedContexts)
+        : await this.requestGenericFollowUp(skill, tabId, attachedContexts);
       const content = normalizeString(response.content) || '这次没有返回可用内容。';
       this.appendMessage(tabId, {
         id: createEntryId('ai-msg'),
-        skillId: ACTIVE_SKILL,
+        skillId: skill.id,
         tabId,
-        view: ACTIVE_SKILL,
+        view: skill.id,
         kind: 'assistant-text',
         content,
         createdAt: Date.now(),
@@ -1640,12 +1920,15 @@ export class AIWorkbenchService {
     if (!normalizedQuestion) {
       return;
     }
+    const skill = this.getResolvedSkill(this.state.activeSkillId);
+    const tabId = this.getPrimaryTabId(skill.id);
+    this.ensureSkillRuntimeState(skill.id);
     const attachedContexts = this.consumeComposerContexts();
-    this.appendMessage(CHAT_TAB, {
+    this.appendMessage(tabId, {
       id: createEntryId('ai-msg'),
-      skillId: GENERAL_SKILL,
-      tabId: CHAT_TAB,
-      view: GENERAL_SKILL,
+      skillId: skill.id,
+      tabId,
+      view: skill.id,
       kind: 'user',
       purpose: 'follow-up',
       content: normalizedQuestion,
@@ -1659,7 +1942,7 @@ export class AIWorkbenchService {
     this.state.error = null;
     this.state.failureDiagnostic = null;
     try {
-      await this.runGeneralChatToolLoop(attachedContexts);
+      await this.runGeneralChatToolLoop(skill, tabId, attachedContexts);
       this.syncDerivedStateFromThreads();
       await this.persistCurrentSession();
     } catch (error) {
@@ -1670,12 +1953,15 @@ export class AIWorkbenchService {
     }
   }
 
-  private async runGeneralChatToolLoop(attachedContexts: AIAttachedContextItem[]): Promise<void> {
+  private async runGeneralChatToolLoop(
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId: AISkillTabId,
+    attachedContexts: AIAttachedContextItem[],
+  ): Promise<void> {
     const settings = this.assertModelSettings();
     const provider = this.resolveDefaultProvider(settings);
-    const skill = getAIChatSkill(GENERAL_SKILL);
     const enabledTools = this.toolExecutor.getEnabledToolDefinitions(skill.defaultToolGroups);
-    const llmMessages: LLMMessage[] = this.buildGeneralChatMessages(settings, attachedContexts);
+    const llmMessages: LLMMessage[] = this.buildGeneralChatMessages(settings, skill, tabId, attachedContexts);
     const maxRounds = Math.max(1, settings.chatDefaults.maxToolRounds || 4);
 
     for (let round = 0; round < maxRounds; round += 1) {
@@ -1687,11 +1973,11 @@ export class AIWorkbenchService {
       const assistantContent = normalizeString(response.content);
       const toolCalls = response.toolCalls || [];
       if (toolCalls.length === 0) {
-        this.appendMessage(CHAT_TAB, {
+        this.appendMessage(tabId, {
           id: createEntryId('ai-msg'),
-          skillId: GENERAL_SKILL,
-          tabId: CHAT_TAB,
-          view: GENERAL_SKILL,
+          skillId: skill.id,
+          tabId,
+          view: skill.id,
           kind: 'assistant-text',
           content: assistantContent || '这次没有返回可用内容。',
           createdAt: Date.now(),
@@ -1708,11 +1994,11 @@ export class AIWorkbenchService {
       });
 
       if (assistantContent) {
-        this.appendMessage(CHAT_TAB, {
+        this.appendMessage(tabId, {
           id: createEntryId('ai-msg'),
-          skillId: GENERAL_SKILL,
-          tabId: CHAT_TAB,
-          view: GENERAL_SKILL,
+          skillId: skill.id,
+          tabId,
+          view: skill.id,
           kind: 'assistant-text',
           content: assistantContent,
           createdAt: Date.now(),
@@ -1728,21 +2014,21 @@ export class AIWorkbenchService {
           attachedContexts,
         });
         this.state.toolTimeline.push(outcome.result);
-        this.appendToolLogMessage(outcome.result);
+        this.appendToolLogMessage(outcome.result, skill.id, tabId);
         if (outcome.approval) {
           this.state.pendingApprovals.push(outcome.approval);
-          this.appendApprovalMessage(outcome.approval);
+          this.appendApprovalMessage(outcome.approval, skill.id, tabId);
           this.addRuntimeDiagnostic({
             type: 'approval',
             message: `工具 ${outcome.approval.toolName} 需要用户审批后才能执行。`,
             detail: JSON.stringify(outcome.approval.args, null, 2),
             createdAt: Date.now(),
           });
-          this.appendMessage(CHAT_TAB, {
+          this.appendMessage(tabId, {
             id: createEntryId('ai-msg'),
-            skillId: GENERAL_SKILL,
-            tabId: CHAT_TAB,
-            view: GENERAL_SKILL,
+            skillId: skill.id,
+            tabId,
+            view: skill.id,
             kind: 'assistant-text',
             content: `工具「${outcome.approval.title}」需要你审批后才能继续。我已经把审批卡片放在消息流里。`,
             createdAt: Date.now(),
@@ -1760,11 +2046,11 @@ export class AIWorkbenchService {
       }
     }
 
-    this.appendMessage(CHAT_TAB, {
+    this.appendMessage(tabId, {
       id: createEntryId('ai-msg'),
-      skillId: GENERAL_SKILL,
-      tabId: CHAT_TAB,
-      view: GENERAL_SKILL,
+      skillId: skill.id,
+      tabId,
+      view: skill.id,
       kind: 'assistant-text',
       content: '工具链已达到最大轮数，先暂停在这里。你可以继续追问，我会基于已经得到的工具结果接着处理。',
       createdAt: Date.now(),
@@ -1805,6 +2091,12 @@ export class AIWorkbenchService {
     contextSignature: string | null,
   ): AIWorkbenchSessionRecord {
     const now = Date.now();
+    const threads = createInitialThreads();
+    const skill = this.getResolvedSkill(this.state.activeSkillId);
+    threads[skill.id] = threads[skill.id] || {};
+    for (const tab of skill.tabs) {
+      threads[skill.id][tab.id] = threads[skill.id][tab.id] || createEmptyThreadRecord(skill.id, tab.id);
+    }
     return {
       id: createEntryId('ai-session'),
       title: this.generateSessionTitle(context),
@@ -1823,8 +2115,9 @@ export class AIWorkbenchService {
       context,
       schemaVersion: 2,
       messages: [],
-      threads: createInitialThreads(),
+      threads,
       skillResults: { [GENERAL_SKILL]: null, [CONCEPT_SKILL]: null },
+      genericSkillResults: {},
       vars: [],
       diagnostics: [],
     };
@@ -1855,15 +2148,20 @@ export class AIWorkbenchService {
       && liveContext
       && record.contextSignature !== buildContextSignature(liveContext)
     );
-    this.state.activeSkillId = normalizeAIWorkbenchSkillId(record.activeSkillId, this.state.activeSkillId);
-    this.state.activeTabId = normalizeAIWorkbenchTabId(record.activeTabId, this.state.activeSkillId);
+    this.state.activeSkillId = this.normalizeSkillForCurrentSettings(record.activeSkillId, this.state.activeSkillId);
+    this.ensureSkillRuntimeState(this.state.activeSkillId);
+    this.state.activeTabId = this.normalizeTabForCurrentSettings(record.activeTabId, this.state.activeSkillId);
     this.state.activeView = this.state.activeSkillId;
     this.state.threads = normalizeThreads(record.threads);
+    this.ensureSkillRuntimeState(this.state.activeSkillId);
     this.state.skillResults = {
       [GENERAL_SKILL]: null,
       [CONCEPT_SKILL]: record.skillResults?.[CONCEPT_SKILL]
         ? normalizeConceptCoachResult(record.skillResults[CONCEPT_SKILL], record.skillResults[CONCEPT_SKILL]?.rawContent || '')
         : this.findLatestConceptCoachResult(),
+    };
+    this.state.genericSkillResults = {
+      ...(record.genericSkillResults || {}),
     };
     this.state.messages = this.flattenTimelineMessages();
     this.varStore.replace(record.vars || []);
@@ -1897,16 +2195,17 @@ export class AIWorkbenchService {
   }
 
   private markStaleThreads(nextSignature: string | null): void {
-    for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
-      const thread = this.state.threads[CONCEPT_SKILL][tabId];
-      if (
-        thread.resultContextSignature
-        && nextSignature
-        && thread.resultContextSignature !== nextSignature
-        && thread.messages.length > 0
-      ) {
-        thread.stale = true;
-        thread.staleReason = '当前上下文已变化，请重新运行这个阶段以获得最新结果。';
+    for (const skillThreads of Object.values(this.state.threads)) {
+      for (const thread of Object.values(skillThreads)) {
+        if (
+          thread.resultContextSignature
+          && nextSignature
+          && thread.resultContextSignature !== nextSignature
+          && thread.messages.length > 0
+        ) {
+          thread.stale = true;
+          thread.staleReason = '当前上下文已变化，请重新运行这个阶段以获得最新结果。';
+        }
       }
     }
     this.syncDerivedStateFromThreads();
@@ -1934,7 +2233,37 @@ export class AIWorkbenchService {
         }));
     }
 
+    for (const [skillId, skillThreads] of Object.entries(this.state.threads)) {
+      if (skillId === CONCEPT_SKILL) {
+        continue;
+      }
+      this.state.viewState[skillId] = this.state.viewState[skillId] || {};
+      for (const [tabId, thread] of Object.entries(skillThreads)) {
+        this.state.viewState[skillId][tabId] = this.state.viewState[skillId][tabId] || createEmptyViewSessionState();
+        const viewState = this.state.viewState[skillId][tabId];
+        viewState.resultContextSignature = thread.resultContextSignature;
+        viewState.stale = thread.stale;
+        viewState.staleReason = thread.staleReason;
+        viewState.followUps = thread.messages
+          .filter((message) => (
+            message.kind === 'assistant-text'
+            || (message.kind === 'user' && resolveUserMessagePurpose(message.purpose) === 'follow-up')
+          ))
+          .map((message) => ({
+            id: message.id,
+            skillId: skillId as AISkillId,
+            tabId: tabId as AISkillTabId,
+            role: message.kind === 'user' ? 'user' : 'assistant',
+            content: message.content,
+            createdAt: message.createdAt,
+          }));
+      }
+    }
+
     this.state.skillResults[CONCEPT_SKILL] = this.findLatestConceptCoachResult();
+    for (const skillId of Object.keys(this.state.threads).filter((id) => id.startsWith('user:'))) {
+      this.state.genericSkillResults[skillId] = this.findLatestGenericStructuredResult(skillId as AISkillId);
+    }
     this.state.explainResult = explainResultFromConceptCoach(this.state.skillResults[CONCEPT_SKILL]);
     this.state.messages = this.flattenTimelineMessages();
     this.state.vars = this.varStore.list();
@@ -1951,15 +2280,29 @@ export class AIWorkbenchService {
     return messages[0]?.conceptCoachResult ? cloneConceptCoachResult(messages[0].conceptCoachResult) : null;
   }
 
+  private findLatestGenericStructuredResult(skillId: AISkillId): AIUserSkillStructuredResult | null {
+    const messages = Object.values(this.state.threads[skillId] || {})
+      .flatMap((thread) => thread.messages)
+      .filter((message): message is AIWorkbenchAssistantResultMessage => (
+        message.kind === 'assistant-result'
+        && Boolean(message.genericStructuredResult)
+      ))
+      .sort((left, right) => right.createdAt - left.createdAt);
+    return messages[0]?.genericStructuredResult
+      ? JSON.parse(JSON.stringify(messages[0].genericStructuredResult)) as AIUserSkillStructuredResult
+      : null;
+  }
+
   private flattenTimelineMessages(): AIWorkbenchMessage[] {
-    return ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[])
-      .flatMap((skillId) => ALL_TAB_IDS.flatMap((tabId) => this.state.threads[skillId][tabId]?.messages || []))
+    return Object.values(this.state.threads)
+      .flatMap((skillThreads) => Object.values(skillThreads).flatMap((thread) => thread.messages || []))
       .sort((left, right) => left.createdAt - right.createdAt);
   }
 
   private appendMessage(tabId: AISkillTabId, message: AIWorkbenchMessage): void {
-    const skillId = normalizeAIWorkbenchSkillId(message.skillId || this.state.activeSkillId, this.state.activeSkillId);
-    const normalizedTabId = normalizeAIWorkbenchTabId(tabId, skillId);
+    const skillId = this.normalizeSkillForCurrentSettings(message.skillId || this.state.activeSkillId, this.state.activeSkillId);
+    this.ensureSkillRuntimeState(skillId);
+    const normalizedTabId = this.normalizeTabForCurrentSettings(tabId, skillId);
     this.state.threads[skillId][normalizedTabId].messages.push({
       ...message,
       skillId,
@@ -1980,12 +2323,12 @@ export class AIWorkbenchService {
     if (!normalizedId) {
       return null;
     }
-    for (const skillId of [GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[]) {
-      for (const tabId of ALL_TAB_IDS) {
-        const messages = this.state.threads[skillId][tabId].messages;
+    for (const [skillId, skillThreads] of Object.entries(this.state.threads)) {
+      for (const [tabId, thread] of Object.entries(skillThreads)) {
+        const messages = thread.messages;
         const index = messages.findIndex((message) => message.id === normalizedId);
         if (index >= 0) {
-          return { tabId, index, message: messages[index] };
+          return { tabId: tabId as AISkillTabId, index, message: messages[index] };
         }
       }
     }
@@ -2321,12 +2664,16 @@ export class AIWorkbenchService {
     };
   }
 
-  private buildGeneralChatMessages(settings: AISettings, attachedContexts: AIAttachedContextItem[]): LLMMessage[] {
-    const skill = getAIChatSkill(GENERAL_SKILL);
+  private buildGeneralChatMessages(
+    settings: AISettings,
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId: AISkillTabId,
+    attachedContexts: AIAttachedContextItem[],
+  ): LLMMessage[] {
     const context = this.state.context;
     const systemPayload = {
       language: settings.defaultOutputLanguage,
-      skillId: GENERAL_SKILL,
+      skillId: skill.id,
       context: {
         source: context?.source || 'standalone',
         queueType: context?.queueType,
@@ -2357,7 +2704,7 @@ export class AIWorkbenchService {
       ].join('\n\n'),
     };
 
-    const historyMessages = this.state.threads[GENERAL_SKILL][CHAT_TAB].messages
+    const historyMessages = (this.state.threads[skill.id]?.[tabId]?.messages || [])
       .filter((message) => message.kind !== 'approval')
       .slice(-20)
       .map((message): LLMMessage | null => {
@@ -2435,12 +2782,12 @@ export class AIWorkbenchService {
     };
   }
 
-  private appendToolLogMessage(result: AIChatToolExecutionResult): void {
-    this.appendMessage(CHAT_TAB, {
+  private appendToolLogMessage(result: AIChatToolExecutionResult, skillId: AISkillId = this.state.activeSkillId, tabId: AISkillTabId = this.state.activeTabId): void {
+    this.appendMessage(tabId, {
       id: createEntryId('ai-tool'),
-      skillId: GENERAL_SKILL,
-      tabId: CHAT_TAB,
-      view: GENERAL_SKILL,
+      skillId,
+      tabId,
+      view: skillId,
       kind: 'tool-log',
       createdAt: result.createdAt,
       toolCallId: result.toolCallId,
@@ -2453,12 +2800,12 @@ export class AIWorkbenchService {
     } satisfies AIWorkbenchToolLogMessage);
   }
 
-  private appendApprovalMessage(request: AIChatApprovalRequest): void {
-    this.appendMessage(CHAT_TAB, {
+  private appendApprovalMessage(request: AIChatApprovalRequest, skillId: AISkillId = this.state.activeSkillId, tabId: AISkillTabId = this.state.activeTabId): void {
+    this.appendMessage(tabId, {
       id: createEntryId('ai-approval'),
-      skillId: GENERAL_SKILL,
-      tabId: CHAT_TAB,
-      view: GENERAL_SKILL,
+      skillId,
+      tabId,
+      view: skillId,
       kind: 'approval',
       createdAt: request.createdAt,
       request,
@@ -2466,10 +2813,12 @@ export class AIWorkbenchService {
   }
 
   private updateApprovalMessage(request: AIChatApprovalRequest): void {
-    const thread = this.state.threads[GENERAL_SKILL][CHAT_TAB];
-    const message = thread.messages.find((entry): entry is AIWorkbenchApprovalMessage => (
-      entry.kind === 'approval' && entry.request.id === request.id
-    ));
+    const message = Object.values(this.state.threads)
+      .flatMap((skillThreads) => Object.values(skillThreads))
+      .flatMap((thread) => thread.messages)
+      .find((entry): entry is AIWorkbenchApprovalMessage => (
+        entry.kind === 'approval' && entry.request.id === request.id
+      ));
     if (message) {
       message.request = request;
     }
@@ -2506,9 +2855,73 @@ export class AIWorkbenchService {
     );
   }
 
+  private buildGenericStructuredPromptPayload(input: {
+    skill: AIChatRegisteredSkillDescriptor;
+    attachedContexts: AIAttachedContextItem[];
+    userPrompt?: string;
+    tabId?: AISkillTabId;
+  }): Record<string, unknown> {
+    const context = this.requireContext();
+    const tabId = input.tabId ? this.normalizeTabForCurrentSettings(input.tabId, input.skill.id) : null;
+    return {
+      language: this.deps.getAISettings().defaultOutputLanguage,
+      skillId: input.skill.id,
+      skillTitle: input.skill.title,
+      tabIds: tabId ? [tabId] : input.skill.tabs.map((tab) => tab.id),
+      sections: (input.skill.sections || [])
+        .filter((section) => !tabId || section.id === tabId)
+        .map((section) => ({
+          id: section.id,
+          title: section.title,
+          responseKey: section.responseKey,
+          renderer: section.renderer,
+          required: section.required,
+        })),
+      ...(tabId ? {
+        tabId,
+        currentTabResult: this.state.genericSkillResults[input.skill.id]?.sections.find((section) => section.id === tabId) || null,
+      } : {}),
+      attachedContexts: input.attachedContexts,
+      ...(normalizeString(input.userPrompt) ? { userPrompt: normalizeString(input.userPrompt) } : {}),
+      context: {
+        source: context.source,
+        queueType: context.queueType,
+        queueProgress: context.queueProgress,
+        currentCard: context.currentCard,
+        neuralBatch: context.neuralBatch,
+        selectedBlocks: context.blocks,
+      },
+    };
+  }
+
+  private async requestGenericStructuredResult(
+    skill: AIChatRegisteredSkillDescriptor,
+    attachedContexts: AIAttachedContextItem[],
+    userPrompt?: string,
+  ): Promise<LLMResponse> {
+    return this.requestStructuredModel(
+      this.buildGenericStructuredPromptPayload({ skill, attachedContexts, userPrompt }),
+      undefined,
+      skill,
+    );
+  }
+
+  private async requestGenericStructuredTabResult(
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId: AISkillTabId,
+    attachedContexts: AIAttachedContextItem[],
+  ): Promise<LLMResponse> {
+    return this.requestStructuredModel(
+      this.buildGenericStructuredPromptPayload({ skill, attachedContexts, tabId }),
+      tabId,
+      skill,
+    );
+  }
+
   private async requestStructuredModel(
     payload: Record<string, unknown>,
     tabId?: AISkillTabId,
+    skill: AIChatRegisteredSkillDescriptor = this.getResolvedSkill(ACTIVE_SKILL),
   ): Promise<LLMResponse> {
     const settings = this.assertModelSettings();
     const provider = this.resolveDefaultProvider(settings);
@@ -2529,7 +2942,7 @@ export class AIWorkbenchService {
         messages: [
           {
             role: 'system',
-            content: this.buildStructuredRunSystemPrompt(settings, tabId),
+            content: this.buildStructuredRunSystemPrompt(settings, skill, tabId),
           },
           {
             role: 'user',
@@ -2609,6 +3022,74 @@ export class AIWorkbenchService {
     }
   }
 
+  private async requestGenericFollowUp(
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId: AISkillTabId,
+    attachedContexts: AIAttachedContextItem[] = [],
+  ): Promise<LLMResponse> {
+    const context = this.requireContext();
+    const settings = this.assertModelSettings();
+    const provider = this.resolveDefaultProvider(settings);
+    const section = (skill.sections || []).find((entry) => entry.id === tabId);
+    const tabResult = this.state.genericSkillResults[skill.id]?.sections.find((entry) => entry.id === tabId) || null;
+    if (!section || !tabResult) {
+      throw this.fail('当前 section 没有可追问的结构化结果。');
+    }
+    try {
+      return await this.deps.llmPort.chat({
+        baseUrl: provider.baseUrl || settings.baseUrl,
+        apiKey: provider.apiKey || settings.apiKey,
+        model: settings.defaultModelId || settings.model,
+        provider,
+        protocol: provider.protocol,
+        modelRef: {
+          providerId: provider.id,
+          modelId: settings.defaultModelId || settings.model,
+        },
+        timeoutMs: settings.timeoutMs,
+        temperature: settings.temperature,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              skill.systemPromptTemplate,
+              section.followUpPrompt,
+              '只基于给定 section 结果、上下文和用户追问回答；不要执行未启用的写入动作。',
+            ].map((part) => normalizeString(part)).filter(Boolean).join('\n\n'),
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              language: settings.defaultOutputLanguage,
+              skillId: skill.id,
+              tabId,
+              tabResult,
+              attachedContexts,
+              context: {
+                source: context.source,
+                queueType: context.queueType,
+                queueProgress: context.queueProgress,
+                currentCard: context.currentCard,
+                neuralBatch: context.neuralBatch,
+                selectedBlocks: context.blocks,
+              },
+            }, null, 2),
+          },
+          ...this.getFollowUps(undefined, tabId).map((entry) => ({
+            role: entry.role,
+            content: entry.content,
+          })),
+        ],
+      });
+    } catch (error) {
+      if (error instanceof LLMError) {
+        this.captureFailureDiagnostic(error);
+        throw this.fail(this.mapLlmError(error));
+      }
+      throw error;
+    }
+  }
+
   private assertModelSettings(): AISettings {
     const settings = normalizeAISettings(this.deps.getAISettings());
     if (!settings.enabled) {
@@ -2626,10 +3107,27 @@ export class AIWorkbenchService {
     };
   }
 
-  private buildStructuredRunSystemPrompt(settings: AISettings, tabId?: AISkillTabId): string {
+  private buildStructuredRunSystemPrompt(
+    settings: AISettings,
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId?: AISkillTabId,
+  ): string {
+    if (skill.id !== CONCEPT_SKILL) {
+      const sections = (skill.sections || []).filter((section) => !tabId || section.id === tabId);
+      const behaviorPrompts = [
+        skill.systemPromptTemplate,
+        ...sections.map((section) => section.runPrompt),
+      ];
+      const contractText = formatStructuredPromptContract(getPromptContractForResolvedSkillRun(skill, tabId));
+      return [...behaviorPrompts, contractText]
+        .map((section) => normalizeString(section))
+        .filter(Boolean)
+        .join('\n\n');
+    }
     const prompts: AIConceptCoachPromptTemplates = settings.prompts.skills.conceptCoach;
+    const conceptTabId = tabId as typeof AI_CONCEPT_COACH_TAB_IDS[number] | undefined;
     const behaviorPrompts = tabId
-      ? [prompts.baseRun, prompts.tabs[tabId].run]
+      ? [prompts.baseRun, prompts.tabs[conceptTabId!].run]
       : [
         prompts.baseRun,
         ...AI_CONCEPT_COACH_TAB_IDS.map((id) => prompts.tabs[id].run),
@@ -2721,6 +3219,76 @@ export class AIWorkbenchService {
     } satisfies AIWorkbenchAssistantResultMessage);
   }
 
+  private appendGenericStructuredFullResult(
+    skill: AIChatRegisteredSkillDescriptor,
+    rawContent: string,
+    appliedContexts: AIAttachedContextItem[],
+  ): void {
+    const payload = this.extractStructuredPayload(skill.title, rawContent);
+    const normalized = normalizeGenericStructuredResult(skill, payload, rawContent);
+    this.state.genericSkillResults[skill.id] = normalized.result;
+    const now = Date.now();
+    for (const section of normalized.result.sections) {
+      this.appendMessage(section.id, {
+        id: createEntryId('ai-msg'),
+        skillId: skill.id,
+        tabId: section.id,
+        view: skill.id,
+        kind: 'assistant-result',
+        createdAt: now,
+        rawContent,
+        conceptCoachResult: null,
+        tabResult: null,
+        genericStructuredResult: normalized.result,
+        genericSectionResult: section,
+        normalizationDiagnostic: normalized.diagnostic,
+        explainResult: null,
+        appliedContexts,
+      } satisfies AIWorkbenchAssistantResultMessage);
+    }
+  }
+
+  private appendGenericStructuredTabResult(
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId: AISkillTabId,
+    rawContent: string,
+    appliedContexts: AIAttachedContextItem[],
+  ): void {
+    const payload = this.extractStructuredPayload(this.getActiveTabDescriptor().title, rawContent);
+    const normalized = normalizeGenericStructuredResult(skill, payload, rawContent, tabId);
+    const current = this.state.genericSkillResults[skill.id];
+    const nextSections = [
+      ...(current?.sections || []).filter((section) => section.id !== tabId),
+      ...normalized.result.sections,
+    ];
+    const result: AIUserSkillStructuredResult = {
+      skillId: skill.id,
+      sections: nextSections,
+      rawContent,
+    };
+    this.state.genericSkillResults[skill.id] = result;
+    const section = result.sections.find((entry) => entry.id === tabId) || normalized.result.sections[0];
+    if (!section) {
+      return;
+    }
+    this.appendMessage(tabId, {
+      id: createEntryId('ai-msg'),
+      skillId: skill.id,
+      tabId,
+      view: skill.id,
+      kind: 'assistant-result',
+      createdAt: Date.now(),
+      rawContent,
+      conceptCoachResult: null,
+      tabResult: null,
+      genericStructuredResult: result,
+      genericSectionResult: section,
+      normalizationDiagnostic: normalized.diagnostic,
+      explainResult: null,
+      appliedContexts,
+    } satisfies AIWorkbenchAssistantResultMessage);
+  }
+
   private requireContext(): AIWorkbenchContextSnapshot {
     if (!this.state.context) {
       throw this.fail('AI 工作台上下文还没有准备好。');
@@ -2730,7 +3298,7 @@ export class AIWorkbenchService {
 
   private createRunStatus(mode: AIWorkbenchRunMode, tabIds: AISkillTabId[]): AIWorkbenchRunStatus {
     const skillId = this.state.activeSkillId;
-    const normalizedTabIds = tabIds.map((tabId) => normalizeAIWorkbenchTabId(tabId, skillId));
+    const normalizedTabIds = tabIds.map((tabId) => this.normalizeTabForCurrentSettings(tabId, skillId));
     const tabs = this.getSkillTabs();
     const tabTitle = (tabId: AISkillTabId) => tabs.find((tab) => tab.id === tabId)?.title || this.getActiveTabDescriptor().title;
     if (mode === 'chat' || mode === 'tool-chain') {
@@ -2787,17 +3355,19 @@ export class AIWorkbenchService {
     this.state.isLoading = true;
     this.state.error = null;
     this.state.failureDiagnostic = null;
-    const normalizedTabIds = tabIds.map((tabId) => normalizeAIWorkbenchTabId(tabId));
+    const skillId = this.state.activeSkillId;
+    this.ensureSkillRuntimeState(skillId);
+    const normalizedTabIds = tabIds.map((tabId) => this.normalizeTabForCurrentSettings(tabId, skillId));
     this.state.runStatus = this.createRunStatus(mode, normalizedTabIds);
     for (const tabId of normalizedTabIds) {
-      const thread = this.state.threads[ACTIVE_SKILL][tabId];
+      const thread = this.state.threads[skillId][tabId];
       thread.stale = false;
       thread.staleReason = null;
     }
     try {
       await runner();
       for (const tabId of normalizedTabIds) {
-        const thread = this.state.threads[ACTIVE_SKILL][tabId];
+        const thread = this.state.threads[skillId][tabId];
         thread.resultContextSignature = this.state.contextSignature;
         thread.stale = false;
         thread.staleReason = null;
@@ -2854,11 +3424,12 @@ export class AIWorkbenchService {
     if (!sessionId) {
       return null;
     }
-    const messageCount = ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[]).reduce((total, skillId) => (
-      total + ALL_TAB_IDS.reduce((innerTotal, tabId) => innerTotal + this.state.threads[skillId][tabId].messages.length, 0)
+    const messageCount = Object.values(this.state.threads).reduce((total, skillThreads) => (
+      total + Object.values(skillThreads).reduce((innerTotal, thread) => innerTotal + thread.messages.length, 0)
     ), 0);
-    const activeSkills: AISkillId[] = ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[])
-      .filter((skillId) => ALL_TAB_IDS.some((tabId) => this.state.threads[skillId][tabId].messages.length > 0));
+    const activeSkills: AISkillId[] = Object.entries(this.state.threads)
+      .filter(([, skillThreads]) => Object.values(skillThreads).some((thread) => thread.messages.length > 0))
+      .map(([skillId]) => skillId as AISkillId);
     return {
       schemaVersion: 2,
       id: sessionId,
@@ -2884,6 +3455,7 @@ export class AIWorkbenchService {
           ? cloneConceptCoachResult(this.state.skillResults[CONCEPT_SKILL]!)
           : null,
       },
+      genericSkillResults: { ...this.state.genericSkillResults },
       vars: this.varStore.list(),
       diagnostics: [...this.state.diagnostics],
       legacyExplainMessages: this.state.legacyNotice ? this.getThreadMessages(undefined, DEFAULT_TAB) : undefined,

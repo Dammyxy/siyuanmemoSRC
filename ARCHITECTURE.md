@@ -218,13 +218,13 @@ sequenceDiagram
 主链路分工：
 
 - `ReviewAIWorkbenchRegistry`：持有 standalone service 与按 review session 隔离的 AI service
-- `AIChatSkillRegistry` / `AIWorkbenchSkillRegistry`：通用聊天 Skill 注册表与旧入口兼容层；当前内置 `general-chat` 与 `concept-coach`
+- `AIChatSkillRegistry` / `AIWorkbenchSkillRegistry`：通用聊天 Skill 注册表与旧入口兼容层；运行时会把内置 `general-chat` / `concept-coach` 与 `settings.ai.userSkills[]` 合并解析为同一种 resolved skill 描述符
 - `AIChatToolRegistry` / `AIChatToolExecutorService`：插件内工具与网页工具的描述符、启用策略、执行链和结果缓存；读工具自动执行，写工具只进入审批流
 - `AIChatVarStoreService`：会话级变量缓存，支撑长工具结果的 `ListVars` / `ReadVar`
 - `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件，承接历史列表、重命名、删除、上下文签名回放，以及旧 `skill -> tab -> thread/result` 到统一 `messages[]` 时间线的迁移
 - `AIWorkbenchService`：通用 AI chat runtime，负责会话编排、消息生命周期、Skill 切换、工具执行、审批状态、结构化结果渲染适配和历史管理；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
 - `src/types/settings.ts`：AI provider / model / tool / web-search / prompt 的持久化真相源；旧 `baseUrl/apiKey/model` 会迁移为 `providers[] + defaultModelId`，旧 explain-only prompt 在 contract version 升级后直接回落到当前默认模板
-- `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，并为运行时追加和设置页只读说明提供同一份事实源
+- `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，也会根据用户 structured skill 的 sections 动态生成最小 JSON contract，并为运行时追加和设置页只读说明提供同一份事实源
 - `AIPromptComposer`：只负责推荐 Skill prompt 模板描述与默认 base/tab Prompt，不再承担运行时结构化协议拼接
 - `ConfiguredCaptureStorageService`：仍作为 Progressive / Excerpt 的捕获存储服务保留，但不再是 AI workbench 的运行依赖
 
@@ -304,7 +304,7 @@ UI surface：
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
-- `src/application/services/AIChatSkillRegistry.ts`：通用 AI chat Skill 注册表，当前内置 `general-chat` 与 `concept-coach`。
+- `src/application/services/AIChatSkillRegistry.ts`：通用 AI chat Skill 注册表；负责合并内置 Skill 与 `settings.ai.userSkills[]`，并把用户 chat / structured skill 解析成统一的 runtime 描述符与 tab/section 元数据。
 - `src/application/services/AIChatToolRegistry.ts`：AI chat 工具描述符、工具组、执行策略与可见性注册。
 - `src/application/services/AIChatToolExecutorService.ts`：AI chat 工具执行链，负责插件内读工具、网页抓取/搜索、写工具审批中断和长结果变量缓存。
 - `src/application/services/AIChatApprovalService.ts`：AI chat 写工具审批请求的轻量状态服务。
@@ -638,7 +638,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 
 - `LLMPort`：上层统一使用 OpenAI-shaped `messages / tools / toolChoice / responseFormat / reasoning / stream / modelRef` 请求形状
 - `OpenAICompatibleLLMAdapter`：在基础设施层适配 OpenAI-compatible / OpenAI / Claude / Gemini 协议，并把 provider diagnostic 统一回传给 runtime
-- `src/types/settings.ts`：AI 设置主结构为 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides`
+- `src/types/settings.ts`：AI 设置主结构为 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`
 - 旧 `baseUrl/apiKey/model` 仍可读，并在归一化时迁移为默认 provider；新设置写入不再以旧字段作为主结构
 
 UI 层：
@@ -750,8 +750,8 @@ UI 层：
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
 - AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review sidecar 默认 `concept-coach`
-- AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
-- AI Prompt 的持久化真相源仍是 Skill-aware 模板：`skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，结构化 JSON 契约由系统注册表托管而不是暴露给用户编辑
+- AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
+- AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，而用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
 - AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做 world-tree 分支会话
 - AI 理解与制卡的 `自测卡片` section 支持候选卡编辑/选择，但不直接落草稿、不直接建卡；真正写入仍需后续接入审批后的应用服务写路径
 

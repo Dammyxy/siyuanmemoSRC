@@ -3,10 +3,16 @@ import {
   AI_CONCEPT_COACH_TAB_IDS,
   AI_GENERAL_CHAT_SKILL_ID,
   AI_GENERAL_CHAT_TAB_ID,
+  type AIGenericStructuredRendererKind,
   type AIChatSkillDescriptor,
+  type AIBuiltinSkillId,
   type AISkillId,
   type AISkillTabId,
+  type AIUserSkillDefinition,
+  type AIUserSkillId,
+  type AIUserSkillSectionDefinition,
 } from '@/types/ai';
+import { normalizeAISettings, type AISettings } from '@/types/settings';
 
 export interface AIChatSkillTabDescriptor {
   id: AISkillTabId;
@@ -14,12 +20,25 @@ export interface AIChatSkillTabDescriptor {
   emptyHint: string;
 }
 
+export interface AIResolvedSkillSectionDescriptor extends AIChatSkillTabDescriptor {
+  sourceId: string;
+  responseKey: string;
+  renderer: AIGenericStructuredRendererKind;
+  runPrompt: string;
+  followUpPrompt: string;
+  required: boolean;
+}
+
 export type AIChatRegisteredSkillDescriptor = AIChatSkillDescriptor & {
+  source: 'builtin' | 'user';
   tabs: AIChatSkillTabDescriptor[];
+  sections?: AIResolvedSkillSectionDescriptor[];
+  userSkill?: AIUserSkillDefinition;
 };
 
 const GENERAL_CHAT_SKILL: AIChatRegisteredSkillDescriptor = {
   id: AI_GENERAL_CHAT_SKILL_ID,
+  source: 'builtin',
   title: '通用 AI 聊天',
   brief: '在同一会话里结合当前上下文、思源只读工具和网页工具进行问答。',
   mode: 'chat',
@@ -54,6 +73,7 @@ const CONCEPT_COACH_TABS: AIChatSkillTabDescriptor[] = [
 
 const CONCEPT_COACH_SKILL: AIChatRegisteredSkillDescriptor = {
   id: AI_CONCEPT_COACH_SKILL_ID,
+  source: 'builtin',
   title: 'AI 理解与制卡',
   brief: '理解这份材料，并生成可自测的候选卡',
   mode: 'structured',
@@ -75,11 +95,105 @@ function cloneSkill(skill: AIChatRegisteredSkillDescriptor): AIChatRegisteredSki
     defaultToolGroups: [...skill.defaultToolGroups],
     surfaceHints: skill.surfaceHints ? { ...skill.surfaceHints } : undefined,
     tabs: skill.tabs.map((tab) => ({ ...tab })),
+    sections: skill.sections?.map((section) => ({ ...section })),
+    userSkill: skill.userSkill ? {
+      ...skill.userSkill,
+      defaultToolGroups: [...skill.userSkill.defaultToolGroups],
+      sections: skill.userSkill.sections.map((section) => ({ ...section })),
+      surfaceHints: skill.userSkill.surfaceHints ? { ...skill.userSkill.surfaceHints } : undefined,
+    } : undefined,
   };
 }
 
+function normalizeUserSkillSlug(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .replace(/^user:/i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function toAIUserSkillId(value: unknown): AIUserSkillId | null {
+  const slug = normalizeUserSkillSlug(value);
+  return slug ? `user:${slug}` : null;
+}
+
+export function toAIUserSkillTabId(skill: AIUserSkillDefinition | string, section: AIUserSkillSectionDefinition | string): AISkillTabId {
+  const skillSlug = normalizeUserSkillSlug(typeof skill === 'string' ? skill : skill.id);
+  const sectionSlug = normalizeUserSkillSlug(typeof section === 'string' ? section : section.id);
+  return `user:${skillSlug}:${sectionSlug}` as AISkillTabId;
+}
+
+function userSectionToDescriptor(skill: AIUserSkillDefinition, section: AIUserSkillSectionDefinition): AIResolvedSkillSectionDescriptor {
+  return {
+    id: toAIUserSkillTabId(skill, section),
+    sourceId: section.id,
+    title: section.title,
+    emptyHint: section.emptyHint,
+    responseKey: section.responseKey,
+    renderer: section.renderer,
+    runPrompt: section.runPrompt,
+    followUpPrompt: section.followUpPrompt,
+    required: section.required,
+  };
+}
+
+function userSkillToDescriptor(skill: AIUserSkillDefinition): AIChatRegisteredSkillDescriptor | null {
+  if (!skill.enabled) {
+    return null;
+  }
+  const id = toAIUserSkillId(skill.id);
+  if (!id) {
+    return null;
+  }
+  const sections = skill.mode === 'structured'
+    ? skill.sections.map((section) => userSectionToDescriptor(skill, section))
+    : [];
+  if (skill.mode === 'structured' && sections.length === 0) {
+    return null;
+  }
+  const tabs: AIChatSkillTabDescriptor[] = skill.mode === 'chat'
+    ? [{
+      id: AI_GENERAL_CHAT_TAB_ID,
+      title: '聊天',
+      emptyHint: skill.brief || '直接提问，或让这个 Skill 基于当前上下文继续处理。',
+    }]
+    : sections.map((section) => ({
+      id: section.id,
+      title: section.title,
+      emptyHint: section.emptyHint,
+    }));
+  return {
+    id,
+    source: 'user',
+    title: skill.title,
+    brief: skill.brief,
+    mode: skill.mode,
+    systemPromptTemplate: skill.systemPromptTemplate,
+    defaultToolGroups: [...skill.defaultToolGroups],
+    composerPreset: skill.composerPreset,
+    primaryActionLabel: skill.primaryActionLabel,
+    supportsStructuredResult: skill.mode === 'structured',
+    surfaceHints: {
+      ...skill.surfaceHints,
+      hideTabs: skill.mode === 'chat' ? true : skill.surfaceHints?.hideTabs === true,
+    },
+    tabs,
+    sections,
+    userSkill: skill,
+  };
+}
+
+function resolveUserSkills(settings?: AISettings): AIChatRegisteredSkillDescriptor[] {
+  const normalized = settings ? normalizeAISettings(settings) : null;
+  return (normalized?.userSkills || [])
+    .map(userSkillToDescriptor)
+    .filter((skill): skill is AIChatRegisteredSkillDescriptor => Boolean(skill));
+}
+
 export class AIChatSkillRegistry {
-  private readonly skills = new Map<AISkillId, AIChatRegisteredSkillDescriptor>();
+  private readonly skills = new Map<AIBuiltinSkillId, AIChatRegisteredSkillDescriptor>();
 
   constructor() {
     this.register(GENERAL_CHAT_SKILL);
@@ -87,53 +201,80 @@ export class AIChatSkillRegistry {
   }
 
   register(skill: AIChatRegisteredSkillDescriptor): void {
-    this.skills.set(skill.id, cloneSkill(skill));
+    if (skill.id === AI_GENERAL_CHAT_SKILL_ID || skill.id === AI_CONCEPT_COACH_SKILL_ID) {
+      this.skills.set(skill.id, cloneSkill(skill));
+    }
   }
 
-  list(): AIChatRegisteredSkillDescriptor[] {
-    return Array.from(this.skills.values()).map(cloneSkill);
+  list(settings?: AISettings): AIChatRegisteredSkillDescriptor[] {
+    return [
+      ...Array.from(this.skills.values()).map(cloneSkill),
+      ...resolveUserSkills(settings),
+    ];
   }
 
-  get(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AIChatRegisteredSkillDescriptor {
-    return cloneSkill(this.skills.get(skillId) || this.skills.get(AI_GENERAL_CHAT_SKILL_ID)!);
+  get(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID, settings?: AISettings): AIChatRegisteredSkillDescriptor {
+    return cloneSkill(
+      this.list(settings).find((skill) => skill.id === skillId)
+      || this.skills.get(AI_GENERAL_CHAT_SKILL_ID)!,
+    );
   }
 
-  getTabs(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AIChatSkillTabDescriptor[] {
-    return this.get(skillId).tabs;
+  getTabs(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID, settings?: AISettings): AIChatSkillTabDescriptor[] {
+    return this.get(skillId, settings).tabs;
   }
 }
 
 export const defaultAIChatSkillRegistry = new AIChatSkillRegistry();
 
-export function getAIChatSkills(): AIChatRegisteredSkillDescriptor[] {
-  return defaultAIChatSkillRegistry.list();
+export function getAIChatSkills(settings?: AISettings): AIChatRegisteredSkillDescriptor[] {
+  return defaultAIChatSkillRegistry.list(settings);
 }
 
-export function getAIChatSkill(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AIChatRegisteredSkillDescriptor {
-  return defaultAIChatSkillRegistry.get(skillId);
+export function getAIChatSkill(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID, settings?: AISettings): AIChatRegisteredSkillDescriptor {
+  return defaultAIChatSkillRegistry.get(skillId, settings);
 }
 
-export function getAIChatSkillTabs(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AIChatSkillTabDescriptor[] {
-  return defaultAIChatSkillRegistry.getTabs(skillId);
+export function getAIChatSkillTabs(skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID, settings?: AISettings): AIChatSkillTabDescriptor[] {
+  return defaultAIChatSkillRegistry.getTabs(skillId, settings);
 }
 
-export function isAIChatSkillId(value: unknown): value is AISkillId {
-  return value === AI_GENERAL_CHAT_SKILL_ID || value === AI_CONCEPT_COACH_SKILL_ID;
+export function isAIChatSkillId(value: unknown, settings?: AISettings): value is AISkillId {
+  if (value === AI_GENERAL_CHAT_SKILL_ID || value === AI_CONCEPT_COACH_SKILL_ID) {
+    return true;
+  }
+  return typeof value === 'string'
+    && value.startsWith('user:')
+    && getAIChatSkills(settings).some((skill) => skill.id === value);
 }
 
-export function isAIChatTabId(value: unknown): value is AISkillTabId {
-  return value === AI_GENERAL_CHAT_TAB_ID || AI_CONCEPT_COACH_TAB_IDS.includes(value as typeof AI_CONCEPT_COACH_TAB_IDS[number]);
+export function isAIChatTabId(value: unknown, settings?: AISettings, skillId?: AISkillId): value is AISkillTabId {
+  if (value === AI_GENERAL_CHAT_TAB_ID || AI_CONCEPT_COACH_TAB_IDS.includes(value as typeof AI_CONCEPT_COACH_TAB_IDS[number])) {
+    return true;
+  }
+  return typeof value === 'string'
+    && value.startsWith('user:')
+    && getAIChatSkillTabs(skillId || AI_GENERAL_CHAT_SKILL_ID, settings).some((tab) => tab.id === value);
 }
 
-export function normalizeAIChatSkillId(value: unknown, fallback: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AISkillId {
-  return isAIChatSkillId(value) ? value : fallback;
+export function normalizeAIChatSkillId(
+  value: unknown,
+  fallback: AISkillId = AI_GENERAL_CHAT_SKILL_ID,
+  settings?: AISettings,
+): AISkillId {
+  return isAIChatSkillId(value, settings) ? value : fallback;
 }
 
-export function normalizeAIChatTabId(value: unknown, skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID): AISkillTabId {
-  if (skillId === AI_GENERAL_CHAT_SKILL_ID) {
+export function normalizeAIChatTabId(
+  value: unknown,
+  skillId: AISkillId = AI_GENERAL_CHAT_SKILL_ID,
+  settings?: AISettings,
+): AISkillTabId {
+  const skill = getAIChatSkill(skillId, settings);
+  if (skill.mode === 'chat') {
     return AI_GENERAL_CHAT_TAB_ID;
   }
-  return AI_CONCEPT_COACH_TAB_IDS.includes(value as typeof AI_CONCEPT_COACH_TAB_IDS[number])
+  return skill.tabs.some((tab) => tab.id === value)
     ? value as AISkillTabId
-    : 'working-definition';
+    : skill.tabs[0]?.id || 'working-definition';
 }
