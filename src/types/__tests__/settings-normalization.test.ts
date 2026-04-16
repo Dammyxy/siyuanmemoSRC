@@ -7,7 +7,9 @@ import {
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
   LEGACY_FSRS_V5,
+  normalizeAISettings,
   normalizePluginSettings,
+  type AISettings,
 } from '../settings';
 
 function cloneSettings(): PluginSettings {
@@ -196,6 +198,23 @@ describe('settings normalization', () => {
     expect(normalized.settings.ai).toEqual(DEFAULT_SETTINGS.ai);
   });
 
+  it('prefers legacy single-provider AI fields when providers still contain only the empty default', () => {
+    const normalized = normalizeAISettings({
+      ...DEFAULT_SETTINGS.ai,
+      enabled: true,
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'legacy-key',
+      model: 'deepseek-chat',
+    } satisfies AISettings);
+
+    expect(normalized.apiKey).toBe('legacy-key');
+    expect(normalized.baseUrl).toBe('https://api.deepseek.com');
+    expect(normalized.model).toBe('deepseek-chat');
+    expect(normalized.defaultModelId).toBe('deepseek-chat');
+    expect(normalized.providers[0].id).toBe('deepseek');
+    expect(normalized.providers[0].apiKey).toBe('legacy-key');
+  });
+
   it('drops legacy AI draft storage config when it is still present', () => {
     const legacy = cloneSettings();
     (legacy.ai as typeof legacy.ai & { draftStorage?: unknown }).draftStorage = {
@@ -215,8 +234,15 @@ describe('settings normalization', () => {
     legacy.ai = {
       ...DEFAULT_SETTINGS.ai,
       prompts: {
-        explain: {
-          run: 'custom explain',
+        skills: {
+          conceptCoach: {
+            baseRun: 'custom base',
+            tabs: {
+              'working-definition': {
+                run: 'custom working definition',
+              },
+            },
+          },
         },
       },
     } as typeof legacy.ai;
@@ -224,16 +250,20 @@ describe('settings normalization', () => {
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.ai.prompts.explain).toEqual({
-      run: 'custom explain',
-      followUp: DEFAULT_SETTINGS.ai.prompts.explain.followUp,
+    expect(normalized.settings.ai.prompts.skills.conceptCoach.baseRun).toBe('custom base');
+    expect(normalized.settings.ai.prompts.skills.conceptCoach.tabs['working-definition']).toEqual({
+      run: 'custom working definition',
+      followUp: DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs['working-definition'].followUp,
     });
+    expect(normalized.settings.ai.prompts.skills.conceptCoach.tabs.perspectives)
+      .toEqual(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs.perspectives);
   });
 
-  it('ships the explain-only AI default prompt pair', () => {
+  it('ships the concept-coach AI default prompt set', () => {
     expect(DEFAULT_SETTINGS.ai.promptContractVersion).toBe(ACTIVE_AI_PROMPT_CONTRACT_VERSION);
-    expect(DEFAULT_SETTINGS.ai.prompts.explain.run).toContain('学习教练');
-    expect(DEFAULT_SETTINGS.ai.prompts.explain.run).not.toContain('workingDefinition');
+    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.baseRun).toContain('学习教练');
+    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.baseRun).not.toContain('workingDefinition');
+    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs['self-test-cards'].run).toContain('问答卡');
   });
 
   it('resets AI prompts to the current behavior-prompt contract when legacy settings lack the new contract version', () => {
@@ -253,7 +283,7 @@ describe('settings normalization', () => {
     expect(normalized.settings.ai.prompts).toEqual(DEFAULT_SETTINGS.ai.prompts);
   });
 
-  it('migrates legacy flat prompt strings into run prompts and ignores legacy promptProfiles', () => {
+  it('resets legacy flat prompt strings to the current skill defaults and ignores legacy promptProfiles', () => {
     const legacy = cloneSettings();
     (legacy.ai as typeof legacy.ai & { promptProfiles?: Record<string, unknown> }).promptProfiles = {
       explain: {
@@ -269,10 +299,7 @@ describe('settings normalization', () => {
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
-    expect(normalized.settings.ai.prompts.explain).toEqual({
-      run: 'custom explain profile',
-      followUp: DEFAULT_SETTINGS.ai.prompts.explain.followUp,
-    });
+    expect(normalized.settings.ai.prompts).toEqual(DEFAULT_SETTINGS.ai.prompts);
   });
 
   it('is idempotent after first normalization', () => {

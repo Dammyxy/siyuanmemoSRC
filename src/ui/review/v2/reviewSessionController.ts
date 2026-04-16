@@ -4,7 +4,7 @@ import type { QueueItem } from '@/core/queue/types';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
 import type { InitialReviewSessionState } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
-import type { AdapterContext, IAdapter, ReviewUIState } from './types';
+import type { AdapterContext, IAdapter, RefreshCurrentItemOptions, ReviewUIState } from './types';
 import { createEmptyReviewUIState } from './types';
 
 const logger = createLogger('ReviewSessionController');
@@ -15,6 +15,8 @@ type ItemIdLike = {
   id?: unknown;
   cardID?: unknown;
   cardId?: unknown;
+  blockID?: unknown;
+  blockId?: unknown;
 };
 
 type ItemMetaLike = {
@@ -71,7 +73,7 @@ export interface ReviewSessionController<TItem extends QueueItem = QueueItem> {
   back: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
   reload: () => Promise<void>;
-  refreshCurrentItem: (item: unknown) => Promise<void>;
+  refreshCurrentItem: (item: unknown, options?: RefreshCurrentItemOptions) => Promise<void>;
   getQueueStrategy: () => IQueueStrategy<TItem>;
   loadCardByBlockId: (blockId: string) => Promise<void>;
   getSnapshot: () => ReviewSessionControllerSnapshot<TItem>;
@@ -104,6 +106,41 @@ function extractCardId(item: unknown): string {
   const shaped = item as ItemIdLike;
   const raw = shaped.cardID ?? shaped.cardId ?? shaped.id;
   return raw == null ? '' : String(raw);
+}
+
+function extractBlockId(item: unknown): string {
+  if (!isRecord(item)) {
+    return '';
+  }
+
+  const shaped = item as ItemIdLike;
+  const raw = shaped.blockID ?? shaped.blockId;
+  return raw == null ? '' : String(raw);
+}
+
+function collectExpectedRefreshIds(options?: RefreshCurrentItemOptions): string[] {
+  return [
+    String(options?.expectedCurrentCardId || '').trim(),
+    String(options?.expectedCurrentBlockId || '').trim(),
+  ].filter((value) => value.length > 0);
+}
+
+function matchesRefreshExpectation(item: unknown, options?: RefreshCurrentItemOptions): boolean {
+  const expectedIds = collectExpectedRefreshIds(options);
+  if (expectedIds.length === 0) {
+    return true;
+  }
+
+  const currentIds = new Set([
+    String(extractCardId(item) || '').trim(),
+    String(extractBlockId(item) || '').trim(),
+  ].filter((value) => value.length > 0));
+
+  if (currentIds.size === 0) {
+    return false;
+  }
+
+  return expectedIds.some((id) => currentIds.has(id));
 }
 
 function extractNeuralContext(item: unknown): NeuralContextLike | null {
@@ -555,7 +592,18 @@ export function createReviewSessionController<TItem extends QueueItem>(
     }
   });
 
-  const refreshCurrentItem = async (item: unknown): Promise<void> => runSerialized(async () => {
+  const refreshCurrentItem = async (item: unknown, options?: RefreshCurrentItemOptions): Promise<void> => runSerialized(async () => {
+    if (!matchesRefreshExpectation(currentItem.value, options)) {
+      logger.debug('Skipped stale refreshCurrentItem after active card changed', {
+        expectedIds: collectExpectedRefreshIds(options),
+        activeCardId: extractCardId(currentItem.value),
+        activeBlockId: extractBlockId(currentItem.value),
+        incomingCardId: extractCardId(item),
+        incomingBlockId: extractBlockId(item),
+      });
+      return;
+    }
+
     currentItem.value = (item as TItem | null) ?? null;
     await updateState('refresh-current');
   });

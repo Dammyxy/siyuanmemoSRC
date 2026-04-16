@@ -206,6 +206,11 @@ export interface ReviewUIState {
 export type AdapterContext = CoreAdapterContext;
 export type IAdapter<TItem = unknown> = CoreAdapter<TItem, ReviewUIState>;
 
+export interface RefreshCurrentItemOptions {
+  expectedCurrentCardId?: string;
+  expectedCurrentBlockId?: string;
+}
+
 export interface ReviewSessionHook {
   state: Ref<ReviewUIState>;
   context: Ref<AdapterContext>;
@@ -215,7 +220,7 @@ export interface ReviewSessionHook {
   back: () => Promise<void>;
   executeCommand: (cmdId: string) => Promise<void>;
   reload: () => Promise<void>;
-  refreshCurrentItem: (item: unknown) => Promise<void>;
+  refreshCurrentItem: (item: unknown, options?: RefreshCurrentItemOptions) => Promise<void>;
   getQueueStrategy: () => unknown;
   loadCardByBlockId: (blockId: string) => Promise<void>;
   onMounted: () => void;

@@ -703,7 +703,7 @@
             <section class="settings-card">
         <h3>{{ t('aiSettingsTitle', 'AI 工作台') }}</h3>
         <p class="form-hint form-hint--section">
-          {{ t('aiSettingsIntro', '统一配置 AI 解释面板使用的模型、API 与 Prompt。解释结果默认停留在工作台，不会自动写回原文。') }}
+          {{ t('aiSettingsIntro', '统一配置 AI 理解与制卡面板使用的模型、API 与 Prompt。结构化结果默认停留在工作台，不会自动写回原文。') }}
         </p>
 
         <div class="form-item">
@@ -741,6 +741,21 @@
         </div>
 
         <div class="form-item">
+          <label>{{ t('aiProviderProtocol', 'Provider 协议') }}</label>
+          <div class="form-control">
+            <select v-model="aiSettings.providers[0].protocol" class="scheduler-select">
+              <option value="openai-compatible">OpenAI Compatible</option>
+              <option value="openai">OpenAI</option>
+              <option value="claude">Claude Messages</option>
+              <option value="gemini">Gemini GenerateContent</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('aiProviderProtocolHint', '内部会按协议适配消息、工具调用和结构化输出；DeepSeek 等兼容服务可继续使用 OpenAI Compatible。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
           <label>{{ t('aiTimeoutMs', '超时时间（毫秒）') }}</label>
           <div class="form-control">
             <input type="number" min="1000" max="300000" step="1000" v-model.number="aiSettings.timeoutMs">
@@ -759,6 +774,69 @@
           <label>{{ t('aiDefaultOutputLanguage', '默认输出语言') }}</label>
           <div class="form-control">
             <input type="text" v-model="aiSettings.defaultOutputLanguage">
+          </div>
+        </div>
+
+        <div class="fn__hr"></div>
+
+        <h4>{{ t('aiChatRuntimeSettings', '聊天与工具 Runtime') }}</h4>
+
+        <div class="form-item">
+          <label>{{ t('aiDefaultSkill', 'Standalone 默认 Skill') }}</label>
+          <div class="form-control">
+            <select v-model="aiSettings.chatDefaults.defaultSkillId" class="scheduler-select">
+              <option value="general-chat">{{ t('generalChat', '通用 AI 聊天') }}</option>
+              <option value="concept-coach">{{ t('conceptCoach', 'AI 理解与制卡') }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiMaxToolRounds', '最大工具轮数') }}</label>
+          <div class="form-control">
+            <input type="number" min="1" max="8" step="1" v-model.number="aiSettings.chatDefaults.maxToolRounds">
+          </div>
+          <p class="form-hint">
+            {{ t('aiMaxToolRoundsHint', '避免模型无限循环调用工具；达到上限后会暂停并展示已有结果。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiEnableWriteTools', '启用写入意图工具') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="aiSettings.toolPolicies.groupDefaults['flashcard-write']">
+          </div>
+          <p class="form-hint">
+            {{ t('aiEnableWriteToolsHint', '写入思源、制卡、摘录或 daily note 的工具始终逐次审批；关闭时不会注入模型。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('aiWebSearchBackend', '网页搜索后端') }}</label>
+          <div class="form-control">
+            <select v-model="aiSettings.webSearch.backend" class="scheduler-select">
+              <option value="none">{{ t('disabled', '不启用') }}</option>
+              <option value="tavily">Tavily</option>
+              <option value="bocha">Bocha</option>
+              <option value="google-cse">Google CSE</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('aiWebSearchBackendHint', '未配置搜索后端时，只开放 URL 抓取 FetchWebPage，不伪装成可搜索网页。') }}
+          </p>
+        </div>
+
+        <div v-if="aiSettings.webSearch.backend !== 'none'" class="form-item">
+          <label>{{ t('aiWebSearchApiKey', '网页搜索 API Key') }}</label>
+          <div class="form-control">
+            <input type="password" v-model="aiSettings.webSearch.apiKey">
+          </div>
+        </div>
+
+        <div v-if="aiSettings.webSearch.backend === 'google-cse'" class="form-item">
+          <label>{{ t('aiGoogleCseId', 'Google CSE ID') }}</label>
+          <div class="form-control">
+            <input type="text" v-model="aiSettings.webSearch.googleCseId">
           </div>
         </div>
 
@@ -812,14 +890,14 @@
             </label>
             <p class="form-hint form-hint--section">{{ preset.usageHint }}</p>
             <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-              {{ t('aiBehaviorPrompt', '行为 Prompt') }}
+              {{ t('aiBaseRunPrompt', 'Skill 基础 Prompt') }}
             </label>
             <p class="form-hint form-hint--section">
               {{ t('aiBehaviorPromptHint', '系统会自动附加结构化输出规则；这里主要描述角色、目标、语气和偏好。') }}
             </p>
             <textarea
-              v-model="aiSettings.prompts[preset.settingKey].run"
-              :rows="10"
+              v-model="aiSettings.prompts.skills.conceptCoach.baseRun"
+              :rows="8"
               class="form-textarea"
             ></textarea>
             <details class="ai-prompt-preset-card__contract">
@@ -829,14 +907,28 @@
                 <li v-for="line in preset.systemContractLines" :key="line">{{ line }}</li>
               </ul>
             </details>
-            <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-              {{ t('aiFollowUpPrompt', '追问 Prompt') }}
-            </label>
-            <textarea
-              v-model="aiSettings.prompts[preset.settingKey].followUp"
-              :rows="6"
-              class="form-textarea"
-            ></textarea>
+            <div
+              v-for="tab in aiPromptTabs"
+              :key="tab.id"
+              class="ai-prompt-preset-card__tab-editor"
+            >
+              <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
+                {{ tab.title }} · {{ t('aiBehaviorPrompt', '行为 Prompt') }}
+              </label>
+              <textarea
+                v-model="aiSettings.prompts.skills.conceptCoach.tabs[tab.id].run"
+                :rows="5"
+                class="form-textarea"
+              ></textarea>
+              <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
+                {{ tab.title }} · {{ t('aiFollowUpPrompt', '追问 Prompt') }}
+              </label>
+              <textarea
+                v-model="aiSettings.prompts.skills.conceptCoach.tabs[tab.id].followUp"
+                :rows="4"
+                class="form-textarea"
+              ></textarea>
+            </div>
           </div>
         </div>
             </section>
@@ -865,11 +957,17 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue';
-import { AI_PROMPT_PRESET_DESCRIPTORS, getRecommendedPromptTemplate } from '@/application/services/AIPromptComposer';
+import {
+  AI_PROMPT_PRESET_DESCRIPTORS,
+  getRecommendedPromptTemplateForSetting,
+  type AIPromptSettingKey,
+} from '@/application/services/AIPromptComposer';
 import { getPromptContractForSetting } from '@/application/services/AIPromptContractRegistry';
+import { getAIWorkbenchSkillTabs } from '@/application/services/AIWorkbenchSkillRegistry';
 import {
   ACTIVE_AI_PROMPT_CONTRACT_VERSION,
   normalizeConfiguredCaptureStorageSettings as normalizeCaptureStorageSettings,
+  normalizeAISettings,
   normalizeAIPromptContractVersion,
   normalizeAIPromptTemplates,
   type ConfiguredCaptureStorageSettings,
@@ -877,7 +975,7 @@ import {
   DEFAULT_FSRS_WEIGHTS,
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
-  type AIPromptTextPair,
+  type AIConceptCoachPromptTemplates,
   type AISettings,
   type FilterGroupDefinition,
   type FSRSParameters,
@@ -892,7 +990,6 @@ import { createLogger } from '@/utils/logger';
 type OptimizationConfig = Record<string, unknown>;
 type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
 type CleanupMode = 'safe' | 'full';
-type AIPromptSettingKey = keyof AISettings['prompts'];
 type AIPromptUsageState = 'recommended' | 'custom' | 'empty';
 type CleanupScanResult = {
   totalBlocks: number;
@@ -981,7 +1078,6 @@ function mergeConfiguredCaptureStorageSettings(
 }
 
 function mergeAISettings(source?: Partial<AISettings>): AISettings {
-  const defaults = createDefaultAISettings();
   const legacyAwareSource = (source || {}) as Partial<AISettings> & {
     promptProfiles?: unknown;
     draftStorage?: unknown;
@@ -991,28 +1087,15 @@ function mergeAISettings(source?: Partial<AISettings>): AISettings {
     draftStorage: _legacyDraftStorage,
     ...sourceWithoutLegacy
   } = legacyAwareSource;
-  return {
-    ...defaults,
+  return normalizeAISettings({
     ...sourceWithoutLegacy,
     promptContractVersion: normalizeAIPromptContractVersion(sourceWithoutLegacy.promptContractVersion)
       || ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-    prompts: normalizeAIPromptTemplates(sourceWithoutLegacy.prompts),
-  };
-}
-
-function getRecommendedPromptTemplateForSetting(settingKey: AIPromptSettingKey): AIPromptTextPair {
-  switch (settingKey) {
-    case 'explain':
-      return getRecommendedPromptTemplate('explain');
-    default:
-      return getRecommendedPromptTemplate('explain');
-  }
+  });
 }
 
 function resetAiPromptToRecommended(settingsState: AISettings, settingKey: AIPromptSettingKey): void {
-  settingsState.prompts[settingKey] = {
-    ...getRecommendedPromptTemplateForSetting(settingKey),
-  };
+  settingsState.prompts.skills.conceptCoach = getRecommendedPromptTemplateForSetting(settingKey);
 }
 
 function mergeQueueSettings(source?: Partial<QueueSettings>): QueueSettings {
@@ -1142,23 +1225,33 @@ watch(() => props.defaultTab, (tab) => {
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 const aiSettings = ref<AISettings>(createDefaultAISettings());
 const uiSettings = ref<UISettings>(createDefaultUISettings());
+const aiPromptTabs = getAIWorkbenchSkillTabs('concept-coach');
 
-function isPromptPairEmpty(pair: AIPromptTextPair): boolean {
-  return String(pair.run || '').trim().length === 0 && String(pair.followUp || '').trim().length === 0;
+function isConceptCoachPromptEmpty(template: AIConceptCoachPromptTemplates): boolean {
+  return String(template.baseRun || '').trim().length === 0
+    && aiPromptTabs.every((tab) => {
+      const pair = template.tabs[tab.id];
+      return String(pair.run || '').trim().length === 0 && String(pair.followUp || '').trim().length === 0;
+    });
 }
 
-function arePromptPairsEqual(left: AIPromptTextPair, right: AIPromptTextPair): boolean {
-  return String(left.run || '').trim() === String(right.run || '').trim()
-    && String(left.followUp || '').trim() === String(right.followUp || '').trim();
+function areConceptCoachPromptsEqual(left: AIConceptCoachPromptTemplates, right: AIConceptCoachPromptTemplates): boolean {
+  return String(left.baseRun || '').trim() === String(right.baseRun || '').trim()
+    && aiPromptTabs.every((tab) => {
+      const leftPair = left.tabs[tab.id];
+      const rightPair = right.tabs[tab.id];
+      return String(leftPair.run || '').trim() === String(rightPair.run || '').trim()
+        && String(leftPair.followUp || '').trim() === String(rightPair.followUp || '').trim();
+    });
 }
 
 function resolveAiPromptUsageState(settingKey: AIPromptSettingKey): AIPromptUsageState {
-  const currentValue = aiSettings.value.prompts[settingKey];
-  if (isPromptPairEmpty(currentValue)) {
+  const currentValue = aiSettings.value.prompts.skills.conceptCoach;
+  if (isConceptCoachPromptEmpty(currentValue)) {
     return 'empty';
   }
 
-  return arePromptPairsEqual(currentValue, getRecommendedPromptTemplateForSetting(settingKey))
+  return areConceptCoachPromptsEqual(currentValue, getRecommendedPromptTemplateForSetting(settingKey))
     ? 'recommended'
     : 'custom';
 }
@@ -1242,10 +1335,10 @@ function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
 
 function getPromptEditorLabel(settingKey: AIPromptSettingKey): string {
   switch (settingKey) {
-    case 'explain':
-      return t('aiExplainPrompt', 'AI 解释 Prompt');
+    case 'conceptCoach':
+      return t('aiConceptCoachPrompt', 'AI 理解与制卡 Prompt');
     default:
-      return t('aiExplainPrompt', 'AI 解释 Prompt');
+      return t('aiConceptCoachPrompt', 'AI 理解与制卡 Prompt');
   }
 }
 
@@ -1570,6 +1663,25 @@ function loadSettings() {
 // 保存设置
 function saveSettings() {
   const prompts = normalizeAIPromptTemplates(aiSettings.value.prompts);
+  const primaryProvider = {
+    ...aiSettings.value.providers[0],
+    baseUrl: String(aiSettings.value.baseUrl || '').trim(),
+    apiKey: String(aiSettings.value.apiKey || '').trim(),
+    models: [{
+      ...(aiSettings.value.providers[0]?.models?.[0] || {}),
+      id: String(aiSettings.value.model || '').trim(),
+    }],
+  };
+  const normalizedAI = normalizeAISettings({
+    ...aiSettings.value,
+    providers: [
+      primaryProvider,
+      ...aiSettings.value.providers.slice(1),
+    ],
+    defaultModelId: String(aiSettings.value.model || aiSettings.value.defaultModelId || '').trim(),
+    promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
+    prompts,
+  });
   const queueInput = queueSettings.value as QueueSettings & {
     outstandingEveryNth?: number;
     outstandingSpacing?: number;
@@ -1638,13 +1750,7 @@ function saveSettings() {
       ),
     },
     ai: {
-      enabled: aiSettings.value.enabled,
-      baseUrl: String(aiSettings.value.baseUrl || '').trim(),
-      apiKey: String(aiSettings.value.apiKey || '').trim(),
-      model: String(aiSettings.value.model || '').trim(),
-      timeoutMs: Math.max(1000, Number(aiSettings.value.timeoutMs) || DEFAULT_AI_SETTINGS.timeoutMs),
-      temperature: Math.min(2, Math.max(0, Number(aiSettings.value.temperature) || DEFAULT_AI_SETTINGS.temperature)),
-      defaultOutputLanguage: String(aiSettings.value.defaultOutputLanguage || '').trim(),
+      ...normalizedAI,
       promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
       prompts,
     },

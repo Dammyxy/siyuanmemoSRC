@@ -484,6 +484,70 @@ describe('useReviewSession', () => {
     wrapper.unmount();
   });
 
+  it('skips a guarded refreshCurrentItem when a serialized grade already advanced to another card', async () => {
+    const onFeedbackGate = createDeferred<void>();
+    const queue = createQueue();
+    queue.onFeedback = vi.fn(async () => {
+      await onFeedbackGate.promise;
+    });
+
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string; priority?: number } | null) => ({
+        ...createEmptyReviewUIState(),
+        header: {
+          ...createEmptyReviewUIState().header,
+          priorityBadge: {
+            label: 'P',
+            value: item ? String(item.priority ?? '-') : '-',
+            priority: item?.priority ?? null,
+            ariaLabel: item ? `Priority ${item.priority ?? '-'}` : 'Priority -',
+          },
+          stats: {
+            current: 2,
+            total: 2,
+            label: '2 due',
+            queueName: 'Unified Queue',
+          },
+        },
+        content: {
+          type: 'html',
+          data: item?.id ?? 'empty',
+          id: item?.id ?? 'empty',
+          card: item as never,
+        },
+      })),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+
+    const gradePromise = hook.grade(3);
+    await flushAsync();
+
+    const refreshPromise = hook.refreshCurrentItem({
+      id: 'card-1',
+      cardID: 'card-1',
+      blockId: 'block-card-1',
+      blockID: 'block-card-1',
+      priority: 99,
+    }, {
+      expectedCurrentCardId: 'card-1',
+      expectedCurrentBlockId: 'block-card-1',
+    });
+
+    onFeedbackGate.resolve();
+    await gradePromise;
+    await refreshPromise;
+
+    expect(hook.state.value.content.id).toBe('card-2');
+    expect(hook.state.value.header.priorityBadge.value).not.toBe('99');
+
+    wrapper.unmount();
+  });
+
   it('does not fetch auxiliary data on reveal', async () => {
     const adapter = createAdapter({
       toUIState: vi.fn(async () => createEmptyReviewUIState()),

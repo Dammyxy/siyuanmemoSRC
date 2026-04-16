@@ -1,13 +1,20 @@
 import type { IFileService } from '@/infrastructure/services/FileService';
-import type {
-  AITaskType,
-  AIWorkbenchContextSnapshot,
-  AIWorkbenchMessage,
-  AIWorkbenchSessionRecord,
-  AIWorkbenchSessionSummary,
-  AIWorkbenchSource,
-  AIWorkbenchSurface,
-  AIWorkbenchThreadRecord,
+import {
+  AI_CONCEPT_COACH_SKILL_ID,
+  AI_CONCEPT_COACH_TAB_IDS,
+  AI_GENERAL_CHAT_SKILL_ID,
+  AI_GENERAL_CHAT_TAB_ID,
+  type AIConceptCoachResult,
+  type AISkillId,
+  type AISkillTabId,
+  type AIWorkbenchContextSnapshot,
+  type AIWorkbenchMessage,
+  type AIWorkbenchSessionRecord,
+  type AIWorkbenchSessionSummary,
+  type AIWorkbenchSource,
+  type AIWorkbenchSurface,
+  type AIWorkbenchThreadRecord,
+  type AIWorkbenchThreads,
 } from '@/types/ai';
 
 type SessionIndex = {
@@ -22,48 +29,20 @@ type FindByContextInput = {
 
 const SESSION_INDEX_FILE = 'ai-workbench/sessions/index.json';
 const SESSION_RECORD_PREFIX = 'ai-workbench/sessions/records';
-const ACTIVE_VIEW: AITaskType = 'explain';
+const CONCEPT_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
+const GENERAL_SKILL: AISkillId = AI_GENERAL_CHAT_SKILL_ID;
+const DEFAULT_TAB: AISkillTabId = 'working-definition';
+const ALL_TAB_IDS: AISkillTabId[] = [
+  AI_GENERAL_CHAT_TAB_ID,
+  ...AI_CONCEPT_COACH_TAB_IDS,
+];
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function createEmptyThread(): AIWorkbenchThreadRecord {
-  return {
-    view: ACTIVE_VIEW,
-    messages: [],
-    resultContextSignature: null,
-    stale: false,
-    staleReason: null,
-  };
-}
-
-function createEmptyThreads(): Record<AITaskType, AIWorkbenchThreadRecord> {
-  return {
-    explain: createEmptyThread(),
-  };
-}
-
-function normalizeMessageCount(messages: AIWorkbenchMessage[] | undefined): number {
-  return Array.isArray(messages) ? messages.length : 0;
-}
-
-function buildSummary(record: AIWorkbenchSessionRecord): AIWorkbenchSessionSummary {
-  const explainMessages = record.threads.explain.messages;
-  const activeViews: AITaskType[] = explainMessages.length > 0 ? [ACTIVE_VIEW] : [];
-  return {
-    id: record.id,
-    title: record.title,
-    source: record.source,
-    sourceReviewSessionId: record.sourceReviewSessionId,
-    surface: record.surface,
-    contextSignature: record.contextSignature,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    lastActiveView: ACTIVE_VIEW,
-    activeViews,
-    messageCount: normalizeMessageCount(explainMessages),
-  };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function isSurface(value: unknown): value is AIWorkbenchSurface {
@@ -76,59 +55,191 @@ function normalizeSource(value: unknown): AIWorkbenchSource {
     : 'standalone';
 }
 
-function normalizeThreadRecord(value: unknown): AIWorkbenchThreadRecord {
-  const fallback = createEmptyThread();
-  if (!value || typeof value !== 'object') {
-    return fallback;
-  }
-  const raw = value as Partial<AIWorkbenchThreadRecord>;
+function normalizeTabId(value: unknown): AISkillTabId {
+  return value === AI_GENERAL_CHAT_TAB_ID
+    ? AI_GENERAL_CHAT_TAB_ID
+    : AI_CONCEPT_COACH_TAB_IDS.includes(value as typeof AI_CONCEPT_COACH_TAB_IDS[number])
+    ? value as AISkillTabId
+    : DEFAULT_TAB;
+}
+
+function normalizeSkillId(value: unknown): AISkillId {
+  return value === GENERAL_SKILL ? GENERAL_SKILL : CONCEPT_SKILL;
+}
+
+function createEmptyThread(skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreadRecord {
   return {
-    view: ACTIVE_VIEW,
-    messages: Array.isArray(raw.messages)
-      ? raw.messages.filter((message): message is AIWorkbenchMessage => (
-        typeof message === 'object'
-        && message !== null
-        && (message as Partial<AIWorkbenchMessage>).kind !== 'candidate-board'
-      ))
-      : [],
-    resultContextSignature: normalizeString(raw.resultContextSignature) || null,
-    stale: raw.stale === true,
-    staleReason: normalizeString(raw.staleReason) || null,
+    skillId,
+    tabId,
+    messages: [],
+    resultContextSignature: null,
+    stale: false,
+    staleReason: null,
   };
+}
+
+function createEmptyThreads(): AIWorkbenchThreads {
+  const makeSkillThreads = (skillId: AISkillId): AIWorkbenchThreads[AISkillId] => ({
+    chat: createEmptyThread(skillId, 'chat'),
+    'working-definition': createEmptyThread(skillId, 'working-definition'),
+    perspectives: createEmptyThread(skillId, 'perspectives'),
+    'integrated-understanding': createEmptyThread(skillId, 'integrated-understanding'),
+    'self-test-cards': createEmptyThread(skillId, 'self-test-cards'),
+    'real-world-triggers': createEmptyThread(skillId, 'real-world-triggers'),
+  });
+  return {
+    [GENERAL_SKILL]: makeSkillThreads(GENERAL_SKILL),
+    [CONCEPT_SKILL]: makeSkillThreads(CONCEPT_SKILL),
+  };
+}
+
+function normalizeMessage(value: unknown, skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchMessage | null {
+  if (!isRecord(value) || value.kind === 'candidate-board') {
+    return null;
+  }
+  const kind = normalizeString(value.kind);
+  if (kind !== 'user' && kind !== 'assistant-text' && kind !== 'assistant-result' && kind !== 'tool-log' && kind !== 'approval') {
+    return null;
+  }
+  return {
+    ...value,
+    skillId: normalizeSkillId(value.skillId || skillId),
+    tabId: normalizeTabId(value.tabId || tabId),
+    view: value.view || skillId,
+  } as unknown as AIWorkbenchMessage;
+}
+
+function normalizeThreadRecord(value: unknown, skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreadRecord {
+  if (!isRecord(value)) {
+    return createEmptyThread(skillId, tabId);
+  }
+  return {
+    skillId,
+    tabId,
+    messages: Array.isArray(value.messages)
+      ? value.messages.map((message) => normalizeMessage(message, skillId, tabId)).filter((message): message is AIWorkbenchMessage => Boolean(message))
+      : [],
+    resultContextSignature: normalizeString(value.resultContextSignature) || null,
+    stale: value.stale === true,
+    staleReason: normalizeString(value.staleReason) || null,
+  };
+}
+
+function normalizeThreads(value: unknown): { threads: AIWorkbenchThreads; legacyExplainMessages?: AIWorkbenchMessage[] } {
+  const threads = createEmptyThreads();
+  const raw = isRecord(value) ? value : {};
+  const generalThreads = isRecord(raw[GENERAL_SKILL]) ? raw[GENERAL_SKILL] as Record<string, unknown> : null;
+  const conceptThreads = isRecord(raw[CONCEPT_SKILL]) ? raw[CONCEPT_SKILL] as Record<string, unknown> : null;
+
+  if (generalThreads) {
+    threads[GENERAL_SKILL][AI_GENERAL_CHAT_TAB_ID] = normalizeThreadRecord(generalThreads[AI_GENERAL_CHAT_TAB_ID], GENERAL_SKILL, AI_GENERAL_CHAT_TAB_ID);
+  }
+
+  if (conceptThreads) {
+    for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
+      threads[CONCEPT_SKILL][tabId] = normalizeThreadRecord(conceptThreads[tabId], CONCEPT_SKILL, tabId);
+    }
+    return { threads };
+  }
+
+  for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
+    if (isRecord(raw[tabId])) {
+      threads[CONCEPT_SKILL][tabId] = normalizeThreadRecord(raw[tabId], CONCEPT_SKILL, tabId);
+    }
+  }
+
+  if (isRecord(raw.explain)) {
+    const legacyThread = normalizeThreadRecord(raw.explain, CONCEPT_SKILL, DEFAULT_TAB);
+    if (legacyThread.messages.length > 0) {
+      threads[CONCEPT_SKILL][DEFAULT_TAB] = legacyThread;
+      return { threads, legacyExplainMessages: [...legacyThread.messages] };
+    }
+  }
+
+  return { threads };
 }
 
 function normalizeContext(value: unknown): AIWorkbenchContextSnapshot | null {
-  return value && typeof value === 'object' ? (value as AIWorkbenchContextSnapshot) : null;
+  return isRecord(value) ? value as AIWorkbenchContextSnapshot : null;
+}
+
+function normalizeSkillResults(value: unknown): Record<AISkillId, AIConceptCoachResult | null> {
+  const raw = isRecord(value) ? value : {};
+  const result = isRecord(raw[CONCEPT_SKILL]) ? raw[CONCEPT_SKILL] as AIConceptCoachResult : null;
+  return {
+    [GENERAL_SKILL]: null,
+    [CONCEPT_SKILL]: result,
+  };
+}
+
+function countMessages(threads: AIWorkbenchThreads): number {
+  return ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[]).reduce((total, skillId) => (
+    total + ALL_TAB_IDS.reduce((innerTotal, tabId) => innerTotal + (threads[skillId][tabId]?.messages.length || 0), 0)
+  ), 0);
+}
+
+function buildSummary(record: AIWorkbenchSessionRecord): AIWorkbenchSessionSummary {
+  const threads = normalizeThreads(record.threads).threads;
+  const messageCount = countMessages(threads);
+  const activeSkills: AISkillId[] = ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[])
+    .filter((skillId) => ALL_TAB_IDS.some((tabId) => (threads[skillId][tabId]?.messages.length || 0) > 0));
+  return {
+    id: record.id,
+    title: record.title,
+    source: record.source,
+    sourceReviewSessionId: record.sourceReviewSessionId,
+    surface: record.surface,
+    contextSignature: record.contextSignature,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    activeSkillId: normalizeSkillId(record.activeSkillId),
+    activeTabId: normalizeTabId(record.activeTabId),
+    activeSkills,
+    messageCount,
+    lastActiveView: normalizeSkillId(record.activeSkillId),
+    activeViews: activeSkills,
+  };
 }
 
 function normalizeRecord(value: unknown): AIWorkbenchSessionRecord | null {
-  if (!value || typeof value !== 'object') {
+  if (!isRecord(value)) {
     return null;
   }
-  const raw = value as Partial<AIWorkbenchSessionRecord> & {
-    threads?: Record<string, unknown>;
-  };
-  const id = normalizeString(raw.id);
+  const id = normalizeString(value.id);
   if (!id) {
     return null;
   }
-  const threads = raw.threads && typeof raw.threads === 'object'
-    ? { explain: normalizeThreadRecord(raw.threads.explain) }
-    : createEmptyThreads();
+  const normalizedThreads = normalizeThreads(value.threads);
+  const messageCount = countMessages(normalizedThreads.threads);
+  const activeSkills: AISkillId[] = ([GENERAL_SKILL, CONCEPT_SKILL] as AISkillId[])
+    .filter((skillId) => ALL_TAB_IDS.some((tabId) => (normalizedThreads.threads[skillId][tabId]?.messages.length || 0) > 0));
   return {
+    schemaVersion: Number(value.schemaVersion) || 2,
     id,
-    title: normalizeString(raw.title) || '未命名会话',
-    source: normalizeSource(raw.source),
-    sourceReviewSessionId: normalizeString(raw.sourceReviewSessionId) || null,
-    surface: isSurface(raw.surface) ? raw.surface : 'standalone-dialog',
-    contextSignature: normalizeString(raw.contextSignature) || null,
-    createdAt: Number(raw.createdAt) || Date.now(),
-    updatedAt: Number(raw.updatedAt) || Date.now(),
-    lastActiveView: ACTIVE_VIEW,
-    activeViews: [],
-    messageCount: 0,
-    context: normalizeContext(raw.context),
-    threads,
+    title: normalizeString(value.title) || '未命名会话',
+    source: normalizeSource(value.source),
+    sourceReviewSessionId: normalizeString(value.sourceReviewSessionId) || null,
+    surface: isSurface(value.surface) ? value.surface : 'standalone-dialog',
+    contextSignature: normalizeString(value.contextSignature) || null,
+    createdAt: Number(value.createdAt) || Date.now(),
+    updatedAt: Number(value.updatedAt) || Date.now(),
+    activeSkillId: normalizeSkillId(value.activeSkillId),
+    activeTabId: normalizeTabId(value.activeTabId),
+    activeSkills,
+    messageCount,
+    lastActiveView: normalizeSkillId(value.lastActiveView || value.activeSkillId),
+    activeViews: activeSkills,
+    context: normalizeContext(value.context),
+    messages: Array.isArray(value.messages)
+      ? value.messages.map((message) => normalizeMessage(message, normalizeSkillId((message as { skillId?: unknown })?.skillId), normalizeTabId((message as { tabId?: unknown })?.tabId))).filter((message): message is AIWorkbenchMessage => Boolean(message))
+      : undefined,
+    threads: normalizedThreads.threads,
+    skillResults: normalizeSkillResults(value.skillResults),
+    vars: Array.isArray(value.vars) ? value.vars as AIWorkbenchSessionRecord['vars'] : [],
+    diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics as AIWorkbenchSessionRecord['diagnostics'] : [],
+    legacyExplainMessages: Array.isArray(value.legacyExplainMessages)
+      ? value.legacyExplainMessages.map((message) => normalizeMessage(message, CONCEPT_SKILL, DEFAULT_TAB)).filter((message): message is AIWorkbenchMessage => Boolean(message))
+      : normalizedThreads.legacyExplainMessages,
   };
 }
 
@@ -141,11 +252,30 @@ export class AIWorkbenchSessionStoreService {
     const index = await this.fileService.readJSON<SessionIndex>(SESSION_INDEX_FILE);
     const sessions = Array.isArray(index?.sessions) ? index.sessions : [];
     return sessions
-      .map((summary) => ({
-        ...summary,
-        lastActiveView: ACTIVE_VIEW,
-        activeViews: (summary.activeViews || []).filter((view): view is AITaskType => view === ACTIVE_VIEW),
-      }))
+      .map((summary) => {
+        const messageCount = Number(summary.messageCount) || 0;
+        const activeSkillId = normalizeSkillId(summary.activeSkillId || summary.lastActiveView);
+        const activeSkills: AISkillId[] = Array.isArray(summary.activeSkills) && summary.activeSkills.length > 0
+          ? summary.activeSkills.map(normalizeSkillId)
+          : (messageCount > 0 ? [activeSkillId] : []);
+        return {
+          id: normalizeString(summary.id),
+          title: normalizeString(summary.title) || '未命名会话',
+          source: normalizeSource(summary.source),
+          sourceReviewSessionId: normalizeString(summary.sourceReviewSessionId) || null,
+          surface: isSurface(summary.surface) ? summary.surface : 'standalone-dialog',
+          contextSignature: normalizeString(summary.contextSignature) || null,
+          createdAt: Number(summary.createdAt) || Date.now(),
+          updatedAt: Number(summary.updatedAt) || Date.now(),
+          activeSkillId,
+          activeTabId: normalizeTabId(summary.activeTabId),
+          activeSkills,
+          messageCount,
+          lastActiveView: activeSkillId,
+          activeViews: activeSkills,
+        } satisfies AIWorkbenchSessionSummary;
+      })
+      .filter((summary) => summary.id)
       .sort((left, right) => right.updatedAt - left.updatedAt);
   }
 
@@ -154,17 +284,7 @@ export class AIWorkbenchSessionStoreService {
     if (!normalizedId) {
       return null;
     }
-    const record = await this.fileService.readJSON<AIWorkbenchSessionRecord>(this.getSessionFileName(normalizedId));
-    const normalized = normalizeRecord(record);
-    if (!normalized) {
-      return null;
-    }
-    const summary = buildSummary(normalized);
-    return {
-      ...normalized,
-      activeViews: summary.activeViews,
-      messageCount: summary.messageCount,
-    };
+    return normalizeRecord(await this.fileService.readJSON<AIWorkbenchSessionRecord>(this.getSessionFileName(normalizedId)));
   }
 
   async findLatestByContext(input: FindByContextInput): Promise<AIWorkbenchSessionSummary | null> {
@@ -181,21 +301,22 @@ export class AIWorkbenchSessionStoreService {
   }
 
   async saveSession(record: AIWorkbenchSessionRecord): Promise<AIWorkbenchSessionRecord> {
-    const summary = buildSummary(record);
+    const normalized = normalizeRecord(record);
+    if (!normalized) {
+      throw new Error('AI session record is invalid.');
+    }
+    const summary = buildSummary(normalized);
     const persisted: AIWorkbenchSessionRecord = {
-      ...record,
-      lastActiveView: ACTIVE_VIEW,
-      activeViews: summary.activeViews,
-      messageCount: summary.messageCount,
-      threads: {
-        explain: normalizeThreadRecord(record.threads.explain),
-      },
+      ...normalized,
+      ...summary,
+      threads: normalizeThreads(normalized.threads).threads,
+      skillResults: normalizeSkillResults(normalized.skillResults),
     };
-    await this.fileService.writeJSON(this.getSessionFileName(record.id), persisted);
+    await this.fileService.writeJSON(this.getSessionFileName(persisted.id), persisted);
 
     const index = await this.fileService.readJSON<SessionIndex>(SESSION_INDEX_FILE);
     const summaries = Array.isArray(index?.sessions) ? [...index.sessions] : [];
-    const existingIndex = summaries.findIndex((entry) => entry.id === record.id);
+    const existingIndex = summaries.findIndex((entry) => entry.id === persisted.id);
     if (existingIndex >= 0) {
       summaries.splice(existingIndex, 1, summary);
     } else {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
-import type { AIWorkbenchSessionRecord } from '@/types/ai';
+import { AI_CONCEPT_COACH_SKILL_ID, AI_CONCEPT_COACH_TAB_IDS, type AISkillTabId, type AIWorkbenchSessionRecord, type AIWorkbenchThreads } from '@/types/ai';
 
 function createFileService() {
   const files = new Map<string, unknown>();
@@ -18,6 +18,33 @@ function createFileService() {
 }
 
 function createRecord(id: string, title: string): AIWorkbenchSessionRecord {
+  const createThread = (tabId: AISkillTabId) => ({
+    skillId: AI_CONCEPT_COACH_SKILL_ID,
+    tabId,
+    messages: tabId === 'working-definition'
+      ? [
+        {
+          id: 'msg-1',
+          skillId: AI_CONCEPT_COACH_SKILL_ID,
+          tabId,
+          view: AI_CONCEPT_COACH_SKILL_ID,
+          kind: 'assistant-text' as const,
+          content: 'hello',
+          createdAt: 1,
+          sourceContent: 'hello',
+          appliedContexts: [],
+        },
+      ]
+      : [],
+    resultContextSignature: null,
+    stale: false,
+    staleReason: null,
+  });
+  const threads = {
+    [AI_CONCEPT_COACH_SKILL_ID]: Object.fromEntries(
+      AI_CONCEPT_COACH_TAB_IDS.map((tabId) => [tabId, createThread(tabId)]),
+    ),
+  } as AIWorkbenchThreads;
   return {
     id,
     title,
@@ -27,9 +54,12 @@ function createRecord(id: string, title: string): AIWorkbenchSessionRecord {
     contextSignature: `ctx-${id}`,
     createdAt: 1,
     updatedAt: 1,
-    lastActiveView: 'explain',
-    activeViews: [],
-    messageCount: 0,
+    activeSkillId: AI_CONCEPT_COACH_SKILL_ID,
+    activeTabId: 'working-definition',
+    activeSkills: [AI_CONCEPT_COACH_SKILL_ID],
+    lastActiveView: AI_CONCEPT_COACH_SKILL_ID,
+    activeViews: [AI_CONCEPT_COACH_SKILL_ID],
+    messageCount: 1,
     context: {
       source: 'review',
       selectedBlockIds: ['block-a'],
@@ -40,30 +70,13 @@ function createRecord(id: string, title: string): AIWorkbenchSessionRecord {
       currentCardRaw: null,
       neuralBatch: null,
     },
-    threads: {
-      explain: {
-        view: 'explain',
-        messages: [
-          {
-            id: 'msg-1',
-            view: 'explain',
-            kind: 'assistant-text',
-            content: 'hello',
-            createdAt: 1,
-            sourceContent: 'hello',
-            appliedContexts: [],
-          },
-        ],
-        resultContextSignature: null,
-        stale: false,
-        staleReason: null,
-      },
-    },
+    threads,
+    skillResults: { [AI_CONCEPT_COACH_SKILL_ID]: null },
   };
 }
 
 describe('AIWorkbenchSessionStoreService', () => {
-  it('persists, renames, lists, and deletes explain-only session records', async () => {
+  it('persists, renames, lists, and deletes concept-coach session records', async () => {
     const fileService = createFileService();
     const service = new AIWorkbenchSessionStoreService(fileService);
 
@@ -78,9 +91,11 @@ describe('AIWorkbenchSessionStoreService', () => {
     expect(summaries[0]).toMatchObject({
       id: 'session-b',
       title: 'Second Session',
-      lastActiveView: 'explain',
+      activeSkillId: AI_CONCEPT_COACH_SKILL_ID,
+      activeTabId: 'working-definition',
+      lastActiveView: AI_CONCEPT_COACH_SKILL_ID,
       messageCount: 1,
-      activeViews: ['explain'],
+      activeViews: [AI_CONCEPT_COACH_SKILL_ID],
     });
 
     const renamed = await service.renameSession('session-a', 'Renamed Session');
@@ -88,7 +103,7 @@ describe('AIWorkbenchSessionStoreService', () => {
 
     const loaded = await service.loadSession('session-a');
     expect(loaded?.title).toBe('Renamed Session');
-    expect(loaded?.threads.explain.messages).toHaveLength(1);
+    expect(loaded?.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages).toHaveLength(1);
 
     await service.deleteSession('session-b');
     expect(await service.loadSession('session-b')).toBeNull();
@@ -131,7 +146,7 @@ describe('AIWorkbenchSessionStoreService', () => {
 
     const loaded = await service.loadSession('legacy');
 
-    expect(loaded?.lastActiveView).toBe('explain');
-    expect(loaded?.threads.explain.messages).toEqual([]);
+    expect(loaded?.lastActiveView).toBe(AI_CONCEPT_COACH_SKILL_ID);
+    expect(loaded?.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages).toEqual([]);
   });
 });

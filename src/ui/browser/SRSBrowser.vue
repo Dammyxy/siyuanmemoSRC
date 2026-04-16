@@ -4078,7 +4078,7 @@ async function handleOpenAiWorkbench(): Promise<void> {
   }
 
   await dialogManager.openAiWorkbenchDialog({
-    view: 'explain',
+    view: 'concept-coach',
     source: 'browser',
     selectedBlockIds: effectiveBlockIds,
     currentBlockId: selectedBlockIds.length === 0 ? previewBlockId || null : null,

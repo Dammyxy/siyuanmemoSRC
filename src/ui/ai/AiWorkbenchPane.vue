@@ -35,7 +35,8 @@
     <div class="ai-chat__main">
       <header class="ai-chat__topbar">
         <div class="ai-chat__topbar-main">
-          <strong class="ai-chat__headline">AI Explain</strong>
+          <strong class="ai-chat__headline">{{ skillTitle }}</strong>
+          <span class="ai-chat__subhead">{{ activeTabTitle }}</span>
         </div>
 
         <div class="ai-chat__topbar-actions">
@@ -66,6 +67,34 @@
         </div>
       </header>
 
+      <nav class="ai-chat__skill-switch" :aria-label="t('aiSkillSwitch', 'AI Skill 切换')">
+        <button
+          v-for="skill in skillChoices"
+          :key="skill.id"
+          class="ai-chat__skill-pill"
+          :class="{ 'ai-chat__skill-pill--active': state.activeSkillId === skill.id }"
+          type="button"
+          @click="service.setActiveSkill(skill.id)"
+        >
+          <strong>{{ skill.title }}</strong>
+          <span>{{ skill.brief }}</span>
+        </button>
+      </nav>
+
+      <nav v-if="!activeSkillHideTabs" class="ai-chat__tabs" :aria-label="t('aiSkillStages', 'AI 技能阶段')">
+        <button
+          v-for="tab in skillTabs"
+          :key="tab.id"
+          class="ai-chat__tab"
+          :class="{ 'ai-chat__tab--active': state.activeTabId === tab.id }"
+          type="button"
+          @click="service.setActiveTab(tab.id)"
+        >
+          <strong>{{ tab.title }}</strong>
+          <span>{{ tab.emptyHint }}</span>
+        </button>
+      </nav>
+
       <section v-if="state.contextPanelOpen" class="ai-chat__context">
         <div class="ai-chat__section-head">
           <strong>{{ t('currentContext', '当前上下文') }}</strong>
@@ -90,17 +119,26 @@
       <article v-if="state.error" class="ai-chat__banner ai-chat__banner--error">
         <strong>{{ t('aiRunFailedTitle', '这次没有顺利跑通') }}</strong>
         <p>{{ state.error }}</p>
+        <details v-if="state.failureDiagnostic" class="ai-chat__banner-details">
+          <summary>{{ t('aiFailureDiagnostic', '查看原始响应') }}</summary>
+          <pre class="ai-chat__banner-pre">{{ state.failureDiagnostic.content }}</pre>
+        </details>
+      </article>
+
+      <article v-if="state.legacyNotice" class="ai-chat__banner ai-chat__banner--warning">
+        <strong>{{ t('legacyExplainSession', '旧解释会话') }}</strong>
+        <p>{{ state.legacyNotice }}</p>
       </article>
 
       <section class="ai-chat__timeline">
-        <article v-if="activeMessages.length === 0" class="ai-chat__empty-state">
+        <article v-if="activeMessages.length === 0 && !visibleRunStatus" class="ai-chat__empty-state">
           <div class="ai-chat__empty-icon">
             <svg><use xlink:href="#iconSparkles"></use></svg>
           </div>
-          <strong>AI Explain</strong>
-          <p>{{ t('aiExplainBrief', '解释这张卡') }}</p>
-          <button class="ai-chat__primary-button" type="button" :disabled="state.isLoading || revealLocked" @click="fillExplainPrompt">
-            {{ t('explainThisContent', '解释此内容') }}
+          <strong>{{ skillTitle }}</strong>
+          <p>{{ skillBrief }}</p>
+          <button class="ai-chat__primary-button" type="button" :disabled="state.isLoading || revealLocked" @click="prepareDefaultSkillPrompt">
+            {{ primaryActionLabel }}
           </button>
         </article>
 
@@ -119,21 +157,71 @@
               <button class="ai-chat__link-button" type="button" @click="copyMessage(message)">{{ t('copy', '复制') }}</button>
               <button v-if="canEditMessage(message)" class="ai-chat__link-button" type="button" @click="openTextMessageEditor(message)">{{ t('edit', '编辑') }}</button>
               <button v-if="canEditUserMessage(message)" class="ai-chat__link-button" type="button" @click="prepareEditedFollowUp(message)">{{ t('editAndResend', '编辑后重发') }}</button>
-              <button v-if="canRerunMessage(message)" class="ai-chat__link-button" type="button" :disabled="state.isLoading || revealLocked" @click="runExplain">{{ t('rerun', '重跑') }}</button>
+              <button v-if="canRerunMessage(message)" class="ai-chat__link-button" type="button" :disabled="state.isLoading || revealLocked" @click="runActiveTab">{{ t('rerun', '重跑') }}</button>
             </div>
           </div>
 
           <template v-if="message.kind === 'user' || message.kind === 'assistant-text'">
             <RichMarkdownContent class="ai-chat__message-copy" :content="message.content" />
           </template>
+          <template v-else-if="message.kind === 'tool-log'">
+            <div class="ai-chat__tool-log" :class="`ai-chat__tool-log--${message.status}`">
+              <strong>{{ message.toolName }} · {{ message.status }}</strong>
+              <RichMarkdownContent class="ai-chat__message-copy" :content="message.content" />
+              <p v-if="message.varRef" class="ai-chat__muted">{{ t('cachedAsVar', '完整结果缓存为') }} {{ message.varRef }}</p>
+            </div>
+          </template>
+          <template v-else-if="message.kind === 'approval'">
+            <div class="ai-chat__approval-card" :class="`ai-chat__approval-card--${message.request.status}`">
+              <strong>{{ message.request.title }}</strong>
+              <p>{{ message.request.description }}</p>
+              <pre>{{ JSON.stringify(message.request.args, null, 2) }}</pre>
+              <div v-if="message.request.status === 'pending'" class="ai-chat__approval-actions">
+                <button class="ai-chat__primary-button" type="button" @click="resolveApproval(message.request.id, true)">
+                  {{ t('approve', '批准') }}
+                </button>
+                <button class="ai-chat__link-button" type="button" @click="resolveApproval(message.request.id, false)">
+                  {{ t('reject', '拒绝') }}
+                </button>
+              </div>
+              <p v-else class="ai-chat__muted">
+                {{ message.request.status === 'approved' ? t('approved', '已批准') : t('rejected', '已拒绝') }}
+                <span v-if="message.request.rejectReason"> · {{ message.request.rejectReason }}</span>
+              </p>
+            </div>
+          </template>
           <template v-else-if="message.kind === 'assistant-result'">
-            <section v-for="section in assistantSections(message)" :key="section.key" class="ai-chat__result-section">
-              <h4>{{ section.title }}</h4>
-              <RichMarkdownContent v-if="section.kind === 'text'" :content="section.text" />
-              <ul v-else>
-                <li v-for="item in section.items" :key="item"><RichMarkdownContent :content="item" /></li>
-              </ul>
-            </section>
+            <div v-if="message.tabId === 'self-test-cards'" class="ai-chat__candidate-list">
+              <article v-for="card in candidateCards(message)" :key="card.id" class="ai-chat__candidate-card">
+                <label class="ai-chat__candidate-check">
+                  <input
+                    type="checkbox"
+                    :checked="card.selected"
+                    @change="toggleCandidate(card.id, $event)"
+                  >
+                  <span>{{ card.kind }}</span>
+                </label>
+                <strong>{{ card.question }}</strong>
+                <p>{{ card.answer }}</p>
+                <button class="ai-chat__link-button" type="button" @click="openCandidateEditor(card)">{{ t('edit', '编辑') }}</button>
+              </article>
+            </div>
+            <template v-else>
+              <p
+                v-if="assistantResultNotice(message)"
+                class="ai-chat__result-note"
+                :class="assistantResultNotice(message)?.status === 'empty' ? 'ai-chat__result-note--empty' : 'ai-chat__result-note--partial'"
+              >
+                {{ assistantResultNotice(message)?.text }}
+              </p>
+              <section v-for="section in assistantSections(message)" :key="section.key" class="ai-chat__result-section">
+                <h4>{{ section.title }}</h4>
+                <RichMarkdownContent v-if="section.kind === 'text'" :content="section.text" />
+                <ul v-else>
+                  <li v-for="item in section.items" :key="item"><RichMarkdownContent :content="item" /></li>
+                </ul>
+              </section>
+            </template>
           </template>
 
           <div v-if="messageContextItems(message).length > 0" class="ai-chat__context-chip-list ai-chat__context-chip-list--message">
@@ -147,6 +235,19 @@
               <strong>{{ contextItem.title }}</strong>
               <span>{{ contextItem.summary }}</span>
             </button>
+          </div>
+        </article>
+
+        <article v-if="visibleRunStatus" class="ai-chat__bubble ai-chat__bubble--pending" aria-live="polite">
+          <div class="ai-chat__bubble-meta">
+            <div>
+              <strong>{{ visibleRunStatus.title }}</strong>
+              <span>{{ formatTime(visibleRunStatus.startedAt) }}</span>
+            </div>
+          </div>
+          <div class="ai-chat__pending-body">
+            <span class="ai-chat__pending-dot" aria-hidden="true"></span>
+            <p>{{ visibleRunStatus.description }}</p>
           </div>
         </article>
       </section>
@@ -242,6 +343,14 @@ import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
 import type {
   AIAttachedContextItem,
+  AIConceptCoachCandidateCard,
+  AIConceptCoachCardKind,
+  AIConceptCoachIntegratedUnderstanding,
+  AIConceptCoachNormalizationDiagnostic,
+  AIConceptCoachPerspectiveSection,
+  AIConceptCoachPerspectives,
+  AIConceptCoachRealWorldTriggers,
+  AIConceptCoachSelfTestCards,
   AIExplainResult,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchMessage,
@@ -254,6 +363,10 @@ type ContextProvider = {
   description: string;
   inputKind: 'none' | 'line' | 'area';
 };
+
+type AssistantSection =
+  | { key: string; title: string; kind: 'text'; text: string }
+  | { key: string; title: string; kind: 'list'; items: string[] };
 
 type WindowWithPlugin = Window & {
   siyuanMemoPlugin?: {
@@ -297,7 +410,8 @@ const editorValue = ref('');
 const editorPlaceholder = ref('');
 const editorConfirmLabel = ref('');
 const editingMessageId = ref<string | null>(null);
-const editingMode = ref<'assistant-text' | 'user-followup' | 'composer' | 'context' | 'provider' | null>(null);
+const editingCandidateId = ref<string | null>(null);
+const editingMode = ref<'assistant-text' | 'user-followup' | 'composer' | 'context' | 'provider' | 'candidate-card' | null>(null);
 const pendingProvider = ref<ContextProvider | null>(null);
 
 function t(key: string, fallback: string): string {
@@ -317,6 +431,10 @@ function normalizeLooseStringList(value: unknown): string[] {
   return normalized ? [normalized] : [];
 }
 
+function normalizeText(value: unknown): string {
+  return String(value || '').trim();
+}
+
 function tryParseStructuredJson(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -326,7 +444,7 @@ function tryParseStructuredJson(value: string): Record<string, unknown> | null {
   }
 }
 
-function resolveExplainResult(message: AIWorkbenchAssistantResultMessage): AIExplainResult | null {
+function resolveLegacyExplainResult(message: AIWorkbenchAssistantResultMessage): AIExplainResult | null {
   if (message.explainResult && (
     message.explainResult.workingDefinition
     || message.explainResult.whatItTests
@@ -339,7 +457,7 @@ function resolveExplainResult(message: AIWorkbenchAssistantResultMessage): AIExp
   }
   const raw = tryParseStructuredJson(message.rawContent);
   if (!raw) {
-    return message.explainResult;
+    return message.explainResult || null;
   }
   return {
     workingDefinition: typeof raw.workingDefinition === 'string' ? raw.workingDefinition.trim() : (typeof raw.workDefinition === 'string' ? raw.workDefinition.trim() : ''),
@@ -400,19 +518,28 @@ function getDialogManager() {
   return getWindowPlugin()?.getContext?.()?.getDialogManager?.() || null;
 }
 
-watch(
-  () => state.activeView,
-  (view) => {
-    if (view !== 'explain') {
-      service.setActiveView('explain');
-    }
-  },
-  { immediate: true },
-);
-
 const isCompact = computed(() => state.surface !== 'standalone-dialog');
 const showInlineClose = computed(() => state.surface === 'review-dialog-sidecar');
 const modelLabel = computed(() => service.getCurrentModelLabel?.() || t('unconfiguredModel', '未配置模型'));
+const skillChoices = computed(() => service.getSkills?.() || []);
+const skillTabs = computed(() => service.getSkillTabs?.() || []);
+const skillTitle = computed(() => service.getSkillTitle?.() || t('aiConceptCoachCard', 'AI 理解与制卡'));
+const skillBrief = computed(() => service.getSkillBrief?.() || t('aiExplainBrief', '解释这张卡'));
+const primaryActionLabel = computed(() => service.getPrimaryActionLabel?.() || t('explainThisContent', '解释此内容'));
+const defaultUserPrompt = computed(() => service.getDefaultUserPrompt?.() || t('aiConceptCoachDefaultUserPrompt', '请基于当前材料，完成 AI 理解与制卡：先解释清楚，再生成可自测的候选卡。'));
+const activeSkillHideTabs = computed(() => skillChoices.value.find((skill) => skill.id === state.activeSkillId)?.hideTabs === true);
+const activeTabTitle = computed(() => service.getActiveTabDescriptor?.().title || skillTabs.value.find((tab) => tab.id === state.activeTabId)?.title || '');
+const currentTabHasResult = computed(() => service.hasStructuredResult?.(undefined, state.activeTabId) || Boolean(state.explainResult));
+const visibleRunStatus = computed(() => {
+  const status = state.runStatus;
+  if (!status) {
+    return null;
+  }
+  if (status.mode === 'full-run' || status.tabIds.includes(state.activeTabId)) {
+    return status;
+  }
+  return null;
+});
 const filteredSessionHistory = computed(() => {
   const query = historyQuery.value.trim().toLowerCase();
   if (!query) {
@@ -423,7 +550,7 @@ const filteredSessionHistory = computed(() => {
     || sourceLabelFor(session.source).toLowerCase().includes(query)
   ));
 });
-const activeMessages = computed(() => service.getThreadMessages?.('explain') || state.threads.explain.messages);
+const activeMessages = computed(() => service.getThreadMessages?.(undefined, state.activeTabId) || []);
 const composerContexts = computed(() => service.getComposerContexts?.() || state.composerContexts.items);
 const contextProviders = computed<ContextProvider[]>(() => (
   (service.getAvailableContextProviders?.() || []) as ContextProvider[]
@@ -453,9 +580,13 @@ const contextDetailRows = computed(() => {
   return rows;
 });
 const composerPlaceholder = computed(() => (
-  state.explainResult
-    ? t('aiFollowUpPlaceholder', '继续追问这张卡为什么值得记、哪里容易错，或补充一段材料后再问。')
-    : t('aiExplainComposerPlaceholder', '输入你想让 AI 解释的内容，然后按 Ctrl/Cmd + Enter 发送。')
+  state.activeSkillId === 'general-chat'
+    ? t('aiGeneralChatPlaceholder', '直接提问、粘贴 URL，或让 AI 调用工具读取当前上下文。')
+    : (
+  currentTabHasResult.value
+    ? t('aiFollowUpPlaceholder', '继续追问当前阶段，或补充一段材料后再问。')
+    : t('aiConceptCoachComposerPlaceholder', '输入你想理解或制卡的内容，然后按 Ctrl/Cmd + Enter 发送。')
+    )
 ));
 const sendDisabled = computed(() => {
   if (state.isLoading) {
@@ -464,29 +595,174 @@ const sendDisabled = computed(() => {
   if (composerValue.value.trim().length === 0) {
     return true;
   }
-  return !state.explainResult && revealLocked.value;
+  return state.activeSkillId !== 'general-chat' && !currentTabHasResult.value && revealLocked.value;
 });
 
-function assistantSections(message: AIWorkbenchMessage) {
+function normalizePerspectiveItems(section: AIConceptCoachPerspectiveSection): string[] {
+  const items = [
+    ...normalizeLooseStringList(section.keyPoints),
+    ...normalizeLooseStringList(section.easyMisjudgments).map((item) => `易误判：${item}`),
+    ...normalizeLooseStringList(section.examples).map((item) => `例子：${item}`),
+    ...normalizeLooseStringList(section.reasons).map((item) => `原因：${item}`),
+    ...normalizeLooseStringList(section.applicableScenarios).map((item) => `适用：${item}`),
+    ...normalizeLooseStringList(section.nonApplicableScenarios).map((item) => `不适用：${item}`),
+    ...normalizeLooseStringList(section.subConcepts).map((item) => `部分：${item}`),
+    ...normalizeLooseStringList(section.parentConcepts).map((item) => `整体：${item}`),
+  ];
+  if (section.metaphor) {
+    items.push(`比喻：${section.metaphor}`);
+  }
+  if (section.commonMisuse) {
+    items.push(`常见误用：${section.commonMisuse}`);
+  }
+  if (section.importance) {
+    items.push(`重要性：${section.importance}`);
+  }
+  if (section.behaviorChange) {
+    items.push(`行为改变：${section.behaviorChange}`);
+  }
+  if (section.triggerScenario) {
+    items.push(`触发场景：${section.triggerScenario}`);
+  }
+  for (const comparison of section.comparisons || []) {
+    items.push(`和 ${comparison.concept}：相似点 ${comparison.similarity || '未说明'}；差异 ${comparison.difference || '未说明'}${comparison.clue ? `；识别线索 ${comparison.clue}` : ''}`);
+  }
+  return items.filter(Boolean);
+}
+
+function sectionsFromPerspectives(value: AIConceptCoachPerspectives): AssistantSection[] {
+  return [
+    { key: 'traits', title: value.traits.title || t('traits', '特性和倾向'), kind: 'list' as const, items: normalizePerspectiveItems(value.traits) },
+    { key: 'contrasts', title: value.contrasts.title || t('contrasts', '辨析异同'), kind: 'list' as const, items: normalizePerspectiveItems(value.contrasts) },
+    { key: 'partsAndWhole', title: value.partsAndWhole.title || t('partsAndWhole', '部分和整体'), kind: 'list' as const, items: normalizePerspectiveItems(value.partsAndWhole) },
+    { key: 'causality', title: value.causality.title || t('causality', '因果关系'), kind: 'list' as const, items: normalizePerspectiveItems(value.causality) },
+    { key: 'significance', title: value.significance.title || t('significance', '意义和影响'), kind: 'list' as const, items: normalizePerspectiveItems(value.significance) },
+  ];
+}
+
+function missingSectionLabel(tabId: AIWorkbenchAssistantResultMessage['tabId'], key: string): string {
+  if (tabId === 'perspectives') {
+    switch (key) {
+      case 'traits':
+        return t('traits', '特性和倾向');
+      case 'contrasts':
+        return t('contrasts', '辨析异同');
+      case 'partsAndWhole':
+        return t('partsAndWhole', '部分和整体');
+      case 'causality':
+        return t('causality', '因果关系');
+      case 'significance':
+        return t('significance', '意义和影响');
+      default:
+        return key;
+    }
+  }
+  if (tabId === 'integrated-understanding') {
+    switch (key) {
+      case 'essence':
+        return t('essence', '本质压缩');
+      case 'notWhat':
+        return t('notWhat', '它不是什么');
+      case 'capabilities':
+        return t('capabilities', '学会后能做到');
+      default:
+        return key;
+    }
+  }
+  return key;
+}
+
+function assistantResultNotice(message: AIWorkbenchMessage): { status: AIConceptCoachNormalizationDiagnostic['status']; text: string } | null {
+  if (message.kind !== 'assistant-result' || !message.normalizationDiagnostic) {
+    return null;
+  }
+  const diagnostic = message.normalizationDiagnostic;
+  if (diagnostic.status === 'full') {
+    return null;
+  }
+  const missing = diagnostic.missingSections
+    .map((key) => missingSectionLabel(message.tabId, key))
+    .filter(Boolean)
+    .join('、');
+
+  if (diagnostic.status === 'empty') {
+    const base = t('aiStructuredEmptyResult', '当前阶段没有识别到可展示的结构字段。');
+    const detail = missing
+      ? `${t('missingSections', '缺少')}：${missing}。`
+      : '';
+    const shape = diagnostic.rawShape && diagnostic.rawShape !== 'persisted-result'
+      ? `${t('rawShape', '原始形状')}：${diagnostic.rawShape}。`
+      : '';
+    return {
+      status: diagnostic.status,
+      text: `${base}${detail}${shape}`.trim(),
+    };
+  }
+
+  return {
+    status: diagnostic.status,
+    text: `${t('aiStructuredPartialResult', '模型只返回了部分结构，已尽量展示可用内容。')}${missing ? ` ${t('missingSections', '缺少')}：${missing}。` : ''}`.trim(),
+  };
+}
+
+function assistantSections(message: AIWorkbenchMessage): AssistantSection[] {
   if (message.kind !== 'assistant-result') {
     return [];
   }
-  const result = resolveExplainResult(message);
-  if (!result) {
-    return [];
+  const legacyResult = !message.conceptCoachResult && !message.tabResult
+    ? resolveLegacyExplainResult(message)
+    : null;
+  if (legacyResult) {
+    return [
+      { key: 'workingDefinition', title: t('workingDefinition', '工作定义'), kind: 'text' as const, text: legacyResult.workingDefinition },
+      { key: 'whatItTests', title: t('whatItTests', '这张卡在考什么'), kind: 'text' as const, text: legacyResult.whatItTests },
+      { key: 'whyItsTricky', title: t('whyItsTricky', '为什么容易错'), kind: 'text' as const, text: legacyResult.whyItsTricky },
+      { key: 'connections', title: t('connections', '它和现有知识网络的连接'), kind: 'list' as const, items: legacyResult.connections },
+      { key: 'triggers', title: t('triggers', '下次什么时候该想起它'), kind: 'list' as const, items: legacyResult.triggers },
+      { key: 'cardIdeas', title: t('cardIdeas', '可顺手补的卡'), kind: 'list' as const, items: legacyResult.cardIdeas },
+    ].filter((section) => section.kind === 'text' ? section.text.trim().length > 0 : section.items.length > 0);
   }
-  return [
-    { key: 'workingDefinition', title: t('workingDefinition', '工作定义'), kind: 'text' as const, text: result.workingDefinition },
-    { key: 'whatItTests', title: t('whatItTests', '这张卡在考什么'), kind: 'text' as const, text: result.whatItTests },
-    { key: 'whyItsTricky', title: t('whyItsTricky', '为什么容易错'), kind: 'text' as const, text: result.whyItsTricky },
-    { key: 'connections', title: t('connections', '它和现有知识网络的连接'), kind: 'list' as const, items: result.connections },
-    { key: 'triggers', title: t('triggers', '下次什么时候该想起它'), kind: 'list' as const, items: result.triggers },
-    { key: 'cardIdeas', title: t('cardIdeas', '可顺手补的卡'), kind: 'list' as const, items: result.cardIdeas },
-  ].filter((section) => section.kind === 'text' ? section.text.trim().length > 0 : section.items.length > 0);
+  if (message.tabId === 'working-definition') {
+    const text = typeof message.tabResult === 'string'
+      ? message.tabResult
+      : message.conceptCoachResult?.workingDefinition || '';
+    return [{ key: 'workingDefinition', title: t('workingDefinition', '工作定义'), kind: 'text', text }].filter((section) => section.text.trim());
+  }
+  if (message.tabId === 'perspectives') {
+    return sectionsFromPerspectives((message.tabResult || message.conceptCoachResult?.perspectives) as AIConceptCoachPerspectives)
+      .filter((section) => section.items.length > 0);
+  }
+  if (message.tabId === 'integrated-understanding') {
+    const value = (message.tabResult || message.conceptCoachResult?.integratedUnderstanding) as AIConceptCoachIntegratedUnderstanding | null;
+    return value ? [
+      { key: 'essence', title: t('essence', '本质压缩'), kind: 'text' as const, text: normalizeText(value.essence) },
+      { key: 'notWhat', title: t('notWhat', '它不是什么'), kind: 'list' as const, items: normalizeLooseStringList(value.notWhat) },
+      { key: 'capabilities', title: t('capabilities', '学会后能做到'), kind: 'list' as const, items: normalizeLooseStringList(value.capabilities) },
+    ].filter((section) => section.kind === 'text' ? section.text.length > 0 : section.items.length > 0) : [];
+  }
+  if (message.tabId === 'real-world-triggers') {
+    const value = (message.tabResult || message.conceptCoachResult?.realWorldTriggers) as AIConceptCoachRealWorldTriggers | null;
+    return value ? [{ key: 'triggers', title: t('realWorldTriggers', '现实触发器'), kind: 'list', items: normalizeLooseStringList(value.triggers) }] : [];
+  }
+  return [];
+}
+
+function candidateCards(message: AIWorkbenchAssistantResultMessage): AIConceptCoachCandidateCard[] {
+  const value = (message.tabResult || message.conceptCoachResult?.selfTestCards) as AIConceptCoachSelfTestCards | null;
+  return Array.isArray(value?.cards) ? value.cards : [];
 }
 
 function messageSpeaker(message: AIWorkbenchMessage): string {
-  return message.kind === 'user' ? t('you', '你') : t('aiWorkbench', 'AI');
+  if (message.kind === 'user') {
+    return t('you', '你');
+  }
+  if (message.kind === 'tool-log') {
+    return t('toolRuntime', '工具 Runtime');
+  }
+  if (message.kind === 'approval') {
+    return t('approval', '审批');
+  }
+  return t('aiWorkbench', 'AI');
 }
 
 function messageContextItems(message: AIWorkbenchMessage): AIAttachedContextItem[] {
@@ -508,13 +784,25 @@ function canEditUserMessage(message: AIWorkbenchMessage): boolean {
 }
 
 function canRerunMessage(message: AIWorkbenchMessage): boolean {
-  return message.kind === 'assistant-result';
+  return state.activeSkillId !== 'general-chat' && message.kind === 'assistant-result';
 }
 
-async function runExplain(): Promise<void> {
+function prepareDefaultSkillPrompt(): void {
+  closeContextMenu();
+  if (!composerValue.value.trim()) {
+    composerValue.value = defaultUserPrompt.value;
+  }
+  focusComposerInput();
+}
+
+async function runActiveTab(): Promise<void> {
   closeContextMenu();
   composerValue.value = '';
-  await service.runExplain();
+  if (service.runActiveTab) {
+    await service.runActiveTab();
+  } else {
+    await service.runExplain?.();
+  }
 }
 
 function focusComposerInput(): void {
@@ -523,12 +811,6 @@ function focusComposerInput(): void {
     const end = composerValue.value.length;
     composerInputRef.value?.setSelectionRange(end, end);
   });
-}
-
-function fillExplainPrompt(): void {
-  closeContextMenu();
-  composerValue.value = t('explainThisContent', '解释此内容');
-  focusComposerInput();
 }
 
 async function submitComposer(): Promise<void> {
@@ -540,8 +822,12 @@ async function submitComposer(): Promise<void> {
   if (!content) {
     return;
   }
-  if (!state.explainResult) {
-    await service.submitExplainPrompt(content);
+  if (!currentTabHasResult.value) {
+    if (service.submitSkillPrompt) {
+      await service.submitSkillPrompt(content);
+    } else {
+      await service.submitExplainPrompt(content);
+    }
   } else {
     await service.submitFollowUp(content);
   }
@@ -550,8 +836,10 @@ async function submitComposer(): Promise<void> {
 
 async function copyMessage(message: AIWorkbenchMessage): Promise<void> {
   const content = message.kind === 'assistant-result'
-    ? JSON.stringify(resolveExplainResult(message), null, 2)
-    : message.content;
+    ? JSON.stringify(message.tabResult ?? message.conceptCoachResult ?? null, null, 2)
+    : message.kind === 'approval'
+      ? JSON.stringify(message.request, null, 2)
+      : message.content;
   await navigator.clipboard?.writeText(content || '');
 }
 
@@ -604,6 +892,39 @@ function previewContextItem(contextItem: AIAttachedContextItem): void {
   editorPlaceholder.value = '';
   editorConfirmLabel.value = t('save', '保存');
   editorOpen.value = true;
+}
+
+function openCandidateEditor(card: AIConceptCoachCandidateCard): void {
+  editingMode.value = 'candidate-card';
+  editingCandidateId.value = card.id;
+  editorReadonly.value = false;
+  editorTitle.value = t('editCandidateCard', '编辑候选卡');
+  editorValue.value = [
+    `问题：${card.question}`,
+    `答案：${card.answer}`,
+    `类型：${card.kind}`,
+  ].join('\n');
+  editorPlaceholder.value = '问题：...\n答案：...\n类型：辨析/因果/应用/反例/触发/定义/边界/其他';
+  editorConfirmLabel.value = t('save', '保存');
+  editorOpen.value = true;
+}
+
+function parseCandidateEditorValue(value: string): Partial<Pick<AIConceptCoachCandidateCard, 'question' | 'answer' | 'kind'>> {
+  const lines = value.split(/\r?\n/);
+  const question = normalizeText(lines.find((line) => /^问题[:：]/.test(line))?.replace(/^问题[:：]/, ''));
+  const answer = normalizeText(lines.find((line) => /^答案[:：]/.test(line))?.replace(/^答案[:：]/, ''));
+  const kind = normalizeText(lines.find((line) => /^类型[:：]/.test(line))?.replace(/^类型[:：]/, '')) as AIConceptCoachCardKind;
+  return { question, answer, kind };
+}
+
+async function toggleCandidate(cardId: string, event: Event): Promise<void> {
+  const target = event.target;
+  const selected = target instanceof HTMLInputElement ? target.checked : true;
+  await service.updateCandidateCard(cardId, { selected });
+}
+
+async function resolveApproval(approvalId: string, approved: boolean): Promise<void> {
+  await service.resolveToolApproval?.(approvalId, approved);
 }
 
 function closeContextMenu(): void {
@@ -659,8 +980,11 @@ async function confirmEditor(): Promise<void> {
     composerValue.value = '';
   } else if (editingMode.value === 'composer') {
     composerValue.value = editorValue.value;
+    focusComposerInput();
   } else if (editingMode.value === 'provider' && pendingProvider.value) {
     await service.attachContextFromProvider(pendingProvider.value.key, editorValue.value);
+  } else if (editingMode.value === 'candidate-card' && editingCandidateId.value) {
+    await service.updateCandidateCard(editingCandidateId.value, parseCandidateEditorValue(editorValue.value));
   }
   closeEditor();
 }
@@ -669,6 +993,7 @@ function closeEditor(): void {
   editorOpen.value = false;
   editingMode.value = null;
   editingMessageId.value = null;
+  editingCandidateId.value = null;
   pendingProvider.value = null;
 }
 
@@ -718,12 +1043,23 @@ onUnmounted(() => {
 .ai-chat__history { width: 260px; border-right: 1px solid #e6e9f0; background: #ffffff; display: flex; flex-direction: column; min-height: 0; }
 .ai-chat__main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .ai-chat__topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px 6px; border-bottom: 1px solid #e6e9f0; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); }
-.ai-chat__topbar-main { display: flex; align-items: center; gap: 0; min-width: 0; flex: 1; }
+.ai-chat__topbar-main { display: grid; gap: 2px; min-width: 0; flex: 1; }
 .ai-chat__headline { white-space: nowrap; font-size: 14px; line-height: 1.2; font-weight: 700; color: #111827; }
+.ai-chat__subhead { color: #6b7280; font-size: 12px; }
 .ai-chat__topbar-actions { display: flex; align-items: center; gap: 6px; padding-top: 1px; }
 .ai-chat__icon-button { width: 28px; height: 28px; border: 1px solid #d9deea; border-radius: 7px; background: #fff; display: inline-flex; align-items: center; justify-content: center; color: #667085; }
 .ai-chat__icon-button svg { width: 14px; height: 14px; }
 .ai-chat__icon-button span { font-size: 16px; line-height: 1; }
+.ai-chat__skill-switch { display: flex; gap: 8px; overflow-x: auto; padding: 8px 10px 0; background: #fff; }
+.ai-chat__skill-pill { min-width: 150px; border: 1px solid #dfe5ef; border-radius: 999px; background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); padding: 7px 12px; display: grid; gap: 2px; text-align: left; }
+.ai-chat__skill-pill strong { font-size: 12px; color: #1f2937; }
+.ai-chat__skill-pill span { font-size: 10px; color: #7b8494; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai-chat__skill-pill--active { border-color: #91a9ff; background: linear-gradient(180deg, #f6f9ff 0%, #eaf1ff 100%); box-shadow: inset 0 0 0 1px rgba(80, 118, 255, 0.18); }
+.ai-chat__tabs { display: flex; gap: 8px; overflow-x: auto; padding: 8px 10px; border-bottom: 1px solid #e6e9f0; background: #fff; }
+.ai-chat__tab { min-width: 128px; border: 1px solid #e1e6ef; border-radius: 9px; background: #fbfcff; padding: 8px 10px; display: grid; gap: 3px; text-align: left; }
+.ai-chat__tab strong { font-size: 12px; color: #1f2937; }
+.ai-chat__tab span { font-size: 11px; color: #7f8797; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai-chat__tab--active { border-color: #9fb7ff; background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%); box-shadow: inset 0 0 0 1px rgba(96, 132, 255, 0.18); }
 .ai-chat__history-head, .ai-chat__section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ai-chat__history-head { padding: 12px; border-bottom: 1px solid #eef1f6; }
 .ai-chat__history-search { margin: 12px; border-radius: 8px; }
@@ -742,22 +1078,47 @@ onUnmounted(() => {
 .ai-chat__context-row span { color: #7f8797; font-size: 12px; }
 .ai-chat__context-card { border: 1px solid #eef1f6; border-radius: 8px; padding: 10px; background: #fbfcfe; }
 .ai-chat__warning { color: #a16207; font-size: 12px; }
-.ai-chat__banner { margin: 12px 14px 0; padding: 12px; border-radius: 8px; border: 1px solid #f0d2d2; background: #fff6f6; }
+.ai-chat__banner { margin: 12px 14px 0; padding: 12px; border-radius: 8px; border: 1px solid #eadca6; background: #fff9e7; }
+.ai-chat__banner--error { border-color: #f0d2d2; background: #fff6f6; }
 .ai-chat__banner--error strong { display: block; margin-bottom: 4px; }
+.ai-chat__banner-details { margin-top: 10px; }
+.ai-chat__banner-details summary { cursor: pointer; color: #51607a; font-size: 12px; user-select: none; }
+.ai-chat__banner-pre { margin: 8px 0 0; padding: 10px; max-height: 240px; overflow: auto; border: 1px solid #ead4d4; border-radius: 6px; background: #fff; color: #3e4a60; font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; }
 .ai-chat__timeline { flex: 1; min-height: 0; overflow: auto; padding: 14px 12px; display: grid; gap: 10px; }
 .ai-chat__empty-state, .ai-chat__bubble { border: 1px solid #e6e9f0; border-radius: 8px; background: #fff; padding: 13px; }
 .ai-chat__empty-state { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 24px 16px; }
-.ai-chat__empty-icon { width: 56px; height: 56px; border-radius: 999px; background: linear-gradient(180deg, #6f51ff 0%, #5b3fe5 100%); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
+.ai-chat__empty-icon { width: 56px; height: 56px; border-radius: 999px; background: linear-gradient(180deg, #1c7d8f 0%, #13566f 100%); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
 .ai-chat__empty-icon svg { width: 22px; height: 22px; }
 .ai-chat__primary-button { border: 0; border-radius: 8px; background: #ffffff; box-shadow: inset 0 0 0 1px #dce3f5; padding: 10px 16px; color: #1f2430; }
 .ai-chat__bubble--user { background: #f8fbff; }
+.ai-chat__bubble--pending { border-color: #cde0ec; background: linear-gradient(180deg, #f8fcff 0%, #edf8fb 100%); }
 .ai-chat__bubble-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .ai-chat__bubble-meta span { display: block; color: #7f8797; font-size: 12px; margin-top: 2px; }
 .ai-chat__bubble-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ai-chat__pending-body { display: flex; align-items: center; gap: 9px; color: #51607a; }
+.ai-chat__pending-body p { margin: 0; }
+.ai-chat__pending-dot { width: 8px; height: 8px; border-radius: 999px; background: #1c7d8f; box-shadow: 0 0 0 0 rgba(28,125,143,0.3); animation: ai-pending-pulse 1.1s ease-in-out infinite; flex: 0 0 auto; }
 .ai-chat__message-copy :deep(p:last-child) { margin-bottom: 0; }
+.ai-chat__result-note { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; }
+.ai-chat__result-note--partial { background: #fff8e8; border: 1px solid #f1e0ae; color: #8a5a00; }
+.ai-chat__result-note--empty { background: #fff1ef; border: 1px solid #f2cbc5; color: #b04437; }
+.ai-chat__tool-log { border: 1px solid #d7e3f5; border-radius: 10px; background: #f8fbff; padding: 10px; display: grid; gap: 8px; }
+.ai-chat__tool-log strong { font-size: 12px; color: #315076; }
+.ai-chat__tool-log--error { border-color: #f0b6af; background: #fff7f6; }
+.ai-chat__tool-log--approval-required { border-color: #f5d58a; background: #fffaf0; }
+.ai-chat__approval-card { border: 1px solid #f0c978; border-radius: 12px; background: #fff9ea; padding: 12px; display: grid; gap: 8px; }
+.ai-chat__approval-card strong { color: #5b4216; }
+.ai-chat__approval-card pre { max-height: 180px; overflow: auto; background: rgba(255,255,255,0.72); border: 1px solid #f4dfac; border-radius: 8px; padding: 8px; white-space: pre-wrap; font-size: 11px; }
+.ai-chat__approval-card--approved { border-color: #b9dfc3; background: #f3fbf5; }
+.ai-chat__approval-card--rejected { border-color: #f0b6af; background: #fff7f6; }
+.ai-chat__approval-actions { display: flex; align-items: center; gap: 8px; }
 .ai-chat__result-section { display: grid; gap: 6px; margin-top: 10px; }
 .ai-chat__result-section h4 { margin: 0; font-size: 13px; color: #3e4a60; }
 .ai-chat__result-section ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.ai-chat__candidate-list { display: grid; gap: 10px; }
+.ai-chat__candidate-card { border: 1px solid #e5e9f2; border-radius: 10px; padding: 10px; display: grid; gap: 7px; background: #fbfcff; }
+.ai-chat__candidate-card p { margin: 0; color: #4b5563; }
+.ai-chat__candidate-check { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 12px; }
 .ai-chat__composer { position: relative; border-top: 1px solid #e6e9f0; background: #fff; padding: 10px 12px 12px; display: grid; gap: 8px; }
 .ai-chat__composer-shell { position: relative; border: 1px solid #d9deea; border-radius: 8px; background: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4); }
 .ai-chat__composer-input { width: 100%; min-height: 126px; resize: vertical; border: 0; border-radius: 8px; padding: 12px 12px 48px; background: transparent; box-shadow: none; }
@@ -777,6 +1138,11 @@ onUnmounted(() => {
 .ai-chat__context-menu-item { border: 0; background: none; padding: 11px 12px; text-align: left; display: grid; gap: 4px; }
 .ai-chat__context-menu-item + .ai-chat__context-menu-item { border-top: 1px solid #eef1f6; }
 .ai-chat__context-menu-item span { color: #7f8797; font-size: 12px; }
+@keyframes ai-pending-pulse {
+  0% { opacity: 0.45; transform: scale(0.85); box-shadow: 0 0 0 0 rgba(28,125,143,0.22); }
+  50% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 6px rgba(28,125,143,0.08); }
+  100% { opacity: 0.45; transform: scale(0.85); box-shadow: 0 0 0 0 rgba(28,125,143,0); }
+}
 @media (max-width: 900px) {
   .ai-chat__history { width: 220px; }
 }

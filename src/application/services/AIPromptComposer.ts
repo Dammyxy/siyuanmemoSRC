@@ -1,9 +1,9 @@
-import type { AISettings, AIPromptTextPair } from '@/types/settings';
+import type { AIConceptCoachPromptTemplates } from '@/types/settings';
 import { DEFAULT_AI_PROMPTS } from '@/types/settings';
+import type { AISkillId } from '@/types/ai';
 
-export type AIPromptTask = 'explain';
-
-type AIPromptSettingKey = keyof AISettings['prompts'];
+export type AIPromptTask = AISkillId;
+export type AIPromptSettingKey = 'conceptCoach';
 
 export interface AIPromptPresetDescriptor {
   task: AIPromptTask;
@@ -20,36 +20,45 @@ export interface AIPromptPresetDescriptor {
 
 export const AI_PROMPT_PRESET_DESCRIPTORS: readonly AIPromptPresetDescriptor[] = [
   {
-    task: 'explain',
-    settingKey: 'explain',
-    titleKey: 'aiExplainPromptPresetTitle',
-    titleFallback: 'AI 解释卡片推荐模板',
-    audienceKey: 'aiExplainPromptPresetAudience',
-    audienceFallback: '面向正在复习的“现在的自己”，重点是讲清这张卡为什么值得记。',
-    behaviorKey: 'aiExplainPromptPresetBehavior',
-    behaviorFallback: '强调工作定义、边界、因果、连接和触发器，不空泛复述。',
-    outputKey: 'aiExplainPromptPresetOutput',
-    outputFallback: '提供一组可编辑的行为 Prompt 和追问 Prompt；结构化输出规则由系统自动附加。',
+    task: 'concept-coach',
+    settingKey: 'conceptCoach',
+    titleKey: 'aiConceptCoachPromptPresetTitle',
+    titleFallback: 'AI 理解与制卡推荐模板',
+    audienceKey: 'aiConceptCoachPromptPresetAudience',
+    audienceFallback: '面向正在理解概念、复习卡片或整理材料的自己，目标是分得清、想得起、用得上。',
+    behaviorKey: 'aiConceptCoachPromptPresetBehavior',
+    behaviorFallback: '按工作定义、多视角理解、整合理解、自测卡片和现实触发器五个阶段组织理解。',
+    outputKey: 'aiConceptCoachPromptPresetOutput',
+    outputFallback: '每个阶段都有可编辑 Prompt；结构化 JSON 规则由系统自动附加。',
   },
 ] as const;
 
-function clonePromptPair(pair: AIPromptTextPair): AIPromptTextPair {
+function clonePromptSet(set: AIConceptCoachPromptTemplates): AIConceptCoachPromptTemplates {
   return {
-    run: pair.run,
-    followUp: pair.followUp,
+    baseRun: set.baseRun,
+    tabs: {
+      'working-definition': { ...set.tabs['working-definition'] },
+      perspectives: { ...set.tabs.perspectives },
+      'integrated-understanding': { ...set.tabs['integrated-understanding'] },
+      'self-test-cards': { ...set.tabs['self-test-cards'] },
+      'real-world-triggers': { ...set.tabs['real-world-triggers'] },
+    },
   };
 }
 
-function resolveDefaultPrompt(settingKey: AIPromptSettingKey): AIPromptTextPair {
-  return clonePromptPair(DEFAULT_AI_PROMPTS[settingKey]);
+export function getRecommendedPromptTemplate(task: AIPromptTask): AIConceptCoachPromptTemplates {
+  switch (task) {
+    case 'concept-coach':
+    default:
+      return clonePromptSet(DEFAULT_AI_PROMPTS.skills.conceptCoach);
+  }
 }
 
-export function getRecommendedPromptTemplate(task: AIPromptTask): AIPromptTextPair {
-  switch (task) {
-    case 'explain':
-      return resolveDefaultPrompt('explain');
+export function getRecommendedPromptTemplateForSetting(settingKey: AIPromptSettingKey): AIConceptCoachPromptTemplates {
+  switch (settingKey) {
+    case 'conceptCoach':
     default:
-      return resolveDefaultPrompt('explain');
+      return clonePromptSet(DEFAULT_AI_PROMPTS.skills.conceptCoach);
   }
 }
 

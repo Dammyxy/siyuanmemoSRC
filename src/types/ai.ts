@@ -4,13 +4,173 @@ import type {
   ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
 
-export type AITaskType = 'explain';
+export const AI_CONCEPT_COACH_SKILL_ID = 'concept-coach' as const;
+export const AI_GENERAL_CHAT_SKILL_ID = 'general-chat' as const;
+export const AI_GENERAL_CHAT_TAB_ID = 'chat' as const;
+
+export const AI_CHAT_SKILL_IDS = [
+  AI_GENERAL_CHAT_SKILL_ID,
+  AI_CONCEPT_COACH_SKILL_ID,
+] as const;
+
+export const AI_CONCEPT_COACH_TAB_IDS = [
+  'working-definition',
+  'perspectives',
+  'integrated-understanding',
+  'self-test-cards',
+  'real-world-triggers',
+] as const;
+
+export type AISkillId = typeof AI_CHAT_SKILL_IDS[number];
+export type AIConceptCoachTabId = typeof AI_CONCEPT_COACH_TAB_IDS[number];
+export type AIGeneralChatTabId = typeof AI_GENERAL_CHAT_TAB_ID;
+export type AISkillTabId = AIConceptCoachTabId | AIGeneralChatTabId;
+export type AIWorkbenchLegacyView = 'explain' | 'make-cards' | 'tutor';
+export type AIWorkbenchOpenView = AISkillId | AIWorkbenchLegacyView;
 export type AIWorkbenchSource = 'review' | 'browser' | 'template-dialog' | 'standalone';
 export type AIWorkbenchSurface = 'standalone-dialog' | 'review-dialog-sidecar' | 'review-tab-companion';
 export type AIFollowUpRole = 'user' | 'assistant';
-export type AIWorkbenchUserMessagePurpose = 'initial-explain' | 'follow-up';
-export type AIWorkbenchMessageKind = 'user' | 'assistant-text' | 'assistant-result';
+export type AIWorkbenchUserMessagePurpose = 'initial-run' | 'initial-explain' | 'follow-up';
+export type AIWorkbenchMessageKind = 'user' | 'assistant-text' | 'assistant-result' | 'tool-log' | 'approval';
+export type AIWorkbenchRunMode = 'full-run' | 'tab-rerun' | 'follow-up' | 'chat' | 'tool-chain';
 export type AIContextProviderKey = 'manual-text' | 'selected-content' | 'block-refs' | 'current-document';
+export type AIConceptCoachCardKind = '辨析' | '因果' | '应用' | '反例' | '触发' | '定义' | '边界' | '其他';
+export type AIConceptCoachNormalizationStatus = 'full' | 'partial' | 'empty';
+export type AIChatMessageRenderer = 'text' | 'concept-coach-result' | 'tool-timeline' | 'approval-card';
+export type AIChatToolGroupKey =
+  | 'context-read'
+  | 'siyuan-read'
+  | 'review-read'
+  | 'flashcard-write'
+  | 'web'
+  | 'vars';
+export type AIChatToolExecutionPolicy = 'auto' | 'ask-once' | 'ask-always';
+export type AIChatToolResultApprovalPolicy = 'never' | 'on-error' | 'always';
+export type AIChatToolExecutionStatus = 'success' | 'error' | 'approval-required' | 'execution-rejected' | 'result-rejected';
+export type AIChatApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type AIChatStructuredRendererKind = 'concept-coach';
+
+export interface AIWorkbenchRunStatus {
+  mode: AIWorkbenchRunMode;
+  skillId: AISkillId;
+  tabIds: AISkillTabId[];
+  activeTabId: AISkillTabId;
+  title: string;
+  description: string;
+  startedAt: number;
+}
+
+export interface AIWorkbenchFailureDiagnostic {
+  content: string;
+}
+
+export interface AIConceptCoachNormalizationDiagnostic {
+  status: AIConceptCoachNormalizationStatus;
+  missingSections: string[];
+  rawShape: string;
+}
+
+// Backward-compatible type name for older call sites while the runtime moves to skills.
+export type AITaskType = AISkillId;
+
+export interface AIChatSkillSurfaceHints {
+  compactTitle?: string;
+  hideTabs?: boolean;
+  composerRows?: number;
+}
+
+export interface AIChatSkillDescriptor {
+  id: AISkillId;
+  title: string;
+  brief: string;
+  mode: 'chat' | 'structured';
+  systemPromptTemplate: string;
+  defaultToolGroups: AIChatToolGroupKey[];
+  composerPreset: string;
+  primaryActionLabel: string;
+  supportsStructuredResult: boolean;
+  surfaceHints?: AIChatSkillSurfaceHints;
+}
+
+export interface AIChatToolFunctionDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface AIChatToolDefinition {
+  type: 'function';
+  function: AIChatToolFunctionDefinition;
+}
+
+export interface AIChatToolDescriptor {
+  name: string;
+  title: string;
+  group: AIChatToolGroupKey;
+  description: string;
+  definition: AIChatToolDefinition;
+  executionPolicy: AIChatToolExecutionPolicy;
+  resultApprovalPolicy: AIChatToolResultApprovalPolicy;
+  sessionScope: 'session' | 'context' | 'global';
+  enabledByDefault: boolean;
+}
+
+export interface AIChatToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface AIChatToolExecutionResult {
+  status: AIChatToolExecutionStatus;
+  toolCallId: string;
+  toolName: string;
+  group: AIChatToolGroupKey;
+  args: Record<string, unknown>;
+  data?: unknown;
+  finalText: string;
+  error?: string;
+  varRef?: string;
+  createdAt: number;
+}
+
+export interface AIChatApprovalRequest {
+  id: string;
+  toolCallId: string;
+  toolName: string;
+  group: AIChatToolGroupKey;
+  title: string;
+  description: string;
+  args: Record<string, unknown>;
+  status: AIChatApprovalStatus;
+  createdAt: number;
+  resolvedAt?: number;
+  rejectReason?: string;
+}
+
+export interface AIChatNormalizationDiagnostic {
+  status: AIConceptCoachNormalizationStatus;
+  missingSections: string[];
+  rawShape: string;
+  renderer: AIChatStructuredRendererKind;
+}
+
+export interface AIChatVarEntry {
+  id: string;
+  name: string;
+  description: string;
+  value: unknown;
+  preview: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AIChatRuntimeDiagnostic {
+  type: 'provider' | 'tool' | 'normalization' | 'transport' | 'approval';
+  message: string;
+  detail?: string;
+  createdAt: number;
+}
 
 export interface AIAttachedContextItem {
   id: string;
@@ -68,6 +228,76 @@ export interface ReviewAIContextSnapshot extends AIWorkbenchContextSnapshot {
   reviewSessionId: string;
 }
 
+export interface AIConceptCoachPerspectiveSection {
+  title: string;
+  keyPoints: string[];
+  easyMisjudgments?: string[];
+  examples?: string[];
+  comparisons?: Array<{
+    concept: string;
+    similarity: string;
+    difference: string;
+    clue?: string;
+  }>;
+  subConcepts?: string[];
+  parentConcepts?: string[];
+  metaphor?: string;
+  reasons?: string[];
+  applicableScenarios?: string[];
+  nonApplicableScenarios?: string[];
+  commonMisuse?: string;
+  importance?: string;
+  behaviorChange?: string;
+  triggerScenario?: string;
+}
+
+export interface AIConceptCoachPerspectives {
+  traits: AIConceptCoachPerspectiveSection;
+  contrasts: AIConceptCoachPerspectiveSection;
+  partsAndWhole: AIConceptCoachPerspectiveSection;
+  causality: AIConceptCoachPerspectiveSection;
+  significance: AIConceptCoachPerspectiveSection;
+}
+
+export interface AIConceptCoachIntegratedUnderstanding {
+  essence: string;
+  notWhat: string[];
+  capabilities: string[];
+}
+
+export interface AIConceptCoachCandidateCard {
+  id: string;
+  question: string;
+  answer: string;
+  kind: AIConceptCoachCardKind;
+  selected: boolean;
+}
+
+export interface AIConceptCoachSelfTestCards {
+  cards: AIConceptCoachCandidateCard[];
+}
+
+export interface AIConceptCoachRealWorldTriggers {
+  triggers: string[];
+}
+
+export interface AIConceptCoachResult {
+  workingDefinition: string;
+  perspectives: AIConceptCoachPerspectives;
+  integratedUnderstanding: AIConceptCoachIntegratedUnderstanding;
+  selfTestCards: AIConceptCoachSelfTestCards;
+  realWorldTriggers: AIConceptCoachRealWorldTriggers;
+  rawContent: string;
+}
+
+export type AIConceptCoachTabResult =
+  | string
+  | AIConceptCoachPerspectives
+  | AIConceptCoachIntegratedUnderstanding
+  | AIConceptCoachSelfTestCards
+  | AIConceptCoachRealWorldTriggers;
+
+// Legacy explain shape is kept only for old persisted records and narrow compatibility helpers.
 export interface AIExplainResult {
   workingDefinition: string;
   whatItTests: string;
@@ -80,7 +310,8 @@ export interface AIExplainResult {
 
 export interface AIFollowUpEntry {
   id: string;
-  view: AITaskType;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
   role: AIFollowUpRole;
   content: string;
   createdAt: number;
@@ -88,7 +319,9 @@ export interface AIFollowUpEntry {
 
 export interface AIWorkbenchUserMessage {
   id: string;
-  view: AITaskType;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
+  view?: AIWorkbenchOpenView;
   kind: 'user';
   purpose?: AIWorkbenchUserMessagePurpose;
   content: string;
@@ -99,7 +332,9 @@ export interface AIWorkbenchUserMessage {
 
 export interface AIWorkbenchAssistantTextMessage {
   id: string;
-  view: AITaskType;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
+  view?: AIWorkbenchOpenView;
   kind: 'assistant-text';
   content: string;
   createdAt: number;
@@ -109,26 +344,63 @@ export interface AIWorkbenchAssistantTextMessage {
 
 export interface AIWorkbenchAssistantResultMessage {
   id: string;
-  view: AITaskType;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
+  view?: AIWorkbenchOpenView;
   kind: 'assistant-result';
   createdAt: number;
   rawContent: string;
-  explainResult: AIExplainResult | null;
+  conceptCoachResult: AIConceptCoachResult | null;
+  tabResult: AIConceptCoachTabResult | null;
+  normalizationDiagnostic?: AIConceptCoachNormalizationDiagnostic | null;
+  explainResult?: AIExplainResult | null;
   appliedContexts: AIAttachedContextItem[];
+}
+
+export interface AIWorkbenchToolLogMessage {
+  id: string;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
+  view?: AIWorkbenchOpenView;
+  kind: 'tool-log';
+  createdAt: number;
+  toolCallId: string;
+  toolName: string;
+  group: AIChatToolGroupKey;
+  status: AIChatToolExecutionStatus;
+  content: string;
+  error: string | null;
+  varRef?: string | null;
+}
+
+export interface AIWorkbenchApprovalMessage {
+  id: string;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
+  view?: AIWorkbenchOpenView;
+  kind: 'approval';
+  createdAt: number;
+  request: AIChatApprovalRequest;
 }
 
 export type AIWorkbenchMessage =
   | AIWorkbenchUserMessage
   | AIWorkbenchAssistantTextMessage
-  | AIWorkbenchAssistantResultMessage;
+  | AIWorkbenchAssistantResultMessage
+  | AIWorkbenchToolLogMessage
+  | AIWorkbenchApprovalMessage;
 
 export interface AIWorkbenchThreadRecord {
-  view: AITaskType;
+  skillId: AISkillId;
+  tabId: AISkillTabId;
   messages: AIWorkbenchMessage[];
   resultContextSignature: string | null;
   stale: boolean;
   staleReason: string | null;
 }
+
+export type AIWorkbenchSkillThreads = Record<AISkillTabId, AIWorkbenchThreadRecord>;
+export type AIWorkbenchThreads = Record<AISkillId, AIWorkbenchSkillThreads>;
 
 export interface AIWorkbenchSessionSummary {
   id: string;
@@ -139,14 +411,23 @@ export interface AIWorkbenchSessionSummary {
   contextSignature: string | null;
   createdAt: number;
   updatedAt: number;
-  lastActiveView: AITaskType;
-  activeViews: AITaskType[];
+  activeSkillId: AISkillId;
+  activeTabId: AISkillTabId;
+  activeSkills: AISkillId[];
   messageCount: number;
+  lastActiveView?: AIWorkbenchOpenView;
+  activeViews?: AIWorkbenchOpenView[];
 }
 
 export interface AIWorkbenchSessionRecord extends AIWorkbenchSessionSummary {
+  schemaVersion?: number;
   context: AIWorkbenchContextSnapshot | null;
-  threads: Record<AITaskType, AIWorkbenchThreadRecord>;
+  messages?: AIWorkbenchMessage[];
+  threads: AIWorkbenchThreads;
+  skillResults: Record<AISkillId, AIConceptCoachResult | null>;
+  vars?: AIChatVarEntry[];
+  diagnostics?: AIChatRuntimeDiagnostic[];
+  legacyExplainMessages?: AIWorkbenchMessage[];
 }
 
 export interface AIViewSessionState {
@@ -156,16 +437,22 @@ export interface AIViewSessionState {
   followUps: AIFollowUpEntry[];
 }
 
+export type AIWorkbenchSkillViewState = Record<AISkillTabId, AIViewSessionState>;
+export type AIWorkbenchViewState = Record<AISkillId, AIWorkbenchSkillViewState>;
+
 export interface ReviewAISessionState {
   sessionId: string | null;
   surface: AIWorkbenchSurface;
   sourceReviewSessionId: string | null;
   contextSignature: string | null;
-  viewState: Record<AITaskType, AIViewSessionState>;
+  messages: AIWorkbenchMessage[];
+  viewState: AIWorkbenchViewState;
 }
 
 export interface AIWorkbenchOpenOptions {
-  view?: AITaskType;
+  view?: AIWorkbenchOpenView;
+  skillId?: AISkillId;
+  tabId?: AISkillTabId;
   source?: AIWorkbenchSource;
   surface?: AIWorkbenchSurface;
   autoRun?: boolean;
@@ -181,20 +468,30 @@ export interface AIWorkbenchOpenOptions {
 }
 
 export interface AIWorkbenchState extends ReviewAISessionState {
-  activeView: AITaskType;
+  activeSkillId: AISkillId;
+  activeTabId: AISkillTabId;
+  activeView?: AIWorkbenchOpenView;
   context: AIWorkbenchContextSnapshot | null;
   liveContext: AIWorkbenchContextSnapshot | null;
   contextIsHistorical: boolean;
   isLoading: boolean;
+  runStatus: AIWorkbenchRunStatus | null;
   error: string | null;
+  failureDiagnostic: AIWorkbenchFailureDiagnostic | null;
+  skillResults: Record<AISkillId, AIConceptCoachResult | null>;
   explainResult: AIExplainResult | null;
   sessionTitle: string;
   sessionHistory: AIWorkbenchSessionSummary[];
-  threads: Record<AITaskType, AIWorkbenchThreadRecord>;
+  threads: AIWorkbenchThreads;
+  pendingApprovals: AIChatApprovalRequest[];
+  toolTimeline: AIChatToolExecutionResult[];
+  vars: AIChatVarEntry[];
+  diagnostics: AIChatRuntimeDiagnostic[];
   historyPanelOpen: boolean;
   contextPanelOpen: boolean;
   composerContexts: AIComposerContextState;
   composerEditorOpen: boolean;
   editingMessageId: string | null;
   editingMessageKind: AIWorkbenchMessageKind | null;
+  legacyNotice: string | null;
 }

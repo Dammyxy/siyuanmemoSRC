@@ -708,14 +708,14 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('opens AI sidebar in explain mode by default and for neural roam', async () => {
+  it('opens AI sidebar in concept-coach mode by default and for neural roam', async () => {
     const explainMount = mountReviewView({ queueType: 'retrieval-practice' });
     await flushPromises();
 
     explainMount.wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'ai-sidebar', createToolbarEvent());
     await flushPromises();
     expect(explainMount.registry.openReviewSession).toHaveBeenCalledWith(expect.objectContaining({
-      view: 'explain',
+      view: 'concept-coach',
     }));
     explainMount.wrapper.unmount();
 
@@ -725,7 +725,7 @@ describe('ReviewView more menu', () => {
     tutorMount.wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'ai-sidebar', createToolbarEvent());
     await flushPromises();
     expect(tutorMount.registry.openReviewSession).toHaveBeenCalledWith(expect.objectContaining({
-      view: 'explain',
+      view: 'concept-coach',
     }));
     tutorMount.wrapper.unmount();
   });
@@ -733,7 +733,7 @@ describe('ReviewView more menu', () => {
   it('reuses the existing AI sidebar active view when reopening', async () => {
     const activeSession = {
       state: {
-        activeView: 'explain',
+        activeView: 'concept-coach',
       },
     };
     const registry = {
@@ -757,7 +757,7 @@ describe('ReviewView more menu', () => {
     await flushPromises();
 
     expect(registry.openReviewSession).toHaveBeenCalledWith(expect.objectContaining({
-      view: 'explain',
+      view: 'concept-coach',
     }));
 
     wrapper.unmount();

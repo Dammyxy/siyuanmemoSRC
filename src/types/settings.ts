@@ -232,14 +232,112 @@ export interface AIPromptTextPair {
     followUp: string;
 }
 
+export interface AIConceptCoachPromptTemplates {
+    baseRun: string;
+    tabs: {
+        'working-definition': AIPromptTextPair;
+        perspectives: AIPromptTextPair;
+        'integrated-understanding': AIPromptTextPair;
+        'self-test-cards': AIPromptTextPair;
+        'real-world-triggers': AIPromptTextPair;
+    };
+}
+
 export interface AIPromptTemplates {
-    explain: AIPromptTextPair;
+    skills: {
+        conceptCoach: AIConceptCoachPromptTemplates;
+    };
+    /**
+     * @deprecated Legacy explain prompt slot. Normalization migrates it to the skill prompt contract.
+     */
+    explain?: AIPromptTextPair;
+}
+
+export type AIProviderProtocol = 'openai-compatible' | 'openai' | 'claude' | 'gemini';
+export type AIWebSearchBackend = 'none' | 'tavily' | 'bocha' | 'google-cse';
+export type AIToolGroupKey =
+    | 'context-read'
+    | 'siyuan-read'
+    | 'review-read'
+    | 'flashcard-write'
+    | 'web'
+    | 'vars';
+export type AIToolExecutionPolicy = 'auto' | 'ask-once' | 'ask-always';
+export type AIToolResultApprovalPolicy = 'never' | 'on-error' | 'always';
+
+export interface AIModelCapabilityFlags {
+    chatCompletions?: boolean;
+    structuredOutput?: boolean;
+    jsonObject?: boolean;
+    tools?: boolean;
+    streaming?: boolean;
+    reasoning?: boolean;
+    unstableJsonObject?: boolean;
+}
+
+export interface AIModelConfig {
+    id: string;
+    label?: string;
+    capabilities?: AIModelCapabilityFlags;
+}
+
+export interface AIProviderEndpointConfig {
+    chatCompletions?: string;
+    messages?: string;
+    generateContent?: string;
+}
+
+export interface AIProviderConfig {
+    id: string;
+    name: string;
+    protocol: AIProviderProtocol;
+    baseUrl: string;
+    apiKey: string;
+    endpoints?: AIProviderEndpointConfig;
+    models: AIModelConfig[];
+    capabilities: AIModelCapabilityFlags;
+}
+
+export interface AIChatDefaults {
+    defaultSkillId: 'general-chat' | 'concept-coach';
+    reviewDefaultSkillId: 'general-chat' | 'concept-coach';
+    maxToolRounds: number;
+    stream: boolean;
+    includeContextByDefault: boolean;
+}
+
+export interface AIWebSearchSettings {
+    backend: AIWebSearchBackend;
+    apiKey: string;
+    baseUrl?: string;
+    googleCseId?: string;
+}
+
+export interface AIToolPolicySettings {
+    groupDefaults: Record<AIToolGroupKey, boolean>;
+    executionPolicies: Partial<Record<string, AIToolExecutionPolicy>>;
+    resultApprovalPolicies: Partial<Record<string, AIToolResultApprovalPolicy>>;
 }
 
 export interface AISettings {
     enabled: boolean;
+    providers: AIProviderConfig[];
+    defaultModelId: string;
+    chatDefaults: AIChatDefaults;
+    webSearch: AIWebSearchSettings;
+    toolPolicies: AIToolPolicySettings;
+    skillPromptOverrides: Record<string, string>;
+    /**
+     * @deprecated Legacy single-provider field. Normalization migrates it to providers[].
+     */
     baseUrl: string;
+    /**
+     * @deprecated Legacy single-provider field. Normalization migrates it to providers[].
+     */
     apiKey: string;
+    /**
+     * @deprecated Legacy single-provider field. Normalization migrates it to providers[] / defaultModelId.
+     */
     model: string;
     timeoutMs: number;
     temperature: number;
@@ -597,14 +695,12 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
                 },
             ),
         },
-        ai: {
-            ...DEFAULT_SETTINGS.ai,
+        ai: normalizeAISettings({
             ...sourceAiWithoutLegacy,
-            promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
             prompts: shouldResetAiPromptsToCurrentContract
                 ? clonePromptTemplates(DEFAULT_AI_PROMPTS)
-                : normalizeAIPromptTemplates(sourceAiWithoutLegacy.prompts),
-        },
+                : sourceAiWithoutLegacy.prompts,
+        }),
         ui: {
             ...DEFAULT_SETTINGS.ui,
             ...(settings.ui || {}),
@@ -683,14 +779,14 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         changed = true;
     } else {
         const normalizedAi = normalized.ai;
+        const sourceAiNormalized = normalizeAISettings({
+            ...sourceAiWithoutLegacy,
+            prompts: shouldResetAiPromptsToCurrentContract
+                ? clonePromptTemplates(DEFAULT_AI_PROMPTS)
+                : sourceAiWithoutLegacy.prompts,
+        });
         if (
-            sourceAi.enabled !== normalizedAi.enabled
-            || sourceAi.baseUrl !== normalizedAi.baseUrl
-            || sourceAi.apiKey !== normalizedAi.apiKey
-            || sourceAi.model !== normalizedAi.model
-            || sourceAi.timeoutMs !== normalizedAi.timeoutMs
-            || sourceAi.temperature !== normalizedAi.temperature
-            || sourceAi.defaultOutputLanguage !== normalizedAi.defaultOutputLanguage
+            JSON.stringify(sourceAiNormalized) !== JSON.stringify(normalizedAi)
             || normalizeAIPromptContractVersion(sourceAi.promptContractVersion) !== normalizedAi.promptContractVersion
             || !hasNormalizedPromptTemplateShape(sourceAi.prompts)
             || !arePromptTemplatesEqual(sourceAi.prompts, normalizedAi.prompts)
@@ -782,23 +878,58 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     }
 };
 
-export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 2;
+export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 3;
 
 export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
-    explain: {
-        run: [
-            '你是一位擅长帮助学习者真正理解当前卡片的学习教练。',
-            '你的工作对象是“正在复习或理解这张卡片的现在的自己”，不是未来制卡系统。',
-            '严格以当前卡片和当前材料为锚点；可以做少量必要的背景桥接，但凡超出材料直接支持的地方，必须明确说明“这是补充理解，不是材料原文直接说明”。',
-            '不要把回答写成百科条目，不要空泛复述术语。解释的目标是下次想得起来、分得清、用得上。',
-            '如果当前卡是阅读型 topic / concept，请把它当作理解节点，而不是问答卡；如果当前卡是检索型卡片，可以先用一句话点明答案或工作定义，但不要整段重复答案。',
-        ].join('\n'),
-        followUp: [
-            '你是一位学习教练，正在基于已有解释结果继续追问。',
-            '请结合 structuredResult、最新 context 和用户最新问题，用简洁自然语言继续解释。',
-            '延续“工作定义 / 边界 / 因果 / 触发器”的风格，不要输出 JSON，不要重复整份结构化结果。',
-            '超出材料直接支持的地方，必须明确说明“这是补充理解，不是材料原文直接说明”。',
-        ].join('\n'),
+    skills: {
+        conceptCoach: {
+            baseRun: [
+                '你是一位擅长把知识转化为“可理解、可回忆、可应用”的学习教练。',
+                '我会给你一个概念、一张卡片，或一段解释该概念的材料。你的任务不是只给出定义，而是帮助我建立结构化理解，并把关键内容转成可自测的高质量问答。',
+                '总原则：不要只做百科定义复述；优先提取边界、关系、作用、适用场景、常见误解；材料没说清楚的地方写“材料未说明”或“这里有不确定性”，不要脑补。',
+                '所有自测题尽量满足：一题只测一个点，问法具体，答案短、稳定、可重复，需要回忆，不能靠题面直接猜出来。',
+                '用清楚、具体、少术语的中文。一旦出现抽象表述，立刻补一个具体例子。目标是下次能想起来、分得清、用得上。',
+            ].join('\n'),
+            tabs: {
+                'working-definition': {
+                    run: [
+                        '阶段：工作定义。',
+                        '用 1-2 句话给出概念的工作定义，不追求百科式完整，追求抓住本质、便于理解和使用。',
+                    ].join('\n'),
+                    followUp: '你正在围绕“工作定义”继续解释。请结合当前 tab 结果、完整 skill 结果、上下文和用户问题，用自然语言回答；不要输出 JSON。',
+                },
+                perspectives: {
+                    run: [
+                        '阶段：多视角理解。',
+                        '从五个视角抽取概念知识：特性和倾向、辨析异同、部分和整体、因果关系、意义和影响。',
+                        '每个视角都要具体，若某个视角当前不关键，请明确说明“此视角当前不关键”，不要硬凑。',
+                    ].join('\n'),
+                    followUp: '你正在围绕“多视角理解”继续解释。请优先回答用户点名的视角；没有点名时，结合五个视角综合回答。不要输出 JSON。',
+                },
+                'integrated-understanding': {
+                    run: [
+                        '阶段：整合理解。',
+                        '基于工作定义和多视角理解，输出这个概念到底是什么、它不是什么、学会后应该能做到的三件事。',
+                    ].join('\n'),
+                    followUp: '你正在围绕“整合理解”继续解释。请帮助用户把零散视角压缩成能复述、能辨析、能应用的理解；不要输出 JSON。',
+                },
+                'self-test-cards': {
+                    run: [
+                        '阶段：生成可自测的问答卡。',
+                        '生成 10-18 张高质量问答卡。每张卡只测试一个点，优先测试区别、因果、应用、反例、边界，少做纯定义复述题。',
+                        '至少包含 2 张辨析题、2 张因果题、2 张应用题、1 张反例题、1 张对我有意义的触发题。',
+                    ].join('\n'),
+                    followUp: '你正在围绕“自测卡片”继续协助。可以改写题目、解释某张卡为什么值得保留，或补充更好的候选卡；不要直接建卡。',
+                },
+                'real-world-triggers': {
+                    run: [
+                        '阶段：现实触发器。',
+                        '输出 3 个以后遇到什么情况时应该想起这个概念的触发场景。触发器要具体、可识别、能迁移。',
+                    ].join('\n'),
+                    followUp: '你正在围绕“现实触发器”继续解释。请把概念连接到用户可能遇到的真实判断、行动或学习场景；不要输出 JSON。',
+                },
+            },
+        },
     },
 };
 
@@ -809,9 +940,24 @@ function clonePromptPair(pair: AIPromptTextPair): AIPromptTextPair {
     };
 }
 
+function cloneConceptCoachPromptTemplates(templates: AIConceptCoachPromptTemplates): AIConceptCoachPromptTemplates {
+    return {
+        baseRun: templates.baseRun,
+        tabs: {
+            'working-definition': clonePromptPair(templates.tabs['working-definition']),
+            perspectives: clonePromptPair(templates.tabs.perspectives),
+            'integrated-understanding': clonePromptPair(templates.tabs['integrated-understanding']),
+            'self-test-cards': clonePromptPair(templates.tabs['self-test-cards']),
+            'real-world-triggers': clonePromptPair(templates.tabs['real-world-triggers']),
+        },
+    };
+}
+
 function clonePromptTemplates(templates: AIPromptTemplates): AIPromptTemplates {
     return {
-        explain: clonePromptPair(templates.explain),
+        skills: {
+            conceptCoach: cloneConceptCoachPromptTemplates(templates.skills.conceptCoach),
+        },
     };
 }
 
@@ -832,10 +978,9 @@ function isPromptPairLike(value: unknown): value is Partial<AIPromptTextPair> {
 }
 
 function normalizePromptPair(
-    settingKey: keyof AIPromptTemplates,
+    defaults: AIPromptTextPair,
     source: unknown,
 ): AIPromptTextPair {
-    const defaults = DEFAULT_AI_PROMPTS[settingKey];
 
     if (typeof source === 'string') {
         return {
@@ -856,13 +1001,37 @@ function normalizePromptPair(
     return clonePromptPair(defaults);
 }
 
+function normalizeConceptCoachPromptTemplates(source: unknown): AIConceptCoachPromptTemplates {
+    const defaults = DEFAULT_AI_PROMPTS.skills.conceptCoach;
+    const value = typeof source === 'object' && source !== null
+        ? source as Partial<AIConceptCoachPromptTemplates>
+        : {};
+    const tabs = typeof value.tabs === 'object' && value.tabs !== null
+        ? value.tabs as Partial<AIConceptCoachPromptTemplates['tabs']>
+        : {};
+    return {
+        baseRun: normalizePromptText(value.baseRun) || defaults.baseRun,
+        tabs: {
+            'working-definition': normalizePromptPair(defaults.tabs['working-definition'], tabs['working-definition']),
+            perspectives: normalizePromptPair(defaults.tabs.perspectives, tabs.perspectives),
+            'integrated-understanding': normalizePromptPair(defaults.tabs['integrated-understanding'], tabs['integrated-understanding']),
+            'self-test-cards': normalizePromptPair(defaults.tabs['self-test-cards'], tabs['self-test-cards']),
+            'real-world-triggers': normalizePromptPair(defaults.tabs['real-world-triggers'], tabs['real-world-triggers']),
+        },
+    };
+}
+
 export function normalizeAIPromptTemplates(prompts: unknown): AIPromptTemplates {
     const source = typeof prompts === 'object' && prompts !== null
-        ? prompts as Partial<Record<keyof AIPromptTemplates, unknown>>
+        ? prompts as Partial<AIPromptTemplates> & { conceptCoach?: unknown }
         : undefined;
 
     return {
-        explain: normalizePromptPair('explain', source?.explain),
+        skills: {
+            conceptCoach: normalizeConceptCoachPromptTemplates(
+                source?.skills?.conceptCoach ?? source?.conceptCoach,
+            ),
+        },
     };
 }
 
@@ -871,14 +1040,20 @@ function hasNormalizedPromptTemplateShape(prompts: unknown): boolean {
         return false;
     }
 
-    const source = prompts as Partial<Record<keyof AIPromptTemplates, unknown>>;
-    return ['explain'].every((key) => {
-        const value = source[key as keyof AIPromptTemplates];
-        return typeof value === 'object'
-            && value !== null
-            && typeof (value as Partial<AIPromptTextPair>).run === 'string'
-            && typeof (value as Partial<AIPromptTextPair>).followUp === 'string';
-    });
+    const source = prompts as Partial<AIPromptTemplates>;
+    const conceptCoach = source.skills?.conceptCoach;
+    if (typeof conceptCoach !== 'object' || conceptCoach === null || typeof conceptCoach.baseRun !== 'string') {
+        return false;
+    }
+    const tabs = conceptCoach.tabs;
+    return Boolean(tabs)
+        && ['working-definition', 'perspectives', 'integrated-understanding', 'self-test-cards', 'real-world-triggers'].every((tabId) => {
+            const pair = tabs[tabId as keyof typeof tabs];
+            return typeof pair === 'object'
+                && pair !== null
+                && typeof pair.run === 'string'
+                && typeof pair.followUp === 'string';
+        });
 }
 
 function arePromptTemplatesEqual(left: unknown, right: unknown): boolean {
@@ -887,8 +1062,386 @@ function arePromptTemplatesEqual(left: unknown, right: unknown): boolean {
     return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
 }
 
+function normalizeAIProviderProtocol(value: unknown): AIProviderProtocol {
+    if (value === 'openai' || value === 'claude' || value === 'gemini' || value === 'openai-compatible') {
+        return value;
+    }
+    return 'openai-compatible';
+}
+
+function normalizeAIWebSearchBackend(value: unknown): AIWebSearchBackend {
+    if (value === 'tavily' || value === 'bocha' || value === 'google-cse') {
+        return value;
+    }
+    return 'none';
+}
+
+function normalizeToolExecutionPolicy(value: unknown, fallback: AIToolExecutionPolicy): AIToolExecutionPolicy {
+    return value === 'auto' || value === 'ask-once' || value === 'ask-always'
+        ? value
+        : fallback;
+}
+
+function normalizeToolResultApprovalPolicy(value: unknown, fallback: AIToolResultApprovalPolicy): AIToolResultApprovalPolicy {
+    return value === 'never' || value === 'on-error' || value === 'always'
+        ? value
+        : fallback;
+}
+
+function normalizeAIModelCapabilities(value: unknown): AIModelCapabilityFlags {
+    const source = typeof value === 'object' && value !== null
+        ? value as AIModelCapabilityFlags
+        : {};
+    return {
+        chatCompletions: source.chatCompletions !== false,
+        structuredOutput: source.structuredOutput !== false,
+        jsonObject: source.jsonObject !== false,
+        tools: source.tools !== false,
+        streaming: source.streaming === true,
+        reasoning: source.reasoning === true,
+        unstableJsonObject: source.unstableJsonObject === true,
+    };
+}
+
+function inferAIProviderId(baseUrl: string, model: string): string {
+    const normalizedBaseUrl = String(baseUrl || '').toLowerCase();
+    const normalizedModel = String(model || '').toLowerCase();
+    if (normalizedBaseUrl.includes('deepseek.com') || normalizedModel.startsWith('deepseek-')) {
+        return 'deepseek';
+    }
+    if (normalizedBaseUrl.includes('anthropic.com') || normalizedModel.startsWith('claude-')) {
+        return 'anthropic';
+    }
+    if (normalizedBaseUrl.includes('generativelanguage.googleapis.com') || normalizedModel.startsWith('gemini-')) {
+        return 'gemini';
+    }
+    if (normalizedBaseUrl.includes('openai.com')) {
+        return 'openai';
+    }
+    return 'default';
+}
+
+function inferAIProviderName(providerId: string): string {
+    switch (providerId) {
+        case 'deepseek':
+            return 'DeepSeek';
+        case 'anthropic':
+            return 'Anthropic Claude';
+        case 'gemini':
+            return 'Google Gemini';
+        case 'openai':
+            return 'OpenAI';
+        default:
+            return 'OpenAI Compatible';
+    }
+}
+
+function inferAIProviderProtocol(providerId: string, baseUrl: string, model: string): AIProviderProtocol {
+    const normalizedBaseUrl = String(baseUrl || '').toLowerCase();
+    const normalizedModel = String(model || '').toLowerCase();
+    if (providerId === 'anthropic' || normalizedBaseUrl.includes('anthropic.com') || normalizedModel.startsWith('claude-')) {
+        return 'claude';
+    }
+    if (providerId === 'gemini' || normalizedBaseUrl.includes('generativelanguage.googleapis.com') || normalizedModel.startsWith('gemini-')) {
+        return 'gemini';
+    }
+    if (providerId === 'openai') {
+        return 'openai';
+    }
+    return 'openai-compatible';
+}
+
+function normalizeAIProviderConfig(value: unknown, fallback: AIProviderConfig): AIProviderConfig {
+    const source = typeof value === 'object' && value !== null
+        ? value as Partial<AIProviderConfig>
+        : {};
+    const baseUrl = String(source.baseUrl ?? fallback.baseUrl ?? '').trim();
+    const fallbackModel = fallback.models[0]?.id || DEFAULT_AI_SETTINGS.model;
+    const sourceModels = Array.isArray(source.models) ? source.models : fallback.models;
+    const models = sourceModels
+        .map((model): AIModelConfig | null => {
+            const raw = typeof model === 'object' && model !== null ? model as Partial<AIModelConfig> : { id: String(model || '') };
+            const id = String(raw.id || '').trim();
+            if (!id) {
+                return null;
+            }
+            const label = String(raw.label || '').trim();
+            const normalized: AIModelConfig = {
+                id,
+                capabilities: normalizeAIModelCapabilities(raw.capabilities),
+            };
+            if (label) {
+                normalized.label = label;
+            }
+            return normalized;
+        })
+        .filter((model): model is AIModelConfig => Boolean(model));
+    if (models.length === 0 && fallbackModel) {
+        models.push({
+            id: fallbackModel,
+            capabilities: normalizeAIModelCapabilities(fallback.capabilities),
+        });
+    }
+
+    return {
+        id: String(source.id || fallback.id || inferAIProviderId(baseUrl, models[0]?.id || '')).trim() || 'default',
+        name: String(source.name || fallback.name || inferAIProviderName(fallback.id)).trim() || 'OpenAI Compatible',
+        protocol: normalizeAIProviderProtocol(source.protocol ?? fallback.protocol),
+        baseUrl,
+        apiKey: String(source.apiKey ?? fallback.apiKey ?? '').trim(),
+        endpoints: {
+            ...(fallback.endpoints || {}),
+            ...(source.endpoints || {}),
+        },
+        models,
+        capabilities: {
+            ...normalizeAIModelCapabilities(fallback.capabilities),
+            ...normalizeAIModelCapabilities(source.capabilities),
+        },
+    };
+}
+
+function buildLegacyDefaultAIProvider(source: Partial<AISettings> | undefined): AIProviderConfig {
+    const baseUrl = String(source?.baseUrl ?? DEFAULT_AI_SETTINGS.baseUrl).trim();
+    const model = String(source?.model ?? DEFAULT_AI_SETTINGS.model).trim() || DEFAULT_AI_SETTINGS.model;
+    const providerId = inferAIProviderId(baseUrl, model);
+    return {
+        id: providerId,
+        name: inferAIProviderName(providerId),
+        protocol: inferAIProviderProtocol(providerId, baseUrl, model),
+        baseUrl,
+        apiKey: String(source?.apiKey ?? DEFAULT_AI_SETTINGS.apiKey).trim(),
+        endpoints: {},
+        models: [{
+            id: model,
+            capabilities: {
+                chatCompletions: true,
+                structuredOutput: true,
+                jsonObject: true,
+                tools: true,
+                streaming: false,
+                reasoning: false,
+                unstableJsonObject: providerId === 'deepseek',
+            },
+        }],
+        capabilities: {
+            chatCompletions: true,
+            structuredOutput: true,
+            jsonObject: true,
+            tools: true,
+            streaming: false,
+            reasoning: false,
+            unstableJsonObject: providerId === 'deepseek',
+        },
+    };
+}
+
+function hasMeaningfulLegacyAIProviderInput(source: Partial<AISettings>): boolean {
+    const baseUrl = String(source.baseUrl ?? '').trim();
+    const apiKey = String(source.apiKey ?? '').trim();
+    const model = String(source.model ?? '').trim();
+    return Boolean(
+        apiKey
+        || (baseUrl && baseUrl !== DEFAULT_AI_SETTINGS.baseUrl)
+        || (model && model !== DEFAULT_AI_SETTINGS.model)
+    );
+}
+
+function isDefaultEmptyAIProvider(provider: AIProviderConfig): boolean {
+    const defaultProvider = DEFAULT_AI_SETTINGS.providers[0];
+    return !provider.apiKey
+        && provider.baseUrl === defaultProvider.baseUrl
+        && provider.models.length === 1
+        && provider.models[0]?.id === defaultProvider.models[0]?.id;
+}
+
+function normalizeAIChatDefaults(value: unknown): AIChatDefaults {
+    const source = typeof value === 'object' && value !== null
+        ? value as Partial<AIChatDefaults>
+        : {};
+    const defaultSkillId = source.defaultSkillId === 'concept-coach' ? 'concept-coach' : 'general-chat';
+    const reviewDefaultSkillId = source.reviewDefaultSkillId === 'general-chat' ? 'general-chat' : 'concept-coach';
+    const maxToolRounds = Math.max(1, Math.min(8, Math.floor(Number(source.maxToolRounds) || DEFAULT_AI_SETTINGS.chatDefaults.maxToolRounds)));
+    return {
+        defaultSkillId,
+        reviewDefaultSkillId,
+        maxToolRounds,
+        stream: source.stream === true,
+        includeContextByDefault: source.includeContextByDefault !== false,
+    };
+}
+
+function normalizeAIWebSearchSettings(value: unknown): AIWebSearchSettings {
+    const source = typeof value === 'object' && value !== null
+        ? value as Partial<AIWebSearchSettings>
+        : {};
+    return {
+        backend: normalizeAIWebSearchBackend(source.backend),
+        apiKey: String(source.apiKey || '').trim(),
+        baseUrl: String(source.baseUrl || '').trim(),
+        googleCseId: String(source.googleCseId || '').trim(),
+    };
+}
+
+function normalizeAIToolPolicySettings(value: unknown): AIToolPolicySettings {
+    const source = typeof value === 'object' && value !== null
+        ? value as Partial<AIToolPolicySettings>
+        : {};
+    const defaults = DEFAULT_AI_SETTINGS.toolPolicies;
+    const sourceGroupDefaults = typeof source.groupDefaults === 'object' && source.groupDefaults !== null
+        ? source.groupDefaults as Partial<Record<AIToolGroupKey, boolean>>
+        : {};
+    const executionPolicies = typeof source.executionPolicies === 'object' && source.executionPolicies !== null
+        ? source.executionPolicies
+        : {};
+    const resultApprovalPolicies = typeof source.resultApprovalPolicies === 'object' && source.resultApprovalPolicies !== null
+        ? source.resultApprovalPolicies
+        : {};
+
+    return {
+        groupDefaults: {
+            ...defaults.groupDefaults,
+            'context-read': sourceGroupDefaults['context-read'] !== false,
+            'siyuan-read': sourceGroupDefaults['siyuan-read'] !== false,
+            'review-read': sourceGroupDefaults['review-read'] !== false,
+            'flashcard-write': sourceGroupDefaults['flashcard-write'] === true,
+            web: sourceGroupDefaults.web !== false,
+            vars: sourceGroupDefaults.vars !== false,
+        },
+        executionPolicies: Object.fromEntries(Object.entries(executionPolicies).map(([name, policy]) => [
+            name,
+            normalizeToolExecutionPolicy(policy, defaults.executionPolicies[name] || 'auto'),
+        ])),
+        resultApprovalPolicies: Object.fromEntries(Object.entries(resultApprovalPolicies).map(([name, policy]) => [
+            name,
+            normalizeToolResultApprovalPolicy(policy, defaults.resultApprovalPolicies[name] || 'never'),
+        ])),
+    };
+}
+
+export function normalizeAISettings(source: unknown): AISettings {
+    const value = typeof source === 'object' && source !== null
+        ? source as Partial<AISettings> & { promptProfiles?: unknown; draftStorage?: unknown }
+        : {};
+    const legacyProvider = buildLegacyDefaultAIProvider(value);
+    const hasProviderList = Array.isArray(value.providers) && value.providers.length > 0;
+    const normalizedInputProviders = hasProviderList
+        ? value.providers
+            .map((provider, index) => normalizeAIProviderConfig(provider, index === 0 ? legacyProvider : DEFAULT_AI_SETTINGS.providers[0]))
+            .filter((provider) => provider.id && provider.baseUrl)
+        : [];
+    const shouldPreferLegacyProvider = hasMeaningfulLegacyAIProviderInput(value)
+        && (
+            normalizedInputProviders.length === 0
+            || normalizedInputProviders.every((provider) => !provider.apiKey)
+            || (normalizedInputProviders.length === 1 && isDefaultEmptyAIProvider(normalizedInputProviders[0]))
+        );
+    const rawProviders = shouldPreferLegacyProvider
+        ? [legacyProvider]
+        : hasProviderList
+        ? value.providers
+        : [legacyProvider];
+    const providers = rawProviders
+        .map((provider, index) => normalizeAIProviderConfig(provider, index === 0 ? legacyProvider : DEFAULT_AI_SETTINGS.providers[0]))
+        .filter((provider) => provider.id && provider.baseUrl);
+    if (providers.length === 0) {
+        providers.push(legacyProvider);
+    }
+
+    const defaultProvider = providers[0];
+    const defaultModelId = String(
+        shouldPreferLegacyProvider
+            ? legacyProvider.models[0]?.id || value.model || value.defaultModelId
+            : value.defaultModelId || value.model || defaultProvider.models[0]?.id || DEFAULT_AI_SETTINGS.model
+    ).trim();
+    const modelExists = providers.some((provider) => provider.models.some((model) => model.id === defaultModelId));
+    if (!modelExists && defaultModelId) {
+        defaultProvider.models.unshift({
+            id: defaultModelId,
+            capabilities: normalizeAIModelCapabilities(defaultProvider.capabilities),
+        });
+    }
+
+    const activeProvider = providers.find((provider) => provider.models.some((model) => model.id === defaultModelId)) || defaultProvider;
+    return {
+        enabled: value.enabled === true,
+        providers,
+        defaultModelId: defaultModelId || activeProvider.models[0]?.id || DEFAULT_AI_SETTINGS.model,
+        chatDefaults: normalizeAIChatDefaults(value.chatDefaults),
+        webSearch: normalizeAIWebSearchSettings(value.webSearch),
+        toolPolicies: normalizeAIToolPolicySettings(value.toolPolicies),
+        skillPromptOverrides: typeof value.skillPromptOverrides === 'object' && value.skillPromptOverrides !== null
+            ? Object.fromEntries(Object.entries(value.skillPromptOverrides).map(([key, prompt]) => [key, String(prompt || '')]))
+            : {},
+        baseUrl: activeProvider.baseUrl,
+        apiKey: activeProvider.apiKey,
+        model: defaultModelId || activeProvider.models[0]?.id || DEFAULT_AI_SETTINGS.model,
+        timeoutMs: Math.max(1000, Number(value.timeoutMs) || DEFAULT_AI_SETTINGS.timeoutMs),
+        temperature: Math.min(2, Math.max(0, Number(value.temperature) || DEFAULT_AI_SETTINGS.temperature)),
+        defaultOutputLanguage: String(value.defaultOutputLanguage || DEFAULT_AI_SETTINGS.defaultOutputLanguage).trim(),
+        promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
+        prompts: normalizeAIPromptTemplates(value.prompts),
+    };
+}
+
 export const DEFAULT_AI_SETTINGS: AISettings = {
     enabled: false,
+    providers: [{
+        id: 'openai',
+        name: 'OpenAI',
+        protocol: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        endpoints: {},
+        models: [{
+            id: 'gpt-4.1-mini',
+            capabilities: {
+                chatCompletions: true,
+                structuredOutput: true,
+                jsonObject: true,
+                tools: true,
+                streaming: false,
+                reasoning: false,
+                unstableJsonObject: false,
+            },
+        }],
+        capabilities: {
+            chatCompletions: true,
+            structuredOutput: true,
+            jsonObject: true,
+            tools: true,
+            streaming: false,
+            reasoning: false,
+            unstableJsonObject: false,
+        },
+    }],
+    defaultModelId: 'gpt-4.1-mini',
+    chatDefaults: {
+        defaultSkillId: 'general-chat',
+        reviewDefaultSkillId: 'concept-coach',
+        maxToolRounds: 4,
+        stream: false,
+        includeContextByDefault: true,
+    },
+    webSearch: {
+        backend: 'none',
+        apiKey: '',
+        baseUrl: '',
+        googleCseId: '',
+    },
+    toolPolicies: {
+        groupDefaults: {
+            'context-read': true,
+            'siyuan-read': true,
+            'review-read': true,
+            'flashcard-write': false,
+            web: true,
+            vars: true,
+        },
+        executionPolicies: {},
+        resultApprovalPolicies: {},
+    },
+    skillPromptOverrides: {},
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
     model: 'gpt-4.1-mini',

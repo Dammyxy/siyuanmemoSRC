@@ -2,7 +2,7 @@ import { onMounted, onUnmounted } from 'vue';
 import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
 import type { QueueItem } from '@/core/queue/types';
 import type { InitialReviewSessionState } from '@/types/unified-data-source';
-import type { IAdapter, ReviewSessionHook } from './types';
+import type { IAdapter, RefreshCurrentItemOptions, ReviewSessionHook } from './types';
 import {
   createReviewSessionController,
   type ReviewSessionController,
@@ -47,7 +47,7 @@ export function useReviewSession<TItem extends QueueItem>(
     back: controller.back,
     executeCommand: controller.executeCommand,
     reload: controller.reload,
-    refreshCurrentItem: controller.refreshCurrentItem,
+    refreshCurrentItem: (item: unknown, refreshOptions?: RefreshCurrentItemOptions) => controller.refreshCurrentItem(item, refreshOptions),
     getQueueStrategy: controller.getQueueStrategy,
     loadCardByBlockId: controller.loadCardByBlockId,
     onMounted: () => controller.attachSurface(surfaceId),

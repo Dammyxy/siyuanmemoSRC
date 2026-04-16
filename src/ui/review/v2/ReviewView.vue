@@ -140,6 +140,7 @@ import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
 import { createReviewSessionController, useReviewSession, type ReviewSessionController } from './useReviewSession';
 import {
   resolveReviewHeaderVariant,
+  type RefreshCurrentItemOptions,
   type ReviewEditableSource,
   type ReviewHeaderVariant,
   type ReviewNativeSplitGuardState,
@@ -216,7 +217,7 @@ const STANDARD_REVIEW_DIALOG_VARIANT_BY_QUEUE_TYPE: Partial<Record<QueueType, Re
   [QueueType.NeuralRoam]: 'neural-roam',
 };
 
-type ReviewAIEntryView = 'explain';
+type ReviewAIEntryView = 'concept-coach';
 
 type ReviewProviderLike = {
   id?: string;
@@ -1442,6 +1443,13 @@ function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
   };
 }
 
+function buildExpectedRefreshOptions(reference: { cardId?: string; blockId?: string } | null | undefined): RefreshCurrentItemOptions {
+  return {
+    expectedCurrentCardId: String(reference?.cardId || '').trim(),
+    expectedCurrentBlockId: String(reference?.blockId || '').trim(),
+  };
+}
+
 function hasCurrentReviewCard(): boolean {
   const reference = getCurrentReviewCardReference();
   return reference.cardId.length > 0 && reference.blockId.length > 0;
@@ -1563,7 +1571,8 @@ async function advanceDismissedCurrentCard(payload: DismissedReviewCardPayload):
 
 async function refreshCurrentReviewCard(): Promise<void> {
   const manager = subscribedReviewManager;
-  const { cardId } = getCurrentReviewCardReference();
+  const currentReference = getCurrentReviewCardReference();
+  const { cardId } = currentReference;
   if (!manager || !cardId) {
     return;
   }
@@ -1574,7 +1583,7 @@ async function refreshCurrentReviewCard(): Promise<void> {
     if (getCurrentReviewCardReference().cardId !== requestedCardId) {
       return;
     }
-    await hook.refreshCurrentItem(nextCard);
+    await hook.refreshCurrentItem(nextCard, buildExpectedRefreshOptions(currentReference));
   } catch (error) {
     logger.warn('[SiYuanMemo][ReviewView] Failed to refresh current review card from unified manager:', {
       cardId,
@@ -1718,7 +1727,10 @@ async function appendCreatedCardsToActiveScopeQueue(cardIds: string[]): Promise<
 
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   if (currentCard) {
-    await hook.refreshCurrentItem(currentCard);
+    await hook.refreshCurrentItem(currentCard, buildExpectedRefreshOptions({
+      cardId: currentCard.id,
+      blockId: currentCard.blockId,
+    }));
     return;
   }
 
@@ -2429,24 +2441,24 @@ function buildReviewAIOptions(view: ReviewAIEntryView, surface?: AIWorkbenchSurf
 }
 
 function resolveDefaultReviewAIEntryView(): ReviewAIEntryView {
-  return 'explain';
+  return 'concept-coach';
 }
 
 function resolveReviewAIEntryView(requestedView?: ReviewAIEntryView): ReviewAIEntryView {
   if (requestedView) {
-    return 'explain';
+    return 'concept-coach';
   }
 
   const registry = getReviewAIWorkbenchRegistry();
   const activeView = reviewAIService.value?.state.activeView
     || registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView;
-  return activeView === 'explain' ? activeView : resolveDefaultReviewAIEntryView();
+  return activeView === 'concept-coach' ? activeView : resolveDefaultReviewAIEntryView();
 }
 
 function getReviewAICompanionTitle(view: ReviewAIEntryView): string {
-  const viewTitle = view === 'explain'
-    ? t('aiExplainCard', 'AI 解释卡片')
-    : t('aiExplainCard', 'AI 解释卡片');
+  const viewTitle = view === 'concept-coach'
+    ? t('aiConceptCoachCard', 'AI 理解与制卡')
+    : t('aiConceptCoachCard', 'AI 理解与制卡');
   const reviewTitle = String(props.title || t('reviewTitle', 'Review')).trim();
   return `${viewTitle} · ${reviewTitle || t('reviewTitle', 'Review')}`;
 }
@@ -2667,7 +2679,7 @@ async function handleEditCurrentCardPriority(): Promise<void> {
 
   try {
     const snapshot = await cardEditorService.updatePriority(reference.cardId, nextPriority);
-    await hook.refreshCurrentItem(snapshot.card);
+    await hook.refreshCurrentItem(snapshot.card, buildExpectedRefreshOptions(reference));
     showMessage(t('prioritySaved', '优先级已更新'), 3000, 'info');
   } catch (error) {
     logger.error('[SiYuanMemo][ReviewView] Failed to update current card priority:', error);
@@ -2939,7 +2951,10 @@ async function confirmCurrentContentEditor(): Promise<void> {
 
     const currentCard = state.value.content.card;
     if (currentCard) {
-      await hook.refreshCurrentItem(currentCard);
+      await hook.refreshCurrentItem(currentCard, buildExpectedRefreshOptions({
+        cardId: currentCard.id,
+        blockId: currentCard.blockId,
+      }));
     }
 
     reviewTextEditorOpen.value = false;

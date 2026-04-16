@@ -1,8 +1,98 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-16 (Round 77)
+Last update: 2026-04-16 (Round 81)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-16 - AI universal chat shell and skill runtime
+
+- Task: Upgrade the AI workbench into a general chat shell with built-in `general-chat` and `concept-coach` skills, provider-aware LLM protocol handling, tool execution scaffolding, inline approvals, variable caching, and versioned unified session messages.
+- Touched slice: AI workbench / capture active path across `src/types/{ai,settings}.ts`, `src/application/ports/LLMPort.ts`, `src/application/services/{AIWorkbenchService,AIWorkbenchSessionStoreService,AIWorkbenchSkillRegistry,AIChatSkillRegistry,AIChatToolRegistry,AIChatToolExecutorService,AIChatApprovalService,AIChatVarStoreService}.ts`, `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`, `src/ui/{ai/AiWorkbenchPane.vue,settings/SettingsPanel.vue}`, related i18n/tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Replaced the fixed-tab-only workbench runtime with a unified chat timeline that can carry text, structured skill results, tool logs, approval cards, diagnostics, and migrated legacy tab-thread sessions; added provider/settings normalization from legacy `baseUrl/apiKey/model` into `providers[]`; centralized tool descriptors and read/write execution policy; and kept `concept-coach` on the active structured result path while making standalone AI usable as a general chat shell.
+- Debt deferred: Write tools currently stop at explicit approval/intention surfacing and do not yet resume into real card/excerpt/daily-note write application services; streaming is still final-callback rather than full SSE; Claude/Gemini adapters cover the basic chat/tool-call shapes but not every vendor-specific advanced field; and the tool descriptors still include service-level copy that could be moved to i18n later.
+- Why deferred: Completing safe write execution, true streaming, and exhaustive provider/tool parity would broaden this foundation pass into multiple product-policy and infrastructure slices with higher risk than the current runtime consolidation.
+- Next safe step: Implement one approved write tool end-to-end through an application service port, then add a focused runtime test for approve -> execute -> tool result -> assistant continuation before widening to more write tools.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/types/__tests__/settings-normalization.test.ts --reporter=basic`; `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts src/application/services/__tests__/AIPromptComposer.test.ts src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts --reporter=basic`; `pnpm vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts --reporter=basic`; `pnpm build`; `git diff --check`.
+
+### 2026-04-16 - AI concept-coach tab normalization hardening
+
+- Task: Stabilize the `多视角理解` and `整合理解` tabs so OpenAI-compatible providers with schema drift or flaky `json_object` handling no longer degrade into silent blank results.
+- Touched slice: AI workbench active path in `src/application/services/{AIPromptContractRegistry,AIWorkbenchService}.ts`, `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`, `src/ui/ai/AiWorkbenchPane.vue`, related AI types/i18n, and focused adapter/service/pane regression coverage.
+- Debt fixed now: The structured prompt contract now includes explicit empty-section examples for `perspectives` and `integratedUnderstanding`; service-side normalization now tolerates aliased keys, direct section payloads, and mixed string/array/object shapes while attaching bounded partial/empty diagnostics to assistant-result messages; the pane surfaces those diagnostics inline instead of rendering blank bubbles; and the adapter now carries a lightweight structured transport profile so DeepSeek-class providers can fall back from `json_object` to prompt-only JSON transport when `response_format` itself is unstable.
+- Debt deferred: The provider profile logic is still intentionally narrow and heuristic-driven, and the workbench still does not promote every structured-warning state into a richer persisted inspector or a full provider capability registry.
+- Why deferred: Generalizing this bounded compatibility hardening into a cross-provider capability system would broaden a targeted AI workbench fix into a larger configuration and product-policy redesign.
+- Next safe step: If diagnostics show another recurring provider-specific transport or schema shape, add one equally narrow profile/normalization rule with a captured regression test instead of widening to generic vendor branching.
+- Validation: `pnpm vitest run src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`; `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts`; `pnpm vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`; `git diff --check`.
+
+### 2026-04-16 - DeepSeek structured empty-body one-shot retry
+
+- Task: Add a bounded recovery step for the observed DeepSeek failure mode where `chat/completions` returns HTTP 200 with an empty body for a `json_object` structured run.
+- Touched slice: LLM adapter boundary in `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`, plus focused regression coverage in `src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`.
+- Debt fixed now: The adapter now retries exactly once when a DeepSeek structured request (`deepseek.com` or `deepseek-*` model + `json_object`) comes back as `200` with an empty body; non-DeepSeek providers keep the old single-attempt behavior; and failure diagnostics now show per-attempt summaries so the sidecar can reveal whether the retry path was exercised.
+- Debt deferred: There is still no broader provider capability registry, jitter/backoff policy, or retry for other empty-content shapes such as non-empty JSON bodies with missing `choices`.
+- Why deferred: Generalizing this bounded recovery into a cross-provider retry framework would widen a concrete provider compatibility fix into policy work with broader product and rate-limit tradeoffs.
+- Next safe step: If diagnostics show DeepSeek also fails with a stable non-empty error shape, add one equally narrow normalization/retry rule for that concrete payload rather than broadening to blanket retries.
+- Validation: `pnpm vitest run src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`; `pnpm build`.
+
+### 2026-04-16 - AI sidecar guaranteed failure diagnostics
+
+- Task: Ensure the AI sidecar always exposes a visible diagnostic section for structured-run failures, even when the provider really returns an empty body or the LLM port omits a raw payload.
+- Touched slice: The same AI workbench failure path in `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`, `src/application/services/AIWorkbenchService.ts`, and focused adapter/service regression coverage.
+- Debt fixed now: The adapter now emits a bounded diagnostic summary with endpoint/model/status/body info instead of leaving `diagnostic` empty on true empty-body failures; and `AIWorkbenchService` adds a final fallback diagnostic summary so the sidecar can still render `查看原始响应` even if a custom `LLMPort` throws a bare `LLMError`.
+- Debt deferred: The diagnostic content is still text-oriented rather than a richer structured inspector, and persisted historical sessions still do not retain past failure diagnostics.
+- Why deferred: A full structured inspector and history persistence would broaden this bounded debugging hardening into a larger AI session UX redesign.
+- Next safe step: If the visible diagnostics expose one dominant provider failure mode, promote just that case into a first-class adapter normalization or recovery hint.
+- Validation: `pnpm vitest run src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`; `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts`; `pnpm vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`.
+
+### 2026-04-16 - AI sidecar raw failure diagnostics
+
+- Task: Surface the raw provider response inside the AI sidecar when a structured run still fails, so users can see what the model or gateway actually returned instead of only getting the generic `空正文` hint.
+- Touched slice: AI workbench failure path in `src/application/ports/LLMPort.ts`, `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`, `src/application/services/AIWorkbenchService.ts`, `src/ui/ai/AiWorkbenchPane.vue`, related i18n, and focused regression coverage in the adapter/service/pane tests.
+- Debt fixed now: The active `LLM adapter -> LLMError -> AIWorkbenchService -> AiWorkbenchPane` chain now preserves a bounded non-persisted diagnostic payload; the adapter reads raw response text before parsing so even non-JSON bodies can be surfaced; and the sidecar exposes that payload behind an expandable banner instead of forcing users into devtools.
+- Debt deferred: The AI workbench still treats richer refusal / tool-call / reasoning-only payloads as generic failures, and diagnostics are only shown for the current in-memory failure rather than being attached to persisted history records.
+- Why deferred: Promoting every provider-specific response shape to first-class runtime state, or persisting diagnostics into session history, would widen this bounded debugging improvement into a broader AI session contract redesign.
+- Next safe step: If the newly visible raw payload shows a recurring provider-specific shape, add one narrow normalization/test case at the adapter boundary rather than layering more UI-side fallback logic.
+- Validation: `pnpm vitest run src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`; `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts`; `pnpm vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`.
+
+### 2026-04-16 - AI sidecar structured response extraction hardening
+
+- Task: Fix the AI sidecar path that reported `空正文` when some OpenAI-compatible Chat Completions providers returned valid structured results in non-string response shapes.
+- Touched slice: AI workbench LLM adapter boundary in `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`, plus focused regression coverage in `src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`.
+- Debt fixed now: Kept the active `AIWorkbenchService -> LLMPort -> OpenAICompatibleLLMAdapter` path intact while expanding the adapter to accept `output_text` content parts, structured object bodies, `message.parsed` payloads, and legacy `choice.text` fallbacks instead of misclassifying them as empty completions.
+- Debt deferred: The adapter still assumes a single successful completion can be normalized into one final text body and does not yet surface richer refusal / tool-call / reasoning-only states as first-class runtime outcomes.
+- Why deferred: Promoting those additional response states would widen this bounded compatibility fix into a broader LLM contract redesign across the AI workbench runtime.
+- Next safe step: If users report a concrete provider that still fails, capture one raw successful response sample and add a tightly-scoped normalization case plus regression test at the adapter boundary.
+- Validation: `pnpm vitest run src/infrastructure/llm/__tests__/OpenAICompatibleLLMAdapter.test.ts`; `pnpm build`.
+
+### 2026-04-16 - review current-card refresh race on local advance
+
+- Task: Fix incremental-learning review so clicking `下一张` no longer reopens the same card when the just-reviewed card emits a local `card-updated` refresh while the session is already advancing.
+- Touched slice: Review active path in `src/ui/review/v2/{ReviewView.vue,reviewSessionController.ts,types.ts,useReviewSession.ts}`, plus focused regression coverage in `src/ui/review/v2/__tests__/{useReviewSession.spec.ts,ReviewView.local-advance-race.spec.ts}`.
+- Debt fixed now: Tightened `refreshCurrentItem()` semantics so same-card refreshes can declare the identity they expect to still be active; wired `ReviewView`'s current-card refresh callers to use that guard; and added explicit coverage for the serialized race where a local grade advances to the next card before an async refresh of the old card lands.
+- Debt deferred: Other review refresh entrypoints still depend on callers choosing the guarded path correctly, and the broader `card-updated` observer model still multiplexes both "refresh current card" and "current card should advance away" semantics through the same event family.
+- Why deferred: Reworking the whole review observer contract would widen this bounded bugfix into a larger application-event redesign; the active bug only needed the session boundary to reject stale same-card refreshes after local advancement.
+- Next safe step: If more review actions show similar stale-refresh symptoms, extract a small review-current-card refresh helper that defaults to guarded refreshes and audit the remaining force-replace callsites intentionally.
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts src/ui/review/v2/__tests__/ReviewView.local-advance-race.spec.ts --reporter=basic`; `pnpm build`.
+
+### 2026-04-16 - AI workbench running feedback and CTA prompt fill
+
+- Task: Make `AI 理解与制卡` visibly acknowledge work after sending, improve empty-response diagnostics, and change the empty-state CTA from direct model execution to filling a default composer instruction.
+- Touched slice: AI workbench active path in `src/types/ai.ts`, `src/application/services/{AIWorkbenchService,AIWorkbenchSkillRegistry}.ts`, `src/ui/ai/AiWorkbenchPane.vue`, related i18n, and focused service/component coverage.
+- Debt fixed now: Added a non-persisted `runStatus` runtime state instead of overloading saved messages for loading UI; centralized default Skill user prompt metadata in the skill registry; replaced the vague empty-response error with a recovery-oriented diagnostic; and aligned the empty-state CTA with the input-first sidecar interaction model.
+- Debt deferred: The run feedback is still non-streaming and does not show token-level partial output or tool-call progress; registry and contract descriptions still include some hardcoded copy that can be moved to i18n in a later UI copy sweep.
+- Why deferred: The current structured JSON runtime needs complete model output before rendering tabs safely, and streaming/tool-call progress would widen this bounded feedback fix into LLM adapter and tool orchestration work.
+- Next safe step: If this pending bubble feels right in daily review, add a small shared AI running-state component and then decide whether structured streaming should be introduced at the LLM adapter boundary.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts --reporter=basic`; broader targeted AI/settings/review vitest; `pnpm build`; `git diff --check`.
+
+### 2026-04-16 - AI workbench concept-coach skill runtime
+
+- Task: Upgrade the explain-only AI sidecar into a complete v1 Skill runtime with one official `concept-coach` skill exposed as `AI 理解与制卡`, five structured tabs, skill-aware prompts/contracts/sessions, and candidate-card editing/selection without restoring tool groups or direct card creation.
+- Touched slice: AI workbench active path in `src/types/{ai,settings}.ts`, `src/application/services/{AIWorkbenchService,AIWorkbenchSessionStoreService,AIWorkbenchSkillRegistry,AIPromptComposer,AIPromptContractRegistry}.ts`, `src/ui/{ai/AiWorkbenchPane.vue,browser/SRSBrowser.vue,review/v2/ReviewView.vue,settings/SettingsPanel.vue}`, related i18n, focused service/component/settings tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Replaced the hardcoded explain-only runtime with a skill registry and `activeSkillId + activeTabId` state, moved session persistence to `skill -> tab -> thread/result`, centralized full-run and per-tab JSON contracts, migrated prompt settings to `skills.conceptCoach.baseRun` plus per-tab `run/followUp`, unified review/browser/dialog entries on the new skill, and kept self-test cards as structured candidates rather than reviving the old make-cards board.
+- Debt deferred: The v1 registry still only has one concrete skill, the old explain compatibility aliases and legacy session normalization remain to protect existing user data, and no tool group/tool call/permission/variable runtime has been introduced.
+- Why deferred: Adding multiple skills or tool-call orchestration would exceed this first Skill runtime slice, while removing legacy explain guards now would risk breaking persisted sessions created by earlier AI sidecar versions.
+- Next safe step: Add the second skill only after the registry/session contract has been used in daily review, then introduce tool-group metadata behind the registry without changing the `concept-coach` tab persistence shape.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/AIPromptComposer.test.ts src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/types/__tests__/settings-normalization.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts --reporter=basic`; `pnpm build`; `git diff --check`; targeted `rg` checks for active explain-only residue.
 
 ### 2026-04-16 - AI explain first-turn prompt and header cleanup
 

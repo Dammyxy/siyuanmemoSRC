@@ -338,14 +338,15 @@ describe('SettingsPanel', () => {
 
     expect(wrapper.text()).toContain('AI Workbench');
     expect(wrapper.text()).toContain('Prompt Templates');
-    expect(wrapper.text()).toContain('Explain Preset');
+    expect(wrapper.text()).toContain('AI 理解与制卡推荐模板');
     expect(wrapper.text()).not.toContain('Tutor Preset');
     expect(wrapper.text()).not.toContain('Card Preset');
     expect(wrapper.text()).not.toContain('CDF Preset');
-    expect(wrapper.text()).toContain('讲清这张卡为什么值得记');
-    expect(wrapper.text()).toContain('工作定义、边界、因果、连接和触发器');
+    expect(wrapper.text()).toContain('分得清、想得起、用得上');
+    expect(wrapper.text()).toContain('工作定义、多视角理解、整合理解、自测卡片和现实触发器');
     expect(wrapper.text()).toContain('Current Status');
     expect(wrapper.text()).toContain('Using Recommended Template');
+    expect(wrapper.text()).toContain('Skill 基础 Prompt');
     expect(wrapper.text()).toContain('Behavior Prompt');
     expect(wrapper.text()).toContain('Show the system-appended structured contract');
 
@@ -370,9 +371,9 @@ describe('SettingsPanel', () => {
     await enableToggle!.setValue(false);
 
     const textareas = wrapper.findAll('textarea');
-    expect(textareas).toHaveLength(2);
-    await textareas[0].setValue('Explain run prompt body');
-    await textareas[1].setValue('Explain follow-up prompt body');
+    expect(textareas.length).toBeGreaterThanOrEqual(11);
+    await textareas[0].setValue('Concept coach base prompt body');
+    await textareas[1].setValue('Working definition run prompt body');
     expect(wrapper.text()).toContain('Using Custom Override');
     expect(wrapper.text()).toContain('The saved behavior and follow-up prompts below are custom; the system appends structured rules automatically.');
 
@@ -390,8 +391,8 @@ describe('SettingsPanel', () => {
     expect(payload.ai.baseUrl).toBe('https://example.test/v1');
     expect(payload.ai.apiKey).toBe('secret-key');
     expect(payload.ai.model).toBe('gpt-test');
-    expect(payload.ai.promptContractVersion).toBe(2);
-    expect(payload.ai.prompts.explain).toEqual(DEFAULT_SETTINGS.ai.prompts.explain);
+    expect(payload.ai.promptContractVersion).toBe(3);
+    expect(payload.ai.prompts.skills.conceptCoach).toEqual(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach);
     expect(payload.ai).not.toHaveProperty('draftStorage');
     expect(payload.ai).not.toHaveProperty('promptProfiles');
   });

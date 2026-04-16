@@ -218,21 +218,28 @@ sequenceDiagram
 主链路分工：
 
 - `ReviewAIWorkbenchRegistry`：持有 standalone service 与按 review session 隔离的 AI service
-- `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件，承接历史列表、重命名、删除与上下文签名回放
-- `AIWorkbenchService`：解释优先的 AI 工作台状态机，负责持久化会话/消息流、解释首轮运行、follow-up 追问、上下文附加、历史管理，以及把旧 `make-cards` / `tutor` 打开请求安全归一到 `explain`
-- `src/types/settings.ts`：AI Prompt 的持久化真相源；当前只保留一组 `explain.run/followUp` prompt，`run` 表示用户可编辑的行为 Prompt，`followUp` 表示用户可编辑的追问 Prompt
-- `AIPromptContractRegistry`：解释首轮任务的系统契约注册表；统一维护 JSON 字段、必填项与来源约束，并为运行时追加和设置页只读说明提供同一份事实源
-- `AIPromptComposer`：只负责推荐 prompt 模板描述与默认行为/追问 Prompt，不再承担运行时结构化协议拼接
+- `AIChatSkillRegistry` / `AIWorkbenchSkillRegistry`：通用聊天 Skill 注册表与旧入口兼容层；当前内置 `general-chat` 与 `concept-coach`
+- `AIChatToolRegistry` / `AIChatToolExecutorService`：插件内工具与网页工具的描述符、启用策略、执行链和结果缓存；读工具自动执行，写工具只进入审批流
+- `AIChatVarStoreService`：会话级变量缓存，支撑长工具结果的 `ListVars` / `ReadVar`
+- `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件，承接历史列表、重命名、删除、上下文签名回放，以及旧 `skill -> tab -> thread/result` 到统一 `messages[]` 时间线的迁移
+- `AIWorkbenchService`：通用 AI chat runtime，负责会话编排、消息生命周期、Skill 切换、工具执行、审批状态、结构化结果渲染适配和历史管理；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
+- `src/types/settings.ts`：AI provider / model / tool / web-search / prompt 的持久化真相源；旧 `baseUrl/apiKey/model` 会迁移为 `providers[] + defaultModelId`，旧 explain-only prompt 在 contract version 升级后直接回落到当前默认模板
+- `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，并为运行时追加和设置页只读说明提供同一份事实源
+- `AIPromptComposer`：只负责推荐 Skill prompt 模板描述与默认 base/tab Prompt，不再承担运行时结构化协议拼接
 - `ConfiguredCaptureStorageService`：仍作为 Progressive / Excerpt 的捕获存储服务保留，但不再是 AI workbench 的运行依赖
 
-当前 explain 主路径补充：
+当前 Skill 主路径补充：
 
-- review / browser / standalone / companion tab 全入口统一打开解释视图；browser 入口根据当前预览块或选中材料附带上下文，neural roam 不再默认进入 tutor 模式
-- 模板选择弹窗不再提供 `AI 辅助制卡` 快捷入口
-- 结构化首轮任务只保留 `explain`；运行时会把用户保存的行为 Prompt 与 `AIPromptContractRegistry` 中的系统结构化契约拼成最终 `system` prompt，并通过 `LLMPort` 请求 `json_object` 输出模式
-- follow-up 继续直接使用用户保存的 `followUp` Prompt，保持普通文本对话，不追加结构化契约
-- 解释结果与 follow-up 写入同一条持久化 session 消息流；旧 session JSON 中的 `make-cards` / `candidate-board` 内容在加载时会被安全忽略，`lastActiveView: "make-cards"` 会被映射回 `explain`
-- `AiWorkbenchPane.vue` 现在是 RemNote 风格的干净解释面板：单一主动作 `解释此内容`、轻量 history/context 抽屉、底部 composer 和 icon 化操作区
+- standalone dialog 默认打开 `general-chat`；review sidecar / companion tab 默认打开 `concept-coach`，用户仍可在同一 shell 内切换 Skill
+- `general-chat` 使用单时间线消息流，可调用 `context-read`、`siyuan-read`、`review-read`、`web`、`vars` 工具组；未配置搜索 backend 时只保留 URL 抓取，不伪装搜索能力
+- `flashcard-write` 等写入意图工具默认 `ask-always`，第一阶段只通过消息流中的审批卡暴露，不允许静默修改思源内容、卡片、摘录或 daily note
+- 首轮运行把 `baseRun + 5 个 tab.run` 与 `concept-coach/full-run` 契约组合成最终 `system` prompt，并通过 `LLMPort` 请求 `json_object` 输出模式，一次性填充 5 个 tab payload
+- Tab 局部重跑只组合 `baseRun + 当前 tab.run + concept-coach/<tab>`，只替换当前 tab 的结构化结果与当前 tab 线程
+- Tab 追问只使用当前 `tab.followUp`，并携带当前 tab 结果作为上下文，避免把整份 Skill 结果混入局部讨论
+- `多视角理解` / `整合理解` 的结构化结果归一化容忍别名、wrapper、直接 section、字符串/数组/对象混合形状；部分成功会显示可恢复内容和 warning，不再静默空白
+- `自测卡片` section 只保存结构化候选卡 `question / answer / kind / selected`，第一版支持会话内编辑/选择，不直接落库、不直接建卡
+- 旧 explain session 会保留历史消息作为 legacy session 打开，并显示“旧解释结果仅供查看，重跑后生成完整 tabs”的提示；重跑后生成新的 `concept-coach` 五阶段结果
+- `AiWorkbenchPane.vue` 现在是通用 chat shell：顶部 Skill 切换、按 Skill 显示 tab/section、消息流支持文本、结构化结果、tool timeline、审批卡、warning/diagnostic、底部 composer 和 context 附加
 
 UI surface：
 
@@ -297,8 +304,13 @@ UI surface：
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
+- `src/application/services/AIChatSkillRegistry.ts`：通用 AI chat Skill 注册表，当前内置 `general-chat` 与 `concept-coach`。
+- `src/application/services/AIChatToolRegistry.ts`：AI chat 工具描述符、工具组、执行策略与可见性注册。
+- `src/application/services/AIChatToolExecutorService.ts`：AI chat 工具执行链，负责插件内读工具、网页抓取/搜索、写工具审批中断和长结果变量缓存。
+- `src/application/services/AIChatApprovalService.ts`：AI chat 写工具审批请求的轻量状态服务。
+- `src/application/services/AIChatVarStoreService.ts`：AI chat 会话级变量缓存，支撑 `ListVars` / `ReadVar`。
 - `src/application/services/SharedReviewSessionRegistry.ts`：插件托管 review 分屏的共享 session 注册中心。
-- `src/application/services/AIWorkbenchService.ts`：AI 工作台状态与动作编排。
+- `src/application/services/AIWorkbenchService.ts`：通用 AI chat runtime 与 concept-coach 结构化 renderer 的状态和动作编排。
 
 适配器、工厂、查询、用例：
 
@@ -378,7 +390,7 @@ Siyuan / Riff / LLM 适配器：
 - `src/infrastructure/siyuan/ProgressiveNativeRiffAdapter.ts`
 - `src/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter.ts`
 - `src/infrastructure/siyuan/AISiyuanAdapter.ts`
-- `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`
+- `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`：统一 `LLMPort` 的基础设施适配器，支持 OpenAI-compatible / OpenAI / Claude / Gemini 协议和结构化输出传输诊断。
 
 持久化与支撑：
 
@@ -575,44 +587,69 @@ Review 运行时要点：
 
 ## 10. AI Workbench / Capture
 
-AI 工作台的当前架构分成两层：
+AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊天壳，分成五层：
 
 1. 服务注册与会话隔离
-2. 持久化会话 / 线程消息流
-3. UI surface 承载
+2. Skill registry / prompt contract
+3. 通用 chat runtime / tool runtime / approval runtime
+4. 版本化 session store / 统一 `messages[]` 时间线
+5. UI surface 与结构化 renderer
 
 服务层：
 
 - `ReviewAIWorkbenchRegistry`
   - 管理 standalone service
   - 管理按 review session 隔离的 AI workbench service
+  - standalone 默认从 `general-chat` 启动；review sidecar / companion tab 默认从 `concept-coach` 启动
+- `AIChatSkillRegistry`
+  - 注册内置 Skill 描述符：`general-chat` 与 `concept-coach`
+  - `general-chat` 是默认通用聊天 Skill，可使用读工具、网页工具与变量工具
+  - `concept-coach` 保留 `AI 理解与制卡` 的结构化 prompt、五阶段结果和候选卡 renderer，但 tab 不再是独立运行时主路径
+- `AIChatToolRegistry`
+  - 注册工具描述符、工具组、参数 schema、执行策略和可见性
+  - 当前工具组为 `context-read`、`siyuan-read`、`review-read`、`flashcard-write`、`web`、`vars`
+  - `SearchWeb` 只有在配置 `tavily | bocha | google-cse` backend 时可见；`FetchWebPage` 始终可用
+- `AIChatToolExecutorService`
+  - 通过 `AISiyuanPort` 和浏览器 `fetch` 执行读工具与网页工具
+  - 长结果写入 `AIChatVarStoreService`，再通过 `ListVars` / `ReadVar` 回读
+  - 写工具默认中断为审批请求，不直接越界写入思源、卡片、摘录或 daily note
 - `AIWorkbenchSessionStoreService`
   - 通过 `FileService` 落盘 `index + per-session record`
   - 提供会话历史列表、按 id 读取、重命名、删除
-  - 让 AI 工作台不再把历史塞进 settings 或内存态里
+  - 引入 `schemaVersion` 与统一 `messages[]`，读取旧 `skill -> tab -> thread/result` 时迁移为线性消息历史和结构化结果卡
 - `AIWorkbenchService`
   - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
-  - 只维护 explain-first 的消息流：解释结果写入 `assistant-result` message，追问沿用同一条会话线程
-  - 管理解释结果、attached contexts、surface 差异与历史管理
-  - 读取 `settings.ai.prompts.explain.{run,followUp}` 作为用户可编辑 prompt 真相源，其中 `run` 是行为层，`followUp` 是追问层
-  - 对结构化首轮解释请求把行为 Prompt 与 `AIPromptContractRegistry` 的系统契约组合成最终 `system` prompt
-  - 对结构化首轮请求显式要求 `json_object` 输出，并在本地容忍 fenced JSON 包装，降低“Prompt 正确但模型包了代码块”导致的结构化失败
-  - 若用户自定义行为 Prompt 与系统契约冲突导致结构化输出失效，则在错误里提示检查解释行为 Prompt
+  - 维护 `activeSkillId + activeTabId`、消息流、tool timeline、pending approvals、vars、diagnostics
+  - `general-chat` 走多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，审批工具暂停等待用户确认
+  - `concept-coach` 仍走结构化 JSON 主链：首轮全量生成 5 个 section，局部重跑只替换当前 section，follow-up 只带当前 section 结果
+  - `多视角理解` / `整合理解` 的归一化容忍字段别名、wrapper、直接 section、字符串/数组/对象混合形状，并把 `full / partial / empty` 诊断挂到 assistant structured result
+  - 对 DeepSeek / OpenAI-compatible 等 provider 保留 `json_object` 默认路径和 prompt-only JSON 传输兜底，诊断记录 profile / transport / status / raw body
+  - 旧 explain-only 会话保留历史消息作为 legacy session 查看，重跑后再生成完整 `concept-coach` sections
 - `AIPromptComposer`
-  - 只提供推荐模板描述与默认行为/追问 Prompt
+  - 只提供推荐 Skill 模板描述与默认 base/tab Prompt
   - 不再承担运行时结构化协议拼接职责
+- `AIPromptContractRegistry`
+  - 注册 `concept-coach/full-run` 与 `concept-coach/<tab>` JSON contract
+  - 作为运行时 prompt 追加和设置页只读 contract 说明的共同事实源
 - `ConfiguredCaptureStorageService`
-  - 解析 Progressive / Excerpt 当前 capture 目标与持久化策略；AI workbench 不再依赖它
+  - 解析 Progressive / Excerpt 当前 capture 目标与持久化策略；AI workbench 不再直接依赖它
+
+模型与设置边界：
+
+- `LLMPort`：上层统一使用 OpenAI-shaped `messages / tools / toolChoice / responseFormat / reasoning / stream / modelRef` 请求形状
+- `OpenAICompatibleLLMAdapter`：在基础设施层适配 OpenAI-compatible / OpenAI / Claude / Gemini 协议，并把 provider diagnostic 统一回传给 runtime
+- `src/types/settings.ts`：AI 设置主结构为 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides`
+- 旧 `baseUrl/apiKey/model` 仍可读，并在归一化时迁移为默认 provider；新设置写入不再以旧字段作为主结构
 
 UI 层：
 
-- `DialogManager.openAiWorkbenchDialog()`：standalone dialog
-- `TabManager.openReviewAICompanionTab(...)`：review companion tab
+- `DialogManager.openAiWorkbenchDialog()`：standalone dialog，默认 `general-chat`
+- `TabManager.openReviewAICompanionTab(...)`：review companion tab，默认 `concept-coach`
 - `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文
 - `AiWorkbenchPane.vue`
-  - 统一渲染解释优先的聊天式外壳：简洁标题区、历史抽屉、上下文抽屉、底部 composer
-  - 默认空态只暴露 `解释此内容` 一个主动作，`Use Context` 退到 composer 附加工具
-  - 不再承载 make-cards 候选板、制卡 tab、落草稿或批量建卡流程
+  - 渲染通用 chat shell：Skill 切换、模型/工具入口、标题、历史/上下文抽屉、底部 composer
+  - 消息区支持文本消息、结构化 Skill 结果、tool log、approval card、warning/diagnostic
+  - `concept-coach` 的五阶段 tab 作为结构化结果卡的 section/switch 展示；`general-chat` 隐藏 tab，直接显示单时间线
 
 外部边界：
 
@@ -700,7 +737,7 @@ UI 层：
 
 ---
 
-## 14. 当前状态快照（2026-04-13）
+## 14. 当前状态快照（2026-04-16）
 
 当前架构基线：
 
@@ -712,9 +749,11 @@ UI 层：
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
-- AI Workbench / Capture 已在主路径中，并通过 registry + session service 方式集成
-- AI Prompt 的持久化真相源已收敛为用户可直接编辑的 `run/followUp` 对，其中结构化首轮的 JSON 契约由系统注册表托管而不是暴露给用户编辑
-- AI 制卡模式已包含 `cdf`，且模板弹窗的 AI 快捷入口默认直达该模式
+- AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review sidecar 默认 `concept-coach`
+- AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
+- AI Prompt 的持久化真相源仍是 Skill-aware 模板：`skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，结构化 JSON 契约由系统注册表托管而不是暴露给用户编辑
+- AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做 world-tree 分支会话
+- AI 理解与制卡的 `自测卡片` section 支持候选卡编辑/选择，但不直接落草稿、不直接建卡；真正写入仍需后续接入审批后的应用服务写路径
 
 当前文档定位：
 
