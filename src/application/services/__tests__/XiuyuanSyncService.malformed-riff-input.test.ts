@@ -7,6 +7,10 @@ import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiu
 import type { RiffBlacklistService } from '../RiffBlacklistService';
 import type { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
+import { BlockId } from '@/core/xiuyuan/domain/BlockId';
+import { CardFace } from '@/core/xiuyuan/domain/CardFace';
+import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
+import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 
 type ServiceHarness = {
   service: XiuyuanSyncService;
@@ -14,6 +18,13 @@ type ServiceHarness = {
   siyuanApi: XiuyuanSyncSiyuanPort;
   riffBlacklistService: RiffBlacklistService;
 };
+
+function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T {
+  if (!result.ok) {
+    throw result.error;
+  }
+  return result.value;
+}
 
 function createConfig(options?: {
   incrementalEnabled?: boolean;
@@ -49,6 +60,16 @@ function createXiuyuanRepositoryMock(): IXiuyuanRepository {
     delete: vi.fn(async () => ({ ok: true, value: undefined })),
     saveMany: vi.fn(async () => ({ ok: true, value: undefined })),
     deleteMany: vi.fn(async () => ({ ok: true, value: undefined })),
+    applySyncChangeSet: vi.fn(async (changeSet) => ({
+      ok: true,
+      value: {
+        createdCount: changeSet.creates.length,
+        updatedCount: changeSet.metadataUpdates.length,
+        deletedCount: changeSet.deletes.length,
+        blacklistCleanedCount: changeSet.blacklistCleanup.length,
+        checkpointApplied: Boolean(changeSet.checkpointAdvance),
+      },
+    })),
     getXiuyuanIdByCardId: vi.fn(() => undefined),
   };
 }
@@ -111,6 +132,24 @@ function createRiffBlock(params: {
   return block;
 }
 
+function createLocalOwnedXiuyuan(blockId: string): Xiuyuan {
+  return must(Xiuyuan.create({
+    blockIDs: [must(BlockId.create(blockId))],
+    templateID: must(TemplateId.create('basic')),
+    faces: [
+      must(CardFace.create({
+        question: `local-${blockId}`,
+        answer: 'local answer',
+        questionBlockId: blockId,
+        answerBlockId: blockId,
+      })),
+    ],
+    meta: {
+      ownership: 'local-owned',
+    },
+  }));
+}
+
 function createHarness(options?: {
   incrementalEnabled?: boolean;
   cleanupBlacklist?: boolean;
@@ -120,6 +159,7 @@ function createHarness(options?: {
   const siyuanApi = createSiyuanApiMock();
   const riffBlacklistService = {
     filterBlacklist: vi.fn(async (cards: XiuyuanSyncRiffBlock[]) => cards),
+    getBlacklist: vi.fn(async () => new Set<string>()),
     cleanupBlacklist: vi.fn(async () => 0),
   } as unknown as RiffBlacklistService;
   const cardTypeDetectionService = {
@@ -175,13 +215,16 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expect(result.addedCount).toBe(1);
     expect(vi.mocked(siyuanApi.getBlockAttrs)).toHaveBeenCalledWith(normalizedBlockId);
     expect(vi.mocked(xiuyuanRepository.findById).mock.calls.length).toBeGreaterThan(0);
-    expect(vi.mocked(xiuyuanRepository.save)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.save)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
 
-    const savedXiuyuan = vi.mocked(xiuyuanRepository.save).mock.calls[0]?.[0];
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toHaveLength(1);
+    const savedXiuyuan = changeSet?.creates[0]?.xiuyuanEntity;
     expect(savedXiuyuan?.getBlockIDs()[0]?.getValue()).toBe(normalizedBlockId);
   });
 
-  it('skips unrecoverable riff records during incremental sync without touching storage', async () => {
+  it('skips unrecoverable riff records during incremental sync without creating Xiuyuans', async () => {
     const { service, xiuyuanRepository, siyuanApi } = createHarness();
 
     vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
@@ -199,9 +242,11 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expect(vi.mocked(siyuanApi.getBlockAttrs)).not.toHaveBeenCalled();
     expect(vi.mocked(xiuyuanRepository.findById)).not.toHaveBeenCalled();
     expect(vi.mocked(xiuyuanRepository.save)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].creates).toHaveLength(0);
   });
 
-  it('skips blank-content riff records during incremental sync without touching storage', async () => {
+  it('skips blank-content riff records during incremental sync without creating Xiuyuans', async () => {
     const { service, xiuyuanRepository, siyuanApi } = createHarness();
     const validBlockId = '20260301195500-abc1234';
 
@@ -220,6 +265,38 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expect(vi.mocked(siyuanApi.getBlockAttrs)).not.toHaveBeenCalled();
     expect(vi.mocked(xiuyuanRepository.findById)).not.toHaveBeenCalled();
     expect(vi.mocked(xiuyuanRepository.save)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].creates).toHaveLength(0);
+  });
+
+  it('skips incoming riff cards when the same block already has a local-owned Xiuyuan', async () => {
+    const { service, xiuyuanRepository, siyuanApi } = createHarness();
+    const blockId = '20260301200500-abc1234';
+    const localXiuyuan = createLocalOwnedXiuyuan(blockId);
+
+    vi.mocked(xiuyuanRepository.findByBlockId).mockResolvedValue({
+      ok: true,
+      value: [localXiuyuan],
+    });
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock({
+        id: blockId,
+        content: 'riff content should not create duplicate local card',
+      }),
+    ]);
+
+    const result = await service.incrementalSync();
+
+    expectSyncSuccess(result);
+    expect(result.addedCount).toBe(0);
+    expect(result.updatedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(vi.mocked(xiuyuanRepository.save)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toHaveLength(0);
+    expect(changeSet?.metadataUpdates).toHaveLength(0);
+    expect(changeSet?.checkpointAdvance?.lastSuccessfulIncrementalAt).toBeTypeOf('number');
   });
 
   it('skips malformed legacy migration cards during startup and still completes start()', async () => {
@@ -278,7 +355,12 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expectSyncSuccess(result);
     expect(result.addedCount).toBe(1);
     expect(result.skippedCount).toBe(1);
-    expect(vi.mocked(xiuyuanRepository.save)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.save)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toHaveLength(1);
+    expect(changeSet?.deletes).toHaveLength(0);
+    expect(changeSet?.blacklistCleanup).toHaveLength(0);
     expect(vi.mocked(xiuyuanRepository.delete)).not.toHaveBeenCalled();
     expect(vi.mocked((riffBlacklistService as unknown as { cleanupBlacklist: ReturnType<typeof vi.fn> }).cleanupBlacklist)).not.toHaveBeenCalled();
   });
@@ -303,7 +385,12 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     expectSyncSuccess(result);
     expect(result.addedCount).toBe(1);
     expect(result.skippedCount).toBe(1);
-    expect(vi.mocked(xiuyuanRepository.save)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.save)).not.toHaveBeenCalled();
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toHaveLength(1);
+    expect(changeSet?.deletes).toHaveLength(0);
+    expect(changeSet?.blacklistCleanup).toHaveLength(0);
     expect(vi.mocked(xiuyuanRepository.delete)).not.toHaveBeenCalled();
     expect(vi.mocked((riffBlacklistService as unknown as { cleanupBlacklist: ReturnType<typeof vi.fn> }).cleanupBlacklist)).not.toHaveBeenCalled();
   });

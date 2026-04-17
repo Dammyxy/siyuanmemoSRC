@@ -39,6 +39,16 @@ function createXiuyuanRepositoryMock(): IXiuyuanRepository {
     delete: vi.fn(async () => ({ ok: true, value: undefined })),
     saveMany: vi.fn(async () => ({ ok: true, value: undefined })),
     deleteMany: vi.fn(async () => ({ ok: true, value: undefined })),
+    applySyncChangeSet: vi.fn(async (changeSet) => ({
+      ok: true,
+      value: {
+        createdCount: changeSet.creates.length,
+        updatedCount: changeSet.metadataUpdates.length,
+        deletedCount: changeSet.deletes.length,
+        blacklistCleanedCount: changeSet.blacklistCleanup.length,
+        checkpointApplied: Boolean(changeSet.checkpointAdvance),
+      },
+    })),
     getXiuyuanIdByCardId: vi.fn(() => undefined),
   };
 }
@@ -96,6 +106,7 @@ describe('XiuyuanSyncService card type sync', () => {
 
     const riffBlacklistService = {
       filterBlacklist: vi.fn(async (cards: XiuyuanSyncRiffBlock[]) => cards),
+      getBlacklist: vi.fn(async () => new Set<string>()),
     } as unknown as RiffBlacklistService;
 
     const deletionTracker = {

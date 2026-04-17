@@ -37,10 +37,14 @@ import { Priority } from '../domain/Priority';
 import { Card } from '../domain/Card';
 import { CardId } from '../domain/CardId';
 import { ScheduleInfo } from '../domain/ScheduleInfo';
+import type {
+  AppliedSyncSummary,
+  SyncChangeSet,
+} from '../domain/repositories/SyncChangeSet';
 import { IXiuyuan } from '../types';
 import { CardState, CardType } from '../../../types/card';
 import type { FSRSCard } from '../../../types/card';
-import { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
+import { UnifiedStorageManager, type UnifiedCardStore } from '../../storage/UnifiedStorageManager';
 import { getBlockAttrs, setBlockAttrs } from '../../siyuan/api';
 import { ATTR_CARD_TYPE } from '../../siyuan/block';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
@@ -48,7 +52,10 @@ import {
   buildLogicalCardKey,
   buildLogicalXiuyuanKey,
   chooseCanonicalXiuyuan,
+  inferXiuyuanOwnership,
   mergeXiuyuanSnapshots,
+  normalizeXiuyuanOwnership,
+  type XiuyuanOwnership,
 } from '../../storage/stability/logicalKeys';
 import { createLogger } from '@/utils/logger';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
@@ -84,6 +91,7 @@ type FaceSnapshot = {
 };
 
 type XiuyuanMeta = Record<string, unknown> & {
+  ownership?: XiuyuanOwnership;
   cardType?: XiuyuanCardType;
   schedulerType?: SchedulerType;
   aFactor?: number;
@@ -110,6 +118,11 @@ type XiuyuanMeta = Record<string, unknown> & {
 
 type CardTypeDetectionPort = {
   detectCardType: (blockId: string) => Promise<XiuyuanCardType>;
+};
+
+type DeferredRepositorySideEffects = {
+  afterPersist: Array<() => Promise<void>>;
+  eventXiuyuans: Xiuyuan[];
 };
 
 function isListTemplateChild(value: unknown): value is ListTemplateChild {
@@ -200,12 +213,44 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     return this.cardToXiuyuanIndex.get(cardId);
   }
 
-  private isManagedRiffXiuyuan(xiuyuan: Xiuyuan): boolean {
-    if (xiuyuan.getTemplateID().getValue() === 'builtin-riff-sync') {
-      return true;
-    }
+  private createDeferredSideEffects(): DeferredRepositorySideEffects {
+    return {
+      afterPersist: [],
+      eventXiuyuans: [],
+    };
+  }
 
-    return xiuyuan.getMeta().source === 'riff-sync';
+  private mergeDeferredSideEffects(
+    target: DeferredRepositorySideEffects,
+    source: DeferredRepositorySideEffects,
+  ): DeferredRepositorySideEffects {
+    target.afterPersist.push(...source.afterPersist);
+    target.eventXiuyuans.push(...source.eventXiuyuans);
+    return target;
+  }
+
+  private getXiuyuanOwnership(xiuyuan: Xiuyuan): XiuyuanOwnership {
+    return inferXiuyuanOwnership({
+      templateID: xiuyuan.getTemplateID().getValue(),
+      meta: xiuyuan.getMeta(),
+    });
+  }
+
+  private isManagedRiffXiuyuan(xiuyuan: Xiuyuan): boolean {
+    return this.getXiuyuanOwnership(xiuyuan) === 'riff-managed';
+  }
+
+  private normalizePersistedXiuyuan(persistenceModel: IXiuyuan): IXiuyuan {
+    return normalizeXiuyuanOwnership(persistenceModel);
+  }
+
+  private cloneStorageSnapshot(): UnifiedCardStore {
+    return JSON.parse(JSON.stringify(this.storage.getStoreData())) as UnifiedCardStore;
+  }
+
+  private restoreStorageSnapshot(snapshot: UnifiedCardStore, label: string, error: unknown): void {
+    this.storage.restoreStoreSnapshot(snapshot);
+    logger.warn(`[XiuyuanRepository] Rolled back in-memory storage snapshot after ${label} failure`, error);
   }
 
   private buildPersistedBindingAttrs(
@@ -227,20 +272,21 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   private resolveCanonicalPersistedXiuyuan(persistenceModel: IXiuyuan): IXiuyuan {
-    const logicalKey = buildLogicalXiuyuanKey(persistenceModel);
+    const normalizedPersistenceModel = this.normalizePersistedXiuyuan(persistenceModel);
+    const logicalKey = buildLogicalXiuyuanKey(normalizedPersistenceModel);
     const existingCandidates = this.storage.getAllXiuYuans()
       .filter((candidate) => buildLogicalXiuyuanKey(candidate) === logicalKey);
 
     if (existingCandidates.length === 0) {
-      return persistenceModel;
+      return normalizedPersistenceModel;
     }
 
-    const canonical = chooseCanonicalXiuyuan([...existingCandidates, persistenceModel]);
-    if (canonical.id === persistenceModel.id) {
-      return persistenceModel;
+    const canonical = chooseCanonicalXiuyuan([...existingCandidates, normalizedPersistenceModel]);
+    if (canonical.id === normalizedPersistenceModel.id) {
+      return normalizedPersistenceModel;
     }
 
-    return mergeXiuyuanSnapshots(canonical, persistenceModel).value;
+    return mergeXiuyuanSnapshots(canonical, normalizedPersistenceModel).value;
   }
 
   private applyCanonicalXiuyuanId(card: FSRSCard, xiuyuanId: string): FSRSCard {
@@ -308,212 +354,110 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<void>
    */
   async save(xiuyuan: Xiuyuan): Promise<Result<void>> {
-    return this.storage.runWriteTransaction('xiuyuan-repository.save', async () => {
-    try {
-      const persistedCardType = this.resolvePersistedCardType(xiuyuan);
-      const blockIDs = xiuyuan.getBlockIDs();
-      const representativeBlockId = xiuyuan.getRepresentativeBlockId();
-      const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
-      
-      // 1. 杞崲涓烘寔涔呭寲妯″瀷
-      const persistenceModel = this.resolveCanonicalPersistedXiuyuan(this.toPersistenceWithId(xiuyuan));
-      const xiuyuanId = persistenceModel.id;
-      
-      // 2. 妫€鏌ユ槸鍚﹀凡瀛樺湪
-      const existing = this.storage.getXiuYuan(xiuyuanId);
-      this.storage.upsertXiuYuan(
-        existing
-          ? mergeXiuyuanSnapshots(existing, persistenceModel).value
-          : persistenceModel,
-      );
-
-      // 3. 鍚屾鍗＄墖鐘舵€侊細淇濆瓨鐜版湁鍗＄墖锛屽垹闄ゅ凡绉婚櫎鐨勫崱鐗?
-      const cards = xiuyuan.getCards();
-      const resolvedCards: FSRSCard[] = [];
-      for (const card of cards) {
-        const fsrsCard = this.applyCanonicalXiuyuanId(
-          await this.cardToFSRSCard(card, xiuyuan),
-          xiuyuanId,
-        );
-        const existingCard = this.storage.getCard(card.getId().getValue())
-          ?? this.findExistingCardForLogicalKey(fsrsCard, persistenceModel);
-        resolvedCards.push(existingCard ? {
-          ...fsrsCard,
-          id: existingCard.id,
-        } : fsrsCard);
-      }
-      const currentCardIds = new Set(resolvedCards.map((card) => card.id));
-      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, persistedCardType, xiuyuanId);
-      
-      // 3.1 鏌ユ壘闇€瑕佸垹闄ょ殑鍗＄墖锛堝瓨鍦ㄤ簬 storage 浣嗕笉鍦?xiuyuan 涓級
-      const existingXiuyuanCards = this.storage.getCardsByXiuyuanId(xiuyuanId);
-      const cardsToDelete = existingXiuyuanCards.filter(
-        storageCard => !currentCardIds.has(storageCard.id)
-      );
-      this.traceAutoCard('XiuyuanRepository.save.begin', {
-        xiuyuanId,
-        representativeBlockId,
-        isDescriptorTemplate,
-        persistedCardType: persistedCardType ?? null,
-        existedBefore: Boolean(existing),
-        existingXiuyuanCardsCount: existingXiuyuanCards.length,
-        currentCardCount: cards.length,
-        currentCardIds: this.sampleCardIds(Array.from(currentCardIds)),
-        currentCardIdsTruncated: currentCardIds.size > CARD_ID_DEBUG_SAMPLE_LIMIT,
-        cardsToDeleteCount: cardsToDelete.length,
-        cardsToDeleteSample: this.sampleCardIds(cardsToDelete.map((card) => card.id)),
-        bindingAttrs,
-      });
-      
-      // 3.2 鍒犻櫎宸茬Щ闄ょ殑鍗＄墖
-      for (const cardToDelete of cardsToDelete) {
-        await this.storage.deleteCard(cardToDelete.id);
-      }
-      
-      // 3.3 淇濆瓨/鏇存柊褰撳墠鍗＄墖
-      for (const fsrsCard of resolvedCards) {
-        const existingCard = this.storage.getCard(fsrsCard.id);
-        
-        if (existingCard) {
-          // 鏇存柊鐜版湁鍗＄墖
-          await this.storage.updateCard(fsrsCard);
-        } else {
-          // 鍒涘缓鏂板崱鐗?
-          await this.storage.createCard(persistenceModel, fsrsCard);
+    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.save', async () => {
+      const rollbackSnapshot = this.cloneStorageSnapshot();
+      try {
+        const stagedResult = await this.stageSaveXiuyuanMutation(xiuyuan);
+        if (!stagedResult.ok) {
+          this.restoreStorageSnapshot(rollbackSnapshot, 'save', stagedResult.error);
+          return stagedResult;
         }
-      }
-      
-      // 馃殌 鏇存柊绱㈠紩锛氶噸寤鸿Xiuyuan鐨勬墍鏈夊崱鐗囩储寮?
-      // 鍏堟竻鐞嗚Xiuyuan鐨勬墍鏈夋棫绱㈠紩
-      for (const [cardId, indexedXiuyuanId] of this.cardToXiuyuanIndex.entries()) {
-        if (indexedXiuyuanId === xiuyuanId) {
-          this.cardToXiuyuanIndex.delete(cardId);
+
+        const saveResult = await this.storage.save();
+        if (isErr(saveResult)) {
+          const error = saveResult.error || new Error('Failed to persist xiuyuan snapshot');
+          logger.error('Failed to persist xiuyuan snapshot:', error);
+          this.restoreStorageSnapshot(rollbackSnapshot, 'save', error);
+          return err(error);
         }
-      }
-      // 鍐嶆坊鍔犲綋鍓嶇殑鍗＄墖绱㈠紩
-      for (const card of resolvedCards) {
-        this.cardToXiuyuanIndex.set(card.id, xiuyuanId);
-      }
-      
-      // 馃殌 娓呯悊绱㈠紩锛氬垹闄ゅ凡绉婚櫎鍗＄墖鐨勭储寮曪紙棰濆淇濋櫓锛?
-      for (const cardToDelete of cardsToDelete) {
-        this.cardToXiuyuanIndex.delete(cardToDelete.id);
-      }
 
-      // 4. 单事务内统一持久化 canonical store，避免后续同步看到半更新状态
-      const saveResult = await this.storage.save();
-      if (isErr(saveResult)) {
-        const error = saveResult.error || new Error('Failed to persist xiuyuan snapshot');
-        logger.error('Failed to persist xiuyuan snapshot:', error);
-        return err(error);
+        return ok(stagedResult.value);
+      } catch (error) {
+        this.restoreStorageSnapshot(rollbackSnapshot, 'save', error);
+        return err(error instanceof Error ? error : new Error(String(error)));
       }
-
-      // 5. 鍐欏叆鍧楀睘鎬?
-      if (bindingAttrs && isDescriptorTemplate && blockIDs.length >= 2) {
-        // 姒傚康-鎻忚堪绗﹀崱锛氱涓€涓潡鏄蹇靛崱锛岀浜屼釜鍧楁槸鎻忚堪绗﹀崱
-        // 鈿狅笍 娉ㄦ剰锛氭蹇靛崱鍙兘宸茬粡鏈夎嚜宸辩殑 Xiuyuan锛堜綔涓虹嫭绔嬬殑姒傚康鍗★級
-        // 鍥犳锛屾垜浠彧璁剧疆鎻忚堪绗﹀潡鐨勫睘鎬э紝涓嶄慨鏀规蹇靛崱鐨勫睘鎬?
-        const descriptorBlockId = blockIDs[1].getValue();
-        const attrsBeforeWrite = await this.readTraceAttrs(descriptorBlockId);
-        this.traceAutoCard('XiuyuanRepository.save.attrWrite.begin', {
-          xiuyuanId,
-          targetKind: 'descriptor',
-          blockId: descriptorBlockId,
-          bindingAttrs,
-          attrsBeforeWrite,
-        });
-        
-        try {
-          // 鍙缃弿杩扮鍗″睘鎬?
-          await setBlockAttrs(descriptorBlockId, bindingAttrs);
-          const attrsAfterWrite = await this.readTraceAttrs(descriptorBlockId);
-          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
-            xiuyuanId,
-            targetKind: 'descriptor',
-            blockId: descriptorBlockId,
-            bindingAttrs,
-            attrsBeforeWrite,
-            attrsAfterWrite,
-            ok: true,
-          });
-          
-          logger.debug(`Set descriptor attributes: descriptor=${descriptorBlockId}`);
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : String(error);
-          const lowerErrorMsg = errorMsg.toLowerCase();
-          const attrsAfterWrite = await this.readTraceAttrs(descriptorBlockId);
-          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
-            xiuyuanId,
-            targetKind: 'descriptor',
-            blockId: descriptorBlockId,
-            bindingAttrs,
-            attrsBeforeWrite,
-            attrsAfterWrite,
-            ok: false,
-            error: errorMsg,
-          });
-          if (!lowerErrorMsg.includes('not found') && !lowerErrorMsg.includes('tree not found')) {
-            logger.warn('Failed to write descriptor attributes:', error);
-          }
-        }
-      } else if (bindingAttrs && blockIDs.length > 0) {
-        // 鍏朵粬妯℃澘锛氬彧璁剧疆浠ｈ〃鍧楋紙绗竴涓潡锛?
-        const representativeBlockId = blockIDs[0].getValue();
-        const attrsBeforeWrite = await this.readTraceAttrs(representativeBlockId);
-        this.traceAutoCard('XiuyuanRepository.save.attrWrite.begin', {
-          xiuyuanId,
-          targetKind: 'representative',
-          blockId: representativeBlockId,
-          bindingAttrs,
-          attrsBeforeWrite,
-        });
-        try {
-          await setBlockAttrs(representativeBlockId, bindingAttrs);
-          const attrsAfterWrite = await this.readTraceAttrs(representativeBlockId);
-          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
-            xiuyuanId,
-            targetKind: 'representative',
-            blockId: representativeBlockId,
-            bindingAttrs,
-            attrsBeforeWrite,
-            attrsAfterWrite,
-            ok: true,
-          });
-        } catch (error) {
-          // 鍧楀睘鎬у啓鍏ュけ璐ヤ笉搴旇闃绘淇濆瓨
-          // 甯歌鍘熷洜锛氬潡宸茶鍒犻櫎銆佺Щ鍔ㄦ垨涓嶅瓨鍦?
-          const errorMsg = error instanceof Error ? error.message : String(error);
-          const lowerErrorMsg = errorMsg.toLowerCase();
-          const attrsAfterWrite = await this.readTraceAttrs(representativeBlockId);
-          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
-            xiuyuanId,
-            targetKind: 'representative',
-            blockId: representativeBlockId,
-            bindingAttrs,
-            attrsBeforeWrite,
-            attrsAfterWrite,
-            ok: false,
-            error: errorMsg,
-          });
-          if (lowerErrorMsg.includes('not found') || lowerErrorMsg.includes('tree not found')) {
-            // 鍧椾笉瀛樺湪锛岃繖鏄甯告儏鍐碉紙鐢ㄦ埛鍙兘鍒犻櫎浜嗗潡锛?
-            logger.debug(`Block ${representativeBlockId} not found, skipping attribute write`);
-          } else {
-            // 鍏朵粬閿欒锛岃褰曡鍛?
-            logger.warn('Failed to write block attributes:', error);
-          }
-        }
-      }
-      
-
-      // 6. 鍙戝竷棰嗗煙浜嬩欢
-      await this.publishDomainEvents(xiuyuan);
-
-      return ok(undefined);
-    } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
-    }
     });
+
+    if (!transactionalResult.ok) {
+      return transactionalResult;
+    }
+
+    await this.runDeferredSideEffects(transactionalResult.value);
+    return ok(undefined);
+  }
+
+  async applySyncChangeSet(changeSet: SyncChangeSet): Promise<Result<AppliedSyncSummary>> {
+    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.applySyncChangeSet', async () => {
+      const rollbackSnapshot = this.cloneStorageSnapshot();
+      try {
+        const deferredSideEffects = this.createDeferredSideEffects();
+
+        for (const create of changeSet.creates) {
+          const stageResult = await this.stageSaveXiuyuanMutation(create.xiuyuanEntity);
+          if (!stageResult.ok) {
+            this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
+            return stageResult;
+          }
+          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value);
+        }
+
+        for (const update of changeSet.metadataUpdates) {
+          const stageResult = await this.stageSaveXiuyuanMutation(update.xiuyuanEntity);
+          if (!stageResult.ok) {
+            this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
+            return stageResult;
+          }
+          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value);
+        }
+
+        for (const deletion of changeSet.deletes) {
+          const stageResult = await this.stageDeleteXiuyuanMutation(deletion.xiuyuanEntity);
+          if (!stageResult.ok) {
+            this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
+            return stageResult;
+          }
+          this.mergeDeferredSideEffects(deferredSideEffects, stageResult.value);
+        }
+
+        const blacklistCleanup = Array.from(new Set(changeSet.blacklistCleanup));
+        for (const blockId of blacklistCleanup) {
+          this.storage.removeFromRiffBlacklist(blockId);
+        }
+
+        if (changeSet.checkpointAdvance) {
+          this.storage.patchRiffSyncState(changeSet.checkpointAdvance, { scheduleSave: false });
+        }
+
+        const saveResult = await this.storage.save();
+        if (isErr(saveResult)) {
+          const error = saveResult.error || new Error('Failed to persist sync change set');
+          logger.error('Failed to persist sync change set:', error);
+          this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', error);
+          return err(error);
+        }
+
+        return ok({
+          deferredSideEffects,
+          summary: {
+            createdCount: changeSet.creates.length,
+            updatedCount: changeSet.metadataUpdates.length,
+            deletedCount: changeSet.deletes.length,
+            blacklistCleanedCount: blacklistCleanup.length,
+            checkpointApplied: Boolean(changeSet.checkpointAdvance),
+          },
+        });
+      } catch (error) {
+        this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', error);
+        return err(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+
+    if (!transactionalResult.ok) {
+      return transactionalResult;
+    }
+
+    await this.runDeferredSideEffects(transactionalResult.value.deferredSideEffects);
+    return ok(transactionalResult.value.summary);
   }
 
   private resolvePersistedCardType(xiuyuan: Xiuyuan): 'topic' | 'item' | undefined {
@@ -636,57 +580,36 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<void>
    */
   async delete(xiuyuan: Xiuyuan): Promise<Result<void>> {
-    return this.storage.runWriteTransaction('xiuyuan-repository.delete', async () => {
-    try {
-      const xiuyuanId = xiuyuan.getId().getValue();
-      
-      // 允许传入“已删空”的聚合，因此删除时按 xiuyuanId 清整组索引。
-      for (const [cardId, indexedXiuyuanId] of this.cardToXiuyuanIndex.entries()) {
-        if (indexedXiuyuanId === xiuyuanId) {
-          this.cardToXiuyuanIndex.delete(cardId);
+    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.delete', async () => {
+      const rollbackSnapshot = this.cloneStorageSnapshot();
+      try {
+        const stagedResult = await this.stageDeleteXiuyuanMutation(xiuyuan);
+        if (!stagedResult.ok) {
+          this.restoreStorageSnapshot(rollbackSnapshot, 'delete', stagedResult.error);
+          return stagedResult;
         }
-      }
 
-      const cards = xiuyuan.getCards();
-      
-      // 1. 浣跨敤 UnifiedStorageManager 鍒犻櫎 XiuYuan锛堜細绾ц仈鍒犻櫎鎵€鏈夊叧鑱斿崱鐗囷級
-      const deleteResult = await this.storage.deleteXiuYuan(xiuyuanId);
-      if (!deleteResult.ok) {
-        return deleteResult;
-      }
-
-      // 2. 鍒犻櫎鍧楀睘鎬?
-      const blockIDs = xiuyuan.getBlockIDs();
-      if (!this.isManagedRiffXiuyuan(xiuyuan) && blockIDs.length > 0) {
-        const representativeBlockId = blockIDs[0].getValue();
-        try {
-          await setBlockAttrs(representativeBlockId, {
-            'custom-xiuyuan-id': '',
-          });
-        } catch (error) {
-          logger.warn('Failed to clear block attributes:', error);
+        const saveResult = await this.storage.save();
+        if (isErr(saveResult)) {
+          const error = saveResult.error || new Error('Failed to persist xiuyuan deletion');
+          logger.error('Failed to persist xiuyuan deletion:', error);
+          this.restoreStorageSnapshot(rollbackSnapshot, 'delete', error);
+          return err(error);
         }
+
+        return ok(stagedResult.value);
+      } catch (error) {
+        this.restoreStorageSnapshot(rollbackSnapshot, 'delete', error);
+        return err(error instanceof Error ? error : new Error(String(error)));
       }
-
-      // 3. 浠?Riff 鍒犻櫎
-      if (cards.length > 0) {
-        try {
-          // Note: 瀹為檯鐨?Riff 鍒犻櫎闇€瑕佹牴鎹」鐩殑 API 瀹炵幇
-          // const cardBlockIds = cards.map(card => card.getId().getValue());
-          // await this.plugin.removeRiffCards(cardBlockIds);
-        } catch (error) {
-          logger.warn('Failed to remove from Riff:', error);
-        }
-      }
-
-      // 4. 鍙戝竷棰嗗煙浜嬩欢
-      await this.publishDomainEvents(xiuyuan);
-
-      return ok(undefined);
-    } catch (error) {
-      return err(error instanceof Error ? error : new Error(String(error)));
-    }
     });
+
+    if (!transactionalResult.ok) {
+      return transactionalResult;
+    }
+
+    await this.runDeferredSideEffects(transactionalResult.value);
+    return ok(undefined);
   }
 
   /**
@@ -730,6 +653,262 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   // ============ 绉佹湁鏂规硶 ============
+
+  private async stageSaveXiuyuanMutation(xiuyuan: Xiuyuan): Promise<Result<DeferredRepositorySideEffects>> {
+    try {
+      const persistedCardType = this.resolvePersistedCardType(xiuyuan);
+      const blockIDs = xiuyuan.getBlockIDs();
+      const representativeBlockId = xiuyuan.getRepresentativeBlockId();
+      const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
+
+      const persistenceModel = this.resolveCanonicalPersistedXiuyuan(this.toPersistenceWithId(xiuyuan));
+      const xiuyuanId = persistenceModel.id;
+
+      const existing = this.storage.getXiuYuan(xiuyuanId);
+      this.storage.upsertXiuYuan(
+        existing
+          ? mergeXiuyuanSnapshots(existing, persistenceModel).value
+          : persistenceModel,
+      );
+
+      const cards = xiuyuan.getCards();
+      const resolvedCards: FSRSCard[] = [];
+      for (const card of cards) {
+        const fsrsCard = this.applyCanonicalXiuyuanId(
+          await this.cardToFSRSCard(card, xiuyuan),
+          xiuyuanId,
+        );
+        const existingCard = this.storage.getCard(card.getId().getValue())
+          ?? this.findExistingCardForLogicalKey(fsrsCard, persistenceModel);
+        resolvedCards.push(existingCard ? {
+          ...fsrsCard,
+          id: existingCard.id,
+        } : fsrsCard);
+      }
+
+      const currentCardIds = new Set(resolvedCards.map((card) => card.id));
+      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, persistedCardType, xiuyuanId);
+      const existingXiuyuanCards = this.storage.getCardsByXiuyuanId(xiuyuanId);
+      const cardsToDelete = existingXiuyuanCards.filter(
+        storageCard => !currentCardIds.has(storageCard.id)
+      );
+
+      this.traceAutoCard('XiuyuanRepository.save.begin', {
+        xiuyuanId,
+        representativeBlockId,
+        isDescriptorTemplate,
+        persistedCardType: persistedCardType ?? null,
+        existedBefore: Boolean(existing),
+        existingXiuyuanCardsCount: existingXiuyuanCards.length,
+        currentCardCount: cards.length,
+        currentCardIds: this.sampleCardIds(Array.from(currentCardIds)),
+        currentCardIdsTruncated: currentCardIds.size > CARD_ID_DEBUG_SAMPLE_LIMIT,
+        cardsToDeleteCount: cardsToDelete.length,
+        cardsToDeleteSample: this.sampleCardIds(cardsToDelete.map((card) => card.id)),
+        bindingAttrs,
+      });
+
+      for (const cardToDelete of cardsToDelete) {
+        await this.storage.deleteCard(cardToDelete.id);
+      }
+
+      for (const fsrsCard of resolvedCards) {
+        const existingCard = this.storage.getCard(fsrsCard.id);
+
+        if (existingCard) {
+          await this.storage.updateCard(fsrsCard);
+        } else {
+          await this.storage.createCard(persistenceModel, fsrsCard);
+        }
+      }
+
+      for (const [cardId, indexedXiuyuanId] of this.cardToXiuyuanIndex.entries()) {
+        if (indexedXiuyuanId === xiuyuanId) {
+          this.cardToXiuyuanIndex.delete(cardId);
+        }
+      }
+      for (const card of resolvedCards) {
+        this.cardToXiuyuanIndex.set(card.id, xiuyuanId);
+      }
+      for (const cardToDelete of cardsToDelete) {
+        this.cardToXiuyuanIndex.delete(cardToDelete.id);
+      }
+
+      const sideEffects = this.createDeferredSideEffects();
+      this.addSaveBlockAttrSideEffect(sideEffects, {
+        xiuyuanId,
+        blockIDs,
+        bindingAttrs,
+        isDescriptorTemplate,
+      });
+      sideEffects.eventXiuyuans.push(xiuyuan);
+      return ok(sideEffects);
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private addSaveBlockAttrSideEffect(
+    sideEffects: DeferredRepositorySideEffects,
+    params: {
+      xiuyuanId: string;
+      blockIDs: BlockId[];
+      bindingAttrs: Record<string, string> | null;
+      isDescriptorTemplate: boolean;
+    },
+  ): void {
+    const { xiuyuanId, blockIDs, bindingAttrs, isDescriptorTemplate } = params;
+    if (!bindingAttrs) {
+      return;
+    }
+
+    if (isDescriptorTemplate && blockIDs.length >= 2) {
+      const descriptorBlockId = blockIDs[1]!.getValue();
+      sideEffects.afterPersist.push(async () => {
+        const attrsBeforeWrite = await this.readTraceAttrs(descriptorBlockId);
+        this.traceAutoCard('XiuyuanRepository.save.attrWrite.begin', {
+          xiuyuanId,
+          targetKind: 'descriptor',
+          blockId: descriptorBlockId,
+          bindingAttrs,
+          attrsBeforeWrite,
+        });
+
+        try {
+          await setBlockAttrs(descriptorBlockId, bindingAttrs);
+          const attrsAfterWrite = await this.readTraceAttrs(descriptorBlockId);
+          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
+            xiuyuanId,
+            targetKind: 'descriptor',
+            blockId: descriptorBlockId,
+            bindingAttrs,
+            attrsBeforeWrite,
+            attrsAfterWrite,
+            ok: true,
+          });
+          logger.debug(`Set descriptor attributes: descriptor=${descriptorBlockId}`);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          const lowerErrorMsg = errorMsg.toLowerCase();
+          const attrsAfterWrite = await this.readTraceAttrs(descriptorBlockId);
+          this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
+            xiuyuanId,
+            targetKind: 'descriptor',
+            blockId: descriptorBlockId,
+            bindingAttrs,
+            attrsBeforeWrite,
+            attrsAfterWrite,
+            ok: false,
+            error: errorMsg,
+          });
+          if (!lowerErrorMsg.includes('not found') && !lowerErrorMsg.includes('tree not found')) {
+            logger.warn('Failed to write descriptor attributes:', error);
+          }
+        }
+      });
+      return;
+    }
+
+    if (blockIDs.length === 0) {
+      return;
+    }
+
+    const representativeBlockId = blockIDs[0]!.getValue();
+    sideEffects.afterPersist.push(async () => {
+      const attrsBeforeWrite = await this.readTraceAttrs(representativeBlockId);
+      this.traceAutoCard('XiuyuanRepository.save.attrWrite.begin', {
+        xiuyuanId,
+        targetKind: 'representative',
+        blockId: representativeBlockId,
+        bindingAttrs,
+        attrsBeforeWrite,
+      });
+
+      try {
+        await setBlockAttrs(representativeBlockId, bindingAttrs);
+        const attrsAfterWrite = await this.readTraceAttrs(representativeBlockId);
+        this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
+          xiuyuanId,
+          targetKind: 'representative',
+          blockId: representativeBlockId,
+          bindingAttrs,
+          attrsBeforeWrite,
+          attrsAfterWrite,
+          ok: true,
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const lowerErrorMsg = errorMsg.toLowerCase();
+        const attrsAfterWrite = await this.readTraceAttrs(representativeBlockId);
+        this.traceAutoCard('XiuyuanRepository.save.attrWrite.end', {
+          xiuyuanId,
+          targetKind: 'representative',
+          blockId: representativeBlockId,
+          bindingAttrs,
+          attrsBeforeWrite,
+          attrsAfterWrite,
+          ok: false,
+          error: errorMsg,
+        });
+        if (lowerErrorMsg.includes('not found') || lowerErrorMsg.includes('tree not found')) {
+          logger.debug(`Block ${representativeBlockId} not found, skipping attribute write`);
+        } else {
+          logger.warn('Failed to write block attributes:', error);
+        }
+      }
+    });
+  }
+
+  private async stageDeleteXiuyuanMutation(xiuyuan: Xiuyuan): Promise<Result<DeferredRepositorySideEffects>> {
+    try {
+      const xiuyuanId = xiuyuan.getId().getValue();
+
+      for (const [cardId, indexedXiuyuanId] of this.cardToXiuyuanIndex.entries()) {
+        if (indexedXiuyuanId === xiuyuanId) {
+          this.cardToXiuyuanIndex.delete(cardId);
+        }
+      }
+
+      const deleteResult = await this.storage.deleteXiuYuan(xiuyuanId);
+      if (!deleteResult.ok) {
+        return deleteResult;
+      }
+
+      const sideEffects = this.createDeferredSideEffects();
+      const blockIDs = xiuyuan.getBlockIDs();
+      if (!this.isManagedRiffXiuyuan(xiuyuan) && blockIDs.length > 0) {
+        const representativeBlockId = blockIDs[0]!.getValue();
+        sideEffects.afterPersist.push(async () => {
+          try {
+            await setBlockAttrs(representativeBlockId, {
+              'custom-xiuyuan-id': '',
+            });
+          } catch (error) {
+            logger.warn('Failed to clear block attributes:', error);
+          }
+        });
+      }
+
+      sideEffects.eventXiuyuans.push(xiuyuan);
+      return ok(sideEffects);
+    } catch (error) {
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private async runDeferredSideEffects(sideEffects: DeferredRepositorySideEffects): Promise<void> {
+    for (const sideEffect of sideEffects.afterPersist) {
+      try {
+        await sideEffect();
+      } catch (error) {
+        logger.warn('Deferred Xiuyuan side effect failed after persistence:', error);
+      }
+    }
+
+    for (const xiuyuan of sideEffects.eventXiuyuans) {
+      await this.publishDomainEvents(xiuyuan);
+    }
+  }
 
   private toXiuyuanMeta(meta: Record<string, unknown>): XiuyuanMeta {
     return meta as XiuyuanMeta;

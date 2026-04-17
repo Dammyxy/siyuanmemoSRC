@@ -4,6 +4,7 @@ import type { FSRSCard } from '@/types/card';
 
 export type LogicalXiuyuanKey = string;
 export type LogicalCardKey = string;
+export type XiuyuanOwnership = 'local-owned' | 'riff-managed';
 
 export interface MergeOutcome<T> {
   value: T;
@@ -45,6 +46,10 @@ function readFiniteNumber(value: unknown): number | null {
   return null;
 }
 
+function isXiuyuanOwnership(value: unknown): value is XiuyuanOwnership {
+  return value === 'local-owned' || value === 'riff-managed';
+}
+
 function isDescriptorTemplate(templateId: string): boolean {
   return templateId === 'builtin-concept-descriptor'
     || templateId === 'builtin-concept-descriptor-reverse'
@@ -63,6 +68,9 @@ function mergeMeta(
     ...(preferredMeta || {}),
     ...(incomingMeta || {}),
   };
+  if (preferredMeta && Object.prototype.hasOwnProperty.call(preferredMeta, 'ownership')) {
+    merged.ownership = preferredMeta.ownership;
+  }
 
   const preferredCardIds = Array.isArray(preferredMeta?.cardIds)
     ? preferredMeta.cardIds.filter((value): value is string => typeof value === 'string')
@@ -153,18 +161,44 @@ export function buildLogicalCardKey(card: CardLike, xiuyuan?: Pick<IXiuyuan, 'id
 }
 
 export function isManagedRiffXiuyuanRecord(xiuyuan: Pick<IXiuyuan, 'templateID' | 'meta'>): boolean {
-  if (String(xiuyuan.templateID || '').trim() === 'builtin-riff-sync') {
-    return true;
+  return inferXiuyuanOwnership(xiuyuan) === 'riff-managed';
+}
+
+export function inferXiuyuanOwnership(xiuyuan: Pick<IXiuyuan, 'templateID' | 'meta'>): XiuyuanOwnership {
+  if (isObjectRecord(xiuyuan.meta) && isXiuyuanOwnership(xiuyuan.meta.ownership)) {
+    return xiuyuan.meta.ownership;
   }
 
-  return isObjectRecord(xiuyuan.meta) && xiuyuan.meta.source === 'riff-sync';
+  if (String(xiuyuan.templateID || '').trim() === 'builtin-riff-sync') {
+    return 'riff-managed';
+  }
+
+  return isObjectRecord(xiuyuan.meta) && xiuyuan.meta.source === 'riff-sync'
+    ? 'riff-managed'
+    : 'local-owned';
+}
+
+export function normalizeXiuyuanOwnership<T extends Pick<IXiuyuan, 'templateID' | 'meta'>>(xiuyuan: T): T {
+  const ownership = inferXiuyuanOwnership(xiuyuan);
+  const currentMeta = isObjectRecord(xiuyuan.meta) ? xiuyuan.meta : undefined;
+  if (currentMeta?.ownership === ownership) {
+    return xiuyuan;
+  }
+
+  return {
+    ...xiuyuan,
+    meta: {
+      ...(currentMeta || {}),
+      ownership,
+    },
+  } as T;
 }
 
 export function compareXiuyuanAuthority(left: XiuyuanLike, right: XiuyuanLike): number {
-  const leftManaged = isManagedRiffXiuyuanRecord(left);
-  const rightManaged = isManagedRiffXiuyuanRecord(right);
-  if (leftManaged !== rightManaged) {
-    return leftManaged ? 1 : -1;
+  const leftOwnership = inferXiuyuanOwnership(left);
+  const rightOwnership = inferXiuyuanOwnership(right);
+  if (leftOwnership !== rightOwnership) {
+    return leftOwnership === 'local-owned' ? -1 : 1;
   }
 
   const leftUpdatedAt = readFiniteNumber(left.updatedAt) ?? 0;
@@ -197,13 +231,15 @@ export function mergeXiuyuanSnapshots(
   preferred: XiuyuanLike,
   incoming: XiuyuanLike,
 ): MergeOutcome<IXiuyuan> {
+  const normalizedPreferred = normalizeXiuyuanOwnership(preferred);
+  const normalizedIncoming = normalizeXiuyuanOwnership(incoming);
   const blockIDs = uniqueStrings([
-    ...(Array.isArray(preferred.blockIDs) ? preferred.blockIDs : []),
-    ...(Array.isArray(incoming.blockIDs) ? incoming.blockIDs : []),
+    ...(Array.isArray(normalizedPreferred.blockIDs) ? normalizedPreferred.blockIDs : []),
+    ...(Array.isArray(normalizedIncoming.blockIDs) ? normalizedIncoming.blockIDs : []),
   ]);
   const fields = [
-    ...(Array.isArray(preferred.fields) ? preferred.fields : []),
-    ...(Array.isArray(incoming.fields) ? incoming.fields : []),
+    ...(Array.isArray(normalizedPreferred.fields) ? normalizedPreferred.fields : []),
+    ...(Array.isArray(normalizedIncoming.fields) ? normalizedIncoming.fields : []),
   ].filter((field, index, array) => {
     const signature = `${String(field?.name || '')}::${String(field?.blockID || '')}::${String(field?.marker || '')}`;
     return array.findIndex((candidate) => (
@@ -212,31 +248,32 @@ export function mergeXiuyuanSnapshots(
   });
 
   const mergedMeta = mergeMeta(
-    isObjectRecord(preferred.meta) ? preferred.meta : undefined,
-    isObjectRecord(incoming.meta) ? incoming.meta : undefined,
+    isObjectRecord(normalizedPreferred.meta) ? normalizedPreferred.meta : undefined,
+    isObjectRecord(normalizedIncoming.meta) ? normalizedIncoming.meta : undefined,
   );
 
-  const value: IXiuyuan = {
-    ...preferred,
-    id: preferred.id,
+  const mergedValue: IXiuyuan = {
+    ...normalizedPreferred,
+    id: normalizedPreferred.id,
     blockIDs,
     fields,
-    templateID: String(preferred.templateID || incoming.templateID || '').trim(),
+    templateID: String(normalizedPreferred.templateID || normalizedIncoming.templateID || '').trim(),
     createdAt: Math.min(
-      readFiniteNumber(preferred.createdAt) ?? Date.now(),
-      readFiniteNumber(incoming.createdAt) ?? Date.now(),
+      readFiniteNumber(normalizedPreferred.createdAt) ?? Date.now(),
+      readFiniteNumber(normalizedIncoming.createdAt) ?? Date.now(),
     ),
     updatedAt: Math.max(
-      readFiniteNumber(preferred.updatedAt) ?? 0,
-      readFiniteNumber(incoming.updatedAt) ?? 0,
+      readFiniteNumber(normalizedPreferred.updatedAt) ?? 0,
+      readFiniteNumber(normalizedIncoming.updatedAt) ?? 0,
     ),
     meta: mergedMeta,
   };
+  const value = normalizeXiuyuanOwnership(mergedValue);
 
-  const changed = value.blockIDs.length !== (Array.isArray(preferred.blockIDs) ? preferred.blockIDs.length : 0)
-    || value.fields.length !== (Array.isArray(preferred.fields) ? preferred.fields.length : 0)
-    || value.updatedAt !== preferred.updatedAt
-    || value.meta !== preferred.meta;
+  const changed = value.blockIDs.length !== (Array.isArray(normalizedPreferred.blockIDs) ? normalizedPreferred.blockIDs.length : 0)
+    || value.fields.length !== (Array.isArray(normalizedPreferred.fields) ? normalizedPreferred.fields.length : 0)
+    || value.updatedAt !== normalizedPreferred.updatedAt
+    || value.meta !== normalizedPreferred.meta;
 
   return {
     value,

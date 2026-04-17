@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-17 (Round 89)
+Last update: 2026-04-17 (Round 90)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-17 - Xiuyuan sync two-phase apply and ownership authority
+
+- Task: Implement the deferred P1/P2 sync stability work by changing `XiuyuanSyncService` to plan a `SyncChangeSet` before committing, and by making Xiuyuan ownership an explicit authority field.
+- Touched slice: Xiuyuan / Riff sync / storage active path across `src/application/services/{XiuyuanSyncService.ts,XiuyuanSyncService.types.ts}`, `src/core/xiuyuan/domain/repositories/{IXiuyuanRepository.ts,SyncChangeSet.ts}`, `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`, `src/core/storage/{UnifiedStorageManager.ts,stability/logicalKeys.ts}`, focused sync/storage tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Incremental/full Riff sync now build read-only change sets before persistence; repository sync apply commits creates, metadata updates, deletes, blacklist cleanup, and checkpoint through one storage save; failed apply restores the in-memory store snapshot before any post-persist side effects can run; Riff-created Xiuyuans now write `meta.ownership='riff-managed'`; historical ownership is lazily inferred and normalized; canonical Xiuyuan selection now uses `local-owned > riff-managed > updatedAt > createdAt > id`; and post-detect work is explicitly post-commit.
+- Debt deferred: `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary, and broader browser/manual lifecycle sync tests still do not cover every entrypoint permutation.
+- Why deferred: Current duplicate-card and conflict-document failures are dominated by the Xiuyuan sync/repository/storage main chain, while widening `CardRepository` now would expand the task into a secondary CRUD boundary without evidence that it is the hot path; broader lifecycle coverage is safer as a follow-up once the new apply boundary is stable.
+- Next safe step: Add a small browser/manual sync lifecycle regression matrix around checkpoint retry, repeated incremental/full sync, and local-owned vs riff-managed same-block reconciliation before deciding whether `CardRepository` needs a logical-key API.
+- Validation: `pnpm vitest run src/core/storage/stability/__tests__/logicalKeys.ownership.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.sync-change-set.test.ts src/application/services/__tests__/XiuyuanSyncService.malformed-riff-input.test.ts src/application/services/__tests__/XiuyuanSyncService.quick-render-hint.test.ts src/application/services/__tests__/XiuyuanSyncService.card-type-sync.test.ts src/application/services/__tests__/XiuyuanSyncService.formula-multi-cloze.test.ts --reporter=dot`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-17 - active queue runtime spec alignment
 
@@ -1375,7 +1385,8 @@ Do not add an entry for skill-only or docs-only work.
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
 | P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts beyond the in-process writer queue | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then decide whether a cross-window/device lock or tombstone reconciliation model is required |
-| P1 | New reconciliation-first Riff sync has build validation but still lacks focused executable coverage | `XiuyuanSyncService`, `UnifiedStorageManager`, browser/manual sync entrypoints | Add targeted tests for persistent checkpoint overlap, failure retry without cursor advancement, local-owned vs riff-owned reconciliation, and duplicate logical-face merge cleanup |
+| P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
+| P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
 | P1 | Legacy compatibility service surface still exists but no longer used on active browser path | `ApplicationContext` (`tabManager` service exposure) | Evaluate bounded removal/retire plan and adjust integration tests |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |

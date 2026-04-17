@@ -39,6 +39,16 @@ function createXiuyuanRepositoryMock(): IXiuyuanRepository {
     delete: vi.fn(async () => ({ ok: true, value: undefined })),
     saveMany: vi.fn(async () => ({ ok: true, value: undefined })),
     deleteMany: vi.fn(async () => ({ ok: true, value: undefined })),
+    applySyncChangeSet: vi.fn(async (changeSet) => ({
+      ok: true,
+      value: {
+        createdCount: changeSet.creates.length,
+        updatedCount: changeSet.metadataUpdates.length,
+        deletedCount: changeSet.deletes.length,
+        blacklistCleanedCount: changeSet.blacklistCleanup.length,
+        checkpointApplied: Boolean(changeSet.checkpointAdvance),
+      },
+    })),
     getXiuyuanIdByCardId: vi.fn(() => undefined),
   };
 }
@@ -98,6 +108,7 @@ describe('XiuyuanSyncService quick render hint', () => {
 
     const riffBlacklistService = {
       filterBlacklist: vi.fn(async (cards: XiuyuanSyncRiffBlock[]) => cards),
+      getBlacklist: vi.fn(async () => new Set<string>()),
     } as unknown as RiffBlacklistService;
 
     const deletionTracker = {
@@ -169,7 +180,9 @@ describe('XiuyuanSyncService quick render hint', () => {
     const meta = existingXiuyuan.getMeta() as Record<string, unknown>;
     expect(meta.forceQuickRender).toBe(true);
     expect(meta.quickDetectReason).toBe('cloze-latex-numbered');
-    expect(xiuyuanRepository.save).toHaveBeenCalledTimes(1);
+    expect(xiuyuanRepository.save).not.toHaveBeenCalled();
+    expect(xiuyuanRepository.applySyncChangeSet).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].metadataUpdates).toHaveLength(1);
   });
 
   it('clears quick render hint when existing Xiuyuan no longer matches item + numbered latex cloze', async () => {
@@ -200,7 +213,9 @@ describe('XiuyuanSyncService quick render hint', () => {
     const meta = existingXiuyuan.getMeta() as Record<string, unknown>;
     expect(meta.forceQuickRender).toBeUndefined();
     expect(meta.quickDetectReason).toBeUndefined();
-    expect(xiuyuanRepository.save).toHaveBeenCalledTimes(1);
+    expect(xiuyuanRepository.save).not.toHaveBeenCalled();
+    expect(xiuyuanRepository.applySyncChangeSet).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].metadataUpdates).toHaveLength(1);
   });
 
   it('keeps native superblock riff cards on standard renderer metadata', async () => {

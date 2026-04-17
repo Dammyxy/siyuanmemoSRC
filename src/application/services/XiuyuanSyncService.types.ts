@@ -2,6 +2,30 @@
  * HybridSyncService 类型定义
  */
 
+import type { XiuyuanSyncRiffBlock } from '@/application/ports/XiuyuanSyncSiyuanPort';
+import type {
+    AppliedSyncSummary,
+    PlannedSyncCreate,
+    PlannedSyncDelete,
+    PlannedSyncUpdate,
+    SyncChangeSet as RepositorySyncChangeSet,
+    SyncChangeSetStats,
+} from '@/core/xiuyuan/domain/repositories/SyncChangeSet';
+
+export type { XiuyuanOwnership } from '@/core/storage/stability/logicalKeys';
+export type {
+    AppliedSyncSummary,
+    PlannedSyncCreate,
+    PlannedSyncDelete,
+    PlannedSyncUpdate,
+    SyncChangeSetStats,
+};
+
+export interface SyncChangeSet extends RepositorySyncChangeSet {
+    syncType: SyncType;
+    postDetectTargets: XiuyuanSyncRiffBlock[];
+}
+
 // ==================== 配置接口 ====================
 
 /**

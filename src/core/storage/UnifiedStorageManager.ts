@@ -33,6 +33,7 @@ import {
   chooseCanonicalXiuyuan,
   mergeCardDTOsLocalFirst,
   mergeXiuyuanSnapshots,
+  normalizeXiuyuanOwnership,
 } from './stability/logicalKeys';
 import { createLogger } from '@/utils/logger';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
@@ -67,7 +68,7 @@ export interface RiffSyncState {
   lastSuccessfulFullAt?: number;
 }
 
-type RiffSyncStatePatch = Partial<RiffSyncState>;
+export type RiffSyncStatePatch = Partial<RiffSyncState>;
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
 
 const STABLE_QUICK_META_STRING_KEYS = ['source', 'cardSource', 'symbolType', 'clozeRenderMode'] as const;
@@ -246,21 +247,22 @@ export class UnifiedStorageManager {
     incomingXiuyuan: IXiuyuan,
     lookup: XiuyuanLookup = this.xiuyuans,
   ): IXiuyuan {
-    const logicalKey = buildLogicalXiuyuanKey(incomingXiuyuan);
+    const normalizedIncoming = normalizeXiuyuanOwnership(incomingXiuyuan);
+    const logicalKey = buildLogicalXiuyuanKey(normalizedIncoming);
     const candidates = this.getXiuyuanEntries(lookup)
       .map(([, xiuyuan]) => xiuyuan)
       .filter((candidate) => buildLogicalXiuyuanKey(candidate) === logicalKey);
 
     if (candidates.length === 0) {
-      return incomingXiuyuan;
+      return normalizedIncoming;
     }
 
-    const canonical = chooseCanonicalXiuyuan([...candidates, incomingXiuyuan]);
-    if (canonical.id === incomingXiuyuan.id) {
-      return incomingXiuyuan;
+    const canonical = chooseCanonicalXiuyuan([...candidates, normalizedIncoming]);
+    if (canonical.id === normalizedIncoming.id) {
+      return normalizedIncoming;
     }
 
-    return mergeXiuyuanSnapshots(canonical, incomingXiuyuan).value;
+    return mergeXiuyuanSnapshots(canonical, normalizedIncoming).value;
   }
 
   private findExistingCardDTOByLogicalKey(
@@ -394,14 +396,28 @@ export class UnifiedStorageManager {
     return { ...this.sanitizeRiffSyncState(this.riffSyncState) };
   }
 
+  patchRiffSyncState(
+    patch: RiffSyncStatePatch,
+    options: {
+      scheduleSave?: boolean;
+    } = {},
+  ): void {
+    this.riffSyncState = this.sanitizeRiffSyncState({
+      ...this.riffSyncState,
+      ...patch,
+    });
+
+    if (options.scheduleSave === false) {
+      this.dirty = true;
+      return;
+    }
+
+    this.scheduleSave();
+  }
+
   async updateRiffSyncState(patch: RiffSyncStatePatch): Promise<Result<void>> {
     return this.runWriteMutation('riff-sync-state', async () => {
-      this.riffSyncState = this.sanitizeRiffSyncState({
-        ...this.riffSyncState,
-        ...patch,
-      });
-
-      this.scheduleSave();
+      this.patchRiffSyncState(patch, { scheduleSave: false });
       const saveResult = await this.save();
       if (isErr(saveResult)) {
         return saveResult;
@@ -854,7 +870,7 @@ export class UnifiedStorageManager {
     const cardDTOs: Record<string, CardPersistenceDTO> = {};
 
     for (const [id, xiuyuan] of Object.entries(sourceXiuyuans)) {
-      xiuyuans[id] = JSON.parse(JSON.stringify(xiuyuan)) as IXiuyuan;
+      xiuyuans[id] = normalizeXiuyuanOwnership(JSON.parse(JSON.stringify(xiuyuan)) as IXiuyuan);
     }
 
     for (const [id, dto] of Object.entries(sourceCardDTOs)) {
@@ -1174,6 +1190,11 @@ export class UnifiedStorageManager {
           }
         : undefined,
     };
+  }
+
+  restoreStoreSnapshot(store: UnifiedCardStore): void {
+    this.applyStoreSnapshot(store);
+    this.clearSaveTimer();
   }
 
   // === CRUD 鎿嶄綔 ===
@@ -1846,7 +1867,7 @@ export class UnifiedStorageManager {
    * Callers control persistence timing via existing save flows.
    */
   upsertXiuYuan(xiuyuan: IXiuyuan): void {
-    this.xiuyuans.set(xiuyuan.id, xiuyuan);
+    this.xiuyuans.set(xiuyuan.id, normalizeXiuyuanOwnership(xiuyuan));
   }
 
   /**
