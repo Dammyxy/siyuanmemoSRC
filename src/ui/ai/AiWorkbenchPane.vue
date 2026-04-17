@@ -193,26 +193,6 @@
               <strong>{{ messageSpeaker(entry.primaryMessage) }}</strong>
               <span>{{ formatTime(entry.primaryMessage.createdAt) }}</span>
             </div>
-            <details v-if="entry.primaryMessage.kind !== 'separator'" class="ai-chat__bubble-menu">
-              <summary class="ai-chat__bubble-menu-trigger">•••</summary>
-              <div class="ai-chat__bubble-menu-panel">
-                <button class="ai-chat__link-button" type="button" @click="copyMessage(entry.primaryMessage)">{{ t('copy', '复制') }}</button>
-                <button v-if="canEditMessage(entry.primaryMessage)" class="ai-chat__link-button" type="button" @click="openTextMessageEditor(entry.primaryMessage)">{{ t('edit', '编辑') }}</button>
-                <button v-if="canEditUserMessage(entry.primaryMessage)" class="ai-chat__link-button" type="button" @click="prepareEditedFollowUp(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
-                <button v-if="canRerunMessage(entry.primaryMessage)" class="ai-chat__link-button" type="button" :disabled="state.isLoading || revealLocked" @click="rerunMessage(entry.primaryMessage)">{{ t('rerun', '重跑') }}</button>
-                <button class="ai-chat__link-button" type="button" @click="branchFromMessage(entry.primaryMessage)">{{ t('branch', '分支') }}</button>
-                <button class="ai-chat__link-button" type="button" @click="toggleMessageHidden(entry.primaryMessage)">
-                  {{ messageMeta(entry.primaryMessage)?.hidden ? t('showInContext', '恢复上下文') : t('hideFromContext', '隐藏上下文') }}
-                </button>
-                <button class="ai-chat__link-button" type="button" @click="toggleMessagePinned(entry.primaryMessage)">
-                  {{ messageMeta(entry.primaryMessage)?.pinned ? t('unpin', '取消固定') : t('pin', '固定') }}
-                </button>
-                <button v-if="(messageMeta(entry.primaryMessage)?.versionCount || 0) > 1" class="ai-chat__link-button" type="button" @click="cycleMessageVersion(entry.primaryMessage)">
-                  {{ t('switchVersion', '切版本') }}
-                </button>
-                <button class="ai-chat__link-button" type="button" @click="insertSeparatorAfter(entry.primaryMessage)">{{ t('insertSeparator', '插入分隔') }}</button>
-              </div>
-            </details>
           </div>
 
           <div
@@ -323,19 +303,30 @@
             </template>
           </template>
 
-          <div v-if="entry.pendingApproval" class="ai-chat__approval-strip">
-            <div class="ai-chat__approval-strip-main">
-              <strong>{{ entry.pendingApproval.request.title }}</strong>
-              <span>{{ entry.pendingApproval.request.description }}</span>
+          <div v-if="entry.pendingApproval" class="ai-chat__approval-card ai-chat__approval-card--pending">
+            <div class="ai-chat__approval-card-head">
+              <div>
+                <strong>{{ entry.pendingApproval.request.title }}</strong>
+                <span>{{ entry.pendingApproval.request.type === 'result' ? t('resultApprovalPending', '结果待确认') : t('executionApprovalPending', '执行待确认') }}</span>
+              </div>
+              <div class="ai-chat__approval-actions">
+                <button class="ai-chat__primary-button" type="button" @click="resolveApproval(entry.pendingApproval.request.id, true)">
+                  {{ t('approve', '批准') }}
+                </button>
+                <button class="ai-chat__link-button" type="button" @click="resolveApproval(entry.pendingApproval.request.id, false)">
+                  {{ t('reject', '拒绝') }}
+                </button>
+              </div>
             </div>
-            <div class="ai-chat__approval-actions">
-              <button class="ai-chat__primary-button" type="button" @click="resolveApproval(entry.pendingApproval.request.id, true)">
-                {{ t('approve', '批准') }}
-              </button>
-              <button class="ai-chat__link-button" type="button" @click="resolveApproval(entry.pendingApproval.request.id, false)">
-                {{ t('reject', '拒绝') }}
-              </button>
-            </div>
+            <p>{{ entry.pendingApproval.request.description }}</p>
+            <details class="ai-chat__meta-block">
+              <summary>{{ t('requestPayload', '请求内容') }}</summary>
+              <pre class="ai-chat__banner-pre">{{ approvalArgsText(entry.pendingApproval.request) }}</pre>
+            </details>
+            <details v-if="entry.pendingApproval.request.resultText" class="ai-chat__meta-block">
+              <summary>{{ t('resultPreview', '结果摘要') }}</summary>
+              <pre class="ai-chat__banner-pre">{{ entry.pendingApproval.request.resultText }}</pre>
+            </details>
           </div>
 
           <div v-if="entryHasDetails(entry)" class="ai-chat__step-block">
@@ -346,14 +337,29 @@
             <div v-if="isEntryExpanded(entry.key)" class="ai-chat__step-panel">
               <template v-for="detail in visibleSupplementalMessages(entry)" :key="detail.id">
                 <div v-if="detail.kind === 'tool-log'" class="ai-chat__tool-log ai-chat__tool-log--compact" :class="`ai-chat__tool-log--${detail.status}`">
-                  <strong>{{ detail.toolName }} · {{ detail.status }}</strong>
-                  <RichMarkdownContent class="ai-chat__message-copy" :content="detail.content" />
-                  <p v-if="detail.varRef" class="ai-chat__muted">{{ t('cachedAsVar', '完整结果缓存为') }} {{ detail.varRef }}</p>
+                  <div class="ai-chat__tool-log-head">
+                    <strong>{{ detail.toolName }}</strong>
+                    <span>{{ toolLogMeta(detail) }}</span>
+                  </div>
+                  <p class="ai-chat__muted">{{ detail.resultText || detail.content }}</p>
+                  <details v-if="detail.argsText" class="ai-chat__meta-block">
+                    <summary>{{ t('requestPayload', '请求内容') }}</summary>
+                    <pre class="ai-chat__banner-pre">{{ detail.argsText }}</pre>
+                  </details>
+                  <details class="ai-chat__meta-block">
+                    <summary>{{ t('resultPreview', '结果摘要') }}</summary>
+                    <pre class="ai-chat__banner-pre">{{ detail.content }}</pre>
+                  </details>
+                  <p v-if="detail.argsVarRef || detail.varRef" class="ai-chat__muted">
+                    <span v-if="detail.argsVarRef">{{ t('argsCachedAsVar', '参数缓存为') }} {{ detail.argsVarRef }}</span>
+                    <span v-if="detail.argsVarRef && detail.varRef"> · </span>
+                    <span v-if="detail.varRef">{{ t('cachedAsVar', '完整结果缓存为') }} {{ detail.varRef }}</span>
+                  </p>
                 </div>
                 <div v-else-if="detail.kind === 'approval'" class="ai-chat__approval-card ai-chat__approval-card--compact" :class="`ai-chat__approval-card--${detail.request.status}`">
                   <strong>{{ detail.request.title }}</strong>
                   <p>{{ detail.request.description }}</p>
-                  <pre>{{ JSON.stringify(detail.request.args, null, 2) }}</pre>
+                  <pre>{{ approvalArgsText(detail.request) }}</pre>
                   <p class="ai-chat__muted">
                     {{ detail.request.status === 'approved' ? t('approved', '已批准') : t('rejected', '已拒绝') }}
                     <span v-if="detail.request.rejectReason"> · {{ detail.request.rejectReason }}</span>
@@ -385,6 +391,34 @@
               <strong>{{ contextItem.title }}</strong>
               <span>{{ contextItem.summary }}</span>
             </button>
+          </div>
+
+          <div v-if="entry.primaryMessage.kind !== 'separator'" class="ai-chat__message-toolbar">
+            <div class="ai-chat__message-toolbar-meta">
+              <span>{{ messageFooterMeta(entry.primaryMessage) }}</span>
+            </div>
+            <div class="ai-chat__message-toolbar-actions">
+              <button class="ai-chat__toolbar-button" type="button" @click="copyMessage(entry.primaryMessage)">{{ t('copy', '复制') }}</button>
+              <button v-if="canEditMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" @click="openTextMessageEditor(entry.primaryMessage)">{{ t('edit', '编辑') }}</button>
+              <button v-if="canEditUserMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" @click="prepareEditedFollowUp(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
+              <button v-if="canRerunMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" :disabled="state.isLoading || revealLocked" @click="rerunMessage(entry.primaryMessage)">{{ t('rerun', '重跑') }}</button>
+              <button class="ai-chat__toolbar-button" type="button" @click="branchFromMessage(entry.primaryMessage)">{{ t('branch', '分支') }}</button>
+              <button class="ai-chat__toolbar-button" type="button" @click="toggleMessagePinned(entry.primaryMessage)">
+                {{ messageMeta(entry.primaryMessage)?.pinned ? t('unpin', '取消固定') : t('pin', '固定') }}
+              </button>
+              <details class="ai-chat__bubble-menu ai-chat__bubble-menu--toolbar">
+                <summary class="ai-chat__bubble-menu-trigger">•••</summary>
+                <div class="ai-chat__bubble-menu-panel">
+                  <button class="ai-chat__link-button" type="button" @click="toggleMessageHidden(entry.primaryMessage)">
+                    {{ messageMeta(entry.primaryMessage)?.hidden ? t('showInContext', '恢复上下文') : t('hideFromContext', '隐藏上下文') }}
+                  </button>
+                  <button v-if="(messageMeta(entry.primaryMessage)?.versionCount || 0) > 1" class="ai-chat__link-button" type="button" @click="cycleMessageVersion(entry.primaryMessage)">
+                    {{ t('switchVersion', '切版本') }}
+                  </button>
+                  <button class="ai-chat__link-button" type="button" @click="insertSeparatorAfter(entry.primaryMessage)">{{ t('insertSeparator', '插入分隔') }}</button>
+                </div>
+              </details>
+            </div>
           </div>
         </article>
 
@@ -571,9 +605,11 @@ import type {
   AIConceptCoachPerspectives,
   AIConceptCoachRealWorldTriggers,
   AIConceptCoachSelfTestCards,
+  AIChatApprovalRequest,
   AIExplainResult,
   AIUserSkillStructuredCard,
   AIUserSkillStructuredKeyValue,
+  AIWorkbenchApprovalMessage,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchMessage,
   AIWorkbenchNotebookOption,
@@ -582,6 +618,7 @@ import type {
   AIWorkbenchSelfTestCardTargetInput,
   AIWorkbenchSelfTestCardTargetMemory,
   AIWorkbenchSource,
+  AIWorkbenchToolLogMessage,
 } from '@/types/ai';
 
 type ContextProvider = {
@@ -1154,6 +1191,14 @@ function visibleSupplementalMessages(entry: AIWorkbenchRenderEntry): AIWorkbench
   ));
 }
 
+function entryToolLogs(entry: AIWorkbenchRenderEntry): AIWorkbenchToolLogMessage[] {
+  return visibleSupplementalMessages(entry).filter((message): message is AIWorkbenchToolLogMessage => message.kind === 'tool-log');
+}
+
+function entryApprovalHistory(entry: AIWorkbenchRenderEntry): AIWorkbenchApprovalMessage[] {
+  return visibleSupplementalMessages(entry).filter((message): message is AIWorkbenchApprovalMessage => message.kind === 'approval');
+}
+
 function entryReasoningContent(entry: AIWorkbenchRenderEntry): string | null {
   const message = entry.primaryMessage;
   if (message.kind !== 'assistant-text' && message.kind !== 'assistant-result') {
@@ -1177,10 +1222,56 @@ function entryHasDetails(entry: AIWorkbenchRenderEntry): boolean {
 }
 
 function entryDetailsLabel(entry: AIWorkbenchRenderEntry): string {
-  if (entry.stepCount > 0) {
+  const toolLogs = entryToolLogs(entry);
+  if (toolLogs.length > 0) {
+    const rounds = Math.max(...toolLogs.map((detail) => detail.roundIndex || 0), 0);
+    const duration = toolLogs.reduce((total, detail) => total + (detail.durationMs || 0), 0);
+    const summary = [`${toolLogs.length} ${t('toolCalls', '次工具调用')}`];
+    if (rounds > 0) {
+      summary.push(`${rounds} ${t('rounds', '轮')}`);
+    }
+    if (duration > 0) {
+      summary.push(`${(duration / 1000).toFixed(duration >= 10000 ? 0 : 1)}s`);
+    }
+    return summary.join(' · ');
+  }
+  if (entry.stepCount > 0 || entryApprovalHistory(entry).length > 0) {
     return `${entry.stepCount} ${t('steps', '个步骤')}`;
   }
   return t('viewDetails', '查看详情');
+}
+
+function toolLogMeta(detail: AIWorkbenchToolLogMessage): string {
+  const parts = [detail.status];
+  if (detail.roundIndex) {
+    parts.push(`${t('round', '轮次')} ${detail.roundIndex}`);
+  }
+  if (detail.durationMs) {
+    parts.push(`${detail.durationMs}ms`);
+  }
+  if (detail.llmUsage?.totalTokens) {
+    parts.push(`${detail.llmUsage.totalTokens} tokens`);
+  }
+  return parts.join(' · ');
+}
+
+function approvalArgsText(request: AIChatApprovalRequest): string {
+  return request.argsText || JSON.stringify(request.args, null, 2);
+}
+
+function messageFooterMeta(message: AIWorkbenchMessage): string {
+  const meta = messageMeta(message);
+  const parts: string[] = [];
+  if ((meta?.versionCount || 0) > 1) {
+    parts.push(`${meta?.versionCount} ${t('versions', '个版本')}`);
+  }
+  if ((meta?.branchCount || 0) > 0) {
+    parts.push(`${meta?.branchCount} ${t('branches', '个分支')}`);
+  }
+  if (message.kind === 'assistant-text' && message.content) {
+    parts.push(`${message.content.length} ${t('characters', '字')}`);
+  }
+  return parts.join(' · ') || t('messageActions', '消息操作');
 }
 
 function treeNodeTitle(node: { message: AIWorkbenchMessage | null; kind: string }): string {
@@ -1711,10 +1802,6 @@ onUnmounted(() => {
 .ai-chat__pending-body p { margin: 0; }
 .ai-chat__pending-dot { width: 8px; height: 8px; border-radius: 999px; background: #1c7d8f; box-shadow: 0 0 0 0 rgba(28,125,143,0.3); animation: ai-pending-pulse 1.1s ease-in-out infinite; flex: 0 0 auto; }
 .ai-chat__message-copy :deep(p:last-child) { margin-bottom: 0; }
-.ai-chat__approval-strip { margin-top: 12px; border: 1px solid #f0d48f; border-radius: 10px; background: #fffaf0; padding: 9px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.ai-chat__approval-strip-main { display: grid; gap: 2px; min-width: 0; }
-.ai-chat__approval-strip-main strong { color: #5b4216; font-size: 12px; }
-.ai-chat__approval-strip-main span { color: #7c6230; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-chat__step-block { margin-top: 12px; }
 .ai-chat__step-toggle { border: 0; background: none; color: #8b94a6; display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; font-weight: 600; font-size: 12px; }
 .ai-chat__step-toggle:hover { color: #51607a; }
@@ -1731,14 +1818,28 @@ onUnmounted(() => {
 .ai-chat__result-note--empty { background: #fff1ef; border: 1px solid #f2cbc5; color: #b04437; }
 .ai-chat__tool-log { border: 1px solid #d7e3f5; border-radius: 10px; background: #f8fbff; padding: 10px; display: grid; gap: 8px; }
 .ai-chat__tool-log strong { font-size: 12px; color: #315076; }
+.ai-chat__tool-log-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-chat__tool-log-head span { color: #68758b; font-size: 11px; }
 .ai-chat__tool-log--error { border-color: #f0b6af; background: #fff7f6; }
-.ai-chat__tool-log--approval-required { border-color: #f5d58a; background: #fffaf0; }
+.ai-chat__tool-log--execution-rejected, .ai-chat__tool-log--result-rejected, .ai-chat__tool-log--approval-required { border-color: #f5d58a; background: #fffaf0; }
 .ai-chat__approval-card { border: 1px solid #f0c978; border-radius: 12px; background: #fff9ea; padding: 12px; display: grid; gap: 8px; }
 .ai-chat__approval-card strong { color: #5b4216; }
+.ai-chat__approval-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.ai-chat__approval-card-head span { display: block; margin-top: 2px; color: #7c6230; font-size: 12px; }
 .ai-chat__approval-card pre { max-height: 180px; overflow: auto; background: rgba(255,255,255,0.72); border: 1px solid #f4dfac; border-radius: 8px; padding: 8px; white-space: pre-wrap; font-size: 11px; }
 .ai-chat__approval-card--approved { border-color: #b9dfc3; background: #f3fbf5; }
 .ai-chat__approval-card--rejected { border-color: #f0b6af; background: #fff7f6; }
 .ai-chat__approval-actions { display: flex; align-items: center; gap: 8px; }
+.ai-chat__message-toolbar { margin-top: 12px; padding-top: 8px; border-top: 1px solid #eef1f6; display: flex; align-items: center; justify-content: space-between; gap: 10px; opacity: 0; transition: opacity 0.16s ease, transform 0.16s ease; transform: translateY(2px); }
+.ai-chat__bubble:hover .ai-chat__message-toolbar,
+.ai-chat__bubble:focus-within .ai-chat__message-toolbar,
+.ai-chat__bubble-menu--toolbar[open] ~ .ai-chat__message-toolbar { opacity: 1; transform: translateY(0); }
+.ai-chat--compact .ai-chat__message-toolbar { opacity: 1; transform: none; }
+.ai-chat__message-toolbar-meta { min-width: 0; color: #7f8797; font-size: 12px; }
+.ai-chat__message-toolbar-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.ai-chat__toolbar-button { border: 0; border-radius: 7px; background: transparent; padding: 6px 8px; font-size: 12px; color: #51607a; }
+.ai-chat__toolbar-button:hover { background: #f4f7fb; color: #1f2937; }
+.ai-chat__bubble-menu--toolbar .ai-chat__bubble-menu-trigger { width: 26px; height: 26px; }
 .ai-chat__result-section { display: grid; gap: 6px; margin-top: 10px; }
 .ai-chat__result-section h4 { margin: 0; font-size: 13px; color: #3e4a60; }
 .ai-chat__result-section ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }

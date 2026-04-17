@@ -1899,5 +1899,22 @@
   "selectNotebookFirst": "Select a target notebook.",
   "fillTargetBlockId": "Enter a target document or block ID.",
   "todayDailyNote": "Daily note",
-  "selfTestCreationUnavailable": "This runtime does not support self-test card creation yet."
+  "selfTestCreationUnavailable": "This runtime does not support self-test card creation yet.",
+  "aiToolManager": "Default tool availability and approvals",
+  "aiToolManagerHint": "Group toggles decide whether a whole tool group is exposed to the model, individual tool toggles control default availability, and approval policies can override behavior per tool. Write tools still require runtime confirmation even when enabled.",
+  "argsCachedAsVar": "Args cached as",
+  "branches": "branches",
+  "characters": "characters",
+  "executionApproval": "Execution approval",
+  "executionApprovalPending": "Execution pending approval",
+  "followDefault": "Follow default",
+  "messageActions": "Message actions",
+  "requestPayload": "Request payload",
+  "resultApproval": "Result approval",
+  "resultApprovalPending": "Result pending approval",
+  "resultPreview": "Result preview",
+  "round": "Round",
+  "rounds": "rounds",
+  "toolCalls": "tool calls",
+  "versions": "versions"
 }

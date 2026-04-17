@@ -11,6 +11,7 @@ import type {
 import type { LLMMessage, LLMPort, LLMResponse, LLMToolCall } from '@/application/ports/LLMPort';
 import { LLMError } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
+import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import {
   getAIChatSkill,
   type AIChatRegisteredSkillDescriptor,
@@ -109,7 +110,7 @@ export type AIWorkbenchServiceDeps = {
   cardContentQueryService: CardContentQueryService;
   siyuanPort: AISiyuanPort;
   llmPort: LLMPort;
-  getXiuyuanApplicationService?: () => Promise<Pick<XiuyuanApplicationService, 'createFromBlocks'>>;
+  getXiuyuanApplicationService?: () => Promise<Pick<XiuyuanApplicationService, 'createFromBlocks' | 'createListTemplateCards'>>;
   sessionStore?: Pick<
     AIWorkbenchSessionStoreService,
     | 'listSummaries'
@@ -1387,15 +1388,53 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
       group: normalizeString(message.group) as AIWorkbenchToolLogMessage['group'],
       status: normalizeString(message.status) as AIWorkbenchToolLogMessage['status'],
       content: normalizeString(message.content),
+      argsText: normalizeString(message.argsText) || null,
+      resultText: normalizeString(message.resultText) || null,
       error: normalizeString(message.error) || null,
+      argsVarRef: normalizeString(message.argsVarRef) || null,
       varRef: normalizeString(message.varRef) || null,
+      durationMs: Number(message.durationMs) || null,
+      roundIndex: Number(message.roundIndex) || null,
+      llmUsage: typeof message.llmUsage === 'object' && message.llmUsage !== null
+        ? {
+          promptTokens: Number((message.llmUsage as { promptTokens?: unknown }).promptTokens) || undefined,
+          completionTokens: Number((message.llmUsage as { completionTokens?: unknown }).completionTokens) || undefined,
+          totalTokens: Number((message.llmUsage as { totalTokens?: unknown }).totalTokens) || undefined,
+        }
+        : null,
     };
   }
   if (kind === 'approval' && isRecord(message.request)) {
+    const request = message.request as Record<string, unknown>;
     return {
       ...base,
       kind,
-      request: message.request as AIChatApprovalRequest,
+      request: {
+        id: normalizeString(request.id),
+        type: normalizeString(request.type) === 'result' ? 'result' : 'execution',
+        toolCallId: normalizeString(request.toolCallId),
+        toolName: normalizeString(request.toolName),
+        group: normalizeString(request.group) as AIChatApprovalRequest['group'],
+        title: normalizeString(request.title),
+        description: normalizeString(request.description),
+        args: isRecord(request.args) ? request.args : {},
+        argsText: normalizeString(request.argsText) || undefined,
+        resultText: normalizeString(request.resultText) || undefined,
+        resultStatus: normalizeString(request.resultStatus) as AIChatApprovalRequest['resultStatus'],
+        argsVarRef: normalizeString(request.argsVarRef) || undefined,
+        resultVarRef: normalizeString(request.resultVarRef) || undefined,
+        runGroupId: normalizeString(request.runGroupId) || null,
+        skillId: normalizeString(request.skillId) as AIChatApprovalRequest['skillId'],
+        tabId: normalizeString(request.tabId) as AIChatApprovalRequest['tabId'],
+        status: normalizeString(request.status) === 'approved'
+          ? 'approved'
+          : normalizeString(request.status) === 'rejected'
+            ? 'rejected'
+            : 'pending',
+        createdAt: Number(request.createdAt) || base.createdAt,
+        resolvedAt: Number(request.resolvedAt) || undefined,
+        rejectReason: normalizeString(request.rejectReason) || undefined,
+      } satisfies AIChatApprovalRequest,
     };
   }
   if (kind === 'separator') {
@@ -1503,13 +1542,25 @@ export class AIWorkbenchService {
   private currentRunAbortController: AbortController | null = null;
   private readonly varStore = new AIChatVarStoreService();
   private readonly toolRegistry = new AIChatToolRegistry();
+  private readonly flashcardTools: AIFlashcardToolService;
   private readonly toolExecutor: AIChatToolExecutorService;
+  private readonly approvalResolvers = new Map<string, {
+    request: AIChatApprovalRequest;
+    resolve: (value: { approved: boolean; rejectReason?: string }) => void;
+  }>();
 
   constructor(private readonly deps: AIWorkbenchServiceDeps) {
+    this.flashcardTools = new AIFlashcardToolService({
+      siyuanPort: this.deps.siyuanPort,
+      getXiuyuanApplicationService: async () => this.requireXiuyuanApplicationService(),
+      loadDefaultTarget: async () => this.getSessionStore().loadSelfTestCardTargetMemory(),
+      saveDefaultTarget: async (target) => this.getSessionStore().saveSelfTestCardTargetMemory(target),
+    });
     this.toolExecutor = new AIChatToolExecutorService({
       registry: this.toolRegistry,
       varStore: this.varStore,
       siyuanPort: this.deps.siyuanPort,
+      flashcardTools: this.flashcardTools,
       getAISettings: this.deps.getAISettings,
     });
   }
@@ -1518,7 +1569,7 @@ export class AIWorkbenchService {
     return this.deps.sessionStore || NOOP_SESSION_STORE;
   }
 
-  private async requireXiuyuanApplicationService(): Promise<Pick<XiuyuanApplicationService, 'createFromBlocks'>> {
+  private async requireXiuyuanApplicationService(): Promise<Pick<XiuyuanApplicationService, 'createFromBlocks' | 'createListTemplateCards'>> {
     if (!this.deps.getXiuyuanApplicationService) {
       throw new Error('XiuyuanApplicationService 未初始化，暂时无法创建闪卡。');
     }
@@ -2574,6 +2625,9 @@ export class AIWorkbenchService {
 
   cancelCurrentRun(): void {
     this.currentRunAbortController?.abort();
+    for (const approvalId of this.state.pendingApprovals.map((request) => request.id)) {
+      void this.resolveToolApproval(approvalId, false, '用户已停止当前运行。');
+    }
   }
 
   setActiveTab(tabId: AISkillTabId): void {
@@ -2987,23 +3041,13 @@ export class AIWorkbenchService {
         detail: approved ? undefined : resolved.rejectReason,
         createdAt: Date.now(),
       });
-      if (approved) {
-        const approvalMessage = this.state.messages.find((entry): entry is AIWorkbenchApprovalMessage => (
-          entry.kind === 'approval' && entry.request.id === request.id
-        ));
-        const skillId = approvalMessage?.skillId || this.state.activeSkillId;
-        const tabId = approvalMessage?.tabId || this.state.activeTabId;
-        this.appendMessage(tabId, {
-          id: createEntryId('ai-msg'),
-          skillId,
-          tabId,
-          view: skillId,
-          kind: 'assistant-text',
-          content: `已记录你批准「${request.title}」。为避免误写，第一阶段不会自动落库；你可以继续要求我根据这份审批执行下一步。`,
-          createdAt: Date.now(),
-          sourceContent: null,
-          appliedContexts: [],
-        } satisfies AIWorkbenchAssistantTextMessage);
+      const resolver = this.approvalResolvers.get(request.id);
+      if (resolver) {
+        resolver.resolve({
+          approved,
+          rejectReason: approved ? undefined : resolved.rejectReason,
+        });
+        this.approvalResolvers.delete(request.id);
       }
     }
     this.state.pendingApprovals = nextPending;
@@ -3273,10 +3317,17 @@ export class AIWorkbenchService {
     const settings = this.assertModelSettings();
     const provider = this.resolveDefaultProvider(settings);
     const enabledTools = this.toolExecutor.getEnabledToolDefinitions(skill.defaultToolGroups);
-    const llmMessages: LLMMessage[] = this.buildGeneralChatMessages(settings, skill, tabId, attachedContexts);
+    const llmMessages: LLMMessage[] = this.buildGeneralChatMessages(
+      settings,
+      skill,
+      tabId,
+      attachedContexts,
+      this.toolExecutor.buildToolRules(skill.defaultToolGroups),
+    );
     const maxRounds = Math.max(1, settings.chatDefaults.maxToolRounds || 4);
 
     for (let round = 0; round < maxRounds; round += 1) {
+      this.ensureRunNotAborted();
       const assistantMessageId = createEntryId('ai-msg');
       const placeholderNode = this.appendNodeMessage(tabId, {
         id: assistantMessageId,
@@ -3369,7 +3420,7 @@ export class AIWorkbenchService {
 
       this.patchActiveNodeMessage(assistantMessageId, (message) => ({
         ...(message as AIWorkbenchAssistantTextMessage),
-        content: assistantContent || (message as AIWorkbenchAssistantTextMessage).content || '',
+        content: assistantContent || '我先调用几步工具来补全信息。',
         sourceContent: assistantContent || (message as AIWorkbenchAssistantTextMessage).sourceContent || null,
         reasoningContent: response.reasoningContent || (message as AIWorkbenchAssistantTextMessage).reasoningContent || null,
         diagnostics: response.diagnostics || (message as AIWorkbenchAssistantTextMessage).diagnostics || [],
@@ -3378,59 +3429,158 @@ export class AIWorkbenchService {
       } satisfies AIWorkbenchAssistantTextMessage), { status: 'ready' });
 
       for (const llmToolCall of toolCalls) {
+        this.ensureRunNotAborted();
         const toolCall = this.toRuntimeToolCall(llmToolCall);
-        const outcome = await this.toolExecutor.executeToolCall(toolCall, {
+        const result = await this.toolExecutor.executeToolCall(toolCall, {
           context: this.state.context,
           attachedContexts,
+        }, {
+          roundIndex: round + 1,
+          llmUsage: response.usage,
+          approvals: {
+            requestApproval: (request) => this.requestInlineToolApproval({
+              ...request,
+              runGroupId,
+              skillId: skill.id,
+              tabId,
+            }),
+          },
         });
-        this.state.toolTimeline.push(outcome.result);
-        this.appendToolLogMessage(outcome.result, skill.id, tabId, runGroupId);
-        if (outcome.approval) {
-          this.state.pendingApprovals.push(outcome.approval);
-          this.appendApprovalMessage(outcome.approval, skill.id, tabId, runGroupId);
-          this.addRuntimeDiagnostic({
-            type: 'approval',
-            message: `工具 ${outcome.approval.toolName} 需要用户审批后才能执行。`,
-            detail: JSON.stringify(outcome.approval.args, null, 2),
-            createdAt: Date.now(),
-          });
-          this.appendMessage(tabId, {
-            id: createEntryId('ai-msg'),
-            skillId: skill.id,
-            tabId,
-            view: skill.id,
-            kind: 'assistant-text',
-            content: `工具「${outcome.approval.title}」需要你审批后才能继续。我已经把审批卡片放在消息流里。`,
-            createdAt: Date.now(),
-            sourceContent: null,
-            appliedContexts: attachedContexts,
-            runGroupId,
-            presentation: 'primary',
-          } satisfies AIWorkbenchAssistantTextMessage);
-          return;
-        }
+        this.ensureRunNotAborted();
+        this.state.toolTimeline.push(result);
+        this.appendToolLogMessage(result, skill.id, tabId, runGroupId);
         llmMessages.push({
           role: 'tool',
-          toolCallId: outcome.result.toolCallId,
-          name: outcome.result.toolName,
-          content: outcome.result.finalText,
+          toolCallId: result.toolCallId,
+          name: result.toolName,
+          content: result.finalText || (result.status === 'success' ? 'Tool finished with no textual output.' : result.error || 'Tool call was rejected.'),
         });
       }
     }
 
-    this.appendMessage(tabId, {
+    await this.requestToolchainSummary(skill, tabId, attachedContexts, llmMessages, settings, provider, runGroupId);
+  }
+
+  private ensureRunNotAborted(): void {
+    if (this.currentRunAbortController?.signal.aborted) {
+      throw new Error('当前 AI 运行已停止。');
+    }
+  }
+
+  private async requestInlineToolApproval(request: AIChatApprovalRequest): Promise<{ approved: boolean; rejectReason?: string }> {
+    this.state.pendingApprovals.push(request);
+    this.appendApprovalMessage(request, request.skillId || this.state.activeSkillId, request.tabId || this.state.activeTabId, request.runGroupId);
+    this.addRuntimeDiagnostic({
+      type: 'approval',
+      message: request.type === 'result'
+        ? `工具 ${request.toolName} 的结果等待用户审批。`
+        : `工具 ${request.toolName} 等待用户审批后执行。`,
+      detail: request.argsText || JSON.stringify(request.args, null, 2),
+      createdAt: Date.now(),
+    });
+    this.appendMessage(request.tabId || this.state.activeTabId, {
       id: createEntryId('ai-msg'),
+      skillId: request.skillId || this.state.activeSkillId,
+      tabId: request.tabId || this.state.activeTabId,
+      view: request.skillId || this.state.activeSkillId,
+      kind: 'assistant-text',
+      content: request.type === 'result'
+        ? `工具「${request.title}」已经得到结果，等你确认后我就继续。`
+        : `我准备执行工具「${request.title}」，请先确认。`,
+      createdAt: Date.now(),
+      sourceContent: null,
+      appliedContexts: [],
+      runGroupId: request.runGroupId || null,
+      presentation: 'primary',
+    } satisfies AIWorkbenchAssistantTextMessage);
+    return new Promise((resolve) => {
+      this.approvalResolvers.set(request.id, { request, resolve });
+    });
+  }
+
+  private async requestToolchainSummary(
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId: AISkillTabId,
+    attachedContexts: AIAttachedContextItem[],
+    llmMessages: LLMMessage[],
+    settings: AISettings,
+    provider: AIProviderConfig,
+    runGroupId: string,
+  ): Promise<void> {
+    const assistantMessageId = createEntryId('ai-msg');
+    const placeholderNode = this.appendNodeMessage(tabId, {
+      id: assistantMessageId,
       skillId: skill.id,
       tabId,
       view: skill.id,
       kind: 'assistant-text',
-      content: '工具链已达到最大轮数，先暂停在这里。你可以继续追问，我会基于已经得到的工具结果接着处理。',
+      content: '',
       createdAt: Date.now(),
       sourceContent: null,
       appliedContexts: attachedContexts,
+      reasoningContent: '',
+      diagnostics: [],
       runGroupId,
       presentation: 'primary',
-    } satisfies AIWorkbenchAssistantTextMessage);
+    } satisfies AIWorkbenchAssistantTextMessage, {
+      scope: 'skill',
+    });
+    placeholderNode.status = 'streaming';
+
+    const response = await this.requestChatModel([
+      ...llmMessages,
+      {
+        role: 'system',
+        content: '你已经完成当前轮次的工具调用。现在不要再调用工具，只根据已有工具结果和上下文，给用户一个清晰、简短、可执行的最终答复。',
+      },
+    ], {
+      settings,
+      provider,
+      observer: {
+        onTextDelta: (delta) => {
+          if (!delta) {
+            return;
+          }
+          this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+            ...(message as AIWorkbenchAssistantTextMessage),
+            content: `${(message as AIWorkbenchAssistantTextMessage).content || ''}${delta}`,
+          } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
+        },
+        onReasoningDelta: (delta) => {
+          if (!delta) {
+            return;
+          }
+          this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+            ...(message as AIWorkbenchAssistantTextMessage),
+            reasoningContent: `${(message as AIWorkbenchAssistantTextMessage).reasoningContent || ''}${delta}`,
+          } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
+        },
+        onDiagnostic: (diagnostic) => {
+          if (!diagnostic) {
+            return;
+          }
+          this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+            ...(message as AIWorkbenchAssistantTextMessage),
+            diagnostics: [
+              ...((message as AIWorkbenchAssistantTextMessage).diagnostics || []),
+              diagnostic,
+            ].slice(-8),
+          } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
+        },
+      },
+    });
+
+    const assistantContent = normalizeString(response.content)
+      || '工具链已达到最大轮数，我先根据现有结果整理到这里。';
+    this.patchActiveNodeMessage(assistantMessageId, (message) => ({
+      ...(message as AIWorkbenchAssistantTextMessage),
+      content: assistantContent,
+      sourceContent: assistantContent,
+      reasoningContent: response.reasoningContent || (message as AIWorkbenchAssistantTextMessage).reasoningContent || null,
+      diagnostics: response.diagnostics || (message as AIWorkbenchAssistantTextMessage).diagnostics || [],
+      interrupted: false,
+      presentation: 'primary',
+    } satisfies AIWorkbenchAssistantTextMessage), { status: 'ready' });
   }
 
   private async activateLiveContext(
@@ -3558,6 +3708,7 @@ export class AIWorkbenchService {
     record: AIWorkbenchSessionRecord,
     liveContext: AIWorkbenchContextSnapshot | null,
   ): void {
+    this.approvalResolvers.clear();
     this.state.sessionId = record.id;
     this.state.sessionTitle = record.title;
     this.state.surface = normalizeSurface(record.surface);
@@ -3603,9 +3754,15 @@ export class AIWorkbenchService {
         toolName: message.toolName,
         group: message.group,
         args: {},
+        argsText: message.argsText || undefined,
         finalText: message.content,
+        resultText: message.resultText || message.content,
         error: message.error || undefined,
+        argsVarRef: message.argsVarRef || undefined,
         varRef: message.varRef || undefined,
+        durationMs: message.durationMs || undefined,
+        roundIndex: message.roundIndex || undefined,
+        llmUsage: message.llmUsage || undefined,
         createdAt: message.createdAt,
       }));
     this.state.explainResult = explainResultFromConceptCoach(this.state.skillResults[CONCEPT_SKILL]);
@@ -4089,6 +4246,7 @@ export class AIWorkbenchService {
     skill: AIChatRegisteredSkillDescriptor,
     tabId: AISkillTabId,
     attachedContexts: AIAttachedContextItem[],
+    toolRules = '',
   ): LLMMessage[] {
     const context = this.state.context;
     const systemPayload = {
@@ -4117,6 +4275,7 @@ export class AIWorkbenchService {
       role: 'system',
       content: [
         skill.systemPromptTemplate,
+        toolRules,
         '工具规则：读工具可以自动执行；任何写入思源、创建卡片、摘录或 daily note 的工具都必须先请求用户审批。',
         '如果需要长结果，请优先使用 ListVars / ReadVar 管理工具缓存，不要把超长内容完整复述给用户。',
         '当前会话上下文：',
@@ -4226,8 +4385,14 @@ export class AIWorkbenchService {
       group: result.group,
       status: result.status,
       content: result.finalText,
+      argsText: result.argsText || null,
+      resultText: result.resultText || null,
       error: result.error || null,
+      argsVarRef: result.argsVarRef || null,
       varRef: result.varRef || null,
+      durationMs: result.durationMs || null,
+      roundIndex: result.roundIndex || null,
+      llmUsage: result.llmUsage || null,
       runGroupId: normalizeString(runGroupId) || null,
       presentation: 'supplemental',
     } satisfies AIWorkbenchToolLogMessage);

@@ -580,7 +580,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
 
     expect(wrapper.text()).toContain('这是最终回复。');
-    expect(wrapper.text()).toContain('2 个步骤');
+    expect(wrapper.text()).toContain('1 次工具调用');
     expect(wrapper.text()).not.toContain('工具读取内容');
 
     await wrapper.find('.ai-chat__step-toggle').trigger('click');
@@ -590,7 +590,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('中间分析步骤');
   });
 
-  it('renders pending approvals as a minimal strip instead of a full timeline card', async () => {
+  it('renders pending approvals as a full inline approval card', async () => {
     const service = createService('review-dialog-sidecar');
     const resolveToolApproval = vi.fn(async () => {});
     service.resolveToolApproval = resolveToolApproval as never;
@@ -617,10 +617,12 @@ describe('AiWorkbenchPane compact surfaces', () => {
         createdAt: Date.now(),
         request: {
           id: 'approval-request-1',
+          type: 'execution',
           toolName: 'StageFlashcardDraft',
           title: '暂存候选卡',
           description: '写入前需要确认',
           args: { cards: [{ question: 'Q', answer: 'A' }] },
+          argsText: '{\n  "cards": [\n    {\n      "question": "Q",\n      "answer": "A"\n    }\n  ]\n}',
           status: 'pending',
           createdAt: Date.now(),
         },
@@ -636,10 +638,12 @@ describe('AiWorkbenchPane compact surfaces', () => {
         createdAt: Date.now(),
         request: {
           id: 'approval-request-1',
+          type: 'execution',
           toolName: 'StageFlashcardDraft',
           title: '暂存候选卡',
           description: '写入前需要确认',
           args: { cards: [{ question: 'Q', answer: 'A' }] },
+          argsText: '{\n  "cards": [\n    {\n      "question": "Q",\n      "answer": "A"\n    }\n  ]\n}',
           status: 'pending',
           createdAt: Date.now(),
         },
@@ -649,11 +653,12 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
 
-    expect(wrapper.find('.ai-chat__approval-strip').exists()).toBe(true);
-    expect(wrapper.find('.ai-chat__approval-card').exists()).toBe(false);
+    expect(wrapper.find('.ai-chat__approval-strip').exists()).toBe(false);
+    expect(wrapper.find('.ai-chat__approval-card.ai-chat__approval-card--pending').exists()).toBe(true);
     expect(wrapper.text()).toContain('暂存候选卡');
+    expect(wrapper.text()).toContain('执行待确认');
 
-    await wrapper.find('.ai-chat__approval-strip .ai-chat__primary-button').trigger('click');
+    await wrapper.find('.ai-chat__approval-card .ai-chat__primary-button').trigger('click');
 
     expect(resolveToolApproval).toHaveBeenCalledWith('approval-request-1', true);
   });

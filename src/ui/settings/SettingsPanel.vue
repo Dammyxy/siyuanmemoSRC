@@ -841,12 +841,69 @@
         </div>
 
         <div class="form-item">
-          <label>{{ t('aiEnableWriteTools', '启用写入意图工具') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="aiSettings.toolPolicies.groupDefaults['flashcard-write']">
+          <label>{{ t('aiToolManager', '工具默认启用与审批') }}</label>
+          <div class="ai-tool-manager">
+            <section
+              v-for="group in aiToolGroupsForSettings"
+              :key="group.key"
+              class="ai-tool-group"
+            >
+              <div class="ai-tool-group__head">
+                <label class="ai-tool-group__toggle">
+                  <input type="checkbox" v-model="aiSettings.toolPolicies.groupDefaults[group.key]">
+                  <span>{{ group.title }}</span>
+                </label>
+                <span class="ai-tool-group__count">{{ group.tools.length }}</span>
+              </div>
+              <p class="ai-tool-group__desc">{{ group.description }}</p>
+              <div class="ai-tool-group__tools">
+                <article
+                  v-for="tool in group.tools"
+                  :key="tool.name"
+                  class="ai-tool-card"
+                >
+                  <label class="ai-tool-card__title">
+                    <input
+                      type="checkbox"
+                      :checked="isAiToolEnabled(tool.name, tool.enabledByDefault)"
+                      @change="setAiToolEnabled(tool.name, ($event.target as HTMLInputElement).checked)"
+                    >
+                    <div>
+                      <strong>{{ tool.title }}</strong>
+                      <span>{{ tool.name }}</span>
+                    </div>
+                  </label>
+                  <p class="ai-tool-card__desc">{{ tool.description }}</p>
+                  <div class="ai-tool-card__policies">
+                    <label>
+                      <span>{{ t('executionApproval', '执行审批') }}</span>
+                      <select
+                        class="scheduler-select"
+                        :value="currentToolExecutionPolicy(tool.name)"
+                        @change="setToolExecutionPolicy(tool.name, ($event.target as HTMLSelectElement).value)"
+                      >
+                        <option value="">{{ t('followDefault', '跟随默认') }} · {{ tool.executionPolicy }}</option>
+                        <option v-for="option in aiExecutionPolicyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>{{ t('resultApproval', '结果审批') }}</span>
+                      <select
+                        class="scheduler-select"
+                        :value="currentToolResultPolicy(tool.name)"
+                        @change="setToolResultPolicy(tool.name, ($event.target as HTMLSelectElement).value)"
+                      >
+                        <option value="">{{ t('followDefault', '跟随默认') }} · {{ tool.resultApprovalPolicy }}</option>
+                        <option v-for="option in aiResultPolicyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                      </select>
+                    </label>
+                  </div>
+                </article>
+              </div>
+            </section>
           </div>
           <p class="form-hint">
-            {{ t('aiEnableWriteToolsHint', '写入思源、制卡、摘录或 daily note 的工具始终逐次审批；关闭时不会注入模型。') }}
+            {{ t('aiToolManagerHint', '组开关决定是否把整组工具注入模型；单工具开关控制默认可用性；审批策略可按工具覆盖。写入型工具即使启用，也会在运行时单独请求确认。') }}
           </p>
         </div>
 
@@ -1213,6 +1270,10 @@ import {
   getRecommendedPromptTemplateForSetting,
   type AIPromptSettingKey,
 } from '@/application/services/AIPromptComposer';
+import {
+  AI_CHAT_TOOL_DESCRIPTORS,
+  AI_CHAT_TOOL_GROUPS,
+} from '@/application/services/AIChatToolRegistry';
 import { getPromptContractForSetting } from '@/application/services/AIPromptContractRegistry';
 import { getAIWorkbenchSkillTabs } from '@/application/services/AIWorkbenchSkillRegistry';
 import {
@@ -1229,6 +1290,8 @@ import {
   FSRS_WEIGHT_COUNT,
   type AIConceptCoachPromptTemplates,
   type AISettings,
+  type AIToolExecutionPolicy,
+  type AIToolResultApprovalPolicy,
   type FilterGroupDefinition,
   type FSRSParameters,
   type QueueSettings,
@@ -1497,12 +1560,66 @@ const userSkillToolGroupOptions: Array<{ key: AIChatToolGroupKey; label: string;
   { key: 'vars', label: 'vars', hint: '读写会话内变量缓存。' },
   { key: 'flashcard-write', label: 'flashcard-write', hint: '写工具始终逐次审批。' },
 ];
+const aiExecutionPolicyOptions: Array<{ value: AIToolExecutionPolicy; label: string }> = [
+  { value: 'auto', label: '自动执行' },
+  { value: 'ask-once', label: '首次询问' },
+  { value: 'ask-always', label: '每次询问' },
+];
+const aiResultPolicyOptions: Array<{ value: AIToolResultApprovalPolicy; label: string }> = [
+  { value: 'never', label: '不审批' },
+  { value: 'on-error', label: '仅错误时审批' },
+  { value: 'always', label: '总是审批' },
+];
+const aiToolGroupsForSettings = AI_CHAT_TOOL_GROUPS.map((group) => ({
+  ...group,
+  tools: AI_CHAT_TOOL_DESCRIPTORS.filter((tool) => tool.group === group.key),
+}));
 const userSkillRendererOptions: Array<{ key: AIUserSkillSectionDefinition['renderer']; label: string }> = [
   { key: 'markdown', label: 'Markdown' },
   { key: 'list', label: 'List' },
   { key: 'cards', label: 'Cards' },
   { key: 'keyValue', label: 'Key / Value' },
 ];
+
+function isAiToolEnabled(toolName: string, fallback: boolean): boolean {
+  const override = aiSettings.value.toolPolicies.toolDefaults[toolName];
+  return override !== false && (override === true || fallback);
+}
+
+function setAiToolEnabled(toolName: string, enabled: boolean): void {
+  aiSettings.value.toolPolicies.toolDefaults = {
+    ...aiSettings.value.toolPolicies.toolDefaults,
+    [toolName]: enabled,
+  };
+}
+
+function currentToolExecutionPolicy(toolName: string): string {
+  return aiSettings.value.toolPolicies.executionPolicies[toolName] || '';
+}
+
+function setToolExecutionPolicy(toolName: string, value: string): void {
+  const next = { ...aiSettings.value.toolPolicies.executionPolicies };
+  if (!value) {
+    delete next[toolName];
+  } else {
+    next[toolName] = value as AIToolExecutionPolicy;
+  }
+  aiSettings.value.toolPolicies.executionPolicies = next;
+}
+
+function currentToolResultPolicy(toolName: string): string {
+  return aiSettings.value.toolPolicies.resultApprovalPolicies[toolName] || '';
+}
+
+function setToolResultPolicy(toolName: string, value: string): void {
+  const next = { ...aiSettings.value.toolPolicies.resultApprovalPolicies };
+  if (!value) {
+    delete next[toolName];
+  } else {
+    next[toolName] = value as AIToolResultApprovalPolicy;
+  }
+  aiSettings.value.toolPolicies.resultApprovalPolicies = next;
+}
 
 function isConceptCoachPromptEmpty(template: AIConceptCoachPromptTemplates): boolean {
   return String(template.baseRun || '').trim().length === 0
@@ -3274,6 +3391,108 @@ async function handleRepairDates() {
   font-size: 15px;
 }
 
+.ai-tool-manager {
+  display: grid;
+  gap: 14px;
+}
+
+.ai-tool-group {
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--b3-theme-surface);
+}
+
+.ai-tool-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-tool-group__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.ai-tool-group__count {
+  min-width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+}
+
+.ai-tool-group__desc {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.ai-tool-group__tools {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ai-tool-card {
+  border: 1px solid var(--b3-border-color);
+  border-radius: 7px;
+  padding: 12px;
+  background: var(--b3-theme-background);
+}
+
+.ai-tool-card__title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ai-tool-card__title strong {
+  display: block;
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+}
+
+.ai-tool-card__title span {
+  display: block;
+  margin-top: 2px;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+}
+
+.ai-tool-card__desc {
+  margin: 10px 0 0;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ai-tool-card__policies {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ai-tool-card__policies label {
+  display: grid;
+  gap: 6px;
+}
+
+.ai-tool-card__policies span {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface-light);
+}
+
 @media (max-width: 980px) {
   .settings-tabs {
     width: 214px;
@@ -3331,6 +3550,10 @@ async function handleRepairDates() {
 
   .settings-card {
     padding: 20px;
+  }
+
+  .ai-tool-card__policies {
+    grid-template-columns: 1fr;
   }
 }
 </style>

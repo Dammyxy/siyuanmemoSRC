@@ -410,39 +410,53 @@ describe('AIWorkbenchService review-session behavior', () => {
     });
   });
 
-  it('turns write-intent tool calls into inline approvals without executing writes', async () => {
+  it('requests execution approval for enabled legacy staging tools and resumes after approval', async () => {
     const aiSettings = JSON.parse(JSON.stringify(createAISettings())) as AISettings;
     aiSettings.toolPolicies.groupDefaults['flashcard-write'] = true;
-    const llmChat = vi.fn().mockResolvedValue({
-      content: '',
-      toolCalls: [{
-        id: 'call-write',
-        type: 'function',
-        function: {
-          name: 'StageFlashcardDraft',
-          arguments: '{"cards":[{"question":"Q","answer":"A","kind":"应用"}]}',
-        },
-      }],
-      raw: {},
-    });
+    aiSettings.toolPolicies.toolDefaults.StageFlashcardDraft = true;
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: '',
+        toolCalls: [{
+          id: 'call-write',
+          type: 'function',
+          function: {
+            name: 'StageFlashcardDraft',
+            arguments: '{"cards":[{"question":"Q","answer":"A","kind":"应用"}]}',
+          },
+        }],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: '已暂存候选卡。',
+        raw: {},
+      });
     const service = createService({ aiSettings, llmChat });
 
     await service.open({
       source: 'standalone',
       surface: 'standalone-dialog',
     });
-    await service.submitSkillPrompt('暂存这张卡。');
+    const run = service.submitSkillPrompt('暂存这张卡。');
+
+    await vi.waitFor(() => {
+      expect(service.state.pendingApprovals).toHaveLength(1);
+    });
 
     expect(llmChat).toHaveBeenCalledTimes(1);
-    expect(service.state.toolTimeline[0]).toMatchObject({
-      toolName: 'StageFlashcardDraft',
-      status: 'approval-required',
-    });
+    expect(service.state.toolTimeline).toHaveLength(0);
     expect(service.state.pendingApprovals).toHaveLength(1);
     expect(service.state.threads[AI_GENERAL_CHAT_SKILL_ID][AI_GENERAL_CHAT_TAB_ID].messages)
       .toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: 'approval' }),
-        expect.objectContaining({ kind: 'assistant-text', content: expect.stringContaining('需要你审批') }),
+        expect.objectContaining({
+          kind: 'approval',
+          request: expect.objectContaining({
+            type: 'execution',
+            toolName: 'StageFlashcardDraft',
+            status: 'pending',
+          }),
+        }),
+        expect.objectContaining({ kind: 'assistant-text', content: expect.stringContaining('请先确认') }),
       ]));
     expect(service.getRenderEntries(undefined, AI_GENERAL_CHAT_TAB_ID).at(-1)?.pendingApproval)
       .toMatchObject({
@@ -453,12 +467,19 @@ describe('AIWorkbenchService review-session behavior', () => {
       });
 
     await service.resolveToolApproval(service.state.pendingApprovals[0].id, true);
+    await run;
 
     expect(service.state.pendingApprovals).toHaveLength(0);
+    expect(llmChat).toHaveBeenCalledTimes(2);
+    expect(service.state.toolTimeline[0]).toMatchObject({
+      toolName: 'StageFlashcardDraft',
+      status: 'success',
+    });
     expect(service.state.threads[AI_GENERAL_CHAT_SKILL_ID][AI_GENERAL_CHAT_TAB_ID].messages)
       .toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'approval', request: expect.objectContaining({ status: 'approved' }) }),
-        expect.objectContaining({ kind: 'assistant-text', content: expect.stringContaining('第一阶段不会自动落库') }),
+        expect.objectContaining({ kind: 'assistant-text', content: '已暂存候选卡。' }),
+        expect.objectContaining({ kind: 'tool-log', toolName: 'StageFlashcardDraft', status: 'success' }),
       ]));
   });
 

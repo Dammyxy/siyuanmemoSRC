@@ -1339,6 +1339,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: Add a dedicated editor menu/button fallback for excerpting and, if needed after real use, introduce stable selection anchor metadata to upgrade source highlighting from first-match to range-aware restoration.
 - Validation: Targeted `pnpm vitest run src/application/services/__tests__/ProgressiveReadingService.test.ts` plus `pnpm build`.
 
+### 2026-04-17 - AI toolchain transparency and flashcard tool runtime
+
+- Task: Upgrade the AI workbench chat/tool runtime so message actions move to the reply footer, tool execution matches the F-toolbox direction (tool enablement, execution/result approval, transparency, variable reuse, max-round summary), and plugin card types become AI-callable flashcard tools.
+- Touched slice: AI workbench/chat runtime in `src/application/services/AIWorkbenchService.ts`, `AIChatToolRegistry.ts`, `AIChatToolExecutorService.ts`, `AIChatApprovalService.ts`, new `AIFlashcardToolService.ts`, `src/ui/ai/AiWorkbenchPane.vue`, `src/ui/settings/SettingsPanel.vue`, `src/types/ai.ts`, `src/types/settings.ts`, i18n, architecture docs, and targeted AI service/UI tests.
+- Debt fixed now: Removed the old top-of-message action cluster, replaced the opaque write-tool stop point with resumable inline approvals plus tool/result transparency, centralized AI card creation behind one application service instead of scattering Xiuyuan write details across runtime/UI code, and fixed an `ask-once` approval-cache bug where cached approvals could skip the real tool execution path.
+- Debt deferred: Tool metadata strings in `AIChatToolRegistry.ts` are still mostly hard-coded and not yet folded into the main i18n system; the compact-surface tests still emit the historical happy-dom localhost asset fetch noise from shared markdown rendering setup.
+- Why deferred: Localizing every tool descriptor and isolating the markdown asset side effects would broaden this task into a larger cross-surface i18n/test-harness cleanup rather than the bounded AI runtime change the user asked for.
+- Next safe step: Move AI tool/group copy into i18n-backed descriptors and add a shared happy-dom markdown test shim so AI pane tests stop depending on unavailable localhost assets.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIChatToolExecutorService.test.ts src/application/services/__tests__/AIFlashcardToolService.test.ts src/types/__tests__/settings-normalization.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/services/__tests__/AIWorkbenchService.user-skill.test.ts` plus `pnpm build`.
+
 ### Entry template
 
 ### YYYY-MM-DD - <short task name>
@@ -1390,6 +1400,8 @@ Do not add an entry for skill-only or docs-only work.
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
 | P1 | Legacy compatibility service surface still exists but no longer used on active browser path | `ApplicationContext` (`tabManager` service exposure) | Evaluate bounded removal/retire plan and adjust integration tests |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
+| P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
+| P3 | AI pane tests still inherit localhost asset fetch noise from shared markdown rendering setup | `src/ui/ai/__tests__/*`, shared markdown/test harness setup | Add a shared happy-dom asset shim or markdown renderer test mode to silence unrelated network noise |
 
 ## 4. Next convergence batch
 

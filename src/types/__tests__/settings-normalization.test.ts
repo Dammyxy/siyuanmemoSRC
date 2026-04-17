@@ -229,6 +229,25 @@ describe('settings normalization', () => {
     expect(normalized.settings.ai).not.toHaveProperty('draftStorage');
   });
 
+  it('normalizes AI tool defaults and preserves explicitly enabled tools', () => {
+    const legacy = cloneSettings();
+    legacy.ai.toolPolicies = {
+      ...legacy.ai.toolPolicies,
+      toolDefaults: {
+        StageFlashcardDraft: true,
+        ReadBlock: false,
+      },
+    };
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(false);
+    expect(normalized.settings.ai.toolPolicies.toolDefaults).toEqual({
+      StageFlashcardDraft: true,
+      ReadBlock: false,
+    });
+  });
+
   it('fills nested AI prompt defaults when partially configured', () => {
     const legacy = cloneSettings();
     legacy.ai = {

@@ -51,6 +51,7 @@ export type AIChatToolExecutionPolicy = 'auto' | 'ask-once' | 'ask-always';
 export type AIChatToolResultApprovalPolicy = 'never' | 'on-error' | 'always';
 export type AIChatToolExecutionStatus = 'success' | 'error' | 'approval-required' | 'execution-rejected' | 'result-rejected';
 export type AIChatApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type AIChatApprovalType = 'execution' | 'result';
 export type AIGenericStructuredRendererKind = 'markdown' | 'list' | 'cards' | 'keyValue';
 export type AIChatStructuredRendererKind = 'concept-coach' | AIGenericStructuredRendererKind;
 export type AIWorkbenchNodeScope = 'skill' | 'tab';
@@ -111,6 +112,14 @@ export interface AIChatToolDefinition {
   function: AIChatToolFunctionDefinition;
 }
 
+export interface AIChatToolGroupDefinition {
+  key: AIChatToolGroupKey;
+  title: string;
+  description: string;
+  enabledByDefault: boolean;
+  rulePrompt?: string;
+}
+
 export interface AIChatToolDescriptor {
   name: string;
   title: string;
@@ -121,6 +130,14 @@ export interface AIChatToolDescriptor {
   resultApprovalPolicy: AIChatToolResultApprovalPolicy;
   sessionScope: 'session' | 'context' | 'global';
   enabledByDefault: boolean;
+  declaredReturnType?: {
+    type: string;
+    note?: string;
+  };
+  formatForLLM?: (data: unknown, args: Record<string, unknown>) => string;
+  truncateForLLM?: (formatted: string, args: Record<string, unknown>) => string;
+  compressArgs?: (args: Record<string, unknown>) => string;
+  compressResult?: (result: AIChatToolExecutionResult) => string;
 }
 
 export interface AIChatToolCall {
@@ -136,20 +153,40 @@ export interface AIChatToolExecutionResult {
   group: AIChatToolGroupKey;
   args: Record<string, unknown>;
   data?: unknown;
+  argsText?: string;
+  formattedText?: string;
   finalText: string;
+  resultText?: string;
+  argsVarRef?: string;
   error?: string;
   varRef?: string;
+  durationMs?: number;
+  roundIndex?: number;
+  llmUsage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
   createdAt: number;
 }
 
 export interface AIChatApprovalRequest {
   id: string;
+  type: AIChatApprovalType;
   toolCallId: string;
   toolName: string;
   group: AIChatToolGroupKey;
   title: string;
   description: string;
   args: Record<string, unknown>;
+  argsText?: string;
+  resultText?: string;
+  resultStatus?: AIChatToolExecutionStatus;
+  argsVarRef?: string;
+  resultVarRef?: string;
+  runGroupId?: string | null;
+  skillId?: AISkillId | null;
+  tabId?: AISkillTabId | null;
   status: AIChatApprovalStatus;
   createdAt: number;
   resolvedAt?: number;
@@ -508,8 +545,18 @@ export interface AIWorkbenchToolLogMessage {
   group: AIChatToolGroupKey;
   status: AIChatToolExecutionStatus;
   content: string;
+  argsText?: string | null;
+  resultText?: string | null;
   error: string | null;
+  argsVarRef?: string | null;
   varRef?: string | null;
+  durationMs?: number | null;
+  roundIndex?: number | null;
+  llmUsage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  } | null;
   runGroupId?: string | null;
   presentation?: AIWorkbenchMessagePresentation;
 }

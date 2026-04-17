@@ -320,6 +320,7 @@ export interface AIWebSearchSettings {
 
 export interface AIToolPolicySettings {
     groupDefaults: Record<AIToolGroupKey, boolean>;
+    toolDefaults: Partial<Record<string, boolean>>;
     executionPolicies: Partial<Record<string, AIToolExecutionPolicy>>;
     resultApprovalPolicies: Partial<Record<string, AIToolResultApprovalPolicy>>;
 }
@@ -1303,6 +1304,9 @@ function normalizeAIToolPolicySettings(value: unknown): AIToolPolicySettings {
     const resultApprovalPolicies = typeof source.resultApprovalPolicies === 'object' && source.resultApprovalPolicies !== null
         ? source.resultApprovalPolicies
         : {};
+    const toolDefaults = typeof source.toolDefaults === 'object' && source.toolDefaults !== null
+        ? source.toolDefaults
+        : {};
 
     return {
         groupDefaults: {
@@ -1314,6 +1318,10 @@ function normalizeAIToolPolicySettings(value: unknown): AIToolPolicySettings {
             web: sourceGroupDefaults.web !== false,
             vars: sourceGroupDefaults.vars !== false,
         },
+        toolDefaults: Object.fromEntries(Object.entries(toolDefaults).map(([name, enabled]) => [
+            name,
+            enabled !== false,
+        ])),
         executionPolicies: Object.fromEntries(Object.entries(executionPolicies).map(([name, policy]) => [
             name,
             normalizeToolExecutionPolicy(policy, defaults.executionPolicies[name] || 'auto'),
@@ -1572,6 +1580,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
             web: true,
             vars: true,
         },
+        toolDefaults: {},
         executionPolicies: {},
         resultApprovalPolicies: {},
     },
