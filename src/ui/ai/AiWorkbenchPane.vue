@@ -215,7 +215,24 @@
               <div class="ai-chat__candidate-toolbar">
                 <div>
                   <strong>{{ t('selfTestCardCreation', '自测卡片制卡') }}</strong>
-                  <span>{{ selectedCandidateCount(entry.primaryMessage) }}/{{ candidateCards(entry.primaryMessage).length }} {{ t('selected', '已选') }}</span>
+                  <span>
+                    {{ selectedCandidateCount(entry.primaryMessage) }}/{{ candidateCards(entry.primaryMessage).length }} {{ t('selected', '已选') }}
+                    · {{ messageSelfTestModeDescriptor(entry.primaryMessage).label }}
+                  </span>
+                </div>
+                <div class="ai-chat__candidate-mode-switch" role="group" :aria-label="t('selfTestCreationMode', '自测制卡模式')">
+                  <button
+                    v-for="mode in selfTestModeDescriptors"
+                    :key="mode.mode"
+                    class="ai-chat__candidate-mode-pill"
+                    :class="{ 'ai-chat__candidate-mode-pill--active': selfTestCreationMode === mode.mode }"
+                    type="button"
+                    :title="mode.summary"
+                    :disabled="state.isLoading || selfTestCardCreationBusy"
+                    @click="setWorkbenchSelfTestMode(mode.mode)"
+                  >
+                    {{ mode.label }}
+                  </button>
                 </div>
                 <div class="ai-chat__candidate-toolbar-actions">
                   <span class="ai-chat__target-summary">{{ selfTestTargetSummary }}</span>
@@ -250,11 +267,25 @@
               <div v-if="selfTestCreationResult" class="ai-chat__creation-result">
                 <strong>{{ t('cardCreationDone', '制卡完成') }}：{{ selfTestCreationResult.createdCount }} {{ t('cardsCount', '张') }}</strong>
                 <span>{{ selfTestCreationResult.targetLabel }}</span>
+                <details v-if="selfTestCreationResult.itemResults.length > 0">
+                  <summary>{{ selfTestCreationResult.itemResults.length }} {{ t('creationItems', '项结果') }}</summary>
+                  <ul class="ai-chat__creation-result-list">
+                    <li v-for="item in selfTestCreationResult.itemResults" :key="item.candidateId">
+                      <div class="ai-chat__creation-result-item-head">
+                        <strong>{{ item.summary || item.question || t('candidateDraft', '候选草稿') }}</strong>
+                        <span>{{ selfTestModeLabel(item.mode) }} · {{ selfTestCreationStatusLabel(item.status) }}</span>
+                      </div>
+                      <p v-if="item.insertedRootBlockId">{{ t('insertedRootBlock', '根块') }}：{{ item.insertedRootBlockId }}</p>
+                      <p v-if="item.error" class="ai-chat__creation-result-error">{{ item.error }}</p>
+                      <p v-if="(item.warnings || []).length > 0">{{ t('warnings', '提示') }}：{{ (item.warnings || []).join('；') }}</p>
+                    </li>
+                  </ul>
+                </details>
                 <details v-if="selfTestCardCreationFailures.length > 0">
                   <summary>{{ selfTestCardCreationFailures.length }} {{ t('failedItems', '项失败') }}</summary>
                   <ul>
                     <li v-for="failure in selfTestCardCreationFailures" :key="failure.candidateId">
-                      {{ failure.question }}：{{ failure.error }}
+                      {{ failure.summary || failure.question || t('candidateDraft', '候选草稿') }}：{{ failure.error }}
                     </li>
                   </ul>
                 </details>
@@ -268,8 +299,15 @@
                   >
                   <span>{{ card.kind }}</span>
                 </label>
-                <strong>{{ card.question }}</strong>
-                <p>{{ card.answer }}</p>
+                <div class="ai-chat__candidate-meta">
+                  <span class="ai-chat__badge">{{ selfTestModeLabel(card.mode) }}</span>
+                  <span class="ai-chat__badge">{{ card.kind }}</span>
+                </div>
+                <strong>{{ candidateSummary(card) }}</strong>
+                <p v-if="card.legacyQuestion || card.legacyAnswer" class="ai-chat__candidate-legacy">
+                  {{ card.legacyQuestion || '' }}<span v-if="card.legacyQuestion && card.legacyAnswer"> -> </span>{{ card.legacyAnswer || '' }}
+                </p>
+                <RichMarkdownContent class="ai-chat__candidate-preview" :content="candidateDraftMarkdown(card)" />
                 <button class="ai-chat__link-button" type="button" @click="openCandidateEditor(entry.primaryMessage, card)">{{ t('edit', '编辑') }}</button>
               </article>
             </div>
@@ -592,6 +630,10 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import {
+  getSelfTestModeDescriptor,
+  listSelfTestModeDescriptors,
+} from '@/application/services/AIPromptContractRegistry';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
@@ -604,6 +646,7 @@ import type {
   AIConceptCoachPerspectiveSection,
   AIConceptCoachPerspectives,
   AIConceptCoachRealWorldTriggers,
+  AIConceptCoachSelfTestCreationMode,
   AIConceptCoachSelfTestCards,
   AIChatApprovalRequest,
   AIExplainResult,
@@ -694,6 +737,8 @@ const selfTestTargetMode = ref<AIWorkbenchSelfTestCardTargetInput['mode']>('dail
 const selfTestTargetNotebookId = ref('');
 const selfTestTargetNotebookName = ref('');
 const selfTestTargetBlockId = ref('');
+const selfTestModeDescriptors = listSelfTestModeDescriptors();
+const selfTestCreationMode = ref<AIConceptCoachSelfTestCreationMode>(service.getSelfTestCreationMode?.() || 'list-item');
 
 function t(key: string, fallback: string): string {
   const value = props.i18n?.[key];
@@ -1099,6 +1144,35 @@ function candidateCards(message: AIWorkbenchAssistantResultMessage): AIConceptCo
   return Array.isArray(value?.cards) ? value.cards : [];
 }
 
+function candidateDraftMarkdown(card: AIConceptCoachCandidateCard): string {
+  if (normalizeText(card.draftMarkdown)) {
+    return card.draftMarkdown;
+  }
+  const legacyQuestion = normalizeText(card.legacyQuestion || card.question);
+  const legacyAnswer = normalizeText(card.legacyAnswer || card.answer);
+  if (!legacyQuestion && !legacyAnswer) {
+    return '';
+  }
+  return `* ${legacyQuestion}\n\n  * ${legacyAnswer}`.trim();
+}
+
+function candidateSummary(card: AIConceptCoachCandidateCard): string {
+  return normalizeText(card.summary) || normalizeText(card.legacyQuestion || card.question) || t('candidateDraft', '候选草稿');
+}
+
+function messageSelfTestCreationMode(message: AIWorkbenchAssistantResultMessage): AIConceptCoachSelfTestCreationMode {
+  const value = (message.tabResult || message.conceptCoachResult?.selfTestCards) as AIConceptCoachSelfTestCards | null;
+  return value?.creationMode || 'list-item';
+}
+
+function messageSelfTestModeDescriptor(message: AIWorkbenchAssistantResultMessage) {
+  return getSelfTestModeDescriptor(messageSelfTestCreationMode(message));
+}
+
+function selfTestModeLabel(mode: AIConceptCoachSelfTestCreationMode): string {
+  return getSelfTestModeDescriptor(mode).label;
+}
+
 function selectedCandidateCount(message: AIWorkbenchAssistantResultMessage): number {
   return candidateCards(message).filter((card) => card.selected !== false).length;
 }
@@ -1106,14 +1180,24 @@ function selectedCandidateCount(message: AIWorkbenchAssistantResultMessage): num
 function validSelectedCandidateCount(message: AIWorkbenchAssistantResultMessage): number {
   return candidateCards(message).filter((card) => (
     card.selected !== false
-    && normalizeText(card.question).length > 0
-    && normalizeText(card.answer).length > 0
+    && normalizeText(candidateDraftMarkdown(card)).length > 0
   )).length;
 }
 
 function allCandidateCardsSelected(message: AIWorkbenchAssistantResultMessage): boolean {
   const cards = candidateCards(message);
   return cards.length > 0 && cards.every((card) => card.selected !== false);
+}
+
+function hasSelfTestModeMismatch(message: AIWorkbenchAssistantResultMessage): boolean {
+  return messageSelfTestCreationMode(message) !== selfTestCreationMode.value;
+}
+
+function selfTestModeMismatchMessage(message: AIWorkbenchAssistantResultMessage): string {
+  return t(
+    'selfTestModeMismatchHint',
+    `当前草稿是 ${messageSelfTestModeDescriptor(message).label} 格式，工作台已切到 ${selfTestModeLabel(selfTestCreationMode.value)}。请先重跑“自测卡片”再制卡。`,
+  );
 }
 
 function selfTestCardCreationDisabledReason(message: AIWorkbenchAssistantResultMessage): string | null {
@@ -1125,12 +1209,27 @@ function selfTestCardCreationDisabledReason(message: AIWorkbenchAssistantResultM
     return staleReason;
   }
   if (validSelectedCandidateCount(message) === 0) {
-    return t('selectCandidateFirst', '请先勾选至少一张包含问题和答案的自测卡片。');
+    return t('selectCandidateFirst', '请先勾选至少一张包含有效草稿的自测卡片。');
+  }
+  if (hasSelfTestModeMismatch(message)) {
+    return selfTestModeMismatchMessage(message);
   }
   if (!selfTestTargetMemory.value) {
     return t('setSelfTestTargetFirst', '请先设置制卡位置。');
   }
   return null;
+}
+
+function selfTestCreationStatusLabel(status: AIWorkbenchSelfTestCardCreationResult['itemResults'][number]['status']): string {
+  switch (status) {
+    case 'created':
+      return t('created', '已创建');
+    case 'skipped':
+      return t('skipped', '已跳过');
+    case 'failed':
+    default:
+      return t('failed', '失败');
+  }
 }
 
 function messageSpeaker(message: AIWorkbenchMessage): string {
@@ -1420,21 +1519,34 @@ function openCandidateEditor(message: AIWorkbenchAssistantResultMessage, card: A
   editorReadonly.value = false;
   editorTitle.value = t('editCandidateCard', '编辑候选卡');
   editorValue.value = [
-    `问题：${card.question}`,
-    `答案：${card.answer}`,
+    `模式：${selfTestModeLabel(card.mode)}`,
     `类型：${card.kind}`,
+    `摘要：${candidateSummary(card)}`,
+    '',
+    '草稿：',
+    candidateDraftMarkdown(card),
   ].join('\n');
-  editorPlaceholder.value = '问题：...\n答案：...\n类型：辨析/因果/应用/反例/触发/定义/边界/其他';
+  editorPlaceholder.value = '模式：列表项块\n类型：定义\n摘要：用一句话说明这张草稿在考什么\n\n草稿：\n- 问题\n  - 答案';
   editorConfirmLabel.value = t('save', '保存');
   editorOpen.value = true;
 }
 
-function parseCandidateEditorValue(value: string): Partial<Pick<AIConceptCoachCandidateCard, 'question' | 'answer' | 'kind'>> {
-  const lines = value.split(/\r?\n/);
-  const question = normalizeText(lines.find((line) => /^问题[:：]/.test(line))?.replace(/^问题[:：]/, ''));
-  const answer = normalizeText(lines.find((line) => /^答案[:：]/.test(line))?.replace(/^答案[:：]/, ''));
-  const kind = normalizeText(lines.find((line) => /^类型[:：]/.test(line))?.replace(/^类型[:：]/, '')) as AIConceptCoachCardKind;
-  return { question, answer, kind };
+function parseCandidateEditorValue(value: string): Partial<Pick<AIConceptCoachCandidateCard, 'summary' | 'draftMarkdown' | 'kind'>> {
+  const sections = value.split(/\r?\n草稿[:：]\s*\r?\n/);
+  const headerLines = sections[0]?.split(/\r?\n/) || [];
+  const summary = normalizeText(headerLines.find((line) => /^摘要[:：]/.test(line))?.replace(/^摘要[:：]/, ''));
+  const kind = normalizeText(headerLines.find((line) => /^类型[:：]/.test(line))?.replace(/^类型[:：]/, '')) as AIConceptCoachCardKind;
+  const draftMarkdown = normalizeText(sections.slice(1).join('\n草稿：\n'));
+  return { summary, draftMarkdown, kind };
+}
+
+async function setWorkbenchSelfTestMode(mode: AIConceptCoachSelfTestCreationMode): Promise<void> {
+  if (selfTestCreationMode.value === mode) {
+    return;
+  }
+  selfTestCreationMode.value = await service.setSelfTestCreationMode?.(mode) || mode;
+  selfTestCardCreationError.value = '';
+  selfTestCreationResult.value = null;
 }
 
 async function toggleCandidate(messageId: string, cardId: string, event: Event): Promise<void> {
@@ -1711,6 +1823,7 @@ async function openAiSettings(): Promise<void> {
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
+  selfTestCreationMode.value = service.getSelfTestCreationMode?.() || selfTestCreationMode.value;
   void loadSelfTestTargetState();
 });
 
@@ -1848,17 +1961,28 @@ onUnmounted(() => {
 .ai-chat__key-values dd { margin: 0; color: #4b5563; }
 .ai-chat__candidate-list { display: grid; gap: 10px; }
 .ai-chat__candidate-list--generic { margin-top: 2px; }
-.ai-chat__candidate-toolbar { border: 1px solid #dbe5f2; border-radius: 12px; background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%); padding: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ai-chat__candidate-toolbar { border: 1px solid #dbe5f2; border-radius: 12px; background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%); padding: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .ai-chat__candidate-toolbar > div:first-child { display: grid; gap: 2px; min-width: 0; }
 .ai-chat__candidate-toolbar > div:first-child span { color: #7f8797; font-size: 12px; }
+.ai-chat__candidate-mode-switch { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ai-chat__candidate-mode-pill { border: 1px solid #d8e1f0; border-radius: 999px; background: #fff; color: #51607a; font-size: 12px; line-height: 1.2; padding: 5px 10px; }
+.ai-chat__candidate-mode-pill--active { border-color: #8ab4f8; background: #eef5ff; color: #173f78; }
 .ai-chat__candidate-toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .ai-chat__target-summary { color: #65758c; font-size: 12px; max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-chat__creation-result { border: 1px solid #c7e1cf; border-radius: 10px; background: #f4fbf6; color: #27563a; padding: 9px 10px; display: grid; gap: 4px; font-size: 12px; }
 .ai-chat__creation-result span { color: #537262; }
 .ai-chat__creation-result ul { margin: 8px 0 0; padding-left: 18px; }
+.ai-chat__creation-result-list { display: grid; gap: 10px; padding-left: 16px; }
+.ai-chat__creation-result-list li { display: grid; gap: 3px; }
+.ai-chat__creation-result-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ai-chat__creation-result-item-head span { color: #537262; }
+.ai-chat__creation-result-error { color: #8a2f2f; }
 .ai-chat__candidate-card { border: 1px solid #e5e9f2; border-radius: 10px; padding: 10px; display: grid; gap: 7px; background: #fbfcff; }
 .ai-chat__candidate-card p { margin: 0; color: #4b5563; }
 .ai-chat__candidate-check { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 12px; }
+.ai-chat__candidate-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ai-chat__candidate-preview { border: 1px solid #e7edf6; border-radius: 8px; background: #fff; padding: 10px; }
+.ai-chat__candidate-legacy { color: #7a869b; font-size: 12px; }
 .ai-chat__modal-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(21, 27, 38, 0.28); display: flex; align-items: center; justify-content: center; padding: 18px; }
 .ai-chat__target-dialog { width: min(520px, 100%); max-height: min(720px, 92vh); border: 1px solid #d9deea; border-radius: 14px; background: #fff; box-shadow: 0 24px 64px rgba(21, 27, 38, 0.22); display: flex; flex-direction: column; overflow: hidden; }
 .ai-chat__target-body { padding: 14px; display: grid; gap: 13px; overflow: auto; }

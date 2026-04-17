@@ -41,6 +41,7 @@ export interface AISiyuanMutationResult {
 }
 
 export interface AISiyuanPort {
+  readonly BUILTIN_DECK_ID: string;
   listNotebooks(): Promise<AISiyuanNotebookSummary[]>;
   sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]>;
   getBlockText(blockId: string): Promise<string>;
@@ -56,5 +57,6 @@ export interface AISiyuanPort {
   appendBlockUnderParent(markdown: string, parentId: string): Promise<string>;
   appendBlockUnderParentDetailed(markdown: string, parentId: string): Promise<AISiyuanMutationResult>;
   updateBlockMarkdown(blockId: string, markdown: string): Promise<string>;
+  addRiffCards(deckId: string, blockIds: string[]): Promise<{ name: string; size: number }>;
   deleteBlock(blockId: string): Promise<void>;
 }

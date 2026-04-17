@@ -440,6 +440,14 @@ export class AIChatToolExecutorService {
         return this.requireFlashcardTools().createPairCards(args, runtime);
       case 'CreateInlineCards':
         return this.requireFlashcardTools().createInlineCards(args, runtime);
+      case 'CreateNativeListItemCards':
+        return this.requireFlashcardTools().createNativeListItemCards(args, runtime);
+      case 'CreateNativeMarkCards':
+        return this.requireFlashcardTools().createNativeMarkCards(args, runtime);
+      case 'CreateNativeHeadingCards':
+        return this.requireFlashcardTools().createNativeHeadingCards(args, runtime);
+      case 'CreateNativeSuperBlockCards':
+        return this.requireFlashcardTools().createNativeSuperBlockCards(args, runtime);
       case 'CreateConceptDefinitionCards':
         return this.requireFlashcardTools().createConceptDefinitionCards(args, runtime);
       case 'CreateDescriptorCards':

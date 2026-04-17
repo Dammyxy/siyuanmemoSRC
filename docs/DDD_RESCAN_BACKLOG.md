@@ -4,6 +4,16 @@ Last update: 2026-04-17 (Round 90)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-17 - AI self-test mode-driven native and plugin card dispatch
+
+- Task: Rework `AI 理解与制卡 / 自测卡片` from fixed QA candidates into mode-driven drafts, wire prompt contracts and settings to the selected creation mode, and dispatch selected drafts to native Riff or plugin card tools instead of hardcoding `builtin-basic-qa`.
+- Touched slice: AI workbench / capture plus Siyuan integration across `src/types/{ai.ts,settings.ts}`, `src/application/{ApplicationContext.ts,ports/AISiyuanPort.ts,services/{AIPromptContractRegistry.ts,AIChatToolRegistry.ts,AIChatToolExecutorService.ts,AIFlashcardToolService.ts,AISelfTestCardCreationService.ts,AIWorkbenchService.ts}}`, `src/infrastructure/siyuan/AISiyuanAdapter.ts`, `src/ui/{ai/AiWorkbenchPane.vue,settings/SettingsPanel.vue}`, related i18n, focused AI/service/pane/settings tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Promoted self-test results to `creationMode + mode-aware draft cards[]`; added a persisted default self-test creation mode in AI settings and workbench mode switching; made self-test prompt contracts append mode-specific format rules and examples; introduced `AISelfTestCardCreationService` so the workbench dispatches drafts to native `list-item / mark / heading / super-block` or plugin `multi-mark / cdf-multiline` tools through the active application path; exposed native Riff creation through `AISiyuanPort.addRiffCards()`; and fixed the list-item root resolver so native list-item mode anchors on the actual inserted list item instead of treating the outer list container as the card root, with a kramdown fallback when the subtree is not yet queryable.
+- Debt deferred: The first version still forbids mixing multiple self-test creation modes in one AI result, the native fallback parser still targets the current expected structural grammars rather than arbitrary nested combinations, and the pane still keeps the self-test draft list inline instead of extracting a dedicated subcomponent.
+- Why deferred: Supporting mixed-mode batches or more generic structural parsing would widen this bounded self-test refactor into a larger content-model and UI decomposition project, while the inline pane is still stable enough for the current workflow.
+- Next safe step: If users want mixed-mode creation in one run, add a small typed per-card mode override plus grouped execution UI before broadening the prompt contract and write-path resolver together.
+- Validation: `pnpm vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts`; `pnpm build`.
+
 ### 2026-04-17 - Xiuyuan sync two-phase apply and ownership authority
 
 - Task: Implement the deferred P1/P2 sync stability work by changing `XiuyuanSyncService` to plan a `SyncChangeSet` before committing, and by making Xiuyuan ownership an explicit authority field.

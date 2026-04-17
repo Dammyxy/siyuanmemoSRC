@@ -6,6 +6,7 @@
 /** 存储键名 */
 import { default_w } from 'ts-fsrs';
 import type {
+    AIConceptCoachSelfTestCreationMode,
     AIGenericStructuredRendererKind,
     AIUserSkillDefinition,
     AIUserSkillSectionDefinition,
@@ -318,6 +319,14 @@ export interface AIWebSearchSettings {
     googleCseId?: string;
 }
 
+export interface AIConceptCoachSelfTestSettings {
+    defaultCreationMode: AIConceptCoachSelfTestCreationMode;
+}
+
+export interface AIConceptCoachSettings {
+    selfTest: AIConceptCoachSelfTestSettings;
+}
+
 export interface AIToolPolicySettings {
     groupDefaults: Record<AIToolGroupKey, boolean>;
     toolDefaults: Partial<Record<string, boolean>>;
@@ -330,6 +339,7 @@ export interface AISettings {
     providers: AIProviderConfig[];
     defaultModelId: string;
     chatDefaults: AIChatDefaults;
+    conceptCoach: AIConceptCoachSettings;
     webSearch: AIWebSearchSettings;
     toolPolicies: AIToolPolicySettings;
     skillPromptOverrides: Record<string, string>;
@@ -922,9 +932,9 @@ export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
                 },
                 'self-test-cards': {
                     run: [
-                        '阶段：生成可自测的问答卡。',
-                        '生成 10-18 张高质量问答卡。每张卡只测试一个点，优先测试区别、因果、应用、反例、边界，少做纯定义复述题。',
-                        '至少包含 2 张辨析题、2 张因果题、2 张应用题、1 张反例题、1 张对我有意义的触发题。',
+                        '阶段：生成可直接制卡的自测草稿。',
+                        '根据当前自测制卡模式，生成 10-18 个可直接落地为对应块结构的草稿。',
+                        '每个草稿只测试一个点，优先测试区别、因果、应用、反例、边界，少做纯定义复述。',
                     ].join('\n'),
                     followUp: '你正在围绕“自测卡片”继续协助。可以改写题目、解释某张卡为什么值得保留，或补充更好的候选卡；不要直接建卡。',
                 },
@@ -1290,6 +1300,34 @@ function normalizeAIWebSearchSettings(value: unknown): AIWebSearchSettings {
     };
 }
 
+function normalizeAIConceptCoachSelfTestCreationMode(
+    value: unknown,
+    fallback: AIConceptCoachSelfTestCreationMode = 'list-item',
+): AIConceptCoachSelfTestCreationMode {
+    return value === 'mark'
+        || value === 'heading'
+        || value === 'super-block'
+        || value === 'multi-mark'
+        || value === 'cdf-multiline'
+        || value === 'list-item'
+        ? value
+        : fallback;
+}
+
+function normalizeAIConceptCoachSettings(value: unknown): AIConceptCoachSettings {
+    const source = typeof value === 'object' && value !== null
+        ? value as Partial<AIConceptCoachSettings>
+        : {};
+    const selfTest = typeof source.selfTest === 'object' && source.selfTest !== null
+        ? source.selfTest as Partial<AIConceptCoachSelfTestSettings>
+        : {};
+    return {
+        selfTest: {
+            defaultCreationMode: normalizeAIConceptCoachSelfTestCreationMode(selfTest.defaultCreationMode),
+        },
+    };
+}
+
 function normalizeAIToolPolicySettings(value: unknown): AIToolPolicySettings {
     const source = typeof value === 'object' && value !== null
         ? value as Partial<AIToolPolicySettings>
@@ -1509,6 +1547,7 @@ export function normalizeAISettings(source: unknown): AISettings {
         providers,
         defaultModelId: defaultModelId || activeProvider.models[0]?.id || DEFAULT_AI_SETTINGS.model,
         chatDefaults: normalizeAIChatDefaults(value.chatDefaults),
+        conceptCoach: normalizeAIConceptCoachSettings(value.conceptCoach),
         webSearch: normalizeAIWebSearchSettings(value.webSearch),
         toolPolicies: normalizeAIToolPolicySettings(value.toolPolicies),
         skillPromptOverrides: typeof value.skillPromptOverrides === 'object' && value.skillPromptOverrides !== null
@@ -1564,6 +1603,11 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
         maxToolRounds: 4,
         stream: false,
         includeContextByDefault: true,
+    },
+    conceptCoach: {
+        selfTest: {
+            defaultCreationMode: 'list-item',
+        },
     },
     webSearch: {
         backend: 'none',

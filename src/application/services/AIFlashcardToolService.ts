@@ -79,6 +79,12 @@ function parseClozeMarkers(content: string): Array<{ text: string; start: number
   return markers;
 }
 
+function waitFor(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export class AIFlashcardToolService {
   constructor(private readonly deps: {
     siyuanPort: AISiyuanPort;
@@ -620,6 +626,204 @@ export class AIFlashcardToolService {
     };
   }
 
+  async createCdfDraftCards(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<unknown> {
+    const items = Array.isArray(args.items) ? args.items as Array<Record<string, unknown>> : [];
+    if (items.length === 0) {
+      throw new Error('items 不能为空。');
+    }
+    const target = await this.resolveWriteTarget(args);
+    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const deckId = this.resolveDeckId(args, runtime);
+    let previousSiblingId = target.targetBlockId;
+    const results = [];
+
+    for (const item of items) {
+      const draftMarkdown = normalizeString(item.draftMarkdown || item.content);
+      const summary = normalizeString(item.summary) || this.summarizeDraftMarkdown(draftMarkdown);
+      if (!draftMarkdown) {
+        results.push({ status: 'skipped', mode: 'cdf-multiline', summary, draftMarkdown, error: 'draftMarkdown 不能为空。' });
+        continue;
+      }
+
+      const mode = draftMarkdown.includes(';;;') ? 'descriptor-multiline' : 'concept-multiline';
+      try {
+        const mutation = await this.insertMarkdown(draftMarkdown, target, previousSiblingId);
+        const rows = await this.loadMutationRows(mutation);
+        const structure = mode === 'descriptor-multiline'
+          ? this.resolveDescriptorMultilineStructure(rows)
+          : this.resolveListStructure(rows);
+        previousSiblingId = structure.parentListItemId || previousSiblingId;
+        const command: CreateListTemplateCardsCommand = {
+          parentBlockId: structure.parentListItemId,
+          childBlockIds: structure.childListItemIds,
+          templateId: mode === 'descriptor-multiline'
+            ? 'builtin-list-descriptor-multiline'
+            : 'builtin-list-concept-multiline',
+          ...(deckId ? { deckId } : {}),
+          ...(normalizePriority(args.priority) ? { priority: normalizePriority(args.priority) } : {}),
+          creationMode: 'split-v2',
+          cardType: mode === 'descriptor-multiline' ? 'descriptor' : 'item',
+          listKind: mode,
+          ...(structure.conceptBlockId ? { conceptBlockId: structure.conceptBlockId } : {}),
+        };
+        const creation = await xiuyuanService.createListTemplateCards(command);
+        if (!creation.ok) {
+          results.push({
+            status: 'failed',
+            mode: 'cdf-multiline',
+            summary,
+            draftMarkdown,
+            insertedRootBlockId: structure.parentListItemId,
+            sourceBlockIds: [structure.parentListItemId, ...structure.childListItemIds],
+            xiuyuanId: null,
+            cardIds: [],
+            warnings: [],
+            error: toErrorMessage(creation.error, 'CDF 多行制卡失败。'),
+          });
+          continue;
+        }
+        results.push({
+          status: 'created',
+          mode: 'cdf-multiline',
+          summary,
+          draftMarkdown,
+          insertedRootBlockId: structure.parentListItemId,
+          sourceBlockIds: [structure.parentListItemId, ...structure.childListItemIds],
+          xiuyuanId: creation.value.xiuyuan.id,
+          cardIds: creation.value.cards.map((card) => card.id),
+          warnings: [],
+          created: creation.value.created,
+          skippedChildBlockIds: creation.value.skippedChildBlockIds,
+        });
+      } catch (error) {
+        results.push({
+          status: 'failed',
+          mode: 'cdf-multiline',
+          summary,
+          draftMarkdown,
+          insertedRootBlockId: null,
+          sourceBlockIds: [],
+          xiuyuanId: null,
+          cardIds: [],
+          warnings: [],
+          error: toErrorMessage(error, 'CDF 多行制卡失败。'),
+        });
+      }
+    }
+
+    await this.persistSuccessfulTarget(target, results);
+    return {
+      mode: 'cdf-multiline',
+      target: target.memory,
+      createdCount: results.filter((item) => item.status === 'created').length,
+      skippedCount: results.filter((item) => item.status === 'skipped').length,
+      failedCount: results.filter((item) => item.status === 'failed').length,
+      items: results,
+    };
+  }
+
+  async createNativeListItemCards(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<unknown> {
+    return this.createNativeRiffCards(args, runtime, 'list-item');
+  }
+
+  async createNativeMarkCards(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<unknown> {
+    return this.createNativeRiffCards(args, runtime, 'mark');
+  }
+
+  async createNativeHeadingCards(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<unknown> {
+    return this.createNativeRiffCards(args, runtime, 'heading');
+  }
+
+  async createNativeSuperBlockCards(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<unknown> {
+    return this.createNativeRiffCards(args, runtime, 'super-block');
+  }
+
+  private async createNativeRiffCards(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+    mode: 'list-item' | 'mark' | 'heading' | 'super-block',
+  ): Promise<unknown> {
+    const items = Array.isArray(args.items) ? args.items as Array<Record<string, unknown>> : [];
+    if (items.length === 0) {
+      throw new Error('items 不能为空。');
+    }
+    const target = await this.resolveWriteTarget(args);
+    const deckId = this.resolveDeckId(args, runtime) || this.deps.siyuanPort.BUILTIN_DECK_ID;
+    let previousSiblingId = target.targetBlockId;
+    const results = [];
+
+    for (const item of items) {
+      const draftMarkdown = normalizeString(item.draftMarkdown || item.content);
+      const summary = normalizeString(item.summary) || this.summarizeDraftMarkdown(draftMarkdown);
+      if (!draftMarkdown) {
+        results.push({ status: 'skipped', mode, summary, draftMarkdown, error: 'draftMarkdown 不能为空。' });
+        continue;
+      }
+
+      try {
+        if (mode === 'mark' && parseClozeMarkers(draftMarkdown).length === 0) {
+          throw new Error('mark 模式的草稿必须包含合法的 ==标记==。');
+        }
+        const mutation = await this.insertMarkdown(draftMarkdown, target, previousSiblingId);
+        const resolved = await this.resolveNativeRiffStructureWithFallback(mode, mutation);
+        previousSiblingId = resolved.insertedRootBlockId || previousSiblingId;
+        await this.deps.siyuanPort.addRiffCards(deckId, [resolved.riffBlockId]);
+        results.push({
+          status: 'created',
+          mode,
+          summary,
+          draftMarkdown,
+          insertedRootBlockId: resolved.insertedRootBlockId,
+          sourceBlockIds: resolved.sourceBlockIds,
+          riffBlockId: resolved.riffBlockId,
+          xiuyuanId: null,
+          cardIds: [],
+          warnings: [],
+        });
+      } catch (error) {
+        results.push({
+          status: 'failed',
+          mode,
+          summary,
+          draftMarkdown,
+          insertedRootBlockId: null,
+          sourceBlockIds: [],
+          riffBlockId: null,
+          xiuyuanId: null,
+          cardIds: [],
+          warnings: [],
+          error: toErrorMessage(error, `${mode} 原生制卡失败。`),
+        });
+      }
+    }
+
+    await this.persistSuccessfulTarget(target, results);
+    return {
+      mode,
+      target: target.memory,
+      deckId,
+      createdCount: results.filter((item) => item.status === 'created').length,
+      skippedCount: results.filter((item) => item.status === 'skipped').length,
+      failedCount: results.filter((item) => item.status === 'failed').length,
+      items: results,
+    };
+  }
+
   private buildPairMarkdown(front: string, back: string): string {
     return `* ${normalizeListText(front)}\n  * ${normalizeListText(back)}`;
   }
@@ -837,6 +1041,156 @@ export class AIFlashcardToolService {
     };
   }
 
+  private resolveNativeRiffStructure(
+    mode: 'list-item' | 'mark' | 'heading' | 'super-block',
+    rows: MutationRow[],
+  ): {
+    insertedRootBlockId: string;
+    riffBlockId: string;
+    sourceBlockIds: string[];
+  } {
+    if (mode === 'list-item') {
+      const structure = this.resolveListStructure(rows);
+      return {
+        insertedRootBlockId: structure.parentListItemId,
+        riffBlockId: structure.parentListItemId,
+        sourceBlockIds: [structure.parentListItemId, ...structure.childListItemIds],
+      };
+    }
+    if (mode === 'mark') {
+      const blockId = this.resolveFirstTextBlock(rows);
+      return {
+        insertedRootBlockId: blockId,
+        riffBlockId: blockId,
+        sourceBlockIds: [blockId],
+      };
+    }
+    if (mode === 'heading') {
+      const heading = this.sortedRows(rows).find((row) => normalizeString(row.type) === 'h' && normalizeString(row.id));
+      if (!heading?.id) {
+        throw new Error('未找到插入后的标题块。');
+      }
+      return {
+        insertedRootBlockId: heading.id,
+        riffBlockId: heading.id,
+        sourceBlockIds: [heading.id],
+      };
+    }
+    const superBlock = this.sortedRows(rows).find((row) => normalizeString(row.type) === 's' && normalizeString(row.id));
+    if (!superBlock?.id) {
+      throw new Error('未找到插入后的超级块。');
+    }
+    return {
+      insertedRootBlockId: superBlock.id,
+      riffBlockId: superBlock.id,
+      sourceBlockIds: [superBlock.id],
+    };
+  }
+
+  private async resolveNativeRiffStructureWithFallback(
+    mode: 'list-item' | 'mark' | 'heading' | 'super-block',
+    mutation: AISiyuanMutationResult,
+  ): Promise<{
+    insertedRootBlockId: string;
+    riffBlockId: string;
+    sourceBlockIds: string[];
+  }> {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const rows = await this.loadMutationRows(mutation);
+      if (rows.length > 0) {
+        try {
+          return this.resolveNativeRiffStructure(mode, rows);
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (attempt < 2) {
+        await waitFor(attempt === 0 ? 20 : 40);
+      }
+    }
+    if (mode === 'list-item') {
+      const rootBlockId = this.resolveMutationQuestionRootId(mutation);
+      if (rootBlockId) {
+        const kramdown = await this.deps.siyuanPort.getBlockKramdown(rootBlockId);
+        const resolved = this.resolveListItemStructureFromKramdown(rootBlockId, normalizeString(kramdown?.kramdown));
+        if (resolved) {
+          return resolved;
+        }
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(`${mode} 原生制卡失败。`);
+  }
+
+  private resolveMutationQuestionRootId(mutation: AISiyuanMutationResult): string | null {
+    const operations = mutation.doOperations
+      .map((operation) => ({
+        id: normalizeString(operation.id),
+        parentId: normalizeString(operation.parentID),
+      }))
+      .filter((operation) => Boolean(operation.id));
+    if (operations.length === 0) {
+      return null;
+    }
+    const byId = new Map(operations.map((operation) => [operation.id, operation] as const));
+    const childrenByParent = new Map<string, string[]>();
+    for (const operation of operations) {
+      if (!operation.parentId) {
+        continue;
+      }
+      childrenByParent.set(operation.parentId, [...(childrenByParent.get(operation.parentId) || []), operation.id]);
+    }
+    const descendantCount = (id: string): number => {
+      const children = childrenByParent.get(id) || [];
+      return children.reduce((total, childId) => total + 1 + descendantCount(childId), 0);
+    };
+    const roots = operations
+      .filter((operation) => !operation.parentId || !byId.has(operation.parentId))
+      .sort((left, right) => descendantCount(right.id) - descendantCount(left.id));
+    const root = roots[0] || operations[0];
+    const directChildren = childrenByParent.get(root.id) || [];
+    if (directChildren.length === 1 && (childrenByParent.get(directChildren[0]!) || []).length > 0) {
+      return directChildren[0]!;
+    }
+    return root.id;
+  }
+
+  private resolveListItemStructureFromKramdown(
+    rootBlockId: string,
+    kramdown: string,
+  ): {
+    insertedRootBlockId: string;
+    riffBlockId: string;
+    sourceBlockIds: string[];
+  } | null {
+    const lines = String(kramdown || '').split(/\r?\n/);
+    const listItemLines = lines
+      .map((line, index) => {
+        const match = line.match(/^(\s*)[*+-]\s+\{:\s*id="([^"]+)"/);
+        if (!match) {
+          return null;
+        }
+        return {
+          id: normalizeString(match[2]),
+          indent: match[1]?.length || 0,
+          index,
+        };
+      })
+      .filter((entry): entry is { id: string; indent: number; index: number } => Boolean(entry?.id));
+    if (listItemLines.length === 0) {
+      return null;
+    }
+    const questionItem = listItemLines[0]!;
+    const answerItem = listItemLines.find((entry) => (
+      entry.index > questionItem.index && entry.indent > questionItem.indent
+    )) || null;
+    return {
+      insertedRootBlockId: questionItem.id || rootBlockId,
+      riffBlockId: questionItem.id || rootBlockId,
+      sourceBlockIds: uniqueIds([questionItem.id || rootBlockId, answerItem?.id || null]),
+    };
+  }
+
   private resolveTextBlockForListItem(listItemId: string, rows: MutationRow[]): string {
     const directParagraph = this.sortedRows(rows).find((row) => (
       normalizeString(row.parent_id) === listItemId && normalizeString(row.type) === 'p'
@@ -895,6 +1249,21 @@ export class AIFlashcardToolService {
   private isAppendableTarget(block: AISiyuanBlockRow): boolean {
     const type = normalizeString(block.type);
     return type === 'd' || type === 'h' || type === 'l' || type === 'i' || type === 's';
+  }
+
+  private summarizeDraftMarkdown(markdown: string): string {
+    const firstLine = String(markdown || '')
+      .split(/\r?\n/)
+      .map((line) => normalizeString(line))
+      .find(Boolean) || '';
+    return normalizeString(
+      firstLine
+        .replace(/^#+\s+/, '')
+        .replace(/^[-*+]\s+/, '')
+        .replace(/:::+$/, '')
+        .replace(/;;;+$/, '')
+        .replace(/==/g, ''),
+    ) || '未命名草稿';
   }
 
   private resolveDeckId(args: Record<string, unknown>, runtime: AIChatToolRuntimeContext): string | undefined {

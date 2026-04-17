@@ -940,6 +940,31 @@
         <div v-show="isActiveSubTab('ai', 'built-in-skill')" class="settings-subtab-panel">
         <h4>{{ t('aiPromptTemplates', 'Skill 管理') }}</h4>
 
+        <div class="form-item">
+          <label>{{ t('selfTestDefaultCreationMode', '自测卡片默认制卡模式') }}</label>
+          <div class="form-control">
+            <select v-model="aiSettings.conceptCoach.selfTest.defaultCreationMode" class="scheduler-select">
+              <option v-for="mode in selfTestModeDescriptors" :key="mode.mode" :value="mode.mode">
+                {{ mode.label }}
+              </option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('selfTestDefaultCreationModeHint', '工作台切换模式后会记住到这里，并据此约束“自测卡片”tab 的结构化回复格式与制卡工具。') }}
+          </p>
+          <div class="form-example">
+            <div class="example-label">{{ t('selfTestModeFormats', '各模式格式约定') }}</div>
+            <div class="example-value">
+              <ul class="ai-self-test-mode-list">
+                <li v-for="mode in selfTestModeDescriptors" :key="mode.mode">
+                  <strong>{{ mode.label }}</strong>
+                  <span>{{ mode.summary }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
         <div
           v-for="preset in aiPromptPresetCards"
           :key="preset.settingKey"
@@ -1274,7 +1299,10 @@ import {
   AI_CHAT_TOOL_DESCRIPTORS,
   AI_CHAT_TOOL_GROUPS,
 } from '@/application/services/AIChatToolRegistry';
-import { getPromptContractForSetting } from '@/application/services/AIPromptContractRegistry';
+import {
+  getPromptContractForSetting,
+  listSelfTestModeDescriptors,
+} from '@/application/services/AIPromptContractRegistry';
 import { getAIWorkbenchSkillTabs } from '@/application/services/AIWorkbenchSkillRegistry';
 import {
   ACTIVE_AI_PROMPT_CONTRACT_VERSION,
@@ -1552,6 +1580,7 @@ const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 const aiSettings = ref<AISettings>(createDefaultAISettings());
 const uiSettings = ref<UISettings>(createDefaultUISettings());
 const aiPromptTabs = getAIWorkbenchSkillTabs('concept-coach');
+const selfTestModeDescriptors = listSelfTestModeDescriptors();
 const userSkillToolGroupOptions: Array<{ key: AIChatToolGroupKey; label: string; hint: string }> = [
   { key: 'context-read', label: 'context-read', hint: '读取当前卡片、选中块和手工材料。' },
   { key: 'siyuan-read', label: 'siyuan-read', hint: '检索和读取思源块内容。' },
@@ -3491,6 +3520,29 @@ async function handleRepairDates() {
 .ai-tool-card__policies span {
   font-size: 12px;
   color: var(--b3-theme-on-surface-light);
+}
+
+.ai-self-test-mode-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.ai-self-test-mode-list li {
+  display: grid;
+  gap: 2px;
+}
+
+.ai-self-test-mode-list strong {
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+}
+
+.ai-self-test-mode-list span {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 @media (max-width: 980px) {

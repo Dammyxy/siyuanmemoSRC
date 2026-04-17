@@ -426,6 +426,13 @@ export class ApplicationContext {
       const siyuanPort = new AISiyuanAdapter(context.getPlugin().app);
       return new ReviewAIWorkbenchRegistry({
         getAISettings: () => context.getSettingsService().getSettings().ai,
+        updateAISettings: async (updater) => {
+          const settingsService = context.getSettingsService();
+          const currentAi = settingsService.getSettings().ai;
+          await settingsService.updateSettings({
+            ai: updater(currentAi),
+          });
+        },
         cardContentQueryService: context.getCardContentQueryService(),
         siyuanPort,
         llmPort: new OpenAICompatibleLLMAdapter(),

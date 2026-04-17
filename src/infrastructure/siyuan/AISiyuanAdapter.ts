@@ -4,6 +4,7 @@ import type {
   AISiyuanNotebookSummary,
   AISiyuanPort,
 } from '@/application/ports/AISiyuanPort';
+import { addRiffCards, BUILTIN_DECK_ID } from '@/core/siyuan/riff';
 import {
   appendBlock,
   appendBlockDetailed,
@@ -32,6 +33,7 @@ function formatDailyNoteDate(date: Date): string {
 }
 
 export class AISiyuanAdapter implements AISiyuanPort {
+  readonly BUILTIN_DECK_ID = BUILTIN_DECK_ID;
   private readonly appId: string;
 
   constructor(app?: { appId?: string | null } | null) {
@@ -138,6 +140,10 @@ export class AISiyuanAdapter implements AISiyuanPort {
       data: markdown,
       id: blockId,
     });
+  }
+
+  async addRiffCards(deckId: string, blockIds: string[]): Promise<{ name: string; size: number }> {
+    return addRiffCards(deckId, blockIds);
   }
 
   async deleteBlock(blockId: string): Promise<void> {

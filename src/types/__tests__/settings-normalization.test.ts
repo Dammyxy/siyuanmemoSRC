@@ -282,7 +282,8 @@ describe('settings normalization', () => {
     expect(DEFAULT_SETTINGS.ai.promptContractVersion).toBe(ACTIVE_AI_PROMPT_CONTRACT_VERSION);
     expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.baseRun).toContain('学习教练');
     expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.baseRun).not.toContain('workingDefinition');
-    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs['self-test-cards'].run).toContain('问答卡');
+    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs['self-test-cards'].run).toContain('自测草稿');
+    expect(DEFAULT_SETTINGS.ai.conceptCoach.selfTest.defaultCreationMode).toBe('list-item');
   });
 
   it('resets AI prompts to the current behavior-prompt contract when legacy settings lack the new contract version', () => {

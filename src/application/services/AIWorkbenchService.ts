@@ -12,6 +12,7 @@ import type { LLMMessage, LLMPort, LLMResponse, LLMToolCall } from '@/applicatio
 import { LLMError } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
+import { AISelfTestCardCreationService } from '@/application/services/AISelfTestCardCreationService';
 import {
   getAIChatSkill,
   type AIChatRegisteredSkillDescriptor,
@@ -25,6 +26,7 @@ import {
   formatStructuredPromptContract,
   getPromptContractForResolvedSkillRun,
   getPromptContractForSkillRun,
+  getSelfTestModeDescriptor,
 } from '@/application/services/AIPromptContractRegistry';
 import {
   getAIWorkbenchSkill,
@@ -53,6 +55,7 @@ import type {
   AIConceptCoachPerspectives,
   AIConceptCoachRealWorldTriggers,
   AIConceptCoachResult,
+  AIConceptCoachSelfTestCreationMode,
   AIConceptCoachSelfTestCards,
   AIConceptCoachTabResult,
   AIContextProviderKey,
@@ -107,6 +110,7 @@ import { normalizeAISettings, normalizeAIPromptTemplates, type AIConceptCoachPro
 
 export type AIWorkbenchServiceDeps = {
   getAISettings: () => AISettings;
+  updateAISettings?: (updater: (current: AISettings) => AISettings) => Promise<void>;
   cardContentQueryService: CardContentQueryService;
   siyuanPort: AISiyuanPort;
   llmPort: LLMPort;
@@ -205,6 +209,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value.trim() : fallback;
+}
+
+function normalizeListText(value: string): string {
+  return normalizeString(value).replace(/\s*\r?\n\s*/g, ' ');
 }
 
 function escapeSql(value: string): string {
@@ -605,7 +613,7 @@ function emptyConceptCoachResult(rawContent = ''): AIConceptCoachResult {
     workingDefinition: '',
     perspectives: emptyPerspectives(),
     integratedUnderstanding: { essence: '', notWhat: [], capabilities: [] },
-    selfTestCards: { cards: [] },
+    selfTestCards: { creationMode: 'list-item', cards: [] },
     realWorldTriggers: { triggers: [] },
     rawContent,
   };
@@ -806,6 +814,46 @@ function normalizeCardKind(value: unknown): AIConceptCoachCardKind {
     : '其他';
 }
 
+function normalizeSelfTestCreationMode(
+  value: unknown,
+  fallback: AIConceptCoachSelfTestCreationMode = 'list-item',
+): AIConceptCoachSelfTestCreationMode {
+  return value === 'mark'
+    || value === 'heading'
+    || value === 'super-block'
+    || value === 'multi-mark'
+    || value === 'cdf-multiline'
+    || value === 'list-item'
+    ? value
+    : fallback;
+}
+
+function buildLegacySelfTestDraftMarkdown(question: string, answer: string): string {
+  return `* ${normalizeListText(question)}\n\n  * ${normalizeListText(answer)}`;
+}
+
+function summarizeSelfTestDraft(mode: AIConceptCoachSelfTestCreationMode, draftMarkdown: string, fallback = ''): string {
+  const firstLine = String(draftMarkdown || '')
+    .split(/\r?\n/)
+    .map((line) => normalizeString(line))
+    .find(Boolean) || '';
+  const normalized = normalizeString(
+    firstLine
+      .replace(/^#+\s+/, '')
+      .replace(/^[-*+]\s+/, '')
+      .replace(/:::+$/, '')
+      .replace(/;;;+$/, '')
+      .replace(/==/g, ''),
+  );
+  if (normalized) {
+    return normalized;
+  }
+  if (fallback) {
+    return fallback;
+  }
+  return mode === 'mark' || mode === 'multi-mark' ? '标记草稿' : '未命名草稿';
+}
+
 function normalizeSelfTestCards(value: unknown): AIConceptCoachSelfTestCards {
   const raw = isRecord(value) ? value : {};
   const cards = Array.isArray(readAliasedValue(raw, ['cards', 'candidateCards', 'items']))
@@ -813,24 +861,43 @@ function normalizeSelfTestCards(value: unknown): AIConceptCoachSelfTestCards {
     : Array.isArray(value)
       ? value
       : [];
+  const declaredMode = normalizeSelfTestCreationMode(readAliasedValue(raw, ['creationMode', 'mode']), 'list-item');
+  const normalizedCards = cards.map((entry, index): AIConceptCoachCandidateCard | null => {
+    if (!isRecord(entry)) {
+      return null;
+    }
+    const legacyQuestion = normalizeString(entry.question ?? entry.q ?? entry.legacyQuestion);
+    const legacyAnswer = normalizeString(entry.answer ?? entry.a ?? entry.legacyAnswer);
+    const draftMarkdown = normalizeString(entry.draftMarkdown)
+      || ((legacyQuestion || legacyAnswer) ? buildLegacySelfTestDraftMarkdown(legacyQuestion, legacyAnswer) : '');
+    if (!draftMarkdown) {
+      return null;
+    }
+    const mode = normalizeSelfTestCreationMode(entry.mode, (legacyQuestion || legacyAnswer) ? 'list-item' : declaredMode);
+    return {
+      id: normalizeString(entry.id) || createEntryId(`ai-card-${index}`),
+      mode,
+      kind: normalizeCardKind(entry.kind),
+      selected: entry.selected !== false,
+      summary: normalizeString(entry.summary) || summarizeSelfTestDraft(mode, draftMarkdown, legacyQuestion),
+      draftMarkdown,
+      legacyQuestion: legacyQuestion || undefined,
+      legacyAnswer: legacyAnswer || undefined,
+      question: legacyQuestion || summarizeSelfTestDraft(mode, draftMarkdown),
+      answer: legacyAnswer || '',
+    };
+  }).filter((card): card is AIConceptCoachCandidateCard => Boolean(card));
+  const modes = Array.from(new Set(normalizedCards.map((card) => card.mode)));
+  if (modes.length > 1) {
+    throw new Error('selfTestCards.cards 不能混用多种 mode；请确保它们与 creationMode 一致。');
+  }
+  const creationMode = modes[0] || declaredMode;
+  if (normalizedCards.some((card) => card.mode !== creationMode)) {
+    throw new Error('selfTestCards.creationMode 与 cards[].mode 不一致。');
+  }
   return {
-    cards: cards.map((entry, index): AIConceptCoachCandidateCard | null => {
-      if (!isRecord(entry)) {
-        return null;
-      }
-      const question = normalizeString(entry.question ?? entry.q);
-      const answer = normalizeString(entry.answer ?? entry.a);
-      if (!question && !answer) {
-        return null;
-      }
-      return {
-        id: normalizeString(entry.id) || createEntryId(`ai-card-${index}`),
-        question,
-        answer,
-        kind: normalizeCardKind(entry.kind),
-        selected: entry.selected !== false,
-      };
-    }).filter((card): card is AIConceptCoachCandidateCard => Boolean(card)),
+    creationMode,
+    cards: normalizedCards,
   };
 }
 
@@ -1284,7 +1351,9 @@ function explainResultFromConceptCoach(result: AIConceptCoachResult | null): AIE
       ...result.integratedUnderstanding.capabilities,
     ].filter(Boolean),
     triggers: result.realWorldTriggers.triggers,
-    cardIdeas: result.selfTestCards.cards.map((card) => `${card.question} -> ${card.answer}`),
+    cardIdeas: result.selfTestCards.cards.map((card) => (
+      `${card.summary || card.question || '草稿'} -> ${card.draftMarkdown || card.answer || ''}`
+    )),
     rawContent: result.rawContent,
   };
 }
@@ -1543,6 +1612,7 @@ export class AIWorkbenchService {
   private readonly varStore = new AIChatVarStoreService();
   private readonly toolRegistry = new AIChatToolRegistry();
   private readonly flashcardTools: AIFlashcardToolService;
+  private readonly selfTestCardCreationService: AISelfTestCardCreationService;
   private readonly toolExecutor: AIChatToolExecutorService;
   private readonly approvalResolvers = new Map<string, {
     request: AIChatApprovalRequest;
@@ -1555,6 +1625,13 @@ export class AIWorkbenchService {
       getXiuyuanApplicationService: async () => this.requireXiuyuanApplicationService(),
       loadDefaultTarget: async () => this.getSessionStore().loadSelfTestCardTargetMemory(),
       saveDefaultTarget: async (target) => this.getSessionStore().saveSelfTestCardTargetMemory(target),
+    });
+    this.selfTestCardCreationService = new AISelfTestCardCreationService({
+      flashcardTools: this.flashcardTools,
+      getRuntimeContext: () => ({
+        context: this.state.context,
+        attachedContexts: [],
+      }),
     });
     this.toolExecutor = new AIChatToolExecutorService({
       registry: this.toolRegistry,
@@ -1626,7 +1703,7 @@ export class AIWorkbenchService {
 
   private getSelectedSelfTestCardCandidates(messageId: string): AIConceptCoachCandidateCard[] {
     return this.getSelfTestCardsForMessage(messageId)
-      .filter((card) => card.selected !== false && normalizeString(card.question) && normalizeString(card.answer));
+      .filter((card) => card.selected !== false && normalizeString(card.draftMarkdown));
   }
 
   private resolveCurrentDeckId(): string | undefined {
@@ -1733,10 +1810,13 @@ export class AIWorkbenchService {
     messageId: string,
     updater: (cards: AIConceptCoachCandidateCard[]) => AIConceptCoachCandidateCard[],
   ): AIWorkbenchAssistantResultMessage | null {
-    if (!this.getSelfTestResultMessage(messageId)) {
+    const currentMessage = this.getSelfTestResultMessage(messageId);
+    if (!currentMessage) {
       return null;
     }
+    const currentSelfTestCards = (currentMessage.tabResult || currentMessage.conceptCoachResult?.selfTestCards) as AIConceptCoachSelfTestCards | null;
     const nextCards = normalizeSelfTestCards({
+      creationMode: currentSelfTestCards?.creationMode || this.getSelfTestCreationMode(),
       cards: updater(this.getSelfTestCardsForMessage(messageId)).map((card) => ({ ...card })),
     });
     const nextMessage = this.addNodeVersion(messageId, (current) => {
@@ -2049,6 +2129,28 @@ export class AIWorkbenchService {
 
   private getNormalizedAISettings(): AISettings {
     return normalizeAISettings(this.deps.getAISettings());
+  }
+
+  getSelfTestCreationMode(): AIConceptCoachSelfTestCreationMode {
+    return this.getNormalizedAISettings().conceptCoach.selfTest.defaultCreationMode;
+  }
+
+  async setSelfTestCreationMode(mode: AIConceptCoachSelfTestCreationMode): Promise<AIConceptCoachSelfTestCreationMode> {
+    const normalizedMode = normalizeSelfTestCreationMode(mode);
+    if (!this.deps.updateAISettings) {
+      return normalizedMode;
+    }
+    await this.deps.updateAISettings((current) => ({
+      ...current,
+      conceptCoach: {
+        ...(current.conceptCoach || { selfTest: { defaultCreationMode: 'list-item' as const } }),
+        selfTest: {
+          ...((current.conceptCoach || {}).selfTest || {}),
+          defaultCreationMode: normalizedMode,
+        },
+      },
+    }));
+    return normalizedMode;
   }
 
   private getResolvedSkill(skillId: AISkillId = this.state.activeSkillId): AIChatRegisteredSkillDescriptor {
@@ -2855,16 +2957,35 @@ export class AIWorkbenchService {
   async updateCandidateCard(
     messageId: string,
     cardId: string,
-    patch: Partial<Pick<AIConceptCoachCandidateCard, 'question' | 'answer' | 'selected' | 'kind'>>,
+    patch: Partial<Pick<AIConceptCoachCandidateCard, 'question' | 'answer' | 'summary' | 'draftMarkdown' | 'selected' | 'kind'>>,
   ): Promise<void> {
     const updated = this.updateSelfTestResultMessage(messageId, (cards) => cards.map((card) => {
       if (card.id !== cardId) {
         return card;
       }
+      const nextQuestion = Object.prototype.hasOwnProperty.call(patch, 'question')
+        ? normalizeString(patch.question)
+        : card.legacyQuestion || card.question || '';
+      const nextAnswer = Object.prototype.hasOwnProperty.call(patch, 'answer')
+        ? normalizeString(patch.answer)
+        : card.legacyAnswer || card.answer || '';
+      const nextDraftMarkdown = Object.prototype.hasOwnProperty.call(patch, 'draftMarkdown')
+        ? normalizeString(patch.draftMarkdown)
+        : (
+          (Object.prototype.hasOwnProperty.call(patch, 'question') || Object.prototype.hasOwnProperty.call(patch, 'answer'))
+            ? buildLegacySelfTestDraftMarkdown(nextQuestion, nextAnswer)
+            : card.draftMarkdown
+        );
       return {
         ...card,
-        question: Object.prototype.hasOwnProperty.call(patch, 'question') ? normalizeString(patch.question) : card.question,
-        answer: Object.prototype.hasOwnProperty.call(patch, 'answer') ? normalizeString(patch.answer) : card.answer,
+        summary: Object.prototype.hasOwnProperty.call(patch, 'summary')
+          ? normalizeString(patch.summary)
+          : summarizeSelfTestDraft(card.mode, nextDraftMarkdown, nextQuestion),
+        draftMarkdown: nextDraftMarkdown,
+        legacyQuestion: nextQuestion || undefined,
+        legacyAnswer: nextAnswer || undefined,
+        question: nextQuestion || summarizeSelfTestDraft(card.mode, nextDraftMarkdown),
+        answer: nextAnswer || '',
         kind: Object.prototype.hasOwnProperty.call(patch, 'kind') ? patch.kind || '其他' : card.kind,
         selected: Object.prototype.hasOwnProperty.call(patch, 'selected') ? patch.selected !== false : card.selected,
       } satisfies AIConceptCoachCandidateCard;
@@ -2925,92 +3046,11 @@ export class AIWorkbenchService {
     }
     const candidates = this.getSelectedSelfTestCardCandidates(messageId);
     if (candidates.length === 0) {
-      throw new Error('请先勾选至少一张包含问题和答案的自测卡片。');
+      throw new Error('请先勾选至少一张包含有效制卡草稿的自测卡片。');
     }
-
-    const resolvedTarget = await this.resolveSelfTestCardWriteTarget(target);
-    const xiuyuanService = await this.requireXiuyuanApplicationService();
-    const deckId = this.resolveCurrentDeckId();
-    const itemResults: AIWorkbenchSelfTestCardCreationItemResult[] = [];
-    const markdownParts: string[] = [];
-    let previousSiblingId = resolvedTarget.targetBlockId;
-
-    for (const candidate of candidates) {
-      const question = normalizeString(candidate.question);
-      const answer = normalizeString(candidate.answer);
-      if (!question || !answer) {
-        itemResults.push(this.createSelfTestCardItemResult({
-          candidate,
-          status: 'skipped',
-          error: '问题或答案为空，已跳过。',
-        }));
-        continue;
-      }
-
-      const markdown = this.buildSelfTestCardMarkdown(question, answer);
-      markdownParts.push(markdown);
-      let insertedRootBlockId: string | null = null;
-      try {
-        const mutationResult = resolvedTarget.writeMode === 'append'
-          ? await this.deps.siyuanPort.appendBlockUnderParentDetailed(markdown, resolvedTarget.targetBlockId)
-          : await this.deps.siyuanPort.insertBlockAfterDetailed(markdown, previousSiblingId);
-        const fields = await this.resolveSelfTestCardFieldBlocksFromMutation(mutationResult, candidate);
-        insertedRootBlockId = fields.insertedRootBlockId;
-        previousSiblingId = insertedRootBlockId || previousSiblingId;
-
-        const command: CreateXiuyuanFromBlocksCommand = {
-          blockIds: [fields.questionBlockId, fields.answerBlockId],
-          templateId: 'builtin-basic-qa',
-          fieldMapping: {
-            question: fields.questionBlockId,
-            answer: fields.answerBlockId,
-          },
-          ...(deckId ? { deckId } : {}),
-          cardType: 'item',
-          source: 'ai-workbench',
-          creationMode: 'ai-self-test-card',
-          duplicatePolicy: 'reuse-existing',
-        };
-        const creationResult = await xiuyuanService.createFromBlocks(command);
-        if (!creationResult.ok) {
-          throw creationResult.error || new Error('制卡失败。');
-        }
-
-        itemResults.push(this.createSelfTestCardItemResult({
-          candidate,
-          status: 'created',
-          insertedRootBlockId,
-          questionBlockId: fields.questionBlockId,
-          answerBlockId: fields.answerBlockId,
-          xiuyuanId: creationResult.value.xiuyuan.id,
-          cardIds: creationResult.value.cards.map((card) => card.id),
-        }));
-      } catch (error) {
-        itemResults.push(this.createSelfTestCardItemResult({
-          candidate,
-          status: 'failed',
-          insertedRootBlockId,
-          error: toErrorMessage(error, '制卡失败。'),
-        }));
-      }
-    }
-
-    const createdCount = itemResults.filter((item) => item.status === 'created').length;
-    const result: AIWorkbenchSelfTestCardCreationResult = {
-      target: resolvedTarget.memory,
-      targetBlockId: resolvedTarget.targetBlockId,
-      targetLabel: resolvedTarget.memory.targetLabel,
-      markdown: markdownParts.join('\n\n'),
-      itemResults,
-      insertedRootBlockIds: itemResults.map((item) => item.insertedRootBlockId).filter((id): id is string => Boolean(id)),
-      createdCardIds: itemResults.flatMap((item) => item.cardIds),
-      createdCount,
-      skippedCount: itemResults.filter((item) => item.status === 'skipped').length,
-      failedCount: itemResults.filter((item) => item.status === 'failed').length,
-    };
-
-    if (createdCount > 0) {
-      await this.getSessionStore().saveSelfTestCardTargetMemory(resolvedTarget.memory);
+    const result = await this.selfTestCardCreationService.createFromCandidates(target, candidates);
+    if (result.createdCount > 0) {
+      await this.getSessionStore().saveSelfTestCardTargetMemory(result.target);
     }
     return result;
   }
@@ -4220,6 +4260,8 @@ export class AIWorkbenchService {
   }): Record<string, unknown> {
     const context = this.requireContext();
     const tabId = input.tabId ? normalizeAIWorkbenchTabId(input.tabId) : null;
+    const selfTestMode = this.getSelfTestCreationMode();
+    const selfTestDescriptor = getSelfTestModeDescriptor(selfTestMode);
     return {
       language: this.deps.getAISettings().defaultOutputLanguage,
       skillId: ACTIVE_SKILL,
@@ -4230,6 +4272,11 @@ export class AIWorkbenchService {
       } : {}),
       attachedContexts: input.attachedContexts,
       ...(normalizeString(input.userPrompt) ? { userPrompt: normalizeString(input.userPrompt) } : {}),
+      selfTestConfig: {
+        creationMode: selfTestMode,
+        label: selfTestDescriptor.label,
+        summary: selfTestDescriptor.summary,
+      },
       context: {
         source: context.source,
         queueType: context.queueType,
@@ -4752,10 +4799,21 @@ export class AIWorkbenchService {
         ...AI_CONCEPT_COACH_TAB_IDS.map((id) => prompts.tabs[id].run),
       ];
     const contractText = formatStructuredPromptContract(getPromptContractForSkillRun(ACTIVE_SKILL, tabId));
-    return [...behaviorPrompts, contractText]
+    const selfTestContractText = (!tabId || tabId === 'self-test-cards')
+      ? this.buildSelfTestModeContractText()
+      : '';
+    return [...behaviorPrompts, contractText, selfTestContractText]
       .map((section) => normalizeString(section))
       .filter(Boolean)
       .join('\n\n');
+  }
+
+  private buildSelfTestModeContractText(): string {
+    const descriptor = getSelfTestModeDescriptor(this.getSelfTestCreationMode());
+    return [
+      `当前自测制卡默认模式：${descriptor.label}（${descriptor.mode}）。`,
+      ...descriptor.contractLines,
+    ].join('\n');
   }
 
   private extractStructuredPayload(taskLabel: string, rawContent: string): unknown {
@@ -4793,7 +4851,12 @@ export class AIWorkbenchService {
     parentNodeId?: string | null,
   ): void {
     const payload = this.extractStructuredPayload('AI 理解与制卡', rawContent);
-    const normalized = normalizeConceptCoachState(payload, rawContent);
+    let normalized: ConceptCoachNormalizationState;
+    try {
+      normalized = normalizeConceptCoachState(payload, rawContent);
+    } catch (error) {
+      throw this.fail(`AI 理解与制卡的自测卡片结构不合法：${toErrorMessage(error, '未知错误')}`);
+    }
     const result = normalized.result;
     this.state.skillResults[ACTIVE_SKILL] = result;
     this.state.explainResult = explainResultFromConceptCoach(result);
@@ -4825,7 +4888,12 @@ export class AIWorkbenchService {
     appliedContexts: AIAttachedContextItem[],
   ): void {
     const payload = this.extractStructuredPayload(this.getActiveTabDescriptor().title, rawContent);
-    const normalized = mergeTabResult(this.state.skillResults[ACTIVE_SKILL], tabId, payload, rawContent);
+    let normalized: ReturnType<typeof mergeTabResult>;
+    try {
+      normalized = mergeTabResult(this.state.skillResults[ACTIVE_SKILL], tabId, payload, rawContent);
+    } catch (error) {
+      throw this.fail(`${this.getActiveTabDescriptor().title}的自测卡片结构不合法：${toErrorMessage(error, '未知错误')}`);
+    }
     const result = normalized.result;
     this.state.skillResults[ACTIVE_SKILL] = result;
     this.state.explainResult = explainResultFromConceptCoach(result);

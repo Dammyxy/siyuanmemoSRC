@@ -419,6 +419,134 @@ export const AI_CHAT_TOOL_DESCRIPTORS: AIChatToolDescriptor[] = [
     enabledByDefault: true,
   },
   {
+    name: 'CreateNativeListItemCards',
+    title: '创建原生列表项卡',
+    group: 'flashcard-write',
+    description: '按思源原生列表项块制卡。每条 draftMarkdown 都必须直接从实际列表项开始。',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'CreateNativeListItemCards',
+        description: 'Create native list-item riff cards from draft markdown.',
+        parameters: objectParameters({
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                summary: { type: 'string', description: 'Optional short summary for UI/logging.' },
+                draftMarkdown: { type: 'string', description: 'Draft markdown that starts from a real list item, not a container list.' },
+              },
+              required: ['draftMarkdown'],
+              additionalProperties: false,
+            },
+          },
+          ...createWriteTargetProperties(),
+        }, ['items']),
+      },
+    },
+    executionPolicy: 'ask-always',
+    resultApprovalPolicy: 'never',
+    sessionScope: 'session',
+    enabledByDefault: true,
+  },
+  {
+    name: 'CreateNativeMarkCards',
+    title: '创建原生标记卡',
+    group: 'flashcard-write',
+    description: '按思源原生标记制卡。draftMarkdown 必须包含合法 ==标记==。',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'CreateNativeMarkCards',
+        description: 'Create native mark riff cards from single-block draft markdown with == == markers.',
+        parameters: objectParameters({
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                summary: { type: 'string', description: 'Optional short summary for UI/logging.' },
+                draftMarkdown: { type: 'string', description: 'Single-block markdown with valid == == markers.' },
+              },
+              required: ['draftMarkdown'],
+              additionalProperties: false,
+            },
+          },
+          ...createWriteTargetProperties(),
+        }, ['items']),
+      },
+    },
+    executionPolicy: 'ask-always',
+    resultApprovalPolicy: 'never',
+    sessionScope: 'session',
+    enabledByDefault: true,
+  },
+  {
+    name: 'CreateNativeHeadingCards',
+    title: '创建原生标题卡',
+    group: 'flashcard-write',
+    description: '按思源原生标题块制卡。draftMarkdown 必须以标题块开头。',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'CreateNativeHeadingCards',
+        description: 'Create native heading riff cards from heading-rooted draft markdown.',
+        parameters: objectParameters({
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                summary: { type: 'string', description: 'Optional short summary for UI/logging.' },
+                draftMarkdown: { type: 'string', description: 'Draft markdown rooted at a heading block.' },
+              },
+              required: ['draftMarkdown'],
+              additionalProperties: false,
+            },
+          },
+          ...createWriteTargetProperties(),
+        }, ['items']),
+      },
+    },
+    executionPolicy: 'ask-always',
+    resultApprovalPolicy: 'never',
+    sessionScope: 'session',
+    enabledByDefault: true,
+  },
+  {
+    name: 'CreateNativeSuperBlockCards',
+    title: '创建原生超级块卡',
+    group: 'flashcard-write',
+    description: '按思源原生超级块制卡。draftMarkdown 必须以超级块为根。',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'CreateNativeSuperBlockCards',
+        description: 'Create native super-block riff cards from super-block-rooted draft markdown.',
+        parameters: objectParameters({
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                summary: { type: 'string', description: 'Optional short summary for UI/logging.' },
+                draftMarkdown: { type: 'string', description: 'Draft markdown rooted at a super block.' },
+              },
+              required: ['draftMarkdown'],
+              additionalProperties: false,
+            },
+          },
+          ...createWriteTargetProperties(),
+        }, ['items']),
+      },
+    },
+    executionPolicy: 'ask-always',
+    resultApprovalPolicy: 'never',
+    sessionScope: 'session',
+    enabledByDefault: true,
+  },
+  {
     name: 'CreateConceptDefinitionCards',
     title: '创建概念定义卡',
     group: 'flashcard-write',

@@ -373,12 +373,36 @@ export interface AIConceptCoachIntegratedUnderstanding {
   capabilities: string[];
 }
 
-export interface AIConceptCoachCandidateCard {
+export type AIConceptCoachSelfTestCreationMode =
+  | 'list-item'
+  | 'mark'
+  | 'heading'
+  | 'super-block'
+  | 'multi-mark'
+  | 'cdf-multiline';
+
+export interface AIConceptCoachSelfTestDraft {
   id: string;
-  question: string;
-  answer: string;
+  mode: AIConceptCoachSelfTestCreationMode;
   kind: AIConceptCoachCardKind;
   selected: boolean;
+  summary: string;
+  draftMarkdown: string;
+  legacyQuestion?: string;
+  legacyAnswer?: string;
+}
+
+export interface AIConceptCoachCandidateCard {
+  id: string;
+  mode: AIConceptCoachSelfTestCreationMode;
+  kind: AIConceptCoachCardKind;
+  selected: boolean;
+  summary: string;
+  draftMarkdown: string;
+  legacyQuestion?: string;
+  legacyAnswer?: string;
+  question?: string;
+  answer?: string;
 }
 
 export type AIWorkbenchSelfTestCardTargetMode = 'daily-note' | 'block';
@@ -411,14 +435,19 @@ export type AIWorkbenchSelfTestCardCreationItemStatus = 'created' | 'skipped' | 
 
 export interface AIWorkbenchSelfTestCardCreationItemResult {
   candidateId: string;
-  question: string;
-  answer: string;
+  mode: AIConceptCoachSelfTestCreationMode;
+  summary: string;
+  draftMarkdown: string;
+  question?: string;
+  answer?: string;
   status: AIWorkbenchSelfTestCardCreationItemStatus;
   insertedRootBlockId: string | null;
-  questionBlockId: string | null;
-  answerBlockId: string | null;
+  sourceBlockIds: string[];
+  questionBlockId?: string | null;
+  answerBlockId?: string | null;
   xiuyuanId: string | null;
   cardIds: string[];
+  warnings: string[];
   error: string | null;
 }
 
@@ -436,6 +465,7 @@ export interface AIWorkbenchSelfTestCardCreationResult {
 }
 
 export interface AIConceptCoachSelfTestCards {
+  creationMode: AIConceptCoachSelfTestCreationMode;
   cards: AIConceptCoachCandidateCard[];
 }
 

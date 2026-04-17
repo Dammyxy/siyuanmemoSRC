@@ -86,6 +86,11 @@ const siyuanRows = Array.from(contentMap.entries()).map(([id, value]) => ({
 
 function createSiyuanPort(rows = siyuanRows) {
   return {
+    BUILTIN_DECK_ID: 'builtin-deck',
+    addRiffCards: vi.fn(async (_deckId: string, blockIds: string[]) => ({
+      name: 'builtin',
+      size: blockIds.length,
+    })),
     listNotebooks: vi.fn(async () => [
       { id: 'notebook-1', name: '学习笔记', icon: '', closed: false },
       { id: 'closed-notebook', name: '已关闭', icon: '', closed: true },
@@ -1180,20 +1185,17 @@ describe('AIWorkbenchService review-session behavior', () => {
 
     expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
     expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith('* Question A\n\n  * Answer A', 'daily-doc-1');
-    expect(createFromBlocks).toHaveBeenCalledWith(expect.objectContaining({
-      templateId: 'builtin-basic-qa',
-      fieldMapping: {
-        question: fixture.questionBlockId,
-        answer: fixture.answerBlockId,
-      },
-      blockIds: [fixture.questionBlockId, fixture.answerBlockId],
-      deckId: 'deck-1',
-      source: 'ai-workbench',
-      duplicatePolicy: 'reuse-existing',
-    }));
+    expect(siyuanPort.addRiffCards).toHaveBeenCalledWith('deck-1', [fixture.rootId]);
+    expect(createFromBlocks).not.toHaveBeenCalled();
     expect(visibilityAttempts).toBeGreaterThan(1);
     expect(result.createdCount).toBe(1);
-    expect(result.createdCardIds).toEqual(['riff-card-1']);
+    expect(result.itemResults[0]).toMatchObject({
+      candidateId: 'candidate-a',
+      mode: 'list-item',
+      status: 'created',
+      insertedRootBlockId: fixture.rootId,
+      sourceBlockIds: [fixture.rootId, fixture.answerItemId],
+    });
   });
 
   it('falls back to root list-item kramdown when the mutation subtree is not immediately queryable', async () => {
@@ -1202,11 +1204,11 @@ describe('AIWorkbenchService review-session behavior', () => {
     siyuanPort.appendBlockUnderParentDetailed.mockResolvedValue(fixture.mutation);
     siyuanPort.getBlockKramdown.mockResolvedValue({ kramdown: createSelfTestKramdown(fixture) });
     siyuanPort.sql.mockImplementation(async (stmt: string) => {
-      if (stmt.includes('WITH RECURSIVE')) {
+      const ids = extractQuotedSqlValues(stmt);
+      if (ids.some((id) => fixture.rows.some((row) => row!.id === id))) {
         return [];
       }
-      const ids = extractQuotedSqlValues(stmt);
-      return fixture.rows.filter((row) => ids.includes(row!.id));
+      return [];
     });
     const createFromBlocks = vi.fn(async () => ({
       ok: true,
@@ -1246,14 +1248,14 @@ describe('AIWorkbenchService review-session behavior', () => {
     }, message!.id);
 
     expect(siyuanPort.getBlockKramdown).toHaveBeenCalledWith(fixture.rootId);
-    expect(createFromBlocks).toHaveBeenCalledWith(expect.objectContaining({
-      fieldMapping: {
-        question: fixture.questionBlockId,
-        answer: fixture.answerBlockId,
-      },
-      blockIds: [fixture.questionBlockId, fixture.answerBlockId],
-    }));
-    expect(result.createdCardIds).toEqual(['riff-card-kramdown']);
+    expect(siyuanPort.addRiffCards).toHaveBeenCalledWith('deck-1', [fixture.rootId]);
+    expect(createFromBlocks).not.toHaveBeenCalled();
+    expect(result.itemResults[0]).toMatchObject({
+      candidateId: 'candidate-a',
+      status: 'created',
+      insertedRootBlockId: fixture.rootId,
+      sourceBlockIds: [fixture.rootId, fixture.answerItemId],
+    });
   });
 
   it('creates cards from the requested self-test message instead of the latest aggregate result', async () => {
@@ -1322,6 +1324,7 @@ describe('AIWorkbenchService review-session behavior', () => {
 
     expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledTimes(1);
     expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith('* Question B\n\n  * Answer B', 'daily-doc-1');
+    expect(siyuanPort.addRiffCards).toHaveBeenCalledWith('deck-1', [fixture.rootId]);
     expect(result.itemResults[0]).toMatchObject({
       candidateId: 'candidate-b',
       question: 'Question B',
@@ -1393,13 +1396,9 @@ describe('AIWorkbenchService review-session behavior', () => {
 
     expect(siyuanPort.insertBlockAfterDetailed).toHaveBeenNthCalledWith(1, '* Question A\n\n  * Answer A', 'target-leaf');
     expect(siyuanPort.insertBlockAfterDetailed).toHaveBeenNthCalledWith(2, '* Question B\n\n  * Answer B', firstFixture.rootId);
-    expect(createFromBlocks).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      fieldMapping: {
-        question: secondFixture.questionBlockId,
-        answer: secondFixture.answerBlockId,
-      },
-      blockIds: [secondFixture.questionBlockId, secondFixture.answerBlockId],
-    }));
+    expect(siyuanPort.addRiffCards).toHaveBeenNthCalledWith(1, 'deck-1', [firstFixture.rootId]);
+    expect(siyuanPort.addRiffCards).toHaveBeenNthCalledWith(2, 'deck-1', [secondFixture.rootId]);
+    expect(createFromBlocks).not.toHaveBeenCalled();
     expect(result.insertedRootBlockIds).toEqual([firstFixture.rootId, secondFixture.rootId]);
     expect(result.createdCount).toBe(2);
   });

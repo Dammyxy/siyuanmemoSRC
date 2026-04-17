@@ -222,10 +222,11 @@ sequenceDiagram
 - `AIChatToolRegistry` / `AIChatToolExecutorService`：插件内工具、网页工具、变量缓存和制卡工具的描述符、启用策略、执行链与透明化日志；支持按组/单工具启用、执行/结果审批、变量引用和多轮工具链续跑
 - `AIChatVarStoreService`：会话级变量缓存，支撑长工具结果的 `ListVars` / `ReadVar`
 - `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件；当前 schema v4 以统一树节点池 + per skill/tab active leaf 保存会话，并额外保存 review 队列级 `reviewChatKey`、工具透明化兼容字段与自测卡制卡目标记忆；旧 `skill -> tab -> thread/result` 记录会迁移到树世界线，旧 review 记录缺 key 时可从最近记录的 queue context 推导一次
-- `AIFlashcardToolService`：AI 制卡工具的应用层门面，负责复用 AI 自测卡目标记忆、解析显式目标覆盖、写入思源源块、读取 mutation 子树，并调用 `XiuyuanApplicationService` 创建对应模板卡
+- `AIFlashcardToolService`：AI 制卡工具的应用层门面，负责复用 AI 自测卡目标记忆、解析显式目标覆盖、写入思源源块、读取 mutation 子树，并按模式桥接到 `XiuyuanApplicationService` 或思源原生 Riff 制卡；原生 `list-item / mark / heading / super-block` 统一走 detailed mutation + 结构根块解析，插件 `multi-mark / cdf-multiline` 继续走 Xiuyuan 模板卡
+- `AISelfTestCardCreationService`：`AI 理解与制卡 / 自测卡片` 的模式分发门面，负责把当前工作台选择的 `creationMode` 与候选草稿映射到具体制卡工具，不让 UI 或 workbench runtime 直接拼装原生/插件制卡细节
 - `AIWorkbenchService`：通用 AI chat runtime，负责会话编排、树节点生命周期、消息版本/分支/分隔/隐藏/固定、Skill 切换、工具执行、审批状态、结构化结果渲染适配、自测卡候选项落块制卡和历史管理；general-chat 的工具审批通过后会在原工具链里继续执行，拒绝会把拒绝结果回传模型，达到最大轮数后仍会请求一次最终总结；自测卡编辑/勾选/全选现在按当前 `assistant-result` 消息节点版本生效，避免被较新的聚合结果覆盖；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
 - `src/types/settings.ts`：AI provider / model / tool / web-search / prompt 的持久化真相源；旧 `baseUrl/apiKey/model` 会迁移为 `providers[] + defaultModelId`，旧 explain-only prompt 在 contract version 升级后直接回落到当前默认模板
-- `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，也会根据用户 structured skill 的 sections 动态生成最小 JSON contract，并为运行时追加和设置页只读说明提供同一份事实源
+- `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，也会根据用户 structured skill 的 sections 动态生成最小 JSON contract，并为运行时追加和设置页只读说明提供同一份事实源；`self-test-cards` 还会按当前 `creationMode` 追加模式专属格式约束与示例
 - `AIPromptComposer`：只负责推荐 Skill prompt 模板描述与默认 base/tab Prompt，不再承担运行时结构化协议拼接
 - `ConfiguredCaptureStorageService`：仍作为 Progressive / Excerpt 的捕获存储服务保留，但不再是 AI workbench 的运行依赖
 
@@ -241,7 +242,7 @@ sequenceDiagram
 - Tab 局部重跑只组合 `baseRun + 当前 tab.run + concept-coach/<tab>`，只替换当前 tab 的结构化结果与当前 tab 世界线投影
 - Tab 追问只使用当前 `tab.followUp`，并携带“当前分隔段 + pinned 节点”的当前 tab 结果上下文，隐藏节点不会进入模型上下文
 - `多视角理解` / `整合理解` 的结构化结果归一化容忍别名、wrapper、直接 section、字符串/数组/对象混合形状；部分成功会显示可恢复内容和 warning，不再静默空白
-- `自测卡片` section 保存结构化候选卡 `question / answer / kind / selected`，支持会话内编辑/选择；UI 的勾选、全选/取消全选和制卡都绑定到当前这条 `assistant-result` 消息；写入时仍使用父问题 + 子答案列表 Markdown，但制卡阶段会先按 mutation 锁定根问题列表项，优先读取该根项的原生列表子树；若短时 SQL 还未能读到整棵子树，会回退到 `getBlockKramdown()` 解析根列表项里的问答块 id，再通过 `XiuyuanApplicationService.createFromBlocks()` 创建 `builtin-basic-qa` 独立问答卡
+- `自测卡片` section 现在保存模式化草稿 `{ creationMode, cards[] }`；每张草稿至少包含 `id / mode / kind / selected / summary / draftMarkdown`，旧 `question / answer` 结果会在读取时兼容映射为 `list-item` 草稿。工作台顶部可切换 `list-item / mark / heading / super-block / multi-mark / cdf-multiline`，该模式会同时驱动 prompt contract、候选草稿预览与“制卡选中项”执行链。制卡阶段由 `AISelfTestCardCreationService` 按模式分发：原生 `list-item` 只接受实际列表项作为根块，优先读取 mutation 子树，必要时回退到根列表项 `getBlockKramdown()`；`mark / heading / super-block` 只接受对应结构根块；插件 `multi-mark / cdf-multiline` 继续走 Xiuyuan 模板卡。UI 不直接拼原生/插件制卡细节
 - 旧 explain session 会保留历史消息作为 legacy session 打开，并显示“旧解释结果仅供查看，重跑后生成完整 tabs”的提示；重跑后生成新的 `concept-coach` 五阶段结果
 - `AiWorkbenchPane.vue` 现在是通用 chat shell：顶部 Skill 切换、按 Skill 显示 tab/section、消息流支持文本、结构化结果、底部 composer 和 context 附加；主 timeline 使用 reply-first render projection，只显示用户消息/最终回复/结构化结果/分隔，tool timeline、审批历史、推理和诊断默认折叠到回复下方，pending 审批显示为当前回复下方的 inline approval card，消息操作移到消息尾部 toolbar
 
@@ -313,7 +314,8 @@ UI surface：
 - `src/application/services/AIChatToolExecutorService.ts`：AI chat 工具执行链，负责插件内读工具、网页抓取/搜索、制卡工具执行、执行/结果审批、长参数/长结果变量缓存与 `$VAR_REF{{...}}` 引用解析。
 - `src/application/services/AIChatApprovalService.ts`：AI chat 写工具审批请求的轻量状态服务。
 - `src/application/services/AIChatVarStoreService.ts`：AI chat 会话级变量缓存，支撑 `ListVars` / `ReadVar`。
-- `src/application/services/AIFlashcardToolService.ts`：AI 制卡工具门面，集中处理制卡目标解析、块写入、mutation 子树定位和 Xiuyuan 调用。
+- `src/application/services/AIFlashcardToolService.ts`：AI 制卡工具门面，集中处理制卡目标解析、块写入、mutation 子树定位，以及原生 Riff / Xiuyuan 制卡桥接。
+- `src/application/services/AISelfTestCardCreationService.ts`：自测卡模式分发门面，把 `creationMode + draftMarkdown` 映射到原生列表项/标记/标题/超级块或插件多标记/CDF 工具。
 - `src/application/services/SharedReviewSessionRegistry.ts`：插件托管 review 分屏的共享 session 注册中心。
 - `src/application/services/AIWorkbenchService.ts`：通用 AI chat runtime 与 concept-coach 结构化 renderer 的状态和动作编排。
 
@@ -633,8 +635,13 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 写工具通过 `AIFlashcardToolService` 写入思源源块并调用 Xiuyuan，不直接在 UI 层拼装建卡细节
 - `AIFlashcardToolService`
   - 复用 AI 自测卡最近一次目标记忆，或解析工具参数中的显式 `targetMode/notebookId/targetBlockId`
-  - 统一用思源 detailed mutation API 写入 Markdown，再按 mutation 子树解析问题块 / 定义块 / 列表结构
-  - 调用 `XiuyuanApplicationService.createFromBlocks()` / `createListTemplateCards()` 完成卡片创建，并把成功目标回写为新的默认制卡位置
+  - 统一用思源 detailed mutation API 写入 Markdown，再按 mutation 子树解析原生列表项 / 标记 / 标题 / 超级块或插件列表模板结构
+  - 原生 list-item 会在 SQL 短时不可读时回退到根列表项 `getBlockKramdown()`，但只接受实际列表项根块，不把外层 list 容器当作制卡根
+  - 原生模式通过 `AISiyuanPort.addRiffCards()` 创建思源原生卡片，插件模式继续调用 `XiuyuanApplicationService.createFromBlocks()` / `createListTemplateCards()`，并把成功目标回写为新的默认制卡位置
+- `AISelfTestCardCreationService`
+  - 自测卡候选制卡的应用层分发门面
+  - 根据当前工作台 `creationMode` 把每张 `draftMarkdown` 独立写入目标位置，再映射到原生列表项/标记/标题/超级块或插件多标记/CDF 工具
+  - 汇总每项 `mode / insertedRootBlockId / sourceBlockIds / warnings / error`，供 pane 直接透明展示
 - `AIWorkbenchSessionStoreService`
   - 通过 `FileService` 落盘 `index + per-session record`
   - 提供会话历史列表、按 id 读取、重命名、删除
@@ -649,7 +656,9 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - `concept-coach` 仍走结构化 JSON 主链：首轮全量生成 5 个 section，局部重跑只替换当前 section，follow-up 只带当前 section 结果
   - review 同队列切卡只更新 live context，不截断模型历史；structured skill 旧结果会按 context signature 标为 stale，Pane 在 stale 时禁用追问并提示重跑
   - `多视角理解` / `整合理解` 的归一化容忍字段别名、wrapper、直接 section、字符串/数组/对象混合形状，并把 `full / partial / empty` 诊断挂到 assistant structured result
-  - `自测卡片` 的勾选项/编辑状态按当前结果消息版本保存；服务层通过 `AISiyuanPort` 的 detailed mutation API 写入目标位置，再从本次新增的原生列表项里解析问题/答案块；若新块尚未完全进入 SQL 可读索引，则会用根列表项的 `getBlockKramdown()` 做一次回退解析，并在问答块进入可读索引后调用 Xiuyuan 应用服务创建 `builtin-basic-qa` 独立问答卡；UI 不直接调用思源 API 或 Xiuyuan use case
+  - `自测卡片` 的勾选项/编辑状态按当前结果消息版本保存；结果数据主结构为 `creationMode + 模式化草稿 cards[]`，旧问答卡会在读取时兼容映射为 `list-item` 草稿
+  - 工作台切换自测模式时，会同步更新 `settings.ai.conceptCoach.selfTest.defaultCreationMode`，并让 prompt contract、候选草稿渲染与制卡执行链一起切换
+  - 自测制卡不再硬编码 `builtin-basic-qa`；服务层通过 `AISelfTestCardCreationService` 分发到原生列表项/标记/标题/超级块或插件多标记/CDF 模式；UI 不直接调用思源 API、原生 Riff 或 Xiuyuan use case
   - 对 DeepSeek / OpenAI-compatible 等 provider 保留 `json_object` 默认路径和 prompt-only JSON 传输兜底，诊断记录 profile / transport / status / raw body
   - 旧 explain-only 会话保留历史消息作为 legacy session 查看，重跑后再生成完整 `concept-coach` sections
 - `AIPromptComposer`
@@ -657,6 +666,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 不再承担运行时结构化协议拼接职责
 - `AIPromptContractRegistry`
   - 注册 `concept-coach/full-run` 与 `concept-coach/<tab>` JSON contract
+  - `self-test-cards` contract 会按 `list-item / mark / heading / super-block / multi-mark / cdf-multiline` 追加模式专属格式要求与示例
   - 作为运行时 prompt 追加和设置页只读 contract 说明的共同事实源
 - `ConfiguredCaptureStorageService`
   - 解析 Progressive / Excerpt 当前 capture 目标与持久化策略；AI workbench 不再直接依赖它
@@ -785,7 +795,7 @@ UI 层：
 - AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
 - AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，而用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
 - AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline、树形 worldline、compact reply projection 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做独立图形化 world-tree 页面
-- AI 理解与制卡的 `自测卡片` section 支持候选卡编辑/选择、全选/取消全选和“制卡选中项”；写入位置可记忆为目标笔记本今日日记或指定文档/块 ID，并通过 AI workbench 服务层写入列表 Markdown、按原生列表项 mutation 解析刚写入的问答块后调用 Xiuyuan 创建独立问答卡
+- AI 理解与制卡的 `自测卡片` section 支持候选草稿编辑/选择、全选/取消全选、模式切换和“制卡选中项”；写入位置可记忆为目标笔记本今日日记或指定文档/块 ID，并通过 AI workbench 服务层把 `draftMarkdown` 分发到原生列表项/标记/标题/超级块或插件多标记/CDF 制卡工具
 
 当前文档定位：
 
