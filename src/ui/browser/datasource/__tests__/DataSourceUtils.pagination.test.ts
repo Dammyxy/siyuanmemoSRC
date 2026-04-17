@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { BrowserCard } from '../../types';
+import type { QueueSnapshotRow } from '@/types/queue-browser';
 import {
   applyDocFilter,
   applyLegacyPresetFilter,
   applySimpleQueryFilter,
+  sortQueueSnapshotRows,
   sortAndPaginateBrowserCards,
 } from '../DataSourceUtils';
 
@@ -39,6 +41,37 @@ function buildCard(overrides: Partial<BrowserCard>): BrowserCard {
     cardType: overrides.cardType,
     aFactor: overrides.aFactor,
     meta: overrides.meta,
+  };
+}
+
+function buildQueueRow(overrides: Partial<QueueSnapshotRow>): QueueSnapshotRow {
+  return {
+    id: overrides.id ?? `queue-${Math.random()}`,
+    fsrsCardId: overrides.fsrsCardId ?? overrides.id ?? '',
+    blockId: overrides.blockId ?? overrides.id ?? '',
+    deckId: overrides.deckId ?? 'deck-a',
+    rootId: overrides.rootId ?? 'doc-a',
+    content: overrides.content ?? 'content',
+    fullContent: overrides.fullContent ?? overrides.content ?? 'content',
+    state: overrides.state ?? 0,
+    due: overrides.due ?? Date.now(),
+    stability: overrides.stability ?? 1,
+    difficulty: overrides.difficulty ?? 1,
+    retrievability: overrides.retrievability ?? 0.9,
+    reps: overrides.reps ?? 0,
+    lapses: overrides.lapses ?? 0,
+    elapsedDays: overrides.elapsedDays ?? 0,
+    scheduledDays: overrides.scheduledDays ?? 0,
+    lastReview: overrides.lastReview ?? null,
+    interval: overrides.interval ?? 0,
+    firstReview: overrides.firstReview ?? null,
+    priority: overrides.priority ?? 50,
+    suspended: overrides.suspended ?? false,
+    queueIndex: overrides.queueIndex ?? 0,
+    tags: overrides.tags ?? [],
+    cardType: overrides.cardType,
+    aFactor: overrides.aFactor,
+    blockType: overrides.blockType ?? null,
   };
 }
 
@@ -94,6 +127,18 @@ describe('DataSourceUtils pagination', () => {
     const merged = [...page1.rows, ...page2.rows].map((card) => `${card.blockId}:${card.id}`);
 
     expect(merged).toEqual(['b0:c3', 'b1:c1', 'b1:c2']);
+  });
+
+  it('keeps queue snapshot sorting view-only by falling back to queueIndex', () => {
+    const rows: QueueSnapshotRow[] = [
+      buildQueueRow({ id: 'q3', blockId: 'b3', priority: 10, queueIndex: 2 }),
+      buildQueueRow({ id: 'q1', blockId: 'b1', priority: 10, queueIndex: 0 }),
+      buildQueueRow({ id: 'q2', blockId: 'b2', priority: 10, queueIndex: 1 }),
+    ];
+
+    const sorted = sortQueueSnapshotRows(rows, [{ colId: 'priority', sort: 'asc' }]);
+
+    expect(sorted.map((row) => `${row.queueIndex}:${row.id}`)).toEqual(['0:q1', '1:q2', '2:q3']);
   });
 
   it('sorts formatted date columns by raw date values globally', () => {

@@ -23,7 +23,7 @@ import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceMana
 import type { AutoFailedCardSinkPort, QueuePersistencePort } from './ports';
 import { NOOP_AUTO_FAILED_CARD_SINK } from './ports';
 import { resolveCardId } from '../../../diagnostics/type-guards';
-import { getTodayRange } from '../../../utils/dateUtils';
+import { getCurrentDayEnd, getTodayRange } from '../../../utils/dateUtils';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('IncrementalLearningQueue');
@@ -129,12 +129,14 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
     public async getCards(): Promise<FSRSCard[]> {
         try {
             const now = Date.now();
+            const dayStartHour = this.getDayStartHour();
+            const dayEnd = getCurrentDayEnd(dayStartHour);
             await this.ensureInitialLoad();
 
             const cardTypeFilter = ['item', 'concept', 'descriptor', 'topic', 'incremental', 'webpage'] as const;
             const baseCards = await this.manager.getCards({
                 cardType: [...cardTypeFilter],
-                dueDate: { lte: new Date(now) },
+                dueDate: { lte: new Date(dayEnd) },
                 includeSuspended: false,
             });
             const manualCount = this.manualCards.size();
@@ -213,7 +215,8 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
     }
 
     public async syncManualMembershipForScheduledCard(card: FSRSCard): Promise<boolean> {
-        if (card.due <= Date.now()) {
+        const dayEnd = getCurrentDayEnd(this.getDayStartHour());
+        if (card.due <= dayEnd) {
             return false;
         }
 
@@ -248,6 +251,15 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
             autoFailedSink: this.autoFailedSink,
             logEscalation: true,
         });
+    }
+
+    protected override isCardInActiveWindow(card: FSRSCard, now = Date.now()): boolean {
+        if (this.manualCards.has(card.id)) {
+            logger.debug(`isCardInActiveWindow: Card ${card.id} is manually added, remove after review`);
+            return false;
+        }
+
+        return Number(card.due) <= this.getCurrentDayEnd(this.getDayStartHour(), now);
     }
     
     /**

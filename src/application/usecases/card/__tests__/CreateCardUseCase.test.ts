@@ -15,6 +15,27 @@ import { Card } from '@/core/xiuyuan/domain/Card';
 import { ok, err } from '@/types/result';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { CardCreationSiyuanPort } from '@/application/ports/CardCreationSiyuanPort';
+import { BlockId } from '@/core/xiuyuan/domain/BlockId';
+import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
+import { CardFace } from '@/core/xiuyuan/domain/CardFace';
+
+function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T {
+  if (!result.ok) {
+    throw result.error;
+  }
+  return result.value;
+}
+
+function createExistingXiuyuan(): Xiuyuan {
+  const xiuyuan = must(Xiuyuan.create({
+    blockIDs: [must(BlockId.create('20210808180117-6v0mkxr'))],
+    templateID: must(TemplateId.create('template-basic')),
+    faces: [must(CardFace.create({ question: 'Existing question', answer: 'Existing answer' }))],
+  }));
+  const creationService = new CardCreationService();
+  must(creationService.createCard(xiuyuan, 0));
+  return xiuyuan;
+}
 
 describe('CreateCardUseCase', () => {
   let useCase: CreateCardUseCase;
@@ -28,7 +49,7 @@ describe('CreateCardUseCase', () => {
     mockRepo = {
       save: vi.fn(),
       findById: vi.fn(),
-      findByBlockId: vi.fn(),
+      findByBlockId: vi.fn().mockResolvedValue(ok([])),
       findAll: vi.fn(),
       delete: vi.fn(),
       saveMany: vi.fn(),
@@ -123,6 +144,32 @@ describe('CreateCardUseCase', () => {
         const savedXiuyuan = vi.mocked(mockRepo.save).mock.calls[0][0];
         expect(savedXiuyuan.getPriority().getValue()).toBe(50); // 默认优先级
       }
+    });
+
+    it('应该复用同一代表块下已有的逻辑卡片', async () => {
+      const command: CreateCardCommand = {
+        blockId: '20210808180117-6v0mkxr',
+        templateId: 'template-basic',
+        faces: [
+          {
+            question: 'What is DDD?',
+            answer: 'Domain-Driven Design'
+          }
+        ],
+      };
+      const existingXiuyuan = createExistingXiuyuan();
+      vi.mocked(mockRepo.findByBlockId).mockResolvedValue(ok([existingXiuyuan]));
+
+      const result = await useCase.execute(command);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+
+      expect(result.value.getId().getValue()).toBe(existingXiuyuan.getCards()[0]?.getId().getValue());
+      expect(mockRepo.save).not.toHaveBeenCalled();
+      expect(mockEventBus.publishAll).not.toHaveBeenCalled();
     });
 
     it('应该处理多个面', async () => {

@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-17 (Round 88)
+Last update: 2026-04-17 (Round 89)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-17 - active queue runtime spec alignment
+
+- Task: Replace the stale queue migration notes with a runtime spec for the 6 active queues, align queue contract comments with the current semantics, and make `FilterGroupQueue` retain reviewed cards by persisted filter membership instead of inheriting the base today-window heuristic.
+- Touched slice: Queue active path plus runtime docs across `src/core/queue/domain/{BaseReviewQueue.ts,FilterGroupQueue.ts}`, `src/types/unified-data-source.ts`, `src/ui/browser/dialogs/FilterDialog.vue`, `src/i18n/{en_US.json,zh_CN.json}`, `src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts`, `src/core/queue/domain/__tests__/FilterGroupQueue.session-transfer.spec.ts`, `src/ui/browser/datasource/__tests__/DataSourceUtils.pagination.test.ts`, `QUEUE_ARCHITECTURE.md`, and `ARCHITECTURE.md`.
+- Debt fixed now: Replaced the corrupted queue architecture doc with a current runtime spec for the active queues; clarified that queue snapshots and `getCards()` expose real queue order while browser column sorting is view-only; updated `BaseReviewQueue` comments to describe queue-owned active-window semantics; taught `FilterGroupQueue` to mirror its persisted filter for post-review retention, while keeping explicit remove/rebuild blacklist behavior separate; and aligned the rebuild tooltip/i18n copy with the new semantics.
+- Debt deferred: `XiuyuanSyncService` still needs a two-phase `SyncChangeSet` apply boundary, `chooseCanonicalXiuyuan()` still relies on inferred authority instead of explicit ownership metadata, and `CardRepository.save()` remains a thin storage wrapper rather than a logical-key-aware CRUD boundary.
+- Why deferred: Those follow-ups live in the sync/storage slice rather than the queue slice touched here, and forcing them into this queue-contract alignment pass would widen a bounded semantics/doc cleanup into a much riskier persistence refactor.
+- Next safe step: Implement the sync follow-up as one bounded slice: introduce `SyncChangeSet` staging plus explicit Xiuyuan ownership metadata, then apply the plan through a single storage-owned commit boundary before reconsidering whether `CardRepository` needs to become logical-key-aware too.
+- Validation: `pnpm vitest run src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts src/ui/browser/datasource/__tests__/DataSourceUtils.pagination.test.ts`; `pnpm vitest run src/core/queue/domain/__tests__/FilterGroupQueue.session-transfer.spec.ts`; `pnpm build`.
+
+### 2026-04-17 - queue scheduler and sync stability hardening
+
+- Task: Unify active-path queue window/order semantics, normalize scheduler input/output state, and move Xiuyuan/card dedupe toward logical-key local-first idempotency so repeated create/sync/save flows stop producing unstable ordering or duplicate cards.
+- Touched slice: Queue + Scheduler + Card CRUD + Xiuyuan + storage active path across `src/core/queue/domain/*`, `src/ui/browser/datasource/DataSourceUtils.ts`, `src/core/scheduler/{SchedulerRouter.ts,normalizeSchedulerCard.ts}`, `src/core/storage/{UnifiedStorageManager.ts,stability/logicalKeys.ts}`, `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`, `src/application/usecases/card/CreateCardUseCase.ts`, and focused queue/scheduler/storage/browser/create-card tests.
+- Debt fixed now: Replaced the old `scheduledDays >= 1` global review-removal heuristic with per-queue active-window rules; centralized deterministic queue ordering with stable tie-breakers and day-salted randomness; kept queue-browser column sorting view-only by falling back to `queueIndex`; normalized scheduler cards before and after routing so invalid numeric state is repaired at the boundary; taught storage/Xiuyuan persistence to reuse logical Xiuyuan/card keys with local-first card merges; made repository saves persist the canonicalized store before publishing follow-on effects; and added create-card preflight reuse so the same representative block returns the existing logical card instead of creating a duplicate.
+- Debt deferred: `XiuyuanSyncService` still applies incremental/full sync work item-by-item instead of building one explicit change-set and committing it through a single storage transaction, and `CardRepository.save()` remains a thin wrapper over storage rather than a first-class logical-key-aware CRUD boundary.
+- Why deferred: Reworking sync into one staged change-set apply would require a broader repository/storage transaction contract change across the active Riff sync path, while `CardRepository` is not the dominant runtime entry for this bug cluster and can safely be tightened in a smaller follow-up.
+- Next safe step: Introduce a bounded sync change-plan object in `XiuyuanSyncService` that first resolves add/update/delete intent against a snapshot, then applies that plan through one storage-owned commit boundary before widening the same pattern to secondary CRUD adapters.
+- Validation: `pnpm vitest run src/application/usecases/card/__tests__/CreateCardUseCase.test.ts src/application/usecases/card/__tests__/CreateCardUseCase.template-selection.test.ts src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts src/core/scheduler/__tests__/SchedulerRouter.fsrs-v6.test.ts src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts src/core/storage/__tests__/UnifiedStorageManager.stability-idempotency.test.ts src/ui/browser/datasource/__tests__/DataSourceUtils.pagination.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-17 - AI self-test readback and composer send responsiveness
 

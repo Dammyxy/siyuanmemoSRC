@@ -675,7 +675,7 @@
   "filterPostpones": "Postpones",
   "keywordSearch": "Keyword Search",
   "keywordSearchPlaceholder": "Enter keywords to filter card content...",
-  "filterRebuildTitle": "Clear reviewed cards and reload with current filter conditions",
+  "filterRebuildTitle": "Clear temporarily hidden cards and reload with current filter conditions",
   "noDueCard": "No due cards",
   "lessThan1Minute": "< 1 minute",
   "minutes": "minutes",

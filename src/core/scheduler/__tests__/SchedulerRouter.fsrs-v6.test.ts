@@ -31,22 +31,25 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
-function createRouter(): SchedulerRouter {
+function createRouter() {
   const cardUpdater = {
     batchUpdateCardsWithoutEvents: vi.fn().mockResolvedValue(undefined),
   };
-  return new SchedulerRouter(
-    {
-      defaultScheduler: 'fsrs-v6',
-      fsrsParams: DEFAULT_SETTINGS.fsrs,
-    },
-    cardUpdater
-  );
+  return {
+    router: new SchedulerRouter(
+      {
+        defaultScheduler: 'fsrs-v6',
+        fsrsParams: DEFAULT_SETTINGS.fsrs,
+      },
+      cardUpdater
+    ),
+    cardUpdater,
+  };
 }
 
 describe('SchedulerRouter fsrs-v6 migration constraints', () => {
   it('registers only one TSFSRSScheduler instance', () => {
-    const router = createRouter();
+    const { router } = createRouter();
     const schedulers = (router as unknown as { schedulers: Map<string, unknown> }).schedulers;
 
     const fsrsSchedulerInstances = [...schedulers.values()].filter(
@@ -59,12 +62,47 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
   });
 
   it('rejects legacy fsrs-v5 schedulerType on cards', () => {
-    const router = createRouter();
+    const { router } = createRouter();
     const legacyCard = createCard({
       schedulerType: 'fsrs-v5',
       type: CardType.Item,
     });
 
     expect(() => router.getSchedulerType(legacyCard)).toThrow(/unsupported scheduler type/i);
+  });
+
+  it('normalizes dirty card data before and after scheduling', async () => {
+    const { router, cardUpdater } = createRouter();
+    const updatedCard = await router.route(createCard({
+      schedulerType: undefined,
+      type: CardType.Item,
+      state: 2,
+      due: Number.NaN,
+      stability: 0,
+      difficulty: Number.POSITIVE_INFINITY,
+      reps: -3,
+      lapses: -1,
+      lastReview: 0,
+      elapsedDays: -2,
+      scheduledDays: 0,
+      learning_step: -1,
+      priority: Number.NEGATIVE_INFINITY,
+      createdAt: 0,
+      updatedAt: Number.NaN,
+    }), 3);
+
+    expect(updatedCard.schedulerType).toBe('fsrs-v6');
+    expect(Number.isFinite(updatedCard.due)).toBe(true);
+    expect(updatedCard.difficulty).toBeGreaterThanOrEqual(1);
+    expect(updatedCard.difficulty).toBeLessThanOrEqual(10);
+    expect(updatedCard.priority).toBeGreaterThanOrEqual(0);
+    expect(updatedCard.priority).toBeLessThanOrEqual(100);
+    expect(updatedCard.scheduledDays).toBeGreaterThanOrEqual(1);
+    expect(cardUpdater.batchUpdateCardsWithoutEvents).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: updatedCard.id,
+        schedulerType: 'fsrs-v6',
+      }),
+    ]);
   });
 });

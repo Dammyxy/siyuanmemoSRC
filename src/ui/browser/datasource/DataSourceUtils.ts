@@ -570,7 +570,50 @@ export function sortQueueSnapshotRows(
   rows: QueueSnapshotRow[],
   sortModel: SortModel[]
 ): QueueSnapshotRow[] {
-  return sortBrowserRows(rows as unknown as BrowserSortRowLike[], sortModel) as QueueSnapshotRow[];
+  if (!sortModel?.length) {
+    return rows;
+  }
+
+  const normalizedSortModel = normalizeSortModel(sortModel);
+  if (!normalizedSortModel.length) {
+    return rows;
+  }
+
+  const copy = [...rows];
+  copy.sort((a, b) => {
+    for (const { colId, sort } of normalizedSortModel) {
+      const dir = sort === 'desc' ? -1 : 1;
+      const key = String(colId || '').trim();
+      const av = toComparableSortValue(a as unknown as BrowserSortRowLike, key);
+      const bv = toComparableSortValue(b as unknown as BrowserSortRowLike, key);
+
+      if (av == null || bv == null) {
+        if (av == null && bv == null) {
+          continue;
+        }
+        return av == null ? 1 : -1;
+      }
+
+      const compared = compareSortValues(av, bv);
+      if (compared !== 0) {
+        return compared * dir;
+      }
+    }
+
+    const queueIndexDiff = Number(a.queueIndex || 0) - Number(b.queueIndex || 0);
+    if (queueIndexDiff !== 0) {
+      return queueIndexDiff;
+    }
+
+    const blockCompare = String(a.blockId || '').localeCompare(String(b.blockId || ''));
+    if (blockCompare !== 0) {
+      return blockCompare;
+    }
+
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+
+  return copy;
 }
 
 export type PaginationSliceResult = {

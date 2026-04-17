@@ -25,11 +25,18 @@ import type { QueueSnapshotRow } from '../../../types/queue-browser';
 import type { QueueItem } from '../types';
 import type { QueueSchedulerPort, UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
 import { normalizeToFSRSCard, validateQueueReturnType } from '../../../diagnostics/type-guards';
-import { PriorityQueueService } from './PriorityQueueService';
+import { PriorityQueueService, type QueueOrderingMode } from './PriorityQueueService';
 import { buildQueueSnapshotRow } from './queueCardProjection';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('BaseReviewQueue');
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+type QueueDefaultOrderOptions = {
+    mode?: QueueOrderingMode;
+    randomization?: number;
+    now?: number;
+};
 
 /**
  * 复习队列抽象基类
@@ -562,58 +569,44 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     /**
      * 判断卡片是否应该从队列中移除
      * 
-     * 基于卡片的到期日期和当天结束时间判断。
-     * 这个方法是算法无关的，只依赖调度器输出的 due 值。
+     * 统一委托给队列自己的 active-window 语义。
      * 
-     * 判断逻辑：
-     * - 如果 due > dayEnd：卡片应该在未来复习，从队列移除
-     * - 如果 due <= dayEnd 但 scheduledDays >= 1：卡片间隔至少1天，从队列移除
-     * - 否则：卡片仍需今天复习，保留在队列中
-     * 
-     * 第二个条件是为了处理 FSRS 在短时间内重复复习的情况：
-     * 当用户在很短时间内（如几分钟）重复复习同一张卡片时，FSRS 会给出很短的间隔（如1小时）。
-     * 虽然 due 还在今天范围内，但 scheduledDays >= 1 表示这是一次"正式"的复习，
-     * 应该让卡片移出队列，避免在同一天内反复出现。
+     * 这意味着“复习后是否留队”不再依赖全局启发式，而是由具体队列覆写
+     * `isCardInActiveWindow()` 明确表达：
+     * - today-window 队列：例如 due <= currentDayEnd
+     * - filter-backed 队列：例如仍匹配当前 filter
+     * - session/static 队列：例如永不因窗口自动出队
      * 
      * @param card 卡片对象
      * @returns true 表示应该移除，false 表示应该保留
      * @see 需求 2.1, 2.2, 2.3, 5.1
      */
     protected shouldRemoveFromQueue(card: FSRSCard): boolean {
+        const now = Date.now();
         const dayStartHour = this.getDayStartHour();
-        const dayEnd = this.getCurrentDayEnd(dayStartHour);
-        
-        // 验证 card.due 是否有效
+        const activeWindowEnd = this.getCurrentDayEnd(dayStartHour, now);
+
         if (!card.due || isNaN(card.due) || card.due <= 0) {
             logger.error(`[${this.type}] Invalid due date for card ${card.id}:`, {
                 due: card.due,
                 cardState: card.state,
                 reps: card.reps,
             });
-            // 无效的 due 日期，默认保留在队列中（不移除）
             return false;
         }
-        
-        // 条件1：due 超出今天范围
-        const dueAfterDayEnd = card.due > dayEnd;
-        
-        // 条件2：scheduledDays >= 1（间隔至少1天）
-        // 这处理了 FSRS 在短时间内重复复习的情况
-        // 注意：SimpleFSRSScheduler 使用 Math.max(1, Math.round(interval)) 确保 scheduledDays 至少为 1
-        const hasMinimumInterval = (card.scheduledDays ?? 0) >= 1;
-        
-        const shouldRemove = dueAfterDayEnd || hasMinimumInterval;
-        
+
+        const remainsActive = this.isCardInActiveWindow(card, now);
+        const shouldRemove = !remainsActive;
+
         logger.debug(`[${this.type}] shouldRemoveFromQueue:`, {
             cardId: card.id,
             due: new Date(card.due).toISOString(),
-            dayEnd: new Date(dayEnd).toISOString(),
+            activeWindowEnd: new Date(activeWindowEnd).toISOString(),
             scheduledDays: card.scheduledDays,
-            dueAfterDayEnd,
-            hasMinimumInterval,
+            remainsActive,
             shouldRemove,
         });
-        
+
         return shouldRemove;
     }
     
@@ -626,17 +619,42 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @returns 当天结束时间戳
      * @private
      */
-    private getCurrentDayEnd(dayStartHour: number): number {
-        const now = new Date();
+    protected getCurrentDayEnd(dayStartHour: number, nowValue = Date.now()): number {
+        const now = new Date(nowValue);
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), dayStartHour, 0, 0, 0);
         
         if (now.getTime() < today.getTime()) {
-            // 当前时间在今天的开始时间之前，返回今天的结束时间
-            return today.getTime() + 24 * 60 * 60 * 1000;
+            return today.getTime() + DAY_MS;
         } else {
-            // 当前时间在今天的开始时间之后，返回明天的开始时间
-            return today.getTime() + 24 * 60 * 60 * 1000;
+            return today.getTime() + DAY_MS;
         }
+    }
+
+    /**
+     * 判断卡片是否仍处于当前队列的活跃窗口内。
+     *
+     * 基类默认语义是 today-window；特殊队列应覆写它来表达自身的
+     * membership / retention 规则。
+     */
+    protected isCardInActiveWindow(card: FSRSCard, now = Date.now()): boolean {
+        const due = Number(card.due);
+        if (!Number.isFinite(due) || due <= 0) {
+            return false;
+        }
+
+        return due <= this.getCurrentDayEnd(this.getDayStartHour(), now);
+    }
+
+    protected buildDefaultOrder(cards: FSRSCard[], options: QueueDefaultOrderOptions = {}): FSRSCard[] {
+        const now = Number.isFinite(options.now) ? Number(options.now) : Date.now();
+        const mode = options.mode ?? 'due-priority';
+        return PriorityQueueService.sortCards(cards, {
+            mode,
+            randomization: mode === 'priority-due'
+                ? (options.randomization ?? this.getPriorityRandomness())
+                : 0,
+            stableSalt: `${this.type}:${this.getCurrentDayEnd(this.getDayStartHour(), now)}`,
+        });
     }
     
     /**
@@ -954,7 +972,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         if (compareFn) {
             this.cards.sort(compareFn);
         } else {
-            this.cards.sort((a, b) => a.due - b.due);
+            this.cards = this.buildDefaultOrder(this.cards);
         }
         this.cardsTrusted = true;
         this.invalidateSnapshotRows();
@@ -1022,14 +1040,15 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 按 due -> priority -> id 稳定排序
      */
     protected sortByDuePriority(cards: FSRSCard[]): FSRSCard[] {
-        return PriorityQueueService.sortByDueThenPriority(cards);
+        return this.buildDefaultOrder(cards, { mode: 'due-priority' });
     }
 
     /**
      * 按 priority -> due -> id 排序，并支持稳定的轻量随机扰动
      */
     protected sortByPriorityThenDue(cards: FSRSCard[]): FSRSCard[] {
-        return PriorityQueueService.sortByPriorityThenDue(cards, {
+        return this.buildDefaultOrder(cards, {
+            mode: 'priority-due',
             randomization: this.getPriorityRandomness(),
         });
     }

@@ -27,6 +27,13 @@ import type { Result } from '../../types/result';
 import { ok, err, isErr } from '../../types/result';
 import type { CardPersistenceDTO } from '../../infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '../../infrastructure/persistence/mappers/CardMapper';
+import {
+  buildLogicalCardKey,
+  buildLogicalXiuyuanKey,
+  chooseCanonicalXiuyuan,
+  mergeCardDTOsLocalFirst,
+  mergeXiuyuanSnapshots,
+} from './stability/logicalKeys';
 import { createLogger } from '@/utils/logger';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 
@@ -223,6 +230,69 @@ export class UnifiedStorageManager {
     }
 
     return xiuyuanLookup[xiuyuanId];
+  }
+
+  private getXiuyuanEntries(lookup: XiuyuanLookup = this.xiuyuans): Array<[string, IXiuyuan]> {
+    return lookup instanceof Map ? Array.from(lookup.entries()) : Object.entries(lookup);
+  }
+
+  private getCardDTOEntries(
+    cardDTOs: Map<string, CardPersistenceDTO> | Record<string, CardPersistenceDTO> = this.cardDTOs,
+  ): Array<[string, CardPersistenceDTO]> {
+    return cardDTOs instanceof Map ? Array.from(cardDTOs.entries()) : Object.entries(cardDTOs);
+  }
+
+  private resolveCanonicalXiuyuanSnapshot(
+    incomingXiuyuan: IXiuyuan,
+    lookup: XiuyuanLookup = this.xiuyuans,
+  ): IXiuyuan {
+    const logicalKey = buildLogicalXiuyuanKey(incomingXiuyuan);
+    const candidates = this.getXiuyuanEntries(lookup)
+      .map(([, xiuyuan]) => xiuyuan)
+      .filter((candidate) => buildLogicalXiuyuanKey(candidate) === logicalKey);
+
+    if (candidates.length === 0) {
+      return incomingXiuyuan;
+    }
+
+    const canonical = chooseCanonicalXiuyuan([...candidates, incomingXiuyuan]);
+    if (canonical.id === incomingXiuyuan.id) {
+      return incomingXiuyuan;
+    }
+
+    return mergeXiuyuanSnapshots(canonical, incomingXiuyuan).value;
+  }
+
+  private findExistingCardDTOByLogicalKey(
+    dto: CardPersistenceDTO,
+    xiuyuan: IXiuyuan,
+    options: {
+      excludeId?: string;
+      xiuyuanLookup?: XiuyuanLookup;
+      cardDTOs?: Map<string, CardPersistenceDTO> | Record<string, CardPersistenceDTO>;
+    } = {},
+  ): { id: string; dto: CardPersistenceDTO; xiuyuan: IXiuyuan | undefined } | null {
+    const xiuyuanLookup = options.xiuyuanLookup ?? this.xiuyuans;
+    const excludeId = String(options.excludeId || '').trim();
+    const targetLogicalKey = buildLogicalCardKey(dto, xiuyuan);
+
+    for (const [candidateId, candidateDto] of this.getCardDTOEntries(options.cardDTOs ?? this.cardDTOs)) {
+      if (excludeId && candidateId === excludeId) {
+        continue;
+      }
+
+      const candidateXiuyuan = this.getXiuyuanFromLookup(candidateDto.xiuyuanID, xiuyuanLookup);
+      const candidateLogicalKey = buildLogicalCardKey(candidateDto, candidateXiuyuan);
+      if (candidateLogicalKey === targetLogicalKey) {
+        return {
+          id: candidateId,
+          dto: candidateDto,
+          xiuyuan: candidateXiuyuan,
+        };
+      }
+    }
+
+    return null;
   }
 
   private toDomainCard(
@@ -433,7 +503,9 @@ export class UnifiedStorageManager {
         if (!skipPersist) {
           const storeData = this.prepareStoreForPersist(storeToPersist, remoteStore);
           await this.saveCallback(storeData);
-          this.captureSnapshotFromStore(storeData);
+          this.applyStoreSnapshot(storeData);
+        } else if (remoteStore) {
+          this.applyStoreSnapshot(remoteStore);
         }
 
         this.dirty = false;
@@ -627,39 +699,64 @@ export class UnifiedStorageManager {
     localCard: CardPersistenceDTO,
     remoteCard: CardPersistenceDTO
   ): CardPersistenceDTO {
-    const localUpdatedAt = this.toNumber(localCard.updatedAt);
-    const remoteUpdatedAt = this.toNumber(remoteCard.updatedAt);
-
-    if (localUpdatedAt > remoteUpdatedAt) {
-      return JSON.parse(JSON.stringify(localCard)) as CardPersistenceDTO;
-    }
-    if (remoteUpdatedAt > localUpdatedAt) {
-      return JSON.parse(JSON.stringify(remoteCard)) as CardPersistenceDTO;
-    }
-
-    const localCreatedAt = this.toNumber(localCard.createdAt);
-    const remoteCreatedAt = this.toNumber(remoteCard.createdAt);
-    return localCreatedAt >= remoteCreatedAt
-      ? JSON.parse(JSON.stringify(localCard)) as CardPersistenceDTO
-      : JSON.parse(JSON.stringify(remoteCard)) as CardPersistenceDTO;
+    return mergeCardDTOsLocalFirst(localCard, remoteCard, {
+      canonicalXiuyuanId: String(localCard.xiuyuanID || remoteCard.xiuyuanID || '').trim() || undefined,
+    }).value;
   }
 
   private chooseMostRecentXiuyuan(localXiuyuan: IXiuyuan, remoteXiuyuan: IXiuyuan): IXiuyuan {
-    const localUpdatedAt = this.toNumber(localXiuyuan.updatedAt);
-    const remoteUpdatedAt = this.toNumber(remoteXiuyuan.updatedAt);
+    const preferred = chooseCanonicalXiuyuan([localXiuyuan, remoteXiuyuan]);
+    const incoming = preferred === localXiuyuan ? remoteXiuyuan : localXiuyuan;
+    return mergeXiuyuanSnapshots(preferred, incoming).value;
+  }
 
-    if (localUpdatedAt > remoteUpdatedAt) {
-      return JSON.parse(JSON.stringify(localXiuyuan)) as IXiuyuan;
-    }
-    if (remoteUpdatedAt > localUpdatedAt) {
-      return JSON.parse(JSON.stringify(remoteXiuyuan)) as IXiuyuan;
+  private normalizeDuplicateXiuyuans(
+    cardDTOs: Record<string, CardPersistenceDTO>,
+    xiuyuans: Record<string, IXiuyuan>,
+  ): { mergedXiuyuanIds: string[]; duplicateGroupCount: number } {
+    const groups = new Map<string, IXiuyuan[]>();
+    for (const xiuyuan of Object.values(xiuyuans)) {
+      const logicalKey = buildLogicalXiuyuanKey(xiuyuan);
+      const group = groups.get(logicalKey) ?? [];
+      group.push(xiuyuan);
+      groups.set(logicalKey, group);
     }
 
-    const localCreatedAt = this.toNumber(localXiuyuan.createdAt);
-    const remoteCreatedAt = this.toNumber(remoteXiuyuan.createdAt);
-    return localCreatedAt >= remoteCreatedAt
-      ? JSON.parse(JSON.stringify(localXiuyuan)) as IXiuyuan
-      : JSON.parse(JSON.stringify(remoteXiuyuan)) as IXiuyuan;
+    const mergedXiuyuanIds: string[] = [];
+    let duplicateGroupCount = 0;
+
+    for (const group of groups.values()) {
+      if (group.length <= 1) {
+        continue;
+      }
+
+      duplicateGroupCount += 1;
+      const canonicalXiuyuan = chooseCanonicalXiuyuan(group);
+      let mergedCanonical = canonicalXiuyuan;
+
+      for (const candidate of group) {
+        if (candidate.id === canonicalXiuyuan.id) {
+          continue;
+        }
+
+        mergedCanonical = mergeXiuyuanSnapshots(mergedCanonical, candidate).value;
+        for (const dto of Object.values(cardDTOs)) {
+          if (dto.xiuyuanID === candidate.id) {
+            dto.xiuyuanID = canonicalXiuyuan.id;
+          }
+        }
+
+        delete xiuyuans[candidate.id];
+        mergedXiuyuanIds.push(candidate.id);
+      }
+
+      xiuyuans[canonicalXiuyuan.id] = mergedCanonical;
+    }
+
+    return {
+      mergedXiuyuanIds,
+      duplicateGroupCount,
+    };
   }
 
   private normalizeXiuyuanDuplicateCards(
@@ -762,6 +859,15 @@ export class UnifiedStorageManager {
 
     for (const [id, dto] of Object.entries(sourceCardDTOs)) {
       cardDTOs[id] = JSON.parse(JSON.stringify(dto)) as CardPersistenceDTO;
+    }
+
+    const xiuyuanNormalization = this.normalizeDuplicateXiuyuans(cardDTOs, xiuyuans);
+    if (xiuyuanNormalization.mergedXiuyuanIds.length > 0) {
+      logger.info('[UnifiedStorageManager] Normalized duplicate Xiuyuan block bindings', {
+        duplicateGroupCount: xiuyuanNormalization.duplicateGroupCount,
+        mergedXiuyuanCount: xiuyuanNormalization.mergedXiuyuanIds.length,
+        mergedXiuyuanIdsSample: xiuyuanNormalization.mergedXiuyuanIds.slice(0, 10),
+      });
     }
 
     const normalization = this.normalizeXiuyuanDuplicateCards(cardDTOs, xiuyuans);
@@ -1107,87 +1213,16 @@ export class UnifiedStorageManager {
      */
     async batchCreateCards(xiuyuan: IXiuyuan, cards: FSRSCard[]): Promise<Result<void>> {
       return this.runWriteMutation('batchCreateCards', async () => {
-      // 楠岃瘉杈撳叆
-      if (!xiuyuan || !xiuyuan.id) {
-        return err(new Error('Invalid xiuyuan: missing id'));
-      }
-      if (!cards || cards.length === 0) {
-        return err(new Error('Invalid cards: empty array'));
-      }
-
-      // 楠岃瘉鎵€鏈夊崱鐗?
-      for (const card of cards) {
-        if (!card.id) {
-          return err(new Error('Invalid card: missing id'));
-        }
-        const cardXiuyuanID = card.xiuyuanID;
-        if (cardXiuyuanID && cardXiuyuanID !== xiuyuan.id) {
-          return err(new Error(`Card ${card.id} xiuyuanID mismatch: expected ${xiuyuan.id}, got ${cardXiuyuanID}`));
-        }
-        if (this.cardDTOs.has(card.id)) {
-          return err(new Error(`Card ${card.id} already exists`));
-        }
-      }
-
-      // 淇濆瓨鍘熷鐘舵€佺敤浜庡洖婊?
-      const xiuyuanExisted = this.xiuyuans.has(xiuyuan.id);
-      const originalXiuyuan = xiuyuanExisted ? this.xiuyuans.get(xiuyuan.id) : undefined;
-
-      // 淇濆瓨鍘熷绱㈠紩鐘舵€侊紙鐢ㄤ簬鍥炴粴锛?
-      const originalIndexByBlockID = this.cloneStringIndexMap(this.indexByBlockID);
-      const originalIndexByXiuyuanID = this.cloneStringIndexMap(this.indexByXiuyuanID);
-      const originalIndexByType = this.cloneStringIndexMap(this.indexByType);
-      const originalIndexByState = this.cloneStringIndexMap(this.indexByState);
-      const originalIndexByPriority = this.cloneStringIndexMap(this.indexByPriority);
-      const originalIndexByDue = [...this.indexByDue];
-
       try {
-        // 1. 淇濆瓨 XiuYuan锛堝鏋滀笉瀛樺湪锛?
-        if (!xiuyuanExisted) {
-          this.xiuyuans.set(xiuyuan.id, xiuyuan);
-        }
-
-        // 2. 鎵归噺淇濆瓨 Cards锛堣浆鎹负 DTO锛?
         for (const card of cards) {
-          const dto = CardMapper.toPersistence(card);
-          this.cardDTOs.set(dto.id, dto);
+          const result = await this.createCard(xiuyuan, card);
+          if (isErr(result)) {
+            return result;
+          }
         }
-
-        // 3. 涓€娆℃€ф洿鏂版墍鏈夌储寮?
-        for (const card of cards) {
-          this.updateIndexesForCard(card, 'add');
-        }
-
-        // 4. 閲嶆柊鎺掑簭 due 绱㈠紩锛堝彧鎺掑簭涓€娆★級
-        this.indexByDue.sort((a, b) => a.due - b.due);
-
-        // 5. 璋冨害淇濆瓨锛堝彧淇濆瓨涓€娆★級
-        this.scheduleSave();
 
         return ok(undefined);
       } catch (error) {
-        // 鍥炴粴鎵€鏈夋洿鏀?
-
-        // 鍥炴粴 XiuYuan
-        if (!xiuyuanExisted) {
-          this.xiuyuans.delete(xiuyuan.id);
-        } else if (originalXiuyuan) {
-          this.xiuyuans.set(xiuyuan.id, originalXiuyuan);
-        }
-
-        // 鍥炴粴 Cards
-        for (const card of cards) {
-          this.cardDTOs.delete(card.id);
-        }
-
-        // 鍥炴粴绱㈠紩
-        this.indexByBlockID = originalIndexByBlockID;
-        this.indexByXiuyuanID = originalIndexByXiuyuanID;
-        this.indexByType = originalIndexByType;
-        this.indexByState = originalIndexByState;
-        this.indexByPriority = originalIndexByPriority;
-        this.indexByDue = originalIndexByDue;
-
         return err(error instanceof Error ? error : new Error(String(error)));
       }
       });
@@ -1203,16 +1238,40 @@ export class UnifiedStorageManager {
     async createCardDTO(xiuyuan: IXiuyuan, dto: CardPersistenceDTO): Promise<Result<void>> {
       return this.runWriteMutation('createCardDTO', async () => {
       try {
-        // 淇濆瓨 XiuYuan锛堝鏋滀笉瀛樺湪锛?
-        if (!this.xiuyuans.has(xiuyuan.id)) {
-          this.xiuyuans.set(xiuyuan.id, xiuyuan);
+        const canonicalXiuyuan = this.resolveCanonicalXiuyuanSnapshot(xiuyuan);
+        const normalizedDto: CardPersistenceDTO = {
+          ...dto,
+          xiuyuanID: canonicalXiuyuan.id,
+          meta: {
+            ...(dto.meta || {}),
+            xiuyuanID: canonicalXiuyuan.id,
+          },
+        };
+
+        const existingXiuyuan = this.xiuyuans.get(canonicalXiuyuan.id);
+        this.xiuyuans.set(
+          canonicalXiuyuan.id,
+          existingXiuyuan
+            ? mergeXiuyuanSnapshots(existingXiuyuan, canonicalXiuyuan).value
+            : canonicalXiuyuan,
+        );
+
+        const existingById = this.cardDTOs.get(normalizedDto.id);
+        if (existingById) {
+          return await this.updateCardDTO(mergeCardDTOsLocalFirst(existingById, normalizedDto, {
+            canonicalXiuyuanId: canonicalXiuyuan.id,
+          }).value);
         }
 
-        // 淇濆瓨 DTO
-        this.cardDTOs.set(dto.id, dto);
+        const logicalDuplicate = this.findExistingCardDTOByLogicalKey(normalizedDto, canonicalXiuyuan);
+        if (logicalDuplicate) {
+          return await this.updateCardDTO(mergeCardDTOsLocalFirst(logicalDuplicate.dto, normalizedDto, {
+            canonicalXiuyuanId: canonicalXiuyuan.id,
+          }).value);
+        }
 
-        // 鏇存柊绱㈠紩锛堜娇鐢?DTO 鐨勯《灞傚瓧娈碉級
-        this.updateIndexesForDTO(dto, 'add');
+        this.cardDTOs.set(normalizedDto.id, normalizedDto);
+        this.updateIndexesForDTO(normalizedDto, 'add');
 
         // 閲嶆柊鎺掑簭 due 绱㈠紩浠ヤ繚鎸佷竴鑷存€?
         this.indexByDue.sort((a, b) => a.due - b.due);
@@ -1253,12 +1312,63 @@ export class UnifiedStorageManager {
           return err(new Error(`Card not found: ${dto.id}`));
         }
 
+        const xiuyuanId = String(dto.xiuyuanID || oldDTO.xiuyuanID || '').trim();
+        const currentXiuyuan = xiuyuanId ? this.xiuyuans.get(xiuyuanId) : undefined;
+        const canonicalXiuyuan = currentXiuyuan
+          ? this.resolveCanonicalXiuyuanSnapshot(currentXiuyuan)
+          : undefined;
+        const canonicalXiuyuanId = canonicalXiuyuan?.id || xiuyuanId || undefined;
+        if (canonicalXiuyuan && canonicalXiuyuanId) {
+          const existingXiuyuan = this.xiuyuans.get(canonicalXiuyuanId);
+          this.xiuyuans.set(
+            canonicalXiuyuanId,
+            existingXiuyuan
+              ? mergeXiuyuanSnapshots(existingXiuyuan, canonicalXiuyuan).value
+              : canonicalXiuyuan,
+          );
+        }
+
+        const normalizedDto: CardPersistenceDTO = {
+          ...dto,
+          xiuyuanID: canonicalXiuyuanId,
+          meta: canonicalXiuyuanId
+            ? {
+                ...(dto.meta || {}),
+                xiuyuanID: canonicalXiuyuanId,
+              }
+            : dto.meta,
+        };
+
+        const logicalDuplicate = canonicalXiuyuan
+          ? this.findExistingCardDTOByLogicalKey(normalizedDto, canonicalXiuyuan, {
+              excludeId: dto.id,
+            })
+          : null;
+
+        if (logicalDuplicate) {
+          const merged = mergeCardDTOsLocalFirst(logicalDuplicate.dto, normalizedDto, {
+            canonicalXiuyuanId,
+          }).value;
+
+          this.updateIndexesForDTO(oldDTO, 'remove');
+          this.cardDTOs.delete(oldDTO.id);
+
+          this.updateIndexesForDTO(logicalDuplicate.dto, 'remove');
+          this.cardDTOs.delete(logicalDuplicate.id);
+
+          this.cardDTOs.set(merged.id, merged);
+          this.updateIndexesForDTO(merged, 'add');
+          this.indexByDue.sort((a, b) => a.due - b.due);
+          this.scheduleSave();
+          return ok(undefined);
+        }
+
         logger.info('[UnifiedStorageManager] updateCardDTO - Before update:', {
-          cardId: dto.id,
+          cardId: normalizedDto.id,
           oldPriority: oldDTO.priority,
-          newPriority: dto.priority,
+          newPriority: normalizedDto.priority,
           oldDTOKeys: Object.keys(oldDTO).length,
-          newDTOKeys: Object.keys(dto).length,
+          newDTOKeys: Object.keys(normalizedDto).length,
           cardDTOsType: typeof this.cardDTOs,
           cardDTOsSize: this.cardDTOs?.size,
         });
@@ -1267,16 +1377,16 @@ export class UnifiedStorageManager {
         this.updateIndexesForDTO(oldDTO, 'remove');
 
         // 鏇存柊 DTO
-        this.cardDTOs.set(dto.id, dto);
+        this.cardDTOs.set(normalizedDto.id, normalizedDto);
 
         logger.info('[UnifiedStorageManager] updateCardDTO - After update:', {
-          cardId: dto.id,
-          newPriority: dto.priority,
+          cardId: normalizedDto.id,
+          newPriority: normalizedDto.priority,
           cardDTOsSize: this.cardDTOs.size,
         });
 
         // 娣诲姞鏂扮储寮?
-        this.updateIndexesForDTO(dto, 'add');
+        this.updateIndexesForDTO(normalizedDto, 'add');
 
         // 閲嶆柊鎺掑簭 due 绱㈠紩
         this.indexByDue.sort((a, b) => a.due - b.due);
@@ -1298,85 +1408,16 @@ export class UnifiedStorageManager {
      */
     async batchCreateCardsDTO(xiuyuan: IXiuyuan, dtos: CardPersistenceDTO[]): Promise<Result<void>> {
       return this.runWriteMutation('batchCreateCardsDTO', async () => {
-      // 楠岃瘉杈撳叆
-      if (!xiuyuan || !xiuyuan.id) {
-        return err(new Error('Invalid xiuyuan: missing id'));
-      }
-      if (!dtos || dtos.length === 0) {
-        return err(new Error('Invalid dtos: empty array'));
-      }
-
-      // 楠岃瘉鎵€鏈?DTO
-      for (const dto of dtos) {
-        if (!dto.id) {
-          return err(new Error('Invalid dto: missing id'));
-        }
-        if (dto.xiuyuanID && dto.xiuyuanID !== xiuyuan.id) {
-          return err(new Error(`DTO ${dto.id} xiuyuanID mismatch: expected ${xiuyuan.id}, got ${dto.xiuyuanID}`));
-        }
-        if (this.cardDTOs.has(dto.id)) {
-          return err(new Error(`Card ${dto.id} already exists`));
-        }
-      }
-
-      // 淇濆瓨鍘熷鐘舵€佺敤浜庡洖婊?
-      const xiuyuanExisted = this.xiuyuans.has(xiuyuan.id);
-      const originalXiuyuan = xiuyuanExisted ? this.xiuyuans.get(xiuyuan.id) : undefined;
-
-      // 淇濆瓨鍘熷绱㈠紩鐘舵€侊紙鐢ㄤ簬鍥炴粴锛?
-      const originalIndexByBlockID = this.cloneStringIndexMap(this.indexByBlockID);
-      const originalIndexByXiuyuanID = this.cloneStringIndexMap(this.indexByXiuyuanID);
-      const originalIndexByType = this.cloneStringIndexMap(this.indexByType);
-      const originalIndexByState = this.cloneStringIndexMap(this.indexByState);
-      const originalIndexByPriority = this.cloneStringIndexMap(this.indexByPriority);
-      const originalIndexByDue = [...this.indexByDue];
-
       try {
-        // 1. 淇濆瓨 XiuYuan锛堝鏋滀笉瀛樺湪锛?
-        if (!xiuyuanExisted) {
-          this.xiuyuans.set(xiuyuan.id, xiuyuan);
-        }
-
-        // 2. 鎵归噺淇濆瓨 DTOs
         for (const dto of dtos) {
-          this.cardDTOs.set(dto.id, dto);
+          const result = await this.createCardDTO(xiuyuan, dto);
+          if (isErr(result)) {
+            return result;
+          }
         }
-
-        // 3. 涓€娆℃€ф洿鏂版墍鏈夌储寮?
-        for (const dto of dtos) {
-          this.updateIndexesForDTO(dto, 'add');
-        }
-
-        // 4. 閲嶆柊鎺掑簭 due 绱㈠紩锛堝彧鎺掑簭涓€娆★級
-        this.indexByDue.sort((a, b) => a.due - b.due);
-
-        // 5. 璋冨害淇濆瓨锛堝彧淇濆瓨涓€娆★級
-        this.scheduleSave();
 
         return ok(undefined);
       } catch (error) {
-        // 鍥炴粴鎵€鏈夋洿鏀?
-
-        // 鍥炴粴 XiuYuan
-        if (!xiuyuanExisted) {
-          this.xiuyuans.delete(xiuyuan.id);
-        } else if (originalXiuyuan) {
-          this.xiuyuans.set(xiuyuan.id, originalXiuyuan);
-        }
-
-        // 鍥炴粴 DTOs
-        for (const dto of dtos) {
-          this.cardDTOs.delete(dto.id);
-        }
-
-        // 鍥炴粴绱㈠紩
-        this.indexByBlockID = originalIndexByBlockID;
-        this.indexByXiuyuanID = originalIndexByXiuyuanID;
-        this.indexByType = originalIndexByType;
-        this.indexByState = originalIndexByState;
-        this.indexByPriority = originalIndexByPriority;
-        this.indexByDue = originalIndexByDue;
-
         return err(error instanceof Error ? error : new Error(String(error)));
       }
       });

@@ -690,7 +690,7 @@
   "filterPostpones": "推迟次数",
   "keywordSearch": "关键词搜索",
   "keywordSearchPlaceholder": "输入关键词筛选卡片内容...",
-  "filterRebuildTitle": "清除已复习的卡片，使用当前过滤条件重新加载",
+  "filterRebuildTitle": "清除临时隐藏的卡片，使用当前过滤条件重新加载",
   "noDueCard": "没有到期卡片",
   "lessThan1Minute": "< 1 分钟",
   "minutes": "分钟",

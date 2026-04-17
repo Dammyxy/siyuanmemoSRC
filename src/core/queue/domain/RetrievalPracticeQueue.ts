@@ -237,33 +237,13 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
         });
     }
     
-    /**
-     * 判断卡片是否应该从队列移除
-     * 
-     * SuperMemo 风格的手动添加逻辑：
-     * - 手动添加的卡片：评分后立即移除（已经提前练习过了）
-     * - 普通到期卡片：按基类逻辑判断（due 超过今天或 scheduledDays >= 1）
-     * 
-     * 设计理念：
-     * - 手动添加 = "提前复习"，不改变原有到期时间
-     * - 评分会影响 FSRS 参数（stability, difficulty）
-     * - 但不会改变原定的复习日期
-     * - 评分后从队列移除，避免重复出现
-     * 
-     * @param card 卡片
-     * @returns true 表示应该移除，false 表示保留
-     * @see SuperMemo "Add to outstanding" 功能
-     * @see H:\project-F\flashcard\资料\supermemo\Add to outstanding - SuperMemo Help.md
-     */
-    protected shouldRemoveFromQueue(card: FSRSCard): boolean {
-        // 手动添加的卡片：评分后立即移除
+    protected override isCardInActiveWindow(card: FSRSCard, now = Date.now()): boolean {
         if (this.manualCards.has(card.id)) {
-            logger.debug(`shouldRemoveFromQueue: Card ${card.id} is manually added, will be removed after review`);
-            return true;
+            logger.debug(`isCardInActiveWindow: Card ${card.id} is manually added, remove after review`);
+            return false;
         }
-        
-        // 普通卡片：使用基类逻辑
-        return super.shouldRemoveFromQueue(card);
+
+        return Number(card.due) <= this.getCurrentDayEnd(this.getDayStartHour(), now);
     }
 
     private async resolveTargetCardForAdd(

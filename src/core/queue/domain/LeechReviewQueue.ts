@@ -58,16 +58,24 @@ export class LeechReviewQueue extends ManualCardCollectionQueue {
         const isManuallyAdded = this.manualCards.has(card.id);
         const isBlacklisted = this.temporaryBlacklist.has(card.id) || this.temporaryBlacklist.has(card.blockId);
         return (isLeech || isManuallyAdded) && !isBlacklisted;
-      })
-      .sort((a, b) => {
-        const lapseDiff = Number(b.lapses || 0) - Number(a.lapses || 0);
-        if (lapseDiff !== 0) return lapseDiff;
-        const dueDiff = Number(a.due || 0) - Number(b.due || 0);
-        if (dueDiff !== 0) return dueDiff;
-        return Number(b.priority || 0) - Number(a.priority || 0);
       });
 
-    return this.cacheResolvedCards(this.applyCustomOrder(filtered), 'reconciled');
+    return this.cacheResolvedCards(this.applyCustomOrder(this.buildDefaultOrder(filtered)), 'reconciled');
+  }
+
+  protected override buildDefaultOrder(cards: FSRSCard[]): FSRSCard[] {
+    return [...cards].sort((a, b) => {
+      const lapseDiff = Number(b.lapses || 0) - Number(a.lapses || 0);
+      if (lapseDiff !== 0) return lapseDiff;
+
+      const dueDiff = Number(a.due || 0) - Number(b.due || 0);
+      if (dueDiff !== 0) return dueDiff;
+
+      const priorityDiff = Number(b.priority || 0) - Number(a.priority || 0);
+      if (priorityDiff !== 0) return priorityDiff;
+
+      return String(a.id || '').localeCompare(String(b.id || ''));
+    });
   }
 
   public async addCard(card: FSRSCard | QueueItem | string): Promise<void> {

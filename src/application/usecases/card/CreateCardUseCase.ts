@@ -115,6 +115,18 @@ export class CreateCardUseCase {
     }
 
     const xiuyuan = xiuyuanResult.value;
+    const existingCardResult = await this.findExistingLogicalCard(xiuyuan);
+    if (isErr(existingCardResult)) {
+      return existingCardResult;
+    }
+    if (existingCardResult.value) {
+      logger.info('CreateCardUseCase reused existing logical card', {
+        representativeBlockId: xiuyuan.getRepresentativeBlockId(),
+        xiuyuanId: xiuyuan.getId().getValue(),
+        cardId: existingCardResult.value.getId().getValue(),
+      });
+      return ok(existingCardResult.value);
+    }
 
     // 6. 使用 CardCreationService 创建卡片
     // 默认为第一个面创建卡片
@@ -138,6 +150,45 @@ export class CreateCardUseCase {
 
     // 9. 返回创建的卡片
     return ok(card);
+  }
+
+  private async findExistingLogicalCard(xiuyuan: Xiuyuan): Promise<Result<Card | null>> {
+    const representativeBlockId = xiuyuan.getRepresentativeBlockId().trim();
+    if (!representativeBlockId) {
+      return ok(null);
+    }
+
+    const blockIdResult = BlockId.create(representativeBlockId);
+    if (isErr(blockIdResult)) {
+      return err(blockIdResult.error);
+    }
+
+    const xiuyuanResult = await this.xiuyuanRepo.findByBlockId(blockIdResult.value);
+    if (isErr(xiuyuanResult)) {
+      return err(xiuyuanResult.error);
+    }
+
+    const matchingXiuyuans = xiuyuanResult.value
+      .filter((candidate) => candidate.getRepresentativeBlockId() === representativeBlockId)
+      .sort((left, right) => left.getId().getValue().localeCompare(right.getId().getValue()));
+
+    for (const candidate of matchingXiuyuans) {
+      const cards = candidate.getCards()
+        .slice()
+        .sort((left, right) => {
+          const faceIndexDiff = left.getFaceIndex() - right.getFaceIndex();
+          if (faceIndexDiff !== 0) {
+            return faceIndexDiff;
+          }
+          return left.getId().getValue().localeCompare(right.getId().getValue());
+        });
+      const preferredCard = cards.find((card) => card.getFaceIndex() === 0) ?? cards[0] ?? null;
+      if (preferredCard) {
+        return ok(preferredCard);
+      }
+    }
+
+    return ok(null);
   }
 
   /**

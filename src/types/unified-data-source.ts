@@ -708,12 +708,17 @@ export interface IReviewQueue {
     /**
      * 获取队列中的所有卡片
      * 
+     * 返回队列的真实可见顺序，而不是浏览器列排序后的视图顺序。
+     *
      * @returns 卡片数组
      */
     getCards(): Promise<FSRSCard[]>;
 
     /**
      * 获取当前队列可见卡片的轻量快照行。
+     *
+     * 快照顺序必须与队列真实顺序一致；浏览器如果需要按列排序，
+     * 只能在快照副本上做 view-only 排序。
      */
     getSnapshotRows(forceRefresh?: boolean): Promise<QueueSnapshotRow[]>;
 
@@ -830,7 +835,8 @@ export interface IReviewQueue {
     /**
      * 判断是否为动态队列
      * 
-     * 动态队列自动获取到期卡片，静态队列仅包含手动管理的卡片。
+     * 动态队列会根据自身语义自动重建可见集合；
+     * 静态队列仅包含持久化管理的成员。
      * 
      * @returns true 表示动态队列，false 表示静态队列
      */
@@ -858,6 +864,9 @@ export interface IReviewQueue {
     
     /**
      * 排序队列
+     *
+     * 仅用于重建队列自己的默认顺序或执行明确的队列内排序，
+     * 不承接浏览器列排序。
      */
     sort(compareFn?: (a: FSRSCard, b: FSRSCard) => number): Promise<void>;
     
@@ -885,11 +894,11 @@ export interface IReviewQueue {
      * 重新排序队列
      * 
      * 根据提供的卡片顺序重新排列队列中的卡片。
-     * 这个方法用于支持浏览器中的排序功能，允许用户自定义队列顺序。
+     * 这个方法只用于明确的手动重排动作，不能被浏览器列排序隐式触发。
      * 
      * 实现说明：
-     * - 动态队列：支持临时排序覆盖，影响 getCards() 的返回顺序（不持久化）
-     * - 静态队列：支持持久化排序，永久改变队列顺序
+     * - 动态队列：支持临时排序覆盖，影响 getCards() 的真实返回顺序（不持久化）
+     * - 静态队列：支持持久化排序，永久改变真实队列顺序
      * 
      * @param orderedCards 按新顺序排列的卡片数组
      * @returns true 表示重排序成功，false 表示不支持或失败
@@ -900,8 +909,8 @@ export interface IReviewQueue {
      * 清除自定义排序
      * 
      * 恢复到默认排序：
-     * - 动态队列：按算法排序（到期日期、优先级等）
-     * - 静态队列：按添加顺序
+     * - 动态队列：回到算法/队列语义定义的默认顺序
+     * - 静态队列：回到持久化条目顺序
      */
     clearCustomOrder(): void;
 

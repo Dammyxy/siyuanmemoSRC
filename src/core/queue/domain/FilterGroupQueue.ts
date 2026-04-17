@@ -7,8 +7,8 @@
  * 核心功能：
  * - 根据过滤条件自动获取卡片
  * - 支持手动添加未到期卡片
- * - 按到期日期和优先级排序
- * - 评分 3/4 移除卡片，1/2 保留并添加到最终训练
+ * - 按稳定默认顺序展示过滤结果
+ * - 复习后按当前 filter 决定是否继续留队
  * - 持久化手动添加的卡片列表
  * 
  * @see .kiro/specs/unified-data-source-architecture/requirements.md
@@ -28,9 +28,12 @@ import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceMana
 import type { AutoFailedCardSinkPort, QueuePersistencePort } from './ports';
 import { NOOP_AUTO_FAILED_CARD_SINK } from './ports';
 import { loadQueueState, saveQueueState } from './queuePersistence';
+import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FilterGroupQueue');
+const cardFilterService = new CardFilterService();
 
 function cloneCardFilter(filter: CardFilter): CardFilter {
     try {
@@ -72,8 +75,8 @@ interface FilterGroupQueueData {
  * - 根据过滤条件自动获取卡片
  * - 支持手动添加卡片（包括未到期卡片）
  * - 手动添加的卡片会被持久化
- * - 评分 3/4：更新到期日期，从队列移除
- * - 评分 1/2：保持今天到期，保留在队列中，自动添加到最终训练
+ * - 复习后是否留队完全由当前过滤条件决定
+ * - 显式 remove/blacklist 仍然优先于过滤条件
  * 
  * @see 需求 5.3, 7.5, 7.6, 9.3
  */
@@ -210,7 +213,7 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      * 2. 获取手动添加的卡片
      * 3. 合并并去重
      * 4. 过滤临时黑名单中的卡片
-     * 5. 按到期日期和优先级排序
+     * 5. 按稳定默认顺序排序
      * 6. 应用自定义排序（如果存在）
      * 
      * @returns 卡片数组
@@ -283,8 +286,9 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      * 处理卡片复习
      * 
      * 复习逻辑：
-     * - 评分 3/4：使用调度器更新卡片状态，从队列移除
-     * - 评分 1/2：使用调度器更新卡片状态，根据新日期决定是否保留，并自动添加到最终训练
+     * - 使用调度器更新卡片状态
+     * - 评分 < 3 自动添加到最终训练
+     * - 复习后是否留队，按当前 filter 镜像判断，而不是按 today-window 启发式
      * 
      * 使用基类的 handleReviewWithScheduler() 方法处理调度器集成。
      * 
@@ -300,6 +304,23 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             autoFailedSink: this.autoFailedSink,
             logEscalation: true,
         });
+    }
+
+    protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
+        await this.removeCardFromCollection(cardIdOrBlockId, {
+            logger,
+            addToTemporaryBlacklist: false,
+            persist: async () => this.save(),
+            persistAfterError: async () => this.save(),
+        });
+    }
+
+    protected override isCardInActiveWindow(card: FSRSCard, _now = Date.now()): boolean {
+        if (this.temporaryBlacklist.has(card.id) || this.temporaryBlacklist.has(card.blockId)) {
+            return false;
+        }
+
+        return this.matchesCurrentFilter(card);
     }
     
     /**
@@ -338,6 +359,81 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      */
     public getFilter(): CardFilter {
         return { ...this.cardFilter };
+    }
+
+    private matchesCurrentFilter(card: FSRSCard): boolean {
+        let filtered: FSRSCard[] = [card];
+        const filter: CardFilter = {
+            ...this.cardFilter,
+            includeSuspended: false,
+        };
+
+        if (filter.cardType) {
+            const requestedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
+            filtered = cardFilterService.filterByCardTypes(filtered, requestedTypes);
+        }
+
+        if (filter.blockIds?.length) {
+            filtered = cardFilterService.filterByBlockIds(filtered, filter.blockIds);
+        }
+
+        if (filter.scopeDocIds?.length) {
+            filtered = cardFilterService.filterByDocIds(filtered, filter.scopeDocIds);
+        }
+
+        if (filter.dueDate) {
+            filtered = cardFilterService.filterByDueDate(filtered, filter.dueDate);
+        }
+
+        if (filter.tags?.length) {
+            filtered = cardFilterService.filterByTags(filtered, filter.tags);
+        }
+
+        if (filter.priority) {
+            filtered = cardFilterService.filterByPriority(filtered, filter.priority);
+        }
+
+        if (filter.repetitions) {
+            filtered = cardFilterService.filterByRepetitions(filtered, filter.repetitions);
+        }
+
+        if (filter.lapses) {
+            filtered = cardFilterService.filterByLapses(filtered, filter.lapses);
+        }
+
+        if (filter.interval) {
+            filtered = cardFilterService.filterByInterval(filtered, filter.interval);
+        }
+
+        if (filter.lastReview) {
+            filtered = cardFilterService.filterByLastReview(filtered, filter.lastReview);
+        }
+
+        if (filter.difficulty) {
+            filtered = cardFilterService.filterByDifficulty(filtered, filter.difficulty);
+        }
+
+        if (filter.stability) {
+            filtered = cardFilterService.filterByStability(filtered, filter.stability);
+        }
+
+        if (filter.retrievability) {
+            filtered = cardFilterService.filterByRetrievability(filtered, filter.retrievability);
+        }
+
+        if (filter.cardStatus?.length) {
+            filtered = cardFilterService.filterByCardStatus(filtered, filter.cardStatus);
+        }
+
+        if (filter.keyword?.trim()) {
+            filtered = cardFilterService.filterByKeyword(filtered, filter.keyword.trim());
+        }
+
+        if (filter.includeSuspended === false) {
+            filtered = filtered.filter((candidate) => !isCardDismissed(candidate));
+        }
+
+        return filtered.length > 0;
     }
 
     public serializeSessionSnapshot(): FilterGroupQueueSessionSnapshot {
@@ -396,13 +492,13 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
     /**
      * 重新加载队列（Rebuild）
      * 
-     * 类似 Anki 的 Rebuild 功能：
+     * 使用当前保存的过滤条件重新构建可见集合：
      * - 使用当前保存的过滤条件重新加载卡片
-     * - 清除临时黑名单
+     * - 清除显式 remove 留下的临时黑名单
      * - 触发观察者通知
      * 
      * 使用场景：
-     * - 复习完后想再次复习相同范围的卡片
+     * - 想恢复被显式隐藏的卡片
      * - 修改过滤条件后重新加载
      * 
      * @see Anki Filtered Decks - Rebuild button

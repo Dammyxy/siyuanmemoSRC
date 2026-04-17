@@ -26,7 +26,7 @@ describe('CreateCardUseCase - 自动模板选择', () => {
     mockRepo = {
       save: vi.fn().mockResolvedValue(ok(undefined)),
       findById: vi.fn(),
-      findByBlockId: vi.fn(),
+      findByBlockId: vi.fn().mockResolvedValue(ok([])),
       findAll: vi.fn(),
       delete: vi.fn(),
       saveMany: vi.fn(),

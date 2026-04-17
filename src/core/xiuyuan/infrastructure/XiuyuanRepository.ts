@@ -44,6 +44,12 @@ import { UnifiedStorageManager } from '../../storage/UnifiedStorageManager';
 import { getBlockAttrs, setBlockAttrs } from '../../siyuan/api';
 import { ATTR_CARD_TYPE } from '../../siyuan/block';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
+import {
+  buildLogicalCardKey,
+  buildLogicalXiuyuanKey,
+  chooseCanonicalXiuyuan,
+  mergeXiuyuanSnapshots,
+} from '../../storage/stability/logicalKeys';
 import { createLogger } from '@/utils/logger';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
 
@@ -204,12 +210,13 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   private buildPersistedBindingAttrs(
     xiuyuan: Xiuyuan,
-    persistedCardType: 'topic' | 'item' | undefined
+    persistedCardType: 'topic' | 'item' | undefined,
+    boundXiuyuanId = xiuyuan.getId().getValue(),
   ): Record<string, string> | null {
     const attrs: Record<string, string> = {};
 
     if (!this.isManagedRiffXiuyuan(xiuyuan)) {
-      attrs['custom-xiuyuan-id'] = xiuyuan.getId().getValue();
+      attrs['custom-xiuyuan-id'] = boundXiuyuanId;
     }
 
     if (persistedCardType) {
@@ -217,6 +224,47 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     }
 
     return Object.keys(attrs).length > 0 ? attrs : null;
+  }
+
+  private resolveCanonicalPersistedXiuyuan(persistenceModel: IXiuyuan): IXiuyuan {
+    const logicalKey = buildLogicalXiuyuanKey(persistenceModel);
+    const existingCandidates = this.storage.getAllXiuYuans()
+      .filter((candidate) => buildLogicalXiuyuanKey(candidate) === logicalKey);
+
+    if (existingCandidates.length === 0) {
+      return persistenceModel;
+    }
+
+    const canonical = chooseCanonicalXiuyuan([...existingCandidates, persistenceModel]);
+    if (canonical.id === persistenceModel.id) {
+      return persistenceModel;
+    }
+
+    return mergeXiuyuanSnapshots(canonical, persistenceModel).value;
+  }
+
+  private applyCanonicalXiuyuanId(card: FSRSCard, xiuyuanId: string): FSRSCard {
+    return {
+      ...card,
+      xiuyuanID: xiuyuanId,
+      meta: {
+        ...(card.meta || {}),
+        xiuyuanID: xiuyuanId,
+      },
+    };
+  }
+
+  private findExistingCardForLogicalKey(card: FSRSCard, canonicalXiuyuan: IXiuyuan): FSRSCard | null {
+    const targetLogicalKey = buildLogicalCardKey(card, canonicalXiuyuan);
+    const existingCards = this.storage.getAllCards();
+    for (const existingCard of existingCards) {
+      const existingXiuyuan = this.storage.getXiuYuan(existingCard.xiuyuanID);
+      if (buildLogicalCardKey(existingCard, existingXiuyuan) === targetLogicalKey) {
+        return existingCard;
+      }
+    }
+
+    return null;
   }
 
   private traceAutoCard(event: string, payload: Record<string, unknown>): void {
@@ -262,30 +310,40 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   async save(xiuyuan: Xiuyuan): Promise<Result<void>> {
     return this.storage.runWriteTransaction('xiuyuan-repository.save', async () => {
     try {
-      const xiuyuanId = xiuyuan.getId().getValue();
       const persistedCardType = this.resolvePersistedCardType(xiuyuan);
       const blockIDs = xiuyuan.getBlockIDs();
       const representativeBlockId = xiuyuan.getRepresentativeBlockId();
       const isDescriptorTemplate = representativeBlockId !== blockIDs[0]?.getValue();
       
       // 1. 杞崲涓烘寔涔呭寲妯″瀷
-      const persistenceModel = this.toPersistenceWithId(xiuyuan);
+      const persistenceModel = this.resolveCanonicalPersistedXiuyuan(this.toPersistenceWithId(xiuyuan));
+      const xiuyuanId = persistenceModel.id;
       
       // 2. 妫€鏌ユ槸鍚﹀凡瀛樺湪
       const existing = this.storage.getXiuYuan(xiuyuanId);
-      
-      if (existing) {
-        // 鏇存柊鐜版湁 XiuYuan - 鐩存帴鏇存柊 Map 涓殑鏁版嵁
-        this.storage.upsertXiuYuan(persistenceModel);
-      } else {
-        // 鍒涘缓鏂?XiuYuan - 娣诲姞鍒?Map
-        this.storage.upsertXiuYuan(persistenceModel);
-      }
+      this.storage.upsertXiuYuan(
+        existing
+          ? mergeXiuyuanSnapshots(existing, persistenceModel).value
+          : persistenceModel,
+      );
 
       // 3. 鍚屾鍗＄墖鐘舵€侊細淇濆瓨鐜版湁鍗＄墖锛屽垹闄ゅ凡绉婚櫎鐨勫崱鐗?
       const cards = xiuyuan.getCards();
-      const currentCardIds = new Set(cards.map(card => card.getId().getValue()));
-      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, persistedCardType);
+      const resolvedCards: FSRSCard[] = [];
+      for (const card of cards) {
+        const fsrsCard = this.applyCanonicalXiuyuanId(
+          await this.cardToFSRSCard(card, xiuyuan),
+          xiuyuanId,
+        );
+        const existingCard = this.storage.getCard(card.getId().getValue())
+          ?? this.findExistingCardForLogicalKey(fsrsCard, persistenceModel);
+        resolvedCards.push(existingCard ? {
+          ...fsrsCard,
+          id: existingCard.id,
+        } : fsrsCard);
+      }
+      const currentCardIds = new Set(resolvedCards.map((card) => card.id));
+      const bindingAttrs = this.buildPersistedBindingAttrs(xiuyuan, persistedCardType, xiuyuanId);
       
       // 3.1 鏌ユ壘闇€瑕佸垹闄ょ殑鍗＄墖锛堝瓨鍦ㄤ簬 storage 浣嗕笉鍦?xiuyuan 涓級
       const existingXiuyuanCards = this.storage.getCardsByXiuyuanId(xiuyuanId);
@@ -313,9 +371,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       }
       
       // 3.3 淇濆瓨/鏇存柊褰撳墠鍗＄墖
-      for (const card of cards) {
-        const fsrsCard = await this.cardToFSRSCard(card, xiuyuan);  // 鉁?娣诲姞 await
-        const existingCard = this.storage.getCard(card.getId().getValue());
+      for (const fsrsCard of resolvedCards) {
+        const existingCard = this.storage.getCard(fsrsCard.id);
         
         if (existingCard) {
           // 鏇存柊鐜版湁鍗＄墖
@@ -334,8 +391,8 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
       // 鍐嶆坊鍔犲綋鍓嶇殑鍗＄墖绱㈠紩
-      for (const card of cards) {
-        this.cardToXiuyuanIndex.set(card.getId().getValue(), xiuyuanId);
+      for (const card of resolvedCards) {
+        this.cardToXiuyuanIndex.set(card.id, xiuyuanId);
       }
       
       // 馃殌 娓呯悊绱㈠紩锛氬垹闄ゅ凡绉婚櫎鍗＄墖鐨勭储寮曪紙棰濆淇濋櫓锛?
@@ -343,15 +400,12 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         this.cardToXiuyuanIndex.delete(cardToDelete.id);
       }
 
-      // 4. 馃敡 绔嬪嵆淇濆瓨锛堝垹闄ゆ搷浣滈渶瑕佺珛鍗虫寔涔呭寲锛岄伩鍏嶈鍚庣画鎿嶄綔瑕嗙洊锛?
-      if (cardsToDelete.length > 0) {
-        logger.info(`Deleted ${cardsToDelete.length} cards, forcing immediate save`);
-        const saveResult = await this.storage.save();
-        if (isErr(saveResult)) {
-          const error = saveResult.error || new Error('Failed to save after deletion');
-          logger.error('Failed to save after deletion:', error);
-          return err(error);
-        }
+      // 4. 单事务内统一持久化 canonical store，避免后续同步看到半更新状态
+      const saveResult = await this.storage.save();
+      if (isErr(saveResult)) {
+        const error = saveResult.error || new Error('Failed to persist xiuyuan snapshot');
+        logger.error('Failed to persist xiuyuan snapshot:', error);
+        return err(error);
       }
 
       // 5. 鍐欏叆鍧楀睘鎬?

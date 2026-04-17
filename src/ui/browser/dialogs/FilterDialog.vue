@@ -230,7 +230,7 @@
         <button
           class="b3-button b3-button--outline"
           @click="handleRebuild"
-          :title="t('filterRebuildTitle', 'Clear reviewed cards and reload with current filter conditions')"
+          :title="t('filterRebuildTitle', 'Clear temporarily hidden cards and reload with current filter conditions')"
         >
           <svg><use xlink:href="#iconRefresh"></use></svg>
           Rebuild

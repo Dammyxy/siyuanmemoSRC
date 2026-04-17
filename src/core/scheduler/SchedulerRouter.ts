@@ -12,6 +12,7 @@ import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { SM15Scheduler } from './strategies/SM15Scheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
 import { migrateCard } from './strategies/sm15/migration';
+import { normalizeSchedulerCard } from './normalizeSchedulerCard';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SchedulerRouter');
@@ -81,6 +82,7 @@ export class SchedulerRouter {
      */
     async route(card: FSRSCard, rating: Rating): Promise<FSRSCard> {
         try {
+            const now = Date.now();
             logger.debug('route() called:', {
                 cardId: card.id,
                 rating,
@@ -97,6 +99,7 @@ export class SchedulerRouter {
             
             // 1. 确定调度器类型
             const schedulerType = this.getSchedulerType(card);
+            const normalizedCard = normalizeSchedulerCard(card, schedulerType, { now });
             logger.debug('Selected scheduler type:', schedulerType);
 
             // 2. 获取调度器
@@ -111,28 +114,30 @@ export class SchedulerRouter {
             });
 
             // 3. 执行复习
-            const updatedCard = scheduler.review(card, rating);
+            const reviewedCard = scheduler.review(normalizedCard, rating);
             
             logger.debug('After scheduler.review():', {
-                updatedCard: updatedCard ? {
-                    id: updatedCard.id,
-                    due: updatedCard.due,
-                    dueDate: updatedCard.due ? new Date(updatedCard.due).toISOString() : 'undefined',
-                    state: updatedCard.state,
-                    reps: updatedCard.reps,
-                    stability: updatedCard.stability,
-                    difficulty: updatedCard.difficulty,
-                    scheduledDays: updatedCard.scheduledDays,
-                    elapsedDays: updatedCard.elapsedDays,
+                updatedCard: reviewedCard ? {
+                    id: reviewedCard.id,
+                    due: reviewedCard.due,
+                    dueDate: reviewedCard.due ? new Date(reviewedCard.due).toISOString() : 'undefined',
+                    state: reviewedCard.state,
+                    reps: reviewedCard.reps,
+                    stability: reviewedCard.stability,
+                    difficulty: reviewedCard.difficulty,
+                    scheduledDays: reviewedCard.scheduledDays,
+                    elapsedDays: reviewedCard.elapsedDays,
                 } : 'undefined',
             });
             
-            if (!updatedCard) {
+            if (!reviewedCard) {
                 throw new Error(`Scheduler ${schedulerType} returned undefined for card ${card.id}`);
             }
 
-            // 4. 更新调度器类型
-            updatedCard.schedulerType = schedulerType;
+            const updatedCard = normalizeSchedulerCard({
+                ...reviewedCard,
+                schedulerType,
+            }, schedulerType, { now });
 
             // 5. 保存到本地数据库（使用 CardApplicationService）
             await this.cardUpdater.batchUpdateCardsWithoutEvents([updatedCard]);
@@ -217,10 +222,13 @@ export class SchedulerRouter {
         );
 
         // 4. 更新调度器类型
-        convertedCard.schedulerType = newScheduler;
+        const normalizedCard = normalizeSchedulerCard({
+            ...convertedCard,
+            schedulerType: newScheduler,
+        }, newScheduler);
 
         // 5. 保存到本地（使用 CardApplicationService）
-        await this.cardUpdater.batchUpdateCardsWithoutEvents([convertedCard]);
+        await this.cardUpdater.batchUpdateCardsWithoutEvents([normalizedCard]);
 
         logger.info(`Switched card ${card.id} from ${card.schedulerType} to ${newScheduler}`);
         return true;
@@ -240,7 +248,19 @@ export class SchedulerRouter {
             throw new Error(`Scheduler not found: ${schedulerType}`);
         }
 
-        return scheduler.preview(card);
+        const normalizedCard = normalizeSchedulerCard(card, schedulerType);
+        const preview = scheduler.preview(normalizedCard);
+        const normalizedPreview = new Map<Rating, FSRSCard>();
+        for (const [rating, previewCard] of preview.entries()) {
+            normalizedPreview.set(
+                rating,
+                normalizeSchedulerCard({
+                    ...previewCard,
+                    schedulerType,
+                }, schedulerType),
+            );
+        }
+        return normalizedPreview;
     }
 
     /**

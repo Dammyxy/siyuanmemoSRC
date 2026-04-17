@@ -203,6 +203,12 @@ export class FinalDrillQueue extends BaseReviewQueue {
     public isDynamic(): boolean {
         return false;
     }
+
+    protected override buildDefaultOrder(cards: FSRSCard[]): FSRSCard[] {
+        return super.buildDefaultOrder(cards, {
+            mode: 'priority-due',
+        });
+    }
     
     /**
      * 获取队列中的所有卡片

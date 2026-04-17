@@ -4,6 +4,14 @@ const MIN_PRIORITY = 0;
 const MAX_PRIORITY = 100;
 const DEFAULT_PRIORITY = 50;
 
+export type QueueOrderingMode = 'due-priority' | 'priority-due';
+
+export interface QueueOrderingOptions {
+  mode?: QueueOrderingMode;
+  randomization?: number;
+  stableSalt?: string;
+}
+
 function clampPriority(value: unknown): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -20,10 +28,11 @@ function clampRandomization(value: unknown): number {
   return Math.max(0, Math.min(1, numeric));
 }
 
-function stableNoiseFromId(id: string): number {
+function stableNoiseFromId(id: string, salt = ''): number {
+  const seededId = `${salt}::${id}`;
   let hash = 2166136261;
-  for (let index = 0; index < id.length; index += 1) {
-    hash ^= id.charCodeAt(index);
+  for (let index = 0; index < seededId.length; index += 1) {
+    hash ^= seededId.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
 
@@ -36,34 +45,21 @@ function compareById(left: FSRSCard, right: FSRSCard): number {
 }
 
 export class PriorityQueueService {
-  public static sortByDueThenPriority(cards: FSRSCard[]): FSRSCard[] {
-    return [...cards].sort((left, right) => {
-      const dueDiff = left.due - right.due;
-      if (dueDiff !== 0) {
-        return dueDiff;
-      }
-
-      const priorityDiff = clampPriority(left.priority) - clampPriority(right.priority);
-      if (priorityDiff !== 0) {
-        return priorityDiff;
-      }
-
-      return compareById(left, right);
-    });
-  }
-
-  public static sortByPriorityThenDue(
-    cards: FSRSCard[],
-    options: { randomization?: number } = {}
-  ): FSRSCard[] {
+  public static compareCards(
+    left: FSRSCard,
+    right: FSRSCard,
+    options: QueueOrderingOptions = {},
+  ): number {
+    const mode = options.mode ?? 'due-priority';
     const randomization = clampRandomization(options.randomization);
+    const stableSalt = typeof options.stableSalt === 'string' ? options.stableSalt : '';
 
-    return [...cards].sort((left, right) => {
+    if (mode === 'priority-due') {
       const leftPriority = clampPriority(left.priority);
       const rightPriority = clampPriority(right.priority);
 
-      const leftScore = leftPriority + stableNoiseFromId(String(left.id || '')) * randomization * 10;
-      const rightScore = rightPriority + stableNoiseFromId(String(right.id || '')) * randomization * 10;
+      const leftScore = leftPriority + stableNoiseFromId(String(left.id || ''), stableSalt) * randomization * 10;
+      const rightScore = rightPriority + stableNoiseFromId(String(right.id || ''), stableSalt) * randomization * 10;
       const scoreDiff = leftScore - rightScore;
       if (Math.abs(scoreDiff) > 1e-9) {
         return scoreDiff;
@@ -75,7 +71,37 @@ export class PriorityQueueService {
       }
 
       return compareById(left, right);
-    });
+    }
+
+    const dueDiff = left.due - right.due;
+    if (dueDiff !== 0) {
+      return dueDiff;
+    }
+
+    const priorityDiff = clampPriority(left.priority) - clampPriority(right.priority);
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    return compareById(left, right);
+  }
+
+  public static sortByDueThenPriority(cards: FSRSCard[]): FSRSCard[] {
+    return [...cards].sort((left, right) => this.compareCards(left, right, { mode: 'due-priority' }));
+  }
+
+  public static sortByPriorityThenDue(
+    cards: FSRSCard[],
+    options: { randomization?: number } = {}
+  ): FSRSCard[] {
+    return [...cards].sort((left, right) => this.compareCards(left, right, {
+      mode: 'priority-due',
+      randomization: options.randomization,
+    }));
+  }
+
+  public static sortCards(cards: FSRSCard[], options: QueueOrderingOptions = {}): FSRSCard[] {
+    return [...cards].sort((left, right) => this.compareCards(left, right, options));
   }
 
   public static positionToPriorityPercent(position: number, total: number): number {

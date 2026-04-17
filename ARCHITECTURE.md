@@ -481,6 +481,9 @@ Review：
 
 - `subset`、temporary drill 等会话型 surface 存在，但不是 `QueueType` 主字面量的一部分
 - `neural-roam` 的字面量不变，但当前活跃契约是 focus-first
+- 活跃队列语义以 `QUEUE_ARCHITECTURE.md` 为专题事实源；其中固定了 6 个活跃队列的 `membership rule / base order / post-review retention`
+- 浏览器列排序是 view-only 行为，不允许通过 `queue.sort()` 或 `reorder()` 改写真实队列顺序
+- 复习后是否留队由具体队列自己的 active-window 语义决定，而不是统一 today-window 或历史启发式
 
 `UnifiedDataSourceManager` 负责：
 
@@ -492,6 +495,14 @@ Review：
 具体队列实现位于：
 
 - `src/core/queue/domain/*`
+
+当前 6 个活跃队列的运行时摘要：
+
+- `RetrievalPractice` / `IncrementalLearning`：today-window 队列，基础顺序 `due -> priority -> id`，允许 outstanding/manual 稀疏插入
+- `FilterGroup`：filter-backed 队列，复习后按当前 filter 镜像留队
+- `FinalDrill`：静态练习队列，评分 `4` 出队，评分 `1/2/3` 留队并移到尾部
+- `NeuralRoam`：engine-session 队列，不因窗口自动出队
+- `Leech`：按 `lapses/manual membership` 建队列，但复习后仍按 today-window 判定留队
 
 ---
 
