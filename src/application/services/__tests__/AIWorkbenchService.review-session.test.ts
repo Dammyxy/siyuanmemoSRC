@@ -191,8 +191,15 @@ function createService(options?: {
   sessionStore?: ReturnType<typeof createSessionStore>;
   xiuyuanService?: { createFromBlocks: ReturnType<typeof vi.fn> };
 }) {
+  const aiSettings = options?.aiSettings || {
+    ...createAISettings(),
+    chatDefaults: {
+      ...createAISettings().chatDefaults,
+      reviewDefaultSkillId: AI_CONCEPT_COACH_SKILL_ID,
+    },
+  };
   return new AIWorkbenchService({
-    getAISettings: () => options?.aiSettings || createAISettings(),
+    getAISettings: () => aiSettings,
     cardContentQueryService: {
       getBlockContentsWithType: vi.fn(async (blockIds: string[]) => new Map(
         blockIds.map((id) => [id, contentMap.get(id) || { content: '' }]),
@@ -358,6 +365,40 @@ describe('AIWorkbenchService review-session behavior', () => {
     ]);
   });
 
+  it('defaults review sessions to general chat, but explicit concept views still open structured flow', async () => {
+    const llmChat = vi.fn().mockResolvedValue({
+      content: '我们先聊这张卡。',
+      raw: {},
+    });
+    const service = createService({
+      aiSettings: createAISettings(),
+      llmChat,
+    });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-general',
+      currentCard: createCard('card-r', 'card-block-r', 'front-r', 'back-r', 'source-r') as never,
+      revealed: true,
+    });
+
+    expect(service.state.activeSkillId).toBe(AI_GENERAL_CHAT_SKILL_ID);
+    expect(service.state.activeTabId).toBe(AI_GENERAL_CHAT_TAB_ID);
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-general',
+      view: 'explain',
+      currentCard: createCard('card-r', 'card-block-r', 'front-r', 'back-r', 'source-r') as never,
+      revealed: true,
+    });
+
+    expect(service.state.activeSkillId).toBe(AI_CONCEPT_COACH_SKILL_ID);
+    expect(service.state.activeTabId).toBe('working-definition');
+  });
+
   it('executes read tools in the general chat loop and feeds tool results back to the model', async () => {
     const llmChat = vi.fn()
       .mockResolvedValueOnce({
@@ -413,6 +454,49 @@ describe('AIWorkbenchService review-session behavior', () => {
       toolCallId: 'call-context',
       name: 'GetCurrentContext',
     });
+  });
+
+  it('compresses prior tool history when general chat continues on the next turn', async () => {
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: '',
+        toolCalls: [{
+          id: 'call-context',
+          type: 'function',
+          function: {
+            name: 'GetCurrentContext',
+            arguments: '{"includeFullText":true}',
+          },
+        }],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: '已读取当前上下文。',
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: '这是压缩后的继续回答。',
+        raw: {},
+      });
+    const service = createService({ llmChat });
+
+    await service.open({
+      source: 'standalone',
+      surface: 'standalone-dialog',
+      selectedBlockIds: ['front-1'],
+    });
+    await service.submitSkillPrompt('先读取上下文。');
+    await service.submitFollowUp('继续总结。');
+
+    const secondTurnMessages = llmChat.mock.calls[2][0].messages as Array<{ role: string; content?: string }>;
+    const assistantHistory = secondTurnMessages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.content || '')
+      .join('\n\n');
+
+    expect(assistantHistory).toContain('<tool-chain-summary>');
+    expect(assistantHistory).toContain('GetCurrentContext');
+    expect(assistantHistory).not.toContain('[Tool GetCurrentContext success]');
   });
 
   it('requests execution approval for enabled legacy staging tools and resumes after approval', async () => {
@@ -1403,8 +1487,16 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(result.createdCount).toBe(2);
   });
 
-  it('refuses self-test card creation when the self-test result is stale', async () => {
+  it('still allows self-test card creation when the self-test result is stale', async () => {
+    const siyuanPort = createSiyuanPort();
+    const fixture = createSelfTestMutationFixture('inserted-root-stale');
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValue(fixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      const ids = extractQuotedSqlValues(stmt);
+      return fixture.rows.filter((row) => ids.includes(row!.id));
+    });
     const service = createService({
+      siyuanPort,
       xiuyuanService: { createFromBlocks: vi.fn() },
       llmChat: vi.fn(async () => ({
         content: JSON.stringify({
@@ -1429,10 +1521,16 @@ describe('AIWorkbenchService review-session behavior', () => {
     service.state.viewState[AI_CONCEPT_COACH_SKILL_ID]['self-test-cards'].stale = true;
     service.state.viewState[AI_CONCEPT_COACH_SKILL_ID]['self-test-cards'].staleReason = '当前上下文已变化，请先重新运行。';
 
-    await expect(service.createSelfTestCardsFromSelectedCandidates({
+    const result = await service.createSelfTestCardsFromSelectedCandidates({
       mode: 'daily-note',
       notebookId: 'notebook-1',
       notebookName: '学习笔记',
-    }, message!.id)).rejects.toThrow('当前上下文已变化，请先重新运行。');
+    }, message!.id);
+
+    expect(result.createdCount).toBe(1);
+    expect(result.itemResults[0]).toMatchObject({
+      candidateId: 'candidate-a',
+      status: 'created',
+    });
   });
 });

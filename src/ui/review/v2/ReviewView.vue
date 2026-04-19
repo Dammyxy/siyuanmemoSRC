@@ -202,7 +202,7 @@ import {
 } from '@/application/entries/ProgressiveExcerptHighlight';
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type { ProgressiveExcerptCreationResult } from '@/application/services/ProgressiveReadingService';
-import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
+import type { AIWorkbenchLegacyView, AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
@@ -217,7 +217,8 @@ const STANDARD_REVIEW_DIALOG_VARIANT_BY_QUEUE_TYPE: Partial<Record<QueueType, Re
   [QueueType.NeuralRoam]: 'neural-roam',
 };
 
-type ReviewAIEntryView = 'concept-coach';
+type ReviewAIEntryView = 'general-chat' | 'concept-coach';
+type ReviewAIRequestedView = ReviewAIEntryView | AIWorkbenchLegacyView;
 
 type ReviewProviderLike = {
   id?: string;
@@ -360,6 +361,11 @@ type ReviewPluginContextLike = {
   } | undefined;
   getSettingsService?: () => {
     getSettings?: () => {
+      ai?: {
+        chatDefaults?: {
+          reviewDefaultSkillId?: 'general-chat' | 'concept-coach';
+        };
+      };
       progressiveReading?: {
         altXExcerptEnabled?: boolean;
       };
@@ -2432,7 +2438,7 @@ async function handleRebuildReviewFilterQueue(): Promise<void> {
   }
 }
 
-function buildReviewAIOptions(view: ReviewAIEntryView, surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
+function buildReviewAIOptions(view: ReviewAIRequestedView, surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
   const neuralQueue = getNeuralRoamQueue();
   return {
     view,
@@ -2451,23 +2457,30 @@ function buildReviewAIOptions(view: ReviewAIEntryView, surface?: AIWorkbenchSurf
 }
 
 function resolveDefaultReviewAIEntryView(): ReviewAIEntryView {
-  return 'concept-coach';
+  const context = getPluginContext(props.plugin) || getWindowPlugin()?.getContext?.();
+  const configured = context?.getSettingsService?.().getSettings?.()?.ai?.chatDefaults?.reviewDefaultSkillId;
+  return configured === 'concept-coach' ? 'concept-coach' : 'general-chat';
 }
 
-function resolveReviewAIEntryView(requestedView?: ReviewAIEntryView): ReviewAIEntryView {
+function resolveReviewAIEntryView(requestedView?: ReviewAIRequestedView): ReviewAIRequestedView {
   if (requestedView) {
-    return 'concept-coach';
+    if (requestedView === 'explain' || requestedView === 'make-cards' || requestedView === 'tutor') {
+      return requestedView;
+    }
+    return requestedView === 'concept-coach' ? 'concept-coach' : 'general-chat';
   }
 
   const registry = getReviewAIWorkbenchRegistry();
   const activeView = reviewAIService.value?.state.activeView
     || registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView;
-  return activeView === 'concept-coach' ? activeView : resolveDefaultReviewAIEntryView();
+  return activeView === 'concept-coach' || activeView === 'general-chat'
+    ? activeView
+    : resolveDefaultReviewAIEntryView();
 }
 
-function getReviewAICompanionTitle(view: ReviewAIEntryView): string {
-  const viewTitle = view === 'concept-coach'
-    ? t('aiConceptCoachCard', 'AI 理解与制卡')
+function getReviewAICompanionTitle(view: ReviewAIRequestedView): string {
+  const viewTitle = view === 'general-chat'
+    ? t('generalChat', '通用 AI 聊天')
     : t('aiConceptCoachCard', 'AI 理解与制卡');
   const reviewTitle = String(props.title || t('reviewTitle', 'Review')).trim();
   return `${viewTitle} · ${reviewTitle || t('reviewTitle', 'Review')}`;
@@ -2514,7 +2527,7 @@ async function syncReviewAIContextIfNeeded(surface: 'review-dialog-sidecar' | 'r
   reviewAIService.value = service;
 }
 
-async function openReviewAIAssistant(requestedView?: ReviewAIEntryView): Promise<void> {
+async function openReviewAIAssistant(requestedView?: ReviewAIRequestedView): Promise<void> {
   const view = resolveReviewAIEntryView(requestedView);
   const surface: 'review-dialog-sidecar' | 'review-tab-companion' = props.mode === 'tab'
     ? 'review-tab-companion'

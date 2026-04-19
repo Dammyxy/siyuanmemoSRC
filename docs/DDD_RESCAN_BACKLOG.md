@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-17 (Round 90)
+Last update: 2026-04-20 (Round 91)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-20 - review AI default chat and canonical self-test drafts
+
+- Task: Make review AI default back to general chat, align the tool runtime with the sy-f-misc style summary/approval flow, relax stale structured results into “view/edit/create allowed, follow-up blocked”, convert self-test candidates into canonical drafts rendered locally per mode, and let the same self-test flow dispatch both native and Xiuyuan card modes.
+- Touched slice: AI workbench / capture plus review AI entry path across `src/types/{ai.ts,settings.ts}`, `src/application/services/{AISelfTestDraftSupport.ts,AIPromptContractRegistry.ts,AIChatToolRegistry.ts,AISelfTestCardCreationService.ts,AIWorkbenchService.ts}`, `src/ui/{ai/AiWorkbenchPane.vue,review/v2/ReviewView.vue,settings/SettingsPanel.vue}`, related i18n, focused AI/runtime/settings tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Made `settings.ai.chatDefaults.reviewDefaultSkillId` a real runtime default and exposed it in settings; replaced the reply-footer `•••` menu from native `<details>` to a controlled popover that closes on outside click, `Escape`, or action; stopped replaying raw tool logs into `general-chat` history in favor of compressed tool-chain summaries; set `QueryBlocksSql / FetchWebPage / SearchWeb` to `ask-once` while keeping read tools auto and write tools `ask-always`; added repeated-tool-call and total-budget guards; changed structured stale handling so history, candidate editing, mode switching, and card creation remain available while only same-stage follow-up is blocked; normalized self-test results to canonical `prompt / answer / details / clozeTargets` drafts with backward-compatible legacy parsing; and routed both native (`list-item / mark / heading / super-block`) and Xiuyuan (`multi-mark / cdf-multiline`) self-test creation through the same runtime renderer + application-service dispatch path.
+- Debt deferred: Tool/group descriptor copy in `AIChatToolRegistry.ts` is still mostly hard-coded instead of i18n-backed metadata, compact-surface AI pane tests still emit the historical happy-dom localhost asset fetch noise from shared markdown rendering setup, and the self-test candidate board/editor still lives inline inside `AiWorkbenchPane.vue`.
+- Why deferred: Localizing every tool descriptor, cleaning the shared markdown test harness, or extracting the entire self-test candidate board would widen this bounded behavior/runtime pass into a larger cross-surface i18n, test-harness, and UI componentization task right after the underlying semantics changed.
+- Next safe step: Once the canonical self-test draft shape feels stable in daily use, first extract one dedicated candidate-board subcomponent, then move tool/group copy into localized metadata and add a shared happy-dom markdown test shim.
+- Validation: `pnpm vitest --run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/types/__tests__/settings-normalization.test.ts src/application/services/__tests__/AIChatToolExecutorService.test.ts`; `pnpm build`.
 
 ### 2026-04-17 - AI self-test mode-driven native and plugin card dispatch
 

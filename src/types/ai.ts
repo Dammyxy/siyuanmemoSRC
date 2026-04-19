@@ -383,26 +383,40 @@ export type AIConceptCoachSelfTestCreationMode =
 
 export interface AIConceptCoachSelfTestDraft {
   id: string;
-  mode: AIConceptCoachSelfTestCreationMode;
   kind: AIConceptCoachCardKind;
   selected: boolean;
   summary: string;
-  draftMarkdown: string;
+  prompt: string;
+  answer: string;
+  details: string[];
+  clozeTargets: string[];
   legacyQuestion?: string;
   legacyAnswer?: string;
 }
 
 export interface AIConceptCoachCandidateCard {
   id: string;
-  mode: AIConceptCoachSelfTestCreationMode;
   kind: AIConceptCoachCardKind;
   selected: boolean;
   summary: string;
-  draftMarkdown: string;
+  prompt: string;
+  answer: string;
+  details: string[];
+  clozeTargets: string[];
   legacyQuestion?: string;
   legacyAnswer?: string;
+  /**
+   * @deprecated Backward-compatible alias while persisted sessions migrate to prompt/answer.
+   */
   question?: string;
-  answer?: string;
+  /**
+   * @deprecated Legacy mode-bound draft kept only for old persisted records.
+   */
+  draftMarkdown?: string;
+  /**
+   * @deprecated Legacy mode-bound metadata kept only for old persisted records.
+   */
+  mode?: AIConceptCoachSelfTestCreationMode;
 }
 
 export type AIWorkbenchSelfTestCardTargetMode = 'daily-note' | 'block';

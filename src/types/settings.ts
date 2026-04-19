@@ -895,7 +895,7 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     }
 };
 
-export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 3;
+export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 4;
 
 export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
     skills: {
@@ -932,8 +932,8 @@ export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
                 },
                 'self-test-cards': {
                     run: [
-                        '阶段：生成可直接制卡的自测草稿。',
-                        '根据当前自测制卡模式，生成 10-18 个可直接落地为对应块结构的草稿。',
+                        '阶段：生成可切换模式的自测草稿。',
+                        '生成 10-18 个模式无关的 canonical 自测草稿，后续会由系统按当前制卡模式本地渲染。',
                         '每个草稿只测试一个点，优先测试区别、因果、应用、反例、边界，少做纯定义复述。',
                     ].join('\n'),
                     followUp: '你正在围绕“自测卡片”继续协助。可以改写题目、解释某张卡为什么值得保留，或补充更好的候选卡；不要直接建卡。',
@@ -1277,7 +1277,7 @@ function normalizeAIChatDefaults(value: unknown): AIChatDefaults {
         ? value as Partial<AIChatDefaults>
         : {};
     const defaultSkillId = source.defaultSkillId === 'concept-coach' ? 'concept-coach' : 'general-chat';
-    const reviewDefaultSkillId = source.reviewDefaultSkillId === 'general-chat' ? 'general-chat' : 'concept-coach';
+    const reviewDefaultSkillId = source.reviewDefaultSkillId === 'concept-coach' ? 'concept-coach' : 'general-chat';
     const maxToolRounds = Math.max(1, Math.min(8, Math.floor(Number(source.maxToolRounds) || DEFAULT_AI_SETTINGS.chatDefaults.maxToolRounds)));
     return {
         defaultSkillId,
@@ -1599,7 +1599,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     defaultModelId: 'gpt-4.1-mini',
     chatDefaults: {
         defaultSkillId: 'general-chat',
-        reviewDefaultSkillId: 'concept-coach',
+        reviewDefaultSkillId: 'general-chat',
         maxToolRounds: 4,
         stream: false,
         includeContextByDefault: true,

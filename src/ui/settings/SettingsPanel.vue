@@ -831,6 +831,16 @@
         </div>
 
         <div class="form-item">
+          <label>{{ t('aiReviewDefaultSkill', 'Review 默认 Skill') }}</label>
+          <div class="form-control">
+            <select v-model="aiSettings.chatDefaults.reviewDefaultSkillId" class="scheduler-select">
+              <option value="general-chat">{{ t('generalChat', '通用 AI 聊天') }}</option>
+              <option value="concept-coach">{{ t('conceptCoach', 'AI 理解与制卡') }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-item">
           <label>{{ t('aiMaxToolRounds', '最大工具轮数') }}</label>
           <div class="form-control">
             <input type="number" min="1" max="8" step="1" v-model.number="aiSettings.chatDefaults.maxToolRounds">

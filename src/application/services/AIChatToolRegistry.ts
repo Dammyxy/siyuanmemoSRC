@@ -236,7 +236,7 @@ export const AI_CHAT_TOOL_DESCRIPTORS: AIChatToolDescriptor[] = [
     executionPolicy: 'ask-once',
     resultApprovalPolicy: 'never',
     sessionScope: 'session',
-    enabledByDefault: false,
+    enabledByDefault: true,
     compressArgs: (args) => previewJson({ sql: args.sql, limit: args.limit }, 160),
   },
   {
@@ -273,7 +273,7 @@ export const AI_CHAT_TOOL_DESCRIPTORS: AIChatToolDescriptor[] = [
         }, ['url']),
       },
     },
-    executionPolicy: 'auto',
+    executionPolicy: 'ask-once',
     resultApprovalPolicy: 'never',
     sessionScope: 'session',
     enabledByDefault: true,
@@ -294,10 +294,10 @@ export const AI_CHAT_TOOL_DESCRIPTORS: AIChatToolDescriptor[] = [
         }, ['query']),
       },
     },
-    executionPolicy: 'auto',
+    executionPolicy: 'ask-once',
     resultApprovalPolicy: 'never',
     sessionScope: 'session',
-    enabledByDefault: false,
+    enabledByDefault: true,
   },
   {
     name: 'ListVars',
@@ -841,7 +841,7 @@ export class AIChatToolRegistry {
       '<tool-rules>',
       '你可以调用工具。不要伪造工具日志，工具调用只能通过正式 tool call 机制完成。',
       '长参数或长结果会被缓存为变量；如需复用，请优先使用 ListVars / ReadVar，或直接在后续工具参数里使用 $VAR_REF{{name}} / $VAR_REF{{name:start:length}}。',
-      '所有写入思源、创建块、制卡相关工具都必须先获得用户审批；读工具通常可自动执行。',
+      '工具会按当前策略自动执行或请求审批；写入思源、创建块、制卡相关工具始终需要更严格确认。',
     ];
     for (const group of AI_CHAT_TOOL_GROUPS) {
       const descriptors = grouped.get(group.key);
@@ -853,7 +853,7 @@ export class AIChatToolRegistry {
         sections.push(group.rulePrompt);
       }
       for (const descriptor of descriptors) {
-        sections.push(`- ${descriptor.name}: ${descriptor.description}`);
+        sections.push(`- ${descriptor.name}: ${descriptor.description} [执行=${descriptor.executionPolicy}，结果=${descriptor.resultApprovalPolicy}]`);
       }
     }
     sections.push('</tool-rules>');

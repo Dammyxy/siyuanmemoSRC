@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-17
+最后更新：2026-04-20
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -226,25 +226,26 @@ sequenceDiagram
 - `AISelfTestCardCreationService`：`AI 理解与制卡 / 自测卡片` 的模式分发门面，负责把当前工作台选择的 `creationMode` 与候选草稿映射到具体制卡工具，不让 UI 或 workbench runtime 直接拼装原生/插件制卡细节
 - `AIWorkbenchService`：通用 AI chat runtime，负责会话编排、树节点生命周期、消息版本/分支/分隔/隐藏/固定、Skill 切换、工具执行、审批状态、结构化结果渲染适配、自测卡候选项落块制卡和历史管理；general-chat 的工具审批通过后会在原工具链里继续执行，拒绝会把拒绝结果回传模型，达到最大轮数后仍会请求一次最终总结；自测卡编辑/勾选/全选现在按当前 `assistant-result` 消息节点版本生效，避免被较新的聚合结果覆盖；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
 - `src/types/settings.ts`：AI provider / model / tool / web-search / prompt 的持久化真相源；旧 `baseUrl/apiKey/model` 会迁移为 `providers[] + defaultModelId`，旧 explain-only prompt 在 contract version 升级后直接回落到当前默认模板
-- `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，也会根据用户 structured skill 的 sections 动态生成最小 JSON contract，并为运行时追加和设置页只读说明提供同一份事实源；`self-test-cards` 还会按当前 `creationMode` 追加模式专属格式约束与示例
+- `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，也会根据用户 structured skill 的 sections 动态生成最小 JSON contract，并为运行时追加和设置页只读说明提供同一份事实源；`self-test-cards` 现在要求模式无关的 canonical 草稿字段，由运行时再按当前 `creationMode` 本地渲染到具体卡型
 - `AIPromptComposer`：只负责推荐 Skill prompt 模板描述与默认 base/tab Prompt，不再承担运行时结构化协议拼接
 - `ConfiguredCaptureStorageService`：仍作为 Progressive / Excerpt 的捕获存储服务保留，但不再是 AI workbench 的运行依赖
 
 当前 Skill 主路径补充：
 
-- standalone dialog 默认打开 `general-chat`；review sidecar / companion tab 默认打开 `concept-coach`，用户仍可在同一 shell 内切换 Skill
+- standalone dialog 默认打开 `general-chat`；review sidecar / companion tab 默认读取 `settings.ai.chatDefaults.reviewDefaultSkillId`（默认 `general-chat`），显式 `concept-coach` 与旧别名 `make-cards / explain / tutor` 仍会优先命中结构化流程；用户仍可在同一 shell 内切换 Skill
 - review AI 会话按 `reviewChatKey = queueType + queueLabel/title` 复用最近持久化记录；`ReviewAIWorkbenchRegistry` 仍按真实 `reviewSessionId` 隔离 live runtime，切换闪卡只刷新 `liveContext/contextSignature` 与 stale 状态，不自动切换聊天历史
-- `general-chat` 使用树上的 skill-scoped 活动 worldline 投影，可调用 `context-read`、`siyuan-read`、`review-read`、`web`、`vars` 工具组；未配置搜索 backend 时只保留 URL 抓取，不伪装搜索能力
-- `flashcard-write` 等写入意图工具默认 `ask-always`；审批通过后会恢复同一轮工具链继续执行，不允许静默修改思源内容、卡片、摘录或 daily note
+- `general-chat` 使用树上的 skill-scoped 活动 worldline 投影，可调用 `context-read`、`siyuan-read`、`review-read`、`web`、`vars` 工具组；未配置搜索 backend 时只保留 URL 抓取，不伪装搜索能力；历史回灌时只带之前的最终回复和压缩后的 `<tool-chain-summary>`，不再把 raw tool-log 一条条重新喂给模型
+- 读工具默认自动执行；`FetchWebPage / SearchWeb / QueryBlocksSql` 默认 `ask-once`；`flashcard-write` 等写入意图工具默认 `ask-always`；审批通过后会恢复同一轮工具链继续执行，并有“重复相同工具+参数”防抖与总调用预算，避免无限读同一上下文
 - `general-chat` 的 OpenAI / OpenAI-compatible provider 走真 SSE 文本增量和 abort；Claude/Gemini 先继续 buffered，但复用同一套运行中/停止态 UI
 - 首轮运行把 `baseRun + 5 个 tab.run` 与 `concept-coach/full-run` 契约组合成最终 `system` prompt，并通过 `LLMPort` 请求 `json_object` 输出模式，一次性填充 5 个 tab payload
 - `concept-coach` 的首轮用户 prompt 以 skill scope 节点写入，因此会在 5 个 tabs 里共享可见；Tab 局部重跑、tab 追问和 tab 结果都以 tab scope 节点写入，只影响当前 tab 的活动 leaf
 - Tab 局部重跑只组合 `baseRun + 当前 tab.run + concept-coach/<tab>`，只替换当前 tab 的结构化结果与当前 tab 世界线投影
 - Tab 追问只使用当前 `tab.followUp`，并携带“当前分隔段 + pinned 节点”的当前 tab 结果上下文，隐藏节点不会进入模型上下文
 - `多视角理解` / `整合理解` 的结构化结果归一化容忍别名、wrapper、直接 section、字符串/数组/对象混合形状；部分成功会显示可恢复内容和 warning，不再静默空白
-- `自测卡片` section 现在保存模式化草稿 `{ creationMode, cards[] }`；每张草稿至少包含 `id / mode / kind / selected / summary / draftMarkdown`，旧 `question / answer` 结果会在读取时兼容映射为 `list-item` 草稿。工作台顶部可切换 `list-item / mark / heading / super-block / multi-mark / cdf-multiline`，该模式会同时驱动 prompt contract、候选草稿预览与“制卡选中项”执行链。制卡阶段由 `AISelfTestCardCreationService` 按模式分发：原生 `list-item` 只接受实际列表项作为根块，优先读取 mutation 子树，必要时回退到根列表项 `getBlockKramdown()`；`mark / heading / super-block` 只接受对应结构根块；插件 `multi-mark / cdf-multiline` 继续走 Xiuyuan 模板卡。UI 不直接拼原生/插件制卡细节
+- `自测卡片` section 现在保存 canonical 草稿 `{ creationMode, cards[] }`；每张草稿主结构为 `id / kind / selected / summary / prompt / answer / details / clozeTargets`，旧 `question / answer` 和 `draftMarkdown + mode` 结果会在读取时兼容归一。工作台顶部可切换 `list-item / mark / heading / super-block / multi-mark / cdf-multiline`，该模式只驱动本地 renderer 与“制卡选中项”执行链，不要求重跑 AI。制卡阶段由 `AISelfTestCardCreationService` 按当前模式把 canonical 草稿渲染并分发：原生 `list-item` 只接受实际列表项作为根块，优先读取 mutation 子树，必要时回退到根列表项 `getBlockKramdown()`；`mark / heading / super-block` 只接受对应结构根块；插件 `multi-mark / cdf-multiline` 继续走 Xiuyuan 模板卡。UI 不直接拼原生/插件制卡细节
+- structured 结果仍按 `contextSignature` 标记 stale，但 stale 现在只表示“继续追问当前结构化阶段前需要重跑”；用户仍可查看历史、编辑候选卡、切换本地自测模式并基于旧结果制卡，`general-chat` 不受该 stale 限制
 - 旧 explain session 会保留历史消息作为 legacy session 打开，并显示“旧解释结果仅供查看，重跑后生成完整 tabs”的提示；重跑后生成新的 `concept-coach` 五阶段结果
-- `AiWorkbenchPane.vue` 现在是通用 chat shell：顶部 Skill 切换、按 Skill 显示 tab/section、消息流支持文本、结构化结果、底部 composer 和 context 附加；主 timeline 使用 reply-first render projection，只显示用户消息/最终回复/结构化结果/分隔，tool timeline、审批历史、推理和诊断默认折叠到回复下方，pending 审批显示为当前回复下方的 inline approval card，消息操作移到消息尾部 toolbar
+- `AiWorkbenchPane.vue` 现在是通用 chat shell：顶部 Skill 切换、按 Skill 显示 tab/section、消息流支持文本、结构化结果、底部 composer 和 context 附加；主 timeline 使用 reply-first render projection，只显示用户消息/最终回复/结构化结果/分隔，tool timeline、审批历史、推理和诊断默认折叠到回复下方，pending 审批显示为当前回复下方的 inline approval card，消息操作移到消息尾部 toolbar，尾部 `•••` 菜单改为受控弹层，支持点空白、`Escape` 或执行动作后关闭
 
 UI surface：
 
@@ -618,7 +619,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 - `ReviewAIWorkbenchRegistry`
   - 管理 standalone service
   - 管理按 review session 隔离的 AI workbench service
-  - standalone 默认从 `general-chat` 启动；review sidecar / companion tab 默认从 `concept-coach` 启动
+  - standalone 默认从 `general-chat` 启动；review sidecar / companion tab 默认从 `settings.ai.chatDefaults.reviewDefaultSkillId` 启动（默认 `general-chat`），显式 legacy explain/make-cards/tutor 打开请求仍会归一到 `concept-coach`
   - review 队列共享聊天只在新 runtime 初次打开时按 `reviewChatKey` 加载最近持久化会话，不把同队列不同 review 窗口合并成一个 live runtime
 - `AIChatSkillRegistry`
   - 注册内置 Skill 描述符：`general-chat` 与 `concept-coach`
@@ -627,7 +628,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 - `AIChatToolRegistry`
   - 注册工具描述符、工具组、参数 schema、执行策略和可见性
   - 当前工具组为 `context-read`、`siyuan-read`、`review-read`、`flashcard-write`、`web`、`vars`
-  - `SearchWeb` 只有在配置 `tavily | bocha | google-cse` backend 时可见；`FetchWebPage` 始终可用
+  - `SearchWeb` 只有在配置 `tavily | bocha | google-cse` backend 时可见；`FetchWebPage` 始终可用；`QueryBlocksSql / FetchWebPage / SearchWeb` 默认走 `ask-once`，上下文/思源/复习读取工具默认自动执行，写工具继续 `ask-always`
 - `AIChatToolExecutorService`
   - 通过 `AISiyuanPort` 和浏览器 `fetch` 执行读工具与网页工具
   - 长参数 / 长结果写入 `AIChatVarStoreService`，再通过 `ListVars` / `ReadVar` 或 `$VAR_REF{{...}}` 回读
@@ -640,7 +641,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 原生模式通过 `AISiyuanPort.addRiffCards()` 创建思源原生卡片，插件模式继续调用 `XiuyuanApplicationService.createFromBlocks()` / `createListTemplateCards()`，并把成功目标回写为新的默认制卡位置
 - `AISelfTestCardCreationService`
   - 自测卡候选制卡的应用层分发门面
-  - 根据当前工作台 `creationMode` 把每张 `draftMarkdown` 独立写入目标位置，再映射到原生列表项/标记/标题/超级块或插件多标记/CDF 工具
+  - 根据当前工作台 `creationMode` 把每张 canonical 自测草稿本地渲染成目标 markdown，再独立写入目标位置并映射到原生列表项/标记/标题/超级块或插件多标记/CDF 工具
   - 汇总每项 `mode / insertedRootBlockId / sourceBlockIds / warnings / error`，供 pane 直接透明展示
 - `AIWorkbenchSessionStoreService`
   - 通过 `FileService` 落盘 `index + per-session record`
@@ -650,14 +651,14 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 - `AIWorkbenchService`
   - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
   - 维护 `activeSkillId + activeTabId`、树节点、兼容 thread 投影、compact render 投影、tool timeline、pending approvals、vars、diagnostics
-  - `general-chat` 走多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，审批工具暂停等待用户确认，确认后在原轮次继续执行
+  - `general-chat` 走多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，`QueryBlocksSql / FetchWebPage / SearchWeb` 默认首次审批后缓存决定，写工具继续每次审批；审批工具暂停等待用户确认，确认后在原轮次继续执行
   - `general-chat` 每次回复链路写入 `runGroupId`，中间 assistant/tool/approval 标记为 `presentation=supplemental`，最终回复标记为 `presentation=primary`
-  - 每条最终回复下方都可折叠查看工具调用次数、轮次、耗时、参数摘要、结果摘要、变量缓存引用与审批历史；达到最大工具轮数后会再请求一次“不要再调用工具”的最终答复
+  - 每条最终回复下方都可折叠查看工具调用次数、轮次、耗时、参数摘要、结果摘要、变量缓存引用与审批历史；运行时会压缩旧工具链为 `<tool-chain-summary>` 再回灌模型，并对重复相同工具+参数与总调用预算做保护；达到最大工具轮数后会再请求一次“不要再调用工具”的最终答复
   - `concept-coach` 仍走结构化 JSON 主链：首轮全量生成 5 个 section，局部重跑只替换当前 section，follow-up 只带当前 section 结果
-  - review 同队列切卡只更新 live context，不截断模型历史；structured skill 旧结果会按 context signature 标为 stale，Pane 在 stale 时禁用追问并提示重跑
+  - review 同队列切卡只更新 live context，不截断模型历史；structured skill 旧结果会按 context signature 标为 stale，但 Pane 只在 stale 时禁用该结构化阶段的 follow-up，仍允许查看、编辑、切换自测模式与制卡
   - `多视角理解` / `整合理解` 的归一化容忍字段别名、wrapper、直接 section、字符串/数组/对象混合形状，并把 `full / partial / empty` 诊断挂到 assistant structured result
-  - `自测卡片` 的勾选项/编辑状态按当前结果消息版本保存；结果数据主结构为 `creationMode + 模式化草稿 cards[]`，旧问答卡会在读取时兼容映射为 `list-item` 草稿
-  - 工作台切换自测模式时，会同步更新 `settings.ai.conceptCoach.selfTest.defaultCreationMode`，并让 prompt contract、候选草稿渲染与制卡执行链一起切换
+  - `自测卡片` 的勾选项/编辑状态按当前结果消息版本保存；结果数据主结构为 `creationMode + canonical cards[]`，旧问答卡和旧 mode-specific 草稿会在读取时兼容归一
+  - 工作台切换自测模式时，会同步更新 `settings.ai.conceptCoach.selfTest.defaultCreationMode`，并让候选草稿渲染与制卡执行链一起切换，不要求重跑结构化阶段
   - 自测制卡不再硬编码 `builtin-basic-qa`；服务层通过 `AISelfTestCardCreationService` 分发到原生列表项/标记/标题/超级块或插件多标记/CDF 模式；UI 不直接调用思源 API、原生 Riff 或 Xiuyuan use case
   - 对 DeepSeek / OpenAI-compatible 等 provider 保留 `json_object` 默认路径和 prompt-only JSON 传输兜底，诊断记录 profile / transport / status / raw body
   - 旧 explain-only 会话保留历史消息作为 legacy session 查看，重跑后再生成完整 `concept-coach` sections
@@ -666,7 +667,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 不再承担运行时结构化协议拼接职责
 - `AIPromptContractRegistry`
   - 注册 `concept-coach/full-run` 与 `concept-coach/<tab>` JSON contract
-  - `self-test-cards` contract 会按 `list-item / mark / heading / super-block / multi-mark / cdf-multiline` 追加模式专属格式要求与示例
+  - `self-test-cards` contract 现在要求模式无关的 canonical 草稿字段（`id / kind / selected / summary / prompt / answer / details / clozeTargets`）；具体卡型格式由本地 renderer 决定
   - 作为运行时 prompt 追加和设置页只读 contract 说明的共同事实源
 - `ConfiguredCaptureStorageService`
   - 解析 Progressive / Excerpt 当前 capture 目标与持久化策略；AI workbench 不再直接依赖它
@@ -681,13 +682,13 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 UI 层：
 
 - `DialogManager.openAiWorkbenchDialog()`：standalone dialog，默认 `general-chat`
-- `TabManager.openReviewAICompanionTab(...)`：review companion tab，默认 `concept-coach`
+- `TabManager.openReviewAICompanionTab(...)`：review companion tab，默认遵循 `settings.ai.chatDefaults.reviewDefaultSkillId`
 - `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文
 - `AiWorkbenchPane.vue`
   - 渲染通用 chat shell：Skill 切换、模型/工具入口、标题、历史/上下文抽屉、底部 composer
   - 消息区使用 compact render projection：主列表只显示用户消息、最终回复、结构化 Skill 结果和分隔；tool log、审批历史、reasoning、diagnostics 默认折叠到最终回复下方的透明化面板
-  - pending approval 在对应回复下方显示 inline approval card；消息复制、编辑、分支、隐藏上下文、固定、插入分隔等操作统一落到消息尾部 toolbar
-  - `concept-coach` 的五阶段 tab 作为结构化结果卡的 section/switch 展示；`general-chat` 隐藏 tab，直接显示单时间线
+  - pending approval 在对应回复下方显示 inline approval card；消息复制、编辑、分支、隐藏上下文、固定、插入分隔等操作统一落到消息尾部 toolbar；尾部 `•••` 菜单使用受控弹层而不是原生 `<details>`
+  - `concept-coach` 的五阶段 tab 作为结构化结果卡的 section/switch 展示；`general-chat` 隐藏 tab，直接显示单时间线；自测卡模式切换只本地重渲染候选预览与制卡 payload，stale 结果显示轻量提示而不是整块锁死
 
 外部边界：
 
@@ -791,11 +792,11 @@ UI 层：
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
-- AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review sidecar 默认 `concept-coach`，review 聊天按队列级 `reviewChatKey` 复用持久化会话但 live runtime 仍按真实 review session 隔离
+- AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review 默认 Skill 由 `settings.ai.chatDefaults.reviewDefaultSkillId` 决定（默认 `general-chat`），review 聊天按队列级 `reviewChatKey` 复用持久化会话但 live runtime 仍按真实 review session 隔离
 - AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
 - AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，而用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
 - AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline、树形 worldline、compact reply projection 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做独立图形化 world-tree 页面
-- AI 理解与制卡的 `自测卡片` section 支持候选草稿编辑/选择、全选/取消全选、模式切换和“制卡选中项”；写入位置可记忆为目标笔记本今日日记或指定文档/块 ID，并通过 AI workbench 服务层把 `draftMarkdown` 分发到原生列表项/标记/标题/超级块或插件多标记/CDF 制卡工具
+- AI 理解与制卡的 `自测卡片` section 支持候选草稿编辑/选择、全选/取消全选、模式切换和“制卡选中项”；候选结果现在以 canonical 草稿字段保存，再按当前模式本地渲染到原生列表项/标记/标题/超级块或插件多标记/CDF；写入位置可记忆为目标笔记本今日日记或指定文档/块 ID，stale 结果仍可查看、编辑和制卡，只在继续追问该阶段前要求重跑
 
 当前文档定位：
 

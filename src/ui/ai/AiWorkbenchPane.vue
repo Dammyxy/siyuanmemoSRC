@@ -258,6 +258,9 @@
                   </button>
                 </div>
               </div>
+              <p v-if="selfTestStaleHint" class="ai-chat__composer-hint ai-chat__composer-hint--warning">
+                {{ selfTestStaleHint }}
+              </p>
               <p v-if="selfTestCardCreationDisabledReason(entry.primaryMessage)" class="ai-chat__composer-hint ai-chat__composer-hint--warning">
                 {{ selfTestCardCreationDisabledReason(entry.primaryMessage) }}
               </p>
@@ -300,7 +303,6 @@
                   <span>{{ card.kind }}</span>
                 </label>
                 <div class="ai-chat__candidate-meta">
-                  <span class="ai-chat__badge">{{ selfTestModeLabel(card.mode) }}</span>
                   <span class="ai-chat__badge">{{ card.kind }}</span>
                 </div>
                 <strong>{{ candidateSummary(card) }}</strong>
@@ -444,18 +446,33 @@
               <button class="ai-chat__toolbar-button" type="button" @click="toggleMessagePinned(entry.primaryMessage)">
                 {{ messageMeta(entry.primaryMessage)?.pinned ? t('unpin', '取消固定') : t('pin', '固定') }}
               </button>
-              <details class="ai-chat__bubble-menu ai-chat__bubble-menu--toolbar">
-                <summary class="ai-chat__bubble-menu-trigger">•••</summary>
-                <div class="ai-chat__bubble-menu-panel">
-                  <button class="ai-chat__link-button" type="button" @click="toggleMessageHidden(entry.primaryMessage)">
+              <div
+                class="ai-chat__bubble-menu ai-chat__bubble-menu--toolbar"
+                :class="{ 'ai-chat__bubble-menu--open': isMessageToolbarMenuOpen(entry.primaryMessage.id) }"
+              >
+                <button
+                  class="ai-chat__bubble-menu-trigger"
+                  type="button"
+                  :aria-expanded="isMessageToolbarMenuOpen(entry.primaryMessage.id)"
+                  @click.stop="toggleMessageToolbarMenu(entry.primaryMessage.id)"
+                >
+                  •••
+                </button>
+                <div v-if="isMessageToolbarMenuOpen(entry.primaryMessage.id)" class="ai-chat__bubble-menu-panel">
+                  <button class="ai-chat__link-button" type="button" @click="handleMessageToolbarAction(() => toggleMessageHidden(entry.primaryMessage))">
                     {{ messageMeta(entry.primaryMessage)?.hidden ? t('showInContext', '恢复上下文') : t('hideFromContext', '隐藏上下文') }}
                   </button>
-                  <button v-if="(messageMeta(entry.primaryMessage)?.versionCount || 0) > 1" class="ai-chat__link-button" type="button" @click="cycleMessageVersion(entry.primaryMessage)">
+                  <button
+                    v-if="(messageMeta(entry.primaryMessage)?.versionCount || 0) > 1"
+                    class="ai-chat__link-button"
+                    type="button"
+                    @click="handleMessageToolbarAction(() => cycleMessageVersion(entry.primaryMessage))"
+                  >
                     {{ t('switchVersion', '切版本') }}
                   </button>
-                  <button class="ai-chat__link-button" type="button" @click="insertSeparatorAfter(entry.primaryMessage)">{{ t('insertSeparator', '插入分隔') }}</button>
+                  <button class="ai-chat__link-button" type="button" @click="handleMessageToolbarAction(() => insertSeparatorAfter(entry.primaryMessage))">{{ t('insertSeparator', '插入分隔') }}</button>
                 </div>
-              </details>
+              </div>
             </div>
           </div>
         </article>
@@ -634,6 +651,10 @@ import {
   getSelfTestModeDescriptor,
   listSelfTestModeDescriptors,
 } from '@/application/services/AIPromptContractRegistry';
+import {
+  renderSelfTestCandidateDraftMarkdown,
+  summarizeSelfTestCandidateCard,
+} from '@/application/services/AISelfTestDraftSupport';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
@@ -713,6 +734,7 @@ const composerInputRef = ref<HTMLTextAreaElement | null>(null);
 const contextMenuOpen = ref(false);
 const contextMenuRef = ref<HTMLElement | null>(null);
 const contextMenuToggleRef = ref<HTMLElement | null>(null);
+const messageToolbarMenuMessageId = ref<string | null>(null);
 
 const editorOpen = ref(false);
 const editorReadonly = ref(false);
@@ -1145,24 +1167,15 @@ function candidateCards(message: AIWorkbenchAssistantResultMessage): AIConceptCo
 }
 
 function candidateDraftMarkdown(card: AIConceptCoachCandidateCard): string {
-  if (normalizeText(card.draftMarkdown)) {
-    return card.draftMarkdown;
-  }
-  const legacyQuestion = normalizeText(card.legacyQuestion || card.question);
-  const legacyAnswer = normalizeText(card.legacyAnswer || card.answer);
-  if (!legacyQuestion && !legacyAnswer) {
-    return '';
-  }
-  return `* ${legacyQuestion}\n\n  * ${legacyAnswer}`.trim();
+  return renderSelfTestCandidateDraftMarkdown(card, selfTestCreationMode.value);
 }
 
 function candidateSummary(card: AIConceptCoachCandidateCard): string {
-  return normalizeText(card.summary) || normalizeText(card.legacyQuestion || card.question) || t('candidateDraft', '候选草稿');
+  return summarizeSelfTestCandidateCard(card) || t('candidateDraft', '候选草稿');
 }
 
 function messageSelfTestCreationMode(message: AIWorkbenchAssistantResultMessage): AIConceptCoachSelfTestCreationMode {
-  const value = (message.tabResult || message.conceptCoachResult?.selfTestCards) as AIConceptCoachSelfTestCards | null;
-  return value?.creationMode || 'list-item';
+  return selfTestCreationMode.value;
 }
 
 function messageSelfTestModeDescriptor(message: AIWorkbenchAssistantResultMessage) {
@@ -1189,30 +1202,18 @@ function allCandidateCardsSelected(message: AIWorkbenchAssistantResultMessage): 
   return cards.length > 0 && cards.every((card) => card.selected !== false);
 }
 
-function hasSelfTestModeMismatch(message: AIWorkbenchAssistantResultMessage): boolean {
-  return messageSelfTestCreationMode(message) !== selfTestCreationMode.value;
-}
-
-function selfTestModeMismatchMessage(message: AIWorkbenchAssistantResultMessage): string {
-  return t(
-    'selfTestModeMismatchHint',
-    `当前草稿是 ${messageSelfTestModeDescriptor(message).label} 格式，工作台已切到 ${selfTestModeLabel(selfTestCreationMode.value)}。请先重跑“自测卡片”再制卡。`,
-  );
-}
+const selfTestStaleHint = computed(() => (
+  service.isViewStale?.(undefined, 'self-test-cards' as never)
+    ? t('selfTestStaleHint', '当前结果基于旧上下文，仍可查看、编辑和制卡；若想继续追问这个阶段，请先重跑。')
+    : ''
+));
 
 function selfTestCardCreationDisabledReason(message: AIWorkbenchAssistantResultMessage): string | null {
   if (state.isLoading || selfTestCardCreationBusy.value) {
     return t('aiBusyWait', 'AI 正在处理中，请稍后再操作。');
   }
-  const staleReason = service.getFollowUpDisabledReason?.(undefined, 'self-test-cards' as never);
-  if (staleReason) {
-    return staleReason;
-  }
   if (validSelectedCandidateCount(message) === 0) {
     return t('selectCandidateFirst', '请先勾选至少一张包含有效草稿的自测卡片。');
-  }
-  if (hasSelfTestModeMismatch(message)) {
-    return selfTestModeMismatchMessage(message);
   }
   if (!selfTestTargetMemory.value) {
     return t('setSelfTestTargetFirst', '请先设置制卡位置。');
@@ -1325,10 +1326,13 @@ function entryDetailsLabel(entry: AIWorkbenchRenderEntry): string {
   if (toolLogs.length > 0) {
     const rounds = Math.max(...toolLogs.map((detail) => detail.roundIndex || 0), 0);
     const duration = toolLogs.reduce((total, detail) => total + (detail.durationMs || 0), 0);
-    const summary = [`${toolLogs.length} ${t('toolCalls', '次工具调用')}`];
+    const summary = [`${t('toolCallsLabel', '工具调用')}（${toolLogs.length} ${t('toolCalls', '次')}`];
     if (rounds > 0) {
       summary.push(`${rounds} ${t('rounds', '轮')}`);
     }
+    summary[0] = `${summary[0]}${summary.length > 1 ? ' · ' : ''}${summary.slice(1).join(' · ')}`.trimEnd();
+    summary.splice(1);
+    summary[0] = `${summary[0]}）`;
     if (duration > 0) {
       summary.push(`${(duration / 1000).toFixed(duration >= 10000 ? 0 : 1)}s`);
     }
@@ -1519,25 +1523,55 @@ function openCandidateEditor(message: AIWorkbenchAssistantResultMessage, card: A
   editorReadonly.value = false;
   editorTitle.value = t('editCandidateCard', '编辑候选卡');
   editorValue.value = [
-    `模式：${selfTestModeLabel(card.mode)}`,
+    `当前渲染模式：${selfTestModeLabel(selfTestCreationMode.value)}`,
     `类型：${card.kind}`,
     `摘要：${candidateSummary(card)}`,
     '',
-    '草稿：',
-    candidateDraftMarkdown(card),
+    '问题：',
+    card.prompt || card.question || '',
+    '',
+    '答案：',
+    card.answer || '',
+    '',
+    '补充要点：',
+    (card.details || []).join('\n'),
+    '',
+    '挖空目标：',
+    (card.clozeTargets || []).join('\n'),
   ].join('\n');
-  editorPlaceholder.value = '模式：列表项块\n类型：定义\n摘要：用一句话说明这张草稿在考什么\n\n草稿：\n- 问题\n  - 答案';
+  editorPlaceholder.value = '当前渲染模式：列表项块\n类型：定义\n摘要：用一句话说明这张草稿在考什么\n\n问题：\n题面\n\n答案：\n答案\n\n补充要点：\n补充 1\n补充 2\n\n挖空目标：\n关键词 1\n关键词 2';
   editorConfirmLabel.value = t('save', '保存');
   editorOpen.value = true;
 }
 
-function parseCandidateEditorValue(value: string): Partial<Pick<AIConceptCoachCandidateCard, 'summary' | 'draftMarkdown' | 'kind'>> {
-  const sections = value.split(/\r?\n草稿[:：]\s*\r?\n/);
-  const headerLines = sections[0]?.split(/\r?\n/) || [];
+function parseCandidateEditorSection(value: string, label: string): string {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`${escaped}[:：]\\s*\\r?\\n([\\s\\S]*?)(?=\\r?\\n(?:问题|答案|补充要点|挖空目标)[:：]\\s*\\r?\\n|$)`);
+  const match = value.match(pattern);
+  return normalizeText(match?.[1] || '');
+}
+
+function parseCandidateEditorListSection(value: string, label: string): string[] {
+  return parseCandidateEditorSection(value, label)
+    .split(/\r?\n/)
+    .map((line) => normalizeText(line.replace(/^[-*+]\s+/, '')))
+    .filter(Boolean);
+}
+
+function parseCandidateEditorValue(
+  value: string,
+): Partial<Pick<AIConceptCoachCandidateCard, 'summary' | 'prompt' | 'answer' | 'details' | 'clozeTargets' | 'kind'>> {
+  const headerLines = value.split(/\r?\n/);
   const summary = normalizeText(headerLines.find((line) => /^摘要[:：]/.test(line))?.replace(/^摘要[:：]/, ''));
   const kind = normalizeText(headerLines.find((line) => /^类型[:：]/.test(line))?.replace(/^类型[:：]/, '')) as AIConceptCoachCardKind;
-  const draftMarkdown = normalizeText(sections.slice(1).join('\n草稿：\n'));
-  return { summary, draftMarkdown, kind };
+  return {
+    summary,
+    prompt: parseCandidateEditorSection(value, '问题'),
+    answer: parseCandidateEditorSection(value, '答案'),
+    details: parseCandidateEditorListSection(value, '补充要点'),
+    clozeTargets: parseCandidateEditorListSection(value, '挖空目标'),
+    kind,
+  };
 }
 
 async function setWorkbenchSelfTestMode(mode: AIConceptCoachSelfTestCreationMode): Promise<void> {
@@ -1709,6 +1743,23 @@ async function cycleMessageVersion(message: AIWorkbenchMessage): Promise<void> {
   await service.cycleMessageVersion?.(message.id);
 }
 
+function closeMessageToolbarMenu(): void {
+  messageToolbarMenuMessageId.value = null;
+}
+
+function isMessageToolbarMenuOpen(messageId: string): boolean {
+  return messageToolbarMenuMessageId.value === messageId;
+}
+
+function toggleMessageToolbarMenu(messageId: string): void {
+  messageToolbarMenuMessageId.value = isMessageToolbarMenuOpen(messageId) ? null : messageId;
+}
+
+async function handleMessageToolbarAction(action: () => Promise<void> | void): Promise<void> {
+  closeMessageToolbarMenu();
+  await action();
+}
+
 async function focusTreeNode(nodeId: string): Promise<void> {
   await service.focusTreeNode?.(nodeId);
 }
@@ -1730,24 +1781,31 @@ function toggleContextMenu(): void {
 }
 
 function handleDocumentPointerDown(event: Event): void {
-  if (!contextMenuOpen.value) {
-    return;
-  }
   const target = event.target;
   if (!(target instanceof Node)) {
     return;
   }
-  if (contextMenuRef.value?.contains(target) || contextMenuToggleRef.value?.contains(target)) {
+  if (contextMenuOpen.value) {
+    if (contextMenuRef.value?.contains(target) || contextMenuToggleRef.value?.contains(target)) {
+      return;
+    }
+    closeContextMenu();
+  }
+  if (!messageToolbarMenuMessageId.value || !(target instanceof Element)) {
     return;
   }
-  closeContextMenu();
+  if (target.closest('.ai-chat__bubble-menu--toolbar')) {
+    return;
+  }
+  closeMessageToolbarMenu();
 }
 
 function handleDocumentKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Escape' || !contextMenuOpen.value) {
+  if (event.key !== 'Escape') {
     return;
   }
   closeContextMenu();
+  closeMessageToolbarMenu();
 }
 
 async function handleContextProvider(provider: ContextProvider): Promise<void> {
@@ -1903,10 +1961,9 @@ onUnmounted(() => {
 .ai-chat__bubble-meta span { display: block; color: #7f8797; font-size: 12px; margin-top: 2px; }
 .ai-chat__bubble-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ai-chat__bubble-menu { position: relative; }
-.ai-chat__bubble-menu[open] { z-index: 4; }
-.ai-chat__bubble-menu-trigger { list-style: none; width: 28px; height: 28px; border: 1px solid transparent; border-radius: 999px; color: #8b94a6; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; }
-.ai-chat__bubble-menu-trigger::-webkit-details-marker { display: none; }
-.ai-chat__bubble:hover .ai-chat__bubble-menu-trigger, .ai-chat__bubble-menu[open] .ai-chat__bubble-menu-trigger { border-color: #e1e6ef; background: #f8fafc; color: #51607a; }
+.ai-chat__bubble-menu--open { z-index: 4; }
+.ai-chat__bubble-menu-trigger { list-style: none; width: 28px; height: 28px; border: 1px solid transparent; border-radius: 999px; color: #8b94a6; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; background: transparent; }
+.ai-chat__bubble:hover .ai-chat__bubble-menu-trigger, .ai-chat__bubble-menu--open .ai-chat__bubble-menu-trigger { border-color: #e1e6ef; background: #f8fafc; color: #51607a; }
 .ai-chat__bubble-menu-panel { position: absolute; top: 32px; right: 0; min-width: 132px; padding: 7px; border: 1px solid #dfe5ef; border-radius: 10px; background: #fff; box-shadow: 0 16px 34px rgba(21, 27, 38, 0.16); display: grid; gap: 2px; }
 .ai-chat__bubble-menu-panel .ai-chat__link-button { width: 100%; padding: 7px 8px; border-radius: 7px; text-align: left; }
 .ai-chat__bubble-menu-panel .ai-chat__link-button:hover { background: #f4f7fb; color: #1f2937; }
@@ -1945,8 +2002,7 @@ onUnmounted(() => {
 .ai-chat__approval-actions { display: flex; align-items: center; gap: 8px; }
 .ai-chat__message-toolbar { margin-top: 12px; padding-top: 8px; border-top: 1px solid #eef1f6; display: flex; align-items: center; justify-content: space-between; gap: 10px; opacity: 0; transition: opacity 0.16s ease, transform 0.16s ease; transform: translateY(2px); }
 .ai-chat__bubble:hover .ai-chat__message-toolbar,
-.ai-chat__bubble:focus-within .ai-chat__message-toolbar,
-.ai-chat__bubble-menu--toolbar[open] ~ .ai-chat__message-toolbar { opacity: 1; transform: translateY(0); }
+.ai-chat__bubble:focus-within .ai-chat__message-toolbar { opacity: 1; transform: translateY(0); }
 .ai-chat--compact .ai-chat__message-toolbar { opacity: 1; transform: none; }
 .ai-chat__message-toolbar-meta { min-width: 0; color: #7f8797; font-size: 12px; }
 .ai-chat__message-toolbar-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

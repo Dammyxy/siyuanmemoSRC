@@ -1,5 +1,6 @@
 import type { AIChatToolRuntimeContext } from '@/application/services/AIChatToolExecutorService';
 import type { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
+import { renderSelfTestCandidateDraftMarkdown, summarizeSelfTestCandidateCard } from '@/application/services/AISelfTestDraftSupport';
 import type {
   AIConceptCoachCandidateCard,
   AIConceptCoachSelfTestCreationMode,
@@ -54,25 +55,20 @@ export class AISelfTestCardCreationService {
   async createFromCandidates(
     target: AIWorkbenchSelfTestCardTargetInput,
     candidates: AIConceptCoachCandidateCard[],
+    mode: AIConceptCoachSelfTestCreationMode = 'list-item',
   ): Promise<AIWorkbenchSelfTestCardCreationResult> {
     const selected = candidates.filter((candidate) => (
       candidate.selected !== false
-      && normalizeString(candidate.draftMarkdown)
+      && normalizeString(renderSelfTestCandidateDraftMarkdown(candidate, mode))
     ));
     if (selected.length === 0) {
       throw new Error('请先勾选至少一张包含有效制卡草稿的自测卡片。');
     }
 
-    const modes = Array.from(new Set(selected.map((candidate) => candidate.mode)));
-    if (modes.length !== 1) {
-      throw new Error('当前只支持同一批次使用一种自测制卡模式，请先重跑当前模式。');
-    }
-
-    const mode = modes[0] as AIConceptCoachSelfTestCreationMode;
     const runtime = this.deps.getRuntimeContext();
     const items = selected.map((candidate) => ({
-      summary: candidate.summary,
-      draftMarkdown: candidate.draftMarkdown,
+      summary: summarizeSelfTestCandidateCard(candidate),
+      draftMarkdown: renderSelfTestCandidateDraftMarkdown(candidate, mode),
     }));
     const args = {
       targetMode: target.mode,
@@ -102,7 +98,7 @@ export class AISelfTestCardCreationService {
           ...args,
           mode: 'multi-cloze',
           items: selected.map((candidate) => ({
-            content: candidate.draftMarkdown,
+            content: renderSelfTestCandidateDraftMarkdown(candidate, mode),
           })),
         }, runtime) as FlashcardToolResult;
         break;
@@ -118,7 +114,10 @@ export class AISelfTestCardCreationService {
     const insertedRootBlockIds = itemResults
       .map((item) => item.insertedRootBlockId)
       .filter((value): value is string => Boolean(value));
-    const markdown = selected.map((candidate) => normalizeString(candidate.draftMarkdown)).filter(Boolean).join('\n\n');
+    const markdown = selected
+      .map((candidate) => normalizeString(renderSelfTestCandidateDraftMarkdown(candidate, mode)))
+      .filter(Boolean)
+      .join('\n\n');
 
     return {
       target: (result.target || target) as AIWorkbenchSelfTestCardCreationResult['target'],
@@ -149,10 +148,10 @@ export class AISelfTestCardCreationService {
       return {
         candidateId: candidate.id,
         mode,
-        summary: normalizeString(raw.summary) || candidate.summary,
-        draftMarkdown: normalizeString(raw.draftMarkdown) || candidate.draftMarkdown,
-        question: candidate.legacyQuestion || candidate.question,
-        answer: candidate.legacyAnswer || candidate.answer,
+        summary: normalizeString(raw.summary) || summarizeSelfTestCandidateCard(candidate),
+        draftMarkdown: normalizeString(raw.draftMarkdown) || renderSelfTestCandidateDraftMarkdown(candidate, mode),
+        question: candidate.prompt || candidate.legacyQuestion || candidate.question,
+        answer: candidate.answer || candidate.legacyAnswer,
         status: normalizeString(raw.status) === 'created'
           ? 'created'
           : normalizeString(raw.status) === 'skipped'

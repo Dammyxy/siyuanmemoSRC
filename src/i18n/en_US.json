@@ -1830,6 +1830,7 @@
   "aiProviderProtocolHint": "Messages, tool calls, and structured output are adapted by protocol. DeepSeek and compatible services can keep using OpenAI Compatible.",
   "aiChatRuntimeSettings": "Chat and Tool Runtime",
   "aiDefaultSkill": "Standalone Default Skill",
+  "aiReviewDefaultSkill": "Review Default Skill",
   "generalChat": "General AI Chat",
   "conceptCoach": "AI Understanding and Cards",
   "aiMaxToolRounds": "Max Tool Rounds",
@@ -1898,6 +1899,7 @@
   "selfTestTargetNotSet": "No card creation location set",
   "aiBusyWait": "AI is still working. Please try again shortly.",
   "selectCandidateFirst": "Select at least one self-test card with a valid draft.",
+  "selfTestStaleHint": "This result is based on older context. You can still view, edit, and create cards from it; rerun first if you want to continue this stage.",
   "selfTestModeMismatchHint": "The current drafts do not match the mode now selected in the workbench. Re-run the self-test tab before creating cards.",
   "setSelfTestTargetFirst": "Set the card creation location first.",
   "selectNotebookFirst": "Select a target notebook.",
@@ -1925,6 +1927,7 @@
   "resultPreview": "Result preview",
   "round": "Round",
   "rounds": "rounds",
+  "toolCallsLabel": "Tool calls",
   "toolCalls": "tool calls",
   "versions": "versions"
 }

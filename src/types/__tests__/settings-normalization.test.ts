@@ -284,6 +284,7 @@ describe('settings normalization', () => {
     expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.baseRun).not.toContain('workingDefinition');
     expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs['self-test-cards'].run).toContain('自测草稿');
     expect(DEFAULT_SETTINGS.ai.conceptCoach.selfTest.defaultCreationMode).toBe('list-item');
+    expect(DEFAULT_SETTINGS.ai.chatDefaults.reviewDefaultSkillId).toBe('general-chat');
   });
 
   it('resets AI prompts to the current behavior-prompt contract when legacy settings lack the new contract version', () => {

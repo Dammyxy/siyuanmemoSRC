@@ -1830,6 +1830,7 @@
   "aiProviderProtocolHint": "内部会按协议适配消息、工具调用和结构化输出；DeepSeek 等兼容服务可继续使用 OpenAI Compatible。",
   "aiChatRuntimeSettings": "聊天与工具 Runtime",
   "aiDefaultSkill": "Standalone 默认 Skill",
+  "aiReviewDefaultSkill": "Review 默认 Skill",
   "generalChat": "通用 AI 聊天",
   "conceptCoach": "AI 理解与制卡",
   "aiMaxToolRounds": "最大工具轮数",
@@ -1899,6 +1900,7 @@
   "aiBusyWait": "AI 正在处理中，请稍后再操作。",
   "selectCandidateFirst": "请先勾选至少一张包含有效草稿的自测卡片。",
   "selfTestModeMismatchHint": "当前草稿格式与工作台已切换的模式不一致，请先重跑“自测卡片”再制卡。",
+  "selfTestStaleHint": "当前结果基于旧上下文，仍可查看、编辑和制卡；若想继续追问这个阶段，请先重跑。",
   "setSelfTestTargetFirst": "请先设置制卡位置。",
   "selectNotebookFirst": "请选择目标笔记本。",
   "fillTargetBlockId": "请填写目标文档或块 ID。",
@@ -1926,5 +1928,6 @@
   "round": "轮次",
   "rounds": "轮",
   "toolCalls": "次工具调用",
+  "toolCallsLabel": "工具调用",
   "versions": "个版本"
 }

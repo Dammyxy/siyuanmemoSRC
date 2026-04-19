@@ -448,11 +448,12 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(setCandidateCardsSelected).toHaveBeenCalledWith('self-test-message-1', false);
   });
 
-  it('disables self-test card creation when the structured result is stale', async () => {
+  it('keeps self-test card creation available when the structured result is stale', async () => {
     const service = createService('review-dialog-sidecar');
     service.setActiveTab('self-test-cards');
     service.getRenderEntries = () => [makeSelfTestRenderEntry()] as never;
     service.getFollowUpDisabledReason = () => '当前上下文已变化，请先重新运行。';
+    service.isViewStale = () => true as never;
     service.getSelfTestCardTargetMemory = vi.fn(async () => ({
       mode: 'daily-note',
       notebookId: 'notebook-1',
@@ -471,10 +472,18 @@ describe('AiWorkbenchPane compact surfaces', () => {
     await Promise.resolve();
     await nextTick();
 
-    expect(wrapper.text()).toContain('当前上下文已变化，请先重新运行。');
+    expect(wrapper.text()).toContain('当前结果基于旧上下文，仍可查看、编辑和制卡');
     const createButton = wrapper.findAll('button').find((button) => button.text().includes('制卡选中项'))!;
-    expect(createButton.attributes('disabled')).toBeDefined();
-    expect(createSelfTestCardsFromSelectedCandidates).not.toHaveBeenCalled();
+    expect(createButton.attributes('disabled')).toBeUndefined();
+
+    await createButton.trigger('click');
+    await Promise.resolve();
+    await nextTick();
+
+    expect(createSelfTestCardsFromSelectedCandidates).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+    }), 'self-test-message-1');
   });
 
   it('shows composer context chips, compact composer actions, and assistant edit actions in the chat shell', () => {
@@ -580,7 +589,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
 
     expect(wrapper.text()).toContain('这是最终回复。');
-    expect(wrapper.text()).toContain('1 次工具调用');
+    expect(wrapper.text()).toContain('工具调用（1 次');
     expect(wrapper.text()).not.toContain('工具读取内容');
 
     await wrapper.find('.ai-chat__step-toggle').trigger('click');
@@ -888,6 +897,46 @@ describe('AiWorkbenchPane compact surfaces', () => {
     await nextTick();
     expect(attachContextFromProvider).toHaveBeenCalledWith('manual-text');
     expect(wrapper.find('.ai-chat__context-menu').exists()).toBe(false);
+  });
+
+  it('opens the message action menu and closes it on outside click, escape, and selection', async () => {
+    const service = createService('review-dialog-sidecar');
+    const toggleMessageHidden = vi.fn(async () => {});
+    service.toggleMessageHidden = toggleMessageHidden as never;
+    service.state.threads.explain.messages.push({
+      id: 'assistant-text-menu',
+      view: 'explain',
+      kind: 'assistant-text',
+      content: '这里有一条消息。',
+      createdAt: Date.now(),
+      sourceContent: '这里有一条消息。',
+      appliedContexts: [],
+    } as never);
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    const moreButton = wrapper.find('.ai-chat__bubble-menu-trigger');
+
+    await moreButton.trigger('click');
+    await nextTick();
+    expect(wrapper.find('.ai-chat__bubble-menu-panel').exists()).toBe(true);
+
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await nextTick();
+    expect(wrapper.find('.ai-chat__bubble-menu-panel').exists()).toBe(false);
+
+    await moreButton.trigger('click');
+    await nextTick();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await nextTick();
+    expect(wrapper.find('.ai-chat__bubble-menu-panel').exists()).toBe(false);
+
+    await moreButton.trigger('click');
+    await nextTick();
+    await wrapper.find('.ai-chat__bubble-menu-panel .ai-chat__link-button').trigger('click');
+    await nextTick();
+
+    expect(toggleMessageHidden).toHaveBeenCalledWith('assistant-text-menu');
+    expect(wrapper.find('.ai-chat__bubble-menu-panel').exists()).toBe(false);
   });
 
   it('falls back to legacy alias keys when rendering persisted explain results', () => {
