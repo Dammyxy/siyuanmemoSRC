@@ -1359,6 +1359,8 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
       content: normalizeString(message.content),
       editedFromMessageId: normalizeString(message.editedFromMessageId) || null,
       attachedContexts: cloneAttachedContexts(message.attachedContexts as AIAttachedContextItem[]),
+      runGroupId: normalizeString(message.runGroupId) || null,
+      presentation: normalizeString(message.presentation) as AIWorkbenchUserMessage['presentation'],
     };
   }
   if (kind === 'assistant-text') {
@@ -1371,6 +1373,15 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
       reasoningContent: normalizeString(message.reasoningContent) || null,
       diagnostics: Array.isArray(message.diagnostics) ? message.diagnostics.map((entry) => normalizeString(entry)).filter(Boolean) : [],
       interrupted: message.interrupted === true,
+      requestSourceMessageId: normalizeString(message.requestSourceMessageId) || null,
+      failureDiagnostic: isRecord(message.failureDiagnostic)
+        ? {
+          content: normalizeString(message.failureDiagnostic.content),
+        } satisfies AIWorkbenchFailureDiagnostic
+        : null,
+      failureRunMode: normalizeString(message.failureRunMode) as AIWorkbenchRunMode || null,
+      runGroupId: normalizeString(message.runGroupId) || null,
+      presentation: normalizeString(message.presentation) as AIWorkbenchAssistantTextMessage['presentation'],
     };
   }
   if (kind === 'assistant-result') {
@@ -1400,6 +1411,8 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
       reasoningContent: normalizeString(message.reasoningContent) || null,
       diagnostics: Array.isArray(message.diagnostics) ? message.diagnostics.map((entry) => normalizeString(entry)).filter(Boolean) : [],
       interrupted: message.interrupted === true,
+      runGroupId: normalizeString(message.runGroupId) || null,
+      presentation: normalizeString(message.presentation) as AIWorkbenchAssistantResultMessage['presentation'],
     };
   }
   if (kind === 'tool-log') {
@@ -1425,6 +1438,8 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
           totalTokens: Number((message.llmUsage as { totalTokens?: unknown }).totalTokens) || undefined,
         }
         : null,
+      runGroupId: normalizeString(message.runGroupId) || null,
+      presentation: normalizeString(message.presentation) as AIWorkbenchToolLogMessage['presentation'],
     };
   }
   if (kind === 'approval' && isRecord(message.request)) {
@@ -1458,6 +1473,8 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
         resolvedAt: Number(request.resolvedAt) || undefined,
         rejectReason: normalizeString(request.rejectReason) || undefined,
       } satisfies AIChatApprovalRequest,
+      runGroupId: normalizeString(message.runGroupId) || null,
+      presentation: normalizeString(message.presentation) as AIWorkbenchApprovalMessage['presentation'],
     };
   }
   if (kind === 'separator') {
@@ -1465,6 +1482,8 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
       ...base,
       kind,
       label: normalizeString(message.label) || '分隔',
+      runGroupId: normalizeString(message.runGroupId) || null,
+      presentation: normalizeString(message.presentation) as AIWorkbenchSeparatorMessage['presentation'],
     } satisfies AIWorkbenchSeparatorMessage;
   }
   return null;
@@ -2650,9 +2669,52 @@ export class AIWorkbenchService {
     await this.persistCurrentSession();
   }
 
+  getRelatedUserMessage(messageId: string): AIWorkbenchUserMessage | null {
+    const node = this.resolveRelatedUserNode(messageId);
+    const message = node ? this.getNodeMessage(node) : null;
+    return message?.kind === 'user' ? message : null;
+  }
+
+  async retryFailedMessage(messageId: string): Promise<void> {
+    const sourceNode = this.resolveRelatedUserNode(messageId);
+    const sourceMessage = sourceNode ? this.getNodeMessage(sourceNode) : null;
+    if (!sourceNode || sourceMessage?.kind !== 'user') {
+      return;
+    }
+    this.syncActiveViewToNode(sourceNode);
+    if (sourceNode.skillId === GENERAL_SKILL) {
+      await this.executeGeneralChatRequest(
+        this.getResolvedSkill(sourceNode.skillId),
+        sourceNode.tabId,
+        sourceNode.id,
+        sourceMessage.attachedContexts,
+        createEntryId('ai-run'),
+      );
+      return;
+    }
+    const skill = this.getResolvedSkill(sourceNode.skillId);
+    if (resolveUserMessagePurpose(sourceMessage.purpose) === 'initial-run') {
+      await this.executeStructuredInitialPrompt(skill, sourceMessage.content, {
+        sourceNode,
+        attachedContexts: sourceMessage.attachedContexts,
+        reuseSourceMessage: true,
+      });
+      return;
+    }
+    await this.executeStructuredFollowUp(skill, sourceNode.tabId, sourceMessage.content, {
+      sourceNode,
+      attachedContexts: sourceMessage.attachedContexts,
+      reuseSourceMessage: true,
+    });
+  }
+
   async rerunFromMessage(messageId: string): Promise<void> {
     const node = this.getTreeNode(messageId);
     if (!node) {
+      return;
+    }
+    if (node.skillId === GENERAL_SKILL) {
+      await this.retryFailedMessage(messageId);
       return;
     }
     const tree = this.ensureTreeState();
@@ -2678,6 +2740,122 @@ export class AIWorkbenchService {
       return;
     }
     await this.runActiveTab();
+  }
+
+  private resolveRelatedUserNode(messageId: string): AIWorkbenchTreeNode | null {
+    const node = this.getTreeNode(messageId);
+    if (!node) {
+      return null;
+    }
+    const message = this.getNodeMessage(node);
+    if (message?.kind === 'user') {
+      return node;
+    }
+    if (message?.kind === 'assistant-text' && message.requestSourceMessageId) {
+      return this.getTreeNode(message.requestSourceMessageId);
+    }
+    const tree = this.ensureTreeState();
+    return traceTreePath(tree, node.id)
+      .map((nodeId) => tree.nodes[nodeId])
+      .filter((entry): entry is AIWorkbenchTreeNode => Boolean(entry))
+      .reverse()
+      .find((entry) => this.getNodeMessage(entry)?.kind === 'user') || null;
+  }
+
+  private syncActiveViewToNode(node: AIWorkbenchTreeNode): void {
+    this.state.activeSkillId = node.skillId;
+    this.ensureSkillRuntimeState(node.skillId);
+    this.state.activeTabId = this.normalizeTabForCurrentSettings(node.tabId, node.skillId);
+    this.ensureTreeState().activeLeafNodeIds![createTreeViewKey(node.skillId, node.tabId)] = node.id;
+    this.ensureTreeState().activeLeafNodeId = node.id;
+    this.rebuildProjectedThreads();
+    this.syncDerivedStateFromThreads();
+  }
+
+  private clearMessageRequestErrorState(): void {
+    this.state.error = null;
+    this.state.failureDiagnostic = null;
+  }
+
+  private consumeFailureDiagnostic(): AIWorkbenchFailureDiagnostic | null {
+    const current = this.state.failureDiagnostic
+      ? { ...this.state.failureDiagnostic }
+      : null;
+    this.state.failureDiagnostic = null;
+    return current;
+  }
+
+  private resolveRequestAttachedContexts(attachedContexts?: AIAttachedContextItem[] | null): AIAttachedContextItem[] {
+    if (attachedContexts) {
+      return cloneAttachedContexts(attachedContexts);
+    }
+    return this.consumeComposerContexts();
+  }
+
+  private isAbortErrorMessage(message: string): boolean {
+    return message.includes('已停止') || message.includes('aborted');
+  }
+
+  private materializeRequestFailure(input: {
+    assistantMessageId?: string | null;
+    sourceUserMessageId: string;
+    skillId: AISkillId;
+    tabId: AISkillTabId;
+    attachedContexts: AIAttachedContextItem[];
+    error: unknown;
+    runMode: AIWorkbenchRunMode;
+    runGroupId?: string | null;
+  }): void {
+    const content = input.error instanceof Error ? input.error.message : String(input.error);
+    const status = this.isAbortErrorMessage(content) ? 'interrupted' : 'error';
+    const sourceNode = this.getTreeNode(input.sourceUserMessageId);
+    const scope = sourceNode?.scope || (input.skillId === GENERAL_SKILL ? 'skill' : 'tab');
+    const updateTabIds = scope === 'skill'
+      ? getSkillTabIds(input.skillId, sourceNode?.tabId || input.tabId)
+      : [input.tabId];
+    const failureDiagnostic = status === 'error' ? this.consumeFailureDiagnostic() : null;
+    const patchMessage = (message: AIWorkbenchAssistantTextMessage): AIWorkbenchAssistantTextMessage => ({
+      ...message,
+      content,
+      sourceContent: message.sourceContent || message.content || null,
+      appliedContexts: cloneAttachedContexts(input.attachedContexts),
+      interrupted: status === 'interrupted',
+      requestSourceMessageId: input.sourceUserMessageId,
+      failureDiagnostic,
+      failureRunMode: input.runMode,
+      runGroupId: normalizeString(input.runGroupId) || message.runGroupId || null,
+      presentation: 'primary',
+    });
+    if (input.assistantMessageId && this.getTreeNode(input.assistantMessageId)) {
+      this.patchActiveNodeMessage(input.assistantMessageId, (message) => (
+        patchMessage(message as AIWorkbenchAssistantTextMessage)
+      ), { status });
+      return;
+    }
+    const failureNode = this.appendNodeMessage(input.tabId, patchMessage({
+      id: createEntryId('ai-msg'),
+      skillId: input.skillId,
+      tabId: input.tabId,
+      view: input.skillId,
+      kind: 'assistant-text',
+      content,
+      createdAt: Date.now(),
+      sourceContent: null,
+      appliedContexts: cloneAttachedContexts(input.attachedContexts),
+      reasoningContent: null,
+      diagnostics: [],
+      interrupted: status === 'interrupted',
+      requestSourceMessageId: input.sourceUserMessageId,
+      failureDiagnostic,
+      failureRunMode: input.runMode,
+      runGroupId: normalizeString(input.runGroupId) || null,
+      presentation: 'primary',
+    } satisfies AIWorkbenchAssistantTextMessage), {
+      scope,
+      parentNodeId: sourceNode?.id || null,
+      updateTabIds,
+    });
+    failureNode.status = status;
   }
 
   cancelCurrentRun(): void {
@@ -3178,49 +3356,30 @@ export class AIWorkbenchService {
     }, 'tab-rerun');
   }
 
-  async submitSkillPrompt(question: string): Promise<void> {
+  async submitSkillPrompt(
+    question: string,
+    options?: { editedFromMessageId?: string | null; attachedContexts?: AIAttachedContextItem[] | null },
+  ): Promise<void> {
     const normalizedQuestion = normalizeString(question);
     if (!normalizedQuestion) {
       return;
     }
     const skill = this.getResolvedSkill(this.state.activeSkillId);
     if (skill.mode === 'chat') {
-      await this.submitGeneralChatPrompt(normalizedQuestion);
+      await this.submitGeneralChatPrompt(normalizedQuestion, options);
       return;
     }
-    const tabIds = this.getSkillTabs(skill.id).map((tab) => tab.id);
-    await this.runTask(tabIds, async () => {
-      const attachedContexts = this.consumeComposerContexts();
-      const initialMessage = {
-        id: createEntryId('ai-msg'),
-        skillId: skill.id,
-        tabId: this.getPrimaryTabId(skill.id),
-        view: skill.id,
-        kind: 'user',
-        purpose: 'initial-run',
-        content: normalizedQuestion,
-        createdAt: Date.now(),
-        editedFromMessageId: null,
-        attachedContexts,
-      } satisfies AIWorkbenchUserMessage;
-      const initialNode = this.appendNodeMessage(initialMessage.tabId, initialMessage, {
-        scope: skill.id === CONCEPT_SKILL ? 'skill' : 'tab',
-      });
-      if (skill.id === CONCEPT_SKILL) {
-        const response = await this.requestConceptCoachResult(attachedContexts, normalizedQuestion);
-        this.appendConceptCoachFullResult(response.content, attachedContexts, initialNode.id);
-        return;
-      }
-      const response = await this.requestGenericStructuredResult(skill, attachedContexts, normalizedQuestion);
-      this.appendGenericStructuredFullResult(skill, response.content, attachedContexts, initialNode.id);
-    }, 'full-run');
+    await this.executeStructuredInitialPrompt(skill, normalizedQuestion, options);
   }
 
   async submitExplainPrompt(question: string): Promise<void> {
     await this.submitSkillPrompt(question);
   }
 
-  async submitFollowUp(question: string, options?: { editedFromMessageId?: string | null }): Promise<void> {
+  async submitFollowUp(
+    question: string,
+    options?: { editedFromMessageId?: string | null; attachedContexts?: AIAttachedContextItem[] | null },
+  ): Promise<void> {
     const normalizedQuestion = normalizeString(question);
     if (!normalizedQuestion) {
       return;
@@ -3235,33 +3394,127 @@ export class AIWorkbenchService {
     if (disabledReason) {
       throw this.fail(disabledReason);
     }
-    const attachedContexts = this.consumeComposerContexts();
-    const editedNode = normalizeString(options?.editedFromMessageId) ? this.getTreeNode(options?.editedFromMessageId || '') : null;
-    this.appendNodeMessage(tabId, {
-      id: createEntryId('ai-msg'),
-      skillId: skill.id,
-      tabId,
-      view: skill.id,
-      kind: 'user',
-      purpose: 'follow-up',
-      content: normalizedQuestion,
-      createdAt: Date.now(),
-      editedFromMessageId: normalizeString(options?.editedFromMessageId) || null,
-      attachedContexts,
-    } satisfies AIWorkbenchUserMessage, {
-      parentNodeId: editedNode?.parentId,
-    });
+    await this.executeStructuredFollowUp(skill, tabId, normalizedQuestion, options);
+  }
 
+  private async executeStructuredInitialPrompt(
+    skill: AIChatRegisteredSkillDescriptor,
+    question: string,
+    options?: {
+      editedFromMessageId?: string | null;
+      attachedContexts?: AIAttachedContextItem[] | null;
+      sourceNode?: AIWorkbenchTreeNode | null;
+      reuseSourceMessage?: boolean;
+    },
+  ): Promise<void> {
+    const tabIds = this.getSkillTabs(skill.id).map((tab) => tab.id);
+    const attachedContexts = this.resolveRequestAttachedContexts(options?.attachedContexts);
+    const sourceNode = options?.reuseSourceMessage && options.sourceNode
+      ? options.sourceNode
+      : this.appendNodeMessage(this.getPrimaryTabId(skill.id), {
+        id: createEntryId('ai-msg'),
+        skillId: skill.id,
+        tabId: this.getPrimaryTabId(skill.id),
+        view: skill.id,
+        kind: 'user',
+        purpose: 'initial-run',
+        content: question,
+        createdAt: Date.now(),
+        editedFromMessageId: normalizeString(options?.editedFromMessageId) || null,
+        attachedContexts,
+      } satisfies AIWorkbenchUserMessage, {
+        scope: skill.id === CONCEPT_SKILL ? 'skill' : 'tab',
+        parentNodeId: normalizeString(options?.editedFromMessageId)
+          ? this.getTreeNode(options?.editedFromMessageId || '')?.parentId
+          : undefined,
+      });
     this.state.isLoading = true;
+    this.clearMessageRequestErrorState();
+    this.state.runStatus = this.createRunStatus('full-run', tabIds);
+    for (const tabId of tabIds) {
+      const thread = this.state.threads[skill.id][tabId];
+      thread.stale = false;
+      thread.staleReason = null;
+    }
+    try {
+      if (skill.id === CONCEPT_SKILL) {
+        const response = await this.requestConceptCoachResult(attachedContexts, question);
+        this.appendConceptCoachFullResult(response.content, attachedContexts, sourceNode.id);
+      } else {
+        const response = await this.requestGenericStructuredResult(skill, attachedContexts, question);
+        this.appendGenericStructuredFullResult(skill, response.content, attachedContexts, sourceNode.id);
+      }
+      for (const tabId of tabIds) {
+        const thread = this.state.threads[skill.id][tabId];
+        thread.resultContextSignature = this.state.contextSignature;
+        thread.stale = false;
+        thread.staleReason = null;
+      }
+      this.state.legacyNotice = null;
+      this.syncDerivedStateFromThreads();
+      await this.persistCurrentSession();
+    } catch (error) {
+      if (this.isAbortErrorMessage(error instanceof Error ? error.message : String(error))) {
+        this.consumeFailureDiagnostic();
+        this.syncDerivedStateFromThreads();
+        await this.persistCurrentSession();
+      } else {
+        this.materializeRequestFailure({
+          sourceUserMessageId: sourceNode.id,
+          skillId: skill.id,
+          tabId: sourceNode.tabId,
+          attachedContexts,
+          error,
+          runMode: 'full-run',
+        });
+        this.syncDerivedStateFromThreads();
+        await this.persistCurrentSession();
+      }
+    } finally {
+      this.state.isLoading = false;
+      this.state.runStatus = null;
+    }
+  }
+
+  private async executeStructuredFollowUp(
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId: AISkillTabId,
+    question: string,
+    options?: {
+      editedFromMessageId?: string | null;
+      attachedContexts?: AIAttachedContextItem[] | null;
+      sourceNode?: AIWorkbenchTreeNode | null;
+      reuseSourceMessage?: boolean;
+    },
+  ): Promise<void> {
+    const attachedContexts = this.resolveRequestAttachedContexts(options?.attachedContexts);
+    const sourceNode = options?.reuseSourceMessage && options.sourceNode
+      ? options.sourceNode
+      : this.appendNodeMessage(tabId, {
+        id: createEntryId('ai-msg'),
+        skillId: skill.id,
+        tabId,
+        view: skill.id,
+        kind: 'user',
+        purpose: 'follow-up',
+        content: question,
+        createdAt: Date.now(),
+        editedFromMessageId: normalizeString(options?.editedFromMessageId) || null,
+        attachedContexts,
+      } satisfies AIWorkbenchUserMessage, {
+        parentNodeId: normalizeString(options?.editedFromMessageId)
+          ? this.getTreeNode(options?.editedFromMessageId || '')?.parentId
+          : undefined,
+      });
+    this.state.isLoading = true;
+    this.clearMessageRequestErrorState();
     this.state.runStatus = this.createRunStatus('follow-up', [tabId]);
-    this.state.error = null;
-    this.state.failureDiagnostic = null;
     try {
       const response = skill.id === CONCEPT_SKILL
         ? await this.requestFollowUp(tabId, attachedContexts)
         : await this.requestGenericFollowUp(skill, tabId, attachedContexts);
       const content = normalizeString(response.content) || '这次没有返回可用内容。';
-      this.appendMessage(tabId, {
+      this.appendNodeMessage(tabId, {
         id: createEntryId('ai-msg'),
         skillId: skill.id,
         tabId,
@@ -3271,11 +3524,31 @@ export class AIWorkbenchService {
         createdAt: Date.now(),
         sourceContent: content,
         appliedContexts: attachedContexts,
-      } satisfies AIWorkbenchAssistantTextMessage);
+        requestSourceMessageId: sourceNode.id,
+      } satisfies AIWorkbenchAssistantTextMessage, {
+        scope: sourceNode.scope,
+        parentNodeId: sourceNode.id,
+        updateTabIds: sourceNode.scope === 'skill' ? getSkillTabIds(skill.id, sourceNode.tabId) : [tabId],
+      });
       this.syncDerivedStateFromThreads();
       await this.persistCurrentSession();
     } catch (error) {
-      this.state.error = error instanceof Error ? error.message : String(error);
+      if (this.isAbortErrorMessage(error instanceof Error ? error.message : String(error))) {
+        this.consumeFailureDiagnostic();
+        this.syncDerivedStateFromThreads();
+        await this.persistCurrentSession();
+      } else {
+        this.materializeRequestFailure({
+          sourceUserMessageId: sourceNode.id,
+          skillId: skill.id,
+          tabId,
+          attachedContexts,
+          error,
+          runMode: 'follow-up',
+        });
+        this.syncDerivedStateFromThreads();
+        await this.persistCurrentSession();
+      }
     } finally {
       this.state.isLoading = false;
       this.state.runStatus = null;
@@ -3284,7 +3557,7 @@ export class AIWorkbenchService {
 
   private async submitGeneralChatPrompt(
     question: string,
-    options?: { editedFromMessageId?: string | null },
+    options?: { editedFromMessageId?: string | null; attachedContexts?: AIAttachedContextItem[] | null },
   ): Promise<void> {
     const normalizedQuestion = normalizeString(question);
     if (!normalizedQuestion) {
@@ -3293,10 +3566,10 @@ export class AIWorkbenchService {
     const skill = this.getResolvedSkill(this.state.activeSkillId);
     const tabId = this.getPrimaryTabId(skill.id);
     this.ensureSkillRuntimeState(skill.id);
-    const attachedContexts = this.consumeComposerContexts();
+    const attachedContexts = this.resolveRequestAttachedContexts(options?.attachedContexts);
     const runGroupId = createEntryId('ai-run');
     const editedNode = normalizeString(options?.editedFromMessageId) ? this.getTreeNode(options?.editedFromMessageId || '') : null;
-    this.appendNodeMessage(tabId, {
+    const userNode = this.appendNodeMessage(tabId, {
       id: createEntryId('ai-msg'),
       skillId: skill.id,
       tabId,
@@ -3311,17 +3584,52 @@ export class AIWorkbenchService {
       scope: 'skill',
       parentNodeId: editedNode?.parentId,
     });
+    await this.executeGeneralChatRequest(skill, tabId, userNode.id, attachedContexts, runGroupId);
+  }
 
+  private async executeGeneralChatRequest(
+    skill: AIChatRegisteredSkillDescriptor,
+    tabId: AISkillTabId,
+    sourceUserMessageId: string,
+    attachedContexts: AIAttachedContextItem[],
+    runGroupId: string,
+  ): Promise<void> {
     this.state.isLoading = true;
+    this.clearMessageRequestErrorState();
     this.state.runStatus = this.createRunStatus('chat', [CHAT_TAB]);
-    this.state.error = null;
-    this.state.failureDiagnostic = null;
+    let primaryAssistantMessageId: string | null = null;
     try {
-      await this.runGeneralChatToolLoop(skill, tabId, attachedContexts, runGroupId);
+      await this.runGeneralChatToolLoop(
+        skill,
+        tabId,
+        attachedContexts,
+        runGroupId,
+        sourceUserMessageId,
+        (messageId) => {
+          primaryAssistantMessageId = messageId;
+        },
+      );
       this.syncDerivedStateFromThreads();
       await this.persistCurrentSession();
     } catch (error) {
-      this.state.error = error instanceof Error ? error.message : String(error);
+      if (this.isAbortErrorMessage(error instanceof Error ? error.message : String(error))) {
+        this.consumeFailureDiagnostic();
+        this.syncDerivedStateFromThreads();
+        await this.persistCurrentSession();
+      } else {
+        this.materializeRequestFailure({
+          assistantMessageId: primaryAssistantMessageId,
+          sourceUserMessageId,
+          skillId: skill.id,
+          tabId,
+          attachedContexts,
+          error,
+          runMode: 'chat',
+          runGroupId,
+        });
+        this.syncDerivedStateFromThreads();
+        await this.persistCurrentSession();
+      }
     } finally {
       this.state.isLoading = false;
       this.state.runStatus = null;
@@ -3333,6 +3641,8 @@ export class AIWorkbenchService {
     tabId: AISkillTabId,
     attachedContexts: AIAttachedContextItem[],
     runGroupId: string,
+    requestSourceMessageId: string,
+    onPrimaryAssistantMessage?: (messageId: string) => void,
   ): Promise<void> {
     const settings = this.assertModelSettings();
     const provider = this.resolveDefaultProvider(settings);
@@ -3365,12 +3675,14 @@ export class AIWorkbenchService {
         appliedContexts: attachedContexts,
         reasoningContent: '',
         diagnostics: [],
+        requestSourceMessageId,
         runGroupId,
         presentation: 'primary',
       } satisfies AIWorkbenchAssistantTextMessage, {
         scope: 'skill',
       });
       placeholderNode.status = 'streaming';
+      onPrimaryAssistantMessage?.(assistantMessageId);
       let response: LLMResponse;
       try {
         response = await this.requestChatModel(llmMessages, {
@@ -3514,7 +3826,17 @@ export class AIWorkbenchService {
       }
     }
 
-    await this.requestToolchainSummary(skill, tabId, attachedContexts, llmMessages, settings, provider, runGroupId);
+    await this.requestToolchainSummary(
+      skill,
+      tabId,
+      attachedContexts,
+      llmMessages,
+      settings,
+      provider,
+      runGroupId,
+      requestSourceMessageId,
+      onPrimaryAssistantMessage,
+    );
   }
 
   private ensureRunNotAborted(): void {
@@ -3586,6 +3908,8 @@ export class AIWorkbenchService {
     settings: AISettings,
     provider: AIProviderConfig,
     runGroupId: string,
+    requestSourceMessageId: string,
+    onPrimaryAssistantMessage?: (messageId: string) => void,
   ): Promise<void> {
     const assistantMessageId = createEntryId('ai-msg');
     const placeholderNode = this.appendNodeMessage(tabId, {
@@ -3600,12 +3924,14 @@ export class AIWorkbenchService {
       appliedContexts: attachedContexts,
       reasoningContent: '',
       diagnostics: [],
+      requestSourceMessageId,
       runGroupId,
       presentation: 'primary',
     } satisfies AIWorkbenchAssistantTextMessage, {
       scope: 'skill',
     });
     placeholderNode.status = 'streaming';
+    onPrimaryAssistantMessage?.(assistantMessageId);
 
     const response = await this.requestChatModel([
       ...llmMessages,

@@ -111,6 +111,7 @@
   "lastSync": "上次同步：",
   "syncFailed": "同步失败：",
   "retry": "重试",
+  "retryThisRequest": "重试本次",
   "idle": "未同步",
   "never": "从未",
   "justNow": "刚刚",

@@ -186,7 +186,10 @@
           v-for="entry in renderEntries"
           :key="entry.key"
           class="ai-chat__bubble"
-          :class="{ 'ai-chat__bubble--user': entry.primaryMessage.kind === 'user' }"
+          :class="{
+            'ai-chat__bubble--user': entry.primaryMessage.kind === 'user',
+            'ai-chat__bubble--error': isFailedAssistantMessage(entry.primaryMessage),
+          }"
         >
           <div class="ai-chat__bubble-meta">
             <div>
@@ -196,16 +199,21 @@
           </div>
 
           <div
-            v-if="messageMeta(entry.primaryMessage)?.hidden || messageMeta(entry.primaryMessage)?.pinned || messageMeta(entry.primaryMessage)?.status === 'interrupted'"
+            v-if="messageMeta(entry.primaryMessage)?.hidden || messageMeta(entry.primaryMessage)?.pinned || messageMeta(entry.primaryMessage)?.status === 'interrupted' || messageMeta(entry.primaryMessage)?.status === 'error'"
             class="ai-chat__message-badges"
           >
             <span v-if="messageMeta(entry.primaryMessage)?.hidden" class="ai-chat__badge ai-chat__badge--warning">{{ t('hidden', '已隐藏') }}</span>
             <span v-if="messageMeta(entry.primaryMessage)?.pinned" class="ai-chat__badge">{{ t('pinned', '已固定') }}</span>
             <span v-if="messageMeta(entry.primaryMessage)?.status === 'interrupted'" class="ai-chat__badge ai-chat__badge--warning">{{ t('stopped', '已停止') }}</span>
+            <span v-if="messageMeta(entry.primaryMessage)?.status === 'error'" class="ai-chat__badge ai-chat__badge--danger">{{ t('failed', '失败') }}</span>
           </div>
 
           <template v-if="entry.primaryMessage.kind === 'user' || entry.primaryMessage.kind === 'assistant-text'">
             <RichMarkdownContent class="ai-chat__message-copy" :content="entry.primaryMessage.content" />
+            <details v-if="failedMessageDiagnostic(entry.primaryMessage)" class="ai-chat__meta-block ai-chat__meta-block--failure">
+              <summary>{{ t('aiFailureDiagnostic', '查看原始响应') }}</summary>
+              <pre class="ai-chat__banner-pre">{{ failedMessageDiagnostic(entry.primaryMessage) }}</pre>
+            </details>
           </template>
           <template v-else-if="entry.primaryMessage.kind === 'separator'">
             <div class="ai-chat__separator">{{ entry.primaryMessage.label }}</div>
@@ -441,6 +449,8 @@
               <button class="ai-chat__toolbar-button" type="button" @click="copyMessage(entry.primaryMessage)">{{ t('copy', '复制') }}</button>
               <button v-if="canEditMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" @click="openTextMessageEditor(entry.primaryMessage)">{{ t('edit', '编辑') }}</button>
               <button v-if="canEditUserMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" @click="prepareEditedFollowUp(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
+              <button v-if="canEditFailedMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" :disabled="state.isLoading" @click="prepareFailedMessageEdit(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
+              <button v-if="canRetryFailedMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" :disabled="state.isLoading || revealLocked" @click="retryFailedMessage(entry.primaryMessage)">{{ t('retryThisRequest', '重试本次') }}</button>
               <button v-if="canRerunMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" :disabled="state.isLoading || revealLocked" @click="rerunMessage(entry.primaryMessage)">{{ t('rerun', '重跑') }}</button>
               <button class="ai-chat__toolbar-button" type="button" @click="branchFromMessage(entry.primaryMessage)">{{ t('branch', '分支') }}</button>
               <button class="ai-chat__toolbar-button" type="button" @click="toggleMessagePinned(entry.primaryMessage)">
@@ -674,6 +684,7 @@ import type {
   AIUserSkillStructuredCard,
   AIUserSkillStructuredKeyValue,
   AIWorkbenchApprovalMessage,
+  AIWorkbenchAssistantTextMessage,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchMessage,
   AIWorkbenchNotebookOption,
@@ -683,6 +694,7 @@ import type {
   AIWorkbenchSelfTestCardTargetMemory,
   AIWorkbenchSource,
   AIWorkbenchToolLogMessage,
+  AIWorkbenchUserMessage,
 } from '@/types/ai';
 
 type ContextProvider = {
@@ -744,7 +756,8 @@ const editorPlaceholder = ref('');
 const editorConfirmLabel = ref('');
 const editingMessageId = ref<string | null>(null);
 const editingCandidateId = ref<string | null>(null);
-const editingMode = ref<'assistant-text' | 'user-followup' | 'composer' | 'context' | 'provider' | 'candidate-card' | null>(null);
+const editingMode = ref<'assistant-text' | 'user-message' | 'composer' | 'context' | 'provider' | 'candidate-card' | null>(null);
+const editingSourceUserMessage = ref<AIWorkbenchUserMessage | null>(null);
 const pendingProvider = ref<ContextProvider | null>(null);
 const selfTestTargetDialogOpen = ref(false);
 const selfTestTargetLoaded = ref(false);
@@ -1259,12 +1272,35 @@ function messageContextItems(message: AIWorkbenchMessage): AIAttachedContextItem
   return [];
 }
 
+function relatedUserMessage(message: AIWorkbenchMessage): AIWorkbenchUserMessage | null {
+  if (message.kind === 'user') {
+    return message;
+  }
+  return service.getRelatedUserMessage?.(message.id) || null;
+}
+
+function isFailedAssistantMessage(message: AIWorkbenchMessage): message is AIWorkbenchAssistantTextMessage {
+  return message.kind === 'assistant-text' && messageMeta(message)?.status === 'error';
+}
+
+function failedMessageDiagnostic(message: AIWorkbenchMessage): string | null {
+  return isFailedAssistantMessage(message) ? message.failureDiagnostic?.content || null : null;
+}
+
 function canEditMessage(message: AIWorkbenchMessage): boolean {
-  return message.kind === 'assistant-text';
+  return message.kind === 'assistant-text' && !isFailedAssistantMessage(message);
 }
 
 function canEditUserMessage(message: AIWorkbenchMessage): boolean {
   return message.kind === 'user' && (message.purpose ?? 'follow-up') === 'follow-up';
+}
+
+function canEditFailedMessage(message: AIWorkbenchMessage): boolean {
+  return isFailedAssistantMessage(message) && Boolean(relatedUserMessage(message));
+}
+
+function canRetryFailedMessage(message: AIWorkbenchMessage): boolean {
+  return isFailedAssistantMessage(message);
 }
 
 function canRerunMessage(message: AIWorkbenchMessage): boolean {
@@ -1479,18 +1515,31 @@ function openTextMessageEditor(message: AIWorkbenchMessage): void {
   editorOpen.value = true;
 }
 
-function prepareEditedFollowUp(message: AIWorkbenchMessage): void {
-  if (message.kind !== 'user') {
-    return;
-  }
-  editingMode.value = 'user-followup';
+function openUserMessageEditor(message: AIWorkbenchUserMessage): void {
+  editingMode.value = 'user-message';
   editingMessageId.value = message.id;
+  editingSourceUserMessage.value = message;
   editorReadonly.value = false;
   editorTitle.value = t('editAndResend', '编辑后重发');
   editorValue.value = message.content;
   editorPlaceholder.value = t('askAnything', '继续追问');
   editorConfirmLabel.value = t('send', '发送');
   editorOpen.value = true;
+}
+
+function prepareEditedFollowUp(message: AIWorkbenchMessage): void {
+  if (message.kind !== 'user') {
+    return;
+  }
+  openUserMessageEditor(message);
+}
+
+function prepareFailedMessageEdit(message: AIWorkbenchMessage): void {
+  const sourceMessage = relatedUserMessage(message);
+  if (!sourceMessage) {
+    return;
+  }
+  openUserMessageEditor(sourceMessage);
 }
 
 function openComposerEditor(): void {
@@ -1772,6 +1821,14 @@ async function rerunMessage(message: AIWorkbenchMessage): Promise<void> {
   await runActiveTab();
 }
 
+async function retryFailedMessage(message: AIWorkbenchMessage): Promise<void> {
+  if (service.retryFailedMessage) {
+    await service.retryFailedMessage(message.id);
+    return;
+  }
+  await rerunMessage(message);
+}
+
 function closeContextMenu(): void {
   contextMenuOpen.value = false;
 }
@@ -1827,8 +1884,17 @@ async function handleContextProvider(provider: ContextProvider): Promise<void> {
 async function confirmEditor(): Promise<void> {
   if (editingMode.value === 'assistant-text' && editingMessageId.value) {
     await service.updateAssistantTextMessage(editingMessageId.value, editorValue.value);
-  } else if (editingMode.value === 'user-followup' && editingMessageId.value) {
-    await service.submitFollowUp(editorValue.value, { editedFromMessageId: editingMessageId.value });
+  } else if (editingMode.value === 'user-message' && editingSourceUserMessage.value) {
+    const sourceMessage = editingSourceUserMessage.value;
+    const resendOptions = {
+      editedFromMessageId: sourceMessage.id,
+      attachedContexts: sourceMessage.attachedContexts,
+    };
+    if (sourceMessage.skillId === 'general-chat' || (sourceMessage.purpose ?? 'follow-up') === 'follow-up') {
+      await service.submitFollowUp(editorValue.value, resendOptions);
+    } else {
+      await service.submitSkillPrompt(editorValue.value, resendOptions);
+    }
     composerValue.value = '';
   } else if (editingMode.value === 'composer') {
     composerValue.value = editorValue.value;
@@ -1846,6 +1912,7 @@ function closeEditor(): void {
   editingMode.value = null;
   editingMessageId.value = null;
   editingCandidateId.value = null;
+  editingSourceUserMessage.value = null;
   pendingProvider.value = null;
 }
 
@@ -1936,6 +2003,7 @@ onUnmounted(() => {
 .ai-chat__context { margin: 12px 14px 0; padding: 12px; border: 1px solid #e6e9f0; border-radius: 8px; background: #fff; display: grid; gap: 12px; }
 .ai-chat__badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eef2ff; color: #4f46e5; }
 .ai-chat__badge--warning { background: #fff4db; color: #a16207; }
+.ai-chat__badge--danger { background: #ffe7e5; color: #c24134; }
 .ai-chat__context-rows { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .ai-chat__context-row { border: 1px solid #eef1f6; border-radius: 8px; padding: 10px; display: grid; gap: 4px; }
 .ai-chat__context-row span { color: #7f8797; font-size: 12px; }
@@ -1956,6 +2024,7 @@ onUnmounted(() => {
 .ai-chat__primary-button--small { padding: 7px 11px; font-size: 12px; white-space: nowrap; }
 .ai-chat__primary-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .ai-chat__bubble--user { background: #f8fbff; }
+.ai-chat__bubble--error { border-color: #efc3bd; background: linear-gradient(180deg, #fff9f8 0%, #fff3f1 100%); }
 .ai-chat__bubble--pending { border-color: #cde0ec; background: linear-gradient(180deg, #f8fcff 0%, #edf8fb 100%); }
 .ai-chat__bubble-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .ai-chat__bubble-meta span { display: block; color: #7f8797; font-size: 12px; margin-top: 2px; }
@@ -1981,6 +2050,7 @@ onUnmounted(() => {
 .ai-chat__step-note { border: 1px dashed #d8e0eb; border-radius: 9px; padding: 9px; background: #fff; color: #4b5563; }
 .ai-chat__tool-log--compact, .ai-chat__approval-card--compact { border-radius: 9px; padding: 9px; }
 .ai-chat__meta-block { margin-top: 10px; border: 1px solid #e5e9f2; border-radius: 8px; background: #fbfcff; padding: 8px 10px; }
+.ai-chat__meta-block--failure { border-color: #efc9c4; background: #fffaf9; }
 .ai-chat__meta-block summary { cursor: pointer; color: #51607a; font-size: 12px; user-select: none; }
 .ai-chat__separator { padding: 2px 0; color: #64748b; font-size: 12px; font-weight: 600; border-top: 1px dashed #d8e0eb; border-bottom: 1px dashed #d8e0eb; text-align: center; }
 .ai-chat__result-note { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; }

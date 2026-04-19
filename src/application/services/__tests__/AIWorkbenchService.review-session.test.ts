@@ -266,6 +266,12 @@ function latestAssistantResult(service: AIWorkbenchService, tabId: (typeof AI_CO
     .find((message) => message.kind === 'assistant-result');
 }
 
+function latestAssistantText(service: AIWorkbenchService, skillId: string, tabId: string) {
+  return [...(service.state.threads[skillId]?.[tabId]?.messages || [])]
+    .reverse()
+    .find((message) => message.kind === 'assistant-text');
+}
+
 function extractQuotedSqlValues(stmt: string): string[] {
   return Array.from(stmt.matchAll(/'((?:[^']|'')+)'/g)).map((match) => match[1]!.replace(/''/g, "'"));
 }
@@ -499,6 +505,49 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(assistantHistory).not.toContain('[Tool GetCurrentContext success]');
   });
 
+  it('materializes general-chat request failures on the assistant node and retries without duplicating the user message', async () => {
+    const llmChat = vi.fn()
+      .mockRejectedValueOnce(new Error('chat failed'))
+      .mockResolvedValueOnce({
+        content: '重试后成功了。',
+        raw: {},
+      });
+    const service = createService({ llmChat });
+
+    await service.open({
+      source: 'standalone',
+      surface: 'standalone-dialog',
+    });
+    await service.submitSkillPrompt('这次先总结一下。');
+
+    expect(service.state.error).toBeNull();
+    const failureMessage = latestAssistantText(service, AI_GENERAL_CHAT_SKILL_ID, AI_GENERAL_CHAT_TAB_ID);
+    expect(failureMessage).toMatchObject({
+      kind: 'assistant-text',
+      content: 'chat failed',
+      requestSourceMessageId: expect.any(String),
+      failureRunMode: 'chat',
+    });
+    expect(service.getMessageMeta(failureMessage!.id)?.status).toBe('error');
+
+    await service.retryFailedMessage(failureMessage!.id);
+
+    expect(llmChat).toHaveBeenCalledTimes(2);
+    expect(service.state.messages.filter((message) => message.kind === 'user' && message.content === '这次先总结一下。')).toHaveLength(1);
+    expect(service.getMessageMeta(failureMessage!.requestSourceMessageId!)?.branchCount).toBeGreaterThanOrEqual(2);
+    expect(service.state.threads[AI_GENERAL_CHAT_SKILL_ID][AI_GENERAL_CHAT_TAB_ID].messages).toEqual([
+      expect.objectContaining({
+        kind: 'user',
+        content: '这次先总结一下。',
+      }),
+      expect.objectContaining({
+        kind: 'assistant-text',
+        content: '重试后成功了。',
+        requestSourceMessageId: failureMessage!.requestSourceMessageId,
+      }),
+    ]);
+  });
+
   it('requests execution approval for enabled legacy staging tools and resumes after approval', async () => {
     const aiSettings = JSON.parse(JSON.stringify(createAISettings())) as AISettings;
     aiSettings.toolPolicies.groupDefaults['flashcard-write'] = true;
@@ -650,7 +699,8 @@ describe('AIWorkbenchService review-session behavior', () => {
         raw: {},
       })
       .mockImplementationOnce(() => pending.promise);
-    const service = createService({ llmChat });
+    const sessionStore = createSessionStore();
+    const service = createService({ llmChat, sessionStore });
 
     await service.open({
       source: 'review',
@@ -674,7 +724,49 @@ describe('AIWorkbenchService review-session behavior', () => {
     await followUp;
 
     expect(service.state.runStatus).toBeNull();
-    expect(service.state.error).toBe('follow-up failed');
+    expect(service.state.error).toBeNull();
+    expect(service.state.failureDiagnostic).toBeNull();
+    const failureMessage = latestAssistantText(service, AI_CONCEPT_COACH_SKILL_ID, 'working-definition');
+    expect(failureMessage).toMatchObject({
+      kind: 'assistant-text',
+      content: 'follow-up failed',
+      requestSourceMessageId: expect.any(String),
+      failureRunMode: 'follow-up',
+    });
+    expect(service.getMessageMeta(failureMessage!.id)?.status).toBe('error');
+    const persisted = await sessionStore.loadSession(service.state.sessionId!);
+    const persistedFailure = persisted?.threads?.[AI_CONCEPT_COACH_SKILL_ID]?.['working-definition']?.messages
+      ?.find((message) => message.id === failureMessage?.id);
+    expect(persistedFailure).toMatchObject({
+      kind: 'assistant-text',
+      requestSourceMessageId: failureMessage?.requestSourceMessageId,
+      failureRunMode: 'follow-up',
+    });
+  });
+
+  it('binds structured initial-run failures to an inline assistant message instead of the global banner', async () => {
+    const llmChat = vi.fn().mockRejectedValue(new Error('initial prompt failed'));
+    const service = createService({ llmChat });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    await service.submitSkillPrompt('解释这张卡');
+
+    expect(service.state.error).toBeNull();
+    expect(service.state.failureDiagnostic).toBeNull();
+    const failureMessage = latestAssistantText(service, AI_CONCEPT_COACH_SKILL_ID, 'working-definition');
+    expect(failureMessage).toMatchObject({
+      kind: 'assistant-text',
+      content: 'initial prompt failed',
+      requestSourceMessageId: expect.any(String),
+      failureRunMode: 'full-run',
+    });
+    expect(service.getMessageMeta(failureMessage!.id)?.status).toBe('error');
   });
 
   it('maps empty model responses to a diagnostic recovery hint', async () => {

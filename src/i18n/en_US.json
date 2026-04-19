@@ -83,6 +83,7 @@
   "lastSync": "Last sync: ",
   "syncFailed": "Sync failed: ",
   "retry": "Retry",
+  "retryThisRequest": "Retry This Request",
   "idle": "Not synced",
   "never": "Never",
   "justNow": "Just now",

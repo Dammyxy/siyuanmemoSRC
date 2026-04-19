@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-20 (Round 91)
+Last update: 2026-04-20 (Round 92)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-20 - AI chat inline failure bubbles and request-scoped retry
+
+- Task: Replace AI workbench message-send failures that only surfaced in the top global banner with inline failed assistant messages, and make retry/edit actions reuse the original request context instead of rerunning the default skill prompt.
+- Touched slice: AI workbench / capture active path across `src/types/ai.ts`, `src/application/services/AIWorkbenchService.ts`, `src/ui/ai/AiWorkbenchPane.vue`, focused AI service/component regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Added persisted `assistant-text` failure metadata (`requestSourceMessageId / failureDiagnostic / failureRunMode`) plus tree-node `error` status; made general-chat, structured initial-run, structured follow-up, edited resend, and failed-message retry materialize failures onto the relevant message branch instead of leaving ambiguous global banner residue; added related-user lookup and retry semantics that reuse the original user node and attached contexts without duplicating user bubbles for retry; and updated the pane so failed replies render as inline error bubbles with raw-response details plus `重试本次 / 编辑后重发`, while the top banner stays reserved for non-message failures such as session/persistence/config issues.
+- Debt deferred: Structured stage buttons (`runActiveSkill/runActiveTab`) still use the global banner path on failure, `AiWorkbenchPane.vue` still owns failed-message toolbar/render logic inline rather than through a dedicated subcomponent, and the happy-dom markdown asset fetch noise remains in compact-surface tests.
+- Why deferred: Converging every non-composer action onto the same inline failure UX or extracting a reusable failure-bubble component would widen this bounded send/retry repair into a larger runtime/UI refactor, while the markdown test noise is shared harness debt unrelated to the request-scoped failure fix itself.
+- Next safe step: If the inline failure flow feels stable in daily use, extract one dedicated failed-reply toolbar/bubble subcomponent first, then decide whether stage-button runs should adopt the same message-scoped failure model.
+- Validation: `pnpm vitest --run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-20 - review AI default chat and canonical self-test drafts
 

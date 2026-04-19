@@ -189,6 +189,27 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     getActiveTabDescriptor: () => CONCEPT_COACH_TABS.find((tab) => tab.id === state.activeTabId) || CONCEPT_COACH_TABS[0],
     hasStructuredResult: () => Boolean(state.explainResult),
     getThreadMessages: () => state.threads.explain.messages,
+    getMessageMeta: (messageId: string) => {
+      const message = state.threads.explain.messages.find((entry) => entry.id === messageId) as AIWorkbenchMessage | undefined;
+      if (!message) {
+        return null;
+      }
+      return {
+        scope: 'tab' as const,
+        hidden: false,
+        pinned: false,
+        versionCount: 1,
+        branchCount: 0,
+        status: message.kind === 'assistant-text' && 'failureDiagnostic' in message && message.failureDiagnostic ? 'error' as const : 'ready' as const,
+      };
+    },
+    getRelatedUserMessage: (messageId: string) => {
+      const message = state.threads.explain.messages.find((entry) => entry.id === messageId) as AIWorkbenchMessage | undefined;
+      if (message?.kind === 'assistant-text' && 'requestSourceMessageId' in message && message.requestSourceMessageId) {
+        return state.threads.explain.messages.find((entry) => entry.id === message.requestSourceMessageId) || null;
+      }
+      return null;
+    },
     getAvailableContextProviders: () => [],
     getComposerContexts: () => state.composerContexts.items,
     clearComposerContexts: () => {
@@ -201,8 +222,10 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     renameSession: async () => {},
     deleteSession: async () => {},
     runExplain: async () => {},
+    submitSkillPrompt: async () => {},
     submitExplainPrompt: async () => {},
     submitFollowUp: async () => {},
+    retryFailedMessage: async () => {},
     updateAssistantTextMessage: async () => {},
     updateCandidateCard: async () => {},
     setCandidateCardsSelected: async () => {},
@@ -759,7 +782,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.find('.ai-chat__empty-state').exists()).toBe(false);
   });
 
-  it('shows the raw failure diagnostic in the error banner', () => {
+  it('keeps the top banner for non-message errors', () => {
     const service = createService('review-dialog-sidecar');
     service.state.error = 'AI 请求已发出，但模型返回了空正文。';
     service.state.failureDiagnostic = {
@@ -770,6 +793,47 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     expect(wrapper.text()).toContain('查看原始响应');
     expect(wrapper.find('.ai-chat__banner-pre').text()).toContain('"choices"');
+  });
+
+  it('renders failed assistant replies inline with retry and edit actions instead of the top banner', () => {
+    const service = createService('review-dialog-sidecar');
+    service.state.threads.explain.messages.push({
+      id: 'user-message-1',
+      skillId: AI_CONCEPT_COACH_SKILL_ID,
+      tabId: 'working-definition',
+      view: AI_CONCEPT_COACH_SKILL_ID,
+      kind: 'user',
+      purpose: 'initial-run',
+      content: '解释幂函数',
+      createdAt: Date.now() - 1000,
+      editedFromMessageId: null,
+      attachedContexts: [],
+    } as never);
+    service.state.threads.explain.messages.push({
+      id: 'failed-message-1',
+      skillId: AI_CONCEPT_COACH_SKILL_ID,
+      tabId: 'working-definition',
+      view: AI_CONCEPT_COACH_SKILL_ID,
+      kind: 'assistant-text',
+      content: 'initial prompt failed',
+      createdAt: Date.now(),
+      sourceContent: null,
+      appliedContexts: [],
+      requestSourceMessageId: 'user-message-1',
+      failureRunMode: 'full-run',
+      failureDiagnostic: {
+        content: '{\n  "raw": "bad response"\n}',
+      },
+    } as never);
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+
+    expect(wrapper.find('.ai-chat__banner--error').exists()).toBe(false);
+    expect(wrapper.find('.ai-chat__bubble--error').exists()).toBe(true);
+    expect(wrapper.text()).toContain('失败');
+    expect(wrapper.text()).toContain('查看原始响应');
+    expect(wrapper.text()).toContain('重试本次');
+    expect(wrapper.text()).toContain('编辑后重发');
   });
 
   it('renders a partial structured-result notice above salvaged perspectives content', () => {
@@ -835,11 +899,11 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('原始形状');
   });
 
-  it('allows first-turn custom text sending with Ctrl/Cmd+Enter and routes it to submitExplainPrompt', async () => {
+  it('allows first-turn custom text sending with Ctrl/Cmd+Enter and routes it to submitSkillPrompt', async () => {
     const service = createService('review-dialog-sidecar');
-    const submitExplainPrompt = vi.fn(async () => {});
+    const submitSkillPrompt = vi.fn(async () => {});
     const submitFollowUp = vi.fn(async () => {});
-    service.submitExplainPrompt = submitExplainPrompt as never;
+    service.submitSkillPrompt = submitSkillPrompt as never;
     service.submitFollowUp = submitFollowUp as never;
 
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
@@ -847,13 +911,13 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     await textarea.setValue('请解释这张卡的考点');
     await textarea.trigger('keydown', { key: 'Enter' });
-    expect(submitExplainPrompt).not.toHaveBeenCalled();
+    expect(submitSkillPrompt).not.toHaveBeenCalled();
 
     expect(wrapper.find('.ai-chat__composer-send').attributes('disabled')).toBeUndefined();
 
     await textarea.trigger('keydown', { key: 'Enter', ctrlKey: true });
 
-    expect(submitExplainPrompt).toHaveBeenCalledWith('请解释这张卡的考点');
+    expect(submitSkillPrompt).toHaveBeenCalledWith('请解释这张卡的考点');
     expect(submitFollowUp).not.toHaveBeenCalled();
   });
 

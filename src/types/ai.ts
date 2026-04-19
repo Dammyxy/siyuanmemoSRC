@@ -56,7 +56,7 @@ export type AIGenericStructuredRendererKind = 'markdown' | 'list' | 'cards' | 'k
 export type AIChatStructuredRendererKind = 'concept-coach' | AIGenericStructuredRendererKind;
 export type AIWorkbenchNodeScope = 'skill' | 'tab';
 export type AIWorkbenchTreeNodeKind = 'message' | 'separator';
-export type AIWorkbenchTreeNodeStatus = 'ready' | 'streaming' | 'interrupted';
+export type AIWorkbenchTreeNodeStatus = 'ready' | 'streaming' | 'interrupted' | 'error';
 export type AIWorkbenchMessagePresentation = 'primary' | 'supplemental';
 
 export interface AIWorkbenchRunStatus {
@@ -551,6 +551,9 @@ export interface AIWorkbenchAssistantTextMessage {
   reasoningContent?: string | null;
   diagnostics?: string[];
   interrupted?: boolean;
+  requestSourceMessageId?: string | null;
+  failureDiagnostic?: AIWorkbenchFailureDiagnostic | null;
+  failureRunMode?: AIWorkbenchRunMode | null;
   runGroupId?: string | null;
   presentation?: AIWorkbenchMessagePresentation;
 }
