@@ -14,6 +14,7 @@ describe('AIPromptComposer', () => {
     expect(prompt.tabs['working-definition'].run).toContain('工作定义');
     expect(prompt.tabs['self-test-cards'].run).toContain('宁可少一些');
     expect(prompt.tabs['self-test-cards'].run).toContain('3-20 个字');
+    expect(prompt.tabs['cdf-structure'].run).toContain('CDF 语义制卡草稿');
     expect(prompt.tabs['real-world-triggers'].followUp).toContain('现实触发器');
   });
 

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 95)
+Last update: 2026-04-21 (Round 96)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - AI prompt preset clone regression fix for settings/review surfaces
+
+- Task: Fix the post-`cdf-structure` regression where opening AI-related settings or review entrypoints could crash because the recommended concept-coach prompt clone omitted the new tab pair.
+- Touched slice: AI workbench / settings active path across `src/application/services/AIPromptComposer.ts`, focused settings/review/session regression coverage, and this backlog.
+- Debt fixed now: Restored `cdf-structure` inside `clonePromptSet()` so every recommended concept-coach prompt instance preserves the full tab map expected by `SettingsPanel` and the review AI entry flow, instead of leaving `template.tabs['cdf-structure']` undefined and crashing prompt equality/render code on first access; also refreshed the focused regression tests so settings assertions follow the current recommended-template copy and review/session tests match the current `general-chat` default semantics plus schema version 5 migration.
+- Debt deferred: I still have not reproduced a second distinct runtime crash beyond the missing-tab prompt clone, and the AI settings tests continue to log the historical verbose settings debug output during mount.
+- Why deferred: The user-visible blank settings panel had one concrete active-path root cause that is now fixed, while muting the legacy debug logs or adding speculative extra guards without a reproduced second crash would widen this bugfix into unrelated cleanup or fallback behavior.
+- Next safe step: If users still see the review AI button fail after this fix ships, instrument the `ReviewView -> TabManager -> AIWorkbenchService` open chain with one bounded runtime diagnostic pass and capture the exact exception before adding any new guard branches.
+- Validation: `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts src/application/services/__tests__/AIPromptComposer.test.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/application/managers/__tests__/TabManager.review-ai-companion.spec.ts src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-21 - AI workbench tab export, nested perspectives markdown, and manual CDF concept search
 

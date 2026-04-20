@@ -271,7 +271,7 @@ describe('AIWorkbenchSessionStoreService', () => {
     });
   });
 
-  it('migrates v2 thread-only sessions into schema v3 tree sessions', async () => {
+  it('migrates v2 thread-only sessions into the current tree-backed schema', async () => {
     const fileService = createFileService();
     const service = new AIWorkbenchSessionStoreService(fileService);
 
@@ -283,7 +283,7 @@ describe('AIWorkbenchSessionStoreService', () => {
 
     const loaded = await service.loadSession('v2-session');
 
-    expect(loaded?.schemaVersion).toBe(4);
+    expect(loaded?.schemaVersion).toBe(5);
     expect(loaded?.tree?.rootNodeId).toBeTruthy();
     expect(Object.keys(loaded?.tree?.nodes || {})).toHaveLength(1);
     expect(loaded?.tree?.nodes['msg-1']).toMatchObject({

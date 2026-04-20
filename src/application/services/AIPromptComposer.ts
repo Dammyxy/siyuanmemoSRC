@@ -41,6 +41,7 @@ function clonePromptSet(set: AIConceptCoachPromptTemplates): AIConceptCoachPromp
       perspectives: { ...set.tabs.perspectives },
       'integrated-understanding': { ...set.tabs['integrated-understanding'] },
       'self-test-cards': { ...set.tabs['self-test-cards'] },
+      'cdf-structure': { ...set.tabs['cdf-structure'] },
       'real-world-triggers': { ...set.tabs['real-world-triggers'] },
     },
   };

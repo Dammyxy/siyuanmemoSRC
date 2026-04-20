@@ -423,12 +423,13 @@ describe('SettingsPanel', () => {
     expect(wrapper.text()).not.toContain('Tutor Preset');
     expect(wrapper.text()).not.toContain('Card Preset');
     expect(wrapper.text()).not.toContain('CDF Preset');
-    expect(wrapper.text()).toContain('分得清、想得起、用得上');
-    expect(wrapper.text()).toContain('工作定义、多视角理解、整合理解、自测卡片和现实触发器');
+    expect(wrapper.text()).toContain('想起来、分得清、用得上');
+    expect(wrapper.text()).toContain('先给工作定义，再按五个视角建立结构化理解，最后生成宁缺毋滥的自测候选卡和现实触发器。');
     expect(wrapper.text()).toContain('Current Status');
     expect(wrapper.text()).toContain('Using Recommended Template');
     expect(wrapper.text()).toContain('Skill 基础 Prompt');
     expect(wrapper.text()).toContain('Behavior Prompt');
+    expect(wrapper.text()).toContain('CDF 语义卡 · Behavior Prompt');
     expect(wrapper.text()).toContain('Show the system-appended structured contract');
 
     const formItems = wrapper.findAll('.form-item');
@@ -474,7 +475,7 @@ describe('SettingsPanel', () => {
     expect(payload.ai.baseUrl).toBe('https://example.test/v1');
     expect(payload.ai.apiKey).toBe('secret-key');
     expect(payload.ai.model).toBe('gpt-test');
-    expect(payload.ai.promptContractVersion).toBe(3);
+    expect(payload.ai.promptContractVersion).toBe(5);
     expect(payload.ai.prompts.skills.conceptCoach).toEqual(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach);
     expect(payload.ai).not.toHaveProperty('draftStorage');
     expect(payload.ai).not.toHaveProperty('promptProfiles');

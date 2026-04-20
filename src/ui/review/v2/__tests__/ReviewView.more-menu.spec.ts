@@ -708,14 +708,14 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('opens AI sidebar in concept-coach mode by default and for neural roam', async () => {
+  it('opens AI sidebar with the configured default view and keeps neural roam on concept-coach', async () => {
     const explainMount = mountReviewView({ queueType: 'retrieval-practice' });
     await flushPromises();
 
     explainMount.wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'ai-sidebar', createToolbarEvent());
     await flushPromises();
     expect(explainMount.registry.openReviewSession).toHaveBeenCalledWith(expect.objectContaining({
-      view: 'concept-coach',
+      view: 'general-chat',
     }));
     explainMount.wrapper.unmount();
 
@@ -725,7 +725,7 @@ describe('ReviewView more menu', () => {
     tutorMount.wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'ai-sidebar', createToolbarEvent());
     await flushPromises();
     expect(tutorMount.registry.openReviewSession).toHaveBeenCalledWith(expect.objectContaining({
-      view: 'concept-coach',
+      view: 'general-chat',
     }));
     tutorMount.wrapper.unmount();
   });
