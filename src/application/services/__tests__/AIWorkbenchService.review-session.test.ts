@@ -529,9 +529,12 @@ describe('AIWorkbenchService review-session behavior', () => {
       surface: 'standalone-dialog',
       selectedBlockIds: ['front-1'],
     });
+    service.setActiveSkill('concept-coach');
     await service.runActiveSkill();
 
     const systemPrompt = String(llmChat.mock.calls[0]?.[0]?.messages?.[0]?.content || '');
+    expect(systemPrompt).toContain('已有水平=略懂');
+    expect(systemPrompt).toContain('answer 尽量控制在 3-20 个字');
     expect(systemPrompt).not.toContain('当前自测制卡默认模式');
     expect(systemPrompt).not.toContain('不要求模型直接返回多标记 markdown');
   });

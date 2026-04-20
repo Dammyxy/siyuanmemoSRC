@@ -281,8 +281,10 @@ describe('settings normalization', () => {
   it('ships the concept-coach AI default prompt set', () => {
     expect(DEFAULT_SETTINGS.ai.promptContractVersion).toBe(ACTIVE_AI_PROMPT_CONTRACT_VERSION);
     expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.baseRun).toContain('学习教练');
+    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.baseRun).toContain('已有水平=略懂');
     expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.baseRun).not.toContain('workingDefinition');
-    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs['self-test-cards'].run).toContain('自测草稿');
+    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs['self-test-cards'].run).toContain('高质量自测问答卡');
+    expect(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach.tabs['self-test-cards'].run).toContain('3-20 个字');
     expect(DEFAULT_SETTINGS.ai.conceptCoach.selfTest.defaultCreationMode).toBe('list-item');
     expect(DEFAULT_SETTINGS.ai.chatDefaults.reviewDefaultSkillId).toBe('general-chat');
   });

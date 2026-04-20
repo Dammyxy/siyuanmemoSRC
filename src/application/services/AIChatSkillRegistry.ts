@@ -79,7 +79,7 @@ const CONCEPT_COACH_SKILL: AIChatRegisteredSkillDescriptor = {
   mode: 'structured',
   systemPromptTemplate: '运行 AI 理解与制卡结构化 skill。',
   defaultToolGroups: ['context-read', 'review-read', 'vars'],
-  composerPreset: '请基于当前材料，完成 AI 理解与制卡：先解释清楚，再生成可自测的候选卡。',
+  composerPreset: '请基于当前材料，先帮我形成结构化理解，再生成可自测、宁缺毋滥的候选卡。',
   primaryActionLabel: '理解并制卡',
   supportsStructuredResult: true,
   surfaceHints: {

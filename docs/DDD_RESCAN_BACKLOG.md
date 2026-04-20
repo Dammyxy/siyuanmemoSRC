@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-20 (Round 92)
+Last update: 2026-04-20 (Round 93)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-20 - Andy-compatible concept-coach default prompts
+
+- Task: Rework the built-in `AI 理解与制卡 / concept-coach` default prompts so they follow the Andy methodology again while keeping the current structured JSON runtime, canonical self-test drafts, and plugin second-stage card generation intact.
+- Touched slice: AI workbench / capture prompt defaults across `src/types/settings.ts`, `src/application/services/{AIPromptContractRegistry.ts,AIPromptComposer.ts,AIChatSkillRegistry.ts}`, related i18n and focused AI/settings prompt regression coverage, plus `ARCHITECTURE.md`.
+- Debt fixed now: Replaced the generic concept-coach default copy with Andy-compatible guidance under the fixed learner profile `略懂 / 理解概念 / 标准`; expanded each structured stage so working-definition, perspectives, integrated-understanding, self-test-cards, and real-world-triggers all describe the intended method rather than terse placeholder wording; kept self-test output canonical but tightened the semantic contract around short `summary`, short `answer`, sparse `details`, quality-over-count candidate selection, and representative coverage across distinction / causality / application / counterexample / trigger card kinds; and realigned the prompt composer preset copy, skill preset seed text, and i18n-visible recommended-template descriptions with the same runtime defaults.
+- Debt deferred: Existing users who already saved prompt overrides still keep their current prompts because `ACTIVE_AI_PROMPT_CONTRACT_VERSION` was intentionally not bumped, and the fixed learner profile (`略懂 / 理解概念 / 标准`) is still hardcoded into the built-in template instead of being a first-class configurable UI control.
+- Why deferred: Auto-migrating saved prompts would rewrite user-owned prompt content without explicit opt-in, while adding profile controls now would widen this bounded prompt-default restoration into a larger settings/runtime product change.
+- Next safe step: After the Andy-compatible defaults prove stable in daily use, add one explicit “learner profile / goal / depth” preset control that only affects newly generated recommended templates, then decide whether an opt-in migration helper is worth exposing for existing users.
+- Validation: `pnpm vitest --run src/types/__tests__/settings-normalization.test.ts src/application/services/__tests__/AIPromptComposer.test.ts src/application/services/__tests__/AIPromptContractRegistry.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-20 - AI provider relative endpoint resolution
 

@@ -25,11 +25,11 @@ export const AI_PROMPT_PRESET_DESCRIPTORS: readonly AIPromptPresetDescriptor[] =
     titleKey: 'aiConceptCoachPromptPresetTitle',
     titleFallback: 'AI 理解与制卡推荐模板',
     audienceKey: 'aiConceptCoachPromptPresetAudience',
-    audienceFallback: '面向正在理解概念、复习卡片或整理材料的自己，目标是分得清、想得起、用得上。',
+    audienceFallback: '面向一个已有水平略懂、当前想真正理解概念的自己，目标不是看懂，而是下次能想起来、分得清、用得上。',
     behaviorKey: 'aiConceptCoachPromptPresetBehavior',
-    behaviorFallback: '按工作定义、多视角理解、整合理解、自测卡片和现实触发器五个阶段组织理解。',
+    behaviorFallback: '先给工作定义，再按五个视角建立结构化理解，最后生成宁缺毋滥的自测候选卡和现实触发器。',
     outputKey: 'aiConceptCoachPromptPresetOutput',
-    outputFallback: '每个阶段都有可编辑 Prompt；结构化 JSON 规则由系统自动附加。',
+    outputFallback: '每个阶段都有可编辑 Prompt；运行时仍固定返回结构化 JSON，自测卡输出 canonical 字段而不是 mode-specific markdown。',
   },
 ] as const;
 
