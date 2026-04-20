@@ -330,6 +330,152 @@
                 <button class="ai-chat__link-button" type="button" @click="openCandidateEditor(entry.primaryMessage, card)">{{ t('edit', '编辑') }}</button>
               </article>
             </div>
+            <div v-else-if="entry.primaryMessage.tabId === 'cdf-structure'" class="ai-chat__cdf-list">
+              <div class="ai-chat__candidate-toolbar">
+                <div>
+                  <strong>{{ t('cdfSemanticCreation', 'CDF 语义制卡') }}</strong>
+                  <span>
+                    {{ selectedCdfAnchorCount(entry.primaryMessage) }}/{{ cdfAnchors(entry.primaryMessage).length }} {{ t('selected', '已选') }}
+                    · {{ selectedCdfDefinitionCount(entry.primaryMessage) }} {{ t('definitions', '个定义') }}
+                    · {{ selectedCdfDescriptorCount(entry.primaryMessage) }} {{ t('descriptors', '个描述符') }}
+                  </span>
+                </div>
+                <div class="ai-chat__candidate-toolbar-actions">
+                  <span class="ai-chat__target-summary">{{ selfTestTargetSummary }}</span>
+                  <button class="ai-chat__link-button" type="button" @click="openSelfTestTargetDialog">
+                    {{ t('setTarget', '设置位置') }}
+                  </button>
+                  <button
+                    class="ai-chat__link-button"
+                    type="button"
+                    :disabled="cdfPreviewBusy(entry.primaryMessage.id) || !selfTestTargetMemory"
+                    @click="previewCdfMessage(entry.primaryMessage, true)"
+                  >
+                    {{ cdfPreviewBusy(entry.primaryMessage.id) ? t('resolvingConcepts', '解析中...') : t('resolveConcepts', '解析概念') }}
+                  </button>
+                  <button
+                    class="ai-chat__primary-button ai-chat__primary-button--small"
+                    type="button"
+                    :disabled="Boolean(cdfCardCreationDisabledReason(entry.primaryMessage))"
+                    :title="cdfCardCreationDisabledReason(entry.primaryMessage) || t('createSelectedCards', '制卡选中项')"
+                    @click="createCdfCards(entry.primaryMessage)"
+                  >
+                    {{ cdfCreationBusy ? t('creatingCards', '制卡中...') : t('createSelectedCards', '制卡选中项') }}
+                  </button>
+                </div>
+              </div>
+              <p v-if="cdfPreviewError(entry.primaryMessage.id)" class="ai-chat__result-note ai-chat__result-note--empty">
+                {{ cdfPreviewError(entry.primaryMessage.id) }}
+              </p>
+              <p v-if="cdfCardCreationDisabledReason(entry.primaryMessage)" class="ai-chat__composer-hint ai-chat__composer-hint--warning">
+                {{ cdfCardCreationDisabledReason(entry.primaryMessage) }}
+              </p>
+              <p v-if="cdfCreationError" class="ai-chat__result-note ai-chat__result-note--empty">
+                {{ cdfCreationError }}
+              </p>
+              <div v-if="cdfCreationResult" class="ai-chat__creation-result">
+                <strong>
+                  {{ t('cardCreationDone', '制卡完成') }}：
+                  {{ cdfCreationResult.createdDefinitionCount }} {{ t('definitions', '个定义') }}
+                  · {{ cdfCreationResult.createdDescriptorCount }} {{ t('descriptors', '个描述符') }}
+                </strong>
+                <span>{{ cdfCreationResult.targetLabel }}</span>
+                <details v-if="cdfCreationResult.itemResults.length > 0">
+                  <summary>{{ cdfCreationResult.itemResults.length }} {{ t('creationItems', '项结果') }}</summary>
+                  <ul class="ai-chat__creation-result-list">
+                    <li v-for="item in cdfCreationResult.itemResults" :key="item.anchorId">
+                      <div class="ai-chat__creation-result-item-head">
+                        <strong>{{ item.conceptName }}</strong>
+                        <span>{{ cdfCreationStatusLabel(item.status) }}</span>
+                      </div>
+                      <p v-if="item.conceptBlockId">{{ t('conceptDocument', '概念文档') }}：{{ item.conceptBlockId }}</p>
+                      <p v-if="item.error" class="ai-chat__creation-result-error">{{ item.error }}</p>
+                      <p v-if="(item.warnings || []).length > 0">{{ t('warnings', '提示') }}：{{ (item.warnings || []).join('；') }}</p>
+                    </li>
+                  </ul>
+                </details>
+              </div>
+              <article
+                v-for="anchor in cdfAnchors(entry.primaryMessage)"
+                :key="anchor.id"
+                class="ai-chat__cdf-anchor"
+                :class="{ 'ai-chat__cdf-anchor--disabled': anchor.resolution?.status === 'unresolved' }"
+              >
+                <div class="ai-chat__cdf-anchor-head">
+                  <label class="ai-chat__candidate-check">
+                    <input
+                      type="checkbox"
+                      :checked="anchor.selected !== false"
+                      @change="toggleCdfAnchor(entry.primaryMessage.id, anchor.id, $event)"
+                    >
+                    <span>{{ anchor.conceptName }}</span>
+                  </label>
+                  <span
+                    class="ai-chat__badge"
+                    :class="{
+                      'ai-chat__badge--warning': anchor.resolution?.status === 'unresolved',
+                      'ai-chat__badge--success': anchor.resolution?.status === 'resolved-context' || anchor.resolution?.status === 'resolved-notebook',
+                    }"
+                  >
+                    {{ cdfResolutionLabel(anchor) }}
+                  </span>
+                </div>
+                <p v-if="anchor.resolution?.reason" class="ai-chat__muted">{{ anchor.resolution.reason }}</p>
+                <p v-if="cdfAnchorCreationHint(anchor)" class="ai-chat__composer-hint ai-chat__composer-hint--warning">
+                  {{ cdfAnchorCreationHint(anchor) }}
+                </p>
+                <p v-for="warning in anchor.warnings || []" :key="`${anchor.id}-${warning}`" class="ai-chat__result-note ai-chat__result-note--empty">
+                  {{ warning }}
+                </p>
+
+                <section v-if="anchor.definitionCandidates.length > 0" class="ai-chat__cdf-section">
+                  <h4>{{ t('workingDefinitions', '工作定义候选') }}</h4>
+                  <label
+                    v-for="definition in anchor.definitionCandidates"
+                    :key="definition.id"
+                    class="ai-chat__cdf-item"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="definition.selected !== false"
+                      :disabled="anchor.selected === false"
+                      @change="toggleCdfDefinition(entry.primaryMessage.id, anchor.id, definition.id, $event)"
+                    >
+                    <span>{{ definition.text }}</span>
+                  </label>
+                </section>
+
+                <section v-for="group in anchor.descriptorGroups" :key="group.id" class="ai-chat__cdf-section">
+                  <div class="ai-chat__cdf-group-head">
+                    <label class="ai-chat__cdf-group-title">
+                      <input
+                        type="checkbox"
+                        :checked="group.selected !== false"
+                        :disabled="anchor.selected === false"
+                        @change="toggleCdfDescriptorGroup(entry.primaryMessage.id, anchor.id, group.id, $event)"
+                      >
+                      <strong>{{ group.title }}</strong>
+                    </label>
+                    <span>{{ selectedCdfDescriptorItemsInGroup(group) }}/{{ group.items.length }}</span>
+                  </div>
+                  <div class="ai-chat__cdf-items">
+                    <label
+                      v-for="item in group.items"
+                      :key="item.id"
+                      class="ai-chat__cdf-item"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="item.selected !== false"
+                        :disabled="anchor.selected === false || group.selected === false"
+                        @change="toggleCdfDescriptorItem(entry.primaryMessage.id, anchor.id, group.id, item.id, $event)"
+                      >
+                      <span>{{ item.text }}</span>
+                    </label>
+                  </div>
+                </section>
+              </article>
+            </div>
             <template v-else>
               <p
                 v-if="assistantResultNotice(entry.primaryMessage)"
@@ -680,6 +826,9 @@ import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
 import type {
   AIAttachedContextItem,
+  AICdfAnchor,
+  AICdfDescriptorGroup,
+  AICdfStructure,
   AIConceptCoachCandidateCard,
   AIConceptCoachCardKind,
   AIConceptCoachIntegratedUnderstanding,
@@ -698,6 +847,7 @@ import type {
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchMessage,
   AIWorkbenchNotebookOption,
+  AIWorkbenchCdfCreationResult,
   AIWorkbenchRenderEntry,
   AIWorkbenchSelfTestCardCreationResult,
   AIWorkbenchSelfTestCardTargetInput,
@@ -778,6 +928,13 @@ const selfTestCardCreationError = ref('');
 const selfTestTargetNotebooks = ref<AIWorkbenchNotebookOption[]>([]);
 const selfTestTargetMemory = ref<AIWorkbenchSelfTestCardTargetMemory | null>(null);
 const selfTestCreationResult = ref<AIWorkbenchSelfTestCardCreationResult | null>(null);
+const cdfPreviewByMessageId = ref<Record<string, AICdfStructure>>({});
+const cdfPreviewKeyByMessageId = ref<Record<string, string>>({});
+const cdfPreviewBusyMessageIds = ref<string[]>([]);
+const cdfPreviewErrors = ref<Record<string, string>>({});
+const cdfCreationBusy = ref(false);
+const cdfCreationError = ref('');
+const cdfCreationResult = ref<AIWorkbenchCdfCreationResult | null>(null);
 const selfTestTargetMode = ref<AIWorkbenchSelfTestCardTargetInput['mode']>('daily-note');
 const selfTestTargetNotebookId = ref('');
 const selfTestTargetNotebookName = ref('');
@@ -1009,6 +1166,17 @@ const selfTestTargetSummary = computed(() => (
 const selfTestCardCreationFailures = computed(() => (
   selfTestCreationResult.value?.itemResults.filter((item) => item.status === 'failed') || []
 ));
+const cdfPreviewTargetKey = computed(() => {
+  const target = selfTestTargetMemory.value;
+  if (!target) {
+    return '';
+  }
+  return [
+    target.mode,
+    target.notebookId,
+    target.targetBlockId || '',
+  ].join('::');
+});
 
 function normalizePerspectiveItems(section: AIConceptCoachPerspectiveSection): string[] {
   const items = [
@@ -1211,6 +1379,18 @@ function selfTestModeLabel(mode: AIConceptCoachSelfTestCreationMode): string {
   return getSelfTestModeDescriptor(mode).label;
 }
 
+function cdfCreationStatusLabel(status: AIWorkbenchCdfCreationResult['itemResults'][number]['status']): string {
+  switch (status) {
+    case 'created':
+      return t('created', '已创建');
+    case 'skipped':
+      return t('skipped', '已跳过');
+    case 'failed':
+    default:
+      return t('failed', '失败');
+  }
+}
+
 function selectedCandidateCount(message: AIWorkbenchAssistantResultMessage): number {
   return candidateCards(message).filter((card) => card.selected !== false).length;
 }
@@ -1228,6 +1408,112 @@ function isPluginSelfTestMode(mode: AIConceptCoachSelfTestCreationMode): boolean
 
 function modeDraftBusy(messageId: string): boolean {
   return selfTestModeDraftBusyMessageIds.value.includes(messageId);
+}
+
+function isCdfStructureMessage(message: AIWorkbenchMessage): message is AIWorkbenchAssistantResultMessage {
+  return message.kind === 'assistant-result' && message.tabId === 'cdf-structure';
+}
+
+function rawCdfStructure(message: AIWorkbenchAssistantResultMessage): AICdfStructure {
+  const value = (message.tabResult || message.conceptCoachResult?.cdfStructure) as AICdfStructure | null;
+  return value?.anchors ? value : { anchors: [] };
+}
+
+function mergePreviewIntoCdfStructure(base: AICdfStructure, preview: AICdfStructure | null | undefined): AICdfStructure {
+  if (!preview?.anchors?.length) {
+    return base;
+  }
+  const previewById = new Map(preview.anchors.map((anchor) => [anchor.id, anchor] as const));
+  return {
+    anchors: base.anchors.map((anchor) => {
+      const resolved = previewById.get(anchor.id);
+      if (!resolved) {
+        return anchor;
+      }
+      return {
+        ...anchor,
+        resolution: resolved.resolution,
+        warnings: resolved.warnings || anchor.warnings || [],
+      };
+    }),
+  };
+}
+
+function cdfPreviewBusy(messageId: string): boolean {
+  return cdfPreviewBusyMessageIds.value.includes(messageId);
+}
+
+function cdfPreviewError(messageId: string): string {
+  return cdfPreviewErrors.value[messageId] || '';
+}
+
+function cdfStructureForMessage(message: AIWorkbenchAssistantResultMessage): AICdfStructure {
+  return mergePreviewIntoCdfStructure(rawCdfStructure(message), cdfPreviewByMessageId.value[message.id]);
+}
+
+function cdfAnchors(message: AIWorkbenchAssistantResultMessage): AICdfAnchor[] {
+  return cdfStructureForMessage(message).anchors || [];
+}
+
+function selectedCdfAnchorCount(message: AIWorkbenchAssistantResultMessage): number {
+  return cdfAnchors(message).filter((anchor) => anchor.selected !== false).length;
+}
+
+function selectedCdfDefinitionCount(message: AIWorkbenchAssistantResultMessage): number {
+  return cdfAnchors(message).reduce((total, anchor) => total + anchor.definitionCandidates.filter((definition) => (
+    anchor.selected !== false && definition.selected !== false && normalizeText(definition.text).length > 0
+  )).length, 0);
+}
+
+function selectedCdfDescriptorItemsInGroup(group: AICdfDescriptorGroup): number {
+  return group.items.filter((item) => item.selected !== false && normalizeText(item.text).length > 0).length;
+}
+
+function selectedCdfDescriptorCount(message: AIWorkbenchAssistantResultMessage): number {
+  return cdfAnchors(message).reduce((total, anchor) => total + anchor.descriptorGroups.reduce((groupTotal, group) => (
+    anchor.selected !== false && group.selected !== false
+      ? groupTotal + selectedCdfDescriptorItemsInGroup(group)
+      : groupTotal
+  ), 0), 0);
+}
+
+function cdfResolutionLabel(anchor: AICdfAnchor): string {
+  switch (anchor.resolution?.status) {
+    case 'resolved-context':
+      return t('resolvedFromContext', '上下文已命中');
+    case 'resolved-notebook':
+      return t('resolvedFromNotebook', '笔记本已命中');
+    case 'unresolved':
+      return t('conceptUnresolved', '未命中概念');
+    default:
+      return selfTestTargetMemory.value
+        ? t('conceptPendingResolve', '待解析')
+        : t('setTargetFirst', '先设位置');
+  }
+}
+
+function cdfAnchorCreationHint(anchor: AICdfAnchor): string | null {
+  if (anchor.selected === false) {
+    return t('anchorNotSelectedHint', '当前概念未勾选，不会参与制卡。');
+  }
+  if (!anchor.resolution) {
+    return selfTestTargetMemory.value
+      ? t('resolveConceptBeforeCreate', '请先解析概念文档，再决定是否制卡。')
+      : t('setTargetFirst', '请先设置制卡位置。');
+  }
+  if (anchor.resolution.status === 'unresolved') {
+    return t('conceptUnresolvedCreateHint', '没有解析到现有概念文档，这个概念暂时不能建卡。');
+  }
+  const selectedDefinitions = anchor.definitionCandidates.filter((definition) => definition.selected !== false && normalizeText(definition.text).length > 0).length;
+  const selectedDescriptors = anchor.descriptorGroups.reduce((total, group) => (
+    group.selected === false
+      ? total
+      : total + group.items.filter((item) => item.selected !== false && normalizeText(item.text).length > 0).length
+  ), 0);
+  if (selectedDefinitions === 0 && selectedDescriptors === 0) {
+    return t('selectCdfFieldsFirst', '请至少勾选一个定义或描述符条目。');
+  }
+  return null;
 }
 
 function modeDraftError(messageId: string): string {
@@ -1797,6 +2083,133 @@ function buildSelfTestTargetInput(): AIWorkbenchSelfTestCardTargetInput | null {
   };
 }
 
+function buildTargetInputFromMemory(memory: AIWorkbenchSelfTestCardTargetMemory): AIWorkbenchSelfTestCardTargetInput {
+  return {
+    mode: memory.mode,
+    notebookId: memory.notebookId,
+    notebookName: memory.notebookName,
+    targetBlockId: memory.targetBlockId,
+    targetLabel: memory.targetLabel,
+  };
+}
+
+function cdfMessagesInTimeline(): AIWorkbenchAssistantResultMessage[] {
+  return renderEntries.value
+    .map((entry) => entry.primaryMessage)
+    .filter((message): message is AIWorkbenchAssistantResultMessage => isCdfStructureMessage(message));
+}
+
+function clearCdfPreviewError(messageId: string): void {
+  const next = { ...cdfPreviewErrors.value };
+  delete next[messageId];
+  cdfPreviewErrors.value = next;
+}
+
+async function previewCdfMessage(
+  message: AIWorkbenchAssistantResultMessage,
+  force = false,
+): Promise<void> {
+  if (!service.previewCdfStructure || !selfTestTargetMemory.value || !isCdfStructureMessage(message)) {
+    return;
+  }
+  const previewKey = cdfPreviewTargetKey.value;
+  if (!previewKey) {
+    return;
+  }
+  if (!force && cdfPreviewKeyByMessageId.value[message.id] === previewKey && cdfPreviewByMessageId.value[message.id]) {
+    return;
+  }
+  if (!cdfPreviewBusy(message.id)) {
+    cdfPreviewBusyMessageIds.value = [...cdfPreviewBusyMessageIds.value, message.id];
+  }
+  clearCdfPreviewError(message.id);
+  try {
+    const preview = await service.previewCdfStructure(message.id, selfTestTargetMemory.value);
+    cdfPreviewByMessageId.value = {
+      ...cdfPreviewByMessageId.value,
+      [message.id]: preview,
+    };
+    cdfPreviewKeyByMessageId.value = {
+      ...cdfPreviewKeyByMessageId.value,
+      [message.id]: previewKey,
+    };
+  } catch (error) {
+    cdfPreviewErrors.value = {
+      ...cdfPreviewErrors.value,
+      [message.id]: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    cdfPreviewBusyMessageIds.value = cdfPreviewBusyMessageIds.value.filter((id) => id !== message.id);
+  }
+}
+
+async function previewVisibleCdfMessages(force = false): Promise<void> {
+  if (!selfTestTargetMemory.value) {
+    return;
+  }
+  for (const message of cdfMessagesInTimeline()) {
+    await previewCdfMessage(message, force);
+  }
+}
+
+function cdfCardCreationDisabledReason(message: AIWorkbenchAssistantResultMessage): string | null {
+  if (state.isLoading || cdfCreationBusy.value || cdfPreviewBusy(message.id)) {
+    return t('aiBusyWait', 'AI 正在处理中，请稍后再操作。');
+  }
+  if (!selfTestTargetMemory.value) {
+    return t('setSelfTestTargetFirst', '请先设置制卡位置。');
+  }
+  const anchors = cdfAnchors(message).filter((anchor) => anchor.selected !== false);
+  if (anchors.length === 0) {
+    return t('selectConceptFirst', '请先勾选至少一个概念锚点。');
+  }
+  if (anchors.every((anchor) => anchor.resolution?.status !== 'resolved-context' && anchor.resolution?.status !== 'resolved-notebook')) {
+    return t('noResolvedConcepts', '当前没有解析到可建卡的概念文档。');
+  }
+  if (!anchors.some((anchor) => cdfAnchorCreationHint(anchor) === null)) {
+    return t('selectCdfFieldsFirst', '请至少勾选一个定义或描述符条目。');
+  }
+  return null;
+}
+
+async function toggleCdfAnchor(messageId: string, anchorId: string, event: Event): Promise<void> {
+  const target = event.target;
+  const selected = target instanceof HTMLInputElement ? target.checked : true;
+  await service.setCdfAnchorSelected?.(messageId, anchorId, selected);
+  cdfCreationError.value = '';
+  cdfCreationResult.value = null;
+}
+
+async function toggleCdfDefinition(messageId: string, anchorId: string, definitionId: string, event: Event): Promise<void> {
+  const target = event.target;
+  const selected = target instanceof HTMLInputElement ? target.checked : true;
+  await service.setCdfDefinitionSelected?.(messageId, anchorId, definitionId, selected);
+  cdfCreationError.value = '';
+  cdfCreationResult.value = null;
+}
+
+async function toggleCdfDescriptorGroup(messageId: string, anchorId: string, groupId: string, event: Event): Promise<void> {
+  const target = event.target;
+  const selected = target instanceof HTMLInputElement ? target.checked : true;
+  await service.setCdfDescriptorGroupSelected?.(messageId, anchorId, groupId, selected);
+  cdfCreationError.value = '';
+  cdfCreationResult.value = null;
+}
+
+async function toggleCdfDescriptorItem(
+  messageId: string,
+  anchorId: string,
+  groupId: string,
+  itemId: string,
+  event: Event,
+): Promise<void> {
+  const target = event.target;
+  const selected = target instanceof HTMLInputElement ? target.checked : true;
+  await service.setCdfDescriptorItemSelected?.(messageId, anchorId, groupId, itemId, selected);
+  cdfCreationError.value = '';
+  cdfCreationResult.value = null;
+}
+
 async function confirmSelfTestTarget(): Promise<void> {
   const target = buildSelfTestTargetInput();
   if (!target) {
@@ -1852,6 +2265,36 @@ async function createSelfTestCards(message: AIWorkbenchAssistantResultMessage): 
     selfTestCardCreationError.value = error instanceof Error ? error.message : String(error);
   } finally {
     selfTestCardCreationBusy.value = false;
+  }
+}
+
+async function createCdfCards(message: AIWorkbenchAssistantResultMessage): Promise<void> {
+  const disabledReason = cdfCardCreationDisabledReason(message);
+  if (disabledReason) {
+    cdfCreationError.value = disabledReason;
+    if (!selfTestTargetMemory.value) {
+      await openSelfTestTargetDialog();
+    }
+    return;
+  }
+  if (!selfTestTargetMemory.value || !service.createCdfCardsFromSelectedAnchors) {
+    return;
+  }
+  cdfCreationBusy.value = true;
+  cdfCreationError.value = '';
+  cdfCreationResult.value = null;
+  try {
+    await previewCdfMessage(message, true);
+    const result = await service.createCdfCardsFromSelectedAnchors(
+      buildTargetInputFromMemory(selfTestTargetMemory.value),
+      message.id,
+    );
+    cdfCreationResult.value = result;
+    selfTestTargetMemory.value = result.target;
+  } catch (error) {
+    cdfCreationError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    cdfCreationBusy.value = false;
   }
 }
 
@@ -2035,6 +2478,26 @@ async function openAiSettings(): Promise<void> {
   await getDialogManager()?.openSettingsDialog?.('ai');
 }
 
+watch(
+  () => ({
+    activeTabId: state.activeTabId,
+    targetKey: cdfPreviewTargetKey.value,
+    messageIds: cdfMessagesInTimeline().map((message) => message.id).join('|'),
+  }),
+  (value) => {
+    if (!value.targetKey) {
+      cdfPreviewByMessageId.value = {};
+      cdfPreviewKeyByMessageId.value = {};
+      cdfPreviewErrors.value = {};
+      return;
+    }
+    if (value.activeTabId === 'cdf-structure') {
+      void previewVisibleCdfMessages();
+    }
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
@@ -2092,6 +2555,7 @@ onUnmounted(() => {
 .ai-chat__link-button { border: 0; background: none; color: #51607a; padding: 0; }
 .ai-chat__context { margin: 12px 14px 0; padding: 12px; border: 1px solid #e6e9f0; border-radius: 8px; background: #fff; display: grid; gap: 12px; }
 .ai-chat__badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eef2ff; color: #4f46e5; }
+.ai-chat__badge--success { background: #e9f8ee; color: #1f7a43; }
 .ai-chat__badge--warning { background: #fff4db; color: #a16207; }
 .ai-chat__badge--danger { background: #ffe7e5; color: #c24134; }
 .ai-chat__context-rows { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
@@ -2199,6 +2663,17 @@ onUnmounted(() => {
 .ai-chat__candidate-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ai-chat__candidate-preview { border: 1px solid #e7edf6; border-radius: 8px; background: #fff; padding: 10px; }
 .ai-chat__candidate-legacy { color: #7a869b; font-size: 12px; }
+.ai-chat__cdf-list { display: grid; gap: 10px; }
+.ai-chat__cdf-anchor { border: 1px solid #dfe6f2; border-radius: 12px; background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%); padding: 12px; display: grid; gap: 10px; }
+.ai-chat__cdf-anchor--disabled { background: linear-gradient(180deg, #fffdf7 0%, #fff8eb 100%); border-color: #f0dfb5; }
+.ai-chat__cdf-anchor-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ai-chat__cdf-section { display: grid; gap: 8px; }
+.ai-chat__cdf-section h4 { margin: 0; font-size: 13px; color: #3e4a60; }
+.ai-chat__cdf-group-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: #637286; font-size: 12px; }
+.ai-chat__cdf-group-title { display: flex; align-items: center; gap: 8px; color: #1f2937; }
+.ai-chat__cdf-items { display: grid; gap: 8px; }
+.ai-chat__cdf-item { display: flex; align-items: flex-start; gap: 8px; color: #4b5563; font-size: 12px; line-height: 1.5; }
+.ai-chat__cdf-item input, .ai-chat__cdf-group-title input { margin-top: 2px; }
 .ai-chat__modal-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(21, 27, 38, 0.28); display: flex; align-items: center; justify-content: center; padding: 18px; }
 .ai-chat__target-dialog { width: min(520px, 100%); max-height: min(720px, 92vh); border: 1px solid #d9deea; border-radius: 14px; background: #fff; box-shadow: 0 24px 64px rgba(21, 27, 38, 0.22); display: flex; flex-direction: column; overflow: hidden; }
 .ai-chat__target-body { padding: 14px; display: grid; gap: 13px; overflow: auto; }

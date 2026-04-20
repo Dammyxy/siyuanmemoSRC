@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-20 (Round 93)
+Last update: 2026-04-20 (Round 94)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-20 - review AI context-scoped concept-coach, semantic CDF, and narrow native Riff sync trigger
+
+- Task: Split review AI into queue-shared chat plus card-scoped structured concept-coach workspaces, promote CDF into a first-class semantic stage with semantic card creation, and restore native Siyuan flashcard sync through a narrow debounced transaction trigger without reviving the old transaction-driven sync chain.
+- Touched slice: AI workbench / capture plus Siyuan integration across `src/types/{ai.ts,settings.ts}`, `src/application/{ApplicationContext.ts,handlers/NativeRiffSyncTriggerHandler.ts,managers/DialogManager.ts,services/{AIChatSkillRegistry.ts,AIPromptContractRegistry.ts,AIFlashcardToolService.ts,AIWorkbenchService.ts,AIWorkbenchSessionStoreService.ts}}`, `src/ui/ai/AiWorkbenchPane.vue`, related i18n, focused AI/handler regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Review `general-chat` still reuses one persisted queue conversation via `reviewChatKey`, but `concept-coach` structured results now persist under `conceptCoachResultsByContext` and only project the current `contextSignature` into the active tab view; added the new `cdf-structure` concept-coach stage plus semantic `AICdf*` contracts/prompt rules/session persistence; replaced CDF's old mode-specific markdown coupling with semantic preview + selection + semantic creation through `AIFlashcardToolService`; constrained concept resolution to `current context upward concepts -> exact title match in target notebook` with unresolved anchors kept as non-creatable drafts; and introduced `NativeRiffSyncTriggerHandler` so native flashcard-related transactions debounce into one single-flight `XiuyuanSyncService.incrementalSync()` call while keeping sync execution authority inside `XiuyuanSyncService`.
+- Debt deferred: `AiWorkbenchPane.vue` still owns the new CDF board inline instead of through a dedicated semantic-CDF subcomponent, native-Riff transaction detection still relies on bounded attribute/marker heuristics rather than a richer normalized transaction model from the host, and compact-surface tests still emit the historical happy-dom localhost asset-fetch noise from shared markdown rendering.
+- Why deferred: Extracting the CDF board or introducing a first-class normalized transaction-change classifier would widen this bounded runtime repair into a larger UI decomposition and infrastructure contract redesign, while the markdown asset noise remains unrelated shared test-harness debt.
+- Next safe step: If users keep iterating on CDF, extract one dedicated semantic-CDF pane module first, then decide whether transaction parsing should be upgraded into a shared native-Riff change classifier used by every near-real-time sync feature.
+- Validation: `pnpm vitest run src/application/handlers/__tests__/NativeRiffSyncTriggerHandler.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/services/__tests__/AIPromptContractRegistry.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-20 - Andy-compatible concept-coach default prompts
 

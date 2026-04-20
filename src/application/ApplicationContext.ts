@@ -29,6 +29,7 @@ import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
+import type { NativeRiffSyncTriggerHandler } from '@/application/handlers/NativeRiffSyncTriggerHandler';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
 import { AdvancedDataRouter } from '@/application/queries/DataAccessFacade';
 
@@ -185,6 +186,7 @@ export class ApplicationContext {
   private hybridSyncService?: XiuyuanSyncService;
   private transactionWebSocketService?: TransactionWebSocketService;
   private autoCardHandler?: AutoCardHandler;
+  private nativeRiffSyncTriggerHandler?: NativeRiffSyncTriggerHandler;
   private fullSyncTimer?: NodeJS.Timeout;
   
   // ========================================================================
@@ -1015,8 +1017,6 @@ export class ApplicationContext {
     // 11. 初始化 HybridSyncService（如果配置启用）
     let hybridSyncService: XiuyuanSyncService | undefined;
     let fullSyncTimer: NodeJS.Timeout | undefined;
-    let transactionWebSocketService: TransactionWebSocketService | undefined;
-    
     let riffConfig = settings.riffIntegration;
     // HybridSyncService 将在 context 创建后初始化（需要 CardApplicationService 和 EventBus）
     
@@ -1160,22 +1160,9 @@ export class ApplicationContext {
         logger.info(`[ApplicationContext] Full sync timer started (interval: ${riffConfig.fullSync.interval}ms)`);
       }
       
-      // 初始化 AutoCard 的事务监听；Riff 拉取不再由 transaction 触发
-      const quickCardEnabled = settingsService.getSettings().quickCard?.enabled === true;
-      if (quickCardEnabled) {
-        const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
-        
-        transactionWebSocketService = new TransactionWebSocketService(config.plugin as unknown as SiyuanMemoPlugin);
-        transactionWebSocketService.registerHandler(docTreeReviewScopeService);
-        const autoCardHandler = new AutoCardHandler(config.plugin as unknown as SiyuanMemoPlugin);
-        transactionWebSocketService.registerHandler(autoCardHandler);
-        transactionWebSocketService.start();
-        
-        context.transactionWebSocketService = transactionWebSocketService;
-        context.autoCardHandler = autoCardHandler;
-        logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized for AutoCard');
-      }
     }
+
+    await context.updateTransactionWebSocketService();
     
     logger.info('[ApplicationContext] ✅ ApplicationContext created successfully');
     
@@ -1385,40 +1372,65 @@ export class ApplicationContext {
    * - 封装 WebSocket 服务管理逻辑
    * - 提供清晰的启用/禁用接口
    * 
-   * @param enabled - 是否启用监听制卡事务服务
+   * 根据当前设置刷新监听制卡事务服务
    */
-  async updateTransactionWebSocketService(enabled: boolean): Promise<void> {
-    if (enabled) {
-      // 需要启用 TransactionWebSocketService
-      if (!this.transactionWebSocketService) {
-        logger.info('[ApplicationContext] Initializing TransactionWebSocketService for AutoCard...');
-        const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
-        const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
-        
-        this.transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as unknown as SiyuanMemoPlugin);
-        await this.getDocTreeReviewScopeService().hydrate();
-        this.transactionWebSocketService.registerHandler(this.getDocTreeReviewScopeService());
-        
-        // 创建并注册 AutoCardHandler
-        const autoCardHandler = new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
-        this.transactionWebSocketService.registerHandler(autoCardHandler);
-        this.autoCardHandler = autoCardHandler;
-        logger.info('[ApplicationContext] ✅ AutoCardHandler registered');
-        
-        // 启动服务
-        this.transactionWebSocketService.start();
-        logger.info('[ApplicationContext] ✅ TransactionWebSocketService initialized for AutoCard and started');
-      }
-    } else {
-      // 需要停止 TransactionWebSocketService
+  async updateTransactionWebSocketService(): Promise<void> {
+    const settings = this.getSettingsService().getSettings();
+    const quickCardEnabled = settings.quickCard?.enabled === true;
+    const nativeRiffSyncEnabled = settings.riffIntegration?.incrementalSync?.enabled === true
+      && Boolean(this.hybridSyncService);
+    const shouldEnable = quickCardEnabled || nativeRiffSyncEnabled;
+
+    if (!shouldEnable) {
       if (this.transactionWebSocketService) {
         logger.info('[ApplicationContext] Stopping TransactionWebSocketService...');
         this.transactionWebSocketService.stop();
-        this.transactionWebSocketService = undefined;
         this.autoCardHandler = undefined;
+        this.nativeRiffSyncTriggerHandler?.dispose?.();
+        this.nativeRiffSyncTriggerHandler = undefined;
+        this.transactionWebSocketService = undefined;
         logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
       }
+      return;
     }
+
+    if (this.transactionWebSocketService) {
+      this.transactionWebSocketService.stop();
+      this.autoCardHandler = undefined;
+      this.nativeRiffSyncTriggerHandler?.dispose?.();
+      this.nativeRiffSyncTriggerHandler = undefined;
+      this.transactionWebSocketService = undefined;
+    }
+
+    logger.info('[ApplicationContext] Initializing TransactionWebSocketService...', {
+      quickCardEnabled,
+      nativeRiffSyncEnabled,
+    });
+
+    const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');
+    const transactionWebSocketService = new TransactionWebSocketService(this.config.plugin as unknown as SiyuanMemoPlugin);
+    await this.getDocTreeReviewScopeService().hydrate();
+    transactionWebSocketService.registerHandler(this.getDocTreeReviewScopeService());
+
+    if (quickCardEnabled) {
+      const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
+      const autoCardHandler = new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
+      transactionWebSocketService.registerHandler(autoCardHandler);
+      this.autoCardHandler = autoCardHandler;
+      logger.info('[ApplicationContext] ✅ AutoCardHandler registered');
+    }
+
+    if (nativeRiffSyncEnabled) {
+      const { NativeRiffSyncTriggerHandler } = await import('@/application/handlers/NativeRiffSyncTriggerHandler');
+      const nativeRiffSyncTriggerHandler = new NativeRiffSyncTriggerHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
+      transactionWebSocketService.registerHandler(nativeRiffSyncTriggerHandler);
+      this.nativeRiffSyncTriggerHandler = nativeRiffSyncTriggerHandler;
+      logger.info('[ApplicationContext] ✅ NativeRiffSyncTriggerHandler registered');
+    }
+
+    transactionWebSocketService.start();
+    this.transactionWebSocketService = transactionWebSocketService;
+    logger.info('[ApplicationContext] ✅ TransactionWebSocketService started');
   }
   
   /**
@@ -1746,6 +1758,8 @@ export class ApplicationContext {
         try {
           this.transactionWebSocketService.stop();
           this.autoCardHandler = undefined;
+          this.nativeRiffSyncTriggerHandler?.dispose?.();
+          this.nativeRiffSyncTriggerHandler = undefined;
           logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');
         } catch (error) {
           logger.error('[ApplicationContext] Error stopping TransactionWebSocketService:', error);

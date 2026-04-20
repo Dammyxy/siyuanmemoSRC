@@ -3,7 +3,14 @@ import type { CreateListTemplateCardsCommand } from '@/application/commands/xiuy
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type { AIChatToolRuntimeContext } from '@/application/services/AIChatToolExecutorService';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
+import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
 import type {
+  AICdfAnchor,
+  AICdfAnchorResolution,
+  AICdfStructure,
+  AIWorkbenchCdfCreationItemResult,
+  AIWorkbenchCdfCreationResult,
+  AIWorkbenchContextSnapshot,
   AIWorkbenchSelfTestCardTargetInput,
   AIWorkbenchSelfTestCardTargetMemory,
 } from '@/types/ai';
@@ -46,6 +53,10 @@ function normalizePriority(value: unknown): number | undefined {
     return undefined;
   }
   return numeric;
+}
+
+function normalizeConceptTitleKey(value: unknown): string {
+  return normalizeString(value).replace(/\s+/g, ' ').toLowerCase();
 }
 
 function parseTargetInput(args: Record<string, unknown>): AIWorkbenchSelfTestCardTargetInput | null {
@@ -753,6 +764,178 @@ export class AIFlashcardToolService {
     return this.createNativeRiffCards(args, runtime, 'super-block');
   }
 
+  async previewSemanticCdfStructure(
+    structure: AICdfStructure,
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<AICdfStructure> {
+    return this.resolveSemanticCdfStructure(structure, target, runtime.context);
+  }
+
+  async createSemanticCdfCards(
+    structure: AICdfStructure,
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<AIWorkbenchCdfCreationResult> {
+    const resolvedStructure = await this.resolveSemanticCdfStructure(structure, target, runtime.context);
+    const resolvedTarget = await this.resolveTargetFromInput(target);
+    const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const deckId = this.resolveDeckId({}, runtime);
+    let previousSiblingId = resolvedTarget.targetBlockId;
+    const itemResults: AIWorkbenchCdfCreationItemResult[] = [];
+
+    for (const anchor of resolvedStructure.anchors) {
+      if (anchor.selected === false) {
+        continue;
+      }
+      const resolution = anchor.resolution || null;
+      const baseWarnings = [...(anchor.warnings || [])];
+      if (!resolution?.conceptBlockId) {
+        itemResults.push({
+          anchorId: anchor.id,
+          conceptName: anchor.conceptName,
+          status: 'skipped',
+          conceptBlockId: null,
+          createdDefinitions: [],
+          createdDescriptors: [],
+          warnings: baseWarnings.length > 0 ? baseWarnings : ['未解析到现有概念文档，已跳过。'],
+          error: null,
+        });
+        continue;
+      }
+
+      const selectedDefinitions = anchor.definitionCandidates.filter((definition) => (
+        definition.selected !== false && normalizeString(definition.text)
+      ));
+      const selectedDescriptors = anchor.descriptorGroups.flatMap((group) => (
+        group.selected === false
+          ? []
+          : group.items
+            .filter((item) => item.selected !== false && normalizeString(item.text))
+            .map((item) => ({ group, item }))
+      ));
+
+      if (selectedDefinitions.length === 0 && selectedDescriptors.length === 0) {
+        itemResults.push({
+          anchorId: anchor.id,
+          conceptName: anchor.conceptName,
+          status: 'skipped',
+          conceptBlockId: resolution.conceptBlockId,
+          createdDefinitions: [],
+          createdDescriptors: [],
+          warnings: [...baseWarnings, '该概念没有选中的定义或描述符条目。'],
+          error: null,
+        });
+        continue;
+      }
+
+      const createdDefinitions: AIWorkbenchCdfCreationItemResult['createdDefinitions'] = [];
+      const createdDescriptors: AIWorkbenchCdfCreationItemResult['createdDescriptors'] = [];
+      const warnings = [...baseWarnings];
+      let anchorFailed = false;
+      let anchorError: string | null = null;
+
+      try {
+        for (const definition of selectedDefinitions) {
+          const mutation = await this.insertMarkdown(definition.text, resolvedTarget, previousSiblingId);
+          const rows = await this.loadMutationRows(mutation);
+          const definitionBlockId = this.resolveFirstTextBlock(rows);
+          previousSiblingId = definitionBlockId || previousSiblingId;
+          const creation = await xiuyuanService.createFromBlocks({
+            blockIds: [resolution.conceptBlockId, definitionBlockId],
+            templateId: 'builtin-concept-definition',
+            fieldMapping: {
+              concept: resolution.conceptBlockId,
+              definition: definitionBlockId,
+            },
+            ...(deckId ? { deckId } : {}),
+            cardType: 'concept',
+            source: 'ai-workbench',
+            creationMode: 'ai-cdf-semantic-definition',
+            duplicatePolicy: 'reuse-existing',
+          });
+          if (!creation.ok) {
+            warnings.push(`定义「${definition.text}」制卡失败：${toErrorMessage(creation.error, '未知错误')}`);
+            anchorFailed = true;
+            continue;
+          }
+          createdDefinitions.push({
+            definitionId: definition.id,
+            text: definition.text,
+            blockId: definitionBlockId,
+            xiuyuanId: creation.value.xiuyuan.id,
+            cardIds: creation.value.cards.map((card) => card.id),
+          });
+        }
+
+        for (const descriptor of selectedDescriptors) {
+          const descriptorMarkdown = `${normalizeListText(descriptor.group.title)};;${normalizeListText(descriptor.item.text)}`;
+          const mutation = await this.insertMarkdown(descriptorMarkdown, resolvedTarget, previousSiblingId);
+          const rows = await this.loadMutationRows(mutation);
+          const descriptorBlockId = this.resolveFirstTextBlock(rows);
+          previousSiblingId = descriptorBlockId || previousSiblingId;
+          const creation = await xiuyuanService.createFromBlocks({
+            blockIds: [resolution.conceptBlockId, descriptorBlockId],
+            templateId: 'builtin-concept-descriptor',
+            fieldMapping: {
+              concept: resolution.conceptBlockId,
+              descriptor: descriptorBlockId,
+            },
+            ...(deckId ? { deckId } : {}),
+            cardType: 'descriptor',
+            source: 'ai-workbench',
+            creationMode: 'ai-cdf-semantic-descriptor',
+            duplicatePolicy: 'reuse-existing',
+          });
+          if (!creation.ok) {
+            warnings.push(`描述符「${descriptor.group.title} / ${descriptor.item.text}」制卡失败：${toErrorMessage(creation.error, '未知错误')}`);
+            anchorFailed = true;
+            continue;
+          }
+          createdDescriptors.push({
+            groupId: descriptor.group.id,
+            groupTitle: descriptor.group.title,
+            itemId: descriptor.item.id,
+            text: descriptor.item.text,
+            blockId: descriptorBlockId,
+            xiuyuanId: creation.value.xiuyuan.id,
+            cardIds: creation.value.cards.map((card) => card.id),
+          });
+        }
+      } catch (error) {
+        anchorFailed = true;
+        anchorError = toErrorMessage(error, 'CDF 语义制卡失败。');
+      }
+
+      const createdCount = createdDefinitions.length + createdDescriptors.length;
+      itemResults.push({
+        anchorId: anchor.id,
+        conceptName: anchor.conceptName,
+        status: createdCount > 0 ? 'created' : anchorFailed ? 'failed' : 'skipped',
+        conceptBlockId: resolution.conceptBlockId,
+        createdDefinitions,
+        createdDescriptors,
+        warnings,
+        error: anchorError,
+      });
+    }
+
+    await this.persistSuccessfulTarget(resolvedTarget, itemResults);
+    const createdDefinitionCount = itemResults.reduce((total, item) => total + item.createdDefinitions.length, 0);
+    const createdDescriptorCount = itemResults.reduce((total, item) => total + item.createdDescriptors.length, 0);
+    return {
+      target: resolvedTarget.memory,
+      targetBlockId: resolvedTarget.targetBlockId,
+      targetLabel: resolvedTarget.memory.targetLabel,
+      itemResults,
+      createdDefinitionCount,
+      createdDescriptorCount,
+      createdCount: itemResults.filter((item) => item.status === 'created').length,
+      skippedCount: itemResults.filter((item) => item.status === 'skipped').length,
+      failedCount: itemResults.filter((item) => item.status === 'failed').length,
+    };
+  }
+
   private async createNativeRiffCards(
     args: Record<string, unknown>,
     runtime: AIChatToolRuntimeContext,
@@ -822,6 +1005,132 @@ export class AIFlashcardToolService {
       failedCount: results.filter((item) => item.status === 'failed').length,
       items: results,
     };
+  }
+
+  private async resolveSemanticCdfStructure(
+    structure: AICdfStructure,
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    context: AIWorkbenchContextSnapshot | null,
+  ): Promise<AICdfStructure> {
+    const normalizedTarget = this.normalizeTargetMemory(target, Date.now());
+    if (!normalizedTarget?.notebookId) {
+      throw new Error('CDF 制卡前请先设置目标笔记本。');
+    }
+    const contextConcepts = await this.collectContextConceptMap(context);
+    const anchors = await Promise.all((structure.anchors || []).map(async (anchor) => {
+      const conceptName = normalizeString(anchor.conceptName);
+      const warnings = [...(anchor.warnings || [])];
+      const contextMatch = contextConcepts.get(normalizeConceptTitleKey(conceptName));
+      let resolution: AICdfAnchorResolution | null = null;
+      if (contextMatch) {
+        resolution = {
+          status: 'resolved-context',
+          conceptBlockId: contextMatch.id,
+          conceptTitle: contextMatch.title,
+          reason: '复用当前上下文中已出现的概念文档。',
+        };
+      } else {
+        const notebookMatch = await this.findExactConceptDocumentInNotebook(normalizedTarget.notebookId, conceptName);
+        if (notebookMatch) {
+          resolution = {
+            status: 'resolved-notebook',
+            conceptBlockId: notebookMatch.id,
+            conceptTitle: notebookMatch.title,
+            reason: '在目标笔记本中命中同名概念文档。',
+          };
+        } else {
+          resolution = {
+            status: 'unresolved',
+            conceptBlockId: null,
+            conceptTitle: conceptName,
+            reason: '未在当前上下文或目标笔记本中解析到现有概念文档。',
+          };
+          warnings.push('未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。');
+        }
+      }
+      return {
+        ...anchor,
+        resolution,
+        warnings,
+      } satisfies AICdfAnchor;
+    }));
+    return {
+      anchors,
+    };
+  }
+
+  private async collectContextConceptMap(
+    context: AIWorkbenchContextSnapshot | null,
+  ): Promise<Map<string, { id: string; title: string }>> {
+    const blockIds = uniqueIds([
+      ...(context?.selectedBlockIds || []),
+      ...(context?.blocks || []).map((block) => block.blockId),
+      ...(context?.currentCard?.sourceBlockIds || []),
+      context?.currentCard?.blockId || null,
+    ]);
+    const conceptIds = new Set<string>();
+    for (const blockId of blockIds) {
+      try {
+        const located = await findConceptByUpwardSearch(blockId, this.deps.siyuanPort as never);
+        if (located?.conceptId) {
+          conceptIds.add(located.conceptId);
+        }
+      } catch {
+        // Ignore per-block lookup failures so one bad block doesn't break preview.
+      }
+    }
+    if (conceptIds.size === 0) {
+      return new Map();
+    }
+    const titles = await this.loadBlockTitles([...conceptIds]);
+    return new Map(
+      titles
+        .map((item) => [normalizeConceptTitleKey(item.title), item] as const)
+        .filter((entry) => entry[0]),
+    );
+  }
+
+  private async loadBlockTitles(blockIds: string[]): Promise<Array<{ id: string; title: string }>> {
+    if (blockIds.length === 0) {
+      return [];
+    }
+    const escapedIds = blockIds.map((id) => `'${escapeSql(id)}'`).join(', ');
+    const rows = await this.deps.siyuanPort.sql<Array<Record<string, unknown>>[number]>(`
+      SELECT id, content
+      FROM blocks
+      WHERE id IN (${escapedIds})
+      LIMIT ${Math.max(blockIds.length, 1)}
+    `);
+    return rows.map((row) => ({
+      id: normalizeString(row.id),
+      title: normalizeString(row.content),
+    })).filter((row) => row.id && row.title);
+  }
+
+  private async findExactConceptDocumentInNotebook(
+    notebookId: string,
+    conceptName: string,
+  ): Promise<{ id: string; title: string } | null> {
+    const normalizedName = normalizeString(conceptName);
+    if (!normalizedName) {
+      return null;
+    }
+    const rows = await this.deps.siyuanPort.sql<Array<Record<string, unknown>>[number]>(`
+      SELECT id, content
+      FROM blocks
+      WHERE box = '${escapeSql(notebookId)}'
+        AND type = 'd'
+        AND content = '${escapeSql(normalizedName)}'
+      LIMIT 1
+    `);
+    const row = rows[0];
+    const id = normalizeString(row?.id);
+    return id
+      ? {
+        id,
+        title: normalizeString(row?.content) || normalizedName,
+      }
+      : null;
   }
 
   private buildPairMarkdown(front: string, back: string): string {

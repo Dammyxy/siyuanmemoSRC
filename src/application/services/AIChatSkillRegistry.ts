@@ -68,6 +68,7 @@ const CONCEPT_COACH_TABS: AIChatSkillTabDescriptor[] = [
   { id: 'perspectives', title: '多视角理解', emptyHint: '从特性、辨析、整体、因果和意义五个角度理解。' },
   { id: 'integrated-understanding', title: '整合理解', emptyHint: '把分散视角压缩成能复述、能辨析、能应用的理解。' },
   { id: 'self-test-cards', title: '自测卡片', emptyHint: '把理解转成可回忆、可编辑、可选择的候选问答卡。' },
+  { id: 'cdf-structure', title: 'CDF 语义卡', emptyHint: '把概念、定义和描述维度整理成可筛选的 CDF 结构。' },
   { id: 'real-world-triggers', title: '现实触发器', emptyHint: '找到以后该想起这个概念的真实场景。' },
 ];
 

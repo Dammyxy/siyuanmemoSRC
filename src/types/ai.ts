@@ -18,6 +18,7 @@ export const AI_CONCEPT_COACH_TAB_IDS = [
   'perspectives',
   'integrated-understanding',
   'self-test-cards',
+  'cdf-structure',
   'real-world-triggers',
 ] as const;
 
@@ -484,6 +485,86 @@ export interface AIConceptCoachSelfTestCards {
   cards: AIConceptCoachCandidateCard[];
 }
 
+export type AICdfAnchorResolutionStatus = 'resolved-context' | 'resolved-notebook' | 'unresolved';
+export type AICdfCreationStatus = 'created' | 'skipped' | 'failed';
+
+export interface AICdfDefinitionCandidate {
+  id: string;
+  text: string;
+  selected: boolean;
+}
+
+export interface AICdfDescriptorItem {
+  id: string;
+  text: string;
+  selected: boolean;
+}
+
+export interface AICdfDescriptorGroup {
+  id: string;
+  title: string;
+  selected: boolean;
+  items: AICdfDescriptorItem[];
+}
+
+export interface AICdfAnchorResolution {
+  status: AICdfAnchorResolutionStatus;
+  conceptBlockId: string | null;
+  conceptTitle: string;
+  reason: string | null;
+}
+
+export interface AICdfAnchor {
+  id: string;
+  conceptName: string;
+  selected: boolean;
+  definitionCandidates: AICdfDefinitionCandidate[];
+  descriptorGroups: AICdfDescriptorGroup[];
+  resolution?: AICdfAnchorResolution | null;
+  warnings?: string[];
+}
+
+export interface AICdfStructure {
+  anchors: AICdfAnchor[];
+}
+
+export interface AIWorkbenchCdfCreationItemResult {
+  anchorId: string;
+  conceptName: string;
+  status: AICdfCreationStatus;
+  conceptBlockId: string | null;
+  createdDefinitions: Array<{
+    definitionId: string;
+    text: string;
+    blockId: string | null;
+    xiuyuanId: string | null;
+    cardIds: string[];
+  }>;
+  createdDescriptors: Array<{
+    groupId: string;
+    groupTitle: string;
+    itemId: string;
+    text: string;
+    blockId: string | null;
+    xiuyuanId: string | null;
+    cardIds: string[];
+  }>;
+  warnings: string[];
+  error: string | null;
+}
+
+export interface AIWorkbenchCdfCreationResult {
+  target: AIWorkbenchSelfTestCardTargetMemory;
+  targetBlockId: string;
+  targetLabel: string;
+  itemResults: AIWorkbenchCdfCreationItemResult[];
+  createdDefinitionCount: number;
+  createdDescriptorCount: number;
+  createdCount: number;
+  skippedCount: number;
+  failedCount: number;
+}
+
 export interface AIConceptCoachRealWorldTriggers {
   triggers: string[];
 }
@@ -493,6 +574,7 @@ export interface AIConceptCoachResult {
   perspectives: AIConceptCoachPerspectives;
   integratedUnderstanding: AIConceptCoachIntegratedUnderstanding;
   selfTestCards: AIConceptCoachSelfTestCards;
+  cdfStructure: AICdfStructure;
   realWorldTriggers: AIConceptCoachRealWorldTriggers;
   rawContent: string;
 }
@@ -502,6 +584,7 @@ export type AIConceptCoachTabResult =
   | AIConceptCoachPerspectives
   | AIConceptCoachIntegratedUnderstanding
   | AIConceptCoachSelfTestCards
+  | AICdfStructure
   | AIConceptCoachRealWorldTriggers;
 
 // Legacy explain shape is kept only for old persisted records and narrow compatibility helpers.
@@ -529,6 +612,7 @@ export interface AIWorkbenchUserMessage {
   skillId: AISkillId;
   tabId: AISkillTabId;
   view?: AIWorkbenchOpenView;
+  contextSignature?: string | null;
   kind: 'user';
   purpose?: AIWorkbenchUserMessagePurpose;
   content: string;
@@ -544,6 +628,7 @@ export interface AIWorkbenchAssistantTextMessage {
   skillId: AISkillId;
   tabId: AISkillTabId;
   view?: AIWorkbenchOpenView;
+  contextSignature?: string | null;
   kind: 'assistant-text';
   content: string;
   createdAt: number;
@@ -564,6 +649,7 @@ export interface AIWorkbenchAssistantResultMessage {
   skillId: AISkillId;
   tabId: AISkillTabId;
   view?: AIWorkbenchOpenView;
+  contextSignature?: string | null;
   kind: 'assistant-result';
   createdAt: number;
   rawContent: string;
@@ -586,6 +672,7 @@ export interface AIWorkbenchToolLogMessage {
   skillId: AISkillId;
   tabId: AISkillTabId;
   view?: AIWorkbenchOpenView;
+  contextSignature?: string | null;
   kind: 'tool-log';
   createdAt: number;
   toolCallId: string;
@@ -614,6 +701,7 @@ export interface AIWorkbenchApprovalMessage {
   skillId: AISkillId;
   tabId: AISkillTabId;
   view?: AIWorkbenchOpenView;
+  contextSignature?: string | null;
   kind: 'approval';
   createdAt: number;
   request: AIChatApprovalRequest;
@@ -626,6 +714,7 @@ export interface AIWorkbenchSeparatorMessage {
   skillId: AISkillId;
   tabId: AISkillTabId;
   view?: AIWorkbenchOpenView;
+  contextSignature?: string | null;
   kind: 'separator';
   createdAt: number;
   label: string;
@@ -707,6 +796,7 @@ export interface AIWorkbenchSessionRecord extends AIWorkbenchSessionSummary {
   threads: AIWorkbenchThreads;
   tree?: AIWorkbenchConversationTree;
   skillResults: Record<string, AIConceptCoachResult | null>;
+  conceptCoachResultsByContext?: Record<string, AIConceptCoachResult | null>;
   genericSkillResults?: Record<string, AIUserSkillStructuredResult | null>;
   vars?: AIChatVarEntry[];
   diagnostics?: AIChatRuntimeDiagnostic[];
@@ -764,6 +854,7 @@ export interface AIWorkbenchState extends ReviewAISessionState {
   error: string | null;
   failureDiagnostic: AIWorkbenchFailureDiagnostic | null;
   skillResults: Record<string, AIConceptCoachResult | null>;
+  conceptCoachResultsByContext: Record<string, AIConceptCoachResult | null>;
   genericSkillResults: Record<string, AIUserSkillStructuredResult | null>;
   explainResult: AIExplainResult | null;
   sessionTitle: string;

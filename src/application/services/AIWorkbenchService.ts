@@ -48,6 +48,12 @@ import type { AIWorkbenchSessionStoreService } from '@/application/services/AIWo
 import type { FSRSCard } from '@/types/card';
 import type {
   AIAttachedContextItem,
+  AICdfAnchor,
+  AICdfAnchorResolution,
+  AICdfDefinitionCandidate,
+  AICdfDescriptorGroup,
+  AICdfDescriptorItem,
+  AICdfStructure,
   AIChatApprovalRequest,
   AIChatNormalizationDiagnostic,
   AIChatRuntimeDiagnostic,
@@ -81,6 +87,7 @@ import type {
   AIWorkbenchAssistantTextMessage,
   AIWorkbenchApprovalMessage,
   AIWorkbenchContextSnapshot,
+  AIWorkbenchCdfCreationResult,
   AIWorkbenchConversationTree,
   AIWorkbenchFailureDiagnostic,
   AIWorkbenchMessage,
@@ -140,6 +147,7 @@ const GENERAL_SKILL: AISkillId = AI_GENERAL_CHAT_SKILL_ID;
 const ACTIVE_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
 const CHAT_TAB: AISkillTabId = AI_GENERAL_CHAT_TAB_ID;
 const DEFAULT_TAB: AISkillTabId = 'working-definition';
+const EMPTY_CONTEXT_KEY = '__empty_context__';
 const ALL_TAB_IDS: AISkillTabId[] = [
   CHAT_TAB,
   ...AI_CONCEPT_COACH_TAB_IDS,
@@ -435,6 +443,7 @@ function createInitialViewState(): AIWorkbenchState['viewState'] {
     perspectives: createEmptyViewSessionState(),
     'integrated-understanding': createEmptyViewSessionState(),
     'self-test-cards': createEmptyViewSessionState(),
+    'cdf-structure': createEmptyViewSessionState(),
     'real-world-triggers': createEmptyViewSessionState(),
   });
   return {
@@ -461,6 +470,7 @@ function createInitialThreads(): AIWorkbenchThreads {
     perspectives: createEmptyThreadRecord(skillId, 'perspectives'),
     'integrated-understanding': createEmptyThreadRecord(skillId, 'integrated-understanding'),
     'self-test-cards': createEmptyThreadRecord(skillId, 'self-test-cards'),
+    'cdf-structure': createEmptyThreadRecord(skillId, 'cdf-structure'),
     'real-world-triggers': createEmptyThreadRecord(skillId, 'real-world-triggers'),
   });
   return {
@@ -626,12 +636,176 @@ function emptyPerspectives(): AIConceptCoachPerspectives {
   };
 }
 
+function normalizeContextKey(value: string | null | undefined): string {
+  return normalizeString(value) || EMPTY_CONTEXT_KEY;
+}
+
+function emptyCdfStructure(): AICdfStructure {
+  return {
+    anchors: [],
+  };
+}
+
+function normalizeCdfDefinitionCandidate(value: unknown, index: number): AICdfDefinitionCandidate | null {
+  if (!isRecord(value)) {
+    const text = normalizeString(value);
+    return text
+      ? {
+        id: createEntryId(`ai-cdf-def-${index}`),
+        text,
+        selected: true,
+      }
+      : null;
+  }
+  const text = normalizeString(readAliasedValue(value, ['text', 'definition', 'content', 'value']));
+  if (!text) {
+    return null;
+  }
+  return {
+    id: normalizeString(value.id) || createEntryId(`ai-cdf-def-${index}`),
+    text,
+    selected: value.selected !== false,
+  };
+}
+
+function normalizeCdfDescriptorItem(value: unknown, index: number): AICdfDescriptorItem | null {
+  if (!isRecord(value)) {
+    const text = normalizeString(value);
+    return text
+      ? {
+        id: createEntryId(`ai-cdf-item-${index}`),
+        text,
+        selected: true,
+      }
+      : null;
+  }
+  const text = normalizeString(readAliasedValue(value, ['text', 'item', 'content', 'value']));
+  if (!text) {
+    return null;
+  }
+  return {
+    id: normalizeString(value.id) || createEntryId(`ai-cdf-item-${index}`),
+    text,
+    selected: value.selected !== false,
+  };
+}
+
+function normalizeCdfDescriptorGroup(value: unknown, index: number): AICdfDescriptorGroup | null {
+  if (!isRecord(value)) {
+    const title = normalizeString(value);
+    return title
+      ? {
+        id: createEntryId(`ai-cdf-group-${index}`),
+        title,
+        selected: true,
+        items: [],
+      }
+      : null;
+  }
+  const title = normalizeString(readAliasedValue(value, ['title', 'name', 'descriptor', 'dimension']));
+  const itemsRaw = readAliasedValue(value, ['items', 'descriptors', 'entries', 'points']);
+  const itemsSource = Array.isArray(itemsRaw) ? itemsRaw : normalizeFlexibleStringArray(itemsRaw);
+  const items = itemsSource
+    .map((item, itemIndex) => normalizeCdfDescriptorItem(item, itemIndex))
+    .filter((item): item is AICdfDescriptorItem => Boolean(item));
+  if (!title && items.length === 0) {
+    return null;
+  }
+  return {
+    id: normalizeString(value.id) || createEntryId(`ai-cdf-group-${index}`),
+    title: title || `描述维度 ${index + 1}`,
+    selected: value.selected !== false,
+    items,
+  };
+}
+
+function normalizeCdfAnchorResolution(value: unknown): AICdfAnchorResolution | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const status = value.status === 'resolved-context' || value.status === 'resolved-notebook' || value.status === 'unresolved'
+    ? value.status
+    : null;
+  if (!status) {
+    return null;
+  }
+  return {
+    status,
+    conceptBlockId: normalizeString(value.conceptBlockId) || null,
+    conceptTitle: normalizeString(value.conceptTitle),
+    reason: normalizeString(value.reason) || null,
+  };
+}
+
+function normalizeCdfAnchor(value: unknown, index: number): AICdfAnchor | null {
+  if (!isRecord(value)) {
+    const conceptName = normalizeString(value);
+    return conceptName
+      ? {
+        id: createEntryId(`ai-cdf-anchor-${index}`),
+        conceptName,
+        selected: true,
+        definitionCandidates: [],
+        descriptorGroups: [],
+        resolution: null,
+        warnings: [],
+      }
+      : null;
+  }
+  const conceptName = normalizeString(readAliasedValue(value, ['conceptName', 'concept', 'title', 'name']));
+  const definitionsRaw = readAliasedValue(value, ['definitionCandidates', 'definitions', 'definition', 'workingDefinitions']);
+  const definitionSource = Array.isArray(definitionsRaw) ? definitionsRaw : normalizeFlexibleStringArray(definitionsRaw);
+  const descriptorGroupsRaw = readAliasedValue(value, ['descriptorGroups', 'descriptorGroup', 'groups', 'descriptors']);
+  const groupSource = Array.isArray(descriptorGroupsRaw) ? descriptorGroupsRaw : [];
+  const definitionCandidates = definitionSource
+    .map((item, itemIndex) => normalizeCdfDefinitionCandidate(item, itemIndex))
+    .filter((item): item is AICdfDefinitionCandidate => Boolean(item));
+  const descriptorGroups = groupSource
+    .map((group, groupIndex) => normalizeCdfDescriptorGroup(group, groupIndex))
+    .filter((group): group is AICdfDescriptorGroup => Boolean(group));
+  if (!conceptName && definitionCandidates.length === 0 && descriptorGroups.length === 0) {
+    return null;
+  }
+  return {
+    id: normalizeString(value.id) || createEntryId(`ai-cdf-anchor-${index}`),
+    conceptName: conceptName || `概念 ${index + 1}`,
+    selected: value.selected !== false,
+    definitionCandidates,
+    descriptorGroups,
+    resolution: normalizeCdfAnchorResolution(value.resolution),
+    warnings: normalizeStringArray(value.warnings),
+  };
+}
+
+function normalizeCdfStructure(value: unknown): AICdfStructure {
+  const raw = isRecord(value) ? value : {};
+  const anchorsSource = Array.isArray(readAliasedValue(raw, ['anchors', 'concepts', 'items']))
+    ? readAliasedValue(raw, ['anchors', 'concepts', 'items']) as unknown[]
+    : Array.isArray(value)
+      ? value
+      : [];
+  return {
+    anchors: anchorsSource
+      .map((anchor, index) => normalizeCdfAnchor(anchor, index))
+      .filter((anchor): anchor is AICdfAnchor => Boolean(anchor)),
+  };
+}
+
+function hasCdfStructureContent(value: AICdfStructure | null): boolean {
+  return Boolean(value && value.anchors.some((anchor) => (
+    normalizeString(anchor.conceptName)
+    || anchor.definitionCandidates.length > 0
+    || anchor.descriptorGroups.some((group) => normalizeString(group.title) || group.items.length > 0)
+  )));
+}
+
 function emptyConceptCoachResult(rawContent = ''): AIConceptCoachResult {
   return {
     workingDefinition: '',
     perspectives: emptyPerspectives(),
     integratedUnderstanding: { essence: '', notWhat: [], capabilities: [] },
     selfTestCards: { creationMode: 'list-item', cards: [] },
+    cdfStructure: emptyCdfStructure(),
     realWorldTriggers: { triggers: [] },
     rawContent,
   };
@@ -925,6 +1099,8 @@ function resolveTabPayload(raw: Record<string, unknown>, tabId: AISkillTabId, fa
       return readAliasedValue(raw, ['integratedUnderstanding', 'integrated', 'integratedSummary']) ?? fallback;
     case 'self-test-cards':
       return readAliasedValue(raw, ['selfTestCards', 'candidateCards', 'cards']) ?? fallback;
+    case 'cdf-structure':
+      return readAliasedValue(raw, ['cdfStructure', 'cdf', 'conceptDescriptorFramework']) ?? fallback;
     case 'real-world-triggers':
       return readAliasedValue(raw, ['realWorldTriggers', 'triggers', 'triggerScenarios']) ?? fallback;
     default:
@@ -952,6 +1128,7 @@ function normalizeConceptCoachState(
         resolveTabPayload(raw, 'self-test-cards', raw.selfTestCards),
         selfTestCreationMode,
       ),
+      cdfStructure: normalizeCdfStructure(resolveTabPayload(raw, 'cdf-structure', raw.cdfStructure)),
       realWorldTriggers: normalizeRealWorldTriggers(resolveTabPayload(raw, 'real-world-triggers', raw.realWorldTriggers)),
       rawContent,
     },
@@ -1143,6 +1320,8 @@ function hasTabResultContent(tabId: AISkillTabId, value: AIConceptCoachTabResult
     }
     case 'self-test-cards':
       return ((value as AIConceptCoachSelfTestCards).cards || []).length > 0;
+    case 'cdf-structure':
+      return hasCdfStructureContent(value as AICdfStructure);
     case 'real-world-triggers':
       return ((value as AIConceptCoachRealWorldTriggers).triggers || []).length > 0;
     default:
@@ -1204,6 +1383,14 @@ function deriveTabNormalizationDiagnostic(
           : 'partial';
       return buildNormalizationDiagnostic(status, missingSections, rawShape);
     }
+    case 'cdf-structure': {
+      const cdf = value as AICdfStructure | null;
+      return buildNormalizationDiagnostic(
+        hasCdfStructureContent(cdf) ? 'full' : 'empty',
+        hasCdfStructureContent(cdf) ? [] : ['anchors'],
+        rawShape,
+      );
+    }
     default:
       return null;
   }
@@ -1222,6 +1409,8 @@ function tabResultFromConceptCoach(result: AIConceptCoachResult | null, tabId: A
       return result.integratedUnderstanding;
     case 'self-test-cards':
       return result.selfTestCards;
+    case 'cdf-structure':
+      return result.cdfStructure;
     case 'real-world-triggers':
       return result.realWorldTriggers;
     default:
@@ -1246,6 +1435,8 @@ function normalizeTabResultValue(
       return normalizeIntegratedUnderstandingWithDiagnostic(value).value;
     case 'self-test-cards':
       return normalizeSelfTestCards(value, conceptCoachResult?.selfTestCards.creationMode || 'list-item');
+    case 'cdf-structure':
+      return normalizeCdfStructure(value);
     case 'real-world-triggers':
       return normalizeRealWorldTriggers(value);
     default:
@@ -1283,6 +1474,9 @@ function mergeTabResult(
     }
     case 'self-test-cards':
       next.selfTestCards = normalizeSelfTestCards(resolvedPayload, selfTestCreationMode);
+      break;
+    case 'cdf-structure':
+      next.cdfStructure = normalizeCdfStructure(resolvedPayload);
       break;
     case 'real-world-triggers':
       next.realWorldTriggers = normalizeRealWorldTriggers(resolvedPayload);
@@ -1348,6 +1542,7 @@ function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallback
     skillId,
     tabId: normalizeStoredTabId(message.tabId || fallbackTabId, skillId),
     view: normalizeString(message.view) as AIWorkbenchOpenView || undefined,
+    contextSignature: normalizeString(message.contextSignature) || null,
     createdAt: Number(message.createdAt) || Date.now(),
   };
   if (kind === 'user') {
@@ -1492,13 +1687,22 @@ function normalizeThreadRecord(thread: unknown, skillId: AISkillId, tabId: AISki
   if (!isRecord(thread)) {
     return createEmptyThreadRecord(skillId, tabId);
   }
+  const resultContextSignature = normalizeString(thread.resultContextSignature) || null;
+  const messages = Array.isArray(thread.messages)
+    ? thread.messages
+      .map((message) => normalizeMessage(message, skillId, tabId))
+      .filter((message): message is AIWorkbenchMessage => Boolean(message))
+      .map((message) => (
+        skillId === CONCEPT_SKILL && tabId !== CHAT_TAB && !normalizeString(message.contextSignature)
+          ? { ...message, contextSignature: resultContextSignature }
+          : message
+      ))
+    : [];
   return {
     skillId,
     tabId,
-    messages: Array.isArray(thread.messages)
-      ? thread.messages.map((message) => normalizeMessage(message, skillId, tabId)).filter((message): message is AIWorkbenchMessage => Boolean(message))
-      : [],
-    resultContextSignature: normalizeString(thread.resultContextSignature) || null,
+    messages,
+    resultContextSignature,
     stale: thread.stale === true,
     staleReason: normalizeString(thread.staleReason) || null,
   };
@@ -1560,6 +1764,7 @@ export class AIWorkbenchService {
     error: null,
     failureDiagnostic: null,
     skillResults: { [GENERAL_SKILL]: null, [CONCEPT_SKILL]: null },
+    conceptCoachResultsByContext: {},
     genericSkillResults: {},
     explainResult: null,
     sessionTitle: '',
@@ -1625,6 +1830,38 @@ export class AIWorkbenchService {
     return this.deps.getXiuyuanApplicationService();
   }
 
+  private isContextScopedConceptTab(skillId: AISkillId, tabId: AISkillTabId): boolean {
+    return skillId === CONCEPT_SKILL && tabId !== CHAT_TAB;
+  }
+
+  private getCurrentConceptCoachContextKey(signature: string | null = this.state.contextSignature): string {
+    return normalizeContextKey(signature);
+  }
+
+  private getScopedConceptCoachResult(signature: string | null = this.state.contextSignature): AIConceptCoachResult | null {
+    const key = this.getCurrentConceptCoachContextKey(signature);
+    const stored = this.state.conceptCoachResultsByContext[key];
+    return stored ? cloneConceptCoachResult(stored) : null;
+  }
+
+  private setScopedConceptCoachResult(
+    result: AIConceptCoachResult | null,
+    signature: string | null = this.state.contextSignature,
+  ): void {
+    const key = this.getCurrentConceptCoachContextKey(signature);
+    if (result) {
+      this.state.conceptCoachResultsByContext[key] = cloneConceptCoachResult(result);
+    } else {
+      delete this.state.conceptCoachResultsByContext[key];
+    }
+  }
+
+  private syncCurrentScopedConceptCoachResult(): void {
+    const current = this.findLatestConceptCoachResultForContext(this.state.contextSignature);
+    this.state.skillResults[CONCEPT_SKILL] = current;
+    this.state.explainResult = explainResultFromConceptCoach(current);
+  }
+
   private normalizeSelfTestCardTargetMemory(
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
     updatedAt: number,
@@ -1671,6 +1908,55 @@ export class AIWorkbenchService {
     return Array.isArray(selfTestCards?.cards)
       ? selfTestCards.cards.map((card) => ({ ...card }))
       : [];
+  }
+
+  private getCdfResultMessage(messageId: string): AIWorkbenchAssistantResultMessage | null {
+    const node = this.getTreeNode(messageId);
+    if (!node || node.skillId !== CONCEPT_SKILL || node.tabId !== 'cdf-structure') {
+      return null;
+    }
+    const message = this.getNodeMessage(node);
+    return message?.kind === 'assistant-result' ? message : null;
+  }
+
+  private getCdfStructureForMessage(messageId: string): AICdfStructure {
+    const message = this.getCdfResultMessage(messageId);
+    if (!message) {
+      return emptyCdfStructure();
+    }
+    const cdfStructure = (message.tabResult || message.conceptCoachResult?.cdfStructure) as AICdfStructure | null;
+    return cdfStructure ? JSON.parse(JSON.stringify(cdfStructure)) as AICdfStructure : emptyCdfStructure();
+  }
+
+  private updateCdfResultMessage(
+    messageId: string,
+    updater: (current: AICdfStructure) => AICdfStructure,
+  ): AICdfStructure | null {
+    const message = this.getCdfResultMessage(messageId);
+    if (!message) {
+      return null;
+    }
+    const currentResult = this.findLatestConceptCoachResultForContext(this.state.contextSignature);
+    if (!currentResult) {
+      return null;
+    }
+    const nextCdfStructure = normalizeCdfStructure(updater(this.getCdfStructureForMessage(messageId)));
+    const nextResult: AIConceptCoachResult = {
+      ...cloneConceptCoachResult(currentResult),
+      cdfStructure: nextCdfStructure,
+    };
+    this.setScopedConceptCoachResult(nextResult, this.state.contextSignature);
+    this.addNodeVersion(messageId, (current) => ({
+      ...(current as AIWorkbenchAssistantResultMessage),
+      contextSignature: this.state.contextSignature,
+      conceptCoachResult: cloneConceptCoachResult(nextResult),
+      tabResult: nextCdfStructure,
+      normalizationDiagnostic: deriveTabNormalizationDiagnostic('cdf-structure', nextCdfStructure, 'edited-result'),
+      explainResult: explainResultFromConceptCoach(nextResult),
+      rawContent: JSON.stringify({ cdfStructure: nextCdfStructure }, null, 2),
+    } satisfies AIWorkbenchAssistantResultMessage));
+    this.syncDerivedStateFromThreads();
+    return nextCdfStructure;
   }
 
   private getSelectedSelfTestCardCandidates(messageId: string): AIConceptCoachCandidateCard[] {
@@ -2432,12 +2718,20 @@ export class AIWorkbenchService {
   ): AIWorkbenchMessage[] {
     const tree = this.ensureTreeState();
     const path = traceTreePath(tree, this.resolveViewLeafId(skillId, tabId));
-    return path
+    const messages = path
       .map((nodeId) => tree.nodes[nodeId])
       .filter((node): node is AIWorkbenchTreeNode => Boolean(node))
       .filter((node) => this.shouldIncludeNodeInView(node, skillId, tabId))
       .map((node) => this.getNodeMessage(node))
       .filter((message): message is AIWorkbenchMessage => Boolean(message));
+    if (!this.isContextScopedConceptTab(skillId, tabId)) {
+      return messages;
+    }
+    const currentSignature = normalizeString(this.state.contextSignature);
+    if (!currentSignature) {
+      return messages;
+    }
+    return messages.filter((message) => normalizeString(message.contextSignature) === currentSignature);
   }
 
   private getModelContextMessagesForView(
@@ -2502,11 +2796,29 @@ export class AIWorkbenchService {
     for (const { skillId, tabId } of knownEntries.values()) {
       next[skillId] = next[skillId] || {};
       const previousThread = previous[skillId]?.[tabId] || createEmptyThreadRecord(skillId, tabId);
+      const messages = this.getProjectedMessagesForView(skillId, tabId);
+      const latestContextSignature = [...messages]
+        .reverse()
+        .map((message) => normalizeString(message.contextSignature))
+        .find(Boolean) || null;
       next[skillId][tabId] = {
         ...previousThread,
         skillId,
         tabId,
-        messages: this.getProjectedMessagesForView(skillId, tabId),
+        messages,
+        resultContextSignature: latestContextSignature,
+        stale: Boolean(
+          this.isContextScopedConceptTab(skillId, tabId)
+          && latestContextSignature
+          && this.state.contextSignature
+          && latestContextSignature !== this.state.contextSignature,
+        ),
+        staleReason: this.isContextScopedConceptTab(skillId, tabId)
+          && latestContextSignature
+          && this.state.contextSignature
+          && latestContextSignature !== this.state.contextSignature
+          ? '当前上下文已变化，请重新运行这个阶段以获得最新结果。'
+          : null,
       };
     }
 
@@ -2533,6 +2845,9 @@ export class AIWorkbenchService {
       skillId,
       tabId: normalizedTabId,
       view: message.view || skillId,
+      contextSignature: this.isContextScopedConceptTab(skillId, normalizedTabId)
+        ? normalizeString(message.contextSignature) || this.state.contextSignature
+        : normalizeString(message.contextSignature) || null,
     } as AIWorkbenchMessage);
     const parentNodeId = options?.parentNodeId === undefined
       ? this.resolveViewLeafId(skillId, normalizedTabId)
@@ -3374,6 +3689,132 @@ export class AIWorkbenchService {
       target,
       candidates,
       creationMode,
+    );
+    if (result.createdCount > 0) {
+      await this.getSessionStore().saveSelfTestCardTargetMemory(result.target);
+    }
+    return result;
+  }
+
+  async setCdfAnchorSelected(messageId: string, anchorId: string, selected: boolean): Promise<void> {
+    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
+      anchors: structure.anchors.map((anchor) => (
+        anchor.id === anchorId
+          ? { ...anchor, selected }
+          : anchor
+      )),
+    }));
+    if (!updated) {
+      return;
+    }
+    await this.persistCurrentSession();
+  }
+
+  async setCdfDefinitionSelected(
+    messageId: string,
+    anchorId: string,
+    definitionId: string,
+    selected: boolean,
+  ): Promise<void> {
+    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
+      anchors: structure.anchors.map((anchor) => (
+        anchor.id === anchorId
+          ? {
+            ...anchor,
+            definitionCandidates: anchor.definitionCandidates.map((definition) => (
+              definition.id === definitionId ? { ...definition, selected } : definition
+            )),
+          }
+          : anchor
+      )),
+    }));
+    if (!updated) {
+      return;
+    }
+    await this.persistCurrentSession();
+  }
+
+  async setCdfDescriptorGroupSelected(
+    messageId: string,
+    anchorId: string,
+    groupId: string,
+    selected: boolean,
+  ): Promise<void> {
+    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
+      anchors: structure.anchors.map((anchor) => (
+        anchor.id === anchorId
+          ? {
+            ...anchor,
+            descriptorGroups: anchor.descriptorGroups.map((group) => (
+              group.id === groupId ? { ...group, selected } : group
+            )),
+          }
+          : anchor
+      )),
+    }));
+    if (!updated) {
+      return;
+    }
+    await this.persistCurrentSession();
+  }
+
+  async setCdfDescriptorItemSelected(
+    messageId: string,
+    anchorId: string,
+    groupId: string,
+    itemId: string,
+    selected: boolean,
+  ): Promise<void> {
+    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
+      anchors: structure.anchors.map((anchor) => (
+        anchor.id === anchorId
+          ? {
+            ...anchor,
+            descriptorGroups: anchor.descriptorGroups.map((group) => (
+              group.id === groupId
+                ? {
+                  ...group,
+                  items: group.items.map((item) => (
+                    item.id === itemId ? { ...item, selected } : item
+                  )),
+                }
+                : group
+            )),
+          }
+          : anchor
+      )),
+    }));
+    if (!updated) {
+      return;
+    }
+    await this.persistCurrentSession();
+  }
+
+  async previewCdfStructure(
+    messageId: string,
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+  ): Promise<AICdfStructure> {
+    return this.flashcardTools.previewSemanticCdfStructure(
+      this.getCdfStructureForMessage(messageId),
+      target,
+      {
+        context: this.state.context,
+        attachedContexts: [],
+      },
+    );
+  }
+
+  async createCdfCardsFromSelectedAnchors(
+    target: AIWorkbenchSelfTestCardTargetInput,
+    messageId: string,
+  ): Promise<AIWorkbenchCdfCreationResult> {
+    const result = await this.flashcardTools.createSemanticCdfCards(
+      this.getCdfStructureForMessage(messageId),
+      target,
+      {
+        context: this.state.context,
+        attachedContexts: [],
+      },
     );
     if (result.createdCount > 0) {
       await this.getSessionStore().saveSelfTestCardTargetMemory(result.target);
@@ -4251,6 +4692,7 @@ export class AIWorkbenchService {
     this.state.contextSignature = nextSignature;
     this.state.contextIsHistorical = false;
     this.markStaleThreads(nextSignature);
+    this.syncCurrentScopedConceptCoachResult();
     await this.persistCurrentSession();
   }
 
@@ -4282,11 +4724,12 @@ export class AIWorkbenchService {
       lastActiveView: this.state.activeSkillId,
       activeViews: [],
       context,
-      schemaVersion: 4,
+      schemaVersion: 5,
       messages: [],
       threads,
       tree: createEmptyConversationTree(),
       skillResults: { [GENERAL_SKILL]: null, [CONCEPT_SKILL]: null },
+      conceptCoachResultsByContext: {},
       genericSkillResults: {},
       vars: [],
       diagnostics: [],
@@ -4328,15 +4771,29 @@ export class AIWorkbenchService {
     this.state.threads = normalizeThreads(record.threads);
     this.state.tree = record.tree || createEmptyConversationTree();
     this.ensureSkillRuntimeState(this.state.activeSkillId);
+    this.state.conceptCoachResultsByContext = {};
+    const scopedResults = isRecord(record.conceptCoachResultsByContext)
+      ? record.conceptCoachResultsByContext as Record<string, AIConceptCoachResult | null>
+      : {};
+    for (const [contextKey, result] of Object.entries(scopedResults)) {
+      if (result) {
+        this.state.conceptCoachResultsByContext[normalizeContextKey(contextKey)] = normalizeConceptCoachResult(
+          result,
+          result.rawContent || '',
+          this.getSelfTestCreationMode(),
+        );
+      }
+    }
+    if (Object.keys(this.state.conceptCoachResultsByContext).length === 0 && record.skillResults?.[CONCEPT_SKILL]) {
+      this.state.conceptCoachResultsByContext[this.getCurrentConceptCoachContextKey(record.contextSignature)] = normalizeConceptCoachResult(
+        record.skillResults[CONCEPT_SKILL],
+        record.skillResults[CONCEPT_SKILL]?.rawContent || '',
+        this.getSelfTestCreationMode(),
+      );
+    }
     this.state.skillResults = {
       [GENERAL_SKILL]: null,
-      [CONCEPT_SKILL]: record.skillResults?.[CONCEPT_SKILL]
-        ? normalizeConceptCoachResult(
-          record.skillResults[CONCEPT_SKILL],
-          record.skillResults[CONCEPT_SKILL]?.rawContent || '',
-          this.getSelfTestCreationMode(),
-        )
-        : this.findLatestConceptCoachResult(),
+      [CONCEPT_SKILL]: this.getScopedConceptCoachResult(buildContextSignature(liveContext) || record.contextSignature),
     };
     this.state.genericSkillResults = {
       ...(record.genericSkillResults || {}),
@@ -4449,24 +4906,38 @@ export class AIWorkbenchService {
       }
     }
 
-    this.state.skillResults[CONCEPT_SKILL] = this.findLatestConceptCoachResult();
+    this.syncCurrentScopedConceptCoachResult();
     for (const skillId of Object.keys(this.state.threads).filter((id) => id.startsWith('user:'))) {
       this.state.genericSkillResults[skillId] = this.findLatestGenericStructuredResult(skillId as AISkillId);
     }
-    this.state.explainResult = explainResultFromConceptCoach(this.state.skillResults[CONCEPT_SKILL]);
     this.state.messages = this.flattenTimelineMessages();
     this.state.vars = this.varStore.list();
   }
 
-  private findLatestConceptCoachResult(): AIConceptCoachResult | null {
-    const messages = AI_CONCEPT_COACH_TAB_IDS
-      .flatMap((tabId) => this.state.threads[CONCEPT_SKILL][tabId].messages)
+  private findLatestConceptCoachResultForContext(signature: string | null = this.state.contextSignature): AIConceptCoachResult | null {
+    const normalizedSignature = normalizeString(signature);
+    if (!normalizedSignature) {
+      return null;
+    }
+    const stored = this.getScopedConceptCoachResult(normalizedSignature);
+    if (stored) {
+      return stored;
+    }
+    const messages = Object.values(this.ensureTreeState().nodes)
+      .map((node) => this.getNodeMessage(node))
       .filter((message): message is AIWorkbenchAssistantResultMessage => (
-        message.kind === 'assistant-result'
+        Boolean(message)
+        && message.kind === 'assistant-result'
+        && message.skillId === CONCEPT_SKILL
         && message.conceptCoachResult !== null
+        && normalizeString(message.contextSignature) === normalizedSignature
       ))
       .sort((left, right) => right.createdAt - left.createdAt);
-    return messages[0]?.conceptCoachResult ? cloneConceptCoachResult(messages[0].conceptCoachResult) : null;
+    const latest = messages[0]?.conceptCoachResult ? cloneConceptCoachResult(messages[0].conceptCoachResult) : null;
+    if (latest) {
+      this.setScopedConceptCoachResult(latest, normalizedSignature);
+    }
+    return latest;
   }
 
   private findLatestGenericStructuredResult(skillId: AISkillId): AIUserSkillStructuredResult | null {
@@ -4519,14 +4990,18 @@ export class AIWorkbenchService {
     if (!latest || !this.getTreeNode(latest.id)) {
       return;
     }
+    this.setScopedConceptCoachResult(result, this.state.contextSignature);
     this.addNodeVersion(latest.id, (message) => ({
       ...(message as AIWorkbenchAssistantResultMessage),
+      contextSignature: this.state.contextSignature,
       conceptCoachResult: cloneConceptCoachResult(result),
       tabResult: tabResultFromConceptCoach(result, tabId),
       normalizationDiagnostic: deriveTabNormalizationDiagnostic(tabId, tabResultFromConceptCoach(result, tabId), 'edited-result'),
       explainResult: explainResultFromConceptCoach(result),
       rawContent: JSON.stringify(tabId === 'self-test-cards'
         ? { selfTestCards: result.selfTestCards }
+        : tabId === 'cdf-structure'
+          ? { cdfStructure: result.cdfStructure }
         : result, null, 2),
     } satisfies AIWorkbenchAssistantResultMessage));
     this.syncDerivedStateFromThreads();
@@ -4827,6 +5302,7 @@ export class AIWorkbenchService {
     return {
       language: this.deps.getAISettings().defaultOutputLanguage,
       skillId: ACTIVE_SKILL,
+      contextSignature: this.state.contextSignature,
       tabIds: tabId ? [tabId] : [...AI_CONCEPT_COACH_TAB_IDS],
       ...(tabId ? {
         tabId,
@@ -5175,7 +5651,7 @@ export class AIWorkbenchService {
     const context = this.requireContext();
     const settings = this.assertModelSettings();
     const provider = this.resolveDefaultProvider(settings);
-    const tabResult = tabResultFromConceptCoach(this.state.skillResults[ACTIVE_SKILL], tabId);
+    const tabResult = tabResultFromConceptCoach(this.findLatestConceptCoachResultForContext(this.state.contextSignature), tabId);
     if (!tabResult) {
       throw this.fail('当前阶段没有可追问的结构化结果。');
     }
@@ -5204,6 +5680,7 @@ export class AIWorkbenchService {
             content: JSON.stringify({
               language: settings.defaultOutputLanguage,
               skillId: ACTIVE_SKILL,
+              contextSignature: this.state.contextSignature,
               tabId,
               tabResult,
               attachedContexts,
@@ -5398,8 +5875,8 @@ export class AIWorkbenchService {
       throw this.fail(`AI 理解与制卡的自测卡片结构不合法：${toErrorMessage(error, '未知错误')}`);
     }
     const result = normalized.result;
-    this.state.skillResults[ACTIVE_SKILL] = result;
-    this.state.explainResult = explainResultFromConceptCoach(result);
+    this.setScopedConceptCoachResult(result, this.state.contextSignature);
+    this.syncCurrentScopedConceptCoachResult();
     const now = Date.now();
     for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
       this.appendNodeMessage(tabId, {
@@ -5407,6 +5884,7 @@ export class AIWorkbenchService {
         skillId: ACTIVE_SKILL,
         tabId,
         view: ACTIVE_SKILL,
+        contextSignature: this.state.contextSignature,
         kind: 'assistant-result',
         createdAt: now,
         rawContent,
@@ -5441,13 +5919,14 @@ export class AIWorkbenchService {
       throw this.fail(`${this.getActiveTabDescriptor().title}的自测卡片结构不合法：${toErrorMessage(error, '未知错误')}`);
     }
     const result = normalized.result;
-    this.state.skillResults[ACTIVE_SKILL] = result;
-    this.state.explainResult = explainResultFromConceptCoach(result);
+    this.setScopedConceptCoachResult(result, this.state.contextSignature);
+    this.syncCurrentScopedConceptCoachResult();
     this.appendMessage(tabId, {
       id: createEntryId('ai-msg'),
       skillId: ACTIVE_SKILL,
       tabId,
       view: ACTIVE_SKILL,
+      contextSignature: this.state.contextSignature,
       kind: 'assistant-result',
       createdAt: Date.now(),
       rawContent,
@@ -5686,7 +6165,7 @@ export class AIWorkbenchService {
         .map((node) => node.skillId),
     ));
     return {
-      schemaVersion: 4,
+      schemaVersion: 5,
       id: sessionId,
       title: normalizeString(this.state.sessionTitle) || '未命名会话',
       source: this.state.context?.source || this.state.liveContext?.source || 'standalone',
@@ -5712,6 +6191,12 @@ export class AIWorkbenchService {
           ? cloneConceptCoachResult(this.state.skillResults[CONCEPT_SKILL]!)
           : null,
       },
+      conceptCoachResultsByContext: Object.fromEntries(
+        Object.entries(this.state.conceptCoachResultsByContext).map(([contextKey, result]) => [
+          contextKey,
+          result ? cloneConceptCoachResult(result) : null,
+        ]),
+      ),
       genericSkillResults: { ...this.state.genericSkillResults },
       vars: this.varStore.list(),
       diagnostics: [...this.state.diagnostics],

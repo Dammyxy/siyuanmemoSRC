@@ -44,7 +44,8 @@ const SELF_TEST_CARD_TARGET_MEMORY_FILE = 'ai-workbench/self-test-card-target.js
 const CONCEPT_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
 const GENERAL_SKILL: AISkillId = AI_GENERAL_CHAT_SKILL_ID;
 const DEFAULT_TAB: AISkillTabId = 'working-definition';
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
+const EMPTY_CONTEXT_KEY = '__empty_context__';
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -145,6 +146,7 @@ function createEmptyThreads(): AIWorkbenchThreads {
     perspectives: createEmptyThread(skillId, 'perspectives'),
     'integrated-understanding': createEmptyThread(skillId, 'integrated-understanding'),
     'self-test-cards': createEmptyThread(skillId, 'self-test-cards'),
+    'cdf-structure': createEmptyThread(skillId, 'cdf-structure'),
     'real-world-triggers': createEmptyThread(skillId, 'real-world-triggers'),
   });
   return {
@@ -183,6 +185,7 @@ function normalizeMessage(value: unknown, skillId: AISkillId, tabId: AISkillTabI
     skillId: normalizeSkillId(value.skillId || skillId),
     tabId: normalizeTabId(value.tabId || tabId),
     view: value.view || skillId,
+    contextSignature: normalizeString(value.contextSignature) || null,
   } as unknown as AIWorkbenchMessage;
 }
 
@@ -190,15 +193,22 @@ function normalizeThreadRecord(value: unknown, skillId: AISkillId, tabId: AISkil
   if (!isRecord(value)) {
     return createEmptyThread(skillId, tabId);
   }
+  const resultContextSignature = normalizeString(value.resultContextSignature) || null;
+  const messages = Array.isArray(value.messages)
+    ? value.messages
+      .map((message) => normalizeMessage(message, skillId, tabId))
+      .filter((message): message is AIWorkbenchMessage => Boolean(message))
+      .map((message) => (
+        skillId === CONCEPT_SKILL && tabId !== AI_GENERAL_CHAT_TAB_ID && !normalizeString(message.contextSignature)
+          ? { ...message, contextSignature: resultContextSignature }
+          : message
+      ))
+    : [];
   return {
     skillId,
     tabId,
-    messages: Array.isArray(value.messages)
-      ? value.messages
-        .map((message) => normalizeMessage(message, skillId, tabId))
-        .filter((message): message is AIWorkbenchMessage => Boolean(message))
-      : [],
-    resultContextSignature: normalizeString(value.resultContextSignature) || null,
+    messages,
+    resultContextSignature,
     stale: value.stale === true,
     staleReason: normalizeString(value.staleReason) || null,
   };
@@ -269,6 +279,10 @@ function deriveReviewChatKeyFromContext(context: AIWorkbenchContextSnapshot | nu
   return buildReviewChatKey(context.queueType, context.queueProgress?.queueLabel);
 }
 
+function normalizeContextKey(value: unknown): string {
+  return normalizeString(value) || EMPTY_CONTEXT_KEY;
+}
+
 function normalizeSkillResults(value: unknown): Record<AISkillId, AIConceptCoachResult | null> {
   const raw = isRecord(value) ? value : {};
   const result = isRecord(raw[CONCEPT_SKILL]) ? raw[CONCEPT_SKILL] as AIConceptCoachResult : null;
@@ -276,6 +290,25 @@ function normalizeSkillResults(value: unknown): Record<AISkillId, AIConceptCoach
     [GENERAL_SKILL]: null,
     [CONCEPT_SKILL]: result,
   };
+}
+
+function normalizeConceptCoachResultsByContext(
+  value: unknown,
+  fallbackContextSignature: string | null,
+  fallbackSkillResults?: Record<AISkillId, AIConceptCoachResult | null> | null,
+): Record<string, AIConceptCoachResult | null> {
+  const raw = isRecord(value) ? value : {};
+  const result: Record<string, AIConceptCoachResult | null> = {};
+  for (const [contextKey, contextValue] of Object.entries(raw)) {
+    result[normalizeContextKey(contextKey)] = isRecord(contextValue)
+      ? contextValue as AIConceptCoachResult
+      : null;
+  }
+  const fallbackResult = fallbackSkillResults?.[CONCEPT_SKILL] || null;
+  if (fallbackResult && Object.keys(result).length === 0) {
+    result[normalizeContextKey(fallbackContextSignature)] = fallbackResult;
+  }
+  return result;
 }
 
 function normalizeGenericSkillResults(value: unknown): Record<string, AIUserSkillStructuredResult | null> {
@@ -557,6 +590,11 @@ function normalizeRecord(value: unknown): AIWorkbenchSessionRecord | null {
     threads: normalizedThreads.threads,
     tree,
     skillResults: normalizeSkillResults(value.skillResults),
+    conceptCoachResultsByContext: normalizeConceptCoachResultsByContext(
+      value.conceptCoachResultsByContext,
+      normalizeString(value.contextSignature) || null,
+      normalizeSkillResults(value.skillResults),
+    ),
     genericSkillResults: normalizeGenericSkillResults(value.genericSkillResults),
     vars: Array.isArray(value.vars) ? value.vars as AIWorkbenchSessionRecord['vars'] : [],
     diagnostics: Array.isArray(value.diagnostics) ? value.diagnostics as AIWorkbenchSessionRecord['diagnostics'] : [],
@@ -692,6 +730,11 @@ export class AIWorkbenchSessionStoreService {
       threads: normalizeThreads(normalized.threads).threads,
       tree: normalizeTree(normalized.tree, normalized.threads),
       skillResults: normalizeSkillResults(normalized.skillResults),
+      conceptCoachResultsByContext: normalizeConceptCoachResultsByContext(
+        normalized.conceptCoachResultsByContext,
+        normalized.contextSignature,
+        normalized.skillResults,
+      ),
       genericSkillResults: normalizeGenericSkillResults(normalized.genericSkillResults),
     };
     await this.fileService.writeJSON(this.getSessionFileName(persisted.id), persisted);

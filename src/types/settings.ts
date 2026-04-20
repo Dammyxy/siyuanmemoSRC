@@ -245,6 +245,7 @@ export interface AIConceptCoachPromptTemplates {
         perspectives: AIPromptTextPair;
         'integrated-understanding': AIPromptTextPair;
         'self-test-cards': AIPromptTextPair;
+        'cdf-structure': AIPromptTextPair;
         'real-world-triggers': AIPromptTextPair;
     };
 }
@@ -895,7 +896,7 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     }
 };
 
-export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 4;
+export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 5;
 
 export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
     skills: {
@@ -949,6 +950,18 @@ export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
                     ].join('\n'),
                     followUp: '你正在围绕“自测卡片”继续协助。可以改写题目、解释某张卡为什么值得保留，或补充更好的候选卡；不要直接建卡。',
                 },
+                'cdf-structure': {
+                    run: [
+                        '阶段：CDF 语义制卡草稿。',
+                        '基于当前材料输出 1 个或多个概念锚点，每个锚点都围绕“概念 -> 定义候选 -> 描述维度组 -> 维度条目”组织。',
+                        'conceptName 必须是短、稳定、可作为概念文档标题复用的概念名；不要把句子塞进概念名。',
+                        'definitionCandidates 只保留当前材料真正支持的定义候选，宁可少，不要把解释段落原样粘进去。',
+                        'descriptorGroups.title 应该是可复用的描述维度，如“作用 / 条件 / 边界 / 特征 / 组成 / 误区”；items 则是该维度下的短条目。',
+                        'selected 默认给出你的初筛建议，但不要为了凑数量把所有节点都设成 true。',
+                        '如果当前材料只能支撑定义而不足以支撑描述维度，可以保留空 descriptorGroups；反之亦然。',
+                    ].join('\n'),
+                    followUp: '你正在围绕“CDF 语义制卡”继续协助。请基于当前 CDF 结构、上下文和用户问题解释如何筛选概念、定义和描述符；不要输出 JSON。',
+                },
                 'real-world-triggers': {
                     run: [
                         '阶段：现实触发器。',
@@ -977,6 +990,7 @@ function cloneConceptCoachPromptTemplates(templates: AIConceptCoachPromptTemplat
             perspectives: clonePromptPair(templates.tabs.perspectives),
             'integrated-understanding': clonePromptPair(templates.tabs['integrated-understanding']),
             'self-test-cards': clonePromptPair(templates.tabs['self-test-cards']),
+            'cdf-structure': clonePromptPair(templates.tabs['cdf-structure']),
             'real-world-triggers': clonePromptPair(templates.tabs['real-world-triggers']),
         },
     };
@@ -1045,6 +1059,7 @@ function normalizeConceptCoachPromptTemplates(source: unknown): AIConceptCoachPr
             perspectives: normalizePromptPair(defaults.tabs.perspectives, tabs.perspectives),
             'integrated-understanding': normalizePromptPair(defaults.tabs['integrated-understanding'], tabs['integrated-understanding']),
             'self-test-cards': normalizePromptPair(defaults.tabs['self-test-cards'], tabs['self-test-cards']),
+            'cdf-structure': normalizePromptPair(defaults.tabs['cdf-structure'], tabs['cdf-structure']),
             'real-world-triggers': normalizePromptPair(defaults.tabs['real-world-triggers'], tabs['real-world-triggers']),
         },
     };
@@ -1076,7 +1091,7 @@ function hasNormalizedPromptTemplateShape(prompts: unknown): boolean {
     }
     const tabs = conceptCoach.tabs;
     return Boolean(tabs)
-        && ['working-definition', 'perspectives', 'integrated-understanding', 'self-test-cards', 'real-world-triggers'].every((tabId) => {
+        && ['working-definition', 'perspectives', 'integrated-understanding', 'self-test-cards', 'cdf-structure', 'real-world-triggers'].every((tabId) => {
             const pair = tabs[tabId as keyof typeof tabs];
             return typeof pair === 'object'
                 && pair !== null

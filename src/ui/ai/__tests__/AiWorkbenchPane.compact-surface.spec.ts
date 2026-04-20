@@ -20,6 +20,7 @@ const CONCEPT_COACH_TABS = [
   { id: 'perspectives', title: '多视角理解', emptyHint: '从特性、辨析、整体、因果和意义五个角度理解。' },
   { id: 'integrated-understanding', title: '整合理解', emptyHint: '把分散视角压缩成能复述、能辨析、能应用的理解。' },
   { id: 'self-test-cards', title: '自测卡片', emptyHint: '把理解转成可回忆、可编辑、可选择的候选问答卡。' },
+  { id: 'cdf-structure', title: 'CDF 语义卡', emptyHint: '把概念、定义和描述维度整理成可筛选的 CDF 结构。' },
   { id: 'real-world-triggers', title: '现实触发器', emptyHint: '找到以后该想起这个概念的真实场景。' },
 ] as const;
 
@@ -280,6 +281,47 @@ function makeSelfTestRenderEntry(cards = [{
   };
 }
 
+function makeCdfRenderEntry() {
+  const primaryMessage = {
+    id: 'cdf-message-1',
+    skillId: AI_CONCEPT_COACH_SKILL_ID,
+    tabId: 'cdf-structure',
+    view: AI_CONCEPT_COACH_SKILL_ID,
+    kind: 'assistant-result',
+    createdAt: Date.now(),
+    rawContent: '',
+    conceptCoachResult: null,
+    tabResult: {
+      anchors: [{
+        id: 'anchor-1',
+        conceptName: '幂函数',
+        selected: true,
+        definitionCandidates: [
+          { id: 'definition-1', text: '自变量在底数位置，指数固定的函数。', selected: true },
+        ],
+        descriptorGroups: [
+          {
+            id: 'group-1',
+            title: '识别线索',
+            selected: true,
+            items: [
+              { id: 'item-1', text: '通常写成 y = x^a', selected: true },
+            ],
+          },
+        ],
+      }],
+    },
+    appliedContexts: [],
+  } as never;
+  return {
+    key: 'cdf-message-1::render',
+    primaryMessage,
+    supplementalMessages: [],
+    stepCount: 0,
+    pendingApproval: null,
+  };
+}
+
 describe('AiWorkbenchPane compact surfaces', () => {
   it('renders a compact explain-only shell and can reveal history/context drawers', async () => {
     const service = createService('review-dialog-sidecar');
@@ -434,6 +476,119 @@ describe('AiWorkbenchPane compact surfaces', () => {
     }), 'self-test-message-1');
     expect(wrapper.text()).toContain('制卡完成');
     expect(wrapper.text()).toContain('1 张');
+  });
+
+  it('renders semantic CDF anchors, resolves concepts, and creates selected items', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('cdf-structure');
+    service.getRenderEntries = () => [makeCdfRenderEntry()] as never;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => [
+      { id: 'notebook-1', name: '学习笔记', closed: false },
+    ]) as never;
+    service.getSelfTestCardTargetMemory = vi.fn(async () => ({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: null,
+      targetLabel: '学习笔记 · 今日日记',
+      updatedAt: 1,
+    })) as never;
+    const previewCdfStructure = vi.fn(async () => ({
+      anchors: [{
+        id: 'anchor-1',
+        conceptName: '幂函数',
+        selected: true,
+        resolution: {
+          status: 'resolved-notebook',
+          conceptBlockId: 'concept-doc-1',
+          conceptTitle: '幂函数',
+          reason: '在目标笔记本中命中同名概念文档。',
+        },
+        warnings: [],
+        definitionCandidates: [
+          { id: 'definition-1', text: '自变量在底数位置，指数固定的函数。', selected: true },
+        ],
+        descriptorGroups: [
+          {
+            id: 'group-1',
+            title: '识别线索',
+            selected: true,
+            items: [
+              { id: 'item-1', text: '通常写成 y = x^a', selected: true },
+            ],
+          },
+        ],
+      }],
+    }));
+    const createCdfCardsFromSelectedAnchors = vi.fn(async () => ({
+      target: {
+        mode: 'daily-note',
+        notebookId: 'notebook-1',
+        notebookName: '学习笔记',
+        targetBlockId: null,
+        targetLabel: '学习笔记 · 今日日记',
+        updatedAt: 2,
+      },
+      targetBlockId: 'daily-doc-1',
+      targetLabel: '学习笔记 · 今日日记',
+      itemResults: [{
+        anchorId: 'anchor-1',
+        conceptName: '幂函数',
+        status: 'created',
+        conceptBlockId: 'concept-doc-1',
+        createdDefinitions: [{
+          definitionId: 'definition-1',
+          text: '自变量在底数位置，指数固定的函数。',
+          blockId: 'definition-block-1',
+          xiuyuanId: 'xy-definition-1',
+          cardIds: ['riff-definition-1'],
+        }],
+        createdDescriptors: [{
+          groupId: 'group-1',
+          groupTitle: '识别线索',
+          itemId: 'item-1',
+          text: '通常写成 y = x^a',
+          blockId: 'descriptor-block-1',
+          xiuyuanId: 'xy-descriptor-1',
+          cardIds: ['riff-descriptor-1'],
+        }],
+        warnings: [],
+        error: null,
+      }],
+      createdDefinitionCount: 1,
+      createdDescriptorCount: 1,
+      createdCount: 1,
+      skippedCount: 0,
+      failedCount: 0,
+    }));
+    service.previewCdfStructure = previewCdfStructure as never;
+    service.createCdfCardsFromSelectedAnchors = createCdfCardsFromSelectedAnchors as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).toContain('CDF 语义制卡');
+    expect(wrapper.text()).toContain('幂函数');
+
+    const createButton = wrapper.findAll('button').find((button) => button.text().includes('制卡选中项'))!;
+    await createButton.trigger('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(previewCdfStructure).toHaveBeenCalledWith('cdf-message-1', expect.objectContaining({
+      notebookId: 'notebook-1',
+    }));
+    expect(createCdfCardsFromSelectedAnchors).toHaveBeenCalledWith(expect.objectContaining({
+      notebookId: 'notebook-1',
+    }), 'cdf-message-1');
+    expect(wrapper.text()).toContain('制卡完成');
+    expect(wrapper.text()).toContain('1 个定义');
+    expect(wrapper.text()).toContain('1 个描述符');
   });
 
   it('generates plugin drafts when switching to Xiuyuan-backed self-test modes', async () => {

@@ -1303,7 +1303,8 @@ describe('AIWorkbenchService review-session behavior', () => {
 
     expect(secondService.state.sessionId).toBe(sharedSessionId);
     expect(secondService.state.context?.currentCard?.cardId).toBe('card-b');
-    expect(secondService.state.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages.length).toBeGreaterThan(0);
+    expect(secondService.state.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages).toHaveLength(0);
+    expect(Object.keys(secondService.state.conceptCoachResultsByContext)).toHaveLength(1);
 
     await secondService.open({
       source: 'review',
@@ -1319,6 +1320,61 @@ describe('AIWorkbenchService review-session behavior', () => {
 
     expect(secondService.state.sessionId).toBe(sharedSessionId);
     expect(secondService.state.context?.currentCard?.cardId).toBe('card-c');
+    expect(secondService.state.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages).toHaveLength(0);
+  });
+
+  it('reruns concept-coach in a shared review chat session against the current card context only', async () => {
+    const sessionStore = createSessionStore();
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: JSON.stringify(createConceptCoachPayload('Card A definition')),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: JSON.stringify(createConceptCoachPayload('Card B definition')),
+        raw: {},
+      });
+    const reviewChatKey = 'neural-roam::Neural Queue';
+    const queueProgress = createQueueProgress('neural-roam', 'Neural Queue');
+
+    const firstService = createService({ llmChat, sessionStore });
+    await firstService.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-a',
+      sourceReviewSessionId: 'review-session-a',
+      reviewChatKey,
+      queueType: 'neural-roam',
+      queueProgress,
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    await firstService.submitSkillPrompt('解释第一张卡');
+
+    const secondService = createService({ llmChat, sessionStore });
+    await secondService.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-b',
+      sourceReviewSessionId: 'review-session-b',
+      reviewChatKey,
+      queueType: 'neural-roam',
+      queueProgress,
+      currentCard: createCard('card-b', 'card-block-2', 'front-2', 'back-2', 'source-2') as never,
+      revealed: true,
+    });
+
+    expect(secondService.state.explainResult).toBeNull();
+    expect(secondService.state.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages).toHaveLength(0);
+
+    await secondService.submitSkillPrompt('解释第二张卡');
+
+    const explainPayload = JSON.parse(llmChat.mock.calls[1][0].messages[1].content);
+    expect(explainPayload.context.currentCard.cardId).toBe('card-b');
+    expect(explainPayload.context.currentCard.blockId).toBe('card-block-2');
+    expect(explainPayload.context.selectedBlocks.map((block: { blockId: string }) => block.blockId)).toContain('front-2');
+    expect(explainPayload.contextSignature).toContain('"cardId":"card-b"');
+    expect(secondService.state.explainResult?.workingDefinition).toBe('Card B definition');
   });
 
   it('does not auto-jump away after manually creating or opening a review session in the same queue', async () => {

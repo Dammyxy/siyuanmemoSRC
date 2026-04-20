@@ -526,8 +526,7 @@ export class DialogManager implements IDialogManager {
             });
           }
 
-          // TransactionWebSocketService 只服务监听制卡；Riff 对账不再由 transaction 驱动。
-          await this.context.updateTransactionWebSocketService(updatedSettings.quickCard?.enabled === true);
+          await this.context.updateTransactionWebSocketService();
         },
         close: () => {
           this.closeSettingsDialog();
