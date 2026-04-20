@@ -1021,6 +1021,53 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(service.state.failureDiagnostic?.content).toContain('not json');
   });
 
+  it('formats and sends concept-coach tab results to the remembered Siyuan target', async () => {
+    const llmChat = vi.fn().mockResolvedValue({
+      content: JSON.stringify(createConceptCoachPayload()),
+      raw: {},
+    });
+    const siyuanPort = createSiyuanPort();
+    siyuanPort.appendBlockUnderParentDetailed = vi.fn(async () => ({
+      doOperations: [{ id: 'inserted-ai-section-1' }],
+    })) as never;
+    const sessionStore = createSessionStore();
+    const service = createService({ llmChat, siyuanPort, sessionStore });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+
+    await service.runExplain();
+    const message = latestAssistantResult(service, 'perspectives');
+    expect(message).toBeTruthy();
+
+    const result = await service.sendAssistantResultToSiyuan({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, message!.id);
+
+    expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('## AI 工作台 · 多视角理解 · '), 'daily-doc-1');
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('### 特性和倾向'), 'daily-doc-1');
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('* 要点'), 'daily-doc-1');
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('  * Trait A'), 'daily-doc-1');
+    expect(result).toMatchObject({
+      targetBlockId: 'daily-doc-1',
+      targetLabel: '学习笔记 · 今日日记',
+      sectionTitle: '多视角理解',
+      insertedRootBlockId: 'inserted-ai-section-1',
+    });
+    expect(sessionStore.saveSelfTestCardTargetMemory).toHaveBeenCalledWith(expect.objectContaining({
+      notebookId: 'notebook-1',
+      targetLabel: '学习笔记 · 今日日记',
+    }));
+  });
+
   it('starts a new session when the review card changes and keeps the previous explain thread in history', async () => {
     const llmChat = vi.fn()
       .mockResolvedValueOnce({

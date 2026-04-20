@@ -13,6 +13,11 @@ import { LLMError } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import {
+  buildAiWorkbenchSectionMarkdown,
+  formatConceptCoachAssistantResultMarkdown,
+  getConceptCoachTabTitle,
+} from '@/application/services/AIWorkbenchResultFormatter';
+import {
   isPluginSelfTestCreationMode,
   normalizeSelfTestCandidateCard,
   normalizeSelfTestCardKind,
@@ -85,6 +90,7 @@ import type {
   AIViewSessionState,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchAssistantTextMessage,
+  AIWorkbenchConceptDocumentSearchResult,
   AIWorkbenchApprovalMessage,
   AIWorkbenchContextSnapshot,
   AIWorkbenchCdfCreationResult,
@@ -99,6 +105,7 @@ import type {
   AIWorkbenchRunMode,
   AIWorkbenchRunStatus,
   AIWorkbenchRenderEntry,
+  AIWorkbenchSendToSiyuanResult,
   AIWorkbenchSeparatorMessage,
   AIWorkbenchSelfTestCardCreationResult,
   AIWorkbenchSelfTestCardTargetInput,
@@ -153,6 +160,7 @@ const ALL_TAB_IDS: AISkillTabId[] = [
   ...AI_CONCEPT_COACH_TAB_IDS,
 ];
 const LEGACY_NOTICE = '旧解释结果仅供查看，重跑后会生成完整的 AI 理解与制卡 Tabs。';
+const CDF_UNRESOLVED_WARNING = '未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。';
 const PERSPECTIVE_SECTION_META = {
   traits: {
     title: '特性和倾向',
@@ -723,7 +731,10 @@ function normalizeCdfAnchorResolution(value: unknown): AICdfAnchorResolution | n
   if (!isRecord(value)) {
     return null;
   }
-  const status = value.status === 'resolved-context' || value.status === 'resolved-notebook' || value.status === 'unresolved'
+  const status = value.status === 'resolved-context'
+    || value.status === 'resolved-notebook'
+    || value.status === 'resolved-manual'
+    || value.status === 'unresolved'
     ? value.status
     : null;
   if (!status) {
@@ -734,6 +745,7 @@ function normalizeCdfAnchorResolution(value: unknown): AICdfAnchorResolution | n
     conceptBlockId: normalizeString(value.conceptBlockId) || null,
     conceptTitle: normalizeString(value.conceptTitle),
     reason: normalizeString(value.reason) || null,
+    notebookId: normalizeString(value.notebookId) || null,
   };
 }
 
@@ -1890,13 +1902,20 @@ export class AIWorkbenchService {
     };
   }
 
-  private getSelfTestResultMessage(messageId: string): AIWorkbenchAssistantResultMessage | null {
+  private getConceptCoachResultMessage(
+    messageId: string,
+    tabId?: AISkillTabId,
+  ): AIWorkbenchAssistantResultMessage | null {
     const node = this.getTreeNode(messageId);
-    if (!node || node.skillId !== CONCEPT_SKILL || node.tabId !== 'self-test-cards') {
+    if (!node || node.skillId !== CONCEPT_SKILL || (tabId && node.tabId !== tabId)) {
       return null;
     }
     const message = this.getNodeMessage(node);
     return message?.kind === 'assistant-result' ? message : null;
+  }
+
+  private getSelfTestResultMessage(messageId: string): AIWorkbenchAssistantResultMessage | null {
+    return this.getConceptCoachResultMessage(messageId, 'self-test-cards');
   }
 
   private getSelfTestCardsForMessage(messageId: string): AIConceptCoachCandidateCard[] {
@@ -1911,12 +1930,7 @@ export class AIWorkbenchService {
   }
 
   private getCdfResultMessage(messageId: string): AIWorkbenchAssistantResultMessage | null {
-    const node = this.getTreeNode(messageId);
-    if (!node || node.skillId !== CONCEPT_SKILL || node.tabId !== 'cdf-structure') {
-      return null;
-    }
-    const message = this.getNodeMessage(node);
-    return message?.kind === 'assistant-result' ? message : null;
+    return this.getConceptCoachResultMessage(messageId, 'cdf-structure');
   }
 
   private getCdfStructureForMessage(messageId: string): AICdfStructure {
@@ -3793,6 +3807,9 @@ export class AIWorkbenchService {
   async previewCdfStructure(
     messageId: string,
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    options?: {
+      forceResolve?: boolean;
+    },
   ): Promise<AICdfStructure> {
     return this.flashcardTools.previewSemanticCdfStructure(
       this.getCdfStructureForMessage(messageId),
@@ -3801,6 +3818,7 @@ export class AIWorkbenchService {
         context: this.state.context,
         attachedContexts: [],
       },
+      options,
     );
   }
 
@@ -3820,6 +3838,105 @@ export class AIWorkbenchService {
       await this.getSessionStore().saveSelfTestCardTargetMemory(result.target);
     }
     return result;
+  }
+
+  formatAssistantResultMarkdown(messageId: string): string {
+    const message = this.getConceptCoachResultMessage(messageId);
+    if (!message) {
+      return '';
+    }
+    return formatConceptCoachAssistantResultMarkdown(message, {
+      selfTestCreationMode: this.getSelfTestCreationMode(),
+    });
+  }
+
+  async sendAssistantResultToSiyuan(
+    target: AIWorkbenchSelfTestCardTargetInput,
+    messageId: string,
+  ): Promise<AIWorkbenchSendToSiyuanResult> {
+    const message = this.getConceptCoachResultMessage(messageId);
+    if (!message) {
+      throw new Error('当前消息不支持发送到思源。');
+    }
+    const resolvedTarget = await this.resolveSelfTestCardWriteTarget(target);
+    const sectionTitle = getConceptCoachTabTitle(message.tabId);
+    const bodyMarkdown = this.formatAssistantResultMarkdown(messageId);
+    if (!bodyMarkdown) {
+      throw new Error('当前阶段没有可发送到思源的内容。');
+    }
+    const markdown = buildAiWorkbenchSectionMarkdown(sectionTitle, bodyMarkdown, Date.now());
+    const mutation = resolvedTarget.writeMode === 'append'
+      ? await this.deps.siyuanPort.appendBlockUnderParentDetailed(markdown, resolvedTarget.targetBlockId)
+      : await this.deps.siyuanPort.insertBlockAfterDetailed(markdown, resolvedTarget.targetBlockId);
+    const insertedRootBlockId = normalizeString(mutation.doOperations[0]?.id) || null;
+    await this.getSessionStore().saveSelfTestCardTargetMemory(resolvedTarget.memory);
+    return {
+      target: resolvedTarget.memory,
+      targetBlockId: resolvedTarget.targetBlockId,
+      targetLabel: resolvedTarget.memory.targetLabel,
+      sectionTitle,
+      markdown,
+      insertedRootBlockId,
+    };
+  }
+
+  async searchCdfConceptDocuments(
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    query: string,
+    limit?: number,
+  ): Promise<AIWorkbenchConceptDocumentSearchResult[]> {
+    return this.flashcardTools.searchConceptDocumentsInNotebook(target, query, limit);
+  }
+
+  async setCdfAnchorManualResolution(
+    messageId: string,
+    anchorId: string,
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    document: AIWorkbenchConceptDocumentSearchResult,
+  ): Promise<void> {
+    const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+    if (!memory?.notebookId) {
+      throw new Error('设置概念文档前请先选择目标笔记本。');
+    }
+    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
+      anchors: structure.anchors.map((anchor) => (
+        anchor.id === anchorId
+          ? {
+            ...anchor,
+            resolution: {
+              status: 'resolved-manual',
+              conceptBlockId: normalizeString(document.id) || null,
+              conceptTitle: normalizeString(document.title) || anchor.conceptName,
+              reason: '手动选择概念文档。',
+              notebookId: memory.notebookId,
+            },
+            warnings: (anchor.warnings || []).filter((warning) => warning !== CDF_UNRESOLVED_WARNING),
+          }
+          : anchor
+      )),
+    }));
+    if (!updated) {
+      throw new Error('未找到要更新的 CDF 概念锚点。');
+    }
+    await this.persistCurrentSession();
+  }
+
+  async restoreCdfAnchorAutoResolution(messageId: string, anchorId: string): Promise<void> {
+    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
+      anchors: structure.anchors.map((anchor) => (
+        anchor.id === anchorId
+          ? {
+            ...anchor,
+            resolution: null,
+            warnings: (anchor.warnings || []).filter((warning) => warning !== CDF_UNRESOLVED_WARNING),
+          }
+          : anchor
+      )),
+    }));
+    if (!updated) {
+      throw new Error('未找到要恢复自动解析的 CDF 概念锚点。');
+    }
+    await this.persistCurrentSession();
   }
 
   async resolveToolApproval(approvalId: string, approved: boolean, rejectReason = ''): Promise<void> {

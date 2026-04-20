@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-20 (Round 94)
+Last update: 2026-04-21 (Round 95)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - AI workbench tab export, nested perspectives markdown, and manual CDF concept search
+
+- Task: Fix `多视角理解` hierarchy loss by moving concept-coach tab rendering onto one shared markdown formatter, let concept-coach tab results append into Siyuan through the remembered self-test target flow, and add manual concept-document search/selection for semantic CDF anchors inside the current target notebook.
+- Touched slice: AI workbench / capture active path across `src/types/ai.ts`, `src/application/services/{AIFlashcardToolService.ts,AIWorkbenchResultFormatter.ts,AIWorkbenchService.ts}`, `src/ui/ai/AiWorkbenchPane.vue`, related i18n, focused AI service/component regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Stopped flattening `AIConceptCoachPerspectives` into plain string bullets and instead introduced one shared `AIWorkbenchResultFormatter` so workbench rendering and export-to-Siyuan both preserve `group -> explanation` markdown structure; added explicit `sendAssistantResultToSiyuan()` support for concept-coach tabs so `working-definition / perspectives / integrated-understanding / self-test-cards / cdf-structure / real-world-triggers` can append timestamped AI-workbench sections into the remembered daily-note or block target without UI-side Siyuan calls; added target-notebook-only `type='d'` concept document search plus `resolved-manual` anchor state for semantic CDF, with restore-auto-resolution support and stale-target detection when the notebook changes; and kept backward compatibility so older notebook-resolved anchors without persisted `notebookId` do not get treated as immediately stale in the UI/export path.
+- Debt deferred: `AiWorkbenchPane.vue` still owns the send-to-Siyuan feedback state and the manual CDF search/result board inline instead of through smaller subcomponents, `发送到思源` still deliberately reuses self-test target memory rather than a separate export-target policy, and compact-surface tests still emit the historical happy-dom localhost asset-fetch noise from shared markdown rendering.
+- Why deferred: Extracting the tab export / CDF search panels or splitting export-target policy away from self-test targets would widen this bounded runtime pass into a larger pane decomposition and product-setting redesign, while the markdown asset noise remains unrelated shared harness debt.
+- Next safe step: If users keep iterating on concept-coach export/CDF workflows, first extract a dedicated concept-coach result action bar plus a semantic-CDF anchor card component, then decide whether export targets should remain intentionally shared with self-test card targets or become a first-class separate setting.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIFlashcardToolService.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-20 - review AI context-scoped concept-coach, semantic CDF, and narrow native Riff sync trigger
 

@@ -31,6 +31,28 @@ function createPairMutationFixture(rootId: string) {
   };
 }
 
+function createTextMutationFixture(rootId: string, content: string) {
+  const rows = [
+    { id: rootId, parent_id: 'target-doc', root_id: 'target-doc', type: 'p', content, markdown: content, sort: '1' },
+  ];
+  return {
+    rows,
+    mutation: {
+      doOperations: rows.map((row) => ({
+        action: 'insert',
+        id: row.id,
+        parentID: row.parent_id,
+        data: row.markdown,
+      })),
+    },
+    rootId,
+  };
+}
+
+function extractQuotedSqlValues(stmt: string): string[] {
+  return Array.from(stmt.matchAll(/'((?:[^']|'')+)'/g)).map((match) => match[1]!.replace(/''/g, "'"));
+}
+
 function createSiyuanPort(fixture: ReturnType<typeof createPairMutationFixture>) {
   return {
     listNotebooks: vi.fn(),
@@ -181,6 +203,182 @@ describe('AIFlashcardToolService', () => {
     }));
     expect(result).toMatchObject({
       createdCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+    });
+  });
+
+  it('searches concept documents only within the target notebook', async () => {
+    const fixture = createPairMutationFixture('pair-root-3');
+    const siyuanPort = createSiyuanPort(fixture);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      expect(stmt).toContain("box = 'notebook-1'");
+      expect(stmt).toContain("type = 'd'");
+      return [
+        { id: 'concept-doc-1', content: '幂函数', hpath: '/数学/幂函数', box: 'notebook-1' },
+      ];
+    });
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => createXiuyuanService() as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+
+    const results = await service.searchConceptDocumentsInNotebook({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, '幂函数');
+
+    expect(results).toEqual([{
+      id: 'concept-doc-1',
+      title: '幂函数',
+      hPath: '/数学/幂函数',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }]);
+  });
+
+  it('creates semantic CDF cards from manual resolutions and skips stale notebook resolutions', async () => {
+    const definitionFixture = createTextMutationFixture('definition-block-1', '自变量在底数位置，指数固定的函数。');
+    const descriptorFixture = createTextMutationFixture('descriptor-block-1', '识别线索;;通常写成 y = x^a');
+    const siyuanPort = createSiyuanPort(createPairMutationFixture('pair-root-4'));
+    siyuanPort.appendBlockUnderParentDetailed
+      .mockResolvedValueOnce(definitionFixture.mutation)
+      .mockResolvedValueOnce(descriptorFixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      const ids = extractQuotedSqlValues(stmt);
+      return [...definitionFixture.rows, ...descriptorFixture.rows].filter((row) => ids.includes(row.id));
+    });
+    const xiuyuanService = createXiuyuanService();
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => xiuyuanService as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+    const structure = {
+      anchors: [{
+        id: 'anchor-1',
+        conceptName: '幂函数',
+        selected: true,
+        resolution: {
+          status: 'resolved-manual',
+          conceptBlockId: 'concept-doc-1',
+          conceptTitle: '幂函数',
+          reason: '手动选择概念文档。',
+          notebookId: 'notebook-1',
+        },
+        definitionCandidates: [
+          { id: 'definition-1', text: '自变量在底数位置，指数固定的函数。', selected: true },
+        ],
+        descriptorGroups: [
+          {
+            id: 'group-1',
+            title: '识别线索',
+            selected: true,
+            items: [
+              { id: 'item-1', text: '通常写成 y = x^a', selected: true },
+            ],
+          },
+        ],
+      }],
+    };
+
+    const created = await service.createSemanticCdfCards(structure as never, {
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
+
+    expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
+    expect(xiuyuanService.createFromBlocks).toHaveBeenCalledTimes(2);
+    expect(xiuyuanService.createFromBlocks).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      blockIds: ['concept-doc-1', 'definition-block-1'],
+      templateId: 'builtin-concept-definition',
+    }));
+    expect(xiuyuanService.createFromBlocks).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      blockIds: ['concept-doc-1', 'descriptor-block-1'],
+      templateId: 'builtin-concept-descriptor',
+    }));
+    expect(created).toMatchObject({
+      createdCount: 1,
+      createdDefinitionCount: 1,
+      createdDescriptorCount: 1,
+    });
+
+    const stale = await service.createSemanticCdfCards(structure as never, {
+      mode: 'daily-note',
+      notebookId: 'notebook-2',
+      notebookName: '第二笔记本',
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
+
+    expect(stale.itemResults[0]).toMatchObject({
+      status: 'skipped',
+      conceptBlockId: 'concept-doc-1',
+    });
+    expect(stale.itemResults[0]?.warnings.join(' ')).toContain('旧目标笔记本');
+  });
+
+  it('accepts legacy resolved notebook anchors that do not carry notebookId yet', async () => {
+    const definitionFixture = createTextMutationFixture('definition-block-legacy', '旧会话里保留下来的定义。');
+    const siyuanPort = createSiyuanPort(createPairMutationFixture('pair-root-5'));
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(definitionFixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      if (stmt.includes("type = 'd'")) {
+        return [{ id: 'concept-doc-legacy', content: '幂函数' }];
+      }
+      const ids = extractQuotedSqlValues(stmt);
+      return definitionFixture.rows.filter((row) => ids.includes(row.id));
+    });
+    const xiuyuanService = createXiuyuanService();
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => xiuyuanService as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+
+    const created = await service.createSemanticCdfCards({
+      anchors: [{
+        id: 'anchor-legacy',
+        conceptName: '幂函数',
+        selected: true,
+        resolution: {
+          status: 'resolved-notebook',
+          conceptBlockId: 'concept-doc-legacy',
+          conceptTitle: '幂函数',
+          reason: '旧会话里命中过目标笔记本概念文档。',
+        },
+        definitionCandidates: [
+          { id: 'definition-legacy', text: '旧会话里保留下来的定义。', selected: true },
+        ],
+        descriptorGroups: [],
+      }],
+    } as never, {
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
+
+    expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
+    expect(xiuyuanService.createFromBlocks).toHaveBeenCalledWith(expect.objectContaining({
+      blockIds: ['concept-doc-legacy', 'definition-block-legacy'],
+      templateId: 'builtin-concept-definition',
+    }));
+    expect(created).toMatchObject({
+      createdCount: 1,
+      createdDefinitionCount: 1,
       failedCount: 0,
       skippedCount: 0,
     });

@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-20
+最后更新：2026-04-21
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -639,6 +639,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 统一用思源 detailed mutation API 写入 Markdown，再按 mutation 子树解析原生列表项 / 标记 / 标题 / 超级块或插件列表模板结构
   - 原生 list-item 会在 SQL 短时不可读时回退到根列表项 `getBlockKramdown()`，但只接受实际列表项根块，不把外层 list 容器当作制卡根
   - 原生模式通过 `AISiyuanPort.addRiffCards()` 创建思源原生卡片，插件模式继续调用 `XiuyuanApplicationService.createFromBlocks()` / `createListTemplateCards()`，并把成功目标回写为新的默认制卡位置
+  - `cdf-structure` 语义制卡继续先做概念解析预览，但现在支持只在当前目标笔记本内搜索 `type='d'` 文档块并把锚点写成 `resolved-manual`；自动解析不会覆盖手动结果，目标笔记本变化时 `resolved-notebook / resolved-manual` 会按 `notebookId` 变 stale
 - `AISelfTestCardCreationService`
   - 自测卡候选制卡的应用层分发门面
   - 根据当前工作台 `creationMode` 解析每张 canonical 自测草稿：原生模式继续本地渲染，插件 `multi-mark / cdf-multiline` 只消费已缓存的 `modeDrafts`
@@ -646,7 +647,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 - `AIWorkbenchSessionStoreService`
   - 通过 `FileService` 落盘 `index + per-session record`
   - 提供会话历史列表、按 id 读取、重命名、删除
-  - 当前 `schemaVersion: 4` 保存树形会话、`reviewChatKey`、线程兼容投影和结构化结果；读取 v2/v3 旧记录时继续迁移为树世界线，并可从 review context 推导缺失的队列级 key
+  - 当前 `schemaVersion: 5` 保存树形会话、`reviewChatKey`、按 `contextSignature` 分仓的 concept-coach 结构化结果、线程兼容投影与 CDF 解析状态；读取旧记录时继续迁移为树世界线，并补齐缺失的 review 队列 key / 结构化结果索引
   - 额外保存 `AI 理解与制卡 / 自测卡片` 的最近制卡目标记忆，独立于会话 record 与设置页 schema
 - `AIWorkbenchService`
   - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
@@ -654,12 +655,13 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - `general-chat` 走多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，`QueryBlocksSql / FetchWebPage / SearchWeb` 默认首次审批后缓存决定，写工具继续每次审批；审批工具暂停等待用户确认，确认后在原轮次继续执行
   - `general-chat` 每次回复链路写入 `runGroupId`，中间 assistant/tool/approval 标记为 `presentation=supplemental`，最终回复标记为 `presentation=primary`
   - 每条最终回复下方都可折叠查看工具调用次数、轮次、耗时、参数摘要、结果摘要、变量缓存引用与审批历史；这些透明化摘要只用于 UI，不再回灌模型历史；运行时仍会对重复相同工具+参数与总调用预算做保护；达到最大工具轮数后会再请求一次“不要再调用工具”的最终答复
-  - `concept-coach` 仍走结构化 JSON 主链：首轮全量生成 5 个 section，局部重跑只替换当前 section，follow-up 只带当前 section 结果
+  - `concept-coach` 仍走结构化 JSON 主链：首轮全量生成 `工作定义 / 多视角理解 / 整合理解 / 自测卡片 / CDF 语义卡 / 现实触发器` 6 个 stage，局部重跑只替换当前 stage，follow-up 只带当前 stage 结果
   - review 同队列切卡只更新 live context，不截断模型历史；structured skill 旧结果会按 context signature 标为 stale，但 Pane 只在 stale 时禁用该结构化阶段的 follow-up，仍允许查看、编辑、切换自测模式与制卡
-  - `多视角理解` / `整合理解` 的归一化容忍字段别名、wrapper、直接 section、字符串/数组/对象混合形状，并把 `full / partial / empty` 诊断挂到 assistant structured result
+  - `多视角理解` / `整合理解` 的归一化容忍字段别名、wrapper、直接 section、字符串/数组/对象混合形状，并把 `full / partial / empty` 诊断挂到 assistant structured result；concept-coach tab 结果现在统一先经过 `AIWorkbenchResultFormatter` 转成 markdown，所以 `多视角理解` 的 `标签项 -> 解释项` 层级可同时复用到 UI 与导出
   - `自测卡片` 的勾选项/编辑状态按当前结果消息版本保存；结果数据主结构为 `creationMode + canonical cards[]`，旧问答卡和旧 mode-specific 草稿会在读取时兼容归一
   - 工作台切换自测模式时，会同步更新 `settings.ai.conceptCoach.selfTest.defaultCreationMode`；原生模式直接切换本地预览，插件模式会通过 `generateModeDrafts()` 对当前候选卡按需补齐 `modeDrafts` 缓存，失败时留在候选卡区域内重试，不要求重跑结构化阶段
   - 自测制卡不再硬编码 `builtin-basic-qa`；服务层通过 `AISelfTestCardCreationService` 分发到原生列表项/标记/标题/超级块或插件多标记/CDF 模式；插件模式创建前会先确保对应 `modeDrafts` 已生成，UI 不直接调用思源 API、原生 Riff 或 Xiuyuan use case
+  - concept-coach assistant result 现在支持 `发送到思源`：复用自测制卡目标记忆，把当前 tab 的 markdown 追加成时间戳分节块写回日记或指定块，UI 仍只调 `AIWorkbenchService -> AISiyuanPort`
   - 对 DeepSeek / OpenAI-compatible 等 provider 保留 `json_object` 默认路径和 prompt-only JSON 传输兜底，诊断记录 profile / transport / status / raw body
   - 旧 explain-only 会话保留历史消息作为 legacy session 查看，重跑后再生成完整 `concept-coach` sections
 - `AIPromptComposer`

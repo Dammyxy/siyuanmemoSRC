@@ -399,7 +399,7 @@
                 v-for="anchor in cdfAnchors(entry.primaryMessage)"
                 :key="anchor.id"
                 class="ai-chat__cdf-anchor"
-                :class="{ 'ai-chat__cdf-anchor--disabled': anchor.resolution?.status === 'unresolved' }"
+                :class="{ 'ai-chat__cdf-anchor--disabled': anchor.resolution?.status === 'unresolved' || isCdfResolutionStale(anchor.resolution) }"
               >
                 <div class="ai-chat__cdf-anchor-head">
                   <label class="ai-chat__candidate-check">
@@ -413,20 +413,72 @@
                   <span
                     class="ai-chat__badge"
                     :class="{
-                      'ai-chat__badge--warning': anchor.resolution?.status === 'unresolved',
-                      'ai-chat__badge--success': anchor.resolution?.status === 'resolved-context' || anchor.resolution?.status === 'resolved-notebook',
+                      'ai-chat__badge--warning': anchor.resolution?.status === 'unresolved' || isCdfResolutionStale(anchor.resolution),
+                      'ai-chat__badge--success': hasUsableCdfResolution(anchor),
                     }"
                   >
                     {{ cdfResolutionLabel(anchor) }}
                   </span>
                 </div>
                 <p v-if="anchor.resolution?.reason" class="ai-chat__muted">{{ anchor.resolution.reason }}</p>
+                <div class="ai-chat__candidate-toolbar-actions ai-chat__candidate-toolbar-actions--anchor">
+                  <button class="ai-chat__link-button" type="button" @click="toggleCdfConceptSearch(entry.primaryMessage, anchor)">
+                    {{ cdfSearchOpen(entry.primaryMessage.id, anchor.id) ? t('hideSearch', '收起搜索') : t('searchConceptDocument', '搜索概念文档') }}
+                  </button>
+                  <button
+                    v-if="anchor.resolution?.status === 'resolved-manual'"
+                    class="ai-chat__link-button"
+                    type="button"
+                    @click="restoreCdfConceptAutoResolution(entry.primaryMessage, anchor)"
+                  >
+                    {{ t('restoreAutoResolution', '恢复自动解析') }}
+                  </button>
+                </div>
                 <p v-if="cdfAnchorCreationHint(anchor)" class="ai-chat__composer-hint ai-chat__composer-hint--warning">
                   {{ cdfAnchorCreationHint(anchor) }}
                 </p>
                 <p v-for="warning in anchor.warnings || []" :key="`${anchor.id}-${warning}`" class="ai-chat__result-note ai-chat__result-note--empty">
                   {{ warning }}
                 </p>
+                <section v-if="cdfSearchOpen(entry.primaryMessage.id, anchor.id)" class="ai-chat__cdf-search">
+                  <div class="ai-chat__cdf-search-bar">
+                    <input
+                      :value="cdfSearchQuery(entry.primaryMessage.id, anchor.id, anchor.conceptName)"
+                      class="b3-text-field"
+                      :placeholder="t('conceptDocSearchPlaceholder', '输入概念标题或路径关键字')"
+                      @input="setCdfSearchQuery(entry.primaryMessage.id, anchor.id, ($event.target as HTMLInputElement)?.value || '')"
+                    >
+                    <button
+                      class="ai-chat__primary-button ai-chat__primary-button--small"
+                      type="button"
+                      :disabled="cdfSearchBusy(entry.primaryMessage.id, anchor.id)"
+                      @click="runCdfConceptSearch(entry.primaryMessage, anchor)"
+                    >
+                      {{ cdfSearchBusy(entry.primaryMessage.id, anchor.id) ? t('searching', '搜索中...') : t('search', '搜索') }}
+                    </button>
+                  </div>
+                  <p v-if="cdfSearchError(entry.primaryMessage.id, anchor.id)" class="ai-chat__result-note ai-chat__result-note--empty">
+                    {{ cdfSearchError(entry.primaryMessage.id, anchor.id) }}
+                  </p>
+                  <p v-else-if="!cdfSearchBusy(entry.primaryMessage.id, anchor.id) && cdfSearchResults(entry.primaryMessage.id, anchor.id).length === 0" class="ai-chat__muted">
+                    {{ t('noConceptDocumentResults', '没有找到匹配的概念文档。') }}
+                  </p>
+                  <div v-else class="ai-chat__cdf-search-results">
+                    <button
+                      v-for="document in cdfSearchResults(entry.primaryMessage.id, anchor.id)"
+                      :key="document.id"
+                      class="ai-chat__tree-item"
+                      type="button"
+                      @click="selectCdfConceptDocument(entry.primaryMessage, anchor, document)"
+                    >
+                      <div class="ai-chat__tree-item-head">
+                        <strong>{{ document.title }}</strong>
+                        <span>{{ document.id }}</span>
+                      </div>
+                      <p>{{ document.hPath }}</p>
+                    </button>
+                  </div>
+                </section>
 
                 <section v-if="anchor.definitionCandidates.length > 0" class="ai-chat__cdf-section">
                   <h4>{{ t('workingDefinitions', '工作定义候选') }}</h4>
@@ -596,12 +648,29 @@
             </button>
           </div>
 
+          <div v-if="canSendAssistantResultToSiyuan(entry.primaryMessage) && sendToSiyuanResult(entry.primaryMessage.id)" class="ai-chat__creation-result">
+            <strong>{{ t('sentToSiyuan', '已发送到思源') }}</strong>
+            <span>{{ sendToSiyuanResult(entry.primaryMessage.id)?.targetLabel }}</span>
+          </div>
+          <p v-if="canSendAssistantResultToSiyuan(entry.primaryMessage) && sendToSiyuanError(entry.primaryMessage.id)" class="ai-chat__result-note ai-chat__result-note--empty">
+            {{ sendToSiyuanError(entry.primaryMessage.id) }}
+          </p>
+
           <div v-if="entry.primaryMessage.kind !== 'separator'" class="ai-chat__message-toolbar">
             <div class="ai-chat__message-toolbar-meta">
               <span>{{ messageFooterMeta(entry.primaryMessage) }}</span>
             </div>
             <div class="ai-chat__message-toolbar-actions">
               <button class="ai-chat__toolbar-button" type="button" @click="copyMessage(entry.primaryMessage)">{{ t('copy', '复制') }}</button>
+              <button
+                v-if="canSendAssistantResultToSiyuan(entry.primaryMessage)"
+                class="ai-chat__toolbar-button"
+                type="button"
+                :disabled="sendToSiyuanBusy(entry.primaryMessage.id)"
+                @click="sendAssistantResultToSiyuan(entry.primaryMessage)"
+              >
+                {{ sendToSiyuanBusy(entry.primaryMessage.id) ? t('sendingToSiyuan', '发送中...') : t('sendToSiyuan', '发送到思源') }}
+              </button>
               <button v-if="canEditMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" @click="openTextMessageEditor(entry.primaryMessage)">{{ t('edit', '编辑') }}</button>
               <button v-if="canEditUserMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" @click="prepareEditedFollowUp(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
               <button v-if="canEditFailedMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" :disabled="state.isLoading" @click="prepareFailedMessageEdit(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
@@ -821,12 +890,15 @@ import {
   resolveSelfTestCandidateDraftMarkdown,
   summarizeSelfTestCandidateCard,
 } from '@/application/services/AISelfTestDraftSupport';
+import { formatConceptCoachPerspectiveSectionMarkdown } from '@/application/services/AIWorkbenchResultFormatter';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
+import { AI_CONCEPT_COACH_SKILL_ID } from '@/types/ai';
 import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
 import type {
   AIAttachedContextItem,
   AICdfAnchor,
+  AICdfAnchorResolution,
   AICdfDescriptorGroup,
   AICdfStructure,
   AIConceptCoachCandidateCard,
@@ -845,10 +917,12 @@ import type {
   AIWorkbenchApprovalMessage,
   AIWorkbenchAssistantTextMessage,
   AIWorkbenchAssistantResultMessage,
+  AIWorkbenchConceptDocumentSearchResult,
   AIWorkbenchMessage,
   AIWorkbenchNotebookOption,
   AIWorkbenchCdfCreationResult,
   AIWorkbenchRenderEntry,
+  AIWorkbenchSendToSiyuanResult,
   AIWorkbenchSelfTestCardCreationResult,
   AIWorkbenchSelfTestCardTargetInput,
   AIWorkbenchSelfTestCardTargetMemory,
@@ -935,6 +1009,14 @@ const cdfPreviewErrors = ref<Record<string, string>>({});
 const cdfCreationBusy = ref(false);
 const cdfCreationError = ref('');
 const cdfCreationResult = ref<AIWorkbenchCdfCreationResult | null>(null);
+const sendToSiyuanBusyMessageIds = ref<string[]>([]);
+const sendToSiyuanErrors = ref<Record<string, string>>({});
+const sendToSiyuanResults = ref<Record<string, AIWorkbenchSendToSiyuanResult>>({});
+const cdfSearchOpenKeys = ref<string[]>([]);
+const cdfSearchQueryByKey = ref<Record<string, string>>({});
+const cdfSearchBusyKeys = ref<string[]>([]);
+const cdfSearchErrors = ref<Record<string, string>>({});
+const cdfSearchResultsByKey = ref<Record<string, AIWorkbenchConceptDocumentSearchResult[]>>({});
 const selfTestTargetMode = ref<AIWorkbenchSelfTestCardTargetInput['mode']>('daily-note');
 const selfTestTargetNotebookId = ref('');
 const selfTestTargetNotebookName = ref('');
@@ -1178,45 +1260,13 @@ const cdfPreviewTargetKey = computed(() => {
   ].join('::');
 });
 
-function normalizePerspectiveItems(section: AIConceptCoachPerspectiveSection): string[] {
-  const items = [
-    ...normalizeLooseStringList(section.keyPoints),
-    ...normalizeLooseStringList(section.easyMisjudgments).map((item) => `易误判：${item}`),
-    ...normalizeLooseStringList(section.examples).map((item) => `例子：${item}`),
-    ...normalizeLooseStringList(section.reasons).map((item) => `原因：${item}`),
-    ...normalizeLooseStringList(section.applicableScenarios).map((item) => `适用：${item}`),
-    ...normalizeLooseStringList(section.nonApplicableScenarios).map((item) => `不适用：${item}`),
-    ...normalizeLooseStringList(section.subConcepts).map((item) => `部分：${item}`),
-    ...normalizeLooseStringList(section.parentConcepts).map((item) => `整体：${item}`),
-  ];
-  if (section.metaphor) {
-    items.push(`比喻：${section.metaphor}`);
-  }
-  if (section.commonMisuse) {
-    items.push(`常见误用：${section.commonMisuse}`);
-  }
-  if (section.importance) {
-    items.push(`重要性：${section.importance}`);
-  }
-  if (section.behaviorChange) {
-    items.push(`行为改变：${section.behaviorChange}`);
-  }
-  if (section.triggerScenario) {
-    items.push(`触发场景：${section.triggerScenario}`);
-  }
-  for (const comparison of section.comparisons || []) {
-    items.push(`和 ${comparison.concept}：相似点 ${comparison.similarity || '未说明'}；差异 ${comparison.difference || '未说明'}${comparison.clue ? `；识别线索 ${comparison.clue}` : ''}`);
-  }
-  return items.filter(Boolean);
-}
-
 function sectionsFromPerspectives(value: AIConceptCoachPerspectives): AssistantSection[] {
   return [
-    { key: 'traits', title: value.traits.title || t('traits', '特性和倾向'), kind: 'list' as const, items: normalizePerspectiveItems(value.traits) },
-    { key: 'contrasts', title: value.contrasts.title || t('contrasts', '辨析异同'), kind: 'list' as const, items: normalizePerspectiveItems(value.contrasts) },
-    { key: 'partsAndWhole', title: value.partsAndWhole.title || t('partsAndWhole', '部分和整体'), kind: 'list' as const, items: normalizePerspectiveItems(value.partsAndWhole) },
-    { key: 'causality', title: value.causality.title || t('causality', '因果关系'), kind: 'list' as const, items: normalizePerspectiveItems(value.causality) },
-    { key: 'significance', title: value.significance.title || t('significance', '意义和影响'), kind: 'list' as const, items: normalizePerspectiveItems(value.significance) },
+    { key: 'traits', title: value.traits.title || t('traits', '特性和倾向'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.traits) },
+    { key: 'contrasts', title: value.contrasts.title || t('contrasts', '辨析异同'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.contrasts) },
+    { key: 'partsAndWhole', title: value.partsAndWhole.title || t('partsAndWhole', '部分和整体'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.partsAndWhole) },
+    { key: 'causality', title: value.causality.title || t('causality', '因果关系'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.causality) },
+    { key: 'significance', title: value.significance.title || t('significance', '意义和影响'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.significance) },
   ];
 }
 
@@ -1337,7 +1387,7 @@ function assistantSections(message: AIWorkbenchMessage): AssistantSection[] {
   }
   if (message.tabId === 'perspectives') {
     return sectionsFromPerspectives((message.tabResult || message.conceptCoachResult?.perspectives) as AIConceptCoachPerspectives)
-      .filter((section) => section.items.length > 0);
+      .filter((section) => section.kind === 'text' ? section.text.trim().length > 0 : section.items.length > 0);
   }
   if (message.tabId === 'integrated-understanding') {
     const value = (message.tabResult || message.conceptCoachResult?.integratedUnderstanding) as AIConceptCoachIntegratedUnderstanding | null;
@@ -1455,6 +1505,45 @@ function cdfAnchors(message: AIWorkbenchAssistantResultMessage): AICdfAnchor[] {
   return cdfStructureForMessage(message).anchors || [];
 }
 
+function cdfSearchKey(messageId: string, anchorId: string): string {
+  return `${messageId}::${anchorId}`;
+}
+
+function clearCdfPreviewState(messageId: string): void {
+  const nextPreview = { ...cdfPreviewByMessageId.value };
+  const nextPreviewKey = { ...cdfPreviewKeyByMessageId.value };
+  const nextErrors = { ...cdfPreviewErrors.value };
+  delete nextPreview[messageId];
+  delete nextPreviewKey[messageId];
+  delete nextErrors[messageId];
+  cdfPreviewByMessageId.value = nextPreview;
+  cdfPreviewKeyByMessageId.value = nextPreviewKey;
+  cdfPreviewErrors.value = nextErrors;
+}
+
+function isCdfResolutionStale(resolution: AICdfAnchorResolution | null | undefined): boolean {
+  if (!resolution || !selfTestTargetMemory.value) {
+    return false;
+  }
+  if (resolution.status !== 'resolved-notebook' && resolution.status !== 'resolved-manual') {
+    return false;
+  }
+  const resolutionNotebookId = normalizeText(resolution.notebookId);
+  if (!resolutionNotebookId) {
+    return false;
+  }
+  return resolutionNotebookId !== normalizeText(selfTestTargetMemory.value.notebookId);
+}
+
+function hasUsableCdfResolution(anchor: AICdfAnchor): boolean {
+  if (!anchor.resolution || isCdfResolutionStale(anchor.resolution)) {
+    return false;
+  }
+  return anchor.resolution.status === 'resolved-context'
+    || anchor.resolution.status === 'resolved-notebook'
+    || anchor.resolution.status === 'resolved-manual';
+}
+
 function selectedCdfAnchorCount(message: AIWorkbenchAssistantResultMessage): number {
   return cdfAnchors(message).filter((anchor) => anchor.selected !== false).length;
 }
@@ -1478,11 +1567,16 @@ function selectedCdfDescriptorCount(message: AIWorkbenchAssistantResultMessage):
 }
 
 function cdfResolutionLabel(anchor: AICdfAnchor): string {
+  if (isCdfResolutionStale(anchor.resolution)) {
+    return t('conceptResolutionStale', '解析结果已过期');
+  }
   switch (anchor.resolution?.status) {
     case 'resolved-context':
       return t('resolvedFromContext', '上下文已命中');
     case 'resolved-notebook':
       return t('resolvedFromNotebook', '笔记本已命中');
+    case 'resolved-manual':
+      return t('resolvedManually', '手动已选定');
     case 'unresolved':
       return t('conceptUnresolved', '未命中概念');
     default:
@@ -1501,6 +1595,9 @@ function cdfAnchorCreationHint(anchor: AICdfAnchor): string | null {
       ? t('resolveConceptBeforeCreate', '请先解析概念文档，再决定是否制卡。')
       : t('setTargetFirst', '请先设置制卡位置。');
   }
+  if (isCdfResolutionStale(anchor.resolution)) {
+    return t('conceptResolutionStaleHint', '当前解析结果属于旧目标笔记本，请重新解析或重新搜索概念文档。');
+  }
   if (anchor.resolution.status === 'unresolved') {
     return t('conceptUnresolvedCreateHint', '没有解析到现有概念文档，这个概念暂时不能建卡。');
   }
@@ -1514,6 +1611,33 @@ function cdfAnchorCreationHint(anchor: AICdfAnchor): string | null {
     return t('selectCdfFieldsFirst', '请至少勾选一个定义或描述符条目。');
   }
   return null;
+}
+
+function cdfSearchOpen(messageId: string, anchorId: string): boolean {
+  return cdfSearchOpenKeys.value.includes(cdfSearchKey(messageId, anchorId));
+}
+
+function cdfSearchBusy(messageId: string, anchorId: string): boolean {
+  return cdfSearchBusyKeys.value.includes(cdfSearchKey(messageId, anchorId));
+}
+
+function cdfSearchQuery(messageId: string, anchorId: string, fallback = ''): string {
+  return cdfSearchQueryByKey.value[cdfSearchKey(messageId, anchorId)] || fallback;
+}
+
+function cdfSearchError(messageId: string, anchorId: string): string {
+  return cdfSearchErrors.value[cdfSearchKey(messageId, anchorId)] || '';
+}
+
+function cdfSearchResults(messageId: string, anchorId: string): AIWorkbenchConceptDocumentSearchResult[] {
+  return cdfSearchResultsByKey.value[cdfSearchKey(messageId, anchorId)] || [];
+}
+
+function setCdfSearchQuery(messageId: string, anchorId: string, value: string): void {
+  cdfSearchQueryByKey.value = {
+    ...cdfSearchQueryByKey.value,
+    [cdfSearchKey(messageId, anchorId)]: normalizeText(value),
+  };
 }
 
 function modeDraftError(messageId: string): string {
@@ -2116,7 +2240,7 @@ async function previewCdfMessage(
   if (!previewKey) {
     return;
   }
-  if (!force && cdfPreviewKeyByMessageId.value[message.id] === previewKey && cdfPreviewByMessageId.value[message.id]) {
+  if (!force && cdfPreviewByMessageId.value[message.id]) {
     return;
   }
   if (!cdfPreviewBusy(message.id)) {
@@ -2124,7 +2248,9 @@ async function previewCdfMessage(
   }
   clearCdfPreviewError(message.id);
   try {
-    const preview = await service.previewCdfStructure(message.id, selfTestTargetMemory.value);
+    const preview = await service.previewCdfStructure(message.id, selfTestTargetMemory.value, {
+      forceResolve: force,
+    });
     cdfPreviewByMessageId.value = {
       ...cdfPreviewByMessageId.value,
       [message.id]: preview,
@@ -2163,7 +2289,7 @@ function cdfCardCreationDisabledReason(message: AIWorkbenchAssistantResultMessag
   if (anchors.length === 0) {
     return t('selectConceptFirst', '请先勾选至少一个概念锚点。');
   }
-  if (anchors.every((anchor) => anchor.resolution?.status !== 'resolved-context' && anchor.resolution?.status !== 'resolved-notebook')) {
+  if (anchors.every((anchor) => !hasUsableCdfResolution(anchor))) {
     return t('noResolvedConcepts', '当前没有解析到可建卡的概念文档。');
   }
   if (!anchors.some((anchor) => cdfAnchorCreationHint(anchor) === null)) {
@@ -2284,7 +2410,6 @@ async function createCdfCards(message: AIWorkbenchAssistantResultMessage): Promi
   cdfCreationError.value = '';
   cdfCreationResult.value = null;
   try {
-    await previewCdfMessage(message, true);
     const result = await service.createCdfCardsFromSelectedAnchors(
       buildTargetInputFromMemory(selfTestTargetMemory.value),
       message.id,
@@ -2295,6 +2420,138 @@ async function createCdfCards(message: AIWorkbenchAssistantResultMessage): Promi
     cdfCreationError.value = error instanceof Error ? error.message : String(error);
   } finally {
     cdfCreationBusy.value = false;
+  }
+}
+
+async function sendAssistantResultToSiyuan(message: AIWorkbenchAssistantResultMessage): Promise<void> {
+  if (!service.sendAssistantResultToSiyuan) {
+    return;
+  }
+  if (!selfTestTargetMemory.value) {
+    await openSelfTestTargetDialog();
+    return;
+  }
+  if (!sendToSiyuanBusyMessageIds.value.includes(message.id)) {
+    sendToSiyuanBusyMessageIds.value = [...sendToSiyuanBusyMessageIds.value, message.id];
+  }
+  sendToSiyuanErrors.value = {
+    ...sendToSiyuanErrors.value,
+    [message.id]: '',
+  };
+  try {
+    const result = await service.sendAssistantResultToSiyuan(
+      buildTargetInputFromMemory(selfTestTargetMemory.value),
+      message.id,
+    );
+    sendToSiyuanResults.value = {
+      ...sendToSiyuanResults.value,
+      [message.id]: result,
+    };
+    selfTestTargetMemory.value = result.target;
+  } catch (error) {
+    sendToSiyuanErrors.value = {
+      ...sendToSiyuanErrors.value,
+      [message.id]: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    sendToSiyuanBusyMessageIds.value = sendToSiyuanBusyMessageIds.value.filter((id) => id !== message.id);
+  }
+}
+
+function sendToSiyuanBusy(messageId: string): boolean {
+  return sendToSiyuanBusyMessageIds.value.includes(messageId);
+}
+
+function sendToSiyuanError(messageId: string): string {
+  return sendToSiyuanErrors.value[messageId] || '';
+}
+
+function sendToSiyuanResult(messageId: string): AIWorkbenchSendToSiyuanResult | null {
+  return sendToSiyuanResults.value[messageId] || null;
+}
+
+function canSendAssistantResultToSiyuan(message: AIWorkbenchMessage): message is AIWorkbenchAssistantResultMessage {
+  return message.kind === 'assistant-result'
+    && message.skillId === AI_CONCEPT_COACH_SKILL_ID
+    && typeof service.sendAssistantResultToSiyuan === 'function';
+}
+
+async function toggleCdfConceptSearch(message: AIWorkbenchAssistantResultMessage, anchor: AICdfAnchor): Promise<void> {
+  const key = cdfSearchKey(message.id, anchor.id);
+  if (cdfSearchOpen(message.id, anchor.id)) {
+    cdfSearchOpenKeys.value = cdfSearchOpenKeys.value.filter((entry) => entry !== key);
+    return;
+  }
+  cdfSearchOpenKeys.value = [...cdfSearchOpenKeys.value, key];
+  if (!cdfSearchQueryByKey.value[key]) {
+    cdfSearchQueryByKey.value = {
+      ...cdfSearchQueryByKey.value,
+      [key]: anchor.conceptName,
+    };
+  }
+  await runCdfConceptSearch(message, anchor);
+}
+
+async function runCdfConceptSearch(message: AIWorkbenchAssistantResultMessage, anchor: AICdfAnchor): Promise<void> {
+  if (!service.searchCdfConceptDocuments) {
+    return;
+  }
+  if (!selfTestTargetMemory.value) {
+    await openSelfTestTargetDialog();
+    return;
+  }
+  const key = cdfSearchKey(message.id, anchor.id);
+  if (!cdfSearchBusyKeys.value.includes(key)) {
+    cdfSearchBusyKeys.value = [...cdfSearchBusyKeys.value, key];
+  }
+  cdfSearchErrors.value = {
+    ...cdfSearchErrors.value,
+    [key]: '',
+  };
+  try {
+    const results = await service.searchCdfConceptDocuments(
+      selfTestTargetMemory.value,
+      cdfSearchQuery(message.id, anchor.id, anchor.conceptName),
+    );
+    cdfSearchResultsByKey.value = {
+      ...cdfSearchResultsByKey.value,
+      [key]: results,
+    };
+  } catch (error) {
+    cdfSearchErrors.value = {
+      ...cdfSearchErrors.value,
+      [key]: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    cdfSearchBusyKeys.value = cdfSearchBusyKeys.value.filter((entry) => entry !== key);
+  }
+}
+
+async function selectCdfConceptDocument(
+  message: AIWorkbenchAssistantResultMessage,
+  anchor: AICdfAnchor,
+  document: AIWorkbenchConceptDocumentSearchResult,
+): Promise<void> {
+  if (!service.setCdfAnchorManualResolution || !selfTestTargetMemory.value) {
+    return;
+  }
+  await service.setCdfAnchorManualResolution(message.id, anchor.id, selfTestTargetMemory.value, document);
+  clearCdfPreviewState(message.id);
+  cdfSearchOpenKeys.value = cdfSearchOpenKeys.value.filter((key) => key !== cdfSearchKey(message.id, anchor.id));
+  cdfCreationError.value = '';
+  cdfCreationResult.value = null;
+}
+
+async function restoreCdfConceptAutoResolution(message: AIWorkbenchAssistantResultMessage, anchor: AICdfAnchor): Promise<void> {
+  if (!service.restoreCdfAnchorAutoResolution) {
+    return;
+  }
+  await service.restoreCdfAnchorAutoResolution(message.id, anchor.id);
+  clearCdfPreviewState(message.id);
+  cdfCreationError.value = '';
+  cdfCreationResult.value = null;
+  if (selfTestTargetMemory.value) {
+    await previewCdfMessage(message, true);
   }
 }
 
@@ -2674,6 +2931,11 @@ onUnmounted(() => {
 .ai-chat__cdf-items { display: grid; gap: 8px; }
 .ai-chat__cdf-item { display: flex; align-items: flex-start; gap: 8px; color: #4b5563; font-size: 12px; line-height: 1.5; }
 .ai-chat__cdf-item input, .ai-chat__cdf-group-title input { margin-top: 2px; }
+.ai-chat__candidate-toolbar-actions--anchor { justify-content: flex-start; gap: 8px; }
+.ai-chat__cdf-search { border: 1px solid #e5e9f2; border-radius: 10px; background: #fbfcff; padding: 10px; display: grid; gap: 8px; }
+.ai-chat__cdf-search-bar { display: flex; align-items: center; gap: 8px; }
+.ai-chat__cdf-search-bar .b3-text-field { flex: 1; min-width: 0; }
+.ai-chat__cdf-search-results { display: grid; gap: 8px; }
 .ai-chat__modal-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(21, 27, 38, 0.28); display: flex; align-items: center; justify-content: center; padding: 18px; }
 .ai-chat__target-dialog { width: min(520px, 100%); max-height: min(720px, 92vh); border: 1px solid #d9deea; border-radius: 14px; background: #fff; box-shadow: 0 24px 64px rgba(21, 27, 38, 0.22); display: flex; flex-direction: column; overflow: hidden; }
 .ai-chat__target-body { padding: 14px; display: grid; gap: 13px; overflow: auto; }

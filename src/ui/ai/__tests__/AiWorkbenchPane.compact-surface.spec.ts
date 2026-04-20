@@ -3,6 +3,7 @@
 import { mount } from '@vue/test-utils';
 import { reactive, nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
+import { formatConceptCoachPerspectiveSectionMarkdown } from '@/application/services/AIWorkbenchResultFormatter';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import { AI_CONCEPT_COACH_SKILL_ID, AI_CONCEPT_COACH_TAB_IDS } from '@/types/ai';
 import type {
@@ -234,6 +235,10 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     setSelfTestCreationMode: async (mode: string) => mode,
     generateModeDrafts: async () => [],
     createSelfTestCardsFromSelectedCandidates: async () => null,
+    sendAssistantResultToSiyuan: async () => null,
+    searchCdfConceptDocuments: async () => [],
+    setCdfAnchorManualResolution: async () => {},
+    restoreCdfAnchorAutoResolution: async () => {},
   };
 
   return service as unknown as AIWorkbenchService;
@@ -315,6 +320,42 @@ function makeCdfRenderEntry() {
   } as never;
   return {
     key: 'cdf-message-1::render',
+    primaryMessage,
+    supplementalMessages: [],
+    stepCount: 0,
+    pendingApproval: null,
+  };
+}
+
+function makePerspectivesRenderEntry() {
+  const primaryMessage = {
+    id: 'perspectives-message-1',
+    skillId: AI_CONCEPT_COACH_SKILL_ID,
+    tabId: 'perspectives',
+    view: AI_CONCEPT_COACH_SKILL_ID,
+    kind: 'assistant-result',
+    createdAt: Date.now(),
+    rawContent: '',
+    conceptCoachResult: null,
+    tabResult: {
+      traits: {
+        title: '特性和倾向',
+        keyPoints: [
+          '核心特性',
+          '学习具有情境性和社会性，与特定历史文化背景下的共同活动紧密相关。',
+          '关键特性',
+          '强调合法的边缘性参与，新手从边缘逐步向核心参与，通过互动协商意义。',
+        ],
+      },
+      contrasts: { title: '辨析异同', keyPoints: [] },
+      partsAndWhole: { title: '部分和整体', keyPoints: [] },
+      causality: { title: '因果关系', keyPoints: [] },
+      significance: { title: '意义和影响', keyPoints: [] },
+    },
+    appliedContexts: [],
+  } as never;
+  return {
+    key: 'perspectives-message-1::render',
     primaryMessage,
     supplementalMessages: [],
     stepCount: 0,
@@ -478,6 +519,101 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('1 张');
   });
 
+  it('renders perspectives as nested markdown instead of a flat list', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('perspectives');
+    service.getRenderEntries = () => [makePerspectivesRenderEntry()] as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await nextTick();
+
+    expect(wrapper.text()).toContain('核心特性');
+    expect(wrapper.text()).toContain('学习具有情境性和社会性');
+    expect(formatConceptCoachPerspectiveSectionMarkdown({
+      title: '特性和倾向',
+      keyPoints: ['核心特性', '学习具有情境性和社会性，与共同活动紧密相关。'],
+      easyMisjudgments: ['有时会被误解为只是强调社会互动。'],
+      examples: [],
+      comparisons: [],
+      subConcepts: [],
+      parentConcepts: [],
+      metaphor: '',
+      reasons: [],
+      applicableScenarios: [],
+      nonApplicableScenarios: [],
+      commonMisuse: '',
+      importance: '',
+      behaviorChange: '',
+      triggerScenario: '',
+    })).toContain('* 核心特性\n  * 学习具有情境性和社会性，与共同活动紧密相关。');
+  });
+
+  it('sends concept-coach result tabs to Siyuan from the message toolbar', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('working-definition');
+    service.getRenderEntries = () => [{
+      key: 'working-definition-message::render',
+      primaryMessage: {
+        id: 'working-definition-message',
+        skillId: AI_CONCEPT_COACH_SKILL_ID,
+        tabId: 'working-definition',
+        view: AI_CONCEPT_COACH_SKILL_ID,
+        kind: 'assistant-result',
+        createdAt: Date.now(),
+        rawContent: '',
+        conceptCoachResult: null,
+        tabResult: '先抓住这个概念最可用的定义。',
+        appliedContexts: [],
+      } as never,
+      supplementalMessages: [],
+      stepCount: 0,
+      pendingApproval: null,
+    }] as never;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => [
+      { id: 'notebook-1', name: '学习笔记', closed: false },
+    ]) as never;
+    service.getSelfTestCardTargetMemory = vi.fn(async () => ({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: null,
+      targetLabel: '学习笔记 · 今日日记',
+      updatedAt: 1,
+    })) as never;
+    const sendAssistantResultToSiyuan = vi.fn(async () => ({
+      target: {
+        mode: 'daily-note',
+        notebookId: 'notebook-1',
+        notebookName: '学习笔记',
+        targetBlockId: null,
+        targetLabel: '学习笔记 · 今日日记',
+        updatedAt: 2,
+      },
+      targetBlockId: 'daily-doc-1',
+      targetLabel: '学习笔记 · 今日日记',
+      sectionTitle: '工作定义',
+      markdown: '## AI 工作台 · 工作定义 · 2026-04-21 10:00\n\n先抓住这个概念最可用的定义。',
+      insertedRootBlockId: 'block-1',
+    }));
+    service.sendAssistantResultToSiyuan = sendAssistantResultToSiyuan as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    const sendButton = wrapper.findAll('button').find((button) => button.text().includes('发送到思源'))!;
+    await sendButton.trigger('click');
+    await Promise.resolve();
+    await nextTick();
+
+    expect(sendAssistantResultToSiyuan).toHaveBeenCalledWith(expect.objectContaining({
+      notebookId: 'notebook-1',
+    }), 'working-definition-message');
+    expect(wrapper.text()).toContain('已发送到思源');
+    expect(wrapper.text()).toContain('学习笔记 · 今日日记');
+  });
+
   it('renders semantic CDF anchors, resolves concepts, and creates selected items', async () => {
     const service = createService('review-dialog-sidecar');
     service.setActiveTab('cdf-structure');
@@ -582,13 +718,90 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     expect(previewCdfStructure).toHaveBeenCalledWith('cdf-message-1', expect.objectContaining({
       notebookId: 'notebook-1',
-    }));
+    }), {
+      forceResolve: false,
+    });
     expect(createCdfCardsFromSelectedAnchors).toHaveBeenCalledWith(expect.objectContaining({
       notebookId: 'notebook-1',
     }), 'cdf-message-1');
     expect(wrapper.text()).toContain('制卡完成');
     expect(wrapper.text()).toContain('1 个定义');
     expect(wrapper.text()).toContain('1 个描述符');
+  });
+
+  it('supports manual CDF concept document search and selection', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('cdf-structure');
+    service.getRenderEntries = () => [makeCdfRenderEntry()] as never;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => [
+      { id: 'notebook-1', name: '学习笔记', closed: false },
+    ]) as never;
+    service.getSelfTestCardTargetMemory = vi.fn(async () => ({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: null,
+      targetLabel: '学习笔记 · 今日日记',
+      updatedAt: 1,
+    })) as never;
+    service.previewCdfStructure = vi.fn(async () => ({
+      anchors: [{
+        id: 'anchor-1',
+        conceptName: '幂函数',
+        selected: true,
+        resolution: {
+          status: 'unresolved',
+          conceptBlockId: null,
+          conceptTitle: '幂函数',
+          reason: '未在当前上下文或目标笔记本中解析到现有概念文档。',
+          notebookId: 'notebook-1',
+        },
+        warnings: ['未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。'],
+        definitionCandidates: [
+          { id: 'definition-1', text: '自变量在底数位置，指数固定的函数。', selected: true },
+        ],
+        descriptorGroups: [],
+      }],
+    })) as never;
+    const searchCdfConceptDocuments = vi.fn(async () => ([
+      {
+        id: 'concept-doc-1',
+        title: '幂函数',
+        hPath: '/数学/幂函数',
+        notebookId: 'notebook-1',
+        notebookName: '学习笔记',
+      },
+    ]));
+    const setCdfAnchorManualResolution = vi.fn(async () => {});
+    service.searchCdfConceptDocuments = searchCdfConceptDocuments as never;
+    service.setCdfAnchorManualResolution = setCdfAnchorManualResolution as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    const searchButton = wrapper.findAll('button').find((button) => button.text().includes('搜索概念文档'))!;
+    await searchButton.trigger('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(searchCdfConceptDocuments).toHaveBeenCalledWith(expect.objectContaining({
+      notebookId: 'notebook-1',
+    }), '幂函数');
+    expect(wrapper.text()).toContain('/数学/幂函数');
+
+    const resultButton = wrapper.findAll('button').find((button) => button.text().includes('/数学/幂函数'))!;
+    await resultButton.trigger('click');
+
+    expect(setCdfAnchorManualResolution).toHaveBeenCalledWith(
+      'cdf-message-1',
+      'anchor-1',
+      expect.objectContaining({ notebookId: 'notebook-1' }),
+      expect.objectContaining({ id: 'concept-doc-1' }),
+    );
   });
 
   it('generates plugin drafts when switching to Xiuyuan-backed self-test modes', async () => {

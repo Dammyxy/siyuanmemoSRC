@@ -8,6 +8,7 @@ import type {
   AICdfAnchor,
   AICdfAnchorResolution,
   AICdfStructure,
+  AIWorkbenchConceptDocumentSearchResult,
   AIWorkbenchCdfCreationItemResult,
   AIWorkbenchCdfCreationResult,
   AIWorkbenchContextSnapshot,
@@ -22,6 +23,8 @@ type ResolvedWriteTarget = {
   targetBlockId: string;
   writeMode: 'append' | 'after';
 };
+
+const CDF_UNRESOLVED_WARNING = '未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。';
 
 function normalizeString(value: unknown): string {
   return String(value ?? '').trim();
@@ -768,8 +771,13 @@ export class AIFlashcardToolService {
     structure: AICdfStructure,
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
     runtime: AIChatToolRuntimeContext,
+    options?: {
+      forceResolve?: boolean;
+    },
   ): Promise<AICdfStructure> {
-    return this.resolveSemanticCdfStructure(structure, target, runtime.context);
+    return this.resolveSemanticCdfStructure(structure, target, runtime.context, {
+      preserveManualResolution: options?.forceResolve !== true,
+    });
   }
 
   async createSemanticCdfCards(
@@ -777,7 +785,9 @@ export class AIFlashcardToolService {
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
     runtime: AIChatToolRuntimeContext,
   ): Promise<AIWorkbenchCdfCreationResult> {
-    const resolvedStructure = await this.resolveSemanticCdfStructure(structure, target, runtime.context);
+    const resolvedStructure = await this.resolveSemanticCdfStructure(structure, target, runtime.context, {
+      preserveManualResolution: true,
+    });
     const resolvedTarget = await this.resolveTargetFromInput(target);
     const xiuyuanService = await this.deps.getXiuyuanApplicationService();
     const deckId = this.resolveDeckId({}, runtime);
@@ -799,6 +809,19 @@ export class AIFlashcardToolService {
           createdDefinitions: [],
           createdDescriptors: [],
           warnings: baseWarnings.length > 0 ? baseWarnings : ['未解析到现有概念文档，已跳过。'],
+          error: null,
+        });
+        continue;
+      }
+      if (!this.isResolutionCompatibleWithTarget(resolution, resolvedTarget.memory.notebookId)) {
+        itemResults.push({
+          anchorId: anchor.id,
+          conceptName: anchor.conceptName,
+          status: 'skipped',
+          conceptBlockId: resolution.conceptBlockId,
+          createdDefinitions: [],
+          createdDescriptors: [],
+          warnings: [...baseWarnings, '当前概念解析结果属于旧目标笔记本，请重新解析或重新搜索概念文档。'],
           error: null,
         });
         continue;
@@ -936,6 +959,43 @@ export class AIFlashcardToolService {
     };
   }
 
+  async searchConceptDocumentsInNotebook(
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    query: string,
+    limit = 8,
+  ): Promise<AIWorkbenchConceptDocumentSearchResult[]> {
+    const normalizedTarget = this.normalizeTargetMemory(target, Date.now());
+    if (!normalizedTarget?.notebookId) {
+      throw new Error('搜索概念文档前请先设置目标笔记本。');
+    }
+    const normalizedQuery = normalizeString(query);
+    if (!normalizedQuery) {
+      throw new Error('请输入概念文档标题或路径关键字。');
+    }
+    const normalizedLimit = Math.min(Math.max(Math.floor(Number(limit) || 8), 1), 12);
+    const rows = await this.deps.siyuanPort.sql<Array<Record<string, unknown>>[number]>(`
+      SELECT id, content, hpath, box
+      FROM blocks
+      WHERE box = '${escapeSql(normalizedTarget.notebookId)}'
+        AND type = 'd'
+        AND (
+          content LIKE '%${escapeSql(normalizedQuery)}%'
+          OR hpath LIKE '%${escapeSql(normalizedQuery)}%'
+        )
+      ORDER BY updated DESC, id DESC
+      LIMIT ${normalizedLimit}
+    `);
+    return rows
+      .map((row) => ({
+        id: normalizeString(row.id),
+        title: normalizeString(row.content),
+        hPath: normalizeString(row.hpath),
+        notebookId: normalizeString(row.box) || normalizedTarget.notebookId,
+        notebookName: normalizedTarget.notebookName,
+      }))
+      .filter((row) => row.id && row.title);
+  }
+
   private async createNativeRiffCards(
     args: Record<string, unknown>,
     runtime: AIChatToolRuntimeContext,
@@ -1011,6 +1071,9 @@ export class AIFlashcardToolService {
     structure: AICdfStructure,
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
     context: AIWorkbenchContextSnapshot | null,
+    options?: {
+      preserveManualResolution?: boolean;
+    },
   ): Promise<AICdfStructure> {
     const normalizedTarget = this.normalizeTargetMemory(target, Date.now());
     if (!normalizedTarget?.notebookId) {
@@ -1019,7 +1082,21 @@ export class AIFlashcardToolService {
     const contextConcepts = await this.collectContextConceptMap(context);
     const anchors = await Promise.all((structure.anchors || []).map(async (anchor) => {
       const conceptName = normalizeString(anchor.conceptName);
-      const warnings = [...(anchor.warnings || [])];
+      const warnings = [...(anchor.warnings || [])].filter((warning) => warning !== CDF_UNRESOLVED_WARNING);
+      if (
+        options?.preserveManualResolution !== false
+        && anchor.resolution?.status === 'resolved-manual'
+        && anchor.resolution.conceptBlockId
+      ) {
+        return {
+          ...anchor,
+          resolution: {
+            ...anchor.resolution,
+            notebookId: normalizeString(anchor.resolution.notebookId) || normalizedTarget.notebookId,
+          },
+          warnings,
+        } satisfies AICdfAnchor;
+      }
       const contextMatch = contextConcepts.get(normalizeConceptTitleKey(conceptName));
       let resolution: AICdfAnchorResolution | null = null;
       if (contextMatch) {
@@ -1028,6 +1105,7 @@ export class AIFlashcardToolService {
           conceptBlockId: contextMatch.id,
           conceptTitle: contextMatch.title,
           reason: '复用当前上下文中已出现的概念文档。',
+          notebookId: null,
         };
       } else {
         const notebookMatch = await this.findExactConceptDocumentInNotebook(normalizedTarget.notebookId, conceptName);
@@ -1037,6 +1115,7 @@ export class AIFlashcardToolService {
             conceptBlockId: notebookMatch.id,
             conceptTitle: notebookMatch.title,
             reason: '在目标笔记本中命中同名概念文档。',
+            notebookId: normalizedTarget.notebookId,
           };
         } else {
           resolution = {
@@ -1044,8 +1123,9 @@ export class AIFlashcardToolService {
             conceptBlockId: null,
             conceptTitle: conceptName,
             reason: '未在当前上下文或目标笔记本中解析到现有概念文档。',
+            notebookId: normalizedTarget.notebookId,
           };
-          warnings.push('未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。');
+          warnings.push(CDF_UNRESOLVED_WARNING);
         }
       }
       return {
@@ -1057,6 +1137,20 @@ export class AIFlashcardToolService {
     return {
       anchors,
     };
+  }
+
+  private isResolutionCompatibleWithTarget(
+    resolution: AICdfAnchorResolution,
+    notebookId: string,
+  ): boolean {
+    if (resolution.status !== 'resolved-notebook' && resolution.status !== 'resolved-manual') {
+      return true;
+    }
+    const resolutionNotebookId = normalizeString(resolution.notebookId);
+    if (!resolutionNotebookId) {
+      return true;
+    }
+    return resolutionNotebookId === normalizeString(notebookId);
   }
 
   private async collectContextConceptMap(

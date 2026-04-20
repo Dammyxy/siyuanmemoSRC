@@ -485,7 +485,7 @@ export interface AIConceptCoachSelfTestCards {
   cards: AIConceptCoachCandidateCard[];
 }
 
-export type AICdfAnchorResolutionStatus = 'resolved-context' | 'resolved-notebook' | 'unresolved';
+export type AICdfAnchorResolutionStatus = 'resolved-context' | 'resolved-notebook' | 'resolved-manual' | 'unresolved';
 export type AICdfCreationStatus = 'created' | 'skipped' | 'failed';
 
 export interface AICdfDefinitionCandidate {
@@ -512,6 +512,7 @@ export interface AICdfAnchorResolution {
   conceptBlockId: string | null;
   conceptTitle: string;
   reason: string | null;
+  notebookId?: string | null;
 }
 
 export interface AICdfAnchor {
@@ -563,6 +564,23 @@ export interface AIWorkbenchCdfCreationResult {
   createdCount: number;
   skippedCount: number;
   failedCount: number;
+}
+
+export interface AIWorkbenchConceptDocumentSearchResult {
+  id: string;
+  title: string;
+  hPath: string;
+  notebookId: string;
+  notebookName: string;
+}
+
+export interface AIWorkbenchSendToSiyuanResult {
+  target: AIWorkbenchSelfTestCardTargetMemory;
+  targetBlockId: string;
+  targetLabel: string;
+  sectionTitle: string;
+  markdown: string;
+  insertedRootBlockId: string | null;
 }
 
 export interface AIConceptCoachRealWorldTriggers {
