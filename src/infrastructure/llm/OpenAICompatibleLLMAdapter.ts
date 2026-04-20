@@ -43,6 +43,60 @@ function normalizeBaseUrl(baseUrl: string): string {
   return String(baseUrl || '').replace(/\/+$/, '');
 }
 
+function isAbsoluteEndpointUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return Boolean(parsed.protocol && parsed.host);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeEndpointPath(path: string): string {
+  const trimmed = String(path || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (trimmed.startsWith('/')) {
+    return trimmed;
+  }
+  return `/${trimmed}`;
+}
+
+function resolveEndpointUrl(baseUrl: string, configured: string | undefined, fallbackPath: string): string {
+  const configuredValue = String(configured || '').trim();
+  if (configuredValue) {
+    if (isAbsoluteEndpointUrl(configuredValue)) {
+      return configuredValue;
+    }
+    const normalizedBase = normalizeBaseUrl(baseUrl);
+    const normalizedPath = normalizeEndpointPath(configuredValue);
+    return normalizedBase
+      ? `${normalizedBase}${normalizedPath}`
+      : normalizedPath || configuredValue;
+  }
+
+  const normalizedBase = normalizeBaseUrl(baseUrl);
+  const normalizedFallbackPath = normalizeEndpointPath(fallbackPath);
+  return normalizedBase
+    ? `${normalizedBase}${normalizedFallbackPath}`
+    : normalizedFallbackPath;
+}
+
+function applyModelPlaceholder(url: string, model: string): string {
+  if (!url.includes('{model}')) {
+    return url;
+  }
+  return url.replaceAll('{model}', encodeURIComponent(model));
+}
+
+function appendQueryParam(url: string, key: string, value: string): string {
+  if (!value || new RegExp(`(?:\\?|&)${key}=`).test(url)) {
+    return url;
+  }
+  return `${url}${url.includes('?') ? '&' : '?'}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
 function truncateDiagnostic(value: string, limit = 16000): string {
   const normalized = String(value || '').trim();
   if (!normalized) {
@@ -352,8 +406,11 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
   }
 
   private async chatOpenAI(request: LLMRequest): Promise<LLMResponse> {
-    const endpoint = request.provider?.endpoints?.chatCompletions
-      || `${normalizeBaseUrl(request.baseUrl)}/chat/completions`;
+    const endpoint = resolveEndpointUrl(
+      request.baseUrl,
+      request.provider?.endpoints?.chatCompletions,
+      '/chat/completions',
+    );
     const structuredProfile = resolveStructuredRequestProfile(request);
     const attemptPlan = structuredProfile?.attempts || [null];
     const totalAttempts = attemptPlan.length;
@@ -697,8 +754,11 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
   }
 
   private async chatClaude(request: LLMRequest): Promise<LLMResponse> {
-    const endpoint = request.provider?.endpoints?.messages
-      || `${normalizeBaseUrl(request.baseUrl || 'https://api.anthropic.com/v1')}/messages`;
+    const endpoint = resolveEndpointUrl(
+      request.baseUrl || 'https://api.anthropic.com/v1',
+      request.provider?.endpoints?.messages,
+      '/messages',
+    );
     const controller = new AbortController();
     const relayAbort = () => controller.abort();
     if (request.abortSignal?.aborted) {
@@ -792,9 +852,17 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
   }
 
   private async chatGemini(request: LLMRequest): Promise<LLMResponse> {
-    const base = normalizeBaseUrl(request.baseUrl || 'https://generativelanguage.googleapis.com/v1beta');
-    const endpoint = request.provider?.endpoints?.generateContent
-      || `${base}/models/${encodeURIComponent(request.model)}:generateContent?key=${encodeURIComponent(request.apiKey)}`;
+    const base = request.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
+    const endpointTemplate = resolveEndpointUrl(
+      base,
+      request.provider?.endpoints?.generateContent,
+      '/models/{model}:generateContent',
+    );
+    const endpoint = appendQueryParam(
+      applyModelPlaceholder(endpointTemplate, request.model),
+      'key',
+      request.apiKey,
+    );
     const controller = new AbortController();
     const relayAbort = () => controller.abort();
     if (request.abortSignal?.aborted) {
@@ -832,7 +900,10 @@ export class OpenAICompatibleLLMAdapter implements LLMPort {
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': request.apiKey,
+        },
         body: JSON.stringify(body),
         signal: controller.signal,
       });

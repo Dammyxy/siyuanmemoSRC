@@ -1,6 +1,10 @@
 import type { AIChatToolRuntimeContext } from '@/application/services/AIChatToolExecutorService';
 import type { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
-import { renderSelfTestCandidateDraftMarkdown, summarizeSelfTestCandidateCard } from '@/application/services/AISelfTestDraftSupport';
+import {
+  isPluginSelfTestCreationMode,
+  resolveSelfTestCandidateDraftMarkdown,
+  summarizeSelfTestCandidateCard,
+} from '@/application/services/AISelfTestDraftSupport';
 import type {
   AIConceptCoachCandidateCard,
   AIConceptCoachSelfTestCreationMode,
@@ -57,18 +61,23 @@ export class AISelfTestCardCreationService {
     candidates: AIConceptCoachCandidateCard[],
     mode: AIConceptCoachSelfTestCreationMode = 'list-item',
   ): Promise<AIWorkbenchSelfTestCardCreationResult> {
-    const selected = candidates.filter((candidate) => (
-      candidate.selected !== false
-      && normalizeString(renderSelfTestCandidateDraftMarkdown(candidate, mode))
-    ));
+    const selected = candidates
+      .filter((candidate) => candidate.selected !== false)
+      .map((candidate) => ({
+        candidate,
+        draftMarkdown: normalizeString(resolveSelfTestCandidateDraftMarkdown(candidate, mode, {
+          allowFallback: !isPluginSelfTestCreationMode(mode),
+        })),
+      }))
+      .filter((entry) => Boolean(entry.draftMarkdown));
     if (selected.length === 0) {
       throw new Error('请先勾选至少一张包含有效制卡草稿的自测卡片。');
     }
 
     const runtime = this.deps.getRuntimeContext();
     const items = selected.map((candidate) => ({
-      summary: summarizeSelfTestCandidateCard(candidate),
-      draftMarkdown: renderSelfTestCandidateDraftMarkdown(candidate, mode),
+      summary: summarizeSelfTestCandidateCard(candidate.candidate),
+      draftMarkdown: candidate.draftMarkdown,
     }));
     const args = {
       targetMode: target.mode,
@@ -98,7 +107,7 @@ export class AISelfTestCardCreationService {
           ...args,
           mode: 'multi-cloze',
           items: selected.map((candidate) => ({
-            content: renderSelfTestCandidateDraftMarkdown(candidate, mode),
+            content: candidate.draftMarkdown,
           })),
         }, runtime) as FlashcardToolResult;
         break;
@@ -115,7 +124,7 @@ export class AISelfTestCardCreationService {
       .map((item) => item.insertedRootBlockId)
       .filter((value): value is string => Boolean(value));
     const markdown = selected
-      .map((candidate) => normalizeString(renderSelfTestCandidateDraftMarkdown(candidate, mode)))
+      .map((candidate) => normalizeString(candidate.draftMarkdown))
       .filter(Boolean)
       .join('\n\n');
 
@@ -138,18 +147,19 @@ export class AISelfTestCardCreationService {
   }
 
   private mapToolResults(
-    selected: AIConceptCoachCandidateCard[],
+    selected: Array<{ candidate: AIConceptCoachCandidateCard; draftMarkdown: string }>,
     mode: AIConceptCoachSelfTestCreationMode,
     rawItems: unknown,
   ): AIWorkbenchSelfTestCardCreationItemResult[] {
     const items = Array.isArray(rawItems) ? rawItems as FlashcardToolResultItem[] : [];
-    return selected.map((candidate, index) => {
+    return selected.map((entry, index) => {
+      const candidate = entry.candidate;
       const raw = items[index] || {};
       return {
         candidateId: candidate.id,
         mode,
         summary: normalizeString(raw.summary) || summarizeSelfTestCandidateCard(candidate),
-        draftMarkdown: normalizeString(raw.draftMarkdown) || renderSelfTestCandidateDraftMarkdown(candidate, mode),
+        draftMarkdown: normalizeString(raw.draftMarkdown) || entry.draftMarkdown,
         question: candidate.prompt || candidate.legacyQuestion || candidate.question,
         answer: candidate.answer || candidate.legacyAnswer,
         status: normalizeString(raw.status) === 'created'

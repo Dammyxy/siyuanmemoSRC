@@ -403,6 +403,7 @@ export interface AIConceptCoachCandidateCard {
   answer: string;
   details: string[];
   clozeTargets: string[];
+  modeDrafts?: Partial<Record<AIConceptCoachSelfTestCreationMode, string>>;
   legacyQuestion?: string;
   legacyAnswer?: string;
   /**

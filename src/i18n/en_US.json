@@ -1907,6 +1907,7 @@
   "fillTargetBlockId": "Enter a target document or block ID.",
   "todayDailyNote": "Daily note",
   "selfTestCreationUnavailable": "This runtime does not support self-test card creation yet.",
+  "generatingPluginDrafts": "Generating plugin-mode drafts...",
   "insertedRootBlock": "Root block",
   "warnings": "Warnings",
   "aiToolManager": "Default tool availability and approvals",

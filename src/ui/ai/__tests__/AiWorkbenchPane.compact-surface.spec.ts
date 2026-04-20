@@ -229,6 +229,9 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     updateAssistantTextMessage: async () => {},
     updateCandidateCard: async () => {},
     setCandidateCardsSelected: async () => {},
+    getSelfTestCreationMode: () => 'list-item',
+    setSelfTestCreationMode: async (mode: string) => mode,
+    generateModeDrafts: async () => [],
     createSelfTestCardsFromSelectedCandidates: async () => null,
   };
 
@@ -431,6 +434,92 @@ describe('AiWorkbenchPane compact surfaces', () => {
     }), 'self-test-message-1');
     expect(wrapper.text()).toContain('制卡完成');
     expect(wrapper.text()).toContain('1 张');
+  });
+
+  it('generates plugin drafts when switching to Xiuyuan-backed self-test modes', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('self-test-cards');
+    const entry = reactive(makeSelfTestRenderEntry([
+      {
+        id: 'candidate-a',
+        question: '问题 A',
+        answer: '答案 A',
+        kind: '定义',
+        selected: true,
+      },
+    ])) as ReturnType<typeof makeSelfTestRenderEntry>;
+    service.getRenderEntries = () => [entry] as never;
+    service.getFollowUpDisabledReason = () => null;
+    const pending = createDeferred<void>();
+    const generateModeDrafts = vi.fn(async () => {
+      await pending.promise;
+      entry.primaryMessage.tabResult.cards[0] = {
+        ...entry.primaryMessage.tabResult.cards[0],
+        modeDrafts: {
+          'multi-mark': '题干：问题 A 答案：==答案 A==',
+        },
+      };
+      return entry.primaryMessage.tabResult.cards;
+    });
+    service.generateModeDrafts = generateModeDrafts as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await nextTick();
+
+    const multiMarkButton = wrapper.findAll('button').find((button) => button.text().includes('多标记'))!;
+    await multiMarkButton.trigger('click');
+    await Promise.resolve();
+    await nextTick();
+
+    expect(generateModeDrafts).toHaveBeenCalledWith('self-test-message-1', 'multi-mark', undefined);
+    expect(wrapper.text()).toContain('正在生成当前插件模式草稿');
+
+    pending.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).not.toContain('正在生成当前插件模式草稿');
+    expect(wrapper.html()).toContain('答案 A');
+  });
+
+  it('shows retry affordance when plugin draft generation fails', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('self-test-cards');
+    service.getRenderEntries = () => [makeSelfTestRenderEntry([
+      {
+        id: 'candidate-a',
+        question: '问题 A',
+        answer: '答案 A',
+        kind: '定义',
+        selected: true,
+      },
+    ])] as never;
+    service.getFollowUpDisabledReason = () => null;
+    const generateModeDrafts = vi.fn()
+      .mockRejectedValueOnce(new Error('draft failed'))
+      .mockResolvedValueOnce([]);
+    service.generateModeDrafts = generateModeDrafts as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await nextTick();
+
+    const multiMarkButton = wrapper.findAll('button').find((button) => button.text().includes('多标记'))!;
+    await multiMarkButton.trigger('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).toContain('draft failed');
+    const retryButton = wrapper.findAll('button').find((button) => button.text().includes('重试本次'))!;
+    await retryButton.trigger('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(generateModeDrafts).toHaveBeenCalledTimes(2);
   });
 
   it('toggles select-all from the compact candidate toolbar using the current message id', async () => {

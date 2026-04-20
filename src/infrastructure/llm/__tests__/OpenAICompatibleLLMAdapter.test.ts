@@ -142,6 +142,38 @@ describe('OpenAICompatibleLLMAdapter', () => {
     });
   });
 
+  it('resolves relative OpenAI-compatible endpoints against provider baseUrl', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({
+        choices: [{ message: { content: 'hello world' } }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await adapter.chat({
+      ...BASE_REQUEST,
+      baseUrl: 'https://api.deepseek.com/v1',
+      provider: {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        protocol: 'openai-compatible',
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiKey: 'test-key',
+        endpoints: {
+          chatCompletions: '/chat/completions',
+        },
+        models: [{ id: 'deepseek-chat' }],
+        capabilities: {},
+      },
+      model: 'deepseek-chat',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.deepseek.com/v1/chat/completions',
+      expect.any(Object),
+    );
+  });
+
   it('extracts text parts from array-based content payloads', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
       mockJsonResponse({
@@ -396,5 +428,47 @@ describe('OpenAICompatibleLLMAdapter', () => {
     });
     await vi.advanceTimersByTimeAsync(1000);
     await expectation;
+  });
+
+  it('resolves relative Gemini endpoints against baseUrl and fills the model placeholder', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({
+        candidates: [{
+          content: {
+            parts: [{ text: 'gemini ok' }],
+          },
+        }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await adapter.chat({
+      ...BASE_REQUEST,
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-2.5-flash',
+      protocol: 'gemini',
+      provider: {
+        id: 'gemini',
+        name: 'Gemini',
+        protocol: 'gemini',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        apiKey: 'test-key',
+        endpoints: {
+          generateContent: '/models/{model}:generateContent',
+        },
+        models: [{ id: 'gemini-2.5-flash' }],
+        capabilities: {},
+      },
+    });
+
+    expect(result.content).toBe('gemini ok');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=test-key',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-goog-api-key': 'test-key',
+        }),
+      }),
+    );
   });
 });

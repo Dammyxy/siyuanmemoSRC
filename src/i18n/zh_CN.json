@@ -1907,6 +1907,7 @@
   "fillTargetBlockId": "请填写目标文档或块 ID。",
   "todayDailyNote": "今日日记",
   "selfTestCreationUnavailable": "当前运行时暂不支持自测卡片制卡。",
+  "generatingPluginDrafts": "正在生成当前插件模式草稿...",
   "insertedRootBlock": "根块",
   "warnings": "提示",
   "aiToolManager": "工具默认启用与审批",

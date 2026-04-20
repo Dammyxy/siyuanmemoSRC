@@ -234,7 +234,7 @@ sequenceDiagram
 
 - standalone dialog 默认打开 `general-chat`；review sidecar / companion tab 默认读取 `settings.ai.chatDefaults.reviewDefaultSkillId`（默认 `general-chat`），显式 `concept-coach` 与旧别名 `make-cards / explain / tutor` 仍会优先命中结构化流程；用户仍可在同一 shell 内切换 Skill
 - review AI 会话按 `reviewChatKey = queueType + queueLabel/title` 复用最近持久化记录；`ReviewAIWorkbenchRegistry` 仍按真实 `reviewSessionId` 隔离 live runtime，切换闪卡只刷新 `liveContext/contextSignature` 与 stale 状态，不自动切换聊天历史
-- `general-chat` 使用树上的 skill-scoped 活动 worldline 投影，可调用 `context-read`、`siyuan-read`、`review-read`、`web`、`vars` 工具组；未配置搜索 backend 时只保留 URL 抓取，不伪装搜索能力；历史回灌时只带之前的最终回复和压缩后的 `<tool-chain-summary>`，不再把 raw tool-log 一条条重新喂给模型
+- `general-chat` 使用树上的 skill-scoped 活动 worldline 投影，可调用 `context-read`、`siyuan-read`、`review-read`、`web`、`vars` 工具组；未配置搜索 backend 时只保留 URL 抓取，不伪装搜索能力；历史回灌时只带主链 `user / assistant primary` 文本，不再把 tool-log、approval、supplemental reply、failure bubble 或 `<tool-chain-summary>` UI 摘要重新喂给模型
 - 读工具默认自动执行；`FetchWebPage / SearchWeb / QueryBlocksSql` 默认 `ask-once`；`flashcard-write` 等写入意图工具默认 `ask-always`；审批通过后会恢复同一轮工具链继续执行，并有“重复相同工具+参数”防抖与总调用预算，避免无限读同一上下文
 - `general-chat` 的 OpenAI / OpenAI-compatible provider 走真 SSE 文本增量和 abort；Claude/Gemini 先继续 buffered，但复用同一套运行中/停止态 UI
 - 首轮运行把 `baseRun + 5 个 tab.run` 与 `concept-coach/full-run` 契约组合成最终 `system` prompt，并通过 `LLMPort` 请求 `json_object` 输出模式，一次性填充 5 个 tab payload
@@ -242,7 +242,7 @@ sequenceDiagram
 - Tab 局部重跑只组合 `baseRun + 当前 tab.run + concept-coach/<tab>`，只替换当前 tab 的结构化结果与当前 tab 世界线投影
 - Tab 追问只使用当前 `tab.followUp`，并携带“当前分隔段 + pinned 节点”的当前 tab 结果上下文，隐藏节点不会进入模型上下文
 - `多视角理解` / `整合理解` 的结构化结果归一化容忍别名、wrapper、直接 section、字符串/数组/对象混合形状；部分成功会显示可恢复内容和 warning，不再静默空白
-- `自测卡片` section 现在保存 canonical 草稿 `{ creationMode, cards[] }`；每张草稿主结构为 `id / kind / selected / summary / prompt / answer / details / clozeTargets`，旧 `question / answer` 和 `draftMarkdown + mode` 结果会在读取时兼容归一。工作台顶部可切换 `list-item / mark / heading / super-block / multi-mark / cdf-multiline`，该模式只驱动本地 renderer 与“制卡选中项”执行链，不要求重跑 AI。制卡阶段由 `AISelfTestCardCreationService` 按当前模式把 canonical 草稿渲染并分发：原生 `list-item` 只接受实际列表项作为根块，优先读取 mutation 子树，必要时回退到根列表项 `getBlockKramdown()`；`mark / heading / super-block` 只接受对应结构根块；插件 `multi-mark / cdf-multiline` 继续走 Xiuyuan 模板卡。UI 不直接拼原生/插件制卡细节
+- `自测卡片` section 现在保存 canonical 草稿 `{ creationMode, cards[] }`；每张草稿主结构为 `id / kind / selected / summary / prompt / answer / details / clozeTargets`，并可按插件模式额外缓存 `modeDrafts`。旧 `question / answer` 和 `draftMarkdown + mode` 结果会在读取时兼容归一。工作台顶部可切换 `list-item / mark / heading / super-block / multi-mark / cdf-multiline`：前四种原生模式继续本地渲染，`multi-mark / cdf-multiline` 改为按需二段 AI 生成对应插件草稿并缓存到候选卡，再交给 Xiuyuan 写卡；切换模式或创建前只补缺失 draft，不重跑整份 `concept-coach/full-run`
 - structured 结果仍按 `contextSignature` 标记 stale，但 stale 现在只表示“继续追问当前结构化阶段前需要重跑”；用户仍可查看历史、编辑候选卡、切换本地自测模式并基于旧结果制卡，`general-chat` 不受该 stale 限制
 - 旧 explain session 会保留历史消息作为 legacy session 打开，并显示“旧解释结果仅供查看，重跑后生成完整 tabs”的提示；重跑后生成新的 `concept-coach` 五阶段结果
 - `AiWorkbenchPane.vue` 现在是通用 chat shell：顶部 Skill 切换、按 Skill 显示 tab/section、消息流支持文本、结构化结果、底部 composer 和 context 附加；主 timeline 使用 reply-first render projection，只显示用户消息/最终回复/结构化结果/分隔，tool timeline、审批历史、推理和诊断默认折叠到回复下方，pending 审批显示为当前回复下方的 inline approval card，消息操作移到消息尾部 toolbar，尾部 `•••` 菜单改为受控弹层，支持点空白、`Escape` 或执行动作后关闭；消息请求失败会直接渲染成当前会话流里的 error bubble，并在消息尾部提供“重试本次 / 编辑后重发”，不再长期占用顶部全局错误 banner
@@ -398,7 +398,7 @@ Siyuan / Riff / LLM 适配器：
 - `src/infrastructure/siyuan/ProgressiveNativeRiffAdapter.ts`
 - `src/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter.ts`
 - `src/infrastructure/siyuan/AISiyuanAdapter.ts`
-- `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`：统一 `LLMPort` 的基础设施适配器，支持 OpenAI-compatible / OpenAI / Claude / Gemini 协议和结构化输出传输诊断。
+- `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`：统一 `LLMPort` 的基础设施适配器，支持 OpenAI-compatible / OpenAI / Claude / Gemini 协议和结构化输出传输诊断；provider 自定义 endpoint 既可写完整 URL，也可写 sy-f-misc 风格的相对路径（如 `/chat/completions`、`/messages`、`/models/{model}:generateContent`），运行时会先按 `baseUrl` 解析成最终请求地址，再发起真实上游请求，避免相对地址误打到宿主环境。
 
 持久化与支撑：
 
@@ -641,7 +641,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 原生模式通过 `AISiyuanPort.addRiffCards()` 创建思源原生卡片，插件模式继续调用 `XiuyuanApplicationService.createFromBlocks()` / `createListTemplateCards()`，并把成功目标回写为新的默认制卡位置
 - `AISelfTestCardCreationService`
   - 自测卡候选制卡的应用层分发门面
-  - 根据当前工作台 `creationMode` 把每张 canonical 自测草稿本地渲染成目标 markdown，再独立写入目标位置并映射到原生列表项/标记/标题/超级块或插件多标记/CDF 工具
+  - 根据当前工作台 `creationMode` 解析每张 canonical 自测草稿：原生模式继续本地渲染，插件 `multi-mark / cdf-multiline` 只消费已缓存的 `modeDrafts`
   - 汇总每项 `mode / insertedRootBlockId / sourceBlockIds / warnings / error`，供 pane 直接透明展示
 - `AIWorkbenchSessionStoreService`
   - 通过 `FileService` 落盘 `index + per-session record`
@@ -653,13 +653,13 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 维护 `activeSkillId + activeTabId`、树节点、兼容 thread 投影、compact render 投影、tool timeline、pending approvals、vars、diagnostics
   - `general-chat` 走多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，`QueryBlocksSql / FetchWebPage / SearchWeb` 默认首次审批后缓存决定，写工具继续每次审批；审批工具暂停等待用户确认，确认后在原轮次继续执行
   - `general-chat` 每次回复链路写入 `runGroupId`，中间 assistant/tool/approval 标记为 `presentation=supplemental`，最终回复标记为 `presentation=primary`
-  - 每条最终回复下方都可折叠查看工具调用次数、轮次、耗时、参数摘要、结果摘要、变量缓存引用与审批历史；运行时会压缩旧工具链为 `<tool-chain-summary>` 再回灌模型，并对重复相同工具+参数与总调用预算做保护；达到最大工具轮数后会再请求一次“不要再调用工具”的最终答复
+  - 每条最终回复下方都可折叠查看工具调用次数、轮次、耗时、参数摘要、结果摘要、变量缓存引用与审批历史；这些透明化摘要只用于 UI，不再回灌模型历史；运行时仍会对重复相同工具+参数与总调用预算做保护；达到最大工具轮数后会再请求一次“不要再调用工具”的最终答复
   - `concept-coach` 仍走结构化 JSON 主链：首轮全量生成 5 个 section，局部重跑只替换当前 section，follow-up 只带当前 section 结果
   - review 同队列切卡只更新 live context，不截断模型历史；structured skill 旧结果会按 context signature 标为 stale，但 Pane 只在 stale 时禁用该结构化阶段的 follow-up，仍允许查看、编辑、切换自测模式与制卡
   - `多视角理解` / `整合理解` 的归一化容忍字段别名、wrapper、直接 section、字符串/数组/对象混合形状，并把 `full / partial / empty` 诊断挂到 assistant structured result
   - `自测卡片` 的勾选项/编辑状态按当前结果消息版本保存；结果数据主结构为 `creationMode + canonical cards[]`，旧问答卡和旧 mode-specific 草稿会在读取时兼容归一
-  - 工作台切换自测模式时，会同步更新 `settings.ai.conceptCoach.selfTest.defaultCreationMode`，并让候选草稿渲染与制卡执行链一起切换，不要求重跑结构化阶段
-  - 自测制卡不再硬编码 `builtin-basic-qa`；服务层通过 `AISelfTestCardCreationService` 分发到原生列表项/标记/标题/超级块或插件多标记/CDF 模式；UI 不直接调用思源 API、原生 Riff 或 Xiuyuan use case
+  - 工作台切换自测模式时，会同步更新 `settings.ai.conceptCoach.selfTest.defaultCreationMode`；原生模式直接切换本地预览，插件模式会通过 `generateModeDrafts()` 对当前候选卡按需补齐 `modeDrafts` 缓存，失败时留在候选卡区域内重试，不要求重跑结构化阶段
+  - 自测制卡不再硬编码 `builtin-basic-qa`；服务层通过 `AISelfTestCardCreationService` 分发到原生列表项/标记/标题/超级块或插件多标记/CDF 模式；插件模式创建前会先确保对应 `modeDrafts` 已生成，UI 不直接调用思源 API、原生 Riff 或 Xiuyuan use case
   - 对 DeepSeek / OpenAI-compatible 等 provider 保留 `json_object` 默认路径和 prompt-only JSON 传输兜底，诊断记录 profile / transport / status / raw body
   - 旧 explain-only 会话保留历史消息作为 legacy session 查看，重跑后再生成完整 `concept-coach` sections
 - `AIPromptComposer`
@@ -667,7 +667,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 不再承担运行时结构化协议拼接职责
 - `AIPromptContractRegistry`
   - 注册 `concept-coach/full-run` 与 `concept-coach/<tab>` JSON contract
-  - `self-test-cards` contract 现在要求模式无关的 canonical 草稿字段（`id / kind / selected / summary / prompt / answer / details / clozeTargets`）；具体卡型格式由本地 renderer 决定
+  - `self-test-cards` contract 现在要求模式无关的 canonical 草稿字段（`id / kind / selected / summary / prompt / answer / details / clozeTargets`）；首轮结构化 prompt 不再追加 mode-specific 合同，具体卡型格式由本地 renderer 或插件模式二段 draft 生成决定
   - 作为运行时 prompt 追加和设置页只读 contract 说明的共同事实源
 - `ConfiguredCaptureStorageService`
   - 解析 Progressive / Excerpt 当前 capture 目标与持久化策略；AI workbench 不再直接依赖它
@@ -688,7 +688,7 @@ UI 层：
   - 渲染通用 chat shell：Skill 切换、模型/工具入口、标题、历史/上下文抽屉、底部 composer
   - 消息区使用 compact render projection：主列表只显示用户消息、最终回复、结构化 Skill 结果和分隔；tool log、审批历史、reasoning、diagnostics 默认折叠到最终回复下方的透明化面板
   - pending approval 在对应回复下方显示 inline approval card；消息复制、编辑、分支、隐藏上下文、固定、插入分隔等操作统一落到消息尾部 toolbar；尾部 `•••` 菜单使用受控弹层而不是原生 `<details>`；消息请求失败会以内联 error bubble 归属到本次对话分支，并提供“重试本次 / 编辑后重发”
-  - `concept-coach` 的五阶段 tab 作为结构化结果卡的 section/switch 展示；`general-chat` 隐藏 tab，直接显示单时间线；自测卡模式切换只本地重渲染候选预览与制卡 payload，stale 结果显示轻量提示而不是整块锁死
+  - `concept-coach` 的五阶段 tab 作为结构化结果卡的 section/switch 展示；`general-chat` 隐藏 tab，直接显示单时间线；自测卡模式切换时，native 模式直接本地重渲染，插件模式显示“生成中 / 重试”并按需补齐缓存后的 preview 与制卡 payload；stale 结果显示轻量提示而不是整块锁死
 
 外部边界：
 

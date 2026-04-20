@@ -500,9 +500,133 @@ describe('AIWorkbenchService review-session behavior', () => {
       .map((message) => message.content || '')
       .join('\n\n');
 
-    expect(assistantHistory).toContain('<tool-chain-summary>');
-    expect(assistantHistory).toContain('GetCurrentContext');
-    expect(assistantHistory).not.toContain('[Tool GetCurrentContext success]');
+    expect(assistantHistory).toContain('已读取当前上下文。');
+    expect(assistantHistory).not.toContain('<tool-chain-summary>');
+    expect(assistantHistory).not.toContain('GetCurrentContext');
+  });
+
+  it('keeps concept-coach full-run prompts canonical without injecting mode-specific self-test contract text', async () => {
+    const llmChat = vi.fn(async () => ({
+      content: JSON.stringify(createConceptCoachPayload()),
+      raw: {},
+    }));
+    const service = createService({
+      llmChat,
+      aiSettings: {
+        ...createAISettings(),
+        conceptCoach: {
+          ...createAISettings().conceptCoach,
+          selfTest: {
+            ...createAISettings().conceptCoach.selfTest,
+            defaultCreationMode: 'multi-mark',
+          },
+        },
+      },
+    });
+
+    await service.open({
+      source: 'standalone',
+      surface: 'standalone-dialog',
+      selectedBlockIds: ['front-1'],
+    });
+    await service.runActiveSkill();
+
+    const systemPrompt = String(llmChat.mock.calls[0]?.[0]?.messages?.[0]?.content || '');
+    expect(systemPrompt).not.toContain('当前自测制卡默认模式');
+    expect(systemPrompt).not.toContain('不要求模型直接返回多标记 markdown');
+  });
+
+  it('generates plugin-mode drafts on demand, reuses cache, and invalidates only the edited card cache', async () => {
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          selfTestCards: {
+            cards: [
+              {
+                id: 'candidate-a',
+                prompt: 'Question A',
+                answer: 'Answer A',
+                details: ['Detail A'],
+                clozeTargets: ['Answer A'],
+                kind: '应用',
+                selected: true,
+              },
+            ],
+          },
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          cards: [{ id: 'candidate-a', draftMarkdown: '题干：Question A 答案：==Answer A==' }],
+        }),
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: JSON.stringify({
+          cards: [{ id: 'candidate-a', draftMarkdown: '题干：Question A（已编辑） 答案：==Answer A==' }],
+        }),
+        raw: {},
+      });
+    const service = createService({ llmChat });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-1',
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: true,
+    });
+    service.setActiveTab('self-test-cards');
+    await service.runActiveTab();
+    const message = latestAssistantResult(service, 'self-test-cards');
+
+    await service.generateModeDrafts(message!.id, 'multi-mark');
+    expect(latestAssistantResult(service, 'self-test-cards')).toMatchObject({
+      tabResult: {
+        cards: [
+          {
+            id: 'candidate-a',
+            modeDrafts: {
+              'multi-mark': '题干：Question A 答案：==Answer A==',
+            },
+          },
+        ],
+      },
+    });
+
+    await service.generateModeDrafts(message!.id, 'multi-mark');
+    expect(llmChat).toHaveBeenCalledTimes(2);
+
+    await service.updateCandidateCard(message!.id, 'candidate-a', { prompt: 'Question A（已编辑）' });
+    const updatedMessage = latestAssistantResult(service, 'self-test-cards');
+    expect(updatedMessage).toMatchObject({
+      tabResult: {
+        cards: [
+          {
+            id: 'candidate-a',
+            prompt: 'Question A（已编辑）',
+          },
+        ],
+      },
+    });
+    const updatedCards = ((updatedMessage?.tabResult as { cards?: Array<{ modeDrafts?: Record<string, string> }> } | null)?.cards || []);
+    expect(updatedCards[0]?.modeDrafts?.['multi-mark']).toBeUndefined();
+
+    await service.generateModeDrafts(message!.id, 'multi-mark');
+    expect(llmChat).toHaveBeenCalledTimes(3);
+    expect(latestAssistantResult(service, 'self-test-cards')).toMatchObject({
+      tabResult: {
+        cards: [
+          {
+            id: 'candidate-a',
+            modeDrafts: {
+              'multi-mark': '题干：Question A（已编辑） 答案：==Answer A==',
+            },
+          },
+        ],
+      },
+    });
   });
 
   it('materializes general-chat request failures on the assistant node and retries without duplicating the user message', async () => {

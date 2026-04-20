@@ -236,7 +236,7 @@
                     :class="{ 'ai-chat__candidate-mode-pill--active': selfTestCreationMode === mode.mode }"
                     type="button"
                     :title="mode.summary"
-                    :disabled="state.isLoading || selfTestCardCreationBusy"
+                    :disabled="state.isLoading || selfTestCardCreationBusy || modeDraftBusy(entry.primaryMessage.id)"
                     @click="setWorkbenchSelfTestMode(mode.mode)"
                   >
                     {{ mode.label }}
@@ -268,6 +268,15 @@
               </div>
               <p v-if="selfTestStaleHint" class="ai-chat__composer-hint ai-chat__composer-hint--warning">
                 {{ selfTestStaleHint }}
+              </p>
+              <p v-if="modeDraftBusy(entry.primaryMessage.id)" class="ai-chat__composer-hint">
+                {{ t('generatingPluginDrafts', '正在生成当前插件模式草稿...') }}
+              </p>
+              <p v-if="modeDraftError(entry.primaryMessage.id)" class="ai-chat__result-note ai-chat__result-note--empty">
+                {{ modeDraftError(entry.primaryMessage.id) }}
+                <button class="ai-chat__link-button" type="button" :disabled="modeDraftBusy(entry.primaryMessage.id)" @click="ensurePluginModeDraftsForMessage(entry.primaryMessage.id)">
+                  {{ t('retryThisRequest', '重试本次') }}
+                </button>
               </p>
               <p v-if="selfTestCardCreationDisabledReason(entry.primaryMessage)" class="ai-chat__composer-hint ai-chat__composer-hint--warning">
                 {{ selfTestCardCreationDisabledReason(entry.primaryMessage) }}
@@ -662,7 +671,8 @@ import {
   listSelfTestModeDescriptors,
 } from '@/application/services/AIPromptContractRegistry';
 import {
-  renderSelfTestCandidateDraftMarkdown,
+  isPluginSelfTestCreationMode,
+  resolveSelfTestCandidateDraftMarkdown,
   summarizeSelfTestCandidateCard,
 } from '@/application/services/AISelfTestDraftSupport';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
@@ -774,6 +784,8 @@ const selfTestTargetNotebookName = ref('');
 const selfTestTargetBlockId = ref('');
 const selfTestModeDescriptors = listSelfTestModeDescriptors();
 const selfTestCreationMode = ref<AIConceptCoachSelfTestCreationMode>(service.getSelfTestCreationMode?.() || 'list-item');
+const selfTestModeDraftBusyMessageIds = ref<string[]>([]);
+const selfTestModeDraftErrors = ref<Record<string, string>>({});
 
 function t(key: string, fallback: string): string {
   const value = props.i18n?.[key];
@@ -1180,7 +1192,7 @@ function candidateCards(message: AIWorkbenchAssistantResultMessage): AIConceptCo
 }
 
 function candidateDraftMarkdown(card: AIConceptCoachCandidateCard): string {
-  return renderSelfTestCandidateDraftMarkdown(card, selfTestCreationMode.value);
+  return resolveSelfTestCandidateDraftMarkdown(card, selfTestCreationMode.value, { allowFallback: true });
 }
 
 function candidateSummary(card: AIConceptCoachCandidateCard): string {
@@ -1210,6 +1222,69 @@ function validSelectedCandidateCount(message: AIWorkbenchAssistantResultMessage)
   )).length;
 }
 
+function isPluginSelfTestMode(mode: AIConceptCoachSelfTestCreationMode): boolean {
+  return isPluginSelfTestCreationMode(mode);
+}
+
+function modeDraftBusy(messageId: string): boolean {
+  return selfTestModeDraftBusyMessageIds.value.includes(messageId);
+}
+
+function modeDraftError(messageId: string): string {
+  return selfTestModeDraftErrors.value[messageId] || '';
+}
+
+function clearModeDraftError(messageId: string): void {
+  const next = { ...selfTestModeDraftErrors.value };
+  delete next[messageId];
+  selfTestModeDraftErrors.value = next;
+}
+
+function selfTestMessagesInTimeline(): AIWorkbenchAssistantResultMessage[] {
+  return renderEntries.value
+    .map((entry) => entry.primaryMessage)
+    .filter((message): message is AIWorkbenchAssistantResultMessage => (
+      message.kind === 'assistant-result' && message.tabId === 'self-test-cards'
+    ));
+}
+
+async function ensurePluginModeDraftsForMessage(
+  messageId: string,
+  cardIds?: string[],
+): Promise<boolean> {
+  if (!service.generateModeDrafts || !isPluginSelfTestMode(selfTestCreationMode.value)) {
+    return true;
+  }
+  clearModeDraftError(messageId);
+  if (!modeDraftBusy(messageId)) {
+    selfTestModeDraftBusyMessageIds.value = [...selfTestModeDraftBusyMessageIds.value, messageId];
+  }
+  try {
+    await service.generateModeDrafts(messageId, selfTestCreationMode.value, cardIds);
+    clearModeDraftError(messageId);
+    return true;
+  } catch (error) {
+    selfTestModeDraftErrors.value = {
+      ...selfTestModeDraftErrors.value,
+      [messageId]: error instanceof Error ? error.message : String(error),
+    };
+    return false;
+  } finally {
+    selfTestModeDraftBusyMessageIds.value = selfTestModeDraftBusyMessageIds.value.filter((id) => id !== messageId);
+  }
+}
+
+async function ensurePluginModeDraftsForVisibleMessages(cardIds?: string[]): Promise<void> {
+  if (!isPluginSelfTestMode(selfTestCreationMode.value)) {
+    selfTestModeDraftBusyMessageIds.value = [];
+    selfTestModeDraftErrors.value = {};
+    return;
+  }
+  for (const message of selfTestMessagesInTimeline()) {
+    await ensurePluginModeDraftsForMessage(message.id, cardIds);
+  }
+}
+
 function allCandidateCardsSelected(message: AIWorkbenchAssistantResultMessage): boolean {
   const cards = candidateCards(message);
   return cards.length > 0 && cards.every((card) => card.selected !== false);
@@ -1222,7 +1297,7 @@ const selfTestStaleHint = computed(() => (
 ));
 
 function selfTestCardCreationDisabledReason(message: AIWorkbenchAssistantResultMessage): string | null {
-  if (state.isLoading || selfTestCardCreationBusy.value) {
+  if (state.isLoading || selfTestCardCreationBusy.value || modeDraftBusy(message.id)) {
     return t('aiBusyWait', 'AI 正在处理中，请稍后再操作。');
   }
   if (validSelectedCandidateCount(message) === 0) {
@@ -1630,6 +1705,12 @@ async function setWorkbenchSelfTestMode(mode: AIConceptCoachSelfTestCreationMode
   selfTestCreationMode.value = await service.setSelfTestCreationMode?.(mode) || mode;
   selfTestCardCreationError.value = '';
   selfTestCreationResult.value = null;
+  if (isPluginSelfTestMode(selfTestCreationMode.value)) {
+    await ensurePluginModeDraftsForVisibleMessages();
+    return;
+  }
+  selfTestModeDraftBusyMessageIds.value = [];
+  selfTestModeDraftErrors.value = {};
 }
 
 async function toggleCandidate(messageId: string, cardId: string, event: Event): Promise<void> {
@@ -1755,6 +1836,12 @@ async function createSelfTestCards(message: AIWorkbenchAssistantResultMessage): 
   selfTestCardCreationError.value = '';
   selfTestCreationResult.value = null;
   try {
+    if (isPluginSelfTestMode(selfTestCreationMode.value)) {
+      const ready = await ensurePluginModeDraftsForMessage(message.id);
+      if (!ready) {
+        return;
+      }
+    }
     const result = await service.createSelfTestCardsFromSelectedCandidates?.(selfTestTargetMemory.value, message.id);
     if (!result) {
       throw new Error(t('selfTestCreationUnavailable', '当前运行时暂不支持自测卡片制卡。'));
@@ -1903,6 +1990,9 @@ async function confirmEditor(): Promise<void> {
     await service.attachContextFromProvider(pendingProvider.value.key, editorValue.value);
   } else if (editingMode.value === 'candidate-card' && editingMessageId.value && editingCandidateId.value) {
     await service.updateCandidateCard(editingMessageId.value, editingCandidateId.value, parseCandidateEditorValue(editorValue.value));
+    if (isPluginSelfTestMode(selfTestCreationMode.value)) {
+      await ensurePluginModeDraftsForMessage(editingMessageId.value, [editingCandidateId.value]);
+    }
   }
   closeEditor();
 }

@@ -4,6 +4,11 @@ import type {
   AIConceptCoachSelfTestCreationMode,
 } from '@/types/ai';
 
+const PLUGIN_SELF_TEST_CREATION_MODES = new Set<AIConceptCoachSelfTestCreationMode>([
+  'multi-mark',
+  'cdf-multiline',
+]);
+
 function normalizeString(value: unknown): string {
   return String(value ?? '').trim();
 }
@@ -28,6 +33,25 @@ function normalizeStringList(value: unknown): string[] {
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => normalizeLineText(value)).filter(Boolean)));
+}
+
+function normalizeModeDrafts(value: unknown): Partial<Record<AIConceptCoachSelfTestCreationMode, string>> | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([mode, draft]) => {
+      const normalizedMode = normalizeSelfTestCreationMode(mode, '' as AIConceptCoachSelfTestCreationMode);
+      const normalizedDraft = normalizeString(draft);
+      if (!normalizedMode || !normalizedDraft) {
+        return null;
+      }
+      return [normalizedMode, normalizedDraft] as const;
+    })
+    .filter((entry): entry is readonly [AIConceptCoachSelfTestCreationMode, string] => Boolean(entry));
+  return entries.length > 0
+    ? Object.fromEntries(entries) as Partial<Record<AIConceptCoachSelfTestCreationMode, string>>
+    : undefined;
 }
 
 export function normalizeSelfTestCreationMode(
@@ -57,6 +81,10 @@ export function normalizeSelfTestCardKind(value: unknown): AIConceptCoachCardKin
     default:
       return '其他';
   }
+}
+
+export function isPluginSelfTestCreationMode(mode: AIConceptCoachSelfTestCreationMode): boolean {
+  return PLUGIN_SELF_TEST_CREATION_MODES.has(mode);
 }
 
 export function extractSelfTestClozeTargets(content: string): string[] {
@@ -238,6 +266,7 @@ export function normalizeSelfTestCandidateCard(
   const raw = value as Record<string, unknown>;
   const mode = normalizeSelfTestCreationMode(raw.mode, fallbackMode);
   const draftMarkdown = normalizeString(raw.draftMarkdown ?? raw.content);
+  const normalizedModeDrafts = normalizeModeDrafts(raw.modeDrafts);
   const explicitPrompt = normalizeLineText(raw.prompt ?? raw.question ?? raw.q ?? raw.front ?? raw.title ?? raw.legacyQuestion);
   const explicitAnswer = normalizeLineText(raw.answer ?? raw.a ?? raw.back ?? raw.legacyAnswer);
   const explicitDetails = normalizeStringList(raw.details);
@@ -249,6 +278,10 @@ export function normalizeSelfTestCandidateCard(
   const answer = explicitAnswer || parsed.answer;
   const details = uniqueStrings(explicitDetails.length > 0 ? explicitDetails : parsed.details);
   const clozeTargets = uniqueStrings(explicitClozeTargets.length > 0 ? explicitClozeTargets : parsed.clozeTargets);
+  const modeDrafts = {
+    ...(normalizedModeDrafts || {}),
+    ...((draftMarkdown && mode) ? { [mode]: draftMarkdown } : {}),
+  } as Partial<Record<AIConceptCoachSelfTestCreationMode, string>>;
   const nextCard: AIConceptCoachCandidateCard = {
     id: normalizeString(raw.id) || `ai-card-${index}`,
     kind: normalizeSelfTestCardKind(raw.kind),
@@ -258,6 +291,7 @@ export function normalizeSelfTestCandidateCard(
     answer,
     details,
     clozeTargets,
+    modeDrafts: Object.keys(modeDrafts).length > 0 ? modeDrafts : undefined,
     legacyQuestion: explicitPrompt || undefined,
     legacyAnswer: explicitAnswer || undefined,
     question: prompt || undefined,
@@ -354,4 +388,19 @@ export function renderSelfTestCandidateDraftMarkdown(
     default:
       return buildListMarkdown(prompt, lines.length > 0 ? lines : ['待补充答案']);
   }
+}
+
+export function resolveSelfTestCandidateDraftMarkdown(
+  card: Pick<AIConceptCoachCandidateCard, 'prompt' | 'question' | 'answer' | 'details' | 'clozeTargets' | 'modeDrafts'>,
+  mode: AIConceptCoachSelfTestCreationMode,
+  options?: { allowFallback?: boolean },
+): string {
+  const cachedDraft = normalizeString(card.modeDrafts?.[mode]);
+  if (cachedDraft) {
+    return cachedDraft;
+  }
+  if (isPluginSelfTestCreationMode(mode) && options?.allowFallback === false) {
+    return '';
+  }
+  return renderSelfTestCandidateDraftMarkdown(card, mode);
 }
