@@ -46,7 +46,8 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm).not.toBeNull();
     expect(vm!.frontHtml).toContain('supermemo');
     expect(vm!.frontHtml).toContain('起源，作者');
-    expect(vm!.frontHtml).toContain('是？');
+    expect(vm!.frontHtml).toContain('？');
+    expect(vm!.frontHtml).not.toContain('是？');
     expect(vm!.backHtml).toContain('woz');
   });
 

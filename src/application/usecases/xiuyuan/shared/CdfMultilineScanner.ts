@@ -28,6 +28,11 @@ export interface CdfScanNode {
   hasDocumentReference: boolean;
   orderedChildListItemIds: string[];
   unorderedChildListItemIds: string[];
+  descriptorMeta?: {
+    groupHint: string;
+    cue: string;
+    answer: string;
+  };
 }
 
 export interface CdfScanResult {

@@ -205,7 +205,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     } else {
       // 正向卡：概念 -> 描述符（默认）
       const ofConnector = this.t('descriptorForwardOf', '的');
-      const isConnector = this.t('descriptorForwardIs', '是？');
+      const isConnector = this.t('descriptorForwardIs', '？');
       const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">${ofConnector}</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">${isConnector}</span></div>`;
 
       // 答案分隔线

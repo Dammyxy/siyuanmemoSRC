@@ -1542,6 +1542,17 @@ function resolveCurrentBlockPeerCards(): ReviewCardPeerInfo | null {
   };
 }
 
+function resolveCurrentAndPeerCardIds(peerInfo: ReviewCardPeerInfo): string[] {
+  return Array.from(new Set([
+    peerInfo.currentCardId,
+    ...peerInfo.peerCards.map((card) => String(card?.id || '').trim()),
+  ].filter((cardId) => cardId.length > 0)));
+}
+
+function filterOutCurrentCardId(cardIds: string[], currentCardId: string): string[] {
+  return cardIds.filter((cardId) => cardId !== currentCardId);
+}
+
 async function advanceCurrentReviewCardByReference(payload: { cardId?: string; blockId?: string }): Promise<void> {
   const requestedCardId = String(payload.cardId || '').trim();
   const requestedBlockId = String(payload.blockId || '').trim();
@@ -2750,13 +2761,23 @@ async function handleDismissPeerCards(): Promise<void> {
   if (!cardEditorService || !peerInfo || peerInfo.peerCards.length === 0) {
     return;
   }
+  const targetCardIds = resolveCurrentAndPeerCardIds(peerInfo);
 
   try {
     const result = await cardEditorService.setDismissedMany(
-      peerInfo.peerCards.map((card) => card.id),
+      targetCardIds,
       true,
     );
-    await removeCardIdsFromActiveQueue(result.updatedCardIds);
+    const currentUpdated = result.updatedCardIds.includes(peerInfo.currentCardId);
+    const updatedPeerCardIds = filterOutCurrentCardId(result.updatedCardIds, peerInfo.currentCardId);
+    await removeCardIdsFromActiveQueue(updatedPeerCardIds);
+    if (currentUpdated) {
+      await advanceDismissedCurrentCard({
+        cardId: peerInfo.currentCardId,
+        blockId: peerInfo.currentBlockId,
+        dismissed: true,
+      });
+    }
 
     if (result.failedCardIds.length > 0) {
       showMessage(
@@ -2770,8 +2791,8 @@ async function handleDismissPeerCards(): Promise<void> {
     }
 
     showMessage(
-      t('reviewPeerCardsSuspended', '已暂停这个块的其余 {count} 张卡片')
-        .replace('{count}', String(result.updatedCardIds.length)),
+      t('reviewPeerCardsSuspended', '已暂停这张卡片和同块的其余 {count} 张卡片')
+        .replace('{count}', String(Math.max(0, result.updatedCardIds.length - 1))),
       3000,
       'info',
     );
@@ -2834,10 +2855,11 @@ async function handleDeletePeerCards(): Promise<void> {
   if (!cardService || !peerInfo || peerInfo.peerCards.length === 0) {
     return;
   }
+  const targetCardIds = resolveCurrentAndPeerCardIds(peerInfo);
 
   const confirmed = await confirmDialog({
-    title: t('deletePeerCardsConfirmTitle', '删除其余卡片'),
-    content: t('deletePeerCardsConfirmContent', '确认删除这个块的其余 {count} 张卡片吗？此操作不可撤销。')
+    title: t('deletePeerCardsConfirmTitle', '删除这张卡片和同块卡片'),
+    content: t('deletePeerCardsConfirmContent', '确认删除这张卡片和同块的其余 {count} 张卡片吗？此操作不可撤销。')
       .replace('{count}', String(peerInfo.peerCards.length)),
     confirmText: t('deleteCard', '删除'),
     cancelText: t('cancel', '取消'),
@@ -2848,13 +2870,21 @@ async function handleDeletePeerCards(): Promise<void> {
 
   try {
     const result = await cardService.deleteCards({
-      cardIds: peerInfo.peerCards.map((card) => card.id),
+      cardIds: targetCardIds,
     });
     if (!result.ok) {
       throw result.error;
     }
 
-    await removeCardIdsFromActiveQueue(result.value.deletedCardIds);
+    const currentDeleted = result.value.deletedCardIds.includes(peerInfo.currentCardId);
+    const deletedPeerCardIds = filterOutCurrentCardId(result.value.deletedCardIds, peerInfo.currentCardId);
+    await removeCardIdsFromActiveQueue(deletedPeerCardIds);
+    if (currentDeleted) {
+      await advanceCurrentReviewCardByReference({
+        cardId: peerInfo.currentCardId,
+        blockId: peerInfo.currentBlockId,
+      });
+    }
 
     if (result.value.failedCardIds.length > 0) {
       showMessage(
@@ -2868,8 +2898,8 @@ async function handleDeletePeerCards(): Promise<void> {
     }
 
     showMessage(
-      t('reviewPeerCardsDeleted', '已删除这个块的其余 {count} 张卡片')
-        .replace('{count}', String(result.value.deletedCardIds.length)),
+      t('reviewPeerCardsDeleted', '已删除这张卡片和同块的其余 {count} 张卡片')
+        .replace('{count}', String(Math.max(0, result.value.deletedCardIds.length - 1))),
       3000,
       'info',
     );
@@ -3105,7 +3135,7 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
     items.push({
       id: 'pause-peer-cards',
       icon: 'iconPause',
-      label: t('suspendPeerCards', '暂停这个块的其余 {count} 张卡片').replace('{count}', String(peerCount)),
+      label: t('suspendPeerCards', '暂停这张卡片和同块的其余 {count} 张卡片').replace('{count}', String(peerCount)),
       click: () => void handleDismissPeerCards(),
     });
   }
@@ -3122,7 +3152,7 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
     items.push({
       id: 'delete-peer-cards',
       icon: 'iconTrashcan',
-      label: t('deletePeerCards', '删除这个块的其余 {count} 张卡片').replace('{count}', String(peerCount)),
+      label: t('deletePeerCards', '删除这张卡片和同块的其余 {count} 张卡片').replace('{count}', String(peerCount)),
       click: () => void handleDeletePeerCards(),
     });
   }

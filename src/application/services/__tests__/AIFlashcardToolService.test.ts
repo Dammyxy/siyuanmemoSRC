@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
+import type { CdfScanResult } from '@/application/usecases/xiuyuan/shared/CdfMultilineScanner';
 import { ok } from '@/types/result';
 
 function createPairMutationFixture(rootId: string) {
@@ -104,6 +105,60 @@ function createNestedCdfMutationFixture(rootId: string, definitionText: string, 
       { id: `${itemId}-p`, parent_id: itemId, root_id: 'target-doc', type: 'p', content: childText, markdown: childText, sort: String(9 + index * 2) },
     );
   });
+  return {
+    rows,
+    mutation: {
+      doOperations: rows.map((row) => ({
+        action: 'insert',
+        id: row.id,
+        parentID: row.parent_id,
+        data: row.markdown,
+      })),
+    },
+    rootId,
+  };
+}
+
+function createSemanticCdfMutationFixture(
+  rootId: string,
+  rootRowText: string,
+  groups: Array<{ title: string; items: string[]; stripGroupMarker?: boolean }>,
+) {
+  const listId = `${rootId}-list`;
+  const rootParagraphId = `${rootId}-p`;
+  let sort = 1;
+  const rows: Array<Record<string, unknown>> = [
+    { id: listId, parent_id: 'target-doc', root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: String(sort++) },
+    { id: rootId, parent_id: listId, root_id: 'target-doc', type: 'i', content: rootRowText, markdown: rootRowText, sort: String(sort++) },
+    { id: rootParagraphId, parent_id: rootId, root_id: 'target-doc', type: 'p', content: rootRowText, markdown: rootRowText, sort: String(sort++) },
+    { id: `${rootId}-nested-list`, parent_id: rootId, root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: String(sort++) },
+  ];
+
+  groups.forEach((group, groupIndex) => {
+    const groupItemId = `${rootId}-group-${groupIndex + 1}`;
+    const groupParagraphId = `${groupItemId}-p`;
+    const emittedGroupText = group.items.length === 1
+      ? `${group.title};;${group.items[0]}`
+      : `${group.title};;;`;
+    const storedGroupText = group.stripGroupMarker ? group.title : emittedGroupText;
+    rows.push(
+      { id: groupItemId, parent_id: `${rootId}-nested-list`, root_id: 'target-doc', type: 'i', content: storedGroupText, markdown: storedGroupText, sort: String(sort++) },
+      { id: groupParagraphId, parent_id: groupItemId, root_id: 'target-doc', type: 'p', content: storedGroupText, markdown: storedGroupText, sort: String(sort++) },
+    );
+    if (group.items.length <= 1) {
+      return;
+    }
+    const nestedListId = `${groupItemId}-nested-list`;
+    rows.push({ id: nestedListId, parent_id: groupItemId, root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: String(sort++) });
+    group.items.forEach((childText, childIndex) => {
+      const childItemId = `${groupItemId}-child-${childIndex + 1}`;
+      rows.push(
+        { id: childItemId, parent_id: nestedListId, root_id: 'target-doc', type: 'i', content: childText, markdown: childText, sort: String(sort++) },
+        { id: `${childItemId}-p`, parent_id: childItemId, root_id: 'target-doc', type: 'p', content: childText, markdown: childText, sort: String(sort++) },
+      );
+    });
+  });
+
   return {
     rows,
     mutation: {
@@ -686,6 +741,150 @@ describe('AIFlashcardToolService', () => {
         insertedRootBlockId: 'cdf-root-fallback',
         createdDefinitionCount: 1,
         createdDescriptorCount: 2,
+      }],
+    });
+    executeSpy.mockRestore();
+  });
+
+  it('keeps semantic CDF definition and descriptor roles when inserted rows lose CDF marker text', async () => {
+    const traitItems = [
+      '发生在思考探索衍生问题的过程中',
+      '目的是更好观察、对照、思考、诠释问题',
+    ];
+    const misuseItems = ['常见错误是把引用当作摘抄'];
+    const groups = [
+      {
+        title: '特征',
+        items: traitItems,
+        stripGroupMarker: true,
+      },
+      {
+        title: '误区',
+        items: misuseItems,
+        stripGroupMarker: true,
+      },
+    ];
+    const cdfFixture = createSemanticCdfMutationFixture(
+      'cdf-root-markerless',
+      '引用是一种在思考探索衍生问题时，为了更好观察、对照、思考、诠释问题，而回过头来使用其他材料的行为。',
+      groups,
+    );
+    const siyuanPort = createSiyuanPort(cdfFixture);
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(cdfFixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      const ids = extractQuotedSqlValues(stmt);
+      return cdfFixture.rows.filter((row) => ids.includes(String(row.id)));
+    });
+    const xiuyuanService = createXiuyuanService();
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'executeFromScanResult')
+      .mockResolvedValue(ok({
+        createdDefinition: 1,
+        createdDescriptor: 3,
+        skipped: 0,
+        skippedExistingBinding: 0,
+        skippedNoTemplate: 0,
+        failed: 0,
+        stoppedByDocumentReference: false,
+      }));
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => xiuyuanService as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+
+    const created = await service.createSemanticCdfCards({
+      anchors: [{
+        id: 'anchor-markerless',
+        conceptName: '引用',
+        selected: true,
+        resolution: {
+          status: 'resolved-manual',
+          conceptBlockId: 'concept-doc-1',
+          conceptTitle: '引用',
+          reason: '手动选择概念文档。',
+          notebookId: 'notebook-1',
+        },
+        definitionCandidates: [
+          {
+            id: 'definition-markerless',
+            text: '引用是一种在思考探索衍生问题时，为了更好观察、对照、思考、诠释问题，而回过头来使用其他材料的行为。',
+            selected: true,
+          },
+        ],
+        descriptorGroups: [
+          {
+            id: 'group-traits',
+            title: '特征',
+            selected: true,
+            items: traitItems.map((text, index) => ({
+              id: `trait-${index + 1}`,
+              text,
+              selected: true,
+            })),
+          },
+          {
+            id: 'group-misuse',
+            title: '误区',
+            selected: true,
+            items: misuseItems.map((text, index) => ({
+              id: `misuse-${index + 1}`,
+              text,
+              selected: true,
+            })),
+          },
+        ],
+      }],
+    } as never, {
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
+
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(
+      [
+        '* ((concept-doc-1))::引用是一种在思考探索衍生问题时，为了更好观察、对照、思考、诠释问题，而回过头来使用其他材料的行为。',
+        '  * 特征;;;',
+        '    * 发生在思考探索衍生问题的过程中',
+        '    * 目的是更好观察、对照、思考、诠释问题',
+        '  * 误区;;常见错误是把引用当作摘抄',
+      ].join('\n'),
+      'daily-doc-1',
+    );
+    const scanResult = executeSpy.mock.calls[0]?.[0] as CdfScanResult;
+    expect(scanResult.parentParagraphKramdown).toContain('((concept-doc-1))::');
+    expect(scanResult.nodes).toEqual([
+      expect.objectContaining({
+        id: 'cdf-root-markerless-group-1',
+        markerKind: 'descriptor-multiline',
+        firstParagraphKramdown: '特征;;;',
+        unorderedChildListItemIds: [
+          'cdf-root-markerless-group-1-child-1',
+          'cdf-root-markerless-group-1-child-2',
+        ],
+      }),
+      expect.objectContaining({
+        id: 'cdf-root-markerless-group-2',
+        markerKind: 'descriptor-forward',
+        firstParagraphKramdown: '误区;;常见错误是把引用当作摘抄',
+        descriptorMeta: {
+          groupHint: '误区',
+          cue: '',
+          answer: '常见错误是把引用当作摘抄',
+        },
+      }),
+    ]);
+    expect(scanResult.nodes.some((node) => node.markerKind.startsWith('definition'))).toBe(false);
+    expect(created).toMatchObject({
+      createdDefinitionCount: 1,
+      createdDescriptorCount: 3,
+      itemResults: [{
+        insertedRootBlockId: 'cdf-root-markerless',
+        createdDefinitionCount: 1,
+        createdDescriptorCount: 3,
       }],
     });
     executeSpy.mockRestore();

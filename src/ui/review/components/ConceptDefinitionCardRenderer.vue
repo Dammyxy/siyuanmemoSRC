@@ -26,22 +26,12 @@
           v-html="viewModel.backHtml"
         ></div>
       </div>
-
-      <div class="concept-definition-card-renderer__actions">
-        <button
-          class="concept-definition-card-renderer__btn concept-definition-card-renderer__btn--secondary"
-          @click="jumpToConcept"
-        >
-          {{ t('jumpToConcept', '跳转到概念') }}
-        </button>
-      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { App } from 'siyuan';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
@@ -50,9 +40,7 @@ import type {
   ConceptDefinitionCardInput,
   ConceptDefinitionCardViewModel,
 } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
-import { resolveSiyuanApp } from '@/core/card/concept-definition/application/runtime';
 import { createLogger } from '@/utils/logger';
-import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
 const props = defineProps<{
@@ -127,23 +115,6 @@ const renderIdentity = computed(() => {
     typeMarker,
   ].join('|');
 });
-
-function jumpToConcept() {
-  if (!viewModel.value?.conceptBlockId) {
-    return;
-  }
-
-  const app = resolveSiyuanApp<App>();
-  if (!app) {
-    logger.error('App instance not found');
-    return;
-  }
-
-  openReviewBlockAtSource({
-    app,
-    blockId: viewModel.value.conceptBlockId,
-  });
-}
 
 watch(
   renderIdentity,
@@ -289,31 +260,4 @@ watch(
   color: var(--b3-theme-primary);
 }
 
-.concept-definition-card-renderer__actions {
-  display: flex;
-  gap: 8px;
-  padding-top: 16px;
-  border-top: 1px solid var(--b3-border-color);
-  margin-top: auto;
-}
-
-.concept-definition-card-renderer__btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.concept-definition-card-renderer__btn--secondary {
-  background: var(--b3-theme-surface);
-  color: var(--b3-theme-on-surface);
-  border: 1px solid var(--b3-border-color);
-}
-
-.concept-definition-card-renderer__btn--secondary:hover {
-  background: var(--b3-theme-surface-light);
-}
 </style>

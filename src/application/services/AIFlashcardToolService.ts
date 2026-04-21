@@ -7,6 +7,7 @@ import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/C
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
 import { detectDescriptorOrDefinitionKind } from '@/application/usecases/xiuyuan/shared/DescriptorTemplateStrategy';
 import type { CdfNodeKind, CdfScanNode, CdfScanResult } from '@/application/usecases/xiuyuan/shared/CdfMultilineScanner';
+import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import type {
   AICdfAnchor,
   AICdfAnchorResolution,
@@ -30,6 +31,15 @@ type SemanticCdfTreeNode = {
   markdown: string;
   depth: number;
   children: SemanticCdfTreeNode[];
+};
+type SemanticCdfDescriptorGroupPlan = {
+  title: string;
+  items: string[];
+};
+type SemanticCdfPlan = {
+  conceptBlockId: string;
+  definitionText: string;
+  descriptorGroups: SemanticCdfDescriptorGroupPlan[];
 };
 type ResolvedWriteTarget = {
   memory: AIWorkbenchSelfTestCardTargetMemory;
@@ -892,18 +902,19 @@ export class AIFlashcardToolService {
       let anchorError: string | null = null;
 
       try {
-        const draftMarkdown = this.buildSemanticCdfMarkdown(
+        const semanticPlan = this.buildSemanticCdfPlan(
           resolution.conceptBlockId,
           selectedDefinition,
           selectedDescriptorGroups,
         );
+        const draftMarkdown = this.buildSemanticCdfMarkdown(semanticPlan);
         const mutation = await this.insertMarkdown(draftMarkdown, resolvedTarget, previousSiblingId);
         insertedRootBlockId = await this.resolveInsertedListRootItemIdWithFallback(mutation);
         previousSiblingId = insertedRootBlockId || previousSiblingId;
 
         let scanResult: CdfScanResult;
         try {
-          scanResult = await this.buildSemanticCdfScanResult(mutation, insertedRootBlockId);
+          scanResult = await this.buildSemanticCdfScanResult(mutation, insertedRootBlockId, semanticPlan);
         } catch (error) {
           anchorError = `CDF 源块已写入，但未能完成扫描/制卡：${toErrorMessage(error, '未能构造 CDF 扫描结果。')}`;
           status = 'failed';
@@ -1395,18 +1406,37 @@ export class AIFlashcardToolService {
     ].join('\n');
   }
 
-  private buildSemanticCdfMarkdown(
+  private buildSemanticCdfPlan(
     conceptBlockId: string,
     definition: AICdfDefinitionCandidate | null,
     descriptorGroups: AICdfDescriptorGroup[],
+  ): SemanticCdfPlan {
+    return {
+      conceptBlockId,
+      definitionText: normalizeListText(definition?.text || ''),
+      descriptorGroups: descriptorGroups
+        .map((group) => ({
+          title: normalizeListText(group.title),
+          items: group.items.map((item) => normalizeListText(item.text)).filter(Boolean),
+        }))
+        .filter((group) => group.title.length > 0 && group.items.length > 0),
+    };
+  }
+
+  private buildSemanticCdfRootLine(plan: SemanticCdfPlan): string {
+    return plan.definitionText
+      ? `((${plan.conceptBlockId}))::${plan.definitionText}`
+      : `((${plan.conceptBlockId}))`;
+  }
+
+  private buildSemanticCdfMarkdown(
+    plan: SemanticCdfPlan,
   ): string {
-    const rootLine = normalizeString(definition?.text)
-      ? `((` + `${conceptBlockId}` + `))::${normalizeListText(definition!.text)}`
-      : `((${conceptBlockId}))`;
+    const rootLine = this.buildSemanticCdfRootLine(plan);
     const lines = [`* ${rootLine}`];
-    for (const group of descriptorGroups) {
-      const title = normalizeListText(group.title);
-      const items = group.items.map((item) => normalizeListText(item.text)).filter(Boolean);
+    for (const group of plan.descriptorGroups) {
+      const title = group.title;
+      const items = group.items;
       if (!title || items.length === 0) {
         continue;
       }
@@ -1425,17 +1455,18 @@ export class AIFlashcardToolService {
   private async buildSemanticCdfScanResult(
     mutation: AISiyuanMutationResult,
     insertedRootBlockId: string,
+    semanticPlan: SemanticCdfPlan,
   ): Promise<CdfScanResult> {
     const rows = await this.loadSemanticCdfMutationRowsWithRetry(mutation);
     const treeFromRows = this.buildSemanticCdfTreeFromRows(rows);
     if (treeFromRows) {
-      return this.buildSemanticCdfScanFromTree(insertedRootBlockId, treeFromRows);
+      return this.buildSemanticCdfScanFromTree(insertedRootBlockId, treeFromRows, undefined, semanticPlan);
     }
 
     const { kramdown } = await this.deps.siyuanPort.getBlockKramdown(insertedRootBlockId);
     const treeFromKramdown = await this.buildSemanticCdfTreeFromKramdown(insertedRootBlockId, normalizeString(kramdown));
     if (treeFromKramdown) {
-      return this.buildSemanticCdfScanFromTree(insertedRootBlockId, treeFromKramdown, normalizeString(kramdown));
+      return this.buildSemanticCdfScanFromTree(insertedRootBlockId, treeFromKramdown, normalizeString(kramdown), semanticPlan);
     }
 
     throw new Error('未能从 mutation rows 或 kramdown 还原 CDF 列表结构。');
@@ -1602,14 +1633,47 @@ export class AIFlashcardToolService {
     insertedRootBlockId: string,
     rootNode: SemanticCdfTreeNode,
     parentKramdownOverride?: string,
+    semanticPlan?: SemanticCdfPlan,
   ): CdfScanResult {
-    const buildNode = (node: SemanticCdfTreeNode): CdfScanNode => {
+    const buildNode = (node: SemanticCdfTreeNode, groupPlan?: SemanticCdfDescriptorGroupPlan): CdfScanNode => {
       const explicitMarkerKind = detectDescriptorOrDefinitionKind(node.markdown || node.text || '');
       const recursiveMarkerKind = explicitMarkerKind !== 'none' || node.children.length === 0
         ? explicitMarkerKind
         : this.detectFirstSemanticChildKind(node.children);
       const markerKind = explicitMarkerKind !== 'none' ? explicitMarkerKind : recursiveMarkerKind;
       const childListItemIds = node.children.map((child) => child.listItemId);
+      if (groupPlan) {
+        const plannedMarkerKind: CdfNodeKind = groupPlan.items.length > 1
+          ? 'descriptor-multiline'
+          : 'descriptor-forward';
+        const plannedKramdown = groupPlan.items.length > 1
+          ? `${groupPlan.title};;;`
+          : `${groupPlan.title};;${groupPlan.items[0] || ''}`;
+        const descriptorMeta = groupPlan.items.length === 1
+          ? parseCueAndAnswer(groupPlan.items[0] || '')
+          : null;
+        const plannedNode: CdfScanNode = {
+          id: node.listItemId,
+          subtype: '',
+          firstParagraphId: node.paragraphId,
+          firstParagraphText: plannedKramdown || node.text,
+          firstParagraphKramdown: plannedKramdown || node.markdown,
+          markerKind: plannedMarkerKind,
+          explicitMarkerKind: plannedMarkerKind,
+          recursiveMarkerKind: plannedMarkerKind,
+          hasDocumentReference: /\(\(\d{14}-[a-z0-9]{7}/i.test(node.markdown),
+          orderedChildListItemIds: [],
+          unorderedChildListItemIds: plannedMarkerKind === 'descriptor-multiline' ? childListItemIds : [],
+        };
+        if (descriptorMeta) {
+          plannedNode.descriptorMeta = {
+            groupHint: groupPlan.title,
+            cue: descriptorMeta.cue,
+            answer: descriptorMeta.answer,
+          };
+        }
+        return plannedNode;
+      }
       return {
         id: node.listItemId,
         subtype: '',
@@ -1624,13 +1688,14 @@ export class AIFlashcardToolService {
         unorderedChildListItemIds: markerKind === 'descriptor-multiline' ? childListItemIds : [],
       };
     };
+    const plannedParentKramdown = semanticPlan ? this.buildSemanticCdfRootLine(semanticPlan) : '';
     return {
       parentBlockId: rootNode.listItemId || insertedRootBlockId,
       parentParagraphId: rootNode.paragraphId,
-      parentParagraphText: rootNode.text,
-      parentParagraphKramdown: rootNode.markdown,
-      parentKramdown: parentKramdownOverride || rootNode.markdown,
-      nodes: rootNode.children.map((child) => buildNode(child)),
+      parentParagraphText: plannedParentKramdown || rootNode.text,
+      parentParagraphKramdown: plannedParentKramdown || rootNode.markdown,
+      parentKramdown: plannedParentKramdown || parentKramdownOverride || rootNode.markdown,
+      nodes: rootNode.children.map((child, index) => buildNode(child, semanticPlan?.descriptorGroups[index])),
       stoppedByDocumentReference: false,
     };
   }

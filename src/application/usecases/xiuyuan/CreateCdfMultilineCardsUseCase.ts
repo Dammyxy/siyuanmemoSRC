@@ -409,7 +409,7 @@ export class CreateCdfMultilineCardsUseCase {
           continue;
         }
 
-        await createForParagraph(node.firstParagraphId, node.id, node.markerKind);
+        await createForParagraph(node.firstParagraphId, node.id, node.markerKind, node.descriptorMeta);
       }
 
       return ok({

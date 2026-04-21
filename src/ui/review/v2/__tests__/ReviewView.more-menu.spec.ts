@@ -337,8 +337,8 @@ function mountReviewView(options?: {
     deleteCards: vi.fn(async () => ({
       ok: true,
       value: {
-        deletedCount: 2,
-        deletedCardIds: ['peer-1', 'peer-2'],
+        deletedCount: 3,
+        deletedCardIds: ['card-1', 'peer-1', 'peer-2'],
         failedCardIds: [],
       },
     })),
@@ -356,7 +356,7 @@ function mountReviewView(options?: {
       blockInfo: { createdAt: null, updatedAt: null },
     })),
     setDismissedMany: vi.fn(async () => ({
-      updatedCardIds: ['peer-1', 'peer-2'],
+      updatedCardIds: ['card-1', 'peer-1', 'peer-2'],
       failedCardIds: [],
     })),
   };
@@ -593,8 +593,8 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
-  it('suspends and deletes peer cards without advancing the current card', async () => {
-    const { wrapper, queue, cardService, cardEditorService } = mountReviewView();
+  it('suspends current and peer cards from the more menu and advances the current card', async () => {
+    const { wrapper, queue, cardEditorService } = mountReviewView();
     await flushPromises();
 
     wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
@@ -602,27 +602,129 @@ describe('ReviewView more menu', () => {
 
     let items = getLatestMenuItems();
     const suspendPeersItem = items.find((item) => item.id === 'pause-peer-cards');
+    expect(suspendPeersItem?.label).toBe('暂停这张卡片和同块的其余 2 张卡片');
     await suspendPeersItem?.click?.();
     await flushPromises();
 
-    expect(cardEditorService.setDismissedMany).toHaveBeenCalledWith(['peer-1', 'peer-2'], true);
+    expect(cardEditorService.setDismissedMany).toHaveBeenCalledWith(['card-1', 'peer-1', 'peer-2'], true);
     expect(queue.removeCard).toHaveBeenCalledWith('peer-1');
     expect(queue.removeCard).toHaveBeenCalledWith('peer-2');
-    expect(queue.onFeedback).not.toHaveBeenCalled();
-    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+    expect(queue.removeCard).toHaveBeenCalledWith('card-1');
+    expect(queue.onFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'card-1' }),
+      { action: 'skip' },
+    );
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
+
+    wrapper.unmount();
+  });
+
+  it('deletes current and peer cards from the more menu and advances the current card', async () => {
+    const { wrapper, queue, cardService } = mountReviewView();
+    await flushPromises();
 
     reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(true);
     wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
     await flushPromises();
 
-    items = getLatestMenuItems();
+    const items = getLatestMenuItems();
     const deletePeersItem = items.find((item) => item.id === 'delete-peer-cards');
+    expect(deletePeersItem?.label).toBe('删除这张卡片和同块的其余 2 张卡片');
     await deletePeersItem?.click?.();
     await flushPromises();
 
-    expect(cardService.deleteCards).toHaveBeenCalledWith({ cardIds: ['peer-1', 'peer-2'] });
-    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+    expect(cardService.deleteCards).toHaveBeenCalledWith({ cardIds: ['card-1', 'peer-1', 'peer-2'] });
+    expect(queue.removeCard).toHaveBeenCalledWith('peer-1');
+    expect(queue.removeCard).toHaveBeenCalledWith('peer-2');
+    expect(queue.removeCard).toHaveBeenCalledWith('card-1');
+    expect(queue.onFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'card-1' }),
+      { action: 'skip' },
+    );
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
+
+    wrapper.unmount();
+  });
+
+  it('keeps the current card when a batch suspend only updates peer cards', async () => {
+    const cardEditorService = {
+      updatePriority: vi.fn(async (_cardId: string, priority: number) => ({
+        card: {
+          ...buildCard('card-1'),
+          priority,
+        },
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissed: vi.fn(async () => ({
+        card: buildCard('card-1'),
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissedMany: vi.fn(async () => ({
+        updatedCardIds: ['peer-1', 'peer-2'],
+        failedCardIds: ['card-1'],
+      })),
+    };
+    const { wrapper, queue } = mountReviewView({ cardEditorService });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    const suspendPeersItem = getLatestMenuItems().find((item) => item.id === 'pause-peer-cards');
+    await suspendPeersItem?.click?.();
+    await flushPromises();
+
+    expect(cardEditorService.setDismissedMany).toHaveBeenCalledWith(['card-1', 'peer-1', 'peer-2'], true);
+    expect(queue.removeCard).toHaveBeenCalledWith('peer-1');
+    expect(queue.removeCard).toHaveBeenCalledWith('peer-2');
+    expect(queue.removeCard).not.toHaveBeenCalledWith('card-1');
     expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith(
+      '已暂停 2 张卡片，另有 1 张失败',
+      4000,
+      'error',
+    );
+
+    wrapper.unmount();
+  });
+
+  it('keeps the current card when a batch delete only deletes peer cards', async () => {
+    const cards = [buildCard('card-1'), buildCard('card-2', 'block-2')];
+    const cardService = {
+      getCardsByBlockId: vi.fn(() => [cards[0], buildCard('peer-1'), buildCard('peer-2')]),
+      deleteCard: vi.fn(async () => ({ ok: true, value: undefined })),
+      deleteCards: vi.fn(async () => ({
+        ok: true,
+        value: {
+          deletedCount: 2,
+          deletedCardIds: ['peer-1', 'peer-2'],
+          failedCardIds: ['card-1'],
+        },
+      })),
+    };
+    const { wrapper, queue } = mountReviewView({ cards, cardService });
+    await flushPromises();
+
+    reviewViewDialogMocks.confirmDialogMock.mockResolvedValueOnce(true);
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    const deletePeersItem = getLatestMenuItems().find((item) => item.id === 'delete-peer-cards');
+    await deletePeersItem?.click?.();
+    await flushPromises();
+
+    expect(cardService.deleteCards).toHaveBeenCalledWith({ cardIds: ['card-1', 'peer-1', 'peer-2'] });
+    expect(queue.removeCard).toHaveBeenCalledWith('peer-1');
+    expect(queue.removeCard).toHaveBeenCalledWith('peer-2');
+    expect(queue.removeCard).not.toHaveBeenCalledWith('card-1');
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith(
+      '已删除 2 张卡片，另有 1 张失败',
+      4000,
+      'error',
+    );
 
     wrapper.unmount();
   });

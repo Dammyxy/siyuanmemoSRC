@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 100)
+Last update: 2026-04-21 (Round 101)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - review batch card actions and semantic CDF role preservation
+
+- Task: Optimize review more-menu card actions, remove redundant concept/descriptor review copy, and prevent AI semantic CDF creation from treating descriptor groups as concept definitions when inserted marker text is unreliable.
+- Touched slice: Review card actions and renderers plus AI workbench / Xiuyuan CDF creation across `src/ui/review/v2/ReviewView.vue`, `src/ui/review/components/ConceptDefinitionCardRenderer.vue`, `src/core/card/descriptor-card/application/DescriptorCardRenderService.ts`, `src/application/services/AIFlashcardToolService.ts`, and focused regression coverage.
+- Debt fixed now: Changed same-block suspend/delete actions from peer-only to current-card-plus-peers with current-card-aware queue advancement and partial-failure handling; removed the redundant concept-definition jump button and the extra Chinese “是” from descriptor forward questions; made AI semantic CDF scan construction preserve definition and descriptor roles from the structured semantic plan instead of relying only on post-insert `;;/;;;` marker text; and let scan nodes carry optional descriptor fusion metadata for single inline semantic descriptor groups.
+- Debt deferred: The semantic-CDF scan builder still lives inside `AIFlashcardToolService` instead of a shared Xiuyuan scanner module, and concept-coach prompt wording was not broadened beyond the active runtime repair.
+- Why deferred: Extracting a shared scanner or revising prompt policy would widen this user-facing fix into a larger AI/Xiuyuan refactor, while the current bug was the active-path scan result losing semantic roles after insertion.
+- Next safe step: If semantic CDF grows another creation path, extract the semantic-plan-to-scan mapping into one shared Xiuyuan helper before adding more marker recovery rules.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/core/card/descriptor-card/__tests__/DescriptorCardRenderService.cdf-fusion.test.ts src/application/services/__tests__/AIFlashcardToolService.test.ts`; `pnpm build`.
 
 ### 2026-04-21 - incremental-learning same-block visible identity avoidance
 
