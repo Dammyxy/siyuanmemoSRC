@@ -337,8 +337,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
   it('requeries incremental learning after low feedback and advances to a different card when available', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
-    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
-    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, secondCard], {
+    const sameBlockSibling = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-1' });
+    const nextBlockCard = createCard({ id: 'card-3', xiuyuanID: 'xy-3', blockId: 'block-2' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, sameBlockSibling, nextBlockCard], {
       handleReview: async (cardId, _rating, liveCards) => ({
         updatedCard: liveCards.find((card) => card.id === cardId) ?? null,
         removedFromQueue: false,
@@ -377,7 +378,46 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
     await strategy.onFeedback(first, { action: 'rate', rating: 2 });
     const next = await strategy.next();
-    expect(next?.id).toBe(secondCard.id);
+    expect(next?.id).toBe(nextBlockCard.id);
+  });
+
+  it('requeries incremental learning after high feedback and avoids same-block sibling cards', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const sameBlockSibling = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-1' });
+    const nextBlockCard = createCard({ id: 'card-3', xiuyuanID: 'xy-3', blockId: 'block-2' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, sameBlockSibling, nextBlockCard], {
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async () => ({ ...firstCard })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const next = await strategy.next();
+    expect(next?.id).toBe(nextBlockCard.id);
   });
 
   it('allows immediate repeat in incremental learning when the deferred card is the only candidate', async () => {
@@ -426,9 +466,10 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
   it('requeries incremental learning after skip and advances to the next available card', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
-    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
-    const liveCards = [{ ...firstCard }, { ...secondCard }];
-    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, secondCard], {
+    const sameBlockSibling = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-1' });
+    const nextBlockCard = createCard({ id: 'card-3', xiuyuanID: 'xy-3', blockId: 'block-2' });
+    const liveCards = [{ ...firstCard }, { ...sameBlockSibling }, { ...nextBlockCard }];
+    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, sameBlockSibling, nextBlockCard], {
       createRollbackSnapshot: async () => ({ ok: true }),
       restoreRollbackSnapshot: async () => {},
     });
@@ -485,7 +526,104 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
 
     await strategy.onFeedback(first, { action: 'skip' });
     const next = await strategy.next();
-    expect(next?.id).toBe(secondCard.id);
+    expect(next?.id).toBe(nextBlockCard.id);
+  });
+
+  it('restores incremental-learning avoid-once block identity from review tab snapshots', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const sameBlockSibling = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-1' });
+    const nextBlockCard = createCard({ id: 'card-3', xiuyuanID: 'xy-3', blockId: 'block-2' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [sameBlockSibling, nextBlockCard], {
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async () => ({ ...firstCard })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    strategy.restoreSessionSnapshot({
+      version: 1,
+      queueType: QueueType.IncrementalLearning,
+      cacheValid: true,
+      currentIndex: 0,
+      cachedCards: [sameBlockSibling, nextBlockCard],
+      currentItem: null,
+      forwardBuffer: [],
+      pendingRotateCardId: null,
+      avoidOnceCardId: firstCard.id,
+      avoidOnceBlockId: firstCard.blockId,
+      deferOnceCardId: firstCard.id,
+      lastCounterSnapshot: null,
+    });
+
+    const next = await strategy.next();
+    expect(next?.id).toBe(nextBlockCard.id);
+  });
+
+  it('restores legacy incremental-learning deferOnceCardId snapshots as card-level avoid identity', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const nextBlockCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [firstCard, nextBlockCard], {
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async () => ({ ...firstCard })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    strategy.restoreSessionSnapshot({
+      version: 1,
+      queueType: QueueType.IncrementalLearning,
+      cacheValid: true,
+      currentIndex: 0,
+      cachedCards: [firstCard, nextBlockCard],
+      currentItem: null,
+      forwardBuffer: [],
+      pendingRotateCardId: null,
+      deferOnceCardId: firstCard.id,
+      lastCounterSnapshot: null,
+    });
+
+    const next = await strategy.next();
+    expect(next?.id).toBe(nextBlockCard.id);
   });
 
   it('restores queue snapshots and card state when going back after rating', async () => {

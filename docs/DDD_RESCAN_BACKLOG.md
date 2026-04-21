@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 99)
+Last update: 2026-04-21 (Round 100)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - incremental-learning same-block visible identity avoidance
+
+- Task: Fix the remaining gradual-learning review loop where feedback was persisted and the queue reloaded, but the next visible card could still be a same-source-block sibling with the same front/back, making the review surface look stuck on one card.
+- Touched slice: Review queue adaptation active path across `src/application/adapters/UnifiedQueueStrategy.ts`, review-tab session snapshot typing/normalization in `src/types/review-tab.ts` and `src/application/managers/TabManager.ts`, focused unified queue regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Upgraded the incremental-learning requery-after-feedback state from card-id-only `deferOnceCardId` to visible identity avoidance with `avoidOnceCardId + avoidOnceBlockId`; applied that identity after every rating and skip instead of only low scores; changed next-card resolution to prefer a different source block, then a different card, and only finally repeat the same visible block when no alternative exists; kept legacy snapshot compatibility by mirroring/restoring `deferOnceCardId`; and expanded queue logs so feedback and next-card selection include card/block ids plus avoided identities.
+- Debt deferred: This does not clean existing duplicate/sibling cards from storage, does not change descriptor-card renderer semantics, and does not split `UnifiedQueueStrategy` into separate per-queue strategy classes even though incremental learning now has its own requery branch.
+- Why deferred: The active blocker was the current-position advance semantics after feedback, while storage dedupe, renderer investigation, and strategy-class decomposition each need separate reproduction or a wider architecture pass.
+- Next safe step: If the user still sees the “same card” after this same-block avoidance, inspect the new `selectedBlockId / avoidedBlockId` logs together with stored card `typeMarker/front/back` to distinguish true storage duplicates from renderer-level same-face output.
+- Validation: `pnpm vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.local-advance-race.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-21 - restore runtime wiring for the debug-log setting
 

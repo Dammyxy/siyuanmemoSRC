@@ -323,7 +323,7 @@ UI surface：
 适配器、工厂、查询、用例：
 
 - `src/application/factories/createUnifiedReviewDialog.ts`：统一 review dialog 工厂。
-- `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`IncrementalLearning` 现在走独立的 requery-after-feedback 模式，评分/跳过后只记录一次性 `deferOnceCardId` 推进意图，下一次 `next()` 会重新读取 queue 视图并优先跳过刚刚低分/跳过的卡，而不是继续复用 `pendingRotateCardId + currentIndex + cache hot patch` 的本地轮转链；同时它也是 review 当前卡显示态 hydration 的唯一活跃入口，`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 逻辑，而不是在 controller 再复制一份预览计算
+- `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`IncrementalLearning` 现在走独立的 requery-after-feedback 模式，评分/跳过后只记录一次性 `avoidOnceCardId + avoidOnceBlockId` 可见身份，下一次 `next()` 会重新读取 queue 视图并优先切到不同 source block 的卡，只有没有替代 block 时才退化到同 block 兄弟卡或同卡，而不是继续复用 `pendingRotateCardId + currentIndex + cache hot patch` 的本地轮转链；同时它也是 review 当前卡显示态 hydration 的唯一活跃入口，`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 逻辑，而不是在 controller 再复制一份预览计算
 - `src/application/adapters/UnifiedReviewAdapter.ts`：review UI 状态与动作适配。
 - `src/application/queries/browser/*`：Browser 查询对象与处理器。
 - `src/application/queries/card/*`：卡片查询对象与处理器。
@@ -503,7 +503,7 @@ Review：
 
 当前 6 个活跃队列的运行时摘要：
 
-- `RetrievalPractice` / `IncrementalLearning`：today-window 队列，基础顺序 `due -> priority -> id`，允许 outstanding/manual 稀疏插入；其中 `IncrementalLearning` 的 unified review 推进现在以“反馈后重新读取 queue.getCards() 视图”为单一真相源，低分只做一次 defer，存在替代卡时强制切到下一张，不再在 unified 层本地 splice/rotate 当前缓存数组
+- `RetrievalPractice` / `IncrementalLearning`：today-window 队列，基础顺序 `due -> priority -> id`，允许 outstanding/manual 稀疏插入；其中 `IncrementalLearning` 的 unified review 推进现在以“反馈后重新读取 queue.getCards() 视图”为单一真相源，评分或跳过后把同一 source block 的兄弟卡视为同一个可见卡单元并优先避开，存在不同 block 替代卡时强制切过去，不再在 unified 层本地 splice/rotate 当前缓存数组
 - `FilterGroup`：filter-backed 队列，复习后按当前 filter 镜像留队
 - `FinalDrill`：静态练习队列，评分 `4` 出队，评分 `1/2/3` 留队并移到尾部
 - `NeuralRoam`：engine-session 队列，不因窗口自动出队

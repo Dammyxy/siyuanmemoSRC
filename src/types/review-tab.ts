@@ -10,6 +10,9 @@ export interface ReviewQueueSessionSnapshot {
   currentItem: FSRSCard | null;
   forwardBuffer: FSRSCard[];
   pendingRotateCardId: string | null;
+  avoidOnceCardId?: string | null;
+  avoidOnceBlockId?: string | null;
+  /** @deprecated Kept for old review-tab snapshots; use avoidOnceCardId. */
   deferOnceCardId?: string | null;
   lastCounterSnapshot: QueueCounterSnapshot | null;
 }

@@ -326,6 +326,14 @@ function normalizeReviewQueueSessionSnapshot(value: unknown): ReviewQueueSession
     pendingRotateCardId: typeof value.pendingRotateCardId === 'string'
       ? value.pendingRotateCardId
       : null,
+    avoidOnceCardId: typeof value.avoidOnceCardId === 'string'
+      ? value.avoidOnceCardId
+      : typeof value.deferOnceCardId === 'string'
+        ? value.deferOnceCardId
+        : null,
+    avoidOnceBlockId: typeof value.avoidOnceBlockId === 'string'
+      ? value.avoidOnceBlockId
+      : null,
     deferOnceCardId: typeof value.deferOnceCardId === 'string'
       ? value.deferOnceCardId
       : null,
