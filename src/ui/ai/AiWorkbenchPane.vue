@@ -542,7 +542,10 @@
                       >
                       <strong>{{ group.title }}</strong>
                     </label>
-                    <span>{{ selectedCdfDescriptorItemsInGroup(group) }}/{{ group.items.length }}</span>
+                    <div class="ai-chat__cdf-group-meta">
+                      <span class="ai-chat__cdf-group-mode">{{ cdfDescriptorGroupMode(group) }}</span>
+                      <span>{{ selectedCdfDescriptorItemsInGroup(group) }}/{{ group.items.length }}</span>
+                    </div>
                   </div>
                   <div class="ai-chat__cdf-items ai-chat__cdf-group-children">
                     <label
@@ -1618,6 +1621,10 @@ function hasSelectedCdfDefinition(anchor: AICdfAnchor): boolean {
 
 function selectedCdfDescriptorItemsInGroup(group: AICdfDescriptorGroup): number {
   return group.items.filter((item) => item.selected !== false && normalizeText(item.text).length > 0).length;
+}
+
+function cdfDescriptorGroupMode(group: AICdfDescriptorGroup): ';;' | ';;;' {
+  return selectedCdfDescriptorItemsInGroup(group) > 1 ? ';;;' : ';;';
 }
 
 function selectedCdfDescriptorCount(message: AIWorkbenchAssistantResultMessage): number {
@@ -3082,6 +3089,8 @@ onUnmounted(() => {
 .ai-chat__cdf-section h4 { margin: 0; font-size: 13px; color: #3e4a60; }
 .ai-chat__cdf-group-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: #637286; font-size: 12px; }
 .ai-chat__cdf-group-title { display: flex; align-items: center; gap: 8px; color: #1f2937; }
+.ai-chat__cdf-group-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ai-chat__cdf-group-mode { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; padding: 2px 8px; border-radius: 999px; border: 1px solid #d9e4fb; background: #eef4ff; color: #365d9b; font-size: 11px; font-weight: 700; }
 .ai-chat__cdf-items { display: grid; gap: 8px; }
 .ai-chat__cdf-group-children { margin-left: 24px; padding-left: 12px; border-left: 2px solid #e6edf8; }
 .ai-chat__cdf-item { display: flex; align-items: flex-start; gap: 8px; color: #4b5563; font-size: 12px; line-height: 1.5; }

@@ -238,20 +238,20 @@ function formatCdfAnchorMarkdown(anchor: AICdfAnchor): string {
     .filter((group) => group.title && group.items.length > 0);
 
   const blocks: string[] = [];
-  if (conceptName && selectedDefinitions.length > 0) {
-    blocks.push([
-      bulletLine(`${conceptName}:::`),
-      ...selectedDefinitions.map((definition) => bulletLine(definition, 1)),
-    ].join('\n'));
-  }
   if (conceptName) {
+    const rootLine = selectedDefinitions.length > 0
+      ? `${conceptName}::${selectedDefinitions[0]}`
+      : conceptName;
+    const lines = [bulletLine(rootLine)];
     for (const group of selectedDescriptorGroups) {
-      blocks.push([
-        bulletLine(conceptName),
-        bulletLine(`${group.title};;;`, 1),
-        ...group.items.map((item) => bulletLine(item, 2)),
-      ].join('\n'));
+      if (group.items.length === 1) {
+        lines.push(bulletLine(`${group.title};;${group.items[0]}`, 1));
+        continue;
+      }
+      lines.push(bulletLine(`${group.title};;;`, 1));
+      lines.push(...group.items.map((item) => bulletLine(item, 2)));
     }
+    blocks.push(lines.join('\n'));
   }
   return blocks.join('\n\n').trim();
 }

@@ -5,6 +5,8 @@ import type { AIChatToolRuntimeContext } from '@/application/services/AIChatTool
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
+import { detectDescriptorOrDefinitionKind } from '@/application/usecases/xiuyuan/shared/DescriptorTemplateStrategy';
+import type { CdfNodeKind, CdfScanNode, CdfScanResult } from '@/application/usecases/xiuyuan/shared/CdfMultilineScanner';
 import type {
   AICdfAnchor,
   AICdfAnchorResolution,
@@ -21,6 +23,14 @@ import type {
 
 type AIFlashcardXiuyuanService = Pick<XiuyuanApplicationService, 'createFromBlocks' | 'createListTemplateCards'>;
 type MutationRow = AISiyuanBlockRow & { sort?: string | number };
+type SemanticCdfTreeNode = {
+  listItemId: string;
+  paragraphId: string;
+  text: string;
+  markdown: string;
+  depth: number;
+  children: SemanticCdfTreeNode[];
+};
 type ResolvedWriteTarget = {
   memory: AIWorkbenchSelfTestCardTargetMemory;
   targetBlockId: string;
@@ -891,11 +901,31 @@ export class AIFlashcardToolService {
         insertedRootBlockId = await this.resolveInsertedListRootItemIdWithFallback(mutation);
         previousSiblingId = insertedRootBlockId || previousSiblingId;
 
-        const creation = await createCdfMultilineUseCase.execute({
-          parentBlockId: insertedRootBlockId,
-          templateId: 'builtin-list-concept-multiline',
-          ...(deckId ? { deckId } : {}),
-        });
+        let scanResult: CdfScanResult;
+        try {
+          scanResult = await this.buildSemanticCdfScanResult(mutation, insertedRootBlockId);
+        } catch (error) {
+          anchorError = `CDF 源块已写入，但未能完成扫描/制卡：${toErrorMessage(error, '未能构造 CDF 扫描结果。')}`;
+          status = 'failed';
+          itemResults.push({
+            anchorId: anchor.id,
+            conceptName: anchor.conceptName,
+            status,
+            conceptBlockId: resolution.conceptBlockId,
+            insertedRootBlockId,
+            createdDefinitionCount,
+            createdDescriptorCount,
+            warnings,
+            error: anchorError,
+          });
+          continue;
+        }
+
+        const creation = await createCdfMultilineUseCase.executeFromScanResult(
+          scanResult,
+          'builtin-list-concept-multiline',
+          deckId,
+        );
         if (!creation.ok) {
           anchorError = toErrorMessage(creation.error, 'CDF 语义制卡失败。');
           status = 'failed';
@@ -1380,11 +1410,243 @@ export class AIFlashcardToolService {
       if (!title || items.length === 0) {
         continue;
       }
+      if (items.length === 1) {
+        lines.push(`  * ${title};;${items[0]}`);
+        continue;
+      }
+      lines.push(`  * ${title};;;`);
       for (const item of items) {
-        lines.push(`  * ${title};;${item}`);
+        lines.push(`    * ${item}`);
       }
     }
     return lines.join('\n');
+  }
+
+  private async buildSemanticCdfScanResult(
+    mutation: AISiyuanMutationResult,
+    insertedRootBlockId: string,
+  ): Promise<CdfScanResult> {
+    const rows = await this.loadSemanticCdfMutationRowsWithRetry(mutation);
+    const treeFromRows = this.buildSemanticCdfTreeFromRows(rows);
+    if (treeFromRows) {
+      return this.buildSemanticCdfScanFromTree(insertedRootBlockId, treeFromRows);
+    }
+
+    const { kramdown } = await this.deps.siyuanPort.getBlockKramdown(insertedRootBlockId);
+    const treeFromKramdown = await this.buildSemanticCdfTreeFromKramdown(insertedRootBlockId, normalizeString(kramdown));
+    if (treeFromKramdown) {
+      return this.buildSemanticCdfScanFromTree(insertedRootBlockId, treeFromKramdown, normalizeString(kramdown));
+    }
+
+    throw new Error('未能从 mutation rows 或 kramdown 还原 CDF 列表结构。');
+  }
+
+  private async loadSemanticCdfMutationRowsWithRetry(
+    mutation: AISiyuanMutationResult,
+  ): Promise<MutationRow[]> {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const rows = await this.loadMutationRows(mutation);
+        if (rows.length > 0) {
+          return rows;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < 2) {
+        await waitFor(attempt === 0 ? 20 : 40);
+      }
+    }
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    return [];
+  }
+
+  private buildSemanticCdfTreeFromRows(rows: MutationRow[]): SemanticCdfTreeNode | null {
+    const ordered = this.sortedRows(rows);
+    const listItems = ordered.filter((row) => normalizeString(row.type) === 'i' && normalizeString(row.id));
+    if (listItems.length === 0) {
+      return null;
+    }
+    const root = [...listItems].sort((left, right) => this.rowDepth(left, ordered) - this.rowDepth(right, ordered))[0];
+    if (!root?.id) {
+      return null;
+    }
+    const buildNode = (listItemId: string): SemanticCdfTreeNode | null => {
+      const paragraph = ordered.find((row) => (
+        normalizeString(row.parent_id) === listItemId && normalizeString(row.type) === 'p' && normalizeString(row.id)
+      ));
+      if (!paragraph?.id) {
+        return null;
+      }
+      const directChildren = ordered
+        .filter((row) => (
+          normalizeString(row.parent_id) === listItemId
+          && normalizeString(row.type) === 'l'
+          && normalizeString(row.id)
+        ))
+        .flatMap((container) => ordered.filter((row) => (
+          normalizeString(row.parent_id) === container.id
+          && normalizeString(row.type) === 'i'
+          && normalizeString(row.id)
+        )))
+        .map((child) => buildNode(child.id!))
+        .filter((child): child is SemanticCdfTreeNode => Boolean(child));
+      const markdown = normalizeString(paragraph.markdown) || normalizeString(paragraph.content);
+      const text = normalizeString(paragraph.content) || markdown;
+      return {
+        listItemId,
+        paragraphId: paragraph.id,
+        text,
+        markdown,
+        depth: this.rowDepth(paragraph, ordered),
+        children: directChildren,
+      };
+    };
+    return buildNode(root.id) || null;
+  }
+
+  private async buildSemanticCdfTreeFromKramdown(
+    insertedRootBlockId: string,
+    kramdown: string,
+  ): Promise<SemanticCdfTreeNode | null> {
+    const lineEntries = String(kramdown || '')
+      .split(/\r?\n/)
+      .map((line) => {
+        const match = line.match(/^(\s*)[*+-]\s+\{:\s*id="([^"]+)"[^}]*\}\s*(.*)$/);
+        if (!match) {
+          return null;
+        }
+        return {
+          listItemId: normalizeString(match[2]),
+          depth: Math.floor((match[1]?.length || 0) / 2),
+          text: normalizeString(match[3]),
+        };
+      })
+      .filter((entry): entry is { listItemId: string; depth: number; text: string } => Boolean(entry?.listItemId));
+    if (lineEntries.length === 0) {
+      return null;
+    }
+
+    const paragraphRows = await this.loadParagraphRowsForListItems(lineEntries.map((entry) => entry.listItemId));
+    const paragraphByParentId = new Map(
+      paragraphRows
+        .filter((row) => normalizeString(row.parent_id) && normalizeString(row.id))
+        .map((row) => [normalizeString(row.parent_id), row] as const),
+    );
+    const rootEntry = lineEntries[0];
+    const stack: SemanticCdfTreeNode[] = [];
+    let rootNode: SemanticCdfTreeNode | null = null;
+    for (const entry of lineEntries) {
+      const paragraph = paragraphByParentId.get(entry.listItemId);
+      const paragraphId = normalizeString(paragraph?.id);
+      if (!paragraphId) {
+        continue;
+      }
+      const markdownText = normalizeString(paragraph?.markdown) || entry.text;
+      const text = normalizeString(paragraph?.content) || entry.text;
+      const node: SemanticCdfTreeNode = {
+        listItemId: entry.listItemId,
+        paragraphId,
+        text,
+        markdown: markdownText,
+        depth: entry.depth,
+        children: [],
+      };
+      while (stack.length > entry.depth) {
+        stack.pop();
+      }
+      const parent = stack[stack.length - 1] || null;
+      if (parent) {
+        parent.children.push(node);
+      } else if (!rootNode) {
+        rootNode = node;
+      }
+      stack[entry.depth] = node;
+    }
+    if (rootNode) {
+      return rootNode;
+    }
+    const rootParagraph = paragraphByParentId.get(rootEntry.listItemId);
+    if (!rootParagraph?.id) {
+      return null;
+    }
+    return {
+      listItemId: rootEntry.listItemId || insertedRootBlockId,
+      paragraphId: rootParagraph.id,
+      text: normalizeString(rootParagraph.content) || rootEntry.text,
+      markdown: normalizeString(rootParagraph.markdown) || rootEntry.text,
+      depth: rootEntry.depth,
+      children: [],
+    };
+  }
+
+  private async loadParagraphRowsForListItems(listItemIds: string[]): Promise<MutationRow[]> {
+    const normalizedIds = uniqueIds(listItemIds);
+    if (normalizedIds.length === 0) {
+      return [];
+    }
+    const escapedIds = normalizedIds.map((id) => `'${escapeSql(id)}'`).join(', ');
+    return this.deps.siyuanPort.sql<MutationRow>(`
+      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort
+      FROM blocks
+      WHERE parent_id IN (${escapedIds})
+        AND type = 'p'
+      ORDER BY sort ASC, id ASC
+    `);
+  }
+
+  private buildSemanticCdfScanFromTree(
+    insertedRootBlockId: string,
+    rootNode: SemanticCdfTreeNode,
+    parentKramdownOverride?: string,
+  ): CdfScanResult {
+    const buildNode = (node: SemanticCdfTreeNode): CdfScanNode => {
+      const explicitMarkerKind = detectDescriptorOrDefinitionKind(node.markdown || node.text || '');
+      const recursiveMarkerKind = explicitMarkerKind !== 'none' || node.children.length === 0
+        ? explicitMarkerKind
+        : this.detectFirstSemanticChildKind(node.children);
+      const markerKind = explicitMarkerKind !== 'none' ? explicitMarkerKind : recursiveMarkerKind;
+      const childListItemIds = node.children.map((child) => child.listItemId);
+      return {
+        id: node.listItemId,
+        subtype: '',
+        firstParagraphId: node.paragraphId,
+        firstParagraphText: node.text,
+        firstParagraphKramdown: node.markdown,
+        markerKind,
+        explicitMarkerKind,
+        recursiveMarkerKind,
+        hasDocumentReference: /\(\(\d{14}-[a-z0-9]{7}/i.test(node.markdown),
+        orderedChildListItemIds: [],
+        unorderedChildListItemIds: markerKind === 'descriptor-multiline' ? childListItemIds : [],
+      };
+    };
+    return {
+      parentBlockId: rootNode.listItemId || insertedRootBlockId,
+      parentParagraphId: rootNode.paragraphId,
+      parentParagraphText: rootNode.text,
+      parentParagraphKramdown: rootNode.markdown,
+      parentKramdown: parentKramdownOverride || rootNode.markdown,
+      nodes: rootNode.children.map((child) => buildNode(child)),
+      stoppedByDocumentReference: false,
+    };
+  }
+
+  private detectFirstSemanticChildKind(children: SemanticCdfTreeNode[]): CdfNodeKind {
+    for (const child of children) {
+      const kind = detectDescriptorOrDefinitionKind(child.markdown || child.text || '');
+      if (kind !== 'none') {
+        return kind;
+      }
+      const nestedKind = this.detectFirstSemanticChildKind(child.children);
+      if (nestedKind !== 'none') {
+        return nestedKind;
+      }
+    }
+    return 'none';
   }
 
   private async resolveWriteTarget(args: Record<string, unknown>): Promise<ResolvedWriteTarget> {

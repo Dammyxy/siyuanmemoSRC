@@ -757,6 +757,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     await nextTick();
 
     expect(wrapper.find('.ai-chat__cdf-group-title').text()).toContain('识别线索');
+    expect(wrapper.find('.ai-chat__cdf-group-mode').text()).toContain(';;');
     const childContainer = wrapper.find('.ai-chat__cdf-group-children');
     expect(childContainer.exists()).toBe(true);
     expect(childContainer.findAll('.ai-chat__cdf-item')).toHaveLength(1);

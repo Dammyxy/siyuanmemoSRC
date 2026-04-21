@@ -10,6 +10,7 @@ export interface ReviewQueueSessionSnapshot {
   currentItem: FSRSCard | null;
   forwardBuffer: FSRSCard[];
   pendingRotateCardId: string | null;
+  deferOnceCardId?: string | null;
   lastCounterSnapshot: QueueCounterSnapshot | null;
 }
 

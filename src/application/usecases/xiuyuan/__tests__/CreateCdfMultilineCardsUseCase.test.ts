@@ -214,6 +214,64 @@ describe('CreateCdfMultilineCardsUseCase', () => {
     }
   });
 
+  it('treats plain nested children inside concept-multiline ;;; groups as descriptors', async () => {
+    const xiuyuanAppService = createXiuyuanAppServiceMock();
+    const sql = vi.fn().mockImplementation(async (stmt: string) => {
+      if (stmt.includes(`WHERE id = '${CONCEPT_BLOCK_ID}'`) && stmt.includes('SELECT type')) {
+        return [{ type: 'd' }];
+      }
+      if (stmt.includes(`parent_id = '${CHILD_ITEM_ID}'`) && stmt.includes("AND type = 'p'")) {
+        return [{ id: CHILD_PARAGRAPH_ID }];
+      }
+      if (stmt.includes(`WHERE id = '${CHILD_PARAGRAPH_ID}'`) && stmt.includes('SELECT markdown, content')) {
+        return [{ content: 'focus', markdown: 'focus' }];
+      }
+      return [];
+    });
+
+    const useCase = new CreateCdfMultilineCardsUseCase(xiuyuanAppService as never, {
+      BUILTIN_DECK_ID: 'builtin-deck',
+      sql,
+      getBlockAttrs: vi.fn(async (blockId: string) => {
+        if (blockId === CONCEPT_BLOCK_ID) {
+          return { 'custom-xiuyuan-id': 'xy_concept' };
+        }
+        return {};
+      }),
+      getBlockKramdown: vi.fn().mockResolvedValue({ kramdown: '' }),
+    });
+
+    const result = await useCase.executeFromScanResult({
+      parentBlockId: PARENT_BLOCK_ID,
+      parentParagraphId: '20260101000000-parent-p',
+      parentParagraphText: `((${CONCEPT_BLOCK_ID}))::定义文本`,
+      parentParagraphKramdown: `((${CONCEPT_BLOCK_ID}))::定义文本`,
+      parentKramdown: `* ((${CONCEPT_BLOCK_ID}))::定义文本`,
+      nodes: createDescriptorMultilineScanResult().nodes,
+      stoppedByDocumentReference: false,
+    }, 'builtin-list-concept-multiline');
+
+    expect(result.ok).toBe(true);
+    expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledTimes(2);
+    expect(xiuyuanAppService.createFromBlocks).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        templateId: 'builtin-concept-descriptor',
+        fieldMapping: expect.objectContaining({
+          concept: CONCEPT_BLOCK_ID,
+          descriptor: CHILD_PARAGRAPH_ID,
+          cdf_group_hint: 'Essence',
+          cdf_child_cue: '',
+          cdf_child_answer: 'focus',
+        }),
+      })
+    );
+    if (result.ok) {
+      expect(result.value.createdDefinition).toBe(1);
+      expect(result.value.createdDescriptor).toBe(1);
+    }
+  });
+
   it('injects CDF fusion metadata for ;;; descriptor-multiline children', async () => {
     mockedResolveCdfMultilineScan.mockResolvedValue(createDescriptorMultilineScanResult());
 

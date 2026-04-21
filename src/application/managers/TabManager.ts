@@ -326,6 +326,9 @@ function normalizeReviewQueueSessionSnapshot(value: unknown): ReviewQueueSession
     pendingRotateCardId: typeof value.pendingRotateCardId === 'string'
       ? value.pendingRotateCardId
       : null,
+    deferOnceCardId: typeof value.deferOnceCardId === 'string'
+      ? value.deferOnceCardId
+      : null,
     lastCounterSnapshot: isRecord(lastCounterSnapshot) ? lastCounterSnapshot : null,
   };
 }

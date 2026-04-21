@@ -1,6 +1,6 @@
 import { err, ok, isErr, type Result } from '@/types/result';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
-import { resolveCdfMultilineScan } from './shared/CdfMultilineScanner';
+import { resolveCdfMultilineScan, type CdfScanResult } from './shared/CdfMultilineScanner';
 import {
   detectDescriptorOrDefinitionKind,
   templateIdFromDescriptorOrDefinitionKind,
@@ -208,17 +208,30 @@ export class CreateCdfMultilineCardsUseCase {
 
   async execute(command: CreateCdfMultilineCardsCommand): Promise<Result<CreateCdfMultilineCardsPayload>> {
     try {
-      const fallbackForNone = command.templateId === 'builtin-list-concept-multiline' ? 'definition' : 'descriptor';
       const scanResult = await resolveCdfMultilineScan(command.parentBlockId, this.siyuanApi);
+      return this.executeFromScanResult(scanResult, command.templateId, command.deckId);
+    } catch (error) {
+      logger.error('Failed to create CDF multiline cards:', error);
+      return err(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  async executeFromScanResult(
+    scanResult: CdfScanResult,
+    templateId: CdfMultilineTemplateId,
+    deckId?: string,
+  ): Promise<Result<CreateCdfMultilineCardsPayload>> {
+    try {
+      const fallbackForNone = templateId === 'builtin-list-concept-multiline' ? 'definition' : 'descriptor';
 
       let conceptBlockId: string | null = null;
-      if (command.templateId === 'builtin-list-concept-multiline') {
+      if (templateId === 'builtin-list-concept-multiline') {
         conceptBlockId = await resolveConceptDocumentIdFromReference(scanResult.parentParagraphKramdown, this.siyuanApi);
         if (!conceptBlockId && scanResult.parentKramdown !== scanResult.parentParagraphKramdown) {
           conceptBlockId = await resolveConceptDocumentIdFromReference(scanResult.parentKramdown, this.siyuanApi);
         }
       } else {
-        const located = await findConceptByUpwardSearch(command.parentBlockId, this.siyuanApi as never);
+        const located = await findConceptByUpwardSearch(scanResult.parentBlockId, this.siyuanApi as never);
         conceptBlockId = located?.conceptId || null;
       }
 
@@ -230,7 +243,7 @@ export class CreateCdfMultilineCardsUseCase {
         conceptBlockId,
         this.xiuyuanAppService,
         this.siyuanApi,
-        command.deckId
+        deckId
       );
       if (isErr(ensureResult)) {
         return err(ensureResult.error);
@@ -298,7 +311,7 @@ export class CreateCdfMultilineCardsUseCase {
           blockIds: definition ? [paragraphId, conceptBlockId] : [conceptBlockId, paragraphId],
           templateId,
           fieldMapping,
-          deckId: command.deckId || this.siyuanApi.BUILTIN_DECK_ID,
+          deckId: deckId || this.siyuanApi.BUILTIN_DECK_ID,
           cardType: 'descriptor',
         });
 
@@ -324,7 +337,7 @@ export class CreateCdfMultilineCardsUseCase {
           ? parentMarkerKindFromBlockKramdown
           : parentMarkerKindFromParagraphText;
 
-      const canCreateFromParent = command.templateId === 'builtin-list-concept-multiline'
+      const canCreateFromParent = templateId === 'builtin-list-concept-multiline'
         && parentMarkerKind.startsWith('definition');
       if (scanResult.nodes.length === 0 && !canCreateFromParent) {
         return err(new Error('未找到可制卡的子级块'));
@@ -333,12 +346,12 @@ export class CreateCdfMultilineCardsUseCase {
       if (canCreateFromParent) {
         await createForParagraph(
           scanResult.parentParagraphId,
-          command.parentBlockId,
+          scanResult.parentBlockId,
           parentMarkerKind,
         );
       }
 
-      if (command.templateId === 'builtin-list-descriptor-multiline' && parentMarkerKind === 'descriptor-multiline') {
+      if (templateId === 'builtin-list-descriptor-multiline' && parentMarkerKind === 'descriptor-multiline') {
         const descriptorGroupHint = extractDescriptorGroupHintFromCandidates(
           scanResult.parentParagraphKramdown,
           scanResult.parentParagraphText
@@ -384,7 +397,10 @@ export class CreateCdfMultilineCardsUseCase {
             const paragraph = await loadParagraphMarkdownAndContent(paragraphId);
             const parsedCueAnswer = parseCueAndAnswer(paragraph.content || paragraph.markdown);
             const kind = detectDescriptorOrDefinitionKind(paragraph.markdown);
-            await createForParagraph(paragraphId, nestedListItemId, kind, {
+            const nestedMarkerKind = kind === 'none' && templateId === 'builtin-list-concept-multiline'
+              ? 'descriptor-forward'
+              : kind;
+            await createForParagraph(paragraphId, nestedListItemId, nestedMarkerKind, {
               groupHint: descriptorGroupHint,
               cue: parsedCueAnswer.cue,
               answer: parsedCueAnswer.answer,

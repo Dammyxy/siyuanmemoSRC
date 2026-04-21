@@ -82,6 +82,42 @@ function createListTreeMutationFixture(rootId: string, rootText: string, childTe
   };
 }
 
+function createNestedCdfMutationFixture(rootId: string, definitionText: string, groupTitle: string, childTexts: string[]) {
+  const listId = `${rootId}-list`;
+  const rootParagraphId = `${rootId}-p`;
+  const groupItemId = `${rootId}-group`;
+  const groupParagraphId = `${groupItemId}-p`;
+  const nestedListId = `${groupItemId}-nested-list`;
+  const rows: Array<Record<string, unknown>> = [
+    { id: listId, parent_id: 'target-doc', root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '1' },
+    { id: rootId, parent_id: listId, root_id: 'target-doc', type: 'i', content: definitionText, markdown: definitionText, sort: '2' },
+    { id: rootParagraphId, parent_id: rootId, root_id: 'target-doc', type: 'p', content: definitionText, markdown: definitionText, sort: '3' },
+    { id: `${rootId}-nested-list`, parent_id: rootId, root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '4' },
+    { id: groupItemId, parent_id: `${rootId}-nested-list`, root_id: 'target-doc', type: 'i', content: `${groupTitle};;;`, markdown: `${groupTitle};;;`, sort: '5' },
+    { id: groupParagraphId, parent_id: groupItemId, root_id: 'target-doc', type: 'p', content: `${groupTitle};;;`, markdown: `${groupTitle};;;`, sort: '6' },
+    { id: nestedListId, parent_id: groupItemId, root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '7' },
+  ];
+  childTexts.forEach((childText, index) => {
+    const itemId = `${groupItemId}-child-${index + 1}`;
+    rows.push(
+      { id: itemId, parent_id: nestedListId, root_id: 'target-doc', type: 'i', content: childText, markdown: childText, sort: String(8 + index * 2) },
+      { id: `${itemId}-p`, parent_id: itemId, root_id: 'target-doc', type: 'p', content: childText, markdown: childText, sort: String(9 + index * 2) },
+    );
+  });
+  return {
+    rows,
+    mutation: {
+      doOperations: rows.map((row) => ({
+        action: 'insert',
+        id: row.id,
+        parentID: row.parent_id,
+        data: row.markdown,
+      })),
+    },
+    rootId,
+  };
+}
+
 function extractQuotedSqlValues(stmt: string): string[] {
   return Array.from(stmt.matchAll(/'((?:[^']|'')+)'/g)).map((match) => match[1]!.replace(/''/g, "'"));
 }
@@ -360,7 +396,7 @@ describe('AIFlashcardToolService', () => {
       return cdfFixture.rows.filter((row) => ids.includes(String(row.id)));
     });
     const xiuyuanService = createXiuyuanService();
-    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'execute')
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'executeFromScanResult')
       .mockResolvedValue(ok({
         createdDefinition: 1,
         createdDescriptor: 1,
@@ -418,10 +454,13 @@ describe('AIFlashcardToolService', () => {
       '* ((concept-doc-1))::自变量在底数位置，指数固定的函数。\n  * 识别线索;;通常写成 y = x^a',
       'daily-doc-1',
     );
-    expect(executeSpy).toHaveBeenCalledWith(expect.objectContaining({
-      parentBlockId: 'cdf-root-1',
-      templateId: 'builtin-list-concept-multiline',
-    }));
+    expect(executeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentBlockId: 'cdf-root-1',
+      }),
+      'builtin-list-concept-multiline',
+      undefined,
+    );
     expect(created).toMatchObject({
       createdCount: 1,
       createdDefinitionCount: 1,
@@ -465,7 +504,7 @@ describe('AIFlashcardToolService', () => {
       return cdfFixture.rows.filter((row) => ids.includes(String(row.id)));
     });
     const xiuyuanService = createXiuyuanService();
-    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'execute')
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'executeFromScanResult')
       .mockResolvedValue(ok({
         createdDefinition: 1,
         createdDescriptor: 0,
@@ -512,10 +551,13 @@ describe('AIFlashcardToolService', () => {
       '* ((concept-doc-legacy))::旧会话里保留下来的定义。',
       'daily-doc-1',
     );
-    expect(executeSpy).toHaveBeenCalledWith(expect.objectContaining({
-      parentBlockId: 'cdf-root-legacy',
-      templateId: 'builtin-list-concept-multiline',
-    }));
+    expect(executeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentBlockId: 'cdf-root-legacy',
+      }),
+      'builtin-list-concept-multiline',
+      undefined,
+    );
     expect(created).toMatchObject({
       createdCount: 1,
       createdDefinitionCount: 1,
@@ -525,33 +567,39 @@ describe('AIFlashcardToolService', () => {
     executeSpy.mockRestore();
   });
 
-  it('expands semantic CDF descriptor groups into repeated ;; children and falls back to kramdown for the inserted root list item', async () => {
-    const cdfFixture = createListTreeMutationFixture(
+  it('builds mixed semantic CDF scan results from kramdown fallback and delegates to executeFromScanResult', async () => {
+    const cdfFixture = createNestedCdfMutationFixture(
       'cdf-root-fallback',
       '((concept-doc-1))::自变量在底数位置，指数固定的函数。',
-      [
-        '识别线索;;通常写成 y = x^a',
-        '识别线索;;指数固定',
-      ],
+      '识别线索',
+      ['通常写成 y = x^a', '指数固定'],
     );
     const siyuanPort = createSiyuanPort(cdfFixture);
     siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(cdfFixture.mutation);
     siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      if (stmt.includes('WHERE parent_id IN')) {
+        const ids = extractQuotedSqlValues(stmt);
+        return cdfFixture.rows.filter((row) => (
+          ids.includes(String(row.parent_id))
+          && String(row.type) === 'p'
+        ));
+      }
       const ids = extractQuotedSqlValues(stmt);
       return cdfFixture.rows.filter((row) => (
         ids.includes(String(row.id))
         && String(row.type) === 'p'
       ));
     });
-    siyuanPort.getBlockKramdown.mockResolvedValueOnce({
+    siyuanPort.getBlockKramdown.mockResolvedValue({
       kramdown: [
         '* {: id="cdf-root-fallback"} ((concept-doc-1))::自变量在底数位置，指数固定的函数。',
-        '  * {: id="cdf-root-fallback-child-1"} 识别线索;;通常写成 y = x^a',
-        '  * {: id="cdf-root-fallback-child-2"} 识别线索;;指数固定',
+        '  * {: id="cdf-root-fallback-group"} 识别线索;;;',
+        '    * {: id="cdf-root-fallback-group-child-1"} 通常写成 y = x^a',
+        '    * {: id="cdf-root-fallback-group-child-2"} 指数固定',
       ].join('\n'),
     });
     const xiuyuanService = createXiuyuanService();
-    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'execute')
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'executeFromScanResult')
       .mockResolvedValue(ok({
         createdDefinition: 1,
         createdDescriptor: 2,
@@ -605,17 +653,31 @@ describe('AIFlashcardToolService', () => {
     expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(
       [
         '* ((concept-doc-1))::自变量在底数位置，指数固定的函数。',
-        '  * 识别线索;;通常写成 y = x^a',
-        '  * 识别线索;;指数固定',
+        '  * 识别线索;;;',
+        '    * 通常写成 y = x^a',
+        '    * 指数固定',
       ].join('\n'),
       'daily-doc-1',
     );
-    expect(String(siyuanPort.appendBlockUnderParentDetailed.mock.calls[0]?.[0] || '')).not.toContain(';;;');
+    expect(String(siyuanPort.appendBlockUnderParentDetailed.mock.calls[0]?.[0] || '')).toContain(';;;');
     expect(siyuanPort.getBlockKramdown).toHaveBeenCalledWith('cdf-root-fallback');
-    expect(executeSpy).toHaveBeenCalledWith(expect.objectContaining({
-      parentBlockId: 'cdf-root-fallback',
-      templateId: 'builtin-list-concept-multiline',
-    }));
+    expect(executeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentBlockId: 'cdf-root-fallback',
+        nodes: [
+          expect.objectContaining({
+            id: 'cdf-root-fallback-group',
+            markerKind: 'descriptor-multiline',
+            unorderedChildListItemIds: [
+              'cdf-root-fallback-group-child-1',
+              'cdf-root-fallback-group-child-2',
+            ],
+          }),
+        ],
+      }),
+      'builtin-list-concept-multiline',
+      undefined,
+    );
     expect(created).toMatchObject({
       createdCount: 1,
       createdDefinitionCount: 1,

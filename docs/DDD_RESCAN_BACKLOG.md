@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 97)
+Last update: 2026-04-21 (Round 98)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - semantic CDF mutation-aware scan and incremental-learning unified requery flow
+
+- Task: Stabilize AI semantic CDF creation around a mixed `;; / ;;;` framework without the post-insert `Block does not exist` failure, and rework unified incremental-learning queue advancement so low feedback no longer traps review in a same-card loop.
+- Touched slice: AI workbench / Xiuyuan CDF creation plus review queue adaptation across `src/application/services/{AIFlashcardToolService.ts,AIWorkbenchResultFormatter.ts}`, `src/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase.ts`, `src/ui/ai/AiWorkbenchPane.vue`, `src/application/adapters/UnifiedQueueStrategy.ts`, review-tab snapshot normalization, focused regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Split `CreateCdfMultilineCardsUseCase` into `execute(parentBlockId)` and `executeFromScanResult(...)` so AI semantic CDF no longer depends on a second live scan of the freshly inserted root list item; changed AI semantic CDF materialization to the agreed mixed rules (`1 item -> ;;`, `2+ items -> ;;; + nested children`) while keeping semantic JSON as the source of truth; added a mutation/kramdown-backed semantic CDF scan builder so AI creation can rehydrate root/group/child structure even when SQL rows are partial right after insertion; taught concept-multiline `;;;` groups to treat plain nested children as descriptors instead of accidentally defaulting them to definitions; surfaced the chosen `;; / ;;;` mode in the CDF preview and export formatter; and moved `IncrementalLearning` inside `UnifiedQueueStrategy` to a bounded requery-after-feedback path with persisted `deferOnceCardId`, removing reliance on local cache rotation for the active incremental review flow.
+- Debt deferred: `AIFlashcardToolService` still owns its semantic-CDF scan builder inline instead of sharing one scanner module with manual multiline CDF, `UnifiedQueueStrategy` still contains both the old hot-patch/rotation flow and the new incremental requery flow in one class, and the broader incremental-learning scheduler/order semantics are still owned by the existing queue domain rather than a more explicit “advance policy” contract.
+- Why deferred: Extracting one shared scanner or splitting unified queue strategies by queue family would widen this bounded runtime repair into a larger Xiuyuan/review architecture refactor, while changing incremental scheduling/order rules would go beyond fixing the current loop/stuck-next regression.
+- Next safe step: If semantic CDF keeps growing, extract the mutation/kramdown scan builder into a shared Xiuyuan scanner helper first; if incremental-learning still needs more work after this ships, split its requery-after-feedback path behind an explicit queue-advance policy interface before touching scheduler semantics.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIFlashcardToolService.test.ts src/application/usecases/xiuyuan/__tests__/CreateCdfMultilineCardsUseCase.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-21 - semantic CDF creation aligned with concept-descriptor cards
 
