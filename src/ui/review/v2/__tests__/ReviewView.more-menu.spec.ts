@@ -593,6 +593,62 @@ describe('ReviewView more menu', () => {
     wrapper.unmount();
   });
 
+  it('unsuspends an already suspended current card from the more menu without advancing', async () => {
+    const suspendedCard = {
+      ...buildCard('card-1'),
+      meta: {
+        suspended: true,
+      },
+    };
+    const cardEditorService = {
+      updatePriority: vi.fn(async (_cardId: string, priority: number) => ({
+        card: {
+          ...suspendedCard,
+          priority,
+        },
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissed: vi.fn(async () => ({
+        card: {
+          ...suspendedCard,
+          meta: {},
+        },
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissedMany: vi.fn(async () => ({
+        updatedCardIds: ['card-1', 'peer-1', 'peer-2'],
+        failedCardIds: [],
+      })),
+    };
+    const { wrapper, queue } = mountReviewView({
+      cards: [suspendedCard, buildCard('card-2', 'block-2')],
+      cardEditorService,
+    });
+    await flushPromises();
+
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+
+    const suspendItem = getLatestMenuItems().find((item) => item.id === 'pause-current-card');
+    expect(suspendItem?.label).toBe('取消暂停这张卡片');
+    await suspendItem?.click?.();
+    await flushPromises();
+
+    expect(cardEditorService.setDismissed).toHaveBeenCalledWith('card-1', false);
+    expect(queue.removeCard).not.toHaveBeenCalled();
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
+    expect(reviewViewMoreMenuMocks.showMessage).toHaveBeenCalledWith(
+      '已取消暂停这张卡片',
+      3000,
+      'info',
+    );
+
+    wrapper.unmount();
+  });
+
   it('suspends current and peer cards from the more menu and advances the current card', async () => {
     const { wrapper, queue, cardEditorService } = mountReviewView();
     await flushPromises();
@@ -787,6 +843,53 @@ describe('ReviewView more menu', () => {
     await flushPromises();
     expect(deleteEvent.defaultPrevented).toBe(true);
     expect(cardService.deleteCard).toHaveBeenCalledWith({ cardId: 'card-2' });
+
+    wrapper.unmount();
+  });
+
+  it('unsuspends the current card through review command requests on the active review surface', async () => {
+    const suspendedCard = {
+      ...buildCard('card-1'),
+      meta: {
+        suspended: true,
+      },
+    };
+    const cardEditorService = {
+      updatePriority: vi.fn(async (_cardId: string, priority: number) => ({
+        card: {
+          ...suspendedCard,
+          priority,
+        },
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissed: vi.fn(async () => ({
+        card: {
+          ...suspendedCard,
+          meta: {},
+        },
+        blockInfo: { createdAt: null, updatedAt: null },
+      })),
+      setDismissedMany: vi.fn(async () => ({
+        updatedCardIds: ['card-1', 'peer-1', 'peer-2'],
+        failedCardIds: [],
+      })),
+    };
+    const { wrapper, queue } = mountReviewView({
+      cards: [suspendedCard, buildCard('card-2', 'block-2')],
+      cardEditorService,
+      attachInDialog: true,
+    });
+    await flushPromises();
+
+    const suspendEvent = new CustomEvent(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, { cancelable: true });
+    window.dispatchEvent(suspendEvent);
+    await flushPromises();
+
+    expect(suspendEvent.defaultPrevented).toBe(true);
+    expect(cardEditorService.setDismissed).toHaveBeenCalledWith('card-1', false);
+    expect(queue.removeCard).not.toHaveBeenCalled();
+    expect(queue.onFeedback).not.toHaveBeenCalled();
+    expect(wrapper.get('.review-content-card-id').text()).toBe('card-1');
 
     wrapper.unmount();
   });

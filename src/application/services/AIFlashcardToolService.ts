@@ -1543,20 +1543,21 @@ export class AIFlashcardToolService {
     insertedRootBlockId: string,
     kramdown: string,
   ): Promise<SemanticCdfTreeNode | null> {
-    const lineEntries = String(kramdown || '')
-      .split(/\r?\n/)
-      .map((line) => {
-        const match = line.match(/^(\s*)[*+-]\s+\{:\s*id="([^"]+)"[^}]*\}\s*(.*)$/);
-        if (!match) {
+    const lines = String(kramdown || '').split(/\r?\n/);
+    const lineEntries = lines
+      .map((line, index) => {
+        const listItem = this.parseKramdownListItemLine(line);
+        if (!listItem) {
           return null;
         }
         return {
-          listItemId: normalizeString(match[2]),
-          depth: Math.floor((match[1]?.length || 0) / 2),
-          text: normalizeString(match[3]),
+          listItemId: listItem.id,
+          paragraphId: this.resolveFollowingKramdownParagraphId(lines, index, listItem.indent),
+          depth: listItem.depth,
+          text: listItem.text,
         };
       })
-      .filter((entry): entry is { listItemId: string; depth: number; text: string } => Boolean(entry?.listItemId));
+      .filter((entry): entry is { listItemId: string; paragraphId: string; depth: number; text: string } => Boolean(entry?.listItemId));
     if (lineEntries.length === 0) {
       return null;
     }
@@ -1572,10 +1573,7 @@ export class AIFlashcardToolService {
     let rootNode: SemanticCdfTreeNode | null = null;
     for (const entry of lineEntries) {
       const paragraph = paragraphByParentId.get(entry.listItemId);
-      const paragraphId = normalizeString(paragraph?.id);
-      if (!paragraphId) {
-        continue;
-      }
+      const paragraphId = normalizeString(paragraph?.id) || entry.paragraphId || entry.listItemId;
       const markdownText = normalizeString(paragraph?.markdown) || entry.text;
       const text = normalizeString(paragraph?.content) || entry.text;
       const node: SemanticCdfTreeNode = {
@@ -1601,17 +1599,74 @@ export class AIFlashcardToolService {
       return rootNode;
     }
     const rootParagraph = paragraphByParentId.get(rootEntry.listItemId);
-    if (!rootParagraph?.id) {
+    const rootParagraphId = normalizeString(rootParagraph?.id) || rootEntry.paragraphId || rootEntry.listItemId || insertedRootBlockId;
+    if (!rootParagraphId) {
       return null;
     }
     return {
       listItemId: rootEntry.listItemId || insertedRootBlockId,
-      paragraphId: rootParagraph.id,
-      text: normalizeString(rootParagraph.content) || rootEntry.text,
-      markdown: normalizeString(rootParagraph.markdown) || rootEntry.text,
+      paragraphId: rootParagraphId,
+      text: normalizeString(rootParagraph?.content) || rootEntry.text,
+      markdown: normalizeString(rootParagraph?.markdown) || rootEntry.text,
       depth: rootEntry.depth,
       children: [],
     };
+  }
+
+  private extractKramdownAttributeId(source: string): string {
+    const match = String(source || '').match(/\bid="([^"]+)"/);
+    return normalizeString(match?.[1]);
+  }
+
+  private parseKramdownListItemLine(line: string): {
+    id: string;
+    indent: number;
+    depth: number;
+    text: string;
+  } | null {
+    const match = String(line || '').match(/^(\s*)[*+-]\s+\{:\s*([^}]*)\}\s*(.*)$/);
+    if (!match) {
+      return null;
+    }
+    const id = this.extractKramdownAttributeId(match[2] || '');
+    if (!id) {
+      return null;
+    }
+    const indent = match[1]?.length || 0;
+    return {
+      id,
+      indent,
+      depth: Math.floor(indent / 2),
+      text: normalizeString(match[3]),
+    };
+  }
+
+  private parseKramdownAttributeOnlyLineId(line: string): string {
+    const match = String(line || '').match(/^\s*\{:\s*([^}]*)\}\s*$/);
+    return match ? this.extractKramdownAttributeId(match[1] || '') : '';
+  }
+
+  private resolveFollowingKramdownParagraphId(
+    lines: string[],
+    listLineIndex: number,
+    listIndent: number,
+  ): string {
+    for (let index = listLineIndex + 1; index < lines.length; index += 1) {
+      const line = lines[index] || '';
+      if (!line.trim()) {
+        continue;
+      }
+      if (this.parseKramdownListItemLine(line)) {
+        return '';
+      }
+      const id = this.parseKramdownAttributeOnlyLineId(line);
+      const indent = line.match(/^(\s*)/)?.[1]?.length || 0;
+      if (id && indent > listIndent) {
+        return id;
+      }
+      return '';
+    }
+    return '';
   }
 
   private async loadParagraphRowsForListItems(listItemIds: string[]): Promise<MutationRow[]> {
@@ -2061,13 +2116,13 @@ export class AIFlashcardToolService {
     const lines = String(kramdown || '').split(/\r?\n/);
     const listItemLines = lines
       .map((line, index) => {
-        const match = line.match(/^(\s*)[*+-]\s+\{:\s*id="([^"]+)"/);
-        if (!match) {
+        const listItem = this.parseKramdownListItemLine(line);
+        if (!listItem) {
           return null;
         }
         return {
-          id: normalizeString(match[2]),
-          indent: match[1]?.length || 0,
+          id: listItem.id,
+          indent: listItem.indent,
           index,
         };
       })
@@ -2089,9 +2144,9 @@ export class AIFlashcardToolService {
   private resolveRootListItemIdFromKramdown(rootBlockId: string, kramdown: string): string | null {
     const firstListItemId = String(kramdown || '')
       .split(/\r?\n/)
-      .map((line) => line.match(/^(\s*)[*+-]\s+\{:\s*id="([^"]+)"/))
-      .find((match) => Boolean(normalizeString(match?.[2])))
-      ?.[2];
+      .map((line) => this.parseKramdownListItemLine(line))
+      .find((entry) => Boolean(entry?.id))
+      ?.id;
     return normalizeString(firstListItemId) || rootBlockId || null;
   }
 

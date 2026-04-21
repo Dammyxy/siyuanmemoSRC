@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 101)
+Last update: 2026-04-21 (Round 102)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - review suspend toggle and kramdown mark CDF recovery
+
+- Task: Make the review more-menu single-card suspend action toggle suspended state, and restore AI semantic CDF creation from kramdown mark list trees when mutation rows do not yet expose paragraph blocks.
+- Touched slice: Review card actions plus AI workbench / Xiuyuan semantic CDF creation across `src/ui/review/v2/ReviewView.vue`, `src/application/services/AIFlashcardToolService.ts`, i18n, and focused regression coverage.
+- Debt fixed now: Reused the existing `isCardDismissed()` domain helper so Review UI and command events share one current-card suspend/unsuspend branch; kept same-block batch suspend as explicit suspend-only behavior; extended the kramdown fallback parser to accept list-item mark lines, standalone paragraph attribute lines, arbitrary attribute order, and SQL-empty paragraph hydration without dropping the source tree.
+- Debt deferred: The semantic-CDF kramdown parser still lives inside `AIFlashcardToolService` alongside the semantic plan mapper instead of a shared Xiuyuan scanner helper.
+- Why deferred: Extracting a shared scanner would affect manual and AI CDF scan ownership, while the active bug was a narrow kramdown mark recovery failure on the current AI semantic creation path.
+- Next safe step: If another CDF creation surface needs kramdown mark recovery, extract list-item/paragraph-id parsing into a shared Xiuyuan scanner utility before adding more fallback rules.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/application/services/__tests__/AIFlashcardToolService.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-21 - review batch card actions and semantic CDF role preservation
 

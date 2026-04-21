@@ -746,6 +746,192 @@ describe('AIFlashcardToolService', () => {
     executeSpy.mockRestore();
   });
 
+  it('restores semantic CDF tree from kramdown mark when mutation rows lack paragraph blocks', async () => {
+    const definitionText = '学习是学习者在实践共同体中通过合法的边缘性参与，逐渐增加参与度、转变身份，同时共同体也因此改变的社会性过程。';
+    const mutationRows: Array<Record<string, unknown>> = [
+      { id: 'cdf-root-mark', parent_id: 'daily-doc-1', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '1' },
+      { id: 'cdf-root-mark-traits', parent_id: 'cdf-root-mark', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '2' },
+      { id: 'cdf-root-mark-trait-1', parent_id: 'cdf-root-mark-traits', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '3' },
+      { id: 'cdf-root-mark-trait-2', parent_id: 'cdf-root-mark-traits', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '4' },
+      { id: 'cdf-root-mark-trait-3', parent_id: 'cdf-root-mark-traits', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '5' },
+      { id: 'cdf-root-mark-core', parent_id: 'cdf-root-mark', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '6' },
+      { id: 'cdf-root-mark-core-1', parent_id: 'cdf-root-mark-core', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '7' },
+      { id: 'cdf-root-mark-core-2', parent_id: 'cdf-root-mark-core', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '8' },
+      { id: 'cdf-root-mark-core-3', parent_id: 'cdf-root-mark-core', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '9' },
+      { id: 'cdf-root-mark-critique', parent_id: 'cdf-root-mark', root_id: 'daily-doc-1', type: 'i', content: '', markdown: '', sort: '10' },
+    ];
+    const cdfFixture = {
+      rows: mutationRows,
+      mutation: {
+        doOperations: mutationRows.map((row) => ({
+          action: 'insert',
+          id: row.id,
+          parentID: row.parent_id,
+          data: row.markdown,
+        })),
+      },
+    };
+    const kramdownMark = [
+      `- {: id="cdf-root-mark" updated="20260421202747"}((20260421161755-idsbuho '20260421161755-idsbuho'))::${definitionText}`,
+      '  {: id="cdf-root-mark-p" updated="20260421202747"}',
+      '',
+      '  - {: id="cdf-root-mark-traits" updated="20260421202747"}特征;;;',
+      '    {: id="cdf-root-mark-traits-p" updated="20260421202747"}',
+      '',
+      '    - {: id="cdf-root-mark-trait-1" updated="20260421202747"}社会性和情境性',
+      '      {: id="cdf-root-mark-trait-1-p" updated="20260421202747"}',
+      '    - {: id="cdf-root-mark-trait-2" updated="20260421202747"}强调共同体参与',
+      '      {: id="cdf-root-mark-trait-2-p" updated="20260421202747"}',
+      '    - {: id="cdf-root-mark-trait-3" updated="20260421202747"}知识与实践活动相关',
+      '      {: id="cdf-root-mark-trait-3-p" updated="20260421202747"}',
+      '  - {: id="cdf-root-mark-core" updated="20260421202747"}核心概念;;;',
+      '    {: id="cdf-root-mark-core-p" updated="20260421202747"}',
+      '',
+      '    - {: id="cdf-root-mark-core-1" updated="20260421202747"}合法的边缘性参与',
+      '      {: updated="20260421202747" id="cdf-root-mark-core-1-p"}',
+      '    - {: id="cdf-root-mark-core-2" updated="20260421202747"}实践共同体',
+      '      {: id="cdf-root-mark-core-2-p" updated="20260421202747"}',
+      '    - {: updated="20260421202747" id="cdf-root-mark-core-3"}身份转变',
+      '      {: updated="20260421202747" id="cdf-root-mark-core-3-p"}',
+      '  - {: id="cdf-root-mark-critique" updated="20260421202747"}批评对象;;脱离情境的抽象学习',
+      '    {: updated="20260421202747" id="cdf-root-mark-critique-p"}',
+    ].join('\n');
+    const siyuanPort = createSiyuanPort(cdfFixture);
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(cdfFixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      if (stmt.includes('WHERE parent_id IN')) {
+        return [];
+      }
+      if (stmt.includes('WHERE id IN')) {
+        const ids = extractQuotedSqlValues(stmt);
+        return mutationRows.filter((row) => ids.includes(String(row.id)));
+      }
+      return [];
+    });
+    siyuanPort.getBlockKramdown.mockResolvedValue({ kramdown: kramdownMark });
+    const xiuyuanService = createXiuyuanService();
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'executeFromScanResult')
+      .mockResolvedValue(ok({
+        createdDefinition: 1,
+        createdDescriptor: 7,
+        skipped: 0,
+        skippedExistingBinding: 0,
+        skippedNoTemplate: 0,
+        failed: 0,
+        stoppedByDocumentReference: false,
+      }));
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => xiuyuanService as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+
+    const created = await service.createSemanticCdfCards({
+      anchors: [{
+        id: 'anchor-mark',
+        conceptName: '情境学习理论',
+        selected: true,
+        resolution: {
+          status: 'resolved-manual',
+          conceptBlockId: '20260421161755-idsbuho',
+          conceptTitle: '情境学习理论',
+          reason: '手动选择概念文档。',
+          notebookId: 'notebook-1',
+        },
+        definitionCandidates: [
+          {
+            id: 'definition-mark',
+            text: definitionText,
+            selected: true,
+          },
+        ],
+        descriptorGroups: [
+          {
+            id: 'group-traits',
+            title: '特征',
+            selected: true,
+            items: ['社会性和情境性', '强调共同体参与', '知识与实践活动相关']
+              .map((text, index) => ({ id: `trait-${index + 1}`, text, selected: true })),
+          },
+          {
+            id: 'group-core',
+            title: '核心概念',
+            selected: true,
+            items: ['合法的边缘性参与', '实践共同体', '身份转变']
+              .map((text, index) => ({ id: `core-${index + 1}`, text, selected: true })),
+          },
+          {
+            id: 'group-critique',
+            title: '批评对象',
+            selected: true,
+            items: [{ id: 'critique-1', text: '脱离情境的抽象学习', selected: true }],
+          },
+        ],
+      }],
+    } as never, {
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
+
+    expect(siyuanPort.getBlockKramdown).toHaveBeenCalledWith('cdf-root-mark');
+    const scanResult = executeSpy.mock.calls[0]?.[0] as CdfScanResult;
+    expect(scanResult).toMatchObject({
+      parentBlockId: 'cdf-root-mark',
+      parentParagraphId: 'cdf-root-mark-p',
+      parentParagraphKramdown: `((20260421161755-idsbuho))::${definitionText}`,
+    });
+    expect(scanResult.nodes).toHaveLength(3);
+    expect(scanResult.nodes[0]).toMatchObject({
+      id: 'cdf-root-mark-traits',
+      firstParagraphId: 'cdf-root-mark-traits-p',
+      markerKind: 'descriptor-multiline',
+      unorderedChildListItemIds: [
+        'cdf-root-mark-trait-1',
+        'cdf-root-mark-trait-2',
+        'cdf-root-mark-trait-3',
+      ],
+    });
+    expect(scanResult.nodes[1]).toMatchObject({
+      id: 'cdf-root-mark-core',
+      firstParagraphId: 'cdf-root-mark-core-p',
+      markerKind: 'descriptor-multiline',
+      unorderedChildListItemIds: [
+        'cdf-root-mark-core-1',
+        'cdf-root-mark-core-2',
+        'cdf-root-mark-core-3',
+      ],
+    });
+    expect(scanResult.nodes[2]).toMatchObject({
+      id: 'cdf-root-mark-critique',
+      firstParagraphId: 'cdf-root-mark-critique-p',
+      firstParagraphKramdown: '批评对象;;脱离情境的抽象学习',
+      markerKind: 'descriptor-forward',
+      descriptorMeta: {
+        groupHint: '批评对象',
+        cue: '',
+        answer: '脱离情境的抽象学习',
+      },
+    });
+    expect(scanResult.nodes.some((node) => node.markerKind.startsWith('definition'))).toBe(false);
+    expect(created).toMatchObject({
+      createdDefinitionCount: 1,
+      createdDescriptorCount: 7,
+      failedCount: 0,
+      itemResults: [{
+        insertedRootBlockId: 'cdf-root-mark',
+        createdDefinitionCount: 1,
+        createdDescriptorCount: 7,
+        error: null,
+      }],
+    });
+    executeSpy.mockRestore();
+  });
+
   it('keeps semantic CDF definition and descriptor roles when inserted rows lose CDF marker text', async () => {
     const traitItems = [
       '发生在思考探索衍生问题的过程中',

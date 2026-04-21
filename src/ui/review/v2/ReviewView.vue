@@ -173,6 +173,7 @@ import {
   type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
@@ -1487,6 +1488,11 @@ function resolveCurrentReviewCardPriority(): number | null {
   return Math.max(0, Math.min(100, Math.floor(Number(currentCard.priority) || 0)));
 }
 
+function resolveCurrentReviewCardDismissed(): boolean {
+  const currentCard = state.value.content.card as FSRSCard | null | undefined;
+  return currentCard ? isCardDismissed(currentCard) : false;
+}
+
 function buildReviewPriorityMenuLabel(priority: number | null): string {
   const displayValue = priority === null ? '-' : String(priority);
   return t('reviewPriorityMenuLabel', '优先级：{value}').replace('{value}', displayValue);
@@ -2737,7 +2743,14 @@ async function handleDismissCurrentCard(): Promise<void> {
   }
 
   try {
-    await cardEditorService.setDismissed(reference.cardId, true);
+    const nextDismissed = !resolveCurrentReviewCardDismissed();
+    const snapshot = await cardEditorService.setDismissed(reference.cardId, nextDismissed);
+    if (!nextDismissed) {
+      await hook.refreshCurrentItem(snapshot.card, buildExpectedRefreshOptions(reference));
+      showMessage(t('reviewCardUnsuspended', '已取消暂停这张卡片'), 3000, 'info');
+      return;
+    }
+
     await advanceDismissedCurrentCard({
       cardId: reference.cardId,
       blockId: reference.blockId,
@@ -2745,9 +2758,9 @@ async function handleDismissCurrentCard(): Promise<void> {
     });
     showMessage(t('reviewCardSuspended', '已暂停这张卡片'), 3000, 'info');
   } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to suspend current card:', error);
+    logger.error('[SiYuanMemo][ReviewView] Failed to toggle current card dismissed state:', error);
     showMessage(
-      t('reviewCardSuspendFailed', '暂停卡片失败：{message}')
+      t('reviewCardDismissToggleFailed', '更新暂停状态失败：{message}')
         .replace('{message}', error instanceof Error ? error.message : String(error)),
       5000,
       'error',
@@ -3037,6 +3050,7 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
   const peerInfo = resolveCurrentBlockPeerCards();
   const peerCount = peerInfo?.peerCards.length ?? 0;
   const currentPriority = resolveCurrentReviewCardPriority();
+  const currentDismissed = resolveCurrentReviewCardDismissed();
   const editableSource = resolveCurrentEditableSource();
   const canEditCurrentPriority = hasCurrentReviewCard() && Boolean(getCardEditorService());
   const canSuspendCurrentCard = hasCurrentReviewCard() && Boolean(getCardEditorService());
@@ -3126,7 +3140,9 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
   items.push({
     id: 'pause-current-card',
     icon: 'iconPause',
-    label: t('suspendCurrentCard', '暂停这张卡片'),
+    label: currentDismissed
+      ? t('unsuspendCurrentCard', '取消暂停这张卡片')
+      : t('suspendCurrentCard', '暂停这张卡片'),
     disabled: !canSuspendCurrentCard,
     click: () => void handleDismissCurrentCard(),
   });
