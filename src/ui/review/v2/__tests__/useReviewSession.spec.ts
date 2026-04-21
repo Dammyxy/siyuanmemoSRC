@@ -14,6 +14,26 @@ function createItem(id: string) {
   };
 }
 
+function createNextDues() {
+  return {
+    1: '1m',
+    2: '10m',
+    3: '1d',
+    4: '4d',
+  } as const;
+}
+
+function hydrateItem<T extends Record<string, unknown> | null>(item: T): T {
+  if (!item) {
+    return item;
+  }
+
+  return {
+    ...item,
+    nextDues: createNextDues(),
+  } as T;
+}
+
 function createQueue() {
   const items = [createItem('card-1'), createItem('card-2'), createItem('card-3')];
   let index = 0;
@@ -41,6 +61,7 @@ function createQueue() {
       showRatingButtons: true,
       allowSkip: true,
     })),
+    hydrateCurrentItem: vi.fn(async (item) => hydrateItem(item)),
     canGoBack: vi.fn(() => true),
     goBack: vi.fn(async () => items[0]),
     resetSessionState: vi.fn(() => {
@@ -215,6 +236,53 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+function createNeuralUnderlyingQueue(resolver: (blockId: string) => unknown) {
+  return {
+    getEngineMode: vi.fn(() => 'orbit'),
+    setEngineMode: vi.fn(async () => undefined),
+    getSourceSnapshot: vi.fn(() => []),
+    setSourceEntry: vi.fn(async () => undefined),
+    getSeedSnapshot: vi.fn(() => []),
+    setSeedEntry: vi.fn(async () => undefined),
+    getAnchorSnapshot: vi.fn(() => []),
+    setAnchorEntry: vi.fn(async () => undefined),
+    clearAnchors: vi.fn(async () => undefined),
+    getCurrentBatchSnapshot: vi.fn(() => null),
+    getConceptBlocks: vi.fn(() => []),
+    getFocusPoolSnapshot: vi.fn(() => []),
+    setFocusPoolEntry: vi.fn(async () => undefined),
+    clearFocusPool: vi.fn(async () => undefined),
+    setCurrentFocus: vi.fn(async () => undefined),
+    startRoamingFromFocus: vi.fn(async () => undefined),
+    getHistoryCount: vi.fn(() => 0),
+    getHistoryPage: vi.fn(() => ({ entries: [], totalCount: 0, hasMore: false })),
+    getHistorySnapshot: vi.fn(() => []),
+    getHistoryEntryByEventId: vi.fn(() => null),
+    getHistoryEntriesByNodeId: vi.fn(() => []),
+    getHistoryHitCount: vi.fn(() => 0),
+    getActivationTrace: vi.fn(() => null),
+    getSessionFocusStack: vi.fn(() => []),
+    getPinnedFocusBlocks: vi.fn(() => []),
+    setPinnedFocusBlock: vi.fn(async () => undefined),
+    jumpToHistoryNode: vi.fn(async () => true),
+    getPathItemByNodeId: vi.fn(async (blockId: string) => resolver(blockId)),
+    getNavigationState: vi.fn(() => ({
+      currentPathIndex: 0,
+      currentNodeId: null,
+      currentEventId: null,
+      navigationMode: 'follow',
+      engineMode: 'orbit',
+      engineSessionId: 'engine-session',
+      hasBookmark: false,
+      pathLength: 0,
+      sessionId: 'session-1',
+    })),
+    setNavigationMode: vi.fn(),
+    returnToBookmark: vi.fn(() => false),
+    clearHistory: vi.fn(),
+  };
+}
+
 describe('useReviewSession', () => {
   it('increments answered and correct counts on grade', async () => {
     const { getHook, wrapper } = mountHook();
@@ -260,11 +328,21 @@ describe('useReviewSession', () => {
       initialShowAnswer: true,
     });
     await flushAsync();
+    await flushAsync();
 
     const hook = getHook();
     expect(queue.next).not.toHaveBeenCalled();
+    expect(queue.hydrateCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ id: 'restored-card' }));
     expect(hook.state.value.content.id).toBe('restored-card');
     expect(hook.context.value.showAnswer).toBe(true);
+    expect(adapter.toUIState).toHaveBeenLastCalledWith(
+      queue,
+      expect.objectContaining({
+        id: 'restored-card',
+        nextDues: createNextDues(),
+      }),
+      expect.anything(),
+    );
 
     wrapper.unmount();
   });
@@ -480,6 +558,77 @@ describe('useReviewSession', () => {
     expect(hook.state.value.content.id).toBe('card-1');
     expect(hook.state.value.header.priorityBadge.value).toBe('7');
     expect(hook.state.value.header.priorityBadge.priority).toBe(7);
+    expect(queue.hydrateCurrentItem).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: 'card-1',
+      priority: 7,
+    }));
+    expect(adapter.toUIState).toHaveBeenLastCalledWith(
+      queue,
+      expect.objectContaining({
+        id: 'card-1',
+        priority: 7,
+        nextDues: createNextDues(),
+      }),
+      expect.anything(),
+    );
+
+    wrapper.unmount();
+  });
+
+  it('hydrates path-loaded current items before rebuilding neural roam UI state', async () => {
+    const queue = {
+      ...createQueue(),
+    };
+    const underlyingQueue = createNeuralUnderlyingQueue((blockId) => ({
+      ...createItem(`node:${blockId}`),
+      id: `node:${blockId}`,
+      cardID: `node:${blockId}`,
+      blockId,
+      blockID: blockId,
+      meta: {
+        neuralContext: {
+          isFlashcard: true,
+          blockType: 'item',
+        },
+      },
+    }));
+    queue.getUnderlyingQueue = vi.fn(() => underlyingQueue);
+
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string; nextDues?: unknown } | null) => ({
+        ...createReviewState(item?.id ?? 'empty'),
+        header: {
+          ...createReviewState(item?.id ?? 'empty').header,
+          stats: {
+            current: item?.nextDues ? 1 : 0,
+            total: 1,
+            label: item?.nextDues ? 'hydrated' : 'missing',
+            queueName: 'Neural Roam',
+          },
+        },
+      })),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    await hook.loadCardByBlockId('node-target');
+
+    expect(underlyingQueue.getPathItemByNodeId).toHaveBeenCalledWith('node-target');
+    expect(queue.hydrateCurrentItem).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: 'node:node-target',
+      blockId: 'node-target',
+    }));
+    expect(adapter.toUIState).toHaveBeenLastCalledWith(
+      queue,
+      expect.objectContaining({
+        id: 'node:node-target',
+        nextDues: createNextDues(),
+      }),
+      expect.anything(),
+    );
+    expect(hook.state.value.header.stats.label).toBe('hydrated');
 
     wrapper.unmount();
   });

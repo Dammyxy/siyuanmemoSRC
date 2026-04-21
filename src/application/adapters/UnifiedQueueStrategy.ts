@@ -343,6 +343,23 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         }
     }
 
+    async hydrateCurrentItem(card: FSRSCard | null): Promise<FSRSCard | null> {
+        if (!card) {
+            return null;
+        }
+
+        if (!this.shouldComputeNextDues(card)) {
+            return card;
+        }
+
+        const existingNextDues = (card as CardWithNextDues).nextDues;
+        if (existingNextDues && Object.keys(existingNextDues).length > 0) {
+            return card;
+        }
+
+        return this.addNextDues(card);
+    }
+
     canGoBack(): boolean {
         return this.historyStack.length > 0;
     }

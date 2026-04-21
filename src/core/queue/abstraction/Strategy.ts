@@ -60,6 +60,11 @@ export interface IQueueStrategy<TItem extends import('../types').QueueItem = imp
   onFeedback(currentItem: TItem | null, feedback: QueueFeedback): Promise<void>;
 
   /**
+   * Hydrate an externally restored or refreshed current item for display (optional)
+   */
+  hydrateCurrentItem?(item: TItem | null): Promise<TItem | null>;
+
+  /**
    * Go back to the previous reviewed item (optional)
    */
   goBack?(currentItem: TItem | null): Promise<TItem | null>;

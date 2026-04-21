@@ -193,6 +193,17 @@ function resolveNeuralPathLoader<TItem extends QueueItem>(queue: IQueueStrategy<
   };
 }
 
+async function hydrateDisplayItem<TItem extends QueueItem>(
+  queue: IQueueStrategy<TItem>,
+  item: TItem | null,
+): Promise<TItem | null> {
+  if (!item || typeof queue.hydrateCurrentItem !== 'function') {
+    return item;
+  }
+
+  return await queue.hydrateCurrentItem(item);
+}
+
 function ensureSessionState(context: AdapterContext, initialTotal?: number): NonNullable<AdapterContext['session']> {
   const session = context.session ?? {
     startTime: Date.now(),
@@ -422,7 +433,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
         };
 
         if (options?.initialCurrentItem) {
-          currentItem.value = options.initialCurrentItem;
+          currentItem.value = await hydrateDisplayItem(queue, options.initialCurrentItem);
           context.value.showAnswer = options.initialShowAnswer === true;
           started = true;
           await updateState('mount');
@@ -604,7 +615,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
       return;
     }
 
-    currentItem.value = (item as TItem | null) ?? null;
+    currentItem.value = await hydrateDisplayItem(queue, (item as TItem | null) ?? null);
     await updateState('refresh-current');
   });
 
@@ -622,7 +633,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
 
-      currentItem.value = realItem;
+      currentItem.value = await hydrateDisplayItem(queue, realItem);
       context.value.showAnswer = shouldShowAnswerForNeuralItem(realItem);
       await updateState('load-by-block');
 

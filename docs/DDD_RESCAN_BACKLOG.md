@@ -1491,6 +1491,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: <smallest safe follow-up>
 - Validation: <build, diagnostics, targeted tests, or manual checks>
 
+### 2026-04-21 - review current-item hydration unification
+
+- Task: 统一修复 review 当前卡在会话恢复、外部刷新、AI 新卡同步后丢失按钮 `nextDues` 预览的问题。
+- Touched slice: Review bounded context；`src/core/queue/abstraction/Strategy.ts`、`src/application/adapters/UnifiedQueueStrategy.ts`、`src/ui/review/v2/reviewSessionController.ts`、对应 review/neural tests。
+- Debt fixed now: 给 queue strategy 增加了可选 `hydrateCurrentItem()` 显示态补水入口，并把 review session controller 的 `initialCurrentItem / refreshCurrentItem / loadCardByBlockId` 三类直写当前卡路径统一收口到这条活跃链，不再让原始 `FSRSCard` 绕过 `maybeAddNextDues()` 直接进入当前位。
+- Debt deferred: review session 目前仍需要显式维护几条“当前卡直写入口”，而不是由更窄的单命令入口完全封装 current-item 生命周期。
+- Why deferred: 本轮目标是统一补水链路并修掉丢失排期预览的真实用户问题；继续收束 controller 命令面会扩大到 review surface / tab restore / neural navigation 的更大重构。
+- Next safe step: 如果 review session 还要继续演进，把“设置当前卡”抽成 controller 内部单 helper/command，并让外部恢复与神经漫游跳转都只能走这一条入口。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts src/application/__tests__/UnifiedQueueStrategy.neural-roam.test.ts`
+
 ## 1. Re-scan summary
 
 - Build verification: `pnpm build` passed.

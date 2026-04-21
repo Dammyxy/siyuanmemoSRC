@@ -213,4 +213,23 @@ describe('UnifiedQueueStrategy neural-roam snapshot', () => {
     expect(preview).not.toHaveBeenCalled();
     expect(previous && 'nextDues' in previous).toBe(false);
   });
+
+  it('skips display hydration preview for non-flashcard neural nodes', async () => {
+    const queue = createQueueStub();
+    const preview = vi.fn(() => new Map());
+    const topicNode = createSyntheticNeuralCard({
+      meta: {
+        neuralContext: {
+          isFlashcard: false,
+        },
+      },
+    });
+
+    const { strategy } = createStrategyWithQueue(queue, { preview });
+    const hydrated = await strategy.hydrateCurrentItem(topicNode);
+
+    expect(hydrated).toBe(topicNode);
+    expect(preview).not.toHaveBeenCalled();
+    expect(hydrated && 'nextDues' in hydrated).toBe(false);
+  });
 });
