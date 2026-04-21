@@ -19,7 +19,7 @@
 import type { IFileService } from '../../infrastructure/services/FileService';
 import type { PluginSettings, RiffIntegrationConfig } from '../../types/settings';
 import { DEFAULT_SETTINGS, DEFAULT_RIFF_CONFIG, FSRS_WEIGHT_COUNT, normalizePluginSettings } from '../../types/settings';
-import { createLogger } from '@/utils/logger';
+import { applyDebugLogPreference, createLogger } from '@/utils/logger';
 import { getDefaultSiyuanFlashcardConfig, readSiyuanFlashcardConfig } from '@/utils/siyuanFlashcardConfig';
 
 const logger = createLogger('SettingsService');
@@ -100,6 +100,7 @@ export class SettingsService implements ISettingsService {
         const mergedSettings = this.mergeWithDefaults(loadedSettings, DEFAULT_SETTINGS);
         const normalized = normalizePluginSettings(mergedSettings);
         this.currentSettings = normalized.settings;
+        this.applyRuntimeLogSettings();
         const seededQuickCardFlashcard = this.seedQuickCardFlashcardSettings();
         
         // 🔍 调试日志：检查合并后的数据
@@ -120,6 +121,7 @@ export class SettingsService implements ISettingsService {
         // 文件不存在，使用默认设置并保存
         this.currentSettings = { ...DEFAULT_SETTINGS };
         this.currentRiffConfig = { ...DEFAULT_RIFF_CONFIG };
+        this.applyRuntimeLogSettings();
         this.seedQuickCardFlashcardSettings();
         await this.saveSettings();
       }
@@ -153,6 +155,7 @@ export class SettingsService implements ISettingsService {
 
       // 深度合并设置
       this.currentSettings = this.deepMerge(this.currentSettings, settings);
+      this.applyRuntimeLogSettings();
 
       // 防抖保存
       this.debouncedSaveSettings();
@@ -561,6 +564,10 @@ export class SettingsService implements ISettingsService {
       flashcard,
     });
     return true;
+  }
+
+  private applyRuntimeLogSettings(): void {
+    applyDebugLogPreference(this.currentSettings.ui?.enableDebugLogs === true);
   }
 
   /**

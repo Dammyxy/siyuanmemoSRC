@@ -100,6 +100,11 @@ export function getGlobalLogLevel(): LogLevel {
   return globalLevel;
 }
 
+export function applyDebugLogPreference(enabled: boolean): void {
+  installConsoleBridge();
+  setGlobalLogLevel(enabled ? 'debug' : 'warn');
+}
+
 /**
  * 安装 console 桥接：
  * - 把遗留 console.* 收敛到 logger

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 98)
+Last update: 2026-04-21 (Round 99)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - restore runtime wiring for the debug-log setting
+
+- Task: Reconnect the persisted `启用调试日志 / enableDebugLogs` setting to the live logger so users can see plugin debug output in the browser console again, and restore the settings-surface toggle that exposes that runtime control.
+- Touched slice: Settings/logging active path across `src/utils/logger.ts`, `src/application/services/SettingsService.ts`, `src/ui/settings/SettingsPanel.vue`, focused settings-service/settings-panel regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Added one bounded `applyDebugLogPreference()` helper in `src/utils/logger.ts` so the runtime can consistently install the console bridge and switch between `debug` and `warn`; taught `SettingsService` to apply the persisted `ui.enableDebugLogs` value both during `init()` and every `updateSettings()` merge instead of leaving the flag as dead config; restored the checkbox/hint in the review-surface settings panel so users can actually toggle the feature again; and added focused tests proving persisted true settings elevate runtime logging and that the settings dialog save payload now carries `ui.enableDebugLogs`.
+- Debt deferred: The plugin still does not have a separate in-app “log viewer” surface, and the detailed queue/review diagnostics still depend on developers opening Siyuan’s browser console instead of a first-class plugin debug console.
+- Why deferred: Reintroducing a full plugin-side log viewer would widen this bounded settings/runtime repair into a broader tooling/product surface, while the active blocker here was simply that the existing debug-log setting had become disconnected from the actual logger runtime.
+- Next safe step: If queue-loop debugging needs more visibility after this lands, add one bounded diagnostics pass that either raises selected queue/review traces to `warn` when the flag is on or restores a minimal dedicated debug-log surface without changing the logger contract again.
+- Validation: `pnpm vitest run src/application/services/__tests__/SettingsService.logging.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-21 - semantic CDF mutation-aware scan and incremental-learning unified requery flow
 

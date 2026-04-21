@@ -71,6 +71,8 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         reviewOpenInNewTabByDefaultHint: 'Desktop global review entries open in a new tab by default.',
         reviewOpenFullscreenByDefault: 'Open review fullscreen by default',
         reviewOpenFullscreenByDefaultHint: 'Only applies to desktop dialog mode and is ignored when new-tab open is enabled.',
+        enableDebugLogs: 'Enable Debug Logs',
+        enableDebugLogsHint: 'Display detailed debug information in the browser console.',
         progressiveStorageModeLabel: 'Excerpt storage mode',
         progressiveStorageModeHint: 'Choose where excerpts should be stored.',
         captureStorageModeSourceChild: 'Under source document',
@@ -488,25 +490,30 @@ describe('SettingsPanel', () => {
     const formItems = wrapper.findAll('.form-item');
     const newTabItem = formItems.find((item) => item.text().includes('Open review in a new tab by default'));
     const fullscreenItem = formItems.find((item) => item.text().includes('Open review fullscreen by default'));
+    const debugLogsItem = formItems.find((item) => item.text().includes('Enable Debug Logs'));
     const autoSortItem = formItems.find((item) => item.text().includes('自动排序'));
     const newTabToggle = newTabItem?.find('input[type="checkbox"]');
     const fullscreenToggle = fullscreenItem?.find('input[type="checkbox"]');
+    const debugLogsToggle = debugLogsItem?.find('input[type="checkbox"]');
     const autoSortToggle = autoSortItem?.find('input[type="checkbox"]');
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
 
     expect(newTabToggle).toBeDefined();
     expect(fullscreenToggle).toBeDefined();
+    expect(debugLogsToggle).toBeDefined();
     expect(autoSortToggle).toBeDefined();
     expect(saveButton).toBeDefined();
 
     await newTabToggle!.setValue(true);
     await fullscreenToggle!.setValue(true);
+    await debugLogsToggle!.setValue(true);
     await autoSortToggle!.setValue(false);
     await saveButton!.trigger('click');
 
     const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
     expect(payload.ui.reviewOpenInNewTabByDefault).toBe(true);
     expect(payload.ui.reviewOpenFullscreenByDefault).toBe(true);
+    expect(payload.ui.enableDebugLogs).toBe(true);
     expect(payload.queues.autoSort?.enabled).toBe(false);
   });
 });

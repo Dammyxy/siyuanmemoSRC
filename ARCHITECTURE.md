@@ -300,7 +300,7 @@ UI surface：
 - `src/application/services/CardApplicationService.ts`：卡片创建 / 更新 / 删除的应用编排入口。
 - `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务。
 - `src/application/services/ReviewApplicationService.ts`：复习流程相关编排。
-- `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务。
+- `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
 - `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan。
 - `src/application/services/ReviewQueuePreparationService.ts` / `DocTreeReviewScopeService.ts`：review scope 与 queue preparation 编排。
 - `src/application/services/ConfiguredCaptureStorageService.ts`：capture 目标存储解析与写入策略。
@@ -454,7 +454,7 @@ Review：
 
 共享工具：
 
-- `src/utils/logger.ts`：统一日志入口。
+- `src/utils/logger.ts`：统一日志入口；通过 `applyDebugLogPreference()` 把设置层的“调试日志”开关映射到运行时 `debug/warn` 级别和 legacy console bridge。
 - `src/utils/dialog.ts`：dialog surface 创建工具。
 - `src/utils/configMigrator.ts` / `simpleModeRemovalMigrator.ts`：配置迁移工具。
 - `src/utils/queryCache.ts` / `batchQuery.ts` / `sqlOptimizer.ts`：查询与缓存工具。

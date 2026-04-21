@@ -221,6 +221,16 @@
             {{ t('reviewOpenFullscreenByDefaultHint', '只对桌面端对话框模式生效；若同时选择新页签打开，则此选项会被忽略。') }}
           </p>
         </div>
+
+        <div class="form-item">
+          <label>{{ t('enableDebugLogs', '启用调试日志') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="uiSettings.enableDebugLogs">
+          </div>
+          <p class="form-hint">
+            {{ t('enableDebugLogsHint', '在浏览器控制台显示详细的调试信息（开发用，关闭可提升性能）') }}
+          </p>
+        </div>
         </div>
 
         <div v-show="isActiveSubTab('review', 'automation')" class="settings-subtab-panel">
