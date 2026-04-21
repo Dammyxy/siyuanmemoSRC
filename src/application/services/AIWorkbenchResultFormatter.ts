@@ -47,6 +47,10 @@ function looksLikeLooseGroupLabel(text: string): boolean {
   return true;
 }
 
+function isMachinePerspectiveGroupLabel(text: string): boolean {
+  return /^[a-z]+_\d+$/i.test(normalizeString(text));
+}
+
 type LooseMarkdownGroup = {
   title: string | null;
   items: string[];
@@ -66,9 +70,10 @@ function groupLoosePerspectiveItems(items: string[]): LooseMarkdownGroup[] {
         childItems.push(normalizedItems[cursor]!);
         cursor += 1;
       }
+      const hiddenMachineLabel = isMachinePerspectiveGroupLabel(current);
       groups.push({
-        title: current,
-        items: childItems.length > 0 ? childItems : [current],
+        title: hiddenMachineLabel ? null : current,
+        items: childItems.length > 0 ? childItems : (hiddenMachineLabel ? [] : [current]),
       });
       index = cursor;
       continue;
@@ -82,7 +87,7 @@ function groupLoosePerspectiveItems(items: string[]): LooseMarkdownGroup[] {
   return groups;
 }
 
-function linesFromMaybeGroupedItems(label: string, items: string[]): string[] {
+function linesFromMaybeGroupedItems(_label: string, items: string[]): string[] {
   const groups = groupLoosePerspectiveItems(items);
   if (groups.some((group) => Boolean(group.title))) {
     return groups.flatMap((group) => {
@@ -95,14 +100,11 @@ function linesFromMaybeGroupedItems(label: string, items: string[]): string[] {
       ];
     });
   }
-  const normalizedItems = uniqueStrings(items);
+  const normalizedItems = groups.flatMap((group) => group.items).filter(Boolean);
   if (normalizedItems.length === 0) {
     return [];
   }
-  return [
-    bulletLine(label),
-    ...normalizedItems.map((item) => bulletLine(item, 1)),
-  ];
+  return normalizedItems.map((item) => bulletLine(item));
 }
 
 function linesFromFlatGroup(label: string, items: string[]): string[] {

@@ -238,6 +238,7 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     sendAssistantResultToSiyuan: async () => null,
     searchCdfConceptDocuments: async () => [],
     setCdfAnchorManualResolution: async () => {},
+    createAndBindCdfConceptDocument: async () => {},
     restoreCdfAnchorAutoResolution: async () => {},
   };
 
@@ -546,6 +547,23 @@ describe('AiWorkbenchPane compact surfaces', () => {
       behaviorChange: '',
       triggerScenario: '',
     })).toContain('* 核心特性\n  * 学习具有情境性和社会性，与共同活动紧密相关。');
+    expect(formatConceptCoachPerspectiveSectionMarkdown({
+      title: '特性和倾向',
+      keyPoints: ['trait_1', '关键特性：行动发生在内部思维中的动作。'],
+      easyMisjudgments: [],
+      examples: [],
+      comparisons: [],
+      subConcepts: [],
+      parentConcepts: [],
+      metaphor: '',
+      reasons: [],
+      applicableScenarios: [],
+      nonApplicableScenarios: [],
+      commonMisuse: '',
+      importance: '',
+      behaviorChange: '',
+      triggerScenario: '',
+    })).toBe('* 关键特性：行动发生在内部思维中的动作。');
   });
 
   it('sends concept-coach result tabs to Siyuan from the message toolbar', async () => {
@@ -729,6 +747,22 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('1 个描述符');
   });
 
+  it('renders CDF descriptor items inside an indented child container beneath the descriptor title', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('cdf-structure');
+    service.getRenderEntries = () => [makeCdfRenderEntry()] as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.find('.ai-chat__cdf-group-title').text()).toContain('识别线索');
+    const childContainer = wrapper.find('.ai-chat__cdf-group-children');
+    expect(childContainer.exists()).toBe(true);
+    expect(childContainer.findAll('.ai-chat__cdf-item')).toHaveLength(1);
+    expect(childContainer.text()).toContain('通常写成 y = x^a');
+  });
+
   it('supports manual CDF concept document search and selection', async () => {
     const service = createService('review-dialog-sidecar');
     service.setActiveTab('cdf-structure');
@@ -888,6 +922,125 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(searchCdfConceptDocuments).toHaveBeenLastCalledWith(expect.objectContaining({
       notebookId: 'notebook-1',
     }), '新关键词');
+  });
+
+  it('triggers CDF concept search on Enter but ignores IME composition Enter', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('cdf-structure');
+    service.getRenderEntries = () => [makeCdfRenderEntry()] as never;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => [
+      { id: 'notebook-1', name: '学习笔记', closed: false },
+    ]) as never;
+    service.getSelfTestCardTargetMemory = vi.fn(async () => ({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: null,
+      targetLabel: '学习笔记 · 今日日记',
+      updatedAt: 1,
+    })) as never;
+    service.previewCdfStructure = vi.fn(async () => ({
+      anchors: [makeCdfRenderEntry().primaryMessage.tabResult.anchors[0]],
+    })) as never;
+    const searchCdfConceptDocuments = vi.fn(async () => []);
+    service.searchCdfConceptDocuments = searchCdfConceptDocuments as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await nextTick();
+
+    const searchButton = wrapper.findAll('button').find((button) => button.text().includes('搜索概念文档'))!;
+    await searchButton.trigger('click');
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    searchCdfConceptDocuments.mockClear();
+    const input = wrapper.find('input.b3-text-field');
+    await input.setValue('手动关键词');
+    await input.trigger('keydown', { key: 'Enter', isComposing: true });
+    await Promise.resolve();
+    await nextTick();
+    expect(searchCdfConceptDocuments).not.toHaveBeenCalled();
+
+    await input.trigger('keydown.enter');
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    expect(searchCdfConceptDocuments).toHaveBeenCalledWith(expect.objectContaining({
+      notebookId: 'notebook-1',
+    }), '手动关键词');
+  });
+
+  it('offers a compact create-concept-document action for unresolved CDF anchors', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('cdf-structure');
+    service.getRenderEntries = () => [{
+      key: 'cdf-message-1::render',
+      primaryMessage: {
+        id: 'cdf-message-1',
+        skillId: AI_CONCEPT_COACH_SKILL_ID,
+        tabId: 'cdf-structure',
+        view: AI_CONCEPT_COACH_SKILL_ID,
+        kind: 'assistant-result',
+        createdAt: Date.now(),
+        rawContent: '',
+        conceptCoachResult: null,
+        tabResult: {
+          anchors: [{
+            id: 'anchor-1',
+            conceptName: '幂函数',
+            selected: true,
+            resolution: {
+              status: 'unresolved',
+              conceptBlockId: null,
+              conceptTitle: '幂函数',
+              reason: '未在当前上下文或目标笔记本中解析到现有概念文档。',
+              notebookId: 'notebook-1',
+            },
+            warnings: ['未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。'],
+            definitionCandidates: [
+              { id: 'definition-1', text: '自变量在底数位置，指数固定的函数。', selected: true },
+            ],
+            descriptorGroups: [],
+          }],
+        },
+        appliedContexts: [],
+      } as never,
+      supplementalMessages: [],
+      stepCount: 0,
+      pendingApproval: null,
+    }] as never;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => [
+      { id: 'notebook-1', name: '学习笔记', closed: false },
+    ]) as never;
+    service.getSelfTestCardTargetMemory = vi.fn(async () => ({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: null,
+      targetLabel: '学习笔记 · 今日日记',
+      updatedAt: 1,
+    })) as never;
+    const createAndBindCdfConceptDocument = vi.fn(async () => {});
+    service.createAndBindCdfConceptDocument = createAndBindCdfConceptDocument as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await Promise.resolve();
+    await nextTick();
+
+    const createButton = wrapper.findAll('button').find((button) => button.text().includes('新建概念卡文档块'))!;
+    expect(createButton.classes()).toContain('ai-chat__secondary-button');
+    await createButton.trigger('click');
+
+    expect(createAndBindCdfConceptDocument).toHaveBeenCalledWith(
+      'cdf-message-1',
+      'anchor-1',
+      expect.objectContaining({ notebookId: 'notebook-1' }),
+    );
+    expect(wrapper.text()).not.toContain('这个概念暂时不能建卡。');
   });
 
   it('toggles select-all from the compact candidate toolbar using the current message id', async () => {

@@ -3915,23 +3915,39 @@ export class AIWorkbenchService {
     if (!memory?.notebookId) {
       throw new Error('设置概念文档前请先选择目标笔记本。');
     }
-    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
-      anchors: structure.anchors.map((anchor) => (
-        anchor.id === anchorId
-          ? {
-            ...anchor,
-            resolution: {
-              status: 'resolved-manual',
-              conceptBlockId: normalizeString(document.id) || null,
-              conceptTitle: normalizeString(document.title) || anchor.conceptName,
-              reason: '手动选择概念文档。',
-              notebookId: memory.notebookId,
-            },
-            warnings: (anchor.warnings || []).filter((warning) => warning !== CDF_UNRESOLVED_WARNING),
-          }
-          : anchor
-      )),
-    }));
+    const updated = this.applyCdfAnchorManualResolution(messageId, anchorId, memory, document, '手动选择概念文档。');
+    if (!updated) {
+      throw new Error('未找到要更新的 CDF 概念锚点。');
+    }
+    await this.persistCurrentSession();
+  }
+
+  async createAndBindCdfConceptDocument(
+    messageId: string,
+    anchorId: string,
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+  ): Promise<void> {
+    const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+    if (!memory?.notebookId) {
+      throw new Error('新建概念文档前请先选择目标笔记本。');
+    }
+    const message = this.getConceptCoachResultMessage(messageId);
+    if (!message) {
+      throw new Error('未找到要更新的 CDF 结果消息。');
+    }
+    const structure = this.getCdfStructureForMessage(messageId);
+    const anchor = structure?.anchors.find((item) => item.id === anchorId);
+    if (!anchor) {
+      throw new Error('未找到要新建概念文档的 CDF 概念锚点。');
+    }
+    const created = await this.flashcardTools.createOrReuseConceptDocumentInNotebook(memory, anchor.conceptName);
+    const updated = this.applyCdfAnchorManualResolution(
+      messageId,
+      anchorId,
+      memory,
+      created.document,
+      created.reused ? '已复用现有概念文档。' : '已新建概念文档并手动绑定。',
+    );
     if (!updated) {
       throw new Error('未找到要更新的 CDF 概念锚点。');
     }
@@ -3954,6 +3970,32 @@ export class AIWorkbenchService {
       throw new Error('未找到要恢复自动解析的 CDF 概念锚点。');
     }
     await this.persistCurrentSession();
+  }
+
+  private applyCdfAnchorManualResolution(
+    messageId: string,
+    anchorId: string,
+    memory: AIWorkbenchSelfTestCardTargetMemory,
+    document: AIWorkbenchConceptDocumentSearchResult,
+    reason: string,
+  ): boolean {
+    return this.updateCdfResultMessage(messageId, (structure) => ({
+      anchors: structure.anchors.map((anchor) => (
+        anchor.id === anchorId
+          ? {
+            ...anchor,
+            resolution: {
+              status: 'resolved-manual',
+              conceptBlockId: normalizeString(document.id) || null,
+              conceptTitle: normalizeString(document.title) || anchor.conceptName,
+              reason,
+              notebookId: memory.notebookId,
+            },
+            warnings: (anchor.warnings || []).filter((warning) => warning !== CDF_UNRESOLVED_WARNING),
+          }
+          : anchor
+      )),
+    }));
   }
 
   async resolveToolApproval(approvalId: string, approved: boolean, rejectReason = ''): Promise<void> {

@@ -273,6 +273,80 @@ describe('AIFlashcardToolService', () => {
     }]);
   });
 
+  it('creates a new root concept document and returns a manual-binding candidate', async () => {
+    const fixture = createPairMutationFixture('pair-root-4');
+    const siyuanPort = createSiyuanPort(fixture);
+    siyuanPort.createDocWithMarkdown.mockResolvedValue('concept-doc-new');
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      if (stmt.includes("WHERE id = 'concept-doc-new'")) {
+        return [{ id: 'concept-doc-new', content: '幂函数', hpath: '/幂函数', box: 'notebook-1' }];
+      }
+      if (stmt.includes('AND hpath IN')) {
+        return [];
+      }
+      return fixture.rows;
+    });
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => createXiuyuanService() as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+
+    const result = await service.createOrReuseConceptDocumentInNotebook({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, '幂函数');
+
+    expect(siyuanPort.createDocWithMarkdown).toHaveBeenCalledWith('notebook-1', '/幂函数', '# 幂函数');
+    expect(result).toEqual({
+      document: {
+        id: 'concept-doc-new',
+        title: '幂函数',
+        hPath: '/幂函数',
+        notebookId: 'notebook-1',
+        notebookName: '学习笔记',
+      },
+      reused: false,
+    });
+  });
+
+  it('reuses an existing root concept document instead of creating a duplicate', async () => {
+    const fixture = createPairMutationFixture('pair-root-5');
+    const siyuanPort = createSiyuanPort(fixture);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      if (stmt.includes('AND hpath IN')) {
+        return [{ id: 'concept-doc-existing', content: '幂函数', hpath: '/幂函数', box: 'notebook-1' }];
+      }
+      return fixture.rows;
+    });
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => createXiuyuanService() as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+
+    const result = await service.createOrReuseConceptDocumentInNotebook({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, '幂函数');
+
+    expect(siyuanPort.createDocWithMarkdown).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      document: {
+        id: 'concept-doc-existing',
+        title: '幂函数',
+        hPath: '/幂函数',
+        notebookId: 'notebook-1',
+        notebookName: '学习笔记',
+      },
+      reused: true,
+    });
+  });
+
   it('creates semantic CDF cards from manual resolutions and skips stale notebook resolutions', async () => {
     const cdfFixture = createListTreeMutationFixture(
       'cdf-root-1',
@@ -447,6 +521,110 @@ describe('AIFlashcardToolService', () => {
       createdDefinitionCount: 1,
       failedCount: 0,
       skippedCount: 0,
+    });
+    executeSpy.mockRestore();
+  });
+
+  it('expands semantic CDF descriptor groups into repeated ;; children and falls back to kramdown for the inserted root list item', async () => {
+    const cdfFixture = createListTreeMutationFixture(
+      'cdf-root-fallback',
+      '((concept-doc-1))::自变量在底数位置，指数固定的函数。',
+      [
+        '识别线索;;通常写成 y = x^a',
+        '识别线索;;指数固定',
+      ],
+    );
+    const siyuanPort = createSiyuanPort(cdfFixture);
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(cdfFixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      const ids = extractQuotedSqlValues(stmt);
+      return cdfFixture.rows.filter((row) => (
+        ids.includes(String(row.id))
+        && String(row.type) === 'p'
+      ));
+    });
+    siyuanPort.getBlockKramdown.mockResolvedValueOnce({
+      kramdown: [
+        '* {: id="cdf-root-fallback"} ((concept-doc-1))::自变量在底数位置，指数固定的函数。',
+        '  * {: id="cdf-root-fallback-child-1"} 识别线索;;通常写成 y = x^a',
+        '  * {: id="cdf-root-fallback-child-2"} 识别线索;;指数固定',
+      ].join('\n'),
+    });
+    const xiuyuanService = createXiuyuanService();
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'execute')
+      .mockResolvedValue(ok({
+        createdDefinition: 1,
+        createdDescriptor: 2,
+        skipped: 0,
+        skippedExistingBinding: 0,
+        skippedNoTemplate: 0,
+        failed: 0,
+        stoppedByDocumentReference: false,
+      }));
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => xiuyuanService as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+
+    const created = await service.createSemanticCdfCards({
+      anchors: [{
+        id: 'anchor-fallback',
+        conceptName: '幂函数',
+        selected: true,
+        resolution: {
+          status: 'resolved-manual',
+          conceptBlockId: 'concept-doc-1',
+          conceptTitle: '幂函数',
+          reason: '手动选择概念文档。',
+          notebookId: 'notebook-1',
+        },
+        definitionCandidates: [
+          { id: 'definition-fallback', text: '自变量在底数位置，指数固定的函数。', selected: true },
+        ],
+        descriptorGroups: [{
+          id: 'group-fallback',
+          title: '识别线索',
+          selected: true,
+          items: [
+            { id: 'item-fallback-1', text: '通常写成 y = x^a', selected: true },
+            { id: 'item-fallback-2', text: '指数固定', selected: true },
+          ],
+        }],
+      }],
+    } as never, {
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
+
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(
+      [
+        '* ((concept-doc-1))::自变量在底数位置，指数固定的函数。',
+        '  * 识别线索;;通常写成 y = x^a',
+        '  * 识别线索;;指数固定',
+      ].join('\n'),
+      'daily-doc-1',
+    );
+    expect(String(siyuanPort.appendBlockUnderParentDetailed.mock.calls[0]?.[0] || '')).not.toContain(';;;');
+    expect(siyuanPort.getBlockKramdown).toHaveBeenCalledWith('cdf-root-fallback');
+    expect(executeSpy).toHaveBeenCalledWith(expect.objectContaining({
+      parentBlockId: 'cdf-root-fallback',
+      templateId: 'builtin-list-concept-multiline',
+    }));
+    expect(created).toMatchObject({
+      createdCount: 1,
+      createdDefinitionCount: 1,
+      createdDescriptorCount: 2,
+      itemResults: [{
+        insertedRootBlockId: 'cdf-root-fallback',
+        createdDefinitionCount: 1,
+        createdDescriptorCount: 2,
+      }],
     });
     executeSpy.mockRestore();
   });

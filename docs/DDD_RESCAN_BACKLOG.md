@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 96)
+Last update: 2026-04-21 (Round 97)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - semantic CDF creation aligned with concept-descriptor cards
+
+- Task: Make AI semantic CDF card creation follow the same successful `概念描述符卡` shape as the manual quick-card path, fix the brittle inserted-root-list-item lookup that left semantic CDF at `0 定义 / 0 描述符`, and render descriptor contents as true children of their descriptor group in the AI pane.
+- Touched slice: AI workbench / capture plus Xiuyuan CDF creation path across `src/application/services/AIFlashcardToolService.ts`, `src/ui/ai/AiWorkbenchPane.vue`, focused AI service/component regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Changed semantic CDF materialization so descriptor groups still stay grouped in the preview UI but the actual inserted markdown always expands to repeated `描述符;;内容` child items instead of emitting `;;;`; replaced the semantic-CDF-only `loadMutationRows -> resolveRootListItemId` one-shot path with a shared inserted-list-root resolver that retries SQL row hydration and then falls back to mutation-root kramdown parsing; updated the CDF creation summary so partial/failed runs no longer read like a false “制卡完成”; and added an explicit child container in the pane so descriptor contents render visually indented beneath the descriptor title instead of looking like flat sibling rows.
+- Debt deferred: Semantic CDF export-to-Siyuan markdown still preserves grouped `;;;`-style readability rather than mirroring the new repeated-`;;` creation materialization exactly, and `AiWorkbenchPane.vue` still owns the CDF anchor card / creation summary inline instead of via smaller subcomponents.
+- Why deferred: Aligning export markdown with creation markdown would be a separate product-format decision that is not required to fix semantic creation correctness, and extracting the pane would widen this bounded runtime repair into component decomposition work.
+- Next safe step: If users want semantic CDF export to mirror actual creation source one-for-one, decide that format explicitly first; after that, extract the CDF anchor/summary board into one dedicated subcomponent before adding more semantic CDF controls.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIFlashcardToolService.test.ts`; `node --max-old-space-size=4096 .\\node_modules\\vitest\\vitest.mjs run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts --pool forks --minWorkers 1 --maxWorkers 1 --no-file-parallelism`.
+
+### 2026-04-21 - CDF concept search Enter/create-doc UX and perspectives formatter cleanup
+
+- Task: Make semantic CDF concept search respond to Enter, add a compact unresolved-state CTA that can create/reuse a concept document directly in the current target notebook root, and stop leaking machine placeholder labels like `trait_1 / contrast_1` into perspectives markdown.
+- Touched slice: AI workbench / capture active path across `src/application/services/{AIFlashcardToolService.ts,AIWorkbenchResultFormatter.ts,AIWorkbenchService.ts}`, `src/ui/ai/AiWorkbenchPane.vue`, focused AI service/component regression coverage, i18n, and `ARCHITECTURE.md`.
+- Debt fixed now: Added one active-path helper in `AIFlashcardToolService` that reuses an existing root concept doc by exact root `hpath` or creates `# <concept>` via `AISiyuanPort.createDocWithMarkdown()` and hydrates it back into a bindable concept-document result; exposed that through `AIWorkbenchService.createAndBindCdfConceptDocument()` so the pane can stay UI-only while unresolved/stale anchors gain a compact “搜索概念文档 / 新建概念卡文档块 / 恢复自动解析” action row; taught the search input to submit on Enter while ignoring IME composition Enter; removed the repeated unresolved warning blocks from the anchor card in favor of one concise reason line; and tightened the shared perspectives formatter so machine wrapper keys still act as grouping boundaries but no longer render as visible bullets.
+- Debt deferred: `AiWorkbenchPane.vue` still owns the CDF unresolved-state action bar and per-anchor busy/error state inline instead of via a dedicated semantic-CDF anchor component, and the root-concept-doc reuse heuristic still intentionally keys off exact root `hpath` rather than a richer concept-library policy or folder setting.
+- Why deferred: Extracting the anchor card or adding first-class concept-library placement rules would widen this bounded UX repair into component decomposition and product-setting design that are not required to fix the active-path regressions.
+- Next safe step: If semantic CDF keeps growing, extract one dedicated unresolved-anchor action subcomponent first, then decide whether concept-document creation should remain fixed to notebook root or graduate into a configurable concept-library placement policy.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIFlashcardToolService.test.ts`; `node --max-old-space-size=4096 .\\node_modules\\vitest\\vitest.mjs run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts --pool forks --minWorkers 1 --maxWorkers 1 --no-file-parallelism`; `$env:NODE_OPTIONS='--max-old-space-size=4096'; pnpm build`; `git diff --check`.
 
 ### 2026-04-21 - self-test mode contraction, real CDF source trees, and manual-search input fix
 

@@ -65,6 +65,14 @@ function normalizeConceptTitleKey(value: unknown): string {
   return normalizeString(value).replace(/\s+/g, ' ').toLowerCase();
 }
 
+function sanitizeDocTitle(value: string): string {
+  return value
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || 'SiYuanMemo';
+}
+
 function parseTargetInput(args: Record<string, unknown>): AIWorkbenchSelfTestCardTargetInput | null {
   const targetMode = normalizeString(args.targetMode);
   if (!targetMode || targetMode === 'default') {
@@ -880,8 +888,7 @@ export class AIFlashcardToolService {
           selectedDescriptorGroups,
         );
         const mutation = await this.insertMarkdown(draftMarkdown, resolvedTarget, previousSiblingId);
-        const rows = await this.loadMutationRows(mutation);
-        insertedRootBlockId = this.resolveRootListItemId(rows);
+        insertedRootBlockId = await this.resolveInsertedListRootItemIdWithFallback(mutation);
         previousSiblingId = insertedRootBlockId || previousSiblingId;
 
         const creation = await createCdfMultilineUseCase.execute({
@@ -976,6 +983,58 @@ export class AIFlashcardToolService {
         notebookName: normalizedTarget.notebookName,
       }))
       .filter((row) => row.id && row.title);
+  }
+
+  async createOrReuseConceptDocumentInNotebook(
+    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
+    conceptName: string,
+  ): Promise<{ document: AIWorkbenchConceptDocumentSearchResult; reused: boolean }> {
+    const normalizedTarget = this.normalizeTargetMemory(target, Date.now());
+    if (!normalizedTarget?.notebookId) {
+      throw new Error('新建概念文档前请先设置目标笔记本。');
+    }
+    const normalizedConceptName = normalizeString(conceptName);
+    if (!normalizedConceptName) {
+      throw new Error('概念名称不能为空。');
+    }
+    const existing = await this.findRootConceptDocumentInNotebook(
+      normalizedTarget.notebookId,
+      normalizedTarget.notebookName,
+      normalizedConceptName,
+    );
+    if (existing) {
+      return {
+        document: existing,
+        reused: true,
+      };
+    }
+    const rootPath = `/${sanitizeDocTitle(normalizedConceptName)}`;
+    const createdDocId = normalizeString(await this.deps.siyuanPort.createDocWithMarkdown(
+      normalizedTarget.notebookId,
+      rootPath,
+      `# ${normalizedConceptName}`,
+    ));
+    const createdDocument = createdDocId
+      ? await this.loadConceptDocumentById(createdDocId, normalizedTarget.notebookName, normalizedTarget.notebookId)
+      : null;
+    if (createdDocument) {
+      return {
+        document: createdDocument,
+        reused: false,
+      };
+    }
+    const resolved = await this.findRootConceptDocumentInNotebook(
+      normalizedTarget.notebookId,
+      normalizedTarget.notebookName,
+      normalizedConceptName,
+    );
+    if (!resolved) {
+      throw new Error('新建概念文档后仍未能定位到目标文档。');
+    }
+    return {
+      document: resolved,
+      reused: false,
+    };
   }
 
   private async createNativeRiffCards(
@@ -1209,6 +1268,71 @@ export class AIFlashcardToolService {
       : null;
   }
 
+  private async findRootConceptDocumentInNotebook(
+    notebookId: string,
+    notebookName: string,
+    conceptName: string,
+  ): Promise<AIWorkbenchConceptDocumentSearchResult | null> {
+    const normalizedName = normalizeString(conceptName);
+    if (!normalizedName) {
+      return null;
+    }
+    const hpaths = uniqueIds([
+      `/${normalizedName}`,
+      `/${sanitizeDocTitle(normalizedName)}`,
+    ]);
+    if (hpaths.length === 0) {
+      return null;
+    }
+    const rows = await this.deps.siyuanPort.sql<Array<Record<string, unknown>>[number]>(`
+      SELECT id, content, hpath, box
+      FROM blocks
+      WHERE box = '${escapeSql(notebookId)}'
+        AND type = 'd'
+        AND hpath IN (${hpaths.map((hpath) => `'${escapeSql(hpath)}'`).join(', ')})
+      ORDER BY updated DESC, id DESC
+      LIMIT 1
+    `);
+    return this.normalizeConceptDocumentSearchResult(rows[0], notebookName, notebookId);
+  }
+
+  private async loadConceptDocumentById(
+    documentId: string,
+    notebookName: string,
+    notebookId: string,
+  ): Promise<AIWorkbenchConceptDocumentSearchResult | null> {
+    const normalizedDocumentId = normalizeString(documentId);
+    if (!normalizedDocumentId) {
+      return null;
+    }
+    const rows = await this.deps.siyuanPort.sql<Array<Record<string, unknown>>[number]>(`
+      SELECT id, content, hpath, box
+      FROM blocks
+      WHERE id = '${escapeSql(normalizedDocumentId)}'
+      LIMIT 1
+    `);
+    return this.normalizeConceptDocumentSearchResult(rows[0], notebookName, notebookId);
+  }
+
+  private normalizeConceptDocumentSearchResult(
+    row: Record<string, unknown> | null | undefined,
+    notebookName: string,
+    notebookId: string,
+  ): AIWorkbenchConceptDocumentSearchResult | null {
+    const id = normalizeString(row?.id);
+    const title = normalizeString(row?.content);
+    if (!id || !title) {
+      return null;
+    }
+    return {
+      id,
+      title,
+      hPath: normalizeString(row?.hpath) || `/${title}`,
+      notebookId: normalizeString(row?.box) || notebookId,
+      notebookName: notebookName || notebookId,
+    };
+  }
+
   private buildPairMarkdown(front: string, back: string): string {
     return `* ${normalizeListText(front)}\n  * ${normalizeListText(back)}`;
   }
@@ -1256,13 +1380,8 @@ export class AIFlashcardToolService {
       if (!title || items.length === 0) {
         continue;
       }
-      if (items.length === 1) {
-        lines.push(`  * ${title};;${items[0]}`);
-        continue;
-      }
-      lines.push(`  * ${title};;;`);
       for (const item of items) {
-        lines.push(`    * ${item}`);
+        lines.push(`  * ${title};;${item}`);
       }
     }
     return lines.join('\n');
@@ -1429,6 +1548,34 @@ export class AIFlashcardToolService {
       throw new Error('未找到插入后的列表项。');
     }
     return [...listItems].sort((left, right) => this.rowDepth(left, ordered) - this.rowDepth(right, ordered))[0]!.id!;
+  }
+
+  private async resolveInsertedListRootItemIdWithFallback(
+    mutation: AISiyuanMutationResult,
+  ): Promise<string> {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const rows = await this.loadMutationRows(mutation);
+      if (rows.length > 0) {
+        try {
+          return this.resolveRootListItemId(rows);
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (attempt < 2) {
+        await waitFor(attempt === 0 ? 20 : 40);
+      }
+    }
+    const rootBlockId = this.resolveMutationQuestionRootId(mutation);
+    if (rootBlockId) {
+      const kramdown = await this.deps.siyuanPort.getBlockKramdown(rootBlockId);
+      const resolved = this.resolveRootListItemIdFromKramdown(rootBlockId, normalizeString(kramdown?.kramdown));
+      if (resolved) {
+        return resolved;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('未找到插入后的列表项。');
   }
 
   private resolveDescriptorMultilineStructure(rows: MutationRow[]): {
@@ -1610,6 +1757,15 @@ export class AIFlashcardToolService {
       riffBlockId: questionItem.id || rootBlockId,
       sourceBlockIds: uniqueIds([questionItem.id || rootBlockId, answerItem?.id || null]),
     };
+  }
+
+  private resolveRootListItemIdFromKramdown(rootBlockId: string, kramdown: string): string | null {
+    const firstListItemId = String(kramdown || '')
+      .split(/\r?\n/)
+      .map((line) => line.match(/^(\s*)[*+-]\s+\{:\s*id="([^"]+)"/))
+      .find((match) => Boolean(normalizeString(match?.[2])))
+      ?.[2];
+    return normalizeString(firstListItemId) || rootBlockId || null;
   }
 
   private resolveTextBlockForListItem(listItemId: string, rows: MutationRow[]): string {
