@@ -176,7 +176,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       faceAnswerBlockId: face.answerBlockId
     });
     
-    const conceptName = await this.getConceptName(conceptBlockId);
+    const conceptName = await this.getConceptName(conceptBlockId, definitionKramdown);
     
     logger.debug('[ConceptDefinitionCardRenderService] Concept name:', {
       conceptName,
@@ -349,7 +349,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
   /**
    * 获取概念名称
    */
-  private async getConceptName(conceptBlockId: string): Promise<string> {
+  private async getConceptName(conceptBlockId: string, definitionKramdown?: string): Promise<string> {
     const conceptQuery = `SELECT content FROM blocks WHERE id = '${conceptBlockId}' LIMIT 1`;
     const conceptResult = await sql<ConceptContentRow>(conceptQuery);
     
@@ -360,6 +360,15 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     });
     
     if (!conceptResult || conceptResult.length === 0) {
+      const fallbackConceptName = await this.extractConceptNameFromDefinitionKramdown(definitionKramdown || '');
+      if (fallbackConceptName) {
+        logger.warn('[ConceptDefinitionCardRenderService] Concept block missing, recovered concept name from definition content', {
+          conceptBlockId,
+          fallbackConceptName,
+        });
+        return fallbackConceptName;
+      }
+
       throw new Error(`Concept block not found: ${conceptBlockId}`);
     }
 
@@ -402,6 +411,37 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     }
 
     return conceptName;
+  }
+
+  private async extractConceptNameFromDefinitionKramdown(definitionKramdown: string): Promise<string> {
+    const normalizedDefinition = this.stripTrailingBlockAttrs(definitionKramdown);
+    if (!normalizedDefinition) {
+      return '';
+    }
+
+    const blockRefAliasMatch = normalizedDefinition.match(/\(\([^\)]+\s+'([^']+)'\)\)/);
+    if (blockRefAliasMatch?.[1]) {
+      return blockRefAliasMatch[1].trim();
+    }
+
+    const blockIdMatch = normalizedDefinition.match(/\(\((\d{14}-[a-z0-9]{7})/);
+    if (blockIdMatch?.[1]) {
+      const refQuery = `SELECT content FROM blocks WHERE id = '${blockIdMatch[1]}' LIMIT 1`;
+      const refResult = await sql<ConceptContentRow>(refQuery);
+      const referencedContent = typeof refResult?.[0]?.content === 'string'
+        ? refResult[0].content.trim()
+        : '';
+      if (referencedContent) {
+        return referencedContent;
+      }
+    }
+
+    const leftSide = normalizedDefinition.split(DEFINITION_DELIMITER_PATTERN)[0]?.trim() || '';
+    if (!leftSide || leftSide === '(())' || /^\(\([^)]+\)\)$/.test(leftSide)) {
+      return '';
+    }
+
+    return leftSide;
   }
 
   private hasDefinitionDelimiter(content: string): boolean {

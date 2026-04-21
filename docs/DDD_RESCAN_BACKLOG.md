@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 102)
+Last update: 2026-04-21 (Round 103)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-21 - native riff idle sync persistence loop and concept-definition stale render fallback
+
+- Task: Stop the background storage-load log storm caused by native Riff transaction idle syncs persisting empty checkpoints, and keep concept-definition review cards renderable when the referenced concept block row is temporarily missing.
+- Touched slice: Siyuan integration / Xiuyuan sync / storage / concept-definition review rendering across `src/application/services/XiuyuanSyncService{,.types}.ts`, `src/application/handlers/NativeRiffSyncTriggerHandler.ts`, `src/core/storage/{UnifiedStorageManager.ts,UnifiedStoragePersistence.ts}`, `src/core/card/concept-definition/application/ConceptDefinitionCardRenderService.ts`, `src/ui/review/components/ConceptDefinitionCardRenderer.vue`, and focused regression coverage.
+- Debt fixed now: Added source-aware incremental sync options so native transaction idle syncs keep an in-memory checkpoint without calling the storage-backed apply path; threaded explicit storage load reasons through startup and pre-save conflict checks so msgpack reads can be logged with lower noise; skipped no-op riff sync state, blacklist, and unchanged card writes before they dirty storage; recovered concept-definition concept names from definition kramdown when SQL cannot hydrate the concept block row yet; and deduped child renderer failure logging by render identity so one stale card does not spam duplicate component errors.
+- Debt deferred: Native transaction classification still relies on the current bounded trigger heuristics, and missing concept-block cards are rendered through fallback rather than being auto-remapped, migrated, or cleaned from storage.
+- Why deferred: Replacing the trigger classifier or introducing card repair/migration would widen this bounded runtime repair into broader Siyuan host integration and storage-lifecycle work, while the active issue was the current background persistence loop plus stale concept-definition rendering.
+- Next safe step: If background sync noise or stale concept-definition cards reappear, capture one transaction sample and one affected stored card payload first, then decide whether to extract a shared native transaction classifier or add a bounded stale-card remediation pass.
+- Validation: `pnpm vitest run src/application/handlers/__tests__/NativeRiffSyncTriggerHandler.test.ts src/application/services/__tests__/XiuyuanSyncService.malformed-riff-input.test.ts src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts src/core/card/concept-definition/application/__tests__/ConceptDefinitionCardRenderService.test.ts src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-21 - review suspend toggle and kramdown mark CDF recovery
 

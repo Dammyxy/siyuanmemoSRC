@@ -77,6 +77,10 @@ describe('NativeRiffSyncTriggerHandler', () => {
 
     await vi.advanceTimersByTimeAsync(1);
     expect(incrementalSync).toHaveBeenCalledTimes(1);
+    expect(incrementalSync).toHaveBeenCalledWith(undefined, {
+      source: 'native-riff-transaction',
+      persistIdleCheckpoint: false,
+    });
   });
 
   it('ignores unrelated transactions', async () => {
@@ -118,6 +122,10 @@ describe('NativeRiffSyncTriggerHandler', () => {
     handler.handle(nativeRiffTransactions() as never);
     await vi.advanceTimersByTimeAsync(200);
     expect(incrementalSync).toHaveBeenCalledTimes(1);
+    expect(incrementalSync).toHaveBeenLastCalledWith(undefined, {
+      source: 'native-riff-transaction',
+      persistIdleCheckpoint: false,
+    });
 
     handler.handle(nativeRiffTransactions() as never);
     await vi.advanceTimersByTimeAsync(200);
@@ -128,5 +136,9 @@ describe('NativeRiffSyncTriggerHandler', () => {
     await vi.advanceTimersByTimeAsync(200);
 
     expect(incrementalSync).toHaveBeenCalledTimes(2);
+    expect(incrementalSync).toHaveBeenLastCalledWith(undefined, {
+      source: 'native-riff-transaction',
+      persistIdleCheckpoint: false,
+    });
   });
 });

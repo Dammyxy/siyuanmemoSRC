@@ -24,6 +24,7 @@ import { DomainEvent } from '@/core/shared/domain/events/DomainEvent';
 import type {
     HybridSyncConfig,
     HybridSyncEvents,
+    IncrementalSyncOptions,
     SyncResult,
     SyncType,
     ProgressCallback,
@@ -137,6 +138,7 @@ export class XiuyuanSyncService {
     private deletionTracker: IDeletionTracker;
     public lastFullSyncTime: number = 0;
     private readonly syncStateStore?: RiffSyncStateStore;
+    private volatileSyncState: RiffSyncState = {};
     private legacyCardTypeMigrationDone = false;
     private syncMutex: Promise<void> = Promise.resolve();
     private readonly inFlightSyncs: Map<SyncType, Promise<SyncResult>> = new Map();
@@ -188,8 +190,12 @@ export class XiuyuanSyncService {
         return this.syncStateStore?.getRiffSyncState() ?? {};
     }
 
+    private getEffectiveSyncState(): RiffSyncState {
+        return this.chooseMostRecentRiffSyncState(this.getPersistentSyncState(), this.volatileSyncState);
+    }
+
     private getIncrementalSinceFromCheckpoint(): number | undefined {
-        const state = this.getPersistentSyncState();
+        const state = this.getEffectiveSyncState();
         const lastSuccessfulAt = state.lastSuccessfulIncrementalAt;
         if (!lastSuccessfulAt || !Number.isFinite(lastSuccessfulAt) || lastSuccessfulAt <= 0) {
             return undefined;
@@ -203,9 +209,67 @@ export class XiuyuanSyncService {
             return false;
         }
 
-        const state = this.getPersistentSyncState();
+        const state = this.getEffectiveSyncState();
         const lastFullAt = state.lastSuccessfulFullAt ?? this.lastFullSyncTime;
         return !lastFullAt || now - lastFullAt >= this.config.fullSync.interval;
+    }
+
+    private chooseMostRecentRiffSyncState(
+        localState: RiffSyncState,
+        remoteState: RiffSyncState
+    ): RiffSyncState {
+        return {
+            lastSuccessfulIncrementalCursor:
+                (localState.lastSuccessfulIncrementalAt ?? 0) >= (remoteState.lastSuccessfulIncrementalAt ?? 0)
+                    ? localState.lastSuccessfulIncrementalCursor
+                    : remoteState.lastSuccessfulIncrementalCursor,
+            lastSuccessfulIncrementalAt: Math.max(
+                localState.lastSuccessfulIncrementalAt ?? 0,
+                remoteState.lastSuccessfulIncrementalAt ?? 0
+            ) || undefined,
+            lastSuccessfulFullAt: Math.max(
+                localState.lastSuccessfulFullAt ?? 0,
+                remoteState.lastSuccessfulFullAt ?? 0
+            ) || undefined,
+        };
+    }
+
+    private rememberVolatileSyncState(patch?: Partial<RiffSyncState>): void {
+        if (!patch) {
+            return;
+        }
+
+        const nextState = this.chooseMostRecentRiffSyncState(this.volatileSyncState, {
+            lastSuccessfulIncrementalCursor:
+                typeof patch.lastSuccessfulIncrementalCursor === 'string'
+                    ? patch.lastSuccessfulIncrementalCursor
+                    : undefined,
+            lastSuccessfulIncrementalAt:
+                typeof patch.lastSuccessfulIncrementalAt === 'number' && Number.isFinite(patch.lastSuccessfulIncrementalAt)
+                    ? patch.lastSuccessfulIncrementalAt
+                    : undefined,
+            lastSuccessfulFullAt:
+                typeof patch.lastSuccessfulFullAt === 'number' && Number.isFinite(patch.lastSuccessfulFullAt)
+                    ? patch.lastSuccessfulFullAt
+                    : undefined,
+        });
+
+        this.volatileSyncState = nextState;
+    }
+
+    private shouldSkipIdleIncrementalPersist(
+        changeSet: SyncChangeSet,
+        options?: IncrementalSyncOptions
+    ): boolean {
+        if (options?.persistIdleCheckpoint !== false) {
+            return false;
+        }
+
+        return changeSet.creates.length === 0
+            && changeSet.metadataUpdates.length === 0
+            && changeSet.deletes.length === 0
+            && changeSet.blacklistCleanup.length === 0
+            && changeSet.postDetectTargets.length === 0;
     }
     
     /**
@@ -348,7 +412,7 @@ export class XiuyuanSyncService {
             logger.info('Full reconcile is due on plugin start; running full sync instead of incremental');
             await this.fullSync();
         } else if (this.config.incrementalSync.enabled && this.config.incrementalSync.triggers.includes('plugin-start')) {
-            await this.incrementalSync();
+            await this.incrementalSync(undefined, { source: 'startup' });
         }
         
         logger.info('Sync service started');
@@ -1197,6 +1261,8 @@ export class XiuyuanSyncService {
             this.lastFullSyncTime = changeSet.checkpointAdvance?.lastSuccessfulFullAt ?? Date.now();
         }
 
+        this.rememberVolatileSyncState(changeSet.checkpointAdvance);
+
         return {
             success: true,
             addedCount: applyResult.value.createdCount,
@@ -1219,13 +1285,32 @@ export class XiuyuanSyncService {
      * 
      * @param onProgress 进度回调函数（可选）
      */
-    async incrementalSync(onProgress?: ProgressCallback): Promise<SyncResult> {
+    async incrementalSync(onProgress?: ProgressCallback, options?: IncrementalSyncOptions): Promise<SyncResult> {
         return this.runSyncExclusive('incremental', async () => {
             return this.withRetry('incremental', async () => {
                 const startTime = this.beginSync('incremental');
 
                 try {
                     const changeSet = await this.buildIncrementalChangeSet(onProgress, startTime);
+                    if (this.shouldSkipIdleIncrementalPersist(changeSet, options)) {
+                        this.rememberVolatileSyncState(changeSet.checkpointAdvance);
+                        const result: SyncResult = {
+                            success: true,
+                            addedCount: 0,
+                            updatedCount: 0,
+                            deletedCount: 0,
+                            skippedCount: changeSet.stats.skippedCount,
+                            detectedCount: 0,
+                        };
+
+                        return this.completeSync(
+                            'incremental',
+                            startTime,
+                            result,
+                            `Incremental sync completed without persistence (${options?.source || 'unspecified'}): added 0, updated 0, deleted 0, skipped ${result.skippedCount}, detected 0`
+                        );
+                    }
+
                     const result = await this.applyPlannedSync(changeSet, onProgress);
 
                     return this.completeSync(

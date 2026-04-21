@@ -69,6 +69,7 @@ export interface RiffSyncState {
 }
 
 export type RiffSyncStatePatch = Partial<RiffSyncState>;
+export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
 
 const STABLE_QUICK_META_STRING_KEYS = ['source', 'cardSource', 'symbolType', 'clozeRenderMode'] as const;
@@ -135,6 +136,10 @@ function fnv1aHash(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+function areStructurallyEqual(left: unknown, right: unknown): boolean {
+  return stableStringify(left) === stableStringify(right);
+}
+
 /**
  * 瀛樺偍缁熻淇℃伅
  */
@@ -173,7 +178,7 @@ export class UnifiedStorageManager {
 
   // === 鎸佷箙鍖栧洖璋?===
   private saveCallback: ((data: UnifiedCardStore) => Promise<void>) | null = null;
-  private loadCallback: (() => Promise<UnifiedCardStore>) | null = null;
+  private loadCallback: ((reason?: StorageLoadReason) => Promise<UnifiedCardStore>) | null = null;
   private conflictResolutionStrategy: StorageConflictResolutionStrategy = 'merge';
   private readonly instanceId = `storage-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   private lastKnownContentHash: string | null = null;
@@ -377,7 +382,7 @@ export class UnifiedStorageManager {
    */
   setPersistenceCallbacks(
     save: (data: UnifiedCardStore) => Promise<void>,
-    load: () => Promise<UnifiedCardStore>
+    load: (reason?: StorageLoadReason) => Promise<UnifiedCardStore>
   ): void {
     this.saveCallback = save;
     this.loadCallback = load;
@@ -401,23 +406,31 @@ export class UnifiedStorageManager {
     options: {
       scheduleSave?: boolean;
     } = {},
-  ): void {
-    this.riffSyncState = this.sanitizeRiffSyncState({
+  ): boolean {
+    const nextState = this.sanitizeRiffSyncState({
       ...this.riffSyncState,
       ...patch,
     });
+    if (areStructurallyEqual(this.riffSyncState, nextState)) {
+      return false;
+    }
+
+    this.riffSyncState = nextState;
 
     if (options.scheduleSave === false) {
       this.dirty = true;
-      return;
+      return true;
     }
 
-    this.scheduleSave();
+    this.scheduleSave('riff-sync-state-patch');
+    return true;
   }
 
   async updateRiffSyncState(patch: RiffSyncStatePatch): Promise<Result<void>> {
     return this.runWriteMutation('riff-sync-state', async () => {
-      this.patchRiffSyncState(patch, { scheduleSave: false });
+      if (!this.patchRiffSyncState(patch, { scheduleSave: false })) {
+        return ok(undefined);
+      }
       const saveResult = await this.save();
       if (isErr(saveResult)) {
         return saveResult;
@@ -439,7 +452,7 @@ export class UnifiedStorageManager {
         return err(new Error('Load callback not set'));
       }
 
-      const store = await this.loadCallback();
+      const store = await this.loadCallback('startup-load');
       this.applyStoreSnapshot(store);
       return ok(undefined);
 
@@ -580,7 +593,7 @@ export class UnifiedStorageManager {
     }
 
     try {
-      return await this.loadCallback();
+      return await this.loadCallback('pre-save-conflict-check');
     } catch (error) {
       logger.error('[UnifiedStorageManager] Failed to load remote snapshot before save:', error);
       throw (error instanceof Error ? error : new Error(String(error)));
@@ -1032,12 +1045,18 @@ export class UnifiedStorageManager {
     };
   }
 
-  private scheduleSave(): void {
+  private scheduleSave(reason: string = 'unspecified'): void {
     this.dirty = true;
+    const hadPendingTimer = this.saveTimer !== null;
 
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
     }
+
+    logger.debug('[UnifiedStorageManager] scheduleSave', {
+      reason,
+      hadPendingTimer,
+    });
 
     this.saveTimer = setTimeout(() => {
       this.save().catch(error => {
@@ -1298,7 +1317,7 @@ export class UnifiedStorageManager {
         this.indexByDue.sort((a, b) => a.due - b.due);
 
         // 璋冨害淇濆瓨
-        this.scheduleSave();
+        this.scheduleSave('create-card-dto');
 
         return ok(undefined);
       } catch (error) {
@@ -1339,15 +1358,6 @@ export class UnifiedStorageManager {
           ? this.resolveCanonicalXiuyuanSnapshot(currentXiuyuan)
           : undefined;
         const canonicalXiuyuanId = canonicalXiuyuan?.id || xiuyuanId || undefined;
-        if (canonicalXiuyuan && canonicalXiuyuanId) {
-          const existingXiuyuan = this.xiuyuans.get(canonicalXiuyuanId);
-          this.xiuyuans.set(
-            canonicalXiuyuanId,
-            existingXiuyuan
-              ? mergeXiuyuanSnapshots(existingXiuyuan, canonicalXiuyuan).value
-              : canonicalXiuyuan,
-          );
-        }
 
         const normalizedDto: CardPersistenceDTO = {
           ...dto,
@@ -1360,11 +1370,33 @@ export class UnifiedStorageManager {
             : dto.meta,
         };
 
+        const storedCanonicalXiuyuan = canonicalXiuyuanId
+          ? this.xiuyuans.get(canonicalXiuyuanId)
+          : undefined;
+        const shouldUpsertCanonicalXiuyuan = Boolean(canonicalXiuyuan && canonicalXiuyuanId)
+          && !areStructurallyEqual(storedCanonicalXiuyuan, canonicalXiuyuan);
+
         const logicalDuplicate = canonicalXiuyuan
           ? this.findExistingCardDTOByLogicalKey(normalizedDto, canonicalXiuyuan, {
               excludeId: dto.id,
             })
           : null;
+
+        if (!logicalDuplicate && !shouldUpsertCanonicalXiuyuan && areStructurallyEqual(oldDTO, normalizedDto)) {
+          logger.debug('[UnifiedStorageManager] updateCardDTO no-op skipped', {
+            cardId: normalizedDto.id,
+          });
+          return ok(undefined);
+        }
+
+        if (canonicalXiuyuan && canonicalXiuyuanId) {
+          this.xiuyuans.set(
+            canonicalXiuyuanId,
+            storedCanonicalXiuyuan
+              ? mergeXiuyuanSnapshots(storedCanonicalXiuyuan, canonicalXiuyuan).value
+              : canonicalXiuyuan,
+          );
+        }
 
         if (logicalDuplicate) {
           const merged = mergeCardDTOsLocalFirst(logicalDuplicate.dto, normalizedDto, {
@@ -1380,7 +1412,7 @@ export class UnifiedStorageManager {
           this.cardDTOs.set(merged.id, merged);
           this.updateIndexesForDTO(merged, 'add');
           this.indexByDue.sort((a, b) => a.due - b.due);
-          this.scheduleSave();
+          this.scheduleSave('update-card-dto-logical-merge');
           return ok(undefined);
         }
 
@@ -1413,7 +1445,7 @@ export class UnifiedStorageManager {
         this.indexByDue.sort((a, b) => a.due - b.due);
 
         // 璋冨害淇濆瓨
-        this.scheduleSave();
+        this.scheduleSave('update-card-dto');
 
         return ok(undefined);
       } catch (error) {
@@ -1549,7 +1581,7 @@ export class UnifiedStorageManager {
       }
 
       // 璋冨害淇濆瓨
-      this.scheduleSave();
+      this.scheduleSave('delete-card');
 
       return ok(undefined);
     } catch (error) {
@@ -1587,7 +1619,7 @@ export class UnifiedStorageManager {
       this.xiuyuans.delete(xiuyuanId);
 
       // 璋冨害淇濆瓨
-      this.scheduleSave();
+      this.scheduleSave('delete-xiuyuan');
 
       return ok(undefined);
     } catch (error) {
@@ -1950,7 +1982,7 @@ export class UnifiedStorageManager {
     }
 
     if (fixedCount > 0) {
-      this.scheduleSave();
+      this.scheduleSave('fix-consistency');
     }
 
     return fixedCount;
@@ -1996,8 +2028,11 @@ export class UnifiedStorageManager {
   }
 
   addToRiffBlacklist(blockID: string): void {
+    if (this.riffBlacklist.has(blockID)) {
+      return;
+    }
     this.riffBlacklist.add(blockID);
-    this.scheduleSave();
+    this.scheduleSave('add-riff-blacklist');
   }
 
   removeFromRiffBlacklist(blockID: string): void {
@@ -2006,7 +2041,7 @@ export class UnifiedStorageManager {
     }
 
     this.riffBlacklist.delete(blockID);
-    this.scheduleSave();
+    this.scheduleSave('remove-riff-blacklist');
   }
 
   isInRiffBlacklist(blockID: string): boolean {
@@ -2082,7 +2117,7 @@ export class UnifiedStorageManager {
 
     // 鏍囪涓鸿剰
     this.dirty = true;
-    this.scheduleSave();
+    this.scheduleSave('remove-card-compat');
 
     return true;
   }

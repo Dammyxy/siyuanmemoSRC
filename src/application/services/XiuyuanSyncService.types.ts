@@ -106,6 +106,18 @@ export interface SyncResult {
     errorMessage?: string;
 }
 
+export type IncrementalSyncSource =
+    | 'startup'
+    | 'manual'
+    | 'browser-open'
+    | 'review-close'
+    | 'native-riff-transaction';
+
+export interface IncrementalSyncOptions {
+    source?: IncrementalSyncSource;
+    persistIdleCheckpoint?: boolean;
+}
+
 /**
  * 同步状态
  */

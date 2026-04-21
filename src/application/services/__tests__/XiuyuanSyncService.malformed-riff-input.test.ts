@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { XiuyuanSyncRiffBlock, XiuyuanSyncSiyuanPort } from '@/application/ports/XiuyuanSyncSiyuanPort';
 import type { HybridSyncConfig, SyncResult } from '../XiuyuanSyncService.types';
 import { XiuyuanSyncService } from '../XiuyuanSyncService';
@@ -29,10 +29,11 @@ function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown })
 function createConfig(options?: {
   incrementalEnabled?: boolean;
   cleanupBlacklist?: boolean;
+  storage?: unknown;
 }): HybridSyncConfig {
   return {
     deckId: 'deck-1',
-    storage: null,
+    storage: options?.storage ?? null,
     incrementalSync: {
       enabled: options?.incrementalEnabled ?? false,
       triggers: ['plugin-start'],
@@ -153,6 +154,7 @@ function createLocalOwnedXiuyuan(blockId: string): Xiuyuan {
 function createHarness(options?: {
   incrementalEnabled?: boolean;
   cleanupBlacklist?: boolean;
+  storage?: unknown;
 }): ServiceHarness {
   const eventBus = new EventBus();
   const xiuyuanRepository = createXiuyuanRepositoryMock();
@@ -195,6 +197,10 @@ function expectSyncSuccess(result: SyncResult): void {
 describe('XiuyuanSyncService malformed riff input handling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('normalizes blockID-only riff records before incremental sync creates Xiuyuans', async () => {
@@ -296,6 +302,54 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
     expect(changeSet?.creates).toHaveLength(0);
     expect(changeSet?.metadataUpdates).toHaveLength(0);
+    expect(changeSet?.checkpointAdvance?.lastSuccessfulIncrementalAt).toBeTypeOf('number');
+  });
+
+  it('skips persistence for native-riff idle incremental syncs but remembers the checkpoint in memory', async () => {
+    vi.useFakeTimers();
+    const firstSyncStartedAt = new Date('2026-03-02T10:00:00.000Z').getTime();
+    vi.setSystemTime(firstSyncStartedAt);
+
+    const storage = {
+      getRiffSyncState: vi.fn(() => ({})),
+      updateRiffSyncState: vi.fn(async () => ({ ok: true as const })),
+    };
+    const { service, xiuyuanRepository, siyuanApi } = createHarness({ storage });
+
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([]);
+
+    const firstResult = await service.incrementalSync(undefined, {
+      source: 'native-riff-transaction',
+      persistIdleCheckpoint: false,
+    });
+
+    expectSyncSuccess(firstResult);
+    expect(firstResult.addedCount).toBe(0);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).not.toHaveBeenCalled();
+    expect(vi.mocked(siyuanApi.getRiffNewCards).mock.calls[0]?.[1]).toBeUndefined();
+
+    vi.setSystemTime(new Date('2026-03-02T10:00:10.000Z'));
+    await service.incrementalSync(undefined, {
+      source: 'native-riff-transaction',
+      persistIdleCheckpoint: false,
+    });
+
+    expect(vi.mocked(siyuanApi.getRiffNewCards).mock.calls[1]?.[1]).toBe(firstSyncStartedAt - 5_000);
+    expect(storage.updateRiffSyncState).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('still persists idle incremental checkpoints for default incremental sync calls', async () => {
+    const { service, xiuyuanRepository, siyuanApi } = createHarness();
+
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([]);
+
+    const result = await service.incrementalSync();
+
+    expectSyncSuccess(result);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toHaveLength(0);
     expect(changeSet?.checkpointAdvance?.lastSuccessfulIncrementalAt).toBeTypeOf('number');
   });
 

@@ -43,6 +43,22 @@ import type {
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
+const FAILURE_CACHE_KEY = '__siyuanmemo_concept_definition_render_failures__';
+
+function getLoggedRenderFailures(): Map<string, string> {
+  const scope = globalThis as typeof globalThis & {
+    [FAILURE_CACHE_KEY]?: Map<string, string>;
+  };
+
+  if (!scope[FAILURE_CACHE_KEY]) {
+    scope[FAILURE_CACHE_KEY] = new Map<string, string>();
+  }
+
+  return scope[FAILURE_CACHE_KEY];
+}
+
+const loggedRenderFailures = getLoggedRenderFailures();
+
 const props = defineProps<{
   blockId: string;
   cardId?: string;
@@ -71,6 +87,7 @@ function t(key: string, fallback: string): string {
 
 async function loadViewModel() {
   const seq = ++loadSeq;
+  const identity = renderIdentity.value;
 
   try {
     loading.value = true;
@@ -82,6 +99,7 @@ async function loadViewModel() {
     }
 
     viewModel.value = nextViewModel;
+    loggedRenderFailures.delete(identity);
     emit('loaded', viewModel.value);
   } catch (err) {
     if (seq !== loadSeq) {
@@ -91,7 +109,13 @@ async function loadViewModel() {
     const errorMessage = err instanceof Error ? err.message : String(err);
     error.value = errorMessage;
     emit('error', err instanceof Error ? err : new Error(errorMessage));
-    logger.error('Failed to load view model:', err);
+    if (loggedRenderFailures.get(identity) !== errorMessage) {
+      loggedRenderFailures.set(identity, errorMessage);
+      logger.debug('Suppressed duplicate concept-definition renderer error; parent will surface it', {
+        identity,
+        error: errorMessage,
+      });
+    }
   } finally {
     if (seq === loadSeq) {
       loading.value = false;

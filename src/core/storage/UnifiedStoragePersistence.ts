@@ -15,7 +15,7 @@
  */
 
 import type { Plugin } from 'siyuan';
-import type { UnifiedCardStore } from './UnifiedStorageManager';
+import type { StorageLoadReason, UnifiedCardStore } from './UnifiedStorageManager';
 import { createLogger } from '@/utils/logger';
 
 type PersistencePlugin = Pick<Plugin, 'saveData' | 'loadData'>;
@@ -53,7 +53,7 @@ export function createPersistenceCallbacks(plugin: PersistencePlugin) {
   /**
    * 加载回调：从 MessagePack 文件读取并反序列化数据
    */
-  const load = async (): Promise<UnifiedCardStore> => {
+  const load = async (reason: StorageLoadReason = 'unspecified'): Promise<UnifiedCardStore> => {
     try {
       // 使用插件的 loadData API，会自动解码 MessagePack 格式
       const data = await plugin.loadData(UNIFIED_STORAGE_KEY);
@@ -70,7 +70,9 @@ export function createPersistenceCallbacks(plugin: PersistencePlugin) {
           throw error;
         }
 
-        logger.info('Loaded from msgpack', {
+        const loadLog = reason === 'pre-save-conflict-check' ? logger.debug.bind(logger) : logger.info.bind(logger);
+        loadLog('Loaded from msgpack', {
+          reason,
           version: data.version,
           xiuyuans: Object.keys(data.xiuyuans).length,
           cards: Object.keys(data.cards).length,
@@ -80,7 +82,8 @@ export function createPersistenceCallbacks(plugin: PersistencePlugin) {
       }
 
       // 文件不存在，返回空数据
-      logger.info('No existing data, using empty store');
+      const emptyLog = reason === 'pre-save-conflict-check' ? logger.debug.bind(logger) : logger.info.bind(logger);
+      emptyLog('No existing data, using empty store', { reason });
       return createEmptyStore();
     } catch (error) {
       logger.error('Failed to load', error);

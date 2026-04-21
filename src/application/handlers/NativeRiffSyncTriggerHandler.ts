@@ -1,5 +1,6 @@
 import type { ITransactionHandler, Transaction } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
+import type { IncrementalSyncOptions } from '@/application/services/XiuyuanSyncService.types';
 import type FSRSPlugin from '@/index';
 import { ATTR_IS_FLASHCARD, ATTR_RIFF_DECKS } from '@/core/siyuan/block';
 import { createLogger } from '@/utils/logger';
@@ -17,7 +18,7 @@ type SettingsServiceLike = {
 };
 
 type HybridSyncServiceLike = {
-  incrementalSync: () => Promise<unknown>;
+  incrementalSync: (_onProgress?: unknown, _options?: IncrementalSyncOptions) => Promise<unknown>;
 };
 
 type ApplicationContextLike = {
@@ -152,7 +153,10 @@ export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
 
     this.syncInFlight = true;
     try {
-      await hybridSyncService.incrementalSync();
+      await hybridSyncService.incrementalSync(undefined, {
+        source: 'native-riff-transaction',
+        persistIdleCheckpoint: false,
+      });
     } catch (error) {
       logger.warn('[NativeRiffSyncTrigger] Incremental sync failed:', {
         error: error instanceof Error ? error.message : normalizeString(error),

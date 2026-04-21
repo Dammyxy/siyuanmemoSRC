@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnifiedStorageManager } from '../UnifiedStorageManager';
-import type { UnifiedCardStore } from '../UnifiedStorageManager';
+import type { StorageLoadReason, UnifiedCardStore } from '../UnifiedStorageManager';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
 import type { IXiuyuan } from '../../xiuyuan/types';
 import type { CardType } from '../../../types/card';
@@ -65,14 +65,22 @@ function createDTO(cardId: string, xiuyuanId: string): CardPersistenceDTO {
 describe('UnifiedStorageManager sync conflict resolution', () => {
   let remoteStore: UnifiedCardStore;
   let saveCallback: (store: UnifiedCardStore) => Promise<void>;
-  let loadCallback: () => Promise<UnifiedCardStore>;
+  let loadCallback: (reason?: StorageLoadReason) => Promise<UnifiedCardStore>;
+  let loadReasons: Array<StorageLoadReason | undefined>;
+  let savedStores: UnifiedCardStore[];
 
   beforeEach(() => {
     remoteStore = createEmptyStore();
+    loadReasons = [];
+    savedStores = [];
     saveCallback = async (store: UnifiedCardStore) => {
+      savedStores.push(deepClone(store));
       remoteStore = deepClone(store);
     };
-    loadCallback = async () => deepClone(remoteStore);
+    loadCallback = async (reason?: StorageLoadReason) => {
+      loadReasons.push(reason);
+      return deepClone(remoteStore);
+    };
   });
 
   function createManager(strategy: 'merge' | 'prefer-local' | 'prefer-remote'): UnifiedStorageManager {
@@ -132,5 +140,71 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
     expect(Object.keys(remoteStore.cardDTOs || {})).toEqual(['card-a']);
     expect(managerB.getCardDTO('card-a')).toBeDefined();
     expect(managerB.getCardDTO('card-b')).toBeUndefined();
+  });
+
+  it('passes explicit load reasons for startup loads and pre-save conflict checks', async () => {
+    const manager = createManager('merge');
+
+    await manager.load();
+    await manager.createCardDTO(createXiuyuan('xy-a'), createDTO('card-a', 'xy-a'));
+    await manager.save();
+
+    expect(loadReasons).toEqual(['startup-load', 'pre-save-conflict-check']);
+  });
+
+  it('skips unchanged riff sync state patches without marking storage dirty', async () => {
+    const manager = createManager('merge');
+    await manager.load();
+
+    const changed = manager.patchRiffSyncState({
+      lastSuccessfulIncrementalAt: 123,
+      lastSuccessfulIncrementalCursor: 'timestamp:123',
+    }, { scheduleSave: false });
+    expect(changed).toBe(true);
+    expect(manager.isDirty()).toBe(true);
+
+    await manager.save();
+    expect(manager.isDirty()).toBe(false);
+
+    const unchanged = manager.patchRiffSyncState({
+      lastSuccessfulIncrementalAt: 123,
+      lastSuccessfulIncrementalCursor: 'timestamp:123',
+    }, { scheduleSave: false });
+
+    expect(unchanged).toBe(false);
+    expect(manager.isDirty()).toBe(false);
+  });
+
+  it('does not reschedule save when a riff blacklist block is already present', async () => {
+    const manager = createManager('merge');
+    await manager.load();
+
+    manager.addToRiffBlacklist('block-1');
+    expect(manager.isDirty()).toBe(true);
+    await manager.save();
+    expect(savedStores).toHaveLength(1);
+
+    manager.addToRiffBlacklist('block-1');
+
+    expect(manager.isDirty()).toBe(false);
+    expect(savedStores).toHaveLength(1);
+  });
+
+  it('skips no-op updateCardDTO writes', async () => {
+    const manager = createManager('merge');
+    await manager.load();
+
+    await manager.createCardDTO(createXiuyuan('xy-a'), createDTO('card-a', 'xy-a'));
+    await manager.save();
+    expect(savedStores).toHaveLength(1);
+
+    const existing = manager.getCardDTO('card-a');
+    expect(existing).toBeDefined();
+
+    const result = await manager.updateCardDTO(deepClone(existing!));
+
+    expect(result.ok).toBe(true);
+    expect(manager.isDirty()).toBe(false);
+    expect(savedStores).toHaveLength(1);
   });
 });
