@@ -389,6 +389,8 @@
                         <span>{{ cdfCreationStatusLabel(item.status) }}</span>
                       </div>
                       <p v-if="item.conceptBlockId">{{ t('conceptDocument', '概念文档') }}：{{ item.conceptBlockId }}</p>
+                      <p v-if="item.insertedRootBlockId">{{ t('insertedRootBlock', '根块') }}：{{ item.insertedRootBlockId }}</p>
+                      <p>{{ item.createdDefinitionCount }} {{ t('definitions', '个定义') }} · {{ item.createdDescriptorCount }} {{ t('descriptors', '个描述符') }}</p>
                       <p v-if="item.error" class="ai-chat__creation-result-error">{{ item.error }}</p>
                       <p v-if="(item.warnings || []).length > 0">{{ t('warnings', '提示') }}：{{ (item.warnings || []).join('；') }}</p>
                     </li>
@@ -443,7 +445,7 @@
                 <section v-if="cdfSearchOpen(entry.primaryMessage.id, anchor.id)" class="ai-chat__cdf-search">
                   <div class="ai-chat__cdf-search-bar">
                     <input
-                      :value="cdfSearchQuery(entry.primaryMessage.id, anchor.id, anchor.conceptName)"
+                      :value="cdfSearchQuery(entry.primaryMessage.id, anchor.id)"
                       class="b3-text-field"
                       :placeholder="t('conceptDocSearchPlaceholder', '输入概念标题或路径关键字')"
                       @input="setCdfSearchQuery(entry.primaryMessage.id, anchor.id, ($event.target as HTMLInputElement)?.value || '')"
@@ -482,16 +484,27 @@
 
                 <section v-if="anchor.definitionCandidates.length > 0" class="ai-chat__cdf-section">
                   <h4>{{ t('workingDefinitions', '工作定义候选') }}</h4>
+                  <label class="ai-chat__cdf-item">
+                    <input
+                      type="radio"
+                      :name="cdfDefinitionGroupName(entry.primaryMessage.id, anchor.id)"
+                      :checked="!hasSelectedCdfDefinition(anchor)"
+                      :disabled="anchor.selected === false"
+                      @change="clearCdfDefinitionSelectionForAnchor(entry.primaryMessage.id, anchor.id)"
+                    >
+                    <span>{{ t('descriptorOnly', '仅做描述符') }}</span>
+                  </label>
                   <label
                     v-for="definition in anchor.definitionCandidates"
                     :key="definition.id"
                     class="ai-chat__cdf-item"
                   >
                     <input
-                      type="checkbox"
+                      type="radio"
+                      :name="cdfDefinitionGroupName(entry.primaryMessage.id, anchor.id)"
                       :checked="definition.selected !== false"
                       :disabled="anchor.selected === false"
-                      @change="toggleCdfDefinition(entry.primaryMessage.id, anchor.id, definition.id, $event)"
+                      @change="selectCdfDefinition(entry.primaryMessage.id, anchor.id, definition.id)"
                     >
                     <span>{{ definition.text }}</span>
                   </label>
@@ -1554,6 +1567,12 @@ function selectedCdfDefinitionCount(message: AIWorkbenchAssistantResultMessage):
   )).length, 0);
 }
 
+function hasSelectedCdfDefinition(anchor: AICdfAnchor): boolean {
+  return anchor.definitionCandidates.some((definition) => (
+    definition.selected !== false && normalizeText(definition.text).length > 0
+  ));
+}
+
 function selectedCdfDescriptorItemsInGroup(group: AICdfDescriptorGroup): number {
   return group.items.filter((item) => item.selected !== false && normalizeText(item.text).length > 0).length;
 }
@@ -1621,8 +1640,8 @@ function cdfSearchBusy(messageId: string, anchorId: string): boolean {
   return cdfSearchBusyKeys.value.includes(cdfSearchKey(messageId, anchorId));
 }
 
-function cdfSearchQuery(messageId: string, anchorId: string, fallback = ''): string {
-  return cdfSearchQueryByKey.value[cdfSearchKey(messageId, anchorId)] || fallback;
+function cdfSearchQuery(messageId: string, anchorId: string): string {
+  return cdfSearchQueryByKey.value[cdfSearchKey(messageId, anchorId)] ?? '';
 }
 
 function cdfSearchError(messageId: string, anchorId: string): string {
@@ -1638,6 +1657,10 @@ function setCdfSearchQuery(messageId: string, anchorId: string, value: string): 
     ...cdfSearchQueryByKey.value,
     [cdfSearchKey(messageId, anchorId)]: normalizeText(value),
   };
+}
+
+function cdfDefinitionGroupName(messageId: string, anchorId: string): string {
+  return `cdf-definition-${messageId}-${anchorId}`;
 }
 
 function modeDraftError(messageId: string): string {
@@ -2306,10 +2329,14 @@ async function toggleCdfAnchor(messageId: string, anchorId: string, event: Event
   cdfCreationResult.value = null;
 }
 
-async function toggleCdfDefinition(messageId: string, anchorId: string, definitionId: string, event: Event): Promise<void> {
-  const target = event.target;
-  const selected = target instanceof HTMLInputElement ? target.checked : true;
-  await service.setCdfDefinitionSelected?.(messageId, anchorId, definitionId, selected);
+async function selectCdfDefinition(messageId: string, anchorId: string, definitionId: string): Promise<void> {
+  await service.setCdfDefinitionSelected?.(messageId, anchorId, definitionId, true);
+  cdfCreationError.value = '';
+  cdfCreationResult.value = null;
+}
+
+async function clearCdfDefinitionSelectionForAnchor(messageId: string, anchorId: string): Promise<void> {
+  await service.clearCdfDefinitionSelection?.(messageId, anchorId);
   cdfCreationError.value = '';
   cdfCreationResult.value = null;
 }
@@ -2483,13 +2510,13 @@ async function toggleCdfConceptSearch(message: AIWorkbenchAssistantResultMessage
     return;
   }
   cdfSearchOpenKeys.value = [...cdfSearchOpenKeys.value, key];
-  if (!cdfSearchQueryByKey.value[key]) {
+  if (!Object.prototype.hasOwnProperty.call(cdfSearchQueryByKey.value, key)) {
     cdfSearchQueryByKey.value = {
       ...cdfSearchQueryByKey.value,
       [key]: anchor.conceptName,
     };
+    await runCdfConceptSearch(message, anchor);
   }
-  await runCdfConceptSearch(message, anchor);
 }
 
 async function runCdfConceptSearch(message: AIWorkbenchAssistantResultMessage, anchor: AICdfAnchor): Promise<void> {
@@ -2509,9 +2536,10 @@ async function runCdfConceptSearch(message: AIWorkbenchAssistantResultMessage, a
     [key]: '',
   };
   try {
+    const query = cdfSearchQuery(message.id, anchor.id);
     const results = await service.searchCdfConceptDocuments(
       selfTestTargetMemory.value,
-      cdfSearchQuery(message.id, anchor.id, anchor.conceptName),
+      query,
     );
     cdfSearchResultsByKey.value = {
       ...cdfSearchResultsByKey.value,

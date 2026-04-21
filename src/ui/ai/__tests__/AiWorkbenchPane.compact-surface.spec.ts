@@ -804,10 +804,10 @@ describe('AiWorkbenchPane compact surfaces', () => {
     );
   });
 
-  it('generates plugin drafts when switching to Xiuyuan-backed self-test modes', async () => {
+  it('switches between native self-test modes without exposing legacy plugin modes', async () => {
     const service = createService('review-dialog-sidecar');
     service.setActiveTab('self-test-cards');
-    const entry = reactive(makeSelfTestRenderEntry([
+    service.getRenderEntries = () => [reactive(makeSelfTestRenderEntry([
       {
         id: 'candidate-a',
         question: '问题 A',
@@ -815,79 +815,79 @@ describe('AiWorkbenchPane compact surfaces', () => {
         kind: '定义',
         selected: true,
       },
-    ])) as ReturnType<typeof makeSelfTestRenderEntry>;
-    service.getRenderEntries = () => [entry] as never;
+    ])) as ReturnType<typeof makeSelfTestRenderEntry>] as never;
     service.getFollowUpDisabledReason = () => null;
-    const pending = createDeferred<void>();
-    const generateModeDrafts = vi.fn(async () => {
-      await pending.promise;
-      entry.primaryMessage.tabResult.cards[0] = {
-        ...entry.primaryMessage.tabResult.cards[0],
-        modeDrafts: {
-          'multi-mark': '题干：问题 A 答案：==答案 A==',
-        },
-      };
-      return entry.primaryMessage.tabResult.cards;
-    });
+    const generateModeDrafts = vi.fn(async () => []);
     service.generateModeDrafts = generateModeDrafts as never;
 
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
     await Promise.resolve();
     await nextTick();
 
-    const multiMarkButton = wrapper.findAll('button').find((button) => button.text().includes('多标记'))!;
-    await multiMarkButton.trigger('click');
+    expect(wrapper.text()).not.toContain('多标记');
+    expect(wrapper.text()).not.toContain('CDF 多行');
+
+    const markButton = wrapper.findAll('button').find((button) => button.text().includes('标记制卡'))!;
+    await markButton.trigger('click');
     await Promise.resolve();
     await nextTick();
 
-    expect(generateModeDrafts).toHaveBeenCalledWith('self-test-message-1', 'multi-mark', undefined);
-    expect(wrapper.text()).toContain('正在生成当前插件模式草稿');
-
-    pending.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    await nextTick();
-
-    expect(wrapper.text()).not.toContain('正在生成当前插件模式草稿');
+    expect(generateModeDrafts).not.toHaveBeenCalled();
     expect(wrapper.html()).toContain('答案 A');
   });
 
-  it('shows retry affordance when plugin draft generation fails', async () => {
+  it('keeps the CDF search input clear after deleting the seeded concept query', async () => {
     const service = createService('review-dialog-sidecar');
-    service.setActiveTab('self-test-cards');
-    service.getRenderEntries = () => [makeSelfTestRenderEntry([
-      {
-        id: 'candidate-a',
-        question: '问题 A',
-        answer: '答案 A',
-        kind: '定义',
-        selected: true,
-      },
-    ])] as never;
-    service.getFollowUpDisabledReason = () => null;
-    const generateModeDrafts = vi.fn()
-      .mockRejectedValueOnce(new Error('draft failed'))
-      .mockResolvedValueOnce([]);
-    service.generateModeDrafts = generateModeDrafts as never;
+    service.setActiveTab('cdf-structure');
+    service.getRenderEntries = () => [makeCdfRenderEntry()] as never;
+    service.listSelfTestCardTargetNotebooks = vi.fn(async () => [
+      { id: 'notebook-1', name: '学习笔记', closed: false },
+    ]) as never;
+    service.getSelfTestCardTargetMemory = vi.fn(async () => ({
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+      targetBlockId: null,
+      targetLabel: '学习笔记 · 今日日记',
+      updatedAt: 1,
+    })) as never;
+    service.previewCdfStructure = vi.fn(async () => ({
+      anchors: [makeCdfRenderEntry().primaryMessage.tabResult.anchors[0]],
+    })) as never;
+    const searchCdfConceptDocuments = vi.fn(async () => []);
+    service.searchCdfConceptDocuments = searchCdfConceptDocuments as never;
 
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
     await Promise.resolve();
     await nextTick();
 
-    const multiMarkButton = wrapper.findAll('button').find((button) => button.text().includes('多标记'))!;
-    await multiMarkButton.trigger('click');
+    const searchButton = wrapper.findAll('button').find((button) => button.text().includes('搜索概念文档'))!;
+    await searchButton.trigger('click');
     await Promise.resolve();
     await Promise.resolve();
     await nextTick();
 
-    expect(wrapper.text()).toContain('draft failed');
-    const retryButton = wrapper.findAll('button').find((button) => button.text().includes('重试本次'))!;
-    await retryButton.trigger('click');
+    expect(searchCdfConceptDocuments).toHaveBeenCalledWith(expect.objectContaining({
+      notebookId: 'notebook-1',
+    }), '幂函数');
+
+    const input = wrapper.find('input.b3-text-field');
+    await input.setValue('');
+    await Promise.resolve();
+    await nextTick();
+    expect((input.element as HTMLInputElement).value).toBe('');
+
+    await input.setValue('新关键词');
+    const actionButton = wrapper.findAll('button').find((button) => button.text().trim() === '搜索')!;
+    await actionButton.trigger('click');
     await Promise.resolve();
     await Promise.resolve();
     await nextTick();
 
-    expect(generateModeDrafts).toHaveBeenCalledTimes(2);
+    expect((input.element as HTMLInputElement).value).toBe('新关键词');
+    expect(searchCdfConceptDocuments).toHaveBeenLastCalledWith(expect.objectContaining({
+      notebookId: 'notebook-1',
+    }), '新关键词');
   });
 
   it('toggles select-all from the compact candidate toolbar using the current message id', async () => {

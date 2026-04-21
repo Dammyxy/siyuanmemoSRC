@@ -59,26 +59,6 @@ const SELF_TEST_MODE_DESCRIPTORS: Record<AIConceptCoachSelfTestCreationMode, AIC
       '请返回模式无关的 canonical 草稿字段：prompt、answer、details、clozeTargets。',
     ],
   },
-  'multi-mark': {
-    mode: 'multi-mark',
-    label: '多标记',
-    summary: '同一份通用草稿会被本地渲染成包含多个合法 ==标记== 的单块内容，用于插件多挖空卡。',
-    contractLines: [
-      '当前自测制卡模式是 multi-mark。',
-      '这个模式只影响本地渲染和制卡，不要求模型直接返回多标记 markdown。',
-      '请返回模式无关的 canonical 草稿字段：prompt、answer、details、clozeTargets。',
-    ],
-  },
-  'cdf-multiline': {
-    mode: 'cdf-multiline',
-    label: 'CDF 多行',
-    summary: '同一份通用草稿会被本地渲染成插件 CDF 多行结构，使用 ::: 约定。',
-    contractLines: [
-      '当前自测制卡模式是 cdf-multiline。',
-      '这个模式只影响本地渲染和制卡，不要求模型直接返回 ::: / ;;; markdown。',
-      '请返回模式无关的 canonical 草稿字段：prompt、answer、details、clozeTargets。',
-    ],
-  },
 };
 
 const FULL_RUN_CONTRACT: AIPromptContractDescriptor = {

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
+import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
+import { ok } from '@/types/result';
 
 function createPairMutationFixture(rootId: string) {
   const listId = `${rootId}-list`;
@@ -49,11 +51,42 @@ function createTextMutationFixture(rootId: string, content: string) {
   };
 }
 
+function createListTreeMutationFixture(rootId: string, rootText: string, childTexts: string[] = []) {
+  const rows = [
+    { id: `${rootId}-list`, parent_id: 'target-doc', root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '1' },
+    { id: rootId, parent_id: `${rootId}-list`, root_id: 'target-doc', type: 'i', content: rootText, markdown: rootText, sort: '2' },
+    { id: `${rootId}-p`, parent_id: rootId, root_id: 'target-doc', type: 'p', content: rootText, markdown: rootText, sort: '3' },
+  ];
+  if (childTexts.length > 0) {
+    rows.push({ id: `${rootId}-nested-list`, parent_id: rootId, root_id: 'target-doc', type: 'l', content: '', markdown: '', sort: '4' });
+    childTexts.forEach((childText, index) => {
+      const itemId = `${rootId}-child-${index + 1}`;
+      const paragraphId = `${itemId}-p`;
+      rows.push(
+        { id: itemId, parent_id: `${rootId}-nested-list`, root_id: 'target-doc', type: 'i', content: childText, markdown: childText, sort: String(5 + index * 2) },
+        { id: paragraphId, parent_id: itemId, root_id: 'target-doc', type: 'p', content: childText, markdown: childText, sort: String(6 + index * 2) },
+      );
+    });
+  }
+  return {
+    rows,
+    mutation: {
+      doOperations: rows.map((row) => ({
+        action: 'insert',
+        id: row.id,
+        parentID: row.parent_id,
+        data: row.markdown,
+      })),
+    },
+    rootId,
+  };
+}
+
 function extractQuotedSqlValues(stmt: string): string[] {
   return Array.from(stmt.matchAll(/'((?:[^']|'')+)'/g)).map((match) => match[1]!.replace(/''/g, "'"));
 }
 
-function createSiyuanPort(fixture: ReturnType<typeof createPairMutationFixture>) {
+function createSiyuanPort(fixture: { rows: Array<Record<string, unknown>>; mutation: { doOperations: Array<Record<string, unknown>> } }) {
   return {
     listNotebooks: vi.fn(),
     sql: vi.fn(async (stmt: string) => {
@@ -241,17 +274,28 @@ describe('AIFlashcardToolService', () => {
   });
 
   it('creates semantic CDF cards from manual resolutions and skips stale notebook resolutions', async () => {
-    const definitionFixture = createTextMutationFixture('definition-block-1', '自变量在底数位置，指数固定的函数。');
-    const descriptorFixture = createTextMutationFixture('descriptor-block-1', '识别线索;;通常写成 y = x^a');
-    const siyuanPort = createSiyuanPort(createPairMutationFixture('pair-root-4'));
-    siyuanPort.appendBlockUnderParentDetailed
-      .mockResolvedValueOnce(definitionFixture.mutation)
-      .mockResolvedValueOnce(descriptorFixture.mutation);
+    const cdfFixture = createListTreeMutationFixture(
+      'cdf-root-1',
+      '((concept-doc-1))::自变量在底数位置，指数固定的函数。',
+      ['识别线索;;通常写成 y = x^a'],
+    );
+    const siyuanPort = createSiyuanPort(cdfFixture);
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(cdfFixture.mutation);
     siyuanPort.sql.mockImplementation(async (stmt: string) => {
       const ids = extractQuotedSqlValues(stmt);
-      return [...definitionFixture.rows, ...descriptorFixture.rows].filter((row) => ids.includes(row.id));
+      return cdfFixture.rows.filter((row) => ids.includes(String(row.id)));
     });
     const xiuyuanService = createXiuyuanService();
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'execute')
+      .mockResolvedValue(ok({
+        createdDefinition: 1,
+        createdDescriptor: 1,
+        skipped: 0,
+        skippedExistingBinding: 0,
+        skippedNoTemplate: 0,
+        failed: 0,
+        stoppedByDocumentReference: false,
+      }));
     const service = new AIFlashcardToolService({
       siyuanPort: siyuanPort as never,
       getXiuyuanApplicationService: async () => xiuyuanService as never,
@@ -296,19 +340,23 @@ describe('AIFlashcardToolService', () => {
     });
 
     expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
-    expect(xiuyuanService.createFromBlocks).toHaveBeenCalledTimes(2);
-    expect(xiuyuanService.createFromBlocks).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      blockIds: ['concept-doc-1', 'definition-block-1'],
-      templateId: 'builtin-concept-definition',
-    }));
-    expect(xiuyuanService.createFromBlocks).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      blockIds: ['concept-doc-1', 'descriptor-block-1'],
-      templateId: 'builtin-concept-descriptor',
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(
+      '* ((concept-doc-1))::自变量在底数位置，指数固定的函数。\n  * 识别线索;;通常写成 y = x^a',
+      'daily-doc-1',
+    );
+    expect(executeSpy).toHaveBeenCalledWith(expect.objectContaining({
+      parentBlockId: 'cdf-root-1',
+      templateId: 'builtin-list-concept-multiline',
     }));
     expect(created).toMatchObject({
       createdCount: 1,
       createdDefinitionCount: 1,
       createdDescriptorCount: 1,
+      itemResults: [
+        {
+          insertedRootBlockId: 'cdf-root-1',
+        },
+      ],
     });
 
     const stale = await service.createSemanticCdfCards(structure as never, {
@@ -325,20 +373,34 @@ describe('AIFlashcardToolService', () => {
       conceptBlockId: 'concept-doc-1',
     });
     expect(stale.itemResults[0]?.warnings.join(' ')).toContain('旧目标笔记本');
+    executeSpy.mockRestore();
   });
 
   it('accepts legacy resolved notebook anchors that do not carry notebookId yet', async () => {
-    const definitionFixture = createTextMutationFixture('definition-block-legacy', '旧会话里保留下来的定义。');
-    const siyuanPort = createSiyuanPort(createPairMutationFixture('pair-root-5'));
-    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(definitionFixture.mutation);
+    const cdfFixture = createListTreeMutationFixture(
+      'cdf-root-legacy',
+      '((concept-doc-legacy))::旧会话里保留下来的定义。',
+    );
+    const siyuanPort = createSiyuanPort(cdfFixture);
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(cdfFixture.mutation);
     siyuanPort.sql.mockImplementation(async (stmt: string) => {
       if (stmt.includes("type = 'd'")) {
         return [{ id: 'concept-doc-legacy', content: '幂函数' }];
       }
       const ids = extractQuotedSqlValues(stmt);
-      return definitionFixture.rows.filter((row) => ids.includes(row.id));
+      return cdfFixture.rows.filter((row) => ids.includes(String(row.id)));
     });
     const xiuyuanService = createXiuyuanService();
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'execute')
+      .mockResolvedValue(ok({
+        createdDefinition: 1,
+        createdDescriptor: 0,
+        skipped: 0,
+        skippedExistingBinding: 0,
+        skippedNoTemplate: 0,
+        failed: 0,
+        stoppedByDocumentReference: false,
+      }));
     const service = new AIFlashcardToolService({
       siyuanPort: siyuanPort as never,
       getXiuyuanApplicationService: async () => xiuyuanService as never,
@@ -372,9 +434,13 @@ describe('AIFlashcardToolService', () => {
     });
 
     expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
-    expect(xiuyuanService.createFromBlocks).toHaveBeenCalledWith(expect.objectContaining({
-      blockIds: ['concept-doc-legacy', 'definition-block-legacy'],
-      templateId: 'builtin-concept-definition',
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(
+      '* ((concept-doc-legacy))::旧会话里保留下来的定义。',
+      'daily-doc-1',
+    );
+    expect(executeSpy).toHaveBeenCalledWith(expect.objectContaining({
+      parentBlockId: 'cdf-root-legacy',
+      templateId: 'builtin-list-concept-multiline',
     }));
     expect(created).toMatchObject({
       createdCount: 1,
@@ -382,5 +448,6 @@ describe('AIFlashcardToolService', () => {
       failedCount: 0,
       skippedCount: 0,
     });
+    executeSpy.mockRestore();
   });
 });

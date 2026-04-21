@@ -19,8 +19,6 @@ function normalizeString(value: unknown): string {
 
 type SupportedFlashcardTools = Pick<
   AIFlashcardToolService,
-  | 'createInlineCards'
-  | 'createCdfDraftCards'
   | 'createNativeHeadingCards'
   | 'createNativeListItemCards'
   | 'createNativeMarkCards'
@@ -101,18 +99,6 @@ export class AISelfTestCardCreationService {
         break;
       case 'super-block':
         result = await this.deps.flashcardTools.createNativeSuperBlockCards(args, runtime) as FlashcardToolResult;
-        break;
-      case 'multi-mark':
-        result = await this.deps.flashcardTools.createInlineCards({
-          ...args,
-          mode: 'multi-cloze',
-          items: selected.map((candidate) => ({
-            content: candidate.draftMarkdown,
-          })),
-        }, runtime) as FlashcardToolResult;
-        break;
-      case 'cdf-multiline':
-        result = await this.deps.flashcardTools.createCdfDraftCards(args, runtime) as FlashcardToolResult;
         break;
       default:
         throw new Error(`暂不支持的自测制卡模式：${mode}`);

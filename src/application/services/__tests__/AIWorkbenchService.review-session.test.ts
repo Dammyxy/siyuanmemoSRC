@@ -518,7 +518,7 @@ describe('AIWorkbenchService review-session behavior', () => {
           ...createAISettings().conceptCoach,
           selfTest: {
             ...createAISettings().conceptCoach.selfTest,
-            defaultCreationMode: 'multi-mark',
+            defaultCreationMode: 'mark',
           },
         },
       },
@@ -536,10 +536,10 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(systemPrompt).toContain('已有水平=略懂');
     expect(systemPrompt).toContain('answer 尽量控制在 3-20 个字');
     expect(systemPrompt).not.toContain('当前自测制卡默认模式');
-    expect(systemPrompt).not.toContain('不要求模型直接返回多标记 markdown');
+    expect(systemPrompt).not.toContain('当前自测制卡模式是');
   });
 
-  it('generates plugin-mode drafts on demand, reuses cache, and invalidates only the edited card cache', async () => {
+  it('treats native self-test modes as draft-free runtime paths', async () => {
     const llmChat = vi.fn()
       .mockResolvedValueOnce({
         content: JSON.stringify({
@@ -558,18 +558,6 @@ describe('AIWorkbenchService review-session behavior', () => {
           },
         }),
         raw: {},
-      })
-      .mockResolvedValueOnce({
-        content: JSON.stringify({
-          cards: [{ id: 'candidate-a', draftMarkdown: '题干：Question A 答案：==Answer A==' }],
-        }),
-        raw: {},
-      })
-      .mockResolvedValueOnce({
-        content: JSON.stringify({
-          cards: [{ id: 'candidate-a', draftMarkdown: '题干：Question A（已编辑） 答案：==Answer A==' }],
-        }),
-        raw: {},
       });
     const service = createService({ llmChat });
 
@@ -584,48 +572,15 @@ describe('AIWorkbenchService review-session behavior', () => {
     await service.runActiveTab();
     const message = latestAssistantResult(service, 'self-test-cards');
 
-    await service.generateModeDrafts(message!.id, 'multi-mark');
+    await service.generateModeDrafts(message!.id, 'mark');
+    expect(llmChat).toHaveBeenCalledTimes(1);
     expect(latestAssistantResult(service, 'self-test-cards')).toMatchObject({
       tabResult: {
         cards: [
           {
             id: 'candidate-a',
-            modeDrafts: {
-              'multi-mark': '题干：Question A 答案：==Answer A==',
-            },
-          },
-        ],
-      },
-    });
-
-    await service.generateModeDrafts(message!.id, 'multi-mark');
-    expect(llmChat).toHaveBeenCalledTimes(2);
-
-    await service.updateCandidateCard(message!.id, 'candidate-a', { prompt: 'Question A（已编辑）' });
-    const updatedMessage = latestAssistantResult(service, 'self-test-cards');
-    expect(updatedMessage).toMatchObject({
-      tabResult: {
-        cards: [
-          {
-            id: 'candidate-a',
-            prompt: 'Question A（已编辑）',
-          },
-        ],
-      },
-    });
-    const updatedCards = ((updatedMessage?.tabResult as { cards?: Array<{ modeDrafts?: Record<string, string> }> } | null)?.cards || []);
-    expect(updatedCards[0]?.modeDrafts?.['multi-mark']).toBeUndefined();
-
-    await service.generateModeDrafts(message!.id, 'multi-mark');
-    expect(llmChat).toHaveBeenCalledTimes(3);
-    expect(latestAssistantResult(service, 'self-test-cards')).toMatchObject({
-      tabResult: {
-        cards: [
-          {
-            id: 'candidate-a',
-            modeDrafts: {
-              'multi-mark': '题干：Question A（已编辑） 答案：==Answer A==',
-            },
+            prompt: 'Question A',
+            answer: 'Answer A',
           },
         ],
       },

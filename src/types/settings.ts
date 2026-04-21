@@ -1334,8 +1334,6 @@ function normalizeAIConceptCoachSelfTestCreationMode(
     return value === 'mark'
         || value === 'heading'
         || value === 'super-block'
-        || value === 'multi-mark'
-        || value === 'cdf-multiline'
         || value === 'list-item'
         ? value
         : fallback;

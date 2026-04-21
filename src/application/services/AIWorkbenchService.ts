@@ -2026,17 +2026,10 @@ export class AIWorkbenchService {
         clozeTargets: card.clozeTargets,
       })),
     };
-    const modeRules = mode === 'multi-mark'
-      ? [
-        '把每张 canonical 自测卡转换成可直接用于 Xiuyuan 多标记制卡的单段 markdown。',
-        'draftMarkdown 必须包含至少一个合法的 ==挖空==；如果 canonical 里有多个 clozeTargets 或 details，优先合并成多个 ==...==。',
-        '保留题干的可读性，不要输出额外解释、前缀或代码块。',
-      ]
-      : [
-        '把每张 canonical 自测卡转换成可直接用于 Xiuyuan CDF 多行制卡的 markdown。',
-        'draftMarkdown 固定使用列表结构：第一行必须是 `* <prompt>:::`，后续每一行都用两个空格缩进的 `* <内容>` 表示答案和补充。',
-        '不要输出列表之外的说明文字，不要省略首行的 `:::`。',
-      ];
+    const modeRules = [
+      '当前系统只保留原生自测模式，这个插件模式草稿生成功能已停用。',
+      '如果调用到这里，说明存在旧路径残留；请直接返回空 cards 数组，不要尝试生成任何 draftMarkdown。',
+    ];
     return [
       {
         role: 'system',
@@ -3736,8 +3729,32 @@ export class AIWorkbenchService {
           ? {
             ...anchor,
             definitionCandidates: anchor.definitionCandidates.map((definition) => (
-              definition.id === definitionId ? { ...definition, selected } : definition
+              selected
+                ? { ...definition, selected: definition.id === definitionId }
+                : definition.id === definitionId
+                  ? { ...definition, selected: false }
+                  : definition
             )),
+          }
+          : anchor
+      )),
+    }));
+    if (!updated) {
+      return;
+    }
+    await this.persistCurrentSession();
+  }
+
+  async clearCdfDefinitionSelection(messageId: string, anchorId: string): Promise<void> {
+    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
+      anchors: structure.anchors.map((anchor) => (
+        anchor.id === anchorId
+          ? {
+            ...anchor,
+            definitionCandidates: anchor.definitionCandidates.map((definition) => ({
+              ...definition,
+              selected: false,
+            })),
           }
           : anchor
       )),

@@ -3,10 +3,13 @@ import type { CreateListTemplateCardsCommand } from '@/application/commands/xiuy
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type { AIChatToolRuntimeContext } from '@/application/services/AIChatToolExecutorService';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
+import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
 import type {
   AICdfAnchor,
   AICdfAnchorResolution,
+  AICdfDefinitionCandidate,
+  AICdfDescriptorGroup,
   AICdfStructure,
   AIWorkbenchConceptDocumentSearchResult,
   AIWorkbenchCdfCreationItemResult,
@@ -790,6 +793,10 @@ export class AIFlashcardToolService {
     });
     const resolvedTarget = await this.resolveTargetFromInput(target);
     const xiuyuanService = await this.deps.getXiuyuanApplicationService();
+    const createCdfMultilineUseCase = new CreateCdfMultilineCardsUseCase(
+      { createFromBlocks: xiuyuanService.createFromBlocks.bind(xiuyuanService) },
+      this.deps.siyuanPort,
+    );
     const deckId = this.resolveDeckId({}, runtime);
     let previousSiblingId = resolvedTarget.targetBlockId;
     const itemResults: AIWorkbenchCdfCreationItemResult[] = [];
@@ -806,8 +813,9 @@ export class AIFlashcardToolService {
           conceptName: anchor.conceptName,
           status: 'skipped',
           conceptBlockId: null,
-          createdDefinitions: [],
-          createdDescriptors: [],
+          insertedRootBlockId: null,
+          createdDefinitionCount: 0,
+          createdDescriptorCount: 0,
           warnings: baseWarnings.length > 0 ? baseWarnings : ['未解析到现有概念文档，已跳过。'],
           error: null,
         });
@@ -819,133 +827,107 @@ export class AIFlashcardToolService {
           conceptName: anchor.conceptName,
           status: 'skipped',
           conceptBlockId: resolution.conceptBlockId,
-          createdDefinitions: [],
-          createdDescriptors: [],
+          insertedRootBlockId: null,
+          createdDefinitionCount: 0,
+          createdDescriptorCount: 0,
           warnings: [...baseWarnings, '当前概念解析结果属于旧目标笔记本，请重新解析或重新搜索概念文档。'],
           error: null,
         });
         continue;
       }
 
+      const warnings = [...baseWarnings];
       const selectedDefinitions = anchor.definitionCandidates.filter((definition) => (
         definition.selected !== false && normalizeString(definition.text)
       ));
-      const selectedDescriptors = anchor.descriptorGroups.flatMap((group) => (
-        group.selected === false
-          ? []
-          : group.items
-            .filter((item) => item.selected !== false && normalizeString(item.text))
-            .map((item) => ({ group, item }))
-      ));
+      const selectedDefinition = selectedDefinitions[0] || null;
+      if (selectedDefinitions.length > 1) {
+        warnings.push('同一概念当前只支持一个定义候选，已自动使用首个选中定义。');
+      }
+      const selectedDescriptorGroups = anchor.descriptorGroups
+        .filter((group) => group.selected !== false)
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => item.selected !== false && normalizeString(item.text)),
+        }))
+        .filter((group) => normalizeString(group.title) && group.items.length > 0);
 
-      if (selectedDefinitions.length === 0 && selectedDescriptors.length === 0) {
+      if (!selectedDefinition && selectedDescriptorGroups.length === 0) {
         itemResults.push({
           anchorId: anchor.id,
           conceptName: anchor.conceptName,
           status: 'skipped',
           conceptBlockId: resolution.conceptBlockId,
-          createdDefinitions: [],
-          createdDescriptors: [],
+          insertedRootBlockId: null,
+          createdDefinitionCount: 0,
+          createdDescriptorCount: 0,
           warnings: [...baseWarnings, '该概念没有选中的定义或描述符条目。'],
           error: null,
         });
         continue;
       }
 
-      const createdDefinitions: AIWorkbenchCdfCreationItemResult['createdDefinitions'] = [];
-      const createdDescriptors: AIWorkbenchCdfCreationItemResult['createdDescriptors'] = [];
-      const warnings = [...baseWarnings];
-      let anchorFailed = false;
+      let insertedRootBlockId: string | null = null;
+      let createdDefinitionCount = 0;
+      let createdDescriptorCount = 0;
+      let status: AIWorkbenchCdfCreationItemResult['status'] = 'skipped';
       let anchorError: string | null = null;
 
       try {
-        for (const definition of selectedDefinitions) {
-          const mutation = await this.insertMarkdown(definition.text, resolvedTarget, previousSiblingId);
-          const rows = await this.loadMutationRows(mutation);
-          const definitionBlockId = this.resolveFirstTextBlock(rows);
-          previousSiblingId = definitionBlockId || previousSiblingId;
-          const creation = await xiuyuanService.createFromBlocks({
-            blockIds: [resolution.conceptBlockId, definitionBlockId],
-            templateId: 'builtin-concept-definition',
-            fieldMapping: {
-              concept: resolution.conceptBlockId,
-              definition: definitionBlockId,
-            },
-            ...(deckId ? { deckId } : {}),
-            cardType: 'concept',
-            source: 'ai-workbench',
-            creationMode: 'ai-cdf-semantic-definition',
-            duplicatePolicy: 'reuse-existing',
-          });
-          if (!creation.ok) {
-            warnings.push(`定义「${definition.text}」制卡失败：${toErrorMessage(creation.error, '未知错误')}`);
-            anchorFailed = true;
-            continue;
-          }
-          createdDefinitions.push({
-            definitionId: definition.id,
-            text: definition.text,
-            blockId: definitionBlockId,
-            xiuyuanId: creation.value.xiuyuan.id,
-            cardIds: creation.value.cards.map((card) => card.id),
-          });
-        }
+        const draftMarkdown = this.buildSemanticCdfMarkdown(
+          resolution.conceptBlockId,
+          selectedDefinition,
+          selectedDescriptorGroups,
+        );
+        const mutation = await this.insertMarkdown(draftMarkdown, resolvedTarget, previousSiblingId);
+        const rows = await this.loadMutationRows(mutation);
+        insertedRootBlockId = this.resolveRootListItemId(rows);
+        previousSiblingId = insertedRootBlockId || previousSiblingId;
 
-        for (const descriptor of selectedDescriptors) {
-          const descriptorMarkdown = `${normalizeListText(descriptor.group.title)};;${normalizeListText(descriptor.item.text)}`;
-          const mutation = await this.insertMarkdown(descriptorMarkdown, resolvedTarget, previousSiblingId);
-          const rows = await this.loadMutationRows(mutation);
-          const descriptorBlockId = this.resolveFirstTextBlock(rows);
-          previousSiblingId = descriptorBlockId || previousSiblingId;
-          const creation = await xiuyuanService.createFromBlocks({
-            blockIds: [resolution.conceptBlockId, descriptorBlockId],
-            templateId: 'builtin-concept-descriptor',
-            fieldMapping: {
-              concept: resolution.conceptBlockId,
-              descriptor: descriptorBlockId,
-            },
-            ...(deckId ? { deckId } : {}),
-            cardType: 'descriptor',
-            source: 'ai-workbench',
-            creationMode: 'ai-cdf-semantic-descriptor',
-            duplicatePolicy: 'reuse-existing',
-          });
-          if (!creation.ok) {
-            warnings.push(`描述符「${descriptor.group.title} / ${descriptor.item.text}」制卡失败：${toErrorMessage(creation.error, '未知错误')}`);
-            anchorFailed = true;
-            continue;
+        const creation = await createCdfMultilineUseCase.execute({
+          parentBlockId: insertedRootBlockId,
+          templateId: 'builtin-list-concept-multiline',
+          ...(deckId ? { deckId } : {}),
+        });
+        if (!creation.ok) {
+          anchorError = toErrorMessage(creation.error, 'CDF 语义制卡失败。');
+          status = 'failed';
+        } else {
+          createdDefinitionCount = creation.value.createdDefinition;
+          createdDescriptorCount = creation.value.createdDescriptor;
+          if (creation.value.failed > 0 && creation.value.firstError) {
+            warnings.push(creation.value.firstError);
           }
-          createdDescriptors.push({
-            groupId: descriptor.group.id,
-            groupTitle: descriptor.group.title,
-            itemId: descriptor.item.id,
-            text: descriptor.item.text,
-            blockId: descriptorBlockId,
-            xiuyuanId: creation.value.xiuyuan.id,
-            cardIds: creation.value.cards.map((card) => card.id),
-          });
+          status = createdDefinitionCount + createdDescriptorCount > 0
+            ? 'created'
+            : creation.value.failed > 0
+              ? 'failed'
+              : 'skipped';
+          if (status === 'failed') {
+            anchorError = creation.value.firstError || 'CDF 语义制卡失败。';
+          }
         }
       } catch (error) {
-        anchorFailed = true;
         anchorError = toErrorMessage(error, 'CDF 语义制卡失败。');
+        status = 'failed';
       }
 
-      const createdCount = createdDefinitions.length + createdDescriptors.length;
       itemResults.push({
         anchorId: anchor.id,
         conceptName: anchor.conceptName,
-        status: createdCount > 0 ? 'created' : anchorFailed ? 'failed' : 'skipped',
+        status,
         conceptBlockId: resolution.conceptBlockId,
-        createdDefinitions,
-        createdDescriptors,
+        insertedRootBlockId,
+        createdDefinitionCount,
+        createdDescriptorCount,
         warnings,
         error: anchorError,
       });
     }
 
     await this.persistSuccessfulTarget(resolvedTarget, itemResults);
-    const createdDefinitionCount = itemResults.reduce((total, item) => total + item.createdDefinitions.length, 0);
-    const createdDescriptorCount = itemResults.reduce((total, item) => total + item.createdDescriptors.length, 0);
+    const createdDefinitionCount = itemResults.reduce((total, item) => total + item.createdDefinitionCount, 0);
+    const createdDescriptorCount = itemResults.reduce((total, item) => total + item.createdDescriptorCount, 0);
     return {
       target: resolvedTarget.memory,
       targetBlockId: resolvedTarget.targetBlockId,
@@ -1259,6 +1241,33 @@ export class AIFlashcardToolService {
     ].join('\n');
   }
 
+  private buildSemanticCdfMarkdown(
+    conceptBlockId: string,
+    definition: AICdfDefinitionCandidate | null,
+    descriptorGroups: AICdfDescriptorGroup[],
+  ): string {
+    const rootLine = normalizeString(definition?.text)
+      ? `((` + `${conceptBlockId}` + `))::${normalizeListText(definition!.text)}`
+      : `((${conceptBlockId}))`;
+    const lines = [`* ${rootLine}`];
+    for (const group of descriptorGroups) {
+      const title = normalizeListText(group.title);
+      const items = group.items.map((item) => normalizeListText(item.text)).filter(Boolean);
+      if (!title || items.length === 0) {
+        continue;
+      }
+      if (items.length === 1) {
+        lines.push(`  * ${title};;${items[0]}`);
+        continue;
+      }
+      lines.push(`  * ${title};;;`);
+      for (const item of items) {
+        lines.push(`    * ${item}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
   private async resolveWriteTarget(args: Record<string, unknown>): Promise<ResolvedWriteTarget> {
     const override = parseTargetInput(args);
     if (override) {
@@ -1411,6 +1420,15 @@ export class AIFlashcardToolService {
       childTextBlockIds: childListItems.map((row) => this.resolveTextBlockForListItem(row.id!, ordered)),
       conceptBlockId: this.resolveTextBlockForListItem(parentListItem.id!, ordered),
     };
+  }
+
+  private resolveRootListItemId(rows: MutationRow[]): string {
+    const ordered = this.sortedRows(rows);
+    const listItems = ordered.filter((row) => normalizeString(row.type) === 'i' && normalizeString(row.id));
+    if (listItems.length === 0) {
+      throw new Error('未找到插入后的列表项。');
+    }
+    return [...listItems].sort((left, right) => this.rowDepth(left, ordered) - this.rowDepth(right, ordered))[0]!.id!;
   }
 
   private resolveDescriptorMultilineStructure(rows: MutationRow[]): {

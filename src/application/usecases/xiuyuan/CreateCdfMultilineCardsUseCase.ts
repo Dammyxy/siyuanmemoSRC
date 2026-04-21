@@ -210,9 +210,6 @@ export class CreateCdfMultilineCardsUseCase {
     try {
       const fallbackForNone = command.templateId === 'builtin-list-concept-multiline' ? 'definition' : 'descriptor';
       const scanResult = await resolveCdfMultilineScan(command.parentBlockId, this.siyuanApi);
-      if (scanResult.nodes.length === 0) {
-        return err(new Error('未找到可制卡的子级块'));
-      }
 
       let conceptBlockId: string | null = null;
       if (command.templateId === 'builtin-list-concept-multiline') {
@@ -326,6 +323,21 @@ export class CreateCdfMultilineCardsUseCase {
         : parentMarkerKindFromBlockKramdown !== 'none'
           ? parentMarkerKindFromBlockKramdown
           : parentMarkerKindFromParagraphText;
+
+      const canCreateFromParent = command.templateId === 'builtin-list-concept-multiline'
+        && parentMarkerKind.startsWith('definition');
+      if (scanResult.nodes.length === 0 && !canCreateFromParent) {
+        return err(new Error('未找到可制卡的子级块'));
+      }
+
+      if (canCreateFromParent) {
+        await createForParagraph(
+          scanResult.parentParagraphId,
+          command.parentBlockId,
+          parentMarkerKind,
+        );
+      }
+
       if (command.templateId === 'builtin-list-descriptor-multiline' && parentMarkerKind === 'descriptor-multiline') {
         const descriptorGroupHint = extractDescriptorGroupHintFromCandidates(
           scanResult.parentParagraphKramdown,

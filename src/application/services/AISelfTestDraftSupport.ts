@@ -2,12 +2,10 @@ import type {
   AIConceptCoachCandidateCard,
   AIConceptCoachCardKind,
   AIConceptCoachSelfTestCreationMode,
+  AIStoredConceptCoachSelfTestCreationMode,
 } from '@/types/ai';
 
-const PLUGIN_SELF_TEST_CREATION_MODES = new Set<AIConceptCoachSelfTestCreationMode>([
-  'multi-mark',
-  'cdf-multiline',
-]);
+const PLUGIN_SELF_TEST_CREATION_MODES = new Set<AIConceptCoachSelfTestCreationMode>();
 
 function normalizeString(value: unknown): string {
   return String(value ?? '').trim();
@@ -35,22 +33,36 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => normalizeLineText(value)).filter(Boolean)));
 }
 
-function normalizeModeDrafts(value: unknown): Partial<Record<AIConceptCoachSelfTestCreationMode, string>> | undefined {
+function normalizeStoredSelfTestCreationMode(
+  value: unknown,
+  fallback: AIStoredConceptCoachSelfTestCreationMode = 'list-item',
+): AIStoredConceptCoachSelfTestCreationMode {
+  return value === 'mark'
+    || value === 'heading'
+    || value === 'super-block'
+    || value === 'multi-mark'
+    || value === 'cdf-multiline'
+    || value === 'list-item'
+    ? value
+    : fallback;
+}
+
+function normalizeModeDrafts(value: unknown): Partial<Record<AIStoredConceptCoachSelfTestCreationMode, string>> | undefined {
   if (!value || typeof value !== 'object') {
     return undefined;
   }
   const entries = Object.entries(value as Record<string, unknown>)
     .map(([mode, draft]) => {
-      const normalizedMode = normalizeSelfTestCreationMode(mode, '' as AIConceptCoachSelfTestCreationMode);
+      const normalizedMode = normalizeStoredSelfTestCreationMode(mode, '' as AIStoredConceptCoachSelfTestCreationMode);
       const normalizedDraft = normalizeString(draft);
       if (!normalizedMode || !normalizedDraft) {
         return null;
       }
       return [normalizedMode, normalizedDraft] as const;
     })
-    .filter((entry): entry is readonly [AIConceptCoachSelfTestCreationMode, string] => Boolean(entry));
+    .filter((entry): entry is readonly [AIStoredConceptCoachSelfTestCreationMode, string] => Boolean(entry));
   return entries.length > 0
-    ? Object.fromEntries(entries) as Partial<Record<AIConceptCoachSelfTestCreationMode, string>>
+    ? Object.fromEntries(entries) as Partial<Record<AIStoredConceptCoachSelfTestCreationMode, string>>
     : undefined;
 }
 
@@ -61,8 +73,6 @@ export function normalizeSelfTestCreationMode(
   return value === 'mark'
     || value === 'heading'
     || value === 'super-block'
-    || value === 'multi-mark'
-    || value === 'cdf-multiline'
     || value === 'list-item'
     ? value
     : fallback;
@@ -204,7 +214,7 @@ function parseCdfDraft(draftMarkdown: string): Pick<AIConceptCoachCandidateCard,
 }
 
 function parseDraftByMode(
-  mode: AIConceptCoachSelfTestCreationMode,
+  mode: AIStoredConceptCoachSelfTestCreationMode,
   draftMarkdown: string,
 ): Pick<AIConceptCoachCandidateCard, 'prompt' | 'answer' | 'details' | 'clozeTargets'> {
   switch (mode) {
@@ -264,7 +274,7 @@ export function normalizeSelfTestCandidateCard(
     return null;
   }
   const raw = value as Record<string, unknown>;
-  const mode = normalizeSelfTestCreationMode(raw.mode, fallbackMode);
+  const mode = normalizeStoredSelfTestCreationMode(raw.mode, fallbackMode);
   const draftMarkdown = normalizeString(raw.draftMarkdown ?? raw.content);
   const normalizedModeDrafts = normalizeModeDrafts(raw.modeDrafts);
   const explicitPrompt = normalizeLineText(raw.prompt ?? raw.question ?? raw.q ?? raw.front ?? raw.title ?? raw.legacyQuestion);
@@ -281,7 +291,7 @@ export function normalizeSelfTestCandidateCard(
   const modeDrafts = {
     ...(normalizedModeDrafts || {}),
     ...((draftMarkdown && mode) ? { [mode]: draftMarkdown } : {}),
-  } as Partial<Record<AIConceptCoachSelfTestCreationMode, string>>;
+  } as Partial<Record<AIStoredConceptCoachSelfTestCreationMode, string>>;
   const nextCard: AIConceptCoachCandidateCard = {
     id: normalizeString(raw.id) || `ai-card-${index}`,
     kind: normalizeSelfTestCardKind(raw.kind),
@@ -328,35 +338,22 @@ function buildSuperBlockMarkdown(prompt: string, lines: string[]): string {
 
 function buildMarkLikeMarkdown(
   card: Pick<AIConceptCoachCandidateCard, 'prompt' | 'answer' | 'details' | 'clozeTargets'>,
-  mode: 'mark' | 'multi-mark',
 ): string {
   const prompt = normalizeString(card.prompt) || '请回忆关键内容';
-  const extraTargets = card.details.map((item) => normalizeLineText(item)).filter(Boolean);
   const targets = uniqueStrings([
     ...card.clozeTargets,
     normalizeLineText(card.answer),
-    ...(mode === 'multi-mark' ? extraTargets : []),
   ]);
   const markedTargets = targets.length > 0 ? targets : ['待补充答案'];
   const primaryTarget = markedTargets[0] || '待补充答案';
   if (prompt.includes('____')) {
     const replaced = prompt.replace('____', `==${primaryTarget}==`);
-    if (mode === 'mark' || markedTargets.length === 1) {
+    if (markedTargets.length === 1) {
       return replaced;
     }
     return `${replaced} 关键点：${markedTargets.slice(1).map((item) => `==${item}==`).join('；')}`;
   }
-  const answerText = mode === 'mark'
-    ? `==${primaryTarget}==`
-    : markedTargets.map((item) => `==${item}==`).join('；');
-  return [`题干：${prompt}`, `答案：${answerText}`].join(' ');
-}
-
-function buildCdfMultilineMarkdown(prompt: string, lines: string[]): string {
-  return [
-    `* ${normalizeLineText(prompt)}:::`,
-    ...lines.map((line) => `  * ${normalizeLineText(line)}`),
-  ].join('\n');
+  return [`题干：${prompt}`, `答案：==${primaryTarget}==`].join(' ');
 }
 
 export function renderSelfTestCandidateDraftMarkdown(
@@ -379,11 +376,7 @@ export function renderSelfTestCandidateDraftMarkdown(
     case 'super-block':
       return buildSuperBlockMarkdown(prompt, lines);
     case 'mark':
-      return buildMarkLikeMarkdown({ ...card, details, clozeTargets }, 'mark');
-    case 'multi-mark':
-      return buildMarkLikeMarkdown({ ...card, details, clozeTargets }, 'multi-mark');
-    case 'cdf-multiline':
-      return buildCdfMultilineMarkdown(prompt, lines.length > 0 ? lines : ['待补充答案']);
+      return buildMarkLikeMarkdown({ ...card, details, clozeTargets });
     case 'list-item':
     default:
       return buildListMarkdown(prompt, lines.length > 0 ? lines : ['待补充答案']);

@@ -378,9 +378,15 @@ export type AIConceptCoachSelfTestCreationMode =
   | 'list-item'
   | 'mark'
   | 'heading'
-  | 'super-block'
+  | 'super-block';
+
+export type AILegacyConceptCoachSelfTestCreationMode =
   | 'multi-mark'
   | 'cdf-multiline';
+
+export type AIStoredConceptCoachSelfTestCreationMode =
+  | AIConceptCoachSelfTestCreationMode
+  | AILegacyConceptCoachSelfTestCreationMode;
 
 export interface AIConceptCoachSelfTestDraft {
   id: string;
@@ -404,7 +410,7 @@ export interface AIConceptCoachCandidateCard {
   answer: string;
   details: string[];
   clozeTargets: string[];
-  modeDrafts?: Partial<Record<AIConceptCoachSelfTestCreationMode, string>>;
+  modeDrafts?: Partial<Record<AIStoredConceptCoachSelfTestCreationMode, string>>;
   legacyQuestion?: string;
   legacyAnswer?: string;
   /**
@@ -418,7 +424,7 @@ export interface AIConceptCoachCandidateCard {
   /**
    * @deprecated Legacy mode-bound metadata kept only for old persisted records.
    */
-  mode?: AIConceptCoachSelfTestCreationMode;
+  mode?: AIStoredConceptCoachSelfTestCreationMode;
 }
 
 export type AIWorkbenchSelfTestCardTargetMode = 'daily-note' | 'block';
@@ -534,22 +540,9 @@ export interface AIWorkbenchCdfCreationItemResult {
   conceptName: string;
   status: AICdfCreationStatus;
   conceptBlockId: string | null;
-  createdDefinitions: Array<{
-    definitionId: string;
-    text: string;
-    blockId: string | null;
-    xiuyuanId: string | null;
-    cardIds: string[];
-  }>;
-  createdDescriptors: Array<{
-    groupId: string;
-    groupTitle: string;
-    itemId: string;
-    text: string;
-    blockId: string | null;
-    xiuyuanId: string | null;
-    cardIds: string[];
-  }>;
+  insertedRootBlockId: string | null;
+  createdDefinitionCount: number;
+  createdDescriptorCount: number;
   warnings: string[];
   error: string | null;
 }
