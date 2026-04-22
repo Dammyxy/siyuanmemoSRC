@@ -959,19 +959,27 @@ async function applyInitialBrowserOpenState(
 ): Promise<void> {
   suspendBrowserStateBootstrap = true;
   try {
-    const nextQueueId = normalizeQueueId(state.queueId);
-    const nextScopeDocIds = normalizeStringArray(state.scopeDocIds);
-    const nextDocId = String(state.docId || '').trim() || null;
-    const nextGlobalScope = state.globalScope === '__dismissed__' ? '__dismissed__' : '__all__';
-    const nextPreset = nextGlobalScope === '__dismissed__'
+    const rawNextDocId = String(state.docId || '').trim() || null;
+    const isLegacyMissingBlockScope = rawNextDocId === '__lost__';
+    const nextQueueId = isLegacyMissingBlockScope ? null : normalizeQueueId(state.queueId);
+    const nextScopeDocIds = isLegacyMissingBlockScope ? null : normalizeStringArray(state.scopeDocIds);
+    const nextDocId = isLegacyMissingBlockScope ? null : rawNextDocId;
+    const nextGlobalScope = !isLegacyMissingBlockScope && state.globalScope === '__dismissed__' ? '__dismissed__' : '__all__';
+    const nextPreset = isLegacyMissingBlockScope
+      ? 'all'
+      : nextGlobalScope === '__dismissed__'
       ? 'suspended'
       : (state.preset || 'all') as PresetFilter;
-    const nextCardType = (state.cardType || 'all') as CardTypeFilter;
-    const nextQueryText = String(state.queryText || '');
+    const nextCardType = (isLegacyMissingBlockScope ? 'all' : state.cardType || 'all') as CardTypeFilter;
+    const nextQueryText = isLegacyMissingBlockScope ? '' : String(state.queryText || '');
     const nextFilter = nextQueueId === 'filter-group' ? cloneCardFilter(state.filter ?? null) : null;
     const nextNeuralSubview = nextQueueId === 'neural-roam'
       ? normalizeNeuralSubview(state.neuralSubview) || 'concept-cards'
       : 'concept-cards';
+
+    if (isLegacyMissingBlockScope) {
+      logger.info('[SiYuanMemo][SRSBrowser] Normalized legacy missing-block browser state back to the default global view');
+    }
 
     syncSelectionForQueryChange();
 
@@ -1216,7 +1224,6 @@ const activeGlobalScope = computed<'__all__' | '__dismissed__' | null>(() => {
 const showToolbarExitScope = computed(() => (
   shouldFocusDocList.value
   || hasActiveScopeDocIds.value
-  || activeDocId.value === '__lost__'
 ));
 
 function clearLoadedRowsCache(): void {
@@ -1395,9 +1402,7 @@ function buildSelectionContextFingerprint(): string {
 
 function describeCurrentFilterSummary(): string {
   const parts: string[] = [];
-  const scopeLabel = activeDocId.value === '__lost__'
-    ? t('missingBlocks', 'Missing blocks')
-    : (activeQueueId.value || t('allCards', 'All'));
+  const scopeLabel = activeQueueId.value || t('allCards', 'All');
   parts.push(`${t('scope', 'Scope')}: ${scopeLabel}`);
 
   if (hasActiveScopeDocIds.value) {
@@ -1405,7 +1410,7 @@ function describeCurrentFilterSummary(): string {
       `${t('docTreeScope', 'Doc Tree Scope')}: ${String(activeScopeDocIds.value?.length || 0)}`,
     );
   }
-  if (activeDocId.value && activeDocId.value !== '__lost__') {
+  if (activeDocId.value) {
     parts.push(`${t('document', 'Document')}: ${activeDocId.value}`);
   }
   if (currentPreset.value && currentPreset.value !== 'all') {
@@ -4881,7 +4886,7 @@ function handleSelectDoc(docId: string) {
       activeQueueId.value = null;
       activeScopeDocIds.value = null;
       clearNeuralSubviewData();
-      activeDocId.value = '__lost__';
+      activeDocId.value = null;
       currentPreset.value = 'all';
       currentCardType.value = 'all';
       searchQuery.value = '';

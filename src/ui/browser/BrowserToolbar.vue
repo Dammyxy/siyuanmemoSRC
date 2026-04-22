@@ -271,7 +271,6 @@ const showScopeChips = computed(() => !props.mobileMode && isTabNarrow.value);
 const showNavigatorToggle = computed(() => props.showNavigatorToggle === true);
 const navigatorOpen = computed(() => props.navigatorOpen === true);
 const hasActiveScopeDocIds = computed(() => (props.activeScopeDocIds?.length ?? 0) > 0);
-const hasMissingBlockScope = computed(() => props.activeDocId === '__lost__');
 
 const isCompactDesktop = computed(() => {
   if (props.mobileMode) {
@@ -310,9 +309,7 @@ const startPracticeButtonLabel = computed(() => {
 
 const openInTabButtonLabel = computed(() => t('openInTab', 'Open'));
 const exitFocusButtonLabel = computed(() => (
-  hasMissingBlockScope.value
-    ? t('exitMissingBlockScope', 'Exit Missing Blocks')
-    : hasActiveScopeDocIds.value
+  hasActiveScopeDocIds.value
     ? t('exitDocTreeScope', 'Exit Doc Tree Scope')
     : t('exitFocus', 'Exit Queue')
 ));
@@ -426,10 +423,6 @@ function resolveScopeLabel(): string {
 
   if (props.activeGlobalScope === '__dismissed__') {
     return t('filterPresetSuspended', 'Suspended');
-  }
-
-  if (hasMissingBlockScope.value) {
-    return t('missingBlocks', 'Missing blocks');
   }
 
   return t('allFlashcards', 'All flashcards');

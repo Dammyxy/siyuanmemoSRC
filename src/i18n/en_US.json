@@ -860,6 +860,7 @@
   "topicDerivationTitle": "Continue card creation under Topic",
   "topicDerivationEnabled": "Enable continuing card creation under Topic",
   "topicDerivationEnabledHint": "When the current block already belongs to a Topic, or sits inside a Topic child document, additional highlights or symbol-based card creation keep the original Topic and add new Item child documents and cards under it. This is not the excerpt flow; it continues card creation under the existing Topic.",
+  "topicDerivationQuickCardDisabledHint": "Symbol card listening is currently disabled. These Topic continuation settings are still saved here, but runtime use still requires enabling the symbol card listener first.",
   "topicDerivationStorageMode": "Storage for continued card creation",
   "topicDerivationStorageWorkbench": "Workbench document (default)",
   "topicDerivationStorageSourceChild": "Direct child under source document",

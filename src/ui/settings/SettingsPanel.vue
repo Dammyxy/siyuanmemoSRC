@@ -381,35 +381,6 @@
         </div>
         </div>
 
-        <div v-show="isActiveSubTab('card', 'topic-derivation')" class="settings-subtab-panel">
-        <h3 v-if="settings.quickCard.enabled">{{ t('topicDerivationTitle', 'Topic 下继续制卡') }}</h3>
-
-        <div v-if="settings.quickCard.enabled" class="form-item">
-          <label>{{ t('topicDerivationEnabled', '启用 Topic 下继续制卡') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="settings.quickCard.topicDerivation.enabled">
-          </div>
-          <p class="form-hint">
-            {{ t('topicDerivationEnabledHint', '当当前块本身已经属于某个 Topic，或当前块位于 Topic 子文档内时，继续高亮或符号制卡会保留原 Topic，并在其下新增 Item 子文档和卡片。这不是摘录流程，而是沿用已有 Topic 继续制卡。') }}
-          </p>
-        </div>
-
-        <div
-          v-if="settings.quickCard.enabled && settings.quickCard.topicDerivation.enabled"
-          class="form-item"
-        >
-          <label>{{ t('topicDerivationStorageMode', '继续制卡内容存放位置') }}</label>
-          <div class="form-control">
-            <select v-model="settings.quickCard.topicDerivation.storageMode" class="scheduler-select">
-              <option value="workbench">{{ t('topicDerivationStorageWorkbench', '工作台文档（默认）') }}</option>
-              <option value="source-child">{{ t('topicDerivationStorageSourceChild', '直接挂在源文档下') }}</option>
-            </select>
-          </div>
-          <p class="form-hint">
-            {{ t('topicDerivationStorageModeHint', '工作台模式会把继续制卡生成的内容集中收纳到源文档的“Topic 工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
-          </p>
-        </div>
-        </div>
             </section>
           </div>
 
@@ -495,6 +466,40 @@
                   ? t('progressiveStorageTargetBlockIgnoredSourceChildHint', '原文档模式下不使用目标块 ID，摘录会直接创建到来源文档目录下。')
                   : t('progressiveStorageTargetBlockIgnoredHint', '今日日记模式下暂不使用目标块 ID，留空即可。')
             }}
+          </p>
+        </div>
+
+        <h3>{{ t('topicDerivationTitle', 'Topic 下继续制卡') }}</h3>
+
+        <p v-if="!settings.quickCard.enabled" class="form-hint form-hint--section">
+          {{
+            t(
+              'topicDerivationQuickCardDisabledHint',
+              '当前已关闭监听符号制卡；这里的 Topic 下继续制卡设置会被保留，但运行时仍需先启用监听符号制卡。'
+            )
+          }}
+        </p>
+
+        <div class="form-item">
+          <label>{{ t('topicDerivationEnabled', '启用 Topic 下继续制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.topicDerivation.enabled">
+          </div>
+          <p class="form-hint">
+            {{ t('topicDerivationEnabledHint', '当当前块本身已经属于某个 Topic，或当前块位于 Topic 子文档内时，继续高亮或符号制卡会保留原 Topic，并在其下新增 Item 子文档和卡片。这不是摘录流程，而是沿用已有 Topic 继续制卡。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('topicDerivationStorageMode', '继续制卡内容存放位置') }}</label>
+          <div class="form-control">
+            <select v-model="settings.quickCard.topicDerivation.storageMode" class="scheduler-select">
+              <option value="workbench">{{ t('topicDerivationStorageWorkbench', '工作台文档（默认）') }}</option>
+              <option value="source-child">{{ t('topicDerivationStorageSourceChild', '直接挂在源文档下') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">
+            {{ t('topicDerivationStorageModeHint', '工作台模式会把继续制卡生成的内容集中收纳到源文档的“Topic 工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
           </p>
         </div>
         </div>
@@ -1785,11 +1790,6 @@ const subTabsByTab = computed<Record<SettingsTabKey, SettingsSubTabDefinition[]>
   ],
   card: [
     { key: 'quick-card', label: t('settingsSubtabQuickCard', '监听符号制卡') },
-    {
-      key: 'topic-derivation',
-      label: t('settingsSubtabTopicDerivation', 'Topic 下继续制卡'),
-      disabled: !settings.value.quickCard.enabled,
-    },
   ],
   'capture-sync': [
     { key: 'entry', label: t('settingsSubtabExcerptEntry', '摘录入口') },
@@ -1874,15 +1874,6 @@ watch(activeTab, async () => {
 
 watch(() => props.defaultTab, (tab) => {
   activeTab.value = normalizeSettingsTabKey(tab);
-});
-
-watch(() => settings.value.quickCard.enabled, (enabled) => {
-  if (!enabled && activeSubTabByTab.value.card === 'topic-derivation') {
-    activeSubTabByTab.value = {
-      ...activeSubTabByTab.value,
-      card: 'quick-card',
-    };
-  }
 });
 
 function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {

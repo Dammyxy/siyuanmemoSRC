@@ -27,10 +27,6 @@
           <span class="b3-list-item__text">{{ t('filterPresetSuspended', 'Suspended') }}</span>
           <span class="b3-list-item__meta">{{ globalStats.dismissed }}</span>
         </div>
-        <div class="b3-list-item" :class="{ 'b3-list-item--focus': props.activeDocId === '__lost__' }" @click="emit('selectDoc', '__lost__')">
-          <span class="b3-list-item__text">{{ t('missingBlocks', 'Missing blocks') }}</span>
-          <span class="b3-list-item__meta">{{ globalStats.lost }}</span>
-        </div>
       </div>
     </div>
 

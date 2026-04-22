@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 116)
+Last update: 2026-04-23 (Round 117)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - topbar stats removal and topic storage settings regroup
+
+- Task: 去掉插件顶栏右键菜单底部的卡片统计项，下线 SRS 浏览器里的缺失块入口，并把 Topic 下继续制卡的整组位置设置搬到“摘录与同步 > 存放位置”。
+- Touched slice: Top bar menu + Browser UI + Settings surface active path across `src/application/managers/MenuManager.ts`, `src/ui/browser/{BrowserHierarchy.vue,BrowserToolbar.vue,SRSBrowser.vue}`, `src/ui/settings/SettingsPanel.vue`, related i18n, and focused UI regression tests.
+- Debt fixed now: 顶栏菜单不再为只读统计行触发一次无意义的 due-count 查询；浏览器 UI 不再暴露 `__lost__` 全局入口，同时把旧 open-state 里的 `docId='__lost__'` 主动归一回普通全局视图，避免隐藏入口继续被恢复；设置页把“摘录生成 Topic”和“Topic 下继续制卡生成 Item”的位置调整统一到同一处，并顺手删掉 card tab 中已无效的 `topic-derivation` 子页签状态分支。
+- Debt deferred: missing-block 的 query/kernel 语义和内部 `__lost__` 兼容路径仍然保留，没有继续扩大成浏览器查询层的彻底删除；设置持久化结构也仍维持 `progressiveReading.storage` 与 `quickCard.topicDerivation` 分开存储。
+- Why deferred: 当前用户阻塞点是 UI 入口和设置归位，而不是 missing-block 查询契约或 settings schema 重塑；继续下沉到 query kernel 或持久化模型，会把这轮界面收口扩大成更宽的兼容迁移。
+- Next safe step: 如果后续确认不再需要任何 missing-block 专用浏览入口，可以再评估是否要把 `__lost__` 从 browser open-state 和 query contracts 里彻底下线；如果还想继续统一设置模型，再单独设计 shared storage-location DTO，而不是在本轮 UI 调整里顺手改 schema。
+- Validation: `pnpm vitest run src/application/managers/__tests__/MenuManager.topbar-menu-render.test.ts src/ui/browser/__tests__/BrowserHierarchy.missing-blocks.spec.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/settings/__tests__/SettingsPanel.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-23 - ai workbench empty-state cta responsiveness
 

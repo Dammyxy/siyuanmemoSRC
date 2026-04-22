@@ -49,10 +49,11 @@ describe('MenuManager top bar menu rendering', () => {
       openBrowserDialog: vi.fn(),
       openSettingsDialog: vi.fn(),
     };
+    const getDueCards = vi.fn().mockResolvedValue({ count: 3, total: 10 });
 
     const context = {
       getCardService: vi.fn().mockReturnValue({
-        getDueCards: vi.fn().mockResolvedValue({ count: 3, total: 10 }),
+        getDueCards,
       }),
       getStorage: vi.fn().mockReturnValue({
         getAllCards: vi.fn().mockReturnValue([]),
@@ -74,8 +75,6 @@ describe('MenuManager top bar menu rendering', () => {
       oneClickSymbolCardsCurrentDoc: 'L7',
       oneClickCancelCardsCurrentDoc: 'L8',
       settings: 'Settings',
-      dueCountLabel: 'Due',
-      totalCountLabel: 'Total',
     } as Record<string, string>;
 
     const menuManager = new MenuManager(context, {} as any, i18n, dialogManager as any);
@@ -94,6 +93,7 @@ describe('MenuManager top bar menu rendering', () => {
     const allItemArgs = menu.addItem.mock.calls.map((call) => call[0]);
     const visibleTopbarItems = allItemArgs.slice(0, 6);
     const browserTabItem = allItemArgs[6];
+    const settingsItem = allItemArgs[7];
     const hiddenActionIds = new Set<TopBarQuickEntryActionId>([
       'one-click-symbol-current-doc',
       'one-click-cancel-current-doc',
@@ -104,8 +104,12 @@ describe('MenuManager top bar menu rendering', () => {
 
     expect(visibleTopbarItems.map((item) => item.label)).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']);
     expect(browserTabItem.label).toBe('L7');
+    expect(settingsItem.label).toBe('Settings');
     expect(visibleTopbarItems.map((item) => item.label)).not.toContain('L7');
     expect(visibleTopbarItems.map((item) => item.label)).not.toContain('L8');
+    expect(allItemArgs.some((item) => item.type === 'readonly')).toBe(false);
+    expect(context.getCardService).not.toHaveBeenCalled();
+    expect(getDueCards).not.toHaveBeenCalled();
 
     for (const item of visibleTopbarItems) {
       expect(item.accelerator).toBeUndefined();
@@ -118,5 +122,7 @@ describe('MenuManager top bar menu rendering', () => {
 
     browserTabItem.click?.();
     expect(context.getTabManager().openBrowserTab).toHaveBeenCalledTimes(1);
+    settingsItem.click?.();
+    expect(dialogManager.openSettingsDialog).toHaveBeenCalledTimes(1);
   });
 });

@@ -8,30 +8,27 @@ vi.mock('../browserService', () => ({
   getDocTree: vi.fn(async () => []),
 }));
 
-describe('BrowserHierarchy missing-block scope', () => {
-  it('renders the missing-block pseudo node with count and active state', async () => {
+describe('BrowserHierarchy global scopes', () => {
+  it('renders only all and suspended global scopes after removing the missing-block entry', async () => {
     const wrapper = mount(BrowserHierarchy, {
       props: {
         cards: [],
         queues: { active: '', counts: {} },
         globalStats: { total: 12, dismissed: 2, lost: 3 },
-        activeDocId: '__lost__',
         i18n: {
           all: 'All',
           allFlashcards: 'All flashcards',
           filterPresetSuspended: 'Suspended',
-          missingBlocks: 'Missing blocks',
           queues: 'Queues',
           documents: 'Documents',
         },
       },
     });
 
-    const focused = wrapper.find('.b3-list-item--focus');
-    expect(focused.text()).toContain('Missing blocks');
-    expect(focused.text()).toContain('3');
-
-    await focused.trigger('click');
-    expect(wrapper.emitted('selectDoc')?.[0]).toEqual(['__lost__']);
+    const items = wrapper.findAll('.b3-list-item').map((item) => item.text());
+    expect(items).toContain('All flashcards12');
+    expect(items).toContain('Suspended2');
+    expect(wrapper.text()).not.toContain('Missing blocks');
+    expect(wrapper.text()).not.toContain('3');
   });
 });

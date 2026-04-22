@@ -155,10 +155,6 @@ vi.mock('../BrowserHierarchy.vue', () => ({
           class: 'select-global-suspended',
           onClick: () => emit('selectGlobal', '__dismissed__'),
         }, `Suspended ${String((props.globalStats as { dismissed: number }).dismissed ?? 0)}`),
-        h('button', {
-          class: props.activeDocId === '__lost__' ? 'select-missing-blocks active' : 'select-missing-blocks',
-          onClick: () => emit('selectDoc', '__lost__'),
-        }, `Missing ${String((props.globalStats as { lost: number }).lost ?? 0)}`),
         ...docSummaries.value.map((summary) => h('div', { class: 'doc-entry' }, summary)),
       ]);
     },
@@ -508,7 +504,7 @@ describe('SRSBrowser hierarchy regressions', () => {
     expect(wrapper.get('.toolbar-scope-count').text()).toBe('0');
   });
 
-  it('enters the global missing-block scope from the hierarchy pseudo node', async () => {
+  it('normalizes legacy missing-block browser state back to the default global view', async () => {
     const rows = [
       buildBrowserCard('card-1', 'doc-1'),
       buildBrowserCard('card-2', 'doc-1-child'),
@@ -517,6 +513,7 @@ describe('SRSBrowser hierarchy regressions', () => {
 
     const wrapper = mountBrowser({
       initialOpenState: {
+        docId: '__lost__',
         scopeDocIds: ['doc-1', 'doc-1-child'],
         preset: 'due',
         queryText: 'alpha',
@@ -528,18 +525,13 @@ describe('SRSBrowser hierarchy regressions', () => {
     await advance(0);
     await advance(200);
 
-    await wrapper.get('.select-missing-blocks').trigger('click');
-    await advance(0);
-    await advance(0);
-    await advance(240);
-
     expect(createDeckDataSourceMock.mock.calls.at(-1)?.[1]).toMatchObject({
-      docId: '__lost__',
+      docId: null,
       scopeDocIds: null,
       preset: 'all',
       queryText: '',
       cardType: 'all',
     });
-    expect(wrapper.get('.select-missing-blocks').classes()).toContain('active');
+    expect(wrapper.text()).not.toContain('Missing');
   });
 });

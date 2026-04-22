@@ -136,11 +136,7 @@ export class MenuManager {
    */
   async openTopBarMenu(ev: MouseEvent): Promise<void> {
     const menu = new Menu('fsrs-topbar-menu');
-    
-    // 通过应用服务获取统计信息
-    const cardService = this.context.getCardService();
-    const dueResult = await cardService.getDueCards();
-    
+
     for (const definition of TOPBAR_QUICK_ENTRY_DEFINITIONS) {
       if (TOPBAR_MENU_HIDDEN_ACTIONS.has(definition.id)) {
         continue;
@@ -172,16 +168,7 @@ export class MenuManager {
         this.openSettings();
       },
     });
-    
-    menu.addSeparator();
-    
-    // 统计信息（使用应用服务获取）
-    menu.addItem({
-      icon: 'iconInfo',
-      label: `${this.i18n?.dueCountLabel || 'Due'}: ${dueResult.count} / ${this.i18n?.totalCountLabel || 'Total'}: ${dueResult.total}`,
-      type: 'readonly',
-    });
-    
+
     // 打开菜单
     const anchor = (ev.currentTarget || ev.target) as HTMLElement | null;
     const rect = anchor?.getBoundingClientRect?.();
