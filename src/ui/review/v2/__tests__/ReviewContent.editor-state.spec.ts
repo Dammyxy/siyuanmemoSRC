@@ -211,6 +211,27 @@ function createSymbolQuickContent(symbolType = '>>') {
   };
 }
 
+function createProgressiveDerivedItemSymbolContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-derived-item',
+    data: '',
+    card: {
+      id: 'card-derived-item',
+      type: 'item',
+      meta: {
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '>>',
+        progressive: {
+          kind: 'derived-item',
+        },
+      },
+    },
+  };
+}
+
 function createBidirectionalSingleQuickContent(typeMarker: 'forward' | 'reverse' = 'forward') {
   return {
     type: 'protyle' as const,
@@ -917,6 +938,53 @@ describe('ReviewContent editor state', () => {
         ([firstArg]) => firstArg === '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
       ),
     ).toHaveLength(1);
+
+    wrapper.unmount();
+  });
+
+  it('keeps progressive derived items on standard Protyle when only legacy symbol metadata is present', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProgressiveDerivedItemSymbolContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(reviewContentQuickCardMocks.isQuickCard).toHaveBeenCalledWith('block-derived-item', 'card-derived-item');
+    expect(findWarnCall(
+      '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
+    )).toBeUndefined();
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'main-protyle',
+      supportsNativeEdit: true,
+      isEditing: false,
+    });
 
     wrapper.unmount();
   });

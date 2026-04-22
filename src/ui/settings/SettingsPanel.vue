@@ -390,7 +390,7 @@
             <input type="checkbox" v-model="settings.quickCard.topicDerivation.enabled">
           </div>
           <p class="form-hint">
-            {{ t('topicDerivationEnabledHint', '当当前块本身已经属于某个 Topic，或当前块位于 Topic 子文档内时，继续高亮或符号制卡会保留原 Topic，并在其下新增练习子文档和卡片。这不是摘录流程，而是沿用已有 Topic 继续制卡。') }}
+            {{ t('topicDerivationEnabledHint', '当当前块本身已经属于某个 Topic，或当前块位于 Topic 子文档内时，继续高亮或符号制卡会保留原 Topic，并在其下新增 Item 子文档和卡片。这不是摘录流程，而是沿用已有 Topic 继续制卡。') }}
           </p>
         </div>
 
@@ -406,7 +406,7 @@
             </select>
           </div>
           <p class="form-hint">
-            {{ t('topicDerivationStorageModeHint', '工作台模式会把继续制卡生成的内容集中收纳到源文档的“摘抄工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
+            {{ t('topicDerivationStorageModeHint', '工作台模式会把继续制卡生成的内容集中收纳到源文档的“Topic 工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
           </p>
         </div>
         </div>
@@ -490,7 +490,7 @@
           <p class="form-hint">
             {{
               progressiveUsesLibraryStorage
-                ? t('progressiveStorageTargetBlockHint', '固定库模式下可填写文档块 ID，摘录会创建到该文档树下；留空则自动使用 SiYuanMemo 摘录库。')
+                ? t('progressiveStorageTargetBlockHint', '固定库模式下可填写文档块 ID，摘录会创建到该文档树下；留空则自动使用 SiYuanMemo Topic 库。')
                 : progressiveUsesSourceChildStorage
                   ? t('progressiveStorageTargetBlockIgnoredSourceChildHint', '原文档模式下不使用目标块 ID，摘录会直接创建到来源文档目录下。')
                   : t('progressiveStorageTargetBlockIgnoredHint', '今日日记模式下暂不使用目标块 ID，留空即可。')

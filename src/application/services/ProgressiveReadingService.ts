@@ -31,8 +31,8 @@ import {
 
 const logger = createLogger('ProgressiveReadingService');
 const STORAGE_KEY = 'progressive-reading.json';
-const WORKBENCH_DOC_TITLE = '摘抄工作台';
-const DAILY_EXCERPT_ROOT_TITLE = 'SiYuanMemo 摘录';
+const WORKBENCH_DOC_TITLE = 'Topic 工作台';
+const DAILY_EXCERPT_ROOT_TITLE = 'SiYuanMemo Topic';
 
 type ProgressiveKind =
   | 'piece'
@@ -1802,7 +1802,7 @@ export class ProgressiveReadingService {
     const result = await this.createChildDocFromSource({
       sourceDocId: input.sourceDocId,
       kind: 'excerpt-doc',
-      titlePrefix: '摘录',
+      titlePrefix: 'Topic',
       previewText: input.selectedText,
       previewMax: 12,
       storageMode: 'source-child',
@@ -1828,7 +1828,7 @@ export class ProgressiveReadingService {
     const sequence = await this.resolveNextChildDocSequence({
       sourceDocId: input.sourceDocId,
       kind: 'excerpt-doc',
-      titlePrefix: '摘录',
+      titlePrefix: 'Topic',
     });
     const childTitle = this.buildNumberedChildDocTitle(
       '摘录',

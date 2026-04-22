@@ -37,7 +37,7 @@ describe('ConfiguredCaptureStorageService', () => {
 
   it('creates or reuses the feature root doc when library mode has no explicit target block', async () => {
     const sql = vi.fn(async (stmt: string) => {
-      if (stmt.includes("hpath = '/SiYuanMemo 摘录库'")) {
+      if (stmt.includes("hpath = '/SiYuanMemo Topic 库'")) {
         return [];
       }
       return [];
@@ -45,9 +45,9 @@ describe('ConfiguredCaptureStorageService', () => {
     const getDocInfo = vi.fn(async () => ({
       id: 'created-doc-1',
       box: 'box-1',
-      path: '/SiYuanMemo 摘录库.sy',
-      hpath: '/SiYuanMemo 摘录库',
-      name: 'SiYuanMemo 摘录库',
+      path: '/SiYuanMemo Topic 库.sy',
+      hpath: '/SiYuanMemo Topic 库',
+      name: 'SiYuanMemo Topic 库',
     }));
     const createDocWithMarkdown = vi.fn(async () => 'created-doc-1');
     const service = new ConfiguredCaptureStorageService(createPort({
@@ -65,7 +65,7 @@ describe('ConfiguredCaptureStorageService', () => {
       allowNonDocTarget: false,
     });
 
-    expect(createDocWithMarkdown).toHaveBeenCalledWith('box-1', '/SiYuanMemo 摘录库', '# SiYuanMemo 摘录库');
+    expect(createDocWithMarkdown).toHaveBeenCalledWith('box-1', '/SiYuanMemo Topic 库', '# SiYuanMemo Topic 库');
     expect(target).toEqual({
       notebookId: 'box-1',
       containerDocId: 'created-doc-1',
@@ -73,9 +73,9 @@ describe('ConfiguredCaptureStorageService', () => {
       parentDoc: {
         id: 'created-doc-1',
         box: 'box-1',
-        path: '/SiYuanMemo 摘录库.sy',
-        hpath: '/SiYuanMemo 摘录库',
-        name: 'SiYuanMemo 摘录库',
+        path: '/SiYuanMemo Topic 库.sy',
+        hpath: '/SiYuanMemo Topic 库',
+        name: 'SiYuanMemo Topic 库',
       },
       targetKind: 'root-doc',
     });
@@ -83,16 +83,16 @@ describe('ConfiguredCaptureStorageService', () => {
 
   it('hydrates feature root doc info from blocks SQL when getDocInfo omits hpath', async () => {
     const sql = vi.fn(async (stmt: string) => {
-      if (stmt.includes("hpath = '/SiYuanMemo 摘录库'")) {
+      if (stmt.includes("hpath = '/SiYuanMemo Topic 库'")) {
         return [{ id: 'created-doc-1' }];
       }
       if (stmt.includes("WHERE id = 'created-doc-1'")) {
         return [{
           id: 'created-doc-1',
           box: 'box-1',
-          path: '/SiYuanMemo 摘录库.sy',
-          hpath: '/SiYuanMemo 摘录库',
-          content: 'SiYuanMemo 摘录库',
+          path: '/SiYuanMemo Topic 库.sy',
+          hpath: '/SiYuanMemo Topic 库',
+          content: 'SiYuanMemo Topic 库',
         }];
       }
       return [];
@@ -100,7 +100,7 @@ describe('ConfiguredCaptureStorageService', () => {
     const getDocInfo = vi.fn(async () => ({
       id: 'created-doc-1',
       box: 'box-1',
-      path: '/SiYuanMemo 摘录库.sy',
+      path: '/SiYuanMemo Topic 库.sy',
       hpath: '',
       name: '',
     }));
@@ -121,9 +121,9 @@ describe('ConfiguredCaptureStorageService', () => {
     expect(target?.parentDoc).toEqual({
       id: 'created-doc-1',
       box: 'box-1',
-      path: '/SiYuanMemo 摘录库.sy',
-      hpath: '/SiYuanMemo 摘录库',
-      name: 'SiYuanMemo 摘录库',
+      path: '/SiYuanMemo Topic 库.sy',
+      hpath: '/SiYuanMemo Topic 库',
+      name: 'SiYuanMemo Topic 库',
     });
   });
 

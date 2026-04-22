@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 108)
+Last update: 2026-04-22 (Round 109)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - progressive topic item artifact naming and derived-item render contract
+
+- Task: 统一 progressive 新生成 artifact 的 `Topic / Item` 标题与容器命名，并修正 derived Item 在 review/temporary-drill 里被旧 quick-like metadata 误送进 quick renderer 的契约。
+- Touched slice: Progressive / Excerpt / Topic-derived item plus review render policy across `src/application/services/{ProgressiveReadingService.ts,TopicDerivedItemService.ts,ConfiguredCaptureStorageService.ts}`, `src/ui/review/v2/reviewRenderPolicy.ts`, progressive/settings i18n and fallbacks, focused progressive/review regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: 把新摘录文档、继续制卡子文档和内建容器标题统一到 `Topic / Item / Topic 工作台 / SiYuanMemo Topic / SiYuanMemo Topic 库`；derived Item 的持久化 metadata 不再伪装成 generic `quick-symbol` 来源，而是收敛为 `topic-derived`；review render policy 对 `progressive.kind = 'derived-item'` 改为保守分流，避免 temporary drill 因稳定 quick force path 误判而掉进 `not a quick card`。
+- Debt deferred: 没有批量重命名历史已生成的 `[摘录 xxx] / [练习 xxx]` 文档，也没有做 repo-wide 内部命名迁移；derived Item 仍保留 `symbolDetected / symbolType / question / answer` 等派生元数据，普通 quick detection 的更大范围收敛本轮没有展开。
+- Why deferred: 这轮目标是先把当前 active path 的新生成物命名和 temporary-drill 报错修稳；历史文档迁移和 repo-wide rename 会显著放大噪音与回归面，而 quick detection 的更广语义收口需要结合更多现有 quick/card 契约一起评估。
+- Next safe step: 如果后续还想让 derived Item 无论内容是否含 quick 语法都统一走标准 Item 渲染，可以再把 review 侧“自动 quick 检测”与 progressive-derived 语义拆成更显式的 renderer capability contract。
+- Validation: `pnpm vitest run src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/services/__tests__/ProgressiveReadingService.test.ts src/application/services/__tests__/ConfiguredCaptureStorageService.test.ts src/ui/review/v2/__tests__/reviewRenderPolicy.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-22 - progressive topic item terminology alignment
 

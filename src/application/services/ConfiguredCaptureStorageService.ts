@@ -10,7 +10,7 @@ import { createLogger } from '@/utils/logger';
 const logger = createLogger('ConfiguredCaptureStorageService');
 
 const FEATURE_ROOT_DOC_TITLES = {
-  'progressive-excerpt': 'SiYuanMemo 摘录库',
+  'progressive-excerpt': 'SiYuanMemo Topic 库',
   'ai-draft': 'SiYuanMemo AI 草稿',
 } as const;
 

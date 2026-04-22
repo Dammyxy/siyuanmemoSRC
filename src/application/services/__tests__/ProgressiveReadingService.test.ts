@@ -1425,7 +1425,7 @@ describe('ProgressiveReadingService', () => {
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
-      '/reading/ordinary/[摘录 001] Focus text',
+      '/reading/ordinary/[Topic 001] Focus text',
       '',
     );
     expect(port.appendDomBlock).toHaveBeenCalledWith(
@@ -1581,7 +1581,7 @@ describe('ProgressiveReadingService', () => {
     expect(port.createDocWithMarkdown).toHaveBeenNthCalledWith(
       1,
       'notebook-a',
-      '/reading/article/01 Intro/[摘录 002] Piece text',
+      '/reading/article/01 Intro/[Topic 002] Piece text',
       '',
     );
     expect(port.appendDomBlock).toHaveBeenCalledWith(
@@ -1742,7 +1742,7 @@ describe('ProgressiveReadingService', () => {
     expect(port.createDocWithMarkdown).toHaveBeenCalledTimes(1);
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
-      '/reading/ordinary/[摘录 001] Focus',
+      '/reading/ordinary/[Topic 001] Focus',
       '',
     );
     expect(port.appendDomBlock).toHaveBeenCalledWith(
@@ -1802,7 +1802,7 @@ describe('ProgressiveReadingService', () => {
     expect(result.kind).toBe('created');
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
-      '/reading/ordinary/[摘录 001] Focus',
+      '/reading/ordinary/[Topic 001] Focus',
       '',
     );
     expect(configuredCaptureStorageService.resolveLibraryTarget).not.toHaveBeenCalled();
@@ -1825,9 +1825,9 @@ describe('ProgressiveReadingService', () => {
         return {
           id: docId,
           box: 'library-box',
-          path: '/SiYuanMemo 摘录库.sy',
-          hpath: '/SiYuanMemo 摘录库',
-          name: 'SiYuanMemo 摘录库',
+          path: '/SiYuanMemo Topic 库.sy',
+          hpath: '/SiYuanMemo Topic 库',
+          name: 'SiYuanMemo Topic 库',
         };
       }),
       sql: vi.fn(async (stmt: string) => {
@@ -1853,9 +1853,9 @@ describe('ProgressiveReadingService', () => {
         parentDoc: {
           id: 'library-root-1',
           box: 'library-box',
-          path: '/SiYuanMemo 摘录库.sy',
-          hpath: '/SiYuanMemo 摘录库',
-          name: 'SiYuanMemo 摘录库',
+          path: '/SiYuanMemo Topic 库.sy',
+          hpath: '/SiYuanMemo Topic 库',
+          name: 'SiYuanMemo Topic 库',
         },
         targetKind: 'root-doc' as const,
       })),
@@ -2134,7 +2134,7 @@ describe('ProgressiveReadingService', () => {
     });
     expect(port.createDocWithMarkdown).toHaveBeenCalledWith(
       'notebook-a',
-      '/reading/ordinary/[摘录 001] 人的思考并不只发生在大…',
+      '/reading/ordinary/[Topic 001] 人的思考并不只发生在大…',
       '',
     );
     expect(port.appendDomBlock).toHaveBeenCalledWith(

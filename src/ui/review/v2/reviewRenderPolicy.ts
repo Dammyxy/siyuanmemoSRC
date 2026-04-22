@@ -21,6 +21,16 @@ export interface ReviewRenderPolicyKeyInput {
 
 export type ReviewRenderProfile = string | null | undefined;
 
+function readProgressiveKind(meta: Record<string, unknown> | undefined): string {
+  const progressive = meta?.progressive;
+  if (!progressive || typeof progressive !== 'object') {
+    return '';
+  }
+
+  const kind = (progressive as Record<string, unknown>).kind;
+  return typeof kind === 'string' ? kind : '';
+}
+
 function toToken(value: unknown): string {
   if (value === null || value === undefined || value === '') {
     return '_';
@@ -111,6 +121,10 @@ export function shouldPreferStableQuickForcePath(
     || profile === 'quick-inline-formula'
   ) {
     return false;
+  }
+
+  if (readProgressiveKind(meta) === 'derived-item') {
+    return profile === 'quick-default';
   }
 
   const source = typeof meta.source === 'string' ? meta.source : '';

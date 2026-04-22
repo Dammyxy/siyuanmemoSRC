@@ -39,7 +39,7 @@ type DerivedCandidate = {
   contentMarkdown: string;
   previewText: string;
   symbolType: string;
-  metadataSource: 'quick' | 'symbol';
+  metadataSource: 'topic-derived';
   question?: string;
   answer?: string;
 };
@@ -131,7 +131,7 @@ export class TopicDerivedItemService {
         const childDoc = await this.progressiveReadingService.createChildDocFromSource({
           sourceDocId,
           kind: 'derived-item-doc',
-          titlePrefix: '练习',
+          titlePrefix: 'Item',
           previewText: candidate.previewText,
           previewMax: 16,
           storageMode,
@@ -283,7 +283,7 @@ export class TopicDerivedItemService {
             contentMarkdown: this.buildSingleClozeMarkdown(input.content, cloze),
             previewText: cloze.text,
             symbolType: this.resolveClozeSymbolType(cloze.type),
-            metadataSource: 'quick',
+            metadataSource: 'topic-derived',
           });
         }
         continue;
@@ -306,7 +306,7 @@ export class TopicDerivedItemService {
         contentMarkdown: normalizedBasic,
         previewText: parsed?.answer || parsed?.question || normalizedBasic,
         symbolType: parsed?.symbolType || this.resolveDecisionSymbolType(decision),
-        metadataSource: 'symbol',
+        metadataSource: 'topic-derived',
         question: parsed?.question,
         answer: parsed?.answer,
       });
@@ -502,7 +502,7 @@ export class TopicDerivedItemService {
       metadata: {
         source: input.candidate.metadataSource,
         symbolDetected: true,
-        cardSource: 'quick-symbol',
+        cardSource: 'topic-derived',
         symbolType: input.candidate.symbolType,
         ...(input.candidate.question ? { question: input.candidate.question } : {}),
         ...(input.candidate.answer ? { answer: input.candidate.answer } : {}),

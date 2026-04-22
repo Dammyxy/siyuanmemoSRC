@@ -140,7 +140,7 @@ describe('TopicDerivedItemService', () => {
 
     expect(firstChildInput).toEqual(expect.objectContaining({
       kind: 'derived-item-doc',
-      titlePrefix: '练习',
+      titlePrefix: 'Item',
       storageMode: 'workbench',
       attrs: expect.objectContaining({
         [ATTR_PROGRESSIVE_KIND]: 'derived-item-doc',
@@ -175,9 +175,9 @@ describe('TopicDerivedItemService', () => {
         answerFingerprint: 'source-block-1::InlineClozeRule::6:14',
       }),
       metadata: expect.objectContaining({
-        source: 'quick',
+        source: 'topic-derived',
         symbolDetected: true,
-        cardSource: 'quick-symbol',
+        cardSource: 'topic-derived',
         symbolType: '==',
       }),
     }));
@@ -215,7 +215,8 @@ describe('TopicDerivedItemService', () => {
     }));
     expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({
-        source: 'symbol',
+        source: 'topic-derived',
+        cardSource: 'topic-derived',
         symbolType: '<>',
         question: '((concept-doc))',
         answer: 'Definition body',

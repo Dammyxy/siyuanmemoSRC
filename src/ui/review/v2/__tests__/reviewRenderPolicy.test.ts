@@ -177,4 +177,30 @@ describe('reviewRenderPolicy', () => {
       },
     }), 'descriptor')).toBe(false);
   });
+
+  it('keeps progressive derived items off the forced quick path unless the quick profile is explicit', () => {
+    expect(shouldPreferStableQuickForcePath(createCard({
+      meta: {
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '>>',
+        progressive: {
+          kind: 'derived-item',
+        },
+      },
+    }), null)).toBe(false);
+
+    expect(shouldPreferStableQuickForcePath(createCard({
+      meta: {
+        source: 'topic-derived',
+        symbolDetected: true,
+        cardSource: 'topic-derived',
+        symbolType: '>>',
+        progressive: {
+          kind: 'derived-item',
+        },
+      },
+    }), 'quick-default')).toBe(true);
+  });
 });
