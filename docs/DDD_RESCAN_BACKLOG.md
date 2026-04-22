@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 105)
+Last update: 2026-04-22 (Round 106)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - doc-tree browser scope and document menu regrouping
+
+- Task: 为文档相关右键入口新增“在 SRS 浏览器中查看当前文档树闪卡”，把 `插件 -> SiYuanMemo` 重组为 `练习 / 浏览 / 文档处理` 一级菜单，并让浏览器用显式 `scopeDocIds` 保存“当前文档 + 子文档”的范围，而不再把范围塞进 `doc:` 搜索串。
+- Touched slice: Document block menu / browser open-state / browser datasource-query active path across `src/application/managers/{BlockMenuHandler.ts,DialogManager.ts}`, `src/ui/browser/{SRSBrowser.vue,BrowserToolbar.vue,types.ts}`, `src/ui/browser/{utils/dataSourceFactory.ts,datasource/{DataSourceUtils.ts,DeckDataSource.ts,shared/BaseQueueSnapshotDataSource.ts}}`, `src/application/queries/browser/{browser-deck-query.ts,queue-browser-query.ts,shared/{BrowserDeckQueryKernel.ts,QueueBrowserQueryKernel.ts}}`, related i18n, focused browser/menu regression coverage, and this backlog.
+- Debt fixed now: Added explicit browser `scopeDocIds` state that survives dialog-to-tab conversion and flows through deck/queue datasource snapshots; made document-tree scope intersect with in-browser single-doc selection instead of overloading the search box; regrouped doc menus into `练习 / 浏览 / 文档处理` while keeping ordinary block menus flat; and added visible scoped-browser affordances in the toolbar so users can see and exit doc-tree range mode.
+- Debt deferred: `IDialogManager` still references the UI-side `BrowserOpenState` type directly, and scoped browser sessions deliberately disable the old SQL-mode shortcut instead of introducing a first-class “scoped SQL” contract.
+- Why deferred: Pulling browser-open state into a deeper application-layer DTO or designing scoped SQL semantics would widen this bounded feature into a larger browser contract refactor, while the active request was to ship document-tree browsing and menu regrouping on the current path without reintroducing search-string scope hacks.
+- Next safe step: If browser entry points continue to grow, extract one application-layer browser-open-state contract plus a shared scope normalizer, then decide whether SQL mode should gain explicit scoped execution instead of the current guarded fallback-to-text behavior.
+- Validation: `pnpm vitest run src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/managers/__tests__/BlockMenuHandler.doc-scope-concept-visibility.test.ts src/application/managers/__tests__/DialogManager.browser-tab-convert.spec.ts src/ui/browser/__tests__/BrowserToolbar.spec.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/ui/browser/datasource/__tests__/DataSourceUtils.doc-scope-filter.test.ts src/application/queries/browser/__tests__/BrowserDeckQueryKernel.scope-doc-ids.test.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts`; `pnpm build`.
 
 ### 2026-04-22 - filter-group topic next hides current scope item
 

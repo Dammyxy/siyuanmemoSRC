@@ -318,16 +318,39 @@ async function advance(ms: number): Promise<void> {
   await nextTick();
 }
 
-function mountBrowser() {
+function mountBrowser(propOverrides: Record<string, unknown> = {}) {
   return mount(SRSBrowser, {
     props: {
       mode: 'dialog',
       browserService: createBrowserService() as never,
       i18n: {},
+      ...propOverrides,
     },
     global: {
       stubs: {
-        BrowserToolbar: { template: '<div class="toolbar-stub"></div>' },
+        BrowserToolbar: defineComponent({
+          name: 'BrowserToolbar',
+          props: {
+            activeScopeDocIds: {
+              type: Array,
+              default: () => [],
+            },
+            showExitFocus: {
+              type: Boolean,
+              default: false,
+            },
+          },
+          emits: ['convertToTab', 'exitFocus'],
+          setup(props, { emit }) {
+            return () => h('div', { class: 'toolbar-stub' }, [
+              h('div', { class: 'toolbar-scope-count' }, String((props.activeScopeDocIds as unknown[])?.length ?? 0)),
+              props.showExitFocus
+                ? h('button', { class: 'toolbar-exit', onClick: () => emit('exitFocus') }, 'exit')
+                : null,
+              h('button', { class: 'toolbar-open-tab', onClick: () => emit('convertToTab') }, 'tab'),
+            ]);
+          },
+        }),
         BrowserPreview: { template: '<div class="preview-stub"></div>' },
         SyncStatusIndicator: { template: '<div class="sync-stub"></div>' },
         NeuralSubviewTabs: { template: '<div class="neural-tabs-stub"></div>' },
@@ -421,5 +444,58 @@ describe('SRSBrowser hierarchy regressions', () => {
     await advance(300);
     expect(createDeckDataSourceMock).toHaveBeenCalledTimes(3);
     expect(createDeckDataSourceMock.mock.calls[2]?.[1]).toMatchObject({ preset: 'all' });
+  });
+
+  it('preserves scopeDocIds across global selection changes and clears them when exiting scope', async () => {
+    const rows = [
+      buildBrowserCard('card-1', 'doc-1'),
+      buildBrowserCard('card-2', 'doc-1-child'),
+    ];
+    createDeckDataSourceMock.mockImplementation(() => createQueryableDataSource(rows));
+
+    const wrapper = mountBrowser({
+      initialOpenState: {
+        scopeDocIds: ['doc-1', 'doc-1-child'],
+        preset: 'all',
+      },
+    });
+
+    await advance(0);
+    await advance(0);
+    await advance(200);
+
+    expect(createDeckDataSourceMock.mock.calls[0]?.[1]).toMatchObject({
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      preset: 'all',
+    });
+    expect(wrapper.get('.toolbar-scope-count').text()).toBe('2');
+
+    await wrapper.get('.select-global-all').trigger('click');
+    await advance(0);
+    await advance(0);
+    await advance(240);
+
+    expect(createDeckDataSourceMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      preset: 'all',
+    });
+
+    await wrapper.get('.toolbar-open-tab').trigger('click');
+
+    expect(wrapper.emitted('convertToTab')?.[0]?.[0]).toMatchObject({
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      preset: 'all',
+    });
+
+    await wrapper.get('.toolbar-exit').trigger('click');
+    await advance(0);
+    await advance(0);
+    await advance(240);
+
+    expect(createDeckDataSourceMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      preset: 'all',
+      scopeDocIds: null,
+    });
+    expect(wrapper.get('.toolbar-scope-count').text()).toBe('0');
   });
 });

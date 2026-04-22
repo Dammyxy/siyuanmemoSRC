@@ -79,6 +79,7 @@ export interface DataSourceOptions {
   preset?: string;
   queryText?: string;
   cardType?: BrowserCardTypeFilter;
+  scopeDocIds?: string[] | null;
 }
 
 /**
@@ -104,13 +105,14 @@ export function createQueueDataSource(
   plugin?: unknown,
   browserService?: IBrowserApplicationService | null
 ): ICardDataSource | null {
-  const { docId, preset, queryText, cardType } = options;
+  const { docId, scopeDocIds, preset, queryText, cardType } = options;
 
   // ✅ 所有队列都使用新架构数据源
   switch (queueId) {
     case 'final-drill':
       return new FinalDrillDataSource(manager, {
         docId,
+        scopeDocIds,
         preset,
         queryText,
         cardType,
@@ -119,6 +121,7 @@ export function createQueueDataSource(
     case 'retrieval':
       return new RetrievalDataSource(manager, {
         docId,
+        scopeDocIds,
         preset,
         queryText,
         cardType,
@@ -127,6 +130,7 @@ export function createQueueDataSource(
     case 'filter-group':
       return new FilterGroupDataSource(manager, {
         docId,
+        scopeDocIds,
         preset,
         queryText,
         cardType,
@@ -135,6 +139,7 @@ export function createQueueDataSource(
     case 'incremental-learning':
       return new IncrementalLearningDataSource(manager, {
         docId,
+        scopeDocIds,
         preset,
         queryText,
         cardType,
@@ -207,13 +212,14 @@ export function createDeckDataSource(
   plugin?: unknown,
   browserService?: IBrowserApplicationService | null
 ): ICardDataSource {
-  const { docId, preset, queryText, cardType } = options;
+  const { docId, scopeDocIds, preset, queryText, cardType } = options;
 
   return new DeckDataSource(
     manager, 
     {
       preset,
       currentDocId: docId || currentDocId,
+      scopeDocIds,
       queryText,
       cardType,
     },
@@ -248,11 +254,12 @@ export function createFocusDataSource(
   plugin?: unknown,
   browserService?: IBrowserApplicationService | null
 ): ICardDataSource | null {
-  const { preset, queryText, cardType } = options;
+  const { preset, queryText, cardType, scopeDocIds } = options;
 
   // 队列模式：创建不含文档筛选的队列数据源
   if (queueId === 'final-drill') {
     return new FinalDrillDataSource(manager, {
+      scopeDocIds,
       preset,
       queryText,
       cardType,
@@ -261,6 +268,7 @@ export function createFocusDataSource(
 
   if (queueId === 'retrieval') {
     return new RetrievalDataSource(manager, {
+      scopeDocIds,
       preset,
       queryText,
       cardType,
@@ -269,6 +277,7 @@ export function createFocusDataSource(
 
   if (queueId === 'filter-group') {
     return new FilterGroupDataSource(manager, {
+      scopeDocIds,
       preset,
       queryText,
       cardType,
@@ -278,6 +287,7 @@ export function createFocusDataSource(
   // ✅ 新增：渐进学习队列
   if (queueId === 'incremental-learning') {
     return new IncrementalLearningDataSource(manager, {
+      scopeDocIds,
       preset,
       queryText,
       cardType,
@@ -309,6 +319,7 @@ export function createFocusDataSource(
       {
         preset,
         currentDocId: undefined,  // 不传文档 ID，获取所有文档的数据
+        scopeDocIds,
         queryText,
         cardType,
       },

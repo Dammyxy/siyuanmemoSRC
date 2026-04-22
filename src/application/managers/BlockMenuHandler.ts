@@ -660,6 +660,47 @@ export class BlockMenuHandler {
     ];
   }
 
+  private buildDocBrowserActions(docId: string, scope: ReviewScopeSnapshot): SiyuanMenuItem[] {
+    const scopeDocIds = scope.scopeDocIds && scope.scopeDocIds.length > 0
+      ? [...scope.scopeDocIds]
+      : [docId];
+
+    return [
+      {
+        icon: 'iconSearch',
+        label: this.text('openDocTreeCardsInBrowser', '在 SRS 浏览器中查看文档树闪卡'),
+        click: async () => {
+          this.deps.dialogManager.openBrowserDialog({
+            initialOpenState: {
+              scopeDocIds,
+              preset: 'all',
+            },
+          });
+        },
+      },
+    ];
+  }
+
+  private buildDocBrowserLoadingActions(): SiyuanMenuItem[] {
+    const loadingText = this.deps.i18n?.loading || '加载中...';
+    const pendingSuffix = `<span class="ft__secondary">(${loadingText})</span>`;
+    return [
+      {
+        icon: 'iconSearch',
+        label: `${this.text('openDocTreeCardsInBrowser', '在 SRS 浏览器中查看文档树闪卡')} ${pendingSuffix}`,
+        disabled: true,
+      },
+    ];
+  }
+
+  private buildDocMenuGroup(labelKey: string, fallback: string, icon: string, submenu: SiyuanMenuItem[]): SiyuanMenuItem {
+    return {
+      icon,
+      label: this.text(labelKey, fallback),
+      submenu,
+    };
+  }
+
   private addSiyuanMemoMenu(menu: SiyuanMenu, submenu: SiyuanMenuItem[]): void {
     menu.addItem({
       icon: 'iconRiffCard',
@@ -670,13 +711,30 @@ export class BlockMenuHandler {
 
   private buildDocReviewMenuItems(docId: string, scope: ReviewScopeSnapshot): SiyuanMenuItem[] {
     return [
-      ...this.buildReviewActions(scope.cards, {
-        scopeDocIds: scope.scopeDocIds,
-      }),
-      this.separator(),
-      ...this.buildConceptActions(docId),
-      this.separator(),
-      ...this.buildProgressiveDocActions(docId),
+      this.buildDocMenuGroup(
+        'menuGroupPractice',
+        '练习',
+        'iconPlay',
+        [
+          ...this.buildReviewActions(scope.cards, {
+            scopeDocIds: scope.scopeDocIds,
+          }),
+          this.separator(),
+          ...this.buildConceptActions(docId),
+        ],
+      ),
+      this.buildDocMenuGroup(
+        'menuGroupBrowse',
+        '浏览',
+        'iconSearch',
+        this.buildDocBrowserActions(docId, scope),
+      ),
+      this.buildDocMenuGroup(
+        'menuGroupDocumentProcessing',
+        '文档处理',
+        'iconFiles',
+        this.buildProgressiveDocActions(docId),
+      ),
     ];
   }
 
@@ -691,19 +749,36 @@ export class BlockMenuHandler {
     const pendingSuffix = `<span class="ft__secondary">(${loadingText})</span>`;
 
     return [
-      { icon: 'iconRiffCard', label: `${retrievalLabel} - ${dueLabel} ${pendingSuffix}`, disabled: true },
-      { icon: 'iconRiffCard', label: `${retrievalLabel} - ${allLabel} ${pendingSuffix}`, disabled: true },
-      this.separator(),
-      { icon: 'iconBook', label: `${incrementalLabel} - ${dueLabel} ${pendingSuffix}`, disabled: true },
-      { icon: 'iconBook', label: `${incrementalLabel} - ${allLabel} ${pendingSuffix}`, disabled: true },
-      this.separator(),
-      { icon: 'iconEye', label: `${temporaryLabel} ${pendingSuffix}`, disabled: true },
-      this.separator(),
-      { icon: 'iconAdd', label: `${finalDrillLabel} ${pendingSuffix}`, disabled: true },
-      this.separator(),
-      ...this.buildConceptActions(docId),
-      this.separator(),
-      ...this.buildProgressiveDocActions(docId),
+      this.buildDocMenuGroup(
+        'menuGroupPractice',
+        '练习',
+        'iconPlay',
+        [
+          { icon: 'iconRiffCard', label: `${retrievalLabel} - ${dueLabel} ${pendingSuffix}`, disabled: true },
+          { icon: 'iconRiffCard', label: `${retrievalLabel} - ${allLabel} ${pendingSuffix}`, disabled: true },
+          this.separator(),
+          { icon: 'iconBook', label: `${incrementalLabel} - ${dueLabel} ${pendingSuffix}`, disabled: true },
+          { icon: 'iconBook', label: `${incrementalLabel} - ${allLabel} ${pendingSuffix}`, disabled: true },
+          this.separator(),
+          { icon: 'iconEye', label: `${temporaryLabel} ${pendingSuffix}`, disabled: true },
+          this.separator(),
+          { icon: 'iconAdd', label: `${finalDrillLabel} ${pendingSuffix}`, disabled: true },
+          this.separator(),
+          ...this.buildConceptActions(docId),
+        ],
+      ),
+      this.buildDocMenuGroup(
+        'menuGroupBrowse',
+        '浏览',
+        'iconSearch',
+        this.buildDocBrowserLoadingActions(),
+      ),
+      this.buildDocMenuGroup(
+        'menuGroupDocumentProcessing',
+        '文档处理',
+        'iconFiles',
+        this.buildProgressiveDocActions(docId),
+      ),
     ];
   }
 
@@ -908,11 +983,18 @@ export class BlockMenuHandler {
     }
 
     const scope = this.collectReviewScopeFromBlockIcon(blockElements);
+    const primaryBlockElement = ((blockElements[0]?.closest('[data-node-id]') as HTMLElement) || blockElements[0]);
+    const singleDocBlockId = blockIds.length === 1 && primaryBlockElement && this.isDocumentBlockElement(primaryBlockElement, blockIds[0])
+      ? blockIds[0]
+      : null;
+    const docScopedMenuItems = singleDocBlockId
+      ? (scope ? this.buildDocReviewMenuItems(singleDocBlockId, scope) : this.buildDocLoadingMenuItems(singleDocBlockId))
+      : null;
     const reviewActions = scope
       ? this.buildReviewActions(scope.cards, { scopeDocIds: scope.scopeDocIds })
       : this.buildReviewLoadingActions();
     const submenu: SiyuanMenuItem[] = [
-      ...reviewActions,
+      ...(docScopedMenuItems ?? reviewActions),
       this.separator(),
       {
         icon: 'iconEdit',

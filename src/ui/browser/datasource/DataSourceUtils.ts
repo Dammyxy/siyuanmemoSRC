@@ -48,6 +48,7 @@ type BrowserSortRowLike = {
 } & Record<string, unknown>;
 export type QueueFilterOptions = {
   docId?: string;
+  scopeDocIds?: string[] | null;
   preset?: string;
   queryText?: string;
   cardType?: string;
@@ -692,19 +693,41 @@ function toDueTimestamp(value: unknown): number | null {
   return null;
 }
 
-export function applyDocFilter<TRow extends QueueFilterRowLike>(cards: TRow[], docId?: string): TRow[] {
+function normalizeScopeDocIds(scopeDocIds?: string[] | null): string[] {
+  return Array.from(new Set(
+    (scopeDocIds || [])
+      .map((docId) => String(docId || '').trim())
+      .filter(Boolean)
+  ));
+}
+
+export function applyDocFilter<TRow extends QueueFilterRowLike>(
+  cards: TRow[],
+  docId?: string,
+  scopeDocIds?: string[] | null,
+): TRow[] {
   const normalizedDocId = String(docId || '').trim();
+  const normalizedScopeDocIds = normalizeScopeDocIds(scopeDocIds);
+  const scopeDocIdSet = normalizedScopeDocIds.length > 0 ? new Set(normalizedScopeDocIds) : null;
 
   if (normalizedDocId === '__lost__') {
-    return cards.filter((card) => isMissingBlockCard(card));
+    let missingCards = cards.filter((card) => isMissingBlockCard(card));
+    if (scopeDocIdSet) {
+      missingCards = missingCards.filter((card) => scopeDocIdSet.has(String(card.rootId || '').trim()));
+    }
+    return missingCards;
   }
 
-  const nonMissingCards = cards.filter((card) => !isMissingBlockCard(card));
+  let result = cards.filter((card) => !isMissingBlockCard(card));
+  if (scopeDocIdSet) {
+    result = result.filter((card) => scopeDocIdSet.has(String(card.rootId || '').trim()));
+  }
+
   if (!normalizedDocId) {
-    return nonMissingCards;
+    return result;
   }
 
-  return nonMissingCards.filter((card) => card.rootId === normalizedDocId);
+  return result.filter((card) => String(card.rootId || '').trim() === normalizedDocId);
 }
 
 export function applyLegacyPresetFilter<TRow extends QueueFilterRowLike>(cards: TRow[], preset?: string): TRow[] {
@@ -820,7 +843,7 @@ export function applyQueueFilters<TRow extends QueueFilterRowLike>(
   querySecondaryField: QuerySecondaryField = 'headline'
 ): TRow[] {
   let result = cards;
-  result = applyDocFilter(result, options.docId);
+  result = applyDocFilter(result, options.docId, options.scopeDocIds);
   result = applyLegacyPresetFilter(result, options.preset);
   result = applySimpleQueryFilter(result, options.queryText, { secondaryField: querySecondaryField });
   result = applyCardTypeFilter(result, options.cardType);

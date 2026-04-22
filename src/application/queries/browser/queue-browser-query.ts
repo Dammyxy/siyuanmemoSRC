@@ -6,6 +6,7 @@ export interface QueueBrowserSnapshotQuery {
   preset?: string;
   searchText?: string;
   docId?: string;
+  scopeDocIds?: string[] | null;
   cardType?: string;
   sortModel?: SortModel[];
 }

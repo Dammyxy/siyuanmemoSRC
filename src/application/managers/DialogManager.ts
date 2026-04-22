@@ -650,6 +650,7 @@ export class DialogManager implements IDialogManager {
    * 打开 SRS 浏览器对话框
    */
   openBrowserDialog(options?: {
+    initialOpenState?: BrowserOpenState | null;
     initialQueueId?: string;
     initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
   }): void {
@@ -676,6 +677,7 @@ export class DialogManager implements IDialogManager {
         tabApplicationService,
         i18n: this.context.getI18n(),
         mobileMode: this.isMobileFrontend(),
+        initialOpenState: options?.initialOpenState ?? null,
         initialQueueId: options?.initialQueueId,
         initialNeuralSubview: options?.initialNeuralSubview,
       },

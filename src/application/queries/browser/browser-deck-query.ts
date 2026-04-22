@@ -6,6 +6,7 @@ export interface BrowserDeckSnapshotQuery {
   preset?: PresetFilter;
   searchText?: string;
   docId?: string;
+  scopeDocIds?: string[] | null;
   states?: CardState[];
   cardTypes?: string[];
   deckIds?: string[];

@@ -83,10 +83,10 @@
         v-if="showExitFocus"
         class="b3-button b3-button--outline"
         @click="$emit('exitFocus')"
-        :title="t('exitFocus', 'Exit Queue')"
+        :title="exitFocusButtonLabel"
       >
         <svg><use xlink:href="#iconClose"></use></svg>
-        {{ t('exitFocus', 'Exit Queue') }}
+        {{ exitFocusButtonLabel }}
       </button>
 
       <button
@@ -217,6 +217,7 @@ const props = defineProps<{
   queueType: string;
   appliedFilter: CardFilter | null;
   activeQueueId: string | null;
+  activeScopeDocIds?: string[] | null;
   activeDocId?: string | null;
   activeGlobalScope?: BrowserGlobalScope | null;
   selectedCount: number;
@@ -269,6 +270,7 @@ const isTabNarrow = computed(() => props.layoutProfile === 'tab-narrow');
 const showScopeChips = computed(() => !props.mobileMode && isTabNarrow.value);
 const showNavigatorToggle = computed(() => props.showNavigatorToggle === true);
 const navigatorOpen = computed(() => props.navigatorOpen === true);
+const hasActiveScopeDocIds = computed(() => (props.activeScopeDocIds?.length ?? 0) > 0);
 
 const isCompactDesktop = computed(() => {
   if (props.mobileMode) {
@@ -306,18 +308,32 @@ const startPracticeButtonLabel = computed(() => {
 });
 
 const openInTabButtonLabel = computed(() => t('openInTab', 'Open'));
+const exitFocusButtonLabel = computed(() => (
+  hasActiveScopeDocIds.value
+    ? t('exitDocTreeScope', 'Exit Doc Tree Scope')
+    : t('exitFocus', 'Exit Queue')
+));
 
 const toolbarChipItems = computed(() => {
   const viewLabel = props.viewMode === 'hierarchy'
     ? t('hierarchyView', '层级视图')
     : t('flatView', '平铺视图');
 
-  return [
+  const items = [
     { key: 'scope', label: resolveScopeLabel() },
+  ];
+
+  if (hasActiveScopeDocIds.value) {
+    items.push({ key: 'doc-scope', label: resolveDocTreeScopeLabel() });
+  }
+
+  items.push(
     { key: 'preset', label: resolvePresetLabel(props.currentPreset) },
     { key: 'cardType', label: resolveCardTypeLabel(props.currentCardType) },
     { key: 'view', label: viewLabel },
-  ];
+  );
+
+  return items;
 });
 
 function handleSelectAllToggle() {
@@ -410,6 +426,11 @@ function resolveScopeLabel(): string {
   }
 
   return t('allFlashcards', 'All flashcards');
+}
+
+function resolveDocTreeScopeLabel(): string {
+  return t('docTreeScopeCount', 'Doc Tree ({count})')
+    .replace('{count}', String(props.activeScopeDocIds?.length || 0));
 }
 
 function resolvePresetLabel(preset: string): string {

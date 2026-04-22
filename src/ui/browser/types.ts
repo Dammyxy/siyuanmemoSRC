@@ -309,6 +309,7 @@ export type BrowserGlobalScope = '__all__' | '__dismissed__';
 export interface BrowserOpenState {
     queueId?: string | null;
     globalScope?: BrowserGlobalScope | null;
+    scopeDocIds?: string[] | null;
     docId?: string | null;
     queryText?: string;
     preset?: string | null;

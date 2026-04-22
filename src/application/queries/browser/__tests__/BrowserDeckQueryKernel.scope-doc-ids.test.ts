@@ -1,0 +1,88 @@
+import { describe, expect, it, vi } from 'vitest';
+import { CardState } from '@/core/card/domain/services/CardScheduleService';
+import type { FSRSCard } from '@/types/card';
+import { BrowserDeckQueryKernel } from '../shared/BrowserDeckQueryKernel';
+
+function buildCard(id: string, blockId: string, rootId: string, due: number, content: string): FSRSCard {
+  return {
+    id,
+    blockId,
+    type: 'item',
+    due,
+    stability: 1,
+    difficulty: 2,
+    reps: 1,
+    lapses: 0,
+    state: CardState.Review,
+    lastReview: due - 86_400_000,
+    elapsedDays: 1,
+    scheduledDays: 1,
+    priority: 50,
+    createdAt: due - 172_800_000,
+    updatedAt: due - 43_200_000,
+    meta: {
+      rootId,
+      content,
+    },
+  } as FSRSCard;
+}
+
+describe('BrowserDeckQueryKernel scopeDocIds', () => {
+  it('intersects scopeDocIds with docId, search text, and preset filters', async () => {
+    const now = Date.now();
+    const cards = [
+      buildCard('card-1', 'block-1', 'doc-1', now - 1_000, 'alpha root'),
+      buildCard('card-2', 'block-2', 'doc-1-child', now - 1_000, 'alpha child'),
+      buildCard('card-3', 'block-3', 'doc-1-child', now + 86_400_000, 'alpha child future'),
+      buildCard('card-4', 'block-4', 'doc-2', now - 1_000, 'alpha outside'),
+    ];
+
+    const storageManager = {
+      queryCards: vi.fn((query?: { blockIds?: string[] }) => {
+        if (!query?.blockIds?.length) {
+          return cards;
+        }
+        const blockIdSet = new Set(query.blockIds);
+        return cards.filter((card) => blockIdSet.has(card.blockId));
+      }),
+      getAllCards: vi.fn(() => cards),
+    };
+
+    const siyuanApi = {
+      ATTR_CARD_TYPE: 'custom-card-type',
+      sql: vi.fn(async (sql: string) => {
+        if (sql.includes("WHERE root_id IN ('doc-1','doc-1-child')")) {
+          return [{ id: 'block-1' }, { id: 'block-2' }, { id: 'block-3' }];
+        }
+        if (sql.includes("WHERE root_id = 'doc-1-child'")) {
+          return [{ id: 'block-2' }, { id: 'block-3' }];
+        }
+        if (sql.includes("content LIKE '%alpha%'")) {
+          return [{ id: 'block-1' }, { id: 'block-2' }, { id: 'block-3' }, { id: 'block-4' }];
+        }
+        return [];
+      }),
+    };
+
+    const kernel = new BrowserDeckQueryKernel(
+      storageManager as never,
+      {} as never,
+      {} as never,
+      siyuanApi as never,
+    );
+
+    const result = await kernel.buildSnapshot({
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      docId: 'doc-1-child',
+      searchText: 'alpha',
+      preset: 'due',
+      cardTypes: ['item'],
+    });
+
+    expect(storageManager.queryCards).toHaveBeenCalledWith(expect.objectContaining({
+      blockIds: ['block-2', 'block-3'],
+    }));
+    expect(result.rows.map((row) => row.blockId)).toEqual(['block-2']);
+    expect(result.total).toBe(1);
+  });
+});

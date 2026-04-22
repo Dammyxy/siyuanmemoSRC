@@ -37,7 +37,7 @@
         v-model:currentCardType="currentCardType"
         v-model:showPreview="showPreview"
         :cardCount="totalRowCount"
-        :showExitFocus="shouldFocusDocList"
+        :showExitFocus="showToolbarExitScope"
         :hasPlugin="!!props.plugin"
         :canApplySortToQueue="canApplySortToQueue"
         :viewMode="viewMode"
@@ -48,6 +48,7 @@
         :queue-type="currentQueueType"
         :applied-filter="appliedFilter"
         :active-queue-id="activeQueueId"
+        :active-scope-doc-ids="activeScopeDocIds"
         :active-doc-id="activeDocId"
         :active-global-scope="activeGlobalScope"
         :selected-count="globalSelection.selectedCount.value"
@@ -615,6 +616,7 @@ const currentSortOrder = ref<SortOrder>('asc');
 const searchQuery = ref('');
 const viewMode = ref<BrowserViewMode>(isMobileMode.value ? 'flat' : 'hierarchy');
 const activeQueueId = ref<string | null>(null);
+const activeScopeDocIds = ref<string[] | null>(null);
 const activeDocId = ref<string | null>(null);
 const queueCounts = ref<Record<string, number>>({ ...EMPTY_QUEUE_COUNTS });
 const neuralSubview = ref<NeuralSubview>('concept-cards');
@@ -912,6 +914,15 @@ function cloneCardFilter(filter: CardFilter | null): CardFilter | null {
   }
 }
 
+function normalizeStringArray(value: string[] | null | undefined): string[] | null {
+  const normalized = Array.from(new Set(
+    (value || [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+  ));
+  return normalized.length > 0 ? normalized : null;
+}
+
 function normalizeNeuralSubview(value: NeuralSubview | null | undefined): NeuralSubview | null {
   if (
     value === 'concept-cards'
@@ -927,6 +938,7 @@ function captureCurrentBrowserOpenState(): BrowserOpenState {
   return {
     queueId: activeQueueId.value,
     globalScope: activeGlobalScope.value,
+    scopeDocIds: activeScopeDocIds.value ? [...activeScopeDocIds.value] : null,
     docId: activeDocId.value,
     queryText: searchQuery.value,
     preset: currentPreset.value,
@@ -945,6 +957,7 @@ async function applyInitialBrowserOpenState(
   suspendBrowserStateBootstrap = true;
   try {
     const nextQueueId = normalizeQueueId(state.queueId);
+    const nextScopeDocIds = normalizeStringArray(state.scopeDocIds);
     const nextDocId = String(state.docId || '').trim() || null;
     const nextGlobalScope = state.globalScope === '__dismissed__' ? '__dismissed__' : '__all__';
     const nextPreset = nextGlobalScope === '__dismissed__'
@@ -967,6 +980,7 @@ async function applyInitialBrowserOpenState(
     });
 
     activeQueueId.value = nextQueueId;
+    activeScopeDocIds.value = nextScopeDocIds;
     activeDocId.value = nextDocId;
     shouldFocusDocList.value = Boolean(nextQueueId) && !nextDocId;
 
@@ -995,6 +1009,7 @@ async function applyInitialBrowserOpenState(
 
     await loadData(forceRefresh, { refreshQueueCounts: false, snapshotDelayMs: 120 });
     await refreshQueueCounts();
+    await refreshGlobalStats(forceRefresh);
 
     if (nextQueueId === 'neural-roam' && nextNeuralSubview !== 'concept-cards') {
       await refreshNeuralSubviewData();
@@ -1180,7 +1195,12 @@ const globalStats = computed(() => {
   };
 });
 
+const hasActiveScopeDocIds = computed(() => (activeScopeDocIds.value?.length ?? 0) > 0);
+
 const activeGlobalScope = computed<'__all__' | '__dismissed__' | null>(() => {
+  if (hasActiveScopeDocIds.value) {
+    return null;
+  }
   if (currentPreset.value === 'suspended' && !activeQueueId.value && !activeDocId.value) {
     return '__dismissed__';
   }
@@ -1189,6 +1209,8 @@ const activeGlobalScope = computed<'__all__' | '__dismissed__' | null>(() => {
   }
   return null;
 });
+
+const showToolbarExitScope = computed(() => shouldFocusDocList.value || hasActiveScopeDocIds.value);
 
 function clearLoadedRowsCache(): void {
   if (loadedRowsFlushTimer) {
@@ -1355,6 +1377,7 @@ function buildSelectionContextFingerprint(): string {
 
   return JSON.stringify({
     queueId: activeQueueId.value || '',
+    scopeDocIds: activeScopeDocIds.value || [],
     docId: activeDocId.value || '',
     preset: currentPreset.value,
     queryText: searchQuery.value,
@@ -1367,6 +1390,11 @@ function describeCurrentFilterSummary(): string {
   const parts: string[] = [];
   parts.push(`${t('scope', 'Scope')}: ${activeQueueId.value || t('allCards', 'All')}`);
 
+  if (hasActiveScopeDocIds.value) {
+    parts.push(
+      `${t('docTreeScope', 'Doc Tree Scope')}: ${String(activeScopeDocIds.value?.length || 0)}`,
+    );
+  }
   if (activeDocId.value) {
     parts.push(`${t('document', 'Document')}: ${activeDocId.value}`);
   }
@@ -1500,7 +1528,7 @@ function applyGlobalSelectionToLoadedRows(): void {
 
 async function refreshGlobalStats(force = false): Promise<void> {
   const browserService = browserAppServiceRef.value;
-  if (browserService?.getStats) {
+  if (browserService?.getStats && !hasActiveScopeDocIds.value) {
     const taskId = ++globalStatsTaskId;
     try {
       const stats = await browserService.getStats();
@@ -1543,6 +1571,7 @@ async function refreshGlobalStats(force = false): Promise<void> {
       unifiedDataSourceManager,
       {
         docId: null,
+        scopeDocIds: activeScopeDocIds.value,
         preset: 'all',
         queryText: '',
         cardType: 'all',
@@ -1768,6 +1797,7 @@ function startFocusRowsSnapshot(): void {
     activeQueueId.value,
     unifiedDataSourceManager,
     {
+      scopeDocIds: activeScopeDocIds.value,
       preset: currentPreset.value,
       queryText: searchQuery.value,
       cardType: currentCardType.value as BrowserCardTypeFilter,
@@ -1871,6 +1901,7 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
         unifiedDataSourceManager,
         {
           docId: activeDocId.value,
+          scopeDocIds: activeScopeDocIds.value,
           preset: currentPreset.value,
           queryText: searchQuery.value,
           cardType: currentCardType.value as BrowserCardTypeFilter,
@@ -1889,7 +1920,7 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
       }
     } else {
       clearNeuralSubviewData();
-      const sqlStmt = extractSqlStatement(searchQuery.value);
+      const sqlStmt = resolveActiveSqlStatement(searchQuery.value);
       if (sqlStmt != null) {
         const ok = await ensureSqlModeConfirmed();
         if (!ok) return;
@@ -1910,6 +1941,7 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
           unifiedDataSourceManager,
           {
             docId: activeDocId.value,
+            scopeDocIds: activeScopeDocIds.value,
             preset: currentPreset.value,
             queryText: searchQuery.value,
             cardType: currentCardType.value as BrowserCardTypeFilter,
@@ -1973,6 +2005,13 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
   }
 }
 
+function resolveActiveSqlStatement(queryText: string = searchQuery.value): string | null {
+  if (activeDocId.value || hasActiveScopeDocIds.value) {
+    return null;
+  }
+  return extractSqlStatement(queryText);
+}
+
 // Search handling
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSqlStmt: string | null = null;
@@ -1980,7 +2019,7 @@ let lastSearchQuery: string = '';
 function handleSearchInput() {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
-    const current = extractSqlStatement(searchQuery.value);
+    const current = resolveActiveSqlStatement(searchQuery.value);
     const queryChanged = searchQuery.value !== lastSearchQuery;
     const sqlChanged = current !== lastSqlStmt;
 
@@ -4796,7 +4835,22 @@ async function handleSelectGlobal(type: '__all__' | '__dismissed__') {
 }
 
 function handleExitFocus() {
-  handleSelectGlobal('__all__');
+  if (!hasActiveScopeDocIds.value) {
+    void handleSelectGlobal('__all__');
+    return;
+  }
+
+  void runWithSuspendedBrowserStateBootstrap(async () => {
+    syncSelectionForQueryChange();
+    activeScopeDocIds.value = null;
+    activeDocId.value = null;
+    shouldFocusDocList.value = Boolean(activeQueueId.value);
+    await loadData(false, {
+      refreshQueueCounts: false,
+      snapshotDelayMs: activeQueueId.value ? 120 : DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+    });
+    await refreshGlobalStats(false);
+  });
 }
 
 function handleSelectDoc(docId: string) {
@@ -4808,9 +4862,7 @@ function handleSelectDoc(docId: string) {
 }
 
 function handleFilterDoc(docId: string) {
-  syncSelectionForQueryChange();
-  activeDocId.value = docId;
-  searchQuery.value = `doc:${docId}`;
+  handleSelectDoc(docId);
 }
 
 // Filter handlers (filter-group-queue-ui)

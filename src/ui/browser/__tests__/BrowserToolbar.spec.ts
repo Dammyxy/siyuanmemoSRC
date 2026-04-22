@@ -34,6 +34,7 @@ const baseProps = {
   queueType: '',
   appliedFilter: null,
   activeQueueId: null,
+  activeScopeDocIds: null,
   activeDocId: null,
   activeGlobalScope: '__all__' as const,
   selectedCount: 0,
@@ -133,5 +134,23 @@ describe('BrowserToolbar surface actions', () => {
 
     expect(chips.length).toBeGreaterThan(0);
     expect(chips.some((chip) => chip.includes('Hierarchy'))).toBe(true);
+  });
+
+  it('shows document-tree scope affordances when scoped doc ids are active', () => {
+    const wrapper = mount(BrowserToolbar, {
+      props: {
+        ...baseProps,
+        showExitFocus: true,
+        layoutProfile: 'tab-narrow',
+        mode: 'tab',
+        activeScopeDocIds: ['doc-1', 'doc-1-child'],
+      },
+    });
+
+    const exitButton = wrapper.findAll('button').find((button) => button.attributes('title') === 'Exit Doc Tree Scope');
+    const chips = wrapper.findAll('.toolbar__chip').map((chip) => chip.text());
+
+    expect(exitButton).toBeTruthy();
+    expect(chips.some((chip) => chip.includes('Doc Tree (2)'))).toBe(true);
   });
 });

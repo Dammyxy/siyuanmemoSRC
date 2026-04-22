@@ -55,6 +55,7 @@ type DeckCardTypeFilter = 'all' | 'topic-only' | 'item-only' | 'concept-only' | 
 type DeckDataSourceOptions = {
   preset: string;
   currentDocId?: string;
+  scopeDocIds?: string[] | null;
   queryText?: string;
   cardType?: DeckCardTypeFilter;
 };
@@ -372,7 +373,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     rows = applyCardTypeFilter(rows, this.options.cardType);
     rows = applySimpleQueryFilter(rows, this.options.queryText, { secondaryField: 'fullContent' });
 
-    rows = applyDocFilter(rows, this.options.currentDocId);
+    rows = applyDocFilter(rows, this.options.currentDocId, this.options.scopeDocIds);
 
     return sortBrowserCards(rows, sortModel);
   }
@@ -382,6 +383,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return {
       preset: this.options.preset as BrowserDeckSnapshotQuery['preset'],
       docId: this.options.currentDocId,
+      scopeDocIds: this.options.scopeDocIds,
       searchText: this.options.queryText,
       cardTypes,
       sortModel,

@@ -7,6 +7,10 @@ type DocScopeResult = {
   docIds: string[];
 } | null;
 
+function findMenuGroup<T extends { label?: string; submenu?: unknown }>(items: T[], label: string): T | undefined {
+  return items.find((item) => String(item.label || '').includes(label));
+}
+
 function cloneMenuItem(item: Record<string, unknown>): Record<string, unknown> {
   return {
     ...item,
@@ -62,6 +66,7 @@ function createFixture(params?: {
     openIncrementalLearningWithFilter: vi.fn().mockResolvedValue(undefined),
     openTemporaryDrill: vi.fn().mockResolvedValue(undefined),
     openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
+    openBrowserDialog: vi.fn(),
   };
 
   const docTreeReviewScopeService = {
@@ -174,9 +179,11 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
     });
 
     const topLevelItem = snapshots[0];
-    const submenu = topLevelItem.submenu as Array<{ label?: string }>;
-    expect(submenu[0].label || '').toContain('(2/2)');
-    expect(submenu[1].label || '').toContain('(2)');
+    const submenu = topLevelItem.submenu as Array<{ label?: string; submenu?: Array<{ label?: string }> }>;
+    const practiceGroup = findMenuGroup(submenu, '练习');
+    const practiceItems = practiceGroup?.submenu || [];
+    expect(practiceItems[0]?.label || '').toContain('(2/2)');
+    expect(practiceItems[1]?.label || '').toContain('(2)');
   });
 
   it('counts topic cards from descendant split and excerpt documents in doc-tree review menus', () => {
@@ -225,12 +232,17 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
 
     expect(docTreeReviewScopeService.collectDocReviewScope).toHaveBeenCalledWith('doc-1');
     const topLevelItem = snapshots[0];
-    const submenu = topLevelItem.submenu as Array<{ label?: string }>;
-    expect(submenu[0].label || '').toContain('(1/1)');
-    expect(submenu[1].label || '').toContain('(1)');
-    expect(submenu[3].label || '').toContain('(3/3)');
-    expect(submenu[4].label || '').toContain('(3)');
-    expect(submenu[6].label || '').toContain('(3)');
+    const submenu = topLevelItem.submenu as Array<{ label?: string; submenu?: Array<{ label?: string }> }>;
+    const practiceGroup = findMenuGroup(submenu, '练习');
+    const browseGroup = findMenuGroup(submenu, '浏览');
+    const practiceItems = practiceGroup?.submenu || [];
+    const browseItems = browseGroup?.submenu || [];
+    expect(practiceItems[0]?.label || '').toContain('(1/1)');
+    expect(practiceItems[1]?.label || '').toContain('(1)');
+    expect(practiceItems[3]?.label || '').toContain('(3/3)');
+    expect(practiceItems[4]?.label || '').toContain('(3)');
+    expect(practiceItems[6]?.label || '').toContain('(3)');
+    expect(browseItems[0]?.label || '').toContain('SRS');
   });
 
   it('opens incremental learning with recursive child doc ids from document menu scope', async () => {
@@ -257,11 +269,17 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
     });
 
     const topLevelItem = items[0];
-    const submenu = topLevelItem.submenu as Array<{ click?: () => Promise<void> }>;
-    await submenu[4].click?.();
+    const submenu = topLevelItem.submenu as Array<{
+      label?: string;
+      submenu?: Array<{ click?: () => Promise<void> }>;
+    }>;
+    const practiceGroup = findMenuGroup(submenu, '练习');
+    const practiceItems = practiceGroup?.submenu || [];
+    await practiceItems[4]?.click?.();
 
     expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-doc-1', 'piece-doc-1', 'excerpt-doc-1'],
+      scopeDocIds: ['doc-1', 'piece-doc-1', 'excerpt-doc-1'],
       dueOnly: false,
     });
   });
@@ -296,17 +314,23 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
     expect(docTreeReviewScopeService.collectDocReviewScope).toHaveBeenCalledWith('doc-1');
 
     const topLevelItem = items[0];
-    const submenu = topLevelItem.submenu as Array<{ label?: string; click?: () => Promise<void> }>;
-    expect(submenu[0].label || '').toContain('(1/1)');
-    expect(submenu[1].label || '').toContain('(1)');
-    expect(submenu[3].label || '').toContain('(3/3)');
-    expect(submenu[4].label || '').toContain('(3)');
-    expect(submenu[6].label || '').toContain('(3)');
+    const submenu = topLevelItem.submenu as Array<{
+      label?: string;
+      submenu?: Array<{ label?: string; click?: () => Promise<void> }>;
+    }>;
+    const practiceGroup = findMenuGroup(submenu, '练习');
+    const practiceItems = practiceGroup?.submenu || [];
+    expect(practiceItems[0]?.label || '').toContain('(1/1)');
+    expect(practiceItems[1]?.label || '').toContain('(1)');
+    expect(practiceItems[3]?.label || '').toContain('(3/3)');
+    expect(practiceItems[4]?.label || '').toContain('(3)');
+    expect(practiceItems[6]?.label || '').toContain('(3)');
 
-    await submenu[4].click?.();
+    await practiceItems[4]?.click?.();
 
     expect(dialogManager.openIncrementalLearningWithFilter).toHaveBeenCalledWith({
       blockIds: ['block-doc-1', 'piece-doc-1', 'excerpt-doc-1'],
+      scopeDocIds: ['doc-1', 'piece-doc-1', 'excerpt-doc-1'],
       dueOnly: false,
     });
   });
@@ -327,13 +351,22 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
     });
 
     const topLevelItem = snapshots[0];
-    const submenu = topLevelItem.submenu as Array<{ label?: string; disabled?: boolean }>;
-    expect(submenu[0].label || '').toContain('加载中...');
-    expect(submenu[0].disabled).toBe(true);
-    expect(submenu[3].label || '').toContain('加载中...');
-    expect(submenu[3].disabled).toBe(true);
-    expect(submenu[6].label || '').toContain('加载中...');
-    expect(submenu[6].disabled).toBe(true);
+    const submenu = topLevelItem.submenu as Array<{
+      label?: string;
+      submenu?: Array<{ label?: string; disabled?: boolean }>;
+    }>;
+    const practiceGroup = findMenuGroup(submenu, '练习');
+    const browseGroup = findMenuGroup(submenu, '浏览');
+    const practiceItems = practiceGroup?.submenu || [];
+    const browseItems = browseGroup?.submenu || [];
+    expect(practiceItems[0]?.label || '').toContain('加载中...');
+    expect(practiceItems[0]?.disabled).toBe(true);
+    expect(practiceItems[3]?.label || '').toContain('加载中...');
+    expect(practiceItems[3]?.disabled).toBe(true);
+    expect(practiceItems[6]?.label || '').toContain('加载中...');
+    expect(practiceItems[6]?.disabled).toBe(true);
+    expect(browseItems[0]?.label || '').toContain('加载中...');
+    expect(browseItems[0]?.disabled).toBe(true);
   });
 
   it('does not show concept creation actions in regular block icon menu', () => {

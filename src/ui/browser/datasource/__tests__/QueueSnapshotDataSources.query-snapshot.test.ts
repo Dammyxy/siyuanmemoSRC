@@ -65,7 +65,7 @@ describe('queue snapshot datasource path', () => {
 
     const dataSource = new DataSourceCtor(
       manager,
-      { preset: 'all', queryText: '', cardType: 'all' },
+      { preset: 'all', scopeDocIds: ['doc-a', 'doc-b'], queryText: '', cardType: 'all' },
       undefined,
       { browserService },
     );
@@ -80,6 +80,9 @@ describe('queue snapshot datasource path', () => {
     expect(paged.totalCount).toBe(3);
     expect(paged.rows.map((row) => row.fsrsCardId)).toEqual(['card-2', 'card-3']);
     expect(browserService.getQueueQuerySnapshot).toHaveBeenCalledTimes(1);
+    expect(browserService.getQueueQuerySnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      scopeDocIds: ['doc-a', 'doc-b'],
+    }));
     expect(browserService.getQueueRowsByIds).toHaveBeenCalledWith(expect.any(String), ['card-2', 'card-3']);
 
     const ids = await dataSource.getAllMatchedIds();

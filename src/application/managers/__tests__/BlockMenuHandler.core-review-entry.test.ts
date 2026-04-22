@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FSRSCard } from '@/types/card';
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 
+function findMenuGroup<T extends { label?: string; submenu?: unknown }>(items: T[], label: string): T | undefined {
+  return items.find((item) => String(item.label || '').includes(label));
+}
+
 function createFixture(
   cardsByBlockId: Record<string, FSRSCard[]>,
   options?: {
@@ -20,6 +24,7 @@ function createFixture(
     openIncrementalLearningWithFilter: vi.fn().mockResolvedValue(undefined),
     openTemporaryDrill: vi.fn().mockResolvedValue(undefined),
     openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
+    openBrowserDialog: vi.fn(),
   };
 
   const docTreeReviewScopeService = {
@@ -86,6 +91,7 @@ function createFixtureWithDeferredDialogManager(cardsByBlockId: Record<string, F
     openIncrementalLearningWithFilter: vi.fn().mockResolvedValue(undefined),
     openTemporaryDrill: vi.fn().mockResolvedValue(undefined),
     openFinalDrillDialog: vi.fn().mockResolvedValue(undefined),
+    openBrowserDialog: vi.fn(),
   };
 
   const docTreeReviewScopeService = {
@@ -246,13 +252,30 @@ describe('BlockMenuHandler core review entry integration', () => {
       },
     });
 
-    const submenu = menu.addItem.mock.calls[0][0].submenu as Array<{ click?: () => Promise<void> }>;
-    await submenu[1]?.click?.();
+    const submenu = menu.addItem.mock.calls[0][0].submenu as Array<{
+      label?: string;
+      submenu?: Array<{ click?: () => Promise<void> }>;
+    }>;
+    const practiceGroup = findMenuGroup(submenu, '练习');
+    const browseGroup = findMenuGroup(submenu, '浏览');
+    const practiceItems = practiceGroup?.submenu || [];
+    const browseItems = browseGroup?.submenu || [];
+
+    await practiceItems[1]?.click?.();
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
       blockIds: ['topic-block-1'],
       scopeDocIds: ['doc-1', 'doc-1-child'],
       dueOnly: false,
+    });
+
+    await browseItems[0]?.click?.();
+
+    expect(dialogManager.openBrowserDialog).toHaveBeenCalledWith({
+      initialOpenState: {
+        scopeDocIds: ['doc-1', 'doc-1-child'],
+        preset: 'all',
+      },
     });
   });
 });

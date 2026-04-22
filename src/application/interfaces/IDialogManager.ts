@@ -16,6 +16,7 @@
  */
 
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
+import type { BrowserOpenState } from '@/ui/browser/types';
 
 /**
  * 对话框管理器接口
@@ -95,6 +96,7 @@ export interface IDialogManager {
    * 打开浏览器对话框
    */
   openBrowserDialog(options?: {
+    initialOpenState?: BrowserOpenState | null;
     initialQueueId?: string;
     initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
   }): void;

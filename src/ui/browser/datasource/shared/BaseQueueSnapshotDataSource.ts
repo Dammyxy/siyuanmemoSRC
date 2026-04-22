@@ -14,6 +14,7 @@ import { BrowserQuerySession, toLiteRowFromBrowserCard } from '../session/Browse
 
 export type QueueSnapshotDataSourceOptions = {
   docId?: string;
+  scopeDocIds?: string[] | null;
   preset?: string;
   queryText?: string;
   cardType?: string;
@@ -133,6 +134,7 @@ implements ICardDataSource, IBrowserQueryableDataSource {
       preset: this.options.preset,
       searchText: this.options.queryText,
       docId: this.options.docId,
+      scopeDocIds: this.options.scopeDocIds,
       cardType: this.options.cardType,
       sortModel,
     };

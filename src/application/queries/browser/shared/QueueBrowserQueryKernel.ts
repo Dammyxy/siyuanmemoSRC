@@ -35,6 +35,7 @@ export class QueueBrowserQueryKernel {
       rows,
       {
         docId: query.docId,
+        scopeDocIds: query.scopeDocIds,
         preset: query.preset,
         queryText: query.searchText,
         cardType: query.cardType,

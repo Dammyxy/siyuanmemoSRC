@@ -61,7 +61,13 @@ describe('DeckDataSource query snapshot path', () => {
 
     const dataSource = new DeckDataSource(
       manager,
-      { preset: 'all', currentDocId: 'doc-a', queryText: 'alpha', cardType: 'item-only' },
+      {
+        preset: 'all',
+        currentDocId: 'doc-a',
+        scopeDocIds: ['doc-a', 'doc-a-child'],
+        queryText: 'alpha',
+        cardType: 'item-only',
+      },
       undefined,
       { browserService },
     );
@@ -78,6 +84,7 @@ describe('DeckDataSource query snapshot path', () => {
     expect(browserService.getDeckQuerySnapshot).toHaveBeenCalledWith({
       preset: 'all',
       docId: 'doc-a',
+      scopeDocIds: ['doc-a', 'doc-a-child'],
       searchText: 'alpha',
       cardTypes: ['item'],
       sortModel: [{ colId: 'priority', sort: 'desc' }],

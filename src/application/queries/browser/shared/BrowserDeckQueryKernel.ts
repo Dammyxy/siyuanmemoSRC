@@ -96,7 +96,7 @@ export class BrowserDeckQueryKernel {
     if (this.shouldHydrateContentForQuery(query)) {
       await this.fillContentForSearch(candidateCards);
     }
-    if (query.docId) {
+    if (query.docId || query.scopeDocIds?.length) {
       await this.fillRootIds(candidateCards.filter((card) => !this.readMetaString(card, 'rootId')));
     }
 
@@ -105,7 +105,7 @@ export class BrowserDeckQueryKernel {
     rows = this.applyExplicitStateFilter(rows, query.states);
     rows = this.applyExplicitCardTypeFilter(rows, query.cardTypes);
     rows = applySimpleQueryFilter(rows, query.searchText, { secondaryField: 'fullContent' });
-    rows = applyDocFilter(rows, query.docId);
+    rows = applyDocFilter(rows, query.docId, query.scopeDocIds);
     rows = this.applyDeckAndTagFilter(rows, query);
 
     const sortedRows = sortBrowserRows(rows, query.sortModel || []);
@@ -414,7 +414,7 @@ export class BrowserDeckQueryKernel {
 
   private shouldUsePureStructuredQueryPath(query: BrowserDeckSnapshotQuery): boolean {
     const simpleSearchText = this.resolveSimpleSearchText(query.searchText);
-    return !simpleSearchText && !query.docId;
+    return !simpleSearchText && !query.docId && !(query.scopeDocIds?.length);
   }
 
   private async resolveCandidateCards(query: BrowserDeckSnapshotQuery): Promise<ResolvedCandidateCards> {
@@ -440,6 +440,10 @@ export class BrowserDeckQueryKernel {
 
     try {
       const sqlCandidateSets: string[][] = [];
+
+      if (query.scopeDocIds?.length) {
+        sqlCandidateSets.push(await this.loadBlockIdsByDocIds(query.scopeDocIds));
+      }
 
       if (query.docId) {
         sqlCandidateSets.push(await this.loadBlockIdsByDocId(query.docId));
@@ -603,6 +607,23 @@ export class BrowserDeckQueryKernel {
       SELECT id
       FROM blocks
       WHERE root_id = '${normalizedDocId}'
+    `;
+
+    const rows = await this.siyuanApi.sql<BlockIdRow>(query);
+    return this.normalizeBlockIds(rows.map((row) => row.id));
+  }
+
+  private async loadBlockIdsByDocIds(docIds: string[]): Promise<string[]> {
+    const normalizedDocIds = this.normalizeBlockIds(docIds);
+    if (normalizedDocIds.length === 0) {
+      return [];
+    }
+
+    const quotedDocIds = this.toSqlQuotedValues(normalizedDocIds);
+    const query = `
+      SELECT id
+      FROM blocks
+      WHERE root_id IN (${quotedDocIds})
     `;
 
     const rows = await this.siyuanApi.sql<BlockIdRow>(query);
