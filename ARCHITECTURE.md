@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-22
+最后更新：2026-04-23
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -123,7 +123,8 @@ flowchart TD
    - `TabApplicationService`
    - `UnifiedDataSourceManager` facade
 4. Browser 在全量 / 队列 / deck 等模式下，通过 application queries 或统一队列快照加载数据
-5. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动
+5. 右键 `取消闪卡` 通过当前数据源持有的 `UnifiedDataSourceManager.deleteCard(cardId)` 删除浏览器实际展示的 FSRS card row，并依赖 `card-deleted` observer 事件与动作完成后的 reload 同步移除可见行
+6. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动
 
 ### 4.2 Review
 
@@ -196,6 +197,8 @@ sequenceDiagram
 - `AutoCardHandler` 中的 topic continuation / topic-derived item 入口
 - 编辑器选区右键中的 `摘录` / `在 Topic 下创建 Item`
 - 插件命令与热键中的 `⌥⇧X`（摘录为 Topic）/ `⌥⇧Z`（当前选区创建 Item）
+
+`⌥⇧X` 的 editor fallback 会先解析原生文本 Range，保留单块/跨块局部选区切片；如果当前没有文本 Range，则继续识别 SiYuan 的 `.protyle-wysiwyg--select` 块选区，并复用块菜单同一套 full-block snapshot 与 `SelectionExcerptService` 下游链路。
 
 主链路分工：
 

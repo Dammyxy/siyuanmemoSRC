@@ -36,7 +36,6 @@ import {
   applyDocFilter,
   applyLegacyPresetFilter,
   applySimpleQueryFilter,
-  type CardServicePluginLike,
   deleteBrowserCards,
   setBrowserCardsPriority,
   sortBrowserCards,
@@ -74,8 +73,9 @@ type DeckCardRecord = FSRSCard & {
   riffCardId?: string;
 };
 
-type DeckPluginLike = MenuActionPluginLike &
-  CardServicePluginLike & {
+type DeckPluginLike = Omit<MenuActionPluginLike, 'context' | 'getContext'> & {
+  context?: NonNullable<MenuActionPluginLike['context']> & I18nContextLike;
+  getContext?: () => (NonNullable<MenuActionPluginLike['context']> & I18nContextLike) | undefined;
   i18n?: Record<string, string>;
   storage?: unknown;
   rescheduleService?: RescheduleService;
@@ -303,20 +303,18 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     return this.id;
   }
 
-  private async handleDeleteCards(selectedRows: BrowserActionTarget[]): Promise<number> {
-    const deletion = await deleteBrowserCards(this.plugin, selectedRows, {
-      preferBatch: false,
+  private async handleDeleteCards(selectedRows: BrowserActionTarget[]): Promise<{ updated: number; skipped: number }> {
+    const deletion = await deleteBrowserCards(this.manager, selectedRows, {
       scope: 'DeckDataSource',
     });
-    if (!deletion) {
-      return 0;
-    }
-
     if (deletion.failedCardIds.length > 0) {
       logger.error('Failed to delete partial cards', { failedCardIds: deletion.failedCardIds });
     }
     this.invalidateQuerySession();
-    return deletion.deletedCount;
+    return {
+      updated: deletion.deletedCount,
+      skipped: deletion.failedCardIds.length,
+    };
   }
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserActionTarget[]): Promise<unknown> {

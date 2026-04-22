@@ -4,6 +4,7 @@ import {
   isProgressiveSelectionInsideNativeProtyle,
   type ProgressiveExcerptSelectionSnapshot,
   resolveProgressiveExcerptSelectionSnapshot,
+  resolveProgressiveExcerptSnapshotFromSelectedBlocks,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import {
   applyProgressiveExcerptHighlight,
@@ -330,11 +331,17 @@ export class ProgressiveExcerptHotkeyHandler {
     options?: ProgressiveExcerptSelectionOptions,
   ): ProgressiveExcerptSelectionSnapshot | null {
     const selectionOptions = options?.root ? { root: options.root } : undefined;
-    if (!isProgressiveSelectionInsideNativeProtyle(selectionOptions)) {
-      return null;
+    if (isProgressiveSelectionInsideNativeProtyle(selectionOptions)) {
+      const rangeSelection = resolveProgressiveExcerptSelectionSnapshot({
+        ...selectionOptions,
+        protyle: options?.protyle,
+      });
+      if (rangeSelection) {
+        return rangeSelection;
+      }
     }
 
-    return resolveProgressiveExcerptSelectionSnapshot({
+    return resolveProgressiveExcerptSnapshotFromSelectedBlocks({
       ...selectionOptions,
       protyle: options?.protyle,
     });

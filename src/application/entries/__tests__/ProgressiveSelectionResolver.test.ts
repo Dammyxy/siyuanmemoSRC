@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   resolveProgressiveExcerptSelectionSnapshot,
+  resolveProgressiveExcerptSnapshotFromSelectedBlocks,
   resolveProgressiveExcerptSnapshotFromBlocks,
 } from '../ProgressiveSelectionResolver';
 
@@ -137,5 +138,39 @@ describe('ProgressiveSelectionResolver', () => {
     expect(snapshot?.text).toContain('Alpha');
     expect(snapshot?.text).toContain('Beta');
     expect(snapshot?.contentDom).toContain('data-type="a"');
+  });
+
+  it('builds full-block snapshots from Siyuan selected blocks for the hotkey flow', () => {
+    document.body.innerHTML = `
+      <div class="protyle">
+        <div class="protyle-wysiwyg" id="root">
+          <div data-node-id="block-1" data-type="NodeParagraph" class="p protyle-wysiwyg--select">
+            <div contenteditable="true">Alpha</div>
+            <div class="protyle-attr" contenteditable="false">\u200b</div>
+          </div>
+          <div data-node-id="block-2" data-type="NodeParagraph" class="p protyle-wysiwyg--select">
+            <div contenteditable="true">Beta</div>
+            <div class="protyle-attr" contenteditable="false">\u200b</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('root') as HTMLElement | null;
+    if (!root) {
+      throw new Error('Expected selected-block fixture');
+    }
+
+    const snapshot = resolveProgressiveExcerptSnapshotFromSelectedBlocks({
+      root,
+      protyle: { wysiwyg: { element: root } },
+    });
+
+    expect(snapshot).not.toBeNull();
+    expect(snapshot?.sourceBlockIds).toEqual(['block-1', 'block-2']);
+    expect(snapshot?.blockSelections.map((selection) => selection.mode)).toEqual(['full-block', 'full-block']);
+    expect(snapshot?.text).toBe('Alpha\nBeta');
+    expect(snapshot?.contentDom).toContain('Alpha');
+    expect(snapshot?.contentDom).toContain('Beta');
   });
 });

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   showMessage,
   resolveProgressiveExcerptSelectionSnapshot,
+  resolveProgressiveExcerptSnapshotFromSelectedBlocks,
   isProgressiveSelectionInsideNativeProtyle,
   prepareProgressiveExcerptHighlight,
   applyProgressiveExcerptHighlight,
@@ -11,6 +12,7 @@ const {
 } = vi.hoisted(() => ({
   showMessage: vi.fn(),
   resolveProgressiveExcerptSelectionSnapshot: vi.fn(),
+  resolveProgressiveExcerptSnapshotFromSelectedBlocks: vi.fn(),
   isProgressiveSelectionInsideNativeProtyle: vi.fn(),
   prepareProgressiveExcerptHighlight: vi.fn(),
   applyProgressiveExcerptHighlight: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock('siyuan', () => ({
 
 vi.mock('@/application/entries/ProgressiveSelectionResolver', () => ({
   resolveProgressiveExcerptSelectionSnapshot,
+  resolveProgressiveExcerptSnapshotFromSelectedBlocks,
   isProgressiveSelectionInsideNativeProtyle,
 }));
 
@@ -201,6 +204,8 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     applyPreparedSelectionClozeMark.mockResolvedValue('applied');
     isProgressiveSelectionInsideNativeProtyle.mockReset();
     resolveProgressiveExcerptSelectionSnapshot.mockReset();
+    resolveProgressiveExcerptSnapshotFromSelectedBlocks.mockReset();
+    resolveProgressiveExcerptSnapshotFromSelectedBlocks.mockReturnValue(null);
     showMessage.mockReset();
     document.body.innerHTML = '';
   });
@@ -243,6 +248,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
         },
       },
     });
+    expect(resolveProgressiveExcerptSnapshotFromSelectedBlocks).not.toHaveBeenCalled();
     expect(createFromSelection).toHaveBeenCalledWith({
       sourceBlockId: 'block-1',
       sourceBlockIds: ['block-1'],
@@ -274,6 +280,54 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
 
     expect(createFromSelection).not.toHaveBeenCalled();
     expect(showMessage).toHaveBeenCalledWith('Select text before excerpting', 3000, 'error');
+  });
+
+  it('falls back to selected Siyuan blocks when the editor command has no live text range', async () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="block-1" class="protyle-wysiwyg--select">Alpha</div>
+        <div data-node-id="block-2" class="protyle-wysiwyg--select">Beta</div>
+      </div>
+    `;
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(false);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(null);
+    resolveProgressiveExcerptSnapshotFromSelectedBlocks.mockReturnValue(createSelectionSnapshot(root, {
+      sourceBlockIds: ['block-1', 'block-2'],
+      text: 'Alpha\nBeta',
+      blockSelections: [
+        { blockId: 'block-1', mode: 'full-block', excerptHtml: '<div>Alpha</div>' },
+        { blockId: 'block-2', mode: 'full-block', excerptHtml: '<div>Beta</div>' },
+      ],
+    }));
+
+    const { handler, createFromSelection } = createHandler();
+    await handler.runFromEditor({
+      wysiwyg: {
+        element: root,
+      },
+    } as any);
+
+    expect(resolveProgressiveExcerptSelectionSnapshot).not.toHaveBeenCalled();
+    expect(resolveProgressiveExcerptSnapshotFromSelectedBlocks).toHaveBeenCalledWith({
+      root,
+      protyle: {
+        wysiwyg: {
+          element: root,
+        },
+      },
+    });
+    expect(createFromSelection).toHaveBeenCalledWith({
+      sourceBlockId: 'block-1',
+      sourceBlockIds: ['block-1', 'block-2'],
+      selectedText: 'Alpha\nBeta',
+      contentDom: HELLO_CONTENT_DOM,
+      origin: 'editor',
+    });
   });
 
   it('dispatches the review-surface request before attempting editor fallback from the command callback', async () => {

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 114)
+Last update: 2026-04-23 (Round 115)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - hotkey block excerpt and browser delete route
+
+- Task: 修复 `Alt+X` 摘录入口无法按 SiYuan 块选区跨块摘录，以及浏览器右键 `取消闪卡` 后卡片仍留在浏览器里的问题。
+- Touched slice: Progressive / Excerpt hotkey path and Browser / Card CRUD active path across `ProgressiveSelectionResolver`, `ProgressiveExcerptHotkeyHandler`, browser datasource delete helpers, queue/deck datasource actions, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: 热键摘录现在先保留原生文本 Range 解析，缺少文本 Range 时识别 `.protyle-wysiwyg--select` 并复用块菜单 full-block snapshot；浏览器 datasource 删除不再反向依赖 plugin `CardApplicationService.deleteCard/deleteCards`，统一走 `UnifiedDataSourceManager.deleteCard(cardId)` 并返回 `{ updated, skipped }` 供右键菜单反馈。
+- Debt deferred: `UnifiedDataSourceManager.deleteCard()` 仍沿用现有 DataAccessFacade / FSRS 删除契约；如果未来要统一 Xiuyuan 聚合删除、FSRS row 删除和 native Riff 删除的语义，需要单独建模一条 ownership-aware 删除命令。
+- Why deferred: 本轮用户阻塞点是两个入口行为不一致；扩大到所有删除语义会横跨 Review、Xiuyuan、Riff sync 和多设备冲突处理，风险高于当前修复收益。
+- Next safe step: 若浏览器里仍出现已不存在或 Riff-only 的残留行，再补一个 browser row 删除前的存在性/来源诊断 toast，帮助区分本地 FSRS 删除失败和外部 Riff 对账延迟。
+- Validation: `pnpm vitest run src/application/entries/__tests__/ProgressiveSelectionResolver.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts`; `pnpm vitest run src/ui/browser/datasource/__tests__`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-23 - native cloze hide marks and CDF multi-item cue rule
 

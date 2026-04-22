@@ -54,13 +54,6 @@ export type QueueFilterOptions = {
   cardType?: string;
 };
 
-type DeleteCardResultLike = { ok: boolean; error?: unknown };
-type DeleteCardsValueLike = {
-  deletedCount?: number;
-  deletedCardIds?: string[];
-  failedCardIds?: string[];
-};
-type DeleteCardsResultLike = { ok: boolean; value?: DeleteCardsValueLike; error?: unknown };
 type QueueRemoveLike = {
   removeCard?: (cardIdOrBlockId: string) => Promise<void> | void;
 };
@@ -76,6 +69,9 @@ type SuspendCardsManagerLike = {
   updateCard: (card: FSRSCard) => Promise<void>;
   deleteCard?: (cardId: string) => Promise<void>;
 };
+type BrowserDeleteManagerLike = {
+  deleteCard?: (cardId: string) => Promise<void> | void;
+};
 
 type QueueDueConfigLike = Partial<
   Record<
@@ -83,20 +79,6 @@ type QueueDueConfigLike = Partial<
     unknown
   >
 >;
-
-type CardServiceLike = {
-  deleteCard?: (command: { cardId: string }) => Promise<DeleteCardResultLike>;
-  deleteCards?: (command: { cardIds: string[] }) => Promise<DeleteCardsResultLike>;
-};
-
-type PluginContextLike = {
-  getCardService?: () => CardServiceLike | undefined;
-};
-
-export type CardServicePluginLike = {
-  context?: PluginContextLike;
-  getContext?: () => PluginContextLike | undefined;
-};
 
 export type DeleteCardsExecutionResult = {
   attemptedCount: number;
@@ -858,19 +840,12 @@ export function applyQueueFiltersToSnapshotRows(
   return applyQueueFilters(rows, options, querySecondaryField);
 }
 
-function resolveCardService(plugin: CardServicePluginLike | undefined): CardServiceLike | undefined {
-  if (!plugin) {
-    return undefined;
-  }
-  return plugin.getContext?.()?.getCardService?.() ?? plugin.context?.getCardService?.();
-}
-
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-async function executeSingleDelete(
-  service: CardServiceLike,
+async function executeBrowserManagerDelete(
+  manager: BrowserDeleteManagerLike,
   cardIds: string[],
   scope: string
 ): Promise<DeleteCardsExecutionResult> {
@@ -879,13 +854,8 @@ async function executeSingleDelete(
 
   for (const cardId of cardIds) {
     try {
-      const result = await service.deleteCard?.({ cardId });
-      if (result?.ok) {
-        deletedCardIds.push(cardId);
-      } else {
-        failedCardIds.push(cardId);
-        logger.error(`[${scope}] Failed to delete card ${cardId}`, result?.error);
-      }
+      await Promise.resolve(manager.deleteCard?.(cardId));
+      deletedCardIds.push(cardId);
     } catch (error) {
       failedCardIds.push(cardId);
       logger.error(`[${scope}] Failed to delete card ${cardId}`, error);
@@ -900,61 +870,11 @@ async function executeSingleDelete(
   };
 }
 
-async function executeBatchDelete(
-  service: CardServiceLike,
-  cardIds: string[],
-  scope: string
-): Promise<DeleteCardsExecutionResult> {
-  try {
-    const result = await service.deleteCards?.({ cardIds });
-    if (!result?.ok) {
-      logger.error(`[${scope}] Batch delete failed`, result?.error);
-      return {
-        attemptedCount: cardIds.length,
-        deletedCount: 0,
-        deletedCardIds: [],
-        failedCardIds: [...cardIds],
-      };
-    }
-
-    const rawDeletedIds = Array.isArray(result.value?.deletedCardIds) ? result.value.deletedCardIds : [];
-    const rawFailedIds = Array.isArray(result.value?.failedCardIds) ? result.value.failedCardIds : [];
-    const deletedCount =
-      typeof result.value?.deletedCount === 'number' ? Math.max(0, Math.floor(result.value.deletedCount)) : rawDeletedIds.length;
-
-    let deletedCardIds = uniqueStrings(rawDeletedIds);
-    if (deletedCardIds.length === 0 && deletedCount > 0) {
-      deletedCardIds = cardIds.slice(0, Math.min(cardIds.length, deletedCount));
-    }
-
-    let failedCardIds = uniqueStrings(rawFailedIds);
-    if (failedCardIds.length === 0 && deletedCardIds.length < cardIds.length) {
-      const deletedSet = new Set(deletedCardIds);
-      failedCardIds = cardIds.filter((cardId) => !deletedSet.has(cardId));
-    }
-
-    return {
-      attemptedCount: cardIds.length,
-      deletedCount: deletedCardIds.length,
-      deletedCardIds,
-      failedCardIds,
-    };
-  } catch (error) {
-    logger.error(`[${scope}] Batch delete failed`, error);
-    return {
-      attemptedCount: cardIds.length,
-      deletedCount: 0,
-      deletedCardIds: [],
-      failedCardIds: [...cardIds],
-    };
-  }
-}
-
 export async function deleteBrowserCards(
-  plugin: CardServicePluginLike | undefined,
+  manager: BrowserDeleteManagerLike | undefined,
   selectedRows: BrowserActionTarget[],
-  options?: { preferBatch?: boolean; scope?: string }
-): Promise<DeleteCardsExecutionResult | null> {
+  options?: { scope?: string }
+): Promise<DeleteCardsExecutionResult> {
   const scope = options?.scope || 'DataSource';
   const cardIds = uniqueStrings(
     (selectedRows || [])
@@ -971,25 +891,15 @@ export async function deleteBrowserCards(
     };
   }
 
-  const service = resolveCardService(plugin);
-  if (!service) {
-    logger.error(`[${scope}] CardApplicationService not available`);
-    return null;
+  if (!manager || typeof manager.deleteCard !== 'function') {
+    logger.error(`[${scope}] UnifiedDataSourceManager.deleteCard is unavailable`);
+    return {
+      attemptedCount: cardIds.length,
+      deletedCount: 0,
+      deletedCardIds: [],
+      failedCardIds: [...cardIds],
+    };
   }
 
-  const preferBatch = options?.preferBatch === true;
-  if (preferBatch && typeof service.deleteCards === 'function') {
-    return executeBatchDelete(service, cardIds, scope);
-  }
-
-  if (typeof service.deleteCard === 'function') {
-    return executeSingleDelete(service, cardIds, scope);
-  }
-
-  if (typeof service.deleteCards === 'function') {
-    return executeBatchDelete(service, cardIds, scope);
-  }
-
-  logger.error(`[${scope}] CardApplicationService does not expose delete APIs`);
-  return null;
+  return executeBrowserManagerDelete(manager, cardIds, scope);
 }

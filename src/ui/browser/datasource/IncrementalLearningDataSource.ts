@@ -20,7 +20,6 @@ import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified
 import { validateConsumerCardType } from '../../../diagnostics/type-guards';
 import {
   applyQueueFilters,
-  type CardServicePluginLike,
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
@@ -52,15 +51,17 @@ type IncrementalLearningActionContext = {
   config?: unknown;
 };
 
-type IncrementalPluginLike = CardServicePluginLike & {
+type IncrementalPluginLike = Omit<MenuActionPluginLike, 'context' | 'getContext'> & {
   i18n?: I18nDictionary;
+  context?: NonNullable<MenuActionPluginLike['context']> & {
+    getI18n?: () => I18nDictionary | undefined;
+  };
   getContext?: () =>
-    | (CardServicePluginLike['context'] &
-      MenuActionPluginLike['context'] & {
+    | (NonNullable<MenuActionPluginLike['context']> & {
         getI18n?: () => I18nDictionary | undefined;
       })
     | undefined;
-} & MenuActionPluginLike;
+};
 
 export type IncrementalLearningDataSourceOptions = {
   docId?: string;
@@ -154,13 +155,9 @@ export class IncrementalLearningDataSource
       }
 
       if (actionId === 'delete-card') {
-        const deletion = await deleteBrowserCards(this.plugin, selectedRows, {
-          preferBatch: false,
+        const deletion = await deleteBrowserCards(this.manager, selectedRows, {
           scope: 'IncrementalLearningDataSource',
         });
-        if (!deletion) {
-          return { updated: 0, skipped: selectedRows.length };
-        }
         this.invalidateQuerySession();
         return {
           updated: deletion.deletedCount,

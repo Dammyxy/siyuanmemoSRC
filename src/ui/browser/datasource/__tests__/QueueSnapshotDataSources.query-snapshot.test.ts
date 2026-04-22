@@ -107,4 +107,31 @@ describe('queue snapshot datasource path', () => {
 
     expect(queue.getCards).toHaveBeenCalledOnce();
   });
+
+  it.each(DATA_SOURCE_CASES)('%s delete-card routes through manager.deleteCard and returns a summary', async (_queueId, DataSourceCtor) => {
+    const queue = {
+      getCards: vi.fn(async () => []),
+    };
+    const deleteCard = vi.fn(async (cardId: string) => {
+      if (cardId === 'card-2') {
+        throw new Error('delete failed');
+      }
+    });
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      deleteCard,
+    } as never;
+    const dataSource = new DataSourceCtor(manager);
+    const selectedRows = [
+      { id: 'riff-1', fsrsCardId: 'card-1', blockId: 'block-1' },
+      { id: 'card-2', blockId: 'block-2' },
+    ];
+
+    const result = await dataSource.performAction('delete-card', selectedRows as never[]);
+
+    expect(deleteCard).toHaveBeenCalledTimes(2);
+    expect(deleteCard).toHaveBeenNthCalledWith(1, 'card-1');
+    expect(deleteCard).toHaveBeenNthCalledWith(2, 'card-2');
+    expect(result).toEqual({ updated: 1, skipped: 1 });
+  });
 });

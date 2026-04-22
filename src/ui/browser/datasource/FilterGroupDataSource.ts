@@ -14,7 +14,6 @@ import {
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import {
   applyQueueFilters,
-  type CardServicePluginLike,
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
@@ -45,7 +44,7 @@ type FilterGroupActionContext = {
   config?: unknown;
 };
 
-type FilterGroupPluginLike = CardServicePluginLike & MenuActionPluginLike;
+type FilterGroupPluginLike = MenuActionPluginLike;
 
 export type FilterGroupDataSourceOptions = {
   docId?: string;
@@ -106,19 +105,18 @@ export class FilterGroupDataSource
       }
 
       if (actionId === 'delete-card') {
-        const deletion = await deleteBrowserCards(this.plugin, selectedRows, {
-          preferBatch: false,
+        const deletion = await deleteBrowserCards(this.manager, selectedRows, {
           scope: 'FilterGroupDataSource',
         });
-        if (!deletion) {
-          return 0;
-        }
         this.invalidateQuerySession();
 
         if (deletion.failedCardIds.length > 0) {
           logger.error('Failed card IDs', { failedCardIds: deletion.failedCardIds });
         }
-        return deletion.deletedCount;
+        return {
+          updated: deletion.deletedCount,
+          skipped: deletion.failedCardIds.length,
+        };
       }
 
       if (actionId === 'set-priority') {

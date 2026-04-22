@@ -36,6 +36,8 @@ type ProgressiveBlockSnapshotResolveOptions = {
   protyle?: unknown;
 };
 
+const SIYUAN_SELECTED_BLOCK_SELECTOR = '.protyle-wysiwyg--select';
+
 function getElementFromNode(node: Node | null): HTMLElement | null {
   if (!node) {
     return null;
@@ -209,6 +211,35 @@ function normalizeUniqueBlockElements(elements: HTMLElement[]): HTMLElement[] {
     result.push(element);
   }
   return result;
+}
+
+function collectSelectedBlockElementsFromRoot(root: HTMLElement): HTMLElement[] {
+  const selected = Array.from(root.querySelectorAll<HTMLElement>(SIYUAN_SELECTED_BLOCK_SELECTOR));
+  if (root.matches(SIYUAN_SELECTED_BLOCK_SELECTOR)) {
+    selected.unshift(root);
+  }
+  return selected;
+}
+
+function getSelectedBlockSearchRoots(options?: ProgressiveBlockSnapshotResolveOptions): HTMLElement[] {
+  const roots: HTMLElement[] = [];
+  const seen = new Set<HTMLElement>();
+  const addRoot = (candidate: HTMLElement | null | undefined) => {
+    if (!(candidate instanceof HTMLElement) || seen.has(candidate)) {
+      return;
+    }
+    seen.add(candidate);
+    roots.push(candidate);
+  };
+
+  addRoot(options?.root || null);
+  addRoot(getProtyleFromUnknown(options?.protyle)?.wysiwyg?.element || null);
+
+  if (roots.length === 0 && document.body instanceof HTMLElement) {
+    addRoot(document.body);
+  }
+
+  return roots;
 }
 
 function getOrderedBlocksBetween(
@@ -586,6 +617,15 @@ export function resolveProgressiveExcerptSnapshotFromBlocks(
     range,
     blockSelections,
   });
+}
+
+export function resolveProgressiveExcerptSnapshotFromSelectedBlocks(
+  options?: ProgressiveBlockSnapshotResolveOptions,
+): ProgressiveExcerptSelectionSnapshot | null {
+  const selectedBlocks = getSelectedBlockSearchRoots(options)
+    .flatMap((root) => collectSelectedBlockElementsFromRoot(root));
+
+  return resolveProgressiveExcerptSnapshotFromBlocks(selectedBlocks, options);
 }
 
 export function resolveProgressiveSelection(

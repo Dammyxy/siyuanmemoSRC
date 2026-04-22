@@ -11,7 +11,6 @@ import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified
 import type { FSRSCard } from '../../../types/card';
 import {
   applyQueueFilters,
-  type CardServicePluginLike,
   deleteBrowserCards,
   removeCardsFromQueue,
   setBrowserCardsPriority,
@@ -50,7 +49,7 @@ function hasReorder(value: unknown): value is Required<ReorderableQueueLike> {
 }
 
 export class FinalDrillDataSource
-  extends BaseQueueSnapshotDataSource<CardServicePluginLike>
+  extends BaseQueueSnapshotDataSource<unknown>
   implements ICardDataSource, IBrowserQueryableDataSource {
   id = 'final-drill';
   label = 'Final Drill';
@@ -58,7 +57,7 @@ export class FinalDrillDataSource
   constructor(
     manager: IUnifiedDataSourceManagerFacade,
     options?: FinalDrillDataSourceOptions,
-    plugin?: CardServicePluginLike,
+    plugin?: unknown,
     deps: QueueSnapshotDataSourceDeps = {},
   ) {
     super('FinalDrillDataSource', manager, options, plugin, deps);
@@ -97,19 +96,18 @@ export class FinalDrillDataSource
       }
 
       if (actionId === 'delete-card') {
-        const deletion = await deleteBrowserCards(this.plugin, selectedRows, {
-          preferBatch: false,
+        const deletion = await deleteBrowserCards(this.manager, selectedRows, {
           scope: 'FinalDrillDataSource',
         });
-        if (!deletion) {
-          return 0;
-        }
         this.invalidateQuerySession();
 
         if (deletion.failedCardIds.length > 0) {
           logger.error('Failed card IDs', { failedCardIds: deletion.failedCardIds });
         }
-        return deletion.deletedCount;
+        return {
+          updated: deletion.deletedCount,
+          skipped: deletion.failedCardIds.length,
+        };
       }
 
       if (actionId === 'set-priority') {
