@@ -218,6 +218,46 @@ describe('XiuyuanSyncService quick render hint', () => {
     expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].metadataUpdates).toHaveLength(1);
   });
 
+  it('clears quick render hint for progressive derived items even if the content still looks quick-like', async () => {
+    const { xiuyuanEntity: existingXiuyuan } = await (service as any).convertRiffCardToFSRSCard(
+      createRiffBlock({
+        id: '20260301190000-abcd111',
+        content: '$$ \\\\cloze{c1}{answer} $$',
+        ial: { 'custom-fsrs-card-type': 'item' },
+      })
+    );
+
+    existingXiuyuan.updateMeta({
+      progressive: {
+        kind: 'derived-item',
+        sourceBlockId: 'source-block-1',
+        parentTopicCardId: 'topic-card-1',
+      },
+      forceQuickRender: true,
+      quickDetectReason: 'cloze-latex-numbered',
+    });
+
+    vi.mocked(xiuyuanRepository.findById).mockResolvedValue({
+      ok: true,
+      value: existingXiuyuan,
+    });
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock({
+        id: '20260301190000-abcd111',
+        content: '$$ \\\\cloze{c1}{answer} $$',
+        ial: { 'custom-fsrs-card-type': 'item' },
+      }),
+    ]);
+
+    await service.incrementalSync();
+
+    const meta = existingXiuyuan.getMeta() as Record<string, unknown>;
+    expect(meta.forceQuickRender).toBeUndefined();
+    expect(meta.quickDetectReason).toBeUndefined();
+    expect(xiuyuanRepository.applySyncChangeSet).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].metadataUpdates).toHaveLength(1);
+  });
+
   it('keeps native superblock riff cards on standard renderer metadata', async () => {
     const { xiuyuanEntity } = await (service as any).convertRiffCardToFSRSCard(
       createRiffBlock({

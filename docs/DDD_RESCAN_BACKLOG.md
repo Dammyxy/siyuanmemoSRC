@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 109)
+Last update: 2026-04-22 (Round 110)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - progressive topic item direct selection flow and derived-item scrub
+
+- Task: 把 progressive `Topic / Item` 的右键与热键流程收口到更接近 SuperMemo 的直接选区制卡体验，同时清掉 derived Item 残留的 deprecated card-type attr / quick-render hint，并统一块菜单分组名为 `SiYuanMemo`。
+- Touched slice: Progressive / excerpt / topic-derived item active path across `src/application/{handlers/ProgressiveExcerptHotkeyHandler.ts,entries/SelectionClozeMarker.ts,services/{SelectionTopicContinuationService.ts,TopicDerivedItemService.ts,XiuyuanSyncService.ts}}`, `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`, `src/ui/review/v2/{ReviewContent.vue,reviewRenderPolicy.ts}`, command registration in `src/index.ts`, focused progressive/review/block-menu tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `SelectionTopicContinuationService` 从“必须先手打 quick 语法”收敛成“Topic / 摘录语境里只要有非空选区即可继续创建 Item”，普通选区会直接按一次 cloze Item 处理；新增 `⌥⇧Z` 的 Item 选区命令，在 Topic / 摘录语境里优先走 `Topic -> Item`，在普通文档里则把选区包成现有普通 cloze 标记后沿用原 quick-card / cloze 链路；repository / sync 对 progressive-owned `piece / excerpt / derived-item` 显式 scrub `custom-fsrs-card-type` 与 quick-render hint；review 对 `derived-item` 硬性分流到标准 Item 渲染，不再误探测 quick renderer；块菜单顶层分组也统一成 `SiYuanMemo`。
+- Debt deferred: 普通 block icon 的历史“快速制卡”入口仍保持原模板链，没有并入新的 Topic continuation 命令语义；普通文档里的 `⌥⇧Z` fallback 目前通过 DOM mark 包裹复用现有制卡链路，还没有抽成更显式的 selection-to-cloze application service；也没有做历史 progressive 文档 / 历史块属性的全库迁移。
+- Why deferred: 这轮重点是把当前 active path 的 Topic / Item 右键和热键体验修顺，同时消掉 progressive derived Item 的属性与渲染误判；如果继续扩大到 block-menu 全入口重语义或全库迁移，会把任务推成更宽的 editor/card-entry 重构。
+- Next safe step: 如果后续还要继续向 SuperMemo 手感靠拢，可以把普通 block icon“快速制卡”与 `⌥⇧Z` 统一到一个显式的 selection-card command contract，再评估是否需要把普通文档 fallback 从 DOM mark 包裹提升成稳定的 kramdown 级变换服务。
+- Validation: `pnpm vitest run src/application/services/__tests__/SelectionTopicContinuationService.test.ts src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/services/__tests__/XiuyuanSyncService.quick-render-hint.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.list-template-split-v2.test.ts src/ui/review/v2/__tests__/reviewRenderPolicy.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-22 - progressive topic item artifact naming and derived-item render contract
 

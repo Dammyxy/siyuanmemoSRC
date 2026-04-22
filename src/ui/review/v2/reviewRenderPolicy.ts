@@ -31,6 +31,15 @@ function readProgressiveKind(meta: Record<string, unknown> | undefined): string 
   return typeof kind === 'string' ? kind : '';
 }
 
+export function isProgressiveDerivedItemCard(card?: FSRSCard | null): boolean {
+  const meta = card?.meta;
+  if (!meta || typeof meta !== 'object') {
+    return false;
+  }
+
+  return readProgressiveKind(meta as Record<string, unknown>) === 'derived-item';
+}
+
 function toToken(value: unknown): string {
   if (value === null || value === undefined || value === '') {
     return '_';
@@ -123,8 +132,8 @@ export function shouldPreferStableQuickForcePath(
     return false;
   }
 
-  if (readProgressiveKind(meta) === 'derived-item') {
-    return profile === 'quick-default';
+  if (isProgressiveDerivedItemCard(card)) {
+    return false;
   }
 
   const source = typeof meta.source === 'string' ? meta.source : '';
@@ -149,6 +158,10 @@ export function shouldBypassSemanticFallback(
   const meta = card.meta as Record<string, unknown> | undefined;
   if (meta?.forceProtyleRender === true || meta?.forceQuickRender === true) {
     return false;
+  }
+
+  if (isProgressiveDerivedItemCard(card)) {
+    return true;
   }
 
   const templateId = typeof meta?.templateID === 'string' ? meta.templateID : '';

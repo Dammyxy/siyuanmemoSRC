@@ -178,7 +178,7 @@ describe('reviewRenderPolicy', () => {
     }), 'descriptor')).toBe(false);
   });
 
-  it('keeps progressive derived items off the forced quick path unless the quick profile is explicit', () => {
+  it('keeps progressive derived items off the forced quick path', () => {
     expect(shouldPreferStableQuickForcePath(createCard({
       meta: {
         source: 'symbol',
@@ -197,6 +197,19 @@ describe('reviewRenderPolicy', () => {
         symbolDetected: true,
         cardSource: 'topic-derived',
         symbolType: '>>',
+        progressive: {
+          kind: 'derived-item',
+        },
+      },
+    }), 'quick-default')).toBe(false);
+  });
+
+  it('bypasses semantic fallback quick detection for progressive derived items', () => {
+    expect(shouldBypassSemanticFallback(createCard({
+      meta: {
+        source: 'topic-derived',
+        cardSource: 'topic-derived',
+        renderProfile: 'quick-default',
         progressive: {
           kind: 'derived-item',
         },

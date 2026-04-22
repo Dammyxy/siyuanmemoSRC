@@ -5,6 +5,7 @@ import {
   type ProgressiveSourceRootKind,
   type ProgressiveTopicContext,
 } from '@/application/services/ProgressiveSourceContextResolver';
+import type { ProgressiveExcerptBlockSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type {
   TopicDerivedItemArtifact,
@@ -18,15 +19,20 @@ export interface SelectionTopicContinuationInput {
   sourceBlockIds?: string[];
   selectedText: string;
   contentDom?: string;
+  blockSelections?: ProgressiveExcerptBlockSelectionSnapshot[];
   rootId?: string;
   origin?: 'editor' | 'review' | 'block-menu';
 }
+
+export type SelectionTopicContinuationMode = 'planner-derived' | 'direct-cloze';
 
 export interface SelectionTopicContinuationPreparation {
   rootId?: string;
   topicContext: ProgressiveTopicContext | null;
   normalizedContent: string;
+  creationContent: string;
   decisions: CreationDecision[];
+  mode: SelectionTopicContinuationMode | null;
   available: boolean;
 }
 
@@ -39,6 +45,16 @@ export interface SelectionTopicContinuationResult {
 type BlockInfoRow = {
   root_id?: string;
   type?: string;
+};
+
+const DIRECT_CLOZE_DECISION: CreationDecision = {
+  id: 'ManualSelectionClozeRule',
+  family: 'cloze',
+  templateId: 'builtin-multi-cloze',
+  cardType: 'item',
+  mode: 'multi-face',
+  executorKind: 'quick-cloze',
+  priority: 1000,
 };
 
 function isProgressiveTopicDecision(decision: CreationDecision): boolean {
@@ -118,6 +134,64 @@ function normalizeSelectionContent(selectedText: string, contentDom?: string): s
   return normalizedDomText || normalizedText;
 }
 
+function extractFragmentPlannerText(
+  html: string | undefined,
+  options?: { trim?: boolean },
+): string {
+  const normalizedHtml = String(html || '').trim();
+  if (!normalizedHtml) {
+    return '';
+  }
+
+  const template = document.createElement('template');
+  template.innerHTML = normalizedHtml;
+  const raw = Array.from(template.content.childNodes)
+    .map((child) => extractPlannerTextFromNode(child))
+    .join('')
+    .replace(/\u200B/g, '')
+    .replace(/\u00A0/g, ' ');
+
+  return options?.trim === false
+    ? raw
+    : normalizeInlineWhitespace(raw);
+}
+
+function buildDirectClozeContent(
+  normalizedSelectionContent: string,
+  contentDom?: string,
+  blockSelections?: ProgressiveExcerptBlockSelectionSnapshot[],
+): string {
+  const normalizedSelection = normalizeInlineWhitespace(normalizedSelectionContent);
+  if (!normalizedSelection) {
+    return '';
+  }
+
+  if (!Array.isArray(blockSelections) || blockSelections.length !== 1) {
+    return `==${normalizedSelection}==`;
+  }
+
+  const [selection] = blockSelections;
+  if (!selection) {
+    return `==${normalizedSelection}==`;
+  }
+
+  if (selection.mode === 'full-block') {
+    const fullText = extractFragmentPlannerText(selection.excerptHtml, { trim: false }) || normalizedSelection;
+    return normalizeInlineWhitespace(`==${fullText}==`);
+  }
+
+  const beforeText = extractFragmentPlannerText(selection.beforeHtml, { trim: false });
+  const excerptText = extractFragmentPlannerText(selection.excerptHtml, { trim: false }) || normalizedSelection;
+  const afterText = extractFragmentPlannerText(selection.afterHtml, { trim: false });
+  const combined = normalizeInlineWhitespace(`${beforeText}==${excerptText}==${afterText}`);
+  if (combined) {
+    return combined;
+  }
+
+  const normalizedDomSelection = normalizeSelectionContent(normalizedSelection, contentDom);
+  return `==${normalizedDomSelection || normalizedSelection}==`;
+}
+
 export class SelectionTopicContinuationService {
   private readonly planner = new UnifiedPostCreationPlanner();
 
@@ -136,7 +210,9 @@ export class SelectionTopicContinuationService {
         rootId,
         topicContext: null,
         normalizedContent,
+        creationContent: '',
         decisions: [],
+        mode: null,
         available: false,
       };
     }
@@ -151,7 +227,9 @@ export class SelectionTopicContinuationService {
         rootId,
         topicContext: null,
         normalizedContent,
+        creationContent: '',
         decisions: [],
+        mode: null,
         available: false,
       };
     }
@@ -164,13 +242,30 @@ export class SelectionTopicContinuationService {
       resolvedCardType: 'item',
     });
     const decisions = plan.decisions.filter((decision) => isProgressiveTopicDecision(decision));
+    if (decisions.length > 0) {
+      return {
+        rootId,
+        topicContext,
+        normalizedContent,
+        creationContent: normalizedContent,
+        decisions,
+        mode: 'planner-derived',
+        available: true,
+      };
+    }
 
     return {
       rootId,
       topicContext,
       normalizedContent,
-      decisions,
-      available: decisions.length > 0,
+      creationContent: buildDirectClozeContent(
+        normalizedContent,
+        input.contentDom,
+        input.blockSelections,
+      ),
+      decisions: [DIRECT_CLOZE_DECISION],
+      mode: 'direct-cloze',
+      available: true,
     };
   }
 
@@ -211,7 +306,7 @@ export class SelectionTopicContinuationService {
       parentTopicCardId,
       parentExcerptId: sourceContext.parentExcerptId,
       sourceRootKind: sourceContext.rootKind as ProgressiveSourceRootKind,
-      content: prepared.normalizedContent,
+      content: prepared.creationContent,
       decisions: prepared.decisions,
     });
   }

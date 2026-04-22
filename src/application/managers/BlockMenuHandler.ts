@@ -704,7 +704,7 @@ export class BlockMenuHandler {
   private addSiyuanMemoMenu(menu: SiyuanMenu, submenu: SiyuanMenuItem[]): void {
     menu.addItem({
       icon: 'iconRiffCard',
-      label: 'SiyuanMemo',
+      label: 'SiYuanMemo',
       submenu,
     });
   }

@@ -175,6 +175,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       this.registerEventHandlers();
       this.registerImageOcclusionCommands();
       this.registerProgressiveExcerptCommand();
+      this.registerProgressiveItemCommand();
       this.registerTopBarQuickCommands();
       if (this.shouldExposeCoreReviewContextEntries()) {
         this.registerCoreReviewCommands();
@@ -342,6 +343,19 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       },
       editorCallback: (protyle: IProtyle) => {
         void this.progressiveExcerptHotkeyHandler?.runFromEditor(protyle);
+      },
+    });
+  }
+
+  private registerProgressiveItemCommand(): void {
+    this.addCommand({
+      langKey: 'progressiveItemSelection',
+      hotkey: '⌥⇧Z',
+      callback: () => {
+        this.progressiveExcerptHotkeyHandler?.runItemFromCommand();
+      },
+      editorCallback: (protyle: IProtyle) => {
+        void this.progressiveExcerptHotkeyHandler?.runItemFromEditor(protyle);
       },
     });
   }

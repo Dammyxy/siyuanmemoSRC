@@ -868,7 +868,12 @@ export class XiuyuanSyncService {
         plan: PostCreationPlan
     ): boolean {
         const currentMeta = xiuyuan.getMeta();
-        const hintMeta = this.buildQuickRenderHintMeta(riffBlock.content, cardType, plan);
+        const progressiveKind = currentMeta.progressive && typeof currentMeta.progressive === 'object'
+            ? (currentMeta.progressive as Record<string, unknown>).kind
+            : undefined;
+        const hintMeta = progressiveKind === 'derived-item'
+            ? {}
+            : this.buildQuickRenderHintMeta(riffBlock.content, cardType, plan);
         const shouldForceQuickRender = hintMeta.forceQuickRender === true;
         const expectedReason = hintMeta.quickDetectReason;
         const currentForceQuickRender = currentMeta.forceQuickRender === true;

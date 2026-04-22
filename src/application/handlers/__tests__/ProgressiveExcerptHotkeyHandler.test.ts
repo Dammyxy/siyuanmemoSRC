@@ -6,12 +6,16 @@ const {
   isProgressiveSelectionInsideNativeProtyle,
   prepareProgressiveExcerptHighlight,
   applyProgressiveExcerptHighlight,
+  prepareSelectionClozeMark,
+  applyPreparedSelectionClozeMark,
 } = vi.hoisted(() => ({
   showMessage: vi.fn(),
   resolveProgressiveExcerptSelectionSnapshot: vi.fn(),
   isProgressiveSelectionInsideNativeProtyle: vi.fn(),
   prepareProgressiveExcerptHighlight: vi.fn(),
   applyProgressiveExcerptHighlight: vi.fn(),
+  prepareSelectionClozeMark: vi.fn(),
+  applyPreparedSelectionClozeMark: vi.fn(),
 }));
 
 vi.mock('siyuan', () => ({
@@ -26,6 +30,11 @@ vi.mock('@/application/entries/ProgressiveSelectionResolver', () => ({
 vi.mock('@/application/entries/ProgressiveExcerptHighlight', () => ({
   prepareProgressiveExcerptHighlight,
   applyProgressiveExcerptHighlight,
+}));
+
+vi.mock('@/application/entries/SelectionClozeMarker', () => ({
+  prepareSelectionClozeMark,
+  applyPreparedSelectionClozeMark,
 }));
 
 import {
@@ -96,6 +105,7 @@ function createHandler(options?: {
     skipped: 0,
     items: [],
   }));
+  const updateSourceBlockDom = vi.fn(async () => undefined);
   const tabApplicationService = {
     openDocumentTab: vi.fn(async () => undefined),
     openBlockTab: vi.fn(async () => undefined),
@@ -126,7 +136,7 @@ function createHandler(options?: {
       getSelectionExcerptService: () => ({
         materializeExcerptSource,
         createFromSelection,
-        updateSourceBlockDom: vi.fn(async () => undefined),
+        updateSourceBlockDom,
       }),
       getSelectionTopicContinuationService: () => ({
         prepareSelection: prepareTopicContinuation,
@@ -138,6 +148,7 @@ function createHandler(options?: {
     prepareTopicContinuation,
     createTopicContinuation,
     materializeExcerptSource,
+    updateSourceBlockDom,
     tabApplicationService,
   };
 }
@@ -157,6 +168,24 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     });
     applyProgressiveExcerptHighlight.mockReset();
     applyProgressiveExcerptHighlight.mockResolvedValue(true);
+    prepareSelectionClozeMark.mockReset();
+    prepareSelectionClozeMark.mockReturnValue({
+      blockId: 'block-1',
+      blockIds: ['block-1'],
+      previousBlockHtml: '<div data-node-id="block-1">Hello</div>',
+      nextBlockHtml: '<div data-node-id="block-1"><span data-type="mark">Hello</span></div>',
+      blockMutations: [{
+        blockId: 'block-1',
+        previousBlockHtml: '<div data-node-id="block-1">Hello</div>',
+        nextBlockHtml: '<div data-node-id="block-1"><span data-type="mark">Hello</span></div>',
+        alreadyApplied: false,
+      }],
+      root: document.body,
+      protyle: { getInstance: () => ({ reload: vi.fn() }) },
+      alreadyApplied: false,
+    });
+    applyPreparedSelectionClozeMark.mockReset();
+    applyPreparedSelectionClozeMark.mockResolvedValue(true);
     isProgressiveSelectionInsideNativeProtyle.mockReset();
     resolveProgressiveExcerptSelectionSnapshot.mockReset();
     showMessage.mockReset();
@@ -444,7 +473,9 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
         scope: 'doc-root' as const,
       },
       normalizedContent: 'Alpha ==Beta==',
+      creationContent: 'Alpha ==Beta==',
       decisions: [{ id: 'MarkClozeRule', family: 'cloze' }],
+      mode: 'planner-derived' as const,
       available: true,
     };
     const prepareTopicContinuation = vi.fn(() => preparation);
@@ -524,7 +555,9 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
           scope: 'block' as const,
         },
         normalizedContent: 'Alpha >> Beta',
+        creationContent: 'Alpha >> Beta',
         decisions: [{ id: 'BasicDirectionRule', family: 'basic' }],
+        mode: 'planner-derived' as const,
         available: true,
       })),
       createTopicContinuation: vi.fn(async () => ({
@@ -565,6 +598,121 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     });
 
     expect(menu.addItem).not.toHaveBeenCalled();
+  });
+
+  it('uses the direct Topic -> Item path for plain text selections in topic context', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
+      protyle: {
+        wysiwyg: { element: document.body },
+        block: { rootID: 'topic-doc-root-1' },
+      },
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+    }));
+
+    const preparation = {
+      rootId: 'topic-doc-root-1',
+      topicContext: {
+        topicCardId: 'topic-card-1',
+        topicBlockId: 'topic-doc-root-1',
+        sourceDocId: 'topic-doc-root-1',
+        scope: 'doc-root' as const,
+      },
+      normalizedContent: 'Beta',
+      creationContent: 'Alpha ==Beta== Gamma',
+      decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
+      mode: 'direct-cloze' as const,
+      available: true,
+    };
+    const createTopicContinuation = vi.fn(async () => ({
+      created: 1,
+      skipped: 0,
+      items: [],
+    }));
+    const { handler } = createHandler({
+      prepareTopicContinuation: vi.fn(() => preparation),
+      createTopicContinuation,
+    });
+
+    await handler.runItemFromEditor({
+      wysiwyg: {
+        element: document.body,
+      },
+      block: {
+        rootID: 'topic-doc-root-1',
+      },
+    } as any);
+
+    expect(createTopicContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'block-1',
+      selectedText: 'Beta',
+      rootId: 'topic-doc-root-1',
+    }), preparation);
+    expect(applyPreparedSelectionClozeMark).not.toHaveBeenCalled();
+    expect(showMessage).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item', 3000, 'info');
+  });
+
+  it('falls back to wrapping the plain selection as a standard cloze outside topic context', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+    }));
+
+    const prepareTopicContinuation = vi.fn(() => ({
+      rootId: 'ordinary-doc-1',
+      topicContext: null,
+      normalizedContent: 'Beta',
+      creationContent: '',
+      decisions: [],
+      mode: null,
+      available: false,
+    }));
+    const { handler } = createHandler({
+      prepareTopicContinuation,
+    });
+
+    await handler.runItemFromEditor({
+      wysiwyg: {
+        element: document.body,
+      },
+      block: {
+        rootID: 'ordinary-doc-1',
+      },
+    } as any);
+
+    expect(prepareSelectionClozeMark).toHaveBeenCalledTimes(1);
+    expect(applyPreparedSelectionClozeMark).toHaveBeenCalledTimes(1);
+    expect(showMessage).toHaveBeenCalledWith('已将选区标记为挖空，普通卡片会按现有规则生成', 3000, 'info');
+  });
+
+  it('runs the new Item command after the command-panel tick and falls back to standard cloze outside topic context', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(null, {
+      commonElement: document.body,
+      protyle: { wysiwyg: { element: document.body } },
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+    }));
+
+    const prepareTopicContinuation = vi.fn(() => ({
+      rootId: 'ordinary-doc-1',
+      topicContext: null,
+      normalizedContent: 'Beta',
+      creationContent: '',
+      decisions: [],
+      mode: null,
+      available: false,
+    }));
+    const { handler } = createHandler({ prepareTopicContinuation });
+
+    handler.runItemFromCommand();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(prepareSelectionClozeMark).toHaveBeenCalledTimes(1);
+    expect(applyPreparedSelectionClozeMark).toHaveBeenCalledTimes(1);
+    expect(showMessage).toHaveBeenCalledWith('已将选区标记为挖空，普通卡片会按现有规则生成', 3000, 'info');
   });
 
   it('jumps to the existing excerpt instead of recreating it when the same source text is excerpted twice', async () => {

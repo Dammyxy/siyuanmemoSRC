@@ -178,6 +178,7 @@ describe('BlockMenuHandler progressive excerpt block-menu flow', () => {
     });
 
     const topLevelItem = menu.addItem.mock.calls[0][0];
+    expect(topLevelItem.label).toBe('SiYuanMemo');
     const submenu = topLevelItem.submenu as Array<{ label?: string; icon?: string; click?: () => Promise<void> }>;
     const excerptItem = submenu.find((item) => item.label === '摘录');
 

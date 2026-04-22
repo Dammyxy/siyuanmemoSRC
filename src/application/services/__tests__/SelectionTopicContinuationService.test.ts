@@ -94,6 +94,7 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.available).toBe(false);
     expect(preparation.topicContext).toBeNull();
     expect(preparation.decisions).toHaveLength(0);
+    expect(preparation.mode).toBeNull();
   });
 
   it('normalizes excerpt-doc rich selection content and forwards the derived-item contract with parent excerpt lineage', async () => {
@@ -132,10 +133,19 @@ describe('SelectionTopicContinuationService', () => {
       rootId: 'excerpt-doc-root-1',
       selectedText: 'Alpha Beta',
       contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span></div></div>',
+      blockSelections: [{
+        blockId: 'source-block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"></div></div>',
+      }],
     });
 
     expect(preparation.available).toBe(true);
     expect(preparation.normalizedContent).toBe('Alpha ==Beta==');
+    expect(preparation.creationContent).toBe('Alpha ==Beta==');
+    expect(preparation.mode).toBe('planner-derived');
     expect(preparation.decisions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         family: 'cloze',
@@ -147,6 +157,13 @@ describe('SelectionTopicContinuationService', () => {
       rootId: 'excerpt-doc-root-1',
       selectedText: 'Alpha Beta',
       contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span></div></div>',
+      blockSelections: [{
+        blockId: 'source-block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"></div></div>',
+      }],
     }, preparation);
 
     expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledWith(expect.objectContaining({
@@ -161,6 +178,80 @@ describe('SelectionTopicContinuationService', () => {
           family: 'cloze',
         }),
       ]),
+    }));
+  });
+
+  it('treats plain text selection inside a topic as direct cloze continuation', async () => {
+    const topicDerivedItemService = {
+      createFromTopicSource: vi.fn(async () => ({
+        created: 1,
+        skipped: 0,
+        items: [],
+      })),
+    };
+    const service = new SelectionTopicContinuationService(
+      createSiyuanPortMock({
+        sql: vi.fn(async () => [{ root_id: 'topic-doc-root-1', type: 'p' }]),
+      }),
+      createCardServiceMock({
+        sourceBlockId: 'source-block-1',
+        rootId: 'topic-doc-root-1',
+        rootBlockCards: [{ id: 'topic-card-topic-root-1', type: 'topic' }],
+      }),
+      topicDerivedItemService as any,
+    );
+
+    const preparation = service.prepareSelection({
+      sourceBlockId: 'source-block-1',
+      rootId: 'topic-doc-root-1',
+      selectedText: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'source-block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    });
+
+    expect(preparation.available).toBe(true);
+    expect(preparation.mode).toBe('direct-cloze');
+    expect(preparation.normalizedContent).toBe('Beta');
+    expect(preparation.creationContent).toBe('Alpha ==Beta== Gamma');
+    expect(preparation.decisions).toEqual([
+      expect.objectContaining({
+        id: 'ManualSelectionClozeRule',
+        family: 'cloze',
+      }),
+    ]);
+
+    await service.createFromSelection({
+      sourceBlockId: 'source-block-1',
+      rootId: 'topic-doc-root-1',
+      selectedText: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'source-block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    }, preparation);
+
+    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'source-block-1',
+      sourceDocId: 'topic-doc-root-1',
+      parentTopicCardId: 'topic-card-topic-root-1',
+      sourceRootKind: 'topic-doc',
+      content: 'Alpha ==Beta== Gamma',
+      decisions: [
+        expect.objectContaining({
+          id: 'ManualSelectionClozeRule',
+          family: 'cloze',
+        }),
+      ],
     }));
   });
 
@@ -188,6 +279,8 @@ describe('SelectionTopicContinuationService', () => {
 
     expect(preparation.available).toBe(true);
     expect(preparation.normalizedContent).toBe('((20240101010101-abcdefg))::定义正文');
+    expect(preparation.creationContent).toBe('((20240101010101-abcdefg))::定义正文');
+    expect(preparation.mode).toBe('planner-derived');
     expect(preparation.decisions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         family: 'concept-definition',

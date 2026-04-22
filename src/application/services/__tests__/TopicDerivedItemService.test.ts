@@ -176,11 +176,12 @@ describe('TopicDerivedItemService', () => {
       }),
       metadata: expect.objectContaining({
         source: 'topic-derived',
-        symbolDetected: true,
         cardSource: 'topic-derived',
-        symbolType: '==',
       }),
     }));
+    const firstMetadata = vi.mocked(cardService.service.createCard).mock.calls[0]?.[0]?.metadata as Record<string, unknown>;
+    expect(firstMetadata.symbolDetected).toBeUndefined();
+    expect(firstMetadata.symbolType).toBeUndefined();
     expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(1, 'builtin-deck', ['derived-block-1']);
     expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(2, 'builtin-deck', ['derived-block-2']);
     expect(result.items.map((item) => item.derivedCardId)).toEqual(['card-1', 'card-2']);
@@ -217,11 +218,13 @@ describe('TopicDerivedItemService', () => {
       metadata: expect.objectContaining({
         source: 'topic-derived',
         cardSource: 'topic-derived',
-        symbolType: '<>',
         question: '((concept-doc))',
         answer: 'Definition body',
       }),
     }));
+    const metadata = vi.mocked(cardService.service.createCard).mock.calls[0]?.[0]?.metadata as Record<string, unknown>;
+    expect(metadata.symbolDetected).toBeUndefined();
+    expect(metadata.symbolType).toBeUndefined();
     expect(result.items[0]).toEqual(expect.objectContaining({
       sourceBlockId: 'source-block-2',
       storageMode: 'source-child',

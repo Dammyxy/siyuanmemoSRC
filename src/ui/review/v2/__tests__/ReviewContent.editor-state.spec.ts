@@ -942,7 +942,7 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('keeps progressive derived items on standard Protyle when only legacy symbol metadata is present', async () => {
+  it('keeps progressive derived items on standard Protyle without probing quick detection', async () => {
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -976,7 +976,7 @@ describe('ReviewContent editor state', () => {
     await settleReviewContent();
 
     expect(reviewContentMocks.instances).toHaveLength(1);
-    expect(reviewContentQuickCardMocks.isQuickCard).toHaveBeenCalledWith('block-derived-item', 'card-derived-item');
+    expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
     expect(findWarnCall(
       '[SiYuanMemo][ReviewContent] Suppressing invalid forceQuickRender metadata for current session',
     )).toBeUndefined();

@@ -38,7 +38,6 @@ type DerivedCandidate = {
   answerFingerprint: string;
   contentMarkdown: string;
   previewText: string;
-  symbolType: string;
   metadataSource: 'topic-derived';
   question?: string;
   answer?: string;
@@ -282,7 +281,6 @@ export class TopicDerivedItemService {
             answerFingerprint,
             contentMarkdown: this.buildSingleClozeMarkdown(input.content, cloze),
             previewText: cloze.text,
-            symbolType: this.resolveClozeSymbolType(cloze.type),
             metadataSource: 'topic-derived',
           });
         }
@@ -305,7 +303,6 @@ export class TopicDerivedItemService {
         answerFingerprint,
         contentMarkdown: normalizedBasic,
         previewText: parsed?.answer || parsed?.question || normalizedBasic,
-        symbolType: parsed?.symbolType || this.resolveDecisionSymbolType(decision),
         metadataSource: 'topic-derived',
         question: parsed?.question,
         answer: parsed?.answer,
@@ -330,19 +327,6 @@ export class TopicDerivedItemService {
 
     output += content.slice(cursor);
     return output;
-  }
-
-  private resolveClozeSymbolType(type: ClozeInfo['type']): string {
-    if (type === 'equal') {
-      return '==';
-    }
-    if (type === 'mark') {
-      return 'mark';
-    }
-    if (type === 'latex') {
-      return '\\cloze';
-    }
-    return '{{}}';
   }
 
   private normalizeBasicDerivationContent(content: string, decision: CreationDecision): string | null {
@@ -463,19 +447,6 @@ export class TopicDerivedItemService {
     return null;
   }
 
-  private resolveDecisionSymbolType(decision: CreationDecision): string {
-    if (decision.family === 'cloze') {
-      return '{{}}';
-    }
-    if (decision.direction === 'backward') {
-      return '<<';
-    }
-    if (decision.direction === 'both') {
-      return '<>';
-    }
-    return '>>';
-  }
-
   private async createDerivedItemCard(input: {
     candidate: DerivedCandidate;
     derivedBlockId: string;
@@ -501,9 +472,7 @@ export class TopicDerivedItemService {
       },
       metadata: {
         source: input.candidate.metadataSource,
-        symbolDetected: true,
         cardSource: 'topic-derived',
-        symbolType: input.candidate.symbolType,
         ...(input.candidate.question ? { question: input.candidate.question } : {}),
         ...(input.candidate.answer ? { answer: input.candidate.answer } : {}),
       },

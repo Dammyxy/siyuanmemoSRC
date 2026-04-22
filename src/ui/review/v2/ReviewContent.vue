@@ -157,6 +157,7 @@ import { useCardTypeCache } from './composables/useCardTypeCache';
 import {
   buildReviewRenderCacheKey,
   buildReviewRenderWatchKey,
+  isProgressiveDerivedItemCard,
   isNeuralRoamNonFlashcard,
   shouldPreferStableQuickForcePath,
   shouldBypassSemanticFallback,
@@ -353,6 +354,7 @@ const isTopicDocumentCard = computed(() => (
 ));
 const neuralIsFlashcard = computed(() => resolveNeuralIsFlashcard(props.content.card));
 const isNeuralRoamNonFlashcardCard = computed(() => isNeuralRoamNonFlashcard(props.content.card));
+const isProgressiveDerivedItem = computed(() => isProgressiveDerivedItemCard(props.content.card));
 const quickRenderCardId = computed(() => String(props.content.card?.id || props.content.id || ''));
 const quickRenderCardIdArg = computed(() => quickRenderCardId.value || undefined);
 const forceQuickRenderSuppressionKey = computed(() => {
@@ -389,8 +391,11 @@ const quickIndicatorSymbolType = computed(() => {
   return typeof symbolType === 'string' ? symbolType : '';
 });
 const forceQuickRenderRaw = computed(() => (
-  props.content.card?.meta?.forceQuickRender === true
-  || preferStableQuickForcePath.value
+  !isProgressiveDerivedItem.value
+  && (
+    props.content.card?.meta?.forceQuickRender === true
+    || preferStableQuickForcePath.value
+  )
 ));
 const forceQuickRender = computed(() => {
   invalidForcedQuickRenderVersion.value;
@@ -1420,12 +1425,16 @@ async function renderProtyle(blockId: string): Promise<void> {
   }
 
   const renderProfile = resolvedRenderProfile.value;
-  if (!shouldForceProtyleOnly && !forceProtyleRenderFromMeta && renderProfile) {
+  const effectiveRenderProfile = isProgressiveDerivedItem.value
+    && (renderProfile === 'quick-default' || renderProfile === 'quick-inline-formula')
+    ? null
+    : renderProfile;
+  if (!shouldForceProtyleOnly && !forceProtyleRenderFromMeta && effectiveRenderProfile) {
     logBidirectionalTemplateDiagnostic('render-profile-branch', {
       blockId,
-      renderProfile,
+      renderProfile: effectiveRenderProfile,
     });
-    if (renderProfile === 'concept-definition') {
+    if (effectiveRenderProfile === 'concept-definition') {
       const result = { isConcept: true, isDescriptor: false, isQuick: false };
       setCardType(cacheKey, result);
       isConceptDefinitionCard.value = true;
@@ -1438,7 +1447,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       return;
     }
 
-    if (renderProfile === 'concept') {
+    if (effectiveRenderProfile === 'concept') {
       const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
       setCardType(cacheKey, result);
       isConceptDefinitionCard.value = false;
@@ -1451,7 +1460,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       return;
     }
 
-    if (renderProfile === 'descriptor') {
+    if (effectiveRenderProfile === 'descriptor') {
       const result = { isConcept: false, isDescriptor: true, isQuick: false };
       setCardType(cacheKey, result);
       isConceptDefinitionCard.value = false;
@@ -1464,7 +1473,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       return;
     }
 
-    if (shouldVerifyQuickDefaultProfile(renderProfile)) {
+    if (shouldVerifyQuickDefaultProfile(effectiveRenderProfile)) {
       try {
         const isQuick = await quickCardRenderService.value.isQuickCard(blockId, quickRenderCardIdArg.value);
         if (seq !== renderSeq) {
@@ -1483,7 +1492,7 @@ async function renderProtyle(blockId: string): Promise<void> {
           logger.info('[SiYuanMemo][ReviewContent] quick-default renderProfile fallback to Protyle after verification', {
             blockId,
             cardId: quickRenderCardId.value,
-            renderProfile,
+            renderProfile: effectiveRenderProfile,
             quickDetectReason: quickDetectReason.value,
             fallbackReason: 'quick-default-not-quick-card',
           });
@@ -1500,7 +1509,7 @@ async function renderProtyle(blockId: string): Promise<void> {
         logger.warn('[SiYuanMemo][ReviewContent] quick-default verification failed, fallback to Protyle', {
           blockId,
           cardId: quickRenderCardId.value,
-          renderProfile,
+          renderProfile: effectiveRenderProfile,
           error,
         });
         const result = { isConcept: false, isDescriptor: false, isQuick: false };
@@ -1517,7 +1526,7 @@ async function renderProtyle(blockId: string): Promise<void> {
       }
     }
 
-    if (renderProfile === 'quick-inline-formula') {
+    if (effectiveRenderProfile === 'quick-inline-formula') {
       const result = { isConcept: false, isDescriptor: false, isQuick: false };
       setCardType(cacheKey, result);
       logBidirectionalTemplateDiagnostic('render-profile-returned-quick-inline-formula', {
@@ -1609,7 +1618,7 @@ async function renderProtyle(blockId: string): Promise<void> {
     }
   }
 
-  if (!shouldForceProtyleOnly && !forceQuickRenderFromMeta && !forceProtyleRenderFromMeta) {
+  if (!shouldForceProtyleOnly && !forceQuickRenderFromMeta && !forceProtyleRenderFromMeta && !isProgressiveDerivedItem.value) {
     const bypassSemanticFallbackDetection = shouldBypassSemanticFallback(
       props.content.card,
       resolvedRenderProfile.value
@@ -1761,6 +1770,12 @@ async function renderProtyle(blockId: string): Promise<void> {
     }
   } else if (forceProtyleRenderFromMeta) {
     logger.debug('[SiYuanMemo][ReviewContent] Force Protyle render enabled by card meta', {
+      blockId,
+      cardId: props.content.card?.id,
+      cardType: props.content.card?.type,
+    });
+  } else if (isProgressiveDerivedItem.value) {
+    logger.debug('[SiYuanMemo][ReviewContent] Skipping quick detection for progressive derived item', {
       blockId,
       cardId: props.content.card?.id,
       cardType: props.content.card?.type,

@@ -310,6 +310,7 @@ describe('XiuyuanRepository list-template split-v2 mapping', () => {
         testCase.blockId,
         {
           'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+          'custom-fsrs-card-type': '',
         },
       );
     }

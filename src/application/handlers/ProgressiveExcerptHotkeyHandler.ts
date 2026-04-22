@@ -9,6 +9,10 @@ import {
   applyProgressiveExcerptHighlight,
   prepareProgressiveExcerptHighlight,
 } from '@/application/entries/ProgressiveExcerptHighlight';
+import {
+  applyPreparedSelectionClozeMark,
+  prepareSelectionClozeMark,
+} from '@/application/entries/SelectionClozeMarker';
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type {
   SelectionTopicContinuationPreparation,
@@ -47,6 +51,7 @@ type ProgressiveExcerptContentMenuDetail = Pick<IEventBusMap['open-menu-content'
 
 export class ProgressiveExcerptHotkeyHandler {
   private pendingCommandTimer: number | null = null;
+  private pendingItemCommandTimer: number | null = null;
 
   constructor(private readonly context: ApplicationContext) {}
 
@@ -60,6 +65,13 @@ export class ProgressiveExcerptHotkeyHandler {
 
   async runFromEditor(protyle: IProtyle | unknown): Promise<void> {
     await this.runExcerptFromSelection({
+      root: getProtyleRoot(protyle),
+      protyle,
+    });
+  }
+
+  async runItemFromEditor(protyle: IProtyle | unknown): Promise<void> {
+    await this.runItemFromSelection({
       root: getProtyleRoot(protyle),
       protyle,
     });
@@ -85,6 +97,7 @@ export class ProgressiveExcerptHotkeyHandler {
       sourceBlockIds: selection.sourceBlockIds,
       selectedText: selection.text,
       contentDom: selection.contentDom,
+      blockSelections: selection.blockSelections,
       rootId: this.resolveProtyleRootId(detail.protyle, selection.sourceBlockId),
       origin: 'editor',
     });
@@ -121,6 +134,14 @@ export class ProgressiveExcerptHotkeyHandler {
     }, 0);
   }
 
+  runItemFromCommand(): void {
+    this.clearPendingCommand();
+    this.pendingItemCommandTimer = window.setTimeout(() => {
+      this.pendingItemCommandTimer = null;
+      void this.runItemFromSelection();
+    }, 0);
+  }
+
   private async runExcerptFromSelection(
     options?: ProgressiveExcerptSelectionOptions,
     actionOptions?: { requireEnabled?: boolean },
@@ -137,6 +158,33 @@ export class ProgressiveExcerptHotkeyHandler {
     }
 
     await this.runExcerptFromSnapshot(selection);
+  }
+
+  private async runItemFromSelection(
+    options?: ProgressiveExcerptSelectionOptions,
+  ): Promise<void> {
+    const selection = this.resolveEditorSelectionSnapshot(options);
+    if (!selection) {
+      this.showMissingItemSelectionMessage();
+      return;
+    }
+
+    const topicContinuationPreparation = this.context.getSelectionTopicContinuationService().prepareSelection({
+      sourceBlockId: selection.sourceBlockId,
+      sourceBlockIds: selection.sourceBlockIds,
+      selectedText: selection.text,
+      contentDom: selection.contentDom,
+      blockSelections: selection.blockSelections,
+      rootId: this.resolveProtyleRootId(selection.protyle, selection.sourceBlockId),
+      origin: 'editor',
+    });
+
+    if (topicContinuationPreparation.available) {
+      await this.runTopicContinuationFromSnapshot(selection, topicContinuationPreparation);
+      return;
+    }
+
+    await this.runPlainClozeFallbackFromSnapshot(selection);
   }
 
   private async runExcerptFromSnapshot(selection: ProgressiveExcerptSelectionSnapshot): Promise<void> {
@@ -188,6 +236,7 @@ export class ProgressiveExcerptHotkeyHandler {
         sourceBlockIds: selection.sourceBlockIds,
         selectedText: selection.text,
         contentDom: selection.contentDom,
+        blockSelections: selection.blockSelections,
         rootId: this.resolveProtyleRootId(selection.protyle, selection.sourceBlockId),
         origin: 'editor',
       }, preparation);
@@ -200,6 +249,36 @@ export class ProgressiveExcerptHotkeyHandler {
       logger.error('Failed to create derived items from excerpt selection', error);
       showMessage(
         this.translate('progressiveExcerptContinuationFailed', '在 Topic 下创建 Item 失败：{message}')
+          .replace('{message}', error instanceof Error ? error.message : String(error)),
+        5000,
+        'error',
+      );
+    }
+  }
+
+  private async runPlainClozeFallbackFromSnapshot(selection: ProgressiveExcerptSelectionSnapshot): Promise<void> {
+    try {
+      const preparedMark = this.tryPrepareSelectionClozeMark(selection);
+      if (!preparedMark) {
+        throw new Error(this.translate('progressiveItemFallbackUnavailable', '当前选区无法转换为普通挖空'));
+      }
+
+      const applied = await this.tryApplySelectionClozeMark(preparedMark);
+      if (!applied && !preparedMark.alreadyApplied) {
+        throw new Error(this.translate('progressiveItemFallbackPersistFailed', '当前选区的挖空标记保存失败'));
+      }
+
+      showMessage(
+        preparedMark.alreadyApplied
+          ? this.translate('progressiveItemFallbackAlreadyMarked', '当前选区已是挖空标记')
+          : this.translate('progressiveItemFallbackCreated', '已将选区标记为挖空，普通卡片会按现有规则生成'),
+        3000,
+        'info',
+      );
+    } catch (error) {
+      logger.error('Failed to mark plain selection as cloze for standard card creation', error);
+      showMessage(
+        this.translate('progressiveItemFallbackFailed', '创建普通挖空失败：{message}')
           .replace('{message}', error instanceof Error ? error.message : String(error)),
         5000,
         'error',
@@ -236,6 +315,10 @@ export class ProgressiveExcerptHotkeyHandler {
       window.clearTimeout(this.pendingCommandTimer);
       this.pendingCommandTimer = null;
     }
+    if (this.pendingItemCommandTimer !== null) {
+      window.clearTimeout(this.pendingItemCommandTimer);
+      this.pendingItemCommandTimer = null;
+    }
   }
 
   private getEventDetail<T extends object>(event: unknown): T | null {
@@ -261,6 +344,14 @@ export class ProgressiveExcerptHotkeyHandler {
   private showMissingSelectionMessage(): void {
     showMessage(
       this.translate('progressiveExcerptNoSelection', '请先选中文本后再摘抄'),
+      3000,
+      'error',
+    );
+  }
+
+  private showMissingItemSelectionMessage(): void {
+    showMessage(
+      this.translate('progressiveItemNoSelection', '请先选中文本后再创建 Item'),
       3000,
       'error',
     );
@@ -303,6 +394,26 @@ export class ProgressiveExcerptHotkeyHandler {
       return prepareProgressiveExcerptHighlight(selection);
     } catch (error) {
       logger.warn('Failed to prepare progressive excerpt highlight before excerpt creation', error);
+      return null;
+    }
+  }
+
+  private async tryApplySelectionClozeMark(selection: ReturnType<typeof prepareSelectionClozeMark>): Promise<boolean> {
+    try {
+      return await applyPreparedSelectionClozeMark(selection, {
+        persistDomBlock: (blockId, dom) => this.context.getSelectionExcerptService().updateSourceBlockDom(blockId, dom),
+      });
+    } catch (error) {
+      logger.warn('Failed to apply selection cloze mark before standard card creation fallback', error);
+      return false;
+    }
+  }
+
+  private tryPrepareSelectionClozeMark(selection: ProgressiveExcerptSelectionSnapshot): ReturnType<typeof prepareSelectionClozeMark> {
+    try {
+      return prepareSelectionClozeMark(selection);
+    } catch (error) {
+      logger.warn('Failed to prepare selection cloze mark before standard card creation fallback', error);
       return null;
     }
   }

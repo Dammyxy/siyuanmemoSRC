@@ -266,9 +266,22 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
     if (persistedCardType) {
       attrs[ATTR_CARD_TYPE] = persistedCardType;
+    } else if (this.shouldScrubPersistedCardTypeAttr(xiuyuan)) {
+      attrs[ATTR_CARD_TYPE] = '';
     }
 
     return Object.keys(attrs).length > 0 ? attrs : null;
+  }
+
+  private shouldScrubPersistedCardTypeAttr(xiuyuan: Xiuyuan): boolean {
+    const meta = xiuyuan.getMeta() as XiuyuanMeta | undefined;
+    const progressiveKind = meta?.progressive && typeof meta.progressive === 'object'
+      ? (meta.progressive as Record<string, unknown>).kind
+      : undefined;
+
+    return progressiveKind === 'piece'
+      || progressiveKind === 'excerpt'
+      || progressiveKind === 'derived-item';
   }
 
   private resolveCanonicalPersistedXiuyuan(persistenceModel: IXiuyuan): IXiuyuan {
@@ -463,13 +476,11 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   private resolvePersistedCardType(xiuyuan: Xiuyuan): 'topic' | 'item' | undefined {
-    const meta = xiuyuan.getMeta() as XiuyuanMeta | undefined;
-    const progressiveKind = meta?.progressive && typeof meta.progressive === 'object'
-      ? (meta.progressive as Record<string, unknown>).kind
-      : undefined;
-    if (progressiveKind === 'piece' || progressiveKind === 'excerpt' || progressiveKind === 'derived-item') {
+    if (this.shouldScrubPersistedCardTypeAttr(xiuyuan)) {
       return undefined;
     }
+
+    const meta = xiuyuan.getMeta() as XiuyuanMeta | undefined;
     return meta?.cardType === 'topic' || meta?.cardType === 'item'
       ? meta.cardType
       : undefined;
