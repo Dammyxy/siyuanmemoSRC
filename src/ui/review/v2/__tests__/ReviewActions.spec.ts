@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { HIDE_CURRENT_IN_SCOPE_COMMAND_ID } from '@/core/queue/abstraction/customActionIds';
 import ReviewActions from '../ReviewActions.vue';
 import type { ReviewUIState } from '../types';
 import type { FSRSCard } from '@/types/card';
@@ -76,6 +77,44 @@ describe('ReviewActions hotkey tooltips', () => {
 
     expect(wrapper.find('button[data-type="-1"]').exists()).toBe(false);
     expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
+  });
+});
+
+describe('ReviewActions topic next action', () => {
+  it('emits hide-current-in-scope command for filter-group topic cards', async () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: true,
+      cardMeta: {
+        type: 'topic',
+        cardType: 'topic',
+        blockID: 'block-topic',
+        cardID: 'card-topic',
+      },
+    }), false, null, {
+      queueType: 'filter-group',
+    });
+
+    await wrapper.get('button[data-type="3"]').trigger('click');
+
+    expect(wrapper.emitted('command')).toEqual([[HIDE_CURRENT_IN_SCOPE_COMMAND_ID]]);
+    expect(wrapper.emitted('grade')).toBeFalsy();
+  });
+
+  it('keeps Good(3) behavior for non-filter-group topic cards', async () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: true,
+      cardMeta: {
+        type: 'topic',
+        cardType: 'topic',
+        blockID: 'block-topic',
+        cardID: 'card-topic',
+      },
+    }));
+
+    await wrapper.get('button[data-type="3"]').trigger('click');
+
+    expect(wrapper.emitted('grade')).toEqual([[3]]);
+    expect(wrapper.emitted('command')).toBeFalsy();
   });
 });
 

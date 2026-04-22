@@ -38,7 +38,7 @@
             data-type="3"
             aria-label="Space/Enter"
             class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-main"
-            @click="handleGradeClick(3, $event)"
+            @click="handleTopicNextClick"
           >
             <div class="card__icon">📖</div>
             {{ t('nextCard', '下一张') }}
@@ -114,6 +114,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { HIDE_CURRENT_IN_SCOPE_COMMAND_ID } from '@/core/queue/abstraction/customActionIds';
 import type { ReviewUIState } from './types';
 import SkipMenuButton from './components/SkipMenuButton.vue';
 import InsertPositionDialog from './dialogs/InsertPositionDialog.vue';
@@ -139,6 +140,7 @@ const props = defineProps<{
   meta?: ReviewUIState['meta'];
   currentCard?: FSRSCard | null;
   queue?: ReviewQueueLike;
+  queueType?: string;
   plugin?: FSRSPlugin;
   isMobile?: boolean;
 }>();
@@ -171,6 +173,7 @@ const cardType = computed<'item' | 'topic'>(() => {
 });
 
 const canScheduleDate = computed(() => !isNeuralRoamNonFlashcard(props.currentCard));
+const isFilterGroupReview = computed(() => props.queueType === 'filter-group');
 
 const isRatingState = computed(() => (
   !isTopicCard.value
@@ -272,6 +275,15 @@ function handleRevealClick(event: MouseEvent): void {
 function handleGradeClick(rating: number, event: MouseEvent): void {
   blurActionButtonAfterPointerClick(event);
   emit('grade', rating);
+}
+
+function handleTopicNextClick(event: MouseEvent): void {
+  blurActionButtonAfterPointerClick(event);
+  if (isFilterGroupReview.value) {
+    emit('command', HIDE_CURRENT_IN_SCOPE_COMMAND_ID);
+    return;
+  }
+  emit('grade', 3);
 }
 
 // 插入位置逻辑

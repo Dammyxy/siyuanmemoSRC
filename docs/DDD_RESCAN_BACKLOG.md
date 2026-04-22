@@ -4,6 +4,16 @@ Last update: 2026-04-22 (Round 105)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-22 - filter-group topic next hides current scope item
+
+- Task: 把 `filter-group` 复习里 Topic / Concept 主“下一张”从 `Good(3)` 调度改成“仅在当前筛选会话内临时隐藏当前卡并前进”，修复卡片不出队、进度条不下降的问题。
+- Touched slice: Review / queue active path across `src/core/queue/abstraction/customActionIds.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, `src/ui/review/v2/{ReviewActions.vue,ReviewView.vue,reviewKeyActionResolver.ts}`, focused review/strategy regression coverage, and `QUEUE_ARCHITECTURE.md`.
+- Debt fixed now: 收口了 Topic / Concept 主按钮和 `Space/Enter` 的动作语义，让鼠标与键盘统一走同一个内部命令；同时把 review 侧“可移除队列”能力检测统一优先解包 `getUnderlyingQueue()`，避免 wrapper 遮蔽底层 queue 的 `removeCard()` 能力。
+- Debt deferred: 这个“会话内临时隐藏当前卡”命令目前仍是 review + unified strategy 之间的内部约定，没有进一步抽成更显式的 queue capability / command contract；Item 评分按钮与 skip 菜单也仍保持各自独立语义。
+- Why deferred: 本轮目标是修正 `filter-group` Topic / Concept 的实际卡住问题并保持现有评分/skip 行为稳定；如果现在把内部命令进一步上提成通用队列契约，会扩大到更多 review action、strategy 接口与测试面的跨切片重构。
+- Next safe step: 如果后续还要新增更多“作用域内隐藏 / rotate / remove”类 review 动作，可以把这类会话命令收敛成显式的 review-queue action contract，并让不同 queue strategy 明确声明支持能力。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/__tests__/reviewKeyActionResolver.test.ts src/application/__tests__/UnifiedQueueStrategy.hide-current-in-scope.test.ts`; `pnpm build`.
+
 ### 2026-04-22 - native riff remove routing and managed-local delete convergence
 
 - Task: Fix native/plugin flashcard cancel so native `removeFlashcards` no longer leaves locally reviewable cards behind, and keep the transaction listener on one `ws-main` route without reintroducing duplicate websocket sources.

@@ -6,6 +6,7 @@ import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
 import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
+import { isHideCurrentInScopeCommandId } from '@/core/queue/abstraction/customActionIds';
 import { formatNextDue } from '@/application/helpers/formatNextDue';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { CacheManagerObserver } from '../observers/CacheManagerObserver';
@@ -316,6 +317,32 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
             }
 
             if (feedback.action === 'custom' && feedback.customActionId) {
+                if (this.shouldHandleHideCurrentInScope(activeItem, feedback.customActionId)) {
+                    const transaction = await this.createReviewTransaction(activeItem, feedback, {
+                        includeCardSnapshot: false,
+                    });
+                    await this.queue.removeCard(activeItem.id);
+                    this.pushHistory(activeItem, transaction);
+                    this.forwardBuffer = [];
+                    this.currentItem = null;
+                    this.pendingRotateCardId = null;
+                    this.clearAvoidOnceIdentity();
+                    const patched = this.applyRemovalToCache(activeItem.id);
+                    this.lastCounterSnapshot = await this.queue.getCounterSnapshot().catch(() => this.lastCounterSnapshot);
+                    if (!patched) {
+                        this.invalidateCache();
+                    } else {
+                        this.cacheValid = true;
+                    }
+                    logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Current card hidden from active scope:`, {
+                        queueType: this.queueType,
+                        cardId: activeItem.id,
+                        blockId: activeItem.blockId,
+                        actionId: feedback.customActionId,
+                    });
+                    return;
+                }
+
                 this.pushHistory(activeItem, null);
                 this.forwardBuffer = [];
                 this.currentItem = null;
@@ -754,6 +781,26 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         return true;
     }
 
+    private applyRemovalToCache(cardId: string): boolean {
+        if (!this.cacheValid) {
+            return false;
+        }
+
+        const cachedIndex = this.cachedCards.findIndex((card) => card.id === cardId || card.blockId === cardId);
+        if (cachedIndex === -1) {
+            return false;
+        }
+
+        this.cachedCards.splice(cachedIndex, 1);
+        if (cachedIndex < this.currentIndex) {
+            this.currentIndex = Math.max(0, this.currentIndex - 1);
+        }
+        if (this.currentIndex > this.cachedCards.length) {
+            this.currentIndex = this.cachedCards.length;
+        }
+        return true;
+    }
+
     private shouldReloadAfterReviewResult(result: QueueReviewResult): boolean {
         if (!result.counterSnapshot) {
             return true;
@@ -1127,6 +1174,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         return this.queueType === QueueType.RetrievalPractice
             || this.queueType === QueueType.IncrementalLearning
             || this.queueType === QueueType.FilterGroup;
+    }
+
+    private shouldHandleHideCurrentInScope(currentItem: FSRSCard, actionId: string): boolean {
+        if (this.queueType !== QueueType.FilterGroup || !isHideCurrentInScopeCommandId(actionId)) {
+            return false;
+        }
+
+        const cardType = String(currentItem.type || '').trim();
+        return cardType === 'topic' || cardType === 'concept';
     }
 
     private async rollbackTransaction(transaction: ReviewTransaction): Promise<void> {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { HIDE_CURRENT_IN_SCOPE_COMMAND_ID } from '@/core/queue/abstraction/customActionIds';
 import { resolveReviewKeyAction } from '../reviewKeyActionResolver';
 
 describe('reviewKeyActionResolver', () => {
@@ -14,6 +15,28 @@ describe('reviewKeyActionResolver', () => {
       answerShown: false,
       isTopicLike: true,
     })).toEqual({ type: 'grade', rating: 3 });
+  });
+
+  it('uses Space/Enter as hide-current-in-scope for filter-group topic-like cards', () => {
+    expect(resolveReviewKeyAction({
+      key: ' ',
+      answerShown: false,
+      isTopicLike: true,
+      topicLikeAction: 'hide-current-in-scope',
+    })).toEqual({
+      type: 'command',
+      commandId: HIDE_CURRENT_IN_SCOPE_COMMAND_ID,
+    });
+
+    expect(resolveReviewKeyAction({
+      key: 'enter',
+      answerShown: false,
+      isTopicLike: true,
+      topicLikeAction: 'hide-current-in-scope',
+    })).toEqual({
+      type: 'command',
+      commandId: HIDE_CURRENT_IN_SCOPE_COMMAND_ID,
+    });
   });
 
   it('does not rate item cards on rating keys before answer is shown', () => {

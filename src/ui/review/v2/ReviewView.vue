@@ -45,6 +45,7 @@
           :current-card="state.content.card"
           :i18n="i18n"
           :queue="providerQueue || props.queue"
+          :queue-type="activeReviewQueueType"
           :plugin="props.plugin"
           :is-mobile="props.isMobile"
           @reveal="handleReveal"
@@ -810,6 +811,8 @@ function resolveActiveReviewQueueType(): string | null {
   return null;
 }
 
+const activeReviewQueueType = computed(() => resolveActiveReviewQueueType() || undefined);
+
 function resolveActiveReviewQueueLabel(): string {
   const title = String(props.title || '').trim();
   if (title.length > 0) {
@@ -1553,7 +1556,16 @@ function buildReviewPriorityMenuLabel(priority: number | null): string {
 
 function getActiveRemovableReviewQueue(): { removeCard?: (cardIdOrBlockId: string) => Promise<void> } | null {
   const activeQueue = providerQueue || props.queue;
-  return isRecord(activeQueue) ? activeQueue as { removeCard?: (cardIdOrBlockId: string) => Promise<void> } : null;
+  if (!isRecord(activeQueue)) {
+    return null;
+  }
+
+  const underlyingQueue = getUnderlyingQueueFromStrategy(activeQueue);
+  if (underlyingQueue && typeof underlyingQueue.removeCard === 'function') {
+    return underlyingQueue as { removeCard?: (cardIdOrBlockId: string) => Promise<void> };
+  }
+
+  return activeQueue as { removeCard?: (cardIdOrBlockId: string) => Promise<void> };
 }
 
 async function removeCardIdsFromActiveQueue(cardIds: string[]): Promise<void> {
@@ -2355,6 +2367,10 @@ function handleReviewKeyAction(
     key,
     answerShown: hook.context.value.showAnswer,
     isTopicLike: isTopicLikeCard(state.value.actions.cardMeta),
+    topicLikeAction: activeReviewQueueType.value === QueueType.FilterGroup
+      && isTopicLikeCard(state.value.actions.cardMeta)
+      ? 'hide-current-in-scope'
+      : 'grade-good',
   });
 
   if (action.type === 'none') {
@@ -2378,6 +2394,17 @@ function handleReviewKeyAction(
       cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
     });
     void hook.grade(action.rating);
+    return;
+  }
+
+  if (action.type === 'command') {
+    logger.debug('[SiYuanMemo][ReviewView] Executing custom command for review card', {
+      commandId: action.commandId,
+      blockId: state.value.actions.cardMeta?.blockID,
+      cardId: state.value.actions.cardMeta?.cardID,
+      cardType: state.value.actions.cardMeta?.cardType || state.value.actions.cardMeta?.type,
+    });
+    void hook.executeCommand(action.commandId);
     return;
   }
 

@@ -1,6 +1,6 @@
 # 活跃队列运行规范
 
-最后更新：2026-04-17
+最后更新：2026-04-22
 
 本文是当前活跃队列语义的专题事实源，只覆盖运行时已注册的 6 个主队列：
 
@@ -58,7 +58,9 @@
 ### FilterGroup
 
 - `filter` 是主语义，队列不会偷偷退化成 today-window 队列。
+- review UI 中，`filter-group` 的 Topic / Concept 主按钮“下一张”以及同语义的 `Space/Enter` 快捷键，执行的是“仅在当前筛选会话内临时隐藏当前卡并前进”，不等价于 `Good(3)` 调度评分。
 - 显式 `remove` 仍然写临时黑名单，因此 `rebuild()` 依然有意义：它会清空显式移除留下的 blacklist 并重新按当前 filter 取数。
+- 上面的临时隐藏动作属于 UI 会话层行为：不会写 scheduler，不增加 answered/correct；`rebuild()` 后这些被临时隐藏的卡会重新出现。
 - 手动加入卡只是补充成员资格来源，不是复习后永远保留的特权；评分后仍按当前 filter 镜像判断是否留队。
 
 ### FinalDrill
