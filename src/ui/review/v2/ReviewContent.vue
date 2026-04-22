@@ -200,6 +200,54 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
+function normalizeDependencyBlockIds(values: Iterable<unknown>): string[] {
+  const result = new Set<string>();
+  for (const value of values) {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (normalized.length > 0) {
+      result.add(normalized);
+    }
+  }
+  return Array.from(result);
+}
+
+function collectFieldMappingDependencyBlockIds(fieldMapping: unknown): string[] {
+  if (!fieldMapping || typeof fieldMapping !== 'object') {
+    return [];
+  }
+
+  return normalizeDependencyBlockIds(Object.values(fieldMapping as Record<string, unknown>));
+}
+
+function collectXiuyuanDependencyBlockIds(meta: unknown): string[] {
+  if (!meta || typeof meta !== 'object') {
+    return [];
+  }
+
+  const metaRecord = meta as Record<string, unknown>;
+  const frontBlockIDs = Array.isArray(metaRecord.frontBlockIDs) ? metaRecord.frontBlockIDs : [];
+  const backBlockIDs = Array.isArray(metaRecord.backBlockIDs) ? metaRecord.backBlockIDs : [];
+
+  return normalizeDependencyBlockIds([
+    ...frontBlockIDs,
+    ...backBlockIDs,
+    ...collectFieldMappingDependencyBlockIds(metaRecord.fieldMapping),
+  ]);
+}
+
+function readDependencyBlockIdsFromViewModelCandidate(candidate: unknown): string[] {
+  if (!candidate || typeof candidate !== 'object') {
+    return [];
+  }
+
+  const dependencyBlockIds = (candidate as { dependencyBlockIds?: unknown }).dependencyBlockIds;
+  if (!Array.isArray(dependencyBlockIds)) {
+    return [];
+  }
+
+  return normalizeDependencyBlockIds(dependencyBlockIds);
+}
+
 // 🆕 性能优化：CSS 类优化器
 const { applyAnswerVisibility: applyAnswerVisibilityOptimized, resetState: resetCssState, getStats: getCssStats } = useCssClassOptimizer({
   debugMode: false,  // 生产环境关闭调试
@@ -230,6 +278,7 @@ const answerHostRef = ref<HTMLDivElement | null>(null);
 const editorRef = ref<siyuan.Protyle | null>(null);
 const answerEditorRef = ref<siyuan.Protyle | null>(null);
 const renderError = ref<string | null>(null);
+const preciseDependencyBlockIds = ref<string[]>([]);
 let renderSeq = 0;
 let answerRenderSeq = 0;
 let mainRenderRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -714,6 +763,20 @@ const nativeSplitGuardState = computed<ReviewNativeSplitGuardState>(() => {
   };
 });
 
+const fallbackDependencyBlockIds = computed(() => normalizeDependencyBlockIds([
+  props.content.id,
+  props.content.answerBlockID,
+  props.content.card?.blockId,
+  ...collectXiuyuanDependencyBlockIds(props.content.card?.meta),
+  ...collectXiuyuanDependencyBlockIds(props.content.xiuyuanMeta),
+]));
+
+const currentDependencyBlockIds = computed(() => (
+  preciseDependencyBlockIds.value.length > 0
+    ? preciseDependencyBlockIds.value
+    : fallbackDependencyBlockIds.value
+));
+
 function emitEditorState(state: ReviewEditorState): void {
   if (
     currentEditorState.renderer === state.renderer
@@ -898,10 +961,15 @@ function getNativeSplitGuardState(): ReviewNativeSplitGuardState {
   return nativeSplitGuardState.value;
 }
 
+function getDependencyBlockIds(): string[] {
+  return [...currentDependencyBlockIds.value];
+}
+
 defineExpose({
   exitEditorByEscape,
   getEditableSource,
   getNativeSplitGuardState,
+  getDependencyBlockIds,
 });
 
 // 概念定义卡加载成功
@@ -914,8 +982,27 @@ function handleRendererError(rendererName: string, error: Error): void {
   renderError.value = t('cardRenderFailed', 'Failed to render this card');
 }
 
+function updatePreciseDependencyBlockIds(result: unknown): void {
+  const directDependencyBlockIds = readDependencyBlockIdsFromViewModelCandidate(result);
+  const nestedDependencyBlockIds = directDependencyBlockIds.length > 0
+    ? []
+    : readDependencyBlockIdsFromViewModelCandidate((result as { viewModel?: unknown } | null | undefined)?.viewModel);
+  const nextDependencyBlockIds = normalizeDependencyBlockIds([
+    ...fallbackDependencyBlockIds.value,
+    ...directDependencyBlockIds,
+    ...nestedDependencyBlockIds,
+  ]);
+
+  if (nextDependencyBlockIds.length === 0) {
+    return;
+  }
+
+  preciseDependencyBlockIds.value = nextDependencyBlockIds;
+}
+
 function handleConceptDefinitionCardLoaded(result: unknown) {
   clearRendererError();
+  updatePreciseDependencyBlockIds(result);
   logger.debug('[SiYuanMemo][ReviewContent] Concept definition card loaded:', result);
 }
 
@@ -936,6 +1023,7 @@ function handleImageOcclusionError(error: Error) {
 // 概念卡加载成功
 function handleConceptCardLoaded(result: unknown) {
   clearRendererError();
+  updatePreciseDependencyBlockIds(result);
   logger.debug('[SiYuanMemo][ReviewContent] Concept card loaded:', result);
 }
 
@@ -947,6 +1035,7 @@ function handleConceptCardError(error: Error) {
 // 描述符卡加载成功
 function handleDescriptorCardLoaded(result: unknown) {
   clearRendererError();
+  updatePreciseDependencyBlockIds(result);
   logger.debug('[SiYuanMemo][ReviewContent] Descriptor card loaded:', result);
 }
 
@@ -1925,6 +2014,14 @@ watch(
     destroyMainProtyle({ invalidatePending: true });
     destroyAnswerProtyle({ invalidatePending: true });
   },
+);
+
+watch(
+  () => [props.content.id, props.content.card?.id, props.content.answerBlockID],
+  () => {
+    preciseDependencyBlockIds.value = [];
+  },
+  { immediate: true },
 );
 
 watch(

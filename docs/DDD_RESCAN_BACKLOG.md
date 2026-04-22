@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-21 (Round 103)
+Last update: 2026-04-22 (Round 104)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - review source-block auto-refresh for non-native review surfaces
+
+- Task: Make non-native review surfaces refresh the current card when its source blocks change, without depending on quick-card sync or native riff incremental sync toggles.
+- Touched slice: Review v2 runtime and current-card render models across `src/ui/review/v2/{ReviewView.vue,ReviewContent.vue}`, `src/core/card/common/application/types.ts`, concept / concept-definition / descriptor render services, and focused regression coverage.
+- Debt fixed now: Added review-local `ws-main` transaction listening with bounded debounce and current-card dependency matching; exposed `getDependencyBlockIds()` from `ReviewContent`; merged fallback dependency ids from `content.id`, `answerBlockID`, `card.blockId`, and Xiuyuan meta fields with richer renderer-reported dependency ids; taught concept, concept-definition, and descriptor view models to publish their source/breadcrumb dependency block ids; and suppressed same-block double refresh after saving through the review-side large-text editor.
+- Debt deferred: Browser surfaces still do not react to source-block mutations through the same dependency model, and review refresh still only re-renders the currently visible card instead of rehydrating hidden queue items or building a global source-to-card reverse index.
+- Why deferred: Extending the same dependency graph into browser data sources or queue-wide hydration would widen this bounded review-runtime repair into storage, datasource, and global event-model work, while the active issue was stale content on the current non-native review card.
+- Next safe step: If the browser needs the same behavior, extract the dependency-id contract into a shared review/browser refresh coordinator before introducing any source-to-card indexing or queue-wide invalidation.
+- Validation: `pnpm exec vitest run src/core/card/concept-definition/application/__tests__/ConceptDefinitionCardRenderService.test.ts src/core/card/concept/application/__tests__/ConceptCardRenderService.test.ts src/core/card/descriptor-card/__tests__/DescriptorCardRenderService.cdf-fusion.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-21 - native riff idle sync persistence loop and concept-definition stale render fallback
 

@@ -76,6 +76,10 @@ export class ConceptCardRenderService extends BaseCardRenderService {
       conceptBlockId,
       contentHtml,
       breadcrumbs,
+      dependencyBlockIds: Array.from(new Set([
+        conceptBlockId,
+        ...breadcrumbs.map((item) => item.id),
+      ].filter((value): value is string => typeof value === 'string' && value.length > 0))),
     };
   }
 

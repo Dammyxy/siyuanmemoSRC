@@ -21,4 +21,5 @@ export interface BreadcrumbItem {
 export interface BaseCardViewModel {
   blockId: string;
   breadcrumbs: BreadcrumbItem[];
+  dependencyBlockIds?: string[];
 }

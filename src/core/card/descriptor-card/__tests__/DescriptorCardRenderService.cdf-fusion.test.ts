@@ -49,6 +49,10 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm!.frontHtml).toContain('？');
     expect(vm!.frontHtml).not.toContain('是？');
     expect(vm!.backHtml).toContain('woz');
+    expect(vm!.dependencyBlockIds).toEqual(expect.arrayContaining([
+      'descriptor-block',
+      'concept-block',
+    ]));
   });
 
   it('falls back to group-only question when child cue is empty', async () => {

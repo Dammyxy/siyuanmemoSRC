@@ -207,6 +207,7 @@ import type { AIWorkbenchLegacyView, AIWorkbenchOpenOptions, AIWorkbenchSurface 
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
+import { parseTransactionsPayload, parseWSMessage } from '@/core/infrastructure/websocket/transaction-types';
 
 const logger = createLogger('ReviewView');
 
@@ -379,6 +380,7 @@ type ReviewPluginContextLike = {
 
 type ReviewPluginLike = {
   name?: unknown;
+  eventBus?: WorkspaceEventBusLike;
   getContext?: () => ReviewPluginContextLike | undefined;
   openReviewTab?: (options: {
     provider?: unknown;
@@ -388,6 +390,11 @@ type ReviewPluginLike = {
     headerVariant?: ReviewHeaderVariant;
     transferState?: ReviewTabTransferState;
   }) => void;
+};
+
+type WorkspaceEventBusLike = {
+  on?: (event: string, listener: (payload: unknown) => void) => void;
+  off?: (event: string, listener: (payload: unknown) => void) => void;
 };
 
 type UnderlyingQueueLike = {
@@ -470,6 +477,7 @@ type ReviewCardPeerInfo = {
 type ReviewContentExpose = {
   exitEditorByEscape: () => boolean;
   getEditableSource: () => ReviewEditableSource | null;
+  getDependencyBlockIds?: () => string[];
   getNativeSplitGuardState?: () => ReviewNativeSplitGuardState;
 };
 
@@ -516,6 +524,43 @@ function getWindowPlugin(): ReviewPluginLike | null {
   });
 
   return isRecord(matched) ? (matched as ReviewPluginLike) : null;
+}
+
+function getWorkspaceEventBus(): WorkspaceEventBusLike | null {
+  const pluginFromProps = props.plugin as ReviewPluginLike | undefined;
+  if (pluginFromProps?.eventBus) {
+    return pluginFromProps.eventBus;
+  }
+
+  return getWindowPlugin()?.eventBus || null;
+}
+
+function extractWorkspaceWsMessage(event: unknown): { cmd: string; data?: unknown } | null {
+  if (!event || typeof event !== 'object') {
+    return null;
+  }
+
+  const candidate = event as {
+    detail?: unknown;
+    cmd?: unknown;
+    data?: unknown;
+  };
+  const detail = candidate.detail && typeof candidate.detail === 'object'
+    ? candidate.detail as { cmd?: unknown; data?: unknown }
+    : candidate;
+
+  if (typeof detail.cmd === 'string') {
+    return {
+      cmd: detail.cmd,
+      data: detail.data,
+    };
+  }
+
+  if (typeof detail.data === 'string') {
+    return parseWSMessage(detail.data);
+  }
+
+  return null;
 }
 
 function getProtyleFromHost(host: Element): ProtyleLike | null {
@@ -581,6 +626,8 @@ const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 14
 const rootRef = ref<HTMLDivElement | null>(null);
 const contentRef = ref<ReviewContentExpose | null>(null);
 const recentModifiedHotkeys = new Map<string, number>();
+const reviewSourceRefreshSuppressedBlockIds = new Map<string, number>();
+const pendingReviewSourceBlockIds = new Set<string>();
 const editorState = ref<ReviewEditorState>(createReviewEditorState());
 const renderEpoch = ref(0);
 const reviewTextEditorOpen = ref(false);
@@ -594,9 +641,12 @@ let reviewResizeHandler: (() => void) | null = null;
 let initialFullscreenTimer: number | null = null;
 let initialTabSurfaceRefreshTimer: number | null = null;
 let nativeSplitMenuPruneTimer: number | null = null;
+let reviewSourceRefreshTimer: number | null = null;
 let nativeSplitBlockedNoticeAt = 0;
 let escRepeatLatch = false;
 const NATIVE_SPLIT_BLOCKED_NOTICE_COOLDOWN_MS = 1500;
+const REVIEW_SOURCE_REFRESH_DEBOUNCE_MS = 200;
+const REVIEW_SOURCE_REFRESH_SUPPRESSION_MS = 600;
 
 const reviewTextEditorTitle = computed(() => (
   reviewTextEditorSource.value?.title || t('editCurrentContent', '编辑当前内容')
@@ -1185,6 +1235,7 @@ onMounted(() => {
   refreshNavigationState();
   syncReviewFilterFromQueue();
   bindReviewDataObserver();
+  bindReviewWorkspaceEventBus();
   reviewResizeHandler = () => {
     viewportWidth.value = window.innerWidth;
     updateReviewDialogContainerLayout();
@@ -1215,6 +1266,7 @@ onUnmounted(() => {
   escRepeatLatch = false;
   clearNativeSplitMenuPruneTimer();
   unbindReviewDataObserver();
+  unbindReviewWorkspaceEventBus();
   if (reviewResizeHandler) {
     window.removeEventListener('resize', reviewResizeHandler);
     reviewResizeHandler = null;
@@ -1338,6 +1390,7 @@ const showReviewFilterDialog = ref(false);
 const appliedReviewFilter = ref<CardFilter | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
 let subscribedReviewManager: IUnifiedDataSourceManagerFacade | null = null;
+let subscribedReviewWorkspaceEventBus: WorkspaceEventBusLike | null = null;
 
 const REVIEW_AI_SIDECAR_MIN_VIEWPORT = 1040;
 
@@ -1783,6 +1836,147 @@ async function appendCreatedCardsToActiveScopeQueue(cardIds: string[]): Promise<
   }
 }
 
+function clearReviewSourceRefreshTimer(): void {
+  if (reviewSourceRefreshTimer !== null) {
+    window.clearTimeout(reviewSourceRefreshTimer);
+    reviewSourceRefreshTimer = null;
+  }
+}
+
+function pruneReviewSourceRefreshSuppression(now: number = Date.now()): void {
+  for (const [blockId, expiresAt] of reviewSourceRefreshSuppressedBlockIds.entries()) {
+    if (expiresAt <= now) {
+      reviewSourceRefreshSuppressedBlockIds.delete(blockId);
+    }
+  }
+}
+
+function suppressReviewSourceRefreshForBlock(blockId: string): void {
+  const normalizedBlockId = String(blockId || '').trim();
+  if (!normalizedBlockId) {
+    return;
+  }
+
+  reviewSourceRefreshSuppressedBlockIds.set(
+    normalizedBlockId,
+    Date.now() + REVIEW_SOURCE_REFRESH_SUPPRESSION_MS,
+  );
+}
+
+function collectChangedBlockIdsFromTransactions(rawData: unknown): string[] {
+  const changedBlockIds = new Set<string>();
+  const transactions = parseTransactionsPayload(rawData);
+
+  for (const transaction of transactions) {
+    for (const operation of transaction.doOperations || []) {
+      for (const candidate of [operation.id, operation.parentID, operation.previousID, operation.nextID]) {
+        const normalized = String(candidate || '').trim();
+        if (normalized.length > 0) {
+          changedBlockIds.add(normalized);
+        }
+      }
+    }
+  }
+
+  return Array.from(changedBlockIds);
+}
+
+function getCurrentReviewDependencyBlockIds(): string[] {
+  const dependencyBlockIds = contentRef.value?.getDependencyBlockIds?.() || [];
+  if (dependencyBlockIds.length > 0) {
+    return dependencyBlockIds;
+  }
+
+  const currentCard = state.value.content.card;
+  return [
+    state.value.content.id,
+    state.value.content.answerBlockID,
+    currentCard?.blockId,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter((value) => value.length > 0);
+}
+
+async function refreshCurrentReviewCardForSourceChange(matchedBlockIds: string[]): Promise<void> {
+  const currentCard = state.value.content.card as FSRSCard | null | undefined;
+  const currentReference = getCurrentReviewCardReference();
+  if (!currentCard || (!currentReference.cardId && !currentReference.blockId)) {
+    return;
+  }
+
+  logger.debug('[SiYuanMemo][ReviewView] Refreshing current review card for source block changes:', {
+    matchedBlockIds,
+    currentCardId: currentReference.cardId,
+    currentBlockId: currentReference.blockId,
+  });
+
+  renderEpoch.value += 1;
+  await hook.refreshCurrentItem(currentCard, buildExpectedRefreshOptions(currentReference));
+}
+
+async function flushPendingReviewSourceRefresh(): Promise<void> {
+  const pendingBlockIds = Array.from(pendingReviewSourceBlockIds);
+  pendingReviewSourceBlockIds.clear();
+  if (pendingBlockIds.length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  pruneReviewSourceRefreshSuppression(now);
+  const effectiveBlockIds = pendingBlockIds.filter((blockId) => {
+    const expiresAt = reviewSourceRefreshSuppressedBlockIds.get(blockId);
+    return !expiresAt || expiresAt <= now;
+  });
+  if (effectiveBlockIds.length === 0) {
+    return;
+  }
+
+  const dependencyBlockIds = new Set(getCurrentReviewDependencyBlockIds());
+  if (dependencyBlockIds.size === 0) {
+    return;
+  }
+
+  const matchedBlockIds = effectiveBlockIds.filter((blockId) => dependencyBlockIds.has(blockId));
+  if (matchedBlockIds.length === 0) {
+    return;
+  }
+
+  await refreshCurrentReviewCardForSourceChange(matchedBlockIds);
+}
+
+function queueReviewSourceRefresh(blockIds: string[]): void {
+  for (const blockId of blockIds) {
+    const normalized = String(blockId || '').trim();
+    if (normalized.length > 0) {
+      pendingReviewSourceBlockIds.add(normalized);
+    }
+  }
+
+  if (pendingReviewSourceBlockIds.size === 0) {
+    return;
+  }
+
+  clearReviewSourceRefreshTimer();
+  reviewSourceRefreshTimer = window.setTimeout(() => {
+    reviewSourceRefreshTimer = null;
+    void flushPendingReviewSourceRefresh();
+  }, REVIEW_SOURCE_REFRESH_DEBOUNCE_MS);
+}
+
+const handleReviewWorkspaceMessage = (event: unknown): void => {
+  const message = extractWorkspaceWsMessage(event);
+  if (!message || message.cmd !== 'transactions') {
+    return;
+  }
+
+  const changedBlockIds = collectChangedBlockIdsFromTransactions(message.data);
+  if (changedBlockIds.length === 0) {
+    return;
+  }
+
+  queueReviewSourceRefresh(changedBlockIds);
+};
+
 const reviewDataObserver: IDataSourceObserver = {
   onDataChanged(event: DataChangeEvent) {
     if (event.type === 'card-created') {
@@ -1825,6 +2019,20 @@ function bindReviewDataObserver(): void {
   subscribedReviewManager?.registerObserver(reviewDataObserver);
 }
 
+function bindReviewWorkspaceEventBus(): void {
+  const eventBus = getWorkspaceEventBus();
+  if (eventBus === subscribedReviewWorkspaceEventBus) {
+    return;
+  }
+
+  if (subscribedReviewWorkspaceEventBus?.off) {
+    subscribedReviewWorkspaceEventBus.off('ws-main', handleReviewWorkspaceMessage);
+  }
+
+  subscribedReviewWorkspaceEventBus = eventBus;
+  subscribedReviewWorkspaceEventBus?.on?.('ws-main', handleReviewWorkspaceMessage);
+}
+
 function unbindReviewDataObserver(): void {
   if (!subscribedReviewManager) {
     return;
@@ -1832,6 +2040,19 @@ function unbindReviewDataObserver(): void {
 
   subscribedReviewManager.unregisterObserver(reviewDataObserver);
   subscribedReviewManager = null;
+}
+
+function unbindReviewWorkspaceEventBus(): void {
+  clearReviewSourceRefreshTimer();
+  pendingReviewSourceBlockIds.clear();
+  reviewSourceRefreshSuppressedBlockIds.clear();
+
+  if (!subscribedReviewWorkspaceEventBus) {
+    return;
+  }
+
+  subscribedReviewWorkspaceEventBus.off?.('ws-main', handleReviewWorkspaceMessage);
+  subscribedReviewWorkspaceEventBus = null;
 }
 
 function getEventElement(target: EventTarget | null): HTMLElement | null {
@@ -3013,6 +3234,7 @@ async function confirmCurrentContentEditor(): Promise<void> {
     }
 
     reviewTextEditorOriginalValue.value = reviewTextEditorValue.value;
+    suppressReviewSourceRefreshForBlock(editableSource.blockId);
     renderEpoch.value += 1;
 
     const currentCard = state.value.content.card;

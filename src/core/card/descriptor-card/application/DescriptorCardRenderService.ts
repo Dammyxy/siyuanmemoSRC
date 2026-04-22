@@ -117,6 +117,12 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       const viewModel: DescriptorCardViewModel = {
         blockId: card.blockId,
         breadcrumbs, // 🆕 使用面包屑
+        dependencyBlockIds: Array.from(new Set([
+          card.blockId,
+          card.parentConcept?.blockId,
+          ...card.siblingDescriptors.map((sibling) => sibling.blockId),
+          ...breadcrumbs.map((item) => item.id),
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0))),
         frontHtml,
         backHtml,
         attribute: card.attribute,

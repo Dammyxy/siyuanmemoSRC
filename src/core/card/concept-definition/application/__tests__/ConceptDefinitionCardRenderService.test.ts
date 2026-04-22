@@ -71,6 +71,10 @@ describe('ConceptDefinitionCardRenderService', () => {
     expect(viewModel.conceptName).toBe('学习');
     expect(viewModel.frontHtml).toContain('学习');
     expect(viewModel.backHtml).toContain('<rich>学习是学习者在共同体中逐渐增加参与度的社会过程。</rich>');
+    expect(viewModel.dependencyBlockIds).toEqual(expect.arrayContaining([
+      'definition-1',
+      'concept-missing',
+    ]));
   });
 
   it('keeps throwing a stable missing-concept error when the definition content cannot recover the concept name', async () => {

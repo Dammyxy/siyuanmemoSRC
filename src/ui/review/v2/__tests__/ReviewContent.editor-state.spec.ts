@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineComponent, h } from 'vue';
 import type { ReviewEditorState } from '../reviewEditorState';
 
 const reviewContentMocks = vi.hoisted(() => {
@@ -1678,6 +1679,145 @@ describe('ReviewContent editor state', () => {
     const host = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
     expect(host.classList.contains('siyuanmemo-review-card__block--hidesb')).toBe(false);
     expect(host.classList.contains('card__block--hidesb')).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('exposes fallback dependency block ids for the current card', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: {
+          type: 'protyle' as const,
+          id: 'definition-block',
+          data: '',
+          answerBlockID: 'answer-block',
+          card: {
+            id: 'card-cdf',
+            blockId: 'card-block',
+            type: 'item',
+            meta: {
+              frontBlockIDs: ['concept-block'],
+              backBlockIDs: ['definition-block'],
+              fieldMapping: {
+                concept: 'concept-block',
+                definition: 'definition-block',
+              },
+            },
+          },
+        },
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const exposed = wrapper.vm as unknown as { getDependencyBlockIds: () => string[] };
+    expect(exposed.getDependencyBlockIds()).toEqual(expect.arrayContaining([
+      'definition-block',
+      'answer-block',
+      'card-block',
+      'concept-block',
+    ]));
+
+    wrapper.unmount();
+  });
+
+  it('merges renderer-refined dependency block ids for concept-definition cards', async () => {
+    const ConceptDefinitionRendererStub = defineComponent({
+      name: 'ConceptDefinitionCardRendererStub',
+      emits: ['loaded'],
+      setup() {
+        return () => h('div', { class: 'concept-definition-renderer-stub' });
+      },
+    });
+
+    reviewContentConceptMocks.isConceptDefinitionCard.mockReturnValue(true);
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: {
+          type: 'protyle' as const,
+          id: 'definition-block',
+          data: '',
+          card: {
+            id: 'card-cdf',
+            blockId: 'card-block',
+            type: 'item',
+            meta: {
+              frontBlockIDs: ['concept-block'],
+              backBlockIDs: ['definition-block'],
+              fieldMapping: {
+                concept: 'concept-block',
+                definition: 'definition-block',
+              },
+            },
+          },
+        },
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: ConceptDefinitionRendererStub,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+    const renderer = wrapper.findComponent({ name: 'ConceptDefinitionCardRendererStub' });
+    expect(renderer.exists()).toBe(true);
+    renderer.vm.$emit('loaded', {
+      dependencyBlockIds: ['breadcrumb-1', 'concept-block', 'definition-block'],
+    });
+    await settleReviewContent();
+
+    const exposed = wrapper.vm as unknown as { getDependencyBlockIds: () => string[] };
+    expect(exposed.getDependencyBlockIds()).toEqual(expect.arrayContaining([
+      'definition-block',
+      'card-block',
+      'concept-block',
+      'breadcrumb-1',
+    ]));
 
     wrapper.unmount();
   });
