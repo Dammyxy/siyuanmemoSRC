@@ -4,11 +4,21 @@ Last update: 2026-04-22 (Round 108)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-22 - progressive topic item terminology alignment
+
+- Task: 统一 progressive 摘录与摘录后续制卡链路的用户可见命名，把自动生成的摘录结果统一叫 `Topic`，把自动/手动生成的练习统一叫 `Item`。
+- Touched slice: Progressive / Excerpt / Topic-derived item user-facing surface across `src/i18n/{zh_CN,en_US}.json`, `src/application/handlers/{ProgressiveExcerptHotkeyHandler.ts,AutoCardHandler.ts}`, `src/application/managers/BlockMenuHandler.ts`, `src/ui/review/v2/ReviewView.vue`, focused progressive wording tests, and `ARCHITECTURE.md`.
+- Debt fixed now: 收敛了 progressive excerpt/topic continuation 在热键、右键菜单、review 注入、block menu 和 auto symbol toast 里的混合命名，避免同一条 active path 同时暴露“摘录 Topic / 练习卡 / excerpt / Item”几套用户心智；同时把运行时 fallback 文案和架构说明同步到同一术语口径。
+- Debt deferred: 没有做 repo-wide key/service/class 命名迁移，`progressiveExcerpt*` i18n key、`SelectionExcerptService`、`TopicDerivedItemService` 等内部 API 仍保留现名；历史 backlog 任务记录中的旧术语也未整仓改写。
+- Why deferred: 这轮目标是先统一当前 active path 的用户可见术语和 runtime 说明；如果把内部标识也一起迁移，会把任务扩大成高噪音命名重构，并增加不必要的回归面。
+- Next safe step: 如果后续要继续统一内部语义，优先从 progressive i18n key 和 selection/topic continuation 服务名开始做分批迁移，并配合一次受控的全局测试回归。
+- Validation: `pnpm vitest run src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts src/ui/review/v2/__tests__/ReviewView.progressive-excerpt-hyperspace.spec.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-22 - excerpt manual topic continuation
 
-- Task: 为摘录 / 全局摘录 / Daily Note 摘录补上 SuperMemo 式“摘录上制卡”手动入口，让编辑器选区右键在摘录 Topic 语境下直接生成 derived Item 练习卡。
+- Task: 为摘录 / 全局摘录 / Daily Note 摘录补上 SuperMemo 式“在 Topic 下创建 Item”手动入口，让编辑器选区右键在摘录 Topic 语境下直接生成 derived Item。
 - Touched slice: Progressive / Excerpt / Topic-derived item active path across `src/application/services/{SelectionTopicContinuationService.ts,TopicDerivedItemService.ts}`, `src/application/handlers/{ProgressiveExcerptHotkeyHandler.ts,AutoCardHandler.ts}`, `src/application/ApplicationContext.ts`, progressive i18n strings, focused continuation tests, and `ARCHITECTURE.md`.
-- Debt fixed now: 把 editor 右键里的“在摘录下制卡”收敛到新的 `SelectionTopicContinuationService`，避免把 topic/excerpt 判定、DOM 归一、planner 识别和 async source lineage 解析散在 handler 里；让 excerpt-doc continuation 强制直挂练习子文档而不是误落 workbench；并把 excerpt-block / excerpt-doc 的 `parentExcerptId` 继续写进 derived child doc attrs 与本地卡 `progressiveLineage`，让摘录 Topic 下继续制卡和 auto symbol 路径共用同一契约。
+- Debt fixed now: 把 editor 右键里的“在 Topic 下创建 Item”收敛到新的 `SelectionTopicContinuationService`，避免把 topic/excerpt 判定、DOM 归一、planner 识别和 async source lineage 解析散在 handler 里；让 excerpt-doc continuation 强制直挂 Item 子文档而不是误落 workbench；并把 excerpt-block / excerpt-doc 的 `parentExcerptId` 继续写进 derived child doc attrs 与本地卡 `progressiveLineage`，让 Topic 下继续创建 Item 和 auto symbol 路径共用同一契约。
 - Debt deferred: 选区手动 continuation 目前主要依赖选区 DOM 归一来重建 `mark/block-ref/basic` 语义，尚未做更完整的 WYSIWYG -> kramdown 逆向还原；普通 block icon 的“快速制卡”入口仍保持原模板链，没有并入 excerpt/topic-derived manual flow。
 - Why deferred: 这轮目标是把摘录 Topic 的 active-path 手动入口补齐并与现有 auto/topic-derived 契约对齐；如果现在继续扩到全量 WYSIWYG 逆向还原或重写 block-menu 快速制卡语义，会把任务扩大成更高风险的 editor/parser 和 card-entry 重构。
 - Next safe step: 如果后续用户希望手动 continuation 覆盖更多富文本语义，优先补一个受控的 selection DOM -> canonical markdown 归一层，并评估是否把 block icon 的普通“快速制卡”也显式分流到 excerpt/topic continuation。

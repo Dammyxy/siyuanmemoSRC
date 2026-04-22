@@ -840,7 +840,7 @@ export class AutoCardHandler implements ITransactionHandler {
 
                 if (derivedResult.created > 0) {
                     await this.siyuanApi.pushMsg(
-                        `已在当前 Topic 下新增 ${derivedResult.created} 张练习卡${derivedResult.skipped > 0 ? `，跳过 ${derivedResult.skipped} 个重复项` : ''}`
+                        `已在当前 Topic 下新增 ${derivedResult.created} 个 Item${derivedResult.skipped > 0 ? `，跳过 ${derivedResult.skipped} 个重复项` : ''}`
                     );
                 }
                 return;

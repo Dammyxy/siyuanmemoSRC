@@ -952,7 +952,7 @@ export class BlockMenuHandler {
       }
 
       result.colorApplied = await this.tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight);
-      await this.siyuanApi.pushMsg(this.text('progressiveExcerptCreated', '已创建摘录 Topic，已进入今日渐进学习'));
+      await this.siyuanApi.pushMsg(this.text('progressiveExcerptCreated', '已创建 Topic，已进入今日渐进学习'));
     } catch (error) {
       logger.error('[BlockMenuHandler] Failed to create progressive excerpt from block menu:', error);
       await this.siyuanApi.pushErrMsg(

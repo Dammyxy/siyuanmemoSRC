@@ -111,16 +111,16 @@ function createHandler(options?: {
         }),
       }),
       getI18n: () => ({
-        progressiveExcerptCreatedHotkey: 'Excerpt Topic created and added to today',
+        progressiveExcerptCreatedHotkey: 'Topic created and added to today',
         progressiveExcerptNoSelection: 'Select text before excerpting',
         progressiveExcerptDisabled: 'Excerpt shortcut is disabled. Enable it in settings first.',
         progressiveExcerptDuplicateJumped: 'This passage was already excerpted.',
         progressiveExcerptMenuLabel: 'Excerpt',
-        progressiveExcerptContinuationMenuLabel: '在摘录下制卡',
-        progressiveExcerptContinuationCreated: '已在当前摘录下新增 {created} 张练习卡',
-        progressiveExcerptContinuationCreatedSkipped: '已在当前摘录下新增 {created} 张练习卡，跳过 {skipped} 个重复项',
-        progressiveExcerptContinuationSkipped: '当前摘录下已存在相同练习卡，已跳过 {skipped} 个重复项',
-        progressiveExcerptContinuationFailed: '在摘录下制卡失败：{message}',
+        progressiveExcerptContinuationMenuLabel: '在 Topic 下创建 Item',
+        progressiveExcerptContinuationCreated: '已在当前 Topic 下新增 {created} 个 Item',
+        progressiveExcerptContinuationCreatedSkipped: '已在当前 Topic 下新增 {created} 个 Item，跳过 {skipped} 个重复项',
+        progressiveExcerptContinuationSkipped: '当前 Topic 下已存在相同 Item，已跳过 {skipped} 个重复项',
+        progressiveExcerptContinuationFailed: '在 Topic 下创建 Item 失败：{message}',
         ...(options?.i18n || {}),
       }),
       getSelectionExcerptService: () => ({
@@ -210,7 +210,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     });
     expect(prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(showMessage).toHaveBeenCalledWith('Excerpt Topic created and added to today', 3000, 'info');
+    expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
   it('shows the existing selection error when the editor command has no valid single-block selection', async () => {
@@ -275,7 +275,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     });
     expect(prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(showMessage).toHaveBeenCalledWith('Excerpt Topic created and added to today', 3000, 'info');
+    expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
   it('keeps excerpt creation successful when highlight replay throws', async () => {
@@ -306,7 +306,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     } as any);
 
     expect(createFromSelection).toHaveBeenCalledTimes(1);
-    expect(showMessage).toHaveBeenCalledWith('Excerpt Topic created and added to today', 3000, 'info');
+    expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
   it('adds an excerpt item to the content menu for a valid single-block editor selection', async () => {
@@ -355,7 +355,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     });
     expect(prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(showMessage).toHaveBeenCalledWith('Excerpt Topic created and added to today', 3000, 'info');
+    expect(showMessage).toHaveBeenCalledWith('Topic created and added to today', 3000, 'info');
   });
 
   it('keeps only the excerpt entry in ordinary documents without topic/excerpt continuation context', () => {
@@ -473,7 +473,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     });
 
     expect(menu.addItem).toHaveBeenCalledTimes(2);
-    expect(menu.addItem.mock.calls[1][0].label).toBe('在摘录下制卡');
+    expect(menu.addItem.mock.calls[1][0].label).toBe('在 Topic 下创建 Item');
 
     await menu.addItem.mock.calls[1][0].click();
 
@@ -482,7 +482,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       rootId: 'excerpt-doc-root-1',
       selectedText: 'Alpha Beta',
     }), preparation);
-    expect(showMessage).toHaveBeenCalledWith('已在当前摘录下新增 2 张练习卡，跳过 1 个重复项', 3000, 'info');
+    expect(showMessage).toHaveBeenCalledWith('已在当前 Topic 下新增 2 个 Item，跳过 1 个重复项', 3000, 'info');
   });
 
   it('shows the continuation success toast for daily-note excerpt blocks', async () => {
@@ -549,7 +549,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
 
     await menu.addItem.mock.calls[1][0].click();
 
-    expect(showMessage).toHaveBeenCalledWith('已在当前摘录下新增 1 张练习卡', 3000, 'info');
+    expect(showMessage).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item', 3000, 'info');
   });
 
   it('does not add an excerpt item to the content menu when the selection is invalid', () => {

@@ -194,7 +194,7 @@ sequenceDiagram
 - `BlockMenuHandler` 中的 progressive excerpt 入口
 - `ReviewView.vue` 对 `PROGRESSIVE_EXCERPT_REQUEST_EVENT` 的响应
 - `AutoCardHandler` 中的 topic continuation / topic-derived item 入口
-- 编辑器选区右键中的 `摘录` / `在摘录下制卡`
+- 编辑器选区右键中的 `摘录` / `在 Topic 下创建 Item`
 
 主链路分工：
 
@@ -613,6 +613,7 @@ Review 运行时要点：
 Progressive 制卡契约：
 
 - split / excerpt / topic-derived 生成物创建的是本地 Xiuyuan / FSRS 卡，并通过 `ProgressiveNativeRiffPort` 注册到原生 Riff；linear split 只立即为当前 active piece 建 Topic 卡，完成当前片后再释放下一片，nonlinear split 则立即为全部 piece 建 Topic 卡。
+- 术语约定：自动生成的摘录统一视为 `Topic`，在 Topic / 摘录语境里自动或手动生成的练习统一视为 `Item`。
 - 摘录即 Topic：摘录文档、全局摘录库摘录和 Daily Note 摘录块上的后续符号/选区制卡，都会落到本地 derived Item 卡 + 原生 Riff 注册，而不是把块级 card-type 属性当作事实源。
 - 这些 progressive 卡的类型真相源保存在本地 Xiuyuan / FSRS 数据里，不依赖块级 `custom-fsrs-card-type`；块属性只保留必要的 `custom-xiuyuan-id`、原生 Riff 标记，以及 `custom-fsrs-reading-*` 来源/lineage 信息。
 - 新的 progressive-owned `piece` / `excerpt` / `derived-item` 不再写 deprecated `custom-fsrs-card-type`，但非 progressive 的历史 quick/card/sync 路径仍可能兼容读写该旧属性。

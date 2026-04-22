@@ -103,7 +103,7 @@ export class ProgressiveExcerptHotkeyHandler {
 
     menu.addItem({
       icon: 'iconAdd',
-      label: this.translate('progressiveExcerptContinuationMenuLabel', '在摘录下制卡'),
+      label: this.translate('progressiveExcerptContinuationMenuLabel', '在 Topic 下创建 Item'),
       click: async () => {
         await this.runTopicContinuationFromSnapshot(selection, topicContinuationPreparation);
       },
@@ -163,7 +163,7 @@ export class ProgressiveExcerptHotkeyHandler {
 
       result.colorApplied = await this.tryApplyExcerptHighlight(preparedHighlight);
       showMessage(
-        this.translate('progressiveExcerptCreatedHotkey', '已创建摘录 Topic，已进入今日渐进学习'),
+        this.translate('progressiveExcerptCreatedHotkey', '已创建 Topic，已进入今日渐进学习'),
         3000,
         'info',
       );
@@ -199,7 +199,7 @@ export class ProgressiveExcerptHotkeyHandler {
     } catch (error) {
       logger.error('Failed to create derived items from excerpt selection', error);
       showMessage(
-        this.translate('progressiveExcerptContinuationFailed', '在摘录下制卡失败：{message}')
+        this.translate('progressiveExcerptContinuationFailed', '在 Topic 下创建 Item 失败：{message}')
           .replace('{message}', error instanceof Error ? error.message : String(error)),
         5000,
         'error',
@@ -334,15 +334,15 @@ export class ProgressiveExcerptHotkeyHandler {
 
   private formatTopicContinuationMessage(result: SelectionTopicContinuationResult): string {
     if (result.created > 0 && result.skipped > 0) {
-      return this.translate('progressiveExcerptContinuationCreatedSkipped', '已在当前摘录下新增 {created} 张练习卡，跳过 {skipped} 个重复项')
+      return this.translate('progressiveExcerptContinuationCreatedSkipped', '已在当前 Topic 下新增 {created} 个 Item，跳过 {skipped} 个重复项')
         .replace('{created}', String(result.created))
         .replace('{skipped}', String(result.skipped));
     }
     if (result.created > 0) {
-      return this.translate('progressiveExcerptContinuationCreated', '已在当前摘录下新增 {created} 张练习卡')
+      return this.translate('progressiveExcerptContinuationCreated', '已在当前 Topic 下新增 {created} 个 Item')
         .replace('{created}', String(result.created));
     }
-    return this.translate('progressiveExcerptContinuationSkipped', '当前摘录下已存在相同练习卡，已跳过 {skipped} 个重复项')
+    return this.translate('progressiveExcerptContinuationSkipped', '当前 Topic 下已存在相同 Item，已跳过 {skipped} 个重复项')
       .replace('{skipped}', String(result.skipped));
   }
 }

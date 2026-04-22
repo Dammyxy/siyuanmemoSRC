@@ -93,7 +93,7 @@ function createHandler() {
       allMode: '全部',
       addToFinalDrillQueue: '添加到刻意练习',
       progressiveExcerptMenuLabel: '摘录',
-      progressiveExcerptCreated: '已创建摘录 Topic，已进入今日渐进学习',
+      progressiveExcerptCreated: '已创建 Topic，已进入今日渐进学习',
     },
     dialogManager: dialogManager as any,
     openCreateTemplateCardDialog: vi.fn().mockResolvedValue(undefined),
@@ -197,6 +197,6 @@ describe('BlockMenuHandler progressive excerpt block-menu flow', () => {
     });
     expect(progressiveExcerptMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(progressiveExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已创建摘录 Topic，已进入今日渐进学习');
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已创建 Topic，已进入今日渐进学习');
   });
 });

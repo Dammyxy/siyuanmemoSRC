@@ -4201,12 +4201,12 @@ async function createProgressiveExcerptFromReviewSelection(
       });
     showMessage(
       routedExcerptTarget === 'progressive'
-        ? t('progressiveExcerptCreatedInserted', '摘抄已创建、制为 Topic，并插入当前渐进复习')
+        ? t('progressiveExcerptCreatedInserted', '已创建 Topic，并插入当前渐进复习')
         : routedExcerptTarget === 'hyperspace'
-          ? t('progressiveExcerptCreatedMergedHyperspace', '摘抄已创建、制为 Topic，并并入当前超空间神经漫游')
+          ? t('progressiveExcerptCreatedMergedHyperspace', '已创建 Topic，并并入当前超空间神经漫游')
         : trigger !== 'toolbar'
-          ? t('progressiveExcerptCreatedHotkey', '摘抄已创建并制为 Topic')
-          : t('progressiveExcerptCreated', '摘抄已创建并制为 Topic'),
+          ? t('progressiveExcerptCreatedHotkey', '已创建 Topic')
+          : t('progressiveExcerptCreated', '已创建 Topic'),
       3000,
       'info',
     );

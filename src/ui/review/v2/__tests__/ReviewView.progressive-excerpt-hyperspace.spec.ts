@@ -351,7 +351,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     expect(neuralQueue.setAnchorEntry).not.toHaveBeenCalled();
     expect(neuralQueue.setCurrentFocus).not.toHaveBeenCalled();
     expect(reviewViewExcerptMocks.showMessage).toHaveBeenLastCalledWith(
-      '摘抄已创建、制为 Topic，并并入当前超空间神经漫游',
+      '已创建 Topic，并并入当前超空间神经漫游',
       3000,
       'info',
     );
@@ -487,7 +487,7 @@ describe('ReviewView progressive excerpt hyperspace routing', () => {
     expect(createFromSelection).toHaveBeenCalledTimes(1);
     expect(reviewViewExcerptMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(reviewViewExcerptMocks.showMessage).toHaveBeenLastCalledWith(
-      '摘抄已创建、制为 Topic，并并入当前超空间神经漫游',
+      '已创建 Topic，并并入当前超空间神经漫游',
       3000,
       'info',
     );

@@ -136,7 +136,7 @@ describe('AutoCardHandler topic derivation routing', () => {
         }),
       ]),
     }));
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item');
   });
 
   it('derives from topic doc root context instead of skipping child blocks inside a topic document', async () => {
@@ -155,7 +155,7 @@ describe('AutoCardHandler topic derivation routing', () => {
       parentTopicCardId: 'topic-card-root-1',
       content: 'Alpha >> Beta',
     }));
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item');
   });
 
   it('passes excerpt-doc lineage through the topic-derived path when editing inside an excerpt document', async () => {
@@ -183,7 +183,7 @@ describe('AutoCardHandler topic derivation routing', () => {
       sourceRootKind: 'excerpt-doc',
       content: 'Alpha >> Beta',
     }));
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item');
   });
 
   it('passes excerpt-block lineage through the topic-derived path for daily-note excerpts', async () => {
@@ -211,7 +211,7 @@ describe('AutoCardHandler topic derivation routing', () => {
       sourceRootKind: 'excerpt-block',
       content: 'Alpha >> Beta',
     }));
-    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item');
   });
 
   it('still skips non-topic Xiuyuan bindings even when the root document is a topic doc', async () => {
