@@ -10,6 +10,10 @@ import {
   prepareProgressiveExcerptHighlight,
 } from '@/application/entries/ProgressiveExcerptHighlight';
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
+import type {
+  SelectionTopicContinuationPreparation,
+  SelectionTopicContinuationResult,
+} from '@/application/services/SelectionTopicContinuationService';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ProgressiveExcerptHotkeyHandler');
@@ -76,11 +80,32 @@ export class ProgressiveExcerptHotkeyHandler {
       return;
     }
 
+    const topicContinuationPreparation = this.context.getSelectionTopicContinuationService().prepareSelection({
+      sourceBlockId: selection.sourceBlockId,
+      sourceBlockIds: selection.sourceBlockIds,
+      selectedText: selection.text,
+      contentDom: selection.contentDom,
+      rootId: this.resolveProtyleRootId(detail.protyle, selection.sourceBlockId),
+      origin: 'editor',
+    });
+
     menu.addItem({
       icon: 'iconQuote',
       label: this.translate('progressiveExcerptMenuLabel', '摘录'),
       click: async () => {
         await this.runExcerptFromSnapshot(selection);
+      },
+    });
+
+    if (!topicContinuationPreparation.available) {
+      return;
+    }
+
+    menu.addItem({
+      icon: 'iconAdd',
+      label: this.translate('progressiveExcerptContinuationMenuLabel', '在摘录下制卡'),
+      click: async () => {
+        await this.runTopicContinuationFromSnapshot(selection, topicContinuationPreparation);
       },
     });
   }
@@ -146,6 +171,35 @@ export class ProgressiveExcerptHotkeyHandler {
       logger.error('Failed to create excerpt from editor command', error);
       showMessage(
         this.translate('progressiveExcerptFailed', '摘抄失败：{message}')
+          .replace('{message}', error instanceof Error ? error.message : String(error)),
+        5000,
+        'error',
+      );
+    }
+  }
+
+  private async runTopicContinuationFromSnapshot(
+    selection: ProgressiveExcerptSelectionSnapshot,
+    preparation?: SelectionTopicContinuationPreparation,
+  ): Promise<void> {
+    try {
+      const result = await this.context.getSelectionTopicContinuationService().createFromSelection({
+        sourceBlockId: selection.sourceBlockId,
+        sourceBlockIds: selection.sourceBlockIds,
+        selectedText: selection.text,
+        contentDom: selection.contentDom,
+        rootId: this.resolveProtyleRootId(selection.protyle, selection.sourceBlockId),
+        origin: 'editor',
+      }, preparation);
+      showMessage(
+        this.formatTopicContinuationMessage(result),
+        3000,
+        'info',
+      );
+    } catch (error) {
+      logger.error('Failed to create derived items from excerpt selection', error);
+      showMessage(
+        this.translate('progressiveExcerptContinuationFailed', '在摘录下制卡失败：{message}')
           .replace('{message}', error instanceof Error ? error.message : String(error)),
         5000,
         'error',
@@ -259,5 +313,36 @@ export class ProgressiveExcerptHotkeyHandler {
     } catch {
       return fallback;
     }
+  }
+
+  private resolveProtyleRootId(protyle: unknown, fallbackBlockId?: string): string | undefined {
+    if (!protyle || typeof protyle !== 'object') {
+      return fallbackBlockId ? String(fallbackBlockId).trim() || undefined : undefined;
+    }
+
+    const rootId = String(
+      (protyle as { block?: { rootID?: string; rootId?: string; id?: string } }).block?.rootID
+      || (protyle as { block?: { rootID?: string; rootId?: string; id?: string } }).block?.rootId
+      || (protyle as { block?: { rootID?: string; rootId?: string; id?: string } }).block?.id
+      || '',
+    ).trim();
+    if (rootId) {
+      return rootId;
+    }
+    return fallbackBlockId ? String(fallbackBlockId).trim() || undefined : undefined;
+  }
+
+  private formatTopicContinuationMessage(result: SelectionTopicContinuationResult): string {
+    if (result.created > 0 && result.skipped > 0) {
+      return this.translate('progressiveExcerptContinuationCreatedSkipped', '已在当前摘录下新增 {created} 张练习卡，跳过 {skipped} 个重复项')
+        .replace('{created}', String(result.created))
+        .replace('{skipped}', String(result.skipped));
+    }
+    if (result.created > 0) {
+      return this.translate('progressiveExcerptContinuationCreated', '已在当前摘录下新增 {created} 张练习卡')
+        .replace('{created}', String(result.created));
+    }
+    return this.translate('progressiveExcerptContinuationSkipped', '当前摘录下已存在相同练习卡，已跳过 {skipped} 个重复项')
+      .replace('{skipped}', String(result.skipped));
   }
 }

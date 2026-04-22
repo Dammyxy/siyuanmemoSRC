@@ -5,6 +5,7 @@ import {
   ATTR_PROGRESSIVE_ANSWER_FINGERPRINT,
   ATTR_PROGRESSIVE_CREATION_RULE_ID,
   ATTR_PROGRESSIVE_KIND,
+  ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
   ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID,
   ATTR_PROGRESSIVE_SOURCE_BLOCK_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
@@ -225,6 +226,103 @@ describe('TopicDerivedItemService', () => {
       storageMode: 'source-child',
       creationRuleId: 'ConceptDefinitionInlineRule',
       answerFingerprint: 'source-block-2::ConceptDefinitionInlineRule::((concept-doc)) <> Definition body',
+    }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['derived-block-1']);
+  });
+
+  it('forces excerpt-doc derivations to create direct child docs and persist parent excerpt lineage', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider('workbench'),
+    );
+
+    const result = await service.createFromTopicSource({
+      sourceBlockId: 'source-block-excerpt-1',
+      sourceDocId: 'excerpt-doc-root-1',
+      parentTopicCardId: 'topic-card-excerpt-1',
+      parentExcerptId: 'excerpt-doc-root-1',
+      sourceRootKind: 'excerpt-doc',
+      content: 'Alpha ==Beta==',
+      decisions: [CLOZE_DECISION],
+      storageMode: 'workbench',
+    });
+
+    expect(result.created).toBe(1);
+    expect(progressiveReadingService.service.createChildDocFromSource).toHaveBeenCalledWith(expect.objectContaining({
+      sourceDocId: 'excerpt-doc-root-1',
+      storageMode: 'source-child',
+      attrs: expect.objectContaining({
+        [ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID]: 'topic-card-excerpt-1',
+        [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: 'excerpt-doc-root-1',
+        [ATTR_PROGRESSIVE_STORAGE_MODE]: 'source-child',
+      }),
+    }));
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      progressiveLineage: expect.objectContaining({
+        kind: 'derived-item',
+        sourceDocId: 'excerpt-doc-root-1',
+        sourceBlockId: 'source-block-excerpt-1',
+        parentTopicCardId: 'topic-card-excerpt-1',
+        parentExcerptId: 'excerpt-doc-root-1',
+        storageMode: 'source-child',
+      }),
+    }));
+  });
+
+  it('keeps excerpt-block derivations bound to the parent excerpt while preserving the configured child-doc mode', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider('workbench'),
+    );
+
+    const result = await service.createFromTopicSource({
+      sourceBlockId: 'excerpt-block-1',
+      sourceDocId: 'daily-doc-1',
+      parentTopicCardId: 'topic-card-excerpt-block-1',
+      parentExcerptId: 'excerpt-block-1',
+      sourceRootKind: 'excerpt-block',
+      content: 'Alpha >> Beta',
+      decisions: [{
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-quick-card',
+        cardType: 'item',
+        mode: 'single',
+        executorKind: 'quick-basic',
+        direction: 'forward',
+        priority: 50,
+      }],
+    });
+
+    expect(result.created).toBe(1);
+    expect(progressiveReadingService.service.createChildDocFromSource).toHaveBeenCalledWith(expect.objectContaining({
+      sourceDocId: 'daily-doc-1',
+      storageMode: 'workbench',
+      attrs: expect.objectContaining({
+        [ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID]: 'topic-card-excerpt-block-1',
+        [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: 'excerpt-block-1',
+        [ATTR_PROGRESSIVE_STORAGE_MODE]: 'workbench',
+      }),
+    }));
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      progressiveLineage: expect.objectContaining({
+        kind: 'derived-item',
+        sourceDocId: 'daily-doc-1',
+        sourceBlockId: 'excerpt-block-1',
+        parentTopicCardId: 'topic-card-excerpt-block-1',
+        parentExcerptId: 'excerpt-block-1',
+        storageMode: 'workbench',
+      }),
     }));
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['derived-block-1']);
   });

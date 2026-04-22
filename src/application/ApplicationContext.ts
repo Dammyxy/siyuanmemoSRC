@@ -69,6 +69,7 @@ import { ExcerptRecordService } from '@/application/services/ExcerptRecordServic
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
 import { ReviewScopeCardCreationSyncService } from '@/application/services/ReviewScopeCardCreationSyncService';
 import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
+import { SelectionTopicContinuationService } from '@/application/services/SelectionTopicContinuationService';
 import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
@@ -110,6 +111,7 @@ interface ApplicationServiceRegistry {
   progressiveReadingService: ProgressiveReadingService;
   reviewScopeCardCreationSyncService: ReviewScopeCardCreationSyncService;
   selectionExcerptService: SelectionExcerptService;
+  selectionTopicContinuationService: SelectionTopicContinuationService;
   topicDerivedItemService: TopicDerivedItemService;
   cardContentQueryService: CardContentQueryService;
   aiWorkbenchSessionStoreService: AIWorkbenchSessionStoreService;
@@ -387,6 +389,14 @@ export class ApplicationContext {
 
     this.registerServiceFactory('selectionExcerptService', (context) => {
       return new SelectionExcerptService(context.getProgressiveReadingService());
+    });
+
+    this.registerServiceFactory('selectionTopicContinuationService', (context) => {
+      return new SelectionTopicContinuationService(
+        new ProgressiveSiyuanAdapter(),
+        context.getCardService(),
+        context.getTopicDerivedItemService(),
+      );
     });
 
     this.registerServiceFactory('topicDerivedItemService', (context) => {
@@ -1632,6 +1642,10 @@ export class ApplicationContext {
 
   getSelectionExcerptService(): SelectionExcerptService {
     return this.getService('selectionExcerptService');
+  }
+
+  getSelectionTopicContinuationService(): SelectionTopicContinuationService {
+    return this.getService('selectionTopicContinuationService');
   }
 
   getTopicDerivedItemService(): TopicDerivedItemService {

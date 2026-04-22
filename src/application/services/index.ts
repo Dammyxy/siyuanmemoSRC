@@ -12,4 +12,5 @@ export { type BlockAttrCleanupMode, type CleanupMode } from './BlockAttrPolicy';
 export { ExcerptRecordService } from './ExcerptRecordService';
 export { ProgressiveReadingService } from './ProgressiveReadingService';
 export { SelectionExcerptService } from './SelectionExcerptService';
+export { SelectionTopicContinuationService } from './SelectionTopicContinuationService';
 export { TopicDerivedItemService } from './TopicDerivedItemService';

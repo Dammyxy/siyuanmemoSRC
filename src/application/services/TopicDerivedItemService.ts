@@ -10,6 +10,7 @@ import {
   ATTR_PROGRESSIVE_ANSWER_FINGERPRINT,
   ATTR_PROGRESSIVE_CREATION_RULE_ID,
   ATTR_PROGRESSIVE_KIND,
+  ATTR_PROGRESSIVE_PARENT_EXCERPT_ID,
   ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID,
   ATTR_PROGRESSIVE_SOURCE_BLOCK_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
@@ -17,6 +18,7 @@ import {
 } from '@/core/siyuan/block';
 import { createLogger } from '@/utils/logger';
 import { isErr } from '@/types/result';
+import type { ProgressiveSourceRootKind } from '@/application/services/ProgressiveSourceContextResolver';
 
 const logger = createLogger('TopicDerivedItemService');
 
@@ -46,6 +48,8 @@ export interface TopicDerivedItemInput {
   sourceBlockId: string;
   sourceDocId: string;
   parentTopicCardId: string;
+  parentExcerptId?: string;
+  sourceRootKind?: ProgressiveSourceRootKind;
   content: string;
   decisions: CreationDecision[];
   storageMode?: ProgressiveChildDocStorageMode;
@@ -87,6 +91,7 @@ export class TopicDerivedItemService {
     const sourceBlockId = String(input.sourceBlockId || '').trim();
     const sourceDocId = String(input.sourceDocId || '').trim();
     const parentTopicCardId = String(input.parentTopicCardId || '').trim();
+    const parentExcerptId = String(input.parentExcerptId || '').trim() || undefined;
     const content = String(input.content || '');
 
     if (!sourceBlockId || !sourceDocId || !parentTopicCardId || !content) {
@@ -97,7 +102,7 @@ export class TopicDerivedItemService {
       };
     }
 
-    const storageMode = this.resolveStorageMode(input.storageMode);
+    const storageMode = this.resolveStorageMode(input.storageMode, input.sourceRootKind);
     const candidates = this.buildCandidates({
       sourceBlockId,
       content,
@@ -135,6 +140,9 @@ export class TopicDerivedItemService {
             [ATTR_PROGRESSIVE_SOURCE_DOC_ID]: sourceDocId,
             [ATTR_PROGRESSIVE_SOURCE_BLOCK_ID]: sourceBlockId,
             [ATTR_PROGRESSIVE_PARENT_TOPIC_CARD_ID]: parentTopicCardId,
+            ...(parentExcerptId
+              ? { [ATTR_PROGRESSIVE_PARENT_EXCERPT_ID]: parentExcerptId }
+              : {}),
             [ATTR_PROGRESSIVE_STORAGE_MODE]: storageMode,
             [ATTR_PROGRESSIVE_CREATION_RULE_ID]: candidate.creationRuleId,
             [ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]: candidate.answerFingerprint,
@@ -154,6 +162,7 @@ export class TopicDerivedItemService {
           sourceBlockId,
           sourceDocId,
           parentTopicCardId,
+          parentExcerptId,
           storageMode,
         });
 
@@ -172,6 +181,7 @@ export class TopicDerivedItemService {
           sourceBlockId,
           sourceDocId,
           parentTopicCardId,
+          parentExcerptId,
           answerFingerprint: candidate.answerFingerprint,
           creationRuleId: candidate.creationRuleId,
           error,
@@ -184,6 +194,8 @@ export class TopicDerivedItemService {
       sourceBlockId,
       sourceDocId,
       parentTopicCardId,
+      parentExcerptId: parentExcerptId || null,
+      sourceRootKind: input.sourceRootKind || null,
       storageMode,
       created: items.length,
       skipped,
@@ -198,9 +210,18 @@ export class TopicDerivedItemService {
 
   private resolveStorageMode(
     explicitMode?: ProgressiveChildDocStorageMode,
+    sourceRootKind?: ProgressiveSourceRootKind,
   ): ProgressiveChildDocStorageMode {
+    if (sourceRootKind === 'excerpt-doc') {
+      return 'source-child';
+    }
+
     if (explicitMode === 'source-child') {
       return 'source-child';
+    }
+
+    if (explicitMode === 'workbench') {
+      return 'workbench';
     }
 
     try {
@@ -461,6 +482,7 @@ export class TopicDerivedItemService {
     sourceBlockId: string;
     sourceDocId: string;
     parentTopicCardId: string;
+    parentExcerptId?: string;
     storageMode: ProgressiveChildDocStorageMode;
   }): Promise<string> {
     const result = await this.cardService.createCard({
@@ -472,6 +494,7 @@ export class TopicDerivedItemService {
         sourceDocId: input.sourceDocId,
         sourceBlockId: input.sourceBlockId,
         parentTopicCardId: input.parentTopicCardId,
+        parentExcerptId: input.parentExcerptId,
         storageMode: input.storageMode,
         creationRuleId: input.candidate.creationRuleId,
         answerFingerprint: input.candidate.answerFingerprint,
@@ -498,6 +521,7 @@ export class TopicDerivedItemService {
         derivedBlockId: input.derivedBlockId,
         sourceBlockId: input.sourceBlockId,
         parentTopicCardId: input.parentTopicCardId,
+        parentExcerptId: input.parentExcerptId || null,
         error,
       });
       throw error;

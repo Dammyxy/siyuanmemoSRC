@@ -62,6 +62,8 @@ function createHandler(options?: {
   enabled?: boolean;
   createFromSelection?: ReturnType<typeof vi.fn>;
   materializeExcerptSource?: ReturnType<typeof vi.fn>;
+  prepareTopicContinuation?: ReturnType<typeof vi.fn>;
+  createTopicContinuation?: ReturnType<typeof vi.fn>;
   i18n?: Record<string, string>;
 }) {
   const createFromSelection = options?.createFromSelection ?? vi.fn(async () => ({
@@ -81,6 +83,18 @@ function createHandler(options?: {
     contentDom: selection.contentDom,
     highlightSnapshot: selection,
     reused: false,
+  }));
+  const prepareTopicContinuation = options?.prepareTopicContinuation ?? vi.fn(() => ({
+    rootId: 'doc-root-1',
+    topicContext: null,
+    normalizedContent: '',
+    decisions: [],
+    available: false,
+  }));
+  const createTopicContinuation = options?.createTopicContinuation ?? vi.fn(async () => ({
+    created: 1,
+    skipped: 0,
+    items: [],
   }));
   const tabApplicationService = {
     openDocumentTab: vi.fn(async () => undefined),
@@ -102,6 +116,11 @@ function createHandler(options?: {
         progressiveExcerptDisabled: 'Excerpt shortcut is disabled. Enable it in settings first.',
         progressiveExcerptDuplicateJumped: 'This passage was already excerpted.',
         progressiveExcerptMenuLabel: 'Excerpt',
+        progressiveExcerptContinuationMenuLabel: '在摘录下制卡',
+        progressiveExcerptContinuationCreated: '已在当前摘录下新增 {created} 张练习卡',
+        progressiveExcerptContinuationCreatedSkipped: '已在当前摘录下新增 {created} 张练习卡，跳过 {skipped} 个重复项',
+        progressiveExcerptContinuationSkipped: '当前摘录下已存在相同练习卡，已跳过 {skipped} 个重复项',
+        progressiveExcerptContinuationFailed: '在摘录下制卡失败：{message}',
         ...(options?.i18n || {}),
       }),
       getSelectionExcerptService: () => ({
@@ -109,9 +128,15 @@ function createHandler(options?: {
         createFromSelection,
         updateSourceBlockDom: vi.fn(async () => undefined),
       }),
+      getSelectionTopicContinuationService: () => ({
+        prepareSelection: prepareTopicContinuation,
+        createFromSelection: createTopicContinuation,
+      }),
       getTabApplicationService: () => tabApplicationService,
     } as any),
     createFromSelection,
+    prepareTopicContinuation,
+    createTopicContinuation,
     materializeExcerptSource,
     tabApplicationService,
   };
@@ -331,6 +356,200 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     expect(prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(showMessage).toHaveBeenCalledWith('Excerpt Topic created and added to today', 3000, 'info');
+  });
+
+  it('keeps only the excerpt entry in ordinary documents without topic/excerpt continuation context', () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="block-1">
+          <span id="target" contenteditable="true">Hello world</span>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root));
+
+    const prepareTopicContinuation = vi.fn(() => ({
+      rootId: 'doc-root-1',
+      topicContext: null,
+      normalizedContent: '',
+      decisions: [],
+      available: false,
+    }));
+    const menu = { addItem: vi.fn() };
+    const { handler } = createHandler({ prepareTopicContinuation });
+    handler.handleContentMenu({
+      detail: {
+        menu,
+        protyle: {
+          wysiwyg: {
+            element: root,
+          },
+          block: {
+            rootID: 'doc-root-1',
+          },
+        },
+      },
+    });
+
+    expect(prepareTopicContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'block-1',
+      rootId: 'doc-root-1',
+      selectedText: 'Hello',
+    }));
+    expect(menu.addItem).toHaveBeenCalledTimes(1);
+    expect(menu.addItem.mock.calls[0][0].label).toBe('Excerpt');
+  });
+
+  it('adds a continuation entry in excerpt-doc context and routes it through the selection continuation service', async () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="block-1">
+          <span id="target" contenteditable="true">Alpha Beta</span>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root, {
+      text: 'Alpha Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span></div></div>',
+      protyle: {
+        wysiwyg: {
+          element: root,
+        },
+        block: {
+          rootID: 'excerpt-doc-root-1',
+        },
+      },
+    }));
+
+    const preparation = {
+      rootId: 'excerpt-doc-root-1',
+      topicContext: {
+        topicCardId: 'topic-card-excerpt-root-1',
+        topicBlockId: 'excerpt-doc-root-1',
+        sourceDocId: 'excerpt-doc-root-1',
+        scope: 'doc-root' as const,
+      },
+      normalizedContent: 'Alpha ==Beta==',
+      decisions: [{ id: 'MarkClozeRule', family: 'cloze' }],
+      available: true,
+    };
+    const prepareTopicContinuation = vi.fn(() => preparation);
+    const createTopicContinuation = vi.fn(async () => ({
+      created: 2,
+      skipped: 1,
+      items: [],
+    }));
+    const menu = { addItem: vi.fn() };
+    const { handler } = createHandler({
+      prepareTopicContinuation,
+      createTopicContinuation,
+    });
+    handler.handleContentMenu({
+      detail: {
+        menu,
+        protyle: {
+          wysiwyg: {
+            element: root,
+          },
+          block: {
+            rootID: 'excerpt-doc-root-1',
+          },
+        },
+      },
+    });
+
+    expect(menu.addItem).toHaveBeenCalledTimes(2);
+    expect(menu.addItem.mock.calls[1][0].label).toBe('在摘录下制卡');
+
+    await menu.addItem.mock.calls[1][0].click();
+
+    expect(createTopicContinuation).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'block-1',
+      rootId: 'excerpt-doc-root-1',
+      selectedText: 'Alpha Beta',
+    }), preparation);
+    expect(showMessage).toHaveBeenCalledWith('已在当前摘录下新增 2 张练习卡，跳过 1 个重复项', 3000, 'info');
+  });
+
+  it('shows the continuation success toast for daily-note excerpt blocks', async () => {
+    document.body.innerHTML = `
+      <div class="protyle" id="editor-root">
+        <div data-node-id="block-1">
+          <span id="target" contenteditable="true">Alpha Beta</span>
+        </div>
+      </div>
+    `;
+
+    const root = document.getElementById('editor-root');
+    if (!root) {
+      throw new Error('Expected editor root');
+    }
+
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root, {
+      text: 'Alpha Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha >> Beta</div></div>',
+      protyle: {
+        wysiwyg: {
+          element: root,
+        },
+        block: {
+          rootID: 'daily-doc-1',
+        },
+      },
+    }));
+
+    const menu = { addItem: vi.fn() };
+    const { handler } = createHandler({
+      prepareTopicContinuation: vi.fn(() => ({
+        rootId: 'daily-doc-1',
+        topicContext: {
+          topicCardId: 'topic-card-excerpt-block-1',
+          topicBlockId: 'block-1',
+          sourceDocId: 'daily-doc-1',
+          scope: 'block' as const,
+        },
+        normalizedContent: 'Alpha >> Beta',
+        decisions: [{ id: 'BasicDirectionRule', family: 'basic' }],
+        available: true,
+      })),
+      createTopicContinuation: vi.fn(async () => ({
+        created: 1,
+        skipped: 0,
+        items: [],
+      })),
+    });
+    handler.handleContentMenu({
+      detail: {
+        menu,
+        protyle: {
+          wysiwyg: {
+            element: root,
+          },
+          block: {
+            rootID: 'daily-doc-1',
+          },
+        },
+      },
+    });
+
+    await menu.addItem.mock.calls[1][0].click();
+
+    expect(showMessage).toHaveBeenCalledWith('已在当前摘录下新增 1 张练习卡', 3000, 'info');
   });
 
   it('does not add an excerpt item to the content menu when the selection is invalid', () => {

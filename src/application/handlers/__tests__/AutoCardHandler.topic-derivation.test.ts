@@ -158,6 +158,62 @@ describe('AutoCardHandler topic derivation routing', () => {
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
   });
 
+  it('passes excerpt-doc lineage through the topic-derived path when editing inside an excerpt document', async () => {
+    const { handler, topicDerivedItemService, siyuanApi } = createHandler({
+      blockId: 'excerpt-child-1',
+      rootId: 'excerpt-doc-root-1',
+      rootBlockCards: [{ id: 'topic-card-excerpt-root-1', type: 'topic' }],
+      blockAttrsById: {
+        'excerpt-doc-root-1': {
+          'custom-fsrs-reading-kind': 'excerpt-doc',
+          'custom-fsrs-reading-source-doc-id': 'doc-ordinary',
+          'custom-fsrs-reading-source-block-id': 'source-root-1',
+        },
+      },
+    });
+
+    await (handler as any).checkQuickSymbols('excerpt-child-1');
+
+    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledTimes(1);
+    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'excerpt-child-1',
+      sourceDocId: 'excerpt-doc-root-1',
+      parentTopicCardId: 'topic-card-excerpt-root-1',
+      parentExcerptId: 'excerpt-doc-root-1',
+      sourceRootKind: 'excerpt-doc',
+      content: 'Alpha >> Beta',
+    }));
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
+  });
+
+  it('passes excerpt-block lineage through the topic-derived path for daily-note excerpts', async () => {
+    const { handler, topicDerivedItemService, siyuanApi } = createHandler({
+      blockId: 'excerpt-block-1',
+      rootId: 'daily-doc-1',
+      currentBlockCards: [{ id: 'topic-card-excerpt-block-1', type: 'topic' }],
+      blockAttrsById: {
+        'excerpt-block-1': {
+          'custom-fsrs-reading-kind': 'excerpt',
+          'custom-fsrs-reading-source-doc-id': 'doc-ordinary',
+          'custom-fsrs-reading-source-block-id': 'source-daily-1',
+        },
+      },
+    });
+
+    await (handler as any).checkQuickSymbols('excerpt-block-1');
+
+    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledTimes(1);
+    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledWith(expect.objectContaining({
+      sourceBlockId: 'excerpt-block-1',
+      sourceDocId: 'daily-doc-1',
+      parentTopicCardId: 'topic-card-excerpt-block-1',
+      parentExcerptId: 'excerpt-block-1',
+      sourceRootKind: 'excerpt-block',
+      content: 'Alpha >> Beta',
+    }));
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 张练习卡');
+  });
+
   it('still skips non-topic Xiuyuan bindings even when the root document is a topic doc', async () => {
     const { handler, topicDerivedItemService, siyuanApi } = createHandler({
       blockId: 'descriptor-block-1',

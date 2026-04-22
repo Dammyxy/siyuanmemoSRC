@@ -12,8 +12,8 @@ import type { CreationDecision } from '@/core/card/post-creation/contracts';
 import { PostCreationConflictMediator } from '@/application/services/PostCreationConflictMediator';
 import { DocumentPostCreationScanService } from '@/application/services/DocumentPostCreationScanService';
 import {
-    resolveProgressiveTopicContext,
-    type ProgressiveTopicContext,
+    resolveProgressiveSourceContext,
+    type ProgressiveSourceContext,
 } from '@/application/services/ProgressiveSourceContextResolver';
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
@@ -108,6 +108,8 @@ type TopicDerivedItemServiceLike = {
         sourceBlockId: string;
         sourceDocId: string;
         parentTopicCardId: string;
+        parentExcerptId?: string;
+        sourceRootKind?: 'ordinary-doc' | 'piece' | 'excerpt-doc' | 'excerpt-block' | 'topic-doc';
         content: string;
         decisions: CreationDecision[];
         storageMode?: 'workbench' | 'source-child';
@@ -359,10 +361,10 @@ export class AutoCardHandler implements ITransactionHandler {
 
     private shouldUseTopicDerivation(
         settings: QuickCardSettings,
-        topicContext: ProgressiveTopicContext | null,
+        sourceContext: ProgressiveSourceContext | null,
         decisions: CreationDecision[],
     ): boolean {
-        if (!topicContext) {
+        if (!sourceContext?.parentTopicCardId) {
             return false;
         }
 
@@ -804,17 +806,20 @@ export class AutoCardHandler implements ITransactionHandler {
                 });
                 return;
             }
-            const topicContext = resolveProgressiveTopicContext({
+            const progressiveSourceContext = await resolveProgressiveSourceContext({
                 blockId,
                 rootId,
                 cardLookup: {
                     getCardByBlockId: (candidateBlockId: string) => this.getLocalCardByBlockId(candidateBlockId),
                     getCardsByBlockId: (candidateBlockId: string) => this.getLocalCardsByBlockId(candidateBlockId),
                 },
+                attrLookup: {
+                    getBlockAttrs: async (candidateBlockId: string) => this.siyuanApi.getBlockAttrs(candidateBlockId),
+                },
             });
 
-            if (this.shouldUseTopicDerivation(normalizedSettings, topicContext, enabledDecisions)) {
-                if (this.hasXiuyuanBinding(attrs) && topicContext?.scope !== 'block') {
+            if (this.shouldUseTopicDerivation(normalizedSettings, progressiveSourceContext, enabledDecisions)) {
+                if (this.hasXiuyuanBinding(attrs) && progressiveSourceContext?.topicContext?.scope !== 'block') {
                     logger.debug('[SiYuanMemo][AutoCard] Skip topic derivation: current block already has a non-topic Xiuyuan binding', {
                         blockId,
                         rootId,
@@ -824,8 +829,10 @@ export class AutoCardHandler implements ITransactionHandler {
 
                 const derivedResult = await this.getTopicDerivedItemService().createFromTopicSource({
                     sourceBlockId: blockId,
-                    sourceDocId: topicContext!.sourceDocId,
-                    parentTopicCardId: topicContext!.topicCardId,
+                    sourceDocId: progressiveSourceContext.sourceDocId,
+                    parentTopicCardId: progressiveSourceContext.parentTopicCardId!,
+                    parentExcerptId: progressiveSourceContext.parentExcerptId,
+                    sourceRootKind: progressiveSourceContext.rootKind,
                     content: kramdown,
                     decisions: enabledDecisions,
                     storageMode: normalizedSettings.topicDerivation?.storageMode,

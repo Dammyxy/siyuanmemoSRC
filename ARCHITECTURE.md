@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-21
+最后更新：2026-04-22
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -93,7 +93,7 @@ flowchart TD
 - 装配 `CardApplicationService` / `BrowserApplicationService` / `ReviewApplicationService`
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`
-- 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `TopicDerivedItemService`
+- 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
 
 这意味着：
@@ -194,11 +194,13 @@ sequenceDiagram
 - `BlockMenuHandler` 中的 progressive excerpt 入口
 - `ReviewView.vue` 对 `PROGRESSIVE_EXCERPT_REQUEST_EVENT` 的响应
 - `AutoCardHandler` 中的 topic continuation / topic-derived item 入口
+- 编辑器选区右键中的 `摘录` / `在摘录下制卡`
 
 主链路分工：
 
 - `ProgressiveReadingService`：渐进阅读、拆分、摘录、来源追踪、文档与卡片编排的核心应用服务
 - `SelectionExcerptService`：把选择态 surface 接到 `ProgressiveReadingService` 的轻量门面
+- `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定与 planner 结果适配到 topic-derived 主链
 - `TopicDerivedItemService`：在 topic / excerpt 语境下创建 topic-derived item
 
 集成边界：
@@ -307,6 +309,7 @@ UI surface：
 - `src/application/services/ExcerptRecordService.ts`：摘录记录与去重相关服务。
 - `src/application/services/ProgressiveReadingService.ts`：progressive split / excerpt 的主编排服务。
 - `src/application/services/SelectionExcerptService.ts`：选择态摘录门面。
+- `src/application/services/SelectionTopicContinuationService.ts`：选区继续制卡门面，负责同步 menu 预判和异步 progressive source context 解析。
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
@@ -583,6 +586,7 @@ Review 运行时要点：
 
 - progressive split：`DialogManager` -> `ProgressiveSplitDialog.vue` -> `ProgressiveReadingService`
 - progressive excerpt：热键 / block menu / review surface -> `SelectionExcerptService` -> `ProgressiveReadingService`
+- editor manual continuation：`ProgressiveExcerptHotkeyHandler` -> `SelectionTopicContinuationService` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
 - topic continuation：`AutoCardHandler` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
 
 角色划分：
@@ -593,8 +597,12 @@ Review 运行时要点：
   - 协调 card service、capture storage、Riff / Siyuan 边界
 - `SelectionExcerptService`
   - 负责把 selection-oriented 输入适配到主 progressive 服务
+- `SelectionTopicContinuationService`
+  - 负责在菜单打开时同步判断当前选区是否位于 topic / excerpt 语境
+  - 负责把选区 DOM/文本归一成可供 `UnifiedPostCreationPlanner` 识别的 manual continuation 内容
 - `TopicDerivedItemService`
   - 在 topic / excerpt 语境中派生 item，并保持 lineage
+  - excerpt-doc 下强制直挂子练习文档；excerpt-block 下保留 daily-note 文档容器并写回 `parentExcerptId`
 
 边界规则：
 
@@ -605,6 +613,7 @@ Review 运行时要点：
 Progressive 制卡契约：
 
 - split / excerpt / topic-derived 生成物创建的是本地 Xiuyuan / FSRS 卡，并通过 `ProgressiveNativeRiffPort` 注册到原生 Riff；linear split 只立即为当前 active piece 建 Topic 卡，完成当前片后再释放下一片，nonlinear split 则立即为全部 piece 建 Topic 卡。
+- 摘录即 Topic：摘录文档、全局摘录库摘录和 Daily Note 摘录块上的后续符号/选区制卡，都会落到本地 derived Item 卡 + 原生 Riff 注册，而不是把块级 card-type 属性当作事实源。
 - 这些 progressive 卡的类型真相源保存在本地 Xiuyuan / FSRS 数据里，不依赖块级 `custom-fsrs-card-type`；块属性只保留必要的 `custom-xiuyuan-id`、原生 Riff 标记，以及 `custom-fsrs-reading-*` 来源/lineage 信息。
 - 新的 progressive-owned `piece` / `excerpt` / `derived-item` 不再写 deprecated `custom-fsrs-card-type`，但非 progressive 的历史 quick/card/sync 路径仍可能兼容读写该旧属性。
 
