@@ -132,7 +132,7 @@ describe('SelectionTopicContinuationService', () => {
       sourceBlockId: 'source-block-1',
       rootId: 'excerpt-doc-root-1',
       selectedText: 'Alpha Beta',
-      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span></div></div>',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span></div></div>',
       blockSelections: [{
         blockId: 'source-block-1',
         mode: 'range',
@@ -157,7 +157,7 @@ describe('SelectionTopicContinuationService', () => {
       sourceBlockId: 'source-block-1',
       rootId: 'excerpt-doc-root-1',
       selectedText: 'Alpha Beta',
-      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span></div></div>',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span></div></div>',
       blockSelections: [{
         blockId: 'source-block-1',
         mode: 'range',
@@ -220,7 +220,7 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.mode).toBe('manual-cloze');
     expect(preparation.normalizedContent).toBe('Beta');
     expect(preparation.plannerContent).toBe('Alpha ==Beta== Gamma');
-    expect(preparation.artifactContentDom).toContain('<span data-type="mark">Beta</span>');
+    expect(preparation.artifactContentDom).toContain('<span data-type="text mark">Beta</span>');
     expect(preparation.answerFingerprint).toBe('source-block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma');
     expect(preparation.decisions).toEqual([
       expect.objectContaining({
@@ -249,7 +249,7 @@ describe('SelectionTopicContinuationService', () => {
       parentTopicCardId: 'topic-card-topic-root-1',
       sourceRootKind: 'topic-doc',
       plannerContent: 'Alpha ==Beta== Gamma',
-      artifactContentDom: expect.stringContaining('<span data-type="mark">Beta</span>'),
+      artifactContentDom: expect.stringContaining('<span data-type="text mark">Beta</span>'),
       answerFingerprint: 'source-block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
       previewText: 'Beta',
       mode: 'manual-cloze',
@@ -296,9 +296,9 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.available).toBe(true);
     expect(preparation.mode).toBe('manual-cloze');
     expect(preparation.plannerContent).toBe('Alpha ==((20240101010101-abcdefg))== Gamma');
-    expect(preparation.artifactContentDom).toContain('data-type="block-ref"');
+    expect(preparation.artifactContentDom).toContain('data-type="block-ref mark"');
     expect(preparation.artifactContentDom).toContain('>*</span>');
-    expect(preparation.artifactContentDom).toContain('<span data-type="mark"><span data-type="block-ref"');
+    expect(preparation.artifactContentDom).not.toContain('<span data-type="text mark"><span data-type="block-ref"');
   });
 
   it('requires a single-block range selection before manual cloze continuation becomes available', () => {

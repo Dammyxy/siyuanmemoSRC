@@ -13,6 +13,11 @@ import type {
 import { TopicDerivedItemService } from '@/application/services/TopicDerivedItemService';
 import { UnifiedPostCreationPlanner } from '@/core/card/post-creation/UnifiedPostCreationPlanner';
 import type { CreationDecision } from '@/core/card/post-creation/contracts';
+import {
+  createTokenizedMarkHtml,
+  hasDataTypeToken,
+  unwrapMarkTokenElements,
+} from '@/utils/markDataType';
 
 export interface SelectionTopicContinuationInput {
   sourceBlockId: string;
@@ -96,11 +101,18 @@ function extractPlannerTextFromNode(node: Node): string {
   }
 
   const dataType = String(node.getAttribute('data-type') || '').trim();
-  if (dataType === 'mark') {
+  const hasMarkToken = hasDataTypeToken(dataType, 'mark');
+  const hasBlockRefToken = hasDataTypeToken(dataType, 'block-ref');
+  if (hasMarkToken && hasBlockRefToken) {
+    const blockId = String(node.getAttribute('data-id') || '').trim();
+    return blockId ? `==((${blockId}))==` : `==${normalizeInlineWhitespace(node.textContent || '')}==`;
+  }
+
+  if (hasMarkToken) {
     return `==${extractPlannerTextFromChildren(node)}==`;
   }
 
-  if (dataType === 'block-ref') {
+  if (hasBlockRefToken) {
     const blockId = String(node.getAttribute('data-id') || '').trim();
     return blockId ? `((${blockId}))` : normalizeInlineWhitespace(node.textContent || '');
   }
@@ -176,16 +188,7 @@ function resolveBlockContentRoot(blockElement: HTMLElement): HTMLElement {
 }
 
 function unwrapMarkElements(root: ParentNode): void {
-  for (const mark of Array.from(root.querySelectorAll<HTMLElement>('[data-type="mark"]'))) {
-    const parent = mark.parentNode;
-    if (!parent) {
-      continue;
-    }
-    while (mark.firstChild) {
-      parent.insertBefore(mark.firstChild, mark);
-    }
-    parent.removeChild(mark);
-  }
+  unwrapMarkTokenElements(root);
 }
 
 function extractEditableInnerHtml(
@@ -246,7 +249,7 @@ function extractVisibleTextFromFragment(
 }
 
 function buildManualMarkInnerHtml(innerHtml: string): string {
-  return `<span data-type="mark">${innerHtml}</span>`;
+  return createTokenizedMarkHtml(innerHtml);
 }
 
 function buildManualClozePlannerContent(

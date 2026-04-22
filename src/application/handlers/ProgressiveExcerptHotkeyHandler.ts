@@ -11,6 +11,7 @@ import {
 } from '@/application/entries/ProgressiveExcerptHighlight';
 import {
   applyPreparedSelectionClozeMark,
+  type PreparedSelectionClozeMarkApplyResult,
   prepareSelectionClozeMark,
 } from '@/application/entries/SelectionClozeMarker';
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
@@ -253,10 +254,10 @@ export class ProgressiveExcerptHotkeyHandler {
           this.context.getAutoCardHandler()?.suppressNextTopicDerivedMarkMutation(preparedMark.blockId);
         }
 
-        const applied = await this.tryApplySelectionClozeMark(preparedMark);
-        if (!applied && !preparedMark.alreadyApplied) {
-          throw new Error(this.translate('progressiveItemFallbackPersistFailed', '当前选区的挖空标记保存失败'));
-        }
+        await this.tryApplySelectionClozeMark(preparedMark, {
+          stage: 'topic-manual-cloze',
+          sourceBlockId: selection.sourceBlockId,
+        });
       }
 
       const result = await this.context.getSelectionTopicContinuationService().createFromSelection({
@@ -291,10 +292,10 @@ export class ProgressiveExcerptHotkeyHandler {
         throw new Error(this.translate('progressiveItemFallbackUnavailable', '当前选区无法转换为普通挖空'));
       }
 
-      const applied = await this.tryApplySelectionClozeMark(preparedMark);
-      if (!applied && !preparedMark.alreadyApplied) {
-        throw new Error(this.translate('progressiveItemFallbackPersistFailed', '当前选区的挖空标记保存失败'));
-      }
+      await this.tryApplySelectionClozeMark(preparedMark, {
+        stage: 'plain-cloze-fallback',
+        sourceBlockId: selection.sourceBlockId,
+      });
 
       showMessage(
         preparedMark.alreadyApplied
@@ -426,14 +427,26 @@ export class ProgressiveExcerptHotkeyHandler {
     }
   }
 
-  private async tryApplySelectionClozeMark(selection: ReturnType<typeof prepareSelectionClozeMark>): Promise<boolean> {
+  private async tryApplySelectionClozeMark(
+    selection: ReturnType<typeof prepareSelectionClozeMark>,
+    context?: {
+      stage: 'topic-manual-cloze' | 'plain-cloze-fallback';
+      sourceBlockId?: string;
+    },
+  ): Promise<PreparedSelectionClozeMarkApplyResult> {
     try {
       return await applyPreparedSelectionClozeMark(selection, {
         persistDomBlock: (blockId, dom) => this.context.getSelectionExcerptService().updateSourceBlockDom(blockId, dom),
       });
     } catch (error) {
-      logger.warn('Failed to apply selection cloze mark before standard card creation fallback', error);
-      return false;
+      logger.warn('Failed to apply selection cloze mark before item creation', {
+        blockId: selection?.blockId || context?.sourceBlockId || null,
+        stage: context?.stage || null,
+        isTopicContinuation: context?.stage === 'topic-manual-cloze',
+        domPreview: this.previewDomForLog(selection?.nextBlockHtml),
+        error,
+      });
+      throw error;
     }
   }
 
@@ -483,5 +496,15 @@ export class ProgressiveExcerptHotkeyHandler {
     }
     return this.translate('progressiveExcerptContinuationSkipped', '当前 Topic 下已存在相同 Item，已跳过 {skipped} 个重复项')
       .replace('{skipped}', String(result.skipped));
+  }
+
+  private previewDomForLog(html: string | undefined, maxLength = 160): string {
+    const normalized = String(html || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return `${normalized.slice(0, maxLength)}...`;
   }
 }

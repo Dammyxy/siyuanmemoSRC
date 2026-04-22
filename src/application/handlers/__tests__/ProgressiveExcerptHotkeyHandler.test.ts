@@ -184,11 +184,11 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       blockId: 'block-1',
       blockIds: ['block-1'],
       previousBlockHtml: '<div data-node-id="block-1">Hello</div>',
-      nextBlockHtml: '<div data-node-id="block-1"><span data-type="mark">Hello</span></div>',
+      nextBlockHtml: '<div data-node-id="block-1"><span data-type="text mark">Hello</span></div>',
       blockMutations: [{
         blockId: 'block-1',
         previousBlockHtml: '<div data-node-id="block-1">Hello</div>',
-        nextBlockHtml: '<div data-node-id="block-1"><span data-type="mark">Hello</span></div>',
+        nextBlockHtml: '<div data-node-id="block-1"><span data-type="text mark">Hello</span></div>',
         alreadyApplied: false,
       }],
       root: document.body,
@@ -196,7 +196,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       alreadyApplied: false,
     });
     applyPreparedSelectionClozeMark.mockReset();
-    applyPreparedSelectionClozeMark.mockResolvedValue(true);
+    applyPreparedSelectionClozeMark.mockResolvedValue('applied');
     isProgressiveSelectionInsideNativeProtyle.mockReset();
     resolveProgressiveExcerptSelectionSnapshot.mockReset();
     showMessage.mockReset();
@@ -464,7 +464,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
     resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(root, {
       text: 'Alpha Beta',
-      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span></div></div>',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span></div></div>',
       protyle: {
         wysiwyg: {
           element: root,
@@ -641,7 +641,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       },
       normalizedContent: 'Beta',
       plannerContent: 'Alpha ==Beta== Gamma',
-      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span> Gamma</div></div>',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma</div></div>',
       answerFingerprint: 'block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
       decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
       mode: 'manual-cloze' as const,
@@ -679,6 +679,65 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     expect(applyPreparedSelectionClozeMark).toHaveBeenCalledTimes(1);
     expect(autoCardHandler.suppressNextTopicDerivedMarkMutation).toHaveBeenCalledWith('block-1');
     expect(showMessage).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item', 3000, 'info');
+  });
+
+  it('surfaces the original Siyuan API error when topic manual cloze persistence fails', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
+      protyle: {
+        wysiwyg: { element: document.body },
+        block: { rootID: 'topic-doc-root-1' },
+      },
+      text: 'Beta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+      blockSelections: [{
+        blockId: 'block-1',
+        mode: 'range',
+        excerptHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Beta</div></div>',
+        beforeHtml: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha </div></div>',
+        afterHtml: '<div data-type="NodeParagraph"><div contenteditable="true"> Gamma</div></div>',
+      }],
+    }));
+
+    const preparation = {
+      rootId: 'topic-doc-root-1',
+      topicContext: {
+        topicCardId: 'topic-card-1',
+        topicBlockId: 'topic-doc-root-1',
+        sourceDocId: 'topic-doc-root-1',
+        scope: 'doc-root' as const,
+      },
+      normalizedContent: 'Beta',
+      plannerContent: 'Alpha ==Beta== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma</div></div>',
+      answerFingerprint: 'block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
+      decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
+      mode: 'manual-cloze' as const,
+      available: true,
+    };
+    applyPreparedSelectionClozeMark.mockRejectedValueOnce(new Error('Siyuan API Error: invalid DOM'));
+
+    const createTopicContinuation = vi.fn(async () => ({
+      created: 1,
+      skipped: 0,
+      items: [],
+    }));
+    const { handler } = createHandler({
+      prepareTopicContinuation: vi.fn(() => preparation),
+      createTopicContinuation,
+    });
+
+    await handler.runItemFromEditor({
+      wysiwyg: {
+        element: document.body,
+      },
+      block: {
+        rootID: 'topic-doc-root-1',
+      },
+    } as any);
+
+    expect(createTopicContinuation).not.toHaveBeenCalled();
+    expect(showMessage).toHaveBeenCalledWith('在 Topic 下创建 Item 失败：Siyuan API Error: invalid DOM', 5000, 'error');
   });
 
   it('falls back to wrapping the plain selection as a standard cloze outside topic context', async () => {

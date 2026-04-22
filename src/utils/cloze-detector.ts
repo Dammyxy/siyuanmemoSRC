@@ -2,6 +2,8 @@
  * Cloze detection helpers shared by card creation flows.
  */
 
+import { getTokenizedMarkSpanRegex, hasDataTypeToken } from '@/utils/markDataType';
+
 export interface ClozeInfo {
   text: string;
   start: number;
@@ -38,10 +40,13 @@ export class ClozeDetector {
       });
     }
 
-    const markRegex = /<span data-type="mark">(.+?)<\/span>/g;
+    const markRegex = getTokenizedMarkSpanRegex();
     while ((match = markRegex.exec(content)) !== null) {
+      if (!hasDataTypeToken(match[2], 'mark')) {
+        continue;
+      }
       clozes.push({
-        text: match[1].trim(),
+        text: (match[3] ?? '').trim(),
         start: match.index,
         end: match.index + match[0].length,
         type: 'mark',

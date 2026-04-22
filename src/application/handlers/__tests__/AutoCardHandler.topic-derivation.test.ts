@@ -237,7 +237,7 @@ describe('AutoCardHandler topic derivation routing', () => {
     const { handler, topicDerivedItemService, siyuanApi } = createHandler({
       blockId: 'topic-block-mark-1',
       rootId: 'topic-doc-2',
-      kramdown: 'Alpha <span data-type="mark">Beta</span> Gamma',
+      kramdown: 'Alpha <span data-type="text mark">Beta</span> Gamma',
       rootBlockCards: [{ id: 'topic-card-root-2', type: 'topic' }],
     });
 
@@ -251,7 +251,7 @@ describe('AutoCardHandler topic derivation routing', () => {
     const { handler, topicDerivedItemService } = createHandler({
       blockId: 'topic-block-mark-2',
       rootId: 'topic-doc-3',
-      kramdown: 'Alpha <span data-type="mark">Beta</span> Gamma',
+      kramdown: 'Alpha <span data-type="text mark">Beta</span> Gamma',
       rootBlockCards: [{ id: 'topic-card-root-3', type: 'topic' }],
     });
 

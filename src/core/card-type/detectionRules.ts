@@ -1,3 +1,5 @@
+import { hasTokenizedMarkSpan } from '@/utils/markDataType';
+
 export type CardType = 'topic' | 'item';
 export type NativeFlashcardKind = 'mark' | 'list' | 'heading' | 'superBlock';
 
@@ -41,7 +43,7 @@ export function detectAnswerSyntaxReasons(
     reasons.push('cloze-double-brace');
   }
 
-  if (/<span data-type="mark">/.test(markdownText) || /<span data-type="mark">/.test(contentText)) {
+  if (hasTokenizedMarkSpan(markdownText) || hasTokenizedMarkSpan(contentText)) {
     reasons.push('siyuan-mark-span');
   }
 

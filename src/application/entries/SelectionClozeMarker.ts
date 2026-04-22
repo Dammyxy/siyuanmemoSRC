@@ -4,6 +4,12 @@ import type {
   ProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import { createLogger } from '@/utils/logger';
+import {
+  appendDataTypeToken,
+  createTokenizedMarkWrapper,
+  isMarkElement,
+  MARK_DATA_TYPE_SELECTOR,
+} from '@/utils/markDataType';
 
 const logger = createLogger('SelectionClozeMarker');
 
@@ -28,6 +34,8 @@ export interface PreparedSelectionClozeMark {
 export interface SelectionClozeMarkApplyOptions {
   persistDomBlock: (blockId: string, dom: string) => Promise<unknown>;
 }
+
+export type PreparedSelectionClozeMarkApplyResult = 'applied' | 'already-applied';
 
 function getElementFromNode(node: Node | null): HTMLElement | null {
   if (!node) {
@@ -95,14 +103,11 @@ function resolveNodePath(root: Node, path: number[]): Node | null {
 
 function isInsideMark(node: Node | null): boolean {
   const element = getElementFromNode(node);
-  return Boolean(element?.closest<HTMLElement>('[data-type="mark"]'));
+  return Boolean(element?.closest<HTMLElement>(MARK_DATA_TYPE_SELECTOR));
 }
 
 function createMarkWrapper(fragment: DocumentFragment): HTMLElement {
-  const wrapper = document.createElement('span');
-  wrapper.setAttribute('data-type', 'mark');
-  wrapper.append(fragment);
-  return wrapper;
+  return createTokenizedMarkWrapper(document, fragment);
 }
 
 function cloneRangeMarkMutation(
@@ -155,7 +160,7 @@ function cloneFullBlockMarkMutation(blockElement: HTMLElement): PreparedSelectio
 
   if (
     target.childElementCount === 1
-    && target.firstElementChild?.getAttribute('data-type') === 'mark'
+    && isMarkElement(target.firstElementChild)
     && currentMarkup.length > 0
   ) {
     return {
@@ -167,7 +172,7 @@ function cloneFullBlockMarkMutation(blockElement: HTMLElement): PreparedSelectio
   }
 
   const wrapper = document.createElement('span');
-  wrapper.setAttribute('data-type', 'mark');
+  wrapper.setAttribute('data-type', appendDataTypeToken('', 'mark', { ensureTextToken: true }));
   while (target.firstChild) {
     wrapper.append(target.firstChild);
   }
@@ -269,22 +274,22 @@ export function prepareSelectionClozeMark(
 export async function applyPreparedSelectionClozeMark(
   prepared: PreparedSelectionClozeMark | null,
   options?: SelectionClozeMarkApplyOptions,
-): Promise<boolean> {
+): Promise<PreparedSelectionClozeMarkApplyResult> {
   if (!prepared) {
-    return false;
+    throw new Error('Missing prepared selection cloze mark');
   }
 
   const mutations = prepared.blockMutations
     .filter((mutation) => !mutation.alreadyApplied && mutation.previousBlockHtml !== mutation.nextBlockHtml);
   if (mutations.length === 0) {
-    return true;
+    return 'already-applied';
   }
 
   if (typeof options?.persistDomBlock !== 'function') {
     logger.warn('Missing DOM persistence callback for prepared selection cloze mark', {
       blockIds: prepared.blockIds,
     });
-    return false;
+    throw new Error('Missing DOM persistence callback for prepared selection cloze mark');
   }
 
   const instance = typeof prepared.protyle?.getInstance === 'function'
@@ -299,12 +304,17 @@ export async function applyPreparedSelectionClozeMark(
     if (typeof instance?.reload === 'function') {
       instance.reload(false);
     }
-    return true;
+    return 'applied';
   } catch (error) {
     logger.warn('Failed to persist prepared selection cloze mark', {
       blockIds: mutations.map((mutation) => mutation.blockId),
+      domPreview: mutations.map((mutation) => ({
+        blockId: mutation.blockId,
+        dataType: createElementFromHtml(mutation.nextBlockHtml)?.querySelector<HTMLElement>('[data-type]')
+          ?.getAttribute('data-type') || null,
+      })),
       error,
     });
-    return false;
+    throw error;
   }
 }

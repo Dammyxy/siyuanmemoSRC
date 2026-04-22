@@ -16,4 +16,13 @@ describe('detectionRules', () => {
     const reason = detectAnswerSyntax('E = mc^2', 'E = mc^2', 'extended');
     expect(reason).toBeNull();
   });
+
+  it('detects tokenized Siyuan mark spans as answer syntax', () => {
+    const reason = detectAnswerSyntax(
+      '<span data-type="text mark">重点</span>',
+      '<span data-type="block-ref mark" data-id="20240101010101-abcdefg">*</span>',
+      'extended',
+    );
+    expect(reason).toBe('siyuan-mark-span');
+  });
 });

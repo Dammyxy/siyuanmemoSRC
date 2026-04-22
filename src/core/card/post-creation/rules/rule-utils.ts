@@ -1,4 +1,6 @@
-﻿export const BLOCK_REF_PATTERN = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/i;
+import { hasTokenizedMarkSpan } from '@/utils/markDataType';
+
+export const BLOCK_REF_PATTERN = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/i;
 export const WIKI_LINK_PATTERN = /\[\[[^\]]+\]\]/;
 
 function normalizeForSymbolDetection(content: string): string {
@@ -82,7 +84,7 @@ export function hasBraceCloze(content: string): boolean {
 export function hasMarkCloze(content: string): boolean {
   const normalized = normalizeForSymbolDetection(content);
   return /==([^=]+)==/.test(normalized)
-    || /<span data-type="mark">/.test(normalized);
+    || hasTokenizedMarkSpan(normalized);
 }
 
 export function hasGenericCloze(content: string): boolean {

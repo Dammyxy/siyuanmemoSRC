@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 110)
+Last update: 2026-04-22 (Round 111)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - topic manual cloze tokenized mark persistence
+
+- Task: 修复 SiYuan 3.6.5 下 Topic / 摘录语境 `⌥⇧Z` 手动挖空在 source 保存阶段失败的问题，把 manual cloze 的 `mark` DOM 契约从裸 `data-type="mark"` 收口成 tokenized `data-type`，并把底层 kernel 错误直接透传到用户与日志。
+- Touched slice: Progressive / excerpt / topic-derived item active path across `src/application/{entries/SelectionClozeMarker.ts,handlers/ProgressiveExcerptHotkeyHandler.ts,services/SelectionTopicContinuationService.ts}`, mark detection helpers in `src/{utils/cloze-detector.ts,utils/markDataType.ts,core/card/post-creation/rules/rule-utils.ts,core/card-type/detectionRules.ts}`, focused regression tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `SelectionClozeMarker` 不再手造裸 `<span data-type="mark">`，而是统一用 tokenized `data-type` helper：普通文本默认写成 `text mark`，选区本身如果已是单个 `span[data-type]` 则保留原 token 并追加 `mark`；manual cloze artifact DOM 与 source 写回共用同一 helper，因此 `[*]` 这类 block-ref 选区会保留 `block-ref` 语义并追加 `mark`；`applyPreparedSelectionClozeMark()` 现在返回显式 `applied/already-applied` 结果，底层保存失败时直接抛原始 `Siyuan API Error`，handler toast 与 warning log 也会带出真实错误和简短 DOM 预览。
+- Debt deferred: 这轮没有把全仓库所有与 `mark` 相关的历史注释、帮助文案和非活跃路径解析器都迁移到 tokenized 口径；像 `DialogManager` 里面向旧 quick-card 说明文案的示例字符串仍保留老写法，后续如果继续扩大 mark 语义面再统一更稳。
+- Why deferred: 当前用户问题集中在 Topic/manual-cloze 的 active path 和相关 detection 主链；继续向历史说明文案和更宽的非活跃解析面扩散，会把一次运行时兼容修复扩大成低收益的全局措辞清扫。
+- Next safe step: 如果 SiYuan 3.6.5 在 tokenized `mark` 下仍有边角保存失败，再进一步比对 excerpt highlight 与 manual-cloze 的 `updateBlock(dom)` 输入差异，必要时再评估是否需要更重的 markdown/native-editor 写回路径。
+- Validation: `pnpm vitest run src/application/entries/__tests__/SelectionClozeMarker.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/application/services/__tests__/SelectionTopicContinuationService.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts src/utils/__tests__/cloze-detector.mark-token.test.ts src/core/card-type/__tests__/detectionRules.test.ts src/core/card/post-creation/rules/__tests__/rule-utils.mark-token.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-22 - topic manual mark cloze continuation
 

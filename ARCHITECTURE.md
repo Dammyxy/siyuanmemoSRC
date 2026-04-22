@@ -204,6 +204,13 @@ sequenceDiagram
 - `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、planner 结果适配，以及“普通选区改 source mark + 立刻创建 1 个 Item”的 manual-cloze 分流收敛到 topic-derived 主链
 - `TopicDerivedItemService`：在 topic / excerpt 语境下创建 topic-derived item
 
+当前 manual-cloze 的 DOM / 错误契约补充：
+
+- Topic / 摘录语境里的 `⌥⇧Z` 与右键 `在 Topic 下创建 Item` 会先把 source 选区写成 tokenized `mark`：默认是 `data-type="text mark"`，如果选区本身就是单个内联 `span[data-type]`，则保留原 token（例如 `block-ref`）并追加 `mark`
+- `SelectionTopicContinuationService` 生成的 manual-cloze `artifactContentDom` 与 source 写回共用同一套 tokenized mark helper，因此 block-ref 这类选区不会因为高亮而丢掉原有内联语义
+- `applyPreparedSelectionClozeMark()` 成功时返回显式 `applied / already-applied`，失败时直接抛底层 Siyuan kernel 错误；`ProgressiveExcerptHotkeyHandler` 只负责记录上下文日志并把原始错误消息透传到 toast，而不是再把保存失败折叠成泛化布尔值
+- mark 识别主链按 `data-type` token 列表是否包含 `mark` 判定，不再要求精确字符串 `data-type="mark"`
+
 集成边界：
 
 - `ProgressiveSiyuanPort` / `ProgressiveSiyuanAdapter`
