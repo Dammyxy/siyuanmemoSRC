@@ -139,4 +139,70 @@ describe('QueueBrowserQueryKernel', () => {
     expect(queue.getCardsBySnapshotIds).toHaveBeenCalledWith(['card-a', 'card-b']);
     expect(queue.getSnapshotRows).toHaveBeenCalled();
   });
+
+  it('marks missing source blocks before queue filtering and hydration', async () => {
+    const snapshotRows = [
+      buildSnapshotRow('row-existing', {
+        fsrsCardId: 'card-existing',
+        blockId: 'block-existing',
+        content: 'existing',
+        fullContent: 'existing',
+      }),
+      buildSnapshotRow('row-missing', {
+        fsrsCardId: 'card-missing',
+        blockId: 'block-missing',
+        content: '',
+        fullContent: '',
+      }),
+    ];
+    const cards = [
+      buildCard('card-existing', {
+        riffCardId: 'row-existing',
+        blockId: 'block-existing',
+        meta: { content: 'existing', rootId: 'doc-a', deckId: 'deck-a' },
+      }),
+      buildCard('card-missing', {
+        riffCardId: 'row-missing',
+        blockId: 'block-missing',
+        meta: { content: '', rootId: 'doc-a', deckId: 'deck-a' },
+      }),
+    ];
+    const queue = {
+      getSnapshotRows: vi.fn(async () => snapshotRows),
+      getCardsBySnapshotIds: vi.fn(async (ids: string[]) => {
+        const cardById = new Map([
+          ['card-existing', cards[0]],
+          ['card-missing', cards[1]],
+          ['row-existing', cards[0]],
+          ['row-missing', cards[1]],
+        ]);
+        return ids.map((id) => cardById.get(id)).filter(Boolean);
+      }),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    } as never;
+    const siyuanApi = {
+      sql: vi.fn(async () => [{ id: 'block-existing' }]),
+    };
+
+    const kernel = new QueueBrowserQueryKernel(manager, siyuanApi as never);
+
+    const normalSnapshot = await kernel.buildSnapshot({
+      queueId: 'retrieval',
+      preset: 'all',
+    });
+    expect(normalSnapshot.rows.map((row) => row.id)).toEqual(['card-existing']);
+
+    const lostSnapshot = await kernel.buildSnapshot({
+      queueId: 'retrieval',
+      docId: '__lost__',
+      preset: 'all',
+    });
+    expect(lostSnapshot.rows.map((row) => row.id)).toEqual(['card-missing']);
+
+    const hydrated = await kernel.getQueueRowsByIds('retrieval', ['card-missing']);
+    expect(hydrated).toHaveLength(1);
+    expect(hydrated[0]?.meta?.blockType).toBe('missing');
+  });
 });

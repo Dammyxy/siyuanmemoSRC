@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 106)
+Last update: 2026-04-22 (Round 107)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - missing-block orphan flashcard browser scope
+
+- Task: 把已删除源块导致的孤儿闪卡从浏览器空白预览和控制台 `tree not found` 噪音，整理成显式“缺失块”全局视图，并提供用户主动 `取消闪卡` 的清理入口。
+- Touched slice: Browser / queue query / preview active path across `src/application/queries/browser/shared/{BrowserDeckQueryKernel.ts,QueueBrowserQueryKernel.ts,MissingBlockMarker.ts}`, `src/application/services/BrowserApplicationService.ts`, `src/ui/browser/{SRSBrowser.vue,BrowserHierarchy.vue,BrowserToolbar.vue,BrowserPreview.vue,SRSBrowser.scss}`, queue/deck browser mappers, preview breadcrumb utilities, i18n, focused browser/query regression coverage, and this backlog.
+- Debt fixed now: Formalized missing-block detection as a read-time query helper instead of relying only on stale `meta.blockType`; made deck stats expose real `lostCards`; enriched queue snapshots before filtering so normal queue/global views hide missing rows while `docId='__lost__'` shows only them; added a first-class hierarchy pseudo node and toolbar exit affordance for missing-block scope; and made preview stop loading breadcrumbs/Protyle for known missing cards while downgrading expected missing-source errors to debug.
+- Debt deferred: The legacy fallback `DeckDataSource` path without `BrowserApplicationService` still cannot perform live block-existence checks, and browser preview utilities still directly call the Siyuan infrastructure API instead of going through a dedicated preview port.
+- Why deferred: The production browser path already uses the application query kernels for deck/queue snapshots, while retrofitting every legacy datasource fallback or extracting a preview port would widen this orphan-card management task into a larger browser infrastructure refactor.
+- Next safe step: If a future entry point runs the browser without `BrowserApplicationService`, move missing-block enrichment behind a shared datasource-level application port; if preview keeps growing, extract breadcrumb/document preview reads into a bounded `PreviewSiyuanPort`.
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserPreview.spec.ts src/ui/browser/__tests__/BrowserHierarchy.missing-blocks.spec.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/application/queries/browser/__tests__/BrowserDeckQueryKernel.scope-doc-ids.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/ui/browser/datasource/__tests__/DataSourceUtils.pagination.test.ts src/ui/browser/__tests__/types.cardTypeFilters.test.ts`; `pnpm vitest run src/application/queries/browser/__tests__/GetBrowserCardsQueryHandler.priority-regression.test.ts src/ui/browser/datasource/__tests__/DataSourceUtils.doc-scope-filter.test.ts src/ui/browser/datasource/__tests__/QueueSnapshotDataSources.query-snapshot.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts`; `pnpm build`.
 
 ### 2026-04-22 - doc-tree browser scope and document menu regrouping
 

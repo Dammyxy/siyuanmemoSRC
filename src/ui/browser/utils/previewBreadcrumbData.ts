@@ -4,6 +4,7 @@ import {
   normalizeRawBreadcrumbs,
 } from '@/core/card/common/application/breadcrumbNormalization';
 import { getBlockBreadcrumb, getDocInfo, listNotebooks, sql } from '@/infrastructure/siyuan/api';
+import { isIgnorableMissingBlockError } from '@/application/usecases/card/shared/SiyuanBlockErrorClassifier';
 import { escapeSQL } from '@/utils/sqlOptimizer';
 import { createLogger } from '@/utils/logger';
 import type { BrowserCard } from '../types';
@@ -34,6 +35,14 @@ type NotebookLike = {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function logPreviewInfoFallback(message: string, error: unknown): void {
+  if (isIgnorableMissingBlockError(error)) {
+    logger.debug(message, error);
+    return;
+  }
+  logger.warn(message, error);
 }
 
 function isDocumentType(type: string): boolean {
@@ -121,7 +130,10 @@ async function loadDocumentParentTrail(
     docInfo = await getDocInfo(blockId);
   }
   catch (error) {
-    logger.warn('[PreviewBreadcrumbData] Failed to fetch document info, falling back to card metadata', error);
+    logPreviewInfoFallback(
+      '[PreviewBreadcrumbData] Failed to fetch document info, falling back to card metadata',
+      error,
+    );
   }
 
   const { box, path } = readDocumentInfo(docInfo, card);
@@ -236,7 +248,10 @@ async function loadPreviewDocumentInfo(
     docInfo = await getDocInfo(documentId);
   }
   catch (error) {
-    logger.warn('[PreviewBreadcrumbData] Failed to fetch preview document info, falling back to card metadata', error);
+    logPreviewInfoFallback(
+      '[PreviewBreadcrumbData] Failed to fetch preview document info, falling back to card metadata',
+      error,
+    );
   }
 
   return readDocumentInfo(docInfo, card);
@@ -336,7 +351,7 @@ export async function loadPreviewBreadcrumbTrail(
     return cacheBreadcrumbTrail(cacheKey, trail);
   }
   catch (error) {
-    logger.warn('[PreviewBreadcrumbData] Failed to resolve document parent trail', error);
+    logPreviewInfoFallback('[PreviewBreadcrumbData] Failed to resolve document parent trail', error);
     const trail = await prependNotebookBreadcrumb([selfDocumentBreadcrumb], documentId, card);
     return cacheBreadcrumbTrail(cacheKey, trail);
   }

@@ -11,6 +11,7 @@ export type { QueueCardFirstReviewMode };
 export type QueueBrowserCardMapOptions = {
   firstReviewMode?: QueueCardFirstReviewMode;
   queueIndex?: number;
+  blockType?: string | null;
 };
 
 function convertCardState(state: number): CardState {
@@ -86,11 +87,17 @@ export function mapQueueFsrsCardToBrowserCard(
     note: projection.note,
     cardType: projection.cardType,
     aFactor: projection.aFactor,
-    meta: card.meta,
+    meta: options?.blockType
+      ? { ...(card.meta || {}), blockType: options.blockType }
+      : card.meta,
   };
 
   if (typeof projection.queueIndex === 'number' && Number.isFinite(projection.queueIndex)) {
     browserCard.queueIndex = projection.queueIndex;
+  }
+
+  if (options?.blockType === 'missing') {
+    (browserCard as BrowserCard & { blockType?: string }).blockType = 'missing';
   }
 
   return browserCard;

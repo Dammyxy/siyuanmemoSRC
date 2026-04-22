@@ -141,6 +141,9 @@ export interface BrowserStats {
   
   /** 已暂停卡片数 */
   suspendedCards: number;
+
+  /** 源块已缺失的孤儿闪卡数 */
+  lostCards: number;
 }
 
 /**

@@ -123,10 +123,14 @@ vi.mock('../BrowserHierarchy.vue', () => ({
       },
       globalStats: {
         type: Object,
-        default: () => ({ total: 0, dismissed: 0 }),
+        default: () => ({ total: 0, dismissed: 0, lost: 0 }),
+      },
+      activeDocId: {
+        type: String,
+        default: null,
       },
     },
-    emits: ['selectGlobal'],
+    emits: ['selectGlobal', 'selectDoc'],
     setup(props, { emit }) {
       const docSummaries = computed(() => {
         const counts = new Map<string, number>();
@@ -151,6 +155,10 @@ vi.mock('../BrowserHierarchy.vue', () => ({
           class: 'select-global-suspended',
           onClick: () => emit('selectGlobal', '__dismissed__'),
         }, `Suspended ${String((props.globalStats as { dismissed: number }).dismissed ?? 0)}`),
+        h('button', {
+          class: props.activeDocId === '__lost__' ? 'select-missing-blocks active' : 'select-missing-blocks',
+          onClick: () => emit('selectDoc', '__lost__'),
+        }, `Missing ${String((props.globalStats as { lost: number }).lost ?? 0)}`),
         ...docSummaries.value.map((summary) => h('div', { class: 'doc-entry' }, summary)),
       ]);
     },
@@ -295,6 +303,7 @@ function createBrowserService() {
     getStats: vi.fn(async () => ({
       totalCards: 3,
       suspendedCards: 1,
+      lostCards: 1,
     })),
     getUnifiedDataSourceManager: vi.fn(() => ({
       getCard: vi.fn(async () => null),
@@ -497,5 +506,40 @@ describe('SRSBrowser hierarchy regressions', () => {
       scopeDocIds: null,
     });
     expect(wrapper.get('.toolbar-scope-count').text()).toBe('0');
+  });
+
+  it('enters the global missing-block scope from the hierarchy pseudo node', async () => {
+    const rows = [
+      buildBrowserCard('card-1', 'doc-1'),
+      buildBrowserCard('card-2', 'doc-1-child'),
+    ];
+    createDeckDataSourceMock.mockImplementation(() => createQueryableDataSource(rows));
+
+    const wrapper = mountBrowser({
+      initialOpenState: {
+        scopeDocIds: ['doc-1', 'doc-1-child'],
+        preset: 'due',
+        queryText: 'alpha',
+        cardType: 'topic-only',
+      },
+    });
+
+    await advance(0);
+    await advance(0);
+    await advance(200);
+
+    await wrapper.get('.select-missing-blocks').trigger('click');
+    await advance(0);
+    await advance(0);
+    await advance(240);
+
+    expect(createDeckDataSourceMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      docId: '__lost__',
+      scopeDocIds: null,
+      preset: 'all',
+      queryText: '',
+      cardType: 'all',
+    });
+    expect(wrapper.get('.select-missing-blocks').classes()).toContain('active');
   });
 });

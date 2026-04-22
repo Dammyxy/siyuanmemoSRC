@@ -160,6 +160,9 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
             attrs: '',
           }];
         }
+        if (stmt.includes('SELECT id') && stmt.includes('WHERE id IN')) {
+          return [{ id: 'block-dismissed' }];
+        }
         return [];
       }),
     );
@@ -208,6 +211,9 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
             content: 'due card',
             attrs: '',
           }];
+        }
+        if (stmt.includes('SELECT id') && stmt.includes('WHERE id IN')) {
+          return [{ id: 'block-due' }];
         }
         return [];
       }),
@@ -260,6 +266,9 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
             content: preset,
             attrs: '',
           }];
+        }
+        if (stmt.includes('SELECT id') && stmt.includes('WHERE id IN')) {
+          return [{ id: `block-${id}` }];
         }
         return [];
       }),
@@ -418,6 +427,9 @@ describe('GetBrowserCardsQueryHandler priority regression', () => {
             content: 'priority regression',
             attrs: '',
           }];
+        }
+        if (stmt.includes('SELECT id') && stmt.includes('WHERE id IN')) {
+          return [{ id: 'block-fallback' }];
         }
         return [];
       }),

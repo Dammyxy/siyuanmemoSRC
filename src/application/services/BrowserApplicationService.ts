@@ -85,7 +85,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       siyuanApi as unknown as QuerySiyuanPort,
     );
     this.queueBrowserQueryKernel = unifiedDataSourceManager
-      ? new QueueBrowserQueryKernel(unifiedDataSourceManager)
+      ? new QueueBrowserQueryKernel(unifiedDataSourceManager, siyuanApi as unknown as QuerySiyuanPort)
       : null;
 
     this.getBrowserCardsQueryHandler = new GetBrowserCardsQueryHandler(

@@ -360,4 +360,35 @@ describe('BrowserPreview', () => {
     expect(fetchMock.mock.calls).toHaveLength(initialFetchCalls);
     expect(wrapper.findAll('.card-breadcrumb__item')).toHaveLength(3);
   });
+
+  it('shows an explicit missing-block empty state and emits delete-card', async () => {
+    const card = createCard({
+      blockId: 'missing-block',
+      meta: {
+        blockType: 'missing',
+      },
+    });
+    const wrapper = mount(BrowserPreview, {
+      props: {
+        app: {} as never,
+        card,
+        mode: 'dialog',
+        size: 360,
+        i18n: {
+          previewMissingBlockTitle: 'Source block deleted',
+          previewMissingBlockDescription: 'Cannot preview this orphan card.',
+          previewMissingBlockDelete: 'Remove flashcard',
+        },
+      },
+    });
+
+    await settle();
+
+    expect(wrapper.get('.preview__missing-title').text()).toBe('Source block deleted');
+    expect(wrapper.text()).toContain('Cannot preview this orphan card.');
+    expect(mockState.createdBlockIds).toEqual([]);
+
+    await wrapper.get('.preview__missing button').trigger('click');
+    expect(wrapper.emitted('delete-card')?.[0]).toEqual([card]);
+  });
 });

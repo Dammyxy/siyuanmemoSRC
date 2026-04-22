@@ -85,4 +85,48 @@ describe('BrowserDeckQueryKernel scopeDocIds', () => {
     expect(result.rows.map((row) => row.blockId)).toEqual(['block-2']);
     expect(result.total).toBe(1);
   });
+
+  it('excludes missing blocks from normal deck snapshots and exposes them via __lost__', async () => {
+    const now = Date.now();
+    const cards = [
+      buildCard('card-existing', 'block-existing', 'doc-1', now - 1_000, 'existing'),
+      buildCard('card-missing', 'block-missing', 'doc-1', now - 1_000, ''),
+    ];
+    const storageManager = {
+      queryCards: vi.fn((query?: { blockIds?: string[] }) => {
+        if (!query?.blockIds?.length) {
+          return cards;
+        }
+        const blockIdSet = new Set(query.blockIds);
+        return cards.filter((card) => blockIdSet.has(card.blockId));
+      }),
+      getAllCards: vi.fn(() => cards),
+      getCard: vi.fn((id: string) => cards.find((card) => card.id === id)),
+      getCardByBlockId: vi.fn((blockId: string) => cards.find((card) => card.blockId === blockId)),
+    };
+    const siyuanApi = {
+      ATTR_CARD_TYPE: 'custom-card-type',
+      sql: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM blocks') && sql.includes('WHERE id IN')) {
+          return [{ id: 'block-existing' }];
+        }
+        return [];
+      }),
+    };
+    const kernel = new BrowserDeckQueryKernel(
+      storageManager as never,
+      {} as never,
+      {} as never,
+      siyuanApi as never,
+    );
+
+    const normal = await kernel.buildSnapshot({ preset: 'all' });
+    expect(normal.rows.map((row) => row.blockId)).toEqual(['block-existing']);
+
+    const lost = await kernel.buildSnapshot({ docId: '__lost__', preset: 'all' });
+    expect(lost.rows.map((row) => row.blockId)).toEqual(['block-missing']);
+
+    const hydrated = await kernel.getBrowserCardsByIds(['card-missing']);
+    expect(hydrated[0]?.meta?.blockType).toBe('missing');
+  });
 });

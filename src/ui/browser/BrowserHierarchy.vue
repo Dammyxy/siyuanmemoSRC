@@ -27,6 +27,10 @@
           <span class="b3-list-item__text">{{ t('filterPresetSuspended', 'Suspended') }}</span>
           <span class="b3-list-item__meta">{{ globalStats.dismissed }}</span>
         </div>
+        <div class="b3-list-item" :class="{ 'b3-list-item--focus': props.activeDocId === '__lost__' }" @click="emit('selectDoc', '__lost__')">
+          <span class="b3-list-item__text">{{ t('missingBlocks', 'Missing blocks') }}</span>
+          <span class="b3-list-item__meta">{{ globalStats.lost }}</span>
+        </div>
       </div>
     </div>
 
@@ -60,6 +64,7 @@ const props = defineProps<{
   focusedDocIds?: string[] | null;
   globalStats: { total: number; lost: number; dismissed: number };
   activeGlobal?: '__all__' | '__dismissed__' | null;
+  activeDocId?: string | null;
   i18n?: Record<string, string>;
 }>();
 

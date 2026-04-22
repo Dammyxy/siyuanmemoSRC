@@ -19,6 +19,7 @@
           :focusedDocIds="focusedDocIds"
           :globalStats="globalStats"
           :activeGlobal="activeGlobalScope"
+          :activeDocId="activeDocId"
           :mobile-mode="isMobileMode"
           :i18n="props.i18n"
           @selectQueue="handleSelectQueue"
@@ -270,6 +271,7 @@
           :focusedDocIds="focusedDocIds"
           :globalStats="globalStats"
           :activeGlobal="activeGlobalScope"
+          :activeDocId="activeDocId"
           :mobile-mode="isMobileMode"
           :i18n="props.i18n"
           @selectQueue="handleSelectQueue"
@@ -297,6 +299,7 @@
       :mode="mode"
       :size="previewSize"
       @jump="jumpToBlock"
+      @delete-card="handlePreviewDeleteCard"
     />
 
     <!-- Filter dialog (filter-group-queue-ui) -->
@@ -1210,7 +1213,11 @@ const activeGlobalScope = computed<'__all__' | '__dismissed__' | null>(() => {
   return null;
 });
 
-const showToolbarExitScope = computed(() => shouldFocusDocList.value || hasActiveScopeDocIds.value);
+const showToolbarExitScope = computed(() => (
+  shouldFocusDocList.value
+  || hasActiveScopeDocIds.value
+  || activeDocId.value === '__lost__'
+));
 
 function clearLoadedRowsCache(): void {
   if (loadedRowsFlushTimer) {
@@ -1388,14 +1395,17 @@ function buildSelectionContextFingerprint(): string {
 
 function describeCurrentFilterSummary(): string {
   const parts: string[] = [];
-  parts.push(`${t('scope', 'Scope')}: ${activeQueueId.value || t('allCards', 'All')}`);
+  const scopeLabel = activeDocId.value === '__lost__'
+    ? t('missingBlocks', 'Missing blocks')
+    : (activeQueueId.value || t('allCards', 'All'));
+  parts.push(`${t('scope', 'Scope')}: ${scopeLabel}`);
 
   if (hasActiveScopeDocIds.value) {
     parts.push(
       `${t('docTreeScope', 'Doc Tree Scope')}: ${String(activeScopeDocIds.value?.length || 0)}`,
     );
   }
-  if (activeDocId.value) {
+  if (activeDocId.value && activeDocId.value !== '__lost__') {
     parts.push(`${t('document', 'Document')}: ${activeDocId.value}`);
   }
   if (currentPreset.value && currentPreset.value !== 'all') {
@@ -1539,9 +1549,11 @@ async function refreshGlobalStats(force = false): Promise<void> {
       const normalized = stats as {
         totalCards?: number;
         suspendedCards?: number;
+        lostCards?: number;
       };
-      globalTotalCount.value = Number(normalized.totalCards) || 0;
-      globalLostCount.value = 0;
+      const lostCards = Number(normalized.lostCards) || 0;
+      globalTotalCount.value = Math.max(0, (Number(normalized.totalCards) || 0) - lostCards);
+      globalLostCount.value = lostCards;
       globalDismissedCount.value = Number(normalized.suspendedCards) || 0;
       return;
     } catch (error) {
@@ -2347,6 +2359,13 @@ function jumpToBlock(blockId?: string) {
       doc: { id: targetId },
     });
   }
+}
+
+function handlePreviewDeleteCard(card: BrowserCard): void {
+  if (!card) {
+    return;
+  }
+  void handleAction('delete-card', [card], card);
 }
 
 function openNumberDialog(options: {
@@ -4854,9 +4873,31 @@ function handleExitFocus() {
 }
 
 function handleSelectDoc(docId: string) {
-  syncSelectionForQueryChange();
-  const id = String(docId || '');
+  const id = String(docId || '').trim();
 
+  if (id === '__lost__') {
+    void runWithSuspendedBrowserStateBootstrap(async () => {
+      syncSelectionForQueryChange();
+      activeQueueId.value = null;
+      activeScopeDocIds.value = null;
+      clearNeuralSubviewData();
+      activeDocId.value = '__lost__';
+      currentPreset.value = 'all';
+      currentCardType.value = 'all';
+      searchQuery.value = '';
+      shouldFocusDocList.value = false;
+      syncGlobalBrowserContext();
+
+      await loadData(false, {
+        refreshQueueCounts: false,
+        snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
+      });
+      await refreshGlobalStats(false);
+    });
+    return;
+  }
+
+  syncSelectionForQueryChange();
   activeDocId.value = id;
   void loadData(false, { refreshQueueCounts: false });
 }

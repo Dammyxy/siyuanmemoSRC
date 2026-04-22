@@ -1,4 +1,5 @@
 import type { BrowserQueueId } from '@/application/interfaces/IBrowserApplicationService';
+import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { IUnifiedDataSourceManagerFacade, QueueType } from '@/types/unified-data-source';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 import { QueueType as QueueTypeEnum } from '@/types/unified-data-source';
@@ -15,6 +16,7 @@ import type {
   QueueBrowserSnapshotQuery,
   QueueBrowserSnapshotResult,
 } from '../queue-browser-query';
+import { markMissingBlockRows } from './MissingBlockMarker';
 
 const logger = createLogger('QueueBrowserQueryKernel');
 
@@ -26,11 +28,14 @@ const QUEUE_ID_TO_TYPE: Partial<Record<BrowserQueueId, QueueType>> = {
 };
 
 export class QueueBrowserQueryKernel {
-  constructor(private readonly manager: IUnifiedDataSourceManagerFacade) {}
+  constructor(
+    private readonly manager: IUnifiedDataSourceManagerFacade,
+    private readonly siyuanApi: Pick<QuerySiyuanPort, 'sql'> | null = null,
+  ) {}
 
   async buildSnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult> {
     const queue = this.resolveQueue(query.queueId);
-    const rows = await queue.getSnapshotRows();
+    const rows = await this.markMissingRows(await queue.getSnapshotRows());
     const filteredRows = applyQueueFiltersToSnapshotRows(
       rows,
       {
@@ -66,7 +71,7 @@ export class QueueBrowserQueryKernel {
     }
 
     const queue = this.resolveQueue(queueId);
-    const rows = await queue.getSnapshotRows();
+    const rows = await this.markMissingRows(await queue.getSnapshotRows());
     const rowById = new Map<string, QueueSnapshotRow>();
     for (const row of rows) {
       const snapshotId = String(row.id || '').trim();
@@ -85,6 +90,7 @@ export class QueueBrowserQueryKernel {
       return mapQueueFsrsCardToBrowserCard(card, {
         firstReviewMode: queueId === 'retrieval' ? 'created-or-last' : 'last-review',
         queueIndex: snapshotRow?.queueIndex,
+        blockType: snapshotRow?.blockType,
       });
     });
 
@@ -113,6 +119,13 @@ export class QueueBrowserQueryKernel {
     }
 
     return 'headline';
+  }
+
+  private async markMissingRows(rows: QueueSnapshotRow[]): Promise<QueueSnapshotRow[]> {
+    if (!this.siyuanApi) {
+      return rows;
+    }
+    return markMissingBlockRows(rows, this.siyuanApi);
   }
 
   private toLiteRow(row: QueueSnapshotRow): QueueBrowserLiteRow {

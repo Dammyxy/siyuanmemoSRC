@@ -16,6 +16,7 @@
             class="b3-button b3-button--outline"
             @click="emitJump"
             :title="t('jumpToBlock', '跳转')"
+            :disabled="missingPreviewVisible"
           >
             <svg><use xlink:href="#iconOpen"></use></svg>
           </button>
@@ -54,6 +55,21 @@
       </div>
 
       <div class="preview__body" ref="bodyRef" @dblclick="handleDoubleClick">
+        <div v-if="missingPreviewVisible" class="preview__missing" @dblclick.stop>
+          <div class="preview__missing-icon">?</div>
+          <div class="preview__missing-copy">
+            <div class="preview__missing-title">
+              {{ t('previewMissingBlockTitle', '源块已删除') }}
+            </div>
+            <p>
+              {{ t('previewMissingBlockDescription', '这张闪卡绑定的思源块已不存在，无法预览。你可以取消闪卡来清理这条孤儿记录。') }}
+            </p>
+            <button class="b3-button b3-button--text" @click.stop="requestDeleteMissingCard">
+              <svg><use xlink:href="#iconTrashcan"></use></svg>
+              {{ t('previewMissingBlockDelete', '取消闪卡') }}
+            </button>
+          </div>
+        </div>
         <!-- Protyle render host -->
       </div>
     </div>
@@ -70,12 +86,14 @@ import { Protyle, type App } from 'siyuan';
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { BrowserCard, BrowserPreviewSource } from './types';
+import { isIgnorableMissingBlockError } from '@/application/usecases/card/shared/SiyuanBlockErrorClassifier';
 import { applyProtyleReadonly } from './utils/protyleControl';
 import { loadPreviewBreadcrumbTrail } from './utils/previewBreadcrumbData';
 import {
   resolvePreviewDocumentTitle,
   resolvePreviewTargetType,
 } from './utils/previewBreadcrumbs';
+import { isMissingBlockCard } from './datasource/DataSourceUtils';
 import { createLogger } from '@/utils/logger';
 import {
   ensureSiyuanMenuComponentFallbacks,
@@ -95,6 +113,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'jump', blockId: string): void;
   (e: 'update:size', size: number): void;
+  (e: 'delete-card', card: BrowserCard): void;
 }>();
 
 const bodyRef = ref<HTMLElement | null>(null);
@@ -106,6 +125,7 @@ const activePreviewType = ref('');
 const activePreviewTitle = ref('');
 const lastLoadedBlockId = ref('');
 const lastBreadcrumbBlockId = ref('');
+const previewMissingReason = ref<'marked' | 'missing-target' | null>(null);
 
 let currentProtyle: Protyle | null = null;
 let currentHostElement: HTMLElement | null = null;
@@ -142,6 +162,10 @@ const activeBreadcrumbId = computed(() => (
   previewSource.value === 'breadcrumb' ? activePreviewBlockId.value : ''
 ));
 const currentJumpTargetId = computed(() => activePreviewBlockId.value || selectedCardBlockId.value);
+const missingPreviewVisible = computed(() => previewMissingReason.value !== null);
+const isSelectedCardMissing = computed(() => (
+  props.card ? isMissingBlockCard(props.card) : false
+));
 const isTemporaryPreview = computed(() => (
   previewSource.value === 'breadcrumb'
   && Boolean(selectedCardBlockId.value)
@@ -177,6 +201,11 @@ function clearPreviewState(): void {
   activePreviewTitle.value = '';
   lastLoadedBlockId.value = '';
   lastBreadcrumbBlockId.value = '';
+  previewMissingReason.value = null;
+}
+
+function clearMissingPreviewState(): void {
+  previewMissingReason.value = null;
 }
 
 function toggleLock(): void {
@@ -192,11 +221,21 @@ function handleDoubleClick(): void {
 }
 
 function emitJump(): void {
+  if (missingPreviewVisible.value) {
+    return;
+  }
   const targetId = currentJumpTargetId.value;
   if (!targetId) {
     return;
   }
   emit('jump', targetId);
+}
+
+function requestDeleteMissingCard(): void {
+  if (!props.card) {
+    return;
+  }
+  emit('delete-card', props.card);
 }
 
 function updateProtyleReadonly(): void {
@@ -305,6 +344,18 @@ function clearPreviewBody(): void {
   }
 }
 
+function showMissingBlockState(reason: 'marked' | 'missing-target', error?: unknown): void {
+  previewMissingReason.value = reason;
+  breadcrumbs.value = [];
+  lastBreadcrumbBlockId.value = '';
+  syncActivePreviewMetadata();
+  destroyCurrentProtyle();
+  clearPreviewBody();
+  if (error) {
+    logger.debug('[BrowserPreview] Missing source block detected, showing empty preview state', error);
+  }
+}
+
 async function fetchBreadcrumbs(blockId: string, token: number = loadToken): Promise<void> {
   if (token !== loadToken) {
     return;
@@ -334,6 +385,10 @@ async function fetchBreadcrumbs(blockId: string, token: number = loadToken): Pro
     if (token !== loadToken) {
       return;
     }
+    if (isIgnorableMissingBlockError(err)) {
+      showMissingBlockState('missing-target', err);
+      return;
+    }
     logger.error('[BrowserPreview] Fetch breadcrumbs error:', err);
     lastBreadcrumbBlockId.value = '';
     syncActivePreviewMetadata();
@@ -355,6 +410,7 @@ async function loadContent(blockId: string, token: number = loadToken): Promise<
   ensurePreviewMenuGlobalFallbacks();
 
   destroyCurrentProtyle();
+  clearPreviewBody();
   if (token !== loadToken) {
     return;
   }
@@ -399,6 +455,10 @@ async function loadContent(blockId: string, token: number = loadToken): Promise<
     if (token !== loadToken) {
       return;
     }
+    if (isIgnorableMissingBlockError(err)) {
+      showMissingBlockState('missing-target', err);
+      return;
+    }
     logger.error('[BrowserPreview] Protyle load error:', err);
     destroyCurrentProtyle();
     if (bodyRef.value) {
@@ -408,6 +468,9 @@ async function loadContent(blockId: string, token: number = loadToken): Promise<
 }
 
 async function previewBreadcrumb(item: BreadcrumbItem): Promise<void> {
+  if (missingPreviewVisible.value) {
+    return;
+  }
   if (!item.id) {
     return;
   }
@@ -433,6 +496,10 @@ async function returnToSelectedCard(): Promise<void> {
   if (!blockId) {
     return;
   }
+  if (isSelectedCardMissing.value) {
+    showMissingBlockState('marked');
+    return;
+  }
   if (blockId === activePreviewBlockId.value && currentProtyle) {
     return;
   }
@@ -446,9 +513,17 @@ watch(() => props.card, async (newCard) => {
   const token = ++loadToken;
 
   if (newCard?.blockId) {
+    clearMissingPreviewState();
     resetToSelectedCardState();
+    if (isMissingBlockCard(newCard)) {
+      showMissingBlockState('marked');
+      return;
+    }
     await fetchBreadcrumbs(newCard.blockId, token);
     if (token !== loadToken) {
+      return;
+    }
+    if (missingPreviewVisible.value) {
       return;
     }
     await loadContent(newCard.blockId, token);

@@ -31,6 +31,7 @@ import type {
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
 } from '../browser-deck-query';
+import { countMissingBlockCards, markMissingBlockRows } from './MissingBlockMarker';
 
 const logger = createLogger('BrowserDeckQueryKernel');
 
@@ -101,11 +102,14 @@ export class BrowserDeckQueryKernel {
     }
 
     let rows = await this.buildSnapshotRows(candidateCards);
+    if (candidateResolution.path !== 'sql-candidate-query') {
+      rows = await markMissingBlockRows(rows, this.siyuanApi);
+    }
+    rows = applyDocFilter(rows, query.docId, query.scopeDocIds);
     rows = this.applyPresetFilter(rows, query.preset);
     rows = this.applyExplicitStateFilter(rows, query.states);
     rows = this.applyExplicitCardTypeFilter(rows, query.cardTypes);
     rows = applySimpleQueryFilter(rows, query.searchText, { secondaryField: 'fullContent' });
-    rows = applyDocFilter(rows, query.docId, query.scopeDocIds);
     rows = this.applyDeckAndTagFilter(rows, query);
 
     const sortedRows = sortBrowserRows(rows, query.sortModel || []);
@@ -130,7 +134,8 @@ export class BrowserDeckQueryKernel {
 
   async getStats(): Promise<BrowserStats> {
     const allCards = await this.loadAllCards();
-    return this.calculateStats(allCards);
+    const lostCards = await countMissingBlockCards(allCards, this.siyuanApi);
+    return this.calculateStats(allCards, lostCards);
   }
 
   async getBrowserCardsByIds(ids: string[]): Promise<BrowserCard[]> {
@@ -150,7 +155,10 @@ export class BrowserDeckQueryKernel {
       return [];
     }
 
-    const browserCards = await this.transformToBrowserCards(cards);
+    const browserCards = await markMissingBlockRows(
+      await this.transformToBrowserCards(cards),
+      this.siyuanApi,
+    );
     const rowById = new Map<string, BrowserCard>();
     for (const row of browserCards) {
       rowById.set(resolveBrowserCardStableId(row), row);
@@ -419,6 +427,25 @@ export class BrowserDeckQueryKernel {
 
   private async resolveCandidateCards(query: BrowserDeckSnapshotQuery): Promise<ResolvedCandidateCards> {
     const structuredQuery = this.buildStructuredQueryFromBrowserQuery(query);
+    const isMissingBlockScope = String(query.docId || '').trim() === '__lost__';
+
+    if (isMissingBlockScope) {
+      if (structuredQuery) {
+        return {
+          cards: this.storageManager.queryCards(structuredQuery),
+          path: 'structured-query',
+          sqlCandidateCount: null,
+          usedFallback: false,
+        };
+      }
+
+      return {
+        cards: await this.loadAllCards(),
+        path: 'all-cards-query',
+        sqlCandidateCount: null,
+        usedFallback: false,
+      };
+    }
 
     if (this.shouldUsePureStructuredQueryPath(query)) {
       if (!structuredQuery) {
@@ -567,7 +594,7 @@ export class BrowserDeckQueryKernel {
       .filter((value): value is CardType => STRUCTURED_CARD_TYPES.has(value));
   }
 
-  private calculateStats(cards: FSRSCard[]): BrowserStats {
+  private calculateStats(cards: FSRSCard[], lostCards = 0): BrowserStats {
     return {
       totalCards: cards.length,
       dueCards: this.cardScheduleService.countDueCards(cards),
@@ -575,6 +602,7 @@ export class BrowserDeckQueryKernel {
       learningCards: this.cardFilterService.countByState(cards, CardState.Learning),
       reviewCards: this.cardFilterService.countByState(cards, CardState.Review),
       suspendedCards: cards.filter((card) => isCardDismissed(card)).length,
+      lostCards,
     };
   }
 
