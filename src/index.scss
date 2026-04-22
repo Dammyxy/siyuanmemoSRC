@@ -390,3 +390,26 @@
   }
 }
 
+.siyuanmemo-tab-bootstrap {
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.siyuanmemo-tab-bootstrap__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.siyuanmemo-tab-bootstrap__message {
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+

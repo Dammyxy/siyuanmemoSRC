@@ -9,6 +9,7 @@ import { Plugin, getFrontend, showMessage, type IProtyle } from 'siyuan';
 import { pushErrMsg, pushMsg } from '@/infrastructure/siyuan/api';
 import { ApplicationContext } from '@/application/ApplicationContext';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
+import type { TabRuntimeContext } from '@/application/managers/TabManager';
 import { ConfigMigrator } from '@/utils/configMigrator';
 import { createLogger } from '@/utils/logger';
 import type { RiffIntegrationConfig } from '@/types/settings';
@@ -34,10 +35,52 @@ import {
 import { ensureSiyuanMenuComponentFallbacks } from '@/utils/siyuanMenuComponentFallbacks';
 import '@/index.scss';
 
+type DeferredValue<T> = {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+  settled: boolean;
+};
+
+type BootstrappedTabRuntimeContext = TabRuntimeContext & {
+  __siyuanMemoBootstrap?: {
+    abortController: AbortController;
+    initPromise: Promise<void>;
+    mounted: boolean;
+  };
+};
+
+function createDeferredValue<T>(): DeferredValue<T> {
+  let resolveFn!: (value: T | PromiseLike<T>) => void;
+  let rejectFn!: (reason?: unknown) => void;
+  const deferred: DeferredValue<T> = {
+    promise: new Promise<T>((resolve, reject) => {
+      resolveFn = (value) => {
+        if (deferred.settled) {
+          return;
+        }
+        deferred.settled = true;
+        resolve(value);
+      };
+      rejectFn = (reason) => {
+        if (deferred.settled) {
+          return;
+        }
+        deferred.settled = true;
+        reject(reason);
+      };
+    }),
+    resolve: (value) => resolveFn(value),
+    reject: (reason) => rejectFn(reason),
+    settled: false,
+  };
+  return deferred;
+}
+
 export default class FSRSPlugin extends Plugin implements IPluginFacade {
   public isMobile: boolean = false;
   public isBrowser: boolean = false;
-  private context!: ApplicationContext;
+  private context?: ApplicationContext;
   private readonly logger = createLogger('Plugin');
   private readonly mobileSidebarEntryId = 'siyuanmemo-mobile-review-entry';
   private readonly mobileSidebarToolbarEntryType = 'sidebar-siyuanmemo-tab';
@@ -71,6 +114,9 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
    * @returns 应用上下文实例
    */
   getContext(): ApplicationContext {
+    if (!this.context) {
+      throw new Error('ApplicationContext is not ready');
+    }
     return this.context;
   }
   
@@ -80,11 +126,11 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
    * @param defaultTab - 默认打开的标签页（可选）
    */
   openSettings(defaultTab?: string): void {
-    this.context.getDialogManager()?.openSettingsDialog(defaultTab);
+    this.getContext().getDialogManager()?.openSettingsDialog(defaultTab);
   }
 
   openSRSBrowser(): void {
-    this.context.getDialogManager()?.openBrowserDialog();
+    this.getContext().getDialogManager()?.openBrowserDialog();
   }
 
   /**
@@ -98,7 +144,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       preferredCardId?: string;
     }
   ): Promise<void> {
-    await this.context.getDialogManager()?.openSubsetReviewDialog(blockIds, options);
+    await this.getContext().getDialogManager()?.openSubsetReviewDialog(blockIds, options);
   }
   
   /**
@@ -107,7 +153,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
    * @returns 到期卡片数量
    */
   async getDueCount(): Promise<number> {
-    const cardService = this.context.getCardService();
+    const cardService = this.getContext().getCardService();
     return await cardService.getDueCount();
   }
   
@@ -116,6 +162,8 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   private isInitialized = false;
   private didWarnTopbarMount = false;
   private isUninstalling = false;
+  private customTabsRegistered = false;
+  private contextReady = createDeferredValue<ApplicationContext>();
 
   private static readonly LOCAL_DATA_FILES_TO_REMOVE = [
     'unified-cards.msgpack',
@@ -148,6 +196,9 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   async onload() {
     this.logger.info('Plugin loading...');
     this.isInitialized = false;
+    this.context = undefined;
+    this.contextReady = createDeferredValue<ApplicationContext>();
+    this.registerCustomTabs();
 
     const frontEnd = getFrontend();
     this.isMobile = frontEnd === 'mobile' || frontEnd === 'browser-mobile';
@@ -164,13 +215,13 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
 
     try {
       this.context = await ApplicationContext.create({ plugin: this, i18n: this.i18n || {} });
+      this.contextReady.resolve(this.getContext());
       await this.performConfigMigrations();
-      this.context.getTabManager().registerAll();
       this.isInitialized = true;
       
       // ✅ 只有在初始化成功后才注册事件处理器
       this.imageOcclusionHandler = new ImageOcclusionHandler(this);
-      this.progressiveExcerptHotkeyHandler = new ProgressiveExcerptHotkeyHandler(this.context);
+      this.progressiveExcerptHotkeyHandler = new ProgressiveExcerptHotkeyHandler(this.getContext());
       this.registerDock();
       this.registerEventHandlers();
       this.registerImageOcclusionCommands();
@@ -187,6 +238,8 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       }
       this.registerBlockToolSlash();
     } catch (err) {
+      this.contextReady.reject(err);
+      this.context = undefined;
       this.logger.error('Plugin initialization failed:', err);
       try { await pushErrMsg(this.i18n?.initFailed || 'FSRS 插件初始化失败'); } catch {}
       // ❌ 初始化失败时不注册事件处理器
@@ -211,6 +264,10 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   }
 
   onunload() {
+    this.contextReady.reject(new Error('Plugin unloading'));
+    this.customTabsRegistered = false;
+    const context = this.context;
+    this.context = undefined;
     if (this.topBarElement && this.topBarContextMenuHandler) {
       this.topBarElement.removeEventListener('contextmenu', this.topBarContextMenuHandler);
     }
@@ -229,8 +286,8 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     this.progressiveExcerptHotkeyHandler = null;
     this.imageOcclusionHandler?.dispose();
     this.imageOcclusionHandler = null;
-    if (this.context) {
-      this.context.dispose({ persistStorage: false })
+    if (context) {
+      context.dispose({ persistStorage: false })
         .catch(err => this.logger.error('Error disposing context:', err))
         .finally(() => {
           if (this.isUninstalling) {
@@ -268,7 +325,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       position: 'right',
       callback: () => {
         if (!this.isInitialized) { pushMsg(this.i18n?.loading || '插件初始化中...'); return; }
-        const dialogManager = this.context.getDialogManager();
+        const dialogManager = this.getContext().getDialogManager();
         if (this.isMobile) {
           void dialogManager?.openMobileQueueLauncherDialog();
           return;
@@ -285,7 +342,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         pushMsg(this.i18n?.loading || '插件初始化中...');
         return;
       }
-      this.context.getMenuManager()?.openTopBarMenu(ev);
+      this.getContext().getMenuManager()?.openTopBarMenu(ev);
     };
     this.topBarElement?.addEventListener('contextmenu', this.topBarContextMenuHandler);
   }
@@ -301,17 +358,17 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       data: { plugin: this },
       type: 'siyuanmemo-dock',
       init: (dock) => {
-        this.context.getDockManager().initDockPanel(
+        this.getContext().getDockManager().initDockPanel(
           dock.element,
-          () => this.context.getDialogManager()?.openReviewDialog(),
-          () => this.context.getDialogManager()?.openBrowserDialog()
+          () => this.getContext().getDialogManager()?.openReviewDialog(),
+          () => this.getContext().getDialogManager()?.openBrowserDialog()
         );
       },
     });
   }
 
   private registerEventHandlers() {
-    const blockMenuHandler = this.context.getBlockMenuHandler();
+    const blockMenuHandler = this.getContext().getBlockMenuHandler();
     this.eventBus.on('click-blockicon', (e) => blockMenuHandler.handleBlockIconClick(e));
     this.eventBus.on('click-editortitleicon', (e) => blockMenuHandler.handleEditorTitleIconClick(e));
     this.eventBus.on('open-menu-content', (e) => this.progressiveExcerptHotkeyHandler?.handleContentMenu(e));
@@ -572,7 +629,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       return;
     }
 
-    const blockMenuHandler = this.context.getBlockMenuHandler();
+    const blockMenuHandler = this.getContext().getBlockMenuHandler();
     await blockMenuHandler.runEditSrsDataAction(context.blockElements);
   }
 
@@ -584,7 +641,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       return;
     }
 
-    const blockMenuHandler = this.context.getBlockMenuHandler();
+    const blockMenuHandler = this.getContext().getBlockMenuHandler();
     await blockMenuHandler.runRebindDescriptorConceptAction(context.blockElements);
   }
 
@@ -619,7 +676,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
       return;
     }
 
-    const blockMenuHandler = this.context.getBlockMenuHandler();
+    const blockMenuHandler = this.getContext().getBlockMenuHandler();
     await blockMenuHandler.runCoreEntryAction(actionId, context.blockElements);
   }
 
@@ -631,7 +688,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     const docId = definition?.requiresDocContext
       ? this.extractDocIdFromProtyle(input?.protyle)
       : null;
-    await this.context.getMenuManager().runTopBarQuickEntryAction(actionId, { docId });
+    await this.getContext().getMenuManager().runTopBarQuickEntryAction(actionId, { docId });
   }
 
   private runReviewSurfaceCommandRequest(eventName: string): void {
@@ -839,7 +896,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         return;
       }
       this.closeMobilePanel();
-      void this.context.getDialogManager()?.openMobileQueueLauncherDialog();
+      void this.getContext().getDialogManager()?.openMobileQueueLauncherDialog();
     };
     entry.addEventListener('click', this.mobileSidebarEntryClickHandler);
 
@@ -930,7 +987,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
         return;
       }
       this.closeMobilePanel();
-      void this.context.getDialogManager()?.openMobileQueueLauncherDialog();
+      void this.getContext().getDialogManager()?.openMobileQueueLauncherDialog();
     };
     entry.addEventListener('click', this.mobileSidebarToolbarEntryClickHandler);
 
@@ -998,8 +1055,234 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     }
   }
 
+  private registerCustomTabs(): void {
+    if (this.customTabsRegistered) {
+      return;
+    }
+    this.customTabsRegistered = true;
+
+    this.registerDeferredCustomTab({
+      type: `${this.name}-browser`,
+      resolveTitle: () => this.i18n?.srsBrowser || 'SRS Browser',
+      mount: (context, runtime) => {
+        context.getTabManager().initBrowserTab(runtime);
+      },
+      destroy: (context, runtime) => {
+        context.getTabManager().destroyBrowserTab(runtime);
+      },
+    });
+
+    this.registerDeferredCustomTab({
+      type: `${this.name}-review`,
+      resolveTitle: (runtime) => this.resolveRuntimeTitle(runtime, this.i18n?.reviewTitle || 'Review'),
+      mount: (context, runtime) => {
+        context.getTabManager().initReviewTab(runtime);
+      },
+      destroy: (context, runtime) => {
+        context.getTabManager().destroyReviewTab(runtime);
+      },
+      refresh: (context, runtime) => {
+        context.getTabManager().refreshReviewTab(runtime);
+      },
+    });
+
+    this.registerDeferredCustomTab({
+      type: `${this.name}-review-ai`,
+      resolveTitle: (runtime) => this.resolveRuntimeTitle(runtime, this.i18n?.aiWorkbench || 'AI Workbench'),
+      mount: (context, runtime) => {
+        context.getTabManager().initReviewAICompanionTab(runtime);
+      },
+      destroy: (context, runtime) => {
+        context.getTabManager().destroyReviewAICompanionTab(runtime);
+      },
+    });
+  }
+
+  private registerDeferredCustomTab(config: {
+    type: string;
+    resolveTitle: (runtime: BootstrappedTabRuntimeContext) => string;
+    mount: (context: ApplicationContext, runtime: BootstrappedTabRuntimeContext) => void;
+    destroy: (context: ApplicationContext, runtime: BootstrappedTabRuntimeContext) => void;
+    refresh?: (context: ApplicationContext, runtime: BootstrappedTabRuntimeContext) => void;
+  }): void {
+    const plugin = this;
+    this.addTab({
+      type: config.type,
+      init() {
+        const runtime = this as unknown as BootstrappedTabRuntimeContext;
+        const title = config.resolveTitle(runtime);
+        const abortController = new AbortController();
+        runtime.__siyuanMemoBootstrap?.abortController.abort();
+        runtime.__siyuanMemoBootstrap = {
+          abortController,
+          initPromise: Promise.resolve(),
+          mounted: false,
+        };
+        plugin.renderCustomTabShell(runtime, 'loading', title);
+        runtime.__siyuanMemoBootstrap.initPromise = plugin.bootstrapDeferredCustomTab(runtime, title, config.mount);
+      },
+      destroy() {
+        const runtime = this as unknown as BootstrappedTabRuntimeContext;
+        plugin.destroyDeferredCustomTab(runtime, config.destroy);
+      },
+      ...(config.refresh
+        ? {
+            resize() {
+              const runtime = this as unknown as BootstrappedTabRuntimeContext;
+              plugin.refreshDeferredCustomTab(runtime, config.refresh!);
+            },
+            update() {
+              const runtime = this as unknown as BootstrappedTabRuntimeContext;
+              plugin.refreshDeferredCustomTab(runtime, config.refresh!);
+            },
+          }
+        : {}),
+    });
+  }
+
+  private async bootstrapDeferredCustomTab(
+    runtime: BootstrappedTabRuntimeContext,
+    title: string,
+    mount: (context: ApplicationContext, runtime: BootstrappedTabRuntimeContext) => void,
+  ): Promise<void> {
+    const bootstrap = runtime.__siyuanMemoBootstrap;
+    if (!bootstrap) {
+      return;
+    }
+
+    try {
+      const context = await this.waitForContextReady(bootstrap.abortController.signal);
+      if (runtime.__siyuanMemoBootstrap !== bootstrap || bootstrap.abortController.signal.aborted) {
+        return;
+      }
+
+      runtime.element.innerHTML = '';
+      mount(context, runtime);
+      bootstrap.mounted = true;
+    } catch (error) {
+      if (bootstrap.abortController.signal.aborted) {
+        return;
+      }
+
+      this.logger.error('Failed to bootstrap deferred custom tab', {
+        title,
+        error,
+      });
+      this.renderCustomTabShell(
+        runtime,
+        'error',
+        title,
+        this.i18n?.initFailed || 'FSRS 插件初始化失败',
+      );
+    }
+  }
+
+  private destroyDeferredCustomTab(
+    runtime: BootstrappedTabRuntimeContext,
+    destroy: (context: ApplicationContext, runtime: BootstrappedTabRuntimeContext) => void,
+  ): void {
+    const bootstrap = runtime.__siyuanMemoBootstrap;
+    bootstrap?.abortController.abort();
+    runtime.__siyuanMemoBootstrap = undefined;
+
+    if (this.context) {
+      try {
+        destroy(this.context, runtime);
+      } catch (error) {
+        this.logger.error('Failed to destroy deferred custom tab', error);
+        runtime.vueApp?.unmount();
+        runtime.vueApp = undefined;
+      }
+    } else {
+      runtime.vueApp?.unmount();
+      runtime.vueApp = undefined;
+    }
+
+    runtime.element.innerHTML = '';
+  }
+
+  private refreshDeferredCustomTab(
+    runtime: BootstrappedTabRuntimeContext,
+    refresh: (context: ApplicationContext, runtime: BootstrappedTabRuntimeContext) => void,
+  ): void {
+    const bootstrap = runtime.__siyuanMemoBootstrap;
+    if (!bootstrap) {
+      return;
+    }
+
+    if (bootstrap.mounted && this.context) {
+      refresh(this.context, runtime);
+      return;
+    }
+
+    void bootstrap.initPromise.then(() => {
+      if (
+        runtime.__siyuanMemoBootstrap !== bootstrap
+        || bootstrap.abortController.signal.aborted
+        || !bootstrap.mounted
+        || !this.context
+      ) {
+        return;
+      }
+      refresh(this.context, runtime);
+    }).catch(() => undefined);
+  }
+
+  private resolveRuntimeTitle(
+    runtime: BootstrappedTabRuntimeContext,
+    fallback: string,
+  ): string {
+    const title = (runtime.data as { title?: unknown } | undefined)?.title;
+    return typeof title === 'string' && title.trim() ? title.trim() : fallback;
+  }
+
+  private renderCustomTabShell(
+    runtime: BootstrappedTabRuntimeContext,
+    state: 'loading' | 'error',
+    title: string,
+    message?: string,
+  ): void {
+    const color = state === 'error' ? 'var(--b3-theme-error, #d23f31)' : 'var(--b3-theme-on-surface-light, #6b7280)';
+    const secondary = message || (state === 'loading'
+      ? (this.i18n?.loading || '插件初始化中...')
+      : (this.i18n?.initFailed || 'FSRS 插件初始化失败'));
+    runtime.element.innerHTML = `
+      <div class="siyuanmemo-tab-bootstrap siyuanmemo-tab-bootstrap--${state}">
+        <div class="siyuanmemo-tab-bootstrap__title">${this.escapeHtml(title)}</div>
+        <div class="siyuanmemo-tab-bootstrap__message" style="color:${color}">${this.escapeHtml(secondary)}</div>
+      </div>
+    `;
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll('\'', '&#39;');
+  }
+
+  private async waitForContextReady(signal: AbortSignal): Promise<ApplicationContext> {
+    if (signal.aborted) {
+      throw new Error('Custom tab bootstrap aborted');
+    }
+
+    return await Promise.race([
+      this.contextReady.promise,
+      new Promise<never>((_, reject) => {
+        const onAbort = () => {
+          signal.removeEventListener('abort', onAbort);
+          reject(new Error('Custom tab bootstrap aborted'));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+      }),
+    ]);
+  }
+
   private async performConfigMigrations() {
-    const settingsService = this.context.getSettingsService();
+    const context = this.getContext();
+    const settingsService = context.getSettingsService();
     const settings = settingsService.getSettings();
     const riffConfig = settings.riffIntegration;
 
@@ -1015,7 +1298,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
     
     if (finalConfig && SimpleModeRemovalMigrator.needsMigration(finalConfig)) {
       try {
-        const result = await SimpleModeRemovalMigrator.performMigration(finalConfig, this.context.getHybridSyncService());
+        const result = await SimpleModeRemovalMigrator.performMigration(finalConfig, context.getHybridSyncService());
         const migratedConfig: RiffIntegrationConfig = {
           mode: 'advanced',
           ...result.migratedConfig,

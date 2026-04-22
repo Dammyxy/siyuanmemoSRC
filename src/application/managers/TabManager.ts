@@ -65,7 +65,7 @@ interface ReviewAICompanionTabData {
   title: string;
 }
 
-type TabRuntimeContext = Custom & {
+export type TabRuntimeContext = Custom & {
   vueApp?: VueApp<Element>;
 };
 
@@ -434,141 +434,140 @@ export class TabManager {
       return;
     }
     this.tabsRegistered = true;
-    this.registerBrowserTab();
-    this.registerReviewTab();
-    this.registerReviewAICompanionTab();
-  }
-
-  private registerBrowserTab(): void {
     const self = this;
-
     this.plugin.addTab({
       type: this.TAB_TYPE,
       init() {
-        const runtime = this as unknown as TabRuntimeContext;
-        const data = self.normalizeBrowserTabData(runtime.data);
-        const app = createApp(SRSBrowser, {
-          app: self.plugin.app,
-          i18n: self.context.getI18n() || {},
-          mode: 'tab',
-          plugin: self.plugin,
-          initialOpenState: data.initialState ?? null,
-        });
-        app.mount(runtime.element);
-        runtime.vueApp = app;
+        self.initBrowserTab(this as unknown as TabRuntimeContext);
       },
       destroy() {
-        const runtime = this as unknown as TabRuntimeContext;
-        runtime.vueApp?.unmount();
-        runtime.vueApp = undefined;
+        self.destroyBrowserTab(this as unknown as TabRuntimeContext);
       },
     });
-  }
-
-  private registerReviewTab(): void {
-    const self = this;
-
     this.plugin.addTab({
       type: this.REVIEW_TAB_TYPE,
       init() {
-        const runtime = this as unknown as TabRuntimeContext;
-        const data = self.recoverReviewTabData(
-          self.normalizeReviewTabData(runtime.data),
-          self.resolveReviewTabRuntimeId(runtime),
-        );
-        logger.info('Restoring review tab', {
-          providerId: data.providerId,
-          queueType: data.queueType,
-          headerVariant: data.headerVariant,
-          title: data.title,
-        });
-
-        const queue = self.buildReviewQueueFromTabData(data);
-        const adapter = new UnifiedReviewAdapter({
-          i18n: self.getPluginI18n(),
-          headerVariant: data.headerVariant,
-          progressiveExcerptEnabled: self.context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
-        });
-
-        const app = createApp(ReviewView, {
-          app: self.plugin.app,
-          i18n: self.getPluginI18n(),
-          mode: 'tab',
-          reviewSessionId: self.resolveReviewTabRuntimeId(runtime) || data.providerId,
-          sharedReviewSessionId: data.sharedReviewSessionId ?? data.reviewState?.sharedReviewSessionId ?? null,
-          title: data.title,
-          headerVariant: data.headerVariant,
-          queue,
-          adapter,
-          plugin: self.plugin,
-          reviewState: data.reviewState ?? null,
-          initialSessionState: data.reviewState?.session ?? data.transferState?.session,
-          initialCurrentItem: data.reviewState?.queueSnapshot?.currentItem ?? null,
-          initialCurrentCardId: data.reviewState?.currentCardId ?? '',
-          initialShowAnswer: data.reviewState?.showAnswer === true,
-          onTabRuntimeStateChange: (reviewState: ReviewTabRuntimeState | null) => {
-            self.persistReviewTabRuntimeState(runtime, data, reviewState);
-          },
-        });
-
-        const vm = app.mount(runtime.element);
-        runtime.vueApp = app;
-        self.registerReviewTabRuntime(runtime, data, self.resolveReviewViewBridge(vm));
+        self.initReviewTab(this as unknown as TabRuntimeContext);
       },
       destroy() {
-        const runtime = this as unknown as TabRuntimeContext;
-        self.unregisterReviewTabRuntime(runtime);
-        runtime.vueApp?.unmount();
-        runtime.vueApp = undefined;
+        self.destroyReviewTab(this as unknown as TabRuntimeContext);
       },
       resize() {
-        const runtime = this as unknown as TabRuntimeContext;
-        const data = self.recoverReviewTabData(
-          self.normalizeReviewTabData(runtime.data),
-          self.resolveReviewTabRuntimeId(runtime),
-        );
-        self.refreshReviewTabRuntimeSurface(runtime, data);
+        self.refreshReviewTab(this as unknown as TabRuntimeContext);
       },
       update() {
-        const runtime = this as unknown as TabRuntimeContext;
-        const data = self.recoverReviewTabData(
-          self.normalizeReviewTabData(runtime.data),
-          self.resolveReviewTabRuntimeId(runtime),
-        );
-        self.refreshReviewTabRuntimeSurface(runtime, data);
+        self.refreshReviewTab(this as unknown as TabRuntimeContext);
+      },
+    });
+    this.plugin.addTab({
+      type: this.REVIEW_AI_TAB_TYPE,
+      init() {
+        self.initReviewAICompanionTab(this as unknown as TabRuntimeContext);
+      },
+      destroy() {
+        self.destroyReviewAICompanionTab(this as unknown as TabRuntimeContext);
       },
     });
   }
 
-  private registerReviewAICompanionTab(): void {
-    const self = this;
+  initBrowserTab(runtime: TabRuntimeContext): void {
+    const data = this.normalizeBrowserTabData(runtime.data);
+    const app = createApp(SRSBrowser, {
+      app: this.plugin.app,
+      i18n: this.context.getI18n() || {},
+      mode: 'tab',
+      plugin: this.plugin,
+      initialOpenState: data.initialState ?? null,
+    });
+    app.mount(runtime.element);
+    runtime.vueApp = app;
+  }
 
-    this.plugin.addTab({
-      type: this.REVIEW_AI_TAB_TYPE,
-      init() {
-        const runtime = this as unknown as TabRuntimeContext;
-        const data = self.normalizeReviewAICompanionTabData(runtime.data);
-        const service = self.context.getReviewAIWorkbenchRegistry().getOrCreateReviewSession(data.reviewSessionId, {
-          surface: 'review-tab-companion',
-          sourceReviewSessionId: data.sourceReviewSessionId,
-        });
+  destroyBrowserTab(runtime: TabRuntimeContext): void {
+    runtime.vueApp?.unmount();
+    runtime.vueApp = undefined;
+  }
 
-        const app = createApp(AiWorkbenchPane, {
-          service,
-          i18n: self.getPluginI18n(),
-        });
+  initReviewTab(runtime: TabRuntimeContext): void {
+    const data = this.recoverReviewTabData(
+      this.normalizeReviewTabData(runtime.data),
+      this.resolveReviewTabRuntimeId(runtime),
+    );
+    logger.info('Restoring review tab', {
+      providerId: data.providerId,
+      queueType: data.queueType,
+      headerVariant: data.headerVariant,
+      title: data.title,
+    });
 
-        app.mount(runtime.element);
-        runtime.vueApp = app;
-        self.registerReviewAICompanionRuntime(runtime, data);
-      },
-      destroy() {
-        const runtime = this as unknown as TabRuntimeContext;
-        self.unregisterReviewAICompanionRuntime(runtime);
-        runtime.vueApp?.unmount();
-        runtime.vueApp = undefined;
+    const queue = this.buildReviewQueueFromTabData(data);
+    const adapter = new UnifiedReviewAdapter({
+      i18n: this.getPluginI18n(),
+      headerVariant: data.headerVariant,
+      progressiveExcerptEnabled: this.context.getSettingsService().getSettings().progressiveReading?.altXExcerptEnabled === true,
+    });
+
+    const app = createApp(ReviewView, {
+      app: this.plugin.app,
+      i18n: this.getPluginI18n(),
+      mode: 'tab',
+      reviewSessionId: this.resolveReviewTabRuntimeId(runtime) || data.providerId,
+      sharedReviewSessionId: data.sharedReviewSessionId ?? data.reviewState?.sharedReviewSessionId ?? null,
+      title: data.title,
+      headerVariant: data.headerVariant,
+      queue,
+      adapter,
+      plugin: this.plugin,
+      reviewState: data.reviewState ?? null,
+      initialSessionState: data.reviewState?.session ?? data.transferState?.session,
+      initialCurrentItem: data.reviewState?.queueSnapshot?.currentItem ?? null,
+      initialCurrentCardId: data.reviewState?.currentCardId ?? '',
+      initialShowAnswer: data.reviewState?.showAnswer === true,
+      onTabRuntimeStateChange: (reviewState: ReviewTabRuntimeState | null) => {
+        this.persistReviewTabRuntimeState(runtime, data, reviewState);
       },
     });
+
+    const vm = app.mount(runtime.element);
+    runtime.vueApp = app;
+    this.registerReviewTabRuntime(runtime, data, this.resolveReviewViewBridge(vm));
+  }
+
+  destroyReviewTab(runtime: TabRuntimeContext): void {
+    this.unregisterReviewTabRuntime(runtime);
+    runtime.vueApp?.unmount();
+    runtime.vueApp = undefined;
+  }
+
+  refreshReviewTab(runtime: TabRuntimeContext): void {
+    const data = this.recoverReviewTabData(
+      this.normalizeReviewTabData(runtime.data),
+      this.resolveReviewTabRuntimeId(runtime),
+    );
+    this.refreshReviewTabRuntimeSurface(runtime, data);
+  }
+
+  initReviewAICompanionTab(runtime: TabRuntimeContext): void {
+    const data = this.normalizeReviewAICompanionTabData(runtime.data);
+    const service = this.context.getReviewAIWorkbenchRegistry().getOrCreateReviewSession(data.reviewSessionId, {
+      surface: 'review-tab-companion',
+      sourceReviewSessionId: data.sourceReviewSessionId,
+    });
+
+    const app = createApp(AiWorkbenchPane, {
+      service,
+      i18n: this.getPluginI18n(),
+    });
+
+    app.mount(runtime.element);
+    runtime.vueApp = app;
+    this.registerReviewAICompanionRuntime(runtime, data);
+  }
+
+  destroyReviewAICompanionTab(runtime: TabRuntimeContext): void {
+    this.unregisterReviewAICompanionRuntime(runtime);
+    runtime.vueApp?.unmount();
+    runtime.vueApp = undefined;
   }
 
   openBrowserTab(options?: BrowserTabOpenOptions): boolean {
@@ -646,13 +645,15 @@ export class TabManager {
 
   openReviewTab(options: ReviewTabOptions): void {
     void this.openReviewTabInternal(options, {
+      position: options.position,
       keepCursor: false,
       removeCurrentTab: false,
     });
   }
 
   openReviewTabInNewTab(options: ReviewTabOptions): void {
-    void this.openReviewTabInternal(options, {
+    const { position: _ignoredPosition, ...tabOptions } = options;
+    void this.openReviewTabInternal(tabOptions, {
       keepCursor: false,
       removeCurrentTab: false,
     });
@@ -661,7 +662,7 @@ export class TabManager {
   openReviewInNewWindow(options: ReviewTabOptions): void {
     if (!this.canOpenInNewWindow()) {
       logger.warn('New window is not supported in current runtime, opening tab instead');
-      this.openReviewTab(options);
+      this.openReviewTabInNewTab(options);
       return;
     }
     void this.openReviewInNewWindowInternal(options);
@@ -1321,6 +1322,7 @@ export class TabManager {
     try {
       const tabData = this.resolveReviewTabData(options);
       const reviewModelType = this.buildCustomModelType(this.REVIEW_TAB_TYPE);
+      const position = tabOpenOptions.position ?? options.position;
       const prepare = this.prepareQueueBeforeOpen(tabData.queueType);
       if (prepare) {
         await prepare;
@@ -1334,9 +1336,9 @@ export class TabManager {
           id: reviewModelType,
           data: tabData,
         },
-        position: tabOpenOptions.position ?? options.position ?? 'right',
         keepCursor: tabOpenOptions.keepCursor,
         removeCurrentTab: tabOpenOptions.removeCurrentTab,
+        ...(position ? { position } : {}),
       });
     } catch (error) {
       logger.error('Failed to open review tab', error);

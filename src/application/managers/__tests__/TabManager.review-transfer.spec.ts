@@ -140,6 +140,91 @@ describe('TabManager filter-group review transfer restore', () => {
     expect(manager.getQueue).not.toHaveBeenCalledWith('filter-group');
   });
 
+  it('restores transfer state through the direct review runtime helper used by deferred bootstrap', () => {
+    const sharedFilterQueue = {
+      getType: () => 'filter-group',
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const manager = {
+      getQueue: vi.fn(() => sharedFilterQueue),
+      notifyObservers: vi.fn(),
+    };
+    const context = {
+      getI18n: vi.fn(() => ({})),
+      getUnifiedDataSourceManager: vi.fn(() => manager),
+      getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+      getSchedulerRouter: vi.fn(() => ({})),
+      getSettingsService: vi.fn(() => ({
+        getSettings: () => ({
+          progressiveReading: {},
+        }),
+      })),
+    } as any;
+    const plugin = {
+      name: 'test-plugin',
+      app: {},
+      addTab: vi.fn(),
+    } as any;
+    const runtime = {
+      id: 'bootstrap-review-runtime',
+      element: document.createElement('div'),
+      data: {
+        providerId: 'filter-group',
+        title: '提取练习',
+        queueType: 'filter-group',
+        headerVariant: 'retrieval-practice',
+        transferState: {
+          kind: 'filter-group-session',
+          filterSession: {
+            filter: {
+              blockIds: ['block-1'],
+              scopeDocIds: ['doc-1'],
+            },
+            rollbackSnapshot: {
+              temporaryBlacklist: ['card-hidden'],
+              customOrder: ['card-2', 'card-1'],
+              manualCards: ['manual-1'],
+            },
+          },
+          session: {
+            initialTotal: 5,
+            answeredCount: 2,
+            correctCount: 1,
+          },
+        },
+      },
+      tab: {
+        id: 'bootstrap-review-runtime',
+        headElement: document.createElement('button'),
+        parent: {
+          switchTab: vi.fn(),
+        },
+      },
+    };
+
+    const tabManager = new TabManager(context, plugin);
+    tabManager.initReviewTab(runtime as never);
+
+    const [, props] = mocks.createApp.mock.calls[0];
+    const queueStrategy = props.queue;
+    const underlyingQueue = queueStrategy.getUnderlyingQueue();
+
+    expect(props.initialSessionState).toEqual({
+      initialTotal: 5,
+      answeredCount: 2,
+      correctCount: 1,
+    });
+    expect(underlyingQueue.getType()).toBe('filter-group');
+    expect(underlyingQueue.serializeSessionSnapshot()).toEqual(expect.objectContaining({
+      rollbackSnapshot: expect.objectContaining({
+        temporaryBlacklist: ['card-hidden'],
+        customOrder: ['card-2', 'card-1'],
+        manualCards: ['manual-1'],
+      }),
+    }));
+  });
+
   it('restores review-tab runtime state for retrieval-practice tabs and keeps it writable on the runtime data', () => {
     const now = Date.now();
     const currentCard = {

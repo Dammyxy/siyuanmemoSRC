@@ -80,10 +80,11 @@ flowchart TD
 
 运行时启动主链路：
 
-1. `src/index.ts` 的 `onload()`
-2. 调用 `ApplicationContext.create({ plugin, i18n })`
-3. 由 `ApplicationContext` 统一装配并暴露运行时服务
-4. `src/index.ts` 再注册顶栏、Dock、事件处理器、Slash 命令、移动端入口等外层 UI 胶水
+1. `src/index.ts` 的 `onload()` 先同步注册 Browser / Review / Review AI custom tab 类型
+2. 每个 custom tab 的 `init` 先渲染 loading shell，并等待 `contextReady`
+3. 调用 `ApplicationContext.create({ plugin, i18n })`
+4. `ApplicationContext.create()` 完成后 resolve `contextReady`，由 `TabManager` runtime helper 真正 mount Vue tab surface
+5. `src/index.ts` 再注册顶栏、Dock、事件处理器、Slash 命令、移动端入口等外层 UI 胶水
 
 `ApplicationContext` 是当前唯一组合根。它负责：
 
@@ -99,6 +100,7 @@ flowchart TD
 这意味着：
 
 - 任何运行时服务暴露、服务替换、启动顺序问题，先看 `ApplicationContext`
+- 任何 custom tab 恢复失败或重载后消失的问题，先看 `src/index.ts` 的提前注册 + `contextReady` lazy mount 桥接
 - 任何 surface 是如何被打开的，先看 `src/index.ts` + `DialogManager` / `TabManager`
 - 任何“这个能力到底算哪个 bounded context”的争议，先看组合根里它如何被装配和谁在消费它
 
@@ -150,7 +152,7 @@ flowchart TD
    - `AI 侧栏` 统一走 `ReviewAIWorkbenchRegistry`
    - `更多` 菜单中的优先级编辑走 `CardEditorApplicationService.updatePriority(...)`
    - `更多` 菜单中的“编辑当前内容”走 `ReviewApplicationService.getBlockKramdown/updateBlockMarkdown(...)`，通过共享 `LargeTextEditorDialog` 编辑当前块原始 Markdown
-   - tab 模式下插件托管的“右侧/下方分屏当前复习”先通过 `SharedReviewSessionRegistry` 提升或复用共享 review session，再交给 `TabManager.openReviewTab(...)`
+   - tab 模式下插件托管的“在新页签中打开”走 `TabManager.openReviewTabInNewTab(...)`，而“右侧/下方分屏当前复习”先通过 `SharedReviewSessionRegistry` 提升或复用共享 review session，再交给 `TabManager.openReviewTab(...)`
    - `更多` 菜单中的暂停动作走 `CardEditorApplicationService`
    - `更多` 菜单中的删除动作走 `CardApplicationService`
    - progressive excerpt / open-as / fullscreen / SRS editor 继续复用既有 application / dialog 主链
@@ -161,7 +163,9 @@ flowchart TD
 
 - `reviewOpenInNewTabByDefault` 只影响桌面端标准全局 review 入口：提取练习、渐进学习、刻意练习、筛选复习、神经漫游，以及 filter-backed retrieval / incremental handoff。
 - `reviewOpenFullscreenByDefault` 只影响 dialog 模式的初始打开状态；一旦走 tab 路径，该设置被忽略。
+- `TabManager.openReviewTabInNewTab(...)` 不再隐式退化成右侧分屏；只有显式 `position: 'right' | 'bottom'` 才会走分屏。
 - filter-backed retrieval / incremental 在切到 tab 时，不直接复用 live queue，而是通过 `FilterGroupQueue.serializeSessionSnapshot()` -> `ReviewTabTransferState(kind='filter-group-session')` 把 filter、临时黑名单和可见顺序交给 `TabManager` 恢复。
+- Browser / Review / Review AI companion 的 restore 现在统一走“提前注册 custom tab -> loading shell -> `contextReady` 后 mount runtime”主链，不再依赖 `ApplicationContext.create()` 之后才晚注册 tab。
 - `subset-review`、`temporary-drill`、`leech` 等依赖上下文/live queue 实例的会话型 review 仍保持 dialog-only，直到 tab restore parity 明确建模。
 
 评分主链：

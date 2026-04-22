@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 115)
+Last update: 2026-04-23 (Round 116)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - custom tab early bootstrap and review split semantics
+
+- Task: 修复 SiyuanMemo 在重载思源后 Browser / Review / Review AI custom tab 会消失，以及 review 里的“在新页签中打开”实际总是右侧分屏的问题。
+- Touched slice: Plugin startup / custom tab restore / Review tab routing active path across `src/index.ts`, `src/application/managers/TabManager.ts`, focused tab tests, `ARCHITECTURE.md`, and `src/index.scss`.
+- Debt fixed now: 把 custom tab 注册从 `ApplicationContext.create()` 之后提前到 `onload()` 同步阶段；新增 `contextReady` lazy mount 桥接和 loading/error shell，避免 restore 早于上下文装配时 tab 直接丢失；把 Browser / Review / Review AI 的 runtime init/destroy/refresh 收口成 `TabManager` helper，避免 index 和 manager 各自维护两套挂载逻辑；同时把 review “新页签”与“右侧/下方分屏”语义真正分开，fallback 到无新窗口能力时也回到真新页签。
+- Debt deferred: `TabManager.registerAll()` 仍作为测试/兼容便利保留在 manager 内，而不是彻底删掉注册入口；另外 Browser / Review AI 的默认打开位置仍维持现有右侧策略，没有借这次一起重设 UX。
+- Why deferred: 当前用户阻塞点是 restore 生命周期和 review 新页签语义；继续把所有注册 helper 全量外移或顺手重做 Browser / AI 的默认布局，会把一次启动 wiring 修复扩成更宽的 surface API 重塑。
+- Next safe step: 如果后续还要继续收紧 ownership，可以再把 `registerAll()` 降成 test-only helper，或直接让测试走 `init*/destroy*` runtime helper；若用户也想重设 Browser / AI 的默认布局，再单独评估是否需要把右侧默认位收敛成显式选项。
+- Validation: `pnpm vitest run src/index.test.ts src/application/managers/TabManager.test.ts src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/application/managers/__tests__/TabManager.review-ai-companion.spec.ts src/application/managers/__tests__/TabManager.review-close.spec.ts src/application/managers/__tests__/TabManager.openReviewInNewWindow.spec.ts`; `pnpm build`.
 
 ### 2026-04-23 - concept review action cleanup and AI composer CTA polish
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueueType } from '@/types/unified-data-source';
 import { TabManager } from './TabManager';
 
 const mocks = vi.hoisted(() => ({
@@ -17,9 +18,13 @@ vi.mock('siyuan', () => ({
   },
 }));
 
-vi.mock('vue', () => ({
-  createApp: mocks.createApp,
-}));
+vi.mock('vue', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue')>();
+  return {
+    ...actual,
+    createApp: mocks.createApp,
+  };
+});
 
 vi.mock('@/ui/browser/SRSBrowser.vue', () => ({
   default: {},
@@ -29,39 +34,58 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
-describe('TabManager browser tab opening', () => {
+vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
+  default: {},
+}));
+
+function createManager() {
+  const context = {
+    getI18n: vi.fn(() => ({
+      srsBrowser: 'SRS Browser',
+      reviewTitle: 'Review',
+      openFailed: 'Open failed',
+    })),
+    getReviewQueuePreparationService: vi.fn(() => undefined),
+  } as any;
+
+  const plugin = {
+    name: 'test-plugin',
+    app: {} as any,
+    addTab: vi.fn(),
+  } as any;
+
+  return {
+    tabManager: new TabManager(context, plugin),
+    plugin,
+  };
+}
+
+function createReviewOptions(position?: 'right' | 'bottom') {
+  return {
+    title: 'Review',
+    queue: {
+      getType: () => QueueType.RetrievalPractice,
+    },
+    ...(position ? { position } : {}),
+  };
+}
+
+describe('TabManager browser and review tab wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete (window as Window & { require?: unknown }).require;
   });
 
-  function createManager() {
-    const context = {
-      getI18n: vi.fn(() => ({
-        srsBrowser: 'SRS Browser',
-      })),
-    } as any;
-
-    const plugin = {
-      name: 'test-plugin',
-      app: {} as any,
-      addTab: vi.fn(),
-    } as any;
-
-    return {
-      tabManager: new TabManager(context, plugin),
-      plugin,
-    };
-  }
-
-  it('registers browser and review tabs once', () => {
+  it('registers browser, review, and review AI tabs once', () => {
     const { tabManager, plugin } = createManager();
 
     tabManager.registerAll();
     tabManager.registerAll();
 
-    expect(plugin.addTab).toHaveBeenCalledTimes(2);
+    expect(plugin.addTab).toHaveBeenCalledTimes(3);
     expect((plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[0][0].type).toBe('test-plugin-browser');
     expect((plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0].type).toBe('test-plugin-review');
+    expect((plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[2][0].type).toBe('test-plugin-review-ai');
   });
 
   it('opens a browser tab with an empty initial state by default', () => {
@@ -81,37 +105,6 @@ describe('TabManager browser tab opening', () => {
         },
       },
       position: 'right',
-    });
-  });
-
-  it('opens a browser tab with serialized open state and explicit position', () => {
-    const { tabManager, plugin } = createManager();
-
-    const opened = tabManager.openBrowserTab({
-      position: 'bottom',
-      initialState: {
-        queueId: 'neural-roam',
-        neuralSubview: 'roam-history',
-        queryText: 'michael nielsen',
-      },
-    });
-
-    expect(opened).toBe(true);
-    expect(mocks.openTab).toHaveBeenCalledWith({
-      app: plugin.app,
-      custom: {
-        icon: 'iconCard',
-        title: 'SRS Browser',
-        id: 'test-plugintest-plugin-browser',
-        data: {
-          initialState: {
-            queueId: 'neural-roam',
-            neuralSubview: 'roam-history',
-            queryText: 'michael nielsen',
-          },
-        },
-      },
-      position: 'bottom',
     });
   });
 
@@ -142,6 +135,34 @@ describe('TabManager browser tab opening', () => {
         },
       }),
     );
+  });
+
+  it('opens review tabs with distinct new-tab and split semantics', () => {
+    const { tabManager, plugin } = createManager();
+
+    tabManager.openReviewTabInNewTab(createReviewOptions());
+    tabManager.openReviewTab(createReviewOptions('right'));
+    tabManager.openReviewTab(createReviewOptions('bottom'));
+    tabManager.openReviewInNewWindow(createReviewOptions('right'));
+
+    const [newTabCall, rightSplitCall, bottomSplitCall, fallbackCall] = mocks.openTab.mock.calls.map(([payload]) => payload);
+    expect(newTabCall).toMatchObject({
+      app: plugin.app,
+      custom: expect.objectContaining({
+        title: 'Review',
+        id: 'test-plugintest-plugin-review',
+      }),
+      keepCursor: false,
+      removeCurrentTab: false,
+    });
+    expect(newTabCall).not.toHaveProperty('position');
+    expect(rightSplitCall).toMatchObject({
+      position: 'right',
+    });
+    expect(bottomSplitCall).toMatchObject({
+      position: 'bottom',
+    });
+    expect(fallbackCall).not.toHaveProperty('position');
   });
 
   it('returns false when openTab throws', () => {
