@@ -136,6 +136,23 @@ describe('XiuyuanSyncService formula multi-cloze conversion', () => {
     expect(xiuyuanEntity.getCards()).toHaveLength(1);
   });
 
+  it('keeps ordinary mark cloze cards on default native render metadata', async () => {
+    const { xiuyuanEntity } = await (service as any).convertRiffCardToFSRSCard(
+      createRiffBlock({
+        id: '20260301190000-abcde15',
+        content: 'alpha ==beta== gamma ==delta==',
+        ial: { 'custom-fsrs-card-type': 'item' },
+      })
+    );
+
+    const meta = xiuyuanEntity.getMeta() as Record<string, unknown>;
+    expect(xiuyuanEntity.getTemplateID().getValue()).toBe('builtin-multi-cloze');
+    expect(xiuyuanEntity.getFaces()).toHaveLength(1);
+    expect(meta.clozeRenderMode).toBeUndefined();
+    expect(meta.renderProfile).toBeUndefined();
+    expect(meta.forceQuickRender).toBeUndefined();
+  });
+
   it('creates N cards for N numbered latex clozes with inline render meta and new-card schedule', async () => {
     const { xiuyuanEntity } = await (service as any).convertRiffCardToFSRSCard(
       createRiffBlock({

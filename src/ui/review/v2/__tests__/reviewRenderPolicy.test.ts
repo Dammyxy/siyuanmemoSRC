@@ -181,6 +181,7 @@ describe('reviewRenderPolicy', () => {
       meta: {
         templateID: 'builtin-multi-cloze',
         clozeRenderMode: 'default',
+        renderProfile: 'quick-default',
         source: 'symbol',
         symbolDetected: true,
         cardSource: 'quick-symbol',

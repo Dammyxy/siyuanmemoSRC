@@ -17,7 +17,6 @@ export class MarkClozeRule implements PostCreationRule {
       cardType: context.resolvedCardType === 'topic' ? 'topic' : 'item',
       mode: 'multi-face',
       executorKind: 'quick-cloze',
-      renderProfile: 'quick-default',
       priority: 80,
       conflictGroup: 'single-block',
     };

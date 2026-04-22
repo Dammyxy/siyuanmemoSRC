@@ -692,6 +692,71 @@ describe('UnifiedReviewAdapter', () => {
     expect(revealedUi.meta.hasHiddenContent).toBe(true);
   });
 
+  it('marks ordinary multi-cloze item cards as native inline hidden candidates', async () => {
+    const card = createCard('ordinary-cloze-1', CardType.Item, {
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-multi-cloze',
+        frontBlockIDs: ['ordinary-cloze-block'],
+        clozeRenderMode: 'default',
+        renderProfile: 'quick-default',
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('ordinary-cloze-block');
+    expect(ui.content.answerBlockID).toBe('');
+    expect(ui.meta.hasHiddenContent).toBe(true);
+  });
+
+  it('keeps formula multi-cloze cards on the dedicated renderer path without native hide metadata', async () => {
+    const card = createCard('formula-cloze-1', CardType.Item, {
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-multi-cloze',
+        frontBlockIDs: ['formula-cloze-block'],
+        clozeRenderMode: 'inline-formula-cloze',
+        renderProfile: 'quick-inline-formula',
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.meta.hasHiddenContent).toBe(false);
+  });
+
+  it('marks topic-derived item cards as native inline hidden candidates', async () => {
+    const card = createCard('topic-derived-1', CardType.Item, {
+      meta: {
+        source: 'topic-derived',
+        cardSource: 'topic-derived',
+        progressive: {
+          kind: 'derived-item',
+        },
+      },
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('block-topic-derived-1');
+    expect(ui.content.answerBlockID).toBe('');
+    expect(ui.meta.hasHiddenContent).toBe(true);
+  });
+
   it('keeps topic document cards on the document render path even when Xiuyuan answer blocks exist', async () => {
     const card = createCard('topic-doc-1', CardType.Topic, {
       meta: createXiuyuanMeta({

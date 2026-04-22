@@ -344,6 +344,7 @@ function createMultiClozeContent() {
       meta: {
         templateID: 'builtin-multi-cloze',
         clozeRenderMode: 'default',
+        renderProfile: 'quick-default',
         source: 'symbol',
         symbolDetected: true,
         cardSource: 'quick-symbol',
@@ -1262,6 +1263,63 @@ describe('ReviewContent editor state', () => {
       isEditing: false,
     });
     expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('hides native mark spans for ordinary multi-cloze cards on the main Protyle path', async () => {
+    setBlockFixture(
+      'block-multi-cloze',
+      '<div data-node-id="block-multi-cloze">危险化学品单位应 <span data-type="mark">具备安全条件</span></div>',
+    );
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createMultiClozeContent(),
+        showAnswer: true,
+        hasHiddenContent: true,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleProtyleInit();
+
+    const host = wrapper.find('.fsrs-review-v2-content__protyle-host').element as HTMLDivElement;
+    const protyle = reviewContentMocks.instances[0];
+    expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(false);
+    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(false);
+    expect(host.classList.contains('siyuanmemo-review-card__block--hidemark')).toBe(true);
+    expect(host.classList.contains('card__block--hidemark')).toBe(false);
+
+    await wrapper.setProps({
+      showAnswer: false,
+      hasHiddenContent: true,
+    });
+    await settleReviewContent();
+
+    expect(host.classList.contains('siyuanmemo-review-card__block--hidemark')).toBe(false);
+    expect(protyle.destroyCallCount).toBe(0);
 
     wrapper.unmount();
   });

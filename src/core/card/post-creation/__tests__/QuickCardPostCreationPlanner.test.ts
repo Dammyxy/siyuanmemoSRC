@@ -43,9 +43,13 @@ describe('QuickCardPostCreationPlanner', () => {
     expect(nativePlan.mode).toBe('multi-cloze');
     expect(nativePlan.templateId).toBe('builtin-multi-cloze');
     expect(nativePlan.cardType).toBe('topic');
+    expect(nativePlan.renderMode).toBe('default');
+    expect(nativePlan.hints.forceQuickRender).toBeUndefined();
     expect(listenerPlan.mode).toBe('multi-cloze');
     expect(listenerPlan.templateId).toBe('builtin-multi-cloze');
     expect(listenerPlan.cardType).toBe('item');
+    expect(listenerPlan.renderMode).toBe('default');
+    expect(listenerPlan.hints.forceQuickRender).toBeUndefined();
   });
 
   it('keeps list-template structural plan while switching cardType to topic when resolved as topic', () => {

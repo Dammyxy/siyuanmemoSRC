@@ -17,7 +17,6 @@ export class BraceClozeRule implements PostCreationRule {
       cardType: 'item',
       mode: 'multi-face',
       executorKind: 'quick-cloze',
-      renderProfile: 'quick-default',
       priority: 85,
       conflictGroup: 'single-block',
     };

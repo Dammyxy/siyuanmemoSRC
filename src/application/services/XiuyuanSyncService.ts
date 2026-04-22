@@ -733,6 +733,10 @@ export class XiuyuanSyncService {
             return 'quick-inline-formula';
         }
 
+        if (plan.templateId === 'builtin-multi-cloze') {
+            return undefined;
+        }
+
         if (plan.templateId.startsWith('builtin-concept-definition')) {
             return 'concept-definition';
         }

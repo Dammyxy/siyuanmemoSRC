@@ -108,7 +108,7 @@ describe('SrsEditorDialog', () => {
     confirmDialogMock.mockResolvedValue(true);
   });
 
-  it('renders a compact inspector without the grade preview strip and keeps secondary sections folded', async () => {
+  it('renders a compact inspector without the grade preview strip and opens more-edit by default', async () => {
     const loadSnapshot = vi.fn(async () => buildSnapshot());
     const buildTransparency = vi.fn(() => buildTransparencyModel());
     const manager = { registerObserver: vi.fn(), unregisterObserver: vi.fn() };
@@ -146,7 +146,7 @@ describe('SrsEditorDialog', () => {
     expect(wrapper.findAll('.srs-field-card')).toHaveLength(0);
     expect(wrapper.findAll('[data-action]')).toHaveLength(3);
     expect(wrapper.html().indexOf('更多编辑')).toBeLessThan(wrapper.html().indexOf('当前状态'));
-    expect((wrapper.get('[data-section="more-edit"]').element as HTMLDetailsElement).open).toBe(false);
+    expect((wrapper.get('[data-section="more-edit"]').element as HTMLDetailsElement).open).toBe(true);
     expect((wrapper.get('[data-section="scheduling-details"]').element as HTMLDetailsElement).open).toBe(false);
     expect((wrapper.get('[data-section="danger-zone"]').element as HTMLDetailsElement).open).toBe(false);
     expect(wrapper.text()).toContain('当前状态');

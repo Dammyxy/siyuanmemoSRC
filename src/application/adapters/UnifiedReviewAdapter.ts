@@ -210,21 +210,44 @@ function resolveAnswerBlockId(card: UnifiedReviewItem, fallbackBlockId: string):
   return '';
 }
 
-function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
-  if (!isXiuyuanCard(card)) {
-    return false;
-  }
+function readCardMeta(card: UnifiedReviewItem): Record<string, unknown> {
+  return card.meta && typeof card.meta === 'object' ? card.meta : {};
+}
 
+function isInlineFormulaClozeMeta(meta: Record<string, unknown>): boolean {
+  return meta.clozeRenderMode === 'inline-formula-cloze'
+    || meta.renderProfile === 'quick-inline-formula';
+}
+
+function isOrdinaryMultiClozeMeta(meta: Record<string, unknown>): boolean {
+  return meta.templateID === 'builtin-multi-cloze' && !isInlineFormulaClozeMeta(meta);
+}
+
+function isProgressiveDerivedItemMeta(meta: Record<string, unknown>): boolean {
+  const progressive = meta.progressive;
+  return progressive !== null
+    && typeof progressive === 'object'
+    && (progressive as Record<string, unknown>).kind === 'derived-item';
+}
+
+function isNativeInlineHiddenCard(card: UnifiedReviewItem): boolean {
   if (normalizeCardType(card.type) !== 'item') {
     return false;
   }
 
-  if (card.meta.templateID !== 'builtin-riff-sync') {
-    return false;
+  const meta = readCardMeta(card);
+  if (isXiuyuanCard(card)) {
+    if (isOrdinaryMultiClozeMeta(meta)) {
+      return true;
+    }
+
+    if (card.meta.templateID === 'builtin-riff-sync') {
+      const renderProfile = card.meta.renderProfile;
+      return typeof renderProfile !== 'string' || renderProfile.length === 0;
+    }
   }
 
-  const renderProfile = card.meta.renderProfile;
-  return typeof renderProfile !== 'string' || renderProfile.length === 0;
+  return isProgressiveDerivedItemMeta(meta) || meta.cardSource === 'topic-derived';
 }
 
 function normalizeStats(stats: QueueStats | undefined): { size: number; label: string } {

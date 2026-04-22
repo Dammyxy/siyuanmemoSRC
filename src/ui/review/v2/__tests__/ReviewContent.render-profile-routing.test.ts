@@ -35,6 +35,32 @@ describe('Review render profile routing', () => {
     expect(profile).toBeNull();
   });
 
+  it('ignores historical quick-default profiles for ordinary multi-cloze cards', () => {
+    const profile = resolveRenderProfile({
+      id: 'card-1',
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'default',
+        renderProfile: 'quick-default',
+      },
+    } as never);
+
+    expect(profile).toBeNull();
+  });
+
+  it('lets inline formula cloze mode override stale quick-default profiles', () => {
+    const profile = resolveRenderProfile({
+      id: 'card-1',
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'inline-formula-cloze',
+        renderProfile: 'quick-default',
+      },
+    } as never);
+
+    expect(profile).toBe('quick-inline-formula');
+  });
+
   it('returns null for unknown render profile metadata', () => {
     const profile = resolveRenderProfile({
       id: 'card-1',

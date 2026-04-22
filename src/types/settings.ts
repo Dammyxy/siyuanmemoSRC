@@ -957,7 +957,7 @@ export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
                         'conceptName 必须是短、稳定、可作为概念文档标题复用的概念名；不要把句子塞进概念名。',
                         'definitionCandidates 只保留当前材料真正支持的定义候选，宁可少，不要把解释段落原样粘进去。',
                         'descriptorGroups.title 应该是可复用的描述维度，如“作用 / 条件 / 边界 / 特征 / 组成 / 误区”；items 则是该维度下的短条目。',
-                        '如果同一维度下有多个子项共享同一正面、需要额外提示，请直接把 items 写成“提示→答案”，例如“前身→恒星”“时期→恒星演化末期”。',
+                        '只要某个 descriptorGroups 下有超过 1 个 items，就把每个 items[].text 都写成“提示→答案”，例如“前身→恒星”“时期→恒星演化末期”；只有单条 item 可以保持纯答案文本。',
                         '这里的“→”只是条目 text 里的提示符，不要额外拆出 cue 字段，也不要改成 markdown 标记语法。',
                         'selected 默认给出你的初筛建议，但不要为了凑数量把所有节点都设成 true。',
                         '如果当前材料只能支撑定义而不足以支撑描述维度，可以保留空 descriptorGroups；反之亦然。',

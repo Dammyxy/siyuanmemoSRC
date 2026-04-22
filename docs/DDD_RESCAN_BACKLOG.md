@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 113)
+Last update: 2026-04-23 (Round 114)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - native cloze hide marks and CDF multi-item cue rule
+
+- Task: 修复 `Alt+Z` 高亮挖空 Item 在插件 review 里不隐藏高亮的问题，把 `编辑 SRS 数据` 的 `更多编辑` 默认展开，并把 AI `CDF 语义卡` 的多子项描述符规则收紧为每个子项都使用 `提示→答案`。
+- Touched slice: Review / post-creation / SRS / AI concept-coach active path across `src/application/adapters/UnifiedReviewAdapter.ts`, `src/ui/review/v2/*`, post-creation cloze rules and sync metadata, `src/ui/srs/SrsEditorDialog.vue`, `src/application/services/AIPromptContractRegistry.ts`, `src/types/settings.ts`, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: 普通 `builtin-multi-cloze` 的历史 `quick-default` renderProfile 现在会被压回 native Protyle；新建普通 mark/brace cloze 与 Riff sync 普通 multi-cloze 不再写 quick-default profile；adapter 会把普通 multi-cloze 和 topic-derived Item 标记为 native inline hidden 候选，再由 ReviewContent DOM 检测按原生 flashcard 配置隐藏 `mark/list/heading/superBlock`；SRS 高频更多编辑入口改为默认展开；CDF prompt/contract 从“可以用箭头”收紧为“descriptor group 超过 1 个 item 时每个 item 必须用箭头提示”。
+- Debt deferred: 仍不自动替 AI 结果推断缺失的 `提示→答案` cue 文本，也没有把 CDF schema 从 `items[].text` 升级成显式 `cue/answer` 双字段。
+- Why deferred: cue 左侧提示词需要语义判断，运行时从纯答案文本自动合成容易误导；本轮只把模型契约和现有 parse/create 主链统一，避免引入更宽的 AI 结果编辑/校验 UX。
+- Next safe step: 如果模型仍偶发漏写箭头，再加一个 CDF 预览层 warning，提示用户某个多子项 descriptor group 中仍有 item 未包含 `→`。
+- Validation: `pnpm vitest run src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/ui/review/v2/__tests__/ReviewContent.render-profile-routing.test.ts src/ui/review/v2/__tests__/reviewRenderPolicy.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/core/card/post-creation/__tests__/QuickCardPostCreationPlanner.test.ts src/application/services/__tests__/XiuyuanSyncService.formula-multi-cloze.test.ts src/ui/srs/__tests__/SrsEditorDialog.spec.ts src/application/services/__tests__/AIPromptContractRegistry.test.ts src/application/services/__tests__/AIPromptComposer.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-22 - review native cloze routing, SRS dialog reorder, and CDF cue-arrow prompting
 

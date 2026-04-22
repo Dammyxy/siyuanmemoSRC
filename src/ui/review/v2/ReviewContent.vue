@@ -446,9 +446,8 @@ const renderWatchKey = computed(() =>
   })}::${renderEpoch.value}`,
 );
 
-// 🆕 多填空维持专用 renderer：
-//    它通过 source-kramdown 还原当前洞位并做原位回填，
-//    而不是复用仅对 builtin-riff-sync 契约完整的主 Protyle inline reveal。
+// Formula cloze keeps the dedicated renderer; ordinary mark/brace cloze uses
+// the main Protyle path so Siyuan's native hidden-content CSS can apply.
 const shouldUseMultiClozeRenderer = computed(() => {
   if (props.content.type !== 'protyle') return false;
   if (isTopicReadModeCard.value) return false;

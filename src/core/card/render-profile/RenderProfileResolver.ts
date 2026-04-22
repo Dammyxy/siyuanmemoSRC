@@ -24,12 +24,24 @@ const SUPPORTED_RENDER_PROFILES = new Set<SupportedRenderProfile>([
 export function resolveRenderProfile(card: FSRSCard | null | undefined): SupportedRenderProfile | null {
   const meta = card?.meta as Record<string, unknown> | undefined;
   const profile = meta?.renderProfile;
+  const templateID = typeof meta?.templateID === 'string' ? meta.templateID : '';
+  const clozeRenderMode = meta?.clozeRenderMode;
+  if (templateID === 'builtin-multi-cloze' && clozeRenderMode === 'inline-formula-cloze') {
+    return 'quick-inline-formula';
+  }
+
+  if (
+    profile === 'quick-default'
+    && templateID === 'builtin-multi-cloze'
+  ) {
+    return null;
+  }
+
   if (typeof profile === 'string' && SUPPORTED_RENDER_PROFILES.has(profile as SupportedRenderProfile)) {
     return profile as SupportedRenderProfile;
   }
 
   // Backward compatibility: old cards only carried clozeRenderMode.
-  const clozeRenderMode = meta?.clozeRenderMode;
   if (clozeRenderMode === 'inline-formula-cloze') {
     return 'quick-inline-formula';
   }

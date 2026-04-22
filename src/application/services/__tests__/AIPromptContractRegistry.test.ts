@@ -29,9 +29,13 @@ describe('AIPromptContractRegistry', () => {
     expect(fullText).toContain('definitionCandidates');
     expect(fullText).toContain('descriptorGroups');
     expect(fullText).toContain('提示→答案');
+    expect(fullText).toContain('items 超过 1 个');
+    expect(fullText).toContain('每个 items[].text 都必须写成');
     expect(tabText).toContain('cdfStructure');
     expect(tabText).toContain('conceptName');
     expect(tabText).toContain('前身→恒星');
+    expect(tabText).toContain('阶段→恒星演化末期');
+    expect(tabText).toContain('只有单条 item 可以保持纯答案文本');
     expect(tabText).toContain('不要返回 ::: / ;;; markdown');
   });
 });
