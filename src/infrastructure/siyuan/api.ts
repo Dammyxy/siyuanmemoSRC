@@ -374,6 +374,21 @@ function extractFirstMutationId(result: BlockMutationResult): string {
     throw new Error('Failed to resolve block mutation id from Siyuan response');
 }
 
+function extractFirstMutationIdOrFallback(result: BlockMutationResult, fallbackId: string): string {
+    for (const operation of result.doOperations) {
+        if (typeof operation.id === 'string' && operation.id.length > 0) {
+            return operation.id;
+        }
+    }
+
+    const normalizedFallbackId = String(fallbackId || '').trim();
+    if (normalizedFallbackId) {
+        return normalizedFallbackId;
+    }
+
+    throw new Error('Failed to resolve block mutation id from Siyuan response');
+}
+
 export async function insertBlockDetailed(params: {
     dataType: 'markdown' | 'dom';
     data: string;
@@ -402,7 +417,7 @@ export async function prependBlock(params: {
     parentID?: string;
 }): Promise<string> {
     const result = await request<BlockMutationResponse>('/block/prependBlock', params);
-    return extractFirstMutationId(result);
+    return extractFirstMutationId(normalizeMutationResult(result));
 }
 
 export async function appendBlock(params: {
@@ -429,7 +444,7 @@ export async function updateBlock(params: {
     id: string;
 }): Promise<string> {
     const result = await request<BlockMutationResponse>('/block/updateBlock', params);
-    return extractFirstMutationId(result);
+    return extractFirstMutationIdOrFallback(normalizeMutationResult(result), params.id);
 }
 
 export async function moveBlock(params: {

@@ -14,8 +14,11 @@ import { TopicDerivedItemService } from '@/application/services/TopicDerivedItem
 import { UnifiedPostCreationPlanner } from '@/core/card/post-creation/UnifiedPostCreationPlanner';
 import type { CreationDecision } from '@/core/card/post-creation/contracts';
 import {
+  MARK_DATA_TYPE_SELECTOR,
   createTokenizedMarkHtml,
   hasDataTypeToken,
+  removeDataTypeToken,
+  splitDataTypeTokens,
   unwrapMarkTokenElements,
 } from '@/utils/markDataType';
 
@@ -40,6 +43,20 @@ export interface SelectionTopicContinuationPreparation {
   answerFingerprint?: string;
   decisions: CreationDecision[];
   mode: SelectionTopicContinuationMode | null;
+  highlightTargetCount: number;
+  available: boolean;
+}
+
+export interface CurrentBlockTopicContinuationInput {
+  sourceBlockId: string;
+  contentDom?: string;
+  rootId?: string;
+}
+
+export interface CurrentBlockTopicContinuationPreparation {
+  rootId?: string;
+  topicContext: ProgressiveTopicContext | null;
+  markCount: number;
   available: boolean;
 }
 
@@ -52,6 +69,13 @@ export interface SelectionTopicContinuationResult {
 type BlockInfoRow = {
   root_id?: string;
   type?: string;
+};
+
+type PreparedBlockMarkContinuation = {
+  plannerContent: string;
+  artifactContentDom: string;
+  answerFingerprint: string;
+  previewText: string;
 };
 
 const DIRECT_CLOZE_DECISION: CreationDecision = {
@@ -248,6 +272,162 @@ function extractVisibleTextFromFragment(
     : normalizeInlineWhitespace(raw);
 }
 
+function extractPlannerTextFromFragmentNode(
+  fragment: DocumentFragment,
+  options?: { trim?: boolean },
+): string {
+  const raw = Array.from(fragment.childNodes)
+    .map((child) => extractPlannerTextFromNode(child))
+    .join('')
+    .replace(/\u200B/g, '')
+    .replace(/\u00A0/g, ' ');
+
+  return options?.trim === false
+    ? raw
+    : normalizeInlineWhitespace(raw);
+}
+
+function countTokenizedMarkTargets(html: string | undefined): number {
+  const blockElement = getFragmentBlockElement(html);
+  if (!blockElement) {
+    return 0;
+  }
+
+  const contentRoot = resolveBlockContentRoot(blockElement);
+  return contentRoot.querySelectorAll(MARK_DATA_TYPE_SELECTOR).length;
+}
+
+function flattenMarkElement(markElement: HTMLElement): void {
+  const nextDataType = removeDataTypeToken(markElement.getAttribute('data-type'), 'mark');
+  const remainingTokens = splitDataTypeTokens(nextDataType);
+  const shouldUnwrap = remainingTokens.length === 0
+    || (remainingTokens.length === 1 && remainingTokens[0] === 'text');
+
+  if (!shouldUnwrap) {
+    markElement.setAttribute('data-type', nextDataType);
+    return;
+  }
+
+  const parent = markElement.parentNode;
+  if (!parent) {
+    return;
+  }
+
+  while (markElement.firstChild) {
+    parent.insertBefore(markElement.firstChild, markElement);
+  }
+  parent.removeChild(markElement);
+}
+
+function extractPlannerTextInsideMarkElement(markElement: HTMLElement): string {
+  const dataType = String(markElement.getAttribute('data-type') || '').trim();
+  if (hasDataTypeToken(dataType, 'block-ref')) {
+    const blockId = String(markElement.getAttribute('data-id') || '').trim();
+    if (blockId) {
+      return `((${blockId}))`;
+    }
+  }
+
+  return normalizeInlineWhitespace(extractPlannerTextFromChildren(markElement));
+}
+
+function cloneBlockWithSingleTargetMark(
+  blockHtml: string | undefined,
+  targetIndex: number,
+): PreparedBlockMarkContinuation | null {
+  const blockElement = getFragmentBlockElement(blockHtml);
+  if (!blockElement) {
+    return null;
+  }
+
+  const contentRoot = resolveBlockContentRoot(blockElement);
+  const markElements = Array.from(contentRoot.querySelectorAll<HTMLElement>(MARK_DATA_TYPE_SELECTOR));
+  const targetMark = markElements[targetIndex];
+  if (!targetMark) {
+    return null;
+  }
+
+  markElements.forEach((markElement, index) => {
+    if (index !== targetIndex) {
+      flattenMarkElement(markElement);
+    }
+  });
+
+  const beforeRange = document.createRange();
+  beforeRange.selectNodeContents(contentRoot);
+  beforeRange.setEndBefore(targetMark);
+  const beforeText = normalizeInlineWhitespace(
+    extractPlannerTextFromFragmentNode(beforeRange.cloneContents()),
+  );
+
+  const afterRange = document.createRange();
+  afterRange.selectNodeContents(contentRoot);
+  afterRange.setStartAfter(targetMark);
+  const afterText = normalizeInlineWhitespace(
+    extractPlannerTextFromFragmentNode(afterRange.cloneContents()),
+  );
+
+  const targetPlannerText = extractPlannerTextInsideMarkElement(targetMark);
+  const previewText = normalizeInlineWhitespace(extractVisibleTextFromNode(targetMark));
+  if (!targetPlannerText || !previewText) {
+    return null;
+  }
+
+  const beforeTail = beforeText.slice(-32);
+  const afterHead = afterText.slice(0, 32);
+  const answerFingerprint = `${beforeTail}::${targetPlannerText}::${afterHead}`;
+
+  const normalizedPlannerContent = normalizeInlineWhitespace(
+    extractPlannerTextFromChildren(contentRoot),
+  );
+  if (!normalizedPlannerContent) {
+    return null;
+  }
+
+  return {
+    plannerContent: normalizedPlannerContent,
+    artifactContentDom: blockElement.outerHTML.trim(),
+    answerFingerprint,
+    previewText,
+  };
+}
+
+function buildCurrentBlockMarkContinuations(
+  sourceBlockId: string,
+  blockHtml: string | undefined,
+): PreparedBlockMarkContinuation[] {
+  const normalizedSourceBlockId = String(sourceBlockId || '').trim();
+  if (!normalizedSourceBlockId) {
+    return [];
+  }
+
+  const markCount = countTokenizedMarkTargets(blockHtml);
+  if (markCount === 0) {
+    return [];
+  }
+
+  const candidates: PreparedBlockMarkContinuation[] = [];
+  const seenFingerprints = new Set<string>();
+  for (let index = 0; index < markCount; index += 1) {
+    const candidate = cloneBlockWithSingleTargetMark(blockHtml, index);
+    if (!candidate) {
+      continue;
+    }
+
+    const answerFingerprint = `${normalizedSourceBlockId}::${DIRECT_CLOZE_DECISION.id}::${candidate.answerFingerprint}`;
+    if (seenFingerprints.has(answerFingerprint)) {
+      continue;
+    }
+    seenFingerprints.add(answerFingerprint);
+    candidates.push({
+      ...candidate,
+      answerFingerprint,
+    });
+  }
+
+  return candidates;
+}
+
 function buildManualMarkInnerHtml(innerHtml: string): string {
   return createTokenizedMarkHtml(innerHtml);
 }
@@ -360,6 +540,7 @@ export class SelectionTopicContinuationService {
     const sourceBlockId = String(input.sourceBlockId || '').trim();
     const rootId = String(input.rootId || '').trim() || undefined;
     const normalizedContent = normalizeSelectionContent(input.selectedText, input.contentDom);
+    const highlightTargetCount = countTokenizedMarkTargets(input.contentDom);
     if (!sourceBlockId || !normalizedContent) {
       return {
         rootId,
@@ -369,6 +550,7 @@ export class SelectionTopicContinuationService {
         artifactContentDom: '',
         decisions: [],
         mode: null,
+        highlightTargetCount,
         available: false,
       };
     }
@@ -387,6 +569,7 @@ export class SelectionTopicContinuationService {
         artifactContentDom: '',
         decisions: [],
         mode: null,
+        highlightTargetCount,
         available: false,
       };
     }
@@ -408,6 +591,7 @@ export class SelectionTopicContinuationService {
         artifactContentDom: '',
         decisions,
         mode: 'planner-derived',
+        highlightTargetCount,
         available: true,
       };
     }
@@ -421,6 +605,7 @@ export class SelectionTopicContinuationService {
         artifactContentDom: '',
         decisions: [],
         mode: null,
+        highlightTargetCount,
         available: false,
       };
     }
@@ -445,6 +630,7 @@ export class SelectionTopicContinuationService {
         artifactContentDom: '',
         decisions: [],
         mode: null,
+        highlightTargetCount,
         available: false,
       };
     }
@@ -458,7 +644,36 @@ export class SelectionTopicContinuationService {
       answerFingerprint,
       decisions: [DIRECT_CLOZE_DECISION],
       mode: 'manual-cloze',
+      highlightTargetCount,
       available: true,
+    };
+  }
+
+  prepareCurrentBlockMarks(input: CurrentBlockTopicContinuationInput): CurrentBlockTopicContinuationPreparation {
+    const sourceBlockId = String(input.sourceBlockId || '').trim();
+    const rootId = String(input.rootId || '').trim() || undefined;
+    const contentDom = String(input.contentDom || '').trim();
+    const markCount = countTokenizedMarkTargets(contentDom);
+    if (!sourceBlockId || !contentDom) {
+      return {
+        rootId,
+        topicContext: null,
+        markCount,
+        available: false,
+      };
+    }
+
+    const topicContext = resolveProgressiveTopicContext({
+      blockId: sourceBlockId,
+      rootId,
+      cardLookup: this.cardService,
+    });
+
+    return {
+      rootId,
+      topicContext,
+      markCount,
+      available: Boolean(topicContext && markCount > 0),
     };
   }
 
@@ -506,6 +721,77 @@ export class SelectionTopicContinuationService {
       previewText: prepared.normalizedContent,
       decisions: prepared.decisions,
     });
+  }
+
+  async createFromCurrentBlockMarks(
+    input: CurrentBlockTopicContinuationInput,
+    preparation?: CurrentBlockTopicContinuationPreparation,
+  ): Promise<SelectionTopicContinuationResult> {
+    const sourceBlockId = String(input.sourceBlockId || '').trim();
+    const contentDom = String(input.contentDom || '').trim();
+    const prepared = preparation || this.prepareCurrentBlockMarks(input);
+    if (!sourceBlockId || !contentDom || !prepared.available || !prepared.topicContext) {
+      return {
+        created: 0,
+        skipped: 0,
+        items: [],
+      };
+    }
+
+    const blockInfo = await this.resolveBlockInfo(sourceBlockId);
+    const resolvedRootId = prepared.rootId || String(input.rootId || '').trim() || blockInfo.rootId || sourceBlockId;
+    const sourceContext = await resolveProgressiveSourceContext({
+      blockId: sourceBlockId,
+      rootId: resolvedRootId,
+      cardLookup: this.cardService,
+      attrLookup: this.siyuanApi,
+    });
+    const parentTopicCardId = sourceContext.parentTopicCardId || prepared.topicContext.topicCardId;
+    if (!parentTopicCardId) {
+      return {
+        created: 0,
+        skipped: 0,
+        items: [],
+      };
+    }
+
+    const candidates = buildCurrentBlockMarkContinuations(sourceBlockId, contentDom);
+    if (candidates.length === 0) {
+      return {
+        created: 0,
+        skipped: 0,
+        items: [],
+      };
+    }
+
+    const items: TopicDerivedItemArtifact[] = [];
+    let created = 0;
+    let skipped = 0;
+
+    for (const candidate of candidates) {
+      const result = await this.topicDerivedItemService.createFromTopicSource({
+        sourceBlockId,
+        sourceDocId: sourceContext.sourceDocId || prepared.topicContext.sourceDocId,
+        parentTopicCardId,
+        parentExcerptId: sourceContext.parentExcerptId,
+        sourceRootKind: sourceContext.rootKind as ProgressiveSourceRootKind,
+        plannerContent: candidate.plannerContent,
+        artifactContentDom: candidate.artifactContentDom,
+        mode: 'manual-cloze',
+        answerFingerprint: candidate.answerFingerprint,
+        previewText: candidate.previewText,
+        decisions: [DIRECT_CLOZE_DECISION],
+      });
+      created += result.created;
+      skipped += result.skipped;
+      items.push(...result.items);
+    }
+
+    return {
+      created,
+      skipped,
+      items,
+    };
   }
 
   private async resolveBlockInfo(blockId: string): Promise<{ rootId: string; blockType: string }> {

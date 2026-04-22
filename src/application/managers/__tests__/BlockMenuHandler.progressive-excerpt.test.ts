@@ -47,6 +47,22 @@ function createHandler() {
     recordId: 'record-1',
     colorApplied: false,
   }));
+  const prepareCurrentBlockMarks = vi.fn(() => ({
+    rootId: 'topic-doc-root-1',
+    topicContext: {
+      topicCardId: 'topic-card-1',
+      topicBlockId: 'topic-doc-root-1',
+      sourceDocId: 'topic-doc-root-1',
+      scope: 'doc-root' as const,
+    },
+    markCount: 1,
+    available: true,
+  }));
+  const createFromCurrentBlockMarks = vi.fn(async () => ({
+    created: 1,
+    skipped: 0,
+    items: [],
+  }));
   const storage = {
     getCardsByBlockId: vi.fn((blockId: string) => (blockId === 'block-1'
       ? [{ id: 'item-1', blockId: 'block-1', type: 'item', due: Date.now() - 1 } as FSRSCard]
@@ -94,6 +110,12 @@ function createHandler() {
       addToFinalDrillQueue: '添加到刻意练习',
       progressiveExcerptMenuLabel: '摘录',
       progressiveExcerptCreated: '已创建 Topic，已进入今日渐进学习',
+      progressiveExcerptBatchMenuLabel: '从当前块高亮补齐 Item',
+      progressiveExcerptBatchCreated: '已从当前块高亮补齐 {created} 个 Item',
+      progressiveExcerptBatchCreatedSkipped: '已从当前块高亮补齐 {created} 个 Item，跳过 {skipped} 个重复项',
+      progressiveExcerptBatchSkipped: '当前块高亮已对应现有 Item，已跳过 {skipped} 个重复项',
+      progressiveExcerptBatchFailed: '从当前块高亮补齐 Item 失败：{message}',
+      progressiveExcerptBatchUnavailable: '当前块没有可补齐的高亮 Item',
     },
     dialogManager: dialogManager as any,
     openCreateTemplateCardDialog: vi.fn().mockResolvedValue(undefined),
@@ -117,6 +139,10 @@ function createHandler() {
         createFromSelection,
         updateSourceBlockDom: vi.fn().mockResolvedValue(undefined),
       }),
+      getSelectionTopicContinuationService: () => ({
+        prepareCurrentBlockMarks,
+        createFromCurrentBlockMarks,
+      }),
       getTabApplicationService: () => tabApplicationService,
     } as any,
     cardCreationHelper: {} as any,
@@ -127,6 +153,8 @@ function createHandler() {
     handler,
     materializeExcerptSource,
     createFromSelection,
+    prepareCurrentBlockMarks,
+    createFromCurrentBlockMarks,
     siyuanApi,
   };
 }
@@ -134,6 +162,7 @@ function createHandler() {
 describe('BlockMenuHandler progressive excerpt block-menu flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.body.innerHTML = '';
     progressiveExcerptMocks.prepareProgressiveExcerptHighlight.mockReturnValue({
       blockId: 'block-1',
       blockIds: ['block-1', 'block-2'],
@@ -199,5 +228,68 @@ describe('BlockMenuHandler progressive excerpt block-menu flow', () => {
     expect(progressiveExcerptMocks.prepareProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(progressiveExcerptMocks.applyProgressiveExcerptHighlight).toHaveBeenCalledTimes(1);
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已创建 Topic，已进入今日渐进学习');
+  });
+
+  it('shows the current-block batch fill action only when a single Topic block already contains highlights', async () => {
+    const { handler, prepareCurrentBlockMarks, createFromCurrentBlockMarks, siyuanApi } = createHandler();
+    const protyleContent = document.createElement('div');
+    protyleContent.className = 'protyle-content';
+    const background = document.createElement('div');
+    background.className = 'protyle-background';
+    background.setAttribute('data-node-id', 'topic-doc-root-1');
+    const wysiwyg = document.createElement('div');
+    wysiwyg.className = 'protyle-wysiwyg';
+    const block = document.createElement('div');
+    block.setAttribute('data-node-id', 'block-1');
+    block.innerHTML = '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>';
+    wysiwyg.append(block);
+    protyleContent.append(background, wysiwyg);
+    document.body.append(protyleContent);
+
+    progressiveExcerptMocks.resolveProgressiveExcerptSnapshotFromBlocks.mockReturnValue({
+      blockId: 'block-1',
+      sourceBlockId: 'block-1',
+      sourceBlockIds: ['block-1'],
+      text: 'Alpha Beta',
+      contentDom: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      range: document.createRange(),
+      blockSelections: [
+        { blockId: 'block-1', mode: 'full-block', excerptHtml: '<div></div>' },
+      ],
+      commonElement: block,
+      root: wysiwyg,
+      protyle: null,
+    });
+
+    const menu = { addItem: vi.fn() };
+    handler.handleBlockIconClick({
+      detail: {
+        menu,
+        blockElements: [block],
+      },
+    });
+
+    expect(prepareCurrentBlockMarks).toHaveBeenCalledWith({
+      sourceBlockId: 'block-1',
+      contentDom: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      rootId: 'topic-doc-root-1',
+    });
+
+    const topLevelItem = menu.addItem.mock.calls[0][0];
+    const submenu = topLevelItem.submenu as Array<{ label?: string; click?: () => Promise<void> }>;
+    const batchItem = submenu.find((item) => item.label === '从当前块高亮补齐 Item');
+    expect(batchItem).toBeDefined();
+
+    await batchItem?.click?.();
+
+    expect(createFromCurrentBlockMarks).toHaveBeenCalledWith({
+      sourceBlockId: 'block-1',
+      contentDom: '<div data-type="NodeParagraph" class="p"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span></div><div class="protyle-attr" contenteditable="false">\u200b</div></div>',
+      rootId: 'topic-doc-root-1',
+    }, expect.objectContaining({
+      available: true,
+      markCount: 1,
+    }));
+    expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已从当前块高亮补齐 1 个 Item');
   });
 });

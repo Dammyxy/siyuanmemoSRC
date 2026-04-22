@@ -95,6 +95,7 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.topicContext).toBeNull();
     expect(preparation.decisions).toHaveLength(0);
     expect(preparation.mode).toBeNull();
+    expect(preparation.highlightTargetCount).toBe(0);
   });
 
   it('normalizes excerpt-doc rich selection content and forwards the derived-item contract with parent excerpt lineage', async () => {
@@ -147,6 +148,7 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.plannerContent).toBe('Alpha ==Beta==');
     expect(preparation.artifactContentDom).toBe('');
     expect(preparation.mode).toBe('planner-derived');
+    expect(preparation.highlightTargetCount).toBe(1);
     expect(preparation.decisions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         family: 'cloze',
@@ -222,6 +224,7 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.plannerContent).toBe('Alpha ==Beta== Gamma');
     expect(preparation.artifactContentDom).toContain('<span data-type="text mark">Beta</span>');
     expect(preparation.answerFingerprint).toBe('source-block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma');
+    expect(preparation.highlightTargetCount).toBe(0);
     expect(preparation.decisions).toEqual([
       expect.objectContaining({
         id: 'ManualSelectionClozeRule',
@@ -299,6 +302,7 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.artifactContentDom).toContain('data-type="block-ref mark"');
     expect(preparation.artifactContentDom).toContain('>*</span>');
     expect(preparation.artifactContentDom).not.toContain('<span data-type="text mark"><span data-type="block-ref"');
+    expect(preparation.highlightTargetCount).toBe(0);
   });
 
   it('requires a single-block range selection before manual cloze continuation becomes available', () => {
@@ -341,6 +345,7 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.mode).toBeNull();
     expect(preparation.plannerContent).toBe('');
     expect(preparation.artifactContentDom).toBe('');
+    expect(preparation.highlightTargetCount).toBe(0);
   });
 
   it('reconstructs block references from content DOM so concept-definition selections remain derivable', () => {
@@ -370,10 +375,105 @@ describe('SelectionTopicContinuationService', () => {
     expect(preparation.plannerContent).toBe('((20240101010101-abcdefg))::定义正文');
     expect(preparation.artifactContentDom).toBe('');
     expect(preparation.mode).toBe('planner-derived');
+    expect(preparation.highlightTargetCount).toBe(0);
     expect(preparation.decisions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         family: 'concept-definition',
       }),
     ]));
+  });
+
+  it('prepares current-block batch fill only when the current Topic block contains mark targets', () => {
+    const service = new SelectionTopicContinuationService(
+      createSiyuanPortMock(),
+      createCardServiceMock({
+        sourceBlockId: 'source-block-batch-1',
+        rootId: 'topic-doc-root-batch-1',
+        rootBlockCards: [{ id: 'topic-card-topic-root-batch-1', type: 'topic' }],
+      }),
+      {
+        createFromTopicSource: vi.fn(async () => ({
+          created: 0,
+          skipped: 0,
+          items: [],
+        })),
+      } as any,
+    );
+
+    const preparation = service.prepareCurrentBlockMarks({
+      sourceBlockId: 'source-block-batch-1',
+      rootId: 'topic-doc-root-batch-1',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma <span data-type="text mark">Delta</span></div></div>',
+    });
+
+    expect(preparation.available).toBe(true);
+    expect(preparation.markCount).toBe(2);
+    expect(preparation.topicContext).toEqual(expect.objectContaining({
+      topicCardId: 'topic-card-topic-root-batch-1',
+    }));
+  });
+
+  it('fans out current-block marks into one Topic continuation per highlight while flattening non-target marks', async () => {
+    const topicDerivedItemService = {
+      createFromTopicSource: vi.fn(async (input: Record<string, unknown>) => ({
+        created: 1,
+        skipped: 0,
+        items: [{
+          derivedDocId: `doc-${String(input.answerFingerprint || '')}`,
+          derivedBlockId: `block-${String(input.answerFingerprint || '')}`,
+          derivedCardId: `card-${String(input.answerFingerprint || '')}`,
+          sourceBlockId: 'source-block-batch-2',
+          storageMode: 'workbench',
+          creationRuleId: 'ManualSelectionClozeRule',
+          answerFingerprint: String(input.answerFingerprint || ''),
+        }],
+      })),
+    };
+    const service = new SelectionTopicContinuationService(
+      createSiyuanPortMock({
+        sql: vi.fn(async () => [{ root_id: 'topic-doc-root-batch-2', type: 'p' }]),
+      }),
+      createCardServiceMock({
+        sourceBlockId: 'source-block-batch-2',
+        rootId: 'topic-doc-root-batch-2',
+        rootBlockCards: [{ id: 'topic-card-topic-root-batch-2', type: 'topic' }],
+      }),
+      topicDerivedItemService as any,
+    );
+
+    const result = await service.createFromCurrentBlockMarks({
+      sourceBlockId: 'source-block-batch-2',
+      rootId: 'topic-doc-root-batch-2',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma <span data-type="block-ref mark" data-id="20240101010101-abcdefg">*</span></div></div>',
+    });
+
+    expect(result.created).toBe(2);
+    expect(result.skipped).toBe(0);
+    expect(topicDerivedItemService.createFromTopicSource).toHaveBeenCalledTimes(2);
+
+    const firstCall = vi.mocked(topicDerivedItemService.createFromTopicSource).mock.calls[0]?.[0] as Record<string, unknown>;
+    const secondCall = vi.mocked(topicDerivedItemService.createFromTopicSource).mock.calls[1]?.[0] as Record<string, unknown>;
+
+    expect(firstCall).toEqual(expect.objectContaining({
+      sourceBlockId: 'source-block-batch-2',
+      sourceDocId: 'topic-doc-root-batch-2',
+      parentTopicCardId: 'topic-card-topic-root-batch-2',
+      mode: 'manual-cloze',
+      previewText: 'Beta',
+      plannerContent: 'Alpha ==Beta== Gamma ((20240101010101-abcdefg))',
+      answerFingerprint: 'source-block-batch-2::ManualSelectionClozeRule::Alpha::Beta::Gamma ((20240101010101-abcdefg))',
+      decisions: [expect.objectContaining({ id: 'ManualSelectionClozeRule', family: 'cloze' })],
+    }));
+    expect(String(firstCall.artifactContentDom || '')).toContain('<span data-type="text mark">Beta</span>');
+    expect(String(firstCall.artifactContentDom || '')).not.toContain('block-ref mark');
+
+    expect(secondCall).toEqual(expect.objectContaining({
+      previewText: '*',
+      plannerContent: 'Alpha Beta Gamma ==((20240101010101-abcdefg))==',
+      answerFingerprint: 'source-block-batch-2::ManualSelectionClozeRule::Alpha Beta Gamma::((20240101010101-abcdefg))::',
+    }));
+    expect(String(secondCall.artifactContentDom || '')).toContain('data-type="block-ref mark"');
+    expect(String(secondCall.artifactContentDom || '')).toContain('>*</span>');
+    expect(String(secondCall.artifactContentDom || '')).not.toContain('<span data-type="text mark">Beta</span>');
   });
 });

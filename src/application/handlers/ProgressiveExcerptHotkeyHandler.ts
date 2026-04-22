@@ -181,6 +181,11 @@ export class ProgressiveExcerptHotkeyHandler {
     });
 
     if (topicContinuationPreparation.available) {
+      const rejectionMessage = this.getTopicContinuationRejectionMessage(selection, topicContinuationPreparation);
+      if (rejectionMessage) {
+        showMessage(rejectionMessage, 3000, 'error');
+        return;
+      }
       await this.runTopicContinuationFromSnapshot(selection, topicContinuationPreparation);
       return;
     }
@@ -241,6 +246,12 @@ export class ProgressiveExcerptHotkeyHandler {
     preparation?: SelectionTopicContinuationPreparation,
   ): Promise<void> {
     try {
+      const rejectionMessage = this.getTopicContinuationRejectionMessage(selection, preparation);
+      if (rejectionMessage) {
+        showMessage(rejectionMessage, 3000, 'error');
+        return;
+      }
+
       if (preparation?.mode === 'manual-cloze') {
         const preparedMark = this.tryPrepareSelectionClozeMark(selection);
         if (!preparedMark) {
@@ -496,6 +507,28 @@ export class ProgressiveExcerptHotkeyHandler {
     }
     return this.translate('progressiveExcerptContinuationSkipped', '当前 Topic 下已存在相同 Item，已跳过 {skipped} 个重复项')
       .replace('{skipped}', String(result.skipped));
+  }
+
+  private getTopicContinuationRejectionMessage(
+    selection: ProgressiveExcerptSelectionSnapshot,
+    preparation?: SelectionTopicContinuationPreparation,
+  ): string | null {
+    if (!preparation?.topicContext) {
+      return null;
+    }
+
+    if (selection.blockSelections.length !== 1) {
+      return this.translate('progressiveItemSingleBlockOnly', '请在单个块内连续选区后再创建 Item');
+    }
+
+    if (preparation.highlightTargetCount > 1) {
+      return this.translate(
+        'progressiveItemUseBatchFillCurrentBlock',
+        '当前选区包含多个高亮，请改用“从当前块高亮补齐 Item”',
+      );
+    }
+
+    return null;
   }
 
   private previewDomForLog(html: string | undefined, maxLength = 160): string {

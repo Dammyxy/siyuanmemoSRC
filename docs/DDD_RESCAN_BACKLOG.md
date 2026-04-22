@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 111)
+Last update: 2026-04-22 (Round 112)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - topic single-cloze update-block normalization and current-block batch fill
+
+- Task: 修复 SiYuan 3.6.5 下 Topic `⌥⇧Z` 因 `/block/updateBlock` 响应形状变化导致的 `result.doOperations is not iterable`，并把多空交互收口为“`⌥⇧Z` 只处理单空、当前块批量补齐走块菜单”的稳定模型。
+- Touched slice: Progressive / excerpt / topic-derived item + Siyuan integration active path across `src/infrastructure/siyuan/api.ts`, `src/application/{services/SelectionTopicContinuationService.ts,handlers/ProgressiveExcerptHotkeyHandler.ts,managers/BlockMenuHandler.ts}`, progressive i18n, focused progressive/infrastructure tests, and `ARCHITECTURE.md`.
+- Debt fixed now: 把共用 `updateBlock()` 适配修到基础设施边界上，统一先归一化 Siyuan block mutation 响应，再在 update 成功但缺少 op id 时回退到请求 block id，避免 Progressive / Review / AI 共用适配层继续踩 3.6.5 的响应坑；`SelectionTopicContinuationService` 新增当前块 native `mark` 扫描与 fan-out，把“从当前块高亮补齐 Item”也收进同一条 Topic lineage 主链，并确保每张 Item 只保留自己的目标高亮、其余高亮展平成普通内容；`ProgressiveExcerptHotkeyHandler` 则把 `⌥⇧Z` 明确锁成单块单目标语义，多高亮直接提示改走块菜单批量补齐。
+- Debt deferred: 当前块批量补齐第一版只扫描当前块，不做整篇 Topic 文档扫描；块菜单的显示条件仍依赖当前打开编辑器 DOM 中可解析的 root/background 结构，没有额外引入更重的异步上下文查询；review 渲染链本轮未新增专门改动，继续沿用既有 derived-item 标准 Item 渲染契约。
+- Why deferred: 这轮用户阻塞点是 3.6.5 的 source update 失败和 Topic 多空交互缺少稳定出口；如果继续把批量范围扩大到整篇文档，或把块菜单显示判定改成异步上下文解析，会把一次 active-path 修复扩大成更宽的 editor/menu orchestration 重构。
+- Next safe step: 如果当前块批量补齐在真实使用中稳定，再评估是否需要补一个“整篇 Topic 文档高亮补齐”入口，以及是否要把块菜单的 topic/excerpt 语境判定从 DOM root 推断升级成更显式的文档上下文解析服务。
+- Validation: `pnpm vitest run src/infrastructure/siyuan/__tests__/api.block-mutation.test.ts src/application/services/__tests__/SelectionTopicContinuationService.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts`; `pnpm vitest run src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-22 - topic manual cloze tokenized mark persistence
 

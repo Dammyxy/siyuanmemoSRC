@@ -33,6 +33,7 @@ import {
   type ProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
+import type { CurrentBlockTopicContinuationPreparation } from '@/application/services/SelectionTopicContinuationService';
 import { isErr } from '@/types/result';
 
 const logger = createLogger('BlockMenuHandler');
@@ -962,6 +963,80 @@ export class BlockMenuHandler {
     }
   }
 
+  private resolveBlockMenuRootId(blockElement: HTMLElement, fallbackBlockId?: string): string | undefined {
+    const content = blockElement.closest('.protyle-content') as HTMLElement | null;
+    const rootId = String(
+      content?.querySelector<HTMLElement>('.protyle-background[data-node-id]')?.getAttribute('data-node-id')
+      || '',
+    ).trim();
+    if (rootId) {
+      return rootId;
+    }
+    return fallbackBlockId ? String(fallbackBlockId).trim() || undefined : undefined;
+  }
+
+  private buildCurrentBlockTopicBatchAction(blockElement: HTMLElement): SiyuanMenuItem | null {
+    const selection = resolveProgressiveExcerptSnapshotFromBlocks([blockElement]);
+    if (!selection) {
+      return null;
+    }
+
+    const preparation = this.deps.applicationContext.getSelectionTopicContinuationService().prepareCurrentBlockMarks({
+      sourceBlockId: selection.sourceBlockId,
+      contentDom: selection.contentDom,
+      rootId: this.resolveBlockMenuRootId(blockElement, selection.sourceBlockId),
+    });
+    if (!preparation.available) {
+      return null;
+    }
+
+    return {
+      icon: 'iconAdd',
+      label: this.text('progressiveExcerptBatchMenuLabel', '从当前块高亮补齐 Item'),
+      click: async () => {
+        await this.runCurrentBlockTopicBatchAction(blockElement, preparation);
+      },
+    };
+  }
+
+  private async runCurrentBlockTopicBatchAction(
+    blockElement: HTMLElement,
+    preparation?: CurrentBlockTopicContinuationPreparation,
+  ): Promise<void> {
+    const selection = resolveProgressiveExcerptSnapshotFromBlocks([blockElement]);
+    if (!selection) {
+      await this.siyuanApi.pushErrMsg(this.text('progressiveExcerptBatchUnavailable', '当前块没有可补齐的高亮 Item'));
+      return;
+    }
+
+    const service = this.deps.applicationContext.getSelectionTopicContinuationService();
+    const resolvedRootId = this.resolveBlockMenuRootId(blockElement, selection.sourceBlockId);
+    const prepared = preparation || service.prepareCurrentBlockMarks({
+      sourceBlockId: selection.sourceBlockId,
+      contentDom: selection.contentDom,
+      rootId: resolvedRootId,
+    });
+    if (!prepared.available) {
+      await this.siyuanApi.pushErrMsg(this.text('progressiveExcerptBatchUnavailable', '当前块没有可补齐的高亮 Item'));
+      return;
+    }
+
+    try {
+      const result = await service.createFromCurrentBlockMarks({
+        sourceBlockId: selection.sourceBlockId,
+        contentDom: selection.contentDom,
+        rootId: resolvedRootId,
+      }, prepared);
+      await this.siyuanApi.pushMsg(this.formatCurrentBlockTopicBatchMessage(result));
+    } catch (error) {
+      logger.error('[BlockMenuHandler] Failed to backfill topic items from current block marks:', error);
+      await this.siyuanApi.pushErrMsg(
+        this.text('progressiveExcerptBatchFailed', '从当前块高亮补齐 Item 失败：{message}')
+          .replace('{message}', error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
+
   /**
    * 处理块图标点击（添加闪卡菜单）
    */
@@ -986,6 +1061,9 @@ export class BlockMenuHandler {
     const primaryBlockElement = ((blockElements[0]?.closest('[data-node-id]') as HTMLElement) || blockElements[0]);
     const singleDocBlockId = blockIds.length === 1 && primaryBlockElement && this.isDocumentBlockElement(primaryBlockElement, blockIds[0])
       ? blockIds[0]
+      : null;
+    const currentBlockTopicBatchAction = blockIds.length === 1 && primaryBlockElement && !singleDocBlockId
+      ? this.buildCurrentBlockTopicBatchAction(primaryBlockElement)
       : null;
     const docScopedMenuItems = singleDocBlockId
       ? (scope ? this.buildDocReviewMenuItems(singleDocBlockId, scope) : this.buildDocLoadingMenuItems(singleDocBlockId))
@@ -1025,6 +1103,9 @@ export class BlockMenuHandler {
           await this.runProgressiveExcerptAction(blockElements);
         },
       },
+      ...(currentBlockTopicBatchAction
+        ? [currentBlockTopicBatchAction]
+        : []),
       this.separator(),
     ];
 
@@ -1119,6 +1200,26 @@ export class BlockMenuHandler {
       return this.buildDocLoadingMenuItems(docId);
     }
     return this.buildDocReviewMenuItems(docId, scope);
+  }
+
+  private formatCurrentBlockTopicBatchMessage(result: {
+    created: number;
+    skipped: number;
+  }): string {
+    if (result.created > 0 && result.skipped > 0) {
+      return this.text('progressiveExcerptBatchCreatedSkipped', '已从当前块高亮补齐 {created} 个 Item，跳过 {skipped} 个重复项')
+        .replace('{created}', String(result.created))
+        .replace('{skipped}', String(result.skipped));
+    }
+    if (result.created > 0) {
+      return this.text('progressiveExcerptBatchCreated', '已从当前块高亮补齐 {created} 个 Item')
+        .replace('{created}', String(result.created));
+    }
+    if (result.skipped > 0) {
+      return this.text('progressiveExcerptBatchSkipped', '当前块高亮已对应现有 Item，已跳过 {skipped} 个重复项')
+        .replace('{skipped}', String(result.skipped));
+    }
+    return this.text('progressiveExcerptBatchUnavailable', '当前块没有可补齐的高亮 Item');
   }
 
   /**

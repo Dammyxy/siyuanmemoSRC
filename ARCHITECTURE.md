@@ -201,7 +201,7 @@ sequenceDiagram
 
 - `ProgressiveReadingService`：渐进阅读、拆分、摘录、来源追踪、文档与卡片编排的核心应用服务
 - `SelectionExcerptService`：把选择态 surface 接到 `ProgressiveReadingService` 的轻量门面
-- `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、planner 结果适配，以及“普通选区改 source mark + 立刻创建 1 个 Item”的 manual-cloze 分流收敛到 topic-derived 主链
+- `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、planner 结果适配，以及“普通选区改 source mark + 立刻创建 1 个 Item”的 manual-cloze 分流收敛到 topic-derived 主链，同时负责“从当前块高亮补齐 Item”的块级 fan-out
 - `TopicDerivedItemService`：在 topic / excerpt 语境下创建 topic-derived item
 
 当前 manual-cloze 的 DOM / 错误契约补充：
@@ -210,6 +210,8 @@ sequenceDiagram
 - `SelectionTopicContinuationService` 生成的 manual-cloze `artifactContentDom` 与 source 写回共用同一套 tokenized mark helper，因此 block-ref 这类选区不会因为高亮而丢掉原有内联语义
 - `applyPreparedSelectionClozeMark()` 成功时返回显式 `applied / already-applied`，失败时直接抛底层 Siyuan kernel 错误；`ProgressiveExcerptHotkeyHandler` 只负责记录上下文日志并把原始错误消息透传到 toast，而不是再把保存失败折叠成泛化布尔值
 - mark 识别主链按 `data-type` token 列表是否包含 `mark` 判定，不再要求精确字符串 `data-type="mark"`
+- Siyuan 3.6.5 的 `/block/updateBlock` 返回会先在 `infrastructure/siyuan/api.ts` 归一化成统一 mutation result；如果 update 成功但响应里没有新的 op id，则回退返回请求 block id，避免 active path 再碰到 `result.doOperations is not iterable`
+- `⌥⇧Z` 固定只处理当前这 1 个空；如果选区里已经覆盖多个高亮，则直接提示改走块菜单的 `从当前块高亮补齐 Item`
 
 集成边界：
 
@@ -608,10 +610,16 @@ Review 运行时要点：
 - `SelectionTopicContinuationService`
   - 负责在菜单打开时同步判断当前选区是否位于 topic / excerpt 语境
   - 负责把选区 DOM/文本拆成 `plannerContent` 与 `artifactContentDom` 两份载荷：前者保留 block-ref 等 planner 语义，后者保留 `[*]` 锚文本、高亮和内联结构供 Item 子文档直接落地
+  - 负责当前块 native `mark` 的批量扫描与 fan-out，把每个高亮拆成 1 个 `manual-cloze` candidate，并在 artifact DOM 里只保留当前目标高亮、展平其它高亮
 - `TopicDerivedItemService`
   - 在 topic / excerpt 语境中派生 item，并保持 lineage
   - excerpt-doc 下强制直挂 `Item` 子文档；excerpt-block 下保留 daily-note 文档容器并写回 `parentExcerptId`
   - 手动 Topic cloze 优先使用 `contentDom` 创建 Item 子文档，而不是把 `[*]` / `mark` 退化成纯 `((id))` / `==...==` 文本
+
+块级入口补充：
+
+- 编辑器右键 / `⌥⇧Z`：单空即时处理，只允许单块单目标
+- `BlockMenuHandler`：为 Topic / excerpt 语境且当前块已有 native `mark` 的块图标菜单增加 `从当前块高亮补齐 Item`，只扫描当前块，不做整篇 Topic 文档批量补齐
 
 边界规则：
 

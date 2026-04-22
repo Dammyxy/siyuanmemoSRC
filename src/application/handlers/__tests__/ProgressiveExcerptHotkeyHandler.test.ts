@@ -105,6 +105,7 @@ function createHandler(options?: {
     decisions: [],
     available: false,
     mode: null,
+    highlightTargetCount: 0,
   }));
   const createTopicContinuation = options?.createTopicContinuation ?? vi.fn(async () => ({
     created: 1,
@@ -140,6 +141,7 @@ function createHandler(options?: {
         progressiveExcerptContinuationCreatedSkipped: '已在当前 Topic 下新增 {created} 个 Item，跳过 {skipped} 个重复项',
         progressiveExcerptContinuationSkipped: '当前 Topic 下已存在相同 Item，已跳过 {skipped} 个重复项',
         progressiveExcerptContinuationFailed: '在 Topic 下创建 Item 失败：{message}',
+        progressiveItemUseBatchFillCurrentBlock: '当前选区包含多个高亮，请改用“从当前块高亮补齐 Item”',
         ...(options?.i18n || {}),
       }),
       getSelectionExcerptService: () => ({
@@ -419,7 +421,11 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       rootId: 'doc-root-1',
       topicContext: null,
       normalizedContent: '',
+      plannerContent: '',
+      artifactContentDom: '',
       decisions: [],
+      mode: null,
+      highlightTargetCount: 0,
       available: false,
     }));
     const menu = { addItem: vi.fn() };
@@ -488,6 +494,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       artifactContentDom: '',
       decisions: [{ id: 'MarkClozeRule', family: 'cloze' }],
       mode: 'planner-derived' as const,
+      highlightTargetCount: 1,
       available: true,
     };
     const prepareTopicContinuation = vi.fn(() => preparation);
@@ -571,6 +578,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
         artifactContentDom: '',
         decisions: [{ id: 'BasicDirectionRule', family: 'basic' }],
         mode: 'planner-derived' as const,
+        highlightTargetCount: 0,
         available: true,
       })),
       createTopicContinuation: vi.fn(async () => ({
@@ -645,6 +653,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       answerFingerprint: 'block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
       decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
       mode: 'manual-cloze' as const,
+      highlightTargetCount: 0,
       available: true,
     };
     const createTopicContinuation = vi.fn(async () => ({
@@ -713,6 +722,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       answerFingerprint: 'block-1::ManualSelectionClozeRule::Alpha::Beta::Gamma',
       decisions: [{ id: 'ManualSelectionClozeRule', family: 'cloze' }],
       mode: 'manual-cloze' as const,
+      highlightTargetCount: 0,
       available: true,
     };
     applyPreparedSelectionClozeMark.mockRejectedValueOnce(new Error('Siyuan API Error: invalid DOM'));
@@ -755,6 +765,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       artifactContentDom: '',
       decisions: [],
       mode: null,
+      highlightTargetCount: 0,
       available: false,
     }));
     const { handler } = createHandler({
@@ -792,6 +803,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       artifactContentDom: '',
       decisions: [],
       mode: null,
+      highlightTargetCount: 0,
       available: false,
     }));
     const { handler } = createHandler({ prepareTopicContinuation });
@@ -839,6 +851,7 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
       artifactContentDom: '',
       decisions: [],
       mode: null,
+      highlightTargetCount: 0,
       available: false,
     }));
     const createTopicContinuation = vi.fn(async () => ({
@@ -863,6 +876,56 @@ describe('ProgressiveExcerptHotkeyHandler', () => {
     expect(createTopicContinuation).not.toHaveBeenCalled();
     expect(prepareSelectionClozeMark).not.toHaveBeenCalled();
     expect(showMessage).toHaveBeenCalledWith('请在单个块内连续选区后再创建 Item', 3000, 'error');
+  });
+
+  it('rejects Topic continuation for selections that cover multiple highlighted blanks and points to current-block batch fill', async () => {
+    isProgressiveSelectionInsideNativeProtyle.mockReturnValue(true);
+    resolveProgressiveExcerptSelectionSnapshot.mockReturnValue(createSelectionSnapshot(document.body, {
+      protyle: {
+        wysiwyg: { element: document.body },
+        block: { rootID: 'topic-doc-root-1' },
+      },
+      text: 'Beta Delta',
+      contentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="text mark">Beta</span> Gamma <span data-type="text mark">Delta</span></div></div>',
+    }));
+
+    const createTopicContinuation = vi.fn(async () => ({
+      created: 2,
+      skipped: 0,
+      items: [],
+    }));
+    const { handler } = createHandler({
+      prepareTopicContinuation: vi.fn(() => ({
+        rootId: 'topic-doc-root-1',
+        topicContext: {
+          topicCardId: 'topic-card-1',
+          topicBlockId: 'topic-doc-root-1',
+          sourceDocId: 'topic-doc-root-1',
+          scope: 'doc-root' as const,
+        },
+        normalizedContent: 'Alpha ==Beta== Gamma ==Delta==',
+        plannerContent: 'Alpha ==Beta== Gamma ==Delta==',
+        artifactContentDom: '',
+        decisions: [{ id: 'MarkClozeRule', family: 'cloze' }],
+        mode: 'planner-derived' as const,
+        highlightTargetCount: 2,
+        available: true,
+      })),
+      createTopicContinuation,
+    });
+
+    await handler.runItemFromEditor({
+      wysiwyg: {
+        element: document.body,
+      },
+      block: {
+        rootID: 'topic-doc-root-1',
+      },
+    } as any);
+
+    expect(createTopicContinuation).not.toHaveBeenCalled();
+    expect(prepareSelectionClozeMark).not.toHaveBeenCalled();
+    expect(showMessage).toHaveBeenCalledWith('当前选区包含多个高亮，请改用“从当前块高亮补齐 Item”', 3000, 'error');
   });
 
   it('jumps to the existing excerpt instead of recreating it when the same source text is excerpted twice', async () => {
