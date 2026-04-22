@@ -1409,6 +1409,7 @@
   "priorityHelper": "Range 0-100. Smaller numbers mean higher priority.",
   "cardTypeMarker": "Type Marker",
   "renderProfile": "Render Profile",
+  "clozeRenderMode": "Cloze Render Mode",
   "templateId": "Template ID",
   "typeMarker": "Type Marker",
   "cardTypeSaved": "Card type updated",

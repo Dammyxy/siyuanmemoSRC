@@ -24,6 +24,17 @@ describe('Review render profile routing', () => {
     expect(profile).toBe('quick-inline-formula');
   });
 
+  it('keeps default clozeRenderMode on the native render path', () => {
+    const profile = resolveRenderProfile({
+      id: 'card-1',
+      meta: {
+        clozeRenderMode: 'default',
+      },
+    } as never);
+
+    expect(profile).toBeNull();
+  });
+
   it('returns null for unknown render profile metadata', () => {
     const profile = resolveRenderProfile({
       id: 'card-1',
@@ -35,4 +46,3 @@ describe('Review render profile routing', () => {
     expect(profile).toBeNull();
   });
 });
-

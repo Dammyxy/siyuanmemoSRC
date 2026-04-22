@@ -1075,4 +1075,111 @@ describe('AIFlashcardToolService', () => {
     });
     executeSpy.mockRestore();
   });
+
+  it('preserves cue-arrow descriptor text in semantic CDF markdown and restores cue-answer metadata from it', async () => {
+    const cueArrowItem = '前身→恒星';
+    const cdfFixture = createSemanticCdfMutationFixture(
+      'cdf-root-cue-arrow',
+      '((concept-doc-1))::由发光等离子体组成的天体。',
+      [{
+        title: '演化线索',
+        items: [cueArrowItem],
+      }],
+    );
+    const siyuanPort = createSiyuanPort(cdfFixture);
+    siyuanPort.appendBlockUnderParentDetailed.mockResolvedValueOnce(cdfFixture.mutation);
+    siyuanPort.sql.mockImplementation(async (stmt: string) => {
+      const ids = extractQuotedSqlValues(stmt);
+      return cdfFixture.rows.filter((row) => ids.includes(String(row.id)));
+    });
+    const xiuyuanService = createXiuyuanService();
+    const executeSpy = vi.spyOn(CreateCdfMultilineCardsUseCase.prototype, 'executeFromScanResult')
+      .mockResolvedValue(ok({
+        createdDefinition: 1,
+        createdDescriptor: 1,
+        skipped: 0,
+        skippedExistingBinding: 0,
+        skippedNoTemplate: 0,
+        failed: 0,
+        stoppedByDocumentReference: false,
+      }));
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => xiuyuanService as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+    });
+
+    const created = await service.createSemanticCdfCards({
+      anchors: [{
+        id: 'anchor-cue-arrow',
+        conceptName: '恒星',
+        selected: true,
+        resolution: {
+          status: 'resolved-manual',
+          conceptBlockId: 'concept-doc-1',
+          conceptTitle: '恒星',
+          reason: '手动选择概念文档。',
+          notebookId: 'notebook-1',
+        },
+        definitionCandidates: [
+          {
+            id: 'definition-cue-arrow',
+            text: '由发光等离子体组成的天体。',
+            selected: true,
+          },
+        ],
+        descriptorGroups: [{
+          id: 'group-cue-arrow',
+          title: '演化线索',
+          selected: true,
+          items: [{
+            id: 'item-cue-arrow-1',
+            text: cueArrowItem,
+            selected: true,
+          }],
+        }],
+      }],
+    } as never, {
+      mode: 'daily-note',
+      notebookId: 'notebook-1',
+      notebookName: '学习笔记',
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
+
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(
+      [
+        '* ((concept-doc-1))::由发光等离子体组成的天体。',
+        `  * 演化线索;;${cueArrowItem}`,
+      ].join('\n'),
+      'daily-doc-1',
+    );
+    const scanResult = executeSpy.mock.calls[0]?.[0] as CdfScanResult;
+    expect(scanResult.nodes).toEqual([
+      expect.objectContaining({
+        id: 'cdf-root-cue-arrow-group-1',
+        markerKind: 'descriptor-forward',
+        firstParagraphKramdown: `演化线索;;${cueArrowItem}`,
+        descriptorMeta: {
+          groupHint: '演化线索',
+          cue: '前身',
+          answer: '恒星',
+        },
+      }),
+    ]);
+    expect(created).toMatchObject({
+      createdDefinitionCount: 1,
+      createdDescriptorCount: 1,
+      failedCount: 0,
+      itemResults: [{
+        insertedRootBlockId: 'cdf-root-cue-arrow',
+        createdDefinitionCount: 1,
+        createdDescriptorCount: 1,
+        error: null,
+      }],
+    });
+    executeSpy.mockRestore();
+  });
 });

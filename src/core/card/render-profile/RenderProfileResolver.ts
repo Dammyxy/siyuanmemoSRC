@@ -33,10 +33,6 @@ export function resolveRenderProfile(card: FSRSCard | null | undefined): Support
   if (clozeRenderMode === 'inline-formula-cloze') {
     return 'quick-inline-formula';
   }
-  if (clozeRenderMode === 'default') {
-    return 'quick-default';
-  }
 
   return null;
 }
-

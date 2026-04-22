@@ -764,6 +764,22 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(childContainer.text()).toContain('通常写成 y = x^a');
   });
 
+  it('renders cue-arrow descriptor items verbatim in the CDF preview', async () => {
+    const service = createService('review-dialog-sidecar');
+    service.setActiveTab('cdf-structure');
+    const entry = makeCdfRenderEntry();
+    entry.primaryMessage.tabResult.anchors[0].descriptorGroups[0].items = [
+      { id: 'item-1', text: '前身→恒星', selected: true },
+    ];
+    service.getRenderEntries = () => [entry] as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    await Promise.resolve();
+    await nextTick();
+
+    expect(wrapper.text()).toContain('前身→恒星');
+  });
+
   it('supports manual CDF concept document search and selection', async () => {
     const service = createService('review-dialog-sidecar');
     service.setActiveTab('cdf-structure');

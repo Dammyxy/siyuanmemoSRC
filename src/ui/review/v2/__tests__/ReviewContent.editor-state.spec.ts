@@ -107,9 +107,12 @@ vi.mock('siyuan', () => ({
   Protyle: reviewContentMocks.MockProtyle,
 }));
 
-vi.mock('@/core/card/render-profile/RenderProfileResolver', () => ({
-  resolveRenderProfile: () => null,
-}));
+vi.mock('@/core/card/render-profile/RenderProfileResolver', async () => {
+  const actual = await vi.importActual<typeof import('@/core/card/render-profile/RenderProfileResolver')>(
+    '@/core/card/render-profile/RenderProfileResolver',
+  );
+  return actual;
+});
 
 vi.mock('@/core/xiuyuan/cardMeta', () => ({
   isConceptCard: (...args: unknown[]) => reviewContentConceptMocks.isConceptCard(...args),
@@ -340,10 +343,36 @@ function createMultiClozeContent() {
       type: 'item',
       meta: {
         templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'default',
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '==',
         faceIndex: 0,
         faces: [{
           question: 'Alpha <mark>[...]</mark> beta',
           answer: 'gamma',
+        }],
+      },
+    },
+  };
+}
+
+function createInlineFormulaMultiClozeContent() {
+  return {
+    type: 'protyle' as const,
+    id: 'block-inline-formula-cloze',
+    data: '',
+    card: {
+      id: 'card-inline-formula-cloze',
+      type: 'item',
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'inline-formula-cloze',
+        faceIndex: 0,
+        faces: [{
+          question: '$E = mc^2$ 中的 <mark>[...]</mark>',
+          answer: 'm',
         }],
       },
     },
@@ -731,6 +760,19 @@ describe('ReviewContent editor state', () => {
     await settleReviewContent();
     expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
       blockId: 'block-multi-cloze',
+      rendererKind: 'main-protyle',
+    }));
+    expect(exposed.getNativeSplitGuardState()).toEqual({
+      rendererKind: 'main-protyle',
+      blockNativeTabSplit: false,
+    });
+
+    await wrapper.setProps({
+      content: createInlineFormulaMultiClozeContent(),
+    });
+    await settleReviewContent();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'block-inline-formula-cloze',
       rendererKind: 'multi-cloze',
     }));
     expect(exposed.getNativeSplitGuardState()).toEqual({
@@ -1118,10 +1160,7 @@ describe('ReviewContent editor state', () => {
 
     await settleReviewContent();
 
-    expect(reviewContentQuickCardMocks.isQuickCard).toHaveBeenCalledWith(
-      'block-bidirectional-single',
-      'card-bidirectional-single-reverse',
-    );
+    expect(reviewContentQuickCardMocks.isQuickCard).not.toHaveBeenCalled();
     expect(reviewContentMocks.instances).toHaveLength(0);
     expect(wrapper.find('quick-card-renderer-stub').exists()).toBe(true);
     expect(getEditorStates(wrapper).at(-1)).toEqual({
@@ -1183,7 +1222,7 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('routes builtin multi-cloze cards to the dedicated renderer without building Protyle', async () => {
+  it('keeps builtin multi-cloze item cards on the native Protyle path', async () => {
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -1194,6 +1233,50 @@ describe('ReviewContent editor state', () => {
           }),
         },
         content: createMultiClozeContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(getEditorStates(wrapper).at(-1)).toEqual({
+      renderer: 'main-protyle',
+      supportsNativeEdit: true,
+      isEditing: false,
+    });
+    expect(wrapper.find('multi-cloze-card-renderer-stub').exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it('routes inline-formula multi-cloze cards to the dedicated renderer without building Protyle', async () => {
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createInlineFormulaMultiClozeContent(),
         showAnswer: true,
         hasHiddenContent: false,
         meta: {

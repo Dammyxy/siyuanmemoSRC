@@ -91,8 +91,29 @@ export function shouldVerifyQuickDefaultProfile(profile: ReviewRenderProfile): b
   return profile === 'quick-default';
 }
 
+function isNativeMultiClozeCard(
+  meta: Record<string, unknown> | undefined,
+  profile: ReviewRenderProfile,
+): boolean {
+  if (!meta) {
+    return false;
+  }
+
+  const templateId = typeof meta.templateID === 'string' ? meta.templateID : '';
+  const clozeRenderMode = typeof meta.clozeRenderMode === 'string' ? meta.clozeRenderMode : '';
+  if (templateId !== 'builtin-multi-cloze') {
+    return false;
+  }
+
+  return profile !== 'quick-inline-formula' && clozeRenderMode !== 'inline-formula-cloze';
+}
+
 function hasQuickRenderIndicators(meta: Record<string, unknown> | undefined): boolean {
   if (!meta) {
+    return false;
+  }
+
+  if (isNativeMultiClozeCard(meta, typeof meta.renderProfile === 'string' ? meta.renderProfile : null)) {
     return false;
   }
 
@@ -120,6 +141,10 @@ export function shouldPreferStableQuickForcePath(
 
   const meta = card.meta as Record<string, unknown> | undefined;
   if (!meta || meta.forceProtyleRender === true) {
+    return false;
+  }
+
+  if (isNativeMultiClozeCard(meta, profile)) {
     return false;
   }
 

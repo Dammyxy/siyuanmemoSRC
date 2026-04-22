@@ -28,8 +28,10 @@ describe('AIPromptContractRegistry', () => {
     expect(fullText).toContain('anchors');
     expect(fullText).toContain('definitionCandidates');
     expect(fullText).toContain('descriptorGroups');
+    expect(fullText).toContain('提示→答案');
     expect(tabText).toContain('cdfStructure');
     expect(tabText).toContain('conceptName');
+    expect(tabText).toContain('前身→恒星');
     expect(tabText).toContain('不要返回 ::: / ;;; markdown');
   });
 });

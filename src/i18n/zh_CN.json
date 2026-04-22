@@ -1435,6 +1435,7 @@
   "priorityHelper": "范围 0-100，数值越小越优先。",
   "cardTypeMarker": "类型标记",
   "renderProfile": "渲染档案",
+  "clozeRenderMode": "挖空渲染模式",
   "templateId": "模板 ID",
   "typeMarker": "类型标识",
   "cardTypeSaved": "卡片类型已更新",

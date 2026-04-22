@@ -145,6 +145,7 @@ describe('SrsEditorDialog', () => {
     expect(wrapper.findAll('.srs-grade-card')).toHaveLength(0);
     expect(wrapper.findAll('.srs-field-card')).toHaveLength(0);
     expect(wrapper.findAll('[data-action]')).toHaveLength(3);
+    expect(wrapper.html().indexOf('更多编辑')).toBeLessThan(wrapper.html().indexOf('当前状态'));
     expect((wrapper.get('[data-section="more-edit"]').element as HTMLDetailsElement).open).toBe(false);
     expect((wrapper.get('[data-section="scheduling-details"]').element as HTMLDetailsElement).open).toBe(false);
     expect((wrapper.get('[data-section="danger-zone"]').element as HTMLDetailsElement).open).toBe(false);

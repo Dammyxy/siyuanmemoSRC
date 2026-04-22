@@ -176,6 +176,17 @@ describe('reviewRenderPolicy', () => {
         symbolDetected: true,
       },
     }), 'descriptor')).toBe(false);
+
+    expect(shouldPreferStableQuickForcePath(createCard({
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'default',
+        source: 'symbol',
+        symbolDetected: true,
+        cardSource: 'quick-symbol',
+        symbolType: '==',
+      },
+    }), null)).toBe(false);
   });
 
   it('keeps progressive derived items off the forced quick path', () => {

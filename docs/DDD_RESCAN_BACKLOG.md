@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 112)
+Last update: 2026-04-22 (Round 113)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - review native cloze routing, SRS dialog reorder, and CDF cue-arrow prompting
+
+- Task: 把 review 里的普通非公式挖空卡收回原生编辑器渲染、把 `编辑 SRS 数据` 里的 `更多编辑` 提到首屏上方，并让 AI `CDF 语义卡` 稳定支持 `提示→答案` 形态的描述符条目。
+- Touched slice: Review / SRS / AI concept-coach active path across `src/ui/review/v2/{ReviewContent.vue,reviewRenderPolicy.ts}`, `src/core/card/render-profile/RenderProfileResolver.ts`, `src/ui/srs/SrsEditorDialog.vue`, `src/application/services/AIPromptContractRegistry.ts`, `src/types/settings.ts`, focused review/SRS/AI regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: 把普通 `builtin-multi-cloze` Item 从 review special renderer / quick-like fallback 里收回到主 Protyle 路径，只让 `inline-formula-cloze` 继续走专用多挖空 renderer；`编辑 SRS 数据` 把高频的 `更多编辑` 前移到概览之后，并补出 `clozeRenderMode` 技术字段，减少后续排查渲染契约时的黑盒感；同时把 concept-coach 的 CDF 契约与默认提示词统一到“条目仍只返回 `text`，但可直接写成 `提示→答案`”这一条事实源上，并加了 `前身→恒星` 回归覆盖，确保 AI 预览、markdown 组装和 semantic CDF scan/create 都沿用现有解析链。
+- Debt deferred: `CardEditor` 的 render target 编辑器仍没有单独暴露“公式 cloze 专用 renderer”这一档位，所以公式多挖空在 SRS 弹窗里仍主要通过技术字段而不是独立 render target 展示；CDF 语义 JSON 也仍保持 `items[].text` 单字符串契约，没有升级成显式 `cue/answer` 结构。
+- Why deferred: 当前用户阻塞点是普通挖空被误送离原生编辑器，以及 CDF 提示词不够会产出 `提示→答案`；如果继续把公式 cloze 暴露成新的 render target，或把 CDF schema 扩成双字段，会把一次 active-path 修复扩大成更宽的编辑器契约与 AI 结构升级。
+- Next safe step: 如果后续还想进一步提升可解释性，可以单独评估是否要给 SRS editor 增加“公式 cloze”只读 render 标签，以及是否把 `提示→答案` 从字符串约定提炼成共享的 AI/scan normalization helper。
+- Validation: `pnpm vitest run src/ui/srs/__tests__/SrsEditorDialog.spec.ts src/ui/review/v2/__tests__/ReviewContent.render-profile-routing.test.ts src/ui/review/v2/__tests__/reviewRenderPolicy.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/application/services/__tests__/AIPromptContractRegistry.test.ts src/application/services/__tests__/AIFlashcardToolService.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-22 - topic single-cloze update-block normalization and current-block batch fill
 

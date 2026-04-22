@@ -18,60 +18,6 @@
         <p v-if="transparency" class="srs-inspector__summary">{{ transparency.summary }}</p>
       </section>
 
-      <section class="srs-panel">
-        <div class="srs-panel__header srs-panel__header--compact">
-          <div>
-            <h3>{{ t('srsStateSummaryTitle', '当前状态') }}</h3>
-            <p>{{ t('srsStateSummaryDesc', '先看最影响判断的六个状态字段，其余调度细节放到下方折叠区。') }}</p>
-          </div>
-        </div>
-
-        <div class="srs-summary-grid">
-          <div v-for="item in summaryItems" :key="item.label" class="srs-summary-item">
-            <p class="srs-summary-item__label">{{ item.label }}</p>
-            <p class="srs-summary-item__value">{{ item.value }}</p>
-          </div>
-        </div>
-      </section>
-
-      <section class="srs-panel">
-        <div class="srs-panel__header srs-panel__header--compact">
-          <div>
-            <h3>{{ t('srsPrimaryActionsTitle', '常用操作') }}</h3>
-            <p>{{ t('srsPrimaryActionsDesc', '把最常用的调度动作放在首屏，减少来回滚动。') }}</p>
-          </div>
-          <button
-            data-action="refresh"
-            class="b3-button b3-button--outline"
-            :disabled="isLoading('snapshot')"
-            @click="refreshSnapshot"
-          >
-            {{ t('refresh', '刷新') }}
-          </button>
-        </div>
-
-        <div class="srs-action-row">
-          <button
-            data-action="schedule"
-            class="b3-button"
-            :disabled="isLoading('nextReview')"
-            @click="openScheduleDateDialog"
-          >
-            <svg><use xlink:href="#iconCalendar"></use></svg>
-            {{ t('scheduleDate', '安排复习日期') }}
-          </button>
-          <button
-            data-action="dismiss"
-            class="b3-button"
-            :class="isDismissed ? 'b3-button--outline' : 'b3-button--warning'"
-            :disabled="isLoading('dismiss')"
-            @click="commitDismissed(!isDismissed)"
-          >
-            {{ isDismissed ? t('restore', 'Restore') : t('suspend', 'Suspend') }}
-          </button>
-        </div>
-      </section>
-
       <details
         data-section="more-edit"
         class="srs-panel srs-panel--details"
@@ -151,6 +97,60 @@
           </section>
         </div>
       </details>
+
+      <section class="srs-panel">
+        <div class="srs-panel__header srs-panel__header--compact">
+          <div>
+            <h3>{{ t('srsStateSummaryTitle', '当前状态') }}</h3>
+            <p>{{ t('srsStateSummaryDesc', '先看最影响判断的六个状态字段，其余调度细节放到下方折叠区。') }}</p>
+          </div>
+        </div>
+
+        <div class="srs-summary-grid">
+          <div v-for="item in summaryItems" :key="item.label" class="srs-summary-item">
+            <p class="srs-summary-item__label">{{ item.label }}</p>
+            <p class="srs-summary-item__value">{{ item.value }}</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="srs-panel">
+        <div class="srs-panel__header srs-panel__header--compact">
+          <div>
+            <h3>{{ t('srsPrimaryActionsTitle', '常用操作') }}</h3>
+            <p>{{ t('srsPrimaryActionsDesc', '把最常用的调度动作放在首屏，减少来回滚动。') }}</p>
+          </div>
+          <button
+            data-action="refresh"
+            class="b3-button b3-button--outline"
+            :disabled="isLoading('snapshot')"
+            @click="refreshSnapshot"
+          >
+            {{ t('refresh', '刷新') }}
+          </button>
+        </div>
+
+        <div class="srs-action-row">
+          <button
+            data-action="schedule"
+            class="b3-button"
+            :disabled="isLoading('nextReview')"
+            @click="openScheduleDateDialog"
+          >
+            <svg><use xlink:href="#iconCalendar"></use></svg>
+            {{ t('scheduleDate', '安排复习日期') }}
+          </button>
+          <button
+            data-action="dismiss"
+            class="b3-button"
+            :class="isDismissed ? 'b3-button--outline' : 'b3-button--warning'"
+            :disabled="isLoading('dismiss')"
+            @click="commitDismissed(!isDismissed)"
+          >
+            {{ isDismissed ? t('restore', 'Restore') : t('suspend', 'Suspend') }}
+          </button>
+        </div>
+      </section>
 
       <details
         data-section="scheduling-details"
@@ -439,6 +439,7 @@ const technicalItems = computed<DetailItem[]>(() => {
     { label: t('cardTypeMarker', '类型标记'), value: card.cardTypeMarker || '-' },
     { label: t('aFactor', 'A-Factor'), value: formatNumber(card.aFactor, 2) },
     { label: t('renderProfile', '渲染档案'), value: String(meta.renderProfile || '-') },
+    { label: t('clozeRenderMode', 'Cloze Render Mode'), value: String(meta.clozeRenderMode || '-'), mono: true },
     { label: t('templateId', '模板 ID'), value: String(meta.templateID || '-'), mono: true },
     { label: t('typeMarker', 'Type Marker'), value: String(meta.typeMarker || '-'), mono: true },
   ];

@@ -454,18 +454,18 @@ const shouldUseMultiClozeRenderer = computed(() => {
   if (isTopicReadModeCard.value) return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
   if (forceProtyleRender.value) return false;
-  if (resolvedRenderProfile.value === 'quick-inline-formula') return true;
-
-  // 检查是否为 Xiuyuan 多挖空卡
   const card = props.content.card;
   if (!card || !card.meta) return false;
-  
+
   const templateID = card.meta.templateID;
   const faces = card.meta.faces;
   const faceIndex = card.meta.faceIndex;
-  
-  // 必须是 builtin-multi-cloze 模板，且有 faces 信息
-  return templateID === 'builtin-multi-cloze' && Array.isArray(faces) && faces.length > 0 && faceIndex !== undefined;
+
+  return resolvedRenderProfile.value === 'quick-inline-formula'
+    && templateID === 'builtin-multi-cloze'
+    && Array.isArray(faces)
+    && faces.length > 0
+    && faceIndex !== undefined;
 });
 
 // 判断是否应该使用概念定义卡渲染器
