@@ -224,6 +224,7 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
     renameSession: async () => {},
     deleteSession: async () => {},
     runExplain: async () => {},
+    cancelCurrentRun: () => {},
     submitSkillPrompt: async () => {},
     submitExplainPrompt: async () => {},
     submitFollowUp: async () => {},
@@ -505,6 +506,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     expect(wrapper.text()).toContain('自测卡片制卡');
     expect(wrapper.text()).toContain('学习笔记 · 今日日记');
+    expect(wrapper.find('.ai-chat__candidate-create-button').text()).toContain('制卡选中项 · 1 项');
 
     const createButton = wrapper.findAll('button').find((button) => button.text().includes('制卡选中项'))!;
     expect(createButton.attributes('disabled')).toBeUndefined();
@@ -727,6 +729,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     expect(wrapper.text()).toContain('CDF 语义制卡');
     expect(wrapper.text()).toContain('幂函数');
+    expect(wrapper.find('.ai-chat__candidate-create-button').text()).toContain('制卡选中项 · 1 项');
 
     const createButton = wrapper.findAll('button').find((button) => button.text().includes('制卡选中项'))!;
     await createButton.trigger('click');
@@ -1167,6 +1170,26 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.find('.ai-chat__composer-send').exists()).toBe(true);
   });
 
+  it('switches the composer action into a stop button while loading and removes the topbar stop button', async () => {
+    const service = createService('review-dialog-sidecar');
+    const cancelCurrentRun = vi.fn(() => {});
+    service.cancelCurrentRun = cancelCurrentRun as never;
+    service.state.isLoading = true;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+
+    expect(
+      wrapper.findAll('.ai-chat__topbar-actions .ai-chat__icon-button')
+        .some((button) => (button.attributes('title') || '').includes('停止生成'))
+    ).toBe(false);
+    expect(wrapper.find('.ai-chat__composer-send--stop').exists()).toBe(true);
+    expect(wrapper.find('.ai-chat__composer-send').text()).toContain('中止');
+
+    await wrapper.find('.ai-chat__composer-send').trigger('click');
+
+    expect(cancelCurrentRun).toHaveBeenCalledTimes(1);
+  });
+
   it('clears the composer immediately after send while the AI response is still pending', async () => {
     const service = createService('review-dialog-sidecar');
     const pending = createDeferred<void>();
@@ -1341,7 +1364,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     const textarea = wrapper.find('.ai-chat__composer-input');
 
     await textarea.setValue('继续追问');
-    await textarea.trigger('keydown', { key: 'Enter', ctrlKey: true });
+    await textarea.trigger('keydown', { key: 'Enter' });
 
     expect(wrapper.text()).toContain('当前上下文已变化，请先重新运行。');
     expect(wrapper.find('.ai-chat__composer-send').attributes('disabled')).toBeDefined();
@@ -1526,7 +1549,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('原始形状');
   });
 
-  it('allows first-turn custom text sending with Ctrl/Cmd+Enter and routes it to submitSkillPrompt', async () => {
+  it('allows first-turn custom text sending with Enter and routes it to submitSkillPrompt', async () => {
     const service = createService('review-dialog-sidecar');
     const submitSkillPrompt = vi.fn(async () => {});
     const submitFollowUp = vi.fn(async () => {});
@@ -1537,15 +1560,26 @@ describe('AiWorkbenchPane compact surfaces', () => {
     const textarea = wrapper.find('.ai-chat__composer-input');
 
     await textarea.setValue('请解释这张卡的考点');
-    await textarea.trigger('keydown', { key: 'Enter' });
-    expect(submitSkillPrompt).not.toHaveBeenCalled();
-
     expect(wrapper.find('.ai-chat__composer-send').attributes('disabled')).toBeUndefined();
 
-    await textarea.trigger('keydown', { key: 'Enter', ctrlKey: true });
+    await textarea.trigger('keydown', { key: 'Enter' });
 
     expect(submitSkillPrompt).toHaveBeenCalledWith('请解释这张卡的考点');
     expect(submitFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('keeps Shift+Enter as newline instead of sending', async () => {
+    const service = createService('review-dialog-sidecar');
+    const submitSkillPrompt = vi.fn(async () => {});
+    service.submitSkillPrompt = submitSkillPrompt as never;
+
+    const wrapper = mount(AiWorkbenchPane, { props: { service } });
+    const textarea = wrapper.find('.ai-chat__composer-input');
+
+    await textarea.setValue('第一行');
+    await textarea.trigger('keydown', { key: 'Enter', shiftKey: true });
+
+    expect(submitSkillPrompt).not.toHaveBeenCalled();
   });
 
   it('opens the context provider menu from the plus button and closes it on outside click, escape, and selection', async () => {

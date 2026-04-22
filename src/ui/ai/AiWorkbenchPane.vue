@@ -83,9 +83,6 @@
           <button class="ai-chat__icon-button" type="button" :title="state.contextPanelOpen ? t('hideContext', '收起上下文') : t('viewContext', '查看上下文')" @click="service.setContextPanelOpen(!state.contextPanelOpen)">
             <svg><use xlink:href="#iconMore"></use></svg>
           </button>
-          <button v-if="state.isLoading" class="ai-chat__icon-button" type="button" :title="t('stopGenerating', '停止生成')" @click="service.cancelCurrentRun?.()">
-            <span>■</span>
-          </button>
           <button class="ai-chat__icon-button" type="button" :title="t('newAiSession', '新建会话')" @click="createNewSession">
             <span>+</span>
           </button>
@@ -256,13 +253,14 @@
                     {{ allCandidateCardsSelected(entry.primaryMessage) ? t('cancelSelectAll', '取消全选') : t('selectAllShort', '全选') }}
                   </button>
                   <button
-                    class="ai-chat__primary-button ai-chat__primary-button--small"
+                    class="ai-chat__primary-button ai-chat__primary-button--small ai-chat__candidate-create-button"
                     type="button"
                     :disabled="Boolean(selfTestCardCreationDisabledReason(entry.primaryMessage))"
-                    :title="selfTestCardCreationDisabledReason(entry.primaryMessage) || t('createSelectedCards', '制卡选中项')"
+                    :title="selfTestCardCreationDisabledReason(entry.primaryMessage) || createSelectedCardsLabel(selectedCandidateCount(entry.primaryMessage), selfTestCardCreationBusy)"
                     @click="createSelfTestCards(entry.primaryMessage)"
                   >
-                    {{ selfTestCardCreationBusy ? t('creatingCards', '制卡中...') : t('createSelectedCards', '制卡选中项') }}
+                    <span class="ai-chat__candidate-create-button-icon">+</span>
+                    <span>{{ createSelectedCardsLabel(selectedCandidateCount(entry.primaryMessage), selfTestCardCreationBusy) }}</span>
                   </button>
                 </div>
               </div>
@@ -354,13 +352,14 @@
                     {{ cdfPreviewBusy(entry.primaryMessage.id) ? t('resolvingConcepts', '解析中...') : t('resolveConcepts', '解析概念') }}
                   </button>
                   <button
-                    class="ai-chat__primary-button ai-chat__primary-button--small"
+                    class="ai-chat__primary-button ai-chat__primary-button--small ai-chat__candidate-create-button"
                     type="button"
                     :disabled="Boolean(cdfCardCreationDisabledReason(entry.primaryMessage))"
-                    :title="cdfCardCreationDisabledReason(entry.primaryMessage) || t('createSelectedCards', '制卡选中项')"
+                    :title="cdfCardCreationDisabledReason(entry.primaryMessage) || createSelectedCardsLabel(selectedCdfAnchorCount(entry.primaryMessage), cdfCreationBusy)"
                     @click="createCdfCards(entry.primaryMessage)"
                   >
-                    {{ cdfCreationBusy ? t('creatingCards', '制卡中...') : t('createSelectedCards', '制卡选中项') }}
+                    <span class="ai-chat__candidate-create-button-icon">+</span>
+                    <span>{{ createSelectedCardsLabel(selectedCdfAnchorCount(entry.primaryMessage), cdfCreationBusy) }}</span>
                   </button>
                 </div>
               </div>
@@ -799,8 +798,7 @@
             v-model="composerValue"
             class="b3-text-field ai-chat__composer-input"
             :placeholder="composerPlaceholder"
-            @keydown.ctrl.enter.prevent="submitComposer"
-            @keydown.meta.enter.prevent="submitComposer"
+            @keydown="handleComposerKeydown"
           ></textarea>
 
           <div class="ai-chat__composer-footer">
@@ -824,8 +822,16 @@
               </button>
             </div>
 
-            <button class="ai-chat__composer-send" type="button" :title="t('send', '发送')" :disabled="sendDisabled" @click="submitComposer">
-              <svg><use xlink:href="#iconForward"></use></svg>
+            <button
+              class="ai-chat__composer-send"
+              :class="{ 'ai-chat__composer-send--stop': state.isLoading }"
+              type="button"
+              :title="state.isLoading ? t('stopGenerating', '停止生成') : t('send', '发送')"
+              :disabled="composerActionDisabled"
+              @click="handleComposerAction"
+            >
+              <span v-if="state.isLoading">{{ t('abort', '中止') }}</span>
+              <svg v-else><use xlink:href="#iconForward"></use></svg>
             </button>
           </div>
         </div>
@@ -1261,7 +1267,7 @@ const composerPlaceholder = computed(() => (
     : (
   currentTabHasResult.value
     ? t('aiFollowUpPlaceholder', '继续追问当前阶段，或补充一段材料后再问。')
-    : t('aiConceptCoachComposerPlaceholder', '输入你想理解或制卡的内容，然后按 Ctrl/Cmd + Enter 发送。')
+    : t('aiConceptCoachComposerPlaceholder', '输入你想理解或制卡的内容，按 Enter 发送；Shift+Enter 换行。')
     )
 ));
 const followUpDisabledReason = computed(() => (
@@ -1281,6 +1287,11 @@ const sendDisabled = computed(() => {
   }
   return Boolean(followUpDisabledReason.value);
 });
+const composerActionDisabled = computed(() => (
+  state.isLoading
+    ? typeof service.cancelCurrentRun !== 'function'
+    : sendDisabled.value
+));
 const selfTestTargetSummary = computed(() => (
   selfTestTargetMemory.value?.targetLabel || t('selfTestTargetNotSet', '尚未设置制卡位置')
 ));
@@ -1502,6 +1513,13 @@ function cdfCreationOutcomeSummary(result: AIWorkbenchCdfCreationResult): string
 
 function selectedCandidateCount(message: AIWorkbenchAssistantResultMessage): number {
   return candidateCards(message).filter((card) => card.selected !== false).length;
+}
+
+function createSelectedCardsLabel(selectedCount: number, busy: boolean): string {
+  if (busy) {
+    return t('creatingCards', '制卡中...');
+  }
+  return `${t('createSelectedCards', '制卡选中项')} · ${selectedCount} ${t('itemsUnit', '项')}`;
 }
 
 function validSelectedCandidateCount(message: AIWorkbenchAssistantResultMessage): number {
@@ -2063,6 +2081,29 @@ async function submitComposer(): Promise<void> {
     composerValue.value = previousComposerValue;
     throw error;
   }
+}
+
+function handleComposerAction(): void {
+  if (state.isLoading) {
+    closeContextMenu();
+    service.cancelCurrentRun?.();
+    return;
+  }
+  void submitComposer();
+}
+
+function handleComposerKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || event.isComposing) {
+    return;
+  }
+  if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+    return;
+  }
+  if (state.isLoading) {
+    return;
+  }
+  event.preventDefault();
+  void submitComposer();
 }
 
 async function copyMessage(message: AIWorkbenchMessage): Promise<void> {
@@ -2991,6 +3032,11 @@ onUnmounted(() => {
 .ai-chat__primary-button--small { padding: 7px 11px; font-size: 12px; white-space: nowrap; }
 .ai-chat__primary-button--accent { background: linear-gradient(180deg, #f0f7ff 0%, #dbeeff 100%); box-shadow: inset 0 0 0 1px #93c5fd; color: #155e75; }
 .ai-chat__primary-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.ai-chat__candidate-create-button { min-width: 132px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #1d74c8; background: linear-gradient(180deg, #2486dc 0%, #1461ac 100%); color: #fff; font-weight: 700; box-shadow: 0 8px 18px rgba(20,97,172,0.2); }
+.ai-chat__candidate-create-button:hover:not(:disabled) { background: linear-gradient(180deg, #2f95e8 0%, #165da4 100%); box-shadow: 0 10px 22px rgba(20,97,172,0.25); }
+.ai-chat__candidate-create-button:disabled { background: linear-gradient(180deg, #eef3fb 0%, #e3e9f2 100%); color: #7b8798; box-shadow: inset 0 0 0 1px #d7dfec; }
+.ai-chat__candidate-create-button-icon { width: 16px; height: 16px; border-radius: 999px; background: rgba(255,255,255,0.22); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; line-height: 1; }
+.ai-chat__candidate-create-button:disabled .ai-chat__candidate-create-button-icon { background: rgba(123,135,152,0.14); }
 .ai-chat__secondary-button { border: 0; border-radius: 8px; background: #fff7e8; box-shadow: inset 0 0 0 1px #f3d7a2; padding: 10px 16px; color: #8a5a00; }
 .ai-chat__secondary-button--small { padding: 7px 11px; font-size: 12px; white-space: nowrap; }
 .ai-chat__secondary-button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -3118,7 +3164,13 @@ onUnmounted(() => {
 .ai-chat__composer-left-tools { display: flex; align-items: center; gap: 6px; min-width: 0; pointer-events: auto; }
 .ai-chat__composer-plus, .ai-chat__composer-send { width: 30px; height: 30px; border: 1px solid #d9deea; border-radius: 7px; background: #fff; display: inline-flex; align-items: center; justify-content: center; color: #51607a; pointer-events: auto; }
 .ai-chat__composer-plus span { font-size: 16px; line-height: 1; }
+.ai-chat__composer-send { background: linear-gradient(180deg, #2486dc 0%, #1461ac 100%); border-color: #1d74c8; color: #fff; box-shadow: 0 8px 18px rgba(20,97,172,0.18); transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease; }
+.ai-chat__composer-send:hover:not(:disabled) { background: linear-gradient(180deg, #2f95e8 0%, #165da4 100%); box-shadow: 0 10px 22px rgba(20,97,172,0.24); transform: translateY(-1px); }
 .ai-chat__composer-send svg { width: 16px; height: 16px; }
+.ai-chat__composer-send--stop { width: auto; min-width: 60px; padding: 0 12px; gap: 6px; background: #fff4f2; border-color: #efb7ae; color: #b42318; box-shadow: none; font-weight: 700; transform: none; }
+.ai-chat__composer-send--stop:hover:not(:disabled) { background: #ffe8e4; box-shadow: none; transform: none; }
+.ai-chat__composer-send--stop::before { content: ''; width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
+.ai-chat__composer-send--stop span { font-size: 12px; line-height: 1; }
 .ai-chat__composer-expand { border: 0; border-radius: 7px; background: transparent; color: #65758c; padding: 5px 8px; font-size: 12px; line-height: 1.2; pointer-events: auto; white-space: nowrap; }
 .ai-chat__composer-send:disabled, .ai-chat__composer-plus:disabled, .ai-chat__composer-expand:disabled { opacity: 0.5; cursor: not-allowed; }
 .ai-chat__context-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }

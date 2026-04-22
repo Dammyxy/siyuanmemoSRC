@@ -31,25 +31,18 @@
         </div>
       </div>
 
-      <div class="concept-card-renderer__actions">
-        <button class="concept-card-renderer__btn concept-card-renderer__btn--secondary" @click="jumpToConcept">
-          📫 跳转到概念
-        </button>
-      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { App } from 'siyuan';
 import { ConceptCardRenderService } from '@/core/card/concept/application/ConceptCardRenderService';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import type { ConceptCardViewModel } from '@/core/card/concept/application/ConceptCardRenderService';
 import { createLogger } from '@/utils/logger';
-import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 
 const logger = createLogger('ConceptCardRenderer');
@@ -57,14 +50,6 @@ const logger = createLogger('ConceptCardRenderer');
 interface ConceptCardInput {
   xiuyuanID?: string;
 }
-
-type SiyuanWindow = Window & {
-  siyuan?: {
-    ws?: {
-      app?: App;
-    };
-  };
-};
 
 const props = defineProps<{
   blockId: string;
@@ -123,22 +108,6 @@ async function loadViewModel() {
       loading.value = false;
     }
   }
-}
-
-function jumpToConcept() {
-  if (!viewModel.value) return;
-
-  const app = (window as SiyuanWindow).siyuan?.ws?.app;
-  if (!app) {
-    logger.error('[ConceptCardRenderer] App instance not found');
-    return;
-  }
-
-  openReviewBlockAtSource({
-    app,
-    blockId: viewModel.value.conceptBlockId,
-    zoomIn: false,
-  });
 }
 
 watch(
@@ -259,32 +228,4 @@ watch(
   background: transparent;
 }
 
-.concept-card-renderer__actions {
-  display: flex;
-  gap: 12px;
-  padding: 16px;
-  border-top: 1px solid var(--b3-border-color);
-  background: var(--b3-theme-surface);
-}
-
-.concept-card-renderer__btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: none;
-  outline: none;
-}
-
-.concept-card-renderer__btn--secondary {
-  background: var(--b3-theme-background);
-  color: var(--b3-theme-on-surface);
-  border: 1px solid var(--b3-border-color);
-}
-
-.concept-card-renderer__btn--secondary:hover {
-  background: var(--b3-theme-surface-light);
-}
 </style>

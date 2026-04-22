@@ -4,6 +4,16 @@ Last update: 2026-04-23 (Round 115)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-23 - concept review action cleanup and AI composer CTA polish
+
+- Task: 去掉概念卡复习界面里多余的 `跳转到概念` 按钮，提升 AI `制卡选中项` 的可见性，并把 AI 对话里的 `中止` 收回到 composer 发送位，同时改成 `Enter` 发送。
+- Touched slice: Review UI / AI Workbench active path across `src/ui/review/components/ConceptCardRenderer.vue`, `src/ui/ai/AiWorkbenchPane.vue`, focused UI tests, and i18n copy.
+- Debt fixed now: 概念卡 renderer 不再自己持有一条额外的 UI 层跳转链路；AI 工作台把候选制卡动作从不显眼的次级小白按钮收口成显式主 CTA，并把“右上角停生成 + 底部发消息”这组分裂操作统一回 composer 单入口。
+- Debt deferred: AI 工作台的其他旧文案里仍有 `Ctrl/Cmd + Enter` 描述，例如扩展编辑器提示和历史 explain placeholder；这次没有顺带统一所有非当前聊天输入面的快捷键措辞。
+- Why deferred: 当前用户阻塞点集中在 compact chat shell 的实际发送入口和概念卡 review 底部冗余操作；继续外扩到所有 AI 文案/编辑器确认语义，会把一次 active-path 交互修正扩大成更宽的文案与快捷键策略重审。
+- Next safe step: 若后续继续统一 AI 输入体验，可单独梳理 `composer editor / explain legacy copy / general-chat` 的快捷键说明，并决定是否要把 Enter 发送约定扩到所有 AI surface。
+- Validation: `pnpm vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/ui/review/components/__tests__/ConceptCardRenderer.spec.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-23 - hotkey block excerpt and browser delete route
 
 - Task: 修复 `Alt+X` 摘录入口无法按 SiYuan 块选区跨块摘录，以及浏览器右键 `取消闪卡` 后卡片仍留在浏览器里的问题。
