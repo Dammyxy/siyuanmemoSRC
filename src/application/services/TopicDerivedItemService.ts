@@ -36,7 +36,8 @@ type TopicDerivationSettingsProvider = {
 type DerivedCandidate = {
   creationRuleId: string;
   answerFingerprint: string;
-  contentMarkdown: string;
+  contentMarkdown?: string;
+  contentDom?: string;
   previewText: string;
   metadataSource: 'topic-derived';
   question?: string;
@@ -49,7 +50,11 @@ export interface TopicDerivedItemInput {
   parentTopicCardId: string;
   parentExcerptId?: string;
   sourceRootKind?: ProgressiveSourceRootKind;
-  content: string;
+  plannerContent: string;
+  artifactContentDom?: string;
+  mode?: 'planner-derived' | 'manual-cloze';
+  answerFingerprint?: string;
+  previewText?: string;
   decisions: CreationDecision[];
   storageMode?: ProgressiveChildDocStorageMode;
 }
@@ -91,9 +96,10 @@ export class TopicDerivedItemService {
     const sourceDocId = String(input.sourceDocId || '').trim();
     const parentTopicCardId = String(input.parentTopicCardId || '').trim();
     const parentExcerptId = String(input.parentExcerptId || '').trim() || undefined;
-    const content = String(input.content || '');
+    const plannerContent = String(input.plannerContent || '');
+    const artifactContentDom = String(input.artifactContentDom || '').trim();
 
-    if (!sourceBlockId || !sourceDocId || !parentTopicCardId || !content) {
+    if (!sourceBlockId || !sourceDocId || !parentTopicCardId || !plannerContent) {
       return {
         created: 0,
         skipped: 0,
@@ -102,11 +108,20 @@ export class TopicDerivedItemService {
     }
 
     const storageMode = this.resolveStorageMode(input.storageMode, input.sourceRootKind);
-    const candidates = this.buildCandidates({
-      sourceBlockId,
-      content,
-      decisions: input.decisions,
-    });
+    const candidates = input.mode === 'manual-cloze'
+      ? this.buildManualClozeCandidates({
+        sourceBlockId,
+        plannerContent,
+        artifactContentDom,
+        answerFingerprint: input.answerFingerprint,
+        previewText: input.previewText,
+        decisions: input.decisions,
+      })
+      : this.buildCandidates({
+        sourceBlockId,
+        content: plannerContent,
+        decisions: input.decisions,
+      });
     if (candidates.length === 0) {
       return {
         created: 0,
@@ -146,7 +161,9 @@ export class TopicDerivedItemService {
             [ATTR_PROGRESSIVE_CREATION_RULE_ID]: candidate.creationRuleId,
             [ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]: candidate.answerFingerprint,
           },
-          contentMarkdown: candidate.contentMarkdown,
+          ...(candidate.contentDom
+            ? { contentDom: candidate.contentDom }
+            : { contentMarkdown: candidate.contentMarkdown || '' }),
         });
         derivedDocId = childDoc.docId;
 
@@ -310,6 +327,32 @@ export class TopicDerivedItemService {
     }
 
     return candidates;
+  }
+
+  private buildManualClozeCandidates(input: {
+    sourceBlockId: string;
+    plannerContent: string;
+    artifactContentDom: string;
+    answerFingerprint?: string;
+    previewText?: string;
+    decisions: CreationDecision[];
+  }): DerivedCandidate[] {
+    const decision = input.decisions.find((candidate) => candidate.family === 'cloze');
+    const answerFingerprint = String(input.answerFingerprint || '').trim();
+    const artifactContentDom = String(input.artifactContentDom || '').trim();
+    const previewText = normalizeWhitespace(String(input.previewText || ''));
+    if (!decision || !answerFingerprint || !artifactContentDom || !previewText) {
+      return [];
+    }
+
+    return [{
+      creationRuleId: decision.id,
+      answerFingerprint,
+      contentMarkdown: input.plannerContent,
+      contentDom: artifactContentDom,
+      previewText,
+      metadataSource: 'topic-derived',
+    }];
   }
 
   private buildSingleClozeMarkdown(content: string, target: ClozeInfo): string {

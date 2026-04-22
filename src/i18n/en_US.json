@@ -588,6 +588,7 @@
   "progressiveExcerptContinuationSkipped": "Skipped {skipped} duplicate Item(s) under the current Topic",
   "progressiveExcerptContinuationFailed": "Failed to create Item under Topic: {message}",
   "progressiveItemNoSelection": "Select text before creating an Item",
+  "progressiveItemSingleBlockOnly": "Create Topic Items from one continuous selection inside a single block",
   "progressiveItemFallbackCreated": "Selection marked as cloze. Standard card creation will follow the existing rules.",
   "progressiveItemFallbackAlreadyMarked": "The current selection is already marked as cloze",
   "progressiveItemFallbackFailed": "Failed to create a standard cloze: {message}",

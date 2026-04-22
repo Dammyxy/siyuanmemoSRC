@@ -125,7 +125,7 @@ describe('TopicDerivedItemService', () => {
       sourceBlockId: 'source-block-1',
       sourceDocId: 'doc-root-1',
       parentTopicCardId: 'topic-card-1',
-      content: 'Alpha ==Beta== Gamma ==Delta==',
+      plannerContent: 'Alpha ==Beta== Gamma ==Delta==',
       decisions: [CLOZE_DECISION],
     });
 
@@ -202,7 +202,7 @@ describe('TopicDerivedItemService', () => {
       sourceBlockId: 'source-block-2',
       sourceDocId: 'doc-root-2',
       parentTopicCardId: 'topic-card-2',
-      content: '((concept-doc))::Definition body',
+      plannerContent: '((concept-doc))::Definition body',
       decisions: [CONCEPT_DEFINITION_DECISION],
       storageMode: 'source-child',
     });
@@ -251,7 +251,7 @@ describe('TopicDerivedItemService', () => {
       parentTopicCardId: 'topic-card-excerpt-1',
       parentExcerptId: 'excerpt-doc-root-1',
       sourceRootKind: 'excerpt-doc',
-      content: 'Alpha ==Beta==',
+      plannerContent: 'Alpha ==Beta==',
       decisions: [CLOZE_DECISION],
       storageMode: 'workbench',
     });
@@ -295,7 +295,7 @@ describe('TopicDerivedItemService', () => {
       parentTopicCardId: 'topic-card-excerpt-block-1',
       parentExcerptId: 'excerpt-block-1',
       sourceRootKind: 'excerpt-block',
-      content: 'Alpha >> Beta',
+      plannerContent: 'Alpha >> Beta',
       decisions: [{
         id: 'BasicDirectionRule',
         family: 'basic',
@@ -358,7 +358,7 @@ describe('TopicDerivedItemService', () => {
       sourceBlockId: 'source-block-3',
       sourceDocId: 'doc-root-3',
       parentTopicCardId: 'topic-card-3',
-      content: 'Alpha ==Beta==',
+      plannerContent: 'Alpha ==Beta==',
       decisions: [CLOZE_DECISION],
     });
 
@@ -391,11 +391,110 @@ describe('TopicDerivedItemService', () => {
       sourceBlockId: 'source-block-4',
       sourceDocId: 'doc-root-4',
       parentTopicCardId: 'topic-card-4',
-      content: 'Alpha ==Beta==',
+      plannerContent: 'Alpha ==Beta==',
       decisions: [CLOZE_DECISION],
     })).rejects.toThrow('native riff failed');
 
     expect(cardService.service.deleteCard).toHaveBeenCalledWith({ cardId: 'card-1' });
     expect(progressiveReadingService.service.deleteProgressiveArtifact).toHaveBeenCalledWith('derived-doc-1');
+  });
+
+  it('uses content DOM for manual Topic cloze items so block-ref anchor text and mark rendering are preserved', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider(),
+    );
+
+    const result = await service.createFromTopicSource({
+      sourceBlockId: 'source-block-manual-1',
+      sourceDocId: 'topic-doc-root-1',
+      parentTopicCardId: 'topic-card-manual-1',
+      plannerContent: 'Alpha ==((20240101010101-abcdefg))== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark"><span data-type="block-ref" data-id="20240101010101-abcdefg">*</span></span> Gamma</div></div>',
+      previewText: '*',
+      answerFingerprint: 'source-block-manual-1::ManualSelectionClozeRule::Alpha::((20240101010101-abcdefg))::Gamma',
+      mode: 'manual-cloze',
+      decisions: [CLOZE_DECISION],
+    });
+
+    expect(result.created).toBe(1);
+    expect(result.skipped).toBe(0);
+
+    const firstChildInput = vi.mocked(progressiveReadingService.service.createChildDocFromSource).mock.calls[0]?.[0];
+    expect(firstChildInput).toEqual(expect.objectContaining({
+      kind: 'derived-item-doc',
+      titlePrefix: 'Item',
+      previewText: '*',
+      contentDom: expect.stringContaining('data-type="block-ref"'),
+      attrs: expect.objectContaining({
+        [ATTR_PROGRESSIVE_CREATION_RULE_ID]: 'InlineClozeRule',
+        [ATTR_PROGRESSIVE_ANSWER_FINGERPRINT]: 'source-block-manual-1::ManualSelectionClozeRule::Alpha::((20240101010101-abcdefg))::Gamma',
+      }),
+    }));
+    expect(firstChildInput?.contentDom).toContain('>*</span>');
+    expect(firstChildInput?.contentDom).toContain('<span data-type="mark"><span data-type="block-ref"');
+    expect(firstChildInput).not.toHaveProperty('contentMarkdown');
+
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      progressiveLineage: expect.objectContaining({
+        kind: 'derived-item',
+        answerFingerprint: 'source-block-manual-1::ManualSelectionClozeRule::Alpha::((20240101010101-abcdefg))::Gamma',
+      }),
+      metadata: expect.objectContaining({
+        source: 'topic-derived',
+        cardSource: 'topic-derived',
+      }),
+    }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['derived-block-1']);
+  });
+
+  it('skips duplicate manual Topic cloze items by the contextual answer fingerprint', async () => {
+    const existingCards = [
+      {
+        meta: {
+          progressive: {
+            kind: 'derived-item',
+            sourceBlockId: 'source-block-manual-2',
+            parentTopicCardId: 'topic-card-manual-2',
+            answerFingerprint: 'source-block-manual-2::ManualSelectionClozeRule::Alpha::Beta::Gamma',
+          },
+        },
+      },
+    ];
+    const cardService = createCardServiceMock(existingCards);
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider(),
+    );
+
+    const result = await service.createFromTopicSource({
+      sourceBlockId: 'source-block-manual-2',
+      sourceDocId: 'topic-doc-root-2',
+      parentTopicCardId: 'topic-card-manual-2',
+      plannerContent: 'Alpha ==Beta== Gamma',
+      artifactContentDom: '<div data-type="NodeParagraph"><div contenteditable="true">Alpha <span data-type="mark">Beta</span> Gamma</div></div>',
+      previewText: 'Beta',
+      answerFingerprint: 'source-block-manual-2::ManualSelectionClozeRule::Alpha::Beta::Gamma',
+      mode: 'manual-cloze',
+      decisions: [CLOZE_DECISION],
+    });
+
+    expect(result).toEqual({
+      created: 0,
+      skipped: 1,
+      items: [],
+    });
+    expect(progressiveReadingService.service.createChildDocFromSource).not.toHaveBeenCalled();
+    expect(cardService.service.createCard).not.toHaveBeenCalled();
+    expect(nativeRiffApi.addRiffCards).not.toHaveBeenCalled();
   });
 });

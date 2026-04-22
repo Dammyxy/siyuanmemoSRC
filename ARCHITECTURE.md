@@ -201,7 +201,7 @@ sequenceDiagram
 
 - `ProgressiveReadingService`：渐进阅读、拆分、摘录、来源追踪、文档与卡片编排的核心应用服务
 - `SelectionExcerptService`：把选择态 surface 接到 `ProgressiveReadingService` 的轻量门面
-- `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、planner 结果适配，以及“普通选区直接视为 cloze Item”的 direct-cloze 分流收敛到 topic-derived 主链
+- `SelectionTopicContinuationService`：把选区继续制卡的 topic/excerpt 语境判定、planner 结果适配，以及“普通选区改 source mark + 立刻创建 1 个 Item”的 manual-cloze 分流收敛到 topic-derived 主链
 - `TopicDerivedItemService`：在 topic / excerpt 语境下创建 topic-derived item
 
 集成边界：
@@ -600,10 +600,11 @@ Review 运行时要点：
   - 负责把 selection-oriented 输入适配到主 progressive 服务
 - `SelectionTopicContinuationService`
   - 负责在菜单打开时同步判断当前选区是否位于 topic / excerpt 语境
-  - 负责把选区 DOM/文本归一成可供 `UnifiedPostCreationPlanner` 识别的 manual continuation 内容
+  - 负责把选区 DOM/文本拆成 `plannerContent` 与 `artifactContentDom` 两份载荷：前者保留 block-ref 等 planner 语义，后者保留 `[*]` 锚文本、高亮和内联结构供 Item 子文档直接落地
 - `TopicDerivedItemService`
   - 在 topic / excerpt 语境中派生 item，并保持 lineage
   - excerpt-doc 下强制直挂 `Item` 子文档；excerpt-block 下保留 daily-note 文档容器并写回 `parentExcerptId`
+  - 手动 Topic cloze 优先使用 `contentDom` 创建 Item 子文档，而不是把 `[*]` / `mark` 退化成纯 `((id))` / `==...==` 文本
 
 边界规则：
 
@@ -617,7 +618,8 @@ Progressive 制卡契约：
 - 术语约定：自动生成的摘录统一视为 `Topic`，在 Topic / 摘录语境里自动或手动生成的练习统一视为 `Item`。
 - 新创建的 progressive artifact 标题统一使用 `Topic / Item` 前缀，内建容器标题也同步为 `Topic 工作台`、`SiYuanMemo Topic`、`SiYuanMemo Topic 库`；历史已生成文档不做批量重命名。
 - 摘录即 Topic：摘录文档、全局摘录库摘录和 Daily Note 摘录块上的后续符号/选区制卡，都会落到本地 derived Item 卡 + 原生 Riff 注册，而不是把块级 card-type 属性当作事实源。
-- `⌥⇧Z` 与右键 `在 Topic 下创建 Item` 的 active path 一致：在 Topic / 摘录语境里，只要有非空选区就允许继续创建 Item；结构化 quick 语法沿用 planner-derived，多数普通选区则直接按一次 cloze Item 处理。离开 Topic / 摘录语境后，`⌥⇧Z` 会退回普通文档选区包裹挖空并沿用现有普通制卡链路。
+- `⌥⇧Z` 与右键 `在 Topic 下创建 Item` 的 active path 一致：在 Topic / 摘录语境里，只要有非空单块选区就允许继续创建 Item；结构化 quick 语法沿用 planner-derived，普通选区则先把 source 选区包成原生 `data-type="mark"`，再立刻创建 1 个 manual-cloze Item。离开 Topic / 摘录语境后，`⌥⇧Z` 会退回普通文档选区包裹挖空并沿用现有普通制卡链路。
+- Topic / excerpt 中的 `mark` 型 cloze 归手动 continuation 所有：程序性加亮会注册一次性 suppression，避免 `AutoCardHandler` 再按 topic-derived 自动生成第二张；手打 `==...==` / `{{...}}` / `>>` / `::` / `;;` 仍保留现有 auto symbol 链。
 - derived Item 默认按普通 `Item` 契约复习；即使保留 symbol/question/answer 等派生元数据，也不会再仅凭旧式 quick-like metadata 被稳定 quick force path 误送进 quick renderer，只有显式 quick 契约卡才走 quick 渲染。
 - 这些 progressive 卡的类型真相源保存在本地 Xiuyuan / FSRS 数据里，不依赖块级 `custom-fsrs-card-type`；块属性只保留必要的 `custom-xiuyuan-id`、原生 Riff 标记，以及 `custom-fsrs-reading-*` 来源/lineage 信息。
 - 新的 progressive-owned `piece` / `excerpt` / `derived-item` 不再写 deprecated `custom-fsrs-card-type`，保存 / 更新 / sync 触达时也会显式 scrub 旧 attr；但非 progressive 的历史 quick/card/sync 路径仍可能兼容读写该旧属性。

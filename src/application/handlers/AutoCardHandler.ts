@@ -110,7 +110,11 @@ type TopicDerivedItemServiceLike = {
         parentTopicCardId: string;
         parentExcerptId?: string;
         sourceRootKind?: 'ordinary-doc' | 'piece' | 'excerpt-doc' | 'excerpt-block' | 'topic-doc';
-        content: string;
+        plannerContent: string;
+        artifactContentDom?: string;
+        mode?: 'planner-derived' | 'manual-cloze';
+        answerFingerprint?: string;
+        previewText?: string;
         decisions: CreationDecision[];
         storageMode?: 'workbench' | 'source-child';
     }) => Promise<{
@@ -188,6 +192,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private readonly candidateTimers = new Map<string, NodeJS.Timeout>();
     private readonly candidateContexts = new Map<string, CandidateBlockContext>();
     private readonly lastEvaluationFingerprintByBlock = new Map<string, string>();
+    private readonly suppressedTopicDerivedMarkMutations = new Map<string, number>();
     private readonly settledEvaluationDelayMs = 300;
     private traceSequence = 0;
     private readonly activeRunContexts = new Map<string, AutoCardTraceContext>();
@@ -378,6 +383,51 @@ export class AutoCardHandler implements ITransactionHandler {
             || decision.family === 'concept-definition'
             || decision.family === 'descriptor'
         ));
+    }
+
+    suppressNextTopicDerivedMarkMutation(blockId: string): void {
+        const normalizedBlockId = String(blockId || '').trim();
+        if (!normalizedBlockId) {
+            return;
+        }
+        const current = this.suppressedTopicDerivedMarkMutations.get(normalizedBlockId) ?? 0;
+        this.suppressedTopicDerivedMarkMutations.set(normalizedBlockId, current + 1);
+    }
+
+    private consumeSuppressedTopicDerivedMarkMutation(blockId: string): boolean {
+        const normalizedBlockId = String(blockId || '').trim();
+        if (!normalizedBlockId) {
+            return false;
+        }
+        const current = this.suppressedTopicDerivedMarkMutations.get(normalizedBlockId) ?? 0;
+        if (current <= 0) {
+            return false;
+        }
+        if (current === 1) {
+            this.suppressedTopicDerivedMarkMutations.delete(normalizedBlockId);
+            return true;
+        }
+        this.suppressedTopicDerivedMarkMutations.set(normalizedBlockId, current - 1);
+        return true;
+    }
+
+    private isMarkOnlyClozeCandidate(content: string, decisions: CreationDecision[]): boolean {
+        if (!decisions.some((decision) => decision.family === 'cloze')) {
+            return false;
+        }
+        const clozes = ClozeDetector.extractClozes(content);
+        return clozes.length > 0 && clozes.every((cloze) => cloze.type === 'mark');
+    }
+
+    private filterTopicDerivedDecisions(
+        decisions: CreationDecision[],
+        content: string,
+        sourceContext: ProgressiveSourceContext | null,
+    ): CreationDecision[] {
+        if (!sourceContext?.parentTopicCardId || !this.isMarkOnlyClozeCandidate(content, decisions)) {
+            return decisions;
+        }
+        return decisions.filter((decision) => decision.family !== 'cloze');
     }
 
     private async sqlRows<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
@@ -755,8 +805,24 @@ export class AutoCardHandler implements ITransactionHandler {
                 blockType,
                 resolvedCardType,
             });
-            const enabledDecisions = plan.decisions.filter((decision) =>
+            const preliminaryEnabledDecisions = plan.decisions.filter((decision) =>
                 this.isDecisionEnabledBySettings(decision, normalizedSettings)
+            );
+            const progressiveSourceContext = await resolveProgressiveSourceContext({
+                blockId,
+                rootId,
+                cardLookup: {
+                    getCardByBlockId: (candidateBlockId: string) => this.getLocalCardByBlockId(candidateBlockId),
+                    getCardsByBlockId: (candidateBlockId: string) => this.getLocalCardsByBlockId(candidateBlockId),
+                },
+                attrLookup: {
+                    getBlockAttrs: async (candidateBlockId: string) => this.siyuanApi.getBlockAttrs(candidateBlockId),
+                },
+            });
+            const enabledDecisions = this.filterTopicDerivedDecisions(
+                preliminaryEnabledDecisions,
+                kramdown,
+                progressiveSourceContext,
             );
             const evaluationFingerprint = this.buildEvaluationFingerprint({
                 blockType,
@@ -799,6 +865,20 @@ export class AutoCardHandler implements ITransactionHandler {
 
             this.lastEvaluationFingerprintByBlock.set(blockId, evaluationFingerprint);
 
+            if (
+                progressiveSourceContext?.parentTopicCardId
+                && enabledDecisions.length === 0
+                && preliminaryEnabledDecisions.length > 0
+                && this.isMarkOnlyClozeCandidate(kramdown, preliminaryEnabledDecisions)
+                && this.consumeSuppressedTopicDerivedMarkMutation(blockId)
+            ) {
+                logger.debug('[SiYuanMemo][AutoCard] Suppressed one programmatic Topic mark mutation after manual continuation', {
+                    blockId,
+                    rootId,
+                });
+                return;
+            }
+
             if (enabledDecisions.length === 0) {
                 logger.debug('[SiYuanMemo][AutoCard] No enabled planner decision detected:', {
                     blockId,
@@ -806,18 +886,6 @@ export class AutoCardHandler implements ITransactionHandler {
                 });
                 return;
             }
-            const progressiveSourceContext = await resolveProgressiveSourceContext({
-                blockId,
-                rootId,
-                cardLookup: {
-                    getCardByBlockId: (candidateBlockId: string) => this.getLocalCardByBlockId(candidateBlockId),
-                    getCardsByBlockId: (candidateBlockId: string) => this.getLocalCardsByBlockId(candidateBlockId),
-                },
-                attrLookup: {
-                    getBlockAttrs: async (candidateBlockId: string) => this.siyuanApi.getBlockAttrs(candidateBlockId),
-                },
-            });
-
             if (this.shouldUseTopicDerivation(normalizedSettings, progressiveSourceContext, enabledDecisions)) {
                 if (this.hasXiuyuanBinding(attrs) && progressiveSourceContext?.topicContext?.scope !== 'block') {
                     logger.debug('[SiYuanMemo][AutoCard] Skip topic derivation: current block already has a non-topic Xiuyuan binding', {
@@ -833,7 +901,8 @@ export class AutoCardHandler implements ITransactionHandler {
                     parentTopicCardId: progressiveSourceContext.parentTopicCardId!,
                     parentExcerptId: progressiveSourceContext.parentExcerptId,
                     sourceRootKind: progressiveSourceContext.rootKind,
-                    content: kramdown,
+                    plannerContent: kramdown,
+                    mode: 'planner-derived',
                     decisions: enabledDecisions,
                     storageMode: normalizedSettings.topicDerivation?.storageMode,
                 });
@@ -2025,6 +2094,7 @@ export class AutoCardHandler implements ITransactionHandler {
         this.candidateTimers.clear();
         this.candidateContexts.clear();
         this.activeRunContexts.clear();
+        this.suppressedTopicDerivedMarkMutations.clear();
         this.lastEvaluationFingerprintByBlock.clear();
         this.processing.clear();
         this.conceptCardEnsureInFlight.clear();

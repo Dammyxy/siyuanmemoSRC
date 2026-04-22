@@ -24,13 +24,15 @@ export interface SelectionTopicContinuationInput {
   origin?: 'editor' | 'review' | 'block-menu';
 }
 
-export type SelectionTopicContinuationMode = 'planner-derived' | 'direct-cloze';
+export type SelectionTopicContinuationMode = 'planner-derived' | 'manual-cloze';
 
 export interface SelectionTopicContinuationPreparation {
   rootId?: string;
   topicContext: ProgressiveTopicContext | null;
   normalizedContent: string;
-  creationContent: string;
+  plannerContent: string;
+  artifactContentDom: string;
+  answerFingerprint?: string;
   decisions: CreationDecision[];
   mode: SelectionTopicContinuationMode | null;
   available: boolean;
@@ -156,7 +158,98 @@ function extractFragmentPlannerText(
     : normalizeInlineWhitespace(raw);
 }
 
-function buildDirectClozeContent(
+function getFragmentBlockElement(html: string | undefined): HTMLElement | null {
+  const normalizedHtml = String(html || '').trim();
+  if (!normalizedHtml) {
+    return null;
+  }
+
+  const template = document.createElement('template');
+  template.innerHTML = normalizedHtml;
+  return template.content.firstElementChild instanceof HTMLElement
+    ? template.content.firstElementChild
+    : null;
+}
+
+function resolveBlockContentRoot(blockElement: HTMLElement): HTMLElement {
+  return blockElement.querySelector<HTMLElement>('[contenteditable="true"]') || blockElement;
+}
+
+function unwrapMarkElements(root: ParentNode): void {
+  for (const mark of Array.from(root.querySelectorAll<HTMLElement>('[data-type="mark"]'))) {
+    const parent = mark.parentNode;
+    if (!parent) {
+      continue;
+    }
+    while (mark.firstChild) {
+      parent.insertBefore(mark.firstChild, mark);
+    }
+    parent.removeChild(mark);
+  }
+}
+
+function extractEditableInnerHtml(
+  html: string | undefined,
+  options?: { flattenMarks?: boolean },
+): string {
+  const blockElement = getFragmentBlockElement(html);
+  if (!blockElement) {
+    return '';
+  }
+
+  const contentRoot = resolveBlockContentRoot(blockElement);
+  if (options?.flattenMarks) {
+    unwrapMarkElements(contentRoot);
+  }
+  return contentRoot.innerHTML;
+}
+
+function extractVisibleTextFromNode(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent || '';
+  }
+
+  if (!(node instanceof HTMLElement)) {
+    return '';
+  }
+
+  if (node.classList.contains('protyle-attr')) {
+    return '';
+  }
+
+  if (node.tagName === 'BR') {
+    return '\n';
+  }
+
+  return Array.from(node.childNodes)
+    .map((child) => extractVisibleTextFromNode(child))
+    .join('');
+}
+
+function extractVisibleTextFromFragment(
+  html: string | undefined,
+  options?: { trim?: boolean },
+): string {
+  const blockElement = getFragmentBlockElement(html);
+  if (!blockElement) {
+    return '';
+  }
+
+  const contentRoot = resolveBlockContentRoot(blockElement);
+  const raw = extractVisibleTextFromNode(contentRoot)
+    .replace(/\u200B/g, '')
+    .replace(/\u00A0/g, ' ');
+
+  return options?.trim === false
+    ? raw
+    : normalizeInlineWhitespace(raw);
+}
+
+function buildManualMarkInnerHtml(innerHtml: string): string {
+  return `<span data-type="mark">${innerHtml}</span>`;
+}
+
+function buildManualClozePlannerContent(
   normalizedSelectionContent: string,
   contentDom?: string,
   blockSelections?: ProgressiveExcerptBlockSelectionSnapshot[],
@@ -192,6 +285,65 @@ function buildDirectClozeContent(
   return `==${normalizedDomSelection || normalizedSelection}==`;
 }
 
+function buildManualClozeArtifactDom(
+  blockSelections?: ProgressiveExcerptBlockSelectionSnapshot[],
+): string {
+  if (!Array.isArray(blockSelections) || blockSelections.length !== 1) {
+    return '';
+  }
+
+  const [selection] = blockSelections;
+  if (!selection) {
+    return '';
+  }
+
+  const blockElement = getFragmentBlockElement(
+    selection.excerptHtml || selection.beforeHtml || selection.afterHtml,
+  );
+  if (!blockElement) {
+    return '';
+  }
+
+  const contentRoot = resolveBlockContentRoot(blockElement);
+  if (selection.mode === 'full-block') {
+    const targetInnerHtml = extractEditableInnerHtml(selection.excerptHtml, { flattenMarks: true });
+    if (!targetInnerHtml) {
+      return '';
+    }
+    contentRoot.innerHTML = buildManualMarkInnerHtml(targetInnerHtml);
+    return blockElement.outerHTML.trim();
+  }
+
+  const beforeInnerHtml = extractEditableInnerHtml(selection.beforeHtml, { flattenMarks: true });
+  const targetInnerHtml = extractEditableInnerHtml(selection.excerptHtml, { flattenMarks: true });
+  const afterInnerHtml = extractEditableInnerHtml(selection.afterHtml, { flattenMarks: true });
+  if (!targetInnerHtml) {
+    return '';
+  }
+
+  contentRoot.innerHTML = `${beforeInnerHtml}${buildManualMarkInnerHtml(targetInnerHtml)}${afterInnerHtml}`;
+  return blockElement.outerHTML.trim();
+}
+
+function buildManualAnswerFingerprint(
+  sourceBlockId: string,
+  normalizedSelectionContent: string,
+  blockSelections?: ProgressiveExcerptBlockSelectionSnapshot[],
+): string {
+  const normalizedSourceBlockId = String(sourceBlockId || '').trim();
+  const normalizedSelection = normalizeInlineWhitespace(normalizedSelectionContent);
+  if (!normalizedSourceBlockId || !normalizedSelection) {
+    return '';
+  }
+
+  const [selection] = Array.isArray(blockSelections) ? blockSelections : [];
+  const beforeText = normalizeInlineWhitespace(extractVisibleTextFromFragment(selection?.beforeHtml));
+  const afterText = normalizeInlineWhitespace(extractVisibleTextFromFragment(selection?.afterHtml));
+  const beforeTail = beforeText.slice(-32);
+  const afterHead = afterText.slice(0, 32);
+  return `${normalizedSourceBlockId}::${DIRECT_CLOZE_DECISION.id}::${beforeTail}::${normalizedSelection}::${afterHead}`;
+}
+
 export class SelectionTopicContinuationService {
   private readonly planner = new UnifiedPostCreationPlanner();
 
@@ -210,7 +362,8 @@ export class SelectionTopicContinuationService {
         rootId,
         topicContext: null,
         normalizedContent,
-        creationContent: '',
+        plannerContent: '',
+        artifactContentDom: '',
         decisions: [],
         mode: null,
         available: false,
@@ -227,7 +380,8 @@ export class SelectionTopicContinuationService {
         rootId,
         topicContext: null,
         normalizedContent,
-        creationContent: '',
+        plannerContent: '',
+        artifactContentDom: '',
         decisions: [],
         mode: null,
         available: false,
@@ -247,10 +401,48 @@ export class SelectionTopicContinuationService {
         rootId,
         topicContext,
         normalizedContent,
-        creationContent: normalizedContent,
+        plannerContent: normalizedContent,
+        artifactContentDom: '',
         decisions,
         mode: 'planner-derived',
         available: true,
+      };
+    }
+
+    if (!Array.isArray(input.blockSelections) || input.blockSelections.length !== 1) {
+      return {
+        rootId,
+        topicContext,
+        normalizedContent,
+        plannerContent: '',
+        artifactContentDom: '',
+        decisions: [],
+        mode: null,
+        available: false,
+      };
+    }
+
+    const plannerContent = buildManualClozePlannerContent(
+      normalizedContent,
+      input.contentDom,
+      input.blockSelections,
+    );
+    const artifactContentDom = buildManualClozeArtifactDom(input.blockSelections);
+    const answerFingerprint = buildManualAnswerFingerprint(
+      sourceBlockId,
+      normalizedContent,
+      input.blockSelections,
+    );
+    if (!plannerContent || !artifactContentDom || !answerFingerprint) {
+      return {
+        rootId,
+        topicContext,
+        normalizedContent,
+        plannerContent: '',
+        artifactContentDom: '',
+        decisions: [],
+        mode: null,
+        available: false,
       };
     }
 
@@ -258,13 +450,11 @@ export class SelectionTopicContinuationService {
       rootId,
       topicContext,
       normalizedContent,
-      creationContent: buildDirectClozeContent(
-        normalizedContent,
-        input.contentDom,
-        input.blockSelections,
-      ),
+      plannerContent,
+      artifactContentDom,
+      answerFingerprint,
       decisions: [DIRECT_CLOZE_DECISION],
-      mode: 'direct-cloze',
+      mode: 'manual-cloze',
       available: true,
     };
   }
@@ -306,7 +496,11 @@ export class SelectionTopicContinuationService {
       parentTopicCardId,
       parentExcerptId: sourceContext.parentExcerptId,
       sourceRootKind: sourceContext.rootKind as ProgressiveSourceRootKind,
-      content: prepared.creationContent,
+      plannerContent: prepared.plannerContent,
+      artifactContentDom: prepared.artifactContentDom || undefined,
+      mode: prepared.mode || undefined,
+      answerFingerprint: prepared.answerFingerprint,
+      previewText: prepared.normalizedContent,
       decisions: prepared.decisions,
     });
   }

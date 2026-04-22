@@ -184,6 +184,15 @@ export class ProgressiveExcerptHotkeyHandler {
       return;
     }
 
+    if (topicContinuationPreparation.topicContext && selection.blockSelections.length !== 1) {
+      showMessage(
+        this.translate('progressiveItemSingleBlockOnly', '请在单个块内连续选区后再创建 Item'),
+        3000,
+        'error',
+      );
+      return;
+    }
+
     await this.runPlainClozeFallbackFromSnapshot(selection);
   }
 
@@ -231,6 +240,25 @@ export class ProgressiveExcerptHotkeyHandler {
     preparation?: SelectionTopicContinuationPreparation,
   ): Promise<void> {
     try {
+      if (preparation?.mode === 'manual-cloze') {
+        const preparedMark = this.tryPrepareSelectionClozeMark(selection);
+        if (!preparedMark) {
+          throw new Error(this.translate('progressiveItemFallbackUnavailable', '当前选区无法转换为普通挖空'));
+        }
+        if (preparedMark.blockIds.length !== 1) {
+          throw new Error(this.translate('progressiveItemSingleBlockOnly', '请在单个块内连续选区后再创建 Item'));
+        }
+
+        if (!preparedMark.alreadyApplied) {
+          this.context.getAutoCardHandler()?.suppressNextTopicDerivedMarkMutation(preparedMark.blockId);
+        }
+
+        const applied = await this.tryApplySelectionClozeMark(preparedMark);
+        if (!applied && !preparedMark.alreadyApplied) {
+          throw new Error(this.translate('progressiveItemFallbackPersistFailed', '当前选区的挖空标记保存失败'));
+        }
+      }
+
       const result = await this.context.getSelectionTopicContinuationService().createFromSelection({
         sourceBlockId: selection.sourceBlockId,
         sourceBlockIds: selection.sourceBlockIds,

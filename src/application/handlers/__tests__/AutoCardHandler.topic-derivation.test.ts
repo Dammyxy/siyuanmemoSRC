@@ -4,6 +4,7 @@ import { AutoCardHandler } from '../AutoCardHandler';
 function createHandler(input: {
   blockId: string;
   rootId: string;
+  kramdown?: string;
   currentBlockCards?: Array<{ id: string; type: string }>;
   rootBlockCards?: Array<{ id: string; type: string }>;
   blockAttrsById?: Record<string, Record<string, string>>;
@@ -73,7 +74,7 @@ function createHandler(input: {
 
   const siyuanApi = {
     getBlockKramdown: vi.fn(async () => ({
-      kramdown: 'Alpha >> Beta',
+      kramdown: input.kramdown ?? 'Alpha >> Beta',
     })),
     sql: vi.fn(async (stmt: string) => {
       if (stmt.includes(`WHERE id = '${input.blockId}'`)) {
@@ -128,7 +129,7 @@ describe('AutoCardHandler topic derivation routing', () => {
       sourceBlockId: 'topic-block-1',
       sourceDocId: 'doc-root-1',
       parentTopicCardId: 'topic-card-1',
-      content: 'Alpha >> Beta',
+      plannerContent: 'Alpha >> Beta',
       storageMode: 'workbench',
       decisions: expect.arrayContaining([
         expect.objectContaining({
@@ -153,7 +154,7 @@ describe('AutoCardHandler topic derivation routing', () => {
       sourceBlockId: 'child-block-1',
       sourceDocId: 'topic-doc-1',
       parentTopicCardId: 'topic-card-root-1',
-      content: 'Alpha >> Beta',
+      plannerContent: 'Alpha >> Beta',
     }));
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item');
   });
@@ -181,7 +182,7 @@ describe('AutoCardHandler topic derivation routing', () => {
       parentTopicCardId: 'topic-card-excerpt-root-1',
       parentExcerptId: 'excerpt-doc-root-1',
       sourceRootKind: 'excerpt-doc',
-      content: 'Alpha >> Beta',
+      plannerContent: 'Alpha >> Beta',
     }));
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item');
   });
@@ -209,7 +210,7 @@ describe('AutoCardHandler topic derivation routing', () => {
       parentTopicCardId: 'topic-card-excerpt-block-1',
       parentExcerptId: 'excerpt-block-1',
       sourceRootKind: 'excerpt-block',
-      content: 'Alpha >> Beta',
+      plannerContent: 'Alpha >> Beta',
     }));
     expect(siyuanApi.pushMsg).toHaveBeenCalledWith('已在当前 Topic 下新增 1 个 Item');
   });
@@ -230,5 +231,36 @@ describe('AutoCardHandler topic derivation routing', () => {
 
     expect(topicDerivedItemService.createFromTopicSource).not.toHaveBeenCalled();
     expect(siyuanApi.pushMsg).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-derive mark-only cloze mutations inside Topic context', async () => {
+    const { handler, topicDerivedItemService, siyuanApi } = createHandler({
+      blockId: 'topic-block-mark-1',
+      rootId: 'topic-doc-2',
+      kramdown: 'Alpha <span data-type="mark">Beta</span> Gamma',
+      rootBlockCards: [{ id: 'topic-card-root-2', type: 'topic' }],
+    });
+
+    await (handler as any).checkQuickSymbols('topic-block-mark-1');
+
+    expect(topicDerivedItemService.createFromTopicSource).not.toHaveBeenCalled();
+    expect(siyuanApi.pushMsg).not.toHaveBeenCalled();
+  });
+
+  it('consumes one manual Topic mark suppression token after the programmatic mark mutation lands', async () => {
+    const { handler, topicDerivedItemService } = createHandler({
+      blockId: 'topic-block-mark-2',
+      rootId: 'topic-doc-3',
+      kramdown: 'Alpha <span data-type="mark">Beta</span> Gamma',
+      rootBlockCards: [{ id: 'topic-card-root-3', type: 'topic' }],
+    });
+
+    handler.suppressNextTopicDerivedMarkMutation('topic-block-mark-2');
+    expect((handler as any).suppressedTopicDerivedMarkMutations.get('topic-block-mark-2')).toBe(1);
+
+    await (handler as any).checkQuickSymbols('topic-block-mark-2');
+
+    expect(topicDerivedItemService.createFromTopicSource).not.toHaveBeenCalled();
+    expect((handler as any).suppressedTopicDerivedMarkMutations.has('topic-block-mark-2')).toBe(false);
   });
 });

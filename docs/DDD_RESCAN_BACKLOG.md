@@ -4,6 +4,16 @@ Last update: 2026-04-22 (Round 110)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-22 - topic manual mark cloze continuation
+
+- Task: 把 Topic / 摘录语境里的 `⌥⇧Z` 和右键 `在 Topic 下创建 Item` 收口成“先高亮 source，再立刻创建 1 个 Item”的手动主链，同时保住 `[*]` 块引用锚文本并阻断 mark 型双触发。
+- Touched slice: Progressive / excerpt / topic-derived item active path across `src/application/{handlers/{ProgressiveExcerptHotkeyHandler.ts,AutoCardHandler.ts},services/{SelectionTopicContinuationService.ts,TopicDerivedItemService.ts}}`, focused continuation/auto-card regression tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `SelectionTopicContinuationService` 不再只产出纯文本 continuation 内容，而是拆成 `plannerContent + artifactContentDom` 双载荷；普通 Topic 选区会先在 source 上打原生 `mark`，再以 `manual-cloze` 模式创建恰好 1 个 derived Item；manual Item 子文档改为优先使用 DOM 落地，因此 `[*]` 锚文本和当前 target 高亮不会退化成裸 `((id))` / `==...==`；`AutoCardHandler` 也正式把 Topic / excerpt 中的 DOM `mark` 从 auto topic-derived 里排除，并用一次性 suppression 吞掉程序性加亮那次 mutation。
+- Debt deferred: 多空批量补齐仍未新增专门入口，当前语义依然是每次 `⌥⇧Z` 只为当前这 1 个空创建 1 张 Item；跨多块选区也仍拒绝并提示单块连续选区；普通文档 fallback 仍复用现有 cloze 标记链，没有上提成更通用的 selection rewrite service。
+- Why deferred: 这轮重点是修顺 Topic 内 `mark` 型 cloze 的 active path 和 Item artifact 呈现，先把 source 高亮、derived child doc、auto suppression 这三个真正互相耦合的点收紧；批量多空与更通用的 selection rewrite 都会明显扩大编辑器语义面。
+- Next safe step: 如果后续还想更像 SuperMemo，可以在现有单空稳定后再评估“扫描当前块已有 mark 并批量补齐 Item”的入口，但要先定义它与当前逐次 `⌥⇧Z` 去重指纹的关系。
+- Validation: `pnpm vitest run src/application/services/__tests__/SelectionTopicContinuationService.test.ts src/application/services/__tests__/TopicDerivedItemService.test.ts src/application/handlers/__tests__/ProgressiveExcerptHotkeyHandler.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-22 - progressive topic item direct selection flow and derived-item scrub
 
 - Task: 把 progressive `Topic / Item` 的右键与热键流程收口到更接近 SuperMemo 的直接选区制卡体验，同时清掉 derived Item 残留的 deprecated card-type attr / quick-render hint，并统一块菜单分组名为 `SiYuanMemo`。
