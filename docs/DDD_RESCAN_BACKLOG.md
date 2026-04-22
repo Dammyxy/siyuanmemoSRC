@@ -4,6 +4,16 @@ Last update: 2026-04-23 (Round 116)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-23 - ai workbench empty-state cta responsiveness
+
+- Task: 调整 AI 工作台空状态按钮样式，让 standalone / review sidecar / review companion 都能自适应显示，并把通用聊天按钮点击后的默认开场白改成更自然的助手式文案。
+- Touched slice: AI workbench / capture active path across `src/ui/ai/AiWorkbenchPane.vue`, builtin skill copy in `src/application/services/AIChatSkillRegistry.ts`, focused AI pane and skill-registry tests.
+- Debt fixed now: 把空状态 CTA 从通用 primary button 样式里拆出来，避免审批卡片和其它主按钮继续共享一套不适合窄栏空状态的尺寸/视觉；同时给空状态文案块加了宽度约束与 compact/standalone 分流，减少 380-420px 窄栏里出现瘦长竖条按钮的风险。
+- Debt deferred: AI pane 其余空状态、历史项和工具结果卡片仍沿用当前浅色布局体系，这次没有继续扩大成整页视觉重做；general-chat 在测试桩里仍只覆盖空状态 CTA 入口，没有顺手补齐所有 skill pill/hideTabs 的模拟 runtime。
+- Why deferred: 用户阻塞点集中在空状态 CTA 的响应式尺寸和默认开场白；继续扩到整页 UI 或测试桩全面仿真，会把一次活跃链路小修扩大成更宽的 AI shell 设计重构。
+- Next safe step: 如果后续还想继续打磨 AI 界面，可以单独评估 skill pill、顶部栏和历史卡片在 compact surface 下的密度与层次，再决定是否抽一套 compact token。
+- Validation: `pnpm vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/application/services/__tests__/AIChatSkillRegistry.test.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-23 - custom tab early bootstrap and review split semantics
 
 - Task: 修复 SiyuanMemo 在重载思源后 Browser / Review / Review AI custom tab 会消失，以及 review 里的“在新页签中打开”实际总是右侧分屏的问题。

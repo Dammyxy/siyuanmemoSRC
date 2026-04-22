@@ -5,7 +5,12 @@ import { reactive, nextTick } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import { formatConceptCoachPerspectiveSectionMarkdown } from '@/application/services/AIWorkbenchResultFormatter';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
-import { AI_CONCEPT_COACH_SKILL_ID, AI_CONCEPT_COACH_TAB_IDS } from '@/types/ai';
+import {
+  AI_CONCEPT_COACH_SKILL_ID,
+  AI_CONCEPT_COACH_TAB_IDS,
+  AI_GENERAL_CHAT_SKILL_ID,
+  AI_GENERAL_CHAT_TAB_ID,
+} from '@/types/ai';
 import type {
   AIExplainResult,
   AIWorkbenchState,
@@ -15,6 +20,7 @@ import type {
 import AiWorkbenchPane from '../AiWorkbenchPane.vue';
 
 const DEFAULT_CONCEPT_COACH_PROMPT = '请基于当前材料，完成 AI 理解与制卡：先解释清楚，再生成可自测的候选卡。';
+const DEFAULT_GENERAL_CHAT_PROMPT = '我想围绕当前内容继续聊聊。你可以先帮我抓重点、解释疑点；如果上下文还不够，请直接告诉我还需要补什么。';
 
 const CONCEPT_COACH_TABS = [
   { id: 'working-definition', title: '工作定义', emptyHint: '先抓住这个概念最可用的 1-2 句话。' },
@@ -23,6 +29,9 @@ const CONCEPT_COACH_TABS = [
   { id: 'self-test-cards', title: '自测卡片', emptyHint: '把理解转成可回忆、可编辑、可选择的候选问答卡。' },
   { id: 'cdf-structure', title: 'CDF 语义卡', emptyHint: '把概念、定义和描述维度整理成可筛选的 CDF 结构。' },
   { id: 'real-world-triggers', title: '现实触发器', emptyHint: '找到以后该想起这个概念的真实场景。' },
+] as const;
+const GENERAL_CHAT_TABS = [
+  { id: AI_GENERAL_CHAT_TAB_ID, title: '聊天', emptyHint: '直接提问，或让 AI 基于当前卡片和材料继续分析。' },
 ] as const;
 
 function createDeferred<T>() {
@@ -244,6 +253,24 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
   };
 
   return service as unknown as AIWorkbenchService;
+}
+
+function switchServiceToGeneralChat(service: AIWorkbenchService): void {
+  const state = service.state;
+  state.activeSkillId = AI_GENERAL_CHAT_SKILL_ID;
+  state.activeTabId = AI_GENERAL_CHAT_TAB_ID;
+  state.sessionHistory[0] = {
+    ...state.sessionHistory[0]!,
+    activeSkillId: AI_GENERAL_CHAT_SKILL_ID,
+    activeTabId: AI_GENERAL_CHAT_TAB_ID,
+    activeSkills: [AI_GENERAL_CHAT_SKILL_ID],
+  };
+  service.getSkillTabs = () => GENERAL_CHAT_TABS as never;
+  service.getSkillTitle = () => '通用 AI 聊天';
+  service.getSkillBrief = () => '在同一会话里结合当前上下文、思源只读工具和网页工具进行问答。';
+  service.getPrimaryActionLabel = () => '开始聊天';
+  service.getDefaultUserPrompt = () => DEFAULT_GENERAL_CHAT_PROMPT;
+  service.getActiveTabDescriptor = () => GENERAL_CHAT_TABS[0] as never;
 }
 
 function pushExplainMessage(service: AIWorkbenchService, result: AIExplainResult) {
@@ -1383,7 +1410,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
       props: { service },
     });
 
-    await wrapper.find('.ai-chat__primary-button').trigger('click');
+    await wrapper.find('.ai-chat__empty-cta').trigger('click');
     await nextTick();
 
     const textarea = wrapper.find('.ai-chat__composer-input').element as HTMLTextAreaElement;
@@ -1404,7 +1431,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     const textarea = wrapper.find('.ai-chat__composer-input');
 
     await textarea.setValue('我已经写好的指令');
-    await wrapper.find('.ai-chat__primary-button').trigger('click');
+    await wrapper.find('.ai-chat__empty-cta').trigger('click');
     await nextTick();
 
     expect((textarea.element as HTMLTextAreaElement).value).toBe('我已经写好的指令');
@@ -1430,6 +1457,49 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).toContain('AI 正在理解材料');
     expect(wrapper.text()).toContain('正在生成 5 个阶段');
     expect(wrapper.find('.ai-chat__empty-state').exists()).toBe(false);
+  });
+
+  it('fills the default general-chat prompt from the empty-state CTA without auto-sending', async () => {
+    const service = createService('review-dialog-sidecar');
+    switchServiceToGeneralChat(service);
+    const submitSkillPrompt = vi.fn(async () => {});
+    const submitFollowUp = vi.fn(async () => {});
+    service.submitSkillPrompt = submitSkillPrompt as never;
+    service.submitFollowUp = submitFollowUp as never;
+
+    const wrapper = mount(AiWorkbenchPane, {
+      attachTo: document.body,
+      props: { service },
+    });
+
+    await wrapper.find('.ai-chat__empty-cta').trigger('click');
+    await nextTick();
+
+    const textarea = wrapper.find('.ai-chat__composer-input').element as HTMLTextAreaElement;
+    expect(textarea.value).toBe(DEFAULT_GENERAL_CHAT_PROMPT);
+    expect(document.activeElement).toBe(textarea);
+    expect(submitSkillPrompt).not.toHaveBeenCalled();
+    expect(submitFollowUp).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('does not overwrite existing general-chat composer text when the empty-state CTA is clicked again', async () => {
+    const service = createService('review-dialog-sidecar');
+    switchServiceToGeneralChat(service);
+    const wrapper = mount(AiWorkbenchPane, {
+      attachTo: document.body,
+      props: { service },
+    });
+    const textarea = wrapper.find('.ai-chat__composer-input');
+
+    await textarea.setValue('我已经写好了一段聊天开场');
+    await wrapper.find('.ai-chat__empty-cta').trigger('click');
+    await nextTick();
+
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('我已经写好了一段聊天开场');
+
+    wrapper.unmount();
   });
 
   it('keeps the top banner for non-message errors', () => {

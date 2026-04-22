@@ -49,7 +49,7 @@ const GENERAL_CHAT_SKILL: AIChatRegisteredSkillDescriptor = {
     '回答时先给结论，再给必要依据；如果工具返回的信息不足，请直接说明还缺什么。',
   ].join('\n'),
   defaultToolGroups: ['context-read', 'siyuan-read', 'review-read', 'web', 'vars'],
-  composerPreset: '你可以直接追问，也可以粘贴 URL、块 ID 或补充材料。',
+  composerPreset: '我想围绕当前内容继续聊聊。你可以先帮我抓重点、解释疑点；如果上下文还不够，请直接告诉我还需要补什么。',
   primaryActionLabel: '开始聊天',
   supportsStructuredResult: false,
   surfaceHints: {

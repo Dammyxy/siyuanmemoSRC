@@ -169,14 +169,16 @@
 
       <section class="ai-chat__timeline">
         <article v-if="renderEntries.length === 0 && !visibleRunStatus" class="ai-chat__empty-state">
-          <div class="ai-chat__empty-icon">
-            <svg><use xlink:href="#iconSparkles"></use></svg>
+          <div class="ai-chat__empty-state-body">
+            <div class="ai-chat__empty-icon">
+              <svg><use xlink:href="#iconSparkles"></use></svg>
+            </div>
+            <strong class="ai-chat__empty-title">{{ skillTitle }}</strong>
+            <p class="ai-chat__empty-brief">{{ skillBrief }}</p>
+            <button class="ai-chat__empty-cta" type="button" :disabled="state.isLoading || revealLocked" @click="prepareDefaultSkillPrompt">
+              {{ primaryActionLabel }}
+            </button>
           </div>
-          <strong>{{ skillTitle }}</strong>
-          <p>{{ skillBrief }}</p>
-          <button class="ai-chat__primary-button" type="button" :disabled="state.isLoading || revealLocked" @click="prepareDefaultSkillPrompt">
-            {{ primaryActionLabel }}
-          </button>
         </article>
 
         <article
@@ -3025,9 +3027,18 @@ onUnmounted(() => {
 .ai-chat__banner-pre { margin: 8px 0 0; padding: 10px; max-height: 240px; overflow: auto; border: 1px solid #ead4d4; border-radius: 6px; background: #fff; color: #3e4a60; font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; }
 .ai-chat__timeline { flex: 1; min-height: 0; overflow: auto; padding: 14px 12px; display: grid; gap: 10px; }
 .ai-chat__empty-state, .ai-chat__bubble { border: 1px solid #e6e9f0; border-radius: 8px; background: #fff; padding: 13px; }
-.ai-chat__empty-state { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 24px 16px; }
+.ai-chat__empty-state { display: grid; place-items: center; text-align: center; padding: clamp(24px, 5vw, 42px) 16px; }
+.ai-chat__empty-state-body { width: min(100%, 420px); display: grid; justify-items: center; gap: 12px; }
 .ai-chat__empty-icon { width: 56px; height: 56px; border-radius: 999px; background: linear-gradient(180deg, #1c7d8f 0%, #13566f 100%); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
 .ai-chat__empty-icon svg { width: 22px; height: 22px; }
+.ai-chat__empty-title { font-size: 16px; line-height: 1.3; color: #172033; }
+.ai-chat__empty-brief { margin: 0; max-width: 34ch; color: #556172; font-size: 13px; line-height: 1.6; }
+.ai-chat__empty-cta { width: min(100%, clamp(196px, 72vw, 280px)); min-height: 44px; border: 1px solid #b9d3ea; border-radius: 14px; background: linear-gradient(180deg, #fcfeff 0%, #edf7ff 100%); box-shadow: 0 12px 28px rgba(28,125,143,0.12), inset 0 0 0 1px rgba(255,255,255,0.58); padding: 12px 20px; color: #155e75; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; line-height: 1.4; white-space: normal; cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease; }
+.ai-chat__empty-cta:hover:not(:disabled) { border-color: #8bb7d0; background: linear-gradient(180deg, #ffffff 0%, #e4f3ff 100%); box-shadow: 0 16px 32px rgba(28,125,143,0.16), inset 0 0 0 1px rgba(255,255,255,0.72); transform: translateY(-1px); }
+.ai-chat__empty-cta:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; transform: none; }
+.ai-chat--compact .ai-chat__empty-state { padding: 24px 14px; }
+.ai-chat--compact .ai-chat__empty-state-body { width: min(100%, 320px); gap: 11px; }
+.ai-chat--standalone .ai-chat__empty-cta { width: auto; min-width: 172px; max-width: min(100%, 280px); }
 .ai-chat__primary-button { border: 0; border-radius: 8px; background: #ffffff; box-shadow: inset 0 0 0 1px #dce3f5; padding: 10px 16px; color: #1f2430; }
 .ai-chat__primary-button--small { padding: 7px 11px; font-size: 12px; white-space: nowrap; }
 .ai-chat__primary-button--accent { background: linear-gradient(180deg, #f0f7ff 0%, #dbeeff 100%); box-shadow: inset 0 0 0 1px #93c5fd; color: #155e75; }
