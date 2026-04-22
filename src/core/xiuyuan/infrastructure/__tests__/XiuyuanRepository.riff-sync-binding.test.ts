@@ -6,11 +6,13 @@ import { BlockId } from '../../domain/BlockId';
 import { TemplateId } from '../../domain/TemplateId';
 import { CardFace } from '../../domain/CardFace';
 
-const { setBlockAttrsMock } = vi.hoisted(() => ({
+const { getBlockAttrsMock, setBlockAttrsMock } = vi.hoisted(() => ({
+  getBlockAttrsMock: vi.fn(),
   setBlockAttrsMock: vi.fn(),
 }));
 
 vi.mock('@/core/siyuan/api', () => ({
+  getBlockAttrs: getBlockAttrsMock,
   setBlockAttrs: setBlockAttrsMock,
 }));
 
@@ -22,18 +24,50 @@ function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown })
 }
 
 function createStorageMock() {
+  const xiuyuanStore = new Map<string, unknown>();
+  const cardStore = new Map<string, unknown>();
+
   return {
-    getXiuYuan: vi.fn(() => undefined),
-    upsertXiuYuan: vi.fn(),
-    getAllCards: vi.fn(() => []),
+    runWriteTransaction: vi.fn(async (_label: string, operation: () => unknown) => operation()),
+    getStoreData: vi.fn(() => ({
+      version: 1,
+      xiuyuans: Object.fromEntries(xiuyuanStore),
+      cards: Object.fromEntries(cardStore),
+      cardDTOs: {},
+    })),
+    restoreStoreSnapshot: vi.fn((snapshot: {
+      xiuyuans?: Record<string, unknown>;
+      cards?: Record<string, unknown>;
+    }) => {
+      xiuyuanStore.clear();
+      cardStore.clear();
+      for (const [id, xiuyuan] of Object.entries(snapshot.xiuyuans ?? {})) {
+        xiuyuanStore.set(id, xiuyuan);
+      }
+      for (const [id, card] of Object.entries(snapshot.cards ?? {})) {
+        cardStore.set(id, card);
+      }
+    }),
+    getXiuYuan: vi.fn((xiuyuanId: string) => xiuyuanStore.get(xiuyuanId)),
+    upsertXiuYuan: vi.fn((xiuyuan: { id: string }) => {
+      xiuyuanStore.set(xiuyuan.id, xiuyuan);
+    }),
+    getAllCards: vi.fn(() => Array.from(cardStore.values())),
+    getCardsByBlockId: vi.fn(() => []),
     getCardsByXiuyuanId: vi.fn(() => []),
     deleteCard: vi.fn(async () => ok(undefined)),
     getCard: vi.fn(() => undefined),
     updateCard: vi.fn(async () => ok(undefined)),
-    createCard: vi.fn(async () => ok(undefined)),
+    createCard: vi.fn(async (_xiuyuan: unknown, card: { id: string }) => {
+      cardStore.set(card.id, card);
+      return ok(undefined);
+    }),
     save: vi.fn(async () => ok(undefined)),
-    getAllXiuYuans: vi.fn(() => []),
-    deleteXiuYuan: vi.fn(async () => ok(undefined)),
+    getAllXiuYuans: vi.fn(() => Array.from(xiuyuanStore.values())),
+    deleteXiuYuan: vi.fn(async (xiuyuanId: string) => {
+      xiuyuanStore.delete(xiuyuanId);
+      return ok(undefined);
+    }),
     getCardDTO: vi.fn(),
   };
 }
@@ -62,6 +96,7 @@ function createManagedRiffXiuyuan(meta: Record<string, unknown> = {}): Xiuyuan {
 describe('XiuyuanRepository managed riff binding attrs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getBlockAttrsMock.mockResolvedValue({});
     setBlockAttrsMock.mockResolvedValue(undefined);
   });
 

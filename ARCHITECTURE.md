@@ -602,6 +602,12 @@ Review 运行时要点：
 - 对 native Riff 同步，经 `ProgressiveNativeRiffPort`
 - 对 capture 落点，经 `ConfiguredCaptureStoragePort`
 
+Progressive 制卡契约：
+
+- split / excerpt / topic-derived 生成物创建的是本地 Xiuyuan / FSRS 卡，并通过 `ProgressiveNativeRiffPort` 注册到原生 Riff；linear split 只立即为当前 active piece 建 Topic 卡，完成当前片后再释放下一片，nonlinear split 则立即为全部 piece 建 Topic 卡。
+- 这些 progressive 卡的类型真相源保存在本地 Xiuyuan / FSRS 数据里，不依赖块级 `custom-fsrs-card-type`；块属性只保留必要的 `custom-xiuyuan-id`、原生 Riff 标记，以及 `custom-fsrs-reading-*` 来源/lineage 信息。
+- 新的 progressive-owned `piece` / `excerpt` / `derived-item` 不再写 deprecated `custom-fsrs-card-type`，但非 progressive 的历史 quick/card/sync 路径仍可能兼容读写该旧属性。
+
 ---
 
 ## 10. AI Workbench / Capture

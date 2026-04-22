@@ -8,11 +8,13 @@ import { TemplateId } from '../../domain/TemplateId';
 import { CardFace } from '../../domain/CardFace';
 import { Priority } from '../../domain/Priority';
 
-const { setBlockAttrsMock } = vi.hoisted(() => ({
+const { getBlockAttrsMock, setBlockAttrsMock } = vi.hoisted(() => ({
+  getBlockAttrsMock: vi.fn(),
   setBlockAttrsMock: vi.fn(),
 }));
 
 vi.mock('@/core/siyuan/api', () => ({
+  getBlockAttrs: getBlockAttrsMock,
   setBlockAttrs: setBlockAttrsMock,
 }));
 
@@ -24,6 +26,7 @@ function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown })
 }
 
 function createStorageMock() {
+  const xiuyuanStore = new Map<string, unknown>();
   const cardStore = new Map<string, FSRSCard>();
 
   const createCard = vi.fn(async (_: unknown, card: FSRSCard) => {
@@ -36,16 +39,39 @@ function createStorageMock() {
 
   return {
     mock: {
-      getXiuYuan: vi.fn(() => undefined),
-      upsertXiuYuan: vi.fn(),
-      getAllCards: vi.fn(() => []),
+      runWriteTransaction: vi.fn(async (_label: string, operation: () => unknown) => operation()),
+      getStoreData: vi.fn(() => ({
+        version: 1,
+        xiuyuans: Object.fromEntries(xiuyuanStore),
+        cards: Object.fromEntries(cardStore),
+        cardDTOs: {},
+      })),
+      restoreStoreSnapshot: vi.fn((snapshot: {
+        xiuyuans?: Record<string, unknown>;
+        cards?: Record<string, FSRSCard>;
+      }) => {
+        xiuyuanStore.clear();
+        cardStore.clear();
+        for (const [id, xiuyuan] of Object.entries(snapshot.xiuyuans ?? {})) {
+          xiuyuanStore.set(id, xiuyuan);
+        }
+        for (const [id, card] of Object.entries(snapshot.cards ?? {})) {
+          cardStore.set(id, card);
+        }
+      }),
+      getXiuYuan: vi.fn((xiuyuanId: string) => xiuyuanStore.get(xiuyuanId)),
+      upsertXiuYuan: vi.fn((xiuyuan: { id: string }) => {
+        xiuyuanStore.set(xiuyuan.id, xiuyuan);
+      }),
+      getAllCards: vi.fn(() => Array.from(cardStore.values())),
+      getCardsByBlockId: vi.fn(() => []),
       getCardsByXiuyuanId: vi.fn(() => []),
       deleteCard: vi.fn(async () => undefined),
       getCard: vi.fn((cardId: string) => cardStore.get(cardId)),
       updateCard,
       createCard,
       save: vi.fn(async () => ok(undefined)),
-      getAllXiuYuans: vi.fn(() => []),
+      getAllXiuYuans: vi.fn(() => Array.from(xiuyuanStore.values())),
       deleteXiuYuan: vi.fn(async () => ok(undefined)),
       getCardDTO: vi.fn(),
     },
@@ -56,6 +82,7 @@ function createStorageMock() {
 describe('XiuyuanRepository list-template split-v2 mapping', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getBlockAttrsMock.mockResolvedValue({});
     setBlockAttrsMock.mockResolvedValue(undefined);
   });
 
@@ -215,45 +242,77 @@ describe('XiuyuanRepository list-template split-v2 mapping', () => {
     expect(storageMock.deleteCard).toHaveBeenCalledWith(staleCardId);
   });
 
-  it('does not persist custom-fsrs-card-type for progressive excerpt documents', async () => {
+  it('does not persist custom-fsrs-card-type for progressive-owned cards', async () => {
     const { mock: storageMock } = createStorageMock();
     const repository = new XiuyuanRepository(storageMock as any);
-    const excerptDocId = '20260405000001-exc1234';
-
-    const xiuyuan = must(
-      Xiuyuan.create({
-        blockIDs: [must(BlockId.create(excerptDocId))],
-        templateID: must(TemplateId.create('builtin-topic')),
-        faces: [
-          must(
-            CardFace.create({
-              question: excerptDocId,
-              answer: '',
-              questionBlockId: excerptDocId,
-            })
-          ),
-        ],
-        priority: must(Priority.create(50)),
-        meta: {
-          cardType: 'topic',
-          progressive: {
-            kind: 'excerpt',
-            sourceDocId: 'doc-source-1',
-            sourceBlockId: 'block-source-1',
-          },
-        },
-      })
-    );
-    must(xiuyuan.createCard(0));
-
-    const saveResult = await repository.save(xiuyuan);
-    expect(saveResult.ok).toBe(true);
-
-    expect(setBlockAttrsMock).toHaveBeenCalledWith(
-      excerptDocId,
+    const cases = [
       {
-        'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+        blockId: '20260405000001-exc1234',
+        cardType: 'topic' as const,
+        progressive: {
+          kind: 'excerpt',
+          sourceDocId: 'doc-source-1',
+          sourceBlockId: 'block-source-1',
+        },
       },
-    );
+      {
+        blockId: '20260405000002-piece12',
+        cardType: 'topic' as const,
+        progressive: {
+          kind: 'piece',
+          sessionId: 'session-1',
+          mode: 'linear',
+          pieceDocId: '20260405000002-piece12',
+          pieceIndex: 0,
+          sourceDocId: 'doc-source-1',
+        },
+      },
+      {
+        blockId: '20260405000003-derive1',
+        cardType: 'item' as const,
+        progressive: {
+          kind: 'derived-item',
+          sourceDocId: 'doc-source-1',
+          sourceBlockId: 'block-source-1',
+          parentTopicCardId: 'topic-card-1',
+          storageMode: 'workbench',
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const xiuyuan = must(
+        Xiuyuan.create({
+          blockIDs: [must(BlockId.create(testCase.blockId))],
+          templateID: must(TemplateId.create('builtin-topic')),
+          faces: [
+            must(
+              CardFace.create({
+                question: testCase.blockId,
+                answer: '',
+                questionBlockId: testCase.blockId,
+              })
+            ),
+          ],
+          priority: must(Priority.create(50)),
+          meta: {
+            cardType: testCase.cardType,
+            progressive: testCase.progressive,
+          },
+        })
+      );
+      must(xiuyuan.createCard(0));
+
+      const saveResult = await repository.save(xiuyuan);
+      expect(saveResult.ok).toBe(true);
+
+      expect(setBlockAttrsMock).toHaveBeenCalledWith(
+        testCase.blockId,
+        {
+          'custom-xiuyuan-id': xiuyuan.getId().getValue(),
+        },
+      );
+    }
+    expect(setBlockAttrsMock).toHaveBeenCalledTimes(cases.length);
   });
 });

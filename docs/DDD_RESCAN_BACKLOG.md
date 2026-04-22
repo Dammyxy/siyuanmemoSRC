@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 107)
+Last update: 2026-04-22 (Round 108)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - progressive excerpt split card linkage
+
+- Task: 修正摘录 / split 渐进制卡和插件本地卡、原生 Riff、块属性契约之间的联动，避免 progressive 生成物继续把 `custom-fsrs-card-type` 当成类型事实源。
+- Touched slice: Progressive / Excerpt / Topic-derived item plus Xiuyuan persistence active path across `src/application/services/ProgressiveReadingService.ts`, `src/application/commands/card/CreateCardCommand.ts`, `src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`, focused progressive/repository tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Split piece Topic 创建从 `CardCreationHelper.createQuickCard(...metadata.progressive...)` 收敛到 `CardApplicationService.createCard()` 的 `progressiveLineage` 契约；linear split 继续只释放当前 active piece，complete 后释放下一片，nonlinear 保持全量释放；repository 对 progressive-owned `piece/excerpt/derived-item` 抑制 deprecated card-type 属性写入；并把 Xiuyuan 保存时的逻辑卡查重从全量扫卡收窄到块索引。
+- Debt deferred: 没有做全仓库 `custom-fsrs-card-type` 废弃迁移，非 progressive 的历史 quick/card/sync 路径仍保留兼容读写；也没有改变 progressive 原生 Riff 卡组策略或把 linear split 改成全量立即成卡。
+- Why deferred: 这次目标是修正 progressive 生成物的 active-path 联动和属性契约；全局 card-type attr 迁移、原生 Riff deck 策略和 linear split 产品语义都需要单独设计与更宽的回归面。
+- Next safe step: 若后续要彻底清理旧属性，先列出仍写/读 `custom-fsrs-card-type` 的非 progressive 路径，再为 quick/card/sync 制定分阶段迁移和兼容读取下线计划。
+- Validation: `pnpm vitest run src/application/services/__tests__/ProgressiveReadingService.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.list-template-split-v2.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-split.test.ts src/application/managers/__tests__/DialogManager.progressive-split.spec.ts src/ui/review/v2/__tests__/ReviewView.progressive-excerpt-hyperspace.spec.ts`; `pnpm vitest run src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.riff-sync-binding.test.ts`; `pnpm build`.
 
 ### 2026-04-22 - missing-block orphan flashcard browser scope
 

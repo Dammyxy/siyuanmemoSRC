@@ -36,6 +36,7 @@ export interface ProgressiveLineage {
   sessionId?: string;
   mode?: 'linear' | 'nonlinear';
   pieceDocId?: string;
+  pieceIndex?: number;
   sourceDocId?: string;
   sourceBlockId?: string;
   sourceBlockIds?: string[];

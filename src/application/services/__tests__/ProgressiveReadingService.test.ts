@@ -618,11 +618,18 @@ describe('ProgressiveReadingService', () => {
     expect(cardService.service.createCard).toHaveBeenCalledTimes(1);
     expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
       blockIds: ['piece-1'],
+      cardType: 'topic',
+      progressiveLineage: expect.objectContaining({
+        kind: 'piece',
+        sessionId: expect.any(String),
+        mode: 'linear',
+        pieceDocId: 'piece-1',
+        pieceIndex: 0,
+        sourceDocId: 'doc-1',
+      }),
       metadata: expect.objectContaining({
-        progressive: expect.objectContaining({
-          pieceIndex: 0,
-          pieceDocId: 'piece-1',
-        }),
+        source: 'manual',
+        isDocument: true,
       }),
     }));
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledTimes(1);
@@ -881,9 +888,25 @@ describe('ProgressiveReadingService', () => {
     expect(cardService.service.createCard).toHaveBeenCalledTimes(2);
     expect(cardService.service.createCard).toHaveBeenNthCalledWith(1, expect.objectContaining({
       blockIds: ['piece-1'],
+      cardType: 'topic',
+      progressiveLineage: expect.objectContaining({
+        kind: 'piece',
+        mode: 'nonlinear',
+        pieceDocId: 'piece-1',
+        pieceIndex: 0,
+        sourceDocId: 'doc-1',
+      }),
     }));
     expect(cardService.service.createCard).toHaveBeenNthCalledWith(2, expect.objectContaining({
       blockIds: ['piece-2'],
+      cardType: 'topic',
+      progressiveLineage: expect.objectContaining({
+        kind: 'piece',
+        mode: 'nonlinear',
+        pieceDocId: 'piece-2',
+        pieceIndex: 1,
+        sourceDocId: 'doc-1',
+      }),
     }));
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledTimes(2);
     expect(nativeRiffApi.addRiffCards).toHaveBeenNthCalledWith(1, 'builtin-deck', ['piece-1']);
@@ -1279,7 +1302,15 @@ describe('ProgressiveReadingService', () => {
     const fileService = createFileServiceMock(initialState);
     const port = createProgressiveSiyuanPortMock();
     const cardService = createCardServiceMock();
-    const service = createServiceUnderTest(port, fileService, cardService.service, createSettingsProviderMock());
+    const nativeRiffApi = createProgressiveNativeRiffPortMock();
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService.service,
+      createSettingsProviderMock(),
+      undefined,
+      nativeRiffApi,
+    );
 
     const result = await service.completeCurrentPiece('piece-1');
 
@@ -1295,6 +1326,19 @@ describe('ProgressiveReadingService', () => {
     expect(port.setBlockAttrs).toHaveBeenCalledWith('piece-2', {
       'custom-fsrs-reading-piece-state': 'active',
     });
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      blockIds: ['piece-2'],
+      cardType: 'topic',
+      progressiveLineage: expect.objectContaining({
+        kind: 'piece',
+        sessionId: 'session-1',
+        mode: 'linear',
+        pieceDocId: 'piece-2',
+        pieceIndex: 1,
+        sourceDocId: 'doc-1',
+      }),
+    }));
+    expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['piece-2']);
   });
 
   it('creates ordinary-note excerpts as child excerpt documents without writing Daily Notes trace, even when legacy trace settings are present', async () => {

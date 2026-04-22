@@ -1,7 +1,6 @@
 import type { ProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { ProgressiveBlockRow, ProgressiveDocInfo, ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
-import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import {
   ExcerptRecordService,
@@ -335,7 +334,6 @@ function normalizeProgressiveMode(value: string | undefined): ProgressiveSplitMo
 }
 
 export class ProgressiveReadingService {
-  private readonly cardCreationHelper: CardCreationHelper;
   private generatedNodeIdCounter = 0;
 
   constructor(
@@ -347,9 +345,7 @@ export class ProgressiveReadingService {
     private readonly configuredCaptureStorageService: ConfiguredCaptureStorageService,
     private readonly excerptRecordService: ExcerptRecordService,
     private readonly docTreeScopeRefresher?: ProgressiveDocTreeScopeRefresher,
-  ) {
-    this.cardCreationHelper = new CardCreationHelper(cardService);
-  }
+  ) {}
 
   async splitDocument(
     docId: string,
@@ -1671,19 +1667,20 @@ export class ProgressiveReadingService {
       };
     }
 
-    const result = await this.cardCreationHelper.createQuickCard(input.pieceDocId, {
+    const result = await this.cardService.createCard({
+      blockIds: [input.pieceDocId],
       cardType: 'topic',
+      progressiveLineage: {
+        kind: 'piece',
+        sessionId: input.sessionId,
+        mode: input.mode,
+        pieceDocId: input.pieceDocId,
+        pieceIndex: input.pieceIndex,
+        sourceDocId: input.sourceDocId,
+      },
       metadata: {
         source: 'manual',
         isDocument: true,
-        progressive: {
-          kind: 'piece',
-          sessionId: input.sessionId,
-          mode: input.mode,
-          pieceDocId: input.pieceDocId,
-          sourceDocId: input.sourceDocId,
-          pieceIndex: input.pieceIndex,
-        },
       },
     });
 

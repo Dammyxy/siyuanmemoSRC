@@ -302,7 +302,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   private findExistingCardForLogicalKey(card: FSRSCard, canonicalXiuyuan: IXiuyuan): FSRSCard | null {
     const targetLogicalKey = buildLogicalCardKey(card, canonicalXiuyuan);
-    const existingCards = this.storage.getAllCards();
+    const existingCards = card.blockId
+      ? this.storage.getCardsByBlockId?.(card.blockId) ?? []
+      : [];
     for (const existingCard of existingCards) {
       const existingXiuyuan = this.storage.getXiuYuan(existingCard.xiuyuanID);
       if (buildLogicalCardKey(existingCard, existingXiuyuan) === targetLogicalKey) {
@@ -465,7 +467,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     const progressiveKind = meta?.progressive && typeof meta.progressive === 'object'
       ? (meta.progressive as Record<string, unknown>).kind
       : undefined;
-    if (progressiveKind === 'excerpt') {
+    if (progressiveKind === 'piece' || progressiveKind === 'excerpt' || progressiveKind === 'derived-item') {
       return undefined;
     }
     return meta?.cardType === 'topic' || meta?.cardType === 'item'
