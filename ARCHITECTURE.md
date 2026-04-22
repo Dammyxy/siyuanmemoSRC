@@ -301,7 +301,7 @@ UI surface：
 - `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务。
 - `src/application/services/ReviewApplicationService.ts`：复习流程相关编排。
 - `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
-- `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan。
+- `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan；native `removeFlashcards` 现在走同服务内的 `riff-managed` 定向本地删除，而不是再依赖增量同步或 full sync 才收敛。
 - `src/application/services/ReviewQueuePreparationService.ts` / `DocTreeReviewScopeService.ts`：review scope 与 queue preparation 编排。
 - `src/application/services/ConfiguredCaptureStorageService.ts`：capture 目标存储解析与写入策略。
 - `src/application/services/ExcerptRecordService.ts`：摘录记录与去重相关服务。
@@ -375,8 +375,8 @@ Handlers / entries / helpers：
 共享能力：
 
 - `src/core/shared/domain/events/EventBus.ts`：共享事件总线。
-- `src/core/infrastructure/websocket/TransactionWebSocketService.ts`：事务级 `ws-main` 事件总线订阅与 handler 分发。
-- `src/core/infrastructure/websocket/QuickCardWebSocketService.ts`：快速卡 websocket。
+- `src/core/infrastructure/websocket/TransactionWebSocketService.ts`：事务级 `ws-main` 事件总线订阅与 handler 分发；当前是 AutoCard、doc tree review scope、native riff add/remove 路由的唯一活跃 transaction 入口。
+- `src/core/infrastructure/websocket/QuickCardWebSocketService.ts`：旧快速卡 websocket；当前不在 active runtime 链路中，仅保留作历史实现参考，不应重新接回第二条监听源。
 - `src/core/extensions/*`：可扩展 queue / review provider 抽象。
 - `src/core/siyuan/*`：核心 Siyuan API 封装；不应成为 UI / application 直连入口。
 
@@ -717,8 +717,8 @@ UI 层：
 
 - `EventBus`
 - `UnifiedDataSourceManager` observer 事件
-- `TransactionWebSocketService`（订阅宿主 `eventBus.on('ws-main')`，不再 monkey-patch 主 `WebSocket.onmessage`；当前承载 AutoCard、doc tree review scope，以及窄触发的 native Riff transaction 侦测）
-- `XiuyuanSyncService`（仍是唯一的 Riff 增量/全量对账执行器；transaction 侧只允许调度 debounced `incrementalSync()`，不允许恢复旧的 transaction-driven 拉取/删除主链）
+- `TransactionWebSocketService`（订阅宿主 `eventBus.on('ws-main')`，不再 monkey-patch 主 `WebSocket.onmessage`；当前承载 AutoCard、doc tree review scope，以及统一的 native Riff transaction 路由）
+- `XiuyuanSyncService`（仍是唯一的 Riff 增量/全量对账执行器；transaction 侧的 native riff add/update 走 debounced `incrementalSync()`，native `removeFlashcards` 走同服务内的 managed-local delete route，不恢复旧的 transaction-driven 拉取主链）
 - `AutoCardHandler`（候选块队列 -> settled 评估 -> Xiuyuan ensure/create）
 
 主设计原则：
@@ -736,9 +736,9 @@ UI 层：
 - `postDetectTargets` 属于提交后的幂等跟进步骤；失败只记录日志和计数，不回滚已经成功提交的同步结果。
 - `custom-xiuyuan-id` / `custom-fsrs-xiuyuan-id` 已降级为旧数据兼容兜底读取来源，不再作为自动同步里的真相源，也不再对 managed Riff Xiuyuan 做后台写入、自修复清理或删除时清空。
 - 增量同步触发器现在只允许 `plugin-start` / `browser-open`；`review-open` 已无运行语义，仅作为遗留默认三件套归一化输入被折叠回 `['plugin-start']`。
-- 原生思源闪卡的近实时同步现在走独立 `NativeRiffSyncTriggerHandler`：只在 transaction 中命中 native-Riff 相关 attrs/块变化时 debounce 调度一次 `XiuyuanSyncService.incrementalSync()`，并做单飞防重入；它不放回 `AutoCardHandler`，也不重新承担即时删除/settle 猜测逻辑。
+- 原生思源闪卡的近实时同步现在走独立 `NativeRiffSyncTriggerHandler`：native add/update 事务只在命中相关 attrs/块变化时 debounce 调度一次 `XiuyuanSyncService.incrementalSync()`；native `removeFlashcards` 则直接把 blockIds 路由到 `XiuyuanSyncService.handleNativeRiffRemove()`，只删除本地 `riff-managed` 记录，并做队列化防重入；它不放回 `AutoCardHandler`，也不重新承担即时 settle 猜测逻辑。
 - Riff 增量对账使用 `UnifiedStorageManager.riffSyncState` 持久化 checkpoint；checkpoint 必须和 canonical store 同轮提交，提交失败时不会前进；当 Riff API 只能按时间窗拉取时，默认从上次成功增量时间回退 5 秒，再依赖 blockId / XiuyuanId 幂等 upsert 去重。
-- 增量对账不执行删除，只拉取外部变化并同步合法的非调度元数据；删除检测只允许 full reconcile 执行，因此 full sync 默认周期为 24 小时。
+- 增量对账不执行删除，只拉取外部变化并同步合法的非调度元数据；native 删除由 transaction 路由直接落本地，除此之外的遗漏删除仍只允许 full reconcile 兜底，因此 full sync 默认周期为 24 小时。
 - ownership 规则固定为 local-owned 优先：同一 block 已存在 AutoCard / 手动创建的本地 Xiuyuan 时，Riff 对账不创建第二个 Xiuyuan、不改模板/卡面结构、不覆盖本地调度数据；riff-owned 仅允许同步合法元数据并在 full reconcile 中删除。
 - `UnifiedStorageManager` 提供本地写入协调与异常 merge 日志；命中存储 merge 视为多窗口/外部实例冲突兜底，不再是正常单写者流程。
 - 当前仍不提供跨设备分布式锁；多窗口/多端同时写入会由 storage merge、逻辑 face 去重与稳定 Xiuyuan/card id 收敛。

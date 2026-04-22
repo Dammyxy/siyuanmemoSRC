@@ -15,8 +15,12 @@ function createDeferred<T>() {
 function createHandler(options?: {
   incrementalEnabled?: boolean;
   syncImpl?: ReturnType<typeof vi.fn>;
+  upsertImpl?: ReturnType<typeof vi.fn>;
+  removeImpl?: ReturnType<typeof vi.fn>;
 }) {
   const incrementalSync = options?.syncImpl || vi.fn(async () => ({ ok: true }));
+  const handleNativeRiffUpsert = options?.upsertImpl;
+  const handleNativeRiffRemove = options?.removeImpl;
   const plugin = {
     getContext: () => ({
       getSettingsService: () => ({
@@ -30,12 +34,16 @@ function createHandler(options?: {
       }),
       getHybridSyncService: () => ({
         incrementalSync,
+        handleNativeRiffUpsert,
+        handleNativeRiffRemove,
       }),
     }),
   };
   return {
     handler: new NativeRiffSyncTriggerHandler(plugin as never, { debounceMs: 200 }),
     incrementalSync,
+    handleNativeRiffUpsert,
+    handleNativeRiffRemove,
   };
 }
 
@@ -51,6 +59,17 @@ function nativeRiffTransactions() {
           },
         },
       },
+    }],
+    undoOperations: null,
+  }];
+}
+
+function nativeRiffRemoveTransactions(blockIds: string[]) {
+  return [{
+    doOperations: [{
+      action: 'removeFlashcards',
+      id: '',
+      blockIDs: blockIds,
     }],
     undoOperations: null,
   }];
@@ -140,5 +159,41 @@ describe('NativeRiffSyncTriggerHandler', () => {
       source: 'native-riff-transaction',
       persistIdleCheckpoint: false,
     });
+  });
+
+  it('routes removeFlashcards directly to native riff removal without scheduling incremental sync', async () => {
+    const handleNativeRiffRemove = vi.fn(async () => ({ success: true }));
+    const { handler, incrementalSync } = createHandler({ removeImpl: handleNativeRiffRemove });
+
+    handler.handle(nativeRiffRemoveTransactions(['block-1', 'block-2']) as never);
+    await Promise.resolve();
+
+    expect(handleNativeRiffRemove).toHaveBeenCalledTimes(1);
+    expect(handleNativeRiffRemove).toHaveBeenCalledWith(['block-1', 'block-2']);
+
+    await vi.advanceTimersByTimeAsync(250);
+    expect(incrementalSync).not.toHaveBeenCalled();
+  });
+
+  it('queues one follow-up native riff remove batch while the previous delete is in flight', async () => {
+    const deferred = createDeferred<{ success: boolean }>();
+    const handleNativeRiffRemove = vi.fn(() => deferred.promise);
+    const { handler } = createHandler({ removeImpl: handleNativeRiffRemove });
+
+    handler.handle(nativeRiffRemoveTransactions(['block-1']) as never);
+    await Promise.resolve();
+    expect(handleNativeRiffRemove).toHaveBeenCalledTimes(1);
+    expect(handleNativeRiffRemove).toHaveBeenLastCalledWith(['block-1']);
+
+    handler.handle(nativeRiffRemoveTransactions(['block-2', 'block-2']) as never);
+    await Promise.resolve();
+    expect(handleNativeRiffRemove).toHaveBeenCalledTimes(1);
+
+    deferred.resolve({ success: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handleNativeRiffRemove).toHaveBeenCalledTimes(2);
+    expect(handleNativeRiffRemove).toHaveBeenLastCalledWith(['block-2']);
   });
 });

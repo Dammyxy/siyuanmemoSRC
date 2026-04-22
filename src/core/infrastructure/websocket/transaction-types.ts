@@ -10,6 +10,8 @@ export interface WSMessage {
 export interface DoOperationData extends JsonObject {
   new?: JsonObject;
   old?: JsonObject;
+  blockIDs?: string[];
+  ids?: string[];
 }
 
 export interface DoOperation {
@@ -19,6 +21,8 @@ export interface DoOperation {
   parentID?: string;
   previousID?: string;
   nextID?: string;
+  blockIDs?: string[];
+  ids?: string[];
 }
 
 export interface Transaction {
@@ -34,18 +38,33 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function parseDoOperation(value: unknown): DoOperation | null {
   if (!isObject(value)) {
     return null;
   }
 
   const action = asString(value.action);
-  const id = asString(value.id);
-  if (!action || !id) {
+  const data = isObject(value.data) ? (value.data as DoOperationData) : undefined;
+  const id = asString(value.id) ?? '';
+  const blockIDs = asStringArray(value.blockIDs) ?? asStringArray(data?.blockIDs);
+  const ids = asStringArray(value.ids) ?? asStringArray(data?.ids);
+  if (!action || (!id && !blockIDs && !ids)) {
     return null;
   }
 
-  const data = isObject(value.data) ? (value.data as DoOperationData) : undefined;
   const parentID = asString(value.parentID) || undefined;
   const previousID = asString(value.previousID) || undefined;
   const nextID = asString(value.nextID) || undefined;
@@ -57,6 +76,8 @@ function parseDoOperation(value: unknown): DoOperation | null {
     parentID,
     previousID,
     nextID,
+    blockIDs,
+    ids,
   };
 }
 

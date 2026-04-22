@@ -19,6 +19,8 @@ type SettingsServiceLike = {
 
 type HybridSyncServiceLike = {
   incrementalSync: (_onProgress?: unknown, _options?: IncrementalSyncOptions) => Promise<unknown>;
+  handleNativeRiffUpsert?: () => Promise<unknown>;
+  handleNativeRiffRemove?: (blockIds: string[]) => Promise<unknown>;
 };
 
 type ApplicationContextLike = {
@@ -26,7 +28,9 @@ type ApplicationContextLike = {
   getHybridSyncService?: () => HybridSyncServiceLike | undefined;
 };
 
-const RELEVANT_ACTIONS = new Set(['insert', 'update', 'delete', 'setAttrs', 'updateAttrs']);
+const RELEVANT_UPSERT_ACTIONS = new Set(['insert', 'update', 'delete', 'setAttrs', 'updateAttrs']);
+const REMOVE_FLASHCARDS_ACTION = 'removeFlashcards';
+const ADD_FLASHCARDS_ACTION = 'addFlashcards';
 const NATIVE_RIFF_MARKERS = [
   ATTR_RIFF_DECKS,
   ATTR_IS_FLASHCARD,
@@ -65,18 +69,73 @@ function containsNativeRiffMarker(value: unknown): boolean {
   ));
 }
 
-function looksLikeNativeRiffOperation(operation: DoOperation): boolean {
-  if (!RELEVANT_ACTIONS.has(operation.action)) {
+function uniqueStrings(values: Iterable<unknown>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeString(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function extractOperationBlockIds(operation: DoOperation): string[] {
+  const data = isRecord(operation.data) ? operation.data : undefined;
+  return uniqueStrings([
+    ...(operation.blockIDs || []),
+    ...(operation.ids || []),
+    ...(Array.isArray(data?.blockIDs) ? data.blockIDs : []),
+    ...(Array.isArray(data?.ids) ? data.ids : []),
+    operation.id,
+  ]);
+}
+
+function looksLikeNativeRiffUpsert(operation: DoOperation): boolean {
+  if (operation.action === ADD_FLASHCARDS_ACTION) {
+    return extractOperationBlockIds(operation).length > 0;
+  }
+  if (looksLikeNativeRiffAttrRemoval(operation)) {
+    return false;
+  }
+  if (!RELEVANT_UPSERT_ACTIONS.has(operation.action)) {
     return false;
   }
   return containsNativeRiffMarker(operation.data?.new)
     || containsNativeRiffMarker(operation.data?.old);
 }
 
+function looksLikeNativeRiffAttrRemoval(operation: DoOperation): boolean {
+  if (operation.action !== 'setAttrs' && operation.action !== 'updateAttrs') {
+    return false;
+  }
+
+  const oldHasMarker = containsNativeRiffMarker(operation.data?.old);
+  const newHasMarker = containsNativeRiffMarker(operation.data?.new);
+  return oldHasMarker && !newHasMarker;
+}
+
+function extractNativeRiffRemoveBlockIds(operation: DoOperation): string[] {
+  if (operation.action === REMOVE_FLASHCARDS_ACTION) {
+    return extractOperationBlockIds(operation);
+  }
+
+  if (looksLikeNativeRiffAttrRemoval(operation)) {
+    return uniqueStrings([operation.id]);
+  }
+
+  return [];
+}
+
 export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
   private debounceTimer: NodeJS.Timeout | null = null;
   private syncInFlight = false;
   private rerunRequested = false;
+  private nativeRemoveInFlight = false;
+  private readonly pendingNativeRemoveBlockIds = new Set<string>();
   private readonly debounceMs: number;
 
   constructor(
@@ -92,13 +151,26 @@ export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
     if (!this.isEnabled()) {
       return;
     }
-    const hasRelevantChange = transactions.some((transaction) => (
-      (transaction.doOperations || []).some((operation) => looksLikeNativeRiffOperation(operation))
-    ));
-    if (!hasRelevantChange) {
-      return;
+
+    const nativeRemoveBlockIds = uniqueStrings(
+      transactions.flatMap((transaction) => (
+        (transaction.doOperations || []).flatMap((operation) => extractNativeRiffRemoveBlockIds(operation))
+      )),
+    );
+    if (nativeRemoveBlockIds.length > 0) {
+      logger.info('[NativeRiffSyncTrigger] Routing native riff remove operations', {
+        blockIds: nativeRemoveBlockIds,
+      });
+      this.queueNativeRiffRemove(nativeRemoveBlockIds);
     }
-    this.scheduleIncrementalSync();
+
+    const hasRelevantUpsert = transactions.some((transaction) => (
+      (transaction.doOperations || []).some((operation) => looksLikeNativeRiffUpsert(operation))
+    ));
+    if (hasRelevantUpsert) {
+      logger.info('[NativeRiffSyncTrigger] Routing native riff add/update operations through incremental sync');
+      this.scheduleIncrementalSync();
+    }
   }
 
   dispose(): void {
@@ -107,6 +179,7 @@ export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
       this.debounceTimer = null;
     }
     this.rerunRequested = false;
+    this.pendingNativeRemoveBlockIds.clear();
   }
 
   private getContext(): ApplicationContextLike | null {
@@ -153,10 +226,14 @@ export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
 
     this.syncInFlight = true;
     try {
-      await hybridSyncService.incrementalSync(undefined, {
-        source: 'native-riff-transaction',
-        persistIdleCheckpoint: false,
-      });
+      if (typeof hybridSyncService.handleNativeRiffUpsert === 'function') {
+        await hybridSyncService.handleNativeRiffUpsert();
+      } else {
+        await hybridSyncService.incrementalSync(undefined, {
+          source: 'native-riff-transaction',
+          persistIdleCheckpoint: false,
+        });
+      }
     } catch (error) {
       logger.warn('[NativeRiffSyncTrigger] Incremental sync failed:', {
         error: error instanceof Error ? error.message : normalizeString(error),
@@ -166,6 +243,44 @@ export class NativeRiffSyncTriggerHandler implements ITransactionHandler {
       if (this.rerunRequested) {
         this.rerunRequested = false;
         this.scheduleIncrementalSync();
+      }
+    }
+  }
+
+  private queueNativeRiffRemove(blockIds: string[]): void {
+    for (const blockId of blockIds) {
+      this.pendingNativeRemoveBlockIds.add(blockId);
+    }
+    void this.flushNativeRiffRemoveQueue();
+  }
+
+  private async flushNativeRiffRemoveQueue(): Promise<void> {
+    if (!this.isEnabled() || this.nativeRemoveInFlight || this.pendingNativeRemoveBlockIds.size === 0) {
+      return;
+    }
+
+    const hybridSyncService = this.getContext()?.getHybridSyncService?.();
+    if (typeof hybridSyncService?.handleNativeRiffRemove !== 'function') {
+      logger.warn('[NativeRiffSyncTrigger] Native riff remove handler is unavailable; skip local delete routing');
+      this.pendingNativeRemoveBlockIds.clear();
+      return;
+    }
+
+    const blockIds = Array.from(this.pendingNativeRemoveBlockIds);
+    this.pendingNativeRemoveBlockIds.clear();
+    this.nativeRemoveInFlight = true;
+
+    try {
+      await hybridSyncService.handleNativeRiffRemove(blockIds);
+    } catch (error) {
+      logger.warn('[NativeRiffSyncTrigger] Native riff remove routing failed:', {
+        blockIds,
+        error: error instanceof Error ? error.message : normalizeString(error),
+      });
+    } finally {
+      this.nativeRemoveInFlight = false;
+      if (this.pendingNativeRemoveBlockIds.size > 0) {
+        void this.flushNativeRiffRemoveQueue();
       }
     }
   }

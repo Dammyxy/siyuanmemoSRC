@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-22 (Round 104)
+Last update: 2026-04-22 (Round 105)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-22 - native riff remove routing and managed-local delete convergence
+
+- Task: Fix native/plugin flashcard cancel so native `removeFlashcards` no longer leaves locally reviewable cards behind, and keep the transaction listener on one `ws-main` route without reintroducing duplicate websocket sources.
+- Touched slice: Siyuan integration / Xiuyuan sync / card deletion semantics across `src/core/infrastructure/websocket/transaction-types.ts`, `src/application/handlers/NativeRiffSyncTriggerHandler.ts`, `src/application/services/XiuyuanSyncService.ts`, focused sync/websocket regression coverage, and `ARCHITECTURE.md`.
+- Debt fixed now: Extended transaction parsing so `removeFlashcards` operations with only `blockIDs/ids` survive `ws-main` decoding; upgraded `NativeRiffSyncTriggerHandler` from one coarse incremental trigger into a router that debounces native add/update but directly queues native remove block ids; added `XiuyuanSyncService.handleNativeRiffRemove()` so native cancel deletes only local `riff-managed` Xiuyuans for the affected blocks; and kept the active listener topology on the shared `TransactionWebSocketService` while explicitly documenting `QuickCardWebSocketService` as legacy/inactive.
+- Debt deferred: Block-menu/plugin delete still goes through the existing strong local delete path and outbound Riff deletion flow, including the older event-driven Riff delete sync duplication around manual deletes; there is still no broader transaction classifier extracted for every future realtime feature.
+- Why deferred: The active regression was stale locally reviewable cards after native cancel plus ambiguity around listener duplication, while reworking plugin delete side effects or extracting a cross-feature transaction classifier would widen this bounded fix into broader CRUD and host-integration refactors.
+- Next safe step: If manual/plugin delete still shows duplicate Riff-remove side effects in real usage, isolate that path next by separating “local delete already removed from Riff” from event-bus outbound delete sync before broadening transaction routing again.
+- Validation: `pnpm exec vitest run src/core/infrastructure/websocket/__tests__/transaction-types.test.ts src/application/handlers/__tests__/NativeRiffSyncTriggerHandler.test.ts src/application/services/__tests__/XiuyuanSyncService.malformed-riff-input.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-22 - review live CDF cue-answer semantics for descriptor cards
 

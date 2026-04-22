@@ -134,7 +134,7 @@ function createRiffBlock(params: {
 }
 
 function createLocalOwnedXiuyuan(blockId: string): Xiuyuan {
-  return must(Xiuyuan.create({
+  const xiuyuan = must(Xiuyuan.create({
     blockIDs: [must(BlockId.create(blockId))],
     templateID: must(TemplateId.create('basic')),
     faces: [
@@ -149,6 +149,30 @@ function createLocalOwnedXiuyuan(blockId: string): Xiuyuan {
       ownership: 'local-owned',
     },
   }));
+  must(xiuyuan.createCard(0));
+  return xiuyuan;
+}
+
+function createManagedXiuyuan(blockId: string): Xiuyuan {
+  const xiuyuan = must(Xiuyuan.create({
+    blockIDs: [must(BlockId.create(blockId))],
+    templateID: must(TemplateId.create('builtin-riff-sync')),
+    faces: [
+      must(CardFace.create({
+        question: `managed-${blockId}`,
+        answer: '',
+        questionBlockId: blockId,
+        answerBlockId: blockId,
+      })),
+    ],
+    meta: {
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+      schedulerType: 'fsrs-v6',
+    },
+  }));
+  must(xiuyuan.createCard(0));
+  return xiuyuan;
 }
 
 function createHarness(options?: {
@@ -351,6 +375,49 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
     expect(changeSet?.creates).toHaveLength(0);
     expect(changeSet?.checkpointAdvance?.lastSuccessfulIncrementalAt).toBeTypeOf('number');
+  });
+
+  it('routes native riff remove to managed-only local deletions', async () => {
+    const { service, xiuyuanRepository } = createHarness();
+    const blockId = '20260302190500-abc1234';
+    const localXiuyuan = createLocalOwnedXiuyuan(blockId);
+    const managedXiuyuan = createManagedXiuyuan(blockId);
+
+    vi.mocked(xiuyuanRepository.findByBlockId).mockResolvedValue({
+      ok: true,
+      value: [localXiuyuan, managedXiuyuan],
+    });
+
+    const result = await service.handleNativeRiffRemove([blockId]);
+
+    expectSyncSuccess(result);
+    expect(result.deletedCount).toBe(1);
+    expect(result.skippedCount).toBe(0);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    const changeSet = vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0];
+    expect(changeSet?.creates).toHaveLength(0);
+    expect(changeSet?.metadataUpdates).toHaveLength(0);
+    expect(changeSet?.deletes).toHaveLength(1);
+    expect(changeSet?.deletes[0]?.blockId).toBe(blockId);
+    expect(changeSet?.deletes[0]?.xiuyuanEntity).toBe(managedXiuyuan);
+  });
+
+  it('treats native riff remove as a no-op when only local-owned cards remain', async () => {
+    const { service, xiuyuanRepository } = createHarness();
+    const blockId = '20260302191000-abc1234';
+    const localXiuyuan = createLocalOwnedXiuyuan(blockId);
+
+    vi.mocked(xiuyuanRepository.findByBlockId).mockResolvedValue({
+      ok: true,
+      value: [localXiuyuan],
+    });
+
+    const result = await service.handleNativeRiffRemove([blockId]);
+
+    expectSyncSuccess(result);
+    expect(result.deletedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).not.toHaveBeenCalled();
   });
 
   it('skips malformed legacy migration cards during startup and still completes start()', async () => {

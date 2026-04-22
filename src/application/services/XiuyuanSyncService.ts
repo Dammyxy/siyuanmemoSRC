@@ -1106,7 +1106,7 @@ export class XiuyuanSyncService {
             changeSet.stats.addedCount++;
         }
 
-        logger.info('Incremental reconcile never deletes local Xiuyuans; run full sync for deletion reconciliation');
+        logger.info('Incremental reconcile only handles native riff upsert/metadata sync; native riff removals use direct delete routing and full sync remains the deletion fallback');
         changeSet.checkpointAdvance = {
             lastSuccessfulIncrementalAt: startTime,
             lastSuccessfulIncrementalCursor: `timestamp:${startTime}`,
@@ -1229,6 +1229,56 @@ export class XiuyuanSyncService {
         return changeSet;
     }
 
+    private async buildNativeRiffRemoveChangeSet(blockIds: string[]): Promise<SyncChangeSet> {
+        const changeSet = this.createEmptyChangeSet('delete');
+        const normalizedBlockIds = Array.from(new Set(
+            blockIds
+                .map((blockId) => String(blockId || '').trim())
+                .filter((blockId): blockId is string => Boolean(blockId)),
+        ));
+        const seenXiuyuanIds = new Set<string>();
+
+        for (const blockId of normalizedBlockIds) {
+            const blockIdResult = BlockId.create(blockId);
+            if (!blockIdResult.ok) {
+                changeSet.stats.skippedCount++;
+                logger.warn('[XiuyuanSyncService] Skip native riff remove for invalid block id', { blockId });
+                continue;
+            }
+
+            const xiuyuansResult = await this.xiuyuanRepository.findByBlockId(blockIdResult.value);
+            if (!xiuyuansResult.ok) {
+                changeSet.stats.skippedCount++;
+                logger.warn('[XiuyuanSyncService] Failed to inspect local Xiuyuan state for native riff remove', {
+                    blockId,
+                    error: xiuyuansResult.error,
+                });
+                continue;
+            }
+
+            const managedXiuyuans = xiuyuansResult.value.filter((xiuyuan) => this.isManagedRiffXiuyuan(xiuyuan));
+            if (managedXiuyuans.length === 0) {
+                changeSet.stats.skippedCount++;
+                continue;
+            }
+
+            for (const xiuyuan of managedXiuyuans) {
+                const xiuyuanId = xiuyuan.getId().getValue();
+                if (seenXiuyuanIds.has(xiuyuanId)) {
+                    continue;
+                }
+                seenXiuyuanIds.add(xiuyuanId);
+                changeSet.deletes.push({
+                    blockId,
+                    xiuyuanEntity: xiuyuan,
+                });
+            }
+        }
+
+        changeSet.stats.deletedCount = changeSet.deletes.length;
+        return changeSet;
+    }
+
     private async applyPlannedSync(
         changeSet: SyncChangeSet,
         onProgress: ProgressCallback | undefined
@@ -1323,6 +1373,50 @@ export class XiuyuanSyncService {
                     return this.failSync('incremental', error);
                 }
             });
+        });
+    }
+
+    async handleNativeRiffUpsert(): Promise<SyncResult> {
+        logger.info('[XiuyuanSyncService] Handling native riff add/update via incremental sync route');
+        return this.incrementalSync(undefined, {
+            source: 'native-riff-transaction',
+            persistIdleCheckpoint: false,
+        });
+    }
+
+    async handleNativeRiffRemove(blockIds: string[]): Promise<SyncResult> {
+        return this.runSyncExclusive('delete', async () => {
+            const startTime = this.beginSync('delete');
+
+            try {
+                const changeSet = await this.buildNativeRiffRemoveChangeSet(blockIds);
+                if (changeSet.deletes.length === 0) {
+                    const result: SyncResult = {
+                        success: true,
+                        addedCount: 0,
+                        updatedCount: 0,
+                        deletedCount: 0,
+                        skippedCount: changeSet.stats.skippedCount,
+                    };
+
+                    return this.completeSync(
+                        'delete',
+                        startTime,
+                        result,
+                        `Native riff remove completed without local deletions: deleted 0, skipped ${result.skippedCount}`
+                    );
+                }
+
+                const result = await this.applyPlannedSync(changeSet, undefined);
+                return this.completeSync(
+                    'delete',
+                    startTime,
+                    result,
+                    `Native riff remove completed: deleted ${result.deletedCount}, skipped ${result.skippedCount}`
+                );
+            } catch (error) {
+                return this.failSync('delete', error);
+            }
         });
     }
     
