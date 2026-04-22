@@ -7,7 +7,10 @@ import {
   type DescriptorOrDefinitionKind,
 } from './shared/DescriptorTemplateStrategy';
 import { findConceptByUpwardSearch } from './shared/ConceptLocator';
-import { normalizeCueAnswerSource, parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
+import {
+  extractDescriptorGroupHintFromCandidates,
+  parseCueAndAnswer,
+} from '@/core/xiuyuan/parseCueAndAnswer';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CreateCdfMultilineCardsUseCase');
@@ -51,37 +54,8 @@ type CdfDescriptorMeta = {
   answer: string;
 };
 
-const FW_SEMICOLON = '\uFF1B';
-const DESCRIPTOR_MULTILINE_TAIL_RE = new RegExp(`\\s*(;;;|${FW_SEMICOLON}{3})\\s*$`);
-
 function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
-}
-
-function normalizeForTextParsing(text: string): string {
-  return normalizeCueAnswerSource(text);
-}
-
-function extractDescriptorGroupHint(source: string): string {
-  const normalized = normalizeForTextParsing(source);
-  if (!normalized) {
-    return '';
-  }
-  const stripped = normalized.replace(DESCRIPTOR_MULTILINE_TAIL_RE, '').trim();
-  return stripped || normalized;
-}
-
-function extractDescriptorGroupHintFromCandidates(...sources: Array<string | undefined>): string {
-  for (const source of sources) {
-    if (!source) {
-      continue;
-    }
-    const hint = extractDescriptorGroupHint(source);
-    if (hint.length > 0) {
-      return hint;
-    }
-  }
-  return '';
 }
 
 function isDefinitionTemplate(templateId: string): boolean {

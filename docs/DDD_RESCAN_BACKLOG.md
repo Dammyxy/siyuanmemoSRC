@@ -4,6 +4,16 @@ Last update: 2026-04-22 (Round 104)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-22 - review live CDF cue-answer semantics for descriptor cards
+
+- Task: Make review-time descriptor cards prefer the current `;;;` group title and current child `→` cue-answer split instead of the stale `cdf_*` snapshot written when the card was created.
+- Touched slice: Descriptor review rendering active path across `src/core/xiuyuan/parseCueAndAnswer.ts`, `src/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase.ts`, `src/core/card/descriptor-card/{infrastructure,application}`, focused descriptor/review regression coverage, and this backlog.
+- Debt fixed now: Moved descriptor-group hint parsing into shared Xiuyuan core helpers; taught the descriptor repository to walk from the current child paragraph up to its enclosing `;;;` group and extract live group/cue/answer context; made descriptor review rendering prefer that live context over stale `fieldMapping.cdf_*`; and added descriptor-group block ids to the current-card dependency set so review-local `ws-main` refresh reacts to group-title edits too.
+- Debt deferred: Browser surfaces and stored card metadata still keep the old snapshot semantics, and this fix only re-renders the currently visible review card instead of resyncing queued or persisted descriptor card payloads.
+- Why deferred: The active bug was stale review output for the current descriptor card, while browser-wide live re-rendering or storage/meta repair would widen this bounded fix into datasource, persistence, and cross-surface coordination work.
+- Next safe step: If browser or editor surfaces also need live `;;; / →` semantics, extract the same descriptor live-fusion context behind a shared card-view hydration boundary before changing stored card metadata or sync contracts.
+- Validation: `pnpm exec vitest run src/core/card/descriptor-card/__tests__/DescriptorCardRepository.cdf-fusion.test.ts src/core/card/descriptor-card/__tests__/DescriptorCardRenderService.cdf-fusion.test.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-22 - review source-block auto-refresh for non-native review surfaces
 
 - Task: Make non-native review surfaces refresh the current card when its source blocks change, without depending on quick-card sync or native riff incremental sync toggles.

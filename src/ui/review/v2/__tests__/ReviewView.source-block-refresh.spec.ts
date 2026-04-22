@@ -114,7 +114,13 @@ const ReviewContentStub = defineComponent({
   },
   setup(props, { expose }) {
     expose({
-      getDependencyBlockIds: () => ['concept-block', 'descriptor-block-1', 'answer-block'],
+      getDependencyBlockIds: () => [
+        'concept-block',
+        'descriptor-block-1',
+        'descriptor-group-block',
+        'descriptor-group-paragraph',
+        'answer-block',
+      ],
     });
 
     return () => h(
@@ -208,7 +214,7 @@ describe('ReviewView source block refresh', () => {
         data: [{
           doOperations: [{
             action: 'update',
-            id: 'concept-block',
+            id: 'descriptor-group-paragraph',
           }],
           undoOperations: null,
         }],
@@ -226,6 +232,23 @@ describe('ReviewView source block refresh', () => {
         data: [{
           doOperations: [{
             action: 'update',
+            id: 'descriptor-block-1',
+          }],
+          undoOperations: null,
+        }],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(200);
+    await flushPromises();
+
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:2');
+
+    wsMainListener?.({
+      detail: {
+        cmd: 'transactions',
+        data: [{
+          doOperations: [{
+            action: 'update',
             id: 'unrelated-block',
           }],
           undoOperations: null,
@@ -235,7 +258,7 @@ describe('ReviewView source block refresh', () => {
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
-    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:1');
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:2');
 
     wrapper.unmount();
   });

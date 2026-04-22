@@ -20,6 +20,7 @@ export interface SiyuanBlock {
   id: string;
   content: string;
   parentId?: string;
+  type?: string;
 }
 
 /**
@@ -34,6 +35,7 @@ interface BlockRow extends Record<string, unknown> {
   id: string;
   content: string | null;
   parent_id: string | null;
+  type: string | null;
 }
 
 interface AttributeRow extends Record<string, unknown> {
@@ -43,6 +45,10 @@ interface AttributeRow extends Record<string, unknown> {
 interface QueryBlockRow extends Record<string, unknown> {
   id: string;
   content: string | null;
+}
+
+interface IdRow extends Record<string, unknown> {
+  id: string | null;
 }
 
 export class SiyuanBlockAdapter {
@@ -55,7 +61,7 @@ export class SiyuanBlockAdapter {
   async getBlock(blockId: string): Promise<SiyuanBlock | null> {
     try {
       const query = `
-        SELECT id, content, parent_id
+        SELECT id, content, parent_id, type
         FROM blocks
         WHERE id = '${blockId}'
       `;
@@ -71,13 +77,15 @@ export class SiyuanBlockAdapter {
       logger.debug('[SiYuanMemo][SiyuanBlockAdapter] getBlock result:', {
         id: block.id,
         content: block.content?.substring(0, 50),
-        parentId: block.parent_id
+        parentId: block.parent_id,
+        type: block.type,
       });
 
       return {
         id: block.id,
         content: block.content || '',
         parentId: block.parent_id,
+        type: block.type || undefined,
       };
     } catch (error) {
       logger.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting block:', error);
@@ -113,6 +121,33 @@ export class SiyuanBlockAdapter {
       return block?.parentId || null;
     } catch (error) {
       logger.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting parent block ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 获取 list-item 下的首个段落块
+   */
+  async getFirstParagraphChildBlock(listItemId: string): Promise<SiyuanBlock | null> {
+    try {
+      const query = `
+        SELECT id
+        FROM blocks
+        WHERE parent_id = '${listItemId}'
+          AND type = 'p'
+        ORDER BY sort ASC, id ASC
+        LIMIT 1
+      `;
+
+      const results = await sql<IdRow>(query);
+      const paragraphId = typeof results?.[0]?.id === 'string' ? results[0].id : '';
+      if (!paragraphId) {
+        return null;
+      }
+
+      return await this.getBlock(paragraphId);
+    } catch (error) {
+      logger.error('[SiYuanMemo][SiyuanBlockAdapter] Error getting first paragraph child block:', error);
       return null;
     }
   }

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DescriptorCardRenderService } from '../application/DescriptorCardRenderService';
+import type { LiveCdfDescriptorFusionContext } from '../infrastructure/DescriptorCardRepository';
 
-function createService(content: string) {
+function createService(content: string, options?: { cdfFusionContext?: LiveCdfDescriptorFusionContext }) {
   const repository = {
     loadDescriptorCard: vi.fn().mockResolvedValue({
       blockId: 'descriptor-block',
@@ -15,6 +16,7 @@ function createService(content: string) {
         isConceptCard: true,
       },
       siblingDescriptors: [],
+      cdfFusionContext: options?.cdfFusionContext,
     }),
     getCardTypeMarker: vi.fn().mockResolvedValue('descriptor'),
   };
@@ -27,6 +29,73 @@ function createService(content: string) {
 }
 
 describe('DescriptorCardRenderService CDF fusion', () => {
+  it('prefers live CDF fusion context over stale stored snapshot metadata', async () => {
+    const { service } = createService('旧数据', {
+      cdfFusionContext: {
+        groupBlockId: 'group-block',
+        groupParagraphId: 'group-paragraph',
+        groupHint: '特征',
+        childCue: '卡片',
+        childAnswer: '被设计为独立单元',
+      },
+    });
+
+    const vm = await service.prepareViewModel('descriptor-block', {
+      meta: {
+        typeMarker: 'descriptor-forward',
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+          cdf_group_hint: '起源',
+          cdf_child_cue: '作者',
+          cdf_child_answer: 'woz',
+        },
+      },
+    });
+
+    expect(vm).not.toBeNull();
+    expect(vm!.frontHtml).toContain('特征，卡片');
+    expect(vm!.frontHtml).not.toContain('起源，作者');
+    expect(vm!.backHtml).toContain('被设计为独立单元');
+    expect(vm!.dependencyBlockIds).toEqual(expect.arrayContaining([
+      'descriptor-block',
+      'concept-block',
+      'group-block',
+      'group-paragraph',
+    ]));
+  });
+
+  it('uses live group-only question when current child sentence no longer has cue separator', async () => {
+    const { service } = createService('卡片被设计为独立单元', {
+      cdfFusionContext: {
+        groupBlockId: 'group-block',
+        groupParagraphId: 'group-paragraph',
+        groupHint: '特征',
+        childCue: '',
+        childAnswer: '卡片被设计为独立单元',
+      },
+    });
+
+    const vm = await service.prepareViewModel('descriptor-block', {
+      meta: {
+        typeMarker: 'descriptor-forward',
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+          cdf_group_hint: '起源',
+          cdf_child_cue: '作者',
+          cdf_child_answer: 'woz',
+        },
+      },
+    });
+
+    expect(vm).not.toBeNull();
+    expect(vm!.frontHtml).toContain('特征');
+    expect(vm!.frontHtml).not.toContain('特征，');
+    expect(vm!.frontHtml).not.toContain('起源');
+    expect(vm!.backHtml).toContain('卡片被设计为独立单元');
+  });
+
   it('renders forward fused question for cdf metadata', async () => {
     const { service } = createService('作者→woz');
 

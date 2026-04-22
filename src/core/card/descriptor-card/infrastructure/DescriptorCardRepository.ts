@@ -8,6 +8,11 @@
  */
 
 import type { SiyuanBlockAdapter } from './SiyuanBlockAdapter';
+import {
+  extractDescriptorGroupHintFromCandidates,
+  hasDescriptorGroupHintTail,
+  parseCueAndAnswer,
+} from '@/core/xiuyuan/parseCueAndAnswer';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DescriptorCardRepository');
@@ -32,6 +37,7 @@ export interface DescriptorCardData {
   html: string;
   parentConcept: ParentConceptBlock | null;
   siblingDescriptors: SiblingDescriptor[];
+  cdfFusionContext?: LiveCdfDescriptorFusionContext;
 }
 
 /**
@@ -41,6 +47,14 @@ export interface SiblingDescriptor {
   blockId: string;
   content: string;
   attribute: string; // 属性名（;; 前面的部分）
+}
+
+export interface LiveCdfDescriptorFusionContext {
+  groupBlockId: string;
+  groupParagraphId: string;
+  groupHint: string;
+  childCue: string;
+  childAnswer: string;
 }
 
 interface DescriptorCardInput {
@@ -110,6 +124,7 @@ export class DescriptorCardRepository {
       const siblingDescriptors = parentConcept
         ? await this.getSiblingDescriptors(parentConcept.blockId, blockId)
         : [];
+      const cdfFusionContext = await this.loadLiveCdfFusionContext(descriptorBlock, descriptorKramdown);
 
       return {
         blockId,
@@ -117,6 +132,7 @@ export class DescriptorCardRepository {
         html: descriptorHtml,
         parentConcept,
         siblingDescriptors,
+        cdfFusionContext,
       };
     } catch (error) {
       logger.error('[SiYuanMemo][DescriptorCardRepository] Failed to load descriptor card:', error);
@@ -257,6 +273,56 @@ export class DescriptorCardRepository {
 
     const value = (fieldMapping as Record<string, unknown>)[key];
     return typeof value === 'string' && value.length > 0 ? value : null;
+  }
+
+  private async loadLiveCdfFusionContext(
+    descriptorBlock: { id: string; content: string },
+    descriptorKramdown: string,
+  ): Promise<LiveCdfDescriptorFusionContext | undefined> {
+    const descriptorListItemId = await this.siyuanAdapter.getParentBlockId(descriptorBlock.id);
+    if (!descriptorListItemId) {
+      return undefined;
+    }
+
+    const descriptorListId = await this.siyuanAdapter.getParentBlockId(descriptorListItemId);
+    if (!descriptorListId) {
+      return undefined;
+    }
+
+    const groupBlockId = await this.siyuanAdapter.getParentBlockId(descriptorListId);
+    if (!groupBlockId) {
+      return undefined;
+    }
+
+    const groupParagraph = await this.siyuanAdapter.getFirstParagraphChildBlock(groupBlockId);
+    if (!groupParagraph) {
+      return undefined;
+    }
+
+    const groupParagraphKramdown = await this.siyuanAdapter.getBlockKramdown(groupParagraph.id);
+    const hasGroupMarker = hasDescriptorGroupHintTail(groupParagraphKramdown || '')
+      || hasDescriptorGroupHintTail(groupParagraph.content || '');
+    if (!hasGroupMarker) {
+      return undefined;
+    }
+
+    const groupHint = extractDescriptorGroupHintFromCandidates(
+      groupParagraphKramdown || undefined,
+      groupParagraph.content,
+    );
+    if (!groupHint) {
+      return undefined;
+    }
+
+    const parsedCueAnswer = parseCueAndAnswer(descriptorBlock.content || descriptorKramdown || '');
+
+    return {
+      groupBlockId,
+      groupParagraphId: groupParagraph.id,
+      groupHint,
+      childCue: parsedCueAnswer.cue,
+      childAnswer: parsedCueAnswer.answer,
+    };
   }
 
   /**

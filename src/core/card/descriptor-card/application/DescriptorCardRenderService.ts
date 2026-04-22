@@ -11,6 +11,7 @@ import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRe
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { DescriptorCard } from '../domain/DescriptorCard';
 import type { DescriptorCardRepository } from '../infrastructure/DescriptorCardRepository';
+import type { LiveCdfDescriptorFusionContext } from '../infrastructure/DescriptorCardRepository';
 import type { SiblingDescriptor } from '../infrastructure/DescriptorCardRepository';
 import { createLogger } from '@/utils/logger';
 
@@ -108,7 +109,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         fsrsCardMeta: fsrsCard?.meta 
       });
 
-      const cdfFusionMeta = this.resolveCdfFusionMeta(fsrsCard);
+      const cdfFusionMeta = this.resolveCdfFusionMeta(fsrsCard, data.cdfFusionContext);
 
       // 6. 分离正面和背面内容，传入概念上下文和方向
       const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse, cdfFusionMeta);
@@ -120,6 +121,8 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         dependencyBlockIds: Array.from(new Set([
           card.blockId,
           card.parentConcept?.blockId,
+          data.cdfFusionContext?.groupBlockId,
+          data.cdfFusionContext?.groupParagraphId,
           ...card.siblingDescriptors.map((sibling) => sibling.blockId),
           ...breadcrumbs.map((item) => item.id),
         ].filter((value): value is string => typeof value === 'string' && value.length > 0))),
@@ -230,31 +233,52 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     }
   }
 
-  private resolveCdfFusionMeta(fsrsCard?: DescriptorCardInput): CdfDescriptorFusionMeta | undefined {
+  private resolveCdfFusionMeta(
+    fsrsCard: DescriptorCardInput | undefined,
+    liveContext?: LiveCdfDescriptorFusionContext,
+  ): CdfDescriptorFusionMeta | undefined {
+    const liveMeta = this.buildCdfFusionMeta(
+      liveContext?.groupHint,
+      liveContext?.childCue,
+      liveContext?.childAnswer,
+    );
+    if (liveMeta) {
+      return liveMeta;
+    }
+
     const fieldMapping = fsrsCard?.meta?.fieldMapping;
     if (!fieldMapping || typeof fieldMapping !== 'object') {
       return undefined;
     }
 
-    const groupHintRaw = fieldMapping['cdf_group_hint'];
-    if (typeof groupHintRaw !== 'string' || groupHintRaw.trim().length === 0) {
+    return this.buildCdfFusionMeta(
+      fieldMapping['cdf_group_hint'],
+      fieldMapping['cdf_child_cue'],
+      fieldMapping['cdf_child_answer'],
+    );
+  }
+
+  private buildCdfFusionMeta(
+    groupHintRaw: unknown,
+    childCueRaw: unknown,
+    childAnswerRaw: unknown,
+  ): CdfDescriptorFusionMeta | undefined {
+    const groupHint = typeof groupHintRaw === 'string' ? groupHintRaw.trim() : '';
+    if (!groupHint) {
       return undefined;
     }
-    const groupHint = groupHintRaw.trim();
 
-    const childCue = typeof fieldMapping['cdf_child_cue'] === 'string'
-      ? fieldMapping['cdf_child_cue'].trim()
-      : '';
-    const childAnswer = typeof fieldMapping['cdf_child_answer'] === 'string'
-      ? fieldMapping['cdf_child_answer'].trim()
-      : '';
-    const fusedAttributeName = childCue ? `${groupHint}，${childCue}` : groupHint;
+    const childCue = typeof childCueRaw === 'string' ? childCueRaw.trim() : '';
+    const childAnswer = typeof childAnswerRaw === 'string' ? childAnswerRaw.trim() : '';
+    if (!childCue && !childAnswer) {
+      return undefined;
+    }
 
     return {
       groupHint,
       childCue,
       childAnswer,
-      fusedAttributeName,
+      fusedAttributeName: childCue ? `${groupHint}，${childCue}` : groupHint,
     };
   }
 
