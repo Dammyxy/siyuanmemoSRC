@@ -181,7 +181,7 @@ onMounted(() => {
 .quick-card-renderer__card {
   flex: 1;
   padding: 48px 32px;
-  font-size: 22px;
+  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
   line-height: 1.625;
   color: var(--b3-theme-on-background);
 }

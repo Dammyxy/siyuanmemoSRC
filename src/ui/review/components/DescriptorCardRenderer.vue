@@ -192,7 +192,7 @@ watch(
 .descriptor-card-renderer__html-content {
   flex: 1;
   padding: 12px 16px 20px;
-  font-size: 16px;
+  font-size: var(--siyuanmemo-review-font-body, 1em);
   line-height: 1.7;
   color: var(--b3-theme-on-surface);
 }

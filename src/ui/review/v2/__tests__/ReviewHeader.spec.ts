@@ -98,10 +98,8 @@ describe('ReviewHeader', () => {
 
     const summary = wrapper.get('.siyuanmemo-review-header__summary');
     const summaryWrap = wrapper.get('.siyuanmemo-review-header__summary-wrap');
-    const brand = wrapper.get('.siyuanmemo-review-header__brand');
     expect(summary.text()).toBe('3');
-    expect(brand.attributes('title')).toBe('提取练习');
-    expect(wrapper.find('.siyuanmemo-review-header__brand-text').exists()).toBe(false);
+    expect(wrapper.find('.siyuanmemo-review-header__queue-switch').exists()).toBe(false);
     expect(wrapper.get('.siyuanmemo-review-header').classes()).toContain('siyuanmemo-review-header--native-dialog');
     expect(summary.attributes('aria-label')).toBe('\u5269\u4f59 3\uff0c\u70b9\u51fb\u9690\u85cf\u5361\u7247\u6570\u91cf');
     expect(summary.attributes('title')).toContain('\u603b\u6570 3');
@@ -137,9 +135,6 @@ describe('ReviewHeader', () => {
 
     expect(wrapper.find('.siyuanmemo-review-header__drag-surface').exists()).toBe(false);
     expect(wrapper.find('.resize__move').exists()).toBe(false);
-    expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).not.toContain('resize__move');
-    expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).not.toContain('siyuanmemo-review-header__drag-zone');
-
     const summary = wrapper.get('.siyuanmemo-review-header__summary');
     const toolbarButton = wrapper.get('.siyuanmemo-review-header__toolbar-button');
 
@@ -147,10 +142,10 @@ describe('ReviewHeader', () => {
     expect(toolbarButton.classes()).not.toContain('resize__move');
     expect(summary.element.closest('.resize__move')).toBeNull();
     expect(toolbarButton.element.closest('.resize__move')).toBeNull();
-    expect(wrapper.find('.siyuanmemo-review-header__brand-text').exists()).toBe(false);
+    expect(wrapper.find('.siyuanmemo-review-header__queue-switch').exists()).toBe(false);
   });
 
-  it('falls back from props.title to header.title and then stats.queueName for the brand text', () => {
+  it('renders a text-only tab queue switch trigger and emits queue-switch with the resolved title', async () => {
     const header = createHeaderState();
     header.title = '神经漫游';
     header.stats.queueName = '提取练习';
@@ -164,7 +159,12 @@ describe('ReviewHeader', () => {
       },
     });
 
-    expect(wrapper.get('.siyuanmemo-review-header__brand-text').text()).toBe('神经漫游');
+    const trigger = wrapper.get('.siyuanmemo-review-header__queue-switch');
+    expect(trigger.text()).toBe('神经漫游');
+    expect(trigger.attributes('title')).toBe('神经漫游');
+
+    await trigger.trigger('click');
+    expect(wrapper.emitted('queue-switch')).toBeTruthy();
 
     header.title = '';
     const wrapper2 = mount(ReviewHeader, {
@@ -176,7 +176,7 @@ describe('ReviewHeader', () => {
       },
     });
 
-    expect(wrapper2.get('.siyuanmemo-review-header__brand-text').text()).toBe('提取练习');
+    expect(wrapper2.get('.siyuanmemo-review-header__queue-switch').text()).toBe('提取练习');
   });
 
   it('closes the counter popover on Escape', async () => {

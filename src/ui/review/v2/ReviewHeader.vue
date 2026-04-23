@@ -19,16 +19,16 @@
         aria-hidden="true"
       ></span>
 
-      <div
-        class="block__logo siyuanmemo-review-header__brand"
-        :class="{
-          'siyuanmemo-review-header__drag-zone resize__move': showBrandDragHandle,
-        }"
+      <button
+        v-if="showInlineQueueSwitchTrigger"
+        type="button"
+        class="siyuanmemo-review-header__queue-switch"
         :title="displayTitle"
+        :aria-label="interpolate(t('switchReviewQueueAriaLabel', '切换复习队列：{title}'), { title: displayTitle })"
+        @click="handleQueueSwitchClick"
       >
-        <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
-        <span v-if="showBrandText" class="siyuanmemo-review-header__brand-text">{{ displayTitle }}</span>
-      </div>
+        <span class="siyuanmemo-review-header__queue-switch-text">{{ displayTitle }}</span>
+      </button>
 
       <div
         ref="counterAreaRef"
@@ -176,6 +176,7 @@ const emit = defineEmits<{
   (e: 'action', actionId: string): void;
   (e: 'context', payload: { id: string; openNewTab: boolean }): void;
   (e: 'breadcrumb-click', crumb: { icon?: string; text: string; id?: string; action?: string }, index: number): void;
+  (e: 'queue-switch', event: MouseEvent): void;
 }>();
 
 const logger = createLogger('ReviewHeader');
@@ -202,8 +203,7 @@ const usesNativeDialogTitlebar = computed(() => (
   && props.isMobile !== true
 ));
 const showDragSurface = computed(() => !props.isMobile && !usesNativeDialogTitlebar.value);
-const showBrandDragHandle = computed(() => !props.isMobile && !usesNativeDialogTitlebar.value);
-const showBrandText = computed(() => !props.isMobile && !usesNativeDialogTitlebar.value);
+const showInlineQueueSwitchTrigger = computed(() => !props.isMobile && props.mode === 'tab');
 
 const counterSummary = computed(() => props.header?.counterSummary || null);
 const counterBadges = computed(() => props.header?.counterBadges || []);
@@ -605,6 +605,11 @@ function handleCloseClick(event: MouseEvent): void {
   emit('toolbar-action', 'close-review', event);
 }
 
+function handleQueueSwitchClick(event: MouseEvent): void {
+  event.stopPropagation();
+  emit('queue-switch', event);
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown);
   document.addEventListener('keydown', handleDocumentKeydown);
@@ -655,35 +660,34 @@ onUnmounted(() => {
   border-radius: inherit;
 }
 
-.siyuanmemo-review-header__brand {
+.siyuanmemo-review-header__queue-switch {
   position: relative;
   z-index: 2;
   grid-column: 1;
   display: inline-flex;
   align-items: center;
   justify-self: start;
-  gap: 6px;
   min-width: 0;
+  max-width: min(260px, 100%);
   padding: 0 4px;
   min-height: 30px;
+  border: none;
   border-radius: 4px;
+  background: transparent;
   color: var(--b3-theme-on-surface-light);
+  cursor: pointer;
+  text-align: left;
 }
 
-.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__brand {
-  min-height: 28px;
-  padding: 0 2px;
-  gap: 0;
-  color: var(--b3-theme-primary);
-}
-
-.siyuanmemo-review-header__brand-text {
+.siyuanmemo-review-header__queue-switch-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
+  font-weight: 500;
   letter-spacing: 0.01em;
-}
-
-.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__brand-text {
-  display: none;
 }
 
 .siyuanmemo-review-header__drag-zone {
@@ -691,7 +695,8 @@ onUnmounted(() => {
   -webkit-app-region: drag;
 }
 
-.siyuanmemo-review-header__brand:hover,
+.siyuanmemo-review-header__queue-switch:hover,
+.siyuanmemo-review-header__queue-switch:focus-visible,
 .siyuanmemo-review-header__drag-surface:hover {
   background: color-mix(in srgb, var(--b3-theme-on-surface-light) 6%, transparent);
 }
@@ -707,6 +712,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.siyuanmemo-review-header__queue-switch,
 .siyuanmemo-review-header__summary-wrap,
 .siyuanmemo-review-header__summary,
 .siyuanmemo-review-header__toolbar,
@@ -935,10 +941,6 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__brand:hover {
-  background: transparent;
-}
-
 .siyuanmemo-review-header__nav-strip {
   display: flex;
   align-items: center;
@@ -962,14 +964,6 @@ onUnmounted(() => {
   gap: 8px;
   padding: 8px;
   min-height: 0;
-}
-
-.siyuanmemo-review-header--mobile .siyuanmemo-review-header__brand {
-  grid-column: 1;
-}
-
-.siyuanmemo-review-header--mobile .siyuanmemo-review-header__brand-text {
-  display: none;
 }
 
 .siyuanmemo-review-header--mobile .siyuanmemo-review-header__summary-wrap {

@@ -1,10 +1,8 @@
 <template>
   <div
-    ref="rootRef"
     class="skip-menu-button"
     :class="{
       'skip-menu-button--mobile': props.isMobile,
-      'skip-menu-button--open': menuOpen,
     }"
   >
     <button
@@ -21,49 +19,18 @@
 
     <button
       class="skip-menu-button__trigger b3-button b3-button--cancel"
-      :aria-expanded="menuOpen ? 'true' : 'false'"
+      aria-haspopup="menu"
+      aria-expanded="false"
       :aria-label="t('moreSkipActions', '更多跳过操作')"
-      @click="toggleMenu"
+      @click="openMenu"
     >
       <svg class="skip-menu-button__chevron"><use xlink:href="#iconUp"></use></svg>
     </button>
-
-    <div
-      v-if="menuOpen"
-      class="skip-menu-button__panel"
-      role="menu"
-      @click.stop
-    >
-      <button
-        class="skip-menu-button__menu-item"
-        role="menuitem"
-        type="button"
-        @click="runMenuAction('insert')"
-      >
-        <svg class="skip-menu-button__menu-icon"><use xlink:href="#iconPin"></use></svg>
-        <span class="skip-menu-button__menu-copy">
-          <span class="skip-menu-button__menu-label">{{ t('insertToPosition', '插入到队列指定位置') }}</span>
-        </span>
-      </button>
-
-      <button
-        v-if="props.canScheduleDate"
-        class="skip-menu-button__menu-item"
-        role="menuitem"
-        type="button"
-        @click="runMenuAction('schedule')"
-      >
-        <svg class="skip-menu-button__menu-icon"><use xlink:href="#iconCalendar"></use></svg>
-        <span class="skip-menu-button__menu-copy">
-          <span class="skip-menu-button__menu-label">{{ t('scheduleDate', '安排复习日期') }}</span>
-        </span>
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { Menu } from 'siyuan';
 
 interface Props {
   i18n?: Record<string, string>;
@@ -83,72 +50,58 @@ const props = withDefaults(defineProps<Props>(), {
 });
 const emit = defineEmits<Emits>();
 
-const rootRef = ref<HTMLElement | null>(null);
-const menuOpen = ref(false);
 const skipHotkeyHint = '0 / x';
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-function closeMenu(): void {
-  menuOpen.value = false;
-}
-
 function handleSkip(event: MouseEvent): void {
   event.stopPropagation();
   event.preventDefault();
-  closeMenu();
   emit('skip');
 }
 
-function toggleMenu(event: MouseEvent): void {
+function resolveMenuAnchor(target: EventTarget | null): HTMLElement | null {
+  return target instanceof HTMLElement ? target : null;
+}
+
+function openMenu(event: MouseEvent): void {
   event.stopPropagation();
   event.preventDefault();
-  menuOpen.value = !menuOpen.value;
-}
 
-function runMenuAction(action: 'insert' | 'schedule'): void {
-  closeMenu();
-  emit(action);
-}
+  const menu = new Menu('review-skip-menu');
+  menu.addItem({
+    icon: 'iconPin',
+    label: t('insertToPosition', '插入到队列指定位置'),
+    click: () => emit('insert'),
+  });
 
-function handleDocumentPointerDown(event: PointerEvent): void {
-  if (!menuOpen.value) {
+  if (props.canScheduleDate) {
+    menu.addItem({
+      icon: 'iconCalendar',
+      label: t('scheduleDate', '安排复习日期'),
+      click: () => emit('schedule'),
+    });
+  }
+
+  const anchor = resolveMenuAnchor(event.currentTarget) || resolveMenuAnchor(event.target);
+  const rect = anchor?.getBoundingClientRect();
+  if (rect) {
+    menu.open({
+      x: rect.right,
+      y: rect.top,
+      isLeft: true,
+    });
     return;
   }
 
-  const target = event.target;
-  if (!(target instanceof Node)) {
-    closeMenu();
-    return;
-  }
-
-  if (rootRef.value?.contains(target)) {
-    return;
-  }
-
-  closeMenu();
+  menu.open({
+    x: event.clientX,
+    y: event.clientY,
+    isLeft: true,
+  });
 }
-
-function handleDocumentKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Escape' || !menuOpen.value) {
-    return;
-  }
-
-  event.stopPropagation();
-  closeMenu();
-}
-
-onMounted(() => {
-  document.addEventListener('pointerdown', handleDocumentPointerDown);
-  document.addEventListener('keydown', handleDocumentKeydown);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', handleDocumentPointerDown);
-  document.removeEventListener('keydown', handleDocumentKeydown);
-});
 </script>
 
 <style scoped>
@@ -167,8 +120,7 @@ onBeforeUnmount(() => {
 }
 
 .skip-menu-button:hover,
-.skip-menu-button:focus-within,
-.skip-menu-button--open {
+.skip-menu-button:focus-within {
   border-color: color-mix(in srgb, var(--b3-theme-primary) 34%, var(--b3-border-color));
   background: color-mix(in srgb, var(--b3-theme-primary-lightest) 54%, var(--b3-theme-background));
 }
@@ -249,61 +201,6 @@ onBeforeUnmount(() => {
   width: 12px;
   height: 12px;
   color: var(--b3-theme-on-surface-light);
-  transition: transform 0.12s ease;
-}
-
-.skip-menu-button--open .skip-menu-button__chevron {
-  transform: rotate(180deg);
-}
-
-.skip-menu-button__panel {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
-  z-index: 20;
-  min-width: 200px;
-  padding: 8px;
-  border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
-  background: var(--b3-theme-background);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
-}
-
-.skip-menu-button__menu-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 12px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--b3-theme-on-surface);
-  text-align: left;
-  transition: background-color 0.12s ease, color 0.12s ease;
-}
-
-.skip-menu-button__menu-item:hover {
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 78%, var(--b3-theme-background));
-  color: var(--b3-theme-primary);
-}
-
-.skip-menu-button__menu-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
-
-.skip-menu-button__menu-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.skip-menu-button__menu-label {
-  font-size: 13px;
-  font-weight: 500;
 }
 
 .skip-menu-button--mobile {
@@ -331,9 +228,5 @@ onBeforeUnmount(() => {
 
 .skip-menu-button--mobile .skip-menu-button__hint {
   font-size: 10px;
-}
-
-.skip-menu-button--mobile .skip-menu-button__panel {
-  min-width: 184px;
 }
 </style>

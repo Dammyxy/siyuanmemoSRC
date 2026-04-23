@@ -204,13 +204,13 @@ watch(
 .concept-definition-card-renderer__html-content {
   flex: 1;
   padding: 12px 16px 20px;
-  font-size: 16px;
+  font-size: var(--siyuanmemo-review-font-body, 1em);
   line-height: 1.7;
   color: var(--b3-theme-on-surface);
 }
 
 .concept-definition-card-renderer__html-content :deep(.concept-definition-question) {
-  font-size: 24px;
+  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
   line-height: 1.6;
 }
 
@@ -230,7 +230,7 @@ watch(
 }
 
 .concept-definition-card-renderer__html-content :deep(.question-repeat) {
-  font-size: 20px;
+  font-size: var(--siyuanmemo-review-font-title, 1.125em);
 }
 
 .concept-definition-card-renderer__html-content :deep(.answer-divider) {
@@ -239,7 +239,7 @@ watch(
   width: 100%;
   margin: 8px 0;
   color: var(--b3-theme-on-surface-light);
-  font-size: 14px;
+  font-size: var(--siyuanmemo-review-font-small, 0.875em);
   font-weight: 500;
 }
 
@@ -260,7 +260,7 @@ watch(
 }
 
 .concept-definition-card-renderer__html-content :deep(.definition-content) {
-  font-size: 22px;
+  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
   line-height: 1.6;
   color: var(--b3-theme-on-surface);
 }
@@ -272,7 +272,7 @@ watch(
 }
 
 .concept-definition-card-renderer__html-content :deep(.reverse-label) {
-  font-size: 18px;
+  font-size: var(--siyuanmemo-review-font-title, 1.125em);
   color: var(--b3-theme-on-surface-light);
 }
 
@@ -281,7 +281,7 @@ watch(
 }
 
 .concept-definition-card-renderer__html-content :deep(.concept-name.large) {
-  font-size: 32px;
+  font-size: var(--siyuanmemo-review-font-display, 2em);
   font-weight: 700;
   color: var(--b3-theme-primary);
 }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createVueDialog } from '@/utils/dialog';
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
+import { QueueType } from '@/types/unified-data-source';
 import { DialogManager } from '../DialogManager';
 
 const { unifiedQueueStrategyMock, unifiedReviewAdapterMock } = vi.hoisted(() => ({
@@ -212,6 +213,21 @@ describe('DialogManager review header variants', () => {
       headerVariant: 'retrieval-practice',
       queueInstance,
       initialSessionState,
+    }));
+  });
+
+  it('switches the current standard review dialog queue without escaping to a new tab', async () => {
+    const { dialogManager, tabManager } = createDialogManager({
+      reviewOpenInNewTabByDefault: true,
+    });
+
+    await dialogManager.switchStandardReviewDialogQueue(QueueType.IncrementalLearning);
+
+    expect(tabManager.openReviewTabInNewTab).not.toHaveBeenCalled();
+    expect(createUnifiedReviewDialog).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'incremental-learning',
+      title: '渐进学习',
+      headerVariant: 'incremental-learning',
     }));
   });
 

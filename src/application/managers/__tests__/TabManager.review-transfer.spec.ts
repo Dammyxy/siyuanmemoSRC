@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TabManager } from '../TabManager';
 import type { FSRSCard } from '@/types/card';
+import { QueueType } from '@/types/unified-data-source';
 import { openTab } from 'siyuan';
 
 const mocks = vi.hoisted(() => ({
@@ -692,5 +693,50 @@ describe('TabManager filter-group review transfer restore', () => {
       id: 'card-special',
       blockId: 'block-special',
     });
+  });
+
+  it('replaces the current review tab when quick-switching to another standard queue', async () => {
+    const manager = {
+      getQueue: vi.fn((queueType: string) => ({
+        getType: () => queueType,
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+      })),
+      notifyObservers: vi.fn(),
+    };
+    const context = {
+      getI18n: vi.fn(() => ({})),
+      getUnifiedDataSourceManager: vi.fn(() => manager),
+      getEventBus: vi.fn(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() })),
+      getSchedulerRouter: vi.fn(() => ({})),
+      getSettingsService: vi.fn(() => ({
+        getSettings: () => ({
+          progressiveReading: {},
+        }),
+      })),
+    } as any;
+    const plugin = {
+      name: 'test-plugin',
+      app: {},
+      i18n: {
+        filterGroupPractice: '分组队列',
+      },
+      addTab: vi.fn(),
+    } as any;
+
+    const tabManager = new TabManager(context, plugin);
+    await tabManager.replaceCurrentReviewTabWithStandardQueue(QueueType.FilterGroup);
+
+    expect(openTab).toHaveBeenCalledWith(expect.objectContaining({
+      keepCursor: false,
+      removeCurrentTab: true,
+      custom: expect.objectContaining({
+        title: '分组队列',
+        data: expect.objectContaining({
+          queueType: 'filter-group',
+          headerVariant: 'filter-group',
+        }),
+      }),
+    }));
   });
 });

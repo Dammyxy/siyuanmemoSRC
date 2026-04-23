@@ -659,6 +659,25 @@ export class TabManager {
     });
   }
 
+  replaceCurrentReviewTabWithStandardQueue(queueType: QueueType): void {
+    const preset = this.resolveStandardReviewPreset(queueType);
+    if (!preset) {
+      logger.warn('Unsupported standard review queue tab replacement target', {
+        queueType,
+      });
+      return;
+    }
+
+    void this.openReviewTabInternal({
+      queue: this.context.getUnifiedDataSourceManager().getQueue(queueType),
+      title: preset.title,
+      headerVariant: preset.headerVariant,
+    }, {
+      keepCursor: false,
+      removeCurrentTab: true,
+    });
+  }
+
   openReviewInNewWindow(options: ReviewTabOptions): void {
     if (!this.canOpenInNewWindow()) {
       logger.warn('New window is not supported in current runtime, opening tab instead');
@@ -739,6 +758,43 @@ export class TabManager {
 
   private getDefaultReviewTitle(): string {
     return this.context.getI18n()?.reviewTitle || 'Review';
+  }
+
+  private resolveStandardReviewPreset(queueType: QueueType): {
+    title: string;
+    headerVariant: ReviewHeaderVariant;
+  } | null {
+    const i18n = this.getPluginI18n();
+
+    switch (queueType) {
+      case QueueType.RetrievalPractice:
+        return {
+          title: i18n.retrievalPractice || '提取练习',
+          headerVariant: 'retrieval-practice',
+        };
+      case QueueType.IncrementalLearning:
+        return {
+          title: i18n.incrementalLearning || '渐进学习',
+          headerVariant: 'incremental-learning',
+        };
+      case QueueType.FinalDrill:
+        return {
+          title: i18n.finalDrill || '刻意练习',
+          headerVariant: 'final-drill',
+        };
+      case QueueType.FilterGroup:
+        return {
+          title: i18n.filterGroupPractice || '分组队列',
+          headerVariant: 'filter-group',
+        };
+      case QueueType.NeuralRoam:
+        return {
+          title: i18n.neuralReviewTitle || '神经漫游',
+          headerVariant: 'neural-roam',
+        };
+      default:
+        return null;
+    }
   }
 
   private buildCustomModelType(tabType: string): string {

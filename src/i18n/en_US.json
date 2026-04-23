@@ -1,5 +1,6 @@
 {
   "reviewTitle": "FSRS Review",
+  "switchReviewQueueAriaLabel": "Switch review queue: {title}",
   "startReview": "Start Retrieval Practice",
   "startDeliberatePractice": "Start Deliberate Practice",
   "startFilterGroupPractice": "Start Filtered Review",

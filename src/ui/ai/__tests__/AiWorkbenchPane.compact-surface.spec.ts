@@ -2,7 +2,7 @@
 
 import { mount } from '@vue/test-utils';
 import { reactive, nextTick } from 'vue';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatConceptCoachPerspectiveSectionMarkdown } from '@/application/services/AIWorkbenchResultFormatter';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import {
@@ -18,6 +18,36 @@ import type {
   AIWorkbenchSurface,
 } from '@/types/ai';
 import AiWorkbenchPane from '../AiWorkbenchPane.vue';
+
+const aiWorkbenchMenuMocks = vi.hoisted(() => {
+  const instances: Array<{ addItem: ReturnType<typeof vi.fn>; open: ReturnType<typeof vi.fn> }> = [];
+
+  class MockMenu {
+    addItem = vi.fn();
+    open = vi.fn();
+
+    constructor() {
+      instances.push(this);
+    }
+  }
+
+  return {
+    instances,
+    MockMenu,
+  };
+});
+
+vi.mock(import('siyuan'), async (importOriginal) => {
+  const actual = await importOriginal<typeof import('siyuan')>();
+  return {
+    ...actual,
+    Constants: {
+      ...(actual.Constants || {}),
+      PROTYLE_CDN: '/stage/protyle',
+    },
+    Menu: aiWorkbenchMenuMocks.MockMenu,
+  };
+});
 
 const DEFAULT_CONCEPT_COACH_PROMPT = '请基于当前材料，完成 AI 理解与制卡：先解释清楚，再生成可自测的候选卡。';
 const DEFAULT_GENERAL_CHAT_PROMPT = '我想围绕当前内容继续聊聊。你可以先帮我抓重点、解释疑点；如果上下文还不够，请直接告诉我还需要补什么。';
@@ -393,6 +423,10 @@ function makePerspectivesRenderEntry() {
 }
 
 describe('AiWorkbenchPane compact surfaces', () => {
+  beforeEach(() => {
+    aiWorkbenchMenuMocks.instances.length = 0;
+  });
+
   it('renders a compact explain-only shell and can reveal history/context drawers', async () => {
     const service = createService('review-dialog-sidecar');
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
@@ -1713,25 +1747,23 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     await moreButton.trigger('click');
     await nextTick();
-    expect(wrapper.find('.ai-chat__bubble-menu-panel').exists()).toBe(true);
-
-    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-    await nextTick();
     expect(wrapper.find('.ai-chat__bubble-menu-panel').exists()).toBe(false);
 
-    await moreButton.trigger('click');
-    await nextTick();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await nextTick();
-    expect(wrapper.find('.ai-chat__bubble-menu-panel').exists()).toBe(false);
+    const menu = aiWorkbenchMenuMocks.instances.at(-1);
+    expect(menu).toBeTruthy();
+    expect(menu?.addItem).toHaveBeenCalledTimes(2);
+    expect(menu?.addItem.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      label: '隐藏上下文',
+    }));
+    expect(menu?.addItem.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      label: '插入分隔',
+    }));
+    expect(menu?.open).toHaveBeenCalled();
 
-    await moreButton.trigger('click');
-    await nextTick();
-    await wrapper.find('.ai-chat__bubble-menu-panel .ai-chat__link-button').trigger('click');
+    await menu?.addItem.mock.calls[0]?.[0].click();
     await nextTick();
 
     expect(toggleMessageHidden).toHaveBeenCalledWith('assistant-text-menu');
-    expect(wrapper.find('.ai-chat__bubble-menu-panel').exists()).toBe(false);
   });
 
   it('falls back to legacy alias keys when rendering persisted explain results', () => {

@@ -2138,6 +2138,15 @@ const content = computed(() => props.content);
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  --siyuanmemo-review-font-base: var(--b3-font-size-editor);
+  --siyuanmemo-review-font-body: var(--siyuanmemo-review-font-base);
+  --siyuanmemo-review-font-small: calc(var(--siyuanmemo-review-font-base) * 0.875);
+  --siyuanmemo-review-font-xs: calc(var(--siyuanmemo-review-font-base) * 0.75);
+  --siyuanmemo-review-font-title: calc(var(--siyuanmemo-review-font-base) * 1.125);
+  --siyuanmemo-review-font-title-lg: calc(var(--siyuanmemo-review-font-base) * 1.375);
+  --siyuanmemo-review-font-display: calc(var(--siyuanmemo-review-font-base) * 2);
+  font-size: var(--siyuanmemo-review-font-body);
+  line-height: 1.7;
   overflow: hidden;
   overflow-x: hidden;
 }
@@ -2153,18 +2162,18 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__empty-icon {
-  font-size: 36px;
+  font-size: var(--siyuanmemo-review-font-display);
   line-height: 1;
 }
 
 .fsrs-review-v2-content__empty-title {
-  font-size: 18px;
+  font-size: var(--siyuanmemo-review-font-title);
   font-weight: 500;
   color: var(--b3-theme-on-surface);
 }
 
 .fsrs-review-v2-content__empty-subtitle {
-  font-size: 14px;
+  font-size: var(--siyuanmemo-review-font-small);
   color: var(--b3-theme-on-surface-light);
 }
 
@@ -2189,6 +2198,8 @@ const content = computed(() => props.content);
   flex: 1;
   min-width: 0;
   min-height: 0;
+  font-size: var(--siyuanmemo-review-font-body);
+  line-height: 1.7;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -2218,7 +2229,7 @@ const content = computed(() => props.content);
   justify-content: center;
   padding: 12px 0;
   color: var(--b3-theme-on-surface-light);
-  font-size: 12px;
+  font-size: var(--siyuanmemo-review-font-xs);
 }
 
 .fsrs-review-v2-content__answer-divider span {

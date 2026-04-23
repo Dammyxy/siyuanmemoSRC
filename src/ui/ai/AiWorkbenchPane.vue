@@ -718,32 +718,16 @@
               <button class="ai-chat__toolbar-button" type="button" @click="toggleMessagePinned(entry.primaryMessage)">
                 {{ messageMeta(entry.primaryMessage)?.pinned ? t('unpin', '取消固定') : t('pin', '固定') }}
               </button>
-              <div
-                class="ai-chat__bubble-menu ai-chat__bubble-menu--toolbar"
-                :class="{ 'ai-chat__bubble-menu--open': isMessageToolbarMenuOpen(entry.primaryMessage.id) }"
-              >
+              <div class="ai-chat__bubble-menu ai-chat__bubble-menu--toolbar">
                 <button
                   class="ai-chat__bubble-menu-trigger"
                   type="button"
-                  :aria-expanded="isMessageToolbarMenuOpen(entry.primaryMessage.id)"
-                  @click.stop="toggleMessageToolbarMenu(entry.primaryMessage.id)"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  @click.stop="openMessageToolbarMenu(entry.primaryMessage, $event)"
                 >
                   •••
                 </button>
-                <div v-if="isMessageToolbarMenuOpen(entry.primaryMessage.id)" class="ai-chat__bubble-menu-panel">
-                  <button class="ai-chat__link-button" type="button" @click="handleMessageToolbarAction(() => toggleMessageHidden(entry.primaryMessage))">
-                    {{ messageMeta(entry.primaryMessage)?.hidden ? t('showInContext', '恢复上下文') : t('hideFromContext', '隐藏上下文') }}
-                  </button>
-                  <button
-                    v-if="(messageMeta(entry.primaryMessage)?.versionCount || 0) > 1"
-                    class="ai-chat__link-button"
-                    type="button"
-                    @click="handleMessageToolbarAction(() => cycleMessageVersion(entry.primaryMessage))"
-                  >
-                    {{ t('switchVersion', '切版本') }}
-                  </button>
-                  <button class="ai-chat__link-button" type="button" @click="handleMessageToolbarAction(() => insertSeparatorAfter(entry.primaryMessage))">{{ t('insertSeparator', '插入分隔') }}</button>
-                </div>
               </div>
             </div>
           </div>
@@ -925,6 +909,7 @@
 </template>
 
 <script setup lang="ts">
+import { Menu } from 'siyuan';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   getSelfTestModeDescriptor,
@@ -1025,7 +1010,6 @@ const composerInputRef = ref<HTMLTextAreaElement | null>(null);
 const contextMenuOpen = ref(false);
 const contextMenuRef = ref<HTMLElement | null>(null);
 const contextMenuToggleRef = ref<HTMLElement | null>(null);
-const messageToolbarMenuMessageId = ref<string | null>(null);
 
 const editorOpen = ref(false);
 const editorReadonly = ref(false);
@@ -2777,21 +2761,56 @@ async function cycleMessageVersion(message: AIWorkbenchMessage): Promise<void> {
   await service.cycleMessageVersion?.(message.id);
 }
 
-function closeMessageToolbarMenu(): void {
-  messageToolbarMenuMessageId.value = null;
+function resolveMenuAnchor(target: EventTarget | null): HTMLElement | null {
+  return target instanceof HTMLElement ? target : null;
 }
 
-function isMessageToolbarMenuOpen(messageId: string): boolean {
-  return messageToolbarMenuMessageId.value === messageId;
-}
+function openMessageToolbarMenu(message: AIWorkbenchMessage, event: MouseEvent): void {
+  event.stopPropagation();
+  event.preventDefault();
 
-function toggleMessageToolbarMenu(messageId: string): void {
-  messageToolbarMenuMessageId.value = isMessageToolbarMenuOpen(messageId) ? null : messageId;
-}
+  const menu = new Menu('ai-chat-message-toolbar-menu');
+  const meta = messageMeta(message);
 
-async function handleMessageToolbarAction(action: () => Promise<void> | void): Promise<void> {
-  closeMessageToolbarMenu();
-  await action();
+  menu.addItem({
+    label: meta?.hidden ? t('showInContext', '恢复上下文') : t('hideFromContext', '隐藏上下文'),
+    click: () => {
+      void toggleMessageHidden(message);
+    },
+  });
+
+  if ((meta?.versionCount || 0) > 1) {
+    menu.addItem({
+      label: t('switchVersion', '切版本'),
+      click: () => {
+        void cycleMessageVersion(message);
+      },
+    });
+  }
+
+  menu.addItem({
+    label: t('insertSeparator', '插入分隔'),
+    click: () => {
+      void insertSeparatorAfter(message);
+    },
+  });
+
+  const anchor = resolveMenuAnchor(event.currentTarget) || resolveMenuAnchor(event.target);
+  const rect = anchor?.getBoundingClientRect();
+  if (rect) {
+    menu.open({
+      x: rect.right,
+      y: rect.bottom,
+      isLeft: true,
+    });
+    return;
+  }
+
+  menu.open({
+    x: event.clientX,
+    y: event.clientY,
+    isLeft: true,
+  });
 }
 
 async function focusTreeNode(nodeId: string): Promise<void> {
@@ -2833,13 +2852,6 @@ function handleDocumentPointerDown(event: Event): void {
     }
     closeContextMenu();
   }
-  if (!messageToolbarMenuMessageId.value || !(target instanceof Element)) {
-    return;
-  }
-  if (target.closest('.ai-chat__bubble-menu--toolbar')) {
-    return;
-  }
-  closeMessageToolbarMenu();
 }
 
 function handleDocumentKeydown(event: KeyboardEvent): void {
@@ -2847,7 +2859,6 @@ function handleDocumentKeydown(event: KeyboardEvent): void {
     return;
   }
   closeContextMenu();
-  closeMessageToolbarMenu();
 }
 
 async function handleContextProvider(provider: ContextProvider): Promise<void> {
@@ -3058,12 +3069,8 @@ onUnmounted(() => {
 .ai-chat__bubble-meta span { display: block; color: #7f8797; font-size: 12px; margin-top: 2px; }
 .ai-chat__bubble-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ai-chat__bubble-menu { position: relative; }
-.ai-chat__bubble-menu--open { z-index: 4; }
 .ai-chat__bubble-menu-trigger { list-style: none; width: 28px; height: 28px; border: 1px solid transparent; border-radius: 999px; color: #8b94a6; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; background: transparent; }
-.ai-chat__bubble:hover .ai-chat__bubble-menu-trigger, .ai-chat__bubble-menu--open .ai-chat__bubble-menu-trigger { border-color: #e1e6ef; background: #f8fafc; color: #51607a; }
-.ai-chat__bubble-menu-panel { position: absolute; top: 32px; right: 0; min-width: 132px; padding: 7px; border: 1px solid #dfe5ef; border-radius: 10px; background: #fff; box-shadow: 0 16px 34px rgba(21, 27, 38, 0.16); display: grid; gap: 2px; }
-.ai-chat__bubble-menu-panel .ai-chat__link-button { width: 100%; padding: 7px 8px; border-radius: 7px; text-align: left; }
-.ai-chat__bubble-menu-panel .ai-chat__link-button:hover { background: #f4f7fb; color: #1f2937; }
+.ai-chat__bubble:hover .ai-chat__bubble-menu-trigger { border-color: #e1e6ef; background: #f8fafc; color: #51607a; }
 .ai-chat__message-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .ai-chat__pending-body { display: flex; align-items: center; gap: 9px; color: #51607a; }
 .ai-chat__pending-body p { margin: 0; }
@@ -3275,7 +3282,6 @@ onUnmounted(() => {
 .ai-chat__approval-card,
 .ai-chat__step-panel,
 .ai-chat__tool-log,
-.ai-chat__bubble-menu-panel,
 .ai-chat__candidate-toolbar,
 .ai-chat__candidate-card,
 .ai-chat__candidate-preview,

@@ -19,6 +19,8 @@ describe('ReviewContent layout styles', () => {
     expect(innerBlock).toContain('overflow: hidden;');
     expect(innerBlock).toContain('overflow-x: hidden;');
     expect(innerBlock).not.toContain('overflow: auto;');
+    expect(innerBlock).toContain('--siyuanmemo-review-font-base: var(--b3-font-size-editor);');
+    expect(innerBlock).toContain('font-size: var(--siyuanmemo-review-font-body);');
     expect(reviewContentSource).toContain('.fsrs-review-v2-content__multi-cloze');
     expect(reviewContentSource).toContain('.fsrs-review-v2-content__concept-definition-card');
     expect(reviewContentSource).toContain('.fsrs-review-v2-content__concept-card');

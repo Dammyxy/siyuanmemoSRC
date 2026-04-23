@@ -16,6 +16,7 @@
  */
 
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
+import type { QueueType } from '@/types/unified-data-source';
 import type { BrowserOpenState } from '@/ui/browser/types';
 
 /**
@@ -86,6 +87,11 @@ export interface IDialogManager {
    * 打开筛选复习对话框
    */
   openFilterGroupPracticeDialog(): Promise<void>;
+
+  /**
+   * 在当前对话框表面内切换主复习队列
+   */
+  switchStandardReviewDialogQueue(queueType: QueueType): Promise<void>;
   
   /**
    * 打开难点攻坚对话框

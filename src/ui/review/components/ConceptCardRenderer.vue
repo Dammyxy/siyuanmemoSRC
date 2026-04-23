@@ -149,14 +149,14 @@ watch(
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--siyuanmemo-review-font-xs, 0.75em);
   font-weight: 500;
   margin-bottom: 16px;
   align-self: flex-start;
 }
 
 .concept-card-renderer__badge-icon {
-  font-size: 16px;
+  font-size: var(--siyuanmemo-review-font-body, 1em);
 }
 
 .concept-card-renderer__front {
@@ -169,7 +169,7 @@ watch(
 }
 
 .concept-card-renderer__concept-name {
-  font-size: 36px;
+  font-size: var(--siyuanmemo-review-font-display, 2em);
   font-weight: 700;
   color: var(--b3-theme-primary);
   text-align: center;
@@ -183,7 +183,7 @@ watch(
 
 .concept-card-renderer__front-preview {
   opacity: 0.4;
-  font-size: 24px;
+  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
   font-weight: 700;
   margin-bottom: 24px;
 }
@@ -194,7 +194,7 @@ watch(
   justify-content: flex-start;
   margin: 16px 0 24px 0;
   color: var(--b3-theme-on-surface-light);
-  font-size: 14px;
+  font-size: var(--siyuanmemo-review-font-small, 0.875em);
   font-weight: 500;
 }
 
@@ -219,7 +219,7 @@ watch(
 }
 
 .concept-card-renderer__html-content {
-  font-size: 16px;
+  font-size: var(--siyuanmemo-review-font-body, 1em);
   line-height: 1.8;
   color: var(--b3-theme-on-surface);
 }

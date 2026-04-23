@@ -283,6 +283,43 @@ export class DialogManager implements IDialogManager {
     };
   }
 
+  private resolveStandardReviewPreset(queueType: QueueType): {
+    title: string;
+    headerVariant: ReviewHeaderVariant;
+  } | null {
+    const i18n = this.context.getI18n?.() || {};
+
+    switch (queueType) {
+      case QueueType.RetrievalPractice:
+        return {
+          title: i18n.retrievalPractice || '提取练习',
+          headerVariant: 'retrieval-practice',
+        };
+      case QueueType.IncrementalLearning:
+        return {
+          title: i18n.incrementalLearning || '渐进学习',
+          headerVariant: 'incremental-learning',
+        };
+      case QueueType.FinalDrill:
+        return {
+          title: i18n.finalDrill || '刻意练习',
+          headerVariant: 'final-drill',
+        };
+      case QueueType.FilterGroup:
+        return {
+          title: i18n.filterGroupPractice || '分组队列',
+          headerVariant: 'filter-group',
+        };
+      case QueueType.NeuralRoam:
+        return {
+          title: i18n.neuralReviewTitle || '神经漫游',
+          headerVariant: 'neural-roam',
+        };
+      default:
+        return null;
+    }
+  }
+
   private openStandardReviewEntry(options: {
     queueType: QueueType;
     title: string;
@@ -328,6 +365,29 @@ export class DialogManager implements IDialogManager {
   }): void {
     this.openStandardReviewEntry({
       ...options,
+      allowNewTab: false,
+    });
+  }
+
+  async switchStandardReviewDialogQueue(queueType: QueueType): Promise<void> {
+    if (!(await this.checkInitialized())) {
+      return;
+    }
+
+    const preset = this.resolveStandardReviewPreset(queueType);
+    if (!preset) {
+      logger.warn('[DialogManager] Unsupported standard review queue switch target', {
+        queueType,
+      });
+      return;
+    }
+
+    this.destroyCurrentReviewDialog();
+    await this.prepareQueueBeforeReview(queueType);
+    this.openStandardReviewEntry({
+      queueType,
+      title: preset.title,
+      headerVariant: preset.headerVariant,
       allowNewTab: false,
     });
   }

@@ -23,6 +23,7 @@
           @action="hook.executeCommand"
           @context="handleContext"
           @breadcrumb-click="handleBreadcrumbClick"
+          @queue-switch="handleQueueSwitchTrigger"
         />
 
         <ReviewContent
@@ -221,6 +222,22 @@ const STANDARD_REVIEW_DIALOG_VARIANT_BY_QUEUE_TYPE: Partial<Record<QueueType, Re
   [QueueType.NeuralRoam]: 'neural-roam',
 };
 
+const MAIN_REVIEW_QUEUE_SWITCH_ORDER: QueueType[] = [
+  QueueType.RetrievalPractice,
+  QueueType.IncrementalLearning,
+  QueueType.FinalDrill,
+  QueueType.FilterGroup,
+  QueueType.NeuralRoam,
+];
+
+const MAIN_REVIEW_QUEUE_BY_HEADER_VARIANT: Partial<Record<ReviewHeaderVariant, QueueType>> = {
+  'retrieval-practice': QueueType.RetrievalPractice,
+  'incremental-learning': QueueType.IncrementalLearning,
+  'final-drill': QueueType.FinalDrill,
+  'filter-group': QueueType.FilterGroup,
+  'neural-roam': QueueType.NeuralRoam,
+};
+
 type ReviewAIEntryView = 'general-chat' | 'concept-coach';
 type ReviewAIRequestedView = ReviewAIEntryView | AIWorkbenchLegacyView;
 
@@ -271,6 +288,7 @@ type ReviewPluginContextLike = {
           queueInstance?: unknown;
           initialSessionState?: InitialReviewSessionState;
         }) => void;
+        switchStandardReviewDialogQueue?: (queueType: QueueType) => Promise<void> | void;
       }
     | undefined;
   getReviewAIWorkbenchRegistry?: () =>
@@ -318,6 +336,7 @@ type ReviewPluginContextLike = {
           transferState?: ReviewTabTransferState;
           reviewState?: ReviewTabRuntimeState | null;
         }) => void;
+        replaceCurrentReviewTabWithStandardQueue?: (queueType: QueueType) => void;
         closeReviewTab?: (reviewSessionId: string) => void;
         openReviewAICompanionTab?: (options: AIWorkbenchOpenOptions & { sessionId: string; title: string }) => Promise<void> | void;
         focusReviewAICompanionTab?: (reviewSessionId: string) => boolean;
@@ -1051,6 +1070,89 @@ function resolveStandardReviewDialogTarget(): { queueType: QueueType; headerVari
   };
 }
 
+function resolveCurrentMainQueueSwitchType(): QueueType | null {
+  const variantQueueType = props.headerVariant
+    ? MAIN_REVIEW_QUEUE_BY_HEADER_VARIANT[props.headerVariant]
+    : null;
+  if (variantQueueType) {
+    return variantQueueType;
+  }
+
+  const activeQueueType = activeReviewQueueType.value;
+  if ((MAIN_REVIEW_QUEUE_SWITCH_ORDER as string[]).includes(String(activeQueueType || ''))) {
+    return activeQueueType as QueueType;
+  }
+
+  return null;
+}
+
+function resolveMenuAnchor(target: EventTarget | null): HTMLElement | null {
+  return target instanceof HTMLElement ? target : null;
+}
+
+function openMenuAtAnchor(menu: Menu, anchor: HTMLElement): void {
+  const rect = anchor.getBoundingClientRect();
+  menu.open({
+    x: rect.left,
+    y: rect.bottom,
+  });
+}
+
+function switchToStandardReviewQueue(queueType: QueueType): void {
+  if (queueType === resolveCurrentMainQueueSwitchType()) {
+    return;
+  }
+
+  if (props.mode === 'dialog') {
+    const dialogManager = getDialogManager();
+    if (typeof dialogManager?.switchStandardReviewDialogQueue === 'function') {
+      void dialogManager.switchStandardReviewDialogQueue(queueType);
+      return;
+    }
+  }
+
+  if (props.mode === 'tab') {
+    const tabManager = getTabManager();
+    if (typeof tabManager?.replaceCurrentReviewTabWithStandardQueue === 'function') {
+      tabManager.replaceCurrentReviewTabWithStandardQueue(queueType);
+      return;
+    }
+  }
+
+  showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+}
+
+function openQueueSwitchMenuAtAnchor(anchor: HTMLElement): void {
+  const currentQueueType = resolveCurrentMainQueueSwitchType();
+  const menu = new Menu('review-queue-switch-menu');
+
+  for (const item of buildStandardReviewQueueSwitchPresets()) {
+    const isCurrent = item.queueType === currentQueueType;
+    menu.addItem({
+      id: item.queueType,
+      icon: isCurrent ? 'iconCheck' : undefined,
+      label: item.title,
+      disabled: isCurrent,
+      click: () => {
+        switchToStandardReviewQueue(item.queueType);
+      },
+    });
+  }
+
+  openMenuAtAnchor(menu, anchor);
+}
+
+function handleQueueSwitchTrigger(event: MouseEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  const anchor = resolveMenuAnchor(event.currentTarget) || resolveMenuAnchor(event.target);
+  if (!anchor) {
+    logger.warn('[SiYuanMemo][ReviewView] Queue switch trigger is missing a usable anchor');
+    return;
+  }
+  openQueueSwitchMenuAtAnchor(anchor);
+}
+
 function readCardRootId(card: FSRSCard): string {
   const meta = card.meta;
   if (!isRecord(meta)) {
@@ -1246,6 +1348,7 @@ onMounted(() => {
     updateReviewDialogContainerLayout();
   };
   window.addEventListener('resize', reviewResizeHandler);
+  scheduleReviewDialogTitlebarQueueSwitchSync();
   initialFullscreenTimer = window.setTimeout(() => {
     initialFullscreenTimer = null;
     applyInitialReviewFullscreen();
@@ -1267,6 +1370,11 @@ onUnmounted(() => {
   window.removeEventListener(REVIEW_SET_PRIORITY_REQUEST_EVENT, handleReviewSetPriorityCommandRequest as EventListener);
   window.removeEventListener(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, handleReviewSuspendCurrentCardCommandRequest as EventListener);
   window.removeEventListener(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, handleReviewDeleteCurrentCardCommandRequest as EventListener);
+  if (reviewDialogTitlebarSyncTimer !== null) {
+    window.clearTimeout(reviewDialogTitlebarSyncTimer);
+    reviewDialogTitlebarSyncTimer = null;
+  }
+  restoreReviewDialogTitlebarText();
   recentModifiedHotkeys.clear();
   escRepeatLatch = false;
   clearNativeSplitMenuPruneTimer();
@@ -1394,8 +1502,22 @@ const i18n = props.i18n;
 const showReviewFilterDialog = ref(false);
 const appliedReviewFilter = ref<CardFilter | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
+const usesNativeDialogTitlebarQueueSwitch = computed(() => (
+  props.mode === 'dialog'
+  && props.nativeDialogTitlebar === true
+  && props.isMobile !== true
+));
+const resolvedReviewSurfaceTitle = computed(() => (
+  String(
+    props.title
+    || state.value.header.title
+    || state.value.header.stats.queueName
+    || t('reviewTitle', 'Review'),
+  ).trim() || t('reviewTitle', 'Review')
+));
 let subscribedReviewManager: IUnifiedDataSourceManagerFacade | null = null;
 let subscribedReviewWorkspaceEventBus: WorkspaceEventBusLike | null = null;
+let reviewDialogTitlebarSyncTimer: number | null = null;
 
 const REVIEW_AI_SIDECAR_MIN_VIEWPORT = 1040;
 
@@ -1416,6 +1538,42 @@ const showCompletedEmptyStateExit = computed(() => (
 
 function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
+}
+
+type StandardReviewQueueSwitchPreset = {
+  queueType: QueueType;
+  headerVariant: ReviewHeaderVariant;
+  title: string;
+};
+
+function buildStandardReviewQueueSwitchPresets(): StandardReviewQueueSwitchPreset[] {
+  return [
+    {
+      queueType: QueueType.RetrievalPractice,
+      headerVariant: 'retrieval-practice',
+      title: t('retrievalPractice', '提取练习'),
+    },
+    {
+      queueType: QueueType.IncrementalLearning,
+      headerVariant: 'incremental-learning',
+      title: t('incrementalLearning', '渐进学习'),
+    },
+    {
+      queueType: QueueType.FinalDrill,
+      headerVariant: 'final-drill',
+      title: t('finalDrill', '刻意练习'),
+    },
+    {
+      queueType: QueueType.FilterGroup,
+      headerVariant: 'filter-group',
+      title: t('filterGroupPractice', '分组队列'),
+    },
+    {
+      queueType: QueueType.NeuralRoam,
+      headerVariant: 'neural-roam',
+      title: t('neuralReviewTitle', t('neuralRoam', '神经漫游')),
+    },
+  ];
 }
 
 function openNumberDialog(options: {
@@ -2864,6 +3022,60 @@ function getReviewDialogContainer(): HTMLElement | null {
     || document.querySelector('.b3-dialog__container.siyuanmemo-review-dialog-container')) as HTMLElement | null;
 }
 
+function getReviewDialogTitleElement(): HTMLElement | null {
+  return getReviewDialogContainer()?.querySelector('.b3-dialog__title') as HTMLElement | null;
+}
+
+function restoreReviewDialogTitlebarText(): void {
+  const titleElement = getReviewDialogTitleElement();
+  if (!titleElement || titleElement.dataset.siyuanmemoQueueSwitch !== 'true') {
+    return;
+  }
+
+  titleElement.classList.remove('siyuanmemo-review-titlebar__slot');
+  delete titleElement.dataset.siyuanmemoQueueSwitch;
+  titleElement.replaceChildren();
+  titleElement.textContent = resolvedReviewSurfaceTitle.value;
+}
+
+function syncReviewDialogTitlebarQueueSwitchTrigger(): void {
+  const titleElement = getReviewDialogTitleElement();
+  if (!titleElement) {
+    return;
+  }
+
+  if (!usesNativeDialogTitlebarQueueSwitch.value) {
+    restoreReviewDialogTitlebarText();
+    return;
+  }
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'siyuanmemo-review-titlebar__queue-switch';
+  trigger.title = resolvedReviewSurfaceTitle.value;
+  trigger.textContent = resolvedReviewSurfaceTitle.value;
+  trigger.setAttribute(
+    'aria-label',
+    t('switchReviewQueueAriaLabel', '切换复习队列：{title}').replace('{title}', resolvedReviewSurfaceTitle.value),
+  );
+  trigger.addEventListener('click', handleQueueSwitchTrigger);
+
+  titleElement.classList.add('siyuanmemo-review-titlebar__slot');
+  titleElement.dataset.siyuanmemoQueueSwitch = 'true';
+  titleElement.replaceChildren(trigger);
+}
+
+function scheduleReviewDialogTitlebarQueueSwitchSync(): void {
+  if (reviewDialogTitlebarSyncTimer !== null) {
+    window.clearTimeout(reviewDialogTitlebarSyncTimer);
+  }
+
+  reviewDialogTitlebarSyncTimer = window.setTimeout(() => {
+    reviewDialogTitlebarSyncTimer = null;
+    syncReviewDialogTitlebarQueueSwitchTrigger();
+  }, 0);
+}
+
 function getReviewContentMain(): HTMLElement | null {
   return (rootRef.value?.querySelector('.fsrs-review-v2-content')
     || document.querySelector('.fsrs-review-v2-content')) as HTMLElement | null;
@@ -3874,17 +4086,13 @@ function openCardInNewWindow(blockId: string) {
 }
 
 function openMenuAtEvent(menu: Menu, ev: MouseEvent): void {
-  const target = ev.currentTarget as HTMLElement | null;
+  const target = resolveMenuAnchor(ev.currentTarget) || resolveMenuAnchor(ev.target);
   if (!target) {
     logger.error('[SiYuanMemo][ReviewView] Cannot open menu: target element is null');
     return;
   }
 
-  const rect = target.getBoundingClientRect();
-  menu.open({
-    x: rect.left,
-    y: rect.bottom,
-  });
+  openMenuAtAnchor(menu, target);
 }
 
 function shortenBlockId(blockId: string): string {
@@ -4408,6 +4616,19 @@ defineExpose<ReviewViewTabBridge>({
 watch(
   () => [
     props.mode,
+    props.nativeDialogTitlebar === true,
+    props.isMobile === true,
+    resolvedReviewSurfaceTitle.value,
+  ],
+  () => {
+    scheduleReviewDialogTitlebarQueueSwitchSync();
+  },
+  { flush: 'post' },
+);
+
+watch(
+  () => [
+    props.mode,
     sharedReviewSessionId.value,
     state.value.content.card?.id || '',
     state.value.content.card?.updatedAt || 0,
@@ -4610,6 +4831,37 @@ watch(
 /* 确保对话框有圆角 */
 .b3-dialog__container.siyuanmemo-review-dialog-container:not(.fsrs-mobile-review-dialog) {
   border-radius: 6px !important;
+}
+
+.b3-dialog__container.siyuanmemo-review-dialog-container .b3-dialog__title.siyuanmemo-review-titlebar__slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+}
+
+.b3-dialog__container.siyuanmemo-review-dialog-container .siyuanmemo-review-titlebar__queue-switch {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: min(320px, 100%);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  line-height: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+
+.b3-dialog__container.siyuanmemo-review-dialog-container .siyuanmemo-review-titlebar__queue-switch:hover,
+.b3-dialog__container.siyuanmemo-review-dialog-container .siyuanmemo-review-titlebar__queue-switch:focus-visible {
+  color: var(--b3-theme-primary);
+  outline: none;
 }
 
 .b3-dialog__container.fsrs-mobile-review-dialog {

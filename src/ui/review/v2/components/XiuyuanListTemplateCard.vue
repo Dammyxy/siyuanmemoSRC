@@ -253,7 +253,7 @@ watch(
 }
 
 .xiuyuan-question {
-  font-size: 18px;
+  font-size: var(--siyuanmemo-review-font-title, 1.125em);
   font-weight: 600;
   margin-bottom: 16px;
   padding-bottom: 12px;
@@ -309,7 +309,7 @@ watch(
 .xiuyuan-cue-marker {
   color: var(--b3-theme-primary);
   font-weight: bold;
-  font-size: 20px;
+  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
   flex-shrink: 0;
 }
 
@@ -342,7 +342,7 @@ watch(
   background: var(--b3-theme-background-light);
   border-radius: 4px;
   color: var(--b3-theme-on-surface-light);
-  font-size: 14px;
+  font-size: var(--siyuanmemo-review-font-small, 0.875em);
   text-align: center;
 }
 

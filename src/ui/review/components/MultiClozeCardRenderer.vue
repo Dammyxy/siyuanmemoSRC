@@ -108,7 +108,7 @@ watch(
 }
 
 .multi-cloze-card-renderer__card {
-  --siyuanmemo-multi-cloze-font-size: clamp(19px, 0.55vw + 15px, 22px);
+  --siyuanmemo-multi-cloze-font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
   --siyuanmemo-multi-cloze-line-height: 1.64;
   flex: 1;
   min-height: 0;
@@ -146,7 +146,7 @@ watch(
 
 @media screen and (max-width: 768px) {
   .multi-cloze-card-renderer__card {
-    --siyuanmemo-multi-cloze-font-size: clamp(18px, 3.8vw, 20px);
+    --siyuanmemo-multi-cloze-font-size: var(--siyuanmemo-review-font-title, 1.125em);
     padding: 28px 20px 40px;
   }
 }

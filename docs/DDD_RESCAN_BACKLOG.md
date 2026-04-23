@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 128)
+Last update: 2026-04-24 (Round 129)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - review queue quick-switch, native menu migration, and editor-sized review typography
+
+- Task: 继续收口 review 界面，把重复的 header 闪电品牌位移除，新增 dialog titlebar / tab header 的主队列快速切换入口，把 reveal skip 菜单和 AI 解释侧栏更多菜单统一改成思源原生 `Menu`，并让 review 内容字号跟随 `--b3-font-size-editor`。
+- Touched slice: Review / AI active UI path across `src/application/{interfaces/IDialogManager.ts,managers/DialogManager.ts,managers/TabManager.ts,managers/__tests__/DialogManager.review-header-variant.test.ts,managers/__tests__/TabManager.review-transfer.spec.ts}`, `src/ui/review/v2/{ReviewView.vue,ReviewHeader.vue,ReviewContent.vue,__tests__/ReviewHeader.spec.ts,__tests__/ReviewHeader.styles.spec.ts,__tests__/ReviewContent.styles.spec.ts,__tests__/ReviewContent.fonts.spec.ts,__tests__/ReviewView.queue-switch.spec.ts,components/SkipMenuButton.vue,components/__tests__/SkipMenuButton.spec.ts,components/XiuyuanListTemplateCard.vue}`, `src/ui/review/components/{ConceptCardRenderer.vue,ConceptDefinitionCardRenderer.vue,DescriptorCardRenderer.vue,QuickCardRenderer.vue,CdfDirectLayout.vue,MultiClozeCardRenderer.vue,ImageOcclusionCardRenderer.vue}`, `src/ui/ai/{AiWorkbenchPane.vue,__tests__/AiWorkbenchPane.compact-surface.spec.ts}`, and this backlog.
+- Debt fixed now: native-dialog 第二行 header 不再保留重复的 `⚡` 品牌位；desktop dialog 的原生 `.b3-dialog__title` 被接管成 text-only 队列切换按钮，tab header 也提供相同的主队列切换菜单，并分别走 dialog-surface / replace-current-tab 的专用入口；`SkipMenuButton` 和 AI message more 都不再渲染会被 overflow 裁掉的 inline panel，而是直接打开思源原生 `Menu`；review 内容根节点建立了 editor-sized font token，活跃 renderer 的正文/标题/辅助说明改成基于这些 token 的相对字号。
+- Debt deferred: mobile header 仍不提供队列快速切换；review typography 这轮只收口了当前活跃 renderer，没有一次性把所有历史卡型都 token 化；AI rich markdown 相关测试仍会在 happy-dom 下尝试请求本地 KaTeX 资源，当前是 stderr 噪音而不是断言失败。
+- Why deferred: 这轮真实阻塞点是“队列切换入口缺失”“skip/AI 菜单被遮挡”“内容字号偏小”；继续扩大到 mobile header 交互重做、全量 renderer 字体重构或 rich markdown 测试基础设施治理，会超出当前安全切片。
+- Next safe step: 如果后续还要继续做 review 信息架构，只在现有 titlebar quick-switch 基础上补 menu item 分组或图标，不要把拖动职责再放回自定义 header；字号方面可以按实际卡型反馈继续把剩余少数 renderer 迁到 token 体系。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewHeader.styles.spec.ts src/ui/review/v2/__tests__/ReviewContent.styles.spec.ts src/ui/review/v2/__tests__/ReviewContent.fonts.spec.ts src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts src/ui/review/v2/components/__tests__/SkipMenuButton.spec.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/application/factories/__tests__/createUnifiedReviewDialog.mode.test.ts src/ui/shared/__tests__/siyuanmemo-admin-skin.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - native desktop titlebar restoration for review dialog dragging
 

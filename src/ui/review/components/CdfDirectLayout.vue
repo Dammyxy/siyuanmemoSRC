@@ -96,7 +96,7 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__row--primary .cdf-editor__node) {
-  font-size: 17px;
+  font-size: var(--siyuanmemo-review-font-title, 1.125em);
   font-weight: 600;
   line-height: 1.7;
 }
@@ -190,7 +190,7 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
 .cdf-direct-layout__label {
   margin-bottom: 4px;
   color: var(--b3-theme-on-surface-light);
-  font-size: 11px;
+  font-size: var(--siyuanmemo-review-font-xs, 0.75em);
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -219,7 +219,7 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
   align-items: center;
   justify-content: center;
   color: var(--b3-theme-on-surface-light);
-  font-size: 11px;
+  font-size: var(--siyuanmemo-review-font-xs, 0.75em);
   font-weight: 600;
   letter-spacing: 0.04em;
   margin: 2px 0;
