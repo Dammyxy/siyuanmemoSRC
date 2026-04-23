@@ -4,6 +4,16 @@ Last update: 2026-04-23 (Round 122)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-23 - review dialog native desktop alignment
+
+- Task: 继续收口 CDF/复习弹窗模式的桌面动作条、header 拖拽区和 dialog shell 按钮配色，让显示答案后评分区不换行、header 可在非交互背景拖拽、review dialog 恢复原生按钮颜色。
+- Touched slice: Review bounded context and shared dialog shell across `src/ui/review/v2/{ReviewActions.vue,ReviewHeader.vue,__tests__/ReviewActions.spec.ts,__tests__/ReviewHeader.spec.ts}`, `src/ui/shared/{siyuanmemo-admin-skin.scss,__tests__/siyuanmemo-admin-skin.spec.ts}`.
+- Debt fixed now: 桌面端 review action bar 不再依赖会挤压跳过区的等宽 rating grid，而是回到原生式“左侧固定堆叠列 + 右侧评分列”结构；header 不再只靠一小段 `resize__move` 拖拽，标题块和左右非交互空白区都能拖动弹窗；dialog shell 对 `.b3-button` 的通用 reset 现在会豁免 review native action buttons，显示答案和评分按钮重新吃到思源原生语义色。
+- Debt deferred: 这轮没有把 review action/header 做成像素级复制原生 `openCard.ts`；reveal 阶段仍保留插件现有的跳过控件，而不是完全退回思源最小动作集合；也没有继续把 skip split control 改成更接近原生的独立按钮实现。
+- Why deferred: 用户这轮真实阻塞是桌面弹窗里布局被挤坏、拖拽区域太窄和颜色被洗平；继续扩大到完整 native shell 复刻或重写 skip 交互，会把一次 active-path 修复扩大成更宽的 review UX 改造。
+- Next safe step: 如果后续还想继续贴近原生，可以再基于截图验收继续细调 action/header 的 spacing token，并单独评估 reveal 阶段是否要彻底对齐思源的“上一张 + 显示答案”最小动作模型。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts`; `pnpm vitest run src/ui/shared/__tests__/siyuanmemo-admin-skin.spec.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-23 - CDF native-like review fallback hardening
 
 - Task: 按确认方案把 CDF 复习界面继续收口到思源原生语义，包括原生评分色/双阶段 action、极简 editor-like CDF renderer，以及 `defaultAttribute` 不再挡住复习的 fallback 链。

@@ -7,7 +7,7 @@
     }"
   >
     <button
-      class="b3-button b3-button--cancel card__action-back"
+      class="b3-button b3-button--cancel card__action-button card__action-back"
       :disabled="!canBack"
       @click="handleBackClick"
     >
@@ -19,7 +19,7 @@
     <button
       data-type="-1"
       aria-label="Space/Enter"
-      class="b3-button b3-tooltips__n b3-tooltips card__action-main card__action-main--reveal"
+      class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal"
       @click="handleRevealClick"
     >
       <div class="card__icon">👀</div>
@@ -54,7 +54,7 @@
         aria-hidden="true"
       ></span>
       <button
-        class="b3-button b3-button--cancel card__action-back card__action-back--stacked"
+        class="b3-button b3-button--cancel card__action-button card__action-back card__action-back--stacked"
         :disabled="!canBack"
         @click="handleBackClick"
       >
@@ -85,7 +85,7 @@
         <button
           data-type="3"
           aria-label="Space/Enter"
-          class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-main"
+          class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-button card__action-main"
           @click="handleTopicNextClick"
         >
           <div class="card__icon">📖</div>
@@ -105,7 +105,7 @@
         <button
           :data-type="g.value"
           :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
-          class="b3-button b3-tooltips__n b3-tooltips card__action-main"
+          class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main"
           :class="getButtonVariant(g.value)"
           @click="handleGradeClick(g.value, $event)"
         >
@@ -216,9 +216,11 @@ const ratingStageColumns = computed(() => (
   isTopicCard.value ? 2 : Math.max(props.actions.grades.length + 1, 2)
 ));
 
-const ratingStageStyle = computed(() => ({
-  '--review-rating-columns': String(ratingStageColumns.value),
-}));
+const ratingStageStyle = computed(() => (
+  props.isMobile
+    ? { '--review-rating-columns': String(ratingStageColumns.value) }
+    : undefined
+));
 
 const showInsertDialog = ref(false);
 const showScheduleDialog = ref(false);
@@ -463,12 +465,12 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 <style scoped>
 .card__action {
-  display: grid;
+  display: flex;
   align-items: stretch;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
   box-sizing: border-box;
-  padding: 12px 18px 16px;
+  padding: 8px 12px 12px;
   user-select: none;
   flex-shrink: 0;
   border-top: 1px solid var(--b3-border-color);
@@ -476,63 +478,80 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__action--reveal {
-  grid-template-columns: minmax(0, 132px) minmax(0, 1fr) minmax(0, 164px);
+  flex-wrap: nowrap;
 }
 
 .card__action--rating {
-  grid-template-columns: repeat(var(--review-rating-columns, 5), minmax(0, 1fr));
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+.card__action-button {
+  white-space: nowrap;
 }
 
 .card__action-back {
   width: 100%;
+  flex: 0 0 118px;
+  min-width: 118px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 56px;
-  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 6px;
 }
 
 .card__action-back--stacked {
+  flex: 0 0 28px;
+  min-width: 0;
   min-height: 28px;
+  max-height: 28px;
   padding: 0 10px;
+  border-radius: 4px;
 }
 
 .card__action-column {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
 }
 
 .card__action-column--stack {
+  flex: 0 0 clamp(132px, 18vw, 168px);
   gap: 8px;
 }
 
 .card__action-skip {
   min-width: 0;
   display: flex;
+  width: 100%;
 }
 
 .card__action-skip :deep(.skip-menu-button) {
   width: 100%;
-  min-height: 56px;
+  min-height: 44px;
+  border-radius: 6px;
 }
 
 .card__action-skip--stacked :deep(.skip-menu-button) {
-  min-height: 44px;
+  min-height: 68px;
 }
 
 .card__action-column > span {
   display: flex;
   color: var(--b3-theme-on-surface);
   text-align: center;
-  font-size: 13px;
-  margin-bottom: 8px;
-  height: 22px;
-  line-height: 14px;
+  font-size: 12px;
+  margin: 0;
+  height: 20px;
+  line-height: 1.2;
   justify-content: center;
   align-items: center;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .card__action-meta--placeholder {
@@ -558,15 +577,24 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .card__action-main {
   width: 100%;
   min-width: 0;
-  min-height: 56px;
-  border-radius: 8px;
+  flex: 1 1 auto;
+  min-height: 44px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 6px;
   box-shadow: none;
   font-weight: 600;
+  padding: 0 12px;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .card__action--rating .card__action-main,
 .card__action--rating .card__action-skip :deep(.skip-menu-button) {
-  min-height: 82px;
+  min-height: 68px;
 }
 
 .card__action--rating .card__action-skip :deep(.skip-menu-button__main),
@@ -574,10 +602,22 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   height: 100%;
 }
 
+.card__action--reveal .card__action-main--reveal {
+  flex: 1 1 auto;
+}
+
+.card__action--reveal .card__action-skip {
+  flex: 0 0 clamp(144px, 18vw, 172px);
+}
+
+.card__action--rating .card__action-column {
+  gap: 6px;
+}
+
 .card__icon {
-  font-size: 24px;
+  font-size: 22px;
   display: block;
-  line-height: 28px;
+  line-height: 24px;
   margin-bottom: 2px;
 }
 
@@ -585,6 +625,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   position: sticky;
   bottom: 0;
   z-index: 5;
+  display: grid;
   gap: 6px;
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
 }
@@ -603,11 +644,19 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 .card__action--mobile .card__action-main,
 .card__action--mobile .card__action-back {
+  min-width: 0;
   min-height: 44px;
 }
 
 .card__action--mobile .card__action-back--stacked {
+  flex: initial;
   min-height: 24px;
+}
+
+.card__action--mobile .card__action-back,
+.card__action--mobile .card__action-column--stack,
+.card__action--mobile.card__action--reveal .card__action-skip {
+  flex: initial;
 }
 
 .card__action--mobile .card__action-skip :deep(.skip-menu-button) {

@@ -75,7 +75,7 @@
   color: var(--siyuanmemo-ui-ink);
 }
 
-.b3-dialog__container.siyuanmemo-dialog-shell .b3-button,
+.b3-dialog__container.siyuanmemo-dialog-shell .b3-button:not(.card__action-button):not(.skip-menu-button__main):not(.skip-menu-button__trigger),
 .settings-panel.siyuanmemo-settings-theme .b3-button,
 .large-editor .b3-button {
   min-height: 30px;
@@ -88,13 +88,13 @@
   font-size: 13px;
 }
 
-.b3-dialog__container.siyuanmemo-dialog-shell .b3-button:hover,
+.b3-dialog__container.siyuanmemo-dialog-shell .b3-button:not(.card__action-button):not(.skip-menu-button__main):not(.skip-menu-button__trigger):hover,
 .settings-panel.siyuanmemo-settings-theme .b3-button:hover,
 .large-editor .b3-button:hover {
   background: var(--siyuanmemo-ui-surface-hover);
 }
 
-.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--text,
+.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--text:not(.card__action-button),
 .settings-panel.siyuanmemo-settings-theme .b3-button--text,
 .large-editor .b3-button--text,
 .settings-panel.siyuanmemo-settings-theme .btn-primary {
@@ -103,7 +103,7 @@
   color: var(--b3-theme-on-primary, #fff);
 }
 
-.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--outline,
+.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--outline:not(.card__action-button),
 .settings-panel.siyuanmemo-settings-theme .b3-button--outline,
 .large-editor .b3-button--outline,
 .settings-panel.siyuanmemo-settings-theme .btn-secondary,
@@ -113,7 +113,7 @@
   color: var(--siyuanmemo-ui-ink);
 }
 
-.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--cancel,
+.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--cancel:not(.card__action-button):not(.skip-menu-button__main):not(.skip-menu-button__trigger),
 .settings-panel.siyuanmemo-settings-theme .b3-button--cancel,
 .large-editor .b3-button--cancel {
   background: transparent;

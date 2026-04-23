@@ -130,28 +130,32 @@ describe('ReviewActions layout', () => {
     expect(children[0]).toContain('card__action-back');
     expect(children[1]).toContain('card__action-main');
     expect(children[2]).toContain('card__action-skip');
+    expect(root.get('button[data-type="-1"]').classes()).toContain('card__action-button');
     expect(root.get('button[data-type="-1"]').classes()).toContain('card__action-main--reveal');
     expect(root.find('skip-menu-button-stub').exists()).toBe(true);
     expect(root.find('button[data-type="1"]').exists()).toBe(false);
   });
 
-  it('renders the rating stage with stacked back/skip and native rating variants', () => {
+  it('renders the desktop rating stage with stacked back/skip and native rating variants', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: false,
     }));
 
     const root = wrapper.get('.card__action--rating');
     const columns = root.findAll('.card__action-column');
+    const inlineStyle = root.attributes('style') ?? '';
 
-    expect(root.attributes('style')).toContain('--review-rating-columns: 5');
+    expect(inlineStyle).not.toContain('--review-rating-columns');
     expect(columns).toHaveLength(5);
     expect(columns[0].classes()).toContain('card__action-column--stack');
     expect(columns[0].find('skip-menu-button-stub').exists()).toBe(true);
     expect(columns[0].get('button').classes()).toContain('card__action-back--stacked');
+    expect(columns[0].get('button').classes()).toContain('card__action-button');
     expect(root.get('button[data-type="1"]').classes()).toContain('b3-button--error');
     expect(root.get('button[data-type="2"]').classes()).toContain('b3-button--warning');
     expect(root.get('button[data-type="3"]').classes()).toContain('b3-button--info');
     expect(root.get('button[data-type="4"]').classes()).toContain('b3-button--success');
+    expect(root.get('button[data-type="4"]').classes()).toContain('card__action-button');
   });
 
   it('falls back to show-answer when grades are temporarily empty', () => {
@@ -175,7 +179,7 @@ describe('ReviewActions layout', () => {
     expect(root.find('skip-menu-button-stub').exists()).toBe(true);
   });
 
-  it('uses a two-column rating layout for topic next-card mode on desktop', () => {
+  it('uses a native flex desktop layout for topic next-card mode without the mobile grid variable', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,
       cardMeta: {
@@ -188,11 +192,21 @@ describe('ReviewActions layout', () => {
 
     const root = wrapper.get('.card__action--rating');
     const columns = root.findAll('.card__action-column');
-    expect(root.attributes('style')).toContain('--review-rating-columns: 2');
+    expect(root.attributes('style') ?? '').not.toContain('--review-rating-columns');
     expect(columns).toHaveLength(2);
     expect(columns[0].classes()).toContain('card__action-column--stack');
     expect(columns[0].find('skip-menu-button-stub').exists()).toBe(true);
     expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
+  });
+
+  it('keeps the mobile rating layout on the grid variable for compact screens', () => {
+    const wrapper = mountReviewActions(createActions({
+      showAnswer: false,
+    }), true);
+
+    const root = wrapper.get('.card__action--rating');
+    expect(root.classes()).toContain('card__action--mobile');
+    expect(root.attributes('style')).toContain('--review-rating-columns: 5');
   });
 
   it('blurs the topic next-card button after pointer clicks so the highlight does not stick', async () => {

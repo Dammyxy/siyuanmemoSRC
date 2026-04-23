@@ -122,6 +122,24 @@ describe('ReviewHeader', () => {
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
   });
 
+  it('expands the desktop drag region to the non-interactive header background without making controls draggable', () => {
+    const wrapper = mount(ReviewHeader, {
+      props: {
+        header: createHeaderState(),
+        meta: createMetaState(),
+        isMobile: false,
+        mode: 'dialog',
+      },
+    });
+
+    expect(wrapper.find('.siyuanmemo-review-header__drag').exists()).toBe(false);
+    expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('resize__move');
+    expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('siyuanmemo-review-header__drag-zone');
+    expect(wrapper.findAll('.siyuanmemo-review-header__drag-fill')).toHaveLength(2);
+    expect(wrapper.get('.siyuanmemo-review-header__summary').classes()).not.toContain('resize__move');
+    expect(wrapper.get('.siyuanmemo-review-header__toolbar-button').classes()).not.toContain('resize__move');
+  });
+
   it('falls back from props.title to header.title and then stats.queueName for the brand text', () => {
     const header = createHeaderState();
     header.title = '神经漫游';
