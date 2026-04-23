@@ -54,11 +54,14 @@
       <button
         data-type="-1"
         aria-label="Space/Enter"
-        class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal"
+        class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal card__action-main--reveal-stacked"
         @click="handleRevealClick"
       >
-        {{ t('showAnswer', '显示答案') }}
-        <template> ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }}) </template>
+        <div class="card__icon">👀</div>
+        <span class="card__action-copy">
+          <span class="card__action-label">{{ t('showAnswer', '显示答案') }}</span>
+          <span class="card__action-hint">({{ t('space', '空格') }} / {{ t('enterKey', '回车') }})</span>
+        </span>
       </button>
     </template>
   </div>
@@ -670,6 +673,43 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 .card__action--reveal .card__action-main--reveal {
   flex: 1 1 auto;
+}
+
+.card__action-main--reveal-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 92px;
+  padding: 8px 0;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.card__action-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.card__action-label {
+  display: block;
+}
+
+.card__action-hint {
+  display: block;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.card__action-main--reveal-stacked .card__icon {
+  margin-bottom: 0;
 }
 
 .card__action--desktop .card__action-column--stack-desktop {

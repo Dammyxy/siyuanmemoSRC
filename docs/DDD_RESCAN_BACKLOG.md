@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 125)
+Last update: 2026-04-24 (Round 126)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - reveal CTA height recovery, direct-child drag hit zones, and browser neutralization cleanup
+
+- Task: 把 review dialog 正面的 `显示答案` 从扁平单行 reveal 改成明显更高的主 CTA，按 `moveResize.ts` 的真实命中规则把 header 拖拽区收回 direct-child `resize__move` 结构，并把 browser toolbar 的 `层级视图切换 / 打开` 从高亮按钮退回中性 outline。
+- Touched slice: Review and Browser active UI path across `src/ui/review/v2/{ReviewActions.vue,ReviewHeader.vue,ReviewView.vue,__tests__/ReviewActions.spec.ts,__tests__/ReviewHeader.spec.ts,__tests__/ReviewView.fullscreen-header.styles.spec.ts}`, `src/ui/browser/{SRSBrowser.scss,__tests__/BrowserToolbar.styles.spec.ts}`, and this backlog.
+- Debt fixed now: desktop reveal 不再复用单行扁按钮，而是改成带 `card__icon` 和独立热键 hint 的 stacked CTA；header 去掉了 `left/right/center` wrapper，drag fill 变成 `block__icons` 下的 direct-child `fn__flex-1.resize__move`，并同步删除 fullscreen 下那条把标题栏压到 `32px` 且只认旧选择器的冲突规则；browser toolbar 继续保留 `view-toggle` 与 `open-in-tab` 的语义 class，但不再给它们实底高亮，只留下 `AI / 练习` 作为主强调。
+- Debt deferred: reveal CTA 现在是刻意偏离 `openCard.ts` flat reveal 的更高版本，不是像素级 native 复制；review header 仍保留插件自己的中心计数 pill 与右侧 toolbar 信息架构，没有整页回退成思源旧 header；`SkipMenuButton` 也仍是插件 split-menu 交互。
+- Why deferred: 用户这轮阻塞点是“显示答案仍然太扁”“拖拽几乎不可用”“browser 强调色仍然放错位置”；继续扩大到 header 整体架构回退或 skip 语义重做，会超出当前活跃 UI 修复切片并增加回归面。
+- Next safe step: 基于这轮的新截图继续确认 reveal CTA 的像素高度和 header 实际拖动手感；如果还要继续贴近思源，只做 reveal/button token 与 header 空白区分配的微调，不再重新引入 wrapper 或 fullscreen 局部压缩规则。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewView.fullscreen-header.styles.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.selection.test.ts src/ui/browser/__tests__/BrowserToolbar.styles.spec.ts`; `pnpm vitest run src/ui/shared/__tests__/siyuanmemo-admin-skin.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - review native density rollback, drag hit repair, and browser highlight reassignment
 

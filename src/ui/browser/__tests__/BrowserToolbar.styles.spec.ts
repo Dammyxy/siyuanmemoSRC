@@ -8,19 +8,17 @@ const browserToolbarStyles = readFileSync(
 );
 
 describe('BrowserToolbar style palette', () => {
-  it('keeps the semantic primary action selectors for the mixed toolbar palette', () => {
-    expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__action--view-toggle');
+  it('keeps AI and practice highlighted while leaving view-toggle and open neutral', () => {
     expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__action--ai');
     expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__action--practice');
-    expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__action--open-in-tab');
-    expect(browserToolbarStyles).toContain('.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--view-toggle');
-    expect(browserToolbarStyles).toContain('.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--open-in-tab');
-    expect(browserToolbarStyles).toContain('background: color-mix(in srgb, var(--toolbar-page-accent) 70%, var(--b3-theme-background)) !important;');
     expect(browserToolbarStyles).toContain('background: color-mix(in srgb, var(--toolbar-global-accent) 66%, var(--b3-theme-background)) !important;');
+    expect(browserToolbarStyles).toContain('background: color-mix(in srgb, var(--toolbar-practice-accent) 70%, var(--b3-theme-background)) !important;');
     expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__center');
     expect(browserToolbarStyles).toContain('background: color-mix(in srgb, var(--toolbar-page-accent) 6%, var(--b3-theme-background));');
     expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__left .filter-button.filter-button--active');
-    expect(browserToolbarStyles).not.toContain('.card-browser__toolbar .toolbar__action--page-select,');
-    expect(browserToolbarStyles).not.toContain('.card-browser__toolbar .toolbar__action--global-select.toolbar__action--active');
+    expect(browserToolbarStyles).not.toContain('.card-browser__toolbar .toolbar__action--view-toggle,');
+    expect(browserToolbarStyles).not.toContain('.card-browser__toolbar .toolbar__action--open-in-tab,');
+    expect(browserToolbarStyles).not.toContain('.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--view-toggle');
+    expect(browserToolbarStyles).not.toContain('.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--open-in-tab');
   });
 });

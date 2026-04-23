@@ -4595,26 +4595,6 @@ watch(
   height: 100vh !important;
   z-index: 8 !important;
   border-radius: 0 !important;
-
-  /* 标题栏样式调整 */
-  .block__icons {
-    padding-left: var(--b3-toolbar-left-mac);
-    height: 32px;
-    min-height: 32px;
-  }
-
-  /* 拖拽区域样式 */
-  .block__icons > .fn__flex-1 {
-    -webkit-app-region: drag;
-    min-width: 32px;
-    height: 100%;
-    box-sizing: border-box;
-    border-radius: var(--b3-border-radius-b);
-
-    &:hover {
-      background-color: var(--b3-theme-surface-light);
-    }
-  }
 }
 
 /* 2. 内容区域全屏（填充父容器） */

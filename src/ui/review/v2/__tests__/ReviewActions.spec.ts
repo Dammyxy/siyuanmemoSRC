@@ -122,7 +122,7 @@ describe('ReviewActions topic next action', () => {
 });
 
 describe('ReviewActions layout', () => {
-  it('renders the desktop reveal stage with native back, spacer, and show-answer actions', () => {
+  it('renders the desktop reveal stage with a stacked show-answer CTA beside the native back action', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,
     }));
@@ -134,11 +134,12 @@ describe('ReviewActions layout', () => {
     expect(root.find('.card__action-back--desktop-reveal').exists()).toBe(true);
     expect(root.find('.card__action-spacer').exists()).toBe(true);
     expect(root.find('.skip-menu-button-stub').exists()).toBe(false);
-    expect(revealButton.find('.card__icon').exists()).toBe(false);
+    expect(revealButton.find('.card__icon').text()).toBe('👀');
     expect(revealButton.text()).toContain('Space');
     expect(revealButton.text()).toContain('Enter');
     expect(revealButton.classes()).toContain('card__action-button');
     expect(revealButton.classes()).toContain('card__action-main--reveal');
+    expect(revealButton.classes()).toContain('card__action-main--reveal-stacked');
     expect(root.find('button[data-type="1"]').exists()).toBe(false);
   });
 

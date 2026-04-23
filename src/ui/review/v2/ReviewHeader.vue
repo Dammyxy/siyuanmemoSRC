@@ -7,143 +7,139 @@
     }"
   >
     <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
-      <div class="siyuanmemo-review-header__left">
-        <div
-          class="block__logo siyuanmemo-review-header__brand"
-          :class="{
-            'siyuanmemo-review-header__drag-zone resize__move': !props.isMobile,
-          }"
-          :title="displayTitle"
-        >
-          <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
-          <span class="siyuanmemo-review-header__brand-text">{{ displayTitle }}</span>
-        </div>
-        <span
-          v-if="!props.isMobile"
-          class="siyuanmemo-review-header__drag-fill siyuanmemo-review-header__drag-zone resize__move"
-          aria-hidden="true"
-        ></span>
+      <div
+        class="block__logo siyuanmemo-review-header__brand"
+        :class="{
+          'siyuanmemo-review-header__drag-zone resize__move': !props.isMobile,
+        }"
+        :title="displayTitle"
+      >
+        <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
+        <span class="siyuanmemo-review-header__brand-text">{{ displayTitle }}</span>
       </div>
 
-      <div class="siyuanmemo-review-header__center">
-        <div
-          ref="counterAreaRef"
-          class="siyuanmemo-review-header__summary-wrap"
-          @mouseenter="handleCounterMouseEnter"
-          @mouseleave="handleCounterMouseLeave"
-          @focusin="handleCounterFocusIn"
-          @focusout="handleCounterFocusOut"
-        >
-          <button
-            ref="counterTriggerRef"
-            type="button"
-            class="siyuanmemo-review-header__summary"
-            :class="{ 'siyuanmemo-review-header__summary--count-hidden': isDesktopCounterValueHidden }"
-            :aria-label="summaryButtonAriaLabel"
-            :title="summaryButtonTitle"
-            @pointerdown="handleCounterPointerDown"
-            @click.stop="handleCounterClick"
-          >
-            <svg class="siyuanmemo-review-header__summary-icon"><use xlink:href="#iconRiffCard"></use></svg>
-            <span v-if="!isDesktopCounterValueHidden" class="siyuanmemo-review-header__summary-count">{{ visibleCounterText }}</span>
-          </button>
+      <span
+        v-if="!props.isMobile"
+        class="fn__flex-1 siyuanmemo-review-header__drag-fill siyuanmemo-review-header__drag-zone resize__move"
+        aria-hidden="true"
+      ></span>
 
-          <div
-            v-if="isCounterPopoverOpen"
-            ref="counterPopoverRef"
-            class="siyuanmemo-review-header__popover"
-            @click.stop
-          >
-            <div class="siyuanmemo-review-header__popover-header">
-              <span class="siyuanmemo-review-header__popover-title">{{ displayTitle }}</span>
-              <span class="siyuanmemo-review-header__popover-subtitle">{{ t('reviewCounterDetails', '复习详情') }}</span>
-            </div>
-
-            <section class="siyuanmemo-review-header__popover-section">
-              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewQueueProgress', '队列进度') }}</div>
-              <div class="siyuanmemo-review-header__popover-grid">
-                <div
-                  v-for="metric in progressMetrics"
-                  :key="metric.id"
-                  class="siyuanmemo-review-header__popover-stat"
-                >
-                  <span class="siyuanmemo-review-header__popover-stat-label">{{ metric.label }}</span>
-                  <span class="siyuanmemo-review-header__popover-stat-value">{{ metric.value }}</span>
-                </div>
-              </div>
-              <div
-                v-if="summaryDescription"
-                class="siyuanmemo-review-header__popover-note"
-                :title="summaryDescription"
-              >
-                {{ summaryDescription }}
-              </div>
-            </section>
-
-            <section v-if="popoverCounters.length > 0" class="siyuanmemo-review-header__popover-section">
-              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewCounterBreakdown', '卡片构成') }}</div>
-              <div class="siyuanmemo-review-header__popover-counter-list">
-                <div
-                  v-for="counter in popoverCounters"
-                  :key="counter.id"
-                  class="siyuanmemo-review-header__popover-counter"
-                  :style="getPopoverCounterStyle(counter.tone)"
-                >
-                  <span class="siyuanmemo-review-header__popover-counter-label">{{ counter.label }}</span>
-                  <span class="siyuanmemo-review-header__popover-counter-value">{{ counter.text }}</span>
-                </div>
-              </div>
-            </section>
-
-            <section class="siyuanmemo-review-header__popover-section">
-              <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewCurrentCard', '当前卡片') }}</div>
-              <div
-                class="siyuanmemo-review-header__priority"
-                :style="priorityBadgeStyle"
-                :aria-label="header.priorityBadge.ariaLabel"
-                :title="header.priorityBadge.ariaLabel"
-              >
-                <span class="siyuanmemo-review-header__priority-label">{{ t('headerPriority', 'Priority') }}</span>
-                <span class="siyuanmemo-review-header__priority-value">{{ header.priorityBadge.value }}</span>
-              </div>
-            </section>
-          </div>
-        </div>
-      </div>
-
-      <div class="siyuanmemo-review-header__right">
-        <span
-          v-if="!props.isMobile"
-          class="siyuanmemo-review-header__drag-fill siyuanmemo-review-header__drag-zone resize__move"
-          aria-hidden="true"
-        ></span>
-        <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
-          <button
-            v-for="btn in filteredToolbar"
-            :key="btn.type"
-            :data-type="btn.type"
-            class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
-            :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
-            :aria-label="btn.ariaLabel"
-            :title="btn.tooltip || btn.ariaLabel"
-            :disabled="btn.disabled"
-            @click="handleToolbarClick(btn, $event)"
-          >
-            <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
-            <span v-if="btn.label" class="siyuanmemo-review-header__toolbar-label">{{ btn.label }}</span>
-          </button>
-        </div>
-
+      <div
+        ref="counterAreaRef"
+        class="siyuanmemo-review-header__summary-wrap"
+        @mouseenter="handleCounterMouseEnter"
+        @mouseleave="handleCounterMouseLeave"
+        @focusin="handleCounterFocusIn"
+        @focusout="handleCounterFocusOut"
+      >
         <button
-          v-if="showMobileClose"
-          data-type="close-review"
-          class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__mobile-close"
-          :aria-label="t('mobileClose', 'Close')"
-          @click="handleCloseClick"
+          ref="counterTriggerRef"
+          type="button"
+          class="siyuanmemo-review-header__summary"
+          :class="{ 'siyuanmemo-review-header__summary--count-hidden': isDesktopCounterValueHidden }"
+          :aria-label="summaryButtonAriaLabel"
+          :title="summaryButtonTitle"
+          @pointerdown="handleCounterPointerDown"
+          @click.stop="handleCounterClick"
         >
-          <svg><use xlink:href="#iconCloseRound"></use></svg>
+          <svg class="siyuanmemo-review-header__summary-icon"><use xlink:href="#iconRiffCard"></use></svg>
+          <span v-if="!isDesktopCounterValueHidden" class="siyuanmemo-review-header__summary-count">{{ visibleCounterText }}</span>
+        </button>
+
+        <div
+          v-if="isCounterPopoverOpen"
+          ref="counterPopoverRef"
+          class="siyuanmemo-review-header__popover"
+          @click.stop
+        >
+          <div class="siyuanmemo-review-header__popover-header">
+            <span class="siyuanmemo-review-header__popover-title">{{ displayTitle }}</span>
+            <span class="siyuanmemo-review-header__popover-subtitle">{{ t('reviewCounterDetails', '复习详情') }}</span>
+          </div>
+
+          <section class="siyuanmemo-review-header__popover-section">
+            <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewQueueProgress', '队列进度') }}</div>
+            <div class="siyuanmemo-review-header__popover-grid">
+              <div
+                v-for="metric in progressMetrics"
+                :key="metric.id"
+                class="siyuanmemo-review-header__popover-stat"
+              >
+                <span class="siyuanmemo-review-header__popover-stat-label">{{ metric.label }}</span>
+                <span class="siyuanmemo-review-header__popover-stat-value">{{ metric.value }}</span>
+              </div>
+            </div>
+            <div
+              v-if="summaryDescription"
+              class="siyuanmemo-review-header__popover-note"
+              :title="summaryDescription"
+            >
+              {{ summaryDescription }}
+            </div>
+          </section>
+
+          <section v-if="popoverCounters.length > 0" class="siyuanmemo-review-header__popover-section">
+            <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewCounterBreakdown', '卡片构成') }}</div>
+            <div class="siyuanmemo-review-header__popover-counter-list">
+              <div
+                v-for="counter in popoverCounters"
+                :key="counter.id"
+                class="siyuanmemo-review-header__popover-counter"
+                :style="getPopoverCounterStyle(counter.tone)"
+              >
+                <span class="siyuanmemo-review-header__popover-counter-label">{{ counter.label }}</span>
+                <span class="siyuanmemo-review-header__popover-counter-value">{{ counter.text }}</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="siyuanmemo-review-header__popover-section">
+            <div class="siyuanmemo-review-header__popover-section-title">{{ t('reviewCurrentCard', '当前卡片') }}</div>
+            <div
+              class="siyuanmemo-review-header__priority"
+              :style="priorityBadgeStyle"
+              :aria-label="header.priorityBadge.ariaLabel"
+              :title="header.priorityBadge.ariaLabel"
+            >
+              <span class="siyuanmemo-review-header__priority-label">{{ t('headerPriority', 'Priority') }}</span>
+              <span class="siyuanmemo-review-header__priority-value">{{ header.priorityBadge.value }}</span>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <span
+        v-if="!props.isMobile"
+        class="fn__flex-1 siyuanmemo-review-header__drag-fill siyuanmemo-review-header__drag-zone resize__move"
+        aria-hidden="true"
+      ></span>
+
+      <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
+        <button
+          v-for="btn in filteredToolbar"
+          :key="btn.type"
+          :data-type="btn.type"
+          class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__toolbar-button"
+          :class="{ 'siyuanmemo-review-header__toolbar-button--with-label': !!btn.label }"
+          :aria-label="btn.ariaLabel"
+          :title="btn.tooltip || btn.ariaLabel"
+          :disabled="btn.disabled"
+          @click="handleToolbarClick(btn, $event)"
+        >
+          <svg v-if="btn.icon"><use :xlink:href="btn.icon"></use></svg>
+          <span v-if="btn.label" class="siyuanmemo-review-header__toolbar-label">{{ btn.label }}</span>
         </button>
       </div>
+
+      <button
+        v-if="showMobileClose"
+        data-type="close-review"
+        class="b3-tooltips b3-tooltips__sw block__icon block__icon--show siyuanmemo-review-header__mobile-close"
+        :aria-label="t('mobileClose', 'Close')"
+        @click="handleCloseClick"
+      >
+        <svg><use xlink:href="#iconCloseRound"></use></svg>
+      </button>
     </div>
 
     <div v-if="neuralEngineIntro" class="siyuanmemo-review-header__nav-strip">
@@ -622,7 +618,7 @@ onUnmounted(() => {
 .block__icons.siyuanmemo-review-header {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(24px, 1fr) auto minmax(24px, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -636,31 +632,10 @@ onUnmounted(() => {
   border-bottom: none;
 }
 
-.siyuanmemo-review-header__left,
-.siyuanmemo-review-header__right {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  width: 100%;
-  gap: 8px;
-  flex: 1 1 0;
-}
-
-.siyuanmemo-review-header__right {
-  width: 100%;
-  justify-self: end;
-  justify-content: flex-end;
-}
-
-.siyuanmemo-review-header__center {
+.siyuanmemo-review-header__brand {
   display: inline-flex;
   align-items: center;
-  justify-self: center;
-  gap: 0;
-  min-width: 0;
-}
-
-.siyuanmemo-review-header__brand {
+  justify-self: start;
   gap: 6px;
   min-width: 0;
   padding: 0 4px;
@@ -680,9 +655,13 @@ onUnmounted(() => {
 }
 
 .siyuanmemo-review-header__drag-fill {
-  flex: 1 1 auto;
+  display: block;
+  min-width: 24px;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
   align-self: stretch;
-  min-width: 0;
+  box-sizing: border-box;
   border-radius: 4px;
 }
 
@@ -695,6 +674,8 @@ onUnmounted(() => {
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-self: center;
+  min-width: 0;
   flex-shrink: 0;
 }
 
@@ -872,6 +853,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  justify-self: end;
   flex-shrink: 0;
 }
 
@@ -899,6 +881,7 @@ onUnmounted(() => {
 
 .siyuanmemo-review-header__mobile-close {
   margin-left: 2px;
+  justify-self: end;
   flex-shrink: 0;
 }
 
@@ -921,7 +904,7 @@ onUnmounted(() => {
 }
 
 .siyuanmemo-review-header--mobile {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 8px;
   padding: 8px;
   min-height: 0;
@@ -931,9 +914,8 @@ onUnmounted(() => {
   display: none;
 }
 
-.siyuanmemo-review-header--mobile .siyuanmemo-review-header__center {
+.siyuanmemo-review-header--mobile .siyuanmemo-review-header__summary-wrap {
   justify-self: stretch;
-  gap: 8px;
 }
 
 .siyuanmemo-review-header--mobile .siyuanmemo-review-header__summary {
@@ -962,16 +944,6 @@ onUnmounted(() => {
 
 .siyuanmemo-review-header-shell--mobile .siyuanmemo-review-header__nav-strip {
   padding: 4px 8px 6px;
-}
-
-@media (max-width: 900px) {
-  .block__icons.siyuanmemo-review-header {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-
-  .siyuanmemo-review-header__center {
-    justify-self: stretch;
-  }
 }
 
 @media (max-width: 640px) {

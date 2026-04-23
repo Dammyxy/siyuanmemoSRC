@@ -134,13 +134,19 @@ describe('ReviewHeader', () => {
 
     expect(wrapper.find('.siyuanmemo-review-header__drag').exists()).toBe(false);
     expect(wrapper.find('.siyuanmemo-review-header__drag-surface').exists()).toBe(false);
+    expect(wrapper.find('.siyuanmemo-review-header__left').exists()).toBe(false);
+    expect(wrapper.find('.siyuanmemo-review-header__right').exists()).toBe(false);
+    expect(wrapper.find('.siyuanmemo-review-header__center').exists()).toBe(false);
     expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('resize__move');
     expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('siyuanmemo-review-header__drag-zone');
+    const headerRoot = wrapper.get('.block__icons.siyuanmemo-review-header');
     const dragFills = wrapper.findAll('.siyuanmemo-review-header__drag-fill');
     expect(dragFills).toHaveLength(2);
     dragFills.forEach((fill) => {
+      expect(fill.classes()).toContain('fn__flex-1');
       expect(fill.classes()).toContain('resize__move');
       expect(fill.classes()).toContain('siyuanmemo-review-header__drag-zone');
+      expect(fill.element.parentElement).toBe(headerRoot.element);
     });
 
     const summary = wrapper.get('.siyuanmemo-review-header__summary');
