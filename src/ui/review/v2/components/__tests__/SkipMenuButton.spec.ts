@@ -1,130 +1,81 @@
 import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('siyuan', () => ({
-  Menu: vi.fn().mockImplementation(() => ({
-    addItem: vi.fn(),
-    addSeparator: vi.fn(),
-    open: vi.fn(),
-  })),
-}));
-import { Menu } from 'siyuan';
+import { beforeEach, describe, expect, it } from 'vitest';
 import SkipMenuButton from '../SkipMenuButton.vue';
-
-type MockMenuInstance = {
-  addItem: ReturnType<typeof vi.fn>;
-  addSeparator: ReturnType<typeof vi.fn>;
-  open: ReturnType<typeof vi.fn>;
-};
-
-function mockRect(rect: Partial<DOMRect>): DOMRect {
-  return {
-    x: rect.x ?? 0,
-    y: rect.y ?? 0,
-    left: rect.left ?? 0,
-    right: rect.right ?? 0,
-    top: rect.top ?? 0,
-    bottom: rect.bottom ?? 0,
-    width: rect.width ?? 0,
-    height: rect.height ?? 0,
-    toJSON: () => ({}),
-  } as DOMRect;
-}
-
-function getLatestMenuInstance(): MockMenuInstance {
-  const result = vi.mocked(Menu).mock.results.at(-1);
-  return result?.value as MockMenuInstance;
-}
-
-function getMenuLabels(menu: MockMenuInstance): string[] {
-  return menu.addItem.mock.calls
-    .map((call) => call[0]?.label)
-    .filter((label): label is string => typeof label === 'string');
-}
 
 describe('SkipMenuButton', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    document.body.innerHTML = '';
   });
 
   it('emits skip on primary button click', async () => {
-    const wrapper = mount(SkipMenuButton);
+    const wrapper = mount(SkipMenuButton, {
+      attachTo: document.body,
+    });
 
-    await wrapper.get('.skip-menu-button__skip').trigger('click');
+    await wrapper.get('.skip-menu-button__main').trigger('click');
     expect(wrapper.emitted('skip')).toBeTruthy();
   });
 
-  it('renders skip hotkey hint as 0 / x and exposes tooltip label', () => {
-    const wrapper = mount(SkipMenuButton, {
-      props: {
-        isMobile: false,
-      },
-    });
+  it('renders the skip hotkey hint and tooltip label', () => {
+    const wrapper = mount(SkipMenuButton);
 
-    const primary = wrapper.get('.skip-menu-button__skip');
-    expect(primary.text()).toContain('(0 / x)');
+    const primary = wrapper.get('.skip-menu-button__main');
+    expect(primary.text()).toContain('跳过');
+    expect(primary.text()).toContain('0 / x');
     expect(primary.attributes('aria-label')).toBe('0 / x');
     expect(primary.classes()).toContain('b3-tooltips');
   });
 
-  it('opens menu anchored to dropdown button rect on desktop', async () => {
+  it('opens a local upward panel from the integrated trailing affordance', async () => {
     const wrapper = mount(SkipMenuButton, {
-      props: {
-        isMobile: false,
-      },
+      attachTo: document.body,
     });
-    const dropdown = wrapper.get('.skip-menu-button__dropdown');
-    vi.spyOn(dropdown.element, 'getBoundingClientRect').mockReturnValue(
-      mockRect({ right: 84, bottom: 52, width: 32, height: 36, left: 52, top: 16 }),
-    );
 
-    await dropdown.trigger('click');
+    expect(wrapper.find('.skip-menu-button__panel').exists()).toBe(false);
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
 
-    const menuInstance = getLatestMenuInstance();
-    expect(menuInstance.open).toHaveBeenCalledWith({
-      x: 84,
-      y: 52,
-      h: 36,
-      w: 32,
-      isLeft: true,
-    });
+    expect(wrapper.find('.skip-menu-button__panel').exists()).toBe(true);
+    expect(wrapper.text()).toContain('插入到队列指定位置');
+    expect(wrapper.text()).toContain('安排复习日期');
   });
 
-  it('uses the same anchored positioning strategy on mobile', async () => {
+  it('emits insert from the panel and closes it afterwards', async () => {
     const wrapper = mount(SkipMenuButton, {
-      props: {
-        isMobile: true,
-      },
+      attachTo: document.body,
     });
-    const dropdown = wrapper.get('.skip-menu-button__dropdown');
-    vi.spyOn(dropdown.element, 'getBoundingClientRect').mockReturnValue(
-      mockRect({ right: 120, bottom: 96, width: 44, height: 44, left: 76, top: 52 }),
-    );
 
-    await dropdown.trigger('click');
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+    await wrapper.findAll('.skip-menu-button__menu-item')[0]!.trigger('click');
 
-    const menuInstance = getLatestMenuInstance();
-    expect(menuInstance.open).toHaveBeenCalledWith({
-      x: 120,
-      y: 96,
-      h: 44,
-      w: 44,
-      isLeft: true,
-    });
+    expect(wrapper.emitted('insert')).toBeTruthy();
+    expect(wrapper.find('.skip-menu-button__panel').exists()).toBe(false);
   });
 
-  it('hides schedule action when canScheduleDate is false', async () => {
+  it('hides the schedule action when canScheduleDate is false', async () => {
     const wrapper = mount(SkipMenuButton, {
       props: {
         canScheduleDate: false,
       },
+      attachTo: document.body,
     });
 
-    await wrapper.get('.skip-menu-button__dropdown').trigger('click');
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
 
-    const menuInstance = getLatestMenuInstance();
-    const labels = getMenuLabels(menuInstance);
+    expect(wrapper.text()).toContain('插入到队列指定位置');
+    expect(wrapper.text()).not.toContain('安排复习日期');
+  });
 
-    expect(labels).toContain('插入到队列指定位置');
-    expect(labels).not.toContain('安排复习日期');
+  it('closes the panel when clicking outside', async () => {
+    const wrapper = mount(SkipMenuButton, {
+      attachTo: document.body,
+    });
+
+    await wrapper.get('.skip-menu-button__trigger').trigger('click');
+    expect(wrapper.find('.skip-menu-button__panel').exists()).toBe(true);
+
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.skip-menu-button__panel').exists()).toBe(false);
   });
 });

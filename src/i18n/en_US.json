@@ -730,6 +730,7 @@
   "topicMode": "Topic Mode",
   "insertToPosition": "Insert to Queue Position",
   "scheduleDate": "Schedule Review Date",
+  "moreSkipActions": "More skip actions",
   "remainingCards": "{n} cards remaining",
   "position": "Position",
   "input": "Enter",
@@ -2029,5 +2030,12 @@
   "selectCdfFieldsFirst": "Select at least one definition or descriptor item.",
   "selectConceptFirst": "Select at least one concept anchor.",
   "setTargetFirst": "Set target first",
-  "workingDefinitions": "Working definition candidates"
+  "workingDefinitions": "Working definition candidates",
+  "cdfDirectAnswer": "Answer",
+  "cdfDirectConcept": "Concept",
+  "cdfDirectCue": "Cue",
+  "cdfDirectCurrentItem": "Current Item",
+  "cdfDirectDefinition": "Definition",
+  "cdfDirectDescription": "Description",
+  "cdfDirectSource": "Source"
 }

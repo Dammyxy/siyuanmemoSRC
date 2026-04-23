@@ -1,35 +1,73 @@
-﻿<template>
-  <div class="skip-menu-button">
-    <!-- 左侧: 跳过按钮 -->
+<template>
+  <div
+    ref="rootRef"
+    class="skip-menu-button"
+    :class="{
+      'skip-menu-button--mobile': props.isMobile,
+      'skip-menu-button--open': menuOpen,
+    }"
+  >
     <button
-      class="b3-button b3-button--cancel b3-tooltips__n b3-tooltips skip-menu-button__skip"
-      :class="{ 'skip-menu-button__skip--mobile': props.isMobile }"
+      class="skip-menu-button__main b3-button b3-button--cancel b3-tooltips__n b3-tooltips"
       :aria-label="skipHotkeyHint"
       @click="handleSkip"
     >
-      <div class="card__icon">💤</div>
-      {{ t('skip', '跳过') }}
-      <template v-if="!props.isMobile"> ({{ skipHotkeyHint }}) </template>
+      <span class="skip-menu-button__icon" aria-hidden="true">💤</span>
+      <span class="skip-menu-button__copy">
+        <span class="skip-menu-button__label">{{ t('skip', '跳过') }}</span>
+        <span class="skip-menu-button__hint">{{ skipHotkeyHint }}</span>
+      </span>
     </button>
-    
-    <!-- 右侧: 下拉箭头 -->
+
     <button
-      class="b3-button b3-button--cancel skip-menu-button__dropdown"
-      :class="{ 'skip-menu-button__dropdown--mobile': props.isMobile }"
+      class="skip-menu-button__trigger b3-button b3-button--cancel"
+      :aria-expanded="menuOpen ? 'true' : 'false'"
+      :aria-label="t('moreSkipActions', '更多跳过操作')"
       @click="toggleMenu"
     >
-      <svg><use xlink:href="#iconUp"></use></svg>
+      <svg class="skip-menu-button__chevron"><use xlink:href="#iconUp"></use></svg>
     </button>
+
+    <div
+      v-if="menuOpen"
+      class="skip-menu-button__panel"
+      role="menu"
+      @click.stop
+    >
+      <button
+        class="skip-menu-button__menu-item"
+        role="menuitem"
+        type="button"
+        @click="runMenuAction('insert')"
+      >
+        <svg class="skip-menu-button__menu-icon"><use xlink:href="#iconPin"></use></svg>
+        <span class="skip-menu-button__menu-copy">
+          <span class="skip-menu-button__menu-label">{{ t('insertToPosition', '插入到队列指定位置') }}</span>
+        </span>
+      </button>
+
+      <button
+        v-if="props.canScheduleDate"
+        class="skip-menu-button__menu-item"
+        role="menuitem"
+        type="button"
+        @click="runMenuAction('schedule')"
+      >
+        <svg class="skip-menu-button__menu-icon"><use xlink:href="#iconCalendar"></use></svg>
+        <span class="skip-menu-button__menu-copy">
+          <span class="skip-menu-button__menu-label">{{ t('scheduleDate', '安排复习日期') }}</span>
+        </span>
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Menu } from 'siyuan';
-import { createLogger } from '@/utils/logger';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 
 interface Props {
   i18n?: Record<string, string>;
-  queueSize?: number; // 剩余卡片数量
+  queueSize?: number;
   isMobile?: boolean;
   canScheduleDate?: boolean;
 }
@@ -44,123 +82,257 @@ const props = withDefaults(defineProps<Props>(), {
   canScheduleDate: true,
 });
 const emit = defineEmits<Emits>();
-const logger = createLogger('SkipMenuButton');
+
+const rootRef = ref<HTMLElement | null>(null);
+const menuOpen = ref(false);
 const skipHotkeyHint = '0 / x';
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-function handleSkip(ev: MouseEvent) {
-  // 阻止事件冒泡到 ReviewView 的 handleRootClick
-  ev.stopPropagation();
-  ev.preventDefault();
-  
-  logger.debug('[SkipMenuButton] Skip clicked');
+function closeMenu(): void {
+  menuOpen.value = false;
+}
+
+function handleSkip(event: MouseEvent): void {
+  event.stopPropagation();
+  event.preventDefault();
+  closeMenu();
   emit('skip');
 }
 
-function toggleMenu(ev: MouseEvent) {
-  // 阻止事件冒泡到 ReviewView 的 handleRootClick
-  ev.stopPropagation();
-  ev.preventDefault();
-  
-  logger.debug('[SkipMenuButton] toggleMenu called', {
-    target: ev.target,
-    currentTarget: ev.currentTarget,
-  });
-  
-  const menu = new Menu();
-  
-  menu.addItem({
-    icon: 'iconPin',
-    label: t('insertToPosition', '插入到队列指定位置'),
-    click: () => {
-      logger.debug('[SkipMenuButton] Insert clicked');
-      emit('insert');
-    },
-  });
-  
-  if (props.canScheduleDate) {
-    menu.addItem({
-      icon: 'iconCalendar',
-      label: t('scheduleDate', '安排复习日期'),
-      click: () => {
-        logger.debug('[SkipMenuButton] Schedule clicked');
-        emit('schedule');
-      },
-    });
-  }
-  
-  // 统一使用右侧箭头按钮本身作为锚点，避免移动端与桌面端位置偏差
-  const target = ev.currentTarget as HTMLElement | null;
-  if (!target) {
-    logger.error('[SkipMenuButton] Failed to open menu: currentTarget is missing');
+function toggleMenu(event: MouseEvent): void {
+  event.stopPropagation();
+  event.preventDefault();
+  menuOpen.value = !menuOpen.value;
+}
+
+function runMenuAction(action: 'insert' | 'schedule'): void {
+  closeMenu();
+  emit(action);
+}
+
+function handleDocumentPointerDown(event: PointerEvent): void {
+  if (!menuOpen.value) {
     return;
   }
-  const rect = target.getBoundingClientRect();
-  logger.debug('[SkipMenuButton] Opening anchored menu:', {
-    x: rect.right,
-    y: rect.bottom,
-    width: rect.width,
-    height: rect.height,
-  });
-  menu.open({ x: rect.right, y: rect.bottom, h: rect.height, w: rect.width, isLeft: true });
+
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    closeMenu();
+    return;
+  }
+
+  if (rootRef.value?.contains(target)) {
+    return;
+  }
+
+  closeMenu();
 }
+
+function handleDocumentKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !menuOpen.value) {
+    return;
+  }
+
+  event.stopPropagation();
+  closeMenu();
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', handleDocumentPointerDown);
+  document.addEventListener('keydown', handleDocumentKeydown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleDocumentPointerDown);
+  document.removeEventListener('keydown', handleDocumentKeydown);
+});
 </script>
 
 <style scoped>
 .skip-menu-button {
-  display: flex;
-  gap: 0; /* 移除间隙，让按钮无缝连接 */
-  align-items: stretch; /* 确保两个按钮高度一致 */
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: stretch;
   min-height: 44px;
   height: 100%;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 34%, var(--b3-border-color));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 10%, var(--b3-theme-background));
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  transition: border-color 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.skip-menu-button__skip {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  border-right: none; /* 移除右边框，避免重叠 */
-  flex: 1; /* 占据剩余空间 */
-  min-width: 0; /* 允许按钮收缩 */
-  min-height: 44px;
-  height: 100%;
+.skip-menu-button:hover,
+.skip-menu-button:focus-within,
+.skip-menu-button--open {
+  border-color: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 48%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 14%, var(--b3-theme-background));
 }
 
-.skip-menu-button__skip--mobile {
-  min-height: 44px;
+.skip-menu-button__main,
+.skip-menu-button__trigger {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
 }
 
-.skip-menu-button__dropdown {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  padding: 4px 8px;
-  min-width: 32px;
-  max-width: 40px;
+.skip-menu-button__main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+  min-width: 0;
   min-height: 44px;
-  height: 100%;
-  display: flex;
+  padding: 0 12px;
+  border-radius: 6px 0 0 6px;
+}
+
+.skip-menu-button__trigger {
+  position: relative;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.skip-menu-button__trigger::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 28%, var(--b3-border-color));
+}
+
+.skip-menu-button__main:hover,
+.skip-menu-button__trigger:hover {
+  background: transparent;
+}
+
+.skip-menu-button__icon {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0; /* 防止按钮被压缩 */
-}
-
-.skip-menu-button__dropdown--mobile {
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0 10px;
-}
-
-.skip-menu-button__dropdown svg {
-  width: 10px;
-  height: 10px;
+  width: 28px;
+  font-size: 22px;
+  line-height: 1;
   flex-shrink: 0;
 }
 
-/* 悬停效果：当鼠标悬停在任一按钮上时，两个按钮都高亮 */
-.skip-menu-button:hover .skip-menu-button__skip,
-.skip-menu-button:hover .skip-menu-button__dropdown {
-  background-color: var(--b3-theme-surface-lighter);
+.skip-menu-button__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.2;
+}
+
+.skip-menu-button__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.skip-menu-button__hint {
+  font-size: 11px;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.skip-menu-button__chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.12s ease;
+}
+
+.skip-menu-button--open .skip-menu-button__chevron {
+  transform: rotate(180deg);
+}
+
+.skip-menu-button__panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 20;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+}
+
+.skip-menu-button__menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  text-align: left;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.skip-menu-button__menu-item:hover {
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 68%, var(--b3-theme-background));
+  color: var(--b3-theme-primary);
+}
+
+.skip-menu-button__menu-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.skip-menu-button__menu-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skip-menu-button__menu-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.skip-menu-button--mobile {
+  grid-template-columns: minmax(0, 1fr) 40px;
+}
+
+.skip-menu-button--mobile .skip-menu-button__main,
+.skip-menu-button--mobile .skip-menu-button__trigger {
+  min-height: 44px;
+}
+
+.skip-menu-button--mobile .skip-menu-button__main {
+  padding-inline: 10px;
+  gap: 8px;
+}
+
+.skip-menu-button--mobile .skip-menu-button__icon {
+  width: 24px;
+  font-size: 20px;
+}
+
+.skip-menu-button--mobile .skip-menu-button__label {
+  font-size: 13px;
+}
+
+.skip-menu-button--mobile .skip-menu-button__hint {
+  font-size: 10px;
+}
+
+.skip-menu-button--mobile .skip-menu-button__panel {
+  min-width: 184px;
 }
 </style>

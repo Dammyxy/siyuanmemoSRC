@@ -71,6 +71,7 @@
 
       <button
         class="b3-button b3-button--outline toolbar__action toolbar__action--global-select"
+        :class="{ 'toolbar__action--active': isAllMatchingActive }"
         @click="handleSelectAllToggle"
         :disabled="!canSelectAllMatching || loading"
         :title="isAllMatchingActive ? t('cancelSelectAll', '取消全选') : t('selectAllMatching', '全选匹配结果')"

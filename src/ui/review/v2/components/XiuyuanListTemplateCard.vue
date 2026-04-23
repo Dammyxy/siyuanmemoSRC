@@ -1,5 +1,15 @@
 <template>
   <div class="xiuyuan-list-template-card">
+    <CdfDirectLayout
+      v-if="isDirectDisplay"
+      :breadcrumbs="breadcrumbs"
+      :prompt-sections="directPromptSections"
+      :answer-sections="directAnswerSections"
+      :show-answer="showAnswer"
+      :answer-divider-label="t('cdfDirectAnswer', '答案')"
+    />
+
+    <template v-else>
     <CardBreadcrumb
       v-if="breadcrumbs.length > 0"
       :items="breadcrumbs"
@@ -37,6 +47,7 @@
     <div v-if="showAnswer && hasRemaining" class="xiuyuan-remaining-hint">
       还有 {{ remainingCount }} 个答案未学习
     </div>
+    </template>
   </div>
 </template>
 
@@ -49,6 +60,11 @@ import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import { loadBreadcrumbTrail } from '@/ui/review/shared/loadBreadcrumbTrail';
 import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import { createLogger } from '@/utils/logger';
+import CdfDirectLayout, { type CdfDirectSection } from '@/ui/review/components/CdfDirectLayout.vue';
+import {
+  renderCdfDirectMarkdown,
+  stripCdfDirectHtmlMarkers,
+} from '@/ui/review/components/cdfDirectContent';
 
 type SiyuanApiLike = {
   getBlockDOM: (blockId: string) => Promise<{ dom?: string } | null | undefined>;
@@ -72,6 +88,7 @@ const props = defineProps<{
   showAnswer: boolean;
   questionBlockId: string;
   plugin?: XiuyuanTemplatePluginLike;
+  displayMode?: 'semantic' | 'direct';
 }>();
 
 const logger = createLogger('XiuyuanListTemplateCard');
@@ -80,6 +97,10 @@ const questionHtml = ref('');
 const breadcrumbs = ref<BreadcrumbItem[]>([]);
 const parsedChildren = ref<Array<{ id: string; cue: string; answer: string }>>([]);
 let loadSeq = 0;
+
+function t(key: string, fallback: string): string {
+  return fallback;
+}
 
 function getSiyuanApi() {
   return props.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
@@ -116,6 +137,45 @@ const currentChild = computed(() => {
 const currentCue = computed(() => currentChild.value?.cue || '');
 const currentAnswer = computed(() => currentChild.value?.answer || '');
 const hasCue = computed(() => currentCue.value.trim().length > 0);
+const isDirectDisplay = computed(() => props.displayMode === 'direct');
+
+const directPromptSections = computed<CdfDirectSection[]>(() => {
+  if (!isDirectDisplay.value) {
+    return [];
+  }
+
+  const sections: CdfDirectSection[] = [];
+  if (questionHtml.value.trim().length > 0) {
+    sections.push({
+      key: 'source',
+      label: t('cdfDirectSource', '来源'),
+      html: stripCdfDirectHtmlMarkers(questionHtml.value),
+    });
+  }
+
+  const promptMarkdown = hasCue.value ? currentCue.value : currentAnswer.value;
+  if (promptMarkdown.trim().length > 0) {
+    sections.push({
+      key: 'current',
+      label: t('cdfDirectCurrentItem', '当前项'),
+      html: renderCdfDirectMarkdown(promptMarkdown),
+    });
+  }
+
+  return sections;
+});
+
+const directAnswerSections = computed<CdfDirectSection[]>(() => {
+  if (!isDirectDisplay.value || !hasCue.value || currentAnswer.value.trim().length === 0) {
+    return [];
+  }
+
+  return [{
+    key: 'answer',
+    label: t('cdfDirectAnswer', '答案'),
+    html: renderCdfDirectMarkdown(currentAnswer.value),
+  }];
+});
 
 async function loadCardContent(): Promise<void> {
   const seq = ++loadSeq;

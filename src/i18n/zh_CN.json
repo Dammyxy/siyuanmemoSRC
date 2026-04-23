@@ -777,6 +777,7 @@
   "topicMode": "Topic 模式",
   "insertToPosition": "插入到队列指定位置",
   "scheduleDate": "安排复习日期",
+  "moreSkipActions": "更多跳过操作",
   "remainingCards": "剩余 {n} 张卡片",
   "position": "位置",
   "input": "输入",
@@ -2029,5 +2030,12 @@
   "rounds": "轮",
   "toolCalls": "次工具调用",
   "toolCallsLabel": "工具调用",
-  "versions": "个版本"
+  "versions": "个版本",
+  "cdfDirectAnswer": "答案",
+  "cdfDirectConcept": "概念",
+  "cdfDirectCue": "线索",
+  "cdfDirectCurrentItem": "当前项",
+  "cdfDirectDefinition": "定义",
+  "cdfDirectDescription": "描述",
+  "cdfDirectSource": "来源"
 }

@@ -495,7 +495,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__action-right {
-  width: 132px;
+  width: 144px;
   display: flex;
   min-height: 44px;
 }
@@ -532,13 +532,46 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .card__action-main {
   width: 100%;
   min-width: 0;
-  min-height: 38px;
+  min-height: 40px;
   border-radius: 4px;
   box-shadow: none;
+  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease, filter 0.12s ease;
 }
 
 .card__action-main--reveal {
   grid-column: 1 / -1;
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 44%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-theme-background));
+  color: var(--b3-theme-primary);
+}
+
+.card__action-main.b3-button--error {
+  border-color: color-mix(in srgb, var(--b3-theme-error, #ef4444) 46%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-error, #ef4444) 14%, var(--b3-theme-background));
+  color: var(--b3-theme-error, #ef4444);
+}
+
+.card__action-main.b3-button--warning {
+  border-color: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 48%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 16%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 88%, #7c4300);
+}
+
+.card__action-main.b3-button--info {
+  border-color: color-mix(in srgb, var(--b3-theme-info, var(--b3-theme-primary)) 46%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-info, var(--b3-theme-primary)) 14%, var(--b3-theme-background));
+  color: var(--b3-theme-info, var(--b3-theme-primary));
+}
+
+.card__action-main.b3-button--success {
+  border-color: color-mix(in srgb, var(--b3-theme-success, #16a34a) 46%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-success, #16a34a) 14%, var(--b3-theme-background));
+  color: var(--b3-theme-success, #16a34a);
+}
+
+.card__action-main:hover:not(:disabled),
+.card__action-back:hover:not(:disabled) {
+  filter: saturate(1.06) brightness(0.98);
 }
 
 .card__action--expanded .card__action-back,
@@ -551,8 +584,8 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__action--expanded .card__action-right :deep(.skip-menu-button),
-.card__action--expanded .card__action-right :deep(.skip-menu-button__skip),
-.card__action--expanded .card__action-right :deep(.skip-menu-button__dropdown) {
+.card__action--expanded .card__action-right :deep(.skip-menu-button__main),
+.card__action--expanded .card__action-right :deep(.skip-menu-button__trigger) {
   height: 100%;
 }
 
@@ -580,7 +613,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__action--mobile .card__action-right {
-  width: 118px;
+  width: 126px;
 }
 
 .card__action--mobile .card__action-column > span {

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 121)
+Last update: 2026-04-23 (Round 122)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - CDF direct review display and review action polish
+
+- Task: 提亮 Browser 工具栏按钮层级，重写 Review 底部跳过控件，并把 `concept-definition` / `descriptor` / `cdf-multiline` 统一切到原始块直展复习路径。
+- Touched slice: Active review/browser UI path across `src/ui/browser/{BrowserToolbar.vue,SRSBrowser.scss}`, `src/ui/review/components/{ConceptDefinitionCardRenderer.vue,DescriptorCardRenderer.vue,CdfDirectLayout.vue,cdfDirectContent.ts}`, `src/ui/review/v2/{ReviewContent.vue,ReviewActions.vue}`, `src/ui/review/v2/components/{SkipMenuButton.vue,XiuyuanListTemplateCard.vue}`, related i18n, and focused review/browser tests.
+- Debt fixed now: Browser toolbar 的主操作和辅助按钮终于拉开了视觉层级，不再全是发闷的灰色；Review 底部的跳过控件从“拼接感很重的双按钮”改成了一体化主按钮 + 上拉次级动作；CDF 三类卡统一优先展示原始块内容与原始结构，默认不再附带 siblings、warning、modal 和语义化改写提示，同时清理了 `::` / `;;` / `::: ` 等制卡标记噪音。
+- Debt deferred: Review AI 解释仍保持现有右侧 sidecar，没有引入 remnote 式嵌入解释区；CDF 直展依赖现有 source/meta 映射，遇到旧卡或恢复数据不足时仍回退到旧 semantic renderer；Browser toolbar 这轮只做视觉提亮，没有继续扩成更多批量动作。
+- Why deferred: 用户这轮确认的是“先把复习呈现和动作区调顺”，而不是重做 AI review surface 或 review schema；强行把解释区嵌回卡面会扩大到 AI runtime、上下文同步和 review 布局契约，超出当前安全切片。
+- Next safe step: 如果后续确认 CDF 直展方向成立，可以继续把其它语义壳层 renderer 逐步抽成“直展优先 + 语义 fallback”的统一策略；如果要引入嵌入式 AI 解释，建议单开 review-ai surface 改造，不和本轮 renderer/UI 收口混在一起。
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.selection.test.ts src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/components/__tests__/SkipMenuButton.spec.ts src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-23 - UI micro-polish for settings, review colors, and browser page selection
 

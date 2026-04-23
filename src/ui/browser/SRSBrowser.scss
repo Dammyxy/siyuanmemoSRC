@@ -1865,16 +1865,22 @@
 }
 
 .card-browser__toolbar .toolbar__right .b3-button {
-  border-color: color-mix(in srgb, var(--b3-border-color) 78%, var(--b3-theme-primary) 22%);
-  background: var(--b3-theme-background);
+  border-color: color-mix(in srgb, var(--b3-border-color) 82%, var(--b3-theme-primary) 18%);
+  background: color-mix(in srgb, var(--b3-theme-background) 94%, var(--b3-theme-surface));
   color: var(--b3-theme-on-surface);
-  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  box-shadow: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, filter 0.12s ease;
 }
 
 .card-browser__toolbar .toolbar__right .b3-button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 46%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 72%, var(--b3-theme-background));
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 34%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 78%, var(--b3-theme-background));
   color: var(--b3-theme-primary);
+}
+
+.card-browser__toolbar .toolbar__right .b3-button:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 42%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 68%, var(--b3-theme-background));
 }
 
 .card-browser__toolbar .toolbar__right .b3-button:disabled {
@@ -1883,14 +1889,27 @@
 
 .card-browser__toolbar .toolbar__action--page-select,
 .card-browser__toolbar .toolbar__action--practice {
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 42%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 56%, var(--b3-theme-background));
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 46%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 68%, var(--b3-theme-background));
   color: var(--b3-theme-primary);
-  font-weight: 500;
+  font-weight: 600;
+}
+
+.card-browser__toolbar .toolbar__action--page-select:hover:not(:disabled),
+.card-browser__toolbar .toolbar__action--practice:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 56%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 78%, var(--b3-theme-background));
 }
 
 .card-browser__toolbar .toolbar__action--global-select {
-  border-style: dashed;
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-surface) 84%, var(--b3-theme-background));
+}
+
+.card-browser__toolbar .toolbar__action--global-select.toolbar__action--active {
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 48%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 64%, var(--b3-theme-background));
+  color: var(--b3-theme-primary);
 }
 
 .card-browser__toolbar .toolbar__right .b3-button--text {

@@ -3,6 +3,16 @@
     <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
     <CardErrorState v-else-if="error" :message="error" />
 
+    <CdfDirectLayout
+      v-else-if="viewModel && shouldUseDirectDisplay"
+      class="descriptor-card-renderer__direct"
+      :breadcrumbs="viewModel.breadcrumbs"
+      :prompt-sections="directPromptSections"
+      :answer-sections="directAnswerSections"
+      :show-answer="showAnswer"
+      :answer-divider-label="t('cdfDirectAnswer', '答案')"
+    />
+
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
@@ -61,11 +71,16 @@ import { computed, ref, watch } from 'vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import CdfDirectLayout, { type CdfDirectSection } from './CdfDirectLayout.vue';
 import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
+import {
+  renderCdfDirectMarkdown,
+  stripCdfDirectHtmlMarkers,
+} from './cdfDirectContent';
 
 const logger = createLogger('DescriptorCardRenderer');
 
@@ -75,6 +90,7 @@ const props = defineProps<{
   card?: FSRSCard;
   renderService: DescriptorCardRenderService;
   showAnswer?: boolean;
+  displayMode?: 'semantic' | 'direct';
   i18n?: Record<string, string>;
 }>();
 
@@ -93,6 +109,79 @@ let loadSeq = 0;
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
+
+const isReverseCard = computed(() => {
+  const typeMarker = typeof props.card?.meta?.typeMarker === 'string' ? props.card.meta.typeMarker : '';
+  return typeMarker.includes('reverse');
+});
+
+const shouldUseDirectDisplay = computed(() => {
+  if (props.displayMode !== 'direct') {
+    return false;
+  }
+  if (!viewModel.value) {
+    return false;
+  }
+  return !!viewModel.value.parentConcept?.html
+    && viewModel.value.attribute.trim().length > 0
+    && viewModel.value.description.trim().length > 0;
+});
+
+const directPromptSections = computed<CdfDirectSection[]>(() => {
+  const vm = viewModel.value;
+  if (!vm || !shouldUseDirectDisplay.value) {
+    return [];
+  }
+
+  if (isReverseCard.value) {
+    return [{
+      key: 'description',
+      label: t('cdfDirectDescription', '描述'),
+      html: renderCdfDirectMarkdown(vm.description),
+    }];
+  }
+
+  return [
+    {
+      key: 'concept',
+      label: t('cdfDirectConcept', '概念'),
+      html: stripCdfDirectHtmlMarkers(vm.parentConcept?.html || ''),
+    },
+    {
+      key: 'cue',
+      label: t('cdfDirectCue', '线索'),
+      html: renderCdfDirectMarkdown(vm.attribute),
+    },
+  ].filter((section) => section.html.trim().length > 0);
+});
+
+const directAnswerSections = computed<CdfDirectSection[]>(() => {
+  const vm = viewModel.value;
+  if (!vm || !shouldUseDirectDisplay.value) {
+    return [];
+  }
+
+  if (isReverseCard.value) {
+    return [
+      {
+        key: 'concept',
+        label: t('cdfDirectConcept', '概念'),
+        html: stripCdfDirectHtmlMarkers(vm.parentConcept?.html || ''),
+      },
+      {
+        key: 'cue',
+        label: t('cdfDirectCue', '线索'),
+        html: renderCdfDirectMarkdown(vm.attribute),
+      },
+    ].filter((section) => section.html.trim().length > 0);
+  }
+
+  return [{
+    key: 'description',
+    label: t('cdfDirectDescription', '描述'),
+    html: renderCdfDirectMarkdown(vm.description),
+  }];
+});
 
 const renderIdentity = computed(() => {
   return [props.blockId || '', props.cardId || '', props.card?.id || '', props.card?.updatedAt || ''].join('|');

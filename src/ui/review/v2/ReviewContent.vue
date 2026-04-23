@@ -16,6 +16,7 @@
             :show-answer="!showAnswer"
             :question-block-id="content.id"
             :plugin="plugin"
+            :display-mode="resolvedRenderProfile === 'cdf-multiline' ? 'direct' : 'semantic'"
           />
         </div>
 
@@ -45,6 +46,7 @@
             :card-id="content.card?.id"
             :card="content.card"
             :show-answer="!showAnswer"
+            :display-mode="shouldUseDirectCdfDisplay ? 'direct' : 'semantic'"
             :i18n="i18n"
             @loaded="handleConceptDefinitionCardLoaded"
             @error="handleConceptDefinitionCardError"
@@ -72,6 +74,7 @@
             :card="content.card"
             :render-service="descriptorCardRenderService"
             :show-answer="!showAnswer"
+            :display-mode="shouldUseDirectCdfDisplay ? 'direct' : 'semantic'"
             :i18n="i18n"
             @loaded="handleDescriptorCardLoaded"
             @error="handleDescriptorCardError"
@@ -592,6 +595,14 @@ const shouldUseQuickCardRenderer = computed(() => {
     && !isDescriptorCard.value
     && isQuickCard.value;
 });
+
+const shouldUseDirectCdfDisplay = computed(() => (
+  resolvedRenderProfile.value === 'concept-definition'
+  || resolvedRenderProfile.value === 'descriptor'
+  || resolvedRenderProfile.value === 'cdf-multiline'
+  || checkIsConceptDefinitionCard(props.content.card)
+  || shouldUseDescriptorCardRenderer.value
+));
 
 const currentRendererKind = computed<ReviewEditorState['renderer']>(() => {
   if (props.content.type === 'empty') {

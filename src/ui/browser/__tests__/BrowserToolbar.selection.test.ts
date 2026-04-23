@@ -124,6 +124,7 @@ describe('BrowserToolbar selection actions', () => {
 
     const button = findButtonByTitle(wrapper, 'Select Current Page');
     expect(button).toBeTruthy();
+    expect(button!.classes()).toContain('toolbar__action--page-select');
     await button!.trigger('click');
 
     expect(wrapper.emitted('selectCurrentPage')).toBeTruthy();
@@ -138,6 +139,8 @@ describe('BrowserToolbar selection actions', () => {
 
     const button = findSelectionToggleButton(wrapper);
     expect(button).toBeTruthy();
+    expect(button!.classes()).toContain('toolbar__action--global-select');
+    expect(button!.classes()).toContain('toolbar__action--active');
     await button!.trigger('click');
 
     expect(wrapper.emitted('clearSelection')).toBeTruthy();
@@ -160,6 +163,7 @@ describe('BrowserToolbar selection actions', () => {
 
     const startPracticeButton = findButtonByTitle(wrapper, 'Start Practice');
     expect(startPracticeButton?.text()).toContain('Start Practice');
+    expect(startPracticeButton?.classes()).toContain('toolbar__action--practice');
   });
 
   it('uses compact density class and short labels at 1366-1679', async () => {
