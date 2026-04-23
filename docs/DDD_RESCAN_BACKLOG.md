@@ -1809,6 +1809,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: If the new AI content-tool surface lands well, extend `ApplyBlockDiff` only with the smallest additional edit primitives users actually need and then extract tool/group copy into a shared i18n-backed descriptor registry.
 - Validation: `pnpm vitest run src/application/services/__tests__/AIChatSkillRegistry.test.ts src/application/services/__tests__/AIPromptComposer.test.ts src/application/services/__tests__/AIChatToolExecutorService.test.ts src/application/services/__tests__/AIFlashcardToolService.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts` plus `pnpm build`.
 
+### 2026-04-23 - native-like review actions and CDF editor-style direct review
+
+- Task: Rework the review bottom action bar toward Siyuan native `openCard.ts` density/colors and replace the default CDF section-card review chrome with editor-like direct presentation for concept-definition / descriptor / cdf-multiline cards.
+- Touched slice: Review bounded context in `src/ui/review/v2/ReviewActions.vue`, `src/ui/review/v2/components/SkipMenuButton.vue`, `src/ui/review/components/CdfDirectLayout.vue`, `src/ui/review/components/cdfDirectContent.ts`, `ConceptDefinitionCardRenderer.vue`, `DescriptorCardRenderer.vue`, `src/ui/review/v2/components/XiuyuanListTemplateCard.vue`, plus concept-definition/descriptor render services and targeted review tests.
+- Debt fixed now: Removed the most obvious “custom dashboard shell” feel from review actions, restored native-like reveal/rating color hierarchy, and converged CDF direct review onto one editor-style projection path that hides only the answer side with `...` instead of wrapping content in semantic helper sections/badges.
+- Debt deferred: CDF direct review is now editor-like, but it is still a projection renderer rather than full native Protyle reuse; reverse descriptor cards still use a safe hidden-concept projection rather than a richer block-aware reveal model, and RemNote-style inline AI explanation remains outside the review card surface.
+- Why deferred: Full native Protyle reuse for all CDF directions would require a larger rendering/control rewrite and risks leaking answers or breaking multiline current-item scoping; embedding AI explanation in-card is a separate product decision and should not be entangled with this review-surface correction.
+- Next safe step: If this editor-style projection feels right in daily review, extract the projection rows into a smaller shared review block primitive, then evaluate whether concept-definition/descriptor forward cards can selectively mount native Protyle for even closer Siyuan parity.
+- Validation: `pnpm vitest run src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/components/__tests__/SkipMenuButton.spec.ts` plus `pnpm build`.
+
 ### Entry template
 
 ### YYYY-MM-DD - <short task name>

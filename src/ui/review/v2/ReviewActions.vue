@@ -49,7 +49,11 @@
 
       <template v-else>
         <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
-          <span v-if="!props.isMobile">{{ g.nextDue || '' }}</span>
+          <span
+            v-if="!props.isMobile"
+            class="card__action-meta"
+            :class="getDueMetaClass(g.value)"
+          >{{ g.nextDue || '' }}</span>
           <button
             :data-type="g.value"
             :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
@@ -249,6 +253,17 @@ function getRatingButtonAriaLabel(rating: number, kb: string): string {
   return buildRatingAriaLabel(rating as ReviewRatingValue, kb, {
     includeSpaceEnterForGood: true,
   });
+}
+
+function getDueMetaClass(value: number): string {
+  const variants = {
+    1: 'card__action-meta--error',
+    2: 'card__action-meta--warning',
+    3: 'card__action-meta--info',
+    4: 'card__action-meta--success',
+  };
+
+  return variants[value as keyof typeof variants] || '';
 }
 
 function blurActionButtonAfterPointerClick(event: MouseEvent): void {
@@ -460,24 +475,28 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: stretch;
-  column-gap: 8px;
+  column-gap: 10px;
   width: 100%;
   box-sizing: border-box;
-  padding: 8px;
+  padding: 12px 18px 16px;
   user-select: none;
   flex-shrink: 0;
   border-top: 1px solid var(--b3-border-color);
-  background: var(--b3-theme-surface);
+  background: var(--b3-theme-background);
 }
 
 .card__action-back {
-  min-width: 96px;
+  min-width: 126px;
   width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 44px;
+  min-height: 56px;
+  border-radius: 8px;
+  border-color: color-mix(in srgb, var(--b3-border-color) 88%, var(--b3-theme-on-surface-light));
+  background: color-mix(in srgb, var(--b3-theme-surface) 88%, var(--b3-theme-background));
+  color: var(--b3-theme-on-surface);
 }
 
 .card__action-side {
@@ -486,18 +505,22 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   flex-direction: column;
 }
 
+.card__action-side--back {
+  width: 152px;
+}
+
 .card__action-center {
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(var(--review-action-columns, 1), minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
   align-items: stretch;
 }
 
 .card__action-right {
-  width: 144px;
+  width: 164px;
   display: flex;
-  min-height: 44px;
+  min-height: 56px;
 }
 
 .card__action-right :deep(.skip-menu-button) {
@@ -516,12 +539,13 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   display: flex;
   color: var(--b3-theme-on-surface);
   text-align: center;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 8px;
-  height: 28px;
+  height: 22px;
   line-height: 14px;
   justify-content: center;
   align-items: center;
+  font-weight: 500;
 }
 
 .card__action-side-spacer {
@@ -529,49 +553,71 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   pointer-events: none;
 }
 
+.card__action-meta--error {
+  color: color-mix(in srgb, var(--b3-theme-error, #ef4444) 90%, #7f1d1d);
+}
+
+.card__action-meta--warning {
+  color: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 88%, #7c4300);
+}
+
+.card__action-meta--info {
+  color: var(--b3-theme-primary);
+}
+
+.card__action-meta--success {
+  color: color-mix(in srgb, var(--b3-theme-success, #16a34a) 86%, #14532d);
+}
+
 .card__action-main {
   width: 100%;
   min-width: 0;
-  min-height: 40px;
-  border-radius: 4px;
+  min-height: 56px;
+  border-radius: 8px;
   box-shadow: none;
-  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease, filter 0.12s ease;
+  font-weight: 600;
+  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease, filter 0.12s ease, transform 0.12s ease;
 }
 
 .card__action-main--reveal {
   grid-column: 1 / -1;
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 44%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-theme-background));
-  color: var(--b3-theme-primary);
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 82%, #1d4ed8);
+  background: color-mix(in srgb, var(--b3-theme-primary) 84%, #2563eb);
+  color: white;
 }
 
 .card__action-main.b3-button--error {
-  border-color: color-mix(in srgb, var(--b3-theme-error, #ef4444) 46%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-error, #ef4444) 14%, var(--b3-theme-background));
-  color: var(--b3-theme-error, #ef4444);
+  border-color: color-mix(in srgb, var(--b3-theme-error, #ef4444) 34%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-error, #ef4444) 20%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--b3-theme-error, #ef4444) 92%, #7f1d1d);
 }
 
 .card__action-main.b3-button--warning {
-  border-color: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 48%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 16%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 88%, #7c4300);
+  border-color: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 34%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 20%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--b3-theme-warning, #f59e0b) 92%, #7c4300);
 }
 
 .card__action-main.b3-button--info {
-  border-color: color-mix(in srgb, var(--b3-theme-info, var(--b3-theme-primary)) 46%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-info, var(--b3-theme-primary)) 14%, var(--b3-theme-background));
+  border-color: color-mix(in srgb, var(--b3-theme-info, var(--b3-theme-primary)) 34%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-info, var(--b3-theme-primary)) 20%, var(--b3-theme-background));
   color: var(--b3-theme-info, var(--b3-theme-primary));
 }
 
 .card__action-main.b3-button--success {
-  border-color: color-mix(in srgb, var(--b3-theme-success, #16a34a) 46%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-success, #16a34a) 14%, var(--b3-theme-background));
-  color: var(--b3-theme-success, #16a34a);
+  border-color: color-mix(in srgb, var(--b3-theme-success, #16a34a) 34%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--b3-theme-success, #16a34a) 18%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--b3-theme-success, #16a34a) 92%, #14532d);
 }
 
 .card__action-main:hover:not(:disabled),
 .card__action-back:hover:not(:disabled) {
-  filter: saturate(1.06) brightness(0.98);
+  filter: saturate(1.04) brightness(0.99);
+  transform: translateY(-1px);
+}
+
+.card__action-main--reveal:hover:not(:disabled) {
+  filter: brightness(1.03);
 }
 
 .card__action--expanded .card__action-back,
@@ -583,6 +629,12 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   min-height: 0;
 }
 
+.card__action--expanded .card__action-back,
+.card__action--expanded .card__action-main,
+.card__action--expanded .card__action-right :deep(.skip-menu-button) {
+  min-height: 82px;
+}
+
 .card__action--expanded .card__action-right :deep(.skip-menu-button),
 .card__action--expanded .card__action-right :deep(.skip-menu-button__main),
 .card__action--expanded .card__action-right :deep(.skip-menu-button__trigger) {
@@ -590,7 +642,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__icon {
-  font-size: 22px;
+  font-size: 24px;
   display: block;
   line-height: 28px;
   margin-bottom: 2px;
@@ -601,7 +653,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   bottom: 0;
   z-index: 5;
   gap: 6px;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
 }
 
 .card__action--mobile .card__action-back {
@@ -613,7 +665,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__action--mobile .card__action-right {
-  width: 126px;
+  width: 134px;
 }
 
 .card__action--mobile .card__action-column > span {

@@ -164,9 +164,9 @@ describe('XiuyuanListTemplateCard', () => {
     await flushPromises();
 
     expect(wrapper.find('.cdf-direct-layout').exists()).toBe(true);
-    expect(wrapper.text()).toContain('来源');
-    expect(wrapper.text()).toContain('当前项');
-    expect(wrapper.text()).toContain('答案');
+    expect(wrapper.text()).toContain('中子星');
+    expect(wrapper.text()).toContain('前身');
+    expect(wrapper.text()).toContain('→');
     expect(wrapper.text()).toContain('大质量恒星残骸');
     expect(wrapper.text()).not.toContain(':::');
     expect(wrapper.text()).not.toContain('还有');

@@ -7,10 +7,7 @@
       v-else-if="viewModel && shouldUseDirectDisplay"
       class="descriptor-card-renderer__direct"
       :breadcrumbs="viewModel.breadcrumbs"
-      :prompt-sections="directPromptSections"
-      :answer-sections="directAnswerSections"
-      :show-answer="showAnswer"
-      :answer-divider-label="t('cdfDirectAnswer', '答案')"
+      :content-html="directContentHtml"
     />
 
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
@@ -71,15 +68,16 @@ import { computed, ref, watch } from 'vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
-import CdfDirectLayout, { type CdfDirectSection } from './CdfDirectLayout.vue';
+import CdfDirectLayout from './CdfDirectLayout.vue';
 import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 import {
+  buildCdfEditorContentHtml,
+  createCdfEllipsisHtml,
   renderCdfDirectMarkdown,
-  stripCdfDirectHtmlMarkers,
 } from './cdfDirectContent';
 
 const logger = createLogger('DescriptorCardRenderer');
@@ -111,8 +109,8 @@ function t(key: string, fallback: string): string {
 }
 
 const isReverseCard = computed(() => {
-  const typeMarker = typeof props.card?.meta?.typeMarker === 'string' ? props.card.meta.typeMarker : '';
-  return typeMarker.includes('reverse');
+  return viewModel.value?.isReverse === true
+    || (typeof props.card?.meta?.typeMarker === 'string' && props.card.meta.typeMarker.includes('reverse'));
 });
 
 const shouldUseDirectDisplay = computed(() => {
@@ -127,60 +125,40 @@ const shouldUseDirectDisplay = computed(() => {
     && viewModel.value.description.trim().length > 0;
 });
 
-const directPromptSections = computed<CdfDirectSection[]>(() => {
+function renderConceptReferenceHtml(conceptTitle: string): string {
+  return renderCdfDirectMarkdown(`[[${conceptTitle}]]`);
+}
+
+const directContentHtml = computed(() => {
   const vm = viewModel.value;
   if (!vm || !shouldUseDirectDisplay.value) {
-    return [];
+    return '';
   }
 
-  if (isReverseCard.value) {
-    return [{
-      key: 'description',
-      label: t('cdfDirectDescription', '描述'),
-      html: renderCdfDirectMarkdown(vm.description),
-    }];
-  }
+  const conceptHtml = renderConceptReferenceHtml(vm.parentConcept?.title || vm.parentConcept?.preview || vm.attribute);
+  const relationArrow = vm.relationArrow || '→';
+  const ellipsisHtml = createCdfEllipsisHtml();
+  const relationRightHtml = isReverseCard.value
+    ? renderCdfDirectMarkdown(vm.description)
+    : (props.showAnswer ? renderCdfDirectMarkdown(vm.description) : ellipsisHtml);
 
-  return [
+  return buildCdfEditorContentHtml([
     {
       key: 'concept',
-      label: t('cdfDirectConcept', '概念'),
-      html: stripCdfDirectHtmlMarkers(vm.parentConcept?.html || ''),
+      level: 0,
+      standaloneHtml: isReverseCard.value && !props.showAnswer ? ellipsisHtml : conceptHtml,
+      emphasize: 'primary',
+      ellipsisSide: isReverseCard.value && !props.showAnswer ? 'left' : null,
     },
     {
-      key: 'cue',
-      label: t('cdfDirectCue', '线索'),
-      html: renderCdfDirectMarkdown(vm.attribute),
+      key: 'descriptor',
+      level: 1,
+      leftHtml: renderCdfDirectMarkdown(vm.attribute),
+      rightHtml: relationRightHtml,
+      arrow: relationArrow,
+      ellipsisSide: isReverseCard.value ? null : (!props.showAnswer ? 'right' : null),
     },
-  ].filter((section) => section.html.trim().length > 0);
-});
-
-const directAnswerSections = computed<CdfDirectSection[]>(() => {
-  const vm = viewModel.value;
-  if (!vm || !shouldUseDirectDisplay.value) {
-    return [];
-  }
-
-  if (isReverseCard.value) {
-    return [
-      {
-        key: 'concept',
-        label: t('cdfDirectConcept', '概念'),
-        html: stripCdfDirectHtmlMarkers(vm.parentConcept?.html || ''),
-      },
-      {
-        key: 'cue',
-        label: t('cdfDirectCue', '线索'),
-        html: renderCdfDirectMarkdown(vm.attribute),
-      },
-    ].filter((section) => section.html.trim().length > 0);
-  }
-
-  return [{
-    key: 'description',
-    label: t('cdfDirectDescription', '描述'),
-    html: renderCdfDirectMarkdown(vm.description),
-  }];
+  ]);
 });
 
 const renderIdentity = computed(() => {

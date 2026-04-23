@@ -2,7 +2,9 @@
   <div class="cdf-direct-layout">
     <CardBreadcrumb v-if="breadcrumbs.length > 0" :items="breadcrumbs" variant="preview" />
 
-    <div class="cdf-direct-layout__body">
+    <div v-if="contentHtml" class="cdf-direct-layout__editor b3-typography" v-html="contentHtml"></div>
+
+    <div v-else class="cdf-direct-layout__body">
       <section
         v-for="section in promptSections"
         :key="`prompt-${section.key}`"
@@ -43,12 +45,14 @@ const props = withDefaults(defineProps<{
   breadcrumbs?: BreadcrumbItem[];
   promptSections?: CdfDirectSection[];
   answerSections?: CdfDirectSection[];
+  contentHtml?: string;
   showAnswer?: boolean;
   answerDividerLabel?: string;
 }>(), {
   breadcrumbs: () => [],
   promptSections: () => [],
   answerSections: () => [],
+  contentHtml: '',
   showAnswer: false,
   answerDividerLabel: '答案',
 });
@@ -62,6 +66,114 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
   flex-direction: column;
   height: 100%;
   background: var(--b3-theme-background);
+}
+
+.cdf-direct-layout__editor {
+  padding: 14px 18px 22px;
+  color: var(--b3-theme-on-surface);
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor) {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__row) {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  color: var(--b3-theme-on-surface);
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__row--level-1) {
+  padding-left: 20px;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__row--level-2) {
+  padding-left: 40px;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__row--primary .cdf-editor__node) {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__bullet) {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-top: 0.62em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--b3-theme-primary) 72%, #7dd3fc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--b3-theme-primary) 16%, transparent);
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__row--level-1 .cdf-editor__bullet),
+.cdf-direct-layout__editor :deep(.cdf-editor__row--level-2 .cdf-editor__bullet) {
+  width: 8px;
+  height: 8px;
+  margin-top: 0.78em;
+  background: color-mix(in srgb, var(--b3-theme-on-surface-light) 42%, transparent);
+  box-shadow: none;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__node) {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.75;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone) {
+  min-width: 0;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__segment) {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--ellipsis) {
+  color: var(--b3-theme-on-surface-light);
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__arrow) {
+  color: var(--b3-theme-on-surface-light);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__ellipsis) {
+  color: var(--b3-theme-on-surface-light);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__node > p),
+.cdf-direct-layout__editor :deep(.cdf-editor__node > ul),
+.cdf-direct-layout__editor :deep(.cdf-editor__node > ol),
+.cdf-direct-layout__editor :deep(.cdf-editor__node > blockquote),
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone > p),
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone > ul),
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone > ol),
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone > blockquote) {
+  margin: 0;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--right > p),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--left > p) {
+  margin: 0;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone strong),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment strong) {
+  font-weight: 700;
 }
 
 .cdf-direct-layout__body {

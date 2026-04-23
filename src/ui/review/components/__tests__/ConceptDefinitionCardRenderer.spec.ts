@@ -93,6 +93,7 @@ describe('ConceptDefinitionCardRenderer', () => {
       definitionHtml: '<p>质量极高的致密恒星残骸</p>',
       frontHtml: '<p>semantic front</p>',
       backHtml: '<p>semantic back</p>',
+      relationArrow: '↔',
       isReverse: false,
     });
 
@@ -124,8 +125,9 @@ describe('ConceptDefinitionCardRenderer', () => {
 
     expect(wrapper.find('.cdf-direct-layout').exists()).toBe(true);
     expect(wrapper.find('.concept-definition-card-renderer__badge').exists()).toBe(false);
-    expect(wrapper.text()).toContain('概念');
     expect(wrapper.text()).toContain('中子星');
-    expect(wrapper.text()).not.toContain('答案');
+    expect(wrapper.text()).toContain('↔');
+    expect(wrapper.text()).toContain('...');
+    expect(wrapper.text()).not.toContain('质量极高的致密恒星残骸');
   });
 });

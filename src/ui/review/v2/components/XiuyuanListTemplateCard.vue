@@ -3,10 +3,7 @@
     <CdfDirectLayout
       v-if="isDirectDisplay"
       :breadcrumbs="breadcrumbs"
-      :prompt-sections="directPromptSections"
-      :answer-sections="directAnswerSections"
-      :show-answer="showAnswer"
-      :answer-divider-label="t('cdfDirectAnswer', '答案')"
+      :content-html="directContentHtml"
     />
 
     <template v-else>
@@ -60,8 +57,11 @@ import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import { loadBreadcrumbTrail } from '@/ui/review/shared/loadBreadcrumbTrail';
 import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import { createLogger } from '@/utils/logger';
-import CdfDirectLayout, { type CdfDirectSection } from '@/ui/review/components/CdfDirectLayout.vue';
+import CdfDirectLayout from '@/ui/review/components/CdfDirectLayout.vue';
 import {
+  buildCdfEditorContentHtml,
+  createCdfEllipsisHtml,
+  projectCdfRelation,
   renderCdfDirectMarkdown,
   stripCdfDirectHtmlMarkers,
 } from '@/ui/review/components/cdfDirectContent';
@@ -95,12 +95,8 @@ const logger = createLogger('XiuyuanListTemplateCard');
 
 const questionHtml = ref('');
 const breadcrumbs = ref<BreadcrumbItem[]>([]);
-const parsedChildren = ref<Array<{ id: string; cue: string; answer: string }>>([]);
+const parsedChildren = ref<Array<{ id: string; cue: string; answer: string; source: string }>>([]);
 let loadSeq = 0;
-
-function t(key: string, fallback: string): string {
-  return fallback;
-}
 
 function getSiyuanApi() {
   return props.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
@@ -136,45 +132,50 @@ const currentChild = computed(() => {
 
 const currentCue = computed(() => currentChild.value?.cue || '');
 const currentAnswer = computed(() => currentChild.value?.answer || '');
+const currentSource = computed(() => currentChild.value?.source || '');
 const hasCue = computed(() => currentCue.value.trim().length > 0);
 const isDirectDisplay = computed(() => props.displayMode === 'direct');
+const currentRelation = computed(() => projectCdfRelation(currentSource.value, '→'));
 
-const directPromptSections = computed<CdfDirectSection[]>(() => {
+const directContentHtml = computed(() => {
   if (!isDirectDisplay.value) {
-    return [];
+    return '';
   }
 
-  const sections: CdfDirectSection[] = [];
-  if (questionHtml.value.trim().length > 0) {
-    sections.push({
-      key: 'source',
-      label: t('cdfDirectSource', '来源'),
-      html: stripCdfDirectHtmlMarkers(questionHtml.value),
+  const rows = [];
+  const parentHtml = stripCdfDirectHtmlMarkers(questionHtml.value);
+  if (parentHtml.trim().length > 0) {
+    rows.push({
+      key: 'concept',
+      level: 0 as const,
+      standaloneHtml: parentHtml,
+      emphasize: 'primary' as const,
     });
   }
 
-  const promptMarkdown = hasCue.value ? currentCue.value : currentAnswer.value;
-  if (promptMarkdown.trim().length > 0) {
-    sections.push({
-      key: 'current',
-      label: t('cdfDirectCurrentItem', '当前项'),
-      html: renderCdfDirectMarkdown(promptMarkdown),
+  if (currentRelation.value.matched) {
+    rows.push({
+      key: 'current-relation',
+      level: 1 as const,
+      leftHtml: renderCdfDirectMarkdown(currentRelation.value.left),
+      rightHtml: props.showAnswer
+        ? renderCdfDirectMarkdown(currentRelation.value.right)
+        : createCdfEllipsisHtml(),
+      arrow: currentRelation.value.arrow,
+      ellipsisSide: props.showAnswer ? null : 'right' as const,
     });
+  } else {
+    const currentHtml = renderCdfDirectMarkdown(hasCue.value ? currentCue.value : currentAnswer.value);
+    if (currentHtml.trim().length > 0) {
+      rows.push({
+        key: 'current-answer',
+        level: 1 as const,
+        standaloneHtml: currentHtml,
+      });
+    }
   }
 
-  return sections;
-});
-
-const directAnswerSections = computed<CdfDirectSection[]>(() => {
-  if (!isDirectDisplay.value || !hasCue.value || currentAnswer.value.trim().length === 0) {
-    return [];
-  }
-
-  return [{
-    key: 'answer',
-    label: t('cdfDirectAnswer', '答案'),
-    html: renderCdfDirectMarkdown(currentAnswer.value),
-  }];
+  return buildCdfEditorContentHtml(rows);
 });
 
 async function loadCardContent(): Promise<void> {
@@ -202,11 +203,13 @@ async function loadCardContent(): Promise<void> {
       Promise.all(
         childIds.map(async (id) => {
           const { kramdown } = await siyuanApi.getBlockKramdown(id) || {};
-          const parsed = parseCueAndAnswer(String(kramdown || ''));
+          const source = String(kramdown || '');
+          const parsed = parseCueAndAnswer(source);
           return {
             id,
             cue: parsed.cue,
             answer: parsed.answer,
+            source,
           };
         }),
       ),

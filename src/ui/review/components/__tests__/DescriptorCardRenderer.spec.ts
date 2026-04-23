@@ -11,6 +11,8 @@ describe('DescriptorCardRenderer', () => {
         dependencyBlockIds: ['doc-1', 'concept-1', 'descriptor-1'],
         frontHtml: '<p>semantic front</p>',
         backHtml: '<p>semantic back</p>',
+        relationArrow: '→',
+        isReverse: false,
         attribute: '形成过程',
         description: '前身恒星经历超新星爆炸后形成',
         parentConcept: {
@@ -53,11 +55,10 @@ describe('DescriptorCardRenderer', () => {
     expect(wrapper.find('.cdf-direct-layout').exists()).toBe(true);
     expect(wrapper.find('.descriptor-card-renderer__warning').exists()).toBe(false);
     expect(wrapper.find('.descriptor-card-renderer__siblings').exists()).toBe(false);
-    expect(wrapper.text()).toContain('概念');
-    expect(wrapper.text()).toContain('线索');
-    expect(wrapper.text()).toContain('答案');
     expect(wrapper.text()).toContain('中子星');
+    expect(wrapper.text()).toContain('→');
     expect(wrapper.text()).toContain('形成过程');
     expect(wrapper.text()).toContain('前身恒星经历超新星爆炸后形成');
+    expect(wrapper.text()).not.toContain('legacy semantic warning');
   });
 });

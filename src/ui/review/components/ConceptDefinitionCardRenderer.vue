@@ -7,10 +7,7 @@
       v-else-if="viewModel && shouldUseDirectDisplay"
       class="concept-definition-card-renderer__direct"
       :breadcrumbs="viewModel.breadcrumbs"
-      :prompt-sections="directPromptSections"
-      :answer-sections="directAnswerSections"
-      :show-answer="showAnswer"
-      :answer-divider-label="t('cdfDirectAnswer', '答案')"
+      :content-html="directContentHtml"
     />
 
     <div v-else-if="viewModel" class="concept-definition-card-renderer__content">
@@ -45,7 +42,7 @@ import { computed, ref, watch } from 'vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
-import CdfDirectLayout, { type CdfDirectSection } from './CdfDirectLayout.vue';
+import CdfDirectLayout from './CdfDirectLayout.vue';
 import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import type {
   ConceptDefinitionCardInput,
@@ -53,7 +50,12 @@ import type {
 } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
-import { renderCdfDirectMarkdown, stripCdfDirectHtmlMarkers } from './cdfDirectContent';
+import {
+  buildCdfEditorContentHtml,
+  createCdfEllipsisHtml,
+  renderCdfDirectMarkdown,
+  stripCdfDirectHtmlMarkers,
+} from './cdfDirectContent';
 
 const FAILURE_CACHE_KEY = '__siyuanmemo_concept_definition_render_failures__';
 
@@ -110,42 +112,30 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-const directPromptSections = computed<CdfDirectSection[]>(() => {
+function renderConceptReferenceHtml(conceptName: string): string {
+  return renderCdfDirectMarkdown(`[[${conceptName}]]`);
+}
+
+const directContentHtml = computed(() => {
   const vm = viewModel.value;
   if (!vm || !shouldUseDirectDisplay.value) {
-    return [];
+    return '';
   }
 
-  return vm.isReverse
-    ? [{
-      key: 'definition',
-      label: t('cdfDirectDefinition', '定义'),
-      html: stripCdfDirectHtmlMarkers(vm.definitionHtml),
-    }]
-    : [{
-      key: 'concept',
-      label: t('cdfDirectConcept', '概念'),
-      html: renderCdfDirectMarkdown(vm.conceptName),
-    }];
-});
+  const conceptHtml = renderConceptReferenceHtml(vm.conceptName);
+  const definitionHtml = stripCdfDirectHtmlMarkers(vm.definitionHtml);
+  const ellipsisHtml = createCdfEllipsisHtml();
+  const relationArrow = vm.relationArrow || '↔';
 
-const directAnswerSections = computed<CdfDirectSection[]>(() => {
-  const vm = viewModel.value;
-  if (!vm || !shouldUseDirectDisplay.value) {
-    return [];
-  }
-
-  return vm.isReverse
-    ? [{
-      key: 'concept',
-      label: t('cdfDirectConcept', '概念'),
-      html: renderCdfDirectMarkdown(vm.conceptName),
-    }]
-    : [{
-      key: 'definition',
-      label: t('cdfDirectDefinition', '定义'),
-      html: stripCdfDirectHtmlMarkers(vm.definitionHtml),
-    }];
+  return buildCdfEditorContentHtml([{
+    key: 'concept-definition',
+    level: 0,
+    leftHtml: vm.isReverse && !props.showAnswer ? ellipsisHtml : conceptHtml,
+    rightHtml: vm.isReverse ? definitionHtml : (props.showAnswer ? definitionHtml : ellipsisHtml),
+    arrow: relationArrow,
+    emphasize: 'primary',
+    ellipsisSide: vm.isReverse && !props.showAnswer ? 'left' : (!props.showAnswer ? 'right' : null),
+  }]);
 });
 
 async function loadViewModel() {

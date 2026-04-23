@@ -35,6 +35,8 @@ export interface DescriptorCardViewModel extends BaseCardViewModel {
   
   // 背面内容（属性值）
   backHtml: string;
+  relationArrow: '→' | '←' | '↔';
+  isReverse: boolean;
   
   attribute: string;
   description: string;
@@ -128,6 +130,8 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         ].filter((value): value is string => typeof value === 'string' && value.length > 0))),
         frontHtml,
         backHtml,
+        relationArrow: this.resolveDescriptorArrow(data.content, typeMarker),
+        isReverse,
         attribute: card.attribute,
         description: card.description,
         parentConcept: this.buildParentConceptViewModel(card),
@@ -368,6 +372,23 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       html: card.parentConcept.html,
       isConceptCard: card.isParentConceptCard(),
     };
+  }
+
+  private resolveDescriptorArrow(
+    content: string,
+    typeMarker: string,
+  ): '→' | '←' | '↔' {
+    const normalized = String(content || '').replace(/\{:[^}]*\}/g, ' ').trim();
+    if (/;<>|；《》|↔/.test(normalized)) {
+      return '↔';
+    }
+    if (/;<|；《|←/.test(normalized) || typeMarker.includes('reverse')) {
+      return '←';
+    }
+    if (/;;|；；|->|→/.test(normalized)) {
+      return '→';
+    }
+    return '→';
   }
 
   /**

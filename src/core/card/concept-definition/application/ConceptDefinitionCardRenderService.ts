@@ -63,6 +63,7 @@ export interface ConceptDefinitionCardViewModel extends BaseCardViewModel {
   definitionHtml: string;
   frontHtml: string;  // 🆕 正面 HTML（问题）
   backHtml: string;   // 🆕 背面 HTML（答案）
+  relationArrow: '→' | '←' | '↔';
   clozeIndex?: number;
   totalClozes?: number;
   isReverse?: boolean; // 是否为反向卡片
@@ -196,6 +197,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
 
     // 8. 解析定义块内容
     const definitionText = this.extractDefinitionText(definitionKramdown);
+    const relationArrow = this.resolveDefinitionArrow(definitionKramdown);
     
     logger.debug('[ConceptDefinitionCardRenderService] Parsed definition:', {
       original: definitionKramdown.substring(0, 100),
@@ -293,6 +295,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       definitionHtml,
       frontHtml,
       backHtml,
+      relationArrow,
       clozeIndex: clozes.length > 0 ? clozeIndex : undefined,
       totalClozes: clozes.length > 0 ? clozes.length : undefined,
       isReverse,
@@ -548,6 +551,20 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       definitionKramdown: definitionKramdown || '',
       inferredReverseFromFace: isReverse,
     };
+  }
+
+  private resolveDefinitionArrow(definitionKramdown: string): '→' | '←' | '↔' {
+    const normalized = this.stripTrailingBlockAttrs(definitionKramdown);
+    if (!normalized) {
+      return '↔';
+    }
+    if (/:>|：》/.test(normalized)) {
+      return '→';
+    }
+    if (/:<|：《/.test(normalized)) {
+      return '←';
+    }
+    return '↔';
   }
 
   /**
