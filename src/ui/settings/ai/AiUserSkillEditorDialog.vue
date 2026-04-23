@@ -361,16 +361,18 @@ function handleSave(): void {
 <style scoped>
 .ai-settings-dialog {
   display: grid;
-  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
   min-height: 100%;
 }
 
 .ai-settings-dialog__header,
 .ai-settings-dialog__footer {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 12px 0;
 }
 
 .ai-settings-dialog__copy {
@@ -382,7 +384,9 @@ function handleSave(): void {
 
 .ai-user-skill-editor {
   display: grid;
-  gap: 18px;
+  gap: 14px;
+  padding: 12px 0;
+  min-height: 0;
 }
 
 .ai-user-skill-editor__form,
@@ -406,10 +410,10 @@ function handleSave(): void {
 .ai-user-skill-editor__tool-option {
   display: grid;
   gap: 3px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 12px;
-  background: var(--b3-theme-surface);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
 }
 
 .ai-user-skill-editor__tool-option span {
@@ -445,10 +449,10 @@ function handleSave(): void {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 9px 10px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 14px;
-  background: var(--b3-theme-surface);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
   cursor: pointer;
 }
 
@@ -465,8 +469,8 @@ function handleSave(): void {
 }
 
 .ai-user-skill-editor__section-summary--active {
-  border-color: rgba(76, 110, 245, 0.42);
-  background: rgba(76, 110, 245, 0.08);
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-theme-primary-lightest);
 }
 
 .ai-user-skill-editor__section-summary--drag-over {

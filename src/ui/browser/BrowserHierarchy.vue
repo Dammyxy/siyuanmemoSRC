@@ -197,13 +197,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .fsrs-browser-hierarchy {
-  padding: 8px;
+  padding: 10px 8px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  background: var(--b3-theme-surface);
 }
 
 .fsrs-browser-hierarchy__section {
@@ -221,10 +222,32 @@ onBeforeUnmount(() => {
 
 .fsrs-browser-hierarchy__title {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--b3-theme-on-surface);
-  padding: 4px 6px;
+  font-weight: 700;
+  color: var(--b3-theme-primary);
+  padding: 5px 6px 4px;
+  border-bottom: 1px dashed var(--b3-theme-primary);
   flex-shrink: 0;
+}
+
+.fsrs-browser-hierarchy :deep(.b3-list) {
+  background: transparent;
+}
+
+.fsrs-browser-hierarchy :deep(.b3-list-item) {
+  min-height: 32px;
+  margin: 2px 0;
+  padding: 5px 8px;
+  border-radius: 4px;
+}
+
+.fsrs-browser-hierarchy :deep(.b3-list-item:hover) {
+  background: var(--b3-theme-surface-light);
+}
+
+.fsrs-browser-hierarchy :deep(.b3-list-item--focus) {
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 32%, var(--b3-border-color) 68%);
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
 }
 
 .fsrs-browser-hierarchy__docs-list {

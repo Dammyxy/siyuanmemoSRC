@@ -3699,5 +3699,302 @@ async function handleRepairDates() {
     align-items: stretch;
   }
 }
-</style>
 
+/* F-Misc style pass: flat settings manager, light rows, native-feeling density. */
+.settings-shell {
+  border: none;
+  border-radius: 0;
+  background: var(--b3-theme-background);
+  box-shadow: none;
+}
+
+.settings-tabs {
+  width: 248px;
+  gap: 6px;
+  padding: 16px 10px;
+  background: var(--b3-theme-surface);
+}
+
+.settings-tab {
+  min-height: 36px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  color: var(--b3-theme-on-surface);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.settings-tab--active {
+  border-color: var(--b3-border-color);
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
+  box-shadow: none;
+}
+
+.settings-subtabs {
+  gap: 36px;
+  min-height: 46px;
+  padding: 0 42px;
+  align-items: flex-end;
+  background: var(--b3-theme-background);
+}
+
+.settings-subtab {
+  min-height: 44px;
+  padding: 0 2px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.settings-subtab--active {
+  border-bottom-color: var(--b3-theme-primary);
+  background: transparent;
+}
+
+.settings-content {
+  padding: 22px 42px 32px;
+  background: var(--b3-theme-background);
+}
+
+.settings-card {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-card h3 {
+  margin-bottom: 14px;
+  color: var(--b3-theme-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.settings-card h4 {
+  margin: 22px 0 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px dashed var(--b3-theme-primary);
+  color: var(--b3-theme-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.form-item {
+  margin-bottom: 0;
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--b3-border-color);
+}
+
+.form-item label {
+  margin-bottom: 7px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.form-hint {
+  margin-top: 7px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.form-control select,
+.form-control input[type="text"],
+.form-control input[type="password"],
+.form-control input[type="number"] {
+  min-height: 34px;
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  font-size: 14px;
+}
+
+.form-textarea {
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-small {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 4px;
+  box-shadow: none;
+  font-size: 13px;
+}
+
+.settings-footer {
+  padding: 12px 42px;
+  background: var(--b3-theme-background);
+}
+
+.settings-foldout {
+  border-style: solid;
+  border-radius: 4px;
+  background: var(--b3-theme-surface);
+}
+
+.ai-settings-manager,
+.ai-prompt-card-list,
+.ai-tool-group-list {
+  gap: 8px;
+}
+
+.ai-settings-manager__head {
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-surface);
+}
+
+.ai-settings-manager__head strong {
+  color: var(--b3-theme-primary);
+}
+
+.ai-tool-group-card,
+.ai-prompt-preset-card,
+.ai-user-skill-card {
+  gap: 0;
+  padding: 0;
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.ai-tool-group-card__head,
+.ai-prompt-preset-card__head,
+.ai-user-skill-card__head {
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--b3-theme-background);
+}
+
+.ai-tool-group-card__head:hover,
+.ai-prompt-preset-card:hover,
+.ai-user-skill-card:hover {
+  background: var(--b3-theme-surface-light);
+}
+
+.ai-tool-group-card__toggle,
+.ai-tool-row__toggle {
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-tool-group-card__toggle strong,
+.ai-tool-row__toggle strong,
+.ai-prompt-preset-card__title,
+.ai-user-skill-card__title-row strong {
+  font-size: 14px;
+}
+
+.ai-tool-group-card__toggle span,
+.ai-tool-row__toggle span,
+.ai-prompt-preset-card__summary {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.ai-tool-group-card__meta,
+.ai-user-skill-card__meta,
+.ai-user-skill-card__chips,
+.ai-prompt-preset-card__title-row {
+  gap: 6px;
+}
+
+.ai-tool-group-card__meta {
+  padding: 0 12px 8px 34px;
+}
+
+.ai-tool-group-card__body {
+  gap: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface-lighter);
+}
+
+.ai-tool-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
+  align-items: center;
+  padding: 6px 0 6px 24px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-tool-row + .ai-tool-row {
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.ai-tool-row__meta {
+  justify-content: flex-start;
+}
+
+.ai-meta-chip,
+.ai-prompt-preset-card__status-badge {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  font-size: 12px;
+}
+
+.ai-prompt-preset-card {
+  padding: 8px 12px;
+}
+
+.ai-prompt-preset-card__grid {
+  gap: 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.ai-prompt-preset-card__row {
+  padding: 8px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-prompt-preset-card__row + .ai-prompt-preset-card__row {
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.ai-user-skill-card {
+  padding: 8px 12px;
+}
+
+@media (max-width: 980px) {
+  .settings-subtabs,
+  .settings-content,
+  .settings-footer {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-tabs {
+    padding: 12px 14px;
+  }
+
+  .settings-subtabs {
+    min-height: 46px;
+    padding-top: 0;
+  }
+
+  .settings-card {
+    padding: 0;
+  }
+
+  .ai-tool-row {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

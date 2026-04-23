@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 119)
+Last update: 2026-04-23 (Round 120)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - F toolbox high-fidelity visual flattening
+
+- Task: 将设置页、AI Workbench、SRS Browser、Review 工作区和主要设置弹窗进一步压成高度贴近 F 工具箱的平直清爽视觉。
+- Touched slice: Cross-cutting UI surface active path across shared visual tokens, settings/AI manager dialogs, AI Workbench, Browser, and Review Vue surfaces under `src/ui/*`.
+- Debt fixed now: 上轮仍残留的大圆角 shell、大白卡、重渐变、胶囊 chip、强阴影和蓝白 AI 工作台视觉被收口到 HSPA-like 小圆角、细边框、平直列表和思源变量表面；工具权限弹窗从卡片堆叠改成更像 F 工具箱的分组表格密度。
+- Debt deferred: 仍没有做像素级复刻，也没有把所有业务组件拆成共享 F 风格基础组件；部分卡片内容渲染器内部仍保留自己的内容排版，只统一外围工作区和主要管理控件。
+- Why deferred: 用户要求的是视觉高度贴近而非 UI 架构重写；拆共享组件或逐个重画所有卡片渲染器会扩大到业务结构和可维护性迁移，风险高于本轮收益。
+- Next safe step: 如需继续，可以做一轮视觉截图验收后针对用户指出的单页残留继续局部压平，或提取 `SiyuanMemoFlatList` / `SiyuanMemoFlatSection` 等共享设置组件减少 scoped CSS 覆盖。
+- Validation: `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts src/ui/settings/ai/__tests__/AiToolPermissionManagerDialog.test.ts src/ui/settings/ai/__tests__/AiBuiltInPromptEditorDialog.test.ts src/ui/settings/ai/__tests__/AiUserSkillEditorDialog.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/ui/browser/__tests__/BrowserToolbar.spec.ts src/ui/browser/__tests__/BrowserHierarchy.missing-blocks.spec.ts src/ui/browser/__tests__/SRSBrowser.hierarchy-regression.spec.ts src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts src/ui/browser/dialogs/__tests__/SpreadDialog.test.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/review/v2/__tests__/ReviewView.open-as-menu.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-23 - F toolbox inspired settings and dialog visual skin
 

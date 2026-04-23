@@ -2129,7 +2129,7 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__empty {
-  padding: 48px 16px;
+  padding: 36px 16px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -2139,7 +2139,7 @@ const content = computed(() => props.content);
 }
 
 .fsrs-review-v2-content__empty-icon {
-  font-size: 48px;
+  font-size: 36px;
   line-height: 1;
 }
 
@@ -2158,7 +2158,7 @@ const content = computed(() => props.content);
   margin: 16px;
   padding: 12px;
   border: 1px solid var(--b3-theme-error);
-  border-radius: 8px;
+  border-radius: 4px;
   color: var(--b3-theme-error);
   background: color-mix(in srgb, var(--b3-theme-error) 8%, transparent);
   text-align: center;

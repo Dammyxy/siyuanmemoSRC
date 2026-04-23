@@ -466,7 +466,8 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   padding: 8px;
   user-select: none;
   flex-shrink: 0;
-  background: var(--b3-theme-background);
+  border-top: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
 }
 
 .card__action-back {
@@ -531,7 +532,9 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .card__action-main {
   width: 100%;
   min-width: 0;
-  min-height: 44px;
+  min-height: 38px;
+  border-radius: 4px;
+  box-shadow: none;
 }
 
 .card__action-main--reveal {
@@ -554,10 +557,10 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 }
 
 .card__icon {
-  font-size: 32px;
+  font-size: 22px;
   display: block;
-  line-height: 46px;
-  margin-bottom: 4px;
+  line-height: 28px;
+  margin-bottom: 2px;
 }
 
 .card__action--mobile {
@@ -608,14 +611,15 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .siyuanmemo-dialog .b3-dialog__scrim {
   position: absolute;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.32);
+  background-color: rgba(0, 0, 0, 0.18);
 }
 
 .siyuanmemo-dialog .b3-dialog__container {
   position: relative;
   background-color: var(--b3-theme-background);
-  border-radius: var(--b3-border-radius);
-  box-shadow: var(--b3-dialog-shadow);
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   max-height: 80vh;
   overflow: auto;
 }

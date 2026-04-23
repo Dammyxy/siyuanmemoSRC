@@ -136,10 +136,10 @@ const onCellContextMenu = (event: CellContextMenuEvent) => {
   --ag-even-row-background-color: var(--b3-theme-background);
   --ag-row-hover-color: var(--b3-list-hover);
   --ag-selected-row-background-color: rgba(var(--b3-theme-primary-rgb), 0.15);
-  --ag-row-height: 32px;
-  --ag-header-height: 36px;
+  --ag-row-height: 30px;
+  --ag-header-height: 34px;
   --ag-font-size: 12px;
-  --ag-cell-horizontal-padding: 8px;
+  --ag-cell-horizontal-padding: 7px;
   --ag-header-column-resize-handle-color: var(--b3-theme-primary);
   --ag-header-column-resize-handle-width: 2px;
   --ag-checkbox-checked-color: var(--b3-theme-primary);
@@ -153,7 +153,8 @@ const onCellContextMenu = (event: CellContextMenuEvent) => {
 /* 根容器 - 防止白屏 */
 .card-browser-grid :deep(.ag-root-wrapper) {
   background: var(--b3-theme-background) !important;
-  border: none;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
 }
 
 .card-browser-grid :deep(.ag-root),
@@ -173,7 +174,7 @@ const onCellContextMenu = (event: CellContextMenuEvent) => {
 
 .card-browser-grid :deep(.ag-header-cell) {
   color: var(--b3-theme-on-surface);
-  font-weight: 600;
+  font-weight: 500;
   font-size: 11px;
   background: var(--b3-theme-surface) !important;
 }

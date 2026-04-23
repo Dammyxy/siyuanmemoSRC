@@ -4487,8 +4487,7 @@ watch(
 .fsrs-review-v2__workspace--with-ai {
   grid-template-columns: minmax(0, 1fr) minmax(380px, 420px);
   gap: 0;
-  background:
-    linear-gradient(180deg, rgba(248, 249, 255, 0.98), rgba(242, 244, 251, 0.98));
+  background: var(--b3-theme-background);
 }
 
 /* 🌌 内容包装器（占据剩余空间） */
@@ -4502,7 +4501,7 @@ watch(
 }
 
 .fsrs-review-v2__workspace--with-ai .fsrs-review-v2__content-wrapper {
-  border-right: 1px solid rgba(112, 102, 173, 0.12);
+  border-right: 1px solid var(--b3-border-color);
   background: var(--b3-theme-background);
 }
 
@@ -4520,7 +4519,7 @@ watch(
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(249, 249, 255, 0.98), rgba(242, 243, 251, 0.98));
+  background: var(--b3-theme-background);
 }
 
 .fsrs-review-v2-resume {
@@ -4529,7 +4528,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.16);
   padding: 16px;
 }
 
@@ -4559,7 +4558,7 @@ watch(
   align-items: flex-start;
   justify-content: center;
   padding: 20px 16px;
-  background: rgba(0, 0, 0, 0.28);
+  background: rgba(0, 0, 0, 0.18);
   overflow-y: auto;
 }
 
@@ -4567,8 +4566,10 @@ watch(
   width: min(900px, calc(100vw - 32px));
   max-height: calc(100vh - 40px);
   overflow: auto;
-  border-radius: var(--b3-border-radius-b);
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
   background: var(--b3-theme-background);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   margin: 0 auto;
 }
 
@@ -4626,7 +4627,7 @@ watch(
 <style>
 /* 确保对话框有圆角 */
 .b3-dialog__container.siyuanmemo-review-dialog-container:not(.fsrs-mobile-review-dialog) {
-  border-radius: var(--b3-border-radius-b) !important;
+  border-radius: 6px !important;
 }
 
 .b3-dialog__container.fsrs-mobile-review-dialog {

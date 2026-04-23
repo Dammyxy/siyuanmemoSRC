@@ -170,16 +170,18 @@ function handleSave(): void {
 <style scoped>
 .ai-settings-dialog {
   display: grid;
-  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
   min-height: 100%;
 }
 
 .ai-settings-dialog__header,
 .ai-settings-dialog__footer {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 12px 0;
 }
 
 .ai-settings-dialog__copy {
@@ -191,7 +193,9 @@ function handleSave(): void {
 
 .ai-built-in-editor {
   display: grid;
-  gap: 14px;
+  gap: 12px;
+  padding: 12px 0;
+  min-height: 0;
 }
 
 .ai-built-in-editor--concept-coach {
@@ -206,22 +210,22 @@ function handleSave(): void {
 
 .ai-built-in-editor__nav {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   align-content: start;
 }
 
 .ai-built-in-editor__nav-item {
   text-align: left;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 12px;
-  background: var(--b3-theme-surface);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
 }
 
 .ai-built-in-editor__nav-item--active {
-  border-color: rgba(76, 110, 245, 0.4);
-  background: rgba(76, 110, 245, 0.1);
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-theme-primary-lightest);
   color: var(--b3-theme-primary);
 }
 
@@ -238,10 +242,10 @@ function handleSave(): void {
 .ai-built-in-editor__contract {
   display: grid;
   gap: 8px;
-  padding: 14px 16px;
-  border: 1px dashed var(--b3-border-color);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.74);
+  padding: 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-surface);
 }
 
 .ai-built-in-editor__contract-list {

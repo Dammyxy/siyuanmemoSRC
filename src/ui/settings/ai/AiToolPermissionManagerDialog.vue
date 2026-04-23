@@ -193,16 +193,18 @@ function handleSave(): void {
 <style scoped>
 .ai-settings-dialog {
   display: grid;
-  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
   min-height: 100%;
 }
 
 .ai-settings-dialog__header,
 .ai-settings-dialog__footer {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 12px 0;
 }
 
 .ai-settings-dialog__copy {
@@ -214,18 +216,36 @@ function handleSave(): void {
 
 .ai-tool-permission-list {
   display: grid;
-  gap: 12px;
+  gap: 0;
   overflow: auto;
-  padding-right: 4px;
+  padding: 12px 0;
 }
 
 .ai-tool-permission-card {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(180px, 1fr) minmax(260px, 0.9fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 14px;
-  background: var(--b3-theme-surface);
+  border-radius: 0;
+  background: var(--b3-theme-background);
+}
+
+.ai-tool-permission-card + .ai-tool-permission-card {
+  border-top: none;
+}
+
+.ai-tool-permission-card:first-child {
+  border-radius: 4px 4px 0 0;
+}
+
+.ai-tool-permission-card:last-child {
+  border-radius: 0 0 4px 4px;
+}
+
+.ai-tool-permission-card:hover {
+  background: var(--b3-theme-surface-light);
 }
 
 .ai-tool-permission-card__meta,
@@ -247,17 +267,17 @@ function handleSave(): void {
 .ai-tool-permission-card__group {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(76, 110, 245, 0.12);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: transparent;
   color: var(--b3-theme-primary);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .ai-tool-permission-card__description {
   margin: 0;
-  color: var(--b3-theme-on-surface);
+  color: var(--b3-theme-on-surface-light);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -266,6 +286,8 @@ function handleSave(): void {
   color: var(--b3-theme-on-surface-light);
   font-size: 12px;
   flex-wrap: wrap;
+  grid-column: 1 / -1;
+  justify-content: flex-start;
 }
 
 .ai-tool-permission-card__policies {
@@ -292,6 +314,10 @@ function handleSave(): void {
   .ai-tool-permission-card__defaults,
   .ai-tool-permission-card__policies {
     flex-direction: column;
+  }
+
+  .ai-tool-permission-card {
+    grid-template-columns: 1fr;
   }
 }
 </style>

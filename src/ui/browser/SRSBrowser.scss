@@ -1839,3 +1839,99 @@
   min-height: 240px;
   max-height: 360px;
 }
+
+/* F-Misc visual pass: compact toolbar/list/table surfaces. */
+.card-browser--dialog,
+.card-browser--tab,
+.card-browser--dock {
+  background: var(--b3-theme-background);
+}
+
+.card-browser__hierarchy {
+  border-right: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
+}
+
+.card-browser__content,
+.card-browser__preview {
+  background: var(--b3-theme-background);
+}
+
+.card-browser__toolbar {
+  --toolbar-control-height: 30px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
+}
+
+.toolbar__divider {
+  background: var(--b3-border-color);
+}
+
+.toolbar__more-menu {
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.toolbar__more-menu .b3-menu__item {
+  padding: 7px 12px;
+}
+
+.toolbar__chip {
+  min-height: 22px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: transparent;
+  font-size: 11px;
+}
+
+.preview__header {
+  min-height: 34px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-surface);
+}
+
+.preview__title {
+  color: var(--b3-theme-on-surface);
+  font-weight: 500;
+}
+
+.preview__meta {
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+}
+
+.preview__meta-badge,
+.preview__missing,
+.card-browser__neural-roam-segments {
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+}
+
+.card-browser__neural-roam-segments {
+  padding: 2px;
+}
+
+.card-browser__neural-roam-segment,
+.card-browser__neural-roam-segment--active {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+.card-browser__neural-roam-segment--active {
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
+}
+
+.card-browser__navigator-scrim {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.card-browser__navigator-drawer {
+  border-right: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+}

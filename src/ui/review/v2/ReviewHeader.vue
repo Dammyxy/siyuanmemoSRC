@@ -611,9 +611,8 @@ onUnmounted(() => {
   gap: 12px;
   min-width: 0;
   padding: 8px 12px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--b3-theme-surface) 92%, white), var(--b3-theme-surface));
-  border-bottom: 1px solid color-mix(in srgb, var(--b3-border-color) 72%, transparent);
+  background: var(--b3-theme-surface);
+  border-bottom: 1px solid var(--b3-border-color);
 }
 
 .siyuanmemo-review-header-shell--with-nav .block__icons.siyuanmemo-review-header {
@@ -657,7 +656,7 @@ onUnmounted(() => {
   width: min(20vw, 200px);
   min-width: 36px;
   min-height: 24px;
-  border-radius: 999px;
+  border-radius: 4px;
 }
 
 .siyuanmemo-review-header__drag:hover {
@@ -678,23 +677,23 @@ onUnmounted(() => {
   gap: 8px;
   min-height: 34px;
   min-width: 82px;
-  padding: 0 14px;
-  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
-  border-radius: 12px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--b3-theme-primary-lightest) 72%, white), color-mix(in srgb, var(--b3-theme-surface) 92%, white));
+  padding: 0 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
   color: var(--b3-theme-on-surface);
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
-  font-weight: 700;
+  box-shadow: none;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 
 .siyuanmemo-review-header__summary:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 28%, transparent);
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+  transform: none;
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-list-hover);
+  box-shadow: none;
 }
 
 .siyuanmemo-review-header__summary-icon {
@@ -709,7 +708,7 @@ onUnmounted(() => {
 }
 
 .siyuanmemo-review-header__summary-count {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   min-width: 1ch;
 }
@@ -721,16 +720,13 @@ onUnmounted(() => {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   width: min(320px, calc(100vw - 24px));
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-border-color));
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--b3-theme-surface) 96%, white), var(--b3-theme-background));
-  box-shadow:
-    0 18px 48px rgba(15, 23, 42, 0.16),
-    0 2px 6px rgba(15, 23, 42, 0.08);
+  padding: 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   transform: translateX(-50%);
 }
 
@@ -780,9 +776,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 44%, transparent);
+  padding: 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-surface);
 }
 
 .siyuanmemo-review-header__popover-stat-label {
@@ -818,7 +815,7 @@ onUnmounted(() => {
   min-height: 28px;
   padding: 0 10px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 3px;
   white-space: nowrap;
   font-size: 12px;
   line-height: 1;
@@ -876,7 +873,7 @@ onUnmounted(() => {
   padding: 4px 12px 6px;
   color: var(--b3-theme-on-surface-light);
   background-color: var(--b3-theme-surface);
-  border-bottom: 1px solid var(--b3-theme-background);
+  border-bottom: 1px solid var(--b3-border-color);
   font-size: 12px;
   line-height: 1.35;
 }
