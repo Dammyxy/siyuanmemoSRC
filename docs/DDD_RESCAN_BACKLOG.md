@@ -4,6 +4,16 @@ Last update: 2026-04-23 (Round 118)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-23 - AI settings manager refactor toward F toolbox pattern
+
+- Task: 参考 `sy-f-misc` / F 工具箱，把 AI 设置从长表单重构成“主页面概览 + 独立编辑弹窗”的工具管理、内置 Prompt 管理和用户 Skill 管理界面。
+- Touched slice: AI workbench / settings surface active path across `src/ui/settings/SettingsPanel.vue`, new internal settings dialogs under `src/ui/settings/ai/*`, related i18n, and focused settings dialog tests.
+- Debt fixed now: 旧的 Runtime 审批矩阵、内置 Prompt 长 textarea 和用户 Skill 大表单不再挤在设置页主视图里；工具审批被收口到独立权限管理弹窗，内置 Prompt 与用户 Skill 也改成草稿式编辑弹窗；用户 Skill 列表与 structured sections 都支持桌面端拖拽排序，并继续落回原有 `ai.userSkills` / `sections` schema。
+- Debt deferred: provider 子页和整个 AI 设置页的视觉体系没有一起重做；built-in prompt 卡仍固定顺序，不支持拖拽；拖拽体验也只按桌面端 HTML5 drag-and-drop 处理，没有专门扩展移动端交互。
+- Why deferred: 这轮用户阻塞点是 AI 工具与 Prompt 管理的信息层级，而不是 provider 接入流程或全页视觉重设计；继续扩大范围会把一次设置管理器改造扩成更宽的 AI shell 重构。
+- Next safe step: 如果后续还想继续贴近 F 工具箱，可以再单独评估 provider 管理器、统一 badge/token 视觉语言，以及移动端 drag handle 方案，但不需要改变当前持久化结构。
+- Validation: `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts src/ui/settings/ai/__tests__/AiToolPermissionManagerDialog.test.ts src/ui/settings/ai/__tests__/AiBuiltInPromptEditorDialog.test.ts src/ui/settings/ai/__tests__/AiUserSkillEditorDialog.test.ts`; `pnpm build`.
+
 ### 2026-04-23 - item storage semantics split and command palette cleanup
 
 - Task: 去掉摘录入口下多余的 Alt+X 提示，把“Topic 下继续制卡”拆成“Item 存放位置 + 符号专用 continuation 开关”，并下线命令面板里的“图片遮挡卡 / 立即同步 Riff”入口。

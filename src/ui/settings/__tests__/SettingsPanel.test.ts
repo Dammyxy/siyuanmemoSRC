@@ -1,7 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import SettingsPanel from '../SettingsPanel.vue';
 import { DEFAULT_SETTINGS } from '@/types/settings';
+
+const { createVueDialogMock } = vi.hoisted(() => ({
+  createVueDialogMock: vi.fn(() => ({
+    dialog: {},
+    destroy: vi.fn(),
+  })),
+}));
+
+vi.mock('@/utils/dialog', () => ({
+  createVueDialog: createVueDialogMock,
+}));
 
 function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> = {}) {
   return mount(SettingsPanel, {
@@ -101,6 +112,14 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         aiModel: 'Model',
         aiEnabled: 'Enable AI',
         aiPromptTemplates: 'Prompt Templates',
+        aiToolManagerSummaryTitle: 'Tool Group Manager',
+        aiManageToolPermissions: 'Manage Tool Permissions',
+        aiEditPrompt: 'Edit Prompt',
+        aiWriteRisk: 'Write Risk',
+        aiToolOverridesCount: '{count} overrides',
+        aiExpandGroup: 'Expand Tools',
+        aiCollapseGroup: 'Collapse Tools',
+        aiToolOverrideBadge: 'Approval Override',
         aiGeneralChatPromptPresetTitle: 'General Chat Preset',
         aiTutorPrompt: 'Tutor Prompt',
         aiExplainPrompt: 'Explain Prompt',
@@ -126,6 +145,17 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         aiPromptStatusCustomHint: 'The saved behavior and follow-up prompts below are custom; the system appends structured rules automatically.',
         aiPromptStatusEmpty: 'Editor Is Empty',
         aiPromptStatusEmptyHint: 'This prompt pair is empty right now.',
+        aiNoUserSkills: 'No user skills yet',
+        aiNoUserSkillsHint: 'Create one to customize your workflows.',
+        aiAddChatSkill: 'Add Chat Skill',
+        aiAddStructuredSkill: 'Add Structured Skill',
+        edit: 'Edit',
+        duplicate: 'Duplicate',
+        delete: 'Delete',
+        disabled: 'Disabled',
+        tools: 'Tools',
+        sections: 'Sections',
+        primaryAction: 'Primary Action',
         saveSettings: 'Save Settings',
       },
       ...extraProps,
@@ -142,6 +172,10 @@ async function clickSubtab(wrapper: ReturnType<typeof mountPanel>, label: string
 }
 
 describe('SettingsPanel', () => {
+  beforeEach(() => {
+    createVueDialogMock.mockClear();
+  });
+
   it('renders left-side settings tabs and maps legacy params/fsrs tabs to learning', async () => {
     const wrapper = mountPanel();
     await wrapper.vm.$nextTick();
@@ -419,22 +453,12 @@ describe('SettingsPanel', () => {
     });
   });
 
-  it('renders AI settings tab and saves AI configuration', async () => {
+  it('renders AI settings managers and saves runtime tool defaults without changing schema', async () => {
     const wrapper = mountPanel('ai');
     await wrapper.vm.$nextTick();
 
     expect(wrapper.text()).toContain('AI Workbench');
     expect(wrapper.text()).toContain('Prompt Templates');
-    expect(wrapper.text()).toContain('General Chat Preset');
-    expect(wrapper.text()).toContain('AI 理解与制卡推荐模板');
-    expect(wrapper.text()).not.toContain('Tutor Preset');
-    expect(wrapper.text()).not.toContain('Card Preset');
-    expect(wrapper.text()).not.toContain('CDF Preset');
-    expect(wrapper.text()).toContain('想起来、分得清、用得上');
-    expect(wrapper.text()).toContain('先给工作定义，再按五个视角建立结构化理解，最后生成宁缺毋滥的自测候选卡和现实触发器。');
-    expect(wrapper.text()).toContain('Current Status');
-    expect(wrapper.text()).toContain('Using Recommended Template');
-    expect(wrapper.text()).toContain('展开 Prompt 编辑区');
 
     const formItems = wrapper.findAll('.form-item');
     const enableItem = formItems.find((item) => item.text().includes('Enable AI'));
@@ -459,24 +483,52 @@ describe('SettingsPanel', () => {
     await clickSubtab(wrapper, 'Chat & Tools');
     expect(wrapper.text()).toContain('学习决策');
     expect(wrapper.text()).toContain('思源写入');
+    expect(wrapper.text()).toContain('Tool Group Manager');
+    expect(wrapper.findAll('.ai-tool-group-card').length).toBeGreaterThan(0);
+    expect(wrapper.find('.ai-tool-group-card select').exists()).toBe(false);
+
+    const toolPermissionButton = wrapper.find('.ai-settings-manager__action');
+    expect(toolPermissionButton.exists()).toBe(true);
+    await toolPermissionButton.trigger('click');
+    expect(createVueDialogMock).toHaveBeenCalledTimes(1);
+    expect(createVueDialogMock.mock.calls[0]?.[0]?.props?.groupKey).toBeNull();
+
+    const expandButton = wrapper.find('.ai-tool-group-card__expand');
+    expect(expandButton.exists()).toBe(true);
+    await expandButton.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const firstToolToggle = wrapper.find('.ai-tool-row input[type="checkbox"]');
+    expect(firstToolToggle.exists()).toBe(true);
+    await firstToolToggle.setValue(false);
 
     await clickSubtab(wrapper, 'Built-in Skill');
+    expect(wrapper.findAll('.ai-prompt-preset-card')).toHaveLength(2);
+    expect(wrapper.findAll('.ai-prompt-preset-card textarea')).toHaveLength(0);
+    expect(wrapper.text()).toContain('General Chat Preset');
+    expect(wrapper.text()).toContain('Using Recommended Template');
 
-    const promptCards = wrapper.findAll('.ai-prompt-preset-card');
-    expect(promptCards).toHaveLength(2);
-    const textareas = wrapper.findAll('textarea');
-    expect(textareas.length).toBeGreaterThanOrEqual(12);
-    await textareas[0].setValue('Custom general chat prompt');
-    await textareas[1].setValue('Concept coach base prompt body');
-    await textareas[2].setValue('Working definition run prompt body');
-    expect(wrapper.text()).toContain('Using Custom Override');
-    expect(wrapper.text()).toContain('The saved behavior and follow-up prompts below are custom; the system appends structured rules automatically.');
+    const promptEditButtons = wrapper.findAll('.ai-prompt-preset-card__edit-action');
+    expect(promptEditButtons).toHaveLength(2);
+    await promptEditButtons[0].trigger('click');
+    expect(createVueDialogMock).toHaveBeenCalledTimes(2);
+    expect(createVueDialogMock.mock.calls[1]?.[0]?.props?.mode).toBe('generalChat');
 
     const restoreButtons = wrapper.findAll('button').filter((btn) => btn.text().includes('Restore Recommended Template'));
     expect(restoreButtons).toHaveLength(2);
     await restoreButtons[0].trigger('click');
     await restoreButtons[1].trigger('click');
     expect(wrapper.text()).toContain('Using Recommended Template');
+
+    await clickSubtab(wrapper, 'User Skills');
+    expect(wrapper.text()).toContain('No user skills yet');
+
+    const addChatSkillButton = wrapper.findAll('button').find((btn) => btn.text().includes('Add Chat Skill'));
+    expect(addChatSkillButton).toBeDefined();
+    await addChatSkillButton!.trigger('click');
+    expect(createVueDialogMock).toHaveBeenCalledTimes(3);
+    expect(createVueDialogMock.mock.calls[2]?.[0]?.props?.isNew).toBe(true);
+    expect(wrapper.text()).toContain('No user skills yet');
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
     expect(saveButton).toBeDefined();
@@ -488,10 +540,73 @@ describe('SettingsPanel', () => {
     expect(payload.ai.apiKey).toBe('secret-key');
     expect(payload.ai.model).toBe('gpt-test');
     expect(payload.ai.promptContractVersion).toBe(6);
+    expect(payload.ai.toolPolicies.toolDefaults.GetCurrentContext).toBe(false);
     expect(payload.ai.prompts.skills.generalChat).toEqual(DEFAULT_SETTINGS.ai.prompts.skills.generalChat);
     expect(payload.ai.prompts.skills.conceptCoach).toEqual(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach);
     expect(payload.ai).not.toHaveProperty('draftStorage');
     expect(payload.ai).not.toHaveProperty('promptProfiles');
+  });
+
+  it('renders user skill summary cards and keeps edit flows inside dialogs', async () => {
+    const wrapper = mountPanel('ai', {
+      aiSettings: {
+        ...DEFAULT_SETTINGS.ai,
+        userSkills: [{
+          id: 'user:test-skill',
+          title: 'My Skill',
+          brief: 'Summarize the selected material.',
+          enabled: true,
+          mode: 'structured',
+          systemPromptTemplate: 'You are a study helper.',
+          composerPreset: 'Use the current material.',
+          primaryActionLabel: 'Run Skill',
+          defaultToolGroups: ['context-read', 'study-decision'],
+          sections: [{
+            id: 'section-1',
+            title: 'Summary',
+            emptyHint: 'No summary',
+            runPrompt: 'Write a summary',
+            followUpPrompt: 'Answer follow-up questions',
+            responseKey: 'summary',
+            renderer: 'markdown',
+            required: true,
+          }],
+          surfaceHints: {
+            compactTitle: 'Skill',
+            hideTabs: false,
+            composerRows: 4,
+          },
+          version: 1,
+        }],
+      },
+    });
+    await wrapper.vm.$nextTick();
+
+    await clickSubtab(wrapper, 'User Skills');
+    expect(wrapper.findAll('.ai-user-skill-card--summary')).toHaveLength(1);
+    expect(wrapper.text()).toContain('My Skill');
+    expect(wrapper.text()).toContain('Run Skill');
+    expect(wrapper.text()).toContain('context-read');
+    expect(wrapper.text()).toContain('study-decision');
+
+    const editButton = wrapper.findAll('button').find((btn) => btn.text() === 'Edit');
+    expect(editButton).toBeDefined();
+    await editButton!.trigger('click');
+    expect(createVueDialogMock).toHaveBeenCalledTimes(1);
+    expect(createVueDialogMock.mock.calls[0]?.[0]?.props?.skill?.title).toBe('My Skill');
+
+    const duplicateButton = wrapper.findAll('button').find((btn) => btn.text() === 'Duplicate');
+    expect(duplicateButton).toBeDefined();
+    await duplicateButton!.trigger('click');
+    expect(wrapper.findAll('.ai-user-skill-card--summary')).toHaveLength(2);
+
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+    expect(saveButton).toBeDefined();
+    await saveButton!.trigger('click');
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.ai.userSkills).toHaveLength(2);
+    expect(payload.ai.userSkills[1]?.id).toContain('copy');
   });
 
   it('saves the default review open-mode UI toggles from the review tab', async () => {

@@ -855,29 +855,75 @@
 
         <div class="form-item">
           <label>{{ t('aiToolManager', '工具默认启用与审批') }}</label>
-          <details class="settings-foldout">
-            <summary>{{ t('aiToolManagerFoldoutTitle', '展开工具目录与审批矩阵') }}</summary>
-            <div class="ai-tool-manager">
-              <section
+          <section class="ai-settings-manager">
+            <div class="ai-settings-manager__head">
+              <div>
+                <strong>{{ t('aiToolManagerSummaryTitle', '工具组管理器') }}</strong>
+                <p class="form-hint form-hint--section">
+                  {{ t('aiToolManagerHint', '组开关决定是否把整组工具注入模型；单工具开关控制默认可用性；审批策略可按工具覆盖。写入型工具即使启用，也会在运行时单独请求确认。') }}
+                </p>
+              </div>
+              <button
+                class="btn-small ai-settings-manager__action"
+                type="button"
+                @click="openToolPermissionManager()"
+              >
+                {{ t('aiManageToolPermissions', '管理工具执行权限') }}
+              </button>
+            </div>
+
+            <div class="ai-tool-group-list">
+              <article
                 v-for="group in aiToolGroupsForSettings"
                 :key="group.key"
-                class="ai-tool-group"
+                class="ai-tool-group-card"
               >
-                <div class="ai-tool-group__head">
-                  <label class="ai-tool-group__toggle">
+                <div class="ai-tool-group-card__head">
+                  <label class="ai-tool-group-card__toggle">
                     <input type="checkbox" v-model="aiSettings.toolPolicies.groupDefaults[group.key]">
-                    <span>{{ group.title }}</span>
+                    <div>
+                      <strong>{{ group.title }}</strong>
+                      <span>{{ group.description }}</span>
+                    </div>
                   </label>
-                  <span class="ai-tool-group__count">{{ group.tools.length }}</span>
+
+                  <div class="ai-tool-group-card__actions">
+                    <button
+                      class="btn-small ai-tool-group-card__manage"
+                      type="button"
+                      @click.stop="openToolPermissionManager(group.key)"
+                    >
+                      {{ t('aiManageToolPermissions', '管理工具执行权限') }}
+                    </button>
+                    <button
+                      class="btn-small ai-tool-group-card__expand"
+                      type="button"
+                      @click="toggleAiToolGroupExpand(group.key)"
+                    >
+                      {{ isAiToolGroupExpanded(group.key)
+                        ? t('aiCollapseGroup', '收起工具')
+                        : t('aiExpandGroup', '展开工具') }}
+                    </button>
+                  </div>
                 </div>
-                <p class="ai-tool-group__desc">{{ group.description }}</p>
-                <div class="ai-tool-group__tools">
+
+                <div class="ai-tool-group-card__meta">
+                  <span class="ai-meta-chip">{{ group.tools.length }} {{ t('tools', '工具') }}</span>
+                  <span v-if="group.isWriteRisk" class="ai-meta-chip ai-meta-chip--warn">
+                    {{ t('aiWriteRisk', '写入风险') }}
+                  </span>
+                  <span v-if="group.overrideCount > 0" class="ai-meta-chip ai-meta-chip--accent">
+                    {{ t('aiToolOverridesCount', '{count} 个审批覆盖').replace('{count}', String(group.overrideCount)) }}
+                  </span>
+                </div>
+
+                <div v-if="isAiToolGroupExpanded(group.key)" class="ai-tool-group-card__body">
                   <article
                     v-for="tool in group.tools"
                     :key="tool.name"
-                    class="ai-tool-card"
+                    class="ai-tool-row"
                   >
-                    <label class="ai-tool-card__title">
+                    <label class="ai-tool-row__toggle">
                       <input
                         type="checkbox"
                         :checked="isAiToolEnabled(tool.name, tool.enabledByDefault)"
@@ -885,42 +931,21 @@
                       >
                       <div>
                         <strong>{{ tool.title }}</strong>
-                        <span>{{ tool.name }}</span>
+                        <span>{{ tool.description }}</span>
                       </div>
                     </label>
-                    <p class="ai-tool-card__desc">{{ tool.description }}</p>
-                    <div class="ai-tool-card__policies">
-                      <label>
-                        <span>{{ t('executionApproval', '执行审批') }}</span>
-                        <select
-                          class="scheduler-select"
-                          :value="currentToolExecutionPolicy(tool.name)"
-                          @change="setToolExecutionPolicy(tool.name, ($event.target as HTMLSelectElement).value)"
-                        >
-                          <option value="">{{ t('followDefault', '跟随默认') }} · {{ tool.executionPolicy }}</option>
-                          <option v-for="option in aiExecutionPolicyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>{{ t('resultApproval', '结果审批') }}</span>
-                        <select
-                          class="scheduler-select"
-                          :value="currentToolResultPolicy(tool.name)"
-                          @change="setToolResultPolicy(tool.name, ($event.target as HTMLSelectElement).value)"
-                        >
-                          <option value="">{{ t('followDefault', '跟随默认') }} · {{ tool.resultApprovalPolicy }}</option>
-                          <option v-for="option in aiResultPolicyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
-                      </label>
+
+                    <div class="ai-tool-row__meta">
+                      <code>{{ tool.name }}</code>
+                      <span v-if="hasToolPermissionOverride(tool.name)" class="ai-meta-chip ai-meta-chip--accent">
+                        {{ t('aiToolOverrideBadge', '已覆盖审批') }}
+                      </span>
                     </div>
                   </article>
                 </div>
-              </section>
+              </article>
             </div>
-          </details>
-          <p class="form-hint">
-            {{ t('aiToolManagerHint', '组开关决定是否把整组工具注入模型；单工具开关控制默认可用性；审批策略可按工具覆盖。写入型工具即使启用，也会在运行时单独请求确认。') }}
-          </p>
+          </section>
         </div>
 
         <div class="form-item">
@@ -981,115 +1006,54 @@
           </div>
         </div>
 
-        <div
-          v-for="preset in aiPromptPresetCards"
-          :key="preset.settingKey"
-          class="ai-prompt-preset-card"
-        >
-          <div class="ai-prompt-preset-card__head">
-            <div>
-              <div class="ai-prompt-preset-card__title">{{ preset.title }}</div>
-              <p class="ai-prompt-preset-card__summary">{{ preset.audience }}</p>
-            </div>
-            <button class="btn-small" type="button" @click="resetAiPromptTemplate(preset.settingKey)">
-              {{ t('aiRestoreRecommendedPrompt', '恢复推荐模板') }}
-            </button>
-          </div>
-
-          <div class="ai-prompt-preset-card__grid">
-            <div class="ai-prompt-preset-card__row ai-prompt-preset-card__row--status">
-              <span>{{ t('aiPromptCurrentStatus', '当前状态') }}</span>
-              <p class="ai-prompt-preset-card__status-copy">
-                <span
-                  class="ai-prompt-preset-card__status-badge"
-                  :class="`ai-prompt-preset-card__status-badge--${preset.usageState}`"
+        <div class="ai-prompt-card-list">
+          <article
+            v-for="preset in aiPromptPresetCards"
+            :key="preset.settingKey"
+            class="ai-prompt-preset-card ai-prompt-preset-card--compact"
+          >
+            <div class="ai-prompt-preset-card__head">
+              <div>
+                <div class="ai-prompt-preset-card__title-row">
+                  <div class="ai-prompt-preset-card__title">{{ preset.title }}</div>
+                  <span
+                    class="ai-prompt-preset-card__status-badge"
+                    :class="`ai-prompt-preset-card__status-badge--${preset.usageState}`"
+                  >
+                    {{ preset.usageLabel }}
+                  </span>
+                </div>
+                <p class="ai-prompt-preset-card__summary">{{ preset.audience }}</p>
+              </div>
+              <div class="ai-prompt-preset-card__actions">
+                <button class="btn-small" type="button" @click="resetAiPromptTemplate(preset.settingKey)">
+                  {{ t('aiRestoreRecommendedPrompt', '恢复推荐模板') }}
+                </button>
+                <button
+                  class="btn-small ai-prompt-preset-card__edit-action"
+                  type="button"
+                  @click="openBuiltInPromptEditor(preset.settingKey)"
                 >
-                  {{ preset.usageLabel }}
-                </span>
-              </p>
-              <p class="ai-prompt-preset-card__status-hint">{{ preset.usageHint }}</p>
+                  {{ t('aiEditPrompt', '编辑 Prompt') }}
+                </button>
+              </div>
             </div>
-            <div class="ai-prompt-preset-card__row">
-              <span>{{ t('aiPromptAudience', '适用对象') }}</span>
-              <p>{{ preset.audience }}</p>
-            </div>
-            <div class="ai-prompt-preset-card__row">
-              <span>{{ t('aiPromptBehavior', '默认行为') }}</span>
-              <p>{{ preset.behavior }}</p>
-            </div>
-            <div class="ai-prompt-preset-card__row">
-              <span>{{ t('aiPromptOutput', '输出特点') }}</span>
-              <p>{{ preset.output }}</p>
-            </div>
-          </div>
 
-          <details class="settings-foldout ai-prompt-preset-card__foldout">
-            <summary>{{ t('aiPromptFoldoutTitle', '展开 Prompt 编辑区') }}</summary>
-            <div class="ai-prompt-preset-card__editor">
-              <label class="ai-prompt-preset-card__editor-label">
-                {{ getPromptEditorLabel(preset.settingKey) }}
-              </label>
-              <p class="form-hint form-hint--section">{{ preset.usageHint }}</p>
-
-              <template v-if="preset.settingKey === 'generalChat'">
-                <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-                  {{ t('aiBaseRunPrompt', 'Skill 基础 Prompt') }}
-                </label>
-                <p class="form-hint form-hint--section">
-                  {{ t('aiGeneralChatPromptHint', '这里就是通用 AI 聊天的 system prompt；它决定默认聊天风格、工具边界和优先行为。') }}
-                </p>
-                <textarea
-                  v-model="aiSettings.prompts.skills.generalChat.systemPrompt"
-                  :rows="10"
-                  class="form-textarea"
-                ></textarea>
-              </template>
-
-              <template v-else>
-                <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-                  {{ t('aiBaseRunPrompt', 'Skill 基础 Prompt') }}
-                </label>
-                <p class="form-hint form-hint--section">
-                  {{ t('aiBehaviorPromptHint', '系统会自动附加结构化输出规则；这里主要描述角色、目标、语气和偏好。') }}
-                </p>
-                <textarea
-                  v-model="aiSettings.prompts.skills.conceptCoach.baseRun"
-                  :rows="8"
-                  class="form-textarea"
-                ></textarea>
-                <details v-if="preset.hasStructuredContract" class="ai-prompt-preset-card__contract">
-                  <summary>{{ t('aiPromptShowSystemContract', '查看系统自动附加的结构化规则') }}</summary>
-                  <p class="form-hint form-hint--section">{{ preset.systemContractSummary }}</p>
-                  <ul class="ai-prompt-preset-card__contract-list">
-                    <li v-for="line in preset.systemContractLines" :key="line">{{ line }}</li>
-                  </ul>
-                </details>
-                <details
-                  v-for="tab in aiPromptTabs"
-                  :key="tab.id"
-                  class="ai-prompt-preset-card__tab-editor"
-                >
-                  <summary>{{ tab.title }} · {{ t('aiPromptFoldoutTabTitle', '展开这个 Tab 的 Prompt') }}</summary>
-                  <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-                    {{ tab.title }} · {{ t('aiBehaviorPrompt', '行为 Prompt') }}
-                  </label>
-                  <textarea
-                    v-model="aiSettings.prompts.skills.conceptCoach.tabs[tab.id].run"
-                    :rows="5"
-                    class="form-textarea"
-                  ></textarea>
-                  <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-                    {{ tab.title }} · {{ t('aiFollowUpPrompt', '追问 Prompt') }}
-                  </label>
-                  <textarea
-                    v-model="aiSettings.prompts.skills.conceptCoach.tabs[tab.id].followUp"
-                    :rows="4"
-                    class="form-textarea"
-                  ></textarea>
-                </details>
-              </template>
+            <div class="ai-prompt-preset-card__grid">
+              <div class="ai-prompt-preset-card__row ai-prompt-preset-card__row--status">
+                <span>{{ t('aiPromptCurrentStatus', '当前状态') }}</span>
+                <p class="ai-prompt-preset-card__status-hint">{{ preset.usageHint }}</p>
+              </div>
+              <div class="ai-prompt-preset-card__row">
+                <span>{{ t('aiPromptBehavior', '默认行为') }}</span>
+                <p>{{ preset.behavior }}</p>
+              </div>
+              <div class="ai-prompt-preset-card__row">
+                <span>{{ t('aiPromptOutput', '输出特点') }}</span>
+                <p>{{ preset.output }}</p>
+              </div>
             </div>
-          </details>
+          </article>
         </div>
         </div>
 
@@ -1118,189 +1082,72 @@
           </div>
         </div>
 
-        <article
-          v-for="(skill, skillIndex) in aiSettings.userSkills"
-          :key="`${skill.id}-${skillIndex}`"
-          class="ai-user-skill-card"
+        <AiSettingsDraggableList
+          v-if="aiSettings.userSkills.length > 0"
+          :items="aiSettings.userSkills"
+          @reorder="handleUserSkillReorder"
         >
-          <div class="ai-user-skill-card__head">
-            <div>
-              <strong>{{ skill.title || t('untitledSkill', '未命名 Skill') }}</strong>
-              <p class="form-hint form-hint--section">{{ skill.mode === 'structured' ? t('structuredSkillHint', '按 section 返回结构化 JSON，并使用通用 renderer 展示。') : t('chatSkillHint', '复用统一聊天 runtime，可调用已授权工具组。') }}</p>
-            </div>
-            <div class="ai-user-skill-card__actions">
-              <label class="ai-user-skill-card__toggle">
-                <input type="checkbox" v-model="skill.enabled">
-                <span>{{ t('enabled', '启用') }}</span>
-              </label>
-              <button class="btn-small" type="button" @click="duplicateUserSkill(skillIndex)">{{ t('duplicate', '复制') }}</button>
-              <button class="btn-small btn-danger" type="button" @click="removeUserSkill(skillIndex)">{{ t('delete', '删除') }}</button>
-            </div>
-          </div>
-
-          <details class="settings-foldout ai-user-skill-card__foldout">
-            <summary>{{ t('aiUserSkillFoldoutTitle', '展开 Skill 详细设置') }}</summary>
-          <div class="form-item">
-            <label>ID</label>
-            <div class="form-control">
-              <input type="text" v-model="skill.id">
-            </div>
-            <p class="form-hint">{{ t('aiSkillIdHint', '保存时会自动归一化成 user:&lt;slug&gt;，并避开内置 skill id。') }}</p>
-          </div>
-
-          <div class="form-item">
-            <label>{{ t('title', '标题') }}</label>
-            <div class="form-control">
-              <input type="text" v-model="skill.title">
-            </div>
-          </div>
-
-          <div class="form-item">
-            <label>{{ t('description', '简介') }}</label>
-            <div class="form-control">
-              <textarea v-model="skill.brief" rows="2" class="form-textarea"></textarea>
-            </div>
-          </div>
-
-          <div class="form-item">
-            <label>{{ t('mode', '模式') }}</label>
-            <div class="form-control">
-              <select v-model="skill.mode" class="scheduler-select">
-                <option value="chat">chat</option>
-                <option value="structured">structured</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-item">
-            <label>{{ t('aiBaseRunPrompt', 'Skill 基础 Prompt') }}</label>
-            <div class="form-control">
-              <textarea v-model="skill.systemPromptTemplate" rows="5" class="form-textarea"></textarea>
-            </div>
-          </div>
-
-          <div class="form-item">
-            <label>{{ t('composerPlaceholder', '输入预设') }}</label>
-            <div class="form-control">
-              <textarea v-model="skill.composerPreset" rows="2" class="form-textarea"></textarea>
-            </div>
-          </div>
-
-          <div class="form-item">
-            <label>{{ t('primaryAction', '主按钮文案') }}</label>
-            <div class="form-control">
-              <input type="text" v-model="skill.primaryActionLabel">
-            </div>
-          </div>
-
-          <div class="form-item">
-            <label>{{ t('tools', '工具组') }}</label>
-            <div class="ai-user-skill-tools">
-              <label
-                v-for="option in userSkillToolGroupOptions"
-                :key="option.key"
-                class="ai-user-skill-tools__option"
-              >
-                <input
-                  type="checkbox"
-                  :checked="skill.defaultToolGroups.includes(option.key)"
-                  @change="($event) => {
-                    const checked = ($event.target as HTMLInputElement).checked;
-                    skill.defaultToolGroups = checked
-                      ? Array.from(new Set([...skill.defaultToolGroups, option.key]))
-                      : skill.defaultToolGroups.filter((entry) => entry !== option.key);
-                  }"
-                >
-                <strong>{{ option.label }}</strong>
-                <span>{{ option.hint }}</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="form-item">
-            <label>{{ t('surfaceHints', 'Surface 提示') }}</label>
-            <div class="ai-user-skill-surface">
-              <label>
-                <span>{{ t('compactTitle', '紧凑标题') }}</span>
-                <input type="text" v-model="skill.surfaceHints!.compactTitle">
-              </label>
-              <label>
-                <span>{{ t('composerRows', '输入框行数') }}</span>
-                <input type="number" min="2" max="10" step="1" v-model.number="skill.surfaceHints!.composerRows">
-              </label>
-              <label class="ai-user-skill-card__toggle">
-                <input type="checkbox" v-model="skill.surfaceHints!.hideTabs">
-                <span>{{ t('hideTabs', '隐藏 tabs') }}</span>
-              </label>
-            </div>
-          </div>
-
-          <div v-if="skill.mode === 'structured'" class="ai-user-skill-sections">
-            <div class="ai-user-skill-sections__head">
-              <strong>{{ t('sections', 'Sections') }}</strong>
-              <button class="btn-small" type="button" @click="addUserSkillSection(skill)">{{ t('addSection', '新增 Section') }}</button>
-            </div>
-            <div
-              v-for="(section, sectionIndex) in skill.sections"
-              :key="`${section.id}-${sectionIndex}`"
-              class="ai-user-skill-section-card"
+          <template #item="{ item: skill, index: skillIndex, isDragOver }">
+            <article
+              class="ai-user-skill-card ai-user-skill-card--summary"
+              :class="{ 'ai-user-skill-card--drag-over': isDragOver }"
             >
-              <div class="ai-user-skill-section-card__head">
-                <strong>{{ section.title || t('untitledSection', '未命名 Section') }}</strong>
-                <button class="btn-small btn-danger" type="button" @click="removeUserSkillSection(skill, sectionIndex)">{{ t('delete', '删除') }}</button>
-              </div>
-              <div class="form-item">
-                <label>ID</label>
-                <div class="form-control">
-                  <input type="text" v-model="section.id">
+              <div class="ai-user-skill-card__head">
+                <div>
+                  <div class="ai-user-skill-card__title-row">
+                    <strong>{{ skill.title || t('untitledSkill', '未命名 Skill') }}</strong>
+                    <span class="ai-meta-chip ai-meta-chip--code">{{ skill.mode }}</span>
+                    <span
+                      class="ai-meta-chip"
+                      :class="skill.enabled ? 'ai-meta-chip--accent' : 'ai-meta-chip--muted'"
+                    >
+                      {{ skill.enabled ? t('enabled', '启用') : t('disabled', '关闭') }}
+                    </span>
+                  </div>
+                  <p class="form-hint form-hint--section">
+                    {{ skill.brief || (skill.mode === 'structured'
+                      ? t('structuredSkillHint', '按 section 返回结构化 JSON，并使用通用 renderer 展示。')
+                      : t('chatSkillHint', '复用统一聊天 runtime，可调用已授权工具组。')) }}
+                  </p>
+                </div>
+                <div class="ai-user-skill-card__actions">
+                  <label class="ai-user-skill-card__toggle">
+                    <input type="checkbox" v-model="skill.enabled">
+                    <span>{{ t('enabled', '启用') }}</span>
+                  </label>
+                  <button class="btn-small" type="button" @click="openUserSkillEditor(skill, { index: skillIndex })">
+                    {{ t('edit', '编辑') }}
+                  </button>
+                  <button class="btn-small" type="button" @click="duplicateUserSkill(skillIndex)">{{ t('duplicate', '复制') }}</button>
+                  <button class="btn-small btn-danger" type="button" @click="removeUserSkill(skillIndex)">{{ t('delete', '删除') }}</button>
                 </div>
               </div>
-              <div class="form-item">
-                <label>{{ t('title', '标题') }}</label>
-                <div class="form-control">
-                  <input type="text" v-model="section.title">
-                </div>
+
+              <div class="ai-user-skill-card__meta">
+                <span class="ai-meta-chip ai-meta-chip--code">{{ skill.id }}</span>
+                <span class="ai-meta-chip">
+                  {{ t('primaryAction', '主按钮文案') }}: {{ skill.primaryActionLabel || t('create', '创建') }}
+                </span>
+                <span class="ai-meta-chip">
+                  {{ t('sections', 'Sections') }}: {{ skill.sections.length }}
+                </span>
+                <span v-if="skill.surfaceHints?.compactTitle" class="ai-meta-chip">
+                  {{ skill.surfaceHints.compactTitle }}
+                </span>
               </div>
-              <div class="form-item">
-                <label>{{ t('responseKey', '响应 key') }}</label>
-                <div class="form-control">
-                  <input type="text" v-model="section.responseKey">
-                </div>
+
+              <div class="ai-user-skill-card__chips">
+                <span
+                  v-for="groupKey in skill.defaultToolGroups"
+                  :key="`${skill.id}-${groupKey}`"
+                  class="ai-meta-chip"
+                >
+                  {{ userSkillToolGroupLabelMap[groupKey] || groupKey }}
+                </span>
               </div>
-              <div class="form-item">
-                <label>{{ t('renderer', 'Renderer') }}</label>
-                <div class="form-control">
-                  <select v-model="section.renderer" class="scheduler-select">
-                    <option v-for="option in userSkillRendererOptions" :key="option.key" :value="option.key">{{ option.label }}</option>
-                  </select>
-                </div>
-              </div>
-              <div class="form-item">
-                <label>{{ t('emptyHint', '空态提示') }}</label>
-                <div class="form-control">
-                  <input type="text" v-model="section.emptyHint">
-                </div>
-              </div>
-              <div class="form-item">
-                <label>{{ t('aiBehaviorPrompt', '行为 Prompt') }}</label>
-                <div class="form-control">
-                  <textarea v-model="section.runPrompt" rows="3" class="form-textarea"></textarea>
-                </div>
-              </div>
-              <div class="form-item">
-                <label>{{ t('aiFollowUpPrompt', '追问 Prompt') }}</label>
-                <div class="form-control">
-                  <textarea v-model="section.followUpPrompt" rows="3" class="form-textarea"></textarea>
-                </div>
-              </div>
-              <label class="ai-user-skill-card__toggle">
-                <input type="checkbox" v-model="section.required">
-                <span>{{ t('required', '必填 section') }}</span>
-              </label>
-            </div>
-          </div>
-          </details>
-        </article>
+            </article>
+          </template>
+        </AiSettingsDraggableList>
         </div>
             </section>
           </div>
@@ -1329,7 +1176,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import {
   AI_PROMPT_PRESET_DESCRIPTORS,
   getRecommendedPromptTemplateForSetting,
@@ -1368,9 +1215,19 @@ import {
   type QuickCardSettings,
   type UISettings,
 } from '../../types';
-import type { AIChatToolGroupKey, AIUserSkillDefinition, AIUserSkillSectionDefinition } from '@/types/ai';
+import type {
+  AIChatToolGroupKey,
+  AIConceptCoachTabId,
+  AIUserSkillDefinition,
+  AIUserSkillSectionDefinition,
+} from '@/types/ai';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
+import { createVueDialog } from '@/utils/dialog';
+import AiSettingsDraggableList from '@/ui/settings/ai/AiSettingsDraggableList.vue';
+import AiToolPermissionManagerDialog from '@/ui/settings/ai/AiToolPermissionManagerDialog.vue';
+import AiBuiltInPromptEditorDialog from '@/ui/settings/ai/AiBuiltInPromptEditorDialog.vue';
+import AiUserSkillEditorDialog from '@/ui/settings/ai/AiUserSkillEditorDialog.vue';
 
 type OptimizationConfig = Record<string, unknown>;
 type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
@@ -1390,6 +1247,7 @@ type CleanupRunResult = CleanupScanResult & {
 };
 
 type UserSkillMode = 'chat' | 'structured';
+type ManagedDialogHandle = { destroy: () => void };
 
 const logger = createLogger('SettingsPanel');
 
@@ -1435,6 +1293,10 @@ function createDefaultAISettings(): AISettings {
 
 function createDefaultUISettings(): UISettings {
   return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.ui)) as UISettings;
+}
+
+function cloneSerializable<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function mergeUISettings(source?: Partial<UISettings>): UISettings {
@@ -1630,6 +1492,10 @@ const aiSettings = ref<AISettings>(createDefaultAISettings());
 const uiSettings = ref<UISettings>(createDefaultUISettings());
 const aiPromptTabs = getAIWorkbenchSkillTabs('concept-coach');
 const selfTestModeDescriptors = listSelfTestModeDescriptors();
+const expandedAiToolGroups = ref<Record<string, boolean>>({});
+const toolPermissionDialogHandle = ref<ManagedDialogHandle | null>(null);
+const builtInPromptDialogHandle = ref<ManagedDialogHandle | null>(null);
+const userSkillDialogHandle = ref<ManagedDialogHandle | null>(null);
 const userSkillToolGroupOptions: Array<{ key: AIChatToolGroupKey; label: string; hint: string }> = [
   { key: 'context-read', label: 'context-read', hint: '读取当前卡片、选中块和手工材料。' },
   { key: 'study-decision', label: 'study-decision', hint: '只做学习动作判断，不直接写入。' },
@@ -1640,26 +1506,25 @@ const userSkillToolGroupOptions: Array<{ key: AIChatToolGroupKey; label: string;
   { key: 'vars', label: 'vars', hint: '读写会话内变量缓存。' },
   { key: 'flashcard-write', label: 'flashcard-write', hint: '写工具始终逐次审批。' },
 ];
-const aiExecutionPolicyOptions: Array<{ value: AIToolExecutionPolicy; label: string }> = [
-  { value: 'auto', label: '自动执行' },
-  { value: 'ask-once', label: '首次询问' },
-  { value: 'ask-always', label: '每次询问' },
-];
-const aiResultPolicyOptions: Array<{ value: AIToolResultApprovalPolicy; label: string }> = [
-  { value: 'never', label: '不审批' },
-  { value: 'on-error', label: '仅错误时审批' },
-  { value: 'always', label: '总是审批' },
-];
-const aiToolGroupsForSettings = AI_CHAT_TOOL_GROUPS.map((group) => ({
-  ...group,
-  tools: AI_CHAT_TOOL_DESCRIPTORS.filter((tool) => tool.group === group.key),
-}));
+const userSkillToolGroupLabelMap = computed<Record<string, string>>(() => Object.fromEntries(
+  userSkillToolGroupOptions.map((option) => [option.key, option.label]),
+));
 const userSkillRendererOptions: Array<{ key: AIUserSkillSectionDefinition['renderer']; label: string }> = [
   { key: 'markdown', label: 'Markdown' },
   { key: 'list', label: 'List' },
   { key: 'cards', label: 'Cards' },
   { key: 'keyValue', label: 'Key / Value' },
 ];
+const aiToolGroupsForSettings = computed(() => AI_CHAT_TOOL_GROUPS.map((group) => {
+  const tools = AI_CHAT_TOOL_DESCRIPTORS.filter((tool) => tool.group === group.key);
+  const overrideCount = tools.filter((tool) => hasToolPermissionOverride(tool.name)).length;
+  return {
+    ...group,
+    tools,
+    overrideCount,
+    isWriteRisk: group.key === 'siyuan-write' || group.key === 'flashcard-write',
+  };
+}));
 
 function isAiToolEnabled(toolName: string, fallback: boolean): boolean {
   const override = aiSettings.value.toolPolicies.toolDefaults[toolName];
@@ -1673,32 +1538,22 @@ function setAiToolEnabled(toolName: string, enabled: boolean): void {
   };
 }
 
-function currentToolExecutionPolicy(toolName: string): string {
-  return aiSettings.value.toolPolicies.executionPolicies[toolName] || '';
+function hasToolPermissionOverride(toolName: string): boolean {
+  return Boolean(
+    aiSettings.value.toolPolicies.executionPolicies[toolName]
+    || aiSettings.value.toolPolicies.resultApprovalPolicies[toolName],
+  );
 }
 
-function setToolExecutionPolicy(toolName: string, value: string): void {
-  const next = { ...aiSettings.value.toolPolicies.executionPolicies };
-  if (!value) {
-    delete next[toolName];
-  } else {
-    next[toolName] = value as AIToolExecutionPolicy;
-  }
-  aiSettings.value.toolPolicies.executionPolicies = next;
+function toggleAiToolGroupExpand(groupKey: AIChatToolGroupKey): void {
+  expandedAiToolGroups.value = {
+    ...expandedAiToolGroups.value,
+    [groupKey]: !expandedAiToolGroups.value[groupKey],
+  };
 }
 
-function currentToolResultPolicy(toolName: string): string {
-  return aiSettings.value.toolPolicies.resultApprovalPolicies[toolName] || '';
-}
-
-function setToolResultPolicy(toolName: string, value: string): void {
-  const next = { ...aiSettings.value.toolPolicies.resultApprovalPolicies };
-  if (!value) {
-    delete next[toolName];
-  } else {
-    next[toolName] = value as AIToolResultApprovalPolicy;
-  }
-  aiSettings.value.toolPolicies.resultApprovalPolicies = next;
+function isAiToolGroupExpanded(groupKey: AIChatToolGroupKey): boolean {
+  return expandedAiToolGroups.value[groupKey] === true;
 }
 
 function isConceptCoachPromptEmpty(template: AIConceptCoachPromptTemplates): boolean {
@@ -1802,6 +1657,164 @@ const aiPromptPresetCards = computed(() => AI_PROMPT_PRESET_DESCRIPTORS.map((des
     : [],
   ...getAiPromptUsageCopy(descriptor.settingKey),
 })));
+
+function destroyManagedDialog(handle: ManagedDialogHandle | null): void {
+  handle?.destroy();
+}
+
+function openToolPermissionManager(groupKey?: AIChatToolGroupKey): void {
+  destroyManagedDialog(toolPermissionDialogHandle.value);
+  toolPermissionDialogHandle.value = createVueDialog({
+    title: groupKey
+      ? t('aiPermissionManagerGroupTitle', '管理分组执行权限').replace(
+        '{group}',
+        AI_CHAT_TOOL_GROUPS.find((group) => group.key === groupKey)?.title || groupKey,
+      )
+      : t('aiPermissionManagerTitle', '管理工具执行权限'),
+    component: AiToolPermissionManagerDialog,
+    props: {
+      groupKey: groupKey || null,
+      groups: AI_CHAT_TOOL_GROUPS,
+      tools: AI_CHAT_TOOL_DESCRIPTORS,
+      executionPolicies: cloneSerializable(aiSettings.value.toolPolicies.executionPolicies),
+      resultApprovalPolicies: cloneSerializable(aiSettings.value.toolPolicies.resultApprovalPolicies),
+      i18n: props.i18n || {},
+    },
+    events: {
+      save: (payload: {
+        executionPolicies: Partial<Record<string, AIToolExecutionPolicy>>;
+        resultApprovalPolicies: Partial<Record<string, AIToolResultApprovalPolicy>>;
+      }) => {
+        aiSettings.value.toolPolicies.executionPolicies = payload.executionPolicies;
+        aiSettings.value.toolPolicies.resultApprovalPolicies = payload.resultApprovalPolicies;
+        destroyManagedDialog(toolPermissionDialogHandle.value);
+        toolPermissionDialogHandle.value = null;
+      },
+      close: () => {
+        destroyManagedDialog(toolPermissionDialogHandle.value);
+        toolPermissionDialogHandle.value = null;
+      },
+    },
+    width: 'min(1080px, 96vw)',
+    height: 'min(780px, 92vh)',
+    responsive: true,
+    onClose: () => {
+      toolPermissionDialogHandle.value = null;
+    },
+  });
+}
+
+function openBuiltInPromptEditor(settingKey: AIPromptSettingKey): void {
+  const preset = aiPromptPresetCards.value.find((entry) => entry.settingKey === settingKey);
+  if (!preset) {
+    return;
+  }
+
+  destroyManagedDialog(builtInPromptDialogHandle.value);
+  builtInPromptDialogHandle.value = createVueDialog({
+    title: preset.title,
+    component: AiBuiltInPromptEditorDialog,
+    props: {
+      mode: settingKey,
+      title: preset.title,
+      summary: preset.usageHint,
+      i18n: props.i18n || {},
+      generalChatTemplate: settingKey === 'generalChat'
+        ? cloneSerializable(aiSettings.value.prompts.skills.generalChat)
+        : undefined,
+      conceptCoachTemplate: settingKey === 'conceptCoach'
+        ? cloneSerializable(aiSettings.value.prompts.skills.conceptCoach)
+        : undefined,
+      tabs: aiPromptTabs.map((tab) => ({
+        id: tab.id as AIConceptCoachTabId,
+        title: tab.title,
+      })),
+      contractSummary: preset.systemContractSummary,
+      contractLines: preset.systemContractLines,
+    },
+    events: {
+      save: (payload: {
+        generalChatTemplate?: AIGeneralChatPromptTemplate;
+        conceptCoachTemplate?: AIConceptCoachPromptTemplates;
+      }) => {
+        if (payload.generalChatTemplate) {
+          aiSettings.value.prompts.skills.generalChat = payload.generalChatTemplate;
+        }
+        if (payload.conceptCoachTemplate) {
+          aiSettings.value.prompts.skills.conceptCoach = payload.conceptCoachTemplate;
+        }
+        destroyManagedDialog(builtInPromptDialogHandle.value);
+        builtInPromptDialogHandle.value = null;
+      },
+      close: () => {
+        destroyManagedDialog(builtInPromptDialogHandle.value);
+        builtInPromptDialogHandle.value = null;
+      },
+    },
+    width: 'min(1100px, 96vw)',
+    height: 'min(820px, 94vh)',
+    responsive: true,
+    onClose: () => {
+      builtInPromptDialogHandle.value = null;
+    },
+  });
+}
+
+function reorderListByIds<T extends { id: string }>(source: T[], orderedIds: string[]): T[] {
+  const itemsById = new Map(source.map((item) => [item.id, item] as const));
+  return orderedIds
+    .map((id) => itemsById.get(id))
+    .filter((item): item is T => Boolean(item));
+}
+
+function handleUserSkillReorder(items: Array<{ id: string }>): void {
+  aiSettings.value.userSkills = reorderListByIds(
+    aiSettings.value.userSkills,
+    items.map((item) => item.id),
+  );
+}
+
+function upsertUserSkillDraft(skill: AIUserSkillDefinition, index?: number): void {
+  const next = [...aiSettings.value.userSkills];
+  if (typeof index === 'number' && index >= 0 && index < next.length) {
+    next.splice(index, 1, skill);
+  } else {
+    next.push(skill);
+  }
+  aiSettings.value.userSkills = normalizeAIUserSkills(next);
+}
+
+function openUserSkillEditor(skill: AIUserSkillDefinition, options?: { index?: number; isNew?: boolean }): void {
+  destroyManagedDialog(userSkillDialogHandle.value);
+  userSkillDialogHandle.value = createVueDialog({
+    title: options?.isNew ? t('aiCreateUserSkillTitle', '创建用户 Skill') : t('aiEditUserSkillTitle', '编辑用户 Skill'),
+    component: AiUserSkillEditorDialog,
+    props: {
+      skill: cloneSerializable(skill),
+      isNew: options?.isNew === true,
+      toolGroupOptions: userSkillToolGroupOptions,
+      rendererOptions: userSkillRendererOptions,
+      i18n: props.i18n || {},
+    },
+    events: {
+      save: (payload: AIUserSkillDefinition) => {
+        upsertUserSkillDraft(payload, options?.index);
+        destroyManagedDialog(userSkillDialogHandle.value);
+        userSkillDialogHandle.value = null;
+      },
+      close: () => {
+        destroyManagedDialog(userSkillDialogHandle.value);
+        userSkillDialogHandle.value = null;
+      },
+    },
+    width: 'min(1240px, 97vw)',
+    height: 'min(900px, 95vh)',
+    responsive: true,
+    onClose: () => {
+      userSkillDialogHandle.value = null;
+    },
+  });
+}
 
 // 设置
 interface Settings {
@@ -1939,17 +1952,6 @@ function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
   resetAiPromptToRecommended(aiSettings.value, settingKey);
 }
 
-function getPromptEditorLabel(settingKey: AIPromptSettingKey): string {
-  switch (settingKey) {
-    case 'generalChat':
-      return t('aiGeneralChatPrompt', '通用 AI 聊天 Prompt');
-    case 'conceptCoach':
-      return t('aiConceptCoachPrompt', 'AI 理解与制卡 Prompt');
-    default:
-      return t('aiConceptCoachPrompt', 'AI 理解与制卡 Prompt');
-  }
-}
-
 function createUserSkillSection(index = 0): AIUserSkillSectionDefinition {
   return {
     id: `section-${index + 1}`,
@@ -1987,10 +1989,7 @@ function createUserSkill(mode: UserSkillMode, index = aiSettings.value.userSkill
 }
 
 function addUserSkill(mode: UserSkillMode): void {
-  aiSettings.value.userSkills = [
-    ...aiSettings.value.userSkills,
-    createUserSkill(mode),
-  ];
+  openUserSkillEditor(createUserSkill(mode), { isNew: true });
 }
 
 function duplicateUserSkill(index: number): void {
@@ -1998,24 +1997,16 @@ function duplicateUserSkill(index: number): void {
   if (!current) {
     return;
   }
-  aiSettings.value.userSkills.splice(index + 1, 0, createUserSkill(current.mode, aiSettings.value.userSkills.length));
-  aiSettings.value.userSkills[index + 1] = normalizeAIUserSkills([{
-    ...current,
+  const duplicate = normalizeAIUserSkills([{
+    ...cloneSerializable(current),
     id: `${current.id}-copy`,
     title: `${current.title} Copy`,
   }])[0];
+  aiSettings.value.userSkills.splice(index + 1, 0, duplicate);
 }
 
 function removeUserSkill(index: number): void {
   aiSettings.value.userSkills.splice(index, 1);
-}
-
-function addUserSkillSection(skill: AIUserSkillDefinition): void {
-  skill.sections.push(createUserSkillSection(skill.sections.length));
-}
-
-function removeUserSkillSection(skill: AIUserSkillDefinition, index: number): void {
-  skill.sections.splice(index, 1);
 }
 
 // 🆕 调度器配置
@@ -2515,6 +2506,15 @@ onMounted(() => {
   loadSettings();
 });
 
+onBeforeUnmount(() => {
+  destroyManagedDialog(toolPermissionDialogHandle.value);
+  destroyManagedDialog(builtInPromptDialogHandle.value);
+  destroyManagedDialog(userSkillDialogHandle.value);
+  toolPermissionDialogHandle.value = null;
+  builtInPromptDialogHandle.value = null;
+  userSkillDialogHandle.value = null;
+});
+
 // 🆕 数据修复相关
 const isRepairing = ref(false);
 const repairResult = ref<{ fixed: number; total: number } | null>(null);
@@ -2906,16 +2906,21 @@ async function handleRepairDates() {
   background: rgba(255, 255, 255, 0.88);
 }
 
-.ai-prompt-preset-card {
+.ai-settings-manager,
+.ai-prompt-card-list,
+.ai-tool-group-list {
   display: grid;
   gap: 14px;
-  margin-bottom: 18px;
-  padding: 18px;
-  border: 1px solid var(--b3-border-color);
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(250, 250, 255, 0.98), rgba(245, 246, 252, 0.98));
 }
 
+.ai-settings-manager {
+  margin-top: 4px;
+}
+
+.ai-settings-manager__head,
+.ai-user-skill-toolbar,
+.ai-user-skill-card__head,
+.ai-tool-group-card__head,
 .ai-prompt-preset-card__head {
   display: flex;
   align-items: flex-start;
@@ -2923,59 +2928,139 @@ async function handleRepairDates() {
   gap: 12px;
 }
 
-.ai-prompt-preset-card__title {
+.ai-settings-manager__action {
+  flex-shrink: 0;
+}
+
+.ai-tool-group-card,
+.ai-prompt-preset-card,
+.ai-user-skill-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(250, 250, 255, 0.98), rgba(245, 246, 252, 0.98));
+}
+
+.ai-tool-group-card__toggle,
+.ai-tool-row__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ai-tool-group-card__toggle strong,
+.ai-tool-row__toggle strong,
+.ai-prompt-preset-card__title,
+.ai-user-skill-card__title-row strong {
   font-size: 15px;
   font-weight: 600;
   color: var(--b3-theme-on-background);
 }
 
+.ai-tool-group-card__toggle span,
+.ai-tool-row__toggle span,
 .ai-prompt-preset-card__summary {
-  margin: 6px 0 0;
+  display: block;
+  margin-top: 4px;
   font-size: 13px;
   line-height: 1.6;
   color: var(--b3-theme-on-surface-light);
 }
 
+.ai-tool-group-card__actions,
+.ai-prompt-preset-card__actions,
+.ai-user-skill-toolbar__actions,
+.ai-user-skill-card__actions,
+.ai-user-skill-card__meta,
+.ai-user-skill-card__chips,
+.ai-tool-row__meta,
+.ai-tool-group-card__meta,
+.ai-prompt-preset-card__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-tool-group-card__body,
 .ai-prompt-preset-card__grid {
   display: grid;
   gap: 10px;
+}
+
+.ai-tool-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.ai-tool-row__meta {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ai-tool-row__meta code,
+.ai-meta-chip--code {
+  font-family: var(--b3-font-family-code, monospace);
+}
+
+.ai-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid rgba(76, 110, 245, 0.14);
+  border-radius: 999px;
+  background: rgba(76, 110, 245, 0.08);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-meta-chip--accent {
+  color: var(--b3-theme-primary);
+  border-color: rgba(76, 110, 245, 0.2);
+  background: rgba(76, 110, 245, 0.12);
+}
+
+.ai-meta-chip--warn {
+  color: #9a4d00;
+  border-color: rgba(255, 183, 77, 0.34);
+  background: rgba(255, 183, 77, 0.2);
+}
+
+.ai-meta-chip--muted {
+  color: var(--b3-theme-on-surface-light);
+  border-color: rgba(127, 140, 141, 0.2);
+  background: rgba(127, 140, 141, 0.12);
 }
 
 .ai-prompt-preset-card__row {
   display: grid;
   gap: 6px;
   padding: 12px 14px;
-  border-radius: 10px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid var(--b3-border-color);
 }
 
-.ai-prompt-preset-card__row span,
-.ai-prompt-preset-card__editor-label {
+.ai-prompt-preset-card__row span {
   font-size: 13px;
   font-weight: 600;
   color: var(--b3-theme-on-surface-light);
 }
 
-.ai-prompt-preset-card__row p {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.ai-prompt-preset-card__row--status {
-  gap: 6px;
-}
-
-.ai-prompt-preset-card__status-copy,
+.ai-prompt-preset-card__row p,
 .ai-prompt-preset-card__status-hint {
   margin: 0;
-}
-
-.ai-prompt-preset-card__status-hint {
   font-size: 13px;
   line-height: 1.6;
-  color: var(--b3-theme-on-surface-light);
 }
 
 .ai-prompt-preset-card__status-badge {
@@ -3006,84 +3091,18 @@ async function handleRepairDates() {
   border-color: rgba(127, 140, 141, 0.2);
 }
 
-.ai-prompt-preset-card__actions {
+.ai-user-skill-card--summary {
+  margin-top: 0;
+}
+
+.ai-user-skill-card--drag-over {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 24px rgba(15, 23, 42, 0.08);
+}
+
+.ai-user-skill-card__title-row {
   display: flex;
-  justify-content: flex-start;
-}
-
-.ai-prompt-preset-card__editor {
-  display: grid;
-  gap: 8px;
-}
-
-.ai-prompt-preset-card__foldout,
-.ai-user-skill-card__foldout,
-.ai-prompt-preset-card__tab-editor {
-  margin-top: 4px;
-}
-
-.ai-prompt-preset-card__contract {
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px dashed var(--b3-border-color);
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.ai-prompt-preset-card__contract summary {
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--b3-theme-on-surface);
-}
-
-.ai-prompt-preset-card__contract-list {
-  margin: 8px 0 0;
-  padding-left: 20px;
-  display: grid;
-  gap: 6px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--b3-theme-on-surface-light);
-}
-
-.ai-prompt-preset-card__editor-label--sub {
-  margin-top: 4px;
-}
-
-.ai-user-skill-toolbar {
-  margin-top: 18px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.ai-user-skill-toolbar__actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.ai-user-skill-card,
-.ai-user-skill-section-card {
-  margin-top: 14px;
-  border: 1px solid #e5e9f2;
-  border-radius: 12px;
-  background: #fbfcff;
-  padding: 14px;
-}
-
-.ai-user-skill-card__head,
-.ai-user-skill-section-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.ai-user-skill-card__actions {
-  display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -3092,48 +3111,6 @@ async function handleRepairDates() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-
-.ai-user-skill-tools {
-  display: grid;
-  gap: 10px;
-}
-
-.ai-user-skill-tools__option {
-  display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid #e3e8f4;
-  border-radius: 10px;
-  background: #fff;
-}
-
-.ai-user-skill-tools__option span {
-  color: var(--b3-theme-on-surface-light);
-  font-size: 12px;
-}
-
-.ai-user-skill-surface {
-  display: grid;
-  gap: 10px;
-}
-
-.ai-user-skill-surface label {
-  display: grid;
-  gap: 6px;
-}
-
-.ai-user-skill-sections {
-  margin-top: 12px;
-  display: grid;
-  gap: 12px;
-}
-
-.ai-user-skill-sections__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .practice-filter {
@@ -3655,6 +3632,14 @@ async function handleRepairDates() {
     padding-left: 22px;
     padding-right: 22px;
   }
+
+  .ai-settings-manager__head,
+  .ai-tool-group-card__head,
+  .ai-prompt-preset-card__head,
+  .ai-user-skill-toolbar,
+  .ai-user-skill-card__head {
+    flex-direction: column;
+  }
 }
 
 @media (max-width: 760px) {
@@ -3702,8 +3687,10 @@ async function handleRepairDates() {
     padding: 20px;
   }
 
-  .ai-tool-card__policies {
-    grid-template-columns: 1fr;
+  .ai-tool-row,
+  .ai-user-skill-card__actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>
