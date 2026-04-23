@@ -119,46 +119,39 @@ describe('ReviewActions topic next action', () => {
 });
 
 describe('ReviewActions layout', () => {
-  it('keeps skip in the right container and show-answer in center with rating-width strategy', () => {
+  it('renders the reveal stage with back, show-answer, and skip actions', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,
     }));
 
-    const root = wrapper.get('.card__action');
+    const root = wrapper.get('.card__action--reveal');
     const children = Array.from(root.element.children).map((node) => (node as HTMLElement).className);
-    expect(root.classes()).not.toContain('card__action--expanded');
-    expect(children[0]).toContain('card__action-side--back');
-    expect(children[1]).toContain('card__action-center');
-    expect(children[2]).toContain('card__action-side--right');
-    expect(wrapper.findAll('.card__action-side-spacer')).toHaveLength(0);
 
-    const center = wrapper.get('.card__action-center');
-    expect(center.attributes('style')).toContain('--review-action-columns: 4');
-    expect(center.get('button[data-type="-1"]').classes()).toContain('card__action-main--reveal');
-    expect(center.get('button[data-type="-1"]').classes()).not.toContain('b3-button--cancel');
-
-    const right = wrapper.get('.card__action-side--right');
-    expect(right.find('skip-menu-button-stub').exists()).toBe(true);
+    expect(children[0]).toContain('card__action-back');
+    expect(children[1]).toContain('card__action-main');
+    expect(children[2]).toContain('card__action-skip');
+    expect(root.get('button[data-type="-1"]').classes()).toContain('card__action-main--reveal');
+    expect(root.find('skip-menu-button-stub').exists()).toBe(true);
+    expect(root.find('button[data-type="1"]').exists()).toBe(false);
   });
 
-  it('keeps skip in the right container during grading state', () => {
+  it('renders the rating stage with stacked back/skip and native rating variants', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: false,
     }));
 
-    expect(wrapper.get('.card__action').classes()).toContain('card__action--expanded');
-    expect(wrapper.findAll('.card__action-side-spacer')).toHaveLength(2);
+    const root = wrapper.get('.card__action--rating');
+    const columns = root.findAll('.card__action-column');
 
-    const center = wrapper.get('.card__action-center');
-    expect(center.find('button[data-type="-1"]').exists()).toBe(false);
-    expect(center.findAll('.card__action-column')).toHaveLength(4);
-    expect(center.get('button[data-type="1"]').classes()).toContain('b3-button--error');
-    expect(center.get('button[data-type="2"]').classes()).toContain('b3-button--warning');
-    expect(center.get('button[data-type="3"]').classes()).toContain('b3-button--info');
-    expect(center.get('button[data-type="4"]').classes()).toContain('b3-button--success');
-
-    const right = wrapper.get('.card__action-side--right');
-    expect(right.find('skip-menu-button-stub').exists()).toBe(true);
+    expect(root.attributes('style')).toContain('--review-rating-columns: 5');
+    expect(columns).toHaveLength(5);
+    expect(columns[0].classes()).toContain('card__action-column--stack');
+    expect(columns[0].find('skip-menu-button-stub').exists()).toBe(true);
+    expect(columns[0].get('button').classes()).toContain('card__action-back--stacked');
+    expect(root.get('button[data-type="1"]').classes()).toContain('b3-button--error');
+    expect(root.get('button[data-type="2"]').classes()).toContain('b3-button--warning');
+    expect(root.get('button[data-type="3"]').classes()).toContain('b3-button--info');
+    expect(root.get('button[data-type="4"]').classes()).toContain('b3-button--success');
   });
 
   it('falls back to show-answer when grades are temporarily empty', () => {
@@ -167,21 +160,22 @@ describe('ReviewActions layout', () => {
       grades: [],
     }));
 
-    expect(wrapper.get('.card__action-center').find('button[data-type="-1"]').exists()).toBe(true);
-    expect(wrapper.get('.card__action-right').find('skip-menu-button-stub').exists()).toBe(true);
+    const root = wrapper.get('.card__action--reveal');
+    expect(root.find('button[data-type="-1"]').exists()).toBe(true);
+    expect(root.find('skip-menu-button-stub').exists()).toBe(true);
   });
 
-  it('applies the same right-side skip layout on mobile', () => {
+  it('keeps the reveal stage sticky on mobile', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,
     }), true);
 
-    expect(wrapper.get('.card__action').classes()).toContain('card__action--mobile');
-    expect(wrapper.get('.card__action').classes()).not.toContain('card__action--expanded');
-    expect(wrapper.get('.card__action-side--right').find('skip-menu-button-stub').exists()).toBe(true);
+    const root = wrapper.get('.card__action--reveal');
+    expect(root.classes()).toContain('card__action--mobile');
+    expect(root.find('skip-menu-button-stub').exists()).toBe(true);
   });
 
-  it('uses the expanded equal-height layout for topic next-card mode on desktop', () => {
+  it('uses a two-column rating layout for topic next-card mode on desktop', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,
       cardMeta: {
@@ -192,11 +186,12 @@ describe('ReviewActions layout', () => {
       },
     }));
 
-    const root = wrapper.get('.card__action');
-    expect(root.classes()).toContain('card__action--expanded');
-    expect(wrapper.findAll('.card__action-side-spacer')).toHaveLength(2);
-    expect(wrapper.get('.card__action-center').attributes('style')).toContain('--review-action-columns: 1');
-    expect(wrapper.find('button[data-type="-1"]').exists()).toBe(false);
+    const root = wrapper.get('.card__action--rating');
+    const columns = root.findAll('.card__action-column');
+    expect(root.attributes('style')).toContain('--review-rating-columns: 2');
+    expect(columns).toHaveLength(2);
+    expect(columns[0].classes()).toContain('card__action-column--stack');
+    expect(columns[0].find('skip-menu-button-stub').exists()).toBe(true);
     expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
   });
 

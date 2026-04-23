@@ -512,46 +512,6 @@
   background: transparent;
 }
 
-.fsrs-review-v2 .card__action-main.card__action-main--reveal,
-.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.card__action-main--reveal {
-  border-color: var(--siyuanmemo-ui-accent);
-  background: var(--siyuanmemo-ui-accent);
-  color: var(--b3-theme-on-primary, #fff);
-}
-
-.fsrs-review-v2 .card__action-main.b3-button--error,
-.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.b3-button--error {
-  border-color: color-mix(in srgb, var(--b3-theme-error) 52%, var(--siyuanmemo-ui-border));
-  background: color-mix(in srgb, var(--b3-theme-error) 13%, var(--siyuanmemo-ui-canvas));
-  color: var(--b3-theme-error);
-}
-
-.fsrs-review-v2 .card__action-main.b3-button--warning,
-.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.b3-button--warning {
-  border-color: color-mix(in srgb, var(--b3-theme-warning) 52%, var(--siyuanmemo-ui-border));
-  background: color-mix(in srgb, var(--b3-theme-warning) 15%, var(--siyuanmemo-ui-canvas));
-  color: var(--b3-theme-warning);
-}
-
-.fsrs-review-v2 .card__action-main.b3-button--info,
-.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.b3-button--info {
-  border-color: color-mix(in srgb, var(--b3-theme-info) 54%, var(--siyuanmemo-ui-border));
-  background: color-mix(in srgb, var(--b3-theme-info) 14%, var(--siyuanmemo-ui-canvas));
-  color: var(--b3-theme-info);
-}
-
-.fsrs-review-v2 .card__action-main.b3-button--success,
-.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.b3-button--success {
-  border-color: color-mix(in srgb, var(--b3-theme-success) 54%, var(--siyuanmemo-ui-border));
-  background: color-mix(in srgb, var(--b3-theme-success) 14%, var(--siyuanmemo-ui-canvas));
-  color: var(--b3-theme-success);
-}
-
-.fsrs-review-v2 .card__action-main:hover,
-.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main:hover {
-  filter: saturate(1.08) brightness(0.98);
-}
-
 .large-editor__backdrop {
   background: rgba(0, 0, 0, 0.18);
   backdrop-filter: none;

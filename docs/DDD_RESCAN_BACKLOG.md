@@ -4,6 +4,16 @@ Last update: 2026-04-23 (Round 122)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-23 - CDF native-like review fallback hardening
+
+- Task: 按确认方案把 CDF 复习界面继续收口到思源原生语义，包括原生评分色/双阶段 action、极简 editor-like CDF renderer，以及 `defaultAttribute` 不再挡住复习的 fallback 链。
+- Touched slice: Review bounded context and descriptor-card active path across `src/ui/review/v2/ReviewActions.vue`, `src/ui/shared/siyuanmemo-admin-skin.scss`, `src/ui/review/components/{DescriptorCardRenderer.vue,ConceptDefinitionCardRenderer.vue,CdfDirectLayout.vue}`, `src/core/card/descriptor-card/{infrastructure/DescriptorCardRepository.ts,domain/DescriptorCard.ts,application/DescriptorCardRenderService.ts}`, and focused review/descriptor tests.
+- Debt fixed now: 去掉了 review admin skin 对 `b3-button--error / warning / info / success` 的自定义混色覆写，让评分条重新吃到思源原生颜色；descriptor/concept-definition fallback renderer 不再默认铺 warning/badge/siblings 壳层；`defaultAttribute` 被收回到领域层 sentinel，service 现在会优先吃 live fusion、再吃 `fieldMapping.cdf_*`、再投影原始关系行，最后才回落到最小原文题面。
+- Debt deferred: CDF 仍然是 special renderer 的 editor-like 投影，不是完整 native Protyle；descriptor service 目前虽然会回退到最小原文题面，但没有把 relation projection / minimal fallback 再抽成跨 renderer 的共享 core primitive。
+- Why deferred: 这轮目标是修掉真实复习阻塞并恢复思源原生语义；继续推进到 full native Protyle 或抽象共享 primitive，会扩大到 review renderer contract 和更多 conceptual card slice，超出当前安全切片。
+- Next safe step: 如果这套 fallback 和 editor-like 呈现稳定，可以把 concept-definition / descriptor / cdf-multiline 共用的“原始关系投影 + 最小 fallback”进一步提成 shared review primitive，再评估哪些正向场景值得局部切回 native Protyle。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts`; `pnpm vitest run src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts`; `pnpm vitest run src/core/card/descriptor-card/__tests__/DescriptorCardRenderService.cdf-fusion.test.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.native-split-guard.spec.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-23 - CDF direct review display and review action polish
 
 - Task: 提亮 Browser 工具栏按钮层级，重写 Review 底部跳过控件，并把 `concept-definition` / `descriptor` / `cdf-multiline` 统一切到原始块直展复习路径。

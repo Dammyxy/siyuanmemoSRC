@@ -130,4 +130,48 @@ describe('ConceptDefinitionCardRenderer', () => {
     expect(wrapper.text()).toContain('...');
     expect(wrapper.text()).not.toContain('质量极高的致密恒星残骸');
   });
+
+  it('keeps semantic fallback minimal without badge chrome', async () => {
+    conceptDefinitionRendererMocks.prepareViewModel.mockResolvedValue({
+      blockId: 'definition-3',
+      breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
+      dependencyBlockIds: ['doc-1', 'concept-1', 'definition-3'],
+      conceptName: '中子星',
+      conceptBlockId: 'concept-1',
+      definitionHtml: '<p>质量极高的致密恒星残骸</p>',
+      frontHtml: '<p>semantic front</p>',
+      backHtml: '<p>semantic back</p>',
+      relationArrow: '↔',
+      isReverse: false,
+    });
+
+    const wrapper = mount(ConceptDefinitionCardRenderer, {
+      props: {
+        blockId: 'definition-3',
+        cardId: 'card-3',
+        card: {
+          xiuyuanID: 'xy-3',
+          meta: {
+            xiuyuanID: 'xy-3',
+            faceIndex: 0,
+            typeMarker: 'concept-definition-forward',
+          },
+        },
+        displayMode: 'semantic',
+        showAnswer: false,
+      },
+      global: {
+        stubs: {
+          CardBreadcrumb: true,
+          CardErrorState: true,
+          CardLoadingState: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('.concept-definition-card-renderer__badge').exists()).toBe(false);
+    expect(wrapper.html()).toContain('semantic front');
+  });
 });

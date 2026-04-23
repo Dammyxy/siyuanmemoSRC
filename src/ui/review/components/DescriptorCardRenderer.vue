@@ -12,53 +12,11 @@
 
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
-
-      <div v-if="viewModel.warning" class="descriptor-card-renderer__warning">
-        <span class="descriptor-card-renderer__warning-icon">⚠️</span>
-        <span class="descriptor-card-renderer__warning-text">{{ viewModel.warning }}</span>
-      </div>
-
-      <div class="descriptor-card-renderer__main">
-        <div class="descriptor-card-renderer__badge">
-          <span class="descriptor-card-renderer__badge-icon">📑</span>
-          <span class="descriptor-card-renderer__badge-label">{{ t('descriptorCard', '描述符卡') }}</span>
-        </div>
-
-        <div
-          v-if="!showAnswer"
-          class="descriptor-card-renderer__html-content descriptor-card-renderer__front"
-          v-html="viewModel.frontHtml"
-        ></div>
-
-        <div
-          v-else
-          class="descriptor-card-renderer__html-content descriptor-card-renderer__back"
-          v-html="viewModel.backHtml"
-        ></div>
-      </div>
-
-      <div v-if="viewModel.siblingDescriptors.length > 0" class="descriptor-card-renderer__siblings">
-        <div class="descriptor-card-renderer__siblings-title">{{ t('siblingDescriptors', '同概念的其他描述符') }}</div>
-        <div class="descriptor-card-renderer__siblings-list">
-          <div
-            v-for="sibling in viewModel.siblingDescriptors"
-            :key="sibling.blockId"
-            class="descriptor-card-renderer__sibling-item"
-          >
-            {{ sibling.attribute }}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="showConceptModal" class="descriptor-card-renderer__modal" @click="closeConceptModal">
-      <div class="descriptor-card-renderer__modal-content" @click.stop>
-        <div class="descriptor-card-renderer__modal-header">
-          <h2 class="descriptor-card-renderer__modal-title">{{ t('fullConcept', '完整概念') }}</h2>
-          <button class="descriptor-card-renderer__modal-close" @click="closeConceptModal">✕</button>
-        </div>
-        <div class="descriptor-card-renderer__modal-body" v-html="viewModel?.parentConcept?.html || ''"></div>
-      </div>
+      <div
+        class="descriptor-card-renderer__html-content"
+        :class="showAnswer ? 'descriptor-card-renderer__back' : 'descriptor-card-renderer__front'"
+        v-html="showAnswer ? viewModel.backHtml : viewModel.frontHtml"
+      ></div>
     </div>
   </div>
 </template>
@@ -100,7 +58,6 @@ const emit = defineEmits<{
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<DescriptorCardViewModel | null>(null);
-const showConceptModal = ref(false);
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 
@@ -120,9 +77,8 @@ const shouldUseDirectDisplay = computed(() => {
   if (!viewModel.value) {
     return false;
   }
-  return !!viewModel.value.parentConcept?.html
-    && viewModel.value.attribute.trim().length > 0
-    && viewModel.value.description.trim().length > 0;
+  return viewModel.value.attribute.trim().length > 0
+    || viewModel.value.description.trim().length > 0;
 });
 
 function renderConceptReferenceHtml(conceptTitle: string): string {
@@ -135,30 +91,40 @@ const directContentHtml = computed(() => {
     return '';
   }
 
-  const conceptHtml = renderConceptReferenceHtml(vm.parentConcept?.title || vm.parentConcept?.preview || vm.attribute);
-  const relationArrow = vm.relationArrow || '→';
-  const ellipsisHtml = createCdfEllipsisHtml();
-  const relationRightHtml = isReverseCard.value
-    ? renderCdfDirectMarkdown(vm.description)
-    : (props.showAnswer ? renderCdfDirectMarkdown(vm.description) : ellipsisHtml);
+  const rows = [];
+  const conceptTitle = (vm.parentConcept?.title || vm.parentConcept?.preview || '').trim();
 
-  return buildCdfEditorContentHtml([
-    {
+  if (conceptTitle) {
+    const conceptHtml = renderConceptReferenceHtml(conceptTitle);
+    rows.push({
       key: 'concept',
-      level: 0,
-      standaloneHtml: isReverseCard.value && !props.showAnswer ? ellipsisHtml : conceptHtml,
-      emphasize: 'primary',
-      ellipsisSide: isReverseCard.value && !props.showAnswer ? 'left' : null,
-    },
-    {
+      level: 0 as const,
+      standaloneHtml: isReverseCard.value && !props.showAnswer ? createCdfEllipsisHtml() : conceptHtml,
+      emphasize: 'primary' as const,
+      ellipsisSide: isReverseCard.value && !props.showAnswer ? 'left' as const : null,
+    });
+  }
+
+  if (vm.attribute.trim().length > 0) {
+    rows.push({
       key: 'descriptor',
-      level: 1,
+      level: conceptTitle ? 1 as const : 0 as const,
       leftHtml: renderCdfDirectMarkdown(vm.attribute),
-      rightHtml: relationRightHtml,
-      arrow: relationArrow,
-      ellipsisSide: isReverseCard.value ? null : (!props.showAnswer ? 'right' : null),
-    },
-  ]);
+      rightHtml: isReverseCard.value
+        ? renderCdfDirectMarkdown(vm.description)
+        : (props.showAnswer ? renderCdfDirectMarkdown(vm.description) : createCdfEllipsisHtml()),
+      arrow: vm.relationArrow || '→',
+      ellipsisSide: isReverseCard.value ? null : (!props.showAnswer ? 'right' as const : null),
+    });
+  } else if (vm.description.trim().length > 0) {
+    rows.push({
+      key: 'descriptor-fallback',
+      level: conceptTitle ? 1 as const : 0 as const,
+      standaloneHtml: renderCdfDirectMarkdown(vm.description),
+    });
+  }
+
+  return buildCdfEditorContentHtml(rows);
 });
 
 const renderIdentity = computed(() => {
@@ -199,10 +165,6 @@ async function loadViewModel() {
   }
 }
 
-function closeConceptModal() {
-  showConceptModal.value = false;
-}
-
 watch(
   renderIdentity,
   () => {
@@ -227,162 +189,25 @@ watch(
   overflow: auto;
 }
 
-.descriptor-card-renderer__warning {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: var(--b3-theme-error-lighter);
-  color: var(--b3-theme-error);
-  border-left: 4px solid var(--b3-theme-error);
-}
-
-.descriptor-card-renderer__warning-icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.descriptor-card-renderer__warning-text {
-  font-size: 14px;
-}
-
-.descriptor-card-renderer__main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-}
-
-.descriptor-card-renderer__badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-  color: white;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  margin-bottom: 16px;
-  align-self: flex-start;
-}
-
-.descriptor-card-renderer__badge-icon {
-  font-size: 16px;
-}
-
 .descriptor-card-renderer__html-content {
   flex: 1;
+  padding: 12px 16px 20px;
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
   color: var(--b3-theme-on-surface);
 }
 
-.descriptor-card-renderer__front {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  padding: 48px 32px 32px;
-  min-height: 200px;
+.descriptor-card-renderer__html-content :deep(p:first-child),
+.descriptor-card-renderer__html-content :deep(ul:first-child),
+.descriptor-card-renderer__html-content :deep(ol:first-child),
+.descriptor-card-renderer__html-content :deep(blockquote:first-child) {
+  margin-top: 0;
 }
 
-.descriptor-card-renderer__back {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  padding: 48px 32px 32px;
-  min-height: 200px;
-}
-
-.descriptor-card-renderer__siblings {
-  padding: 16px;
-  border-top: 1px solid var(--b3-border-color);
-  background: var(--b3-theme-surface);
-}
-
-.descriptor-card-renderer__siblings-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--b3-theme-on-surface-light);
-  margin-bottom: 8px;
-}
-
-.descriptor-card-renderer__siblings-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.descriptor-card-renderer__sibling-item {
-  padding: 4px 12px;
-  background: var(--b3-theme-background);
-  border: 1px solid var(--b3-border-color);
-  border-radius: 12px;
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
-}
-
-.descriptor-card-renderer__modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.descriptor-card-renderer__modal-content {
-  background: var(--b3-theme-background);
-  border-radius: 12px;
-  max-width: 800px;
-  max-height: 80vh;
-  width: 90%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.descriptor-card-renderer__modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--b3-border-color);
-}
-
-.descriptor-card-renderer__modal-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--b3-theme-on-surface);
-}
-
-.descriptor-card-renderer__modal-close {
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  color: var(--b3-theme-on-surface-light);
-  font-size: 20px;
-  cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.2s;
-}
-
-.descriptor-card-renderer__modal-close:hover {
-  background: var(--b3-theme-surface);
-  color: var(--b3-theme-on-surface);
-}
-
-.descriptor-card-renderer__modal-body {
-  flex: 1;
-  padding: 20px;
-  overflow-y: auto;
-  font-size: 16px;
-  line-height: 1.6;
-  color: var(--b3-theme-on-surface);
+.descriptor-card-renderer__html-content :deep(p:last-child),
+.descriptor-card-renderer__html-content :deep(ul:last-child),
+.descriptor-card-renderer__html-content :deep(ol:last-child),
+.descriptor-card-renderer__html-content :deep(blockquote:last-child) {
+  margin-bottom: 0;
 }
 </style>

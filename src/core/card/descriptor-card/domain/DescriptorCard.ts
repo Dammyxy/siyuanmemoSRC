@@ -19,6 +19,7 @@ export class DescriptorCard {
   readonly blockId: string;
   readonly content: string;
   readonly html: string;
+  readonly sourceMarkdown: string;
   readonly parentConcept: ParentConceptBlock | null;
   readonly siblingDescriptors: SiblingDescriptor[];
   readonly attribute: string;
@@ -28,6 +29,7 @@ export class DescriptorCard {
     this.blockId = data.blockId;
     this.content = data.content;
     this.html = data.html;
+    this.sourceMarkdown = data.sourceMarkdown || data.content;
     this.parentConcept = data.parentConcept;
     this.siblingDescriptors = data.siblingDescriptors;
 
@@ -153,6 +155,7 @@ export interface DescriptorCardData {
   blockId: string;
   content: string;
   html: string;
+  sourceMarkdown?: string;
   parentConcept: ParentConceptBlock | null;
   siblingDescriptors: SiblingDescriptor[];
 }

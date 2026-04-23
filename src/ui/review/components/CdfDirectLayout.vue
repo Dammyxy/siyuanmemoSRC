@@ -69,55 +69,53 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
 }
 
 .cdf-direct-layout__editor {
-  padding: 14px 18px 22px;
+  padding: 10px 14px 18px;
   color: var(--b3-theme-on-surface);
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor) {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__row) {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   color: var(--b3-theme-on-surface);
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__row--level-1) {
-  padding-left: 20px;
+  padding-left: 18px;
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__row--level-2) {
-  padding-left: 40px;
+  padding-left: 34px;
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__row--primary .cdf-editor__node) {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   line-height: 1.7;
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__bullet) {
   flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  margin-top: 0.62em;
+  width: 7px;
+  height: 7px;
+  margin-top: 0.8em;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--b3-theme-primary) 72%, #7dd3fc);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--b3-theme-primary) 16%, transparent);
+  background: color-mix(in srgb, var(--b3-theme-on-surface-light) 72%, transparent);
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__row--level-1 .cdf-editor__bullet),
 .cdf-direct-layout__editor :deep(.cdf-editor__row--level-2 .cdf-editor__bullet) {
-  width: 8px;
-  height: 8px;
-  margin-top: 0.78em;
-  background: color-mix(in srgb, var(--b3-theme-on-surface-light) 42%, transparent);
-  box-shadow: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 0.82em;
+  background: color-mix(in srgb, var(--b3-theme-on-surface-light) 54%, transparent);
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__node) {
@@ -125,8 +123,8 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
-  line-height: 1.75;
+  gap: 6px;
+  line-height: 1.72;
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__standalone) {
@@ -179,23 +177,18 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
 .cdf-direct-layout__body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 16px 18px;
+  gap: 8px;
+  padding: 10px 14px 18px;
 }
 
 .cdf-direct-layout__section {
-  border: 1px solid var(--b3-border-color);
-  border-radius: 6px;
-  background: var(--b3-theme-background);
-  padding: 12px 14px;
-}
-
-.cdf-direct-layout__section--answer {
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 20%, var(--b3-theme-background));
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 .cdf-direct-layout__label {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   color: var(--b3-theme-on-surface-light);
   font-size: 11px;
   font-weight: 600;
@@ -229,6 +222,7 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
+  margin: 2px 0;
 }
 
 .cdf-direct-layout__divider::before,

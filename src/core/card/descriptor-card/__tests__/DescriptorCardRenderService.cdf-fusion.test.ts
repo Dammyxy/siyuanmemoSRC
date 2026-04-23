@@ -187,4 +187,47 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm!.backHtml).toContain('生成 ATP');
     expect(vm!.frontHtml).not.toContain('起源');
   });
+
+  it('projects raw descriptor relations when no live fusion context or cdf field mapping is available', async () => {
+    const { service } = createService('前身→恒星');
+
+    const vm = await service.prepareViewModel('descriptor-block', {
+      meta: {
+        typeMarker: 'descriptor-forward',
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+        },
+      },
+    });
+
+    expect(vm).not.toBeNull();
+    expect(vm!.attribute).toBe('前身');
+    expect(vm!.description).toBe('恒星');
+    expect(vm!.frontHtml).toContain('前身');
+    expect(vm!.backHtml).toContain('恒星');
+    expect(vm!.frontHtml).not.toContain('defaultAttribute');
+  });
+
+  it('falls back to the raw line instead of surfacing the defaultAttribute sentinel', async () => {
+    const { service } = createService('保持快速演化');
+
+    const vm = await service.prepareViewModel('descriptor-block', {
+      meta: {
+        typeMarker: 'descriptor-forward',
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+        },
+      },
+    });
+
+    expect(vm).not.toBeNull();
+    expect(vm!.attribute).toBe('');
+    expect(vm!.description).toBe('保持快速演化');
+    expect(vm!.frontHtml).toContain('保持快速演化');
+    expect(vm!.backHtml).toContain('保持快速演化');
+    expect(vm!.frontHtml).not.toContain('属性');
+    expect(vm!.frontHtml).not.toContain('defaultAttribute');
+  });
 });

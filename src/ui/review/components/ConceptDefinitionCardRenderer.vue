@@ -12,27 +12,11 @@
 
     <div v-else-if="viewModel" class="concept-definition-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
-
-      <div class="concept-definition-card-renderer__badge">
-        <span class="concept-definition-card-renderer__badge-icon">📎</span>
-        <span class="concept-definition-card-renderer__badge-label">
-          {{ viewModel.isReverse ? t('conceptDefinitionCardReverse', '概念定义卡（反向）') : t('conceptDefinitionCard', '概念定义卡') }}
-        </span>
-      </div>
-
-      <div class="concept-definition-card-renderer__main">
-        <div
-          v-if="!showAnswer"
-          class="concept-definition-card-renderer__html-content concept-definition-card-renderer__front"
-          v-html="viewModel.frontHtml"
-        ></div>
-
-        <div
-          v-else
-          class="concept-definition-card-renderer__html-content concept-definition-card-renderer__back"
-          v-html="viewModel.backHtml"
-        ></div>
-      </div>
+      <div
+        class="concept-definition-card-renderer__html-content"
+        :class="showAnswer ? 'concept-definition-card-renderer__back' : 'concept-definition-card-renderer__front'"
+        v-html="showAnswer ? viewModel.backHtml : viewModel.frontHtml"
+      ></div>
     </div>
   </div>
 </template>
@@ -215,49 +199,14 @@ watch(
   flex-direction: column;
   height: 100%;
   overflow: auto;
-  padding: 16px;
-}
-
-.concept-definition-card-renderer__badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  margin-bottom: 16px;
-  align-self: flex-start;
-}
-
-.concept-definition-card-renderer__badge-icon {
-  font-size: 16px;
-}
-
-.concept-definition-card-renderer__main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
 }
 
 .concept-definition-card-renderer__html-content {
   flex: 1;
+  padding: 12px 16px 20px;
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
   color: var(--b3-theme-on-surface);
-}
-
-.concept-definition-card-renderer__front {
-  padding: 24px 32px;
-  min-height: 200px;
-}
-
-.concept-definition-card-renderer__back {
-  padding: 24px 32px;
-  min-height: 200px;
 }
 
 .concept-definition-card-renderer__html-content :deep(.concept-definition-question) {
@@ -335,6 +284,20 @@ watch(
   font-size: 32px;
   font-weight: 700;
   color: var(--b3-theme-primary);
+}
+
+.concept-definition-card-renderer__html-content :deep(p:first-child),
+.concept-definition-card-renderer__html-content :deep(ul:first-child),
+.concept-definition-card-renderer__html-content :deep(ol:first-child),
+.concept-definition-card-renderer__html-content :deep(blockquote:first-child) {
+  margin-top: 0;
+}
+
+.concept-definition-card-renderer__html-content :deep(p:last-child),
+.concept-definition-card-renderer__html-content :deep(ul:last-child),
+.concept-definition-card-renderer__html-content :deep(ol:last-child),
+.concept-definition-card-renderer__html-content :deep(blockquote:last-child) {
+  margin-bottom: 0;
 }
 
 </style>

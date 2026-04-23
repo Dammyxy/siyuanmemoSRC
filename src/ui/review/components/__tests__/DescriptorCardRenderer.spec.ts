@@ -61,4 +61,95 @@ describe('DescriptorCardRenderer', () => {
     expect(wrapper.text()).toContain('前身恒星经历超新星爆炸后形成');
     expect(wrapper.text()).not.toContain('legacy semantic warning');
   });
+
+  it('keeps descriptor cards in direct mode even when only fallback description is available', async () => {
+    const renderService = {
+      prepareViewModel: vi.fn().mockResolvedValue({
+        blockId: 'descriptor-2',
+        breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
+        dependencyBlockIds: ['doc-1', 'descriptor-2'],
+        frontHtml: '<p>semantic front</p>',
+        backHtml: '<p>semantic back</p>',
+        relationArrow: '→',
+        isReverse: false,
+        attribute: '',
+        description: '前身→恒星',
+        parentConcept: null,
+        siblingDescriptors: [],
+        warning: 'warningNoParentConcept',
+      }),
+    } as any;
+
+    const wrapper = mount(DescriptorCardRenderer, {
+      props: {
+        blockId: 'descriptor-2',
+        cardId: 'card-2',
+        card: {
+          id: 'card-2',
+          meta: {
+            typeMarker: 'concept-descriptor-forward',
+          },
+        },
+        renderService,
+        displayMode: 'direct',
+        showAnswer: false,
+      },
+      global: {
+        stubs: {
+          CardBreadcrumb: true,
+          CardErrorState: true,
+          CardLoadingState: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('.cdf-direct-layout').exists()).toBe(true);
+    expect(wrapper.text()).toContain('前身→恒星');
+    expect(wrapper.text()).not.toContain('defaultAttribute');
+  });
+
+  it('keeps semantic fallback minimal without warning, badge, or sibling chrome', async () => {
+    const renderService = {
+      prepareViewModel: vi.fn().mockResolvedValue({
+        blockId: 'descriptor-3',
+        breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
+        dependencyBlockIds: ['doc-1', 'descriptor-3'],
+        frontHtml: '<p>semantic front</p>',
+        backHtml: '<p>semantic back</p>',
+        relationArrow: '→',
+        isReverse: false,
+        attribute: '前身',
+        description: '恒星',
+        parentConcept: null,
+        siblingDescriptors: [{ blockId: 'sib-1', attribute: '密度', content: '密度 ;; 极高' }],
+        warning: 'warningNoParentConcept',
+      }),
+    } as any;
+
+    const wrapper = mount(DescriptorCardRenderer, {
+      props: {
+        blockId: 'descriptor-3',
+        cardId: 'card-3',
+        renderService,
+        displayMode: 'semantic',
+        showAnswer: false,
+      },
+      global: {
+        stubs: {
+          CardBreadcrumb: true,
+          CardErrorState: true,
+          CardLoadingState: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    expect(wrapper.find('.descriptor-card-renderer__warning').exists()).toBe(false);
+    expect(wrapper.find('.descriptor-card-renderer__badge').exists()).toBe(false);
+    expect(wrapper.find('.descriptor-card-renderer__siblings').exists()).toBe(false);
+    expect(wrapper.html()).toContain('semantic front');
+  });
 });

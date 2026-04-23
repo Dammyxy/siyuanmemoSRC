@@ -13,9 +13,11 @@ import { DescriptorCard } from '../domain/DescriptorCard';
 import type { DescriptorCardRepository } from '../infrastructure/DescriptorCardRepository';
 import type { LiveCdfDescriptorFusionContext } from '../infrastructure/DescriptorCardRepository';
 import type { SiblingDescriptor } from '../infrastructure/DescriptorCardRepository';
+import { normalizeCueAnswerSource } from '@/core/xiuyuan/parseCueAndAnswer';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DescriptorCardRenderService');
+const DEFAULT_ATTRIBUTE_SENTINEL = 'defaultAttribute';
 
 export interface DescriptorCardInput {
   meta?: {
@@ -62,6 +64,21 @@ interface CdfDescriptorFusionMeta {
   childCue: string;
   childAnswer: string;
   fusedAttributeName: string;
+}
+
+interface DescriptorRelationProjection {
+  matched: boolean;
+  left: string;
+  right: string;
+  arrow: '→' | '←' | '↔';
+}
+
+interface DescriptorDisplayParts {
+  attribute: string;
+  description: string;
+  usedProjection: boolean;
+  usedMinimalFallback: boolean;
+  fallbackSource: string;
 }
 
 export class DescriptorCardRenderService extends BaseCardRenderService {
@@ -112,9 +129,10 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       });
 
       const cdfFusionMeta = this.resolveCdfFusionMeta(fsrsCard, data.cdfFusionContext);
+      const displayParts = this.resolveDisplayParts(card, cdfFusionMeta);
 
       // 6. 分离正面和背面内容，传入概念上下文和方向
-      const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse, cdfFusionMeta);
+      const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse, displayParts);
 
       // 7. 构建视图模型
       const viewModel: DescriptorCardViewModel = {
@@ -132,8 +150,8 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         backHtml,
         relationArrow: this.resolveDescriptorArrow(data.content, typeMarker),
         isReverse,
-        attribute: card.attribute,
-        description: card.description,
+        attribute: displayParts.attribute,
+        description: displayParts.description,
         parentConcept: this.buildParentConceptViewModel(card),
         siblingDescriptors: card.siblingDescriptors,
         warning: card.getWarning() ? this.t(card.getWarning()!, card.getWarning()!) : null,
@@ -165,27 +183,10 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     card: DescriptorCard,
     conceptContext: Array<{ id: string; name: string; type: string; isConcept?: boolean }>,
     isReverse: boolean = false,
-    cdfFusionMeta?: CdfDescriptorFusionMeta
+    displayParts?: DescriptorDisplayParts
   ): { frontHtml: string; backHtml: string } {
-    // 🔧 修复：直接使用 card.attribute 和 card.description，不再解析 card.html
-    // 如果 attribute 是 sentinel key（解析失败时的降级值），则翻译为本地化字符串
-    const attributeNameFromCard = card.attribute === 'defaultAttribute'
-      ? this.t('defaultAttribute', '属性')
-      : card.attribute;
-    const attributeName = cdfFusionMeta?.fusedAttributeName || attributeNameFromCard;
-    const attributeValue = cdfFusionMeta?.childAnswer || card.description;
-    
-    if (!attributeName || !attributeValue) {
-      // 如果解析失败，返回空内容
-      logger.warn('[DescriptorCardRenderService] Failed to parse descriptor content:', { 
-        attribute: attributeName, 
-        description: attributeValue 
-      });
-      return {
-        frontHtml: card.html,
-        backHtml: '',
-      };
-    }
+    const attributeName = displayParts?.attribute || '';
+    const attributeValue = displayParts?.description || '';
 
     const parentConceptName = card.getParentConceptTitle() || this.t('defaultConcept', '概念');
 
@@ -194,6 +195,38 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     
     // 构建祖先上下文 HTML（不包含父概念）
     const ancestorHtml = this.buildAncestorContextHtml(ancestorContext);
+
+    if (displayParts?.usedMinimalFallback) {
+      logger.warn('[DescriptorCardRenderService] Falling back to minimal descriptor content', {
+        blockId: card.blockId,
+        source: displayParts.fallbackSource,
+      });
+      const minimalHtml = this.buildMinimalFallbackContent(ancestorHtml, displayParts.fallbackSource);
+      if (minimalHtml) {
+        return {
+          frontHtml: minimalHtml,
+          backHtml: minimalHtml,
+        };
+      }
+
+      const rawHtml = ancestorHtml + card.html;
+      return {
+        frontHtml: rawHtml,
+        backHtml: rawHtml,
+      };
+    }
+
+    if (!attributeName || !attributeValue) {
+      logger.warn('[DescriptorCardRenderService] Failed to resolve descriptor display parts:', {
+        attribute: attributeName,
+        description: attributeValue,
+        blockId: card.blockId,
+      });
+      return {
+        frontHtml: ancestorHtml + card.html,
+        backHtml: ancestorHtml + card.html,
+      };
+    }
 
     logger.debug('[DescriptorCardRenderService] Rendering card:', { isReverse, attributeName, attributeValue, parentConceptName });
 
@@ -284,6 +317,164 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       childAnswer,
       fusedAttributeName: childCue ? `${groupHint}，${childCue}` : groupHint,
     };
+  }
+
+  private resolveDisplayParts(
+    card: DescriptorCard,
+    cdfFusionMeta?: CdfDescriptorFusionMeta,
+  ): DescriptorDisplayParts {
+    const fallbackSource = this.pickFirstNonEmpty(
+      card.sourceMarkdown,
+      card.content,
+      card.description,
+    );
+    const projectedRelation = this.projectDescriptorRelation(fallbackSource);
+    const baseAttribute = card.attribute === DEFAULT_ATTRIBUTE_SENTINEL ? '' : card.attribute.trim();
+    const baseDescription = card.description.trim();
+
+    if (cdfFusionMeta) {
+      return {
+        attribute: cdfFusionMeta.fusedAttributeName.trim(),
+        description: this.pickFirstNonEmpty(
+          cdfFusionMeta.childAnswer,
+          projectedRelation.right,
+          baseDescription,
+          fallbackSource,
+        ),
+        usedProjection: false,
+        usedMinimalFallback: false,
+        fallbackSource,
+      };
+    }
+
+    if (baseAttribute && baseDescription) {
+      return {
+        attribute: baseAttribute,
+        description: baseDescription,
+        usedProjection: false,
+        usedMinimalFallback: false,
+        fallbackSource,
+      };
+    }
+
+    if (projectedRelation.matched) {
+      return {
+        attribute: projectedRelation.left,
+        description: projectedRelation.right,
+        usedProjection: true,
+        usedMinimalFallback: false,
+        fallbackSource,
+      };
+    }
+
+    const minimalSource = this.pickFirstNonEmpty(baseDescription, fallbackSource);
+    return {
+      attribute: '',
+      description: minimalSource,
+      usedProjection: false,
+      usedMinimalFallback: true,
+      fallbackSource: minimalSource,
+    };
+  }
+
+  private pickFirstNonEmpty(...values: unknown[]): string {
+    for (const value of values) {
+      if (typeof value !== 'string') {
+        continue;
+      }
+
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+
+    return '';
+  }
+
+  private projectDescriptorRelation(source: string): DescriptorRelationProjection {
+    const normalized = normalizeCueAnswerSource(source);
+    if (!normalized) {
+      return {
+        matched: false,
+        left: '',
+        right: '',
+        arrow: '→',
+      };
+    }
+
+    const projections = [
+      this.resolveProjection(normalized, /^(.*?)\s*(?:;<>|；《》|↔)\s*(.+)$/s, '↔'),
+      this.resolveProjection(normalized, /^(.*?)\s*(?:;<|；《|←)\s*(.+)$/s, '←'),
+      this.resolveProjection(normalized, /^(.*?)\s*(?:;;|；；|->|→)\s*(.+)$/s, '→'),
+      this.resolveProjection(normalized, /^(.*?)\s*(?:::|：：)\s*(.+)$/s, '↔'),
+      this.resolveProjection(normalized, /^(.*?)\s*(?::>|：》)\s*(.+)$/s, '→'),
+      this.resolveProjection(normalized, /^(.*?)\s*(?::<|：《)\s*(.+)$/s, '←'),
+    ];
+
+    const resolved = projections.find((projection) => projection.matched);
+    if (resolved) {
+      return resolved;
+    }
+
+    return {
+      matched: false,
+      left: '',
+      right: normalized,
+      arrow: '→',
+    };
+  }
+
+  private resolveProjection(
+    source: string,
+    pattern: RegExp,
+    arrow: '→' | '←' | '↔',
+  ): DescriptorRelationProjection {
+    const match = source.match(pattern);
+    if (!match) {
+      return {
+        matched: false,
+        left: '',
+        right: '',
+        arrow,
+      };
+    }
+
+    const left = (match[1] || '').trim();
+    const right = (match[2] || '').trim();
+    if (!left || !right) {
+      return {
+        matched: false,
+        left: '',
+        right: '',
+        arrow,
+      };
+    }
+
+    return {
+      matched: true,
+      left,
+      right,
+      arrow,
+    };
+  }
+
+  private buildMinimalFallbackContent(ancestorHtml: string, fallbackSource: string): string {
+    const normalized = normalizeCueAnswerSource(fallbackSource);
+    if (!normalized) {
+      return '';
+    }
+
+    return `${ancestorHtml}<div contenteditable="false" style="font-size: 22px; line-height: 1.6; padding: 16px 0; color: var(--b3-theme-on-surface);">${this.escapeHtml(normalized)}</div>`;
+  }
+
+  private escapeHtml(source: string): string {
+    return String(source || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   /**

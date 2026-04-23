@@ -35,6 +35,7 @@ export interface DescriptorCardData {
   blockId: string;
   content: string;
   html: string;
+  sourceMarkdown: string;
   parentConcept: ParentConceptBlock | null;
   siblingDescriptors: SiblingDescriptor[];
   cdfFusionContext?: LiveCdfDescriptorFusionContext;
@@ -130,6 +131,7 @@ export class DescriptorCardRepository {
         blockId,
         content: descriptorBlock.content,
         html: descriptorHtml,
+        sourceMarkdown: descriptorKramdown,
         parentConcept,
         siblingDescriptors,
         cdfFusionContext,
