@@ -17,6 +17,7 @@
           :title="props.title"
           :mode="props.mode"
           :is-mobile="props.isMobile"
+          :native-dialog-titlebar="props.nativeDialogTitlebar === true"
           :navigation-state="neuralNavigationState"
           @toolbar-action="handleToolbarAction"
           @action="hook.executeCommand"
@@ -592,6 +593,7 @@ const props = defineProps<{
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
   plugin?: unknown; // 🆕 插件实例，用于访问 hybridSyncService
   isMobile?: boolean;
+  nativeDialogTitlebar?: boolean;
   startFullscreen?: boolean;
   reviewSessionId?: string;
   sharedReviewSessionId?: string | null;

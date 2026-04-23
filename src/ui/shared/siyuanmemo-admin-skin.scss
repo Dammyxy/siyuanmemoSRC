@@ -59,6 +59,27 @@
   padding-top: 4px;
 }
 
+.b3-dialog__container.siyuanmemo-review-dialog-container .b3-dialog__header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 48px 0 12px;
+  background: var(--siyuanmemo-ui-canvas);
+}
+
+.b3-dialog__container.siyuanmemo-review-dialog-container .b3-dialog__title {
+  min-height: 26px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.b3-dialog__container.siyuanmemo-review-dialog-container .b3-dialog__close {
+  top: 9px;
+  right: 12px;
+  border-radius: var(--siyuanmemo-ui-radius);
+}
+
 .b3-dialog__container.siyuanmemo-dialog-shell .b3-dialog__close {
   color: var(--siyuanmemo-ui-muted);
 }

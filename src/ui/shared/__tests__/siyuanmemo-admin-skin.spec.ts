@@ -19,4 +19,16 @@ describe('siyuanmemo admin skin review dialog exemptions', () => {
       '.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--outline:not(.card__action-button):not(.toolbar__action)',
     );
   });
+
+  it('keeps the native review dialog titlebar visible and pulls the close icon back into the header lane', () => {
+    expect(adminSkinSource).toContain(
+      '.b3-dialog__container.siyuanmemo-review-dialog-container .b3-dialog__header',
+    );
+    expect(adminSkinSource).toContain('min-height: 46px;');
+    expect(adminSkinSource).toContain('padding: 0 48px 0 12px;');
+    expect(adminSkinSource).toContain(
+      '.b3-dialog__container.siyuanmemo-review-dialog-container .b3-dialog__close',
+    );
+    expect(adminSkinSource).toContain('right: 12px;');
+  });
 });

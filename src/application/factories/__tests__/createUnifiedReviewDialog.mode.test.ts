@@ -32,7 +32,7 @@ describe('createUnifiedReviewDialog', () => {
     vi.clearAllMocks();
   });
 
-  it('passes dialog mode into ReviewView props', () => {
+  it('restores the native titlebar for desktop review dialogs', () => {
     const initialSessionState = {
       initialTotal: 5,
       answeredCount: 2,
@@ -62,12 +62,45 @@ describe('createUnifiedReviewDialog', () => {
     });
 
     expect(createVueDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      hideTitle: false,
       isReview: true,
       props: expect.objectContaining({
         mode: 'dialog',
         title: '提取练习',
         headerVariant: 'retrieval-practice',
         initialSessionState,
+        nativeDialogTitlebar: true,
+      }),
+    }));
+  });
+
+  it('keeps the native titlebar hidden on mobile review dialogs', () => {
+    const plugin = {
+      app: {},
+      isMobile: true,
+      i18n: {},
+      getContext: () => ({
+        getSchedulerRouter: () => ({}),
+        getSettingsService: () => ({
+          getSettings: () => ({
+            progressiveReading: {},
+          }),
+        }),
+      }),
+    };
+
+    createUnifiedReviewDialog({
+      plugin,
+      queueType: QueueType.RetrievalPractice,
+      title: '提取练习',
+      headerVariant: 'retrieval-practice',
+      eventBus: { subscribe: vi.fn() } as never,
+    });
+
+    expect(createVueDialogMock).toHaveBeenCalledWith(expect.objectContaining({
+      hideTitle: true,
+      props: expect.objectContaining({
+        nativeDialogTitlebar: false,
       }),
     }));
   });

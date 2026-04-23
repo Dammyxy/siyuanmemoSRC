@@ -1204,7 +1204,8 @@ export class DialogManager implements IDialogManager {
       const isMobile = this.isMobileFrontend();
       
       this.currentReviewDialog = createVueDialog({
-        hideTitle: true,
+        title: this.context.getI18n()?.retrievalPractice || '提取练习',
+        hideTitle: isMobile,
         component: ReviewView,
         dataKey: 'dialog-opencard',
         transparent: true,
@@ -1222,6 +1223,7 @@ export class DialogManager implements IDialogManager {
           adapter,
           plugin: this.plugin,
           isMobile,
+          nativeDialogTitlebar: !isMobile,
           startFullscreen: this.shouldStartReviewFullscreenByDefault(),
         },
         events: {
@@ -1330,7 +1332,8 @@ export class DialogManager implements IDialogManager {
       const isMobile = this.isMobileFrontend();
       
       this.currentReviewDialog = createVueDialog({
-        hideTitle: true,
+        title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+        hideTitle: isMobile,
         component: ReviewView,
         dataKey: 'dialog-opencard',
         transparent: true,
@@ -1348,6 +1351,7 @@ export class DialogManager implements IDialogManager {
           adapter,
           plugin: this.plugin,
           isMobile,
+          nativeDialogTitlebar: !isMobile,
           startFullscreen: this.shouldStartReviewFullscreenByDefault(),
         },
         events: {

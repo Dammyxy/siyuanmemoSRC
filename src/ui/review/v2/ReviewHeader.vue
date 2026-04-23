@@ -6,9 +6,15 @@
       'siyuanmemo-review-header-shell--mobile': props.isMobile,
     }"
   >
-    <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
+    <div
+      class="block__icons siyuanmemo-review-header"
+      :class="{
+        'siyuanmemo-review-header--mobile': props.isMobile,
+        'siyuanmemo-review-header--native-dialog': usesNativeDialogTitlebar,
+      }"
+    >
       <span
-        v-if="!props.isMobile"
+        v-if="showDragSurface"
         class="siyuanmemo-review-header__drag-surface siyuanmemo-review-header__drag-zone resize__move"
         aria-hidden="true"
       ></span>
@@ -16,12 +22,12 @@
       <div
         class="block__logo siyuanmemo-review-header__brand"
         :class="{
-          'siyuanmemo-review-header__drag-zone resize__move': !props.isMobile,
+          'siyuanmemo-review-header__drag-zone resize__move': showBrandDragHandle,
         }"
         :title="displayTitle"
       >
         <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
-        <span class="siyuanmemo-review-header__brand-text">{{ displayTitle }}</span>
+        <span v-if="showBrandText" class="siyuanmemo-review-header__brand-text">{{ displayTitle }}</span>
       </div>
 
       <div
@@ -161,6 +167,7 @@ const props = defineProps<{
   showSidebarToggle?: boolean;
   sidebarCollapsed?: boolean;
   isMobile?: boolean;
+  nativeDialogTitlebar?: boolean;
   navigationState?: NeuralNavigationState | null;
 }>();
 
@@ -189,6 +196,14 @@ const isCounterPopoverOpen = ref(false);
 const isCounterValueHidden = ref(false);
 const isDesktopCounterValueHidden = computed(() => !props.isMobile && isCounterValueHidden.value);
 const shouldIgnoreNextDesktopFocusOpen = ref(false);
+const usesNativeDialogTitlebar = computed(() => (
+  props.nativeDialogTitlebar === true
+  && props.mode === 'dialog'
+  && props.isMobile !== true
+));
+const showDragSurface = computed(() => !props.isMobile && !usesNativeDialogTitlebar.value);
+const showBrandDragHandle = computed(() => !props.isMobile && !usesNativeDialogTitlebar.value);
+const showBrandText = computed(() => !props.isMobile && !usesNativeDialogTitlebar.value);
 
 const counterSummary = computed(() => props.header?.counterSummary || null);
 const counterBadges = computed(() => props.header?.counterBadges || []);
@@ -622,6 +637,12 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--b3-border-color);
 }
 
+.block__icons.siyuanmemo-review-header.siyuanmemo-review-header--native-dialog {
+  min-height: 38px;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+}
+
 .siyuanmemo-review-header-shell--with-nav .block__icons.siyuanmemo-review-header {
   border-bottom: none;
 }
@@ -649,9 +670,20 @@ onUnmounted(() => {
   color: var(--b3-theme-on-surface-light);
 }
 
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__brand {
+  min-height: 28px;
+  padding: 0 2px;
+  gap: 0;
+  color: var(--b3-theme-primary);
+}
+
 .siyuanmemo-review-header__brand-text {
   font-size: 13px;
   letter-spacing: 0.01em;
+}
+
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__brand-text {
+  display: none;
 }
 
 .siyuanmemo-review-header__drag-zone {
@@ -683,6 +715,12 @@ onUnmounted(() => {
   -webkit-app-region: no-drag;
 }
 
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__summary-wrap,
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__toolbar,
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__mobile-close {
+  z-index: 2;
+}
+
 .siyuanmemo-review-header__summary {
   display: inline-flex;
   align-items: center;
@@ -700,6 +738,12 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__summary {
+  min-height: 30px;
+  min-width: 76px;
+  padding: 0 10px;
 }
 
 .siyuanmemo-review-header__summary:hover {
@@ -856,6 +900,10 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__toolbar {
+  gap: 4px;
+}
+
 .siyuanmemo-review-header__toolbar-button {
   display: inline-flex;
   align-items: center;
@@ -885,6 +933,10 @@ onUnmounted(() => {
   margin-left: 2px;
   justify-self: end;
   flex-shrink: 0;
+}
+
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__brand:hover {
+  background: transparent;
 }
 
 .siyuanmemo-review-header__nav-strip {

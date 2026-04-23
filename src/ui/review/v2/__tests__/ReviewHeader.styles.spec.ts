@@ -8,14 +8,13 @@ const reviewHeaderSource = readFileSync(
 );
 
 describe('ReviewHeader drag surface styles', () => {
-  it('keeps the drag surface absolute and the interactive controls above it', () => {
-    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header__drag-surface {');
-    expect(reviewHeaderSource).toContain('position: absolute;');
-    expect(reviewHeaderSource).toContain('inset: 0;');
-    expect(reviewHeaderSource).toContain('z-index: 1;');
-    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header__summary-wrap {');
-    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header__toolbar {');
-    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header__mobile-close {');
-    expect(reviewHeaderSource).toContain('z-index: 3;');
+  it('adds a native-dialog secondary row that hides repeated brand text and keeps controls above content chrome', () => {
+    expect(reviewHeaderSource).toContain('.block__icons.siyuanmemo-review-header.siyuanmemo-review-header--native-dialog {');
+    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__brand-text {');
+    expect(reviewHeaderSource).toContain('display: none;');
+    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__summary {');
+    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__toolbar {');
+    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__summary-wrap,');
+    expect(reviewHeaderSource).toContain('.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__mobile-close {');
   });
 });

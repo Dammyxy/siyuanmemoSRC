@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 127)
+Last update: 2026-04-24 (Round 128)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - native desktop titlebar restoration for review dialog dragging
+
+- Task: 把 desktop review dialog 的拖动职责交回思源原生标题栏，并把自定义 `ReviewHeader` 降成第二行信息条，左侧只保留品牌图标、不再重复显示标题文字。
+- Touched slice: Review dialog active UI path across `src/application/{factories/createUnifiedReviewDialog.ts,managers/DialogManager.ts,__tests__/createUnifiedReviewDialog.mode.test.ts}`, `src/ui/review/v2/{ReviewView.vue,ReviewHeader.vue,__tests__/ReviewHeader.spec.ts,__tests__/ReviewHeader.styles.spec.ts}`, `src/ui/shared/{siyuanmemo-admin-skin.scss,__tests__/siyuanmemo-admin-skin.spec.ts}`, and this backlog.
+- Debt fixed now: desktop dialog 不再把拖动命中压在自定义 header 的剩余空白区，而是恢复原生 `.b3-dialog__header` 作为稳定拖动带；`ReviewHeader` 在 native titlebar 模式下退成更紧凑的 secondary row，左侧品牌位只保留图标，中间计数 pill 与右侧 toolbar 保持不变；review dialog 的原生 close icon 也被重新拉回标题栏内部，不再漂在外面。
+- Debt deferred: tab / mobile header 路径保持现状，没有借这轮一起重做；desktop secondary row 目前仍保留插件自己的中心计数 pill 和 toolbar 信息结构，而不是完全回退成思源原生 header 填充布局。
+- Why deferred: 当前真实阻塞是“dialog 仍然难拖”，继续投资自定义 header 内部命中修补已经性价比很低；但把 mobile/tab 一起改掉会扩大回归面，超出这轮安全切片。
+- Next safe step: 基于真实思源弹窗再做一次手工拖动验收；如果 titlebar 恢复后还想继续贴近原生，只做第二行信息条的 spacing/token 微调，不再把拖动职责放回自定义 header。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewHeader.styles.spec.ts src/application/factories/__tests__/createUnifiedReviewDialog.mode.test.ts src/ui/shared/__tests__/siyuanmemo-admin-skin.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - desktop reveal skip restoration and foreground drag-surface repair
 

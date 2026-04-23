@@ -121,7 +121,8 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
         
         // 创建对话框
         const dialog = createVueDialog({
-            hideTitle: true,  // 隐藏原生标题栏，使用 Vue 组件的头部
+            title,
+            hideTitle: isMobile,
             component: ReviewView,
             dataKey: 'dialog-opencard',
             transparent: true,
@@ -139,6 +140,7 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
                 adapter,
                 plugin: plugin,  // 传递插件实例，用于访问 hybridSyncService
                 isMobile,
+                nativeDialogTitlebar: !isMobile,
                 startFullscreen,
                 initialSessionState,
             },

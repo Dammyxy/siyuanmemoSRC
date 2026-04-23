@@ -92,6 +92,7 @@ describe('ReviewHeader', () => {
         title: '提取练习',
         isMobile: false,
         mode: 'dialog',
+        nativeDialogTitlebar: true,
       },
     });
 
@@ -100,7 +101,8 @@ describe('ReviewHeader', () => {
     const brand = wrapper.get('.siyuanmemo-review-header__brand');
     expect(summary.text()).toBe('3');
     expect(brand.attributes('title')).toBe('提取练习');
-    expect(wrapper.get('.siyuanmemo-review-header__brand-text').text()).toBe('提取练习');
+    expect(wrapper.find('.siyuanmemo-review-header__brand-text').exists()).toBe(false);
+    expect(wrapper.get('.siyuanmemo-review-header').classes()).toContain('siyuanmemo-review-header--native-dialog');
     expect(summary.attributes('aria-label')).toBe('\u5269\u4f59 3\uff0c\u70b9\u51fb\u9690\u85cf\u5361\u7247\u6570\u91cf');
     expect(summary.attributes('title')).toContain('\u603b\u6570 3');
     expect(summary.attributes('title')).toContain('\u60ac\u505c\u67e5\u770b\u590d\u4e60\u8be6\u60c5');
@@ -122,29 +124,21 @@ describe('ReviewHeader', () => {
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
   });
 
-  it('uses a single foreground drag surface while keeping controls outside drag hit targets', () => {
+  it('disables custom drag hit targets when desktop dialog uses the native titlebar', () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header: createHeaderState(),
         meta: createMetaState(),
         isMobile: false,
         mode: 'dialog',
+        nativeDialogTitlebar: true,
       },
     });
 
-    expect(wrapper.find('.siyuanmemo-review-header__drag').exists()).toBe(false);
-    expect(wrapper.find('.siyuanmemo-review-header__drag-surface').exists()).toBe(true);
-    expect(wrapper.find('.siyuanmemo-review-header__left').exists()).toBe(false);
-    expect(wrapper.find('.siyuanmemo-review-header__right').exists()).toBe(false);
-    expect(wrapper.find('.siyuanmemo-review-header__center').exists()).toBe(false);
-    expect(wrapper.find('.siyuanmemo-review-header__drag-fill').exists()).toBe(false);
-    expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('resize__move');
-    expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('siyuanmemo-review-header__drag-zone');
-    const headerRoot = wrapper.get('.block__icons.siyuanmemo-review-header');
-    const dragSurface = wrapper.get('.siyuanmemo-review-header__drag-surface');
-    expect(dragSurface.classes()).toContain('resize__move');
-    expect(dragSurface.classes()).toContain('siyuanmemo-review-header__drag-zone');
-    expect(dragSurface.element.parentElement).toBe(headerRoot.element);
+    expect(wrapper.find('.siyuanmemo-review-header__drag-surface').exists()).toBe(false);
+    expect(wrapper.find('.resize__move').exists()).toBe(false);
+    expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).not.toContain('resize__move');
+    expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).not.toContain('siyuanmemo-review-header__drag-zone');
 
     const summary = wrapper.get('.siyuanmemo-review-header__summary');
     const toolbarButton = wrapper.get('.siyuanmemo-review-header__toolbar-button');
@@ -153,8 +147,7 @@ describe('ReviewHeader', () => {
     expect(toolbarButton.classes()).not.toContain('resize__move');
     expect(summary.element.closest('.resize__move')).toBeNull();
     expect(toolbarButton.element.closest('.resize__move')).toBeNull();
-    expect(summary.element.closest('.siyuanmemo-review-header__drag-surface')).toBeNull();
-    expect(toolbarButton.element.closest('.siyuanmemo-review-header__drag-surface')).toBeNull();
+    expect(wrapper.find('.siyuanmemo-review-header__brand-text').exists()).toBe(false);
   });
 
   it('falls back from props.title to header.title and then stats.queueName for the brand text', () => {
@@ -167,7 +160,7 @@ describe('ReviewHeader', () => {
         header,
         meta: createMetaState(),
         isMobile: false,
-        mode: 'dialog',
+        mode: 'tab',
       },
     });
 
@@ -179,7 +172,7 @@ describe('ReviewHeader', () => {
         header,
         meta: createMetaState(),
         isMobile: false,
-        mode: 'dialog',
+        mode: 'tab',
       },
     });
 
