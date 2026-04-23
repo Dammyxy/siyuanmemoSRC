@@ -332,6 +332,16 @@
           </p>
         </div>
 
+        <div class="form-item">
+          <label>{{ t('topicDerivationEnabled', '已有 Topic 内启用符号继续制卡') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="settings.quickCard.topicDerivation.enabled">
+          </div>
+          <p class="form-hint">
+            {{ t('topicDerivationEnabledHint', '只影响监听符号制卡链路；当当前块已经属于某个 Topic，或位于 Topic 子文档内时，继续输入符号制卡会沿用原 Topic 并在其下新增 Item。不会影响 ⌥⇧Z 手动创建 Item。') }}
+          </p>
+        </div>
+
         <p v-if="settings.quickCard.enabled" class="form-hint form-hint--section">
           ✅ {{ t('quickCardSymbolsInfo', '支持的符号类型') }}：&gt;&gt;, &lt;&lt;, &lt;&gt;, ::, ;;, &#123;&#123;&#125;&#125;, &gt;&gt;&gt;
         </p>
@@ -394,9 +404,6 @@
           <div class="form-control">
             <input type="checkbox" v-model="settings.progressiveAltXExcerptEnabled">
           </div>
-          <p class="form-hint">
-            {{ t('progressiveAltXExcerptEnabledHint', '开启后插件会注册 ⌥⇧X 为摘抄命令；思源原生 Alt+X 仍用于最近外观，可在思源快捷键设置中修改插件命令。') }}
-          </p>
         </div>
         </div>
 
@@ -469,29 +476,10 @@
           </p>
         </div>
 
-        <h3>{{ t('topicDerivationTitle', 'Topic 下继续制卡') }}</h3>
-
-        <p v-if="!settings.quickCard.enabled" class="form-hint form-hint--section">
-          {{
-            t(
-              'topicDerivationQuickCardDisabledHint',
-              '当前已关闭监听符号制卡；这里的 Topic 下继续制卡设置会被保留，但运行时仍需先启用监听符号制卡。'
-            )
-          }}
-        </p>
+        <h3>{{ t('topicDerivationTitle', 'Item 存放位置') }}</h3>
 
         <div class="form-item">
-          <label>{{ t('topicDerivationEnabled', '启用 Topic 下继续制卡') }}</label>
-          <div class="form-control">
-            <input type="checkbox" v-model="settings.quickCard.topicDerivation.enabled">
-          </div>
-          <p class="form-hint">
-            {{ t('topicDerivationEnabledHint', '当当前块本身已经属于某个 Topic，或当前块位于 Topic 子文档内时，继续高亮或符号制卡会保留原 Topic，并在其下新增 Item 子文档和卡片。这不是摘录流程，而是沿用已有 Topic 继续制卡。') }}
-          </p>
-        </div>
-
-        <div class="form-item">
-          <label>{{ t('topicDerivationStorageMode', '继续制卡内容存放位置') }}</label>
+          <label>{{ t('topicDerivationStorageMode', 'Item 存放位置') }}</label>
           <div class="form-control">
             <select v-model="settings.quickCard.topicDerivation.storageMode" class="scheduler-select">
               <option value="workbench">{{ t('topicDerivationStorageWorkbench', '工作台文档（默认）') }}</option>
@@ -499,7 +487,7 @@
             </select>
           </div>
           <p class="form-hint">
-            {{ t('topicDerivationStorageModeHint', '工作台模式会把继续制卡生成的内容集中收纳到源文档的“Topic 工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
+            {{ t('topicDerivationStorageModeHint', '作用于已有 Topic 内派生 Item，包括 ⌥⇧Z 创建 Item 与符号继续制卡；不影响普通摘录创建 Topic。工作台模式会把生成的 Item 集中收纳到源文档的“Topic 工作台”下；源文档模式则直接挂在当前 Topic 下。') }}
           </p>
         </div>
         </div>

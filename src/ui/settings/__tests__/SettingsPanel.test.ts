@@ -66,7 +66,6 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         hyperspaceElementLinkPriority: 'Block-link weight',
         progressiveReadingSettingsTitle: 'Progressive Reading',
         progressiveAltXExcerptEnabled: 'Enable excerpt shortcut (default ⌥⇧X)',
-        progressiveAltXExcerptEnabledHint: 'Registers ⌥⇧X for excerpting while native Alt+X stays bound to SiYuan recent appearance.',
         reviewOpenInNewTabByDefault: 'Open review in a new tab by default',
         reviewOpenInNewTabByDefaultHint: 'Desktop global review entries open in a new tab by default.',
         reviewOpenFullscreenByDefault: 'Open review fullscreen by default',
@@ -86,14 +85,13 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         progressiveStorageTargetBlockHint: 'Library mode accepts a target document block ID.',
         progressiveStorageTargetBlockIgnoredSourceChildHint: 'Target block ID is ignored in source-document mode.',
         progressiveStorageTargetBlockIgnoredHint: 'Target block ID is ignored in Daily Note mode.',
-        topicDerivationTitle: 'Continue card creation under Topic',
-        topicDerivationEnabled: 'Enable continuing card creation under Topic',
-        topicDerivationEnabledHint: 'When the current block already belongs to a Topic, further highlights or symbol-based card creation keep the original Topic and add new practice child documents and cards under it. This is not the excerpt flow.',
-        topicDerivationQuickCardDisabledHint: 'Symbol card listening is currently disabled. These Topic continuation settings are still saved here, but runtime use still requires enabling the symbol card listener first.',
-        topicDerivationStorageMode: 'Storage for continued card creation',
+        topicDerivationTitle: 'Item Storage',
+        topicDerivationEnabled: 'Enable symbol-based continuation inside existing Topics',
+        topicDerivationEnabledHint: 'Only affects the symbol card listener flow and not manual Item creation with ⌥⇧Z.',
+        topicDerivationStorageMode: 'Item storage',
         topicDerivationStorageWorkbench: 'Workbench document (default)',
-        topicDerivationStorageSourceChild: 'Direct child under current Topic',
-        topicDerivationStorageModeHint: 'Workbench mode collects continued card-creation content under the source reading workbench; source mode places it directly under the current Topic.',
+        topicDerivationStorageSourceChild: 'Direct child under source document',
+        topicDerivationStorageModeHint: 'Applies to Item derivation inside existing Topics, including ⌥⇧Z and symbol continuation.',
         aiDraftStorageModeLabel: 'AI draft storage mode',
         aiDraftStorageModeHint: 'Choose where AI drafts should be saved.',
         aiDraftStorageTargetBlockHint: 'Library mode accepts a target document or block ID.',
@@ -261,7 +259,7 @@ describe('SettingsPanel', () => {
     expect(aboutWrapper.find('.settings-footer').exists()).toBe(false);
   });
 
-  it('keeps topic continuation controls out of the card tab', async () => {
+  it('shows the symbol-only continuation toggle in the card tab without restoring extra subtabs', async () => {
     const wrapper = mountPanel('card', {
       quickCardSettings: {
         ...DEFAULT_SETTINGS.quickCard,
@@ -275,9 +273,24 @@ describe('SettingsPanel', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.findAll('.settings-subtab').map((tab) => tab.text())).toEqual(['Symbol Card Listener']);
+    expect(wrapper.text()).toContain('Enable symbol-based continuation inside existing Topics');
+
+    const formItems = wrapper.findAll('.form-item');
+    const topicEnabledItem = formItems.find((item) => item.text().includes('Enable symbol-based continuation inside existing Topics'));
+    const topicEnabledToggle = topicEnabledItem?.find('input[type="checkbox"]');
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+
+    expect(topicEnabledToggle).toBeDefined();
+    expect(saveButton).toBeDefined();
+
+    await topicEnabledToggle!.setValue(false);
+    await saveButton!.trigger('click');
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.quickCard.topicDerivation.enabled).toBe(false);
   });
 
-  it('shows topic continuation controls in capture-sync storage even when symbol card listening is disabled', async () => {
+  it('shows item storage controls in capture-sync storage even when symbol card listening is disabled', async () => {
     const wrapper = mountPanel('capture-sync', {
       quickCardSettings: {
         ...DEFAULT_SETTINGS.quickCard,
@@ -287,19 +300,34 @@ describe('SettingsPanel', () => {
     await wrapper.vm.$nextTick();
 
     await clickSubtab(wrapper, 'Storage');
-    expect(wrapper.text()).toContain('Continue card creation under Topic');
-    expect(wrapper.text()).toContain('Storage for continued card creation');
-    expect(wrapper.text()).toContain('Symbol card listening is currently disabled.');
+    expect(wrapper.text()).toContain('Item Storage');
+    expect(wrapper.text()).toContain('Item storage');
+    expect(wrapper.text()).not.toContain('Symbol card listening is currently disabled.');
+
+    const formItems = wrapper.findAll('.form-item');
+    const topicStorageModeItem = formItems.find((item) => item.text().includes('Item storage'));
+    const topicStorageModeSelect = topicStorageModeItem?.find('select');
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+
+    expect(topicStorageModeSelect).toBeDefined();
+    expect(saveButton).toBeDefined();
+
+    await topicStorageModeSelect!.setValue('source-child');
+    await saveButton!.trigger('click');
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as typeof DEFAULT_SETTINGS;
+    expect(payload.quickCard.enabled).toBe(false);
+    expect(payload.quickCard.topicDerivation.storageMode).toBe('source-child');
   });
 
-  it('saves excerpt storage, topic continuation storage, and conflict strategy from the excerpt tab', async () => {
+  it('saves excerpt storage, item storage, and conflict strategy from the excerpt tab', async () => {
     const wrapper = mountPanel('capture-sync');
     await wrapper.vm.$nextTick();
 
     expect(wrapper.text()).toContain('Progressive Reading');
     expect(wrapper.text()).toContain('Enable excerpt shortcut');
     expect(wrapper.text()).toContain('⌥⇧X');
-    expect(wrapper.text()).toContain('Alt+X');
+    expect(wrapper.text()).not.toContain('Alt+X');
 
     const formItems = wrapper.findAll('.form-item');
     const altXItem = formItems.find((item) => item.text().includes('Enable excerpt shortcut'));
@@ -310,9 +338,7 @@ describe('SettingsPanel', () => {
     const notebookSelect = notebookItem?.find('select');
     const targetBlockItem = formItems.find((item) => item.text().includes('Target block ID'));
     const targetBlockInput = targetBlockItem?.find('input[type="text"]');
-    const topicEnabledItem = formItems.find((item) => item.text().includes('Enable continuing card creation under Topic'));
-    const topicEnabledToggle = topicEnabledItem?.find('input[type="checkbox"]');
-    const topicStorageModeItem = formItems.find((item) => item.text().includes('Storage for continued card creation'));
+    const topicStorageModeItem = formItems.find((item) => item.text().includes('Item storage'));
     const topicStorageModeSelect = topicStorageModeItem?.find('select');
     const conflictItem = formItems.find((item) => item.text().includes('冲突策略'));
     const conflictSelect = conflictItem?.find('select');
@@ -325,7 +351,6 @@ describe('SettingsPanel', () => {
     expect(storageModeSelect).toBeDefined();
     expect(notebookSelect).toBeDefined();
     expect(targetBlockInput).toBeDefined();
-    expect(topicEnabledToggle).toBeDefined();
     expect(topicStorageModeSelect).toBeDefined();
     expect((storageModeSelect!.element as HTMLSelectElement).value).toBe('source-child');
     expect((notebookSelect!.element as HTMLSelectElement).disabled).toBe(true);
@@ -334,7 +359,6 @@ describe('SettingsPanel', () => {
     await storageModeSelect!.setValue('library');
     await notebookSelect!.setValue('notebook-a');
     await targetBlockInput!.setValue('doc-root-1');
-    await topicEnabledToggle!.setValue(false);
     await topicStorageModeSelect!.setValue('source-child');
 
     await clickSubtab(wrapper, 'Conflict Handling');
@@ -354,7 +378,7 @@ describe('SettingsPanel', () => {
       targetBlockId: 'doc-root-1',
     });
     expect(payload.quickCard.topicDerivation).toEqual({
-      enabled: false,
+      enabled: true,
       storageMode: 'source-child',
     });
     expect(payload.riffIntegration.storageConflictResolution).toBe('prefer-local');

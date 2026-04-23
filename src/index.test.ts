@@ -321,4 +321,22 @@ describe('FSRSPlugin deferred custom tab bootstrap', () => {
       }),
     }));
   });
+
+  it('keeps excerpt and item commands while dropping image occlusion and manual Riff sync commands', async () => {
+    const { default: FSRSPlugin } = await import('./index');
+    const plugin = new FSRSPlugin();
+    const context = createContext(plugin);
+    mocks.applicationContextCreate.mockResolvedValueOnce(context);
+
+    await plugin.onload();
+
+    const registeredLangKeys = mocks.addCommand.mock.calls
+      .map(([config]) => config?.langKey)
+      .filter((value): value is string => typeof value === 'string');
+
+    expect(registeredLangKeys).toContain('progressiveExcerptSelection');
+    expect(registeredLangKeys).toContain('progressiveItemSelection');
+    expect(registeredLangKeys).not.toContain('imageOcclusionCardCurrentBlock');
+    expect(registeredLangKeys).not.toContain('syncRiffNow');
+  });
 });

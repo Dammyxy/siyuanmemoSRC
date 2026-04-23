@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 117)
+Last update: 2026-04-23 (Round 118)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - item storage semantics split and command palette cleanup
+
+- Task: 去掉摘录入口下多余的 Alt+X 提示，把“Topic 下继续制卡”拆成“Item 存放位置 + 符号专用 continuation 开关”，并下线命令面板里的“图片遮挡卡 / 立即同步 Riff”入口。
+- Touched slice: Settings surface + plugin startup command registration active path across `src/ui/settings/SettingsPanel.vue`, `src/index.ts`, related i18n, focused settings and plugin bootstrap tests.
+- Debt fixed now: 设置页不再把“仅影响符号监听的开关”和“同时影响 ⌥⇧Z 与符号 continuation 的 Item 存放位置”混在同一处；摘录入口去掉了已经无实际帮助的 Alt+X 兼容提示；插件启动不再注册两个无默认快捷键但会污染命令面板和思源快捷键页的冗余命令，同时删除了只为“立即同步 Riff”命令服务的 helper 和文案。
+- Debt deferred: `quickCard.topicDerivation.enabled` 与 `quickCard.topicDerivation.storageMode` 仍共享同一持久化节点，运行时语义也维持现状：前者只影响符号监听链路，后者同时被符号 continuation 与 `⌥⇧Z` 手动 Item 创建读取。
+- Why deferred: 这轮用户阻塞点是设置入口和命令表面收口，而不是 settings schema 重塑或 runtime 行为调整；继续改持久化模型会把一次 UI 语义修正扩大成兼容迁移。
+- Next safe step: 如果后续还想继续统一“已有 Topic 内派生 Item”的产品模型，可以再单独设计一个 shared topic-item settings DTO，把开关和位置从 `quickCard` 名义下正式拆开，而不是在本轮 UI 修正里顺手改 schema。
+- Validation: `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts`; `pnpm vitest run src/index.test.ts`; `pnpm build`.
 
 ### 2026-04-23 - topbar stats removal and topic storage settings regroup
 
