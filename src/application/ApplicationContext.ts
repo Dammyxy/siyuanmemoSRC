@@ -449,6 +449,8 @@ export class ApplicationContext {
         siyuanPort,
         llmPort: new OpenAICompatibleLLMAdapter(),
         getXiuyuanApplicationService: () => context.getXiuyuanApplicationService(),
+        getSelectionExcerptService: () => context.getSelectionExcerptService(),
+        getSelectionTopicContinuationService: () => context.getSelectionTopicContinuationService(),
         sessionStore: context.getAIWorkbenchSessionStoreService(),
       });
     });

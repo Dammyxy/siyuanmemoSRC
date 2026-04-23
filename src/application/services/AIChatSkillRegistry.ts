@@ -12,7 +12,7 @@ import {
   type AIUserSkillId,
   type AIUserSkillSectionDefinition,
 } from '@/types/ai';
-import { normalizeAISettings, type AISettings } from '@/types/settings';
+import { normalizeAISettings, normalizeAIPromptTemplates, type AISettings } from '@/types/settings';
 
 export interface AIChatSkillTabDescriptor {
   id: AISkillTabId;
@@ -48,7 +48,7 @@ const GENERAL_CHAT_SKILL: AIChatRegisteredSkillDescriptor = {
     '不要假装执行了未启用的能力；涉及写入思源、创建卡片、摘录或 daily note 的动作必须先请求用户明确审批。',
     '回答时先给结论，再给必要依据；如果工具返回的信息不足，请直接说明还缺什么。',
   ].join('\n'),
-  defaultToolGroups: ['context-read', 'siyuan-read', 'review-read', 'web', 'vars'],
+  defaultToolGroups: ['context-read', 'study-decision', 'siyuan-read', 'review-read', 'web', 'vars'],
   composerPreset: '我想围绕当前内容继续聊聊。你可以先帮我抓重点、解释疑点；如果上下文还不够，请直接告诉我还需要补什么。',
   primaryActionLabel: '开始聊天',
   supportsStructuredResult: false,
@@ -103,6 +103,20 @@ function cloneSkill(skill: AIChatRegisteredSkillDescriptor): AIChatRegisteredSki
       sections: skill.userSkill.sections.map((section) => ({ ...section })),
       surfaceHints: skill.userSkill.surfaceHints ? { ...skill.userSkill.surfaceHints } : undefined,
     } : undefined,
+  };
+}
+
+function resolveBuiltinSkillOverrides(
+  skill: AIChatRegisteredSkillDescriptor,
+  settings?: AISettings,
+): AIChatRegisteredSkillDescriptor {
+  if (skill.id !== AI_GENERAL_CHAT_SKILL_ID) {
+    return skill;
+  }
+  const prompts = normalizeAIPromptTemplates(settings?.prompts);
+  return {
+    ...skill,
+    systemPromptTemplate: prompts.skills.generalChat.systemPrompt,
   };
 }
 
@@ -209,7 +223,7 @@ export class AIChatSkillRegistry {
 
   list(settings?: AISettings): AIChatRegisteredSkillDescriptor[] {
     return [
-      ...Array.from(this.skills.values()).map(cloneSkill),
+      ...Array.from(this.skills.values()).map(cloneSkill).map((skill) => resolveBuiltinSkillOverrides(skill, settings)),
       ...resolveUserSkills(settings),
     ];
   }

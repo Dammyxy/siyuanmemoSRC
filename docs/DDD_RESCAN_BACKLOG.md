@@ -1749,6 +1749,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: Move AI tool/group copy into i18n-backed descriptors and add a shared happy-dom markdown test shim so AI pane tests stop depending on unavailable localhost assets.
 - Validation: `pnpm vitest run src/application/services/__tests__/AIChatToolExecutorService.test.ts src/application/services/__tests__/AIFlashcardToolService.test.ts src/types/__tests__/settings-normalization.test.ts src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/services/__tests__/AIWorkbenchService.user-skill.test.ts` plus `pnpm build`.
 
+### 2026-04-23 - AI decision layer, Siyuan content tools, and folded settings
+
+- Task: Add an AI-side decision layer plus Siyuan content read/write tools, expose Topic excerpt / Topic item continuation as AI tools, and refactor the AI settings surface so long panels fold and `general-chat` prompt becomes visible/editable.
+- Touched slice: AI bounded context in `src/application/services/AIChatToolRegistry.ts`, `AIChatToolExecutorService.ts`, `AIFlashcardToolService.ts`, `AIChatSkillRegistry.ts`, `AIPromptComposer.ts`, `AIWorkbenchService.ts`, `src/application/ApplicationContext.ts`, settings/runtime types in `src/types/ai.ts` and `src/types/settings.ts`, AI settings UI in `src/ui/settings/SettingsPanel.vue`, plus targeted AI/settings tests.
+- Debt fixed now: Removed the previous blind spot where `general-chat` prompt was hard-coded and invisible to users, added a read-only study decision tool so the model can choose between explanation/excerpt/item/card paths without faking writes, and closed the AI extraction gap by making progressive Topic excerpt / Topic-derived Item flows callable from the tool runtime.
+- Debt deferred: `ApplyBlockDiff` currently supports bounded SEARCH/REPLACE hunks only and does not yet cover the wider `sy-f-misc` editing grammar; AI tool/group labels still live mostly in code rather than a localized metadata source.
+- Why deferred: Pulling in the full `sy-f-misc` executor/edit dialect or doing a broad AI i18n extraction would widen this task well beyond the bounded AI workbench/settings change requested here.
+- Next safe step: If the new AI content-tool surface lands well, extend `ApplyBlockDiff` only with the smallest additional edit primitives users actually need and then extract tool/group copy into a shared i18n-backed descriptor registry.
+- Validation: `pnpm vitest run src/application/services/__tests__/AIChatSkillRegistry.test.ts src/application/services/__tests__/AIPromptComposer.test.ts src/application/services/__tests__/AIChatToolExecutorService.test.ts src/application/services/__tests__/AIFlashcardToolService.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts` plus `pnpm build`.
+
 ### Entry template
 
 ### YYYY-MM-DD - <short task name>

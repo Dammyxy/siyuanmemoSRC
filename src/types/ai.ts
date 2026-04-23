@@ -43,7 +43,9 @@ export type AIConceptCoachNormalizationStatus = 'full' | 'partial' | 'empty';
 export type AIChatMessageRenderer = 'text' | 'concept-coach-result' | 'tool-timeline' | 'approval-card';
 export type AIChatToolGroupKey =
   | 'context-read'
+  | 'study-decision'
   | 'siyuan-read'
+  | 'siyuan-write'
   | 'review-read'
   | 'flashcard-write'
   | 'web'

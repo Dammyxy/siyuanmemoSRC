@@ -855,66 +855,69 @@
 
         <div class="form-item">
           <label>{{ t('aiToolManager', '工具默认启用与审批') }}</label>
-          <div class="ai-tool-manager">
-            <section
-              v-for="group in aiToolGroupsForSettings"
-              :key="group.key"
-              class="ai-tool-group"
-            >
-              <div class="ai-tool-group__head">
-                <label class="ai-tool-group__toggle">
-                  <input type="checkbox" v-model="aiSettings.toolPolicies.groupDefaults[group.key]">
-                  <span>{{ group.title }}</span>
-                </label>
-                <span class="ai-tool-group__count">{{ group.tools.length }}</span>
-              </div>
-              <p class="ai-tool-group__desc">{{ group.description }}</p>
-              <div class="ai-tool-group__tools">
-                <article
-                  v-for="tool in group.tools"
-                  :key="tool.name"
-                  class="ai-tool-card"
-                >
-                  <label class="ai-tool-card__title">
-                    <input
-                      type="checkbox"
-                      :checked="isAiToolEnabled(tool.name, tool.enabledByDefault)"
-                      @change="setAiToolEnabled(tool.name, ($event.target as HTMLInputElement).checked)"
-                    >
-                    <div>
-                      <strong>{{ tool.title }}</strong>
-                      <span>{{ tool.name }}</span>
-                    </div>
+          <details class="settings-foldout">
+            <summary>{{ t('aiToolManagerFoldoutTitle', '展开工具目录与审批矩阵') }}</summary>
+            <div class="ai-tool-manager">
+              <section
+                v-for="group in aiToolGroupsForSettings"
+                :key="group.key"
+                class="ai-tool-group"
+              >
+                <div class="ai-tool-group__head">
+                  <label class="ai-tool-group__toggle">
+                    <input type="checkbox" v-model="aiSettings.toolPolicies.groupDefaults[group.key]">
+                    <span>{{ group.title }}</span>
                   </label>
-                  <p class="ai-tool-card__desc">{{ tool.description }}</p>
-                  <div class="ai-tool-card__policies">
-                    <label>
-                      <span>{{ t('executionApproval', '执行审批') }}</span>
-                      <select
-                        class="scheduler-select"
-                        :value="currentToolExecutionPolicy(tool.name)"
-                        @change="setToolExecutionPolicy(tool.name, ($event.target as HTMLSelectElement).value)"
+                  <span class="ai-tool-group__count">{{ group.tools.length }}</span>
+                </div>
+                <p class="ai-tool-group__desc">{{ group.description }}</p>
+                <div class="ai-tool-group__tools">
+                  <article
+                    v-for="tool in group.tools"
+                    :key="tool.name"
+                    class="ai-tool-card"
+                  >
+                    <label class="ai-tool-card__title">
+                      <input
+                        type="checkbox"
+                        :checked="isAiToolEnabled(tool.name, tool.enabledByDefault)"
+                        @change="setAiToolEnabled(tool.name, ($event.target as HTMLInputElement).checked)"
                       >
-                        <option value="">{{ t('followDefault', '跟随默认') }} · {{ tool.executionPolicy }}</option>
-                        <option v-for="option in aiExecutionPolicyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                      </select>
+                      <div>
+                        <strong>{{ tool.title }}</strong>
+                        <span>{{ tool.name }}</span>
+                      </div>
                     </label>
-                    <label>
-                      <span>{{ t('resultApproval', '结果审批') }}</span>
-                      <select
-                        class="scheduler-select"
-                        :value="currentToolResultPolicy(tool.name)"
-                        @change="setToolResultPolicy(tool.name, ($event.target as HTMLSelectElement).value)"
-                      >
-                        <option value="">{{ t('followDefault', '跟随默认') }} · {{ tool.resultApprovalPolicy }}</option>
-                        <option v-for="option in aiResultPolicyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                      </select>
-                    </label>
-                  </div>
-                </article>
-              </div>
-            </section>
-          </div>
+                    <p class="ai-tool-card__desc">{{ tool.description }}</p>
+                    <div class="ai-tool-card__policies">
+                      <label>
+                        <span>{{ t('executionApproval', '执行审批') }}</span>
+                        <select
+                          class="scheduler-select"
+                          :value="currentToolExecutionPolicy(tool.name)"
+                          @change="setToolExecutionPolicy(tool.name, ($event.target as HTMLSelectElement).value)"
+                        >
+                          <option value="">{{ t('followDefault', '跟随默认') }} · {{ tool.executionPolicy }}</option>
+                          <option v-for="option in aiExecutionPolicyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>{{ t('resultApproval', '结果审批') }}</span>
+                        <select
+                          class="scheduler-select"
+                          :value="currentToolResultPolicy(tool.name)"
+                          @change="setToolResultPolicy(tool.name, ($event.target as HTMLSelectElement).value)"
+                        >
+                          <option value="">{{ t('followDefault', '跟随默认') }} · {{ tool.resultApprovalPolicy }}</option>
+                          <option v-for="option in aiResultPolicyOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                      </label>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </details>
           <p class="form-hint">
             {{ t('aiToolManagerHint', '组开关决定是否把整组工具注入模型；单工具开关控制默认可用性；审批策略可按工具覆盖。写入型工具即使启用，也会在运行时单独请求确认。') }}
           </p>
@@ -1020,52 +1023,73 @@
             </div>
           </div>
 
-          <div class="ai-prompt-preset-card__editor">
-            <label class="ai-prompt-preset-card__editor-label">
-              {{ getPromptEditorLabel(preset.settingKey) }}
-            </label>
-            <p class="form-hint form-hint--section">{{ preset.usageHint }}</p>
-            <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-              {{ t('aiBaseRunPrompt', 'Skill 基础 Prompt') }}
-            </label>
-            <p class="form-hint form-hint--section">
-              {{ t('aiBehaviorPromptHint', '系统会自动附加结构化输出规则；这里主要描述角色、目标、语气和偏好。') }}
-            </p>
-            <textarea
-              v-model="aiSettings.prompts.skills.conceptCoach.baseRun"
-              :rows="8"
-              class="form-textarea"
-            ></textarea>
-            <details class="ai-prompt-preset-card__contract">
-              <summary>{{ t('aiPromptShowSystemContract', '查看系统自动附加的结构化规则') }}</summary>
-              <p class="form-hint form-hint--section">{{ preset.systemContractSummary }}</p>
-              <ul class="ai-prompt-preset-card__contract-list">
-                <li v-for="line in preset.systemContractLines" :key="line">{{ line }}</li>
-              </ul>
-            </details>
-            <div
-              v-for="tab in aiPromptTabs"
-              :key="tab.id"
-              class="ai-prompt-preset-card__tab-editor"
-            >
-              <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-                {{ tab.title }} · {{ t('aiBehaviorPrompt', '行为 Prompt') }}
+          <details class="settings-foldout ai-prompt-preset-card__foldout">
+            <summary>{{ t('aiPromptFoldoutTitle', '展开 Prompt 编辑区') }}</summary>
+            <div class="ai-prompt-preset-card__editor">
+              <label class="ai-prompt-preset-card__editor-label">
+                {{ getPromptEditorLabel(preset.settingKey) }}
               </label>
-              <textarea
-                v-model="aiSettings.prompts.skills.conceptCoach.tabs[tab.id].run"
-                :rows="5"
-                class="form-textarea"
-              ></textarea>
-              <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
-                {{ tab.title }} · {{ t('aiFollowUpPrompt', '追问 Prompt') }}
-              </label>
-              <textarea
-                v-model="aiSettings.prompts.skills.conceptCoach.tabs[tab.id].followUp"
-                :rows="4"
-                class="form-textarea"
-              ></textarea>
+              <p class="form-hint form-hint--section">{{ preset.usageHint }}</p>
+
+              <template v-if="preset.settingKey === 'generalChat'">
+                <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
+                  {{ t('aiBaseRunPrompt', 'Skill 基础 Prompt') }}
+                </label>
+                <p class="form-hint form-hint--section">
+                  {{ t('aiGeneralChatPromptHint', '这里就是通用 AI 聊天的 system prompt；它决定默认聊天风格、工具边界和优先行为。') }}
+                </p>
+                <textarea
+                  v-model="aiSettings.prompts.skills.generalChat.systemPrompt"
+                  :rows="10"
+                  class="form-textarea"
+                ></textarea>
+              </template>
+
+              <template v-else>
+                <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
+                  {{ t('aiBaseRunPrompt', 'Skill 基础 Prompt') }}
+                </label>
+                <p class="form-hint form-hint--section">
+                  {{ t('aiBehaviorPromptHint', '系统会自动附加结构化输出规则；这里主要描述角色、目标、语气和偏好。') }}
+                </p>
+                <textarea
+                  v-model="aiSettings.prompts.skills.conceptCoach.baseRun"
+                  :rows="8"
+                  class="form-textarea"
+                ></textarea>
+                <details v-if="preset.hasStructuredContract" class="ai-prompt-preset-card__contract">
+                  <summary>{{ t('aiPromptShowSystemContract', '查看系统自动附加的结构化规则') }}</summary>
+                  <p class="form-hint form-hint--section">{{ preset.systemContractSummary }}</p>
+                  <ul class="ai-prompt-preset-card__contract-list">
+                    <li v-for="line in preset.systemContractLines" :key="line">{{ line }}</li>
+                  </ul>
+                </details>
+                <details
+                  v-for="tab in aiPromptTabs"
+                  :key="tab.id"
+                  class="ai-prompt-preset-card__tab-editor"
+                >
+                  <summary>{{ tab.title }} · {{ t('aiPromptFoldoutTabTitle', '展开这个 Tab 的 Prompt') }}</summary>
+                  <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
+                    {{ tab.title }} · {{ t('aiBehaviorPrompt', '行为 Prompt') }}
+                  </label>
+                  <textarea
+                    v-model="aiSettings.prompts.skills.conceptCoach.tabs[tab.id].run"
+                    :rows="5"
+                    class="form-textarea"
+                  ></textarea>
+                  <label class="ai-prompt-preset-card__editor-label ai-prompt-preset-card__editor-label--sub">
+                    {{ tab.title }} · {{ t('aiFollowUpPrompt', '追问 Prompt') }}
+                  </label>
+                  <textarea
+                    v-model="aiSettings.prompts.skills.conceptCoach.tabs[tab.id].followUp"
+                    :rows="4"
+                    class="form-textarea"
+                  ></textarea>
+                </details>
+              </template>
             </div>
-          </div>
+          </details>
         </div>
         </div>
 
@@ -1114,6 +1138,8 @@
             </div>
           </div>
 
+          <details class="settings-foldout ai-user-skill-card__foldout">
+            <summary>{{ t('aiUserSkillFoldoutTitle', '展开 Skill 详细设置') }}</summary>
           <div class="form-item">
             <label>ID</label>
             <div class="form-control">
@@ -1273,6 +1299,7 @@
               </label>
             </div>
           </div>
+          </details>
         </article>
         </div>
             </section>
@@ -1329,6 +1356,7 @@ import {
   DEFAULT_FSRS_WEIGHTS,
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
+  type AIGeneralChatPromptTemplate,
   type AIConceptCoachPromptTemplates,
   type AISettings,
   type AIToolExecutionPolicy,
@@ -1454,7 +1482,15 @@ function mergeAISettings(source?: Partial<AISettings>): AISettings {
 }
 
 function resetAiPromptToRecommended(settingsState: AISettings, settingKey: AIPromptSettingKey): void {
-  settingsState.prompts.skills.conceptCoach = getRecommendedPromptTemplateForSetting(settingKey);
+  switch (settingKey) {
+    case 'generalChat':
+      settingsState.prompts.skills.generalChat = getRecommendedPromptTemplateForSetting(settingKey) as AIGeneralChatPromptTemplate;
+      break;
+    case 'conceptCoach':
+    default:
+      settingsState.prompts.skills.conceptCoach = getRecommendedPromptTemplateForSetting(settingKey) as AIConceptCoachPromptTemplates;
+      break;
+  }
 }
 
 function mergeQueueSettings(source?: Partial<QueueSettings>): QueueSettings {
@@ -1596,7 +1632,9 @@ const aiPromptTabs = getAIWorkbenchSkillTabs('concept-coach');
 const selfTestModeDescriptors = listSelfTestModeDescriptors();
 const userSkillToolGroupOptions: Array<{ key: AIChatToolGroupKey; label: string; hint: string }> = [
   { key: 'context-read', label: 'context-read', hint: '读取当前卡片、选中块和手工材料。' },
+  { key: 'study-decision', label: 'study-decision', hint: '只做学习动作判断，不直接写入。' },
   { key: 'siyuan-read', label: 'siyuan-read', hint: '检索和读取思源块内容。' },
+  { key: 'siyuan-write', label: 'siyuan-write', hint: '追加内容、建文档和 diff 写入，默认更严格审批。' },
   { key: 'review-read', label: 'review-read', hint: '读取复习状态和当前队列。' },
   { key: 'web', label: 'web', hint: '抓取网页或调用搜索后端。' },
   { key: 'vars', label: 'vars', hint: '读写会话内变量缓存。' },
@@ -1681,15 +1719,43 @@ function areConceptCoachPromptsEqual(left: AIConceptCoachPromptTemplates, right:
     });
 }
 
-function resolveAiPromptUsageState(settingKey: AIPromptSettingKey): AIPromptUsageState {
-  const currentValue = aiSettings.value.prompts.skills.conceptCoach;
-  if (isConceptCoachPromptEmpty(currentValue)) {
-    return 'empty';
-  }
+function isGeneralChatPromptEmpty(template: AIGeneralChatPromptTemplate): boolean {
+  return String(template.systemPrompt || '').trim().length === 0;
+}
 
-  return areConceptCoachPromptsEqual(currentValue, getRecommendedPromptTemplateForSetting(settingKey))
-    ? 'recommended'
-    : 'custom';
+function areGeneralChatPromptsEqual(left: AIGeneralChatPromptTemplate, right: AIGeneralChatPromptTemplate): boolean {
+  return String(left.systemPrompt || '').trim() === String(right.systemPrompt || '').trim();
+}
+
+function resolveAiPromptUsageState(settingKey: AIPromptSettingKey): AIPromptUsageState {
+  switch (settingKey) {
+    case 'generalChat': {
+      const currentValue = aiSettings.value.prompts.skills.generalChat;
+      if (isGeneralChatPromptEmpty(currentValue)) {
+        return 'empty';
+      }
+      return areGeneralChatPromptsEqual(
+        currentValue,
+        getRecommendedPromptTemplateForSetting(settingKey) as AIGeneralChatPromptTemplate,
+      )
+        ? 'recommended'
+        : 'custom';
+    }
+    case 'conceptCoach':
+    default: {
+      const currentValue = aiSettings.value.prompts.skills.conceptCoach;
+      if (isConceptCoachPromptEmpty(currentValue)) {
+        return 'empty';
+      }
+
+      return areConceptCoachPromptsEqual(
+        currentValue,
+        getRecommendedPromptTemplateForSetting(settingKey) as AIConceptCoachPromptTemplates,
+      )
+        ? 'recommended'
+        : 'custom';
+    }
+  }
 }
 
 function getAiPromptUsageCopy(settingKey: AIPromptSettingKey): {
@@ -1727,8 +1793,13 @@ const aiPromptPresetCards = computed(() => AI_PROMPT_PRESET_DESCRIPTORS.map((des
   audience: t(descriptor.audienceKey, descriptor.audienceFallback),
   behavior: t(descriptor.behaviorKey, descriptor.behaviorFallback),
   output: t(descriptor.outputKey, descriptor.outputFallback),
-  systemContractSummary: getPromptContractForSetting(descriptor.settingKey).summary,
-  systemContractLines: getPromptContractForSetting(descriptor.settingKey).runtimeLines,
+  hasStructuredContract: descriptor.settingKey === 'conceptCoach',
+  systemContractSummary: descriptor.settingKey === 'conceptCoach'
+    ? getPromptContractForSetting(descriptor.settingKey).summary
+    : '',
+  systemContractLines: descriptor.settingKey === 'conceptCoach'
+    ? getPromptContractForSetting(descriptor.settingKey).runtimeLines
+    : [],
   ...getAiPromptUsageCopy(descriptor.settingKey),
 })));
 
@@ -1870,6 +1941,8 @@ function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
 
 function getPromptEditorLabel(settingKey: AIPromptSettingKey): string {
   switch (settingKey) {
+    case 'generalChat':
+      return t('aiGeneralChatPrompt', '通用 AI 聊天 Prompt');
     case 'conceptCoach':
       return t('aiConceptCoachPrompt', 'AI 理解与制卡 Prompt');
     default:
@@ -2813,6 +2886,26 @@ async function handleRepairDates() {
   font-family: var(--b3-font-family-code, monospace);
 }
 
+.settings-foldout {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px dashed var(--b3-border-color);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.settings-foldout summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.settings-foldout[open] {
+  background: rgba(255, 255, 255, 0.88);
+}
+
 .ai-prompt-preset-card {
   display: grid;
   gap: 14px;
@@ -2921,6 +3014,12 @@ async function handleRepairDates() {
 .ai-prompt-preset-card__editor {
   display: grid;
   gap: 8px;
+}
+
+.ai-prompt-preset-card__foldout,
+.ai-user-skill-card__foldout,
+.ai-prompt-preset-card__tab-editor {
+  margin-top: 4px;
 }
 
 .ai-prompt-preset-card__contract {

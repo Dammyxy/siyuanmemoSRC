@@ -25,6 +25,7 @@ function createSiyuanPort() {
     appendBlockUnderParent: vi.fn(),
     appendBlockUnderParentDetailed: vi.fn(),
     updateBlockMarkdown: vi.fn(),
+    addRiffCards: vi.fn(),
     deleteBlock: vi.fn(),
   };
 }
@@ -126,5 +127,83 @@ describe('AIChatToolExecutorService', () => {
 
     expect(result.status).toBe('success');
     expect(siyuanPort.copyStdMarkdown).toHaveBeenCalledWith('block-from-var');
+  });
+
+  it('supports ApplyBlockDiff dry runs without writing back to SiYuan', async () => {
+    const settings = createSettings();
+    settings.toolPolicies.groupDefaults['siyuan-write'] = true;
+    const siyuanPort = createSiyuanPort();
+    siyuanPort.copyStdMarkdown.mockResolvedValue('alpha beta gamma');
+    const executor = new AIChatToolExecutorService({
+      registry: new AIChatToolRegistry(),
+      varStore: new AIChatVarStoreService(),
+      siyuanPort: siyuanPort as never,
+      getAISettings: () => settings,
+    });
+
+    const result = await executor.executeToolCall({
+      id: 'tool-call-diff',
+      name: 'ApplyBlockDiff',
+      arguments: {
+        blockId: 'block-1',
+        searchReplaceDiff: ['<<<<<<< SEARCH', 'beta', '=======', 'delta', '>>>>>>> REPLACE'].join('\n'),
+        dryRun: true,
+      },
+    }, {
+      context: null,
+      attachedContexts: [],
+    }, {
+      approvals: { requestApproval: vi.fn(async () => ({ approved: true })) },
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.data).toMatchObject({
+      blockId: 'block-1',
+      dryRun: true,
+      nextMarkdown: 'alpha delta gamma',
+    });
+    expect(siyuanPort.updateBlockMarkdown).not.toHaveBeenCalled();
+  });
+
+  it('delegates DecideStudyAction to flashcard tools when the study-decision group is enabled', async () => {
+    const settings = createSettings();
+    settings.toolPolicies.groupDefaults['study-decision'] = true;
+    const siyuanPort = createSiyuanPort();
+    const flashcardTools = {
+      decideStudyAction: vi.fn(async () => ({
+        action: 'answer-directly',
+        recommendedTool: null,
+        cardFamily: null,
+        reason: '先解释。',
+        missingInfo: [],
+        approvalRequired: false,
+      })),
+    };
+    const executor = new AIChatToolExecutorService({
+      registry: new AIChatToolRegistry(),
+      varStore: new AIChatVarStoreService(),
+      siyuanPort: siyuanPort as never,
+      flashcardTools: flashcardTools as never,
+      getAISettings: () => settings,
+    });
+
+    const result = await executor.executeToolCall({
+      id: 'tool-call-decision',
+      name: 'DecideStudyAction',
+      arguments: {
+        request: '先帮我解释这段内容',
+      },
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
+
+    expect(result.status).toBe('success');
+    expect(flashcardTools.decideStudyAction).toHaveBeenCalledWith({
+      request: '先帮我解释这段内容',
+    }, {
+      context: null,
+      attachedContexts: [],
+    });
   });
 });

@@ -238,6 +238,10 @@ export interface AIPromptTextPair {
     followUp: string;
 }
 
+export interface AIGeneralChatPromptTemplate {
+    systemPrompt: string;
+}
+
 export interface AIConceptCoachPromptTemplates {
     baseRun: string;
     tabs: {
@@ -252,6 +256,7 @@ export interface AIConceptCoachPromptTemplates {
 
 export interface AIPromptTemplates {
     skills: {
+        generalChat: AIGeneralChatPromptTemplate;
         conceptCoach: AIConceptCoachPromptTemplates;
     };
     /**
@@ -264,7 +269,9 @@ export type AIProviderProtocol = 'openai-compatible' | 'openai' | 'claude' | 'ge
 export type AIWebSearchBackend = 'none' | 'tavily' | 'bocha' | 'google-cse';
 export type AIToolGroupKey =
     | 'context-read'
+    | 'study-decision'
     | 'siyuan-read'
+    | 'siyuan-write'
     | 'review-read'
     | 'flashcard-write'
     | 'web'
@@ -896,10 +903,18 @@ export const DEFAULT_RIFF_CONFIG: RiffIntegrationConfig = {
     }
 };
 
-export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 5;
+export const ACTIVE_AI_PROMPT_CONTRACT_VERSION = 6;
 
 export const DEFAULT_AI_PROMPTS: AIPromptTemplates = {
     skills: {
+        generalChat: {
+            systemPrompt: [
+                '你是思源笔记里的学习与制卡助手，优先帮助用户理解当前材料、整理知识、规划下一步行动。',
+                '可以使用已启用的工具读取当前上下文、查询思源块内容、读取复习状态或抓取网页。',
+                '不要假装执行了未启用的能力；涉及写入思源、创建卡片、摘录或 daily note 的动作必须先请求用户明确审批。',
+                '回答时先给结论，再给必要依据；如果工具返回的信息不足，请直接说明还缺什么。',
+            ].join('\n'),
+        },
         conceptCoach: {
             baseRun: [
                 '你是一位擅长把知识转化为“可理解、可回忆、可应用”的学习教练。',
@@ -984,6 +999,12 @@ function clonePromptPair(pair: AIPromptTextPair): AIPromptTextPair {
     };
 }
 
+function cloneGeneralChatPromptTemplate(template: AIGeneralChatPromptTemplate): AIGeneralChatPromptTemplate {
+    return {
+        systemPrompt: template.systemPrompt,
+    };
+}
+
 function cloneConceptCoachPromptTemplates(templates: AIConceptCoachPromptTemplates): AIConceptCoachPromptTemplates {
     return {
         baseRun: templates.baseRun,
@@ -1001,6 +1022,7 @@ function cloneConceptCoachPromptTemplates(templates: AIConceptCoachPromptTemplat
 function clonePromptTemplates(templates: AIPromptTemplates): AIPromptTemplates {
     return {
         skills: {
+            generalChat: cloneGeneralChatPromptTemplate(templates.skills.generalChat),
             conceptCoach: cloneConceptCoachPromptTemplates(templates.skills.conceptCoach),
         },
     };
@@ -1067,13 +1089,31 @@ function normalizeConceptCoachPromptTemplates(source: unknown): AIConceptCoachPr
     };
 }
 
+function normalizeGeneralChatPromptTemplate(source: unknown): AIGeneralChatPromptTemplate {
+    const defaults = DEFAULT_AI_PROMPTS.skills.generalChat;
+    if (typeof source === 'string') {
+        return {
+            systemPrompt: normalizePromptText(source) || defaults.systemPrompt,
+        };
+    }
+    const value = typeof source === 'object' && source !== null
+        ? source as Partial<AIGeneralChatPromptTemplate>
+        : {};
+    return {
+        systemPrompt: normalizePromptText(value.systemPrompt) || defaults.systemPrompt,
+    };
+}
+
 export function normalizeAIPromptTemplates(prompts: unknown): AIPromptTemplates {
     const source = typeof prompts === 'object' && prompts !== null
-        ? prompts as Partial<AIPromptTemplates> & { conceptCoach?: unknown }
+        ? prompts as Partial<AIPromptTemplates> & { generalChat?: unknown; conceptCoach?: unknown }
         : undefined;
 
     return {
         skills: {
+            generalChat: normalizeGeneralChatPromptTemplate(
+                source?.skills?.generalChat ?? source?.generalChat,
+            ),
             conceptCoach: normalizeConceptCoachPromptTemplates(
                 source?.skills?.conceptCoach ?? source?.conceptCoach,
             ),
@@ -1087,6 +1127,10 @@ function hasNormalizedPromptTemplateShape(prompts: unknown): boolean {
     }
 
     const source = prompts as Partial<AIPromptTemplates>;
+    const generalChat = source.skills?.generalChat;
+    if (typeof generalChat !== 'object' || generalChat === null || typeof generalChat.systemPrompt !== 'string') {
+        return false;
+    }
     const conceptCoach = source.skills?.conceptCoach;
     if (typeof conceptCoach !== 'object' || conceptCoach === null || typeof conceptCoach.baseRun !== 'string') {
         return false;
@@ -1377,7 +1421,9 @@ function normalizeAIToolPolicySettings(value: unknown): AIToolPolicySettings {
         groupDefaults: {
             ...defaults.groupDefaults,
             'context-read': sourceGroupDefaults['context-read'] !== false,
+            'study-decision': sourceGroupDefaults['study-decision'] !== false,
             'siyuan-read': sourceGroupDefaults['siyuan-read'] !== false,
+            'siyuan-write': sourceGroupDefaults['siyuan-write'] === true,
             'review-read': sourceGroupDefaults['review-read'] !== false,
             'flashcard-write': sourceGroupDefaults['flashcard-write'] === true,
             web: sourceGroupDefaults.web !== false,
@@ -1400,7 +1446,9 @@ function normalizeAIToolPolicySettings(value: unknown): AIToolPolicySettings {
 
 const AI_USER_SKILL_TOOL_GROUPS: AIToolGroupKey[] = [
     'context-read',
+    'study-decision',
     'siyuan-read',
+    'siyuan-write',
     'review-read',
     'web',
     'vars',
@@ -1645,7 +1693,9 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
     toolPolicies: {
         groupDefaults: {
             'context-read': true,
+            'study-decision': true,
             'siyuan-read': true,
+            'siyuan-write': false,
             'review-read': true,
             'flashcard-write': false,
             web: true,

@@ -1,4 +1,4 @@
-import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
+import type { AISiyuanBlockRow, AISiyuanMutationResult, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMUsage } from '@/application/ports/LLMPort';
 import type { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import type { AIChatToolRegistry } from '@/application/services/AIChatToolRegistry';
@@ -48,6 +48,11 @@ function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
 }
 
+type SearchReplaceHunk = {
+  search: string;
+  replace: string;
+};
+
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => stableStringify(item)).join(',')}]`;
@@ -93,6 +98,63 @@ function stripHtmlToText(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function sanitizeDocPathSegment(value: string): string {
+  return value
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || 'SiYuanMemo';
+}
+
+function parseSearchReplaceDiff(diffText: string): SearchReplaceHunk[] {
+  const text = String(diffText || '');
+  const regex = /<<<<<<< SEARCH\r?\n([\s\S]*?)\r?\n=======\r?\n([\s\S]*?)\r?\n>>>>>>> REPLACE/g;
+  const hunks: SearchReplaceHunk[] = [];
+  let match: RegExpExecArray | null = regex.exec(text);
+  while (match) {
+    hunks.push({
+      search: match[1] ?? '',
+      replace: match[2] ?? '',
+    });
+    match = regex.exec(text);
+  }
+  if (hunks.length === 0) {
+    throw new Error('searchReplaceDiff 必须使用 <<<<<<< SEARCH / ======= / >>>>>>> REPLACE 语法。');
+  }
+  return hunks;
+}
+
+function applySearchReplaceDiff(source: string, hunks: SearchReplaceHunk[]): {
+  next: string;
+  replacements: number;
+} {
+  let current = source;
+  let replacements = 0;
+  for (const hunk of hunks) {
+    if (!hunk.search) {
+      throw new Error('SEARCH 片段不能为空。');
+    }
+    const index = current.indexOf(hunk.search);
+    if (index < 0) {
+      throw new Error(`未找到 SEARCH 片段：${truncateForLlm(hunk.search, 120)}`);
+    }
+    current = `${current.slice(0, index)}${hunk.replace}${current.slice(index + hunk.search.length)}`;
+    replacements += 1;
+  }
+  return {
+    next: current,
+    replacements,
+  };
+}
+
+function collectMutationBlockIds(result: AISiyuanMutationResult): string[] {
+  return Array.from(new Set(
+    (result.doOperations || [])
+      .map((operation) => normalizeString(operation.id))
+      .filter(Boolean),
+  ));
 }
 
 function hashApproval(descriptor: AIChatToolDescriptor, args: Record<string, unknown>): string {
@@ -399,6 +461,12 @@ export class AIChatToolExecutorService {
     switch (descriptor.name) {
       case 'GetCurrentContext':
         return this.getCurrentContext(args, runtime);
+      case 'DecideStudyAction':
+        return this.requireFlashcardTools().decideStudyAction(args, runtime);
+      case 'GetBlockInfo':
+        return this.getBlockInfo(args);
+      case 'GetBlockContent':
+        return this.getBlockContent(args);
       case 'ReadBlock':
         return this.readBlock(args);
       case 'ReadBlocks':
@@ -407,6 +475,12 @@ export class AIChatToolExecutorService {
         return this.searchBlocks(args);
       case 'GetBlockAttrs':
         return this.getBlockAttrs(args);
+      case 'AppendContent':
+        return this.appendContent(args);
+      case 'CreateNewDoc':
+        return this.createNewDoc(args);
+      case 'ApplyBlockDiff':
+        return this.applyBlockDiff(args);
       case 'QueryBlocksSql':
         return this.queryBlocksSql(args);
       case 'GetReviewState':
@@ -438,6 +512,10 @@ export class AIChatToolExecutorService {
       }
       case 'CreatePairCards':
         return this.requireFlashcardTools().createPairCards(args, runtime);
+      case 'CreateExcerptTopic':
+        return this.requireFlashcardTools().createExcerptTopic(args, runtime);
+      case 'CreateTopicItems':
+        return this.requireFlashcardTools().createTopicItems(args, runtime);
       case 'CreateInlineCards':
         return this.requireFlashcardTools().createInlineCards(args, runtime);
       case 'CreateNativeListItemCards':
@@ -493,6 +571,48 @@ export class AIChatToolExecutorService {
         blockIds: item.blockIds,
         content: includeFullText ? item.content : item.content.slice(0, 800),
       })),
+    };
+  }
+
+  private async getBlockInfo(args: Record<string, unknown>): Promise<unknown> {
+    const blockId = normalizeString(args.blockId);
+    if (!blockId) {
+      throw new Error('blockId is required.');
+    }
+    const rows = await this.deps.siyuanPort.sql<AISiyuanBlockRow>(`
+      SELECT id, parent_id, root_id, type, subtype, content, markdown, hpath, box, path
+      FROM blocks
+      WHERE id = '${escapeSql(blockId)}'
+      LIMIT 1
+    `);
+    const row = rows[0];
+    if (!row?.id) {
+      throw new Error('Block not found.');
+    }
+    return {
+      id: row.id,
+      parentId: normalizeString(row.parent_id) || null,
+      rootId: normalizeString(row.root_id) || null,
+      type: normalizeString(row.type) || null,
+      subtype: normalizeString(row.subtype) || null,
+      content: normalizeString(row.content) || '',
+      hPath: normalizeString(row.hpath) || null,
+      notebookId: normalizeString(row.box) || null,
+      path: normalizeString(row.path) || null,
+    };
+  }
+
+  private async getBlockContent(args: Record<string, unknown>): Promise<unknown> {
+    const blockId = normalizeString(args.blockId);
+    if (!blockId) {
+      throw new Error('blockId is required.');
+    }
+    const markdown = await this.deps.siyuanPort.copyStdMarkdown(blockId);
+    const includeKramdown = args.includeKramdown === true;
+    return {
+      blockId,
+      markdown,
+      ...(includeKramdown ? { kramdown: (await this.deps.siyuanPort.getBlockKramdown(blockId)).kramdown } : {}),
     };
   }
 
@@ -565,6 +685,75 @@ export class AIChatToolExecutorService {
     return Object.fromEntries(rows
       .map((row) => [normalizeString(row.name), normalizeString(row.value)] as const)
       .filter(([name]) => Boolean(name)));
+  }
+
+  private async appendContent(args: Record<string, unknown>): Promise<unknown> {
+    const parentBlockId = normalizeString(args.parentBlockId);
+    const markdown = String(args.markdown ?? '').trim();
+    if (!parentBlockId) {
+      throw new Error('parentBlockId is required.');
+    }
+    if (!markdown) {
+      throw new Error('markdown is required.');
+    }
+    const mutation = await this.deps.siyuanPort.appendBlockUnderParentDetailed(markdown, parentBlockId);
+    return {
+      parentBlockId,
+      markdown,
+      insertedBlockIds: collectMutationBlockIds(mutation),
+      mutation,
+    };
+  }
+
+  private async createNewDoc(args: Record<string, unknown>): Promise<unknown> {
+    const notebookId = normalizeString(args.notebookId);
+    const markdown = String(args.markdown ?? '');
+    const explicitPath = normalizeString(args.path);
+    const title = sanitizeDocPathSegment(normalizeString(args.title));
+    if (!notebookId) {
+      throw new Error('notebookId is required.');
+    }
+    if (!explicitPath && !title) {
+      throw new Error('path or title is required.');
+    }
+    const path = (() => {
+      const candidate = explicitPath || `/${title}.sy`;
+      const normalized = candidate.startsWith('/') ? candidate : `/${candidate}`;
+      return normalized.endsWith('.sy') ? normalized : `${normalized}.sy`;
+    })();
+    const docId = await this.deps.siyuanPort.createDocWithMarkdown(notebookId, path, markdown);
+    return {
+      notebookId,
+      path,
+      docId,
+      markdownLength: markdown.length,
+    };
+  }
+
+  private async applyBlockDiff(args: Record<string, unknown>): Promise<unknown> {
+    const blockId = normalizeString(args.blockId);
+    const searchReplaceDiff = String(args.searchReplaceDiff ?? '');
+    const dryRun = args.dryRun === true;
+    if (!blockId) {
+      throw new Error('blockId is required.');
+    }
+    if (!searchReplaceDiff.trim()) {
+      throw new Error('searchReplaceDiff is required.');
+    }
+    const currentMarkdown = await this.deps.siyuanPort.copyStdMarkdown(blockId);
+    const hunks = parseSearchReplaceDiff(searchReplaceDiff);
+    const applied = applySearchReplaceDiff(currentMarkdown, hunks);
+    if (!dryRun) {
+      await this.deps.siyuanPort.updateBlockMarkdown(blockId, applied.next);
+    }
+    return {
+      blockId,
+      dryRun,
+      replacementCount: applied.replacements,
+      previousMarkdown: currentMarkdown,
+      nextMarkdown: applied.next,
+      changed: applied.next !== currentMarkdown,
+    };
   }
 
   private async queryBlocksSql(args: Record<string, unknown>): Promise<unknown> {

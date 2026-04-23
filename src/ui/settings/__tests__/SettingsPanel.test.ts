@@ -101,6 +101,7 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         aiModel: 'Model',
         aiEnabled: 'Enable AI',
         aiPromptTemplates: 'Prompt Templates',
+        aiGeneralChatPromptPresetTitle: 'General Chat Preset',
         aiTutorPrompt: 'Tutor Prompt',
         aiExplainPrompt: 'Explain Prompt',
         aiCardCandidatePrompt: 'Card Prompt',
@@ -424,6 +425,7 @@ describe('SettingsPanel', () => {
 
     expect(wrapper.text()).toContain('AI Workbench');
     expect(wrapper.text()).toContain('Prompt Templates');
+    expect(wrapper.text()).toContain('General Chat Preset');
     expect(wrapper.text()).toContain('AI 理解与制卡推荐模板');
     expect(wrapper.text()).not.toContain('Tutor Preset');
     expect(wrapper.text()).not.toContain('Card Preset');
@@ -432,10 +434,7 @@ describe('SettingsPanel', () => {
     expect(wrapper.text()).toContain('先给工作定义，再按五个视角建立结构化理解，最后生成宁缺毋滥的自测候选卡和现实触发器。');
     expect(wrapper.text()).toContain('Current Status');
     expect(wrapper.text()).toContain('Using Recommended Template');
-    expect(wrapper.text()).toContain('Skill 基础 Prompt');
-    expect(wrapper.text()).toContain('Behavior Prompt');
-    expect(wrapper.text()).toContain('CDF 语义卡 · Behavior Prompt');
-    expect(wrapper.text()).toContain('Show the system-appended structured contract');
+    expect(wrapper.text()).toContain('展开 Prompt 编辑区');
 
     const formItems = wrapper.findAll('.form-item');
     const enableItem = formItems.find((item) => item.text().includes('Enable AI'));
@@ -457,18 +456,26 @@ describe('SettingsPanel', () => {
     await passwordInput!.setValue('secret-key');
     await enableToggle!.setValue(false);
 
+    await clickSubtab(wrapper, 'Chat & Tools');
+    expect(wrapper.text()).toContain('学习决策');
+    expect(wrapper.text()).toContain('思源写入');
+
     await clickSubtab(wrapper, 'Built-in Skill');
 
+    const promptCards = wrapper.findAll('.ai-prompt-preset-card');
+    expect(promptCards).toHaveLength(2);
     const textareas = wrapper.findAll('textarea');
-    expect(textareas.length).toBeGreaterThanOrEqual(11);
-    await textareas[0].setValue('Concept coach base prompt body');
-    await textareas[1].setValue('Working definition run prompt body');
+    expect(textareas.length).toBeGreaterThanOrEqual(12);
+    await textareas[0].setValue('Custom general chat prompt');
+    await textareas[1].setValue('Concept coach base prompt body');
+    await textareas[2].setValue('Working definition run prompt body');
     expect(wrapper.text()).toContain('Using Custom Override');
     expect(wrapper.text()).toContain('The saved behavior and follow-up prompts below are custom; the system appends structured rules automatically.');
 
     const restoreButtons = wrapper.findAll('button').filter((btn) => btn.text().includes('Restore Recommended Template'));
-    expect(restoreButtons).toHaveLength(1);
+    expect(restoreButtons).toHaveLength(2);
     await restoreButtons[0].trigger('click');
+    await restoreButtons[1].trigger('click');
     expect(wrapper.text()).toContain('Using Recommended Template');
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
@@ -480,7 +487,8 @@ describe('SettingsPanel', () => {
     expect(payload.ai.baseUrl).toBe('https://example.test/v1');
     expect(payload.ai.apiKey).toBe('secret-key');
     expect(payload.ai.model).toBe('gpt-test');
-    expect(payload.ai.promptContractVersion).toBe(5);
+    expect(payload.ai.promptContractVersion).toBe(6);
+    expect(payload.ai.prompts.skills.generalChat).toEqual(DEFAULT_SETTINGS.ai.prompts.skills.generalChat);
     expect(payload.ai.prompts.skills.conceptCoach).toEqual(DEFAULT_SETTINGS.ai.prompts.skills.conceptCoach);
     expect(payload.ai).not.toHaveProperty('draftStorage');
     expect(payload.ai).not.toHaveProperty('promptProfiles');

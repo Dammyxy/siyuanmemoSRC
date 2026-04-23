@@ -5,6 +5,13 @@ import {
 } from '@/application/services/AIPromptComposer';
 
 describe('AIPromptComposer', () => {
+  it('ships a general-chat prompt template with the expected chat boundary guidance', () => {
+    const prompt = getRecommendedPromptTemplate('general-chat');
+
+    expect(prompt.systemPrompt).toContain('学习与制卡助手');
+    expect(prompt.systemPrompt).toContain('涉及写入思源、创建卡片、摘录或 daily note 的动作必须先请求用户明确审批');
+  });
+
   it('ships a single concept-coach skill prompt with base and per-tab text', () => {
     const prompt = getRecommendedPromptTemplate('concept-coach');
 
@@ -20,8 +27,9 @@ describe('AIPromptComposer', () => {
     expect(prompt.tabs['real-world-triggers'].followUp).toContain('现实触发器');
   });
 
-  it('only exposes the concept-coach preset descriptor', () => {
+  it('exposes both general-chat and concept-coach preset descriptors', () => {
     expect(AI_PROMPT_PRESET_DESCRIPTORS.map((descriptor) => descriptor.task)).toEqual([
+      'general-chat',
       'concept-coach',
     ]);
   });

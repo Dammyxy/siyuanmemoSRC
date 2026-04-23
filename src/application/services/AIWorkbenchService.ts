@@ -34,6 +34,8 @@ import {
 import { AIChatToolExecutorService } from '@/application/services/AIChatToolExecutorService';
 import { AIChatToolRegistry } from '@/application/services/AIChatToolRegistry';
 import { AIChatVarStoreService } from '@/application/services/AIChatVarStoreService';
+import type { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
+import type { SelectionTopicContinuationService } from '@/application/services/SelectionTopicContinuationService';
 import { getAIContextProviders } from '@/application/services/AIWorkbenchContextProviderRegistry';
 import {
   formatStructuredPromptContract,
@@ -136,6 +138,8 @@ export type AIWorkbenchServiceDeps = {
   siyuanPort: AISiyuanPort;
   llmPort: LLMPort;
   getXiuyuanApplicationService?: () => Promise<Pick<XiuyuanApplicationService, 'createFromBlocks' | 'createListTemplateCards'>>;
+  getSelectionExcerptService?: () => SelectionExcerptService;
+  getSelectionTopicContinuationService?: () => SelectionTopicContinuationService;
   sessionStore?: Pick<
     AIWorkbenchSessionStoreService,
     | 'listSummaries'
@@ -1814,6 +1818,8 @@ export class AIWorkbenchService {
       getXiuyuanApplicationService: async () => this.requireXiuyuanApplicationService(),
       loadDefaultTarget: async () => this.getSessionStore().loadSelfTestCardTargetMemory(),
       saveDefaultTarget: async (target) => this.getSessionStore().saveSelfTestCardTargetMemory(target),
+      getSelectionExcerptService: this.deps.getSelectionExcerptService,
+      getSelectionTopicContinuationService: this.deps.getSelectionTopicContinuationService,
     });
     this.selfTestCardCreationService = new AISelfTestCardCreationService({
       flashcardTools: this.flashcardTools,

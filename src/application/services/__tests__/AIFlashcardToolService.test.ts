@@ -1182,4 +1182,132 @@ describe('AIFlashcardToolService', () => {
     });
     executeSpy.mockRestore();
   });
+
+  it('creates excerpt topics from the current runtime selection when explicit args are omitted', async () => {
+    const fixture = createTextMutationFixture('text-root-selection', 'Selected runtime text');
+    const siyuanPort = createSiyuanPort(fixture);
+    const selectionExcerptService = {
+      createFromSelection: vi.fn(async () => ({
+        kind: 'created',
+        excerptEntityId: 'excerpt-doc-1',
+        excerptEntityType: 'doc',
+        topicCardId: 'topic-card-1',
+        sourceBlockId: 'source-block-1',
+        sourceBlockIds: ['source-block-1'],
+        containerDocId: 'container-doc-1',
+        recordId: 'record-1',
+        colorApplied: true,
+      })),
+    };
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => createXiuyuanService() as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+      getSelectionExcerptService: () => selectionExcerptService as never,
+    });
+
+    const result = await service.createExcerptTopic({}, {
+      context: {
+        source: 'review',
+        selectedBlockIds: ['source-block-1'],
+        blocks: [{
+          blockId: 'source-block-1',
+          text: 'Selected runtime text',
+          type: 'p',
+          rootId: 'source-doc-1',
+        }],
+        currentCard: null,
+        neuralBatch: null,
+      } as never,
+      attachedContexts: [],
+    });
+
+    expect(selectionExcerptService.createFromSelection).toHaveBeenCalledWith({
+      sourceBlockId: 'source-block-1',
+      sourceBlockIds: ['source-block-1'],
+      selectedText: 'Selected runtime text',
+      origin: 'review',
+    });
+    expect(result).toMatchObject({
+      sourceBlockId: 'source-block-1',
+      selectedText: 'Selected runtime text',
+      result: {
+        topicCardId: 'topic-card-1',
+      },
+    });
+  });
+
+  it('creates topic items through the continuation service and exposes preparation metadata', async () => {
+    const fixture = createTextMutationFixture('text-root-continuation', 'Question >> Answer');
+    const siyuanPort = createSiyuanPort(fixture);
+    const selectionTopicContinuationService = {
+      prepareSelection: vi.fn(() => ({
+        rootId: 'source-doc-2',
+        topicContext: {
+          topicCardId: 'topic-card-2',
+          sourceDocId: 'source-doc-2',
+        },
+        normalizedContent: 'Question >> Answer',
+        plannerContent: 'Question >> Answer',
+        artifactContentDom: '',
+        decisions: [],
+        mode: 'planner-derived',
+        highlightTargetCount: 0,
+        available: true,
+      })),
+      createFromSelection: vi.fn(async () => ({
+        created: 1,
+        skipped: 0,
+        items: [{
+          derivedDocId: 'item-doc-1',
+          derivedBlockId: 'item-block-1',
+          derivedCardId: 'item-card-1',
+          sourceBlockId: 'source-block-2',
+          storageMode: 'workbench',
+          creationRuleId: 'rule-1',
+          answerFingerprint: 'fingerprint-1',
+        }],
+      })),
+    };
+    const service = new AIFlashcardToolService({
+      siyuanPort: siyuanPort as never,
+      getXiuyuanApplicationService: async () => createXiuyuanService() as never,
+      loadDefaultTarget: vi.fn(async () => null),
+      saveDefaultTarget: vi.fn(async (target) => target),
+      getSelectionTopicContinuationService: () => selectionTopicContinuationService as never,
+    });
+
+    const result = await service.createTopicItems({}, {
+      context: {
+        source: 'standalone',
+        selectedBlockIds: ['source-block-2'],
+        blocks: [{
+          blockId: 'source-block-2',
+          text: 'Question >> Answer',
+          type: 'p',
+          rootId: 'source-doc-2',
+        }],
+        currentCard: null,
+        neuralBatch: null,
+      } as never,
+      attachedContexts: [],
+    });
+
+    expect(selectionTopicContinuationService.prepareSelection).toHaveBeenCalledWith({
+      sourceBlockId: 'source-block-2',
+      sourceBlockIds: ['source-block-2'],
+      selectedText: 'Question >> Answer',
+      rootId: 'source-doc-2',
+      origin: 'editor',
+    });
+    expect(result).toMatchObject({
+      available: true,
+      topicCardId: 'topic-card-2',
+      created: 1,
+      items: [{
+        derivedCardId: 'item-card-1',
+      }],
+    });
+  });
 });

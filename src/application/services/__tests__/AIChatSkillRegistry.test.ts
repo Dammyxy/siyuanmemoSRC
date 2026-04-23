@@ -9,9 +9,29 @@ import { DEFAULT_AI_SETTINGS, normalizeAISettings } from '@/types/settings';
 
 describe('AIChatSkillRegistry', () => {
   it('keeps the builtin general-chat prompt aligned with the workbench CTA copy', () => {
-    expect(getAIChatSkill('general-chat').composerPreset).toBe(
+    const skill = getAIChatSkill('general-chat');
+
+    expect(skill.composerPreset).toBe(
       '我想围绕当前内容继续聊聊。你可以先帮我抓重点、解释疑点；如果上下文还不够，请直接告诉我还需要补什么。',
     );
+    expect(skill.defaultToolGroups).toContain('study-decision');
+  });
+
+  it('lets settings override the builtin general-chat system prompt', () => {
+    const settings = normalizeAISettings({
+      ...DEFAULT_AI_SETTINGS,
+      prompts: {
+        ...DEFAULT_AI_SETTINGS.prompts,
+        skills: {
+          ...DEFAULT_AI_SETTINGS.prompts.skills,
+          generalChat: {
+            systemPrompt: 'Custom general chat prompt',
+          },
+        },
+      },
+    });
+
+    expect(getAIChatSkill('general-chat', settings).systemPromptTemplate).toBe('Custom general chat prompt');
   });
 
   it('merges builtin skills with enabled user skills', () => {

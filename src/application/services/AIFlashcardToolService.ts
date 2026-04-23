@@ -2,12 +2,17 @@ import type { AISiyuanBlockRow, AISiyuanMutationResult, AISiyuanPort } from '@/a
 import type { CreateListTemplateCardsCommand } from '@/application/commands/xiuyuan/CreateListTemplateCardsCommand';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type { AIChatToolRuntimeContext } from '@/application/services/AIChatToolExecutorService';
+import type { ProgressiveExcerptInput } from '@/application/services/ProgressiveReadingService';
+import { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
+import { SelectionTopicContinuationService } from '@/application/services/SelectionTopicContinuationService';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import { findConceptByUpwardSearch } from '@/application/usecases/xiuyuan/shared/ConceptLocator';
 import { detectDescriptorOrDefinitionKind } from '@/application/usecases/xiuyuan/shared/DescriptorTemplateStrategy';
+import { detectAnswerSyntax } from '@/core/card-type/detectionRules';
 import type { CdfNodeKind, CdfScanNode, CdfScanResult } from '@/application/usecases/xiuyuan/shared/CdfMultilineScanner';
 import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
+import { ClozeDetector } from '@/utils/cloze-detector';
 import type {
   AICdfAnchor,
   AICdfAnchorResolution,
@@ -45,6 +50,16 @@ type ResolvedWriteTarget = {
   memory: AIWorkbenchSelfTestCardTargetMemory;
   targetBlockId: string;
   writeMode: 'append' | 'after';
+};
+
+type ResolvedSelectionInput = {
+  sourceBlockId: string;
+  sourceBlockIds: string[];
+  selectedText: string;
+  rootId?: string;
+  blockType?: string | null;
+  origin: 'editor' | 'review' | 'block-menu';
+  missingInfo: string[];
 };
 
 const CDF_UNRESOLVED_WARNING = '未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。';
@@ -93,6 +108,15 @@ function sanitizeDocTitle(value: string): string {
     .slice(0, 80) || 'SiYuanMemo';
 }
 
+function normalizeSelectionOrigin(
+  value: unknown,
+  fallback: ResolvedSelectionInput['origin'],
+): ResolvedSelectionInput['origin'] {
+  return value === 'review' || value === 'block-menu' || value === 'editor'
+    ? value
+    : fallback;
+}
+
 function parseTargetInput(args: Record<string, unknown>): AIWorkbenchSelfTestCardTargetInput | null {
   const targetMode = normalizeString(args.targetMode);
   if (!targetMode || targetMode === 'default') {
@@ -136,7 +160,155 @@ export class AIFlashcardToolService {
     getXiuyuanApplicationService: () => Promise<AIFlashcardXiuyuanService>;
     loadDefaultTarget: () => Promise<AIWorkbenchSelfTestCardTargetMemory | null>;
     saveDefaultTarget: (target: AIWorkbenchSelfTestCardTargetMemory) => Promise<AIWorkbenchSelfTestCardTargetMemory | null>;
+    getSelectionExcerptService?: () => SelectionExcerptService;
+    getSelectionTopicContinuationService?: () => SelectionTopicContinuationService;
   }) {}
+
+  async decideStudyAction(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<unknown> {
+    const request = normalizeString(args.request);
+    const goalHint = normalizeString(args.goalHint) || 'auto';
+    const selection = this.resolveSelectionInput(args, runtime, {
+      allowBlockMenuOrigin: true,
+    });
+    const canContinue = this.prepareTopicContinuation(selection);
+    const lowerRequest = request.toLowerCase();
+    const wantsUnderstand = goalHint === 'understand'
+      || /解释|理解|讲解|说明|总结|抓重点|翻译|梳理|分析/.test(request);
+    const wantsExtract = goalHint === 'extract'
+      || /摘录|摘抄|提取|抽取|保存成\s*topic|做成\s*topic|生成\s*topic/.test(request);
+    const wantsCard = goalHint === 'create-card'
+      || /制卡|做卡|卡片|flashcard|问答卡|挖空|descriptor|定义卡|cdf/.test(lowerRequest);
+    const wantsContinuation = /继续|沿用|已有\s*topic|topic\s*下|item|继续制卡|alt\+z|⌥⇧z/i.test(request);
+
+    if ((wantsExtract || wantsContinuation) && canContinue?.available) {
+      return {
+        action: 'create-topic-item',
+        recommendedTool: 'CreateTopicItems',
+        cardFamily: 'topic-item',
+        reason: '当前选区已经落在已有 Topic 语境里，更适合沿用原 Topic 继续生成 Item。',
+        missingInfo: selection.missingInfo,
+        approvalRequired: true,
+      };
+    }
+
+    if (wantsExtract) {
+      return {
+        action: 'create-excerpt-topic',
+        recommendedTool: 'CreateExcerptTopic',
+        cardFamily: 'topic-excerpt',
+        reason: '当前请求更像是在把材料提取为可继续学习的 Topic，而不是直接生成文本卡。',
+        missingInfo: selection.missingInfo,
+        approvalRequired: true,
+      };
+    }
+
+    if (wantsCard) {
+      const cardDecision = this.resolveCardCreationDecision(request, selection, canContinue?.available === true);
+      return {
+        action: 'create-card',
+        recommendedTool: cardDecision.recommendedTool,
+        cardFamily: cardDecision.cardFamily,
+        reason: cardDecision.reason,
+        missingInfo: selection.missingInfo,
+        approvalRequired: true,
+      };
+    }
+
+    if (wantsUnderstand || !selection.selectedText) {
+      return {
+        action: 'answer-directly',
+        recommendedTool: null,
+        cardFamily: null,
+        reason: wantsUnderstand
+          ? '当前更适合先把材料解释清楚，再决定是否摘录或制卡。'
+          : '当前缺少足够的选区材料，更适合先继续对话澄清目标。',
+        missingInfo: selection.missingInfo,
+        approvalRequired: false,
+      };
+    }
+
+    const cardDecision = this.resolveCardCreationDecision(request, selection, canContinue?.available === true);
+    return {
+      action: 'create-card',
+      recommendedTool: cardDecision.recommendedTool,
+      cardFamily: cardDecision.cardFamily,
+      reason: `${cardDecision.reason} 当前材料已经具备进入文本类卡工具的最小信息。`,
+      missingInfo: selection.missingInfo,
+      approvalRequired: true,
+    };
+  }
+
+  async createExcerptTopic(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<unknown> {
+    const selection = this.resolveSelectionInput(args, runtime);
+    if (selection.missingInfo.length > 0) {
+      throw new Error(`缺少必要信息：${selection.missingInfo.join(', ')}`);
+    }
+    const excerptService = this.requireSelectionExcerptService();
+    const input: ProgressiveExcerptInput = {
+      sourceBlockId: selection.sourceBlockId,
+      sourceBlockIds: selection.sourceBlockIds,
+      selectedText: selection.selectedText,
+      origin: selection.origin === 'review' ? 'review' : 'editor',
+    };
+    const result = await excerptService.createFromSelection(input);
+    return {
+      sourceBlockId: selection.sourceBlockId,
+      sourceBlockIds: selection.sourceBlockIds,
+      selectedText: selection.selectedText,
+      result,
+    };
+  }
+
+  async createTopicItems(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+  ): Promise<unknown> {
+    const selection = this.resolveSelectionInput(args, runtime, {
+      allowBlockMenuOrigin: true,
+    });
+    if (selection.missingInfo.length > 0) {
+      throw new Error(`缺少必要信息：${selection.missingInfo.join(', ')}`);
+    }
+    const continuationService = this.requireSelectionTopicContinuationService();
+    const preparation = continuationService.prepareSelection({
+      sourceBlockId: selection.sourceBlockId,
+      sourceBlockIds: selection.sourceBlockIds,
+      selectedText: selection.selectedText,
+      ...(selection.rootId ? { rootId: selection.rootId } : {}),
+      origin: selection.origin,
+    });
+    if (!preparation.available || !preparation.topicContext) {
+      return {
+        available: false,
+        topicCardId: null,
+        mode: null,
+        created: 0,
+        skipped: 0,
+        items: [],
+      };
+    }
+    const result = await continuationService.createFromSelection({
+      sourceBlockId: selection.sourceBlockId,
+      sourceBlockIds: selection.sourceBlockIds,
+      selectedText: selection.selectedText,
+      ...(selection.rootId ? { rootId: selection.rootId } : {}),
+      origin: selection.origin,
+    }, preparation);
+    return {
+      available: true,
+      topicCardId: preparation.topicContext.topicCardId,
+      mode: preparation.mode,
+      created: result.created,
+      skipped: result.skipped,
+      items: result.items,
+    };
+  }
 
   async createPairCards(
     args: Record<string, unknown>,
@@ -1767,6 +1939,216 @@ export class AIFlashcardToolService {
       }
     }
     return 'none';
+  }
+
+  private requireSelectionExcerptService(): SelectionExcerptService {
+    const service = this.deps.getSelectionExcerptService?.();
+    if (!service) {
+      throw new Error('AI excerpt tools are not initialized.');
+    }
+    return service;
+  }
+
+  private requireSelectionTopicContinuationService(): SelectionTopicContinuationService {
+    const service = this.deps.getSelectionTopicContinuationService?.();
+    if (!service) {
+      throw new Error('AI topic continuation tools are not initialized.');
+    }
+    return service;
+  }
+
+  private resolveSelectionInput(
+    args: Record<string, unknown>,
+    runtime: AIChatToolRuntimeContext,
+    options?: {
+      allowBlockMenuOrigin?: boolean;
+    },
+  ): ResolvedSelectionInput {
+    const context = runtime.context;
+    const blocks = Array.isArray(context?.blocks) ? context.blocks : [];
+    const firstBlock = blocks[0];
+    const currentCard = context?.currentCard;
+    const sourceBlockId = normalizeString(args.sourceBlockId)
+      || normalizeString(firstBlock?.blockId)
+      || normalizeString(currentCard?.blockId);
+    const sourceBlockIds = uniqueIds(
+      Array.isArray(args.sourceBlockIds)
+        ? args.sourceBlockIds as Array<string | null | undefined>
+        : (context?.selectedBlockIds?.length
+          ? context.selectedBlockIds
+          : (blocks.length > 0
+            ? blocks.map((block) => block.blockId)
+            : (currentCard?.sourceBlockIds || []))),
+    );
+    const selectedText = normalizeString(args.selectedText)
+      || normalizeString(args.content)
+      || normalizeString(blocks.map((block) => normalizeString(block.text)).filter(Boolean).join('\n\n'))
+      || normalizeString(currentCard?.sourceText);
+    const fallbackOrigin: ResolvedSelectionInput['origin'] = context?.source === 'review' ? 'review' : 'editor';
+    const origin = normalizeSelectionOrigin(
+      args.origin,
+      options?.allowBlockMenuOrigin ? fallbackOrigin : (fallbackOrigin === 'review' ? 'review' : 'editor'),
+    );
+    const missingInfo: string[] = [];
+    if (!sourceBlockId) {
+      missingInfo.push('sourceBlockId');
+    }
+    if (!selectedText) {
+      missingInfo.push('selectedText');
+    }
+    return {
+      sourceBlockId,
+      sourceBlockIds: sourceBlockIds.length > 0 ? sourceBlockIds : uniqueIds([sourceBlockId]),
+      selectedText,
+      rootId: normalizeString(args.rootId) || normalizeString(firstBlock?.rootId) || undefined,
+      blockType: normalizeString(firstBlock?.type) || null,
+      origin,
+      missingInfo,
+    };
+  }
+
+  private prepareTopicContinuation(selection: ResolvedSelectionInput): ReturnType<SelectionTopicContinuationService['prepareSelection']> | null {
+    if (selection.missingInfo.length > 0) {
+      return null;
+    }
+    try {
+      return this.requireSelectionTopicContinuationService().prepareSelection({
+        sourceBlockId: selection.sourceBlockId,
+        sourceBlockIds: selection.sourceBlockIds,
+        selectedText: selection.selectedText,
+        ...(selection.rootId ? { rootId: selection.rootId } : {}),
+        origin: selection.origin,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveCardCreationDecision(
+    request: string,
+    selection: ResolvedSelectionInput,
+    continuationAvailable: boolean,
+  ): {
+    recommendedTool: string;
+    cardFamily: string;
+    reason: string;
+  } {
+    const content = selection.selectedText;
+    const blockType = normalizeString(selection.blockType);
+    const descriptorKind = detectDescriptorOrDefinitionKind(content);
+    const answerSyntax = detectAnswerSyntax(content, content, 'extended');
+    const cueAnswer = parseCueAndAnswer(content);
+    const lowerRequest = request.toLowerCase();
+
+    if (continuationAvailable && /继续|已有\s*topic|topic\s*下|item|alt\+z|⌥⇧z/i.test(request)) {
+      return {
+        recommendedTool: 'CreateTopicItems',
+        cardFamily: 'topic-item',
+        reason: '当前请求明确指向已有 Topic 下的继续提取，优先沿用 Topic continuation。',
+      };
+    }
+
+    if (/:::/u.test(content)) {
+      return {
+        recommendedTool: 'CreateCdfMultilineCards',
+        cardFamily: 'cdf-concept-multiline',
+        reason: '材料已经带有 ::: 概念多行结构，最适合走 CDF multiline 工具。',
+      };
+    }
+
+    if (descriptorKind === 'descriptor-multiline') {
+      return {
+        recommendedTool: 'CreateCdfMultilineCards',
+        cardFamily: 'cdf-descriptor-multiline',
+        reason: '材料带有 ;;; 描述符分组结构，适合直接走 CDF multiline 工具。',
+      };
+    }
+
+    if (descriptorKind.startsWith('definition-')) {
+      return {
+        recommendedTool: 'CreateConceptDefinitionCards',
+        cardFamily: 'concept-definition',
+        reason: '材料里已经有概念与定义方向标记，最适合创建概念定义卡。',
+      };
+    }
+
+    if (descriptorKind.startsWith('descriptor-')) {
+      return {
+        recommendedTool: 'CreateDescriptorCards',
+        cardFamily: 'descriptor',
+        reason: '材料里已经有描述符方向标记，最适合创建描述符卡。',
+      };
+    }
+
+    if (ClozeDetector.hasClozes(content)) {
+      return {
+        recommendedTool: 'CreateInlineCards',
+        cardFamily: 'inline-multi-cloze',
+        reason: '材料里已经有挖空标记，适合直接创建单块挖空卡。',
+      };
+    }
+
+    if (blockType === 'h') {
+      return {
+        recommendedTool: 'CreateNativeHeadingCards',
+        cardFamily: 'native-heading',
+        reason: '当前块是标题块，优先使用原生标题卡工具能更贴近思源结构。',
+      };
+    }
+
+    if (blockType === 's') {
+      return {
+        recommendedTool: 'CreateNativeSuperBlockCards',
+        cardFamily: 'native-super-block',
+        reason: '当前块是超级块，优先使用原生超级块卡工具。',
+      };
+    }
+
+    if (blockType === 'i') {
+      return {
+        recommendedTool: 'CreateNativeListItemCards',
+        cardFamily: 'native-list-item',
+        reason: '当前块是列表项，优先尝试原生列表项卡工具。',
+      };
+    }
+
+    if (answerSyntax === 'mark-equals' || answerSyntax === 'siyuan-mark-span') {
+      return {
+        recommendedTool: 'CreateNativeMarkCards',
+        cardFamily: 'native-mark',
+        reason: '材料里已经有高亮挖空标记，更适合原生标记卡工具。',
+      };
+    }
+
+    if (content.includes('<>') || content.includes('<<')) {
+      return {
+        recommendedTool: 'CreateInlineCards',
+        cardFamily: 'inline-bidirectional',
+        reason: '材料里已经包含双向提示符，适合单块双向卡。',
+      };
+    }
+
+    if (content.includes('>>')) {
+      return {
+        recommendedTool: 'CreateInlineCards',
+        cardFamily: 'inline-quick',
+        reason: '材料里已经包含快速问答提示符，适合单块 quick card。',
+      };
+    }
+
+    if (/概念卡|concept/i.test(lowerRequest) && !cueAnswer.cue && content.length <= 80) {
+      return {
+        recommendedTool: 'CreateInlineCards',
+        cardFamily: 'inline-concept',
+        reason: '请求明显偏向概念卡，且材料较短，适合用单块 concept 卡。',
+      };
+    }
+
+    return {
+      recommendedTool: 'CreatePairCards',
+      cardFamily: cueAnswer.cue && cueAnswer.answer ? 'pair-basic' : 'pair-basic-qa',
+      reason: '当前材料更像普通问答或术语解释，优先走成对卡工具最稳妥。',
+    };
   }
 
   private async resolveWriteTarget(args: Record<string, unknown>): Promise<ResolvedWriteTarget> {
