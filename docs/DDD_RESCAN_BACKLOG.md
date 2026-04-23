@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 123)
+Last update: 2026-04-24 (Round 124)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - review dialog overflow/drag root-cause cleanup and mixed browser balance
+
+- Task: 按确认方案把 review dialog 的横向滚动、评分区挤压和 header 拖拽命中问题从布局根部修掉，并把 browser toolbar 收口到“右侧主按钮略调淡 + 中部/过滤态补轻量颜色锚点”的混合配色。
+- Touched slice: Review and Browser active UI path across `src/ui/review/v2/{ReviewContent.vue,ReviewActions.vue,ReviewHeader.vue,__tests__/ReviewActions.spec.ts,__tests__/ReviewHeader.spec.ts,__tests__/ReviewContent.styles.spec.ts}`, `src/ui/review/v2/components/{SkipMenuButton.vue,__tests__/SkipMenuButton.spec.ts}`, `src/ui/browser/{SRSBrowser.scss,__tests__/BrowserToolbar.styles.spec.ts}`, and this backlog.
+- Debt fixed now: review content 外层不再用通用 `overflow: auto` 承担整块滚动，真正的滚动被压回各自内容子区并统一补上 `min-width: 0` / `overflow-x: hidden`；desktop rating 左侧 skip split control 不再靠 `min-height: 56px` 撑整列，而是改成只在 review stacked 场景生效的紧凑皮肤；header 不再依赖左右碎片 drag fill，而是换成连续的 `resize__move` 背景命中层；browser toolbar 右侧语义按钮从重实底略微调淡，同时给中心计数和过滤激活态补上轻量主色锚点。
+- Debt deferred: `SkipMenuButton` 仍保留插件自己的 split-menu 结构，没有彻底改写成思源原生单按钮 `skip`；browser toolbar 左侧搜索和 select 仍保持中性控件，没有扩成更多彩色主按钮。
+- Why deferred: 这轮用户阻塞点是 review dialog 的横向滚动、被挤压的显示答案/skip 区，以及几乎不可用的 header 拖拽；继续扩大到 skip 交互模型重写或 toolbar 左侧彩色化，会超出当前安全切片并增加回归面。
+- Next safe step: 用真实 dialog 截图再验一次 desktop rating 左列与原生高度差，如果还偏厚，只继续细调 `SkipMenuButton--desktop-stacked` 的局部密度，不要再改 review action 语义。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewContent.styles.spec.ts src/ui/review/v2/components/__tests__/SkipMenuButton.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.selection.test.ts src/ui/browser/__tests__/BrowserToolbar.styles.spec.ts src/ui/shared/__tests__/siyuanmemo-admin-skin.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - native review action density and browser toolbar de-gray
 

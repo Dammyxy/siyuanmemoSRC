@@ -26,6 +26,17 @@ describe('SkipMenuButton', () => {
     expect(primary.classes()).toContain('b3-tooltips');
   });
 
+  it('applies the compact desktop stacked skin only when requested', () => {
+    const wrapper = mount(SkipMenuButton, {
+      props: {
+        desktopStacked: true,
+      },
+    });
+
+    expect(wrapper.classes()).toContain('skip-menu-button--desktop-stacked');
+    expect(wrapper.classes()).not.toContain('skip-menu-button--mobile');
+  });
+
   it('opens a local upward panel from the integrated trailing affordance', async () => {
     const wrapper = mount(SkipMenuButton, {
       attachTo: document.body,

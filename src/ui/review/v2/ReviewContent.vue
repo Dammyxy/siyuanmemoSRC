@@ -2136,7 +2136,10 @@ const content = computed(() => props.content);
   inset: 0;
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  overflow-x: hidden;
 }
 
 .fsrs-review-v2-content__empty {
@@ -2175,32 +2178,28 @@ const content = computed(() => props.content);
   text-align: center;
 }
 
+.fsrs-review-v2-content__html,
+.fsrs-review-v2-content__protyle,
+.fsrs-review-v2-content__xiuyuan,
+.fsrs-review-v2-content__multi-cloze,
+.fsrs-review-v2-content__concept-definition-card,
+.fsrs-review-v2-content__concept-card,
+.fsrs-review-v2-content__quick-card,
+.fsrs-review-v2-content__descriptor-card {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .fsrs-review-v2-content__html {
   padding: 8px;
 }
 
-.fsrs-review-v2-content__protyle {
-  flex: 1;
-  overflow: auto;
-}
-
-.fsrs-review-v2-content__xiuyuan {
-  flex: 1;
-  overflow: auto;
-}
-
-.fsrs-review-v2-content__quick-card {
-  flex: 1;
-  overflow: auto;
-}
-
-.fsrs-review-v2-content__descriptor-card {
-  flex: 1;
-  overflow: auto;
-}
-
 .fsrs-review-v2-content__image-occlusion-card {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   position: relative;
@@ -2208,6 +2207,8 @@ const content = computed(() => props.content);
 
 .fsrs-review-v2-content__protyle-host {
   padding: 0;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 /* Xiuyuan 模板卡片答案分隔线 */

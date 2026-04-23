@@ -4,6 +4,7 @@
     class="skip-menu-button"
     :class="{
       'skip-menu-button--mobile': props.isMobile,
+      'skip-menu-button--desktop-stacked': props.desktopStacked,
       'skip-menu-button--open': menuOpen,
     }"
   >
@@ -70,6 +71,7 @@ interface Props {
   queueSize?: number;
   isMobile?: boolean;
   canScheduleDate?: boolean;
+  desktopStacked?: boolean;
 }
 
 interface Emits {
@@ -80,6 +82,7 @@ interface Emits {
 
 const props = withDefaults(defineProps<Props>(), {
   canScheduleDate: true,
+  desktopStacked: false,
 });
 const emit = defineEmits<Emits>();
 
@@ -335,5 +338,48 @@ onBeforeUnmount(() => {
 
 .skip-menu-button--mobile .skip-menu-button__panel {
   min-width: 184px;
+}
+
+.skip-menu-button--desktop-stacked {
+  grid-template-columns: minmax(0, 1fr) 32px;
+  min-height: 44px;
+  border-radius: 6px;
+}
+
+.skip-menu-button--desktop-stacked .skip-menu-button__main,
+.skip-menu-button--desktop-stacked .skip-menu-button__trigger {
+  min-height: 44px;
+}
+
+.skip-menu-button--desktop-stacked .skip-menu-button__main {
+  gap: 8px;
+  padding-inline: 10px;
+  border-radius: 6px 0 0 6px;
+}
+
+.skip-menu-button--desktop-stacked .skip-menu-button__trigger {
+  border-radius: 0 6px 6px 0;
+}
+
+.skip-menu-button--desktop-stacked .skip-menu-button__trigger::before {
+  top: 8px;
+  bottom: 8px;
+}
+
+.skip-menu-button--desktop-stacked .skip-menu-button__icon {
+  width: 24px;
+  font-size: 20px;
+}
+
+.skip-menu-button--desktop-stacked .skip-menu-button__label {
+  font-size: 13px;
+}
+
+.skip-menu-button--desktop-stacked .skip-menu-button__hint {
+  font-size: 10px;
+}
+
+.skip-menu-button--desktop-stacked .skip-menu-button__panel {
+  bottom: calc(100% + 8px);
 }
 </style>

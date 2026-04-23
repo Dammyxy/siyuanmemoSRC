@@ -45,7 +45,21 @@ function mountReviewActions(
     },
     global: {
       stubs: {
-        SkipMenuButton: true,
+        SkipMenuButton: {
+          name: 'SkipMenuButton',
+          props: {
+            desktopStacked: {
+              type: Boolean,
+              default: false,
+            },
+          },
+          template: `
+            <div
+              class="skip-menu-button-stub"
+              :class="{ 'skip-menu-button-stub--desktop-stacked': desktopStacked }"
+            ></div>
+          `,
+        },
         InsertPositionDialog: true,
         ScheduleDateDialog: true,
         teleport: true,
@@ -130,7 +144,7 @@ describe('ReviewActions layout', () => {
     expect(root.classes()).toContain('card__action--desktop');
     expect(root.find('.card__action-back--desktop-reveal').exists()).toBe(true);
     expect(root.find('.card__action-spacer').exists()).toBe(true);
-    expect(root.find('skip-menu-button-stub').exists()).toBe(false);
+    expect(root.find('.skip-menu-button-stub').exists()).toBe(false);
     expect(revealButton.find('.card__icon').exists()).toBe(false);
     expect(revealButton.text()).toContain('Space');
     expect(revealButton.text()).toContain('Enter');
@@ -152,7 +166,9 @@ describe('ReviewActions layout', () => {
     expect(inlineStyle).not.toContain('--review-rating-columns');
     expect(columns).toHaveLength(5);
     expect(columns[0]?.classes()).toContain('card__action-column--stack');
-    expect(columns[0]?.find('skip-menu-button-stub').exists()).toBe(true);
+    const skipStub = columns[0]?.getComponent({ name: 'SkipMenuButton' });
+    expect(skipStub?.props('desktopStacked')).toBe(true);
+    expect(columns[0]?.find('.skip-menu-button-stub').classes()).toContain('skip-menu-button-stub--desktop-stacked');
     expect(columns[0]?.get('button').classes()).toContain('card__action-back--stacked');
     expect(root.get('button[data-type="1"]').classes()).toContain('b3-button--error');
     expect(root.get('button[data-type="2"]').classes()).toContain('b3-button--warning');
@@ -169,7 +185,7 @@ describe('ReviewActions layout', () => {
 
     const root = wrapper.get('.card__action--reveal');
     expect(root.find('button[data-type="-1"]').exists()).toBe(true);
-    expect(root.find('skip-menu-button-stub').exists()).toBe(false);
+    expect(root.find('.skip-menu-button-stub').exists()).toBe(false);
   });
 
   it('keeps the reveal stage sticky on mobile', () => {
@@ -179,7 +195,7 @@ describe('ReviewActions layout', () => {
 
     const root = wrapper.get('.card__action--reveal');
     expect(root.classes()).toContain('card__action--mobile');
-    expect(root.find('skip-menu-button-stub').exists()).toBe(true);
+    expect(root.find('.skip-menu-button-stub').exists()).toBe(true);
   });
 
   it('uses a native flex desktop layout for topic next-card mode without the mobile grid variable', () => {
@@ -199,7 +215,9 @@ describe('ReviewActions layout', () => {
     expect(root.classes()).toContain('card__action--desktop');
     expect(columns).toHaveLength(2);
     expect(columns[0]?.classes()).toContain('card__action-column--stack');
-    expect(columns[0]?.find('skip-menu-button-stub').exists()).toBe(true);
+    const skipStub = columns[0]?.getComponent({ name: 'SkipMenuButton' });
+    expect(skipStub?.props('desktopStacked')).toBe(true);
+    expect(columns[0]?.find('.skip-menu-button-stub').classes()).toContain('skip-menu-button-stub--desktop-stacked');
     expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
   });
 
