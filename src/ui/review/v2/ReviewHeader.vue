@@ -8,6 +8,11 @@
   >
     <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
       <div class="siyuanmemo-review-header__left">
+        <span
+          v-if="!props.isMobile"
+          class="siyuanmemo-review-header__drag-surface siyuanmemo-review-header__drag-surface--left siyuanmemo-review-header__drag-zone resize__move"
+          aria-hidden="true"
+        ></span>
         <div
           class="block__logo siyuanmemo-review-header__brand"
           :class="{
@@ -18,11 +23,6 @@
           <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
           <span class="siyuanmemo-review-header__brand-text">{{ displayTitle }}</span>
         </div>
-        <span
-          v-if="!props.isMobile"
-          class="siyuanmemo-review-header__drag-fill siyuanmemo-review-header__drag-zone resize__move"
-          aria-hidden="true"
-        ></span>
       </div>
 
       <div class="siyuanmemo-review-header__center">
@@ -114,7 +114,7 @@
       <div class="siyuanmemo-review-header__right">
         <span
           v-if="!props.isMobile"
-          class="siyuanmemo-review-header__drag-fill siyuanmemo-review-header__drag-fill--right siyuanmemo-review-header__drag-zone resize__move"
+          class="siyuanmemo-review-header__drag-surface siyuanmemo-review-header__drag-surface--right siyuanmemo-review-header__drag-zone resize__move"
           aria-hidden="true"
         ></span>
         <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
@@ -637,6 +637,7 @@ onUnmounted(() => {
 
 .siyuanmemo-review-header__left,
 .siyuanmemo-review-header__right {
+  position: relative;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -678,19 +679,29 @@ onUnmounted(() => {
   -webkit-app-region: drag;
 }
 
-.siyuanmemo-review-header__drag-fill {
-  flex: 1 1 auto;
-  min-width: 24px;
-  min-height: 30px;
+.siyuanmemo-review-header__drag-surface {
+  position: absolute;
+  inset: 4px 0;
   border-radius: 4px;
 }
 
-.siyuanmemo-review-header__drag-fill--right {
-  min-width: 12px;
+.siyuanmemo-review-header__drag-surface--left {
+  right: 0;
+}
+
+.siyuanmemo-review-header__drag-surface--right {
+  left: 0;
+}
+
+.siyuanmemo-review-header__brand,
+.siyuanmemo-review-header__toolbar,
+.siyuanmemo-review-header__mobile-close {
+  position: relative;
+  z-index: 1;
 }
 
 .siyuanmemo-review-header__brand:hover,
-.siyuanmemo-review-header__drag-fill:hover {
+.siyuanmemo-review-header__drag-surface:hover {
   background: color-mix(in srgb, var(--b3-theme-on-surface-light) 6%, transparent);
 }
 
@@ -970,10 +981,6 @@ onUnmounted(() => {
 @media (max-width: 900px) {
   .block__icons.siyuanmemo-review-header {
     grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-
-  .siyuanmemo-review-header__drag-fill {
-    display: none;
   }
 
   .siyuanmemo-review-header__center {

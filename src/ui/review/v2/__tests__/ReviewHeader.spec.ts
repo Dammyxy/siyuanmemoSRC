@@ -122,7 +122,7 @@ describe('ReviewHeader', () => {
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
   });
 
-  it('expands the desktop drag region to the non-interactive header background without making controls draggable', () => {
+  it('exposes left and right desktop drag surfaces while keeping controls outside the drag hit layers', () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header: createHeaderState(),
@@ -135,9 +135,17 @@ describe('ReviewHeader', () => {
     expect(wrapper.find('.siyuanmemo-review-header__drag').exists()).toBe(false);
     expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('resize__move');
     expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('siyuanmemo-review-header__drag-zone');
-    expect(wrapper.findAll('.siyuanmemo-review-header__drag-fill')).toHaveLength(2);
-    expect(wrapper.get('.siyuanmemo-review-header__summary').classes()).not.toContain('resize__move');
-    expect(wrapper.get('.siyuanmemo-review-header__toolbar-button').classes()).not.toContain('resize__move');
+    expect(wrapper.findAll('.siyuanmemo-review-header__drag-surface')).toHaveLength(2);
+    expect(wrapper.find('.siyuanmemo-review-header__drag-surface--left').exists()).toBe(true);
+    expect(wrapper.find('.siyuanmemo-review-header__drag-surface--right').exists()).toBe(true);
+
+    const summary = wrapper.get('.siyuanmemo-review-header__summary');
+    const toolbarButton = wrapper.get('.siyuanmemo-review-header__toolbar-button');
+
+    expect(summary.classes()).not.toContain('resize__move');
+    expect(toolbarButton.classes()).not.toContain('resize__move');
+    expect(summary.element.closest('.siyuanmemo-review-header__drag-surface')).toBeNull();
+    expect(toolbarButton.element.closest('.siyuanmemo-review-header__drag-surface')).toBeNull();
   });
 
   it('falls back from props.title to header.title and then stats.queueName for the brand text', () => {

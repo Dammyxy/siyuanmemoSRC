@@ -4,6 +4,16 @@ Last update: 2026-04-23 (Round 122)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-23 - review dialog skip-right alignment and browser toolbar palette
+
+- Task: 按确认方案把 review dialog 底部动作条改成稳定的三段式桌面布局，让显示答案后 `skip` 固定在最右、reveal/rating 高度对齐，同时扩大 header 拖拽命中层，并把 browser toolbar 主动作提亮成更有层次的语义色。
+- Touched slice: Review and Browser active UI path across `src/ui/review/v2/{ReviewActions.vue,ReviewHeader.vue,__tests__/ReviewActions.spec.ts,__tests__/ReviewHeader.spec.ts}`, `src/ui/browser/{BrowserToolbar.vue,SRSBrowser.scss,__tests__/BrowserToolbar.selection.test.ts,__tests__/BrowserToolbar.styles.spec.ts}`.
+- Debt fixed now: 桌面端 review actions 不再把 `skip` 塞进评分列或左侧堆叠列里，而是固定在右侧独立槽位；显示答案和评分阶段现在共用同一套桌面高度 token；review header 从零碎的小块 `resize__move` 改成左右背景 drag surface + 前景 no-drag 控件；browser toolbar 主动作补上 `page/global-select/practice/open-in-tab` 语义 class，并把配色从灰色 outline 收口成蓝/橙/绿/主色的分层方案。
+- Debt deferred: 这轮没有把 review action bar 像素级复刻成原生 `openCard.ts`；移动端 review 布局也没有跟着重做；browser toolbar 的其它辅助按钮仍是中性按钮，只是 hover/active 更亮。
+- Why deferred: 用户这轮真实阻塞是桌面弹窗里 `skip` 被挤压、reveal/rating 高度不齐、header 难拖和 toolbar 发灰；继续扩大到 full native spacing 复刻或整条 toolbar 全彩化，会超出当前安全切片并增加回归面。
+- Next safe step: 如果这轮在真实弹窗里体验稳定，可以再基于截图验收细调桌面端 spacing token，并评估 browser toolbar 是否还需要给少数高频辅助动作再加一层轻量语义色。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.selection.test.ts src/ui/browser/__tests__/BrowserToolbar.styles.spec.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-23 - review dialog native desktop alignment
 
 - Task: 继续收口 CDF/复习弹窗模式的桌面动作条、header 拖拽区和 dialog shell 按钮配色，让显示答案后评分区不换行、header 可在非交互背景拖拽、review dialog 恢复原生按钮颜色。

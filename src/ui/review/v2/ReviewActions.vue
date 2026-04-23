@@ -4,65 +4,30 @@
     class="card__action card__action--reveal fn__flex"
     :class="{
       'card__action--mobile': props.isMobile,
+      'card__action--desktop': !props.isMobile,
     }"
   >
-    <button
-      class="b3-button b3-button--cancel card__action-button card__action-back"
-      :disabled="!canBack"
-      @click="handleBackClick"
-    >
-      <svg><use xlink:href="#iconLeft"></use></svg>
-      <span v-if="props.isMobile">{{ t('backToPractice', '返回') }}</span>
-      <span v-else>(p / q)</span>
-    </button>
-
-    <button
-      data-type="-1"
-      aria-label="Space/Enter"
-      class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal"
-      @click="handleRevealClick"
-    >
-      <div class="card__icon">👀</div>
-      {{ t('showAnswer', '显示答案') }}
-    </button>
-
-    <div class="card__action-skip">
-      <SkipMenuButton
-        :i18n="i18n"
-        :queue-size="remainingSize"
-        :is-mobile="props.isMobile"
-        :can-schedule-date="canScheduleDate"
-        @skip="emit('skip')"
-        @insert="handleInsert"
-        @schedule="handleSchedule"
-      />
-    </div>
-  </div>
-
-  <div
-    v-else
-    class="card__action card__action--rating fn__flex"
-    :class="{
-      'card__action--mobile': props.isMobile,
-    }"
-    :style="ratingStageStyle"
-  >
-    <div class="card__action-column card__action-column--stack">
-      <span
-        v-if="!props.isMobile"
-        class="card__action-meta card__action-meta--placeholder"
-        aria-hidden="true"
-      ></span>
+    <template v-if="props.isMobile">
       <button
-        class="b3-button b3-button--cancel card__action-button card__action-back card__action-back--stacked"
+        class="b3-button b3-button--cancel card__action-button card__action-back"
         :disabled="!canBack"
         @click="handleBackClick"
       >
         <svg><use xlink:href="#iconLeft"></use></svg>
-        <span v-if="props.isMobile">{{ t('backToPractice', '返回') }}</span>
-        <span v-else>(p / q)</span>
+        <span>{{ t('backToPractice', '返回') }}</span>
       </button>
-      <div class="card__action-skip card__action-skip--stacked">
+
+      <button
+        data-type="-1"
+        aria-label="Space/Enter"
+        class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal"
+        @click="handleRevealClick"
+      >
+        <div class="card__icon">👀</div>
+        {{ t('showAnswer', '显示答案') }}
+      </button>
+
+      <div class="card__action-skip">
         <SkipMenuButton
           :i18n="i18n"
           :queue-size="remainingSize"
@@ -73,46 +38,194 @@
           @schedule="handleSchedule"
         />
       </div>
-    </div>
+    </template>
 
-    <template v-if="isTopicCard">
-      <div class="card__action-column">
+    <template v-else>
+      <div class="card__action-slot card__action-slot--back">
+        <button
+          class="b3-button b3-button--cancel card__action-button card__action-button--desktop-tall card__action-back"
+          :disabled="!canBack"
+          @click="handleBackClick"
+        >
+          <svg><use xlink:href="#iconLeft"></use></svg>
+          <span>(p / q)</span>
+        </button>
+      </div>
+
+      <div class="card__action-center card__action-center--reveal">
         <span
-          v-if="!props.isMobile"
           class="card__action-meta card__action-meta--placeholder"
           aria-hidden="true"
         ></span>
         <button
-          data-type="3"
+          data-type="-1"
           aria-label="Space/Enter"
-          class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-button card__action-main"
-          @click="handleTopicNextClick"
+          class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-button--desktop-tall card__action-main card__action-main--reveal"
+          @click="handleRevealClick"
         >
-          <div class="card__icon">📖</div>
-          {{ t('nextCard', '下一张') }}
-          <template v-if="!props.isMobile"> ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }}) </template>
+          <div class="card__icon">👀</div>
+          {{ t('showAnswer', '显示答案') }}
         </button>
       </div>
+
+      <div class="card__action-slot card__action-slot--skip card__action-slot--skip-fixed">
+        <div class="card__action-skip card__action-skip--desktop">
+          <SkipMenuButton
+            :i18n="i18n"
+            :queue-size="remainingSize"
+            :is-mobile="props.isMobile"
+            :can-schedule-date="canScheduleDate"
+            @skip="emit('skip')"
+            @insert="handleInsert"
+            @schedule="handleSchedule"
+          />
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div
+    v-else
+    class="card__action card__action--rating fn__flex"
+    :class="{
+      'card__action--mobile': props.isMobile,
+      'card__action--desktop': !props.isMobile,
+    }"
+    :style="ratingStageStyle"
+  >
+    <template v-if="props.isMobile">
+      <div class="card__action-column card__action-column--stack">
+        <span
+          class="card__action-meta card__action-meta--placeholder"
+          aria-hidden="true"
+        ></span>
+        <button
+          class="b3-button b3-button--cancel card__action-button card__action-back card__action-back--stacked"
+          :disabled="!canBack"
+          @click="handleBackClick"
+        >
+          <svg><use xlink:href="#iconLeft"></use></svg>
+          <span>{{ t('backToPractice', '返回') }}</span>
+        </button>
+        <div class="card__action-skip card__action-skip--stacked">
+          <SkipMenuButton
+            :i18n="i18n"
+            :queue-size="remainingSize"
+            :is-mobile="props.isMobile"
+            :can-schedule-date="canScheduleDate"
+            @skip="emit('skip')"
+            @insert="handleInsert"
+            @schedule="handleSchedule"
+          />
+        </div>
+      </div>
+
+      <template v-if="isTopicCard">
+        <div class="card__action-column">
+          <span
+            class="card__action-meta card__action-meta--placeholder"
+            aria-hidden="true"
+          ></span>
+          <button
+            data-type="3"
+            aria-label="Space/Enter"
+            class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-button card__action-main"
+            @click="handleTopicNextClick"
+          >
+            <div class="card__icon">📖</div>
+            {{ t('nextCard', '下一张') }}
+          </button>
+        </div>
+      </template>
+
+      <template v-else>
+        <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
+          <span
+            class="card__action-meta"
+            :class="getDueMetaClass(g.value)"
+          >{{ g.nextDue || '' }}</span>
+          <button
+            :data-type="g.value"
+            :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
+            class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main"
+            :class="getButtonVariant(g.value)"
+            @click="handleGradeClick(g.value, $event)"
+          >
+            <div class="card__icon">{{ g.emoji }}</div>
+            {{ g.label }}
+          </button>
+        </div>
+      </template>
     </template>
 
     <template v-else>
-      <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
-        <span
-          v-if="!props.isMobile"
-          class="card__action-meta"
-          :class="getDueMetaClass(g.value)"
-        >{{ g.nextDue || '' }}</span>
+      <div class="card__action-slot card__action-slot--back">
         <button
-          :data-type="g.value"
-          :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
-          class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main"
-          :class="getButtonVariant(g.value)"
-          @click="handleGradeClick(g.value, $event)"
+          class="b3-button b3-button--cancel card__action-button card__action-button--desktop-tall card__action-back"
+          :disabled="!canBack"
+          @click="handleBackClick"
         >
-          <div class="card__icon">{{ g.emoji }}</div>
-          {{ g.label }}
-          <template v-if="!props.isMobile"> ({{ g.kb }}) </template>
+          <svg><use xlink:href="#iconLeft"></use></svg>
+          <span>(p / q)</span>
         </button>
+      </div>
+
+      <div
+        class="card__action-center card__action-center--rating"
+        :style="desktopRatingGridStyle"
+      >
+        <template v-if="isTopicCard">
+          <div class="card__action-column">
+            <span
+              class="card__action-meta card__action-meta--placeholder"
+              aria-hidden="true"
+            ></span>
+            <button
+              data-type="3"
+              aria-label="Space/Enter"
+              class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-button card__action-button--desktop-tall card__action-main"
+              @click="handleTopicNextClick"
+            >
+              <div class="card__icon">📖</div>
+              {{ t('nextCard', '下一张') }}
+              <template>( {{ t('space', '空格') }} / {{ t('enterKey', '回车') }} )</template>
+            </button>
+          </div>
+        </template>
+
+        <template v-else>
+          <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
+            <span
+              class="card__action-meta"
+              :class="getDueMetaClass(g.value)"
+            >{{ g.nextDue || '' }}</span>
+            <button
+              :data-type="g.value"
+              :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
+              class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-button--desktop-tall card__action-main"
+              :class="getButtonVariant(g.value)"
+              @click="handleGradeClick(g.value, $event)"
+            >
+              <div class="card__icon">{{ g.emoji }}</div>
+              {{ g.label }}
+              <template>({{ g.kb }})</template>
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <div class="card__action-slot card__action-slot--skip card__action-slot--skip-fixed">
+        <div class="card__action-skip card__action-skip--desktop">
+          <SkipMenuButton
+            :i18n="i18n"
+            :queue-size="remainingSize"
+            :is-mobile="props.isMobile"
+            :can-schedule-date="canScheduleDate"
+            @skip="emit('skip')"
+            @insert="handleInsert"
+            @schedule="handleSchedule"
+          />
+        </div>
       </div>
     </template>
   </div>
@@ -221,6 +334,10 @@ const ratingStageStyle = computed(() => (
     ? { '--review-rating-columns': String(ratingStageColumns.value) }
     : undefined
 ));
+
+const desktopRatingGridStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${isTopicCard.value ? 1 : Math.max(props.actions.grades.length, 1)}, minmax(0, 1fr))`,
+}));
 
 const showInsertDialog = ref(false);
 const showScheduleDialog = ref(false);
@@ -465,6 +582,11 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 <style scoped>
 .card__action {
+  --review-desktop-back-width: 118px;
+  --review-desktop-skip-width: 168px;
+  --review-desktop-button-height: 68px;
+  --review-desktop-meta-height: 20px;
+  --review-desktop-meta-gap: 6px;
   display: flex;
   align-items: stretch;
   gap: 12px;
@@ -486,14 +608,60 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   align-items: stretch;
 }
 
+.card__action--desktop {
+  display: grid;
+  grid-template-columns: var(--review-desktop-back-width) minmax(0, 1fr) var(--review-desktop-skip-width);
+}
+
 .card__action-button {
   white-space: nowrap;
 }
 
+.card__action-button--desktop-tall {
+  min-height: var(--review-desktop-button-height);
+}
+
+.card__action-slot {
+  min-width: 0;
+  display: flex;
+}
+
+.card__action-slot--back {
+  min-width: var(--review-desktop-back-width);
+}
+
+.card__action-slot--skip {
+  min-width: var(--review-desktop-skip-width);
+}
+
+.card__action--desktop .card__action-slot {
+  padding-top: calc(var(--review-desktop-meta-height) + var(--review-desktop-meta-gap));
+}
+
+.card__action-slot--skip-fixed {
+  justify-content: flex-start;
+}
+
+.card__action-center {
+  min-width: 0;
+}
+
+.card__action-center--reveal {
+  display: grid;
+  grid-template-rows: var(--review-desktop-meta-height) minmax(0, var(--review-desktop-button-height));
+  row-gap: var(--review-desktop-meta-gap);
+}
+
+.card__action-center--rating {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
 .card__action-back {
   width: 100%;
-  flex: 0 0 118px;
-  min-width: 118px;
+  flex: 0 0 var(--review-desktop-back-width);
+  min-width: var(--review-desktop-back-width);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -501,6 +669,11 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   min-height: 44px;
   padding: 0 12px;
   border-radius: 6px;
+}
+
+.card__action--desktop .card__action-back {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .card__action-back--stacked {
@@ -530,10 +703,21 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   width: 100%;
 }
 
+.card__action-skip--desktop {
+  width: 100%;
+}
+
 .card__action-skip :deep(.skip-menu-button) {
   width: 100%;
   min-height: 44px;
   border-radius: 6px;
+}
+
+.card__action-skip--desktop :deep(.skip-menu-button),
+.card__action-skip--desktop :deep(.skip-menu-button__main),
+.card__action-skip--desktop :deep(.skip-menu-button__trigger) {
+  min-height: var(--review-desktop-button-height);
+  height: var(--review-desktop-button-height);
 }
 
 .card__action-skip--stacked :deep(.skip-menu-button) {
@@ -592,26 +776,16 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   text-align: center;
 }
 
-.card__action--rating .card__action-main,
-.card__action--rating .card__action-skip :deep(.skip-menu-button) {
-  min-height: 68px;
-}
-
-.card__action--rating .card__action-skip :deep(.skip-menu-button__main),
-.card__action--rating .card__action-skip :deep(.skip-menu-button__trigger) {
-  height: 100%;
-}
-
 .card__action--reveal .card__action-main--reveal {
   flex: 1 1 auto;
 }
 
-.card__action--reveal .card__action-skip {
-  flex: 0 0 clamp(144px, 18vw, 172px);
+.card__action--desktop .card__action-column {
+  gap: var(--review-desktop-meta-gap);
 }
 
-.card__action--rating .card__action-column {
-  gap: 6px;
+.card__action--desktop .card__action-column > span {
+  height: var(--review-desktop-meta-height);
 }
 
 .card__icon {

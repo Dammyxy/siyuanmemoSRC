@@ -1859,13 +1859,18 @@
 
 .card-browser__toolbar {
   --toolbar-control-height: 30px;
+  --toolbar-utility-accent: var(--b3-theme-info, var(--b3-theme-primary));
+  --toolbar-page-accent: var(--b3-theme-info, var(--b3-theme-primary));
+  --toolbar-global-accent: var(--b3-theme-warning, #f59e0b);
+  --toolbar-practice-accent: var(--b3-theme-success, #16a34a);
+  --toolbar-open-accent: var(--b3-theme-primary);
   padding: 6px 8px;
   border-bottom: 1px solid var(--b3-border-color);
   background: var(--b3-theme-surface);
 }
 
 .card-browser__toolbar .toolbar__right .b3-button {
-  border-color: color-mix(in srgb, var(--b3-border-color) 82%, var(--b3-theme-primary) 18%);
+  border-color: color-mix(in srgb, var(--b3-border-color) 76%, var(--toolbar-utility-accent) 24%);
   background: color-mix(in srgb, var(--b3-theme-background) 94%, var(--b3-theme-surface));
   color: var(--b3-theme-on-surface);
   box-shadow: none;
@@ -1873,43 +1878,82 @@
 }
 
 .card-browser__toolbar .toolbar__right .b3-button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 34%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 78%, var(--b3-theme-background));
-  color: var(--b3-theme-primary);
+  border-color: color-mix(in srgb, var(--toolbar-utility-accent) 46%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-utility-accent) 11%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-utility-accent) 84%, var(--b3-theme-on-surface));
 }
 
 .card-browser__toolbar .toolbar__right .b3-button:active:not(:disabled) {
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 42%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 68%, var(--b3-theme-background));
+  border-color: color-mix(in srgb, var(--toolbar-utility-accent) 56%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-utility-accent) 17%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-utility-accent) 90%, var(--b3-theme-on-surface));
 }
 
 .card-browser__toolbar .toolbar__right .b3-button:disabled {
   opacity: 0.5;
 }
 
-.card-browser__toolbar .toolbar__action--page-select,
-.card-browser__toolbar .toolbar__action--practice {
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 46%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 68%, var(--b3-theme-background));
-  color: var(--b3-theme-primary);
+.card-browser__toolbar .toolbar__action {
   font-weight: 600;
+  filter: saturate(1.05);
 }
 
-.card-browser__toolbar .toolbar__action--page-select:hover:not(:disabled),
-.card-browser__toolbar .toolbar__action--practice:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 56%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 78%, var(--b3-theme-background));
+.card-browser__toolbar .toolbar__action--page-select {
+  border-color: color-mix(in srgb, var(--toolbar-page-accent) 56%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-page-accent) 15%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-page-accent) 92%, var(--b3-theme-on-surface));
 }
 
 .card-browser__toolbar .toolbar__action--global-select {
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-surface) 84%, var(--b3-theme-background));
+  border-color: color-mix(in srgb, var(--toolbar-global-accent) 52%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-global-accent) 14%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-global-accent) 88%, var(--b3-theme-on-surface));
 }
 
 .card-browser__toolbar .toolbar__action--global-select.toolbar__action--active {
-  border-color: color-mix(in srgb, var(--b3-theme-primary) 48%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 64%, var(--b3-theme-background));
-  color: var(--b3-theme-primary);
+  border-color: color-mix(in srgb, var(--toolbar-global-accent) 72%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-global-accent) 24%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-global-accent) 96%, var(--b3-theme-on-surface));
+}
+
+.card-browser__toolbar .toolbar__action--practice {
+  border-color: color-mix(in srgb, var(--toolbar-practice-accent) 58%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-practice-accent) 16%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-practice-accent) 90%, var(--b3-theme-on-surface));
+}
+
+.card-browser__toolbar .toolbar__action--open-in-tab {
+  border-color: color-mix(in srgb, var(--toolbar-open-accent) 54%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-open-accent) 14%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-open-accent) 90%, var(--b3-theme-on-surface));
+}
+
+.card-browser__toolbar .toolbar__action--page-select:hover:not(:disabled),
+.card-browser__toolbar .toolbar__action--page-select:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--toolbar-page-accent) 68%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-page-accent) 22%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-page-accent) 98%, var(--b3-theme-on-surface));
+}
+
+.card-browser__toolbar .toolbar__action--global-select:hover:not(:disabled),
+.card-browser__toolbar .toolbar__action--global-select:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--toolbar-global-accent) 64%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-global-accent) 20%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-global-accent) 94%, var(--b3-theme-on-surface));
+}
+
+.card-browser__toolbar .toolbar__action--practice:hover:not(:disabled),
+.card-browser__toolbar .toolbar__action--practice:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--toolbar-practice-accent) 68%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-practice-accent) 22%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-practice-accent) 94%, var(--b3-theme-on-surface));
+}
+
+.card-browser__toolbar .toolbar__action--open-in-tab:hover:not(:disabled),
+.card-browser__toolbar .toolbar__action--open-in-tab:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--toolbar-open-accent) 68%, var(--b3-border-color));
+  background: color-mix(in srgb, var(--toolbar-open-accent) 21%, var(--b3-theme-background));
+  color: color-mix(in srgb, var(--toolbar-open-accent) 96%, var(--b3-theme-on-surface));
 }
 
 .card-browser__toolbar .toolbar__right .b3-button--text {

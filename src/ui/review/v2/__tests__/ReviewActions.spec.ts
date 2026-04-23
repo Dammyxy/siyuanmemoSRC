@@ -119,38 +119,40 @@ describe('ReviewActions topic next action', () => {
 });
 
 describe('ReviewActions layout', () => {
-  it('renders the reveal stage with back, show-answer, and skip actions', () => {
+  it('renders the desktop reveal stage as fixed back, center reveal, and fixed skip slots', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,
     }));
 
     const root = wrapper.get('.card__action--reveal');
-    const children = Array.from(root.element.children).map((node) => (node as HTMLElement).className);
+    const revealButton = root.get('button[data-type="-1"]');
 
-    expect(children[0]).toContain('card__action-back');
-    expect(children[1]).toContain('card__action-main');
-    expect(children[2]).toContain('card__action-skip');
-    expect(root.get('button[data-type="-1"]').classes()).toContain('card__action-button');
-    expect(root.get('button[data-type="-1"]').classes()).toContain('card__action-main--reveal');
-    expect(root.find('skip-menu-button-stub').exists()).toBe(true);
+    expect(root.classes()).toContain('card__action--desktop');
+    expect(root.find('.card__action-slot--back .card__action-back').exists()).toBe(true);
+    expect(root.find('.card__action-center--reveal').exists()).toBe(true);
+    expect(root.find('.card__action-slot--skip-fixed skip-menu-button-stub').exists()).toBe(true);
+    expect(revealButton.classes()).toContain('card__action-button');
+    expect(revealButton.classes()).toContain('card__action-main--reveal');
+    expect(revealButton.classes()).toContain('card__action-button--desktop-tall');
     expect(root.find('button[data-type="1"]').exists()).toBe(false);
   });
 
-  it('renders the desktop rating stage with stacked back/skip and native rating variants', () => {
+  it('renders the desktop rating stage with a fixed right skip slot and native rating variants', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: false,
     }));
 
     const root = wrapper.get('.card__action--rating');
-    const columns = root.findAll('.card__action-column');
+    const columns = root.findAll('.card__action-center--rating .card__action-column');
     const inlineStyle = root.attributes('style') ?? '';
 
+    expect(root.classes()).toContain('card__action--desktop');
     expect(inlineStyle).not.toContain('--review-rating-columns');
-    expect(columns).toHaveLength(5);
-    expect(columns[0].classes()).toContain('card__action-column--stack');
-    expect(columns[0].find('skip-menu-button-stub').exists()).toBe(true);
-    expect(columns[0].get('button').classes()).toContain('card__action-back--stacked');
-    expect(columns[0].get('button').classes()).toContain('card__action-button');
+    expect(columns).toHaveLength(4);
+    expect(root.find('.card__action-column--stack').exists()).toBe(false);
+    expect(root.find('.card__action-slot--back .card__action-back').exists()).toBe(true);
+    expect(root.find('.card__action-slot--skip-fixed skip-menu-button-stub').exists()).toBe(true);
+    expect(root.get('button[data-type="1"]').classes()).toContain('card__action-button--desktop-tall');
     expect(root.get('button[data-type="1"]').classes()).toContain('b3-button--error');
     expect(root.get('button[data-type="2"]').classes()).toContain('b3-button--warning');
     expect(root.get('button[data-type="3"]').classes()).toContain('b3-button--info');
@@ -191,12 +193,14 @@ describe('ReviewActions layout', () => {
     }));
 
     const root = wrapper.get('.card__action--rating');
-    const columns = root.findAll('.card__action-column');
+    const columns = root.findAll('.card__action-center--rating .card__action-column');
     expect(root.attributes('style') ?? '').not.toContain('--review-rating-columns');
-    expect(columns).toHaveLength(2);
-    expect(columns[0].classes()).toContain('card__action-column--stack');
-    expect(columns[0].find('skip-menu-button-stub').exists()).toBe(true);
+    expect(root.classes()).toContain('card__action--desktop');
+    expect(columns).toHaveLength(1);
+    expect(root.find('.card__action-column--stack').exists()).toBe(false);
+    expect(root.find('.card__action-slot--skip-fixed skip-menu-button-stub').exists()).toBe(true);
     expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
+    expect(wrapper.get('button[data-type="3"]').classes()).toContain('card__action-button--desktop-tall');
   });
 
   it('keeps the mobile rating layout on the grid variable for compact screens', () => {

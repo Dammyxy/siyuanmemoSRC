@@ -183,7 +183,7 @@
 
       <button
         v-if="mode === 'dialog' && !props.mobileMode"
-        class="b3-button b3-button--outline"
+        class="b3-button b3-button--outline toolbar__action toolbar__action--open-in-tab"
         @click="$emit('convertToTab')"
         :title="t('openInTab', 'Open')"
       >

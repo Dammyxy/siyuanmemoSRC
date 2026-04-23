@@ -22,6 +22,7 @@ const baseProps = {
     new: 'New',
     cards: 'cards',
     togglePreview: 'Toggle Preview',
+    openInTab: 'Open',
   },
   searchQuery: '',
   currentPreset: 'all',
@@ -164,6 +165,9 @@ describe('BrowserToolbar selection actions', () => {
     const startPracticeButton = findButtonByTitle(wrapper, 'Start Practice');
     expect(startPracticeButton?.text()).toContain('Start Practice');
     expect(startPracticeButton?.classes()).toContain('toolbar__action--practice');
+
+    const openInTabButton = findButtonByTitle(wrapper, 'Open');
+    expect(openInTabButton?.classes()).toContain('toolbar__action--open-in-tab');
   });
 
   it('uses compact density class and short labels at 1366-1679', async () => {
