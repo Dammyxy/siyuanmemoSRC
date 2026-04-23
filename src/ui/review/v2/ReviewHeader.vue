@@ -7,12 +7,6 @@
     }"
   >
     <div class="block__icons siyuanmemo-review-header" :class="{ 'siyuanmemo-review-header--mobile': props.isMobile }">
-      <div
-        v-if="!props.isMobile"
-        class="siyuanmemo-review-header__drag-surface siyuanmemo-review-header__drag-zone resize__move"
-        aria-hidden="true"
-      ></div>
-
       <div class="siyuanmemo-review-header__left">
         <div
           class="block__logo siyuanmemo-review-header__brand"
@@ -24,6 +18,11 @@
           <svg class="block__logoicon"><use xlink:href="#iconRiffCard"></use></svg>
           <span class="siyuanmemo-review-header__brand-text">{{ displayTitle }}</span>
         </div>
+        <span
+          v-if="!props.isMobile"
+          class="siyuanmemo-review-header__drag-fill siyuanmemo-review-header__drag-zone resize__move"
+          aria-hidden="true"
+        ></span>
       </div>
 
       <div class="siyuanmemo-review-header__center">
@@ -113,6 +112,11 @@
       </div>
 
       <div class="siyuanmemo-review-header__right">
+        <span
+          v-if="!props.isMobile"
+          class="siyuanmemo-review-header__drag-fill siyuanmemo-review-header__drag-zone resize__move"
+          aria-hidden="true"
+        ></span>
         <div v-if="filteredToolbar.length > 0" class="siyuanmemo-review-header__toolbar">
           <button
             v-for="btn in filteredToolbar"
@@ -632,16 +636,8 @@ onUnmounted(() => {
   border-bottom: none;
 }
 
-.siyuanmemo-review-header__drag-surface {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-
 .siyuanmemo-review-header__left,
 .siyuanmemo-review-header__right {
-  position: relative;
-  z-index: 1;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -657,8 +653,6 @@ onUnmounted(() => {
 }
 
 .siyuanmemo-review-header__center {
-  position: relative;
-  z-index: 1;
   display: inline-flex;
   align-items: center;
   justify-self: center;
@@ -685,8 +679,15 @@ onUnmounted(() => {
   -webkit-app-region: drag;
 }
 
+.siyuanmemo-review-header__drag-fill {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
+  border-radius: 4px;
+}
+
 .siyuanmemo-review-header__brand:hover,
-.siyuanmemo-review-header__drag-surface:hover {
+.siyuanmemo-review-header__drag-fill:hover {
   background: color-mix(in srgb, var(--b3-theme-on-surface-light) 6%, transparent);
 }
 

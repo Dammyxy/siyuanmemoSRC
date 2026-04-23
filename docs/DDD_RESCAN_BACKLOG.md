@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 124)
+Last update: 2026-04-24 (Round 125)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - review native density rollback, drag hit repair, and browser highlight reassignment
+
+- Task: 按 `openCard.ts` / `moveResize.ts` 的原生规则回退 review dialog 被压小的桌面动作区，修复 header 只能命中极小点位甚至无法拖动的问题，并把 browser toolbar 的主高亮从“当前页 / 全选”迁到“AI 工作台 / 视图切换”按钮。
+- Touched slice: Review and Browser active UI path across `src/ui/review/v2/{ReviewActions.vue,ReviewHeader.vue,__tests__/ReviewActions.spec.ts,__tests__/ReviewHeader.spec.ts}`, `src/ui/review/v2/components/{SkipMenuButton.vue,__tests__/SkipMenuButton.spec.ts}`, `src/ui/browser/{BrowserToolbar.vue,SRSBrowser.scss,__tests__/BrowserToolbar.selection.test.ts,__tests__/BrowserToolbar.styles.spec.ts}`, and this backlog.
+- Debt fixed now: 删除了 review desktop `desktop-stacked` 紧凑支路，把动作区 `gap/padding` 和 `back/meta` 间距拉回接近 native 的 8px 节奏；header 不再用 `moveResize.ts` 命不中的后景 `drag-surface`，改回前景可命中的左右 `resize__move` drag fill；browser 保留 `page/global-select` 语义 class 但撤掉它们的实底高亮，把主强调迁到 `toolbar__action--ai` 与 `toolbar__action--view-toggle`，同时不影响现有选择逻辑。
+- Debt deferred: `SkipMenuButton` 仍是插件自己的 split-menu 结构，没有完全退回思源原生单按钮 `skip`；`ReviewContent` 这一轮没有继续改 overflow 链；真实弹窗像素级高度和拖动手感仍需用户基于截图再做一次人工确认。
+- Why deferred: 当前阻塞点是“被做小”“拖不动”“高亮位置不对”，继续扩大到 skip 交互模型重写或再改 review content 滚动链，会把一次活跃 UI 修复扩大成更高风险的 review surface 重构。
+- Next safe step: 如果新截图里 reveal / rating 仍和原生有像素级偏差，只继续微调 `ReviewActions.vue` 的桌面 spacing token 和 header 空白区分配，不再重新引入 compact skin 或背景拖拽层。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/components/__tests__/SkipMenuButton.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.selection.test.ts src/ui/browser/__tests__/BrowserToolbar.styles.spec.ts`; `pnpm vitest run src/ui/shared/__tests__/siyuanmemo-admin-skin.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - review dialog overflow/drag root-cause cleanup and mixed browser balance
 

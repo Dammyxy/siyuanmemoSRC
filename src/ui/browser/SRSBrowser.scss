@@ -1903,24 +1903,17 @@
   filter: saturate(1.04);
 }
 
-.card-browser__toolbar .toolbar__action--page-select,
-.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--page-select {
+.card-browser__toolbar .toolbar__action--view-toggle,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--view-toggle {
   border-color: color-mix(in srgb, var(--toolbar-page-accent) 76%, var(--b3-border-color)) !important;
   background: color-mix(in srgb, var(--toolbar-page-accent) 70%, var(--b3-theme-background)) !important;
   color: var(--b3-theme-on-primary, #fff) !important;
 }
 
-.card-browser__toolbar .toolbar__action--global-select,
-.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--global-select {
+.card-browser__toolbar .toolbar__action--ai,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--ai {
   border-color: color-mix(in srgb, var(--toolbar-global-accent) 72%, var(--b3-border-color)) !important;
   background: color-mix(in srgb, var(--toolbar-global-accent) 66%, var(--b3-theme-background)) !important;
-  color: var(--b3-theme-on-primary, #fff) !important;
-}
-
-.card-browser__toolbar .toolbar__action--global-select.toolbar__action--active,
-.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--global-select.toolbar__action--active {
-  border-color: color-mix(in srgb, var(--toolbar-global-accent) 80%, var(--b3-border-color)) !important;
-  background: color-mix(in srgb, var(--toolbar-global-accent) 74%, var(--b3-theme-background)) !important;
   color: var(--b3-theme-on-primary, #fff) !important;
 }
 
@@ -1938,19 +1931,19 @@
   color: var(--b3-theme-on-primary, #fff) !important;
 }
 
-.card-browser__toolbar .toolbar__action--page-select:hover:not(:disabled),
-.card-browser__toolbar .toolbar__action--page-select:active:not(:disabled),
-.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--page-select:hover:not(:disabled),
-.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--page-select:active:not(:disabled) {
+.card-browser__toolbar .toolbar__action--view-toggle:hover:not(:disabled),
+.card-browser__toolbar .toolbar__action--view-toggle:active:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--view-toggle:hover:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--view-toggle:active:not(:disabled) {
   border-color: color-mix(in srgb, var(--toolbar-page-accent) 86%, var(--b3-border-color)) !important;
   background: color-mix(in srgb, var(--toolbar-page-accent) 80%, var(--b3-theme-background)) !important;
   color: var(--b3-theme-on-primary, #fff) !important;
 }
 
-.card-browser__toolbar .toolbar__action--global-select:hover:not(:disabled),
-.card-browser__toolbar .toolbar__action--global-select:active:not(:disabled),
-.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--global-select:hover:not(:disabled),
-.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--global-select:active:not(:disabled) {
+.card-browser__toolbar .toolbar__action--ai:hover:not(:disabled),
+.card-browser__toolbar .toolbar__action--ai:active:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--ai:hover:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--ai:active:not(:disabled) {
   border-color: color-mix(in srgb, var(--toolbar-global-accent) 84%, var(--b3-border-color)) !important;
   background: color-mix(in srgb, var(--toolbar-global-accent) 78%, var(--b3-theme-background)) !important;
   color: var(--b3-theme-on-primary, #fff) !important;

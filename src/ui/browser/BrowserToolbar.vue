@@ -135,7 +135,7 @@
       <div v-if="!props.mobileMode && !isTabNarrow" class="toolbar__divider"></div>
 
       <button
-        class="b3-button b3-button--outline"
+        class="b3-button b3-button--outline toolbar__action toolbar__action--view-toggle"
         @click="$emit('toggleViewMode')"
         :title="viewMode === 'flat' ? t('hierarchyView', '层级视图') : t('flatView', '平铺视图')"
       >
@@ -163,7 +163,7 @@
 
       <button
         v-if="!props.mobileMode"
-        class="b3-button b3-button--outline"
+        class="b3-button b3-button--outline toolbar__action toolbar__action--ai"
         @click="$emit('openAiWorkbench')"
         :disabled="loading"
         :title="t('aiWorkbench', 'AI 工作台')"

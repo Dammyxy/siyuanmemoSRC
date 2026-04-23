@@ -23,6 +23,9 @@ const baseProps = {
     cards: 'cards',
     togglePreview: 'Toggle Preview',
     openInTab: 'Open',
+    hierarchyView: 'Hierarchy View',
+    flatView: 'Flat View',
+    aiWorkbench: 'AI Workbench',
   },
   searchQuery: '',
   currentPreset: 'all',
@@ -168,6 +171,12 @@ describe('BrowserToolbar selection actions', () => {
 
     const openInTabButton = findButtonByTitle(wrapper, 'Open');
     expect(openInTabButton?.classes()).toContain('toolbar__action--open-in-tab');
+
+    const viewToggleButton = findButtonByTitle(wrapper, 'Hierarchy View');
+    expect(viewToggleButton?.classes()).toContain('toolbar__action--view-toggle');
+
+    const aiWorkbenchButton = findButtonByTitle(wrapper, 'AI Workbench');
+    expect(aiWorkbenchButton?.classes()).toContain('toolbar__action--ai');
   });
 
   it('uses compact density class and short labels at 1366-1679', async () => {

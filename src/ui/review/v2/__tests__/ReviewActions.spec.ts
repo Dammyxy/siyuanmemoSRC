@@ -47,18 +47,7 @@ function mountReviewActions(
       stubs: {
         SkipMenuButton: {
           name: 'SkipMenuButton',
-          props: {
-            desktopStacked: {
-              type: Boolean,
-              default: false,
-            },
-          },
-          template: `
-            <div
-              class="skip-menu-button-stub"
-              :class="{ 'skip-menu-button-stub--desktop-stacked': desktopStacked }"
-            ></div>
-          `,
+          template: '<div class="skip-menu-button-stub"></div>',
         },
         InsertPositionDialog: true,
         ScheduleDateDialog: true,
@@ -167,8 +156,7 @@ describe('ReviewActions layout', () => {
     expect(columns).toHaveLength(5);
     expect(columns[0]?.classes()).toContain('card__action-column--stack');
     const skipStub = columns[0]?.getComponent({ name: 'SkipMenuButton' });
-    expect(skipStub?.props('desktopStacked')).toBe(true);
-    expect(columns[0]?.find('.skip-menu-button-stub').classes()).toContain('skip-menu-button-stub--desktop-stacked');
+    expect(skipStub?.attributes('desktop-stacked')).toBeUndefined();
     expect(columns[0]?.get('button').classes()).toContain('card__action-back--stacked');
     expect(root.get('button[data-type="1"]').classes()).toContain('b3-button--error');
     expect(root.get('button[data-type="2"]').classes()).toContain('b3-button--warning');
@@ -216,8 +204,7 @@ describe('ReviewActions layout', () => {
     expect(columns).toHaveLength(2);
     expect(columns[0]?.classes()).toContain('card__action-column--stack');
     const skipStub = columns[0]?.getComponent({ name: 'SkipMenuButton' });
-    expect(skipStub?.props('desktopStacked')).toBe(true);
-    expect(columns[0]?.find('.skip-menu-button-stub').classes()).toContain('skip-menu-button-stub--desktop-stacked');
+    expect(skipStub?.attributes('desktop-stacked')).toBeUndefined();
     expect(wrapper.get('button[data-type="3"]').attributes('aria-label')).toBe('Space/Enter');
   });
 

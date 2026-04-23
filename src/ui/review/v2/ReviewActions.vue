@@ -152,7 +152,6 @@
             :i18n="i18n"
             :queue-size="remainingSize"
             :is-mobile="props.isMobile"
-            :desktop-stacked="true"
             :can-schedule-date="canScheduleDate"
             @skip="emit('skip')"
             @insert="handleInsert"
@@ -552,10 +551,10 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .card__action {
   display: flex;
   align-items: stretch;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   box-sizing: border-box;
-  padding: 6px 8px;
+  padding: 8px;
   user-select: none;
   flex-shrink: 0;
   border-top: 1px solid var(--b3-border-color);
@@ -575,7 +574,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   width: 100%;
   white-space: nowrap;
   display: block;
-  padding: 6px 0;
+  padding: 8px 0;
   text-align: center;
 }
 
@@ -593,7 +592,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 .card__action-back--stacked {
   display: flex;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   height: 28px;
   min-height: 28px;
   max-height: 28px;
@@ -619,7 +618,6 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 .card__action-skip :deep(.skip-menu-button) {
   width: 100%;
-  min-height: 44px;
   border-radius: 4px;
 }
 
@@ -633,7 +631,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   color: var(--b3-theme-on-surface);
   text-align: center;
   font-size: 12px;
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   height: 28px;
   line-height: 14px;
   justify-content: center;
@@ -678,13 +676,8 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   align-self: stretch;
 }
 
-.card__action--desktop .card__action-button {
-  line-height: 1.25;
-}
-
 .card__action--desktop .card__action-skip--stacked-desktop {
   flex: 1 1 auto;
-  min-height: 44px;
 }
 
 .card__action-spacer {
