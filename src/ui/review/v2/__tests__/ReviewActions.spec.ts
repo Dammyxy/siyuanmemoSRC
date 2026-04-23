@@ -122,7 +122,7 @@ describe('ReviewActions topic next action', () => {
 });
 
 describe('ReviewActions layout', () => {
-  it('renders the desktop reveal stage with a stacked show-answer CTA beside the native back action', () => {
+  it('renders the desktop reveal stage as a three-column layout with a right-side skip split control', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,
     }));
@@ -132,8 +132,9 @@ describe('ReviewActions layout', () => {
 
     expect(root.classes()).toContain('card__action--desktop');
     expect(root.find('.card__action-back--desktop-reveal').exists()).toBe(true);
-    expect(root.find('.card__action-spacer').exists()).toBe(true);
-    expect(root.find('.skip-menu-button-stub').exists()).toBe(false);
+    expect(root.find('.card__action-spacer').exists()).toBe(false);
+    expect(root.find('.card__action-skip--desktop-reveal').exists()).toBe(true);
+    expect(root.find('.skip-menu-button-stub').exists()).toBe(true);
     expect(revealButton.find('.card__icon').text()).toBe('👀');
     expect(revealButton.text()).toContain('Space');
     expect(revealButton.text()).toContain('Enter');
@@ -174,7 +175,7 @@ describe('ReviewActions layout', () => {
 
     const root = wrapper.get('.card__action--reveal');
     expect(root.find('button[data-type="-1"]').exists()).toBe(true);
-    expect(root.find('.skip-menu-button-stub').exists()).toBe(false);
+    expect(root.find('.skip-menu-button-stub').exists()).toBe(true);
   });
 
   it('keeps the reveal stage sticky on mobile', () => {

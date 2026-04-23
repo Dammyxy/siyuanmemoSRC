@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 126)
+Last update: 2026-04-24 (Round 127)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - desktop reveal skip restoration and foreground drag-surface repair
+
+- Task: 把 review dialog desktop 正面阶段右侧缺失的 `skip + 上拉菜单` 补回，并修复 centered counter pill 方案下 dialog header 只能在极窄边缘点位触发拖动的问题。
+- Touched slice: Review active UI path across `src/ui/review/v2/{ReviewActions.vue,ReviewHeader.vue,__tests__/ReviewActions.spec.ts,__tests__/ReviewHeader.spec.ts,__tests__/ReviewHeader.styles.spec.ts}` and this backlog.
+- Debt fixed now: 确认并移除了 desktop reveal 模板里误删 `SkipMenuButton` 的局部偏差，把 reveal 区收成明确的三列布局；header 不再把真实拖动命中依赖在两段会被压窄的 grid fill 上，而是改成前景级单块 `resize__move` drag surface，并把 summary/toolbar/close 抬到更高层级保持 no-drag 岛。
+- Debt deferred: header 仍保留插件自己的 centered counter pill 和右侧 toolbar 信息结构，没有整体回退成思源原生单 filler header；desktop reveal 也继续保留插件的高 CTA 样式，而不是像素级复刻 `openCard.ts` 的扁平 reveal。
+- Why deferred: 这轮阻塞点是 reveal 缺少右侧 skip 入口和 dialog 实际几乎无法拖动；继续扩大到整套 header 架构回退或 reveal 视觉重做，会增加回归面并超出当前活跃 UI 修复切片。
+- Next safe step: 基于新截图确认三列 reveal 的视觉密度和 drag surface 的真实手感；如果还要继续贴近思源，只做 token 级 spacing 微调，不再回到依赖窄 grid fill 的拖动实现。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewHeader.styles.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - reveal CTA height recovery, direct-child drag hit zones, and browser neutralization cleanup
 

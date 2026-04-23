@@ -122,7 +122,7 @@ describe('ReviewHeader', () => {
     expect(wrapper.find('.siyuanmemo-review-header__popover').exists()).toBe(false);
   });
 
-  it('uses foreground drag fills around the centered counter while keeping controls outside drag hit targets', () => {
+  it('uses a single foreground drag surface while keeping controls outside drag hit targets', () => {
     const wrapper = mount(ReviewHeader, {
       props: {
         header: createHeaderState(),
@@ -133,21 +133,18 @@ describe('ReviewHeader', () => {
     });
 
     expect(wrapper.find('.siyuanmemo-review-header__drag').exists()).toBe(false);
-    expect(wrapper.find('.siyuanmemo-review-header__drag-surface').exists()).toBe(false);
+    expect(wrapper.find('.siyuanmemo-review-header__drag-surface').exists()).toBe(true);
     expect(wrapper.find('.siyuanmemo-review-header__left').exists()).toBe(false);
     expect(wrapper.find('.siyuanmemo-review-header__right').exists()).toBe(false);
     expect(wrapper.find('.siyuanmemo-review-header__center').exists()).toBe(false);
+    expect(wrapper.find('.siyuanmemo-review-header__drag-fill').exists()).toBe(false);
     expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('resize__move');
     expect(wrapper.get('.siyuanmemo-review-header__brand').classes()).toContain('siyuanmemo-review-header__drag-zone');
     const headerRoot = wrapper.get('.block__icons.siyuanmemo-review-header');
-    const dragFills = wrapper.findAll('.siyuanmemo-review-header__drag-fill');
-    expect(dragFills).toHaveLength(2);
-    dragFills.forEach((fill) => {
-      expect(fill.classes()).toContain('fn__flex-1');
-      expect(fill.classes()).toContain('resize__move');
-      expect(fill.classes()).toContain('siyuanmemo-review-header__drag-zone');
-      expect(fill.element.parentElement).toBe(headerRoot.element);
-    });
+    const dragSurface = wrapper.get('.siyuanmemo-review-header__drag-surface');
+    expect(dragSurface.classes()).toContain('resize__move');
+    expect(dragSurface.classes()).toContain('siyuanmemo-review-header__drag-zone');
+    expect(dragSurface.element.parentElement).toBe(headerRoot.element);
 
     const summary = wrapper.get('.siyuanmemo-review-header__summary');
     const toolbarButton = wrapper.get('.siyuanmemo-review-header__toolbar-button');
@@ -156,8 +153,8 @@ describe('ReviewHeader', () => {
     expect(toolbarButton.classes()).not.toContain('resize__move');
     expect(summary.element.closest('.resize__move')).toBeNull();
     expect(toolbarButton.element.closest('.resize__move')).toBeNull();
-    expect(summary.element.closest('.siyuanmemo-review-header__drag-fill')).toBeNull();
-    expect(toolbarButton.element.closest('.siyuanmemo-review-header__drag-fill')).toBeNull();
+    expect(summary.element.closest('.siyuanmemo-review-header__drag-surface')).toBeNull();
+    expect(toolbarButton.element.closest('.siyuanmemo-review-header__drag-surface')).toBeNull();
   });
 
   it('falls back from props.title to header.title and then stats.queueName for the brand text', () => {

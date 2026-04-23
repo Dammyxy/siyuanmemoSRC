@@ -49,20 +49,30 @@
         <span>(p / q)</span>
       </button>
 
-      <span class="fn__space card__action-spacer" aria-hidden="true"></span>
-
       <button
         data-type="-1"
         aria-label="Space/Enter"
         class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal card__action-main--reveal-stacked"
         @click="handleRevealClick"
-      >
+        >
         <div class="card__icon">👀</div>
         <span class="card__action-copy">
           <span class="card__action-label">{{ t('showAnswer', '显示答案') }}</span>
           <span class="card__action-hint">({{ t('space', '空格') }} / {{ t('enterKey', '回车') }})</span>
         </span>
       </button>
+
+      <div class="card__action-skip card__action-skip--desktop-reveal">
+        <SkipMenuButton
+          :i18n="i18n"
+          :queue-size="remainingSize"
+          :is-mobile="props.isMobile"
+          :can-schedule-date="canScheduleDate"
+          @skip="emit('skip')"
+          @insert="handleInsert"
+          @schedule="handleSchedule"
+        />
+      </div>
     </template>
   </div>
 
@@ -712,6 +722,13 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   margin-bottom: 0;
 }
 
+.card__action--desktop.card__action--reveal {
+  display: grid;
+  grid-template-columns: minmax(96px, 112px) minmax(0, 1fr) minmax(132px, 156px);
+  gap: 8px;
+  align-items: center;
+}
+
 .card__action--desktop .card__action-column--stack-desktop {
   align-self: stretch;
 }
@@ -720,8 +737,23 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   flex: 1 1 auto;
 }
 
-.card__action-spacer {
-  flex: 0 0 8px;
+.card__action--desktop.card__action--reveal .card__action-main--reveal,
+.card__action--desktop.card__action--reveal .card__action-skip--desktop-reveal {
+  align-self: stretch;
+}
+
+.card__action-skip--desktop-reveal {
+  height: 100%;
+}
+
+.card__action-skip--desktop-reveal :deep(.skip-menu-button) {
+  height: 100%;
+  min-height: 92px;
+}
+
+.card__action-back--desktop-reveal {
+  width: 100%;
+  min-width: 0;
 }
 
 .card__icon {
