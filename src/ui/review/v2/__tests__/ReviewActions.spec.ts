@@ -135,6 +135,7 @@ describe('ReviewActions layout', () => {
     const center = wrapper.get('.card__action-center');
     expect(center.attributes('style')).toContain('--review-action-columns: 4');
     expect(center.get('button[data-type="-1"]').classes()).toContain('card__action-main--reveal');
+    expect(center.get('button[data-type="-1"]').classes()).not.toContain('b3-button--cancel');
 
     const right = wrapper.get('.card__action-side--right');
     expect(right.find('skip-menu-button-stub').exists()).toBe(true);
@@ -151,6 +152,10 @@ describe('ReviewActions layout', () => {
     const center = wrapper.get('.card__action-center');
     expect(center.find('button[data-type="-1"]').exists()).toBe(false);
     expect(center.findAll('.card__action-column')).toHaveLength(4);
+    expect(center.get('button[data-type="1"]').classes()).toContain('b3-button--error');
+    expect(center.get('button[data-type="2"]').classes()).toContain('b3-button--warning');
+    expect(center.get('button[data-type="3"]').classes()).toContain('b3-button--info');
+    expect(center.get('button[data-type="4"]').classes()).toContain('b3-button--success');
 
     const right = wrapper.get('.card__action-side--right');
     expect(right.find('skip-menu-button-stub').exists()).toBe(true);

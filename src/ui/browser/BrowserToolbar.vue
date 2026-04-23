@@ -60,7 +60,17 @@
 
     <div class="toolbar__right">
       <button
-        class="b3-button b3-button--outline"
+        class="b3-button b3-button--outline toolbar__action toolbar__action--page-select"
+        @click="$emit('selectCurrentPage')"
+        :disabled="loading || cardCount <= 0"
+        :title="t('selectCurrentPage', '选当前页')"
+      >
+        <svg><use xlink:href="#iconList"></use></svg>
+        {{ selectCurrentPageButtonLabel }}
+      </button>
+
+      <button
+        class="b3-button b3-button--outline toolbar__action toolbar__action--global-select"
         @click="handleSelectAllToggle"
         :disabled="!canSelectAllMatching || loading"
         :title="isAllMatchingActive ? t('cancelSelectAll', '取消全选') : t('selectAllMatching', '全选匹配结果')"
@@ -90,7 +100,7 @@
       </button>
 
       <button
-        class="b3-button b3-button--outline"
+        class="b3-button b3-button--outline toolbar__action toolbar__action--practice"
         @click.stop.prevent="$emit('openPracticeMenu', $event)"
         :disabled="!hasPlugin"
         :title="t('startPractice', '开始练习')"
@@ -256,6 +266,7 @@ const emit = defineEmits<{
   (e: 'openFilterDialog'): void;
   (e: 'openSpreadDialog'): void;
   (e: 'openAiWorkbench'): void;
+  (e: 'selectCurrentPage'): void;
   (e: 'selectAllMatching'): void;
   (e: 'clearSelection'): void;
 }>();
@@ -291,6 +302,13 @@ const selectAllButtonLabel = computed(() => {
     return t('selectAllShort', '全选');
   }
   return t('selectAllMatching', '全选匹配结果');
+});
+
+const selectCurrentPageButtonLabel = computed(() => {
+  if (props.mobileMode || isCompactDesktop.value) {
+    return t('selectCurrentPageShort', '当前页');
+  }
+  return t('selectCurrentPage', '选当前页');
 });
 
 const clearSelectionButtonLabel = computed(() => {

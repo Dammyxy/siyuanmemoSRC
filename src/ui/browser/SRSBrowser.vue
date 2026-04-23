@@ -70,6 +70,7 @@
         @openSpreadDialog="handleOpenSpreadDialog"
         @openAiWorkbench="handleOpenAiWorkbench"
         @rebuildQueue="handleRebuildQueue"
+        @selectCurrentPage="handleSelectCurrentPage"
         @selectAllMatching="handleSelectAllMatching"
         @clearSelection="handleClearSelection"
       />
@@ -3069,6 +3070,37 @@ async function handleSelectAllMatching(): Promise<void> {
   await pushMsg(
     t('allMatchingSelected', 'Selected all matching results ({count})')
       .replace('{count}', String(globalSelection.selectedCount.value))
+  );
+}
+
+async function handleSelectCurrentPage(): Promise<void> {
+  const api = gridApi.value;
+  if (!isGridApiAlive(api)) {
+    await pushErrMsg(t('selectCurrentPageUnavailable', 'Current page selection is unavailable'));
+    return;
+  }
+
+  const { visibleIds } = collectScopedSelectionIds(api);
+  if (visibleIds.length === 0) {
+    await pushMsg(t('noCards', 'No cards'));
+    return;
+  }
+
+  const existingSelectedIds = globalSelection.mode.value === 'explicit'
+    ? globalSelection.explicitIds.value
+    : [];
+  const mergedExplicitIds = mergeExplicitSelectionByPage({
+    existingSelectedIds,
+    visibleIds,
+    pageSelectedIds: visibleIds,
+  });
+
+  globalSelection.setExplicitByIds(Array.from(mergedExplicitIds));
+  applyGlobalSelectionToLoadedRows();
+
+  await pushMsg(
+    t('currentPageSelected', 'Selected current page ({count})')
+      .replace('{count}', String(visibleIds.length))
   );
 }
 

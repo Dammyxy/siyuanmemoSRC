@@ -6,6 +6,8 @@ import BrowserToolbar from '../BrowserToolbar.vue';
 const baseProps = {
   i18n: {
     selectAllMatching: 'Select All Matching',
+    selectCurrentPage: 'Select Current Page',
+    selectCurrentPageShort: 'Current Page',
     cancelSelectAll: 'Cancel Select All',
     cancelSelectAllShort: 'Cancel',
     clearSelection: 'Clear Selection',
@@ -115,6 +117,17 @@ describe('BrowserToolbar selection actions', () => {
     await button!.trigger('click');
 
     expect(wrapper.emitted('selectAllMatching')).toBeTruthy();
+  });
+
+  it('emits selectCurrentPage from the current-page button without entering all-matching mode', async () => {
+    const wrapper = mountToolbar();
+
+    const button = findButtonByTitle(wrapper, 'Select Current Page');
+    expect(button).toBeTruthy();
+    await button!.trigger('click');
+
+    expect(wrapper.emitted('selectCurrentPage')).toBeTruthy();
+    expect(wrapper.emitted('selectAllMatching')).toBeFalsy();
   });
 
   it('emits clearSelection when toggle clicked in all-matching mode', async () => {

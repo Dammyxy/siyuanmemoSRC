@@ -888,6 +888,15 @@
                   </label>
 
                   <div class="ai-tool-group-card__actions">
+                    <div class="ai-tool-group-card__meta" :aria-label="t('aiToolGroupMetadata', '工具组状态')">
+                      <span class="ai-meta-chip ai-meta-chip--count">{{ group.tools.length }} {{ t('tools', '工具') }}</span>
+                      <span v-if="group.isWriteRisk" class="ai-meta-chip ai-meta-chip--warn">
+                        {{ t('aiWriteRisk', '写入风险') }}
+                      </span>
+                      <span v-if="group.overrideCount > 0" class="ai-meta-chip ai-meta-chip--accent">
+                        {{ t('aiToolOverridesCount', '{count} 个审批覆盖').replace('{count}', String(group.overrideCount)) }}
+                      </span>
+                    </div>
                     <button
                       class="btn-small ai-tool-group-card__manage"
                       type="button"
@@ -905,16 +914,6 @@
                         : t('aiExpandGroup', '展开工具') }}
                     </button>
                   </div>
-                </div>
-
-                <div class="ai-tool-group-card__meta">
-                  <span class="ai-meta-chip">{{ group.tools.length }} {{ t('tools', '工具') }}</span>
-                  <span v-if="group.isWriteRisk" class="ai-meta-chip ai-meta-chip--warn">
-                    {{ t('aiWriteRisk', '写入风险') }}
-                  </span>
-                  <span v-if="group.overrideCount > 0" class="ai-meta-chip ai-meta-chip--accent">
-                    {{ t('aiToolOverridesCount', '{count} 个审批覆盖').replace('{count}', String(group.overrideCount)) }}
-                  </span>
                 </div>
 
                 <div v-if="isAiToolGroupExpanded(group.key)" class="ai-tool-group-card__body">
@@ -3870,7 +3869,7 @@ async function handleRepairDates() {
 .ai-prompt-preset-card__head,
 .ai-user-skill-card__head {
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: var(--b3-theme-background);
 }
 
@@ -3908,7 +3907,16 @@ async function handleRepairDates() {
 }
 
 .ai-tool-group-card__meta {
-  padding: 0 12px 8px 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 0;
+}
+
+.ai-tool-group-card__actions {
+  align-items: center;
+  gap: 6px;
 }
 
 .ai-tool-group-card__body {
@@ -3945,18 +3953,25 @@ async function handleRepairDates() {
   font-size: 12px;
 }
 
+.ai-meta-chip--count {
+  color: var(--b3-theme-on-surface-light);
+}
+
 .ai-prompt-preset-card {
-  padding: 8px 12px;
+  padding: 10px 14px 12px;
 }
 
 .ai-prompt-preset-card__grid {
   gap: 0;
-  margin-top: 8px;
-  border-top: 1px solid var(--b3-border-color);
+  margin-top: 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  overflow: hidden;
 }
 
 .ai-prompt-preset-card__row {
-  padding: 8px 0;
+  padding: 10px 12px;
   border: none;
   border-radius: 0;
   background: transparent;

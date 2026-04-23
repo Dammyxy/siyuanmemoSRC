@@ -34,17 +34,29 @@
 }
 
 .b3-dialog__container.siyuanmemo-dialog-shell .b3-dialog__header {
+  display: flex;
+  align-items: center;
   min-height: 48px;
-  padding: 0 14px;
+  padding: 2px 16px 0;
   border-bottom: 1px solid var(--siyuanmemo-ui-border);
   background: var(--siyuanmemo-ui-canvas);
   box-shadow: none;
 }
 
 .b3-dialog__container.siyuanmemo-dialog-shell .b3-dialog__title {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
   font-size: 15px;
   font-weight: 500;
+  line-height: 1.4;
   color: var(--siyuanmemo-ui-ink);
+}
+
+.b3-dialog__container.siyuanmemo-settings-shell-dialog .b3-dialog__header,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .b3-dialog__header {
+  min-height: 54px;
+  padding-top: 4px;
 }
 
 .b3-dialog__container.siyuanmemo-dialog-shell .b3-dialog__close {
@@ -282,7 +294,7 @@
 }
 
 .settings-panel.siyuanmemo-settings-theme .ai-tool-group-card__head {
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: var(--siyuanmemo-ui-canvas);
 }
 
@@ -291,7 +303,11 @@
 }
 
 .settings-panel.siyuanmemo-settings-theme .ai-tool-group-card__meta {
-  padding: 0 12px 8px 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 0;
 }
 
 .settings-panel.siyuanmemo-settings-theme .ai-tool-group-card__body {
@@ -309,6 +325,29 @@
   background: transparent;
 }
 
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card {
+  padding: 10px 14px 12px;
+}
+
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__grid {
+  margin-top: 10px;
+  border: 1px solid var(--siyuanmemo-ui-border);
+  border-radius: var(--siyuanmemo-ui-radius);
+  background: var(--siyuanmemo-ui-canvas);
+  overflow: hidden;
+}
+
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__row {
+  padding: 10px 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__row + .ai-prompt-preset-card__row {
+  border-top: 1px solid var(--siyuanmemo-ui-border);
+}
+
 .settings-panel.siyuanmemo-settings-theme .ai-meta-chip,
 .settings-panel.siyuanmemo-settings-theme .ai-prompt-preset-card__status-badge {
   padding: 1px 6px;
@@ -317,6 +356,10 @@
   background: transparent;
   color: var(--siyuanmemo-ui-muted);
   box-shadow: none;
+}
+
+.settings-panel.siyuanmemo-settings-theme .ai-meta-chip--count {
+  color: var(--siyuanmemo-ui-muted);
 }
 
 .settings-panel.siyuanmemo-settings-theme .ai-meta-chip--accent,
@@ -467,6 +510,46 @@
 .siyuanmemo-review-header__priority {
   border-radius: var(--siyuanmemo-ui-radius-sm);
   background: transparent;
+}
+
+.fsrs-review-v2 .card__action-main.card__action-main--reveal,
+.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.card__action-main--reveal {
+  border-color: var(--siyuanmemo-ui-accent);
+  background: var(--siyuanmemo-ui-accent);
+  color: var(--b3-theme-on-primary, #fff);
+}
+
+.fsrs-review-v2 .card__action-main.b3-button--error,
+.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.b3-button--error {
+  border-color: color-mix(in srgb, var(--b3-theme-error) 52%, var(--siyuanmemo-ui-border));
+  background: color-mix(in srgb, var(--b3-theme-error) 13%, var(--siyuanmemo-ui-canvas));
+  color: var(--b3-theme-error);
+}
+
+.fsrs-review-v2 .card__action-main.b3-button--warning,
+.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.b3-button--warning {
+  border-color: color-mix(in srgb, var(--b3-theme-warning) 52%, var(--siyuanmemo-ui-border));
+  background: color-mix(in srgb, var(--b3-theme-warning) 15%, var(--siyuanmemo-ui-canvas));
+  color: var(--b3-theme-warning);
+}
+
+.fsrs-review-v2 .card__action-main.b3-button--info,
+.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.b3-button--info {
+  border-color: color-mix(in srgb, var(--b3-theme-info) 54%, var(--siyuanmemo-ui-border));
+  background: color-mix(in srgb, var(--b3-theme-info) 14%, var(--siyuanmemo-ui-canvas));
+  color: var(--b3-theme-info);
+}
+
+.fsrs-review-v2 .card__action-main.b3-button--success,
+.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main.b3-button--success {
+  border-color: color-mix(in srgb, var(--b3-theme-success) 54%, var(--siyuanmemo-ui-border));
+  background: color-mix(in srgb, var(--b3-theme-success) 14%, var(--siyuanmemo-ui-canvas));
+  color: var(--b3-theme-success);
+}
+
+.fsrs-review-v2 .card__action-main:hover,
+.b3-dialog__container.siyuanmemo-dialog-shell .fsrs-review-v2 .card__action-main:hover {
+  filter: saturate(1.08) brightness(0.98);
 }
 
 .large-editor__backdrop {

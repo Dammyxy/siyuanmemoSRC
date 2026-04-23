@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 120)
+Last update: 2026-04-23 (Round 121)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - UI micro-polish for settings, review colors, and browser page selection
+
+- Task: 调整设置和 SRS 浏览器标题垂直位置，收口 AI 工具组卡片与 Prompt 卡细节，恢复临时练习复习按钮颜色，并新增 Browser 当前分页选择按钮。
+- Touched slice: Cross-cutting UI surface active path across `src/ui/settings/SettingsPanel.vue`, `src/ui/shared/siyuanmemo-admin-skin.scss`, `src/ui/browser/{BrowserToolbar.vue,SRSBrowser.vue,SRSBrowser.scss}`, and review action presentation under shared review shell styling.
+- Debt fixed now: 设置和 Browser dialog 标题不再贴顶；AI 工具组不再保留误导性的底部工具组计数区；Prompt 卡说明区获得清晰内边距；Review 动作按钮从被 dialog 通用按钮皮肤压平的状态恢复成可辨识层级；Browser 终于拥有与“全选匹配结果”分离的“选当前页”显式选择入口。
+- Debt deferred: “选当前页”目前仍基于当前分页中已加载/可见行，不会额外拉取跨页或未进入当前缓存的记录；Browser toolbar 仍没有更细的批量选择菜单。
+- Why deferred: 这轮目标是用现有 explicit selection / pagination contract 快速补齐用户缺失的操作入口，不重做数据源或批量选择模型。
+- Next safe step: 如果后续还想继续细化批量选择，可以再加“反选当前页 / 仅保留当前页 / 全部取消当前页”这类显式选择动作，但仍复用当前 selection contract。
+- Validation: `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.selection.test.ts src/ui/browser/utils/__tests__/paginatedSelection.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/ui/review/v2/__tests__/ReviewActions.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-23 - F toolbox high-fidelity visual flattening
 

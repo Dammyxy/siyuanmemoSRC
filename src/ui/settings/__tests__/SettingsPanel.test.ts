@@ -487,6 +487,8 @@ describe('SettingsPanel', () => {
     expect(wrapper.text()).toContain('Tool Group Manager');
     expect(wrapper.findAll('.ai-tool-group-card').length).toBeGreaterThan(0);
     expect(wrapper.find('.ai-tool-group-card select').exists()).toBe(false);
+    expect(wrapper.find('.ai-tool-group-card__head .ai-tool-group-card__meta').exists()).toBe(true);
+    expect(wrapper.find('.ai-tool-group-card > .ai-tool-group-card__meta').exists()).toBe(false);
 
     const toolPermissionButton = wrapper.find('.ai-settings-manager__action');
     expect(toolPermissionButton.exists()).toBe(true);
@@ -508,6 +510,7 @@ describe('SettingsPanel', () => {
     await clickSubtab(wrapper, 'Built-in Skill');
     expect(wrapper.findAll('.ai-prompt-preset-card')).toHaveLength(2);
     expect(wrapper.findAll('.ai-prompt-preset-card textarea')).toHaveLength(0);
+    expect(wrapper.findAll('.ai-prompt-preset-card__row')).toHaveLength(6);
     expect(wrapper.text()).toContain('General Chat Preset');
     expect(wrapper.text()).toContain('Using Recommended Template');
 
