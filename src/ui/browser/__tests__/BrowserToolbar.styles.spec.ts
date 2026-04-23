@@ -13,5 +13,7 @@ describe('BrowserToolbar style palette', () => {
     expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__action--global-select.toolbar__action--active');
     expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__action--practice');
     expect(browserToolbarStyles).toContain('.card-browser__toolbar .toolbar__action--open-in-tab');
+    expect(browserToolbarStyles).toContain('.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--page-select');
+    expect(browserToolbarStyles).toContain('.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--open-in-tab');
   });
 });

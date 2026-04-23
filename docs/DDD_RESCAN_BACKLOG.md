@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 122)
+Last update: 2026-04-24 (Round 123)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - native review action density and browser toolbar de-gray
+
+- Task: 按最新确认方案把 review dialog 的 desktop action bar 完整拉回思源原生 `openCard.ts` 结构和密度，让显示答案后 `skip` 回到左侧堆叠列、reveal 高度对齐原生，同时修复 header 拖拽命中顺序，并把 browser toolbar 主动作从“几乎无色”收口成真正稳定可见的语义色。
+- Touched slice: Review and Browser active UI path across `src/ui/review/v2/{ReviewActions.vue,ReviewHeader.vue,__tests__/ReviewActions.spec.ts,__tests__/ReviewHeader.spec.ts}`, `src/ui/browser/{SRSBrowser.scss,__tests__/BrowserToolbar.selection.test.ts,__tests__/BrowserToolbar.styles.spec.ts}`, and `src/ui/shared/{siyuanmemo-admin-skin.scss,__tests__/siyuanmemo-admin-skin.spec.ts}`.
+- Debt fixed now: desktop reveal 按原生去掉了额外图标壳和自定义高度感，显示答案按钮直接回到原生文字密度与桌面热键文案；desktop rating 再次确认回到左侧 `back + skip` 堆叠列；header 左侧拖拽填充块从错误的“品牌前”挪回真正可命中的“品牌后、计数前”位置；browser toolbar 主动作颜色改成高优先级、不可再被 outline/reset 洗掉的鲜明语义色。
+- Debt deferred: `SkipMenuButton` 仍保留插件自己的 split-control 结构，只在 review desktop 容器里被压回更接近原生的高度；review header 也仍保留当前居中的 counter chip，没有继续把整个 header 信息架构完全退回思源原始布局。
+- Why deferred: 用户这轮阻塞点是原生高度、skip 位置、拖拽命中和 browser toolbar 去色，不是重写 skip 的功能模型或回退整个 review header 产品设计；继续扩大到 skip 组件重做或 header 架构回退会超出当前安全切片。
+- Next safe step: 如果真实弹窗截图里 desktop skip 视觉仍显得比原生厚，可以下一轮只针对 `SkipMenuButton` 的 desktop stacked 皮肤继续压平，而不碰当前 schedule/insert 行为。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewActions.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewHeader.spec.ts`; `pnpm vitest run src/ui/browser/__tests__/BrowserToolbar.selection.test.ts src/ui/browser/__tests__/BrowserToolbar.styles.spec.ts src/ui/shared/__tests__/siyuanmemo-admin-skin.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-23 - review dialog skip-right alignment and browser toolbar palette
 

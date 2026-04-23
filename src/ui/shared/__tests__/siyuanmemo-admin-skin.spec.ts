@@ -10,10 +10,13 @@ const adminSkinSource = readFileSync(
 describe('siyuanmemo admin skin review dialog exemptions', () => {
   it('keeps review action buttons out of the dialog-shell button reset', () => {
     expect(adminSkinSource).toContain(
-      '.b3-dialog__container.siyuanmemo-dialog-shell .b3-button:not(.card__action-button):not(.skip-menu-button__main):not(.skip-menu-button__trigger)',
+      '.b3-dialog__container.siyuanmemo-dialog-shell .b3-button:not(.card__action-button):not(.skip-menu-button__main):not(.skip-menu-button__trigger):not(.toolbar__action)',
     );
     expect(adminSkinSource).toContain(
-      '.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--cancel:not(.card__action-button):not(.skip-menu-button__main):not(.skip-menu-button__trigger)',
+      '.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--cancel:not(.card__action-button):not(.skip-menu-button__main):not(.skip-menu-button__trigger):not(.toolbar__action)',
+    );
+    expect(adminSkinSource).toContain(
+      '.b3-dialog__container.siyuanmemo-dialog-shell .b3-button--outline:not(.card__action-button):not(.toolbar__action)',
     );
   });
 });

@@ -1869,7 +1869,8 @@
   background: var(--b3-theme-surface);
 }
 
-.card-browser__toolbar .toolbar__right .b3-button {
+.card-browser__toolbar .toolbar__right .b3-button,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__right .b3-button {
   border-color: color-mix(in srgb, var(--b3-border-color) 76%, var(--toolbar-utility-accent) 24%);
   background: color-mix(in srgb, var(--b3-theme-background) 94%, var(--b3-theme-surface));
   color: var(--b3-theme-on-surface);
@@ -1877,86 +1878,104 @@
   transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease, filter 0.12s ease;
 }
 
-.card-browser__toolbar .toolbar__right .b3-button:hover:not(:disabled) {
+.card-browser__toolbar .toolbar__right .b3-button:hover:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__right .b3-button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--toolbar-utility-accent) 46%, var(--b3-border-color));
   background: color-mix(in srgb, var(--toolbar-utility-accent) 11%, var(--b3-theme-background));
   color: color-mix(in srgb, var(--toolbar-utility-accent) 84%, var(--b3-theme-on-surface));
 }
 
-.card-browser__toolbar .toolbar__right .b3-button:active:not(:disabled) {
+.card-browser__toolbar .toolbar__right .b3-button:active:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__right .b3-button:active:not(:disabled) {
   border-color: color-mix(in srgb, var(--toolbar-utility-accent) 56%, var(--b3-border-color));
   background: color-mix(in srgb, var(--toolbar-utility-accent) 17%, var(--b3-theme-background));
   color: color-mix(in srgb, var(--toolbar-utility-accent) 90%, var(--b3-theme-on-surface));
 }
 
-.card-browser__toolbar .toolbar__right .b3-button:disabled {
+.card-browser__toolbar .toolbar__right .b3-button:disabled,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__right .b3-button:disabled {
   opacity: 0.5;
 }
 
-.card-browser__toolbar .toolbar__action {
+.card-browser__toolbar .toolbar__action,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action {
   font-weight: 600;
-  filter: saturate(1.05);
+  filter: saturate(1.08);
 }
 
-.card-browser__toolbar .toolbar__action--page-select {
-  border-color: color-mix(in srgb, var(--toolbar-page-accent) 56%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-page-accent) 15%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-page-accent) 92%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--page-select,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--page-select {
+  border-color: color-mix(in srgb, var(--toolbar-page-accent) 82%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-page-accent) 78%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
-.card-browser__toolbar .toolbar__action--global-select {
-  border-color: color-mix(in srgb, var(--toolbar-global-accent) 52%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-global-accent) 14%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-global-accent) 88%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--global-select,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--global-select {
+  border-color: color-mix(in srgb, var(--toolbar-global-accent) 78%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-global-accent) 74%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
-.card-browser__toolbar .toolbar__action--global-select.toolbar__action--active {
-  border-color: color-mix(in srgb, var(--toolbar-global-accent) 72%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-global-accent) 24%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-global-accent) 96%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--global-select.toolbar__action--active,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--global-select.toolbar__action--active {
+  border-color: color-mix(in srgb, var(--toolbar-global-accent) 88%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-global-accent) 86%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
-.card-browser__toolbar .toolbar__action--practice {
-  border-color: color-mix(in srgb, var(--toolbar-practice-accent) 58%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-practice-accent) 16%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-practice-accent) 90%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--practice,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--practice {
+  border-color: color-mix(in srgb, var(--toolbar-practice-accent) 82%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-practice-accent) 78%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
-.card-browser__toolbar .toolbar__action--open-in-tab {
-  border-color: color-mix(in srgb, var(--toolbar-open-accent) 54%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-open-accent) 14%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-open-accent) 90%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--open-in-tab,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--open-in-tab {
+  border-color: color-mix(in srgb, var(--toolbar-open-accent) 82%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-open-accent) 78%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
 .card-browser__toolbar .toolbar__action--page-select:hover:not(:disabled),
-.card-browser__toolbar .toolbar__action--page-select:active:not(:disabled) {
-  border-color: color-mix(in srgb, var(--toolbar-page-accent) 68%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-page-accent) 22%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-page-accent) 98%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--page-select:active:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--page-select:hover:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--page-select:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--toolbar-page-accent) 92%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-page-accent) 88%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
 .card-browser__toolbar .toolbar__action--global-select:hover:not(:disabled),
-.card-browser__toolbar .toolbar__action--global-select:active:not(:disabled) {
-  border-color: color-mix(in srgb, var(--toolbar-global-accent) 64%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-global-accent) 20%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-global-accent) 94%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--global-select:active:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--global-select:hover:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--global-select:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--toolbar-global-accent) 90%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-global-accent) 84%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
 .card-browser__toolbar .toolbar__action--practice:hover:not(:disabled),
-.card-browser__toolbar .toolbar__action--practice:active:not(:disabled) {
-  border-color: color-mix(in srgb, var(--toolbar-practice-accent) 68%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-practice-accent) 22%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-practice-accent) 94%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--practice:active:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--practice:hover:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--practice:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--toolbar-practice-accent) 92%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-practice-accent) 88%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
 .card-browser__toolbar .toolbar__action--open-in-tab:hover:not(:disabled),
-.card-browser__toolbar .toolbar__action--open-in-tab:active:not(:disabled) {
-  border-color: color-mix(in srgb, var(--toolbar-open-accent) 68%, var(--b3-border-color));
-  background: color-mix(in srgb, var(--toolbar-open-accent) 21%, var(--b3-theme-background));
-  color: color-mix(in srgb, var(--toolbar-open-accent) 96%, var(--b3-theme-on-surface));
+.card-browser__toolbar .toolbar__action--open-in-tab:active:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--open-in-tab:hover:not(:disabled),
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__action--open-in-tab:active:not(:disabled) {
+  border-color: color-mix(in srgb, var(--toolbar-open-accent) 92%, var(--b3-border-color)) !important;
+  background: color-mix(in srgb, var(--toolbar-open-accent) 88%, var(--b3-theme-background)) !important;
+  color: var(--b3-theme-on-primary, #fff) !important;
 }
 
-.card-browser__toolbar .toolbar__right .b3-button--text {
+.card-browser__toolbar .toolbar__right .b3-button--text,
+.b3-dialog__container.siyuanmemo-browser-shell-dialog .card-browser__toolbar .toolbar__right .b3-button--text {
   border-color: var(--b3-theme-primary);
   background: var(--b3-theme-primary);
   color: var(--b3-theme-on-primary, #fff);

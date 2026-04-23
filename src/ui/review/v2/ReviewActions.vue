@@ -23,7 +23,6 @@
         class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal"
         @click="handleRevealClick"
       >
-        <div class="card__icon">👀</div>
         {{ t('showAnswer', '显示答案') }}
       </button>
 
@@ -41,46 +40,26 @@
     </template>
 
     <template v-else>
-      <div class="card__action-slot card__action-slot--back">
-        <button
-          class="b3-button b3-button--cancel card__action-button card__action-button--desktop-tall card__action-back"
-          :disabled="!canBack"
-          @click="handleBackClick"
-        >
-          <svg><use xlink:href="#iconLeft"></use></svg>
-          <span>(p / q)</span>
-        </button>
-      </div>
+      <button
+        class="b3-button b3-button--cancel card__action-button card__action-back card__action-back--desktop-reveal"
+        :disabled="!canBack"
+        @click="handleBackClick"
+      >
+        <svg><use xlink:href="#iconLeft"></use></svg>
+        <span>(p / q)</span>
+      </button>
 
-      <div class="card__action-center card__action-center--reveal">
-        <span
-          class="card__action-meta card__action-meta--placeholder"
-          aria-hidden="true"
-        ></span>
-        <button
-          data-type="-1"
-          aria-label="Space/Enter"
-          class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-button--desktop-tall card__action-main card__action-main--reveal"
-          @click="handleRevealClick"
-        >
-          <div class="card__icon">👀</div>
-          {{ t('showAnswer', '显示答案') }}
-        </button>
-      </div>
+      <span class="fn__space card__action-spacer" aria-hidden="true"></span>
 
-      <div class="card__action-slot card__action-slot--skip card__action-slot--skip-fixed">
-        <div class="card__action-skip card__action-skip--desktop">
-          <SkipMenuButton
-            :i18n="i18n"
-            :queue-size="remainingSize"
-            :is-mobile="props.isMobile"
-            :can-schedule-date="canScheduleDate"
-            @skip="emit('skip')"
-            @insert="handleInsert"
-            @schedule="handleSchedule"
-          />
-        </div>
-      </div>
+      <button
+        data-type="-1"
+        aria-label="Space/Enter"
+        class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal"
+        @click="handleRevealClick"
+      >
+        {{ t('showAnswer', '显示答案') }}
+        <template> ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }}) </template>
+      </button>
     </template>
   </div>
 
@@ -159,63 +138,16 @@
     </template>
 
     <template v-else>
-      <div class="card__action-slot card__action-slot--back">
+      <div class="card__action-column card__action-column--stack card__action-column--stack-desktop">
         <button
-          class="b3-button b3-button--cancel card__action-button card__action-button--desktop-tall card__action-back"
+          class="b3-button b3-button--cancel card__action-button card__action-back card__action-back--stacked"
           :disabled="!canBack"
           @click="handleBackClick"
         >
           <svg><use xlink:href="#iconLeft"></use></svg>
           <span>(p / q)</span>
         </button>
-      </div>
-
-      <div
-        class="card__action-center card__action-center--rating"
-        :style="desktopRatingGridStyle"
-      >
-        <template v-if="isTopicCard">
-          <div class="card__action-column">
-            <span
-              class="card__action-meta card__action-meta--placeholder"
-              aria-hidden="true"
-            ></span>
-            <button
-              data-type="3"
-              aria-label="Space/Enter"
-              class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-button card__action-button--desktop-tall card__action-main"
-              @click="handleTopicNextClick"
-            >
-              <div class="card__icon">📖</div>
-              {{ t('nextCard', '下一张') }}
-              <template>( {{ t('space', '空格') }} / {{ t('enterKey', '回车') }} )</template>
-            </button>
-          </div>
-        </template>
-
-        <template v-else>
-          <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
-            <span
-              class="card__action-meta"
-              :class="getDueMetaClass(g.value)"
-            >{{ g.nextDue || '' }}</span>
-            <button
-              :data-type="g.value"
-              :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
-              class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-button--desktop-tall card__action-main"
-              :class="getButtonVariant(g.value)"
-              @click="handleGradeClick(g.value, $event)"
-            >
-              <div class="card__icon">{{ g.emoji }}</div>
-              {{ g.label }}
-              <template>({{ g.kb }})</template>
-            </button>
-          </div>
-        </template>
-      </div>
-
-      <div class="card__action-slot card__action-slot--skip card__action-slot--skip-fixed">
-        <div class="card__action-skip card__action-skip--desktop">
+        <div class="card__action-skip card__action-skip--stacked card__action-skip--stacked-desktop">
           <SkipMenuButton
             :i18n="i18n"
             :queue-size="remainingSize"
@@ -227,6 +159,45 @@
           />
         </div>
       </div>
+
+      <template v-if="isTopicCard">
+        <div class="card__action-column">
+          <span
+            class="card__action-meta card__action-meta--placeholder"
+            aria-hidden="true"
+          ></span>
+          <button
+            data-type="3"
+            aria-label="Space/Enter"
+            class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-button card__action-main"
+            @click="handleTopicNextClick"
+          >
+            <div class="card__icon">📖</div>
+            {{ t('nextCard', '下一张') }}
+            <template> ({{ t('space', '空格') }} / {{ t('enterKey', '回车') }}) </template>
+          </button>
+        </div>
+      </template>
+
+      <template v-else>
+        <div v-for="g in actions.grades" :key="g.value" class="card__action-column">
+          <span
+            class="card__action-meta"
+            :class="getDueMetaClass(g.value)"
+          >{{ g.nextDue || '' }}</span>
+          <button
+            :data-type="g.value"
+            :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
+            class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main"
+            :class="getButtonVariant(g.value)"
+            @click="handleGradeClick(g.value, $event)"
+          >
+            <div class="card__icon">{{ g.emoji }}</div>
+            {{ g.label }}
+            <template>({{ g.kb }})</template>
+          </button>
+        </div>
+      </template>
     </template>
   </div>
 
@@ -334,10 +305,6 @@ const ratingStageStyle = computed(() => (
     ? { '--review-rating-columns': String(ratingStageColumns.value) }
     : undefined
 ));
-
-const desktopRatingGridStyle = computed(() => ({
-  gridTemplateColumns: `repeat(${isTopicCard.value ? 1 : Math.max(props.actions.grades.length, 1)}, minmax(0, 1fr))`,
-}));
 
 const showInsertDialog = ref(false);
 const showScheduleDialog = ref(false);
@@ -582,17 +549,12 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 <style scoped>
 .card__action {
-  --review-desktop-back-width: 118px;
-  --review-desktop-skip-width: 168px;
-  --review-desktop-button-height: 68px;
-  --review-desktop-meta-height: 20px;
-  --review-desktop-meta-gap: 6px;
   display: flex;
   align-items: stretch;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 12px 12px;
+  padding: 8px;
   user-select: none;
   flex-shrink: 0;
   border-top: 1px solid var(--b3-border-color);
@@ -608,93 +570,44 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   align-items: stretch;
 }
 
-.card__action--desktop {
-  display: grid;
-  grid-template-columns: var(--review-desktop-back-width) minmax(0, 1fr) var(--review-desktop-skip-width);
-}
-
 .card__action-button {
+  width: 100%;
   white-space: nowrap;
-}
-
-.card__action-button--desktop-tall {
-  min-height: var(--review-desktop-button-height);
-}
-
-.card__action-slot {
-  min-width: 0;
-  display: flex;
-}
-
-.card__action-slot--back {
-  min-width: var(--review-desktop-back-width);
-}
-
-.card__action-slot--skip {
-  min-width: var(--review-desktop-skip-width);
-}
-
-.card__action--desktop .card__action-slot {
-  padding-top: calc(var(--review-desktop-meta-height) + var(--review-desktop-meta-gap));
-}
-
-.card__action-slot--skip-fixed {
-  justify-content: flex-start;
-}
-
-.card__action-center {
-  min-width: 0;
-}
-
-.card__action-center--reveal {
-  display: grid;
-  grid-template-rows: var(--review-desktop-meta-height) minmax(0, var(--review-desktop-button-height));
-  row-gap: var(--review-desktop-meta-gap);
-}
-
-.card__action-center--rating {
-  display: grid;
-  gap: 12px;
-  align-items: start;
+  display: block;
+  padding: 8px 0;
+  text-align: center;
 }
 
 .card__action-back {
-  width: 100%;
-  flex: 0 0 var(--review-desktop-back-width);
-  min-width: var(--review-desktop-back-width);
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 44px;
-  padding: 0 12px;
-  border-radius: 6px;
 }
 
-.card__action--desktop .card__action-back {
-  flex: 1 1 auto;
-  min-width: 0;
+.card__action-back--desktop-reveal {
+  width: 25%;
+  min-width: 86px;
 }
 
 .card__action-back--stacked {
-  flex: 0 0 28px;
-  min-width: 0;
+  display: flex;
+  margin-bottom: 8px;
+  height: 28px;
   min-height: 28px;
   max-height: 28px;
-  padding: 0 10px;
-  border-radius: 4px;
+  padding: 0;
 }
 
 .card__action-column {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  flex: 1 1 0;
+  flex: 1 1 0%;
 }
 
 .card__action-column--stack {
-  flex: 0 0 clamp(132px, 18vw, 168px);
-  gap: 8px;
+  gap: 0;
 }
 
 .card__action-skip {
@@ -703,25 +616,15 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   width: 100%;
 }
 
-.card__action-skip--desktop {
-  width: 100%;
-}
-
 .card__action-skip :deep(.skip-menu-button) {
   width: 100%;
   min-height: 44px;
-  border-radius: 6px;
-}
-
-.card__action-skip--desktop :deep(.skip-menu-button),
-.card__action-skip--desktop :deep(.skip-menu-button__main),
-.card__action-skip--desktop :deep(.skip-menu-button__trigger) {
-  min-height: var(--review-desktop-button-height);
-  height: var(--review-desktop-button-height);
+  border-radius: 4px;
 }
 
 .card__action-skip--stacked :deep(.skip-menu-button) {
-  min-height: 68px;
+  min-height: 0;
+  height: 100%;
 }
 
 .card__action-column > span {
@@ -729,12 +632,11 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   color: var(--b3-theme-on-surface);
   text-align: center;
   font-size: 12px;
-  margin: 0;
-  height: 20px;
-  line-height: 1.2;
+  margin: 0 0 8px;
+  height: 28px;
+  line-height: 14px;
   justify-content: center;
   align-items: center;
-  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -761,18 +663,9 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 .card__action-main {
   width: 100%;
   min-width: 0;
-  flex: 1 1 auto;
-  min-height: 44px;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border-radius: 6px;
+  min-height: 0;
   box-shadow: none;
-  font-weight: 600;
-  padding: 0 12px;
-  line-height: 1.2;
+  line-height: inherit;
   text-align: center;
 }
 
@@ -780,19 +673,33 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   flex: 1 1 auto;
 }
 
-.card__action--desktop .card__action-column {
-  gap: var(--review-desktop-meta-gap);
+.card__action--desktop .card__action-column--stack-desktop {
+  align-self: stretch;
 }
 
-.card__action--desktop .card__action-column > span {
-  height: var(--review-desktop-meta-height);
+.card__action--desktop .card__action-skip--stacked-desktop {
+  flex: 1 1 auto;
+}
+
+.card__action--desktop .card__action-skip--stacked-desktop :deep(.skip-menu-button) {
+  min-height: 0;
+}
+
+.card__action--desktop .card__action-skip--stacked-desktop :deep(.skip-menu-button__main),
+.card__action--desktop .card__action-skip--stacked-desktop :deep(.skip-menu-button__trigger) {
+  min-height: 0;
+}
+
+.card__action-spacer {
+  flex: 0 0 8px;
 }
 
 .card__icon {
-  font-size: 22px;
+  font-size: 32px;
   display: block;
-  line-height: 24px;
-  margin-bottom: 2px;
+  line-height: 46px;
+  margin-bottom: 4px;
+  margin-inline: auto;
 }
 
 .card__action--mobile {
