@@ -2412,6 +2412,8 @@ function openNumberDialog(options: {
       },
       width: '520px',
       height: '220px',
+      visualVariant: 'form',
+      containerClass: 'siyuanmemo-action-params-dialog',
     });
   });
 }
@@ -2468,6 +2470,8 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
         width: '800px',  // 🆕 增大默认宽度
         height: '85vh',  // 🆕 增大默认高度
         responsive: true,
+        visualVariant: 'manager',
+        containerClass: 'siyuanmemo-postpone-dialog',
       });
     });
   },
@@ -2496,6 +2500,8 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
         width: '800px',  // 🆕 增大默认宽度
         height: '85vh',  // 🆕 增大默认高度
         responsive: true,
+        visualVariant: 'manager',
+        containerClass: 'siyuanmemo-advance-dialog',
       });
     });
   },
@@ -2526,6 +2532,8 @@ const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
         },
         width: '700px',
         height: '80vh',
+        visualVariant: 'manager',
+        containerClass: 'siyuanmemo-spread-dialog',
       });
     });
   },
@@ -5090,6 +5098,8 @@ async function handleOpenSpreadDialog() {
                 width: '600px',  // Increase dialog width
                 height: '450px',  // Increase dialog height
                 responsive: true,
+                visualVariant: 'form',
+                containerClass: 'siyuanmemo-reschedule-result-dialog',
               });
             }
             
@@ -5108,6 +5118,8 @@ async function handleOpenSpreadDialog() {
       width: '800px',  // 🆕 增大默认宽度
       height: '85vh',  // 🆕 增大默认高度
       responsive: true,
+      visualVariant: 'manager',
+      containerClass: 'siyuanmemo-spread-dialog',
     });
   } catch (err: unknown) {
     logger.error('[SiYuanMemo][SRSBrowser] Failed to open Spread dialog:', err);

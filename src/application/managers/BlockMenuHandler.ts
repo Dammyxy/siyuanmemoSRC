@@ -6,7 +6,7 @@
 import type { App } from 'siyuan';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
-import { createVueDialog } from '@/utils/dialog';
+import { applyDialogChrome, createVueDialog } from '@/utils/dialog';
 import { DEFAULT_PRIORITY } from '@/core/queue';
 import { QueueType } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
@@ -365,6 +365,8 @@ export class BlockMenuHandler {
       },
       width: 'min(680px, 92vw)',
       height: 'min(640px, 66vh)',
+      visualVariant: 'form',
+      containerClass: 'siyuanmemo-srs-editor-dialog',
     });
   }
 
@@ -490,22 +492,25 @@ export class BlockMenuHandler {
       const dialog = new Dialog({
         title: this.deps.i18n?.finalDrillQueueTitle || '刻意练习队列',
         content: `
-          <div class="b3-dialog__content" style="padding: 16px;">
-            <div style="margin-bottom: 16px;">
+          <div class="siyuanmemo-choice-dialog">
+            <p class="siyuanmemo-choice-dialog__message">
               队列中已有 <strong>${existingCount}</strong> 张卡片，你想：
-            </div>
-          </div>
-          <div class="b3-dialog__action">
+            </p>
+            <div class="siyuanmemo-choice-dialog__actions">
             <button class="b3-button b3-button--cancel">取消</button>
-            <div class="fn__space"></div>
             <button class="b3-button" data-action="continue">继续练习</button>
-            <div class="fn__space"></div>
             <button class="b3-button" data-action="replace">替换队列</button>
-            <div class="fn__space"></div>
             <button class="b3-button b3-button--text" data-action="append">追加 ${newCount} 张</button>
+            </div>
           </div>
         `,
         width: '520px',
+      });
+      applyDialogChrome(dialog, {
+        visualVariant: 'manager',
+        containerClass: 'siyuanmemo-final-drill-choice-dialog',
+        dialogWidth: '520px',
+        dialogHeight: 'auto',
       });
       
       const element = dialog.element;
@@ -541,18 +546,23 @@ export class BlockMenuHandler {
       const dialog = new Dialog({
         title: this.deps.i18n?.startPracticeTitle || '开始练习？',
         content: `
-          <div class="b3-dialog__content" style="padding: 16px;">
-            <div style="margin-bottom: 16px;">
+          <div class="siyuanmemo-choice-dialog">
+            <p class="siyuanmemo-choice-dialog__message">
               已添加 <strong>${addedCount}</strong> 张卡片到刻意练习队列。要现在开始练习吗？
-            </div>
-          </div>
-          <div class="b3-dialog__action">
+            </p>
+            <div class="siyuanmemo-choice-dialog__actions">
             <button class="b3-button b3-button--cancel">稍后</button>
-            <div class="fn__space"></div>
             <button class="b3-button b3-button--text">立即开始</button>
+            </div>
           </div>
         `,
         width: '420px',
+      });
+      applyDialogChrome(dialog, {
+        visualVariant: 'form',
+        containerClass: 'siyuanmemo-final-drill-confirm-dialog',
+        dialogWidth: '420px',
+        dialogHeight: 'auto',
       });
       
       const element = dialog.element;

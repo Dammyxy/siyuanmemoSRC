@@ -481,6 +481,7 @@ describe('SettingsPanel', () => {
     await enableToggle!.setValue(false);
 
     await clickSubtab(wrapper, 'Chat & Tools');
+    expect(wrapper.find('.settings-panel').classes()).toContain('siyuanmemo-settings-theme');
     expect(wrapper.text()).toContain('学习决策');
     expect(wrapper.text()).toContain('思源写入');
     expect(wrapper.text()).toContain('Tool Group Manager');
@@ -492,6 +493,8 @@ describe('SettingsPanel', () => {
     await toolPermissionButton.trigger('click');
     expect(createVueDialogMock).toHaveBeenCalledTimes(1);
     expect(createVueDialogMock.mock.calls[0]?.[0]?.props?.groupKey).toBeNull();
+    expect(createVueDialogMock.mock.calls[0]?.[0]?.visualVariant).toBe('manager');
+    expect(createVueDialogMock.mock.calls[0]?.[0]?.containerClass).toBe('siyuanmemo-ai-tool-permission-dialog');
 
     const expandButton = wrapper.find('.ai-tool-group-card__expand');
     expect(expandButton.exists()).toBe(true);
@@ -513,6 +516,7 @@ describe('SettingsPanel', () => {
     await promptEditButtons[0].trigger('click');
     expect(createVueDialogMock).toHaveBeenCalledTimes(2);
     expect(createVueDialogMock.mock.calls[1]?.[0]?.props?.mode).toBe('generalChat');
+    expect(createVueDialogMock.mock.calls[1]?.[0]?.visualVariant).toBe('manager');
 
     const restoreButtons = wrapper.findAll('button').filter((btn) => btn.text().includes('Restore Recommended Template'));
     expect(restoreButtons).toHaveLength(2);
@@ -528,6 +532,7 @@ describe('SettingsPanel', () => {
     await addChatSkillButton!.trigger('click');
     expect(createVueDialogMock).toHaveBeenCalledTimes(3);
     expect(createVueDialogMock.mock.calls[2]?.[0]?.props?.isNew).toBe(true);
+    expect(createVueDialogMock.mock.calls[2]?.[0]?.visualVariant).toBe('manager');
     expect(wrapper.text()).toContain('No user skills yet');
 
     const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));

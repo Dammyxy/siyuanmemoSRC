@@ -1455,6 +1455,8 @@ function openNumberDialog(options: {
       },
       width: '520px',
       height: '220px',
+      visualVariant: 'form',
+      containerClass: 'siyuanmemo-action-params-dialog',
     });
   });
 }
@@ -3842,6 +3844,8 @@ function openSrsEditorDialog(blockId: string, cardId?: string) {
     },
     width: 'min(680px, 92vw)',
     height: 'min(640px, 66vh)',
+    visualVariant: 'form',
+    containerClass: 'siyuanmemo-srs-editor-dialog',
   });
 }
 

@@ -127,6 +127,8 @@ export function createUnifiedReviewDialog(options: CreateUnifiedReviewDialogOpti
             transparent: true,
             isReview: true,
             isMobile,
+            visualVariant: 'workspace',
+            containerClass: 'siyuanmemo-review-shell-dialog',
             props: {
                 app: plugin.app,
                 i18n: plugin.i18n || {},

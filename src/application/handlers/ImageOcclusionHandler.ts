@@ -3,6 +3,7 @@ import type FSRSPlugin from '@/index';
 import { getBlockAttrs, getBlockKramdown, setBlockAttrs } from '@/infrastructure/siyuan/api';
 import { isErr } from '@/types/result';
 import { clamp01, normalizeRectFromPixels, toPercentMaskStyle } from '@/utils/imageOcclusionGeometry';
+import { applyDialogChrome } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ImageOcclusionHandler');
@@ -274,10 +275,16 @@ export class ImageOcclusionHandler {
       title: this.t('imageOcclusionTitle', 'Image Occlusion Card'),
       width: dialogSize.width,
       height: dialogSize.height,
-      content: `<div id="${containerId}" class="siyuanmemo-image-occlusion-root"></div>`,
+      content: `<div id="${containerId}" class="siyuanmemo-image-occlusion-root siyuanmemo-dialog-root siyuanmemo-dialog-root--workspace"></div>`,
       destroyCallback: () => {
         this.openDialogs.delete(blockId);
       },
+    });
+    applyDialogChrome(dialog, {
+      visualVariant: 'workspace',
+      containerClass: 'siyuanmemo-image-occlusion-dialog',
+      dialogWidth: dialogSize.width,
+      dialogHeight: dialogSize.height,
     });
     this.openDialogs.set(blockId, dialog);
 

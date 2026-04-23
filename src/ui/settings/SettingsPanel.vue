@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="settings-panel">
+  <div class="settings-panel siyuanmemo-settings-theme">
     <!-- 设置导航 -->
     <div class="settings-shell">
       <aside class="settings-tabs">
@@ -1698,6 +1698,8 @@ function openToolPermissionManager(groupKey?: AIChatToolGroupKey): void {
     width: 'min(1080px, 96vw)',
     height: 'min(780px, 92vh)',
     responsive: true,
+    visualVariant: 'manager',
+    containerClass: 'siyuanmemo-ai-tool-permission-dialog',
     onClose: () => {
       toolPermissionDialogHandle.value = null;
     },
@@ -1754,6 +1756,8 @@ function openBuiltInPromptEditor(settingKey: AIPromptSettingKey): void {
     width: 'min(1100px, 96vw)',
     height: 'min(820px, 94vh)',
     responsive: true,
+    visualVariant: 'manager',
+    containerClass: 'siyuanmemo-ai-prompt-dialog',
     onClose: () => {
       builtInPromptDialogHandle.value = null;
     },
@@ -1810,6 +1814,8 @@ function openUserSkillEditor(skill: AIUserSkillDefinition, options?: { index?: n
     width: 'min(1240px, 97vw)',
     height: 'min(900px, 95vh)',
     responsive: true,
+    visualVariant: 'manager',
+    containerClass: 'siyuanmemo-ai-user-skill-dialog',
     onClose: () => {
       userSkillDialogHandle.value = null;
     },

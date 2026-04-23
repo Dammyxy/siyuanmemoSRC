@@ -552,6 +552,8 @@ function openScheduleDateDialog(): void {
     props: { cardType: scheduleCardType, i18n: props.i18n || {} },
     width: '520px',
     height: '600px',
+    visualVariant: 'form',
+    containerClass: 'siyuanmemo-schedule-date-dialog',
     events: {
       confirm: async (options: unknown) => {
         await handleScheduleDate(options as ScheduleOptions);

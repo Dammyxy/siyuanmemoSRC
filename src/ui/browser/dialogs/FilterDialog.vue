@@ -264,6 +264,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import type { CardFilter } from '@/types/unified-data-source';
 import { filterService } from '../services/FilterService';
 import { createLogger } from '@/utils/logger';
+import { inputDialog } from '@/utils/dialog';
 
 const logger = createLogger('FilterDialog');
 
@@ -555,84 +556,11 @@ async function showSavePresetDialog() {
 // 简单的输入对话框实现
 function showInputDialog(message: string): Promise<string | null> {
   logger.info('[FilterDialog] showInputDialog called with message:', message);
-  
-  return new Promise((resolve) => {
-    try {
-      const dialog = document.createElement('div');
-      dialog.className = 'b3-dialog b3-dialog--open';
-      dialog.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10000;';
-      
-      dialog.innerHTML = `
-        <div class="b3-dialog__scrim" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5);"></div>
-        <div class="b3-dialog__container" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--b3-theme-background); border-radius: 4px; padding: 20px; min-width: 400px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-          <div class="b3-dialog__header" style="margin-bottom: 16px;">
-            <div class="b3-dialog__title" style="font-size: 16px; font-weight: 600;">${message}</div>
-          </div>
-          <div class="b3-dialog__body" style="margin-bottom: 16px;">
-            <input type="text" class="b3-text-field fn__block" id="preset-name-input" style="width: 100%; padding: 8px; border: 1px solid var(--b3-border-color); border-radius: 3px;" />
-          </div>
-          <div class="b3-dialog__action" style="display: flex; justify-content: flex-end; gap: 8px;">
-            <button class="b3-button b3-button--cancel" style="padding: 6px 16px;">Cancel</button>
-            <button class="b3-button b3-button--text" style="padding: 6px 16px;">OK</button>
-          </div>
-        </div>
-      `;
-      
-      document.body.appendChild(dialog);
-      logger.info('[FilterDialog] Dialog appended to body');
-      
-      const input = dialog.querySelector('#preset-name-input') as HTMLInputElement;
-      if (input) {
-        input.focus();
-        logger.info('[FilterDialog] Input focused');
-      } else {
-        logger.error('[FilterDialog] Input element not found');
-      }
-      
-      const cleanup = () => {
-        logger.info('[FilterDialog] Cleaning up dialog');
-        if (dialog.parentNode) {
-          document.body.removeChild(dialog);
-        }
-      };
-      
-      const cancelBtn = dialog.querySelector('.b3-button--cancel');
-      if (cancelBtn) {
-        cancelBtn.addEventListener('click', () => {
-          logger.info('[FilterDialog] Cancel clicked');
-          cleanup();
-          resolve(null);
-        });
-      }
-      
-      const okBtn = dialog.querySelector('.b3-button--text');
-      if (okBtn) {
-        okBtn.addEventListener('click', () => {
-          const value = input.value.trim();
-          logger.info('[FilterDialog] OK clicked, value:', value);
-          cleanup();
-          resolve(value || null);
-        });
-      }
-      
-      if (input) {
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            const value = input.value.trim();
-            logger.info('[FilterDialog] Enter pressed, value:', value);
-            cleanup();
-            resolve(value || null);
-          } else if (e.key === 'Escape') {
-            logger.info('[FilterDialog] Escape pressed');
-            cleanup();
-            resolve(null);
-          }
-        });
-      }
-    } catch (error) {
-      logger.error('[FilterDialog] Error creating dialog:', error);
-      resolve(null);
-    }
+  return inputDialog({
+    title: message,
+    confirmText: 'OK',
+    cancelText: 'Cancel',
+    visualVariant: 'form',
   });
 }
 

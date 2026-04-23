@@ -14,7 +14,7 @@ import { reactive } from 'vue';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { IDialogManager } from '../interfaces/IDialogManager';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
-import { createVueDialog } from '@/utils/dialog';
+import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { SettingsPanel } from '@/ui/settings';
 import AiWorkbenchDialog from '@/ui/ai/AiWorkbenchDialog.vue';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
@@ -392,6 +392,8 @@ export class DialogManager implements IDialogManager {
       },
       width: this.isMobileFrontend() ? '100vw' : 'min(1220px, 98vw)',
       height: this.isMobileFrontend() ? '100vh' : 'min(860px, 94vh)',
+      visualVariant: 'workspace',
+      containerClass: 'siyuanmemo-ai-workbench-shell',
       onClose: () => {
         this.aiWorkbenchDialog = null;
       },
@@ -576,6 +578,8 @@ export class DialogManager implements IDialogManager {
       },
       width: this.isMobileFrontend() ? '100vw' : 'min(1180px, 96vw)',
       height: this.isMobileFrontend() ? '100vh' : 'min(860px, 92vh)',
+      visualVariant: 'manager',
+      containerClass: 'siyuanmemo-settings-shell-dialog',
       onClose: () => {
         this.settingsDialog = null;
       },
@@ -629,6 +633,8 @@ export class DialogManager implements IDialogManager {
       },
       width: '100vw',
       height: '100vh',
+      visualVariant: 'workspace',
+      containerClass: 'siyuanmemo-mobile-launcher-shell',
       onClose: () => {
         this.mobileQueueLauncherDialog = null;
       },
@@ -696,6 +702,8 @@ export class DialogManager implements IDialogManager {
       },
       width,
       height,
+      visualVariant: 'workspace',
+      containerClass: 'siyuanmemo-browser-shell-dialog',
       onClose: () => {
         this.srsBrowserDialog = null;
       },
@@ -762,6 +770,8 @@ export class DialogManager implements IDialogManager {
       height: '460px',
       responsive: true,
       disableClose: true,
+      visualVariant: 'form',
+      containerClass: 'siyuanmemo-progressive-split-dialog',
       events: {
         confirm: async (config: ProgressiveSplitConfig) => {
           if (splitRunning) {
@@ -1200,6 +1210,8 @@ export class DialogManager implements IDialogManager {
         transparent: true,
         isReview: true,
         isMobile,
+        visualVariant: 'workspace',
+        containerClass: 'siyuanmemo-review-shell-dialog',
         props: {
           app: this.plugin.app,
           i18n: this.context.getI18n() || {},
@@ -1324,6 +1336,8 @@ export class DialogManager implements IDialogManager {
         transparent: true,
         isReview: true,
         isMobile,
+        visualVariant: 'workspace',
+        containerClass: 'siyuanmemo-review-shell-dialog',
         props: {
           app: this.plugin.app,
           i18n: this.context.getI18n() || {},
@@ -1436,32 +1450,12 @@ export class DialogManager implements IDialogManager {
     const continueLabel = i18n.cdfMultilineMarkerContinue || 'Continue';
     const cancelLabel = i18n.cancel || 'Cancel';
 
-    return new Promise((resolve) => {
-      const { Dialog } = require('siyuan');
-      const dialog = new Dialog({
-        title,
-        content: `
-          <div class="b3-dialog__content" style="padding: 16px;">
-            <div style="margin-bottom: 12px;">${description}</div>
-          </div>
-          <div class="b3-dialog__action">
-            <button class="b3-button b3-button--cancel" data-action="cancel">${cancelLabel}</button>
-            <div class="fn__space"></div>
-            <button class="b3-button b3-button--text" data-action="continue">${continueLabel}</button>
-          </div>
-        `,
-        width: '460px',
-      });
-
-      const element = dialog.element;
-      element.querySelector('[data-action=\"cancel\"]')?.addEventListener('click', () => {
-        dialog.destroy();
-        resolve(false);
-      });
-      element.querySelector('[data-action=\"continue\"]')?.addEventListener('click', () => {
-        dialog.destroy();
-        resolve(true);
-      });
+    return confirmDialog({
+      title,
+      content: description,
+      confirmText: continueLabel,
+      cancelText: cancelLabel,
+      visualVariant: 'form',
     });
   }
 
@@ -2240,6 +2234,8 @@ export class DialogManager implements IDialogManager {
         },
         width: '640px',
         height: '650px',
+        visualVariant: 'manager',
+        containerClass: 'siyuanmemo-template-select-dialog',
         events: {
           confirm: async (templateId: string) => {
             // 使用 XiuyuanApplicationService 获取模板

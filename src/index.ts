@@ -34,6 +34,7 @@ import {
 } from '@/application/entries/TopBarQuickEntryRegistry';
 import { ensureSiyuanMenuComponentFallbacks } from '@/utils/siyuanMenuComponentFallbacks';
 import '@/index.scss';
+import '@/ui/shared/siyuanmemo-admin-skin.scss';
 
 type DeferredValue<T> = {
   promise: Promise<T>;

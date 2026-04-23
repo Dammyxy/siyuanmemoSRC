@@ -99,7 +99,7 @@ function confirmIfEditable(): void {
 .large-editor__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(37, 29, 20, 0.42);
+  background: rgba(15, 23, 42, 0.18);
   backdrop-filter: blur(6px);
 }
 
@@ -110,9 +110,10 @@ function confirmIfEditable(): void {
   display: grid;
   gap: 12px;
   padding: 18px;
-  border-radius: 20px;
-  background: #fffaf2;
-  box-shadow: 0 22px 56px rgba(87, 61, 33, 0.2);
+  border: 1px solid color-mix(in srgb, var(--b3-border-color) 82%, white 18%);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--b3-theme-background) 86%, white 14%);
+  box-shadow: 0 22px 54px rgba(15, 23, 42, 0.1);
 }
 
 .large-editor__header,
@@ -124,14 +125,24 @@ function confirmIfEditable(): void {
   gap: 10px;
 }
 
+.large-editor__header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--b3-border-color) 86%, white 14%);
+}
+
 .large-editor__textarea {
   min-height: 420px;
   resize: vertical;
   line-height: 1.64;
 }
 
+.large-editor__footer {
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--b3-border-color) 86%, white 14%);
+}
+
 .large-editor__hint {
-  color: #7b6b57;
+  color: var(--b3-theme-on-surface-light);
   font-size: 12px;
   line-height: 1.5;
 }

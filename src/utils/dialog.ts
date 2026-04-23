@@ -8,12 +8,102 @@ import { createApp, type Component } from 'vue';
 import { createLogger } from '@/utils/logger';
 
 type DialogEventHandler = (...args: unknown[]) => void;
+export type DialogVisualVariant = 'form' | 'manager' | 'workspace';
+
+type DialogClassInput = string | string[] | undefined;
+type DialogChromeOptions = {
+    visualVariant?: DialogVisualVariant;
+    containerClass?: DialogClassInput;
+    contentClass?: DialogClassInput;
+    dataKey?: string;
+    transparent?: boolean;
+    isReview?: boolean;
+    isMobile?: boolean;
+    dialogWidth?: string;
+    dialogHeight?: string;
+};
+
 type CustomEventLike = Event & {
     detail?: unknown;
     _fsrsForwarded?: boolean;
 };
 
 const logger = createLogger('DialogHelper');
+
+export function normalizeDialogClassList(value?: DialogClassInput): string[] {
+    if (!value) {
+        return [];
+    }
+    const source = Array.isArray(value) ? value : [value];
+    return Array.from(new Set(
+        source
+            .flatMap((item) => String(item || '').split(/\s+/))
+            .map((item) => item.trim())
+            .filter(Boolean),
+    ));
+}
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+export function applyDialogChrome(dialog: Dialog, options: DialogChromeOptions = {}): void {
+    const variant = options.visualVariant || 'form';
+    const dialogContainer = dialog.element.querySelector('.b3-dialog__container') as HTMLElement | null;
+    const scrim = dialog.element.querySelector('.b3-dialog__scrim') as HTMLElement | null;
+    const contentRoot = dialog.element.querySelector('.siyuanmemo-dialog-root') as HTMLElement | null;
+
+    if (dialogContainer) {
+        dialogContainer.classList.add('siyuanmemo-dialog-shell', `siyuanmemo-dialog-shell--${variant}`);
+        for (const className of normalizeDialogClassList(options.containerClass)) {
+            dialogContainer.classList.add(className);
+        }
+
+        const isFullScreenDialog = options.dialogWidth === '100vw' && options.dialogHeight === '100vh';
+        if (isFullScreenDialog) {
+            dialogContainer.style.maxWidth = '100vw';
+            dialogContainer.style.width = '100vw';
+            dialogContainer.style.height = '100vh';
+            dialogContainer.style.setProperty('border-radius', '0', 'important');
+        }
+
+        if (options.isReview) {
+            dialogContainer.classList.add('siyuanmemo-review-dialog-container');
+            if (options.isMobile) {
+                dialogContainer.classList.add('fsrs-mobile-review-dialog');
+                dialogContainer.style.maxWidth = '100vw';
+                dialogContainer.style.width = '100vw';
+                dialogContainer.style.height = '100vh';
+                dialogContainer.style.setProperty('border-radius', '0', 'important');
+            } else {
+                dialogContainer.style.maxWidth = '1024px';
+                dialogContainer.style.setProperty('border-radius', '12px', 'important');
+            }
+        }
+
+        if (options.dataKey) {
+            dialogContainer.setAttribute('data-key', options.dataKey);
+        }
+    }
+
+    if (scrim) {
+        scrim.classList.add('siyuanmemo-dialog-scrim');
+        if (options.transparent) {
+            scrim.classList.add('siyuanmemo-dialog-scrim--transparent');
+        }
+    }
+
+    if (contentRoot) {
+        for (const className of normalizeDialogClassList(options.contentClass)) {
+            contentRoot.classList.add(className);
+        }
+    }
+}
 
 /**
  * 创建一个 Vue 组件的 Dialog
@@ -33,6 +123,9 @@ export function createVueDialog<T extends Component>(options: {
     isMobile?: boolean;  // 是否为移动端（用于全屏策略）
     responsive?: boolean;  // 🆕 添加响应式选项
     disableClose?: boolean;
+    visualVariant?: DialogVisualVariant;
+    containerClass?: DialogClassInput;
+    contentClass?: DialogClassInput;
 }): { dialog: Dialog; destroy: () => void } {
     const containerId = `fsrs-dialog-${Date.now()}`;
 
@@ -88,7 +181,7 @@ export function createVueDialog<T extends Component>(options: {
 
     const dialog = new Dialog({
         title: options.hideTitle ? undefined : options.title,  // 如果 hideTitle，不传 title
-        content: `<div id="${containerId}" class="fn__flex-column" style="height: 100%; width: 100%; overflow: hidden;"></div>`,
+        content: `<div id="${containerId}" class="fn__flex-column siyuanmemo-dialog-root siyuanmemo-dialog-root--${options.visualVariant || 'form'}" style="height: 100%; width: 100%; overflow: hidden;"></div>`,
         width: dialogWidth,
         height: dialogHeight,
         transparent: options.transparent,  // 传递 transparent 选项
@@ -104,46 +197,17 @@ export function createVueDialog<T extends Component>(options: {
         },
     });
 
-    // 只为复习对话框设置最大宽度和圆角
-    const dialogContainer = dialog.element.querySelector('.b3-dialog__container') as HTMLElement;
-    if (dialogContainer) {
-        const isFullScreenDialog = dialogWidth === '100vw' && dialogHeight === '100vh';
-        if (isFullScreenDialog) {
-            dialogContainer.style.maxWidth = '100vw';
-            dialogContainer.style.width = '100vw';
-            dialogContainer.style.height = '100vh';
-            dialogContainer.style.setProperty('border-radius', '0', 'important');
-        }
-
-        if (options.isReview) {
-            dialogContainer.classList.add('siyuanmemo-review-dialog-container');
-            if (options.isMobile) {
-                dialogContainer.classList.add('fsrs-mobile-review-dialog');
-                dialogContainer.style.maxWidth = '100vw';
-                dialogContainer.style.width = '100vw';
-                dialogContainer.style.height = '100vh';
-                dialogContainer.style.setProperty('border-radius', '0', 'important');
-            } else {
-                // 复习界面：设置 maxWidth 以确保圆角样式生效
-                dialogContainer.style.maxWidth = '1024px';
-                // 强制设置圆角（使用具体像素值，不使用 CSS 变量）
-                dialogContainer.style.setProperty('border-radius', '12px', 'important');
-            }
-        }
-
-        // 同时设置 data-key 到容器上，让圆角样式选择器能匹配
-        if (options.dataKey) {
-            dialogContainer.setAttribute('data-key', options.dataKey);
-        }
-    }
-
-    // 设置遮罩层背景色（白色半透明）
-    if (options.transparent) {
-        const scrim = dialog.element.querySelector('.b3-dialog__scrim') as HTMLElement;
-        if (scrim) {
-            scrim.style.backgroundColor = 'var(--b3-theme-surface)';
-        }
-    }
+    applyDialogChrome(dialog, {
+        visualVariant: options.visualVariant,
+        containerClass: options.containerClass,
+        contentClass: options.contentClass,
+        dataKey: options.dataKey,
+        transparent: options.transparent,
+        isReview: options.isReview,
+        isMobile: options.isMobile,
+        dialogWidth,
+        dialogHeight,
+    });
 
     // 立即挂载 Vue 组件
     const container = dialog.element.querySelector(`#${containerId}`) as HTMLElement | null;
@@ -236,21 +300,30 @@ export function confirmDialog(options: {
     content: string;
     confirmText?: string;
     cancelText?: string;
+    visualVariant?: DialogVisualVariant;
 }): Promise<boolean> {
     return new Promise((resolve) => {
         const dialog = new Dialog({
             title: options.title,
             content: `
-        <div class="b3-dialog__content">
-          <div class="ft__breakword">${options.content}</div>
-        </div>
-        <div class="b3-dialog__action">
-          <button class="b3-button b3-button--cancel">${options.cancelText || 'Cancel'}</button>
-          <div class="fn__space"></div>
-          <button class="b3-button b3-button--text">${options.confirmText || 'Confirm'}</button>
+        <div class="siyuanmemo-simple-dialog">
+          <div class="siyuanmemo-simple-dialog__content">
+            <p class="siyuanmemo-simple-dialog__copy ft__breakword">${escapeHtml(options.content)}</p>
+          </div>
+          <div class="siyuanmemo-simple-dialog__actions">
+            <button class="b3-button b3-button--cancel">${escapeHtml(options.cancelText || 'Cancel')}</button>
+            <button class="b3-button b3-button--text">${escapeHtml(options.confirmText || 'Confirm')}</button>
+          </div>
         </div>
       `,
             width: '400px',
+        });
+        applyDialogChrome(dialog, {
+            visualVariant: options.visualVariant || 'form',
+            containerClass: 'siyuanmemo-confirm-dialog-container',
+            contentClass: 'siyuanmemo-confirm-dialog-content',
+            dialogWidth: '400px',
+            dialogHeight: 'auto',
         });
 
         const buttons = dialog.element.querySelectorAll('.b3-button');
@@ -274,6 +347,7 @@ export function inputDialog(options: {
     defaultValue?: string;
     confirmText?: string;
     cancelText?: string;
+    visualVariant?: DialogVisualVariant;
 }): Promise<string | null> {
     return new Promise((resolve) => {
         const inputId = `fsrs-input-${Date.now()}`;
@@ -281,21 +355,29 @@ export function inputDialog(options: {
         const dialog = new Dialog({
             title: options.title,
             content: `
-        <div class="b3-dialog__content">
-          <input 
-            id="${inputId}"
-            class="b3-text-field fn__block" 
-            placeholder="${options.placeholder || ''}"
-            value="${options.defaultValue || ''}"
-          />
-        </div>
-        <div class="b3-dialog__action">
-          <button class="b3-button b3-button--cancel">${options.cancelText || 'Cancel'}</button>
-          <div class="fn__space"></div>
-          <button class="b3-button b3-button--text">${options.confirmText || 'Confirm'}</button>
+        <div class="siyuanmemo-simple-dialog">
+          <div class="siyuanmemo-simple-dialog__content">
+            <input
+              id="${inputId}"
+              class="b3-text-field fn__block siyuanmemo-simple-dialog__input"
+              placeholder="${escapeHtml(options.placeholder || '')}"
+              value="${escapeHtml(options.defaultValue || '')}"
+            />
+          </div>
+          <div class="siyuanmemo-simple-dialog__actions">
+            <button class="b3-button b3-button--cancel">${escapeHtml(options.cancelText || 'Cancel')}</button>
+            <button class="b3-button b3-button--text">${escapeHtml(options.confirmText || 'Confirm')}</button>
+          </div>
         </div>
       `,
             width: '400px',
+        });
+        applyDialogChrome(dialog, {
+            visualVariant: options.visualVariant || 'form',
+            containerClass: 'siyuanmemo-input-dialog-container',
+            contentClass: 'siyuanmemo-input-dialog-content',
+            dialogWidth: '400px',
+            dialogHeight: 'auto',
         });
 
         const input = dialog.element.querySelector(`#${inputId}`) as HTMLInputElement;

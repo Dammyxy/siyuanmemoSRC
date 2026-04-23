@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-23 (Round 118)
+Last update: 2026-04-23 (Round 119)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-23 - F toolbox inspired settings and dialog visual skin
+
+- Task: 参考 `sy-f-misc` / F 工具箱，把设置页与全插件弹窗统一成清爽管理后台视觉，并给 dialog helper 增加视觉变体承载能力。
+- Touched slice: Settings surface / dialog infrastructure / UI shell active path across `src/ui/shared/siyuanmemo-admin-skin.scss`, `src/utils/dialog.ts`, `src/ui/settings/SettingsPanel.vue`, dialog entrypoints in `DialogManager`, `SRSBrowser`, `ReviewView`, `BlockMenuHandler`, `ImageOcclusionHandler`, `SrsEditorDialog`, and representative dialog tests.
+- Debt fixed now: 设置页和 AI 管理器不再依赖局部重渐变/大圆角视觉；Vue dialog、confirm/input dialog、浏览器批量弹窗、SRS 编辑、模板选择、渐进 Split、图片遮挡、final drill 选择等入口都统一挂载 shared shell/variant；`FilterDialog` 的手写 DOM + inline style 输入弹窗被替换为共享 `inputDialog()`。
+- Debt deferred: `ReviewView`、`SRSBrowser`、`AiWorkbench` 等重型工作区本轮只统一 dialog 壳层和外围 panel，内部业务控件没有逐个重绘；`core/native/session.ts` 仍是 legacy direct Dialog path，只做 class bridge，没有迁移到 `createVueDialog()`。
+- Why deferred: 用户确认了全插件弹窗范围，但深改重型工作区内部布局会横跨 review/browser/AI 多个 bounded context；legacy native session 不是当前 active review 主链，迁移风险高于本轮视觉收益。
+- Next safe step: 后续如果继续打磨，可以单独做 `ReviewView` / `SRSBrowser` / `AiWorkbench` 内部控件 token 化，或把 legacy native session 从 direct Dialog 迁移回统一 Vue dialog helper。
+- Validation: `pnpm vitest run src/utils/__tests__/dialog.chrome.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/ui/settings/ai/__tests__/AiToolPermissionManagerDialog.test.ts src/ui/settings/ai/__tests__/AiBuiltInPromptEditorDialog.test.ts src/ui/settings/ai/__tests__/AiUserSkillEditorDialog.test.ts src/ui/browser/dialogs/__tests__/SpreadDialog.test.ts src/ui/srs/__tests__/SrsEditorDialog.spec.ts`; `pnpm build`.
 
 ### 2026-04-23 - AI settings manager refactor toward F toolbox pattern
 

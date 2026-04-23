@@ -214,8 +214,17 @@ export class NativeReviewSession {
       },
     });
 
+    const dialogContainer = this.dialog.element.querySelector('.b3-dialog__container') as HTMLElement | null;
+    dialogContainer?.classList.add(
+      'siyuanmemo-dialog-shell',
+      'siyuanmemo-dialog-shell--workspace',
+      'siyuanmemo-native-review-dialog',
+    );
+    this.dialog.element.querySelector('.b3-dialog__scrim')?.classList.add('siyuanmemo-dialog-scrim');
+
     // 设置 data-key 属性，让思源热键系统能够识别这个对话框
     this.dialog.element.setAttribute('data-key', 'dialog-opencard');
+    dialogContainer?.setAttribute('data-key', 'dialog-opencard');
     logger.debug('Set data-key attribute on dialog');
 
     // 调试：检查思源热键系统能否识别
