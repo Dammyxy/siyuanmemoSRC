@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
-import { CardCreatedEvent } from '@/core/xiuyuan/domain/events';
+import { CardCreatedEvent, CardDeletedEvent } from '@/core/xiuyuan/domain/events';
+import { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
 import type { FSRSCard } from '@/types/card';
 import { ReviewScopeCardCreationSyncService } from '../ReviewScopeCardCreationSyncService';
 
@@ -121,6 +122,68 @@ describe('ReviewScopeCardCreationSyncService', () => {
     expect(cardService.batchUpdateCardsWithoutEvents).not.toHaveBeenCalled();
     expect(docTreeReviewScopeService.registerCardRootId).not.toHaveBeenCalled();
     expect(unifiedDataSourceManager.onCardCreated).toHaveBeenCalledWith(originalCard);
+
+    await service.dispose();
+  });
+
+  it('publishes deleted-card visibility updates for single-card deletion events', async () => {
+    const cardService = {
+      getCard: vi.fn(),
+      batchUpdateCardsWithoutEvents: vi.fn(),
+    };
+    const unifiedDataSourceManager = {
+      onCardCreated: vi.fn(async () => undefined),
+      onCardsDeleted: vi.fn(async () => undefined),
+    };
+    const docTreeReviewScopeService = {
+      registerCardRootId: vi.fn(),
+    };
+    const siyuanApi = {
+      sql: vi.fn(async () => []),
+    };
+
+    const service = new ReviewScopeCardCreationSyncService(
+      eventBus,
+      cardService as any,
+      unifiedDataSourceManager as any,
+      docTreeReviewScopeService as any,
+      { siyuanApi: siyuanApi as any },
+    );
+
+    await eventBus.publish(new CardDeletedEvent('xy-1', 'card-1', 'block-1'));
+
+    expect(unifiedDataSourceManager.onCardsDeleted).toHaveBeenCalledWith(['card-1'], ['block-1']);
+
+    await service.dispose();
+  });
+
+  it('publishes deleted-card visibility updates for batch deletion events', async () => {
+    const cardService = {
+      getCard: vi.fn(),
+      batchUpdateCardsWithoutEvents: vi.fn(),
+    };
+    const unifiedDataSourceManager = {
+      onCardCreated: vi.fn(async () => undefined),
+      onCardsDeleted: vi.fn(async () => undefined),
+    };
+    const docTreeReviewScopeService = {
+      registerCardRootId: vi.fn(),
+    };
+    const siyuanApi = {
+      sql: vi.fn(async () => []),
+    };
+
+    const service = new ReviewScopeCardCreationSyncService(
+      eventBus,
+      cardService as any,
+      unifiedDataSourceManager as any,
+      docTreeReviewScopeService as any,
+      { siyuanApi: siyuanApi as any },
+    );
+
+    await eventBus.publish(new CardsDeletedEvent('batch-delete', ['card-1', 'card-2'], ['block-1']));
+
+    expect(unifiedDataSourceManager.onCardsDeleted).toHaveBeenCalledWith(['card-1', 'card-2'], ['block-1']);
 
     await service.dispose();
   });

@@ -66,6 +66,9 @@ export interface DataChangeEvent {
     
     /** 受影响的卡片 ID 列表（可选） */
     cardIds?: string[];
+
+    /** 受影响的块 ID 列表（可选，删除事件中与 cardIds 分离） */
+    blockIds?: string[];
     
     /** 受影响的队列类型（可选） */
     queueType?: QueueType;
@@ -145,6 +148,7 @@ export interface IUnifiedDataSourceManagerFacade {
     getCards(filter?: CardFilter): Promise<FSRSCard[]>;
     updateCard(card: FSRSCard): Promise<void>;
     deleteCard?(cardId: string): Promise<void>;
+    onCardsDeleted?(cardIds: string[], blockIds?: string[]): Promise<void>;
     getQueue(type: QueueType): IReviewQueue;
     getAvailableQueueTypes(): QueueType[];
     registerObserver(observer: IDataSourceObserver): void;

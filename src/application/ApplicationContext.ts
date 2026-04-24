@@ -74,6 +74,8 @@ import { TopicDerivedItemService } from '@/application/services/TopicDerivedItem
 import { ConfiguredCaptureStorageService } from '@/application/services/ConfiguredCaptureStorageService';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
+import { ArenaKernelService } from '@/application/services/ArenaKernelService';
+import { ArenaStoreService } from '@/application/services/ArenaStoreService';
 import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
@@ -115,6 +117,8 @@ interface ApplicationServiceRegistry {
   topicDerivedItemService: TopicDerivedItemService;
   cardContentQueryService: CardContentQueryService;
   aiWorkbenchSessionStoreService: AIWorkbenchSessionStoreService;
+  arenaStoreService: ArenaStoreService;
+  arenaKernelService: ArenaKernelService;
   reviewAIWorkbenchRegistry: ReviewAIWorkbenchRegistry;
   sharedReviewSessionRegistry: SharedReviewSessionRegistry;
   aiWorkbenchService: AIWorkbenchService;
@@ -434,6 +438,28 @@ export class ApplicationContext {
       return new CardContentQueryService();
     });
 
+    this.registerServiceFactory('aiWorkbenchSessionStoreService', (context) => {
+      return new AIWorkbenchSessionStoreService(context.getFileService());
+    });
+
+    this.registerServiceFactory('arenaStoreService', (context) => {
+      return new ArenaStoreService(context.getFileService());
+    });
+
+    this.registerServiceFactory('arenaKernelService', (context) => {
+      return new ArenaKernelService({
+        getArenaSettings: () => context.getSettingsService().getSettings().arena,
+        updateArenaSettings: async (updater) => {
+          const settingsService = context.getSettingsService();
+          await settingsService.updateSettings({
+            arena: updater(settingsService.getSettings().arena),
+          });
+        },
+        getFsrsParams: () => context.getSettingsService().getSettings().fsrs,
+        arenaStore: context.getArenaStoreService(),
+      });
+    });
+
     this.registerServiceFactory('reviewAIWorkbenchRegistry', (context) => {
       const siyuanPort = new AISiyuanAdapter(context.getPlugin().app);
       return new ReviewAIWorkbenchRegistry({
@@ -452,11 +478,8 @@ export class ApplicationContext {
         getSelectionExcerptService: () => context.getSelectionExcerptService(),
         getSelectionTopicContinuationService: () => context.getSelectionTopicContinuationService(),
         sessionStore: context.getAIWorkbenchSessionStoreService(),
+        arenaKernel: context.getArenaKernelService(),
       });
-    });
-
-    this.registerServiceFactory('aiWorkbenchSessionStoreService', (context) => {
-      return new AIWorkbenchSessionStoreService(context.getFileService());
     });
 
     this.registerServiceFactory('aiWorkbenchService', (context) => {
@@ -583,7 +606,10 @@ export class ApplicationContext {
     });
 
     this.registerServiceFactory('srsTransparencyService', (context) => {
-      return new SrsTransparencyApplicationService(context.getScheduler());
+      return new SrsTransparencyApplicationService(
+        context.getScheduler(),
+        context.getArenaKernelService(),
+      );
     });
     
     // TODO: Phase 3 - 注册其他应用服务工厂
@@ -1687,6 +1713,14 @@ export class ApplicationContext {
 
   getAIWorkbenchSessionStoreService(): AIWorkbenchSessionStoreService {
     return this.getService('aiWorkbenchSessionStoreService');
+  }
+
+  getArenaStoreService(): ArenaStoreService {
+    return this.getService('arenaStoreService');
+  }
+
+  getArenaKernelService(): ArenaKernelService {
+    return this.getService('arenaKernelService');
   }
 
   getReviewAIWorkbenchRegistry(): ReviewAIWorkbenchRegistry {

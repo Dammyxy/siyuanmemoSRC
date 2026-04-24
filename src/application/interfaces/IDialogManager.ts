@@ -32,6 +32,11 @@ export interface IDialogManager {
   openAiWorkbenchDialog(options?: AIWorkbenchOpenOptions): Promise<void>;
 
   /**
+   * 打开 Arena 管理器
+   */
+  openArenaManagerDialog(): Promise<void>;
+
+  /**
    * 打开渐进 Split 标记选择对话框
    */
   openProgressiveSplitDialog(docId: string, mode: 'linear' | 'nonlinear'): Promise<void>;

@@ -1,7 +1,9 @@
 import type { SchedulerRouter, SchedulerType } from '@/core/scheduler';
+import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import type { CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
 import { formatNextDue } from '@/application/helpers/formatNextDue';
 import { CardState, Rating, type FSRSCard } from '@/types/card';
+import type { SrsArenaRecommendation } from '@/types/arena';
 
 type Translator = (key: string, fallback: string) => string;
 type SchedulerRouterLike = Pick<SchedulerRouter, 'getSchedulerType' | 'preview'>;
@@ -29,6 +31,8 @@ export interface SrsTransparencyViewModel {
   gradePreviews: SrsTransparencyGradePreview[];
   stateFacts: SrsTransparencyFact[];
   algorithmFacts: SrsTransparencyFact[];
+  arenaRecommendation: SrsArenaRecommendation | null;
+  arenaHint: string | null;
 }
 
 type BuildOptions = {
@@ -45,14 +49,18 @@ const GRADE_ORDER: readonly Rating[] = [
 ];
 
 export class SrsTransparencyApplicationService {
-  constructor(private readonly schedulerRouter: SchedulerRouterLike) {}
+  constructor(
+    private readonly schedulerRouter: SchedulerRouterLike,
+    private readonly arenaKernel?: Pick<ArenaKernelService, 'buildSrsRecommendation'>,
+  ) {}
 
-  build(snapshot: CardEditorSnapshot, options: BuildOptions): SrsTransparencyViewModel {
+  async build(snapshot: CardEditorSnapshot, options: BuildOptions): Promise<SrsTransparencyViewModel> {
     const { card, blockInfo } = snapshot;
     const { t } = options;
     const now = options.now ?? Date.now();
     const schedulerType = this.schedulerRouter.getSchedulerType(card);
     const previews = this.schedulerRouter.preview(card);
+    const arenaRecommendation = await this.arenaKernel?.buildSrsRecommendation?.(card, schedulerType, now) || null;
 
     return {
       schedulerType,
@@ -82,7 +90,9 @@ export class SrsTransparencyApplicationService {
           value: formatDateTime(blockInfo.updatedAt ?? card.updatedAt, t('pending', 'Pending')),
         },
       ],
-      algorithmFacts: buildAlgorithmFacts(card, schedulerType, t),
+      algorithmFacts: buildAlgorithmFacts(card, schedulerType, t, arenaRecommendation),
+      arenaRecommendation,
+      arenaHint: buildArenaHint(arenaRecommendation, t),
     };
   }
 }
@@ -91,7 +101,15 @@ function buildAlgorithmFacts(
   card: FSRSCard,
   schedulerType: SchedulerType,
   t: Translator,
+  arenaRecommendation: SrsArenaRecommendation | null,
 ): SrsTransparencyFact[] {
+  const arenaFacts: SrsTransparencyFact[] = arenaRecommendation
+    ? [
+      { label: t('arenaWeightedInterval', 'Arena 综合间隔'), value: formatDays(arenaRecommendation.weightedIntervalDays, t) },
+      { label: t('arenaLeadingContestant', 'Arena 当前领先'), value: arenaRecommendation.leadingContestantId ? arenaRecommendation.leadingContestantId.toUpperCase() : '-' },
+      { label: t('arenaDiscrepancy', '与正式调度偏差'), value: `${Math.round(arenaRecommendation.discrepancyRatio * 100)}%` },
+    ]
+    : [];
   if (schedulerType === 'sm15') {
     const meta = card.schedulerMeta?.sm15;
     return [
@@ -99,6 +117,7 @@ function buildAlgorithmFacts(
       { label: t('oFactor', 'O-Factor'), value: formatNumber(meta?.of, 2) },
       { label: t('optimalInterval', '最优间隔'), value: formatDaysFromMilliseconds(meta?.optimumInterval, t) },
       { label: t('afHistory', 'AF 历史'), value: formatHistorySummary(meta?.afs, t) },
+      ...arenaFacts,
     ];
   }
 
@@ -110,13 +129,30 @@ function buildAlgorithmFacts(
       { label: t('oFactor', 'O-Factor'), value: formatNumber(meta?.of, 2) },
       { label: t('optimalInterval', '最优间隔'), value: formatDays(meta?.optimalInterval, t) },
       { label: t('afHistory', 'AF 历史'), value: formatHistorySummary(meta?.afs, t) },
+      ...arenaFacts,
     ];
   }
 
   return [
     { label: t('schedulerType', '调度器'), value: resolveSchedulerLabel(schedulerType, t) },
     { label: t('algorithmBasis', '调度依据'), value: t('fsrsTransparencyBasis', '根据稳定度与难度预测间隔扩张，并对不同评分给出不同增长幅度。') },
+    ...arenaFacts,
   ];
+}
+
+function buildArenaHint(
+  arenaRecommendation: SrsArenaRecommendation | null,
+  t: Translator,
+): string | null {
+  if (!arenaRecommendation || !arenaRecommendation.shouldHighlight) {
+    return null;
+  }
+  return t(
+    'srsArenaHint',
+    `Arena 综合建议约 {weighted}，与当前正式调度相差 {gap}。`,
+  )
+    .replace('{weighted}', `${arenaRecommendation.weightedIntervalDays.toFixed(1)} ${t('days', 'days')}`)
+    .replace('{gap}', `${Math.round(arenaRecommendation.discrepancyRatio * 100)}%`);
 }
 
 function resolveSchedulerLabel(schedulerType: SchedulerType, t: Translator): string {

@@ -1,6 +1,38 @@
 import type { QueueStats, QueueUIConfig } from '../types';
 import type { QueueCounterSnapshot } from '@/types/unified-data-source';
 
+export type QueueItemUnavailableDetails = {
+  cardId?: string;
+  blockId?: string;
+  queueType?: string;
+};
+
+export class QueueItemUnavailableError extends Error {
+  readonly cardId?: string;
+  readonly blockId?: string;
+  readonly queueType?: string;
+  readonly originalError?: unknown;
+
+  constructor(message: string, details: QueueItemUnavailableDetails = {}, originalError?: unknown) {
+    super(message);
+    this.name = 'QueueItemUnavailableError';
+    Object.setPrototypeOf(this, QueueItemUnavailableError.prototype);
+    this.cardId = details.cardId;
+    this.blockId = details.blockId;
+    this.queueType = details.queueType;
+    this.originalError = originalError;
+  }
+}
+
+export function isQueueItemUnavailableError(error: unknown): error is QueueItemUnavailableError {
+  return error instanceof QueueItemUnavailableError
+    || (
+      typeof error === 'object'
+      && error !== null
+      && (error as { name?: unknown }).name === 'QueueItemUnavailableError'
+    );
+}
+
 /**
  * Feedback from user interaction with a queue item
  *

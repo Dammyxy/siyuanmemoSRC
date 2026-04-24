@@ -128,4 +128,39 @@ describe('UnifiedDataSourceManager card update notifications', () => {
       }),
     ]);
   });
+
+  it('emits card-deleted and queue-changed for all queues after card deletion sync', async () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+    const router: IDataRouter = {
+      getCard: vi.fn(),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      deleteCard: vi.fn(async () => {}),
+      getAvailableQueueTypes: vi.fn(() => []),
+    } as unknown as IDataRouter;
+    manager.setAdvancedRouter(router);
+
+    const events: DataChangeEvent[] = [];
+    const observer: IDataSourceObserver = {
+      onDataChanged: (event) => {
+        events.push(event);
+      },
+    };
+    manager.registerObserver(observer);
+
+    await manager.onCardsDeleted(['card-1'], ['block-1']);
+    await flushMicrotasks();
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'card-deleted',
+        cardIds: ['card-1'],
+        blockIds: ['block-1'],
+      }),
+      ...Object.values(QueueType).map((queueType) => expect.objectContaining({
+        type: 'queue-changed',
+        queueType,
+      })),
+    ]);
+  });
 });

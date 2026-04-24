@@ -158,6 +158,14 @@ export class MenuManager {
       },
     });
 
+    menu.addItem({
+      icon: 'iconSparkles',
+      label: this.i18n?.arenaManagerTitle || 'Arena Manager',
+      click: () => {
+        this.openArenaManager();
+      },
+    });
+
     menu.addSeparator();
     
     // 设置
@@ -349,6 +357,10 @@ export class MenuManager {
     if (!opened) {
       showMessage(this.i18n?.openBrowserTabFailed || 'Failed to open browser tab');
     }
+  }
+
+  private openArenaManager(): void {
+    this.dialogManager.openArenaManagerDialog();
   }
   
   /**

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { HIDE_CURRENT_IN_SCOPE_COMMAND_ID } from '@/core/queue/abstraction/customActionIds';
-import { QueueType, type IReviewQueue, type QueueCounterSnapshot } from '@/types/unified-data-source';
+import { QueueType, type DataChangeEvent, type IDataSourceObserver, type IReviewQueue, type QueueCounterSnapshot } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 
 function cloneCard(card: FSRSCard): FSRSCard {
@@ -120,24 +120,26 @@ function createFilterGroupQueue(cards: FSRSCard[]) {
   };
 }
 
-function createEventBusStub() {
-  let queueChangedHandler: ((event: unknown) => void) | null = null;
+function createReviewDataObserverStub() {
+  let dataObserver: IDataSourceObserver | null = null;
 
   return {
-    eventBus: {
-      subscribe: vi.fn((eventName: string, handler: (event: unknown) => void) => {
-        if (eventName === 'queue.changed') {
-          queueChangedHandler = handler;
-        }
+    managerObserverApi: {
+      registerObserver: vi.fn((observer: IDataSourceObserver) => {
+        dataObserver = observer;
       }),
-      unsubscribe: vi.fn((eventName: string, handler: (event: unknown) => void) => {
-        if (eventName === 'queue.changed' && queueChangedHandler === handler) {
-          queueChangedHandler = null;
+      unregisterObserver: vi.fn((observer: IDataSourceObserver) => {
+        if (dataObserver === observer) {
+          dataObserver = null;
         }
       }),
     },
-    emitQueueChanged(event: unknown) {
-      queueChangedHandler?.(event);
+    eventBus: {
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    },
+    emitDataChanged(event: DataChangeEvent) {
+      dataObserver?.onDataChanged(event);
     },
   };
 }
@@ -147,10 +149,11 @@ describe('UnifiedQueueStrategy hide-current-in-scope', () => {
     const firstCard = createCard({ id: 'topic-1', xiuyuanID: 'xy-1', blockId: 'block-1', type: CardType.Topic });
     const secondCard = createCard({ id: 'concept-2', xiuyuanID: 'xy-2', blockId: 'block-2', type: CardType.Concept });
     const { queue, readLiveCards } = createFilterGroupQueue([firstCard, secondCard]);
+    const { eventBus, managerObserverApi } = createReviewDataObserverStub();
     const manager = {
       getQueue: vi.fn(() => queue),
+      ...managerObserverApi,
     };
-    const { eventBus } = createEventBusStub();
 
     const strategy = new UnifiedQueueStrategy(
       QueueType.FilterGroup,
@@ -185,10 +188,11 @@ describe('UnifiedQueueStrategy hide-current-in-scope', () => {
     const firstCard = createCard({ id: 'topic-1', xiuyuanID: 'xy-1', blockId: 'block-1', type: CardType.Topic });
     const secondCard = createCard({ id: 'concept-2', xiuyuanID: 'xy-2', blockId: 'block-2', type: CardType.Concept });
     const { queue, readLiveCards } = createFilterGroupQueue([firstCard, secondCard]);
+    const { eventBus, managerObserverApi } = createReviewDataObserverStub();
     const manager = {
       getQueue: vi.fn(() => queue),
+      ...managerObserverApi,
     };
-    const { eventBus } = createEventBusStub();
 
     const strategy = new UnifiedQueueStrategy(
       QueueType.FilterGroup,
@@ -228,10 +232,11 @@ describe('UnifiedQueueStrategy hide-current-in-scope', () => {
     const firstCard = createCard({ id: 'topic-1', xiuyuanID: 'xy-1', blockId: 'block-1', type: CardType.Topic });
     const secondCard = createCard({ id: 'concept-2', xiuyuanID: 'xy-2', blockId: 'block-2', type: CardType.Concept });
     const { queue, readLiveCards } = createFilterGroupQueue([firstCard, secondCard]);
+    const { eventBus, managerObserverApi, emitDataChanged } = createReviewDataObserverStub();
     const manager = {
       getQueue: vi.fn(() => queue),
+      ...managerObserverApi,
     };
-    const { eventBus, emitQueueChanged } = createEventBusStub();
 
     const strategy = new UnifiedQueueStrategy(
       QueueType.FilterGroup,
@@ -251,7 +256,11 @@ describe('UnifiedQueueStrategy hide-current-in-scope', () => {
     expect(readLiveCards().map((card) => card.id)).toEqual([secondCard.id]);
 
     await queue.rebuild();
-    emitQueueChanged({ queueType: QueueType.FilterGroup });
+    emitDataChanged({
+      type: 'queue-changed',
+      queueType: QueueType.FilterGroup,
+      timestamp: Date.now(),
+    });
 
     const rebuiltSnapshot = await strategy.getCounterSnapshot();
     expect(rebuiltSnapshot).toMatchObject({

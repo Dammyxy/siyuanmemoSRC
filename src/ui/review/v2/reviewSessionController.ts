@@ -1,5 +1,9 @@
 import { ref, type Ref } from 'vue';
-import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
+import {
+  isQueueItemUnavailableError,
+  type IQueueStrategy,
+  type QueueFeedback,
+} from '@/core/queue/abstraction/Strategy';
 import type { QueueItem } from '@/core/queue/types';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
 import type { InitialReviewSessionState } from '@/types/unified-data-source';
@@ -85,6 +89,7 @@ export interface ReviewSessionController<TItem extends QueueItem = QueueItem> {
 
 export interface CreateReviewSessionControllerOptions<TItem extends QueueItem = QueueItem> {
   onReview?: (cardId: string, rating: number) => void;
+  onReviewDetailed?: (payload: { cardId: string; rating: number; item: TItem | null }) => void | Promise<void>;
   initialSessionState?: InitialReviewSessionState;
   initialCurrentItem?: TItem | null;
   initialShowAnswer?: boolean;
@@ -490,19 +495,42 @@ export function createReviewSessionController<TItem extends QueueItem>(
     });
   };
 
+  const advancePastUnavailableItem = async (reason: SessionUpdateReason, error: unknown): Promise<void> => {
+    logger.warn('Skipped unavailable review item and advanced to next card:', error);
+    try {
+      currentItem.value = await queue.next();
+    } catch (nextError) {
+      logger.error('Failed to advance after unavailable review item:', nextError);
+      currentItem.value = null;
+    }
+    context.value.showAnswer = false;
+    await updateState(reason);
+  };
+
   const grade = async (rating: number): Promise<void> => runSerialized(async () => {
     try {
       const normalized = toRatingValue(rating);
       const feedback: QueueFeedback = { action: 'rate', rating: normalized };
+      const reviewedItem = currentItem.value;
 
-      if (options?.onReview && currentItem.value) {
-        const cardId = extractCardId(currentItem.value);
+      await queue.onFeedback(reviewedItem, feedback);
+      if (options?.onReview && reviewedItem) {
+        const cardId = extractCardId(reviewedItem);
         if (cardId) {
           options.onReview(cardId, normalized);
         }
       }
 
-      await queue.onFeedback(currentItem.value, feedback);
+      if (options?.onReviewDetailed && reviewedItem) {
+        const cardId = extractCardId(reviewedItem);
+        if (cardId) {
+          await options.onReviewDetailed({
+            cardId,
+            rating: normalized,
+            item: reviewedItem,
+          });
+        }
+      }
       pushReviewHistory(context.value, {
         action: 'rate',
         answeredDelta: 1,
@@ -512,6 +540,11 @@ export function createReviewSessionController<TItem extends QueueItem>(
       context.value.showAnswer = false;
       await updateState('grade');
     } catch (error) {
+      if (isQueueItemUnavailableError(error)) {
+        await advancePastUnavailableItem('grade', error);
+        return;
+      }
+
       logger.error('Failed to load next card:', error);
       currentItem.value = null;
       await updateState('grade');
@@ -530,6 +563,11 @@ export function createReviewSessionController<TItem extends QueueItem>(
       context.value.showAnswer = false;
       await updateState('skip');
     } catch (error) {
+      if (isQueueItemUnavailableError(error)) {
+        await advancePastUnavailableItem('skip', error);
+        return;
+      }
+
       logger.error('Failed to skip card:', error);
       currentItem.value = null;
       await updateState('skip');
@@ -552,6 +590,11 @@ export function createReviewSessionController<TItem extends QueueItem>(
       currentItem.value = await queue.next();
       await updateState('custom');
     } catch (error) {
+      if (isQueueItemUnavailableError(error)) {
+        await advancePastUnavailableItem('custom', error);
+        return;
+      }
+
       logger.error('Failed to execute command:', error);
       currentItem.value = null;
       await updateState('custom');

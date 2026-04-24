@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
+import { QueueItemUnavailableError } from '@/core/queue/abstraction/Strategy';
 import { createEmptyReviewUIState, type ReviewSessionHook, type ReviewUIState } from '../types';
 import { createReviewSessionController, useReviewSession } from '../useReviewSession';
 
@@ -293,6 +294,35 @@ describe('useReviewSession', () => {
 
     expect(hook.context.value.session?.answeredCount).toBe(1);
     expect(hook.context.value.session?.correctCount).toBe(1);
+
+    wrapper.unmount();
+  });
+
+  it('advances past an unavailable graded item without counting it as reviewed', async () => {
+    const queue = createQueue();
+    queue.onFeedback = vi.fn(async () => {
+      throw new QueueItemUnavailableError('stale card', {
+        cardId: 'card-1',
+        blockId: 'block-card-1',
+        queueType: 'incremental-learning',
+      });
+    });
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter });
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+
+    await hook.grade(3);
+
+    expect(hook.state.value.content.id).toBe('card-2');
+    expect(hook.state.value.content.type).not.toBe('empty');
+    expect(hook.context.value.session?.answeredCount).toBe(0);
+    expect(hook.context.value.session?.correctCount).toBe(0);
 
     wrapper.unmount();
   });

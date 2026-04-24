@@ -17,6 +17,7 @@ import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { SettingsPanel } from '@/ui/settings';
 import AiWorkbenchDialog from '@/ui/ai/AiWorkbenchDialog.vue';
+import ArenaManagerDialog from '@/ui/arena/ArenaManagerDialog.vue';
 import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import MobileReviewLauncher from '@/ui/mobile/MobileReviewLauncher.vue';
 import { TemplateSelectDialog } from '@/ui/xiuyuan';
@@ -171,6 +172,7 @@ export class DialogManager implements IDialogManager {
   private mobileQueueLauncherDialog: VueDialogHandle | null = null;
   private templateSelectDialog: VueDialogHandle | null = null;
   private aiWorkbenchDialog: VueDialogHandle | null = null;
+  private arenaManagerDialog: VueDialogHandle | null = null;
   private progressiveSplitDialog: VueDialogHandle | null = null;
   private currentReviewDialog: VueDialogHandle | null = null;
   private readonly conceptCardEnsureInFlight = new Set<string>();
@@ -456,6 +458,28 @@ export class DialogManager implements IDialogManager {
       containerClass: 'siyuanmemo-ai-workbench-shell',
       onClose: () => {
         this.aiWorkbenchDialog = null;
+      },
+    });
+  }
+
+  async openArenaManagerDialog(): Promise<void> {
+    const service = this.context.getArenaKernelService();
+    if (this.arenaManagerDialog) {
+      return;
+    }
+    this.arenaManagerDialog = createVueDialog({
+      title: this.context.getI18n()?.arenaManagerTitle || 'Arena Manager',
+      component: ArenaManagerDialog,
+      props: {
+        service,
+        i18n: this.context.getI18n() || {},
+      },
+      width: this.isMobileFrontend() ? '100vw' : 'min(1120px, 96vw)',
+      height: this.isMobileFrontend() ? '100vh' : 'min(840px, 92vh)',
+      visualVariant: 'manager',
+      containerClass: 'siyuanmemo-arena-manager-shell',
+      onClose: () => {
+        this.arenaManagerDialog = null;
       },
     });
   }

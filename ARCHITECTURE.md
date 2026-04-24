@@ -15,6 +15,7 @@
 - Browser / Review / Queue / Scheduler 主链路
 - Progressive / Excerpt / Topic-derived item 主链路
 - AI Workbench / Capture 主链路
+- Arena 主链路（AI 策略包竞技 + SRS 算法只读竞技）
 - 完整运行时文件职责地图
 - 开发边界与改动守则
 
@@ -52,6 +53,7 @@ flowchart TD
   CTX --> SR["SchedulerRouter\n调度路由中心"]
   CTX --> PR["ProgressiveReadingService\n渐进阅读 / 摘录编排"]
   CTX --> AI["ReviewAIWorkbenchRegistry\nAI 工作台会话注册中心"]
+  CTX --> AR["ArenaKernelService\nAI / SRS 竞技场内核"]
 ```
 
 各层职责：
@@ -71,6 +73,7 @@ flowchart TD
 - Progressive / Excerpt
 - Topic-derived item
 - AI Workbench / Capture
+- Arena
 - Mobile entry
 - Siyuan / Riff integration
 
@@ -96,6 +99,7 @@ flowchart TD
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
+- 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核
 
 这意味着：
 
@@ -147,7 +151,7 @@ flowchart TD
    - `SchedulerRouter`
    - `UnifiedDataSourceManager`
 4. 挂载 `src/ui/review/v2/ReviewView.vue`
-5. `useReviewSession.ts` 绑定 `reviewSessionController.ts`；controller 统一驱动 `next / reveal / grade / skip / custom`，并且所有“直接把某张卡写成当前卡”的恢复/刷新入口都会先走 queue strategy 的 `hydrateCurrentItem()` 显示态补水，再更新 UI，避免外部刷新、会话恢复、AI 新卡同步等路径把原始 `FSRSCard` 直接塞回当前位后丢掉 runtime `nextDues`
+5. `useReviewSession.ts` 绑定 `reviewSessionController.ts`；controller 统一驱动 `next / reveal / grade / skip / custom`，并且所有“直接把某张卡写成当前卡”的恢复/刷新入口都会先走 queue strategy 的 `hydrateCurrentItem()` 显示态补水，再更新 UI，避免外部刷新、会话恢复、AI 新卡同步等路径把原始 `FSRSCard` 直接塞回当前位后丢掉 runtime `nextDues`；当当前队列项在评分前已被删除或失效时，queue strategy 会抛出 `QueueItemUnavailableError`，controller 只重新 `queue.next()` 跳到下一张，不记录复习历史，也不把 session 误置为空完成态
 6. review header 的二级动作仍由 `ReviewView.vue` 编排：
    - `AI 侧栏` 统一走 `ReviewAIWorkbenchRegistry`
    - `更多` 菜单中的优先级编辑走 `CardEditorApplicationService.updatePriority(...)`
@@ -322,6 +326,7 @@ UI surface：
 - `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
 - `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan；native `removeFlashcards` 现在走同服务内的 `riff-managed` 定向本地删除，而不是再依赖增量同步或 full sync 才收敛。
 - `src/application/services/ReviewQueuePreparationService.ts` / `DocTreeReviewScopeService.ts`：review scope 与 queue preparation 编排。
+- `src/application/services/ReviewScopeCardCreationSyncService.ts`：review scope 内的卡片增删事件桥接；监听 `CardCreated / CardDeleted / CardsDeleted`，把新增或删除同步到 `UnifiedDataSourceManager`，让打开中的 Browser / Review 队列通过统一 observer 链路刷新。
 - `src/application/services/ConfiguredCaptureStorageService.ts`：capture 目标存储解析与写入策略。
 - `src/application/services/ExcerptRecordService.ts`：摘录记录与去重相关服务。
 - `src/application/services/ProgressiveReadingService.ts`：progressive split / excerpt 的主编排服务。
@@ -329,6 +334,8 @@ UI surface：
 - `src/application/services/SelectionTopicContinuationService.ts`：选区继续制卡门面，负责同步 menu 预判和异步 progressive source context 解析。
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
+- `src/application/services/ArenaStoreService.ts`：Arena 独立 JSON store，持久化比赛记录、评分快照和卡片来源归因，不把 telemetry 塞进 settings。
+- `src/application/services/ArenaKernelService.ts`：Arena 统一内核；负责 AI 场景池、策略包加权抽样、pin/retire/clone/challenge 管理、AI 行为评分、SRS 三选手只读 counterfactual 与 delayed attribution。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
 - `src/application/services/AIChatSkillRegistry.ts`：通用 AI chat Skill 注册表；负责合并内置 Skill 与 `settings.ai.userSkills[]`，并把用户 chat / structured skill 解析成统一的 runtime 描述符与 tab/section 元数据。
 - `src/application/services/AIChatToolRegistry.ts`：AI chat 工具描述符、工具组、执行策略与可见性注册。
@@ -343,7 +350,7 @@ UI surface：
 适配器、工厂、查询、用例：
 
 - `src/application/factories/createUnifiedReviewDialog.ts`：统一 review dialog 工厂。
-- `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`IncrementalLearning` 现在走独立的 requery-after-feedback 模式，评分/跳过后只记录一次性 `avoidOnceCardId + avoidOnceBlockId` 可见身份，下一次 `next()` 会重新读取 queue 视图并优先切到不同 source block 的卡，只有没有替代 block 时才退化到同 block 兄弟卡或同卡，而不是继续复用 `pendingRotateCardId + currentIndex + cache hot patch` 的本地轮转链；同时它也是 review 当前卡显示态 hydration 的唯一活跃入口，`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 逻辑，而不是在 controller 再复制一份预览计算
+- `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`IncrementalLearning` 现在走独立的 requery-after-feedback 模式，评分/跳过后只记录一次性 `avoidOnceCardId + avoidOnceBlockId` 可见身份，下一次 `next()` 会重新读取 queue 视图并优先切到不同 source block 的卡，只有没有替代 block 时才退化到同 block 兄弟卡或同卡，而不是继续复用 `pendingRotateCardId + currentIndex + cache hot patch` 的本地轮转链；同时它也是 review 当前卡显示态 hydration 的唯一活跃入口，`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 逻辑，而不是在 controller 再复制一份预览计算；它直接注册为 `UnifiedDataSourceManager` observer，收到当前队列 `queue-changed` 会失效本地缓存，收到 `card-deleted` 会从缓存与前进 buffer 移除匹配卡；如果评分时确认当前 active item 已不存在，则清理 stale item 并抛 `QueueItemUnavailableError`
 - `src/application/adapters/UnifiedReviewAdapter.ts`：review UI 状态与动作适配。
 - `src/application/queries/browser/*`：Browser 查询对象与处理器。
 - `src/application/queries/card/*`：卡片查询对象与处理器。
@@ -381,6 +388,7 @@ Handlers / entries / helpers：
 - `src/core/scheduler/SchedulerRouter.ts`：全局调度路由器。
 - `src/core/scheduler/AdvanceEngine.ts` / `PostponeEngine.ts` / `SpreadEngine.ts` / `rescheduleService.ts`：重排与计划引擎。
 - `src/core/scheduler/strategies/*`：具体调度器实现。
+- `src/core/scheduler/strategies/SM2ReadOnlyScheduler.ts`：Arena 专用 SM-2 只读评估器，只参与 counterfactual，不进入正式调度路由。
 
 存储、卡片、修远：
 
@@ -458,6 +466,7 @@ Review：
 
 - `src/ui/settings/SettingsPanel.vue`：设置面板。
 - `src/ui/srs/*`：SRS 数据编辑与透明度相关 UI。
+- `src/ui/arena/ArenaManagerDialog.vue`：Arena Manager 管理面板，用于查看 AI / SRS 排名、时间线和策略包管理动作。
 - `src/ui/xiuyuan/*`：修远模板与专用 UI。
 - `src/ui/menu/TopBar.ts`：顶栏菜单入口。
 - `src/ui/components/*` / `src/ui/shared/*`：通用 UI 原子组件与共享加载逻辑。
@@ -515,6 +524,7 @@ Review：
 - 懒加载并缓存队列实例
 - 统一暴露队列 facade
 - 处理卡片变更后的队列失效与重建
+- 统一处理卡片删除同步：发布 `card-deleted` 数据事件，并为所有可能受影响的队列发布 `queue-changed`
 - 通过 observer / data change event 通知 Browser、Review 与其他消费者
 
 具体队列实现位于：
@@ -665,6 +675,11 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 管理按 review session 隔离的 AI workbench service
   - standalone 默认从 `general-chat` 启动；review sidecar / companion tab 默认从 `settings.ai.chatDefaults.reviewDefaultSkillId` 启动（默认 `general-chat`），显式 legacy explain/make-cards/tutor 打开请求仍会归一到 `concept-coach`
   - review 队列共享聊天只在新 runtime 初次打开时按 `reviewChatKey` 加载最近持久化会话，不把同队列不同 review 窗口合并成一个 live runtime
+- `ArenaKernelService`
+  - AI Arena 使用显式场景注册，不靠自由推断入池；v1 注册 `topic-auto-card / candidate-card-generation / card-prompt-rewrite / descriptor-augmentation / concept-expression-coach / note-refinement`
+  - 池 key 固定由 `surface + scenarioId + targetKind + skillId/tabId` 组成；`AIWorkbenchService` 在 standalone、review sidecar、review companion 入口把 pool 上下文传给内核
+  - 策略包只覆盖 prompt 与工具策略，不覆盖模型；模型选择继续由用户当前 AI settings 决定
+  - 用户行为事件（exposure / accept / edit / rerun / abandon / create / manual-bad）和低权重 judge 信号会更新同一份评分快照；制卡成功会记录 card attribution，后续复习反馈再回流到来源策略包
 - `AIChatSkillRegistry`
   - 注册内置 Skill 描述符：`general-chat` 与 `concept-coach`
   - `general-chat` 是默认通用聊天 Skill，可使用读工具、网页工具与变量工具
@@ -696,6 +711,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 - `AIWorkbenchService`
   - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
   - 维护 `activeSkillId + activeTabId`、树节点、兼容 thread 投影、compact render 投影、tool timeline、pending approvals、vars、diagnostics
+  - 运行前按当前 surface / scenario / target kind 选择 Arena 策略包，并把策略包 prompt/tool 覆盖合入 resolved skill；低信心、高分歧或连续不满意时只显示轻量挑战者提示，不做高频 head-to-head
   - `general-chat` 走多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，`QueryBlocksSql / FetchWebPage / SearchWeb` 默认首次审批后缓存决定，写工具继续每次审批；审批工具暂停等待用户确认，确认后在原轮次继续执行
   - `general-chat` 每次回复链路写入 `runGroupId`，中间 assistant/tool/approval 标记为 `presentation=supplemental`，最终回复标记为 `presentation=primary`
   - 每条最终回复下方都可折叠查看工具调用次数、轮次、耗时、参数摘要、结果摘要、变量缓存引用与审批历史；这些透明化摘要只用于 UI，不再回灌模型历史；运行时仍会对重复相同工具+参数与总调用预算做保护；达到最大工具轮数后会再请求一次“不要再调用工具”的最终答复
@@ -729,8 +745,9 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 UI 层：
 
 - `DialogManager.openAiWorkbenchDialog()`：standalone dialog，默认 `general-chat`
+- `DialogManager.openArenaManagerDialog()`：Arena Manager dialog，管理 AI / SRS 双域排名、时间线、pin / retire / clone / challenge 动作
 - `TabManager.openReviewAICompanionTab(...)`：review companion tab，默认遵循 `settings.ai.chatDefaults.reviewDefaultSkillId`
-- `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文
+- `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文，并在 item / descriptor 复习前后接入 SRS Arena advisory 与复习反馈记录
 - `AiWorkbenchPane.vue`
   - 渲染通用 chat shell：Skill 切换、模型/工具入口、标题、历史/上下文抽屉、底部 composer
   - 消息区使用 compact render projection：主列表只显示用户消息、最终回复、结构化 Skill 结果和分隔；tool log、审批历史、reasoning、diagnostics 默认折叠到最终回复下方的透明化面板
@@ -750,12 +767,15 @@ UI 层：
 调度主入口：
 
 - `src/core/scheduler/SchedulerRouter.ts`
+- `src/application/services/ArenaKernelService.ts` 的 SRS Arena 只读 advisory，不改变正式调度路由
 
 当前职责：
 
 - 根据卡片类型、设置与队列上下文选择调度策略
 - 执行 schedule / reschedule / preview
 - 对不支持的调度路径显式报错，而不是静默降级
+- 对 item / descriptor 复习，Arena 会在正式调度之外并行预估 `fsrs-v6 + sm15 + sm2` 三个只读选手，输出 weighted optimum、分歧幅度和领先者；`a-factor-v2` 不进入 v1 SRS contest pack
+- `SrsTransparencyApplicationService` / `SrsEditorDialog.vue` / `ReviewView.vue` 只展示轻量分歧提示和透明度事实，正式 due 写回仍完全由 `SchedulerRouter` 当前路由负责
 
 同步与事件主入口：
 
@@ -770,6 +790,7 @@ UI 层：
 - Browser / Review 刷新优先走事件与统一数据源通知
 - 不依赖分散轮询来维持主状态一致性
 - WebSocket、Riff、Xiuyuan 同步都属于 infrastructure / handler 边界，不应反向污染 UI 直接调用链
+- `ReviewScopeCardCreationSyncService` 是 Xiuyuan 领域事件进入 review scope 数据源同步的应用层桥；`CardCreated` 继续走新增同步，`CardDeleted / CardsDeleted` 统一转发到 `UnifiedDataSourceManager.onCardsDeleted(cardIds, blockIds)`，由后者负责 `card-deleted` 与各队列 `queue-changed` 通知
 
 当前 Riff / Xiuyuan 同步边界补充：
 
@@ -831,7 +852,7 @@ UI 层：
 
 ---
 
-## 14. 当前状态快照（2026-04-17）
+## 14. 当前状态快照（2026-04-25）
 
 当前架构基线：
 
@@ -844,6 +865,7 @@ UI 层：
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
 - AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review 默认 Skill 由 `settings.ai.chatDefaults.reviewDefaultSkillId` 决定（默认 `general-chat`），review 聊天按队列级 `reviewChatKey` 复用持久化会话但 live runtime 仍按真实 review session 隔离
+- Arena 已在组合根中作为应用层内核运行：AI Arena 管理显式场景池和策略包评分，SRS Arena 对 item / descriptor 做 `fsrs-v6 + sm15 + sm2` 只读建议；它只提供透明度、权重建议、挑战者管理和 delayed attribution，不接管正式模型选择或调度写回
 - AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
 - AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，默认推荐模板已经切到 Andy 兼容语义；用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
 - AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline、树形 worldline、compact reply projection 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做独立图形化 world-tree 页面

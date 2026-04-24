@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-25 (Round 135)
+Last update: 2026-04-25 (Round 137)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-25 - incremental review stale deleted card recovery
+
+- Task: 修复渐进学习队列缓存残留已删除或已失效卡片时，点击下一张误显示“没有到期卡片”的 active review 阻塞。
+- Touched slice: Review + queue + delete notification path across `src/types/unified-data-source.ts`, `src/core/queue/abstraction/Strategy.ts`, `src/application/services/{UnifiedDataSourceManager.ts,ReviewScopeCardCreationSyncService.ts}`, `src/application/adapters/UnifiedQueueStrategy.ts`, `src/ui/review/v2/{ReviewView.vue,reviewSessionController.ts}`, focused review/queue/service tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: 删除事件现在有统一 `UnifiedDataSourceManager.onCardsDeleted(cardIds, blockIds)` 入口，会发布 `card-deleted` 并对所有可能受影响的队列发布 `queue-changed`；`ReviewScopeCardCreationSyncService` 同步监听 `CardCreated / CardDeleted / CardsDeleted`，让 active review scope 不再只处理新增；`UnifiedQueueStrategy` 改为直接注册 `UnifiedDataSourceManager` observer，按 `queue-changed` 失效本地队列缓存，按 `card-deleted` 清理缓存与 forward buffer；当前 active item 在评分时确认已经不存在时，会清理 stale item 并抛 `QueueItemUnavailableError`，`reviewSessionController` 捕获后只 `queue.next()` 跳到下一张，不写复习历史、不增加统计，也不把 session 清成 completed empty state；`ReviewView` 的删除 observer 只用真实 `cardIds` 判断当前卡，删除同 block 的其他卡时只清 active queue，不误伤兄弟卡。
+- Debt deferred: 这轮没有重命名 `ReviewScopeCardCreationSyncService`，虽然它现在已经不只处理 creation；`UnifiedQueueStrategy` 仍然承载多队列适配、显示态 hydration、缓存与 stale recovery，暂未拆成更细的 per-queue strategy；删除事件契约已区分 `cardIds / blockIds`，但历史领域事件流里更宽的命名和事件清理不在本轮范围。
+- Why deferred: 当前用户阻塞是点击下一张时因单个 stale card id 把整段 session 推到空态；保留服务名和 strategy 形状能把风险集中在删除同步与 stale item 恢复链路，不把一次 bugfix 扩成更宽的架构改名或策略拆分。
+- Next safe step: 下一轮如果继续整理这条链，可以先把 `ReviewScopeCardCreationSyncService` 改名为 card lifecycle sync service，并把 `UnifiedQueueStrategy` 的 observer/state cleanup 抽成小型 helper，再评估 per-queue strategy 拆分。
+- Validation: `pnpm vitest run src/application/services/__tests__/ReviewScopeCardCreationSyncService.test.ts src/application/services/__tests__/UnifiedDataSourceManager.card-update-events.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/__tests__/UnifiedQueueStrategy.hide-current-in-scope.test.ts src/ui/review/v2/__tests__/useReviewSession.spec.ts`; `pnpm build`; `git diff --check`.
+
+### 2026-04-25 - Arena v1 unified kernel
+
+- Task: Implement Arena v1 as a unified AI strategy-pack arena plus advisory-only SRS algorithm arena.
+- Touched slice: Cross-cutting Arena / AI workbench / Review / Scheduler transparency path across `src/types/{arena.ts,settings.ts,ai.ts}`, `src/application/ApplicationContext.ts`, `src/application/services/{ArenaKernelService.ts,ArenaStoreService.ts,AIWorkbenchService.ts,SrsTransparencyApplicationService.ts}`, review session feedback files, `src/ui/{arena,AiWorkbenchPane.vue,browser/SRSBrowser.vue,review/v2/ReviewView.vue,srs/SrsEditorDialog.vue}`, `src/core/scheduler/strategies/SM2ReadOnlyScheduler.ts`, i18n, targeted tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: Arena telemetry is stored in a dedicated `ArenaStoreService` instead of bloating settings; AI prompt/tool strategy selection is centralized in `ArenaKernelService` and routed by explicit scenario + surface + target kind; review feedback now has a detailed hook so SRS Arena can record ratings without bypassing the active review controller; SRS transparency now consumes the same Arena recommendation model used by review hints. Also fixed a runtime ordering risk by moving the review Arena hint watcher after `hook.state` exists, and stabilized default Arena pack normalization so default settings stay idempotent.
+- Debt deferred: Arena Manager is intentionally a first management surface rather than a full research UI: it does not yet include heatmaps, detailed sample replay, or manually tunable weights. AI event capture is wired through current workbench create/edit/rerun/abandon paths, but future AI assisted rewrite surfaces will still need explicit scenario registration instead of implicit guessing.
+- Why deferred: v1's safest goal is to get online competition, scoring, delayed attribution, and advisory SRS recommendations onto the active path without letting Arena take over model choice or live scheduler writes. Rich analytics and future AI surfaces should build on observed data after this kernel has real usage.
+- Next safe step: Add focused UI tests around `ArenaManagerDialog` actions and, when new AI card-rewrite surfaces land, register them with explicit `AIArenaScenarioId + ArenaTargetKind` instead of extending ad hoc inference.
+- Validation: `pnpm vitest run src/application/services/__tests__/ArenaKernelService.test.ts src/types/__tests__/settings-normalization.test.ts src/application/services/__tests__/SrsTransparencyApplicationService.test.ts`; `pnpm build`.
 
 ### 2026-04-25 - basic-symbol hardening, tombstone-safe storage merge, and blockId delete sync unification
 
@@ -2052,6 +2072,8 @@ Do not add an entry for skill-only or docs-only work.
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
 | P3 | AI pane tests still inherit localhost asset fetch noise from shared markdown rendering setup | `src/ui/ai/__tests__/*`, shared markdown/test harness setup | Add a shared happy-dom asset shim or markdown renderer test mode to silence unrelated network noise |
+| P2 | Arena Manager v1 lacks deeper analytics and UI test coverage beyond the service/kernel contracts | `src/ui/arena/ArenaManagerDialog.vue`, AI workbench/review Arena entrypoints | Add focused manager action tests and richer pool/sample views after v1 collects enough real match data |
+| P2 | Future AI-assisted rewrite/generation surfaces still need explicit Arena scenario registration | new AI workbench/review/browser surfaces | Require each new AI surface to pass `AIArenaScenarioId + ArenaTargetKind` into the workbench open/run path instead of relying on inference |
 
 ## 4. Next convergence batch
 

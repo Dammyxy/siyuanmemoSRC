@@ -198,6 +198,29 @@ describe('settings normalization', () => {
     expect(normalized.settings.ai).toEqual(DEFAULT_SETTINGS.ai);
   });
 
+  it('fills Arena defaults when arena settings are missing without touching AI or scheduler settings', () => {
+    const legacy = cloneSettings();
+    const originalAI = JSON.parse(JSON.stringify(legacy.ai));
+    const originalScheduler = JSON.parse(JSON.stringify(legacy.scheduler));
+    delete (legacy as Partial<typeof legacy>).arena;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.ai).toEqual(originalAI);
+    expect(normalized.settings.scheduler).toEqual(originalScheduler);
+    expect(normalized.settings.arena.enabled).toBe(true);
+    expect(Object.keys(normalized.settings.arena.ai.scenarios).sort()).toEqual([
+      'candidate-card-generation',
+      'card-prompt-rewrite',
+      'concept-expression-coach',
+      'descriptor-augmentation',
+      'note-refinement',
+      'topic-auto-card',
+    ]);
+    expect(normalized.settings.arena.srs.contestantIds).toEqual(['fsrs-v6', 'sm15', 'sm2']);
+  });
+
   it('prefers legacy single-provider AI fields when providers still contain only the empty default', () => {
     const normalized = normalizeAISettings({
       ...DEFAULT_SETTINGS.ai,

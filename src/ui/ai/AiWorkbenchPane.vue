@@ -167,6 +167,15 @@
         <p>{{ state.legacyNotice }}</p>
       </article>
 
+      <article v-if="arenaBanner.packTitle || arenaBanner.challengeSummary" class="ai-chat__banner ai-chat__banner--info">
+        <strong>{{ arenaBanner.packTitle ? `Arena · ${arenaBanner.packTitle}` : t('arenaAssistant', 'Arena Assistant') }}</strong>
+        <p v-if="arenaBanner.challengeSummary">{{ arenaBanner.challengeSummary }}</p>
+        <p v-else>{{ t('arenaPackRunning', '当前运行中的 AI 策略包已进入竞技场记录。') }}</p>
+        <p v-if="arenaBanner.challengers.length > 0" class="ai-chat__banner-note">
+          {{ t('arenaChallengers', '候选挑战者') }}：{{ arenaBanner.challengers.map((item) => item.title).join('、') }}
+        </p>
+      </article>
+
       <section class="ai-chat__timeline">
         <article v-if="renderEntries.length === 0 && !visibleRunStatus" class="ai-chat__empty-state">
           <div class="ai-chat__empty-state-body">
@@ -1002,6 +1011,11 @@ const emit = defineEmits<{
 
 const service = props.service;
 const state = service.state;
+const arenaBanner = computed(() => service.getArenaBannerModel?.() || {
+  packTitle: null,
+  challengeSummary: null,
+  challengers: [],
+});
 const historyQuery = ref('');
 const treePanelOpen = ref(false);
 const expandedEntryKeys = ref<string[]>([]);
@@ -3031,8 +3045,10 @@ onUnmounted(() => {
 .ai-chat__context-card { border: 1px solid #eef1f6; border-radius: 8px; padding: 10px; background: #fbfcfe; }
 .ai-chat__warning { color: #a16207; font-size: 12px; }
 .ai-chat__banner { margin: 12px 14px 0; padding: 12px; border-radius: 8px; border: 1px solid #eadca6; background: #fff9e7; }
+.ai-chat__banner--info { border-color: #c8dbf4; background: #f6fbff; }
 .ai-chat__banner--error { border-color: #f0d2d2; background: #fff6f6; }
 .ai-chat__banner--error strong { display: block; margin-bottom: 4px; }
+.ai-chat__banner-note { margin-top: 6px; font-size: 12px; color: #51607a; }
 .ai-chat__banner-details { margin-top: 10px; }
 .ai-chat__banner-details summary { cursor: pointer; color: #51607a; font-size: 12px; user-select: none; }
 .ai-chat__banner-pre { margin: 8px 0 0; padding: 10px; max-height: 240px; overflow: auto; border: 1px solid #ead4d4; border-radius: 6px; background: #fff; color: #3e4a60; font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; }

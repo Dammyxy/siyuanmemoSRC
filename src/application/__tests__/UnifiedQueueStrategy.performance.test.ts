@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
+import { isQueueItemUnavailableError } from '@/core/queue/abstraction/Strategy';
 import { QueueType, type IReviewQueue, type QueueReviewResult } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 
@@ -527,6 +528,90 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     await strategy.onFeedback(first, { action: 'skip' });
     const next = await strategy.next();
     expect(next?.id).toBe(nextBlockCard.id);
+  });
+
+  it('cleans a stale current item when incremental review reports the card no longer exists', async () => {
+    const staleCard = createCard({ id: 'card-stale', xiuyuanID: 'xy-stale', blockId: 'block-stale' });
+    const nextCard = createCard({ id: 'card-next', xiuyuanID: 'xy-next', blockId: 'block-next' });
+    const queue = createQueueStub(QueueType.IncrementalLearning, [staleCard, nextCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const index = liveCards.findIndex((card) => card.id === cardId);
+        if (index >= 0) {
+          liveCards.splice(index, 1);
+        }
+        throw new Error(`获取卡片失败 (${cardId}): Card not found: ${cardId}`);
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async () => ({ ...staleCard })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.IncrementalLearning,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(staleCard.id);
+
+    let caught: unknown;
+    try {
+      await strategy.onFeedback(first, { action: 'rate', rating: 3 });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(isQueueItemUnavailableError(caught)).toBe(true);
+    const next = await strategy.next();
+    expect(next?.id).toBe(nextCard.id);
+  });
+
+  it('does not clear the current card when a deleted sibling shares the same block id', async () => {
+    const currentCard = createCard({ id: 'card-current', xiuyuanID: 'xy-current', blockId: 'block-shared' });
+    const deletedSibling = createCard({ id: 'card-deleted', xiuyuanID: 'xy-deleted', blockId: 'block-shared' });
+    const otherCard = createCard({ id: 'card-other', xiuyuanID: 'xy-other', blockId: 'block-other' });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [currentCard, deletedSibling, otherCard]);
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const current = await strategy.next();
+    expect(current?.id).toBe(currentCard.id);
+
+    strategy.onDataChanged({
+      type: 'card-deleted',
+      cardIds: [deletedSibling.id],
+      blockIds: [deletedSibling.blockId],
+      timestamp: Date.now(),
+    });
+
+    const snapshot = strategy.serializeSessionSnapshot();
+    expect(snapshot.currentItem?.id).toBe(currentCard.id);
+    expect(snapshot.cachedCards.map((card) => card.id)).toEqual([currentCard.id, otherCard.id]);
   });
 
   it('restores incremental-learning avoid-once block identity from review tab snapshots', async () => {

@@ -20,6 +20,7 @@ export function useReviewSession<TItem extends QueueItem>(
   adapter: IAdapter<TItem>,
   options?: {
     onReview?: (cardId: string, rating: number) => void;
+    onReviewDetailed?: (payload: { cardId: string; rating: number; item: TItem | null }) => void | Promise<void>;
     initialSessionState?: InitialReviewSessionState;
     initialCurrentItem?: TItem | null;
     initialShowAnswer?: boolean;

@@ -3,6 +3,10 @@ import type {
   NeuralRoamBatchSnapshot,
   ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
+import type {
+  AIArenaScenarioId,
+  ArenaTargetKind,
+} from '@/types/arena';
 
 export const AI_CONCEPT_COACH_SKILL_ID = 'concept-coach' as const;
 export const AI_GENERAL_CHAT_SKILL_ID = 'general-chat' as const;
@@ -842,6 +846,8 @@ export interface AIWorkbenchOpenOptions {
   tabId?: AISkillTabId;
   source?: AIWorkbenchSource;
   surface?: AIWorkbenchSurface;
+  arenaScenarioId?: AIArenaScenarioId | null;
+  arenaTargetKind?: ArenaTargetKind | null;
   autoRun?: boolean;
   sessionId?: string;
   sourceReviewSessionId?: string | null;

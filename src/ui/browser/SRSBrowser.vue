@@ -4187,6 +4187,8 @@ async function handleOpenAiWorkbench(): Promise<void> {
     currentBlockId: selectedBlockIds.length === 0 ? previewBlockId || null : null,
     queueType: currentQueueType.value || null,
     neuralBatch: getNeuralRoamQueue()?.getCurrentBatchSnapshot() ?? null,
+    arenaScenarioId: 'candidate-card-generation',
+    arenaTargetKind: 'note',
   });
 }
 

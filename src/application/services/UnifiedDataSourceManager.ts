@@ -432,11 +432,16 @@ export class UnifiedDataSourceManager {
         const mergedCardIds = Array.from(
             new Set([...(previous.cardIds ?? []), ...(next.cardIds ?? [])])
         );
+        const mergedBlockIds = Array.from(
+            new Set([...(previous.blockIds ?? []), ...(next.blockIds ?? [])])
+        );
 
         return {
             type: next.type,
             queueType: next.queueType ?? previous.queueType,
             cardIds: mergedCardIds.length > 0 ? mergedCardIds : undefined,
+            blockIds: mergedBlockIds.length > 0 ? mergedBlockIds : undefined,
+            requiresFullRefresh: previous.requiresFullRefresh === true || next.requiresFullRefresh === true ? true : undefined,
             timestamp: Math.max(previous.timestamp, next.timestamp),
         };
     }
@@ -649,6 +654,35 @@ export class UnifiedDataSourceManager {
             });
         }
     }
+
+    /**
+     * 处理“卡片已删除并持久化完成”后的统一数据流。
+     */
+    public async onCardsDeleted(cardIds: string[], blockIds: string[] = []): Promise<void> {
+        const affectedCardIds = this.normalizeEventIds(cardIds);
+        const affectedBlockIds = this.normalizeEventIds(blockIds);
+        if (affectedCardIds.length === 0 && affectedBlockIds.length === 0) {
+            return;
+        }
+
+        this.invalidateAllQueues();
+
+        const timestamp = Date.now();
+        this.notifyObservers({
+            type: 'card-deleted',
+            cardIds: affectedCardIds.length > 0 ? affectedCardIds : undefined,
+            blockIds: affectedBlockIds.length > 0 ? affectedBlockIds : undefined,
+            timestamp,
+        });
+
+        for (const queueType of this.getAllQueueTypes()) {
+            this.notifyObservers({
+                type: 'queue-changed',
+                queueType,
+                timestamp,
+            });
+        }
+    }
     
     /**
      * 删除卡片
@@ -680,18 +714,7 @@ export class UnifiedDataSourceManager {
             // 1. 通过当前路由器删除卡片
             const router = this.getRouter();
             await router.deleteCard(cardId);
-            
-            // 2. 使受影响的队列缓存失效
-            // 卡片删除可能影响所有队列
-            this.invalidateAllQueues();
-            
-            // 3. 通知所有观察者
-            const affectedIds = Array.from(new Set([cardId, deletedBlockId].filter(Boolean)));
-            this.notifyObservers({
-                type: 'card-deleted',
-                cardIds: affectedIds,
-                timestamp: Date.now(),
-            });
+            await this.onCardsDeleted([cardId], deletedBlockId ? [deletedBlockId] : []);
             
             logger.debug(`Card deleted: ${cardId}`);
         } catch (error) {
@@ -914,6 +937,18 @@ export class UnifiedDataSourceManager {
     public invalidateAllQueues(): void {
         this.queueInstances.clear();
         logger.debug('All queue caches invalidated');
+    }
+
+    private getAllQueueTypes(): QueueType[] {
+        return Object.values(QueueType);
+    }
+
+    private normalizeEventIds(ids: readonly string[] | undefined): string[] {
+        return Array.from(new Set(
+            (ids ?? [])
+                .map((id) => String(id || '').trim())
+                .filter((id) => id.length > 0)
+        ));
     }
     
     /**

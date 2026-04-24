@@ -26,6 +26,10 @@
           @queue-switch="handleQueueSwitchTrigger"
         />
 
+        <div v-if="reviewArenaHint" class="fsrs-review-v2__arena-hint">
+          {{ reviewArenaHint }}
+        </div>
+
         <ReviewContent
           ref="contentRef"
           :app="app"
@@ -396,6 +400,13 @@ type ReviewPluginContextLike = {
   } | undefined;
   getCardService?: () => CardApplicationService | undefined;
   getCardEditorService?: () => CardEditorApplicationService | undefined;
+  getArenaKernelService?: () => {
+    buildSrsRecommendation?: (card: FSRSCard, currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null, now?: number) => Promise<{ shouldHighlight?: boolean; summary?: string | null } | null>;
+    recordSrsReview?: (input: { card: FSRSCard; rating: number; currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null }) => Promise<unknown>;
+  } | undefined;
+  getSchedulerRouter?: () => {
+    getSchedulerType?: (card: FSRSCard) => 'fsrs-v6' | 'sm15' | 'a-factor-v2';
+  } | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
 };
 
@@ -643,6 +654,7 @@ const reviewSessionId = ref(String(props.reviewSessionId || '').trim() || create
 const sharedReviewSessionId = ref(String(props.sharedReviewSessionId || '').trim());
 const reviewAIService = ref<AIWorkbenchService | null>(null);
 const reviewAISidebarOpen = ref(false);
+const reviewArenaHint = ref<string | null>(null);
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
 const rootRef = ref<HTMLDivElement | null>(null);
@@ -812,6 +824,26 @@ function getSharedReviewSessionRegistry(): SharedReviewSessionRegistry | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
   return contextFromProps?.getSharedReviewSessionRegistry?.() || contextFromWindow?.getSharedReviewSessionRegistry?.() || null;
+}
+
+function getArenaKernelService() {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getArenaKernelService?.() || contextFromWindow?.getArenaKernelService?.() || null;
+}
+
+function getSchedulerTypeForCard(card: FSRSCard | null | undefined): 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null {
+  if (!card) {
+    return null;
+  }
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  const schedulerRouter = contextFromProps?.getSchedulerRouter?.() || contextFromWindow?.getSchedulerRouter?.();
+  if (schedulerRouter?.getSchedulerType) {
+    return schedulerRouter.getSchedulerType(card);
+  }
+  const raw = String(card.schedulerType || '').trim();
+  return raw === 'sm15' || raw === 'a-factor-v2' ? raw : 'fsrs-v6';
 }
 
 function resolveActiveReviewQueueType(): string | null {
@@ -1475,12 +1507,69 @@ const effectiveInitialShowAnswer = props.initialShowAnswer === true
   ? true
   : props.reviewState?.showAnswer === true;
 
+function resolveArenaTargetKindFromCard(card: FSRSCard | null | undefined): 'topic' | 'item' | 'concept' | 'descriptor' | 'note' {
+  const type = String(card?.type || '').trim();
+  if (type === 'topic' || type === 'item' || type === 'concept' || type === 'descriptor') {
+    return type;
+  }
+  return 'note';
+}
+
+function resolveReviewArenaScenario(view: ReviewAIRequestedView, card: FSRSCard | null | undefined): 'topic-auto-card' | 'candidate-card-generation' | 'card-prompt-rewrite' | 'descriptor-augmentation' | 'concept-expression-coach' | 'note-refinement' {
+  const type = String(card?.type || '').trim();
+  if (type === 'topic') return 'topic-auto-card';
+  if (type === 'descriptor') return 'descriptor-augmentation';
+  if (type === 'concept') return 'concept-expression-coach';
+  if (type === 'item') return 'card-prompt-rewrite';
+  return view === 'general-chat' ? 'note-refinement' : 'candidate-card-generation';
+}
+
+async function refreshReviewArenaHint(card?: FSRSCard | null): Promise<void> {
+  const currentCard = (card || state.value.content.card || null) as FSRSCard | null;
+  const arenaKernel = getArenaKernelService();
+  if (!arenaKernel?.buildSrsRecommendation || !currentCard) {
+    reviewArenaHint.value = null;
+    return;
+  }
+  try {
+    const recommendation = await arenaKernel.buildSrsRecommendation(
+      currentCard,
+      getSchedulerTypeForCard(currentCard),
+      Date.now(),
+    );
+    reviewArenaHint.value = recommendation?.shouldHighlight ? (recommendation.summary || null) : null;
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to refresh SRS arena hint:', error);
+    reviewArenaHint.value = null;
+  }
+}
+
+async function handleReviewArenaFeedback(payload: { cardId: string; rating: number; item: ActiveReviewItem | null }): Promise<void> {
+  const reviewedCard = (payload.item || null) as FSRSCard | null;
+  const arenaKernel = getArenaKernelService();
+  if (!arenaKernel?.recordSrsReview || !reviewedCard) {
+    return;
+  }
+  try {
+    await arenaKernel.recordSrsReview({
+      card: reviewedCard,
+      rating: payload.rating,
+      currentSchedulerType: getSchedulerTypeForCard(reviewedCard),
+    });
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to record SRS arena review:', error);
+  } finally {
+    await refreshReviewArenaHint();
+  }
+}
+
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {
   return createReviewSessionController(
     (providerQueue || props.queue) as never,
     (bridgedAdapter || props.adapter) as never,
     {
       onReview: props.onReview,
+      onReviewDetailed: handleReviewArenaFeedback as never,
       initialSessionState: effectiveInitialSessionState,
       initialCurrentItem: effectiveInitialCurrentItem as never,
       initialShowAnswer: effectiveInitialShowAnswer,
@@ -1514,6 +1603,7 @@ const hook = useReviewSession(
   bridgedAdapter || props.adapter,
   {
     onReview: props.onReview, // 🆕 传递 onReview 回调
+    onReviewDetailed: handleReviewArenaFeedback as never,
     initialSessionState: effectiveInitialSessionState,
     initialCurrentItem: effectiveInitialCurrentItem as never,
     initialShowAnswer: effectiveInitialShowAnswer,
@@ -1527,6 +1617,15 @@ const i18n = props.i18n;
 const showReviewFilterDialog = ref(false);
 const appliedReviewFilter = ref<CardFilter | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
+
+watch(
+  () => String((state.value.content.card as FSRSCard | null)?.id || ''),
+  () => {
+    void refreshReviewArenaHint();
+  },
+  { immediate: true },
+);
+
 const usesNativeDialogTitlebarQueueSwitch = computed(() => (
   props.mode === 'dialog'
   && props.nativeDialogTitlebar === true
@@ -2182,6 +2281,26 @@ const reviewDataObserver: IDataSourceObserver = {
   onDataChanged(event: DataChangeEvent) {
     if (event.type === 'card-created') {
       void appendCreatedCardsToActiveScopeQueue(event.cardIds || []);
+      return;
+    }
+
+    if (event.type === 'card-deleted') {
+      const deletedCardIds = Array.from(new Set(
+        (event.cardIds || [])
+          .map((id) => String(id || '').trim())
+          .filter((id) => id.length > 0)
+      ));
+      if (deletedCardIds.length === 0) {
+        return;
+      }
+
+      const { cardId, blockId } = getCurrentReviewCardReference();
+      if (cardId && deletedCardIds.includes(cardId)) {
+        void advanceCurrentReviewCardByReference({ cardId, blockId });
+        return;
+      }
+
+      void removeCardIdsFromActiveQueue(deletedCardIds);
       return;
     }
 
@@ -2894,6 +3013,7 @@ async function handleRebuildReviewFilterQueue(): Promise<void> {
 
 function buildReviewAIOptions(view: ReviewAIRequestedView, surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
   const neuralQueue = getNeuralRoamQueue();
+  const currentCard = state.value.content.card as FSRSCard | null;
   return {
     view,
     source: 'review',
@@ -2901,12 +3021,14 @@ function buildReviewAIOptions(view: ReviewAIRequestedView, surface?: AIWorkbench
     sessionId: reviewSessionId.value,
     sourceReviewSessionId: reviewSessionId.value,
     reviewChatKey: buildReviewAIChatKey(),
-    currentCard: state.value.content.card as FSRSCard | null,
+    currentCard,
     currentBlockId: resolveCurrentReviewBlockId() || null,
     queueType: resolveActiveReviewQueueType(),
     queueProgress: buildReviewQueueProgress(),
     revealed: hook.context.value.showAnswer === true,
     neuralBatch: neuralQueue?.getCurrentBatchSnapshot() ?? null,
+    arenaScenarioId: resolveReviewArenaScenario(view, currentCard),
+    arenaTargetKind: resolveArenaTargetKindFromCard(currentCard),
   };
 }
 
@@ -4861,6 +4983,17 @@ watch(
   min-width: 0; /* 防止 flex 子元素溢出 */
   height: 100%; /* 确保容器有明确的高度 */
   overflow: hidden; /* 防止整体滚动，只允许 ReviewContent 滚动 */
+}
+
+.fsrs-review-v2__arena-hint {
+  margin: 8px 16px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 26%, var(--b3-border-color) 74%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--b3-theme-primary-lightest) 62%, var(--b3-theme-background) 38%);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .fsrs-review-v2__workspace--with-ai .fsrs-review-v2__content-wrapper {

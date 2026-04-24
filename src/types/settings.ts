@@ -11,6 +11,11 @@ import type {
     AIUserSkillDefinition,
     AIUserSkillSectionDefinition,
 } from '@/types/ai';
+import {
+    DEFAULT_ARENA_SETTINGS,
+    normalizeArenaSettings,
+    type ArenaSettings,
+} from '@/types/arena';
 
 export const STORAGE_NAME = 'fsrs-config';
 export const FSRS_WEIGHT_COUNT = default_w.length;
@@ -544,6 +549,7 @@ export interface PluginSettings {
     drill: DrillSettings;
     progressiveReading: ProgressiveReadingSettings;
     ai: AISettings;
+    arena: ArenaSettings;
     queues: QueueSettings;
 
     // 保存的筛选器
@@ -726,6 +732,7 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
                 ? clonePromptTemplates(DEFAULT_AI_PROMPTS)
                 : sourceAiWithoutLegacy.prompts,
         }),
+        arena: normalizeArenaSettings((settings as Partial<PluginSettings>).arena),
         ui: {
             ...DEFAULT_SETTINGS.ui,
             ...(settings.ui || {}),
@@ -820,6 +827,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         ) {
             changed = true;
         }
+    }
+
+    if (JSON.stringify((settings as Partial<PluginSettings>).arena || null) !== JSON.stringify(normalized.arena)) {
+        changed = true;
     }
 
     if (!settings.ui) {
@@ -1805,6 +1816,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         },
     },
     ai: DEFAULT_AI_SETTINGS,
+    arena: DEFAULT_ARENA_SETTINGS,
     queues: {
         defaultQueue: 'retrieval',
         addToOutstandingEveryNth: 2,

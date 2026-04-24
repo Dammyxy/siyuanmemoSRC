@@ -1,7 +1,11 @@
-import type { IQueueStrategy, QueueFeedback } from '@/core/queue/abstraction/Strategy';
+import {
+    QueueItemUnavailableError,
+    type IQueueStrategy,
+    type QueueFeedback,
+} from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import type { FSRSCard } from '@/types/card';
-import type { IReviewQueue, QueueCounterSnapshot, QueueReviewResult } from '@/types/unified-data-source';
+import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
 import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
@@ -68,9 +72,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
+export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSourceObserver {
     private manager: UnifiedDataSourceManager;
-    private eventBus: EventBus;
     private schedulerRouter: ISchedulerRouter | null;
     private queue: IReviewQueue;
     private queueType: QueueType;
@@ -86,16 +89,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     private avoidOnceBlockId: string | null = null;
     private readonly maxHistorySize = 100;
     private lastCounterSnapshot: QueueCounterSnapshot | null = null;
-    private queueChangedHandler: ((event: unknown) => void) | null = null;
+    private managerObserverRegistered = false;
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
         manager: UnifiedDataSourceManager,
-        eventBus: EventBus,
+        _eventBus: EventBus,
         schedulerRouter: ISchedulerRouter | null = null
     ) {
         this.manager = manager;
-        this.eventBus = eventBus;
         this.schedulerRouter = schedulerRouter;
 
         if (typeof queueTypeOrQueue === 'string') {
@@ -361,6 +363,27 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const errorStack = error instanceof Error ? error.stack : undefined;
+
+            if (this.isUnavailableCurrentItemError(error, activeItem)) {
+                this.clearUnavailableItemFromLocalState(activeItem);
+                logger.warn(`[SiYuanMemo][UnifiedQueueStrategy] Current queue item disappeared before feedback completed:`, {
+                    queueType: this.queueType,
+                    cardId: activeItem.id,
+                    blockId: activeItem.blockId,
+                    action: feedback.action,
+                    error: errorMessage,
+                    stack: errorStack,
+                });
+                throw new QueueItemUnavailableError(
+                    `Queue item is no longer available: ${activeItem.id}`,
+                    {
+                        cardId: activeItem.id,
+                        blockId: activeItem.blockId,
+                        queueType: this.queueType,
+                    },
+                    error,
+                );
+            }
 
             logger.error(`[SiYuanMemo][UnifiedQueueStrategy] Failed to process feedback:`, {
                 queueType: this.queueType,
@@ -943,15 +966,139 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
     }
 
     private subscribeToQueueChanges(): void {
-        this.queueChangedHandler = (event) => {
-            const queueType = toQueueType((event as { queueType?: unknown })?.queueType);
-            if (queueType === this.queueType) {
+        const manager = this.manager as Partial<{
+            registerObserver: (observer: IDataSourceObserver) => void;
+        }>;
+        if (typeof manager.registerObserver !== 'function') {
+            return;
+        }
+
+        manager.registerObserver(this);
+        this.managerObserverRegistered = true;
+    }
+
+    onDataChanged(event: DataChangeEvent): void {
+        if (event.type === 'queue-changed') {
+            const queueType = toQueueType(event.queueType);
+            if (!queueType || queueType === this.queueType) {
                 logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Queue changed, invalidating cache: ${this.queueType}`);
-                this.lastCounterSnapshot = null;
                 this.invalidateCache();
             }
-        };
-        this.eventBus.subscribe('queue.changed', this.queueChangedHandler);
+            return;
+        }
+
+        if (event.type === 'card-deleted') {
+            const removed = this.removeDeletedCardsFromLocalState(event.cardIds || []);
+            if (removed > 0) {
+                logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Removed deleted cards from local review state:`, {
+                    queueType: this.queueType,
+                    removed,
+                    cardIds: event.cardIds,
+                    blockIds: event.blockIds,
+                });
+                this.invalidateCache();
+            }
+            return;
+        }
+
+        if (event.type === 'mode-switched') {
+            this.invalidateCache();
+        }
+    }
+
+    private clearUnavailableItemFromLocalState(card: FSRSCard): void {
+        const identities = this.collectCardIdentities(card);
+        this.removeMatchingCardsFromLocalState(identities);
+        this.pendingRotateCardId = this.pendingRotateCardId && identities.has(this.pendingRotateCardId)
+            ? null
+            : this.pendingRotateCardId;
+        if (this.currentItem && this.matchesAnyCardIdentity(this.currentItem, identities)) {
+            this.currentItem = null;
+        }
+        if (
+            (this.avoidOnceCardId && identities.has(this.avoidOnceCardId))
+            || (this.avoidOnceBlockId && identities.has(this.avoidOnceBlockId))
+        ) {
+            this.clearAvoidOnceIdentity();
+        }
+        this.invalidateCache();
+    }
+
+    private removeDeletedCardsFromLocalState(cardIds: string[]): number {
+        const identities = this.normalizeIdentitySet(cardIds);
+        if (identities.size === 0) {
+            return 0;
+        }
+
+        return this.removeMatchingCardsFromLocalState(identities);
+    }
+
+    private removeMatchingCardsFromLocalState(identities: Set<string>): number {
+        let removed = 0;
+        let removedBeforeCurrentIndex = 0;
+
+        this.cachedCards = this.cachedCards.filter((card, index) => {
+            const shouldRemove = this.matchesAnyCardIdentity(card, identities);
+            if (shouldRemove) {
+                removed += 1;
+                if (index < this.currentIndex) {
+                    removedBeforeCurrentIndex += 1;
+                }
+            }
+            return !shouldRemove;
+        });
+        if (removedBeforeCurrentIndex > 0) {
+            this.currentIndex = Math.max(0, this.currentIndex - removedBeforeCurrentIndex);
+        }
+        if (this.currentIndex > this.cachedCards.length) {
+            this.currentIndex = this.cachedCards.length;
+        }
+
+        const previousForwardLength = this.forwardBuffer.length;
+        this.forwardBuffer = this.forwardBuffer.filter((card) => !this.matchesAnyCardIdentity(card, identities));
+        removed += previousForwardLength - this.forwardBuffer.length;
+
+        if (this.currentItem && this.matchesAnyCardIdentity(this.currentItem, identities)) {
+            this.currentItem = null;
+        }
+
+        return removed;
+    }
+
+    private isUnavailableCurrentItemError(error: unknown, card: FSRSCard): boolean {
+        const message = error instanceof Error ? error.message : String(error);
+        const hasMissingCardSignal = message.includes('Card not found')
+            || message.includes('获取卡片失败')
+            || message.includes('卡片不存在');
+        if (!hasMissingCardSignal) {
+            return false;
+        }
+
+        const identities = this.collectCardIdentities(card);
+        for (const identity of identities) {
+            if (message.includes(identity)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private collectCardIdentities(card: Pick<FSRSCard, 'id' | 'blockId'>): Set<string> {
+        return this.normalizeIdentitySet([card.id, card.blockId]);
+    }
+
+    private normalizeIdentitySet(values: Array<string | null | undefined>): Set<string> {
+        return new Set(
+            values
+                .map((value) => String(value || '').trim())
+                .filter((value) => value.length > 0)
+        );
+    }
+
+    private matchesAnyCardIdentity(card: Pick<FSRSCard, 'id' | 'blockId'>, identities: Set<string>): boolean {
+        return identities.has(String(card.id || '').trim())
+            || identities.has(String(card.blockId || '').trim());
     }
 
     private async addNextDues(card: FSRSCard): Promise<CardWithNextDues> {
@@ -1298,9 +1445,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard> {
 
     cleanup(): void {
         this.queue.unsubscribe(this.cacheManager);
-        if (this.queueChangedHandler) {
-            this.eventBus.unsubscribe('queue.changed', this.queueChangedHandler);
-            this.queueChangedHandler = null;
+        if (this.managerObserverRegistered) {
+            const manager = this.manager as Partial<{
+                unregisterObserver: (observer: IDataSourceObserver) => void;
+            }>;
+            manager.unregisterObserver?.(this);
+            this.managerObserverRegistered = false;
         }
         this.cacheManager.clear();
         logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Cleaned up: ${this.queueType}`);

@@ -59,7 +59,7 @@ function createTranslator() {
 }
 
 describe('SrsTransparencyApplicationService', () => {
-  it('builds FSRS transparency from router preview using shared next-due formatting', () => {
+  it('builds FSRS transparency from router preview using shared next-due formatting', async () => {
     const now = 1_700_000_000_000;
     const router = {
       getSchedulerType: vi.fn(() => 'fsrs-v6' as const),
@@ -72,7 +72,7 @@ describe('SrsTransparencyApplicationService', () => {
     };
 
     const service = new SrsTransparencyApplicationService(router);
-    const model = service.build(buildSnapshot(), { now, t: createTranslator() });
+    const model = await service.build(buildSnapshot(), { now, t: createTranslator() });
 
     expect(router.getSchedulerType).toHaveBeenCalled();
     expect(router.preview).toHaveBeenCalled();
@@ -85,7 +85,7 @@ describe('SrsTransparencyApplicationService', () => {
     ]);
   });
 
-  it('surfaces SM-15 specific facts from schedulerMeta', () => {
+  it('surfaces SM-15 specific facts from schedulerMeta', async () => {
     const router = {
       getSchedulerType: vi.fn(() => 'sm15' as const),
       preview: vi.fn(() => new Map([
@@ -97,7 +97,7 @@ describe('SrsTransparencyApplicationService', () => {
     };
 
     const service = new SrsTransparencyApplicationService(router);
-    const model = service.build(buildSnapshot({
+    const model = await service.build(buildSnapshot({
       schedulerMeta: {
         sm15: {
           of: 1.8,
@@ -116,7 +116,7 @@ describe('SrsTransparencyApplicationService', () => {
     ]);
   });
 
-  it('surfaces A-Factor v2 facts from topic scheduler metadata', () => {
+  it('surfaces A-Factor v2 facts from topic scheduler metadata', async () => {
     const router = {
       getSchedulerType: vi.fn(() => 'a-factor-v2' as const),
       preview: vi.fn(() => new Map([
@@ -128,7 +128,7 @@ describe('SrsTransparencyApplicationService', () => {
     };
 
     const service = new SrsTransparencyApplicationService(router);
-    const model = service.build(buildSnapshot({
+    const model = await service.build(buildSnapshot({
       aFactor: 2.7,
       schedulerMeta: {
         topic: {
@@ -147,5 +147,44 @@ describe('SrsTransparencyApplicationService', () => {
       { label: '最优间隔', value: '9.0 d' },
       { label: 'AF 历史', value: '3 条，最新值 2.70' },
     ]);
+  });
+
+  it('adds Arena recommendation facts and hint when the advisory diverges', async () => {
+    const now = 1_700_000_000_000;
+    const router = {
+      getSchedulerType: vi.fn(() => 'fsrs-v6' as const),
+      preview: vi.fn(() => new Map([
+        [Rating.Again, buildCard({ due: now + 30_000 })],
+        [Rating.Hard, buildCard({ due: now + 3_600_000 })],
+        [Rating.Good, buildCard({ due: now + 86_400_000 })],
+        [Rating.Easy, buildCard({ due: now + 3 * 86_400_000 })],
+      ])),
+    };
+    const arenaKernel = {
+      buildSrsRecommendation: vi.fn(async () => ({
+        poolKey: 'srs::item',
+        targetKind: 'item' as const,
+        leadingContestantId: 'sm2' as const,
+        weightedIntervalDays: 9,
+        weightedDue: now + 9 * 86_400_000,
+        currentSchedulerIntervalDays: 1,
+        discrepancyRatio: 8,
+        shouldHighlight: true,
+        summary: 'Arena summary',
+        contestants: [],
+      })),
+    };
+
+    const service = new SrsTransparencyApplicationService(router, arenaKernel);
+    const model = await service.build(buildSnapshot(), { now, t: createTranslator() });
+
+    expect(arenaKernel.buildSrsRecommendation).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'card-1' }),
+      'fsrs-v6',
+      now,
+    );
+    expect(model.arenaHint).toBe('Arena 综合建议约 9.0 d，与当前正式调度相差 800%。');
+    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 综合间隔', value: '9.0 d' });
+    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 当前领先', value: 'SM2' });
   });
 });

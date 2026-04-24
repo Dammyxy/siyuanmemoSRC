@@ -34,6 +34,10 @@ import {
 import { AIChatToolExecutorService } from '@/application/services/AIChatToolExecutorService';
 import { AIChatToolRegistry } from '@/application/services/AIChatToolRegistry';
 import { AIChatVarStoreService } from '@/application/services/AIChatVarStoreService';
+import type {
+  ArenaKernelService,
+  ArenaSkillRuntimeOverrides,
+} from '@/application/services/ArenaKernelService';
 import type { SelectionExcerptService } from '@/application/services/SelectionExcerptService';
 import type { SelectionTopicContinuationService } from '@/application/services/SelectionTopicContinuationService';
 import { getAIContextProviders } from '@/application/services/AIWorkbenchContextProviderRegistry';
@@ -129,6 +133,13 @@ import {
   AI_GENERAL_CHAT_TAB_ID,
 } from '@/types/ai';
 import type { NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
+import type {
+  AIArenaEventType,
+  AIArenaScenarioId,
+  AIArenaSelection,
+  ArenaOutcomeLabel,
+  ArenaTargetKind,
+} from '@/types/arena';
 import { normalizeAISettings, normalizeAIPromptTemplates, type AIConceptCoachPromptTemplates, type AIProviderConfig, type AISettings } from '@/types/settings';
 
 export type AIWorkbenchServiceDeps = {
@@ -140,6 +151,12 @@ export type AIWorkbenchServiceDeps = {
   getXiuyuanApplicationService?: () => Promise<Pick<XiuyuanApplicationService, 'createFromBlocks' | 'createListTemplateCards'>>;
   getSelectionExcerptService?: () => SelectionExcerptService;
   getSelectionTopicContinuationService?: () => SelectionTopicContinuationService;
+  arenaKernel?: Pick<
+    ArenaKernelService,
+    | 'selectAIPack'
+    | 'resolveSkillRuntimeOverrides'
+    | 'recordAIEvent'
+  >;
   sessionStore?: Pick<
     AIWorkbenchSessionStoreService,
     | 'listSummaries'
@@ -1802,6 +1819,15 @@ export class AIWorkbenchService {
 
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private currentRunAbortController: AbortController | null = null;
+  private currentArenaSelection: AIArenaSelection | null = null;
+  private currentArenaRuntimeOverrides: ArenaSkillRuntimeOverrides = {
+    selectedPackId: null,
+    selectedPackTitle: null,
+    challengeTrigger: null,
+    challengers: [],
+  };
+  private currentArenaScenarioId: AIArenaScenarioId | null = null;
+  private currentArenaTargetKind: ArenaTargetKind | null = null;
   private readonly varStore = new AIChatVarStoreService();
   private readonly toolRegistry = new AIChatToolRegistry();
   private readonly flashcardTools: AIFlashcardToolService;
@@ -2563,8 +2589,161 @@ export class AIWorkbenchService {
     return normalizedMode;
   }
 
+  private clearArenaSelection(): void {
+    this.currentArenaSelection = null;
+    this.currentArenaRuntimeOverrides = {
+      selectedPackId: null,
+      selectedPackTitle: null,
+      challengeTrigger: null,
+      challengers: [],
+    };
+  }
+
+  private getArenaKernel() {
+    return this.deps.arenaKernel || null;
+  }
+
+  private resolveArenaHint(
+    input?: {
+      scenarioId?: AIArenaScenarioId | null;
+      targetKind?: ArenaTargetKind | null;
+      skillId?: AISkillId | null;
+    },
+  ): {
+    scenarioId: AIArenaScenarioId | null;
+    targetKind: ArenaTargetKind | null;
+  } {
+    if (input?.scenarioId || input?.targetKind) {
+      return {
+        scenarioId: input?.scenarioId || null,
+        targetKind: input?.targetKind || null,
+      };
+    }
+    const cardType = normalizeString(this.state.context?.currentCard?.cardType);
+    if (cardType === 'topic') {
+      return { scenarioId: 'topic-auto-card', targetKind: 'topic' };
+    }
+    if (cardType === 'descriptor') {
+      return { scenarioId: 'descriptor-augmentation', targetKind: 'descriptor' };
+    }
+    if (cardType === 'concept') {
+      return { scenarioId: 'concept-expression-coach', targetKind: 'concept' };
+    }
+    if (cardType === 'item') {
+      return { scenarioId: 'card-prompt-rewrite', targetKind: 'item' };
+    }
+    if (input?.skillId === GENERAL_SKILL || this.state.activeSkillId === GENERAL_SKILL) {
+      return { scenarioId: 'note-refinement', targetKind: 'note' };
+    }
+    return { scenarioId: 'candidate-card-generation', targetKind: 'note' };
+  }
+
+  private async prepareArenaSelection(
+    input?: {
+      scenarioId?: AIArenaScenarioId | null;
+      targetKind?: ArenaTargetKind | null;
+    },
+  ): Promise<void> {
+    const arenaKernel = this.getArenaKernel();
+    if (!arenaKernel) {
+      this.clearArenaSelection();
+      return;
+    }
+    const hint = this.resolveArenaHint({
+      scenarioId: input?.scenarioId ?? this.currentArenaScenarioId,
+      targetKind: input?.targetKind ?? this.currentArenaTargetKind,
+      skillId: this.state.activeSkillId,
+    });
+    this.currentArenaScenarioId = hint.scenarioId;
+    this.currentArenaTargetKind = hint.targetKind;
+    if (!hint.scenarioId || !hint.targetKind) {
+      this.clearArenaSelection();
+      return;
+    }
+    this.currentArenaSelection = await arenaKernel.selectAIPack({
+      surface: this.state.surface,
+      scenarioId: hint.scenarioId,
+      targetKind: hint.targetKind,
+      skillId: this.state.activeSkillId,
+      tabId: this.state.activeTabId,
+      sessionId: this.state.sessionId,
+    });
+    const baseSkill = getAIChatSkill(this.state.activeSkillId, this.getNormalizedAISettings());
+    this.currentArenaRuntimeOverrides = arenaKernel.resolveSkillRuntimeOverrides(
+      this.currentArenaSelection,
+      baseSkill,
+    );
+  }
+
+  private getArenaRuntimeOverrides(skillId: AISkillId = this.state.activeSkillId): ArenaSkillRuntimeOverrides {
+    if (skillId !== this.state.activeSkillId) {
+      return {
+        selectedPackId: null,
+        selectedPackTitle: null,
+        challengeTrigger: null,
+        challengers: [],
+      };
+    }
+    return this.currentArenaRuntimeOverrides;
+  }
+
+  getArenaBannerModel(): {
+    packTitle: string | null;
+    challengeSummary: string | null;
+    challengers: Array<{ id: string; title: string }>;
+  } {
+    return {
+      packTitle: this.currentArenaRuntimeOverrides.selectedPackTitle || null,
+      challengeSummary: this.currentArenaRuntimeOverrides.challengeTrigger?.summary || null,
+      challengers: this.currentArenaRuntimeOverrides.challengers || [],
+    };
+  }
+
+  private async recordArenaEvent(
+    eventType: AIArenaEventType,
+    input?: {
+      qualityLabel?: ArenaOutcomeLabel | null;
+      cardIds?: string[];
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    const arenaKernel = this.getArenaKernel();
+    if (!arenaKernel || !this.currentArenaSelection) {
+      return;
+    }
+    await arenaKernel.recordAIEvent({
+      selection: this.currentArenaSelection,
+      eventType,
+      sessionId: this.state.sessionId,
+      qualityLabel: input?.qualityLabel,
+      cardIds: input?.cardIds,
+      metadata: input?.metadata,
+    });
+  }
+
   private getResolvedSkill(skillId: AISkillId = this.state.activeSkillId): AIChatRegisteredSkillDescriptor {
-    return getAIChatSkill(skillId, this.getNormalizedAISettings());
+    const skill = getAIChatSkill(skillId, this.getNormalizedAISettings());
+    const overrides = this.getArenaRuntimeOverrides(skillId);
+    if (
+      !overrides.systemPromptTemplate
+      && !overrides.composerPreset
+      && !overrides.defaultToolGroups
+      && !overrides.tabRunPrompts
+      && !overrides.tabFollowUpPrompts
+    ) {
+      return skill;
+    }
+    return {
+      ...skill,
+      systemPromptTemplate: overrides.systemPromptTemplate || skill.systemPromptTemplate,
+      composerPreset: overrides.composerPreset || skill.composerPreset,
+      defaultToolGroups: (overrides.defaultToolGroups || skill.defaultToolGroups) as typeof skill.defaultToolGroups,
+      sections: skill.sections?.map((section) => ({
+        ...section,
+        runPrompt: overrides.tabRunPrompts?.[section.id] || section.runPrompt,
+        followUpPrompt: overrides.tabFollowUpPrompts?.[section.id] || section.followUpPrompt,
+      })),
+    };
   }
 
   private normalizeSkillForCurrentSettings(value: unknown, fallback: AISkillId = this.state.activeSkillId): AISkillId {
@@ -2603,6 +2782,9 @@ export class AIWorkbenchService {
     this.state.activeTabId = normalizeAIWorkbenchTabId(options.tabId, this.state.activeSkillId, settings);
     this.state.activeView = this.state.activeSkillId;
     this.state.surface = normalizeSurface(options.surface ?? this.state.surface);
+    this.currentArenaScenarioId = options.arenaScenarioId || null;
+    this.currentArenaTargetKind = options.arenaTargetKind || null;
+    this.clearArenaSelection();
     this.state.sourceReviewSessionId = normalizeString(options.sourceReviewSessionId)
       || (normalizeString(options.source) === 'review' ? normalizeString(options.sessionId) : '')
       || this.state.sourceReviewSessionId
@@ -3333,6 +3515,7 @@ export class AIWorkbenchService {
   setActiveTab(tabId: AISkillTabId): void {
     this.ensureSkillRuntimeState(this.state.activeSkillId);
     this.state.activeTabId = this.normalizeTabForCurrentSettings(tabId, this.state.activeSkillId);
+    this.clearArenaSelection();
     this.syncTreeLeafWithActiveView();
     this.rebuildProjectedThreads();
     this.schedulePersistCurrentSession();
@@ -3344,6 +3527,7 @@ export class AIWorkbenchService {
     this.state.activeView = normalizedSkillId;
     this.ensureSkillRuntimeState(normalizedSkillId);
     this.state.activeTabId = this.normalizeTabForCurrentSettings(this.state.activeTabId, normalizedSkillId);
+    this.clearArenaSelection();
     this.syncTreeLeafWithActiveView();
     this.rebuildProjectedThreads();
     this.schedulePersistCurrentSession();
@@ -3550,6 +3734,12 @@ export class AIWorkbenchService {
     } satisfies AIWorkbenchAssistantTextMessage));
     this.syncDerivedStateFromThreads();
     await this.persistCurrentSession();
+    await this.recordArenaEvent('edit', {
+      metadata: {
+        messageId,
+        kind: 'assistant-text',
+      },
+    });
   }
 
   async updateCandidateCard(
@@ -3642,6 +3832,13 @@ export class AIWorkbenchService {
     }
     this.syncDerivedStateFromThreads();
     await this.persistCurrentSession();
+    await this.recordArenaEvent('edit', {
+      metadata: {
+        messageId,
+        cardId,
+        kind: 'candidate-card',
+      },
+    });
   }
 
   async setCandidateCardsSelected(messageId: string, selected: boolean): Promise<void> {
@@ -3706,6 +3903,16 @@ export class AIWorkbenchService {
     if (result.createdCount > 0) {
       await this.getSessionStore().saveSelfTestCardTargetMemory(result.target);
     }
+    await this.recordArenaEvent('create', {
+      qualityLabel: result.createdCount > 0 ? 'strong' : 'usable',
+      cardIds: result.createdCardIds,
+      metadata: {
+        messageId,
+        createdCount: result.createdCount,
+        failedCount: result.failedCount,
+        targetLabel: result.targetLabel,
+      },
+    });
     return result;
   }
 
@@ -3860,6 +4067,16 @@ export class AIWorkbenchService {
     if (result.createdCount > 0) {
       await this.getSessionStore().saveSelfTestCardTargetMemory(result.target);
     }
+    await this.recordArenaEvent('create', {
+      qualityLabel: result.createdCount > 0 ? 'strong' : 'usable',
+      metadata: {
+        messageId,
+        createdCount: result.createdCount,
+        createdDefinitionCount: result.createdDefinitionCount,
+        createdDescriptorCount: result.createdDescriptorCount,
+        targetLabel: result.targetLabel,
+      },
+    });
     return result;
   }
 
@@ -3893,6 +4110,15 @@ export class AIWorkbenchService {
       : await this.deps.siyuanPort.insertBlockAfterDetailed(markdown, resolvedTarget.targetBlockId);
     const insertedRootBlockId = normalizeString(mutation.doOperations[0]?.id) || null;
     await this.getSessionStore().saveSelfTestCardTargetMemory(resolvedTarget.memory);
+    await this.recordArenaEvent('create', {
+      qualityLabel: insertedRootBlockId ? 'strong' : 'usable',
+      metadata: {
+        messageId,
+        insertedRootBlockId,
+        targetLabel: resolvedTarget.memory.targetLabel,
+        sectionTitle,
+      },
+    });
     return {
       target: resolvedTarget.memory,
       targetBlockId: resolvedTarget.targetBlockId,
@@ -4109,6 +4335,7 @@ export class AIWorkbenchService {
   }
 
   async runActiveSkill(): Promise<void> {
+    await this.prepareArenaSelection();
     const skill = this.getResolvedSkill(this.state.activeSkillId);
     this.ensureSkillRuntimeState(skill.id);
     if (skill.mode === 'chat') {
@@ -4129,6 +4356,7 @@ export class AIWorkbenchService {
   }
 
   async runActiveTab(): Promise<void> {
+    await this.prepareArenaSelection();
     const skill = this.getResolvedSkill(this.state.activeSkillId);
     if (skill.mode === 'chat') {
       await this.runActiveSkill();
@@ -4155,6 +4383,7 @@ export class AIWorkbenchService {
     if (!normalizedQuestion) {
       return;
     }
+    await this.prepareArenaSelection();
     const skill = this.getResolvedSkill(this.state.activeSkillId);
     if (skill.mode === 'chat') {
       await this.submitGeneralChatPrompt(normalizedQuestion, options);
@@ -4175,6 +4404,7 @@ export class AIWorkbenchService {
     if (!normalizedQuestion) {
       return;
     }
+    await this.prepareArenaSelection();
     const skill = this.getResolvedSkill(this.state.activeSkillId);
     if (skill.mode === 'chat') {
       await this.submitGeneralChatPrompt(normalizedQuestion, options);
@@ -4354,6 +4584,9 @@ export class AIWorkbenchService {
     if (!normalizedQuestion) {
       return;
     }
+    if (!this.currentArenaSelection) {
+      await this.prepareArenaSelection();
+    }
     const skill = this.getResolvedSkill(this.state.activeSkillId);
     const tabId = this.getPrimaryTabId(skill.id);
     this.ensureSkillRuntimeState(skill.id);
@@ -4407,6 +4640,12 @@ export class AIWorkbenchService {
         this.consumeFailureDiagnostic();
         this.syncDerivedStateFromThreads();
         await this.persistCurrentSession();
+        await this.recordArenaEvent('abandon', {
+          metadata: {
+            mode: 'chat',
+            reason: 'aborted',
+          },
+        });
       } else {
         this.materializeRequestFailure({
           assistantMessageId: primaryAssistantMessageId,
@@ -4420,6 +4659,12 @@ export class AIWorkbenchService {
         });
         this.syncDerivedStateFromThreads();
         await this.persistCurrentSession();
+        await this.recordArenaEvent('abandon', {
+          metadata: {
+            mode: 'chat',
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
       }
     } finally {
       this.state.isLoading = false;
@@ -5855,7 +6100,11 @@ export class AIWorkbenchService {
         messages: [
           {
             role: 'system',
-            content: prompts.tabs[tabId].followUp,
+            content: [
+              this.getResolvedSkill(this.state.activeSkillId).systemPromptTemplate,
+              this.getArenaRuntimeOverrides(this.state.activeSkillId).tabFollowUpPrompts?.[tabId],
+              prompts.tabs[tabId].followUp,
+            ].map((part) => normalizeString(part)).filter(Boolean).join('\n\n'),
           },
           {
             role: 'user',
@@ -6001,11 +6250,17 @@ export class AIWorkbenchService {
         .join('\n\n');
     }
     const prompts: AIConceptCoachPromptTemplates = settings.prompts.skills.conceptCoach;
+    const arenaOverrides = this.getArenaRuntimeOverrides(skill.id);
+    const arenaRunOverride = tabId
+      ? arenaOverrides.tabRunPrompts?.[tabId]
+      : undefined;
     const conceptTabId = tabId as typeof AI_CONCEPT_COACH_TAB_IDS[number] | undefined;
     const behaviorPrompts = tabId
-      ? [prompts.baseRun, prompts.tabs[conceptTabId!].run]
+      ? [skill.systemPromptTemplate, prompts.baseRun, arenaRunOverride, prompts.tabs[conceptTabId!].run]
       : [
+        skill.systemPromptTemplate,
         prompts.baseRun,
+        ...Object.values(arenaOverrides.tabRunPrompts || {}),
         ...AI_CONCEPT_COACH_TAB_IDS.map((id) => prompts.tabs[id].run),
       ];
     const contractText = formatStructuredPromptContract(getPromptContractForSkillRun(ACTIVE_SKILL, tabId));
@@ -6280,8 +6535,24 @@ export class AIWorkbenchService {
       this.state.legacyNotice = null;
       this.syncDerivedStateFromThreads();
       await this.persistCurrentSession();
+      if (mode === 'tab-rerun') {
+        await this.recordArenaEvent('rerun', {
+          metadata: {
+            tabIds: normalizedTabIds,
+            skillId,
+          },
+        });
+      }
     } catch (error) {
       this.state.error = error instanceof Error ? error.message : String(error);
+      await this.recordArenaEvent('abandon', {
+        metadata: {
+          mode,
+          tabIds: normalizedTabIds,
+          skillId,
+          error: this.state.error,
+        },
+      });
     } finally {
       this.state.isLoading = false;
       this.state.runStatus = null;

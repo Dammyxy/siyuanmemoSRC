@@ -1,5 +1,6 @@
 import type { EventHandler } from '@/core/shared/domain/events/EventBus';
-import { CardCreatedEvent } from '@/core/xiuyuan/domain/events';
+import type { CardCreatedEvent, CardDeletedEvent } from '@/core/xiuyuan/domain/events';
+import type { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
@@ -21,8 +22,18 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function asStringArray(values: readonly unknown[] | undefined): string[] {
+  return Array.from(new Set(
+    (values ?? [])
+      .map((value) => asString(value))
+      .filter((value) => value.length > 0)
+  ));
+}
+
 export class ReviewScopeCardCreationSyncService {
   private readonly handleCardCreated: EventHandler<CardCreatedEvent>;
+  private readonly handleCardDeleted: EventHandler<CardDeletedEvent>;
+  private readonly handleCardsDeleted: EventHandler<CardsDeletedEvent>;
   private disposed = false;
 
   constructor(
@@ -36,8 +47,16 @@ export class ReviewScopeCardCreationSyncService {
     this.handleCardCreated = async (event) => {
       await this.syncCreatedCard(event);
     };
+    this.handleCardDeleted = async (event) => {
+      await this.syncDeletedCard(event);
+    };
+    this.handleCardsDeleted = async (event) => {
+      await this.syncDeletedCards(event);
+    };
 
     this.eventBus.subscribe('CardCreated', this.handleCardCreated);
+    this.eventBus.subscribe('CardDeleted', this.handleCardDeleted);
+    this.eventBus.subscribe('CardsDeleted', this.handleCardsDeleted);
   }
 
   private readonly siyuanApi: ManagerSiyuanPort;
@@ -49,6 +68,8 @@ export class ReviewScopeCardCreationSyncService {
 
     this.disposed = true;
     this.eventBus.unsubscribe('CardCreated', this.handleCardCreated);
+    this.eventBus.unsubscribe('CardDeleted', this.handleCardDeleted);
+    this.eventBus.unsubscribe('CardsDeleted', this.handleCardsDeleted);
   }
 
   private async syncCreatedCard(event: CardCreatedEvent): Promise<void> {
@@ -75,6 +96,45 @@ export class ReviewScopeCardCreationSyncService {
     } catch (error) {
       logger.error('[ReviewScopeCardCreationSyncService] Failed to sync created card into review scope:', {
         cardId,
+        error,
+      });
+    }
+  }
+
+  private async syncDeletedCard(event: CardDeletedEvent): Promise<void> {
+    const cardId = asString(event.cardId);
+    const blockId = asString(event.blockId);
+    if (!cardId && !blockId) {
+      return;
+    }
+
+    try {
+      await this.unifiedDataSourceManager.onCardsDeleted(
+        cardId ? [cardId] : [],
+        blockId ? [blockId] : [],
+      );
+    } catch (error) {
+      logger.error('[ReviewScopeCardCreationSyncService] Failed to sync deleted card into review scope:', {
+        cardId,
+        blockId,
+        error,
+      });
+    }
+  }
+
+  private async syncDeletedCards(event: CardsDeletedEvent): Promise<void> {
+    const cardIds = asStringArray(event.cardIds);
+    const blockIds = asStringArray(event.blockIds);
+    if (cardIds.length === 0 && blockIds.length === 0) {
+      return;
+    }
+
+    try {
+      await this.unifiedDataSourceManager.onCardsDeleted(cardIds, blockIds);
+    } catch (error) {
+      logger.error('[ReviewScopeCardCreationSyncService] Failed to sync deleted cards into review scope:', {
+        cardIds,
+        blockIds,
         error,
       });
     }

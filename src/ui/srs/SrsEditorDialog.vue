@@ -16,6 +16,7 @@
           <span v-if="isDismissed" class="srs-editor__chip srs-editor__chip--warning">{{ t('suspended', 'Suspended') }}</span>
         </div>
         <p v-if="transparency" class="srs-inspector__summary">{{ transparency.summary }}</p>
+        <p v-if="transparency?.arenaHint" class="srs-inspector__arena-hint">{{ transparency.arenaHint }}</p>
       </section>
 
       <details
@@ -330,20 +331,20 @@ function formatCardType(type?: CardType): string {
   }
 }
 function getMetaRecord(card: FSRSCard | null): Record<string, unknown> { return card?.meta && typeof card.meta === 'object' ? (card.meta as Record<string, unknown>) : {}; }
-function buildTransparency(nextSnapshot: CardEditorSnapshot | null): SrsTransparencyViewModel | null {
+async function buildTransparency(nextSnapshot: CardEditorSnapshot | null): Promise<SrsTransparencyViewModel | null> {
   if (!nextSnapshot) return null;
   const service = getSrsTransparencyService();
   if (!service) return null;
   try {
-    return service.build(nextSnapshot, { t });
+    return await service.build(nextSnapshot, { t });
   } catch (error) {
     logger.warn('Failed to build SRS transparency snapshot', { error });
     return null;
   }
 }
-function applySnapshot(nextSnapshot: CardEditorSnapshot | null): void {
+async function applySnapshot(nextSnapshot: CardEditorSnapshot | null): Promise<void> {
   snapshot.value = nextSnapshot;
-  transparency.value = buildTransparency(nextSnapshot);
+  transparency.value = await buildTransparency(nextSnapshot);
   syncDrafts(nextSnapshot);
 }
 function handleDetailsToggle(event: Event, section: 'moreEdit' | 'details' | 'danger'): void {
@@ -365,7 +366,7 @@ async function refreshSnapshot(): Promise<void> {
   if (!cardEditorService) { loadError.value = t('envNotInit', '环境未初始化'); return; }
   await withLoading('snapshot', async () => {
     try {
-      applySnapshot(await cardEditorService.loadSnapshot(blockId, getTrackedCardId()));
+      await applySnapshot(await cardEditorService.loadSnapshot(blockId, getTrackedCardId()));
       loadError.value = null;
     } catch (error) {
       logger.error('Failed to load SRS editor snapshot', error);
@@ -451,7 +452,7 @@ async function commitCardType(targetType: EditableCardType): Promise<void> {
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
   await withLoading('cardType', async () => {
     try {
-      applySnapshot(await service.updateCardType(currentCard.value!.id, targetType));
+      await applySnapshot(await service.updateCardType(currentCard.value!.id, targetType));
       await announce('success', t('cardTypeSaved', '卡片类型已更新'));
     } catch (error) {
       logger.error('Failed to update card type', error);
@@ -465,7 +466,7 @@ async function commitRender(targetRender: EditableRenderTarget): Promise<void> {
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
   await withLoading('render', async () => {
     try {
-      applySnapshot(await service.updateRender(currentCard.value!.id, targetRender));
+      await applySnapshot(await service.updateRender(currentCard.value!.id, targetRender));
       await announce('success', t('renderSaved', '渲染已更新'));
     } catch (error) {
       logger.error('Failed to update render target', error);
@@ -486,7 +487,7 @@ async function commitPriority(): Promise<void> {
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
   await withLoading('priority', async () => {
     try {
-      applySnapshot(await service.updatePriority(currentCard.value!.id, nextPriority));
+      await applySnapshot(await service.updatePriority(currentCard.value!.id, nextPriority));
       await announce('success', t('prioritySaved', '优先级已更新'));
     } catch (error) {
       logger.error('Failed to update priority', error);
@@ -502,7 +503,7 @@ async function commitDismissed(nextDismissed: boolean): Promise<void> {
     try {
       const cardId = String(currentCard.value!.id || '').trim();
       const targetBlockId = String(currentCard.value!.blockId || blockId).trim();
-      applySnapshot(await service.setDismissed(cardId, nextDismissed));
+      await applySnapshot(await service.setDismissed(cardId, nextDismissed));
       if (cardId && targetBlockId) {
         emit('dismissed', { cardId, blockId: targetBlockId, dismissed: nextDismissed });
       }
@@ -527,7 +528,7 @@ async function handleScheduleDate(options: ScheduleOptions): Promise<void> {
     try {
       const scheduledCardId = String(currentCard.value!.id || '').trim();
       const dueTimestamp = resolveDueTimestamp(options);
-      applySnapshot(await service.scheduleCard(scheduledCardId, {
+      await applySnapshot(await service.scheduleCard(scheduledCardId, {
         mode: options.mode,
         rating: options.mode === 'rating' ? options.rating : undefined,
         dueTimestamp,
@@ -572,7 +573,7 @@ async function handleReset(): Promise<void> {
   if (!service) { await announce('error', t('envNotInit', '环境未初始化')); return; }
   await withLoading('reset', async () => {
     try {
-      applySnapshot(await service.resetProgress(currentCard.value!.id));
+      await applySnapshot(await service.resetProgress(currentCard.value!.id));
       await announce('success', t('resetDone', '学习进度已重置'));
     } catch (error) {
       logger.error('Failed to reset card progress', error);
@@ -605,6 +606,7 @@ onBeforeUnmount(() => {
 .srs-inspector__meta{flex-wrap:wrap}
 .srs-inspector__summary,.srs-panel__header p,.srs-inline-editor__helper,.srs-render-status,.srs-detail-section__header p,.srs-danger__desc{margin:0;color:var(--b3-theme-on-surface-light);line-height:1.45}
 .srs-inspector__summary{font-size:13px}
+.srs-inspector__arena-hint{margin:0;padding:8px 10px;border:1px solid color-mix(in srgb,var(--srs-accent) 22%,var(--srs-border) 78%);border-radius:10px;background:color-mix(in srgb,var(--srs-accent-soft) 62%,white 38%);color:var(--b3-theme-on-surface);font-size:12px;line-height:1.45}
 .srs-panel__header h3,.srs-panel__summary,.srs-detail-section__header h4{margin:0;color:var(--b3-theme-on-surface)}
 .srs-panel__header h3,.srs-panel__summary{font-size:15px;font-weight:700}
 .srs-panel__header--compact{align-items:center}
