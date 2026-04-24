@@ -44,4 +44,26 @@ describe('ConceptCardRenderer', () => {
     expect(wrapper.text()).not.toContain('跳转到概念');
     expect(wrapper.find('.concept-card-renderer__actions').exists()).toBe(false);
   });
+
+  it('renders answer content through the shared review rich html host', async () => {
+    const wrapper = mount(ConceptCardRenderer, {
+      props: {
+        blockId: 'concept-block-1',
+        showAnswer: true,
+      },
+      global: {
+        stubs: {
+          CardBreadcrumb: { template: '<div class="card-breadcrumb-stub"></div>' },
+          CardLoadingState: { template: '<div class="card-loading-stub"></div>' },
+          CardErrorState: { template: '<div class="card-error-stub"></div>' },
+        },
+      },
+    });
+
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('.review-rich-html-content').exists()).toBe(true);
+    expect(wrapper.html()).toContain('指数为定值，以 x 为自变量。');
+  });
 });

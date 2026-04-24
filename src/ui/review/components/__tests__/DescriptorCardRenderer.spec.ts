@@ -150,6 +150,7 @@ describe('DescriptorCardRenderer', () => {
     expect(wrapper.find('.descriptor-card-renderer__warning').exists()).toBe(false);
     expect(wrapper.find('.descriptor-card-renderer__badge').exists()).toBe(false);
     expect(wrapper.find('.descriptor-card-renderer__siblings').exists()).toBe(false);
+    expect(wrapper.find('.review-rich-html-content').exists()).toBe(true);
     expect(wrapper.html()).toContain('semantic front');
   });
 });

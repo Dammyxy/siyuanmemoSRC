@@ -99,13 +99,13 @@ function createQueue(nextImpl: () => Promise<unknown>, queueType = 'retrieval-pr
   };
 }
 
-function createCompletedEmptyAdapter() {
+function createCompletedEmptyAdapter(title = '提取练习') {
   return {
     toUIState: vi.fn(async () => ({
       ...createEmptyReviewUIState(),
       header: {
         ...createEmptyReviewUIState().header,
-        title: '提取练习',
+        title,
       },
       meta: {
         ...createEmptyReviewUIState().meta,
@@ -134,7 +134,7 @@ function mountReviewView(options: {
     props: {
       app: {} as never,
       queue: createQueue(async () => null, options.headerVariant) as never,
-      adapter: createCompletedEmptyAdapter() as never,
+      adapter: createCompletedEmptyAdapter(options.title) as never,
       mode: options.mode,
       title: options.title,
       headerVariant: options.headerVariant,
@@ -197,6 +197,24 @@ describe('ReviewView queue switch', () => {
     expect(trigger).not.toBeNull();
     expect(trigger?.textContent).toBe('提取练习');
 
+    const pointerDownEvent = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+    const pointerDownStop = vi.fn();
+    Object.defineProperty(pointerDownEvent, 'stopPropagation', {
+      value: pointerDownStop,
+    });
+    trigger?.dispatchEvent(pointerDownEvent);
+    expect(pointerDownEvent.defaultPrevented).toBe(true);
+    expect(pointerDownStop).toHaveBeenCalledTimes(1);
+
+    const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    const mouseDownStop = vi.fn();
+    Object.defineProperty(mouseDownEvent, 'stopPropagation', {
+      value: mouseDownStop,
+    });
+    trigger?.dispatchEvent(mouseDownEvent);
+    expect(mouseDownEvent.defaultPrevented).toBe(true);
+    expect(mouseDownStop).toHaveBeenCalledTimes(1);
+
     trigger?.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 24, clientY: 16 }));
     await nextTick();
 
@@ -213,6 +231,43 @@ describe('ReviewView queue switch', () => {
     await incrementalItem.click();
 
     expect(dialogManager.switchStandardReviewDialogQueue).toHaveBeenCalledWith('incremental-learning');
+  });
+
+  it('rebinds the native titlebar queue-switch trigger when SiYuan rebuilds the dialog title node', async () => {
+    mountReviewView({
+      mode: 'dialog',
+      title: '渐进学习',
+      headerVariant: 'incremental-learning',
+      nativeDialogTitlebar: true,
+      plugin: {
+        getContext: () => ({
+          getDialogManager: () => ({
+            switchStandardReviewDialogQueue: vi.fn(),
+          }),
+        }),
+      },
+    });
+
+    await flushPromises();
+    await vi.runAllTimersAsync();
+    await nextTick();
+
+    const originalTitle = document.querySelector('.b3-dialog__title') as HTMLElement | null;
+    expect(originalTitle).not.toBeNull();
+    expect(originalTitle?.querySelector('.siyuanmemo-review-titlebar__queue-switch')).not.toBeNull();
+
+    const replacement = document.createElement('div');
+    replacement.className = 'b3-dialog__title';
+    replacement.textContent = '渐进学习';
+    originalTitle?.replaceWith(replacement);
+
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+    await nextTick();
+
+    const reboundTrigger = replacement.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
+    expect(reboundTrigger).not.toBeNull();
+    expect(reboundTrigger?.textContent).toBe('渐进学习');
   });
 
   it('opens the same queue-switch menu from tab headers and replaces the current review tab', async () => {

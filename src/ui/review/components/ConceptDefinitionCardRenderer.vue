@@ -12,11 +12,11 @@
 
     <div v-else-if="viewModel" class="concept-definition-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
-      <div
+      <ReviewRichHtmlContent
         class="concept-definition-card-renderer__html-content"
         :class="showAnswer ? 'concept-definition-card-renderer__back' : 'concept-definition-card-renderer__front'"
-        v-html="showAnswer ? viewModel.backHtml : viewModel.frontHtml"
-      ></div>
+        :html="showAnswer ? viewModel.backHtml : viewModel.frontHtml"
+      />
     </div>
   </div>
 </template>
@@ -27,6 +27,7 @@ import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CdfDirectLayout from './CdfDirectLayout.vue';
+import ReviewRichHtmlContent from './ReviewRichHtmlContent.vue';
 import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import type {
   ConceptDefinitionCardInput,

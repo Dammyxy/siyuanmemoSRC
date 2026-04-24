@@ -75,6 +75,7 @@ describe('QuickCardRenderer.vue', () => {
     expect(wrapper.find('.quick-card-renderer__content').exists()).toBe(true);
     expect(wrapper.html()).toContain('Test content');
     expect(wrapper.find('.quick-card-renderer__card').classes()).toContain('card__block--hidemark');
+    expect(wrapper.find('.review-rich-html-content').exists()).toBe(true);
     expect(wrapper.emitted('loaded')).toBeTruthy();
   });
 

@@ -6,9 +6,11 @@
     <div v-else-if="viewModel" class="quick-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
 
-      <div ref="cardContentRef" class="quick-card-renderer__card" :class="contentClasses">
-        <div v-html="renderedHtml"></div>
-      </div>
+      <ReviewRichHtmlContent
+        class="quick-card-renderer__card"
+        :class="contentClasses"
+        :html="renderedHtml"
+      />
     </div>
   </div>
 </template>
@@ -19,6 +21,7 @@ import type { QuickCardRenderService, QuickCardViewModel } from '@/core/card/qui
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import ReviewRichHtmlContent from './ReviewRichHtmlContent.vue';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
 import { renderMathWithKatex } from './mathRender';
@@ -52,7 +55,6 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<QuickCardViewModel | null>(null);
 const renderedHtml = ref('');
-const cardContentRef = ref<HTMLElement | null>(null);
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 const localViewModelCache = new Map<string, QuickCardViewModel>();

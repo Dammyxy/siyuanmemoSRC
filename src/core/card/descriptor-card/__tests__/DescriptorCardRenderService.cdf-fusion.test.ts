@@ -19,6 +19,7 @@ function createService(content: string, options?: { cdfFusionContext?: LiveCdfDe
       cdfFusionContext: options?.cdfFusionContext,
     }),
     getCardTypeMarker: vi.fn().mockResolvedValue('descriptor'),
+    renderMarkdownFragment: vi.fn((markdown: string) => `<p data-rendered="true">${markdown}</p>`),
   };
 
   const service = new DescriptorCardRenderService(repository as any, {});
@@ -229,5 +230,26 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm!.backHtml).toContain('保持快速演化');
     expect(vm!.frontHtml).not.toContain('属性');
     expect(vm!.frontHtml).not.toContain('defaultAttribute');
+  });
+
+  it('emits class-based descriptor markup without legacy inline font sizes', async () => {
+    const { service } = createService('**前身** ;; `恒星`');
+
+    const vm = await service.prepareViewModel('descriptor-block', {
+      meta: {
+        typeMarker: 'descriptor-forward',
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+        },
+      },
+    });
+
+    expect(vm).not.toBeNull();
+    expect(vm!.frontHtml).toContain('descriptor-card-question');
+    expect(vm!.frontHtml).toContain('data-rendered="true"');
+    expect(vm!.backHtml).toContain('descriptor-card-answer-content');
+    expect(vm!.frontHtml).not.toContain('font-size: 22px');
+    expect(vm!.backHtml).not.toContain('font-size: 14px');
   });
 });

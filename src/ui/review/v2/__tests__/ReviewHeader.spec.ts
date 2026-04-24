@@ -179,6 +179,75 @@ describe('ReviewHeader', () => {
     expect(wrapper2.get('.siyuanmemo-review-header__queue-switch').text()).toBe('提取练习');
   });
 
+  it('keeps the summary chip mounted between filter-group and neural-roam toolbar variants in native-dialog mode', () => {
+    const filterHeader = createHeaderState();
+    filterHeader.toolbar = [
+      { type: 'plan-review-scope', icon: '#iconFilter', label: '范围', ariaLabel: '范围' },
+      { type: 'fullscreen', icon: '#iconFullscreen', ariaLabel: 'Fullscreen' },
+    ];
+
+    const filterWrapper = mount(ReviewHeader, {
+      props: {
+        header: filterHeader,
+        meta: {
+          transition: 'slide-left',
+          queueProgress: {
+            queueType: 'filter-group',
+            queueLabel: 'filter-group',
+            completed: 0,
+            remaining: 3,
+            total: 3,
+          },
+        },
+        isMobile: false,
+        mode: 'dialog',
+        nativeDialogTitlebar: true,
+      },
+    });
+
+    expect(filterWrapper.find('.siyuanmemo-review-header__summary-wrap').exists()).toBe(true);
+    expect(filterWrapper.find('.siyuanmemo-review-header__toolbar').exists()).toBe(true);
+    expect(filterWrapper.findAll('.siyuanmemo-review-header__toolbar-button')).toHaveLength(2);
+
+    const neuralHeader = createHeaderState();
+    neuralHeader.toolbar = [
+      { type: 'lock-focus', icon: '#iconPin', ariaLabel: 'Build Station' },
+      { type: 'neural-focuses', icon: '#iconList', ariaLabel: 'View Activation Source List' },
+      { type: 'neural-history', icon: '#iconHistory', ariaLabel: 'History' },
+      { type: 'more', icon: '#iconMore', ariaLabel: 'More' },
+    ];
+
+    const neuralWrapper = mount(ReviewHeader, {
+      props: {
+        header: neuralHeader,
+        meta: {
+          transition: 'slide-left',
+          queueProgress: {
+            queueType: 'neural-roam',
+            queueLabel: 'neural-roam',
+            completed: 1,
+            remaining: 4,
+            total: 5,
+          },
+        },
+        isMobile: false,
+        mode: 'dialog',
+        nativeDialogTitlebar: true,
+        navigationState: {
+          engineMode: 'hyperspace',
+          navigationMode: 'follow',
+          pathLength: 3,
+          currentPathIndex: 1,
+          hasBookmark: true,
+        } as any,
+      },
+    });
+
+    expect(neuralWrapper.find('.siyuanmemo-review-header__summary-wrap').exists()).toBe(true);
+    expect(neuralWrapper.find('.siyuanmemo-review-header__toolbar').exists()).toBe(true);
+    expect(neuralWrapper.findAll('.siyuanmemo-review-header__toolbar-button').length).toBeGreaterThan(4);
+  });
+
   it('closes the counter popover on Escape', async () => {
     const wrapper = mount(ReviewHeader, {
       props: {

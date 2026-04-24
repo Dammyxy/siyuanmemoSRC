@@ -1090,12 +1090,31 @@ function resolveMenuAnchor(target: EventTarget | null): HTMLElement | null {
   return target instanceof HTMLElement ? target : null;
 }
 
-function openMenuAtAnchor(menu: Menu, anchor: HTMLElement): void {
+function resolveMenuOpenPoint(anchor: HTMLElement, event?: MouseEvent | null): { x: number; y: number } {
   const rect = anchor.getBoundingClientRect();
-  menu.open({
-    x: rect.left,
-    y: rect.bottom,
-  });
+  const hasUsableRect = Number.isFinite(rect.left)
+    && Number.isFinite(rect.bottom)
+    && (rect.width > 0 || rect.height > 0 || rect.left !== 0 || rect.bottom !== 0);
+  if (hasUsableRect) {
+    return {
+      x: rect.left,
+      y: rect.bottom,
+    };
+  }
+
+  if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+    return {
+      x: event.clientX,
+      y: event.clientY,
+    };
+  }
+
+  return { x: 0, y: 0 };
+}
+
+function openMenuAtAnchor(menu: Menu, anchor: HTMLElement, event?: MouseEvent | null): void {
+  const position = resolveMenuOpenPoint(anchor, event);
+  menu.open(position);
 }
 
 function switchToStandardReviewQueue(queueType: QueueType): void {
@@ -1122,7 +1141,7 @@ function switchToStandardReviewQueue(queueType: QueueType): void {
   showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
 }
 
-function openQueueSwitchMenuAtAnchor(anchor: HTMLElement): void {
+function openQueueSwitchMenuAtAnchor(anchor: HTMLElement, event?: MouseEvent | null): void {
   const currentQueueType = resolveCurrentMainQueueSwitchType();
   const menu = new Menu('review-queue-switch-menu');
 
@@ -1139,7 +1158,12 @@ function openQueueSwitchMenuAtAnchor(anchor: HTMLElement): void {
     });
   }
 
-  openMenuAtAnchor(menu, anchor);
+  openMenuAtAnchor(menu, anchor, event);
+}
+
+function handleQueueSwitchTriggerPointerDown(event: Event): void {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 function handleQueueSwitchTrigger(event: MouseEvent): void {
@@ -1150,7 +1174,7 @@ function handleQueueSwitchTrigger(event: MouseEvent): void {
     logger.warn('[SiYuanMemo][ReviewView] Queue switch trigger is missing a usable anchor');
     return;
   }
-  openQueueSwitchMenuAtAnchor(anchor);
+  openQueueSwitchMenuAtAnchor(anchor, event);
 }
 
 function readCardRootId(card: FSRSCard): string {
@@ -1374,6 +1398,7 @@ onUnmounted(() => {
     window.clearTimeout(reviewDialogTitlebarSyncTimer);
     reviewDialogTitlebarSyncTimer = null;
   }
+  disconnectReviewDialogTitlebarObserver();
   restoreReviewDialogTitlebarText();
   recentModifiedHotkeys.clear();
   escRepeatLatch = false;
@@ -1518,6 +1543,8 @@ const resolvedReviewSurfaceTitle = computed(() => (
 let subscribedReviewManager: IUnifiedDataSourceManagerFacade | null = null;
 let subscribedReviewWorkspaceEventBus: WorkspaceEventBusLike | null = null;
 let reviewDialogTitlebarSyncTimer: number | null = null;
+let reviewDialogTitlebarObserver: MutationObserver | null = null;
+let observedReviewDialogHeader: HTMLElement | null = null;
 
 const REVIEW_AI_SIDECAR_MIN_VIEWPORT = 1040;
 
@@ -3026,6 +3053,71 @@ function getReviewDialogTitleElement(): HTMLElement | null {
   return getReviewDialogContainer()?.querySelector('.b3-dialog__title') as HTMLElement | null;
 }
 
+function getReviewDialogHeaderElement(): HTMLElement | null {
+  return getReviewDialogContainer()?.querySelector('.b3-dialog__header') as HTMLElement | null;
+}
+
+function disconnectReviewDialogTitlebarObserver(): void {
+  reviewDialogTitlebarObserver?.disconnect();
+  reviewDialogTitlebarObserver = null;
+  observedReviewDialogHeader = null;
+}
+
+function isReviewDialogTitlebarQueueSwitchSynced(): boolean {
+  if (!usesNativeDialogTitlebarQueueSwitch.value) {
+    return false;
+  }
+
+  const titleElement = getReviewDialogTitleElement();
+  if (!titleElement) {
+    return false;
+  }
+
+  const trigger = titleElement.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
+  if (!trigger) {
+    return false;
+  }
+
+  return titleElement.dataset.siyuanmemoQueueSwitch === 'true'
+    && titleElement.classList.contains('siyuanmemo-review-titlebar__slot')
+    && trigger.textContent === resolvedReviewSurfaceTitle.value
+    && trigger.title === resolvedReviewSurfaceTitle.value
+    && trigger.getAttribute('aria-label') === t('switchReviewQueueAriaLabel', '切换复习队列：{title}')
+      .replace('{title}', resolvedReviewSurfaceTitle.value);
+}
+
+function ensureReviewDialogTitlebarObserver(): void {
+  if (!usesNativeDialogTitlebarQueueSwitch.value) {
+    disconnectReviewDialogTitlebarObserver();
+    return;
+  }
+
+  const headerElement = getReviewDialogHeaderElement();
+  if (!headerElement) {
+    return;
+  }
+
+  if (reviewDialogTitlebarObserver && observedReviewDialogHeader === headerElement) {
+    return;
+  }
+
+  disconnectReviewDialogTitlebarObserver();
+  reviewDialogTitlebarObserver = new MutationObserver(() => {
+    if (!usesNativeDialogTitlebarQueueSwitch.value) {
+      return;
+    }
+    if (!isReviewDialogTitlebarQueueSwitchSynced()) {
+      scheduleReviewDialogTitlebarQueueSwitchSync();
+    }
+  });
+  reviewDialogTitlebarObserver.observe(headerElement, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+  observedReviewDialogHeader = headerElement;
+}
+
 function restoreReviewDialogTitlebarText(): void {
   const titleElement = getReviewDialogTitleElement();
   if (!titleElement || titleElement.dataset.siyuanmemoQueueSwitch !== 'true') {
@@ -3039,17 +3131,24 @@ function restoreReviewDialogTitlebarText(): void {
 }
 
 function syncReviewDialogTitlebarQueueSwitchTrigger(): void {
+  ensureReviewDialogTitlebarObserver();
   const titleElement = getReviewDialogTitleElement();
   if (!titleElement) {
     return;
   }
 
   if (!usesNativeDialogTitlebarQueueSwitch.value) {
+    disconnectReviewDialogTitlebarObserver();
     restoreReviewDialogTitlebarText();
     return;
   }
 
-  const trigger = document.createElement('button');
+  const existingTrigger = titleElement.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
+  if (existingTrigger && isReviewDialogTitlebarQueueSwitchSynced()) {
+    return;
+  }
+
+  const trigger = existingTrigger || document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'siyuanmemo-review-titlebar__queue-switch';
   trigger.title = resolvedReviewSurfaceTitle.value;
@@ -3058,7 +3157,9 @@ function syncReviewDialogTitlebarQueueSwitchTrigger(): void {
     'aria-label',
     t('switchReviewQueueAriaLabel', '切换复习队列：{title}').replace('{title}', resolvedReviewSurfaceTitle.value),
   );
-  trigger.addEventListener('click', handleQueueSwitchTrigger);
+  trigger.onpointerdown = handleQueueSwitchTriggerPointerDown;
+  trigger.onmousedown = handleQueueSwitchTriggerPointerDown;
+  trigger.onclick = handleQueueSwitchTrigger;
 
   titleElement.classList.add('siyuanmemo-review-titlebar__slot');
   titleElement.dataset.siyuanmemoQueueSwitch = 'true';
@@ -3072,6 +3173,7 @@ function scheduleReviewDialogTitlebarQueueSwitchSync(): void {
 
   reviewDialogTitlebarSyncTimer = window.setTimeout(() => {
     reviewDialogTitlebarSyncTimer = null;
+    ensureReviewDialogTitlebarObserver();
     syncReviewDialogTitlebarQueueSwitchTrigger();
   }, 0);
 }
@@ -4838,6 +4940,8 @@ watch(
   align-items: center;
   min-width: 0;
   padding: 0;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
 }
 
 .b3-dialog__container.siyuanmemo-review-dialog-container .siyuanmemo-review-titlebar__queue-switch {
@@ -4855,6 +4959,10 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  user-select: none;
   -webkit-app-region: no-drag;
 }
 

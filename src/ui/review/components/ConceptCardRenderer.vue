@@ -27,7 +27,10 @@
             <span>内容</span>
           </div>
 
-          <div class="concept-card-renderer__html-content" v-html="viewModel.contentHtml"></div>
+          <ReviewRichHtmlContent
+            class="concept-card-renderer__html-content"
+            :html="viewModel.contentHtml"
+          />
         </div>
       </div>
 
@@ -41,6 +44,7 @@ import { ConceptCardRenderService } from '@/core/card/concept/application/Concep
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
+import ReviewRichHtmlContent from './ReviewRichHtmlContent.vue';
 import type { ConceptCardViewModel } from '@/core/card/concept/application/ConceptCardRenderService';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';

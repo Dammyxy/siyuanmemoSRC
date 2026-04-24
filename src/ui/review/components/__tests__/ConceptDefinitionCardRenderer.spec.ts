@@ -172,6 +172,7 @@ describe('ConceptDefinitionCardRenderer', () => {
     await flushPromises();
 
     expect(wrapper.find('.concept-definition-card-renderer__badge').exists()).toBe(false);
+    expect(wrapper.find('.review-rich-html-content').exists()).toBe(true);
     expect(wrapper.html()).toContain('semantic front');
   });
 });

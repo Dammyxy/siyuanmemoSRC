@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 129)
+Last update: 2026-04-24 (Round 130)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - dialog queue-switch rebind, native counter true-centering, and shared rich review host
+
+- Task: 修复 dialog review 原生标题栏队列切换按钮在真实环境里点不动的问题，把 native-dialog 第二行 header 的计数器改成真正几何居中，并把 shared rich-content 渲染链接回 active semantic review renderer，同时收掉 descriptor 字号不跟随编辑器的内联 px 根因。
+- Touched slice: Review active UI path across `src/ui/review/v2/{ReviewView.vue,ReviewHeader.vue,__tests__/ReviewView.queue-switch.spec.ts,__tests__/ReviewHeader.spec.ts,__tests__/ReviewHeader.styles.spec.ts,__tests__/ReviewContent.fonts.spec.ts}`, `src/ui/review/components/{ReviewRichHtmlContent.vue,ConceptCardRenderer.vue,ConceptDefinitionCardRenderer.vue,DescriptorCardRenderer.vue,QuickCardRenderer.vue,__tests__/ReviewRichHtmlContent.spec.ts,__tests__/ConceptCardRenderer.spec.ts,__tests__/ConceptDefinitionCardRenderer.spec.ts,__tests__/DescriptorCardRenderer.spec.ts,__tests__/QuickCardRenderer.test.ts}`, `src/core/card/descriptor-card/{application/DescriptorCardRenderService.ts,__tests__/DescriptorCardRenderService.cdf-fusion.test.ts}`, and this backlog.
+- Debt fixed now: dialog 原生标题栏的队列切换按钮现在会显式拦截 `pointerdown/mousedown` 拖拽链路，并用 `MutationObserver` 在 `.b3-dialog__title` 被原生重建后自动重挂载；native-dialog 第二行 header 不再靠易偏心的 grid 列“假居中”，而是让 summary pill 绝对居中、右侧 toolbar 正常流式布局；semantic review renderer 新增了 `ReviewRichHtmlContent` host，把 `enhanceRenderedMarkdown()` 正式接回 concept / concept-definition / descriptor / quick 四张活跃语义卡；descriptor service 继续输出 `frontHtml/backHtml` 合同，但不再依赖固定 `22px/14px` 内联字号，而是改成 class + token 驱动。
+- Debt deferred: 这轮只把 shared rich-content 接回 active semantic renderer，没有扩大到 browser、mobile launcher 或 AI pane 其它 surface；happy-dom 下的 rich-content 仍会尝试请求本地 KaTeX 资源并打印 stderr 噪音，但不影响断言；descriptor question/answer 的视觉 token 已落回 review renderer，尚未继续抽成跨卡型共享 typography primitive。
+- Why deferred: 当前真实阻塞是“dialog 左上角队列名点不动”“filter-group/neural-roam 计数器偏心”“descriptor 不跟随编辑器字号”“semantic renderer 还是纯文字”；继续把 rich renderer 扩到更多 surface 或抽更大的 shared typography primitive，会超出本轮安全切片并放大回归面。
+- Next safe step: 如果用户继续推动 semantic renderer 富渲染覆盖面，可以按相同 host 模式把剩余少数旧 renderer 逐张迁移；如果 rich-content 的 happy-dom 噪音开始影响开发体验，再单开一轮测试基础设施治理，把外部资源加载统一 mock 掉。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts src/ui/review/v2/__tests__/ReviewHeader.spec.ts src/ui/review/v2/__tests__/ReviewHeader.styles.spec.ts src/ui/review/v2/__tests__/ReviewContent.fonts.spec.ts src/ui/review/components/__tests__/ReviewRichHtmlContent.spec.ts src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts src/ui/review/components/__tests__/QuickCardRenderer.test.ts src/ui/review/components/__tests__/ConceptCardRenderer.spec.ts src/core/card/descriptor-card/__tests__/DescriptorCardRenderService.cdf-fusion.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - review queue quick-switch, native menu migration, and editor-sized review typography
 

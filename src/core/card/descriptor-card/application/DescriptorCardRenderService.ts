@@ -233,13 +233,18 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     if (isReverse) {
       // 反向卡：描述符 -> 概念
       const reverseConnector = this.t('descriptorReverseConnector', '是谁的');
-      const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeValue}</span><span style="color: var(--b3-theme-on-surface-light);">${reverseConnector}</span><span style="font-weight: 600; color: var(--b3-theme-primary);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">？</span></div>`;
-
-      // 答案分隔线
-      const dividerHtml = `<div style="display: flex; align-items: center; margin: 16px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">${this.t('answerLabel', '答案')}</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
-
-      // 答案：概念名（22px）
-      const answerHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.6; color: var(--b3-theme-on-surface);">${parentConceptName}</div>`;
+      const questionHtml = this.buildDescriptorQuestionHtml({
+        direction: 'reverse',
+        primaryMarkdown: attributeValue,
+        connectorText: reverseConnector,
+        secondaryMarkdown: attributeName,
+        trailingText: '？',
+      });
+      const dividerHtml = this.buildDescriptorAnswerDividerHtml();
+      const answerHtml = this.buildDescriptorAnswerHtml(
+        'descriptor-card-answer-content descriptor-card-answer-content--concept',
+        parentConceptName,
+      );
 
       // 正面：祖先上下文 + 反向问题
       const frontHtml = ancestorHtml + questionHtml;
@@ -252,13 +257,18 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       // 正向卡：概念 -> 描述符（默认）
       const ofConnector = this.t('descriptorForwardOf', '的');
       const isConnector = this.t('descriptorForwardIs', '？');
-      const questionHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.5; padding: 16px 0;"><span style="font-weight: 600; color: var(--b3-theme-primary);">${parentConceptName}</span><span style="color: var(--b3-theme-on-surface-light);">${ofConnector}</span><span style="font-weight: 700; color: var(--b3-theme-on-surface);">${attributeName}</span><span style="color: var(--b3-theme-on-surface-light);">${isConnector}</span></div>`;
-
-      // 答案分隔线
-      const dividerHtml = `<div style="display: flex; align-items: center; margin: 16px 0; color: var(--b3-theme-on-surface-light); font-size: 14px;"><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div><span style="padding: 0 12px;">${this.t('answerLabel', '答案')}</span><div style="flex: 1; height: 1px; background: var(--b3-border-color);"></div></div>`;
-
-      // 答案：属性值（22px，左对齐）
-      const answerHtml = `<div contenteditable="false" style="font-size: 22px; line-height: 1.6; color: var(--b3-theme-on-surface);">${attributeValue}</div>`;
+      const questionHtml = this.buildDescriptorQuestionHtml({
+        direction: 'forward',
+        primaryMarkdown: parentConceptName,
+        connectorText: ofConnector,
+        secondaryMarkdown: attributeName,
+        trailingText: isConnector,
+      });
+      const dividerHtml = this.buildDescriptorAnswerDividerHtml();
+      const answerHtml = this.buildDescriptorAnswerHtml(
+        'descriptor-card-answer-content descriptor-card-answer-content--description',
+        attributeValue,
+      );
 
       // 正面：祖先上下文 + 组合问题
       const frontHtml = ancestorHtml + questionHtml;
@@ -465,7 +475,55 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       return '';
     }
 
-    return `${ancestorHtml}<div contenteditable="false" style="font-size: 22px; line-height: 1.6; padding: 16px 0; color: var(--b3-theme-on-surface);">${this.escapeHtml(normalized)}</div>`;
+    return `${ancestorHtml}<div class="descriptor-card-fallback" contenteditable="false">${this.renderMarkdownFragment(normalized)}</div>`;
+  }
+
+  private buildDescriptorQuestionHtml(options: {
+    direction: 'forward' | 'reverse';
+    primaryMarkdown: string;
+    connectorText: string;
+    secondaryMarkdown: string;
+    trailingText: string;
+  }): string {
+    return `
+      <div class="descriptor-card-question descriptor-card-question--${options.direction}" contenteditable="false">
+        <div class="descriptor-card-question__segment descriptor-card-question__segment--primary">${this.renderMarkdownFragment(options.primaryMarkdown)}</div>
+        <div class="descriptor-card-question__segment descriptor-card-question__segment--connector">${this.escapeHtml(options.connectorText)}</div>
+        <div class="descriptor-card-question__segment descriptor-card-question__segment--secondary">${this.renderMarkdownFragment(options.secondaryMarkdown)}</div>
+        <div class="descriptor-card-question__segment descriptor-card-question__segment--connector">${this.escapeHtml(options.trailingText)}</div>
+      </div>
+    `;
+  }
+
+  private buildDescriptorAnswerDividerHtml(): string {
+    return `
+      <div class="descriptor-card-answer-divider">
+        <div class="descriptor-card-answer-divider__line"></div>
+        <span class="descriptor-card-answer-divider__label">${this.escapeHtml(this.t('answerLabel', '答案'))}</span>
+        <div class="descriptor-card-answer-divider__line"></div>
+      </div>
+    `;
+  }
+
+  private buildDescriptorAnswerHtml(className: string, markdown: string): string {
+    return `<div class="${className}" contenteditable="false">${this.renderMarkdownFragment(markdown)}</div>`;
+  }
+
+  private renderMarkdownFragment(markdown: string): string {
+    const normalized = String(markdown || '').trim();
+    if (!normalized) {
+      return '';
+    }
+
+    if (typeof (this.repository as DescriptorCardRepository & {
+      renderMarkdownFragment?: (value: string) => string;
+    }).renderMarkdownFragment === 'function') {
+      return (this.repository as DescriptorCardRepository & {
+        renderMarkdownFragment: (value: string) => string;
+      }).renderMarkdownFragment(normalized);
+    }
+
+    return `<p>${this.escapeHtml(normalized)}</p>`;
   }
 
   private escapeHtml(source: string): string {

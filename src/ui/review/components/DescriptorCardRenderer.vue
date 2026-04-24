@@ -12,11 +12,11 @@
 
     <div v-else-if="viewModel" class="descriptor-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
-      <div
+      <ReviewRichHtmlContent
         class="descriptor-card-renderer__html-content"
         :class="showAnswer ? 'descriptor-card-renderer__back' : 'descriptor-card-renderer__front'"
-        v-html="showAnswer ? viewModel.backHtml : viewModel.frontHtml"
-      ></div>
+        :html="showAnswer ? viewModel.backHtml : viewModel.frontHtml"
+      />
     </div>
   </div>
 </template>
@@ -27,6 +27,7 @@ import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CdfDirectLayout from './CdfDirectLayout.vue';
+import ReviewRichHtmlContent from './ReviewRichHtmlContent.vue';
 import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { FSRSCard } from '@/types/card';
@@ -209,5 +210,102 @@ watch(
 .descriptor-card-renderer__html-content :deep(ol:last-child),
 .descriptor-card-renderer__html-content :deep(blockquote:last-child) {
   margin-bottom: 0;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-context) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  color: var(--b3-theme-on-surface-light);
+  font-size: var(--siyuanmemo-review-font-small, 0.875em);
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-context__item) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-context__icon) {
+  flex-shrink: 0;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-context__name) {
+  min-width: 0;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-question) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35em;
+  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
+  line-height: 1.6;
+  color: var(--b3-theme-on-surface);
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-question__segment) {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25em;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-question__segment > p),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-question__segment > ul),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-question__segment > ol),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content > p),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content > ul),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content > ol),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-fallback > p),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-fallback > ul),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-fallback > ol) {
+  margin: 0;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-question__segment--primary),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-question__segment--secondary) {
+  font-weight: 600;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-question__segment--connector) {
+  color: var(--b3-theme-on-surface-light);
+  font-size: var(--siyuanmemo-review-font-title, 1.125em);
+  font-weight: 500;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-divider) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  color: var(--b3-theme-on-surface-light);
+  font-size: var(--siyuanmemo-review-font-small, 0.875em);
+  font-weight: 500;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-divider__line) {
+  flex: 1;
+  min-width: 24px;
+  height: 1px;
+  background: var(--b3-border-color);
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content) {
+  font-size: var(--siyuanmemo-review-font-body, 1em);
+  line-height: 1.75;
+  color: var(--b3-theme-on-surface);
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content--concept),
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content--description) {
+  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
+  line-height: 1.6;
+}
+
+.descriptor-card-renderer__html-content :deep(.descriptor-card-fallback) {
+  font-size: var(--siyuanmemo-review-font-body, 1em);
+  line-height: 1.75;
+  color: var(--b3-theme-on-surface);
 }
 </style>

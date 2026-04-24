@@ -643,6 +643,8 @@ onUnmounted(() => {
 }
 
 .block__icons.siyuanmemo-review-header.siyuanmemo-review-header--native-dialog {
+  display: flex;
+  justify-content: flex-end;
   min-height: 38px;
   gap: 6px;
   padding: 0 10px 0 8px;
@@ -721,10 +723,14 @@ onUnmounted(() => {
   -webkit-app-region: no-drag;
 }
 
-.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__summary-wrap,
-.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__toolbar,
-.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__mobile-close {
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__summary-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
   z-index: 2;
+  grid-column: auto;
+  justify-self: auto;
+  transform: translate(-50%, -50%);
 }
 
 .siyuanmemo-review-header__summary {
@@ -907,7 +913,13 @@ onUnmounted(() => {
 }
 
 .siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__toolbar {
+  grid-column: auto;
   gap: 4px;
+  margin-left: auto;
+}
+
+.siyuanmemo-review-header--native-dialog .siyuanmemo-review-header__mobile-close {
+  z-index: 3;
 }
 
 .siyuanmemo-review-header__toolbar-button {

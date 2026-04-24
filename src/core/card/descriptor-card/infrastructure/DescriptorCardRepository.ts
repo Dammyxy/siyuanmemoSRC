@@ -71,6 +71,10 @@ export class DescriptorCardRepository {
     private siyuanAdapter: SiyuanBlockAdapter
   ) {}
 
+  renderMarkdownFragment(markdown: string): string {
+    return this.siyuanAdapter.kramdownToHtml(markdown);
+  }
+
   private hasConceptSyntax(content: string): boolean {
     return content.includes('::') || content.includes('：：');
   }
