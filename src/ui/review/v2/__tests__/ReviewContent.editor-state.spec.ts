@@ -8,6 +8,7 @@ const reviewContentMocks = vi.hoisted(() => {
     disableCallCount: number;
     enableCallCount: number;
     destroyCallCount: number;
+    reloadCallCount: number;
     host: HTMLElement;
     options: { render?: Record<string, unknown>; blockId?: string; action?: string[] };
     protyle: { wysiwyg: { element: HTMLElement } };
@@ -20,6 +21,7 @@ const reviewContentMocks = vi.hoisted(() => {
     disableCallCount = 0;
     enableCallCount = 0;
     destroyCallCount = 0;
+    reloadCallCount = 0;
     host: HTMLElement;
     options: { render?: Record<string, unknown>; blockId?: string; action?: string[] };
     protyle: { wysiwyg: { element: HTMLElement } };
@@ -61,6 +63,10 @@ const reviewContentMocks = vi.hoisted(() => {
 
     destroy(): void {
       this.destroyCallCount += 1;
+    }
+
+    reload(): void {
+      this.reloadCallCount += 1;
     }
   }
 
@@ -1879,7 +1885,7 @@ describe('ReviewContent editor state', () => {
     wrapper.unmount();
   });
 
-  it('rerenders the same card when renderEpoch changes', async () => {
+  it('soft-refreshes the same card without rebuilding Protyle', async () => {
     setBlockFixture('block-1', '<div data-node-id="block-1">question</div>');
 
     const wrapper = mount(ReviewContent, {
@@ -1918,13 +1924,15 @@ describe('ReviewContent editor state', () => {
     const initialProtyle = reviewContentMocks.instances[0];
     expect(initialProtyle).toBeTruthy();
 
-    await wrapper.setProps({
-      renderEpoch: 1,
-    });
+    const exposed = wrapper.vm as unknown as {
+      refreshVisibleContent: (reason?: string) => Promise<boolean>;
+    };
+    await expect(exposed.refreshVisibleContent('test-soft-refresh')).resolves.toBe(true);
     await settleProtyleInit();
 
-    expect(initialProtyle?.destroyCallCount).toBeGreaterThan(0);
-    expect(reviewContentMocks.instances).toHaveLength(2);
+    expect(initialProtyle?.reloadCallCount).toBe(1);
+    expect(initialProtyle?.destroyCallCount).toBe(0);
+    expect(reviewContentMocks.instances).toHaveLength(1);
 
     wrapper.unmount();
   });

@@ -3,13 +3,12 @@ import type { ReviewEditorState } from './reviewEditorState';
 export type ReviewDialogEscapeDecision = 'ignore' | 'exit-editor' | 'consume-latched';
 
 export function resolveReviewDialogEscapeKeydown(input: {
-  isDialogMode: boolean;
   key: string;
   repeat: boolean;
   escRepeatLatch: boolean;
   editorState: ReviewEditorState;
 }): ReviewDialogEscapeDecision {
-  if (!input.isDialogMode || input.key !== 'Escape') {
+  if (input.key !== 'Escape') {
     return 'ignore';
   }
 

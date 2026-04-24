@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-25 (Round 137)
+Last update: 2026-04-25 (Round 138)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-25 - review edit soft refresh without flash
+
+- Task: 改善复习界面编辑当前内容或原生 Protyle 编辑触发源块刷新时，复习内容整块闪一下再加载的问题。
+- Touched slice: Review UI refresh path across `src/ui/review/v2/{ReviewContent.vue,ReviewView.vue,__tests__/ReviewContent.editor-state.spec.ts,__tests__/ReviewView.more-menu.spec.ts,__tests__/ReviewView.source-block-refresh.spec.ts}`, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: `ReviewContent` 的外层 `contentKey` 不再包含 review-local `renderEpoch`，同卡刷新不会触发 Vue transition 和整块卸载；新增 `refreshVisibleContent()` 作为当前内容软刷新出口，主 Protyle 走 `reload(false)`，special renderer 只重挂自身子组件；“编辑当前内容”保存和当前依赖块 transaction 命中都改走软刷新，不再重新 hydrate 当前卡或推进 session；用户正在主 Protyle 内原生编辑时跳过 transaction source refresh，避免边输入边刷新。
+- Debt deferred: `renderEpoch` 仍保留给 tab surface refresh 等非编辑场景触发既有渲染 watch；special renderer 子组件还没有统一 reload port，只能通过局部 key 重挂自身。
+- Why deferred: 当前用户问题集中在编辑后闪烁，先把 review 编辑路径从 session/外层 content 重建收口到当前内容软刷新；继续重做所有同卡刷新语义或给每个 renderer 加 reload contract 会扩大到更高风险的 UI renderer 协议调整。
+- Next safe step: 如果后续还看到其它同卡刷新闪烁，优先把该入口路由到 `ReviewContent.refreshVisibleContent()`，再评估是否为 special renderer 增加显式 reload API。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-25 - incremental review stale deleted card recovery
 

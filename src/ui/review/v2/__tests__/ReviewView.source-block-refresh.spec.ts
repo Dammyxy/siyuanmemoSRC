@@ -94,6 +94,8 @@ function createAdapter() {
   };
 }
 
+const reviewContentRefreshVisibleContent = vi.fn(async () => true);
+
 const ReviewHeaderStub = defineComponent({
   name: 'ReviewHeader',
   setup() {
@@ -103,6 +105,7 @@ const ReviewHeaderStub = defineComponent({
 
 const ReviewContentStub = defineComponent({
   name: 'ReviewContent',
+  emits: ['editor-state-change'],
   props: {
     content: {
       type: Object,
@@ -122,6 +125,7 @@ const ReviewContentStub = defineComponent({
         'descriptor-group-paragraph',
         'answer-block',
       ],
+      refreshVisibleContent: reviewContentRefreshVisibleContent,
     });
 
     return () => h(
@@ -147,6 +151,7 @@ const ReviewActionsStub = defineComponent({
 describe('ReviewView source block refresh', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    reviewContentRefreshVisibleContent.mockClear();
   });
 
   afterEach(() => {
@@ -229,7 +234,9 @@ describe('ReviewView source block refresh', () => {
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
-    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:1');
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(1);
+    expect(reviewContentRefreshVisibleContent).toHaveBeenLastCalledWith('source-transaction');
     expect(manager.getCard).not.toHaveBeenCalled();
 
     wsMainListener?.({
@@ -247,7 +254,8 @@ describe('ReviewView source block refresh', () => {
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
-    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:2');
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(2);
 
     wsMainListener?.({
       detail: {
@@ -264,7 +272,32 @@ describe('ReviewView source block refresh', () => {
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
-    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:2');
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(2);
+
+    wrapper.getComponent(ReviewContentStub).vm.$emit('editor-state-change', {
+      renderer: 'main-protyle',
+      supportsNativeEdit: true,
+      isEditing: true,
+    });
+    await flushPromises();
+
+    wsMainListener?.({
+      detail: {
+        cmd: 'transactions',
+        data: [{
+          doOperations: [{
+            action: 'update',
+            id: 'descriptor-block-1',
+          }],
+          undoOperations: null,
+        }],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(200);
+    await flushPromises();
+
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(2);
 
     wrapper.unmount();
   });

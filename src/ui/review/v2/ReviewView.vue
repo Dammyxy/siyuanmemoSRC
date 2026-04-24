@@ -511,6 +511,7 @@ type ReviewContentExpose = {
   getEditableSource: () => ReviewEditableSource | null;
   getDependencyBlockIds?: () => string[];
   getNativeSplitGuardState?: () => ReviewNativeSplitGuardState;
+  refreshVisibleContent?: (reason?: string) => Promise<boolean>;
 };
 
 type ProtyleHostElement = HTMLElement & {
@@ -2197,6 +2198,13 @@ function getCurrentReviewDependencyBlockIds(): string[] {
     .filter((value) => value.length > 0);
 }
 
+function isCurrentMainProtyleEditing(): boolean {
+  const state = editorState.value;
+  return state.renderer === 'main-protyle'
+    && state.supportsNativeEdit === true
+    && state.isEditing === true;
+}
+
 async function refreshCurrentReviewCardForSourceChange(matchedBlockIds: string[]): Promise<void> {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   const currentReference = getCurrentReviewCardReference();
@@ -2210,8 +2218,16 @@ async function refreshCurrentReviewCardForSourceChange(matchedBlockIds: string[]
     currentBlockId: currentReference.blockId,
   });
 
-  renderEpoch.value += 1;
-  await hook.refreshCurrentItem(currentCard, buildExpectedRefreshOptions(currentReference));
+  if (isCurrentMainProtyleEditing()) {
+    logger.debug('[SiYuanMemo][ReviewView] Skip source refresh while native Protyle editing is active:', {
+      matchedBlockIds,
+      currentCardId: currentReference.cardId,
+      currentBlockId: currentReference.blockId,
+    });
+    return;
+  }
+
+  await contentRef.value?.refreshVisibleContent?.('source-transaction');
 }
 
 async function flushPendingReviewSourceRefresh(): Promise<void> {
@@ -2549,10 +2565,6 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
 }
 
-function isDialogMode(): boolean {
-  return props.mode !== 'tab';
-}
-
 function handleEditorStateChange(nextState: ReviewEditorState): void {
   editorState.value = nextState;
   if (nextState.renderer !== 'main-protyle') {
@@ -2619,7 +2631,6 @@ function maybeHandleReviewEscape(event: KeyboardEvent): boolean {
   }
 
   const decision = resolveReviewDialogEscapeKeydown({
-    isDialogMode: isDialogMode(),
     key: event.key,
     repeat: event.repeat,
     escRepeatLatch,
@@ -3740,15 +3751,7 @@ async function confirmCurrentContentEditor(): Promise<void> {
 
     reviewTextEditorOriginalValue.value = reviewTextEditorValue.value;
     suppressReviewSourceRefreshForBlock(editableSource.blockId);
-    renderEpoch.value += 1;
-
-    const currentCard = state.value.content.card;
-    if (currentCard) {
-      await hook.refreshCurrentItem(currentCard, buildExpectedRefreshOptions({
-        cardId: currentCard.id,
-        blockId: currentCard.blockId,
-      }));
-    }
+    await contentRef.value?.refreshVisibleContent?.('manual-edit-save');
 
     reviewTextEditorOpen.value = false;
     reviewTextEditorSource.value = null;

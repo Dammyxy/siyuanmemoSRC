@@ -19,6 +19,7 @@ let reviewContentEditableSource:
       rendererKind: string;
     }
   | null = null;
+const reviewContentRefreshVisibleContent = vi.fn(async () => true);
 
 const reviewViewMoreMenuMocks = vi.hoisted(() => {
   const menuOpen = vi.fn();
@@ -204,6 +205,7 @@ const ReviewContentStub = defineComponent({
     expose({
       exitEditorByEscape: () => false,
       getEditableSource: () => reviewContentEditableSource,
+      refreshVisibleContent: reviewContentRefreshVisibleContent,
     });
     return () => h(
       'div',
@@ -451,6 +453,7 @@ describe('ReviewView more menu', () => {
     reviewViewLoggerMocks.log.mockReset();
     reviewViewLoggerMocks.trace.mockReset();
     reviewContentEditableSource = null;
+    reviewContentRefreshVisibleContent.mockClear();
     document.body.innerHTML = '';
   });
 
@@ -552,7 +555,8 @@ describe('ReviewView more menu', () => {
 
     expect(reviewService.updateBlockMarkdown).toHaveBeenCalledWith('block-1', 'Updated body');
     expect(queue.next).toHaveBeenCalledTimes(1);
-    expect(wrapper.getComponent(ReviewContentStub).props('renderEpoch')).toBe(1);
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledWith('manual-edit-save');
+    expect(wrapper.getComponent(ReviewContentStub).props('renderEpoch')).toBe(0);
 
     wrapper.unmount();
   });

@@ -12,6 +12,7 @@
         <!-- Xiuyuan 列表模版卡：自定义渲染 -->
         <div v-else-if="content.isXiuyuanListTemplate && content.xiuyuanMeta" class="fsrs-review-v2-content__xiuyuan">
           <XiuyuanListTemplateCard
+            :key="`list-template-${specialRendererKey}`"
             :meta="content.xiuyuanMeta"
             :show-answer="!showAnswer"
             :question-block-id="content.id"
@@ -23,6 +24,7 @@
         <!-- 🆕 Xiuyuan 多挖空卡：自定义渲染 -->
         <div v-else-if="shouldUseMultiClozeRenderer" class="fsrs-review-v2-content__multi-cloze">
           <MultiClozeCardRenderer
+            :key="`multi-cloze-${specialRendererKey}`"
             :card="content.card"
             :show-answer="!showAnswer"
           />
@@ -30,6 +32,7 @@
 
         <div v-else-if="shouldUseImageOcclusionRenderer" class="fsrs-review-v2-content__image-occlusion-card">
           <ImageOcclusionCardRenderer
+            :key="`image-occlusion-${specialRendererKey}`"
             :block-id="content.id"
             :card="content.card"
             :show-answer="!showAnswer"
@@ -42,6 +45,7 @@
         <!-- 概念定义卡渲染 -->
         <div v-else-if="shouldUseConceptDefinitionRenderer" class="fsrs-review-v2-content__concept-definition-card">
           <ConceptDefinitionCardRenderer
+            :key="`concept-definition-${specialRendererKey}`"
             :block-id="content.id"
             :card-id="content.card?.id"
             :card="content.card"
@@ -56,6 +60,7 @@
         <!-- 概念卡渲染 -->
         <div v-else-if="shouldUseConceptCardRenderer" class="fsrs-review-v2-content__concept-card">
           <ConceptCardRenderer
+            :key="`concept-${specialRendererKey}`"
             :block-id="content.id"
             :card-id="content.card?.id"
             :card="content.card"
@@ -69,6 +74,7 @@
         <!-- 描述符卡渲染 -->
         <div v-else-if="shouldUseDescriptorCardRenderer" class="fsrs-review-v2-content__descriptor-card">
           <DescriptorCardRenderer
+            :key="`descriptor-${specialRendererKey}`"
             :block-id="content.id"
             :card-id="content.card?.id"
             :card="content.card"
@@ -84,6 +90,7 @@
         <!-- 快速卡片渲染 -->
         <div v-else-if="shouldUseQuickCardRenderer" class="fsrs-review-v2-content__quick-card">
           <QuickCardRenderer
+            :key="`quick-${specialRendererKey}`"
             :block-id="content.id"
             :card-id="quickRenderCardId"
             :render-service="quickCardRenderService"
@@ -270,13 +277,16 @@ const transitionName = computed(() => {
   return `fsrs-review-transition-${transition}`;
 });
 const renderEpoch = computed(() => Math.max(0, Number(props.renderEpoch) || 0));
+const specialRendererRefreshEpoch = ref(0);
 
 // 计算内容 key，用于触发过渡动画
 const contentKey = computed(() => {
   // 对于有 card 的情况，使用 card.id 确保唯一性（特别是多挖空卡片）
   const cardId = props.content.card?.id || '';
-  return `${props.content.type}-${props.content.id}-${props.content.data}-${cardId}-${renderEpoch.value}`;
+  return `${props.content.type}-${props.content.id}-${props.content.data}-${cardId}`;
 });
+
+const specialRendererKey = computed(() => `${contentKey.value}-${renderEpoch.value}-${specialRendererRefreshEpoch.value}`);
 
 const hostRef = ref<HTMLDivElement | null>(null);
 const answerHostRef = ref<HTMLDivElement | null>(null);
@@ -1037,11 +1047,60 @@ function getDependencyBlockIds(): string[] {
   return [...currentDependencyBlockIds.value];
 }
 
+async function refreshVisibleContent(reason?: string): Promise<boolean> {
+  const renderer = currentRendererKind.value;
+  logger.debug('[SiYuanMemo][ReviewContent] Soft-refresh visible content', {
+    reason,
+    renderer,
+    blockId: props.content.id,
+    cardId: props.content.card?.id,
+  });
+
+  if (renderer === 'main-protyle') {
+    let refreshed = false;
+    if (typeof editorRef.value?.reload === 'function') {
+      editorRef.value.reload(false);
+      refreshed = true;
+    }
+
+    if (
+      props.showAnswer === false
+      && shouldRenderSeparateAnswerPane.value
+      && typeof answerEditorRef.value?.reload === 'function'
+    ) {
+      answerEditorRef.value.reload(false);
+      refreshed = true;
+    }
+
+    if (refreshed) {
+      await nextTick();
+      applyAnswerVisibility();
+      return true;
+    }
+
+    const blockId = String(props.content.id || '').trim();
+    if (!blockId) {
+      return false;
+    }
+    await renderProtyle(blockId);
+    return true;
+  }
+
+  if (renderer === 'special') {
+    specialRendererRefreshEpoch.value += 1;
+    await nextTick();
+    return true;
+  }
+
+  return false;
+}
+
 defineExpose({
   exitEditorByEscape,
   getEditableSource,
   getNativeSplitGuardState,
   getDependencyBlockIds,
+  refreshVisibleContent,
 });
 
 // 概念定义卡加载成功
