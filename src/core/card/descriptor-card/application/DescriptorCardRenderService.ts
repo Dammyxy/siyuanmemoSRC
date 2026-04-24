@@ -9,6 +9,8 @@
 
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
+import type { CdfDirectScene } from '@/core/card/common/application/cdfDirectScene';
+import { projectCdfRelation } from '@/core/card/common/application/cdfDirectScene';
 import { DescriptorCard } from '../domain/DescriptorCard';
 import type { DescriptorCardRepository } from '../infrastructure/DescriptorCardRepository';
 import type { LiveCdfDescriptorFusionContext } from '../infrastructure/DescriptorCardRepository';
@@ -37,6 +39,7 @@ export interface DescriptorCardViewModel extends BaseCardViewModel {
   
   // 背面内容（属性值）
   backHtml: string;
+  directScene?: CdfDirectScene;
   relationArrow: '→' | '←' | '↔';
   isReverse: boolean;
   
@@ -64,13 +67,6 @@ interface CdfDescriptorFusionMeta {
   childCue: string;
   childAnswer: string;
   fusedAttributeName: string;
-}
-
-interface DescriptorRelationProjection {
-  matched: boolean;
-  left: string;
-  right: string;
-  arrow: '→' | '←' | '↔';
 }
 
 interface DescriptorDisplayParts {
@@ -133,6 +129,14 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
 
       // 6. 分离正面和背面内容，传入概念上下文和方向
       const { frontHtml, backHtml } = this.splitDescriptorContent(card, conceptContext, isReverse, displayParts);
+      const relationArrow = this.resolveDescriptorArrow(data.content, typeMarker);
+      const directScene = this.buildDirectScene({
+        relationArrow,
+        isReverse,
+        displayParts,
+        parentConceptTitle: card.getParentConceptTitle(),
+        cdfFusionMeta,
+      });
 
       // 7. 构建视图模型
       const viewModel: DescriptorCardViewModel = {
@@ -148,7 +152,8 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         ].filter((value): value is string => typeof value === 'string' && value.length > 0))),
         frontHtml,
         backHtml,
-        relationArrow: this.resolveDescriptorArrow(data.content, typeMarker),
+        directScene,
+        relationArrow,
         isReverse,
         attribute: displayParts.attribute,
         description: displayParts.description,
@@ -338,7 +343,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       card.content,
       card.description,
     );
-    const projectedRelation = this.projectDescriptorRelation(fallbackSource);
+    const projectedRelation = projectCdfRelation(fallbackSource);
     const baseAttribute = card.attribute === DEFAULT_ATTRIBUTE_SENTINEL ? '' : card.attribute.trim();
     const baseDescription = card.description.trim();
 
@@ -387,6 +392,99 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     };
   }
 
+  private buildDirectScene(params: {
+    relationArrow: '→' | '←' | '↔';
+    isReverse: boolean;
+    displayParts: DescriptorDisplayParts;
+    parentConceptTitle: string;
+    cdfFusionMeta?: CdfDescriptorFusionMeta;
+  }): CdfDirectScene | undefined {
+    const { relationArrow, isReverse, displayParts, parentConceptTitle, cdfFusionMeta } = params;
+    const rows: CdfDirectScene['rows'] = [];
+    const conceptTitle = parentConceptTitle.trim();
+
+    if (conceptTitle) {
+      rows.push({
+        kind: 'concept',
+        key: 'concept',
+        level: 0,
+        html: this.renderMarkdownFragment(`[[${conceptTitle}]]`),
+        emphasize: 'primary',
+      });
+    }
+
+    if (cdfFusionMeta) {
+      rows.push({
+        kind: 'group',
+        key: 'group',
+        level: conceptTitle ? 1 : 0,
+        labelHtml: this.renderMarkdownFragment(cdfFusionMeta.groupHint),
+      });
+
+      const relationLevel = conceptTitle ? 2 : 1;
+      if (cdfFusionMeta.childCue) {
+        rows.push({
+          kind: 'relation',
+          key: 'descriptor',
+          level: relationLevel,
+          leftHtml: this.renderMarkdownFragment(cdfFusionMeta.childCue),
+          rightHtml: this.renderMarkdownFragment(displayParts.description),
+          arrow: relationArrow,
+        });
+      } else if (displayParts.description) {
+        rows.push({
+          kind: 'standalone',
+          key: 'descriptor-answer',
+          level: relationLevel,
+          html: this.renderMarkdownFragment(displayParts.description),
+        });
+      }
+    } else if (displayParts.attribute) {
+      rows.push({
+        kind: 'relation',
+        key: 'descriptor',
+        level: conceptTitle ? 1 : 0,
+        leftHtml: this.renderMarkdownFragment(displayParts.attribute),
+        rightHtml: this.renderMarkdownFragment(displayParts.description),
+        arrow: relationArrow,
+      });
+    } else if (displayParts.description) {
+      rows.push({
+        kind: 'standalone',
+        key: 'descriptor-answer',
+        level: conceptTitle ? 1 : 0,
+        html: this.renderMarkdownFragment(displayParts.description),
+      });
+    }
+
+    if (rows.length === 0) {
+      return undefined;
+    }
+
+    let frontMask: CdfDirectScene['frontMask'] = null;
+    if (isReverse && conceptTitle) {
+      frontMask = {
+        rowKey: 'concept',
+        segment: 'whole',
+      };
+    } else if (!isReverse && rows.some((row) => row.key === 'descriptor')) {
+      frontMask = {
+        rowKey: 'descriptor',
+        segment: 'right',
+      };
+    } else if (!isReverse && rows.some((row) => row.key === 'descriptor-answer') && rows.length > 1) {
+      frontMask = {
+        rowKey: 'descriptor-answer',
+        segment: 'whole',
+      };
+    }
+
+    return {
+      rows,
+      frontMask,
+    };
+  }
+
   private pickFirstNonEmpty(...values: unknown[]): string {
     for (const value of values) {
       if (typeof value !== 'string') {
@@ -400,73 +498,6 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
     }
 
     return '';
-  }
-
-  private projectDescriptorRelation(source: string): DescriptorRelationProjection {
-    const normalized = normalizeCueAnswerSource(source);
-    if (!normalized) {
-      return {
-        matched: false,
-        left: '',
-        right: '',
-        arrow: '→',
-      };
-    }
-
-    const projections = [
-      this.resolveProjection(normalized, /^(.*?)\s*(?:;<>|；《》|↔)\s*(.+)$/s, '↔'),
-      this.resolveProjection(normalized, /^(.*?)\s*(?:;<|；《|←)\s*(.+)$/s, '←'),
-      this.resolveProjection(normalized, /^(.*?)\s*(?:;;|；；|->|→)\s*(.+)$/s, '→'),
-      this.resolveProjection(normalized, /^(.*?)\s*(?:::|：：)\s*(.+)$/s, '↔'),
-      this.resolveProjection(normalized, /^(.*?)\s*(?::>|：》)\s*(.+)$/s, '→'),
-      this.resolveProjection(normalized, /^(.*?)\s*(?::<|：《)\s*(.+)$/s, '←'),
-    ];
-
-    const resolved = projections.find((projection) => projection.matched);
-    if (resolved) {
-      return resolved;
-    }
-
-    return {
-      matched: false,
-      left: '',
-      right: normalized,
-      arrow: '→',
-    };
-  }
-
-  private resolveProjection(
-    source: string,
-    pattern: RegExp,
-    arrow: '→' | '←' | '↔',
-  ): DescriptorRelationProjection {
-    const match = source.match(pattern);
-    if (!match) {
-      return {
-        matched: false,
-        left: '',
-        right: '',
-        arrow,
-      };
-    }
-
-    const left = (match[1] || '').trim();
-    const right = (match[2] || '').trim();
-    if (!left || !right) {
-      return {
-        matched: false,
-        left: '',
-        right: '',
-        arrow,
-      };
-    }
-
-    return {
-      matched: true,
-      left,
-      right,
-      arrow,
-    };
   }
 
   private buildMinimalFallbackContent(ancestorHtml: string, fallbackSource: string): string {

@@ -10,6 +10,7 @@
 
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
+import type { CdfDirectScene } from '@/core/card/common/application/cdfDirectScene';
 import { getBlockKramdown, sql } from '@/core/siyuan/api';
 import { createLogger } from '@/utils/logger';
 import {
@@ -63,6 +64,7 @@ export interface ConceptDefinitionCardViewModel extends BaseCardViewModel {
   definitionHtml: string;
   frontHtml: string;  // 🆕 正面 HTML（问题）
   backHtml: string;   // 🆕 背面 HTML（答案）
+  directScene?: CdfDirectScene;
   relationArrow: '→' | '←' | '↔';
   clozeIndex?: number;
   totalClozes?: number;
@@ -280,6 +282,10 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       `;
     }
 
+    const directScene = clozes.length === 0
+      ? this.buildDirectScene(conceptName, definitionHtml, relationArrow, isReverse)
+      : undefined;
+
     // 14. 构建视图模型
     return {
       blockId,
@@ -295,10 +301,34 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
       definitionHtml,
       frontHtml,
       backHtml,
+      directScene,
       relationArrow,
       clozeIndex: clozes.length > 0 ? clozeIndex : undefined,
       totalClozes: clozes.length > 0 ? clozes.length : undefined,
       isReverse,
+    };
+  }
+
+  private buildDirectScene(
+    conceptName: string,
+    definitionHtml: string,
+    relationArrow: '→' | '←' | '↔',
+    isReverse: boolean,
+  ): CdfDirectScene {
+    return {
+      rows: [{
+        kind: 'relation',
+        key: 'concept-definition',
+        level: 0,
+        leftHtml: this.renderMarkdown(`[[${conceptName}]]`),
+        rightHtml: definitionHtml,
+        arrow: relationArrow,
+        emphasize: 'primary',
+      }],
+      frontMask: {
+        rowKey: 'concept-definition',
+        segment: isReverse ? 'left' : 'right',
+      },
     };
   }
 

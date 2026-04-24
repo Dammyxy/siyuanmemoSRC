@@ -4,6 +4,8 @@
  * Xiuyuan 卡片的 meta 数据结构定义
  */
 
+import type { CdfDirectPathSegment } from '@/core/card/common/application/cdfDirectScene';
+
 /**
  * Xiuyuan 卡片的 meta 数据
  * 
@@ -47,6 +49,8 @@ export interface XiuyuanCardMeta {
     cue: string;
     answer: string;
     index: number;
+    source?: string;
+    directPath?: CdfDirectPathSegment[];
   }>;
   
   /** 当前卡片在所有子列表项中的索引 */

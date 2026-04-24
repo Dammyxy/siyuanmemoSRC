@@ -93,6 +93,17 @@ describe('ConceptDefinitionCardRenderer', () => {
       definitionHtml: '<p>质量极高的致密恒星残骸</p>',
       frontHtml: '<p>semantic front</p>',
       backHtml: '<p>semantic back</p>',
+      directScene: {
+        rows: [{
+          kind: 'relation',
+          key: 'concept-definition',
+          leftHtml: '<p>[[中子星]]</p>',
+          rightHtml: '<p>质量极高的致密恒星残骸</p>',
+          arrow: '↔',
+          emphasize: 'primary',
+        }],
+        frontMask: { rowKey: 'concept-definition', segment: 'right' },
+      },
       relationArrow: '↔',
       isReverse: false,
     });

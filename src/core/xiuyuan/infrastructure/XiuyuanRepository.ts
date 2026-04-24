@@ -48,6 +48,8 @@ import { UnifiedStorageManager, type UnifiedCardStore } from '../../storage/Unif
 import { getBlockAttrs, setBlockAttrs } from '../../siyuan/api';
 import { ATTR_CARD_TYPE } from '../../siyuan/block';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
+import type { CdfDirectPathSegment } from '@/core/card/common/application/cdfDirectScene';
+import { isCdfDirectPathSegmentArray } from '@/core/card/common/application/cdfDirectScene';
 import {
   buildLogicalCardKey,
   buildLogicalXiuyuanKey,
@@ -81,6 +83,8 @@ type ListTemplateChild = {
   cue: string;
   answer: string;
   index: number;
+  source?: string;
+  directPath?: CdfDirectPathSegment[];
 };
 
 type FaceSnapshot = {
@@ -132,7 +136,9 @@ function isListTemplateChild(value: unknown): value is ListTemplateChild {
     typeof candidate.id === 'string' &&
     typeof candidate.cue === 'string' &&
     typeof candidate.answer === 'string' &&
-    Number.isFinite(Number(candidate.index))
+    Number.isFinite(Number(candidate.index)) &&
+    (candidate.source === undefined || typeof candidate.source === 'string') &&
+    (candidate.directPath === undefined || isCdfDirectPathSegmentArray(candidate.directPath))
   );
 }
 
@@ -1028,7 +1034,9 @@ export class XiuyuanRepository implements IXiuyuanRepository {
           id: child.id,
           cue: child.cue,
           answer: child.answer,
-          index: child.index
+          index: child.index,
+          ...(typeof child.source === 'string' ? { source: child.source } : {}),
+          ...(isCdfDirectPathSegmentArray(child.directPath) ? { directPath: child.directPath } : {}),
         }));
       }
     }

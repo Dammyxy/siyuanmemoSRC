@@ -171,4 +171,47 @@ describe('XiuyuanListTemplateCard', () => {
     expect(wrapper.text()).not.toContain(':::');
     expect(wrapper.text()).not.toContain('还有');
   });
+
+  it('renders directPath-based concept and group rows for cdf-multiline cards', async () => {
+    const plugin = createPluginMock();
+    plugin.__setQuestionDom('<p>特征;;;</p>');
+    plugin.__setBlockMarkdown({
+      child_1: '类型 -> 描述性（非规范性）',
+    });
+
+    const wrapper = mount(XiuyuanListTemplateCard, {
+      props: {
+        meta: createMeta({
+          cue: '类型',
+          answer: '描述性（非规范性）',
+          allChildren: [
+            {
+              id: 'child_1',
+              cue: '类型',
+              answer: '描述性（非规范性）',
+              index: 0,
+              source: '类型 -> 描述性（非规范性）',
+              directPath: [
+                { kind: 'concept', label: '[[基于识别的决策模型（RPD）]]', blockId: 'concept-1' },
+                { kind: 'group', label: '特征', blockId: 'group-1' },
+              ],
+            },
+          ],
+        }),
+        showAnswer: false,
+        questionBlockId: 'q_1',
+        plugin,
+        displayMode: 'direct',
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.cdf-direct-layout').exists()).toBe(true);
+    expect(wrapper.text()).toContain('基于识别的决策模型（RPD）');
+    expect(wrapper.text()).toContain('特征');
+    expect(wrapper.text()).toContain('↓');
+    expect(wrapper.text()).toContain('类型');
+    expect(wrapper.text()).toContain('...');
+    expect(wrapper.text()).not.toContain('描述性（非规范性）');
+  });
 });

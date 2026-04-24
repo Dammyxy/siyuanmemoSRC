@@ -4,6 +4,16 @@ Last update: 2026-04-24 (Round 132)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-04-24 - shared CDF direct scene for review concept/descriptor/multiline
+
+- Task: 按 `资料/CDF例子3.md` 把 CDF 直出渲染收口成一套可复用的 shared scene，统一 Review 里的 `concept-definition`、`descriptor`、`cdf-multiline / builtin-list-item` 三条链，并把 `source/directPath` 元数据从 Xiuyuan 创建一路投影到 FSRS review 卡片。
+- Touched slice: CDF review render path across `src/core/card/common/application/cdfDirectScene.ts`, `src/ui/shared/cdf-direct/{CdfDirectLayout.vue,renderScene.ts}`, `src/core/card/{concept-definition/application/ConceptDefinitionCardRenderService.ts,descriptor-card/application/DescriptorCardRenderService.ts}`, `src/ui/review/components/{ConceptDefinitionCardRenderer.vue,DescriptorCardRenderer.vue}`, `src/ui/review/v2/components/XiuyuanListTemplateCard.vue`, Xiuyuan metadata flow in `src/application/usecases/xiuyuan/CreateListTemplateCardsUseCase.ts`, `src/core/xiuyuan/{cardMeta.ts,infrastructure/XiuyuanRepository.ts}`, related tests, and this backlog.
+- Debt fixed now: CDF direct 模式不再让各 renderer 各自手搓 `rows.push(...)`，而是统一走 `CdfDirectScene` 的 `concept/group/relation/standalone` 树形行和单目标 `frontMask`；`concept-definition` 现在固定输出 `[[概念]] ↔/→/← 定义` 关系行并按方向遮挡左右侧；`descriptor` 统一改成 `概念 -> 属性/分组 -> 答案` 的 scene，`;;;` live fusion 不再扁平成“组名，cue”；`builtin-list-item` 直出也改成消费共享 scene，并支持 `source/directPath` 新元数据，旧卡缺字段时继续用 `questionBlockId + child kramdown` 兜底；旧的 review-local `CdfDirectLayout` / `cdfDirectContent` 已删除，避免后面继续复制分叉。
+- Debt deferred: 这轮刻意没把 cloze 概念定义卡拉进 shared direct scene，仍保持 semantic fallback；browser / preview / AI pane 等其它 surface 还没接这套 shared scene；历史 `list-template` 卡也没有做迁移脚本，仍靠运行时兜底；happy-dom 下 rich renderer 拉本地 KaTeX 资源的 stderr 噪音依旧存在。
+- Why deferred: 当前用户目标是先把新的 CDF 卡面规则在 Review 里跑通，并把抽象做成后续可复用底座；如果这轮一起扩到 cloze、更多 UI surface 或历史数据迁移，会把安全切片扩大成更高风险的跨层重构。
+- Next safe step: 如果下一轮继续把“共享直出”铺到其它地方，优先让 browser/preview/AI pane 直接消费 `CdfDirectScene`，不要再复制新的一套 HTML 拼接；如果历史 multiline 卡的运行时兜底开始变脆，再单开一轮做 `directPath/source` 的补写或迁移。
+- Validation: `pnpm vitest run src/core/card/concept-definition/application/__tests__/ConceptDefinitionCardRenderService.test.ts src/core/card/descriptor-card/__tests__/DescriptorCardRenderService.cdf-fusion.test.ts`; `pnpm vitest run src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts src/ui/review/v2/__tests__/ReviewContent.fonts.spec.ts`; `pnpm vitest run src/application/usecases/xiuyuan/__tests__/CreateListTemplateCardsUseCase.split-v2.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.list-template-split-v2.test.ts`; `pnpm build`; `git diff --check`.
+
 ### 2026-04-24 - review dialog queue-switch handle retention fix
 
 - Task: 修复 dialog 复习界面点击题头切换主队列时，旧复习弹窗不会被后续切换销毁、导致多个 review dialog 叠在一起的问题。

@@ -1,7 +1,7 @@
 <template>
   <div class="xiuyuan-list-template-card">
     <CdfDirectLayout
-      v-if="isDirectDisplay"
+      v-if="shouldUseDirectDisplay"
       :breadcrumbs="breadcrumbs"
       :content-html="directContentHtml"
     />
@@ -51,20 +51,25 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
+import type {
+  CdfDirectPathSegment,
+  CdfDirectScene,
+  CdfDirectRow,
+} from '@/core/card/common/application/cdfDirectScene';
+import { isCdfDirectPathSegmentArray } from '@/core/card/common/application/cdfDirectScene';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { XiuyuanCardMeta } from '@/core/xiuyuan/cardMeta';
 import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import { loadBreadcrumbTrail } from '@/ui/review/shared/loadBreadcrumbTrail';
-import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
-import { createLogger } from '@/utils/logger';
-import CdfDirectLayout from '@/ui/review/components/CdfDirectLayout.vue';
+import CdfDirectLayout from '@/ui/shared/cdf-direct/CdfDirectLayout.vue';
 import {
-  buildCdfEditorContentHtml,
-  createCdfEllipsisHtml,
+  normalizeCdfDirectLabel,
   projectCdfRelation,
   renderCdfDirectMarkdown,
-  stripCdfDirectHtmlMarkers,
-} from '@/ui/review/components/cdfDirectContent';
+  renderCdfDirectScene,
+} from '@/ui/shared/cdf-direct/renderScene';
+import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
+import { createLogger } from '@/utils/logger';
 
 type SiyuanApiLike = {
   getBlockDOM: (blockId: string) => Promise<{ dom?: string } | null | undefined>;
@@ -83,6 +88,14 @@ type XiuyuanTemplatePluginLike = {
   getContext?: () => PluginContextLike | undefined;
 };
 
+type ParsedListTemplateChild = {
+  id: string;
+  cue: string;
+  answer: string;
+  source: string;
+  directPath?: CdfDirectPathSegment[];
+};
+
 const props = defineProps<{
   meta: XiuyuanCardMeta;
   showAnswer: boolean;
@@ -95,11 +108,68 @@ const logger = createLogger('XiuyuanListTemplateCard');
 
 const questionHtml = ref('');
 const breadcrumbs = ref<BreadcrumbItem[]>([]);
-const parsedChildren = ref<Array<{ id: string; cue: string; answer: string; source: string }>>([]);
+const parsedChildren = ref<ParsedListTemplateChild[]>([]);
 let loadSeq = 0;
 
 function getSiyuanApi() {
   return props.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
+}
+
+function toLevel(index: number): 0 | 1 | 2 {
+  if (index <= 0) {
+    return 0;
+  }
+  if (index === 1) {
+    return 1;
+  }
+  return 2;
+}
+
+function buildPathRows(path: CdfDirectPathSegment[]): CdfDirectRow[] {
+  return path.map((segment, index) => {
+    if (segment.kind === 'group') {
+      return {
+        kind: 'group',
+        key: `path-${index}`,
+        level: toLevel(index),
+        labelHtml: renderCdfDirectMarkdown(segment.label),
+        emphasize: index === 0 ? 'primary' : 'normal',
+      } as const;
+    }
+
+    return {
+      kind: 'concept',
+      key: `path-${index}`,
+      level: toLevel(index),
+      html: renderCdfDirectMarkdown(segment.label),
+      emphasize: index === 0 ? 'primary' : 'normal',
+    } as const;
+  });
+}
+
+function buildFallbackPathRows(questionDom: string): CdfDirectRow[] {
+  const label = normalizeCdfDirectLabel(questionDom);
+  if (!label) {
+    return [];
+  }
+
+  if (/;;;|；；；/.test(questionDom)) {
+    return [{
+      kind: 'group',
+      key: 'fallback-group',
+      level: 0,
+      labelHtml: renderCdfDirectMarkdown(label),
+      emphasize: 'primary',
+    }];
+  }
+
+  return [{
+    kind: 'concept',
+    key: 'fallback-concept',
+    level: 0,
+    html: renderCdfDirectMarkdown(label),
+    emphasize: 'primary',
+  }];
 }
 
 const previousChildren = computed(() => {
@@ -134,48 +204,89 @@ const currentCue = computed(() => currentChild.value?.cue || '');
 const currentAnswer = computed(() => currentChild.value?.answer || '');
 const currentSource = computed(() => currentChild.value?.source || '');
 const hasCue = computed(() => currentCue.value.trim().length > 0);
-const isDirectDisplay = computed(() => props.displayMode === 'direct');
 const currentRelation = computed(() => projectCdfRelation(currentSource.value, '→'));
 
-const directContentHtml = computed(() => {
-  if (!isDirectDisplay.value) {
-    return '';
+const directScene = computed<CdfDirectScene | null>(() => {
+  if (props.displayMode !== 'direct') {
+    return null;
   }
 
-  const rows = [];
-  const parentHtml = stripCdfDirectHtmlMarkers(questionHtml.value);
-  if (parentHtml.trim().length > 0) {
-    rows.push({
-      key: 'concept',
-      level: 0 as const,
-      standaloneHtml: parentHtml,
-      emphasize: 'primary' as const,
-    });
+  const current = currentChild.value;
+  if (!current) {
+    return null;
   }
 
-  if (currentRelation.value.matched) {
+  const pathRows = current.directPath?.length
+    ? buildPathRows(current.directPath)
+    : buildFallbackPathRows(questionHtml.value);
+  const rows: CdfDirectRow[] = [...pathRows];
+  const relation = currentRelation.value;
+  const currentLevel = rows.length === 0 ? 0 : rows.length === 1 ? 1 : 2;
+
+  if (relation.matched) {
     rows.push({
+      kind: 'relation',
       key: 'current-relation',
-      level: 1 as const,
-      leftHtml: renderCdfDirectMarkdown(currentRelation.value.left),
-      rightHtml: props.showAnswer
-        ? renderCdfDirectMarkdown(currentRelation.value.right)
-        : createCdfEllipsisHtml(),
-      arrow: currentRelation.value.arrow,
-      ellipsisSide: props.showAnswer ? null : 'right' as const,
+      level: currentLevel,
+      leftHtml: renderCdfDirectMarkdown(relation.left),
+      rightHtml: renderCdfDirectMarkdown(relation.right),
+      arrow: relation.arrow,
     });
   } else {
-    const currentHtml = renderCdfDirectMarkdown(hasCue.value ? currentCue.value : currentAnswer.value);
+    const currentLabel = normalizeCdfDirectLabel(current.answer || current.source);
+    const currentHtml = renderCdfDirectMarkdown(currentLabel);
     if (currentHtml.trim().length > 0) {
       rows.push({
+        kind: 'standalone',
         key: 'current-answer',
-        level: 1 as const,
-        standaloneHtml: currentHtml,
+        level: currentLevel,
+        html: currentHtml,
       });
     }
   }
 
-  return buildCdfEditorContentHtml(rows);
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const conceptRow = rows.find((row) => row.kind === 'concept');
+  let frontMask: CdfDirectScene['frontMask'] = null;
+
+  if (!props.showAnswer) {
+    if (relation.matched && relation.arrow === '←' && conceptRow) {
+      frontMask = {
+        rowKey: conceptRow.key,
+        segment: 'whole',
+      };
+    } else if (relation.matched) {
+      frontMask = {
+        rowKey: 'current-relation',
+        segment: 'right',
+      };
+    } else if (rows.some((row) => row.key === 'current-answer') && rows.length > 1) {
+      frontMask = {
+        rowKey: 'current-answer',
+        segment: 'whole',
+      };
+    }
+  }
+
+  return {
+    rows,
+    frontMask,
+  };
+});
+
+const shouldUseDirectDisplay = computed(() => directScene.value !== null);
+
+const directContentHtml = computed(() => {
+  if (!directScene.value) {
+    return '';
+  }
+
+  return renderCdfDirectScene(directScene.value, {
+    showAnswer: props.showAnswer === true,
+  });
 });
 
 async function loadCardContent(): Promise<void> {
@@ -191,6 +302,9 @@ async function loadCardContent(): Promise<void> {
           .map((child) => String(child?.id || '').trim())
           .filter((id) => id.length > 0)
       : [];
+    const storedChildrenById = new Map(
+      (props.meta.allChildren || []).map((child) => [String(child?.id || ''), child] as const),
+    );
 
     const [questionResult, breadcrumbItems, childMarkdownList] = await Promise.all([
       siyuanApi.getBlockDOM(props.questionBlockId),
@@ -202,14 +316,18 @@ async function loadCardContent(): Promise<void> {
       }),
       Promise.all(
         childIds.map(async (id) => {
+          const storedChild = storedChildrenById.get(id);
           const { kramdown } = await siyuanApi.getBlockKramdown(id) || {};
-          const source = String(kramdown || '');
+          const source = String(kramdown || storedChild?.source || '');
           const parsed = parseCueAndAnswer(source);
           return {
             id,
             cue: parsed.cue,
             answer: parsed.answer,
             source,
+            directPath: isCdfDirectPathSegmentArray(storedChild?.directPath)
+              ? storedChild.directPath
+              : undefined,
           };
         }),
       ),
@@ -238,7 +356,12 @@ watch(
     props.questionBlockId,
     props.showAnswer,
     props.meta.currentIndex,
-    ...(props.meta.allChildren?.map((child) => String(child.id || '')) || []),
+    ...(props.meta.allChildren?.map((child) => {
+      const directPathToken = Array.isArray(child.directPath)
+        ? child.directPath.map((segment) => `${segment.kind}:${segment.label}`).join('|')
+        : '';
+      return `${String(child.id || '')}:${String(child.source || '')}:${directPathToken}`;
+    }) || []),
   ],
   () => {
     void loadCardContent();
@@ -279,75 +402,48 @@ watch(
 .xiuyuan-answer-marker {
   color: var(--b3-theme-success);
   font-weight: bold;
-  flex-shrink: 0;
 }
 
 .xiuyuan-answer-index {
-  flex-shrink: 0;
-  font-weight: 500;
-}
-
-.xiuyuan-answer-text {
-  flex: 1;
-  min-width: 0;
+  color: var(--b3-theme-on-surface-light);
+  min-width: 20px;
 }
 
 .xiuyuan-current-item {
-  margin-top: 12px;
-}
-
-.xiuyuan-current-cue {
-  display: flex;
-  align-items: flex-start;
+  margin-bottom: 16px;
   padding: 12px;
-  gap: 8px;
-  background: var(--b3-theme-primary-lightest);
-  border-left: 4px solid var(--b3-theme-primary);
-  border-radius: 4px;
+  background: var(--b3-theme-surface);
+  border-radius: 8px;
+  border: 2px solid var(--b3-theme-primary);
 }
 
-.xiuyuan-cue-marker {
-  color: var(--b3-theme-primary);
-  font-weight: bold;
-  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
-  flex-shrink: 0;
-}
-
-.xiuyuan-cue-index {
-  flex-shrink: 0;
-  font-weight: 600;
-  color: var(--b3-theme-primary);
-}
-
-.xiuyuan-cue-text {
-  flex: 1;
-  min-width: 0;
-  font-weight: 500;
-  color: var(--b3-theme-on-primary-container);
-}
-
+.xiuyuan-current-cue,
 .xiuyuan-current-answer {
   display: flex;
   align-items: flex-start;
-  padding: 12px;
   gap: 8px;
-  background: var(--b3-theme-success-lightest);
-  border-left: 4px solid var(--b3-theme-success);
-  border-radius: 4px;
+}
+
+.xiuyuan-cue-marker {
+  color: var(--b3-theme-warning);
+  font-weight: bold;
+}
+
+.xiuyuan-cue-index,
+.xiuyuan-answer-index {
+  min-width: 24px;
+  font-weight: 500;
+}
+
+.xiuyuan-cue-text,
+.xiuyuan-answer-text {
+  flex: 1;
 }
 
 .xiuyuan-remaining-hint {
-  margin-top: 16px;
-  padding: 8px 12px;
-  background: var(--b3-theme-background-light);
-  border-radius: 4px;
-  color: var(--b3-theme-on-surface-light);
-  font-size: var(--siyuanmemo-review-font-small, 0.875em);
   text-align: center;
-}
-
-.xiuyuan-answer-text :deep(p),
-.xiuyuan-cue-text :deep(p) {
-  margin: 0;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 0.875em;
+  padding: 8px;
 }
 </style>

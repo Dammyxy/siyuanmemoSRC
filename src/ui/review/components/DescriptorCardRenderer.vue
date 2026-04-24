@@ -26,18 +26,14 @@ import { computed, ref, watch } from 'vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
-import CdfDirectLayout from './CdfDirectLayout.vue';
+import CdfDirectLayout from '@/ui/shared/cdf-direct/CdfDirectLayout.vue';
 import ReviewRichHtmlContent from './ReviewRichHtmlContent.vue';
 import type { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { DescriptorCardViewModel } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
-import {
-  buildCdfEditorContentHtml,
-  createCdfEllipsisHtml,
-  renderCdfDirectMarkdown,
-} from './cdfDirectContent';
+import { renderCdfDirectScene } from '@/ui/shared/cdf-direct/renderScene';
 
 const logger = createLogger('DescriptorCardRenderer');
 
@@ -66,11 +62,6 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-const isReverseCard = computed(() => {
-  return viewModel.value?.isReverse === true
-    || (typeof props.card?.meta?.typeMarker === 'string' && props.card.meta.typeMarker.includes('reverse'));
-});
-
 const shouldUseDirectDisplay = computed(() => {
   if (props.displayMode !== 'direct') {
     return false;
@@ -78,13 +69,9 @@ const shouldUseDirectDisplay = computed(() => {
   if (!viewModel.value) {
     return false;
   }
-  return viewModel.value.attribute.trim().length > 0
-    || viewModel.value.description.trim().length > 0;
+  return Array.isArray(viewModel.value.directScene?.rows)
+    && viewModel.value.directScene.rows.length > 0;
 });
-
-function renderConceptReferenceHtml(conceptTitle: string): string {
-  return renderCdfDirectMarkdown(`[[${conceptTitle}]]`);
-}
 
 const directContentHtml = computed(() => {
   const vm = viewModel.value;
@@ -92,40 +79,9 @@ const directContentHtml = computed(() => {
     return '';
   }
 
-  const rows = [];
-  const conceptTitle = (vm.parentConcept?.title || vm.parentConcept?.preview || '').trim();
-
-  if (conceptTitle) {
-    const conceptHtml = renderConceptReferenceHtml(conceptTitle);
-    rows.push({
-      key: 'concept',
-      level: 0 as const,
-      standaloneHtml: isReverseCard.value && !props.showAnswer ? createCdfEllipsisHtml() : conceptHtml,
-      emphasize: 'primary' as const,
-      ellipsisSide: isReverseCard.value && !props.showAnswer ? 'left' as const : null,
-    });
-  }
-
-  if (vm.attribute.trim().length > 0) {
-    rows.push({
-      key: 'descriptor',
-      level: conceptTitle ? 1 as const : 0 as const,
-      leftHtml: renderCdfDirectMarkdown(vm.attribute),
-      rightHtml: isReverseCard.value
-        ? renderCdfDirectMarkdown(vm.description)
-        : (props.showAnswer ? renderCdfDirectMarkdown(vm.description) : createCdfEllipsisHtml()),
-      arrow: vm.relationArrow || '→',
-      ellipsisSide: isReverseCard.value ? null : (!props.showAnswer ? 'right' as const : null),
-    });
-  } else if (vm.description.trim().length > 0) {
-    rows.push({
-      key: 'descriptor-fallback',
-      level: conceptTitle ? 1 as const : 0 as const,
-      standaloneHtml: renderCdfDirectMarkdown(vm.description),
-    });
-  }
-
-  return buildCdfEditorContentHtml(rows);
+  return renderCdfDirectScene(vm.directScene!, {
+    showAnswer: props.showAnswer === true,
+  });
 });
 
 const renderIdentity = computed(() => {
@@ -271,41 +227,41 @@ watch(
 .descriptor-card-renderer__html-content :deep(.descriptor-card-question__segment--connector) {
   color: var(--b3-theme-on-surface-light);
   font-size: var(--siyuanmemo-review-font-title, 1.125em);
-  font-weight: 500;
 }
 
 .descriptor-card-renderer__html-content :deep(.descriptor-card-answer-divider) {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 16px 0;
+  gap: 10px;
+  margin: 18px 0 14px;
   color: var(--b3-theme-on-surface-light);
-  font-size: var(--siyuanmemo-review-font-small, 0.875em);
-  font-weight: 500;
 }
 
 .descriptor-card-renderer__html-content :deep(.descriptor-card-answer-divider__line) {
   flex: 1;
-  min-width: 24px;
   height: 1px;
   background: var(--b3-border-color);
 }
 
+.descriptor-card-renderer__html-content :deep(.descriptor-card-answer-divider__label) {
+  font-size: var(--siyuanmemo-review-font-xs, 0.75em);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
 .descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content) {
   font-size: var(--siyuanmemo-review-font-body, 1em);
-  line-height: 1.75;
+  line-height: 1.72;
   color: var(--b3-theme-on-surface);
 }
 
 .descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content--concept),
 .descriptor-card-renderer__html-content :deep(.descriptor-card-answer-content--description) {
-  font-size: var(--siyuanmemo-review-font-title-lg, 1.375em);
-  line-height: 1.6;
+  padding-top: 2px;
 }
 
 .descriptor-card-renderer__html-content :deep(.descriptor-card-fallback) {
-  font-size: var(--siyuanmemo-review-font-body, 1em);
-  line-height: 1.75;
-  color: var(--b3-theme-on-surface);
+  font-size: var(--siyuanmemo-review-font-title, 1.125em);
+  line-height: 1.72;
 }
 </style>

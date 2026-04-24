@@ -13,7 +13,7 @@ const rendererSources = {
   descriptorService: read('src/core/card/descriptor-card/application/DescriptorCardRenderService.ts'),
   quick: read('src/ui/review/components/QuickCardRenderer.vue'),
   reviewRichHtmlContent: read('src/ui/review/components/ReviewRichHtmlContent.vue'),
-  cdf: read('src/ui/review/components/CdfDirectLayout.vue'),
+  cdf: read('src/ui/shared/cdf-direct/CdfDirectLayout.vue'),
   multiCloze: read('src/ui/review/components/MultiClozeCardRenderer.vue'),
   imageOcclusion: read('src/ui/review/components/ImageOcclusionCardRenderer.vue'),
   xiuyuanList: read('src/ui/review/v2/components/XiuyuanListTemplateCard.vue'),

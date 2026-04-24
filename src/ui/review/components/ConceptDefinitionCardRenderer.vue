@@ -26,7 +26,7 @@ import { computed, ref, watch } from 'vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
-import CdfDirectLayout from './CdfDirectLayout.vue';
+import CdfDirectLayout from '@/ui/shared/cdf-direct/CdfDirectLayout.vue';
 import ReviewRichHtmlContent from './ReviewRichHtmlContent.vue';
 import { ConceptDefinitionCardRenderService } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import type {
@@ -35,12 +35,7 @@ import type {
 } from '@/core/card/concept-definition/application/ConceptDefinitionCardRenderService';
 import { createLogger } from '@/utils/logger';
 import { useDeferredLoadingIndicator } from './composables/useDeferredLoadingIndicator';
-import {
-  buildCdfEditorContentHtml,
-  createCdfEllipsisHtml,
-  renderCdfDirectMarkdown,
-  stripCdfDirectHtmlMarkers,
-} from './cdfDirectContent';
+import { renderCdfDirectScene } from '@/ui/shared/cdf-direct/renderScene';
 
 const FAILURE_CACHE_KEY = '__siyuanmemo_concept_definition_render_failures__';
 
@@ -89,16 +84,12 @@ const shouldUseDirectDisplay = computed(() => {
     return false;
   }
   return !viewModel.value.totalClozes
-    && viewModel.value.conceptName.trim().length > 0
-    && viewModel.value.definitionHtml.trim().length > 0;
+    && Array.isArray(viewModel.value.directScene?.rows)
+    && viewModel.value.directScene.rows.length > 0;
 });
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
-}
-
-function renderConceptReferenceHtml(conceptName: string): string {
-  return renderCdfDirectMarkdown(`[[${conceptName}]]`);
 }
 
 const directContentHtml = computed(() => {
@@ -106,21 +97,9 @@ const directContentHtml = computed(() => {
   if (!vm || !shouldUseDirectDisplay.value) {
     return '';
   }
-
-  const conceptHtml = renderConceptReferenceHtml(vm.conceptName);
-  const definitionHtml = stripCdfDirectHtmlMarkers(vm.definitionHtml);
-  const ellipsisHtml = createCdfEllipsisHtml();
-  const relationArrow = vm.relationArrow || '↔';
-
-  return buildCdfEditorContentHtml([{
-    key: 'concept-definition',
-    level: 0,
-    leftHtml: vm.isReverse && !props.showAnswer ? ellipsisHtml : conceptHtml,
-    rightHtml: vm.isReverse ? definitionHtml : (props.showAnswer ? definitionHtml : ellipsisHtml),
-    arrow: relationArrow,
-    emphasize: 'primary',
-    ellipsisSide: vm.isReverse && !props.showAnswer ? 'left' : (!props.showAnswer ? 'right' : null),
-  }]);
+  return renderCdfDirectScene(vm.directScene!, {
+    showAnswer: props.showAnswer === true,
+  });
 });
 
 async function loadViewModel() {

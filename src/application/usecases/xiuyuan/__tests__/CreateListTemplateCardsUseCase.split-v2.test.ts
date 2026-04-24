@@ -65,6 +65,7 @@ function createSiyuanApiMock(options?: {
   childParagraphRows?: Array<{ id: string; parent_id: string; content: string }>;
   listItemParentById?: Record<string, string>;
   summaryContainerId?: string;
+  kramdownById?: Record<string, string>;
 }) {
   const parentAttrs = options?.parentAttrs ?? {};
   const childAttrsById = options?.childAttrsById ?? {};
@@ -72,6 +73,7 @@ function createSiyuanApiMock(options?: {
   const listItemParentById = options?.listItemParentById
     ?? Object.fromEntries(CHILD_BLOCK_IDS.map((id) => [id, SUMMARY_CONTAINER_ID]));
   const summaryContainerId = options?.summaryContainerId ?? SUMMARY_CONTAINER_ID;
+  const kramdownById = options?.kramdownById ?? {};
 
   const sqlMock = vi.fn(async (stmt: string): Promise<unknown[]> => {
     if (stmt.includes('WHERE parent_id =') && stmt.includes(`'${PARENT_BLOCK_ID}'`) && stmt.includes('AND type = \'p\'')) {
@@ -102,7 +104,9 @@ function createSiyuanApiMock(options?: {
     BUILTIN_DECK_ID: 'builtin-deck',
     sql: sqlMock,
     getBlockAttrs: getBlockAttrsMock,
-    getBlockKramdown: vi.fn().mockResolvedValue({ kramdown: '' }),
+    getBlockKramdown: vi.fn(async (blockId: string) => ({
+      kramdown: kramdownById[blockId] || '',
+    })),
     getBlockText: vi.fn().mockResolvedValue(''),
     addRiffCards: addRiffCardsMock,
   };
@@ -280,6 +284,50 @@ describe('CreateListTemplateCardsUseCase (split-v2)', () => {
       const meta = xiuyuan.getMeta() as { cardType?: string };
       expect(meta.cardType).toBe('descriptor');
     });
+  });
+
+  it('writes direct-path metadata for descriptor-multiline split cards', async () => {
+    const { repo, saveMock } = createRepositoryMock();
+    const { siyuanApi } = createSiyuanApiMock({
+      kramdownById: {
+        'concept-paragraph-1': '[[基于识别的决策模型（RPD）]]',
+        [PARENT_PARAGRAPH_ID]: '特征;;;',
+      },
+    });
+    const useCase = new CreateListTemplateCardsUseCase(
+      repo,
+      new Map([[LIST_TEMPLATE.id, LIST_TEMPLATE]]),
+      { siyuanApi }
+    );
+
+    const result = await useCase.execute({
+      parentBlockId: PARENT_BLOCK_ID,
+      childBlockIds: CHILD_BLOCK_IDS,
+      templateId: 'builtin-list-item',
+      creationMode: 'split-v2',
+      listKind: 'descriptor-multiline',
+      conceptBlockId: 'concept-paragraph-1',
+      cardType: 'descriptor',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const savedXiuyuan = saveMock.mock.calls[0]?.[0];
+    const listMeta = savedXiuyuan.getMeta().listTemplate as {
+      childrenData?: Array<{
+        source?: string;
+        directPath?: Array<{ kind?: string; label?: string }>;
+      }>;
+    };
+
+    expect(listMeta.childrenData?.[0]?.source).toBe('CueB->AnswerB');
+    expect(listMeta.childrenData?.[0]?.directPath).toEqual([
+      { kind: 'concept', label: '[[基于识别的决策模型（RPD）]]', blockId: 'concept-paragraph-1' },
+      { kind: 'group', label: '特征', blockId: PARENT_PARAGRAPH_ID },
+    ]);
   });
 
   it('creates one summary card in summary-v1 mode with unordered container as answer block', async () => {

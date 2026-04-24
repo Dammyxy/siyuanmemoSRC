@@ -71,6 +71,17 @@ describe('ConceptDefinitionCardRenderService', () => {
     expect(viewModel.conceptName).toBe('学习');
     expect(viewModel.frontHtml).toContain('学习');
     expect(viewModel.backHtml).toContain('<rich>学习是学习者在共同体中逐渐增加参与度的社会过程。</rich>');
+    expect(viewModel.directScene?.frontMask).toEqual({
+      rowKey: 'concept-definition',
+      segment: 'right',
+    });
+    expect(viewModel.directScene?.rows).toEqual([
+      expect.objectContaining({
+        kind: 'relation',
+        key: 'concept-definition',
+        arrow: '↔',
+      }),
+    ]);
     expect(viewModel.dependencyBlockIds).toEqual(expect.arrayContaining([
       'definition-1',
       'concept-missing',
@@ -94,5 +105,34 @@ describe('ConceptDefinitionCardRenderService', () => {
     await expect(service.prepareViewModel('definition-1', createCardInput())).rejects.toThrow(
       'Concept block not found: concept-missing',
     );
+  });
+
+  it('builds a reverse direct scene that masks the concept side', async () => {
+    conceptDefinitionApiMocks.getBlockKramdown.mockImplementation(async (blockId: string) => {
+      if (blockId === 'concept-missing') {
+        return { kramdown: '概念问题块' };
+      }
+      return { kramdown: "((20260421015111-tnu7f1e '学习')):<学习是学习者在共同体中逐渐增加参与度的社会过程。" };
+    });
+    conceptDefinitionApiMocks.sql.mockResolvedValue([]);
+
+    const service = new TestableConceptDefinitionCardRenderService({}, {
+      getXiuyuan: async () => createXiuyuanPort() as never,
+      renderMarkdown: (kramdown) => `<rich>${kramdown}</rich>`,
+    });
+
+    const viewModel = await service.prepareViewModel('definition-1', {
+      ...createCardInput(),
+      meta: {
+        ...createCardInput().meta,
+        typeMarker: 'concept-definition-reverse',
+      },
+    });
+
+    expect(viewModel.isReverse).toBe(true);
+    expect(viewModel.directScene?.frontMask).toEqual({
+      rowKey: 'concept-definition',
+      segment: 'left',
+    });
   });
 });

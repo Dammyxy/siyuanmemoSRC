@@ -11,6 +11,25 @@ describe('DescriptorCardRenderer', () => {
         dependencyBlockIds: ['doc-1', 'concept-1', 'descriptor-1'],
         frontHtml: '<p>semantic front</p>',
         backHtml: '<p>semantic back</p>',
+        directScene: {
+          rows: [
+            {
+              kind: 'concept',
+              key: 'concept',
+              html: '<p>[[中子星]]</p>',
+              emphasize: 'primary',
+            },
+            {
+              kind: 'relation',
+              key: 'descriptor',
+              level: 1,
+              leftHtml: '<p>形成过程</p>',
+              rightHtml: '<p>前身恒星经历超新星爆炸后形成</p>',
+              arrow: '→',
+            },
+          ],
+          frontMask: { rowKey: 'descriptor', segment: 'right' },
+        },
         relationArrow: '→',
         isReverse: false,
         attribute: '形成过程',
@@ -70,6 +89,14 @@ describe('DescriptorCardRenderer', () => {
         dependencyBlockIds: ['doc-1', 'descriptor-2'],
         frontHtml: '<p>semantic front</p>',
         backHtml: '<p>semantic back</p>',
+        directScene: {
+          rows: [{
+            kind: 'standalone',
+            key: 'descriptor-answer',
+            html: '<p>前身→恒星</p>',
+          }],
+          frontMask: null,
+        },
         relationArrow: '→',
         isReverse: false,
         attribute: '',

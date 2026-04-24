@@ -58,6 +58,11 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm!.frontHtml).toContain('特征，卡片');
     expect(vm!.frontHtml).not.toContain('起源，作者');
     expect(vm!.backHtml).toContain('被设计为独立单元');
+    expect(vm!.directScene?.rows).toEqual([
+      expect.objectContaining({ kind: 'concept', key: 'concept' }),
+      expect.objectContaining({ kind: 'group', key: 'group' }),
+      expect.objectContaining({ kind: 'relation', key: 'descriptor' }),
+    ]);
     expect(vm!.dependencyBlockIds).toEqual(expect.arrayContaining([
       'descriptor-block',
       'concept-block',
@@ -119,6 +124,10 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm!.frontHtml).toContain('？');
     expect(vm!.frontHtml).not.toContain('是？');
     expect(vm!.backHtml).toContain('woz');
+    expect(vm!.directScene?.frontMask).toEqual({
+      rowKey: 'descriptor',
+      segment: 'right',
+    });
     expect(vm!.dependencyBlockIds).toEqual(expect.arrayContaining([
       'descriptor-block',
       'concept-block',
@@ -168,6 +177,10 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm!.frontHtml).toContain('是谁的');
     expect(vm!.frontHtml).toContain('起源，作者');
     expect(vm!.backHtml).toContain('supermemo');
+    expect(vm!.directScene?.frontMask).toEqual({
+      rowKey: 'concept',
+      segment: 'whole',
+    });
   });
 
   it('keeps non-cdf descriptor rendering unchanged', async () => {
@@ -230,6 +243,10 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     expect(vm!.backHtml).toContain('保持快速演化');
     expect(vm!.frontHtml).not.toContain('属性');
     expect(vm!.frontHtml).not.toContain('defaultAttribute');
+    expect(vm!.directScene?.rows).toEqual([
+      expect.objectContaining({ kind: 'concept', key: 'concept' }),
+      expect.objectContaining({ kind: 'standalone', key: 'descriptor-answer' }),
+    ]);
   });
 
   it('emits class-based descriptor markup without legacy inline font sizes', async () => {

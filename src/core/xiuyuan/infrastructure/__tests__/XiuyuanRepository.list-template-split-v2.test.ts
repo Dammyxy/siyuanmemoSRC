@@ -198,6 +198,82 @@ describe('XiuyuanRepository list-template split-v2 mapping', () => {
     expect(savedFsrsCard.meta?.cue).toBe('提示2');
     expect(savedFsrsCard.meta?.answer).toBe('答案2');
   });
+
+  it('projects list-template source and direct-path metadata into FSRS meta.allChildren', async () => {
+    const { mock: storageMock, createCard } = createStorageMock();
+    const repository = new XiuyuanRepository(storageMock as any);
+
+    const parentParagraphId = '20260103100001-paragr1';
+    const child1 = '20260103100002-child01';
+    const child2 = '20260103100003-child02';
+
+    const xiuyuan = must(
+      Xiuyuan.create({
+        blockIDs: [
+          must(BlockId.create(parentParagraphId)),
+          must(BlockId.create(child1)),
+          must(BlockId.create(child2)),
+        ],
+        templateID: must(TemplateId.create('builtin-list-item')),
+        faces: [
+          must(
+            CardFace.create({
+              question: parentParagraphId,
+              answer: '类型→描述性（非规范性）',
+              questionBlockId: parentParagraphId,
+              answerBlockId: child1,
+            })
+          ),
+        ],
+        meta: {
+          listTemplate: {
+            mode: 'split-v2',
+            currentIndex: 0,
+            childrenData: [
+              {
+                id: child1,
+                cue: '类型',
+                answer: '描述性（非规范性）',
+                index: 0,
+                source: '类型→描述性（非规范性）',
+                directPath: [
+                  { kind: 'concept', label: '[[基于识别的决策模型（RPD）]]', blockId: '20260103100000-concp01' },
+                  { kind: 'group', label: '特征', blockId: parentParagraphId },
+                ],
+              },
+              {
+                id: child2,
+                cue: '基础',
+                answer: '经验识别',
+                index: 1,
+                source: '基础→经验识别',
+                directPath: [
+                  { kind: 'concept', label: '[[基于识别的决策模型（RPD）]]', blockId: '20260103100000-concp01' },
+                  { kind: 'group', label: '特征', blockId: parentParagraphId },
+                ],
+              },
+            ],
+          },
+        },
+      })
+    );
+    must(xiuyuan.createCard(0));
+
+    const saveResult = await repository.save(xiuyuan);
+    expect(saveResult.ok).toBe(true);
+
+    const savedFsrsCard = createCard.mock.calls[0]?.[1] as FSRSCard;
+    const allChildren = savedFsrsCard.meta?.allChildren as Array<{
+      source?: string;
+      directPath?: Array<{ kind?: string; label?: string }>;
+    }>;
+
+    expect(allChildren[0]?.source).toBe('类型→描述性（非规范性）');
+    expect(allChildren[0]?.directPath).toEqual([
+      { kind: 'concept', label: '[[基于识别的决策模型（RPD）]]', blockId: '20260103100000-concp01' },
+      { kind: 'group', label: '特征', blockId: parentParagraphId },
+    ]);
+  });
   it('deletes stale cards for the same xiuyuan via xiuyuan index without scanning all cards', async () => {
     const { mock: storageMock } = createStorageMock();
     storageMock.getAllCards.mockImplementation(() => {

@@ -13,6 +13,8 @@ import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
+import type { CdfDirectPathSegment } from '@/core/card/common/application/cdfDirectScene';
+import { normalizeCdfDirectLabel } from '@/core/card/common/application/cdfDirectScene';
 import { createLogger } from '@/utils/logger';
 import { finalizeXiuyuanCreation } from './shared/FinalizeXiuyuanCreation';
 
@@ -46,6 +48,8 @@ type ListTemplateChildData = {
   answer: string;
   content: string;
   index: number;
+  source?: string;
+  directPath?: CdfDirectPathSegment[];
 };
 
 export interface ListTemplateCardsCreationPayload {
@@ -219,6 +223,7 @@ export class CreateListTemplateCardsUseCase {
     const created: ListTemplateCardsCreationPayload['created'] = [];
     const skippedChildBlockIds: string[] = [];
     const listMetaBase = buildListMetaBase(command);
+    const sharedDirectPath = await this.buildSharedDirectPath(command, parentParagraphId);
 
     for (const childData of childrenData) {
       const [paragraphAttrs, listItemAttrs] = await Promise.all([
@@ -275,6 +280,8 @@ export class CreateListTemplateCardsUseCase {
               cue: child.cue,
               answer: child.answer,
               index: child.index,
+              source: child.content,
+              ...(sharedDirectPath ? { directPath: sharedDirectPath } : {}),
             })),
             ...listMetaBase,
           },
@@ -336,6 +343,7 @@ export class CreateListTemplateCardsUseCase {
   }): Promise<Result<ListTemplateCardsCreationPayload>> {
     const { command, templateId, priority, parentParagraphId, childrenData } = params;
     const listMetaBase = buildListMetaBase(command);
+    const sharedDirectPath = await this.buildSharedDirectPath(command, parentParagraphId);
 
     const skippedChildBlockIds: string[] = [];
     let representative: ListTemplateChildData | null = null;
@@ -480,6 +488,8 @@ export class CreateListTemplateCardsUseCase {
               cue: summaryCue,
               answer: summaryAnswer,
               index: 0,
+              source: summaryAnswer,
+              ...(sharedDirectPath ? { directPath: sharedDirectPath } : {}),
             },
           ],
           sourceChildIds: childrenData.map((child) => child.listItemId),
@@ -539,5 +549,62 @@ export class CreateListTemplateCardsUseCase {
       return new Error(error);
     }
     return new Error(defaultMessage);
+  }
+
+  private async buildSharedDirectPath(
+    command: CreateListTemplateCardsCommand,
+    parentParagraphId: string,
+  ): Promise<CdfDirectPathSegment[] | undefined> {
+    const path: CdfDirectPathSegment[] = [];
+
+    if (command.listKind === 'descriptor-multiline') {
+      const conceptSourceId = command.conceptBlockId?.trim();
+      const conceptLabel = await this.loadDirectPathLabel(conceptSourceId);
+      if (conceptLabel) {
+        path.push({
+          kind: 'concept',
+          label: conceptLabel,
+          ...(conceptSourceId ? { blockId: conceptSourceId } : {}),
+        });
+      }
+
+      const groupLabel = await this.loadDirectPathLabel(parentParagraphId);
+      if (groupLabel) {
+        path.push({
+          kind: 'group',
+          label: groupLabel,
+          blockId: parentParagraphId,
+        });
+      }
+    } else if (command.listKind === 'concept-multiline') {
+      const conceptSourceId = (command.conceptBlockId || parentParagraphId).trim();
+      const conceptLabel = await this.loadDirectPathLabel(conceptSourceId);
+      if (conceptLabel) {
+        path.push({
+          kind: 'concept',
+          label: conceptLabel,
+          blockId: conceptSourceId,
+        });
+      }
+    }
+
+    return path.length > 0 ? path : undefined;
+  }
+
+  private async loadDirectPathLabel(blockId?: string): Promise<string> {
+    if (!blockId) {
+      return '';
+    }
+
+    try {
+      const { kramdown } = await this.siyuanApi.getBlockKramdown(blockId);
+      return normalizeCdfDirectLabel(String(kramdown || ''));
+    } catch (error) {
+      logger.warn('[CreateListTemplateCardsUseCase] Failed to load direct-path label:', {
+        blockId,
+        error,
+      });
+      return '';
+    }
   }
 }
