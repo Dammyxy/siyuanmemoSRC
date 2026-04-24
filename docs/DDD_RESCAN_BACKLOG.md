@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 130)
+Last update: 2026-04-24 (Round 131)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - review dialog titlebar host mismatch fix
+
+- Task: 修复 desktop dialog 复习界面左上角队列名在真实思源窗口里依旧无法点击切换的问题，确认并收口“测试桩存在 `.b3-dialog__title`，但真机 `Dialog` 标题实际直接挂在 `.b3-dialog__header.resize__move` 上”的宿主差异。
+- Touched slice: Review active UI path across `src/ui/review/v2/{ReviewView.vue,__tests__/ReviewView.queue-switch.spec.ts}` and this backlog.
+- Debt fixed now: titlebar queue switch 不再只依赖测试桩里的 `.b3-dialog__title`，而是改成 header-first / title-slot-compatible 的宿主接管；当真机只有 `.b3-dialog__header.resize__move` 时，也会直接注入 `siyuanmemo-review-titlebar__slot` 和按钮，并继续拦截 `pointerdown/mousedown` 拖拽链路；如果思源把 header 内容重置回纯文本，observer 也会自动把 queue switch trigger 挂回去。
+- Debt deferred: 这轮只修 dialog 原生标题栏宿主差异，没有顺手重做第二行 info row、browser 或其它 queue switch surface；如果后续思源上游再次调整 Dialog DOM，还需要继续保留 host-compatible 路径，而不是重新退回单一 `.b3-dialog__title` 假设。
+- Why deferred: 当前真实阻塞是“真机点不到，测试却通过”，所以优先修 runtime host mismatch；继续扩大到 review header 其它布局改造会把这轮从精准修复变成更宽的 UI 重构。
+- Next safe step: 如果用户继续反馈某些环境下仍点不到，可以在思源真实窗口里再核对是否有上游插件/样式给 `.b3-dialog__header` 叠加了额外 overlay，但我们这边的接管点已经从测试专用 title node 改到真实 header host。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.queue-switch.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - dialog queue-switch rebind, native counter true-centering, and shared rich review host
 

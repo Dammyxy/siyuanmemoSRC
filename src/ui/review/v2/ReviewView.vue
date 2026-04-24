@@ -3057,6 +3057,20 @@ function getReviewDialogHeaderElement(): HTMLElement | null {
   return getReviewDialogContainer()?.querySelector('.b3-dialog__header') as HTMLElement | null;
 }
 
+function getReviewDialogTitlebarHostElement(): HTMLElement | null {
+  return getReviewDialogTitleElement() || getReviewDialogHeaderElement();
+}
+
+function getReviewDialogTitlebarSlotElement(host: HTMLElement | null): HTMLElement | null {
+  if (!host) {
+    return null;
+  }
+  if (host.classList.contains('b3-dialog__title')) {
+    return host;
+  }
+  return host.querySelector('.siyuanmemo-review-titlebar__slot') as HTMLElement | null;
+}
+
 function disconnectReviewDialogTitlebarObserver(): void {
   reviewDialogTitlebarObserver?.disconnect();
   reviewDialogTitlebarObserver = null;
@@ -3068,18 +3082,19 @@ function isReviewDialogTitlebarQueueSwitchSynced(): boolean {
     return false;
   }
 
-  const titleElement = getReviewDialogTitleElement();
-  if (!titleElement) {
+  const hostElement = getReviewDialogTitlebarHostElement();
+  const slotElement = getReviewDialogTitlebarSlotElement(hostElement);
+  if (!hostElement || !slotElement) {
     return false;
   }
 
-  const trigger = titleElement.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
+  const trigger = slotElement.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
   if (!trigger) {
     return false;
   }
 
-  return titleElement.dataset.siyuanmemoQueueSwitch === 'true'
-    && titleElement.classList.contains('siyuanmemo-review-titlebar__slot')
+  return hostElement.dataset.siyuanmemoQueueSwitch === 'true'
+    && slotElement.classList.contains('siyuanmemo-review-titlebar__slot')
     && trigger.textContent === resolvedReviewSurfaceTitle.value
     && trigger.title === resolvedReviewSurfaceTitle.value
     && trigger.getAttribute('aria-label') === t('switchReviewQueueAriaLabel', '切换复习队列：{title}')
@@ -3119,21 +3134,29 @@ function ensureReviewDialogTitlebarObserver(): void {
 }
 
 function restoreReviewDialogTitlebarText(): void {
-  const titleElement = getReviewDialogTitleElement();
-  if (!titleElement || titleElement.dataset.siyuanmemoQueueSwitch !== 'true') {
+  const hostElement = getReviewDialogTitlebarHostElement();
+  if (!hostElement || hostElement.dataset.siyuanmemoQueueSwitch !== 'true') {
     return;
   }
 
-  titleElement.classList.remove('siyuanmemo-review-titlebar__slot');
-  delete titleElement.dataset.siyuanmemoQueueSwitch;
-  titleElement.replaceChildren();
-  titleElement.textContent = resolvedReviewSurfaceTitle.value;
+  hostElement.classList.remove('siyuanmemo-review-titlebar__host');
+  delete hostElement.dataset.siyuanmemoQueueSwitch;
+
+  if (hostElement.classList.contains('b3-dialog__title')) {
+    hostElement.classList.remove('siyuanmemo-review-titlebar__slot');
+    hostElement.replaceChildren();
+    hostElement.textContent = resolvedReviewSurfaceTitle.value;
+    return;
+  }
+
+  hostElement.replaceChildren();
+  hostElement.textContent = resolvedReviewSurfaceTitle.value;
 }
 
 function syncReviewDialogTitlebarQueueSwitchTrigger(): void {
   ensureReviewDialogTitlebarObserver();
-  const titleElement = getReviewDialogTitleElement();
-  if (!titleElement) {
+  const hostElement = getReviewDialogTitlebarHostElement();
+  if (!hostElement) {
     return;
   }
 
@@ -3143,7 +3166,15 @@ function syncReviewDialogTitlebarQueueSwitchTrigger(): void {
     return;
   }
 
-  const existingTrigger = titleElement.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
+  const slotElement = hostElement.classList.contains('b3-dialog__title')
+    ? hostElement
+    : (hostElement.querySelector('.siyuanmemo-review-titlebar__slot') as HTMLElement | null)
+      || document.createElement('span');
+  if (!hostElement.classList.contains('b3-dialog__title')) {
+    slotElement.className = 'siyuanmemo-review-titlebar__slot';
+  }
+
+  const existingTrigger = slotElement.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
   if (existingTrigger && isReviewDialogTitlebarQueueSwitchSynced()) {
     return;
   }
@@ -3161,9 +3192,16 @@ function syncReviewDialogTitlebarQueueSwitchTrigger(): void {
   trigger.onmousedown = handleQueueSwitchTriggerPointerDown;
   trigger.onclick = handleQueueSwitchTrigger;
 
-  titleElement.classList.add('siyuanmemo-review-titlebar__slot');
-  titleElement.dataset.siyuanmemoQueueSwitch = 'true';
-  titleElement.replaceChildren(trigger);
+  hostElement.dataset.siyuanmemoQueueSwitch = 'true';
+  if (hostElement.classList.contains('b3-dialog__title')) {
+    hostElement.classList.add('siyuanmemo-review-titlebar__slot');
+    hostElement.replaceChildren(trigger);
+    return;
+  }
+
+  hostElement.classList.add('siyuanmemo-review-titlebar__host');
+  slotElement.replaceChildren(trigger);
+  hostElement.replaceChildren(slotElement);
 }
 
 function scheduleReviewDialogTitlebarQueueSwitchSync(): void {
@@ -4939,6 +4977,21 @@ watch(
   display: flex;
   align-items: center;
   min-width: 0;
+  padding: 0;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.b3-dialog__container.siyuanmemo-review-dialog-container .b3-dialog__header.siyuanmemo-review-titlebar__host {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.b3-dialog__container.siyuanmemo-review-dialog-container .b3-dialog__header > .siyuanmemo-review-titlebar__slot {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
   padding: 0;
   pointer-events: auto;
   -webkit-app-region: no-drag;

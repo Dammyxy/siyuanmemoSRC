@@ -160,9 +160,7 @@ describe('ReviewView queue switch', () => {
     reviewViewQueueSwitchMocks.instances.length = 0;
     document.body.innerHTML = `
       <div class="b3-dialog__container siyuanmemo-review-dialog-container">
-        <div class="b3-dialog__header">
-          <div class="b3-dialog__title">提取练习</div>
-        </div>
+        <div class="b3-dialog__header resize__move">提取练习</div>
       </div>
     `;
   });
@@ -233,7 +231,7 @@ describe('ReviewView queue switch', () => {
     expect(dialogManager.switchStandardReviewDialogQueue).toHaveBeenCalledWith('incremental-learning');
   });
 
-  it('rebinds the native titlebar queue-switch trigger when SiYuan rebuilds the dialog title node', async () => {
+  it('rebinds the native titlebar queue-switch trigger when SiYuan restores raw header text', async () => {
     mountReviewView({
       mode: 'dialog',
       title: '渐进学习',
@@ -252,20 +250,18 @@ describe('ReviewView queue switch', () => {
     await vi.runAllTimersAsync();
     await nextTick();
 
-    const originalTitle = document.querySelector('.b3-dialog__title') as HTMLElement | null;
-    expect(originalTitle).not.toBeNull();
-    expect(originalTitle?.querySelector('.siyuanmemo-review-titlebar__queue-switch')).not.toBeNull();
+    const header = document.querySelector('.b3-dialog__header') as HTMLElement | null;
+    expect(header).not.toBeNull();
+    expect(header?.querySelector('.siyuanmemo-review-titlebar__queue-switch')).not.toBeNull();
 
-    const replacement = document.createElement('div');
-    replacement.className = 'b3-dialog__title';
-    replacement.textContent = '渐进学习';
-    originalTitle?.replaceWith(replacement);
+    header!.replaceChildren();
+    header!.textContent = '渐进学习';
 
     await Promise.resolve();
     await vi.runAllTimersAsync();
     await nextTick();
 
-    const reboundTrigger = replacement.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
+    const reboundTrigger = header?.querySelector('.siyuanmemo-review-titlebar__queue-switch') as HTMLButtonElement | null;
     expect(reboundTrigger).not.toBeNull();
     expect(reboundTrigger?.textContent).toBe('渐进学习');
   });
