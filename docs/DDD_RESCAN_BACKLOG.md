@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 131)
+Last update: 2026-04-24 (Round 132)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - review dialog queue-switch handle retention fix
+
+- Task: 修复 dialog 复习界面点击题头切换主队列时，旧复习弹窗不会被后续切换销毁、导致多个 review dialog 叠在一起的问题。
+- Touched slice: Review dialog lifecycle path across `src/application/managers/{DialogManager.ts,__tests__/DialogManager.review-header-variant.test.ts}` and this backlog.
+- Debt fixed now: `DialogManager` 不再在所有 review dialog 创建点上直接写死 `onClose: () => { this.currentReviewDialog = null; }`，而是统一收口到 identity-safe 的 `registerCurrentReviewDialog()`；旧 dialog 即使因为思源 `Dialog.destroy()` 的异步关闭链晚一点触发 `onClose`，也只会在它仍然是当前句柄时才清空 `currentReviewDialog`，不会再把新 dialog 的引用误清掉；`destroyCurrentReviewDialog()` 也改成先摘掉当前引用、再执行 `destroy()`，降低 re-entrant close 串台风险。
+- Debt deferred: 这轮只收 `DialogManager` 里的 current review dialog 生命周期，不顺手重做 `createUnifiedReviewDialog()` 内部双重 `onClose` 通路，也没有扩大到非 review dialog 的全局生命周期收口。
+- Why deferred: 用户当前真实阻塞是“切队列后旧 dialog 留在屏幕上越积越多”，根因已经在 manager 句柄管理层闭环；继续扩大到 dialog factory 级别的 close 协议整理会把这轮从精准 bugfix 变成更宽的生命周期重构。
+- Next safe step: 如果后续还观察到其它 surface 有“旧关闭回调把新实例清空”的症状，可以按同样的 identity-safe 注册模式把其它长期持有单实例句柄的 manager 一并收口。
+- Validation: `pnpm vitest run src/application/managers/__tests__/DialogManager.review-header-variant.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - review dialog titlebar host mismatch fix
 

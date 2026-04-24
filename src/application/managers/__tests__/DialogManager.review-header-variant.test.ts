@@ -231,6 +231,47 @@ describe('DialogManager review header variants', () => {
     }));
   });
 
+  it('keeps destroying the active dialog when a stale queue-switch onClose fires late', async () => {
+    const { dialogManager } = createDialogManager();
+    const dialogFactory = vi.mocked(createUnifiedReviewDialog);
+    const previousImplementation = dialogFactory.getMockImplementation();
+    const dialogRecords: Array<{
+      destroy: ReturnType<typeof vi.fn>;
+      onClose?: () => void;
+    }> = [];
+
+    dialogFactory.mockImplementation((options) => {
+      const record = {
+        destroy: vi.fn(),
+        onClose: options.onClose,
+      };
+      dialogRecords.push(record);
+      return {
+        destroy: record.destroy,
+      } as never;
+    });
+
+    try {
+      await dialogManager.openReviewDialog();
+      await dialogManager.switchStandardReviewDialogQueue(QueueType.IncrementalLearning);
+
+      expect(dialogRecords[0]?.destroy).toHaveBeenCalledTimes(1);
+
+      dialogRecords[0]?.onClose?.();
+
+      await dialogManager.switchStandardReviewDialogQueue(QueueType.FinalDrill);
+
+      expect(dialogRecords[1]?.destroy).toHaveBeenCalledTimes(1);
+      expect(dialogFactory).toHaveBeenNthCalledWith(3, expect.objectContaining({
+        queueType: 'final-drill',
+        title: '刻意练习',
+        headerVariant: 'final-drill',
+      }));
+    } finally {
+      dialogFactory.mockImplementation(previousImplementation ?? (() => ({ destroy: vi.fn() } as never)));
+    }
+  });
+
   it('passes startFullscreen to dialog review entries when fullscreen-default is enabled', async () => {
     const { dialogManager } = createDialogManager({
       reviewOpenFullscreenByDefault: true,

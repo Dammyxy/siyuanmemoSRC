@@ -341,19 +341,19 @@ export class DialogManager implements IDialogManager {
       }
     }
 
-    this.currentReviewDialog = createUnifiedReviewDialog({
-      plugin: this.plugin,
-      queueType: options.queueType,
-      queueInstance: options.queueInstance,
-      initialSessionState: options.initialSessionState,
-      title: options.title,
-      headerVariant: options.headerVariant,
-      eventBus: this.context.getEventBus(),
-      startFullscreen: this.shouldStartReviewFullscreenByDefault(),
-      onClose: () => {
-        this.currentReviewDialog = null;
-      },
-    });
+    this.registerCurrentReviewDialog((onClose) =>
+      createUnifiedReviewDialog({
+        plugin: this.plugin,
+        queueType: options.queueType,
+        queueInstance: options.queueInstance,
+        initialSessionState: options.initialSessionState,
+        title: options.title,
+        headerVariant: options.headerVariant,
+        eventBus: this.context.getEventBus(),
+        startFullscreen: this.shouldStartReviewFullscreenByDefault(),
+        onClose,
+      }),
+    );
   }
 
   openStandardReviewDialog(options: {
@@ -931,10 +931,24 @@ export class DialogManager implements IDialogManager {
    * 销毁当前复习对话框
    */
   private destroyCurrentReviewDialog(): void {
-    if (this.currentReviewDialog) {
-      this.currentReviewDialog.destroy();
+    const dialogHandle = this.currentReviewDialog;
+    if (dialogHandle) {
       this.currentReviewDialog = null;
+      dialogHandle.destroy();
     }
+  }
+
+  private registerCurrentReviewDialog<T extends VueDialogHandle>(factory: (onClose: () => void) => T): T {
+    let dialogHandle: T | null = null;
+    const clearIfCurrent = () => {
+      if (this.currentReviewDialog === dialogHandle) {
+        this.currentReviewDialog = null;
+      }
+    };
+
+    dialogHandle = factory(clearIfCurrent);
+    this.currentReviewDialog = dialogHandle;
+    return dialogHandle;
   }
   
   /**
@@ -1120,18 +1134,18 @@ export class DialogManager implements IDialogManager {
         effects: new SiyuanLeechActionEffectsAdapter(),
       });
 
-      this.currentReviewDialog = createUnifiedReviewDialog({
-        plugin: this.plugin,
-        queueType: QueueType.Leech,
-        queueInstance: queue,
-        title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
-        headerVariant: 'leech',
-        eventBus: this.context.getEventBus(),
-        startFullscreen: this.shouldStartReviewFullscreenByDefault(),
-        onClose: () => {
-          this.currentReviewDialog = null;
-        },
-      });
+      this.registerCurrentReviewDialog((onClose) =>
+        createUnifiedReviewDialog({
+          plugin: this.plugin,
+          queueType: QueueType.Leech,
+          queueInstance: queue,
+          title: this.context.getI18n()?.startLeechPractice || '难点攻坚',
+          headerVariant: 'leech',
+          eventBus: this.context.getEventBus(),
+          startFullscreen: this.shouldStartReviewFullscreenByDefault(),
+          onClose,
+        }),
+      );
     } catch (err) {
       logger.error('[DialogManager] Failed to open leech review dialog:', err);
       await this.siyuanApi.pushErrMsg('难点攻坚启动失败');
@@ -1163,18 +1177,18 @@ export class DialogManager implements IDialogManager {
       });
       const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
 
-      this.currentReviewDialog = createUnifiedReviewDialog({
-        plugin: this.plugin,
-        queueType: QueueType.FilterGroup,
-        queueInstance: queue,
-        title,
-        headerVariant: 'subset-review',
-        eventBus: this.context.getEventBus(),
-        startFullscreen: this.shouldStartReviewFullscreenByDefault(),
-        onClose: () => {
-          this.currentReviewDialog = null;
-        },
-      });
+      this.registerCurrentReviewDialog((onClose) =>
+        createUnifiedReviewDialog({
+          plugin: this.plugin,
+          queueType: QueueType.FilterGroup,
+          queueInstance: queue,
+          title,
+          headerVariant: 'subset-review',
+          eventBus: this.context.getEventBus(),
+          startFullscreen: this.shouldStartReviewFullscreenByDefault(),
+          onClose,
+        }),
+      );
     } catch (err) {
       logger.error('[DialogManager] Failed to open subset review dialog:', err);
       await this.siyuanApi.pushErrMsg('打开子集复习失败');
@@ -1263,44 +1277,44 @@ export class DialogManager implements IDialogManager {
       const { width, height } = this.resolveReviewDialogSize();
       const isMobile = this.isMobileFrontend();
       
-      this.currentReviewDialog = createVueDialog({
-        title: this.context.getI18n()?.retrievalPractice || '提取练习',
-        hideTitle: isMobile,
-        component: ReviewView,
-        dataKey: 'dialog-opencard',
-        transparent: true,
-        isReview: true,
-        isMobile,
-        visualVariant: 'workspace',
-        containerClass: 'siyuanmemo-review-shell-dialog',
-        props: {
-          app: this.plugin.app,
-          i18n: this.context.getI18n() || {},
-          mode: 'dialog',
+      this.registerCurrentReviewDialog((onClose) =>
+        createVueDialog({
           title: this.context.getI18n()?.retrievalPractice || '提取练习',
-          headerVariant: 'retrieval-practice',
-          queue,
-          adapter,
-          plugin: this.plugin,
+          hideTitle: isMobile,
+          component: ReviewView,
+          dataKey: 'dialog-opencard',
+          transparent: true,
+          isReview: true,
           isMobile,
-          nativeDialogTitlebar: !isMobile,
-          startFullscreen: this.shouldStartReviewFullscreenByDefault(),
-        },
-        events: {
-          close: () => {
-            // 清除过滤条件
-            if (hasFilterSetter(filterGroupQueue)) {
-              void filterGroupQueue.setFilter({});
-            }
-            this.destroyCurrentReviewDialog();
+          visualVariant: 'workspace',
+          containerClass: 'siyuanmemo-review-shell-dialog',
+          props: {
+            app: this.plugin.app,
+            i18n: this.context.getI18n() || {},
+            mode: 'dialog',
+            title: this.context.getI18n()?.retrievalPractice || '提取练习',
+            headerVariant: 'retrieval-practice',
+            queue,
+            adapter,
+            plugin: this.plugin,
+            isMobile,
+            nativeDialogTitlebar: !isMobile,
+            startFullscreen: this.shouldStartReviewFullscreenByDefault(),
           },
-        },
-        width,
-        height,
-        onClose: () => {
-          this.currentReviewDialog = null;
-        },
-      });
+          events: {
+            close: () => {
+              // 清除过滤条件
+              if (hasFilterSetter(filterGroupQueue)) {
+                void filterGroupQueue.setFilter({});
+              }
+              this.destroyCurrentReviewDialog();
+            },
+          },
+          width,
+          height,
+          onClose,
+        }),
+      );
       
       logger.info('[DialogManager] ✅ Retrieval practice opened with blockIds filter');
     } catch (err) {
@@ -1391,44 +1405,44 @@ export class DialogManager implements IDialogManager {
       const { width, height } = this.resolveReviewDialogSize();
       const isMobile = this.isMobileFrontend();
       
-      this.currentReviewDialog = createVueDialog({
-        title: this.context.getI18n()?.incrementalLearning || '渐进学习',
-        hideTitle: isMobile,
-        component: ReviewView,
-        dataKey: 'dialog-opencard',
-        transparent: true,
-        isReview: true,
-        isMobile,
-        visualVariant: 'workspace',
-        containerClass: 'siyuanmemo-review-shell-dialog',
-        props: {
-          app: this.plugin.app,
-          i18n: this.context.getI18n() || {},
-          mode: 'dialog',
+      this.registerCurrentReviewDialog((onClose) =>
+        createVueDialog({
           title: this.context.getI18n()?.incrementalLearning || '渐进学习',
-          headerVariant: 'incremental-learning',
-          queue,
-          adapter,
-          plugin: this.plugin,
+          hideTitle: isMobile,
+          component: ReviewView,
+          dataKey: 'dialog-opencard',
+          transparent: true,
+          isReview: true,
           isMobile,
-          nativeDialogTitlebar: !isMobile,
-          startFullscreen: this.shouldStartReviewFullscreenByDefault(),
-        },
-        events: {
-          close: () => {
-            // 清除过滤条件
-            if (hasFilterSetter(filterGroupQueue)) {
-              void filterGroupQueue.setFilter({});
-            }
-            this.destroyCurrentReviewDialog();
+          visualVariant: 'workspace',
+          containerClass: 'siyuanmemo-review-shell-dialog',
+          props: {
+            app: this.plugin.app,
+            i18n: this.context.getI18n() || {},
+            mode: 'dialog',
+            title: this.context.getI18n()?.incrementalLearning || '渐进学习',
+            headerVariant: 'incremental-learning',
+            queue,
+            adapter,
+            plugin: this.plugin,
+            isMobile,
+            nativeDialogTitlebar: !isMobile,
+            startFullscreen: this.shouldStartReviewFullscreenByDefault(),
           },
-        },
-        width,
-        height,
-        onClose: () => {
-          this.currentReviewDialog = null;
-        },
-      });
+          events: {
+            close: () => {
+              // 清除过滤条件
+              if (hasFilterSetter(filterGroupQueue)) {
+                void filterGroupQueue.setFilter({});
+              }
+              this.destroyCurrentReviewDialog();
+            },
+          },
+          width,
+          height,
+          onClose,
+        }),
+      );
       
       logger.info('[DialogManager] ✅ Incremental learning opened with blockIds filter');
     } catch (err) {
@@ -1456,18 +1470,18 @@ export class DialogManager implements IDialogManager {
       const queue = new TemporaryDrillQueue(manager, ids);
       const title = (this.context.getI18n()?.temporaryDrill || '临时练习') + ` (${ids.length} 张)`;
 
-      this.currentReviewDialog = createUnifiedReviewDialog({
-        plugin: this.plugin,
-        queueType: QueueType.FinalDrill,
-        queueInstance: queue,
-        title,
-        headerVariant: 'temporary-drill',
-        eventBus: this.context.getEventBus(),
-        startFullscreen: this.shouldStartReviewFullscreenByDefault(),
-        onClose: () => {
-          this.currentReviewDialog = null;
-        },
-      });
+      this.registerCurrentReviewDialog((onClose) =>
+        createUnifiedReviewDialog({
+          plugin: this.plugin,
+          queueType: QueueType.FinalDrill,
+          queueInstance: queue,
+          title,
+          headerVariant: 'temporary-drill',
+          eventBus: this.context.getEventBus(),
+          startFullscreen: this.shouldStartReviewFullscreenByDefault(),
+          onClose,
+        }),
+      );
 
       logger.info('[DialogManager] ✅ Temporary drill dialog opened');
     } catch (err) {
