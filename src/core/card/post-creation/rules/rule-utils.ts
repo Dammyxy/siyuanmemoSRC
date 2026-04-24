@@ -2,12 +2,99 @@ import { hasTokenizedMarkSpan } from '@/utils/markDataType';
 
 export const BLOCK_REF_PATTERN = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/i;
 export const WIKI_LINK_PATTERN = /\[\[[^\]]+\]\]/;
+const INLINE_SYMBOL_LINE_PATTERN = />>|》》|<<|《《|<>|《》|::|：：|:>|：》|:<|：《|;;|；；|;<|；<|；《|;<>|；<>|；《》/;
+
+export type BasicDirectionParseResult = {
+  direction: 'forward' | 'backward' | 'both';
+  question: string;
+  answer: string;
+  symbol: '>>' | '<<' | '<>';
+  normalizedLine: string;
+};
 
 function normalizeForSymbolDetection(content: string): string {
   return String(content || '')
     .replace(/\{:[^}]*\}/g, ' ')
     .replace(/`[^`]*`/g, ' ')
     .trim();
+}
+
+function normalizeInlineSymbolCandidateLines(content: string): string[] {
+  const normalized = String(content || '')
+    .replace(/\{:[^{}\n]*\}/g, '')
+    .replace(/\r/g, '')
+    .trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  return normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line
+      .replace(/^[-*+]\s+/, '')
+      .replace(/^\d+\.\s+/, '')
+      .trim())
+    .filter((line) => line.length > 0);
+}
+
+function parseSingleBasicDirectionLine(line: string): BasicDirectionParseResult | null {
+  const normalizedLine = String(line || '').trim();
+  if (!normalizedLine || hasListTemplateTail(normalizedLine)) {
+    return null;
+  }
+
+  const bidirectional = normalizedLine.match(/^(.+?)\s*(<>|《》)\s*(.+)$/u);
+  if (bidirectional) {
+    const question = String(bidirectional[1] || '').trim();
+    const answer = String(bidirectional[3] || '').trim();
+    if (!question || !answer) {
+      return null;
+    }
+    return {
+      direction: 'both',
+      question,
+      answer,
+      symbol: '<>',
+      normalizedLine,
+    };
+  }
+
+  const forward = normalizedLine.match(/^(.+?)\s*(>>|》》)\s*(.+)$/u);
+  if (forward) {
+    const question = String(forward[1] || '').trim();
+    const answer = String(forward[3] || '').trim();
+    if (!question || !answer) {
+      return null;
+    }
+    return {
+      direction: 'forward',
+      question,
+      answer,
+      symbol: '>>',
+      normalizedLine,
+    };
+  }
+
+  const backward = normalizedLine.match(/^(.+?)\s*(<<|《《)\s*(.+)$/u);
+  if (backward) {
+    const answer = String(backward[1] || '').trim();
+    const question = String(backward[3] || '').trim();
+    if (!question || !answer) {
+      return null;
+    }
+    return {
+      direction: 'backward',
+      question,
+      answer,
+      symbol: '<<',
+      normalizedLine,
+    };
+  }
+
+  return null;
 }
 
 function hasLineTailMarker(content: string, markerPattern: RegExp): boolean {
@@ -94,24 +181,38 @@ export function hasGenericCloze(content: string): boolean {
     || hasNumberedLatexCloze(normalized);
 }
 
-export function hasBasicDirectionSymbol(content: string): boolean {
-  const normalized = normalizeForSymbolDetection(content);
-  // Keep list-template marker out of basic-forward path.
-  if (hasListTemplateTail(normalized)) {
-    return false;
+export function parseBasicDirectionContent(content: string): BasicDirectionParseResult | null {
+  const lines = normalizeInlineSymbolCandidateLines(content);
+  for (const line of lines) {
+    const parsed = parseSingleBasicDirectionLine(line);
+    if (parsed) {
+      return parsed;
+    }
   }
-  return />>|\u300b\u300b|<<|\u300a\u300a|<>|\u300a\u300b/.test(normalized);
+  return null;
+}
+
+export function selectPreferredInlineSymbolLine(content: string): string {
+  const normalizedLines = normalizeInlineSymbolCandidateLines(content);
+  if (normalizedLines.length === 0) {
+    return '';
+  }
+
+  const validBasicLine = normalizedLines.find((line) => parseSingleBasicDirectionLine(line) !== null);
+  if (validBasicLine) {
+    return validBasicLine;
+  }
+
+  const symbolLine = normalizedLines.find((line) => INLINE_SYMBOL_LINE_PATTERN.test(line));
+  return symbolLine || normalizedLines[0];
+}
+
+export function hasBasicDirectionSymbol(content: string): boolean {
+  return parseBasicDirectionContent(content) !== null;
 }
 
 export function resolveBasicDirection(content: string): 'forward' | 'backward' | 'both' {
-  const normalized = normalizeForSymbolDetection(content);
-  if (/<>\s*|\u300a\u300b\s*/.test(normalized)) {
-    return 'both';
-  }
-  if (/<<|\u300a\u300a/.test(normalized)) {
-    return 'backward';
-  }
-  return 'forward';
+  return parseBasicDirectionContent(content)?.direction || 'forward';
 }
 
 export function hasConceptReference(content: string): boolean {

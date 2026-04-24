@@ -65,11 +65,18 @@ export class RiffSyncEventHandler {
   private async handleCardDeleted(event: CardDeletedEvent): Promise<void> {
     try {
       logger.info(`[RiffSyncEventHandler] Handling CardDeleted event for card: ${event.cardId}`);
-      
+
+      if (!event.blockId) {
+        logger.warn('[RiffSyncEventHandler] Skip CardDeleted sync because blockId is missing', {
+          cardId: event.cardId,
+        });
+        return;
+      }
+
       // 调用同步服务删除 Riff 卡片
-      await this.syncService.deleteSync(event.cardId);
+      await this.syncService.deleteSync(event.blockId);
       
-      logger.info(`[RiffSyncEventHandler] Successfully synced card deletion to Riff: ${event.cardId}`);
+      logger.info(`[RiffSyncEventHandler] Successfully synced card deletion to Riff: ${event.blockId}`);
     } catch (error) {
       // 错误已经在 syncService.deleteSync() 中处理（重试、黑名单等）
       // 这里只记录日志
@@ -86,10 +93,17 @@ export class RiffSyncEventHandler {
   private async handleCardsDeleted(event: CardsDeletedEvent): Promise<void> {
     try {
       logger.info(`[RiffSyncEventHandler] Handling CardsDeleted event for ${event.cardIds.length} cards`);
-      
+
+      if (event.blockIds.length === 0) {
+        logger.warn('[RiffSyncEventHandler] Skip CardsDeleted sync because no blockIds were resolved', {
+          cardIds: event.cardIds,
+        });
+        return;
+      }
+
       // ✅ 使用批量删除 API，并发处理提升性能
-      const successCount = await this.syncService.deleteSyncBatch(event.cardIds);
-      const failCount = event.cardIds.length - successCount;
+      const successCount = await this.syncService.deleteSyncBatch(event.blockIds);
+      const failCount = event.blockIds.length - successCount;
       
       logger.info(`[RiffSyncEventHandler] Batch sync completed: ${successCount} success, ${failCount} failed`);
     } catch (error) {

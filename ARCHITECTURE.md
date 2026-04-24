@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-23
+最后更新：2026-04-25
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -125,7 +125,7 @@ flowchart TD
    - `TabApplicationService`
    - `UnifiedDataSourceManager` facade
 4. Browser 在全量 / 队列 / deck 等模式下，通过 application queries 或统一队列快照加载数据
-5. 右键 `取消闪卡` 通过当前数据源持有的 `UnifiedDataSourceManager.deleteCard(cardId)` 删除浏览器实际展示的 FSRS card row，并依赖 `card-deleted` observer 事件与动作完成后的 reload 同步移除可见行
+5. 右键 `取消闪卡` 通过当前数据源持有的 `UnifiedDataSourceManager.deleteCard(cardId)` 删除浏览器实际展示的 FSRS card row；删除链路只提交本地聚合与块属性清理，并统一发布带 `blockId` 的 `CardDeleted / CardsDeleted` 事件，由 `RiffSyncEventHandler -> XiuyuanSyncService.deleteSync*()` 完成 native Riff 删除与 blacklist fallback
 6. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动
 
 ### 4.2 Review
@@ -783,8 +783,11 @@ UI 层：
 - 原生思源闪卡的近实时同步现在走独立 `NativeRiffSyncTriggerHandler`：native add/update 事务只在命中相关 attrs/块变化时 debounce 调度一次 `XiuyuanSyncService.incrementalSync()`；native `removeFlashcards` 则直接把 blockIds 路由到 `XiuyuanSyncService.handleNativeRiffRemove()`，只删除本地 `riff-managed` 记录，并做队列化防重入；它不放回 `AutoCardHandler`，也不重新承担即时 settle 猜测逻辑。
 - Riff 增量对账使用 `UnifiedStorageManager.riffSyncState` 持久化 checkpoint；checkpoint 必须和 canonical store 同轮提交，提交失败时不会前进；当 Riff API 只能按时间窗拉取时，默认从上次成功增量时间回退 5 秒，再依赖 blockId / XiuyuanId 幂等 upsert 去重。
 - 增量对账不执行删除，只拉取外部变化并同步合法的非调度元数据；native 删除由 transaction 路由直接落本地，除此之外的遗漏删除仍只允许 full reconcile 兜底，因此 full sync 默认周期为 24 小时。
+- 插件主动删除走 `blockId` 驱动的事件链：`DeleteCardUseCase / DeleteCardsUseCase` 不再直接调用 Riff 删除 API，只负责本地 Xiuyuan / CardDTO 删除、块属性清理与短期 `deletionTracker` 标记；`RiffSyncEventHandler` 只把事件里的 `blockId / blockIds` 转发给 `XiuyuanSyncService.deleteSync*()`，缺失 blockId 时只记 `warn` 并跳过，不再把 `cardId` 误传给 `removeRiffCards()`。
+- `XiuyuanSyncService.deleteSync*()` 的失败兜底现在与增量对账共享持久黑名单：`removeRiffCards()` 多次失败且 `deleteSync.useBlacklistFallback === true` 时，会把 blockId 落到 `RiffBlacklistService`，避免浏览器/复习页刷新后又被增量或全量对账补回。
 - ownership 规则固定为 local-owned 优先：同一 block 已存在 AutoCard / 手动创建的本地 Xiuyuan 时，Riff 对账不创建第二个 Xiuyuan、不改模板/卡面结构、不覆盖本地调度数据；riff-owned 仅允许同步合法元数据并在 full reconcile 中删除。
-- `UnifiedStorageManager` 提供本地写入协调与异常 merge 日志；命中存储 merge 视为多窗口/外部实例冲突兜底，不再是正常单写者流程。
+- `UnifiedStorageManager` 的 canonical store 现已升级到 version 2：除 `xiuyuans / cardDTOs / riffBlacklist / riffSyncState` 外，还持久化 `deletedCardDTOs / deletedXiuyuans` tombstone；冲突 hash 从 32-bit 升级为 64-bit FNV-1a，并把 tombstone 与 checkpoint 一起纳入内容哈希。
+- `UnifiedStorageManager` 的 merge 先合并 tombstone 再合并实体；若实体 `updatedAt` 不晚于 tombstone 的 `deletedAt`，实体会被直接丢弃，防止多窗口/外部旧快照把已删卡片或 Xiuyuan 合并回来。只有远端 `lastModifiedBy === instanceId` 的同实例异常回退才记 `error`，正常多窗口/外部 writer 恢复保留 `warn`。
 - 当前仍不提供跨设备分布式锁；多窗口/多端同时写入会由 storage merge、逻辑 face 去重与稳定 Xiuyuan/card id 收敛。
 
 ---

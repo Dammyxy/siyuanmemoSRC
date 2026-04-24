@@ -122,18 +122,7 @@ export class DeleteCardUseCase {
       }
     }
 
-    // 7. 从 Riff 删除卡片（会删除 custom-riff-* 属性）
-    if (blockId) {
-      try {
-        await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, [blockId]);
-        logger.info(`[DeleteCardUseCase] Deleted card from Riff: ${blockId}`);
-      } catch (error) {
-        logger.error(`[DeleteCardUseCase] Failed to delete card from Riff:`, error);
-        // Riff 删除失败不应该阻止整个删除操作
-      }
-    }
-
-    // 8. 发布领域事件（包括 CardDeletedEvent）
+    // 7. 发布领域事件（包括携带 blockId 的 CardDeletedEvent）
     // RiffSyncEventHandler 会监听这个事件并同步到 Riff
     const events = xiuyuan.getDomainEvents();
     logger.info(`[DeleteCardUseCase] Publishing ${events.length} domain events...`);
@@ -144,7 +133,7 @@ export class DeleteCardUseCase {
     logger.info(`[DeleteCardUseCase] Events published successfully`);
     xiuyuan.clearDomainEvents();
 
-    // 9. 返回成功结果
+    // 8. 返回成功结果
     return ok(undefined);
   }
 

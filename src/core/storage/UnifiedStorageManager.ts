@@ -48,6 +48,8 @@ export interface UnifiedCardStore {
   xiuyuans: Record<string, IXiuyuan>;
   cards: Record<string, FSRSCard>;
   cardDTOs?: Record<string, CardPersistenceDTO>;
+  deletedCardDTOs?: Record<string, StorageDeletionTombstone>;
+  deletedXiuyuans?: Record<string, StorageDeletionTombstone>;
   riffBlacklist?: string[];
   syncMetadata?: StorageSyncMetadata;
   riffSyncState?: RiffSyncState;
@@ -68,12 +70,21 @@ export interface RiffSyncState {
   lastSuccessfulFullAt?: number;
 }
 
+export interface StorageDeletionTombstone {
+  deletedAt: number;
+  deletedBy?: string;
+}
+
 export type RiffSyncStatePatch = Partial<RiffSyncState>;
 export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
+type TombstoneLookup = ReadonlyMap<string, StorageDeletionTombstone> | Record<string, StorageDeletionTombstone>;
 
 const STABLE_QUICK_META_STRING_KEYS = ['source', 'cardSource', 'symbolType', 'clozeRenderMode'] as const;
 const STABLE_QUICK_META_BOOLEAN_KEYS = ['symbolDetected'] as const;
+const CURRENT_UNIFIED_CARD_STORE_VERSION = 2;
+const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n;
+const FNV1A_64_PRIME = 0x100000001b3n;
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -128,12 +139,12 @@ function stableStringify(value: unknown): string {
 }
 
 function fnv1aHash(input: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+  let hash = FNV1A_64_OFFSET_BASIS;
+  for (const character of input) {
+    hash ^= BigInt(character.codePointAt(0) || 0);
+    hash = BigInt.asUintN(64, hash * FNV1A_64_PRIME);
   }
-  return (hash >>> 0).toString(16).padStart(8, '0');
+  return hash.toString(16).padStart(16, '0');
 }
 
 function areStructurallyEqual(left: unknown, right: unknown): boolean {
@@ -160,6 +171,8 @@ export class UnifiedStorageManager {
   // === 鏁版嵁瀛樺偍 ===
   private xiuyuans: Map<string, IXiuyuan> = new Map();
   private cardDTOs: Map<string, CardPersistenceDTO> = new Map();  // 鉁?鍙淮鎶?DTO Map
+  private deletedCardDTOs: Map<string, StorageDeletionTombstone> = new Map();
+  private deletedXiuyuans: Map<string, StorageDeletionTombstone> = new Map();
   private riffBlacklist: Set<string> = new Set();
   private riffSyncState: RiffSyncState = {};
 
@@ -246,6 +259,219 @@ export class UnifiedStorageManager {
     cardDTOs: Map<string, CardPersistenceDTO> | Record<string, CardPersistenceDTO> = this.cardDTOs,
   ): Array<[string, CardPersistenceDTO]> {
     return cardDTOs instanceof Map ? Array.from(cardDTOs.entries()) : Object.entries(cardDTOs);
+  }
+
+  private getDeletionTombstoneEntries(
+    tombstones: Map<string, StorageDeletionTombstone> | Record<string, StorageDeletionTombstone>,
+  ): Array<[string, StorageDeletionTombstone]> {
+    return tombstones instanceof Map ? Array.from(tombstones.entries()) : Object.entries(tombstones);
+  }
+
+  private sanitizeDeletionTombstones(value: unknown): Record<string, StorageDeletionTombstone> {
+    if (!isObjectRecord(value)) {
+      return {};
+    }
+
+    const sanitized: Record<string, StorageDeletionTombstone> = {};
+    for (const [id, rawTombstone] of Object.entries(value)) {
+      if (!id.trim() || !isObjectRecord(rawTombstone)) {
+        continue;
+      }
+
+      const deletedAt = readFiniteNumber(rawTombstone.deletedAt);
+      if (!deletedAt || deletedAt <= 0) {
+        continue;
+      }
+
+      sanitized[id] = {
+        deletedAt,
+        ...(typeof rawTombstone.deletedBy === 'string' && rawTombstone.deletedBy.trim().length > 0
+          ? { deletedBy: rawTombstone.deletedBy.trim() }
+          : {}),
+      };
+    }
+
+    return sanitized;
+  }
+
+  private recordDeletionTombstone(
+    tombstones: Map<string, StorageDeletionTombstone>,
+    id: string,
+    deletedAt: number = Date.now(),
+  ): void {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) {
+      return;
+    }
+
+    const existing = tombstones.get(normalizedId);
+    const nextDeletedAt = existing ? Math.max(existing.deletedAt, deletedAt) : deletedAt;
+    tombstones.set(normalizedId, {
+      deletedAt: nextDeletedAt,
+      deletedBy: this.instanceId,
+    });
+  }
+
+  private getDeletionTombstone(
+    tombstones: Map<string, StorageDeletionTombstone>,
+    id: string,
+  ): StorageDeletionTombstone | undefined {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) {
+      return undefined;
+    }
+
+    return tombstones.get(normalizedId);
+  }
+
+  private wouldClearDeletionTombstone(
+    tombstones: Map<string, StorageDeletionTombstone>,
+    id: string,
+    updatedAt: number | undefined,
+  ): boolean {
+    const existing = this.getDeletionTombstone(tombstones, id);
+    return Boolean(existing && updatedAt && updatedAt > existing.deletedAt);
+  }
+
+  private isBlockedByDeletionTombstone(
+    tombstones: Map<string, StorageDeletionTombstone>,
+    id: string,
+    updatedAt: number | undefined,
+  ): boolean {
+    const existing = this.getDeletionTombstone(tombstones, id);
+    if (!existing) {
+      return false;
+    }
+
+    return !updatedAt || updatedAt <= existing.deletedAt;
+  }
+
+  private clearDeletionTombstoneIfNewer(
+    tombstones: Map<string, StorageDeletionTombstone>,
+    id: string,
+    updatedAt: number | undefined,
+  ): boolean {
+    const normalizedId = String(id || '').trim();
+    if (!normalizedId) {
+      return false;
+    }
+
+    const existing = tombstones.get(normalizedId);
+    if (!existing || !updatedAt || updatedAt <= existing.deletedAt) {
+      return false;
+    }
+
+    tombstones.delete(normalizedId);
+    return true;
+  }
+
+  private clearCardDeletionTombstoneIfRecreated(dto: CardPersistenceDTO): boolean {
+    return this.clearDeletionTombstoneIfNewer(
+      this.deletedCardDTOs,
+      dto.id,
+      readFiniteNumber(dto.updatedAt),
+    );
+  }
+
+  private clearXiuyuanDeletionTombstoneIfRecreated(xiuyuan: IXiuyuan): boolean {
+    return this.clearDeletionTombstoneIfNewer(
+      this.deletedXiuyuans,
+      xiuyuan.id,
+      readFiniteNumber(xiuyuan.updatedAt),
+    );
+  }
+
+  private mergeDeletionTombstones(
+    localTombstones: TombstoneLookup,
+    remoteTombstones: TombstoneLookup,
+  ): Record<string, StorageDeletionTombstone> {
+    const merged: Record<string, StorageDeletionTombstone> = {};
+
+    for (const [id, tombstone] of this.getDeletionTombstoneEntries(remoteTombstones)) {
+      merged[id] = { ...tombstone };
+    }
+
+    for (const [id, tombstone] of this.getDeletionTombstoneEntries(localTombstones)) {
+      const existing = merged[id];
+      if (!existing || tombstone.deletedAt >= existing.deletedAt) {
+        merged[id] = { ...tombstone };
+      }
+    }
+
+    return merged;
+  }
+
+  private applyCardDeletionTombstones(
+    cardDTOs: Record<string, CardPersistenceDTO>,
+    tombstones: Record<string, StorageDeletionTombstone>,
+  ): Record<string, StorageDeletionTombstone> {
+    const activeTombstones: Record<string, StorageDeletionTombstone> = {};
+    for (const [id, tombstone] of Object.entries(tombstones)) {
+      const dto = cardDTOs[id];
+      const updatedAt = dto ? readFiniteNumber(dto.updatedAt) : undefined;
+      if (dto && updatedAt && updatedAt > tombstone.deletedAt) {
+        continue;
+      }
+      activeTombstones[id] = tombstone;
+      delete cardDTOs[id];
+    }
+    return activeTombstones;
+  }
+
+  private applyXiuyuanDeletionTombstones(
+    xiuyuans: Record<string, IXiuyuan>,
+    tombstones: Record<string, StorageDeletionTombstone>,
+  ): Record<string, StorageDeletionTombstone> {
+    const activeTombstones: Record<string, StorageDeletionTombstone> = {};
+    for (const [id, tombstone] of Object.entries(tombstones)) {
+      const xiuyuan = xiuyuans[id];
+      const updatedAt = xiuyuan ? readFiniteNumber(xiuyuan.updatedAt) : undefined;
+      if (xiuyuan && updatedAt && updatedAt > tombstone.deletedAt) {
+        continue;
+      }
+      activeTombstones[id] = tombstone;
+      delete xiuyuans[id];
+    }
+    return activeTombstones;
+  }
+
+  private applyXiuyuanDeletionToCardDTOs(
+    cardDTOs: Record<string, CardPersistenceDTO>,
+    xiuyuanTombstones: Record<string, StorageDeletionTombstone>,
+    cardTombstones: Record<string, StorageDeletionTombstone>,
+  ): Record<string, StorageDeletionTombstone> {
+    const mergedCardTombstones: Record<string, StorageDeletionTombstone> = {
+      ...cardTombstones,
+    };
+
+    for (const [cardId, dto] of Object.entries(cardDTOs)) {
+      const xiuyuanId = typeof dto.xiuyuanID === 'string' ? dto.xiuyuanID.trim() : '';
+      if (!xiuyuanId) {
+        continue;
+      }
+
+      const xiuyuanTombstone = xiuyuanTombstones[xiuyuanId];
+      if (!xiuyuanTombstone) {
+        continue;
+      }
+
+      const updatedAt = readFiniteNumber(dto.updatedAt);
+      if (updatedAt && updatedAt > xiuyuanTombstone.deletedAt) {
+        continue;
+      }
+
+      const existingCardTombstone = mergedCardTombstones[cardId];
+      if (!existingCardTombstone || xiuyuanTombstone.deletedAt >= existingCardTombstone.deletedAt) {
+        mergedCardTombstones[cardId] = {
+          deletedAt: xiuyuanTombstone.deletedAt,
+          ...(xiuyuanTombstone.deletedBy ? { deletedBy: xiuyuanTombstone.deletedBy } : {}),
+        };
+      }
+
+      delete cardDTOs[cardId];
+    }
+
+    return mergedCardTombstones;
   }
 
   private resolveCanonicalXiuyuanSnapshot(
@@ -567,6 +793,8 @@ export class UnifiedStorageManager {
 
     this.xiuyuans.clear();
     this.cardDTOs.clear();
+    this.deletedCardDTOs.clear();
+    this.deletedXiuyuans.clear();
     this.riffBlacklist.clear();
     this.riffSyncState = this.sanitizeRiffSyncState(canonicalStore.riffSyncState);
 
@@ -576,6 +804,14 @@ export class UnifiedStorageManager {
 
     for (const [id, dto] of Object.entries(canonicalStore.cardDTOs || {})) {
       this.cardDTOs.set(id, dto);
+    }
+
+    for (const [id, tombstone] of Object.entries(canonicalStore.deletedCardDTOs || {})) {
+      this.deletedCardDTOs.set(id, tombstone);
+    }
+
+    for (const [id, tombstone] of Object.entries(canonicalStore.deletedXiuyuans || {})) {
+      this.deletedXiuyuans.set(id, tombstone);
     }
 
     for (const blockId of this.sanitizeRiffBlacklist(canonicalStore.riffBlacklist)) {
@@ -628,12 +864,14 @@ export class UnifiedStorageManager {
       remoteHash,
       localHash,
     });
-    logger.error('[UnifiedStorageManager] Abnormal local storage conflict fallback; merge is reserved for multi-window or external writer recovery, not the normal single-writer path', {
-      strategy: this.conflictResolutionStrategy,
-      lastKnownHash: this.lastKnownContentHash,
-      remoteHash,
-      localHash,
-    });
+    if (canonicalRemote.syncMetadata?.lastModifiedBy === this.instanceId) {
+      logger.error('[UnifiedStorageManager] Abnormal local storage conflict fallback; merge is reserved for multi-window or external writer recovery, not the normal single-writer path', {
+        strategy: this.conflictResolutionStrategy,
+        lastKnownHash: this.lastKnownContentHash,
+        remoteHash,
+        localHash,
+      });
+    }
 
     if (this.conflictResolutionStrategy === 'prefer-remote') {
       this.applyStoreSnapshot(canonicalRemote);
@@ -677,6 +915,10 @@ export class UnifiedStorageManager {
   private mergeStores(localStore: UnifiedCardStore, remoteStore: UnifiedCardStore): UnifiedCardStore {
     const canonicalLocal = this.prepareCanonicalStore(localStore);
     const canonicalRemote = this.prepareCanonicalStore(remoteStore);
+    const mergedDeletedXiuyuans = this.mergeDeletionTombstones(
+      canonicalLocal.deletedXiuyuans || {},
+      canonicalRemote.deletedXiuyuans || {},
+    );
 
     const mergedXiuyuans: Record<string, IXiuyuan> = {
       ...canonicalRemote.xiuyuans,
@@ -687,6 +929,12 @@ export class UnifiedStorageManager {
         ? this.chooseMostRecentXiuyuan(localXiuyuan, remoteXiuyuan)
         : JSON.parse(JSON.stringify(localXiuyuan)) as IXiuyuan;
     }
+    const activeDeletedXiuyuans = this.applyXiuyuanDeletionTombstones(mergedXiuyuans, mergedDeletedXiuyuans);
+
+    const mergedDeletedCardDTOsBase = this.mergeDeletionTombstones(
+      canonicalLocal.deletedCardDTOs || {},
+      canonicalRemote.deletedCardDTOs || {},
+    );
 
     const mergedCardDTOs: Record<string, CardPersistenceDTO> = {
       ...(canonicalRemote.cardDTOs || {}),
@@ -698,6 +946,15 @@ export class UnifiedStorageManager {
         ? this.chooseMostRecentCard(localDto, remoteDto)
         : JSON.parse(JSON.stringify(localDto)) as CardPersistenceDTO;
     }
+    const mergedDeletedCardDTOsWithXiuyuanDeletes = this.applyXiuyuanDeletionToCardDTOs(
+      mergedCardDTOs,
+      activeDeletedXiuyuans,
+      mergedDeletedCardDTOsBase,
+    );
+    const activeDeletedCardDTOs = this.applyCardDeletionTombstones(
+      mergedCardDTOs,
+      mergedDeletedCardDTOsWithXiuyuanDeletes,
+    );
 
     const mergedBlacklist = Array.from(
       new Set([
@@ -712,10 +969,16 @@ export class UnifiedStorageManager {
     }
 
     return {
-      version: Math.max(this.toNumber(canonicalLocal.version), this.toNumber(canonicalRemote.version), 1),
+      version: Math.max(
+        this.toNumber(canonicalLocal.version),
+        this.toNumber(canonicalRemote.version),
+        CURRENT_UNIFIED_CARD_STORE_VERSION,
+      ),
       xiuyuans: mergedXiuyuans,
       cards: mergedCards,
       cardDTOs: mergedCardDTOs,
+      deletedCardDTOs: activeDeletedCardDTOs,
+      deletedXiuyuans: activeDeletedXiuyuans,
       riffBlacklist: mergedBlacklist,
       riffSyncState: this.chooseMostRecentRiffSyncState(
         this.sanitizeRiffSyncState(canonicalLocal.riffSyncState),
@@ -881,6 +1144,8 @@ export class UnifiedStorageManager {
     const sourceCardDTOs = this.extractCardDTOs(store);
     const xiuyuans: Record<string, IXiuyuan> = {};
     const cardDTOs: Record<string, CardPersistenceDTO> = {};
+    const deletedCardDTOs = this.sanitizeDeletionTombstones(store.deletedCardDTOs);
+    const deletedXiuyuans = this.sanitizeDeletionTombstones(store.deletedXiuyuans);
 
     for (const [id, xiuyuan] of Object.entries(sourceXiuyuans)) {
       xiuyuans[id] = normalizeXiuyuanOwnership(JSON.parse(JSON.stringify(xiuyuan)) as IXiuyuan);
@@ -908,6 +1173,17 @@ export class UnifiedStorageManager {
       });
     }
 
+    const activeDeletedXiuyuans = this.applyXiuyuanDeletionTombstones(xiuyuans, deletedXiuyuans);
+    const deletedCardDTOsWithXiuyuanDeletes = this.applyXiuyuanDeletionToCardDTOs(
+      cardDTOs,
+      activeDeletedXiuyuans,
+      deletedCardDTOs,
+    );
+    const activeDeletedCardDTOs = this.applyCardDeletionTombstones(
+      cardDTOs,
+      deletedCardDTOsWithXiuyuanDeletes,
+    );
+
     const cards: Record<string, FSRSCard> = {};
     for (const [id, dto] of Object.entries(cardDTOs)) {
       cards[id] = this.toDomainCard(dto, xiuyuans);
@@ -925,10 +1201,12 @@ export class UnifiedStorageManager {
       : undefined;
 
     return {
-      version: Math.max(this.toNumber(store.version), 1),
+      version: Math.max(this.toNumber(store.version), CURRENT_UNIFIED_CARD_STORE_VERSION),
       xiuyuans,
       cards,
       cardDTOs,
+      deletedCardDTOs: activeDeletedCardDTOs,
+      deletedXiuyuans: activeDeletedXiuyuans,
       riffBlacklist: this.sanitizeRiffBlacklist(store.riffBlacklist),
       riffSyncState: this.sanitizeRiffSyncState(store.riffSyncState),
       syncMetadata,
@@ -969,6 +1247,8 @@ export class UnifiedStorageManager {
       version: canonicalStore.version,
       xiuyuans: canonicalStore.xiuyuans,
       cardDTOs: canonicalStore.cardDTOs || {},
+      deletedCardDTOs: canonicalStore.deletedCardDTOs || {},
+      deletedXiuyuans: canonicalStore.deletedXiuyuans || {},
       riffBlacklist: canonicalStore.riffBlacklist || [],
       riffSyncState: canonicalStore.riffSyncState || {},
     });
@@ -977,7 +1257,7 @@ export class UnifiedStorageManager {
 
   private captureSnapshotFromStore(store: UnifiedCardStore): void {
     const canonicalStore = this.prepareCanonicalStore(store);
-    const snapshotHash = canonicalStore.syncMetadata?.contentHash || this.calculateContentHash(canonicalStore);
+    const snapshotHash = this.calculateContentHash(canonicalStore);
     const snapshotRevision = canonicalStore.syncMetadata
       ? this.toNumber(canonicalStore.syncMetadata.revision)
       : this.lastKnownRevision;
@@ -1193,11 +1473,23 @@ export class UnifiedStorageManager {
       cards[id] = this.toDomainCard(dto);
     }
 
-    return {
-      version: 1,
+    const deletedCardDTOs: Record<string, StorageDeletionTombstone> = {};
+    for (const [id, tombstone] of this.deletedCardDTOs.entries()) {
+      deletedCardDTOs[id] = tombstone;
+    }
+
+    const deletedXiuyuans: Record<string, StorageDeletionTombstone> = {};
+    for (const [id, tombstone] of this.deletedXiuyuans.entries()) {
+      deletedXiuyuans[id] = tombstone;
+    }
+
+    const storeData: UnifiedCardStore = {
+      version: CURRENT_UNIFIED_CARD_STORE_VERSION,
       xiuyuans,
       cards,  // 鍚戝悗鍏煎
       cardDTOs,  // 涓绘暟鎹簮
+      deletedCardDTOs,
+      deletedXiuyuans,
       riffBlacklist: Array.from(this.riffBlacklist),
       riffSyncState: this.sanitizeRiffSyncState(this.riffSyncState),
       syncMetadata: this.lastKnownContentHash
@@ -1209,6 +1501,15 @@ export class UnifiedStorageManager {
           }
         : undefined,
     };
+
+    if (storeData.syncMetadata) {
+      storeData.syncMetadata = {
+        ...storeData.syncMetadata,
+        contentHash: this.calculateContentHash(storeData),
+      };
+    }
+
+    return storeData;
   }
 
   restoreStoreSnapshot(store: UnifiedCardStore): void {
@@ -1279,6 +1580,20 @@ export class UnifiedStorageManager {
       return this.runWriteMutation('createCardDTO', async () => {
       try {
         const canonicalXiuyuan = this.resolveCanonicalXiuyuanSnapshot(xiuyuan);
+        const canonicalXiuyuanUpdatedAt = readFiniteNumber(canonicalXiuyuan.updatedAt);
+        if (this.isBlockedByDeletionTombstone(
+          this.deletedXiuyuans,
+          canonicalXiuyuan.id,
+          canonicalXiuyuanUpdatedAt,
+        )) {
+          logger.warn('[UnifiedStorageManager] Ignored stale Xiuyuan recreation blocked by tombstone', {
+            xiuyuanId: canonicalXiuyuan.id,
+            deletedAt: this.deletedXiuyuans.get(canonicalXiuyuan.id)?.deletedAt,
+            updatedAt: canonicalXiuyuanUpdatedAt,
+          });
+          return ok(undefined);
+        }
+
         const normalizedDto: CardPersistenceDTO = {
           ...dto,
           xiuyuanID: canonicalXiuyuan.id,
@@ -1287,6 +1602,19 @@ export class UnifiedStorageManager {
             xiuyuanID: canonicalXiuyuan.id,
           },
         };
+        const normalizedUpdatedAt = readFiniteNumber(normalizedDto.updatedAt);
+        if (this.isBlockedByDeletionTombstone(
+          this.deletedCardDTOs,
+          normalizedDto.id,
+          normalizedUpdatedAt,
+        )) {
+          logger.warn('[UnifiedStorageManager] Ignored stale card recreation blocked by tombstone', {
+            cardId: normalizedDto.id,
+            deletedAt: this.deletedCardDTOs.get(normalizedDto.id)?.deletedAt,
+            updatedAt: normalizedUpdatedAt,
+          });
+          return ok(undefined);
+        }
 
         const existingXiuyuan = this.xiuyuans.get(canonicalXiuyuan.id);
         this.xiuyuans.set(
@@ -1295,6 +1623,7 @@ export class UnifiedStorageManager {
             ? mergeXiuyuanSnapshots(existingXiuyuan, canonicalXiuyuan).value
             : canonicalXiuyuan,
         );
+        this.clearXiuyuanDeletionTombstoneIfRecreated(canonicalXiuyuan);
 
         const existingById = this.cardDTOs.get(normalizedDto.id);
         if (existingById) {
@@ -1311,6 +1640,7 @@ export class UnifiedStorageManager {
         }
 
         this.cardDTOs.set(normalizedDto.id, normalizedDto);
+        this.clearCardDeletionTombstoneIfRecreated(normalizedDto);
         this.updateIndexesForDTO(normalizedDto, 'add');
 
         // 閲嶆柊鎺掑簭 due 绱㈠紩浠ヤ繚鎸佷竴鑷存€?
@@ -1369,6 +1699,19 @@ export class UnifiedStorageManager {
               }
             : dto.meta,
         };
+        const normalizedUpdatedAt = readFiniteNumber(normalizedDto.updatedAt);
+        const clearsCardTombstone = this.wouldClearDeletionTombstone(
+          this.deletedCardDTOs,
+          normalizedDto.id,
+          normalizedUpdatedAt,
+        );
+        const clearsXiuyuanTombstone = canonicalXiuyuan && canonicalXiuyuanId
+          ? this.wouldClearDeletionTombstone(
+              this.deletedXiuyuans,
+              canonicalXiuyuanId,
+              readFiniteNumber(canonicalXiuyuan.updatedAt),
+            )
+          : false;
 
         const storedCanonicalXiuyuan = canonicalXiuyuanId
           ? this.xiuyuans.get(canonicalXiuyuanId)
@@ -1382,7 +1725,13 @@ export class UnifiedStorageManager {
             })
           : null;
 
-        if (!logicalDuplicate && !shouldUpsertCanonicalXiuyuan && areStructurallyEqual(oldDTO, normalizedDto)) {
+        if (
+          !logicalDuplicate
+          && !shouldUpsertCanonicalXiuyuan
+          && !clearsCardTombstone
+          && !clearsXiuyuanTombstone
+          && areStructurallyEqual(oldDTO, normalizedDto)
+        ) {
           logger.debug('[UnifiedStorageManager] updateCardDTO no-op skipped', {
             cardId: normalizedDto.id,
           });
@@ -1410,6 +1759,10 @@ export class UnifiedStorageManager {
           this.cardDTOs.delete(logicalDuplicate.id);
 
           this.cardDTOs.set(merged.id, merged);
+          if (canonicalXiuyuan) {
+            this.clearXiuyuanDeletionTombstoneIfRecreated(canonicalXiuyuan);
+          }
+          this.clearCardDeletionTombstoneIfRecreated(merged);
           this.updateIndexesForDTO(merged, 'add');
           this.indexByDue.sort((a, b) => a.due - b.due);
           this.scheduleSave('update-card-dto-logical-merge');
@@ -1431,6 +1784,10 @@ export class UnifiedStorageManager {
 
         // 鏇存柊 DTO
         this.cardDTOs.set(normalizedDto.id, normalizedDto);
+        if (canonicalXiuyuan) {
+          this.clearXiuyuanDeletionTombstoneIfRecreated(canonicalXiuyuan);
+        }
+        this.clearCardDeletionTombstoneIfRecreated(normalizedDto);
 
         logger.info('[UnifiedStorageManager] updateCardDTO - After update:', {
           cardId: normalizedDto.id,
@@ -1561,6 +1918,8 @@ export class UnifiedStorageManager {
       if (!dto) {
         return err(new Error(`Card not found: ${cardId}`));
       }
+      const deletedAt = Date.now();
+      this.recordDeletionTombstone(this.deletedCardDTOs, cardId, deletedAt);
 
       const card = this.toDomainCard(dto);
 
@@ -1576,6 +1935,7 @@ export class UnifiedStorageManager {
         const xiuyuanCards = this.indexByXiuyuanID.get(xiuyuanID);
         if (!xiuyuanCards || xiuyuanCards.length === 0) {
           // 娌℃湁鍏朵粬鍗＄墖寮曠敤姝?XiuYuan锛屽垹闄ゅ畠
+          this.recordDeletionTombstone(this.deletedXiuyuans, xiuyuanID, deletedAt);
           this.xiuyuans.delete(xiuyuanID);
         }
       }
@@ -1601,6 +1961,8 @@ export class UnifiedStorageManager {
       if (!xiuyuan) {
         return err(new Error(`XiuYuan not found: ${xiuyuanId}`));
       }
+      const deletedAt = Date.now();
+      this.recordDeletionTombstone(this.deletedXiuyuans, xiuyuanId, deletedAt);
 
       // 鑾峰彇鎵€鏈夊叧鑱斿崱鐗?
       const cardIds = this.indexByXiuyuanID.get(xiuyuanId) || [];
@@ -1609,6 +1971,7 @@ export class UnifiedStorageManager {
       for (const cardId of [...cardIds]) {
         const dto = this.cardDTOs.get(cardId);
         if (dto) {
+          this.recordDeletionTombstone(this.deletedCardDTOs, cardId, deletedAt);
           const card = this.toDomainCard(dto);
           this.updateIndexesForCard(card, 'remove');
           this.cardDTOs.delete(cardId);

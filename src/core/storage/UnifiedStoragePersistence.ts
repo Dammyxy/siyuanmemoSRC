@@ -99,10 +99,12 @@ export function createPersistenceCallbacks(plugin: PersistencePlugin) {
  */
 function createEmptyStore(): UnifiedCardStore {
   return {
-    version: 1,
+    version: 2,
     xiuyuans: {},
     cards: {},
     cardDTOs: {},
+    deletedCardDTOs: {},
+    deletedXiuyuans: {},
     riffBlacklist: [],
     riffSyncState: {},
   };

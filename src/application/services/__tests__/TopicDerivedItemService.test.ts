@@ -331,6 +331,47 @@ describe('TopicDerivedItemService', () => {
     expect(nativeRiffApi.addRiffCards).toHaveBeenCalledWith('builtin-deck', ['derived-block-1']);
   });
 
+  it('skips malformed basic lines and uses a later valid basic line for derivation', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider('workbench'),
+    );
+
+    const result = await service.createFromTopicSource({
+      sourceBlockId: 'source-block-basic-1',
+      sourceDocId: 'doc-root-basic-1',
+      parentTopicCardId: 'topic-card-basic-1',
+      plannerContent: '测试>>\nAlpha <> Beta',
+      decisions: [{
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-bidirectional-single',
+        cardType: 'item',
+        mode: 'multi-face',
+        executorKind: 'quick-basic',
+        direction: 'both',
+        priority: 50,
+      }],
+    });
+
+    expect(result.created).toBe(1);
+    expect(progressiveReadingService.service.createChildDocFromSource).toHaveBeenCalledWith(expect.objectContaining({
+      contentMarkdown: 'Alpha <> Beta',
+      previewText: 'Beta',
+    }));
+    expect(cardService.service.createCard).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({
+        question: 'Alpha',
+        answer: 'Beta',
+      }),
+    }));
+  });
+
   it('skips already-derived fingerprints instead of creating duplicate child docs', async () => {
     const existingCards = [
       {

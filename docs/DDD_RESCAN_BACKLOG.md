@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 134)
+Last update: 2026-04-25 (Round 135)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-25 - basic-symbol hardening, tombstone-safe storage merge, and blockId delete sync unification
+
+- Task: 修复监听制卡把 `测试>>` / 裸 `<>` 之类畸形符号行误当 basic 卡、统一存储 merge 把已删卡片合回来，以及浏览器/复习页取消闪卡后刷新“回魂”的三条共享主链。
+- Touched slice: Quick/basic parse path across `src/core/card/post-creation/rules/{rule-utils.ts,BasicDirectionRule.ts,__tests__/BasicDirectionRule.test.ts}`, `src/application/{handlers/AutoCardHandler.ts,services/{TopicDerivedItemService.ts,DocumentPostCreationScanService.ts}}` and related tests; storage merge path across `src/core/storage/{UnifiedStorageManager.ts,UnifiedStoragePersistence.ts,__tests__/UnifiedStorageManager.sync-conflict.test.ts}`; delete-sync path across `src/core/xiuyuan/domain/{Xiuyuan.ts,events/{CardDeletedEvent.ts,CardsDeletedEvent.ts}}`, `src/application/{usecases/card/{DeleteCardUseCase.ts,DeleteCardsUseCase.ts},services/{XiuyuanSyncService.ts,__tests__/XiuyuanSyncService.native-riff-semantic-routing.test.ts}}`, `src/infrastructure/events/RiffSyncEventHandler.ts`, delete-usecase tests, `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: basic 卡符号识别不再只靠“文本里出现了 `>> / << / <>`”，而是统一走共享解析器，只有两侧都有有效内容时才会进入 basic 制卡；`AutoCardHandler`、`TopicDerivedItemService`、doc post-scan 都改成优先挑选“能被合法解析的那一行”，不会再因为前面一条半截符号行把后续合法 basic 行吞掉。`UnifiedStorageManager` 升级成 version 2 canonical store，新增 `deletedCardDTOs / deletedXiuyuans` tombstone、64-bit FNV-1a 内容哈希，并在 canonicalization / merge 时先应用 tombstone 再合并实体，已删卡片和 Xiuyuan 不会再被多窗口/外部旧快照合回来。主动删除链路也已统一成 `blockId` 事件驱动：use case 只删本地聚合和块属性，`RiffSyncEventHandler` 再把 `blockId / blockIds` 交给 `XiuyuanSyncService.deleteSync*()`；Riff 删除失败且开启 fallback 时，会把 blockId 持久写进 `RiffBlacklistService`，刷新/重启后也不会再被同步补回。
+- Debt deferred: 这轮没有继续把 `CardDeletedEvent` 之外的历史领域事件流做全面瘦身，所以某些测试夹具里仍能看到 delete 用例顺带发布创建时残留的 `XiuyuanCreated / CardCreated` 事件；另外，短期 `deletionTracker` 仍保留它现有的短窗口职责，只负责近实时防抖，不去替代 tombstone / 持久黑名单的 durable 语义。
+- Why deferred: 当前用户阻塞是 malformed basic 误判、存储冲突复活已删实体、以及“取消闪卡刷新后回来”；这三条已经通过共享解析器、tombstone merge 和 blockId delete sync 收口。继续扩大到领域事件清洗或 tracker 生命周期统一，会把本轮从高价值 bugfix 扩成更宽的事件架构重做。
+- Next safe step: 如果后续还观察到删除后残影，优先沿 `CardDeleted/CardsDeleted.blockId(s)` 和 `UnifiedStorageManager` tombstone 日志核对具体是“本地未删干净”还是“Riff 侧删失败但未入黑名单”；如果未来要继续精简事件总线，再单开一轮把 delete path 的“历史创建事件残留”与 batch-delete 专用事件契约一并整理掉。
+- Validation: `pnpm vitest run src/core/card/post-creation/rules/__tests__/BasicDirectionRule.test.ts src/application/handlers/__tests__/AutoCardHandler.inline-content-normalize.test.ts src/application/services/__tests__/TopicDerivedItemService.test.ts src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts src/application/usecases/card/__tests__/DeleteCardPersistence.test.ts src/application/usecases/card/__tests__/DeleteCardsUseCase.test.ts src/application/usecases/card/__tests__/DeleteDescriptorBlockResolution.test.ts src/application/usecases/card/__tests__/DeleteListTemplateBlockResolution.test.ts src/application/services/__tests__/XiuyuanSyncService.native-riff-semantic-routing.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - shared review direct CDF block-flow render contract hardening
 

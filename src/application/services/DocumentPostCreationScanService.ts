@@ -3,6 +3,7 @@ import {
   resolveDefaultCapabilities,
   type CreationDecision,
 } from '@/core/card/post-creation/contracts';
+import { selectPreferredInlineSymbolLine } from '@/core/card/post-creation/rules/rule-utils';
 import {
   PostCreationConflictMediator,
   type ConflictPromptPort,
@@ -46,23 +47,7 @@ function buildInClause(ids: string[]): string {
 }
 
 function normalizeInlineSymbolContent(content: string): string {
-  const normalized = String(content || '')
-    .replace(/\{:[^{}\n]*\}/g, '')
-    .replace(/\r/g, '')
-    .trim();
-  if (!normalized) {
-    return '';
-  }
-
-  const firstLine = normalized
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) || normalized;
-
-  return firstLine
-    .replace(/^[-*+]\s+/, '')
-    .replace(/^\d+\.\s+/, '')
-    .trim();
+  return selectPreferredInlineSymbolLine(content);
 }
 
 function normalizeSingleBlockDetectionContent(blockType: string, content: string): string {

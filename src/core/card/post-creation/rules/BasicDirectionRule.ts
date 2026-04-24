@@ -1,17 +1,16 @@
 import type { CreationDecision, PostCreationContext, PostCreationRule } from '../contracts';
-import { hasBasicDirectionSymbol, resolveBasicDirection } from './rule-utils';
+import { parseBasicDirectionContent } from './rule-utils';
 
 export class BasicDirectionRule implements PostCreationRule {
   readonly id = 'BasicDirectionRule';
 
   match(context: PostCreationContext): CreationDecision | null {
-    const content = String(context.content || '');
-    if (!hasBasicDirectionSymbol(content)) {
+    const parsed = parseBasicDirectionContent(String(context.content || ''));
+    if (!parsed) {
       return null;
     }
 
-    const direction = resolveBasicDirection(content);
-    const bidirectional = direction === 'both';
+    const bidirectional = parsed.direction === 'both';
 
     return {
       id: this.id,
@@ -21,7 +20,7 @@ export class BasicDirectionRule implements PostCreationRule {
       mode: bidirectional ? 'multi-face' : 'single',
       executorKind: 'quick-basic',
       renderProfile: 'quick-default',
-      direction,
+      direction: parsed.direction,
       priority: 50,
       conflictGroup: 'single-block',
       hints: {
@@ -30,4 +29,3 @@ export class BasicDirectionRule implements PostCreationRule {
     };
   }
 }
-

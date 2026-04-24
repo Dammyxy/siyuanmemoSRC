@@ -17,6 +17,10 @@ import {
   ATTR_PROGRESSIVE_STORAGE_MODE,
 } from '@/core/siyuan/block';
 import { createLogger } from '@/utils/logger';
+import {
+  parseBasicDirectionContent,
+  selectPreferredInlineSymbolLine,
+} from '@/core/card/post-creation/rules/rule-utils';
 import { isErr } from '@/types/result';
 import type { ProgressiveSourceRootKind } from '@/application/services/ProgressiveSourceContextResolver';
 
@@ -427,32 +431,7 @@ export class TopicDerivedItemService {
   }
 
   private normalizeInlineSymbolContent(content: string): string {
-    const normalized = String(content || '')
-      .replace(/\{:[^{}\n]*\}/g, '')
-      .replace(/\r/g, '')
-      .trim();
-
-    if (!normalized) {
-      return '';
-    }
-
-    const normalizedLines = normalized
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((line) => line
-        .replace(/^[-*+]\s+/, '')
-        .replace(/^\d+\.\s+/, '')
-        .trim())
-      .filter((line) => line.length > 0);
-
-    if (normalizedLines.length === 0) {
-      return '';
-    }
-
-    const symbolLinePattern = />>|》》|<<|《《|<>|《》|::|：：|:>|：》|:<|：《|;;|；；|;<|；<|；《|;<>|；<>|；《》/;
-    const symbolLine = normalizedLines.find((line) => symbolLinePattern.test(line));
-    return symbolLine || normalizedLines[0];
+    return selectPreferredInlineSymbolLine(content);
   }
 
   private parseNormalizedBasic(content: string): {
@@ -460,34 +439,14 @@ export class TopicDerivedItemService {
     answer: string;
     symbolType: string;
   } | null {
-    const bidirectional = content.match(/^(.+?)\s*(<>|《》)\s*(.+)$/u);
-    if (bidirectional) {
-      return {
-        question: String(bidirectional[1] || '').trim(),
-        answer: String(bidirectional[3] || '').trim(),
-        symbolType: '<>',
-      };
-    }
-
-    const forward = content.match(/^(.+?)\s*(>>|》》)\s*(.+)$/u);
-    if (forward) {
-      return {
-        question: String(forward[1] || '').trim(),
-        answer: String(forward[3] || '').trim(),
-        symbolType: '>>',
-      };
-    }
-
-    const backward = content.match(/^(.+?)\s*(<<|《《)\s*(.+)$/u);
-    if (backward) {
-      return {
-        question: String(backward[3] || '').trim(),
-        answer: String(backward[1] || '').trim(),
-        symbolType: '<<',
-      };
-    }
-
-    return null;
+    const parsed = parseBasicDirectionContent(content);
+    return parsed
+      ? {
+          question: parsed.question,
+          answer: parsed.answer,
+          symbolType: parsed.symbol,
+        }
+      : null;
   }
 
   private async createDerivedItemCard(input: {

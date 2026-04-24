@@ -9,6 +9,7 @@ import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletionService';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
+import { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
 import { DeleteCardsUseCase } from '../DeleteCardsUseCase';
 
 function must<T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T {
@@ -87,13 +88,11 @@ describe('DeleteCardsUseCase cleanup aggregation', () => {
       'custom-fsrs-image-occlusion-card-ids': JSON.stringify(cardIds),
     });
     const setBlockAttrsMock = vi.fn().mockResolvedValue(undefined);
-    const removeRiffCardsMock = vi.fn().mockResolvedValue({ name: 'deck', size: 1 });
-
     const siyuanApi: CardDeletionSiyuanPort = {
       BUILTIN_DECK_ID: 'builtin-deck',
       getBlockAttrs: getBlockAttrsMock,
       setBlockAttrs: setBlockAttrsMock,
-      removeRiffCards: removeRiffCardsMock,
+      removeRiffCards: vi.fn().mockResolvedValue({ name: 'deck', size: 1 }),
     };
 
     const deletionTracker: IDeletionTracker = {
@@ -103,10 +102,13 @@ describe('DeleteCardsUseCase cleanup aggregation', () => {
       clear: vi.fn(),
     };
 
+    const eventBus = new EventBus();
+    const publishSpy = vi.spyOn(eventBus, 'publish');
+
     const useCase = new DeleteCardsUseCase(
       repo,
       new CardDeletionService(),
-      new EventBus(),
+      eventBus,
       deletionTracker,
       { siyuanApi }
     );
@@ -129,8 +131,9 @@ describe('DeleteCardsUseCase cleanup aggregation', () => {
       })
     );
 
-    expect(removeRiffCardsMock).toHaveBeenCalledTimes(1);
-    expect(removeRiffCardsMock).toHaveBeenCalledWith('builtin-deck', [descriptorBlockId]);
+    const deletionEvent = publishSpy.mock.calls[0]?.[0] as CardsDeletedEvent | undefined;
+    expect(deletionEvent).toBeInstanceOf(CardsDeletedEvent);
+    expect(deletionEvent?.blockIds).toEqual([descriptorBlockId]);
     expect(deletionTracker.markManyAsDeleted).toHaveBeenCalledWith([descriptorBlockId]);
   });
 });

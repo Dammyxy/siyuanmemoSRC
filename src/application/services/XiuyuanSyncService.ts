@@ -1464,15 +1464,23 @@ export class XiuyuanSyncService {
      *
      * 尝试从 Riff 删除卡片，失败时由调用方决定后续处理。
      */
-        async deleteSync(cardID: string): Promise<boolean> {
+        async deleteSync(blockID: string): Promise<boolean> {
             if (!this.config.deleteSync.enabled) {
                 logger.info('Delete sync disabled');
                 return true;
             }
 
-            logger.info(`Syncing delete for card: ${cardID}`);
+            const normalizedBlockId = typeof blockID === 'string'
+                ? blockID.trim()
+                : normalizeBlockId(blockID);
+            if (!normalizedBlockId) {
+                logger.warn('Skip delete sync because blockId is invalid', { blockID });
+                return false;
+            }
 
-            return this.deleteSyncSingle(cardID);
+            logger.info(`Syncing delete for block: ${normalizedBlockId}`);
+
+            return this.deleteSyncSingle(normalizedBlockId);
         }
 
     /**
@@ -1481,44 +1489,50 @@ export class XiuyuanSyncService {
      * 批量从 Riff 删除多张卡片，使用并发处理提升性能。
      * 失败的卡片会加入黑名单（如果启用）。
      *
-     * @param cardIDs - 卡片 ID 列表
+     * @param blockIDs - 块 ID 列表
      * @returns 成功删除的数量
      */
-    async deleteSyncBatch(cardIDs: string[]): Promise<number> {
+    async deleteSyncBatch(blockIDs: string[]): Promise<number> {
         if (!this.config.deleteSync.enabled) {
             logger.info('Delete sync disabled');
             return 0;
         }
 
-        if (cardIDs.length === 0) {
+        const normalizedBlockIds = Array.from(new Set(
+            blockIDs
+                .map(blockId => (typeof blockId === 'string' ? blockId.trim() : normalizeBlockId(blockId)))
+                .filter((blockId): blockId is string => typeof blockId === 'string' && blockId.length > 0)
+        ));
+
+        if (normalizedBlockIds.length === 0) {
             return 0;
         }
 
-        logger.info(`Batch syncing delete for ${cardIDs.length} cards`);
+        logger.info(`Batch syncing delete for ${normalizedBlockIds.length} blocks`);
 
         // 使用 Promise.allSettled 并发处理，避免单个失败影响整体
         const results = await Promise.allSettled(
-            cardIDs.map(cardID => this.deleteSyncSingle(cardID))
+            normalizedBlockIds.map(blockID => this.deleteSyncSingle(blockID))
         );
 
         // 统计结果
         let successCount = 0;
         let failedCount = 0;
-        const failedCardIds: string[] = [];
+        const failedBlockIds: string[] = [];
 
         results.forEach((result, index) => {
             if (result.status === 'fulfilled' && result.value) {
                 successCount++;
             } else {
                 failedCount++;
-                failedCardIds.push(cardIDs[index]);
+                failedBlockIds.push(normalizedBlockIds[index]);
             }
         });
 
         logger.info(`Batch delete sync completed: ${successCount} success, ${failedCount} failed`);
 
-        if (failedCardIds.length > 0) {
-            logger.warn('Failed card IDs:', failedCardIds);
+        if (failedBlockIds.length > 0) {
+            logger.warn('Failed block IDs:', failedBlockIds);
         }
 
         return successCount;
@@ -1530,20 +1544,30 @@ export class XiuyuanSyncService {
      * 从 deleteSync 提取的核心逻辑，用于批量处理。
      *
      * @private
-     * @param cardID - 卡片 ID
+     * @param blockID - 块 ID
      * @returns 是否成功
      */
-    private async deleteSyncSingle(cardID: string): Promise<boolean> {
+    private async deleteSyncSingle(blockID: string): Promise<boolean> {
         try {
             // 使用重试机制尝试从 Riff 删除
             await this.withRetry('delete', async () => {
-                await this.siyuanApi.removeRiffCards(this.config.deckId, [cardID]);
+                await this.siyuanApi.removeRiffCards(this.config.deckId, [blockID]);
             });
 
-            logger.info(`Successfully removed card from Riff: ${cardID}`);
+            logger.info(`Successfully removed block from Riff: ${blockID}`);
             return true;
         } catch (error) {
-            logger.error(`Failed to remove card from Riff after retries: ${cardID}`, error);
+            logger.error(`Failed to remove block from Riff after retries: ${blockID}`, error);
+
+            if (this.config.deleteSync.useBlacklistFallback) {
+                try {
+                    await this.riffBlacklistService.addToBlacklist(blockID);
+                    logger.warn(`Added block to persistent riff blacklist after delete sync failure: ${blockID}`);
+                } catch (blacklistError) {
+                    logger.error(`Failed to persist blacklist fallback for block: ${blockID}`, blacklistError);
+                }
+            }
+
             return false;
         }
     }

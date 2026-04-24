@@ -138,10 +138,7 @@ export class DeleteCardsUseCase {
 
       this.mergeCleanupTargets(cleanupTargets, deleteResult.cleanupTargets);
 
-      // 3.5 发布该 Xiuyuan 的领域事件
-      const events = xiuyuan.getDomainEvents();
-      logger.info(`[DeleteCardsUseCase] 📢 发布 ${events.length} 个领域事件 (Xiuyuan ${xiuyuanIdStr})`);
-      await this.eventBus.publishAll(events);
+      // 批量删除统一通过 batch 事件向外同步，避免重复触发逐卡 Riff 删除。
       xiuyuan.clearDomainEvents();
     }
 
@@ -156,19 +153,13 @@ export class DeleteCardsUseCase {
       logger.info(`[DeleteCardsUseCase] 🔖 标记 ${blockIdsToClean.length} 个块为已删除`);
     }
 
-    // 5. 批量从 Riff 删除
-    if (blockIdsToClean.length > 0) {
-      logger.info(`[DeleteCardsUseCase] 🔄 从 Riff 批量删除 ${blockIdsToClean.length} 张卡片`);
-      await this.deleteFromRiffBatch(blockIdsToClean);
-    }
-
-    // 6. 发布批量删除事件（一次性，用于 RiffSync）
+    // 5. 发布批量删除事件（一次性，用于 RiffSync）
     if (deletedCardIds.length > 0) {
       logger.info(`[DeleteCardsUseCase] 📢 发布批量删除事件: ${deletedCardIds.length} 张卡片`);
-      await this.eventBus.publish(new CardsDeletedEvent('batch-delete', deletedCardIds));
+      await this.eventBus.publish(new CardsDeletedEvent('batch-delete', deletedCardIds, blockIdsToClean));
     }
 
-    // 7. 返回删除结果
+    // 6. 返回删除结果
     const result: DeleteCardsResult = {
       deletedCount: deletedCardIds.length,
       deletedCardIds,
@@ -250,6 +241,11 @@ export class DeleteCardsUseCase {
 
         if (blockId) {
           this.addCleanupTarget(cleanupTargets, blockId, actualCardId.getValue());
+        } else {
+          logger.warn(`[DeleteCardsUseCase] Deleted card has no resolved blockId; Riff delete sync will be skipped`, {
+            cardId: actualCardId.getValue(),
+            xiuyuanId: xiuyuan.getId().getValue(),
+          });
         }
 
         deleted.push(cardIdStr);
@@ -314,12 +310,6 @@ export class DeleteCardsUseCase {
     }
   }
 
-  /**
-   * 批量从 Riff 删除卡片
-   * 
-   * @private
-   * @param blockIds - 块 ID 列表
-   */
   private addCleanupTarget(targets: CleanupTargetMap, blockId: string, cardId: string): void {
     if (!targets.has(blockId)) {
       targets.set(blockId, new Set());
@@ -337,15 +327,6 @@ export class DeleteCardsUseCase {
       for (const cardId of cardIdSet) {
         merged.add(cardId);
       }
-    }
-  }
-
-  private async deleteFromRiffBatch(blockIds: string[]): Promise<void> {
-    try {
-      await this.siyuanApi.removeRiffCards(this.siyuanApi.BUILTIN_DECK_ID, blockIds);
-      logger.info(`[DeleteCardsUseCase] ✅ 从 Riff 批量删除成功: ${blockIds.length} 张卡片`);
-    } catch (error) {
-      logger.error(`[DeleteCardsUseCase] ❌ 从 Riff 批量删除失败:`, error);
     }
   }
 }

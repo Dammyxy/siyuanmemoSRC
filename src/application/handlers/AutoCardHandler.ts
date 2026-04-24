@@ -9,6 +9,10 @@ import { ClozeDetector } from '@/utils/cloze-detector';
 import { isErr, type Result } from '@/types/result';
 import { UnifiedPostCreationPlanner } from '@/core/card/post-creation/UnifiedPostCreationPlanner';
 import type { CreationDecision } from '@/core/card/post-creation/contracts';
+import {
+    parseBasicDirectionContent,
+    selectPreferredInlineSymbolLine,
+} from '@/core/card/post-creation/rules/rule-utils';
 import { PostCreationConflictMediator } from '@/application/services/PostCreationConflictMediator';
 import { DocumentPostCreationScanService } from '@/application/services/DocumentPostCreationScanService';
 import {
@@ -1294,39 +1298,21 @@ export class AutoCardHandler implements ITransactionHandler {
     ): Promise<void> {
         try {
             logger.debug('[SiYuanMemo][AutoCard] Creating basic card:', blockId, direction, 'symbol:', actualSymbol);
-            
 
-            let question = '';
-            let answer = '';
-            
-            if (direction === 'forward') {
-                const match = content.match(this.patterns.basicForward);
-                if (match) {
-                    question = match[1].trim();
-                    answer = match[3].trim();
-                }
-            } else if (direction === 'backward') {
-                const match = content.match(this.patterns.basicBackward);
-                if (match) {
-                    answer = match[1].trim();
-                    question = match[3].trim();
-                }
-            } else if (direction === 'both') {
-
-                const match = content.match(this.patterns.basicBoth);
-                if (match) {
-                    const term = match[1].trim();
-                    const definition = match[3].trim();
-                    await this.createBidirectionalCard(blockId, term, definition, cardType, source, decision);
-                    return;
-                }
-            }
-            
-            if (!question || !answer) {
+            const parsed = parseBasicDirectionContent(content);
+            if (!parsed || parsed.direction !== direction) {
                 logger.error('[SiYuanMemo][AutoCard] Failed to parse basic card content:', content);
                 return;
             }
-            
+
+            const question = parsed.question;
+            const answer = parsed.answer;
+
+            if (parsed.direction === 'both') {
+                await this.createBidirectionalCard(blockId, question, answer, cardType, source, decision);
+                return;
+            }
+
 
             const { ClozeDetector } = await import('@/utils/cloze-detector');
             const backClozes = ClozeDetector.extractClozes(answer);
@@ -1347,7 +1333,7 @@ export class AutoCardHandler implements ITransactionHandler {
                         back: answer,
                         clozes: backClozes,
                         direction: 'forward',
-                        symbol: actualSymbol
+                        symbol: actualSymbol ?? parsed.symbol
                     },
                 }, source, decision);
                 
@@ -1372,8 +1358,8 @@ export class AutoCardHandler implements ITransactionHandler {
             }
 
             logger.debug('[SiYuanMemo][AutoCard] Basic card created successfully:', blockId, direction);
-            
-            const symbolText = direction === 'forward' ? '>>' : '<<';
+
+            const symbolText = parsed.symbol;
             await this.siyuanApi.pushMsg(`已创建${direction === 'forward' ? '正向' : '反向'}卡片 (${symbolText})`);
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Failed to create basic card:', blockId, error);
@@ -2434,33 +2420,7 @@ export class AutoCardHandler implements ITransactionHandler {
     }
 
     private normalizeInlineSymbolContent(content: string): string {
-        const normalized = String(content || '')
-            .replace(/\{:[^{}\n]*\}/g, '')
-            .replace(/\r/g, '')
-            .trim();
-
-        if (!normalized) {
-            return '';
-        }
-
-        const normalizedLines = normalized
-            .split('\n')
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0)
-            .map((line) => line
-                .replace(/^[-*+]\s+/, '')
-                .replace(/^\d+\.\s+/, '')
-                .trim())
-            .filter((line) => line.length > 0);
-
-        if (normalizedLines.length === 0) {
-            return '';
-        }
-
-        // Prefer the first line that actually carries an inline card symbol.
-        const symbolLinePattern = />>|》》|<<|《《|<>|《》|::|：：|:>|：》|:<|：《|;;|；；|;<|；<|；《|;<>|；<>|；《》/;
-        const symbolLine = normalizedLines.find((line) => symbolLinePattern.test(line));
-        return symbolLine || normalizedLines[0];
+        return selectPreferredInlineSymbolLine(content);
     }
 
     private normalizeClozeSymbolContent(content: string): string {

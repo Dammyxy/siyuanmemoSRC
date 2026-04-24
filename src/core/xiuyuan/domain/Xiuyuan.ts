@@ -260,9 +260,11 @@ export class Xiuyuan {
   deleteCard(cardId: CardId): Result<void> {
     // 🔧 修复：使用 equals() 方法查找要删除的卡片
     let foundKey: CardId | null = null;
+    let deletedCard: Card | null = null;
     for (const key of this.cards.keys()) {
       if (key.equals(cardId)) {
         foundKey = key;
+        deletedCard = this.cards.get(key) ?? null;
         break;
       }
     }
@@ -278,10 +280,15 @@ export class Xiuyuan {
     // 更新时间戳
     this.updatedAt = new Date();
 
+    const deletionBlockId = deletedCard
+      ? this.resolveDeletionBlockIdForFace(deletedCard.getFaceIndex())
+      : null;
+
     // 发布领域事件
     this.addDomainEvent(new CardDeletedEvent(
       this.id.getValue(),
-      cardId.getValue()
+      cardId.getValue(),
+      deletionBlockId
     ));
 
     return ok(undefined);
@@ -452,6 +459,23 @@ export class Xiuyuan {
     return templateID === 'builtin-concept-descriptor' 
       || templateID === 'builtin-concept-descriptor-reverse'
       || templateID === 'builtin-concept-descriptor-both';
+  }
+
+  private resolveDeletionBlockIdForFace(faceIndex: number): string | null {
+    const representativeBlockId = this.getRepresentativeBlockId();
+    if (typeof representativeBlockId === 'string' && representativeBlockId.trim().length > 0) {
+      return representativeBlockId;
+    }
+
+    const backBlockId = this.getBackBlockIDs(faceIndex)[0];
+    const frontBlockId = this.getFrontBlockIDs(faceIndex)[0];
+    const isListTemplateCard = this.getTemplateID().getValue() === 'builtin-list-item';
+
+    if (isListTemplateCard) {
+      return backBlockId || frontBlockId || null;
+    }
+
+    return frontBlockId || backBlockId || null;
   }
 
   /**

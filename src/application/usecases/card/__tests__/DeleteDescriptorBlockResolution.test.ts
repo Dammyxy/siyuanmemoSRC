@@ -9,6 +9,8 @@ import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { CardDeletionService } from '@/core/xiuyuan/domain/services/CardDeletionService';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
+import { CardDeletedEvent } from '@/core/xiuyuan/domain/events/CardDeletedEvent';
+import { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEvent';
 import { DeleteCardUseCase } from '../DeleteCardUseCase';
 import { DeleteCardsUseCase } from '../DeleteCardsUseCase';
 
@@ -80,12 +82,14 @@ describe('Delete descriptor-template block resolution', () => {
   it('DeleteCardUseCase uses representative descriptor block for cleanup and riff removal', async () => {
     const { xiuyuan, cardId, conceptBlockId, descriptorBlockId } = createDescriptorXiuyuan();
     const repo = createRepositoryMock(xiuyuan, cardId);
-    const { siyuanApi, setBlockAttrsMock, removeRiffCardsMock } = createCardDeletionApiMock();
+    const { siyuanApi, setBlockAttrsMock } = createCardDeletionApiMock();
+    const eventBus = new EventBus();
+    const publishSpy = vi.spyOn(eventBus, 'publish');
 
     const useCase = new DeleteCardUseCase(
       repo,
       new CardDeletionService(),
-      new EventBus(),
+      eventBus,
       { siyuanApi }
     );
 
@@ -93,18 +97,22 @@ describe('Delete descriptor-template block resolution', () => {
     expect(result.ok).toBe(true);
 
     const cleanedBlockIds = setBlockAttrsMock.mock.calls.map((call) => call[0]);
-    const riffBlockIds = removeRiffCardsMock.mock.calls.map((call) => call[1][0]);
+    const deletionEvent = publishSpy.mock.calls
+      .map((call) => call[0])
+      .find((event): event is CardDeletedEvent => event instanceof CardDeletedEvent);
 
     expect(cleanedBlockIds).toContain(descriptorBlockId);
     expect(cleanedBlockIds).not.toContain(conceptBlockId);
-    expect(riffBlockIds).toContain(descriptorBlockId);
-    expect(riffBlockIds).not.toContain(conceptBlockId);
+    expect(deletionEvent).toBeInstanceOf(CardDeletedEvent);
+    expect(deletionEvent?.blockId).toBe(descriptorBlockId);
   });
 
   it('DeleteCardsUseCase uses representative descriptor block for cleanup and riff removal', async () => {
     const { xiuyuan, cardId, conceptBlockId, descriptorBlockId } = createDescriptorXiuyuan();
     const repo = createRepositoryMock(xiuyuan, cardId);
-    const { siyuanApi, setBlockAttrsMock, removeRiffCardsMock } = createCardDeletionApiMock();
+    const { siyuanApi, setBlockAttrsMock } = createCardDeletionApiMock();
+    const eventBus = new EventBus();
+    const publishSpy = vi.spyOn(eventBus, 'publish');
 
     const deletionTracker: IDeletionTracker = {
       markAsDeleted: vi.fn(),
@@ -116,7 +124,7 @@ describe('Delete descriptor-template block resolution', () => {
     const useCase = new DeleteCardsUseCase(
       repo,
       new CardDeletionService(),
-      new EventBus(),
+      eventBus,
       deletionTracker,
       { siyuanApi }
     );
@@ -129,12 +137,14 @@ describe('Delete descriptor-template block resolution', () => {
 
     expect(result.value.deletedCount).toBe(1);
     const cleanedBlockIds = setBlockAttrsMock.mock.calls.map((call) => call[0]);
-    const riffBlockIds = removeRiffCardsMock.mock.calls.map((call) => call[1][0]);
+    const deletionEvent = publishSpy.mock.calls
+      .map((call) => call[0])
+      .find((event): event is CardsDeletedEvent => event instanceof CardsDeletedEvent);
 
     expect(cleanedBlockIds).toContain(descriptorBlockId);
     expect(cleanedBlockIds).not.toContain(conceptBlockId);
-    expect(riffBlockIds).toContain(descriptorBlockId);
-    expect(riffBlockIds).not.toContain(conceptBlockId);
+    expect(deletionEvent).toBeInstanceOf(CardsDeletedEvent);
+    expect(deletionEvent?.blockIds).toEqual([descriptorBlockId]);
     expect(deletionTracker.markManyAsDeleted).toHaveBeenCalledWith([descriptorBlockId]);
   });
 });

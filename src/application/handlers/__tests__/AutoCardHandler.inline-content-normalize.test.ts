@@ -42,5 +42,12 @@ describe('AutoCardHandler normalizeInlineSymbolContent', () => {
     const normalized = normalizeInlineSymbolContent('第一行说明\n第二行说明');
     expect(normalized).toBe('第一行说明');
   });
-});
 
+  it('prefers a later valid basic line over an earlier malformed one', () => {
+    const handler = createHandler();
+    const normalizeInlineSymbolContent = (handler as any).normalizeInlineSymbolContent.bind(handler);
+
+    const normalized = normalizeInlineSymbolContent('测试>>\n北京<>中国首都');
+    expect(normalized).toBe('北京<>中国首都');
+  });
+});

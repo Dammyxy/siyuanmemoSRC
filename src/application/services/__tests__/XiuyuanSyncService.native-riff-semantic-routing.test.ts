@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { XiuyuanSyncService } from '../XiuyuanSyncService';
 
-function createService(): XiuyuanSyncService {
+function createHarness() {
   const config = {
     deckId: '20200812220555-lj3enxa',
     storage: {},
@@ -20,6 +20,11 @@ function createService(): XiuyuanSyncService {
       enabled: false,
       useBlacklistFallback: true,
     },
+    retry: {
+      maxRetries: 0,
+      retryDelay: 0,
+      backoffMultiplier: 1,
+    },
   } as const;
 
   const eventBus = {
@@ -32,7 +37,13 @@ function createService(): XiuyuanSyncService {
     findById: vi.fn(),
   };
 
-  const blacklistService = {};
+  const blacklistService = {
+    addToBlacklist: vi.fn().mockResolvedValue(undefined),
+    removeFromBlacklist: vi.fn().mockResolvedValue(undefined),
+    filterBlacklist: vi.fn().mockImplementation(async (items: unknown[]) => items),
+    cleanupBlacklist: vi.fn().mockResolvedValue(0),
+    getBlacklist: vi.fn().mockResolvedValue(new Set()),
+  };
   const detectionService = {
     detectCardType: vi.fn().mockResolvedValue('topic'),
   };
@@ -47,7 +58,7 @@ function createService(): XiuyuanSyncService {
     getBlockAttrs: vi.fn(),
   };
 
-  return new XiuyuanSyncService(
+  const service = new XiuyuanSyncService(
     config as never,
     eventBus as never,
     repository as never,
@@ -56,6 +67,21 @@ function createService(): XiuyuanSyncService {
     deletionTracker as never,
     siyuanApi as never
   );
+
+  return {
+    service,
+    config,
+    eventBus,
+    repository,
+    blacklistService,
+    detectionService,
+    deletionTracker,
+    siyuanApi,
+  };
+}
+
+function createService(): XiuyuanSyncService {
+  return createHarness().service;
 }
 
 describe('XiuyuanSyncService native riff semantic routing', () => {
@@ -86,5 +112,53 @@ describe('XiuyuanSyncService native riff semantic routing', () => {
     expect(plan.templateId).toBe('builtin-concept-descriptor');
     expect(plan.cardType).toBe('descriptor');
   });
-});
 
+  it('routes single delete sync by blockId to removeRiffCards', async () => {
+    const { service, siyuanApi } = createHarness();
+    (service as any).config.deleteSync.enabled = true;
+
+    const result = await service.deleteSync('20260101010101-abc1234');
+
+    expect(result).toBe(true);
+    expect(siyuanApi.removeRiffCards).toHaveBeenCalledWith(
+      '20200812220555-lj3enxa',
+      ['20260101010101-abc1234']
+    );
+  });
+
+  it('persists blacklist fallback when delete sync fails', async () => {
+    const { service, siyuanApi, blacklistService } = createHarness();
+    (service as any).config.deleteSync.enabled = true;
+    siyuanApi.removeRiffCards.mockRejectedValue(new Error('network down'));
+
+    const result = await service.deleteSync('20260101010101-def5678');
+
+    expect(result).toBe(false);
+    expect(blacklistService.addToBlacklist).toHaveBeenCalledWith('20260101010101-def5678');
+  });
+
+  it('batch delete sync counts successful block removals', async () => {
+    const { service, siyuanApi } = createHarness();
+    (service as any).config.deleteSync.enabled = true;
+    siyuanApi.removeRiffCards
+      .mockResolvedValueOnce({ name: 'deck', size: 1 })
+      .mockResolvedValueOnce({ name: 'deck', size: 1 });
+
+    const successCount = await service.deleteSyncBatch([
+      '20260101010101-ghi9012',
+      '20260101010101-jkl3456',
+    ]);
+
+    expect(successCount).toBe(2);
+    expect(siyuanApi.removeRiffCards).toHaveBeenNthCalledWith(
+      1,
+      '20200812220555-lj3enxa',
+      ['20260101010101-ghi9012']
+    );
+    expect(siyuanApi.removeRiffCards).toHaveBeenNthCalledWith(
+      2,
+      '20200812220555-lj3enxa',
+      ['20260101010101-jkl3456']
+    );
+  });
+});

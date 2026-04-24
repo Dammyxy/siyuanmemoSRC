@@ -11,6 +11,7 @@ export class CardDeletedEvent extends DomainEvent {
   constructor(
     aggregateId: string,
     public readonly cardId: string,
+    public readonly blockId: string | null,
     occurredOn?: Date
   ) {
     super(aggregateId, occurredOn);
