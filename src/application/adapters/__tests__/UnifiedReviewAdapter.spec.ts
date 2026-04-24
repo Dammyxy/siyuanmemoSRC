@@ -692,6 +692,58 @@ describe('UnifiedReviewAdapter', () => {
     expect(revealedUi.meta.hasHiddenContent).toBe(true);
   });
 
+  it('routes semantic concept-definition cards to the definition block even when card type and typeMarker are unstable', async () => {
+    const card = createCard('semantic-cdf-1', CardType.Descriptor, {
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-concept-definition-reverse',
+        frontBlockIDs: ['definition-block'],
+        backBlockIDs: ['concept-block'],
+        typeMarker: undefined,
+        fieldMapping: {
+          concept: 'concept-block',
+          definition: 'definition-block',
+        },
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('definition-block');
+    expect(ui.content.data).toBe('definition-block');
+    expect(ui.content.answerBlockID).toBe('');
+  });
+
+  it('routes descriptor semantic templates to the descriptor block even when card type is item', async () => {
+    const card = createCard('semantic-descriptor-1', CardType.Item, {
+      meta: createXiuyuanMeta({
+        templateID: 'builtin-concept-descriptor-both',
+        frontBlockIDs: ['concept-block', 'descriptor-front-block'],
+        backBlockIDs: ['concept-block', 'descriptor-back-block'],
+        typeMarker: undefined,
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-back-block',
+        },
+      }),
+    });
+    const adapter = new UnifiedReviewAdapter();
+    const queue = createQueue({
+      queueType: 'retrieval-practice',
+      liveCards: [card],
+    });
+
+    const ui = await adapter.toUIState(queue as never, card as never, createContext());
+
+    expect(ui.content.id).toBe('descriptor-back-block');
+    expect(ui.content.data).toBe('descriptor-back-block');
+    expect(ui.content.answerBlockID).toBe('');
+  });
+
   it('marks ordinary multi-cloze item cards as native inline hidden candidates', async () => {
     const card = createCard('ordinary-cloze-1', CardType.Item, {
       meta: createXiuyuanMeta({

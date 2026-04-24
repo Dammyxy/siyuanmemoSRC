@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 132)
+Last update: 2026-04-24 (Round 133)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - shared review semantic card fallback hardening
+
+- Task: 修复统一复习界面里概念定义卡、描述符卡、概念卡在多个队列中偶发回退成当前文档/块原生 Protyle 渲染的问题，把根因收口到共享 review surface 的语义识别和内容块解析链路。
+- Touched slice: Shared review semantic routing across `src/core/xiuyuan/cardMeta.ts`, `src/application/adapters/{UnifiedReviewAdapter.ts,__tests__/UnifiedReviewAdapter.spec.ts}`, `src/ui/review/v2/{ReviewContent.vue,__tests__/ReviewContent.editor-state.spec.ts,__tests__/ReviewView.source-block-refresh.spec.ts}`, and this backlog.
+- Debt fixed now: `cardMeta` 不再只认脆弱的 `typeMarker`，概念定义卡和描述符卡都会吃 `templateID + fieldMapping` 作为稳定语义信号；`UnifiedReviewAdapter` 不再靠 `card.type === 'descriptor'` 粗暴选内容块，而是把 concept-definition 固定映射到 `definition`、descriptor 固定映射到 `descriptor`；`ReviewContent` 的 special-renderer 选择、fallback semantic detection 和 quick/protyle 竞争边界统一改为共享 helper，并在语义信号存在却仍落回 `main-protyle` 时打出保护日志；`ReviewView` 刷新回归也补强为保留语义 block/template 信号。
+- Debt deferred: 这轮没有继续追评分/切卡后的持久化写回链是否会冲掉 `renderProfile / typeMarker / fieldMapping`；`useCardTypeCache` 仍是 `isConcept/isDescriptor/isQuick` 三值模型，概念卡缓存命中路径还没顺手扩成显式 `isConceptCard`。
+- Why deferred: 当前用户阻塞是“共享复习 surface 偶发把语义卡回退成原生块”，运行时识别和内容块映射已经足够把 active path 收稳；继续扩大到存储写回排查或缓存模型重做会把这轮从精准 bugfix 变成更宽的跨层整治。
+- Next safe step: 如果后续日志仍出现语义卡 fallback，优先沿着这次新增的 `Semantic card fell back to main Protyle` 诊断字段去核对具体队列返回的 card meta；若确认是评分后写回丢字段，再单开一轮修持久化/调度写路径，而不是继续往 UI 层堆特判。
+- Validation: `pnpm vitest run src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-24 - shared CDF direct scene for review concept/descriptor/multiline
 

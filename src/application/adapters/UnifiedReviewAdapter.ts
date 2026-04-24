@@ -1,6 +1,10 @@
 import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats } from '@/core/queue/types';
-import { isXiuyuanCard } from '@/core/xiuyuan/cardMeta';
+import {
+  isConceptDefinitionCard,
+  isDescriptorSemanticCard,
+  isXiuyuanCard,
+} from '@/core/xiuyuan/cardMeta';
 import type { FSRSCard } from '@/types/card';
 import {
   isNeuralRoamSessionQueue,
@@ -145,47 +149,134 @@ function isTopicDocumentCard(item: UnifiedReviewItem, cardType: ReviewCardKind):
   return item.meta?.isDocument === true || item.meta?.blockType === 'd';
 }
 
-function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
-  if (isXiuyuanCard(card) && card.meta.templateID === 'builtin-riff-sync') {
-    return fallbackBlockId || card.meta.frontBlockIDs[0] || '';
+function normalizeBlockId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readFieldMappingBlockId(
+  meta: { fieldMapping?: Record<string, string> },
+  key: string,
+): string {
+  return normalizeBlockId(meta.fieldMapping?.[key]);
+}
+
+function pickPreferredSemanticBlock(
+  candidates: Array<unknown>,
+  blockedBlockId: string,
+): string {
+  for (const candidate of candidates) {
+    const normalized = normalizeBlockId(candidate);
+    if (!normalized) {
+      continue;
+    }
+    if (blockedBlockId && normalized === blockedBlockId) {
+      continue;
+    }
+    return normalized;
   }
 
-  if (card.type === 'descriptor' && isXiuyuanCard(card)) {
-    const descriptorId = card.meta.fieldMapping?.descriptor;
-    if (descriptorId) {
-      logger.debug('Descriptor card uses descriptor field for content block', { descriptorId });
-      return descriptorId;
+  for (const candidate of candidates) {
+    const normalized = normalizeBlockId(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return '';
+}
+
+function resolveDefinitionContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
+  const definitionId = readFieldMappingBlockId(card.meta, 'definition');
+  if (definitionId) {
+    logger.debug('Concept-definition card uses definition field for content block', { definitionId });
+    return definitionId;
+  }
+
+  const conceptId = readFieldMappingBlockId(card.meta, 'concept');
+  const frontDefinitionCandidate = card.meta.frontBlockIDs[0];
+  const backDefinitionCandidate = card.meta.backBlockIDs[0];
+  const preferFront = card.meta.templateID === 'builtin-concept-definition-reverse'
+    || card.meta.typeMarker === 'concept-definition-reverse';
+  const definitionFromFaces = pickPreferredSemanticBlock(
+    preferFront
+      ? [frontDefinitionCandidate, backDefinitionCandidate]
+      : [backDefinitionCandidate, frontDefinitionCandidate],
+    conceptId,
+  );
+  if (definitionFromFaces) {
+    logger.debug('Concept-definition card resolved content block from definition-side faces', {
+      definitionFromFaces,
+      preferFront,
+    });
+    return definitionFromFaces;
+  }
+
+  if (fallbackBlockId) {
+    logger.warn('Concept-definition card falls back to representative block for content block', {
+      fallbackBlockId,
+      cardId: card.id,
+    });
+    return fallbackBlockId;
+  }
+
+  logger.warn('Concept-definition card has no resolvable content block ID', {
+    cardId: card.id,
+  });
+  return '';
+}
+
+function resolveDescriptorContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
+  const descriptorId = readFieldMappingBlockId(card.meta, 'descriptor');
+  if (descriptorId) {
+    logger.debug('Descriptor card uses descriptor field for content block', { descriptorId });
+    return descriptorId;
+  }
+
+  const conceptId = readFieldMappingBlockId(card.meta, 'concept');
+  const descriptorFromFaces = pickPreferredSemanticBlock([
+    card.meta.frontBlockIDs[1],
+    card.meta.backBlockIDs[1],
+    card.meta.frontBlockIDs[0],
+    card.meta.backBlockIDs[0],
+  ], conceptId);
+  if (descriptorFromFaces) {
+    logger.debug('Descriptor card resolved content block from descriptor-side faces', {
+      descriptorFromFaces,
+    });
+    return descriptorFromFaces;
+  }
+
+  if (fallbackBlockId) {
+    logger.warn('Descriptor card falls back to representative block for content block', {
+      fallbackBlockId,
+      cardId: card.id,
+    });
+    return fallbackBlockId;
+  }
+
+  logger.warn('Descriptor card has no resolvable content block ID', {
+    cardId: card.id,
+  });
+  return '';
+}
+
+function resolveContentBlockId(card: UnifiedReviewItem, fallbackBlockId: string): string {
+  if (isXiuyuanCard(card)) {
+    if (card.meta.templateID === 'builtin-riff-sync') {
+      return fallbackBlockId || card.meta.frontBlockIDs[0] || '';
     }
 
-    if (fallbackBlockId) {
-      logger.debug('Descriptor card uses representative block for content block', { fallbackBlockId });
-      return fallbackBlockId;
+    if (isConceptDefinitionCard(card)) {
+      return resolveDefinitionContentBlockId(card, fallbackBlockId);
     }
 
-    if (card.meta.frontBlockIDs.length > 1) {
-      const descriptorFromFrontBlocks = card.meta.frontBlockIDs[1];
-      logger.debug('Descriptor card falls back to second front block for content block', {
-        descriptorFromFrontBlocks,
-      });
-      return descriptorFromFrontBlocks;
+    if (isDescriptorSemanticCard(card)) {
+      return resolveDescriptorContentBlockId(card, fallbackBlockId);
     }
 
     if (card.meta.frontBlockIDs.length > 0) {
-      const fallbackFrontBlockId = card.meta.frontBlockIDs[0];
-      logger.warn('Descriptor card falls back to first front block for content block', {
-        fallbackFrontBlockId,
-      });
-      return fallbackFrontBlockId;
+      return card.meta.frontBlockIDs[0];
     }
-
-    logger.warn('Descriptor card has no resolvable content block ID', {
-      cardId: card.id,
-    });
-    return '';
-  }
-
-  if (isXiuyuanCard(card) && card.meta.frontBlockIDs.length > 0) {
-    return card.meta.frontBlockIDs[0];
   }
 
   return fallbackBlockId;

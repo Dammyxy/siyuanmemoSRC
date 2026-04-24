@@ -88,6 +88,7 @@ const reviewContentQuickCardMocks = vi.hoisted(() => ({
 const reviewContentConceptMocks = vi.hoisted(() => ({
   isConceptCard: vi.fn(() => false),
   isConceptDefinitionCard: vi.fn(() => false),
+  isDescriptorSemanticCard: vi.fn(() => false),
 }));
 
 const reviewContentDescriptorMocks = vi.hoisted(() => ({
@@ -117,6 +118,7 @@ vi.mock('@/core/card/render-profile/RenderProfileResolver', async () => {
 vi.mock('@/core/xiuyuan/cardMeta', () => ({
   isConceptCard: (...args: unknown[]) => reviewContentConceptMocks.isConceptCard(...args),
   isConceptDefinitionCard: (...args: unknown[]) => reviewContentConceptMocks.isConceptDefinitionCard(...args),
+  isDescriptorSemanticCard: (...args: unknown[]) => reviewContentConceptMocks.isDescriptorSemanticCard(...args),
 }));
 
 vi.mock('@/core/card/quick-card/infrastructure/SiyuanBlockAdapter', () => ({
@@ -406,6 +408,27 @@ function createConceptDefinitionContent() {
   };
 }
 
+function createSemanticConceptDefinitionContentWithoutMarkers() {
+  return {
+    type: 'protyle' as const,
+    id: 'definition-block',
+    data: '',
+    card: {
+      id: 'card-concept-definition-semantic',
+      type: 'item',
+      meta: {
+        templateID: 'builtin-concept-definition-reverse',
+        frontBlockIDs: ['definition-block'],
+        backBlockIDs: ['concept-block'],
+        fieldMapping: {
+          concept: 'concept-block',
+          definition: 'definition-block',
+        },
+      },
+    },
+  };
+}
+
 function createDescriptorContent() {
   return {
     type: 'protyle' as const,
@@ -415,6 +438,27 @@ function createDescriptorContent() {
       id: 'card-descriptor',
       type: 'descriptor',
       meta: {},
+    },
+  };
+}
+
+function createSemanticDescriptorContentWithoutMarkers() {
+  return {
+    type: 'protyle' as const,
+    id: 'descriptor-block',
+    data: '',
+    card: {
+      id: 'card-descriptor-semantic',
+      type: 'item',
+      meta: {
+        templateID: 'builtin-concept-descriptor-both',
+        frontBlockIDs: ['concept-block', 'descriptor-block'],
+        backBlockIDs: ['concept-block', 'descriptor-block'],
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+        },
+      },
     },
   };
 }
@@ -516,6 +560,8 @@ describe('ReviewContent editor state', () => {
     reviewContentConceptMocks.isConceptCard.mockReturnValue(false);
     reviewContentConceptMocks.isConceptDefinitionCard.mockReset();
     reviewContentConceptMocks.isConceptDefinitionCard.mockReturnValue(false);
+    reviewContentConceptMocks.isDescriptorSemanticCard.mockReset();
+    reviewContentConceptMocks.isDescriptorSemanticCard.mockReturnValue(false);
     reviewContentDescriptorMocks.isDescriptorCard.mockReset();
     reviewContentDescriptorMocks.isDescriptorCard.mockResolvedValue(false);
     reviewContentApiMocks.getBlockDocInfo.mockReset();
@@ -879,6 +925,144 @@ describe('ReviewContent editor state', () => {
       rendererKind: 'empty',
       blockNativeTabSplit: false,
     });
+
+    wrapper.unmount();
+  });
+
+  it('routes concept-definition semantic signals to the dedicated renderer without creating main Protyle, including renderEpoch refreshes', async () => {
+    const ConceptDefinitionRendererStub = defineComponent({
+      name: 'ConceptDefinitionCardRendererStub',
+      setup() {
+        return () => h('div', { class: 'concept-definition-renderer-stub' });
+      },
+    });
+
+    reviewContentConceptMocks.isConceptDefinitionCard.mockImplementation((card?: unknown) => {
+      const meta = (card as { meta?: { templateID?: string; fieldMapping?: Record<string, string> } } | undefined)?.meta;
+      return typeof meta?.templateID === 'string'
+        && meta.templateID.startsWith('builtin-concept-definition')
+        && typeof meta.fieldMapping?.definition === 'string';
+    });
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createSemanticConceptDefinitionContentWithoutMarkers(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+        renderEpoch: 0,
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: ConceptDefinitionRendererStub,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const exposed = wrapper.vm as unknown as {
+      getEditableSource: () => {
+        blockId: string;
+        rendererKind: string;
+      } | null;
+    };
+
+    expect(wrapper.findComponent({ name: 'ConceptDefinitionCardRendererStub' }).exists()).toBe(true);
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'definition-block',
+      rendererKind: 'concept-definition',
+    }));
+
+    await wrapper.setProps({
+      renderEpoch: 1,
+    });
+    await settleReviewContent();
+
+    expect(wrapper.findComponent({ name: 'ConceptDefinitionCardRendererStub' }).exists()).toBe(true);
+    expect(reviewContentMocks.instances).toHaveLength(0);
+
+    wrapper.unmount();
+  });
+
+  it('routes descriptor semantic signals to the dedicated renderer without waiting for descriptor syntax detection', async () => {
+    const DescriptorRendererStub = defineComponent({
+      name: 'DescriptorCardRendererStub',
+      setup() {
+        return () => h('div', { class: 'descriptor-renderer-stub' });
+      },
+    });
+
+    reviewContentConceptMocks.isDescriptorSemanticCard.mockImplementation((card?: unknown) => {
+      const meta = (card as { meta?: { templateID?: string; fieldMapping?: Record<string, string> } } | undefined)?.meta;
+      return typeof meta?.templateID === 'string'
+        && meta.templateID.startsWith('builtin-concept-descriptor')
+        && typeof meta.fieldMapping?.descriptor === 'string';
+    });
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createSemanticDescriptorContentWithoutMarkers(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'none',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: DescriptorRendererStub,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const exposed = wrapper.vm as unknown as {
+      getEditableSource: () => {
+        blockId: string;
+        rendererKind: string;
+      } | null;
+    };
+
+    expect(wrapper.findComponent({ name: 'DescriptorCardRendererStub' }).exists()).toBe(true);
+    expect(reviewContentMocks.instances).toHaveLength(0);
+    expect(reviewContentDescriptorMocks.isDescriptorCard).not.toHaveBeenCalled();
+    expect(exposed.getEditableSource()).toEqual(expect.objectContaining({
+      blockId: 'descriptor-block',
+      rendererKind: 'descriptor',
+    }));
 
     wrapper.unmount();
   });

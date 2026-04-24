@@ -92,6 +92,14 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
+function normalizeMetaString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function resolveFieldMappingValue(meta: XiuyuanCardMeta, key: string): string {
+  return normalizeMetaString(meta.fieldMapping?.[key]);
+}
+
 /**
  * 检查卡片是否是 Xiuyuan 卡片
  * 
@@ -120,13 +128,22 @@ export function isXiuyuanCard(card: unknown): card is { meta: XiuyuanCardMeta } 
  */
 export function isConceptDefinitionCard(card: unknown): boolean {
   if (!isXiuyuanCard(card)) return false;
-  
+
   const typeMarker = card.meta.typeMarker;
-  return !!(typeMarker && (
+  if (typeMarker && (
     typeMarker === 'concept-definition-forward' || 
     typeMarker === 'concept-definition-reverse' ||
     typeMarker.startsWith('concept-definition-cloze-')
-  ));
+  )) {
+    return true;
+  }
+
+  const templateID = normalizeMetaString(card.meta.templateID);
+  if (templateID.startsWith('builtin-concept-definition')) {
+    return true;
+  }
+
+  return resolveFieldMappingValue(card.meta, 'definition').length > 0;
 }
 
 /**
@@ -138,6 +155,28 @@ export function isConceptDefinitionCard(card: unknown): boolean {
 export function isConceptCard(card: unknown): boolean {
   if (!isXiuyuanCard(card)) return false;
   return card.meta.typeMarker === 'C';
+}
+
+/**
+ * 检查卡片是否是描述符语义卡
+ *
+ * @param card FSRSCard
+ * @returns 是否是描述符卡
+ */
+export function isDescriptorSemanticCard(card: unknown): boolean {
+  if (!isXiuyuanCard(card)) return false;
+
+  const typeMarker = normalizeMetaString(card.meta.typeMarker);
+  if (typeMarker.startsWith('concept-descriptor') || typeMarker.startsWith('descriptor-')) {
+    return true;
+  }
+
+  const templateID = normalizeMetaString(card.meta.templateID);
+  if (templateID.startsWith('builtin-concept-descriptor')) {
+    return true;
+  }
+
+  return resolveFieldMappingValue(card.meta, 'descriptor').length > 0;
 }
 
 /**

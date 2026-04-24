@@ -31,6 +31,7 @@ function buildCard(id: string, blockId: string, options?: { type?: string }) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     meta: {
+      templateID: 'builtin-concept-descriptor-both',
       frontBlockIDs: ['concept-block'],
       backBlockIDs: [blockId],
       fieldMapping: {
@@ -126,7 +127,12 @@ const ReviewContentStub = defineComponent({
     return () => h(
       'div',
       { class: 'review-render-state' },
-      `${String((props.content as { card?: { id?: string } }).card?.id || '')}:${String(props.renderEpoch || 0)}`,
+      [
+        String((props.content as { card?: { id?: string; meta?: { templateID?: string } } }).card?.id || ''),
+        String((props.content as { id?: string }).id || ''),
+        String((props.content as { card?: { meta?: { templateID?: string } } }).card?.meta?.templateID || ''),
+        String(props.renderEpoch || 0),
+      ].join(':'),
     );
   },
 });
@@ -206,7 +212,7 @@ describe('ReviewView source block refresh', () => {
     });
 
     await flushPromises();
-    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:0');
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
 
     wsMainListener?.({
       detail: {
@@ -223,7 +229,7 @@ describe('ReviewView source block refresh', () => {
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
-    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:1');
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:1');
     expect(manager.getCard).not.toHaveBeenCalled();
 
     wsMainListener?.({
@@ -241,7 +247,7 @@ describe('ReviewView source block refresh', () => {
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
-    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:2');
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:2');
 
     wsMainListener?.({
       detail: {
@@ -258,7 +264,7 @@ describe('ReviewView source block refresh', () => {
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
-    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:2');
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:2');
 
     wrapper.unmount();
   });

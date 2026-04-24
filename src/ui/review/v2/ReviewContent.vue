@@ -148,7 +148,8 @@ import { DescriptorCardRenderService } from '@/core/card/descriptor-card/applica
 import { 
   type XiuyuanCardMeta,
   isConceptDefinitionCard as checkIsConceptDefinitionCard, 
-  isConceptCard as checkIsConceptCard 
+  isConceptCard as checkIsConceptCard,
+  isDescriptorSemanticCard as checkIsDescriptorSemanticCard,
 } from '@/core/xiuyuan/cardMeta';
 // 🆕 性能优化：导入 Composables
 import {
@@ -329,6 +330,20 @@ function resolveTypeMarker(card: ReviewUIState['content']['card']): string {
   return typeof marker === 'string' ? marker : '';
 }
 
+function resolveTemplateID(card: ReviewUIState['content']['card']): string {
+  const templateID = card?.meta?.templateID;
+  return typeof templateID === 'string' ? templateID : '';
+}
+
+function resolveFieldMappingForLog(
+  card: ReviewUIState['content']['card'],
+): Record<string, unknown> | null {
+  const fieldMapping = card?.meta?.fieldMapping;
+  return fieldMapping && typeof fieldMapping === 'object'
+    ? fieldMapping as Record<string, unknown>
+    : null;
+}
+
 function resolveNeuralIsFlashcard(card: ReviewUIState['content']['card']): boolean | null {
   const neuralContext = card?.meta?.neuralContext;
   if (!neuralContext || typeof neuralContext !== 'object') {
@@ -375,6 +390,9 @@ const quickDetectReason = computed(() => {
   return typeof reason === 'string' ? reason : '';
 });
 const resolvedRenderProfile = computed(() => resolveRenderProfile(props.content.card));
+const hasConceptDefinitionSemanticSignal = computed(() => checkIsConceptDefinitionCard(props.content.card));
+const hasConceptCardSemanticSignal = computed(() => checkIsConceptCard(props.content.card));
+const hasDescriptorSemanticSignal = computed(() => checkIsDescriptorSemanticCard(props.content.card));
 const preferStableQuickForcePath = computed(() => shouldPreferStableQuickForcePath(
   props.content.card,
   resolvedRenderProfile.value,
@@ -494,10 +512,9 @@ const shouldUseConceptDefinitionRenderer = computed(() => {
   if (isImageOcclusionCard.value) return false;
   if (forceProtyleRender.value || forceQuickRender.value) return false;
   if (resolvedRenderProfile.value === 'concept-definition') return true;
-  
-  // 使用领域层的辅助函数检测
+
   const card = props.content.card;
-  const result = checkIsConceptDefinitionCard(card);
+  const result = hasConceptDefinitionSemanticSignal.value;
   
   logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptDefinitionRenderer:', {
     contentType: props.content.type,
@@ -505,7 +522,9 @@ const shouldUseConceptDefinitionRenderer = computed(() => {
     cardId: card?.id,
     xiuyuanID: card?.xiuyuanID,
     metaXiuyuanID: card?.meta?.xiuyuanID,
+    templateID: card?.meta?.templateID,
     typeMarker: card?.meta?.typeMarker,
+    fieldMapping: resolveFieldMappingForLog(card),
     result
   });
   
@@ -522,7 +541,7 @@ const shouldUseConceptCardRenderer = computed(() => {
   // 使用领域层的辅助函数检测
   if (forceProtyleRender.value || forceQuickRender.value) return false;
   if (resolvedRenderProfile.value === 'concept') return true;
-  const result = checkIsConceptCard(props.content.card);
+  const result = hasConceptCardSemanticSignal.value;
   
   logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptCardRenderer:', {
     contentType: props.content.type,
@@ -551,9 +570,9 @@ const shouldUseDescriptorCardRenderer = computed(() => {
     && !forceQuickRender.value
     && !isNeuralRoamNonFlashcardCard.value
     && !isImageOcclusionCard.value
-    && !isConceptDefinitionCard.value
-    && !isConceptCard.value
-    && isDescriptorCard.value;
+    && !hasConceptDefinitionSemanticSignal.value
+    && !hasConceptCardSemanticSignal.value
+    && (hasDescriptorSemanticSignal.value || isDescriptorCard.value);
 });
 
 // 判断是否应该使用快速卡片渲染器
@@ -564,6 +583,9 @@ const shouldUseImmediateQuickRenderer = computed(() => (
   && !forceProtyleRender.value
   && !isNeuralRoamNonFlashcardCard.value
   && !isImageOcclusionCard.value
+  && !hasConceptDefinitionSemanticSignal.value
+  && !hasConceptCardSemanticSignal.value
+  && !hasDescriptorSemanticSignal.value
   && !isConceptDefinitionCard.value
   && !isConceptCard.value
   && !isDescriptorCard.value
@@ -590,6 +612,9 @@ const shouldUseQuickCardRenderer = computed(() => {
     && !forceProtyleRender.value
     && !isNeuralRoamNonFlashcardCard.value
     && !isImageOcclusionCard.value
+    && !hasConceptDefinitionSemanticSignal.value
+    && !hasConceptCardSemanticSignal.value
+    && !hasDescriptorSemanticSignal.value
     && !isConceptDefinitionCard.value
     && !isConceptCard.value
     && !isDescriptorCard.value
@@ -600,9 +625,41 @@ const shouldUseDirectCdfDisplay = computed(() => (
   resolvedRenderProfile.value === 'concept-definition'
   || resolvedRenderProfile.value === 'descriptor'
   || resolvedRenderProfile.value === 'cdf-multiline'
-  || checkIsConceptDefinitionCard(props.content.card)
-  || shouldUseDescriptorCardRenderer.value
+  || hasConceptDefinitionSemanticSignal.value
+  || hasDescriptorSemanticSignal.value
 ));
+
+function hasSemanticTemplateSignal(): boolean {
+  return resolvedRenderProfile.value === 'concept-definition'
+    || resolvedRenderProfile.value === 'concept'
+    || resolvedRenderProfile.value === 'descriptor'
+    || hasConceptDefinitionSemanticSignal.value
+    || hasConceptCardSemanticSignal.value
+    || hasDescriptorSemanticSignal.value;
+}
+
+function logSemanticFallbackToMainProtyle(blockId: string): void {
+  if (
+    props.content.type !== 'protyle'
+    || forceProtyleRender.value
+    || isTopicReadModeCard.value
+    || isNeuralRoamNonFlashcardCard.value
+    || !hasSemanticTemplateSignal()
+  ) {
+    return;
+  }
+
+  const card = props.content.card;
+  logger.warn('[SiYuanMemo][ReviewContent] Semantic card fell back to main Protyle', {
+    cardId: card?.id,
+    templateID: resolveTemplateID(card),
+    renderProfile: resolvedRenderProfile.value || '',
+    typeMarker: resolveTypeMarker(card),
+    fieldMapping: resolveFieldMappingForLog(card),
+    contentId: String(props.content.id || ''),
+    blockId,
+  });
+}
 
 const currentRendererKind = computed<ReviewEditorState['renderer']>(() => {
   if (props.content.type === 'empty') {
@@ -1637,106 +1694,103 @@ async function renderProtyle(blockId: string): Promise<void> {
     if (bypassSemanticFallbackDetection) {
       logger.debug('[SiYuanMemo][ReviewContent] Bypassing semantic fallback detection for explicit item auto-render');
     } else {
-    // 🆕 检测是否为概念定义卡（优先级最高）
-    try {
-      const card = props.content.card;
-      const xiuyuanID = card?.xiuyuanID;
-      const typeMarker = card?.meta?.typeMarker;
-      
-      logger.debug('[SiYuanMemo][ReviewContent] Checking concept definition card:', {
-        hasCard: !!card,
-        xiuyuanID,
-        typeMarker,
-        hasXiuyuanID: !!xiuyuanID,
-        hasTypeMarker: !!typeMarker
-      });
-      
-      // 支持新的双向卡片格式：concept-definition-forward/reverse 和 concept-definition-cloze-{index}-forward/reverse
-      // 必须同时有 xiuyuanID 和 typeMarker
-      if (xiuyuanID && typeMarker && (
-        typeMarker === 'concept-definition-forward' || 
-        typeMarker === 'concept-definition-reverse' ||
-        typeMarker.startsWith('concept-definition-cloze-')
-      )) {
-        logger.debug('[SiYuanMemo][ReviewContent] Detected concept definition card (bidirectional)');
-        const result = { isConcept: true, isDescriptor: false, isQuick: false };
-        setCardType(cacheKey, result);
-        isConceptDefinitionCard.value = true;
-        isConceptCard.value = false;
-        isDescriptorCard.value = false;
-        isQuickCard.value = false;
-        return;
-      } else if (typeMarker && typeMarker.includes('concept-definition')) {
-        // 如果有 concept-definition 相关的 typeMarker 但没有 xiuyuanID，说明是旧卡片
-        logger.warn('[SiYuanMemo][ReviewContent] Found old concept definition card without xiuyuanID, will use normal render');
-      }
-    } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewContent] Concept definition card detection failed:', error);
-    }
+      // 🆕 检测是否为概念定义卡（优先级最高）
+      try {
+        const card = props.content.card;
+        const conceptDefinitionSignal = hasConceptDefinitionSemanticSignal.value;
 
-    // 🆕 检测是否为概念卡（builtin-concept-simple）
-    try {
-      const card = props.content.card;
-      const xiuyuanID = card?.xiuyuanID;
-      const typeMarker = card?.meta?.typeMarker;
-      
-      logger.debug('[SiYuanMemo][ReviewContent] Checking concept card:', {
-        hasCard: !!card,
-        xiuyuanID,
-        typeMarker,
-        hasXiuyuanID: !!xiuyuanID,
-        hasTypeMarker: !!typeMarker
-      });
-      
-      // 概念卡的 typeMarker 是 'C'
-      if (xiuyuanID && typeMarker === 'C') {
-        logger.debug('[SiYuanMemo][ReviewContent] Detected concept card');
-        const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
-        setCardType(cacheKey, result);
-        isConceptDefinitionCard.value = false;
-        isConceptCard.value = true;
-        isDescriptorCard.value = false;
-        isQuickCard.value = false;
-        return;
-      }
-    } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewContent] Concept card detection failed:', error);
-    }
-
-    // 🆕 检测是否为描述符卡
-    try {
-      const descriptorTypeMarker = props.content.card?.meta?.typeMarker;
-      if (typeof descriptorTypeMarker === 'string' && descriptorTypeMarker.startsWith('concept-descriptor')) {
-        logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card by typeMarker:', {
-          typeMarker: descriptorTypeMarker,
+        logger.debug('[SiYuanMemo][ReviewContent] Checking concept definition card:', {
+          hasCard: !!card,
+          cardId: card?.id,
+          templateID: resolveTemplateID(card),
+          typeMarker: resolveTypeMarker(card),
+          fieldMapping: resolveFieldMappingForLog(card),
+          semanticSignal: conceptDefinitionSignal,
         });
-        const result = { isConcept: false, isDescriptor: true, isQuick: false };
-        setCardType(cacheKey, result);
-        isConceptDefinitionCard.value = false;
-        isConceptCard.value = false;
-        isDescriptorCard.value = true;
-        isQuickCard.value = false;
-        return;
+
+        if (conceptDefinitionSignal) {
+          logger.debug('[SiYuanMemo][ReviewContent] Detected concept definition card via semantic signals');
+          const result = { isConcept: true, isDescriptor: false, isQuick: false };
+          setCardType(cacheKey, result);
+          isConceptDefinitionCard.value = true;
+          isConceptCard.value = false;
+          isDescriptorCard.value = false;
+          isQuickCard.value = false;
+          return;
+        }
+      } catch (error) {
+        logger.warn('[SiYuanMemo][ReviewContent] Concept definition card detection failed:', error);
       }
 
-      const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
-      if (seq !== renderSeq) {
-        logger.debug('[SiYuanMemo][ReviewContent] Descriptor detection cancelled, newer render pending');
-        return;
+      // 🆕 检测是否为概念卡（builtin-concept-simple）
+      try {
+        const card = props.content.card;
+        const conceptSignal = hasConceptCardSemanticSignal.value;
+
+        logger.debug('[SiYuanMemo][ReviewContent] Checking concept card:', {
+          hasCard: !!card,
+          cardId: card?.id,
+          templateID: resolveTemplateID(card),
+          typeMarker: resolveTypeMarker(card),
+          semanticSignal: conceptSignal,
+        });
+
+        if (conceptSignal) {
+          logger.debug('[SiYuanMemo][ReviewContent] Detected concept card');
+          const result = { isConcept: false, isConceptCard: true, isDescriptor: false, isQuick: false };
+          setCardType(cacheKey, result);
+          isConceptDefinitionCard.value = false;
+          isConceptCard.value = true;
+          isDescriptorCard.value = false;
+          isQuickCard.value = false;
+          return;
+        }
+      } catch (error) {
+        logger.warn('[SiYuanMemo][ReviewContent] Concept card detection failed:', error);
       }
-      if (isDescriptor) {
-        logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card');
-        const result = { isConcept: false, isDescriptor: true, isQuick: false };
-        setCardType(cacheKey, result);
-        isConceptDefinitionCard.value = false;
-        isConceptCard.value = false;
-        isDescriptorCard.value = true;
-        isQuickCard.value = false;
-        return;
+
+      // 🆕 检测是否为描述符卡
+      try {
+        const card = props.content.card;
+        const descriptorSignal = hasDescriptorSemanticSignal.value;
+        logger.debug('[SiYuanMemo][ReviewContent] Checking descriptor card:', {
+          hasCard: !!card,
+          cardId: card?.id,
+          templateID: resolveTemplateID(card),
+          typeMarker: resolveTypeMarker(card),
+          fieldMapping: resolveFieldMappingForLog(card),
+          semanticSignal: descriptorSignal,
+        });
+
+        if (descriptorSignal) {
+          logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card via semantic signals');
+          const result = { isConcept: false, isDescriptor: true, isQuick: false };
+          setCardType(cacheKey, result);
+          isConceptDefinitionCard.value = false;
+          isConceptCard.value = false;
+          isDescriptorCard.value = true;
+          isQuickCard.value = false;
+          return;
+        }
+
+        const isDescriptor = await descriptorCardRenderService.value.isDescriptorCard(blockId);
+        if (seq !== renderSeq) {
+          logger.debug('[SiYuanMemo][ReviewContent] Descriptor detection cancelled, newer render pending');
+          return;
+        }
+        if (isDescriptor) {
+          logger.debug('[SiYuanMemo][ReviewContent] Detected descriptor card');
+          const result = { isConcept: false, isDescriptor: true, isQuick: false };
+          setCardType(cacheKey, result);
+          isConceptDefinitionCard.value = false;
+          isConceptCard.value = false;
+          isDescriptorCard.value = true;
+          isQuickCard.value = false;
+          return;
+        }
+      } catch (error) {
+        logger.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
       }
-    } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewContent] Descriptor card detection failed:', error);
-    }
     }
 
     // 🆕 检测是否为快速卡片
@@ -1801,6 +1855,7 @@ async function renderProtyle(blockId: string): Promise<void> {
   isConceptCard.value = false;
   isQuickCard.value = false;
   isDescriptorCard.value = false;
+  logSemanticFallbackToMainProtyle(blockId);
 
   logger.debug('[SiYuanMemo][ReviewContent] renderProtyle called:', { blockId, seq });
 
