@@ -2,7 +2,12 @@
   <div class="cdf-direct-layout">
     <CardBreadcrumb v-if="breadcrumbs.length > 0" :items="breadcrumbs" variant="preview" />
 
-    <div v-if="contentHtml" class="cdf-direct-layout__editor b3-typography" v-html="contentHtml"></div>
+    <div
+      v-if="contentHtml"
+      ref="editorRootRef"
+      class="cdf-direct-layout__editor b3-typography"
+      v-html="contentHtml"
+    ></div>
 
     <div v-else class="cdf-direct-layout__body">
       <section
@@ -31,9 +36,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
+import { enhanceRenderedMarkdown } from '@/ui/shared/rich-content';
 
 export interface CdfDirectSection {
   key: string;
@@ -58,6 +64,26 @@ const props = withDefaults(defineProps<{
 });
 
 const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSections : []));
+const editorRootRef = ref<HTMLElement | null>(null);
+
+async function postRender(): Promise<void> {
+  await nextTick();
+  if (!editorRootRef.value) {
+    return;
+  }
+  await enhanceRenderedMarkdown(editorRootRef.value);
+}
+
+onMounted(() => {
+  void postRender();
+});
+
+watch(
+  () => props.contentHtml,
+  () => {
+    void postRender();
+  },
+);
 </script>
 
 <style scoped>
@@ -127,6 +153,10 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
   line-height: 1.72;
 }
 
+.cdf-direct-layout__editor :deep(.cdf-editor__row--stacked .cdf-editor__node) {
+  display: block;
+}
+
 .cdf-direct-layout__editor :deep(.cdf-editor__standalone) {
   min-width: 0;
 }
@@ -135,6 +165,30 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
   min-width: 0;
   display: inline-flex;
   align-items: baseline;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__render-kind--block-flow) {
+  display: block;
+  width: 100%;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__stack) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__stack-arrow) {
+  display: flex;
+  align-items: center;
+  min-height: 1.2em;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__stack-arrow .cdf-editor__arrow) {
+  line-height: 1;
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__segment--ellipsis) {
@@ -156,17 +210,35 @@ const visibleAnswerSections = computed(() => (props.showAnswer ? props.answerSec
 .cdf-direct-layout__editor :deep(.cdf-editor__node > p),
 .cdf-direct-layout__editor :deep(.cdf-editor__node > ul),
 .cdf-direct-layout__editor :deep(.cdf-editor__node > ol),
+.cdf-direct-layout__editor :deep(.cdf-editor__node > pre),
 .cdf-direct-layout__editor :deep(.cdf-editor__node > blockquote),
 .cdf-direct-layout__editor :deep(.cdf-editor__standalone > p),
 .cdf-direct-layout__editor :deep(.cdf-editor__standalone > ul),
 .cdf-direct-layout__editor :deep(.cdf-editor__standalone > ol),
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone > pre),
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone > .protyle-wysiwyg),
 .cdf-direct-layout__editor :deep(.cdf-editor__standalone > blockquote) {
   margin: 0;
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__segment--right > p),
-.cdf-direct-layout__editor :deep(.cdf-editor__segment--left > p) {
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--left > p),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--right > ul),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--left > ul),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--right > ol),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--left > ol),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--right > pre),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--left > pre),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--right > blockquote),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--left > blockquote),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--right > .protyle-wysiwyg),
+.cdf-direct-layout__editor :deep(.cdf-editor__segment--left > .protyle-wysiwyg) {
   margin: 0;
+}
+
+.cdf-direct-layout__editor :deep(.cdf-editor__segment > .protyle-wysiwyg),
+.cdf-direct-layout__editor :deep(.cdf-editor__standalone > .protyle-wysiwyg) {
+  width: 100%;
 }
 
 .cdf-direct-layout__editor :deep(.cdf-editor__standalone strong),

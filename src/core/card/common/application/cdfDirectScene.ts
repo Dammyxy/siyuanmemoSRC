@@ -1,3 +1,5 @@
+import type { ReviewMarkdownRenderKind } from './reviewMarkdownRender';
+
 const TRAILING_BLOCK_ATTR_PATTERN = /\s*\{:[^{}]*\}\s*$/s;
 const CDF_MULTILINE_MARKER_RE = /\s*(:::\s*|;;;\s*|：：：\s*|；；；\s*)(?=(?:<\/[^>]+>|\s*$))/g;
 const CDF_INLINE_MARKER_RE = /\s*(;<>|；《》|;<|；《|;;|；；|::|：：|:>|：》|:<|：《)\s*/g;
@@ -32,26 +34,31 @@ interface CdfDirectBaseRow {
   emphasize?: CdfDirectRowEmphasis;
 }
 
+export interface CdfDirectRenderable {
+  html: string;
+  renderKind: ReviewMarkdownRenderKind;
+}
+
 export interface CdfDirectConceptRow extends CdfDirectBaseRow {
   kind: 'concept';
-  html: string;
+  content: CdfDirectRenderable;
 }
 
 export interface CdfDirectGroupRow extends CdfDirectBaseRow {
   kind: 'group';
-  labelHtml: string;
+  label: CdfDirectRenderable;
 }
 
 export interface CdfDirectRelationRow extends CdfDirectBaseRow {
   kind: 'relation';
-  leftHtml: string;
-  rightHtml: string;
+  left: CdfDirectRenderable;
+  right: CdfDirectRenderable;
   arrow: CdfRelationArrow;
 }
 
 export interface CdfDirectStandaloneRow extends CdfDirectBaseRow {
   kind: 'standalone';
-  html: string;
+  content: CdfDirectRenderable;
 }
 
 export type CdfDirectRow =
@@ -63,6 +70,16 @@ export type CdfDirectRow =
 export interface CdfDirectScene {
   rows: CdfDirectRow[];
   frontMask?: CdfDirectMask | null;
+}
+
+export function createCdfDirectRenderable(
+  html: string,
+  renderKind: ReviewMarkdownRenderKind = 'fragment',
+): CdfDirectRenderable {
+  return {
+    html,
+    renderKind,
+  };
 }
 
 export function stripCdfDirectMarkers(source: string): string {

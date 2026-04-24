@@ -249,6 +249,31 @@ describe('DescriptorCardRenderService CDF fusion', () => {
     ]);
   });
 
+  it('marks complex descriptor answers as block-flow and strips trailing attribute artifacts', async () => {
+    const { service } = createService('形成过程 ;; 第一段\n\n> 引用说明\n{: id="2026042407" updated="2026042408"}');
+
+    const vm = await service.prepareViewModel('descriptor-block', {
+      meta: {
+        typeMarker: 'descriptor-forward',
+        fieldMapping: {
+          concept: 'concept-block',
+          descriptor: 'descriptor-block',
+        },
+      },
+    });
+
+    expect(vm).not.toBeNull();
+    const relationRow = vm!.directScene?.rows.find((row) => row.key === 'descriptor');
+    expect(relationRow).toEqual(expect.objectContaining({
+      kind: 'relation',
+    }));
+    if (!relationRow || relationRow.kind !== 'relation') {
+      throw new Error('Expected relation row');
+    }
+    expect(relationRow.right.renderKind).toBe('block-flow');
+    expect(relationRow.right.html).not.toContain('{:');
+  });
+
   it('emits class-based descriptor markup without legacy inline font sizes', async () => {
     const { service } = createService('**前身** ;; `恒星`');
 

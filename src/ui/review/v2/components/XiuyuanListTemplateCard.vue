@@ -63,9 +63,9 @@ import { parseCueAndAnswer } from '@/core/xiuyuan/parseCueAndAnswer';
 import { loadBreadcrumbTrail } from '@/ui/review/shared/loadBreadcrumbTrail';
 import CdfDirectLayout from '@/ui/shared/cdf-direct/CdfDirectLayout.vue';
 import {
+  createCdfDirectMarkdown,
   normalizeCdfDirectLabel,
   projectCdfRelation,
-  renderCdfDirectMarkdown,
   renderCdfDirectScene,
 } from '@/ui/shared/cdf-direct/renderScene';
 import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
@@ -132,7 +132,7 @@ function buildPathRows(path: CdfDirectPathSegment[]): CdfDirectRow[] {
         kind: 'group',
         key: `path-${index}`,
         level: toLevel(index),
-        labelHtml: renderCdfDirectMarkdown(segment.label),
+        label: createCdfDirectMarkdown(segment.label, { forceRenderKind: 'fragment' }),
         emphasize: index === 0 ? 'primary' : 'normal',
       } as const;
     }
@@ -141,7 +141,7 @@ function buildPathRows(path: CdfDirectPathSegment[]): CdfDirectRow[] {
       kind: 'concept',
       key: `path-${index}`,
       level: toLevel(index),
-      html: renderCdfDirectMarkdown(segment.label),
+      content: createCdfDirectMarkdown(segment.label, { forceRenderKind: 'fragment' }),
       emphasize: index === 0 ? 'primary' : 'normal',
     } as const;
   });
@@ -158,7 +158,7 @@ function buildFallbackPathRows(questionDom: string): CdfDirectRow[] {
       kind: 'group',
       key: 'fallback-group',
       level: 0,
-      labelHtml: renderCdfDirectMarkdown(label),
+      label: createCdfDirectMarkdown(label, { forceRenderKind: 'fragment' }),
       emphasize: 'primary',
     }];
   }
@@ -167,7 +167,7 @@ function buildFallbackPathRows(questionDom: string): CdfDirectRow[] {
     kind: 'concept',
     key: 'fallback-concept',
     level: 0,
-    html: renderCdfDirectMarkdown(label),
+    content: createCdfDirectMarkdown(label, { forceRenderKind: 'fragment' }),
     emphasize: 'primary',
   }];
 }
@@ -228,19 +228,19 @@ const directScene = computed<CdfDirectScene | null>(() => {
       kind: 'relation',
       key: 'current-relation',
       level: currentLevel,
-      leftHtml: renderCdfDirectMarkdown(relation.left),
-      rightHtml: renderCdfDirectMarkdown(relation.right),
+      left: createCdfDirectMarkdown(relation.left, { forceRenderKind: 'fragment' }),
+      right: createCdfDirectMarkdown(relation.right),
       arrow: relation.arrow,
     });
   } else {
     const currentLabel = normalizeCdfDirectLabel(current.answer || current.source);
-    const currentHtml = renderCdfDirectMarkdown(currentLabel);
-    if (currentHtml.trim().length > 0) {
+    const currentContent = createCdfDirectMarkdown(currentLabel);
+    if (currentContent.html.trim().length > 0) {
       rows.push({
         kind: 'standalone',
         key: 'current-answer',
         level: currentLevel,
-        html: currentHtml,
+        content: currentContent,
       });
     }
   }

@@ -1,4 +1,5 @@
 import type {
+  CdfDirectRenderable,
   CdfDirectMask,
   CdfDirectRow,
   CdfDirectScene,
@@ -6,11 +7,12 @@ import type {
   CdfRelationProjection,
 } from '@/core/card/common/application/cdfDirectScene';
 import {
+  createCdfDirectRenderable,
   normalizeCdfDirectLabel,
   projectCdfRelation,
   stripCdfDirectMarkers,
 } from '@/core/card/common/application/cdfDirectScene';
-import { renderMarkdownToHtml } from '@/ui/shared/rich-content';
+import { renderReviewMarkdown } from '@/core/card/common/application/reviewMarkdownRender';
 
 export { normalizeCdfDirectLabel, projectCdfRelation, stripCdfDirectMarkers };
 export type { CdfRelationArrow, CdfRelationProjection };
@@ -18,9 +20,10 @@ export type { CdfRelationArrow, CdfRelationProjection };
 interface CdfEditorRow {
   key: string;
   level?: 0 | 1 | 2;
-  standaloneHtml?: string;
-  leftHtml?: string;
-  rightHtml?: string;
+  layout: 'standalone' | 'inline' | 'stacked';
+  standaloneContent?: CdfDirectRenderable;
+  leftContent?: CdfDirectRenderable;
+  rightContent?: CdfDirectRenderable;
   arrow?: string;
   emphasize?: 'primary' | 'normal';
   ellipsisSide?: 'left' | 'right' | null;
@@ -36,21 +39,43 @@ function escapeHtml(source: string): string {
 }
 
 export function renderCdfDirectMarkdown(markdown: string): string {
-  const cleaned = stripCdfDirectMarkers(markdown);
-  return cleaned ? renderMarkdownToHtml(cleaned) : '';
+  return renderReviewMarkdown(markdown).html;
+}
+
+export function createCdfDirectMarkdown(
+  markdown: string,
+  options?: {
+    forceRenderKind?: 'fragment' | 'block-flow';
+  },
+): CdfDirectRenderable {
+  const rendered = renderReviewMarkdown(markdown, {
+    forceRenderKind: options?.forceRenderKind,
+  });
+  return createCdfDirectRenderable(rendered.html, rendered.renderKind);
 }
 
 export function createCdfEllipsisHtml(): string {
   return '<span class="cdf-editor__ellipsis">...</span>';
 }
 
+function renderEditorContent(
+  content: CdfDirectRenderable | undefined,
+  extraClass: string,
+): string {
+  if (!content || content.html.trim().length === 0) {
+    return '';
+  }
+
+  return `<div class="${extraClass} cdf-editor__render-kind--${content.renderKind}">${content.html}</div>`;
+}
+
 function buildCdfEditorContentHtml(rows: CdfEditorRow[]): string {
   const renderedRows = rows
     .filter((row) => {
-      if (typeof row.standaloneHtml === 'string' && row.standaloneHtml.trim().length > 0) {
+      if (typeof row.standaloneContent?.html === 'string' && row.standaloneContent.html.trim().length > 0) {
         return true;
       }
-      return typeof row.leftHtml === 'string' && row.leftHtml.trim().length > 0;
+      return typeof row.leftContent?.html === 'string' && row.leftContent.html.trim().length > 0;
     })
     .map((row) => {
       const level = row.level ?? 0;
@@ -59,27 +84,43 @@ function buildCdfEditorContentHtml(rows: CdfEditorRow[]): string {
         'cdf-editor__row',
         `cdf-editor__row--level-${level}`,
         `cdf-editor__row--${emphasis}`,
+        `cdf-editor__row--${row.layout}`,
       ].join(' ');
 
-      const standalone = typeof row.standaloneHtml === 'string' && row.standaloneHtml.trim().length > 0
-        ? `<div class="cdf-editor__standalone">${row.standaloneHtml}</div>`
-        : '';
+      const standalone = renderEditorContent(
+        row.standaloneContent,
+        'cdf-editor__standalone',
+      );
 
-      const left = row.leftHtml
-        ? `<div class="cdf-editor__segment cdf-editor__segment--left${row.ellipsisSide === 'left' ? ' cdf-editor__segment--ellipsis' : ''}">${row.leftHtml}</div>`
-        : '';
-      const arrow = row.arrow
+      const left = renderEditorContent(
+        row.leftContent,
+        `cdf-editor__segment cdf-editor__segment--left${row.ellipsisSide === 'left' ? ' cdf-editor__segment--ellipsis' : ''}`,
+      );
+      const inlineArrow = row.arrow
         ? `<span class="cdf-editor__arrow" aria-hidden="true">${escapeHtml(row.arrow)}</span>`
         : '';
-      const right = row.rightHtml
-        ? `<div class="cdf-editor__segment cdf-editor__segment--right${row.ellipsisSide === 'right' ? ' cdf-editor__segment--ellipsis' : ''}">${row.rightHtml}</div>`
+      const right = renderEditorContent(
+        row.rightContent,
+        `cdf-editor__segment cdf-editor__segment--right${row.ellipsisSide === 'right' ? ' cdf-editor__segment--ellipsis' : ''}`,
+      );
+      const stackedArrow = row.arrow
+        ? `<div class="cdf-editor__stack-arrow"><span class="cdf-editor__arrow" aria-hidden="true">${escapeHtml(row.arrow)}</span></div>`
         : '';
+      const relationContent = row.layout === 'stacked'
+        ? `
+          <div class="cdf-editor__stack">
+            ${left}
+            ${stackedArrow}
+            ${right}
+          </div>
+        `
+        : `${left}${inlineArrow}${right}`;
 
       return `
         <div class="${rowClasses}" data-row-key="${escapeHtml(row.key)}">
           <span class="cdf-editor__bullet" aria-hidden="true"></span>
           <div class="cdf-editor__node">
-            ${standalone || `${left}${arrow}${right}`}
+            ${standalone || relationContent}
           </div>
         </div>
       `;
@@ -103,7 +144,7 @@ function toEditorRow(
   row: CdfDirectRow,
   rowMask: CdfDirectMask | null,
 ): CdfEditorRow {
-  const ellipsisHtml = createCdfEllipsisHtml();
+  const ellipsisContent = createCdfDirectRenderable(createCdfEllipsisHtml(), 'fragment');
   const level = row.level ?? 0;
   const emphasize = row.emphasize ?? 'normal';
 
@@ -113,23 +154,26 @@ function toEditorRow(
       return {
         key: row.key,
         level,
+        layout: 'standalone',
         emphasize,
-        standaloneHtml: rowMask?.segment === 'whole' ? ellipsisHtml : row.html,
+        standaloneContent: rowMask?.segment === 'whole' ? ellipsisContent : row.content,
       };
     case 'group':
       if (rowMask?.segment === 'whole') {
         return {
           key: row.key,
           level,
+          layout: 'standalone',
           emphasize,
-          standaloneHtml: ellipsisHtml,
+          standaloneContent: ellipsisContent,
         };
       }
       return {
         key: row.key,
         level,
+        layout: row.label.renderKind === 'block-flow' ? 'stacked' : 'inline',
         emphasize,
-        leftHtml: row.labelHtml,
+        leftContent: row.label,
         arrow: '↓',
       };
     case 'relation': {
@@ -140,16 +184,22 @@ function toEditorRow(
         return {
           key: row.key,
           level,
+          layout: 'standalone',
           emphasize,
-          standaloneHtml: ellipsisHtml,
+          standaloneContent: ellipsisContent,
         };
       }
+      const leftContent = maskLeft ? ellipsisContent : row.left;
+      const rightContent = maskRight ? ellipsisContent : row.right;
       return {
         key: row.key,
         level,
+        layout: leftContent.renderKind === 'block-flow' || rightContent.renderKind === 'block-flow'
+          ? 'stacked'
+          : 'inline',
         emphasize,
-        leftHtml: maskLeft ? ellipsisHtml : row.leftHtml,
-        rightHtml: maskRight ? ellipsisHtml : row.rightHtml,
+        leftContent,
+        rightContent,
         arrow: row.arrow,
         ellipsisSide: maskLeft ? 'left' : maskRight ? 'right' : null,
       };

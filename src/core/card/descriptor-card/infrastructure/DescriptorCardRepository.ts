@@ -13,6 +13,11 @@ import {
   hasDescriptorGroupHintTail,
   parseCueAndAnswer,
 } from '@/core/xiuyuan/parseCueAndAnswer';
+import {
+  renderReviewMarkdown,
+  type ReviewMarkdownRenderOptions,
+  type ReviewRenderedMarkdown,
+} from '@/core/card/common/application/reviewMarkdownRender';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('DescriptorCardRepository');
@@ -72,7 +77,16 @@ export class DescriptorCardRepository {
   ) {}
 
   renderMarkdownFragment(markdown: string): string {
-    return this.siyuanAdapter.kramdownToHtml(markdown);
+    return renderReviewMarkdown(markdown, {
+      forceRenderKind: 'fragment',
+    }).html;
+  }
+
+  renderMarkdownContent(
+    markdown: string,
+    options?: ReviewMarkdownRenderOptions,
+  ): ReviewRenderedMarkdown {
+    return renderReviewMarkdown(markdown, options);
   }
 
   private hasConceptSyntax(content: string): boolean {

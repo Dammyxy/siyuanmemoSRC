@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-24 (Round 133)
+Last update: 2026-04-24 (Round 134)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-24 - shared review direct CDF block-flow render contract hardening
+
+- Task: 根治统一复习界面里语义卡 direct CDF 渲染把复杂块内容当成 inline fragment 塞进关系行、导致属性尾巴泄漏、竖排挤压和图片/复杂块错位的问题。
+- Touched slice: Shared review direct render contract across `src/core/card/common/{application/{reviewMarkdownRender.ts,__tests__/reviewMarkdownRender.test.ts,cdfDirectScene.ts},infrastructure/SiyuanKramdownGateway.ts}`, `src/ui/shared/cdf-direct/{renderScene.ts,CdfDirectLayout.vue}`, concept / concept-definition / descriptor render services and tests, `src/ui/review/v2/components/{XiuyuanListTemplateCard.vue,__tests__/XiuyuanListTemplateCard.test.ts}`, and this backlog.
+- Debt fixed now: review surface 现在有统一的 `fragment / block-flow` markdown render contract，所有 direct CDF scene row 都显式带 `renderKind`，不再默认“只要是 html 字符串就能 inline”；`concept-definition`、`descriptor`、`concept` 都不再把裸 `Md2BlockDOM` 或脏 kramdown 直接塞给 review renderer，而是先走共享 helper 做 attribute artifact 清洗，再按能力选择 fragment-safe 或 block-flow html；`CdfDirectLayout` / `renderScene` 也升级成了 inline row + stacked block-flow row 双布局，复杂答案在 direct CDF 中会直出为 editor-like block flow，而不是继续被 flex-wrap 挤成碎列。
+- Debt deferred: 这轮没有继续重做 descriptor semantic question 的复杂块布局，反向题面里如果把超复杂 description 当 question inline 片段来问，视觉上仍可能偏保守；`enhanceRenderedMarkdown()` 在 happy-dom 测试里依旧会尝试拉本地 KaTeX 资源并打印 stderr 噪音，但不影响断言。
+- Why deferred: 当前用户阻塞是 review direct CDF 的复杂内容错位和属性尾巴泄漏，先把共享 render contract、scene contract 和 layout contract 收稳最关键；继续扩大到 semantic question layout 全量重构或测试基础设施清噪，会把这轮从精准 active-path 修复扩成更宽的 review UI 改造。
+- Next safe step: 如果后续还观察到“复杂内容显示不自然”，优先看是否值得把 descriptor reverse/forward semantic question 也切成 capability-aware stacked layout；如果 happy-dom 的外部资源噪音开始影响开发体验，再单开一轮把 `enhanceRenderedMarkdown` 的测试资源加载统一 mock 掉。
+- Validation: `pnpm vitest run src/core/card/common/application/__tests__/reviewMarkdownRender.test.ts src/core/card/concept-definition/application/__tests__/ConceptDefinitionCardRenderService.test.ts src/core/card/descriptor-card/__tests__/DescriptorCardRenderService.cdf-fusion.test.ts src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts src/core/card/concept/application/__tests__/ConceptCardRenderService.test.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts src/ui/review/v2/__tests__/ReviewContent.fonts.spec.ts`.
 
 ### 2026-04-24 - shared review semantic card fallback hardening
 

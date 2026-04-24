@@ -9,8 +9,16 @@
 
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
-import type { CdfDirectScene } from '@/core/card/common/application/cdfDirectScene';
+import {
+  createCdfDirectRenderable,
+  type CdfDirectScene,
+} from '@/core/card/common/application/cdfDirectScene';
 import { projectCdfRelation } from '@/core/card/common/application/cdfDirectScene';
+import {
+  renderReviewMarkdown,
+  type ReviewMarkdownRenderOptions,
+  type ReviewRenderedMarkdown,
+} from '@/core/card/common/application/reviewMarkdownRender';
 import { DescriptorCard } from '../domain/DescriptorCard';
 import type { DescriptorCardRepository } from '../infrastructure/DescriptorCardRepository';
 import type { LiveCdfDescriptorFusionContext } from '../infrastructure/DescriptorCardRepository';
@@ -408,7 +416,10 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         kind: 'concept',
         key: 'concept',
         level: 0,
-        html: this.renderMarkdownFragment(`[[${conceptTitle}]]`),
+        content: createCdfDirectRenderable(
+          this.renderMarkdownFragment(`[[${conceptTitle}]]`),
+          'fragment',
+        ),
         emphasize: 'primary',
       });
     }
@@ -418,42 +429,55 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
         kind: 'group',
         key: 'group',
         level: conceptTitle ? 1 : 0,
-        labelHtml: this.renderMarkdownFragment(cdfFusionMeta.groupHint),
+        label: createCdfDirectRenderable(
+          this.renderMarkdownFragment(cdfFusionMeta.groupHint),
+          'fragment',
+        ),
       });
 
       const relationLevel = conceptTitle ? 2 : 1;
       if (cdfFusionMeta.childCue) {
+        const cueContent = this.renderMarkdownContent(cdfFusionMeta.childCue, {
+          forceRenderKind: 'fragment',
+        });
+        const descriptionContent = this.renderMarkdownContent(displayParts.description);
         rows.push({
           kind: 'relation',
           key: 'descriptor',
           level: relationLevel,
-          leftHtml: this.renderMarkdownFragment(cdfFusionMeta.childCue),
-          rightHtml: this.renderMarkdownFragment(displayParts.description),
+          left: createCdfDirectRenderable(cueContent.html, cueContent.renderKind),
+          right: createCdfDirectRenderable(descriptionContent.html, descriptionContent.renderKind),
           arrow: relationArrow,
         });
       } else if (displayParts.description) {
+        const descriptionContent = this.renderMarkdownContent(displayParts.description);
         rows.push({
           kind: 'standalone',
           key: 'descriptor-answer',
           level: relationLevel,
-          html: this.renderMarkdownFragment(displayParts.description),
+          content: createCdfDirectRenderable(descriptionContent.html, descriptionContent.renderKind),
         });
       }
     } else if (displayParts.attribute) {
+      const attributeContent = this.renderMarkdownContent(displayParts.attribute, {
+        forceRenderKind: 'fragment',
+      });
+      const descriptionContent = this.renderMarkdownContent(displayParts.description);
       rows.push({
         kind: 'relation',
         key: 'descriptor',
         level: conceptTitle ? 1 : 0,
-        leftHtml: this.renderMarkdownFragment(displayParts.attribute),
-        rightHtml: this.renderMarkdownFragment(displayParts.description),
+        left: createCdfDirectRenderable(attributeContent.html, attributeContent.renderKind),
+        right: createCdfDirectRenderable(descriptionContent.html, descriptionContent.renderKind),
         arrow: relationArrow,
       });
     } else if (displayParts.description) {
+      const descriptionContent = this.renderMarkdownContent(displayParts.description);
       rows.push({
         kind: 'standalone',
         key: 'descriptor-answer',
         level: conceptTitle ? 1 : 0,
-        html: this.renderMarkdownFragment(displayParts.description),
+        content: createCdfDirectRenderable(descriptionContent.html, descriptionContent.renderKind),
       });
     }
 
@@ -506,7 +530,7 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       return '';
     }
 
-    return `${ancestorHtml}<div class="descriptor-card-fallback" contenteditable="false">${this.renderMarkdownFragment(normalized)}</div>`;
+    return `${ancestorHtml}<div class="descriptor-card-fallback" contenteditable="false">${this.renderMarkdownContent(normalized).html}</div>`;
   }
 
   private buildDescriptorQuestionHtml(options: {
@@ -537,7 +561,33 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
   }
 
   private buildDescriptorAnswerHtml(className: string, markdown: string): string {
-    return `<div class="${className}" contenteditable="false">${this.renderMarkdownFragment(markdown)}</div>`;
+    return `<div class="${className}" contenteditable="false">${this.renderMarkdownContent(markdown).html}</div>`;
+  }
+
+  private renderMarkdownContent(
+    markdown: string,
+    options?: ReviewMarkdownRenderOptions,
+  ): ReviewRenderedMarkdown {
+    const normalized = String(markdown || '').trim();
+    if (!normalized) {
+      return {
+        html: '',
+        renderKind: options?.forceRenderKind ?? 'fragment',
+        normalizedKramdown: '',
+      };
+    }
+
+    const contentRenderer = this.repository as DescriptorCardRepository & {
+      renderMarkdownContent?: (
+        value: string,
+        renderOptions?: ReviewMarkdownRenderOptions,
+      ) => ReviewRenderedMarkdown;
+    };
+    if (typeof contentRenderer.renderMarkdownContent === 'function') {
+      return contentRenderer.renderMarkdownContent(normalized, options);
+    }
+
+    return renderReviewMarkdown(normalized, options);
   }
 
   private renderMarkdownFragment(markdown: string): string {
@@ -554,7 +604,9 @@ export class DescriptorCardRenderService extends BaseCardRenderService {
       }).renderMarkdownFragment(normalized);
     }
 
-    return `<p>${this.escapeHtml(normalized)}</p>`;
+    return this.renderMarkdownContent(normalized, {
+      forceRenderKind: 'fragment',
+    }).html || `<p>${this.escapeHtml(normalized)}</p>`;
   }
 
   private escapeHtml(source: string): string {

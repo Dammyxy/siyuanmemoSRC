@@ -214,4 +214,32 @@ describe('XiuyuanListTemplateCard', () => {
     expect(wrapper.text()).toContain('...');
     expect(wrapper.text()).not.toContain('描述性（非规范性）');
   });
+
+  it('keeps complex direct answers in stacked block-flow rows without leaking attribute artifacts', async () => {
+    const plugin = createPluginMock();
+    plugin.__setQuestionDom('<p>[[中子星]]:::</p>');
+    plugin.__setBlockMarkdown({
+      child_1: '前身 -> 第一段\n\n> 引用说明\n{: id="2026042411" updated="2026042412"}',
+    });
+
+    const wrapper = mount(XiuyuanListTemplateCard, {
+      props: {
+        meta: createMeta({
+          cue: '前身',
+          answer: '第一段',
+        }),
+        showAnswer: true,
+        questionBlockId: 'q_1',
+        plugin,
+        displayMode: 'direct',
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.cdf-direct-layout').exists()).toBe(true);
+    expect(wrapper.html()).toContain('cdf-editor__row--stacked');
+    expect(wrapper.text()).toContain('第一段');
+    expect(wrapper.text()).toContain('引用说明');
+    expect(wrapper.text()).not.toContain('{:');
+  });
 });

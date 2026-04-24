@@ -10,7 +10,15 @@
 
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
-import type { CdfDirectScene } from '@/core/card/common/application/cdfDirectScene';
+import {
+  createCdfDirectRenderable,
+  type CdfDirectScene,
+} from '@/core/card/common/application/cdfDirectScene';
+import {
+  renderReviewMarkdown as renderSharedReviewMarkdown,
+  type ReviewMarkdownRenderOptions,
+  type ReviewRenderedMarkdown,
+} from '@/core/card/common/application/reviewMarkdownRender';
 import { getBlockKramdown, sql } from '@/core/siyuan/api';
 import { createLogger } from '@/utils/logger';
 import {
@@ -40,7 +48,10 @@ export interface ConceptDefinitionCardInput {
 
 interface ConceptDefinitionCardRenderPorts {
   getXiuyuan?: (xiuyuanID: string) => Promise<GetXiuyuanQueryResult>;
-  renderMarkdown?: (kramdown: string) => string;
+  renderMarkdown?: (
+    kramdown: string,
+    options?: ReviewMarkdownRenderOptions,
+  ) => ReviewRenderedMarkdown | string;
 }
 
 const logger = createLogger('ConceptDefinitionCardRenderService');
@@ -218,7 +229,8 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     );
 
     // 11. 使用 Lute 渲染 Markdown
-    const definitionHtml = this.renderMarkdown(processedKramdown);
+    const definitionRender = this.renderReviewMarkdown(processedKramdown);
+    const definitionHtml = definitionRender.html;
 
     // 12. 使用基类方法加载面包屑
     const breadcrumbs = await this.loadBreadcrumbs(blockId);
@@ -283,7 +295,7 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
     }
 
     const directScene = clozes.length === 0
-      ? this.buildDirectScene(conceptName, definitionHtml, relationArrow, isReverse)
+      ? this.buildDirectScene(conceptName, definitionRender, relationArrow, isReverse)
       : undefined;
 
     // 14. 构建视图模型
@@ -311,17 +323,21 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
 
   private buildDirectScene(
     conceptName: string,
-    definitionHtml: string,
+    definitionRender: ReviewRenderedMarkdown,
     relationArrow: '→' | '←' | '↔',
     isReverse: boolean,
   ): CdfDirectScene {
+    const conceptRender = this.renderReviewMarkdown(`[[${conceptName}]]`, {
+      forceRenderKind: 'fragment',
+    });
+
     return {
       rows: [{
         kind: 'relation',
         key: 'concept-definition',
         level: 0,
-        leftHtml: this.renderMarkdown(`[[${conceptName}]]`),
-        rightHtml: definitionHtml,
+        left: createCdfDirectRenderable(conceptRender.html, conceptRender.renderKind),
+        right: createCdfDirectRenderable(definitionRender.html, definitionRender.renderKind),
         arrow: relationArrow,
         emphasize: 'primary',
       }],
@@ -696,16 +712,37 @@ export class ConceptDefinitionCardRenderService extends BaseCardRenderService {
   /**
    * 使用 Lute 渲染 Markdown
    */
-  private renderMarkdown(kramdown: string): string {
+  private renderReviewMarkdown(
+    kramdown: string,
+    options?: ReviewMarkdownRenderOptions,
+  ): ReviewRenderedMarkdown {
     if (this.ports.renderMarkdown) {
-      return this.ports.renderMarkdown(kramdown);
+      const rendered = this.ports.renderMarkdown(kramdown, options);
+      if (typeof rendered === 'string') {
+        const fallback = renderSharedReviewMarkdown(kramdown, options);
+        return {
+          ...fallback,
+          html: rendered,
+        };
+      }
+      return rendered;
+    }
+
+    const rendered = renderSharedReviewMarkdown(kramdown, options);
+    if (rendered.html) {
+      return rendered;
     }
 
     const lute = resolveLuteRenderer();
     if (!lute) {
       throw new Error('Lute not available');
     }
-    return lute.Md2BlockDOM(kramdown);
+
+    return {
+      html: lute.Md2BlockDOM(kramdown),
+      renderKind: options?.forceRenderKind ?? 'block-flow',
+      normalizedKramdown: kramdown,
+    };
   }
 }
 

@@ -97,8 +97,14 @@ describe('ConceptDefinitionCardRenderer', () => {
         rows: [{
           kind: 'relation',
           key: 'concept-definition',
-          leftHtml: '<p>[[中子星]]</p>',
-          rightHtml: '<p>质量极高的致密恒星残骸</p>',
+          left: {
+            html: '<p>[[中子星]]</p>',
+            renderKind: 'fragment',
+          },
+          right: {
+            html: '<div class="protyle-wysiwyg"><p>质量极高的致密恒星残骸</p><p>会在 direct CDF 里走 block flow。</p></div>',
+            renderKind: 'block-flow',
+          },
           arrow: '↔',
           emphasize: 'primary',
         }],
@@ -140,6 +146,12 @@ describe('ConceptDefinitionCardRenderer', () => {
     expect(wrapper.text()).toContain('↔');
     expect(wrapper.text()).toContain('...');
     expect(wrapper.text()).not.toContain('质量极高的致密恒星残骸');
+
+    await wrapper.setProps({ showAnswer: true });
+    await flushPromises();
+
+    expect(wrapper.html()).toContain('cdf-editor__row--stacked');
+    expect(wrapper.text()).toContain('质量极高的致密恒星残骸');
   });
 
   it('keeps semantic fallback minimal without badge chrome', async () => {

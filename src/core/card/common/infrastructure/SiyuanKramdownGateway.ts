@@ -1,4 +1,5 @@
 import { createLogger } from '@/utils/logger';
+import { stripSiyuanBlockAttributeArtifacts } from '@/core/card/common/utils/stripSiyuanBlockAttributeArtifacts';
 
 interface LoggerLike {
   debug(...args: unknown[]): void;
@@ -86,6 +87,8 @@ export class SiyuanKramdownGateway {
   }
 
   kramdownToHtml(kramdown: string, options: KramdownRenderOptions = {}): string {
+    const content = options.stripAttributeLines ? this.stripAttributeLines(kramdown) : kramdown;
+
     try {
       this.logger.debug('kramdownToHtml called', {
         preview: kramdown.substring(0, 100),
@@ -96,17 +99,16 @@ export class SiyuanKramdownGateway {
       const luteFactory = luteContainer?.New;
       if (typeof luteFactory !== 'function') {
         this.logger.warn('Lute not available, returning raw kramdown');
-        return kramdown;
+        return content;
       }
 
       const lute: LuteInstance = luteFactory.call(luteContainer);
-      const content = options.stripAttributeLines ? this.stripAttributeLines(kramdown) : kramdown;
 
       const html = this.renderWithLute(content, lute, Boolean(options.preferSpinBlockDOM));
-      return html || kramdown;
+      return html || content;
     } catch (error) {
       this.logger.error('Failed to render kramdown', error);
-      return kramdown;
+      return content;
     }
   }
 
@@ -131,9 +133,6 @@ export class SiyuanKramdownGateway {
   }
 
   private stripAttributeLines(kramdown: string): string {
-    return kramdown
-      .split('\n')
-      .filter((line) => !line.trim().startsWith('{:'))
-      .join('\n');
+    return stripSiyuanBlockAttributeArtifacts(kramdown);
   }
 }

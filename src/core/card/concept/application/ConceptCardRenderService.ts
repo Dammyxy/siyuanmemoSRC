@@ -1,4 +1,5 @@
 import { BaseCardRenderService } from '@/core/card/common/application/BaseCardRenderService';
+import { renderReviewMarkdown } from '@/core/card/common/application/reviewMarkdownRender';
 import type { BaseCardViewModel } from '@/core/card/common/application/types';
 import { getBlockKramdown } from '@/core/siyuan/api';
 import { createLogger } from '@/utils/logger';
@@ -148,6 +149,11 @@ export class ConceptCardRenderService extends BaseCardRenderService {
   }
 
   private renderMarkdown(kramdown: string): string {
+    const rendered = renderReviewMarkdown(kramdown);
+    if (rendered.html) {
+      return rendered.html;
+    }
+
     const lute = resolveLuteRenderer();
     if (!lute) {
       throw new Error('Lute not available');

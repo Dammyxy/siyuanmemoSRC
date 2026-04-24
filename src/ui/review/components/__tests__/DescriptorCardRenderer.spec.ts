@@ -16,15 +16,24 @@ describe('DescriptorCardRenderer', () => {
             {
               kind: 'concept',
               key: 'concept',
-              html: '<p>[[中子星]]</p>',
+              content: {
+                html: '<p>[[中子星]]</p>',
+                renderKind: 'fragment',
+              },
               emphasize: 'primary',
             },
             {
               kind: 'relation',
               key: 'descriptor',
               level: 1,
-              leftHtml: '<p>形成过程</p>',
-              rightHtml: '<p>前身恒星经历超新星爆炸后形成</p>',
+              left: {
+                html: '<p>形成过程</p>',
+                renderKind: 'fragment',
+              },
+              right: {
+                html: '<div class="protyle-wysiwyg"><p>前身恒星经历超新星爆炸后形成</p><blockquote><p>同时保留复杂块直出。</p></blockquote></div>',
+                renderKind: 'block-flow',
+              },
               arrow: '→',
             },
           ],
@@ -78,6 +87,7 @@ describe('DescriptorCardRenderer', () => {
     expect(wrapper.text()).toContain('→');
     expect(wrapper.text()).toContain('形成过程');
     expect(wrapper.text()).toContain('前身恒星经历超新星爆炸后形成');
+    expect(wrapper.html()).toContain('cdf-editor__row--stacked');
     expect(wrapper.text()).not.toContain('legacy semantic warning');
   });
 
@@ -93,7 +103,10 @@ describe('DescriptorCardRenderer', () => {
           rows: [{
             kind: 'standalone',
             key: 'descriptor-answer',
-            html: '<p>前身→恒星</p>',
+            content: {
+              html: '<p>前身→恒星</p>',
+              renderKind: 'fragment',
+            },
           }],
           frontMask: null,
         },
