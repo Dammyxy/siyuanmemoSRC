@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-25 (Round 142)
+Last update: 2026-04-26 (Round 143)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - AI workbench compact icon polish
+
+- Task: 改善 AI 工作台 UI，减少 skill / tab / 消息操作区的可见说明文字，并参考 F 工具箱收口成更简洁的原生风格。
+- Touched slice: AI workbench / capture UI surface across `src/ui/ai/AiWorkbenchPane.vue`, `src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`, and this backlog.
+- Debt fixed now: Skill 切换与阶段 tab 不再直接渲染副说明文案，说明收进 `title / aria-label`；消息底部的复制、发送到思源、编辑、重跑、分支、固定和更多操作改为稳定尺寸的图标按钮；输入框展开和顶部符号按钮也改成思源图标；AI 面板局部样式进一步压回 1px 边框、低对比 hover、紧凑 28px 工具按钮，减少旧渐变/长文本带来的视觉噪音。
+- Debt deferred: 自测卡片、CDF 制卡、错误提示和审批卡仍保留必要业务文字；没有把 AI workbench 的全局 skin 抽成新设计系统，也没有改 AI service/session/tool 数据流。
+- Why deferred: 本轮目标是 UI 表层减噪，不应牺牲候选卡筛选、制卡结果和错误恢复的可理解性；抽全局设计系统或改服务链路会扩大到非必要风险。
+- Next safe step: 如果后续继续打磨，可在真实思源窗口里对 standalone dialog 与 review sidecar 做截图验收，再把仍显拥挤的 CDF/自测制卡局部按同样图标化原则分批收口。
+- Validation: `pnpm vitest run src/ui/ai/__tests__/AiWorkbenchPane.compact-surface.spec.ts`; `pnpm build`.
 
 ### 2026-04-25 - Arena FSRSV5 display label
 

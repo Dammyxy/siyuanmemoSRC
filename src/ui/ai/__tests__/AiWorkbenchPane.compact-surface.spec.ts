@@ -63,6 +63,20 @@ const CONCEPT_COACH_TABS = [
 const GENERAL_CHAT_TABS = [
   { id: AI_GENERAL_CHAT_TAB_ID, title: '聊天', emptyHint: '直接提问，或让 AI 基于当前卡片和材料继续分析。' },
 ] as const;
+const SKILL_CHOICES = [
+  {
+    id: AI_GENERAL_CHAT_SKILL_ID,
+    title: '通用 AI 聊天',
+    brief: '在同一会话里结合当前上下文、思源只读工具和网页工具进行问答。',
+    hideTabs: true,
+  },
+  {
+    id: AI_CONCEPT_COACH_SKILL_ID,
+    title: 'AI 理解与制卡',
+    brief: '理解这份材料，并生成可自测的候选卡',
+    hideTabs: false,
+  },
+] as const;
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -222,6 +236,7 @@ function createService(surface: AIWorkbenchSurface): AIWorkbenchService {
       state.contextPanelOpen = open;
     },
     getCurrentModelLabel: () => 'test-model',
+    getSkills: () => SKILL_CHOICES,
     getSkillTabs: () => CONCEPT_COACH_TABS,
     getSkillTitle: () => 'AI 理解与制卡',
     getSkillBrief: () => '理解这份材料，并生成可自测的候选卡',
@@ -438,6 +453,8 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.text()).not.toContain('AI 辅助制卡');
     expect(wrapper.text()).toContain('理解这份材料，并生成可自测的候选卡');
     expect(wrapper.text()).toContain('理解并制卡');
+    expect(wrapper.find('.ai-chat__skill-pill span').exists()).toBe(false);
+    expect(wrapper.find('.ai-chat__skill-pill').attributes('title')).toContain('结合当前上下文');
     expect(wrapper.find('.ai-chat__title-input').exists()).toBe(false);
 
     await wrapper.findAll('.ai-chat__icon-button')[0]!.trigger('click');
@@ -459,7 +476,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
 
     expect(wrapper.find('.ai-chat--compact').exists()).toBe(false);
     expect(wrapper.text()).toContain('AI 理解与制卡');
-    expect(wrapper.text()).toContain('展开输入框');
+    expect(wrapper.find('.ai-chat__composer-expand').attributes('title')).toBe('展开输入框');
     expect(wrapper.text()).not.toContain('Use Context');
     expect(wrapper.text()).not.toContain('AI 导师');
     expect(wrapper.text()).not.toContain('AI 辅助制卡');
@@ -683,7 +700,7 @@ describe('AiWorkbenchPane compact surfaces', () => {
     await Promise.resolve();
     await nextTick();
 
-    const sendButton = wrapper.findAll('button').find((button) => button.text().includes('发送到思源'))!;
+    const sendButton = wrapper.findAll('button').find((button) => (button.attributes('title') || '').includes('发送到思源'))!;
     await sendButton.trigger('click');
     await Promise.resolve();
     await nextTick();
@@ -1225,9 +1242,9 @@ describe('AiWorkbenchPane compact surfaces', () => {
     const wrapper = mount(AiWorkbenchPane, { props: { service } });
 
     expect(wrapper.find('.ai-chat__composer-plus').exists()).toBe(true);
-    expect(wrapper.text()).toContain('展开输入框');
+    expect(wrapper.find('.ai-chat__composer-expand').attributes('title')).toBe('展开输入框');
     expect(wrapper.text()).toContain('手工材料');
-    expect(wrapper.text()).toContain('编辑');
+    expect(wrapper.findAll('.ai-chat__toolbar-button').some((button) => (button.attributes('title') || '') === '编辑')).toBe(true);
     expect(wrapper.find('.ai-chat__composer-send').exists()).toBe(true);
   });
 
@@ -1244,7 +1261,8 @@ describe('AiWorkbenchPane compact surfaces', () => {
         .some((button) => (button.attributes('title') || '').includes('停止生成'))
     ).toBe(false);
     expect(wrapper.find('.ai-chat__composer-send--stop').exists()).toBe(true);
-    expect(wrapper.find('.ai-chat__composer-send').text()).toContain('中止');
+    expect(wrapper.find('.ai-chat__composer-send').attributes('title')).toBe('停止生成');
+    expect(wrapper.find('.ai-chat__composer-send').text()).toBe('');
 
     await wrapper.find('.ai-chat__composer-send').trigger('click');
 
@@ -1586,8 +1604,10 @@ describe('AiWorkbenchPane compact surfaces', () => {
     expect(wrapper.find('.ai-chat__bubble--error').exists()).toBe(true);
     expect(wrapper.text()).toContain('失败');
     expect(wrapper.text()).toContain('查看原始响应');
-    expect(wrapper.text()).toContain('重试本次');
-    expect(wrapper.text()).toContain('编辑后重发');
+    const toolbarTitles = wrapper.findAll('.ai-chat__toolbar-button')
+      .map((button) => button.attributes('title') || '');
+    expect(toolbarTitles).toContain('重试本次');
+    expect(toolbarTitles).toContain('编辑后重发');
   });
 
   it('renders a partial structured-result notice above salvaged perspectives content', () => {

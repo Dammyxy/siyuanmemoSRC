@@ -78,13 +78,13 @@
             <svg><use xlink:href="#iconHistory"></use></svg>
           </button>
           <button class="ai-chat__icon-button" type="button" :title="t('conversationTree', '树视图')" @click="treePanelOpen = !treePanelOpen">
-            <span>≡</span>
+            <svg><use xlink:href="#iconList"></use></svg>
           </button>
           <button class="ai-chat__icon-button" type="button" :title="state.contextPanelOpen ? t('hideContext', '收起上下文') : t('viewContext', '查看上下文')" @click="service.setContextPanelOpen(!state.contextPanelOpen)">
             <svg><use xlink:href="#iconMore"></use></svg>
           </button>
           <button class="ai-chat__icon-button" type="button" :title="t('newAiSession', '新建会话')" @click="createNewSession">
-            <span>+</span>
+            <svg><use xlink:href="#iconAdd"></use></svg>
           </button>
           <button class="ai-chat__icon-button" type="button" :title="`${t('model', '模型')}: ${modelLabel}`" @click="openAiSettings">
             <svg><use xlink:href="#iconSettings"></use></svg>
@@ -111,10 +111,12 @@
           class="ai-chat__skill-pill"
           :class="{ 'ai-chat__skill-pill--active': state.activeSkillId === skill.id }"
           type="button"
+          :title="skill.brief || skill.title"
+          :aria-label="choiceLabel(skill.title, skill.brief)"
+          :aria-pressed="state.activeSkillId === skill.id"
           @click="service.setActiveSkill(skill.id)"
         >
           <strong>{{ skill.title }}</strong>
-          <span>{{ skill.brief }}</span>
         </button>
       </nav>
 
@@ -125,10 +127,12 @@
           class="ai-chat__tab"
           :class="{ 'ai-chat__tab--active': state.activeTabId === tab.id }"
           type="button"
+          :title="tab.emptyHint || tab.title"
+          :aria-label="choiceLabel(tab.title, tab.emptyHint)"
+          :aria-pressed="state.activeTabId === tab.id"
           @click="service.setActiveTab(tab.id)"
         >
           <strong>{{ tab.title }}</strong>
-          <span>{{ tab.emptyHint }}</span>
         </button>
       </nav>
 
@@ -708,34 +712,110 @@
               <span>{{ messageFooterMeta(entry.primaryMessage) }}</span>
             </div>
             <div class="ai-chat__message-toolbar-actions">
-              <button class="ai-chat__toolbar-button" type="button" @click="copyMessage(entry.primaryMessage)">{{ t('copy', '复制') }}</button>
+              <button
+                class="ai-chat__toolbar-button"
+                type="button"
+                :title="t('copy', '复制')"
+                :aria-label="t('copy', '复制')"
+                @click="copyMessage(entry.primaryMessage)"
+              >
+                <svg aria-hidden="true"><use xlink:href="#iconCopy"></use></svg>
+              </button>
               <button
                 v-if="canSendAssistantResultToSiyuan(entry.primaryMessage)"
                 class="ai-chat__toolbar-button"
                 type="button"
+                :title="sendToSiyuanButtonLabel(entry.primaryMessage.id)"
+                :aria-label="sendToSiyuanButtonLabel(entry.primaryMessage.id)"
                 :disabled="sendToSiyuanBusy(entry.primaryMessage.id)"
                 @click="sendAssistantResultToSiyuan(entry.primaryMessage)"
               >
-                {{ sendToSiyuanBusy(entry.primaryMessage.id) ? t('sendingToSiyuan', '发送中...') : t('sendToSiyuan', '发送到思源') }}
+                <svg v-if="sendToSiyuanBusy(entry.primaryMessage.id)" aria-hidden="true"><use xlink:href="#iconRefresh"></use></svg>
+                <svg v-else aria-hidden="true"><use xlink:href="#iconUpload"></use></svg>
               </button>
-              <button v-if="canEditMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" @click="openTextMessageEditor(entry.primaryMessage)">{{ t('edit', '编辑') }}</button>
-              <button v-if="canEditUserMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" @click="prepareEditedFollowUp(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
-              <button v-if="canEditFailedMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" :disabled="state.isLoading" @click="prepareFailedMessageEdit(entry.primaryMessage)">{{ t('editAndResend', '编辑后重发') }}</button>
-              <button v-if="canRetryFailedMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" :disabled="state.isLoading || revealLocked" @click="retryFailedMessage(entry.primaryMessage)">{{ t('retryThisRequest', '重试本次') }}</button>
-              <button v-if="canRerunMessage(entry.primaryMessage)" class="ai-chat__toolbar-button" type="button" :disabled="state.isLoading || revealLocked" @click="rerunMessage(entry.primaryMessage)">{{ t('rerun', '重跑') }}</button>
-              <button class="ai-chat__toolbar-button" type="button" @click="branchFromMessage(entry.primaryMessage)">{{ t('branch', '分支') }}</button>
-              <button class="ai-chat__toolbar-button" type="button" @click="toggleMessagePinned(entry.primaryMessage)">
-                {{ messageMeta(entry.primaryMessage)?.pinned ? t('unpin', '取消固定') : t('pin', '固定') }}
+              <button
+                v-if="canEditMessage(entry.primaryMessage)"
+                class="ai-chat__toolbar-button"
+                type="button"
+                :title="t('edit', '编辑')"
+                :aria-label="t('edit', '编辑')"
+                @click="openTextMessageEditor(entry.primaryMessage)"
+              >
+                <svg aria-hidden="true"><use xlink:href="#iconEdit"></use></svg>
+              </button>
+              <button
+                v-if="canEditUserMessage(entry.primaryMessage)"
+                class="ai-chat__toolbar-button"
+                type="button"
+                :title="t('editAndResend', '编辑后重发')"
+                :aria-label="t('editAndResend', '编辑后重发')"
+                @click="prepareEditedFollowUp(entry.primaryMessage)"
+              >
+                <svg aria-hidden="true"><use xlink:href="#iconEdit"></use></svg>
+              </button>
+              <button
+                v-if="canEditFailedMessage(entry.primaryMessage)"
+                class="ai-chat__toolbar-button"
+                type="button"
+                :title="t('editAndResend', '编辑后重发')"
+                :aria-label="t('editAndResend', '编辑后重发')"
+                :disabled="state.isLoading"
+                @click="prepareFailedMessageEdit(entry.primaryMessage)"
+              >
+                <svg aria-hidden="true"><use xlink:href="#iconEdit"></use></svg>
+              </button>
+              <button
+                v-if="canRetryFailedMessage(entry.primaryMessage)"
+                class="ai-chat__toolbar-button"
+                type="button"
+                :title="t('retryThisRequest', '重试本次')"
+                :aria-label="t('retryThisRequest', '重试本次')"
+                :disabled="state.isLoading || revealLocked"
+                @click="retryFailedMessage(entry.primaryMessage)"
+              >
+                <svg aria-hidden="true"><use xlink:href="#iconRefresh"></use></svg>
+              </button>
+              <button
+                v-if="canRerunMessage(entry.primaryMessage)"
+                class="ai-chat__toolbar-button"
+                type="button"
+                :title="t('rerun', '重跑')"
+                :aria-label="t('rerun', '重跑')"
+                :disabled="state.isLoading || revealLocked"
+                @click="rerunMessage(entry.primaryMessage)"
+              >
+                <svg aria-hidden="true"><use xlink:href="#iconRefresh"></use></svg>
+              </button>
+              <button
+                class="ai-chat__toolbar-button"
+                type="button"
+                :title="t('branch', '分支')"
+                :aria-label="t('branch', '分支')"
+                @click="branchFromMessage(entry.primaryMessage)"
+              >
+                <svg aria-hidden="true"><use xlink:href="#iconSplitLR"></use></svg>
+              </button>
+              <button
+                class="ai-chat__toolbar-button"
+                type="button"
+                :title="messageMeta(entry.primaryMessage)?.pinned ? t('unpin', '取消固定') : t('pin', '固定')"
+                :aria-label="messageMeta(entry.primaryMessage)?.pinned ? t('unpin', '取消固定') : t('pin', '固定')"
+                @click="toggleMessagePinned(entry.primaryMessage)"
+              >
+                <svg v-if="messageMeta(entry.primaryMessage)?.pinned" aria-hidden="true"><use xlink:href="#iconUnpin"></use></svg>
+                <svg v-else aria-hidden="true"><use xlink:href="#iconPin"></use></svg>
               </button>
               <div class="ai-chat__bubble-menu ai-chat__bubble-menu--toolbar">
                 <button
                   class="ai-chat__bubble-menu-trigger"
                   type="button"
+                  :title="t('moreActions', '更多操作')"
+                  :aria-label="t('moreActions', '更多操作')"
                   aria-haspopup="menu"
                   aria-expanded="false"
                   @click.stop="openMessageToolbarMenu(entry.primaryMessage, $event)"
                 >
-                  •••
+                  <svg aria-hidden="true"><use xlink:href="#iconMore"></use></svg>
                 </button>
               </div>
             </div>
@@ -803,17 +883,19 @@
                 class="ai-chat__composer-plus"
                 type="button"
                 :title="t('useContext', '添加上下文')"
+                :aria-label="t('useContext', '添加上下文')"
                 @click="toggleContextMenu"
               >
-                <span>+</span>
+                <svg aria-hidden="true"><use xlink:href="#iconAdd"></use></svg>
               </button>
               <button
                 class="ai-chat__composer-expand"
                 type="button"
                 :title="t('largeEditor', '展开输入框')"
+                :aria-label="t('largeEditor', '展开输入框')"
                 @click="openComposerEditor"
               >
-                {{ t('largeEditor', '展开输入框') }}
+                <svg aria-hidden="true"><use xlink:href="#iconMax"></use></svg>
               </button>
             </div>
 
@@ -822,11 +904,11 @@
               :class="{ 'ai-chat__composer-send--stop': state.isLoading }"
               type="button"
               :title="state.isLoading ? t('stopGenerating', '停止生成') : t('send', '发送')"
+              :aria-label="state.isLoading ? t('stopGenerating', '停止生成') : t('send', '发送')"
               :disabled="composerActionDisabled"
               @click="handleComposerAction"
             >
-              <span v-if="state.isLoading">{{ t('abort', '中止') }}</span>
-              <svg v-else><use xlink:href="#iconForward"></use></svg>
+              <svg v-if="!state.isLoading" aria-hidden="true"><use xlink:href="#iconForward"></use></svg>
             </button>
           </div>
         </div>
@@ -1074,6 +1156,12 @@ const selfTestModeDraftErrors = ref<Record<string, string>>({});
 function t(key: string, fallback: string): string {
   const value = props.i18n?.[key];
   return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+}
+
+function choiceLabel(title: string, detail?: string | null): string {
+  const normalizedTitle = String(title || '').trim();
+  const normalizedDetail = String(detail || '').trim();
+  return normalizedDetail ? `${normalizedTitle}: ${normalizedDetail}` : normalizedTitle;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2003,7 +2091,7 @@ function messageFooterMeta(message: AIWorkbenchMessage): string {
   if (message.kind === 'assistant-text' && message.content) {
     parts.push(`${message.content.length} ${t('characters', '字')}`);
   }
-  return parts.join(' · ') || t('messageActions', '消息操作');
+  return parts.join(' · ');
 }
 
 function treeNodeTitle(node: { message: AIWorkbenchMessage | null; kind: string }): string {
@@ -2597,6 +2685,12 @@ function sendToSiyuanBusy(messageId: string): boolean {
   return sendToSiyuanBusyMessageIds.value.includes(messageId);
 }
 
+function sendToSiyuanButtonLabel(messageId: string): string {
+  return sendToSiyuanBusy(messageId)
+    ? t('sendingToSiyuan', '发送中...')
+    : t('sendToSiyuan', '发送到思源');
+}
+
 function sendToSiyuanError(messageId: string): string {
   return sendToSiyuanErrors.value[messageId] || '';
 }
@@ -3006,15 +3100,13 @@ onUnmounted(() => {
 .ai-chat__icon-button { width: 28px; height: 28px; border: 1px solid #d9deea; border-radius: 7px; background: #fff; display: inline-flex; align-items: center; justify-content: center; color: #667085; }
 .ai-chat__icon-button svg { width: 14px; height: 14px; }
 .ai-chat__icon-button span { font-size: 16px; line-height: 1; }
-.ai-chat__skill-switch { display: flex; gap: 8px; overflow-x: auto; padding: 8px 10px 0; background: #fff; }
-.ai-chat__skill-pill { min-width: 150px; border: 1px solid #dfe5ef; border-radius: 999px; background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); padding: 7px 12px; display: grid; gap: 2px; text-align: left; }
-.ai-chat__skill-pill strong { font-size: 12px; color: #1f2937; }
-.ai-chat__skill-pill span { font-size: 10px; color: #7b8494; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai-chat__skill-switch { display: flex; gap: 6px; overflow-x: auto; padding: 8px 10px 0; background: #fff; }
+.ai-chat__skill-pill { min-width: 96px; border: 1px solid #dfe5ef; border-radius: 8px; background: #fff; padding: 6px 10px; display: inline-flex; align-items: center; justify-content: center; text-align: center; white-space: nowrap; }
+.ai-chat__skill-pill strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: #1f2937; }
 .ai-chat__skill-pill--active { border-color: #91a9ff; background: linear-gradient(180deg, #f6f9ff 0%, #eaf1ff 100%); box-shadow: inset 0 0 0 1px rgba(80, 118, 255, 0.18); }
-.ai-chat__tabs { display: flex; gap: 8px; overflow-x: auto; padding: 8px 10px; border-bottom: 1px solid #e6e9f0; background: #fff; }
-.ai-chat__tab { min-width: 128px; border: 1px solid #e1e6ef; border-radius: 9px; background: #fbfcff; padding: 8px 10px; display: grid; gap: 3px; text-align: left; }
-.ai-chat__tab strong { font-size: 12px; color: #1f2937; }
-.ai-chat__tab span { font-size: 11px; color: #7f8797; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai-chat__tabs { display: flex; gap: 6px; overflow-x: auto; padding: 7px 10px; border-bottom: 1px solid #e6e9f0; background: #fff; }
+.ai-chat__tab { min-width: 74px; border: 1px solid #e1e6ef; border-radius: 7px; background: #fbfcff; padding: 6px 10px; display: inline-flex; align-items: center; justify-content: center; text-align: center; white-space: nowrap; }
+.ai-chat__tab strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: #1f2937; }
 .ai-chat__tab--active { border-color: #9fb7ff; background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%); box-shadow: inset 0 0 0 1px rgba(96, 132, 255, 0.18); }
 .ai-chat__history-head, .ai-chat__section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ai-chat__history-head { padding: 12px; border-bottom: 1px solid #eef1f6; }
@@ -3127,7 +3219,9 @@ onUnmounted(() => {
 .ai-chat--compact .ai-chat__message-toolbar { opacity: 1; transform: none; }
 .ai-chat__message-toolbar-meta { min-width: 0; color: #7f8797; font-size: 12px; }
 .ai-chat__message-toolbar-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.ai-chat__toolbar-button { border: 0; border-radius: 7px; background: transparent; padding: 6px 8px; font-size: 12px; color: #51607a; }
+.ai-chat__toolbar-button { width: 28px; height: 28px; border: 1px solid transparent; border-radius: 7px; background: transparent; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: #51607a; }
+.ai-chat__toolbar-button svg { width: 14px; height: 14px; }
+.ai-chat__toolbar-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .ai-chat__toolbar-button:hover { background: #f4f7fb; color: #1f2937; }
 .ai-chat__bubble-menu--toolbar .ai-chat__bubble-menu-trigger { width: 26px; height: 26px; }
 .ai-chat__result-section { display: grid; gap: 6px; margin-top: 10px; }
@@ -3197,15 +3291,13 @@ onUnmounted(() => {
 .ai-chat__composer-footer { position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
 .ai-chat__composer-left-tools { display: flex; align-items: center; gap: 6px; min-width: 0; pointer-events: auto; }
 .ai-chat__composer-plus, .ai-chat__composer-send { width: 30px; height: 30px; border: 1px solid #d9deea; border-radius: 7px; background: #fff; display: inline-flex; align-items: center; justify-content: center; color: #51607a; pointer-events: auto; }
-.ai-chat__composer-plus span { font-size: 16px; line-height: 1; }
+.ai-chat__composer-plus svg, .ai-chat__composer-send svg, .ai-chat__composer-expand svg { width: 14px; height: 14px; }
 .ai-chat__composer-send { background: linear-gradient(180deg, #2486dc 0%, #1461ac 100%); border-color: #1d74c8; color: #fff; box-shadow: 0 8px 18px rgba(20,97,172,0.18); transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease; }
 .ai-chat__composer-send:hover:not(:disabled) { background: linear-gradient(180deg, #2f95e8 0%, #165da4 100%); box-shadow: 0 10px 22px rgba(20,97,172,0.24); transform: translateY(-1px); }
-.ai-chat__composer-send svg { width: 16px; height: 16px; }
-.ai-chat__composer-send--stop { width: auto; min-width: 60px; padding: 0 12px; gap: 6px; background: #fff4f2; border-color: #efb7ae; color: #b42318; box-shadow: none; font-weight: 700; transform: none; }
+.ai-chat__composer-send--stop { width: 30px; min-width: 30px; padding: 0; gap: 0; background: #fff4f2; border-color: #efb7ae; color: #b42318; box-shadow: none; font-weight: 700; transform: none; }
 .ai-chat__composer-send--stop:hover:not(:disabled) { background: #ffe8e4; box-shadow: none; transform: none; }
 .ai-chat__composer-send--stop::before { content: ''; width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
-.ai-chat__composer-send--stop span { font-size: 12px; line-height: 1; }
-.ai-chat__composer-expand { border: 0; border-radius: 7px; background: transparent; color: #65758c; padding: 5px 8px; font-size: 12px; line-height: 1.2; pointer-events: auto; white-space: nowrap; }
+.ai-chat__composer-expand { width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent; color: #65758c; padding: 0; display: inline-flex; align-items: center; justify-content: center; pointer-events: auto; }
 .ai-chat__composer-send:disabled, .ai-chat__composer-plus:disabled, .ai-chat__composer-expand:disabled { opacity: 0.5; cursor: not-allowed; }
 .ai-chat__context-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .ai-chat__context-chip { border: 1px solid #dce3f5; border-radius: 8px; background: #f8fbff; padding: 8px 10px; display: grid; gap: 2px; text-align: left; max-width: 100%; }
@@ -3314,9 +3406,13 @@ onUnmounted(() => {
   box-shadow: none;
 }
 
-.ai-chat__skill-pill,
+.ai-chat__skill-pill {
+  min-width: 104px;
+  padding: 6px 10px;
+}
+
 .ai-chat__tab {
-  min-width: 132px;
+  min-width: 82px;
   padding: 6px 10px;
 }
 
@@ -3440,6 +3536,34 @@ onUnmounted(() => {
 .ai-chat__message-toolbar,
 .ai-chat__context-menu-item + .ai-chat__context-menu-item {
   border-color: var(--b3-border-color);
+}
+
+.ai-chat__toolbar-button,
+.ai-chat__bubble-menu-trigger,
+.ai-chat__composer-plus,
+.ai-chat__composer-expand,
+.ai-chat__composer-send {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-chat__toolbar-button svg,
+.ai-chat__bubble-menu-trigger svg,
+.ai-chat__composer-plus svg,
+.ai-chat__composer-expand svg,
+.ai-chat__composer-send svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ai-chat__composer-send--stop {
+  width: 28px;
+  min-width: 28px;
 }
 @keyframes ai-pending-pulse {
   0% { opacity: 0.45; transform: scale(0.85); box-shadow: 0 0 0 0 rgba(28,125,143,0.22); }
