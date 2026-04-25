@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-25 (Round 141)
+Last update: 2026-04-25 (Round 142)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-25 - Arena FSRSV5 display label
+
+- Task: 把竞技场管理器里对 `sm15` / `SM-15` 的用户可见展示改为 `FSRSV5`，仅改显示名称，不改内部调度器 key。
+- Touched slice: Arena / SRS transparency display path across `src/application/helpers/srsDisplayLabels.ts`, `src/application/services/{ArenaKernelService.ts,SrsTransparencyApplicationService.ts,__tests__/*}`, `src/ui/{arena/ArenaManagerDialog.vue,srs/SrsEditorDialog.vue,settings/SettingsPanel.vue}`, and i18n labels.
+- Debt fixed now: SRS Arena contestant、当前调度器和 SRS 透明度面板不再各自手写 `sm15` 展示名；统一走 `srsDisplayLabels`，并在 Arena Manager 的 SRS 排行榜/时间线里不再直接渲染 persisted title 或 raw contestant id，避免旧数据里的 `SM-15` 继续露出。
+- Debt deferred: 内部类型、存储字段、调度器路由和 `SM15Scheduler` 类名仍保持 `sm15` / `SM15`。
+- Why deferred: 用户明确要求“只是名字换成这个”；改内部 key 会影响已有卡片元数据、Arena 分数、调度路由和持久化兼容，风险远高于本轮显示需求。
+- Next safe step: 如果后续要彻底改内部命名，先做显式数据迁移设计，再统一迁移类型、存储、测试夹具和调度器路由。
+- Validation: `pnpm vitest run src/application/services/__tests__/ArenaKernelService.test.ts src/application/services/__tests__/SrsTransparencyApplicationService.test.ts`; targeted grep for user-facing `SM-15` / `sm15`; `pnpm build`.
 
 ### 2026-04-25 - review native editor repeated Escape exit
 

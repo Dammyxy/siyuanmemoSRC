@@ -2024,7 +2024,7 @@ const schedulerConfig = ref<SchedulerConfig>({
 // 调度器说明
 const schedulerDescriptions: Record<string, string> = {
   'fsrs-v6': '现代算法，准确预测遗忘曲线，推荐使用',
-  'sm15': 'SuperMemo 15 算法，完整的遗忘曲线系统',
+  'sm15': 'FSRSV5 算法，完整的遗忘曲线系统',
   'a-factor-v2': '改进的 A-Factor，动态调整难度',
 };
 

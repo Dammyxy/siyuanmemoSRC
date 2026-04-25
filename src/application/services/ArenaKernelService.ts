@@ -2,6 +2,7 @@ import type { FSRSParameters } from '@/types/settings';
 import type { SchedulerType } from '@/core/scheduler';
 import { Rating, type FSRSCard } from '@/types/card';
 import type { AIChatRegisteredSkillDescriptor } from '@/application/services/AIChatSkillRegistry';
+import { resolveSchedulerTypeLabel, resolveSrsArenaContestantLabel } from '@/application/helpers/srsDisplayLabels';
 import { SM15Scheduler } from '@/core/scheduler/strategies/SM15Scheduler';
 import { SM2ReadOnlyScheduler } from '@/core/scheduler/strategies/SM2ReadOnlyScheduler';
 import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
@@ -91,30 +92,6 @@ function normalizeTargetKind(card: FSRSCard | null | undefined): Extract<ArenaTa
     return 'descriptor';
   }
   return null;
-}
-
-function labelForContestant(contestantId: SrsArenaContestantId): string {
-  switch (contestantId) {
-    case 'sm15':
-      return 'SM-15';
-    case 'sm2':
-      return 'SM-2';
-    case 'fsrs-v6':
-    default:
-      return 'FSRS v6';
-  }
-}
-
-function labelForCurrentScheduler(schedulerType: SchedulerType | null | undefined): string {
-  switch (schedulerType) {
-    case 'sm15':
-      return 'SM-15';
-    case 'a-factor-v2':
-      return 'A-Factor v2';
-    case 'fsrs-v6':
-    default:
-      return 'FSRS v6';
-  }
 }
 
 function toQualityDelta(label: ArenaOutcomeLabel): number {
@@ -420,7 +397,7 @@ export class ArenaKernelService {
     const params = this.deps.getFsrsParams();
     const snapshot = await this.ensureSrsScoreSnapshot(poolKey, settings.srs.contestantIds);
     const weights = this.computeScoreWeights(snapshot.entries);
-    const currentSchedulerLabel = labelForCurrentScheduler(currentSchedulerType);
+    const currentSchedulerLabel = resolveSchedulerTypeLabel(currentSchedulerType);
     const contestants = this.buildSrsPredictions(card, settings.srs.contestantIds, snapshot.entries, weights, now);
     const weightedIntervalDays = contestants.reduce((sum, contestant) => sum + contestant.intervalDays * contestant.weight, 0);
     const weightedDue = now + weightedIntervalDays * DAY_MS;
@@ -432,7 +409,7 @@ export class ArenaKernelService {
       ? Math.abs(weightedIntervalDays - currentSchedulerIntervalDays) / Math.max(1, currentSchedulerIntervalDays)
       : 0;
     const leadingContestantId = contestants.slice().sort((left, right) => right.score - left.score)[0]?.contestantId || null;
-    const leadingLabel = leadingContestantId ? labelForContestant(leadingContestantId) : currentSchedulerLabel;
+    const leadingLabel = leadingContestantId ? resolveSrsArenaContestantLabel(leadingContestantId) : currentSchedulerLabel;
     return {
       poolKey,
       targetKind,
@@ -656,7 +633,7 @@ export class ArenaKernelService {
     const existingEntries = new Map((latest?.entries || []).map((entry) => [entry.contestantId, entry] as const));
     const entries: ArenaScoreEntry[] = contestantIds.map((contestantId) => ({
       contestantId,
-      title: labelForContestant(contestantId),
+      title: resolveSrsArenaContestantLabel(contestantId),
       weight: existingEntries.get(contestantId)?.weight || 1 / Math.max(1, contestantIds.length),
       score: existingEntries.get(contestantId)?.score || 0,
       sampleCount: existingEntries.get(contestantId)?.sampleCount || 0,
@@ -847,7 +824,7 @@ export class ArenaKernelService {
     return contestantIds.map((contestantId) => {
       const entry = entries.find((candidate) => candidate.contestantId === contestantId) || {
         contestantId,
-        title: labelForContestant(contestantId),
+        title: resolveSrsArenaContestantLabel(contestantId),
         weight: 0,
         score: 0,
         sampleCount: 0,
@@ -873,7 +850,7 @@ export class ArenaKernelService {
     const retrievability = clamp(scheduler.getRetrievability(card, nowDate), 0, 1);
     return {
       contestantId,
-      label: labelForContestant(contestantId),
+      label: resolveSrsArenaContestantLabel(contestantId),
       score: entry.score,
       weight,
       retrievability,

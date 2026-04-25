@@ -286,6 +286,7 @@ describe('ArenaKernelService', () => {
 
     expect(recommendation?.targetKind).toBe('descriptor');
     expect(recommendation?.contestants.map((entry) => entry.contestantId)).toEqual(['fsrs-v6', 'sm15', 'sm2']);
+    expect(recommendation?.contestants.map((entry) => entry.label)).toContain('FSRSV5');
     expect(recommendation?.contestants.map((entry) => entry.contestantId)).not.toContain('a-factor-v2');
     expect(recommendation?.weightedIntervalDays).toBeGreaterThan(0);
     expect(recommendation?.summary).toContain('Arena 当前更偏向');

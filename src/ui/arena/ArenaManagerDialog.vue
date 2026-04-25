@@ -122,7 +122,7 @@
           </div>
           <ul class="arena-manager__score-list">
             <li v-for="entry in pool.topEntries" :key="entry.contestantId">
-              <strong>{{ entry.title }}</strong>
+              <strong>{{ displaySrsContestant(entry.contestantId, entry.title) }}</strong>
               <span>{{ entry.score.toFixed(2) }} / {{ t('samples', '样本') }} {{ entry.sampleCount }}</span>
             </li>
           </ul>
@@ -136,7 +136,7 @@
         <ul class="arena-manager__timeline">
           <li v-for="match in model?.srs.recentMatches || []" :key="match.id">
             <strong>{{ match.srs?.cardId || '-' }}</strong>
-            <span>{{ match.srs?.leadingContestantId || '-' }}</span>
+            <span>{{ displaySrsContestant(match.srs?.leadingContestantId) }}</span>
             <span>{{ formatTime(match.createdAt) }}</span>
           </li>
         </ul>
@@ -147,6 +147,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { resolveSrsArenaContestantLabel } from '@/application/helpers/srsDisplayLabels';
 import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import type { ArenaManagerDomain, ArenaManagerViewModel } from '@/types/arena';
 
@@ -179,6 +180,11 @@ function readableAiPool(poolKey: string): string {
 
 function readableSrsPool(poolKey: string): string {
   return poolKey.replace(/^srs::/, 'SRS / ');
+}
+
+function displaySrsContestant(contestantId: string | null | undefined, fallback?: string): string {
+  const label = resolveSrsArenaContestantLabel(contestantId);
+  return label === '-' && fallback ? fallback : label;
 }
 
 async function refresh(): Promise<void> {

@@ -10,7 +10,7 @@
     <template v-else-if="snapshot && currentCard">
       <section class="srs-panel srs-panel--inspector">
         <div class="srs-inspector__meta">
-          <span class="srs-editor__chip srs-editor__chip--accent">{{ transparency?.schedulerLabel || currentCard.schedulerType || 'fsrs-v6' }}</span>
+          <span class="srs-editor__chip srs-editor__chip--accent">{{ schedulerBadgeLabel }}</span>
           <span class="srs-editor__chip">{{ formatCardType(currentCard.type) }}</span>
           <span class="srs-editor__chip srs-editor__chip--muted">{{ currentStateLabel }}</span>
           <span v-if="isDismissed" class="srs-editor__chip srs-editor__chip--warning">{{ t('suspended', 'Suspended') }}</span>
@@ -238,6 +238,7 @@ import type { DataChangeEvent, IDataSourceObserver, IUnifiedDataSourceManagerFac
 import { resolveRecommendedRenderTargetForType, type EditableCardType } from '@/application/services/card-editor/applyCardTypeTransition';
 import { getRenderTargetLabel, getRenderTargetOptions, resolveEditableRenderTarget, type EditableRenderTarget } from '@/application/services/card-editor/applyRenderTargetTransition';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import { resolveSchedulerTypeLabel } from '@/application/helpers/srsDisplayLabels';
 
 const logger = createLogger('SrsEditorDialog');
 
@@ -280,6 +281,7 @@ const getSrsTransparencyService = (): SrsTransparencyApplicationService | null =
 const getUnifiedManager = (): IUnifiedDataSourceManagerFacade | null => getContext()?.getUnifiedDataSourceManager?.() || null;
 const getSiyuanApi = () => getReviewService()?.getSiyuanApi?.();
 const currentCard = computed(() => snapshot.value?.card ?? null);
+const schedulerBadgeLabel = computed(() => transparency.value?.schedulerLabel || resolveSchedulerTypeLabel(currentCard.value?.schedulerType || 'fsrs-v6'));
 const isDismissed = computed(() => currentCard.value ? isCardDismissed(currentCard.value) : false);
 const currentStateLabel = computed(() => formatState(currentCard.value?.state));
 const currentRenderTarget = computed<EditableRenderTarget | null>(() => currentCard.value ? resolveEditableRenderTarget(currentCard.value) : null);

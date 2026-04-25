@@ -2,6 +2,11 @@ import type { SchedulerRouter, SchedulerType } from '@/core/scheduler';
 import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import type { CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
 import { formatNextDue } from '@/application/helpers/formatNextDue';
+import {
+  replaceLegacySm15Display,
+  resolveSchedulerTypeLabel,
+  resolveSrsArenaContestantLabel,
+} from '@/application/helpers/srsDisplayLabels';
 import { CardState, Rating, type FSRSCard } from '@/types/card';
 import type { SrsArenaRecommendation } from '@/types/arena';
 
@@ -106,7 +111,7 @@ function buildAlgorithmFacts(
   const arenaFacts: SrsTransparencyFact[] = arenaRecommendation
     ? [
       { label: t('arenaWeightedInterval', 'Arena 综合间隔'), value: formatDays(arenaRecommendation.weightedIntervalDays, t) },
-      { label: t('arenaLeadingContestant', 'Arena 当前领先'), value: arenaRecommendation.leadingContestantId ? arenaRecommendation.leadingContestantId.toUpperCase() : '-' },
+      { label: t('arenaLeadingContestant', 'Arena 当前领先'), value: resolveSrsArenaContestantLabel(arenaRecommendation.leadingContestantId) },
       { label: t('arenaDiscrepancy', '与正式调度偏差'), value: `${Math.round(arenaRecommendation.discrepancyRatio * 100)}%` },
     ]
     : [];
@@ -158,7 +163,7 @@ function buildArenaHint(
 function resolveSchedulerLabel(schedulerType: SchedulerType, t: Translator): string {
   switch (schedulerType) {
     case 'sm15':
-      return t('schedulerSm15', 'SM-15');
+      return replaceLegacySm15Display(t('schedulerSm15', resolveSchedulerTypeLabel(schedulerType)));
     case 'a-factor-v2':
       return t('schedulerAFactorV2', 'A-Factor v2');
     case 'fsrs-v6':
@@ -170,7 +175,7 @@ function resolveSchedulerLabel(schedulerType: SchedulerType, t: Translator): str
 function resolveSchedulerSummary(schedulerType: SchedulerType, t: Translator): string {
   switch (schedulerType) {
     case 'sm15':
-      return t('sm15TransparencySummary', 'SM-15 会结合 O-Factor、最优间隔和 AF 历史来决定下一次安排，适合需要更显式调度参数的卡片。');
+      return replaceLegacySm15Display(t('sm15TransparencySummary', 'FSRSV5 会结合 O-Factor、最优间隔和 AF 历史来决定下一次安排，适合需要更显式调度参数的卡片。'));
     case 'a-factor-v2':
       return t('aFactorTransparencySummary', 'A-Factor v2 以 A-Factor 为核心调节间隔扩张，更适合 Topic 或 Concept 一类需要渐进节奏的卡片。');
     case 'fsrs-v6':
