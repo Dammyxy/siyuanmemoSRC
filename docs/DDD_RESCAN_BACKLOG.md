@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-25 (Round 138)
+Last update: 2026-04-25 (Round 141)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-25 - review native editor repeated Escape exit
+
+- Task: 修复复习界面 topic 卡以及其它原生 Protyle 编辑路径里，长按 ESC 不能退出编辑焦点回到评分/下一张按钮的问题。
+- Touched slice: Review native editor keyboard/focus path across `src/ui/review/v2/{reviewDialogEscape.ts,ReviewView.vue,ReviewContent.vue,__tests__/reviewDialogEscape.test.ts,__tests__/ReviewView.more-menu.spec.ts,__tests__/ReviewContent.editor-state.spec.ts}` and this backlog.
+- Debt fixed now: 长按 ESC 的判定不再被限制在 dialog surface；tab review、topic document card、普通 native multi-cloze / riff-sync 等所有 main Protyle 路径都复用同一个 `ReviewContent.exitEditorByEscape()` 出口。退出后的焦点选择也从“任意 action button”收窄为主操作优先：先显示答案，再 `data-type=3` 的下一张/评分 3，最后才是其它主按钮，不再把 `(p / q)` 返回上一张抢成焦点。对齐思源原生 `openCard.ts` + `focusByRange()` 的做法，焦点落到按钮后会把 DOM Selection 折叠到该按钮上，并清掉 main Protyle 里的 `.protyle-wysiwyg--select`，避免编辑区视觉上还保持选中。补了 tab review surface、返回按钮/评分 1/评分 3 同场，以及原生编辑器选区迁移的回归测试，避免之后再把 ESC 退出焦点误收窄、误指向返回按钮或留下编辑区选中态。
+- Debt deferred: `reviewDialogEscape.ts` 的文件名仍保留历史 dialog 命名，暂未做纯命名迁移；Protyle 内部如果未来改变按键 repeat 行为，仍可能需要进一步从时间阈值建模长按。
+- Why deferred: 当前根因是 review surface 范围被误收窄，不需要扩大到键盘系统重命名或重写 Protyle 事件协议；命名迁移会制造低价值 churn。
+- Next safe step: 如果后续出现按住 ESC 没有 `event.repeat` 的平台差异，再在同一 resolver 中加入明确的按下时长判定，并保持 `exitEditorByEscape()` 仍是唯一出口。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/reviewDialogEscape.test.ts src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-25 - review edit soft refresh without flash
 

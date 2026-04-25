@@ -993,11 +993,40 @@ function attachMainProtyleFocusTracking(protyle: siyuan.Protyle): void {
 
 function focusPrimaryReviewActionButton(): boolean {
   const reviewRoot = hostRef.value?.closest('.fsrs-review-v2') as HTMLElement | null;
-  const actionButton = reviewRoot?.querySelector(
-    '.card__action-main:not([disabled]), .card__action button:not([disabled])',
-  ) as HTMLButtonElement | null;
+  const selectors = [
+    '.card__action-main--reveal:not([disabled])',
+    '.card__action-main[data-type="3"]:not([disabled])',
+    '.card__action-main:not([disabled])',
+  ];
+  const actionButton = selectors
+    .map((selector) => reviewRoot?.querySelector(selector))
+    .find((element): element is HTMLButtonElement => element instanceof HTMLButtonElement) || null;
   actionButton?.focus();
+  collapseSelectionToElement(actionButton);
   return Boolean(actionButton);
+}
+
+function collapseSelectionToElement(element: HTMLElement | null): void {
+  const selection = window.getSelection?.();
+  if (!selection) {
+    return;
+  }
+
+  selection.removeAllRanges();
+  if (!element) {
+    return;
+  }
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(true);
+  selection.addRange(range);
+}
+
+function clearMainProtyleSelectedBlocks(wysiwygElement: HTMLElement | undefined): void {
+  wysiwygElement?.querySelectorAll('.protyle-wysiwyg--select').forEach((element) => {
+    element.classList.remove('protyle-wysiwyg--select');
+  });
 }
 
 function blurMainProtyleSurface(): boolean {
@@ -1015,6 +1044,7 @@ function blurMainProtyleSurface(): boolean {
     blurred = true;
   }
 
+  clearMainProtyleSelectedBlocks(wysiwygElement);
   window.getSelection?.()?.removeAllRanges();
   return blurred;
 }

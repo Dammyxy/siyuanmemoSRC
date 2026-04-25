@@ -3,9 +3,8 @@ import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } 
 import { createReviewEditorState } from '../reviewEditorState';
 
 describe('reviewDialogEscape', () => {
-  it('exits editor only for repeated Escape in dialog mode while native editing is active', () => {
+  it('exits editor only for repeated Escape while native editing is active', () => {
     expect(resolveReviewDialogEscapeKeydown({
-      isDialogMode: true,
       key: 'Escape',
       repeat: true,
       escRepeatLatch: false,
@@ -16,8 +15,7 @@ describe('reviewDialogEscape', () => {
     })).toBe('exit-editor');
 
     expect(resolveReviewDialogEscapeKeydown({
-      isDialogMode: false,
-      key: 'Escape',
+      key: 'Enter',
       repeat: true,
       escRepeatLatch: false,
       editorState: createReviewEditorState('main-protyle', {
@@ -27,7 +25,6 @@ describe('reviewDialogEscape', () => {
     })).toBe('ignore');
 
     expect(resolveReviewDialogEscapeKeydown({
-      isDialogMode: true,
       key: 'Escape',
       repeat: false,
       escRepeatLatch: false,
@@ -40,7 +37,6 @@ describe('reviewDialogEscape', () => {
 
   it('consumes repeated Escape while the latch is active until keyup', () => {
     expect(resolveReviewDialogEscapeKeydown({
-      isDialogMode: true,
       key: 'Escape',
       repeat: true,
       escRepeatLatch: true,

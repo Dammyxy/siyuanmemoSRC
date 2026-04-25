@@ -20,6 +20,7 @@ let reviewContentEditableSource:
     }
   | null = null;
 const reviewContentRefreshVisibleContent = vi.fn(async () => true);
+const reviewContentExitEditorByEscape = vi.fn(() => false);
 
 const reviewViewMoreMenuMocks = vi.hoisted(() => {
   const menuOpen = vi.fn();
@@ -203,7 +204,7 @@ const ReviewContentStub = defineComponent({
   },
   setup(props, { expose }) {
     expose({
-      exitEditorByEscape: () => false,
+      exitEditorByEscape: reviewContentExitEditorByEscape,
       getEditableSource: () => reviewContentEditableSource,
       refreshVisibleContent: reviewContentRefreshVisibleContent,
     });
@@ -328,6 +329,7 @@ function mountReviewView(options?: {
     };
   };
   attachInDialog?: boolean;
+  mode?: 'dialog' | 'tab';
 }) {
   const cards = options?.cards ?? [buildCard('card-1'), buildCard('card-2', 'block-2')];
   const queue = createQueue(cards, options?.queueType);
@@ -400,7 +402,7 @@ function mountReviewView(options?: {
       app: {} as never,
       queue: queue as never,
       adapter: adapter as never,
-      mode: 'dialog',
+      mode: options?.mode ?? 'dialog',
       plugin: {
         getContext: () => createPluginContext({
           cardService,
@@ -454,6 +456,8 @@ describe('ReviewView more menu', () => {
     reviewViewLoggerMocks.trace.mockReset();
     reviewContentEditableSource = null;
     reviewContentRefreshVisibleContent.mockClear();
+    reviewContentExitEditorByEscape.mockClear();
+    reviewContentExitEditorByEscape.mockReturnValue(false);
     document.body.innerHTML = '';
   });
 
@@ -483,6 +487,32 @@ describe('ReviewView more menu', () => {
     await flushPromises();
     expect(dialogContainer?.classList.contains('fullscreen')).toBe(true);
     expect(wrapper.get('.fsrs-review-v2-content').classes()).toContain('fullscreen');
+
+    wrapper.unmount();
+  });
+
+  it('exits native editor focus with repeated Escape in tab review surfaces', async () => {
+    reviewContentExitEditorByEscape.mockReturnValue(true);
+    const { wrapper } = mountReviewView({ mode: 'tab', attachInDialog: true });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewContentStub).vm.$emit('editor-state-change', {
+      renderer: 'main-protyle',
+      supportsNativeEdit: true,
+      isEditing: true,
+    });
+    await flushPromises();
+
+    const escapeEvent = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      repeat: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(escapeEvent);
+
+    expect(reviewContentExitEditorByEscape).toHaveBeenCalledTimes(1);
+    expect(escapeEvent.defaultPrevented).toBe(true);
 
     wrapper.unmount();
   });

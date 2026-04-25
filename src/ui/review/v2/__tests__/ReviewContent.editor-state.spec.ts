@@ -576,12 +576,24 @@ describe('ReviewContent editor state', () => {
     reviewContentApiMocks.getDocContent.mockResolvedValue({ content: '', type: 'NodeDocument' });
     attachTarget = document.createElement('div');
     attachTarget.className = 'fsrs-review-v2';
+    const backButton = document.createElement('button');
+    backButton.type = 'button';
+    backButton.className = 'card__action-button card__action-back';
+    backButton.textContent = '(p / q)';
+    const againButton = document.createElement('button');
+    againButton.type = 'button';
+    againButton.className = 'card__action-main';
+    againButton.setAttribute('data-type', '1');
+    againButton.textContent = 'again';
     actionButton = document.createElement('button');
     actionButton.type = 'button';
     actionButton.className = 'card__action-main';
+    actionButton.setAttribute('data-type', '3');
     actionButton.textContent = 'grade';
     const actionWrap = document.createElement('div');
     actionWrap.className = 'card__action';
+    actionWrap.appendChild(backButton);
+    actionWrap.appendChild(againButton);
     actionWrap.appendChild(actionButton);
     attachTarget.appendChild(actionWrap);
     document.body.appendChild(attachTarget);
@@ -603,6 +615,10 @@ describe('ReviewContent editor state', () => {
   });
 
   it('tracks main Protyle focus and returns Escape back to the primary review action without relocking', async () => {
+    setBlockFixture(
+      'block-1',
+      '<div data-node-id="selected-block" class="p protyle-wysiwyg--select"><span>Selected text</span></div>',
+    );
     const wrapper = mount(ReviewContent, {
       attachTo: attachTarget,
       props: {
@@ -645,8 +661,18 @@ describe('ReviewContent editor state', () => {
     const protyle = reviewContentMocks.instances[0];
     expect(protyle).toBeTruthy();
     expect(protyle.disableCallCount).toBe(0);
+    const selectedBlock = protyle.protyle.wysiwyg.element.querySelector('[data-node-id="selected-block"]') as HTMLElement;
+    const selectedText = selectedBlock.querySelector('span')?.firstChild;
+    expect(selectedBlock.classList.contains('protyle-wysiwyg--select')).toBe(true);
 
     protyle.protyle.wysiwyg.element.focus();
+    if (selectedText) {
+      const range = document.createRange();
+      range.selectNodeContents(selectedText);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
     await flushPromises();
 
     expect(getEditorStates(wrapper).at(-1)).toEqual({
@@ -666,6 +692,9 @@ describe('ReviewContent editor state', () => {
       isEditing: false,
     });
     expect(document.activeElement).toBe(actionButton);
+    expect(selectedBlock.classList.contains('protyle-wysiwyg--select')).toBe(false);
+    const activeRange = window.getSelection()?.rangeCount ? window.getSelection()?.getRangeAt(0) : null;
+    expect(activeRange?.commonAncestorContainer).toBe(actionButton);
     expect(protyle.enableCallCount).toBe(0);
     expect(protyle.disableCallCount).toBe(0);
 
