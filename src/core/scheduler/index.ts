@@ -13,6 +13,7 @@ export * from './strategies/ImprovedTopicScheduler';
 export * from './rescheduleService';
 export * from './SchedulerRouter';
 export * from './fsrsReviewStateRepair';
+export * from './schedulerPolicy';
 
 /**
  * Create scheduler adapter by configured engine.

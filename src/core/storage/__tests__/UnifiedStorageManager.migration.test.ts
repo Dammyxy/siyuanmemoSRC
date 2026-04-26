@@ -3,7 +3,7 @@ import { UnifiedStorageManager } from '../UnifiedStorageManager';
 import type { UnifiedCardStore } from '../UnifiedStorageManager';
 import type { CardPersistenceDTO } from '../../../infrastructure/persistence/dto/CardPersistenceDTO';
 import type { IXiuyuan } from '../../xiuyuan/types';
-import type { CardType } from '../../../types/card';
+import { CardState, CardType } from '../../../types/card';
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -21,7 +21,12 @@ function createXiuyuan(id: string): IXiuyuan {
   };
 }
 
-function createDTO(cardId: string, xiuyuanId: string, schedulerType?: string): CardPersistenceDTO {
+function createDTO(
+  cardId: string,
+  xiuyuanId: string,
+  schedulerType?: string,
+  overrides: Partial<CardPersistenceDTO> = {},
+): CardPersistenceDTO {
   const now = Date.now();
   return {
     id: cardId,
@@ -31,13 +36,13 @@ function createDTO(cardId: string, xiuyuanId: string, schedulerType?: string): C
     difficulty: 5,
     reps: 0,
     lapses: 0,
-    state: 0,
+    state: CardState.New,
     lastReview: now,
     elapsedDays: 0,
     scheduledDays: 1,
     learning_step: 0,
     priority: 50,
-    type: 'item' as CardType,
+    type: CardType.Item,
     tags: [],
     leechCount: 0,
     isLeech: false,
@@ -50,6 +55,7 @@ function createDTO(cardId: string, xiuyuanId: string, schedulerType?: string): C
     backBlockIDs: [],
     xiuyuanPriority: 50,
     schedulerType,
+    ...overrides,
   };
 }
 
@@ -109,5 +115,101 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
 
     expect(firstPass).toBe(2);
     expect(secondPass).toBe(0);
+  });
+
+  it('hydrates malformed Review scheduling as repaired before persistence catches up', async () => {
+    const due = new Date('2026-04-26T23:38:33+08:00').getTime();
+    const lastReview = new Date('2026-02-15T23:38:33+08:00').getTime();
+    remoteStore.cardDTOs = {
+      malformed: createDTO('malformed', 'xy-1', 'fsrs-v6', {
+        due,
+        lastReview,
+        state: CardState.Review,
+        stability: 0,
+        difficulty: 0,
+        scheduledDays: 0,
+        elapsedDays: 0,
+        reps: 4,
+      }),
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      async (store) => {
+        saveCalls += 1;
+        remoteStore = deepClone(store);
+      },
+      async () => deepClone(remoteStore)
+    );
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    const hydrated = storage.getCard('malformed');
+    expect(hydrated).toMatchObject({
+      stability: 70,
+      difficulty: 5,
+      scheduledDays: 70,
+      schedulerType: 'fsrs-v6',
+    });
+    expect(storage.getCardDTO('malformed')?.stability).toBe(0);
+
+    const normalizedCount = storage.normalizeMalformedReviewScheduling(due);
+    expect(normalizedCount).toBe(1);
+    expect(storage.getCardDTO('malformed')).toMatchObject({
+      stability: 70,
+      difficulty: 5,
+      scheduledDays: 70,
+      schedulerType: 'fsrs-v6',
+    });
+
+    const saveResult = await storage.save();
+    expect(saveResult.ok).toBe(true);
+    expect(remoteStore.cardDTOs?.malformed).toMatchObject({
+      stability: 70,
+      scheduledDays: 70,
+      schedulerType: 'fsrs-v6',
+    });
+  });
+
+  it('normalizes legacy a-factor item cards with one-day Review memory to fsrs-v6 history interval', async () => {
+    const due = new Date('2026-04-26T23:38:33+08:00').getTime();
+    const lastReview = new Date('2026-02-15T23:38:33+08:00').getTime();
+    remoteStore.cardDTOs = {
+      legacyItem: createDTO('legacyItem', 'xy-1', 'a-factor-v2', {
+        due,
+        lastReview,
+        state: CardState.Review,
+        stability: 1,
+        difficulty: 6,
+        scheduledDays: 1,
+        elapsedDays: 0,
+        reps: 4,
+      }),
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      async (store) => {
+        saveCalls += 1;
+        remoteStore = deepClone(store);
+      },
+      async () => deepClone(remoteStore)
+    );
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    expect(storage.getCard('legacyItem')).toMatchObject({
+      stability: 70,
+      difficulty: 6,
+      scheduledDays: 70,
+      schedulerType: 'fsrs-v6',
+    });
+
+    expect(storage.normalizeMalformedReviewScheduling(due)).toBe(1);
+    expect(storage.getCardDTO('legacyItem')).toMatchObject({
+      stability: 70,
+      scheduledDays: 70,
+      schedulerType: 'fsrs-v6',
+    });
   });
 });

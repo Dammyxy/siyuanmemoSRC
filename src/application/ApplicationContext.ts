@@ -797,11 +797,16 @@ export class ApplicationContext {
       });
 
       const migratedLegacyFSRSCount = unifiedStorageManager.migrateLegacyFSRSV5SchedulerType();
-      if (migratedLegacyFSRSCount > 0) {
+      const normalizedMalformedScheduleCount = unifiedStorageManager.normalizeMalformedReviewScheduling();
+      if (migratedLegacyFSRSCount > 0 || normalizedMalformedScheduleCount > 0) {
+        logger.info('[ApplicationContext] Persisting unified storage scheduling normalization:', {
+          migratedLegacyFSRSCount,
+          normalizedMalformedScheduleCount,
+        });
         const migrationSaveResult = await unifiedStorageManager.save();
         if (isErr(migrationSaveResult)) {
-          logger.error('[ApplicationContext] Failed to persist fsrs-v5 -> fsrs-v6 card migration:', migrationSaveResult.error);
-          throw new Error(`[ApplicationContext] Failed to persist fsrs-v5 migration: ${migrationSaveResult.error.message}`);
+          logger.error('[ApplicationContext] Failed to persist scheduling normalization:', migrationSaveResult.error);
+          throw new Error(`[ApplicationContext] Failed to persist scheduling normalization: ${migrationSaveResult.error.message}`);
         }
       }
       

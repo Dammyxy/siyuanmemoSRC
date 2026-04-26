@@ -43,6 +43,34 @@ describe('repairFsrsReviewState', () => {
     expect(result.card.elapsedDays).toBe(70);
   });
 
+  it('repairs low one-day Review memory when due-lastReview proves a longer interval', () => {
+    const now = new Date('2026-04-26T23:38:33+08:00');
+    const result = repairFsrsReviewState(createCard({
+      stability: 1,
+      scheduledDays: 1,
+      difficulty: 6,
+    }), { now });
+
+    expect(result.repaired).toBe(true);
+    expect(result.reasons).toEqual(expect.arrayContaining(['stability', 'scheduledDays']));
+    expect(result.card.stability).toBe(70);
+    expect(result.card.scheduledDays).toBe(70);
+    expect(result.card.difficulty).toBe(6);
+  });
+
+  it('does not derive a fake interval from now-lastReview when due is invalid', () => {
+    const now = new Date('2026-04-26T23:38:33+08:00');
+    const result = repairFsrsReviewState(createCard({
+      due: Number.NaN,
+      stability: 0,
+      scheduledDays: 0,
+    }), { now });
+
+    expect(result.repaired).toBe(true);
+    expect(result.card.stability).toBe(1);
+    expect(result.card.scheduledDays).toBe(1);
+  });
+
   it('keeps New cards eligible for zero stability', () => {
     const result = repairFsrsReviewState(createCard({
       state: CardState.New,
@@ -55,7 +83,7 @@ describe('repairFsrsReviewState', () => {
     expect(result.card.stability).toBe(0);
   });
 
-  it('skips non-fsrs topic cards unless they explicitly use fsrs-v6', () => {
+  it('skips topic cards because their card type owns A-Factor scheduling', () => {
     const topic = createCard({
       type: CardType.Topic,
       schedulerType: 'a-factor-v2',

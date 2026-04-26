@@ -1,9 +1,12 @@
-import { CardState, CardType, type FSRSCard } from '@/types/card';
+import { CardState, type FSRSCard } from '@/types/card';
+import { resolveEffectiveSchedulerTypeForCard } from './schedulerPolicy';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DIFFICULTY = 5;
 const MIN_DIFFICULTY = 1;
 const MAX_DIFFICULTY = 10;
+const MIN_RELIABLE_HISTORICAL_INTERVAL_DAYS = 7;
+const LOW_REVIEW_MEMORY_DAYS = 1;
 
 export type FsrsReviewStateRepairResult = {
   card: FSRSCard;
@@ -47,7 +50,8 @@ export function repairFsrsReviewState(
   const reasons: string[] = [];
   const repairedCard: FSRSCard = { ...card };
 
-  let due = toPositiveTimestamp(repairedCard.due, now);
+  const originalDue = toPositiveTimestamp(repairedCard.due, 0);
+  let due = originalDue > 0 ? originalDue : now;
   if (due !== repairedCard.due) {
     reasons.push('due');
   }
@@ -67,19 +71,28 @@ export function repairFsrsReviewState(
     reasons.push('scheduledDays');
   }
 
-  const intervalDays = deriveIntervalDays(due, lastReview);
-  const derivedDays = Math.max(1, scheduledDays, intervalDays, elapsedDays);
+  const intervalDays = deriveIntervalDays(originalDue, lastReview);
+  const historicalIntervalDays = Math.max(scheduledDays, intervalDays);
+  const hasReliableHistoricalInterval = historicalIntervalDays >= MIN_RELIABLE_HISTORICAL_INTERVAL_DAYS;
+  const derivedDays = Math.max(1, historicalIntervalDays);
 
   const rawStability = Number(repairedCard.stability);
   const hadInvalidStability = !Number.isFinite(rawStability) || rawStability <= 0;
+  const hasImplausiblyLowStability =
+    hasReliableHistoricalInterval && Number.isFinite(rawStability) && rawStability <= LOW_REVIEW_MEMORY_DAYS;
   let stability = toFiniteNumber(repairedCard.stability, 0);
-  if (hadInvalidStability) {
+  if (hadInvalidStability || hasImplausiblyLowStability) {
     stability = derivedDays;
     reasons.push('stability');
   }
 
-  if (scheduledDays <= 0 && (card.state === CardState.Review || hadInvalidStability || intervalDays > 0)) {
-    scheduledDays = Math.max(1, intervalDays, Math.ceil(stability), elapsedDays);
+  const hasImplausiblyLowScheduledDays =
+    hasReliableHistoricalInterval && scheduledDays <= LOW_REVIEW_MEMORY_DAYS;
+  if (
+    (scheduledDays <= 0 || hasImplausiblyLowScheduledDays)
+    && (card.state === CardState.Review || hadInvalidStability || intervalDays > 0)
+  ) {
+    scheduledDays = Math.max(1, intervalDays, Math.ceil(stability));
     reasons.push('scheduledDays');
   }
 
@@ -131,29 +144,10 @@ function isReviewLikeState(state: unknown): boolean {
 }
 
 function isFsrsV6EffectiveCard(card: FSRSCard, schedulerType: unknown): boolean {
-  const explicitSchedulerType = normalizeSchedulerType(schedulerType ?? card.schedulerType);
-  if (explicitSchedulerType) {
-    return explicitSchedulerType === 'fsrs-v6';
-  }
-
-  return card.type !== CardType.Topic && card.type !== CardType.Concept;
-}
-
-function normalizeSchedulerType(value: unknown): 'fsrs-v6' | 'other' | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const normalized = value.trim();
-  if (!normalized) {
-    return null;
-  }
-
-  if (normalized === 'fsrs-v6' || normalized === 'fsrs' || normalized === 'simple-fsrs') {
-    return 'fsrs-v6';
-  }
-
-  return 'other';
+  return resolveEffectiveSchedulerTypeForCard({
+    ...card,
+    schedulerType: typeof schedulerType === 'string' ? schedulerType : card.schedulerType,
+  }) === 'fsrs-v6';
 }
 
 function resolveNow(value: number | Date | undefined): number {

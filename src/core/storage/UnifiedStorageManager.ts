@@ -27,6 +27,8 @@ import type { Result } from '../../types/result';
 import { ok, err, isErr } from '../../types/result';
 import type { CardPersistenceDTO } from '../../infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '../../infrastructure/persistence/mappers/CardMapper';
+import { repairFsrsReviewState } from '../scheduler/fsrsReviewStateRepair';
+import { isFsrsReviewCardType, resolveEffectiveSchedulerTypeForCard } from '../scheduler/schedulerPolicy';
 import {
   buildLogicalCardKey,
   buildLogicalXiuyuanKey,
@@ -528,11 +530,59 @@ export class UnifiedStorageManager {
     return null;
   }
 
+  private normalizeDomainCardScheduling(card: FSRSCard, now: number = Date.now()): FSRSCard {
+    const effectiveSchedulerType = resolveEffectiveSchedulerTypeForCard(card);
+    const schedulerType = isFsrsReviewCardType(card.type) ? 'fsrs-v6' : card.schedulerType;
+    const schedulerNormalizedCard = schedulerType === card.schedulerType
+      ? card
+      : { ...card, schedulerType };
+
+    const repaired = repairFsrsReviewState(schedulerNormalizedCard, {
+      schedulerType: effectiveSchedulerType,
+      now,
+    });
+
+    return repaired.card;
+  }
+
+  private normalizeSchedulingDTO(
+    dto: CardPersistenceDTO,
+    now: number = Date.now()
+  ): { dto: CardPersistenceDTO; changed: boolean; reasons: string[] } {
+    const domainCard = CardMapper.toDomain(dto);
+    const normalizedCard = this.normalizeDomainCardScheduling(domainCard, now);
+    const nextDto: CardPersistenceDTO = { ...dto };
+    const reasons: string[] = [];
+
+    if (nextDto.schedulerType !== normalizedCard.schedulerType) {
+      nextDto.schedulerType = normalizedCard.schedulerType;
+      reasons.push('schedulerType');
+    }
+
+    const scheduleFields: Array<keyof Pick<
+      CardPersistenceDTO,
+      'due' | 'stability' | 'difficulty' | 'lastReview' | 'elapsedDays' | 'scheduledDays' | 'learning_step'
+    >> = ['due', 'stability', 'difficulty', 'lastReview', 'elapsedDays', 'scheduledDays', 'learning_step'];
+
+    for (const field of scheduleFields) {
+      if (nextDto[field] !== normalizedCard[field]) {
+        (nextDto as Record<string, unknown>)[field] = normalizedCard[field];
+        reasons.push(field);
+      }
+    }
+
+    return {
+      dto: nextDto,
+      changed: reasons.length > 0,
+      reasons: Array.from(new Set(reasons)),
+    };
+  }
+
   private toDomainCard(
     dto: CardPersistenceDTO,
     xiuyuanLookup: XiuyuanLookup = this.xiuyuans
   ): FSRSCard {
-    const card = CardMapper.toDomain(dto);
+    const card = this.normalizeDomainCardScheduling(CardMapper.toDomain(dto));
     const xiuyuanId = dto.xiuyuanID || card.xiuyuanID;
     const xiuyuan = this.getXiuyuanFromLookup(xiuyuanId, xiuyuanLookup);
     const xiuyuanMeta = isObjectRecord(xiuyuan?.meta) ? xiuyuan.meta : undefined;
@@ -742,6 +792,40 @@ export class UnifiedStorageManager {
     }
 
     return migratedCount;
+  }
+
+  normalizeMalformedReviewScheduling(now: number = Date.now()): number {
+    let normalizedCount = 0;
+    const reasonCounts = new Map<string, number>();
+    const normalizedIds: string[] = [];
+
+    for (const [id, dto] of this.cardDTOs.entries()) {
+      const normalized = this.normalizeSchedulingDTO(dto, now);
+      if (!normalized.changed) {
+        continue;
+      }
+
+      this.cardDTOs.set(id, normalized.dto);
+      normalizedCount++;
+      if (normalizedIds.length < 10) {
+        normalizedIds.push(id);
+      }
+      for (const reason of normalized.reasons) {
+        reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+      }
+    }
+
+    if (normalizedCount > 0) {
+      this.rebuildIndexes();
+      this.dirty = true;
+      logger.info('[UnifiedStorageManager] Normalized malformed review scheduling', {
+        normalizedCount,
+        normalizedIdsSample: normalizedIds,
+        reasons: Object.fromEntries(reasonCounts.entries()),
+      });
+    }
+
+    return normalizedCount;
   }
 
   async save(): Promise<Result<void>> {

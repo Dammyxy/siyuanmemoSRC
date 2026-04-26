@@ -13,18 +13,14 @@ import { SM15Scheduler } from './strategies/SM15Scheduler';
 import { ImprovedTopicScheduler } from './strategies/ImprovedTopicScheduler';
 import { migrateCard } from './strategies/sm15/migration';
 import { normalizeSchedulerCard } from './normalizeSchedulerCard';
+import {
+    getPreferredSchedulerForCardType,
+    resolveEffectiveSchedulerTypeForCard,
+    type SchedulerType,
+} from './schedulerPolicy';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SchedulerRouter');
-
-/** 调度器类型 */
-export type SchedulerType = 'fsrs-v6' | 'sm15' | 'a-factor-v2';
-
-const PREFERRED_SCHEDULER_BY_CARD_TYPE: Record<string, SchedulerType> = {
-    topic: 'a-factor-v2',
-    concept: 'a-factor-v2',
-    descriptor: 'fsrs-v6',
-};
 
 /** Scheduler Router 配置 */
 export interface SchedulerRouterConfig {
@@ -158,7 +154,7 @@ export class SchedulerRouter {
      * 获取卡片应使用的调度器类型
      *
      * 优先级：
-     * 1. 卡片类型强制规则（Topic → A-Factor, Concept/Descriptor → FSRS）
+     * 1. 卡片类型强制规则（Item/Descriptor → FSRS, Topic/Concept → A-Factor）
      * 2. 用户覆盖配置
      * 3. 卡片的 schedulerType 字段
      * 4. 默认调度器
@@ -167,28 +163,11 @@ export class SchedulerRouter {
      * @returns 调度器类型
      */
     getSchedulerType(card: FSRSCard): SchedulerType {
-        // 1. 检查卡片类型强制规则
-        const preferredScheduler = this.getPreferredSchedulerForType(card.type);
-        if (preferredScheduler) {
-            return preferredScheduler;
-        }
-
-        // 2. 检查用户覆盖配置
-        if (this.config.schedulerOverrides?.has(card.id)) {
-            return this.config.schedulerOverrides.get(card.id)!;
-        }
-
-        // 3. 检查卡片自身的调度器类型
-        if (card.schedulerType) {
-            const resolvedSchedulerType = this.resolveCardSchedulerType(card.schedulerType);
-            if (resolvedSchedulerType) {
-                return resolvedSchedulerType;
-            }
-            throw new Error(`Card ${card.id} has unsupported scheduler type: ${card.schedulerType}`);
-        }
-
-        // 4. 使用默认调度器
-        return this.config.defaultScheduler;
+        return resolveEffectiveSchedulerTypeForCard(card, {
+            defaultScheduler: this.config.defaultScheduler,
+            schedulerOverrides: this.config.schedulerOverrides,
+            strict: true,
+        });
     }
 
     /**
@@ -217,7 +196,10 @@ export class SchedulerRouter {
         // 3. 转换卡片状态（如果需要）
         const convertedCard = this._convertCardState(
             card,
-            this.resolveCardSchedulerType(card.schedulerType) ?? this.config.defaultScheduler,
+            resolveEffectiveSchedulerTypeForCard(card, {
+                defaultScheduler: this.config.defaultScheduler,
+                schedulerOverrides: this.config.schedulerOverrides,
+            }),
             newScheduler
         );
 
@@ -317,40 +299,8 @@ export class SchedulerRouter {
         return migrated;
     }
 
-    private resolveCardSchedulerType(raw: unknown): SchedulerType | null {
-        if (typeof raw !== 'string') {
-            return null;
-        }
-
-        const normalized = raw.trim();
-        if (!normalized) {
-            return null;
-        }
-
-        if (normalized === 'simple-fsrs' || normalized === 'fsrs') {
-            return 'fsrs-v6';
-        }
-
-        if (normalized === 'sm15') {
-            return 'sm15';
-        }
-
-        if (normalized === 'a-factor-v2') {
-            return 'a-factor-v2';
-        }
-
-        if (normalized === 'fsrs-v6') {
-            return normalized;
-        }
-
-        return null;
-    }
-
     private getPreferredSchedulerForType(cardType?: string): SchedulerType | null {
-        if (!cardType) {
-            return null;
-        }
-        return PREFERRED_SCHEDULER_BY_CARD_TYPE[cardType] ?? null;
+        return getPreferredSchedulerForCardType(cardType);
     }
 
     private isSchedulerAllowedForCardType(cardType: string | undefined, scheduler: SchedulerType): boolean {

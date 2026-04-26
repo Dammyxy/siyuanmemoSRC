@@ -4,7 +4,7 @@ import {
     type QueueFeedback,
 } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
-import type { FSRSCard } from '@/types/card';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
 import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
@@ -15,11 +15,14 @@ import { formatNextDue } from '@/application/helpers/formatNextDue';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { CacheManagerObserver } from '../observers/CacheManagerObserver';
 import { buildFsrsSchedulingFingerprint } from '@/core/scheduler/fsrsReviewStateRepair';
+import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('UnifiedQueueStrategy');
 
 type RatingValue = 1 | 2 | 3 | 4;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_SUSPICIOUS_HISTORY_DAYS = 7;
 
 type CardWithNextDues = FSRSCard & {
     nextDues?: Partial<Record<RatingValue, string>>;
@@ -101,6 +104,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private managerObserverRegistered = false;
     private readonly sessionExcludedCardIds = new Set<string>();
     private feedbackMutation: FeedbackMutationContext | null = null;
+    private readonly suspiciousNextDuesLogKeys = new Set<string>();
 
     constructor(
         queueTypeOrQueue: QueueType | IReviewQueue,
@@ -1413,6 +1417,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             cache.set(cacheKey, nextDues);
 
             logger.info('[SiYuanMemo][UnifiedQueueStrategy] nextDues calculated and cached:', nextDues);
+            this.logSuspiciousRetrievalNextDues(card, nextDues);
 
             return {
                 ...card,
@@ -1429,6 +1434,66 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return card;
         }
         return this.addNextDues(card);
+    }
+
+    private logSuspiciousRetrievalNextDues(
+        card: FSRSCard,
+        nextDues: Partial<Record<RatingValue, string>>
+    ): void {
+        if (this.queueType !== QueueType.RetrievalPractice) {
+            return;
+        }
+
+        if (card.state !== CardState.Review && card.state !== CardState.Relearning) {
+            return;
+        }
+
+        if (card.type !== CardType.Item && card.type !== CardType.Descriptor) {
+            return;
+        }
+
+        const historicalIntervalDays = Number.isFinite(card.due) && Number.isFinite(card.lastReview) && card.due > card.lastReview
+            ? Math.floor((card.due - card.lastReview) / DAY_MS)
+            : Math.floor(Number(card.scheduledDays) || 0);
+        if (historicalIntervalDays < MIN_SUSPICIOUS_HISTORY_DAYS) {
+            return;
+        }
+
+        const reviewDayLabels = [nextDues[2], nextDues[3], nextDues[4]];
+        const suspiciousTinyDays = reviewDayLabels.every((label) => {
+            const match = typeof label === 'string' ? label.trim().match(/^(\d+) d$/) : null;
+            return match ? Number(match[1]) >= 1 && Number(match[1]) <= 4 : false;
+        });
+        if (!suspiciousTinyDays) {
+            return;
+        }
+
+        const fingerprint = buildFsrsSchedulingFingerprint(card);
+        const logKey = `${card.id}:${fingerprint}`;
+        if (this.suspiciousNextDuesLogKeys.has(logKey)) {
+            return;
+        }
+        this.suspiciousNextDuesLogKeys.add(logKey);
+
+        logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Suspicious retrieval nextDues after scheduler normalization:', {
+            cardId: card.id,
+            blockId: card.blockId,
+            type: card.type,
+            effectiveSchedulerType: resolveEffectiveSchedulerTypeForCard(card),
+            storedSchedulerType: card.schedulerType,
+            state: card.state,
+            stability: card.stability,
+            difficulty: card.difficulty,
+            scheduledDays: card.scheduledDays,
+            elapsedDays: card.elapsedDays,
+            due: card.due,
+            dueDate: Number.isFinite(card.due) && card.due > 0 ? new Date(card.due).toISOString() : undefined,
+            lastReview: card.lastReview,
+            lastReviewDate: Number.isFinite(card.lastReview) && card.lastReview > 0 ? new Date(card.lastReview).toISOString() : undefined,
+            reps: card.reps,
+            lapses: card.lapses,
+            nextDues,
+        });
     }
 
     private shouldComputeNextDues(card: FSRSCard): boolean {

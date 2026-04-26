@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { FSRSCard } from '@/types';
-import { CardType } from '@/types/card';
+import { CardState, CardType } from '@/types/card';
 import { SchedulerRouter } from '../SchedulerRouter';
 import { TSFSRSScheduler } from '../strategies/TSFSRSScheduler';
 import { DEFAULT_SETTINGS } from '@/types/settings';
@@ -104,5 +104,62 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
         schedulerType: 'fsrs-v6',
       }),
     ]);
+  });
+
+  it('forces item cards with legacy a-factor schedulerType onto fsrs-v6', async () => {
+    const { router } = createRouter();
+    const itemCard = createCard({
+      id: 'legacy-a-factor-item',
+      type: CardType.Item,
+      schedulerType: 'a-factor-v2',
+      state: CardState.Review,
+      due: new Date('2026-04-26T23:38:33+08:00').getTime(),
+      lastReview: new Date('2026-02-15T23:38:33+08:00').getTime(),
+      stability: 1,
+      scheduledDays: 1,
+      reps: 4,
+    });
+    const fsrsScheduler = {
+      preview: vi.fn((card: FSRSCard) => new Map([
+        [1, { ...card, due: Date.now() + 10 * 60_000 }],
+        [2, { ...card, due: Date.now() + card.scheduledDays * 86_400_000 }],
+        [3, { ...card, due: Date.now() + (card.scheduledDays + 1) * 86_400_000 }],
+        [4, { ...card, due: Date.now() + (card.scheduledDays + 2) * 86_400_000 }],
+      ])),
+      review: vi.fn((card: FSRSCard) => ({
+        ...card,
+        due: Date.now() + card.scheduledDays * 86_400_000,
+        reps: card.reps + 1,
+      })),
+    };
+    const aFactorScheduler = {
+      preview: vi.fn(),
+      review: vi.fn(),
+    };
+    const schedulers = (router as unknown as { schedulers: Map<string, unknown> }).schedulers;
+    schedulers.set('fsrs-v6', fsrsScheduler);
+    schedulers.set('a-factor-v2', aFactorScheduler);
+
+    expect(router.getSchedulerType(itemCard)).toBe('fsrs-v6');
+
+    const previews = router.preview(itemCard);
+    expect(fsrsScheduler.preview).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'legacy-a-factor-item',
+      schedulerType: 'fsrs-v6',
+      stability: 70,
+      scheduledDays: 70,
+    }));
+    expect(aFactorScheduler.preview).not.toHaveBeenCalled();
+    expect(previews.get(3)?.schedulerType).toBe('fsrs-v6');
+
+    const reviewed = await router.route(itemCard, 3);
+    expect(fsrsScheduler.review).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'legacy-a-factor-item',
+      schedulerType: 'fsrs-v6',
+      stability: 70,
+      scheduledDays: 70,
+    }), 3);
+    expect(aFactorScheduler.review).not.toHaveBeenCalled();
+    expect(reviewed.schedulerType).toBe('fsrs-v6');
   });
 });
