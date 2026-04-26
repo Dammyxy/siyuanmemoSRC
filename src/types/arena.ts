@@ -62,6 +62,7 @@ export interface AIArenaScenarioDefinition {
 }
 
 export type AIArenaScenarioRegistry = Record<AIArenaScenarioId, AIArenaScenarioDefinition>;
+export const ARENA_DEFAULT_OFF_MIGRATION_VERSION = 1;
 
 export interface AIStrategyPackPromptOverrides {
   prependSystemPrompt?: string;
@@ -219,6 +220,7 @@ export interface ArenaManagerState {
 }
 
 export interface ArenaSettings {
+  defaultOffMigrationVersion: number;
   enabled: boolean;
   ai: {
     enabled: boolean;
@@ -419,6 +421,7 @@ const DEFAULT_ARENA_PACKS: AIStrategyPackDefinition[] = [
 ];
 
 export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
+  defaultOffMigrationVersion: ARENA_DEFAULT_OFF_MIGRATION_VERSION,
   enabled: false,
   ai: {
     enabled: true,
@@ -611,6 +614,8 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
   const ai = typeof source.ai === 'object' && source.ai !== null ? source.ai : {};
   const srs = typeof source.srs === 'object' && source.srs !== null ? source.srs : {};
   const manager = typeof source.manager === 'object' && source.manager !== null ? source.manager : {};
+  const defaultOffMigrationVersion = Math.max(0, Math.floor(Number(source.defaultOffMigrationVersion) || 0));
+  const hasDefaultOffMigration = defaultOffMigrationVersion >= ARENA_DEFAULT_OFF_MIGRATION_VERSION;
   const surfaces = Array.isArray(ai.surfaces)
     ? Array.from(new Set(ai.surfaces.filter(isAIWorkbenchSurface)))
     : DEFAULT_ARENA_SETTINGS.ai.surfaces;
@@ -621,7 +626,8 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
     ? Array.from(new Set(srs.targetKinds.filter((kind): kind is Extract<ArenaTargetKind, 'item' | 'descriptor'> => kind === 'item' || kind === 'descriptor')))
     : DEFAULT_ARENA_SETTINGS.srs.targetKinds;
   return {
-    enabled: source.enabled === true,
+    defaultOffMigrationVersion: ARENA_DEFAULT_OFF_MIGRATION_VERSION,
+    enabled: hasDefaultOffMigration && source.enabled === true,
     ai: {
       enabled: ai.enabled !== false,
       surfaces: surfaces.length > 0 ? surfaces : DEFAULT_ARENA_SETTINGS.ai.surfaces,

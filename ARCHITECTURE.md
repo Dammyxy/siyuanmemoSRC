@@ -99,7 +99,7 @@ flowchart TD
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
-- 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，关闭时不写 `arena/store.json`，也不接入复习建议或 AI 策略包覆盖
+- 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，旧配置首次归一化时也会被关闭并写入迁移标记，关闭时不写 `arena/store.json`，也不接入复习建议或 AI 策略包覆盖
 
 这意味着：
 

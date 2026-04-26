@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PluginSettings } from '../settings';
+import { ARENA_DEFAULT_OFF_MIGRATION_VERSION } from '../arena';
 import {
   ACTIVE_AI_PROMPT_CONTRACT_VERSION,
   ACTIVE_FSRS_VERSION,
@@ -209,6 +210,7 @@ describe('settings normalization', () => {
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.ai).toEqual(originalAI);
     expect(normalized.settings.scheduler).toEqual(originalScheduler);
+    expect(normalized.settings.arena.defaultOffMigrationVersion).toBe(ARENA_DEFAULT_OFF_MIGRATION_VERSION);
     expect(normalized.settings.arena.enabled).toBe(false);
     expect(Object.keys(normalized.settings.arena.ai.scenarios).sort()).toEqual([
       'candidate-card-generation',
@@ -221,12 +223,26 @@ describe('settings normalization', () => {
     expect(normalized.settings.arena.srs.contestantIds).toEqual(['fsrs-v6', 'sm15', 'sm2']);
   });
 
-  it('keeps Arena enabled only when the setting is explicit', () => {
+  it('turns off pre-migration Arena even when it was previously enabled', () => {
     const legacy = cloneSettings();
     legacy.arena.enabled = true;
+    delete (legacy.arena as Partial<typeof legacy.arena>).defaultOffMigrationVersion;
 
     const normalized = normalizePluginSettings(legacy);
 
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.arena.defaultOffMigrationVersion).toBe(ARENA_DEFAULT_OFF_MIGRATION_VERSION);
+    expect(normalized.settings.arena.enabled).toBe(false);
+  });
+
+  it('keeps Arena enabled after the default-off migration has already run', () => {
+    const current = cloneSettings();
+    current.arena.defaultOffMigrationVersion = ARENA_DEFAULT_OFF_MIGRATION_VERSION;
+    current.arena.enabled = true;
+
+    const normalized = normalizePluginSettings(current);
+
+    expect(normalized.settings.arena.defaultOffMigrationVersion).toBe(ARENA_DEFAULT_OFF_MIGRATION_VERSION);
     expect(normalized.settings.arena.enabled).toBe(true);
   });
 
