@@ -245,6 +245,50 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(preview).toHaveBeenCalledTimes(2);
   });
 
+  it('recomputes stale nextDues carried by restored review-session snapshots', async () => {
+    const card = createCard({
+      id: 'snapshot-nextdues-card',
+      blockId: 'snapshot-nextdues-block',
+      stability: 30,
+      scheduledDays: 30,
+      elapsedDays: 30,
+    }) as FSRSCard & { nextDues?: Partial<Record<1 | 2 | 3 | 4, string>> };
+    card.nextDues = {
+      1: '10 min',
+      2: '2 d',
+      3: '3 d',
+      4: '4 d',
+    };
+    const queue = createQueueStub(QueueType.RetrievalPractice, [card]);
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const preview = vi.fn((previewCard: FSRSCard) => new Map([
+      [1, { ...previewCard, due: Date.now() + 10 * 60_000 }],
+      [2, { ...previewCard, due: Date.now() + previewCard.scheduledDays * 86_400_000 }],
+      [3, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 1) * 86_400_000 }],
+      [4, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 2) * 86_400_000 }],
+    ]));
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      { preview } as never
+    );
+
+    const hydrated = await strategy.hydrateCurrentItem(card);
+
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(hydrated?.nextDues).toMatchObject({
+      1: '10 min',
+      2: '30 d',
+      3: '31 d',
+      4: '32 d',
+    });
+  });
+
   it('reuses cached cards for getStats-next-getStats and avoids duplicate getCards', async () => {
     const card = createCard();
     const queue = createQueueStub(QueueType.RetrievalPractice, [card]);

@@ -435,11 +435,6 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return card;
         }
 
-        const existingNextDues = (card as CardWithNextDues).nextDues;
-        if (existingNextDues && Object.keys(existingNextDues).length > 0) {
-            return card;
-        }
-
         return this.addNextDues(card);
     }
 
@@ -1699,7 +1694,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private cloneCard(card: FSRSCard): FSRSCard {
-        return JSON.parse(JSON.stringify(card)) as FSRSCard;
+        const cloned = JSON.parse(JSON.stringify(card)) as CardWithNextDues;
+        delete cloned.nextDues;
+        return cloned;
     }
 
     serializeSessionSnapshot(): ReviewQueueSessionSnapshot {

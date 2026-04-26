@@ -8,11 +8,11 @@ Last update: 2026-04-27 (Round 154)
 
 - Task: 继续修复 retrieval-practice 中评分按钮大面积显示 `2/3/4` 的 Review 卡调度漂移问题。
 - Touched slice: Review / Scheduler / UnifiedStorage active path across `src/core/scheduler/{schedulerPolicy.ts,fsrsReviewStateRepair.ts,SchedulerRouter.ts}`, `src/core/storage/UnifiedStorageManager.ts`, `src/application/{ApplicationContext.ts,adapters/UnifiedQueueStrategy.ts}`, and focused regressions.
-- Debt fixed now: Item/Descriptor 调度归属收口为统一 policy，旧 `a-factor/a-factor-v2` 存储值不再把检索练习卡路由到 A-Factor；FSRS Review/Relearning 修复扩展到 `stability/scheduledDays <= 1` 且存在可靠历史间隔的畸形卡；UnifiedStorageManager 水合、索引和启动归一化都会使用同一修复规则并持久化修复后的 DTO。
+- Debt fixed now: Item/Descriptor 调度归属收口为统一 policy，旧 `a-factor/a-factor-v2` 存储值不再把检索练习卡路由到 A-Factor；FSRS Review/Relearning 修复扩展到 `stability/scheduledDays <= 1` 且存在可靠历史间隔的畸形卡；UnifiedStorageManager 水合、索引和启动归一化都会使用同一修复规则并持久化修复后的 DTO；review 当前卡水合不再信任快照/缓存里夹带的旧 `nextDues`，队列快照 clone 也会剥离显示态预览，避免 `2/3/4` 旧按钮排期绕过修复后的 scheduler。
 - Debt deferred: 没有做全库主动迁移命令，也没有改变 Topic/Concept 的 A-Factor 产品语义或 Review UI 按钮组件。
 - Why deferred: 当前 active-path 启动归一化和后续调度写回足以收口既有畸形卡；全库主动迁移需要单独的备份、进度、失败恢复和用户提示设计。
-- Next safe step: 如果新的低噪声 suspicious nextDues 日志仍出现，优先用日志中的 effective scheduler、stability、scheduledDays、due/lastReview 字段定位第二条漏网入口，再扩展同一 policy/repair helper。
-- Validation: targeted vitest for scheduler repair/router, UnifiedStorageManager migration, UnifiedQueueStrategy cache, XiuyuanSync malformed Riff, RiffMapper repair; `pnpm build`; `git diff --check`.
+- Next safe step: 如果新的低噪声 suspicious nextDues 日志仍出现，优先用日志中的 effective scheduler、stability、scheduledDays、due/lastReview 字段定位是否还有未剥离显示态缓存或未走统一 policy 的入口，再扩展同一 active path。
+- Validation: targeted vitest for scheduler repair/router, UnifiedStorageManager migration, UnifiedQueueStrategy cache and stale snapshot nextDues, XiuyuanSync malformed Riff, RiffMapper repair; `pnpm build`; `git diff --check`.
 
 ### 2026-04-27 - FSRS review zero-stability repair
 
