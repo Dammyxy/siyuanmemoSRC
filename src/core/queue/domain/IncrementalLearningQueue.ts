@@ -16,7 +16,7 @@
  */
 
 import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
-import { QueueAddSource, QueueReviewResult, QueueType, QueueUIConfig, ReviewButtonConfig } from '../../../types/unified-data-source';
+import { QueueAddSource, QueueReviewResult, QueueReviewSchedulingContext, QueueType, QueueUIConfig, ReviewButtonConfig } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -268,6 +268,27 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
 
     private isManualCard(card: Pick<FSRSCard, 'id' | 'blockId'>): boolean {
         return this.manualCards.has(card.id) || this.manualCards.has(card.blockId);
+    }
+
+    public override getReviewSchedulingContext(card: FSRSCard): QueueReviewSchedulingContext | null {
+        if (!this.isManualCard(card)) {
+            return null;
+        }
+
+        const due = Number(card.due);
+        if (!Number.isFinite(due) || due <= 0) {
+            return null;
+        }
+
+        const dayEnd = this.getCurrentDayEnd(this.getDayStartHour());
+        if (due <= dayEnd) {
+            return null;
+        }
+
+        return {
+            memoryStateAsOf: due,
+            reason: 'manual-early-review',
+        };
     }
     
     /**

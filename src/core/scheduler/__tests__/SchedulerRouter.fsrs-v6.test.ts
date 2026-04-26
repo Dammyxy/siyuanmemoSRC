@@ -5,6 +5,8 @@ import { SchedulerRouter } from '../SchedulerRouter';
 import { TSFSRSScheduler } from '../strategies/TSFSRSScheduler';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 
+const DAY_MS = 86_400_000;
+
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
   return {
@@ -31,7 +33,7 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
-function createRouter() {
+function createRouter(fsrsParams = DEFAULT_SETTINGS.fsrs) {
   const cardUpdater = {
     batchUpdateCardsWithoutEvents: vi.fn().mockResolvedValue(undefined),
   };
@@ -39,7 +41,7 @@ function createRouter() {
     router: new SchedulerRouter(
       {
         defaultScheduler: 'fsrs-v6',
-        fsrsParams: DEFAULT_SETTINGS.fsrs,
+        fsrsParams,
       },
       cardUpdater
     ),
@@ -122,13 +124,13 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
     const fsrsScheduler = {
       preview: vi.fn((card: FSRSCard) => new Map([
         [1, { ...card, due: Date.now() + 10 * 60_000 }],
-        [2, { ...card, due: Date.now() + card.scheduledDays * 86_400_000 }],
-        [3, { ...card, due: Date.now() + (card.scheduledDays + 1) * 86_400_000 }],
-        [4, { ...card, due: Date.now() + (card.scheduledDays + 2) * 86_400_000 }],
+        [2, { ...card, due: Date.now() + card.scheduledDays * DAY_MS }],
+        [3, { ...card, due: Date.now() + (card.scheduledDays + 1) * DAY_MS }],
+        [4, { ...card, due: Date.now() + (card.scheduledDays + 2) * DAY_MS }],
       ])),
       review: vi.fn((card: FSRSCard) => ({
         ...card,
-        due: Date.now() + card.scheduledDays * 86_400_000,
+        due: Date.now() + card.scheduledDays * DAY_MS,
         reps: card.reps + 1,
       })),
     };
@@ -148,7 +150,7 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
       schedulerType: 'fsrs-v6',
       stability: 70,
       scheduledDays: 70,
-    }));
+    }), expect.any(Date));
     expect(aFactorScheduler.preview).not.toHaveBeenCalled();
     expect(previews.get(3)?.schedulerType).toBe('fsrs-v6');
 
@@ -158,8 +160,125 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
       schedulerType: 'fsrs-v6',
       stability: 70,
       scheduledDays: 70,
-    }), 3);
+    }), 3, expect.any(Date));
     expect(aFactorScheduler.review).not.toHaveBeenCalled();
     expect(reviewed.schedulerType).toBe('fsrs-v6');
+  });
+
+  it('uses memoryStateAsOf for elapsed memory while scheduling from reviewTime', async () => {
+    const { router, cardUpdater } = createRouter();
+    const reviewTime = new Date('2026-04-27T08:00:00+08:00');
+    const memoryTime = new Date('2026-05-10T08:00:00+08:00');
+    const lastReview = memoryTime.getTime() - 30 * DAY_MS;
+    const futureCard = createCard({
+      id: 'manual-early-card',
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
+      state: CardState.Review,
+      due: memoryTime.getTime(),
+      lastReview,
+      stability: 30,
+      scheduledDays: 30,
+      elapsedDays: 0,
+      reps: 6,
+    });
+    const fsrsScheduler = {
+      preview: vi.fn((card: FSRSCard, now: Date) => new Map([
+        [1, { ...card, due: now.getTime() + 10 * 60_000, lastReview: now.getTime() }],
+        [2, { ...card, due: now.getTime() + card.scheduledDays * DAY_MS, lastReview: now.getTime() }],
+        [3, { ...card, due: now.getTime() + (card.scheduledDays + 5) * DAY_MS, lastReview: now.getTime() }],
+        [4, { ...card, due: now.getTime() + (card.scheduledDays + 10) * DAY_MS, lastReview: now.getTime() }],
+      ])),
+      review: vi.fn((card: FSRSCard, rating: number, now: Date) => ({
+        ...card,
+        due: now.getTime() + (card.scheduledDays + rating) * DAY_MS,
+        lastReview: now.getTime(),
+        reps: card.reps + 1,
+      })),
+    };
+    const schedulers = (router as unknown as { schedulers: Map<string, unknown> }).schedulers;
+    schedulers.set('fsrs-v6', fsrsScheduler);
+
+    const previews = router.preview(futureCard, {
+      reviewTime: reviewTime.getTime(),
+      memoryStateAsOf: memoryTime.getTime(),
+    });
+    expect(fsrsScheduler.preview).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'manual-early-card',
+      due: reviewTime.getTime(),
+      lastReview: reviewTime.getTime() - 30 * DAY_MS,
+      elapsedDays: 30,
+      scheduledDays: 30,
+    }), reviewTime);
+    expect(previews.get(3)?.due).toBe(reviewTime.getTime() + 35 * DAY_MS);
+
+    const reviewed = await router.route(futureCard, 3, {
+      reviewTime: reviewTime.getTime(),
+      memoryStateAsOf: memoryTime.getTime(),
+    });
+    expect(fsrsScheduler.review).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'manual-early-card',
+      due: reviewTime.getTime(),
+      lastReview: reviewTime.getTime() - 30 * DAY_MS,
+      elapsedDays: 30,
+      scheduledDays: 30,
+    }), 3, reviewTime);
+    expect(reviewed.due).toBe(reviewTime.getTime() + 33 * DAY_MS);
+    expect(reviewed.lastReview).toBe(reviewTime.getTime());
+    expect(cardUpdater.batchUpdateCardsWithoutEvents).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'manual-early-card',
+        due: reviewTime.getTime() + 33 * DAY_MS,
+        lastReview: reviewTime.getTime(),
+      }),
+    ]);
+  });
+
+  it('keeps Again minute-level for manual early reviews while preserving due-day memory interval', async () => {
+    const { router, cardUpdater } = createRouter({
+      ...DEFAULT_SETTINGS.fsrs,
+      enableFuzz: false,
+      enableShortTerm: true,
+    });
+    const reviewTime = new Date('2026-04-27T08:00:00+08:00');
+    const memoryTime = new Date('2026-05-10T08:00:00+08:00');
+    const futureCard = createCard({
+      id: 'manual-early-real-fsrs-card',
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
+      state: CardState.Review,
+      due: memoryTime.getTime(),
+      lastReview: memoryTime.getTime() - 30 * DAY_MS,
+      stability: 30,
+      difficulty: 5,
+      scheduledDays: 30,
+      elapsedDays: 0,
+      reps: 6,
+    });
+
+    const previews = router.preview(futureCard, {
+      reviewTime: reviewTime.getTime(),
+      memoryStateAsOf: memoryTime.getTime(),
+    });
+    const againDelay = previews.get(1)!.due - reviewTime.getTime();
+    const hardDelay = previews.get(2)!.due - reviewTime.getTime();
+
+    expect(againDelay).toBeGreaterThan(0);
+    expect(againDelay).toBeLessThan(60 * 60 * 1000);
+    expect(hardDelay).toBeGreaterThan(20 * DAY_MS);
+
+    const reviewedAgain = await router.route(futureCard, 1, {
+      reviewTime: reviewTime.getTime(),
+      memoryStateAsOf: memoryTime.getTime(),
+    });
+    expect(reviewedAgain.due - reviewTime.getTime()).toBeLessThan(60 * 60 * 1000);
+    expect(reviewedAgain.lastReview).toBe(reviewTime.getTime());
+    expect(cardUpdater.batchUpdateCardsWithoutEvents).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'manual-early-real-fsrs-card',
+        due: reviewedAgain.due,
+        lastReview: reviewTime.getTime(),
+      }),
+    ]);
   });
 });

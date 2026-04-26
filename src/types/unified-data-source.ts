@@ -107,6 +107,14 @@ export interface QueueReviewResult {
     version: number;
 }
 
+export type QueueReviewSchedulingReason = 'manual-early-review';
+
+export interface QueueReviewSchedulingContext {
+    reviewTime?: number;
+    memoryStateAsOf?: number;
+    reason?: QueueReviewSchedulingReason;
+}
+
 export interface ReviewQueueProgressSnapshot {
     queueType: string | null;
     queueLabel: string;
@@ -774,6 +782,12 @@ export interface IReviewQueue {
      * @param rating 评分 (1-4)
      */
     handleReview(cardId: string, rating: number): Promise<QueueReviewResult>;
+
+    /**
+     * 可选：为本次复习提供调度时间锚点。
+     * 例如手动提前复习未来卡时，把调度计算锚定到原 due 日。
+     */
+    getReviewSchedulingContext?(card: FSRSCard): QueueReviewSchedulingContext | null;
     
     /**
      * 跳过卡片

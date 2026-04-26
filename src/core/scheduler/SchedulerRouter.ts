@@ -6,7 +6,7 @@
  */
 
 import type { FSRSCard, FSRSParameters, Rating } from '@/types';
-import type { SchedulerEngineAdapter } from './types';
+import type { SchedulerEngineAdapter, SchedulerTimingOptions } from './types';
 import type { CardUpdatePort } from './ports';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { SM15Scheduler } from './strategies/SM15Scheduler';
@@ -21,12 +21,82 @@ import {
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SchedulerRouter');
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Scheduler Router 配置 */
 export interface SchedulerRouterConfig {
     defaultScheduler: SchedulerType;
     fsrsParams: FSRSParameters;
     schedulerOverrides?: Map<string, SchedulerType>;
+}
+
+function resolveReviewDate(options: SchedulerTimingOptions = {}): Date {
+    if (options.reviewTime instanceof Date) {
+        const timestamp = options.reviewTime.getTime();
+        if (Number.isFinite(timestamp) && timestamp > 0) {
+            return new Date(timestamp);
+        }
+    }
+
+    if (typeof options.reviewTime === 'number' && Number.isFinite(options.reviewTime) && options.reviewTime > 0) {
+        return new Date(options.reviewTime);
+    }
+
+    return new Date();
+}
+
+function resolveOptionalDate(value: Date | number | undefined): Date | null {
+    if (value instanceof Date) {
+        const timestamp = value.getTime();
+        return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp) : null;
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        return new Date(value);
+    }
+
+    return null;
+}
+
+function shiftTimestamp(value: unknown, offset: number, fallback: number): number {
+    const timestamp = Number(value);
+    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp - offset : fallback;
+}
+
+function buildMemoryAnchoredCard(
+    card: FSRSCard,
+    reviewDate: Date,
+    options: SchedulerTimingOptions = {},
+): FSRSCard {
+    const memoryDate = resolveOptionalDate(options.memoryStateAsOf);
+    if (!memoryDate) {
+        return card;
+    }
+
+    const reviewTime = reviewDate.getTime();
+    const memoryTime = memoryDate.getTime();
+    if (memoryTime <= reviewTime) {
+        return card;
+    }
+
+    const offset = memoryTime - reviewTime;
+    const anchoredCard: FSRSCard = {
+        ...card,
+        due: shiftTimestamp(card.due, offset, reviewTime),
+        lastReview: shiftTimestamp(card.lastReview, offset, 0),
+    };
+
+    const originalLastReview = Number(card.lastReview);
+    if (Number.isFinite(originalLastReview) && originalLastReview > 0 && memoryTime > originalLastReview) {
+        anchoredCard.elapsedDays = Math.max(0, Math.floor((memoryTime - originalLastReview) / DAY_MS));
+    } else {
+        const shiftedLastReview = Number(anchoredCard.lastReview);
+        if (Number.isFinite(shiftedLastReview) && shiftedLastReview > 0) {
+            anchoredCard.elapsedDays = Math.max(0, Math.floor((reviewTime - shiftedLastReview) / DAY_MS));
+        }
+    }
+
+    return anchoredCard;
 }
 
 /**
@@ -76,12 +146,16 @@ export class SchedulerRouter {
      * @param rating 评分 (1-4)
      * @returns 更新后的卡片
      */
-    async route(card: FSRSCard, rating: Rating): Promise<FSRSCard> {
+    async route(card: FSRSCard, rating: Rating, options: SchedulerTimingOptions = {}): Promise<FSRSCard> {
         try {
-            const now = Date.now();
+            const reviewDate = resolveReviewDate(options);
+            const now = reviewDate.getTime();
             logger.debug('route() called:', {
                 cardId: card.id,
                 rating,
+                reviewTime: now,
+                reviewTimeDate: reviewDate.toISOString(),
+                memoryStateAsOf: options.memoryStateAsOf,
                 cardType: card.type,
                 currentSchedulerType: card.schedulerType,
                 cardState: card.state,
@@ -95,7 +169,8 @@ export class SchedulerRouter {
             
             // 1. 确定调度器类型
             const schedulerType = this.getSchedulerType(card);
-            const normalizedCard = normalizeSchedulerCard(card, schedulerType, { now });
+            const schedulerCard = buildMemoryAnchoredCard(card, reviewDate, options);
+            const normalizedCard = normalizeSchedulerCard(schedulerCard, schedulerType, { now });
             logger.debug('Selected scheduler type:', schedulerType);
 
             // 2. 获取调度器
@@ -110,7 +185,7 @@ export class SchedulerRouter {
             });
 
             // 3. 执行复习
-            const reviewedCard = scheduler.review(normalizedCard, rating);
+            const reviewedCard = scheduler.review(normalizedCard, rating, reviewDate);
             
             logger.debug('After scheduler.review():', {
                 updatedCard: reviewedCard ? {
@@ -222,7 +297,9 @@ export class SchedulerRouter {
      * @param card 卡片
      * @returns 评分 → 卡片的映射
      */
-    preview(card: FSRSCard): Map<Rating, FSRSCard> {
+    preview(card: FSRSCard, options: SchedulerTimingOptions = {}): Map<Rating, FSRSCard> {
+        const reviewDate = resolveReviewDate(options);
+        const now = reviewDate.getTime();
         const schedulerType = this.getSchedulerType(card);
         const scheduler = this.schedulers.get(schedulerType);
 
@@ -230,8 +307,9 @@ export class SchedulerRouter {
             throw new Error(`Scheduler not found: ${schedulerType}`);
         }
 
-        const normalizedCard = normalizeSchedulerCard(card, schedulerType);
-        const preview = scheduler.preview(normalizedCard);
+        const schedulerCard = buildMemoryAnchoredCard(card, reviewDate, options);
+        const normalizedCard = normalizeSchedulerCard(schedulerCard, schedulerType, { now });
+        const preview = scheduler.preview(normalizedCard, reviewDate);
         const normalizedPreview = new Map<Rating, FSRSCard>();
         for (const [rating, previewCard] of preview.entries()) {
             normalizedPreview.set(
@@ -239,7 +317,7 @@ export class SchedulerRouter {
                 normalizeSchedulerCard({
                     ...previewCard,
                     schedulerType,
-                }, schedulerType),
+                }, schedulerType, { now }),
             );
         }
         return normalizedPreview;

@@ -4,6 +4,8 @@ import { isQueueItemUnavailableError } from '@/core/queue/abstraction/Strategy';
 import { QueueType, type DataChangeEvent, type IReviewQueue, type QueueReviewResult } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 
+const DAY_MS = 86_400_000;
+
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
   return {
@@ -214,7 +216,7 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const card = createCard({ id: 'cache-card', blockId: 'cache-block' });
     const changedCard = createCard({
       ...card,
-      due: card.due + 30 * 86_400_000,
+      due: card.due + 30 * DAY_MS,
       stability: 30,
       scheduledDays: 30,
       elapsedDays: 30,
@@ -227,9 +229,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const eventBus = { subscribe: vi.fn() };
     const preview = vi.fn((previewCard: FSRSCard) => new Map([
       [1, { ...previewCard, due: Date.now() + 10 * 60_000 }],
-      [2, { ...previewCard, due: Date.now() + previewCard.scheduledDays * 86_400_000 }],
-      [3, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 1) * 86_400_000 }],
-      [4, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 2) * 86_400_000 }],
+      [2, { ...previewCard, due: Date.now() + previewCard.scheduledDays * DAY_MS }],
+      [3, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 1) * DAY_MS }],
+      [4, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 2) * DAY_MS }],
     ]));
 
     const strategy = new UnifiedQueueStrategy(
@@ -266,9 +268,9 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     const eventBus = { subscribe: vi.fn() };
     const preview = vi.fn((previewCard: FSRSCard) => new Map([
       [1, { ...previewCard, due: Date.now() + 10 * 60_000 }],
-      [2, { ...previewCard, due: Date.now() + previewCard.scheduledDays * 86_400_000 }],
-      [3, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 1) * 86_400_000 }],
-      [4, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 2) * 86_400_000 }],
+      [2, { ...previewCard, due: Date.now() + previewCard.scheduledDays * DAY_MS }],
+      [3, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 1) * DAY_MS }],
+      [4, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 2) * DAY_MS }],
     ]));
 
     const strategy = new UnifiedQueueStrategy(
@@ -287,6 +289,68 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
       3: '31 d',
       4: '32 d',
     });
+  });
+
+  it('anchors nextDues preview for manual future cards and caches by memoryStateAsOf', async () => {
+    const now = Date.now();
+    const originalDue = now + 30 * DAY_MS;
+    const card = createCard({
+      id: 'manual-future-preview-card',
+      blockId: 'manual-future-preview-block',
+      due: originalDue,
+      lastReview: originalDue - 30 * DAY_MS,
+      stability: 30,
+      scheduledDays: 30,
+      elapsedDays: 30,
+    });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [card]);
+    const getReviewSchedulingContext = vi.fn(() => ({
+      memoryStateAsOf: originalDue,
+      reason: 'manual-early-review',
+    }));
+    queue.getReviewSchedulingContext = getReviewSchedulingContext;
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const preview = vi.fn((previewCard: FSRSCard, options?: { reviewTime?: number | Date; memoryStateAsOf?: number | Date }) => {
+      const anchor = Number(options?.reviewTime ?? Date.now());
+      return new Map([
+        [1, { ...previewCard, due: anchor + 10 * 60_000 }],
+        [2, { ...previewCard, due: anchor + previewCard.scheduledDays * DAY_MS }],
+        [3, { ...previewCard, due: anchor + (previewCard.scheduledDays + 5) * DAY_MS }],
+        [4, { ...previewCard, due: anchor + (previewCard.scheduledDays + 10) * DAY_MS }],
+      ]);
+    });
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      { preview } as never
+    );
+
+    const hydrated = await strategy.hydrateCurrentItem(card);
+
+    expect(preview).toHaveBeenCalledWith(
+      expect.objectContaining({ id: card.id }),
+      { memoryStateAsOf: originalDue }
+    );
+    expect(hydrated?.nextDues).toMatchObject({
+      1: '10 min',
+      2: '30 d',
+      3: '35 d',
+      4: '40 d',
+    });
+
+    getReviewSchedulingContext.mockReturnValue({
+      memoryStateAsOf: originalDue + DAY_MS,
+      reason: 'manual-early-review',
+    });
+
+    await strategy.hydrateCurrentItem(card);
+
+    expect(preview).toHaveBeenCalledTimes(2);
   });
 
   it('reuses cached cards for getStats-next-getStats and avoids duplicate getCards', async () => {

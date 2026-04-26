@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-27 (Round 157)
+Last update: 2026-04-27 (Round 158)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-27 - manual early review memory-anchored scheduling
+
+- Task: 修复手动强制加入 future Review 卡后，预览和评分要么按真实今天短间隔计算、要么把实际评分时间直接锚到原 due 导致 `[重来]` 也显示多天的提前复习语义错误。
+- Touched slice: Queue / Scheduler / review preview active path across `SchedulerRouter`, dynamic manual queues, `UnifiedQueueStrategy`, and focused scheduler/queue regressions.
+- Debt fixed now: `SchedulerRouter.preview/route` 支持内部 `reviewTime + memoryStateAsOf`；RetrievalPractice 与 IncrementalLearning 对手动加入且 `due > dayEnd` 的卡返回 `memoryStateAsOf=原 due` 的 `manual-early-review` context；调度前临时把 due/lastReview 平移到“今天视角”来保留原历史间隔，但实际预览和写回仍从今天开始，所以 `[重来]` 保持分钟级，Hard/Good/Easy 使用原 due 日的记忆状态计算。nextDues cache key 同时加入 reviewTime 和 memoryStateAsOf，避免普通预览和提前复习预览串缓存。
+- Debt deferred: 手动队列持久化仍是字符串集合，未新增带 source/addedAt/reviewTime 的 entry metadata；临时练习但不写 FSRS 仍未做。
+- Why deferred: 本轮根因是 active review/preview 的“记忆锚点”和“写回时钟”混用；metadata 化手动队列和非调度练习是独立产品能力，会扩大存储兼容与 UI 文案范围。
+- Next safe step: 如果还需要在 UI 明确区分“今天复习”与“提前完成 due 日复习”，可在 review header 加一个轻量锚点提示，但不要改变按钮组件的数据来源。
+- Validation: targeted SchedulerRouter fsrs-v6, dynamic queue review-removal, UnifiedQueueStrategy nextDues/cache tests; `pnpm build`; `git diff --check`.
 
 ### 2026-04-27 - manual queue forced formal review semantics
 

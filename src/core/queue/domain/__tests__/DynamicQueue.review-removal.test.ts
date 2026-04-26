@@ -56,9 +56,10 @@ function createManagerStub(
   };
 
   const route = vi.fn(async () => updatedCard);
+  const schedulerRouter = { route };
   return {
     getCard: vi.fn(async () => ({ ...card })),
-    getSchedulerRouter: vi.fn(() => ({ route })),
+    getSchedulerRouter: vi.fn(() => schedulerRouter),
     onCardUpdatedFromScheduler: vi.fn(async () => {}),
     updateCard: vi.fn(async () => {}),
     getDayStartHour: vi.fn(() => 4),
@@ -119,6 +120,10 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(result.removedFromQueue).toBe(false);
     expect(result.remainsInQueue).toBe(true);
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
+    expect(manager.getSchedulerRouter().route).toHaveBeenCalledWith(
+      expect.objectContaining({ id: card.id }),
+      4
+    );
   });
 
   it('retrieval practice removes blockId-only manual cards after review', async () => {
@@ -152,6 +157,44 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(persistence.set).toHaveBeenCalledWith('retrievalPracticeQueue', []);
   });
 
+  it('retrieval practice anchors manual future-card scheduling at the original due date', async () => {
+    const now = Date.now();
+    const originalDue = getCurrentDayEnd(4) + 5 * 86_400_000;
+    const card = createCard({
+      id: 'card-manual-future',
+      blockId: 'block-manual-future',
+      due: originalDue,
+      lastReview: originalDue - 30 * 86_400_000,
+      scheduledDays: 30,
+      stability: 30,
+      elapsedDays: 30,
+    });
+    const persistence: QueuePersistencePort = {
+      get: vi.fn(() => [card.id]),
+      set: vi.fn(async () => {}),
+    };
+    const manager = createManagerStub(card, {
+      updatedCard: {
+        ...card,
+        due: originalDue + 35 * 86_400_000,
+        lastReview: originalDue,
+        scheduledDays: 35,
+        reps: card.reps + 1,
+        updatedAt: now,
+      },
+    });
+    const queue = new RetrievalPracticeQueue(manager as never, persistence);
+    await queue.load();
+
+    await queue.handleReview(card.id, 3);
+
+    expect(manager.getSchedulerRouter().route).toHaveBeenCalledWith(
+      expect.objectContaining({ id: card.id }),
+      3,
+      { memoryStateAsOf: originalDue }
+    );
+  });
+
   it('incremental learning keeps same-day cards active after review', async () => {
     const now = Date.now();
     const card = createCard({
@@ -176,6 +219,10 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(result.removedFromQueue).toBe(false);
     expect(result.remainsInQueue).toBe(true);
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
+    expect(manager.getSchedulerRouter().route).toHaveBeenCalledWith(
+      expect.objectContaining({ id: card.id }),
+      4
+    );
   });
 
   it('incremental learning removes blockId-only manual cards after review', async () => {
@@ -207,6 +254,44 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(result.remainsInQueue).toBe(false);
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
     expect(persistence.set).toHaveBeenCalledWith('incrementalLearningQueue', []);
+  });
+
+  it('incremental learning anchors manual future-card scheduling at the original due date', async () => {
+    const now = Date.now();
+    const originalDue = getCurrentDayEnd(4) + 4 * 86_400_000;
+    const card = createCard({
+      id: 'card-incremental-future',
+      blockId: 'block-incremental-future',
+      due: originalDue,
+      lastReview: originalDue - 20 * 86_400_000,
+      scheduledDays: 20,
+      stability: 20,
+      elapsedDays: 20,
+    });
+    const persistence: QueuePersistencePort = {
+      get: vi.fn(() => [card.blockId]),
+      set: vi.fn(async () => {}),
+    };
+    const manager = createManagerStub(card, {
+      updatedCard: {
+        ...card,
+        due: originalDue + 25 * 86_400_000,
+        lastReview: originalDue,
+        scheduledDays: 25,
+        reps: card.reps + 1,
+        updatedAt: now,
+      },
+    });
+    const queue = new IncrementalLearningQueue(manager as never, persistence);
+    await queue.load();
+
+    await queue.handleReview(card.id, 3);
+
+    expect(manager.getSchedulerRouter().route).toHaveBeenCalledWith(
+      expect.objectContaining({ id: card.id }),
+      3,
+      { memoryStateAsOf: originalDue }
+    );
   });
 
   it('incremental learning builds its base set with today window instead of current moment', async () => {

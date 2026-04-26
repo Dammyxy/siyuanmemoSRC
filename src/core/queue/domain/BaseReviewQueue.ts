@@ -19,6 +19,7 @@ import {
     QueueUIConfig,
     ReviewButtonConfig,
     QueueAddSource,
+    QueueReviewSchedulingContext,
 } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueSnapshotRow } from '../../../types/queue-browser';
@@ -541,6 +542,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
 
         return schedulerRouter;
     }
+
+    public getReviewSchedulingContext(_card: FSRSCard): QueueReviewSchedulingContext | null {
+        return null;
+    }
     
     /**
      * 获取一天开始的小时数
@@ -698,7 +703,16 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             // 2. 获取调度器并调度卡片
             const schedulerRouter = this.getSchedulerRouter();
-            const updatedCard = await schedulerRouter.route(card, rating);
+            const schedulingContext = this.getReviewSchedulingContext(card);
+            const routeOptions = schedulingContext?.reviewTime || schedulingContext?.memoryStateAsOf
+                ? {
+                    ...(schedulingContext.reviewTime ? { reviewTime: schedulingContext.reviewTime } : {}),
+                    ...(schedulingContext.memoryStateAsOf ? { memoryStateAsOf: schedulingContext.memoryStateAsOf } : {}),
+                }
+                : undefined;
+            const updatedCard = routeOptions
+                ? await schedulerRouter.route(card, rating, routeOptions)
+                : await schedulerRouter.route(card, rating);
             
             logger.debug(`[${this.type}] handleReviewWithScheduler - After scheduling:`, {
                 cardId: updatedCard.id,

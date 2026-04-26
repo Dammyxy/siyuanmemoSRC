@@ -5,9 +5,10 @@
  */
 import type { FSRSCard } from '@/types/card';
 import type { CardFilter, DataChangeEvent, IReviewQueue, QueueType } from '@/types/unified-data-source';
+import type { SchedulerTimingOptions } from '@/core/scheduler/types';
 
 export interface QueueSchedulerPort {
-  route(card: FSRSCard, rating: number): Promise<FSRSCard>;
+  route(card: FSRSCard, rating: number, options?: SchedulerTimingOptions): Promise<FSRSCard>;
 }
 
 export interface QueueRuntimePort {

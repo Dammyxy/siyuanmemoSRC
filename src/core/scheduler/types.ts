@@ -1,5 +1,10 @@
 ﻿import type { FSRSCard, FSRSParameters, Rating } from '@/types';
 
+export interface SchedulerTimingOptions {
+    reviewTime?: Date | number;
+    memoryStateAsOf?: Date | number;
+}
+
 /**
  * 调度器适配器接口
  * 所有调度算法需实现此接口

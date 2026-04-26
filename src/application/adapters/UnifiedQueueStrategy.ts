@@ -5,7 +5,7 @@ import {
 } from '@/core/queue/abstraction/Strategy';
 import type { QueueStats, QueueUIConfig } from '@/core/queue/types';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
-import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult } from '@/types/unified-data-source';
+import type { DataChangeEvent, IDataSourceObserver, IReviewQueue, QueueCounterSnapshot, QueueReviewResult, QueueReviewSchedulingContext } from '@/types/unified-data-source';
 import type { ReviewQueueSessionSnapshot } from '@/types/review-tab';
 import { QueueType, isDynamicQueueType } from '@/types/unified-data-source';
 import type { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
@@ -33,7 +33,11 @@ type QueueWithInsertAt = IReviewQueue & {
 };
 
 type SchedulerPreviewRouter = ISchedulerRouter & {
-    preview: (card: FSRSCard) => Map<number, FSRSCard>;
+    preview: (card: FSRSCard, options?: { reviewTime?: Date | number; memoryStateAsOf?: Date | number }) => Map<number, FSRSCard>;
+};
+
+type ReviewSchedulingContextQueue = IReviewQueue & {
+    getReviewSchedulingContext: (card: FSRSCard) => QueueReviewSchedulingContext | null;
 };
 
 type QueueRollbackCapable = IReviewQueue & {
@@ -1381,7 +1385,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private async addNextDues(card: FSRSCard): Promise<CardWithNextDues> {
         try {
-            const cacheKey = `${card.id}-${buildFsrsSchedulingFingerprint(card)}`;
+            const schedulingContext = this.getReviewSchedulingContext(card);
+            const reviewTime = this.normalizeReviewTime(schedulingContext?.reviewTime);
+            const memoryStateAsOf = this.normalizeReviewTime(schedulingContext?.memoryStateAsOf);
+            const cacheKey = `${card.id}-${buildFsrsSchedulingFingerprint(card)}-reviewTime=${reviewTime ?? 'now'}-memoryStateAsOf=${memoryStateAsOf ?? 'none'}`;
             const cache = this.cacheManager.getNextDuesCache();
 
             const cached = cache.get(cacheKey);
@@ -1398,7 +1405,13 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 return card;
             }
 
-            const previews = this.schedulerRouter.preview(card);
+            const previewOptions = {
+                ...(reviewTime ? { reviewTime } : {}),
+                ...(memoryStateAsOf ? { memoryStateAsOf } : {}),
+            };
+            const previews = Object.keys(previewOptions).length > 0
+                ? this.schedulerRouter.preview(card, previewOptions)
+                : this.schedulerRouter.preview(card);
             const nextDues: Partial<Record<RatingValue, string>> = {};
 
             for (const [rating, previewCard] of previews.entries()) {
@@ -1429,6 +1442,20 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return card;
         }
         return this.addNextDues(card);
+    }
+
+    private getReviewSchedulingContext(card: FSRSCard): QueueReviewSchedulingContext | null {
+        const queue = this.queue as Partial<ReviewSchedulingContextQueue>;
+        if (typeof queue.getReviewSchedulingContext !== 'function') {
+            return null;
+        }
+
+        return queue.getReviewSchedulingContext(card);
+    }
+
+    private normalizeReviewTime(value: unknown): number | null {
+        const timestamp = value instanceof Date ? value.getTime() : Number(value);
+        return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
     }
 
     private logSuspiciousRetrievalNextDues(
