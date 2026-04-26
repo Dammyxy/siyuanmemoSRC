@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 151)
+Last update: 2026-04-26 (Round 152)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - review false empty on feedback failure
+
+- Task: 修复渐进学习评分后因调度失败被误清成 No Card 的假空态，同时让 ts-fsrs invalid due 不再中断整次评分。
+- Touched slice: Review / Queue / Scheduler active path across `src/ui/review/v2/{reviewSessionController.ts,useReviewSession.ts,ReviewView.vue}`, `src/core/scheduler/strategies/TSFSRSScheduler.ts`, i18n keys, focused review and scheduler tests, and this backlog.
+- Debt fixed now: `ReviewSessionController` 现在只在 `QueueItemUnavailableError` 这类 stale item 上跳下一张；普通评分、跳过或自定义命令错误会保留当前卡与答案显示状态，记录错误并通过 Review UI 提示，不再把当前卡置空。`TSFSRSScheduler` 对 ts-fsrs 返回的 invalid due 做边界归一化，按评分和卡片状态生成可解释的保底 due，并记录 card id、state、rating 和调度输入摘要。
+- Debt deferred: 未做全量用户数据清洗、FSRS 参数迁移或历史 review card 修复；Review UI 空态文案和主交互仍保持不变。
+- Why deferred: 本轮根因在 active review feedback path 的错误分类和 scheduler adapter 边界健壮性；批量数据修复与用户提示策略需要单独定义产品语义，不能和避免假空态的最小修复混在一起。
+- Next safe step: 如果后续日志继续出现 invalid due，可基于这次诊断字段增加卡片调度诊断导出或显式 repair action，并再决定是否需要迁移脏 FSRS 数据。
+- Validation: focused review/session scheduler tests plus queue performance regression, `pnpm build`, and `git diff --check`.
 
 ### 2026-04-26 - browser review boundary convergence first pass
 

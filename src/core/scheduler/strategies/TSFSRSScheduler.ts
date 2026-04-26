@@ -41,6 +41,11 @@ interface PreviewCacheEntry {
     timestamp: number;
 }
 
+type ConversionContext = {
+    rating?: Rating;
+    now?: Date;
+};
+
 /**
  * TS-FSRS 调度器适配器
  * 
@@ -158,10 +163,10 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         const result = new Map<Rating, FSRSCard>();
         
         // ts-fsrs 的 Rating 枚举值：1=Again, 2=Hard, 3=Good, 4=Easy
-        result.set(1, this.fromTSCard(scheduling[TSRating.Again].card, card));
-        result.set(2, this.fromTSCard(scheduling[TSRating.Hard].card, card));
-        result.set(3, this.fromTSCard(scheduling[TSRating.Good].card, card));
-        result.set(4, this.fromTSCard(scheduling[TSRating.Easy].card, card));
+        result.set(1, this.fromTSCard(scheduling[TSRating.Again].card, card, { rating: 1, now }));
+        result.set(2, this.fromTSCard(scheduling[TSRating.Hard].card, card, { rating: 2, now }));
+        result.set(3, this.fromTSCard(scheduling[TSRating.Good].card, card, { rating: 3, now }));
+        result.set(4, this.fromTSCard(scheduling[TSRating.Easy].card, card, { rating: 4, now }));
         
         // 存入缓存
         this.previewCache.set(cacheKey, {
@@ -194,7 +199,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         // 使用 ts-fsrs 的 next 方法直接获取指定评分的结果
         const result = this.f.next(tsCard, now, tsRating);
         
-        return this.fromTSCard(result.card, card);
+        return this.fromTSCard(result.card, card, { rating, now });
     }
     
     /**
@@ -224,7 +229,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
             // 使用 ts-fsrs 的 next 方法
             const result = this.f.next(tsCard, now, tsRating);
             
-            results.push(this.fromTSCard(result.card, card));
+            results.push(this.fromTSCard(result.card, card, { rating, now }));
         }
         
         return results;
@@ -375,17 +380,28 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @param originalCard - 原始卡片（用于保留业务字段）
      * @returns 我们的卡片格式
      */
-    private fromTSCard(tsCard: TSCard, originalCard: FSRSCard): FSRSCard {
+    private fromTSCard(tsCard: TSCard, originalCard: FSRSCard, context: ConversionContext = {}): FSRSCard {
         // 安全地转换 due 日期
         let dueTime: number;
         if (tsCard.due && tsCard.due instanceof Date && !isNaN(tsCard.due.getTime())) {
             dueTime = tsCard.due.getTime();
         } else {
-            logger.error('Invalid due date from ts-fsrs:', {
+            const nowTime = this.resolveNowTime(context.now);
+            dueTime = this.computeFallbackDue(originalCard, context.rating, nowTime);
+            logger.warn('Invalid due date from ts-fsrs; using fallback due date:', {
                 cardId: originalCard.id,
                 tsCardDue: tsCard.due,
+                rating: context.rating,
+                state: originalCard.state,
+                originalDue: originalCard.due,
+                originalStability: originalCard.stability,
+                originalDifficulty: originalCard.difficulty,
+                originalScheduledDays: originalCard.scheduledDays,
+                originalElapsedDays: originalCard.elapsedDays,
+                originalLastReview: originalCard.lastReview,
+                fallbackDue: dueTime,
+                fallbackDueDate: new Date(dueTime).toISOString(),
             });
-            throw new Error(`TS-FSRS produced invalid due date for card ${originalCard.id}`);
         }
         
         // 安全地转换 lastReview 日期
@@ -395,7 +411,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
         } else {
             lastReviewTime = Number.isFinite(originalCard.lastReview) && originalCard.lastReview > 0
                 ? originalCard.lastReview
-                : Date.now();
+                : this.resolveNowTime(context.now);
         }
         
         return {
@@ -412,6 +428,42 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
             lastReview: lastReviewTime,
             updatedAt: Date.now(),
         };
+    }
+
+    private resolveNowTime(now?: Date): number {
+        const value = now instanceof Date ? now.getTime() : Date.now();
+        return Number.isFinite(value) ? value : Date.now();
+    }
+
+    private normalizeRating(value: unknown): Rating {
+        const num = Math.floor(Number(value));
+        if (num >= 1 && num <= 4) {
+            return num as Rating;
+        }
+        return 3 as Rating;
+    }
+
+    private computeFallbackDue(card: FSRSCard, rating: Rating | undefined, nowTime: number): number {
+        const normalizedRating = this.normalizeRating(rating);
+        if (normalizedRating === 1) {
+            return nowTime + 5 * 60 * 1000;
+        }
+        if (normalizedRating === 2) {
+            return nowTime + 10 * 60 * 1000;
+        }
+
+        if (card.state !== CardState.Review) {
+            const fallbackDays = normalizedRating === 4 ? 2 : 1;
+            return nowTime + fallbackDays * DAY_MS;
+        }
+
+        const scheduledDays = this.normalizePositiveNumber(card.scheduledDays, MIN_REVIEW_SCHEDULED_DAYS);
+        const stabilityDays = this.normalizePositiveNumber(card.stability, scheduledDays);
+        const fallbackDays = normalizedRating === 4
+            ? Math.max(2, Math.ceil(stabilityDays * 1.3), Math.ceil(scheduledDays) + 1)
+            : Math.max(1, Math.ceil(stabilityDays), Math.ceil(scheduledDays));
+
+        return nowTime + fallbackDays * DAY_MS;
     }
 
     private normalizeCardForScheduler(card: FSRSCard, now: Date): FSRSCard {

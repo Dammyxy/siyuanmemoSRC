@@ -11,7 +11,7 @@
  * **Validates: Requirements 2.3.1**
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { TSFSRSScheduler } from '../TSFSRSScheduler';
 import { CardState, Rating, type FSRSCard, type FSRSParameters } from '@/types';
 
@@ -216,6 +216,41 @@ describe('TSFSRSScheduler', () => {
             expect(result.scheduledDays).toBeGreaterThan(0);
             expect(result.stability).toBeGreaterThan(0);
         });
+
+        it('应该在 ts-fsrs 评分返回 invalid due 时保留评分结果并给出保底 due', () => {
+            const now = new Date('2026-04-26T19:20:00+08:00');
+            const invalidDueCard = {
+                due: new Date(Number.NaN),
+                stability: 2,
+                difficulty: 5,
+                elapsed_days: 0,
+                scheduled_days: 0,
+                learning_steps: 0,
+                reps: 4,
+                lapses: 0,
+                state: CardState.Review,
+                last_review: now,
+            };
+            (scheduler as unknown as {
+                f: {
+                    next: ReturnType<typeof vi.fn>;
+                };
+            }).f.next = vi.fn(() => ({ card: invalidDueCard }));
+
+            const result = scheduler.review({
+                ...testCard,
+                state: CardState.Review,
+                stability: 2,
+                scheduledDays: 2,
+                reps: 4,
+                lastReview: now.getTime() - 2 * 86_400_000,
+            }, Rating.Good, now);
+
+            expect(Number.isFinite(result.due)).toBe(true);
+            expect(result.due).toBeGreaterThan(now.getTime());
+            expect(result.id).toBe(testCard.id);
+            expect(result.reps).toBe(4);
+        });
     });
     
     describe('preview() 方法', () => {
@@ -314,6 +349,54 @@ describe('TSFSRSScheduler', () => {
             expect(hardCard.due).toBeLessThan(goodCard.due);
             expect(goodCard.due).toBeLessThan(easyCard.due);
             expect(new Set([hardCard.due, goodCard.due, easyCard.due]).size).toBe(3);
+        });
+
+        it('应该在 ts-fsrs 返回 invalid due 时使用可评分区分的保底时间', () => {
+            const now = new Date('2026-04-26T19:20:00+08:00');
+            const invalidDueCard = {
+                due: new Date(Number.NaN),
+                stability: 2,
+                difficulty: 5,
+                elapsed_days: 0,
+                scheduled_days: 0,
+                learning_steps: 0,
+                reps: 4,
+                lapses: 0,
+                state: CardState.Review,
+                last_review: now,
+            };
+            (scheduler as unknown as {
+                f: {
+                    repeat: ReturnType<typeof vi.fn>;
+                };
+            }).f.repeat = vi.fn(() => ({
+                1: { card: invalidDueCard },
+                2: { card: invalidDueCard },
+                3: { card: invalidDueCard },
+                4: { card: invalidDueCard },
+            }));
+
+            const result = scheduler.preview({
+                ...testCard,
+                state: CardState.Review,
+                stability: 2,
+                scheduledDays: 2,
+                reps: 4,
+                lastReview: now.getTime() - 2 * 86_400_000,
+            }, now);
+
+            const againCard = result.get(Rating.Again)!;
+            const hardCard = result.get(Rating.Hard)!;
+            const goodCard = result.get(Rating.Good)!;
+            const easyCard = result.get(Rating.Easy)!;
+
+            [againCard, hardCard, goodCard, easyCard].forEach((card) => {
+                expect(Number.isFinite(card.due)).toBe(true);
+                expect(card.due).toBeGreaterThan(now.getTime());
+            });
+            expect(againCard.due).toBeLessThan(hardCard.due);
+            expect(hardCard.due).toBeLessThan(goodCard.due);
+            expect(goodCard.due).toBeLessThan(easyCard.due);
         });
     });
     

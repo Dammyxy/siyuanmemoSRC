@@ -1,10 +1,10 @@
 import { onMounted, onUnmounted } from 'vue';
 import type { IQueueStrategy } from '@/core/queue/abstraction/Strategy';
 import type { QueueItem } from '@/core/queue/types';
-import type { InitialReviewSessionState } from '@/types/unified-data-source';
 import type { IAdapter, RefreshCurrentItemOptions, ReviewSessionHook } from './types';
 import {
   createReviewSessionController,
+  type CreateReviewSessionControllerOptions,
   type ReviewSessionController,
 } from './reviewSessionController';
 
@@ -18,12 +18,7 @@ function createLocalSurfaceId(): string {
 export function useReviewSession<TItem extends QueueItem>(
   queue: IQueueStrategy<TItem>,
   adapter: IAdapter<TItem>,
-  options?: {
-    onReview?: (cardId: string, rating: number) => void;
-    onReviewDetailed?: (payload: { cardId: string; rating: number; item: TItem | null }) => void | Promise<void>;
-    initialSessionState?: InitialReviewSessionState;
-    initialCurrentItem?: TItem | null;
-    initialShowAnswer?: boolean;
+  options?: CreateReviewSessionControllerOptions<TItem> & {
     controller?: ReviewSessionController<TItem> | null;
     surfaceId?: string;
   }
@@ -58,6 +53,8 @@ export function useReviewSession<TItem extends QueueItem>(
 
 export {
   createReviewSessionController,
+  type CreateReviewSessionControllerOptions,
+  type ReviewSessionActionError,
   type ReviewSessionController,
   type ReviewSessionControllerSnapshot,
 } from './reviewSessionController';

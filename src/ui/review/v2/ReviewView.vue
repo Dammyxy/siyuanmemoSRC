@@ -144,7 +144,12 @@ import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import ActionParamsDialog from '@/ui/browser/ActionParamsDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
-import { createReviewSessionController, useReviewSession, type ReviewSessionController } from './useReviewSession';
+import {
+  createReviewSessionController,
+  useReviewSession,
+  type ReviewSessionActionError,
+  type ReviewSessionController,
+} from './useReviewSession';
 import {
   resolveReviewHeaderVariant,
   type RefreshCurrentItemOptions,
@@ -1510,6 +1515,7 @@ function createReviewSessionControllerInstance(): ReviewSessionController<Active
     {
       onReview: props.onReview,
       onReviewDetailed: handleReviewArenaFeedback as never,
+      onActionError: handleReviewSessionActionError as never,
       initialSessionState: effectiveInitialSessionState,
       initialCurrentItem: effectiveInitialCurrentItem as never,
       initialShowAnswer: effectiveInitialShowAnswer,
@@ -1544,6 +1550,7 @@ const hook = useReviewSession(
   {
     onReview: props.onReview, // 🆕 传递 onReview 回调
     onReviewDetailed: handleReviewArenaFeedback as never,
+    onActionError: handleReviewSessionActionError as never,
     initialSessionState: effectiveInitialSessionState,
     initialCurrentItem: effectiveInitialCurrentItem as never,
     initialShowAnswer: effectiveInitialShowAnswer,
@@ -1605,6 +1612,22 @@ const showCompletedEmptyStateExit = computed(() => (
   isEmptyReviewContent.value
   && state.value.meta.emptyStateMode === 'completed'
 ));
+
+function getReviewActionErrorMessage(payload: ReviewSessionActionError<ActiveReviewItem>): string {
+  const base = payload.reason === 'skip'
+    ? t('reviewSkipFailedKeepCard', '跳过失败，当前卡片已保留')
+    : payload.reason === 'custom'
+      ? t('reviewCommandFailedKeepCard', '操作失败，当前卡片已保留')
+      : t('reviewFeedbackFailedKeepCard', '评分失败，当前卡片已保留');
+  const detail = payload.error instanceof Error
+    ? payload.error.message
+    : String(payload.error || '').trim();
+  return detail ? `${base}: ${detail}` : base;
+}
+
+function handleReviewSessionActionError(payload: ReviewSessionActionError<ActiveReviewItem>): void {
+  showMessage(getReviewActionErrorMessage(payload), 5000, 'error');
+}
 
 function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;

@@ -57,6 +57,15 @@ type SessionUpdateReason =
   | 'refresh-current'
   | 'load-by-block';
 
+type ReviewActionErrorReason = Extract<SessionUpdateReason, 'grade' | 'skip' | 'custom'>;
+
+export interface ReviewSessionActionError<TItem extends QueueItem = QueueItem> {
+  reason: ReviewActionErrorReason;
+  message: string;
+  error: unknown;
+  item: TItem | null;
+}
+
 export interface ReviewSessionControllerSnapshot<TItem extends QueueItem = QueueItem> {
   state: ReviewUIState;
   context: AdapterContext;
@@ -90,6 +99,7 @@ export interface ReviewSessionController<TItem extends QueueItem = QueueItem> {
 export interface CreateReviewSessionControllerOptions<TItem extends QueueItem = QueueItem> {
   onReview?: (cardId: string, rating: number) => void;
   onReviewDetailed?: (payload: { cardId: string; rating: number; item: TItem | null }) => void | Promise<void>;
+  onActionError?: (payload: ReviewSessionActionError<TItem>) => void;
   initialSessionState?: InitialReviewSessionState;
   initialCurrentItem?: TItem | null;
   initialShowAnswer?: boolean;
@@ -507,6 +517,21 @@ export function createReviewSessionController<TItem extends QueueItem>(
     await updateState(reason);
   };
 
+  const keepCurrentItemAfterActionError = async (reason: ReviewActionErrorReason, message: string, error: unknown): Promise<void> => {
+    logger.error(message, error);
+    try {
+      options?.onActionError?.({
+        reason,
+        message,
+        error,
+        item: currentItem.value,
+      });
+    } catch (listenerError) {
+      logger.warn('Review action error listener failed:', listenerError);
+    }
+    await updateState(reason);
+  };
+
   const grade = async (rating: number): Promise<void> => runSerialized(async () => {
     try {
       const normalized = toRatingValue(rating);
@@ -545,9 +570,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
 
-      logger.error('Failed to load next card:', error);
-      currentItem.value = null;
-      await updateState('grade');
+      await keepCurrentItemAfterActionError('grade', 'Failed to process review feedback:', error);
     }
   });
 
@@ -568,9 +591,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
 
-      logger.error('Failed to skip card:', error);
-      currentItem.value = null;
-      await updateState('skip');
+      await keepCurrentItemAfterActionError('skip', 'Failed to skip card:', error);
     }
   });
 
@@ -595,9 +616,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
 
-      logger.error('Failed to execute command:', error);
-      currentItem.value = null;
-      await updateState('custom');
+      await keepCurrentItemAfterActionError('custom', 'Failed to execute command:', error);
     }
   });
 

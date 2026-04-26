@@ -105,6 +105,7 @@ function mountHook(options: {
   };
   initialCurrentItem?: ReturnType<typeof createItem> | null;
   initialShowAnswer?: boolean;
+  onActionError?: ReturnType<typeof vi.fn>;
 } = {}) {
   const queue = options.queue ?? createQueue();
   const adapter = options.adapter ?? createAdapter();
@@ -116,6 +117,7 @@ function mountHook(options: {
         initialSessionState: options.initialSessionState,
         initialCurrentItem: options.initialCurrentItem as never,
         initialShowAnswer: options.initialShowAnswer,
+        onActionError: options.onActionError,
       });
       return () => h('div');
     },
@@ -323,6 +325,42 @@ describe('useReviewSession', () => {
     expect(hook.state.value.content.type).not.toBe('empty');
     expect(hook.context.value.session?.answeredCount).toBe(0);
     expect(hook.context.value.session?.correctCount).toBe(0);
+
+    wrapper.unmount();
+  });
+
+  it('keeps the current card visible when grading fails with a normal error', async () => {
+    const queue = createQueue();
+    const actionError = vi.fn();
+    queue.onFeedback = vi.fn(async () => {
+      throw new Error('scheduler failed');
+    });
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const { getHook, wrapper } = mountHook({ queue, adapter, onActionError: actionError });
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+    await hook.reveal();
+    await flushAsync();
+    expect(hook.context.value.showAnswer).toBe(true);
+
+    await hook.grade(3);
+
+    expect(queue.next).toHaveBeenCalledTimes(1);
+    expect(hook.state.value.content.id).toBe('card-1');
+    expect(hook.context.value.showAnswer).toBe(true);
+    expect(hook.context.value.session?.answeredCount).toBe(0);
+    expect(hook.context.value.session?.correctCount).toBe(0);
+    expect(actionError).toHaveBeenCalledTimes(1);
+    expect(actionError).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'grade',
+      message: 'Failed to process review feedback:',
+      item: expect.objectContaining({ id: 'card-1' }),
+    }));
 
     wrapper.unmount();
   });
