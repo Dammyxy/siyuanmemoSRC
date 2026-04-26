@@ -1,0 +1,79 @@
+import { describe, expect, it } from 'vitest';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
+import { buildFsrsSchedulingFingerprint, repairFsrsReviewState } from '../fsrsReviewStateRepair';
+
+function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
+  const now = new Date('2026-04-26T23:38:33+08:00').getTime();
+  return {
+    id: 'repair-card-1',
+    xiuyuanID: 'xy-repair-card-1',
+    blockId: 'repair-card-1',
+    due: now,
+    stability: 0,
+    difficulty: 0,
+    reps: 4,
+    lapses: 0,
+    state: CardState.Review,
+    lastReview: new Date('2026-02-15T23:38:33+08:00').getTime(),
+    elapsedDays: 0,
+    scheduledDays: 0,
+    priority: 50,
+    type: CardType.Item,
+    tags: [],
+    leechCount: 0,
+    isLeech: false,
+    skipped: false,
+    createdAt: now,
+    updatedAt: now,
+    schedulerType: 'fsrs-v6',
+    ...overrides,
+  };
+}
+
+describe('repairFsrsReviewState', () => {
+  it('repairs screenshot-like Review cards from the historical interval instead of 0.01 stability', () => {
+    const now = new Date('2026-04-26T23:38:33+08:00');
+    const result = repairFsrsReviewState(createCard(), { now });
+
+    expect(result.repaired).toBe(true);
+    expect(result.reasons).toContain('stability');
+    expect(result.card.stability).toBe(70);
+    expect(result.card.scheduledDays).toBe(70);
+    expect(result.card.difficulty).toBe(5);
+    expect(result.card.elapsedDays).toBe(70);
+  });
+
+  it('keeps New cards eligible for zero stability', () => {
+    const result = repairFsrsReviewState(createCard({
+      state: CardState.New,
+      stability: 0,
+      scheduledDays: 0,
+      lastReview: 0,
+    }));
+
+    expect(result.repaired).toBe(false);
+    expect(result.card.stability).toBe(0);
+  });
+
+  it('skips non-fsrs topic cards unless they explicitly use fsrs-v6', () => {
+    const topic = createCard({
+      type: CardType.Topic,
+      schedulerType: 'a-factor-v2',
+    });
+    const result = repairFsrsReviewState(topic);
+
+    expect(result.repaired).toBe(false);
+    expect(result.card.stability).toBe(0);
+  });
+
+  it('includes the scheduling fields that can change preview results in the fingerprint', () => {
+    const original = buildFsrsSchedulingFingerprint(createCard());
+    const changed = buildFsrsSchedulingFingerprint(createCard({
+      due: new Date('2026-04-27T23:38:33+08:00').getTime(),
+      reps: 5,
+      stability: 71,
+    }));
+
+    expect(changed).not.toBe(original);
+  });
+});

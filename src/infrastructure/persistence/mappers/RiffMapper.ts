@@ -1,5 +1,6 @@
 import { CardState, CardType, type FSRSCard } from '../../../types/card';
 import type { RiffBlock } from '../../../core/siyuan/riff';
+import { repairFsrsReviewState } from '../../../core/scheduler/fsrsReviewStateRepair';
 
 function parseTimestamp(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -65,19 +66,19 @@ export class RiffMapper {
     const createdAt = parseTimestamp(riffBlock.created, Date.now());
     const updatedAt = parseTimestamp(riffBlock.updated, createdAt);
 
-    return {
+    const card: FSRSCard = {
       id: riffBlock.id,
       xiuyuanID: xiuyuanAttrs.xiuyuanID || '',
       blockId: riffBlock.id,
       due: parseTimestamp(riffCard?.due, Date.now()),
-      stability: riffCard?.stability || 0,
-      difficulty: riffCard?.difficulty || 0,
-      reps: riffCard?.reps || 0,
-      lapses: riffCard?.lapses || 0,
+      stability: riffCard?.stability ?? 0,
+      difficulty: riffCard?.difficulty ?? 0,
+      reps: riffCard?.reps ?? 0,
+      lapses: riffCard?.lapses ?? 0,
       state: toCardState(riffCard?.state),
       lastReview: parseTimestamp(riffCard?.lastReview, 0),
-      elapsedDays: riffCard?.elapsedDays || 0,
-      scheduledDays: riffCard?.scheduledDays || 0,
+      elapsedDays: riffCard?.elapsedDays ?? 0,
+      scheduledDays: riffCard?.scheduledDays ?? 0,
       priority,
       type,
       tags: [],
@@ -95,6 +96,8 @@ export class RiffMapper {
         riffBlock,
       },
     };
+
+    return repairFsrsReviewState(card, { schedulerType: card.schedulerType }).card;
   }
 
   static toDomainBatch(riffBlocks: RiffBlock[]): FSRSCard[] {

@@ -1,8 +1,7 @@
 import { CardState, type FSRSCard } from '@/types/card';
+import { repairFsrsReviewState } from './fsrsReviewStateRepair';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MIN_REVIEW_STABILITY = 0.01;
-const MIN_REVIEW_SCHEDULED_DAYS = 1;
 
 export type NormalizedSchedulerCard = FSRSCard & {
   schedulerType: NonNullable<FSRSCard['schedulerType']>;
@@ -58,53 +57,24 @@ export function normalizeSchedulerCard(
   const now = Number.isFinite(nowValue) ? nowValue : Date.now();
   const state = normalizeState(card.state);
 
-  let due = toTimestamp(card.due, now);
-  let lastReview = toTimestamp(card.lastReview, 0);
-  let scheduledDays = toNonNegativeNumber(card.scheduledDays, 0);
-  let elapsedDays = toNonNegativeNumber(card.elapsedDays, 0);
-  let stability = toNonNegativeNumber(card.stability, 0);
-
-  if (state === CardState.Review) {
-    stability = Math.max(MIN_REVIEW_STABILITY, stability);
-
-    if (scheduledDays < MIN_REVIEW_SCHEDULED_DAYS) {
-      const derivedDays = lastReview > 0
-        ? Math.floor(Math.max(0, due - lastReview) / DAY_MS)
-        : 0;
-      scheduledDays = Math.max(MIN_REVIEW_SCHEDULED_DAYS, derivedDays);
-    }
-
-    if (lastReview <= 0) {
-      lastReview = Math.max(0, now - scheduledDays * DAY_MS);
-    }
-
-    if (elapsedDays <= 0 && lastReview > 0) {
-      elapsedDays = Math.max(0, Math.floor((now - lastReview) / DAY_MS));
-    }
-
-    if (due <= 0) {
-      due = now + scheduledDays * DAY_MS;
-    }
-  } else if (lastReview > 0 && elapsedDays <= 0) {
-    elapsedDays = Math.max(0, Math.floor((now - lastReview) / DAY_MS));
-  }
-
   const createdAt = toTimestamp(card.createdAt, now);
   const updatedAt = Math.max(createdAt, toTimestamp(card.updatedAt, createdAt));
 
-  return {
+  const normalized: NormalizedSchedulerCard = {
     ...card,
     xiuyuanID: String(card.xiuyuanID || '').trim(),
     blockId: String(card.blockId || '').trim(),
-    due,
-    stability,
-    difficulty: clampDifficulty(card.difficulty),
+    due: toTimestamp(card.due, now),
+    stability: toNonNegativeNumber(card.stability, 0),
+    difficulty: schedulerType === 'fsrs-v6' && (state === CardState.Review || state === CardState.Relearning)
+      ? toFiniteNumber(card.difficulty, 0)
+      : clampDifficulty(card.difficulty),
     reps: toNonNegativeInteger(card.reps, 0),
     lapses: toNonNegativeInteger(card.lapses, 0),
     state,
-    lastReview,
-    elapsedDays,
-    scheduledDays,
+    lastReview: toTimestamp(card.lastReview, 0),
+    elapsedDays: toNonNegativeNumber(card.elapsedDays, 0),
+    scheduledDays: toNonNegativeNumber(card.scheduledDays, 0),
     learning_step: toNonNegativeInteger(card.learning_step, 0),
     priority: clampPriority(card.priority),
     tags: Array.isArray(card.tags) ? card.tags.filter((tag): tag is string => typeof tag === 'string') : [],
@@ -117,5 +87,15 @@ export function normalizeSchedulerCard(
     meta: card.meta && typeof card.meta === 'object'
       ? { ...card.meta }
       : undefined,
+  };
+
+  if (normalized.lastReview > 0 && normalized.elapsedDays <= 0) {
+    normalized.elapsedDays = Math.max(0, Math.floor((now - normalized.lastReview) / DAY_MS));
+  }
+
+  const repaired = repairFsrsReviewState(normalized, { schedulerType, now });
+  return {
+    ...repaired.card,
+    schedulerType,
   };
 }

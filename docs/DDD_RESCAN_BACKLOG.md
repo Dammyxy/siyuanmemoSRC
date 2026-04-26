@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 152)
+Last update: 2026-04-27 (Round 153)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-27 - FSRS review zero-stability repair
+
+- Task: 修复评分按钮预估天数从 `1/2/3` 漂成 `2/3/4`、`3/4/5` 的畸形 Review 卡调度问题。
+- Touched slice: Review / Scheduler / Riff sync-storage active path across `src/core/scheduler/{fsrsReviewStateRepair.ts,normalizeSchedulerCard.ts,strategies/TSFSRSScheduler.ts}`, `src/application/adapters/UnifiedQueueStrategy.ts`, `src/application/services/XiuyuanSyncService.ts`, `src/infrastructure/persistence/mappers/RiffMapper.ts`, `src/core/storage/manager.ts`, and focused regressions.
+- Debt fixed now: FSRS v6 的 Review/Relearning 畸形状态修复收口到共享规则，不再把 `stability=0` 压成 `0.01` 或依赖 invalid-due fallback；预览和实际评分都从 `scheduledDays` / `due - lastReview` 推导最小 1 天的真实稳定性，并补齐 `scheduledDays`、`lastReview`、`elapsedDays`、`difficulty`。TSFSRS 与 Review nextDues 缓存键都加入调度指纹，Riff 导入和旧 StorageManager 加载入口也会修复并触发 normalized save。
+- Debt deferred: 没有做全库主动迁移命令，也没有改 Review UI 按钮组件或全量清洗历史 Riff 数据。
+- Why deferred: 当前根因可在 active scheduler / sync / load 边界逐步收口；主动批量迁移用户库需要单独的备份、进度、失败恢复和产品提示设计，风险高于本轮 bug 修复。
+- Next safe step: 若后续日志发现更多 FSRS 语义畸形字段，可在同一共享 repair helper 上增加诊断导出或显式 repair action，再决定是否做可回滚的数据迁移入口。
+- Validation: targeted vitest for scheduler repair, TSFSRSScheduler preview/cache, SchedulerRouter fsrs-v6, UnifiedQueueStrategy nextDues cache, XiuyuanSync malformed Riff import, RiffMapper repair, StorageManager normalization; `pnpm build`.
 
 ### 2026-04-26 - review false empty on feedback failure
 

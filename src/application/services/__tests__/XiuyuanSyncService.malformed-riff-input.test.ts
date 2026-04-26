@@ -11,6 +11,7 @@ import { BlockId } from '@/core/xiuyuan/domain/BlockId';
 import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { TemplateId } from '@/core/xiuyuan/domain/TemplateId';
 import { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
+import { CardState } from '@/types/card';
 
 type ServiceHarness = {
   service: XiuyuanSyncService;
@@ -527,5 +528,34 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
         })
       )
     ).rejects.toThrow('Malformed Riff block 20260302201500-abc1234: Question cannot be empty');
+  });
+
+  it('repairs imported Review riff cards with zero stability from their existing interval', async () => {
+    const { service } = createHarness();
+    const riffBlock = createRiffBlock({
+      id: '20260426233833-abc1234',
+      content: 'review card with malformed riff schedule',
+      ial: {
+        'custom-fsrs-card-type': 'item',
+      },
+    });
+    riffBlock.riffCard = {
+      ...createBaseRiffCard(),
+      due: '2026-04-26T15:38:33.000Z',
+      lastReview: '2026-02-15T15:38:33.000Z',
+      reps: 4,
+      state: CardState.Review,
+      stability: 0,
+      difficulty: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+    };
+
+    const { xiuyuanEntity } = await (service as any).convertRiffCardToFSRSCard(riffBlock);
+    const schedule = xiuyuanEntity.getCards()[0]?.getScheduleInfo();
+
+    expect(schedule?.stability).toBe(70);
+    expect(schedule?.scheduledDays).toBe(70);
+    expect(schedule?.difficulty).toBe(5);
   });
 });

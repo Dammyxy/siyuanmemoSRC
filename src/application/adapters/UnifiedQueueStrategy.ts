@@ -14,6 +14,7 @@ import { isHideCurrentInScopeCommandId } from '@/core/queue/abstraction/customAc
 import { formatNextDue } from '@/application/helpers/formatNextDue';
 import type { ISchedulerRouter } from '../interfaces/ISchedulerRouter';
 import { CacheManagerObserver } from '../observers/CacheManagerObserver';
+import { buildFsrsSchedulingFingerprint } from '@/core/scheduler/fsrsReviewStateRepair';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('UnifiedQueueStrategy');
@@ -1381,7 +1382,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private async addNextDues(card: FSRSCard): Promise<CardWithNextDues> {
         try {
-            const cacheKey = `${card.id}-${card.state}-${card.due}-${card.reps}`;
+            const cacheKey = `${card.id}-${buildFsrsSchedulingFingerprint(card)}`;
             const cache = this.cacheManager.getNextDuesCache();
 
             const cached = cache.get(cacheKey);

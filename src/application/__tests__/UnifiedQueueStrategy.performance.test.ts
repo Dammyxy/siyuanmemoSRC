@@ -210,6 +210,41 @@ function createFilterGroupLoopFixture(
 }
 
 describe('UnifiedQueueStrategy performance and rollback behavior', () => {
+  it('recomputes nextDues for the same card id when scheduling fields change', async () => {
+    const card = createCard({ id: 'cache-card', blockId: 'cache-block' });
+    const changedCard = createCard({
+      ...card,
+      due: card.due + 30 * 86_400_000,
+      stability: 30,
+      scheduledDays: 30,
+      elapsedDays: 30,
+      reps: card.reps + 1,
+    });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [card]);
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    };
+    const eventBus = { subscribe: vi.fn() };
+    const preview = vi.fn((previewCard: FSRSCard) => new Map([
+      [1, { ...previewCard, due: Date.now() + 10 * 60_000 }],
+      [2, { ...previewCard, due: Date.now() + previewCard.scheduledDays * 86_400_000 }],
+      [3, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 1) * 86_400_000 }],
+      [4, { ...previewCard, due: Date.now() + (previewCard.scheduledDays + 2) * 86_400_000 }],
+    ]));
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      { preview } as never
+    );
+
+    await strategy.hydrateCurrentItem(card);
+    await strategy.hydrateCurrentItem(changedCard);
+
+    expect(preview).toHaveBeenCalledTimes(2);
+  });
+
   it('reuses cached cards for getStats-next-getStats and avoids duplicate getCards', async () => {
     const card = createCard();
     const queue = createQueueStub(QueueType.RetrievalPractice, [card]);

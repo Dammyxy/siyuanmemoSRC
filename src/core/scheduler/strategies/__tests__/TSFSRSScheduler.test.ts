@@ -351,6 +351,41 @@ describe('TSFSRSScheduler', () => {
             expect(new Set([hardCard.due, goodCard.due, easyCard.due]).size).toBe(3);
         });
 
+        it('应该按已有间隔修复截图同款 Review+stability=0 卡片预览', () => {
+            const now = new Date('2026-04-26T23:38:33+08:00');
+            scheduler = new TSFSRSScheduler({
+                ...defaultParams,
+                enableFuzz: false,
+                enableShortTerm: true,
+            });
+            const screenshotCard: FSRSCard = {
+                ...testCard,
+                due: now.getTime(),
+                stability: 0,
+                difficulty: 0,
+                elapsedDays: 0,
+                scheduledDays: 0,
+                reps: 4,
+                lapses: 0,
+                state: CardState.Review,
+                lastReview: new Date('2026-02-15T23:38:33+08:00').getTime(),
+            };
+
+            const result = scheduler.preview(screenshotCard, now);
+            const hardCard = result.get(Rating.Hard)!;
+            const goodCard = result.get(Rating.Good)!;
+            const easyCard = result.get(Rating.Easy)!;
+
+            expect(hardCard.scheduledDays).toBeGreaterThan(30);
+            expect(goodCard.scheduledDays).toBeGreaterThan(hardCard.scheduledDays);
+            expect(easyCard.scheduledDays).toBeGreaterThan(goodCard.scheduledDays);
+            expect([
+                hardCard.scheduledDays,
+                goodCard.scheduledDays,
+                easyCard.scheduledDays,
+            ]).not.toEqual([1, 2, 3]);
+        });
+
         it('应该在 ts-fsrs 返回 invalid due 时使用可评分区分的保底时间', () => {
             const now = new Date('2026-04-26T19:20:00+08:00');
             const invalidDueCard = {

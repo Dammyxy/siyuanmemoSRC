@@ -43,8 +43,9 @@ import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { RiffBlacklistService } from './RiffBlacklistService';
 import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTypeDetectionService';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
+import { repairFsrsReviewState } from '@/core/scheduler/fsrsReviewStateRepair';
 import { createLogger } from '@/utils/logger';
-import { CardState } from '@/types/card';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { ClozeDetector } from '@/utils/cloze-detector';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
 import { normalizeBlockId } from '@/core/siyuan/riff/normalizers';
@@ -1903,17 +1904,57 @@ export class XiuyuanSyncService {
             throw new Error(`Failed to create CardId: ${errorMsg}`);
         }
 
-        const scheduleInfoResult = ScheduleInfo.create({
-            due: new Date(this.parseValidRiffDate(riffCard?.due, riffBlock.id) || now),
-            stability: riffCard?.stability || 0,
-            difficulty: riffCard?.difficulty || 0,
-            reps: riffCard?.reps || 0,
-            lapses: riffCard?.lapses || 0,
-            state: this.resolveCardState(riffCard?.state),
-            lastReview: new Date(this.parseValidRiffDate(riffCard?.lastReview, riffBlock.id) || now),
-            elapsedDays: riffCard?.elapsedDays || 0,
-            scheduledDays: riffCard?.scheduledDays || 0,
+        const resolvedState = this.resolveCardState(riffCard?.state);
+        const parsedDue = this.parseValidRiffDate(riffCard?.due, riffBlock.id) || now;
+        const parsedLastReview = this.parseValidRiffDate(riffCard?.lastReview, riffBlock.id);
+        const fsrsCardType = cardType === 'topic'
+            ? CardType.Topic
+            : cardType === 'concept'
+                ? CardType.Concept
+                : cardType === 'descriptor'
+                    ? CardType.Descriptor
+                    : CardType.Item;
+        const schedulerType = cardType === 'topic' ? 'a-factor-v2' : 'fsrs-v6';
+        const rawScheduleCard: FSRSCard = {
+            id: riffBlock.id,
+            xiuyuanID: xiuyuanId.getValue(),
+            blockId: riffBlock.id,
+            due: parsedDue,
+            stability: riffCard?.stability ?? 0,
+            difficulty: riffCard?.difficulty ?? 0,
+            reps: riffCard?.reps ?? 0,
+            lapses: riffCard?.lapses ?? 0,
+            state: resolvedState,
+            lastReview: parsedLastReview || (resolvedState === CardState.Review || resolvedState === CardState.Relearning ? 0 : now),
+            elapsedDays: riffCard?.elapsedDays ?? 0,
+            scheduledDays: riffCard?.scheduledDays ?? 0,
             learning_step: 0,
+            priority: priorityValue,
+            type: fsrsCardType,
+            tags: [],
+            leechCount: 0,
+            isLeech: false,
+            skipped: false,
+            createdAt: now,
+            updatedAt: now,
+            schedulerType,
+        };
+        const repairedScheduleCard = repairFsrsReviewState(rawScheduleCard, {
+            schedulerType,
+            now,
+        }).card;
+
+        const scheduleInfoResult = ScheduleInfo.create({
+            due: new Date(repairedScheduleCard.due),
+            stability: repairedScheduleCard.stability,
+            difficulty: repairedScheduleCard.difficulty,
+            reps: repairedScheduleCard.reps,
+            lapses: repairedScheduleCard.lapses,
+            state: repairedScheduleCard.state,
+            lastReview: new Date(repairedScheduleCard.lastReview || now),
+            elapsedDays: repairedScheduleCard.elapsedDays,
+            scheduledDays: repairedScheduleCard.scheduledDays,
+            learning_step: repairedScheduleCard.learning_step ?? 0,
         });
         if (!scheduleInfoResult.ok) {
             const errorMsg = scheduleInfoResult.ok === false ? scheduleInfoResult.error.message : 'Invalid ScheduleInfo';

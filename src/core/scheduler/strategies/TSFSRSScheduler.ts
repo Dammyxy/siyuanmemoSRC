@@ -24,11 +24,11 @@ import {
 } from 'ts-fsrs';
 import { CardState, type FSRSCard, type FSRSParameters, type Rating } from '@/types';
 import type { SchedulerEngineAdapter } from '../types';
+import { buildFsrsSchedulingFingerprint, repairFsrsReviewState } from '../fsrsReviewStateRepair';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('TSFSRSScheduler');
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MIN_REVIEW_STABILITY = 0.01;
 const MIN_REVIEW_SCHEDULED_DAYS = 1;
 
 /**
@@ -139,7 +139,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * 
      * 性能优化：
      * - 使用缓存避免重复计算相同卡片的预览结果
-     * - 缓存键基于卡片 ID 和当前时间（精确到分钟）
+     * - 缓存键基于卡片 ID、调度指纹和当前时间（精确到分钟）
      * - 缓存有效期为 5 分钟，过期自动失效
      * 
      * @param card - 要预览的卡片
@@ -147,7 +147,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
      * @returns 评分到预览结果的映射 (1=Again, 2=Hard, 3=Good, 4=Easy)
      */
     preview(card: FSRSCard, now: Date = new Date()): Map<Rating, FSRSCard> {
-        // 生成缓存键：卡片ID + 时间（精确到分钟）
+        // 生成缓存键：卡片ID + 调度指纹 + 时间（精确到分钟）
         const cacheKey = this.generatePreviewCacheKey(card, now);
         
         // 检查缓存
@@ -257,11 +257,11 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
     /**
      * 生成预览缓存键
      *
-     * 缓存键格式：{cardId}:{minuteTimestamp}
+     * 缓存键格式：{cardId}:{minuteTimestamp}:{schedulingFingerprint}
      * - cardId: 卡片唯一标识
      * - minuteTimestamp: 时间戳精确到分钟（忽略秒和毫秒）
      *
-     * 这样同一张卡片在同一分钟内的多次预览请求会命中缓存。
+     * 这样同一张卡片在同一分钟内的相同调度状态会命中缓存。
      *
      * @param card - 卡片
      * @param now - 当前时间
@@ -270,7 +270,7 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
     private generatePreviewCacheKey(card: FSRSCard, now: Date): string {
         // 将时间精确到分钟（忽略秒和毫秒）
         const minuteTimestamp = Math.floor(now.getTime() / 60000);
-        return `${card.id}:${minuteTimestamp}`;
+        return `${card.id}:${minuteTimestamp}:${buildFsrsSchedulingFingerprint(card)}`;
     }
 
     /**
@@ -414,10 +414,17 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
                 : this.resolveNowTime(context.now);
         }
         
+        const fallbackStability = originalCard.state === CardState.Review || originalCard.state === CardState.Relearning
+            ? this.normalizePositiveNumber(
+                originalCard.stability,
+                this.normalizePositiveNumber(originalCard.scheduledDays, MIN_REVIEW_SCHEDULED_DAYS),
+            )
+            : 0;
+
         return {
             ...originalCard,
             due: dueTime,
-            stability: this.normalizePositiveNumber(tsCard.stability, originalCard.state === CardState.Review ? MIN_REVIEW_STABILITY : 0),
+            stability: this.normalizePositiveNumber(tsCard.stability, fallbackStability),
             difficulty: this.normalizeClampedNumber(tsCard.difficulty, this.normalizeClampedNumber(originalCard.difficulty, 5, 1, 10), 1, 10),
             elapsedDays: this.normalizeNonNegativeNumber(tsCard.elapsed_days, 0),
             scheduledDays: this.normalizeNonNegativeNumber(tsCard.scheduled_days, 0),
@@ -471,7 +478,9 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
             ...card,
             due: this.normalizeTimestamp(card.due, now.getTime()),
             stability: this.normalizeNonNegativeNumber(card.stability, 0),
-            difficulty: this.normalizeClampedNumber(card.difficulty, 5, 1, 10),
+            difficulty: card.state === CardState.Review || card.state === CardState.Relearning
+                ? this.normalizeNonNegativeNumber(card.difficulty, 0)
+                : this.normalizeClampedNumber(card.difficulty, 5, 1, 10),
             elapsedDays: this.normalizeNonNegativeNumber(card.elapsedDays, 0),
             scheduledDays: this.normalizeNonNegativeNumber(card.scheduledDays, 0),
             learning_step: this.normalizeNonNegativeInteger(card.learning_step, 0),
@@ -480,21 +489,12 @@ export class TSFSRSScheduler implements SchedulerEngineAdapter {
             lastReview: this.normalizeTimestamp(card.lastReview, 0),
         };
 
-        if (normalized.state === CardState.Review) {
-            normalized.stability = this.normalizePositiveNumber(normalized.stability, MIN_REVIEW_STABILITY);
-            normalized.scheduledDays = this.normalizePositiveNumber(normalized.scheduledDays, MIN_REVIEW_SCHEDULED_DAYS);
+        const repaired = repairFsrsReviewState(normalized, {
+            schedulerType: 'fsrs-v6',
+            now,
+        });
 
-            if (!normalized.lastReview) {
-                normalized.lastReview = now.getTime() - normalized.scheduledDays * DAY_MS;
-            }
-
-            normalized.elapsedDays = Math.max(
-                0,
-                Math.floor((now.getTime() - normalized.lastReview) / DAY_MS),
-            );
-        }
-
-        return normalized;
+        return repaired.card;
     }
 
     private normalizeTimestamp(value: unknown, fallback: number): number {

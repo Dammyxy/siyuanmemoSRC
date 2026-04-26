@@ -99,7 +99,7 @@ export class CacheManagerObserver implements QueueObserver {
   /**
    * nextDues 计算结果缓存
    * 
-   * key: `${cardId}-${state}-${due}-${reps}`
+   * key: `${cardId}-${schedulingFingerprint}`
    * value: nextDues 对象
    */
   private nextDuesCache: LRUCache<string, Record<number, string>>;

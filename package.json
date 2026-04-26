@@ -1,6 +1,6 @@
 {
   "name": "siyuan-plugin-siyuanmemo",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "type": "module",
   "description": "Stage 2 Flashcard Enhancement - Adding a complete spaced repetition system to SiYuan flashcards",
   "author": "Dammyxy",

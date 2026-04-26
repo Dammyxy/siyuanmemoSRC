@@ -14,6 +14,7 @@ import { ATTR_PRIORITY } from '@/core/siyuan/block';
 import { clampPriority, DEFAULT_PRIORITY } from '@/core/queue/abstraction/IPriority';
 import { encode, decode } from '@msgpack/msgpack';
 import { migrateCard } from '@/utils/cardMigration';
+import { repairFsrsReviewState } from '@/core/scheduler/fsrsReviewStateRepair';
 import { createLogger } from '@/utils/logger';
 import type { RescheduleHistoryEntry } from '@/types/reschedule';
 
@@ -608,7 +609,8 @@ export class StorageManager {
         };
         
         // ✅ 应用迁移逻辑：确保所有必需字段存在（learning_step、postponeCount、rescheduleHistory）
-        return migrateCard(normalized);
+        const migrated = migrateCard(normalized);
+        return repairFsrsReviewState(migrated, { schedulerType: migrated.schedulerType }).card;
     }
     
     /**
@@ -619,7 +621,7 @@ export class StorageManager {
      * - 原卡片使用大写字段（blockID, cardID）
      * - 原卡片缺少扩展字段
      */
-    private wasCardNormalized(original: unknown, _normalized: FSRSCard): boolean {
+    private wasCardNormalized(original: unknown, normalized: FSRSCard): boolean {
         const source = isRecord(original) ? original : {};
         // 检查是否有 QueueItem 特征
         const hadDeckID = 'deckID' in source;
@@ -633,7 +635,50 @@ export class StorageManager {
             !('type' in source) ||
             !('tags' in source);
         
-        return hadDeckID || hadUpperCase || lackedExtendedFields;
+        return hadDeckID
+            || hadUpperCase
+            || lackedExtendedFields
+            || this.wasSchedulingStateNormalized(source, normalized);
+    }
+
+    private wasSchedulingStateNormalized(source: Record<string, unknown>, normalized: FSRSCard): boolean {
+        const fields: Array<keyof Pick<
+            FSRSCard,
+            'due' | 'state' | 'stability' | 'difficulty' | 'reps' | 'lapses' | 'lastReview' | 'elapsedDays' | 'scheduledDays' | 'learning_step'
+        >> = [
+            'due',
+            'state',
+            'stability',
+            'difficulty',
+            'reps',
+            'lapses',
+            'lastReview',
+            'elapsedDays',
+            'scheduledDays',
+            'learning_step',
+        ];
+
+        return fields.some((field) => {
+            const currentValue = toNumberOrUndefined(normalized[field]);
+            if (currentValue === undefined) {
+                return false;
+            }
+
+            const sourceValue = field === 'due' || field === 'lastReview'
+                ? this.readSourceTimestamp(source[field])
+                : toNumberOrUndefined(source[field]);
+
+            return sourceValue !== currentValue;
+        });
+    }
+
+    private readSourceTimestamp(value: unknown): number | undefined {
+        if (typeof value === 'string') {
+            const parsed = new Date(value).getTime();
+            return Number.isFinite(parsed) ? parsed : undefined;
+        }
+
+        return toNumberOrUndefined(value);
     }
 
     /**

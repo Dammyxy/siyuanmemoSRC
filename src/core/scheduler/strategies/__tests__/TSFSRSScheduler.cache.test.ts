@@ -138,6 +138,38 @@ describe('TSFSRSScheduler - 缓存功能', () => {
             // 验证不是同一个对象（不同卡片）
             expect(result1).not.toBe(result2);
         });
+
+        it('应该在同一分钟内同一卡片调度字段变化后重新计算 preview', () => {
+            const scheduler = new TSFSRSScheduler(defaultParams);
+            const now = new Date('2026-04-26T23:38:33+08:00');
+            const cardBeforeReview: FSRSCard = {
+                ...testCard,
+                id: 'same-card',
+                due: now.getTime(),
+                stability: 1,
+                difficulty: 5,
+                scheduledDays: 1,
+                elapsedDays: 1,
+                reps: 1,
+                state: CardState.Review,
+                lastReview: now.getTime() - 86_400_000,
+            };
+            const cardAfterReview: FSRSCard = {
+                ...cardBeforeReview,
+                due: now.getTime() + 30 * 86_400_000,
+                stability: 30,
+                scheduledDays: 30,
+                elapsedDays: 30,
+                reps: 2,
+                lastReview: now.getTime() - 30 * 86_400_000,
+            };
+
+            const result1 = scheduler.preview(cardBeforeReview, now);
+            const result2 = scheduler.preview(cardAfterReview, now);
+
+            expect(result1).not.toBe(result2);
+            expect(result1.get(Rating.Good)?.scheduledDays).not.toBe(result2.get(Rating.Good)?.scheduledDays);
+        });
     });
     
     describe('缓存过期测试', () => {
