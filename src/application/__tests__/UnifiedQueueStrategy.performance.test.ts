@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { isQueueItemUnavailableError } from '@/core/queue/abstraction/Strategy';
-import { QueueType, type IReviewQueue, type QueueReviewResult } from '@/types/unified-data-source';
+import { QueueType, type DataChangeEvent, type IReviewQueue, type QueueReviewResult } from '@/types/unified-data-source';
 import { CardType, type FSRSCard } from '@/types/card';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
@@ -140,6 +140,75 @@ function createQueueStub(
   };
 }
 
+function createFilterGroupLoopFixture(
+  cards: FSRSCard[],
+  options?: {
+    handleReview?: (
+      cardId: string,
+      rating: number,
+      liveCards: FSRSCard[],
+    ) => Promise<Partial<QueueReviewResult> | void>;
+  }
+): {
+  strategy: UnifiedQueueStrategy;
+  queue: IReviewQueue;
+} {
+  let observer: { onDataChanged(event: DataChangeEvent): void } | null = null;
+  const queue = createQueueStub(QueueType.FilterGroup, cards, {
+    handleReview: async (cardId, rating, liveCards) => {
+      observer?.onDataChanged({
+        type: 'queue-changed',
+        queueType: QueueType.FilterGroup,
+        timestamp: Date.now(),
+      });
+
+      if (options?.handleReview) {
+        return options.handleReview(cardId, rating, liveCards);
+      }
+
+      return {
+        updatedCard: liveCards.find((card) => card.id === cardId) ?? null,
+        removedFromQueue: false,
+        remainsInQueue: true,
+        queueChanged: true,
+        requiresCurrentViewReorder: false,
+      };
+    },
+  });
+  const manager = {
+    getQueue: vi.fn((type: QueueType) => {
+      if (type === QueueType.FinalDrill) {
+        return createQueueStub(QueueType.FinalDrill, []);
+      }
+      return queue;
+    }),
+    getCard: vi.fn(async (cardId: string) => {
+      const card = cards.find((candidate) => candidate.id === cardId);
+      if (!card) {
+        throw new Error('card not found');
+      }
+      return { ...card };
+    }),
+    getCards: vi.fn(async () => []),
+    updateCard: vi.fn(async () => {}),
+    registerObserver: vi.fn((nextObserver) => {
+      observer = nextObserver;
+    }),
+    unregisterObserver: vi.fn(),
+  };
+  const eventBus = { subscribe: vi.fn() };
+
+  return {
+    queue,
+    strategy: new UnifiedQueueStrategy(
+      QueueType.FilterGroup,
+      manager as never,
+      eventBus as never,
+      null
+    ),
+  };
+}
+
 describe('UnifiedQueueStrategy performance and rollback behavior', () => {
   it('reuses cached cards for getStats-next-getStats and avoids duplicate getCards', async () => {
     const card = createCard();
@@ -202,6 +271,99 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     await strategy.getStats();
 
     expect(getCardsSpy).toHaveBeenCalledTimes(0);
+  });
+
+  it('keeps filter-group Good/Easy cards out of the current session despite self queue-changed events', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-shared' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-shared' });
+    const { queue, strategy } = createFilterGroupLoopFixture([firstCard, secondCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const current = liveCards.find((card) => card.id === cardId) ?? null;
+        return {
+          updatedCard: current ? { ...current, reps: current.reps + 1 } : null,
+          removedFromQueue: false,
+          remainsInQueue: true,
+          queueChanged: true,
+          requiresCurrentViewReorder: false,
+        };
+      },
+    });
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+    const getCardsSpy = queue.getCards as unknown as ReturnType<typeof vi.fn>;
+    getCardsSpy.mockClear();
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const next = await strategy.next();
+    expect(next?.id).toBe(secondCard.id);
+
+    await strategy.onFeedback(next, { action: 'rate', rating: 3 });
+    await expect(strategy.next()).resolves.toBeNull();
+
+    const counterSnapshot = await strategy.getCounterSnapshot();
+    expect(counterSnapshot?.remaining).toBe(0);
+    expect(counterSnapshot?.total).toBe(0);
+    expect(counterSnapshot?.buckets.all).toBe(0);
+    expect(getCardsSpy).toHaveBeenCalledTimes(0);
+  });
+
+  it('rotates filter-group Again/Hard behind later cards while suppressing self queue-changed events', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    const { strategy } = createFilterGroupLoopFixture([firstCard, secondCard]);
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 2 });
+    const next = await strategy.next();
+    expect(next?.id).toBe(secondCard.id);
+
+    const repeatLater = await strategy.next();
+    expect(repeatLater?.id).toBe(firstCard.id);
+  });
+
+  it('clears filter-group session exclusions on full refresh queue changes', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    const { strategy } = createFilterGroupLoopFixture([firstCard, secondCard]);
+
+    const first = await strategy.next();
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    expect((await strategy.next())?.id).toBe(secondCard.id);
+
+    strategy.onDataChanged({
+      type: 'queue-changed',
+      queueType: QueueType.FilterGroup,
+      requiresFullRefresh: true,
+      timestamp: Date.now(),
+    });
+
+    const afterFullRefresh = await strategy.next();
+    expect(afterFullRefresh?.id).toBe(firstCard.id);
+  });
+
+  it('preserves filter-group session exclusions through review tab snapshots and reloads', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    const { strategy } = createFilterGroupLoopFixture([firstCard, secondCard]);
+
+    const first = await strategy.next();
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    const snapshot = strategy.serializeSessionSnapshot();
+    expect(snapshot.sessionExcludedCardIds).toEqual([firstCard.id]);
+
+    const { strategy: restoredStrategy } = createFilterGroupLoopFixture([firstCard, secondCard]);
+    restoredStrategy.restoreSessionSnapshot(snapshot);
+    restoredStrategy.onDataChanged({
+      type: 'queue-changed',
+      queueType: QueueType.FilterGroup,
+      timestamp: Date.now(),
+    });
+
+    const next = await restoredStrategy.next();
+    expect(next?.id).toBe(secondCard.id);
   });
 
   it('rotates low-rated card once when there are alternative cards', async () => {

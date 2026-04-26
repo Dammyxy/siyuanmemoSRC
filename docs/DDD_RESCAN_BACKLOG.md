@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 146)
+Last update: 2026-04-26 (Round 147)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - filter-backed review session loop guard
+
+- Task: 彻底修复 filter-backed 复习评分后同一批卡被 `queue-changed` reload 拉回会话开头的“鬼打墙”问题。
+- Touched slice: Review / queue session adapter path across `src/application/adapters/UnifiedQueueStrategy.ts`, review tab snapshot normalization in `src/types/review-tab.ts` and `src/application/managers/TabManager.ts`, plus focused strategy regression tests.
+- Debt fixed now: `FilterGroup` 的一次复习会话现在拥有 cardId 精确的 `sessionExcludedCardIds`；Good/Easy 只在本轮移出当前卡，Again/Hard 低分卡会先轮到后面卡再回流；评分期间自触发的同队列非 full-refresh `queue-changed` 不再打掉本地 cache；reload、计数器和 tab snapshot 都尊重本轮排除，避免 header 和实际队列再次分裂。
+- Debt deferred: 没有改变 `FilterGroupQueue` 的持久 filter 语义，也没有顺手整理 Arena `arena/store.json` 的频繁读取日志。
+- Why deferred: 根因在 review session adapter 的会话可见性和 cache invalidation；队列领域层仍需要表达“卡片仍匹配当前 filter”的真实集合。Arena 读取是评分循环放大的症状噪声，不是本轮 active-path 根因。
+- Next safe step: 如果后续仍看到 filter-backed session 中外部编辑导致的范围重建争议，优先围绕 `requiresFullRefresh` 事件语义补更细的来源标记，而不是改队列领域 membership。
+- Validation: `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts`; `pnpm exec vitest run src/application/__tests__/UnifiedQueueStrategy.performance.test.ts src/application/__tests__/UnifiedQueueStrategy.hide-current-in-scope.test.ts src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts src/ui/review/v2/__tests__/ReviewView.local-advance-race.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-26 - Neural roam AI virtual node context
 

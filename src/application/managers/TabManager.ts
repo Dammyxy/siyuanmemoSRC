@@ -337,6 +337,7 @@ function normalizeReviewQueueSessionSnapshot(value: unknown): ReviewQueueSession
     deferOnceCardId: typeof value.deferOnceCardId === 'string'
       ? value.deferOnceCardId
       : null,
+    sessionExcludedCardIds: normalizeStringArray(value.sessionExcludedCardIds) ?? [],
     lastCounterSnapshot: isRecord(lastCounterSnapshot) ? lastCounterSnapshot : null,
   };
 }
