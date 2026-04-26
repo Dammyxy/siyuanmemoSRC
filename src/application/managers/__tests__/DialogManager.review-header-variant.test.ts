@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createVueDialog } from '@/utils/dialog';
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
+import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { QueueType } from '@/types/unified-data-source';
 import { DialogManager } from '../DialogManager';
 
@@ -168,6 +169,28 @@ describe('DialogManager review header variants', () => {
       'subset-review',
       'temporary-drill',
     ]);
+  });
+
+  it('passes exact cardIds to subset review queues and counts cards in the title', async () => {
+    const { dialogManager } = createDialogManager();
+
+    await dialogManager.openSubsetReviewDialog(['block-1'], {
+      cardIds: ['card-2', 'card-3'],
+      preferredCardId: 'card-3',
+    });
+
+    expect(vi.mocked(SubsetReviewQueue)).toHaveBeenCalledWith(
+      expect.anything(),
+      ['block-1'],
+      {
+        cardIds: ['card-2', 'card-3'],
+        preferredCardId: 'card-3',
+      },
+    );
+    expect(vi.mocked(createUnifiedReviewDialog)).toHaveBeenCalledWith(expect.objectContaining({
+      title: '子集复习 (2 张)',
+      headerVariant: 'subset-review',
+    }));
   });
 
   it('opens standard desktop review entries in new tabs when configured', async () => {

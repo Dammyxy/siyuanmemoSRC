@@ -16,6 +16,7 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
   protected cardBlockMap = new Map<string, string>();
 
   private readonly blockIds: string[];
+  private readonly cardIds: string[];
   private readonly preferredCardId: string | null;
   private initialized = false;
 
@@ -24,11 +25,13 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
     type: QueueType,
     blockIds: string[],
     options?: {
+      cardIds?: string[];
       preferredCardId?: string;
     }
   ) {
     super(manager, type);
     this.blockIds = Array.from(new Set((blockIds || []).map((id) => String(id || '')).filter(Boolean)));
+    this.cardIds = Array.from(new Set((options?.cardIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
     const preferred = String(options?.preferredCardId || '').trim();
     this.preferredCardId = preferred.length > 0 ? preferred : null;
   }
@@ -184,6 +187,11 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
     }
     this.initialized = true;
 
+    if (this.cardIds.length > 0) {
+      await this.initializeFromCardIds();
+      return;
+    }
+
     const cards = await this.manager.getCards({ blockIds: this.blockIds });
     const cardsByBlockId = new Map<string, FSRSCard[]>();
     for (const card of cards) {
@@ -214,6 +222,27 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
     }
 
     this.cardOrder = Array.from(new Set(orderedIds));
+    this.applyPreferredCardId();
+  }
+
+  private async initializeFromCardIds(): Promise<void> {
+    const orderedIds: string[] = [];
+
+    for (const cardId of this.cardIds) {
+      try {
+        const card = await this.manager.getCard(cardId, { silent: true });
+        orderedIds.push(card.id);
+        this.cardBlockMap.set(card.id, card.blockId);
+      } catch {
+        // Ignore cards that no longer exist.
+      }
+    }
+
+    this.cardOrder = Array.from(new Set(orderedIds));
+    this.applyPreferredCardId();
+  }
+
+  private applyPreferredCardId(): void {
     if (this.preferredCardId) {
       const preferredIndex = this.cardOrder.indexOf(this.preferredCardId);
       if (preferredIndex > 0) {

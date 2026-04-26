@@ -10,6 +10,7 @@ export class SubsetReviewQueue extends OrderedStaticSubsetQueueBase {
     manager: UnifiedDataSourceManager,
     blockIds: string[],
     options?: {
+      cardIds?: string[];
       preferredCardId?: string;
     }
   ) {

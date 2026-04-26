@@ -147,6 +147,7 @@ export interface IDialogManager {
   openSubsetReviewDialog(
     blockIds: string[],
     options?: {
+      cardIds?: string[];
       preferredCardId?: string;
     }
   ): Promise<void>;

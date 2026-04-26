@@ -120,6 +120,7 @@ export interface IPluginFacade {
   openSubsetReviewDialog(
     blockIds: string[],
     options?: {
+      cardIds?: string[];
       preferredCardId?: string;
     }
   ): Promise<void>;

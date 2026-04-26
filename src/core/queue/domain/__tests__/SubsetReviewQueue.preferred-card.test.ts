@@ -93,6 +93,72 @@ describe('SubsetReviewQueue preferredCardId', () => {
     expect(ordered.map((card) => card.id)).toEqual(['card-1', 'card-2']);
   });
 
+  it('uses explicit cardIds without expanding sibling cards from the same block', async () => {
+    const cards = [
+      createCard('card-1', 'block-1'),
+      createCard('card-2', 'block-1'),
+      createCard('card-3', 'block-1'),
+    ];
+    const manager = createManager(cards);
+
+    const queue = new SubsetReviewQueue(manager as never, ['block-1'], {
+      cardIds: ['card-2'],
+    });
+
+    const ordered = await queue.getCards();
+    expect(ordered.map((card) => card.id)).toEqual(['card-2']);
+  });
+
+  it('preserves explicit cardIds order', async () => {
+    const cards = [
+      createCard('card-1', 'block-1'),
+      createCard('card-2', 'block-1'),
+      createCard('card-3', 'block-1'),
+    ];
+    const manager = createManager(cards);
+
+    const queue = new SubsetReviewQueue(manager as never, ['block-1'], {
+      cardIds: ['card-3', 'card-2'],
+    });
+
+    const ordered = await queue.getCards();
+    expect(ordered.map((card) => card.id)).toEqual(['card-3', 'card-2']);
+  });
+
+  it('reorders only within explicit cardIds when preferredCardId is present', async () => {
+    const cards = [
+      createCard('card-1', 'block-1'),
+      createCard('card-2', 'block-1'),
+      createCard('card-3', 'block-1'),
+    ];
+    const manager = createManager(cards);
+
+    const queue = new SubsetReviewQueue(manager as never, ['block-1'], {
+      cardIds: ['card-1', 'card-2'],
+      preferredCardId: 'card-2',
+    });
+
+    const ordered = await queue.getCards();
+    expect(ordered.map((card) => card.id)).toEqual(['card-2', 'card-1']);
+  });
+
+  it('does not expand explicit cardIds when preferredCardId is outside the subset', async () => {
+    const cards = [
+      createCard('card-1', 'block-1'),
+      createCard('card-2', 'block-1'),
+      createCard('card-3', 'block-1'),
+    ];
+    const manager = createManager(cards);
+
+    const queue = new SubsetReviewQueue(manager as never, ['block-1'], {
+      cardIds: ['card-1', 'card-2'],
+      preferredCardId: 'card-3',
+    });
+
+    const ordered = await queue.getCards();
+    expect(ordered.map((card) => card.id)).toEqual(['card-1', 'card-2']);
+  });
+
   it('removes only the reviewed card when sibling cards share the same block', async () => {
     const cards = [
       createCard('card-1', 'block-1'),

@@ -1188,13 +1188,15 @@ export class DialogManager implements IDialogManager {
   async openSubsetReviewDialog(
     blockIds: string[],
     options?: {
+      cardIds?: string[];
       preferredCardId?: string;
     }
   ): Promise<void> {
     this.destroyCurrentReviewDialog();
 
     const ids = Array.from(new Set((blockIds || []).map((x) => String(x || '')).filter(Boolean)));
-    if (ids.length === 0) {
+    const cardIds = Array.from(new Set((options?.cardIds || []).map((x) => String(x || '').trim()).filter(Boolean)));
+    if (ids.length === 0 && cardIds.length === 0) {
       await this.siyuanApi.pushMsg(this.context.getI18n()?.drillNoCards || '当前范围内没有可练习的闪卡');
       return;
     }
@@ -1203,9 +1205,11 @@ export class DialogManager implements IDialogManager {
       const manager = this.context.getUnifiedDataSourceManager();
       const preferredCardId = String(options?.preferredCardId || '').trim();
       const queue = new SubsetReviewQueue(manager, ids, {
+        cardIds: cardIds.length > 0 ? cardIds : undefined,
         preferredCardId: preferredCardId.length > 0 ? preferredCardId : undefined,
       });
-      const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(ids.length));
+      const titleCount = cardIds.length > 0 ? cardIds.length : ids.length;
+      const title = (this.context.getI18n()?.reviewSubsetTitleWithCount || '子集复习 ({n} 张)').replace('{n}', String(titleCount));
 
       this.registerCurrentReviewDialog((onClose) =>
         createUnifiedReviewDialog({

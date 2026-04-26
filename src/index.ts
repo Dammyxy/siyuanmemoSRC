@@ -142,6 +142,7 @@ export default class FSRSPlugin extends Plugin implements IPluginFacade {
   async openSubsetReviewDialog(
     blockIds: string[],
     options?: {
+      cardIds?: string[];
       preferredCardId?: string;
     }
   ): Promise<void> {

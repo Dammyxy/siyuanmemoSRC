@@ -450,12 +450,12 @@ import {
 } from './constants';
 import { extractSqlStatement } from './utils/cardFilters';
 import {
-  resolveBrowserCardActionId,
   resolveBrowserCardStableId,
 } from './utils/browserCardIdentity';
 import { extractBlockIds } from './utils/helpers';
 import { interpolateI18n } from './utils/i18n';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
+import { resolveSubsetReviewSelection } from './utils/subsetReviewSelection';
 import { resolveEffectiveSortModel } from './utils/sortModel';
 import {
   isNeuralQueueId,
@@ -2629,40 +2629,22 @@ function ensureReviewSubsetAction(actions: Array<{ id: string; label: string; ic
   return [getReviewSubsetAction(), ...actions];
 }
 
-function resolveSubsetBlockIds(cards: BrowserActionTarget[]): string[] {
-  return Array.from(
-    new Set(
-      (cards || [])
-        .map((card) => String(card?.blockId || ''))
-        .filter(Boolean)
-    )
-  );
-}
-
-function resolvePreferredSubsetCardId(cards: BrowserActionTarget[], anchorRow?: BrowserCard): string {
-  const preferredFromAnchor = resolveBrowserCardActionId(anchorRow);
-  if (preferredFromAnchor) {
-    return preferredFromAnchor;
-  }
-  return resolveBrowserCardActionId(cards?.[0] as BrowserCard | undefined);
-}
-
 async function openSubsetReviewFromSelection(cards: BrowserActionTarget[], anchorRow?: BrowserCard): Promise<void> {
   if (typeof props.plugin?.openSubsetReviewDialog !== 'function') {
     await pushErrMsg(t('initFailed', 'FSRS plugin initialization failed, please check console for errors'));
     return;
   }
 
-  const blockIds = resolveSubsetBlockIds(cards);
-  if (blockIds.length === 0) {
+  const selection = resolveSubsetReviewSelection(cards, anchorRow);
+  if (selection.blockIds.length === 0 && selection.cardIds.length === 0) {
     await pushErrMsg(t('drillNoCards', 'No flashcards available in the current range'));
     return;
   }
 
-  const preferredCardId = resolvePreferredSubsetCardId(cards, anchorRow);
   await Promise.resolve(
-    props.plugin.openSubsetReviewDialog(blockIds, {
-      preferredCardId: preferredCardId || undefined,
+    props.plugin.openSubsetReviewDialog(selection.blockIds, {
+      cardIds: selection.cardIds.length > 0 ? selection.cardIds : undefined,
+      preferredCardId: selection.preferredCardId,
     })
   );
 }

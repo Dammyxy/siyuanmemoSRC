@@ -44,6 +44,7 @@ import {
 } from './cardTypeConsistency';
 import { createLogger } from '@/utils/logger';
 import { BrowserQuerySession, toLiteRowFromBrowserCard } from './session/BrowserQuerySession';
+import { resolveSubsetReviewSelection } from '../utils/subsetReviewSelection';
 
 const logger = createLogger('DeckDataSource');
 
@@ -77,7 +78,13 @@ type DeckPluginLike = Omit<MenuActionPluginLike, 'context' | 'getContext'> & {
   i18n?: Record<string, string>;
   storage?: unknown;
   rescheduleService?: RescheduleService;
-  openSubsetReviewDialog?: (blockIds: string[]) => Promise<void> | void;
+  openSubsetReviewDialog?: (
+    blockIds: string[],
+    options?: {
+      cardIds?: string[];
+      preferredCardId?: string;
+    }
+  ) => Promise<void> | void;
 };
 
 type BrowserBatchManagerLike = {
@@ -278,12 +285,15 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   }
 
   private async handleReviewSubset(selectedRows: BrowserActionTarget[]): Promise<void> {
-    const blockIds = selectedRows.map((row) => String(row.blockId || '')).filter(Boolean);
-    if (blockIds.length === 0) {
+    const selection = resolveSubsetReviewSelection(selectedRows);
+    if (selection.blockIds.length === 0 && selection.cardIds.length === 0) {
       return;
     }
 
-    await Promise.resolve(this.plugin?.openSubsetReviewDialog?.(blockIds));
+    await Promise.resolve(this.plugin?.openSubsetReviewDialog?.(selection.blockIds, {
+      cardIds: selection.cardIds.length > 0 ? selection.cardIds : undefined,
+      preferredCardId: selection.preferredCardId,
+    }));
   }
 
   private async handleSetPriority(selectedRows: BrowserActionTarget[], context?: DeckActionContext): Promise<unknown> {

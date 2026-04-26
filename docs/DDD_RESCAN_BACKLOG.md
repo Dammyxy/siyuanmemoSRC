@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 149)
+Last update: 2026-04-26 (Round 150)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - browser subset review exact card scope
+
+- Task: 修复浏览器右键选中卡片复习仍按 blockId 建队列，导致同块多卡误扩展、计数和实际 current card 错位的问题。
+- Touched slice: Browser / review subset queue path across `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/datasource/DeckDataSource.ts`, `src/application/managers/DialogManager.ts`, `src/core/queue/domain/{SubsetReviewQueue.ts,OrderedStaticSubsetQueueBase.ts}`, interfaces, and focused tests.
+- Debt fixed now: 浏览器右键 `review-subset` 现在将 materialized selection 收口成 cardId 精确范围；`SubsetReviewQueue` 在收到 `cardIds` 时只按这些卡建静态队列并保序，标题计数也按实际卡数显示，旧 blockId 范围入口保持兼容。
+- Debt deferred: 文档树/块菜单范围复习仍保留 block/doc 展开语义；没有把所有旧的 block-based subset 调用迁移成 cardId 精确调用。
+- Why deferred: 本轮缺陷只在浏览器“选中卡片”入口，范围入口本来就需要按块或文档展开，混改会改变已有产品语义。
+- Next safe step: 如后续需要更多浏览器动作复用精确选区，可继续把 `resolveSubsetReviewSelection` 扩展为 browser action target 的统一 selection payload helper。
+- Validation: `pnpm exec vitest run src/core/queue/domain/__tests__/SubsetReviewQueue.preferred-card.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/ui/browser/utils/__tests__/subsetReviewSelection.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.set-priority.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-26 - Arena default-off review isolation
 

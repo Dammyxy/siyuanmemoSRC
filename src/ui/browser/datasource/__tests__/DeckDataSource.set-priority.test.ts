@@ -113,4 +113,31 @@ describe('DeckDataSource set-priority regression', () => {
 
     expect(batchSuspendMock).toHaveBeenCalledWith(['block-1'], false, expect.any(Object));
   });
+
+  it('routes review-subset with exact selected card ids', async () => {
+    const openSubsetReviewDialog = vi.fn();
+    const manager = {} as never;
+    const selectedRows = [
+      {
+        id: 'riff-1',
+        fsrsCardId: 'card-1',
+        blockId: 'block-shared',
+        priority: 50,
+      },
+      {
+        id: 'riff-2',
+        fsrsCardId: 'card-2',
+        blockId: 'block-shared',
+        priority: 50,
+      },
+    ];
+
+    const ds = new DeckDataSource(manager, { preset: 'all' }, { openSubsetReviewDialog } as never);
+    await ds.performAction('review-subset', selectedRows as never[]);
+
+    expect(openSubsetReviewDialog).toHaveBeenCalledWith(['block-shared'], {
+      cardIds: ['card-1', 'card-2'],
+      preferredCardId: 'card-1',
+    });
+  });
 });
