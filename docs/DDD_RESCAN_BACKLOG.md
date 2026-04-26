@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 147)
+Last update: 2026-04-26 (Round 148)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - retrieval-practice session completion exclusion
+
+- Task: 继续排查复习鬼打墙，确认 Arena 只放大日志噪音，补齐 RetrievalPractice 在 day-end 重载后 Good/Easy 卡本轮不回流。
+- Touched slice: Review / queue session adapter path across `src/application/adapters/UnifiedQueueStrategy.ts`, focused strategy tests, and this backlog.
+- Debt fixed now: 会话级 `sessionExcludedCardIds` 从 FilterGroup 扩到 RetrievalPractice；即使 RetrievalPractice 领域队列因 day-end active window 仍包含已评分卡，或评分后出现延迟的非 full-refresh `queue-changed`，本轮 reload / counter / snapshot 都会按 cardId 精确排除已 Good/Easy 的卡。
+- Debt deferred: Arena store 仍然会在每次 SRS review 读写多次 `arena/store.json`，本轮只确认它不是队列 membership 根因，未做 Arena store 合并写/缓存优化。
+- Why deferred: 用户当前阻塞仍是复习会话回流；Arena I/O 优化属于性能与日志噪音治理，改动面在 Arena store 持久化策略，不应和 session membership 根因混在同一刀。
+- Next safe step: 单独为 ArenaStoreService 加 request-scope 读缓存或批量 mutation API，减少一次评分中的重复 `loadData("arena/store.json")`。
+- Validation: passed focused strategy test, focused regression set, `pnpm build`, and `git diff --check` in this task.
 
 ### 2026-04-26 - filter-backed review session loop guard
 

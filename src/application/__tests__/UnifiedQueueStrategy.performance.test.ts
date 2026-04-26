@@ -273,6 +273,79 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(getCardsSpy).toHaveBeenCalledTimes(0);
   });
 
+  it('keeps retrieval-practice Good/Easy cards out of the current session after late queue reloads', async () => {
+    const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-1' });
+    const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-2' });
+    let observer: { onDataChanged(event: DataChangeEvent): void } | null = null;
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, secondCard], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        observer?.onDataChanged({
+          type: 'queue-changed',
+          queueType: QueueType.RetrievalPractice,
+          timestamp: Date.now(),
+        });
+        const current = liveCards.find((card) => card.id === cardId) ?? null;
+        return {
+          updatedCard: current ? { ...current, reps: current.reps + 1 } : null,
+          removedFromQueue: false,
+          remainsInQueue: true,
+          queueChanged: true,
+          requiresCurrentViewReorder: false,
+        };
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, secondCard].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      registerObserver: vi.fn((nextObserver) => {
+        observer = nextObserver;
+      }),
+      unregisterObserver: vi.fn(),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    strategy.onDataChanged({
+      type: 'queue-changed',
+      queueType: QueueType.RetrievalPractice,
+      timestamp: Date.now(),
+    });
+
+    const next = await strategy.next();
+    expect(next?.id).toBe(secondCard.id);
+    const counterSnapshot = await strategy.getCounterSnapshot();
+    expect(counterSnapshot?.remaining).toBe(1);
+    expect(counterSnapshot?.buckets.all).toBe(1);
+  });
+
   it('keeps filter-group Good/Easy cards out of the current session despite self queue-changed events', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-shared' });
     const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-shared' });

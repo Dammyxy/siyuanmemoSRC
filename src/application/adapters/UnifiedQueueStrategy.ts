@@ -994,7 +994,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private shouldExcludeReviewedCardFromSession(feedback: QueueFeedback): boolean {
-        if (this.queueType !== QueueType.FilterGroup || feedback.action !== 'rate') {
+        if (!this.supportsSessionCompletionExclusion() || feedback.action !== 'rate') {
             return false;
         }
 
@@ -1002,11 +1002,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private hasSessionExclusions(): boolean {
-        return this.queueType === QueueType.FilterGroup && this.sessionExcludedCardIds.size > 0;
+        return this.supportsSessionCompletionExclusion() && this.sessionExcludedCardIds.size > 0;
     }
 
     private addSessionExcludedCardId(cardId: string | null | undefined): boolean {
-        if (this.queueType !== QueueType.FilterGroup) {
+        if (!this.supportsSessionCompletionExclusion()) {
             return false;
         }
 
@@ -1037,7 +1037,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private restoreSessionExcludedCardIds(cardIds: Array<string | null | undefined>): void {
         this.sessionExcludedCardIds.clear();
-        if (this.queueType !== QueueType.FilterGroup) {
+        if (!this.supportsSessionCompletionExclusion()) {
             return;
         }
 
@@ -1057,6 +1057,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return cards
             .filter((card) => !this.sessionExcludedCardIds.has(this.normalizeCardId(card.id)))
             .map((card) => this.cloneCard(card));
+    }
+
+    private supportsSessionCompletionExclusion(): boolean {
+        return this.queueType === QueueType.FilterGroup
+            || this.queueType === QueueType.RetrievalPractice;
     }
 
     private shouldReloadAfterReviewResult(result: QueueReviewResult): boolean {
