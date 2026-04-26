@@ -21,13 +21,11 @@ import {
   adjustTime,
   buildAddToQueueAction,
   getBaseActions,
+  QUEUE_ADD_ROUTES,
+  type QueueAddRoute,
   type PluginLike as MenuActionPluginLike,
 } from './MenuActions';
-import {
-  QueueType,
-  type IUnifiedDataSourceManagerFacade,
-  type QueueAddSource,
-} from '@/types/unified-data-source';
+import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import type { FSRSCard } from '@/types/card';
@@ -82,14 +80,6 @@ type DeckPluginLike = Omit<MenuActionPluginLike, 'context' | 'getContext'> & {
   openSubsetReviewDialog?: (blockIds: string[]) => Promise<void> | void;
 };
 
-type QueueAddActionType = 'retrieval' | 'incremental' | 'final-drill' | 'filter-group' | 'neural-roam';
-
-type QueueAddRoute = {
-  queueType: QueueType;
-  actionType: QueueAddActionType;
-  source?: QueueAddSource;
-};
-
 type BrowserBatchManagerLike = {
   getCards: IUnifiedDataSourceManagerFacade['getCards'];
   updateCard: IUnifiedDataSourceManagerFacade['updateCard'];
@@ -104,43 +94,6 @@ type DeckDataSourceDependencies = {
 
 type I18nContextLike = {
   getI18n?: () => Record<string, string> | undefined;
-};
-
-const QUEUE_ADD_ROUTES: Record<string, QueueAddRoute> = {
-  'add-to-retrieval-queue': {
-    queueType: QueueType.RetrievalPractice,
-    actionType: 'retrieval',
-  },
-  'add-to-retrieval-queue-all': {
-    queueType: QueueType.RetrievalPractice,
-    actionType: 'retrieval',
-    source: 'manual-add-all',
-  },
-  'add-to-incremental-queue': {
-    queueType: QueueType.IncrementalLearning,
-    actionType: 'incremental',
-  },
-  'add-to-incremental-queue-all': {
-    queueType: QueueType.IncrementalLearning,
-    actionType: 'incremental',
-    source: 'manual-add-all',
-  },
-  'add-to-deliberate-queue': {
-    queueType: QueueType.FinalDrill,
-    actionType: 'final-drill',
-  },
-  'add-to-final-drill-queue': {
-    queueType: QueueType.FinalDrill,
-    actionType: 'final-drill',
-  },
-  'add-to-filter-group-queue': {
-    queueType: QueueType.FilterGroup,
-    actionType: 'filter-group',
-  },
-  'add-to-neural-roam-queue': {
-    queueType: QueueType.NeuralRoam,
-    actionType: 'neural-roam',
-  },
 };
 
 export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSource {

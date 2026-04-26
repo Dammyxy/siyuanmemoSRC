@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 143)
+Last update: 2026-04-26 (Round 145)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - SRS browser SQL real-card-only results
+
+- Task: 调整 SRS 浏览器 SQL 搜索语义，让 SQL 仍按块命中，但结果列表只展示命中块下已有的真实 FSRS 卡片。
+- Touched slice: Browser / SRS browser SQL data-source path across `src/ui/browser/datasource/QueryDataSource.ts` and `src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts`.
+- Debt fixed now: `QueryDataSource` 删除了 SQL 原始行包装成虚拟新卡的 fallback，改为先用 `UnifiedDataSourceManager.getCards({ blockIds })` 确认真实卡片，再用 browser projection 只补内容/文档展示信息；lite row、action target 和 hydration 都绑定确认过的 `fsrsCardId`，同块多卡会全部进入结果，重复 SQL 块命中会按卡片 ID 去重。
+- Debt deferred: `loadBrowserCardProjectionsByBlockIds` / `loadBrowserCardsByBlockIds` 在非 SQL 场景仍保留虚拟卡支持；SQL hydrate 的真实卡片到浏览器行转换仍是 `QueryDataSource` 内部局部投影逻辑，没有把 browserService 的多卡投影能力做全局重构。
+- Why deferred: 神经漫游和 block-id 队列仍依赖虚拟卡展示，不能为 SQL 语义改动全局移除；全局多卡投影重构会影响队列/普通浏览器路径，超出本轮“SQL 只返回真实卡片”的安全切片。
+- Next safe step: 如果后续发现其它浏览器数据源也需要同块多卡完整展示，再把 browserService 的 blockId 加载从单卡 map 收口成多卡 projection helper，并同步 BlockIdsDataSource/DeckDataSource 行为。
+- Validation: `pnpm vitest run src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.set-priority.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.neural-add-card-type-consistency.test.ts`; `pnpm build`; `git diff --check`.
+
+### 2026-04-26 - SRS browser SQL result context menu parity
+
+- Task: 修复 SRS 浏览器 SQL 搜索卡片后右键菜单缺少设置优先级等卡片操作的问题，并对齐普通卡片列表的菜单能力。
+- Touched slice: Browser / SRS browser SQL data-source path across `src/ui/browser/{SRSBrowser.vue,datasource/QueryDataSource.ts,datasource/MenuActions.ts,datasource/DeckDataSource.ts,utils/dataSourceFactory.ts,datasource/__tests__/QueryDataSource.queryable.test.ts}` and `src/application/services/BrowserApplicationService.ts`.
+- Debt fixed now: `QueryDataSource` 不再只暴露 `open`，在能拿到 `UnifiedDataSourceManager` 时会提供取消闪卡、加入队列、设置优先级、推迟、提前、平摊、重置、暂停和恢复；SQL 数据源执行这些操作时复用普通卡片视图的统一 manager / queue / reschedule 路径，非闪卡 SQL 行不会新增专用兼容分支。加入队列 action route 从 `DeckDataSource` 局部常量上移到 `MenuActions`，避免 Deck 与 SQL 结果各维护一份动作 id 映射。
+- Debt deferred: SQL 结果菜单仍按数据源级别暴露动作，暂未按每一行是否为真实闪卡动态隐藏单项；`MenuActions` 里已有的调试日志噪音没有在本轮整理。
+- Why deferred: 当前缺陷是 SQL 命中的真实卡片拿不到既有菜单动作；行级动态禁用需要改菜单渲染协议，风险和范围高于本轮能力对齐。日志清理属于开发体验优化，不影响用户阻塞。
+- Next safe step: 如果后续希望 SQL 查询混入普通块时更安静，可在 `SRSBrowser` 菜单渲染层支持 action disabled / hidden predicate，并让 `QueryDataSource` 根据选中行是否存在 `fsrsCardId` 做行级过滤。
+- Validation: `pnpm vitest run src/ui/browser/datasource/__tests__/QueryDataSource.queryable.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.set-priority.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.neural-add-card-type-consistency.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-26 - AI workbench compact icon polish
 

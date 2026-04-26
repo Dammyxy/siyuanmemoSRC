@@ -373,7 +373,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     if (type === 'query') {
-      return createQueryDataSource(queryText!);
+      return createQueryDataSource(queryText!, {
+        manager: this.unifiedDataSourceManager,
+        plugin,
+      });
     }
 
     throw new Error(`Unknown data source type: ${type}`);

@@ -11,7 +11,10 @@ import type { RescheduleService } from '@/core/scheduler/rescheduleService';
 import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { RescheduleStoragePort } from '@/core/scheduler/ports';
 import type { CardReadPort } from '@/core/storage/ports';
-import type { QueueAddSource } from '@/types/unified-data-source';
+import {
+  QueueType,
+  type QueueAddSource,
+} from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import { resolveBrowserCardActionId } from '../utils/browserCardIdentity';
 
@@ -200,8 +203,51 @@ export function buildQueueActions(
 
 // ========== 动作处理器 ==========
 
-type QueueActionType = 'retrieval' | 'incremental' | 'final-drill' | 'filter-group' | 'neural-roam';
+export type QueueActionType = 'retrieval' | 'incremental' | 'final-drill' | 'filter-group' | 'neural-roam';
 type RescheduleAction = 'postpone' | 'advance' | 'spread';
+
+export type QueueAddRoute = {
+  queueType: QueueType;
+  actionType: QueueActionType;
+  source?: QueueAddSource;
+};
+
+export const QUEUE_ADD_ROUTES: Record<string, QueueAddRoute> = {
+  'add-to-retrieval-queue': {
+    queueType: QueueType.RetrievalPractice,
+    actionType: 'retrieval',
+  },
+  'add-to-retrieval-queue-all': {
+    queueType: QueueType.RetrievalPractice,
+    actionType: 'retrieval',
+    source: 'manual-add-all',
+  },
+  'add-to-incremental-queue': {
+    queueType: QueueType.IncrementalLearning,
+    actionType: 'incremental',
+  },
+  'add-to-incremental-queue-all': {
+    queueType: QueueType.IncrementalLearning,
+    actionType: 'incremental',
+    source: 'manual-add-all',
+  },
+  'add-to-deliberate-queue': {
+    queueType: QueueType.FinalDrill,
+    actionType: 'final-drill',
+  },
+  'add-to-final-drill-queue': {
+    queueType: QueueType.FinalDrill,
+    actionType: 'final-drill',
+  },
+  'add-to-filter-group-queue': {
+    queueType: QueueType.FilterGroup,
+    actionType: 'filter-group',
+  },
+  'add-to-neural-roam-queue': {
+    queueType: QueueType.NeuralRoam,
+    actionType: 'neural-roam',
+  },
+};
 
 type QueueCandidate = {
   cardId: string;

@@ -9,7 +9,7 @@ import { FinalDrillDataSource } from '../datasource/FinalDrillDataSource';
 import { FilterGroupDataSource } from '../datasource/FilterGroupDataSource';
 import { RetrievalDataSource } from '../datasource/RetrievalDataSource';
 import { DeckDataSource } from '../datasource/DeckDataSource';
-import { QueryDataSource } from '../datasource/QueryDataSource';
+import { QueryDataSource, type QueryDataSourceOptions } from '../datasource/QueryDataSource';
 import { BlockIdsDataSource } from '../datasource/BlockIdsDataSource';
 import { IncrementalLearningDataSource } from '../datasource/IncrementalLearningDataSource';
 import {
@@ -234,8 +234,11 @@ export function createDeckDataSource(
  * @param sqlStmt - SQL 语句
  * @returns 数据源实例
  */
-export function createQueryDataSource(sqlStmt: string): ICardDataSource {
-  return new QueryDataSource(sqlStmt);
+export function createQueryDataSource(
+  sqlStmt: string,
+  options: QueryDataSourceOptions = {}
+): ICardDataSource {
+  return new QueryDataSource(sqlStmt, options);
 }
 
 /**

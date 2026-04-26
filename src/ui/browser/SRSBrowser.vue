@@ -1943,7 +1943,10 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
         const ok = await ensureSqlModeConfirmed();
         if (!ok) return;
         activeQueueId.value = null;
-        currentDataSource.value = createQueryDataSource(sqlStmt);
+        currentDataSource.value = createQueryDataSource(sqlStmt, {
+          manager: unifiedDataSourceManager,
+          plugin: props.plugin,
+        });
       } else {
         if (!unifiedDataSourceManager) {
           logger.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available for deck mode');
