@@ -2079,6 +2079,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: If this editor-style projection feels right in daily review, extract the projection rows into a smaller shared review block primitive, then evaluate whether concept-definition/descriptor forward cards can selectively mount native Protyle for even closer Siyuan parity.
 - Validation: `pnpm vitest run src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/v2/components/__tests__/SkipMenuButton.spec.ts` plus `pnpm build`.
 
+### 2026-04-26 - document-tree retrieval queue count convergence
+
+- Task: 修复文档树右键复习入口中提取练习数量、实际进入队列数量和同块多卡复习后剩余卡隐藏不一致的问题。
+- Touched slice: Application review entry/menu/dialog path and queue domain hot cache path；`src/application/entries/CoreReviewEntryService.ts`、`src/application/managers/BlockMenuHandler.ts`、`src/application/managers/DialogManager.ts`、`src/application/adapters/UnifiedQueueStrategy.ts`、`src/core/queue/domain/OrderedStaticSubsetQueueBase.ts`，以及对应 targeted tests。
+- Debt fixed now: 将提取练习入口统一到实际 retrieval queue 语义：只收 `Item + Descriptor`、排除暂停卡、到期窗口使用 `dayStartHour -> currentDayEnd`；filter-backed dialog 同步写入 `cardType: ['item', 'descriptor']`；静态子集队列和统一队列热缓存都优先按 `cardId` 精确移除，避免同块多卡被整块隐藏。
+- Debt deferred: 渐进学习/临时练习/浏览器的“全部”入口仍保留各自既有语义，本轮没有把所有入口统一成一个全局计数策略对象。
+- Why deferred: 当前生产问题集中在提取练习和同块多卡误删；强行抽公共策略会扩大到 browser/filter/incremental 的用户可见口径，风险超过本轮修复收益。
+- Next safe step: 如果后续还出现菜单计数漂移，把 `CoreReviewEntryService` 的 action count/filter rules 抽成一个可注入的 review-entry scope policy，并让浏览器入口显式声明是否使用 same policy。
+- Validation: `pnpm exec vitest run src/application/entries/__tests__/CoreReviewEntryService.test.ts src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/managers/__tests__/BlockMenuHandler.doc-scope-concept-visibility.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/core/queue/domain/__tests__/SubsetReviewQueue.preferred-card.test.ts`；`pnpm build`；`git diff --check`。
+
 ### Entry template
 
 ### YYYY-MM-DD - <short task name>

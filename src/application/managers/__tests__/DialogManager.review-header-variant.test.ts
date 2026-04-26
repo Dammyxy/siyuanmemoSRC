@@ -321,7 +321,7 @@ describe('DialogManager review header variants', () => {
     expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(1, expect.objectContaining({
       blockIds: ['block-1'],
       scopeDocIds: ['doc-1'],
-      cardType: 'item',
+      cardType: ['item', 'descriptor'],
     }));
     expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(2, expect.objectContaining({
       blockIds: ['block-2'],
@@ -359,6 +359,11 @@ describe('DialogManager review header variants', () => {
       transferState: expect.objectContaining({
         kind: 'filter-group-session',
       }),
+    }));
+    expect(filterGroupQueue.setFilter).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      blockIds: ['block-1'],
+      scopeDocIds: ['doc-1'],
+      cardType: ['item', 'descriptor'],
     }));
     expect(createVueDialog).not.toHaveBeenCalled();
   });

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FSRSCard } from '@/types/card';
+import { CardType, type FSRSCard } from '@/types/card';
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
+import { getCurrentDayEnd } from '@/utils/dateUtils';
 
 function findMenuGroup<T extends { label?: string; submenu?: unknown }>(items: T[], label: string): T | undefined {
   return items.find((item) => String(item.label || '').includes(label));
@@ -154,11 +155,11 @@ describe('BlockMenuHandler core review entry integration', () => {
   });
 
   it('runCoreEntryAction delegates to retrieval due flow', async () => {
-    const now = Date.now();
+    const dayEnd = getCurrentDayEnd(4);
     const cardsByBlockId: Record<string, FSRSCard[]> = {
       'block-1': [
-        { id: 'item-due', blockId: 'block-1', type: 'item', due: now - 1 } as FSRSCard,
-        { id: 'item-future', blockId: 'block-1', type: 'item', due: now + 10_000 } as FSRSCard,
+        { id: 'item-due', blockId: 'block-1', type: 'item', due: dayEnd - 1 } as FSRSCard,
+        { id: 'item-future', blockId: 'block-1', type: 'item', due: dayEnd + 1 } as FSRSCard,
       ],
     };
     const { handler, dialogManager } = createFixture(cardsByBlockId);
@@ -276,6 +277,56 @@ describe('BlockMenuHandler core review entry integration', () => {
         scopeDocIds: ['doc-1', 'doc-1-child'],
         preset: 'all',
       },
+    });
+  });
+
+  it('aligns doc tree retrieval counts with the actual retrieval filter queue', async () => {
+    const dayEnd = getCurrentDayEnd(4);
+    const scopeCards: FSRSCard[] = [
+      { id: 'item-due', blockId: 'block-item-due', type: CardType.Item, due: dayEnd - 1, meta: { rootId: 'doc-1' } } as FSRSCard,
+      { id: 'descriptor-due', blockId: 'block-descriptor-due', type: CardType.Descriptor, due: dayEnd, meta: { rootId: 'doc-1' } } as FSRSCard,
+      { id: 'item-future', blockId: 'block-item-future', type: CardType.Item, due: dayEnd + 1, meta: { rootId: 'doc-1' } } as FSRSCard,
+      { id: 'concept-due', blockId: 'block-concept-due', type: CardType.Concept, due: dayEnd - 1, meta: { rootId: 'doc-1' } } as FSRSCard,
+      { id: 'topic-due', blockId: 'block-topic-due', type: CardType.Topic, due: dayEnd - 1, meta: { rootId: 'doc-1' } } as FSRSCard,
+    ];
+    const { handler, dialogManager } = createFixture({}, {
+      docScope: {
+        cards: scopeCards,
+        docIds: ['doc-1', 'doc-1-child'],
+      },
+      hasDoc: true,
+    });
+
+    const menu = { addItem: vi.fn() };
+    const element = document.createElement('div');
+    element.setAttribute('data-node-id', 'doc-1');
+
+    handler.handleDocTreeMenu({
+      detail: {
+        menu,
+        elements: [element],
+      },
+    });
+
+    const submenu = menu.addItem.mock.calls[0][0].submenu as Array<{
+      label?: string;
+      submenu?: Array<{ label?: string; click?: () => Promise<void> }>;
+    }>;
+    const practiceGroup = findMenuGroup(submenu, '练习');
+    const practiceItems = practiceGroup?.submenu || [];
+
+    expect(practiceItems[0]?.label || '').toContain('(2/3)');
+    expect(practiceItems[1]?.label || '').toContain('(3)');
+    expect(practiceItems[3]?.label || '').toContain('(4/5)');
+    expect(practiceItems[4]?.label || '').toContain('(5)');
+    expect(practiceItems[6]?.label || '').toContain('(5)');
+
+    await practiceItems[1]?.click?.();
+
+    expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
+      blockIds: ['block-item-due', 'block-descriptor-due', 'block-item-future'],
+      scopeDocIds: ['doc-1', 'doc-1-child'],
+      dueOnly: false,
     });
   });
 });

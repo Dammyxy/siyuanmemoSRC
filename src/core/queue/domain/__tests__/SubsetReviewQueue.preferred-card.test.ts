@@ -28,6 +28,39 @@ function createCard(id: string, blockId: string): FSRSCard {
   };
 }
 
+function createManager(cards: FSRSCard[]) {
+  const cardMap = new Map(cards.map((card) => [card.id, card]));
+  const route = vi.fn(async (card: FSRSCard) => {
+    const updated = {
+      ...card,
+      due: Date.now() + 7 * 86_400_000,
+      reps: card.reps + 1,
+      updatedAt: Date.now(),
+    };
+    cardMap.set(updated.id, updated);
+    return updated;
+  });
+
+  return {
+    getCards: vi.fn(async () => Array.from(cardMap.values())),
+    getCard: vi.fn(async (cardId: string) => {
+      const card = cardMap.get(cardId);
+      if (!card) {
+        throw new Error(`card not found: ${cardId}`);
+      }
+      return card;
+    }),
+    updateCard: vi.fn(async (card: FSRSCard) => {
+      cardMap.set(card.id, card);
+    }),
+    onCardUpdatedFromScheduler: vi.fn(async (card: FSRSCard) => {
+      cardMap.set(card.id, card);
+    }),
+    getSchedulerRouter: vi.fn(() => ({ route })),
+    notifyObservers: vi.fn(),
+  };
+}
+
 describe('SubsetReviewQueue preferredCardId', () => {
   it('places preferredCardId first when multiple cards share the same block', async () => {
     const cards = [
@@ -35,20 +68,7 @@ describe('SubsetReviewQueue preferredCardId', () => {
       createCard('card-2', 'block-1'),
       createCard('card-3', 'block-1'),
     ];
-    const cardMap = new Map(cards.map((card) => [card.id, card]));
-
-    const manager = {
-      getCards: vi.fn(async () => cards),
-      getCard: vi.fn(async (cardId: string) => {
-        const card = cardMap.get(cardId);
-        if (!card) {
-          throw new Error(`card not found: ${cardId}`);
-        }
-        return card;
-      }),
-      updateCard: vi.fn(async (_card: FSRSCard) => {}),
-      notifyObservers: vi.fn(),
-    };
+    const manager = createManager(cards);
 
     const queue = new SubsetReviewQueue(manager as never, ['block-1'], {
       preferredCardId: 'card-2',
@@ -63,20 +83,7 @@ describe('SubsetReviewQueue preferredCardId', () => {
       createCard('card-1', 'block-1'),
       createCard('card-2', 'block-1'),
     ];
-    const cardMap = new Map(cards.map((card) => [card.id, card]));
-
-    const manager = {
-      getCards: vi.fn(async () => cards),
-      getCard: vi.fn(async (cardId: string) => {
-        const card = cardMap.get(cardId);
-        if (!card) {
-          throw new Error(`card not found: ${cardId}`);
-        }
-        return card;
-      }),
-      updateCard: vi.fn(async (_card: FSRSCard) => {}),
-      notifyObservers: vi.fn(),
-    };
+    const manager = createManager(cards);
 
     const queue = new SubsetReviewQueue(manager as never, ['block-1'], {
       preferredCardId: 'card-missing',
@@ -84,5 +91,53 @@ describe('SubsetReviewQueue preferredCardId', () => {
 
     const ordered = await queue.getCards();
     expect(ordered.map((card) => card.id)).toEqual(['card-1', 'card-2']);
+  });
+
+  it('removes only the reviewed card when sibling cards share the same block', async () => {
+    const cards = [
+      createCard('card-1', 'block-1'),
+      createCard('card-2', 'block-1'),
+      createCard('card-3', 'block-1'),
+    ];
+    const manager = createManager(cards);
+    const queue = new SubsetReviewQueue(manager as never, ['block-1']);
+
+    await queue.getCards();
+    const result = await queue.handleReview('card-1', 3);
+    const remaining = await queue.getCards();
+
+    expect(remaining.map((card) => card.id)).toEqual(['card-2', 'card-3']);
+    expect(result.counterSnapshot).toEqual(expect.objectContaining({
+      remaining: 2,
+      total: 2,
+      buckets: expect.objectContaining({
+        all: 2,
+        item: 2,
+      }),
+    }));
+  });
+
+  it('removes only the skipped card when sibling cards share the same block', async () => {
+    const cards = [
+      createCard('card-1', 'block-1'),
+      createCard('card-2', 'block-1'),
+      createCard('card-3', 'block-1'),
+    ];
+    const manager = createManager(cards);
+    const queue = new SubsetReviewQueue(manager as never, ['block-1']);
+
+    await queue.skip('card-1');
+    const remaining = await queue.getCards();
+    const snapshot = await queue.getCounterSnapshot(true);
+
+    expect(remaining.map((card) => card.id)).toEqual(['card-2', 'card-3']);
+    expect(snapshot).toEqual(expect.objectContaining({
+      remaining: 2,
+      total: 2,
+      buckets: expect.objectContaining({
+        all: 2,
+        item: 2,
+      }),
+    }));
   });
 });

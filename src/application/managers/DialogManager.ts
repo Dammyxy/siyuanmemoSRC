@@ -1242,7 +1242,7 @@ export class DialogManager implements IDialogManager {
       const filter: CardFilter = {
         blockIds: options.blockIds,
         scopeDocIds: options.scopeDocIds,
-        cardType: 'item',  // 只接受 Item
+        cardType: ['item', 'descriptor'],  // 提取练习只接受实际可提取卡
       };
       
       if (options.dueOnly) {

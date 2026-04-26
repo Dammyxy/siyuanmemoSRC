@@ -86,6 +86,7 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
   public async removeCard(cardIdOrBlockId: string): Promise<void> {
     await this.ensureInitialized();
 
+    const isExplicitCardId = this.cardOrder.includes(cardIdOrBlockId);
     const targetCardId = await this.resolveCardIdOrBlockId(cardIdOrBlockId);
     if (!targetCardId) {
       this.temporaryBlacklist.add(cardIdOrBlockId);
@@ -93,8 +94,8 @@ export abstract class OrderedStaticSubsetQueueBase extends BaseReviewQueue {
     }
 
     const targetBlockId = this.cardBlockMap.get(targetCardId);
-    let shouldBlacklistBlockId = Boolean(targetBlockId);
-    if (targetBlockId) {
+    let shouldBlacklistBlockId = Boolean(targetBlockId) && !isExplicitCardId;
+    if (targetBlockId && !isExplicitCardId) {
       try {
         const targetCard = await this.manager.getCard(targetCardId, { silent: true });
         this.cardBlockMap.set(targetCard.id, targetCard.blockId);

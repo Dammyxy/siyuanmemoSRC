@@ -138,6 +138,7 @@ export class BlockMenuHandler {
       i18n: this.deps.i18n,
       dialogManager: this.deps.dialogManager,
       notify: async (message) => this.siyuanApi.pushMsg(message),
+      getDayStartHour: () => this.deps.applicationContext.getUnifiedDataSourceManager().getDayStartHour(),
     });
   }
 

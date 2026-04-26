@@ -759,9 +759,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return false;
         }
 
-        const cachedIndex = this.cachedCards.findIndex((card) =>
-            card.id === reviewedCard.id || card.blockId === reviewedCard.blockId,
-        );
+        const cachedIndex = this.findCachedCardIndexByIdentity(reviewedCard.id, reviewedCard.blockId);
         if (cachedIndex === -1) {
             return false;
         }
@@ -787,7 +785,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return false;
         }
 
-        const cachedIndex = this.cachedCards.findIndex((card) => card.id === cardId || card.blockId === cardId);
+        const cachedIndex = this.findCachedCardIndexByIdentity(cardId);
         if (cachedIndex === -1) {
             return false;
         }
@@ -809,7 +807,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return false;
         }
 
-        const cachedIndex = this.cachedCards.findIndex((card) => card.id === cardId || card.blockId === cardId);
+        const cachedIndex = this.findCachedCardIndexByIdentity(cardId);
         if (cachedIndex === -1) {
             return false;
         }
@@ -822,6 +820,23 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             this.currentIndex = this.cachedCards.length;
         }
         return true;
+    }
+
+    private findCachedCardIndexByIdentity(cardId: string, blockId?: string): number {
+        const normalizedCardId = String(cardId || '').trim();
+        if (normalizedCardId) {
+            const exactIndex = this.cachedCards.findIndex((card) => card.id === normalizedCardId);
+            if (exactIndex >= 0) {
+                return exactIndex;
+            }
+        }
+
+        const normalizedBlockId = String(blockId || '').trim();
+        if (normalizedBlockId) {
+            return this.cachedCards.findIndex((card) => card.blockId === normalizedBlockId);
+        }
+
+        return -1;
     }
 
     private shouldReloadAfterReviewResult(result: QueueReviewResult): boolean {

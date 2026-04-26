@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FSRSCard } from '@/types/card';
+import { CardType, type FSRSCard } from '@/types/card';
 import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 
 type DocScopeResult = {
@@ -186,27 +186,41 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
     expect(practiceItems[1]?.label || '').toContain('(2)');
   });
 
-  it('counts topic cards from descendant split and excerpt documents in doc-tree review menus', () => {
+  it('counts retrieval-compatible cards separately from concept and topic cards in doc-tree review menus', () => {
     const now = Date.now();
     const allCards: FSRSCard[] = [
       {
         id: 'item-doc-1',
         blockId: 'block-doc-1',
-        type: 'item',
+        type: CardType.Item,
+        due: now - 1,
+        meta: { rootId: 'doc-1' },
+      } as FSRSCard,
+      {
+        id: 'descriptor-doc-1',
+        blockId: 'descriptor-doc-1',
+        type: CardType.Descriptor,
+        due: now - 1,
+        meta: { rootId: 'doc-1' },
+      } as FSRSCard,
+      {
+        id: 'concept-doc-1',
+        blockId: 'concept-doc-1',
+        type: CardType.Concept,
         due: now - 1,
         meta: { rootId: 'doc-1' },
       } as FSRSCard,
       {
         id: 'topic-piece-1',
         blockId: 'piece-doc-1',
-        type: 'topic',
+        type: CardType.Topic,
         due: now - 1,
         meta: { rootId: 'piece-doc-1' },
       } as FSRSCard,
       {
         id: 'topic-excerpt-1',
         blockId: 'excerpt-doc-1',
-        type: 'topic',
+        type: CardType.Topic,
         due: now - 1,
         meta: { rootId: 'excerpt-doc-1' },
       } as FSRSCard,
@@ -237,11 +251,11 @@ describe('BlockMenuHandler doc scope and concept action visibility', () => {
     const browseGroup = findMenuGroup(submenu, '浏览');
     const practiceItems = practiceGroup?.submenu || [];
     const browseItems = browseGroup?.submenu || [];
-    expect(practiceItems[0]?.label || '').toContain('(1/1)');
-    expect(practiceItems[1]?.label || '').toContain('(1)');
-    expect(practiceItems[3]?.label || '').toContain('(3/3)');
-    expect(practiceItems[4]?.label || '').toContain('(3)');
-    expect(practiceItems[6]?.label || '').toContain('(3)');
+    expect(practiceItems[0]?.label || '').toContain('(2/2)');
+    expect(practiceItems[1]?.label || '').toContain('(2)');
+    expect(practiceItems[3]?.label || '').toContain('(5/5)');
+    expect(practiceItems[4]?.label || '').toContain('(5)');
+    expect(practiceItems[6]?.label || '').toContain('(5)');
     expect(browseItems[0]?.label || '').toContain('SRS');
   });
 

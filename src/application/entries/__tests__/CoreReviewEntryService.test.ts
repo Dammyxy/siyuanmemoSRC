@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FSRSCard } from '@/types/card';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
 import { CoreReviewEntryService } from '@/application/entries/CoreReviewEntryService';
+import { getCurrentDayEnd } from '@/utils/dateUtils';
 
 describe('CoreReviewEntryService', () => {
   const now = Date.now();
@@ -27,46 +28,82 @@ describe('CoreReviewEntryService', () => {
       },
       dialogManager: dialogManager as any,
       notify,
+      getDayStartHour: () => 4,
     });
   });
 
-  it('retrieval-due only passes due item cards', async () => {
+  it('retrieval-due only passes due item and descriptor cards', async () => {
+    const dayEnd = getCurrentDayEnd(4);
     const cards: FSRSCard[] = [
-      { id: 'item-due', blockId: 'block-item-due', type: 'item', due: now - 1 } as FSRSCard,
-      { id: 'item-future', blockId: 'block-item-future', type: 'item', due: now + 60_000 } as FSRSCard,
-      { id: 'topic-due', blockId: 'block-topic-due', type: 'topic', due: now - 1 } as FSRSCard,
+      { id: 'item-due', blockId: 'block-item-due', type: CardType.Item, due: dayEnd - 1 } as FSRSCard,
+      { id: 'descriptor-due', blockId: 'block-descriptor-due', type: CardType.Descriptor, due: dayEnd } as FSRSCard,
+      { id: 'item-future', blockId: 'block-item-future', type: CardType.Item, due: dayEnd + 1 } as FSRSCard,
+      { id: 'concept-due', blockId: 'block-concept-due', type: CardType.Concept, due: dayEnd - 1 } as FSRSCard,
+      { id: 'topic-due', blockId: 'block-topic-due', type: CardType.Topic, due: dayEnd - 1 } as FSRSCard,
     ];
 
     await service.execute('retrieval-due', cards);
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
-      blockIds: ['block-item-due'],
+      blockIds: ['block-item-due', 'block-descriptor-due'],
       dueOnly: true,
     });
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it('retrieval-all only passes item cards', async () => {
+  it('retrieval-all only passes non-suspended item and descriptor cards', async () => {
     const cards: FSRSCard[] = [
-      { id: 'item-due', blockId: 'block-item-due', type: 'item', due: now - 1 } as FSRSCard,
-      { id: 'item-future', blockId: 'block-item-future', type: 'item', due: now + 60_000 } as FSRSCard,
-      { id: 'topic-due', blockId: 'block-topic-due', type: 'topic', due: now - 1 } as FSRSCard,
+      { id: 'item-due', blockId: 'block-item-due', type: CardType.Item, due: now - 1 } as FSRSCard,
+      { id: 'descriptor-due', blockId: 'block-descriptor-due', type: CardType.Descriptor, due: now - 1 } as FSRSCard,
+      { id: 'concept-due', blockId: 'block-concept-due', type: CardType.Concept, due: now - 1 } as FSRSCard,
+      { id: 'topic-due', blockId: 'block-topic-due', type: CardType.Topic, due: now - 1 } as FSRSCard,
+      {
+        id: 'item-suspended',
+        blockId: 'block-item-suspended',
+        type: CardType.Item,
+        due: now - 1,
+        state: CardState.Suspended,
+      } as FSRSCard,
     ];
 
     await service.execute('retrieval-all', cards);
 
     expect(dialogManager.openRetrievalPracticeWithFilter).toHaveBeenCalledWith({
-      blockIds: ['block-item-due', 'block-item-future'],
+      blockIds: ['block-item-due', 'block-descriptor-due'],
       dueOnly: false,
     });
     expect(notify).not.toHaveBeenCalled();
   });
 
-  it('incremental-due passes due cards of all types', async () => {
+  it('labels retrieval counts with the actual extraction queue semantics', () => {
+    const dayEnd = getCurrentDayEnd(4);
     const cards: FSRSCard[] = [
-      { id: 'item-due', blockId: 'block-item-due', type: 'item', due: now - 1 } as FSRSCard,
-      { id: 'topic-due', blockId: 'block-topic-due', type: 'topic', due: now - 1 } as FSRSCard,
-      { id: 'item-future', blockId: 'block-item-future', type: 'item', due: now + 60_000 } as FSRSCard,
+      { id: 'item-due', blockId: 'block-item-due', type: CardType.Item, due: dayEnd - 1 } as FSRSCard,
+      { id: 'descriptor-due', blockId: 'block-descriptor-due', type: CardType.Descriptor, due: dayEnd } as FSRSCard,
+      { id: 'item-future', blockId: 'block-item-future', type: CardType.Item, due: dayEnd + 1 } as FSRSCard,
+      { id: 'concept-due', blockId: 'block-concept-due', type: CardType.Concept, due: dayEnd - 1 } as FSRSCard,
+      { id: 'topic-due', blockId: 'block-topic-due', type: CardType.Topic, due: dayEnd - 1 } as FSRSCard,
+      {
+        id: 'item-suspended',
+        blockId: 'block-item-suspended',
+        type: CardType.Item,
+        due: dayEnd - 1,
+        state: CardState.Suspended,
+      } as FSRSCard,
+    ];
+
+    const actions = service.createMenuActions(cards);
+
+    expect(actions[0].label).toContain('(2/3)');
+    expect(actions[1].label).toContain('(3)');
+  });
+
+  it('incremental-due passes due cards of all types', async () => {
+    const dayEnd = getCurrentDayEnd(4);
+    const cards: FSRSCard[] = [
+      { id: 'item-due', blockId: 'block-item-due', type: 'item', due: dayEnd - 1 } as FSRSCard,
+      { id: 'topic-due', blockId: 'block-topic-due', type: 'topic', due: dayEnd } as FSRSCard,
+      { id: 'item-future', blockId: 'block-item-future', type: 'item', due: dayEnd + 1 } as FSRSCard,
     ];
 
     await service.execute('incremental-due', cards);

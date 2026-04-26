@@ -1,11 +1,14 @@
 import { CardType, type FSRSCard } from '@/types/card';
 import type { DialogManager } from '@/application/managers/DialogManager';
 import type { CoreReviewEntryActionId } from '@/application/entries/CoreReviewEntryRegistry';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import { getCurrentDayEnd } from '@/utils/dateUtils';
 
 export interface CoreReviewEntryServiceDeps {
   i18n: Record<string, string>;
   dialogManager: DialogManager;
   notify: (message: string) => Promise<void>;
+  getDayStartHour?: () => number;
 }
 
 export interface CoreReviewMenuAction {
@@ -23,21 +26,21 @@ export class CoreReviewEntryService {
   constructor(private readonly deps: CoreReviewEntryServiceDeps) {}
 
   createMenuActions(cards: FSRSCard[], options?: CoreReviewScopeOptions): CoreReviewMenuAction[] {
-    const itemCards = this.toItemCards(cards);
-    const dueItemCards = this.filterDueCards(itemCards);
+    const retrievalCards = this.toRetrievalCards(cards);
+    const dueRetrievalCards = this.filterDueCards(retrievalCards);
     const dueAllCards = this.filterDueCards(cards);
 
     return [
       {
         id: 'retrieval-due',
         icon: 'iconRiffCard',
-        label: `${this.text('retrievalPractice', '提取练习')} - ${this.text('dueMode', '到期')} <span class="ft__secondary">(${dueItemCards.length}/${itemCards.length})</span>`,
+        label: `${this.text('retrievalPractice', '提取练习')} - ${this.text('dueMode', '到期')} <span class="ft__secondary">(${dueRetrievalCards.length}/${retrievalCards.length})</span>`,
         execute: async () => this.execute('retrieval-due', cards, options),
       },
       {
         id: 'retrieval-all',
         icon: 'iconRiffCard',
-        label: `${this.text('retrievalPractice', '提取练习')} - ${this.text('allMode', '全部')} <span class="ft__secondary">(${itemCards.length})</span>`,
+        label: `${this.text('retrievalPractice', '提取练习')} - ${this.text('allMode', '全部')} <span class="ft__secondary">(${retrievalCards.length})</span>`,
         execute: async () => this.execute('retrieval-all', cards, options),
       },
       {
@@ -64,29 +67,25 @@ export class CoreReviewEntryService {
   async execute(actionId: CoreReviewEntryActionId, cards: FSRSCard[], options?: CoreReviewScopeOptions): Promise<void> {
     switch (actionId) {
       case 'retrieval-due': {
-        const dueItemCards = this.filterDueCards(this.toItemCards(cards));
-        if (dueItemCards.length === 0) {
+        const dueRetrievalCards = this.filterDueCards(this.toRetrievalCards(cards));
+        if (dueRetrievalCards.length === 0) {
           await this.deps.notify(this.text('noDueCards', '当前范围内没有到期的闪卡'));
           return;
         }
-        await this.deps.dialogManager.openRetrievalPracticeWithFilter({
-          blockIds: dueItemCards.map((card) => card.blockId),
-          scopeDocIds: options?.scopeDocIds,
-          dueOnly: true,
-        });
+        await this.deps.dialogManager.openRetrievalPracticeWithFilter(
+          this.buildFilterOptions(dueRetrievalCards, true, options),
+        );
         return;
       }
       case 'retrieval-all': {
-        const itemCards = this.toItemCards(cards);
-        if (itemCards.length === 0) {
+        const retrievalCards = this.toRetrievalCards(cards);
+        if (retrievalCards.length === 0) {
           await this.deps.notify(this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
           return;
         }
-        await this.deps.dialogManager.openRetrievalPracticeWithFilter({
-          blockIds: itemCards.map((card) => card.blockId),
-          scopeDocIds: options?.scopeDocIds,
-          dueOnly: false,
-        });
+        await this.deps.dialogManager.openRetrievalPracticeWithFilter(
+          this.buildFilterOptions(retrievalCards, false, options),
+        );
         return;
       }
       case 'incremental-due': {
@@ -95,11 +94,9 @@ export class CoreReviewEntryService {
           await this.deps.notify(this.text('noDueCards', '当前范围内没有到期的闪卡'));
           return;
         }
-        await this.deps.dialogManager.openIncrementalLearningWithFilter({
-          blockIds: dueAllCards.map((card) => card.blockId),
-          scopeDocIds: options?.scopeDocIds,
-          dueOnly: true,
-        });
+        await this.deps.dialogManager.openIncrementalLearningWithFilter(
+          this.buildFilterOptions(dueAllCards, true, options),
+        );
         return;
       }
       case 'incremental-all': {
@@ -107,11 +104,9 @@ export class CoreReviewEntryService {
           await this.deps.notify(this.text('drillNoCards', '当前范围内没有可练习的闪卡'));
           return;
         }
-        await this.deps.dialogManager.openIncrementalLearningWithFilter({
-          blockIds: cards.map((card) => card.blockId),
-          scopeDocIds: options?.scopeDocIds,
-          dueOnly: false,
-        });
+        await this.deps.dialogManager.openIncrementalLearningWithFilter(
+          this.buildFilterOptions(cards, false, options),
+        );
         return;
       }
       case 'temporary-drill': {
@@ -134,17 +129,56 @@ export class CoreReviewEntryService {
     }
   }
 
-  private toItemCards(cards: FSRSCard[]): FSRSCard[] {
-    return cards.filter((card) => card.type !== CardType.Topic);
+  private toRetrievalCards(cards: FSRSCard[]): FSRSCard[] {
+    return cards.filter((card) => (
+      (card.type === CardType.Item || card.type === CardType.Descriptor)
+      && !isCardDismissed(card)
+    ));
+  }
+
+  private buildFilterOptions(
+    cards: FSRSCard[],
+    dueOnly: boolean,
+    options?: CoreReviewScopeOptions,
+  ): {
+    blockIds: string[];
+    scopeDocIds?: string[];
+    dueOnly: boolean;
+  } {
+    const blockIds = Array.from(new Set(cards.map((card) => card.blockId).filter(Boolean)));
+    const filterOptions: {
+      blockIds: string[];
+      scopeDocIds?: string[];
+      dueOnly: boolean;
+    } = { blockIds, dueOnly };
+
+    if (options?.scopeDocIds && options.scopeDocIds.length > 0) {
+      filterOptions.scopeDocIds = options.scopeDocIds;
+    }
+
+    return filterOptions;
   }
 
   private filterDueCards(cards: FSRSCard[]): FSRSCard[] {
-    const now = Date.now();
+    const dayEnd = getCurrentDayEnd(this.resolveDayStartHour());
     return cards.filter((card) => (
-      card.due <= now
+      card.due <= dayEnd
       && !card.skipped
-      && (!card.skipUntil || card.skipUntil <= now)
+      && (!card.skipUntil || card.skipUntil <= dayEnd)
+      && !isCardDismissed(card)
     ));
+  }
+
+  private resolveDayStartHour(): number {
+    try {
+      const value = this.deps.getDayStartHour?.();
+      if (Number.isFinite(value)) {
+        return Number(value);
+      }
+    } catch {
+      // Keep menu availability resilient; queue code also defaults to 4.
+    }
+    return 4;
   }
 
   private text(key: string, fallback: string): string {
