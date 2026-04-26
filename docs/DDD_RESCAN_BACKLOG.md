@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 148)
+Last update: 2026-04-26 (Round 149)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - Arena default-off review isolation
+
+- Task: 把 Arena 竞技场默认关闭并隐藏入口，避免它继续影响复习流程；保留显式开启能力。
+- Touched slice: Arena / Review / AI Workbench / Settings across `src/types/arena.ts`, `src/application/services/{ArenaKernelService.ts,AIWorkbenchService.ts}`, `src/application/managers/{DialogManager.ts,MenuManager.ts}`, `src/ui/settings/SettingsPanel.vue`, focused tests, i18n, and architecture docs.
+- Debt fixed now: `arena.enabled` 从缺省启用收口为显式 opt-in；关闭态下 AI strategy selection、AI event recording、SRS advisory、SRS review feedback 都早退且不写 `arena/store.json`，顶栏 Arena Manager 和 AI banner 也不再露出。
+- Debt deferred: Arena store 仍未做 request-scope 读缓存或批量 mutation API，开启 Arena 后频繁读写 `arena/store.json` 的性能噪音仍存在。
+- Why deferred: 本轮目标是把实验竞技场从复习主流程中隔离，存储 I/O 优化需要单独梳理 `ArenaStoreService` 的持久化策略，不应和默认关闭语义混在一起。
+- Next safe step: 单独为 `ArenaStoreService` 设计批量记录/评分更新接口，减少一次复习评分中的重复 store load/save。
+- Validation: `pnpm exec vitest run src/types/__tests__/settings-normalization.test.ts src/application/services/__tests__/ArenaKernelService.test.ts src/application/services/__tests__/SrsTransparencyApplicationService.test.ts`; `pnpm build`.
 
 ### 2026-04-26 - retrieval-practice session completion exclusion
 

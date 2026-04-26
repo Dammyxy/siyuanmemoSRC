@@ -158,13 +158,15 @@ export class MenuManager {
       },
     });
 
-    menu.addItem({
-      icon: 'iconSparkles',
-      label: this.i18n?.arenaManagerTitle || 'Arena Manager',
-      click: () => {
-        this.openArenaManager();
-      },
-    });
+    if (this.isArenaEnabled()) {
+      menu.addItem({
+        icon: 'iconSparkles',
+        label: this.i18n?.arenaManagerTitle || 'Arena Manager',
+        click: () => {
+          this.openArenaManager();
+        },
+      });
+    }
 
     menu.addSeparator();
     
@@ -360,7 +362,14 @@ export class MenuManager {
   }
 
   private openArenaManager(): void {
+    if (!this.isArenaEnabled()) {
+      return;
+    }
     this.dialogManager.openArenaManagerDialog();
+  }
+
+  private isArenaEnabled(): boolean {
+    return this.context.getArenaKernelService().isEnabled();
   }
   
   /**

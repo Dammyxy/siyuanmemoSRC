@@ -223,6 +223,16 @@
         </div>
 
         <div class="form-item">
+          <label>{{ t('arenaEnabled', '启用 Arena 竞技场（实验）') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="arenaSettings.enabled">
+          </div>
+          <p class="form-hint">
+            {{ t('arenaEnabledHint', '关闭后不运行 AI/SRS Arena 记录、复习建议或管理器入口；开启后才会写入 arena/store.json。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
           <label>{{ t('enableDebugLogs', '启用调试日志') }}</label>
           <div class="form-control">
             <input type="checkbox" v-model="uiSettings.enableDebugLogs">
@@ -1186,6 +1196,10 @@ import {
   AI_CHAT_TOOL_GROUPS,
 } from '@/application/services/AIChatToolRegistry';
 import {
+  normalizeArenaSettings,
+  type ArenaSettings,
+} from '@/types/arena';
+import {
   getPromptContractForSetting,
   listSelfTestModeDescriptors,
 } from '@/application/services/AIPromptContractRegistry';
@@ -1288,6 +1302,10 @@ function createDefaultQueueSettings(): QueueSettings {
 
 function createDefaultAISettings(): AISettings {
   return JSON.parse(JSON.stringify(DEFAULT_AI_SETTINGS)) as AISettings;
+}
+
+function createDefaultArenaSettings(): ArenaSettings {
+  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.arena)) as ArenaSettings;
 }
 
 function createDefaultUISettings(): UISettings {
@@ -1410,6 +1428,7 @@ const props = defineProps<{
   quickCardSettings?: Partial<QuickCardSettings>;  // 🆕 快速制卡配置
   progressiveReadingSettings?: Partial<typeof DEFAULT_SETTINGS.progressiveReading>;
   aiSettings?: Partial<AISettings>;
+  arenaSettings?: Partial<ArenaSettings>;
   uiSettings?: Partial<UISettings>;
   captureStorageNotebooks?: Array<{ id: string; name: string; icon?: string }>;
   i18n?: Record<string, string>;
@@ -1488,6 +1507,7 @@ const settingsContentRef = ref<HTMLElement | null>(null);
 
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
 const aiSettings = ref<AISettings>(createDefaultAISettings());
+const arenaSettings = ref<ArenaSettings>(createDefaultArenaSettings());
 const uiSettings = ref<UISettings>(createDefaultUISettings());
 const aiPromptTabs = getAIWorkbenchSkillTabs('concept-coach');
 const selfTestModeDescriptors = listSelfTestModeDescriptors();
@@ -1703,6 +1723,10 @@ function openToolPermissionManager(groupKey?: AIChatToolGroupKey): void {
       toolPermissionDialogHandle.value = null;
     },
   });
+}
+
+function mergeArenaSettings(source?: Partial<ArenaSettings>): ArenaSettings {
+  return normalizeArenaSettings(source);
 }
 
 function openBuiltInPromptEditor(settingKey: AIPromptSettingKey): void {
@@ -2329,6 +2353,7 @@ function loadSettings() {
   };
 
   aiSettings.value = mergeAISettings(props.aiSettings);
+  arenaSettings.value = mergeArenaSettings(props.arenaSettings);
   uiSettings.value = mergeUISettings(props.uiSettings);
 }
 
@@ -2427,6 +2452,7 @@ function saveSettings() {
       promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
       prompts,
     },
+    arena: normalizeArenaSettings(arenaSettings.value),
     ui: {
       ...uiSettings.value,
     },
@@ -2457,6 +2483,7 @@ function resetSettings() {
   };
   queueSettings.value = createDefaultQueueSettings();
   aiSettings.value = createDefaultAISettings();
+  arenaSettings.value = createDefaultArenaSettings();
   uiSettings.value = createDefaultUISettings();
 }
 

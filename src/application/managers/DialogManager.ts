@@ -97,6 +97,7 @@ type SettingsPanelSavePayload = {
   quickCard?: PluginSettings['quickCard'];
   progressiveReading?: PluginSettings['progressiveReading'];
   ai?: PluginSettings['ai'];
+  arena?: PluginSettings['arena'];
   ui?: PluginSettings['ui'];
 };
 
@@ -464,6 +465,9 @@ export class DialogManager implements IDialogManager {
 
   async openArenaManagerDialog(): Promise<void> {
     const service = this.context.getArenaKernelService();
+    if (!service.isEnabled()) {
+      return;
+    }
     if (this.arenaManagerDialog) {
       return;
     }
@@ -542,6 +546,7 @@ export class DialogManager implements IDialogManager {
         quickCardSettings: currentSettings.quickCard,
         progressiveReadingSettings: currentSettings.progressiveReading,
         aiSettings: currentSettings.ai,
+        arenaSettings: currentSettings.arena,
         captureStorageNotebooks,
         uiSettings: {
           ...DEFAULT_SETTINGS.ui,
@@ -582,6 +587,7 @@ export class DialogManager implements IDialogManager {
             quickCard: settings.quickCard || currentSettings.quickCard,
             progressiveReading: settings.progressiveReading || currentSettings.progressiveReading,
             ai: settings.ai || currentSettings.ai,
+            arena: settings.arena || currentSettings.arena,
             ui: settings.ui || currentSettings.ui,
           };
           

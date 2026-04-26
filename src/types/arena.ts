@@ -419,7 +419,7 @@ const DEFAULT_ARENA_PACKS: AIStrategyPackDefinition[] = [
 ];
 
 export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
-  enabled: true,
+  enabled: false,
   ai: {
     enabled: true,
     surfaces: ['standalone-dialog', 'review-dialog-sidecar', 'review-tab-companion'],
@@ -621,7 +621,7 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
     ? Array.from(new Set(srs.targetKinds.filter((kind): kind is Extract<ArenaTargetKind, 'item' | 'descriptor'> => kind === 'item' || kind === 'descriptor')))
     : DEFAULT_ARENA_SETTINGS.srs.targetKinds;
   return {
-    enabled: source.enabled !== false,
+    enabled: source.enabled === true,
     ai: {
       enabled: ai.enabled !== false,
       surfaces: surfaces.length > 0 ? surfaces : DEFAULT_ARENA_SETTINGS.ai.surfaces,

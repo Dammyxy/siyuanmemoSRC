@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-25
+最后更新：2026-04-26
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -15,7 +15,7 @@
 - Browser / Review / Queue / Scheduler 主链路
 - Progressive / Excerpt / Topic-derived item 主链路
 - AI Workbench / Capture 主链路
-- Arena 主链路（AI 策略包竞技 + SRS 算法只读竞技）
+- Arena 主链路（AI 策略包竞技 + SRS 算法只读竞技，默认关闭）
 - 完整运行时文件职责地图
 - 开发边界与改动守则
 
@@ -99,7 +99,7 @@ flowchart TD
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
-- 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核
+- 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，关闭时不写 `arena/store.json`，也不接入复习建议或 AI 策略包覆盖
 
 这意味着：
 
@@ -745,9 +745,9 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
 UI 层：
 
 - `DialogManager.openAiWorkbenchDialog()`：standalone dialog，默认 `general-chat`
-- `DialogManager.openArenaManagerDialog()`：Arena Manager dialog，管理 AI / SRS 双域排名、时间线、pin / retire / clone / challenge 动作
+- `DialogManager.openArenaManagerDialog()`：Arena Manager dialog；仅在 `arena.enabled === true` 时可打开，用于管理 AI / SRS 双域排名、时间线、pin / retire / clone / challenge 动作
 - `TabManager.openReviewAICompanionTab(...)`：review companion tab，默认遵循 `settings.ai.chatDefaults.reviewDefaultSkillId`
-- `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文，并在 item / descriptor 复习前后接入 SRS Arena advisory 与复习反馈记录
+- `ReviewView.vue`：在 review session 生命周期里对齐 AI companion 上下文；仅在 Arena 开启时，对 item / descriptor 复习前后接入 SRS Arena advisory 与复习反馈记录
 - `AiWorkbenchPane.vue`
   - 渲染通用 chat shell：Skill 切换、模型/工具入口、标题、历史/上下文抽屉、底部 composer
   - 消息区使用 compact render projection：主列表只显示用户消息、最终回复、结构化 Skill 结果和分隔；tool log、审批历史、reasoning、diagnostics 默认折叠到最终回复下方的透明化面板
@@ -767,14 +767,14 @@ UI 层：
 调度主入口：
 
 - `src/core/scheduler/SchedulerRouter.ts`
-- `src/application/services/ArenaKernelService.ts` 的 SRS Arena 只读 advisory，不改变正式调度路由
+- `src/application/services/ArenaKernelService.ts` 的 SRS Arena 只读 advisory 默认关闭，开启后也不改变正式调度路由
 
 当前职责：
 
 - 根据卡片类型、设置与队列上下文选择调度策略
 - 执行 schedule / reschedule / preview
 - 对不支持的调度路径显式报错，而不是静默降级
-- 对 item / descriptor 复习，Arena 会在正式调度之外并行预估 `fsrs-v6 + sm15 + sm2` 三个只读选手，输出 weighted optimum、分歧幅度和领先者；`a-factor-v2` 不进入 v1 SRS contest pack
+- 对 item / descriptor 复习，Arena 开启后会在正式调度之外并行预估 `fsrs-v6 + sm15 + sm2` 三个只读选手，输出 weighted optimum、分歧幅度和领先者；`a-factor-v2` 不进入 v1 SRS contest pack
 - `SrsTransparencyApplicationService` / `SrsEditorDialog.vue` / `ReviewView.vue` 只展示轻量分歧提示和透明度事实，正式 due 写回仍完全由 `SchedulerRouter` 当前路由负责
 
 同步与事件主入口：
@@ -865,7 +865,7 @@ UI 层：
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
 - AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review 默认 Skill 由 `settings.ai.chatDefaults.reviewDefaultSkillId` 决定（默认 `general-chat`），review 聊天按队列级 `reviewChatKey` 复用持久化会话但 live runtime 仍按真实 review session 隔离
-- Arena 已在组合根中作为应用层内核运行：AI Arena 管理显式场景池和策略包评分，SRS Arena 对 item / descriptor 做 `fsrs-v6 + sm15 + sm2` 只读建议；它只提供透明度、权重建议、挑战者管理和 delayed attribution，不接管正式模型选择或调度写回
+- Arena 已在组合根中作为应用层内核装配，但默认关闭：启用后 AI Arena 管理显式场景池和策略包评分，SRS Arena 对 item / descriptor 做 `fsrs-v6 + sm15 + sm2` 只读建议；它只提供透明度、权重建议、挑战者管理和 delayed attribution，不接管正式模型选择或调度写回
 - AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
 - AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，默认推荐模板已经切到 Andy 兼容语义；用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
 - AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline、树形 worldline、compact reply projection 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做独立图形化 world-tree 页面

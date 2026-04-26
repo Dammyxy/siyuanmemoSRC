@@ -19,6 +19,12 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function createEnabledArenaSettings(): ArenaSettings {
+  const settings = clone(DEFAULT_ARENA_SETTINGS);
+  settings.enabled = true;
+  return settings;
+}
+
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   return {
     id: overrides.id ?? 'card-1',
@@ -157,8 +163,80 @@ function createKernel(
 }
 
 describe('ArenaKernelService', () => {
-  it('routes AI pools by scenario and honors pinned, retired, and ineligible strategy packs', async () => {
+  it('keeps default-disabled Arena from selecting packs or writing SRS data', async () => {
     const settings = clone(DEFAULT_ARENA_SETTINGS);
+    const { service, store } = createKernel(settings);
+
+    const selection = await service.selectAIPack({
+      surface: 'standalone-dialog',
+      scenarioId: 'candidate-card-generation',
+      targetKind: 'note',
+      skillId: 'concept-coach',
+      tabId: 'self-test-cards',
+    });
+    const recommendation = await service.buildSrsRecommendation(
+      buildCard({ type: CardType.Item }),
+      'fsrs-v6',
+      NOW,
+    );
+    const reviewResult = await service.recordSrsReview({
+      card: buildCard({ type: CardType.Item }),
+      rating: 3,
+      currentSchedulerType: 'fsrs-v6',
+    });
+
+    expect(service.isEnabled()).toBe(false);
+    expect(selection).toBeNull();
+    expect(recommendation).toBeNull();
+    expect(reviewResult).toBeNull();
+    expect(store.data.matches).toEqual([]);
+    expect(store.data.scores).toEqual([]);
+    expect(store.data.attributions).toEqual([]);
+  });
+
+  it('stops writing Arena events after the global switch is turned off', async () => {
+    const settings = createEnabledArenaSettings();
+    settings.ai.strategyPacks = [
+      createPack({ id: 'pack-a', title: 'Pack A' }),
+    ];
+    const { service, store, getSettings } = createKernel(settings);
+    const selection = await service.selectAIPack({
+      surface: 'standalone-dialog',
+      scenarioId: 'candidate-card-generation',
+      targetKind: 'note',
+      skillId: 'concept-coach',
+      tabId: 'self-test-cards',
+    });
+    const matchCountAfterExposure = store.data.matches.length;
+
+    getSettings().enabled = false;
+    await service.recordAIEvent({
+      selection,
+      eventType: 'create',
+      cardIds: ['card-created-after-disable'],
+    });
+    const recommendation = await service.buildSrsRecommendation(
+      buildCard({ type: CardType.Item }),
+      'fsrs-v6',
+      NOW,
+    );
+    const reviewResult = await service.recordSrsReview({
+      card: buildCard({ type: CardType.Item }),
+      rating: 3,
+      currentSchedulerType: 'fsrs-v6',
+    });
+
+    expect(selection).not.toBeNull();
+    expect(service.isEnabled()).toBe(false);
+    expect(store.data.matches).toHaveLength(matchCountAfterExposure);
+    expect(store.data.attributions).toEqual([]);
+    expect(store.data.matches.filter((match) => match.domain === 'srs')).toEqual([]);
+    expect(recommendation).toBeNull();
+    expect(reviewResult).toBeNull();
+  });
+
+  it('routes AI pools by scenario and honors pinned, retired, and ineligible strategy packs', async () => {
+    const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({ id: 'pack-a', title: 'Eligible A' }),
       createPack({ id: 'pack-b', title: 'Pinned B', state: 'pinned', skillId: 'concept-coach' }),
@@ -183,7 +261,7 @@ describe('ArenaKernelService', () => {
   });
 
   it('weights LLM judge feedback below direct user behavior', async () => {
-    const settings = clone(DEFAULT_ARENA_SETTINGS);
+    const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({ id: 'pack-a', title: 'Pack A' }),
     ];
@@ -210,7 +288,7 @@ describe('ArenaKernelService', () => {
   });
 
   it('creates challenge packs from the current pool without crossing scenarios', async () => {
-    const settings = clone(DEFAULT_ARENA_SETTINGS);
+    const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({
         id: 'pack-a',
@@ -237,7 +315,7 @@ describe('ArenaKernelService', () => {
   });
 
   it('tracks delayed card attribution from AI creation into later SRS review feedback', async () => {
-    const settings = clone(DEFAULT_ARENA_SETTINGS);
+    const settings = createEnabledArenaSettings();
     settings.ai.strategyPacks = [
       createPack({ id: 'pack-a', title: 'Pack A' }),
     ];
@@ -278,7 +356,7 @@ describe('ArenaKernelService', () => {
   });
 
   it('builds advisory-only SRS recommendations with fsrs-v6, sm15, and sm2 contestants', async () => {
-    const settings = clone(DEFAULT_ARENA_SETTINGS);
+    const settings = createEnabledArenaSettings();
     const { service, store } = createKernel(settings);
     const card = buildCard({ type: CardType.Descriptor, schedulerType: 'fsrs-v6' });
 

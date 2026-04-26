@@ -1797,6 +1797,8 @@
   "arenaAssistant": "Arena Assistant",
   "arenaPackRunning": "The current AI strategy pack is being tracked by Arena.",
   "arenaChallengers": "Challengers",
+  "arenaEnabled": "Enable Arena contest (experimental)",
+  "arenaEnabledHint": "When off, AI/SRS Arena tracking, review suggestions, and the manager entry stay disabled; enabling it writes to arena/store.json.",
   "arenaManagerTitle": "Arena Manager",
   "arenaManagerDesc": "Inspect AI strategy contests and SRS algorithm contests in one place, then manage pin / retire / clone / challenge actions.",
   "arenaChallenge": "Challenge",

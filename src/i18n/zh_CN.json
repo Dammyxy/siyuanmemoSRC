@@ -1829,6 +1829,8 @@
   "arenaAssistant": "Arena 助手",
   "arenaPackRunning": "当前运行中的 AI 策略包已进入竞技场记录。",
   "arenaChallengers": "候选挑战者",
+  "arenaEnabled": "启用 Arena 竞技场（实验）",
+  "arenaEnabledHint": "关闭后不运行 AI/SRS Arena 记录、复习建议或管理器入口；开启后才会写入 arena/store.json。",
   "arenaManagerTitle": "竞技场管理器",
   "arenaManagerDesc": "统一查看 AI 策略竞技与 SRS 算法竞技，并进行 pin / retire / clone / challenge 管理。",
   "arenaChallenge": "发起挑战",

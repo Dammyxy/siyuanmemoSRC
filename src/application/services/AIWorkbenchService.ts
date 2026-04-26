@@ -154,6 +154,7 @@ export type AIWorkbenchServiceDeps = {
   getSelectionTopicContinuationService?: () => SelectionTopicContinuationService;
   arenaKernel?: Pick<
     ArenaKernelService,
+    | 'isEnabled'
     | 'selectAIPack'
     | 'resolveSkillRuntimeOverrides'
     | 'recordAIEvent'
@@ -2675,7 +2676,7 @@ export class AIWorkbenchService {
     },
   ): Promise<void> {
     const arenaKernel = this.getArenaKernel();
-    if (!arenaKernel) {
+    if (!arenaKernel || !arenaKernel.isEnabled()) {
       this.clearArenaSelection();
       return;
     }
@@ -2722,6 +2723,13 @@ export class AIWorkbenchService {
     challengeSummary: string | null;
     challengers: Array<{ id: string; title: string }>;
   } {
+    if (!this.getArenaKernel()?.isEnabled()) {
+      return {
+        packTitle: null,
+        challengeSummary: null,
+        challengers: [],
+      };
+    }
     return {
       packTitle: this.currentArenaRuntimeOverrides.selectedPackTitle || null,
       challengeSummary: this.currentArenaRuntimeOverrides.challengeTrigger?.summary || null,
@@ -2738,7 +2746,7 @@ export class AIWorkbenchService {
     },
   ): Promise<void> {
     const arenaKernel = this.getArenaKernel();
-    if (!arenaKernel || !this.currentArenaSelection) {
+    if (!arenaKernel || !arenaKernel.isEnabled() || !this.currentArenaSelection) {
       return;
     }
     await arenaKernel.recordAIEvent({

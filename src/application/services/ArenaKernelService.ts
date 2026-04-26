@@ -119,6 +119,10 @@ export class ArenaKernelService {
     return this.deps.getArenaSettings();
   }
 
+  isEnabled(): boolean {
+    return this.getArenaSettings().enabled === true;
+  }
+
   async updateManagerState(patch: Partial<ArenaManagerState>): Promise<void> {
     await this.deps.updateArenaSettings((current) => ({
       ...current,
@@ -223,7 +227,7 @@ export class ArenaKernelService {
     const scenarioId = input.scenarioId;
     const targetKind = input.targetKind;
     if (
-      !settings.enabled
+      !this.isEnabled()
       || !settings.ai.enabled
       || !scenarioId
       || !targetKind
@@ -333,7 +337,7 @@ export class ArenaKernelService {
   }
 
   async recordAIEvent(input: AIPackEventInput): Promise<void> {
-    if (!input.selection) {
+    if (!this.isEnabled() || !input.selection) {
       return;
     }
     const scoreDelta = this.resolveAIScoreDelta(input.eventType, input.qualityLabel);
@@ -390,7 +394,7 @@ export class ArenaKernelService {
   ): Promise<SrsArenaRecommendation | null> {
     const targetKind = normalizeTargetKind(card);
     const settings = this.getArenaSettings();
-    if (!settings.enabled || !settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
+    if (!this.isEnabled() || !settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
       return null;
     }
     const poolKey = buildSrsArenaPoolKey(targetKind);
@@ -433,7 +437,7 @@ export class ArenaKernelService {
     const rating = Math.max(1, Math.min(4, Math.floor(Number(input.rating) || 0))) as Rating;
     const targetKind = normalizeTargetKind(card);
     const settings = this.getArenaSettings();
-    if (!settings.enabled || !settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
+    if (!this.isEnabled() || !settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
       return null;
     }
     const now = Date.now();

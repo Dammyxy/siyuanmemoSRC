@@ -209,7 +209,7 @@ describe('settings normalization', () => {
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.ai).toEqual(originalAI);
     expect(normalized.settings.scheduler).toEqual(originalScheduler);
-    expect(normalized.settings.arena.enabled).toBe(true);
+    expect(normalized.settings.arena.enabled).toBe(false);
     expect(Object.keys(normalized.settings.arena.ai.scenarios).sort()).toEqual([
       'candidate-card-generation',
       'card-prompt-rewrite',
@@ -219,6 +219,15 @@ describe('settings normalization', () => {
       'topic-auto-card',
     ]);
     expect(normalized.settings.arena.srs.contestantIds).toEqual(['fsrs-v6', 'sm15', 'sm2']);
+  });
+
+  it('keeps Arena enabled only when the setting is explicit', () => {
+    const legacy = cloneSettings();
+    legacy.arena.enabled = true;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.settings.arena.enabled).toBe(true);
   });
 
   it('prefers legacy single-provider AI fields when providers still contain only the empty default', () => {
