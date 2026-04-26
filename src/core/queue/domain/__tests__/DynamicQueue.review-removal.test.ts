@@ -121,6 +121,37 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
   });
 
+  it('retrieval practice removes blockId-only manual cards after review', async () => {
+    const now = Date.now();
+    const card = createCard({
+      id: 'card-manual-by-block',
+      blockId: 'block-manual-by-block',
+      due: now - 60_000,
+      scheduledDays: 0,
+    });
+    const persistence: QueuePersistencePort = {
+      get: vi.fn(() => [card.blockId]),
+      set: vi.fn(async () => {}),
+    };
+    const manager = createManagerStub(card, {
+      updatedCard: {
+        ...card,
+        due: now + 10 * 60_000,
+        scheduledDays: 1,
+        reps: card.reps + 1,
+      },
+    });
+    const queue = new RetrievalPracticeQueue(manager as never, persistence);
+    await queue.load();
+
+    const result = await queue.handleReview(card.id, 4);
+
+    expect(result.removedFromQueue).toBe(true);
+    expect(result.remainsInQueue).toBe(false);
+    expect(queue.getTemporaryBlacklistSize()).toBe(0);
+    expect(persistence.set).toHaveBeenCalledWith('retrievalPracticeQueue', []);
+  });
+
   it('incremental learning keeps same-day cards active after review', async () => {
     const now = Date.now();
     const card = createCard({
@@ -145,6 +176,37 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(result.removedFromQueue).toBe(false);
     expect(result.remainsInQueue).toBe(true);
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
+  });
+
+  it('incremental learning removes blockId-only manual cards after review', async () => {
+    const now = Date.now();
+    const card = createCard({
+      id: 'card-incremental-manual-by-block',
+      blockId: 'block-incremental-manual-by-block',
+      due: now - 60_000,
+      scheduledDays: 0,
+    });
+    const persistence: QueuePersistencePort = {
+      get: vi.fn(() => [card.blockId]),
+      set: vi.fn(async () => {}),
+    };
+    const manager = createManagerStub(card, {
+      updatedCard: {
+        ...card,
+        due: now + 10 * 60_000,
+        scheduledDays: 1,
+        reps: card.reps + 1,
+      },
+    });
+    const queue = new IncrementalLearningQueue(manager as never, persistence);
+    await queue.load();
+
+    const result = await queue.handleReview(card.id, 4);
+
+    expect(result.removedFromQueue).toBe(true);
+    expect(result.remainsInQueue).toBe(false);
+    expect(queue.getTemporaryBlacklistSize()).toBe(0);
+    expect(persistence.set).toHaveBeenCalledWith('incrementalLearningQueue', []);
   });
 
   it('incremental learning builds its base set with today window instead of current moment', async () => {
@@ -249,7 +311,7 @@ describe('Dynamic queues - review removal semantics', () => {
     const manager = createManagerStub(card, {
       updatedCard: {
         ...card,
-        due: getCurrentDayEnd(4) + 60_000,
+        due: now + 3 * 86_400_000,
         reps: card.reps + 1,
       },
     });

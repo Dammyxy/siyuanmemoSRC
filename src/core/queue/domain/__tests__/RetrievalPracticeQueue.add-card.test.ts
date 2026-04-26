@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CardType, type FSRSCard } from '@/types/card';
 import { RetrievalPracticeQueue } from '../RetrievalPracticeQueue';
+import type { QueuePersistencePort } from '../ports';
+import { getCurrentDayEnd } from '@/utils/dateUtils';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
@@ -26,6 +28,13 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     createdAt: now - 120_000,
     updatedAt: now - 60_000,
     ...overrides,
+  };
+}
+
+function createPersistenceStub(initialIds: string[] = []): QueuePersistencePort {
+  return {
+    get: vi.fn(() => initialIds),
+    set: vi.fn(async () => {}),
   };
 }
 
@@ -104,11 +113,14 @@ describe('RetrievalPracticeQueue addCard', () => {
     expect(unsortedCards.map((card) => card.id)).toEqual(['card-low-priority', 'card-high-priority']);
   });
 
-  it('rejects adding cards that were already reviewed today', async () => {
+  it('allows manually adding cards that were already reviewed today', async () => {
     const reviewedToday = createCard({
       id: 'card-reviewed-today',
       blockId: 'block-reviewed-today',
+      due: getCurrentDayEnd(4) + 60_000,
       lastReview: Date.now(),
+      scheduledDays: 2,
+      stability: 2.3065,
     });
 
     const manager = {
@@ -128,8 +140,16 @@ describe('RetrievalPracticeQueue addCard', () => {
 
     const queue = new RetrievalPracticeQueue(manager as never);
 
-    await expect(queue.addCard(reviewedToday.id, 'manual')).rejects.toThrow('今日已复习');
-    expect(manager.updateCard).not.toHaveBeenCalled();
+    await expect(queue.addCard(reviewedToday.id, 'manual')).resolves.toBeUndefined();
+
+    const cards = await queue.getCards();
+    expect(cards.map((card) => card.id)).toContain(reviewedToday.id);
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: reviewedToday.id,
+        priority: 49,
+      })
+    );
   });
 
   it('allows adding cards reviewed today with manual-add-all source', async () => {
@@ -164,5 +184,41 @@ describe('RetrievalPracticeQueue addCard', () => {
 
     const cards = await queue.getCards();
     expect(cards.map((card) => card.id)).toContain(reviewedToday.id);
+  });
+
+  it('keeps persisted reviewed future manual cards in the forced review queue', async () => {
+    const completedToday = createCard({
+      id: 'card-completed-today',
+      blockId: 'block-completed-today',
+      due: getCurrentDayEnd(4) + 60_000,
+      lastReview: Date.now(),
+      scheduledDays: 2,
+      stability: 2.3065,
+    });
+    const persistence = createPersistenceStub([completedToday.id]);
+
+    const manager = {
+      getCard: vi.fn(async (id: string) => {
+        if (id === completedToday.id) {
+          return completedToday;
+        }
+        throw new Error('card not found by id');
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async (_card: FSRSCard) => {}),
+      notifyObservers: vi.fn(),
+      getDayStartHour: vi.fn(() => 4),
+      getPriorityRandomness: vi.fn(() => 0),
+      getAutoSortEnabled: vi.fn(() => true),
+      getAddToOutstandingEveryNth: vi.fn(() => 2),
+    };
+
+    const queue = new RetrievalPracticeQueue(manager as never, persistence);
+    await queue.load();
+
+    const cards = await queue.getCards();
+
+    expect(cards.map((card) => card.id)).toContain(completedToday.id);
+    expect(persistence.set).not.toHaveBeenCalled();
   });
 });

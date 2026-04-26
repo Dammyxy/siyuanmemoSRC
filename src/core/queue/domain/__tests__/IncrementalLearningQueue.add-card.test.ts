@@ -31,11 +31,14 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
 }
 
 describe('IncrementalLearningQueue addCard', () => {
-  it('rejects adding cards that were already reviewed today', async () => {
+  it('allows manually adding cards that were already reviewed today', async () => {
     const reviewedToday = createCard({
       id: 'card-reviewed-today',
       blockId: 'block-reviewed-today',
+      due: Date.now() + 3 * 86_400_000,
       lastReview: Date.now(),
+      scheduledDays: 3,
+      stability: 2.3065,
     });
 
     const manager = {
@@ -55,8 +58,16 @@ describe('IncrementalLearningQueue addCard', () => {
 
     const queue = new IncrementalLearningQueue(manager as never, NOOP_QUEUE_PERSISTENCE);
 
-    await expect(queue.addCard(reviewedToday.id, 'manual')).rejects.toThrow('今日已复习');
-    expect(manager.updateCard).not.toHaveBeenCalled();
+    await expect(queue.addCard(reviewedToday.id, 'manual')).resolves.toBeUndefined();
+
+    const cards = await queue.getCards();
+    expect(cards.map((card) => card.id)).toContain(reviewedToday.id);
+    expect(manager.updateCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: reviewedToday.id,
+        priority: 49,
+      })
+    );
   });
 
   it('allows adding cards reviewed today with manual-add-all source', async () => {

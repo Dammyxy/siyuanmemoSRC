@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-27 (Round 154)
+Last update: 2026-04-27 (Round 157)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-27 - manual queue forced formal review semantics
+
+- Task: 统一“手动加入提取练习 / 渐进学习 = 强制正式复习”的产品语义，修复普通手动加入被今日已复习 guard 拦截、以及旧 cleanup 误把 future reviewed 手动卡剪掉的问题。
+- Touched slice: Queue manual-add / review-removal semantics across `src/core/queue/domain/{RetrievalPracticeQueue.ts,IncrementalLearningQueue.ts}` and focused queue regressions.
+- Debt fixed now: RetrievalPractice 与 IncrementalLearning 的 `QueueAddSource.manual` 不再拦截本学习日已复习卡；手动加入的 future Review 卡会进入正式队列并继续按 FSRS 写回。RetrievalPractice 移除了 `sessionManualAddIds/pruneCompletedManualCards` 这一临时练习式 cleanup；两个队列评分后都按 `card.id + blockId` 双身份移除手动项，避免 blockId-only 残留回流。
+- Debt deferred: 仍保留 `manual-add-all` 菜单路由作为兼容入口，暂未单独设计“练习但不调度”的临时练习队列或非调度评分命令。
+- Why deferred: 用户明确选择强制正式复习语义；非调度练习是不同产品能力，需要新的 queue/review writeback contract，不能混在本轮 SRS 语义收口里。
+- Next safe step: 后续如果要避免 `2/3/4D` 影响 FSRS，应新增显式“临时练习/不调度”入口，而不是让提取练习或渐进学习在同一队列里兼具两种写回语义。
+- Validation: targeted RetrievalPractice / IncrementalLearning add-card tests, dynamic review-removal tests, UnifiedQueueStrategy preview/current-card regressions; `pnpm build`; `git diff --check`.
+
+### 2026-04-27 - retrieval explicit manual-add preservation
+
+- Task: 修复 stale reviewed-card cleanup 后，用户从浏览器显式选择卡片加入提取练习会被立即清理、看起来无法手动加入的问题。
+- Touched slice: RetrievalPractice manual-add semantics in `src/core/queue/domain/RetrievalPracticeQueue.ts` and focused queue regressions.
+- Debt fixed now: RetrievalPractice 增加会话级 `sessionManualAddIds` 来表达“用户本轮明确手动加入”的意图；旧持久化残留的 reviewed+future manual card 仍会在重载时剪掉，但刚通过 `addCard()` 加入的 cardId/blockId 不会被 `pruneCompletedManualCards()` 误判为残留。评分、手动移除或 schedule-membership 同步时会清理这份会话标记。
+- Debt deferred: 手动队列持久化仍是字符串集合，没有升级成带 `source/addedAt` 的 entry metadata；跨插件重启后无法区分“昨天残留”与“重启前用户刚明确加回”的同一条 reviewed+future 手动项。
+- Why deferred: 当前问题发生在同一运行会话的 Browser -> queue active path，用会话级意图即可修复；持久化结构升级会涉及所有手动队列兼容迁移和 UI 语义，适合单独做。
+- Next safe step: 如果需要让“含今日已复习”的手动加入跨插件重启仍保留，再把 manual queue storage 从 `string[]` 升级为兼容读取的 metadata entries。
+- Validation: focused RetrievalPractice add-card/manual cleanup tests and dynamic review-removal tests; `pnpm build`; `git diff --check`.
+
+### 2026-04-27 - retrieval manual stale reviewed-card cleanup
+
+- Task: 继续修复从浏览器批量加入 Item 到提取练习后，评分按钮仍大面积显示 `2/3/4D` 的活动路径问题。
+- Touched slice: RetrievalPractice queue manual-membership active path across `src/core/queue/domain/{RetrievalPracticeQueue.ts,ManualCardCollectionQueue.ts}` and focused queue regressions.
+- Debt fixed now: RetrievalPractice 现在按 `card.id + blockId` 双身份识别手动加入卡，评分后能清掉历史 blockId-only 手动队列项；队列重载时会把“本学习日已复习且 due 已排出当前 day window”的手动卡从 `retrievalPracticeQueue` 持久化集合里剪掉，避免已经完成并排到未来的 FSRS 卡再次进入复习、自然显示 `2/3/4D`。
+- Debt deferred: 暂未把手动队列持久化结构升级成带 source/timestamp 的 entry metadata，也未改变 Review UI 按钮组件或 FSRS 参数。
+- Why deferred: 当前可复现根因在 RetrievalPractice 手动集合遗留和身份不一致；引入手动队列 metadata 会扩大到所有手动队列的存储兼容、迁移和 UI 文案语义，需要单独设计。
+- Next safe step: 如果用户仍能通过“含今日已复习”显式反复加入已完成卡，再评估是否给该入口增加更明确的 product guard 或把重复练习转到非调度型临时练习队列。
+- Validation: focused RetrievalPractice add-card/manual cleanup tests and dynamic review-removal tests; `pnpm build`; `git diff --check`.
 
 ### 2026-04-27 - active storage FSRS drift repair
 

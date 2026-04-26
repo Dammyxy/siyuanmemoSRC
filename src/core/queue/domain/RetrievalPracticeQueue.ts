@@ -23,7 +23,7 @@ import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceMana
 import type { AutoFailedCardSinkPort, QueuePersistencePort } from './ports';
 import { NOOP_AUTO_FAILED_CARD_SINK, NOOP_QUEUE_PERSISTENCE } from './ports';
 import { resolveCardId } from '../../../diagnostics/type-guards';
-import { getCurrentDayEnd, getTodayRange } from '../../../utils/dateUtils';
+import { getCurrentDayEnd } from '../../../utils/dateUtils';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('RetrievalPracticeQueue');
@@ -166,15 +166,9 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
      */
     public async addCard(
         card: FSRSCard | QueueItem | string,
-        source: QueueAddSource = 'manual'
+        _source: QueueAddSource = 'manual'
     ): Promise<void> {
         const { cardId, existingCard } = await this.resolveTargetCardForAdd(card);
-
-        if (source !== 'manual-add-all' && existingCard && this.hasReviewedToday(existingCard)) {
-            const message = `卡片 ${cardId} 今日已复习，不能重复加入提取练习队列`;
-            logger.info(`[Add to outstanding] Reject card ${cardId}: already reviewed today (source=${source})`);
-            throw new Error(message);
-        }
 
         await this.addCardToCollection(cardId, { logger });
         await this.boostPrioritySlightly(existingCard);
@@ -208,6 +202,16 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
     }
 
     protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {
+        const { existingCard } = await this.resolveTargetCardForAdd(cardIdOrBlockId);
+        if (existingCard) {
+            const removed = await this.syncManualMembershipForCard(existingCard, logger, {
+                notifyObservers: false,
+            });
+            if (removed) {
+                return;
+            }
+        }
+
         await this.removeCardFromCollection(cardIdOrBlockId, {
             logger,
             addToTemporaryBlacklist: false,
@@ -238,12 +242,16 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
     }
     
     protected override isCardInActiveWindow(card: FSRSCard, now = Date.now()): boolean {
-        if (this.manualCards.has(card.id)) {
+        if (this.isManualCard(card)) {
             logger.debug(`isCardInActiveWindow: Card ${card.id} is manually added, remove after review`);
             return false;
         }
 
         return Number(card.due) <= this.getCurrentDayEnd(this.getDayStartHour(), now);
+    }
+
+    private isManualCard(card: Pick<FSRSCard, 'id' | 'blockId'>): boolean {
+        return this.manualCards.has(card.id) || this.manualCards.has(card.blockId);
     }
 
     private async resolveTargetCardForAdd(
@@ -262,13 +270,6 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
         }
 
         return { cardId: candidateId, existingCard: null };
-    }
-
-    private hasReviewedToday(card: FSRSCard): boolean {
-        const dayStartHour = this.getDayStartHour();
-        const today = getTodayRange(dayStartHour);
-        const lastReview = Number(card.lastReview ?? 0);
-        return Number.isFinite(lastReview) && lastReview >= today.start && lastReview < today.end;
     }
 
     private async boostPrioritySlightly(card: FSRSCard | null): Promise<void> {
