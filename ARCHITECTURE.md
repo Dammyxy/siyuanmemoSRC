@@ -96,6 +96,8 @@ flowchart TD
 - 初始化 `UnifiedDataSourceManager`
 - 装配 `CardApplicationService` / `BrowserApplicationService` / `ReviewApplicationService`
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`
+- 装配 Browser 所需的 Siyuan port 与 datasource factory；`BrowserApplicationService` 不直接依赖 `src/ui/browser/*`
+- 装配 Review special renderer service；`ReviewContent.vue` 不直接创建 core infrastructure repository
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
@@ -129,8 +131,9 @@ flowchart TD
    - `TabApplicationService`
    - `UnifiedDataSourceManager` facade
 4. Browser 在全量 / 队列 / deck 等模式下，通过 application queries 或统一队列快照加载数据
-5. 右键 `取消闪卡` 通过当前数据源持有的 `UnifiedDataSourceManager.deleteCard(cardId)` 删除浏览器实际展示的 FSRS card row；删除链路只提交本地聚合与块属性清理，并统一发布带 `blockId` 的 `CardDeleted / CardsDeleted` 事件，由 `RiffSyncEventHandler -> XiuyuanSyncService.deleteSync*()` 完成 native Riff 删除与 blacklist fallback
-6. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动
+5. Browser DTO、query parser、stable row id 与排序显示契约以 `src/types/browser.ts` 为共享契约；application query kernel 只依赖 `src/application/queries/browser/shared/*` 与 `src/types/browser.ts`，不再 import UI browser module
+6. 右键 `取消闪卡` 通过当前数据源持有的 `UnifiedDataSourceManager.deleteCard(cardId)` 删除浏览器实际展示的 FSRS card row；删除链路只提交本地聚合与块属性清理，并统一发布带 `blockId` 的 `CardDeleted / CardsDeleted` 事件，由 `RiffSyncEventHandler -> XiuyuanSyncService.deleteSync*()` 完成 native Riff 删除与 blacklist fallback
+7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection 等 Siyuan 调用必须显式拿到 `BrowserSiyuanPort`，不再依赖 browser service 模块全局状态
 
 ### 4.2 Review
 
@@ -160,7 +163,7 @@ flowchart TD
    - `更多` 菜单中的暂停动作走 `CardEditorApplicationService`
    - `更多` 菜单中的删除动作走 `CardApplicationService`
    - progressive excerpt / open-as / fullscreen / SRS editor 继续复用既有 application / dialog 主链
-7. `ReviewContent.vue` 继续在 `主 Protyle / special renderer` 之间路由；其中普通 `builtin-multi-cloze` Item 已回到主 Protyle / 原生编辑路径，历史 `quick-default` 标记也会被普通 multi-cloze 契约压回 native path，只有 `inline-formula-cloze` 继续走专用 `MultiClozeCardRenderer`；`UnifiedReviewAdapter` 会把普通 multi-cloze 与 topic-derived Item 标记为 native inline hidden 候选，最终由 `ReviewContent` 的 DOM 检测按思源 flashcard 配置给 `mark/list/heading/superBlock` 加隐藏 class；special renderer 仍通过 `getEditableSource()` 向 `ReviewView.vue` 暴露当前可编辑块，同块编辑保存或源块 transaction 刷新则走 `refreshVisibleContent()`：主 Protyle 调 `reload(false)`，special renderer 只重挂自身子组件，外层 review content key 只表达卡片身份
+7. `ReviewContent.vue` 继续在 `主 Protyle / special renderer` 之间路由；special renderer 所需的 quick / descriptor render services 由 `createReviewRenderServices()` 在 application factory 边界创建后注入，UI 不再直接 new core infrastructure repository；其中普通 `builtin-multi-cloze` Item 已回到主 Protyle / 原生编辑路径，历史 `quick-default` 标记也会被普通 multi-cloze 契约压回 native path，只有 `inline-formula-cloze` 继续走专用 `MultiClozeCardRenderer`；`UnifiedReviewAdapter` 会把普通 multi-cloze 与 topic-derived Item 标记为 native inline hidden 候选，最终由 `ReviewContent` 的 DOM 检测按思源 flashcard 配置给 `mark/list/heading/superBlock` 加隐藏 class；special renderer 仍通过 `getEditableSource()` 向 `ReviewView.vue` 暴露当前可编辑块，同块编辑保存或源块 transaction 刷新则走 `refreshVisibleContent()`：主 Protyle 调 `reload(false)`，special renderer 只重挂自身子组件，外层 review content key 只表达卡片身份
 8. review tab 现在区分 `surface id` 与 `shared review session id`：前者仍用于 tab 生命周期/AI companion 绑定，后者只用于插件托管分屏共享同一套 review controller
 
 当前 review surface 路由补充：
@@ -350,9 +353,10 @@ UI surface：
 适配器、工厂、查询、用例：
 
 - `src/application/factories/createUnifiedReviewDialog.ts`：统一 review dialog 工厂。
+- `src/application/factories/createReviewRenderServices.ts`：review special renderer service 装配边界，集中创建 quick / descriptor render services。
 - `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`IncrementalLearning` 现在走独立的 requery-after-feedback 模式，评分/跳过后只记录一次性 `avoidOnceCardId + avoidOnceBlockId` 可见身份，下一次 `next()` 会重新读取 queue 视图并优先切到不同 source block 的卡，只有没有替代 block 时才退化到同 block 兄弟卡或同卡，而不是继续复用 `pendingRotateCardId + currentIndex + cache hot patch` 的本地轮转链；同时它也是 review 当前卡显示态 hydration 的唯一活跃入口，`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 逻辑，而不是在 controller 再复制一份预览计算；它直接注册为 `UnifiedDataSourceManager` observer，收到当前队列 `queue-changed` 会失效本地缓存，收到 `card-deleted` 会从缓存与前进 buffer 移除匹配卡；如果评分时确认当前 active item 已不存在，则清理 stale item 并抛 `QueueItemUnavailableError`
 - `src/application/adapters/UnifiedReviewAdapter.ts`：review UI 状态与动作适配。
-- `src/application/queries/browser/*`：Browser 查询对象与处理器。
+- `src/application/queries/browser/*`：Browser 查询对象与处理器；shared 目录承载 application 可用的 browser row projection / sort / filter helper。
 - `src/application/queries/card/*`：卡片查询对象与处理器。
 - `src/application/queries/DataAccessFacade.ts`：查询门面与统一数据访问入口。
 - `src/application/usecases/card/*`：卡片 CRUD 用例。
@@ -405,7 +409,6 @@ Handlers / entries / helpers：
 - `src/core/shared/domain/events/EventBus.ts`：共享事件总线。
 - `src/core/infrastructure/websocket/TransactionWebSocketService.ts`：事务级 `ws-main` 事件总线订阅与 handler 分发；当前是 AutoCard、doc tree review scope、native riff add/remove 路由的唯一活跃 transaction 入口。
 - `src/core/infrastructure/websocket/QuickCardWebSocketService.ts`：旧快速卡 websocket；当前不在 active runtime 链路中，仅保留作历史实现参考，不应重新接回第二条监听源。
-- `src/core/extensions/*`：可扩展 queue / review provider 抽象。
 - `src/core/siyuan/*`：核心 Siyuan API 封装；不应成为 UI / application 直连入口。
 
 ### 5.4 Infrastructure 层（`src/infrastructure/*`）
@@ -444,7 +447,7 @@ Browser：
 - `src/ui/browser/SRSBrowser.vue`：Browser 主视图。
 - `src/ui/browser/SRSBrowserAdapter.ts` / `SRSBrowserQueueView.ts`：Browser 桥接与队列视图逻辑。
 - `src/ui/browser/composables/*`：Browser 状态、刷新、排序、筛选、动作封装。
-- `src/ui/browser/datasource/*`：Browser 不同数据源实现。
+- `src/ui/browser/datasource/*`：Browser UI-side datasource 实现；共享 DTO、query parser、row id、sort contract 已迁到 `src/types/browser.ts`，application query 不从这里取契约。
 - `src/ui/browser/components/*` / `dialogs/*` / `utils/*`：Browser 交互组件与工具。
 
 Review：
@@ -453,7 +456,7 @@ Review：
 - `src/ui/review/v2/useReviewSession.ts`：复习会话状态机。
 - `src/ui/review/v2/*`：header / actions / overlays / providers / dialogs / neural tab bridge 等 review 子组件。
 - `src/ui/review/components/*`：各卡型渲染组件。
-- `src/ui/review/ReviewViewAdapter.ts`：review 适配层。
+- `src/ui/review/index.ts`：只导出 active v2 review surface；历史 `ReviewViewAdapter` / provider-backed review path 不再是运行时入口。
 
 移动端、渐进阅读、AI：
 
@@ -476,6 +479,7 @@ Review：
 核心类型：
 
 - `src/types/unified-data-source.ts`：`QueueType`、`IReviewQueue`、observer、Neural Roam session contract。
+- `src/types/browser.ts`：Browser 共享 DTO、open-state、筛选/排序契约、query parser、stable card id helper；用于隔离 application query 与 UI browser module。
 - `src/types/card.ts` / `review.ts` / `scheduler.ts` / `settings.ts`：各主业务域类型。
 - `src/types/ai.ts`：AI workbench surface、session 与交互契约。
 - `src/types/result.ts`：统一 Result 类型。
@@ -557,6 +561,13 @@ Browser 核心职责：
 - 文档预览与单路径打开
 - Neural Roam 的 browser-side 子视图
 
+Browser 分层边界：
+
+- `src/types/browser.ts` 是 Browser surface 与 application query 共用的 DTO / open state / query parser / row identity / sort display contract 来源。
+- `src/application/queries/browser/shared/*` 承载 application 可复用的 row projection、filter 与排序逻辑；`BrowserApplicationService`、`BrowserDeckQueryKernel`、`QueueBrowserQueryKernel` 不从 `src/ui/browser/*` 导入契约或 helper。
+- `src/ui/browser/browserService.ts` 只保留 UI-side helper；SQL、消息、文档树和 block projection 必须显式传入 `BrowserSiyuanPort` / `UnifiedDataSourceManager`，不再维护全局 browser context。
+- `src/ui/browser/browserService.v2.ts` 已删除，旧 import 不应恢复。
+
 当前 Browser 主刷新机制：
 
 - `useBrowserAdapterSync`：订阅数据变化
@@ -568,6 +579,7 @@ Browser 不应：
 - 直接实现调度规则
 - 绕过 application service 直接写入底层存储
 - 把 `core/siyuan/*` 当成默认调用入口
+- 让 application query/service 反向 import `@/ui/browser/*`
 
 当前 suspended / pause 真相源补充：
 
@@ -585,6 +597,7 @@ Review surface 的当前统一点是：
 - session 由 `createUnifiedReviewDialog` 建立
 - queue 行为经 `UnifiedQueueStrategy`
 - UI shape 经 `UnifiedReviewAdapter`
+- special renderer service 由 `createReviewRenderServices()` 创建并注入 `ReviewContent.vue`
 
 Review 运行时要点：
 
@@ -593,12 +606,14 @@ Review 运行时要点：
 - `reviewSessionController.ts` 负责真正的 review session 状态机、动作串行化，以及多 surface 共享时的单一 authoritative controller；它不自己计算 `nextDues`，只在 restore/refresh/load-by-block 等直写当前卡路径上调用 queue strategy 的显示态 hydration
 - queue-specific header / actions / variant 由 adapter 与 queue config 决定
 - `TabManager` 负责 review tab、browser handoff、AI companion tab 复用；插件托管 review 分屏时会携带 `sharedReviewSessionId + reviewState`
+- deprecated provider-backed path 已移除：`ProviderBackedQueueStrategy`、`QueueProvider`、`ReviewViewAdapter`、`ReviewViewController` 与 `src/core/extensions/*` 不再属于 active review runtime
 
 这意味着：
 
 - 评分、跳过、custom action 先查 `useReviewSession.ts`
 - 如果是 queue semantics，继续查 `UnifiedQueueStrategy.ts`
 - 如果是 UI 展示或 header variant，继续查 `UnifiedReviewAdapter.ts`
+- 如果是 special renderer infrastructure 装配，查 `createReviewRenderServices.ts`，不要在 UI 组件里直接创建 repository / Siyuan adapter
 
 当前 review-side suspend 补充：
 
@@ -823,6 +838,7 @@ UI 层：
 - `ISchedulerRouter`
 - `IQueueStrategy`
 - `AIWorkbenchOpenOptions`
+- `BrowserCard` / `BrowserOpenState` / `ParsedBrowserQuery` in `src/types/browser.ts`
 
 边界规则：
 
@@ -830,9 +846,12 @@ UI 层：
 2. Application 通过 `src/application/ports/*` 依赖外部系统；`src/infrastructure/*` 提供实现。
 3. Domain 规则放在 `src/core/*`，不要把业务规则塞回 UI 或 adapter。
 4. `src/core/siyuan/*` 不是 UI / application 默认直连边界；优先端口 + adapter。
-5. 不要把以下路径当活跃架构基线：
+5. Application query/service 不从 `@/ui/browser/*` 取 Browser 契约；共享契约放在 `src/types/browser.ts` 或 application query shared helper。
+6. UI 不新增 `@/infrastructure/*` 直连；确有历史例外时需要在 `scripts/check-boundaries.cjs` allowlist 中显式说明。
+7. 不要把以下路径当活跃架构基线：
    - `src/domain/queues/*`
    - `src/index.simplified.ts`
+   - `src/core/extensions/*`
    - `*.backup`
    - `*.bak`
    - `*.corrupted`
@@ -852,15 +871,17 @@ UI 层：
 
 ---
 
-## 14. 当前状态快照（2026-04-25）
+## 14. 当前状态快照（2026-04-26）
 
 当前架构基线：
 
 - 运行时唯一组合根是 `ApplicationContext`
 - 插件入口是 `src/index.ts`
 - Browser 与 Review 共享 `UnifiedDataSourceManager` + `SchedulerRouter`
+- Browser 共享契约已收口到 `src/types/browser.ts`；application query kernel 不再 import UI browser helper，UI-side browser service 也不再保存全局 manager/api/query 状态
 - `DialogManager` 负责 dialog surface，`TabManager` 负责 tab surface 与 surface handoff
 - 桌面端标准 review 入口现在由 `DialogManager` 按 `settings.ui.reviewOpenInNewTabByDefault` / `reviewOpenFullscreenByDefault` 做统一路由；filter-backed review 进入 tab 时通过 transfer-state 恢复 session
+- Review runtime 只保留 `ReviewView.vue` v2 + `UnifiedQueueStrategy` + `UnifiedReviewAdapter` 主链；旧 provider-backed review extension path 已删除，special renderer service 由 application factory 注入
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中

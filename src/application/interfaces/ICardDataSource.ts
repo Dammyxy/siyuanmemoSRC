@@ -18,7 +18,7 @@
  * @see .kiro/specs/ddd-refactoring/interface-unification-plan.md - 接口统一方案
  */
 
-import type { BrowserCard } from '@/ui/browser/types';
+import type { BrowserCard } from '@/types/browser';
 
 /**
  * 排序模型

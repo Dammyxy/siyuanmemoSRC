@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   batchSuspend,
   batchDelete,
-  clearGlobalBrowserContext,
   invalidateCardCache,
   loadQueueCards,
-  setGlobalBrowserContext,
 } from '../browserService';
 
 function makeFsrsCard(id: string, blockId: string) {
@@ -51,7 +49,6 @@ function createSiyuanApi() {
 describe('browserService block-id paths', () => {
   afterEach(() => {
     invalidateCardCache();
-    clearGlobalBrowserContext();
     vi.restoreAllMocks();
   });
 
@@ -60,9 +57,8 @@ describe('browserService block-id paths', () => {
     const manager = {
       getCards: vi.fn().mockResolvedValue([makeFsrsCard('card-a', 'block-a')]),
     };
-    setGlobalBrowserContext(manager as any, '', siyuanApi as any);
 
-    const rows = await loadQueueCards(['block-a'], '', manager as any);
+    const rows = await loadQueueCards(['block-a'], '', manager as any, siyuanApi as any);
 
     expect(manager.getCards).toHaveBeenCalledTimes(1);
     expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['block-a'] });
@@ -97,7 +93,6 @@ describe('browserService block-id paths', () => {
       deleteCard: vi.fn(),
       updateCard: vi.fn().mockResolvedValue(undefined),
     };
-    setGlobalBrowserContext(manager as any, '', siyuanApi as any);
 
     const updatedBlocks = await batchSuspend(['block-a'], true, manager as any);
 

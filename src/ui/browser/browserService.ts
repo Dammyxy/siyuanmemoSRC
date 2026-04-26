@@ -26,18 +26,20 @@ import {
     calculateRetrievability,
     formatDueDate,
     formatHistoryDate,
+    checkNumberCondition,
+    matchesParsedQuery,
+    parseQuery,
     truncateContent
-} from './types';
-
-// ============================================================================
-// 全局上下文（用于简化 loadQueueCards 调用）
-// ============================================================================
+} from '@/types/browser';
+export {
+    matchesParsedQuery,
+    parseQuery,
+    type NumberCondition,
+    type ParsedBrowserQuery,
+} from '@/types/browser';
 
 const logger = createLogger('browserService');
 
-let globalUnifiedDataSourceManager: UnifiedDataSourceManager | null = null;
-let globalBrowserSiyuanApi: BrowserSiyuanPort | null = null;
-let globalQueryText: string = '';
 type BrowserBatchManagerPort = Pick<UnifiedDataSourceManager, 'getCards' | 'updateCard' | 'deleteCard'>;
 export type BrowserCardProjection = Omit<BrowserCard, 'note' | 'meta'>;
 
@@ -90,49 +92,30 @@ const BROWSER_CARD_TYPES: BrowserCardType[] = [
     'webpage',
 ];
 
-let cachedAttrKeys: BrowserAttrKeys | null = null;
+let cachedAttrKeys: { signature: string; keys: BrowserAttrKeys } | null = null;
 
 /**
- * 设置全局浏览器上下文
- * 
- * 用于简化 loadQueueCards 的调用，避免在每个调用点都传递相同的参数。
- * 应该在 SRSBrowser 组件初始化时调用。
- * 
- * @param manager 统一数据源管理器
- * @param queryText 当前搜索查询文本（可选）
+ * @deprecated Browser runtime dependencies are now passed explicitly by callers.
  */
 export function setGlobalBrowserContext(
-    manager: UnifiedDataSourceManager,
-    queryText: string = '',
-    siyuanApi?: BrowserSiyuanPort
+    _manager: UnifiedDataSourceManager,
+    _queryText: string = '',
+    _siyuanApi?: BrowserSiyuanPort
 ): void {
-    globalUnifiedDataSourceManager = manager;
-    globalQueryText = queryText;
-    if (siyuanApi) {
-        globalBrowserSiyuanApi = siyuanApi;
-        cachedAttrKeys = null;
-    }
-    logger.debug('Global context updated:', {
-        hasManager: !!manager,
-        hasSiyuanApi: !!globalBrowserSiyuanApi,
-        queryText: queryText || '(empty)'
-    });
+    logger.debug('Ignored deprecated setGlobalBrowserContext call; browser dependencies are explicit now.');
 }
 
 /**
- * 清除全局浏览器上下文
+ * @deprecated Browser runtime dependencies are now passed explicitly by callers.
  */
 export function clearGlobalBrowserContext(): void {
-    globalUnifiedDataSourceManager = null;
-    globalBrowserSiyuanApi = null;
     cachedAttrKeys = null;
-    globalQueryText = '';
-    logger.debug('Global context cleared');
+    logger.debug('Ignored deprecated clearGlobalBrowserContext call; browser dependencies are explicit now.');
 }
 
-function resolveSiyuanApi(plugin?: Plugin): BrowserSiyuanPort {
-    if (globalBrowserSiyuanApi) {
-        return globalBrowserSiyuanApi;
+function resolveSiyuanApi(plugin?: Plugin, explicitSiyuanApi?: BrowserSiyuanPort): BrowserSiyuanPort {
+    if (explicitSiyuanApi) {
+        return explicitSiyuanApi;
     }
 
     const pluginLike = plugin as BrowserPluginLike | undefined;
@@ -140,11 +123,10 @@ function resolveSiyuanApi(plugin?: Plugin): BrowserSiyuanPort {
     const browserService = context?.getBrowserService?.();
     const siyuanApi = browserService?.getSiyuanApi?.();
     if (siyuanApi) {
-        globalBrowserSiyuanApi = siyuanApi;
         return siyuanApi;
     }
 
-    throw new Error('Browser Siyuan API not initialized. Please initialize browser context with siyuanApi.');
+    throw new Error('Browser Siyuan API not provided. Pass siyuanApi explicitly or provide a plugin context browser service.');
 }
 
 function resolveUnifiedDataSourceManager(plugin: Plugin): UnifiedDataSourceManager | null {
@@ -167,32 +149,49 @@ function toBrowserCardType(value: unknown): BrowserCardType | undefined {
     return BROWSER_CARD_TYPES.includes(normalized) ? normalized : undefined;
 }
 
-function getAttrKeys(plugin?: Plugin): BrowserAttrKeys {
-    if (cachedAttrKeys) {
-        return cachedAttrKeys;
+function getAttrKeys(siyuanApi: BrowserSiyuanPort): BrowserAttrKeys {
+    const signature = [
+        siyuanApi.ATTR_CARD_ID,
+        siyuanApi.ATTR_PRIORITY,
+        siyuanApi.ATTR_CARD_TYPE,
+        siyuanApi.ATTR_A_FACTOR,
+    ].join('|');
+    if (cachedAttrKeys?.signature === signature) {
+        return cachedAttrKeys.keys;
     }
 
-    const siyuanApi = resolveSiyuanApi(plugin);
-    cachedAttrKeys = {
+    const keys = {
         cardId: siyuanApi.ATTR_CARD_ID,
         priority: siyuanApi.ATTR_PRIORITY,
         cardType: siyuanApi.ATTR_CARD_TYPE,
         aFactor: siyuanApi.ATTR_A_FACTOR,
     };
-    return cachedAttrKeys;
+    cachedAttrKeys = { signature, keys };
+    return keys;
 }
 
-export async function runBrowserSql<T extends SqlRow = SqlRow>(stmt: string): Promise<T[]> {
-    const rows = await resolveSiyuanApi().sql(stmt);
+export async function runBrowserSql<T extends SqlRow = SqlRow>(
+    stmt: string,
+    siyuanApi: BrowserSiyuanPort,
+): Promise<T[]> {
+    const rows = await siyuanApi.sql(stmt);
     return Array.isArray(rows) ? (rows as T[]) : [];
 }
 
-export async function pushBrowserMsg(msg: string, timeout?: number): Promise<void> {
-    await resolveSiyuanApi().pushMsg(msg, timeout);
+export async function pushBrowserMsg(
+    msg: string,
+    timeout: number | undefined,
+    siyuanApi: BrowserSiyuanPort,
+): Promise<void> {
+    await siyuanApi.pushMsg(msg, timeout);
 }
 
-export async function pushBrowserErrMsg(msg: string, timeout?: number): Promise<void> {
-    await resolveSiyuanApi().pushErrMsg(msg, timeout);
+export async function pushBrowserErrMsg(
+    msg: string,
+    timeout: number | undefined,
+    siyuanApi: BrowserSiyuanPort,
+): Promise<void> {
+    await siyuanApi.pushErrMsg(msg, timeout);
 }
 
 function resolveBatchManager(manager?: BrowserBatchManagerPort): BrowserBatchManagerPort | null {
@@ -524,7 +523,7 @@ async function loadAllCardsRaw(
                     const batchIds = blockIds.slice(i, i + BATCH_SIZE);
                     const batchCards = fsrsCards.slice(i, i + BATCH_SIZE);
                     
-                    const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(batchIds);
+                    const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(batchIds, siyuanApi);
                     
                     logger.info(`[SiYuanMemo][CardBrowser] 🔍 Batch ${i}: contentMap size = ${contentMap.size}`);
                     
@@ -593,7 +592,8 @@ async function loadAllCardsRaw(
  * ✅ 优化：为概念卡获取文档标题
  */
 async function fetchBlockInfoBatched(
-    blockIds: string[]
+    blockIds: string[],
+    siyuanApi: BrowserSiyuanPort,
 ): Promise<{
     attrsMap: Map<string, Record<string, string>>;
     rootIdMap: Map<string, string>;
@@ -609,7 +609,7 @@ async function fetchBlockInfoBatched(
         return { attrsMap, rootIdMap, tagsMap, contentMap };
     }
 
-    const attrKeys = getAttrKeys();
+    const attrKeys = getAttrKeys(siyuanApi);
     const BATCH_SIZE = 500;
     
     for (let i = 0; i < blockIds.length; i += BATCH_SIZE) {
@@ -618,7 +618,7 @@ async function fetchBlockInfoBatched(
 
         const [blocksResult, attrsResult] = await Promise.all([
             // 🆕 添加 type 和 content 字段，用于识别文档块并获取标题
-            runBrowserSql<BlockInfoSqlRow>(`SELECT id, root_id, ial, type, content FROM blocks WHERE id IN (${inClause})`),
+            runBrowserSql<BlockInfoSqlRow>(`SELECT id, root_id, ial, type, content FROM blocks WHERE id IN (${inClause})`, siyuanApi),
             runBrowserSql<BlockAttrSqlRow>(`
                 SELECT block_id, name, value
                 FROM attributes
@@ -629,7 +629,7 @@ async function fetchBlockInfoBatched(
                     '${attrKeys.cardType}',
                     '${attrKeys.aFactor}'
                 )
-            `)
+            `, siyuanApi)
         ]);
 
         for (const row of blocksResult) {
@@ -688,8 +688,7 @@ export async function loadCards(
         return [];
     }
 
-    // 从应用层服务解析并缓存 BrowserSiyuanPort。
-    resolveSiyuanApi(plugin);
+    const siyuanApi = resolveSiyuanApi(plugin);
 
     const unifiedDataSourceManager = resolveUnifiedDataSourceManager(plugin);
     if (!unifiedDataSourceManager) {
@@ -784,166 +783,7 @@ export function getCacheStats(): { count: number; age: number; valid: boolean } 
 // 查询和筛选逻辑（从原文件复制）
 // ============================================================================
 
-/** 数值比较条件 */
-export interface NumberCondition {
-    operator: '<' | '>' | '<=' | '>=' | '=' | '!=';
-    value: number;
-}
-
-export interface ParsedBrowserQuery {
-    text: string;
-    tags: string[];
-    decks: string[];
-    states: CardState[];
-    docs: string[];
-    conditions: {
-        priority?: NumberCondition[];
-        interval?: NumberCondition[];
-        reps?: NumberCondition[];
-        lapses?: NumberCondition[];
-        difficulty?: NumberCondition[];
-        retrievability?: NumberCondition[];
-        stability?: NumberCondition[];
-    };
-}
-
-export function parseQuery(input: string): ParsedBrowserQuery {
-    const tokens = (input || '').trim().split(/\s+/).filter(Boolean);
-    const tags: string[] = [];
-    const decks: string[] = [];
-    const docs: string[] = [];
-    const states: CardState[] = [];
-    const freeText: string[] = [];
-
-    const conditions: ParsedBrowserQuery['conditions'] = {
-        priority: [],
-        interval: [],
-        reps: [],
-        lapses: [],
-        difficulty: [],
-        retrievability: [],
-        stability: [],
-    };
-
-    const pushUnique = (arr: string[], v: string) => {
-        if (!v) return;
-        if (!arr.includes(v)) arr.push(v);
-    };
-
-    const fieldAliases: Record<string, keyof ParsedBrowserQuery['conditions']> = {
-        'prior': 'priority',
-        'priority': 'priority',
-        'intrv': 'interval',
-        'interval': 'interval',
-        'reps': 'reps',
-        'lapses': 'lapses',
-        'dif': 'difficulty',
-        'difficulty': 'difficulty',
-        'fi': 'retrievability',
-        'retrievability': 'retrievability',
-        'af': 'stability',
-        'stability': 'stability',
-    };
-
-    const parseNumberCondition = (token: string): boolean => {
-        // 🔧 修复：支持全角符号和 HTML 转义符号
-        // 将全角符号转换为半角符号
-        let normalizedToken = token
-            .replace(/＜/g, '<')
-            .replace(/＞/g, '>')
-            .replace(/＝/g, '=')
-            .replace(/！/g, '!');
-        
-        // 将 HTML 转义符号转换为半角符号
-        normalizedToken = normalizedToken
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&le;/g, '<=')
-            .replace(/&ge;/g, '>=');
-        
-        const match = normalizedToken.match(/^([a-zA-Z_]+)(<=|>=|<|>|=|!=)(-?\d+(\.\d+)?)$/);
-        if (!match) return false;
-
-        const [, field, operator, valueStr] = match;
-        const fieldName = fieldAliases[field.toLowerCase()];
-        if (!fieldName) return false;
-
-        const value = parseFloat(valueStr);
-        if (isNaN(value)) return false;
-
-        conditions[fieldName]!.push({ operator: operator as NumberCondition['operator'], value });
-        return true;
-    };
-
-    for (const token of tokens) {
-        if (parseNumberCondition(token)) {
-            continue;
-        }
-
-        const idx = token.indexOf(':');
-        if (idx <= 0) {
-            freeText.push(token);
-            continue;
-        }
-
-        const key = token.slice(0, idx).toLowerCase();
-        const rawValue = token.slice(idx + 1).trim();
-        if (!rawValue) continue;
-
-        if (key === 'tag') {
-            const v = rawValue.replace(/^#+|#+$/g, '');
-            pushUnique(tags, v);
-            continue;
-        }
-        if (key === 'deck') {
-            pushUnique(decks, rawValue);
-            continue;
-        }
-        if (key === 'doc') {
-            pushUnique(docs, rawValue);
-            continue;
-        }
-        if (key === 'state') {
-            const parts = rawValue.split(/[\/,|]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
-            for (const p of parts) {
-                if (p === 'new') states.push(CardState.New);
-                else if (p === 'review') states.push(CardState.Review);
-                else if (p === 'learning') states.push(CardState.Learning);
-                else if (p === 'relearning') states.push(CardState.Relearning);
-            }
-            continue;
-        }
-
-        freeText.push(token);
-    }
-
-    return {
-        text: freeText.join(' ').trim(),
-        tags,
-        decks,
-        states: Array.from(new Set(states)),
-        docs,
-        conditions,
-    };
-}
-
-function checkNumberCondition(actualValue: number, conditions: NumberCondition[]): boolean {
-    if (conditions.length === 0) return true;
-
-    return conditions.every(cond => {
-        switch (cond.operator) {
-            case '<': return actualValue < cond.value;
-            case '>': return actualValue > cond.value;
-            case '<=': return actualValue <= cond.value;
-            case '>=': return actualValue >= cond.value;
-            case '=': return actualValue === cond.value;
-            case '!=': return actualValue !== cond.value;
-            default: return true;
-        }
-    });
-}
-
-function applyParsedQuery(cards: BrowserCard[], parsed: ParsedBrowserQuery): BrowserCard[] {
+function applyParsedQuery(cards: BrowserCard[], parsed: ReturnType<typeof parseQuery>): BrowserCard[] {
     let next = cards;
 
     if (parsed.decks.length > 0) {
@@ -1034,33 +874,6 @@ export function extractSqlStatement(query: string): string | null {
     return match ? match[1].trim() : null;
 }
 
-export function matchesParsedQuery(card: BrowserCard, parsed: ParsedBrowserQuery): boolean {
-    if (parsed.decks.length > 0 && !parsed.decks.includes(card.deckId)) return false;
-    if (parsed.states.length > 0 && !parsed.states.includes(card.state)) return false;
-    if (parsed.docs.length > 0 && (!card.rootId || !parsed.docs.includes(card.rootId))) return false;
-    
-    if (parsed.tags.length > 0) {
-        const tags = card.tags || [];
-        if (!parsed.tags.every(t => tags.includes(t))) return false;
-    }
-    
-    if (parsed.text) {
-        const q = parsed.text.toLowerCase();
-        if (!(card.fullContent || card.content || '').toLowerCase().includes(q)) return false;
-    }
-    
-    const conds = parsed.conditions;
-    if (conds.priority && !checkNumberCondition(card.priority, conds.priority)) return false;
-    if (conds.interval && !checkNumberCondition(card.interval, conds.interval)) return false;
-    if (conds.reps && !checkNumberCondition(card.reps, conds.reps)) return false;
-    if (conds.lapses && !checkNumberCondition(card.lapses, conds.lapses)) return false;
-    if (conds.difficulty && !checkNumberCondition(card.difficulty, conds.difficulty)) return false;
-    if (conds.retrievability && !checkNumberCondition(card.retrievability, conds.retrievability)) return false;
-    if (conds.stability && !checkNumberCondition(card.stability, conds.stability)) return false;
-    
-    return true;
-}
-
 // ============================================================================
 // 其他辅助函数
 // ============================================================================
@@ -1077,7 +890,10 @@ export interface DocTreeNode {
     title: string;
 }
 
-export async function getDocTree(rootIds: string[]): Promise<DocTreeNode[]> {
+export async function getDocTree(
+    rootIds: string[],
+    siyuanApi: BrowserSiyuanPort,
+): Promise<DocTreeNode[]> {
     const ids = Array.from(new Set((rootIds || []).filter(Boolean)));
     if (ids.length === 0) return [];
     
@@ -1088,7 +904,7 @@ export async function getDocTree(rootIds: string[]): Promise<DocTreeNode[]> {
             WHERE id IN (${ids.map(id => `'${escapeSQL(id)}'`).join(',')})
         `;
         
-        const rows = await runBrowserSql<DocTreeSqlRow>(sqlQuery);
+        const rows = await runBrowserSql<DocTreeSqlRow>(sqlQuery, siyuanApi);
         const foundIds = new Set(rows.map((row) => row.id));
         const result = rows.map((row) => {
             const title = (row.content || '').trim() || String(row.hpath || '').split('/').pop() || row.id;
@@ -1111,17 +927,19 @@ export async function getDocTree(rootIds: string[]): Promise<DocTreeNode[]> {
 export async function loadQueueCards(
     blockIds: string[],
     queryText: string | undefined,
-    unifiedDataSourceManager: UnifiedDataSourceManager
+    unifiedDataSourceManager: UnifiedDataSourceManager,
+    siyuanApi: BrowserSiyuanPort,
 ): Promise<BrowserCard[]> {
     return buildBrowserCardsByBlockIds(blockIds, {
         queryText,
         applyQueryFilter: true,
         manager: unifiedDataSourceManager,
+        siyuanApi,
     });
 
     const ids = Array.from(new Set((blockIds || []).filter(Boolean)));
     if (ids.length === 0) return [];
-    const attrKeys = getAttrKeys();
+    const attrKeys = getAttrKeys(siyuanApi);
 
     try {
         // 从缓存或统一数据源获取卡片
@@ -1148,7 +966,7 @@ export async function loadQueueCards(
         const allCards = await router.getCards();
         const cardMap = new Map(allCards.map(c => [c.blockId, c]));
         
-        const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids);
+        const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids, siyuanApi);
         
         // 🆕 优化：合并多次遍历为一次，减少中间数组创建
         const parsed = parseQuery(queryText || '');
@@ -1256,13 +1074,14 @@ export async function loadQueueCards(
  * ```
  */
 export async function loadQueueCardsSimple(
-    blockIds: string[]
+    blockIds: string[],
+    options: {
+        queryText?: string;
+        manager: UnifiedDataSourceManager;
+        siyuanApi: BrowserSiyuanPort;
+    },
 ): Promise<BrowserCard[]> {
-    if (!globalUnifiedDataSourceManager) {
-        logger.error('Global context not initialized. Call setGlobalBrowserContext() first.');
-        return [];
-    }
-    return loadQueueCards(blockIds, globalQueryText, globalUnifiedDataSourceManager);
+    return loadQueueCards(blockIds, options.queryText, options.manager, options.siyuanApi);
 }
 
 function toBrowserCardProjection(card: BrowserCard): BrowserCardProjection {
@@ -1274,10 +1093,11 @@ type LoadBrowserCardsByBlockIdsOptions = {
     queryText?: string;
     applyQueryFilter?: boolean;
     manager?: UnifiedDataSourceManager;
+    siyuanApi?: BrowserSiyuanPort;
 };
 
 function resolveBrowserManager(manager?: UnifiedDataSourceManager): UnifiedDataSourceManager | null {
-    return manager ?? globalUnifiedDataSourceManager;
+    return manager ?? null;
 }
 
 async function buildBrowserCardsByBlockIds(
@@ -1293,7 +1113,6 @@ async function buildBrowserCardsByBlockIds(
         return [];
     }
 
-    const attrKeys = getAttrKeys();
     const applyQueryFilter = options.applyQueryFilter !== false;
     const normalizedQueryText = applyQueryFilter ? options.queryText : undefined;
 
@@ -1315,9 +1134,15 @@ async function buildBrowserCardsByBlockIds(
             }
         }
 
+        const siyuanApi = options.siyuanApi;
+        if (!siyuanApi) {
+            logger.error('Browser Siyuan API not provided for blockId load');
+            return [];
+        }
+        const attrKeys = getAttrKeys(siyuanApi);
         const scopedCards = await loadFsrsCardsByBlockIds(ids, manager);
         const cardMap = new Map(scopedCards.map((card) => [card.blockId, card]));
-        const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids);
+        const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(ids, siyuanApi);
         const parsed = normalizedQueryText ? parseQuery(normalizedQueryText) : null;
         const cards: BrowserCard[] = [];
 
@@ -1667,7 +1492,8 @@ export async function batchReschedule(
  * 批量检测卡片类型并应用到块属性
  */
 export async function batchDetectCardTypes(
-    cards: BrowserCard[]
+    cards: BrowserCard[],
+    options: { siyuanApi?: BrowserSiyuanPort } = {},
 ): Promise<{
     detected: number;
     updated: number;
@@ -1676,7 +1502,12 @@ export async function batchDetectCardTypes(
     if (cards.length === 0) {
         return { detected: 0, updated: 0, failed: 0 };
     }
-    const attrKeys = getAttrKeys();
+    const siyuanApi = options.siyuanApi;
+    if (!siyuanApi) {
+        logger.error('batchDetectCardTypes requires explicit siyuanApi');
+        return { detected: 0, updated: 0, failed: cards.length };
+    }
+    const attrKeys = getAttrKeys(siyuanApi);
 
     try {
         const blockIds = cards.map(c => c.blockId);
@@ -1708,7 +1539,7 @@ export async function batchDetectCardTypes(
                         aFactor = initializeAFactor(card.priority);
                     }
 
-                    await resolveSiyuanApi().setBlockAttrs(card.blockId, attrs);
+                    await siyuanApi.setBlockAttrs(card.blockId, attrs);
 
                     const cacheUpdates: Partial<BrowserCard> = { cardType };
                     if (aFactor !== undefined) {

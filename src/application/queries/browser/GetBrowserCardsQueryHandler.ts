@@ -4,7 +4,6 @@ import { CardScheduleService } from '@/core/card/domain/services/CardScheduleSer
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import type { FSRSCard } from '@/types';
-import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import type {
   BrowserCard,
   GetBrowserCardsQuery,
@@ -20,7 +19,7 @@ export class GetBrowserCardsQueryHandler {
     cardScheduleService: CardScheduleService,
     cardFilterService: CardFilterService,
     private readonly cardSortService: CardSortService,
-    siyuanApi: QuerySiyuanPort = new QuerySiyuanAdapter()
+    siyuanApi: QuerySiyuanPort,
   ) {
     void this.cardSortService;
     this.browserDeckQueryKernel = new BrowserDeckQueryKernel(

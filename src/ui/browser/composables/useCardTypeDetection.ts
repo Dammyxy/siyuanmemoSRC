@@ -1,6 +1,7 @@
 import { ref, computed, onMounted } from 'vue';
 import type { BrowserCard } from '../types';
 import { batchDetectCardTypes } from '../browserService';
+import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('useCardTypeDetection');
@@ -17,7 +18,10 @@ const logger = createLogger('useCardTypeDetection');
  * @param cards 卡片列表的 getter 函数（响应式）
  * @returns Composable 接口
  */
-export function useCardTypeDetection(cards: () => BrowserCard[]) {
+export function useCardTypeDetection(
+  cards: () => BrowserCard[],
+  deps: { siyuanApi?: () => BrowserSiyuanPort | null | undefined } = {},
+) {
   // ========== 状态 ==========
   const isDetecting = ref(false);
   const detectionHistory = ref<Set<string>>(new Set());
@@ -132,7 +136,9 @@ export function useCardTypeDetection(cards: () => BrowserCard[]) {
 
       // 执行检测，设置超时
       const result = await Promise.race([
-        batchDetectCardTypes(unidentified),
+        batchDetectCardTypes(unidentified, {
+          siyuanApi: deps.siyuanApi?.() || undefined,
+        }),
         timeoutPromise,
       ]);
 

@@ -146,12 +146,7 @@ import QuickCardRenderer from '../components/QuickCardRenderer.vue';
 import DescriptorCardRenderer from '../components/DescriptorCardRenderer.vue';
 import ConceptDefinitionCardRenderer from '../components/ConceptDefinitionCardRenderer.vue';
 import ConceptCardRenderer from '../components/ConceptCardRenderer.vue';
-import { SiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
-import { QuickCardRepository } from '@/core/card/quick-card/infrastructure/QuickCardRepository';
-import { QuickCardRenderService } from '@/core/card/quick-card/application/QuickCardRenderService';
-import { SiyuanBlockAdapter as DescriptorBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
-import { DescriptorCardRepository } from '@/core/card/descriptor-card/infrastructure/DescriptorCardRepository';
-import { DescriptorCardRenderService } from '@/core/card/descriptor-card/application/DescriptorCardRenderService';
+import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { 
   type XiuyuanCardMeta,
   isConceptDefinitionCard as checkIsConceptDefinitionCard, 
@@ -175,12 +170,10 @@ import {
   shouldVerifyQuickDefaultProfile,
 } from './reviewRenderPolicy';
 import { createLogger } from '@/utils/logger';
-import type { ICardStorage } from '@/application/interfaces/ICardStorage';
 import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileResolver';
 
 const props = defineProps<{
   app: siyuan.App;
-  plugin?: ReviewPluginLike;
   content: ReviewUIState['content'];
   overlay?: ReviewUIState['overlay'];
   i18n?: Record<string, string>;
@@ -188,20 +181,13 @@ const props = defineProps<{
   showAnswer?: boolean;
   meta?: ReviewUIState['meta'];
   renderEpoch?: number;
+  renderServices: ReviewRenderServices;
 }>();
 const emit = defineEmits<{
   (e: 'editor-state-change', state: ReviewEditorState): void;
 }>();
 
 const logger = createLogger('ReviewContent');
-
-type PluginContextLike = {
-  getCardStorage?: () => ICardStorage | null;
-};
-
-type ReviewPluginLike = {
-  getContext?: () => PluginContextLike | null;
-};
 
 type OverlayRegistry = typeof OVERLAY_REGISTRY;
 type OverlayKey = keyof OverlayRegistry;
@@ -308,25 +294,11 @@ const invalidForcedQuickRenderKeys = new Set<string>();
 const MAX_MAIN_RENDER_RETRIES = 6;
 
 // 快速卡片渲染服务
-const quickCardRenderService = ref(
-  new QuickCardRenderService(
-    new QuickCardRepository(
-      new SiyuanBlockAdapter(),
-      props.plugin?.getContext?.()?.getCardStorage?.() || null
-    )
-  )
-);
+const quickCardRenderService = ref(props.renderServices.quickCardRenderService);
 const isQuickCard = ref(false);
 
 // 描述符卡渲染服务
-const descriptorCardRenderService = ref(
-  new DescriptorCardRenderService(
-    new DescriptorCardRepository(
-      new DescriptorBlockAdapter()
-    ),
-    props.i18n || {}
-  )
-);
+const descriptorCardRenderService = ref(props.renderServices.descriptorCardRenderService);
 const isDescriptorCard = ref(false);
 
 // 概念定义卡状态

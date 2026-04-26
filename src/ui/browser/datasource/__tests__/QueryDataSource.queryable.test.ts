@@ -11,6 +11,7 @@ const invalidateCardCacheMock = vi.fn();
 const setBrowserCardsPriorityMock = vi.fn();
 const deleteBrowserCardsMock = vi.fn();
 const sortBrowserRowsMock = vi.fn(<T>(rows: T[]) => rows);
+const testSiyuanApi = {} as never;
 
 vi.mock('../../browserService', () => ({
   batchReset: (...args: unknown[]) => batchResetMock(...args),
@@ -131,7 +132,7 @@ describe('QueryDataSource queryable path', () => {
     ]);
     const manager = createManager([makeFsrsCard('card-a', 'block-a')]);
 
-    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never });
+    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never, siyuanApi: testSiyuanApi });
     const result = await dataSource.fetchRows({
       startRow: 0,
       endRow: 1,
@@ -142,11 +143,11 @@ describe('QueryDataSource queryable path', () => {
     expect(result.totalCount).toBe(1);
     expect(result.rows.map((row) => row.blockId)).toEqual(['block-a']);
     expect(result.rows.map((row) => row.fsrsCardId)).toEqual(['card-a']);
-    expect(runBrowserSqlMock).toHaveBeenCalledWith('select * from blocks');
+    expect(runBrowserSqlMock).toHaveBeenCalledWith('select * from blocks', testSiyuanApi);
     expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['block-a', 'block-b'] });
     expect(loadBrowserCardProjectionsByBlockIdsMock).toHaveBeenCalledWith(
       ['block-a'],
-      { applyQueryFilter: false },
+      { applyQueryFilter: false, manager, siyuanApi: testSiyuanApi },
     );
     expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['block-a'] });
     expect(loadBrowserCardsByBlockIdsMock).not.toHaveBeenCalled();
@@ -171,7 +172,7 @@ describe('QueryDataSource queryable path', () => {
       makeFsrsCard('card-b', 'block-b', { priority: 22 }),
     ]);
 
-    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never });
+    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never, siyuanApi: testSiyuanApi });
     const ids = await dataSource.getAllMatchedIds();
     const targets = await dataSource.getActionTargetsByIds(['card-b', 'card-a']);
 
@@ -195,7 +196,7 @@ describe('QueryDataSource queryable path', () => {
       makeFsrsCard('card-a', 'block-a', { priority: 11 }),
     ]);
 
-    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never });
+    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never, siyuanApi: testSiyuanApi });
     const ids = await dataSource.getAllMatchedIds();
     const targets = await dataSource.getActionTargetsByIds(['block-b', 'card-a']);
 
@@ -222,13 +223,13 @@ describe('QueryDataSource queryable path', () => {
       makeFsrsCard('card-b', 'block-b', { priority: 22 }),
     ]);
 
-    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never });
+    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never, siyuanApi: testSiyuanApi });
     const ids = await dataSource.getAllMatchedIds();
 
     expect(ids).toEqual(['card-a1', 'card-a2', 'card-b']);
     expect(loadBrowserCardProjectionsByBlockIdsMock).toHaveBeenCalledWith(
       ['block-a', 'block-b'],
-      { applyQueryFilter: false },
+      { applyQueryFilter: false, manager, siyuanApi: testSiyuanApi },
     );
   });
 
@@ -244,7 +245,7 @@ describe('QueryDataSource queryable path', () => {
       .mockResolvedValueOnce([makeFsrsCard('card-a', 'block-a')])
       .mockResolvedValueOnce([makeFsrsCard('card-other', 'block-a')]);
 
-    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never });
+    const dataSource = new QueryDataSource('select * from blocks', { manager: manager as never, siyuanApi: testSiyuanApi });
     const ids = await dataSource.getAllMatchedIds();
     const rows = await dataSource.getRowsByIds(ids);
 

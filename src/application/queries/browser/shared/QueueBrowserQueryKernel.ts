@@ -4,13 +4,13 @@ import type { IUnifiedDataSourceManagerFacade, QueueType } from '@/types/unified
 import type { QueueSnapshotRow } from '@/types/queue-browser';
 import { QueueType as QueueTypeEnum } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
-import { resolveBrowserCardStableId } from '@/ui/browser/utils/browserCardIdentity';
+import { resolveBrowserCardStableId, type BrowserCard } from '@/types/browser';
 import {
   applyQueueFiltersToSnapshotRows,
   sortQueueSnapshotRows,
   type QuerySecondaryField,
-} from '@/ui/browser/datasource/DataSourceUtils';
-import { mapQueueFsrsCardToBrowserCard } from '@/ui/browser/datasource/QueueBrowserCardMapper';
+} from './BrowserRowUtils';
+import { mapQueueFsrsCardToBrowserCard } from './QueueBrowserCardMapper';
 import type {
   QueueBrowserLiteRow,
   QueueBrowserSnapshotQuery,
@@ -138,7 +138,7 @@ export class QueueBrowserQueryKernel {
         id: String(row.id || '').trim(),
         blockId: String(row.blockId || '').trim(),
         fsrsCardId: fsrsCardId || undefined,
-        cardType: row.cardType as import('@/ui/browser/types').BrowserCard['cardType'],
+        cardType: row.cardType as BrowserCard['cardType'],
         priority: typeof row.priority === 'number' ? row.priority : undefined,
       },
     };

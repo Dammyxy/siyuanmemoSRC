@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createVueDialog } from '@/utils/dialog';
 import { DialogManager } from '../DialogManager';
-import type { BrowserOpenState } from '@/ui/browser/types';
+import type { BrowserOpenState } from '@/types/browser';
 
 const mocks = vi.hoisted(() => ({
   dialogDestroy: vi.fn(),

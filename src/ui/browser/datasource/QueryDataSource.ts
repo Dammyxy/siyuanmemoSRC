@@ -42,6 +42,7 @@ import {
 } from './MenuActions';
 import type { IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
+import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('QueryDataSource');
@@ -63,9 +64,13 @@ type I18nContextLike = {
   getI18n?: () => Record<string, string> | undefined;
 };
 
+type BrowserServiceContextLike = {
+  getBrowserService?: () => { getSiyuanApi?: () => BrowserSiyuanPort | undefined } | null | undefined;
+};
+
 type QueryPluginLike = Omit<MenuActionPluginLike, 'context' | 'getContext'> & {
-  context?: NonNullable<MenuActionPluginLike['context']> & I18nContextLike;
-  getContext?: () => (NonNullable<MenuActionPluginLike['context']> & I18nContextLike) | undefined;
+  context?: NonNullable<MenuActionPluginLike['context']> & I18nContextLike & BrowserServiceContextLike;
+  getContext?: () => (NonNullable<MenuActionPluginLike['context']> & I18nContextLike & BrowserServiceContextLike) | undefined;
   i18n?: Record<string, string>;
 };
 
@@ -78,6 +83,7 @@ type QueryDataSourceBatchManager = {
 export type QueryDataSourceOptions = {
   manager?: IUnifiedDataSourceManagerFacade | null;
   plugin?: QueryPluginLike;
+  siyuanApi?: BrowserSiyuanPort | null;
 };
 
 function isRescheduleAction(actionId: string): actionId is 'postpone' | 'advance' | 'spread' {
@@ -168,6 +174,7 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
   private readonly stmt: string;
   private readonly manager: IUnifiedDataSourceManagerFacade | null;
   private readonly plugin?: QueryPluginLike;
+  private readonly siyuanApi: BrowserSiyuanPort | null;
   private readonly querySession = new BrowserQuerySession('QueryDataSource');
   private lastSortModel: SortModel[] = [];
   private dataGeneration = 0;
@@ -179,6 +186,7 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     this.stmt = stmt;
     this.manager = options.manager ?? null;
     this.plugin = options.plugin;
+    this.siyuanApi = options.siyuanApi ?? null;
   }
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
@@ -379,6 +387,12 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     return this.plugin?.i18n?.[key] || fallback;
   }
 
+  private resolveSiyuanApi(): BrowserSiyuanPort | null {
+    return this.siyuanApi
+      ?? this.plugin?.getContext?.()?.getBrowserService?.()?.getSiyuanApi?.()
+      ?? null;
+  }
+
   private buildQueryFingerprint(sortModel: SortModel[]): string {
     return JSON.stringify({
       dataSource: 'query',
@@ -402,14 +416,21 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
     return this.manager.getCards({ blockIds: uniqueBlockIds });
   }
 
-  private async loadProjectionTemplatesByBlockId(blockIds: string[]): Promise<Map<string, BrowserCardProjection[]>> {
+  private async loadProjectionTemplatesByBlockId(
+    blockIds: string[],
+    siyuanApi: BrowserSiyuanPort,
+  ): Promise<Map<string, BrowserCardProjection[]>> {
     const uniqueBlockIds = uniqueStrings(blockIds);
     const templates = new Map<string, BrowserCardProjection[]>();
     if (uniqueBlockIds.length === 0) {
       return templates;
     }
 
-    const projections = await loadBrowserCardProjectionsByBlockIds(uniqueBlockIds, { applyQueryFilter: false });
+    const projections = await loadBrowserCardProjectionsByBlockIds(uniqueBlockIds, {
+      applyQueryFilter: false,
+      manager: this.manager || undefined,
+      siyuanApi,
+    });
     for (const projection of projections) {
       const blockId = readString(projection.blockId).trim();
       if (!blockId) {
@@ -495,12 +516,17 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
   }
 
   private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCardProjection[]> {
-    const rawRows = toSqlRows(await runBrowserSql(this.stmt));
+    const siyuanApi = this.resolveSiyuanApi();
+    if (!siyuanApi) {
+      logger.error('QueryDataSource requires BrowserSiyuanPort for SQL mode');
+      return [];
+    }
+    const rawRows = toSqlRows(await runBrowserSql(this.stmt, siyuanApi));
     const sqlBlockIds = rawRows.map(readBlockId).filter(Boolean);
     const realCards = await this.loadRealCardsByBlockIds(sqlBlockIds);
     const cardsByBlockId = groupCardsByBlockId(realCards);
     const realBlockIds = Array.from(cardsByBlockId.keys());
-    const templatesByBlockId = await this.loadProjectionTemplatesByBlockId(realBlockIds);
+    const templatesByBlockId = await this.loadProjectionTemplatesByBlockId(realBlockIds, siyuanApi);
 
     const rows: BrowserCardProjection[] = [];
     const seenCardIds = new Set<string>();

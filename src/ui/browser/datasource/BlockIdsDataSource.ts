@@ -33,6 +33,7 @@ import {
 import { createLogger } from '@/utils/logger';
 import { BrowserQuerySession } from './session/BrowserQuerySession';
 import { resolveBrowserCardStableId } from '../utils/browserCardIdentity';
+import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 
 const logger = createLogger('BlockIdsDataSource');
 
@@ -87,6 +88,8 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
   private readonly queueId?: string;
   private readonly getBlockIdsFn?: () => string[];
   private readonly queryText?: string;
+  private readonly manager?: IUnifiedDataSourceManagerFacade;
+  private readonly siyuanApi?: BrowserSiyuanPort | null;
   private readonly querySession = new BrowserQuerySession('BlockIdsDataSource');
   private lastSortModel: SortModel[] = [];
   private dataGeneration = 0;
@@ -100,6 +103,8 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
     queueId?: string;
     getBlockIdsFn?: () => string[];
     queryText?: string;
+    manager?: IUnifiedDataSourceManagerFacade;
+    siyuanApi?: BrowserSiyuanPort | null;
   }) {
     this.id = options.id;
     this.label = options.label;
@@ -108,6 +113,8 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
     this.queueId = options.queueId;
     this.getBlockIdsFn = options.getBlockIdsFn;
     this.queryText = options.queryText;
+    this.manager = options.manager;
+    this.siyuanApi = options.siyuanApi ?? null;
   }
 
   async fetchRows(params: FetchRowsOptions): Promise<FetchRowsResult> {
@@ -237,10 +244,18 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
 
   private async buildOrderedRows(sortModel: SortModel[]): Promise<BrowserCardProjection[]> {
     const blockIds = this.getBlockIdsFn ? this.getBlockIdsFn() : this.blockIds;
-    const rows = await loadBrowserCardProjectionsByBlockIds(blockIds, {
+    const options: Parameters<typeof loadBrowserCardProjectionsByBlockIds>[1] = {
       queryText: this.queryText,
       applyQueryFilter: true,
-    });
+    };
+    const manager = this.resolveManager();
+    if (manager) {
+      options.manager = manager as never;
+    }
+    if (this.siyuanApi) {
+      options.siyuanApi = this.siyuanApi;
+    }
+    const rows = await loadBrowserCardProjectionsByBlockIds(blockIds, options);
     return sortBrowserRows(rows, sortModel);
   }
 
@@ -271,7 +286,17 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
         const blockIds = ids
           .map((id) => this.liteRowBlockIdById.get(id))
           .filter((blockId): blockId is string => Boolean(blockId));
-        const rows = await loadBrowserCardsByBlockIds(blockIds, { applyQueryFilter: false });
+        const options: Parameters<typeof loadBrowserCardsByBlockIds>[1] = {
+          applyQueryFilter: false,
+        };
+        const manager = this.resolveManager();
+        if (manager) {
+          options.manager = manager as never;
+        }
+        if (this.siyuanApi) {
+          options.siyuanApi = this.siyuanApi;
+        }
+        const rows = await loadBrowserCardsByBlockIds(blockIds, options);
         const rowByBlockId = new Map(rows.map((row) => [row.blockId, row]));
         return ids
           .map((id) => {
@@ -290,6 +315,9 @@ export class BlockIdsDataSource implements ICardDataSource, IBrowserQueryableDat
   }
 
   private resolveManager(): IUnifiedDataSourceManagerFacade | undefined {
+    if (this.manager) {
+      return this.manager;
+    }
     const context = this.plugin?.getContext?.();
     if (!hasManagerContext(context)) {
       return undefined;

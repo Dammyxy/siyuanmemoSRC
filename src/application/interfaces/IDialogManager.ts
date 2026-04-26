@@ -17,7 +17,7 @@
 
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
 import type { QueueType } from '@/types/unified-data-source';
-import type { BrowserOpenState } from '@/ui/browser/types';
+import type { BrowserOpenState } from '@/types/browser';
 
 /**
  * 对话框管理器接口

@@ -30,7 +30,7 @@ import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/
 import type { ISchedulerRouter } from '@/application/interfaces/ISchedulerRouter';
 import { resolveReviewHeaderVariant } from '@/ui/review/v2/types';
 import { createLogger } from '@/utils/logger';
-import type { BrowserOpenState } from '@/ui/browser/types';
+import type { BrowserOpenState } from '@/types/browser';
 import type { AIWorkbenchOpenOptions } from '@/types/ai';
 import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { NOOP_QUEUE_PERSISTENCE } from '@/core/queue/domain/ports';

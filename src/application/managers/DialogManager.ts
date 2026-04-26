@@ -67,7 +67,7 @@ import {
   type ProgressiveSplitProgress,
 } from '@/application/services/ProgressiveReadingService';
 import type { PracticeQueueFilter } from './PracticeQueueManager';
-import type { BrowserOpenState } from '@/ui/browser/types';
+import type { BrowserOpenState } from '@/types/browser';
 import type { ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import ProgressiveSplitDialog from '@/ui/progressive/ProgressiveSplitDialog.vue';

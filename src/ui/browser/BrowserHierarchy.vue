@@ -52,6 +52,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import type { BrowserCard } from './types';
 import { getDocTree } from './browserService';
+import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 
 const props = defineProps<{
   cards: BrowserCard[];
@@ -62,6 +63,7 @@ const props = defineProps<{
   activeGlobal?: '__all__' | '__dismissed__' | null;
   activeDocId?: string | null;
   i18n?: Record<string, string>;
+  siyuanApi?: BrowserSiyuanPort | null;
 }>();
 
 const emit = defineEmits<{
@@ -154,8 +156,8 @@ async function refreshDocs(): Promise<void> {
 
   const current = ++loadSeq;
   const missingIds = ids.filter((id) => !docTitleCache.has(id));
-  if (missingIds.length > 0) {
-    const nodes = await getDocTree(missingIds);
+  if (missingIds.length > 0 && props.siyuanApi) {
+    const nodes = await getDocTree(missingIds, props.siyuanApi);
     if (current !== loadSeq) return;
     for (const node of nodes) {
       if (node?.id) {

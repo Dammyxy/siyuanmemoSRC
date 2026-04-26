@@ -1,5 +1,4 @@
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
-import type { AdapterContext as CoreAdapterContext, IAdapter as CoreAdapter } from '@/core/extensions';
 import type { FSRSCard } from '@/types/card';
 import type { QueueType, ReviewQueueProgressSnapshot } from '@/types/unified-data-source';
 import type { HeaderVisualTone } from '@/ui/shared/cardVisualTokens';
@@ -203,8 +202,43 @@ export interface ReviewUIState {
   };
 }
 
-export type AdapterContext = CoreAdapterContext;
-export type IAdapter<TItem = unknown> = CoreAdapter<TItem, ReviewUIState>;
+export interface ReviewSessionHistoryEntry {
+  action: 'rate' | 'skip' | 'custom';
+  answeredDelta: number;
+  correctDelta: number;
+}
+
+export interface AdapterSessionState {
+  startTime: number;
+  resumed?: boolean;
+  initialTotal?: number;
+  answeredCount?: number;
+  correctCount?: number;
+  baselineVersion?: number;
+  reviewHistory?: ReviewSessionHistoryEntry[];
+}
+
+export interface AdapterContext {
+  showAnswer: boolean;
+  session?: AdapterSessionState;
+}
+
+export interface IAdapter<TItem = unknown> {
+  toUIState(
+    queue: unknown,
+    item: TItem | null,
+    context: AdapterContext,
+  ): Promise<ReviewUIState>;
+
+  fetchAuxiliaryData?(
+    item: TItem | null,
+    queue?: unknown,
+    context?: AdapterContext,
+  ): Promise<Partial<ReviewUIState>>;
+
+  resetSessionState?(): void;
+  cleanup?(): void;
+}
 
 export interface RefreshCurrentItemOptions {
   expectedCurrentCardId?: string;

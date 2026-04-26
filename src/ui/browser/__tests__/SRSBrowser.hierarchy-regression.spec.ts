@@ -99,6 +99,7 @@ vi.mock('@/utils/performance', () => ({
 
 vi.mock('../browserService', () => ({
   loadBrowserCardsByBlockIds: vi.fn(async () => []),
+  loadQueueCards: vi.fn(async () => []),
   setGlobalBrowserContext: (...args: unknown[]) => setGlobalBrowserContextMock(...args),
   clearGlobalBrowserContext: (...args: unknown[]) => clearGlobalBrowserContextMock(...args),
   invalidateCardCache: vi.fn(),

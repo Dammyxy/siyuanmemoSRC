@@ -100,6 +100,13 @@ describe('BrowserApplicationService deck query kernel', () => {
       ATTR_CARD_TYPE: 'custom-fsrs-card-type',
       ATTR_A_FACTOR: 'custom-fsrs-a-factor',
       sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes('SELECT id') && stmt.includes('WHERE id IN') && !stmt.includes('GROUP_CONCAT')) {
+          return [
+            { id: 'block-1' },
+            { id: 'block-2' },
+            { id: 'block-3' },
+          ];
+        }
         if (stmt.includes('GROUP_CONCAT')) {
           return [
             { id: 'block-1', root_id: 'doc-a', content: 'Alpha card', attrs: '' },

@@ -156,6 +156,8 @@ export function createQueueDataSource(
         plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
         queueId: 'neural-roam',
         queryText,
+        manager,
+        siyuanApi: browserService?.getSiyuanApi?.() || null,
         getBlockIdsFn: () => {
           // 每次 fetchRows 时都获取最新的概念列表
           const conceptBlocks = neuralQueue?.getConceptBlocks?.() || [];
@@ -193,6 +195,8 @@ export function createBlockIdsDataSource(
     queueId,
     getBlockIdsFn,
     queryText,
+    manager: undefined,
+    siyuanApi: undefined,
   });
 }
 
@@ -307,6 +311,8 @@ export function createFocusDataSource(
       plugin: { neuralQueue },  // 🔧 直接传递 neuralQueue 对象
       queueId: 'neural-roam',
       queryText,
+      manager,
+      siyuanApi: browserService?.getSiyuanApi?.() || null,
       getBlockIdsFn: () => {
         const conceptBlocks = neuralQueue?.getConceptBlocks?.() || [];
         logger.info(`Neural roam concept blocks (focus): ${conceptBlocks.length}`, conceptBlocks);

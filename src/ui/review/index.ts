@@ -1,5 +1,7 @@
-﻿/**
+/**
  * 复习界面模块导出
+ *
+ * Active review UI is exported from ./v2.
  */
 
-export { ReviewViewAdapter } from './ReviewViewAdapter';
+export { ReviewView } from './v2';

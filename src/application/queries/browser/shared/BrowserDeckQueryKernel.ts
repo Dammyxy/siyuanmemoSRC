@@ -1,6 +1,5 @@
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
-import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
 import { CardScheduleService, CardState } from '@/core/card/domain/services/CardScheduleService';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
@@ -9,23 +8,24 @@ import type { BrowserCardStoragePort } from '@/core/storage/ports';
 import type { FSRSCard } from '@/types';
 import type { CardType } from '@/types/card';
 import { ALL_CARD_QUERY_STATES, type StructuredCardQuery } from '@/types/card-query';
-import { createLogger } from '@/utils/logger';
-import { parseQuery } from '@/ui/browser/browserService';
 import {
+  type BrowserCard,
   calculateRetrievability,
   formatDueDate,
   formatHistoryDate,
+  resolveBrowserCardStableId,
   STATE_LABELS,
   truncateContent,
-} from '@/ui/browser/types';
+  parseQuery,
+} from '@/types/browser';
+import { createLogger } from '@/utils/logger';
 import {
   applyDocFilter,
   applySimpleQueryFilter,
   isMissingBlockCard,
   sortBrowserRows,
-} from '@/ui/browser/datasource/DataSourceUtils';
-import { resolveBrowserCardStableId } from '@/ui/browser/utils/browserCardIdentity';
-import type { BrowserCard, BrowserStats, PresetFilter } from '../GetBrowserCardsQuery';
+} from './BrowserRowUtils';
+import type { BrowserStats, PresetFilter } from '../GetBrowserCardsQuery';
 import type {
   BrowserDeckLiteRow,
   BrowserDeckSnapshotQuery,
@@ -81,7 +81,7 @@ export class BrowserDeckQueryKernel {
     private readonly storageManager: BrowserCardStoragePort,
     private readonly cardScheduleService: CardScheduleService,
     private readonly cardFilterService: CardFilterService,
-    private readonly siyuanApi: QuerySiyuanPort = new QuerySiyuanAdapter()
+    private readonly siyuanApi: QuerySiyuanPort,
   ) {}
 
   async buildSnapshot(query: BrowserDeckSnapshotQuery = {}): Promise<BrowserDeckSnapshotResult> {

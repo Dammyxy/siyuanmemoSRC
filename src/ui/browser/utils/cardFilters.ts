@@ -4,8 +4,7 @@
  * 提供卡片筛选相关的纯函数
  */
 
-import type { BrowserCard, CardState } from '../types';
-import type { ParsedBrowserQuery } from '../browserService';
+import type { BrowserCard, CardState, ParsedBrowserQuery } from '@/types/browser';
 
 /**
  * 数值条件接口

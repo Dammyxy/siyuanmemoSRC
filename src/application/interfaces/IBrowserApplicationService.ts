@@ -20,8 +20,8 @@ import type { ICardDataSource } from './ICardDataSource';
 import type {
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,
-  BrowserCard,
 } from '../queries/browser/GetBrowserCardsQuery';
+import type { BrowserCard } from '@/types/browser';
 import type {
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
@@ -69,6 +69,17 @@ export interface DataSourceOptions {
   /** 插件实例 */
   plugin?: unknown;
 }
+
+export interface BrowserDataSourceFactoryContext {
+  browserService: IBrowserApplicationService;
+  manager: IUnifiedDataSourceManagerFacade | null;
+  siyuanApi: BrowserSiyuanPort;
+}
+
+export type BrowserDataSourceFactory = (
+  options: DataSourceOptions,
+  context: BrowserDataSourceFactoryContext,
+) => ICardDataSource | null | undefined;
 
 /**
  * 浏览器应用服务接口

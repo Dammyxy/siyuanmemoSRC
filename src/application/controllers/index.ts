@@ -1,8 +1,6 @@
-﻿/**
+/**
  * Controllers Module
  * 控制器模块
- * 
- * 导出所有控制器类。
+ *
+ * Active review runtime is wired through application adapters and v2 review session.
  */
-
-export { ReviewViewController } from './ReviewViewController';

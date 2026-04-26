@@ -115,7 +115,10 @@ describe('BrowserApplicationService queue query path', () => {
         ATTR_SUSPENDED: 'custom-fsrs-suspended',
         ATTR_CARD_TYPE: 'custom-fsrs-card-type',
         ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-        sql: vi.fn(async () => []),
+        sql: vi.fn(async () => [
+          { id: 'block-row-a' },
+          { id: 'block-row-b' },
+        ]),
         setBlockAttrs: vi.fn(),
         pushMsg: vi.fn(),
         pushErrMsg: vi.fn(),
@@ -140,6 +143,36 @@ describe('BrowserApplicationService queue query path', () => {
         getCardsBySnapshotIds: vi.fn(async () => []),
       })),
     } as never;
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async () => []),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    } as never;
+    const dataSourceFactory = vi.fn((options, context) => ({
+      fetchRows: async () => {
+        const snapshot = await context.browserService.getQueueQuerySnapshot({
+          queueId: options.queueId as never,
+          preset: options.preset,
+          searchText: options.queryText,
+          cardType: options.cardType,
+          sortModel: [],
+        });
+        const rows = await context.browserService.getQueueRowsByIds(
+          options.queueId as never,
+          snapshot.rows.map((row: { id: string }) => row.id),
+        );
+        return {
+          rows,
+          totalCount: snapshot.total,
+        };
+      },
+    }));
     const service = new BrowserApplicationService(
       {
         getCard: vi.fn(),
@@ -150,17 +183,8 @@ describe('BrowserApplicationService queue query path', () => {
       new CardFilterService(),
       new CardSortService(),
       manager,
-      {
-        ATTR_CARD_ID: 'custom-fsrs-card-id',
-        ATTR_PRIORITY: 'custom-fsrs-priority',
-        ATTR_SUSPENDED: 'custom-fsrs-suspended',
-        ATTR_CARD_TYPE: 'custom-fsrs-card-type',
-        ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-        sql: vi.fn(async () => []),
-        setBlockAttrs: vi.fn(),
-        pushMsg: vi.fn(),
-        pushErrMsg: vi.fn(),
-      } as never,
+      siyuanApi,
+      dataSourceFactory as never,
     );
     const getQueueQuerySnapshotSpy = vi.spyOn(service, 'getQueueQuerySnapshot').mockResolvedValue({
       total: 1,
@@ -213,6 +237,14 @@ describe('BrowserApplicationService queue query path', () => {
     });
 
     expect(result.totalCount).toBe(1);
+    expect(dataSourceFactory).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'queue', queueId: 'retrieval' }),
+      expect.objectContaining({
+        browserService: service,
+        manager,
+        siyuanApi,
+      }),
+    );
     expect(getQueueQuerySnapshotSpy).toHaveBeenCalled();
     expect(getQueueRowsByIdsSpy).toHaveBeenCalledWith('retrieval', ['card-1']);
   });

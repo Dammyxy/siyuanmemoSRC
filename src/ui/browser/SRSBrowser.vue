@@ -22,6 +22,7 @@
           :activeDocId="activeDocId"
           :mobile-mode="isMobileMode"
           :i18n="props.i18n"
+          :siyuan-api="browserSiyuanApi"
           @selectQueue="handleSelectQueue"
           @selectDoc="handleSelectDoc"
           @filterDoc="handleFilterDoc"
@@ -148,6 +149,7 @@
       >
         <NeuralNavigationBar
           :i18n="props.i18n"
+          :siyuan-api="browserSiyuanApi"
           :navigation-state="neuralNavigationState"
           @toggle-engine-mode="handleNeuralToggleEngineMode"
           @toggle-nav-mode="handleNeuralToggleNavigationMode"
@@ -344,11 +346,10 @@ import { openTab, Menu, Protyle, type App } from 'siyuan';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import {
   loadBrowserCardsByBlockIds,
-  setGlobalBrowserContext,
-  clearGlobalBrowserContext,
   invalidateCardCache,
   getCacheStats,
   subscribeCacheUpdate,
+  loadQueueCards,
   pushBrowserErrMsg,
   pushBrowserMsg,
 } from './browserService';
@@ -863,13 +864,6 @@ function applyBrowserChromePreferences(profile: BrowserLayoutProfile): void {
   }
 }
 
-function syncGlobalBrowserContext(): void {
-  const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
-  if (unifiedDataSourceManager) {
-    setGlobalBrowserContext(unifiedDataSourceManager, searchQuery.value, browserSiyuanApi.value);
-  }
-}
-
 function clearBackgroundSnapshotTimer(): void {
   if (!backgroundSnapshotTimer) {
     return;
@@ -1009,8 +1003,6 @@ async function applyInitialBrowserOpenState(
       clearNeuralSubviewData();
     }
 
-    syncGlobalBrowserContext();
-
     if (nextQueueId === 'filter-group') {
       try {
         await setFilterGroupFilterBridge(nextFilter ?? {});
@@ -1057,15 +1049,25 @@ async function openDocumentTabById(blockId: string): Promise<boolean> {
 }
 
 async function pushMsg(msg: string, duration?: number, level?: 'error'): Promise<void> {
-  if (level === 'error') {
-    await pushBrowserErrMsg(msg, duration);
+  const siyuanApi = browserSiyuanApi.value;
+  if (!siyuanApi) {
+    logger.error('[SiYuanMemo][SRSBrowser] Browser Siyuan API unavailable for message:', msg);
     return;
   }
-  await pushBrowserMsg(msg, duration);
+  if (level === 'error') {
+    await pushBrowserErrMsg(msg, duration, siyuanApi);
+    return;
+  }
+  await pushBrowserMsg(msg, duration, siyuanApi);
 }
 
 async function pushErrMsg(msg: string, duration?: number): Promise<void> {
-  await pushBrowserErrMsg(msg, duration);
+  const siyuanApi = browserSiyuanApi.value;
+  if (!siyuanApi) {
+    logger.error('[SiYuanMemo][SRSBrowser] Browser Siyuan API unavailable for error message:', msg);
+    return;
+  }
+  await pushBrowserErrMsg(msg, duration, siyuanApi);
 }
 
 const isDevMode = String(process.env.DEV_MODE) === 'true';
@@ -1133,10 +1135,10 @@ const hasConfirmedSqlMode = ref(false);
 async function ensureSqlModeConfirmed(): Promise<boolean> {
   if (hasConfirmedSqlMode.value) return true;
   const ok = await confirmDialog({
-    title: t('sqlModeTitle', 'SQL 鏌ヨ妯″紡'),
-    content: t('sqlModeWarning', 'SQL 鏌ヨ涓洪珮绾у姛鑳斤紝鎷ユ湁璇诲彇鎵€鏈夊潡淇℃伅鐨勬潈闄愩€傝浠呮墽琛屼綘淇′换鐨?SQL銆傛槸鍚︾户缁紵'),
-    confirmText: t('confirm', '纭'),
-    cancelText: t('cancel', '鍙栨秷'),
+    title: t('sqlModeTitle', 'SQL 查询模式'),
+    content: t('sqlModeWarning', 'SQL 查询为高级功能，拥有读取所有块信息的权限。请仅执行你信任的 SQL。是否继续？'),
+    confirmText: t('confirm', '确认'),
+    cancelText: t('cancel', '取消'),
   });
   if (ok) hasConfirmedSqlMode.value = true;
   return ok;
@@ -1152,7 +1154,7 @@ const focusedDocIds = computed(() => {
 
   if (!shouldFocusDocList.value) {
     if (isDevMode) {
-      logger.info('[SiYuanMemo][SRSBrowser] 馃攳 focusedDocIds: shouldFocusDocList is false, returning null');
+      logger.info('[SiYuanMemo][SRSBrowser] focusedDocIds: shouldFocusDocList is false, returning null');
     }
     return null;
   }
@@ -1177,7 +1179,7 @@ const focusedDocIds = computed(() => {
       }
     }
 
-    logger.info('[SiYuanMemo][SRSBrowser] 馃攳 focusedDocIds computed:', {
+    logger.info('[SiYuanMemo][SRSBrowser] focusedDocIds computed:', {
       shouldFocusDocList: shouldFocusDocList.value,
       rowsForFocusCount: rowsForFocus.value.length,
       cardsWithRootId: rowsForFocus.value.filter(c => c.rootId).length,
@@ -1946,6 +1948,7 @@ async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
         currentDataSource.value = createQueryDataSource(sqlStmt, {
           manager: unifiedDataSourceManager,
           plugin: props.plugin,
+          siyuanApi: browserSiyuanApi.value || undefined,
         });
       } else {
         if (!unifiedDataSourceManager) {
@@ -2060,7 +2063,6 @@ watch(searchQuery, () => {
     return;
   }
   handleSearchInput();
-  syncGlobalBrowserContext();
 });
 
 watch(currentPreset, () => {
@@ -2143,7 +2145,7 @@ watch(() => loading.value, async (isLoading) => {
   if (!isLoading && !detectionTriggered && !cardTypeDetection.isDetecting.value && cardTypeDetection.unidentifiedCount.value > 0) {
     detectionTriggered = true;
 
-    logger.info('[SiYuanMemo][SRSBrowser] 馃攧 Auto-detecting unidentified cards...');
+    logger.info('[SiYuanMemo][SRSBrowser] Auto-detecting unidentified cards...');
 
     const unidentified = cardTypeDetection.getUnidentifiedCards();
     const blockIds = unidentified.map(c => c.blockId);
@@ -2157,7 +2159,11 @@ watch(() => loading.value, async (isLoading) => {
     await cardTypeDetection.detect();
 
 
-    const updatedCards = await loadQueueCardsSimple(blockIds);
+    const manager = pluginUnifiedDataSourceManager.value;
+    const siyuanApi = browserSiyuanApi.value;
+    const updatedCards = manager && siyuanApi
+      ? await loadQueueCards(blockIds, searchQuery.value, manager, siyuanApi)
+      : [];
     const updatedMap = new Map(updatedCards.map(c => [c.blockId, c]));
 
     // 更新 rows.value 中对应的卡片
@@ -2401,8 +2407,8 @@ function openNumberDialog(options: {
         max: options.max,
         step: options.step,
         integer: options.integer,
-        confirmText: t('confirm', '纭'),
-        cancelText: t('cancel', '鍙栨秷'),
+        confirmText: t('confirm', '确认'),
+        cancelText: t('cancel', '取消'),
       },
       events: {
         confirm: (value: number) => {
@@ -2591,15 +2597,15 @@ function getActionLabel(action: { id: string; label: string }): string {
     unsuspend: { key: 'restore', fallback: 'Restore' },
     'remove-from-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
     'remove-from-current-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
-    'delete-card': { key: 'deleteCard', fallback: '鍙栨秷闂崱' },
-    'add-to-queue': { key: 'addToQueueMenu', fallback: '鍔犲叆闃熷垪' },
-    'add-to-retrieval-queue': { key: 'addToRetrievalQueue', fallback: '鎻愬彇缁冧範' },
-    'add-to-retrieval-queue-all': { key: 'addToRetrievalQueueAll', fallback: '鎻愬彇缁冧範锛堝惈浠婃棩宸插涔狅級' },
-    'add-to-incremental-queue': { key: 'addToIncrementalQueue', fallback: '娓愯繘瀛︿範' },
-    'add-to-incremental-queue-all': { key: 'addToIncrementalQueueAll', fallback: '娓愯繘瀛︿範锛堝惈浠婃棩宸插涔狅級' },
-    'add-to-final-drill-queue': { key: 'addToFinalDrillQueue', fallback: '鍒绘剰缁冧範' },
+    'delete-card': { key: 'deleteCard', fallback: '取消闪卡' },
+    'add-to-queue': { key: 'addToQueueMenu', fallback: '加入队列' },
+    'add-to-retrieval-queue': { key: 'addToRetrievalQueue', fallback: '提取练习' },
+    'add-to-retrieval-queue-all': { key: 'addToRetrievalQueueAll', fallback: '提取练习（含今日已复习）' },
+    'add-to-incremental-queue': { key: 'addToIncrementalQueue', fallback: '渐进学习' },
+    'add-to-incremental-queue-all': { key: 'addToIncrementalQueueAll', fallback: '渐进学习（含今日已复习）' },
+    'add-to-final-drill-queue': { key: 'addToFinalDrillQueue', fallback: '刻意练习' },
     'add-to-filter-group-queue': { key: 'addToFilterGroupQueue', fallback: 'Filter Group Review' },
-    'add-to-neural-roam-queue': { key: 'addToNeuralRoamQueue', fallback: '绁炵粡婕父' },
+    'add-to-neural-roam-queue': { key: 'addToNeuralRoamQueue', fallback: '神经漫游' },
     'insert-at': { key: 'insertAt', fallback: 'Insert at' },
     'set-priority': { key: 'setPriority', fallback: 'Set Priority' },
     'auto-sort': { key: 'autoSortQueue', fallback: 'Auto Sort' },
@@ -3184,7 +3190,11 @@ const {
     const blockIds = Array.from(
       new Set(impactedRows.map((row) => String(row.blockId || '').trim()).filter(Boolean))
     );
-    return loadBrowserCardsByBlockIds(blockIds, { applyQueryFilter: false });
+    return loadBrowserCardsByBlockIds(blockIds, {
+      applyQueryFilter: false,
+      manager: pluginUnifiedDataSourceManager.value || undefined,
+      siyuanApi: browserSiyuanApi.value || undefined,
+    });
   },
   onRowsDeleted: () => {
     setTimeout(() => {
@@ -3293,7 +3303,7 @@ function showPerformanceReport() {
   
   // 显示缓存统计
   const cacheStats = getCacheStats();
-  logger.info('馃搳 缂撳瓨缁熻:', cacheStats);
+  logger.info('缓存统计:', cacheStats);
   
   void pushMsg('Performance report printed to console', 2000);
 }
@@ -3344,10 +3354,6 @@ onBeforeUnmount(() => {
   pendingGridDatasource = null;
   currentDataSource.value = null;
 
-  // 🆕 清理全局浏览器上下文
-  clearGlobalBrowserContext();
-  logger.info('[SiYuanMemo][SRSBrowser] Global browser context cleared');
-
   if (gridDatasourceApplyTimer) {
     clearTimeout(gridDatasourceApplyTimer);
     gridDatasourceApplyTimer = null;
@@ -3376,15 +3382,6 @@ onBeforeUnmount(() => {
 onMounted(() => {
   setupBrowserLayoutObserver();
   applyBrowserChromePreferences(layoutProfile.value);
-
-  // 🆕 初始化全屢浏览器上下文（DDD 化）
-  const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
-  if (unifiedDataSourceManager) {
-    syncGlobalBrowserContext();
-    logger.info('[SiYuanMemo][SRSBrowser] Global browser context initialized');
-  } else {
-    logger.warn('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available, global context not initialized');
-  }
 
   initBrowserAdapter();
   setupLongTaskMonitor();
@@ -3428,7 +3425,7 @@ onMounted(() => {
     const riffConfig = storage?.getSettings?.()?.riffIntegration;
     
 
-    logger.info('[SiYuanMemo][SRSBrowser] 馃攳 Checking auto-sync configuration:', {
+    logger.info('[SiYuanMemo][SRSBrowser] Checking auto-sync configuration:', {
       hasHybridSyncService: !!hybridService,
       hasRiffConfig: !!riffConfig,
       mode: riffConfig?.mode,
@@ -3571,7 +3568,7 @@ function openPracticeMenu(ev: MouseEvent) {
 
   if (!pos) {
     logger.error('[SiYuanMemo][CardBrowser] openPracticeMenu failed: invalid pointer position');
-    void pushErrMsg('鎵撳紑缁冧範鑿滃崟澶辫触');
+    void pushErrMsg('打开练习菜单失败');
     return;
   }
 
@@ -3596,7 +3593,7 @@ function openPracticeMenu(ev: MouseEvent) {
       menu.open({ x: safePos.x, y: safePos.y, isLeft: !isMobileMode.value });
     } catch (err) {
       logger.error('[SiYuanMemo][CardBrowser] openPracticeMenu failed:', err);
-      void pushErrMsg('鎵撳紑缁冧範鑿滃崟澶辫触');
+      void pushErrMsg('打开练习菜单失败');
     }
   }, 0);
 }
@@ -4001,7 +3998,11 @@ async function enrichNeuralActivationTraceViewModel(
     return trace;
   }
 
-  const cards = await loadBrowserCardsByBlockIds(missingPreviewIds, { applyQueryFilter: false });
+  const cards = await loadBrowserCardsByBlockIds(missingPreviewIds, {
+    applyQueryFilter: false,
+    manager: pluginUnifiedDataSourceManager.value || undefined,
+    siyuanApi: browserSiyuanApi.value || undefined,
+  });
   const contentByNodeId = new Map(
     cards.map((card) => [
       card.blockId,
@@ -4370,7 +4371,11 @@ async function refreshNeuralSubviewData(): Promise<void> {
 
 async function handleNeuralPreview(nodeId: string): Promise<void> {
   const requestSeq = ++neuralPreviewRequestSeq;
-  const cards = await loadBrowserCardsByBlockIds([nodeId], { applyQueryFilter: false });
+  const cards = await loadBrowserCardsByBlockIds([nodeId], {
+    applyQueryFilter: false,
+    manager: pluginUnifiedDataSourceManager.value || undefined,
+    siyuanApi: browserSiyuanApi.value || undefined,
+  });
   if (requestSeq !== neuralPreviewRequestSeq) {
     return;
   }
@@ -4778,7 +4783,9 @@ const {
   manager: pluginUnifiedDataSourceManager.value,
 });
 
-const cardTypeDetection = useCardTypeDetection(() => rows.value);
+const cardTypeDetection = useCardTypeDetection(() => rows.value, {
+  siyuanApi: () => browserSiyuanApi.value || null,
+});
 
 
 async function refreshQueueCounts(request: BrowserQueueCountsRequest = { forceRefresh: true }) {
@@ -4798,7 +4805,7 @@ async function handleSelectQueue(queueId: string) {
     previousNonNeuralCardType: previousNonNeuralCardType.value,
   });
 
-  logger.info('[SiYuanMemo][SRSBrowser] 馃攳 handleSelectQueue called:', {
+  logger.info('[SiYuanMemo][SRSBrowser] handleSelectQueue called:', {
     queueId,
     fromQueueId,
     beforeActiveDocId: activeDocId.value,
@@ -4817,9 +4824,7 @@ async function handleSelectQueue(queueId: string) {
       neuralSubview.value = 'concept-cards';
     }
 
-    syncGlobalBrowserContext();
-
-    logger.info('[SiYuanMemo][SRSBrowser] 馃攳 After clearing activeDocId:', {
+    logger.info('[SiYuanMemo][SRSBrowser] After clearing activeDocId:', {
       activeDocId: activeDocId.value,
       shouldFocusDocList: shouldFocusDocList.value,
       currentCardType: currentCardType.value,
@@ -4876,7 +4881,6 @@ async function handleSelectGlobal(type: '__all__' | '__dismissed__') {
     currentCardType.value = 'all';
     searchQuery.value = '';
     shouldFocusDocList.value = false;
-    syncGlobalBrowserContext();
 
     await loadData(false, {
       refreshQueueCounts: false,
@@ -4918,7 +4922,6 @@ function handleSelectDoc(docId: string) {
       currentCardType.value = 'all';
       searchQuery.value = '';
       shouldFocusDocList.value = false;
-      syncGlobalBrowserContext();
 
       await loadData(false, {
         refreshQueueCounts: false,
@@ -5067,7 +5070,7 @@ async function handleOpenSpreadDialog() {
 
     const configManager = new ConfigManager(pluginStorage.value!);
     const dlg = createVueDialog({
-      title: t('spread', '鍒嗘憡澶嶄範鍘嬪姏'),
+      title: t('spread', '分散复习压力'),
       component: SpreadDialog,
       props: {
         count: outstandingCards.length,  // 初始显示到期卡片数量
@@ -5098,7 +5101,7 @@ async function handleOpenSpreadDialog() {
             
             if (result) {
               const resultDlg = createVueDialog({
-                title: t('spreadResult', '鍒嗘暎缁撴灉'),
+                title: t('spreadResult', '分散结果'),
                 component: RescheduleResultDialog,
                 props: {
                   result: {
@@ -5124,10 +5127,10 @@ async function handleOpenSpreadDialog() {
             
             // 5. Refresh data
             await refreshData(true);
-            await pushMsg(t('spreadSuccess', '鍒嗘暎鎿嶄綔瀹屾垚'));
+            await pushMsg(t('spreadSuccess', '分散操作完成'));
           } catch (err: unknown) {
             logger.error('[SiYuanMemo][SRSBrowser] Spread operation failed:', err);
-            await pushErrMsg(getErrorMessage(err, t('spreadFailed', '鍒嗘暎鎿嶄綔澶辫触')));
+            await pushErrMsg(getErrorMessage(err, t('spreadFailed', '分散操作失败')));
           }
         },
         cancel: () => {

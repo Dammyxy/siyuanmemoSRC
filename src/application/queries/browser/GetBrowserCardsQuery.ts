@@ -14,54 +14,8 @@
 
 import type { CardState } from '@/core/card/domain/services/CardScheduleService';
 import type { SortField, SortOrder } from '@/core/card/domain/services/CardSortService';
-
-/**
- * 浏览器卡片数据结构
- * 
- * 这是表现层使用的卡片数据格式，包含了 UI 需要的所有信息。
- */
-export interface BrowserCard {
-  // 基本信息
-  id: string;              // FSRS 卡片 ID
-  fsrsCardId?: string;     // FSRS 卡片 ID（兼容字段）
-  blockId: string;         // 块 ID
-  deckId: string;          // Deck ID
-  rootId: string;          // 根文档 ID
-  content: string;         // 卡片内容（截断）
-  fullContent: string;     // 完整内容
-  
-  // 状态信息
-  state: CardState;        // 卡片状态
-  stateLabel: string;      // 状态标签（用于显示）
-  suspended: boolean;      // 是否暂停
-  
-  // 调度信息
-  due: Date;               // 到期时间
-  dueFormatted: string;    // 格式化的到期时间
-  stability: number;       // 稳定性
-  difficulty: number;      // 难度
-  retrievability?: number; // 可提取性
-  
-  // 复习历史
-  reps: number;            // 复习次数
-  lapses: number;          // 遗忘次数
-  elapsedDays: number;     // 已过天数
-  scheduledDays: number;   // 计划间隔天数
-  interval: number;        // 间隔天数（兼容字段）
-  lastReview: Date | null; // 最后复习时间
-  lastReviewFormatted: string; // 格式化的最后复习时间
-  firstReview: Date | null;    // 首次复习时间
-  firstReviewFormatted: string; // 格式化的首次复习时间
-  
-  // 元数据
-  priority: number;        // 优先级（1-100）
-  cardType?: string;       // 卡片类型
-  aFactor?: number;        // A 因子
-  tags: string[];          // 标签列表
-  
-  // 原始数据（用于特殊处理）
-  meta?: Record<string, unknown>;
-}
+import type { BrowserCard } from '@/types/browser';
+export type { BrowserCard } from '@/types/browser';
 
 /**
  * 预设过滤器类型

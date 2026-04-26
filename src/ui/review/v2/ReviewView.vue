@@ -13,7 +13,7 @@
           :header="state.header"
           :meta="state.meta"
           :i18n="i18n"
-          :is-tab-mode="!!props.reviewUI"
+          :is-tab-mode="props.mode === 'tab'"
           :title="props.title"
           :mode="props.mode"
           :is-mobile="props.isMobile"
@@ -33,7 +33,6 @@
         <ReviewContent
           ref="contentRef"
           :app="app"
-          :plugin="props.plugin"
           :content="state.content"
           :overlay="state.overlay"
           :has-hidden-content="state.meta.hasHiddenContent"
@@ -41,6 +40,7 @@
           :meta="state.meta"
           :i18n="i18n"
           :render-epoch="renderEpoch"
+          :render-services="reviewRenderServices"
           @editor-state-change="handleEditorStateChange"
         />
 
@@ -50,7 +50,7 @@
           :meta="state.meta"
           :current-card="state.content.card"
           :i18n="i18n"
-          :queue="providerQueue || props.queue"
+          :queue="props.queue"
           :queue-type="activeReviewQueueType"
           :plugin="props.plugin"
           :is-mobile="props.isMobile"
@@ -155,7 +155,6 @@ import {
 } from './types';
 import { matchReviewNativeTabSplitCommand, pruneNativeTabSplitMenu } from './reviewNativeSplitHostGuard';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
-import { ProviderBackedQueueStrategy, type QueueProvider } from '@/core/extensions';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
@@ -214,6 +213,7 @@ import type { AIWorkbenchLegacyView, AIWorkbenchOpenOptions, AIWorkbenchSurface 
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
+import { createReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { parseTransactionsPayload, parseWSMessage } from '@/core/infrastructure/websocket/transaction-types';
 
 const logger = createLogger('ReviewView');
@@ -245,38 +245,6 @@ const MAIN_REVIEW_QUEUE_BY_HEADER_VARIANT: Partial<Record<ReviewHeaderVariant, Q
 type ReviewAIEntryView = 'general-chat' | 'concept-coach';
 type ReviewAIRequestedView = ReviewAIEntryView | AIWorkbenchLegacyView;
 
-type ReviewProviderLike = {
-  id?: string;
-  displayName?: string;
-  skipBehavior?: 'drop' | 'rotate' | string;
-  getProgress?: () => unknown;
-  getResumePrompt?: () => { message: string; data: unknown } | null;
-};
-
-type ReviewUIConfigLike = {
-  adapter?: {
-    toUIState: (provider: unknown, item: unknown, context: unknown) => Promise<unknown>;
-    fetchAuxiliaryData?: (item: unknown, queue?: unknown, context?: unknown) => Promise<unknown>;
-  };
-  context?: {
-    queue?: Record<string, unknown>;
-    uiConfig?: {
-      statsType: 'infinite' | 'queue-size' | 'riff-counts';
-      showRatingButtons: boolean;
-      allowSkip: boolean;
-      hiddenContentTypes?: string[];
-      customButtons?: Array<{
-        actionId: string;
-        label: string;
-        icon?: string;
-        danger?: boolean;
-        variant?: 'ghost' | 'info';
-      }>;
-      menuCommands?: IQueueCommand<unknown>[];
-    };
-  };
-};
-
 type ReviewPluginContextLike = {
   getDialogManager?: () =>
     | {
@@ -305,10 +273,10 @@ type ReviewPluginContextLike = {
       }
     | undefined;
   getSharedReviewSessionRegistry?: () => SharedReviewSessionRegistry | undefined;
+  getCardStorage?: () => unknown;
   getTabManager?: () =>
     | {
         openReviewTab: (options: {
-          provider?: unknown;
           queue?: unknown;
           adapter?: unknown;
           title: string;
@@ -319,7 +287,6 @@ type ReviewPluginContextLike = {
           reviewState?: ReviewTabRuntimeState | null;
         }) => void;
         openReviewTabInNewTab?: (options: {
-          provider?: unknown;
           queue?: unknown;
           adapter?: unknown;
           title: string;
@@ -330,7 +297,6 @@ type ReviewPluginContextLike = {
           reviewState?: ReviewTabRuntimeState | null;
         }) => void;
         openReviewInNewWindow?: (options: {
-          provider?: unknown;
           queue?: unknown;
           adapter?: unknown;
           title: string;
@@ -415,7 +381,6 @@ type ReviewPluginLike = {
   eventBus?: WorkspaceEventBusLike;
   getContext?: () => ReviewPluginContextLike | undefined;
   openReviewTab?: (options: {
-    provider?: unknown;
     queue?: unknown;
     adapter?: unknown;
     title: string;
@@ -617,8 +582,6 @@ const props = defineProps<{
   i18n?: Record<string, string>;
   queue?: unknown;
   adapter?: unknown;
-  provider?: unknown;
-  reviewUI?: ReviewUIConfigLike;
   title?: string; // 队列标题（如"提取练习"）
   headerVariant?: ReviewHeaderVariant;
   mode?: 'dialog' | 'tab'; // 🆕 打开模式（对话框/Tab）
@@ -779,7 +742,7 @@ function getQueueStrategyWithTailAppend(): QueueStrategyWithTailAppend | null {
 }
 
 function getActiveQueueStrategy(): { next?: () => Promise<unknown> } | null {
-  const activeQueue = providerQueue || props.queue;
+  const activeQueue = props.queue;
   return isRecord(activeQueue) ? activeQueue as { next?: () => Promise<unknown> } : null;
 }
 
@@ -848,7 +811,7 @@ function getSchedulerTypeForCard(card: FSRSCard | null | undefined): 'fsrs-v6' |
 }
 
 function resolveActiveReviewQueueType(): string | null {
-  const activeQueue = providerQueue || props.queue;
+  const activeQueue = props.queue;
   if (!isRecord(activeQueue)) {
     return null;
   }
@@ -873,7 +836,7 @@ function resolveActiveReviewQueueLabel(): string {
     return title;
   }
 
-  const activeQueue = providerQueue || props.queue;
+  const activeQueue = props.queue;
   if (isRecord(activeQueue)) {
     const displayName = String(activeQueue.displayName || '').trim();
     if (displayName.length > 0) {
@@ -965,7 +928,7 @@ function getInitialReviewSessionState(): InitialReviewSessionState | undefined {
 }
 
 function buildReviewQueueSessionSnapshot(): ReviewQueueSessionSnapshot | null {
-  const activeQueue = providerQueue || props.queue;
+  const activeQueue = props.queue;
   const snapshotCarrier = activeQueue as QueueStrategyWithSessionSnapshot | null | undefined;
   if (!snapshotCarrier || typeof snapshotCarrier.serializeSessionSnapshot !== 'function') {
     return null;
@@ -1022,7 +985,6 @@ function buildReviewTabOpenOptions(overrides?: {
 }) {
   const resolvedSharedReviewSessionId = overrides?.sharedReviewSessionId ?? sharedReviewSessionId.value;
   return {
-    provider: props.provider,
     queue: props.queue,
     adapter: props.adapter,
     title: props.title || t('reviewTitle', 'Review'),
@@ -1456,29 +1418,6 @@ onUnmounted(() => {
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener removed');
 });
 
-const providerAdapter = props.reviewUI?.adapter;
-const provider = props.provider as QueueProvider<unknown> | undefined;
-const providerLike = provider as (QueueProvider<unknown> & ReviewProviderLike) | undefined;
-const providerQueue = provider && providerAdapter
-  ? new ProviderBackedQueueStrategy(provider, {
-      providerOptions: props.reviewUI?.context?.queue || {},
-      uiConfig: props.reviewUI?.context?.uiConfig || { statsType: 'queue-size', showRatingButtons: true, allowSkip: true },
-      statsLabel: String(providerLike?.displayName || providerLike?.id || ''),
-      skipBehavior: providerLike?.skipBehavior === 'rotate' || String(providerLike?.id || '') === 'final-drill' ? 'rotate' : 'drop',
-      getProgress: typeof providerLike?.getProgress === 'function' ? () => providerLike.getProgress() : undefined,
-      getResumePrompt: typeof providerLike?.getResumePrompt === 'function' ? () => providerLike.getResumePrompt() : undefined,
-    })
-  : null;
-
-const bridgedAdapter = provider && providerAdapter
-  ? {
-      toUIState: (_queue: unknown, item: unknown, context: unknown) => providerAdapter.toUIState(provider, item, context),
-      fetchAuxiliaryData: typeof providerAdapter.fetchAuxiliaryData === 'function'
-        ? (item: unknown, _queue?: unknown, context?: unknown) => providerAdapter.fetchAuxiliaryData(item, provider, context)
-        : undefined,
-    }
-  : null;
-
 type ActiveReviewItem = FSRSCard;
 
 function isReviewSessionControllerLike(value: unknown): value is ReviewSessionController<ActiveReviewItem> {
@@ -1566,8 +1505,8 @@ async function handleReviewArenaFeedback(payload: { cardId: string; rating: numb
 
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {
   return createReviewSessionController(
-    (providerQueue || props.queue) as never,
-    (bridgedAdapter || props.adapter) as never,
+    props.queue as never,
+    props.adapter as never,
     {
       onReview: props.onReview,
       onReviewDetailed: handleReviewArenaFeedback as never,
@@ -1600,8 +1539,8 @@ function resolveReviewSessionController(): ReviewSessionController<ActiveReviewI
 const reviewSessionController = resolveReviewSessionController();
 
 const hook = useReviewSession(
-  providerQueue || props.queue, 
-  bridgedAdapter || props.adapter,
+  props.queue as never,
+  props.adapter as never,
   {
     onReview: props.onReview, // 🆕 传递 onReview 回调
     onReviewDetailed: handleReviewArenaFeedback as never,
@@ -1615,6 +1554,10 @@ const hook = useReviewSession(
 const state = hook.state;
 const app = props.app;
 const i18n = props.i18n;
+const reviewRenderServices = createReviewRenderServices({
+  cardStorage: getPluginContext(props.plugin)?.getCardStorage?.() as never,
+  i18n: i18n || {},
+});
 const showReviewFilterDialog = ref(false);
 const appliedReviewFilter = ref<CardFilter | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
@@ -1844,7 +1787,7 @@ function buildReviewPriorityMenuLabel(priority: number | null): string {
 }
 
 function getActiveRemovableReviewQueue(): { removeCard?: (cardIdOrBlockId: string) => Promise<void> } | null {
-  const activeQueue = providerQueue || props.queue;
+  const activeQueue = props.queue;
   if (!isRecord(activeQueue)) {
     return null;
   }

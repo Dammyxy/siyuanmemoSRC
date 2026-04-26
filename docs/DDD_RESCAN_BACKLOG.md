@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 150)
+Last update: 2026-04-26 (Round 151)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - browser review boundary convergence first pass
+
+- Task: 按首轮简化计划收口 Browser / Review 边界倒挂、旧 provider runtime 和 browser 全局状态，并加上防回流 guard。
+- Touched slice: Browser / Review / application wiring across `src/types/browser.ts`, `src/application/queries/browser/shared/*`, `src/application/services/BrowserApplicationService.ts`, `src/application/ApplicationContext.ts`, `src/ui/browser/*`, `src/ui/review/v2/*`, `src/application/factories/createReviewRenderServices.ts`, boundary script, and docs.
+- Debt fixed now: Browser DTO、open state、query parser、stable id、sort display contract 与 queue row projection 从 UI 收到共享 types / application query shared 层；`BrowserApplicationService`、deck/query kernels 不再 import `@/ui/browser/*`，browser service 删除 module-global manager/api/query 状态并移除 `browserService.v2.ts`；Review 删除 deprecated `core/extensions` provider path、`ReviewViewAdapter`、`ReviewViewController`，`ReviewContent` 的 quick/descriptor render services 改由 application factory 注入；新增 `pnpm check:boundaries` 禁止 core/extensions、application query/service 反向 import UI browser，以及 UI 新增 infrastructure 直连。
+- Debt deferred: Application/UI 下仍有一批历史 `new *SiyuanAdapter()` 默认构造留待下一刀；`SRSBrowser.vue`、`ReviewView.vue`、`AIWorkbenchService.ts`、`SettingsPanel.vue` 等大文件仍未拆；UI 里少数历史 infrastructure 直连暂通过 allowlist 保留；Browser filter/query helper 还有局部重复，未做全仓去重。
+- Why deferred: 这轮优先切断会继续制造 bug 的 Browser/Review 倒挂和旧 runtime 双路径；一次性迁移所有 adapter 默认构造和拆大文件会跨 Xiuyuan、card CRUD、AI、manager lifecycle 多个 bounded context，回归面明显高于首轮安全收益。
+- Next safe step: 以 `ApplicationContext` 为唯一组合根继续迁移 card CRUD / Xiuyuan / manager / query services 的 Siyuan ports，并把剩余 UI infrastructure allowlist 逐项改成 application factory/port；随后再按状态/命令/投影/持久化拆 `AIWorkbenchService.ts` 与大型 Vue surface。
+- Validation: focused Browser/Review vitest set passed; `pnpm check:boundaries`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-26 - browser subset review exact card scope
 
@@ -2185,10 +2195,13 @@ Do not add an entry for skill-only or docs-only work.
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
 | P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts beyond the in-process writer queue | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then decide whether a cross-window/device lock or tombstone reconciliation model is required |
+| P1 | Adapter construction is not yet fully centralized in `ApplicationContext` | card CRUD usecases, Xiuyuan usecases, `DialogManager`, `TabManager`, `MenuManager`, `ReviewApplicationService`, query services | Continue converting constructors to required ports and inject them from `ApplicationContext`; keep manager/factory exceptions explicit while migrating |
 | P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
-| P1 | Legacy compatibility service surface still exists but no longer used on active browser path | `ApplicationContext` (`tabManager` service exposure) | Evaluate bounded removal/retire plan and adjust integration tests |
+| P1 | Large active files still mix state, command, projection, and persistence concerns | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue` | Split only along active behavior boundaries after Browser/Review/adapter wiring stabilizes; avoid naming-only moves |
+| P1 | A few UI infrastructure imports remain as documented historical exceptions | `src/ui/browser/utils/previewBreadcrumbData.ts`, `src/ui/review/components/ImageOcclusionCardRenderer.vue`, `src/ui/review/shared/loadBreadcrumbTrail.ts` | Replace each with an application port/factory when that surface is next touched, then shrink `scripts/check-boundaries.cjs` allowlist |
+| P2 | Browser filter/query helper logic still has local duplication after contract migration | `src/types/browser.ts`, `src/ui/browser/utils/cardFilters.ts`, browser datasource helpers | Deduplicate around shared parser/matcher only after current Browser tests cover the migrated behavior |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
 | P3 | AI pane tests still inherit localhost asset fetch noise from shared markdown rendering setup | `src/ui/ai/__tests__/*`, shared markdown/test harness setup | Add a shared happy-dom asset shim or markdown renderer test mode to silence unrelated network noise |
@@ -2197,6 +2210,6 @@ Do not add an entry for skill-only or docs-only work.
 
 ## 4. Next convergence batch
 
-1. Execute UTF-8 restoration pass for architecture and core active docs.
-2. Shrink `ApplicationContext` compatibility surface where active callers are already migrated.
-3. Do low-risk i18n helper dedupe in browser/review slices.
+1. Continue adapter constructor migration so card CRUD, Xiuyuan, managers, query services, and review services receive ports from `ApplicationContext` instead of defaulting to infrastructure adapters.
+2. Shrink the UI infrastructure allowlist by replacing the remaining direct imports with application factories/ports.
+3. Split the largest active files by state / command / projection / persistence boundaries, starting with the AI workbench service only after Browser/Review wiring remains stable.

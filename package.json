@@ -14,6 +14,7 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "diagnostics": "node --loader ts-node/esm --experimental-specifier-resolution=node src/diagnostics/cli.ts report",
+    "check:boundaries": "node scripts/check-boundaries.cjs",
     "release": "node ./release.js",
     "release:patch": "node ./release.js --mode=patch",
     "release:minor": "node ./release.js --mode=minor",

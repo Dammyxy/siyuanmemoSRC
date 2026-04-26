@@ -64,6 +64,7 @@ import { ReviewQueuePreparationService } from '@/application/services/ReviewQueu
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
+import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
 import { ExcerptRecordService } from '@/application/services/ExcerptRecordService';
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
@@ -586,7 +587,8 @@ export class ApplicationContext {
         cardScheduleService,
         cardFilterService,
         cardSortService,
-        context.getUnifiedDataSourceManager()  // ✅ 传入 UnifiedDataSourceManager
+        context.getUnifiedDataSourceManager(),  // ✅ 传入 UnifiedDataSourceManager
+        new BrowserSiyuanAdapter(),
       );
     });
     

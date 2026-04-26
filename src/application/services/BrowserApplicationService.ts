@@ -4,7 +4,6 @@ import { CardFilterService } from '@/core/card/domain/services/CardFilterService
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { QueueType, type CardFilter, type IReviewQueue, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
-import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQueryHandler';
 import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
@@ -24,12 +23,11 @@ import type {
 import type {
   IBrowserApplicationService,
   BrowserQueueCountsRequest,
+  BrowserDataSourceFactory,
   DataSourceOptions,
   BrowserQueueId,
 } from '../interfaces/IBrowserApplicationService';
 import type { ICardDataSource } from '../interfaces/ICardDataSource';
-import { DeckDataSource } from '@/ui/browser/datasource/DeckDataSource';
-import { createQueueDataSource, createQueryDataSource } from '@/ui/browser/utils/dataSourceFactory';
 import { createLogger } from '@/utils/logger';
 import { hasFilterSetter, hasRebuildAction } from './browser/filterGroupQueueContract';
 
@@ -76,7 +74,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     cardFilterService: CardFilterService,
     cardSortService: CardSortService,
     unifiedDataSourceManager?: IUnifiedDataSourceManagerFacade | null,
-    siyuanApi: BrowserSiyuanPort = new BrowserSiyuanAdapter(),
+    siyuanApi: BrowserSiyuanPort,
+    private readonly dataSourceFactory?: BrowserDataSourceFactory | null,
   ) {
     this.browserDeckQueryKernel = new BrowserDeckQueryKernel(
       storageManager,
@@ -174,6 +173,20 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   ): Promise<number> {
     if (!queue) {
       return 0;
+    }
+
+    if (
+      queueId === 'neural-roam'
+      && typeof (queue as { getConceptBlocks?: () => unknown[] }).getConceptBlocks === 'function'
+    ) {
+      try {
+        return Math.max(0, ((queue as { getConceptBlocks: () => unknown[] }).getConceptBlocks() || []).length);
+      } catch (error) {
+        logger.debug('Failed to read neural-roam concept blocks, falling back to visible counters:', {
+          queueId,
+          error,
+        });
+      }
     }
 
     if (
@@ -345,40 +358,16 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   createDataSource(options: DataSourceOptions): ICardDataSource {
-    const { type, preset, queryText, cardType, queueId, plugin } = options;
+    const dataSource = this.dataSourceFactory?.(options, {
+      browserService: this,
+      manager: this.unifiedDataSourceManager,
+      siyuanApi: this.siyuanApi,
+    });
 
-    if (type === 'deck') {
-      return new DeckDataSource(
-        this.unifiedDataSourceManager,
-        { preset, queryText, cardType },
-        plugin,
-        { browserService: this },
-      );
-    }
-
-    if (type === 'queue') {
-      const dataSource = createQueueDataSource(
-        queueId!,
-        this.unifiedDataSourceManager,
-        { preset, queryText, cardType },
-        plugin,
-        this,
-      );
-
-      if (!dataSource) {
-        throw new Error(`Unknown queue data source: ${queueId}`);
-      }
-
+    if (dataSource) {
       return dataSource;
     }
 
-    if (type === 'query') {
-      return createQueryDataSource(queryText!, {
-        manager: this.unifiedDataSourceManager,
-        plugin,
-      });
-    }
-
-    throw new Error(`Unknown data source type: ${type}`);
+    throw new Error(`Browser data source factory is not configured for type=${options.type}`);
   }
 }
