@@ -87,6 +87,7 @@ import type {
   AIExplainResult,
   AIFollowUpEntry,
   AIReviewCardContext,
+  AIReviewNeuralContext,
   AISkillId,
   AISkillTabId,
   AIUserSkillStructuredCard,
@@ -553,6 +554,7 @@ function buildContextSignature(context: AIWorkbenchContextSnapshot | null): stri
       reviewActionLabel: context.currentCard.reviewActionLabel,
       roleDescription: context.currentCard.roleDescription,
       sourceBlockIds: context.currentCard.sourceBlockIds,
+      neuralContext: context.currentCard.neuralContext,
     } : null,
     neuralBatch: serializeNeuralBatch(context.neuralBatch),
   });
@@ -615,6 +617,34 @@ function extractJsonPayload(raw: string): unknown {
 
 function readXiuyuanMeta(card: FSRSCard | null | undefined): Record<string, unknown> | null {
   return isRecord(card?.meta) ? card!.meta as Record<string, unknown> : null;
+}
+
+function readReviewNeuralContext(card: FSRSCard | null | undefined): AIReviewNeuralContext | null {
+  const meta = readXiuyuanMeta(card);
+  const raw = meta?.neuralContext;
+  if (!isRecord(raw)) {
+    return null;
+  }
+
+  const neuralContext: AIReviewNeuralContext = {};
+  const associationType = normalizeString(raw.associationType);
+  const reason = normalizeString(raw.reason);
+  const blockType = normalizeString(raw.blockType);
+  const nodeRole = normalizeString(raw.nodeRole);
+  const sourceVirtualNodeId = normalizeString(raw.sourceVirtualNodeId);
+
+  if (associationType) neuralContext.associationType = associationType;
+  if (reason) neuralContext.reason = reason;
+  if (blockType) neuralContext.blockType = blockType;
+  if (typeof raw.isFlashcard === 'boolean') neuralContext.isFlashcard = raw.isFlashcard;
+  if (nodeRole) neuralContext.nodeRole = nodeRole;
+  if (sourceVirtualNodeId) neuralContext.sourceVirtualNodeId = sourceVirtualNodeId;
+
+  return Object.keys(neuralContext).length > 0 ? neuralContext : null;
+}
+
+function isNeuralVirtualReviewCard(card: FSRSCard | null | undefined): boolean {
+  return readReviewNeuralContext(card)?.isFlashcard === false;
 }
 
 function readStringArrayFromMeta(meta: Record<string, unknown> | null, key: string): string[] {
@@ -5441,12 +5471,17 @@ export class AIWorkbenchService {
   private async buildContextSnapshot(options: AIWorkbenchOpenOptions): Promise<AIWorkbenchContextSnapshot> {
     const currentCard = options.currentCard ?? null;
     const sourceBlockIdsFromCard = this.resolveSourceBlockIdsFromCard(currentCard);
+    const neuralVirtualBlockIds = this.resolveNeuralVirtualBlockIds(currentCard);
     const selectedBlockIds = uniqueIds([
       ...(options.selectedBlockIds || []),
       options.currentBlockId || null,
       ...sourceBlockIdsFromCard,
+      ...neuralVirtualBlockIds,
     ]);
-    const blocks = await this.loadBlockContexts(selectedBlockIds);
+    const blocks = await this.enrichNeuralVirtualBlockContexts(
+      await this.loadBlockContexts(selectedBlockIds),
+      neuralVirtualBlockIds,
+    );
     return {
       source: options.source || 'standalone',
       selectedBlockIds,
@@ -5465,15 +5500,19 @@ export class AIWorkbenchService {
     }
     const semantics = buildReviewCardSemantics(card.type);
     const meta = readXiuyuanMeta(card);
+    const neuralContext = readReviewNeuralContext(card);
     const frontBlockIds = readStringArrayFromMeta(meta, 'frontBlockIDs');
     const backBlockIds = readStringArrayFromMeta(meta, 'backBlockIDs');
+    const neuralVirtualBlockIds = this.resolveNeuralVirtualBlockIds(card);
     const sourceBlockIds = uniqueIds([
       ...frontBlockIds,
       ...backBlockIds,
       card.blockId,
       typeof card.extractedFrom === 'string' ? card.extractedFrom : '',
+      ...neuralVirtualBlockIds,
     ]);
     const contentMap = await this.resolveAIBlockContents(sourceBlockIds);
+    await this.enrichAIBlockContentsWithStandardMarkdown(contentMap, neuralVirtualBlockIds);
     const frontText = frontBlockIds
       .map((blockId) => contentMap.get(blockId)?.content || '')
       .filter(Boolean)
@@ -5496,6 +5535,7 @@ export class AIWorkbenchService {
       frontText,
       backText: semantics.hasAnswerFace ? backText : '',
       sourceText,
+      neuralContext,
     };
   }
 
@@ -5526,6 +5566,55 @@ export class AIWorkbenchService {
         rootId: normalizeString(row?.root_id) || null,
         hPath: normalizeString(row?.hpath) || null,
       } satisfies AIBlockContext;
+    });
+  }
+
+  private resolveNeuralVirtualBlockIds(card: FSRSCard | null): string[] {
+    if (!isNeuralVirtualReviewCard(card)) {
+      return [];
+    }
+    const neuralContext = readReviewNeuralContext(card);
+    return uniqueIds([
+      card?.blockId,
+      neuralContext?.sourceVirtualNodeId,
+    ]);
+  }
+
+  private async readStandardMarkdownByBlockIds(blockIds: string[]): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+    for (const blockId of uniqueIds(blockIds)) {
+      try {
+        const markdown = normalizeString(await this.deps.siyuanPort.copyStdMarkdown(blockId));
+        if (markdown) {
+          result.set(blockId, markdown);
+        }
+      } catch {
+        // Keep the SQL-derived block text already loaded for the context snapshot.
+      }
+    }
+    return result;
+  }
+
+  private async enrichNeuralVirtualBlockContexts(
+    blocks: AIBlockContext[],
+    blockIds: string[],
+  ): Promise<AIBlockContext[]> {
+    if (blockIds.length === 0 || blocks.length === 0) {
+      return blocks;
+    }
+    const markdownById = await this.readStandardMarkdownByBlockIds(blockIds);
+    if (markdownById.size === 0) {
+      return blocks;
+    }
+    return blocks.map((block) => {
+      const markdown = markdownById.get(block.blockId);
+      return markdown
+        ? {
+            ...block,
+            text: markdown,
+            markdown,
+          }
+        : block;
     });
   }
 
@@ -5692,6 +5781,24 @@ export class AIWorkbenchService {
       });
     }
     return resolved;
+  }
+
+  private async enrichAIBlockContentsWithStandardMarkdown(
+    contentMap: Map<string, { content: string; type: string; isDocument: boolean }>,
+    blockIds: string[],
+  ): Promise<void> {
+    if (blockIds.length === 0) {
+      return;
+    }
+    const markdownById = await this.readStandardMarkdownByBlockIds(blockIds);
+    for (const [blockId, markdown] of markdownById.entries()) {
+      const existing = contentMap.get(blockId);
+      contentMap.set(blockId, {
+        content: markdown,
+        type: existing?.type || '',
+        isDocument: existing?.isDocument === true,
+      });
+    }
   }
 
   private async resolveDocumentMarkdownByRows(rows: AISiyuanBlockRow[]): Promise<Map<string, string>> {

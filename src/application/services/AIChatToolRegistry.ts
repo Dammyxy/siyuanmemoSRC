@@ -121,12 +121,12 @@ export const AI_CHAT_TOOL_DESCRIPTORS: AIChatToolDescriptor[] = [
     name: 'GetCurrentContext',
     title: '读取当前上下文',
     group: 'context-read',
-    description: '读取当前 AI 会话的卡片、选中块、队列和已附加材料摘要。',
+    description: '读取当前 AI 会话的卡片、神经漫游上下文、选中块、队列和已附加材料摘要。',
     definition: {
       type: 'function',
       function: {
         name: 'GetCurrentContext',
-        description: 'Read the current SiYuanMemo review or browser context plus attached materials.',
+        description: 'Read the current SiYuanMemo review or browser context, including neural-roam metadata and attached materials.',
         parameters: objectParameters({
           includeFullText: { type: 'boolean', description: 'Whether to include fuller selected block text.' },
         }),
@@ -137,7 +137,7 @@ export const AI_CHAT_TOOL_DESCRIPTORS: AIChatToolDescriptor[] = [
     sessionScope: 'context',
     enabledByDefault: true,
     declaredReturnType: {
-      type: '{ source: string; queueType: string | null; currentCard: unknown; selectedBlocks: Array<{ blockId: string; type?: string; hPath?: string; text: string }>; attachedContexts: Array<{ title: string; summary: string; blockIds: string[]; content: string }> }',
+      type: '{ source: string; queueType: string | null; currentCard: unknown; neuralBatch: unknown; selectedBlocks: Array<{ blockId: string; type?: string; hPath?: string; text: string }>; attachedContexts: Array<{ title: string; summary: string; blockIds: string[]; content: string }> }',
     },
     compressArgs: (args) => args.includeFullText === true ? 'includeFullText=true' : 'includeFullText=false',
   },

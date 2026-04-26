@@ -55,6 +55,43 @@ function createCard(cardId: string, blockId: string, frontId: string, backId: st
   } as const;
 }
 
+function createNeuralVirtualCard(blockId: string, sourceVirtualNodeId?: string | null) {
+  const now = Date.now();
+  return {
+    id: blockId,
+    xiuyuanID: blockId,
+    blockId,
+    deckId: 'neural-roam',
+    due: now,
+    stability: 0,
+    difficulty: 0,
+    elapsedDays: 0,
+    scheduledDays: 0,
+    reps: 0,
+    lapses: 0,
+    state: 0,
+    lastReview: now,
+    priority: 50,
+    type: 'topic',
+    tags: [],
+    leechCount: 0,
+    isLeech: false,
+    skipped: false,
+    createdAt: now,
+    updatedAt: now,
+    meta: {
+      neuralContext: {
+        associationType: 'backlink',
+        reason: '反向链接',
+        blockType: 'p',
+        isFlashcard: false,
+        nodeRole: 'virtual',
+        sourceVirtualNodeId,
+      },
+    },
+  } as const;
+}
+
 type TestBlockContent = {
   content: string;
   type?: string;
@@ -260,6 +297,19 @@ function createQueueProgress(queueType: string, queueLabel: string) {
   };
 }
 
+function createSiyuanRow(id: string, value: TestBlockContent) {
+  return {
+    id,
+    parent_id: null,
+    root_id: `root-${id}`,
+    type: value.type || 'p',
+    subtype: '',
+    content: value.content,
+    markdown: value.markdown || value.content,
+    hpath: `/doc/${id}`,
+  };
+}
+
 function latestAssistantResult(service: AIWorkbenchService, tabId: (typeof AI_CONCEPT_COACH_TAB_IDS)[number]) {
   return [...service.state.threads[AI_CONCEPT_COACH_SKILL_ID][tabId].messages]
     .reverse()
@@ -460,6 +510,132 @@ describe('AIWorkbenchService review-session behavior', () => {
       toolCallId: 'call-context',
       name: 'GetCurrentContext',
     });
+  });
+
+  it('hydrates neural roam virtual cards with standard markdown context', async () => {
+    const virtualNode = {
+      content: 'Virtual node SQL preview',
+      markdown: 'Virtual node SQL markdown',
+      copyStdMarkdown: '## Virtual node\n\nFull virtual node body\n\n- child detail',
+    };
+    const sourceNode = {
+      content: 'Source virtual SQL preview',
+      markdown: 'Source virtual SQL markdown',
+      copyStdMarkdown: 'Source virtual markdown body',
+    };
+    contentMap.set('virtual-node-ai-1', virtualNode);
+    contentMap.set('source-virtual-ai-1', sourceNode);
+
+    const service = createService({
+      siyuanPort: createSiyuanPort([
+        ...siyuanRows,
+        createSiyuanRow('virtual-node-ai-1', virtualNode),
+        createSiyuanRow('source-virtual-ai-1', sourceNode),
+      ]),
+    });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-neural-virtual',
+      reviewChatKey: 'neural-roam::Neural Queue',
+      queueType: 'neural-roam',
+      queueProgress: createQueueProgress('neural-roam', 'Neural Queue'),
+      currentBlockId: 'virtual-node-ai-1',
+      currentCard: createNeuralVirtualCard('virtual-node-ai-1', 'source-virtual-ai-1') as never,
+      revealed: true,
+    });
+
+    expect(service.state.context?.currentCard).toMatchObject({
+      cardId: 'virtual-node-ai-1',
+      blockId: 'virtual-node-ai-1',
+      cardType: 'topic',
+      frontText: '',
+      backText: '',
+      neuralContext: {
+        associationType: 'backlink',
+        isFlashcard: false,
+        nodeRole: 'virtual',
+        sourceVirtualNodeId: 'source-virtual-ai-1',
+      },
+    });
+    expect(service.state.context?.currentCard?.sourceText).toContain('Full virtual node body');
+    expect(service.state.context?.currentCard?.sourceText).toContain('Source virtual markdown body');
+    expect(service.state.context?.selectedBlockIds).toEqual(expect.arrayContaining([
+      'virtual-node-ai-1',
+      'source-virtual-ai-1',
+    ]));
+    expect(service.state.context?.blocks.find((block) => block.blockId === 'virtual-node-ai-1')).toMatchObject({
+      text: expect.stringContaining('Full virtual node body'),
+      markdown: expect.stringContaining('Full virtual node body'),
+    });
+  });
+
+  it('returns neural roam virtual card content through GetCurrentContext', async () => {
+    const virtualNode = {
+      content: 'Tool virtual SQL preview',
+      markdown: 'Tool virtual SQL markdown',
+      copyStdMarkdown: 'Tool virtual standard markdown body',
+    };
+    contentMap.set('virtual-node-tool-1', virtualNode);
+    const llmChat = vi.fn()
+      .mockResolvedValueOnce({
+        content: '',
+        toolCalls: [{
+          id: 'call-context-neural',
+          type: 'function',
+          function: {
+            name: 'GetCurrentContext',
+            arguments: '{"includeFullText":true}',
+          },
+        }],
+        raw: {},
+      })
+      .mockResolvedValueOnce({
+        content: '已读到神经漫游节点正文。',
+        raw: {},
+      });
+    const service = createService({
+      aiSettings: createAISettings(),
+      llmChat,
+      siyuanPort: createSiyuanPort([
+        ...siyuanRows,
+        createSiyuanRow('virtual-node-tool-1', virtualNode),
+      ]),
+    });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-neural-tool',
+      reviewChatKey: 'neural-roam::Neural Queue',
+      queueType: 'neural-roam',
+      queueProgress: createQueueProgress('neural-roam', 'Neural Queue'),
+      currentBlockId: 'virtual-node-tool-1',
+      currentCard: createNeuralVirtualCard('virtual-node-tool-1') as never,
+      revealed: true,
+    });
+    await service.submitSkillPrompt('读取当前漫游节点。');
+
+    expect(llmChat).toHaveBeenCalledTimes(2);
+    const toolMessage = llmChat.mock.calls[1][0].messages.at(-1);
+    expect(toolMessage).toMatchObject({
+      role: 'tool',
+      toolCallId: 'call-context-neural',
+      name: 'GetCurrentContext',
+    });
+    const payload = JSON.parse(String(toolMessage.content));
+    expect(payload.currentCard.neuralContext).toMatchObject({
+      isFlashcard: false,
+      nodeRole: 'virtual',
+    });
+    expect(payload.currentCard.sourceText).toContain('Tool virtual standard markdown body');
+    expect(payload.selectedBlocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        blockId: 'virtual-node-tool-1',
+        text: expect.stringContaining('Tool virtual standard markdown body'),
+      }),
+    ]));
   });
 
   it('compresses prior tool history when general chat continues on the next turn', async () => {

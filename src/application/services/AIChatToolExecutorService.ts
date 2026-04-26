@@ -559,6 +559,7 @@ export class AIChatToolExecutorService {
       queueType: context?.queueType || null,
       queueProgress: context?.queueProgress || null,
       currentCard: context?.currentCard || null,
+      neuralBatch: context?.neuralBatch || null,
       selectedBlocks: (context?.blocks || []).map((block) => ({
         blockId: block.blockId,
         type: block.type,

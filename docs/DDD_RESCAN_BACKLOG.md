@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-26 (Round 145)
+Last update: 2026-04-26 (Round 146)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-26 - Neural roam AI virtual node context
+
+- Task: 修复神经漫游 AI 侧栏看不到虚拟节点具体内容的问题。
+- Touched slice: AI workbench / capture context path across `src/application/services/{AIWorkbenchService.ts,AIChatToolExecutorService.ts,AIChatToolRegistry.ts}`, `src/types/ai.ts`, and focused AI workbench tests.
+- Debt fixed now: Review AI context now recognizes non-flashcard neural roam synthetic cards, exposes compact `neuralContext`, and enriches the current virtual node/source node with standard Markdown so prompts and `GetCurrentContext` see actual material instead of only an empty card shell.
+- Debt deferred: Existing `ReadBlock` / `ReadBlocks` behavior remains unchanged, and associated-review real flashcards do not automatically pull their source virtual node into selected context unless they are the current non-flashcard virtual node.
+- Why deferred: The defect is current-context injection for virtual roam nodes; changing generic read tools or broadening associated-review context would alter wider AI tool semantics outside this active slice.
+- Next safe step: If users also need associated-review cards to include their originating virtual node by default, extend the same normalized `neuralContext` path with an explicit product rule and focused tests.
+- Validation: `pnpm exec vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts -t "neural roam virtual"`; full focused file currently still has 4 pre-existing unrelated assertion failures; `pnpm build`.
 
 ### 2026-04-26 - SRS browser SQL real-card-only results
 

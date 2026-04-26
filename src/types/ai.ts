@@ -312,6 +312,15 @@ export interface AIBlockContext {
   hPath?: string | null;
 }
 
+export interface AIReviewNeuralContext {
+  associationType?: string;
+  reason?: string;
+  blockType?: string;
+  isFlashcard?: boolean;
+  nodeRole?: string;
+  sourceVirtualNodeId?: string | null;
+}
+
 export interface AIReviewCardContext {
   cardId: string;
   blockId: string;
@@ -325,6 +334,7 @@ export interface AIReviewCardContext {
   frontText: string;
   backText: string;
   sourceText: string;
+  neuralContext: AIReviewNeuralContext | null;
 }
 
 export interface AIWorkbenchContextSnapshot {
