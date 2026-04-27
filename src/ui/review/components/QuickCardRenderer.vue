@@ -58,6 +58,7 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<QuickCardViewModel | null>(null);
 const renderedHtml = ref('');
+const activeViewModelIdentity = ref('');
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 const localViewModelCache = new Map<string, QuickCardViewModel>();
@@ -95,10 +96,16 @@ async function loadViewModel() {
   if (applyPreparedViewModel(cacheKey)) {
     return;
   }
+  if (activeViewModelIdentity.value !== cacheKey) {
+    viewModel.value = null;
+    renderedHtml.value = '';
+    activeViewModelIdentity.value = '';
+  }
   const cached = localViewModelCache.get(cacheKey);
   if (cached) {
     viewModel.value = cached;
     renderedHtml.value = renderDisplayHtml(cached);
+    activeViewModelIdentity.value = cacheKey;
     error.value = null;
     loading.value = false;
     emit('loaded', cached);
@@ -136,6 +143,7 @@ async function loadViewModel() {
     });
 
     viewModel.value = result;
+    activeViewModelIdentity.value = cacheKey;
     localViewModelCache.set(cacheKey, result);
     renderedHtml.value = renderDisplayHtml(result);
     emit('loaded', result);
@@ -166,6 +174,7 @@ function applyPreparedViewModel(identity = renderIdentity.value): boolean {
   loadSeq += 1;
   viewModel.value = prepared;
   renderedHtml.value = renderDisplayHtml(prepared);
+  activeViewModelIdentity.value = identity;
   localViewModelCache.set(identity, prepared);
   error.value = null;
   loading.value = false;

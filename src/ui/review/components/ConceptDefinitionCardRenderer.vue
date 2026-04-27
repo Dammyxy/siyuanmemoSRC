@@ -74,6 +74,7 @@ const emit = defineEmits<{
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<ConceptDefinitionCardViewModel | null>(null);
+const activeViewModelIdentity = ref('');
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 
@@ -113,6 +114,10 @@ async function loadViewModel() {
   if (applyPreparedViewModel(identity)) {
     return;
   }
+  if (activeViewModelIdentity.value !== identity) {
+    viewModel.value = null;
+    activeViewModelIdentity.value = '';
+  }
 
   try {
     loading.value = true;
@@ -124,6 +129,7 @@ async function loadViewModel() {
     }
 
     viewModel.value = nextViewModel;
+    activeViewModelIdentity.value = identity;
     loggedRenderFailures.delete(identity);
     emit('loaded', viewModel.value);
   } catch (err) {
@@ -156,6 +162,7 @@ function applyPreparedViewModel(identity = renderIdentity.value): boolean {
 
   loadSeq += 1;
   viewModel.value = prepared;
+  activeViewModelIdentity.value = identity;
   loggedRenderFailures.delete(identity);
   error.value = null;
   loading.value = false;

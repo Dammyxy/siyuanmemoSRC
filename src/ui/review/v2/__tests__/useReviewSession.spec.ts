@@ -489,7 +489,7 @@ describe('useReviewSession', () => {
     wrapper.unmount();
   });
 
-  it('keeps the current card committed when next card presentation preparation fails', async () => {
+  it('commits the next card when graded-card presentation preparation fails', async () => {
     const actionError = vi.fn();
     const adapter = createAdapter({
       toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
@@ -515,13 +515,46 @@ describe('useReviewSession', () => {
     await hook.grade(3);
     await flushAsync();
 
+    expect(hook.state.value.content.id).toBe('card-2');
+    expect(hook.state.value.meta.advancePending).toBeUndefined();
+    expect(hook.context.value.session?.answeredCount).toBe(1);
+    expect(hook.context.value.session?.correctCount).toBe(1);
+    expect(actionError).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('commits the next card when skipped-card presentation preparation fails', async () => {
+    const actionError = vi.fn();
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+    const prepareStateBeforeCommit = vi.fn(async (nextState: ReviewUIState, reason: string) => {
+      if (reason === 'skip') {
+        throw new Error('presentation prepare failed');
+      }
+      return nextState;
+    });
+
+    const { getHook, queue, wrapper } = mountHook({
+      adapter,
+      onActionError: actionError,
+      prepareStateBeforeCommit,
+    });
+    await flushAsync();
+    await flushAsync();
+
+    const hook = getHook();
     expect(hook.state.value.content.id).toBe('card-1');
+
+    await hook.skip();
+    await flushAsync();
+
+    expect(queue.onFeedback).toHaveBeenCalledWith(expect.objectContaining({ id: 'card-1' }), { action: 'skip' });
+    expect(hook.state.value.content.id).toBe('card-2');
     expect(hook.state.value.meta.advancePending).toBeUndefined();
     expect(hook.context.value.session?.answeredCount).toBe(0);
-    expect(actionError).toHaveBeenCalledWith(expect.objectContaining({
-      reason: 'grade',
-      message: 'Failed to process review feedback:',
-    }));
+    expect(actionError).not.toHaveBeenCalled();
 
     wrapper.unmount();
   });

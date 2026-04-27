@@ -1634,14 +1634,6 @@ function handleReviewSessionActionError(payload: ReviewSessionActionError<Active
   showMessage(getReviewActionErrorMessage(payload), 5000, 'error');
 }
 
-const PREPARED_COMMIT_ACTION_REASONS = new Set<ReviewSessionUpdateReason>([
-  'grade',
-  'skip',
-  'custom',
-  'back',
-  'load-by-block',
-]);
-
 async function prepareReviewStateBeforeCommit(
   nextState: ReviewUIState,
   reason: ReviewSessionUpdateReason,
@@ -1655,9 +1647,6 @@ async function prepareReviewStateBeforeCommit(
       blockId: nextState.content.id,
       error,
     });
-    if (PREPARED_COMMIT_ACTION_REASONS.has(reason)) {
-      throw error;
-    }
     return nextState;
   }
 }

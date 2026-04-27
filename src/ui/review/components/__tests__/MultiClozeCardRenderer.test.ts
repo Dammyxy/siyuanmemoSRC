@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FSRSCard } from '@/types/card';
 
 const multiClozeRendererMocks = vi.hoisted(() => ({
@@ -16,8 +16,14 @@ vi.mock('@/core/card/multi-cloze/application/MultiClozeCardRenderService', () =>
 
 import MultiClozeCardRenderer from '../MultiClozeCardRenderer.vue';
 
-function createCard(): FSRSCard {
+function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = Date.now();
+  const meta = {
+    templateID: 'builtin-multi-cloze',
+    faceIndex: 0,
+    faces: [{ question: 'front', answer: 'back' }],
+    ...(overrides.meta ?? {}),
+  };
   return {
     id: 'card-1',
     xiuyuanID: 'xy-1',
@@ -39,12 +45,21 @@ function createCard(): FSRSCard {
     skipped: false,
     createdAt: now,
     updatedAt: now,
-    meta: {
-      templateID: 'builtin-multi-cloze',
-      faceIndex: 0,
-      faces: [{ question: 'front', answer: 'back' }],
-    },
+    ...overrides,
+    meta,
   } as FSRSCard;
+}
+
+function buildPreparedIdentity(card: FSRSCard): string {
+  const meta = card.meta;
+  return [
+    card.id || '',
+    card.blockId || '',
+    card.updatedAt || '',
+    meta?.faceIndex ?? '',
+    meta?.templateID || '',
+    meta?.typeMarker || '',
+  ].join('|');
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -53,6 +68,10 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('MultiClozeCardRenderer.vue', () => {
+  beforeEach(() => {
+    multiClozeRendererMocks.prepareViewModel.mockReset();
+  });
+
   it('renders a single inline content region and swaps front/back html in place', async () => {
     multiClozeRendererMocks.prepareViewModel.mockResolvedValue({
       blockId: 'block-1',
@@ -90,5 +109,76 @@ describe('MultiClozeCardRenderer.vue', () => {
     expect(wrapper.find('.multi-cloze-card-renderer--show-answer').exists()).toBe(true);
     expect(wrapper.html()).toContain('Back');
     expect(wrapper.html()).not.toContain('Front');
+  });
+
+  it('renders prepared view model synchronously without loading or service fallback', async () => {
+    const card = createCard();
+    const preparedViewModel = {
+      blockId: 'block-1',
+      breadcrumbs: [],
+      frontHtml: '<p>Prepared front</p>',
+      backHtml: '<p>Prepared back</p>',
+      faceIndex: 0,
+      totalFaces: 1,
+      renderMode: 'default',
+    };
+
+    const wrapper = mount(MultiClozeCardRenderer, {
+      props: {
+        card,
+        showAnswer: false,
+        preparedViewModel,
+        preparedIdentity: buildPreparedIdentity(card),
+      },
+    });
+
+    await flushMicrotasks();
+    await wrapper.vm.$nextTick();
+
+    expect(multiClozeRendererMocks.prepareViewModel).not.toHaveBeenCalled();
+    expect(wrapper.findComponent({ name: 'CardLoadingState' }).exists()).toBe(false);
+    expect(wrapper.html()).toContain('Prepared front');
+  });
+
+  it('does not keep the previous card visible when a new identity fails to load', async () => {
+    multiClozeRendererMocks.prepareViewModel
+      .mockResolvedValueOnce({
+        blockId: 'block-1',
+        breadcrumbs: [],
+        frontHtml: '<p>Old front</p>',
+        backHtml: '<p>Old back</p>',
+        faceIndex: 0,
+        totalFaces: 1,
+        renderMode: 'default',
+      })
+      .mockRejectedValueOnce(new Error('Invalid faceIndex: 1, total faces: 1'));
+
+    const wrapper = mount(MultiClozeCardRenderer, {
+      props: {
+        card: createCard(),
+        showAnswer: false,
+      },
+    });
+
+    await flushMicrotasks();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.html()).toContain('Old front');
+
+    await wrapper.setProps({
+      card: createCard({
+        id: 'card-2',
+        blockId: 'block-2',
+        meta: {
+          templateID: 'builtin-multi-cloze',
+          faceIndex: 1,
+          faces: [{ question: 'new', answer: 'new answer' }],
+        },
+      }),
+    });
+    await flushMicrotasks();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.html()).not.toContain('Old front');
+    expect(wrapper.text()).toContain('Invalid faceIndex: 1, total faces: 1');
   });
 });

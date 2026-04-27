@@ -18,6 +18,7 @@ export interface MultiClozeCardViewModel extends BaseCardViewModel {
   frontHtml: string;
   backHtml: string;
   faceIndex: number;
+  requestedFaceIndex?: number;
   totalFaces: number;
   renderMode: MultiClozeRenderMode;
 }
@@ -39,6 +40,8 @@ interface MultiClozeCardInput {
 interface MultiClozeCardRenderResult {
   frontHtml: string;
   backHtml: string;
+  faceIndex: number;
+  requestedFaceIndex?: number;
 }
 
 const logger = createLogger('MultiClozeCardRenderService');
@@ -53,9 +56,9 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
 
   async prepareViewModel(card: MultiClozeCardInput): Promise<MultiClozeCardViewModel> {
     const faces = card.meta?.faces || [];
-    const faceIndex = card.meta?.faceIndex ?? 0;
+    const requestedFaceIndex = this.normalizeFaceIndex(card.meta?.faceIndex);
     const renderMode = this.resolveRenderMode(card.meta?.clozeRenderMode);
-    const rendered = await this.renderCardFaces(card.blockId, faces, faceIndex, renderMode);
+    const rendered = await this.renderCardFaces(card.blockId, faces, requestedFaceIndex, renderMode);
     const breadcrumbs = await this.loadBreadcrumbs(card.blockId);
 
     return {
@@ -63,7 +66,8 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       breadcrumbs,
       frontHtml: rendered.frontHtml,
       backHtml: rendered.backHtml,
-      faceIndex,
+      faceIndex: rendered.faceIndex,
+      requestedFaceIndex: rendered.requestedFaceIndex,
       totalFaces: faces.length,
       renderMode,
     };
@@ -74,6 +78,13 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       return FORMULA_CLOZE_RENDER_MODE_INLINE;
     }
     return 'default';
+  }
+
+  private normalizeFaceIndex(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return 0;
+    }
+    return Math.max(0, Math.floor(value));
   }
 
   protected async loadSourceKramdown(blockId: string): Promise<string | null> {
@@ -90,62 +101,100 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
   private async renderCardFaces(
     blockId: string,
     faces: MultiClozeCardFace[],
-    faceIndex: number,
+    requestedFaceIndex: number,
     renderMode: MultiClozeRenderMode,
   ): Promise<MultiClozeCardRenderResult> {
     const sourceKramdown = await this.loadSourceKramdown(blockId);
     const normalizedSourceKramdown = this.stripAttributeArtifacts(sourceKramdown || '');
     if (normalizedSourceKramdown) {
-      const renderedFromSource = this.renderFromSourceKramdown(normalizedSourceKramdown, faces, faceIndex, renderMode);
+      const renderedFromSource = this.renderFromSourceKramdown(
+        blockId,
+        normalizedSourceKramdown,
+        faces,
+        requestedFaceIndex,
+        renderMode,
+      );
       if (renderedFromSource) {
         return renderedFromSource;
       }
     }
 
-    return this.renderFromStoredFaces(faces, faceIndex, renderMode);
+    return this.renderFromStoredFaces(blockId, faces, requestedFaceIndex, renderMode);
   }
 
   private renderFromSourceKramdown(
+    blockId: string,
     sourceKramdown: string,
     faces: MultiClozeCardFace[],
-    faceIndex: number,
+    requestedFaceIndex: number,
     renderMode: MultiClozeRenderMode,
   ): MultiClozeCardRenderResult | null {
     const clozes = ClozeDetector.extractClozes(sourceKramdown);
     if (clozes.length === 0) {
       return null;
     }
-    if (faceIndex < 0 || faceIndex >= clozes.length) {
+    const sourceStoredCountMismatch = faces.length > 0 && clozes.length !== faces.length;
+    if (sourceStoredCountMismatch) {
+      const requestedHitsSource = requestedFaceIndex >= 0 && requestedFaceIndex < clozes.length;
+      const requestedHitsStored = requestedFaceIndex >= 0 && requestedFaceIndex < faces.length;
+      if (!requestedHitsSource && requestedHitsStored && faces.length > 1) {
+        return null;
+      }
+    }
+    const effectiveFaceIndex = this.resolveEffectiveFaceIndex(
+      blockId,
+      requestedFaceIndex,
+      clozes.length,
+      'source',
+    );
+    if (effectiveFaceIndex === null) {
       return null;
     }
-    if (faces.length > 0 && clozes.length !== faces.length) {
-      return null;
+    if (sourceStoredCountMismatch) {
+      logger.warn('[MultiClozeCardRenderService] Source/stored cloze count mismatch; using source cloze rendering', {
+        blockId,
+        requestedFaceIndex,
+        effectiveFaceIndex,
+        sourceClozeCount: clozes.length,
+        storedFaceCount: faces.length,
+      });
     }
 
     const frontKramdown = this.processSourceKramdown(
       sourceKramdown,
       clozes,
-      faceIndex,
+      effectiveFaceIndex,
       renderMode,
       false,
     );
     const backKramdown = this.processSourceKramdown(
       sourceKramdown,
       clozes,
-      faceIndex,
+      effectiveFaceIndex,
       renderMode,
       true,
     );
 
-    return this.finalizeRenderedFaces(frontKramdown, backKramdown, renderMode);
+    return {
+      ...this.finalizeRenderedFaces(frontKramdown, backKramdown, renderMode),
+      faceIndex: effectiveFaceIndex,
+      requestedFaceIndex: effectiveFaceIndex === requestedFaceIndex ? undefined : requestedFaceIndex,
+    };
   }
 
   private renderFromStoredFaces(
+    blockId: string,
     faces: MultiClozeCardFace[],
-    faceIndex: number,
+    requestedFaceIndex: number,
     renderMode: MultiClozeRenderMode,
   ): MultiClozeCardRenderResult {
-    const currentFaceRaw = faces[faceIndex] || { question: '', answer: '' };
+    const effectiveFaceIndex = this.resolveEffectiveFaceIndex(
+      blockId,
+      requestedFaceIndex,
+      faces.length,
+      'stored',
+    ) ?? 0;
+    const currentFaceRaw = faces[effectiveFaceIndex] || { question: '', answer: '' };
     const normalizedQuestion = this.normalizeQuestionForMath(
       this.stripAttributeArtifacts(currentFaceRaw.question),
       renderMode,
@@ -160,6 +209,8 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
       return {
         frontHtml: normalizedQuestion,
         backHtml: normalizedAnswer,
+        faceIndex: effectiveFaceIndex,
+        requestedFaceIndex: effectiveFaceIndex === requestedFaceIndex ? undefined : requestedFaceIndex,
       };
     }
 
@@ -174,7 +225,38 @@ export class MultiClozeCardRenderService extends BaseCardRenderService {
     return {
       frontHtml: this.finalizeRichHtml(frontKramdown),
       backHtml: this.finalizeRichHtml(backKramdown),
+      faceIndex: effectiveFaceIndex,
+      requestedFaceIndex: effectiveFaceIndex === requestedFaceIndex ? undefined : requestedFaceIndex,
     };
+  }
+
+  private resolveEffectiveFaceIndex(
+    blockId: string,
+    requestedFaceIndex: number,
+    totalFaces: number,
+    source: 'source' | 'stored',
+  ): number | null {
+    if (totalFaces <= 0) {
+      return source === 'stored' ? 0 : null;
+    }
+
+    if (requestedFaceIndex >= 0 && requestedFaceIndex < totalFaces) {
+      return requestedFaceIndex;
+    }
+
+    const effectiveFaceIndex = totalFaces === 1
+      ? 0
+      : Math.min(Math.max(requestedFaceIndex, 0), totalFaces - 1);
+
+    logger.warn('[MultiClozeCardRenderService] Repaired invalid faceIndex while rendering multi-cloze card', {
+      blockId,
+      requestedFaceIndex,
+      effectiveFaceIndex,
+      totalFaces,
+      source,
+    });
+
+    return effectiveFaceIndex;
   }
 
   private finalizeRenderedFaces(

@@ -8,6 +8,7 @@ import {
 import type { FSRSCard } from '@/types/card';
 import {
   isNeuralRoamNonFlashcard,
+  resolveReviewSpecialRendererKind,
   shouldPreferStableQuickForcePath,
   shouldVerifyQuickDefaultProfile,
 } from './reviewRenderPolicy';
@@ -18,16 +19,6 @@ import type {
 } from './types';
 
 type QuickSide = 'front' | 'back';
-
-function isImageOcclusionCard(card: FSRSCard | undefined): boolean {
-  const cardMeta = card?.meta;
-  if (!cardMeta || typeof cardMeta !== 'object') {
-    return false;
-  }
-  const source = (cardMeta as Record<string, unknown>).source;
-  const imageOcclusion = (cardMeta as Record<string, unknown>).imageOcclusion;
-  return imageOcclusion === true || source === 'image-occlusion';
-}
 
 function resolveTypeMarker(card: FSRSCard | undefined): string {
   const marker = card?.meta?.typeMarker;
@@ -47,18 +38,6 @@ function isForceQuickCard(card: FSRSCard | undefined): boolean {
     card,
     resolveRenderProfile(card),
   );
-}
-
-function isMultiClozeCard(card: FSRSCard | undefined): boolean {
-  if (!card?.meta) {
-    return false;
-  }
-
-  return resolveRenderProfile(card) === 'quick-inline-formula'
-    && card.meta.templateID === 'builtin-multi-cloze'
-    && Array.isArray(card.meta.faces)
-    && card.meta.faces.length > 0
-    && card.meta.faceIndex !== undefined;
 }
 
 function resolveQuickSide(state: ReviewUIState): QuickSide {
@@ -116,6 +95,9 @@ export function buildPreparedReviewPresentationIdentity(
     card?.updatedAt || '',
     meta?.faceIndex ?? '',
     meta?.templateID || '',
+    meta?.clozeRenderMode || '',
+    meta?.renderProfile || '',
+    Array.isArray(meta?.faces) ? meta.faces.length : '',
     resolveTypeMarker(card),
   ].join('|');
 }
@@ -127,34 +109,28 @@ function resolvePreparedRendererKind(state: ReviewUIState): PreparedReviewRender
   }
 
   const card = content.card;
-  if (!card || isTopicReadModeCard(card) || isNeuralRoamNonFlashcard(card) || isImageOcclusionCard(card)) {
-    return null;
-  }
-
-  if (isForceProtyleCard(card)) {
-    return null;
-  }
-
-  if (isMultiClozeCard(card)) {
-    return 'multi-cloze';
-  }
-
   const renderProfile = resolveRenderProfile(card);
   const forceQuick = isForceQuickCard(card);
-  if (!forceQuick && (renderProfile === 'concept-definition' || checkIsConceptDefinitionCard(card))) {
-    return 'concept-definition';
-  }
-  if (!forceQuick && (renderProfile === 'concept' || checkIsConceptCard(card))) {
-    return 'concept';
-  }
-  if (!forceQuick && (renderProfile === 'descriptor' || checkIsDescriptorSemanticCard(card))) {
-    return 'descriptor';
-  }
-  if (forceQuick || shouldVerifyQuickDefaultProfile(renderProfile)) {
-    return 'quick';
+
+  const rendererKind = resolveReviewSpecialRendererKind({
+    card,
+    contentType: content.type,
+    renderProfile,
+    forceProtyleRender: isForceProtyleCard(card),
+    forceQuickRender: forceQuick,
+    isTopicReadMode: isTopicReadModeCard(card),
+    isNeuralRoamNonFlashcard: isNeuralRoamNonFlashcard(card),
+    isConceptDefinitionCard: checkIsConceptDefinitionCard(card),
+    isConceptCard: checkIsConceptCard(card),
+    isDescriptorCard: checkIsDescriptorSemanticCard(card),
+    isQuickCard: forceQuick || shouldVerifyQuickDefaultProfile(renderProfile),
+  });
+
+  if (rendererKind === 'image-occlusion') {
+    return null;
   }
 
-  return null;
+  return rendererKind;
 }
 
 function attachPreparedPresentation(

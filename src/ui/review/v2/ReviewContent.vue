@@ -179,6 +179,7 @@ import {
   buildReviewRenderWatchKey,
   isProgressiveDerivedItemCard,
   isNeuralRoamNonFlashcard,
+  resolveReviewSpecialRendererKind,
   shouldPreferStableQuickForcePath,
   shouldBypassSemanticFallback,
   shouldVerifyQuickDefaultProfile,
@@ -512,167 +513,105 @@ const renderWatchKey = computed(() =>
   }),
 );
 
+const currentCachedCardType = computed(() => {
+  isConceptDefinitionCard.value;
+  isConceptCard.value;
+  isDescriptorCard.value;
+  isQuickCard.value;
+  invalidForcedQuickRenderVersion.value;
+  return getCardType(renderCacheKey.value) as (ReturnType<typeof getCardType> & Record<string, unknown>) | null;
+});
+
+const detectedConceptDefinitionForCurrentContent = computed(() => (
+  hasConceptDefinitionSemanticSignal.value
+  || (
+    isConceptDefinitionCard.value
+    && currentCachedCardType.value?.isConcept === true
+  )
+));
+const detectedConceptForCurrentContent = computed(() => (
+  hasConceptCardSemanticSignal.value
+  || (
+    isConceptCard.value
+    && currentCachedCardType.value?.isConceptCard === true
+  )
+));
+const detectedDescriptorForCurrentContent = computed(() => (
+  hasDescriptorSemanticSignal.value
+  || (
+    isDescriptorCard.value
+    && currentCachedCardType.value?.isDescriptor === true
+  )
+));
+const detectedQuickForCurrentContent = computed(() => (
+  preferStableQuickForcePath.value
+  || (
+    isQuickCard.value
+    && currentCachedCardType.value?.isQuick === true
+  )
+));
+
+const specialRendererKind = computed(() => resolveReviewSpecialRendererKind({
+  card: props.content.card,
+  contentType: props.content.type,
+  renderProfile: resolvedRenderProfile.value,
+  forceProtyleRender: forceProtyleRender.value,
+  forceQuickRender: forceQuickRender.value,
+  isTopicReadMode: isTopicReadModeCard.value,
+  isNeuralRoamNonFlashcard: isNeuralRoamNonFlashcardCard.value,
+  isConceptDefinitionCard: detectedConceptDefinitionForCurrentContent.value,
+  isConceptCard: detectedConceptForCurrentContent.value,
+  isDescriptorCard: detectedDescriptorForCurrentContent.value,
+  isQuickCard: detectedQuickForCurrentContent.value,
+}));
+
 // Formula cloze keeps the dedicated renderer; ordinary mark/brace cloze uses
 // the main Protyle path so Siyuan's native hidden-content CSS can apply.
-const shouldUseMultiClozeRenderer = computed(() => {
-  if (isPreparedRenderer('multi-cloze')) return true;
-  if (props.content.type !== 'protyle') return false;
-  if (isTopicReadModeCard.value) return false;
-  if (isNeuralRoamNonFlashcardCard.value) return false;
-  if (forceProtyleRender.value) return false;
-  const card = props.content.card;
-  if (!card || !card.meta) return false;
+const shouldUseMultiClozeRenderer = computed(() => (
+  isPreparedRenderer('multi-cloze') || specialRendererKind.value === 'multi-cloze'
+));
 
-  const templateID = card.meta.templateID;
-  const faces = card.meta.faces;
-  const faceIndex = card.meta.faceIndex;
-
-  return resolvedRenderProfile.value === 'quick-inline-formula'
-    && templateID === 'builtin-multi-cloze'
-    && Array.isArray(faces)
-    && faces.length > 0
-    && faceIndex !== undefined;
-});
-
-// 判断是否应该使用概念定义卡渲染器
-const isImageOcclusionCard = computed(() => {
-  const cardMeta = props.content.card?.meta;
-  if (!cardMeta || typeof cardMeta !== 'object') return false;
-  const source = (cardMeta as Record<string, unknown>).source;
-  const imageOcclusion = (cardMeta as Record<string, unknown>).imageOcclusion;
-  return imageOcclusion === true || source === 'image-occlusion';
-});
-
-const shouldUseImageOcclusionRenderer = computed(() => {
-  return props.content.type === 'protyle'
-    && !isTopicReadModeCard.value
-    && !isNeuralRoamNonFlashcardCard.value
-    && isImageOcclusionCard.value;
-});
+const shouldUseImageOcclusionRenderer = computed(() => specialRendererKind.value === 'image-occlusion');
 
 const shouldUseConceptDefinitionRenderer = computed(() => {
   if (isPreparedRenderer('concept-definition')) return true;
-  // 只有在 protyle 类型时才检测
-  if (props.content.type !== 'protyle') return false;
-  if (isTopicReadModeCard.value) return false;
-  if (isNeuralRoamNonFlashcardCard.value) return false;
-  if (isImageOcclusionCard.value) return false;
-  if (forceProtyleRender.value || forceQuickRender.value) return false;
-  if (resolvedRenderProfile.value === 'concept-definition') return true;
-
-  const card = props.content.card;
-  const result = hasConceptDefinitionSemanticSignal.value;
-  
-  logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptDefinitionRenderer:', {
-    contentType: props.content.type,
-    hasCard: !!card,
-    cardId: card?.id,
-    xiuyuanID: card?.xiuyuanID,
-    metaXiuyuanID: card?.meta?.xiuyuanID,
-    templateID: card?.meta?.templateID,
-    typeMarker: card?.meta?.typeMarker,
-    fieldMapping: resolveFieldMappingForLog(card),
-    result
-  });
-  
+  const result = specialRendererKind.value === 'concept-definition';
+  if (result) {
+    const card = props.content.card;
+    logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptDefinitionRenderer:', {
+      contentType: props.content.type,
+      hasCard: !!card,
+      cardId: card?.id,
+      xiuyuanID: card?.xiuyuanID,
+      metaXiuyuanID: card?.meta?.xiuyuanID,
+      templateID: card?.meta?.templateID,
+      typeMarker: card?.meta?.typeMarker,
+      fieldMapping: resolveFieldMappingForLog(card),
+      result,
+    });
+  }
   return result;
 });
 
-// 判断是否应该使用概念卡渲染器
 const shouldUseConceptCardRenderer = computed(() => {
   if (isPreparedRenderer('concept')) return true;
-  // 只有在 protyle 类型时才检测
-  if (props.content.type !== 'protyle') return false;
-  if (isNeuralRoamNonFlashcardCard.value) return false;
-  if (isImageOcclusionCard.value) return false;
-  
-  // 使用领域层的辅助函数检测
-  if (forceProtyleRender.value || forceQuickRender.value) return false;
-  if (resolvedRenderProfile.value === 'concept') return true;
-  const result = hasConceptCardSemanticSignal.value;
-  
-  logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptCardRenderer:', {
-    contentType: props.content.type,
-    result
-  });
-  
+  const result = specialRendererKind.value === 'concept';
+  if (result) {
+    logger.debug('[SiYuanMemo][ReviewContent] shouldUseConceptCardRenderer:', {
+      contentType: props.content.type,
+      result,
+    });
+  }
   return result;
 });
 
-// 判断是否应该使用描述符卡渲染器
-const shouldUseDescriptorCardRenderer = computed(() => {
-  if (isPreparedRenderer('descriptor')) return true;
-  if (resolvedRenderProfile.value === 'descriptor') {
-    return props.content.type === 'protyle'
-      && !isTopicReadModeCard.value
-      && !forceProtyleRender.value
-      && !forceQuickRender.value
-      && !isNeuralRoamNonFlashcardCard.value
-      && !isImageOcclusionCard.value;
-  }
-
-  // 只有在 protyle 类型且检测到描述符卡时才使用
-  // 概念定义卡和概念卡优先级更高
-  return props.content.type === 'protyle'
-    && !isTopicReadModeCard.value
-    && !forceProtyleRender.value
-    && !forceQuickRender.value
-    && !isNeuralRoamNonFlashcardCard.value
-    && !isImageOcclusionCard.value
-    && !hasConceptDefinitionSemanticSignal.value
-    && !hasConceptCardSemanticSignal.value
-    && (hasDescriptorSemanticSignal.value || isDescriptorCard.value);
-});
-
-// 判断是否应该使用快速卡片渲染器
-const shouldUseImmediateQuickRenderer = computed(() => (
-  preferStableQuickForcePath.value
-  && props.content.type === 'protyle'
-  && !isTopicReadModeCard.value
-  && !forceProtyleRender.value
-  && !isNeuralRoamNonFlashcardCard.value
-  && !isImageOcclusionCard.value
-  && !hasConceptDefinitionSemanticSignal.value
-  && !hasConceptCardSemanticSignal.value
-  && !hasDescriptorSemanticSignal.value
-  && !isConceptDefinitionCard.value
-  && !isConceptCard.value
-  && !isDescriptorCard.value
+const shouldUseDescriptorCardRenderer = computed(() => (
+  isPreparedRenderer('descriptor') || specialRendererKind.value === 'descriptor'
 ));
 
-const shouldUseQuickCardRenderer = computed(() => {
-  if (isPreparedRenderer('quick')) {
-    return true;
-  }
-
-  if (shouldUseImmediateQuickRenderer.value) {
-    return true;
-  }
-
-  if (resolvedRenderProfile.value === 'quick-default') {
-    return props.content.type === 'protyle'
-      && !isTopicReadModeCard.value
-      && !forceProtyleRender.value
-      && !isNeuralRoamNonFlashcardCard.value
-      && !isImageOcclusionCard.value
-      && isQuickCard.value;
-  }
-
-  // 只有在 protyle 类型且检测到快速卡片时才使用
-  // 概念定义卡、概念卡和描述符卡优先级更高
-  return props.content.type === 'protyle'
-    && !isTopicReadModeCard.value
-    && !forceProtyleRender.value
-    && !isNeuralRoamNonFlashcardCard.value
-    && !isImageOcclusionCard.value
-    && !hasConceptDefinitionSemanticSignal.value
-    && !hasConceptCardSemanticSignal.value
-    && !hasDescriptorSemanticSignal.value
-    && !isConceptDefinitionCard.value
-    && !isConceptCard.value
-    && !isDescriptorCard.value
-    && isQuickCard.value;
-});
+const shouldUseQuickCardRenderer = computed(() => (
+  isPreparedRenderer('quick') || specialRendererKind.value === 'quick'
+));
 
 const shouldUseDirectCdfDisplay = computed(() => (
   resolvedRenderProfile.value === 'concept-definition'

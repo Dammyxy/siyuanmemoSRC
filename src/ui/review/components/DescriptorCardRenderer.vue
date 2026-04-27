@@ -58,6 +58,7 @@ const emit = defineEmits<{
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<DescriptorCardViewModel | null>(null);
+const activeViewModelIdentity = ref('');
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 
@@ -93,8 +94,13 @@ const renderIdentity = computed(() => {
 
 async function loadViewModel() {
   const seq = ++loadSeq;
-  if (applyPreparedViewModel()) {
+  const identity = renderIdentity.value;
+  if (applyPreparedViewModel(identity)) {
     return;
+  }
+  if (activeViewModelIdentity.value !== identity) {
+    viewModel.value = null;
+    activeViewModelIdentity.value = '';
   }
 
   try {
@@ -111,6 +117,7 @@ async function loadViewModel() {
     }
 
     viewModel.value = vm;
+    activeViewModelIdentity.value = identity;
     emit('loaded', vm);
   } catch (err) {
     if (seq !== loadSeq) {
@@ -128,14 +135,15 @@ async function loadViewModel() {
   }
 }
 
-function applyPreparedViewModel(): boolean {
+function applyPreparedViewModel(identity = renderIdentity.value): boolean {
   const prepared = props.preparedViewModel as DescriptorCardViewModel | null | undefined;
-  if (!prepared || props.preparedIdentity !== renderIdentity.value) {
+  if (!prepared || props.preparedIdentity !== identity) {
     return false;
   }
 
   loadSeq += 1;
   viewModel.value = prepared;
+  activeViewModelIdentity.value = identity;
   error.value = null;
   loading.value = false;
   emit('loaded', prepared);

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 164)
+Last update: 2026-04-28 (Round 165)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - formula cloze prepared renderer soft failure
+
+- Task: 修复公式块挖空在 prepared commit 后因下一张自定义 renderer 预热或旧 `faceIndex` 越界导致“跳过失败/评分失败”的问题。
+- Touched slice: Review prepared commit / special renderer routing / multi-cloze rendering across `src/ui/review/v2/{reviewSessionController.ts,ReviewView.vue,ReviewContent.vue,reviewPresentationPreparer.ts,reviewRenderPolicy.ts}`, `src/ui/review/components/*Renderer.vue`, `src/core/card/multi-cloze/application/MultiClozeCardRenderService.ts`, and focused tests.
+- Debt fixed now: prepared presentation 失败改为 UI-only 软失败，不再回滚已成功的 queue feedback；公式 inline multi-cloze 路由集中到共享策略并优先于 CDF/Concept/Descriptor/Quick fallback；multi-cloze 渲染修复旧数据 `faceIndex=1,total=1` 到安全索引；特殊 renderer 新 identity 加载失败时不再显示上一张卡的旧正文。
+- Debt deferred: 真正 queue prefetch；image occlusion prepared rendering；全量历史 multi-cloze 面数据清洗。
+- Why deferred: 当前缺陷在 review UI prepared path 与公式 renderer 容错；queue prefetch 需要队列契约扩展，image occlusion 依赖图片尺寸和 DOM 测量，历史清洗需要独立备份与迁移策略。
+- Next safe step: 后续若继续出现坏卡，可加只读诊断导出 `requestedFaceIndex/effectiveFaceIndex/sourceClozeCount/storedFaceCount`，再决定是否做批量修复工具。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts src/ui/review/v2/__tests__/reviewRenderPolicy.test.ts src/ui/review/v2/__tests__/reviewPresentationPreparer.test.ts src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts`; `pnpm vitest run src/ui/review/components/__tests__/MultiClozeCardRenderer.test.ts src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts src/ui/review/components/__tests__/ConceptDefinitionCardRenderer.spec.ts src/ui/review/components/__tests__/ConceptCardRenderer.spec.ts src/ui/review/components/__tests__/QuickCardRenderer.test.ts src/core/card/multi-cloze/application/__tests__/MultiClozeCardRenderService.test.ts src/core/card/multi-cloze/application/__tests__/MultiClozeCardRenderService.inline-formula.test.ts`; queue regressions listed in final validation; `pnpm build`; `git diff --check`.
 
 ### 2026-04-28 - Incrementum-style prepared review transition
 

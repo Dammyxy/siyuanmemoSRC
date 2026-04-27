@@ -4,6 +4,7 @@ import {
   buildReviewRenderCacheKey,
   buildReviewRenderWatchKey,
   isNeuralRoamNonFlashcard,
+  resolveReviewSpecialRendererKind,
   shouldBypassSemanticFallback,
   shouldPreferStableQuickForcePath,
   shouldVerifyQuickDefaultProfile,
@@ -227,5 +228,83 @@ describe('reviewRenderPolicy', () => {
         },
       },
     }), 'quick-default')).toBe(true);
+  });
+
+  it('routes inline formula multi-cloze cards to the multi-cloze renderer', () => {
+    const card = createCard({
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'inline-formula-cloze',
+        faceIndex: 1,
+        faces: [{ question: '$$[...]$$', answer: '$$x$$' }],
+      },
+    });
+
+    expect(resolveReviewSpecialRendererKind({
+      card,
+      contentType: 'protyle',
+      renderProfile: 'quick-inline-formula',
+    })).toBe('multi-cloze');
+  });
+
+  it('keeps inline formula multi-cloze ahead of stale semantic metadata', () => {
+    const card = createCard({
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'inline-formula-cloze',
+        renderProfile: 'quick-default',
+        typeMarker: 'concept-definition-forward',
+        fieldMapping: {
+          definition: 'block-definition',
+        },
+        faceIndex: 1,
+        faces: [{ question: '$$[...]$$', answer: '$$x$$' }],
+      },
+    });
+
+    expect(resolveReviewSpecialRendererKind({
+      card,
+      contentType: 'protyle',
+      renderProfile: 'quick-inline-formula',
+      isConceptDefinitionCard: true,
+      isDescriptorCard: true,
+      isQuickCard: true,
+    })).toBe('multi-cloze');
+  });
+
+  it('keeps ordinary multi-cloze cards on the native Protyle path', () => {
+    const card = createCard({
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'default',
+        renderProfile: 'quick-default',
+        faceIndex: 0,
+        faces: [{ question: 'Alpha [...]', answer: 'Beta' }],
+      },
+    });
+
+    expect(resolveReviewSpecialRendererKind({
+      card,
+      contentType: 'protyle',
+      renderProfile: null,
+    })).toBeNull();
+  });
+
+  it('routes image occlusion cards before custom prepared renderers', () => {
+    const card = createCard({
+      meta: {
+        imageOcclusion: true,
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'inline-formula-cloze',
+        faceIndex: 0,
+        faces: [{ question: 'front', answer: 'back' }],
+      },
+    });
+
+    expect(resolveReviewSpecialRendererKind({
+      card,
+      contentType: 'protyle',
+      renderProfile: 'quick-inline-formula',
+    })).toBe('image-occlusion');
   });
 });

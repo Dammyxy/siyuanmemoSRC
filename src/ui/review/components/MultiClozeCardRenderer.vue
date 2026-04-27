@@ -45,6 +45,7 @@ const props = defineProps<{
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<MultiClozeCardViewModel | null>(null);
+const activeViewModelIdentity = ref('');
 const fallbackRenderService = new MultiClozeCardRenderService();
 const renderService = computed(() => props.renderService ?? fallbackRenderService);
 const { showLoading } = useDeferredLoadingIndicator(loading);
@@ -82,6 +83,11 @@ async function loadViewModel() {
   if (applyPreparedViewModel()) {
     return;
   }
+  const identity = renderIdentity.value;
+  if (activeViewModelIdentity.value !== identity) {
+    viewModel.value = null;
+    activeViewModelIdentity.value = '';
+  }
 
   try {
     loading.value = true;
@@ -91,6 +97,7 @@ async function loadViewModel() {
       return;
     }
     viewModel.value = nextViewModel;
+    activeViewModelIdentity.value = identity;
   } catch (err) {
     if (seq !== loadSeq) {
       return;
@@ -112,6 +119,7 @@ function applyPreparedViewModel(): boolean {
 
   loadSeq += 1;
   viewModel.value = prepared;
+  activeViewModelIdentity.value = renderIdentity.value;
   error.value = null;
   loading.value = false;
   return true;

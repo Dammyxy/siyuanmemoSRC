@@ -106,4 +106,27 @@ describe('MultiClozeCardRenderService inline formula mode', () => {
     expect(vm.frontHtml.startsWith('$$')).toBe(true);
     expect(vm.backHtml.endsWith('$$')).toBe(true);
   });
+
+  it('repairs stale faceIndex when an inline formula card only has one cloze left', async () => {
+    const service = new TestableMultiClozeCardRenderService(
+      'P(A|B)=[\\cloze{P(B|A)}*P(A)]/P(B)',
+    );
+
+    const vm = await service.prepareViewModel({
+      blockId: '20260428093000-inline-stale-face',
+      meta: {
+        faceIndex: 1,
+        clozeRenderMode: 'inline-formula-cloze',
+        faces: [{
+          question: '$$P(A|B)=[{\\color{#166534}\\boxed{\\text{[...]}}}*P(A)]/P(B)$$',
+          answer: '$$P(A|B)=[{\\color{#166534}P(B|A)}*P(A)]/P(B)$$',
+        }],
+      },
+    });
+
+    expect(vm.faceIndex).toBe(0);
+    expect(vm.requestedFaceIndex).toBe(1);
+    expect(vm.frontHtml).toContain('\\boxed{\\text{[...]}}');
+    expect(vm.backHtml).toContain('{\\color{#166534}P(B|A)}');
+  });
 });

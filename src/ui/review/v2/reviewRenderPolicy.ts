@@ -21,6 +21,29 @@ export interface ReviewRenderPolicyKeyInput {
 
 export type ReviewRenderProfile = string | null | undefined;
 
+export type ReviewSpecialRendererKind =
+  | 'image-occlusion'
+  | 'multi-cloze'
+  | 'concept-definition'
+  | 'concept'
+  | 'descriptor'
+  | 'quick'
+  | null;
+
+export interface ReviewSpecialRendererInput {
+  card?: FSRSCard | null;
+  contentType?: string | null;
+  renderProfile?: ReviewRenderProfile;
+  forceProtyleRender?: NullableBoolean;
+  forceQuickRender?: NullableBoolean;
+  isTopicReadMode?: NullableBoolean;
+  isNeuralRoamNonFlashcard?: NullableBoolean;
+  isConceptDefinitionCard?: NullableBoolean;
+  isConceptCard?: NullableBoolean;
+  isDescriptorCard?: NullableBoolean;
+  isQuickCard?: NullableBoolean;
+}
+
 function readProgressiveKind(meta: Record<string, unknown> | undefined): string {
   const progressive = meta?.progressive;
   if (!progressive || typeof progressive !== 'object') {
@@ -106,6 +129,40 @@ function isNativeMultiClozeCard(
   }
 
   return profile !== 'quick-inline-formula' && clozeRenderMode !== 'inline-formula-cloze';
+}
+
+export function isInlineFormulaMultiClozeCard(
+  card?: FSRSCard | null,
+  profile?: ReviewRenderProfile,
+): boolean {
+  const meta = card?.meta as Record<string, unknown> | undefined;
+  if (!meta) {
+    return false;
+  }
+
+  const templateId = typeof meta.templateID === 'string' ? meta.templateID : '';
+  const clozeRenderMode = typeof meta.clozeRenderMode === 'string' ? meta.clozeRenderMode : '';
+  const faces = meta.faces;
+  const requestedProfile = profile ?? (typeof meta.renderProfile === 'string' ? meta.renderProfile : null);
+
+  return templateId === 'builtin-multi-cloze'
+    && Array.isArray(faces)
+    && faces.length > 0
+    && meta.faceIndex !== undefined
+    && (
+      requestedProfile === 'quick-inline-formula'
+      || clozeRenderMode === 'inline-formula-cloze'
+    );
+}
+
+export function isImageOcclusionReviewCard(card?: FSRSCard | null): boolean {
+  const meta = card?.meta as Record<string, unknown> | undefined;
+  if (!meta) {
+    return false;
+  }
+
+  const source = typeof meta.source === 'string' ? meta.source : '';
+  return meta.imageOcclusion === true || source === 'image-occlusion';
 }
 
 function hasQuickRenderIndicators(meta: Record<string, unknown> | undefined): boolean {
@@ -218,6 +275,56 @@ export function shouldBypassSemanticFallback(
       : '';
 
   return cardTypeMarker !== 'concept' && cardTypeMarker !== 'descriptor';
+}
+
+export function resolveReviewSpecialRendererKind(input: ReviewSpecialRendererInput): ReviewSpecialRendererKind {
+  if (input.contentType !== 'protyle') {
+    return null;
+  }
+
+  const card = input.card;
+  if (!card || input.isTopicReadMode === true) {
+    return null;
+  }
+
+  if (input.isNeuralRoamNonFlashcard === true || isNeuralRoamNonFlashcard(card)) {
+    return null;
+  }
+
+  if (isImageOcclusionReviewCard(card)) {
+    return 'image-occlusion';
+  }
+
+  if (input.forceProtyleRender === true) {
+    return null;
+  }
+
+  const profile = input.renderProfile;
+  if (isInlineFormulaMultiClozeCard(card, profile)) {
+    return 'multi-cloze';
+  }
+
+  if (input.forceQuickRender === true) {
+    return input.isQuickCard === true ? 'quick' : null;
+  }
+
+  if (profile === 'concept-definition' || input.isConceptDefinitionCard === true) {
+    return 'concept-definition';
+  }
+
+  if (profile === 'concept' || input.isConceptCard === true) {
+    return 'concept';
+  }
+
+  if (profile === 'descriptor' || input.isDescriptorCard === true) {
+    return 'descriptor';
+  }
+
+  if (input.isQuickCard === true) {
+    return 'quick';
+  }
+
+  return null;
 }
 
 export function buildReviewRenderCacheKey(input: ReviewRenderPolicyKeyInput): string {

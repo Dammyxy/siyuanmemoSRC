@@ -442,7 +442,16 @@ export function createReviewSessionController<TItem extends QueueItem>(
     }
     let nextState = withSessionMeta(mainState);
     if (!updateOptions?.skipPrepare && reason !== 'reveal' && options?.prepareStateBeforeCommit) {
-      nextState = withSessionMeta(await options.prepareStateBeforeCommit(nextState, reason));
+      try {
+        nextState = withSessionMeta(await options.prepareStateBeforeCommit(nextState, reason));
+      } catch (error) {
+        logger.warn('Review presentation prepare failed; committing unprepared state:', {
+          reason,
+          cardId: nextState.content.card?.id,
+          blockId: nextState.content.id,
+          error,
+        });
+      }
       if (seq !== updateSeq || disposed) {
         return;
       }
