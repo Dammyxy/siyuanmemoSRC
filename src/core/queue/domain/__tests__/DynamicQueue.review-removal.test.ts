@@ -351,6 +351,51 @@ describe('Dynamic queues - review removal semantics', () => {
     expect(queue.getTemporaryBlacklistSize()).toBe(0);
   });
 
+  it('filter group future-card preview does not write formal schedule through SRS v2 commit', async () => {
+    const card = createCard({
+      id: 'filter-future',
+      due: getCurrentDayEnd(4) + 5 * 86_400_000,
+    });
+    const manager = createManagerStub(card);
+    const decision = {
+      current: { ...card },
+      commitPolicy: 'preview-only',
+    };
+    const schedulerRouter = {
+      route: vi.fn(),
+      answer: vi.fn(() => decision),
+      commit: vi.fn(async () => ({
+        decision,
+        updatedCard: null,
+        committed: false,
+        suppressedReason: 'preview-only',
+      })),
+    };
+    manager.getSchedulerRouter.mockReturnValue(schedulerRouter as never);
+    const queue = new FilterGroupQueue(
+      manager as never,
+      createPersistenceStub()
+    );
+
+    const result = await queue.handleReview(card.id, 3);
+
+    expect(result.removedFromQueue).toBe(false);
+    expect(schedulerRouter.route).not.toHaveBeenCalled();
+    expect(schedulerRouter.answer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: card.id }),
+      3,
+      expect.objectContaining({
+        queueType: 'filter-group',
+        queueMode: 'filtered-preview',
+        commitPolicy: 'preview-only',
+        isFiltered: true,
+        customStudy: true,
+      })
+    );
+    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
+    expect(manager.updateCard).not.toHaveBeenCalled();
+  });
+
   it('filter group explicit remove keeps card hidden until rebuild clears temporary blacklist', async () => {
     const card = createCard();
     const manager = createManagerStub(card, { cards: [card] });

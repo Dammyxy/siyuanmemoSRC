@@ -1,4 +1,5 @@
 import type { FSRSCard } from '@/types/card';
+import type { ReviewLogV2 } from '@/types/review';
 import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { CardUpdatePort } from '@/core/scheduler/ports';
 import { createLogger } from '@/utils/logger';
@@ -13,7 +14,10 @@ const logger = createLogger('UnifiedStorageCardUpdateAdapter');
  * legacy compatibility methods.
  */
 export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
-  constructor(private readonly storage: UnifiedStorageManager) {}
+  constructor(
+    private readonly storage: UnifiedStorageManager,
+    private readonly reviewLogWriter?: { addReviewLogV2(log: ReviewLogV2): Promise<void> },
+  ) {}
 
   async batchUpdateCardsWithoutEvents(cards: FSRSCard[]): Promise<void> {
     if (!cards || cards.length === 0) {
@@ -46,6 +50,14 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
         });
       }
     });
+  }
+
+  async addReviewLogV2(log: ReviewLogV2): Promise<void> {
+    if (!this.reviewLogWriter) {
+      return;
+    }
+
+    await this.reviewLogWriter.addReviewLogV2(log);
   }
 
   private resolvePersistedCard(card: FSRSCard): FSRSCard | null {

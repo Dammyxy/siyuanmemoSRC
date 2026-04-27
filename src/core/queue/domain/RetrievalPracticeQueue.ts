@@ -271,6 +271,10 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
 
         return {
             memoryStateAsOf: due,
+            queueMode: 'filtered-preview',
+            commitPolicy: 'preview-only',
+            isFiltered: true,
+            customStudy: true,
             reason: 'manual-early-review',
         };
     }

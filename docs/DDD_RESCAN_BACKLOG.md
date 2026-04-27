@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-27 (Round 159)
+Last update: 2026-04-27 (Round 160)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-27 - SRS v2 kernel and queue commit contract
+
+- Task: 将间隔重复主链路从分散在 Router/队列里的隐式规则，改造成可继续迁移六队列语义的 SRS v2 决策内核。
+- Touched slice: Scheduler / Queue / ReviewLog active path across `src/core/scheduler/srs-v2/*`, `SchedulerRouter`, queue scheduling context contracts, dynamic queue review writeback, `ReviewLogService`, and focused regressions.
+- Debt fixed now: 新增 `preview -> answer -> commit` 内核契约、`SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`、Arena contestant 只读预测类型、SRS v2 memory-anchor 时间工具；`SchedulerRouter` 改成薄门面并支持 no-write filtered preview；`BaseReviewQueue` 改为优先走 answer/commit，commit 被抑制时不再通过 manager 反向写卡；future 手动卡和未到期 FilterGroup 卡默认走 filtered/custom study preview；正式写入时通过可选端口追加 `ReviewLogV2` 月度分片。
+- Debt deferred: 尚未把六队列的排序/上限全部重写为独立 SRS v2 application use case；FinalDrill drill log 仍未接入独立日志；Arena 现有 SRS advisory 仍是旧服务内预测实现，未完全改成新 contestant contract；设置页最小旋钮尚未重排。
+- Why deferred: 本轮先建立强类型内核与写入边界，避免在队列/UI 上继续叠补丁；剩余队列排序、drill log、Arena contestant 迁移和设置 UI 都依赖这个稳定 commit contract，适合分阶段拆小验证。
+- Next safe step: 新增 application 层 `ReviewCommitUseCase`，把“读当前卡 -> answer -> commit -> 写 revlog -> 发布队列/卡片事件”从队列基类里再上移一层，然后逐个队列替换自定义写回语义。
+- Validation: targeted SrsV2Kernel, SchedulerRouter fsrs-v6, DynamicQueue review-removal, and NeuralRoamQueue tests; `pnpm build`; `git diff --check`.
 
 ### 2026-04-27 - retrieval practice scheduler merge graduation
 

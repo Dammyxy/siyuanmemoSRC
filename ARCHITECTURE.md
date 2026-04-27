@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-26
+最后更新：2026-04-27
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -183,14 +183,20 @@ sequenceDiagram
   participant QS as UnifiedQueueStrategy
   participant Q as QueueDomain
   participant SR as SchedulerRouter
+  participant SRS as SRS v2 Kernel
+  participant LOG as ReviewLogService
   participant UDSM as UnifiedDataSourceManager
   participant B as SRSBrowser
 
   UI->>QS: onFeedback(rate)
   QS->>Q: handleReview(cardId, rating)
-  Q->>SR: route(card, rating)
-  SR-->>Q: updatedCard
-  Q->>UDSM: notify card / queue change
+  Q->>SR: answer(card, rating, QueueReviewContext)
+  SR->>SRS: preview / answer
+  SRS-->>SR: SchedulingDecision
+  Q->>SR: commit(decision)
+  SR->>LOG: append ReviewLogV2 when schedule is written
+  SR-->>Q: ReviewCommitResult
+  Q->>UDSM: notify card / queue change when committed
   UDSM-->>B: data change event
   B->>B: incremental grid patch
 ```
@@ -782,12 +788,18 @@ UI 层：
 调度主入口：
 
 - `src/core/scheduler/SchedulerRouter.ts`
+- `src/core/scheduler/srs-v2/*`
+- `src/application/services/ReviewLogService.ts`
 - `src/application/services/ArenaKernelService.ts` 的 SRS Arena 只读 advisory 默认关闭，开启后也不改变正式调度路由
 
 当前职责：
 
-- 根据卡片类型、设置与队列上下文选择调度策略
-- 执行 schedule / reschedule / preview
+- `SchedulerRouter` 是薄门面：保留旧 `preview/route` 兼容入口，同时把正式评分收口到 SRS v2 的 `preview -> answer -> commit` 决策流
+- `SrsV2Kernel` 显式建模 `SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`，并在同一入口处理 `reviewTime + memoryStateAsOf` 的提前复习锚点语义
+- 队列通过 `QueueReviewSchedulingContext` 只声明成员资格之外的会话语义，例如 `queueType / queueMode / commitPolicy / isFiltered / customStudy`；调度写入是否发生由 SRS v2 commit policy 决定
+- `RetrievalPractice / IncrementalLearning` 中手动加入的 future 卡现在作为 filtered/custom study preview：保留 due 日记忆锚点，但默认不写正式 due；`FilterGroup` 对未到期卡默认 preview-only，到期卡才写正式 SRS
+- `FinalDrill` 仍是练习覆盖层，不走正式调度；`NeuralRoam` 绑定真实卡时可提交正式 SRS，但不会因 due 窗口自动退出 session；`Leech` 只负责难点治理成员资格，正式复习仍走 SRS v2
+- 成功写正式排期时，`UnifiedStorageCardUpdateAdapter` 会通过可选日志端口追加 `ReviewLogV2` 月度分片；旧 `ReviewLog` 保留只读/兼容
 - 对不支持的调度路径显式报错，而不是静默降级
 - 对 item / descriptor 复习，Arena 开启后会在正式调度之外并行预估 `fsrs-v6 + sm15 + sm2` 三个只读选手，输出 weighted optimum、分歧幅度和领先者；`a-factor-v2` 不进入 v1 SRS contest pack
 - `SrsTransparencyApplicationService` / `SrsEditorDialog.vue` / `ReviewView.vue` 只展示轻量分歧提示和透明度事实，正式 due 写回仍完全由 `SchedulerRouter` 当前路由负责
@@ -878,6 +890,7 @@ UI 层：
 - 运行时唯一组合根是 `ApplicationContext`
 - 插件入口是 `src/index.ts`
 - Browser 与 Review 共享 `UnifiedDataSourceManager` + `SchedulerRouter`
+- 正式评分链路已切到 SRS v2 内核：`SchedulerRouter.answer()` 生成 `SchedulingDecision`，`commit()` 根据 queue context 写正式 due 或保持 preview/drill-only，并在写入时追加 `ReviewLogV2`
 - Browser 共享契约已收口到 `src/types/browser.ts`；application query kernel 不再 import UI browser helper，UI-side browser service 也不再保存全局 manager/api/query 状态
 - `DialogManager` 负责 dialog surface，`TabManager` 负责 tab surface 与 surface handoff
 - 桌面端标准 review 入口现在由 `DialogManager` 按 `settings.ui.reviewOpenInNewTabByDefault` / `reviewOpenFullscreenByDefault` 做统一路由；filter-backed review 进入 tab 时通过 transfer-state 恢复 session

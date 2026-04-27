@@ -14,6 +14,7 @@ export * from './rescheduleService';
 export * from './SchedulerRouter';
 export * from './fsrsReviewStateRepair';
 export * from './schedulerPolicy';
+export * from './srs-v2';
 
 /**
  * Create scheduler adapter by configured engine.

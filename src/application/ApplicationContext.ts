@@ -997,7 +997,10 @@ export class ApplicationContext {
     );
     
     // 4. 初始化 RescheduleService（使用新架构）
-    const schedulerCardUpdater = new UnifiedStorageCardUpdateAdapter(unifiedStorageManager);
+    const schedulerCardUpdater = new UnifiedStorageCardUpdateAdapter(
+      unifiedStorageManager,
+      this.getReviewLogService()
+    );
     const schedulerErrorNotifier = new SiyuanErrorNotificationAdapter();
     const rescheduleService = new RescheduleService(
       unifiedStorageManager,

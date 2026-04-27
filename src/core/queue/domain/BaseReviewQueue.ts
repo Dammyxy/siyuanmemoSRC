@@ -546,6 +546,25 @@ export abstract class BaseReviewQueue implements IReviewQueue {
     public getReviewSchedulingContext(_card: FSRSCard): QueueReviewSchedulingContext | null {
         return null;
     }
+
+    protected buildReviewSchedulingContext(card: FSRSCard): QueueReviewSchedulingContext {
+        return {
+            queueType: this.type,
+            source: 'queue',
+            ...(this.getReviewSchedulingContext(card) ?? {}),
+        };
+    }
+
+    protected buildLegacyRouteOptions(context: QueueReviewSchedulingContext): QueueReviewSchedulingContext | undefined {
+        const options: QueueReviewSchedulingContext = {};
+        if (context.reviewTime) {
+            options.reviewTime = context.reviewTime;
+        }
+        if (context.memoryStateAsOf) {
+            options.memoryStateAsOf = context.memoryStateAsOf;
+        }
+        return options.reviewTime || options.memoryStateAsOf ? options : undefined;
+    }
     
     /**
      * 获取一天开始的小时数
@@ -703,16 +722,21 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             
             // 2. 获取调度器并调度卡片
             const schedulerRouter = this.getSchedulerRouter();
-            const schedulingContext = this.getReviewSchedulingContext(card);
-            const routeOptions = schedulingContext?.reviewTime || schedulingContext?.memoryStateAsOf
-                ? {
-                    ...(schedulingContext.reviewTime ? { reviewTime: schedulingContext.reviewTime } : {}),
-                    ...(schedulingContext.memoryStateAsOf ? { memoryStateAsOf: schedulingContext.memoryStateAsOf } : {}),
-                }
-                : undefined;
-            const updatedCard = routeOptions
-                ? await schedulerRouter.route(card, rating, routeOptions)
-                : await schedulerRouter.route(card, rating);
+            const routeOptions = this.buildReviewSchedulingContext(card);
+            let updatedCard: FSRSCard;
+            let schedulingCommitted = true;
+
+            if (typeof schedulerRouter.answer === 'function' && typeof schedulerRouter.commit === 'function') {
+                const decision = schedulerRouter.answer(card, rating, routeOptions);
+                const commitResult = await schedulerRouter.commit(decision);
+                schedulingCommitted = commitResult.committed;
+                updatedCard = commitResult.updatedCard ?? decision.current;
+            } else {
+                const legacyRouteOptions = this.buildLegacyRouteOptions(routeOptions);
+                updatedCard = legacyRouteOptions
+                    ? await schedulerRouter.route(card, rating, legacyRouteOptions)
+                    : await schedulerRouter.route(card, rating);
+            }
             
             logger.debug(`[${this.type}] handleReviewWithScheduler - After scheduling:`, {
                 cardId: updatedCard.id,
@@ -732,11 +756,21 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             }
             
             // 3. 调度器已完成持久化，这里只做队列缓存失效 + 事件通知
-            if (typeof this.manager.onCardUpdatedFromScheduler === 'function') {
-                await this.manager.onCardUpdatedFromScheduler(updatedCard);
+            if (schedulingCommitted) {
+                if (typeof this.manager.onCardUpdatedFromScheduler === 'function') {
+                    await this.manager.onCardUpdatedFromScheduler(updatedCard);
+                } else {
+                    // 向后兼容：旧 manager 仍走 updateCard 路径
+                    await this.manager.updateCard(updatedCard);
+                }
             } else {
-                // 向后兼容：旧 manager 仍走 updateCard 路径
-                await this.manager.updateCard(updatedCard);
+                logger.debug(`[${this.type}] SRS v2 decision was preview/drill-only; formal schedule was not updated`, {
+                    cardId,
+                    rating,
+                    queueType: routeOptions.queueType,
+                    queueMode: routeOptions.queueMode,
+                    commitPolicy: routeOptions.commitPolicy,
+                });
             }
             
             // 4. 判断是否应该从队列移除

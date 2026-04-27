@@ -281,4 +281,50 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
       }),
     ]);
   });
+
+  it('keeps filtered preview decisions out of formal persistence', async () => {
+    const { router, cardUpdater } = createRouter();
+    const reviewTime = new Date('2026-04-27T08:00:00+08:00');
+    const card = createCard({
+      id: 'filtered-preview-card',
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
+      state: CardState.Review,
+      due: reviewTime.getTime() + 7 * DAY_MS,
+      lastReview: reviewTime.getTime() - 10 * DAY_MS,
+      stability: 10,
+      scheduledDays: 10,
+      reps: 3,
+    });
+    const fsrsScheduler = {
+      preview: vi.fn((input: FSRSCard, now: Date) => new Map([
+        [1, { ...input, due: now.getTime() + 10 * 60_000 }],
+        [2, { ...input, due: now.getTime() + 8 * DAY_MS }],
+        [3, { ...input, due: now.getTime() + 12 * DAY_MS }],
+        [4, { ...input, due: now.getTime() + 20 * DAY_MS }],
+      ])),
+      review: vi.fn((input: FSRSCard, _rating: number, now: Date) => ({
+        ...input,
+        due: now.getTime() + 12 * DAY_MS,
+        lastReview: now.getTime(),
+        reps: input.reps + 1,
+      })),
+    };
+    const schedulers = (router as unknown as { schedulers: Map<string, unknown> }).schedulers;
+    schedulers.set('fsrs-v6', fsrsScheduler);
+
+    const decision = router.answer(card, 3, {
+      reviewTime,
+      queueType: 'filter-group',
+      queueMode: 'filtered-preview',
+      commitPolicy: 'preview-only',
+      isFiltered: true,
+      customStudy: true,
+    });
+    const result = await router.commit(decision);
+
+    expect(result.committed).toBe(false);
+    expect(result.updatedCard).toBeNull();
+    expect(cardUpdater.batchUpdateCardsWithoutEvents).not.toHaveBeenCalled();
+  });
 });

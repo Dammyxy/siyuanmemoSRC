@@ -6,7 +6,7 @@
  */
 
 import type { FSRSCard, FSRSParameters, Rating } from '@/types';
-import type { SchedulerEngineAdapter, SchedulerTimingOptions } from './types';
+import type { SchedulerEngineAdapter } from './types';
 import type { CardUpdatePort } from './ports';
 import { TSFSRSScheduler } from './strategies/TSFSRSScheduler';
 import { SM15Scheduler } from './strategies/SM15Scheduler';
@@ -16,87 +16,25 @@ import { normalizeSchedulerCard } from './normalizeSchedulerCard';
 import {
     getPreferredSchedulerForCardType,
     resolveEffectiveSchedulerTypeForCard,
+    resolveStoredSchedulerType,
     type SchedulerType,
 } from './schedulerPolicy';
+import {
+    SrsV2Kernel,
+    type ReviewCommitResult,
+    type SchedulingDecision,
+    type SrsV2SchedulingContext,
+} from './srs-v2';
+import { createReviewLogV2 } from '@/types/review';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SchedulerRouter');
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Scheduler Router 配置 */
 export interface SchedulerRouterConfig {
     defaultScheduler: SchedulerType;
     fsrsParams: FSRSParameters;
     schedulerOverrides?: Map<string, SchedulerType>;
-}
-
-function resolveReviewDate(options: SchedulerTimingOptions = {}): Date {
-    if (options.reviewTime instanceof Date) {
-        const timestamp = options.reviewTime.getTime();
-        if (Number.isFinite(timestamp) && timestamp > 0) {
-            return new Date(timestamp);
-        }
-    }
-
-    if (typeof options.reviewTime === 'number' && Number.isFinite(options.reviewTime) && options.reviewTime > 0) {
-        return new Date(options.reviewTime);
-    }
-
-    return new Date();
-}
-
-function resolveOptionalDate(value: Date | number | undefined): Date | null {
-    if (value instanceof Date) {
-        const timestamp = value.getTime();
-        return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp) : null;
-    }
-
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-        return new Date(value);
-    }
-
-    return null;
-}
-
-function shiftTimestamp(value: unknown, offset: number, fallback: number): number {
-    const timestamp = Number(value);
-    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp - offset : fallback;
-}
-
-function buildMemoryAnchoredCard(
-    card: FSRSCard,
-    reviewDate: Date,
-    options: SchedulerTimingOptions = {},
-): FSRSCard {
-    const memoryDate = resolveOptionalDate(options.memoryStateAsOf);
-    if (!memoryDate) {
-        return card;
-    }
-
-    const reviewTime = reviewDate.getTime();
-    const memoryTime = memoryDate.getTime();
-    if (memoryTime <= reviewTime) {
-        return card;
-    }
-
-    const offset = memoryTime - reviewTime;
-    const anchoredCard: FSRSCard = {
-        ...card,
-        due: shiftTimestamp(card.due, offset, reviewTime),
-        lastReview: shiftTimestamp(card.lastReview, offset, 0),
-    };
-
-    const originalLastReview = Number(card.lastReview);
-    if (Number.isFinite(originalLastReview) && originalLastReview > 0 && memoryTime > originalLastReview) {
-        anchoredCard.elapsedDays = Math.max(0, Math.floor((memoryTime - originalLastReview) / DAY_MS));
-    } else {
-        const shiftedLastReview = Number(anchoredCard.lastReview);
-        if (Number.isFinite(shiftedLastReview) && shiftedLastReview > 0) {
-            anchoredCard.elapsedDays = Math.max(0, Math.floor((reviewTime - shiftedLastReview) / DAY_MS));
-        }
-    }
-
-    return anchoredCard;
 }
 
 /**
@@ -112,6 +50,7 @@ export class SchedulerRouter {
     private config: SchedulerRouterConfig;
     private schedulers: Map<SchedulerType, SchedulerEngineAdapter>;
     private cardUpdater: CardUpdatePort;
+    private kernel: SrsV2Kernel;
 
     constructor(
         config: SchedulerRouterConfig,
@@ -122,6 +61,11 @@ export class SchedulerRouter {
         this.schedulers = new Map();
 
         this._initializeSchedulers();
+        this.kernel = new SrsV2Kernel({
+            resolveSchedulerType: card => this.getSchedulerType(card),
+            getScheduler: type => this.schedulers.get(type),
+            normalizeCard: (card, schedulerType, options) => normalizeSchedulerCard(card, schedulerType, options),
+        });
     }
 
     /**
@@ -146,74 +90,16 @@ export class SchedulerRouter {
      * @param rating 评分 (1-4)
      * @returns 更新后的卡片
      */
-    async route(card: FSRSCard, rating: Rating, options: SchedulerTimingOptions = {}): Promise<FSRSCard> {
+    async route(card: FSRSCard, rating: Rating, options: SrsV2SchedulingContext = {}): Promise<FSRSCard> {
         try {
-            const reviewDate = resolveReviewDate(options);
-            const now = reviewDate.getTime();
-            logger.debug('route() called:', {
-                cardId: card.id,
-                rating,
-                reviewTime: now,
-                reviewTimeDate: reviewDate.toISOString(),
-                memoryStateAsOf: options.memoryStateAsOf,
-                cardType: card.type,
-                currentSchedulerType: card.schedulerType,
-                cardState: card.state,
-                stability: card.stability,
-                difficulty: card.difficulty,
-                due: card.due,
-                dueDate: card.due ? new Date(card.due).toISOString() : 'undefined',
-                lastReview: card.lastReview,
-                lastReviewDate: card.lastReview ? new Date(card.lastReview).toISOString() : 'undefined',
-            });
-            
-            // 1. 确定调度器类型
-            const schedulerType = this.getSchedulerType(card);
-            const schedulerCard = buildMemoryAnchoredCard(card, reviewDate, options);
-            const normalizedCard = normalizeSchedulerCard(schedulerCard, schedulerType, { now });
-            logger.debug('Selected scheduler type:', schedulerType);
+            const decision = this.answer(card, rating, options);
+            const result = await this.commit(decision);
 
-            // 2. 获取调度器
-            const scheduler = this.schedulers.get(schedulerType);
-            if (!scheduler) {
-                throw new Error(`Scheduler not found: ${schedulerType}`);
-            }
-            
-            logger.debug('Scheduler found:', {
-                schedulerType,
-                hasReviewMethod: typeof scheduler.review === 'function',
-            });
-
-            // 3. 执行复习
-            const reviewedCard = scheduler.review(normalizedCard, rating, reviewDate);
-            
-            logger.debug('After scheduler.review():', {
-                updatedCard: reviewedCard ? {
-                    id: reviewedCard.id,
-                    due: reviewedCard.due,
-                    dueDate: reviewedCard.due ? new Date(reviewedCard.due).toISOString() : 'undefined',
-                    state: reviewedCard.state,
-                    reps: reviewedCard.reps,
-                    stability: reviewedCard.stability,
-                    difficulty: reviewedCard.difficulty,
-                    scheduledDays: reviewedCard.scheduledDays,
-                    elapsedDays: reviewedCard.elapsedDays,
-                } : 'undefined',
-            });
-            
-            if (!reviewedCard) {
-                throw new Error(`Scheduler ${schedulerType} returned undefined for card ${card.id}`);
+            if (!result.updatedCard) {
+                throw new Error(`SRS v2 commit policy "${decision.commitPolicy}" did not produce a writable card`);
             }
 
-            const updatedCard = normalizeSchedulerCard({
-                ...reviewedCard,
-                schedulerType,
-            }, schedulerType, { now });
-
-            // 5. 保存到本地数据库（使用 CardApplicationService）
-            await this.cardUpdater.batchUpdateCardsWithoutEvents([updatedCard]);
-
-            return updatedCard;
+            return result.updatedCard;
         } catch (error) {
             logger.error('route() failed:', {
                 cardId: card.id,
@@ -223,6 +109,79 @@ export class SchedulerRouter {
             });
             throw error;
         }
+    }
+
+    /**
+     * 生成 SRS v2 调度决策，但不执行持久化。
+     */
+    answer(card: FSRSCard, rating: Rating, options: SrsV2SchedulingContext = {}): SchedulingDecision {
+        logger.debug('answer() called:', {
+            cardId: card.id,
+            rating,
+            reviewTime: options.reviewTime,
+            memoryStateAsOf: options.memoryStateAsOf,
+            queueType: options.queueType,
+            queueMode: options.queueMode,
+            commitPolicy: options.commitPolicy,
+            cardType: card.type,
+            currentSchedulerType: card.schedulerType,
+            cardState: card.state,
+            stability: card.stability,
+            difficulty: card.difficulty,
+            due: card.due,
+            dueDate: card.due ? new Date(card.due).toISOString() : 'undefined',
+            lastReview: card.lastReview,
+            lastReviewDate: card.lastReview ? new Date(card.lastReview).toISOString() : 'undefined',
+        });
+
+        const decision = this.kernel.answer(card, rating, options);
+        logger.debug('SRS v2 decision created:', {
+            cardId: decision.attempt.cardId,
+            attemptId: decision.attempt.id,
+            schedulerType: decision.schedulerType,
+            algorithm: decision.algorithm,
+            queueMode: decision.queueMode,
+            commitPolicy: decision.commitPolicy,
+            due: decision.after.due,
+            dueDate: decision.after.due ? new Date(decision.after.due).toISOString() : 'undefined',
+            state: decision.after.state,
+            reps: decision.after.reps,
+            stability: decision.after.stability,
+            difficulty: decision.after.difficulty,
+            scheduledDays: decision.after.scheduledDays,
+            elapsedDays: decision.after.elapsedDays,
+        });
+
+        return decision;
+    }
+
+    /**
+     * 提交 SRS v2 决策。preview/drill 决策不会写正式排期。
+     */
+    async commit(decision: SchedulingDecision): Promise<ReviewCommitResult> {
+        const result = this.kernel.commit(decision);
+        if (result.updatedCard) {
+            await this.cardUpdater.batchUpdateCardsWithoutEvents([result.updatedCard]);
+            await this.cardUpdater.addReviewLogV2?.(createReviewLogV2({
+                attemptId: decision.attempt.id,
+                cardId: decision.attempt.cardId,
+                rating: decision.attempt.rating,
+                reviewedAt: decision.attempt.reviewedAt,
+                before: decision.before,
+                after: result.updatedCard,
+                elapsedMs: decision.attempt.elapsedMs,
+                queueType: decision.attempt.queueType,
+                queueMode: decision.queueMode,
+                source: decision.attempt.source,
+                algorithm: decision.algorithm,
+                schedulerType: decision.schedulerType,
+                commitPolicy: decision.commitPolicy,
+                isDrill: decision.attempt.isDrill,
+                isFiltered: decision.attempt.isFiltered,
+                customStudy: decision.attempt.customStudy,
+            }));
+        }
+        return result;
     }
 
     /**
@@ -297,30 +256,27 @@ export class SchedulerRouter {
      * @param card 卡片
      * @returns 评分 → 卡片的映射
      */
-    preview(card: FSRSCard, options: SchedulerTimingOptions = {}): Map<Rating, FSRSCard> {
-        const reviewDate = resolveReviewDate(options);
-        const now = reviewDate.getTime();
-        const schedulerType = this.getSchedulerType(card);
-        const scheduler = this.schedulers.get(schedulerType);
-
-        if (!scheduler) {
-            throw new Error(`Scheduler not found: ${schedulerType}`);
-        }
-
-        const schedulerCard = buildMemoryAnchoredCard(card, reviewDate, options);
-        const normalizedCard = normalizeSchedulerCard(schedulerCard, schedulerType, { now });
-        const preview = scheduler.preview(normalizedCard, reviewDate);
+    preview(card: FSRSCard, options: SrsV2SchedulingContext = {}): Map<Rating, FSRSCard> {
+        const preview = this.kernel.preview(card, options);
         const normalizedPreview = new Map<Rating, FSRSCard>();
-        for (const [rating, previewCard] of preview.entries()) {
-            normalizedPreview.set(
-                rating,
-                normalizeSchedulerCard({
-                    ...previewCard,
-                    schedulerType,
-                }, schedulerType, { now }),
-            );
+        for (const [rating, choice] of preview.choices.entries()) {
+            normalizedPreview.set(rating, choice.card);
         }
         return normalizedPreview;
+    }
+
+    getScheduler(type: string): unknown {
+        const schedulerType = resolveStoredSchedulerType(type);
+        return schedulerType ? this.schedulers.get(schedulerType) : undefined;
+    }
+
+    getAllSchedulers(): Map<string, unknown> {
+        return new Map(this.schedulers.entries());
+    }
+
+    hasScheduler(type: string): boolean {
+        const schedulerType = resolveStoredSchedulerType(type);
+        return schedulerType ? this.schedulers.has(schedulerType) : false;
     }
 
     /**

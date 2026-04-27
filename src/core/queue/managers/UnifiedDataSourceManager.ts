@@ -5,10 +5,16 @@
  */
 import type { FSRSCard } from '@/types/card';
 import type { CardFilter, DataChangeEvent, IReviewQueue, QueueType } from '@/types/unified-data-source';
-import type { SchedulerTimingOptions } from '@/core/scheduler/types';
+import type {
+  ReviewCommitResult,
+  SchedulingDecision,
+  SrsV2SchedulingContext,
+} from '@/core/scheduler/srs-v2';
 
 export interface QueueSchedulerPort {
-  route(card: FSRSCard, rating: number, options?: SchedulerTimingOptions): Promise<FSRSCard>;
+  route(card: FSRSCard, rating: number, options?: SrsV2SchedulingContext): Promise<FSRSCard>;
+  answer?(card: FSRSCard, rating: number, options?: SrsV2SchedulingContext): SchedulingDecision;
+  commit?(decision: SchedulingDecision): Promise<ReviewCommitResult>;
 }
 
 export interface QueueRuntimePort {

@@ -17,7 +17,7 @@
  */
 
 import type { IFileService } from '../../infrastructure/services/FileService';
-import type { ReviewLog } from '@/types/review';
+import type { ReviewLog, ReviewLogV2 } from '@/types/review';
 import type { RescheduleLog } from '@/types/scheduler';
 
 /**
@@ -25,6 +25,7 @@ import type { RescheduleLog } from '@/types/scheduler';
  */
 interface MonthlyReviewLogs {
   reviewLogs: ReviewLog[];
+  reviewLogsV2?: ReviewLogV2[];
   rescheduleLogs: RescheduleLog[];
 }
 
@@ -37,6 +38,12 @@ export interface IReviewLogService {
    * @param log 复习日志
    */
   addReviewLog(log: ReviewLog): Promise<void>;
+
+  /**
+   * 添加 SRS v2 正式复习日志
+   * @param log SRS v2 复习日志
+   */
+  addReviewLogV2(log: ReviewLogV2): Promise<void>;
   
   /**
    * 添加重新调度日志
@@ -51,6 +58,11 @@ export interface IReviewLogService {
    * @returns 复习日志数组
    */
   getReviewLogs(year: number, month: number): Promise<ReviewLog[]>;
+
+  /**
+   * 获取指定年月的 SRS v2 复习日志
+   */
+  getReviewLogsV2(year: number, month: number): Promise<ReviewLogV2[]>;
   
   /**
    * 获取所有复习日志
@@ -74,6 +86,17 @@ export class ReviewLogService implements IReviewLogService {
     const month = date.getMonth() + 1; // 0-11 -> 1-12
     
     await this.appendLog(year, month, 'review', log);
+  }
+
+  /**
+   * 添加 SRS v2 复习日志
+   */
+  async addReviewLogV2(log: ReviewLogV2): Promise<void> {
+    const date = new Date(log.reviewedAt);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+
+    await this.appendLog(year, month, 'review-v2', log);
   }
 
   /**
@@ -102,6 +125,20 @@ export class ReviewLogService implements IReviewLogService {
   }
 
   /**
+   * 获取指定年月的 SRS v2 复习日志
+   */
+  async getReviewLogsV2(year: number, month: number): Promise<ReviewLogV2[]> {
+    const fileName = this.getLogFileName(year, month);
+    const data = await this.fileService.readJSON<MonthlyReviewLogs>(fileName);
+
+    if (!data) {
+      return [];
+    }
+
+    return data.reviewLogsV2 || [];
+  }
+
+  /**
    * 获取所有复习日志
    */
   async getAllReviewLogs(): Promise<ReviewLog[]> {
@@ -121,8 +158,8 @@ export class ReviewLogService implements IReviewLogService {
   private async appendLog(
     year: number,
     month: number,
-    type: 'review' | 'reschedule',
-    log: ReviewLog | RescheduleLog
+    type: 'review' | 'review-v2' | 'reschedule',
+    log: ReviewLog | ReviewLogV2 | RescheduleLog
   ): Promise<void> {
     const fileName = this.getLogFileName(year, month);
     
@@ -133,13 +170,26 @@ export class ReviewLogService implements IReviewLogService {
     if (!data) {
       data = {
         reviewLogs: [],
+        reviewLogsV2: [],
         rescheduleLogs: []
       };
+    }
+
+    if (!Array.isArray(data.reviewLogs)) {
+      data.reviewLogs = [];
+    }
+    if (!Array.isArray(data.reviewLogsV2)) {
+      data.reviewLogsV2 = [];
+    }
+    if (!Array.isArray(data.rescheduleLogs)) {
+      data.rescheduleLogs = [];
     }
     
     // 追加新日志
     if (type === 'review') {
       data.reviewLogs.push(log as ReviewLog);
+    } else if (type === 'review-v2') {
+      data.reviewLogsV2.push(log as ReviewLogV2);
     } else {
       data.rescheduleLogs.push(log as RescheduleLog);
     }

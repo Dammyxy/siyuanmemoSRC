@@ -1,55 +1,22 @@
+import type { FSRSCard, Rating } from '@/types';
+import type {
+  ReviewCommitResult,
+  SchedulingDecision,
+  SrsV2SchedulingContext,
+} from '@/core/scheduler/srs-v2';
+
 /**
- * 调度器路由接口
- * 
- * 定义调度器路由的标准契约，用于依赖注入。
- * 
- * @remarks
- * 这个接口抽象了调度器的路由逻辑，使得：
- * 1. 应用层不依赖具体的调度器实现
- * 2. 可以轻松扩展新的调度器类型
- * 3. 便于单元测试（可以使用 Mock 实现）
- * 
- * @example
- * ```typescript
- * // 在队列策略中使用
- * class UnifiedQueueStrategy {
- *   constructor(private schedulerRouter: ISchedulerRouter) {}
- *   
- *   getScheduler(type: string) {
- *     return this.schedulerRouter.getScheduler(type);
- *   }
- * }
- * ```
+ * 应用层看到的调度器门面。
+ *
+ * SRS v2 之后，Router 不再承载队列语义；它只负责把卡片交给
+ * SRS v2 内核生成 preview/decision，并在显式 commit 时写入正式排期。
  */
 export interface ISchedulerRouter {
-  /**
-   * 获取指定类型的调度器
-   * 
-   * @param type - 调度器类型（如 'fsrs', 'sm2' 等）
-   * @returns 调度器实例，如果不存在则返回 undefined
-   */
+  preview(card: FSRSCard, options?: SrsV2SchedulingContext): Map<Rating, FSRSCard>;
+  answer?(card: FSRSCard, rating: Rating, options?: SrsV2SchedulingContext): SchedulingDecision;
+  commit?(decision: SchedulingDecision): Promise<ReviewCommitResult>;
+  route?(card: FSRSCard, rating: Rating, options?: SrsV2SchedulingContext): Promise<FSRSCard>;
   getScheduler(type: string): unknown;
-  
-  /**
-   * 获取所有调度器
-   * 
-   * @returns 调度器类型到实例的映射
-   */
   getAllSchedulers(): Map<string, unknown>;
-  
-  /**
-   * 注册新的调度器
-   * 
-   * @param type - 调度器类型
-   * @param scheduler - 调度器实例
-   */
-  registerScheduler?(type: string, scheduler: unknown): void;
-  
-  /**
-   * 检查调度器是否存在
-   * 
-   * @param type - 调度器类型
-   * @returns 是否存在
-   */
   hasScheduler?(type: string): boolean;
 }

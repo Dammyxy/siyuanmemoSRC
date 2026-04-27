@@ -112,6 +112,15 @@ export type QueueReviewSchedulingReason = 'manual-early-review';
 export interface QueueReviewSchedulingContext {
     reviewTime?: number;
     memoryStateAsOf?: number;
+    queueType?: QueueType;
+    queueMode?: 'formal' | 'filtered-preview' | 'filtered-rescheduling' | 'drill' | 'rotation';
+    commitPolicy?: 'write-schedule' | 'preview-only' | 'drill-only';
+    source?: 'queue' | 'browser' | 'manual' | 'arena' | 'test' | string;
+    sessionId?: string;
+    elapsedMs?: number;
+    isDrill?: boolean;
+    isFiltered?: boolean;
+    customStudy?: boolean;
     reason?: QueueReviewSchedulingReason;
 }
 

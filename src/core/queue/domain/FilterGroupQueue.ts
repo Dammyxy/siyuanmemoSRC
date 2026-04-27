@@ -21,6 +21,7 @@ import {
     CardFilter,
     QueueReviewResult,
     type FilterGroupQueueSessionSnapshot,
+    type QueueReviewSchedulingContext,
 } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
@@ -304,6 +305,25 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             autoFailedSink: this.autoFailedSink,
             logEscalation: true,
         });
+    }
+
+    public override getReviewSchedulingContext(card: FSRSCard): QueueReviewSchedulingContext | null {
+        const due = Number(card.due);
+        const isDue = Number.isFinite(due) && due <= this.getCurrentDayEnd(this.getDayStartHour());
+        if (isDue) {
+            return {
+                queueMode: 'formal',
+                commitPolicy: 'write-schedule',
+                isFiltered: true,
+            };
+        }
+
+        return {
+            queueMode: 'filtered-preview',
+            commitPolicy: 'preview-only',
+            isFiltered: true,
+            customStudy: true,
+        };
     }
 
     protected override async removeCardAfterReview(cardIdOrBlockId: string): Promise<void> {

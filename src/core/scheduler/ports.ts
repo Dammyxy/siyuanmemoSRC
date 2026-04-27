@@ -1,8 +1,10 @@
-﻿import type { FSRSCard } from '@/types/card';
+import type { FSRSCard } from '@/types/card';
+import type { ReviewLogV2 } from '@/types/review';
 import type { RescheduleLog } from '@/types/scheduler';
 
 export interface CardUpdatePort {
   batchUpdateCardsWithoutEvents(cards: FSRSCard[]): Promise<void>;
+  addReviewLogV2?(log: ReviewLogV2): Promise<void>;
 }
 
 export interface ErrorNotificationPort {
