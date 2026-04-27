@@ -1008,10 +1008,14 @@ export class ApplicationContext {
       unifiedStorageManager  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
     );
     
-    // 4. 初始化 RescheduleService（使用新架构）
+    // 4. 初始化 ReviewLogService / RescheduleService（使用新架构）
+    // static create() 阶段还没有 context 实例，先创建调度写入所需的日志服务，
+    // context 创建后再注册回服务容器，避免启动期走不存在的实例 getter。
+    const fileService = new FileService(config.plugin as unknown as SiyuanMemoPlugin);
+    const reviewLogService = new ReviewLogService(fileService);
     const schedulerCardUpdater = new UnifiedStorageCardUpdateAdapter(
       unifiedStorageManager,
-      this.getReviewLogService()
+      reviewLogService
     );
     const schedulerErrorNotifier = new SiyuanErrorNotificationAdapter();
     const rescheduleService = new RescheduleService(
@@ -1095,6 +1099,8 @@ export class ApplicationContext {
     });
     
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
+    context.serviceContainer.set('fileService', fileService);
+    context.serviceContainer.set('reviewLogService', reviewLogService);
     context.serviceContainer.set('cardTypeDetectionService', cardTypeDetectionServiceTemp);
     contextRef = context;
     

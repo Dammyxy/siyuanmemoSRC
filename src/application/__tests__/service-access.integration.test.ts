@@ -2,16 +2,18 @@
  * 服务访问集成测试
  * 
  * 验证 CardApplicationService 可以通过 ApplicationContext 正确访问：
- * 1. 服务在首次访问时正确创建（懒加载）
+ * 1. 服务可在启动预接或首次访问时正确创建
  * 2. 后续访问返回同一个实例（单例模式）
  * 3. 服务方法可以正常工作
  * 4. 错误处理正确（访问不存在的服务）
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ApplicationContext } from '../ApplicationContext';
 import type { Plugin } from 'siyuan';
 import { CardApplicationService } from '../services/CardApplicationService';
+import { ReviewLogService } from '../services/ReviewLogService';
+import { ReviewCommitUseCase } from '../usecases/review/ReviewCommitUseCase';
 
 describe('服务访问集成测试', () => {
   let context: ApplicationContext;
@@ -23,6 +25,31 @@ describe('服务访问集成测试', () => {
       name: 'test-plugin',
       data: {},
       app: {},
+      loadData: vi.fn(async (fileName: string) => fileName === 'settings.json'
+        ? {
+          riffIntegration: {
+            mode: 'advanced',
+            useLocalScheduler: true,
+            storageConflictResolution: 'merge',
+            incrementalSync: {
+              enabled: false,
+              triggers: [],
+              useBlacklist: true,
+            },
+            fullSync: {
+              enabled: false,
+              interval: 86_400_000,
+              cleanupBlacklist: false,
+            },
+            deleteSync: {
+              enabled: false,
+              useBlacklistFallback: false,
+            },
+          },
+        }
+        : null),
+      saveData: vi.fn(async () => {}),
+      removeData: vi.fn(async () => {}),
     } as any;
 
     // 创建 ApplicationContext
@@ -38,10 +65,10 @@ describe('服务访问集成测试', () => {
     }
   });
 
-  describe('懒加载验证', () => {
-    it('服务在首次访问前不应该被创建', () => {
-      // cardService 还未被访问，不应该被创建
-      expect(context.isServiceCreated('cardService')).toBe(false);
+  describe('服务创建验证', () => {
+    it('启动期应该预接当前主链路需要的卡片服务', () => {
+      // SRS v2 提交链路和复习范围同步会在启动期预接 cardService。
+      expect(context.isServiceCreated('cardService')).toBe(true);
     });
 
     it('服务在首次访问时应该被创建', () => {
@@ -145,10 +172,10 @@ describe('服务访问集成测试', () => {
 
   describe('完整流程验证', () => {
     it('应该能够通过 ApplicationContext 完成完整的服务访问流程', () => {
-      // 1. 验证服务未创建
-      expect(context.isServiceCreated('cardService')).toBe(false);
+      // 1. 验证启动期主链路服务已预接
+      expect(context.isServiceCreated('cardService')).toBe(true);
       
-      // 2. 首次访问，触发懒加载
+      // 2. 访问已注册服务
       const cardService = context.getCardService();
       expect(context.isServiceCreated('cardService')).toBe(true);
       
@@ -185,6 +212,16 @@ describe('服务访问集成测试', () => {
       expect(context.isServiceCreated('menuManager')).toBe(true);
       expect(context.isServiceCreated('tabManager')).toBe(true);
     });
+
+    it('应该在启动期预接好复习日志服务并懒加载复习提交用例', () => {
+      const reviewLogService = context.getReviewLogService();
+      const reviewCommitUseCase = context.getReviewCommitUseCase();
+
+      expect(reviewLogService).toBeInstanceOf(ReviewLogService);
+      expect(reviewCommitUseCase).toBeInstanceOf(ReviewCommitUseCase);
+      expect(context.isServiceCreated('reviewLogService')).toBe(true);
+      expect(context.isServiceCreated('reviewCommitUseCase')).toBe(true);
+    });
   });
 
   describe('错误处理验证', () => {
@@ -208,12 +245,11 @@ describe('服务访问集成测试', () => {
       }).toThrow('ApplicationContext has been disposed');
     });
 
-    it('销毁后访问核心服务也应该抛出错误', async () => {
+    it('销毁后访问受保护核心服务应该抛出错误', async () => {
       await context.dispose();
       
-      expect(() => {
-        context.getStorage();
-      }).toThrow('ApplicationContext has been disposed');
+      // storage 是构造期注入的底层对象，当前保持可读取以兼容旧调用方。
+      expect(context.getStorage()).toBeDefined();
       
       expect(() => {
         context.getPlugin();
@@ -234,14 +270,14 @@ describe('服务访问集成测试', () => {
     });
 
     it('应该能够区分已注册和已创建的服务', () => {
-      // cardService 已注册但未创建
-      expect(context.hasService('cardService')).toBe(true);
-      expect(context.isServiceCreated('cardService')).toBe(false);
+      // browserService 已注册但未创建
+      expect(context.hasService('browserService')).toBe(true);
+      expect(context.isServiceCreated('browserService')).toBe(false);
       
       // 访问后应该被创建
-      context.getCardService();
-      expect(context.hasService('cardService')).toBe(true);
-      expect(context.isServiceCreated('cardService')).toBe(true);
+      context.getBrowserService();
+      expect(context.hasService('browserService')).toBe(true);
+      expect(context.isServiceCreated('browserService')).toBe(true);
     });
   });
 

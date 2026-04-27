@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-27 (Round 161)
+Last update: 2026-04-27 (Round 162)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-27 - review log service startup wiring
+
+- Task: 修复插件启动时报 `this.getReviewLogService is not a function` 的初始化崩溃。
+- Touched slice: Application composition root / ReviewLog / SRS v2 commit wiring across `src/application/ApplicationContext.ts` and `src/application/__tests__/service-access.integration.test.ts`.
+- Debt fixed now: `ApplicationContext.create()` 不再在 static factory 阶段调用实例 getter；启动期先构造调度写入所需的 `FileService` 和 `ReviewLogService`，再把同一实例注册回 service container，保证 `UnifiedStorageCardUpdateAdapter`、`ReviewCommitUseCase` 和后续 getter 共享同一日志服务。服务访问集成测试同步到当前启动期预接语义，并补上 settings/file port mock 与 review log/use case 装配断言。
+- Debt deferred: 未处理测试环境中 Xiuyuan/doc-tree 启动任务访问相对 Siyuan API 时打印的非阻断 stderr；未清理既有 i18n/Sass build 警告。
+- Why deferred: 这些输出与本轮启动崩溃根因无关，且涉及 Siyuan API 测试替身、同步启动策略和 UI/i18n 大范围历史债，贸然合并会扩大风险。
+- Next safe step: 后续若要让 `ApplicationContext` 集成测试更安静，可单独给 Siyuan manager adapters 注入测试端口或在启动配置中显式关闭后台同步任务。
+- Validation: `pnpm exec vitest run src/application/__tests__/service-access.integration.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-27 - SRS v2 deferred debt cleared
 
