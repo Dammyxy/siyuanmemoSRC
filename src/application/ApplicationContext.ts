@@ -42,6 +42,7 @@ import { CreateCardUseCase } from '@/application/usecases/card/CreateCardUseCase
 import { DeleteCardUseCase } from '@/application/usecases/card/DeleteCardUseCase';
 import { DeleteCardsUseCase } from '@/application/usecases/card/DeleteCardsUseCase';
 import { UpdateCardUseCase } from '@/application/usecases/card/UpdateCardUseCase';
+import { ReviewCommitUseCase } from '@/application/usecases/review/ReviewCommitUseCase';
 import { CardApplicationService } from '@/application/services/CardApplicationService';
 import { CardReadModel } from '@/infrastructure/queries/CardReadModel';
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
@@ -106,6 +107,7 @@ interface ApplicationServiceRegistry {
   settingsService: SettingsService;
   reviewQueuePreparationService: ReviewQueuePreparationService;
   reviewLogService: ReviewLogService;
+  reviewCommitUseCase: ReviewCommitUseCase;
   riffBlacklistService: RiffBlacklistService;
   cardTypeDetectionService: CardTypeDetectionService;
   docTreeReviewScopeService: DocTreeReviewScopeService;
@@ -425,6 +427,16 @@ export class ApplicationContext {
     this.registerServiceFactory('reviewLogService', (context) => {
       const fileService = context.getFileService();
       return new ReviewLogService(fileService);
+    });
+
+    this.registerServiceFactory('reviewCommitUseCase', (context) => {
+      const unifiedDataSourceManager = context.getUnifiedDataSourceManager();
+      return new ReviewCommitUseCase({
+        cards: unifiedDataSourceManager,
+        scheduler: context.getScheduler(),
+        reviewLogs: context.getReviewLogService(),
+        onCommittedCard: (card) => unifiedDataSourceManager.onCardUpdatedFromScheduler(card),
+      });
     });
     
     this.registerServiceFactory('riffBlacklistService', (context) => {
@@ -1701,6 +1713,10 @@ export class ApplicationContext {
   
   getReviewLogService(): ReviewLogService {
     return this.getService('reviewLogService');
+  }
+
+  getReviewCommitUseCase(): ReviewCommitUseCase {
+    return this.getService('reviewCommitUseCase');
   }
   
   /**

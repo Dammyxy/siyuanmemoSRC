@@ -25,7 +25,6 @@ import {
     type SchedulingDecision,
     type SrsV2SchedulingContext,
 } from './srs-v2';
-import { createReviewLogV2 } from '@/types/review';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('SchedulerRouter');
@@ -162,24 +161,6 @@ export class SchedulerRouter {
         const result = this.kernel.commit(decision);
         if (result.updatedCard) {
             await this.cardUpdater.batchUpdateCardsWithoutEvents([result.updatedCard]);
-            await this.cardUpdater.addReviewLogV2?.(createReviewLogV2({
-                attemptId: decision.attempt.id,
-                cardId: decision.attempt.cardId,
-                rating: decision.attempt.rating,
-                reviewedAt: decision.attempt.reviewedAt,
-                before: decision.before,
-                after: result.updatedCard,
-                elapsedMs: decision.attempt.elapsedMs,
-                queueType: decision.attempt.queueType,
-                queueMode: decision.queueMode,
-                source: decision.attempt.source,
-                algorithm: decision.algorithm,
-                schedulerType: decision.schedulerType,
-                commitPolicy: decision.commitPolicy,
-                isDrill: decision.attempt.isDrill,
-                isFiltered: decision.attempt.isFiltered,
-                customStudy: decision.attempt.customStudy,
-            }));
         }
         return result;
     }

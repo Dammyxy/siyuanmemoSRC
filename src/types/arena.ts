@@ -193,10 +193,21 @@ export interface SrsArenaContestantPrediction {
   label: string;
   score: number;
   weight: number;
+  confidence: number;
   retrievability: number;
   predictedPassProbability: number;
   intervalDays: number;
   due: number;
+  choices: Array<{
+    rating: number;
+    due: number;
+    intervalDays: number;
+    state: number;
+    stability: number;
+    difficulty: number;
+  }>;
+  explanation?: string;
+  attribution?: Record<string, unknown>;
 }
 
 export interface SrsArenaRecommendation {
@@ -208,6 +219,8 @@ export interface SrsArenaRecommendation {
   currentSchedulerIntervalDays: number;
   discrepancyRatio: number;
   shouldHighlight: boolean;
+  writeEnabled?: boolean;
+  minimumReviewsMet?: boolean;
   summary: string;
   contestants: SrsArenaContestantPrediction[];
 }

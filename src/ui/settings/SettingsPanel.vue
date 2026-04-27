@@ -139,6 +139,59 @@
             💡 {{ t('topicSchedulerHint', 'For Concept and Topic cards, suitable for reading materials, dynamically adjusts difficulty factor (fixed to A-Factor v2)') }}
           </p>
         </div>
+
+        <div class="form-item">
+          <label>{{ t('srsV2LearningSteps', '学习步骤（分钟）') }}</label>
+          <div class="form-control">
+            <input
+              type="text"
+              :value="schedulerConfig.srsV2.learningStepsMinutes.join(', ')"
+              @change="handleSrsV2LearningStepsChange"
+            >
+          </div>
+          <p class="form-hint">{{ t('srsV2LearningStepsHint', '用逗号分隔，例如 1, 10。') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('srsV2RelearningSteps', '重学步骤（分钟）') }}</label>
+          <div class="form-control">
+            <input
+              type="text"
+              :value="schedulerConfig.srsV2.relearningStepsMinutes.join(', ')"
+              @change="handleSrsV2RelearningStepsChange"
+            >
+          </div>
+          <p class="form-hint">{{ t('srsV2RelearningStepsHint', '答错进入 Relearning 后使用，默认 10。') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('newCardsPerDay', '每日新卡上限') }}</label>
+          <div class="form-control">
+            <input type="number" min="0" max="9999" step="1" v-model.number="settings.newCardsPerDay">
+            <span class="form-unit">{{ t('cardsUnit', '张') }}</span>
+          </div>
+          <p class="form-hint">{{ t('newCardsPerDayHint', '0 表示今天不引入新卡。') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('reviewsPerDay', '每日复习上限') }}</label>
+          <div class="form-control">
+            <input type="number" min="0" max="9999" step="1" v-model.number="settings.reviewsPerDay">
+            <span class="form-unit">{{ t('cardsUnit', '张') }}</span>
+          </div>
+          <p class="form-hint">{{ t('reviewsPerDayHint', '0 表示不限制正式 Review 数量；Learning/Relearning 仍优先显示。') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('filteredReviewDefault', '未来卡筛选复习默认行为') }}</label>
+          <div class="form-control">
+            <select v-model="schedulerConfig.srsV2.filteredReviewDefault" class="scheduler-select">
+              <option value="preview-only">{{ t('filteredPreviewOnly', '只预览，不重排') }}</option>
+              <option value="reschedule">{{ t('filteredReschedule', '显式重排') }}</option>
+            </select>
+          </div>
+          <p class="form-hint">{{ t('filteredReviewDefaultHint', '默认建议只预览；重排只在用户明确要改正式排期时使用。') }}</p>
+        </div>
         </div>
 
         <div v-show="isActiveSubTab('learning', 'day-start')" class="settings-subtab-panel">
@@ -229,6 +282,20 @@
           </div>
           <p class="form-hint">
             {{ t('arenaEnabledHint', '关闭后不运行 AI/SRS Arena 记录、复习建议或管理器入口；开启后才会写入 arena/store.json。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
+          <label>{{ t('arenaSrsWriteEnabled', '允许 Arena 写入正式排期（实验）') }}</label>
+          <div class="form-control">
+            <input
+              type="checkbox"
+              :checked="!arenaSettings.srs.advisoryOnly"
+              @change="handleArenaSrsWriteEnabledChange"
+            >
+          </div>
+          <p class="form-hint">
+            {{ t('arenaSrsWriteEnabledHint', '默认关闭。开启后仍需达到样本阈值，才允许综合调度器进入写入路径。') }}
           </p>
         </div>
 
@@ -1421,6 +1488,8 @@ const emit = defineEmits<{
 const props = defineProps<{
   fsrsSettings?: FSRSParameters;
   queueSettings?: QueueSettings;
+  newCardsPerDay?: number;
+  reviewsPerDay?: number;
   priorityRandomness?: number;
   schedulerSettings?: SchedulerConfig;  // 🆕 新增
   riffIntegrationSettings?: Record<string, unknown>;  // 🆕 Riff 集成配置
@@ -1852,6 +1921,8 @@ interface Settings {
   enableShortTerm: boolean;
   params: number[];
   dayStartHour: number;  // 🆕 每日刷新时间
+  newCardsPerDay: number;
+  reviewsPerDay: number;
   autoPostponeEnabled: boolean;
   autoPostponeSkipTopN: number;
   autoSortEnabled: boolean;
@@ -1868,6 +1939,8 @@ const settings = ref<Settings>({
   enableShortTerm: true,
   params: [...DEFAULT_PARAMS],
   dayStartHour: 4,  // 🆕 默认值：凌晨4点
+  newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
+  reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
   autoPostponeEnabled: false,
   autoPostponeSkipTopN: 20,
   autoSortEnabled: true,
@@ -2039,10 +2112,17 @@ function removeUserSkill(index: number): void {
 }
 
 // 🆕 调度器配置
-const schedulerConfig = ref<SchedulerConfig>({
+type SchedulerConfigWithSrsV2 = SchedulerConfig & { srsV2: NonNullable<SchedulerConfig['srsV2']> };
+
+const schedulerConfig = ref<SchedulerConfigWithSrsV2>({
   defaultScheduler: 'fsrs-v6',
   topicScheduler: 'a-factor-v2',
   itemScheduler: 'fsrs-v6',
+  srsV2: {
+    learningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes],
+    relearningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes],
+    filteredReviewDefault: DEFAULT_SETTINGS.scheduler!.srsV2!.filteredReviewDefault,
+  },
 });
 
 // 调度器说明
@@ -2146,6 +2226,29 @@ function normalizePriorityRandomness(value: unknown): number {
   return Math.max(0, Math.min(1, numeric));
 }
 
+function normalizeDailyLimit(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return Math.max(0, Math.floor(fallback));
+  }
+  return Math.max(0, Math.min(9999, Math.floor(numeric)));
+}
+
+function normalizeSrsV2StepList(value: unknown, fallback: number[]): number[] {
+  const source = Array.isArray(value) ? value : fallback;
+  const normalized = source
+    .map((item) => Math.max(1, Math.min(30 * 24 * 60, Math.floor(Number(item)))))
+    .filter((item) => Number.isFinite(item));
+  return normalized.length > 0 ? normalized : [...fallback];
+}
+
+function parseSrsV2StepList(value: string, fallback: number[]): number[] {
+  return normalizeSrsV2StepList(
+    value.split(',').map((part) => part.trim()).filter(Boolean),
+    fallback,
+  );
+}
+
 function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === 'boolean') {
     return value;
@@ -2241,6 +2344,8 @@ function loadSettings() {
       enableShortTerm: props.fsrsSettings.enableShortTerm,
       params: [...props.fsrsSettings.weights],
       dayStartHour: props.fsrsSettings.dayStartHour ?? 4,  // 🆕 加载 dayStartHour 配置
+      newCardsPerDay: normalizeDailyLimit(props.newCardsPerDay, DEFAULT_SETTINGS.newCardsPerDay),
+      reviewsPerDay: normalizeDailyLimit(props.reviewsPerDay, DEFAULT_SETTINGS.reviewsPerDay),
       autoPostponeEnabled: false,
       autoPostponeSkipTopN: 20,
       autoSortEnabled: true,
@@ -2299,6 +2404,19 @@ function loadSettings() {
       defaultScheduler: props.schedulerSettings.defaultScheduler || 'fsrs-v6',
       topicScheduler: props.schedulerSettings.topicScheduler || 'a-factor-v2',
       itemScheduler: props.schedulerSettings.itemScheduler || 'fsrs-v6',
+      srsV2: {
+        learningStepsMinutes: normalizeSrsV2StepList(
+          props.schedulerSettings.srsV2?.learningStepsMinutes,
+          DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes,
+        ),
+        relearningStepsMinutes: normalizeSrsV2StepList(
+          props.schedulerSettings.srsV2?.relearningStepsMinutes,
+          DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
+        ),
+        filteredReviewDefault: props.schedulerSettings.srsV2?.filteredReviewDefault === 'reschedule'
+          ? 'reschedule'
+          : 'preview-only',
+      },
     };
   }
 
@@ -2419,6 +2537,8 @@ function saveSettings() {
 
   const settingsToSave = {
     ...settingsBase,
+    newCardsPerDay: normalizeDailyLimit(settings.value.newCardsPerDay, DEFAULT_SETTINGS.newCardsPerDay),
+    reviewsPerDay: normalizeDailyLimit(settings.value.reviewsPerDay, DEFAULT_SETTINGS.reviewsPerDay),
     queues,
     priorityRandomness: normalizePriorityRandomness(settings.value.priorityRandomness),
     // quickCard 已经在 settings.value 中,不需要单独处理
@@ -2427,6 +2547,17 @@ function saveSettings() {
       defaultScheduler: schedulerConfig.value.defaultScheduler,
       topicScheduler: schedulerConfig.value.topicScheduler,
       itemScheduler: schedulerConfig.value.itemScheduler,
+      srsV2: {
+        learningStepsMinutes: normalizeSrsV2StepList(
+          schedulerConfig.value.srsV2.learningStepsMinutes,
+          DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes,
+        ),
+        relearningStepsMinutes: normalizeSrsV2StepList(
+          schedulerConfig.value.srsV2.relearningStepsMinutes,
+          DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
+        ),
+        filteredReviewDefault: schedulerConfig.value.srsV2.filteredReviewDefault,
+      },
     },
     // 🆕 保存 Riff 集成配置
     riffIntegration: {
@@ -2472,6 +2603,8 @@ function resetSettings() {
     enableShortTerm: true,
     params: [...DEFAULT_PARAMS],
     dayStartHour: 4,  // 🆕 重置为默认值4
+    newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
+    reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
     autoPostponeEnabled: false,
     autoPostponeSkipTopN: 20,
     autoSortEnabled: true,
@@ -2493,7 +2626,33 @@ function resetSchedulerSettings() {
     defaultScheduler: 'fsrs-v6',
     topicScheduler: 'a-factor-v2',
     itemScheduler: 'fsrs-v6',
+    srsV2: {
+      learningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes],
+      relearningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes],
+      filteredReviewDefault: DEFAULT_SETTINGS.scheduler!.srsV2!.filteredReviewDefault,
+    },
   };
+}
+
+function handleSrsV2LearningStepsChange(event: Event): void {
+  const value = event.target instanceof HTMLInputElement ? event.target.value : '';
+  schedulerConfig.value.srsV2.learningStepsMinutes = parseSrsV2StepList(
+    value,
+    DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes,
+  );
+}
+
+function handleSrsV2RelearningStepsChange(event: Event): void {
+  const value = event.target instanceof HTMLInputElement ? event.target.value : '';
+  schedulerConfig.value.srsV2.relearningStepsMinutes = parseSrsV2StepList(
+    value,
+    DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
+  );
+}
+
+function handleArenaSrsWriteEnabledChange(event: Event): void {
+  const checked = event.target instanceof HTMLInputElement ? event.target.checked : false;
+  arenaSettings.value.srs.advisoryOnly = !checked;
 }
 
 // 🆕 dayStartHour 变更处理

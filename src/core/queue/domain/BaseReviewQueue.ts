@@ -310,6 +310,42 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         return Math.max(0, Math.min(1, Number(configured)));
     }
 
+    protected getNewCardsPerDay(): number {
+        const runtime = this.manager as UnifiedDataSourceManager & {
+            getNewCardsPerDay?: () => number;
+        };
+
+        const configured = runtime.getNewCardsPerDay?.();
+        if (!Number.isFinite(configured)) {
+            return 20;
+        }
+
+        return Math.max(0, Math.floor(Number(configured)));
+    }
+
+    protected getReviewsPerDay(): number {
+        const runtime = this.manager as UnifiedDataSourceManager & {
+            getReviewsPerDay?: () => number;
+        };
+
+        const configured = runtime.getReviewsPerDay?.();
+        if (!Number.isFinite(configured)) {
+            return 0;
+        }
+
+        return Math.max(0, Math.floor(Number(configured)));
+    }
+
+    protected getFilteredReviewDefault(): 'preview-only' | 'reschedule' {
+        const runtime = this.manager as UnifiedDataSourceManager & {
+            getFilteredReviewDefault?: () => 'preview-only' | 'reschedule';
+        };
+
+        return runtime.getFilteredReviewDefault?.() === 'reschedule'
+            ? 'reschedule'
+            : 'preview-only';
+    }
+
     protected isAutoSortEnabled(): boolean {
         const runtime = this.manager as UnifiedDataSourceManager & {
             getAutoSortEnabled?: () => boolean;
@@ -526,7 +562,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 通过 UnifiedDataSourceManager 访问 SchedulerRouter。
      * 
      * @returns SchedulerRouter 实例
-     * @throws Error 如果 SchedulerRouter 不可用
+     * @throws Error 如果 application commit 端口或 SchedulerRouter 兼容 fallback 不可用
      * @see 需求 8.3
      */
     protected getSchedulerRouter(): QueueSchedulerPort {
@@ -686,12 +722,13 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 
      * 这是一个通用的复习处理方法，实现了队列-调度器职责分离：
      * 1. 队列负责：卡片生命周期管理（排序、过滤、移除）
-     * 2. 调度器负责：算法计算（到期日期、稳定性、难度）
+     * 2. application commit use case 负责：读取当前卡、提交 SRS v2 决策、写日志、发布事件
+     * 3. 调度器负责：算法计算（到期日期、稳定性、难度）和调度结果持久化
      * 
      * 处理流程：
      * 1. 获取卡片
-     * 2. 调用 SchedulerRouter.route() 更新卡片（应用 FSRS/SM-15/A-Factor 等算法）
-     * 3. 同步更新后的卡片状态（不重复持久化）
+     * 2. 通过 manager.commitReview() 提交 QueueReviewCommand
+     * 3. 同步更新后的卡片状态（不重复持久化或重复发事件）
      * 4. 调用 shouldRemoveFromQueue() 判断是否移除
      * 5. 移除或保留卡片
      * 
@@ -720,22 +757,34 @@ export abstract class BaseReviewQueue implements IReviewQueue {
                 reps: card.reps,
             });
             
-            // 2. 获取调度器并调度卡片
-            const schedulerRouter = this.getSchedulerRouter();
+            // 2. 通过 application review commit use case 调度卡片；旧 manager 仍走 scheduler fallback
             const routeOptions = this.buildReviewSchedulingContext(card);
             let updatedCard: FSRSCard;
             let schedulingCommitted = true;
+            let postCommitNotificationRequired = false;
 
-            if (typeof schedulerRouter.answer === 'function' && typeof schedulerRouter.commit === 'function') {
-                const decision = schedulerRouter.answer(card, rating, routeOptions);
-                const commitResult = await schedulerRouter.commit(decision);
+            if (typeof this.manager.commitReview === 'function') {
+                const commitResult = await this.manager.commitReview({
+                    cardId: card.id,
+                    rating,
+                    context: routeOptions,
+                });
                 schedulingCommitted = commitResult.committed;
-                updatedCard = commitResult.updatedCard ?? decision.current;
+                updatedCard = commitResult.updatedCard;
             } else {
-                const legacyRouteOptions = this.buildLegacyRouteOptions(routeOptions);
-                updatedCard = legacyRouteOptions
-                    ? await schedulerRouter.route(card, rating, legacyRouteOptions)
-                    : await schedulerRouter.route(card, rating);
+                const schedulerRouter = this.getSchedulerRouter();
+                postCommitNotificationRequired = true;
+                if (typeof schedulerRouter.answer === 'function' && typeof schedulerRouter.commit === 'function') {
+                    const decision = schedulerRouter.answer(card, rating, routeOptions);
+                    const commitResult = await schedulerRouter.commit(decision);
+                    schedulingCommitted = commitResult.committed;
+                    updatedCard = commitResult.updatedCard ?? decision.current;
+                } else {
+                    const legacyRouteOptions = this.buildLegacyRouteOptions(routeOptions);
+                    updatedCard = legacyRouteOptions
+                        ? await schedulerRouter.route(card, rating, legacyRouteOptions)
+                        : await schedulerRouter.route(card, rating);
+                }
             }
             
             logger.debug(`[${this.type}] handleReviewWithScheduler - After scheduling:`, {
@@ -756,14 +805,14 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             }
             
             // 3. 调度器已完成持久化，这里只做队列缓存失效 + 事件通知
-            if (schedulingCommitted) {
+            if (schedulingCommitted && postCommitNotificationRequired) {
                 if (typeof this.manager.onCardUpdatedFromScheduler === 'function') {
                     await this.manager.onCardUpdatedFromScheduler(updatedCard);
                 } else {
                     // 向后兼容：旧 manager 仍走 updateCard 路径
                     await this.manager.updateCard(updatedCard);
                 }
-            } else {
+            } else if (!schedulingCommitted) {
                 logger.debug(`[${this.type}] SRS v2 decision was preview/drill-only; formal schedule was not updated`, {
                     cardId,
                     rating,

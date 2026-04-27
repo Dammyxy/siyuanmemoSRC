@@ -24,6 +24,7 @@ import type { QueuePersistencePort } from './ports';
 import { loadQueueState, saveQueueState } from './queuePersistence';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import { createDrillLogV2 } from '@/types/review';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FinalDrillQueue');
@@ -353,6 +354,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
             if (rating === 4) {
                 // 评分 4：从队列移除
                 await this.removeCard(cardId);
+                await this.appendDrillLog(cardId, rating, 'removed');
                 logger.info(`Card ${cardId} reviewed with rating 4, removed from queue`);
                 this.emitQueueChangedEvent();
                 const counterSnapshot = await this.getCounterSnapshot(true);
@@ -369,6 +371,7 @@ export class FinalDrillQueue extends BaseReviewQueue {
                 // 评分 1/2/3：将卡片移到队列后面
                 // 这样下次 FlipElement 可以选中它，避免总是复习同一张卡片
                 await this.moveCardToBack(cardId);
+                await this.appendDrillLog(cardId, rating, 'moved-to-back');
                 logger.info(`Card ${cardId} reviewed with rating ${rating}, moved to back`);
                 this.emitQueueChangedEvent();
                 const counterSnapshot = await this.getCounterSnapshot(true);
@@ -385,6 +388,39 @@ export class FinalDrillQueue extends BaseReviewQueue {
         } catch (error) {
             logger.error('Failed to handle review:', error);
             throw error;
+        }
+    }
+
+    private async appendDrillLog(
+        cardId: string,
+        rating: number,
+        action: 'removed' | 'moved-to-back'
+    ): Promise<void> {
+        const writer = this.manager.appendDrillLogV2;
+        if (typeof writer !== 'function') {
+            logger.warn('ReviewLogService drill logger is not available; drill action will continue without log', {
+                cardId,
+                rating,
+                action,
+            });
+            return;
+        }
+
+        try {
+            await writer.call(this.manager, createDrillLogV2({
+                cardId,
+                rating: Math.max(1, Math.min(4, Math.floor(Number(rating) || 0))) as 1 | 2 | 3 | 4,
+                queueType: this.type,
+                source: 'queue',
+                action,
+            }));
+        } catch (error) {
+            logger.warn('Failed to append drill log; drill queue action was kept', {
+                cardId,
+                rating,
+                action,
+                error,
+            });
         }
     }
 

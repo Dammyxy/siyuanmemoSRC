@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-27 (Round 160)
+Last update: 2026-04-27 (Round 161)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-27 - SRS v2 deferred debt cleared
+
+- Task: 清零 `2026-04-27 - SRS v2 kernel and queue commit contract` 暂缓债务，不清历史无关债务。
+- Touched slice: Review / Queue / Scheduler / Arena / Settings active path across `ReviewCommitUseCase`, `UnifiedDataSourceManager.commitReview`, queue domain policies, `ReviewLogService`, `ArenaKernelService`, settings normalization/UI, i18n, architecture docs, and focused regressions.
+- Debt fixed now: 新增 application 层 `ReviewCommitUseCase`，把“读当前卡 -> SRS v2 answer/commit -> 写卡 -> 写 `ReviewLogV2` -> 发布事件 -> 队列回执”上移到应用层；六队列主入口改为通过 `QueueReviewCommand` 提交，`RetrievalPractice / IncrementalLearning` 使用共享 `SrsV2QueuePolicy` 处理到点 learning/relearning、今日 review、新卡/复习上限和稳定排序；`FilterGroup` future 卡默认 preview-only，显式重排才写正式排期；`FinalDrill` 改为独立 `DrillLogV2`，不触碰正式 due；Arena SRS 改为 `fsrs-v6 / sm15 / sm2` contestant adapters，默认 advisory/shadow；设置页收口到学习步骤、重学步骤、新卡上限、复习上限、filtered 默认行为和 Arena 写入开关。
+- Debt deferred: 无（本次 SRS v2 暂缓债务清零；历史无关债务保留在各自条目）。
+- Why deferred: 不适用。
+- Next safe step: 观察真实复习 session 的 `ReviewLogV2 / DrillLogV2` 和六队列 membership 行为，再基于样本做参数优化或综合调度器实验写入。
+- Validation: `pnpm exec vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/services/__tests__/ReviewLogService.test.ts src/core/queue/domain/__tests__/SrsV2QueuePolicy.test.ts src/types/__tests__/settings-normalization.test.ts src/application/services/__tests__/ArenaKernelService.test.ts`; `pnpm exec vitest run src/core/queue/domain/__tests__/DynamicQueue.review-removal.test.ts src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts src/core/scheduler/__tests__/SchedulerRouter.fsrs-v6.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-27 - SRS v2 kernel and queue commit contract
 
 - Task: 将间隔重复主链路从分散在 Router/队列里的隐式规则，改造成可继续迁移六队列语义的 SRS v2 决策内核。
 - Touched slice: Scheduler / Queue / ReviewLog active path across `src/core/scheduler/srs-v2/*`, `SchedulerRouter`, queue scheduling context contracts, dynamic queue review writeback, `ReviewLogService`, and focused regressions.
 - Debt fixed now: 新增 `preview -> answer -> commit` 内核契约、`SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`、Arena contestant 只读预测类型、SRS v2 memory-anchor 时间工具；`SchedulerRouter` 改成薄门面并支持 no-write filtered preview；`BaseReviewQueue` 改为优先走 answer/commit，commit 被抑制时不再通过 manager 反向写卡；future 手动卡和未到期 FilterGroup 卡默认走 filtered/custom study preview；正式写入时通过可选端口追加 `ReviewLogV2` 月度分片。
-- Debt deferred: 尚未把六队列的排序/上限全部重写为独立 SRS v2 application use case；FinalDrill drill log 仍未接入独立日志；Arena 现有 SRS advisory 仍是旧服务内预测实现，未完全改成新 contestant contract；设置页最小旋钮尚未重排。
-- Why deferred: 本轮先建立强类型内核与写入边界，避免在队列/UI 上继续叠补丁；剩余队列排序、drill log、Arena contestant 迁移和设置 UI 都依赖这个稳定 commit contract，适合分阶段拆小验证。
-- Next safe step: 新增 application 层 `ReviewCommitUseCase`，把“读当前卡 -> answer -> commit -> 写 revlog -> 发布队列/卡片事件”从队列基类里再上移一层，然后逐个队列替换自定义写回语义。
+- Debt deferred: 已偿还（见 `2026-04-27 - SRS v2 deferred debt cleared`）。
+- Why deferred: 原为分阶段上线的保护措施；现已完成 application commit use case、六队列提交语义、FinalDrill drill log、Arena contestant contract 和设置页最小旋钮。
+- Next safe step: 观察真实复习日志与队列行为，再在样本达标后考虑综合调度器实验写入。
 - Validation: targeted SrsV2Kernel, SchedulerRouter fsrs-v6, DynamicQueue review-removal, and NeuralRoamQueue tests; `pnpm build`; `git diff --check`.
 
 ### 2026-04-27 - retrieval practice scheduler merge graduation

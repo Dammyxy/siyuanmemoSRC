@@ -89,6 +89,8 @@ type SettingsPanelSavePayload = {
   enableShortTerm?: boolean;
   params?: number[];
   dayStartHour?: number;
+  newCardsPerDay?: number;
+  reviewsPerDay?: number;
   priorityRandomness?: number;
   queues?: PluginSettings['queues'];
   scheduler?: PluginSettings['scheduler'];
@@ -539,6 +541,8 @@ export class DialogManager implements IDialogManager {
       props: {
         fsrsSettings: currentSettings.fsrs,
         queueSettings: currentSettings.queues,
+        newCardsPerDay: currentSettings.newCardsPerDay,
+        reviewsPerDay: currentSettings.reviewsPerDay,
         priorityRandomness: currentSettings.priorityRandomness,
         schedulerSettings: currentSettings.scheduler,
         riffIntegrationSettings: currentSettings.riffIntegration,
@@ -580,6 +584,8 @@ export class DialogManager implements IDialogManager {
               dayStartHour: settings.dayStartHour ?? 4,
             },
             queues: settings.queues || currentSettings.queues,
+            newCardsPerDay: settings.newCardsPerDay ?? currentSettings.newCardsPerDay,
+            reviewsPerDay: settings.reviewsPerDay ?? currentSettings.reviewsPerDay,
             priorityRandomness: settings.priorityRandomness ?? currentSettings.priorityRandomness,
             scheduler: settings.scheduler || currentSettings.scheduler,
             riffIntegration: settings.riffIntegration || currentSettings.riffIntegration,

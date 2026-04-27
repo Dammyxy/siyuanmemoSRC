@@ -47,6 +47,39 @@ export function normalizeFSRSWeights(weights: unknown): number[] {
     return padded;
 }
 
+const DEFAULT_SRS_V2_LEARNING_STEPS_MINUTES = [1, 10];
+const DEFAULT_SRS_V2_RELEARNING_STEPS_MINUTES = [10];
+
+function normalizeStepMinutes(value: unknown, fallback: number[]): number[] {
+    const source = Array.isArray(value) ? value : fallback;
+    const normalized = source
+        .map(item => Math.max(1, Math.min(30 * 24 * 60, Math.floor(Number(item)))))
+        .filter(item => Number.isFinite(item));
+
+    return normalized.length > 0 ? normalized : [...fallback];
+}
+
+function normalizeFilteredReviewDefault(value: unknown): SrsV2FilteredReviewDefault {
+    return value === 'reschedule' ? 'reschedule' : 'preview-only';
+}
+
+function normalizeSrsV2SchedulerSettings(value: unknown): SrsV2SchedulerSettings {
+    const source = typeof value === 'object' && value !== null
+        ? value as Partial<SrsV2SchedulerSettings>
+        : {};
+    return {
+        learningStepsMinutes: normalizeStepMinutes(
+            source.learningStepsMinutes,
+            DEFAULT_SRS_V2_LEARNING_STEPS_MINUTES
+        ),
+        relearningStepsMinutes: normalizeStepMinutes(
+            source.relearningStepsMinutes,
+            DEFAULT_SRS_V2_RELEARNING_STEPS_MINUTES
+        ),
+        filteredReviewDefault: normalizeFilteredReviewDefault(source.filteredReviewDefault),
+    };
+}
+
 /** FSRS 算法参数 */
 export interface FSRSParameters {
     requestRetention: number;  // 期望保留率 0.7-0.99，默认 0.9
@@ -76,6 +109,14 @@ export interface FSRSParameters {
 
 export type SchedulerEngine = 'simple-fsrs' | 'sm2' | 'sm15' | 'a-factor-v2';
 
+export type SrsV2FilteredReviewDefault = 'preview-only' | 'reschedule';
+
+export interface SrsV2SchedulerSettings {
+    learningStepsMinutes: number[];
+    relearningStepsMinutes: number[];
+    filteredReviewDefault: SrsV2FilteredReviewDefault;
+}
+
 /** 🆕 调度器配置 */
 export interface SchedulerConfig {
     defaultScheduler: 'fsrs-v6' | 'sm15' | 'a-factor-v2';
@@ -88,6 +129,8 @@ export interface SchedulerConfig {
         requestedFI: number;     // 遗忘指数 (0-100)
         intervalBase: number;    // 基础间隔（天）
     };
+
+    srsV2?: SrsV2SchedulerSettings;
 }
 
 /** 复习筛选器类型 */
@@ -669,7 +712,11 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
     const normalized: PluginSettings = {
         ...settings,
         fsrs: { ...settings.fsrs },
-        scheduler: settings.scheduler ? { ...settings.scheduler } : settings.scheduler,
+        scheduler: {
+            ...DEFAULT_SETTINGS.scheduler,
+            ...(settings.scheduler || {}),
+            srsV2: normalizeSrsV2SchedulerSettings(settings.scheduler?.srsV2),
+        },
         riffIntegration: normalizedRiffIntegration.config,
         queues: {
             ...DEFAULT_SETTINGS.queues,
@@ -749,18 +796,32 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         changed = true;
     }
 
-    if (normalized.scheduler) {
-        const nextDefault = mapLegacySchedulerLiteral(normalized.scheduler.defaultScheduler);
-        if (nextDefault !== normalized.scheduler.defaultScheduler) {
-            normalized.scheduler.defaultScheduler = nextDefault as typeof normalized.scheduler.defaultScheduler;
-            changed = true;
-        }
+    if (!settings.scheduler) {
+        changed = true;
+    }
 
-        const nextItem = mapLegacySchedulerLiteral(normalized.scheduler.itemScheduler);
-        if (nextItem !== normalized.scheduler.itemScheduler) {
-            normalized.scheduler.itemScheduler = nextItem as typeof normalized.scheduler.itemScheduler;
-            changed = true;
-        }
+    const normalizedScheduler = normalized.scheduler!;
+    const nextDefault = mapLegacySchedulerLiteral(normalizedScheduler.defaultScheduler);
+    if (nextDefault !== normalizedScheduler.defaultScheduler) {
+        normalizedScheduler.defaultScheduler = nextDefault as typeof normalizedScheduler.defaultScheduler;
+        changed = true;
+    }
+
+    const nextItem = mapLegacySchedulerLiteral(normalizedScheduler.itemScheduler);
+    if (nextItem !== normalizedScheduler.itemScheduler) {
+        normalizedScheduler.itemScheduler = nextItem as typeof normalizedScheduler.itemScheduler;
+        changed = true;
+    }
+
+    const sourceSrsV2 = settings.scheduler?.srsV2;
+    const normalizedSrsV2 = normalizedScheduler.srsV2!;
+    if (
+        !sourceSrsV2
+        || sourceSrsV2.filteredReviewDefault !== normalizedSrsV2.filteredReviewDefault
+        || JSON.stringify(sourceSrsV2.learningStepsMinutes) !== JSON.stringify(normalizedSrsV2.learningStepsMinutes)
+        || JSON.stringify(sourceSrsV2.relearningStepsMinutes) !== JSON.stringify(normalizedSrsV2.relearningStepsMinutes)
+    ) {
+        changed = true;
     }
 
     const sourceQuickCard = settings.quickCard;
@@ -1746,6 +1807,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         sm15: {
             requestedFI: 10,
             intervalBase: 1,
+        },
+        srsV2: {
+            learningStepsMinutes: [...DEFAULT_SRS_V2_LEARNING_STEPS_MINUTES],
+            relearningStepsMinutes: [...DEFAULT_SRS_V2_RELEARNING_STEPS_MINUTES],
+            filteredReviewDefault: 'preview-only',
         },
     },
     riffIntegration: DEFAULT_RIFF_CONFIG,

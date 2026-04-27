@@ -5,6 +5,7 @@ import { IncrementalLearningQueue } from '../IncrementalLearningQueue';
 import { LeechReviewQueue } from '../LeechReviewQueue';
 import { RetrievalPracticeQueue } from '../RetrievalPracticeQueue';
 import type { QueuePersistencePort } from '../ports';
+import type { QueueReviewCommand } from '@/core/queue/managers/UnifiedDataSourceManager';
 import { getCurrentDayEnd } from '@/utils/dateUtils';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
@@ -195,6 +196,61 @@ describe('Dynamic queues - review removal semantics', () => {
     );
   });
 
+  it('retrieval practice submits manual future cards as preview-only on the active commit path', async () => {
+    const originalDue = getCurrentDayEnd(4) + 5 * 86_400_000;
+    const card = createCard({
+      id: 'card-manual-future-preview',
+      blockId: 'block-manual-future-preview',
+      due: originalDue,
+      lastReview: originalDue - 30 * 86_400_000,
+      scheduledDays: 30,
+      stability: 30,
+      elapsedDays: 30,
+    });
+    const persistence: QueuePersistencePort = {
+      get: vi.fn(() => [card.id]),
+      set: vi.fn(async () => {}),
+    };
+    const manager = createManagerStub(card);
+    const commitReview = vi.fn(async (command: QueueReviewCommand) => ({
+      card,
+      updatedCard: { ...card },
+      committed: false,
+      decision: {
+        current: { ...card },
+        queueMode: command.context.queueMode,
+        commitPolicy: command.context.commitPolicy,
+      },
+      commitResult: {
+        updatedCard: null,
+        committed: false,
+        suppressedReason: 'preview-only',
+      },
+    }));
+    (manager as typeof manager & { commitReview: typeof commitReview }).commitReview = commitReview;
+
+    const queue = new RetrievalPracticeQueue(manager as never, persistence);
+    await queue.load();
+
+    await queue.handleReview(card.id, 3);
+
+    expect(commitReview).toHaveBeenCalledWith({
+      cardId: card.id,
+      rating: 3,
+      context: expect.objectContaining({
+        queueType: 'retrieval-practice',
+        queueMode: 'filtered-preview',
+        commitPolicy: 'preview-only',
+        isFiltered: true,
+        customStudy: true,
+        memoryStateAsOf: originalDue,
+      }),
+    });
+    expect(manager.getSchedulerRouter).not.toHaveBeenCalled();
+    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
+    expect(persistence.set).toHaveBeenCalledWith('retrievalPracticeQueue', []);
+  });
+
   it('incremental learning keeps same-day cards active after review', async () => {
     const now = Date.now();
     const card = createCard({
@@ -292,6 +348,61 @@ describe('Dynamic queues - review removal semantics', () => {
       3,
       { memoryStateAsOf: originalDue }
     );
+  });
+
+  it('incremental learning submits manual future cards as preview-only on the active commit path', async () => {
+    const originalDue = getCurrentDayEnd(4) + 4 * 86_400_000;
+    const card = createCard({
+      id: 'card-incremental-future-preview',
+      blockId: 'block-incremental-future-preview',
+      due: originalDue,
+      lastReview: originalDue - 20 * 86_400_000,
+      scheduledDays: 20,
+      stability: 20,
+      elapsedDays: 20,
+    });
+    const persistence: QueuePersistencePort = {
+      get: vi.fn(() => [card.blockId]),
+      set: vi.fn(async () => {}),
+    };
+    const manager = createManagerStub(card);
+    const commitReview = vi.fn(async (command: QueueReviewCommand) => ({
+      card,
+      updatedCard: { ...card },
+      committed: false,
+      decision: {
+        current: { ...card },
+        queueMode: command.context.queueMode,
+        commitPolicy: command.context.commitPolicy,
+      },
+      commitResult: {
+        updatedCard: null,
+        committed: false,
+        suppressedReason: 'preview-only',
+      },
+    }));
+    (manager as typeof manager & { commitReview: typeof commitReview }).commitReview = commitReview;
+
+    const queue = new IncrementalLearningQueue(manager as never, persistence);
+    await queue.load();
+
+    await queue.handleReview(card.id, 3);
+
+    expect(commitReview).toHaveBeenCalledWith({
+      cardId: card.id,
+      rating: 3,
+      context: expect.objectContaining({
+        queueType: 'incremental-learning',
+        queueMode: 'filtered-preview',
+        commitPolicy: 'preview-only',
+        isFiltered: true,
+        customStudy: true,
+        memoryStateAsOf: originalDue,
+      }),
+    });
+    expect(manager.getSchedulerRouter).not.toHaveBeenCalled();
+    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
+    expect(persistence.set).toHaveBeenCalledWith('incrementalLearningQueue', []);
   });
 
   it('incremental learning builds its base set with today window instead of current moment', async () => {

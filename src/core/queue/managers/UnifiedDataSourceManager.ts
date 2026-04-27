@@ -5,6 +5,7 @@
  */
 import type { FSRSCard } from '@/types/card';
 import type { CardFilter, DataChangeEvent, IReviewQueue, QueueType } from '@/types/unified-data-source';
+import type { DrillLogV2 } from '@/types/review';
 import type {
   ReviewCommitResult,
   SchedulingDecision,
@@ -17,9 +18,28 @@ export interface QueueSchedulerPort {
   commit?(decision: SchedulingDecision): Promise<ReviewCommitResult>;
 }
 
+export interface QueueReviewCommand {
+  cardId: string;
+  rating: number;
+  context: SrsV2SchedulingContext;
+}
+
+export interface QueueReviewCommitResult {
+  card: FSRSCard;
+  updatedCard: FSRSCard;
+  committed: boolean;
+  decision?: SchedulingDecision;
+  commitResult?: ReviewCommitResult;
+}
+
 export interface QueueRuntimePort {
   getSchedulerRouter?(): QueueSchedulerPort;
+  commitReview?(command: QueueReviewCommand): Promise<QueueReviewCommitResult>;
+  appendDrillLogV2?(log: DrillLogV2): Promise<void>;
   getDayStartHour?(): number;
+  getNewCardsPerDay?(): number;
+  getReviewsPerDay?(): number;
+  getFilteredReviewDefault?(): 'preview-only' | 'reschedule';
   getPriorityRandomness?(): number;
   getAutoSortEnabled?(): boolean;
   getAddToOutstandingEveryNth?(): number;
@@ -37,7 +57,12 @@ export interface UnifiedDataSourceManager {
   notifyObservers(event: DataChangeEvent): void;
   getQueue(type: QueueType): IReviewQueue;
   getSchedulerRouter?(): QueueSchedulerPort;
+  commitReview?(command: QueueReviewCommand): Promise<QueueReviewCommitResult>;
+  appendDrillLogV2?(log: DrillLogV2): Promise<void>;
   getDayStartHour?(): number;
+  getNewCardsPerDay?(): number;
+  getReviewsPerDay?(): number;
+  getFilteredReviewDefault?(): 'preview-only' | 'reschedule';
   getPriorityRandomness?(): number;
   getAutoSortEnabled?(): boolean;
   getAddToOutstandingEveryNth?(): number;

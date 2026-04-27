@@ -75,6 +75,20 @@ export interface ReviewLogV2 {
     customStudy: boolean;
 }
 
+/** FinalDrill / drill-only append-only log. It is intentionally separate from formal SRS revlog. */
+export interface DrillLogV2 {
+    schemaVersion: 2;
+    id: string;
+    cardId: string;
+    rating: Rating;
+    reviewedAt: number;
+    elapsedMs?: number;
+    queueType: string;
+    source?: string;
+    action: 'removed' | 'moved-to-back' | 'retained';
+    isDrill: true;
+}
+
 /** 创建复习日志 */
 export function createReviewLog(
     cardId: string,
@@ -162,6 +176,36 @@ export function createReviewLogV2(input: {
     };
 }
 
+export function createDrillLogV2(input: {
+    cardId: string;
+    rating: Rating;
+    reviewedAt?: number;
+    elapsedMs?: number;
+    queueType?: string;
+    source?: string;
+    action: DrillLogV2['action'];
+}): DrillLogV2 {
+    const reviewedAt = input.reviewedAt ?? Date.now();
+    return {
+        schemaVersion: 2,
+        id: generateDrillLogV2Id({
+            cardId: input.cardId,
+            rating: input.rating,
+            reviewedAt,
+            queueType: input.queueType,
+            action: input.action,
+        }),
+        cardId: input.cardId,
+        rating: input.rating,
+        reviewedAt,
+        elapsedMs: input.elapsedMs,
+        queueType: input.queueType ?? 'final-drill',
+        source: input.source,
+        action: input.action,
+        isDrill: true,
+    };
+}
+
 /** 生成日志 ID */
 function generateLogId(): string {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -182,5 +226,23 @@ function generateReviewLogV2Id(input: {
         input.rating,
         queueType,
         input.attemptId.replace(/[^a-zA-Z0-9_.:-]/g, '_'),
+    ].join(':');
+}
+
+function generateDrillLogV2Id(input: {
+    cardId: string;
+    rating: Rating;
+    reviewedAt: number;
+    queueType?: string;
+    action: string;
+}): string {
+    const queueType = input.queueType ? input.queueType.replace(/[^a-zA-Z0-9_.-]/g, '_') : 'final-drill';
+    return [
+        'drill-v2',
+        input.cardId.replace(/[^a-zA-Z0-9_.-]/g, '_'),
+        input.reviewedAt,
+        input.rating,
+        queueType,
+        input.action.replace(/[^a-zA-Z0-9_.-]/g, '_'),
     ].join(':');
 }

@@ -17,7 +17,7 @@
  */
 
 import type { IFileService } from '../../infrastructure/services/FileService';
-import type { ReviewLog, ReviewLogV2 } from '@/types/review';
+import type { DrillLogV2, ReviewLog, ReviewLogV2 } from '@/types/review';
 import type { RescheduleLog } from '@/types/scheduler';
 
 /**
@@ -26,6 +26,7 @@ import type { RescheduleLog } from '@/types/scheduler';
 interface MonthlyReviewLogs {
   reviewLogs: ReviewLog[];
   reviewLogsV2?: ReviewLogV2[];
+  drillLogsV2?: DrillLogV2[];
   rescheduleLogs: RescheduleLog[];
 }
 
@@ -44,6 +45,12 @@ export interface IReviewLogService {
    * @param log SRS v2 复习日志
    */
   addReviewLogV2(log: ReviewLogV2): Promise<void>;
+
+  /**
+   * 添加 SRS v2 drill-only 练习日志
+   * @param log drill 练习日志
+   */
+  addDrillLogV2(log: DrillLogV2): Promise<void>;
   
   /**
    * 添加重新调度日志
@@ -63,6 +70,11 @@ export interface IReviewLogService {
    * 获取指定年月的 SRS v2 复习日志
    */
   getReviewLogsV2(year: number, month: number): Promise<ReviewLogV2[]>;
+
+  /**
+   * 获取指定年月的 drill-only 练习日志
+   */
+  getDrillLogsV2(year: number, month: number): Promise<DrillLogV2[]>;
   
   /**
    * 获取所有复习日志
@@ -97,6 +109,17 @@ export class ReviewLogService implements IReviewLogService {
     const month = date.getMonth() + 1;
 
     await this.appendLog(year, month, 'review-v2', log);
+  }
+
+  /**
+   * 添加 SRS v2 drill-only 练习日志
+   */
+  async addDrillLogV2(log: DrillLogV2): Promise<void> {
+    const date = new Date(log.reviewedAt);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+
+    await this.appendLog(year, month, 'drill-v2', log);
   }
 
   /**
@@ -139,6 +162,20 @@ export class ReviewLogService implements IReviewLogService {
   }
 
   /**
+   * 获取指定年月的 drill-only 练习日志
+   */
+  async getDrillLogsV2(year: number, month: number): Promise<DrillLogV2[]> {
+    const fileName = this.getLogFileName(year, month);
+    const data = await this.fileService.readJSON<MonthlyReviewLogs>(fileName);
+
+    if (!data) {
+      return [];
+    }
+
+    return data.drillLogsV2 || [];
+  }
+
+  /**
    * 获取所有复习日志
    */
   async getAllReviewLogs(): Promise<ReviewLog[]> {
@@ -158,8 +195,8 @@ export class ReviewLogService implements IReviewLogService {
   private async appendLog(
     year: number,
     month: number,
-    type: 'review' | 'review-v2' | 'reschedule',
-    log: ReviewLog | ReviewLogV2 | RescheduleLog
+    type: 'review' | 'review-v2' | 'drill-v2' | 'reschedule',
+    log: ReviewLog | ReviewLogV2 | DrillLogV2 | RescheduleLog
   ): Promise<void> {
     const fileName = this.getLogFileName(year, month);
     
@@ -171,6 +208,7 @@ export class ReviewLogService implements IReviewLogService {
       data = {
         reviewLogs: [],
         reviewLogsV2: [],
+        drillLogsV2: [],
         rescheduleLogs: []
       };
     }
@@ -181,6 +219,9 @@ export class ReviewLogService implements IReviewLogService {
     if (!Array.isArray(data.reviewLogsV2)) {
       data.reviewLogsV2 = [];
     }
+    if (!Array.isArray(data.drillLogsV2)) {
+      data.drillLogsV2 = [];
+    }
     if (!Array.isArray(data.rescheduleLogs)) {
       data.rescheduleLogs = [];
     }
@@ -190,6 +231,8 @@ export class ReviewLogService implements IReviewLogService {
       data.reviewLogs.push(log as ReviewLog);
     } else if (type === 'review-v2') {
       data.reviewLogsV2.push(log as ReviewLogV2);
+    } else if (type === 'drill-v2') {
+      data.drillLogsV2.push(log as DrillLogV2);
     } else {
       data.rescheduleLogs.push(log as RescheduleLog);
     }

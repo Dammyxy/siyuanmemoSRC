@@ -6,6 +6,13 @@ import { resolveSchedulerTypeLabel, resolveSrsArenaContestantLabel } from '@/app
 import { SM15Scheduler } from '@/core/scheduler/strategies/SM15Scheduler';
 import { SM2ReadOnlyScheduler } from '@/core/scheduler/strategies/SM2ReadOnlyScheduler';
 import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
+import type {
+  ArenaContestantContract,
+  ArenaContestantPrediction as CoreArenaContestantPrediction,
+  SchedulingChoice,
+  SrsV2AlgorithmFamily,
+  SrsV2SchedulingContext,
+} from '@/core/scheduler/srs-v2';
 import { createLogger } from '@/utils/logger';
 import {
   buildArenaPoolKey,
@@ -81,6 +88,10 @@ function createId(prefix: string): string {
 
 function toIntervalDays(due: number, now: number): number {
   return Math.max(0, (Number(due) - now) / DAY_MS);
+}
+
+function toArenaAlgorithm(contestantId: SrsArenaContestantId): SrsV2AlgorithmFamily | string {
+  return contestantId === 'fsrs-v6' ? 'memory-fsrs' : 'legacy-advisory';
 }
 
 function normalizeTargetKind(card: FSRSCard | null | undefined): Extract<ArenaTargetKind, 'item' | 'descriptor'> | null {
@@ -398,7 +409,6 @@ export class ArenaKernelService {
       return null;
     }
     const poolKey = buildSrsArenaPoolKey(targetKind);
-    const params = this.deps.getFsrsParams();
     const snapshot = await this.ensureSrsScoreSnapshot(poolKey, settings.srs.contestantIds);
     const weights = this.computeScoreWeights(snapshot.entries);
     const currentSchedulerLabel = resolveSchedulerTypeLabel(currentSchedulerType);
@@ -414,6 +424,9 @@ export class ArenaKernelService {
       : 0;
     const leadingContestantId = contestants.slice().sort((left, right) => right.score - left.score)[0]?.contestantId || null;
     const leadingLabel = leadingContestantId ? resolveSrsArenaContestantLabel(leadingContestantId) : currentSchedulerLabel;
+    const sampleCount = snapshot.entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.sampleCount) || 0), 0);
+    const minimumReviewsMet = sampleCount >= settings.srs.minimumReviewsForConfidence;
+    const writeEnabled = settings.srs.advisoryOnly === false && minimumReviewsMet;
     return {
       poolKey,
       targetKind,
@@ -423,6 +436,8 @@ export class ArenaKernelService {
       currentSchedulerIntervalDays,
       discrepancyRatio,
       shouldHighlight: discrepancyRatio >= settings.srs.divergenceThresholdRatio,
+      writeEnabled,
+      minimumReviewsMet,
       summary: `Arena 当前更偏向 ${leadingLabel}，综合建议 ${weightedIntervalDays.toFixed(1)} 天；当前正式调度 ${currentSchedulerLabel} 约 ${currentSchedulerIntervalDays.toFixed(1)} 天。`,
       contestants,
     };
@@ -847,21 +862,92 @@ export class ArenaKernelService {
     weight: number,
     now: number,
   ): SrsArenaContestantPrediction {
-    const nowDate = new Date(now);
-    const scheduler = this.getSrsScheduler(contestantId);
-    const preview = scheduler.preview(card, nowDate);
-    const goodCard = preview.get(Rating.Good) || card;
-    const retrievability = clamp(scheduler.getRetrievability(card, nowDate), 0, 1);
+    const prediction = this.getSrsContestant(contestantId).predict(card, {
+      reviewTime: now,
+      source: 'arena',
+      queueType: 'arena',
+      commitPolicy: 'preview-only',
+    });
+    const goodChoice = prediction.choices.get(Rating.Good);
+    const retrievability = clamp(Number(prediction.attribution?.retrievability) || 0, 0, 1);
     return {
       contestantId,
       label: resolveSrsArenaContestantLabel(contestantId),
       score: entry.score,
       weight,
+      confidence: prediction.confidence,
       retrievability,
       predictedPassProbability: retrievability,
-      intervalDays: toIntervalDays(goodCard.due, now),
-      due: Number(goodCard.due) || now,
+      intervalDays: goodChoice ? toIntervalDays(goodChoice.due, now) : 0,
+      due: goodChoice ? goodChoice.due : now,
+      choices: this.serializeSrsArenaChoices(prediction.choices, now),
+      explanation: prediction.explanation,
+      attribution: prediction.attribution,
     };
+  }
+
+  private getSrsContestant(contestantId: SrsArenaContestantId): ArenaContestantContract {
+    return {
+      id: contestantId,
+      predict: (card, context) => this.predictSrsContestant(card, contestantId, context),
+    };
+  }
+
+  private predictSrsContestant(
+    card: FSRSCard,
+    contestantId: SrsArenaContestantId,
+    context: SrsV2SchedulingContext,
+  ): CoreArenaContestantPrediction {
+    const now = Number(context.reviewTime) || Date.now();
+    const nowDate = new Date(now);
+    const scheduler = this.getSrsScheduler(contestantId);
+    const preview = scheduler.preview(card, nowDate);
+    const choices = new Map<Rating, SchedulingChoice>();
+
+    for (const [rating, choiceCard] of preview.entries()) {
+      choices.set(rating, {
+        rating,
+        card: choiceCard,
+        due: Number(choiceCard.due) || now,
+        scheduledDays: Math.max(0, Number(choiceCard.scheduledDays) || 0),
+        state: choiceCard.state,
+        schedulerType: contestantId as SchedulerType,
+        algorithm: toArenaAlgorithm(contestantId) as SrsV2AlgorithmFamily,
+        generatedAt: now,
+        intervalMs: Math.max(0, (Number(choiceCard.due) || now) - now),
+        stability: Math.max(0, Number(choiceCard.stability) || 0),
+        difficulty: Number(choiceCard.difficulty) || 0,
+      });
+    }
+
+    const retrievability = clamp(scheduler.getRetrievability(card, nowDate), 0, 1);
+    return {
+      contestantId,
+      algorithm: toArenaAlgorithm(contestantId),
+      schedulerType: contestantId,
+      choices,
+      confidence: clamp(retrievability, 0.05, 0.95),
+      explanation: `${resolveSrsArenaContestantLabel(contestantId)} shadow prediction`,
+      attribution: {
+        retrievability,
+        advisoryOnly: true,
+        source: 'srs-arena-contestant-contract',
+      },
+    };
+  }
+
+  private serializeSrsArenaChoices(
+    choices: Map<Rating, SchedulingChoice>,
+    now: number,
+  ): SrsArenaContestantPrediction['choices'] {
+    return Array.from(choices.values()).map((choice) => ({
+      rating: choice.rating,
+      due: choice.due,
+      intervalDays: toIntervalDays(choice.due, now),
+      state: choice.state,
+      stability: choice.stability,
+      difficulty: choice.difficulty,
+    }));
   }
 
   private getSrsScheduler(contestantId: SrsArenaContestantId) {

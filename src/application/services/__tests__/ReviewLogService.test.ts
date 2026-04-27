@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ReviewLogService } from '../ReviewLogService';
 import type { IFileService } from '../../../infrastructure/services/FileService';
-import type { ReviewLog } from '@/types/review';
+import type { DrillLogV2, ReviewLog } from '@/types/review';
 import type { RescheduleLog } from '@/types/scheduler';
 import { CardState, Rating } from '@/types/card';
 
@@ -217,6 +217,30 @@ describe('ReviewLogService', () => {
       expect(data.rescheduleLogs).toHaveLength(1);
       expect(data.reviewLogs[0]).toEqual(reviewLog);
       expect(data.rescheduleLogs[0]).toEqual(rescheduleLog);
+    });
+  });
+
+  describe('addDrillLogV2', () => {
+    it('should add drill-only logs without mixing them into formal review logs', async () => {
+      const log: DrillLogV2 = {
+        schemaVersion: 2,
+        id: 'drill-1',
+        cardId: 'card-1',
+        rating: Rating.Again,
+        reviewedAt: new Date('2024-03-15').getTime(),
+        queueType: 'final-drill',
+        source: 'queue',
+        action: 'moved-to-back',
+        isDrill: true,
+      };
+
+      await service.addDrillLogV2(log);
+
+      const data = mockStorage.get('review-logs/2024-03.json');
+      expect(data.reviewLogs).toEqual([]);
+      expect(data.reviewLogsV2).toEqual([]);
+      expect(data.drillLogsV2).toEqual([log]);
+      await expect(service.getDrillLogsV2(2024, 3)).resolves.toEqual([log]);
     });
   });
 

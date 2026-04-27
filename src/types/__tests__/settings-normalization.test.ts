@@ -59,6 +59,19 @@ describe('settings normalization', () => {
     expect(normalized.settings.scheduler?.itemScheduler).toBe(ACTIVE_FSRS_VERSION);
   });
 
+  it('fills SRS v2 scheduler defaults when missing', () => {
+    const legacy = cloneSettings();
+    if (!legacy.scheduler) {
+      throw new Error('DEFAULT_SETTINGS.scheduler is required for this test');
+    }
+    delete (legacy.scheduler as Partial<typeof legacy.scheduler>).srsV2;
+
+    const normalized = normalizePluginSettings(legacy);
+
+    expect(normalized.changed).toBe(true);
+    expect(normalized.settings.scheduler?.srsV2).toEqual(DEFAULT_SETTINGS.scheduler?.srsV2);
+  });
+
   it('fills quickCard.flashcard defaults when missing', () => {
     const legacy = cloneSettings();
     delete (legacy.quickCard as Partial<typeof legacy.quickCard>).flashcard;

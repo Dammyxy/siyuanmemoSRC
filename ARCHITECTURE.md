@@ -182,21 +182,28 @@ sequenceDiagram
   participant UI as ReviewView / useReviewSession
   participant QS as UnifiedQueueStrategy
   participant Q as QueueDomain
+  participant UDSM as UnifiedDataSourceManager
+  participant RCU as ReviewCommitUseCase
   participant SR as SchedulerRouter
   participant SRS as SRS v2 Kernel
   participant LOG as ReviewLogService
-  participant UDSM as UnifiedDataSourceManager
   participant B as SRSBrowser
 
   UI->>QS: onFeedback(rate)
   QS->>Q: handleReview(cardId, rating)
-  Q->>SR: answer(card, rating, QueueReviewContext)
+  Q->>UDSM: commitReview(QueueReviewCommand)
+  UDSM->>RCU: execute(command)
+  RCU->>UDSM: getCard(cardId)
+  RCU->>SR: answer(card, rating, QueueReviewContext)
   SR->>SRS: preview / answer
   SRS-->>SR: SchedulingDecision
-  Q->>SR: commit(decision)
-  SR->>LOG: append ReviewLogV2 when schedule is written
-  SR-->>Q: ReviewCommitResult
-  Q->>UDSM: notify card / queue change when committed
+  RCU->>SR: commit(decision)
+  SR->>SRS: commit policy
+  SR-->>RCU: ReviewCommitResult
+  RCU->>LOG: append ReviewLogV2 when schedule is written
+  RCU->>UDSM: onCardUpdatedFromScheduler(updatedCard)
+  RCU-->>Q: QueueReviewCommitResult
+  Q->>Q: session membership / current item advance
   UDSM-->>B: data change event
   B->>B: incremental grid patch
 ```
@@ -789,20 +796,22 @@ UI 层：
 
 - `src/core/scheduler/SchedulerRouter.ts`
 - `src/core/scheduler/srs-v2/*`
+- `src/application/usecases/review/ReviewCommitUseCase.ts`
 - `src/application/services/ReviewLogService.ts`
 - `src/application/services/ArenaKernelService.ts` 的 SRS Arena 只读 advisory 默认关闭，开启后也不改变正式调度路由
 
 当前职责：
 
-- `SchedulerRouter` 是薄门面：保留旧 `preview/route` 兼容入口，同时把正式评分收口到 SRS v2 的 `preview -> answer -> commit` 决策流
+- `ReviewCommitUseCase` 是正式复习提交边界：读取当前卡 -> `SchedulerRouter.answer()` -> `commit()` -> 写 `ReviewLogV2` -> 发布队列/卡片事件。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
+- `SchedulerRouter` 是薄门面：保留旧 `preview/route` 兼容入口，负责把 SRS v2 的 `preview -> answer -> commit` 决策流转交给内核；它只持久化调度结果，不拥有正式 revlog
 - `SrsV2Kernel` 显式建模 `SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`，并在同一入口处理 `reviewTime + memoryStateAsOf` 的提前复习锚点语义
-- 队列通过 `QueueReviewSchedulingContext` 只声明成员资格之外的会话语义，例如 `queueType / queueMode / commitPolicy / isFiltered / customStudy`；调度写入是否发生由 SRS v2 commit policy 决定
-- `RetrievalPractice / IncrementalLearning` 中手动加入的 future 卡现在作为 filtered/custom study preview：保留 due 日记忆锚点，但默认不写正式 due；`FilterGroup` 对未到期卡默认 preview-only，到期卡才写正式 SRS
-- `FinalDrill` 仍是练习覆盖层，不走正式调度；`NeuralRoam` 绑定真实卡时可提交正式 SRS，但不会因 due 窗口自动退出 session；`Leech` 只负责难点治理成员资格，正式复习仍走 SRS v2
-- 成功写正式排期时，`UnifiedStorageCardUpdateAdapter` 会通过可选日志端口追加 `ReviewLogV2` 月度分片；旧 `ReviewLog` 保留只读/兼容
+- `SrsV2QueuePolicy` 统一 `RetrievalPractice / IncrementalLearning` 的 formal 取卡顺序：Learning/Relearning 到点卡、今日 Review、每日上限内 New；同层按 `due -> priority -> stable noise -> id` 排序。Incremental 的 Topic/Concept/阅读/网页材料继续走 rotation 回访语义
+- 队列通过 `QueueReviewSchedulingContext` 只声明成员资格之外的会话语义，例如 `queueType / queueMode / commitPolicy / isFiltered / customStudy`；调度写入是否发生由 SRS v2 commit policy 决定。手动 future 卡和 `FilterGroup` future 卡默认 `filtered-preview + preview-only`，只有显式重排/设置切换才 `write-schedule`
+- `FinalDrill` 是练习覆盖层，不走正式调度，只追加独立 `DrillLogV2` 月度分片；`NeuralRoam` 绑定真实卡时可提交正式 SRS，但不会因 due 窗口自动退出 session；`Leech` 只负责难点治理成员资格，正式复习仍走 SRS v2
+- 成功写正式排期时，`ReviewCommitUseCase` 追加 `ReviewLogV2` 月度分片；旧 `ReviewLog` 保留只读/兼容，`DrillLogV2` 默认不参与 FSRS 参数优化和 Arena 正式归因
 - 对不支持的调度路径显式报错，而不是静默降级
-- 对 item / descriptor 复习，Arena 开启后会在正式调度之外并行预估 `fsrs-v6 + sm15 + sm2` 三个只读选手，输出 weighted optimum、分歧幅度和领先者；`a-factor-v2` 不进入 v1 SRS contest pack
-- `SrsTransparencyApplicationService` / `SrsEditorDialog.vue` / `ReviewView.vue` 只展示轻量分歧提示和透明度事实，正式 due 写回仍完全由 `SchedulerRouter` 当前路由负责
+- 对 item / descriptor 复习，Arena 开启后会在正式调度之外通过 contestant adapters 并行预估 `fsrs-v6 + sm15 + sm2` 三个只读选手，输出四按钮预测、置信度、解释、归因字段、weighted optimum、分歧幅度和领先者；`a-factor-v2` 不进入 v1 SRS contest pack
+- `SrsTransparencyApplicationService` / `SrsEditorDialog.vue` / `ReviewView.vue` 只展示轻量分歧提示和透明度事实；只有 `arena.srs.advisoryOnly === false` 且样本数达到 `minimumReviewsForConfidence` 时才允许进入实验写入路径，默认不接管正式 due
 
 同步与事件主入口：
 
@@ -890,7 +899,8 @@ UI 层：
 - 运行时唯一组合根是 `ApplicationContext`
 - 插件入口是 `src/index.ts`
 - Browser 与 Review 共享 `UnifiedDataSourceManager` + `SchedulerRouter`
-- 正式评分链路已切到 SRS v2 内核：`SchedulerRouter.answer()` 生成 `SchedulingDecision`，`commit()` 根据 queue context 写正式 due 或保持 preview/drill-only，并在写入时追加 `ReviewLogV2`
+- 正式评分链路已切到 application 层 `ReviewCommitUseCase`：队列提交 `QueueReviewCommand`，use case 调用 `SchedulerRouter.answer()/commit()` 写正式 due 或保持 preview-only，并在正式写入时追加 `ReviewLogV2` 与发布队列/卡片事件
+- `SchedulerRouter` 保持 SRS v2 薄门面职责；`RetrievalPractice / IncrementalLearning` 的正式记忆取卡由 `SrsV2QueuePolicy` 统一日内到点、复习上限、新卡上限与稳定排序，`FinalDrill` 只写独立 `DrillLogV2`
 - Browser 共享契约已收口到 `src/types/browser.ts`；application query kernel 不再 import UI browser helper，UI-side browser service 也不再保存全局 manager/api/query 状态
 - `DialogManager` 负责 dialog surface，`TabManager` 负责 tab surface 与 surface handoff
 - 桌面端标准 review 入口现在由 `DialogManager` 按 `settings.ui.reviewOpenInNewTabByDefault` / `reviewOpenFullscreenByDefault` 做统一路由；filter-backed review 进入 tab 时通过 transfer-state 恢复 session
@@ -899,7 +909,7 @@ UI 层：
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
 - AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review 默认 Skill 由 `settings.ai.chatDefaults.reviewDefaultSkillId` 决定（默认 `general-chat`），review 聊天按队列级 `reviewChatKey` 复用持久化会话但 live runtime 仍按真实 review session 隔离
-- Arena 已在组合根中作为应用层内核装配，但默认关闭：启用后 AI Arena 管理显式场景池和策略包评分，SRS Arena 对 item / descriptor 做 `fsrs-v6 + sm15 + sm2` 只读建议；它只提供透明度、权重建议、挑战者管理和 delayed attribution，不接管正式模型选择或调度写回
+- Arena 已在组合根中作为应用层内核装配，但默认关闭：启用后 AI Arena 管理显式场景池和策略包评分，SRS Arena 对 item / descriptor 通过 `fsrs-v6 + sm15 + sm2` contestant adapters 做只读建议；它只提供透明度、权重建议、挑战者管理和 delayed attribution，默认不接管正式模型选择或调度写回
 - AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
 - AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，默认推荐模板已经切到 Andy 兼容语义；用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
 - AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline、树形 worldline、compact reply projection 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做独立图形化 world-tree 页面

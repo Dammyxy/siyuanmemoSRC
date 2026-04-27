@@ -318,9 +318,10 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             };
         }
 
+        const filteredDefault = this.getFilteredReviewDefault();
         return {
-            queueMode: 'filtered-preview',
-            commitPolicy: 'preview-only',
+            queueMode: filteredDefault === 'reschedule' ? 'filtered-rescheduling' : 'filtered-preview',
+            commitPolicy: filteredDefault === 'reschedule' ? 'write-schedule' : 'preview-only',
             isFiltered: true,
             customStudy: true,
         };

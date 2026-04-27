@@ -19,6 +19,7 @@ import {
     QueueError,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
+import type { DrillLogV2 } from '@/types/review';
 // ✅ DDD 架构：UnifiedDataSourceManager（应用层）直接创建队列，不依赖 QueueFactory（基础设施层）
 import { RetrievalPracticeQueue } from '@/core/queue/domain/RetrievalPracticeQueue';
 import { IncrementalLearningQueue } from '@/core/queue/domain/IncrementalLearningQueue';
@@ -28,6 +29,7 @@ import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import type { QueueInitialLoadAware, QueueSchedulerPort } from '@/core/queue/managers/UnifiedDataSourceManager';
+import type { QueueReviewCommand, QueueReviewCommitResult } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type {
     AutoFailedCardSinkPort,
     NeuralRoamNodeType,
@@ -46,6 +48,13 @@ interface UnifiedManagerPluginContextLike {
     getSettingsService?: () => {
         getSettings?: () => {
             fsrs?: { dayStartHour?: unknown };
+            newCardsPerDay?: unknown;
+            reviewsPerDay?: unknown;
+            scheduler?: {
+                srsV2?: {
+                    filteredReviewDefault?: unknown;
+                };
+            };
             queues?: {
                 dayStartHour?: unknown;
                 addToOutstandingEveryNth?: unknown;
@@ -63,6 +72,12 @@ interface UnifiedManagerPluginContextLike {
             };
             priorityRandomness?: unknown;
         };
+    } | null | undefined;
+    getReviewCommitUseCase?: () => {
+        execute?: (command: QueueReviewCommand) => Promise<QueueReviewCommitResult>;
+    } | null | undefined;
+    getReviewLogService?: () => {
+        addDrillLogV2?: (log: DrillLogV2) => Promise<void>;
     } | null | undefined;
 }
 
@@ -265,6 +280,26 @@ export class UnifiedDataSourceManager {
         return schedulerRouterCandidate;
     }
 
+    public async commitReview(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
+        const plugin = this.resolvePlugin();
+        const useCase = plugin?.getContext?.()?.getReviewCommitUseCase?.();
+        if (!useCase || typeof useCase.execute !== 'function') {
+            throw new Error('ReviewCommitUseCase not available - plugin initialization failed');
+        }
+
+        return useCase.execute(command);
+    }
+
+    public async appendDrillLogV2(log: DrillLogV2): Promise<void> {
+        const plugin = this.resolvePlugin();
+        const reviewLogs = plugin?.getContext?.()?.getReviewLogService?.();
+        if (!reviewLogs || typeof reviewLogs.addDrillLogV2 !== 'function') {
+            throw new Error('ReviewLogService not available - plugin initialization failed');
+        }
+
+        await reviewLogs.addDrillLogV2(log);
+    }
+
     public getDayStartHour(): number {
         try {
             const plugin = this.resolvePlugin();
@@ -297,6 +332,51 @@ export class UnifiedDataSourceManager {
         }
 
         return 0.1;
+    }
+
+    public getNewCardsPerDay(): number {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const value = Number(settingsService?.getSettings?.()?.newCardsPerDay);
+            if (Number.isFinite(value)) {
+                return Math.max(0, Math.floor(value));
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve newCardsPerDay from settings service:', error);
+        }
+
+        return 20;
+    }
+
+    public getReviewsPerDay(): number {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const value = Number(settingsService?.getSettings?.()?.reviewsPerDay);
+            if (Number.isFinite(value)) {
+                return Math.max(0, Math.floor(value));
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve reviewsPerDay from settings service:', error);
+        }
+
+        return 0;
+    }
+
+    public getFilteredReviewDefault(): 'preview-only' | 'reschedule' {
+        try {
+            const plugin = this.resolvePlugin();
+            const settingsService = plugin?.getContext?.()?.getSettingsService?.();
+            const value = settingsService?.getSettings?.()?.scheduler?.srsV2?.filteredReviewDefault;
+            if (value === 'reschedule') {
+                return 'reschedule';
+            }
+        } catch (error) {
+            logger.warn('Failed to resolve scheduler.srsV2.filteredReviewDefault from settings service:', error);
+        }
+
+        return 'preview-only';
     }
 
     public getAutoSortEnabled(): boolean {

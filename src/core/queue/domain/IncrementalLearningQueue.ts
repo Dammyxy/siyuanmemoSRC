@@ -25,6 +25,8 @@ import { NOOP_AUTO_FAILED_CARD_SINK } from './ports';
 import { resolveCardId } from '../../../diagnostics/type-guards';
 import { getCurrentDayEnd } from '../../../utils/dateUtils';
 import { createLogger } from '@/utils/logger';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import { SrsV2QueuePolicy } from './SrsV2QueuePolicy';
 
 const logger = createLogger('IncrementalLearningQueue');
 
@@ -157,11 +159,20 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
                 }
             }
 
-            return this.buildOutstandingQueueCards(baseCards, manualCards, {
-                logger,
-                baseCardsLabel: 'due cards from manager',
-                everyNthElement: this.getAddToOutstandingEveryNth(2),
+            const orderedCards = SrsV2QueuePolicy.buildIncrementalLearningQueue({
+                baseCards,
+                manualCards,
+                now,
+                dayEnd,
+                newCardsPerDay: this.getNewCardsPerDay(),
+                reviewsPerDay: this.getReviewsPerDay(),
+                priorityRandomness: this.getPriorityRandomness(),
+                stableSalt: `${this.type}:${dayEnd}`,
+                isBlacklisted: (card) => this.temporaryBlacklist.has(card.id) || this.temporaryBlacklist.has(card.blockId),
+                isDismissed: isCardDismissed,
             });
+
+            return this.cacheResolvedCards(this.applyCustomOrder(orderedCards), 'reconciled');
         } catch (error) {
             logger.error('Failed to get cards:', error);
             throw error;
@@ -285,10 +296,11 @@ export class IncrementalLearningQueue extends ManualCardCollectionQueue {
             return null;
         }
 
+        const filteredDefault = this.getFilteredReviewDefault();
         return {
             memoryStateAsOf: due,
-            queueMode: 'filtered-preview',
-            commitPolicy: 'preview-only',
+            queueMode: filteredDefault === 'reschedule' ? 'filtered-rescheduling' : 'filtered-preview',
+            commitPolicy: filteredDefault === 'reschedule' ? 'write-schedule' : 'preview-only',
             isFiltered: true,
             customStudy: true,
             reason: 'manual-early-review',

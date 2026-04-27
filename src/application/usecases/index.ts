@@ -7,3 +7,4 @@
 
 export * from './card';
 export * from './xiuyuan';
+export * from './review';
