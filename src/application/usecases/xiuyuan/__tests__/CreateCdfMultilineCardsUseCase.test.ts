@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ok } from '@/types/result';
+import { err, ok } from '@/types/result';
 import { CreateCdfMultilineCardsUseCase } from '../CreateCdfMultilineCardsUseCase';
 import { resolveCdfMultilineScan, type CdfScanResult } from '../shared/CdfMultilineScanner';
 import { findConceptByUpwardSearch } from '../shared/ConceptLocator';
@@ -211,6 +211,74 @@ describe('CreateCdfMultilineCardsUseCase', () => {
     if (result.ok) {
       expect(result.value.createdDefinition).toBe(1);
       expect(result.value.createdDescriptor).toBe(0);
+    }
+  });
+
+  it('reuses an existing concept card when concept attrs are missing and continues creating the root definition', async () => {
+    mockedResolveCdfMultilineScan.mockResolvedValue(createConceptDefinitionOnlyScanResult());
+
+    const alreadyExistsError = new Error('此块已经创建过闪卡，请先取消现有闪卡再重新创建');
+    const xiuyuanAppService = {
+      createFromBlocks: vi.fn(async (command) => {
+        if (command.templateId === 'builtin-concept-simple') {
+          if (command.duplicatePolicy !== 'reuse-existing') {
+            return err(alreadyExistsError);
+          }
+          return ok({
+            xiuyuan: { id: 'xy_concept' },
+            cards: [{ id: 'card_concept' }],
+          });
+        }
+
+        return ok({
+          xiuyuan: { id: 'xy_definition' },
+          cards: [{ id: 'card_definition' }],
+        });
+      }),
+    };
+
+    const useCase = new CreateCdfMultilineCardsUseCase(xiuyuanAppService as never, {
+      BUILTIN_DECK_ID: 'builtin-deck',
+      sql: vi.fn().mockImplementation(async (stmt: string) => {
+        if (stmt.includes(`WHERE id = '${CONCEPT_BLOCK_ID}'`) && stmt.includes('SELECT type')) {
+          return [{ type: 'd' }];
+        }
+        return [];
+      }),
+      getBlockAttrs: vi.fn(async () => ({})),
+      getBlockKramdown: vi.fn().mockResolvedValue({ kramdown: '' }),
+    });
+
+    const result = await useCase.execute({
+      parentBlockId: PARENT_BLOCK_ID,
+      templateId: 'builtin-list-concept-multiline',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledTimes(2);
+    expect(xiuyuanAppService.createFromBlocks).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        blockIds: [CONCEPT_BLOCK_ID],
+        templateId: 'builtin-concept-simple',
+        fieldMapping: { concept: CONCEPT_BLOCK_ID },
+        duplicatePolicy: 'reuse-existing',
+      })
+    );
+    expect(xiuyuanAppService.createFromBlocks).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        blockIds: ['20260101000000-parent-p', CONCEPT_BLOCK_ID],
+        templateId: 'builtin-concept-definition',
+        fieldMapping: {
+          concept: CONCEPT_BLOCK_ID,
+          definition: '20260101000000-parent-p',
+        },
+      })
+    );
+    if (result.ok) {
+      expect(result.value.createdDefinition).toBe(1);
+      expect(result.value.failed).toBe(0);
     }
   });
 

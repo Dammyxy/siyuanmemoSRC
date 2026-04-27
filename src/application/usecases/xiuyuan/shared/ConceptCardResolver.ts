@@ -58,6 +58,7 @@ export async function resolveConceptCard(params: ResolveConceptCardParams): Prom
       fieldMapping: { concept: conceptId },
       deckId: deckId || siyuanApi.BUILTIN_DECK_ID,
       cardType: 'concept',
+      duplicatePolicy: 'reuse-existing',
     });
 
     if (isErr(createResult)) {

@@ -167,6 +167,7 @@ async function ensureConceptCard(
     fieldMapping: { concept: conceptBlockId },
     deckId: deckId || siyuanApi.BUILTIN_DECK_ID,
     cardType: 'concept',
+    duplicatePolicy: 'reuse-existing',
   });
   if (isErr(createResult)) {
     return err(createResult.error);

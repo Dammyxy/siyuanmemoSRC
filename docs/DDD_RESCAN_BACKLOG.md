@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 165)
+Last update: 2026-04-28 (Round 166)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - idempotent CDF concept-card reuse
+
+- Task: 修复 AI CDF 语义制卡在概念文档 attrs 缺失但概念闪卡已存在时误报“此块已经创建过闪卡”，导致新生成定义/描述符块未继续制卡的问题。
+- Touched slice: AI workbench / Xiuyuan CDF creation across `src/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase.ts`, `src/application/usecases/xiuyuan/shared/ConceptCardResolver.ts`, and focused Xiuyuan tests.
+- Debt fixed now: CDF 概念卡确保路径与现有 AI 概念/描述符路径统一使用 `duplicatePolicy: 'reuse-existing'`，让概念卡属性漂移不再阻断本次源块制卡。
+- Debt deferred: 未抽取统一 concept-card ensure service。
+- Why deferred: 本轮根因只在已有确保命令缺少幂等策略；抽服务会扩大到多个 Xiuyuan use case，需单独收口。
+- Next safe step: 若后续更多概念入口需要同样语义，再把概念卡确保逻辑抽成应用层共享 helper/service。
+- Validation: `pnpm vitest run src/application/usecases/xiuyuan/__tests__/CreateCdfMultilineCardsUseCase.test.ts src/application/usecases/xiuyuan/shared/__tests__/ConceptCardResolver.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-28 - formula cloze prepared renderer soft failure
 
