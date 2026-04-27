@@ -489,6 +489,87 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(counterSnapshot?.buckets.all).toBe(1);
   });
 
+  it('keeps retrieval-practice Good/Easy logical duplicates out of the current session after reloads', async () => {
+    const firstCard = createCard({
+      id: 'card-1',
+      xiuyuanID: 'xy-1',
+      blockId: 'block-shared',
+      meta: { faceIndex: 0 },
+    });
+    const duplicateSameFace = createCard({
+      id: 'card-1-canonical',
+      xiuyuanID: 'xy-1',
+      blockId: 'block-shared',
+      meta: { faceIndex: 0 },
+    });
+    const sameBlockOtherFace = createCard({
+      id: 'card-2',
+      xiuyuanID: 'xy-1',
+      blockId: 'block-shared',
+      meta: { faceIndex: 1 },
+    });
+    const queue = createQueueStub(QueueType.RetrievalPractice, [firstCard, sameBlockOtherFace], {
+      handleReview: async (cardId, _rating, liveCards) => {
+        const index = liveCards.findIndex((card) => card.id === cardId);
+        if (index >= 0) {
+          liveCards[index] = { ...duplicateSameFace };
+        }
+        return {
+          updatedCard: { ...duplicateSameFace, reps: duplicateSameFace.reps + 1 },
+          removedFromQueue: false,
+          remainsInQueue: true,
+          queueChanged: true,
+          requiresCurrentViewReorder: false,
+        };
+      },
+      createRollbackSnapshot: async () => ({ ok: true }),
+      restoreRollbackSnapshot: async () => {},
+    });
+    const manager = {
+      getQueue: vi.fn((type: QueueType) => {
+        if (type === QueueType.FinalDrill) {
+          return createQueueStub(QueueType.FinalDrill, [], {
+            createRollbackSnapshot: async () => ({ ok: true }),
+            restoreRollbackSnapshot: async () => {},
+          });
+        }
+        return queue;
+      }),
+      getCard: vi.fn(async (cardId: string) => {
+        const card = [firstCard, sameBlockOtherFace].find((candidate) => candidate.id === cardId);
+        if (!card) {
+          throw new Error('card not found');
+        }
+        return { ...card };
+      }),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const first = await strategy.next();
+    expect(first?.id).toBe(firstCard.id);
+
+    await strategy.onFeedback(first, { action: 'rate', rating: 4 });
+    strategy.onDataChanged({
+      type: 'queue-changed',
+      queueType: QueueType.RetrievalPractice,
+      timestamp: Date.now(),
+    });
+
+    const next = await strategy.next();
+    expect(next?.id).toBe(sameBlockOtherFace.id);
+  });
+
   it('keeps filter-group Good/Easy cards out of the current session despite self queue-changed events', async () => {
     const firstCard = createCard({ id: 'card-1', xiuyuanID: 'xy-1', blockId: 'block-shared' });
     const secondCard = createCard({ id: 'card-2', xiuyuanID: 'xy-2', blockId: 'block-shared' });

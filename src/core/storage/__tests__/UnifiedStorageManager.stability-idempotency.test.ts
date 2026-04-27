@@ -3,6 +3,7 @@ import { UnifiedStorageManager, type UnifiedCardStore } from '../UnifiedStorageM
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardState, CardType } from '@/types/card';
+import { mergeCardDTOsLocalFirst } from '../stability/logicalKeys';
 
 function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -165,5 +166,56 @@ describe('UnifiedStorageManager stability and idempotency', () => {
     expect(storage.getAllXiuYuans()).toHaveLength(1);
     expect(Object.keys(remoteStore.cardDTOs || {})).toEqual(['card-local']);
     expect(Object.keys(remoteStore.xiuyuans || {})).toHaveLength(1);
+  });
+
+  it('keeps scheduler-updated fields from incoming DTO during a scheduler logical merge', () => {
+    const local = createDTO('card-local', 'xy-local', 0, {
+      blockId: 'shared-block',
+      due: 1_000,
+      stability: 1,
+      difficulty: 8,
+      reps: 1,
+      lapses: 1,
+      state: CardState.Learning,
+      lastReview: 900,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      learning_step: 1,
+      priority: 11,
+    });
+    const incoming = createDTO('card-incoming', 'xy-remote', 0, {
+      blockId: 'shared-block',
+      due: 1_000 + 3 * 86_400_000,
+      stability: 4.5,
+      difficulty: 4,
+      reps: 2,
+      lapses: 1,
+      state: CardState.Review,
+      lastReview: 1_000,
+      elapsedDays: 0,
+      scheduledDays: 3,
+      learning_step: undefined,
+      priority: 99,
+      updatedAt: local.updatedAt + 100,
+    });
+
+    const merged = mergeCardDTOsLocalFirst(local, incoming, {
+      canonicalXiuyuanId: 'xy-local',
+      preferIncomingScheduling: true,
+    }).value;
+
+    expect(merged.id).toBe(local.id);
+    expect(merged.xiuyuanID).toBe('xy-local');
+    expect(merged.priority).toBe(local.priority);
+    expect(merged.due).toBe(incoming.due);
+    expect(merged.stability).toBe(incoming.stability);
+    expect(merged.difficulty).toBe(incoming.difficulty);
+    expect(merged.reps).toBe(incoming.reps);
+    expect(merged.lapses).toBe(incoming.lapses);
+    expect(merged.state).toBe(CardState.Review);
+    expect(merged.lastReview).toBe(incoming.lastReview);
+    expect(merged.elapsedDays).toBe(incoming.elapsedDays);
+    expect(merged.scheduledDays).toBe(incoming.scheduledDays);
+    expect(merged.learning_step).toBeUndefined();
   });
 });

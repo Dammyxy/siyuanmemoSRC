@@ -287,6 +287,7 @@ export function mergeCardDTOsLocalFirst(
   incomingCard: CardPersistenceDTO,
   options: {
     canonicalXiuyuanId?: string;
+    preferIncomingScheduling?: boolean;
   } = {},
 ): MergeOutcome<CardPersistenceDTO> {
   const mergedMeta = mergeMeta(
@@ -298,10 +299,31 @@ export function mergeCardDTOsLocalFirst(
   const mergedBackBlockIDs = mergeStringArrays(localCard.backBlockIDs, incomingCard.backBlockIDs);
   const mergedFieldMapping = mergeFieldMappings(localCard.fieldMapping, incomingCard.fieldMapping);
   const canonicalXiuyuanId = String(options.canonicalXiuyuanId || localCard.xiuyuanID || incomingCard.xiuyuanID || '').trim();
+  const incomingSchedulingFields: Partial<CardPersistenceDTO> = options.preferIncomingScheduling
+    ? {
+        due: incomingCard.due,
+        stability: incomingCard.stability,
+        difficulty: incomingCard.difficulty,
+        reps: incomingCard.reps,
+        lapses: incomingCard.lapses,
+        state: incomingCard.state,
+        lastReview: incomingCard.lastReview,
+        elapsedDays: incomingCard.elapsedDays,
+        scheduledDays: incomingCard.scheduledDays,
+        learning_step: incomingCard.learning_step,
+        aFactor: incomingCard.aFactor,
+        schedulerType: incomingCard.schedulerType,
+        schedulerMeta: incomingCard.schedulerMeta,
+        postponeCount: incomingCard.postponeCount,
+        lastPostponeDate: incomingCard.lastPostponeDate,
+        rescheduleHistory: incomingCard.rescheduleHistory,
+      }
+    : {};
 
   const mergedCard: CardPersistenceDTO = {
     ...incomingCard,
     ...localCard,
+    ...incomingSchedulingFields,
     id: localCard.id,
     blockId: String(localCard.blockId || incomingCard.blockId || '').trim(),
     xiuyuanID: canonicalXiuyuanId || undefined,
@@ -328,6 +350,18 @@ export function mergeCardDTOsLocalFirst(
   };
 
   const changed = mergedCard.xiuyuanID !== localCard.xiuyuanID
+    || mergedCard.due !== localCard.due
+    || mergedCard.stability !== localCard.stability
+    || mergedCard.difficulty !== localCard.difficulty
+    || mergedCard.reps !== localCard.reps
+    || mergedCard.lapses !== localCard.lapses
+    || mergedCard.state !== localCard.state
+    || mergedCard.lastReview !== localCard.lastReview
+    || mergedCard.elapsedDays !== localCard.elapsedDays
+    || mergedCard.scheduledDays !== localCard.scheduledDays
+    || mergedCard.learning_step !== localCard.learning_step
+    || mergedCard.schedulerType !== localCard.schedulerType
+    || mergedCard.schedulerMeta !== localCard.schedulerMeta
     || mergedCard.updatedAt !== localCard.updatedAt
     || mergedCard.cardTypeMarker !== localCard.cardTypeMarker
     || mergedCard.riffCardId !== localCard.riffCardId

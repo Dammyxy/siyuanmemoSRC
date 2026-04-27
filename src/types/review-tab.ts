@@ -15,6 +15,7 @@ export interface ReviewQueueSessionSnapshot {
   /** @deprecated Kept for old review-tab snapshots; use avoidOnceCardId. */
   deferOnceCardId?: string | null;
   sessionExcludedCardIds?: string[];
+  sessionExcludedLogicalKeys?: string[];
   lastCounterSnapshot: QueueCounterSnapshot | null;
 }
 

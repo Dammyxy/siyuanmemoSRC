@@ -78,6 +78,10 @@ export interface StorageDeletionTombstone {
 }
 
 export type RiffSyncStatePatch = Partial<RiffSyncState>;
+
+export interface CardUpdateOptions {
+  preferIncomingScheduling?: boolean;
+}
 export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
 type TombstoneLookup = ReadonlyMap<string, StorageDeletionTombstone> | Record<string, StorageDeletionTombstone>;
@@ -1752,7 +1756,7 @@ export class UnifiedStorageManager {
      * 鏇存柊鍗＄墖锛堜娇鐢?DTO锛?
      * @param dto 鏇存柊鍚庣殑 DTO
      */
-    async updateCardDTO(dto: CardPersistenceDTO): Promise<Result<void>> {
+    async updateCardDTO(dto: CardPersistenceDTO, options: CardUpdateOptions = {}): Promise<Result<void>> {
       return this.runWriteMutation('updateCardDTO', async () => {
       try {
         // 鉁?闃插尽鎬ф鏌ワ細纭繚 cardDTOs Map 宸插垵濮嬪寲
@@ -1834,6 +1838,7 @@ export class UnifiedStorageManager {
         if (logicalDuplicate) {
           const merged = mergeCardDTOsLocalFirst(logicalDuplicate.dto, normalizedDto, {
             canonicalXiuyuanId,
+            preferIncomingScheduling: options.preferIncomingScheduling,
           }).value;
 
           this.updateIndexesForDTO(oldDTO, 'remove');
@@ -1979,13 +1984,13 @@ export class UnifiedStorageManager {
    * 鏇存柊鍗＄墖
    * @param card 鏇存柊鍚庣殑鍗＄墖
    */
-  async updateCard(card: FSRSCard): Promise<Result<void>> {
+  async updateCard(card: FSRSCard, options: CardUpdateOptions = {}): Promise<Result<void>> {
     try {
       // 杞崲 FSRSCard 涓?DTO
       const dto = CardMapper.toPersistence(card);
       
       // 璋冪敤 DTO 鏂规硶锛堜繚鎸佸悜鍚庡吋瀹癸級
-      return await this.updateCardDTO(dto);
+      return await this.updateCardDTO(dto, options);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }

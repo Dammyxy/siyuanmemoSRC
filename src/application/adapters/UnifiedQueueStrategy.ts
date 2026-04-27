@@ -57,6 +57,7 @@ type ReviewTransaction = {
     cardBefore: FSRSCard | null;
     queueSnapshots: QueueSnapshotRecord[];
     sessionExcludedCardIdsBefore: string[];
+    sessionExcludedLogicalKeysBefore: string[];
 };
 
 type ReviewHistoryEntry = {
@@ -107,6 +108,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     private lastCounterSnapshot: QueueCounterSnapshot | null = null;
     private managerObserverRegistered = false;
     private readonly sessionExcludedCardIds = new Set<string>();
+    private readonly sessionExcludedLogicalKeys = new Set<string>();
     private feedbackMutation: FeedbackMutationContext | null = null;
     private readonly suspiciousNextDuesLogKeys = new Set<string>();
 
@@ -276,7 +278,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
                 const excludeFromCurrentSession = this.shouldExcludeReviewedCardFromSession(feedback);
                 if (excludeFromCurrentSession) {
-                    this.addSessionExcludedCardId(activeItem.id);
+                    this.addSessionExcludedCardIdentity(activeItem);
                 }
 
                 const patched = this.applyReviewResultToCache(activeItem, reviewResult, {
@@ -1006,7 +1008,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
     }
 
     private hasSessionExclusions(): boolean {
-        return this.supportsSessionCompletionExclusion() && this.sessionExcludedCardIds.size > 0;
+        return this.supportsSessionCompletionExclusion()
+            && (this.sessionExcludedCardIds.size > 0 || this.sessionExcludedLogicalKeys.size > 0);
     }
 
     private addSessionExcludedCardId(cardId: string | null | undefined): boolean {
@@ -1024,6 +1027,20 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return this.sessionExcludedCardIds.size !== previousSize;
     }
 
+    private addSessionExcludedCardIdentity(card: FSRSCard): boolean {
+        if (!this.supportsSessionCompletionExclusion()) {
+            return false;
+        }
+
+        let changed = this.addSessionExcludedCardId(card.id);
+        for (const logicalKey of this.buildSessionExclusionLogicalKeys(card)) {
+            const previousSize = this.sessionExcludedLogicalKeys.size;
+            this.sessionExcludedLogicalKeys.add(logicalKey);
+            changed = changed || this.sessionExcludedLogicalKeys.size !== previousSize;
+        }
+        return changed;
+    }
+
     private removeSessionExcludedCardIds(cardIds: Array<string | null | undefined>): number {
         let removed = 0;
         for (const cardId of cardIds) {
@@ -1037,10 +1054,15 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
 
     private clearSessionExcludedCardIds(): void {
         this.sessionExcludedCardIds.clear();
+        this.sessionExcludedLogicalKeys.clear();
     }
 
-    private restoreSessionExcludedCardIds(cardIds: Array<string | null | undefined>): void {
+    private restoreSessionExcludedCardIds(
+        cardIds: Array<string | null | undefined>,
+        logicalKeys: Array<string | null | undefined> = []
+    ): void {
         this.sessionExcludedCardIds.clear();
+        this.sessionExcludedLogicalKeys.clear();
         if (!this.supportsSessionCompletionExclusion()) {
             return;
         }
@@ -1051,6 +1073,12 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 this.sessionExcludedCardIds.add(normalizedCardId);
             }
         }
+        for (const logicalKey of logicalKeys) {
+            const normalizedLogicalKey = this.normalizeCardId(logicalKey);
+            if (normalizedLogicalKey) {
+                this.sessionExcludedLogicalKeys.add(normalizedLogicalKey);
+            }
+        }
     }
 
     private applySessionExclusions(cards: FSRSCard[]): FSRSCard[] {
@@ -1059,8 +1087,45 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
 
         return cards
-            .filter((card) => !this.sessionExcludedCardIds.has(this.normalizeCardId(card.id)))
+            .filter((card) => !this.isSessionExcludedCard(card))
             .map((card) => this.cloneCard(card));
+    }
+
+    private isSessionExcludedCard(card: FSRSCard): boolean {
+        if (this.sessionExcludedCardIds.has(this.normalizeCardId(card.id))) {
+            return true;
+        }
+
+        return this.buildSessionExclusionLogicalKeys(card)
+            .some((logicalKey) => this.sessionExcludedLogicalKeys.has(logicalKey));
+    }
+
+    private buildSessionExclusionLogicalKeys(card: Pick<FSRSCard, 'blockId' | 'xiuyuanID' | 'meta'>): string[] {
+        const faceIndex = this.readSessionExclusionFaceIndex(card.meta);
+        const blockId = String(card.blockId || '').trim();
+        const xiuyuanId = String(card.xiuyuanID || '').trim();
+        const keys: string[] = [];
+        if (blockId) {
+            keys.push(`block:${blockId}::face:${faceIndex}`);
+        }
+        if (xiuyuanId) {
+            keys.push(`xiuyuan:${xiuyuanId}::face:${faceIndex}`);
+        }
+        return keys;
+    }
+
+    private readSessionExclusionFaceIndex(meta: unknown): number {
+        if (!isRecord(meta)) {
+            return 0;
+        }
+
+        const rawFaceIndex = meta.faceIndex ?? meta.ruleIndex;
+        const numericFaceIndex = typeof rawFaceIndex === 'number'
+            ? rawFaceIndex
+            : typeof rawFaceIndex === 'string' && rawFaceIndex.trim().length > 0
+                ? Number(rawFaceIndex)
+                : 0;
+        return Number.isFinite(numericFaceIndex) ? Math.max(0, Math.floor(numericFaceIndex)) : 0;
     }
 
     private supportsSessionCompletionExclusion(): boolean {
@@ -1618,6 +1683,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             cardBefore,
             queueSnapshots,
             sessionExcludedCardIdsBefore: Array.from(this.sessionExcludedCardIds),
+            sessionExcludedLogicalKeysBefore: Array.from(this.sessionExcludedLogicalKeys),
         };
     }
 
@@ -1715,7 +1781,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             await this.manager.updateCard(this.cloneCard(transaction.cardBefore));
         }
 
-        this.restoreSessionExcludedCardIds(transaction.sessionExcludedCardIdsBefore);
+        this.restoreSessionExcludedCardIds(
+            transaction.sessionExcludedCardIdsBefore,
+            transaction.sessionExcludedLogicalKeysBefore
+        );
         this.lastCounterSnapshot = null;
         this.invalidateCache();
     }
@@ -1742,6 +1811,7 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             avoidOnceCardId: this.avoidOnceCardId,
             avoidOnceBlockId: this.avoidOnceBlockId,
             sessionExcludedCardIds: Array.from(this.sessionExcludedCardIds),
+            sessionExcludedLogicalKeys: Array.from(this.sessionExcludedLogicalKeys),
             lastCounterSnapshot: this.lastCounterSnapshot
                 ? this.cloneCounterSnapshot(this.lastCounterSnapshot)
                 : null,
@@ -1756,6 +1826,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         this.restoreSessionExcludedCardIds(
             Array.isArray(snapshot.sessionExcludedCardIds)
                 ? snapshot.sessionExcludedCardIds
+                : [],
+            Array.isArray(snapshot.sessionExcludedLogicalKeys)
+                ? snapshot.sessionExcludedLogicalKeys
                 : []
         );
         this.cachedCards = Array.isArray(snapshot.cachedCards)

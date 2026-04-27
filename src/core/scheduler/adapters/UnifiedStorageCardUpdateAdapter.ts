@@ -32,13 +32,56 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
 
     await this.storage.runWriteTransaction('scheduler.batchUpdateCardsWithoutEvents', async () => {
       for (const [cardId, card] of dedupedCards.entries()) {
-        const result = await this.storage.updateCard(card);
+        const result = await this.storage.updateCard(card, { preferIncomingScheduling: true });
         if (isErr(result)) {
           throw new Error(
             `Failed to persist card "${cardId}" in scheduler adapter: ${result.error.message}`
           );
         }
+        const persistedCard = this.resolvePersistedCard(card);
+        logger.debug('Scheduler update persisted', {
+          cardId,
+          incoming: this.toSchedulingLog(card),
+          persisted: persistedCard ? this.toSchedulingLog(persistedCard) : null,
+        });
       }
     });
+  }
+
+  private resolvePersistedCard(card: FSRSCard): FSRSCard | null {
+    const byId = this.storage.getCard(card.id);
+    if (byId) {
+      return byId;
+    }
+
+    const blockId = String(card.blockId || '').trim();
+    if (blockId) {
+      return this.storage.getCardsByBlockId(blockId)[0] ?? null;
+    }
+
+    const xiuyuanId = String(card.xiuyuanID || '').trim();
+    if (xiuyuanId) {
+      return this.storage.getCardsByXiuyuanId(xiuyuanId)[0] ?? null;
+    }
+
+    return null;
+  }
+
+  private toSchedulingLog(card: FSRSCard): Record<string, unknown> {
+    return {
+      id: card.id,
+      blockId: card.blockId,
+      xiuyuanID: card.xiuyuanID,
+      due: card.due,
+      state: card.state,
+      reps: card.reps,
+      lapses: card.lapses,
+      scheduledDays: card.scheduledDays,
+      learning_step: card.learning_step,
+      stability: card.stability,
+      difficulty: card.difficulty,
+      lastReview: card.lastReview,
+      elapsedDays: card.elapsedDays,
+    };
   }
 }

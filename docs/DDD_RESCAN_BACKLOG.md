@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-27 (Round 158)
+Last update: 2026-04-27 (Round 159)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-27 - retrieval practice scheduler merge graduation
+
+- Task: 修复 retrieval-practice 中 Good/Easy 后同一张逻辑卡因存储合并或换 id 又立刻回到当前会话的问题，同时保留按当日到期取卡语义。
+- Touched slice: Review / Queue / Scheduler / Storage active path across `UnifiedQueueStrategy`, scheduler storage adapter, `UnifiedStorageManager`, logical-key merge helper, review-tab snapshot contract, and focused regressions.
+- Debt fixed now: Scheduler 写回在逻辑重复卡合并时显式保留 incoming 调度字段，避免旧本地 DTO 覆盖 `due/state/reps/learning_step` 等毕业结果；当前会话 Good/Easy 排除从 cardId 扩展为 face-aware block/Xiuyuan 逻辑键，防止同一逻辑卡换 id 回流；scheduler adapter 增加写回前后调度字段 debug 日志。
+- Debt deferred: 未做全库主动扫描或历史重复卡清洗；未把所有 review-tab snapshot 升级到新版本号。
+- Why deferred: 本轮根因在活动评分写回和同窗排除路径；主动清洗历史库需要独立备份、进度和冲突恢复策略，snapshot 可用可选字段保持兼容即可。
+- Next safe step: 若日志仍显示 persisted 调度字段回退，再基于 cardId/blockId/xiuyuanID 追加一次只读诊断导出，定位是否存在非 scheduler adapter 的写回入口。
+- Validation: focused UnifiedStorageManager stability-idempotency test, focused UnifiedQueueStrategy performance regression, dynamic queue review-removal today-window regression, `pnpm build`, `git diff --check`.
 
 ### 2026-04-27 - manual early review memory-anchored scheduling
 
