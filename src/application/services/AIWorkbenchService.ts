@@ -2856,6 +2856,44 @@ export class AIWorkbenchService {
     }
   }
 
+  async updateLiveReviewContext(options: AIWorkbenchOpenOptions = {}): Promise<void> {
+    const settings = this.getNormalizedAISettings();
+    const fallbackSkill = options.source === 'review' || options.surface === 'review-dialog-sidecar' || options.surface === 'review-tab-companion'
+      ? settings.chatDefaults.reviewDefaultSkillId
+      : GENERAL_SKILL;
+    this.state.activeSkillId = normalizeAIWorkbenchSkillId(options.skillId || options.view || this.state.activeSkillId, fallbackSkill, settings);
+    this.ensureSkillRuntimeState(this.state.activeSkillId);
+    this.state.activeTabId = options.tabId
+      ? normalizeAIWorkbenchTabId(options.tabId, this.state.activeSkillId, settings)
+      : this.normalizeTabForCurrentSettings(this.state.activeTabId, this.state.activeSkillId);
+    this.state.activeView = this.state.activeSkillId;
+    this.state.surface = normalizeSurface(options.surface ?? this.state.surface);
+    this.currentArenaScenarioId = options.arenaScenarioId || null;
+    this.currentArenaTargetKind = options.arenaTargetKind || null;
+    this.clearArenaSelection();
+    this.state.sourceReviewSessionId = normalizeString(options.sourceReviewSessionId)
+      || (normalizeString(options.source) === 'review' ? normalizeString(options.sessionId) : '')
+      || this.state.sourceReviewSessionId
+      || null;
+    this.state.error = null;
+    this.state.failureDiagnostic = null;
+    try {
+      const nextContext = await this.buildContextSnapshot(options);
+      const nextReviewChatKey = nextContext.source === 'review'
+        ? deriveReviewChatKey(nextContext, options.reviewChatKey)
+        : null;
+      this.state.reviewChatKey = nextReviewChatKey;
+      this.applyRuntimeSessionContext(nextContext, buildContextSignature(nextContext));
+    } catch (error) {
+      this.state.context = null;
+      this.state.liveContext = null;
+      this.state.reviewChatKey = null;
+      this.state.contextSignature = null;
+      this.state.runStatus = null;
+      this.state.error = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   getSkillTabs(skillId: AISkillId = this.state.activeSkillId): AIWorkbenchSkillTabDescriptor[] {
     return getAIWorkbenchSkillTabs(skillId, this.getNormalizedAISettings());
   }
@@ -5152,13 +5190,20 @@ export class AIWorkbenchService {
     nextContext: AIWorkbenchContextSnapshot,
     nextSignature = buildContextSignature(nextContext),
   ): Promise<void> {
+    this.applyRuntimeSessionContext(nextContext, nextSignature);
+    await this.persistCurrentSession();
+  }
+
+  private applyRuntimeSessionContext(
+    nextContext: AIWorkbenchContextSnapshot,
+    nextSignature = buildContextSignature(nextContext),
+  ): void {
     this.state.context = nextContext;
     this.state.liveContext = nextContext;
     this.state.contextSignature = nextSignature;
     this.state.contextIsHistorical = false;
     this.markStaleThreads(nextSignature);
     this.syncCurrentScopedConceptCoachResult();
-    await this.persistCurrentSession();
   }
 
   private createSessionRecord(

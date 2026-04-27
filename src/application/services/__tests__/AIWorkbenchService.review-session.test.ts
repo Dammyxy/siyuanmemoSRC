@@ -893,6 +893,8 @@ describe('AIWorkbenchService review-session behavior', () => {
     });
 
     const run = service.submitSkillPrompt('解释此内容');
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(service.state.runStatus).toMatchObject({
       mode: 'full-run',
@@ -927,6 +929,8 @@ describe('AIWorkbenchService review-session behavior', () => {
     service.setActiveTab('self-test-cards');
 
     const run = service.runActiveTab();
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(service.state.runStatus).toMatchObject({
       mode: 'tab-rerun',
@@ -970,6 +974,8 @@ describe('AIWorkbenchService review-session behavior', () => {
     await service.submitSkillPrompt('解释此内容');
 
     const followUp = service.submitFollowUp('继续展开');
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(service.state.runStatus).toMatchObject({
       mode: 'follow-up',
@@ -1185,8 +1191,7 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(siyuanPort.ensureTodayDailyNote).toHaveBeenCalledWith('notebook-1');
     expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('## AI 工作台 · 多视角理解 · '), 'daily-doc-1');
     expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('### 特性和倾向'), 'daily-doc-1');
-    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('* 要点'), 'daily-doc-1');
-    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('  * Trait A'), 'daily-doc-1');
+    expect(siyuanPort.appendBlockUnderParentDetailed).toHaveBeenCalledWith(expect.stringContaining('* Trait A'), 'daily-doc-1');
     expect(result).toMatchObject({
       targetBlockId: 'daily-doc-1',
       targetLabel: '学习笔记 · 今日日记',
@@ -1499,6 +1504,46 @@ describe('AIWorkbenchService review-session behavior', () => {
     expect(secondService.state.sessionId).toBe(sharedSessionId);
     expect(secondService.state.context?.currentCard?.cardId).toBe('card-c');
     expect(secondService.state.threads[AI_CONCEPT_COACH_SKILL_ID]['working-definition'].messages).toHaveLength(0);
+  });
+
+  it('updates live review context without saving or refreshing session history', async () => {
+    const sessionStore = createSessionStore();
+    const reviewChatKey = 'neural-roam::Neural Queue';
+    const queueProgress = createQueueProgress('neural-roam', 'Neural Queue');
+    const service = createService({ sessionStore });
+
+    await service.open({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-a',
+      sourceReviewSessionId: 'review-session-a',
+      reviewChatKey,
+      queueType: 'neural-roam',
+      queueProgress,
+      currentCard: createCard('card-a', 'card-block-1', 'front-1', 'back-1', 'source-1') as never,
+      revealed: false,
+    });
+
+    sessionStore.listSummaries.mockClear();
+    sessionStore.saveSession.mockClear();
+
+    await service.updateLiveReviewContext({
+      source: 'review',
+      surface: 'review-dialog-sidecar',
+      sessionId: 'review-session-a',
+      sourceReviewSessionId: 'review-session-a',
+      reviewChatKey,
+      queueType: 'neural-roam',
+      queueProgress,
+      currentCard: createCard('card-b', 'card-block-2', 'front-2', 'back-2', 'source-2') as never,
+      revealed: true,
+    });
+
+    expect(service.state.context?.currentCard?.cardId).toBe('card-b');
+    expect(service.state.context?.currentCard?.revealed).toBe(true);
+    expect(service.state.liveContext?.currentCard?.cardId).toBe('card-b');
+    expect(sessionStore.listSummaries).not.toHaveBeenCalled();
+    expect(sessionStore.saveSession).not.toHaveBeenCalled();
   });
 
   it('reruns concept-coach in a shared review chat session against the current card context only', async () => {

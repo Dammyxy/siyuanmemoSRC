@@ -318,6 +318,7 @@ type ReviewPluginContextLike = {
         closeReviewTab?: (reviewSessionId: string) => void;
         openReviewAICompanionTab?: (options: AIWorkbenchOpenOptions & { sessionId: string; title: string }) => Promise<void> | void;
         focusReviewAICompanionTab?: (reviewSessionId: string) => boolean;
+        hasReviewAICompanionTab?: (reviewSessionId: string) => boolean;
       }
     | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
@@ -3097,7 +3098,18 @@ function closeReviewAISidebar(): void {
   updateReviewDialogContainerLayout();
 }
 
+function isReviewAIContextSyncVisible(surface: 'review-dialog-sidecar' | 'review-tab-companion'): boolean {
+  if (surface === 'review-dialog-sidecar') {
+    return showReviewAISidecar.value;
+  }
+  return getTabManager()?.hasReviewAICompanionTab?.(reviewSessionId.value) === true;
+}
+
 async function syncReviewAIContextIfNeeded(surface: 'review-dialog-sidecar' | 'review-tab-companion'): Promise<void> {
+  if (!isReviewAIContextSyncVisible(surface)) {
+    return;
+  }
+
   const registry = getReviewAIWorkbenchRegistry();
   if (!registry?.hasReviewSession?.(reviewSessionId.value) || !registry.updateReviewSessionContext) {
     return;

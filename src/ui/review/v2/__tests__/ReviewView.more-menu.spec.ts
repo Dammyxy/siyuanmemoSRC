@@ -267,6 +267,7 @@ function createPluginContext(overrides?: {
     openReviewInNewWindow?: ReturnType<typeof vi.fn>;
     openReviewAICompanionTab?: ReturnType<typeof vi.fn>;
     focusReviewAICompanionTab?: ReturnType<typeof vi.fn>;
+    hasReviewAICompanionTab?: ReturnType<typeof vi.fn>;
   };
   reviewService?: {
     getBlockKramdown: ReturnType<typeof vi.fn>;
@@ -320,6 +321,14 @@ function mountReviewView(options?: {
     getReviewSession?: ReturnType<typeof vi.fn>;
     openReviewSession?: ReturnType<typeof vi.fn>;
     updateReviewSessionContext?: ReturnType<typeof vi.fn>;
+  };
+  tabManager?: {
+    openReviewTab?: ReturnType<typeof vi.fn>;
+    openReviewTabInNewTab?: ReturnType<typeof vi.fn>;
+    openReviewInNewWindow?: ReturnType<typeof vi.fn>;
+    openReviewAICompanionTab?: ReturnType<typeof vi.fn>;
+    focusReviewAICompanionTab?: ReturnType<typeof vi.fn>;
+    hasReviewAICompanionTab?: ReturnType<typeof vi.fn>;
   };
   reviewService?: {
     getBlockKramdown: ReturnType<typeof vi.fn>;
@@ -384,6 +393,8 @@ function mountReviewView(options?: {
     openReviewInNewWindow: vi.fn(),
     openReviewAICompanionTab: vi.fn(),
     focusReviewAICompanionTab: vi.fn(() => false),
+    hasReviewAICompanionTab: vi.fn(() => false),
+    ...options?.tabManager,
   };
 
   let attachTo: HTMLElement | undefined;
@@ -1000,5 +1011,139 @@ describe('ReviewView more menu', () => {
     }));
 
     wrapper.unmount();
+  });
+
+  it('does not sync review AI context while the dialog sidecar is hidden', async () => {
+    const registry = {
+      hasReviewSession: vi.fn(() => true),
+      getReviewSession: vi.fn(() => ({
+        state: {
+          activeView: 'general-chat',
+        },
+      })),
+      openReviewSession: vi.fn(async (input) => ({
+        state: {
+          activeView: input.view,
+        },
+      })),
+      updateReviewSessionContext: vi.fn(async (input) => ({
+        state: {
+          activeView: input.view,
+        },
+      })),
+    };
+    const { wrapper } = mountReviewView({ registry });
+    await flushPromises();
+    registry.updateReviewSessionContext.mockClear();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+    await getLatestMenuItems().find((item) => item.id === 'pause-current-card')?.click?.();
+    await flushPromises();
+
+    expect(registry.updateReviewSessionContext).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('syncs review AI context while the dialog sidecar is visible', async () => {
+    const registry = {
+      hasReviewSession: vi.fn(() => true),
+      getReviewSession: vi.fn(() => ({
+        state: {
+          activeView: 'general-chat',
+        },
+      })),
+      openReviewSession: vi.fn(async (input) => ({
+        state: {
+          activeView: input.view,
+        },
+      })),
+      updateReviewSessionContext: vi.fn(async (input) => ({
+        state: {
+          activeView: input.view,
+        },
+      })),
+    };
+    const { wrapper } = mountReviewView({ registry });
+    await flushPromises();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'ai-sidebar', createToolbarEvent());
+    await flushPromises();
+    registry.updateReviewSessionContext.mockClear();
+
+    wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+    await getLatestMenuItems().find((item) => item.id === 'pause-current-card')?.click?.();
+    await flushPromises();
+
+    expect(registry.updateReviewSessionContext).toHaveBeenCalledWith(expect.objectContaining({
+      surface: 'review-dialog-sidecar',
+      currentBlockId: 'block-2',
+      currentCard: expect.objectContaining({
+        id: 'card-2',
+      }),
+    }));
+
+    wrapper.unmount();
+  });
+
+  it('syncs review AI context in tab mode only while the companion tab exists', async () => {
+    const registry = {
+      hasReviewSession: vi.fn(() => true),
+      getReviewSession: vi.fn(() => ({
+        state: {
+          activeView: 'general-chat',
+        },
+      })),
+      openReviewSession: vi.fn(async (input) => ({
+        state: {
+          activeView: input.view,
+        },
+      })),
+      updateReviewSessionContext: vi.fn(async (input) => ({
+        state: {
+          activeView: input.view,
+        },
+      })),
+    };
+    const hiddenCompanion = mountReviewView({
+      mode: 'tab',
+      registry,
+      tabManager: {
+        hasReviewAICompanionTab: vi.fn(() => false),
+      },
+    });
+    await flushPromises();
+    registry.updateReviewSessionContext.mockClear();
+
+    hiddenCompanion.wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+    await getLatestMenuItems().find((item) => item.id === 'pause-current-card')?.click?.();
+    await flushPromises();
+
+    expect(registry.updateReviewSessionContext).not.toHaveBeenCalled();
+    hiddenCompanion.wrapper.unmount();
+
+    const visibleCompanion = mountReviewView({
+      mode: 'tab',
+      registry,
+      tabManager: {
+        hasReviewAICompanionTab: vi.fn(() => true),
+      },
+    });
+    await flushPromises();
+    registry.updateReviewSessionContext.mockClear();
+
+    visibleCompanion.wrapper.getComponent(ReviewHeaderStub).vm.$emit('toolbar-action', 'more', createToolbarEvent());
+    await flushPromises();
+    await getLatestMenuItems().find((item) => item.id === 'pause-current-card')?.click?.();
+    await flushPromises();
+
+    expect(registry.updateReviewSessionContext).toHaveBeenCalledWith(expect.objectContaining({
+      surface: 'review-tab-companion',
+      currentBlockId: 'block-2',
+    }));
+    visibleCompanion.wrapper.unmount();
   });
 });

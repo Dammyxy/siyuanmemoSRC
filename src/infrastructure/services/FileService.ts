@@ -92,6 +92,25 @@ interface FileErrorLike {
   message?: string;
 }
 
+function describeLoadedData(data: unknown): Record<string, unknown> {
+  if (data === null) {
+    return { type: 'null' };
+  }
+  if (data === undefined) {
+    return { type: 'undefined' };
+  }
+  if (Array.isArray(data)) {
+    return { type: 'array', length: data.length };
+  }
+  if (typeof data === 'string') {
+    return { type: 'string', length: data.length };
+  }
+  if (typeof data === 'object') {
+    return { type: 'object', keys: Object.keys(data).slice(0, 8) };
+  }
+  return { type: typeof data };
+}
+
 /**
  * 文件服务实现
  */
@@ -172,35 +191,26 @@ export class FileService implements IFileService {
    * 读取 JSON 文件
    */
   async readJSON<T>(fileName: string): Promise<T | null> {
-    logger.info(`[FileService] readJSON called for "${fileName}"`);
     try {
-      logger.info(`[FileService] Calling plugin.loadData("${fileName}")...`);
       const data = await this.plugin.loadData(fileName);
-      
-      // 🔍 调试日志
-      logger.info(`[FileService] loadData("${fileName}") returned:`, typeof data, data);
+      logger.trace(`[FileService] readJSON loaded "${fileName}"`, describeLoadedData(data));
       
       // loadData 返回 null 或 undefined 表示文件不存在
       if (data === null || data === undefined) {
-        logger.info(`[FileService] File "${fileName}" not found, returning null`);
         return null;
       }
       
       // 🔧 修复：如果是空字符串，也视为文件不存在
       if (typeof data === 'string' && data.trim() === '') {
-        logger.info(`[FileService] File "${fileName}" is empty, returning null`);
         return null;
       }
       
       // 如果是字符串，需要解析
       if (typeof data === 'string') {
-        const parsed = JSON.parse(data) as T;
-        logger.info(`[FileService] Parsed JSON from string for "${fileName}"`);
-        return parsed;
+        return JSON.parse(data) as T;
       }
       
       // 如果已经是对象，直接返回
-      logger.info(`[FileService] Returning object directly for "${fileName}"`);
       return data as T;
     } catch (error) {
       logger.error(`[FileService] Error in readJSON("${fileName}"):`, error);

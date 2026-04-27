@@ -1152,6 +1152,11 @@ export class TabManager {
     return this.focusReviewAICompanionRuntime(runtime);
   }
 
+  hasReviewAICompanionTab(reviewSessionId: string): boolean {
+    const normalizedId = String(reviewSessionId || '').trim();
+    return normalizedId.length > 0 && this.reviewAICompanionRuntimes.has(normalizedId);
+  }
+
   closeReviewTab(reviewSessionId: string): void {
     const normalizedId = String(reviewSessionId || '').trim();
     if (!normalizedId) {

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 166)
+Last update: 2026-04-28 (Round 167)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - runtime-only visible review AI context sync
+
+- Task: 优化复习评分切卡时反复读取 `ai-workbench/sessions/index.json` 并刷 FileService 日志导致的延迟。
+- Touched slice: Review UI / AI workbench runtime / file service logging across `src/ui/review/v2/ReviewView.vue`, `src/application/services/{AIWorkbenchService.ts,ReviewAIWorkbenchRegistry.ts}`, `src/application/managers/TabManager.ts`, `src/infrastructure/services/FileService.ts`, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: review AI context 同步改为只在 AI 可见时触发，已有 hydrated review AI service 使用 runtime-only context refresh，不再被动切卡时刷新 session history 或写 AI session index；FileService 成功读 JSON 的大对象日志从 `info` 移到 compact `trace`。
+- Debt deferred: AI session store index 缓存 / append-only review log 写优化未做。
+- Why deferred: 本轮根因是隐藏 AI 仍同步和被动 context sync 走完整持久化；session store 缓存、review log 写入合并涉及更广数据一致性策略。
+- Next safe step: 若打开 AI 面板后仍有可感知 IO，可再给 `AIWorkbenchSessionStoreService` 增加 index 读缓存和失效策略。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.more-menu.spec.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/services/__tests__/ReviewAIWorkbenchRegistry.test.ts src/infrastructure/services/__tests__/FileService.test.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-28 - idempotent CDF concept-card reuse
 

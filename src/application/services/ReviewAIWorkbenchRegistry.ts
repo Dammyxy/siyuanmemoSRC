@@ -84,7 +84,23 @@ export class ReviewAIWorkbenchRegistry {
       surface: ReviewSurface;
     },
   ): Promise<AIWorkbenchService> {
-    return this.openReviewSession(options);
+    const normalizedSessionId = normalizeSessionId(options.sessionId);
+    if (!normalizedSessionId) {
+      throw new Error('reviewSessionId is required');
+    }
+
+    const existing = this.reviewSessions.get(normalizedSessionId);
+    if (!existing?.state.sessionId) {
+      return this.openReviewSession(options);
+    }
+
+    await existing.updateLiveReviewContext({
+      ...options,
+      source: 'review',
+      sessionId: normalizedSessionId,
+      sourceReviewSessionId: options.sourceReviewSessionId ?? normalizedSessionId,
+    });
+    return existing;
   }
 
   disposeReviewSession(sessionId: string): void {
