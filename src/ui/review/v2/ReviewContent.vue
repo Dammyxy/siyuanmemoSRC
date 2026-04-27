@@ -24,9 +24,13 @@
         <!-- 🆕 Xiuyuan 多挖空卡：自定义渲染 -->
         <div v-else-if="shouldUseMultiClozeRenderer" class="fsrs-review-v2-content__multi-cloze">
           <MultiClozeCardRenderer
-            :key="`multi-cloze-${specialRendererKey}`"
             :card="content.card"
             :show-answer="!showAnswer"
+            :render-service="multiClozeCardRenderService"
+            :i18n="i18n"
+            :prepared-view-model="preparedMultiClozeViewModel"
+            :prepared-identity="preparedMultiClozeIdentity"
+            :refresh-epoch="specialRendererRefreshEpoch"
           />
         </div>
 
@@ -45,13 +49,16 @@
         <!-- 概念定义卡渲染 -->
         <div v-else-if="shouldUseConceptDefinitionRenderer" class="fsrs-review-v2-content__concept-definition-card">
           <ConceptDefinitionCardRenderer
-            :key="`concept-definition-${specialRendererKey}`"
             :block-id="content.id"
             :card-id="content.card?.id"
             :card="content.card"
             :show-answer="!showAnswer"
             :display-mode="shouldUseDirectCdfDisplay ? 'direct' : 'semantic'"
             :i18n="i18n"
+            :render-service="conceptDefinitionCardRenderService"
+            :prepared-view-model="preparedConceptDefinitionViewModel"
+            :prepared-identity="preparedConceptDefinitionIdentity"
+            :refresh-epoch="specialRendererRefreshEpoch"
             @loaded="handleConceptDefinitionCardLoaded"
             @error="handleConceptDefinitionCardError"
           />
@@ -60,12 +67,15 @@
         <!-- 概念卡渲染 -->
         <div v-else-if="shouldUseConceptCardRenderer" class="fsrs-review-v2-content__concept-card">
           <ConceptCardRenderer
-            :key="`concept-${specialRendererKey}`"
             :block-id="content.id"
             :card-id="content.card?.id"
             :card="content.card"
             :show-answer="!showAnswer"
             :i18n="i18n"
+            :render-service="conceptCardRenderService"
+            :prepared-view-model="preparedConceptViewModel"
+            :prepared-identity="preparedConceptIdentity"
+            :refresh-epoch="specialRendererRefreshEpoch"
             @loaded="handleConceptCardLoaded"
             @error="handleConceptCardError"
           />
@@ -74,7 +84,6 @@
         <!-- 描述符卡渲染 -->
         <div v-else-if="shouldUseDescriptorCardRenderer" class="fsrs-review-v2-content__descriptor-card">
           <DescriptorCardRenderer
-            :key="`descriptor-${specialRendererKey}`"
             :block-id="content.id"
             :card-id="content.card?.id"
             :card="content.card"
@@ -82,6 +91,9 @@
             :show-answer="!showAnswer"
             :display-mode="shouldUseDirectCdfDisplay ? 'direct' : 'semantic'"
             :i18n="i18n"
+            :prepared-view-model="preparedDescriptorViewModel"
+            :prepared-identity="preparedDescriptorIdentity"
+            :refresh-epoch="specialRendererRefreshEpoch"
             @loaded="handleDescriptorCardLoaded"
             @error="handleDescriptorCardError"
           />
@@ -90,12 +102,14 @@
         <!-- 快速卡片渲染 -->
         <div v-else-if="shouldUseQuickCardRenderer" class="fsrs-review-v2-content__quick-card">
           <QuickCardRenderer
-            :key="`quick-${specialRendererKey}`"
             :block-id="content.id"
             :card-id="quickRenderCardId"
             :render-service="quickCardRenderService"
             :show-answer="!showAnswer"
             :i18n="i18n"
+            :prepared-view-model="preparedQuickViewModel"
+            :prepared-identity="preparedQuickIdentity"
+            :refresh-epoch="specialRendererRefreshEpoch"
             @loaded="handleQuickCardLoaded"
             @error="handleQuickCardError"
           />
@@ -286,6 +300,30 @@ const contentKey = computed(() => {
 });
 
 const specialRendererKey = computed(() => `${renderIdentityKey.value}-${renderEpoch.value}-${specialRendererRefreshEpoch.value}`);
+const preparedPresentation = computed(() => props.content.prepared ?? null);
+
+function isPreparedRenderer(kind: NonNullable<ReviewUIState['content']['prepared']>['rendererKind']): boolean {
+  return preparedPresentation.value?.rendererKind === kind;
+}
+
+function preparedViewModelFor(kind: NonNullable<ReviewUIState['content']['prepared']>['rendererKind']): unknown | null {
+  return isPreparedRenderer(kind) ? preparedPresentation.value?.viewModel ?? null : null;
+}
+
+function preparedIdentityFor(kind: NonNullable<ReviewUIState['content']['prepared']>['rendererKind']): string {
+  return isPreparedRenderer(kind) ? preparedPresentation.value?.identityKey ?? '' : '';
+}
+
+const preparedDescriptorViewModel = computed(() => preparedViewModelFor('descriptor'));
+const preparedDescriptorIdentity = computed(() => preparedIdentityFor('descriptor'));
+const preparedConceptDefinitionViewModel = computed(() => preparedViewModelFor('concept-definition'));
+const preparedConceptDefinitionIdentity = computed(() => preparedIdentityFor('concept-definition'));
+const preparedConceptViewModel = computed(() => preparedViewModelFor('concept'));
+const preparedConceptIdentity = computed(() => preparedIdentityFor('concept'));
+const preparedQuickViewModel = computed(() => preparedViewModelFor('quick'));
+const preparedQuickIdentity = computed(() => preparedIdentityFor('quick'));
+const preparedMultiClozeViewModel = computed(() => preparedViewModelFor('multi-cloze'));
+const preparedMultiClozeIdentity = computed(() => preparedIdentityFor('multi-cloze'));
 
 const hostRef = ref<HTMLDivElement | null>(null);
 const answerHostRef = ref<HTMLDivElement | null>(null);
@@ -321,6 +359,10 @@ const isQuickCard = ref(false);
 // 描述符卡渲染服务
 const descriptorCardRenderService = computed(() => resolvedRenderServices.value.descriptorCardRenderService);
 const isDescriptorCard = ref(false);
+
+const conceptDefinitionCardRenderService = computed(() => resolvedRenderServices.value.conceptDefinitionCardRenderService);
+const conceptCardRenderService = computed(() => resolvedRenderServices.value.conceptCardRenderService);
+const multiClozeCardRenderService = computed(() => resolvedRenderServices.value.multiClozeCardRenderService);
 
 // 概念定义卡状态
 const isConceptDefinitionCard = ref(false);
@@ -473,6 +515,7 @@ const renderWatchKey = computed(() =>
 // Formula cloze keeps the dedicated renderer; ordinary mark/brace cloze uses
 // the main Protyle path so Siyuan's native hidden-content CSS can apply.
 const shouldUseMultiClozeRenderer = computed(() => {
+  if (isPreparedRenderer('multi-cloze')) return true;
   if (props.content.type !== 'protyle') return false;
   if (isTopicReadModeCard.value) return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
@@ -508,6 +551,7 @@ const shouldUseImageOcclusionRenderer = computed(() => {
 });
 
 const shouldUseConceptDefinitionRenderer = computed(() => {
+  if (isPreparedRenderer('concept-definition')) return true;
   // 只有在 protyle 类型时才检测
   if (props.content.type !== 'protyle') return false;
   if (isTopicReadModeCard.value) return false;
@@ -536,6 +580,7 @@ const shouldUseConceptDefinitionRenderer = computed(() => {
 
 // 判断是否应该使用概念卡渲染器
 const shouldUseConceptCardRenderer = computed(() => {
+  if (isPreparedRenderer('concept')) return true;
   // 只有在 protyle 类型时才检测
   if (props.content.type !== 'protyle') return false;
   if (isNeuralRoamNonFlashcardCard.value) return false;
@@ -556,6 +601,7 @@ const shouldUseConceptCardRenderer = computed(() => {
 
 // 判断是否应该使用描述符卡渲染器
 const shouldUseDescriptorCardRenderer = computed(() => {
+  if (isPreparedRenderer('descriptor')) return true;
   if (resolvedRenderProfile.value === 'descriptor') {
     return props.content.type === 'protyle'
       && !isTopicReadModeCard.value
@@ -595,6 +641,10 @@ const shouldUseImmediateQuickRenderer = computed(() => (
 ));
 
 const shouldUseQuickCardRenderer = computed(() => {
+  if (isPreparedRenderer('quick')) {
+    return true;
+  }
+
   if (shouldUseImmediateQuickRenderer.value) {
     return true;
   }

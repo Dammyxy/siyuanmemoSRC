@@ -1,7 +1,7 @@
 <template>
   <div class="descriptor-card-renderer">
-    <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
-    <CardErrorState v-else-if="error" :message="error" />
+    <CardLoadingState v-if="showLoading && !viewModel" :text="t('loadingContent', '内容加载中...')" />
+    <CardErrorState v-else-if="error && !viewModel" :message="error" />
 
     <CdfDirectLayout
       v-else-if="viewModel && shouldUseDirectDisplay"
@@ -45,6 +45,9 @@ const props = defineProps<{
   showAnswer?: boolean;
   displayMode?: 'semantic' | 'direct';
   i18n?: Record<string, string>;
+  preparedViewModel?: unknown;
+  preparedIdentity?: string;
+  refreshEpoch?: number;
 }>();
 
 const emit = defineEmits<{
@@ -90,6 +93,9 @@ const renderIdentity = computed(() => {
 
 async function loadViewModel() {
   const seq = ++loadSeq;
+  if (applyPreparedViewModel()) {
+    return;
+  }
 
   try {
     loading.value = true;
@@ -122,8 +128,22 @@ async function loadViewModel() {
   }
 }
 
+function applyPreparedViewModel(): boolean {
+  const prepared = props.preparedViewModel as DescriptorCardViewModel | null | undefined;
+  if (!prepared || props.preparedIdentity !== renderIdentity.value) {
+    return false;
+  }
+
+  loadSeq += 1;
+  viewModel.value = prepared;
+  error.value = null;
+  loading.value = false;
+  emit('loaded', prepared);
+  return true;
+}
+
 watch(
-  renderIdentity,
+  () => [renderIdentity.value, props.preparedIdentity || '', props.refreshEpoch || 0],
   () => {
     void loadViewModel();
   },

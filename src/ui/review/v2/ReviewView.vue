@@ -149,6 +149,7 @@ import {
   useReviewSession,
   type ReviewSessionActionError,
   type ReviewSessionController,
+  type ReviewSessionUpdateReason,
 } from './useReviewSession';
 import {
   resolveReviewHeaderVariant,
@@ -156,6 +157,7 @@ import {
   type ReviewEditableSource,
   type ReviewHeaderVariant,
   type ReviewNativeSplitGuardState,
+  type ReviewUIState,
   type ReviewViewTabBridge,
 } from './types';
 import { matchReviewNativeTabSplitCommand, pruneNativeTabSplitMenu } from './reviewNativeSplitHostGuard';
@@ -219,6 +221,7 @@ import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { createReviewRenderServices } from '@/application/factories/createReviewRenderServices';
+import { prepareReviewPresentation } from './reviewPresentationPreparer';
 import { parseTransactionsPayload, parseWSMessage } from '@/core/infrastructure/websocket/transaction-types';
 
 const logger = createLogger('ReviewView');
@@ -621,6 +624,11 @@ function createSharedReviewSessionId(): string {
 
 const reviewSessionId = ref(String(props.reviewSessionId || '').trim() || createReviewSessionId());
 const sharedReviewSessionId = ref(String(props.sharedReviewSessionId || '').trim());
+const i18n = props.i18n;
+const reviewRenderServices = createReviewRenderServices({
+  cardStorage: getPluginContext(props.plugin)?.getCardStorage?.() as never,
+  i18n: i18n || {},
+});
 const reviewAIService = ref<AIWorkbenchService | null>(null);
 const reviewAISidebarOpen = ref(false);
 const reviewArenaHint = ref<string | null>(null);
@@ -1519,6 +1527,7 @@ function createReviewSessionControllerInstance(): ReviewSessionController<Active
       initialSessionState: effectiveInitialSessionState,
       initialCurrentItem: effectiveInitialCurrentItem as never,
       initialShowAnswer: effectiveInitialShowAnswer,
+      prepareStateBeforeCommit: prepareReviewStateBeforeCommit,
     },
   ) as ReviewSessionController<ActiveReviewItem>;
 }
@@ -1554,17 +1563,13 @@ const hook = useReviewSession(
     initialSessionState: effectiveInitialSessionState,
     initialCurrentItem: effectiveInitialCurrentItem as never,
     initialShowAnswer: effectiveInitialShowAnswer,
+    prepareStateBeforeCommit: prepareReviewStateBeforeCommit,
     controller: reviewSessionController as never,
     surfaceId: reviewSessionId.value,
   }
 );
 const state = hook.state;
 const app = props.app;
-const i18n = props.i18n;
-const reviewRenderServices = createReviewRenderServices({
-  cardStorage: getPluginContext(props.plugin)?.getCardStorage?.() as never,
-  i18n: i18n || {},
-});
 const showReviewFilterDialog = ref(false);
 const appliedReviewFilter = ref<CardFilter | null>(null);
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
@@ -1627,6 +1632,34 @@ function getReviewActionErrorMessage(payload: ReviewSessionActionError<ActiveRev
 
 function handleReviewSessionActionError(payload: ReviewSessionActionError<ActiveReviewItem>): void {
   showMessage(getReviewActionErrorMessage(payload), 5000, 'error');
+}
+
+const PREPARED_COMMIT_ACTION_REASONS = new Set<ReviewSessionUpdateReason>([
+  'grade',
+  'skip',
+  'custom',
+  'back',
+  'load-by-block',
+]);
+
+async function prepareReviewStateBeforeCommit(
+  nextState: ReviewUIState,
+  reason: ReviewSessionUpdateReason,
+): Promise<ReviewUIState> {
+  try {
+    return await prepareReviewPresentation(nextState, reviewRenderServices);
+  } catch (error) {
+    logger.warn('[SiYuanMemo][ReviewView] Failed to prepare review presentation before commit:', {
+      reason,
+      cardId: nextState.content.card?.id,
+      blockId: nextState.content.id,
+      error,
+    });
+    if (PREPARED_COMMIT_ACTION_REASONS.has(reason)) {
+      throw error;
+    }
+    return nextState;
+  }
 }
 
 function t(key: string, fallback: string): string {
@@ -2642,6 +2675,10 @@ function handleReviewKeyAction(
   key: string,
   event: Pick<KeyboardEvent, 'preventDefault' | 'stopPropagation'>
 ): void {
+  if (state.value.meta.advancePending?.active === true) {
+    return;
+  }
+
   if (shouldIgnoreDuplicateKey(key)) {
     return;
   }

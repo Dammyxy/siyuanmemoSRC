@@ -743,6 +743,7 @@
   "filterEnable": "Enable",
   "filterDisable": "Disable",
   "nextCard": "Next Card",
+  "nextCardLoading": "Next...",
   "topicMode": "Topic Mode",
   "insertToPosition": "Insert to Queue Position",
   "scheduleDate": "Schedule Review Date",

@@ -5,12 +5,13 @@
     :class="{
       'card__action--mobile': props.isMobile,
       'card__action--desktop': !props.isMobile,
+      'card__action--advancing': isAdvancing,
     }"
   >
     <template v-if="props.isMobile">
       <button
         class="b3-button b3-button--cancel card__action-button card__action-back"
-        :disabled="!canBack"
+        :disabled="isAdvancing || !canBack"
         @click="handleBackClick"
       >
         <svg><use xlink:href="#iconLeft"></use></svg>
@@ -21,6 +22,7 @@
         data-type="-1"
         aria-label="Space/Enter"
         class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal"
+        :disabled="isAdvancing"
         @click="handleRevealClick"
       >
         {{ t('showAnswer', '显示答案') }}
@@ -32,6 +34,7 @@
           :queue-size="remainingSize"
           :is-mobile="props.isMobile"
           :can-schedule-date="canScheduleDate"
+          :disabled="isAdvancing"
           @skip="emit('skip')"
           @insert="handleInsert"
           @schedule="handleSchedule"
@@ -42,7 +45,7 @@
     <template v-else>
       <button
         class="b3-button b3-button--cancel card__action-button card__action-back card__action-back--desktop-reveal"
-        :disabled="!canBack"
+        :disabled="isAdvancing || !canBack"
         @click="handleBackClick"
       >
         <svg><use xlink:href="#iconLeft"></use></svg>
@@ -53,6 +56,7 @@
         data-type="-1"
         aria-label="Space/Enter"
         class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main card__action-main--reveal card__action-main--reveal-stacked"
+        :disabled="isAdvancing"
         @click="handleRevealClick"
         >
         <div class="card__icon">👀</div>
@@ -68,12 +72,16 @@
           :queue-size="remainingSize"
           :is-mobile="props.isMobile"
           :can-schedule-date="canScheduleDate"
+          :disabled="isAdvancing"
           @skip="emit('skip')"
           @insert="handleInsert"
           @schedule="handleSchedule"
         />
       </div>
     </template>
+    <span v-if="showAdvanceHint" class="card__action-advance-hint">
+      {{ t('nextCardLoading', '下一张...') }}
+    </span>
   </div>
 
   <div
@@ -82,6 +90,7 @@
     :class="{
       'card__action--mobile': props.isMobile,
       'card__action--desktop': !props.isMobile,
+      'card__action--advancing': isAdvancing,
     }"
     :style="ratingStageStyle"
   >
@@ -93,7 +102,7 @@
         ></span>
         <button
           class="b3-button b3-button--cancel card__action-button card__action-back card__action-back--stacked"
-          :disabled="!canBack"
+          :disabled="isAdvancing || !canBack"
           @click="handleBackClick"
         >
           <svg><use xlink:href="#iconLeft"></use></svg>
@@ -105,6 +114,7 @@
             :queue-size="remainingSize"
             :is-mobile="props.isMobile"
             :can-schedule-date="canScheduleDate"
+            :disabled="isAdvancing"
             @skip="emit('skip')"
             @insert="handleInsert"
             @schedule="handleSchedule"
@@ -122,6 +132,7 @@
             data-type="3"
             aria-label="Space/Enter"
             class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-button card__action-main"
+            :disabled="isAdvancing"
             @click="handleTopicNextClick"
           >
             <div class="card__icon">📖</div>
@@ -141,6 +152,7 @@
             :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
             class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main"
             :class="getButtonVariant(g.value)"
+            :disabled="isAdvancing"
             @click="handleGradeClick(g.value, $event)"
           >
             <div class="card__icon">{{ g.emoji }}</div>
@@ -154,7 +166,7 @@
       <div class="card__action-column card__action-column--stack card__action-column--stack-desktop">
         <button
           class="b3-button b3-button--cancel card__action-button card__action-back card__action-back--stacked"
-          :disabled="!canBack"
+          :disabled="isAdvancing || !canBack"
           @click="handleBackClick"
         >
           <svg><use xlink:href="#iconLeft"></use></svg>
@@ -166,6 +178,7 @@
             :queue-size="remainingSize"
             :is-mobile="props.isMobile"
             :can-schedule-date="canScheduleDate"
+            :disabled="isAdvancing"
             @skip="emit('skip')"
             @insert="handleInsert"
             @schedule="handleSchedule"
@@ -183,6 +196,7 @@
             data-type="3"
             aria-label="Space/Enter"
             class="b3-button b3-button--info b3-tooltips__n b3-tooltips card__action-button card__action-main"
+            :disabled="isAdvancing"
             @click="handleTopicNextClick"
           >
             <div class="card__icon">📖</div>
@@ -203,6 +217,7 @@
             :aria-label="getRatingButtonAriaLabel(g.value, g.kb)"
             class="b3-button b3-tooltips__n b3-tooltips card__action-button card__action-main"
             :class="getButtonVariant(g.value)"
+            :disabled="isAdvancing"
             @click="handleGradeClick(g.value, $event)"
           >
             <div class="card__icon">{{ g.emoji }}</div>
@@ -212,6 +227,9 @@
         </div>
       </template>
     </template>
+    <span v-if="showAdvanceHint" class="card__action-advance-hint">
+      {{ t('nextCardLoading', '下一张...') }}
+    </span>
   </div>
 
   <teleport to="body">
@@ -244,7 +262,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { HIDE_CURRENT_IN_SCOPE_COMMAND_ID } from '@/core/queue/abstraction/customActionIds';
 import type { ReviewUIState } from './types';
 import SkipMenuButton from './components/SkipMenuButton.vue';
@@ -308,6 +326,9 @@ const showRevealStage = computed(() => (
 
 const remainingSize = computed(() => props.meta?.remainingSize || 0);
 const canBack = computed(() => props.meta?.canBack === true);
+const isAdvancing = computed(() => props.meta?.advancePending?.active === true);
+const showAdvanceHint = ref(false);
+let advanceHintTimer: ReturnType<typeof setTimeout> | null = null;
 
 const ratingStageColumns = computed(() => (
   isTopicCard.value ? 2 : Math.max(props.actions.grades.length + 1, 2)
@@ -337,6 +358,34 @@ function handleDialogMouseDown(ev: MouseEvent) {
 watch(() => props.actions.grades, (grades) => {
   logger.debug('grades changed', { grades });
 }, { immediate: true, deep: true });
+
+watch(
+  isAdvancing,
+  (advancing) => {
+    if (advanceHintTimer) {
+      clearTimeout(advanceHintTimer);
+      advanceHintTimer = null;
+    }
+    showAdvanceHint.value = false;
+    if (!advancing) {
+      return;
+    }
+    advanceHintTimer = setTimeout(() => {
+      advanceHintTimer = null;
+      if (isAdvancing.value) {
+        showAdvanceHint.value = true;
+      }
+    }, 150);
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  if (advanceHintTimer) {
+    clearTimeout(advanceHintTimer);
+    advanceHintTimer = null;
+  }
+});
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
@@ -384,21 +433,33 @@ function blurActionButtonAfterPointerClick(event: MouseEvent): void {
 }
 
 function handleBackClick(event: MouseEvent): void {
+  if (isAdvancing.value) {
+    return;
+  }
   blurActionButtonAfterPointerClick(event);
   emit('back');
 }
 
 function handleRevealClick(event: MouseEvent): void {
+  if (isAdvancing.value) {
+    return;
+  }
   blurActionButtonAfterPointerClick(event);
   emit('reveal');
 }
 
 function handleGradeClick(rating: number, event: MouseEvent): void {
+  if (isAdvancing.value) {
+    return;
+  }
   blurActionButtonAfterPointerClick(event);
   emit('grade', rating);
 }
 
 function handleTopicNextClick(event: MouseEvent): void {
+  if (isAdvancing.value) {
+    return;
+  }
   blurActionButtonAfterPointerClick(event);
   if (isFilterGroupReview.value) {
     emit('command', HIDE_CURRENT_IN_SCOPE_COMMAND_ID);
@@ -408,6 +469,9 @@ function handleTopicNextClick(event: MouseEvent): void {
 }
 
 function handleInsert() {
+  if (isAdvancing.value) {
+    return;
+  }
   logger.debug('handleInsert called', {
     remainingSize: remainingSize.value,
     metaRemainingSize: props.meta?.remainingSize,
@@ -478,6 +542,9 @@ async function onInsertConfirm(position: number) {
 }
 
 function handleSchedule() {
+  if (isAdvancing.value) {
+    return;
+  }
   if (!canScheduleDate.value) {
     logger.info('Schedule date disabled for neural roam virtual card');
     return;
@@ -562,6 +629,7 @@ async function onScheduleConfirm(options: ScheduleOptions) {
 
 <style scoped>
 .card__action {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: 8px;
@@ -572,6 +640,28 @@ async function onScheduleConfirm(options: ScheduleOptions) {
   flex-shrink: 0;
   border-top: 1px solid var(--b3-border-color);
   background: var(--b3-theme-background);
+}
+
+.card__action--advancing {
+  cursor: progress;
+}
+
+.card__action--advancing .card__action-button,
+.card__action--advancing :deep(.skip-menu-button) {
+  opacity: 0.72;
+}
+
+.card__action-advance-hint {
+  position: absolute;
+  right: 12px;
+  top: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
 }
 
 .card__action--reveal {

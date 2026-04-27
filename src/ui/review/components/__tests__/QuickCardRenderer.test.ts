@@ -40,6 +40,28 @@ describe('QuickCardRenderer.vue', () => {
     expect(prepareViewModel).toHaveBeenCalledWith('123', 'front', undefined);
   });
 
+  it('uses a prepared view model without entering the loading path', async () => {
+    const viewModel = createViewModel({ html: '<div>Prepared quick</div>' });
+    const prepareViewModel = vi.fn().mockResolvedValue(viewModel);
+
+    const wrapper = mount(QuickCardRenderer, {
+      props: {
+        blockId: '123',
+        cardId: 'card-123',
+        renderService: { prepareViewModel } as unknown as QuickCardRenderService,
+        preparedViewModel: viewModel,
+        preparedIdentity: '123:card-123:front',
+      },
+    });
+
+    await wrapper.vm.$nextTick();
+
+    expect(prepareViewModel).not.toHaveBeenCalled();
+    expect(wrapper.find('.card-loading-state').exists()).toBe(false);
+    expect(wrapper.html()).toContain('Prepared quick');
+    expect(wrapper.emitted('loaded')).toBeTruthy();
+  });
+
   it('loads back side when showAnswer is true', async () => {
     const viewModel = createViewModel();
     const prepareViewModel = vi.fn().mockResolvedValue(viewModel);

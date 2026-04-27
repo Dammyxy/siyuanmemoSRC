@@ -3,11 +3,13 @@
     class="skip-menu-button"
     :class="{
       'skip-menu-button--mobile': props.isMobile,
+      'skip-menu-button--disabled': props.disabled,
     }"
   >
     <button
       class="skip-menu-button__main b3-button b3-button--cancel b3-tooltips__n b3-tooltips"
       :aria-label="skipHotkeyHint"
+      :disabled="props.disabled"
       @click="handleSkip"
     >
       <span class="skip-menu-button__icon" aria-hidden="true">💤</span>
@@ -22,6 +24,7 @@
       aria-haspopup="menu"
       aria-expanded="false"
       :aria-label="t('moreSkipActions', '更多跳过操作')"
+      :disabled="props.disabled"
       @click="openMenu"
     >
       <svg class="skip-menu-button__chevron"><use xlink:href="#iconUp"></use></svg>
@@ -37,6 +40,7 @@ interface Props {
   queueSize?: number;
   isMobile?: boolean;
   canScheduleDate?: boolean;
+  disabled?: boolean;
 }
 
 interface Emits {
@@ -59,6 +63,9 @@ function t(key: string, fallback: string): string {
 function handleSkip(event: MouseEvent): void {
   event.stopPropagation();
   event.preventDefault();
+  if (props.disabled) {
+    return;
+  }
   emit('skip');
 }
 
@@ -69,6 +76,9 @@ function resolveMenuAnchor(target: EventTarget | null): HTMLElement | null {
 function openMenu(event: MouseEvent): void {
   event.stopPropagation();
   event.preventDefault();
+  if (props.disabled) {
+    return;
+  }
 
   const menu = new Menu('review-skip-menu');
   menu.addItem({
@@ -123,6 +133,11 @@ function openMenu(event: MouseEvent): void {
 .skip-menu-button:focus-within {
   border-color: color-mix(in srgb, var(--b3-theme-primary) 34%, var(--b3-border-color));
   background: color-mix(in srgb, var(--b3-theme-primary-lightest) 54%, var(--b3-theme-background));
+}
+
+.skip-menu-button--disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
 }
 
 .skip-menu-button__main,

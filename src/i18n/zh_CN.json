@@ -790,6 +790,7 @@
   "filterEnable": "启用",
   "filterDisable": "禁用",
   "nextCard": "下一张",
+  "nextCardLoading": "下一张...",
   "topicMode": "Topic 模式",
   "insertToPosition": "插入到队列指定位置",
   "scheduleDate": "安排复习日期",

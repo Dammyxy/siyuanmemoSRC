@@ -46,6 +46,21 @@ export type ReviewHeaderVariant =
 
 export type ReviewHeaderCounterBadgeKind = 'ratio' | 'value';
 
+export type ReviewAdvanceReason = 'grade' | 'skip' | 'custom' | 'back' | 'load-by-block';
+
+export type PreparedReviewRendererKind =
+  | 'descriptor'
+  | 'concept-definition'
+  | 'concept'
+  | 'quick'
+  | 'multi-cloze';
+
+export interface PreparedReviewPresentation<TViewModel = unknown> {
+  rendererKind: PreparedReviewRendererKind;
+  identityKey: string;
+  viewModel: TViewModel;
+}
+
 export interface ReviewHeaderCounterSummaryPart {
   id: string;
   label: string;
@@ -144,6 +159,7 @@ export interface ReviewUIState {
     card?: FSRSCard;
     isXiuyuanListTemplate?: boolean;
     xiuyuanMeta?: Record<string, unknown> | null;
+    prepared?: PreparedReviewPresentation;
   };
 
   overlay?: {
@@ -199,6 +215,11 @@ export interface ReviewUIState {
     queueSize?: number;
     remainingSize?: number;
     queueProgress?: ReviewQueueProgressSnapshot | null;
+    advancePending?: {
+      active: true;
+      reason: ReviewAdvanceReason;
+      startedAt: number;
+    };
   };
 }
 

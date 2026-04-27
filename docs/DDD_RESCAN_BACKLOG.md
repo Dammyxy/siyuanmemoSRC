@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 163)
+Last update: 2026-04-28 (Round 164)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - Incrementum-style prepared review transition
+
+- Task: Implement Incrementum-style prepared commit for review card transitions so grading/skipping gives immediate operation feedback while the old card stays visible until the next special renderer presentation is ready.
+- Touched slice: Review active UI path across `src/ui/review/v2/{reviewSessionController.ts,ReviewView.vue,ReviewContent.vue,ReviewActions.vue,reviewPresentationPreparer.ts,types.ts}`, `src/ui/review/components/*Renderer.vue`, `src/application/factories/createReviewRenderServices.ts`, i18n, and focused tests.
+- Debt fixed now: Special renderers no longer remount or clear their existing view model on normal refresh; descriptor, concept-definition, concept, quick, and multi-cloze renderers can accept session-local prepared view models and render synchronously; review-body loading copy no longer reuses the global plugin initialization key; action UI has an explicit pending state that blocks duplicate feedback while preparation is in flight.
+- Debt deferred: True predictive queue prefetch; image occlusion prepared rendering.
+- Why deferred: Dynamic queues still need feedback before the next card is guaranteed, and the generic queue contract has no safe `peek/preload` surface; image occlusion rendering depends on image readiness and DOM measurement, so preparing it safely needs a smaller dedicated pass.
+- Next safe step: Add queue-specific prefetch only where the queue contract can guarantee identity, then extract image occlusion view-model preparation behind image-size readiness checks.
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/useReviewSession.spec.ts src/ui/review/v2/__tests__/ReviewActions.spec.ts src/ui/review/components/__tests__/DescriptorCardRenderer.spec.ts src/ui/review/components/__tests__/QuickCardRenderer.test.ts`; `pnpm vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts src/ui/review/v2/__tests__/ReviewView.local-advance-race.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-28 - review Protyle flicker reduction
 

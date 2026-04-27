@@ -1,6 +1,6 @@
 <template>
   <div class="image-occlusion-card-renderer">
-    <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
+    <CardLoadingState v-if="showLoading" :text="t('loadingContent', '内容加载中...')" />
     <CardErrorState v-else-if="error" :message="error" />
 
     <div

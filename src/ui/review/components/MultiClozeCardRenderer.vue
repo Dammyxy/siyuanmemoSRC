@@ -3,8 +3,8 @@
     class="multi-cloze-card-renderer"
     :class="showAnswer ? 'multi-cloze-card-renderer--show-answer' : 'multi-cloze-card-renderer--question'"
   >
-    <CardLoadingState v-if="showLoading" text="加载中..." />
-    <CardErrorState v-else-if="error" :message="error" />
+    <CardLoadingState v-if="showLoading && !viewModel" :text="t('loadingContent', '内容加载中...')" />
+    <CardErrorState v-else-if="error && !viewModel" :message="error" />
 
     <div v-else-if="viewModel" class="multi-cloze-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
@@ -35,14 +35,36 @@ const logger = createLogger('MultiClozeCardRenderer');
 const props = defineProps<{
   card: FSRSCard;
   showAnswer?: boolean;
+  renderService?: MultiClozeCardRenderService;
+  i18n?: Record<string, string>;
+  preparedViewModel?: unknown;
+  preparedIdentity?: string;
+  refreshEpoch?: number;
 }>();
 
 const loading = ref(true);
 const error = ref<string | null>(null);
 const viewModel = ref<MultiClozeCardViewModel | null>(null);
-const renderService = new MultiClozeCardRenderService();
+const fallbackRenderService = new MultiClozeCardRenderService();
+const renderService = computed(() => props.renderService ?? fallbackRenderService);
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
+
+function t(key: string, fallback: string): string {
+  return props.i18n?.[key] || fallback;
+}
+
+const renderIdentity = computed(() => {
+  const meta = props.card?.meta;
+  return [
+    props.card?.id || '',
+    props.card?.blockId || '',
+    props.card?.updatedAt || '',
+    meta?.faceIndex ?? '',
+    meta?.templateID || '',
+    meta?.typeMarker || '',
+  ].join('|');
+});
 
 const rawHtml = computed(() => {
   if (!viewModel.value) return '';
@@ -57,11 +79,14 @@ const renderedHtml = computed(() => {
 
 async function loadViewModel() {
   const seq = ++loadSeq;
+  if (applyPreparedViewModel()) {
+    return;
+  }
 
   try {
     loading.value = true;
     error.value = null;
-    const nextViewModel = await renderService.prepareViewModel(props.card);
+    const nextViewModel = await renderService.value.prepareViewModel(props.card);
     if (seq !== loadSeq) {
       return;
     }
@@ -79,16 +104,28 @@ async function loadViewModel() {
   }
 }
 
+function applyPreparedViewModel(): boolean {
+  const prepared = props.preparedViewModel as MultiClozeCardViewModel | null | undefined;
+  if (!prepared || props.preparedIdentity !== renderIdentity.value) {
+    return false;
+  }
+
+  loadSeq += 1;
+  viewModel.value = prepared;
+  error.value = null;
+  loading.value = false;
+  return true;
+}
+
 onMounted(() => {
   void loadViewModel();
 });
 
 watch(
-  () => props.card,
+  () => [renderIdentity.value, props.preparedIdentity || '', props.refreshEpoch || 0],
   () => {
     void loadViewModel();
   },
-  { deep: true },
 );
 </script>
 

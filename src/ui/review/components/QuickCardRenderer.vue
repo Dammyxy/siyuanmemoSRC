@@ -1,7 +1,7 @@
 <template>
   <div class="quick-card-renderer">
-    <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
-    <CardErrorState v-else-if="error" :message="error" />
+    <CardLoadingState v-if="showLoading && !viewModel" :text="t('loadingContent', '内容加载中...')" />
+    <CardErrorState v-else-if="error && !viewModel" :message="error" />
 
     <div v-else-if="viewModel" class="quick-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
@@ -34,6 +34,9 @@ interface Props {
   renderService: QuickCardRenderService;
   showAnswer?: boolean;
   i18n?: Record<string, string>;
+  preparedViewModel?: unknown;
+  preparedIdentity?: string;
+  refreshEpoch?: number;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -59,6 +62,11 @@ const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 const localViewModelCache = new Map<string, QuickCardViewModel>();
 
+const renderIdentity = computed(() => {
+  const side = props.showAnswer ? 'back' : 'front';
+  return `${props.blockId}:${props.cardId || ''}:${side}`;
+});
+
 function renderDisplayHtml(result: QuickCardViewModel): string {
   const isLatexCloze = result.metadata.symbol === '\\cloze';
   if (!isLatexCloze) {
@@ -83,7 +91,10 @@ const contentClasses = computed(() => {
 async function loadViewModel() {
   const seq = ++loadSeq;
   const side = props.showAnswer ? 'back' : 'front';
-  const cacheKey = `${props.blockId}:${props.cardId || ''}:${side}`;
+  const cacheKey = renderIdentity.value;
+  if (applyPreparedViewModel(cacheKey)) {
+    return;
+  }
   const cached = localViewModelCache.get(cacheKey);
   if (cached) {
     viewModel.value = cached;
@@ -146,8 +157,24 @@ async function loadViewModel() {
   }
 }
 
+function applyPreparedViewModel(identity = renderIdentity.value): boolean {
+  const prepared = props.preparedViewModel as QuickCardViewModel | null | undefined;
+  if (!prepared || props.preparedIdentity !== identity) {
+    return false;
+  }
+
+  loadSeq += 1;
+  viewModel.value = prepared;
+  renderedHtml.value = renderDisplayHtml(prepared);
+  localViewModelCache.set(identity, prepared);
+  error.value = null;
+  loading.value = false;
+  emit('loaded', prepared);
+  return true;
+}
+
 watch(
-  () => props.showAnswer,
+  () => [props.showAnswer, props.preparedIdentity || '', props.refreshEpoch || 0],
   () => {
     void loadViewModel();
   }

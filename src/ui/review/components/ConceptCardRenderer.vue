@@ -1,7 +1,7 @@
 <template>
   <div class="concept-card-renderer">
-    <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
-    <CardErrorState v-else-if="error" :message="error" />
+    <CardLoadingState v-if="showLoading && !viewModel" :text="t('loadingContent', '内容加载中...')" />
+    <CardErrorState v-else-if="error && !viewModel" :message="error" />
 
     <div v-else-if="viewModel" class="concept-card-renderer__content">
       <CardBreadcrumb :items="viewModel.breadcrumbs" />
@@ -53,6 +53,9 @@ const logger = createLogger('ConceptCardRenderer');
 
 interface ConceptCardInput {
   xiuyuanID?: string;
+  meta?: {
+    xiuyuanID?: string;
+  };
 }
 
 const props = defineProps<{
@@ -61,6 +64,10 @@ const props = defineProps<{
   card?: ConceptCardInput;
   showAnswer?: boolean;
   i18n?: Record<string, string>;
+  renderService?: ConceptCardRenderService;
+  preparedViewModel?: unknown;
+  preparedIdentity?: string;
+  refreshEpoch?: number;
 }>();
 
 const emit = defineEmits<{
@@ -78,20 +85,24 @@ const viewModel = ref<ConceptCardViewModel | null>(null);
 const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 
-const renderService = new ConceptCardRenderService();
+const fallbackRenderService = new ConceptCardRenderService();
+const renderService = computed(() => props.renderService ?? fallbackRenderService);
 
 const renderIdentity = computed(() => {
-  return [props.blockId || '', props.cardId || '', props.card?.xiuyuanID || ''].join('|');
+  return [props.blockId || '', props.cardId || '', props.card?.xiuyuanID || props.card?.meta?.xiuyuanID || ''].join('|');
 });
 
 async function loadViewModel() {
   const seq = ++loadSeq;
+  if (applyPreparedViewModel()) {
+    return;
+  }
 
   try {
     loading.value = true;
     error.value = null;
 
-    const nextViewModel = await renderService.prepareViewModel(props.blockId, props.card);
+    const nextViewModel = await renderService.value.prepareViewModel(props.blockId, props.card);
     if (seq !== loadSeq) {
       return;
     }
@@ -114,8 +125,22 @@ async function loadViewModel() {
   }
 }
 
+function applyPreparedViewModel(): boolean {
+  const prepared = props.preparedViewModel as ConceptCardViewModel | null | undefined;
+  if (!prepared || props.preparedIdentity !== renderIdentity.value) {
+    return false;
+  }
+
+  loadSeq += 1;
+  viewModel.value = prepared;
+  error.value = null;
+  loading.value = false;
+  emit('loaded', { viewModel: prepared });
+  return true;
+}
+
 watch(
-  renderIdentity,
+  () => [renderIdentity.value, props.preparedIdentity || '', props.refreshEpoch || 0],
   () => {
     void loadViewModel();
   },

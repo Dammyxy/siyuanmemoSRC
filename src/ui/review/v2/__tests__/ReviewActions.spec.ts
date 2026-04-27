@@ -178,6 +178,27 @@ describe('ReviewActions layout', () => {
     expect(root.find('.skip-menu-button-stub').exists()).toBe(true);
   });
 
+  it('disables primary actions while the next card is being prepared', async () => {
+    const wrapper = mountReviewActions(createActions(), false, null, {
+      meta: {
+        canBack: true,
+        remainingSize: 3,
+        transition: 'none',
+        advancePending: {
+          active: true,
+          reason: 'grade',
+          startedAt: Date.now(),
+        },
+      },
+    });
+
+    const goodButton = wrapper.get('button[data-type="3"]');
+    expect(goodButton.attributes('disabled')).toBeDefined();
+
+    await goodButton.trigger('click');
+    expect(wrapper.emitted('grade')).toBeFalsy();
+  });
+
   it('keeps the reveal stage sticky on mobile', () => {
     const wrapper = mountReviewActions(createActions({
       showAnswer: true,

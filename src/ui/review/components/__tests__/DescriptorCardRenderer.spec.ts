@@ -3,6 +3,54 @@ import { describe, expect, it, vi } from 'vitest';
 import DescriptorCardRenderer from '../DescriptorCardRenderer.vue';
 
 describe('DescriptorCardRenderer', () => {
+  it('renders a prepared descriptor view model synchronously without showing loading', async () => {
+    const preparedViewModel = {
+      blockId: 'descriptor-prepared',
+      breadcrumbs: [{ id: 'doc-1', label: 'Doc' }],
+      dependencyBlockIds: ['doc-1', 'descriptor-prepared'],
+      frontHtml: '<p>prepared front</p>',
+      backHtml: '<p>prepared back</p>',
+      relationArrow: '→',
+      isReverse: false,
+      attribute: '属性',
+      description: '答案',
+      parentConcept: null,
+      siblingDescriptors: [],
+      warning: null,
+    };
+    const renderService = {
+      prepareViewModel: vi.fn().mockResolvedValue(preparedViewModel),
+    } as any;
+
+    const wrapper = mount(DescriptorCardRenderer, {
+      props: {
+        blockId: 'descriptor-prepared',
+        cardId: 'card-prepared',
+        card: {
+          id: 'card-prepared',
+          updatedAt: 1,
+        },
+        renderService,
+        preparedViewModel,
+        preparedIdentity: 'descriptor-prepared|card-prepared|card-prepared|1',
+      },
+      global: {
+        stubs: {
+          CardBreadcrumb: true,
+          CardErrorState: true,
+          CardLoadingState: true,
+        },
+      },
+    });
+
+    await wrapper.vm.$nextTick();
+
+    expect(renderService.prepareViewModel).not.toHaveBeenCalled();
+    expect(wrapper.findComponent({ name: 'CardLoadingState' }).exists()).toBe(false);
+    expect(wrapper.html()).toContain('prepared front');
+    expect(wrapper.emitted('loaded')).toBeTruthy();
+  });
+
   it('renders the direct CDF layout and hides semantic helper chrome in direct mode', async () => {
     const renderService = {
       prepareViewModel: vi.fn().mockResolvedValue({

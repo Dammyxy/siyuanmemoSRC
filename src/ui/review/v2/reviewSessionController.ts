@@ -8,7 +8,13 @@ import type { QueueItem } from '@/core/queue/types';
 import { isNeuralRoamSessionQueue } from '@/types/unified-data-source';
 import type { InitialReviewSessionState } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
-import type { AdapterContext, IAdapter, RefreshCurrentItemOptions, ReviewUIState } from './types';
+import type {
+  AdapterContext,
+  IAdapter,
+  RefreshCurrentItemOptions,
+  ReviewAdvanceReason,
+  ReviewUIState,
+} from './types';
 import { createEmptyReviewUIState } from './types';
 
 const logger = createLogger('ReviewSessionController');
@@ -46,7 +52,7 @@ type NeuralPathLoader<TItem> = {
   getPathItemByNodeId: (blockId: string) => Promise<TItem | null>;
 };
 
-type SessionUpdateReason =
+export type ReviewSessionUpdateReason =
   | 'mount'
   | 'reveal'
   | 'grade'
@@ -56,6 +62,8 @@ type SessionUpdateReason =
   | 'reload'
   | 'refresh-current'
   | 'load-by-block';
+
+type SessionUpdateReason = ReviewSessionUpdateReason;
 
 type ReviewActionErrorReason = Extract<SessionUpdateReason, 'grade' | 'skip' | 'custom'>;
 
@@ -103,6 +111,10 @@ export interface CreateReviewSessionControllerOptions<TItem extends QueueItem = 
   initialSessionState?: InitialReviewSessionState;
   initialCurrentItem?: TItem | null;
   initialShowAnswer?: boolean;
+  prepareStateBeforeCommit?: (
+    state: ReviewUIState,
+    reason: ReviewSessionUpdateReason,
+  ) => Promise<ReviewUIState>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -358,6 +370,37 @@ export function createReviewSessionController<TItem extends QueueItem>(
     },
   });
 
+  const markAdvancePending = (reason: ReviewAdvanceReason): void => {
+    if (disposed) {
+      return;
+    }
+    state.value = withSessionMeta({
+      ...state.value,
+      meta: {
+        ...state.value.meta,
+        advancePending: {
+          active: true,
+          reason,
+          startedAt: Date.now(),
+        },
+      },
+    });
+    notifySubscribers();
+  };
+
+  const clearAdvancePending = (): void => {
+    if (!state.value.meta.advancePending) {
+      return;
+    }
+    const { advancePending: _advancePending, ...meta } = state.value.meta;
+    void _advancePending;
+    state.value = withSessionMeta({
+      ...state.value,
+      meta,
+    });
+    notifySubscribers();
+  };
+
   const getSnapshot = (): ReviewSessionControllerSnapshot<TItem> => ({
     state: state.value,
     context: context.value,
@@ -388,13 +431,23 @@ export function createReviewSessionController<TItem extends QueueItem>(
     }
   };
 
-  const updateState = async (reason: SessionUpdateReason): Promise<void> => {
+  const updateState = async (
+    reason: SessionUpdateReason,
+    updateOptions?: { skipPrepare?: boolean },
+  ): Promise<void> => {
     const seq = ++updateSeq;
     const mainState = await adapter.toUIState(queue, currentItem.value, context.value);
     if (seq !== updateSeq || disposed) {
       return;
     }
-    state.value = withSessionMeta(mainState);
+    let nextState = withSessionMeta(mainState);
+    if (!updateOptions?.skipPrepare && reason !== 'reveal' && options?.prepareStateBeforeCommit) {
+      nextState = withSessionMeta(await options.prepareStateBeforeCommit(nextState, reason));
+      if (seq !== updateSeq || disposed) {
+        return;
+      }
+    }
+    state.value = nextState;
     notifySubscribers();
 
     if (reason !== 'reveal' && adapter.fetchAuxiliaryData) {
@@ -514,7 +567,7 @@ export function createReviewSessionController<TItem extends QueueItem>(
       currentItem.value = null;
     }
     context.value.showAnswer = false;
-    await updateState(reason);
+    await updateState(reason, { skipPrepare: true });
   };
 
   const keepCurrentItemAfterActionError = async (reason: ReviewActionErrorReason, message: string, error: unknown): Promise<void> => {
@@ -529,11 +582,15 @@ export function createReviewSessionController<TItem extends QueueItem>(
     } catch (listenerError) {
       logger.warn('Review action error listener failed:', listenerError);
     }
-    await updateState(reason);
+    await updateState(reason, { skipPrepare: true });
   };
 
   const grade = async (rating: number): Promise<void> => runSerialized(async () => {
+    const previousItem = currentItem.value;
+    const previousShowAnswer = context.value.showAnswer;
+    let pushedHistory = false;
     try {
+      markAdvancePending('grade');
       const normalized = toRatingValue(rating);
       const feedback: QueueFeedback = { action: 'rate', rating: normalized };
       const reviewedItem = currentItem.value;
@@ -561,10 +618,16 @@ export function createReviewSessionController<TItem extends QueueItem>(
         answeredDelta: 1,
         correctDelta: normalized >= 3 ? 1 : 0,
       });
+      pushedHistory = true;
       currentItem.value = await queue.next();
       context.value.showAnswer = false;
       await updateState('grade');
     } catch (error) {
+      currentItem.value = previousItem;
+      context.value.showAnswer = previousShowAnswer;
+      if (pushedHistory) {
+        rollbackReviewHistory(context.value);
+      }
       if (isQueueItemUnavailableError(error)) {
         await advancePastUnavailableItem('grade', error);
         return;
@@ -575,17 +638,27 @@ export function createReviewSessionController<TItem extends QueueItem>(
   });
 
   const skip = async (): Promise<void> => runSerialized(async () => {
+    const previousItem = currentItem.value;
+    const previousShowAnswer = context.value.showAnswer;
+    let pushedHistory = false;
     try {
+      markAdvancePending('skip');
       await queue.onFeedback(currentItem.value, { action: 'skip' });
       pushReviewHistory(context.value, {
         action: 'skip',
         answeredDelta: 0,
         correctDelta: 0,
       });
+      pushedHistory = true;
       currentItem.value = await queue.next();
       context.value.showAnswer = false;
       await updateState('skip');
     } catch (error) {
+      currentItem.value = previousItem;
+      context.value.showAnswer = previousShowAnswer;
+      if (pushedHistory) {
+        rollbackReviewHistory(context.value);
+      }
       if (isQueueItemUnavailableError(error)) {
         await advancePastUnavailableItem('skip', error);
         return;
@@ -596,21 +669,32 @@ export function createReviewSessionController<TItem extends QueueItem>(
   });
 
   const executeCommand = async (cmdId: string): Promise<void> => runSerialized(async () => {
+    const previousItem = currentItem.value;
+    const previousShowAnswer = context.value.showAnswer;
+    let pushedHistory = false;
     try {
       const id = String(cmdId || '');
       if (!id) {
         return;
       }
 
+      markAdvancePending('custom');
       await queue.onFeedback(currentItem.value, { action: 'custom', customActionId: id });
       pushReviewHistory(context.value, {
         action: 'custom',
         answeredDelta: 0,
         correctDelta: 0,
       });
+      pushedHistory = true;
       currentItem.value = await queue.next();
+      context.value.showAnswer = false;
       await updateState('custom');
     } catch (error) {
+      currentItem.value = previousItem;
+      context.value.showAnswer = previousShowAnswer;
+      if (pushedHistory) {
+        rollbackReviewHistory(context.value);
+      }
       if (isQueueItemUnavailableError(error)) {
         await advancePastUnavailableItem('custom', error);
         return;
@@ -625,11 +709,20 @@ export function createReviewSessionController<TItem extends QueueItem>(
       return;
     }
 
+    const previousItem = currentItem.value;
+    const previousShowAnswer = context.value.showAnswer;
+    const previousSession = context.value.session
+      ? {
+          ...context.value.session,
+          reviewHistory: [...(context.value.session.reviewHistory || [])],
+        }
+      : undefined;
     try {
       if (typeof queue.goBack !== 'function') {
         return;
       }
 
+      markAdvancePending('back');
       const previous = await queue.goBack(currentItem.value);
       rollbackReviewHistory(context.value);
 
@@ -642,8 +735,13 @@ export function createReviewSessionController<TItem extends QueueItem>(
       context.value.showAnswer = false;
       await updateState('back');
     } catch (error) {
+      currentItem.value = previousItem;
+      context.value.showAnswer = previousShowAnswer;
+      if (previousSession) {
+        context.value.session = previousSession;
+      }
       logger.error('Failed to go back:', error);
-      await updateState('back');
+      await updateState('back', { skipPrepare: true });
     }
   });
 
@@ -682,6 +780,8 @@ export function createReviewSessionController<TItem extends QueueItem>(
   });
 
   const loadCardByBlockId = async (blockId: string): Promise<void> => runSerialized(async () => {
+    const previousItem = currentItem.value;
+    const previousShowAnswer = context.value.showAnswer;
     try {
       const loader = resolveNeuralPathLoader(queue);
       if (!loader) {
@@ -689,9 +789,11 @@ export function createReviewSessionController<TItem extends QueueItem>(
         return;
       }
 
+      markAdvancePending('load-by-block');
       const realItem = await loader.getPathItemByNodeId(blockId);
       if (!realItem) {
         logger.warn(`Node not found: ${blockId}`);
+        clearAdvancePending();
         return;
       }
 
@@ -701,7 +803,10 @@ export function createReviewSessionController<TItem extends QueueItem>(
 
       logger.debug(`Loaded card by blockId: ${blockId}, showAnswer: ${context.value.showAnswer}`);
     } catch (error) {
+      currentItem.value = previousItem;
+      context.value.showAnswer = previousShowAnswer;
       logger.error('Failed to load card by blockId:', error);
+      await updateState('load-by-block', { skipPrepare: true });
     }
   });
 

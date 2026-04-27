@@ -106,6 +106,7 @@ function mountHook(options: {
   initialCurrentItem?: ReturnType<typeof createItem> | null;
   initialShowAnswer?: boolean;
   onActionError?: ReturnType<typeof vi.fn>;
+  prepareStateBeforeCommit?: (state: ReviewUIState, reason: string) => Promise<ReviewUIState>;
 } = {}) {
   const queue = options.queue ?? createQueue();
   const adapter = options.adapter ?? createAdapter();
@@ -118,6 +119,7 @@ function mountHook(options: {
         initialCurrentItem: options.initialCurrentItem as never,
         initialShowAnswer: options.initialShowAnswer,
         onActionError: options.onActionError,
+        prepareStateBeforeCommit: options.prepareStateBeforeCommit as never,
       });
       return () => h('div');
     },
@@ -446,6 +448,82 @@ describe('useReviewSession', () => {
 
     wrapperA.unmount();
     wrapperB.unmount();
+  });
+
+  it('keeps the current card visible while the next card presentation is preparing', async () => {
+    const prepareGate = createDeferred<ReviewUIState>();
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const prepareStateBeforeCommit = vi.fn((nextState: ReviewUIState, reason: string) => {
+      if (reason === 'grade') {
+        return prepareGate.promise;
+      }
+      return Promise.resolve(nextState);
+    });
+
+    const { getHook, wrapper } = mountHook({ adapter, prepareStateBeforeCommit });
+    await flushAsync();
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+
+    const gradePromise = hook.grade(3);
+    await flushAsync();
+
+    expect(hook.state.value.content.id).toBe('card-1');
+    expect(hook.state.value.meta.advancePending).toMatchObject({
+      active: true,
+      reason: 'grade',
+    });
+
+    prepareGate.resolve(createReviewState('card-2'));
+    await gradePromise;
+    await flushAsync();
+
+    expect(hook.state.value.content.id).toBe('card-2');
+    expect(hook.state.value.meta.advancePending).toBeUndefined();
+
+    wrapper.unmount();
+  });
+
+  it('keeps the current card committed when next card presentation preparation fails', async () => {
+    const actionError = vi.fn();
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+    const prepareStateBeforeCommit = vi.fn(async (nextState: ReviewUIState, reason: string) => {
+      if (reason === 'grade') {
+        throw new Error('presentation prepare failed');
+      }
+      return nextState;
+    });
+
+    const { getHook, wrapper } = mountHook({
+      adapter,
+      onActionError: actionError,
+      prepareStateBeforeCommit,
+    });
+    await flushAsync();
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+
+    await hook.grade(3);
+    await flushAsync();
+
+    expect(hook.state.value.content.id).toBe('card-1');
+    expect(hook.state.value.meta.advancePending).toBeUndefined();
+    expect(hook.context.value.session?.answeredCount).toBe(0);
+    expect(actionError).toHaveBeenCalledWith(expect.objectContaining({
+      reason: 'grade',
+      message: 'Failed to process review feedback:',
+    }));
+
+    wrapper.unmount();
   });
 
   it('keeps a shared controller alive until the last surface detaches', async () => {

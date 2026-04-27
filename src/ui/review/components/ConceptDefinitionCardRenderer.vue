@@ -1,7 +1,7 @@
 <template>
   <div class="concept-definition-card-renderer">
-    <CardLoadingState v-if="showLoading" :text="t('loading', '加载中...')" />
-    <CardErrorState v-else-if="error" :message="error" />
+    <CardLoadingState v-if="showLoading && !viewModel" :text="t('loadingContent', '内容加载中...')" />
+    <CardErrorState v-else-if="error && !viewModel" :message="error" />
 
     <CdfDirectLayout
       v-else-if="viewModel && shouldUseDirectDisplay"
@@ -60,6 +60,10 @@ const props = defineProps<{
   showAnswer?: boolean;
   displayMode?: 'semantic' | 'direct';
   i18n?: Record<string, string>;
+  renderService?: ConceptDefinitionCardRenderService;
+  preparedViewModel?: unknown;
+  preparedIdentity?: string;
+  refreshEpoch?: number;
 }>();
 
 const emit = defineEmits<{
@@ -74,7 +78,8 @@ const { showLoading } = useDeferredLoadingIndicator(loading);
 let loadSeq = 0;
 
 const logger = createLogger('ConceptDefinitionCardRenderer');
-const renderService = new ConceptDefinitionCardRenderService(props.i18n || {});
+const fallbackRenderService = new ConceptDefinitionCardRenderService(props.i18n || {});
+const renderService = computed(() => props.renderService ?? fallbackRenderService);
 
 const shouldUseDirectDisplay = computed(() => {
   if (props.displayMode !== 'direct') {
@@ -105,12 +110,15 @@ const directContentHtml = computed(() => {
 async function loadViewModel() {
   const seq = ++loadSeq;
   const identity = renderIdentity.value;
+  if (applyPreparedViewModel(identity)) {
+    return;
+  }
 
   try {
     loading.value = true;
     error.value = null;
 
-    const nextViewModel = await renderService.prepareViewModel(props.blockId, props.card);
+    const nextViewModel = await renderService.value.prepareViewModel(props.blockId, props.card);
     if (seq !== loadSeq) {
       return;
     }
@@ -140,6 +148,21 @@ async function loadViewModel() {
   }
 }
 
+function applyPreparedViewModel(identity = renderIdentity.value): boolean {
+  const prepared = props.preparedViewModel as ConceptDefinitionCardViewModel | null | undefined;
+  if (!prepared || props.preparedIdentity !== identity) {
+    return false;
+  }
+
+  loadSeq += 1;
+  viewModel.value = prepared;
+  loggedRenderFailures.delete(identity);
+  error.value = null;
+  loading.value = false;
+  emit('loaded', prepared);
+  return true;
+}
+
 const renderIdentity = computed(() => {
   const card = props.card;
   const meta = card?.meta;
@@ -158,7 +181,7 @@ const renderIdentity = computed(() => {
 });
 
 watch(
-  renderIdentity,
+  () => [renderIdentity.value, props.preparedIdentity || '', props.refreshEpoch || 0],
   () => {
     void loadViewModel();
   },
