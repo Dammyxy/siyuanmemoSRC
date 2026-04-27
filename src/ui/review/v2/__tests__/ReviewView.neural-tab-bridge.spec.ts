@@ -2,7 +2,7 @@
 
 import { flushPromises, mount } from '@vue/test-utils';
 import { defineComponent, h } from 'vue';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import type { ReviewViewTabBridge } from '../types';
 import { createEmptyReviewUIState } from '../types';
@@ -15,6 +15,8 @@ vi.mock('siyuan', () => ({
   })),
   showMessage: vi.fn(),
 }));
+
+const reviewContentRefreshVisibleContent = vi.fn(async () => true);
 
 function buildCard(blockId: string) {
   const now = Date.now();
@@ -180,7 +182,10 @@ const ReviewHeaderStub = defineComponent({
 
 const ReviewContentStub = defineComponent({
   name: 'ReviewContent',
-  setup() {
+  setup(_props, { expose }) {
+    expose({
+      refreshVisibleContent: reviewContentRefreshVisibleContent,
+    });
     return () => h('div', { class: 'review-content-stub' });
   },
 });
@@ -226,18 +231,15 @@ function mountReviewView(queue: unknown) {
 }
 
 describe('ReviewView neural tab bridge', () => {
-  it('refreshes the tab surface by explicit card id even when the current review state already points at that card', async () => {
+  beforeEach(() => {
+    reviewContentRefreshVisibleContent.mockClear();
+    reviewContentRefreshVisibleContent.mockResolvedValue(true);
+  });
+
+  it('soft-refreshes the tab surface when the explicit card id already matches the current card', async () => {
     const initialCard = buildCard('block-initial');
-    const refreshedCard = {
-      ...initialCard,
-      meta: {
-        forceQuickRender: true,
-        renderProfile: 'quick-default',
-      },
-      updatedAt: initialCard.updatedAt + 1,
-    };
     const manager = {
-      getCard: vi.fn(async () => refreshedCard),
+      getCard: vi.fn(),
       registerObserver: vi.fn(),
       unregisterObserver: vi.fn(),
     };
@@ -273,9 +275,65 @@ describe('ReviewView neural tab bridge', () => {
     await expect(bridge.refreshTabSurface(initialCard.id)).resolves.toBe(true);
     await flushPromises();
 
-    expect(manager.getCard).toHaveBeenCalledWith(initialCard.id, { silent: true });
+    expect(manager.getCard).not.toHaveBeenCalled();
+    expect(reviewContentRefreshVisibleContent).toHaveBeenCalledWith('tab-surface');
     expect(wrapper.getComponent(ReviewActionsStub).props('currentCard')).toMatchObject({
       id: initialCard.id,
+    });
+
+    wrapper.unmount();
+  });
+
+  it('hydrates the tab surface when an explicit non-current card id is requested', async () => {
+    const initialCard = buildCard('block-initial');
+    const refreshedCard = {
+      ...buildCard('block-refreshed'),
+      meta: {
+        forceQuickRender: true,
+        renderProfile: 'quick-default',
+      },
+    };
+    const manager = {
+      getCard: vi.fn(async () => refreshedCard),
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+    };
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        mode: 'tab',
+        queue: createQueue(initialCard, {}) as never,
+        adapter: createAdapter() as never,
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => manager,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const bridge = wrapper.vm as unknown as ReviewViewTabBridge;
+    await expect(bridge.refreshTabSurface(refreshedCard.id)).resolves.toBe(true);
+    await flushPromises();
+
+    expect(manager.getCard).toHaveBeenCalledWith(refreshedCard.id, { silent: true });
+    expect(reviewContentRefreshVisibleContent).not.toHaveBeenCalled();
+    expect(wrapper.getComponent(ReviewActionsStub).props('currentCard')).toMatchObject({
+      id: refreshedCard.id,
       meta: {
         forceQuickRender: true,
         renderProfile: 'quick-default',

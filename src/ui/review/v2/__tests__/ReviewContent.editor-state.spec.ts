@@ -14,6 +14,8 @@ const reviewContentMocks = vi.hoisted(() => {
     protyle: { wysiwyg: { element: HTMLElement } };
   }> = [];
   const blockFixtures = new Map<string, string>();
+  const deferredAfterBlockIds = new Set<string>();
+  const deferredAfterCallbacks = new Map<string, () => void>();
 
   class MockApp {}
 
@@ -50,7 +52,11 @@ const reviewContentMocks = vi.hoisted(() => {
         },
       };
       instances.push(this);
-      options.after?.(this);
+      if (typeof options.blockId === 'string' && deferredAfterBlockIds.has(options.blockId)) {
+        deferredAfterCallbacks.set(options.blockId, () => options.after?.(this));
+      } else {
+        options.after?.(this);
+      }
     }
 
     enable(): void {
@@ -72,6 +78,8 @@ const reviewContentMocks = vi.hoisted(() => {
 
   return {
     blockFixtures,
+    deferredAfterBlockIds,
+    deferredAfterCallbacks,
     instances,
     MockApp,
     MockProtyle,
@@ -173,13 +181,13 @@ vi.mock('@/infrastructure/siyuan/api', () => ({
 
 import ReviewContent from '../ReviewContent.vue';
 
-function createProtyleContent() {
+function createProtyleContent(blockId = 'block-1', cardId = 'card-1') {
   return {
     type: 'protyle' as const,
-    id: 'block-1',
+    id: blockId,
     data: '',
     card: {
-      id: 'card-1',
+      id: cardId,
       type: 'item',
       meta: {
         forceProtyleRender: true,
@@ -554,6 +562,8 @@ describe('ReviewContent editor state', () => {
   beforeEach(() => {
     reviewContentMocks.instances.length = 0;
     reviewContentMocks.blockFixtures.clear();
+    reviewContentMocks.deferredAfterBlockIds.clear();
+    reviewContentMocks.deferredAfterCallbacks.clear();
     reviewContentLoggerMocks.warn.mockReset();
     reviewContentLoggerMocks.error.mockReset();
     reviewContentLoggerMocks.debug.mockReset();
@@ -1962,6 +1972,115 @@ describe('ReviewContent editor state', () => {
     expect(initialProtyle?.reloadCallCount).toBe(1);
     expect(initialProtyle?.destroyCallCount).toBe(0);
     expect(reviewContentMocks.instances).toHaveLength(1);
+
+    wrapper.unmount();
+  });
+
+  it('ignores renderEpoch changes on the main Protyle path', async () => {
+    setBlockFixture('block-1', '<div data-node-id="block-1">question</div>');
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent(),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'slide-left',
+        },
+        renderEpoch: 0,
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const initialProtyle = reviewContentMocks.instances[0];
+    expect(initialProtyle).toBeTruthy();
+
+    await wrapper.setProps({ renderEpoch: 1 });
+    await settleReviewContent();
+
+    expect(reviewContentMocks.instances).toHaveLength(1);
+    expect(initialProtyle?.reloadCallCount).toBe(0);
+    expect(initialProtyle?.destroyCallCount).toBe(0);
+
+    wrapper.unmount();
+  });
+
+  it('keeps the active Protyle visible while the next card Protyle is pending', async () => {
+    setBlockFixture('block-1', '<div data-node-id="block-1">question one</div>');
+    setBlockFixture('block-2', '<div data-node-id="block-2">question two</div>');
+    reviewContentMocks.deferredAfterBlockIds.add('block-2');
+
+    const wrapper = mount(ReviewContent, {
+      attachTo: attachTarget,
+      props: {
+        app: {},
+        plugin: {
+          getContext: () => ({
+            getCardStorage: () => null,
+          }),
+        },
+        content: createProtyleContent('block-1', 'card-1'),
+        showAnswer: true,
+        hasHiddenContent: false,
+        meta: {
+          transition: 'slide-left',
+        },
+      },
+      global: {
+        stubs: {
+          transition: false,
+          XiuyuanListTemplateCard: true,
+          MultiClozeCardRenderer: true,
+          ImageOcclusionCardRenderer: true,
+          QuickCardRenderer: true,
+          DescriptorCardRenderer: true,
+          ConceptDefinitionCardRenderer: true,
+          ConceptCardRenderer: true,
+        },
+      },
+    });
+
+    await settleReviewContent();
+
+    const initialProtyle = reviewContentMocks.instances[0];
+    expect(initialProtyle).toBeTruthy();
+
+    await wrapper.setProps({
+      content: createProtyleContent('block-2', 'card-2'),
+    });
+    await flushPromises();
+
+    expect(reviewContentMocks.instances).toHaveLength(2);
+    expect(initialProtyle?.destroyCallCount).toBe(0);
+    expect(initialProtyle?.host.isConnected).toBe(true);
+    expect(wrapper.find('.fsrs-review-v2-content__protyle-instance[data-pending="true"]').exists()).toBe(true);
+
+    reviewContentMocks.deferredAfterCallbacks.get('block-2')?.();
+    await settleReviewContent();
+
+    expect(initialProtyle?.destroyCallCount).toBeGreaterThan(0);
+    expect(initialProtyle?.host.isConnected).toBe(false);
+    expect(wrapper.find('.fsrs-review-v2-content__protyle-instance[data-pending="true"]').exists()).toBe(false);
 
     wrapper.unmount();
   });

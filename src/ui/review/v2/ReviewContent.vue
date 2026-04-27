@@ -16,7 +16,7 @@
             :meta="content.xiuyuanMeta"
             :show-answer="!showAnswer"
             :question-block-id="content.id"
-            :plugin="plugin"
+            :plugin="props.plugin"
             :display-mode="resolvedRenderProfile === 'cdf-multiline' ? 'direct' : 'semantic'"
           />
         </div>
@@ -146,7 +146,7 @@ import QuickCardRenderer from '../components/QuickCardRenderer.vue';
 import DescriptorCardRenderer from '../components/DescriptorCardRenderer.vue';
 import ConceptDefinitionCardRenderer from '../components/ConceptDefinitionCardRenderer.vue';
 import ConceptCardRenderer from '../components/ConceptCardRenderer.vue';
-import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
+import { createReviewRenderServices, type ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { 
   type XiuyuanCardMeta,
   isConceptDefinitionCard as checkIsConceptDefinitionCard, 
@@ -174,6 +174,7 @@ import { resolveRenderProfile } from '@/core/card/render-profile/RenderProfileRe
 
 const props = defineProps<{
   app: siyuan.App;
+  plugin?: unknown;
   content: ReviewUIState['content'];
   overlay?: ReviewUIState['overlay'];
   i18n?: Record<string, string>;
@@ -181,7 +182,7 @@ const props = defineProps<{
   showAnswer?: boolean;
   meta?: ReviewUIState['meta'];
   renderEpoch?: number;
-  renderServices: ReviewRenderServices;
+  renderServices?: ReviewRenderServices;
 }>();
 const emit = defineEmits<{
   (e: 'editor-state-change', state: ReviewEditorState): void;
@@ -259,20 +260,32 @@ const { getCardType, setCardType, getCacheStats: getCardTypeCacheStats } = useCa
 
 // 计算卡片切换动画名称
 const transitionName = computed(() => {
+  if (props.content.type === 'protyle') {
+    return 'fsrs-review-transition-none';
+  }
   const transition = props.meta?.transition || 'none';
   return `fsrs-review-transition-${transition}`;
 });
 const renderEpoch = computed(() => Math.max(0, Number(props.renderEpoch) || 0));
 const specialRendererRefreshEpoch = ref(0);
 
-// 计算内容 key，用于触发过渡动画
-const contentKey = computed(() => {
-  // 对于有 card 的情况，使用 card.id 确保唯一性（特别是多挖空卡片）
+const renderIdentityKey = computed(() => {
   const cardId = props.content.card?.id || '';
   return `${props.content.type}-${props.content.id}-${props.content.data}-${cardId}`;
 });
 
-const specialRendererKey = computed(() => `${contentKey.value}-${renderEpoch.value}-${specialRendererRefreshEpoch.value}`);
+// Keep the Protyle subtree mounted while card content changes. The native
+// review UI keeps one editor surface alive, and this stable key prevents Vue's
+// transition wrapper from tearing down the whole content area before Protyle is
+// ready to show the next card.
+const contentKey = computed(() => {
+  if (props.content.type === 'protyle') {
+    return 'protyle-stable';
+  }
+  return renderIdentityKey.value;
+});
+
+const specialRendererKey = computed(() => `${renderIdentityKey.value}-${renderEpoch.value}-${specialRendererRefreshEpoch.value}`);
 
 const hostRef = ref<HTMLDivElement | null>(null);
 const answerHostRef = ref<HTMLDivElement | null>(null);
@@ -287,18 +300,26 @@ let mainRenderRetryAttempts = 0;
 let protyleInitialized = false;  // 🆕 跟踪 Protyle 是否已初始化
 let protyleInitTimer: ReturnType<typeof setTimeout> | null = null;
 let currentEditorState = createReviewEditorState();
+let activeMainProtyleHost: HTMLElement | null = null;
+let activeMainProtyleBlockId = '';
+let pendingMainProtyle: siyuan.Protyle | null = null;
+let pendingMainProtyleHost: HTMLElement | null = null;
 let mainProtyleFocusCleanup: (() => void) | null = null;
 let mainProtyleFocusTimer: ReturnType<typeof setTimeout> | null = null;
 const invalidForcedQuickRenderVersion = ref(0);
 const invalidForcedQuickRenderKeys = new Set<string>();
 const MAX_MAIN_RENDER_RETRIES = 6;
 
+const resolvedRenderServices = computed(() => props.renderServices ?? createReviewRenderServices({
+  i18n: props.i18n,
+}));
+
 // 快速卡片渲染服务
-const quickCardRenderService = ref(props.renderServices.quickCardRenderService);
+const quickCardRenderService = computed(() => resolvedRenderServices.value.quickCardRenderService);
 const isQuickCard = ref(false);
 
 // 描述符卡渲染服务
-const descriptorCardRenderService = ref(props.renderServices.descriptorCardRenderService);
+const descriptorCardRenderService = computed(() => resolvedRenderServices.value.descriptorCardRenderService);
 const isDescriptorCard = ref(false);
 
 // 概念定义卡状态
@@ -431,7 +452,7 @@ const renderCacheKey = computed(() =>
 );
 
 const renderWatchKey = computed(() =>
-  `${buildReviewRenderWatchKey({
+  buildReviewRenderWatchKey({
     contentType: String(props.content.type || ''),
     blockId: String(props.content.id || ''),
     cardId: String(props.content.card?.id || ''),
@@ -446,7 +467,7 @@ const renderWatchKey = computed(() =>
     symbolType: quickIndicatorSymbolType.value,
     renderProfile: resolvedRenderProfile.value || '',
     quickDetectReason: quickDetectReason.value,
-  })}::${renderEpoch.value}`,
+  }),
 );
 
 // Formula cloze keeps the dedicated renderer; ordinary mark/brace cloze uses
@@ -900,7 +921,10 @@ function scheduleMainRenderRetry(blockId: string): void {
   const retryAttempt = mainRenderRetryAttempts;
   mainRenderRetryTimer = setTimeout(() => {
     mainRenderRetryTimer = null;
-    if (currentRendererKind.value !== 'main-protyle' || editorRef.value) {
+    if (
+      currentRendererKind.value !== 'main-protyle'
+      || (editorRef.value && activeMainProtyleBlockId === blockId)
+    ) {
       return;
     }
     logger.debug('[SiYuanMemo][ReviewContent] Retrying main Protyle render after host miss', {
@@ -1059,8 +1083,13 @@ async function refreshVisibleContent(reason?: string): Promise<boolean> {
   });
 
   if (renderer === 'main-protyle') {
+    const blockId = String(props.content.id || '').trim();
     let refreshed = false;
-    if (typeof editorRef.value?.reload === 'function') {
+    if (
+      blockId
+      && activeMainProtyleBlockId === blockId
+      && typeof editorRef.value?.reload === 'function'
+    ) {
       editorRef.value.reload(false);
       refreshed = true;
     }
@@ -1080,7 +1109,6 @@ async function refreshVisibleContent(reason?: string): Promise<boolean> {
       return true;
     }
 
-    const blockId = String(props.content.id || '').trim();
     if (!blockId) {
       return false;
     }
@@ -1419,10 +1447,74 @@ function shouldApplyNativeHideClasses(host: HTMLElement): boolean {
   return false;
 }
 
+function destroyPendingMainProtyle(): void {
+  const pendingEditor = pendingMainProtyle;
+  const pendingHost = pendingMainProtyleHost;
+  pendingMainProtyle = null;
+  pendingMainProtyleHost = null;
+
+  try {
+    pendingEditor?.destroy?.();
+  } catch {}
+  pendingHost?.remove();
+}
+
+function createMainProtyleHost(container: HTMLElement, blockId: string, pending: boolean): HTMLElement {
+  const mount = document.createElement('div');
+  mount.className = 'fsrs-review-v2-content__protyle-instance';
+  mount.dataset.blockId = blockId;
+
+  if (pending) {
+    mount.dataset.pending = 'true';
+    mount.setAttribute('aria-hidden', 'true');
+  }
+
+  container.appendChild(mount);
+  return mount;
+}
+
+function prepareMainProtyleHost(container: HTMLElement, blockId: string): HTMLElement {
+  if (!editorRef.value && !activeMainProtyleHost) {
+    container.replaceChildren();
+    return createMainProtyleHost(container, blockId, false);
+  }
+
+  return createMainProtyleHost(container, blockId, true);
+}
+
+function promoteMainProtyle(protyle: siyuan.Protyle, mount: HTMLElement, blockId: string): void {
+  const previousEditor = editorRef.value;
+  const previousHost = activeMainProtyleHost;
+
+  if (pendingMainProtyle === protyle) {
+    pendingMainProtyle = null;
+  }
+  if (pendingMainProtyleHost === mount) {
+    pendingMainProtyleHost = null;
+  }
+
+  editorRef.value = protyle;
+  activeMainProtyleHost = mount;
+  activeMainProtyleBlockId = blockId;
+  mount.removeAttribute('aria-hidden');
+  delete mount.dataset.pending;
+
+  if (previousEditor && previousEditor !== protyle) {
+    try {
+      previousEditor.destroy?.();
+    } catch {}
+  }
+
+  if (previousHost && previousHost !== mount) {
+    previousHost.remove();
+  }
+}
+
 function destroyMainProtyle(options?: { invalidatePending?: boolean }): void {
   if (options?.invalidatePending) {
     renderSeq += 1;
   }
+  destroyPendingMainProtyle();
   clearMainRenderRetryTimer();
   clearProtyleInitTimer();
   removeMainProtyleFocusTracking();
@@ -1433,6 +1525,8 @@ function destroyMainProtyle(options?: { invalidatePending?: boolean }): void {
     editorRef.value?.destroy?.();
   } catch {}
   editorRef.value = null;
+  activeMainProtyleHost = null;
+  activeMainProtyleBlockId = '';
   hostRef.value?.replaceChildren();
 }
 
@@ -1496,12 +1590,23 @@ function applyAnswerVisibility(): void {
 async function renderProtyle(blockId: string): Promise<void> {
   const seq = ++renderSeq;
   clearRendererError();
-  destroyMainProtyle();
+  destroyPendingMainProtyle();
+  clearMainRenderRetryTimer();
+  clearProtyleInitTimer();
   emitEditorState(createReviewEditorState('main-protyle'));
   logBidirectionalTemplateDiagnostic('render-start', {
     blockId,
     seq,
   });
+
+  if (editorRef.value && activeMainProtyleBlockId === blockId) {
+    applyAnswerVisibility();
+    logBidirectionalTemplateDiagnostic('main-protyle-reused', {
+      blockId,
+      seq,
+    });
+    return;
+  }
 
   // Reset renderer flags early to prevent stale card type leaking between cards.
   isConceptDefinitionCard.value = false;
@@ -1958,19 +2063,10 @@ async function renderProtyle(blockId: string): Promise<void> {
     return;
   }
 
-  logger.debug('[SiYuanMemo][ReviewContent] Destroying old Protyle instance');
-
-  // Destroy old instance
-  try {
-    editorRef.value?.destroy?.();
-  } catch {}
-
-  // Clear host
-  hostElement.innerHTML = '';
+  const nextHostElement = prepareMainProtyleHost(hostElement, blockId);
   
   // 🆕 重置 Protyle 初始化标志和 CSS 状态
   protyleInitialized = false;
-  resetCssState();
   
   // 🆕 预先应用隐藏类，避免闪烁
   hostElement.classList.remove(...REVIEW_HIDE_CLASSES, ...LEGACY_NATIVE_HIDE_CLASSES);
@@ -1980,38 +2076,54 @@ async function renderProtyle(blockId: string): Promise<void> {
     seq,
     hostChildCount: hostElement.childElementCount,
     hostConnected: hostElement.isConnected,
+    mountPending: nextHostElement.dataset.pending === 'true',
     actions: buildMainProtyleActions(cbGetAll),
     renderOptions: buildMainProtyleRenderOptions(),
   });
 
   // Create new instance with blockId - Protyle will auto-load content
-  editorRef.value = new ProtyleCtor(props.app, hostElement, {
+  const nextEditor = new ProtyleCtor(props.app, nextHostElement, {
     blockId,
     action: buildMainProtyleActions(cbGetAll),
     render: buildMainProtyleRenderOptions(),
     typewriterMode: false,
     after: (protyle: siyuan.Protyle) => {
-      if (seq !== renderSeq || currentRendererKind.value !== 'main-protyle' || !hostElement.isConnected) {
+      if (
+        seq !== renderSeq
+        || currentRendererKind.value !== 'main-protyle'
+        || !hostElement.isConnected
+        || !nextHostElement.isConnected
+      ) {
+        if (pendingMainProtyle === protyle) {
+          pendingMainProtyle = null;
+        }
+        if (pendingMainProtyleHost === nextHostElement) {
+          pendingMainProtyleHost = null;
+        }
         try {
           protyle.destroy?.();
         } catch {}
+        nextHostElement.remove();
         logBidirectionalTemplateDiagnostic('main-after-cancelled', {
           blockId,
           seq,
           hostConnected: hostElement.isConnected,
+          mountConnected: nextHostElement.isConnected,
           currentRenderer: currentRendererKind.value,
         });
         return;
       }
       logger.debug('[SiYuanMemo][ReviewContent] Protyle after callback called');
+      promoteMainProtyle(protyle, nextHostElement, blockId);
+      resetCssState();
       attachMainProtyleFocusTracking(protyle);
       applyAnswerVisibility();
       logBidirectionalTemplateDiagnostic('main-after', {
         blockId,
         seq,
-        hasWysiwyg: Boolean(hostElement.querySelector('.protyle-wysiwyg')),
+        hasWysiwyg: Boolean(nextHostElement.querySelector('.protyle-wysiwyg')),
         hostChildCount: hostElement.childElementCount,
-        hostHtmlPreview: hostElement.innerHTML.slice(0, 240),
+        hostHtmlPreview: nextHostElement.innerHTML.slice(0, 240),
       });
       
       // 🆕 标记 Protyle 已初始化
@@ -2045,6 +2157,11 @@ async function renderProtyle(blockId: string): Promise<void> {
       });
     },
   });
+
+  if (editorRef.value !== nextEditor && activeMainProtyleHost !== nextHostElement) {
+    pendingMainProtyle = nextEditor;
+    pendingMainProtyleHost = nextHostElement;
+  }
 
   logger.debug('[SiYuanMemo][ReviewContent] Protyle instance created');
 }
@@ -2221,16 +2338,6 @@ onUnmounted(() => {
   destroyMainProtyle({ invalidatePending: true });
   destroyAnswerProtyle({ invalidatePending: true });
   emitEditorState(createReviewEditorState('empty'));
-  try {
-    editorRef.value?.destroy?.();
-  } catch {}
-  editorRef.value = null;
-  
-  // 清理答案 Protyle
-  try {
-    answerEditorRef.value?.destroy?.();
-  } catch {}
-  answerEditorRef.value = null;
 });
 
 const overlay = computed(() => props.overlay);
@@ -2336,6 +2443,18 @@ const content = computed(() => props.content);
   padding: 0;
   min-width: 0;
   overflow-x: hidden;
+  position: relative;
+}
+
+.fsrs-review-v2-content__protyle-instance {
+  min-width: 0;
+}
+
+.fsrs-review-v2-content__protyle-instance[data-pending='true'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Xiuyuan 模板卡片答案分隔线 */

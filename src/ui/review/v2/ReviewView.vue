@@ -1975,20 +1975,27 @@ async function refreshTabSurface(preferredCardId?: string | null): Promise<boole
   const preferred = String(preferredCardId || '').trim();
   const currentReference = getCurrentReviewCardReference();
   const targetCardId = preferred || currentReference.cardId;
+  let refreshedCardState = false;
 
   if (targetCardId) {
     const shouldForceCardRefresh = (
-      Boolean(preferred)
-      || currentReference.cardId !== targetCardId
+      currentReference.cardId !== targetCardId
       || state.value.content.type === 'empty'
       || !state.value.content.card
     );
     if (shouldForceCardRefresh) {
       await refreshReviewCardById(targetCardId);
+      refreshedCardState = true;
     }
   }
 
-  renderEpoch.value += 1;
+  if (!refreshedCardState) {
+    const refreshedVisibleContent = await contentRef.value?.refreshVisibleContent?.('tab-surface');
+    if (!refreshedVisibleContent) {
+      renderEpoch.value += 1;
+    }
+  }
+
   await nextTick();
 
   return Boolean(

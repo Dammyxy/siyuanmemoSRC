@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-27 (Round 162)
+Last update: 2026-04-28 (Round 163)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - review Protyle flicker reduction
+
+- Task: 修复复习正文区打开、切卡、页签生命周期刷新时像整块重载一样频闪的问题，并向思源原生复习的稳定渲染靠拢。
+- Touched slice: Review UI rendering path across `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/ReviewContent.vue`, and focused review component tests.
+- Debt fixed now: 同卡 `refreshTabSurface` 改为优先走 `ReviewContent.refreshVisibleContent('tab-surface')`，不再无条件 bump `renderEpoch`；普通 Protyle 卡从 `renderEpoch` 监听中解耦，稳定 Vue content key 并关闭 Protyle 卡片 slide transition；切换普通 Protyle 卡时先创建 pending Protyle mount，待 `after` 回调后再 promoted 并销毁旧实例，避免旧正文先被清空。
+- Debt deferred: 未直接复用思源内部 `onGet` 单实例灌入实现；未重构答案块 Protyle 为同样的双缓冲加载；未处理所有特殊 renderer 的动画设计。
+- Why deferred: `onGet` 不是插件公开 API，硬依赖会提高版本耦合；答案块和特殊 renderer 不是本次日志指向的主要频闪源，贸然扩大改动会增加回归面。
+- Next safe step: 若用户仍反馈答案块或特殊卡闪动，再把同样的 pending-host 策略下沉到 answer Protyle 或特定 renderer，而不是改队列。
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.neural-tab-bridge.spec.ts`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-27 - review log service startup wiring
 
