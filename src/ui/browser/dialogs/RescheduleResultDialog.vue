@@ -125,6 +125,7 @@ function formatSkipReason(reason: string): string {
     'skip-by-retrievability': '高可提取性',
     'skip-by-afactor': '低 A-Factor',
     'skip-by-postpone-count': '推迟次数过多',
+    'outside-collecting-period': '超出收集期',
     'priority': '优先级过高',
     'interval': '间隔过长',
     'retrievability': '记忆强度过高',

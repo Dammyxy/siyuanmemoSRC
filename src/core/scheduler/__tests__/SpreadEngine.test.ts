@@ -86,6 +86,19 @@ describe('SpreadEngine', () => {
     );
 
     expect(result.updated).toBe(2);
+    expect(result.skipped).toBe(0);
+  });
+
+  it('reports due-only skipped cards when future reviews are not considered', async () => {
+    const cards = [
+      createCard('due', { due: now - dayMs }),
+      createCard('future', { due: now + 2 * dayMs }),
+    ];
+    const result = await engine.execute(cards, createConfig(), 'test');
+
+    expect(result.updated).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.skippedReasons?.['not-outstanding']).toBe(1);
   });
 
   it('enforces maxCardsPerDay and postpones overflow', async () => {

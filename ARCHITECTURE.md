@@ -134,7 +134,7 @@ flowchart TD
    - `UnifiedDataSourceManager` facade
 4. Browser 在全量 / 队列 / deck 等模式下，通过 application queries、统一队列快照或 SQL deck read port 加载数据；SQL active 的 deck 主表走 `COUNT + LIMIT/OFFSET + page hydrate`，`getDeckMatchedIds()` 用 SQL 返回完整匹配 id 列表，missing-block / retrievability 等不能由当前 SQL 投影表达的条件显式回退旧 snapshot 路径
 5. Browser DTO、query parser、stable row id 与排序显示契约以 `src/types/browser.ts` 为共享契约；application query kernel 只依赖 `src/application/queries/browser/shared/*` 与 `src/types/browser.ts`，不再 import UI browser module
-6. 右键批量动作通过当前数据源持有的 `UnifiedDataSourceManager` 批量入口执行：删卡走 `batchDeleteCards(cardIds, { blockIds })`，优先级/重置/暂停/恢复走 `batchUpdateCards(cards)`，加入/移除队列走 `batchAddToQueue()` / queue `addCards()` 与 `removeCards()`；这些入口在应用层分块 upsert / 批量删除 / 一次队列持久化后统一发布 `CardDeleted / CardsDeleted`、`card-updated` 与 `queue-changed`，单卡 API 只作为旧调用 fallback
+6. 右键批量动作通过当前数据源持有的 `UnifiedDataSourceManager` 批量入口执行：删卡走 `batchDeleteCards(cardIds, { blockIds })`，优先级/重置/暂停/恢复走 `batchUpdateCards(cards)`，加入/移除队列走 `batchAddToQueue()` / queue `addCards()` 与 `removeCards()`；`postpone/advance/spread` 走 `RescheduleService -> UnifiedStorageCardUpdateAdapter -> UnifiedStorageManager.batchUpdateCards()`，SQL active 时再一次 `cards` upsert + persist；这些入口在应用层分块 upsert / 批量删除 / 一次队列持久化后统一发布 `CardDeleted / CardsDeleted`、`card-updated` 与 `queue-changed`，单卡 API 只作为旧调用 fallback
 7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection 等 Siyuan 调用必须显式拿到 `BrowserSiyuanPort`，不再依赖 browser service 模块全局状态
 
 ### 4.2 Review
@@ -417,14 +417,14 @@ Handlers / entries / helpers：
 - `src/core/queue/sequencers/*` / `src/core/queue/schedulers/*`：队列内抽卡与排序策略。
 - `src/core/queue/neural/*`：神经漫游引擎、历史、trace、传播相关能力。
 - `src/core/scheduler/SchedulerRouter.ts`：全局调度路由器。
-- `src/core/scheduler/AdvanceEngine.ts` / `PostponeEngine.ts` / `SpreadEngine.ts` / `rescheduleService.ts`：重排与计划引擎。
+- `src/core/scheduler/AdvanceEngine.ts` / `PostponeEngine.ts` / `SpreadEngine.ts` / `rescheduleService.ts`：重排与计划引擎；浏览器 Spread 全局默认只收 due/outstanding，勾选“考虑未来复习”才纳入收集期内未来卡，队列模式用 `collectAllCards` 分摊当前队列全集。
 - `src/core/scheduler/strategies/*`：具体调度器实现。
 - `src/core/scheduler/strategies/SM2ReadOnlyScheduler.ts`：Arena 专用 SM-2 只读评估器，只参与 counterfactual，不进入正式调度路由。
 - `src/core/scheduler/strategies/ClassicSMScheduler.ts`：Arena 专用 classic SM 家族只读评估器，覆盖 `sm5 / sm8 / sm18 / sm20` 的 shadow prediction，不进入正式调度路由。
 
 存储、卡片、修远：
 
-- `src/core/storage/*`：统一存储、持久化回调、底层存储管理。
+- `src/core/storage/*`：统一存储、持久化回调、底层存储管理；`UnifiedStorageManager.batchUpdateCards()` 用于调度/浏览器批量写，批内只重排一次 due 索引、只安排一次 autosave。
 - `src/core/card/*`：卡片领域对象、渲染、卡型实现与卡片规则。
 - `src/core/card-builder/*`：卡型识别、元数据提取与构建辅助。
 - `src/core/card-type/*`：卡型标记与规则映射。
@@ -824,7 +824,7 @@ UI 层：
 当前职责：
 
 - `ReviewCommitUseCase` 是正式复习提交边界：读取当前卡 -> `SchedulerRouter.answer()` -> `commit()` -> 写 `ReviewLogV2` -> 记录 SRS Arena 批次 -> 发布队列/卡片事件；SQL active 时这条链包在 `SqliteDatabaseService.runTransaction('review.feedback')` 中，card 行级 upsert、review event、Arena batch 最终只触发一次二进制 DB persist。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
-- `SchedulerRouter` 是薄门面：保留旧 `preview/route` 兼容入口，负责把 SRS v2 的 `preview -> answer -> commit` 决策流转交给内核；它只持久化调度结果，不拥有正式 revlog
+- `SchedulerRouter` 是薄门面：保留旧 `preview/route` 兼容入口，负责把 SRS v2 的 `preview -> answer -> commit` 决策流转交给内核；它只持久化调度结果，不拥有正式 revlog。调度与重排写入统一经过 `UnifiedStorageCardUpdateAdapter`，批量卡片使用 `UnifiedStorageManager.batchUpdateCards()` 更新内存索引，SQL active 时同批 `SqlUnifiedStorageRepository.upsertCards()` 后一次 persist
 - `SrsV2Kernel` 显式建模 `SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`，并在同一入口处理 `reviewTime + memoryStateAsOf` 的提前复习锚点语义
 - `SrsV2QueuePolicy` 统一 `RetrievalPractice / IncrementalLearning` 的 formal 取卡顺序：Learning/Relearning 到点卡、今日 Review、每日上限内 New；同层按 `due -> priority -> stable noise -> id` 排序。Incremental 的 Topic/Concept/阅读/网页材料继续走 rotation 回访语义
 - 队列通过 `QueueReviewSchedulingContext` 只声明成员资格之外的会话语义，例如 `queueType / queueMode / commitPolicy / isFiltered / customStudy`；调度写入是否发生由 SRS v2 commit policy 决定。手动 future 卡和 `FilterGroup` future 卡默认 `filtered-preview + preview-only`，只有显式重排/设置切换才 `write-schedule`

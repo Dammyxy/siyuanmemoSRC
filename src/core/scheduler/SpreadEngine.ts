@@ -47,6 +47,8 @@ export class SpreadEngine extends BaseRescheduleEngine {
 
         // 1. 收集卡片
         const collectedCards = this.collectCards(cards, config, now);
+        const skipped = Math.max(0, cards.length - collectedCards.length);
+        const skippedReasons = this.buildSkippedReasons(skipped, config);
         
         // 2. 排序卡片
         const sortedCards = this.sortCards(collectedCards, config.sortingCriterion, now);
@@ -70,6 +72,8 @@ export class SpreadEngine extends BaseRescheduleEngine {
         // 6. 构建结果
         const result: SpreadResult = {
             updated: batchResult.successCount,
+            skipped,
+            skippedReasons,
             averageCardsPerDay,
             errors: batchResult.failures.length > 0 
                 ? batchResult.failures.map(f => `Card ${f.item.id}: ${f.error.message}`)
@@ -108,6 +112,19 @@ export class SpreadEngine extends BaseRescheduleEngine {
             // 只收集 Outstanding 卡片
             return cards.filter(card => card.due <= now);
         }
+    }
+
+    private buildSkippedReasons(
+        skipped: number,
+        config: SpreadConfig
+    ): Record<string, number> {
+        if (skipped <= 0 || config.collectAllCards) {
+            return {};
+        }
+
+        return {
+            [config.considerFutureRepetitions ? 'outside-collecting-period' : 'not-outstanding']: skipped,
+        };
     }
 
     /**

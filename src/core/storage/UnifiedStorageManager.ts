@@ -82,6 +82,7 @@ export type RiffSyncStatePatch = Partial<RiffSyncState>;
 export interface CardUpdateOptions {
   preferIncomingScheduling?: boolean;
   suppressAutosave?: boolean;
+  suppressDueIndexSort?: boolean;
 }
 export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
@@ -1821,7 +1822,7 @@ export class UnifiedStorageManager {
           && !clearsXiuyuanTombstone
           && areStructurallyEqual(oldDTO, normalizedDto)
         ) {
-          logger.debug('[UnifiedStorageManager] updateCardDTO no-op skipped', {
+          logger.trace('[UnifiedStorageManager] updateCardDTO no-op skipped', {
             cardId: normalizedDto.id,
           });
           return ok(undefined);
@@ -1854,14 +1855,16 @@ export class UnifiedStorageManager {
           }
           this.clearCardDeletionTombstoneIfRecreated(merged);
           this.updateIndexesForDTO(merged, 'add');
-          this.indexByDue.sort((a, b) => a.due - b.due);
+          if (!options.suppressDueIndexSort) {
+            this.indexByDue.sort((a, b) => a.due - b.due);
+          }
           if (!options.suppressAutosave) {
             this.scheduleSave('update-card-dto-logical-merge');
           }
           return ok(undefined);
         }
 
-        logger.info('[UnifiedStorageManager] updateCardDTO - Before update:', {
+        logger.trace('[UnifiedStorageManager] updateCardDTO - Before update:', {
           cardId: normalizedDto.id,
           oldPriority: oldDTO.priority,
           newPriority: normalizedDto.priority,
@@ -1881,7 +1884,7 @@ export class UnifiedStorageManager {
         }
         this.clearCardDeletionTombstoneIfRecreated(normalizedDto);
 
-        logger.info('[UnifiedStorageManager] updateCardDTO - After update:', {
+        logger.trace('[UnifiedStorageManager] updateCardDTO - After update:', {
           cardId: normalizedDto.id,
           newPriority: normalizedDto.priority,
           cardDTOsSize: this.cardDTOs.size,
@@ -1891,7 +1894,9 @@ export class UnifiedStorageManager {
         this.updateIndexesForDTO(normalizedDto, 'add');
 
         // 閲嶆柊鎺掑簭 due 绱㈠紩
-        this.indexByDue.sort((a, b) => a.due - b.due);
+        if (!options.suppressDueIndexSort) {
+          this.indexByDue.sort((a, b) => a.due - b.due);
+        }
 
         // 璋冨害淇濆瓨
         if (!options.suppressAutosave) {
@@ -1999,6 +2004,54 @@ export class UnifiedStorageManager {
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+
+  async batchUpdateCards(cards: FSRSCard[], options: CardUpdateOptions = {}): Promise<Result<void>> {
+    return this.runWriteMutation('batchUpdateCards', async () => {
+      try {
+        const dedupedCards = new Map<string, FSRSCard>();
+        for (const card of cards || []) {
+          if (!card?.id) {
+            continue;
+          }
+          dedupedCards.set(card.id, card);
+        }
+
+        if (dedupedCards.size === 0) {
+          return ok(undefined);
+        }
+
+        let touchedCount = 0;
+        for (const card of dedupedCards.values()) {
+          const dto = CardMapper.toPersistence(card);
+          const result = await this.updateCardDTO(dto, {
+            ...options,
+            suppressAutosave: true,
+            suppressDueIndexSort: true,
+          });
+          if (isErr(result)) {
+            return result;
+          }
+          touchedCount++;
+        }
+
+        if (touchedCount > 0) {
+          this.indexByDue.sort((a, b) => a.due - b.due);
+          if (!options.suppressAutosave) {
+            this.scheduleSave('batch-update-cards');
+          }
+        }
+
+        logger.debug('[UnifiedStorageManager] batchUpdateCards completed', {
+          attempted: dedupedCards.size,
+          touched: touchedCount,
+        });
+
+        return ok(undefined);
+      } catch (error) {
+        return err(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   /**

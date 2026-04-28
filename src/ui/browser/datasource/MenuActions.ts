@@ -280,6 +280,7 @@ type UnifiedStorageLike = CardReadPort & {
 type RescheduleResultLike = {
   updated?: unknown;
   skipped?: unknown;
+  skippedReasons?: Record<string, number>;
   averageCardsPerDay?: number;
 };
 
@@ -480,7 +481,12 @@ export async function adjustTime(
   selectedRows: BrowserActionTarget[],
   action: RescheduleAction,
   context?: Record<string, unknown>
-): Promise<{ updated: number; skipped: number; averageCardsPerDay?: number } | null> {
+): Promise<{
+  updated: number;
+  skipped: number;
+  skippedReasons?: Record<string, number>;
+  averageCardsPerDay?: number;
+} | null> {
   const rows = (selectedRows || []).map((r) => ({
     blockId: r.blockId,
     cardId: resolveCardId(r) || undefined,
@@ -515,6 +521,7 @@ export async function adjustTime(
     return {
       updated,
       skipped: normalizeCount(rawResult.skipped),
+      skippedReasons: rawResult.skippedReasons,
     };
   }
 
@@ -524,7 +531,12 @@ export async function adjustTime(
       typeof rawResult.averageCardsPerDay === 'number' && Number.isFinite(rawResult.averageCardsPerDay)
         ? rawResult.averageCardsPerDay
         : 0;
-    return { updated, skipped, averageCardsPerDay };
+    return {
+      updated,
+      skipped: normalizeCount(rawResult.skipped, skipped),
+      skippedReasons: rawResult.skippedReasons,
+      averageCardsPerDay,
+    };
   }
 
   return { updated, skipped };

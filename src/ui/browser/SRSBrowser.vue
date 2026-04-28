@@ -5062,9 +5062,10 @@ async function handleOpenSpreadDialog() {
       return dueTime <= now;
     });
     
-    logger.info('[SiYuanMemo][SRSBrowser] Collected outstanding cards:', {
+    logger.info('[SiYuanMemo][SRSBrowser] Spread default eligible cards:', {
       total: cardsToSpread.length,
       outstanding: outstandingCards.length,
+      defaultFilter: isQueueMode ? 'queue-all' : 'due-only',
     });
     
 
@@ -5106,8 +5107,9 @@ async function handleOpenSpreadDialog() {
                 props: {
                   result: {
                     success: true,  // 🆕 添加 success 字段
-                    updated: typeof result.updated === 'number' ? result.updated : (result.updated?.length || 0),
-                    skipped: typeof result.skipped === 'number' ? result.skipped : (result.skipped?.length || 0),
+                    updated: result.updated,
+                    skipped: result.skipped,
+                    skippedReasons: result.skippedReasons,
                     averageCardsPerDay: result.averageCardsPerDay,
                   },
                   operationType: 'spread',  // 🆕 修正属名

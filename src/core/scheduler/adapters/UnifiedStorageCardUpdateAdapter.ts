@@ -38,22 +38,14 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
     const cardsToPersist = Array.from(dedupedCards.values());
 
     await this.storage.runWriteTransaction('scheduler.batchUpdateCardsWithoutEvents', async () => {
-      for (const [cardId, card] of dedupedCards.entries()) {
-        const result = await this.storage.updateCard(card, {
+      const result = await this.storage.batchUpdateCards(cardsToPersist, {
           preferIncomingScheduling: true,
           suppressAutosave: Boolean(this.sqlCards),
         });
-        if (isErr(result)) {
-          throw new Error(
-            `Failed to persist card "${cardId}" in scheduler adapter: ${result.error.message}`
-          );
-        }
-        const persistedCard = this.resolvePersistedCard(card);
-        logger.debug('Scheduler update persisted', {
-          cardId,
-          incoming: this.toSchedulingLog(card),
-          persisted: persistedCard ? this.toSchedulingLog(persistedCard) : null,
-        });
+      if (isErr(result)) {
+        throw new Error(
+          `Failed to persist scheduler card batch: ${result.error.message}`
+        );
       }
 
       if (this.sqlCards) {
@@ -64,6 +56,11 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
     if (this.sqlCards) {
       await this.sqlCards.persist();
     }
+
+    logger.debug('Scheduler batch update persisted', {
+      attempted: cardsToPersist.length,
+      sample: cardsToPersist.slice(0, 3).map(card => this.toSchedulingLog(card)),
+    });
   }
 
   async addReviewLogV2(log: ReviewLogV2): Promise<void> {
@@ -72,25 +69,6 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
     }
 
     await this.reviewLogWriter.addReviewLogV2(log);
-  }
-
-  private resolvePersistedCard(card: FSRSCard): FSRSCard | null {
-    const byId = this.storage.getCard(card.id);
-    if (byId) {
-      return byId;
-    }
-
-    const blockId = String(card.blockId || '').trim();
-    if (blockId) {
-      return this.storage.getCardsByBlockId(blockId)[0] ?? null;
-    }
-
-    const xiuyuanId = String(card.xiuyuanID || '').trim();
-    if (xiuyuanId) {
-      return this.storage.getCardsByXiuyuanId(xiuyuanId)[0] ?? null;
-    }
-
-    return null;
   }
 
   private toSchedulingLog(card: FSRSCard): Record<string, unknown> {

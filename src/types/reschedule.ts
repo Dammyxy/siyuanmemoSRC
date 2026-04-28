@@ -103,6 +103,8 @@ export interface AdvanceResult {
 /** Spread 操作结果 */
 export interface SpreadResult {
     updated: number;
+    skipped?: number;
+    skippedReasons?: Record<string, number>;
     averageCardsPerDay: number;    // 平均每天的卡片数量
     errors?: string[];
 }
