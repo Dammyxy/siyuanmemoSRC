@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 172)
+Last update: 2026-04-28 (Round 173)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - neural roam virtual node fsrs SQL fallback
+
+- Task: 修复神经漫游 hyperspace 虚拟节点误查真实 `fsrs_cards` 导致 `near "LIMIT": syntax error` 刷屏。
+- Touched slice: Queue / neural roam query engine across `src/core/queue/neural/ConceptQueryEngine.ts` and focused neural query tests.
+- Debt fixed now: `isConceptCard()` 先使用已注入的 `nodeTypeResolver` 判定 concept / virtual item / topic / descriptor，只有 unknown 才走 legacy `fsrs_cards` 查询；`fsrs_cards` 缺表或 `LIMIT` 语法不兼容会标记本地卡 SQL 检查不可用并只警告一次；formal review-card 过滤遇到同类 SQL 不兼容时保留虚拟邻居，不再反复报错。
+- Debt deferred: `livereload.js ERR_CONNECTION_REFUSED`、外部插件网络错误、字体 preload 和 WebSocket 生命周期告警不在本轮神经漫游 bounded context。
+- Why deferred: 它们不属于当前 Queue / neural roam active path，合并处理会扩大风险。
+- Next safe step: 若生产日志仍出现 `fsrs_cards` SQL 语法错误，追踪剩余 `fsrs_cards` 查询点并按同一不可用策略收口。
+- Validation: `pnpm exec vitest run src/core/queue/neural/__tests__/ConceptQueryEngine.isConceptCard.test.ts src/core/queue/neural/__tests__/ConceptQueryEngine.backlinks.test.ts src/core/queue/neural/graph/__tests__/NeuralGraphProvider.test.ts`; `pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`git diff --check`（通过；仅 Git 行尾提示）。
 
 ### 2026-04-28 - SQL hot path deferred debt cleared
 

@@ -371,6 +371,11 @@ export class ConceptQueryEngine {
    * @returns 是否为概念卡
    */
   async isConceptCard(blockId: string): Promise<boolean> {
+    const resolvedType = await this.resolveNodeTypeFromResolver(blockId);
+    if (resolvedType !== 'unknown') {
+      return resolvedType === 'concept';
+    }
+
     if (this.fsrsCardsTableAvailable === false) {
       return false;
     }
@@ -393,11 +398,11 @@ export class ConceptQueryEngine {
       const conceptCount = Number(row.concept_count);
       return Number.isFinite(conceptCount) && conceptCount > 0;
     } catch (error) {
-      if (this.isMissingFsrsCardsTableError(error)) {
+      if (this.isFsrsCardsUnavailableError(error)) {
         this.fsrsCardsTableAvailable = false;
         if (!this.hasLoggedMissingFsrsCardsTable) {
           this.hasLoggedMissingFsrsCardsTable = true;
-          logger.warn('fsrs_cards table not found; concept SQL checks will return non-concept in this environment');
+          logger.warn('fsrs_cards SQL checks unavailable; concept checks will use injected node type resolution when available');
         }
         return false;
       }
@@ -823,11 +828,11 @@ export class ConceptQueryEngine {
 
       return 'unknown';
     } catch (error) {
-      if (this.isMissingFsrsCardsTableError(error)) {
+      if (this.isFsrsCardsUnavailableError(error)) {
         this.fsrsCardsTableAvailable = false;
         if (!this.hasLoggedMissingFsrsCardsTable) {
           this.hasLoggedMissingFsrsCardsTable = true;
-          logger.warn('fsrs_cards table not found; local roam-node SQL checks will fall back to syntax detection in this environment');
+          logger.warn('fsrs_cards SQL checks unavailable; local roam-node checks will fall back to resolver and syntax detection');
         }
         return 'unknown';
       }
@@ -955,5 +960,16 @@ export class ConceptQueryEngine {
     const message = error instanceof Error ? error.message : String(error ?? '');
     const normalized = message.toLowerCase();
     return normalized.includes('no such table') && normalized.includes('fsrs_cards');
+  }
+
+  private isLegacyLocalCardSqlUnsupportedError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    const normalized = message.toLowerCase();
+    return normalized.includes('syntax error')
+      && (normalized.includes('near "limit"') || normalized.includes("near 'limit'"));
+  }
+
+  private isFsrsCardsUnavailableError(error: unknown): boolean {
+    return this.isMissingFsrsCardsTableError(error) || this.isLegacyLocalCardSqlUnsupportedError(error);
   }
 }

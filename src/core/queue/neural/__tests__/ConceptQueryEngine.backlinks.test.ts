@@ -229,6 +229,30 @@ describe('ConceptQueryEngine - backlink normalization', () => {
     ]);
   });
 
+  it('keeps virtual neighbors when local fsrs SQL is unsupported', async () => {
+    vi.spyOn(engine, 'fetchBacklinks').mockResolvedValue(['virtual-wrapper-1', 'virtual-wrapper-2']);
+    vi.spyOn(engine, 'fetchDirectOutgoingLinks').mockResolvedValue([]);
+    vi.spyOn(engine, 'fetchIndirectOutgoingLinks').mockResolvedValue([]);
+
+    vi.mocked(api.sql).mockRejectedValue(new Error('near "LIMIT": syntax error'));
+
+    const result = await engine.fetchNeighbors('concept-1');
+
+    expect(result).toEqual([
+      {
+        id: 'virtual-wrapper-1',
+        type: 'backlink',
+        weight: 15,
+      },
+      {
+        id: 'virtual-wrapper-2',
+        type: 'backlink',
+        weight: 15,
+      },
+    ]);
+    expect(api.sql).toHaveBeenCalledTimes(1);
+  });
+
   it('fetches subtree block ids including the root block and descendants', async () => {
     vi.mocked(api.sql).mockResolvedValue([
       { id: 'virtual-1' },
