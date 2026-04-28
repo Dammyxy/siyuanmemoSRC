@@ -164,6 +164,7 @@ export interface UISettings {
     autoAdvanceDelay: number;  // 自动翻卡延迟（秒）
     reviewOpenInNewTabByDefault: boolean; // 桌面端默认以新页签打开复习
     reviewOpenFullscreenByDefault: boolean; // 桌面端对话框复习默认全屏
+    reviewSourceBlockRefreshEnabled: boolean; // 复习页监听源块 workspace transaction 并刷新正文（高级开关，默认关闭）
     enableDebugLogs: boolean;  // 启用调试日志（开发用）
 }
 
@@ -901,6 +902,7 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
         const normalizedUi = normalized.ui;
         const hasReviewOpenInNewTabDefault = Object.prototype.hasOwnProperty.call(sourceUi, 'reviewOpenInNewTabByDefault');
         const hasReviewOpenFullscreenDefault = Object.prototype.hasOwnProperty.call(sourceUi, 'reviewOpenFullscreenByDefault');
+        const hasReviewSourceBlockRefreshEnabled = Object.prototype.hasOwnProperty.call(sourceUi, 'reviewSourceBlockRefreshEnabled');
         if (
             sourceUi.defaultMode !== normalizedUi.defaultMode
             || sourceUi.showTimer !== normalizedUi.showTimer
@@ -910,8 +912,10 @@ export function normalizePluginSettings(settings: PluginSettings): { settings: P
             || sourceUi.autoAdvanceDelay !== normalizedUi.autoAdvanceDelay
             || !hasReviewOpenInNewTabDefault
             || !hasReviewOpenFullscreenDefault
+            || !hasReviewSourceBlockRefreshEnabled
             || (sourceUi.reviewOpenInNewTabByDefault ?? DEFAULT_SETTINGS.ui.reviewOpenInNewTabByDefault) !== normalizedUi.reviewOpenInNewTabByDefault
             || (sourceUi.reviewOpenFullscreenByDefault ?? DEFAULT_SETTINGS.ui.reviewOpenFullscreenByDefault) !== normalizedUi.reviewOpenFullscreenByDefault
+            || (sourceUi.reviewSourceBlockRefreshEnabled ?? DEFAULT_SETTINGS.ui.reviewSourceBlockRefreshEnabled) !== normalizedUi.reviewSourceBlockRefreshEnabled
             || sourceUi.enableDebugLogs !== normalizedUi.enableDebugLogs
         ) {
             changed = true;
@@ -1833,6 +1837,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
         autoAdvanceDelay: 0.5,
         reviewOpenInNewTabByDefault: false,
         reviewOpenFullscreenByDefault: false,
+        reviewSourceBlockRefreshEnabled: false,
         enableDebugLogs: false,  // 默认关闭调试日志
     },
     incremental: {

@@ -208,7 +208,7 @@ describe('ReviewView local advance race guard', () => {
     await flushPromises();
     await flushPromises();
 
-    expect(manager.getCard).toHaveBeenCalledWith('card-1');
+    expect(manager.getCard).not.toHaveBeenCalled();
     expect(wrapper.get('.review-current-card').text()).toBe('card-2');
     expect(wrapper.get('.review-header-priority').text()).toBe('5');
 

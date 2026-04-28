@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 167)
+Last update: 2026-04-28 (Round 168)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - review source transaction listener throttled
+
+- Task: 修复复习切卡时源块 `ws-main` transaction 监听与 `card-updated` observer 叠加刷新导致卡顿的问题。
+- Touched slice: Review UI / settings normalization across `src/ui/review/v2/ReviewView.vue`, `src/types/settings.ts`, and focused review/settings tests.
+- Debt fixed now: 复习页源块 transaction 刷新改为高级开关 `ui.reviewSourceBlockRefreshEnabled` 且默认关闭；本地 `advancePending` 期间丢弃源块 pending refresh 和当前卡 `card-updated` refresh，避免旧卡刷新撞上切卡热路径；旧设置归一化会补齐默认值。
+- Debt deferred: 暂未做 Settings 面板可视化入口，也未把多复习面源块 transaction 监听抽成全局共享 listener。
+- Why deferred: 本轮目标是止住切卡热路径卡顿；可视化设置和全局监听池会扩大 UI、i18n、跨 surface 生命周期范围。
+- Next safe step: 若用户确实需要源块实时刷新，再加 Settings 面板开关；若多面板仍要开启该能力，再设计单例 workspace transaction dispatcher。
+- Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts src/ui/review/v2/__tests__/ReviewView.local-advance-race.spec.ts src/ui/review/v2/__tests__/ReviewView.priority-sync.spec.ts src/types/__tests__/settings-normalization.test.ts`; `pnpm build`; `rg -n "reviewSourceBlockRefreshEnabled|ws-main|advancePending" src/ui/review/v2 src/types/settings.ts`.
 
 ### 2026-04-28 - runtime-only visible review AI context sync
 

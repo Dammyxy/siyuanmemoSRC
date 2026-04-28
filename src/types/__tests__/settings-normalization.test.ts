@@ -141,12 +141,14 @@ describe('settings normalization', () => {
     const legacy = cloneSettings();
     delete (legacy.ui as Partial<typeof legacy.ui>).reviewOpenInNewTabByDefault;
     delete (legacy.ui as Partial<typeof legacy.ui>).reviewOpenFullscreenByDefault;
+    delete (legacy.ui as Partial<typeof legacy.ui>).reviewSourceBlockRefreshEnabled;
 
     const normalized = normalizePluginSettings(legacy);
 
     expect(normalized.changed).toBe(true);
     expect(normalized.settings.ui.reviewOpenInNewTabByDefault).toBe(false);
     expect(normalized.settings.ui.reviewOpenFullscreenByDefault).toBe(false);
+    expect(normalized.settings.ui.reviewSourceBlockRefreshEnabled).toBe(false);
   });
 
   it('normalizes the legacy default incremental sync trigger triplet down to plugin-start only', () => {

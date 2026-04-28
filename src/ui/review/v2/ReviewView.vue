@@ -217,6 +217,7 @@ import {
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type { ProgressiveExcerptCreationResult } from '@/application/services/ProgressiveReadingService';
 import type { AIWorkbenchLegacyView, AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
+import type { PluginSettings } from '@/types/settings';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
@@ -323,15 +324,7 @@ type ReviewPluginContextLike = {
     | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
   getStorage?: () => {
-    getSettings?: () => {
-      riffIntegration?: {
-        mode?: string;
-        incrementalSync?: {
-          enabled?: boolean;
-          triggers?: string[];
-        };
-      };
-    };
+    getSettings?: () => ReviewRuntimeSettingsLike;
     getCard?: (cardId: string) => { id: string; blockId?: string } | undefined;
     getCardByBlockId?: (blockId: string) => { id: string } | undefined;
   };
@@ -362,16 +355,7 @@ type ReviewPluginContextLike = {
     openBlockTab: (options: { blockId: string }) => Promise<void>;
   } | undefined;
   getSettingsService?: () => {
-    getSettings?: () => {
-      ai?: {
-        chatDefaults?: {
-          reviewDefaultSkillId?: 'general-chat' | 'concept-coach';
-        };
-      };
-      progressiveReading?: {
-        altXExcerptEnabled?: boolean;
-      };
-    };
+    getSettings?: () => ReviewRuntimeSettingsLike;
   } | undefined;
   getCardService?: () => CardApplicationService | undefined;
   getCardEditorService?: () => CardEditorApplicationService | undefined;
@@ -384,6 +368,10 @@ type ReviewPluginContextLike = {
   } | undefined;
   getUnifiedDataSourceManager?: () => IUnifiedDataSourceManagerFacade | null | undefined;
 };
+
+type ReviewRuntimeSettingsLike = Pick<Partial<PluginSettings>,
+  'ai' | 'progressiveReading' | 'quickCard' | 'riffIntegration' | 'ui'
+>;
 
 type ReviewPluginLike = {
   name?: unknown;
@@ -540,6 +528,20 @@ function getWorkspaceEventBus(): WorkspaceEventBusLike | null {
   }
 
   return getWindowPlugin()?.eventBus || null;
+}
+
+function getReviewRuntimeSettings(): ReviewRuntimeSettingsLike | null {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getSettingsService?.()?.getSettings?.()
+    || contextFromWindow?.getSettingsService?.()?.getSettings?.()
+    || contextFromProps?.getStorage?.()?.getSettings?.()
+    || contextFromWindow?.getStorage?.()?.getSettings?.()
+    || null;
+}
+
+function isReviewSourceBlockRefreshEnabled(): boolean {
+  return getReviewRuntimeSettings()?.ui?.reviewSourceBlockRefreshEnabled === true;
 }
 
 function extractWorkspaceWsMessage(event: unknown): { cmd: string; data?: unknown } | null {
@@ -1578,6 +1580,7 @@ const neuralNavigationState = ref<NeuralNavigationState | null>(null);
 watch(
   () => String((state.value.content.card as FSRSCard | null)?.id || ''),
   () => {
+    clearPendingReviewSourceRefresh();
     void refreshReviewArenaHint();
   },
   { immediate: true },
@@ -2140,6 +2143,15 @@ function clearReviewSourceRefreshTimer(): void {
   }
 }
 
+function clearPendingReviewSourceRefresh(): void {
+  clearReviewSourceRefreshTimer();
+  pendingReviewSourceBlockIds.clear();
+}
+
+function isReviewAdvancePending(): boolean {
+  return state.value.meta.advancePending?.active === true;
+}
+
 function pruneReviewSourceRefreshSuppression(now: number = Date.now()): void {
   for (const [blockId, expiresAt] of reviewSourceRefreshSuppressedBlockIds.entries()) {
     if (expiresAt <= now) {
@@ -2202,6 +2214,11 @@ function isCurrentMainProtyleEditing(): boolean {
 }
 
 async function refreshCurrentReviewCardForSourceChange(matchedBlockIds: string[]): Promise<void> {
+  if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
+    clearPendingReviewSourceRefresh();
+    return;
+  }
+
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   const currentReference = getCurrentReviewCardReference();
   if (!currentCard || (!currentReference.cardId && !currentReference.blockId)) {
@@ -2227,6 +2244,11 @@ async function refreshCurrentReviewCardForSourceChange(matchedBlockIds: string[]
 }
 
 async function flushPendingReviewSourceRefresh(): Promise<void> {
+  if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
+    clearPendingReviewSourceRefresh();
+    return;
+  }
+
   const pendingBlockIds = Array.from(pendingReviewSourceBlockIds);
   pendingReviewSourceBlockIds.clear();
   if (pendingBlockIds.length === 0) {
@@ -2257,6 +2279,11 @@ async function flushPendingReviewSourceRefresh(): Promise<void> {
 }
 
 function queueReviewSourceRefresh(blockIds: string[]): void {
+  if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
+    clearPendingReviewSourceRefresh();
+    return;
+  }
+
   for (const blockId of blockIds) {
     const normalized = String(blockId || '').trim();
     if (normalized.length > 0) {
@@ -2276,6 +2303,11 @@ function queueReviewSourceRefresh(blockIds: string[]): void {
 }
 
 const handleReviewWorkspaceMessage = (event: unknown): void => {
+  if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
+    clearPendingReviewSourceRefresh();
+    return;
+  }
+
   const message = extractWorkspaceWsMessage(event);
   if (!message || message.cmd !== 'transactions') {
     return;
@@ -2333,6 +2365,15 @@ const reviewDataObserver: IDataSourceObserver = {
       return;
     }
 
+    if (isReviewAdvancePending()) {
+      logger.debug('[SiYuanMemo][ReviewView] Skip current card refresh while review advance is pending:', {
+        cardId,
+        blockId,
+        eventCardIds: event.cardIds || [],
+      });
+      return;
+    }
+
     void refreshCurrentReviewCard();
   },
 };
@@ -2352,6 +2393,11 @@ function bindReviewDataObserver(): void {
 }
 
 function bindReviewWorkspaceEventBus(): void {
+  if (!isReviewSourceBlockRefreshEnabled()) {
+    unbindReviewWorkspaceEventBus();
+    return;
+  }
+
   const eventBus = getWorkspaceEventBus();
   if (eventBus === subscribedReviewWorkspaceEventBus) {
     return;

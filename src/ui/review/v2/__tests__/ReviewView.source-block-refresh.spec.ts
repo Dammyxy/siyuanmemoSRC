@@ -143,8 +143,12 @@ const ReviewContentStub = defineComponent({
 
 const ReviewActionsStub = defineComponent({
   name: 'ReviewActions',
-  setup() {
-    return () => h('div', { class: 'review-actions-stub' });
+  emits: ['grade'],
+  setup(_props, { emit }) {
+    return () => h('button', {
+      class: 'review-grade-button',
+      onClick: () => emit('grade', 3),
+    }, 'Grade');
   },
 });
 
@@ -158,7 +162,65 @@ describe('ReviewView source block refresh', () => {
     vi.useRealTimers();
   });
 
-  it('refreshes the current review surface when ws-main transactions touch current dependency blocks', async () => {
+  it('does not register ws-main source refresh by default', async () => {
+    const currentCard = buildCard('descriptor-card-1', 'descriptor-block-1', { type: 'descriptor' });
+    const queue = createQueue(currentCard);
+    const adapter = createAdapter();
+    let wsMainListener: ((payload: unknown) => void) | null = null;
+
+    const eventBus = {
+      on: vi.fn((event: string, listener: (payload: unknown) => void) => {
+        if (event === 'ws-main') {
+          wsMainListener = listener;
+        }
+      }),
+      off: vi.fn(),
+    };
+    const manager = {
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      getCard: vi.fn(async () => currentCard),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        title: '自定义复习',
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          eventBus,
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => manager,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          AiWorkbenchPane: true,
+          LargeTextEditorDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
+    expect(eventBus.on).not.toHaveBeenCalledWith('ws-main', expect.any(Function));
+    expect(wsMainListener).toBeNull();
+    expect(reviewContentRefreshVisibleContent).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('refreshes the current review surface when enabled ws-main transactions touch current dependency blocks', async () => {
     const currentCard = buildCard('descriptor-card-1', 'descriptor-block-1', { type: 'descriptor' });
     const queue = createQueue(currentCard);
     const adapter = createAdapter();
@@ -190,13 +252,8 @@ describe('ReviewView source block refresh', () => {
             getUnifiedDataSourceManager: () => manager,
             getStorage: () => ({
               getSettings: () => ({
-                quickCard: {
-                  enabled: false,
-                },
-                riffIntegration: {
-                  incrementalSync: {
-                    enabled: false,
-                  },
+                ui: {
+                  reviewSourceBlockRefreshEnabled: true,
                 },
               }),
             }),
@@ -218,6 +275,7 @@ describe('ReviewView source block refresh', () => {
 
     await flushPromises();
     expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
+    expect(eventBus.on).toHaveBeenCalledWith('ws-main', expect.any(Function));
 
     wsMainListener?.({
       detail: {
@@ -298,6 +356,114 @@ describe('ReviewView source block refresh', () => {
     await flushPromises();
 
     expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(2);
+
+    wrapper.unmount();
+  });
+
+  it('drops pending source refresh while local advance is pending', async () => {
+    const initialCard = buildCard('descriptor-card-1', 'descriptor-block-1', { type: 'descriptor' });
+    const nextCard = buildCard('descriptor-card-2', 'descriptor-block-2', { type: 'descriptor' });
+    let wsMainListener: ((payload: unknown) => void) | null = null;
+
+    const queue = {
+      next: vi.fn()
+        .mockResolvedValueOnce(initialCard)
+        .mockResolvedValueOnce(nextCard),
+      onFeedback: vi.fn(async () => {
+        wsMainListener?.({
+          detail: {
+            cmd: 'transactions',
+            data: [{
+              doOperations: [{
+                action: 'update',
+                id: 'descriptor-block-1',
+              }],
+              undoOperations: null,
+            }],
+          },
+        });
+        await Promise.resolve();
+      }),
+      getStats: vi.fn(async () => ({ size: 2, label: '2 due' })),
+      getCounterSnapshot: vi.fn(async () => ({
+        version: 1,
+        remaining: 2,
+        due: 2,
+        total: 2,
+        buckets: {
+          all: 2,
+          item: 0,
+          descriptor: 2,
+          topic: 0,
+          concept: 0,
+        },
+        source: 'hot' as const,
+      })),
+      getUIConfig: vi.fn(() => ({
+        statsType: 'queue-size' as const,
+        showRatingButtons: true,
+        allowSkip: true,
+      })),
+      canGoBack: vi.fn(() => false),
+    };
+    const adapter = createAdapter();
+    const eventBus = {
+      on: vi.fn((event: string, listener: (payload: unknown) => void) => {
+        if (event === 'ws-main') {
+          wsMainListener = listener;
+        }
+      }),
+      off: vi.fn(),
+    };
+    const manager = {
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      getCard: vi.fn(async () => initialCard),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        title: '自定义复习',
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          eventBus,
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => manager,
+            getStorage: () => ({
+              getSettings: () => ({
+                ui: {
+                  reviewSourceBlockRefreshEnabled: true,
+                },
+              }),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          AiWorkbenchPane: true,
+          LargeTextEditorDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
+
+    await wrapper.get('.review-grade-button').trigger('click');
+    await vi.advanceTimersByTimeAsync(200);
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.get('.review-render-state').text()).toContain('descriptor-card-2:descriptor-block-2');
+    expect(reviewContentRefreshVisibleContent).not.toHaveBeenCalled();
 
     wrapper.unmount();
   });
