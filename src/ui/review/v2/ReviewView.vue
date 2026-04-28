@@ -1485,23 +1485,8 @@ async function refreshReviewArenaHint(card?: FSRSCard | null): Promise<void> {
   }
 }
 
-async function handleReviewArenaFeedback(payload: { cardId: string; rating: number; item: ActiveReviewItem | null }): Promise<void> {
-  const reviewedCard = (payload.item || null) as FSRSCard | null;
-  const arenaKernel = getArenaKernelService();
-  if (!arenaKernel?.recordSrsReview || !reviewedCard) {
-    return;
-  }
-  try {
-    await arenaKernel.recordSrsReview({
-      card: reviewedCard,
-      rating: payload.rating,
-      currentSchedulerType: getSchedulerTypeForCard(reviewedCard),
-    });
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to record SRS arena review:', error);
-  } finally {
-    await refreshReviewArenaHint();
-  }
+async function handleReviewArenaFeedback(_payload: { cardId: string; rating: number; item: ActiveReviewItem | null }): Promise<void> {
+  await refreshReviewArenaHint();
 }
 
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {

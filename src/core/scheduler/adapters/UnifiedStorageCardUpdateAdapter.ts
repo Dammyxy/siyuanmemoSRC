@@ -1,6 +1,7 @@
 import type { FSRSCard } from '@/types/card';
 import type { ReviewLogV2 } from '@/types/review';
 import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
+import type { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite';
 import type { CardUpdatePort } from '@/core/scheduler/ports';
 import { createLogger } from '@/utils/logger';
 import { isErr } from '@/types/result';
@@ -17,6 +18,7 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
   constructor(
     private readonly storage: UnifiedStorageManager,
     private readonly reviewLogWriter?: { addReviewLogV2(log: ReviewLogV2): Promise<void> },
+    private readonly sqlCards?: SqlUnifiedStorageRepository | null,
   ) {}
 
   async batchUpdateCardsWithoutEvents(cards: FSRSCard[]): Promise<void> {
@@ -33,10 +35,14 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
       }
       dedupedCards.set(card.id, card);
     }
+    const cardsToPersist = Array.from(dedupedCards.values());
 
     await this.storage.runWriteTransaction('scheduler.batchUpdateCardsWithoutEvents', async () => {
       for (const [cardId, card] of dedupedCards.entries()) {
-        const result = await this.storage.updateCard(card, { preferIncomingScheduling: true });
+        const result = await this.storage.updateCard(card, {
+          preferIncomingScheduling: true,
+          suppressAutosave: Boolean(this.sqlCards),
+        });
         if (isErr(result)) {
           throw new Error(
             `Failed to persist card "${cardId}" in scheduler adapter: ${result.error.message}`
@@ -49,7 +55,15 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
           persisted: persistedCard ? this.toSchedulingLog(persistedCard) : null,
         });
       }
+
+      if (this.sqlCards) {
+        this.sqlCards.upsertCards(cardsToPersist);
+      }
     });
+
+    if (this.sqlCards) {
+      await this.sqlCards.persist();
+    }
   }
 
   async addReviewLogV2(log: ReviewLogV2): Promise<void> {

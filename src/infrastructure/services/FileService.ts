@@ -16,6 +16,7 @@
  */
 
 import type SiyuanMemoPlugin from '../../index';
+import { getPluginDataPath, putFile } from '@/infrastructure/siyuan/api';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('FileService');
@@ -37,6 +38,20 @@ export interface IFileService {
    * @param content 文件内容
    */
   writeFile(fileName: string, content: string): Promise<void>;
+
+  /**
+   * 读取二进制插件数据文件
+   * @param fileName 文件名（相对于插件数据目录）
+   * @returns 二进制内容，如果文件不存在返回 null
+   */
+  readBinary?(fileName: string): Promise<Uint8Array | null>;
+
+  /**
+   * 写入二进制插件数据文件
+   * @param fileName 文件名（相对于插件数据目录）
+   * @param bytes 二进制内容
+   */
+  writeBinary?(fileName: string, bytes: Uint8Array): Promise<void>;
 
   /**
    * 删除插件数据文件
@@ -117,6 +132,11 @@ function describeLoadedData(data: unknown): Record<string, unknown> {
 export class FileService implements IFileService {
   constructor(private readonly plugin: SiyuanMemoPlugin) {}
 
+  private resolvePluginDataPath(fileName: string): string {
+    const normalized = String(fileName || '').replace(/^\/+/, '');
+    return `${getPluginDataPath(this.plugin.name)}/${normalized}`;
+  }
+
   /**
    * 读取插件数据文件
    */
@@ -160,6 +180,61 @@ export class FileService implements IFileService {
       await this.plugin.saveData(fileName, content);
     } catch (error) {
       logger.error(`[FileService] Failed to write file "${fileName}":`, error);
+      throw new FileOperationError(
+        'write',
+        fileName,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * 读取二进制插件数据文件
+   */
+  async readBinary(fileName: string): Promise<Uint8Array | null> {
+    try {
+      const response = await fetch('/api/file/getFile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: this.resolvePluginDataPath(fileName) }),
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength === 0) {
+        return null;
+      }
+      return new Uint8Array(buffer);
+    } catch (error) {
+      if (this.isFileNotFoundError(error)) {
+        return null;
+      }
+      logger.error(`[FileService] Failed to read binary file "${fileName}":`, error);
+      throw new FileOperationError(
+        'read',
+        fileName,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * 写入二进制插件数据文件
+   */
+  async writeBinary(fileName: string, bytes: Uint8Array): Promise<void> {
+    try {
+      const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+        ? bytes.buffer
+        : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      await putFile(
+        this.resolvePluginDataPath(fileName),
+        new Blob([payload as BlobPart], { type: 'application/x-sqlite3' }),
+      );
+    } catch (error) {
+      logger.error(`[FileService] Failed to write binary file "${fileName}":`, error);
       throw new FileOperationError(
         'write',
         fileName,

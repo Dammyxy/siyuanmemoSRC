@@ -475,13 +475,13 @@ export class ArenaKernelService {
     const predictions = recommendation?.contestants
       || this.buildSrsPredictions(card, settings.srs.contestantIds, snapshot.entries, weights, now);
     const predictionsById = new Map(predictions.map((prediction) => [prediction.contestantId, prediction] as const));
-    await this.deps.arenaStore.recordSrsPredictions({
+    const predictionBatch = {
       poolKey,
       attemptId,
       cardId: card.id,
       createdAt: now,
       predictions,
-    });
+    };
     const updatedEntries = snapshot.entries.map((entry) => {
       const prediction = predictionsById.get(entry.contestantId as SrsArenaContestantId)
         || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, weights[entry.contestantId] || 0, now);
@@ -508,15 +508,14 @@ export class ArenaKernelService {
           entry.lossCount += 1;
         });
     }
-    await this.deps.arenaStore.replaceScoreSnapshot({
+    const scoreSnapshot = {
       id: createId('arena-score'),
       domain: 'srs',
       poolKey,
       createdAt: now,
       entries: updatedEntries,
-    });
-    for (const prediction of predictions) {
-      await this.deps.arenaStore.recordSrsOutcome({
+    } satisfies ArenaScoreSnapshot;
+    const outcomes = predictions.map((prediction) => ({
         poolKey,
         attemptId,
         cardId: card.id,
@@ -531,9 +530,8 @@ export class ArenaKernelService {
           discrepancyRatio: recommendation?.discrepancyRatio || 0,
           weightedIntervalDays: recommendation?.weightedIntervalDays || 0,
         },
-      });
-    }
-    await this.deps.arenaStore.appendMatch({
+    }));
+    const match = {
       id: createId('arena-match'),
       domain: 'srs',
       poolKey,
@@ -553,6 +551,12 @@ export class ArenaKernelService {
           return [entry.contestantId, Math.abs((pass ? 1 : 0) - prediction.predictedPassProbability)];
         })),
       },
+    } satisfies ArenaMatchRecord;
+    await this.deps.arenaStore.recordSrsReviewBatch({
+      predictions: predictionBatch,
+      scoreSnapshot,
+      outcomes,
+      match,
     });
     await this.applyAttributedReviewFeedback(card.id, pass, rating);
     return recommendation;

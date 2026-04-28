@@ -101,7 +101,7 @@ flowchart TD
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
-- 初始化 `siyuanmemo.db` 的 sql.js 持久化层；首次启动先把旧 `unified-cards.msgpack`、`queues.msgpack`、月度 review logs 与 `arena/store.json` 迁入 SQL，迁移失败才回退旧文件存储
+- 初始化 `siyuanmemo.db` 的 sql.js 持久化层；首次启动先把旧 `unified-cards.msgpack`、`queues.msgpack`、月度 review logs 与 `arena/store.json` 迁入 SQL，迁移失败才回退旧文件存储；SQL active 后 DB 以二进制文件写入，旧 base64 envelope 只作为读取兼容与迁移备份
 - 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，关闭时不接入复习建议或 AI 策略包覆盖；开启后 Arena 数据写入 SQL
 
 这意味着：
@@ -188,12 +188,15 @@ sequenceDiagram
   participant SR as SchedulerRouter
   participant SRS as SRS v2 Kernel
   participant LOG as ReviewLogService
+  participant SQL as SqliteDatabaseService
+  participant AR as ArenaKernelService
   participant B as SRSBrowser
 
   UI->>QS: onFeedback(rate)
   QS->>Q: handleReview(cardId, rating)
   Q->>UDSM: commitReview(QueueReviewCommand)
   UDSM->>RCU: execute(command)
+  RCU->>SQL: runTransaction(review.feedback)
   RCU->>UDSM: getCard(cardId)
   RCU->>SR: answer(card, rating, QueueReviewContext)
   SR->>SRS: preview / answer
@@ -201,7 +204,10 @@ sequenceDiagram
   RCU->>SR: commit(decision)
   SR->>SRS: commit policy
   SR-->>RCU: ReviewCommitResult
+  RCU->>SQL: row-level upsert updated card
   RCU->>LOG: append ReviewLogV2 when schedule is written
+  RCU->>AR: record SRS Arena batch when enabled
+  SQL-->>RCU: commit + one binary persist
   RCU->>UDSM: onCardUpdatedFromScheduler(updatedCard)
   RCU-->>Q: QueueReviewCommitResult
   Q->>Q: session membership / current item advance
@@ -449,7 +455,7 @@ Siyuan / Riff / LLM 适配器：
 持久化与支撑：
 
 - `src/infrastructure/persistence/*`：卡片仓储、DTO、mapper、持久化映射。
-- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema 与算法注册，repository 负责 unified store、queue state、review logs 与 Arena append-only 数据，`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移。
+- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema、算法注册、二进制 DB 落盘、事务级 persist 合并与 persist 失败后的 SQL 内存状态恢复，repository 负责 unified store、queue state、review logs 与 Arena append-only 数据，`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移。
 - `src/infrastructure/queries/CardReadModel.ts`：读模型实现。
 - `src/infrastructure/services/FileService.ts` / `QueuePersistenceService.ts`：文件与队列持久化支撑；SQL active 时 `QueuePersistenceService` 只读写 `queue_state`，旧 `queues.msgpack` 只作为迁移来源或 fallback。
 - `src/infrastructure/queue/*`：队列相关副作用适配器。
@@ -805,13 +811,13 @@ UI 层：
 
 当前职责：
 
-- `ReviewCommitUseCase` 是正式复习提交边界：读取当前卡 -> `SchedulerRouter.answer()` -> `commit()` -> 写 `ReviewLogV2` -> 发布队列/卡片事件。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
+- `ReviewCommitUseCase` 是正式复习提交边界：读取当前卡 -> `SchedulerRouter.answer()` -> `commit()` -> 写 `ReviewLogV2` -> 记录 SRS Arena 批次 -> 发布队列/卡片事件；SQL active 时这条链包在 `SqliteDatabaseService.runTransaction('review.feedback')` 中，card 行级 upsert、review event、Arena batch 最终只触发一次二进制 DB persist。队列只提交 `QueueReviewCommand`，不再自己拼正式 revlog 或补丁式写 due
 - `SchedulerRouter` 是薄门面：保留旧 `preview/route` 兼容入口，负责把 SRS v2 的 `preview -> answer -> commit` 决策流转交给内核；它只持久化调度结果，不拥有正式 revlog
 - `SrsV2Kernel` 显式建模 `SchedulingChoices / ReviewAttempt / SchedulingDecision / ReviewCommitResult`，并在同一入口处理 `reviewTime + memoryStateAsOf` 的提前复习锚点语义
 - `SrsV2QueuePolicy` 统一 `RetrievalPractice / IncrementalLearning` 的 formal 取卡顺序：Learning/Relearning 到点卡、今日 Review、每日上限内 New；同层按 `due -> priority -> stable noise -> id` 排序。Incremental 的 Topic/Concept/阅读/网页材料继续走 rotation 回访语义
 - 队列通过 `QueueReviewSchedulingContext` 只声明成员资格之外的会话语义，例如 `queueType / queueMode / commitPolicy / isFiltered / customStudy`；调度写入是否发生由 SRS v2 commit policy 决定。手动 future 卡和 `FilterGroup` future 卡默认 `filtered-preview + preview-only`，只有显式重排/设置切换才 `write-schedule`
 - `FinalDrill` 是练习覆盖层，不走正式调度，只追加独立 `DrillLogV2` 月度分片；`NeuralRoam` 绑定真实卡时可提交正式 SRS，但不会因 due 窗口自动退出 session；`Leech` 只负责难点治理成员资格，正式复习仍走 SRS v2
-- 成功写正式排期时，`ReviewCommitUseCase` 追加 `ReviewLogV2` 月度分片；旧 `ReviewLog` 保留只读/兼容，`DrillLogV2` 默认不参与 FSRS 参数优化和 Arena 正式归因
+- 成功写正式排期时，`ReviewCommitUseCase` 追加 `ReviewLogV2`；SQL active 时进入 `review_events`，旧月度 JSON 分片只作为 fallback/迁移来源；旧 `ReviewLog` 保留只读/兼容，`DrillLogV2` 默认不参与 FSRS 参数优化和 Arena 正式归因
 - 对不支持的调度路径显式报错，而不是静默降级
 - 对 item / descriptor 复习，Arena 开启后会在正式调度之外通过 contestant adapters 并行预估 `fsrs-v6 / sm2 / sm5 / sm8 / sm15 / sm18 / sm20` 七个只读选手，输出四按钮预测、置信度、解释、归因字段、weighted optimum、分歧幅度和领先者；`sm19` 只注册为 `official-pending` 禁用算法，`a-factor-v2` 不进入 v1 SRS contest pack
 - SRS Arena 主评分是 Universal/Calibration metric：按 predicted retrievability 进入 0.0-1.0 十分箱，SQL 中维护 `arena_metric_bins`，快照里的 score 用负 RMS 表示“越接近 0 越好”；Brier/即时误差只做诊断信号

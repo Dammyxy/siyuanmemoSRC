@@ -267,6 +267,36 @@ export class SqlArenaRepository {
     this.updateMetricBin(input);
   }
 
+  recordSrsReviewBatch(input: {
+    predictions: {
+      poolKey: string;
+      attemptId: string;
+      cardId: string;
+      createdAt: number;
+      predictions: SrsArenaContestantPrediction[];
+    };
+    scoreSnapshot: ArenaScoreSnapshot;
+    outcomes: Array<{
+      poolKey: string;
+      attemptId: string;
+      cardId: string;
+      contestantId: string;
+      predictedRecall: number;
+      actualRecall: boolean;
+      rating: number;
+      reviewedAt: number;
+      payload: unknown;
+    }>;
+    match: ArenaMatchRecord;
+  }): void {
+    this.recordSrsPredictions(input.predictions);
+    this.replaceScoreSnapshot(input.scoreSnapshot);
+    for (const outcome of input.outcomes) {
+      this.recordSrsOutcome(outcome);
+    }
+    this.appendMatch(input.match);
+  }
+
   importStore(store: ArenaStoreData): void {
     for (const snapshot of store.scores || []) {
       this.replaceScoreSnapshot(snapshot);

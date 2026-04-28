@@ -81,6 +81,7 @@ export type RiffSyncStatePatch = Partial<RiffSyncState>;
 
 export interface CardUpdateOptions {
   preferIncomingScheduling?: boolean;
+  suppressAutosave?: boolean;
 }
 export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
@@ -1854,7 +1855,9 @@ export class UnifiedStorageManager {
           this.clearCardDeletionTombstoneIfRecreated(merged);
           this.updateIndexesForDTO(merged, 'add');
           this.indexByDue.sort((a, b) => a.due - b.due);
-          this.scheduleSave('update-card-dto-logical-merge');
+          if (!options.suppressAutosave) {
+            this.scheduleSave('update-card-dto-logical-merge');
+          }
           return ok(undefined);
         }
 
@@ -1891,7 +1894,9 @@ export class UnifiedStorageManager {
         this.indexByDue.sort((a, b) => a.due - b.due);
 
         // 璋冨害淇濆瓨
-        this.scheduleSave('update-card-dto');
+        if (!options.suppressAutosave) {
+          this.scheduleSave('update-card-dto');
+        }
 
         return ok(undefined);
       } catch (error) {

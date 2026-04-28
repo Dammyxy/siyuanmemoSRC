@@ -138,6 +138,31 @@ function normalizeStoreData(value: unknown): ArenaStoreData {
   };
 }
 
+export interface SrsArenaOutcomeInput {
+  poolKey: string;
+  attemptId: string;
+  cardId: string;
+  contestantId: string;
+  predictedRecall: number;
+  actualRecall: boolean;
+  rating: number;
+  reviewedAt: number;
+  payload: unknown;
+}
+
+export interface SrsArenaReviewBatchInput {
+  predictions: {
+    poolKey: string;
+    attemptId: string;
+    cardId: string;
+    createdAt: number;
+    predictions: SrsArenaContestantPrediction[];
+  };
+  scoreSnapshot: ArenaScoreSnapshot;
+  outcomes: SrsArenaOutcomeInput[];
+  match: ArenaMatchRecord;
+}
+
 export class ArenaStoreService {
   constructor(
     private readonly fileService: Pick<IFileService, 'readJSON' | 'writeJSON'>,
@@ -350,5 +375,16 @@ export class ArenaStoreService {
     }
     this.sqlRepository.recordSrsOutcome(input);
     await this.sqlRepository.persist();
+  }
+
+  async recordSrsReviewBatch(input: SrsArenaReviewBatchInput): Promise<void> {
+    if (this.sqlRepository) {
+      this.sqlRepository.recordSrsReviewBatch(input);
+      await this.sqlRepository.persist();
+      return;
+    }
+
+    await this.replaceScoreSnapshot(input.scoreSnapshot);
+    await this.appendMatch(input.match);
   }
 }

@@ -1,5 +1,6 @@
 import type { StorageLoadReason, UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
+import { CardMapper } from '@/infrastructure/persistence/mappers/CardMapper';
 import type { FSRSCard } from '@/types/card';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import { stringifyJson, parseJson } from './json';
@@ -25,7 +26,7 @@ function normalizeNumber(value: unknown): number | null {
 
 function resolveXiuyuanId(card: FSRSCard, dto?: CardPersistenceDTO): string | null {
   const metaXiuyuan = typeof card.meta?.xiuyuanID === 'string' ? card.meta.xiuyuanID : '';
-  const dtoXiuyuan = typeof dto?.xiuyuanId === 'string' ? dto.xiuyuanId : '';
+  const dtoXiuyuan = typeof dto?.xiuyuanID === 'string' ? dto.xiuyuanID : '';
   return metaXiuyuan || dtoXiuyuan || null;
 }
 
@@ -159,6 +160,38 @@ export class SqlUnifiedStorageRepository {
         ['unified_store_version', stringifyJson(store.version || 2), now],
       );
     });
+  }
+
+  upsertCards(cards: FSRSCard[]): void {
+    for (const card of cards) {
+      this.upsertCard(card);
+    }
+  }
+
+  upsertCard(card: FSRSCard): void {
+    const dto = CardMapper.toPersistence(card);
+    this.database.run(
+      `INSERT OR REPLACE INTO cards
+        (id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at, payload_json, dto_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        card.id,
+        card.blockId || null,
+        resolveXiuyuanId(card, dto),
+        card.type || null,
+        normalizeNumber(card.state),
+        normalizeNumber(card.due),
+        normalizeNumber(card.priority),
+        card.schedulerType || null,
+        normalizeNumber(card.updatedAt) || Date.now(),
+        stringifyJson(card),
+        stringifyJson(dto),
+      ],
+    );
+  }
+
+  async persist(): Promise<void> {
+    await this.database.persist();
   }
 
   hasCardsOrXiuyuans(): boolean {

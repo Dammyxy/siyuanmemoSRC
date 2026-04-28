@@ -89,6 +89,8 @@ export class QueuePersistenceService implements IQueuePersistenceService {
   private static readonly DEBOUNCE_DELAY = 300; // 300ms 防抖延迟
   
   private cache: Map<string, unknown> = new Map();
+  private dirtyKeys: Set<string> = new Set();
+  private deletedKeys: Set<string> = new Set();
   private saveTimer: NodeJS.Timeout | null = null;
   private initialized = false;
 
@@ -168,6 +170,8 @@ export class QueuePersistenceService implements IQueuePersistenceService {
       
       // 更新内存缓存
       this.cache.set(key, value);
+      this.dirtyKeys.add(key);
+      this.deletedKeys.delete(key);
       
       // 触发防抖保存
       this.debouncedSave();
@@ -197,6 +201,8 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     }
 
     this.cache.delete(key);
+    this.dirtyKeys.delete(key);
+    this.deletedKeys.add(key);
     
     // 触发防抖保存
     this.debouncedSave();
@@ -259,21 +265,37 @@ export class QueuePersistenceService implements IQueuePersistenceService {
    */
   private async save(): Promise<void> {
     try {
-      // 将 Map 转换为普通对象
-      const data = Object.fromEntries(this.cache);
-
       if (this.sqlRepository) {
-        this.sqlRepository.replaceAll(data);
+        const dirtyKeys = Array.from(this.dirtyKeys);
+        const deletedKeys = Array.from(this.deletedKeys);
+        if (dirtyKeys.length === 0 && deletedKeys.length === 0) {
+          return;
+        }
+        for (const key of deletedKeys) {
+          this.sqlRepository.delete(key);
+        }
+        for (const key of dirtyKeys) {
+          if (this.cache.has(key)) {
+            this.sqlRepository.set(key, this.cache.get(key));
+          }
+        }
         await this.sqlRepository.persist();
-        logger.info(`Saved ${this.cache.size} queue(s) to SQLite`);
+        this.dirtyKeys.clear();
+        this.deletedKeys.clear();
+        logger.info(`Saved ${dirtyKeys.length + deletedKeys.length} changed queue state(s) to SQLite`);
         return;
       }
+
+      // 将 Map 转换为普通对象
+      const data = Object.fromEntries(this.cache);
       
       // 写入文件
       await this.fileService.writeMsgpack(
         QueuePersistenceService.STORAGE_FILE,
         data
       );
+      this.dirtyKeys.clear();
+      this.deletedKeys.clear();
       
       logger.info(`Saved ${this.cache.size} queue(s) to storage`);
     } catch (error) {

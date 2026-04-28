@@ -1,4 +1,6 @@
 import type { SchedulerRouter } from '@/core/scheduler';
+import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
+import { resolveEffectiveSchedulerTypeForCard } from '@/core/scheduler/schedulerPolicy';
 import type {
   QueueReviewCommand,
   QueueReviewCommitResult,
@@ -17,10 +19,24 @@ export interface ReviewCommitLogWriter {
   addReviewLogV2(log: ReturnType<typeof createReviewLogV2>): Promise<void>;
 }
 
+export interface ReviewCommitTransactionRunner {
+  runTransaction<T>(label: string, operation: () => Promise<T> | T): Promise<T>;
+}
+
+export interface ReviewCommitArenaRecorder {
+  recordSrsReview(input: {
+    card: FSRSCard;
+    rating: number;
+    currentSchedulerType?: SchedulerType | null;
+  }): Promise<unknown>;
+}
+
 export interface ReviewCommitUseCaseDependencies {
   cards: ReviewCommitCardReader;
   scheduler: Pick<SchedulerRouter, 'answer' | 'commit' | 'route'>;
   reviewLogs: ReviewCommitLogWriter;
+  transactionRunner?: ReviewCommitTransactionRunner | null;
+  arena?: ReviewCommitArenaRecorder | null;
   onCommittedCard?: (card: FSRSCard) => Promise<void> | void;
 }
 
@@ -28,6 +44,14 @@ export class ReviewCommitUseCase {
   constructor(private readonly deps: ReviewCommitUseCaseDependencies) {}
 
   async execute(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
+    if (this.deps.transactionRunner) {
+      return this.deps.transactionRunner.runTransaction('review.feedback', () => this.executeInner(command));
+    }
+
+    return this.executeInner(command);
+  }
+
+  private async executeInner(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
     const card = await this.deps.cards.getCard(command.cardId);
     const rating = normalizeRating(command.rating);
     const context = {
@@ -70,6 +94,8 @@ export class ReviewCommitUseCase {
         await this.deps.onCommittedCard?.(commitResult.updatedCard);
       }
 
+      await this.recordArenaReview(card, rating);
+
       return {
         card,
         updatedCard,
@@ -81,11 +107,31 @@ export class ReviewCommitUseCase {
 
     const updatedCard = await this.deps.scheduler.route(card, rating, context);
     await this.deps.onCommittedCard?.(updatedCard);
+    await this.recordArenaReview(card, rating);
     return {
       card,
       updatedCard,
       committed: true,
     };
+  }
+
+  private async recordArenaReview(card: FSRSCard, rating: Rating): Promise<void> {
+    if (!this.deps.arena) {
+      return;
+    }
+
+    try {
+      await this.deps.arena.recordSrsReview({
+        card,
+        rating,
+        currentSchedulerType: resolveEffectiveSchedulerTypeForCard(card),
+      });
+    } catch (error) {
+      logger.warn('Arena SRS review recording failed; review commit kept', {
+        cardId: card.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 

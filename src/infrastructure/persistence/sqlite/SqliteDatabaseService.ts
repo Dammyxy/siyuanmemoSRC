@@ -1,4 +1,4 @@
-import initSqlJs, { type Database, type ParamsObject, type SqlValue } from 'sql.js';
+import initSqlJs, { type Database, type ParamsObject, type SqlJsStatic, type SqlValue } from 'sql.js';
 import sqliteWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import { SRS_ARENA_ALGORITHM_REGISTRY } from '@/types/arena';
@@ -8,6 +8,9 @@ import { SQL_SCHEMA_STATEMENTS, SQLITE_DB_FILE } from './schema';
 const logger = createLogger('SqliteDatabaseService');
 
 type SqlParams = SqlValue[] | ParamsObject;
+type TransactionOptions = { persist?: boolean };
+type SqliteFileService = Pick<IFileService, 'readJSON' | 'writeJSON'>
+  & Partial<Pick<IFileService, 'readBinary' | 'writeBinary'>>;
 
 interface SqliteEnvelope {
   encoding: 'base64-sqlite-v1';
@@ -47,12 +50,45 @@ function isEnvelope(value: unknown): value is SqliteEnvelope {
     && typeof (value as SqliteEnvelope).data === 'string';
 }
 
+function isSqliteDatabaseBytes(bytes: Uint8Array | null | undefined): bytes is Uint8Array {
+  if (!bytes || bytes.byteLength < 16) {
+    return false;
+  }
+  const header = 'SQLite format 3\u0000';
+  for (let index = 0; index < header.length; index += 1) {
+    if (bytes[index] !== header.charCodeAt(index)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function resolveSqliteWasmLocation(): string {
+  const runtime = globalThis as typeof globalThis & {
+    process?: {
+      versions?: { node?: string };
+      cwd?: () => string;
+    };
+  };
+  if (
+    runtime.process?.versions?.node
+    && typeof runtime.process.cwd === 'function'
+    && sqliteWasmUrl.startsWith('/node_modules/')
+  ) {
+    return `${runtime.process.cwd().replace(/\\/g, '/')}${sqliteWasmUrl}`;
+  }
+  return sqliteWasmUrl;
+}
+
 export class SqliteDatabaseService {
   private db: Database | null = null;
+  private sqlRuntime: SqlJsStatic | null = null;
   private initialized = false;
+  private transactionDepth = 0;
+  private pendingPersist = false;
 
   constructor(
-    private readonly fileService: Pick<IFileService, 'readJSON' | 'writeJSON'>,
+    private readonly fileService: SqliteFileService,
     private readonly dbFile = SQLITE_DB_FILE,
   ) {}
 
@@ -62,11 +98,14 @@ export class SqliteDatabaseService {
     }
 
     const SQL = await initSqlJs({
-      locateFile: () => sqliteWasmUrl,
+      locateFile: () => resolveSqliteWasmLocation(),
     });
-    const envelope = await this.fileService.readJSON<SqliteEnvelope>(this.dbFile);
-    const bytes = isEnvelope(envelope) ? fromBase64(envelope.data) : undefined;
-    this.db = bytes ? new SQL.Database(bytes) : new SQL.Database();
+    this.sqlRuntime = SQL;
+    const stored = await this.loadStoredDatabaseBytes();
+    if (stored.legacyEnvelope) {
+      await this.backupLegacyEnvelope(stored.legacyEnvelope);
+    }
+    this.db = stored.bytes ? new SQL.Database(stored.bytes) : new SQL.Database();
     this.applySchema();
     this.seedAlgorithmRegistry();
     this.initialized = true;
@@ -77,20 +116,60 @@ export class SqliteDatabaseService {
     return reader(this.requireDb());
   }
 
-  async write<T>(writer: (db: Database) => T): Promise<T> {
+  async write<T>(writer: (db: Database) => T | Promise<T>, options: TransactionOptions = {}): Promise<T> {
+    return this.runTransaction('write', writer, options);
+  }
+
+  async runTransaction<T>(
+    label: string,
+    writer: (db: Database) => T | Promise<T>,
+    options: TransactionOptions = {},
+  ): Promise<T> {
     const db = this.requireDb();
+    const shouldPersist = options.persist !== false;
+    if (this.transactionDepth > 0) {
+      const result = await writer(db);
+      if (shouldPersist) {
+        this.pendingPersist = true;
+      }
+      return result;
+    }
+
     db.run('BEGIN IMMEDIATE');
+    this.transactionDepth = 1;
+    const startedAt = Date.now();
+    let committed = false;
     try {
-      const result = writer(db);
+      const result = await writer(db);
       db.run('COMMIT');
-      await this.persist();
+      committed = true;
+      this.transactionDepth = 0;
+      const persistAfterCommit = shouldPersist || this.pendingPersist;
+      this.pendingPersist = false;
+      if (persistAfterCommit) {
+        try {
+          await this.persist();
+        } catch (persistError) {
+          await this.restoreFromPersistedStore(label, persistError);
+          throw persistError;
+        }
+      }
+      logger.debug('SQLite transaction committed', {
+        label,
+        durationMs: Date.now() - startedAt,
+        persisted: persistAfterCommit,
+      });
       return result;
     } catch (error) {
-      try {
-        db.run('ROLLBACK');
-      } catch (rollbackError) {
-        logger.warn('SQLite rollback failed', { rollbackError });
+      if (!committed) {
+        try {
+          db.run('ROLLBACK');
+        } catch (rollbackError) {
+          logger.warn('SQLite rollback failed', { rollbackError });
+        }
       }
+      this.transactionDepth = 0;
+      this.pendingPersist = false;
       throw error;
     }
   }
@@ -148,19 +227,90 @@ export class SqliteDatabaseService {
   }
 
   async persist(): Promise<void> {
+    if (this.transactionDepth > 0) {
+      this.pendingPersist = true;
+      return;
+    }
+
     const bytes = this.requireDb().export();
-    await this.fileService.writeJSON(this.dbFile, {
-      encoding: 'base64-sqlite-v1',
-      byteLength: bytes.byteLength,
-      updatedAt: Date.now(),
-      data: toBase64(bytes),
-    } satisfies SqliteEnvelope);
+    if (this.fileService.writeBinary) {
+      await this.fileService.writeBinary(this.dbFile, bytes);
+      return;
+    }
+
+    await this.fileService.writeJSON(
+      this.dbFile,
+      {
+        encoding: 'base64-sqlite-v1',
+        byteLength: bytes.byteLength,
+        updatedAt: Date.now(),
+        data: toBase64(bytes),
+      } satisfies SqliteEnvelope,
+    );
+  }
+
+  private async backupLegacyEnvelope(envelope: SqliteEnvelope): Promise<void> {
+    try {
+      await this.fileService.writeJSON(
+        `migration-backups/${this.dbFile}.base64-envelope-${Date.now()}.json`,
+        envelope,
+      );
+    } catch (error) {
+      logger.warn('Failed to backup legacy SQLite base64 envelope before binary conversion', { error });
+    }
   }
 
   dispose(): void {
     this.db?.close();
     this.db = null;
+    this.sqlRuntime = null;
     this.initialized = false;
+  }
+
+  private async loadStoredDatabaseBytes(): Promise<{
+    bytes?: Uint8Array;
+    legacyEnvelope: SqliteEnvelope | null;
+  }> {
+    const binaryBytes = await this.fileService.readBinary?.(this.dbFile);
+    if (isSqliteDatabaseBytes(binaryBytes)) {
+      return { bytes: binaryBytes, legacyEnvelope: null };
+    }
+
+    const envelope = await this.fileService.readJSON<SqliteEnvelope>(this.dbFile);
+    if (isEnvelope(envelope)) {
+      return {
+        bytes: fromBase64(envelope.data),
+        legacyEnvelope: envelope,
+      };
+    }
+
+    return { bytes: undefined, legacyEnvelope: null };
+  }
+
+  private async restoreFromPersistedStore(label: string, persistError: unknown): Promise<void> {
+    try {
+      const SQL = this.sqlRuntime;
+      if (!SQL) {
+        throw new Error('sql.js runtime is not initialized');
+      }
+      const stored = await this.loadStoredDatabaseBytes();
+      if (!stored.bytes) {
+        throw new Error('No persisted SQLite database is available for restore');
+      }
+      const restored = new SQL.Database(stored.bytes);
+      this.db?.close();
+      this.db = restored;
+      logger.warn('SQLite transaction persist failed; in-memory DB restored from stored file', {
+        label,
+        error: persistError instanceof Error ? persistError.message : String(persistError),
+      });
+    } catch (restoreError) {
+      logger.error('SQLite transaction persist failed and in-memory DB restore failed', {
+        label,
+        persistError: persistError instanceof Error ? persistError.message : String(persistError),
+        restoreError,
+      });
+    }
   }
 
   private applySchema(): void {

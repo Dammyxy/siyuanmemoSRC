@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 170)
+Last update: 2026-04-28 (Round 171)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - SQL review hot path transaction and binary persist
+
+- Task: 扶正 SQL 复习热路径：一次反馈一个 SQLite transaction / 一次二进制落盘，并把 SRS Arena 反馈写入并入 review commit 边界。
+- Touched slice: Review / Scheduler / SQL persistence / Queue overlay / Arena active path across `src/application/usecases/review/ReviewCommitUseCase.ts`, `src/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter.ts`, `src/infrastructure/persistence/sqlite/*`, `src/infrastructure/services/{FileService,QueuePersistenceService}.ts`, `src/application/services/{ArenaKernelService,ArenaStoreService}.ts`, `src/ui/review/v2/ReviewView.vue`, and `ARCHITECTURE.md`.
+- Debt fixed now: `siyuanmemo.db` 改为优先二进制 `putFile` 持久化并兼容旧 base64 envelope 读取/备份；`SqliteDatabaseService` 增加嵌套事务、transaction 内 persist defer，以及 persist 失败后的 SQL 内存 DB 已落盘状态恢复；scheduler 写回在 SQL active 时改成 `cards` 行级 upsert 并抑制 UnifiedStorageManager 自动全量保存；`ReviewCommitUseCase` 包裹 SQL review transaction 并直接记录 SRS Arena batch；ReviewView 不再二次记录 Arena；`QueuePersistenceService` SQL 路径改为 dirty key/delete key 增量保存，不再 runtime `replaceAll`。
+- Debt deferred: 真正从 SQL query 重建所有队列候选仍沿用现有 queue domain 查询/缓存形状逐步替换；AI Arena 非复习事件仍按当前 action 粒度即时 persist；persist 失败时 SQL 内存 DB 会回到上一份已落盘文件，但已经更新过的 JS 队列/UI 聚合状态仍需要外层错误处理与下一次刷新收敛。
+- Why deferred: 本轮根因是 review/hide 热路径写放大；全队列 SQL query 化和跨内存聚合补偿事务会扩大到所有队列与 UI session contract，需要独立回归矩阵。
+- Next safe step: 给 queue dirty-key flush 与 SQL-backed queue candidate 查询继续加 focused tests；随后把 due/review queue candidate 查询下沉到 SQL indexed read model。
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/services/__tests__/ArenaKernelService.test.ts`; `pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`git diff --check`。
 
 ### 2026-04-28 - SQL storage and AI/SRS Arena foundation
 

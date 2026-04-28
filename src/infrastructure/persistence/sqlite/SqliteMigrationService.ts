@@ -53,12 +53,13 @@ export class SqliteMigrationService {
     if (hasStoreContent(legacyStore)) {
       await this.fileService.writeJSON(`migration-backups/unified-cards-${now}.json`, legacyStore);
     }
-    await this.repositories.unified.saveStore(legacyStore);
-    await this.migrateQueueState();
-    await this.migrateArenaStore();
-    await this.migrateReviewLogs(now);
-    this.database.markMigration(INITIAL_MIGRATION_ID, now);
-    await this.database.persist();
+    await this.database.runTransaction('sqlite.initial-migration', async () => {
+      await this.repositories.unified.saveStore(legacyStore);
+      await this.migrateQueueState();
+      await this.migrateArenaStore();
+      await this.migrateReviewLogs(now);
+      this.database.markMigration(INITIAL_MIGRATION_ID, now);
+    });
     logger.info('SQLite migration finished', {
       cards: Object.keys(legacyStore.cards || {}).length,
       xiuyuans: Object.keys(legacyStore.xiuyuans || {}).length,
@@ -73,7 +74,7 @@ export class SqliteMigrationService {
     }
     await this.database.write(() => {
       this.repositories.queue.replaceAll(queueState);
-    });
+    }, { persist: false });
   }
 
   private async migrateArenaStore(): Promise<void> {
@@ -83,7 +84,7 @@ export class SqliteMigrationService {
     }
     await this.database.write(() => {
       this.repositories.arena.importStore(store);
-    });
+    }, { persist: false });
   }
 
   private async migrateReviewLogs(now: number): Promise<void> {
@@ -97,7 +98,7 @@ export class SqliteMigrationService {
         }
         await this.database.write(() => {
           this.repositories.reviewLogs.importMonthlyLogs(data);
-        });
+        }, { persist: false });
       }
     }
   }

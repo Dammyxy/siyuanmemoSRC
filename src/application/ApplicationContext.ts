@@ -454,6 +454,12 @@ export class ApplicationContext {
         cards: unifiedDataSourceManager,
         scheduler: context.getScheduler(),
         reviewLogs: context.getReviewLogService(),
+        transactionRunner: context.sqlPersistence
+          ? {
+              runTransaction: (label, operation) => context.sqlPersistence!.database.runTransaction(label, () => operation()),
+            }
+          : null,
+        arena: context.getArenaKernelService(),
         onCommittedCard: (card) => unifiedDataSourceManager.onCardUpdatedFromScheduler(card),
       });
     });
@@ -1062,7 +1068,8 @@ export class ApplicationContext {
     const reviewLogService = new ReviewLogService(fileService, sqlPersistence?.reviewLogs ?? null);
     const schedulerCardUpdater = new UnifiedStorageCardUpdateAdapter(
       unifiedStorageManager,
-      reviewLogService
+      reviewLogService,
+      sqlPersistence?.unified ?? null
     );
     const schedulerErrorNotifier = new SiyuanErrorNotificationAdapter();
     const rescheduleService = new RescheduleService(

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ArenaKernelService } from '@/application/services/ArenaKernelService';
-import type { ArenaStoreService } from '@/application/services/ArenaStoreService';
+import type { ArenaStoreService, SrsArenaReviewBatchInput } from '@/application/services/ArenaStoreService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import {
   DEFAULT_ARENA_SETTINGS,
@@ -117,6 +117,13 @@ function createMemoryArenaStore() {
         clone(snapshot),
         ...data.scores.filter((entry) => !(entry.domain === snapshot.domain && entry.poolKey === snapshot.poolKey)),
       ];
+    },
+    async recordSrsReviewBatch(input: SrsArenaReviewBatchInput) {
+      data.scores = [
+        clone(input.scoreSnapshot),
+        ...data.scores.filter((entry) => !(entry.domain === input.scoreSnapshot.domain && entry.poolKey === input.scoreSnapshot.poolKey)),
+      ];
+      data.matches = [clone(input.match), ...data.matches.filter((entry) => entry.id !== input.match.id)];
     },
     async getAttribution(cardId: string) {
       return clone(data.attributions.find((entry) => entry.cardId === cardId) || null);
@@ -355,7 +362,7 @@ describe('ArenaKernelService', () => {
     });
   });
 
-  it('builds advisory-only SRS recommendations with fsrs-v6, sm15, and sm2 contestants', async () => {
+  it('builds advisory-only SRS recommendations with the registered SRS v1 contestants', async () => {
     const settings = createEnabledArenaSettings();
     const { service, store } = createKernel(settings);
     const card = buildCard({ type: CardType.Descriptor, schedulerType: 'fsrs-v6' });
@@ -363,8 +370,17 @@ describe('ArenaKernelService', () => {
     const recommendation = await service.buildSrsRecommendation(card, 'fsrs-v6', NOW);
 
     expect(recommendation?.targetKind).toBe('descriptor');
-    expect(recommendation?.contestants.map((entry) => entry.contestantId)).toEqual(['fsrs-v6', 'sm15', 'sm2']);
+    expect(recommendation?.contestants.map((entry) => entry.contestantId)).toEqual([
+      'fsrs-v6',
+      'sm2',
+      'sm5',
+      'sm8',
+      'sm15',
+      'sm18',
+      'sm20',
+    ]);
     expect(recommendation?.contestants.map((entry) => entry.label)).toContain('FSRSV5');
+    expect(recommendation?.contestants.map((entry) => entry.label)).toContain('SM-20');
     expect(recommendation?.contestants.map((entry) => entry.contestantId)).not.toContain('a-factor-v2');
     expect(recommendation?.weightedIntervalDays).toBeGreaterThan(0);
     expect(recommendation?.summary).toContain('Arena 当前更偏向');
