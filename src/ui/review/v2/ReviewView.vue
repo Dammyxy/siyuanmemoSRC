@@ -33,6 +33,7 @@
         <ReviewContent
           ref="contentRef"
           :app="app"
+          :plugin="props.plugin"
           :content="state.content"
           :overlay="state.overlay"
           :has-hidden-content="state.meta.hasHiddenContent"

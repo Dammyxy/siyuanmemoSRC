@@ -5,10 +5,6 @@ import XiuyuanListTemplateCard from '../XiuyuanListTemplateCard.vue';
 
 const getBlockBreadcrumbMock = vi.fn();
 
-vi.mock('@/infrastructure/siyuan/api', () => ({
-  getBlockBreadcrumb: (...args: unknown[]) => getBlockBreadcrumbMock(...args),
-}));
-
 function createMeta(overrides?: Partial<XiuyuanCardMeta>): XiuyuanCardMeta {
   return {
     xiuyuanID: 'xy_1',
@@ -24,22 +20,17 @@ function createMeta(overrides?: Partial<XiuyuanCardMeta>): XiuyuanCardMeta {
   };
 }
 
-function createPluginMock() {
+function createSiyuanApiMock() {
   const blockMarkdownById: Record<string, string> = {
     child_1: 'cue -> answer',
   };
   let questionDom = '<p>Question</p>';
   return {
-    getContext: () => ({
-      getReviewService: () => ({
-        getSiyuanApi: () => ({
-          getBlockDOM: vi.fn().mockImplementation(async () => ({ dom: questionDom })),
-          getBlockKramdown: vi.fn(async (blockId: string) => ({
-            kramdown: blockMarkdownById[blockId] || '',
-          })),
-        }),
-      }),
-    }),
+    getBlockDOM: vi.fn().mockImplementation(async () => ({ dom: questionDom })),
+    getBlockKramdown: vi.fn(async (blockId: string) => ({
+      kramdown: blockMarkdownById[blockId] || '',
+    })),
+    getBlockBreadcrumb: (...args: [string]) => getBlockBreadcrumbMock(...args),
     __setBlockMarkdown(nextMap: Record<string, string>) {
       Object.assign(blockMarkdownById, nextMap);
     },
@@ -67,8 +58,8 @@ describe('XiuyuanListTemplateCard', () => {
   });
 
   it('does not render front cue area when the current child block has no cue separator', async () => {
-    const plugin = createPluginMock();
-    plugin.__setBlockMarkdown({
+    const siyuanApi = createSiyuanApiMock();
+    siyuanApi.__setBlockMarkdown({
       child_1: '纯答案内容',
     });
 
@@ -77,7 +68,7 @@ describe('XiuyuanListTemplateCard', () => {
         meta: createMeta({ cue: '' }),
         showAnswer: false,
         questionBlockId: 'q_1',
-        plugin,
+        siyuanApi,
       },
     });
     await flushPromises();
@@ -87,8 +78,8 @@ describe('XiuyuanListTemplateCard', () => {
   });
 
   it('renders current cue and previous answers from child block kramdown with markdown styles', async () => {
-    const plugin = createPluginMock();
-    plugin.__setBlockMarkdown({
+    const siyuanApi = createSiyuanApiMock();
+    siyuanApi.__setBlockMarkdown({
       child_1: '提示一 -> **答案一**',
       child_2: '**聚合提示** -> 当前答案',
     });
@@ -104,7 +95,7 @@ describe('XiuyuanListTemplateCard', () => {
         }),
         showAnswer: false,
         questionBlockId: 'q_1',
-        plugin,
+        siyuanApi,
       },
     });
     await flushPromises();
@@ -129,7 +120,7 @@ describe('XiuyuanListTemplateCard', () => {
         meta: createMeta(),
         showAnswer: false,
         questionBlockId: 'q_1',
-        plugin: createPluginMock(),
+        siyuanApi: createSiyuanApiMock(),
       },
     });
 
@@ -143,9 +134,9 @@ describe('XiuyuanListTemplateCard', () => {
   });
 
   it('renders the direct CDF layout without multiline markers or remaining-hint copy', async () => {
-    const plugin = createPluginMock();
-    plugin.__setQuestionDom('<p>[[中子星]]:::</p>');
-    plugin.__setBlockMarkdown({
+    const siyuanApi = createSiyuanApiMock();
+    siyuanApi.__setQuestionDom('<p>[[中子星]]:::</p>');
+    siyuanApi.__setBlockMarkdown({
       child_1: '前身 -> **大质量恒星残骸**',
     });
 
@@ -157,7 +148,7 @@ describe('XiuyuanListTemplateCard', () => {
         }),
         showAnswer: true,
         questionBlockId: 'q_1',
-        plugin,
+        siyuanApi,
         displayMode: 'direct',
       },
     });
@@ -173,9 +164,9 @@ describe('XiuyuanListTemplateCard', () => {
   });
 
   it('renders directPath-based concept and group rows for cdf-multiline cards', async () => {
-    const plugin = createPluginMock();
-    plugin.__setQuestionDom('<p>特征;;;</p>');
-    plugin.__setBlockMarkdown({
+    const siyuanApi = createSiyuanApiMock();
+    siyuanApi.__setQuestionDom('<p>特征;;;</p>');
+    siyuanApi.__setBlockMarkdown({
       child_1: '类型 -> 描述性（非规范性）',
     });
 
@@ -200,7 +191,7 @@ describe('XiuyuanListTemplateCard', () => {
         }),
         showAnswer: false,
         questionBlockId: 'q_1',
-        plugin,
+        siyuanApi,
         displayMode: 'direct',
       },
     });
@@ -216,9 +207,9 @@ describe('XiuyuanListTemplateCard', () => {
   });
 
   it('keeps complex direct answers in stacked block-flow rows without leaking attribute artifacts', async () => {
-    const plugin = createPluginMock();
-    plugin.__setQuestionDom('<p>[[中子星]]:::</p>');
-    plugin.__setBlockMarkdown({
+    const siyuanApi = createSiyuanApiMock();
+    siyuanApi.__setQuestionDom('<p>[[中子星]]:::</p>');
+    siyuanApi.__setBlockMarkdown({
       child_1: '前身 -> 第一段\n\n> 引用说明\n{: id="2026042411" updated="2026042412"}',
     });
 
@@ -230,7 +221,7 @@ describe('XiuyuanListTemplateCard', () => {
         }),
         showAnswer: true,
         questionBlockId: 'q_1',
-        plugin,
+        siyuanApi,
         displayMode: 'direct',
       },
     });

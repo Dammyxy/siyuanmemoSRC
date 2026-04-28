@@ -50,6 +50,10 @@ const ReviewContentStub = defineComponent({
       type: Object,
       required: true,
     },
+    plugin: {
+      type: Object,
+      default: undefined,
+    },
   },
   setup(props) {
     return () => h(
@@ -137,6 +141,29 @@ function mountReviewView(options: {
 }
 
 describe('ReviewView empty state actions', () => {
+  it('passes the plugin context to ReviewContent for renderer-owned Siyuan access', async () => {
+    const queue = createQueue(async () => null);
+    const adapter = createCompletedEmptyAdapter();
+    const plugin = {
+      getContext: () => ({}),
+    };
+
+    const wrapper = mountReviewView({
+      queue,
+      adapter,
+      mode: 'tab',
+      plugin,
+    });
+
+    await flushPromises();
+
+    expect(wrapper.getComponent(ReviewContentStub).props('plugin')).toMatchObject({
+      getContext: expect.any(Function),
+    });
+
+    wrapper.unmount();
+  });
+
   it('hides review actions and does not show exit during the initial placeholder state', async () => {
     const unresolvedNext = new Promise<null>(() => {});
     const queue = createQueue(() => unresolvedNext);

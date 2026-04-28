@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount as baseMount } from '@vue/test-utils';
 import ImageOcclusionCardRenderer from '../ImageOcclusionCardRenderer.vue';
 import type { FSRSCard } from '@/types/card';
 
@@ -7,14 +7,26 @@ const getBlockAttrsMock = vi.fn();
 const getBlockKramdownMock = vi.fn();
 const getBlockBreadcrumbMock = vi.fn();
 
-vi.mock('@/infrastructure/siyuan/api', () => ({
-  getBlockAttrs: (...args: unknown[]) => getBlockAttrsMock(...args),
-  getBlockKramdown: (...args: unknown[]) => getBlockKramdownMock(...args),
-  getBlockBreadcrumb: (...args: unknown[]) => getBlockBreadcrumbMock(...args),
-}));
-
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function createSiyuanApiMock() {
+  return {
+    getBlockAttrs: (...args: [string]) => getBlockAttrsMock(...args),
+    getBlockKramdown: (...args: [string]) => getBlockKramdownMock(...args),
+    getBlockBreadcrumb: (...args: [string]) => getBlockBreadcrumbMock(...args),
+  };
+}
+
+function mount(component: typeof ImageOcclusionCardRenderer, options: any) {
+  return baseMount(component, {
+    ...options,
+    props: {
+      siyuanApi: createSiyuanApiMock(),
+      ...(options?.props ?? {}),
+    },
+  });
 }
 
 function createPayload(cardId: string): string {

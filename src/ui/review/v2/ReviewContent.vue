@@ -16,7 +16,7 @@
             :meta="content.xiuyuanMeta"
             :show-answer="!showAnswer"
             :question-block-id="content.id"
-            :plugin="props.plugin"
+            :siyuan-api="reviewSiyuanApi"
             :display-mode="resolvedRenderProfile === 'cdf-multiline' ? 'direct' : 'semantic'"
           />
         </div>
@@ -41,6 +41,7 @@
             :card="content.card"
             :show-answer="!showAnswer"
             :i18n="i18n"
+            :siyuan-api="reviewSiyuanApi"
             @loaded="handleImageOcclusionLoaded"
             @error="handleImageOcclusionError"
           />
@@ -161,6 +162,7 @@ import DescriptorCardRenderer from '../components/DescriptorCardRenderer.vue';
 import ConceptDefinitionCardRenderer from '../components/ConceptDefinitionCardRenderer.vue';
 import ConceptCardRenderer from '../components/ConceptCardRenderer.vue';
 import { createReviewRenderServices, type ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
+import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import { 
   type XiuyuanCardMeta,
   isConceptDefinitionCard as checkIsConceptDefinitionCard, 
@@ -209,9 +211,27 @@ type OverlayRegistry = typeof OVERLAY_REGISTRY;
 type OverlayKey = keyof OverlayRegistry;
 
 type ProtyleAction = typeof siyuan.Constants.CB_GET_ALL;
+type ReviewContentSiyuanApi = Pick<
+  ReviewSiyuanPort,
+  'getBlockAttrs' | 'getBlockKramdown' | 'getBlockDOM' | 'getBlockBreadcrumb'
+>;
+type ReviewContentReviewServiceLike = {
+  getSiyuanApi?: () => ReviewContentSiyuanApi | undefined;
+};
+type ReviewContentPluginContextLike = {
+  getReviewService?: () => ReviewContentReviewServiceLike | undefined;
+};
+type ReviewContentPluginLike = {
+  getContext?: () => ReviewContentPluginContextLike | undefined;
+};
 
 function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
+}
+
+function getReviewSiyuanApi(): ReviewContentSiyuanApi | undefined {
+  const plugin = props.plugin as ReviewContentPluginLike | undefined;
+  return plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
 }
 
 function normalizeDependencyBlockIds(values: Iterable<unknown>): string[] {
@@ -352,6 +372,7 @@ const MAX_MAIN_RENDER_RETRIES = 6;
 const resolvedRenderServices = computed(() => props.renderServices ?? createReviewRenderServices({
   i18n: props.i18n,
 }));
+const reviewSiyuanApi = computed(() => getReviewSiyuanApi());
 
 // 快速卡片渲染服务
 const quickCardRenderService = computed(() => resolvedRenderServices.value.quickCardRenderService);

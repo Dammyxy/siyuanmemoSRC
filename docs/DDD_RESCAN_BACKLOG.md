@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 180)
+Last update: 2026-04-29 (Round 182)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - review breadcrumb port cleanup
+
+- Task: 把上轮暂缓的 review shared breadcrumb 债务清零。
+- Touched slice: Review / Xiuyuan list-template / Image Occlusion active path in `src/ui/review/v2/ReviewContent.vue`, `src/ui/review/v2/components/XiuyuanListTemplateCard.vue`, `src/ui/review/components/ImageOcclusionCardRenderer.vue`, `src/ui/review/shared/loadBreadcrumbTrail.ts`, focused tests, `scripts/check-boundaries.cjs`, and architecture docs.
+- Debt fixed now: `loadBreadcrumbTrail` 改为接收 `ReviewSiyuanPort.getBlockBreadcrumb` 投影；`ReviewContent` 从插件 Review service 解析 `ReviewSiyuanPort` 并注入 Xiuyuan list-template / Image Occlusion；两个特殊渲染器不再 import `@/infrastructure/siyuan/api`，boundary allowlist 删除这两处 review 例外。
+- Debt deferred: 无。
+- Why deferred: 不适用。
+- Next safe step: UI 剩余 infrastructure 例外只剩 browser preview breadcrumb 历史路径，后续单独触碰 browser surface 时再收口。
+- Validation: `pnpm vitest run src/ui/review/shared/__tests__/loadBreadcrumbTrail.test.ts src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts src/ui/review/components/__tests__/ImageOcclusionCardRenderer.test.ts src/ui/review/v2/__tests__/ReviewView.empty-state.spec.ts`（27 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过；i18n 阻断问题 0，保留既有硬编码提示与 Sass legacy warning）。
+
+### 2026-04-29 - review list-template renderer plugin wiring
+
+- Task: 修复打开渐进学习 / 提取练习 review tab 时 `XiuyuanListTemplateCard` 报 `Environment not initialized`。
+- Touched slice: Review / Xiuyuan special renderer active path in `src/ui/review/v2/ReviewView.vue`, `src/ui/review/v2/ReviewContent.vue` existing prop chain, and `src/ui/review/v2/__tests__/ReviewView.empty-state.spec.ts`.
+- Debt fixed now: `ReviewView` 现在把插件实例继续传给 `ReviewContent`，恢复 `XiuyuanListTemplateCard -> plugin.getContext().getReviewService().getSiyuanApi()` 这条既有 Review Siyuan port 链；新增回归测试锁住该 wiring，不新增 fallback / dual path。
+- Debt deferred: 已清零，见 `2026-04-29 - review breadcrumb port cleanup`。
+- Why deferred: 不适用。
+- Next safe step: 不适用。
+- Validation: `pnpm vitest run src/ui/review/v2/components/__tests__/XiuyuanListTemplateCard.test.ts src/ui/review/v2/__tests__/ReviewView.empty-state.spec.ts`（10 tests 通过）；`pnpm build`（通过；i18n 阻断问题 0，保留既有硬编码提示与 Sass legacy warning）。
 
 ### 2026-04-29 - SRS Arena conflict chooser and challenger display
 
@@ -2490,7 +2510,7 @@ Do not add an entry for skill-only or docs-only work.
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
 | P1 | Large active files still mix state, command, projection, and persistence concerns | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue` | Split only along active behavior boundaries after Browser/Review/adapter wiring stabilizes; avoid naming-only moves |
-| P1 | A few UI infrastructure imports remain as documented historical exceptions | `src/ui/browser/utils/previewBreadcrumbData.ts`, `src/ui/review/components/ImageOcclusionCardRenderer.vue`, `src/ui/review/shared/loadBreadcrumbTrail.ts` | Replace each with an application port/factory when that surface is next touched, then shrink `scripts/check-boundaries.cjs` allowlist |
+| P1 | The remaining UI infrastructure import is a documented historical Browser exception | `src/ui/browser/utils/previewBreadcrumbData.ts` | Replace it with a Browser application port/factory when that surface is next touched, then shrink `scripts/check-boundaries.cjs` allowlist |
 | P2 | Browser filter/query helper logic still has local duplication after contract migration | `src/types/browser.ts`, `src/ui/browser/utils/cardFilters.ts`, browser datasource helpers | Deduplicate around shared parser/matcher only after current Browser tests cover the migrated behavior |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |

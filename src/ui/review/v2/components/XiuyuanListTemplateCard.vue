@@ -74,18 +74,7 @@ import { createLogger } from '@/utils/logger';
 type SiyuanApiLike = {
   getBlockDOM: (blockId: string) => Promise<{ dom?: string } | null | undefined>;
   getBlockKramdown: (blockId: string) => Promise<{ kramdown?: string } | null | undefined>;
-};
-
-type ReviewServiceLike = {
-  getSiyuanApi?: () => SiyuanApiLike | undefined;
-};
-
-type PluginContextLike = {
-  getReviewService?: () => ReviewServiceLike | undefined;
-};
-
-type XiuyuanTemplatePluginLike = {
-  getContext?: () => PluginContextLike | undefined;
+  getBlockBreadcrumb: (blockId: string) => Promise<unknown[]>;
 };
 
 type ParsedListTemplateChild = {
@@ -100,7 +89,7 @@ const props = defineProps<{
   meta: XiuyuanCardMeta;
   showAnswer: boolean;
   questionBlockId: string;
-  plugin?: XiuyuanTemplatePluginLike;
+  siyuanApi?: SiyuanApiLike;
   displayMode?: 'semantic' | 'direct';
 }>();
 
@@ -110,10 +99,6 @@ const questionHtml = ref('');
 const breadcrumbs = ref<BreadcrumbItem[]>([]);
 const parsedChildren = ref<ParsedListTemplateChild[]>([]);
 let loadSeq = 0;
-
-function getSiyuanApi() {
-  return props.plugin?.getContext?.()?.getReviewService?.()?.getSiyuanApi?.();
-}
 
 function toLevel(index: number): 0 | 1 | 2 {
   if (index <= 0) {
@@ -292,7 +277,7 @@ const directContentHtml = computed(() => {
 async function loadCardContent(): Promise<void> {
   const seq = ++loadSeq;
   try {
-    const siyuanApi = getSiyuanApi();
+    const siyuanApi = props.siyuanApi;
     if (!siyuanApi) {
       throw new Error('Environment not initialized');
     }
@@ -309,6 +294,7 @@ async function loadCardContent(): Promise<void> {
     const [questionResult, breadcrumbItems, childMarkdownList] = await Promise.all([
       siyuanApi.getBlockDOM(props.questionBlockId),
       loadBreadcrumbTrail(props.questionBlockId, {
+        siyuanApi,
         trimTrailingCount: 2,
       }).catch((breadcrumbError) => {
         logger.warn('[XiuyuanListTemplateCard] Failed to load breadcrumbs:', breadcrumbError);

@@ -2,10 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadBreadcrumbTrail } from '../loadBreadcrumbTrail';
 
 const getBlockBreadcrumbMock = vi.fn();
-
-vi.mock('@/infrastructure/siyuan/api', () => ({
-  getBlockBreadcrumb: (...args: unknown[]) => getBlockBreadcrumbMock(...args),
-}));
+const siyuanApi = {
+  getBlockBreadcrumb: getBlockBreadcrumbMock,
+};
 
 describe('loadBreadcrumbTrail', () => {
   beforeEach(() => {
@@ -20,6 +19,7 @@ describe('loadBreadcrumbTrail', () => {
     ]);
 
     await expect(loadBreadcrumbTrail('block-1', {
+      siyuanApi,
       trimTrailingCount: 1,
     })).resolves.toEqual([
       { id: 'doc-1', name: 'Doc', type: 'NodeDocument' },
@@ -37,6 +37,7 @@ describe('loadBreadcrumbTrail', () => {
     ]);
 
     await expect(loadBreadcrumbTrail('block-1', {
+      siyuanApi,
       trimTrailingCount: 1,
       clipAtLastDocument: true,
     })).resolves.toEqual([
@@ -56,6 +57,7 @@ describe('loadBreadcrumbTrail', () => {
     ]);
 
     await expect(loadBreadcrumbTrail('q_1', {
+      siyuanApi,
       trimTrailingCount: 2,
     })).resolves.toEqual([
       { id: 'doc-1', name: 'Doc', type: 'NodeDocument' },

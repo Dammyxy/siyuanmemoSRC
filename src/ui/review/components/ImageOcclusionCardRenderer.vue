@@ -108,7 +108,7 @@ import type { BreadcrumbItem } from '@/core/card/common/application/types';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
 import CardLoadingState from '@/core/card/common/ui/CardLoadingState.vue';
 import CardErrorState from '@/core/card/common/ui/CardErrorState.vue';
-import { getBlockAttrs, getBlockKramdown } from '@/infrastructure/siyuan/api';
+import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import type { FSRSCard } from '@/types/card';
 import { loadBreadcrumbTrail } from '@/ui/review/shared/loadBreadcrumbTrail';
 import {
@@ -154,11 +154,14 @@ interface ViewModel {
   prompt: string;
 }
 
+type ImageOcclusionSiyuanApi = Pick<ReviewSiyuanPort, 'getBlockAttrs' | 'getBlockKramdown' | 'getBlockBreadcrumb'>;
+
 interface Props {
   blockId: string;
   card?: FSRSCard;
   showAnswer?: boolean;
   i18n?: Record<string, string>;
+  siyuanApi?: ImageOcclusionSiyuanApi;
 }
 
 interface Emits {
@@ -646,7 +649,18 @@ function handleStageWheel(event: WheelEvent): void {
 
 async function loadViewModel(): Promise<void> {
   const seq = ++loadSeq;
+  const siyuanApi = props.siyuanApi;
+  if (!siyuanApi) {
+    const nextError = new Error('Environment not initialized');
+    error.value = nextError.message;
+    emit('error', nextError);
+    logger.error('[ImageOcclusionCardRenderer] Failed to load view model:', nextError);
+    loading.value = false;
+    return;
+  }
+
   const breadcrumbsPromise = loadBreadcrumbTrail(props.blockId, {
+    siyuanApi,
     trimTrailingCount: 1,
     clipAtLastDocument: true,
   }).catch((breadcrumbError) => {
@@ -661,7 +675,7 @@ async function loadViewModel(): Promise<void> {
     imageNaturalWidth.value = 0;
     imageNaturalHeight.value = 0;
 
-    const attrs = await getBlockAttrs(props.blockId);
+    const attrs = await siyuanApi.getBlockAttrs(props.blockId);
     if (seq !== loadSeq) {
       return;
     }
@@ -679,7 +693,7 @@ async function loadViewModel(): Promise<void> {
 
     let imageSrc = typeof payload.imageSrc === 'string' ? payload.imageSrc.trim() : '';
     if (!imageSrc) {
-      const { kramdown } = await getBlockKramdown(props.blockId);
+      const { kramdown } = await siyuanApi.getBlockKramdown(props.blockId);
       if (seq !== loadSeq) {
         return;
       }

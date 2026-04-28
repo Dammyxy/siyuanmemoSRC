@@ -44,8 +44,6 @@ function isApplicationManagerOrFactory(relativePath) {
 
 const uiInfrastructureAllowlist = new Set([
   'src/ui/browser/utils/previewBreadcrumbData.ts',
-  'src/ui/review/components/ImageOcclusionCardRenderer.vue',
-  'src/ui/review/shared/loadBreadcrumbTrail.ts',
 ]);
 
 for (const file of walk(srcRoot)) {
