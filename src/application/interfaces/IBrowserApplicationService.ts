@@ -23,6 +23,8 @@ import type {
 } from '../queries/browser/GetBrowserCardsQuery';
 import type { BrowserCard } from '@/types/browser';
 import type {
+  BrowserDeckPageRequest,
+  BrowserDeckPageResult,
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
 } from '../queries/browser/browser-deck-query';
@@ -97,6 +99,10 @@ export interface IBrowserApplicationService {
   getBrowserCards(query?: GetBrowserCardsQuery): Promise<GetBrowserCardsQueryResult>;
 
   getDeckQuerySnapshot(query: BrowserDeckSnapshotQuery): Promise<BrowserDeckSnapshotResult>;
+
+  getDeckPage(query: BrowserDeckSnapshotQuery, page: BrowserDeckPageRequest): Promise<BrowserDeckPageResult>;
+
+  getDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[]>;
 
   getDeckRowsByIds(ids: string[]): Promise<BrowserCard[]>;
 

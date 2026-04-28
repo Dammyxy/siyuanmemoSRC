@@ -49,6 +49,10 @@ export class CardReadModel implements ICardReadModel {
   queryCards(query?: StructuredCardQuery): FSRSCard[] {
     return this.storage.queryCards(query);
   }
+
+  countCards(query?: StructuredCardQuery): number {
+    return this.storage.queryCards(query).length;
+  }
   
   /**
    * 获取到期卡片

@@ -32,7 +32,9 @@ export class GetDueCardsQueryHandler {
       dueDate: { lte: now.getTime() },
     });
     const dueCards = this.scheduleService.filterDueCards(dueCandidates, now);
-    const total = this.readModel.queryCards({ states: ALL_CARD_QUERY_STATES }).length;
+    const total = this.readModel.countCards
+      ? this.readModel.countCards({ states: ALL_CARD_QUERY_STATES })
+      : this.readModel.queryCards({ states: ALL_CARD_QUERY_STATES }).length;
 
     return {
       cards: dueCards,

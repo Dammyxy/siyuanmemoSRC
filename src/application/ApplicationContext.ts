@@ -629,6 +629,8 @@ export class ApplicationContext {
         cardSortService,
         context.getUnifiedDataSourceManager(),  // ✅ 传入 UnifiedDataSourceManager
         new BrowserSiyuanAdapter(),
+        null,
+        context.sqlPersistence?.unified ?? null,
       );
     });
     

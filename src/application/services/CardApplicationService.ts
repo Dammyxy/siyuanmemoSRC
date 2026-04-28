@@ -248,8 +248,21 @@ export class CardApplicationService {
    * ```
    */
   async getDueCount(): Promise<number> {
+    if (this.readModel.countCards) {
+      return this.readModel.countCards({
+        dueDate: { lte: Date.now() },
+        includeSuspended: false,
+      });
+    }
     const result = await this.getDueCards();
     return result.count;
+  }
+
+  async getTotalCount(): Promise<number> {
+    if (this.readModel.countCards) {
+      return this.readModel.countCards();
+    }
+    return this.readModel.getAllCards().length;
   }
   
   /**

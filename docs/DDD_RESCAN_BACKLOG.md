@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 173)
+Last update: 2026-04-29 (Round 174)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - browser SQL read model paging
+
+- Task: 将 SQL 存储红利扩到 Browser deck 主表、统计和计数，让 AG Grid 从全量 snapshot 分页改成 SQL `COUNT + LIMIT/OFFSET + page hydrate`。
+- Touched slice: Browser / SQL read model / application composition root across `src/application/{ApplicationContext.ts,ports/BrowserDeckReadPort.ts,services/BrowserApplicationService.ts,interfaces/IBrowserApplicationService.ts,queries/browser/*,queries/card/*}`, `src/infrastructure/persistence/sqlite/*`, `src/infrastructure/queries/*`, `src/ui/browser/datasource/DeckDataSource.ts`, `src/application/managers/DockManager.ts`, `src/ui/menu/TopBar.ts`, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `cards` schema v2 增加 Browser 常用投影列和索引；SQL repository 维护投影并提供 `queryDeckPage/queryDeckMatchedIds/getDeckCardsByIds/countCards/getBrowserStats`；`BrowserApplicationService` 优先走 `BrowserDeckReadPort`，UI datasource 只 hydrate 当前页或选中 id；due/total/stats 计数优先 SQL 聚合；missing-block-only、`__lost__`、retrievability 等 SQL 不可表达条件显式 fallback，不返回错页。
+- Debt deferred: missing-block 存在性仍未物化到 SQL stats，SQL aggregate 的 `lostCards` 暂为 0；FTS5 搜索、队列物化表、DocTreeReviewScopeService / CardTypeMarker 扫描点进一步 SQL 化仍未做。
+- Why deferred: 本轮先吃 Browser 主表和计数最大收益；missing-block 需要源块存在性索引或校验缓存，FTS5 依赖 sql.js 构建能力确认，队列物化会触及队列语义和刷新合约。
+- Next safe step: 基于真实性能日志决定下一刀：优先补 missing-block/source-existence 投影，或接 FTS5，再考虑队列 snapshot / review-scope 物化。
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts src/ui/browser/datasource/session/__tests__/BrowserQuerySession.test.ts`（通过）；`pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`git diff --check`（通过；仅 Git 行尾提示）。
 
 ### 2026-04-28 - neural roam virtual node fsrs SQL fallback
 
@@ -2422,6 +2432,7 @@ Do not add an entry for skill-only or docs-only work.
 | P1 | Large active files still mix state, command, projection, and persistence concerns | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue` | Split only along active behavior boundaries after Browser/Review/adapter wiring stabilizes; avoid naming-only moves |
 | P1 | A few UI infrastructure imports remain as documented historical exceptions | `src/ui/browser/utils/previewBreadcrumbData.ts`, `src/ui/review/components/ImageOcclusionCardRenderer.vue`, `src/ui/review/shared/loadBreadcrumbTrail.ts` | Replace each with an application port/factory when that surface is next touched, then shrink `scripts/check-boundaries.cjs` allowlist |
 | P2 | Browser filter/query helper logic still has local duplication after contract migration | `src/types/browser.ts`, `src/ui/browser/utils/cardFilters.ts`, browser datasource helpers | Deduplicate around shared parser/matcher only after current Browser tests cover the migrated behavior |
+| P2 | SQL Browser read model still lacks source-existence projection, FTS search, and queue/review-scope materialized views | `src/infrastructure/persistence/sqlite/*`, `BrowserDeckReadPort`, `DocTreeReviewScopeService`, queue browser snapshots, `CardTypeMarker` scan points | Add one projection at a time after profiling: source-existence for true missing-block stats first, then FTS5 if sql.js supports it, then queue/review-scope materialization |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
 | P3 | AI pane tests still inherit localhost asset fetch noise from shared markdown rendering setup | `src/ui/ai/__tests__/*`, shared markdown/test harness setup | Add a shared happy-dom asset shim or markdown renderer test mode to silence unrelated network noise |

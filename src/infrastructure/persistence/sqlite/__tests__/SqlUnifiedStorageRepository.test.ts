@@ -90,6 +90,7 @@ async function seedRepositories(): Promise<{
       due: 1_700_000_001_000,
       priority: 50,
       tags: ['alpha'],
+      meta: { deckId: 'deck-a', rootId: 'doc-a', content: 'Alpha item', tags: ['alpha'] },
     }),
     createDTO({
       id: 'card-b',
@@ -100,6 +101,7 @@ async function seedRepositories(): Promise<{
       due: 1_700_000_002_000,
       priority: 20,
       tags: ['beta'],
+      meta: { deckId: 'deck-b', rootId: 'doc-a', content: 'Beta topic', tags: ['beta'] },
     }),
     createDTO({
       id: 'card-c',
@@ -110,7 +112,7 @@ async function seedRepositories(): Promise<{
       due: 1_700_000_003_000,
       priority: 10,
       tags: ['gamma'],
-      meta: { suspended: true, tags: ['meta-gamma'] },
+      meta: { deckId: 'deck-a', rootId: 'doc-b', content: 'Gamma suspended', suspended: true, tags: ['meta-gamma'] },
     }),
     createDTO({
       id: 'card-d',
@@ -121,6 +123,7 @@ async function seedRepositories(): Promise<{
       due: 1_700_000_002_500,
       priority: 30,
       tags: ['beta'],
+      meta: { deckId: 'deck-a', rootId: 'doc-a', content: 'Delta review', tags: ['beta'] },
     }),
   ];
 
@@ -169,5 +172,57 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(readModel.getCardByBlockId('block-b')?.id).toBe('card-b');
     expect(ids(readModel.getCardsByBlockId('block-d'))).toEqual(['card-d']);
     expect(ids(readModel.getDueCards(2))).toEqual(['card-a', 'card-b']);
+    expect(readModel.countCards?.({ includeSuspended: false })).toBe(3);
+  });
+
+  it('serves SQL count, page, and matched-id reads from card projections', async () => {
+    const { repository } = await seedRepositories();
+
+    expect(repository.countCards()).toBe(4);
+    expect(repository.countCards({ dueDate: { lte: 1_700_000_002_500 }, includeSuspended: false })).toBe(3);
+    expect(ids(repository.queryCardsPage({ states: [CardState.Review] }, { startRow: 1, endRow: 3 }).cards)).toEqual(['card-c', 'card-d']);
+    expect(repository.queryDeckMatchedIds({ sortModel: [] })).toEqual(['card-a', 'card-b', 'card-c', 'card-d']);
+    expect(repository.queryDeckMatchedIds({ searchText: 'block-d', sortModel: [] })).toEqual([]);
+
+    const page = repository.queryDeckPage({
+      docId: 'doc-a',
+      deckIds: ['deck-a'],
+      searchText: 'Delta',
+      sortModel: [{ colId: 'priority', sort: 'asc' }],
+    }, {
+      startRow: 0,
+      endRow: 10,
+    });
+
+    expect(page?.total).toBe(1);
+    expect(ids(page?.cards || [])).toEqual(['card-d']);
+    expect(repository.queryDeckMatchedIds({
+      docId: 'doc-a',
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+    })).toEqual(['card-a', 'card-d', 'card-b']);
+  });
+
+  it('updates projection columns on upsert and declines unsupported missing-block SQL pages', async () => {
+    const { repository } = await seedRepositories();
+    const card = repository.getCard('card-a');
+    expect(card).toBeTruthy();
+    repository.upsertCard({
+      ...card!,
+      meta: {
+        ...(card!.meta || {}),
+        rootId: 'doc-z',
+        deckId: 'deck-z',
+        content: 'Zeta moved',
+        tags: ['zeta'],
+      },
+    });
+
+    expect(repository.queryDeckMatchedIds({
+      docId: 'doc-z',
+      deckIds: ['deck-z'],
+      tags: ['zeta'],
+      searchText: 'Zeta',
+    })).toEqual(['card-a']);
+    expect(repository.queryDeckPage({ docId: '__lost__' }, { startRow: 0, endRow: 20 })).toBeNull();
   });
 });

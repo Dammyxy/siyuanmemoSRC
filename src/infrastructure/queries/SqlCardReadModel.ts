@@ -14,6 +14,10 @@ export class SqlCardReadModel implements ICardReadModel {
     return this.repository.queryCards(query);
   }
 
+  countCards(query?: StructuredCardQuery): number {
+    return this.repository.countCards(query);
+  }
+
   getDueCards(limit = 100): FSRSCard[] {
     return this.repository.getDueCards(limit);
   }

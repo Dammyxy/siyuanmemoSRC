@@ -5,14 +5,18 @@ import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { QueueType, type CardFilter, type IReviewQueue, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
+import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
 import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQueryHandler';
 import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
 import { QueueBrowserQueryKernel } from '../queries/browser/shared/QueueBrowserQueryKernel';
 import type {
+  BrowserStats,
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,
 } from '../queries/browser/GetBrowserCardsQuery';
 import type {
+  BrowserDeckPageRequest,
+  BrowserDeckPageResult,
   BrowserDeckSnapshotQuery,
   BrowserDeckSnapshotResult,
 } from '../queries/browser/browser-deck-query';
@@ -76,6 +80,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     unifiedDataSourceManager?: IUnifiedDataSourceManagerFacade | null,
     siyuanApi: BrowserSiyuanPort,
     private readonly dataSourceFactory?: BrowserDataSourceFactory | null,
+    private readonly browserDeckReadPort?: BrowserDeckReadPort | null,
   ) {
     this.browserDeckQueryKernel = new BrowserDeckQueryKernel(
       storageManager,
@@ -108,6 +113,37 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getBrowserCards(query: GetBrowserCardsQuery = {}): Promise<GetBrowserCardsQueryResult> {
+    if (this.browserDeckReadPort) {
+      const page = query.page || 1;
+      const pageSize = query.pageSize || 50;
+      const startRow = (page - 1) * pageSize;
+      const pageResult = await this.getDeckPage(
+        {
+          preset: query.preset,
+          searchText: query.searchText,
+          docId: query.docId,
+          states: query.states,
+          cardTypes: query.cardTypes,
+          deckIds: query.deckIds,
+          tags: query.tags,
+          sortModel: [{
+            colId: query.sortBy || 'due',
+            sort: query.sortOrder || 'asc',
+          }],
+        },
+        {
+          startRow,
+          endRow: startRow + pageSize,
+        },
+      );
+      return {
+        cards: pageResult.rows,
+        total: pageResult.total,
+        page,
+        pageSize,
+        stats: await this.getStats(),
+      };
+    }
     return this.getBrowserCardsQueryHandler.execute(query);
   }
 
@@ -115,7 +151,45 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     return this.browserDeckQueryKernel.buildSnapshot(query);
   }
 
+  async getDeckPage(
+    query: BrowserDeckSnapshotQuery,
+    page: BrowserDeckPageRequest,
+  ): Promise<BrowserDeckPageResult> {
+    const sqlPage = this.browserDeckReadPort?.queryDeckPage(query, page);
+    if (sqlPage) {
+      return {
+        rows: await this.browserDeckQueryKernel.getBrowserCardsFromCards(sqlPage.cards),
+        total: sqlPage.total,
+      };
+    }
+
+    const snapshot = await this.browserDeckQueryKernel.buildSnapshot(query);
+    const startRow = Math.max(0, Math.floor(Number(page.startRow) || 0));
+    const endRow = Math.max(startRow, Math.min(
+      page.endRow == null ? snapshot.total : Math.floor(Number(page.endRow) || 0),
+      snapshot.total,
+    ));
+    const ids = snapshot.rows.slice(startRow, endRow).map((row) => row.id);
+    return {
+      rows: await this.browserDeckQueryKernel.getBrowserCardsByIds(ids),
+      total: snapshot.total,
+    };
+  }
+
+  async getDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[]> {
+    const sqlIds = this.browserDeckReadPort?.queryDeckMatchedIds(query);
+    if (sqlIds) {
+      return sqlIds;
+    }
+    const snapshot = await this.browserDeckQueryKernel.buildSnapshot(query);
+    return snapshot.rows.map((row) => row.id);
+  }
+
   async getDeckRowsByIds(ids: string[]) {
+    if (this.browserDeckReadPort) {
+      const cards = this.browserDeckReadPort.getDeckCardsByIds(ids);
+      return this.browserDeckQueryKernel.getBrowserCardsFromCards(cards);
+    }
     return this.browserDeckQueryKernel.getBrowserCardsByIds(ids);
   }
 
@@ -134,13 +208,22 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getDueCount(): Promise<number> {
+    if (this.browserDeckReadPort) {
+      return this.browserDeckReadPort.countCards({
+        dueDate: { lte: Date.now() },
+        includeSuspended: false,
+      });
+    }
     const result = await this.browserDeckQueryKernel.buildSnapshot({
       preset: 'due',
     });
     return result.total;
   }
 
-  async getStats() {
+  async getStats(): Promise<BrowserStats> {
+    if (this.browserDeckReadPort) {
+      return this.browserDeckReadPort.getBrowserStats();
+    }
     return this.browserDeckQueryKernel.getStats();
   }
 

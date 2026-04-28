@@ -169,6 +169,17 @@ export class BrowserDeckQueryKernel {
       .filter((row): row is BrowserCard => Boolean(row));
   }
 
+  async getBrowserCardsFromCards(
+    cards: FSRSCard[],
+    options: { markMissing?: boolean } = {},
+  ): Promise<BrowserCard[]> {
+    const browserCards = await this.transformToBrowserCards(cards);
+    if (options.markMissing === false) {
+      return browserCards;
+    }
+    return markMissingBlockRows(browserCards, this.siyuanApi);
+  }
+
   transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>): BrowserCard {
     const now = Date.now();
     const MS_PER_DAY = 86400000;

@@ -1,12 +1,57 @@
 import type { StorageLoadReason, UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
+import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
+import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
+import type {
+  BrowserDeckCardPageResult,
+  BrowserDeckPageRequest,
+  BrowserDeckSnapshotQuery,
+} from '@/application/queries/browser/browser-deck-query';
+import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '@/infrastructure/persistence/mappers/CardMapper';
-import type { FSRSCard } from '@/types/card';
+import { CardState, type FSRSCard } from '@/types/card';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import { parseQuery } from '@/types/browser';
 import { stringifyJson, parseJson } from './json';
 import type { SqliteDatabaseService } from './SqliteDatabaseService';
+
+interface CardProjection {
+  deckId: string | null;
+  rootId: string | null;
+  contentText: string | null;
+  tags: string | null;
+  suspended: number;
+  lapses: number | null;
+  reps: number | null;
+  lastReview: number | null;
+  createdAt: number | null;
+  scheduledDays: number | null;
+  stability: number | null;
+  difficulty: number | null;
+  aFactor: number | null;
+}
+
+interface WhereClause {
+  sql: string;
+  params: Array<string | number>;
+}
+
+interface BrowserDeckSqlQuery {
+  where: WhereClause | null;
+  orderBy: string;
+}
+
+interface CardPageRequest {
+  startRow?: number;
+  endRow?: number;
+}
+
+interface CardPageResult {
+  cards: FSRSCard[];
+  total: number;
+}
 
 function createEmptyStore(): UnifiedCardStore {
   return {
@@ -45,6 +90,89 @@ function normalizeStringArray(values: unknown[] | undefined): string[] {
     .filter(Boolean);
 }
 
+function normalizeString(value: unknown): string {
+  return String(value || '').trim();
+}
+
+function normalizeSqlLimit(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback;
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function readStringField(record: unknown, key: string): string {
+  if (!isObjectRecord(record)) {
+    return '';
+  }
+  const value = record[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readNumberField(record: unknown, key: string): number | null {
+  if (!isObjectRecord(record)) {
+    return null;
+  }
+  return normalizeNumber(record[key]);
+}
+
+function normalizeProjectionTags(card: FSRSCard): string | null {
+  const tags = new Set<string>();
+  for (const tag of Array.isArray(card.tags) ? card.tags : []) {
+    const normalized = normalizeString(tag);
+    if (normalized) {
+      tags.add(normalized);
+    }
+  }
+
+  const metaTags = isObjectRecord(card.meta) && Array.isArray(card.meta.tags)
+    ? card.meta.tags
+    : [];
+  for (const tag of metaTags) {
+    const normalized = normalizeString(tag);
+    if (normalized) {
+      tags.add(normalized);
+    }
+  }
+
+  if (tags.size === 0) {
+    return null;
+  }
+  return `\n${Array.from(tags).sort().join('\n')}\n`;
+}
+
+function createCardProjection(card: FSRSCard, dto?: CardPersistenceDTO): CardProjection {
+  const meta = card.meta;
+  const deckId = readStringField(meta, 'deckId')
+    || readStringField(card, 'deckId')
+    || readStringField(card, 'deckID');
+  const rootId = readStringField(meta, 'rootId')
+    || readStringField(card, 'rootId');
+  const contentText = readStringField(meta, 'content')
+    || readStringField(card, 'content');
+  const aFactor = normalizeNumber(card.aFactor)
+    ?? readNumberField(meta, 'aFactor')
+    ?? readNumberField(meta, 'a_factor');
+
+  return {
+    deckId: deckId || null,
+    rootId: rootId || null,
+    contentText: contentText || null,
+    tags: normalizeProjectionTags(card),
+    suspended: isCardDismissed(card) ? 1 : 0,
+    lapses: normalizeNumber(card.lapses ?? dto?.lapses),
+    reps: normalizeNumber(card.reps ?? dto?.reps),
+    lastReview: normalizeNumber(card.lastReview ?? dto?.lastReview),
+    createdAt: normalizeNumber(card.createdAt ?? dto?.createdAt),
+    scheduledDays: normalizeNumber(card.scheduledDays ?? dto?.scheduledDays),
+    stability: normalizeNumber(card.stability ?? dto?.stability),
+    difficulty: normalizeNumber(card.difficulty ?? dto?.difficulty),
+    aFactor,
+  };
+}
+
 function appendInClause(
   clauses: string[],
   params: Array<string | number>,
@@ -58,7 +186,7 @@ function appendInClause(
   params.push(...values);
 }
 
-export class SqlUnifiedStorageRepository {
+export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   constructor(private readonly database: SqliteDatabaseService) {}
 
   async loadStore(_reason: StorageLoadReason = 'unspecified'): Promise<UnifiedCardStore> {
@@ -127,10 +255,15 @@ export class SqlUnifiedStorageRepository {
       const cardDTOs = store.cardDTOs || {};
       for (const [id, card] of Object.entries(store.cards || {})) {
         const dto = cardDTOs[id];
+        const projection = createCardProjection(card, dto);
         db.run(
           `INSERT INTO cards
-          (id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at, payload_json, dto_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (
+            id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
+            deck_id, root_id, content_text, tags, suspended, lapses, reps, last_review, created_at,
+            scheduled_days, stability, difficulty, a_factor, payload_json, dto_json
+          )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             card.blockId || null,
@@ -141,6 +274,19 @@ export class SqlUnifiedStorageRepository {
             normalizeNumber(card.priority),
             card.schedulerType || null,
             normalizeNumber(card.updatedAt) || Date.now(),
+            projection.deckId,
+            projection.rootId,
+            projection.contentText,
+            projection.tags,
+            projection.suspended,
+            projection.lapses,
+            projection.reps,
+            projection.lastReview,
+            projection.createdAt,
+            projection.scheduledDays,
+            projection.stability,
+            projection.difficulty,
+            projection.aFactor,
             stringifyJson(card),
             dto ? stringifyJson(dto) : null,
           ],
@@ -198,10 +344,15 @@ export class SqlUnifiedStorageRepository {
 
   upsertCard(card: FSRSCard): void {
     const dto = CardMapper.toPersistence(card);
+    const projection = createCardProjection(card, dto);
     this.database.run(
       `INSERT OR REPLACE INTO cards
-        (id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at, payload_json, dto_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (
+          id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
+          deck_id, root_id, content_text, tags, suspended, lapses, reps, last_review, created_at,
+          scheduled_days, stability, difficulty, a_factor, payload_json, dto_json
+        )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         card.id,
         card.blockId || null,
@@ -212,6 +363,19 @@ export class SqlUnifiedStorageRepository {
         normalizeNumber(card.priority),
         card.schedulerType || null,
         normalizeNumber(card.updatedAt) || Date.now(),
+        projection.deckId,
+        projection.rootId,
+        projection.contentText,
+        projection.tags,
+        projection.suspended,
+        projection.lapses,
+        projection.reps,
+        projection.lastReview,
+        projection.createdAt,
+        projection.scheduledDays,
+        projection.stability,
+        projection.difficulty,
+        projection.aFactor,
         stringifyJson(card),
         stringifyJson(dto),
       ],
@@ -253,7 +417,181 @@ export class SqlUnifiedStorageRepository {
     }).slice(0, Math.max(1, Math.floor(Number(limit) || 100)));
   }
 
+  getCardsByIds(ids: string[]): FSRSCard[] {
+    const orderedIds = normalizeStringArray(ids);
+    if (orderedIds.length === 0) {
+      return [];
+    }
+
+    const uniqueIds = Array.from(new Set(orderedIds));
+    const placeholders = uniqueIds.map(() => '?').join(', ');
+    const rows = this.database.getAll<{ payload_json: string }>(
+      `SELECT payload_json FROM cards WHERE id IN (${placeholders}) OR block_id IN (${placeholders})`,
+      [...uniqueIds, ...uniqueIds],
+    );
+    const cardById = new Map<string, FSRSCard>();
+    for (const row of rows) {
+      const card = this.parseCardRow(row);
+      if (!card) {
+        continue;
+      }
+      cardById.set(normalizeString(card.id), card);
+      cardById.set(normalizeString(card.blockId), card);
+    }
+    return orderedIds
+      .map((id) => cardById.get(id))
+      .filter((card): card is FSRSCard => Boolean(card));
+  }
+
+  getDeckCardsByIds(ids: string[]): FSRSCard[] {
+    return this.getCardsByIds(ids);
+  }
+
   queryCards(query?: StructuredCardQuery): FSRSCard[] {
+    const where = this.buildStructuredWhereClause(query);
+    const whereClause = this.toWhereSql(where);
+    const orderBy = query?.dueDate?.lte !== undefined || query?.dueDate?.gte !== undefined
+      ? 'ORDER BY due ASC, priority ASC, id ASC'
+      : 'ORDER BY id ASC';
+    const rows = this.database.getAll<{ payload_json: string }>(
+      `SELECT payload_json FROM cards ${whereClause} ${orderBy}`,
+      where?.params,
+    );
+
+    return rows
+      .map((row) => this.parseCardRow(row))
+      .filter((card): card is FSRSCard => Boolean(card))
+      .filter((card) => this.matchesStructuredQueryResiduals(card, query));
+  }
+
+  queryCardIds(query?: StructuredCardQuery): string[] {
+    if (query?.customFilter) {
+      return this.queryCards(query).map((card) => card.id);
+    }
+    const where = this.buildStructuredWhereClause(query);
+    const rows = this.database.getAll<{ id: string }>(
+      `SELECT id FROM cards ${this.toWhereSql(where)} ORDER BY id ASC`,
+      where?.params,
+    );
+    return rows.map((row) => row.id).filter(Boolean);
+  }
+
+  queryCardsPage(query?: StructuredCardQuery, page: CardPageRequest = {}): CardPageResult {
+    if (query?.customFilter) {
+      const cards = this.queryCards(query);
+      const { startRow, endRow } = this.normalizePageRequest(page, cards.length);
+      return {
+        cards: cards.slice(startRow, endRow),
+        total: cards.length,
+      };
+    }
+
+    const where = this.buildStructuredWhereClause(query);
+    const total = this.countCards(query);
+    const { startRow, limit } = this.normalizePageRequest(page, total);
+    const rows = this.database.getAll<{ payload_json: string }>(
+      `SELECT payload_json FROM cards ${this.toWhereSql(where)} ORDER BY id ASC LIMIT ? OFFSET ?`,
+      [...(where?.params || []), limit, startRow],
+    );
+    return {
+      cards: rows
+        .map((row) => this.parseCardRow(row))
+        .filter((card): card is FSRSCard => Boolean(card)),
+      total,
+    };
+  }
+
+  countCards(query?: StructuredCardQuery): number {
+    if (query?.customFilter) {
+      return this.queryCards(query).length;
+    }
+    const where = this.buildStructuredWhereClause(query);
+    const row = this.database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM cards ${this.toWhereSql(where)}`,
+      where?.params,
+    );
+    return Math.max(0, Number(row?.count) || 0);
+  }
+
+  queryDeckPage(
+    query: BrowserDeckSnapshotQuery,
+    page: BrowserDeckPageRequest = {},
+  ): BrowserDeckCardPageResult | null {
+    const deckQuery = this.buildBrowserDeckSqlQuery(query);
+    if (!deckQuery) {
+      return null;
+    }
+
+    const total = this.countByWhere(deckQuery.where);
+    const { startRow, limit } = this.normalizePageRequest(page, total);
+    const rows = this.database.getAll<{ payload_json: string }>(
+      `SELECT payload_json FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy} LIMIT ? OFFSET ?`,
+      [...(deckQuery.where?.params || []), limit, startRow],
+    );
+    return {
+      cards: rows
+        .map((row) => this.parseCardRow(row))
+        .filter((card): card is FSRSCard => Boolean(card)),
+      total,
+    };
+  }
+
+  queryDeckMatchedIds(query: BrowserDeckSnapshotQuery): string[] | null {
+    const deckQuery = this.buildBrowserDeckSqlQuery(query);
+    if (!deckQuery) {
+      return null;
+    }
+
+    const rows = this.database.getAll<{ id: string }>(
+      `SELECT id FROM cards ${this.toWhereSql(deckQuery.where)} ${deckQuery.orderBy}`,
+      deckQuery.where?.params,
+    );
+    return rows.map((row) => row.id).filter(Boolean);
+  }
+
+  getBrowserStats(now = Date.now()): BrowserStats {
+    const row = this.database.getOne<{
+      totalCards: number;
+      dueCards: number;
+      newCards: number;
+      learningCards: number;
+      reviewCards: number;
+      suspendedCards: number;
+    }>(
+      `SELECT
+        COUNT(*) AS totalCards,
+        COALESCE(SUM(CASE WHEN due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
+        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS newCards,
+        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
+        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
+        COALESCE(SUM(CASE WHEN suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards
+       FROM cards`,
+      [now, CardState.New, CardState.Learning, CardState.Review],
+    );
+
+    return {
+      totalCards: Math.max(0, Number(row?.totalCards) || 0),
+      dueCards: Math.max(0, Number(row?.dueCards) || 0),
+      newCards: Math.max(0, Number(row?.newCards) || 0),
+      learningCards: Math.max(0, Number(row?.learningCards) || 0),
+      reviewCards: Math.max(0, Number(row?.reviewCards) || 0),
+      suspendedCards: Math.max(0, Number(row?.suspendedCards) || 0),
+      lostCards: 0,
+    };
+  }
+
+  async persist(): Promise<void> {
+    await this.database.persist();
+  }
+
+  hasCardsOrXiuyuans(): boolean {
+    const row = this.database.getOne<{ count: number }>(
+      'SELECT (SELECT COUNT(*) FROM cards) + (SELECT COUNT(*) FROM xiuyuans) AS count',
+    );
+    return Number(row?.count) > 0;
+  }
+
+  private buildStructuredWhereClause(query?: StructuredCardQuery): WhereClause | null {
     const clauses: string[] = [];
     const params: Array<string | number> = [];
 
@@ -299,30 +637,318 @@ export class SqlUnifiedStorageRepository {
       }
     }
 
-    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-    const orderBy = query?.dueDate?.lte !== undefined || query?.dueDate?.gte !== undefined
-      ? 'ORDER BY due ASC, priority ASC, id ASC'
-      : 'ORDER BY id ASC';
-    const rows = this.database.getAll<{ payload_json: string }>(
-      `SELECT payload_json FROM cards ${whereClause} ${orderBy}`,
+    if (query?.suspended === true) {
+      clauses.push('suspended = 1');
+    } else if (query?.suspended === false || query?.includeSuspended === false) {
+      clauses.push('suspended = 0');
+    }
+
+    const tags = normalizeStringArray(query?.tags);
+    if (tags.length > 0) {
+      clauses.push(`(${tags.map(() => "tags LIKE ? ESCAPE '\\'").join(' OR ')})`);
+      params.push(...tags.map((tag) => `%\n${escapeLike(tag)}\n%`));
+    }
+
+    if (clauses.length === 0) {
+      return null;
+    }
+    return {
+      sql: clauses.join(' AND '),
       params,
-    );
-
-    return rows
-      .map((row) => this.parseCardRow(row))
-      .filter((card): card is FSRSCard => Boolean(card))
-      .filter((card) => this.matchesStructuredQueryResiduals(card, query));
+    };
   }
 
-  async persist(): Promise<void> {
-    await this.database.persist();
+  private buildBrowserDeckSqlQuery(query: BrowserDeckSnapshotQuery): BrowserDeckSqlQuery | null {
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    const normalizedDocId = normalizeString(query.docId);
+
+    if (normalizedDocId === '__lost__' || query.cardTypes?.includes('missing-block-only')) {
+      return null;
+    }
+
+    this.appendPresetClauses(clauses, params, query.preset);
+    this.appendStateClauses(clauses, params, query.states);
+    if (!this.appendBrowserCardTypeClauses(clauses, params, query.cardTypes)) {
+      return null;
+    }
+    this.appendStringInClause(clauses, params, 'deck_id', query.deckIds);
+    this.appendAllTagsClause(clauses, params, query.tags);
+
+    if (normalizedDocId) {
+      clauses.push('root_id = ?');
+      params.push(normalizedDocId);
+    }
+    this.appendStringInClause(clauses, params, 'root_id', query.scopeDocIds || undefined);
+
+    const searchApplied = this.appendSearchTextClauses(clauses, params, query.searchText);
+    if (!searchApplied) {
+      return null;
+    }
+
+    const orderBy = this.buildBrowserDeckOrderBy(query.sortModel || []);
+    if (!orderBy) {
+      return null;
+    }
+
+    return {
+      where: clauses.length > 0 ? { sql: clauses.join(' AND '), params } : null,
+      orderBy,
+    };
   }
 
-  hasCardsOrXiuyuans(): boolean {
+  private appendPresetClauses(
+    clauses: string[],
+    params: Array<string | number>,
+    preset?: string,
+  ): void {
+    switch (preset) {
+      case 'due':
+        clauses.push('due <= ?');
+        params.push(Date.now());
+        break;
+      case 'overdue':
+        clauses.push('due < ?');
+        params.push(Date.now());
+        clauses.push('state != ?');
+        params.push(CardState.New);
+        break;
+      case 'new':
+        clauses.push('state = ?');
+        params.push(CardState.New);
+        break;
+      case 'learning':
+        clauses.push('state = ?');
+        params.push(CardState.Learning);
+        break;
+      case 'review':
+        clauses.push('state = ?');
+        params.push(CardState.Review);
+        break;
+      case 'leech':
+        clauses.push('lapses > 0');
+        break;
+      case 'suspended':
+        clauses.push('suspended = 1');
+        break;
+      default:
+        break;
+    }
+  }
+
+  private appendStateClauses(
+    clauses: string[],
+    params: Array<string | number>,
+    states?: number[],
+  ): void {
+    const normalizedStates = Array.isArray(states)
+      ? states.map((state) => Number(state)).filter((state) => Number.isFinite(state))
+      : [];
+    appendInClause(clauses, params, 'state', normalizedStates);
+  }
+
+  private appendBrowserCardTypeClauses(
+    clauses: string[],
+    params: Array<string | number>,
+    cardTypes?: string[],
+  ): boolean {
+    const normalized = normalizeStringArray(cardTypes);
+    if (normalized.length === 0) {
+      return true;
+    }
+
+    const typeClauses: string[] = [];
+    for (const cardType of normalized) {
+      if (cardType === 'item') {
+        typeClauses.push("(type = ? OR type IS NULL OR type = '')");
+        params.push('item');
+        continue;
+      }
+      if (
+        cardType === 'topic'
+        || cardType === 'concept'
+        || cardType === 'descriptor'
+        || cardType === 'incremental'
+        || cardType === 'webpage'
+      ) {
+        typeClauses.push('type = ?');
+        params.push(cardType);
+        continue;
+      }
+      return false;
+    }
+
+    if (typeClauses.length > 0) {
+      clauses.push(`(${typeClauses.join(' OR ')})`);
+    }
+    return true;
+  }
+
+  private appendStringInClause(
+    clauses: string[],
+    params: Array<string | number>,
+    column: string,
+    values?: string[] | null,
+  ): void {
+    const normalized = normalizeStringArray(values || undefined);
+    appendInClause(clauses, params, column, normalized);
+  }
+
+  private appendAllTagsClause(
+    clauses: string[],
+    params: Array<string | number>,
+    tags?: string[],
+  ): void {
+    const normalizedTags = normalizeStringArray(tags);
+    for (const tag of normalizedTags) {
+      clauses.push("tags LIKE ? ESCAPE '\\'");
+      params.push(`%\n${escapeLike(tag)}\n%`);
+    }
+  }
+
+  private appendSearchTextClauses(
+    clauses: string[],
+    params: Array<string | number>,
+    searchText?: string,
+  ): boolean {
+    const normalizedSearch = normalizeString(searchText);
+    if (!normalizedSearch) {
+      return true;
+    }
+
+    const parsed = parseQuery(normalizedSearch);
+    this.appendAllTagsClause(clauses, params, parsed.tags);
+    this.appendStringInClause(clauses, params, 'deck_id', parsed.decks);
+    this.appendStringInClause(clauses, params, 'root_id', parsed.docs);
+    this.appendStateClauses(clauses, params, parsed.states);
+
+    if (!this.appendNumberConditions(clauses, params, 'priority', parsed.conditions.priority)) return false;
+    if (!this.appendNumberConditions(clauses, params, 'scheduled_days', parsed.conditions.interval)) return false;
+    if (!this.appendNumberConditions(clauses, params, 'reps', parsed.conditions.reps)) return false;
+    if (!this.appendNumberConditions(clauses, params, 'lapses', parsed.conditions.lapses)) return false;
+    if (!this.appendNumberConditions(clauses, params, 'difficulty', parsed.conditions.difficulty)) return false;
+    if (!this.appendNumberConditions(clauses, params, 'stability', parsed.conditions.stability)) return false;
+    if (parsed.conditions.retrievability?.length) {
+      return false;
+    }
+
+    if (parsed.text) {
+      const like = `%${escapeLike(parsed.text)}%`;
+      clauses.push("content_text LIKE ? ESCAPE '\\'");
+      params.push(like);
+    }
+
+    return true;
+  }
+
+  private appendNumberConditions(
+    clauses: string[],
+    params: Array<string | number>,
+    column: string,
+    conditions?: Array<{ operator: string; value: number }>,
+  ): boolean {
+    if (!conditions?.length) {
+      return true;
+    }
+    const operatorMap: Record<string, string> = {
+      '<': '<',
+      '>': '>',
+      '<=': '<=',
+      '>=': '>=',
+      '=': '=',
+      '!=': '!=',
+    };
+    for (const condition of conditions) {
+      const operator = operatorMap[condition.operator];
+      const value = Number(condition.value);
+      if (!operator || !Number.isFinite(value)) {
+        return false;
+      }
+      clauses.push(`${column} ${operator} ?`);
+      params.push(value);
+    }
+    return true;
+  }
+
+  private buildBrowserDeckOrderBy(sortModel: SortModel[]): string | null {
+    const orderItems: string[] = [];
+    for (const sort of sortModel || []) {
+      if (!sort || (sort.sort !== 'asc' && sort.sort !== 'desc')) {
+        continue;
+      }
+      const column = this.resolveSortColumn(sort.colId);
+      if (!column) {
+        return null;
+      }
+      const direction = sort.sort === 'desc' ? 'DESC' : 'ASC';
+      orderItems.push(`${column} IS NULL ASC`, `${column} ${direction}`);
+    }
+
+    if (orderItems.length === 0) {
+      return 'ORDER BY id ASC';
+    }
+
+    orderItems.push('block_id ASC', 'id ASC');
+    return `ORDER BY ${orderItems.join(', ')}`;
+  }
+
+  private resolveSortColumn(colId: unknown): string | null {
+    const normalized = normalizeString(colId);
+    const columns: Record<string, string | null> = {
+      id: 'id',
+      fsrsCardId: 'id',
+      blockId: 'block_id',
+      deckId: 'deck_id',
+      rootId: 'root_id',
+      content: 'content_text',
+      fullContent: 'content_text',
+      priority: 'priority',
+      state: 'state',
+      cardType: 'type',
+      type: 'type',
+      due: 'due',
+      dueFormatted: 'due',
+      interval: 'scheduled_days',
+      scheduledDays: 'scheduled_days',
+      reps: 'reps',
+      lapses: 'lapses',
+      difficulty: 'difficulty',
+      stability: 'stability',
+      lastReview: 'last_review',
+      lastReviewFormatted: 'last_review',
+      firstReview: 'created_at',
+      firstReviewFormatted: 'created_at',
+      suspended: 'suspended',
+      aFactor: 'a_factor',
+      retrievability: null,
+    };
+    return Object.prototype.hasOwnProperty.call(columns, normalized)
+      ? columns[normalized]
+      : null;
+  }
+
+  private normalizePageRequest(page: CardPageRequest, total: number): { startRow: number; endRow: number; limit: number } {
+    const safeTotal = Math.max(0, Math.floor(Number(total) || 0));
+    const startRow = Math.min(normalizeSqlLimit(page.startRow, 0), safeTotal);
+    const defaultEnd = page.endRow == null ? Math.min(startRow + 50, safeTotal) : safeTotal;
+    const endRow = Math.max(startRow, Math.min(normalizeSqlLimit(page.endRow, defaultEnd), safeTotal));
+    return {
+      startRow,
+      endRow,
+      limit: Math.max(0, endRow - startRow),
+    };
+  }
+
+  private countByWhere(where: WhereClause | null): number {
     const row = this.database.getOne<{ count: number }>(
-      'SELECT (SELECT COUNT(*) FROM cards) + (SELECT COUNT(*) FROM xiuyuans) AS count',
+      `SELECT COUNT(*) AS count FROM cards ${this.toWhereSql(where)}`,
+      where?.params,
     );
-    return Number(row?.count) > 0;
+    return Math.max(0, Number(row?.count) || 0);
+  }
+
+  private toWhereSql(where?: WhereClause | null): string {
+    return where?.sql ? `WHERE ${where.sql}` : '';
   }
 
   private parseCardRow(row: { payload_json: string }): FSRSCard | null {

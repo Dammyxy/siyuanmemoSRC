@@ -4,6 +4,7 @@ import { CardFilterService } from '@/core/card/domain/services/CardFilterService
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
+import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -152,5 +153,94 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(stats.totalCards).toBe(3);
     expect(stats.dueCards).toBe(2);
     expect(queryCards).toHaveBeenCalled();
+  });
+
+  it('uses SQL browser read port for paged rows, matched ids, and stats', async () => {
+    const now = Date.now();
+    const cards = [
+      buildCard({
+        id: 'card-1',
+        blockId: 'block-1',
+        due: now - 1_000,
+        priority: 10,
+        meta: { content: 'Alpha card', rootId: 'doc-a', deckId: 'deck-a' },
+      }),
+      buildCard({
+        id: 'card-2',
+        blockId: 'block-2',
+        due: now - 500,
+        priority: 80,
+        meta: { content: 'Beta card', rootId: 'doc-a', deckId: 'deck-a' },
+      }),
+    ];
+    const storage = {
+      getCard: vi.fn(() => {
+        throw new Error('storage getCard should not be used for SQL browser page');
+      }),
+      queryCards: vi.fn(() => {
+        throw new Error('storage queryCards should not be used for SQL browser page');
+      }),
+      getAllCards: vi.fn(() => {
+        throw new Error('storage getAllCards should not be used for SQL browser page');
+      }),
+    };
+    const readPort: BrowserDeckReadPort = {
+      queryDeckPage: vi.fn(() => ({ cards: [cards[1]], total: 2 })),
+      queryDeckMatchedIds: vi.fn(() => ['card-2', 'card-1']),
+      getDeckCardsByIds: vi.fn((ids: string[]) => ids.map((id) => cards.find((card) => card.id === id)!).filter(Boolean)),
+      countCards: vi.fn(() => 1),
+      getBrowserStats: vi.fn(() => ({
+        totalCards: 2,
+        dueCards: 1,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 2,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+    };
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async () => [
+        { id: 'block-1', root_id: 'doc-a', content: 'Alpha card', attrs: '' },
+        { id: 'block-2', root_id: 'doc-a', content: 'Beta card', attrs: '' },
+      ]),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    };
+
+    const service = new BrowserApplicationService(
+      storage as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      siyuanApi as never,
+      null,
+      readPort,
+    );
+
+    const page = await service.getDeckPage(
+      { preset: 'review', sortModel: [{ colId: 'priority', sort: 'desc' }] },
+      { startRow: 0, endRow: 1 },
+    );
+    expect(page.total).toBe(2);
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-2']);
+    expect(readPort.queryDeckPage).toHaveBeenCalledWith(
+      { preset: 'review', sortModel: [{ colId: 'priority', sort: 'desc' }] },
+      { startRow: 0, endRow: 1 },
+    );
+
+    await expect(service.getDeckMatchedIds({ preset: 'review' })).resolves.toEqual(['card-2', 'card-1']);
+    await expect(service.getDeckRowsByIds(['card-1'])).resolves.toMatchObject([{ fsrsCardId: 'card-1' }]);
+    await expect(service.getDueCount()).resolves.toBe(1);
+    await expect(service.getStats()).resolves.toMatchObject({ totalCards: 2, dueCards: 1 });
+    expect(storage.getAllCards).not.toHaveBeenCalled();
+    expect(storage.queryCards).not.toHaveBeenCalled();
   });
 });

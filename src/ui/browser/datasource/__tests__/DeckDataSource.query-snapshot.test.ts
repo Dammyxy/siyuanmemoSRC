@@ -38,6 +38,65 @@ function makeBrowserCard(id: string, overrides: Partial<BrowserCard> = {}): Brow
 }
 
 describe('DeckDataSource query snapshot path', () => {
+  it('uses paged browserService path without building a full snapshot when available', async () => {
+    const manager = {
+      getCards: vi.fn(() => {
+        throw new Error('legacy getCards should not be used when paged browserService is available');
+      }),
+      updateCard: vi.fn(),
+      deleteCard: vi.fn(),
+      getQueue: vi.fn(),
+    } as never;
+    const browserService = {
+      getDeckPage: vi.fn(async () => ({
+        total: 3,
+        rows: [makeBrowserCard('card-2'), makeBrowserCard('card-3')],
+      })),
+      getDeckMatchedIds: vi.fn(async () => ['card-1', 'card-2', 'card-3']),
+      getDeckRowsByIds: vi.fn(async (ids: string[]) => ids.map((id) => makeBrowserCard(id))),
+      getDeckQuerySnapshot: vi.fn(),
+    };
+
+    const dataSource = new DeckDataSource(
+      manager,
+      {
+        preset: 'all',
+        currentDocId: 'doc-a',
+        scopeDocIds: ['doc-a'],
+        queryText: 'alpha',
+        cardType: 'item-only',
+      },
+      undefined,
+      { browserService },
+    );
+
+    const page = await dataSource.fetchRows({
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+      filterModel: {},
+      startRow: 1,
+      endRow: 3,
+    });
+    expect(page.totalCount).toBe(3);
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-2', 'card-3']);
+    expect(browserService.getDeckPage).toHaveBeenCalledWith({
+      preset: 'all',
+      docId: 'doc-a',
+      scopeDocIds: ['doc-a'],
+      searchText: 'alpha',
+      cardTypes: ['item'],
+      sortModel: [{ colId: 'priority', sort: 'desc' }],
+    }, {
+      startRow: 1,
+      endRow: 3,
+    });
+    expect(browserService.getDeckQuerySnapshot).not.toHaveBeenCalled();
+
+    await expect(dataSource.getAllMatchedIds()).resolves.toEqual(['card-1', 'card-2', 'card-3']);
+    await expect(dataSource.getRowsByIds(['card-3'])).resolves.toMatchObject([{ fsrsCardId: 'card-3' }]);
+    await expect(dataSource.getActionTargetsByIds(['card-2'])).resolves.toMatchObject([{ fsrsCardId: 'card-2' }]);
+    expect(manager.getCards).not.toHaveBeenCalled();
+  });
+
   it('fetchRows uses browserService snapshot and hydrates only the requested page', async () => {
     const manager = {
       getCards: vi.fn(() => {

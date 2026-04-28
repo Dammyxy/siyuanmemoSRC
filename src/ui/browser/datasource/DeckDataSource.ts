@@ -96,8 +96,13 @@ type BrowserBatchManagerLike = {
 type DeckDataSourceDependencies = {
   reconcileBrowserCardTypes?: typeof reconcileBrowserCardTypes;
   cardTypeConsistencyDeps?: CardTypeConsistencyDependencies;
-  browserService?: Pick<IBrowserApplicationService, 'getDeckQuerySnapshot' | 'getDeckRowsByIds'> | null;
+  browserService?: DeckBrowserService | null;
 };
+
+type DeckBrowserService = Pick<IBrowserApplicationService, 'getDeckRowsByIds'> & Partial<Pick<
+  IBrowserApplicationService,
+  'getDeckPage' | 'getDeckMatchedIds' | 'getDeckQuerySnapshot'
+>>;
 
 type I18nContextLike = {
   getI18n?: () => Record<string, string> | undefined;
@@ -112,7 +117,7 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   private readonly options: DeckDataSourceOptions;
   private readonly reconcileCardTypes: typeof reconcileBrowserCardTypes;
   private readonly cardTypeConsistencyDeps?: CardTypeConsistencyDependencies;
-  private readonly browserService?: Pick<IBrowserApplicationService, 'getDeckQuerySnapshot' | 'getDeckRowsByIds'> | null;
+  private readonly browserService?: DeckBrowserService | null;
   private readonly querySession = new BrowserQuerySession('DeckDataSource');
   private lastSortModel: SortModel[] = [];
   private dataGeneration = 0;
@@ -145,6 +150,19 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
     try {
       const sortModel = (params?.sortModel || []) as SortModel[];
       this.lastSortModel = [...sortModel];
+      if (this.browserService?.getDeckPage) {
+        const result = await this.browserService.getDeckPage(
+          this.buildBrowserServiceQuery(sortModel),
+          {
+            startRow: params?.startRow,
+            endRow: params?.endRow,
+          },
+        );
+        return {
+          rows: result.rows,
+          totalCount: result.total,
+        };
+      }
       return this.querySession.fetchRows({
         ...this.buildSessionOptions(sortModel),
         startRow: params?.startRow,
@@ -161,14 +179,30 @@ export class DeckDataSource implements ICardDataSource, IBrowserQueryableDataSou
   }
 
   async getAllMatchedIds(): Promise<string[]> {
+    if (this.browserService?.getDeckMatchedIds) {
+      return this.browserService.getDeckMatchedIds(this.buildBrowserServiceQuery(this.lastSortModel));
+    }
     return this.querySession.getAllMatchedIds(this.buildSessionOptions(this.lastSortModel));
   }
 
   async getRowsByIds(ids: string[]): Promise<BrowserCard[]> {
+    if (this.browserService?.getDeckPage && this.browserService?.getDeckRowsByIds) {
+      return this.browserService.getDeckRowsByIds(ids);
+    }
     return this.querySession.getRowsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 
   async getActionTargetsByIds(ids: string[]): Promise<BrowserActionTarget[]> {
+    if (this.browserService?.getDeckPage && this.browserService?.getDeckRowsByIds) {
+      const rows = await this.browserService.getDeckRowsByIds(ids);
+      return rows.map((row) => ({
+        id: String(row.id || ''),
+        blockId: String(row.blockId || ''),
+        fsrsCardId: String(row.fsrsCardId || '') || undefined,
+        cardType: row.cardType,
+        priority: typeof row.priority === 'number' ? row.priority : undefined,
+      }));
+    }
     return this.querySession.getActionTargetsByIds(ids, this.buildSessionOptions(this.lastSortModel));
   }
 

@@ -19,9 +19,7 @@ export class DockManager {
     // 通过应用服务获取统计信息
     const cardService = this.context.getCardService();
     const dueCount = await cardService.getDueCount();
-    
-    const storage = this.context.getStorage();
-    const totalCount = storage.getAllCards().length;
+    const totalCount = await cardService.getTotalCount();
 
     element.innerHTML = `
       <div class="siyuanmemo-dock-container">

@@ -3,7 +3,12 @@ import sqliteWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { IFileService } from '@/infrastructure/services/FileService';
 import { SRS_ARENA_ALGORITHM_REGISTRY } from '@/types/arena';
 import { createLogger } from '@/utils/logger';
-import { SQL_SCHEMA_STATEMENTS, SQLITE_DB_FILE } from './schema';
+import {
+  CARD_PROJECTION_COLUMNS,
+  CARD_PROJECTION_INDEX_STATEMENTS,
+  SQL_SCHEMA_STATEMENTS,
+  SQLITE_DB_FILE,
+} from './schema';
 
 const logger = createLogger('SqliteDatabaseService');
 
@@ -318,6 +323,26 @@ export class SqliteDatabaseService {
     db.run('PRAGMA foreign_keys = ON');
     for (const statement of SQL_SCHEMA_STATEMENTS) {
       db.run(statement);
+    }
+    this.ensureCardsProjectionColumns(db);
+    for (const statement of CARD_PROJECTION_INDEX_STATEMENTS) {
+      db.run(statement);
+    }
+  }
+
+  private ensureCardsProjectionColumns(db: Database): void {
+    const existingColumns = new Set<string>();
+    const rows = this.getAll<{ name: string }>('PRAGMA table_info(cards)');
+    for (const row of rows) {
+      if (typeof row.name === 'string') {
+        existingColumns.add(row.name);
+      }
+    }
+
+    for (const column of CARD_PROJECTION_COLUMNS) {
+      if (!existingColumns.has(column.name)) {
+        db.run(`ALTER TABLE cards ADD COLUMN ${column.definition}`);
+      }
     }
   }
 

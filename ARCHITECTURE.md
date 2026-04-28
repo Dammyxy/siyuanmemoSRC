@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-28
+最后更新：2026-04-29
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -95,7 +95,7 @@ flowchart TD
 - 初始化 `SchedulerRouter` / `RescheduleService`
 - 初始化 `UnifiedDataSourceManager`
 - 装配 `CardApplicationService` / `BrowserApplicationService` / `ReviewApplicationService`
-- SQL active 时给 `CardApplicationService` 注入 `SqlCardReadModel`，队列候选常规查询从 `cards` 表的 `type/state/due/block_id/priority` 索引字段开始筛选，再复用结构化残余过滤；legacy 时保留 `UnifiedStorageManager` 读模型
+- SQL active 时给 `CardApplicationService` 注入 `SqlCardReadModel`，并把 `SqlUnifiedStorageRepository` 作为 `BrowserDeckReadPort` 注入 `BrowserApplicationService`；卡片计数、Browser stats 与 deck 主表分页优先走 `cards` 表 v2 投影列和索引，legacy 或 SQL 不可表达条件再回到 `UnifiedStorageManager` / snapshot 读模型
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`
 - 装配 Browser 所需的 Siyuan port 与 datasource factory；`BrowserApplicationService` 不直接依赖 `src/ui/browser/*`
 - 装配 Review special renderer service；`ReviewContent.vue` 不直接创建 core infrastructure repository
@@ -132,7 +132,7 @@ flowchart TD
    - `BrowserApplicationService`
    - `TabApplicationService`
    - `UnifiedDataSourceManager` facade
-4. Browser 在全量 / 队列 / deck 等模式下，通过 application queries 或统一队列快照加载数据
+4. Browser 在全量 / 队列 / deck 等模式下，通过 application queries、统一队列快照或 SQL deck read port 加载数据；SQL active 的 deck 主表走 `COUNT + LIMIT/OFFSET + page hydrate`，`getDeckMatchedIds()` 用 SQL 返回完整匹配 id 列表，missing-block / retrievability 等不能由当前 SQL 投影表达的条件显式回退旧 snapshot 路径
 5. Browser DTO、query parser、stable row id 与排序显示契约以 `src/types/browser.ts` 为共享契约；application query kernel 只依赖 `src/application/queries/browser/shared/*` 与 `src/types/browser.ts`，不再 import UI browser module
 6. 右键 `取消闪卡` 通过当前数据源持有的 `UnifiedDataSourceManager.deleteCard(cardId)` 删除浏览器实际展示的 FSRS card row；删除链路只提交本地聚合与块属性清理，并统一发布带 `blockId` 的 `CardDeleted / CardsDeleted` 事件，由 `RiffSyncEventHandler -> XiuyuanSyncService.deleteSync*()` 完成 native Riff 删除与 blacklist fallback
 7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection 等 Siyuan 调用必须显式拿到 `BrowserSiyuanPort`，不再依赖 browser service 模块全局状态
@@ -350,8 +350,8 @@ UI surface：
 核心应用服务：
 
 - `src/application/services/UnifiedDataSourceManager.ts`：统一队列创建、缓存、失效、观察者通知中心。
-- `src/application/services/CardApplicationService.ts`：卡片创建 / 更新 / 删除的应用编排入口。
-- `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务。
+- `src/application/services/CardApplicationService.ts`：卡片创建 / 更新 / 删除的应用编排入口；SQL active 时通过 read model `countCards()` 提供 due / total 计数。
+- `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务；SQL active 时优先消费 `BrowserDeckReadPort` 做 deck page、matched ids、rows-by-ids 与 stats 读取，SQL 不可用或查询不可表达时回退旧 snapshot kernel。
 - `src/application/services/ReviewApplicationService.ts`：复习流程相关编排。
 - `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `ReviewLogService` 在 SQL active 时写 `review_events / drill_events / reschedule_events`，旧 JSON 月度分片只作为迁移来源或 SQL 失败后的 fallback；`SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
 - `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan；native `removeFlashcards` 现在走同服务内的 `riff-managed` 定向本地删除，而不是再依赖增量同步或 full sync 才收敛。
@@ -383,7 +383,7 @@ UI surface：
 - `src/application/factories/createReviewRenderServices.ts`：review special renderer service 装配边界，集中创建 quick / descriptor render services。
 - `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`IncrementalLearning` 现在走独立的 requery-after-feedback 模式，评分/跳过后只记录一次性 `avoidOnceCardId + avoidOnceBlockId` 可见身份，下一次 `next()` 会重新读取 queue 视图并优先切到不同 source block 的卡，只有没有替代 block 时才退化到同 block 兄弟卡或同卡，而不是继续复用 `pendingRotateCardId + currentIndex + cache hot patch` 的本地轮转链；同时它也是 review 当前卡显示态 hydration 的唯一活跃入口，`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 逻辑，而不是在 controller 再复制一份预览计算；它直接注册为 `UnifiedDataSourceManager` observer，收到当前队列 `queue-changed` 会失效本地缓存，收到 `card-deleted` 会从缓存与前进 buffer 移除匹配卡；如果评分时确认当前 active item 已不存在，则清理 stale item 并抛 `QueueItemUnavailableError`；其他 feedback 失败会做不落盘补偿，恢复 queue snapshot、session exclusions、当前卡与评分前 card 内存态
 - `src/application/adapters/UnifiedReviewAdapter.ts`：review UI 状态与动作适配。
-- `src/application/queries/browser/*`：Browser 查询对象与处理器；shared 目录承载 application 可用的 browser row projection / sort / filter helper。
+- `src/application/queries/browser/*`：Browser 查询对象与处理器；shared 目录承载 application 可用的 browser row projection / sort / filter helper，并为 SQL page hydrate 复用同一套 Browser row 投影。
 - `src/application/queries/card/*`：卡片查询对象与处理器。
 - `src/application/queries/DataAccessFacade.ts`：查询门面与统一数据访问入口。
 - `src/application/usecases/card/*`：卡片 CRUD 用例。
@@ -399,7 +399,7 @@ Handlers / entries / helpers：
 
 端口与接口：
 
-- `src/application/ports/*`：应用层端口定义，约束基础设施依赖方向。
+- `src/application/ports/*`：应用层端口定义，约束基础设施依赖方向；`BrowserDeckReadPort` 是 Browser deck SQL 读优化端口，UI 不直接依赖 SQLite。
 - `src/application/interfaces/*`：应用层接口契约。
 
 ### 5.3 Core 层（`src/core/*`）
@@ -462,8 +462,8 @@ Siyuan / Riff / LLM 适配器：
 持久化与支撑：
 
 - `src/infrastructure/persistence/*`：卡片仓储、DTO、mapper、持久化映射。
-- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema、算法注册、二进制 DB 落盘、事务级 persist 合并与 persist 失败后的 SQL 内存状态恢复，repository 负责 unified store、queue state、review logs 与 Arena append-only 数据，`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移。
-- `src/infrastructure/queries/CardReadModel.ts` / `SqlCardReadModel.ts`：卡片读模型实现；legacy 读内存 `UnifiedStorageManager`，SQL active 读 `SqlUnifiedStorageRepository.queryCards()`，先走 `cards` 表索引字段，再执行 suspended/tags/customFilter 等残余过滤。
+- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema、算法注册、二进制 DB 落盘、事务级 persist 合并与 persist 失败后的 SQL 内存状态恢复，schema v2 在 `cards` 增加 Browser 常用投影列与索引；repository 负责 unified store、Browser deck SQL read port、queue state、review logs 与 Arena append-only 数据，`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移。
+- `src/infrastructure/queries/CardReadModel.ts` / `SqlCardReadModel.ts`：卡片读模型实现；legacy 读内存 `UnifiedStorageManager`，SQL active 读 `SqlUnifiedStorageRepository.queryCards()/countCards()`，先走 `cards` 表索引字段，再执行 suspended/tags/customFilter 等残余过滤。
 - `src/infrastructure/services/FileService.ts` / `QueuePersistenceService.ts`：文件与队列持久化支撑；SQL active 时 `QueuePersistenceService` 只读写 `queue_state`，旧 `queues.msgpack` 只作为迁移来源或 fallback。
 - `src/infrastructure/queue/*`：队列相关副作用适配器。
 - `src/infrastructure/events/*`：基础设施层事件处理。
@@ -476,7 +476,7 @@ Browser：
 - `src/ui/browser/SRSBrowser.vue`：Browser 主视图。
 - `src/ui/browser/SRSBrowserAdapter.ts` / `SRSBrowserQueueView.ts`：Browser 桥接与队列视图逻辑。
 - `src/ui/browser/composables/*`：Browser 状态、刷新、排序、筛选、动作封装。
-- `src/ui/browser/datasource/*`：Browser UI-side datasource 实现；共享 DTO、query parser、row id、sort contract 已迁到 `src/types/browser.ts`，application query 不从这里取契约。
+- `src/ui/browser/datasource/*`：Browser UI-side datasource 实现；共享 DTO、query parser、row id、sort contract 已迁到 `src/types/browser.ts`，application query 不从这里取契约；deck datasource 在 service 提供 `getDeckPage/getDeckMatchedIds` 时直接使用应用层分页端口，不再先构造全量 snapshot。
 - `src/ui/browser/components/*` / `dialogs/*` / `utils/*`：Browser 交互组件与工具。
 
 Review：
@@ -594,6 +594,7 @@ Browser 分层边界：
 
 - `src/types/browser.ts` 是 Browser surface 与 application query 共用的 DTO / open state / query parser / row identity / sort display contract 来源。
 - `src/application/queries/browser/shared/*` 承载 application 可复用的 row projection、filter 与排序逻辑；`BrowserApplicationService`、`BrowserDeckQueryKernel`、`QueueBrowserQueryKernel` 不从 `src/ui/browser/*` 导入契约或 helper。
+- SQL active 的 Browser deck 主表读取由 `BrowserDeckReadPort` 承接：`DeckDataSource.fetchRows()` 调 `BrowserApplicationService.getDeckPage()`，repository 做 `COUNT + LIMIT/OFFSET` 后只 hydrate 当前页；选择“全部匹配”调 `getDeckMatchedIds()` 取完整有序 id 列表，批量动作再按 id hydrate。
 - `src/ui/browser/browserService.ts` 只保留 UI-side helper；SQL、消息、文档树和 block projection 必须显式传入 `BrowserSiyuanPort` / `UnifiedDataSourceManager`，不再维护全局 browser context。
 - `src/ui/browser/browserService.v2.ts` 已删除，旧 import 不应恢复。
 

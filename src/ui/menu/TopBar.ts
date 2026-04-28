@@ -40,7 +40,7 @@ export class TopBarManager {
 
         this.contextMenuHandler = (ev: MouseEvent) => {
             ev.preventDefault();
-            this.openMenu(ev);
+            void this.openMenu(ev);
         };
         this.element.addEventListener('contextmenu', this.contextMenuHandler);
     }
@@ -81,14 +81,14 @@ export class TopBarManager {
         }
     }
 
-    private openMenu(ev: MouseEvent) {
+    private async openMenu(ev: MouseEvent) {
         this.ensureMounted();
         const menu = new Menu('fsrs-topbar-menu');
         
         // 获取上下文以访问服务
         const context = this.plugin.getContext();
         const dialogManager = context.getDialogManager();
-        const storage = context.getStorage();
+        const cardService = context.getCardService();
 
         // 添加菜单项
         menu.addItem({
@@ -170,7 +170,7 @@ export class TopBarManager {
 
         menu.addItem({
             icon: 'iconInfo',
-            label: `${this.plugin.i18n?.dueCountLabel || 'Due'}: ${this.plugin.getDueCount()} / ${this.plugin.i18n?.totalCountLabel || 'Total'}: ${storage.getAllCards().length}`,
+            label: `${this.plugin.i18n?.dueCountLabel || 'Due'}: ${await cardService.getDueCount()} / ${this.plugin.i18n?.totalCountLabel || 'Total'}: ${await cardService.getTotalCount()}`,
             type: 'readonly',
         });
 

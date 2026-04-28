@@ -42,6 +42,11 @@ export interface ICardReadModel {
    * Query cards through the indexed storage read path.
    */
   queryCards(query?: StructuredCardQuery): FSRSCard[];
+
+  /**
+   * Count cards through the read model without hydrating rows when supported.
+   */
+  countCards?(query?: StructuredCardQuery): number;
   
   /**
    * 获取到期卡片

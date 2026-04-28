@@ -1,5 +1,32 @@
 export const SQLITE_DB_FILE = 'siyuanmemo.db';
-export const SQLITE_SCHEMA_VERSION = 1;
+export const SQLITE_SCHEMA_VERSION = 2;
+
+export const CARD_PROJECTION_COLUMNS: Array<{ name: string; definition: string }> = [
+  { name: 'deck_id', definition: 'deck_id TEXT' },
+  { name: 'root_id', definition: 'root_id TEXT' },
+  { name: 'content_text', definition: 'content_text TEXT' },
+  { name: 'tags', definition: 'tags TEXT' },
+  { name: 'suspended', definition: 'suspended INTEGER' },
+  { name: 'lapses', definition: 'lapses INTEGER' },
+  { name: 'reps', definition: 'reps INTEGER' },
+  { name: 'last_review', definition: 'last_review INTEGER' },
+  { name: 'created_at', definition: 'created_at INTEGER' },
+  { name: 'scheduled_days', definition: 'scheduled_days INTEGER' },
+  { name: 'stability', definition: 'stability REAL' },
+  { name: 'difficulty', definition: 'difficulty REAL' },
+  { name: 'a_factor', definition: 'a_factor REAL' },
+];
+
+export const CARD_PROJECTION_INDEX_STATEMENTS = [
+  `CREATE INDEX IF NOT EXISTS idx_cards_deck_id ON cards(deck_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_root_id ON cards(root_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_state_due ON cards(state, due)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_suspended_due ON cards(suspended, due)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_priority ON cards(priority)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_lapses ON cards(lapses)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_created_at ON cards(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_last_review ON cards(last_review)`,
+];
 
 export const SQL_SCHEMA_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -21,6 +48,19 @@ export const SQL_SCHEMA_STATEMENTS = [
     priority INTEGER,
     scheduler_type TEXT,
     updated_at INTEGER,
+    deck_id TEXT,
+    root_id TEXT,
+    content_text TEXT,
+    tags TEXT,
+    suspended INTEGER,
+    lapses INTEGER,
+    reps INTEGER,
+    last_review INTEGER,
+    created_at INTEGER,
+    scheduled_days INTEGER,
+    stability REAL,
+    difficulty REAL,
+    a_factor REAL,
     payload_json TEXT NOT NULL,
     dto_json TEXT
   )`,
