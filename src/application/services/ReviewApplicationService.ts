@@ -21,6 +21,17 @@ export interface RescheduleOptions {
   mode: 'rating' | 'direct';
   rating?: Rating;
   dueTimestamp: number;
+  scheduledDays?: number;
+}
+
+function withManualScheduleFields(card: FSRSCard, options: RescheduleOptions): FSRSCard {
+  const scheduledDays = Number(options.scheduledDays);
+  return {
+    ...card,
+    due: options.dueTimestamp,
+    updatedAt: Date.now(),
+    ...(Number.isFinite(scheduledDays) && scheduledDays >= 0 ? { scheduledDays } : {}),
+  };
 }
 
 export class ReviewApplicationService {
@@ -35,25 +46,21 @@ export class ReviewApplicationService {
 
     let updatedCard: FSRSCard;
     if (options.mode === 'rating' && options.rating) {
-      updatedCard = await this.schedulerRouter.route(card, options.rating);
-      updatedCard.due = options.dueTimestamp;
-      updatedCard.updatedAt = Date.now();
+      updatedCard = withManualScheduleFields(await this.schedulerRouter.route(card, options.rating), options);
 
       logger.info('Schedule with rating', {
         cardId,
         rating: options.rating,
         dueTimestamp: options.dueTimestamp,
+        scheduledDays: options.scheduledDays,
       });
     } else {
-      updatedCard = {
-        ...card,
-        due: options.dueTimestamp,
-        updatedAt: Date.now(),
-      };
+      updatedCard = withManualScheduleFields(card, options);
 
       logger.info('Schedule direct', {
         cardId,
         dueTimestamp: options.dueTimestamp,
+        scheduledDays: options.scheduledDays,
       });
     }
 

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 179)
+Last update: 2026-04-29 (Round 180)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - SRS Arena conflict chooser and challenger display
+
+- Task: 修复 SRS Arena 冲突选择窗缺失、旧 SRS 参赛算法未自动补齐、Arena Manager 不显示无历史 SRS pool、以及 UI 暴露 `SM` / `FSRSV5` 品牌词的问题。
+- Touched slice: Review / Arena / Scheduler settings active path across `src/types/arena.ts`, `src/application/helpers/srsDisplayLabels.ts`, `src/application/services/{ArenaKernelService,ReviewApplicationService,SrsTransparencyApplicationService}.ts`, `src/ui/review/v2/{ReviewView.vue,dialogs/SrsArenaConflictDialog.vue}`, `src/ui/arena/ArenaManagerDialog.vue`, `src/ui/settings/SettingsPanel.vue`, i18n, and focused tests.
+- Debt fixed now: `ArenaSettings.srs.contestantSetVersion=2` 会把旧 contestant 子集 union 到当前默认 SRS 参赛者；当前版本用户自定义子集不再被自动补回；SRS contestant label 统一为 `Arena Challenger x` 且内部 `sm*` id 不变；Arena Manager 以 `targetKinds` seed `srs::item/descriptor` pool，无历史也显示，SRS pool 全量展示 configured contestants；评分后仅当 Arena recommendation 高分歧时弹 `SrsArenaConflictDialog`，保留不写，采用综合/挑战者排期才走 `ReviewApplicationService.rescheduleCard(..., { mode:'direct', scheduledDays })`。
+- Debt deferred: 未改 FSRS / SM shadow scheduler 核心算法；未接自动写入策略；未清全仓历史 `SuperMemo` 注释/旧文档描述和既有 i18n 硬编码/Sass legacy warning。
+- Why deferred: 本轮目标是恢复 Arena 手动选择与 UI 命名/展示口径，不扩大到算法替换、自动策略或全仓文案清理。
+- Next safe step: 用真实复习页对一张未来卡评分，确认冲突大时才弹窗，点“采用 Arena 综合排期/挑战者排期”只改目标卡 due/scheduledDays，不改评分进度或稳定度/难度。
+- Validation: `pnpm exec vitest run src/types/__tests__/settings-normalization.test.ts src/application/helpers/__tests__/srsDisplayLabels.test.ts src/application/services/__tests__/ArenaKernelService.test.ts src/application/services/__tests__/ReviewApplicationService.reschedule-membership.test.ts src/application/services/__tests__/SrsTransparencyApplicationService.test.ts src/ui/review/v2/dialogs/__tests__/SrsArenaConflictDialog.spec.ts src/ui/review/v2/__tests__/ReviewView.srs-editor-schedule.spec.ts --reporter=dot`（57 tests 通过）；`pnpm build`（通过；i18n 阻断问题 0，保留既有硬编码提示与 Sass legacy warning）。
 
 ### 2026-04-29 - review SRS arena scheduling context alignment
 

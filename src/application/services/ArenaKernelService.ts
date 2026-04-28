@@ -619,6 +619,7 @@ export class ArenaKernelService {
       ...scoreSnapshots.filter((snapshot) => snapshot.domain === 'ai').map((snapshot) => snapshot.poolKey),
     ]);
     const srsPoolKeys = new Set<string>([
+      ...settings.srs.targetKinds.map((targetKind) => buildSrsArenaPoolKey(targetKind)),
       ...recentSrsMatches.map((match) => match.poolKey),
       ...scoreSnapshots.filter((snapshot) => snapshot.domain === 'srs').map((snapshot) => snapshot.poolKey),
     ]);
@@ -640,24 +641,29 @@ export class ArenaKernelService {
       };
     }));
 
+    const srsScoreSnapshots: ArenaScoreSnapshot[] = [];
     const srsPools = await Promise.all(Array.from(srsPoolKeys).map(async (poolKey) => {
-      const snapshot = scoreSnapshots.find((entry) => entry.domain === 'srs' && entry.poolKey === poolKey)
-        || await this.deps.arenaStore.getLatestScoreSnapshot('srs', poolKey);
-      if (!snapshot) {
-        return null;
-      }
+      const snapshot = await this.ensureSrsScoreSnapshot(poolKey, settings.srs.contestantIds);
+      srsScoreSnapshots.push(snapshot);
       const [, targetKind] = poolKey.split('::');
       return {
         pool: {
           key: poolKey,
           targetKind: targetKind === 'descriptor' ? 'descriptor' : 'item',
         },
-        topEntries: snapshot.entries.slice().sort((left, right) => right.score - left.score).slice(0, 5),
+        topEntries: snapshot.entries.slice().sort((left, right) => right.score - left.score),
         totalEntries: snapshot.entries.length,
         latestMatchAt: recentSrsMatches.find((match) => match.poolKey === poolKey)?.createdAt || null,
         challenge: null,
       };
     }));
+    const srsScoresByKey = new Map<string, ArenaScoreSnapshot>();
+    for (const snapshot of scoreSnapshots.filter((entry) => entry.domain === 'srs')) {
+      srsScoresByKey.set(snapshot.poolKey, snapshot);
+    }
+    for (const snapshot of srsScoreSnapshots) {
+      srsScoresByKey.set(snapshot.poolKey, snapshot);
+    }
 
     return {
       generatedAt: Date.now(),
@@ -670,7 +676,7 @@ export class ArenaKernelService {
       srs: {
         pools: srsPools.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
         recentMatches: recentSrsMatches,
-        scores: scoreSnapshots.filter((entry) => entry.domain === 'srs'),
+        scores: Array.from(srsScoresByKey.values()).sort((left, right) => right.createdAt - left.createdAt),
       },
     };
   }

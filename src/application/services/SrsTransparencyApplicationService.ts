@@ -200,7 +200,7 @@ function resolveSchedulerLabel(schedulerType: SchedulerType, t: Translator): str
 function resolveSchedulerSummary(schedulerType: SchedulerType, t: Translator): string {
   switch (schedulerType) {
     case 'sm15':
-      return replaceLegacySm15Display(t('sm15TransparencySummary', 'FSRSV5 会结合 O-Factor、最优间隔和 AF 历史来决定下一次安排，适合需要更显式调度参数的卡片。'));
+      return replaceLegacySm15Display(t('sm15TransparencySummary', 'Arena Challenger 15 会结合 O-Factor、最优间隔和 AF 历史来决定下一次安排，适合需要更显式调度参数的卡片。'));
     case 'a-factor-v2':
       return t('aFactorTransparencySummary', 'A-Factor v2 以 A-Factor 为核心调节间隔扩张，更适合 Topic 或 Concept 一类需要渐进节奏的卡片。');
     case 'fsrs-v6':

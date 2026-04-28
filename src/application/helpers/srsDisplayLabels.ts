@@ -1,10 +1,16 @@
 import type { SchedulerType } from '@/core/scheduler';
 import type { SrsArenaContestantId } from '@/types/arena';
 
-export const FSRSV5_DISPLAY_LABEL = 'FSRSV5';
+export const ARENA_CHALLENGER_15_LABEL = 'Arena Challenger 15';
+
+function formatArenaChallengerLabel(value: string): string {
+  return `Arena Challenger ${value}`;
+}
 
 export function replaceLegacySm15Display(value: string): string {
-  return value.replace(/\bSM-?15\b/gi, FSRSV5_DISPLAY_LABEL);
+  return value
+    .replace(/\bSM-?15\b/gi, ARENA_CHALLENGER_15_LABEL)
+    .replace(/\bFSRSV5\b/gi, ARENA_CHALLENGER_15_LABEL);
 }
 
 export function resolveSrsArenaContestantLabel(
@@ -13,19 +19,19 @@ export function resolveSrsArenaContestantLabel(
   const normalized = String(contestantId || '').trim();
   switch (normalized) {
     case 'sm15':
-      return FSRSV5_DISPLAY_LABEL;
+      return ARENA_CHALLENGER_15_LABEL;
     case 'sm2':
-      return 'SM-2';
+      return formatArenaChallengerLabel('2');
     case 'sm5':
-      return 'SM-5';
+      return formatArenaChallengerLabel('5');
     case 'sm8':
-      return 'SM-8';
+      return formatArenaChallengerLabel('8');
     case 'sm18':
-      return 'SM-18';
+      return formatArenaChallengerLabel('18');
     case 'sm19':
-      return 'SM-19';
+      return formatArenaChallengerLabel('19');
     case 'sm20':
-      return 'SM-20';
+      return formatArenaChallengerLabel('20');
     case 'fsrs-v6':
       return 'FSRS v6';
     default:
@@ -39,7 +45,7 @@ export function resolveSchedulerTypeLabel(
   const normalized = String(schedulerType || '').trim();
   switch (normalized) {
     case 'sm15':
-      return FSRSV5_DISPLAY_LABEL;
+      return ARENA_CHALLENGER_15_LABEL;
     case 'a-factor-v2':
       return 'A-Factor v2';
     case 'fsrs-v6':

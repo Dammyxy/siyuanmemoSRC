@@ -120,6 +120,38 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     );
   });
 
+  it('stores manually supplied scheduledDays during direct reschedule', async () => {
+    const card = createCard({ scheduledDays: 1 });
+    const manager = {
+      getCard: vi.fn(async () => card),
+      updateCard: vi.fn(async () => {}),
+      getQueue: vi.fn(() => ({
+        syncManualMembershipForScheduledCard: vi.fn(async () => true),
+      })),
+    } as unknown as IUnifiedDataSourceManagerFacade;
+    const schedulerRouter = {
+      route: vi.fn(async (_card: FSRSCard, _rating: Rating) => card),
+    } as never;
+    const service = new ReviewApplicationService(manager, schedulerRouter);
+    const dueTimestamp = new Date('2026-03-11T10:00:00+08:00').getTime();
+
+    const updated = await service.rescheduleCard(card.id, {
+      mode: 'direct',
+      dueTimestamp,
+      scheduledDays: 4.3,
+    });
+
+    expect(updated).toMatchObject({
+      id: card.id,
+      due: dueTimestamp,
+      scheduledDays: 4.3,
+    });
+    expect(manager.updateCard).toHaveBeenCalledWith(expect.objectContaining({
+      due: dueTimestamp,
+      scheduledDays: 4.3,
+    }));
+  });
+
   it('loads raw block markdown through the review siyuan port', async () => {
     const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
     const schedulerRouter = {} as never;

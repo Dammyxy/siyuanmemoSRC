@@ -39,6 +39,8 @@ export const SRS_ARENA_ALGORITHM_IDS = [
   'sm19',
 ] as const;
 
+export const SRS_ARENA_CONTESTANT_SET_VERSION = 2;
+
 export type AIArenaScenarioId = typeof AI_ARENA_SCENARIO_IDS[number];
 export type ArenaTargetKind = typeof ARENA_TARGET_KINDS[number];
 export type SrsArenaContestantId = typeof SRS_ARENA_CONTESTANT_IDS[number];
@@ -83,7 +85,7 @@ export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
   },
   {
     id: 'sm2',
-    label: 'SM-2',
+    label: 'Arena Challenger 2',
     enabled: true,
     state: 'enabled',
     runtimeKind: 'browser',
@@ -92,7 +94,7 @@ export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
   },
   {
     id: 'sm5',
-    label: 'SM-5',
+    label: 'Arena Challenger 5',
     enabled: true,
     state: 'enabled',
     runtimeKind: 'browser',
@@ -101,7 +103,7 @@ export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
   },
   {
     id: 'sm8',
-    label: 'SM-8',
+    label: 'Arena Challenger 8',
     enabled: true,
     state: 'enabled',
     runtimeKind: 'browser',
@@ -110,7 +112,7 @@ export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
   },
   {
     id: 'sm15',
-    label: 'FSRSV5',
+    label: 'Arena Challenger 15',
     enabled: true,
     state: 'enabled',
     runtimeKind: 'browser',
@@ -119,7 +121,7 @@ export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
   },
   {
     id: 'sm18',
-    label: 'SM-18',
+    label: 'Arena Challenger 18',
     enabled: true,
     state: 'enabled',
     runtimeKind: 'browser',
@@ -128,7 +130,7 @@ export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
   },
   {
     id: 'sm20',
-    label: 'SM-20',
+    label: 'Arena Challenger 20',
     enabled: true,
     state: 'enabled',
     runtimeKind: 'browser',
@@ -137,7 +139,7 @@ export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
   },
   {
     id: 'sm19',
-    label: 'SM-19',
+    label: 'Arena Challenger 19',
     enabled: false,
     state: 'official-pending',
     runtimeKind: 'disabled',
@@ -353,6 +355,7 @@ export interface ArenaSettings {
   };
   srs: {
     enabled: boolean;
+    contestantSetVersion: number;
     contestantIds: SrsArenaContestantId[];
     targetKinds: Array<Extract<ArenaTargetKind, 'item' | 'descriptor'>>;
     advisoryOnly: boolean;
@@ -554,6 +557,7 @@ export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
   },
   srs: {
     enabled: true,
+    contestantSetVersion: SRS_ARENA_CONTESTANT_SET_VERSION,
     contestantIds: ['fsrs-v6', 'sm2', 'sm5', 'sm8', 'sm15', 'sm18', 'sm20'],
     targetKinds: ['item', 'descriptor'],
     advisoryOnly: true,
@@ -589,6 +593,12 @@ function isAIWorkbenchSurface(value: unknown): value is AIWorkbenchSurface {
 
 function isSrsArenaContestantId(value: unknown): value is SrsArenaContestantId {
   return SRS_ARENA_CONTESTANT_IDS.includes(value as SrsArenaContestantId);
+}
+
+function normalizeSrsArenaContestantIds(value: unknown): SrsArenaContestantId[] {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.filter(isSrsArenaContestantId)))
+    : [...DEFAULT_ARENA_SETTINGS.srs.contestantIds];
 }
 
 function normalizePromptOverrides(value: unknown): AIStrategyPackPromptOverrides | undefined {
@@ -734,9 +744,11 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
   const surfaces = Array.isArray(ai.surfaces)
     ? Array.from(new Set(ai.surfaces.filter(isAIWorkbenchSurface)))
     : DEFAULT_ARENA_SETTINGS.ai.surfaces;
-  const contestantIds = Array.isArray(srs.contestantIds)
-    ? Array.from(new Set(srs.contestantIds.filter(isSrsArenaContestantId)))
-    : DEFAULT_ARENA_SETTINGS.srs.contestantIds;
+  const rawContestantIds = normalizeSrsArenaContestantIds(srs.contestantIds);
+  const contestantSetVersion = Math.max(0, Math.floor(Number(srs.contestantSetVersion) || 0));
+  const contestantIds = contestantSetVersion < SRS_ARENA_CONTESTANT_SET_VERSION
+    ? Array.from(new Set([...rawContestantIds, ...DEFAULT_ARENA_SETTINGS.srs.contestantIds]))
+    : rawContestantIds;
   const targetKinds = Array.isArray(srs.targetKinds)
     ? Array.from(new Set(srs.targetKinds.filter((kind): kind is Extract<ArenaTargetKind, 'item' | 'descriptor'> => kind === 'item' || kind === 'descriptor')))
     : DEFAULT_ARENA_SETTINGS.srs.targetKinds;
@@ -759,6 +771,7 @@ export function normalizeArenaSettings(value: unknown): ArenaSettings {
     },
     srs: {
       enabled: srs.enabled !== false,
+      contestantSetVersion: SRS_ARENA_CONTESTANT_SET_VERSION,
       contestantIds: contestantIds.length > 0 ? contestantIds : DEFAULT_ARENA_SETTINGS.srs.contestantIds,
       targetKinds: targetKinds.length > 0 ? targetKinds : DEFAULT_ARENA_SETTINGS.srs.targetKinds,
       advisoryOnly: srs.advisoryOnly !== false,

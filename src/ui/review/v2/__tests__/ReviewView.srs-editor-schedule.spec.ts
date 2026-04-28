@@ -5,6 +5,7 @@ import { defineComponent, h } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
+import SrsArenaConflictDialog from '../dialogs/SrsArenaConflictDialog.vue';
 
 const { createVueDialogMock, confirmDialogMock } = vi.hoisted(() => ({
   createVueDialogMock: vi.fn(() => ({
@@ -111,6 +112,47 @@ function createAdapter() {
       },
     })),
     cleanup: vi.fn(),
+  };
+}
+
+function buildArenaRecommendation(overrides: Record<string, unknown> = {}) {
+  const now = 1_777_777_777_000;
+  return {
+    poolKey: 'srs::item',
+    targetKind: 'item' as const,
+    leadingContestantId: 'sm20' as const,
+    ratingBasis: 2,
+    schedulingContextLabel: '队列上下文',
+    weightedIntervalDays: 4.3,
+    weightedDue: now + Math.round(4.3 * 86_400_000),
+    currentSchedulerIntervalDays: 2,
+    discrepancyRatio: 1.15,
+    shouldHighlight: true,
+    summary: 'Arena conflict',
+    contestants: [
+      {
+        contestantId: 'sm20' as const,
+        label: 'Arena Challenger 20',
+        score: 0,
+        weight: 1,
+        confidence: 0.8,
+        retrievability: 0.7,
+        predictedPassProbability: 0.7,
+        intervalDays: 6,
+        due: now + 6 * 86_400_000,
+        choices: [
+          {
+            rating: 2,
+            due: now + 6 * 86_400_000,
+            intervalDays: 6,
+            state: 2,
+            stability: 6,
+            difficulty: 4,
+          },
+        ],
+      },
+    ],
+    ...overrides,
   };
 }
 
@@ -225,10 +267,7 @@ describe('ReviewView SRS editor scheduling', () => {
     const firstCard = buildCard('card-1', 42);
     const queue = createQueue([firstCard]);
     const adapter = createAdapter();
-    const buildSrsRecommendation = vi.fn(async () => ({
-      shouldHighlight: true,
-      summary: 'Arena after grade',
-    }));
+    const buildSrsRecommendation = vi.fn(async () => buildArenaRecommendation({ shouldHighlight: false }));
 
     const wrapper = mount(ReviewView, {
       props: {
@@ -264,6 +303,7 @@ describe('ReviewView SRS editor scheduling', () => {
 
     await flushPromises();
     expect(buildSrsRecommendation).not.toHaveBeenCalled();
+    expect(createVueDialogMock).not.toHaveBeenCalled();
 
     wrapper.getComponent(ReviewActionsStub).vm.$emit('grade', 2);
     await flushPromises();
@@ -277,6 +317,182 @@ describe('ReviewView SRS editor scheduling', () => {
         schedulingContext: expect.objectContaining(queue.schedulingContext),
       }),
     );
+
+    wrapper.unmount();
+  });
+
+  it('does not open the SRS Arena conflict dialog when the highlighted flag is false', async () => {
+    const firstCard = buildCard('card-1', 42);
+    const queue = createQueue([firstCard]);
+    const adapter = createAdapter();
+    const buildSrsRecommendation = vi.fn(async () => buildArenaRecommendation({ shouldHighlight: false }));
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          getContext: () => ({
+            getArenaKernelService: () => ({ buildSrsRecommendation }),
+            getSchedulerRouter: () => ({ getSchedulerType: () => 'fsrs-v6' }),
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+              getCard: () => firstCard,
+              getCardByBlockId: () => firstCard,
+            }),
+            getReviewService: () => ({
+              rescheduleCard: vi.fn(async () => firstCard),
+              getSiyuanApi: () => ({ BUILTIN_DECK_ID: 'deck-1' }),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('grade', 3);
+    await flushPromises();
+
+    expect(buildSrsRecommendation).toHaveBeenCalled();
+    expect(createVueDialogMock).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('opens the SRS Arena conflict dialog after highlighted grading and keeps formal schedule without writing', async () => {
+    const firstCard = buildCard('card-1', 42);
+    const queue = createQueue([firstCard]);
+    const adapter = createAdapter();
+    const rescheduleCard = vi.fn(async () => firstCard);
+    const buildSrsRecommendation = vi.fn(async () => buildArenaRecommendation());
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          getContext: () => ({
+            getArenaKernelService: () => ({ buildSrsRecommendation }),
+            getSchedulerRouter: () => ({ getSchedulerType: () => 'fsrs-v6' }),
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+              getCard: () => firstCard,
+              getCardByBlockId: () => firstCard,
+            }),
+            getReviewService: () => ({
+              rescheduleCard,
+              getSiyuanApi: () => ({ BUILTIN_DECK_ID: 'deck-1' }),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('grade', 2);
+    await flushPromises();
+
+    expect(createVueDialogMock).toHaveBeenCalledTimes(1);
+    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0] as {
+      component?: unknown;
+      events?: {
+        keep?: () => void;
+      };
+    };
+    expect(dialogOptions.component).toBe(SrsArenaConflictDialog);
+
+    dialogOptions.events?.keep?.();
+
+    expect(rescheduleCard).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('adopts Arena conflict schedules through direct reschedule without regrading', async () => {
+    const firstCard = buildCard('card-1', 42);
+    const queue = createQueue([firstCard]);
+    const adapter = createAdapter();
+    const rescheduleCard = vi.fn(async () => firstCard);
+    const recommendation = buildArenaRecommendation();
+    const buildSrsRecommendation = vi.fn(async () => recommendation);
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          getContext: () => ({
+            getArenaKernelService: () => ({ buildSrsRecommendation }),
+            getSchedulerRouter: () => ({ getSchedulerType: () => 'fsrs-v6' }),
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+              getCard: () => firstCard,
+              getCardByBlockId: () => firstCard,
+            }),
+            getReviewService: () => ({
+              rescheduleCard,
+              getSiyuanApi: () => ({ BUILTIN_DECK_ID: 'deck-1' }),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('grade', 2);
+    await flushPromises();
+
+    const dialogOptions = createVueDialogMock.mock.calls[0]?.[0] as {
+      events?: {
+        adopt?: (payload: unknown) => Promise<void> | void;
+      };
+    };
+
+    await dialogOptions.events?.adopt?.({
+      kind: 'weighted',
+      dueTimestamp: recommendation.weightedDue,
+      scheduledDays: recommendation.weightedIntervalDays,
+    });
+    await flushPromises();
+
+    expect(rescheduleCard).toHaveBeenCalledWith(firstCard.id, {
+      mode: 'direct',
+      dueTimestamp: recommendation.weightedDue,
+      scheduledDays: recommendation.weightedIntervalDays,
+    });
 
     wrapper.unmount();
   });

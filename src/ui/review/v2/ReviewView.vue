@@ -144,6 +144,7 @@ import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
 import ActionParamsDialog from '@/ui/browser/ActionParamsDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
+import SrsArenaConflictDialog from './dialogs/SrsArenaConflictDialog.vue';
 import {
   createReviewSessionController,
   useReviewSession,
@@ -224,6 +225,7 @@ import type { ReviewApplicationService } from '@/application/services/ReviewAppl
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { createReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { prepareReviewPresentation } from './reviewPresentationPreparer';
+import type { SrsArenaRecommendation } from '@/types/arena';
 
 const logger = createLogger('ReviewView');
 
@@ -366,7 +368,7 @@ type ReviewPluginContextLike = {
       currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null,
       now?: number,
       options?: { ratingBasis?: number; schedulingContext?: QueueReviewSchedulingContext | null },
-    ) => Promise<{ shouldHighlight?: boolean; summary?: string | null } | null>;
+    ) => Promise<SrsArenaRecommendation | null>;
     recordSrsReview?: (input: { card: FSRSCard; rating: number; currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null; schedulingContext?: QueueReviewSchedulingContext | null }) => Promise<unknown>;
   } | undefined;
   getSchedulerRouter?: () => {
@@ -475,6 +477,13 @@ type ScheduledReviewCardPayload = {
   cardId?: string;
   blockId?: string;
   dueTimestamp?: number;
+};
+
+type SrsArenaConflictAdoptPayload = {
+  kind?: 'weighted' | 'contestant';
+  contestantId?: string;
+  dueTimestamp?: number;
+  scheduledDays?: number;
 };
 
 type DismissedReviewCardPayload = {
@@ -644,6 +653,7 @@ const reviewTextEditorValue = ref('');
 const reviewTextEditorOriginalValue = ref('');
 let reviewTextEditorSeq = 0;
 let reviewResizeHandler: (() => void) | null = null;
+let srsArenaConflictDialog: ReturnType<typeof createVueDialog> | null = null;
 let initialFullscreenTimer: number | null = null;
 let initialTabSurfaceRefreshTimer: number | null = null;
 let nativeSplitMenuPruneTimer: number | null = null;
@@ -1435,6 +1445,7 @@ onUnmounted(() => {
     window.clearTimeout(initialTabSurfaceRefreshTimer);
     initialTabSurfaceRefreshTimer = null;
   }
+  destroySrsArenaConflictDialog();
   if (props.mode !== 'tab') {
     getReviewAIWorkbenchRegistry()?.disposeReviewSession?.(reviewSessionId.value);
   }
@@ -1487,12 +1498,75 @@ function resolveReviewArenaScenario(view: ReviewAIRequestedView, card: FSRSCard 
   return view === 'general-chat' ? 'note-refinement' : 'candidate-card-generation';
 }
 
-async function refreshReviewArenaHint(card: FSRSCard | null | undefined, rating: number): Promise<void> {
+function destroySrsArenaConflictDialog(): void {
+  if (!srsArenaConflictDialog) {
+    return;
+  }
+  srsArenaConflictDialog.destroy();
+  srsArenaConflictDialog = null;
+}
+
+function openSrsArenaConflictDialog(card: FSRSCard, recommendation: SrsArenaRecommendation): void {
+  const context = getPluginContext(props.plugin);
+  const reviewService = context?.getReviewService?.();
+  if (!reviewService?.rescheduleCard) {
+    logger.warn('[SiYuanMemo][ReviewView] Cannot open SRS arena conflict dialog without review service');
+    return;
+  }
+
+  destroySrsArenaConflictDialog();
+  srsArenaConflictDialog = createVueDialog({
+    title: t('srsArenaConflictTitle', 'Arena 排期冲突'),
+    component: SrsArenaConflictDialog,
+    props: {
+      recommendation,
+      i18n: props.i18n || {},
+    },
+    events: {
+      keep: () => {
+        destroySrsArenaConflictDialog();
+      },
+      close: () => {
+        destroySrsArenaConflictDialog();
+      },
+      adopt: async (payload: unknown) => {
+        const adoptPayload = isRecord(payload) ? payload as SrsArenaConflictAdoptPayload : {};
+        const dueTimestamp = Number(adoptPayload.dueTimestamp);
+        const scheduledDays = Number(adoptPayload.scheduledDays);
+        if (!Number.isFinite(dueTimestamp) || dueTimestamp <= 0 || !Number.isFinite(scheduledDays) || scheduledDays < 0) {
+          logger.warn('[SiYuanMemo][ReviewView] Ignore invalid SRS arena adopt payload', adoptPayload);
+          return;
+        }
+        try {
+          await reviewService.rescheduleCard(card.id, {
+            mode: 'direct',
+            dueTimestamp,
+            scheduledDays,
+          });
+          notifyReviewMessage(t('srsArenaAdopted', '已采用 Arena 排期'), 2000, 'info');
+          destroySrsArenaConflictDialog();
+        } catch (error) {
+          logger.error('[SiYuanMemo][ReviewView] Failed to adopt SRS arena schedule:', error);
+          notifyReviewMessage(t('srsArenaAdoptFailed', '采用 Arena 排期失败'), 3000, 'error');
+        }
+      },
+    },
+    width: 'min(720px, 92vw)',
+    height: 'min(680px, 78vh)',
+    onClose: () => {
+      srsArenaConflictDialog = null;
+    },
+    visualVariant: 'form',
+    containerClass: 'siyuanmemo-srs-arena-conflict-dialog',
+  });
+}
+
+async function refreshReviewArenaHint(card: FSRSCard | null | undefined, rating: number): Promise<SrsArenaRecommendation | null> {
   const currentCard = (card || state.value.content.card || null) as FSRSCard | null;
   const arenaKernel = getArenaKernelService();
   if (!arenaKernel?.buildSrsRecommendation || !currentCard || rating < 1 || rating > 4) {
     reviewArenaHint.value = null;
-    return;
+    return null;
   }
   try {
     const recommendation = await arenaKernel.buildSrsRecommendation(
@@ -1505,14 +1579,20 @@ async function refreshReviewArenaHint(card: FSRSCard | null | undefined, rating:
       },
     );
     reviewArenaHint.value = recommendation?.shouldHighlight ? (recommendation.summary || null) : null;
+    return recommendation;
   } catch (error) {
     logger.warn('[SiYuanMemo][ReviewView] Failed to refresh SRS arena hint:', error);
     reviewArenaHint.value = null;
+    return null;
   }
 }
 
 async function handleReviewArenaFeedback(payload: { cardId: string; rating: number; item: ActiveReviewItem | null }): Promise<void> {
-  await refreshReviewArenaHint((payload.item || state.value.content.card || null) as FSRSCard | null, payload.rating);
+  const reviewedCard = (payload.item || state.value.content.card || null) as FSRSCard | null;
+  const recommendation = await refreshReviewArenaHint(reviewedCard, payload.rating);
+  if (reviewedCard && recommendation?.shouldHighlight === true) {
+    openSrsArenaConflictDialog(reviewedCard, recommendation);
+  }
 }
 
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {
@@ -1653,6 +1733,12 @@ async function prepareReviewStateBeforeCommit(
 
 function t(key: string, fallback: string): string {
   return i18n?.[key] || fallback;
+}
+
+function notifyReviewMessage(message: string, timeout = 3000, type: 'info' | 'error' | 'warning' = 'info'): void {
+  if (typeof showMessage === 'function') {
+    showMessage(message, timeout, type);
+  }
 }
 
 type StandardReviewQueueSwitchPreset = {

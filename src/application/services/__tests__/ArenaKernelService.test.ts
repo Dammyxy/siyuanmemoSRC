@@ -435,13 +435,30 @@ describe('ArenaKernelService', () => {
       'sm18',
       'sm20',
     ]);
-    expect(recommendation?.contestants.map((entry) => entry.label)).toContain('FSRSV5');
-    expect(recommendation?.contestants.map((entry) => entry.label)).toContain('SM-20');
+    expect(recommendation?.contestants.map((entry) => entry.label)).toContain('Arena Challenger 15');
+    expect(recommendation?.contestants.map((entry) => entry.label)).toContain('Arena Challenger 20');
+    expect(recommendation?.contestants.map((entry) => entry.label).join(' ')).not.toMatch(/\bSM\b|FSRSV5|SM-\d+/i);
     expect(recommendation?.contestants.map((entry) => entry.contestantId)).not.toContain('a-factor-v2');
     expect(recommendation?.weightedIntervalDays).toBeGreaterThan(0);
     expect(recommendation?.summary).toContain('Arena 当前更偏向');
     expect(card.due).toBe(NOW + 7 * 86_400_000);
     expect(await store.getLatestScoreSnapshot('srs', 'srs::descriptor')).not.toBeNull();
+  });
+
+  it('seeds SRS manager pools from configured target kinds and shows all configured contestants', async () => {
+    const settings = createEnabledArenaSettings();
+    const { service, store } = createKernel(settings);
+
+    const view = await service.buildManagerView();
+
+    expect(store.data.matches.filter((match) => match.domain === 'srs')).toEqual([]);
+    expect(view.srs.pools.map((entry) => entry.pool.key).sort()).toEqual(['srs::descriptor', 'srs::item']);
+    for (const pool of view.srs.pools) {
+      expect(pool.totalEntries).toBe(settings.srs.contestantIds.length);
+      expect(pool.topEntries).toHaveLength(settings.srs.contestantIds.length);
+      expect(pool.topEntries.map((entry) => entry.contestantId).sort()).toEqual(settings.srs.contestantIds.slice().sort());
+    }
+    expect(view.srs.scores.map((snapshot) => snapshot.poolKey).sort()).toEqual(['srs::descriptor', 'srs::item']);
   });
 
   it('anchors SRS recommendations to the queue scheduling context and selected rating basis', async () => {

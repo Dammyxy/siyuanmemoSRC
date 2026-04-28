@@ -50,7 +50,7 @@ function createTranslator() {
     const overrides: Record<string, string> = {
       days: 'd',
       schedulerFsrsV6: 'FSRS v6',
-      schedulerSm15: 'FSRSV5',
+      schedulerSm15: 'Arena Challenger 15',
       schedulerAFactorV2: 'A-Factor v2',
       afHistorySummary: '{count} 条，最新值 {latest}',
     };
@@ -85,7 +85,7 @@ describe('SrsTransparencyApplicationService', () => {
     ]);
   });
 
-  it('surfaces FSRSV5 specific facts from schedulerMeta', async () => {
+  it('surfaces Arena Challenger 15 specific facts from schedulerMeta', async () => {
     const router = {
       getSchedulerType: vi.fn(() => 'sm15' as const),
       preview: vi.fn(() => new Map([
@@ -109,7 +109,7 @@ describe('SrsTransparencyApplicationService', () => {
 
     expect(model.schedulerType).toBe('sm15');
     expect(model.algorithmFacts).toEqual([
-      { label: '调度器', value: 'FSRSV5' },
+      { label: '调度器', value: 'Arena Challenger 15' },
       { label: 'O-Factor', value: '1.80' },
       { label: '最优间隔', value: '2.0 d' },
       { label: 'AF 历史', value: '3 条，最新值 1.80' },
@@ -188,7 +188,7 @@ describe('SrsTransparencyApplicationService', () => {
     );
     expect(model.arenaHint).toBe('Arena 按Good综合建议约 9.0 d，与当前正式调度相差 800%。');
     expect(model.algorithmFacts).toContainEqual({ label: 'Arena 预判间隔（Good）', value: '9.0 d' });
-    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 当前领先', value: 'SM-2' });
+    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 当前领先', value: 'Arena Challenger 2' });
     expect(model.algorithmFacts).toContainEqual({ label: 'Arena 调度上下文', value: '默认上下文' });
   });
 });
