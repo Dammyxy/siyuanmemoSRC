@@ -5,6 +5,7 @@ import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewS
 function createFixture(options?: {
   allCards?: FSRSCard[];
   sqlRows?: Array<Record<string, unknown>>;
+  readPort?: ConstructorParameters<typeof DocTreeReviewScopeService>[2];
 }) {
   let currentRows = options?.sqlRows ?? [];
 
@@ -16,7 +17,7 @@ function createFixture(options?: {
     getAllCards: vi.fn(() => options?.allCards ?? []),
   };
 
-  const service = new DocTreeReviewScopeService(siyuanApi as any, storage as any);
+  const service = new DocTreeReviewScopeService(siyuanApi as any, storage as any, options?.readPort ?? null);
 
   return {
     service,
@@ -102,6 +103,60 @@ describe('DocTreeReviewScopeService', () => {
 
     expect(scope).toBeNull();
     expect(siyuanApi.sql).toHaveBeenCalledTimes(1);
+  });
+
+  it('collects recursive cards from SQL projection port without scanning all cards', async () => {
+    const scopedCards = [
+      { id: 'card-doc-1', blockId: 'block-doc-1', type: 'item', due: Date.now(), meta: { rootId: 'doc-1' } } as FSRSCard,
+      { id: 'card-piece', blockId: 'block-piece', type: 'topic', due: Date.now(), meta: { rootId: 'piece-doc-1' } } as FSRSCard,
+    ];
+    const readPort = {
+      queryCardIdsByRootIds: vi.fn(() => ['card-doc-1', 'card-piece']),
+      queryRootlessCardBlockIds: vi.fn(() => []),
+      getDeckCardsByIds: vi.fn(() => scopedCards),
+    };
+    const { service, storage } = createFixture({
+      readPort,
+      sqlRows: [
+        { id: 'doc-1', box: 'nb', path: '/articles/doc-1.sy' },
+        { id: 'piece-doc-1', box: 'nb', path: '/articles/doc-1/01 piece.sy' },
+      ],
+    });
+
+    await service.hydrate();
+    const scope = service.collectDocReviewScope('doc-1');
+
+    expect(scope?.cards.map((card) => card.id)).toEqual(['card-doc-1', 'card-piece']);
+    expect(readPort.queryCardIdsByRootIds).toHaveBeenCalledWith(['doc-1', 'piece-doc-1'], {
+      excludeKnownMissing: true,
+    });
+    expect(storage.getAllCards).not.toHaveBeenCalled();
+  });
+
+  it('falls back to storage scan when SQL projection scope query fails', async () => {
+    const allCards = [
+      { id: 'card-legacy', blockId: 'block-legacy', type: 'item', due: Date.now(), meta: { rootId: 'doc-1' } } as FSRSCard,
+    ];
+    const readPort = {
+      queryCardIdsByRootIds: vi.fn(() => {
+        throw new Error('SQL unavailable');
+      }),
+      queryRootlessCardBlockIds: vi.fn(() => []),
+      getDeckCardsByIds: vi.fn(() => []),
+    };
+    const { service, storage } = createFixture({
+      allCards,
+      readPort,
+      sqlRows: [
+        { id: 'doc-1', box: 'nb', path: '/articles/doc-1.sy' },
+      ],
+    });
+
+    await service.hydrate();
+    const scope = service.collectDocReviewScope('doc-1');
+
+    expect(scope?.cards.map((card) => card.id)).toEqual(['card-legacy']);
+    expect(storage.getAllCards).toHaveBeenCalled();
   });
 
   it('drops moved-out child docs after a debounced rebuild triggered by a transaction', async () => {

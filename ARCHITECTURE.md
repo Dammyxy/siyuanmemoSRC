@@ -95,7 +95,7 @@ flowchart TD
 - 初始化 `SchedulerRouter` / `RescheduleService`
 - 初始化 `UnifiedDataSourceManager`
 - 装配 `CardApplicationService` / `BrowserApplicationService` / `ReviewApplicationService`
-- SQL active 时给 `CardApplicationService` 注入 `SqlCardReadModel`，并把 `SqlUnifiedStorageRepository` 作为 `BrowserDeckReadPort` 注入 `BrowserApplicationService`；卡片计数、Browser stats 与 deck 主表分页优先走 `cards` 表 v2 投影列和索引，legacy 或 SQL 不可表达条件再回到 `UnifiedStorageManager` / snapshot 读模型
+- SQL active 时给 `CardApplicationService` 注入 `SqlCardReadModel`，并把 `SqlUnifiedStorageRepository` 作为 `BrowserDeckReadPort` 注入 `BrowserApplicationService` / `DocTreeReviewScopeService`；卡片计数、Browser stats、deck 主表分页、source-existence cache、root-scope 候选与 card-type-marker 扫描优先走 `cards` 表 v3 投影列和索引，legacy、SQL 不可用或 SQL 不可表达条件再回到 `UnifiedStorageManager` / snapshot 读模型
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`
 - 装配 Browser 所需的 Siyuan port 与 datasource factory；`BrowserApplicationService` 不直接依赖 `src/ui/browser/*`
 - 装配 Review special renderer service；`ReviewContent.vue` 不直接创建 core infrastructure repository
@@ -351,11 +351,11 @@ UI surface：
 
 - `src/application/services/UnifiedDataSourceManager.ts`：统一队列创建、缓存、失效、观察者通知中心。
 - `src/application/services/CardApplicationService.ts`：卡片创建 / 更新 / 删除的应用编排入口；SQL active 时通过 read model `countCards()` 提供 due / total 计数。
-- `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务；SQL active 时优先消费 `BrowserDeckReadPort` 做 deck page、matched ids、rows-by-ids 与 stats 读取，SQL 不可用或查询不可表达时回退旧 snapshot kernel。
+- `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务；SQL active 时优先消费 `BrowserDeckReadPort` 做 deck page、matched ids、rows-by-ids、stats 与 source-existence 懒刷新，SQL 不可用或查询不可表达时回退旧 snapshot kernel。
 - `src/application/services/ReviewApplicationService.ts`：复习流程相关编排。
 - `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `ReviewLogService` 在 SQL active 时写 `review_events / drill_events / reschedule_events`，旧 JSON 月度分片只作为迁移来源或 SQL 失败后的 fallback；`SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
 - `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan；native `removeFlashcards` 现在走同服务内的 `riff-managed` 定向本地删除，而不是再依赖增量同步或 full sync 才收敛。
-- `src/application/services/ReviewQueuePreparationService.ts` / `DocTreeReviewScopeService.ts`：review scope 与 queue preparation 编排。
+- `src/application/services/ReviewQueuePreparationService.ts` / `DocTreeReviewScopeService.ts`：review scope 与 queue preparation 编排；SQL active 时 doc-tree scope 先用 `root_id IN (...)` 查询候选 card id，再按 id hydrate，SQL 不可用时回 storage scan。
 - `src/application/services/ReviewScopeCardCreationSyncService.ts`：review scope 内的卡片增删事件桥接；监听 `CardCreated / CardDeleted / CardsDeleted`，把新增或删除同步到 `UnifiedDataSourceManager`，让打开中的 Browser / Review 队列通过统一 observer 链路刷新。
 - `src/application/services/ConfiguredCaptureStorageService.ts`：capture 目标存储解析与写入策略。
 - `src/application/services/ExcerptRecordService.ts`：摘录记录与去重相关服务。
@@ -462,7 +462,7 @@ Siyuan / Riff / LLM 适配器：
 持久化与支撑：
 
 - `src/infrastructure/persistence/*`：卡片仓储、DTO、mapper、持久化映射。
-- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema、算法注册、二进制 DB 落盘、事务级 persist 合并与 persist 失败后的 SQL 内存状态恢复，schema v2 在 `cards` 增加 Browser 常用投影列与索引；repository 负责 unified store、Browser deck SQL read port、queue state、review logs 与 Arena append-only 数据，`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移。
+- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema、算法注册、FTS5 能力检测、二进制 DB 落盘、事务级 persist 合并与 persist 失败后的 SQL 内存状态恢复，schema v3 在 `cards` 增加 Browser 常用投影、`search_text/card_type_marker`、`source_exists/source_checked_at/source_missing_at` 与索引；repository 负责 unified store、Browser deck SQL read port、source-existence cache、queue state、review logs 与 Arena append-only 数据，`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移。
 - `src/infrastructure/queries/CardReadModel.ts` / `SqlCardReadModel.ts`：卡片读模型实现；legacy 读内存 `UnifiedStorageManager`，SQL active 读 `SqlUnifiedStorageRepository.queryCards()/countCards()`，先走 `cards` 表索引字段，再执行 suspended/tags/customFilter 等残余过滤。
 - `src/infrastructure/services/FileService.ts` / `QueuePersistenceService.ts`：文件与队列持久化支撑；SQL active 时 `QueuePersistenceService` 只读写 `queue_state`，旧 `queues.msgpack` 只作为迁移来源或 fallback。
 - `src/infrastructure/queue/*`：队列相关副作用适配器。
@@ -595,6 +595,8 @@ Browser 分层边界：
 - `src/types/browser.ts` 是 Browser surface 与 application query 共用的 DTO / open state / query parser / row identity / sort display contract 来源。
 - `src/application/queries/browser/shared/*` 承载 application 可复用的 row projection、filter 与排序逻辑；`BrowserApplicationService`、`BrowserDeckQueryKernel`、`QueueBrowserQueryKernel` 不从 `src/ui/browser/*` 导入契约或 helper。
 - SQL active 的 Browser deck 主表读取由 `BrowserDeckReadPort` 承接：`DeckDataSource.fetchRows()` 调 `BrowserApplicationService.getDeckPage()`，repository 做 `COUNT + LIMIT/OFFSET` 后只 hydrate 当前页；选择“全部匹配”调 `getDeckMatchedIds()` 取完整有序 id 列表，批量动作再按 id hydrate。
+- Source existence 以 SiYuan `blocks` 为真源、SQLite 为懒刷新缓存：正常 deck 查询排除 known missing 且 unknown fail-open，`__lost__` / `missing-block-only` 读取 known missing；stats 先返回 SQL 当前统计并后台刷新 stale/unknown；`QueueBrowserQueryKernel` 只用 SQL source cache 标记 missing，不物化队列 membership/order。
+- Browser 搜索优先使用 `search_text/content_text/tags/root/deck` 投影；当前 sql.js 构建不支持 FTS5 时走 `LIKE` fallback，不硬建 FTS 表；retrievability 等 SQL 不可表达查询显式回 snapshot。
 - `src/ui/browser/browserService.ts` 只保留 UI-side helper；SQL、消息、文档树和 block projection 必须显式传入 `BrowserSiyuanPort` / `UnifiedDataSourceManager`，不再维护全局 browser context。
 - `src/ui/browser/browserService.v2.ts` 已删除，旧 import 不应恢复。
 

@@ -1,5 +1,11 @@
 import type { StorageLoadReason, UnifiedCardStore } from '@/core/storage/UnifiedStorageManager';
-import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
+import type {
+  BrowserDeckReadPort,
+  SourceExistenceRefreshCandidate,
+  SourceExistenceRefreshRequest,
+  SourceExistenceSummary,
+  SourceExistenceUpdate,
+} from '@/application/ports/BrowserDeckReadPort';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type {
   BrowserDeckCardPageResult,
@@ -31,6 +37,15 @@ interface CardProjection {
   stability: number | null;
   difficulty: number | null;
   aFactor: number | null;
+  searchText: string | null;
+  cardTypeMarker: string | null;
+}
+
+interface SourceExistenceProjection {
+  blockId: string | null;
+  sourceExists: number | null;
+  sourceCheckedAt: number | null;
+  sourceMissingAt: number | null;
 }
 
 interface WhereClause {
@@ -94,6 +109,11 @@ function normalizeString(value: unknown): string {
   return String(value || '').trim();
 }
 
+function normalizeSearchText(value: unknown): string | null {
+  const normalized = normalizeString(value).toLowerCase();
+  return normalized || null;
+}
+
 function normalizeSqlLimit(value: unknown, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback;
@@ -143,6 +163,15 @@ function normalizeProjectionTags(card: FSRSCard): string | null {
   return `\n${Array.from(tags).sort().join('\n')}\n`;
 }
 
+function resolveCardTypeMarker(card: FSRSCard, dto?: CardPersistenceDTO): string | null {
+  const directMarker = normalizeString((card as { cardTypeMarker?: unknown }).cardTypeMarker);
+  const metaMarker = isObjectRecord(card.meta)
+    ? normalizeString(card.meta.cardTypeMarker)
+    : '';
+  const dtoMarker = normalizeString(dto?.cardTypeMarker);
+  return directMarker || metaMarker || dtoMarker || null;
+}
+
 function createCardProjection(card: FSRSCard, dto?: CardPersistenceDTO): CardProjection {
   const meta = card.meta;
   const deckId = readStringField(meta, 'deckId')
@@ -170,6 +199,8 @@ function createCardProjection(card: FSRSCard, dto?: CardPersistenceDTO): CardPro
     stability: normalizeNumber(card.stability ?? dto?.stability),
     difficulty: normalizeNumber(card.difficulty ?? dto?.difficulty),
     aFactor,
+    searchText: normalizeSearchText(contentText),
+    cardTypeMarker: resolveCardTypeMarker(card, dto),
   };
 }
 
@@ -246,6 +277,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
   async saveStore(store: UnifiedCardStore): Promise<void> {
     await this.database.write((db) => {
+      const existingSource = this.loadSourceExistenceByCardId();
       db.run('DELETE FROM cards');
       db.run('DELETE FROM xiuyuans');
       db.run('DELETE FROM tombstones');
@@ -261,9 +293,10 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
           (
             id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
             deck_id, root_id, content_text, tags, suspended, lapses, reps, last_review, created_at,
-            scheduled_days, stability, difficulty, a_factor, payload_json, dto_json
+            scheduled_days, stability, difficulty, a_factor, search_text, card_type_marker,
+            source_exists, source_checked_at, source_missing_at, payload_json, dto_json
           )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             card.blockId || null,
@@ -287,6 +320,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
             projection.stability,
             projection.difficulty,
             projection.aFactor,
+            projection.searchText,
+            projection.cardTypeMarker,
+            ...this.resolvePreservedSourceValues(existingSource.get(id), card.blockId),
             stringifyJson(card),
             dto ? stringifyJson(dto) : null,
           ],
@@ -345,14 +381,16 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   upsertCard(card: FSRSCard): void {
     const dto = CardMapper.toPersistence(card);
     const projection = createCardProjection(card, dto);
+    const existingSource = this.loadSourceExistenceForCard(card.id);
     this.database.run(
       `INSERT OR REPLACE INTO cards
         (
           id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
           deck_id, root_id, content_text, tags, suspended, lapses, reps, last_review, created_at,
-          scheduled_days, stability, difficulty, a_factor, payload_json, dto_json
+          scheduled_days, stability, difficulty, a_factor, search_text, card_type_marker,
+          source_exists, source_checked_at, source_missing_at, payload_json, dto_json
         )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         card.id,
         card.blockId || null,
@@ -376,6 +414,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         projection.stability,
         projection.difficulty,
         projection.aFactor,
+        projection.searchText,
+        projection.cardTypeMarker,
+        ...this.resolvePreservedSourceValues(existingSource, card.blockId),
         stringifyJson(card),
         stringifyJson(dto),
       ],
@@ -557,14 +598,16 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       learningCards: number;
       reviewCards: number;
       suspendedCards: number;
+      lostCards: number;
     }>(
       `SELECT
-        COUNT(*) AS totalCards,
-        COALESCE(SUM(CASE WHEN due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
-        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS newCards,
-        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
-        COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
-        COALESCE(SUM(CASE WHEN suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards
+        COALESCE(SUM(CASE WHEN source_exists IS NULL OR source_exists = 1 THEN 1 ELSE 0 END), 0) AS totalCards,
+        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND due <= ? AND suspended = 0 THEN 1 ELSE 0 END), 0) AS dueCards,
+        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS newCards,
+        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS learningCards,
+        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND state = ? THEN 1 ELSE 0 END), 0) AS reviewCards,
+        COALESCE(SUM(CASE WHEN (source_exists IS NULL OR source_exists = 1) AND suspended = 1 THEN 1 ELSE 0 END), 0) AS suspendedCards,
+        COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS lostCards
        FROM cards`,
       [now, CardState.New, CardState.Learning, CardState.Review],
     );
@@ -576,8 +619,179 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       learningCards: Math.max(0, Number(row?.learningCards) || 0),
       reviewCards: Math.max(0, Number(row?.reviewCards) || 0),
       suspendedCards: Math.max(0, Number(row?.suspendedCards) || 0),
-      lostCards: 0,
+      lostCards: Math.max(0, Number(row?.lostCards) || 0),
     };
+  }
+
+  getSourceExistenceRefreshCandidates(
+    request: SourceExistenceRefreshRequest = {},
+  ): SourceExistenceRefreshCandidate[] {
+    const clauses = ["block_id IS NOT NULL", "block_id != ''"];
+    const params: Array<string | number> = [];
+    const blockIds = normalizeStringArray(request.blockIds);
+    if (blockIds.length > 0) {
+      appendInClause(clauses, params, 'block_id', blockIds);
+    }
+
+    const staleBefore = normalizeNumber(request.staleBefore);
+    const freshnessClauses = ['source_checked_at IS NULL'];
+    if (staleBefore !== null) {
+      freshnessClauses.push('source_checked_at < ?');
+      params.push(staleBefore);
+    }
+    if (request.includeKnownMissing !== true) {
+      clauses.push('(source_exists IS NULL OR source_exists != 0)');
+    }
+    clauses.push(`(${freshnessClauses.join(' OR ')})`);
+
+    const limit = Math.max(1, Math.floor(Number(request.limit) || 500));
+    const rows = this.database.getAll<{
+      id: string;
+      block_id: string;
+      source_exists: number | null;
+      source_checked_at: number | null;
+    }>(
+      `SELECT id, block_id, source_exists, source_checked_at
+       FROM cards
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY source_checked_at IS NOT NULL ASC, source_checked_at ASC, id ASC
+       LIMIT ?`,
+      [...params, limit],
+    );
+
+    return rows
+      .map((row) => ({
+        cardId: normalizeString(row.id),
+        blockId: normalizeString(row.block_id),
+        sourceExists: row.source_exists == null ? null : Number(row.source_exists) === 1,
+        sourceCheckedAt: normalizeNumber(row.source_checked_at),
+      }))
+      .filter((row) => row.cardId && row.blockId);
+  }
+
+  async updateSourceExistence(updates: SourceExistenceUpdate[], checkedAt = Date.now()): Promise<void> {
+    const normalizedUpdates = updates
+      .map((update) => ({
+        cardId: normalizeString(update.cardId),
+        blockId: normalizeString(update.blockId),
+        exists: update.exists === true,
+      }))
+      .filter((update) => update.blockId);
+    if (normalizedUpdates.length === 0) {
+      return;
+    }
+
+    await this.database.write((db) => {
+      for (const update of normalizedUpdates) {
+        const sourceExists = update.exists ? 1 : 0;
+        const sourceMissingAt = update.exists ? null : checkedAt;
+        if (update.cardId) {
+          db.run(
+            `UPDATE cards
+             SET source_exists = ?, source_checked_at = ?, source_missing_at = ?
+             WHERE id = ? AND block_id = ?`,
+            [sourceExists, checkedAt, sourceMissingAt, update.cardId, update.blockId],
+          );
+        } else {
+          db.run(
+            `UPDATE cards
+             SET source_exists = ?, source_checked_at = ?, source_missing_at = ?
+             WHERE block_id = ?`,
+            [sourceExists, checkedAt, sourceMissingAt, update.blockId],
+          );
+        }
+      }
+    });
+  }
+
+  getSourceExistenceSummary(staleBefore = Date.now() - 24 * 60 * 60 * 1000): SourceExistenceSummary {
+    const row = this.database.getOne<{
+      unknown: number;
+      stale: number;
+      missing: number;
+    }>(
+      `SELECT
+        COALESCE(SUM(CASE WHEN source_checked_at IS NULL THEN 1 ELSE 0 END), 0) AS unknown,
+        COALESCE(SUM(CASE WHEN source_checked_at IS NOT NULL AND source_checked_at < ? THEN 1 ELSE 0 END), 0) AS stale,
+        COALESCE(SUM(CASE WHEN source_exists = 0 THEN 1 ELSE 0 END), 0) AS missing
+       FROM cards`,
+      [staleBefore],
+    );
+    return {
+      unknown: Math.max(0, Number(row?.unknown) || 0),
+      stale: Math.max(0, Number(row?.stale) || 0),
+      missing: Math.max(0, Number(row?.missing) || 0),
+    };
+  }
+
+  getSourceExistenceByBlockIds(blockIds: string[]): Map<string, boolean | null> {
+    const normalized = normalizeStringArray(blockIds);
+    const result = new Map<string, boolean | null>();
+    if (normalized.length === 0) {
+      return result;
+    }
+
+    const placeholders = normalized.map(() => '?').join(', ');
+    const rows = this.database.getAll<{
+      block_id: string;
+      source_exists: number | null;
+    }>(
+      `SELECT block_id, source_exists FROM cards WHERE block_id IN (${placeholders})`,
+      normalized,
+    );
+    for (const row of rows) {
+      const blockId = normalizeString(row.block_id);
+      if (!blockId) {
+        continue;
+      }
+      result.set(blockId, row.source_exists == null ? null : Number(row.source_exists) === 1);
+    }
+    return result;
+  }
+
+  queryCardIdsByRootIds(rootIds: string[], options: { excludeKnownMissing?: boolean } = {}): string[] {
+    const normalizedRootIds = normalizeStringArray(rootIds);
+    if (normalizedRootIds.length === 0) {
+      return [];
+    }
+
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    appendInClause(clauses, params, 'root_id', normalizedRootIds);
+    if (options.excludeKnownMissing !== false) {
+      this.appendSourceStatusClause(clauses, 'active');
+    }
+    const rows = this.database.getAll<{ id: string }>(
+      `SELECT id FROM cards ${this.toWhereSql({ sql: clauses.join(' AND '), params })} ORDER BY id ASC`,
+      params,
+    );
+    return rows.map((row) => row.id).filter(Boolean);
+  }
+
+  queryRootlessCardBlockIds(limit = 5000): string[] {
+    const rows = this.database.getAll<{ block_id: string }>(
+      `SELECT block_id
+       FROM cards
+       WHERE (root_id IS NULL OR root_id = '')
+         AND block_id IS NOT NULL
+         AND block_id != ''
+         AND (source_exists IS NULL OR source_exists = 1)
+       ORDER BY id ASC
+       LIMIT ?`,
+      [Math.max(1, Math.floor(Number(limit) || 5000))],
+    );
+    return rows.map((row) => normalizeString(row.block_id)).filter(Boolean);
+  }
+
+  queryInconsistentCardTypeMarkerIds(): string[] {
+    const rows = this.database.getAll<{ id: string }>(
+      `SELECT id
+       FROM cards
+       WHERE (card_type_marker = 'concept' AND (type IS NULL OR type != 'concept'))
+          OR (card_type_marker = 'descriptor' AND (type IS NULL OR type != 'descriptor'))
+       ORDER BY id ASC`,
+    );
+    return rows.map((row) => row.id).filter(Boolean);
   }
 
   async persist(): Promise<void> {
@@ -589,6 +803,72 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       'SELECT (SELECT COUNT(*) FROM cards) + (SELECT COUNT(*) FROM xiuyuans) AS count',
     );
     return Number(row?.count) > 0;
+  }
+
+  private loadSourceExistenceByCardId(): Map<string, SourceExistenceProjection> {
+    const rows = this.database.getAll<{
+      id: string;
+      block_id: string | null;
+      source_exists: number | null;
+      source_checked_at: number | null;
+      source_missing_at: number | null;
+    }>(
+      'SELECT id, block_id, source_exists, source_checked_at, source_missing_at FROM cards',
+    );
+    const result = new Map<string, SourceExistenceProjection>();
+    for (const row of rows) {
+      const id = normalizeString(row.id);
+      if (!id) {
+        continue;
+      }
+      result.set(id, {
+        blockId: row.block_id,
+        sourceExists: row.source_exists,
+        sourceCheckedAt: row.source_checked_at,
+        sourceMissingAt: row.source_missing_at,
+      });
+    }
+    return result;
+  }
+
+  private loadSourceExistenceForCard(cardId: string): SourceExistenceProjection | null {
+    const normalizedId = normalizeString(cardId);
+    if (!normalizedId) {
+      return null;
+    }
+    const row = this.database.getOne<{
+      block_id: string | null;
+      source_exists: number | null;
+      source_checked_at: number | null;
+      source_missing_at: number | null;
+    }>(
+      'SELECT block_id, source_exists, source_checked_at, source_missing_at FROM cards WHERE id = ?',
+      [normalizedId],
+    );
+    return row
+      ? {
+        blockId: row.block_id,
+        sourceExists: row.source_exists,
+        sourceCheckedAt: row.source_checked_at,
+        sourceMissingAt: row.source_missing_at,
+      }
+      : null;
+  }
+
+  private resolvePreservedSourceValues(
+    existing: SourceExistenceProjection | null | undefined,
+    nextBlockId: unknown,
+  ): [number | null, number | null, number | null] {
+    const existingBlockId = normalizeString(existing?.blockId);
+    const normalizedNextBlockId = normalizeString(nextBlockId);
+    if (!existing || !existingBlockId || existingBlockId !== normalizedNextBlockId) {
+      return [null, null, null];
+    }
+    return [
+      existing.sourceExists == null ? null : Number(existing.sourceExists),
+      normalizeNumber(existing.sourceCheckedAt),
+      normalizeNumber(existing.sourceMissingAt),
+    ];
   }
 
   private buildStructuredWhereClause(query?: StructuredCardQuery): WhereClause | null {
@@ -643,6 +923,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       clauses.push('suspended = 0');
     }
 
+    this.appendSourceStatusClause(clauses, query?.sourceStatus);
+
     const tags = normalizeStringArray(query?.tags);
     if (tags.length > 0) {
       clauses.push(`(${tags.map(() => "tags LIKE ? ESCAPE '\\'").join(' OR ')})`);
@@ -662,20 +944,25 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     const clauses: string[] = [];
     const params: Array<string | number> = [];
     const normalizedDocId = normalizeString(query.docId);
-
-    if (normalizedDocId === '__lost__' || query.cardTypes?.includes('missing-block-only')) {
-      return null;
-    }
+    const normalizedCardTypes = normalizeStringArray(query.cardTypes);
+    const isMissingBlockScope = normalizedDocId === '__lost__' || normalizedCardTypes.includes('missing-block-only');
 
     this.appendPresetClauses(clauses, params, query.preset);
     this.appendStateClauses(clauses, params, query.states);
-    if (!this.appendBrowserCardTypeClauses(clauses, params, query.cardTypes)) {
+    if (!this.appendBrowserCardTypeClauses(
+      clauses,
+      params,
+      isMissingBlockScope
+        ? normalizedCardTypes.filter((cardType) => cardType !== 'missing-block-only')
+        : normalizedCardTypes,
+    )) {
       return null;
     }
     this.appendStringInClause(clauses, params, 'deck_id', query.deckIds);
     this.appendAllTagsClause(clauses, params, query.tags);
+    this.appendSourceStatusClause(clauses, isMissingBlockScope ? 'missing' : 'active');
 
-    if (normalizedDocId) {
+    if (normalizedDocId && normalizedDocId !== '__lost__') {
       clauses.push('root_id = ?');
       params.push(normalizedDocId);
     }
@@ -745,6 +1032,23 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       ? states.map((state) => Number(state)).filter((state) => Number.isFinite(state))
       : [];
     appendInClause(clauses, params, 'state', normalizedStates);
+  }
+
+  private appendSourceStatusClause(
+    clauses: string[],
+    sourceStatus: StructuredCardQuery['sourceStatus'],
+  ): void {
+    switch (sourceStatus) {
+      case 'active':
+        clauses.push('(source_exists IS NULL OR source_exists = 1)');
+        break;
+      case 'missing':
+        clauses.push('source_exists = 0');
+        break;
+      case 'all':
+      default:
+        break;
+    }
   }
 
   private appendBrowserCardTypeClauses(
@@ -833,8 +1137,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     }
 
     if (parsed.text) {
-      const like = `%${escapeLike(parsed.text)}%`;
-      clauses.push("content_text LIKE ? ESCAPE '\\'");
+      const like = `%${escapeLike(parsed.text.toLowerCase())}%`;
+      clauses.push("search_text LIKE ? ESCAPE '\\'");
       params.push(like);
     }
 

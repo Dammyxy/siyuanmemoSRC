@@ -9,12 +9,21 @@ import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPor
 import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQueryHandler';
 import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
 import { QueueBrowserQueryKernel } from '../queries/browser/shared/QueueBrowserQueryKernel';
+import {
+  markRowsFromSourceExistenceCache,
+  refreshSourceExistenceForBlockIds,
+  refreshSourceExistenceSweep,
+  SOURCE_EXISTENCE_BATCH_SIZE,
+  SOURCE_EXISTENCE_BACKGROUND_LIMIT,
+  SOURCE_EXISTENCE_TTL_MS,
+} from '../queries/browser/shared/SourceExistenceCache';
 import type {
   BrowserStats,
   GetBrowserCardsQuery,
   GetBrowserCardsQueryResult,
 } from '../queries/browser/GetBrowserCardsQuery';
 import type {
+  BrowserDeckCardPageResult,
   BrowserDeckPageRequest,
   BrowserDeckPageResult,
   BrowserDeckSnapshotQuery,
@@ -70,6 +79,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly siyuanApi: BrowserSiyuanPort;
   private readonly queueCountInFlight = new Map<BrowserQueueId, Promise<number>>();
   private readonly queueCountCache = new Map<BrowserQueueId, { value: number; timestamp: number }>();
+  private sourceExistenceSweepInFlight: Promise<unknown> | null = null;
   private static readonly QUEUE_COUNTS_CACHE_TTL_MS = 150;
 
   constructor(
@@ -89,7 +99,11 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       siyuanApi as unknown as QuerySiyuanPort,
     );
     this.queueBrowserQueryKernel = unifiedDataSourceManager
-      ? new QueueBrowserQueryKernel(unifiedDataSourceManager, siyuanApi as unknown as QuerySiyuanPort)
+      ? new QueueBrowserQueryKernel(
+        unifiedDataSourceManager,
+        siyuanApi as unknown as QuerySiyuanPort,
+        browserDeckReadPort,
+      )
       : null;
 
     this.getBrowserCardsQueryHandler = new GetBrowserCardsQueryHandler(
@@ -155,11 +169,21 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     query: BrowserDeckSnapshotQuery,
     page: BrowserDeckPageRequest,
   ): Promise<BrowserDeckPageResult> {
-    const sqlPage = this.browserDeckReadPort?.queryDeckPage(query, page);
+    const sqlPage = this.tryReadSqlDeckPage(query, page);
     if (sqlPage) {
+      const refreshResult = await this.refreshSourceExistenceForCards(sqlPage.cards, {
+        limit: SOURCE_EXISTENCE_BATCH_SIZE,
+      });
+      const finalSqlPage = refreshResult.changed
+        ? this.tryReadSqlDeckPage(query, page) || sqlPage
+        : sqlPage;
+      const rows = markRowsFromSourceExistenceCache(
+        await this.browserDeckQueryKernel.getBrowserCardsFromCards(finalSqlPage.cards, { markMissing: false }),
+        this.browserDeckReadPort,
+      );
       return {
-        rows: await this.browserDeckQueryKernel.getBrowserCardsFromCards(sqlPage.cards),
-        total: sqlPage.total,
+        rows,
+        total: finalSqlPage.total,
       };
     }
 
@@ -177,9 +201,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[]> {
-    const sqlIds = this.browserDeckReadPort?.queryDeckMatchedIds(query);
-    if (sqlIds) {
-      return sqlIds;
+    if (this.browserDeckReadPort) {
+      try {
+        const sqlIds = this.browserDeckReadPort.queryDeckMatchedIds(query);
+        if (sqlIds) {
+          return sqlIds;
+        }
+      } catch (error) {
+        logger.debug('SQL deck matched-id query failed; falling back to legacy snapshot', { error });
+      }
     }
     const snapshot = await this.browserDeckQueryKernel.buildSnapshot(query);
     return snapshot.rows.map((row) => row.id);
@@ -187,8 +217,18 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
   async getDeckRowsByIds(ids: string[]) {
     if (this.browserDeckReadPort) {
-      const cards = this.browserDeckReadPort.getDeckCardsByIds(ids);
-      return this.browserDeckQueryKernel.getBrowserCardsFromCards(cards);
+      try {
+        const cards = this.browserDeckReadPort.getDeckCardsByIds(ids);
+        await this.refreshSourceExistenceForCards(cards, {
+          limit: SOURCE_EXISTENCE_BATCH_SIZE,
+        });
+        return markRowsFromSourceExistenceCache(
+          await this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false }),
+          this.browserDeckReadPort,
+        );
+      } catch (error) {
+        logger.debug('SQL deck hydrate-by-id query failed; falling back to legacy hydrate', { error });
+      }
     }
     return this.browserDeckQueryKernel.getBrowserCardsByIds(ids);
   }
@@ -209,10 +249,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
   async getDueCount(): Promise<number> {
     if (this.browserDeckReadPort) {
-      return this.browserDeckReadPort.countCards({
-        dueDate: { lte: Date.now() },
-        includeSuspended: false,
-      });
+      try {
+        return this.browserDeckReadPort.countCards({
+          dueDate: { lte: Date.now() },
+          includeSuspended: false,
+          sourceStatus: 'active',
+        });
+      } catch (error) {
+        logger.debug('SQL due count failed; falling back to legacy snapshot', { error });
+      }
     }
     const result = await this.browserDeckQueryKernel.buildSnapshot({
       preset: 'due',
@@ -222,9 +267,63 @@ export class BrowserApplicationService implements IBrowserApplicationService {
 
   async getStats(): Promise<BrowserStats> {
     if (this.browserDeckReadPort) {
-      return this.browserDeckReadPort.getBrowserStats();
+      try {
+        const stats = this.browserDeckReadPort.getBrowserStats();
+        this.scheduleSourceExistenceSweep();
+        return stats;
+      } catch (error) {
+        logger.debug('SQL browser stats failed; falling back to legacy stats', { error });
+      }
     }
     return this.browserDeckQueryKernel.getStats();
+  }
+
+  private tryReadSqlDeckPage(
+    query: BrowserDeckSnapshotQuery,
+    page: BrowserDeckPageRequest,
+  ): BrowserDeckCardPageResult | null {
+    if (!this.browserDeckReadPort) {
+      return null;
+    }
+    try {
+      return this.browserDeckReadPort.queryDeckPage(query, page);
+    } catch (error) {
+      logger.debug('SQL deck page query failed; falling back to legacy snapshot', { error });
+      return null;
+    }
+  }
+
+  private refreshSourceExistenceForCards(
+    cards: Array<{ blockId?: unknown }>,
+    options: { limit?: number } = {},
+  ) {
+    return refreshSourceExistenceForBlockIds(
+      this.browserDeckReadPort,
+      this.siyuanApi as unknown as QuerySiyuanPort,
+      cards.map((card) => card.blockId),
+      {
+        limit: options.limit,
+        staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
+        includeKnownMissing: true,
+      },
+    );
+  }
+
+  private scheduleSourceExistenceSweep(): void {
+    if (!this.browserDeckReadPort || this.sourceExistenceSweepInFlight) {
+      return;
+    }
+
+    this.sourceExistenceSweepInFlight = refreshSourceExistenceSweep(
+      this.browserDeckReadPort,
+      this.siyuanApi as unknown as QuerySiyuanPort,
+      {
+        limit: SOURCE_EXISTENCE_BACKGROUND_LIMIT,
+        staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
+      },
+    ).finally(() => {
+      this.sourceExistenceSweepInFlight = null;
+    });
   }
 
   private normalizeQueueId(queueId: string): BrowserQueueId | null {

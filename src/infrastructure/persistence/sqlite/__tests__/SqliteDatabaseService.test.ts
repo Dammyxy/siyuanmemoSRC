@@ -113,4 +113,14 @@ describe('SqliteDatabaseService', () => {
       { id: 'before', value: 'persisted' },
     ]);
   });
+
+  it('exposes FTS5 capability without creating an unconditional virtual table dependency', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+
+    expect(typeof database.supportsFts5()).toBe('boolean');
+    expect(database.getOne<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE name = '__siyuanmemo_fts5_probe'",
+    )).toBeNull();
+  });
 });

@@ -126,6 +126,31 @@ export async function markMissingBlockRows<TRow extends MissingBlockMarkableRow>
   return changed ? nextRows : rows;
 }
 
+export function markKnownMissingBlockRows<TRow extends MissingBlockMarkableRow>(
+  rows: TRow[],
+  missingBlockIds: Iterable<string>,
+): TRow[] {
+  const missing = new Set(Array.from(missingBlockIds).map(normalizeBlockId).filter(Boolean));
+  if (rows.length === 0 || missing.size === 0) {
+    return rows;
+  }
+
+  let changed = false;
+  const nextRows = rows.map((row) => {
+    if (hasMissingBlockType(row)) {
+      return row;
+    }
+    const blockId = normalizeBlockId(row.blockId);
+    if (!blockId || !missing.has(blockId)) {
+      return row;
+    }
+    changed = true;
+    return markRowAsMissing(row);
+  });
+
+  return changed ? nextRows : rows;
+}
+
 export async function countMissingBlockCards(
   cards: FSRSCard[],
   siyuanApi: QuerySqlPort,

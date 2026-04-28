@@ -1,17 +1,37 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 174)
+Last update: 2026-04-29 (Round 176)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - resume guardrail audit and neural resolver cleanup
+
+- Task: 更新 SiYuanMemo 技能的恢复门禁，并审计近期中断后续做的 SQL / neural roam 任务是否存在“只跑测试就结束”的漏项。
+- Touched slice: Skill workflow docs under `.agents/skills/siyuanmemo-plugin-dev/*`, neural roam compatibility adapter under `src/infrastructure/queue/SiyuanNeuralRoamCardTypeResolverAdapter.ts`, focused adapter test, `ARCHITECTURE.md`, and recent DDD task deltas.
+- Debt fixed now: 技能新增 resume / interruption checklist gate，要求先重建 acceptance checklist 再把每项映射到代码、测试、文档或明确 deferral；审计中修正 `ARCHITECTURE.md` 对 schema v2 / Browser-only SQL 的过期描述，补齐 schema v3 source-existence cache、search projection fallback、queue / scope SQL-assisted facts；旧 SQL foundation delta 不再把已偿还的 SQL file base64 envelope 记录为未清债；孤立的 `SiyuanNeuralRoamCardTypeResolverAdapter` 去掉 legacy `LIMIT` 查询，并在 `fsrs_cards` 不可用时 fail-open 后跳过重复 SQL。
+- Debt deferred: 未做全历史 backlog 逐条代码审计；本轮优先覆盖最近被中断/续做且用户明确担心的 SQL read model、neural roam 和 SRS / Arena 热路径条目。
+- Why deferred: 全历史 backlog 有大量已明确延期的产品/架构债，逐条映射代码需要单独审计窗口；和当前恢复门禁修复混做会把范围扩到不可控。
+- Next safe step: 后续按日期窗口做第二轮历史审计，优先检查仍标注“deferred debt cleared”的条目是否有代码、测试、架构文档三方证据。
+- Validation: `pnpm exec vitest run src/infrastructure/queue/__tests__/SiyuanNeuralRoamCardTypeResolverAdapter.test.ts src/core/queue/neural/__tests__/ConceptQueryEngine.isConceptCard.test.ts src/core/queue/neural/__tests__/ConceptQueryEngine.backlinks.test.ts src/core/queue/neural/graph/__tests__/NeuralGraphProvider.test.ts`（30 tests 通过）；`pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`git diff --check`（通过；仅 Git 行尾提示）。
+
+### 2026-04-29 - SQL browser second-stage debt cleared
+
+- Task: 清零 Browser SQL read model 第二阶段暂缓债务：source existence / missing-block 投影、搜索索引债、队列/范围服务 SQL 化。
+- Touched slice: Browser / SQL read model / queue browser / review scope / card type marker across `src/infrastructure/persistence/sqlite/*`, `src/application/ports/BrowserDeckReadPort.ts`, `src/application/services/{BrowserApplicationService,DocTreeReviewScopeService,CardApplicationService}.ts`, `src/application/queries/browser/shared/*`, `src/core/card-type/CardTypeMarkerService.ts`, storage ports, focused tests, and application composition injection.
+- Debt fixed now: schema v3 增加 `source_exists/source_checked_at/source_missing_at/search_text/card_type_marker` 投影和索引；Browser SQL 查询默认排除 known missing 且 unknown fail-open，`__lost__` / `missing-block-only` 改走 SQL source cache；浏览器当前页同步刷新 source existence，stats 后台懒刷新；搜索先检测 FTS5 能力，当前 sql.js 不支持时稳定走 `search_text` 投影 `LIKE` fallback；SQL page / matched ids / id hydrate / count / stats 抛错时显式回旧 snapshot；`DocTreeReviewScopeService` 用 SQL root 候选 id 再 hydrate，SQL 不可用回 storage scan；`QueueBrowserQueryKernel` 用 SQL source cache 标记 missing 并异步收敛；`CardTypeMarkerService.fixInconsistentCards()` 只 hydrate SQL 投影命中的不一致候选，候选查询失败回全量旧扫。
+- Debt deferred: 无。本轮第二阶段暂缓债务已清零；真 FTS5 虚拟表需要更换或确认 sql.js wasm/build 能力，属于后续独立依赖升级，不再作为当前 SQL read-model 债务。
+- Why deferred: 不适用。
+- Next safe step: 用真实大库观测 `source_exists` 后台收敛速度、Browser LIKE 搜索耗时和队列 snapshot hydrate 成本；若搜索仍慢，另开 sql.js FTS5 wasm/adapter 任务。
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/services/__tests__/BrowserApplicationService.queue-query.test.ts src/application/services/__tests__/BrowserApplicationService.queue-counts.test.ts src/application/queries/browser/__tests__/BrowserDeckQueryKernel.scope-doc-ids.test.ts src/application/queries/browser/shared/__tests__/QueueBrowserQueryKernel.test.ts src/application/services/__tests__/DocTreeReviewScopeService.test.ts src/core/card-type/__tests__/CardTypeMarkerService.sql-candidates.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts src/ui/browser/datasource/session/__tests__/BrowserQuerySession.test.ts`（46 tests 通过）；`pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`git diff --check`（通过）。
 
 ### 2026-04-29 - browser SQL read model paging
 
 - Task: 将 SQL 存储红利扩到 Browser deck 主表、统计和计数，让 AG Grid 从全量 snapshot 分页改成 SQL `COUNT + LIMIT/OFFSET + page hydrate`。
 - Touched slice: Browser / SQL read model / application composition root across `src/application/{ApplicationContext.ts,ports/BrowserDeckReadPort.ts,services/BrowserApplicationService.ts,interfaces/IBrowserApplicationService.ts,queries/browser/*,queries/card/*}`, `src/infrastructure/persistence/sqlite/*`, `src/infrastructure/queries/*`, `src/ui/browser/datasource/DeckDataSource.ts`, `src/application/managers/DockManager.ts`, `src/ui/menu/TopBar.ts`, focused tests, and `ARCHITECTURE.md`.
 - Debt fixed now: `cards` schema v2 增加 Browser 常用投影列和索引；SQL repository 维护投影并提供 `queryDeckPage/queryDeckMatchedIds/getDeckCardsByIds/countCards/getBrowserStats`；`BrowserApplicationService` 优先走 `BrowserDeckReadPort`，UI datasource 只 hydrate 当前页或选中 id；due/total/stats 计数优先 SQL 聚合；missing-block-only、`__lost__`、retrievability 等 SQL 不可表达条件显式 fallback，不返回错页。
-- Debt deferred: missing-block 存在性仍未物化到 SQL stats，SQL aggregate 的 `lostCards` 暂为 0；FTS5 搜索、队列物化表、DocTreeReviewScopeService / CardTypeMarker 扫描点进一步 SQL 化仍未做。
-- Why deferred: 本轮先吃 Browser 主表和计数最大收益；missing-block 需要源块存在性索引或校验缓存，FTS5 依赖 sql.js 构建能力确认，队列物化会触及队列语义和刷新合约。
-- Next safe step: 基于真实性能日志决定下一刀：优先补 missing-block/source-existence 投影，或接 FTS5，再考虑队列 snapshot / review-scope 物化。
+- Debt deferred: 已偿还（见 `2026-04-29 - SQL browser second-stage debt cleared`）。
+- Why deferred: 原为分阶段降低风险；现已补 source existence 投影、搜索 fallback、队列/范围服务 SQL-assisted 查询。
+- Next safe step: 用真实大库观测第二阶段投影收益。
 - Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/ui/browser/datasource/__tests__/DeckDataSource.query-snapshot.test.ts src/ui/browser/datasource/session/__tests__/BrowserQuerySession.test.ts`（通过）；`pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`git diff --check`（通过；仅 Git 行尾提示）。
 
 ### 2026-04-28 - neural roam virtual node fsrs SQL fallback
@@ -49,9 +69,9 @@ Last update: 2026-04-29 (Round 174)
 - Task: 落地 `siyuanmemo.db` SQL 存储主干，并把 AI/SRS Arena 从 JSON/msgpack 主写路径迁入 SQL。
 - Touched slice: Application composition root / storage persistence / queue persistence / review logs / Arena / scheduler adapters across `src/application/ApplicationContext.ts`, `src/infrastructure/persistence/sqlite/*`, `src/application/services/{ArenaStoreService,ReviewLogService,ArenaKernelService}.ts`, `src/infrastructure/services/QueuePersistenceService.ts`, `src/core/scheduler/strategies/ClassicSMScheduler.ts`, `src/types/arena.ts`, and `ARCHITECTURE.md`.
 - Debt fixed now: 新增 sql.js schema 与 repository，启动时迁移旧 `unified-cards.msgpack / queues.msgpack / review-logs/*.json / arena/store.json`，成功后 UnifiedStorageManager、队列、日志和 Arena 均写 SQL；Arena 注册 `fsrs-v6 / sm2 / sm5 / sm8 / sm15 / sm18 / sm20` 七个参赛算法，`sm19` 只登记为 `official-pending`；SRS Arena 评分改为负 RMS calibration score，并把 prediction/outcome/bin 写入 SQL。
-- Debt deferred: kernel.js JSON-RPC 计算端口尚未接真实 SiYuan kernel；SM5/SM8/SM18/SM20 当前是 browser-side classic SM family shadow adapter，不是官方完整算法端口；SQL 文件用插件数据层保存 base64 sqlite envelope，后续可改成真实二进制 putFile；匿名导出和完整 UI 操作（采用竞技场/少提醒）未在本轮做完。
+- Debt deferred: kernel.js JSON-RPC 计算端口尚未接真实 SiYuan kernel；SM5/SM8/SM18/SM20 当前是 browser-side classic SM family shadow adapter，不是官方完整算法端口；匿名导出和完整 UI 操作（采用竞技场/少提醒）未在本轮做完。SQL 文件 base64 envelope 债务已在 `2026-04-28 - SQL review hot path transaction and binary persist` 偿还。
 - Why deferred: 本轮先收主存储和 Arena 数据事实源，kernel PR 仍不稳定且不能作为硬依赖；官方 SM 变体与匿名评分导出需要独立 golden cases 和 UI/端口验收。
-- Next safe step: 给 sqlite migration / repository / arena metric 加 focused tests，再接 kernel capability detection 与 RPC adapter；拿到官方或可验证参考实现后替换 classic shadow adapters。
+- Next safe step: 接 kernel capability detection 与 RPC adapter；拿到官方或可验证参考实现后替换 classic shadow adapters；匿名导出和完整 Arena UI 操作另开验收。
 - Validation: `pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）。
 
 ### 2026-04-28 - review source refresh debt cleared
@@ -2432,7 +2452,6 @@ Do not add an entry for skill-only or docs-only work.
 | P1 | Large active files still mix state, command, projection, and persistence concerns | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue` | Split only along active behavior boundaries after Browser/Review/adapter wiring stabilizes; avoid naming-only moves |
 | P1 | A few UI infrastructure imports remain as documented historical exceptions | `src/ui/browser/utils/previewBreadcrumbData.ts`, `src/ui/review/components/ImageOcclusionCardRenderer.vue`, `src/ui/review/shared/loadBreadcrumbTrail.ts` | Replace each with an application port/factory when that surface is next touched, then shrink `scripts/check-boundaries.cjs` allowlist |
 | P2 | Browser filter/query helper logic still has local duplication after contract migration | `src/types/browser.ts`, `src/ui/browser/utils/cardFilters.ts`, browser datasource helpers | Deduplicate around shared parser/matcher only after current Browser tests cover the migrated behavior |
-| P2 | SQL Browser read model still lacks source-existence projection, FTS search, and queue/review-scope materialized views | `src/infrastructure/persistence/sqlite/*`, `BrowserDeckReadPort`, `DocTreeReviewScopeService`, queue browser snapshots, `CardTypeMarker` scan points | Add one projection at a time after profiling: source-existence for true missing-block stats first, then FTS5 if sql.js supports it, then queue/review-scope materialization |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
 | P3 | AI pane tests still inherit localhost asset fetch noise from shared markdown rendering setup | `src/ui/ai/__tests__/*`, shared markdown/test harness setup | Add a shared happy-dom asset shim or markdown renderer test mode to silence unrelated network noise |

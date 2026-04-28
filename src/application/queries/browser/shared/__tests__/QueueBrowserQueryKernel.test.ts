@@ -205,4 +205,62 @@ describe('QueueBrowserQueryKernel', () => {
     expect(hydrated).toHaveLength(1);
     expect(hydrated[0]?.meta?.blockType).toBe('missing');
   });
+
+  it('uses SQL source-existence cache for queue missing-block filtering when available', async () => {
+    const snapshotRows = [
+      buildSnapshotRow('row-existing', {
+        fsrsCardId: 'card-existing',
+        blockId: 'block-existing',
+      }),
+      buildSnapshotRow('row-missing', {
+        fsrsCardId: 'card-missing',
+        blockId: 'block-missing',
+      }),
+    ];
+    const queue = {
+      getSnapshotRows: vi.fn(async () => snapshotRows),
+      getCardsBySnapshotIds: vi.fn(async () => []),
+    };
+    const manager = {
+      getQueue: vi.fn(() => queue),
+    } as never;
+    const siyuanApi = {
+      sql: vi.fn(async () => {
+        throw new Error('Siyuan SQL should not be used when SQL source cache is available');
+      }),
+    };
+    const sourceExistencePort = {
+      queryDeckPage: vi.fn(),
+      queryDeckMatchedIds: vi.fn(),
+      getDeckCardsByIds: vi.fn(),
+      countCards: vi.fn(),
+      getBrowserStats: vi.fn(),
+      getSourceExistenceByBlockIds: vi.fn(() => new Map([
+        ['block-existing', true],
+        ['block-missing', false],
+      ])),
+      getSourceExistenceRefreshCandidates: vi.fn(() => []),
+      updateSourceExistence: vi.fn(),
+      getSourceExistenceSummary: vi.fn(() => ({ unknown: 0, stale: 0, missing: 1 })),
+      queryCardIdsByRootIds: vi.fn(() => []),
+      queryRootlessCardBlockIds: vi.fn(() => []),
+      queryInconsistentCardTypeMarkerIds: vi.fn(() => []),
+    };
+
+    const kernel = new QueueBrowserQueryKernel(manager, siyuanApi as never, sourceExistencePort as never);
+
+    const normalSnapshot = await kernel.buildSnapshot({
+      queueId: 'retrieval',
+      preset: 'all',
+    });
+    const lostSnapshot = await kernel.buildSnapshot({
+      queueId: 'retrieval',
+      docId: '__lost__',
+      preset: 'all',
+    });
+
+    expect(normalSnapshot.rows.map((row) => row.id)).toEqual(['card-existing']);
+    expect(lostSnapshot.rows.map((row) => row.id)).toEqual(['card-missing']);
+    expect(siyuanApi.sql).not.toHaveBeenCalled();
+  });
 });

@@ -91,6 +91,7 @@ export class SqliteDatabaseService {
   private initialized = false;
   private transactionDepth = 0;
   private pendingPersist = false;
+  private fts5Supported: boolean | null = null;
 
   constructor(
     private readonly fileService: SqliteFileService,
@@ -112,6 +113,7 @@ export class SqliteDatabaseService {
     }
     this.db = stored.bytes ? new SQL.Database(stored.bytes) : new SQL.Database();
     this.applySchema();
+    this.detectFts5Support();
     this.seedAlgorithmRegistry();
     this.initialized = true;
     await this.persist();
@@ -224,6 +226,13 @@ export class SqliteDatabaseService {
     return Number(row?.count) > 0;
   }
 
+  supportsFts5(): boolean {
+    if (this.fts5Supported === null) {
+      this.detectFts5Support();
+    }
+    return this.fts5Supported === true;
+  }
+
   markMigration(id: string, appliedAt = Date.now()): void {
     this.run(
       'INSERT OR REPLACE INTO schema_migrations (id, applied_at) VALUES (?, ?)',
@@ -327,6 +336,25 @@ export class SqliteDatabaseService {
     this.ensureCardsProjectionColumns(db);
     for (const statement of CARD_PROJECTION_INDEX_STATEMENTS) {
       db.run(statement);
+    }
+  }
+
+  private detectFts5Support(): void {
+    const db = this.requireDb();
+    try {
+      db.run('CREATE VIRTUAL TABLE __siyuanmemo_fts5_probe USING fts5(content)');
+      db.run('DROP TABLE IF EXISTS __siyuanmemo_fts5_probe');
+      this.fts5Supported = true;
+    } catch (error) {
+      this.fts5Supported = false;
+      try {
+        db.run('DROP TABLE IF EXISTS __siyuanmemo_fts5_probe');
+      } catch {
+        // Ignore probe cleanup errors; capability remains false.
+      }
+      logger.debug('SQLite FTS5 unavailable; browser search will use projection LIKE fallback', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

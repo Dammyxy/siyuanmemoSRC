@@ -252,6 +252,7 @@ export class CardApplicationService {
       return this.readModel.countCards({
         dueDate: { lte: Date.now() },
         includeSuspended: false,
+        sourceStatus: 'active',
       });
     }
     const result = await this.getDueCards();
@@ -260,7 +261,7 @@ export class CardApplicationService {
 
   async getTotalCount(): Promise<number> {
     if (this.readModel.countCards) {
-      return this.readModel.countCards();
+      return this.readModel.countCards({ sourceStatus: 'active' });
     }
     return this.readModel.getAllCards().length;
   }

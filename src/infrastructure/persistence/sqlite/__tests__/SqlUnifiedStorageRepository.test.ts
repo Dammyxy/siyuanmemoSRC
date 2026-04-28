@@ -202,7 +202,7 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     })).toEqual(['card-a', 'card-d', 'card-b']);
   });
 
-  it('updates projection columns on upsert and declines unsupported missing-block SQL pages', async () => {
+  it('updates projection columns on upsert and serves missing-block SQL pages from source cache', async () => {
     const { repository } = await seedRepositories();
     const card = repository.getCard('card-a');
     expect(card).toBeTruthy();
@@ -223,6 +223,89 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
       tags: ['zeta'],
       searchText: 'Zeta',
     })).toEqual(['card-a']);
-    expect(repository.queryDeckPage({ docId: '__lost__' }, { startRow: 0, endRow: 20 })).toBeNull();
+    expect(repository.queryDeckPage({ docId: '__lost__' }, { startRow: 0, endRow: 20 })).toEqual({
+      cards: [],
+      total: 0,
+    });
+  });
+
+  it('uses projected search fields and explicitly falls back for unsupported complex search', async () => {
+    const { repository } = await seedRepositories();
+
+    expect(repository.queryDeckMatchedIds({
+      searchText: 'Alpha',
+      sortModel: [],
+    })).toEqual(['card-a']);
+    expect(repository.queryDeckMatchedIds({
+      searchText: 'tag:beta deck:deck-a',
+      sortModel: [],
+    })).toEqual(['card-d']);
+    expect(repository.queryDeckMatchedIds({
+      searchText: 'retrievability>0.5',
+      sortModel: [],
+    })).toBeNull();
+  });
+
+  it('maintains source-existence projection for active and lost browser queries', async () => {
+    const { repository } = await seedRepositories();
+
+    expect(repository.getSourceExistenceRefreshCandidates({ limit: 10 })).toHaveLength(4);
+    await repository.updateSourceExistence([
+      { cardId: 'card-a', blockId: 'block-a', exists: true },
+      { cardId: 'card-b', blockId: 'block-b', exists: false },
+    ], 1_700_000_010_000);
+
+    expect(repository.queryDeckMatchedIds({ sortModel: [] })).toEqual(['card-a', 'card-c', 'card-d']);
+    expect(repository.queryDeckMatchedIds({ docId: '__lost__', sortModel: [] })).toEqual(['card-b']);
+    expect(repository.countCards({ sourceStatus: 'active' })).toBe(3);
+    expect(repository.countCards({ sourceStatus: 'missing' })).toBe(1);
+    expect(repository.getBrowserStats(1_700_000_002_500)).toMatchObject({
+      totalCards: 3,
+      dueCards: 2,
+      lostCards: 1,
+    });
+    expect(repository.getSourceExistenceByBlockIds(['block-a', 'block-b', 'block-z'])).toEqual(new Map([
+      ['block-a', true],
+      ['block-b', false],
+    ]));
+  });
+
+  it('preserves source cache on same-block upsert and resets it when block id changes', async () => {
+    const { repository } = await seedRepositories();
+    await repository.updateSourceExistence([
+      { cardId: 'card-a', blockId: 'block-a', exists: true },
+    ], 1_700_000_010_000);
+
+    const card = repository.getCard('card-a')!;
+    repository.upsertCard({
+      ...card,
+      priority: 88,
+    });
+    expect(repository.getSourceExistenceByBlockIds(['block-a']).get('block-a')).toBe(true);
+
+    repository.upsertCard({
+      ...card,
+      blockId: 'block-a-next',
+      priority: 89,
+    });
+    expect(repository.getSourceExistenceByBlockIds(['block-a-next']).get('block-a-next')).toBeNull();
+  });
+
+  it('serves root-scope and card-type-marker scan candidates from projections', async () => {
+    const { repository } = await seedRepositories();
+    const card = repository.getCard('card-a')!;
+    repository.upsertCard({
+      ...card,
+      type: CardType.Item,
+      cardTypeMarker: 'concept',
+      meta: {
+        ...(card.meta || {}),
+        rootId: '',
+      },
+    });
+
+    expect(repository.queryCardIdsByRootIds(['doc-a'])).toEqual(['card-b', 'card-d']);
+    expect(repository.queryRootlessCardBlockIds()).toContain('block-a');
+    expect(repository.queryInconsistentCardTypeMarkerIds()).toEqual(['card-a']);
   });
 });

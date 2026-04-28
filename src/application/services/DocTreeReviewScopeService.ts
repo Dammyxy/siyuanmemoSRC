@@ -3,6 +3,7 @@ import type { StorageManager } from '@/core/storage';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
+import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
 
 const logger = createLogger('DocTreeReviewScopeService');
 
@@ -57,6 +58,10 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
   constructor(
     private readonly siyuanApi: ManagerSiyuanPort,
     private readonly storage: StorageManager,
+    private readonly cardProjectionReadPort: Pick<
+      BrowserDeckReadPort,
+      'getDeckCardsByIds' | 'queryCardIdsByRootIds' | 'queryRootlessCardBlockIds'
+    > | null = null,
   ) {}
 
   isReady(): boolean {
@@ -207,6 +212,20 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
       return [];
     }
 
+    if (this.cardProjectionReadPort?.queryCardIdsByRootIds && this.cardProjectionReadPort.getDeckCardsByIds) {
+      try {
+        const matchedIds = this.cardProjectionReadPort.queryCardIdsByRootIds(Array.from(docIds), {
+          excludeKnownMissing: true,
+        });
+        const rootlessBlockIds = Array.from(this.blockRootIds.entries())
+          .filter(([, rootId]) => docIds.has(rootId))
+          .map(([blockId]) => blockId);
+        return this.cardProjectionReadPort.getDeckCardsByIds([...matchedIds, ...rootlessBlockIds]);
+      } catch (error) {
+        logger.debug('SQL doc-tree scope query failed; falling back to storage scan', { error });
+      }
+    }
+
     const cardsById = new Map<string, FSRSCard>();
     for (const card of this.storage.getAllCards()) {
       if (!card?.id) {
@@ -223,11 +242,23 @@ export class DocTreeReviewScopeService implements ITransactionHandler {
   }
 
   private async queryCardRootIds(): Promise<Map<string, string>> {
-    const blockIds = Array.from(new Set(
-      this.storage.getAllCards()
-        .map((card) => String(card?.blockId || '').trim())
-        .filter((blockId) => blockId.length > 0)
-    ));
+    let blockIds: string[];
+    try {
+      blockIds = this.cardProjectionReadPort?.queryRootlessCardBlockIds
+        ? this.cardProjectionReadPort.queryRootlessCardBlockIds()
+        : Array.from(new Set(
+          this.storage.getAllCards()
+            .map((card) => String(card?.blockId || '').trim())
+            .filter((blockId) => blockId.length > 0)
+        ));
+    } catch (error) {
+      logger.debug('SQL rootless card query failed; falling back to storage scan', { error });
+      blockIds = Array.from(new Set(
+        this.storage.getAllCards()
+          .map((card) => String(card?.blockId || '').trim())
+          .filter((blockId) => blockId.length > 0)
+      ));
+    }
 
     const result = new Map<string, string>();
     if (blockIds.length === 0) {

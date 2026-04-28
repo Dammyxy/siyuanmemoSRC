@@ -243,4 +243,177 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(storage.getAllCards).not.toHaveBeenCalled();
     expect(storage.queryCards).not.toHaveBeenCalled();
   });
+
+  it('falls back to the legacy snapshot when the SQL browser read port throws', async () => {
+    const now = Date.now();
+    const cards = [
+      buildCard({
+        id: 'card-legacy',
+        blockId: 'block-legacy',
+        due: now - 1_000,
+        priority: 10,
+        meta: { content: 'Legacy fallback card', rootId: 'doc-a' },
+      }),
+    ];
+    const queryCards = createQueryCardsMock(cards);
+    const storage = {
+      getCard: vi.fn((id: string) => cards.find((card) => card.id === id)),
+      queryCards,
+      getAllCards: vi.fn(() => cards),
+    };
+    const readPort: BrowserDeckReadPort = {
+      queryDeckPage: vi.fn(() => {
+        throw new Error('SQL unavailable');
+      }),
+      queryDeckMatchedIds: vi.fn(() => {
+        throw new Error('SQL unavailable');
+      }),
+      getDeckCardsByIds: vi.fn(() => {
+        throw new Error('SQL unavailable');
+      }),
+      countCards: vi.fn(() => {
+        throw new Error('SQL unavailable');
+      }),
+      getBrowserStats: vi.fn(() => {
+        throw new Error('SQL unavailable');
+      }),
+    };
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes('SELECT id') && stmt.includes('WHERE id IN') && !stmt.includes('GROUP_CONCAT')) {
+          return [{ id: 'block-legacy' }];
+        }
+        if (stmt.includes('GROUP_CONCAT')) {
+          return [{ id: 'block-legacy', root_id: 'doc-a', content: 'Legacy fallback card', attrs: '' }];
+        }
+        return [];
+      }),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    };
+
+    const service = new BrowserApplicationService(
+      storage as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      siyuanApi as never,
+      null,
+      readPort,
+    );
+
+    const page = await service.getDeckPage({ preset: 'due' }, { startRow: 0, endRow: 10 });
+
+    expect(page.total).toBe(1);
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-legacy']);
+    await expect(service.getDeckMatchedIds({ preset: 'due' })).resolves.toEqual(['card-legacy']);
+    await expect(service.getDeckRowsByIds(['card-legacy'])).resolves.toMatchObject([{ fsrsCardId: 'card-legacy' }]);
+    await expect(service.getDueCount()).resolves.toBe(1);
+    await expect(service.getStats()).resolves.toMatchObject({ totalCards: 1, dueCards: 1 });
+    expect(queryCards).toHaveBeenCalled();
+  });
+
+  it('refreshes current SQL page source existence and requeries when a row becomes missing', async () => {
+    const missingCard = buildCard({
+      id: 'card-missing',
+      blockId: 'block-missing',
+      meta: { content: 'Missing card', rootId: 'doc-a' },
+    });
+    const activeCard = buildCard({
+      id: 'card-active',
+      blockId: 'block-active',
+      meta: { content: 'Active card', rootId: 'doc-a' },
+    });
+    const sourceState = new Map<string, boolean | null>();
+    const readPort: BrowserDeckReadPort = {
+      queryDeckPage: vi.fn()
+        .mockReturnValueOnce({ cards: [missingCard, activeCard], total: 2 })
+        .mockReturnValueOnce({ cards: [activeCard], total: 1 }),
+      queryDeckMatchedIds: vi.fn(() => ['card-active']),
+      getDeckCardsByIds: vi.fn(() => [activeCard]),
+      countCards: vi.fn(() => 1),
+      getBrowserStats: vi.fn(() => ({
+        totalCards: 1,
+        dueCards: 1,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 1,
+        suspendedCards: 0,
+        lostCards: 1,
+      })),
+      getSourceExistenceRefreshCandidates: vi.fn(() => [
+        {
+          cardId: 'card-missing',
+          blockId: 'block-missing',
+          sourceExists: null,
+          sourceCheckedAt: null,
+        },
+        {
+          cardId: 'card-active',
+          blockId: 'block-active',
+          sourceExists: null,
+          sourceCheckedAt: null,
+        },
+      ]),
+      updateSourceExistence: vi.fn(async (updates) => {
+        for (const update of updates) {
+          sourceState.set(update.blockId, update.exists);
+        }
+      }),
+      getSourceExistenceByBlockIds: vi.fn((blockIds: string[]) => new Map(
+        blockIds
+          .map((blockId) => [blockId, sourceState.get(blockId) ?? null] as const),
+      )),
+      getSourceExistenceSummary: vi.fn(() => ({ unknown: 0, stale: 0, missing: 1 })),
+      queryCardIdsByRootIds: vi.fn(() => []),
+      queryRootlessCardBlockIds: vi.fn(() => []),
+      queryInconsistentCardTypeMarkerIds: vi.fn(() => []),
+    };
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async () => [{ id: 'block-active' }]),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      siyuanApi as never,
+      null,
+      readPort,
+    );
+
+    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+
+    expect(page.total).toBe(1);
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-active']);
+    expect(readPort.queryDeckPage).toHaveBeenCalledTimes(2);
+    expect(readPort.updateSourceExistence).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ blockId: 'block-missing', exists: false }),
+        expect.objectContaining({ blockId: 'block-active', exists: true }),
+      ]),
+      expect.any(Number),
+    );
+  });
 });

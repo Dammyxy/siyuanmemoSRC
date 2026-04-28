@@ -1,4 +1,5 @@
 import type { BrowserQueueId } from '@/application/interfaces/IBrowserApplicationService';
+import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { IUnifiedDataSourceManagerFacade, QueueType } from '@/types/unified-data-source';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
@@ -17,6 +18,10 @@ import type {
   QueueBrowserSnapshotResult,
 } from '../queue-browser-query';
 import { markMissingBlockRows } from './MissingBlockMarker';
+import {
+  markRowsFromSourceExistenceCache,
+  scheduleSourceExistenceRefresh,
+} from './SourceExistenceCache';
 
 const logger = createLogger('QueueBrowserQueryKernel');
 
@@ -31,6 +36,7 @@ export class QueueBrowserQueryKernel {
   constructor(
     private readonly manager: IUnifiedDataSourceManagerFacade,
     private readonly siyuanApi: Pick<QuerySiyuanPort, 'sql'> | null = null,
+    private readonly sourceExistencePort: BrowserDeckReadPort | null = null,
   ) {}
 
   async buildSnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult> {
@@ -122,6 +128,14 @@ export class QueueBrowserQueryKernel {
   }
 
   private async markMissingRows(rows: QueueSnapshotRow[]): Promise<QueueSnapshotRow[]> {
+    if (this.sourceExistencePort?.getSourceExistenceByBlockIds) {
+      scheduleSourceExistenceRefresh(
+        this.sourceExistencePort,
+        this.siyuanApi,
+        rows.map((row) => row.blockId),
+      );
+      return markRowsFromSourceExistenceCache(rows, this.sourceExistencePort);
+    }
     if (!this.siyuanApi) {
       return rows;
     }

@@ -43,7 +43,9 @@ export interface PluginFilePort {
 
 export interface BrowserCardStoragePort extends CardReadPort {}
 
-export interface CardTypeMarkerStoragePort extends CardReadPort, CardWritePort {}
+export interface CardTypeMarkerStoragePort extends CardReadPort, CardWritePort {
+  queryInconsistentCardTypeMarkerIds?(): string[];
+}
 
 export interface DeleteFSRSCardStoragePort extends CardReadPort, CardWritePort {
   deleteCard?(cardId: string): unknown | Promise<unknown>;

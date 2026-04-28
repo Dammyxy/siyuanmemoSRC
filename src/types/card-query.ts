@@ -13,6 +13,7 @@ export interface StructuredCardQuery {
   dueDate?: StructuredDueDateQuery;
   suspended?: boolean;
   includeSuspended?: boolean;
+  sourceStatus?: 'active' | 'missing' | 'all';
   tags?: string[];
   priority?: PriorityRangeFilter;
   customFilter?: (card: FSRSCard) => boolean;

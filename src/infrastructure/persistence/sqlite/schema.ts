@@ -1,5 +1,5 @@
 export const SQLITE_DB_FILE = 'siyuanmemo.db';
-export const SQLITE_SCHEMA_VERSION = 2;
+export const SQLITE_SCHEMA_VERSION = 3;
 
 export const CARD_PROJECTION_COLUMNS: Array<{ name: string; definition: string }> = [
   { name: 'deck_id', definition: 'deck_id TEXT' },
@@ -15,6 +15,11 @@ export const CARD_PROJECTION_COLUMNS: Array<{ name: string; definition: string }
   { name: 'stability', definition: 'stability REAL' },
   { name: 'difficulty', definition: 'difficulty REAL' },
   { name: 'a_factor', definition: 'a_factor REAL' },
+  { name: 'search_text', definition: 'search_text TEXT' },
+  { name: 'card_type_marker', definition: 'card_type_marker TEXT' },
+  { name: 'source_exists', definition: 'source_exists INTEGER' },
+  { name: 'source_checked_at', definition: 'source_checked_at INTEGER' },
+  { name: 'source_missing_at', definition: 'source_missing_at INTEGER' },
 ];
 
 export const CARD_PROJECTION_INDEX_STATEMENTS = [
@@ -26,6 +31,11 @@ export const CARD_PROJECTION_INDEX_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_cards_lapses ON cards(lapses)`,
   `CREATE INDEX IF NOT EXISTS idx_cards_created_at ON cards(created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_cards_last_review ON cards(last_review)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_card_type_marker ON cards(card_type_marker)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_source_exists ON cards(source_exists)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_source_checked ON cards(source_checked_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_source_root ON cards(source_exists, root_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_cards_search_text ON cards(search_text)`,
 ];
 
 export const SQL_SCHEMA_STATEMENTS = [
@@ -61,6 +71,11 @@ export const SQL_SCHEMA_STATEMENTS = [
     stability REAL,
     difficulty REAL,
     a_factor REAL,
+    search_text TEXT,
+    card_type_marker TEXT,
+    source_exists INTEGER,
+    source_checked_at INTEGER,
+    source_missing_at INTEGER,
     payload_json TEXT NOT NULL,
     dto_json TEXT
   )`,

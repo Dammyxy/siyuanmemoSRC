@@ -379,6 +379,7 @@ export class ApplicationContext {
       return new DocTreeReviewScopeService(
         new ManagerSiyuanAdapter(),
         context.getStorage(),
+        context.sqlPersistence?.unified ?? null,
       );
     });
 

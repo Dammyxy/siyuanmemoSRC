@@ -191,7 +191,18 @@ export class CardTypeMarkerService {
    * @returns 淇鐨勫崱鐗囨暟閲?
    */
   async fixInconsistentCards(): Promise<number> {
-    const allCards = this.storage.getAllCards();
+    let candidateIds: string[] | undefined;
+    try {
+      candidateIds = this.storage.queryInconsistentCardTypeMarkerIds?.();
+    } catch (error) {
+      logger.debug('SQL card type marker candidate query failed; falling back to full scan', { error });
+      candidateIds = undefined;
+    }
+    const allCards = candidateIds
+      ? candidateIds
+        .map((cardId) => this.storage.getCard(cardId))
+        .filter((card): card is FSRSCard => Boolean(card))
+      : this.storage.getAllCards();
     let fixedCount = 0;
 
     for (const card of allCards) {
