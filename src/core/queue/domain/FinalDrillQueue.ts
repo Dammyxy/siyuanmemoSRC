@@ -16,7 +16,13 @@
  */
 
 import { BaseReviewQueue } from './BaseReviewQueue';
-import { QueueAddSource, QueueReviewResult, QueueType } from '../../../types/unified-data-source';
+import {
+    QueueAddSource,
+    type QueueBulkAddInput,
+    type QueueBulkMutationResult,
+    QueueReviewResult,
+    QueueType,
+} from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -311,6 +317,44 @@ export class FinalDrillQueue extends BaseReviewQueue {
             throw error;
         }
     }
+
+    public override async addCards(
+        cards: QueueBulkAddInput[],
+        source: QueueAddSource = 'manual'
+    ): Promise<QueueBulkMutationResult> {
+        const items = this.dedupeBulkAddInputs(cards);
+        const normalizedSource: FinalDrillEntry['source'] = source === 'auto-failed' ? 'auto-failed' : 'manual';
+        let changedCount = 0;
+        const failedIds: string[] = [...items.failedIds];
+
+        try {
+            await this.ensureInitialLoad();
+
+            for (const cardId of items.ids) {
+                try {
+                    if (this.addOrUpdateEntry(cardId, normalizedSource)) {
+                        changedCount++;
+                    }
+                } catch (error) {
+                    failedIds.push(cardId);
+                    logger.error('Failed to stage final-drill card for bulk add:', { cardId, error });
+                }
+            }
+
+            if (changedCount > 0) {
+                await this.persistEntries({ emitQueueChanged: true });
+            }
+
+            return {
+                attemptedCount: items.attemptedCount,
+                changedCount,
+                failedIds: this.uniqueFinalDrillBulkIds(failedIds),
+            };
+        } catch (error) {
+            logger.error('Failed to bulk add cards:', error);
+            throw error;
+        }
+    }
     
     /**
      * 从队列中移除卡片
@@ -329,6 +373,40 @@ export class FinalDrillQueue extends BaseReviewQueue {
             logger.info(`Card ${cardIdOrBlockId} removed`);
         } catch (error) {
             logger.error('Failed to remove card:', error);
+            throw error;
+        }
+    }
+
+    public override async removeCards(cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult> {
+        const ids = this.uniqueFinalDrillBulkIds((cardIdsOrBlockIds || []).map((id) => String(id || '').trim()));
+        let changedCount = 0;
+        const failedIds: string[] = [];
+
+        try {
+            await this.ensureInitialLoad();
+
+            for (const id of ids) {
+                try {
+                    if (this.removeEntry(id)) {
+                        changedCount++;
+                    }
+                } catch (error) {
+                    failedIds.push(id);
+                    logger.error('Failed to stage final-drill card for bulk remove:', { id, error });
+                }
+            }
+
+            if (changedCount > 0) {
+                await this.persistEntries();
+            }
+
+            return {
+                attemptedCount: ids.length,
+                changedCount,
+                failedIds,
+            };
+        } catch (error) {
+            logger.error('Failed to bulk remove cards:', error);
             throw error;
         }
     }
@@ -581,6 +659,43 @@ export class FinalDrillQueue extends BaseReviewQueue {
         if (options.emitQueueChanged) {
             this.emitQueueChangedEvent();
         }
+    }
+
+    private dedupeBulkAddInputs(cards: QueueBulkAddInput[]): {
+        attemptedCount: number;
+        ids: string[];
+        failedIds: string[];
+    } {
+        const ids: string[] = [];
+        const failedIds: string[] = [];
+
+        for (const card of cards || []) {
+            const id = this.safeResolveId(card);
+            if (!id) {
+                failedIds.push('');
+                continue;
+            }
+            ids.push(id);
+        }
+
+        const uniqueIds = this.uniqueFinalDrillBulkIds(ids);
+        return {
+            attemptedCount: uniqueIds.length + failedIds.length,
+            ids: uniqueIds,
+            failedIds,
+        };
+    }
+
+    private safeResolveId(card: QueueBulkAddInput): string {
+        try {
+            return String(resolveCardId(card) || '').trim();
+        } catch {
+            return '';
+        }
+    }
+
+    private uniqueFinalDrillBulkIds(ids: string[]): string[] {
+        return Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
     }
     
     /**

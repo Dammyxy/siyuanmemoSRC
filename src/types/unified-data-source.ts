@@ -107,6 +107,34 @@ export interface QueueReviewResult {
     version: number;
 }
 
+export type BatchCardMutationResult = {
+    attemptedCount: number;
+    updatedCount: number;
+    updatedCardIds: string[];
+    failedCardIds: string[];
+};
+
+export type BatchCardDeleteResult = {
+    attemptedCount: number;
+    deletedCount: number;
+    deletedCardIds: string[];
+    failedCardIds: string[];
+};
+
+export type QueueBulkAddInput = FSRSCard | QueueItem | string;
+
+export type QueueBulkFailure = {
+    id: string;
+    message?: string;
+};
+
+export type QueueBulkMutationResult = {
+    attemptedCount: number;
+    changedCount: number;
+    failedIds: string[];
+    failedItems?: QueueBulkFailure[];
+};
+
 export type QueueReviewSchedulingReason = 'manual-early-review';
 
 export interface QueueReviewSchedulingContext {
@@ -164,9 +192,13 @@ export interface IUnifiedDataSourceManagerFacade {
     getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard>;
     getCards(filter?: CardFilter): Promise<FSRSCard[]>;
     updateCard(card: FSRSCard): Promise<void>;
+    batchUpdateCards?(cards: FSRSCard[]): Promise<BatchCardMutationResult>;
     deleteCard?(cardId: string): Promise<void>;
+    batchDeleteCards?(cardIds: string[], options?: { blockIds?: string[] }): Promise<BatchCardDeleteResult>;
     onCardsDeleted?(cardIds: string[], blockIds?: string[]): Promise<void>;
     getQueue(type: QueueType): IReviewQueue;
+    batchAddToQueue?(type: QueueType, cards: QueueBulkAddInput[], source?: QueueAddSource): Promise<QueueBulkMutationResult>;
+    batchRemoveFromQueue?(type: QueueType, cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult>;
     getAvailableQueueTypes(): QueueType[];
     registerObserver(observer: IDataSourceObserver): void;
     unregisterObserver(observer: IDataSourceObserver): void;
@@ -651,6 +683,11 @@ export interface IDataRouter {
      * @param card 要更新的卡片
      */
     updateCard(card: FSRSCard): Promise<void>;
+
+    /**
+     * 批量更新卡片。
+     */
+    batchUpdateCards?(cards: FSRSCard[]): Promise<BatchCardMutationResult>;
     
     /**
      * 删除卡片
@@ -658,6 +695,11 @@ export interface IDataRouter {
      * @param cardId 要删除的卡片 ID
      */
     deleteCard(cardId: string): Promise<void>;
+
+    /**
+     * 批量删除卡片。
+     */
+    batchDeleteCards?(cardIds: string[]): Promise<BatchCardDeleteResult>;
     
     /**
      * 获取当前模式下可用的队列类型
@@ -771,6 +813,11 @@ export interface IReviewQueue {
      * @param card 卡片
      */
     addCard(card: FSRSCard | QueueItem | string, source?: QueueAddSource): Promise<void>;
+
+    /**
+     * 批量添加卡片到队列。
+     */
+    addCards?(cards: QueueBulkAddInput[], source?: QueueAddSource): Promise<QueueBulkMutationResult>;
     
     /**
      * 从队列中移除卡片
@@ -778,6 +825,11 @@ export interface IReviewQueue {
      * @param cardIdOrBlockId 卡片 ID 或 Block ID
      */
     removeCard(cardIdOrBlockId: string): Promise<void>;
+
+    /**
+     * 批量从队列中移除卡片。
+     */
+    removeCards?(cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult>;
 
     /**
      * 更新卡片

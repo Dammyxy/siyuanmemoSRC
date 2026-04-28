@@ -50,6 +50,27 @@ import type { CardApplicationStoragePort } from '@/core/storage/ports';
 
 const logger = createLogger('CardApplicationService');
 
+type BatchUpsertWithoutEventsResult = {
+  successCount: number;
+  failedCount: number;
+  successCardIds: string[];
+  failedCardIds: string[];
+};
+
+type BatchCreateCardsWithoutEventsResult = {
+  createdCount: number;
+  failedCount: number;
+  createdCardIds: string[];
+  failedCardIds: string[];
+};
+
+type BatchUpdateCardsWithoutEventsResult = {
+  updatedCount: number;
+  failedCount: number;
+  updatedCardIds: string[];
+  failedCardIds: string[];
+};
+
 /**
  * 卡片应用服务
  * 
@@ -556,14 +577,17 @@ export class CardApplicationService {
     cards: unknown[];
     context: string;
     shouldUpsert?: (card: FSRSCard) => boolean;
-  }): Promise<{ successCount: number; failedCount: number }> {
+  }): Promise<BatchUpsertWithoutEventsResult> {
     const normalizedCards = this.normalizeBatchCards(params.cards);
     let successCount = 0;
     let failedCount = 0;
+    const successCardIds: string[] = [];
+    const failedCardIds: string[] = [];
 
     for (const card of normalizedCards) {
       if (params.shouldUpsert && !params.shouldUpsert(card)) {
         failedCount++;
+        failedCardIds.push(card.id);
         logger.warn(`${params.context}: skip card because target not found`, {
           cardId: card.id,
         });
@@ -573,8 +597,10 @@ export class CardApplicationService {
       try {
         await this.upsertCardWithoutEvents(card);
         successCount++;
+        successCardIds.push(card.id);
       } catch (error) {
         failedCount++;
+        failedCardIds.push(card.id);
         logger.error(`${params.context}: failed to upsert card`, {
           cardId: card.id,
           error,
@@ -586,7 +612,7 @@ export class CardApplicationService {
       await this.persistChanges(params.context);
     }
 
-    return { successCount, failedCount };
+    return { successCount, failedCount, successCardIds, failedCardIds };
   }
 
   /**
@@ -598,34 +624,33 @@ export class CardApplicationService {
    * @param cardIds 卡片 ID 列表
    * @returns 删除结果
    */
-  async batchDeleteCards(cardIds: string[]): Promise<{ ok: true; value: { deletedCount: number; failedCount: number } } | { ok: false; error: Error }> {
+  async batchDeleteCards(cardIds: string[]): Promise<{ ok: true; value: { deletedCount: number; failedCount: number; deletedCardIds: string[]; failedCardIds: string[] } } | { ok: false; error: Error }> {
     if (!cardIds || cardIds.length === 0) {
-      return { ok: true, value: { deletedCount: 0, failedCount: 0 } };
+      return {
+        ok: true,
+        value: {
+          deletedCount: 0,
+          failedCount: 0,
+          deletedCardIds: [],
+          failedCardIds: [],
+        },
+      };
     }
 
-    let deletedCount = 0;
-    let failedCount = 0;
-
-    for (const cardId of cardIds) {
-      try {
-        const result = await this.deleteCard({ cardId });
-        if (result.ok) {
-          deletedCount++;
-        } else if (isErr(result)) {
-          failedCount++;
-          logger.error(`Failed to delete card ${cardId}:`, result.error);
-        }
-      } catch (error) {
-        failedCount++;
-        logger.error(`Error deleting card ${cardId}:`, error);
-      }
+    const result = await this.deleteCards({ cardIds });
+    if (isErr(result)) {
+      return result;
     }
 
-    if (deletedCount > 0) {
-      await this.persistChanges('batchDeleteCards');
-    }
-
-    return { ok: true, value: { deletedCount, failedCount } };
+    return {
+      ok: true,
+      value: {
+        deletedCount: result.value.deletedCount,
+        failedCount: result.value.failedCardIds.length,
+        deletedCardIds: result.value.deletedCardIds,
+        failedCardIds: result.value.failedCardIds,
+      },
+    };
   }
 
   /**
@@ -637,17 +662,30 @@ export class CardApplicationService {
    * @param cards FSRSCard 列表
    * @returns 创建结果
    */
-  async batchCreateCardsWithoutEvents(cards: unknown[]): Promise<{ ok: true; value: { createdCount: number; failedCount: number } } | { ok: false; error: Error }> {
+  async batchCreateCardsWithoutEvents(cards: unknown[]): Promise<{ ok: true; value: BatchCreateCardsWithoutEventsResult } | { ok: false; error: Error }> {
     if (!cards || cards.length === 0) {
-      return { ok: true, value: { createdCount: 0, failedCount: 0 } };
+      return {
+        ok: true,
+        value: {
+          createdCount: 0,
+          failedCount: 0,
+          createdCardIds: [],
+          failedCardIds: [],
+        },
+      };
     }
 
-    const { successCount: createdCount, failedCount } = await this.runBatchUpsertWithoutEvents({
+    const {
+      successCount: createdCount,
+      failedCount,
+      successCardIds: createdCardIds,
+      failedCardIds,
+    } = await this.runBatchUpsertWithoutEvents({
       cards,
       context: 'batchCreateCardsWithoutEvents',
     });
 
-    return { ok: true, value: { createdCount, failedCount } };
+    return { ok: true, value: { createdCount, failedCount, createdCardIds, failedCardIds } };
   }
 
   /**
@@ -659,18 +697,31 @@ export class CardApplicationService {
    * @param cards FSRSCard 列表
    * @returns 更新结果
    */
-  async batchUpdateCardsWithoutEvents(cards: unknown[]): Promise<{ ok: true; value: { updatedCount: number; failedCount: number } } | { ok: false; error: Error }> {
+  async batchUpdateCardsWithoutEvents(cards: unknown[]): Promise<{ ok: true; value: BatchUpdateCardsWithoutEventsResult } | { ok: false; error: Error }> {
     if (!cards || cards.length === 0) {
-      return { ok: true, value: { updatedCount: 0, failedCount: 0 } };
+      return {
+        ok: true,
+        value: {
+          updatedCount: 0,
+          failedCount: 0,
+          updatedCardIds: [],
+          failedCardIds: [],
+        },
+      };
     }
 
-    const { successCount: updatedCount, failedCount } = await this.runBatchUpsertWithoutEvents({
+    const {
+      successCount: updatedCount,
+      failedCount,
+      successCardIds: updatedCardIds,
+      failedCardIds,
+    } = await this.runBatchUpsertWithoutEvents({
       cards,
       context: 'batchUpdateCardsWithoutEvents',
       shouldUpsert: (card) => Boolean(this.unifiedStorage.getCard(card.id)),
     });
 
-    return { ok: true, value: { updatedCount, failedCount } };
+    return { ok: true, value: { updatedCount, failedCount, updatedCardIds, failedCardIds } };
   }
 
 }

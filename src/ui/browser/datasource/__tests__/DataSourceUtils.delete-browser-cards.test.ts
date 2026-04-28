@@ -2,6 +2,39 @@ import { describe, expect, it, vi } from 'vitest';
 import { deleteBrowserCards } from '../DataSourceUtils';
 
 describe('deleteBrowserCards', () => {
+  it('uses manager batchDeleteCards once when available', async () => {
+    const manager = {
+      batchDeleteCards: vi.fn(async (cardIds: string[]) => ({
+        attemptedCount: cardIds.length,
+        deletedCount: cardIds.length,
+        deletedCardIds: cardIds,
+        failedCardIds: [],
+      })),
+      deleteCard: vi.fn(),
+    };
+    const rows = [
+      { id: 'riff-1', fsrsCardId: 'card-1', blockId: 'block-1' },
+      { id: 'card-2', blockId: 'block-2' },
+      { id: 'riff-1', fsrsCardId: 'card-1', blockId: 'block-1' },
+    ];
+
+    const result = await deleteBrowserCards(manager, rows as never[], {
+      scope: 'DataSourceUtilsTest',
+    });
+
+    expect(manager.batchDeleteCards).toHaveBeenCalledTimes(1);
+    expect(manager.batchDeleteCards).toHaveBeenCalledWith(['card-1', 'card-2'], {
+      blockIds: ['block-1', 'block-2'],
+    });
+    expect(manager.deleteCard).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      attemptedCount: 2,
+      deletedCount: 2,
+      deletedCardIds: ['card-1', 'card-2'],
+      failedCardIds: [],
+    });
+  });
+
   it('routes exact browser card ids through the unified manager delete path', async () => {
     const manager = {
       deleteCard: vi.fn(async (cardId: string) => {

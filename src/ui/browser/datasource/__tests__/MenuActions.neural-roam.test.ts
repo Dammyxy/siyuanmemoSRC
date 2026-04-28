@@ -38,6 +38,31 @@ function createBrowserCard(overrides: Partial<BrowserCard>): BrowserCard {
 }
 
 describe('MenuActions.addToQueue neural-roam', () => {
+  it('uses addCards once for large browser selections', async () => {
+    const queue = {
+      addCards: vi.fn(async (cards: unknown[]) => ({
+        attemptedCount: cards.length,
+        changedCount: cards.length,
+        failedIds: [],
+      })),
+      addCard: vi.fn(),
+    };
+    const selectedRows: BrowserCard[] = Array.from({ length: 1000 }, (_, index) =>
+      createBrowserCard({
+        id: `card-${index}`,
+        blockId: `block-${index}`,
+        cardType: 'item',
+      })
+    );
+
+    const result = await addToQueue(queue, selectedRows, 'final-drill', 'manual');
+
+    expect(result.added).toBe(1000);
+    expect(queue.addCards).toHaveBeenCalledTimes(1);
+    expect(queue.addCards.mock.calls[0]?.[0]).toHaveLength(1000);
+    expect(queue.addCard).not.toHaveBeenCalled();
+  });
+
   it('passes trusted concept payload when adding concept card to neural-roam queue', async () => {
     const queue = {
       addCard: vi.fn(async () => undefined),
@@ -84,4 +109,3 @@ describe('MenuActions.addToQueue neural-roam', () => {
     expect(result.message).toBe('神经漫游队列只接受 Concept 卡片');
   });
 });
-

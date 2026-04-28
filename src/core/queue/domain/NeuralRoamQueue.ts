@@ -20,6 +20,9 @@ import {
   type QueueReviewResult,
   type NeuralRoamSeedEntry,
   type NeuralRoamBatchSnapshot,
+  type QueueBulkAddInput,
+  type QueueBulkFailure,
+  type QueueBulkMutationResult,
 } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem as ReviewQueueItem } from '../types';
@@ -615,38 +618,81 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     priorityOrSource: 'normal' | 'high' | QueueAddSource = 'normal',
   ): Promise<void> {
     await this.ensureInitialLoad();
-    const { blockId, conceptHint } = this.resolveAddTarget(card);
-    if (!blockId) {
-      throw new Error('Invalid card or block ID');
-    }
-
     const priority = priorityOrSource === 'high'
       ? 'high'
       : 'normal';
+    await this.addConceptBlockToSeed(card, priority);
+    await this.save();
+  }
 
-    let skipConceptValidation = conceptHint;
-    if (!skipConceptValidation) {
-      const conceptStatus = await this.resolveConceptStatusFromLocalCards(blockId);
-      if (conceptStatus === 'unknown') {
-        throw new Error(`Failed to validate concept card ${blockId} from local storage`);
+  public override async addCards(
+    cards: QueueBulkAddInput[],
+    priorityOrSource: 'normal' | 'high' | QueueAddSource = 'normal',
+  ): Promise<QueueBulkMutationResult> {
+    await this.ensureInitialLoad();
+
+    const priority = priorityOrSource === 'high' ? 'high' : 'normal';
+    const items = this.dedupeBulkAddInputs(cards);
+    let changedCount = 0;
+    const failedIds: string[] = [...items.failedIds];
+    const failedItems: QueueBulkFailure[] = [];
+
+    for (const item of items.items) {
+      try {
+        await this.addConceptBlockToSeed(item.value, priority);
+        changedCount++;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failedIds.push(item.id);
+        failedItems.push({ id: item.id, message });
+        logger.warn('Failed to stage neural roam seed for bulk add:', { id: item.id, error });
       }
-      if (conceptStatus !== 'concept') {
-        throw new Error(`Block ${blockId} is not a concept card`);
-      }
-      skipConceptValidation = true;
     }
 
-    await this.conceptQueue.addConceptBlock(blockId, priority, {
-      // Skip duplicate validation after local concept check.
-      skipConceptValidation,
-    });
-    await this.save();
+    if (changedCount > 0) {
+      await this.save();
+    }
+
+    return {
+      attemptedCount: items.attemptedCount,
+      changedCount,
+      failedIds: this.uniqueNeuralBulkIds(failedIds),
+      failedItems,
+    };
   }
 
   public async removeCard(cardIdOrBlockId: string): Promise<void> {
     await this.ensureInitialLoad();
     this.conceptQueue.removeConceptBlock(cardIdOrBlockId);
     await this.save();
+  }
+
+  public override async removeCards(cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult> {
+    await this.ensureInitialLoad();
+
+    const ids = this.uniqueNeuralBulkIds((cardIdsOrBlockIds || []).map((id) => String(id || '').trim()));
+    let changedCount = 0;
+    const failedIds: string[] = [];
+
+    for (const id of ids) {
+      try {
+        this.conceptQueue.removeConceptBlock(id);
+        changedCount++;
+      } catch (error) {
+        failedIds.push(id);
+        logger.warn('Failed to stage neural roam seed for bulk remove:', { id, error });
+      }
+    }
+
+    if (changedCount > 0) {
+      await this.save();
+    }
+
+    return {
+      attemptedCount: ids.length,
+      changedCount,
+      failedIds,
+    };
   }
 
   public async handleReview(cardId: string, rating: number): Promise<QueueReviewResult> {
@@ -1273,6 +1319,70 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return this.getSourceSnapshot().length + this.pendingAssociatedReviewCards.length;
   }
 
+  private async addConceptBlockToSeed(
+    card: FSRSCard | ReviewQueueItem | string,
+    priority: 'normal' | 'high',
+  ): Promise<void> {
+    const { blockId, conceptHint } = this.resolveAddTarget(card);
+    if (!blockId) {
+      throw new Error('Invalid card or block ID');
+    }
+
+    let skipConceptValidation = conceptHint;
+    if (!skipConceptValidation) {
+      const conceptStatus = await this.resolveConceptStatusFromLocalCards(blockId);
+      if (conceptStatus === 'unknown') {
+        throw new Error(`Failed to validate concept card ${blockId} from local storage`);
+      }
+      if (conceptStatus !== 'concept') {
+        throw new Error(`Block ${blockId} is not a concept card`);
+      }
+      skipConceptValidation = true;
+    }
+
+    await this.conceptQueue.addConceptBlock(blockId, priority, {
+      skipConceptValidation,
+    });
+  }
+
+  private dedupeBulkAddInputs(cards: QueueBulkAddInput[]): {
+    attemptedCount: number;
+    failedIds: string[];
+    items: Array<{ id: string; value: QueueBulkAddInput }>;
+  } {
+    const valuesById = new Map<string, QueueBulkAddInput>();
+    const failedIds: string[] = [];
+
+    for (const card of cards || []) {
+      const id = this.safeResolveId(card);
+      if (!id) {
+        failedIds.push('');
+        continue;
+      }
+      if (!valuesById.has(id)) {
+        valuesById.set(id, card);
+      }
+    }
+
+    return {
+      attemptedCount: valuesById.size + failedIds.length,
+      failedIds,
+      items: Array.from(valuesById.entries()).map(([id, value]) => ({ id, value })),
+    };
+  }
+
+  private safeResolveId(card: QueueBulkAddInput): string {
+    try {
+      return String(resolveCardId(card) || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  private uniqueNeuralBulkIds(ids: string[]): string[] {
+    return Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+  }
+
   private resolveAddTarget(card: FSRSCard | ReviewQueueItem | string): { blockId: string; conceptHint: boolean } {
     if (typeof card === 'string') {
       return {
@@ -1341,10 +1451,6 @@ export class NeuralRoamQueue extends BaseReviewQueue {
     return !this.isLocalConceptCard(card) && card.type !== 'topic';
   }
 
-  private isLocalRenderableRoamNode(card: FSRSCard): boolean {
-    return !this.isLocalConceptCard(card);
-  }
-
   private async convertToFSRSCard(queueItem: ConceptQueueItem | HyperspaceQueueItem): Promise<FSRSCard> {
     const now = Date.now();
     const localCard = await this.resolveLocalCard(queueItem.blockId);
@@ -1356,7 +1462,7 @@ export class NeuralRoamQueue extends BaseReviewQueue {
       isFlashcard: false,
       nodeRole: 'virtual' as const,
     };
-    const cardType = isConceptNode ? 'concept' : 'topic';
+    const cardType = (isConceptNode ? 'concept' : await this.resolveCachedCardType(queueItem.blockId)) as FSRSCard['type'];
     const fallbackCard = this.buildSyntheticNeuralCard(queueItem, now, cardType, neuralContext);
 
     if (!localCard || !isConceptNode) {

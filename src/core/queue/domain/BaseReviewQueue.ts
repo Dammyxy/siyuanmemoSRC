@@ -20,12 +20,14 @@ import {
     ReviewButtonConfig,
     QueueAddSource,
     QueueReviewSchedulingContext,
+    type QueueBulkAddInput,
+    type QueueBulkMutationResult,
 } from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueSnapshotRow } from '../../../types/queue-browser';
 import type { QueueItem } from '../types';
 import type { QueueSchedulerPort, UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
-import { normalizeToFSRSCard, validateQueueReturnType } from '../../../diagnostics/type-guards';
+import { normalizeToFSRSCard, resolveCardId, validateQueueReturnType } from '../../../diagnostics/type-guards';
 import { PriorityQueueService, type QueueOrderingMode } from './PriorityQueueService';
 import { buildQueueSnapshotRow } from './queueCardProjection';
 import { createLogger } from '@/utils/logger';
@@ -497,6 +499,31 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 5.4, 6.1, 6.2, 9.1, 9.5, 18.1
      */
     public abstract addCard(card: FSRSCard | QueueItem | string, source?: QueueAddSource): Promise<void>;
+
+    public async addCards(
+        cards: QueueBulkAddInput[],
+        source: QueueAddSource = 'manual',
+    ): Promise<QueueBulkMutationResult> {
+        const items = this.dedupeBulkItems(cards);
+        let changedCount = 0;
+        const failedIds: string[] = [...items.invalidIds];
+
+        for (const item of items.values) {
+            try {
+                await this.addCard(item.value, source);
+                changedCount++;
+            } catch (error) {
+                failedIds.push(item.id);
+                logger.error(`[${this.type}] Failed to add card in bulk:`, { id: item.id, error });
+            }
+        }
+
+        return {
+            attemptedCount: items.attemptedCount,
+            changedCount,
+            failedIds: this.uniqueBulkIds(failedIds),
+        };
+    }
     
     /**
      * 从队列中移除卡片
@@ -507,6 +534,28 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * @see 需求 5.5, 6.1, 6.2, 12.1, 12.2, 12.3
      */
     public abstract removeCard(cardIdOrBlockId: string): Promise<void>;
+
+    public async removeCards(cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult> {
+        const ids = this.dedupeBulkIds(cardIdsOrBlockIds);
+        let changedCount = 0;
+        const failedIds: string[] = [];
+
+        for (const id of ids) {
+            try {
+                await this.removeCard(id);
+                changedCount++;
+            } catch (error) {
+                failedIds.push(id);
+                logger.error(`[${this.type}] Failed to remove card in bulk:`, { id, error });
+            }
+        }
+
+        return {
+            attemptedCount: ids.length,
+            changedCount,
+            failedIds,
+        };
+    }
 
     /**
      * 评分后移除卡片（受保护钩子）
@@ -1131,6 +1180,44 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             }
         }
         return Array.from(cardMap.values());
+    }
+
+    private dedupeBulkItems(cards: QueueBulkAddInput[]): {
+        attemptedCount: number;
+        invalidIds: string[];
+        values: Array<{ id: string; value: QueueBulkAddInput }>;
+    } {
+        const valuesById = new Map<string, QueueBulkAddInput>();
+        const invalidIds: string[] = [];
+
+        for (const card of cards || []) {
+            try {
+                const id = String(resolveCardId(card) || '').trim();
+                if (!id) {
+                    invalidIds.push('');
+                    continue;
+                }
+                if (!valuesById.has(id)) {
+                    valuesById.set(id, card);
+                }
+            } catch {
+                invalidIds.push('');
+            }
+        }
+
+        return {
+            attemptedCount: valuesById.size + invalidIds.length,
+            invalidIds,
+            values: Array.from(valuesById.entries()).map(([id, value]) => ({ id, value })),
+        };
+    }
+
+    private dedupeBulkIds(ids: string[]): string[] {
+        return this.uniqueBulkIds((ids || []).map((id) => String(id || '').trim()));
+    }
+
+    private uniqueBulkIds(ids: string[]): string[] {
+        return Array.from(new Set(ids.filter((id) => id.length > 0)));
     }
 
     /**

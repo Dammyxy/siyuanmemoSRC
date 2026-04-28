@@ -21,6 +21,8 @@ import {
     ContextMenuOption,
     getAdvancedModeQueueTypes,
     getAdvancedModeContextMenuOptions,
+    type BatchCardDeleteResult,
+    type BatchCardMutationResult,
 } from '../../types/unified-data-source';
 import { FSRSCard } from '../../types/card';
 import type { Plugin } from 'siyuan';
@@ -386,6 +388,45 @@ export class DataAccessFacade implements IDataRouter {
             await this.syncToRiff(card.id);
         }
     }
+
+    async batchUpdateCards(cards: FSRSCard[]): Promise<BatchCardMutationResult> {
+        const cardsToUpdate = this.normalizeCards(cards);
+        if (cardsToUpdate.length === 0) {
+            return {
+                attemptedCount: 0,
+                updatedCount: 0,
+                updatedCardIds: [],
+                failedCardIds: [],
+            };
+        }
+
+        const result = await this.cardService.batchUpdateCardsWithoutEvents(cardsToUpdate);
+        if (isErr(result)) {
+            throw new Error(`Failed to batch update cards: ${result.error}`);
+        }
+
+        const value = result.value;
+        const updatedCardIds = value.updatedCardIds.length > 0
+            ? value.updatedCardIds
+            : cardsToUpdate.slice(0, value.updatedCount).map((card) => card.id);
+        const failedCardIds = value.failedCardIds.length > 0
+            ? value.failedCardIds
+            : cardsToUpdate
+                .filter((card) => !updatedCardIds.includes(card.id))
+                .map((card) => card.id);
+
+        if (updatedCardIds.length > 0) {
+            this.invalidateCardsCache();
+            await this.syncUpdatedRiffCards(cardsToUpdate, updatedCardIds);
+        }
+
+        return {
+            attemptedCount: cardsToUpdate.length,
+            updatedCount: value.updatedCount,
+            updatedCardIds,
+            failedCardIds,
+        };
+    }
     
     /**
      * 删除卡片
@@ -413,6 +454,31 @@ export class DataAccessFacade implements IDataRouter {
         if (isErr(result)) {
             throw new Error(`Failed to delete card ${cardId}: ${result.error}`);
         }
+    }
+
+    async batchDeleteCards(cardIds: string[]): Promise<BatchCardDeleteResult> {
+        const normalizedCardIds = this.normalizeIds(cardIds);
+        if (normalizedCardIds.length === 0) {
+            return {
+                attemptedCount: 0,
+                deletedCount: 0,
+                deletedCardIds: [],
+                failedCardIds: [],
+            };
+        }
+
+        const result = await this.cardService.deleteCards({ cardIds: normalizedCardIds });
+        if (isErr(result)) {
+            throw new Error(`Failed to batch delete cards: ${result.error}`);
+        }
+
+        this.invalidateCardsCache();
+        return {
+            attemptedCount: normalizedCardIds.length,
+            deletedCount: result.value.deletedCount,
+            deletedCardIds: this.normalizeIds(result.value.deletedCardIds),
+            failedCardIds: this.normalizeIds(result.value.failedCardIds),
+        };
     }
     
     // ========================================================================
@@ -454,6 +520,26 @@ export class DataAccessFacade implements IDataRouter {
         ]);
         
         logger.info(`[SiYuanMemo][AdvancedDataRouter] Synced card ${cardId} to Riff`);
+    }
+
+    private async syncUpdatedRiffCards(cards: FSRSCard[], updatedCardIds: string[]): Promise<void> {
+        if (!this.riffSyncEnabled || updatedCardIds.length === 0) {
+            return;
+        }
+
+        const updatedIdSet = new Set(updatedCardIds);
+        const dueUpdates = cards
+            .filter((card) => updatedIdSet.has(card.id) && card.schedulerType === 'riff')
+            .map((card) => ({
+                id: card.id,
+                due: new Date(card.due).toISOString(),
+            }));
+
+        if (dueUpdates.length === 0) {
+            return;
+        }
+
+        await this.siyuanApi.batchSetRiffCardsDueTime(dueUpdates);
     }
     
     // ========================================================================
@@ -743,6 +829,26 @@ export class DataAccessFacade implements IDataRouter {
         return [...unique];
     }
 
+    private normalizeIds(ids: readonly string[] | undefined): string[] {
+        return Array.from(new Set(
+            (ids ?? [])
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+        ));
+    }
+
+    private normalizeCards(cards: readonly FSRSCard[] | undefined): FSRSCard[] {
+        const deduped = new Map<string, FSRSCard>();
+        for (const card of cards ?? []) {
+            const cardId = String(card?.id || '').trim();
+            if (!cardId) {
+                continue;
+            }
+            deduped.set(cardId, card);
+        }
+        return Array.from(deduped.values());
+    }
+
     private toSqlInClauseValues(blockIds: string[]): string {
         return blockIds
             .map((id) => `'${id.replace(/'/g, "''")}'`)
@@ -755,21 +861,6 @@ export class DataAccessFacade implements IDataRouter {
         }
 
         const value = (row as Record<string, unknown>).id;
-        if (typeof value === 'string') {
-            return value;
-        }
-        if (typeof value === 'number') {
-            return String(value);
-        }
-        return '';
-    }
-
-    private readSqlRowValue(row: unknown, key: string): string {
-        if (!row || typeof row !== 'object') {
-            return '';
-        }
-
-        const value = (row as Record<string, unknown>)[key];
         if (typeof value === 'string') {
             return value;
         }

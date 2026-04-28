@@ -40,7 +40,8 @@ export {
 
 const logger = createLogger('browserService');
 
-type BrowserBatchManagerPort = Pick<UnifiedDataSourceManager, 'getCards' | 'updateCard' | 'deleteCard'>;
+type BrowserBatchManagerPort = Pick<UnifiedDataSourceManager, 'getCards' | 'updateCard' | 'deleteCard'> &
+    Partial<Pick<UnifiedDataSourceManager, 'batchUpdateCards' | 'batchDeleteCards'>>;
 export type BrowserCardProjection = Omit<BrowserCard, 'note' | 'meta'>;
 
 type BrowserAttrKeys = {
@@ -388,7 +389,11 @@ const cardCache = new CardCacheManager();
  * - 减少不必要的对象创建
  * - 延迟计算非关键字段
  */
-function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>): BrowserCard {
+function transformFSRSCard(
+    card: FSRSCard,
+    customAttrs: Record<string, string>,
+    attrKeys?: BrowserAttrKeys
+): BrowserCard {
     // 🆕 优化：使用常量避免重复计算
     const now = Date.now();
     const MS_PER_DAY = 86400000;  // 1000 * 60 * 60 * 24
@@ -426,8 +431,11 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
     
     // 🔧 修复：优先使用块属性，但如果块属性不存在，使用 FSRSCard.type
     // 这样可以确保所有概念卡都能被正确识别
+    const attrCardType = attrKeys
+      ? customAttrs[attrKeys.cardType]
+      : undefined;
     const finalCardType = cardType
-      || (customAttrs[attrKeys.cardType] as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined);
+      || (attrCardType as 'topic' | 'item' | 'concept' | 'descriptor' | 'incremental' | 'webpage' | undefined);
     
     return {
         id: card.id,
@@ -479,7 +487,8 @@ function transformFSRSCard(card: FSRSCard, customAttrs: Record<string, string>):
  */
 async function loadAllCardsRaw(
     unifiedDataSourceManager: UnifiedDataSourceManager,
-    forceRefresh = false
+    forceRefresh = false,
+    siyuanApi?: BrowserSiyuanPort
 ): Promise<BrowserCard[]> {
     return PerformanceMonitor.measure('loadAllCardsRaw', async () => {
         // 检查缓存
@@ -523,13 +532,21 @@ async function loadAllCardsRaw(
                     const batchIds = blockIds.slice(i, i + BATCH_SIZE);
                     const batchCards = fsrsCards.slice(i, i + BATCH_SIZE);
                     
-                    const { attrsMap, rootIdMap, tagsMap, contentMap } = await fetchBlockInfoBatched(batchIds, siyuanApi);
+                    const attrKeys = siyuanApi ? getAttrKeys(siyuanApi) : undefined;
+                    const { attrsMap, rootIdMap, tagsMap, contentMap } = siyuanApi
+                        ? await fetchBlockInfoBatched(batchIds, siyuanApi)
+                        : {
+                            attrsMap: new Map<string, Record<string, string>>(),
+                            rootIdMap: new Map<string, string>(),
+                            tagsMap: new Map<string, string[]>(),
+                            contentMap: new Map<string, string>(),
+                        };
                     
                     logger.info(`[SiYuanMemo][CardBrowser] 🔍 Batch ${i}: contentMap size = ${contentMap.size}`);
                     
                     const batchBrowserCards: BrowserCard[] = batchCards.map((card) => {
                         const customAttrs = attrsMap.get(card.blockId) || {};
-                        const browserCard = transformFSRSCard(card, customAttrs);
+                        const browserCard = transformFSRSCard(card, customAttrs, attrKeys);
                         browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
                         browserCard.tags = tagsMap.get(card.blockId) || [];
                         
@@ -699,7 +716,7 @@ export async function loadCards(
     return PerformanceMonitor.measure('loadCards', async () => {
         try {
             // Step 1: 从统一数据源加载所有卡片
-            const allCards = await loadAllCardsRaw(unifiedDataSourceManager, forceRefresh);
+            const allCards = await loadAllCardsRaw(unifiedDataSourceManager, forceRefresh, siyuanApi);
             if (allCards.length === 0) {
                 return [];
             }
@@ -1026,7 +1043,7 @@ export async function loadQueueCards(
             }
             
             const customAttrs = attrsMap.get(card.blockId) || {};
-            const browserCard = transformFSRSCard(card, customAttrs);
+            const browserCard = transformFSRSCard(card, customAttrs, attrKeys);
             browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
             browserCard.tags = tagsMap.get(card.blockId) || [];
             
@@ -1194,7 +1211,7 @@ async function buildBrowserCardsByBlockIds(
             }
 
             const customAttrs = attrsMap.get(card.blockId) || {};
-            const browserCard = transformFSRSCard(card, customAttrs);
+            const browserCard = transformFSRSCard(card, customAttrs, attrKeys);
             browserCard.rootId = rootIdMap.get(card.blockId) || browserCard.rootId || '';
             browserCard.tags = tagsMap.get(card.blockId) || [];
 
@@ -1249,6 +1266,7 @@ async function updateCardsByBlockIds(
 
     const blockCardMap = await buildBlockCardMap(uniqueBlockIds, manager);
     let updatedBlocks = 0;
+    const updatedCards: FSRSCard[] = [];
 
     for (const blockId of uniqueBlockIds) {
         const cardsInBlock = blockCardMap.get(blockId) || [];
@@ -1257,10 +1275,22 @@ async function updateCardsByBlockIds(
         }
 
         for (const card of cardsInBlock) {
-            const updatedCard = mutation(card, blockId);
-            await manager.updateCard(updatedCard);
+            updatedCards.push(mutation(card, blockId));
         }
         updatedBlocks++;
+    }
+
+    if (updatedCards.length === 0) {
+        return 0;
+    }
+
+    if (typeof manager.batchUpdateCards === 'function') {
+        await manager.batchUpdateCards(updatedCards);
+        return updatedBlocks;
+    }
+
+    for (const updatedCard of updatedCards) {
+        await manager.updateCard(updatedCard);
     }
 
     return updatedBlocks;
@@ -1416,6 +1446,7 @@ export async function batchDelete(
         const uniqueBlockIds = Array.from(new Set(blockIds.filter(Boolean)));
         const blockCardMap = await buildBlockCardMap(uniqueBlockIds, resolvedManager);
         let deletedBlocks = 0;
+        const cardIds: string[] = [];
 
         for (const blockId of uniqueBlockIds) {
             const cardsInBlock = blockCardMap.get(blockId) || [];
@@ -1424,9 +1455,19 @@ export async function batchDelete(
             }
 
             for (const card of cardsInBlock) {
-                await resolvedManager.deleteCard(card.id);
+                cardIds.push(card.id);
             }
             deletedBlocks++;
+        }
+
+        if (cardIds.length > 0) {
+            if (typeof resolvedManager.batchDeleteCards === 'function') {
+                await resolvedManager.batchDeleteCards(cardIds, { blockIds: uniqueBlockIds });
+            } else {
+                for (const cardId of cardIds) {
+                    await resolvedManager.deleteCard(cardId);
+                }
+            }
         }
 
         cardCache.removeCards(uniqueBlockIds);

@@ -78,6 +78,8 @@ type QueryDataSourceBatchManager = {
   getCards: IUnifiedDataSourceManagerFacade['getCards'];
   updateCard: IUnifiedDataSourceManagerFacade['updateCard'];
   deleteCard: (cardId: string) => Promise<void>;
+  batchUpdateCards?: IUnifiedDataSourceManagerFacade['batchUpdateCards'];
+  batchDeleteCards?: IUnifiedDataSourceManagerFacade['batchDeleteCards'];
 };
 
 export type QueryDataSourceOptions = {
@@ -335,7 +337,20 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
 
   private async handleQueueAddAction(route: QueueAddRoute, selectedRows: BrowserActionTarget[]): Promise<unknown> {
     const queue = this.manager?.getQueue(route.queueType);
-    const result = await addToQueue(queue, selectedRows, route.actionType, route.source ?? 'manual');
+    const queueTarget = this.manager && typeof this.manager.batchAddToQueue === 'function'
+      ? {
+          addCard: queue?.addCard?.bind(queue),
+          addCards: (
+            cards: unknown[],
+            source?: Parameters<NonNullable<IUnifiedDataSourceManagerFacade['batchAddToQueue']>>[2]
+          ) => this.manager!.batchAddToQueue!(
+            route.queueType,
+            cards as Parameters<NonNullable<IUnifiedDataSourceManagerFacade['batchAddToQueue']>>[1],
+            source
+          ),
+        }
+      : queue;
+    const result = await addToQueue(queueTarget, selectedRows, route.actionType, route.source ?? 'manual');
     this.invalidateQuerySession();
     return result;
   }
@@ -359,7 +374,7 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
   }
 
   private createBatchManager(): QueryDataSourceBatchManager {
-    return {
+    const batchManager: QueryDataSourceBatchManager = {
       getCards: (filter) => this.manager!.getCards(filter),
       updateCard: (card: FSRSCard) => this.manager!.updateCard(card),
       deleteCard: async (cardId: string) => {
@@ -369,6 +384,13 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
         await this.manager!.deleteCard(cardId);
       },
     };
+    if (typeof this.manager!.batchUpdateCards === 'function') {
+      batchManager.batchUpdateCards = (cards) => this.manager!.batchUpdateCards!(cards);
+    }
+    if (typeof this.manager!.batchDeleteCards === 'function') {
+      batchManager.batchDeleteCards = (cardIds, options) => this.manager!.batchDeleteCards!(cardIds, options);
+    }
+    return batchManager;
   }
 
   private hasI18nContext(value: unknown): value is I18nContextLike {
@@ -428,7 +450,7 @@ export class QueryDataSource implements ICardDataSource, IBrowserQueryableDataSo
 
     const projections = await loadBrowserCardProjectionsByBlockIds(uniqueBlockIds, {
       applyQueryFilter: false,
-      manager: this.manager || undefined,
+      manager: this.manager as unknown as NonNullable<Parameters<typeof loadBrowserCardProjectionsByBlockIds>[1]>['manager'],
       siyuanApi,
     });
     for (const projection of projections) {

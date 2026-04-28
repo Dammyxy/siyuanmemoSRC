@@ -134,7 +134,7 @@ flowchart TD
    - `UnifiedDataSourceManager` facade
 4. Browser 在全量 / 队列 / deck 等模式下，通过 application queries、统一队列快照或 SQL deck read port 加载数据；SQL active 的 deck 主表走 `COUNT + LIMIT/OFFSET + page hydrate`，`getDeckMatchedIds()` 用 SQL 返回完整匹配 id 列表，missing-block / retrievability 等不能由当前 SQL 投影表达的条件显式回退旧 snapshot 路径
 5. Browser DTO、query parser、stable row id 与排序显示契约以 `src/types/browser.ts` 为共享契约；application query kernel 只依赖 `src/application/queries/browser/shared/*` 与 `src/types/browser.ts`，不再 import UI browser module
-6. 右键 `取消闪卡` 通过当前数据源持有的 `UnifiedDataSourceManager.deleteCard(cardId)` 删除浏览器实际展示的 FSRS card row；删除链路只提交本地聚合与块属性清理，并统一发布带 `blockId` 的 `CardDeleted / CardsDeleted` 事件，由 `RiffSyncEventHandler -> XiuyuanSyncService.deleteSync*()` 完成 native Riff 删除与 blacklist fallback
+6. 右键批量动作通过当前数据源持有的 `UnifiedDataSourceManager` 批量入口执行：删卡走 `batchDeleteCards(cardIds, { blockIds })`，优先级/重置/暂停/恢复走 `batchUpdateCards(cards)`，加入/移除队列走 `batchAddToQueue()` / queue `addCards()` 与 `removeCards()`；这些入口在应用层分块 upsert / 批量删除 / 一次队列持久化后统一发布 `CardDeleted / CardsDeleted`、`card-updated` 与 `queue-changed`，单卡 API 只作为旧调用 fallback
 7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection 等 Siyuan 调用必须显式拿到 `BrowserSiyuanPort`，不再依赖 browser service 模块全局状态
 
 ### 4.2 Review
@@ -556,6 +556,7 @@ Review：
 
 - 懒加载并缓存队列实例
 - 统一暴露队列 facade
+- 统一暴露 Browser 可用批量 facade：`batchUpdateCards`、`batchDeleteCards`、`batchAddToQueue`、`batchRemoveFromQueue`
 - 处理卡片变更后的队列失效与重建
 - 统一处理卡片删除同步：发布 `card-deleted` 数据事件，并为所有可能受影响的队列发布 `queue-changed`
 - 通过 observer / data change event 通知 Browser、Review 与其他消费者
@@ -598,6 +599,7 @@ Browser 分层边界：
 - Source existence 以 SiYuan `blocks` 为真源、SQLite 为懒刷新缓存：正常 deck 查询排除 known missing 且 unknown fail-open，`__lost__` / `missing-block-only` 读取 known missing；stats 先返回 SQL 当前统计并后台刷新 stale/unknown；`QueueBrowserQueryKernel` 只用 SQL source cache 标记 missing，不物化队列 membership/order。
 - Browser 搜索优先使用 `search_text/content_text/tags/root/deck` 投影；当前 sql.js 构建不支持 FTS5 时走 `LIKE` fallback，不硬建 FTS 表；retrievability 等 SQL 不可表达查询显式回 snapshot。
 - `src/ui/browser/browserService.ts` 只保留 UI-side helper；SQL、消息、文档树和 block projection 必须显式传入 `BrowserSiyuanPort` / `UnifiedDataSourceManager`，不再维护全局 browser context。
+- Browser 右键批量动作不直连底层 infra：删除、优先级、重置、暂停/恢复经 `UnifiedDataSourceManager.batchDeleteCards()` / `batchUpdateCards()`，队列加入/移除经 `batchAddToQueue()` 或 queue domain `addCards()` / `removeCards()`；完成后 datasource 只做一次 cache invalidate / reload / forceRefresh。
 - `src/ui/browser/browserService.v2.ts` 已删除，旧 import 不应恢复。
 
 当前 Browser 主刷新机制：

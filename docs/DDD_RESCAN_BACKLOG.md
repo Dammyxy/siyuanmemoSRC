@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 176)
+Last update: 2026-04-29 (Round 177)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - browser right-click batch actions
+
+- Task: 按 SQL 加速计划优化 Browser 右键批量动作，目标让 1k-5k 卡删除、优先级、重置、暂停/恢复、队列加入/移除少持久化、少刷新。
+- Touched slice: Browser / Queue / Card CRUD / SQL persistence across `src/types/unified-data-source.ts`, `src/application/services/{UnifiedDataSourceManager,CardApplicationService}.ts`, `src/application/queries/DataAccessFacade.ts`, queue domain classes, `src/ui/browser/{browserService.ts,datasource/*}`, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: Browser 批量删除走 `batchDeleteCards()` / `DeleteCardsUseCase` 批量路径，不再逐卡 `deleteCard`；优先级、重置、暂停/恢复先批量取卡再 `batchUpdateCards()`；队列 domain 增加 `addCards/removeCards`，手动集合、FinalDrill、NeuralRoam 可一次改 collection / seed pool、一次 persist、一次通知；Retrieval / Incremental 的 outstanding priority boost 合并为一次 batch update；datasource 完成后只做一次 invalidate / reload。
+- Debt deferred: `postpone/advance/spread` 仍沿用现有 RescheduleService 批量调度引擎，只确认 Browser helper 没新增重复 materialize；未做真实 5k 卡 UI 手工性能录屏。
+- Why deferred: 调度算法和真实大库 UI profiling 属于独立验收；本轮重点是切断右键动作逐卡 update/delete/queue persist 慢路径并用单测锁住调用次数。
+- Next safe step: 用真实 SQL 库压 1k/5k 选中项记录 persist 次数、UI loading 时间和一次 reload 行为；若调度动作仍卡，再专门检查 RescheduleService materialize / refresh 路径。
+- Validation: `pnpm exec vitest run src/ui/browser/datasource/__tests__/DataSourceUtils.delete-browser-cards.test.ts src/ui/browser/datasource/__tests__/DataSourceUtils.batch-actions.test.ts src/ui/browser/datasource/__tests__/MenuActions.neural-roam.test.ts src/ui/browser/__tests__/browserService.block-id-paths.test.ts`（13 tests 通过）；`pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`pnpm exec tsc --noEmit --pretty false`（仓库既有大量历史 test/type 错误，过滤本轮 touched production 文件后无新增业务错误）；`git diff --check`（通过；仅 Git 行尾提示）。
 
 ### 2026-04-29 - resume guardrail audit and neural resolver cleanup
 

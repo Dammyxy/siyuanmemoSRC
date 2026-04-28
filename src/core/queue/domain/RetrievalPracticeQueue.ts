@@ -16,7 +16,14 @@
  */
 
 import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
-import { QueueAddSource, QueueReviewResult, QueueReviewSchedulingContext, QueueType } from '../../../types/unified-data-source';
+import {
+    QueueAddSource,
+    type QueueBulkAddInput,
+    type QueueBulkMutationResult,
+    QueueReviewResult,
+    QueueReviewSchedulingContext,
+    QueueType,
+} from '../../../types/unified-data-source';
 import { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -192,6 +199,41 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
         await this.addCardToCollection(cardId, { logger });
         await this.boostPrioritySlightly(existingCard);
     }
+
+    public override async addCards(
+        cards: QueueBulkAddInput[],
+        _source: QueueAddSource = 'manual'
+    ): Promise<QueueBulkMutationResult> {
+        const resolvedCards: QueueBulkAddInput[] = [];
+        const existingCards: FSRSCard[] = [];
+        const failedIds: string[] = [];
+
+        for (const card of cards || []) {
+            try {
+                const { cardId, existingCard } = await this.resolveTargetCardForAdd(card);
+                if (!String(cardId || '').trim()) {
+                    failedIds.push('');
+                    continue;
+                }
+                resolvedCards.push(cardId);
+                if (existingCard) {
+                    existingCards.push(existingCard);
+                }
+            } catch (error) {
+                failedIds.push(this.safeResolveId(card));
+                logger.warn('[Add to outstanding] Failed to resolve card for bulk add:', error);
+            }
+        }
+
+        const result = await this.addCardsToCollection(resolvedCards, { logger });
+        await this.boostPrioritiesSlightly(existingCards);
+
+        return {
+            attemptedCount: result.attemptedCount + failedIds.length,
+            changedCount: result.changedCount,
+            failedIds: this.uniqueIds([...result.failedIds, ...failedIds]),
+        };
+    }
     
     /**
      * 从队列中移除卡片
@@ -209,6 +251,10 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         await this.removeCardFromCollection(cardIdOrBlockId, { logger });
+    }
+
+    public override async removeCards(cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult> {
+        return this.removeCardsFromCollection(cardIdsOrBlockIds, { logger });
     }
 
     public async syncManualMembershipForScheduledCard(card: FSRSCard): Promise<boolean> {
@@ -318,23 +364,63 @@ export class RetrievalPracticeQueue extends ManualCardCollectionQueue {
     }
 
     private async boostPrioritySlightly(card: FSRSCard | null): Promise<void> {
-        if (!card) {
-            return;
-        }
+        await this.boostPrioritiesSlightly(card ? [card] : []);
+    }
 
-        const currentPriority = Number.isFinite(card.priority) ? Number(card.priority) : 50;
-        const boostedPriority = Math.max(0, Math.floor(currentPriority) - 1);
-        if (boostedPriority === currentPriority) {
+    private async boostPrioritiesSlightly(cards: FSRSCard[]): Promise<void> {
+        const boostedCards = this.uniqueCards(cards)
+            .map((card) => {
+                const currentPriority = Number.isFinite(card.priority) ? Number(card.priority) : 50;
+                const boostedPriority = Math.max(0, Math.floor(currentPriority) - 1);
+                if (boostedPriority === currentPriority) {
+                    return null;
+                }
+
+                return {
+                    ...card,
+                    priority: boostedPriority,
+                };
+            })
+            .filter((card): card is FSRSCard => Boolean(card));
+
+        if (boostedCards.length === 0) {
             return;
         }
 
         try {
-            await this.manager.updateCard({
-                ...card,
-                priority: boostedPriority,
-            });
+            if (typeof this.manager.batchUpdateCards === 'function') {
+                await this.manager.batchUpdateCards(boostedCards);
+                return;
+            }
+
+            for (const card of boostedCards) {
+                await this.manager.updateCard(card);
+            }
         } catch (error) {
-            logger.warn(`[Add to outstanding] Failed to slightly boost priority for card ${card.id}:`, error);
+            logger.warn(`[Add to outstanding] Failed to slightly boost priority for ${boostedCards.length} cards:`, error);
+        }
+    }
+
+    private uniqueCards(cards: FSRSCard[]): FSRSCard[] {
+        const map = new Map<string, FSRSCard>();
+        for (const card of cards) {
+            const id = String(card?.id || '').trim();
+            if (id && !map.has(id)) {
+                map.set(id, card);
+            }
+        }
+        return Array.from(map.values());
+    }
+
+    private uniqueIds(ids: string[]): string[] {
+        return Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+    }
+
+    private safeResolveId(card: QueueBulkAddInput): string {
+        try {
+            return String(resolveCardId(card) || '').trim();
+        } catch {
+            return '';
         }
     }
 

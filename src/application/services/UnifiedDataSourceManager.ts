@@ -17,6 +17,11 @@ import {
     IReviewQueue,
     CardFilter,
     QueueError,
+    type BatchCardDeleteResult,
+    type BatchCardMutationResult,
+    type QueueAddSource,
+    type QueueBulkAddInput,
+    type QueueBulkMutationResult,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
 import type { DrillLogV2 } from '@/types/review';
@@ -691,6 +696,38 @@ export class UnifiedDataSourceManager {
         }
     }
 
+    public async batchUpdateCards(cards: FSRSCard[]): Promise<BatchCardMutationResult> {
+        const cardsToUpdate = this.normalizeCards(cards);
+        if (cardsToUpdate.length === 0) {
+            return {
+                attemptedCount: 0,
+                updatedCount: 0,
+                updatedCardIds: [],
+                failedCardIds: [],
+            };
+        }
+
+        try {
+            const router = this.getRouter();
+            if (typeof router.batchUpdateCards !== 'function') {
+                throw new Error('Data router batchUpdateCards is unavailable');
+            }
+
+            const result = await router.batchUpdateCards(cardsToUpdate);
+            const updatedIds = new Set(result.updatedCardIds);
+            const updatedCards = cardsToUpdate.filter((card) => updatedIds.has(card.id));
+            if (updatedCards.length > 0) {
+                await this.onCardsUpdatedFromScheduler(updatedCards);
+            }
+            logger.debug(`Batch cards updated: ${result.updatedCount}/${result.attemptedCount}`);
+            return result;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error('Failed to batch update cards:', errorMessage);
+            throw new Error(`批量更新卡片失败: ${errorMessage}`);
+        }
+    }
+
     public async restoreCardSnapshotForFailedFeedback(card: FSRSCard): Promise<void> {
         const plugin = this.resolvePlugin();
         const storage = plugin?.getContext?.()?.getUnifiedStorage?.();
@@ -715,9 +752,20 @@ export class UnifiedDataSourceManager {
      * 供 SchedulerRouter 路径复用，避免重复写入存储。
      */
     public async onCardUpdatedFromScheduler(card: FSRSCard): Promise<void> {
+        await this.onCardsUpdatedFromScheduler([card]);
+    }
+
+    public async onCardsUpdatedFromScheduler(cards: FSRSCard[]): Promise<void> {
+        const updatedCards = this.normalizeCards(cards);
+        if (updatedCards.length === 0) {
+            return;
+        }
+
         const affectedQueueTypes = this.invalidateQueuesForCardMutation();
 
-        const affectedIds = Array.from(new Set([card.id, card.blockId].filter(Boolean)));
+        const affectedIds = Array.from(new Set(
+            updatedCards.flatMap((card) => [card.id, card.blockId].filter(Boolean))
+        ));
         const timestamp = Date.now();
         this.notifyObservers({
             type: 'card-updated',
@@ -929,6 +977,62 @@ export class UnifiedDataSourceManager {
             : 'topic';
     }
 
+    public async batchDeleteCards(
+        cardIds: string[],
+        options: { blockIds?: string[] } = {}
+    ): Promise<BatchCardDeleteResult> {
+        const normalizedCardIds = this.normalizeEventIds(cardIds);
+        if (normalizedCardIds.length === 0) {
+            return {
+                attemptedCount: 0,
+                deletedCount: 0,
+                deletedCardIds: [],
+                failedCardIds: [],
+            };
+        }
+
+        try {
+            const router = this.getRouter();
+            if (typeof router.batchDeleteCards !== 'function') {
+                throw new Error('Data router batchDeleteCards is unavailable');
+            }
+
+            const result = await router.batchDeleteCards(normalizedCardIds);
+            if (result.deletedCount > 0) {
+                await this.onCardsDeleted(result.deletedCardIds, options.blockIds ?? []);
+            }
+            logger.debug(`Batch cards deleted: ${result.deletedCount}/${result.attemptedCount}`);
+            return result;
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error('Failed to batch delete cards:', errorMessage);
+            throw new Error(`批量删除卡片失败: ${errorMessage}`);
+        }
+    }
+
+    public async batchAddToQueue(
+        type: QueueType,
+        cards: QueueBulkAddInput[],
+        source: QueueAddSource = 'manual'
+    ): Promise<QueueBulkMutationResult> {
+        const queue = this.getQueue(type);
+        if (typeof queue.addCards !== 'function') {
+            throw new Error(`Queue ${type} batch add is unavailable`);
+        }
+        return queue.addCards(cards, source);
+    }
+
+    public async batchRemoveFromQueue(
+        type: QueueType,
+        cardIdsOrBlockIds: string[]
+    ): Promise<QueueBulkMutationResult> {
+        const queue = this.getQueue(type);
+        if (typeof queue.removeCards !== 'function') {
+            throw new Error(`Queue ${type} batch remove is unavailable`);
+        }
+        return queue.removeCards(cardIdsOrBlockIds);
+    }
+
     private async resolveNeuralRoamNodeType(blockId: string): Promise<NeuralRoamNodeType> {
         const normalizedBlockId = String(blockId || '').trim();
         if (!normalizedBlockId) {
@@ -1051,6 +1155,18 @@ export class UnifiedDataSourceManager {
                 .map((id) => String(id || '').trim())
                 .filter((id) => id.length > 0)
         ));
+    }
+
+    private normalizeCards(cards: readonly FSRSCard[] | undefined): FSRSCard[] {
+        const deduped = new Map<string, FSRSCard>();
+        for (const card of cards ?? []) {
+            const cardId = String(card?.id || '').trim();
+            if (!cardId) {
+                continue;
+            }
+            deduped.set(cardId, card);
+        }
+        return Array.from(deduped.values());
     }
     
     /**

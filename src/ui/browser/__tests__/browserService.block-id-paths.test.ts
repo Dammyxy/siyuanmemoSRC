@@ -86,6 +86,32 @@ describe('browserService block-id paths', () => {
     expect(manager.deleteCard).toHaveBeenNthCalledWith(2, 'card-b');
   });
 
+  it('batchDelete uses manager.batchDeleteCards once when available', async () => {
+    const manager = {
+      getCards: vi.fn().mockResolvedValue([
+        makeFsrsCard('card-a', 'block-a'),
+        makeFsrsCard('card-b', 'block-b'),
+      ]),
+      deleteCard: vi.fn(),
+      batchDeleteCards: vi.fn().mockResolvedValue({
+        attemptedCount: 2,
+        deletedCount: 2,
+        deletedCardIds: ['card-a', 'card-b'],
+        failedCardIds: [],
+      }),
+      updateCard: vi.fn(),
+    };
+
+    const deletedBlocks = await batchDelete(['block-a', 'block-b'], manager as any);
+
+    expect(deletedBlocks).toBe(2);
+    expect(manager.batchDeleteCards).toHaveBeenCalledTimes(1);
+    expect(manager.batchDeleteCards).toHaveBeenCalledWith(['card-a', 'card-b'], {
+      blockIds: ['block-a', 'block-b'],
+    });
+    expect(manager.deleteCard).not.toHaveBeenCalled();
+  });
+
   it('batchSuspend updates storage only and does not write suspended block attrs', async () => {
     const siyuanApi = createSiyuanApi();
     const manager = {
@@ -100,5 +126,29 @@ describe('browserService block-id paths', () => {
     expect(manager.getCards).toHaveBeenCalledWith({ blockIds: ['block-a'] });
     expect(manager.updateCard).toHaveBeenCalledTimes(1);
     expect(siyuanApi.setBlockAttrs).not.toHaveBeenCalled();
+  });
+
+  it('batchSuspend uses manager.batchUpdateCards once when available', async () => {
+    const manager = {
+      getCards: vi.fn().mockResolvedValue([
+        makeFsrsCard('card-a', 'block-a'),
+        makeFsrsCard('card-b', 'block-b'),
+      ]),
+      deleteCard: vi.fn(),
+      updateCard: vi.fn(),
+      batchUpdateCards: vi.fn().mockResolvedValue({
+        attemptedCount: 2,
+        updatedCount: 2,
+        updatedCardIds: ['card-a', 'card-b'],
+        failedCardIds: [],
+      }),
+    };
+
+    const updatedBlocks = await batchSuspend(['block-a', 'block-b'], true, manager as any);
+
+    expect(updatedBlocks).toBe(2);
+    expect(manager.batchUpdateCards).toHaveBeenCalledTimes(1);
+    expect(manager.batchUpdateCards.mock.calls[0]?.[0]).toHaveLength(2);
+    expect(manager.updateCard).not.toHaveBeenCalled();
   });
 });

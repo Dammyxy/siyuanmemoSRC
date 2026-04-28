@@ -19,6 +19,8 @@ import { ManualCardCollectionQueue } from './ManualCardCollectionQueue';
 import {
     QueueType,
     CardFilter,
+    type QueueBulkAddInput,
+    type QueueBulkMutationResult,
     QueueReviewResult,
     type FilterGroupQueueSessionSnapshot,
     type QueueReviewSchedulingContext,
@@ -262,6 +264,13 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
             persist: async () => this.save(),
         });
     }
+
+    public override async addCards(cards: QueueBulkAddInput[]): Promise<QueueBulkMutationResult> {
+        return this.addCardsToCollection(cards, {
+            logger,
+            persist: async () => this.save(),
+        });
+    }
     
     /**
      * 从队列中移除卡片
@@ -276,6 +285,15 @@ export class FilterGroupQueue extends ManualCardCollectionQueue {
      */
     public async removeCard(cardIdOrBlockId: string): Promise<void> {
         await this.removeCardFromCollection(cardIdOrBlockId, {
+            logger,
+            persistWhenNotManual: true,
+            persist: async () => this.save(),
+            persistAfterError: async () => this.save(),
+        });
+    }
+
+    public override async removeCards(cardIdsOrBlockIds: string[]): Promise<QueueBulkMutationResult> {
+        return this.removeCardsFromCollection(cardIdsOrBlockIds, {
             logger,
             persistWhenNotManual: true,
             persist: async () => this.save(),

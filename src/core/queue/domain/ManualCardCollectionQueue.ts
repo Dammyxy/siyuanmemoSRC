@@ -1,4 +1,10 @@
-import type { CardFilter, QueueReviewResult, QueueType } from '../../../types/unified-data-source';
+import type {
+  CardFilter,
+  QueueBulkAddInput,
+  QueueBulkMutationResult,
+  QueueReviewResult,
+  QueueType,
+} from '../../../types/unified-data-source';
 import type { FSRSCard } from '../../../types/card';
 import type { QueueItem } from '../types';
 import type { UnifiedDataSourceManager } from '../managers/UnifiedDataSourceManager';
@@ -71,6 +77,8 @@ interface AddCardToCollectionOptions {
   notifyObservers?: boolean;
 }
 
+interface AddCardsToCollectionOptions extends AddCardToCollectionOptions {}
+
 interface RemoveCardFromCollectionOptions {
   logger: ManualCardQueueLogger;
   persistWhenNotManual?: boolean;
@@ -79,6 +87,8 @@ interface RemoveCardFromCollectionOptions {
   persistAfterError?: () => Promise<void>;
   notifyObservers?: boolean;
 }
+
+interface RemoveCardsFromCollectionOptions extends RemoveCardFromCollectionOptions {}
 
 interface HandleReviewWithAutoFailedOptions {
   logger: ManualCardQueueLogger;
@@ -557,6 +567,66 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
     }
   }
 
+  protected async addCardsToCollection(
+    cards: QueueBulkAddInput[],
+    options: AddCardsToCollectionOptions
+  ): Promise<QueueBulkMutationResult> {
+    const { logger, persist, notifyQueueChanged = true, notifyObservers = false } = options;
+    const candidates = this.dedupeBulkAddInputs(cards, logger);
+    let changedCount = 0;
+    const failedIds: string[] = [...candidates.failedIds];
+
+    try {
+      await this.ensureInitialLoad();
+
+      for (const [cardId, card] of candidates.items.entries()) {
+        try {
+          const hadManualCard = this.manualCards.has(cardId);
+          const wasBlacklisted = this.temporaryBlacklist.delete(cardId);
+          this.manualCards.add(cardId);
+          if (!hadManualCard || wasBlacklisted) {
+            changedCount++;
+          }
+          void card;
+        } catch (error) {
+          failedIds.push(cardId);
+          logger.error('Failed to stage card for bulk add:', { cardId, error });
+        }
+      }
+
+      if (changedCount > 0) {
+        if (persist) {
+          await persist();
+        } else {
+          await this.saveManualCardState(logger);
+        }
+        if (notifyQueueChanged) {
+          this.emitQueueChangedEvent();
+        }
+        this.invalidateCachedCards();
+        this.clearSizeCache();
+        if (notifyObservers) {
+          this.notifyObservers();
+        }
+      }
+
+      logger.info(`Bulk added ${changedCount} manual cards`, {
+        attemptedCount: candidates.attemptedCount,
+        failedCount: failedIds.length,
+        temporaryBlacklistSize: this.temporaryBlacklist.size,
+      });
+
+      return {
+        attemptedCount: candidates.attemptedCount,
+        changedCount,
+        failedIds: this.uniqueCollectionIds(failedIds),
+      };
+    } catch (error) {
+      logger.error('Failed to bulk add cards:', error);
+      throw error;
+    }
+  }
+
   protected async removeCardFromCollection(
     cardIdOrBlockId: string,
     options: RemoveCardFromCollectionOptions
@@ -600,6 +670,113 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
 
       throw error;
     }
+  }
+
+  protected async removeCardsFromCollection(
+    cardIdsOrBlockIds: string[],
+    options: RemoveCardsFromCollectionOptions
+  ): Promise<QueueBulkMutationResult> {
+    const {
+      logger,
+      persistWhenNotManual = false,
+      addToTemporaryBlacklist = true,
+      persist,
+      persistAfterError,
+      notifyObservers = false,
+    } = options;
+    const ids = this.uniqueCollectionIds((cardIdsOrBlockIds || []).map((id) => String(id || '').trim()));
+    let changedCount = 0;
+    let shouldPersist = false;
+    const failedIds: string[] = [];
+
+    try {
+      await this.ensureInitialLoad();
+
+      for (const id of ids) {
+        const wasManuallyAdded = this.manualCards.delete(id);
+        const wasBlacklisted = this.temporaryBlacklist.has(id);
+        if (addToTemporaryBlacklist) {
+          this.temporaryBlacklist.add(id);
+        }
+
+        if (wasManuallyAdded || (addToTemporaryBlacklist && !wasBlacklisted)) {
+          changedCount++;
+        }
+        if (wasManuallyAdded || persistWhenNotManual) {
+          shouldPersist = true;
+        }
+      }
+
+      if (shouldPersist) {
+        if (persist) {
+          await persist();
+        } else {
+          await this.saveManualCardState(logger);
+        }
+      }
+
+      if (changedCount > 0) {
+        this.invalidateCachedCards();
+        this.clearSizeCache();
+        if (notifyObservers) {
+          this.notifyObservers();
+        }
+      }
+
+      logger.info(`Bulk removed ${changedCount} cards`, {
+        attemptedCount: ids.length,
+        failedCount: failedIds.length,
+        temporaryBlacklistSize: this.temporaryBlacklist.size,
+      });
+
+      return {
+        attemptedCount: ids.length,
+        changedCount,
+        failedIds,
+      };
+    } catch (error) {
+      logger.error('Failed to bulk remove cards:', error);
+      if (persistAfterError) {
+        void persistAfterError().catch((persistError) => {
+          logger.error('Failed to persist temporary blacklist after bulk remove error:', persistError);
+        });
+      }
+      throw error;
+    }
+  }
+
+  private dedupeBulkAddInputs(
+    cards: QueueBulkAddInput[],
+    logger: ManualCardQueueLogger
+  ): { attemptedCount: number; items: Map<string, QueueBulkAddInput>; failedIds: string[] } {
+    const items = new Map<string, QueueBulkAddInput>();
+    const failedIds: string[] = [];
+
+    for (const card of cards || []) {
+      try {
+        const cardId = String(resolveCardId(card) || '').trim();
+        if (!cardId) {
+          failedIds.push('');
+          continue;
+        }
+        if (!items.has(cardId)) {
+          items.set(cardId, card);
+        }
+      } catch (error) {
+        failedIds.push('');
+        logger.warn('Skip invalid card during bulk add:', { card, error });
+      }
+    }
+
+    return {
+      attemptedCount: items.size + failedIds.length,
+      items,
+      failedIds,
+    };
+  }
+
+  private uniqueCollectionIds(ids: string[]): string[] {
+    return Array.from(new Set(ids.filter((id) => id.length > 0)));
   }
 
   protected async handleReviewWithAutoFailed(

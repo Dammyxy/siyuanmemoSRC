@@ -14,6 +14,7 @@ import type { CardReadPort } from '@/core/storage/ports';
 import {
   QueueType,
   type QueueAddSource,
+  type QueueBulkMutationResult,
 } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import { resolveBrowserCardActionId } from '../utils/browserCardIdentity';
@@ -268,6 +269,7 @@ type QueueAddInput = string | {
 
 type QueueAddLike = {
   addCard?: (card: QueueAddInput, source?: QueueAddSource) => Promise<void> | void;
+  addCards?: (cards: QueueAddInput[], source?: QueueAddSource) => Promise<QueueBulkMutationResult> | QueueBulkMutationResult;
 };
 
 type UnifiedStorageLike = CardReadPort & {
@@ -537,7 +539,7 @@ async function addCardsDeterministically(
   resolveAddInput: (item: QueueCandidate) => QueueAddInput,
   source: QueueAddSource
 ) : Promise<{ added: number; failed: number; firstError?: string; conceptTypeConflict: number }> {
-  if (!queue || typeof queue.addCard !== 'function') {
+  if (!queue || (typeof queue.addCard !== 'function' && typeof queue.addCards !== 'function')) {
     throw new Error('Queue unavailable');
   }
 
@@ -545,6 +547,47 @@ async function addCardsDeterministically(
   let failed = 0;
   let firstError: string | undefined;
   let conceptTypeConflict = 0;
+
+  if (typeof queue.addCards === 'function') {
+    const addInputs: QueueAddInput[] = [];
+
+    for (const item of items) {
+      const addInput = resolveAddInput(item);
+      const targetId = typeof addInput === 'string' ? addInput : addInput.blockId;
+      if (!targetId) {
+        failed++;
+        continue;
+      }
+      addInputs.push(addInput);
+    }
+
+    if (addInputs.length === 0) {
+      return { added: 0, failed, firstError, conceptTypeConflict };
+    }
+
+    try {
+      const result = await Promise.resolve(queue.addCards(addInputs, source));
+      added = result.changedCount;
+      const failedItems = Array.isArray(result.failedItems) ? result.failedItems : [];
+      for (const item of failedItems) {
+        const message = item.message || '';
+        if (message.includes('is not a concept card')) {
+          conceptTypeConflict++;
+        } else if (message) {
+          firstError = firstError ?? message;
+        }
+      }
+      const failedIds = Array.isArray(result.failedIds) ? result.failedIds : [];
+      failed += Math.max(failedIds.length, failedItems.length);
+      return { added, failed, firstError, conceptTypeConflict };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      firstError = message;
+      failed += addInputs.length;
+      logger.error(`[MenuActions] Failed to bulk add ${addInputs.length} cards`, error);
+      return { added: 0, failed, firstError, conceptTypeConflict };
+    }
+  }
 
   for (const item of items) {
     const addInput = resolveAddInput(item);

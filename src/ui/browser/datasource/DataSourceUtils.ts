@@ -2,6 +2,11 @@ import type { BrowserCard } from '../types';
 import type { BrowserActionTarget, SortModel } from './types';
 import type { FSRSCard } from '@/types/card';
 import type { QueueSnapshotRow } from '@/types/queue-browser';
+import type {
+  BatchCardDeleteResult,
+  BatchCardMutationResult,
+  QueueBulkMutationResult,
+} from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
 import { batchSuspend, parseQuery } from '../browserService';
 import {
@@ -56,6 +61,7 @@ export type QueueFilterOptions = {
 
 type QueueRemoveLike = {
   removeCard?: (cardIdOrBlockId: string) => Promise<void> | void;
+  removeCards?: (cardIdsOrBlockIds: string[]) => Promise<QueueBulkMutationResult> | QueueBulkMutationResult;
 };
 type QueueInsertLike = {
   insertAt?: (cardId: string, position: number) => Promise<void> | void;
@@ -63,6 +69,7 @@ type QueueInsertLike = {
 type UnifiedCardManagerLike = {
   getCard: (cardId: string, options?: { silent?: boolean }) => Promise<FSRSCard>;
   updateCard: (card: FSRSCard) => Promise<void>;
+  batchUpdateCards?: (cards: FSRSCard[]) => Promise<BatchCardMutationResult>;
 };
 type SuspendCardsManagerLike = {
   getCards: () => Promise<FSRSCard[]>;
@@ -71,6 +78,10 @@ type SuspendCardsManagerLike = {
 };
 type BrowserDeleteManagerLike = {
   deleteCard?: (cardId: string) => Promise<void> | void;
+  batchDeleteCards?: (
+    cardIds: string[],
+    options?: { blockIds?: string[] }
+  ) => Promise<BatchCardDeleteResult> | BatchCardDeleteResult;
 };
 
 type QueueDueConfigLike = Partial<
@@ -126,8 +137,48 @@ export async function removeCardsFromQueue(
   options?: { scope?: string; resolveId?: (row: BrowserActionTarget) => string }
 ): Promise<QueueRemovalResult> {
   const scope = options?.scope || 'DataSource';
-  if (!queue || typeof queue.removeCard !== 'function') {
+  if (!queue || (typeof queue.removeCards !== 'function' && typeof queue.removeCard !== 'function')) {
     throw new Error(`[${scope}] Queue removeCard is unavailable`);
+  }
+
+  if (typeof queue.removeCards === 'function') {
+    const failedIds: string[] = [];
+    const cardIds: string[] = [];
+    for (const row of selectedRows || []) {
+      const cardId = options?.resolveId?.(row) || resolveBrowserCardId(row);
+      if (!cardId) {
+        failedIds.push(String(row?.blockId || row?.id || ''));
+        continue;
+      }
+      cardIds.push(cardId);
+    }
+
+    const uniqueCardIds = uniqueStrings(cardIds);
+    if (uniqueCardIds.length === 0) {
+      return {
+        removedCount: 0,
+        failedCount: failedIds.length,
+        failedIds: uniqueStrings(failedIds),
+      };
+    }
+
+    try {
+      const result = await Promise.resolve(queue.removeCards(uniqueCardIds));
+      const resultFailedIds = Array.isArray(result.failedIds) ? result.failedIds : [];
+      const mergedFailedIds = uniqueStrings([...failedIds, ...resultFailedIds]);
+      return {
+        removedCount: result.changedCount,
+        failedCount: mergedFailedIds.length,
+        failedIds: mergedFailedIds,
+      };
+    } catch (error) {
+      logger.error(`[${scope}] Failed to bulk remove ${uniqueCardIds.length} cards`, error);
+      return {
+        removedCount: 0,
+        failedCount: uniqueCardIds.length + failedIds.length,
+        failedIds: uniqueStrings([...failedIds, ...uniqueCardIds]),
+      };
+    }
   }
 
   let removedCount = 0;
@@ -202,8 +253,9 @@ export async function setBrowserCardsPriority(
 ): Promise<QueueCardActionResult> {
   const scope = options?.scope || 'DataSource';
   const normalizedPriority = Math.max(0, Math.min(100, Math.floor(Number(priority) || 0)));
-  const updated: BrowserCard[] = [];
-  const skipped: BrowserCard[] = [];
+  const updated: BrowserActionTarget[] = [];
+  const skipped: BrowserActionTarget[] = [];
+  const rowsByCardId = new Map<string, BrowserActionTarget[]>();
 
   for (const row of selectedRows || []) {
     const cardId = resolveBrowserCardId(row);
@@ -212,14 +264,81 @@ export async function setBrowserCardsPriority(
       continue;
     }
 
+    const rows = rowsByCardId.get(cardId);
+    if (rows) {
+      rows.push(row);
+    } else {
+      rowsByCardId.set(cardId, [row]);
+    }
+  }
+
+  if (typeof manager.batchUpdateCards === 'function') {
+    const cardsToUpdate: FSRSCard[] = [];
+    const loadFailedIds = new Set<string>();
+
+    for (const cardId of rowsByCardId.keys()) {
+      try {
+        const card = await manager.getCard(cardId);
+        cardsToUpdate.push({
+          ...card,
+          priority: normalizedPriority,
+        });
+      } catch (error) {
+        loadFailedIds.add(cardId);
+        skipped.push(...(rowsByCardId.get(cardId) || []));
+        logger.error(`[${scope}] Failed to load card ${cardId} before priority batch`, error);
+      }
+    }
+
+    if (cardsToUpdate.length === 0) {
+      return { updated, skipped };
+    }
+
+    try {
+      const result = await manager.batchUpdateCards(cardsToUpdate);
+      const failedIds = new Set((result.failedCardIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+      const updatedIds = (result.updatedCardIds?.length ? result.updatedCardIds : cardsToUpdate.map((card) => card.id))
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+      const updatedIdSet = new Set(updatedIds);
+
+      for (const cardId of rowsByCardId.keys()) {
+        if (loadFailedIds.has(cardId)) {
+          continue;
+        }
+        const rows = rowsByCardId.get(cardId) || [];
+        if (failedIds.has(cardId) || !updatedIdSet.has(cardId)) {
+          skipped.push(...rows);
+          continue;
+        }
+        for (const row of rows) {
+          row.priority = normalizedPriority;
+          updated.push(row);
+        }
+      }
+    } catch (error) {
+      skipped.push(
+        ...Array.from(rowsByCardId.entries())
+          .filter(([cardId]) => !loadFailedIds.has(cardId))
+          .flatMap(([, rows]) => rows)
+      );
+      logger.error(`[${scope}] Failed to bulk set priority`, error);
+    }
+
+    return { updated, skipped };
+  }
+
+  for (const [cardId, rows] of rowsByCardId.entries()) {
     try {
       const card = await manager.getCard(cardId);
       card.priority = normalizedPriority;
       await manager.updateCard(card);
-      row.priority = normalizedPriority;
-      updated.push(row);
+      for (const row of rows) {
+        row.priority = normalizedPriority;
+        updated.push(row);
+      }
     } catch (error) {
-      skipped.push(row);
+      skipped.push(...rows);
       logger.error(`[${scope}] Failed to set priority for card ${cardId}`, error);
     }
   }
@@ -305,8 +424,8 @@ export async function adjustBrowserCardsDue(
   const dayMs = 24 * 60 * 60 * 1000;
   const days = resolveAdjustDays(action, context);
   const now = Date.now();
-  const updated: BrowserCard[] = [];
-  const skipped: BrowserCard[] = [];
+  const updated: BrowserActionTarget[] = [];
+  const skipped: BrowserActionTarget[] = [];
   const cards = selectedRows || [];
 
   for (let i = 0; i < cards.length; i++) {
@@ -400,7 +519,7 @@ function toComparableSortValue(
   row: BrowserSortRowLike,
   sortKey: string
 ): string | number | boolean | null {
-  const rawValue = getSortContractRawValue(row as BrowserCard, sortKey);
+  const rawValue = getSortContractRawValue(row as unknown as BrowserCard, sortKey);
   const valueType = getSortContractValueType(sortKey);
   return normalizeComparableSortValue(rawValue, valueType);
 }
@@ -546,7 +665,7 @@ export function sortBrowserRows<TRow extends BrowserSortRowLike>(
 }
 
 export function sortBrowserCards(rows: BrowserCard[], sortModel: SortModel[]): BrowserCard[] {
-  return sortBrowserRows(rows, sortModel);
+  return sortBrowserRows(rows as unknown as BrowserSortRowLike[], sortModel) as unknown as BrowserCard[];
 }
 
 export function sortQueueSnapshotRows(
@@ -797,7 +916,7 @@ export function applySimpleQueryFilter<TRow extends QueueFilterRowLike>(
   }
 
   const parsed = parseQuery(normalizedQuery);
-  const filtered = cards.filter((card) => matchesParsedQuery(card as BrowserCard, parsed));
+  const filtered = cards.filter((card) => matchesParsedQuery(card as unknown as BrowserCard, parsed));
   if (filtered.length > 0 || !options?.secondaryField) {
     return filtered;
   }
@@ -815,7 +934,7 @@ export function applySimpleQueryFilter<TRow extends QueueFilterRowLike>(
     if (options.secondaryField === 'fullContent') {
       return card.fullContent?.toLowerCase().includes(query) || false;
     }
-    return (card as BrowserCardWithHeadline).headline?.toLowerCase().includes(query) || false;
+    return (card as unknown as BrowserCardWithHeadline).headline?.toLowerCase().includes(query) || false;
   });
 }
 
@@ -891,7 +1010,7 @@ export async function deleteBrowserCards(
     };
   }
 
-  if (!manager || typeof manager.deleteCard !== 'function') {
+  if (!manager || (typeof manager.deleteCard !== 'function' && typeof manager.batchDeleteCards !== 'function')) {
     logger.error(`[${scope}] UnifiedDataSourceManager.deleteCard is unavailable`);
     return {
       attemptedCount: cardIds.length,
@@ -899,6 +1018,31 @@ export async function deleteBrowserCards(
       deletedCardIds: [],
       failedCardIds: [...cardIds],
     };
+  }
+
+  if (typeof manager.batchDeleteCards === 'function') {
+    const blockIds = uniqueStrings(
+      (selectedRows || [])
+        .map((row) => String(row?.blockId || '').trim())
+        .filter(Boolean)
+    );
+    try {
+      const result = await Promise.resolve(manager.batchDeleteCards(cardIds, { blockIds }));
+      return {
+        attemptedCount: result.attemptedCount,
+        deletedCount: result.deletedCount,
+        deletedCardIds: uniqueStrings(result.deletedCardIds || []),
+        failedCardIds: uniqueStrings(result.failedCardIds || []),
+      };
+    } catch (error) {
+      logger.error(`[${scope}] Failed to batch delete ${cardIds.length} cards`, error);
+      return {
+        attemptedCount: cardIds.length,
+        deletedCount: 0,
+        deletedCardIds: [],
+        failedCardIds: [...cardIds],
+      };
+    }
   }
 
   return executeBrowserManagerDelete(manager, cardIds, scope);
