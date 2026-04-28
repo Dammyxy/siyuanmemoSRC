@@ -71,7 +71,10 @@ describe('UnifiedStorageManager batchUpdateCards', () => {
     const result = await storage.batchUpdateCards([
       { ...card1, due: now - 1_000, priority: 10, updatedAt: now },
       { ...card2, due: now - 2_000, priority: 20, updatedAt: now },
-    ]);
+    ], {
+      preferIncomingScheduling: true,
+      schedulingWriteSource: 'review-commit',
+    });
 
     expect(result.ok).toBe(true);
     expect(storage.getCardDTO('card-1')?.priority).toBe(10);

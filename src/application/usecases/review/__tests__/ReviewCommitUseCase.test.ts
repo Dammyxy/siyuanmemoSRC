@@ -26,6 +26,7 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     skipped: false,
     createdAt: now - 86_400_000,
     updatedAt: now,
+    schedulerType: 'fsrs-v6',
     ...overrides,
   };
 }
@@ -120,7 +121,12 @@ describe('ReviewCommitUseCase', () => {
 
   it('passes queue scheduling context into Arena SRS review recording', async () => {
     const before = createCard();
-    const after = createCard({ due: before.due + 13 * 86_400_000, reps: 2, lastReview: before.due });
+    const after = createCard({
+      due: before.due + 13 * 86_400_000,
+      reps: 2,
+      lastReview: before.due,
+      scheduledDays: 13,
+    });
     const decision = createDecision(before, after, Rating.Hard);
     const arena = {
       recordSrsReview: vi.fn(async () => null),
@@ -209,6 +215,41 @@ describe('ReviewCommitUseCase', () => {
 
     expect(result.updatedCard).toEqual(before);
     expect(result.committed).toBe(false);
+    expect(addReviewLogV2).not.toHaveBeenCalled();
+    expect(onCommittedCard).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when the scheduler returns dirty persistent scheduling metadata', async () => {
+    const before = createCard();
+    const after = {
+      ...createCard({ due: before.due + 86_400_000, reps: 2, lastReview: before.due }),
+      nextDues: { good: before.due + 86_400_000 },
+    } as FSRSCard & { nextDues: unknown };
+    const decision = createDecision(before, after);
+    const addReviewLogV2 = vi.fn(async () => {});
+    const onCommittedCard = vi.fn(async () => {});
+    const scheduler = {
+      answer: vi.fn(() => decision),
+      commit: vi.fn(async () => ({
+        decision,
+        updatedCard: after,
+        committed: true,
+      })),
+      route: vi.fn(),
+    };
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2 },
+      onCommittedCard,
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: { queueType: 'retrieval-practice' },
+    })).rejects.toThrow(/Dirty scheduling state/);
     expect(addReviewLogV2).not.toHaveBeenCalled();
     expect(onCommittedCard).not.toHaveBeenCalled();
   });

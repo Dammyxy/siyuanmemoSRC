@@ -1,6 +1,6 @@
 import { CardState, CardType, type FSRSCard } from '../../../types/card';
 import type { RiffBlock } from '../../../core/siyuan/riff';
-import { repairFsrsReviewState } from '../../../core/scheduler/fsrsReviewStateRepair';
+import { canonicalizeSchedulingState } from '../../../core/scheduler/schedulingStateCleanliness';
 
 function parseTimestamp(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -97,7 +97,10 @@ export class RiffMapper {
       },
     };
 
-    return repairFsrsReviewState(card, { schedulerType: card.schedulerType }).card;
+    return canonicalizeSchedulingState(card, {
+      source: 'riff-import',
+      mode: 'repair-external',
+    }).card;
   }
 
   static toDomainBatch(riffBlocks: RiffBlock[]): FSRSCard[] {

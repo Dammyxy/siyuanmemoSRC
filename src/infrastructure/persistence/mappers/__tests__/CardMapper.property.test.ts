@@ -13,8 +13,9 @@ import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { CardMapper } from '../CardMapper';
 import { Card } from '../../../../domain/entities/Card';
-import { CardState, CardType } from '../../../../types/card';
+import { CardState, CardType, type FSRSCard } from '../../../../types/card';
 import { isErr } from '../../../../types/result';
+import { canonicalizeSchedulingState } from '../../../../core/scheduler/schedulingStateCleanliness';
 
 // ==================== Arbitraries（生成器）====================
 
@@ -101,6 +102,60 @@ const cardPropsArbitrary = fc.record({
   ),
   extensionData: fc.option(fc.dictionary(fc.string(), fc.anything()), { nil: undefined }),
 });
+
+function expectCleanSchedulingState(card: FSRSCard): void {
+  const expectedSchedulerType =
+    card.type === CardType.Topic || card.type === CardType.Concept
+      ? 'a-factor-v2'
+      : 'fsrs-v6';
+
+  expect((card as unknown as { nextDues?: unknown }).nextDues).toBeUndefined();
+  expect(card.schedulerType).toBe(expectedSchedulerType);
+
+  const schedulingMetaKeys = [
+    'nextDues',
+    'stability',
+    'difficulty',
+    'aFactor',
+    'a_factor',
+    'scheduledDays',
+    'scheduled_days',
+  ];
+  for (const key of schedulingMetaKeys) {
+    expect(card.meta?.[key]).toBeUndefined();
+  }
+
+  if (expectedSchedulerType === 'fsrs-v6') {
+    expect(card.aFactor).toBeUndefined();
+    expect(card.schedulerMeta).toBeUndefined();
+    if (card.state === CardState.Review || card.state === CardState.Relearning) {
+      expect(card.stability).toBeGreaterThan(0);
+      expect(card.difficulty).toBeGreaterThanOrEqual(1);
+      expect(card.difficulty).toBeLessThanOrEqual(10);
+    }
+    return;
+  }
+
+  expect(card.aFactor).toBeGreaterThanOrEqual(1.2);
+  expect(card.aFactor).toBeLessThanOrEqual(6);
+  expect(Object.keys(card.schedulerMeta ?? {})).toEqual(['topic']);
+  expect(card.schedulerMeta?.topic?.of).toBe(card.aFactor);
+  expect(card.schedulerMeta?.topic?.afs.every(value => value >= 1.2 && value <= 6)).toBe(true);
+}
+
+function comparableOwnObject(value: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== '__proto__'));
+}
+
+function expectComparableObject(
+  actual: Record<string, unknown> | undefined,
+  expected: Record<string, unknown> | undefined,
+): void {
+  expect(comparableOwnObject(actual)).toEqual(comparableOwnObject(expected));
+}
 
 // ==================== 属性测试 ====================
 
@@ -197,7 +252,7 @@ describe('CardMapper Property Tests', () => {
           }
           
           // 扩展数据
-          expect(restoredProps.extensionData).toEqual(originalProps.extensionData);
+          expectComparableObject(restoredProps.extensionData, originalProps.extensionData);
           
           return true;
         }),
@@ -303,7 +358,7 @@ describe('CardMapper Property Tests', () => {
             const dto = CardMapper.fromEntity(originalCard);
             
             // 3. 验证 DTO 包含扩展数据
-            expect(dto.meta).toEqual(props.extensionData);
+            expectComparableObject(dto.meta, props.extensionData);
             
             // 4. DTO → Entity
             const restoredResult = CardMapper.toEntity(dto);
@@ -316,7 +371,7 @@ describe('CardMapper Property Tests', () => {
             const restoredCard = restoredResult.value;
             
             // 5. 验证扩展数据完整恢复
-            expect(restoredCard.extensionData).toEqual(props.extensionData);
+            expectComparableObject(restoredCard.extensionData, props.extensionData);
             
             return true;
           }
@@ -388,51 +443,55 @@ describe('CardMapper Property Tests', () => {
           
           // 2. DTO → FSRSCard
           const restoredCard = CardMapper.toDomain(dto);
+          const expectedCard = canonicalizeSchedulingState(card, {
+            source: 'card-mapper',
+            mode: 'repair-external',
+          }).card;
           
           // 3. 验证所有字段值相同
           // 基本字段
-          expect(restoredCard.id).toBe(card.id);
-          expect(restoredCard.blockId).toBe(card.blockId);
-          expect(restoredCard.due).toBe(card.due);
-          expect(restoredCard.stability).toBe(card.stability);
-          expect(restoredCard.difficulty).toBe(card.difficulty);
-          expect(restoredCard.reps).toBe(card.reps);
-          expect(restoredCard.lapses).toBe(card.lapses);
-          expect(restoredCard.state).toBe(card.state);
-          expect(restoredCard.lastReview).toBe(card.lastReview);
-          expect(restoredCard.elapsedDays).toBe(card.elapsedDays);
-          expect(restoredCard.scheduledDays).toBe(card.scheduledDays);
-          expect(restoredCard.learning_step).toBe(card.learning_step);
-          expect(restoredCard.priority).toBe(card.priority);
-          expect(restoredCard.type).toBe(card.type);
+          expect(restoredCard.id).toBe(expectedCard.id);
+          expect(restoredCard.blockId).toBe(expectedCard.blockId);
+          expect(restoredCard.due).toBe(expectedCard.due);
+          expect(restoredCard.stability).toBe(expectedCard.stability);
+          expect(restoredCard.difficulty).toBe(expectedCard.difficulty);
+          expect(restoredCard.reps).toBe(expectedCard.reps);
+          expect(restoredCard.lapses).toBe(expectedCard.lapses);
+          expect(restoredCard.state).toBe(expectedCard.state);
+          expect(restoredCard.lastReview).toBe(expectedCard.lastReview);
+          expect(restoredCard.elapsedDays).toBe(expectedCard.elapsedDays);
+          expect(restoredCard.scheduledDays).toBe(expectedCard.scheduledDays);
+          expect(restoredCard.learning_step).toBe(expectedCard.learning_step);
+          expect(restoredCard.priority).toBe(expectedCard.priority);
+          expect(restoredCard.type).toBe(expectedCard.type);
           
           // 数组字段
-          expect(restoredCard.tags).toEqual(card.tags);
+          expect(restoredCard.tags).toEqual(expectedCard.tags);
           
           // 可选字段
-          expect(restoredCard.cardTypeMarker).toBe(card.cardTypeMarker);
-          expect(restoredCard.neuralRoamSeed).toBe(card.neuralRoamSeed);
-          expect(restoredCard.leechCount).toBe(card.leechCount);
-          expect(restoredCard.isLeech).toBe(card.isLeech);
-          expect(restoredCard.skipped).toBe(card.skipped);
-          expect(restoredCard.skipNote).toBe(card.skipNote);
-          expect(restoredCard.skipUntil).toBe(card.skipUntil);
-          expect(restoredCard.sourceUrl).toBe(card.sourceUrl);
-          expect(restoredCard.extractedFrom).toBe(card.extractedFrom);
-          expect(restoredCard.createdAt).toBe(card.createdAt);
-          expect(restoredCard.updatedAt).toBe(card.updatedAt);
-          expect(restoredCard.aFactor).toBe(card.aFactor);
-          expect(restoredCard.schedulerType).toBe(card.schedulerType);
-          expect(restoredCard.syncToRiff).toBe(card.syncToRiff);
-          expect(restoredCard.riffCardId).toBe(card.riffCardId);
-          expect(restoredCard.schedulerMeta).toEqual(card.schedulerMeta);
-          expect(restoredCard.postponeCount).toBe(card.postponeCount);
-          expect(restoredCard.lastPostponeDate).toBe(card.lastPostponeDate);
-          expect(restoredCard.rescheduleHistory).toEqual(card.rescheduleHistory);
+          expect(restoredCard.cardTypeMarker).toBe(expectedCard.cardTypeMarker);
+          expect(restoredCard.neuralRoamSeed).toBe(expectedCard.neuralRoamSeed);
+          expect(restoredCard.leechCount).toBe(expectedCard.leechCount);
+          expect(restoredCard.isLeech).toBe(expectedCard.isLeech);
+          expect(restoredCard.skipped).toBe(expectedCard.skipped);
+          expect(restoredCard.skipNote).toBe(expectedCard.skipNote);
+          expect(restoredCard.skipUntil).toBe(expectedCard.skipUntil);
+          expect(restoredCard.sourceUrl).toBe(expectedCard.sourceUrl);
+          expect(restoredCard.extractedFrom).toBe(expectedCard.extractedFrom);
+          expect(restoredCard.createdAt).toBe(expectedCard.createdAt);
+          expect(restoredCard.updatedAt).toBe(expectedCard.updatedAt);
+          expect(restoredCard.aFactor).toBe(expectedCard.aFactor);
+          expect(restoredCard.schedulerType).toBe(expectedCard.schedulerType);
+          expect(restoredCard.syncToRiff).toBe(expectedCard.syncToRiff);
+          expect(restoredCard.riffCardId).toBe(expectedCard.riffCardId);
+          expect(restoredCard.schedulerMeta).toEqual(expectedCard.schedulerMeta);
+          expect(restoredCard.postponeCount).toBe(expectedCard.postponeCount);
+          expect(restoredCard.lastPostponeDate).toBe(expectedCard.lastPostponeDate);
+          expect(restoredCard.rescheduleHistory).toEqual(expectedCard.rescheduleHistory);
           
           // meta 字段 - 接受规范化行为：空对象 {} 会被规范化为 undefined
           // 这是预期行为，用于清理无意义的空对象
-          const normalizedOriginalMeta = card.meta && Object.keys(card.meta).length > 0 ? card.meta : undefined;
+          const normalizedOriginalMeta = expectedCard.meta && Object.keys(expectedCard.meta).length > 0 ? expectedCard.meta : undefined;
           expect(restoredCard.meta).toEqual(normalizedOriginalMeta);
           
           return true;
@@ -598,8 +657,14 @@ describe('CardMapper Property Tests', () => {
             
             // 3. 验证 meta 数据完整恢复
             // 注意：空对象会被规范化为 undefined，这是预期行为
-            const normalizedOriginalMeta = card.meta && Object.keys(card.meta).length > 0 ? card.meta : undefined;
-            expect(restoredCard.meta).toEqual(normalizedOriginalMeta);
+            const expectedCard = canonicalizeSchedulingState(card, {
+              source: 'card-mapper',
+              mode: 'repair-external',
+            }).card;
+            const normalizedOriginalMeta = expectedCard.meta && Object.keys(expectedCard.meta).length > 0
+              ? expectedCard.meta
+              : undefined;
+            expectComparableObject(restoredCard.meta, normalizedOriginalMeta);
             
             return true;
           }
@@ -1708,14 +1773,13 @@ describe('CardMapper Property Tests', () => {
           // 基本字段
           expect(loadedProps.id).toBe(originalProps.id);
           expect(loadedProps.blockId).toBe(originalProps.blockId);
-          expect(loadedProps.due).toBe(originalProps.due);
-          expect(loadedProps.stability).toBe(originalProps.stability);
-          expect(loadedProps.difficulty).toBe(originalProps.difficulty);
           expect(loadedProps.reps).toBe(originalProps.reps);
           expect(loadedProps.lapses).toBe(originalProps.lapses);
           expect(loadedProps.state).toBe(originalProps.state);
           expect(loadedProps.priority).toBe(originalProps.priority);
           expect(loadedProps.type).toBe(originalProps.type);
+          expectCleanSchedulingState(fsrsCard);
+          expectCleanSchedulingState(CardMapper.toDomain(loadedDto));
           
           // Xiuyuan 元数据
           if (originalProps.xiuyuanMetadata) {
@@ -1780,8 +1844,12 @@ describe('CardMapper Property Tests', () => {
               
               expect(loadedProps.id).toBe(originalProps.id);
               expect(loadedProps.blockId).toBe(originalProps.blockId);
-              expect(loadedProps.stability).toBe(originalProps.stability);
-              expect(loadedProps.difficulty).toBe(originalProps.difficulty);
+              expect(loadedProps.reps).toBe(originalProps.reps);
+              expect(loadedProps.lapses).toBe(originalProps.lapses);
+              expect(loadedProps.state).toBe(originalProps.state);
+              expect(loadedProps.priority).toBe(originalProps.priority);
+              expect(loadedProps.type).toBe(originalProps.type);
+              expectCleanSchedulingState(fsrsCards[i]);
             }
             
             return true;
@@ -2155,6 +2223,10 @@ describe('CardMapper Property Tests', () => {
             meta: fc.option(fc.dictionary(fc.string(), fc.anything()), { nil: undefined }),
           }),
           (fsrsCard) => {
+            if (fsrsCard.id.trim().length === 0 || fsrsCard.blockId.trim().length === 0) {
+              return true;
+            }
+
             // 1. 使用旧接口保存：FSRSCard → DTO
             const dto = CardMapper.toPersistence(fsrsCard);
             
@@ -2170,16 +2242,17 @@ describe('CardMapper Property Tests', () => {
             const entity = entityResult.value;
             
             // 4. 验证数据正确
-            expect(entity.id.value).toBe(fsrsCard.id);
-            expect(entity.blockId.value).toBe(fsrsCard.blockId);
-            expect(entity.due).toBe(fsrsCard.due);
-            expect(entity.stability).toBe(fsrsCard.stability);
-            expect(entity.difficulty).toBe(fsrsCard.difficulty);
-            expect(entity.reps).toBe(fsrsCard.reps);
-            expect(entity.lapses).toBe(fsrsCard.lapses);
-            expect(entity.state).toBe(fsrsCard.state);
-            expect(entity.priority.value).toBe(fsrsCard.priority);
-            expect(entity.type).toBe(fsrsCard.type);
+            expect(entity.id.value).toBe(dto.id);
+            expect(entity.blockId.value).toBe(dto.blockId);
+            expect(entity.due).toBe(dto.due);
+            expect(entity.stability).toBe(dto.stability);
+            expect(entity.difficulty).toBe(dto.difficulty);
+            expect(entity.reps).toBe(dto.reps);
+            expect(entity.lapses).toBe(dto.lapses);
+            expect(entity.state).toBe(dto.state);
+            expect(entity.priority.value).toBe(dto.priority);
+            expect(entity.type).toBe(dto.type);
+            expectCleanSchedulingState(CardMapper.toDomain(dto));
             
             return true;
           }
@@ -2212,14 +2285,12 @@ describe('CardMapper Property Tests', () => {
           // 4. 验证数据正确
           expect(fsrsCard.id).toBe(entity.id.value);
           expect(fsrsCard.blockId).toBe(entity.blockId.value);
-          expect(fsrsCard.due).toBe(entity.due);
-          expect(fsrsCard.stability).toBe(entity.stability);
-          expect(fsrsCard.difficulty).toBe(entity.difficulty);
           expect(fsrsCard.reps).toBe(entity.reps);
           expect(fsrsCard.lapses).toBe(entity.lapses);
           expect(fsrsCard.state).toBe(entity.state);
           expect(fsrsCard.priority).toBe(entity.priority.value);
           expect(fsrsCard.type).toBe(entity.type);
+          expectCleanSchedulingState(fsrsCard);
           
           return true;
         }),
@@ -2267,10 +2338,9 @@ describe('CardMapper Property Tests', () => {
           
           expect(restoredProps.id).toBe(originalProps.id);
           expect(restoredProps.blockId).toBe(originalProps.blockId);
-          expect(restoredProps.stability).toBe(originalProps.stability);
-          expect(restoredProps.difficulty).toBe(originalProps.difficulty);
           expect(restoredProps.priority).toBe(originalProps.priority);
           expect(restoredProps.type).toBe(originalProps.type);
+          expectCleanSchedulingState(fsrsCard);
           
           return true;
         }),
@@ -2400,7 +2470,12 @@ describe('CardMapper Property Tests', () => {
               
               expect(restoredProps.id).toBe(originalProps.id);
               expect(restoredProps.blockId).toBe(originalProps.blockId);
-              expect(restoredProps.stability).toBe(originalProps.stability);
+              expect(restoredProps.reps).toBe(originalProps.reps);
+              expect(restoredProps.lapses).toBe(originalProps.lapses);
+              expect(restoredProps.state).toBe(originalProps.state);
+              expect(restoredProps.priority).toBe(originalProps.priority);
+              expect(restoredProps.type).toBe(originalProps.type);
+              expectCleanSchedulingState(fsrsCards[i]);
             }
             
             return true;

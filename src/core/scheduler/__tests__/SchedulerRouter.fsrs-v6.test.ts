@@ -105,7 +105,7 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
         id: updatedCard.id,
         schedulerType: 'fsrs-v6',
       }),
-    ]);
+    ], { schedulingWriteSource: 'review-commit' });
   });
 
   it('forces item cards with legacy a-factor schedulerType onto fsrs-v6', async () => {
@@ -231,7 +231,7 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
         due: reviewTime.getTime() + 33 * DAY_MS,
         lastReview: reviewTime.getTime(),
       }),
-    ]);
+    ], { schedulingWriteSource: 'review-commit' });
   });
 
   it('keeps Again minute-level for manual early reviews while preserving due-day memory interval', async () => {
@@ -279,7 +279,7 @@ describe('SchedulerRouter fsrs-v6 migration constraints', () => {
         due: reviewedAgain.due,
         lastReview: reviewTime.getTime(),
       }),
-    ]);
+    ], { schedulingWriteSource: 'review-commit' });
   });
 
   it('keeps filtered preview decisions out of formal persistence', async () => {

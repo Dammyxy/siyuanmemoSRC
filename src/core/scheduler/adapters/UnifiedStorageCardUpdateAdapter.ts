@@ -3,6 +3,10 @@ import type { ReviewLogV2 } from '@/types/review';
 import type { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite';
 import type { CardUpdatePort } from '@/core/scheduler/ports';
+import {
+  canonicalizeSchedulingState,
+  type SchedulingWriteSource,
+} from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
 import { isErr } from '@/types/result';
 
@@ -21,7 +25,10 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
     private readonly sqlCards?: SqlUnifiedStorageRepository | null,
   ) {}
 
-  async batchUpdateCardsWithoutEvents(cards: FSRSCard[]): Promise<void> {
+  async batchUpdateCardsWithoutEvents(
+    cards: FSRSCard[],
+    options: { schedulingWriteSource?: SchedulingWriteSource } = {},
+  ): Promise<void> {
     if (!cards || cards.length === 0) {
       return;
     }
@@ -35,11 +42,18 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
       }
       dedupedCards.set(card.id, card);
     }
-    const cardsToPersist = Array.from(dedupedCards.values());
+    const cardsToPersist = Array.from(dedupedCards.values()).map((card) => (
+      canonicalizeSchedulingState(card, {
+        source: options.schedulingWriteSource ?? 'review-commit',
+        mode: 'assert-internal',
+      }).card
+    ));
+    const schedulingWriteSource = options.schedulingWriteSource ?? 'review-commit';
 
     await this.storage.runWriteTransaction('scheduler.batchUpdateCardsWithoutEvents', async () => {
       const result = await this.storage.batchUpdateCards(cardsToPersist, {
           preferIncomingScheduling: true,
+          schedulingWriteSource,
           suppressAutosave: Boolean(this.sqlCards),
         });
       if (isErr(result)) {

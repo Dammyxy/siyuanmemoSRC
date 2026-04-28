@@ -6,6 +6,7 @@ import type {
   QueueReviewCommitResult,
 } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
+import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import type { FSRSCard, Rating } from '@/types';
 import { createReviewLogV2 } from '@/types/review';
 import { createLogger } from '@/utils/logger';
@@ -72,16 +73,25 @@ export class ReviewCommitUseCase {
     if (typeof this.deps.scheduler.answer === 'function' && typeof this.deps.scheduler.commit === 'function') {
       const decision = this.deps.scheduler.answer(card, rating, context);
       const commitResult = await this.deps.scheduler.commit(decision);
-      const updatedCard = commitResult.updatedCard ?? decision.current;
+      const cleanUpdatedCard = commitResult.updatedCard
+        ? canonicalizeSchedulingState(commitResult.updatedCard, {
+            source: 'review-commit',
+            mode: 'assert-internal',
+          }).card
+        : undefined;
+      const cleanCommitResult = cleanUpdatedCard
+        ? { ...commitResult, updatedCard: cleanUpdatedCard }
+        : commitResult;
+      const updatedCard = cleanUpdatedCard ?? decision.current;
 
-      if (commitResult.committed && commitResult.updatedCard) {
+      if (cleanCommitResult.committed && cleanUpdatedCard) {
         await this.deps.reviewLogs.addReviewLogV2(createReviewLogV2({
           attemptId: decision.attempt.id,
           cardId: decision.attempt.cardId,
           rating: decision.attempt.rating,
           reviewedAt: decision.attempt.reviewedAt,
           before: decision.before,
-          after: commitResult.updatedCard,
+          after: cleanUpdatedCard,
           elapsedMs: decision.attempt.elapsedMs,
           queueType: decision.attempt.queueType,
           queueMode: decision.queueMode,
@@ -93,7 +103,7 @@ export class ReviewCommitUseCase {
           isFiltered: decision.attempt.isFiltered,
           customStudy: decision.attempt.customStudy,
         }));
-        await this.deps.onCommittedCard?.(commitResult.updatedCard);
+        await this.deps.onCommittedCard?.(cleanUpdatedCard);
       }
 
       await this.recordArenaReview(card, rating, context);
@@ -101,13 +111,19 @@ export class ReviewCommitUseCase {
       return {
         card,
         updatedCard,
-        committed: commitResult.committed,
+        committed: cleanCommitResult.committed,
         decision,
-        commitResult,
+        commitResult: cleanCommitResult,
       };
     }
 
-    const updatedCard = await this.deps.scheduler.route(card, rating, context);
+    const updatedCard = canonicalizeSchedulingState(
+      await this.deps.scheduler.route(card, rating, context),
+      {
+        source: 'review-commit',
+        mode: 'assert-internal',
+      },
+    ).card;
     await this.deps.onCommittedCard?.(updatedCard);
     await this.recordArenaReview(card, rating, context);
     return {

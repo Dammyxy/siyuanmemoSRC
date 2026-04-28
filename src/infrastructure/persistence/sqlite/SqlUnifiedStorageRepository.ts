@@ -15,6 +15,7 @@ import type {
 import type { SortModel } from '@/application/interfaces/ICardDataSource';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '@/infrastructure/persistence/mappers/CardMapper';
+import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import { CardState, type FSRSCard } from '@/types/card';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import type { StructuredCardQuery } from '@/types/card-query';
@@ -131,13 +132,6 @@ function readStringField(record: unknown, key: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function readNumberField(record: unknown, key: string): number | null {
-  if (!isObjectRecord(record)) {
-    return null;
-  }
-  return normalizeNumber(record[key]);
-}
-
 function normalizeProjectionTags(card: FSRSCard): string | null {
   const tags = new Set<string>();
   for (const tag of Array.isArray(card.tags) ? card.tags : []) {
@@ -181,9 +175,7 @@ function createCardProjection(card: FSRSCard, dto?: CardPersistenceDTO): CardPro
     || readStringField(card, 'rootId');
   const contentText = readStringField(meta, 'content')
     || readStringField(card, 'content');
-  const aFactor = normalizeNumber(card.aFactor)
-    ?? readNumberField(meta, 'aFactor')
-    ?? readNumberField(meta, 'a_factor');
+  const aFactor = normalizeNumber(card.aFactor ?? dto?.aFactor);
 
   return {
     deckId: deckId || null,
@@ -202,6 +194,17 @@ function createCardProjection(card: FSRSCard, dto?: CardPersistenceDTO): CardPro
     searchText: normalizeSearchText(contentText),
     cardTypeMarker: resolveCardTypeMarker(card, dto),
   };
+}
+
+function canonicalizeSqlCard(card: FSRSCard): FSRSCard {
+  return canonicalizeSchedulingState(card, {
+    source: 'sql-repository',
+    mode: 'repair-external',
+  }).card;
+}
+
+function canonicalizeSqlDTO(dto: CardPersistenceDTO): CardPersistenceDTO {
+  return CardMapper.toPersistence(CardMapper.toDomain(dto));
 }
 
 function appendInClause(
@@ -242,9 +245,15 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         store.xiuyuans[row.id] = parseJson<IXiuyuan>(row.payload_json, {} as IXiuyuan);
       }
       for (const row of cardRows) {
-        store.cards[row.id] = parseJson<FSRSCard>(row.payload_json, {} as FSRSCard);
+        const rawCard = parseJson<FSRSCard>(row.payload_json, {} as FSRSCard);
         if (row.dto_json) {
-          store.cardDTOs![row.id] = parseJson<CardPersistenceDTO>(row.dto_json, {} as CardPersistenceDTO);
+          const cleanDto = canonicalizeSqlDTO(parseJson<CardPersistenceDTO>(row.dto_json, {} as CardPersistenceDTO));
+          store.cardDTOs![row.id] = cleanDto;
+          store.cards[row.id] = CardMapper.toDomain(cleanDto);
+        } else if (rawCard?.id) {
+          const cleanCard = canonicalizeSqlCard(rawCard);
+          store.cards[row.id] = cleanCard;
+          store.cardDTOs![row.id] = CardMapper.toPersistence(cleanCard);
         }
       }
       for (const row of tombstoneRows) {
@@ -287,7 +296,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       const cardDTOs = store.cardDTOs || {};
       for (const [id, card] of Object.entries(store.cards || {})) {
         const dto = cardDTOs[id];
-        const projection = createCardProjection(card, dto);
+        const cleanCard = canonicalizeSqlCard(card);
+        const cleanDto = dto ? canonicalizeSqlDTO(dto) : CardMapper.toPersistence(cleanCard);
+        const projection = createCardProjection(cleanCard, cleanDto);
         db.run(
           `INSERT INTO cards
           (
@@ -299,14 +310,14 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
-            card.blockId || null,
-            resolveXiuyuanId(card, dto),
-            card.type || null,
-            normalizeNumber(card.state),
-            normalizeNumber(card.due),
-            normalizeNumber(card.priority),
-            card.schedulerType || null,
-            normalizeNumber(card.updatedAt) || Date.now(),
+            cleanCard.blockId || null,
+            resolveXiuyuanId(cleanCard, cleanDto),
+            cleanCard.type || null,
+            normalizeNumber(cleanCard.state),
+            normalizeNumber(cleanCard.due),
+            normalizeNumber(cleanCard.priority),
+            cleanCard.schedulerType || null,
+            normalizeNumber(cleanCard.updatedAt) || Date.now(),
             projection.deckId,
             projection.rootId,
             projection.contentText,
@@ -322,9 +333,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
             projection.aFactor,
             projection.searchText,
             projection.cardTypeMarker,
-            ...this.resolvePreservedSourceValues(existingSource.get(id), card.blockId),
-            stringifyJson(card),
-            dto ? stringifyJson(dto) : null,
+            ...this.resolvePreservedSourceValues(existingSource.get(id), cleanCard.blockId),
+            stringifyJson(cleanCard),
+            stringifyJson(cleanDto),
           ],
         );
       }
@@ -379,9 +390,10 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   }
 
   upsertCard(card: FSRSCard): void {
-    const dto = CardMapper.toPersistence(card);
-    const projection = createCardProjection(card, dto);
-    const existingSource = this.loadSourceExistenceForCard(card.id);
+    const cleanCard = canonicalizeSqlCard(card);
+    const dto = CardMapper.toPersistence(cleanCard);
+    const projection = createCardProjection(cleanCard, dto);
+    const existingSource = this.loadSourceExistenceForCard(cleanCard.id);
     this.database.run(
       `INSERT OR REPLACE INTO cards
         (
@@ -392,15 +404,15 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         )
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        card.id,
-        card.blockId || null,
-        resolveXiuyuanId(card, dto),
-        card.type || null,
-        normalizeNumber(card.state),
-        normalizeNumber(card.due),
-        normalizeNumber(card.priority),
-        card.schedulerType || null,
-        normalizeNumber(card.updatedAt) || Date.now(),
+        cleanCard.id,
+        cleanCard.blockId || null,
+        resolveXiuyuanId(cleanCard, dto),
+        cleanCard.type || null,
+        normalizeNumber(cleanCard.state),
+        normalizeNumber(cleanCard.due),
+        normalizeNumber(cleanCard.priority),
+        cleanCard.schedulerType || null,
+        normalizeNumber(cleanCard.updatedAt) || Date.now(),
         projection.deckId,
         projection.rootId,
         projection.contentText,
@@ -416,8 +428,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         projection.aFactor,
         projection.searchText,
         projection.cardTypeMarker,
-        ...this.resolvePreservedSourceValues(existingSource, card.blockId),
-        stringifyJson(card),
+        ...this.resolvePreservedSourceValues(existingSource, cleanCard.blockId),
+        stringifyJson(cleanCard),
         stringifyJson(dto),
       ],
     );
@@ -1257,7 +1269,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
   private parseCardRow(row: { payload_json: string }): FSRSCard | null {
     const card = parseJson<FSRSCard | null>(row.payload_json, null);
-    return card?.id ? card : null;
+    return card?.id ? canonicalizeSqlCard(card) : null;
   }
 
   private matchesStructuredQueryResiduals(card: FSRSCard, query?: StructuredCardQuery): boolean {

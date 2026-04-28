@@ -38,4 +38,31 @@ describe('RiffMapper FSRS schedule repair', () => {
     expect(card.scheduledDays).toBe(70);
     expect(card.difficulty).toBe(5);
   });
+
+  it('imports Riff topic cards onto the a-factor scheduler boundary', () => {
+    const card = RiffMapper.toDomain({
+      id: '20260426233833-rifftopic',
+      box: 'box',
+      path: '/docs/test.sy',
+      hPath: '/test',
+      content: 'topic card',
+      created: '2026-02-15T15:38:33.000Z',
+      updated: '2026-04-26T15:38:33.000Z',
+      type: 'p',
+      subType: '',
+      ial: {
+        'custom-card-type': 'topic',
+      },
+    } as RiffBlock);
+
+    expect(card.schedulerType).toBe('a-factor-v2');
+    expect(card.aFactor).toBe(2.5);
+    expect(card.schedulerMeta).toEqual({
+      topic: {
+        afs: [2.5],
+        of: 2.5,
+        optimalInterval: 1,
+      },
+    });
+  });
 });

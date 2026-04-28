@@ -7,6 +7,7 @@ import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import { CardState, CardType } from '@/types/card';
+import type { FSRSCard } from '@/types/card';
 import type { StructuredCardQuery } from '@/types/card-query';
 
 class MemorySqliteFileService implements Pick<IFileService, 'readJSON' | 'writeJSON' | 'readBinary' | 'writeBinary'> {
@@ -307,5 +308,61 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(repository.queryCardIdsByRootIds(['doc-a'])).toEqual(['card-b', 'card-d']);
     expect(repository.queryRootlessCardBlockIds()).toContain('block-a');
     expect(repository.queryInconsistentCardTypeMarkerIds()).toEqual(['card-a']);
+  });
+
+  it('does not project or persist scheduling truth from card meta', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const dirtyItem = {
+      ...createDTO({
+        id: 'item-meta-afactor',
+        blockId: 'block-item-meta-afactor',
+        type: CardType.Item,
+        schedulerType: 'fsrs-v6',
+        meta: {
+          content: 'Item with polluted meta afactor',
+          aFactor: 9,
+          nextDues: { good: 1 },
+        },
+      }),
+      xiuyuanID: 'xy-item-meta-afactor',
+      schedulerType: 'fsrs-v6',
+      meta: {
+        content: 'Item with polluted meta afactor',
+        aFactor: 9,
+        nextDues: { good: 1 },
+      },
+    } as FSRSCard;
+    const cleanTopic = {
+      ...createDTO({
+        id: 'topic-afactor',
+        blockId: 'block-topic-afactor',
+        type: CardType.Topic,
+        schedulerType: 'a-factor-v2',
+        aFactor: 2.5,
+        meta: {
+          content: 'Topic with real afactor',
+        },
+      }),
+      xiuyuanID: 'xy-topic-afactor',
+      schedulerType: 'a-factor-v2',
+      aFactor: 2.5,
+      meta: {
+        content: 'Topic with real afactor',
+      },
+    } as FSRSCard;
+
+    repository.upsertCard(dirtyItem);
+    repository.upsertCard(cleanTopic);
+
+    expect(repository.getCard('item-meta-afactor')).toMatchObject({
+      schedulerType: 'fsrs-v6',
+      meta: { content: 'Item with polluted meta afactor' },
+    });
+    expect(repository.getCard('item-meta-afactor')?.aFactor).toBeUndefined();
+    expect(repository.queryDeckMatchedIds({
+      sortModel: [{ colId: 'aFactor', sort: 'desc' }],
+    })).toEqual(['topic-afactor', 'item-meta-afactor']);
   });
 });

@@ -212,4 +212,63 @@ describe('UnifiedStorageManager legacy scheduler migration', () => {
       schedulerType: 'fsrs-v6',
     });
   });
+
+  it('normalizes historical Topic schedulerType pollution to a-factor-v2', async () => {
+    remoteStore.cardDTOs = {
+      dirtyTopic: createDTO('dirtyTopic', 'xy-1', 'fsrs-v6', {
+        type: CardType.Topic,
+        aFactor: 9,
+        schedulerMeta: {
+          sm15: {
+            of: 3,
+            optimumInterval: 4,
+            afs: [3],
+          },
+        },
+        meta: {
+          nextDues: { good: 1 },
+          aFactor: 9,
+          customField: 'kept',
+        },
+      }),
+    };
+
+    const storage = new UnifiedStorageManager();
+    storage.setPersistenceCallbacks(
+      async (store) => {
+        saveCalls += 1;
+        remoteStore = deepClone(store);
+      },
+      async () => deepClone(remoteStore)
+    );
+    const loadResult = await storage.load();
+    expect(loadResult.ok).toBe(true);
+
+    expect(storage.getCard('dirtyTopic')).toMatchObject({
+      schedulerType: 'a-factor-v2',
+      aFactor: 6,
+      schedulerMeta: {
+        topic: {
+          afs: [6],
+          of: 6,
+          optimalInterval: 1,
+        },
+      },
+      meta: { customField: 'kept' },
+    });
+
+    expect(storage.normalizeMalformedReviewScheduling()).toBe(1);
+    expect(storage.getCardDTO('dirtyTopic')).toMatchObject({
+      schedulerType: 'a-factor-v2',
+      aFactor: 6,
+      schedulerMeta: {
+        topic: {
+          afs: [6],
+          of: 6,
+          optimalInterval: 1,
+        },
+      },
+      meta: { customField: 'kept' },
+    });
+  });
 });

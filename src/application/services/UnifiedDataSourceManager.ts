@@ -737,6 +737,7 @@ export class UnifiedDataSourceManager {
 
         const result = await storage.updateCard(card, {
             preferIncomingScheduling: true,
+            schedulingWriteSource: 'review-commit',
             suppressAutosave: true,
         });
         if (!result.ok) {

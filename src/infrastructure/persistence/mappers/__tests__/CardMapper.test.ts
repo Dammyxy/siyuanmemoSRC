@@ -422,7 +422,7 @@ describe('CardMapper - FSRSCard 兼容性', () => {
         difficulty: 3.5,
         reps: 10,
         lapses: 2,
-        state: CardState.Review,
+        state: CardState.New,
         lastReview: 1234567800,
         elapsedDays: 5,
         scheduledDays: 10,
@@ -518,6 +518,45 @@ describe('CardMapper - FSRSCard 兼容性', () => {
 
       const dto = CardMapper.toPersistence(card);
       expect(dto.meta).toBeUndefined();
+    });
+
+    it('应该移除持久 meta 中的调度预览和算法状态', () => {
+      const card = {
+        id: 'card-scheduling-meta',
+        blockId: 'block-scheduling-meta',
+        due: 1234567890,
+        stability: 5,
+        difficulty: 5,
+        reps: 1,
+        lapses: 0,
+        state: CardState.New,
+        lastReview: 1234567800,
+        elapsedDays: 1,
+        scheduledDays: 3,
+        priority: 50,
+        type: CardType.Item,
+        tags: [],
+        leechCount: 0,
+        isLeech: false,
+        skipped: false,
+        createdAt: 1234567000,
+        updatedAt: 1234567890,
+        meta: {
+          nextDues: { again: 1 },
+          stability: 1,
+          difficulty: 1,
+          aFactor: 9,
+          scheduledDays: 1,
+          customField: 'kept',
+        },
+      } as FSRSCard;
+
+      const dto = CardMapper.toPersistence(card);
+
+      expect(dto.meta).toEqual({ customField: 'kept' });
+      expect(dto.schedulerType).toBe('fsrs-v6');
+      expect(dto.aFactor).toBeUndefined();
+      expect(dto.schedulerMeta).toBeUndefined();
     });
   });
 
@@ -623,6 +662,42 @@ describe('CardMapper - FSRSCard 兼容性', () => {
       const card = CardMapper.toDomain(dto);
       expect(card.meta).toBeUndefined();
     });
+
+    it('应该把 Topic/Concept 的历史 fsrs-v6 调度类型规范为 a-factor-v2', () => {
+      const dto: CardPersistenceDTO = {
+        ...createBasicDTO(),
+        id: 'topic-dirty',
+        blockId: 'block-topic-dirty',
+        type: CardType.Topic,
+        schedulerType: 'fsrs-v6',
+        aFactor: 99,
+        schedulerMeta: {
+          sm15: {
+            of: 3,
+            optimumInterval: 4,
+            afs: [3],
+          },
+        },
+        meta: {
+          aFactor: 9,
+          nextDues: { good: 1 },
+          customField: 'kept',
+        },
+      };
+
+      const card = CardMapper.toDomain(dto);
+
+      expect(card.schedulerType).toBe('a-factor-v2');
+      expect(card.aFactor).toBe(6);
+      expect(card.schedulerMeta).toEqual({
+        topic: {
+          afs: [6],
+          of: 6,
+          optimalInterval: 10,
+        },
+      });
+      expect(card.meta).toEqual({ customField: 'kept' });
+    });
   });
 
   describe('往返转换', () => {
@@ -635,7 +710,7 @@ describe('CardMapper - FSRSCard 兼容性', () => {
         difficulty: 3.5,
         reps: 10,
         lapses: 2,
-        state: CardState.Review,
+        state: CardState.New,
         lastReview: 1234567800,
         elapsedDays: 5,
         scheduledDays: 10,
@@ -652,7 +727,10 @@ describe('CardMapper - FSRSCard 兼容性', () => {
       const dto = CardMapper.toPersistence(original);
       const restored = CardMapper.toDomain(dto);
 
-      expect(restored).toEqual(original);
+      expect(restored).toMatchObject({
+        ...original,
+        schedulerType: 'fsrs-v6',
+      });
     });
 
     it('应该保持数据一致性（有 Xiuyuan）', () => {
@@ -689,7 +767,18 @@ describe('CardMapper - FSRSCard 兼容性', () => {
       const dto = CardMapper.toPersistence(original);
       const restored = CardMapper.toDomain(dto);
 
-      expect(restored).toEqual(original);
+      expect(restored).toMatchObject({
+        ...original,
+        aFactor: 2.5,
+        schedulerType: 'a-factor-v2',
+        schedulerMeta: {
+          topic: {
+            afs: [2.5],
+            of: 2.5,
+            optimalInterval: 10,
+          },
+        },
+      });
     });
   });
 });

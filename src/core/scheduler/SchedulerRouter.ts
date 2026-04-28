@@ -160,7 +160,9 @@ export class SchedulerRouter {
     async commit(decision: SchedulingDecision): Promise<ReviewCommitResult> {
         const result = this.kernel.commit(decision);
         if (result.updatedCard) {
-            await this.cardUpdater.batchUpdateCardsWithoutEvents([result.updatedCard]);
+            await this.cardUpdater.batchUpdateCardsWithoutEvents([result.updatedCard], {
+                schedulingWriteSource: 'review-commit',
+            });
         }
         return result;
     }
@@ -225,7 +227,9 @@ export class SchedulerRouter {
         }, newScheduler);
 
         // 5. 保存到本地（使用 CardApplicationService）
-        await this.cardUpdater.batchUpdateCardsWithoutEvents([normalizedCard]);
+        await this.cardUpdater.batchUpdateCardsWithoutEvents([normalizedCard], {
+            schedulingWriteSource: 'scheduler-migration',
+        });
 
         logger.info(`Switched card ${card.id} from ${card.schedulerType} to ${newScheduler}`);
         return true;

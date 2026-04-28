@@ -26,7 +26,9 @@ export abstract class BaseRescheduleEngine {
       return;
     }
 
-    await this.cardUpdater.batchUpdateCardsWithoutEvents(cards);
+    await this.cardUpdater.batchUpdateCardsWithoutEvents(cards, {
+      schedulingWriteSource: 'manual-reschedule',
+    });
     await this.storage.addRescheduleLog?.(this.createLog(cards, action, source));
   }
 

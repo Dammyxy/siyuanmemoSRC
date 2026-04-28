@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 182)
+Last update: 2026-04-29 (Round 183)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - scheduler metadata cleanliness boundary
+
+- Task: 彻查并实现调度元数据严格保洁，防止 `1/1/1d -> 2/3/4d -> 5/6/7d` 类污染排期被持久化 nextDues / 脏 stability/difficulty 掩盖。
+- Touched slice: Scheduler / Storage / SQL persistence / Riff import / Queue persistence / Review commit active path across `src/core/scheduler/schedulingStateCleanliness.ts`, `src/infrastructure/persistence/mappers/{CardMapper,RiffMapper}.ts`, `src/core/storage/{UnifiedStorageManager.ts,stability/logicalKeys.ts}`, `src/infrastructure/persistence/sqlite/{SqlUnifiedStorageRepository,SqlQueueStateRepository}.ts`, `src/infrastructure/services/QueuePersistenceService.ts`, `src/application/usecases/review/ReviewCommitUseCase.ts`, scheduler write adapter/ports, and focused tests.
+- Debt fixed now: 新增 canonical scheduler-state cleaner；外部边界 repair+reason，内部 review commit / scheduler adapter assert fail-fast；Item/Descriptor 强制 `fsrs-v6` 并复用 FSRS review repair，Topic/Concept 强制 `a-factor-v2`、clamp `aFactor`、只保留 `schedulerMeta.topic`；持久 `meta.nextDues/meta.stability/meta.difficulty/meta.aFactor/meta.scheduledDays` 全清；SQL `a_factor` 不再读 `meta.aFactor`；queue snapshot 落盘递归剥离 `nextDues`；logical merge / same-id update 默认保留旧排期，只有 `review-commit/manual-reschedule/scheduler-migration/riff-import` 明示来源可写排期。
+- Debt deferred: 未把生产调度状态迁到 `algorithm_card_state`；未校准旧 `UnifiedStorageManager.dto.test.ts` 中与当前 logical duplicate merge 语义冲突的历史断言；未做真实用户库只读 dirty 扫描报表。
+- Why deferred: 本轮按计划做边界保洁，不重写 schema；旧 DTO 测试语义和真实库诊断需要独立窗口，避免把排期保洁和存储 identity 语义重构混在一起。
+- Next safe step: 在真实库启动前跑只读诊断，按 reason 输出 active card dirty 计数；若仍非 0，再针对具体 reason 做一次数据迁移备份/归一化。
+- Validation: `pnpm vitest run src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.property.test.ts src/infrastructure/persistence/mappers/__tests__/RiffMapper.fsrs-repair.test.ts src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts src/core/storage/__tests__/UnifiedStorageManager.stability-idempotency.test.ts src/core/storage/__tests__/UnifiedStorageManager.batch-update.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueStateRepository.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/core/scheduler/adapters/__tests__/UnifiedStorageCardUpdateAdapter.test.ts src/core/scheduler/__tests__/SchedulerRouter.fsrs-v6.test.ts`（132 tests 通过）；`pnpm build`（通过；i18n 阻断问题 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（仅 CRLF 工作区提示）。
 
 ### 2026-04-29 - review breadcrumb port cleanup
 

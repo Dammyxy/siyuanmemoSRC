@@ -26,6 +26,7 @@ import type { CardPersistenceDTO } from '../dto/CardPersistenceDTO';
 import { Card } from '../../../domain/entities/Card';
 import type { Result } from '../../../types/result';
 import { ok, err, isErr } from '../../../types/result';
+import { canonicalizeSchedulingState } from '../../../core/scheduler/schedulingStateCleanliness';
 
 /**
  * 深拷贝函数，保持特殊值（负零、undefined、null）
@@ -108,6 +109,10 @@ export class CardMapper {
    * @returns 持久化模型
    */
   static toPersistence(card: FSRSCard): CardPersistenceDTO {
+    card = canonicalizeSchedulingState(card, {
+      source: 'card-mapper',
+      mode: 'repair-external',
+    }).card;
     const cardMeta = isObjectRecord(card.meta) ? card.meta : undefined;
 
     // 提取 meta 中的 Xiuyuan 字段
@@ -298,7 +303,10 @@ export class CardMapper {
       meta: Object.keys(meta).length > 0 ? meta : undefined,
     };
 
-    return card;
+    return canonicalizeSchedulingState(card, {
+      source: 'card-mapper',
+      mode: 'repair-external',
+    }).card;
   }
 
   /**

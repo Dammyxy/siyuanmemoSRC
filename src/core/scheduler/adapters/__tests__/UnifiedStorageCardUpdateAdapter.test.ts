@@ -31,6 +31,7 @@ describe('UnifiedStorageCardUpdateAdapter', () => {
       skipped: false,
       createdAt: now,
       updatedAt: now,
+      schedulerType: 'fsrs-v6',
       ...overrides,
     };
   }
@@ -61,6 +62,7 @@ describe('UnifiedStorageCardUpdateAdapter', () => {
     expect(batchUpdateCards).toHaveBeenCalledTimes(1);
     expect(batchUpdateCards).toHaveBeenCalledWith(expectedCards, {
       preferIncomingScheduling: true,
+      schedulingWriteSource: 'review-commit',
       suppressAutosave: true,
     });
     expect(updateCard).not.toHaveBeenCalled();

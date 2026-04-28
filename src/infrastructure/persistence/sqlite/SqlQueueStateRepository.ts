@@ -1,5 +1,6 @@
 import { stringifyJson, parseJson } from './json';
 import type { SqliteDatabaseService } from './SqliteDatabaseService';
+import { stripTransientSchedulingPreviewFields } from '@/core/scheduler/schedulingStateCleanliness';
 
 export class SqlQueueStateRepository {
   constructor(private readonly database: SqliteDatabaseService) {}
@@ -8,13 +9,17 @@ export class SqlQueueStateRepository {
     const rows = this.database.getAll<{ key: string; value_json: string }>(
       'SELECT key, value_json FROM queue_state ORDER BY key',
     );
-    return Object.fromEntries(rows.map((row) => [row.key, parseJson(row.value_json, null)]));
+    return Object.fromEntries(rows.map((row) => [
+      row.key,
+      stripTransientSchedulingPreviewFields(parseJson(row.value_json, null)).value,
+    ]));
   }
 
   set(key: string, value: unknown): void {
+    const cleanValue = stripTransientSchedulingPreviewFields(value).value;
     this.database.run(
       'INSERT OR REPLACE INTO queue_state (key, value_json, updated_at) VALUES (?, ?, ?)',
-      [key, stringifyJson(value), Date.now()],
+      [key, stringifyJson(cleanValue), Date.now()],
     );
   }
 

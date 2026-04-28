@@ -23,6 +23,7 @@
 
 import type { IFileService } from './FileService';
 import type { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite';
+import { stripTransientSchedulingPreviewFields } from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('QueuePersistenceService');
@@ -110,7 +111,10 @@ export class QueuePersistenceService implements IQueuePersistenceService {
 
     try {
       if (this.sqlRepository) {
-        this.cache = new Map(Object.entries(this.sqlRepository.loadAll()));
+        this.cache = new Map(Object.entries(this.sqlRepository.loadAll()).map(([key, value]) => [
+          key,
+          stripTransientSchedulingPreviewFields(value).value,
+        ]));
         this.initialized = true;
         logger.info(`Loaded ${this.cache.size} queue(s) from SQLite`);
         return;
@@ -122,7 +126,10 @@ export class QueuePersistenceService implements IQueuePersistenceService {
       
       if (data) {
         // 将加载的数据填充到缓存
-        this.cache = new Map(Object.entries(data));
+        this.cache = new Map(Object.entries(data).map(([key, value]) => [
+          key,
+          stripTransientSchedulingPreviewFields(value).value,
+        ]));
         logger.info(`Loaded ${this.cache.size} queue(s) from storage`);
       } else {
         logger.info('No existing queue data found, starting fresh');
@@ -165,11 +172,12 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     }
 
     try {
+      const cleanValue = stripTransientSchedulingPreviewFields(value).value;
       // 验证数据是 JSON 可序列化的
-      JSON.stringify(value);
+      JSON.stringify(cleanValue);
       
       // 更新内存缓存
-      this.cache.set(key, value);
+      this.cache.set(key, cleanValue);
       this.dirtyKeys.add(key);
       this.deletedKeys.delete(key);
       
@@ -276,7 +284,7 @@ export class QueuePersistenceService implements IQueuePersistenceService {
         }
         for (const key of dirtyKeys) {
           if (this.cache.has(key)) {
-            this.sqlRepository.set(key, this.cache.get(key));
+            this.sqlRepository.set(key, stripTransientSchedulingPreviewFields(this.cache.get(key)).value);
           }
         }
         await this.sqlRepository.persist();
@@ -287,7 +295,12 @@ export class QueuePersistenceService implements IQueuePersistenceService {
       }
 
       // 将 Map 转换为普通对象
-      const data = Object.fromEntries(this.cache);
+      const data = Object.fromEntries(
+        Array.from(this.cache.entries()).map(([key, value]) => [
+          key,
+          stripTransientSchedulingPreviewFields(value).value,
+        ]),
+      );
       
       // 写入文件
       await this.fileService.writeMsgpack(

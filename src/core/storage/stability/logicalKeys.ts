@@ -1,4 +1,8 @@
 import type { IXiuyuan } from '@/core/xiuyuan/types';
+import {
+  isAuthorizedSchedulingWriteSource,
+  type SchedulingWriteSource,
+} from '@/core/scheduler/schedulingStateCleanliness';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
 import type { FSRSCard } from '@/types/card';
 
@@ -288,6 +292,7 @@ export function mergeCardDTOsLocalFirst(
   options: {
     canonicalXiuyuanId?: string;
     preferIncomingScheduling?: boolean;
+    schedulingWriteSource?: SchedulingWriteSource;
   } = {},
 ): MergeOutcome<CardPersistenceDTO> {
   const mergedMeta = mergeMeta(
@@ -299,7 +304,9 @@ export function mergeCardDTOsLocalFirst(
   const mergedBackBlockIDs = mergeStringArrays(localCard.backBlockIDs, incomingCard.backBlockIDs);
   const mergedFieldMapping = mergeFieldMappings(localCard.fieldMapping, incomingCard.fieldMapping);
   const canonicalXiuyuanId = String(options.canonicalXiuyuanId || localCard.xiuyuanID || incomingCard.xiuyuanID || '').trim();
-  const incomingSchedulingFields: Partial<CardPersistenceDTO> = options.preferIncomingScheduling
+  const shouldPreferIncomingScheduling = options.preferIncomingScheduling === true
+    && isAuthorizedSchedulingWriteSource(options.schedulingWriteSource);
+  const incomingSchedulingFields: Partial<CardPersistenceDTO> = shouldPreferIncomingScheduling
     ? {
         due: incomingCard.due,
         stability: incomingCard.stability,

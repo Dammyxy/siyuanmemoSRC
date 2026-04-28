@@ -27,8 +27,11 @@ import type { Result } from '../../types/result';
 import { ok, err, isErr } from '../../types/result';
 import type { CardPersistenceDTO } from '../../infrastructure/persistence/dto/CardPersistenceDTO';
 import { CardMapper } from '../../infrastructure/persistence/mappers/CardMapper';
-import { repairFsrsReviewState } from '../scheduler/fsrsReviewStateRepair';
-import { isFsrsReviewCardType, resolveEffectiveSchedulerTypeForCard } from '../scheduler/schedulerPolicy';
+import {
+  canonicalizeSchedulingState,
+  isAuthorizedSchedulingWriteSource,
+  type SchedulingWriteSource,
+} from '../scheduler/schedulingStateCleanliness';
 import {
   buildLogicalCardKey,
   buildLogicalXiuyuanKey,
@@ -81,6 +84,7 @@ export type RiffSyncStatePatch = Partial<RiffSyncState>;
 
 export interface CardUpdateOptions {
   preferIncomingScheduling?: boolean;
+  schedulingWriteSource?: SchedulingWriteSource;
   suppressAutosave?: boolean;
   suppressDueIndexSort?: boolean;
 }
@@ -90,6 +94,24 @@ type TombstoneLookup = ReadonlyMap<string, StorageDeletionTombstone> | Record<st
 
 const STABLE_QUICK_META_STRING_KEYS = ['source', 'cardSource', 'symbolType', 'clozeRenderMode'] as const;
 const STABLE_QUICK_META_BOOLEAN_KEYS = ['symbolDetected'] as const;
+const SCHEDULING_DTO_FIELDS: Array<keyof CardPersistenceDTO> = [
+  'due',
+  'stability',
+  'difficulty',
+  'reps',
+  'lapses',
+  'state',
+  'lastReview',
+  'elapsedDays',
+  'scheduledDays',
+  'learning_step',
+  'aFactor',
+  'schedulerType',
+  'schedulerMeta',
+  'postponeCount',
+  'lastPostponeDate',
+  'rescheduleHistory',
+];
 const CURRENT_UNIFIED_CARD_STORE_VERSION = 2;
 const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n;
 const FNV1A_64_PRIME = 0x100000001b3n;
@@ -157,6 +179,17 @@ function fnv1aHash(input: string): string {
 
 function areStructurallyEqual(left: unknown, right: unknown): boolean {
   return stableStringify(left) === stableStringify(right);
+}
+
+function preserveSchedulingFields(
+  localCard: CardPersistenceDTO,
+  incomingCard: CardPersistenceDTO,
+): CardPersistenceDTO {
+  const next: CardPersistenceDTO = { ...incomingCard };
+  for (const field of SCHEDULING_DTO_FIELDS) {
+    (next as Record<string, unknown>)[field] = localCard[field];
+  }
+  return next;
 }
 
 /**
@@ -537,18 +570,11 @@ export class UnifiedStorageManager {
   }
 
   private normalizeDomainCardScheduling(card: FSRSCard, now: number = Date.now()): FSRSCard {
-    const effectiveSchedulerType = resolveEffectiveSchedulerTypeForCard(card);
-    const schedulerType = isFsrsReviewCardType(card.type) ? 'fsrs-v6' : card.schedulerType;
-    const schedulerNormalizedCard = schedulerType === card.schedulerType
-      ? card
-      : { ...card, schedulerType };
-
-    const repaired = repairFsrsReviewState(schedulerNormalizedCard, {
-      schedulerType: effectiveSchedulerType,
+    return canonicalizeSchedulingState(card, {
+      source: 'storage-load',
+      mode: 'repair-external',
       now,
-    });
-
-    return repaired.card;
+    }).card;
   }
 
   private normalizeSchedulingDTO(
@@ -556,30 +582,22 @@ export class UnifiedStorageManager {
     now: number = Date.now()
   ): { dto: CardPersistenceDTO; changed: boolean; reasons: string[] } {
     const domainCard = CardMapper.toDomain(dto);
-    const normalizedCard = this.normalizeDomainCardScheduling(domainCard, now);
-    const nextDto: CardPersistenceDTO = { ...dto };
-    const reasons: string[] = [];
-
-    if (nextDto.schedulerType !== normalizedCard.schedulerType) {
-      nextDto.schedulerType = normalizedCard.schedulerType;
-      reasons.push('schedulerType');
-    }
-
-    const scheduleFields: Array<keyof Pick<
-      CardPersistenceDTO,
-      'due' | 'stability' | 'difficulty' | 'lastReview' | 'elapsedDays' | 'scheduledDays' | 'learning_step'
-    >> = ['due', 'stability', 'difficulty', 'lastReview', 'elapsedDays', 'scheduledDays', 'learning_step'];
-
-    for (const field of scheduleFields) {
-      if (nextDto[field] !== normalizedCard[field]) {
-        (nextDto as Record<string, unknown>)[field] = normalizedCard[field];
-        reasons.push(field);
-      }
-    }
+    const cleanResult = canonicalizeSchedulingState(domainCard, {
+      source: 'storage-update',
+      mode: 'repair-external',
+      now,
+    });
+    const nextDto = CardMapper.toPersistence(cleanResult.card);
+    const changed = !areStructurallyEqual(dto, nextDto);
+    const reasons = cleanResult.reasons.length > 0
+      ? cleanResult.reasons
+      : changed
+        ? ['dto']
+        : [];
 
     return {
       dto: nextDto,
-      changed: reasons.length > 0,
+      changed,
       reasons: Array.from(new Set(reasons)),
     };
   }
@@ -1553,14 +1571,11 @@ export class UnifiedStorageManager {
     }
 
     const cardDTOs: Record<string, CardPersistenceDTO> = {};
-    for (const [id, dto] of this.cardDTOs.entries()) {
-      cardDTOs[id] = dto;
-    }
-
-    // 鉁?涓轰簡鍚戝悗鍏煎锛屼粛鐒朵繚瀛?cards 瀛楁锛堜粠 cardDTOs 杞崲锛?
     const cards: Record<string, FSRSCard> = {};
     for (const [id, dto] of this.cardDTOs.entries()) {
-      cards[id] = this.toDomainCard(dto);
+      const normalized = this.normalizeSchedulingDTO(dto);
+      cardDTOs[id] = normalized.dto;
+      cards[id] = this.toDomainCard(normalized.dto);
     }
 
     const deletedCardDTOs: Record<string, StorageDeletionTombstone> = {};
@@ -1666,7 +1681,7 @@ export class UnifiedStorageManager {
      * @param xiuyuan XiuYuan 瀹炰綋
      * @param dto CardPersistenceDTO
      */
-    async createCardDTO(xiuyuan: IXiuyuan, dto: CardPersistenceDTO): Promise<Result<void>> {
+    async createCardDTO(xiuyuan: IXiuyuan, dto: CardPersistenceDTO, options: CardUpdateOptions = {}): Promise<Result<void>> {
       return this.runWriteMutation('createCardDTO', async () => {
       try {
         const canonicalXiuyuan = this.resolveCanonicalXiuyuanSnapshot(xiuyuan);
@@ -1684,14 +1699,14 @@ export class UnifiedStorageManager {
           return ok(undefined);
         }
 
-        const normalizedDto: CardPersistenceDTO = {
+        const normalizedDto = this.normalizeSchedulingDTO({
           ...dto,
           xiuyuanID: canonicalXiuyuan.id,
           meta: {
             ...(dto.meta || {}),
             xiuyuanID: canonicalXiuyuan.id,
           },
-        };
+        }).dto;
         const normalizedUpdatedAt = readFiniteNumber(normalizedDto.updatedAt);
         if (this.isBlockedByDeletionTombstone(
           this.deletedCardDTOs,
@@ -1719,14 +1734,18 @@ export class UnifiedStorageManager {
         if (existingById) {
           return await this.updateCardDTO(mergeCardDTOsLocalFirst(existingById, normalizedDto, {
             canonicalXiuyuanId: canonicalXiuyuan.id,
-          }).value);
+            preferIncomingScheduling: options.preferIncomingScheduling,
+            schedulingWriteSource: options.schedulingWriteSource,
+          }).value, options);
         }
 
         const logicalDuplicate = this.findExistingCardDTOByLogicalKey(normalizedDto, canonicalXiuyuan);
         if (logicalDuplicate) {
           return await this.updateCardDTO(mergeCardDTOsLocalFirst(logicalDuplicate.dto, normalizedDto, {
             canonicalXiuyuanId: canonicalXiuyuan.id,
-          }).value);
+            preferIncomingScheduling: options.preferIncomingScheduling,
+            schedulingWriteSource: options.schedulingWriteSource,
+          }).value, options);
         }
 
         this.cardDTOs.set(normalizedDto.id, normalizedDto);
@@ -1771,6 +1790,9 @@ export class UnifiedStorageManager {
         if (!oldDTO) {
           return err(new Error(`Card not found: ${dto.id}`));
         }
+        const normalizedOldDTO = this.normalizeSchedulingDTO(oldDTO).dto;
+        const canAcceptIncomingScheduling = options.preferIncomingScheduling === true
+          && isAuthorizedSchedulingWriteSource(options.schedulingWriteSource);
 
         const xiuyuanId = String(dto.xiuyuanID || oldDTO.xiuyuanID || '').trim();
         const currentXiuyuan = xiuyuanId ? this.xiuyuans.get(xiuyuanId) : undefined;
@@ -1779,7 +1801,7 @@ export class UnifiedStorageManager {
           : undefined;
         const canonicalXiuyuanId = canonicalXiuyuan?.id || xiuyuanId || undefined;
 
-        const normalizedDto: CardPersistenceDTO = {
+        const incomingNormalizedDto = this.normalizeSchedulingDTO({
           ...dto,
           xiuyuanID: canonicalXiuyuanId,
           meta: canonicalXiuyuanId
@@ -1788,7 +1810,10 @@ export class UnifiedStorageManager {
                 xiuyuanID: canonicalXiuyuanId,
               }
             : dto.meta,
-        };
+        }).dto;
+        const normalizedDto = canAcceptIncomingScheduling
+          ? incomingNormalizedDto
+          : preserveSchedulingFields(normalizedOldDTO, incomingNormalizedDto);
         const normalizedUpdatedAt = readFiniteNumber(normalizedDto.updatedAt);
         const clearsCardTombstone = this.wouldClearDeletionTombstone(
           this.deletedCardDTOs,
@@ -1841,6 +1866,7 @@ export class UnifiedStorageManager {
           const merged = mergeCardDTOsLocalFirst(logicalDuplicate.dto, normalizedDto, {
             canonicalXiuyuanId,
             preferIncomingScheduling: options.preferIncomingScheduling,
+            schedulingWriteSource: options.schedulingWriteSource,
           }).value;
 
           this.updateIndexesForDTO(oldDTO, 'remove');

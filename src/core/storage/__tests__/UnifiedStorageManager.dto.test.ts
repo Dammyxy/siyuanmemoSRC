@@ -219,7 +219,10 @@ describe('UnifiedStorageManager DTO Operations', () => {
 
       // 更新 DTO
       const updatedDTO = { ...dto, priority: 80, due: Date.now() };
-      const result = await storage.updateCardDTO(updatedDTO);
+      const result = await storage.updateCardDTO(updatedDTO, {
+        preferIncomingScheduling: true,
+        schedulingWriteSource: 'review-commit',
+      });
 
       expect(result.ok).toBe(true);
       
@@ -634,7 +637,10 @@ describe('UnifiedStorageManager DTO Operations', () => {
 
       // 更新一个 DTO
       const updatedDTO = { ...dto1, state: 2 as const };
-      await storage.updateCardDTO(updatedDTO);
+      await storage.updateCardDTO(updatedDTO, {
+        preferIncomingScheduling: true,
+        schedulingWriteSource: 'review-commit',
+      });
 
       const updatedStats = storage.getStats();
       expect(updatedStats.newCards).toBe(1);

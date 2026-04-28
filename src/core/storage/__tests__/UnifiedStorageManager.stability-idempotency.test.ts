@@ -202,6 +202,7 @@ describe('UnifiedStorageManager stability and idempotency', () => {
     const merged = mergeCardDTOsLocalFirst(local, incoming, {
       canonicalXiuyuanId: 'xy-local',
       preferIncomingScheduling: true,
+      schedulingWriteSource: 'review-commit',
     }).value;
 
     expect(merged.id).toBe(local.id);
@@ -217,5 +218,85 @@ describe('UnifiedStorageManager stability and idempotency', () => {
     expect(merged.elapsedDays).toBe(incoming.elapsedDays);
     expect(merged.scheduledDays).toBe(incoming.scheduledDays);
     expect(merged.learning_step).toBeUndefined();
+  });
+
+  it('rejects incoming scheduling fields when merge source is content sync', () => {
+    const local = createDTO('card-local', 'xy-local', 0, {
+      blockId: 'shared-block',
+      due: 1_000,
+      stability: 1,
+      difficulty: 8,
+      reps: 1,
+      state: CardState.Learning,
+      scheduledDays: 0,
+    });
+    const incoming = createDTO('card-incoming', 'xy-remote', 0, {
+      blockId: 'shared-block',
+      due: 9_999,
+      stability: 4.5,
+      difficulty: 4,
+      reps: 2,
+      state: CardState.Review,
+      scheduledDays: 3,
+      priority: 99,
+    });
+
+    const merged = mergeCardDTOsLocalFirst(local, incoming, {
+      canonicalXiuyuanId: 'xy-local',
+      preferIncomingScheduling: true,
+    }).value;
+
+    expect(merged.priority).toBe(local.priority);
+    expect(merged.due).toBe(local.due);
+    expect(merged.stability).toBe(local.stability);
+    expect(merged.difficulty).toBe(local.difficulty);
+    expect(merged.reps).toBe(local.reps);
+    expect(merged.state).toBe(local.state);
+    expect(merged.scheduledDays).toBe(local.scheduledDays);
+  });
+
+  it('preserves existing scheduling on same-id content updates without an authorized source', async () => {
+    const storage = new UnifiedStorageManager();
+    const xiuyuan = createXiuyuan('xy-local', 'shared-block', 1_000);
+    const local = createDTO('card-local', 'xy-local', 0, {
+      blockId: 'shared-block',
+      due: 1_000,
+      stability: 2,
+      difficulty: 7,
+      reps: 3,
+      state: CardState.Review,
+      scheduledDays: 2,
+      priority: 11,
+    });
+    expect((await storage.createCardDTO(xiuyuan, local)).ok).toBe(true);
+
+    const incoming = {
+      ...local,
+      due: 9_999,
+      stability: 9,
+      difficulty: 1,
+      reps: 99,
+      scheduledDays: 9,
+      priority: 22,
+      meta: {
+        ...local.meta,
+        content: 'content update',
+      },
+    };
+    expect((await storage.updateCardDTO(incoming, {
+      preferIncomingScheduling: true,
+    })).ok).toBe(true);
+
+    expect(storage.getCardDTO('card-local')).toMatchObject({
+      due: 1_000,
+      stability: 2,
+      difficulty: 7,
+      reps: 3,
+      scheduledDays: 2,
+      priority: 22,
+      meta: expect.objectContaining({
+        content: 'content update',
+      }),
+    });
   });
 });
