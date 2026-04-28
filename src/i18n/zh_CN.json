@@ -1529,6 +1529,8 @@
   "reviewOpenInNewTabByDefaultHint": "桌面端从全局复习入口启动时，默认在新页签中打开复习界面。",
   "reviewOpenFullscreenByDefault": "复习界面默认全屏打开",
   "reviewOpenFullscreenByDefaultHint": "只对桌面端对话框模式生效；若同时选择新页签打开，则此选项会被忽略。",
+  "reviewSourceBlockRefreshEnabled": "实时刷新复习源块（高级）",
+  "reviewSourceBlockRefreshEnabledHint": "默认关闭。开启后使用共享 transaction 监听，在当前卡片依赖块被其他编辑器修改时刷新复习正文；多个复习面共用一个 ws-main 监听。",
   "reviewCardSuspended": "已暂停这张卡片",
   "reviewCardUnsuspended": "已取消暂停这张卡片",
   "reviewCardSuspendFailed": "暂停卡片失败：{message}",

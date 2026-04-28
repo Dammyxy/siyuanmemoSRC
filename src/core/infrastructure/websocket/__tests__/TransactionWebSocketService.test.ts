@@ -2,171 +2,149 @@
  * TransactionWebSocketService 单元测试
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TransactionWebSocketService, type ITransactionHandler, type Transaction } from '../../core/infrastructure/websocket/TransactionWebSocketService';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type FSRSPlugin from '@/index';
-
-// Mock WebSocket
-class MockWebSocket {
-    public onopen: ((event: Event) => void) | null = null;
-    public onmessage: ((event: MessageEvent) => void) | null = null;
-    public onerror: ((event: Event) => void) | null = null;
-    public onclose: ((event: CloseEvent) => void) | null = null;
-    
-    constructor(public url: string) {}
-    
-    close(code?: number, reason?: string) {
-        if (this.onclose) {
-            this.onclose({ code: code || 1000, reason: reason || '' } as CloseEvent);
-        }
-    }
-    
-    send(data: string) {}
-}
-
-// Mock global WebSocket
-global.WebSocket = MockWebSocket as any;
+import {
+  TransactionWebSocketService,
+  type ITransactionHandler,
+  type Transaction,
+} from '../TransactionWebSocketService';
 
 describe('TransactionWebSocketService', () => {
-    let service: TransactionWebSocketService;
-    let mockPlugin: FSRSPlugin;
-    
-    beforeEach(() => {
-        mockPlugin = {} as FSRSPlugin;
-        service = new TransactionWebSocketService(mockPlugin);
+  let service: TransactionWebSocketService;
+  let wsMainListener: ((event: unknown) => void) | null;
+  let eventBus: {
+    on: ReturnType<typeof vi.fn>;
+    off: ReturnType<typeof vi.fn>;
+  };
+
+  const createTransaction = (blockId: string): Transaction => ({
+    doOperations: [
+      {
+        action: 'update',
+        id: blockId,
+        data: {},
+      },
+    ],
+    undoOperations: null,
+  });
+
+  const emitTransactions = (transactions: Transaction[]): void => {
+    wsMainListener?.({
+      detail: {
+        cmd: 'transactions',
+        data: transactions,
+      },
     });
-    
-    afterEach(() => {
-        service.stop();
-        vi.clearAllTimers();
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    wsMainListener = null;
+    eventBus = {
+      on: vi.fn((event: string, listener: (event: unknown) => void) => {
+        if (event === 'ws-main') {
+          wsMainListener = listener;
+        }
+      }),
+      off: vi.fn((event: string, listener: (event: unknown) => void) => {
+        if (event === 'ws-main' && wsMainListener === listener) {
+          wsMainListener = null;
+        }
+      }),
+    };
+    service = new TransactionWebSocketService({ eventBus } as unknown as FSRSPlugin);
+  });
+
+  afterEach(() => {
+    service.stop();
+    vi.useRealTimers();
+  });
+
+  it('start only binds one ws-main listener and stop detaches it', () => {
+    service.start();
+    service.start();
+
+    expect(eventBus.on).toHaveBeenCalledTimes(1);
+    expect(eventBus.on).toHaveBeenCalledWith('ws-main', expect.any(Function));
+    expect(wsMainListener).toEqual(expect.any(Function));
+
+    service.stop();
+
+    expect(eventBus.off).toHaveBeenCalledTimes(1);
+    expect(eventBus.off).toHaveBeenCalledWith('ws-main', expect.any(Function));
+    expect(wsMainListener).toBeNull();
+  });
+
+  it('distributes parsed transactions to all registered handlers', () => {
+    const handler1: ITransactionHandler = { handle: vi.fn() };
+    const handler2: ITransactionHandler = { handle: vi.fn() };
+    const transactions = [createTransaction('block-1')];
+
+    service.registerHandler(handler1);
+    service.registerHandler(handler2);
+    service.start();
+    emitTransactions(transactions);
+
+    expect(handler1.handle).toHaveBeenCalledWith(transactions);
+    expect(handler2.handle).toHaveBeenCalledWith(transactions);
+  });
+
+  it('keeps distributing when one handler throws', () => {
+    const handler1: ITransactionHandler = {
+      handle: vi.fn(() => {
+        throw new Error('handler failed');
+      }),
+    };
+    const handler2: ITransactionHandler = { handle: vi.fn() };
+    const transactions = [createTransaction('block-2')];
+
+    service.registerHandler(handler1);
+    service.registerHandler(handler2);
+    service.start();
+    emitTransactions(transactions);
+
+    expect(handler1.handle).toHaveBeenCalledWith(transactions);
+    expect(handler2.handle).toHaveBeenCalledWith(transactions);
+  });
+
+  it('does not call handlers after unregister', () => {
+    const handler: ITransactionHandler = { handle: vi.fn() };
+
+    service.registerHandler(handler);
+    service.unregisterHandler(handler);
+    service.start();
+    emitTransactions([createTransaction('block-3')]);
+
+    expect(handler.handle).not.toHaveBeenCalled();
+  });
+
+  it('parses string ws-main payloads', () => {
+    const handler: ITransactionHandler = { handle: vi.fn() };
+    const transactions = [createTransaction('block-4')];
+
+    service.registerHandler(handler);
+    service.start();
+    wsMainListener?.({
+      detail: {
+        data: JSON.stringify({
+          cmd: 'transactions',
+          data: transactions,
+        }),
+      },
     });
-    
-    describe('Handler Registration', () => {
-        it('should register handler', () => {
-            const handler: ITransactionHandler = {
-                handle: vi.fn()
-            };
-            
-            service.registerHandler(handler);
-            // Handler should be registered (no error thrown)
-            expect(true).toBe(true);
-        });
-        
-        it('should not register same handler twice', () => {
-            const handler: ITransactionHandler = {
-                handle: vi.fn()
-            };
-            
-            service.registerHandler(handler);
-            service.registerHandler(handler);
-            // Should only register once (no error thrown)
-            expect(true).toBe(true);
-        });
-        
-        it('should unregister handler', () => {
-            const handler: ITransactionHandler = {
-                handle: vi.fn()
-            };
-            
-            service.registerHandler(handler);
-            service.unregisterHandler(handler);
-            // Handler should be unregistered (no error thrown)
-            expect(true).toBe(true);
-        });
-    });
-    
-    describe('Service Lifecycle', () => {
-        it('should start service', () => {
-            service.start();
-            // Service should start (no error thrown)
-            expect(true).toBe(true);
-        });
-        
-        it('should not start twice', () => {
-            service.start();
-            service.start();
-            // Should only start once (no error thrown)
-            expect(true).toBe(true);
-        });
-        
-        it('should stop service', () => {
-            service.start();
-            service.stop();
-            // Service should stop (no error thrown)
-            expect(true).toBe(true);
-        });
-    });
-    
-    describe('Event Distribution', () => {
-        it('should distribute events to registered handlers', () => {
-            const handler1 = { handle: vi.fn() };
-            const handler2 = { handle: vi.fn() };
-            
-            service.registerHandler(handler1);
-            service.registerHandler(handler2);
-            
-            service.start();
-            
-            // Simulate WebSocket message
-            const ws = (service as any).ws as MockWebSocket;
-            const transactions: Transaction[] = [
-                {
-                    doOperations: [
-                        { action: 'insert', id: 'block1', data: {} }
-                    ],
-                    undoOperations: null
-                }
-            ];
-            
-            if (ws && ws.onmessage) {
-                ws.onmessage({
-                    data: JSON.stringify({
-                        cmd: 'transactions',
-                        data: transactions
-                    })
-                } as MessageEvent);
-            }
-            
-            // Both handlers should receive the event
-            expect(handler1.handle).toHaveBeenCalledWith(transactions);
-            expect(handler2.handle).toHaveBeenCalledWith(transactions);
-        });
-        
-        it('should continue processing if one handler throws error', () => {
-            const handler1 = {
-                handle: vi.fn(() => {
-                    throw new Error('Handler 1 error');
-                })
-            };
-            const handler2 = { handle: vi.fn() };
-            
-            service.registerHandler(handler1);
-            service.registerHandler(handler2);
-            
-            service.start();
-            
-            // Simulate WebSocket message
-            const ws = (service as any).ws as MockWebSocket;
-            const transactions: Transaction[] = [
-                {
-                    doOperations: [
-                        { action: 'insert', id: 'block1', data: {} }
-                    ],
-                    undoOperations: null
-                }
-            ];
-            
-            if (ws && ws.onmessage) {
-                ws.onmessage({
-                    data: JSON.stringify({
-                        cmd: 'transactions',
-                        data: transactions
-                    })
-                } as MessageEvent);
-            }
-            
-            // Handler 2 should still be called despite handler 1 error
-            expect(handler2.handle).toHaveBeenCalledWith(transactions);
-        });
-    });
+
+    expect(handler.handle).toHaveBeenCalledWith(transactions);
+  });
+
+  it('does not start without plugin.eventBus.on', () => {
+    service.stop();
+    service = new TransactionWebSocketService({ eventBus: {} } as unknown as FSRSPlugin);
+    const handler: ITransactionHandler = { handle: vi.fn() };
+
+    service.registerHandler(handler);
+    service.start();
+
+    expect(handler.handle).not.toHaveBeenCalled();
+  });
 });

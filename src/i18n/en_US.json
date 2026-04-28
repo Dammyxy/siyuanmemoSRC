@@ -1497,6 +1497,8 @@
   "reviewOpenInNewTabByDefaultHint": "Desktop global review entries open the review surface in a new tab by default.",
   "reviewOpenFullscreenByDefault": "Open review fullscreen by default",
   "reviewOpenFullscreenByDefaultHint": "Only applies to desktop dialog mode and is ignored when new-tab open is enabled.",
+  "reviewSourceBlockRefreshEnabled": "Refresh review source blocks live (advanced)",
+  "reviewSourceBlockRefreshEnabledHint": "Off by default. When enabled, a shared transaction listener refreshes the current review content after dependent source blocks change; multiple review surfaces share one ws-main listener.",
   "reviewCardSuspended": "Current card suspended",
   "reviewCardUnsuspended": "Current card unsuspended",
   "reviewCardSuspendFailed": "Failed to suspend card: {message}",

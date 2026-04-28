@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 168)
+Last update: 2026-04-28 (Round 169)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - review source refresh debt cleared
+
+- Task: 清零复习源块实时刷新债务：设置页补可视化开关，并把 ReviewView 源块 transaction 刷新接入共享 `TransactionWebSocketService`。
+- Touched slice: Review UI / settings / shared transaction websocket / architecture docs across `src/ui/review/v2/ReviewView.vue`, `src/ui/settings/SettingsPanel.vue`, `src/application/ApplicationContext.ts`, `src/core/infrastructure/websocket/*`, i18n, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: `ui.reviewSourceBlockRefreshEnabled` 继续默认关闭但有设置页入口；开启后 `ApplicationContext.updateTransactionWebSocketService()` 会启动共享 transaction stream；多个 ReviewView 只注册轻量 handler，不再各自 `eventBus.on('ws-main')`；本地 `advancePending`、主 Protyle 编辑、卸载清理与外部 `card-updated` 刷新边界均有聚焦测试覆盖。
+- Debt deferred: 无（本次源块刷新债务清零；历史大文件、SettingsPanel 拆分、旧 i18n/Sass 警告不属于本轮债）。
+- Why deferred: 不适用。
+- Next safe step: 观察真实开启该高级开关后的多复习面刷新成本；若仍重，再考虑共享依赖索引或按 surface 合并刷新窗口。
+- Validation: `pnpm vitest run src/ui/settings/__tests__/SettingsPanel.test.ts src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts src/ui/review/v2/__tests__/ReviewView.local-advance-race.spec.ts src/ui/review/v2/__tests__/ReviewView.priority-sync.spec.ts src/types/__tests__/settings-normalization.test.ts src/core/infrastructure/websocket/__tests__/TransactionWebSocketService.test.ts`; `pnpm build`; `git diff --check`; `rg -n "ws-main" src/ui/review/v2 src/core/infrastructure/websocket src/application src/ui/settings src/i18n`; `rg -n "reviewSourceBlockRefreshEnabled|registerHandler|unregisterHandler" src/ui/review/v2 src/core/infrastructure/websocket src/application src/ui/settings src/i18n`.
 
 ### 2026-04-28 - review source transaction listener throttled
 
 - Task: 修复复习切卡时源块 `ws-main` transaction 监听与 `card-updated` observer 叠加刷新导致卡顿的问题。
 - Touched slice: Review UI / settings normalization across `src/ui/review/v2/ReviewView.vue`, `src/types/settings.ts`, and focused review/settings tests.
 - Debt fixed now: 复习页源块 transaction 刷新改为高级开关 `ui.reviewSourceBlockRefreshEnabled` 且默认关闭；本地 `advancePending` 期间丢弃源块 pending refresh 和当前卡 `card-updated` refresh，避免旧卡刷新撞上切卡热路径；旧设置归一化会补齐默认值。
-- Debt deferred: 暂未做 Settings 面板可视化入口，也未把多复习面源块 transaction 监听抽成全局共享 listener。
-- Why deferred: 本轮目标是止住切卡热路径卡顿；可视化设置和全局监听池会扩大 UI、i18n、跨 surface 生命周期范围。
-- Next safe step: 若用户确实需要源块实时刷新，再加 Settings 面板开关；若多面板仍要开启该能力，再设计单例 workspace transaction dispatcher。
+- Debt deferred: 已偿还（见 `2026-04-28 - review source refresh debt cleared`）。
+- Why deferred: 原为分阶段上线保护；现已补设置页入口，并复用 `TransactionWebSocketService` 作为单例 workspace transaction dispatcher。
+- Next safe step: 观察真实开启该高级开关后的多复习面刷新成本。
 - Validation: `pnpm vitest run src/ui/review/v2/__tests__/ReviewView.source-block-refresh.spec.ts src/ui/review/v2/__tests__/ReviewView.local-advance-race.spec.ts src/ui/review/v2/__tests__/ReviewView.priority-sync.spec.ts src/types/__tests__/settings-normalization.test.ts`; `pnpm build`; `rg -n "reviewSourceBlockRefreshEnabled|ws-main|advancePending" src/ui/review/v2 src/types/settings.ts`.
 
 ### 2026-04-28 - runtime-only visible review AI context sync

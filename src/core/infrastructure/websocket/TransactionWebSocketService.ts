@@ -7,7 +7,7 @@
  * 
  * 架构：
  * - 复用思源主 WebSocket 连接（不创建新连接）
- * - 支持多个 transaction 处理器（当前用于 AutoCard 与文档树复习范围）
+ * - 支持多个 transaction 处理器（当前用于 AutoCard、文档树复习范围、native Riff 同步与 review source refresh）
  * - 每个处理器独立处理事件
  * 
  * @see .kiro/specs/quick-card-symbols/design.md
@@ -128,7 +128,7 @@ export class TransactionWebSocketService {
         if (!eventBus?.on) {
             logger.error(
                 '[TransactionWebSocketService] Unable to subscribe to ws-main: plugin.eventBus.on is unavailable. ' +
-                'Auto-card transaction listeners will remain disabled.'
+                'Transaction handlers will remain disabled.'
             );
             return false;
         }

@@ -276,6 +276,16 @@
         </div>
 
         <div class="form-item">
+          <label>{{ t('reviewSourceBlockRefreshEnabled', '实时刷新复习源块（高级）') }}</label>
+          <div class="form-control">
+            <input type="checkbox" v-model="uiSettings.reviewSourceBlockRefreshEnabled">
+          </div>
+          <p class="form-hint">
+            {{ t('reviewSourceBlockRefreshEnabledHint', '默认关闭。开启后使用共享 transaction 监听，在当前卡片依赖块被其他编辑器修改时刷新复习正文；多个复习面共用一个 ws-main 监听。') }}
+          </p>
+        </div>
+
+        <div class="form-item">
           <label>{{ t('arenaEnabled', '启用 Arena 竞技场（实验）') }}</label>
           <div class="form-control">
             <input type="checkbox" v-model="arenaSettings.enabled">

@@ -223,7 +223,6 @@ import type { ReviewApplicationService } from '@/application/services/ReviewAppl
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { createReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { prepareReviewPresentation } from './reviewPresentationPreparer';
-import { parseTransactionsPayload, parseWSMessage } from '@/core/infrastructure/websocket/transaction-types';
 
 const logger = createLogger('ReviewView');
 
@@ -357,6 +356,7 @@ type ReviewPluginContextLike = {
   getSettingsService?: () => {
     getSettings?: () => ReviewRuntimeSettingsLike;
   } | undefined;
+  getTransactionWebSocketService?: () => ReviewTransactionWebSocketServiceLike | undefined;
   getCardService?: () => CardApplicationService | undefined;
   getCardEditorService?: () => CardEditorApplicationService | undefined;
   getArenaKernelService?: () => {
@@ -373,9 +373,28 @@ type ReviewRuntimeSettingsLike = Pick<Partial<PluginSettings>,
   'ai' | 'progressiveReading' | 'quickCard' | 'riffIntegration' | 'ui'
 >;
 
+type ReviewWorkspaceTransactionOperation = {
+  id?: unknown;
+  parentID?: unknown;
+  previousID?: unknown;
+  nextID?: unknown;
+};
+
+type ReviewWorkspaceTransaction = {
+  doOperations?: ReviewWorkspaceTransactionOperation[] | null;
+};
+
+type ReviewTransactionHandler = {
+  handle(transactions: ReviewWorkspaceTransaction[]): void;
+};
+
+type ReviewTransactionWebSocketServiceLike = {
+  registerHandler?: (handler: ReviewTransactionHandler) => void;
+  unregisterHandler?: (handler: ReviewTransactionHandler) => void;
+};
+
 type ReviewPluginLike = {
   name?: unknown;
-  eventBus?: WorkspaceEventBusLike;
   getContext?: () => ReviewPluginContextLike | undefined;
   openReviewTab?: (options: {
     queue?: unknown;
@@ -384,11 +403,6 @@ type ReviewPluginLike = {
     headerVariant?: ReviewHeaderVariant;
     transferState?: ReviewTabTransferState;
   }) => void;
-};
-
-type WorkspaceEventBusLike = {
-  on?: (event: string, listener: (payload: unknown) => void) => void;
-  off?: (event: string, listener: (payload: unknown) => void) => void;
 };
 
 type UnderlyingQueueLike = {
@@ -521,15 +535,6 @@ function getWindowPlugin(): ReviewPluginLike | null {
   return isRecord(matched) ? (matched as ReviewPluginLike) : null;
 }
 
-function getWorkspaceEventBus(): WorkspaceEventBusLike | null {
-  const pluginFromProps = props.plugin as ReviewPluginLike | undefined;
-  if (pluginFromProps?.eventBus) {
-    return pluginFromProps.eventBus;
-  }
-
-  return getWindowPlugin()?.eventBus || null;
-}
-
 function getReviewRuntimeSettings(): ReviewRuntimeSettingsLike | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
@@ -544,32 +549,12 @@ function isReviewSourceBlockRefreshEnabled(): boolean {
   return getReviewRuntimeSettings()?.ui?.reviewSourceBlockRefreshEnabled === true;
 }
 
-function extractWorkspaceWsMessage(event: unknown): { cmd: string; data?: unknown } | null {
-  if (!event || typeof event !== 'object') {
-    return null;
-  }
-
-  const candidate = event as {
-    detail?: unknown;
-    cmd?: unknown;
-    data?: unknown;
-  };
-  const detail = candidate.detail && typeof candidate.detail === 'object'
-    ? candidate.detail as { cmd?: unknown; data?: unknown }
-    : candidate;
-
-  if (typeof detail.cmd === 'string') {
-    return {
-      cmd: detail.cmd,
-      data: detail.data,
-    };
-  }
-
-  if (typeof detail.data === 'string') {
-    return parseWSMessage(detail.data);
-  }
-
-  return null;
+function getReviewTransactionWebSocketService(): ReviewTransactionWebSocketServiceLike | null {
+  const contextFromProps = getPluginContext(props.plugin);
+  const contextFromWindow = getWindowPlugin()?.getContext?.();
+  return contextFromProps?.getTransactionWebSocketService?.()
+    || contextFromWindow?.getTransactionWebSocketService?.()
+    || null;
 }
 
 function getProtyleFromHost(host: Element): ProtyleLike | null {
@@ -1377,7 +1362,7 @@ onMounted(() => {
   refreshNavigationState();
   syncReviewFilterFromQueue();
   bindReviewDataObserver();
-  bindReviewWorkspaceEventBus();
+  bindReviewTransactionService();
   reviewResizeHandler = () => {
     viewportWidth.value = window.innerWidth;
     updateReviewDialogContainerLayout();
@@ -1415,7 +1400,7 @@ onUnmounted(() => {
   escRepeatLatch = false;
   clearNativeSplitMenuPruneTimer();
   unbindReviewDataObserver();
-  unbindReviewWorkspaceEventBus();
+  unbindReviewTransactionService();
   if (reviewResizeHandler) {
     window.removeEventListener('resize', reviewResizeHandler);
     reviewResizeHandler = null;
@@ -1600,7 +1585,7 @@ const resolvedReviewSurfaceTitle = computed(() => (
   ).trim() || t('reviewTitle', 'Review')
 ));
 let subscribedReviewManager: IUnifiedDataSourceManagerFacade | null = null;
-let subscribedReviewWorkspaceEventBus: WorkspaceEventBusLike | null = null;
+let subscribedReviewTransactionService: ReviewTransactionWebSocketServiceLike | null = null;
 let reviewDialogTitlebarSyncTimer: number | null = null;
 let reviewDialogTitlebarObserver: MutationObserver | null = null;
 let observedReviewDialogHeader: HTMLElement | null = null;
@@ -2172,9 +2157,8 @@ function suppressReviewSourceRefreshForBlock(blockId: string): void {
   );
 }
 
-function collectChangedBlockIdsFromTransactions(rawData: unknown): string[] {
+function collectChangedBlockIdsFromTransactions(transactions: ReviewWorkspaceTransaction[]): string[] {
   const changedBlockIds = new Set<string>();
-  const transactions = parseTransactionsPayload(rawData);
 
   for (const transaction of transactions) {
     for (const operation of transaction.doOperations || []) {
@@ -2302,23 +2286,20 @@ function queueReviewSourceRefresh(blockIds: string[]): void {
   }, REVIEW_SOURCE_REFRESH_DEBOUNCE_MS);
 }
 
-const handleReviewWorkspaceMessage = (event: unknown): void => {
-  if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
-    clearPendingReviewSourceRefresh();
-    return;
-  }
+const reviewSourceTransactionHandler: ReviewTransactionHandler = {
+  handle(transactions: ReviewWorkspaceTransaction[]): void {
+    if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
+      clearPendingReviewSourceRefresh();
+      return;
+    }
 
-  const message = extractWorkspaceWsMessage(event);
-  if (!message || message.cmd !== 'transactions') {
-    return;
-  }
+    const changedBlockIds = collectChangedBlockIdsFromTransactions(transactions);
+    if (changedBlockIds.length === 0) {
+      return;
+    }
 
-  const changedBlockIds = collectChangedBlockIdsFromTransactions(message.data);
-  if (changedBlockIds.length === 0) {
-    return;
-  }
-
-  queueReviewSourceRefresh(changedBlockIds);
+    queueReviewSourceRefresh(changedBlockIds);
+  },
 };
 
 const reviewDataObserver: IDataSourceObserver = {
@@ -2392,23 +2373,21 @@ function bindReviewDataObserver(): void {
   subscribedReviewManager?.registerObserver(reviewDataObserver);
 }
 
-function bindReviewWorkspaceEventBus(): void {
+function bindReviewTransactionService(): void {
   if (!isReviewSourceBlockRefreshEnabled()) {
-    unbindReviewWorkspaceEventBus();
+    unbindReviewTransactionService();
     return;
   }
 
-  const eventBus = getWorkspaceEventBus();
-  if (eventBus === subscribedReviewWorkspaceEventBus) {
+  const transactionService = getReviewTransactionWebSocketService();
+  if (transactionService === subscribedReviewTransactionService) {
     return;
   }
 
-  if (subscribedReviewWorkspaceEventBus?.off) {
-    subscribedReviewWorkspaceEventBus.off('ws-main', handleReviewWorkspaceMessage);
-  }
+  subscribedReviewTransactionService?.unregisterHandler?.(reviewSourceTransactionHandler);
 
-  subscribedReviewWorkspaceEventBus = eventBus;
-  subscribedReviewWorkspaceEventBus?.on?.('ws-main', handleReviewWorkspaceMessage);
+  subscribedReviewTransactionService = transactionService;
+  subscribedReviewTransactionService?.registerHandler?.(reviewSourceTransactionHandler);
 }
 
 function unbindReviewDataObserver(): void {
@@ -2420,17 +2399,17 @@ function unbindReviewDataObserver(): void {
   subscribedReviewManager = null;
 }
 
-function unbindReviewWorkspaceEventBus(): void {
+function unbindReviewTransactionService(): void {
   clearReviewSourceRefreshTimer();
   pendingReviewSourceBlockIds.clear();
   reviewSourceRefreshSuppressedBlockIds.clear();
 
-  if (!subscribedReviewWorkspaceEventBus) {
+  if (!subscribedReviewTransactionService) {
     return;
   }
 
-  subscribedReviewWorkspaceEventBus.off?.('ws-main', handleReviewWorkspaceMessage);
-  subscribedReviewWorkspaceEventBus = null;
+  subscribedReviewTransactionService.unregisterHandler?.(reviewSourceTransactionHandler);
+  subscribedReviewTransactionService = null;
 }
 
 function getEventElement(target: EventTarget | null): HTMLElement | null {

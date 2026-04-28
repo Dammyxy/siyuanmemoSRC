@@ -1445,7 +1445,8 @@ export class ApplicationContext {
     const quickCardEnabled = settings.quickCard?.enabled === true;
     const nativeRiffSyncEnabled = settings.riffIntegration?.incrementalSync?.enabled === true
       && Boolean(this.hybridSyncService);
-    const shouldEnable = quickCardEnabled || nativeRiffSyncEnabled;
+    const reviewSourceBlockRefreshEnabled = settings.ui?.reviewSourceBlockRefreshEnabled === true;
+    const shouldEnable = quickCardEnabled || nativeRiffSyncEnabled || reviewSourceBlockRefreshEnabled;
 
     if (!shouldEnable) {
       if (this.transactionWebSocketService) {
@@ -1471,6 +1472,7 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] Initializing TransactionWebSocketService...', {
       quickCardEnabled,
       nativeRiffSyncEnabled,
+      reviewSourceBlockRefreshEnabled,
     });
 
     const { TransactionWebSocketService } = await import('@/core/infrastructure/websocket/TransactionWebSocketService');

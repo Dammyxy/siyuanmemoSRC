@@ -152,6 +152,37 @@ const ReviewActionsStub = defineComponent({
   },
 });
 
+type ReviewTransactionHandler = {
+  handle(transactions: Array<{ doOperations?: Array<{ action?: string; id?: string }> | null }>): void;
+};
+
+function createTransactionService() {
+  let registeredHandler: ReviewTransactionHandler | null = null;
+  const service = {
+    registerHandler: vi.fn((handler: ReviewTransactionHandler) => {
+      registeredHandler = handler;
+    }),
+    unregisterHandler: vi.fn((handler: ReviewTransactionHandler) => {
+      if (registeredHandler === handler) {
+        registeredHandler = null;
+      }
+    }),
+  };
+
+  return {
+    service,
+    emitBlockUpdate(blockId: string) {
+      registeredHandler?.handle([{
+        doOperations: [{
+          action: 'update',
+          id: blockId,
+        }],
+      }]);
+    },
+    getRegisteredHandler: () => registeredHandler,
+  };
+}
+
 describe('ReviewView source block refresh', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -166,16 +197,8 @@ describe('ReviewView source block refresh', () => {
     const currentCard = buildCard('descriptor-card-1', 'descriptor-block-1', { type: 'descriptor' });
     const queue = createQueue(currentCard);
     const adapter = createAdapter();
-    let wsMainListener: ((payload: unknown) => void) | null = null;
+    const transactionService = createTransactionService();
 
-    const eventBus = {
-      on: vi.fn((event: string, listener: (payload: unknown) => void) => {
-        if (event === 'ws-main') {
-          wsMainListener = listener;
-        }
-      }),
-      off: vi.fn(),
-    };
     const manager = {
       registerObserver: vi.fn(),
       unregisterObserver: vi.fn(),
@@ -189,9 +212,9 @@ describe('ReviewView source block refresh', () => {
         queue: queue as never,
         adapter: adapter as never,
         plugin: {
-          eventBus,
           getContext: () => ({
             getUnifiedDataSourceManager: () => manager,
+            getTransactionWebSocketService: () => transactionService.service,
             getStorage: () => ({
               getSettings: () => ({}),
             }),
@@ -213,8 +236,8 @@ describe('ReviewView source block refresh', () => {
 
     await flushPromises();
     expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
-    expect(eventBus.on).not.toHaveBeenCalledWith('ws-main', expect.any(Function));
-    expect(wsMainListener).toBeNull();
+    expect(transactionService.service.registerHandler).not.toHaveBeenCalled();
+    expect(transactionService.getRegisteredHandler()).toBeNull();
     expect(reviewContentRefreshVisibleContent).not.toHaveBeenCalled();
 
     wrapper.unmount();
@@ -224,16 +247,8 @@ describe('ReviewView source block refresh', () => {
     const currentCard = buildCard('descriptor-card-1', 'descriptor-block-1', { type: 'descriptor' });
     const queue = createQueue(currentCard);
     const adapter = createAdapter();
-    let wsMainListener: ((payload: unknown) => void) | null = null;
+    const transactionService = createTransactionService();
 
-    const eventBus = {
-      on: vi.fn((event: string, listener: (payload: unknown) => void) => {
-        if (event === 'ws-main') {
-          wsMainListener = listener;
-        }
-      }),
-      off: vi.fn(),
-    };
     const manager = {
       registerObserver: vi.fn(),
       unregisterObserver: vi.fn(),
@@ -247,9 +262,9 @@ describe('ReviewView source block refresh', () => {
         queue: queue as never,
         adapter: adapter as never,
         plugin: {
-          eventBus,
           getContext: () => ({
             getUnifiedDataSourceManager: () => manager,
+            getTransactionWebSocketService: () => transactionService.service,
             getStorage: () => ({
               getSettings: () => ({
                 ui: {
@@ -275,20 +290,9 @@ describe('ReviewView source block refresh', () => {
 
     await flushPromises();
     expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
-    expect(eventBus.on).toHaveBeenCalledWith('ws-main', expect.any(Function));
+    expect(transactionService.service.registerHandler).toHaveBeenCalledTimes(1);
 
-    wsMainListener?.({
-      detail: {
-        cmd: 'transactions',
-        data: [{
-          doOperations: [{
-            action: 'update',
-            id: 'descriptor-group-paragraph',
-          }],
-          undoOperations: null,
-        }],
-      },
-    });
+    transactionService.emitBlockUpdate('descriptor-group-paragraph');
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
@@ -297,36 +301,14 @@ describe('ReviewView source block refresh', () => {
     expect(reviewContentRefreshVisibleContent).toHaveBeenLastCalledWith('source-transaction');
     expect(manager.getCard).not.toHaveBeenCalled();
 
-    wsMainListener?.({
-      detail: {
-        cmd: 'transactions',
-        data: [{
-          doOperations: [{
-            action: 'update',
-            id: 'descriptor-block-1',
-          }],
-          undoOperations: null,
-        }],
-      },
-    });
+    transactionService.emitBlockUpdate('descriptor-block-1');
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
     expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
     expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(2);
 
-    wsMainListener?.({
-      detail: {
-        cmd: 'transactions',
-        data: [{
-          doOperations: [{
-            action: 'update',
-            id: 'unrelated-block',
-          }],
-          undoOperations: null,
-        }],
-      },
-    });
+    transactionService.emitBlockUpdate('unrelated-block');
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
@@ -340,48 +322,27 @@ describe('ReviewView source block refresh', () => {
     });
     await flushPromises();
 
-    wsMainListener?.({
-      detail: {
-        cmd: 'transactions',
-        data: [{
-          doOperations: [{
-            action: 'update',
-            id: 'descriptor-block-1',
-          }],
-          undoOperations: null,
-        }],
-      },
-    });
+    transactionService.emitBlockUpdate('descriptor-block-1');
     await vi.advanceTimersByTimeAsync(200);
     await flushPromises();
 
     expect(reviewContentRefreshVisibleContent).toHaveBeenCalledTimes(2);
 
     wrapper.unmount();
+    expect(transactionService.service.unregisterHandler).toHaveBeenCalledTimes(1);
   });
 
   it('drops pending source refresh while local advance is pending', async () => {
     const initialCard = buildCard('descriptor-card-1', 'descriptor-block-1', { type: 'descriptor' });
     const nextCard = buildCard('descriptor-card-2', 'descriptor-block-2', { type: 'descriptor' });
-    let wsMainListener: ((payload: unknown) => void) | null = null;
+    const transactionService = createTransactionService();
 
     const queue = {
       next: vi.fn()
         .mockResolvedValueOnce(initialCard)
         .mockResolvedValueOnce(nextCard),
       onFeedback: vi.fn(async () => {
-        wsMainListener?.({
-          detail: {
-            cmd: 'transactions',
-            data: [{
-              doOperations: [{
-                action: 'update',
-                id: 'descriptor-block-1',
-              }],
-              undoOperations: null,
-            }],
-          },
-        });
+        transactionService.emitBlockUpdate('descriptor-block-1');
         await Promise.resolve();
       }),
       getStats: vi.fn(async () => ({ size: 2, label: '2 due' })),
@@ -407,14 +368,6 @@ describe('ReviewView source block refresh', () => {
       canGoBack: vi.fn(() => false),
     };
     const adapter = createAdapter();
-    const eventBus = {
-      on: vi.fn((event: string, listener: (payload: unknown) => void) => {
-        if (event === 'ws-main') {
-          wsMainListener = listener;
-        }
-      }),
-      off: vi.fn(),
-    };
     const manager = {
       registerObserver: vi.fn(),
       unregisterObserver: vi.fn(),
@@ -428,9 +381,9 @@ describe('ReviewView source block refresh', () => {
         queue: queue as never,
         adapter: adapter as never,
         plugin: {
-          eventBus,
           getContext: () => ({
             getUnifiedDataSourceManager: () => manager,
+            getTransactionWebSocketService: () => transactionService.service,
             getStorage: () => ({
               getSettings: () => ({
                 ui: {
@@ -455,6 +408,7 @@ describe('ReviewView source block refresh', () => {
     });
 
     await flushPromises();
+    expect(transactionService.service.registerHandler).toHaveBeenCalledTimes(1);
     expect(wrapper.get('.review-render-state').text()).toBe('descriptor-card-1:descriptor-block-1:builtin-concept-descriptor-both:0');
 
     await wrapper.get('.review-grade-button').trigger('click');
@@ -466,5 +420,6 @@ describe('ReviewView source block refresh', () => {
     expect(reviewContentRefreshVisibleContent).not.toHaveBeenCalled();
 
     wrapper.unmount();
+    expect(transactionService.service.unregisterHandler).toHaveBeenCalledTimes(1);
   });
 });
