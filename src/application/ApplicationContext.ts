@@ -45,6 +45,7 @@ import { UpdateCardUseCase } from '@/application/usecases/card/UpdateCardUseCase
 import { ReviewCommitUseCase } from '@/application/usecases/review/ReviewCommitUseCase';
 import { CardApplicationService } from '@/application/services/CardApplicationService';
 import { CardReadModel } from '@/infrastructure/queries/CardReadModel';
+import { SqlCardReadModel } from '@/infrastructure/queries/SqlCardReadModel';
 import { CardCreationHelper } from '@/application/helpers/CardCreationHelper';
 import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 import { CardFilterService } from '@/core/card/domain/services/CardFilterService';
@@ -595,7 +596,9 @@ export class ApplicationContext {
 
       // ✅ 创建 Read Model（基础设施层）
       const unifiedStorage = context.getUnifiedStorage();
-      const cardReadModel = new CardReadModel(unifiedStorage);
+      const cardReadModel = context.sqlPersistence
+        ? new SqlCardReadModel(context.sqlPersistence.unified)
+        : new CardReadModel(unifiedStorage);
       
       // 创建应用服务
       const scheduleService = new CardScheduleService();
@@ -1049,7 +1052,9 @@ export class ApplicationContext {
     const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
     
     // ✅ 创建 Read Model（基础设施层）
-    const cardReadModel = new CardReadModel(unifiedStorageManager);
+    const cardReadModel = sqlPersistence
+      ? new SqlCardReadModel(sqlPersistence.unified)
+      : new CardReadModel(unifiedStorageManager);
     
     // ✅ 创建 CardApplicationService（使用 UnifiedStorageManager）
     const cardApplicationService = new CardApplicationService(

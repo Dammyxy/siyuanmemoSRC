@@ -3,6 +3,8 @@ import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPe
 import { CardMapper } from '@/infrastructure/persistence/mappers/CardMapper';
 import type { FSRSCard } from '@/types/card';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
+import type { StructuredCardQuery } from '@/types/card-query';
+import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { stringifyJson, parseJson } from './json';
 import type { SqliteDatabaseService } from './SqliteDatabaseService';
 
@@ -28,6 +30,32 @@ function resolveXiuyuanId(card: FSRSCard, dto?: CardPersistenceDTO): string | nu
   const metaXiuyuan = typeof card.meta?.xiuyuanID === 'string' ? card.meta.xiuyuanID : '';
   const dtoXiuyuan = typeof dto?.xiuyuanID === 'string' ? dto.xiuyuanID : '';
   return metaXiuyuan || dtoXiuyuan || null;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeStringArray(values: unknown[] | undefined): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function appendInClause(
+  clauses: string[],
+  params: Array<string | number>,
+  column: string,
+  values: string[] | number[],
+): void {
+  if (values.length === 0) {
+    return;
+  }
+  clauses.push(`${column} IN (${values.map(() => '?').join(', ')})`);
+  params.push(...values);
 }
 
 export class SqlUnifiedStorageRepository {
@@ -190,6 +218,102 @@ export class SqlUnifiedStorageRepository {
     );
   }
 
+  getAllCards(): FSRSCard[] {
+    return this.queryCards();
+  }
+
+  getCard(cardId: string): FSRSCard | undefined {
+    const normalizedId = String(cardId || '').trim();
+    if (!normalizedId) {
+      return undefined;
+    }
+    const row = this.database.getOne<{ payload_json: string }>(
+      'SELECT payload_json FROM cards WHERE id = ?',
+      [normalizedId],
+    );
+    return row ? this.parseCardRow(row) : undefined;
+  }
+
+  getCardByBlockId(blockId: string): FSRSCard | undefined {
+    return this.getCardsByBlockId(blockId)[0];
+  }
+
+  getCardsByBlockId(blockId: string): FSRSCard[] {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId) {
+      return [];
+    }
+    return this.queryCards({ blockIds: [normalizedBlockId] });
+  }
+
+  getDueCards(limit = 100): FSRSCard[] {
+    return this.queryCards({
+      dueDate: { lte: Date.now() },
+      includeSuspended: false,
+    }).slice(0, Math.max(1, Math.floor(Number(limit) || 100)));
+  }
+
+  queryCards(query?: StructuredCardQuery): FSRSCard[] {
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+
+    appendInClause(clauses, params, 'block_id', normalizeStringArray(query?.blockIds));
+    appendInClause(clauses, params, 'type', normalizeStringArray(query?.cardTypes));
+    appendInClause(
+      clauses,
+      params,
+      'state',
+      Array.isArray(query?.states)
+        ? query!.states
+          .map((state) => Number(state))
+          .filter((state) => Number.isFinite(state))
+        : [],
+    );
+
+    if (query?.dueDate?.lte !== undefined) {
+      const dueLte = Number(query.dueDate.lte);
+      if (Number.isFinite(dueLte)) {
+        clauses.push('due <= ?');
+        params.push(dueLte);
+      }
+    }
+    if (query?.dueDate?.gte !== undefined) {
+      const dueGte = Number(query.dueDate.gte);
+      if (Number.isFinite(dueGte)) {
+        clauses.push('due >= ?');
+        params.push(dueGte);
+      }
+    }
+    if (query?.priority?.min !== undefined) {
+      const priorityMin = Number(query.priority.min);
+      if (Number.isFinite(priorityMin)) {
+        clauses.push('priority >= ?');
+        params.push(priorityMin);
+      }
+    }
+    if (query?.priority?.max !== undefined) {
+      const priorityMax = Number(query.priority.max);
+      if (Number.isFinite(priorityMax)) {
+        clauses.push('priority <= ?');
+        params.push(priorityMax);
+      }
+    }
+
+    const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const orderBy = query?.dueDate?.lte !== undefined || query?.dueDate?.gte !== undefined
+      ? 'ORDER BY due ASC, priority ASC, id ASC'
+      : 'ORDER BY id ASC';
+    const rows = this.database.getAll<{ payload_json: string }>(
+      `SELECT payload_json FROM cards ${whereClause} ${orderBy}`,
+      params,
+    );
+
+    return rows
+      .map((row) => this.parseCardRow(row))
+      .filter((card): card is FSRSCard => Boolean(card))
+      .filter((card) => this.matchesStructuredQueryResiduals(card, query));
+  }
+
   async persist(): Promise<void> {
     await this.database.persist();
   }
@@ -199,5 +323,51 @@ export class SqlUnifiedStorageRepository {
       'SELECT (SELECT COUNT(*) FROM cards) + (SELECT COUNT(*) FROM xiuyuans) AS count',
     );
     return Number(row?.count) > 0;
+  }
+
+  private parseCardRow(row: { payload_json: string }): FSRSCard | null {
+    const card = parseJson<FSRSCard | null>(row.payload_json, null);
+    return card?.id ? card : null;
+  }
+
+  private matchesStructuredQueryResiduals(card: FSRSCard, query?: StructuredCardQuery): boolean {
+    if (!query) {
+      return true;
+    }
+
+    const dismissed = isCardDismissed(card);
+
+    if (query.suspended === true && !dismissed) {
+      return false;
+    }
+
+    if (query.suspended === false && dismissed) {
+      return false;
+    }
+
+    if (query.includeSuspended === false && dismissed) {
+      return false;
+    }
+
+    if (query.tags && query.tags.length > 0) {
+      const cardTags = new Set<string>(Array.isArray(card.tags) ? card.tags : []);
+      const metaTags = isObjectRecord(card.meta) && Array.isArray(card.meta.tags)
+        ? card.meta.tags
+        : [];
+      for (const tag of metaTags) {
+        if (typeof tag === 'string') {
+          cardTags.add(tag);
+        }
+      }
+      if (!query.tags.some((tag) => cardTags.has(tag))) {
+        return false;
+      }
+    }
+
+    if (query.customFilter && !query.customFilter(card)) {
+      return false;
+    }
+
+    return true;
   }
 }

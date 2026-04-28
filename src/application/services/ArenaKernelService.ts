@@ -30,6 +30,7 @@ import {
   type ArenaManagerViewModel,
   type ArenaOutcomeLabel,
   type ArenaPoolDescriptor,
+  type ArenaCardAttributionRecord,
   type ArenaScoreEntry,
   type ArenaScoreSnapshot,
   type ArenaSettings,
@@ -277,7 +278,8 @@ export class ArenaKernelService {
       return null;
     }
 
-    const snapshot = await this.ensureAiScoreSnapshot(pool.key, packs);
+    const scoreSnapshotCandidate = await this.buildAiScoreSnapshot(pool.key, packs);
+    const snapshot = scoreSnapshotCandidate.snapshot;
     const candidateEntries = snapshot.entries.filter((entry) => packs.some((pack) => pack.id === entry.contestantId));
     const pinnedPacks = packs.filter((pack) => pack.state === 'pinned');
     const weights = this.computeAiWeights(candidateEntries, settings.ai.explorationRate, pinnedPacks.map((pack) => pack.id));
@@ -301,24 +303,27 @@ export class ArenaKernelService {
       weights,
       selectedAt: Date.now(),
     };
-    await this.deps.arenaStore.appendMatch({
-      id: createId('arena-match'),
-      domain: 'ai',
-      poolKey: pool.key,
-      createdAt: selection.selectedAt,
-      surface: pool.surface,
-      scenarioId: pool.scenarioId,
-      targetKind: pool.targetKind,
-      ai: {
-        exposureId: selection.exposureId,
-        sessionId: normalizeString(input.sessionId) || null,
-        packId: selection.pack.id,
-        challengerPackIds: selection.challengers.map((pack) => pack.id),
-        skillId: pool.skillId,
-        tabId: pool.tabId,
-        eventType: 'exposure',
-        scoreDelta: 0,
-      },
+    await this.deps.arenaStore.commitBatch({
+      scoreSnapshots: scoreSnapshotCandidate.shouldPersist ? [snapshot] : [],
+      matches: [{
+        id: createId('arena-match'),
+        domain: 'ai',
+        poolKey: pool.key,
+        createdAt: selection.selectedAt,
+        surface: pool.surface,
+        scenarioId: pool.scenarioId,
+        targetKind: pool.targetKind,
+        ai: {
+          exposureId: selection.exposureId,
+          sessionId: normalizeString(input.sessionId) || null,
+          packId: selection.pack.id,
+          challengerPackIds: selection.challengers.map((pack) => pack.id),
+          skillId: pool.skillId,
+          tabId: pool.tabId,
+          eventType: 'exposure',
+          scoreDelta: 0,
+        },
+      }],
     });
     return selection;
   }
@@ -360,12 +365,13 @@ export class ArenaKernelService {
     if (!this.isEnabled() || !input.selection) {
       return;
     }
+    const now = Date.now();
     const scoreDelta = this.resolveAIScoreDelta(input.eventType, input.qualityLabel);
-    await this.deps.arenaStore.appendMatch({
+    const match: ArenaMatchRecord = {
       id: createId('arena-match'),
       domain: 'ai',
       poolKey: input.selection.pool.key,
-      createdAt: Date.now(),
+      createdAt: now,
       surface: input.selection.pool.surface,
       scenarioId: input.selection.pool.scenarioId,
       targetKind: input.selection.pool.targetKind,
@@ -382,13 +388,20 @@ export class ArenaKernelService {
         cardIds: input.cardIds,
         metadata: input.metadata,
       },
-    });
-    if (scoreDelta !== 0) {
-      await this.applyPackScoreDelta(input.selection.pool.key, input.selection.pack.id, input.selection.pack.title, scoreDelta);
-    }
+    };
+    const scoreSnapshot = scoreDelta !== 0
+      ? await this.buildPackScoreDeltaSnapshot(
+        input.selection.pool.key,
+        input.selection.pack.id,
+        input.selection.pack.title,
+        scoreDelta,
+        now,
+      )
+      : null;
+    const attributions: ArenaCardAttributionRecord[] = [];
     if (input.cardIds && input.cardIds.length > 0 && (input.eventType === 'create' || input.eventType === 'accept')) {
       for (const cardId of input.cardIds.map((entry) => normalizeString(entry)).filter(Boolean)) {
-        await this.deps.arenaStore.upsertAttribution({
+        attributions.push({
           cardId,
           poolKey: input.selection.pool.key,
           surface: input.selection.pool.surface,
@@ -397,14 +410,19 @@ export class ArenaKernelService {
           sourcePackId: input.selection.pack.id,
           sourcePackTitle: input.selection.pack.title,
           exposureId: input.selection.exposureId,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
+          createdAt: now,
+          updatedAt: now,
           reviewCount: 0,
           lastReviewAt: null,
           lastOutcome: null,
         });
       }
     }
+    await this.deps.arenaStore.commitBatch({
+      matches: [match],
+      scoreSnapshots: scoreSnapshot ? [scoreSnapshot] : [],
+      attributions,
+    });
   }
 
   async buildSrsRecommendation(
@@ -665,6 +683,17 @@ export class ArenaKernelService {
   }
 
   private async ensureAiScoreSnapshot(poolKey: string, packs: AIStrategyPackDefinition[]): Promise<ArenaScoreSnapshot> {
+    const candidate = await this.buildAiScoreSnapshot(poolKey, packs);
+    if (candidate.shouldPersist) {
+      await this.deps.arenaStore.replaceScoreSnapshot(candidate.snapshot);
+    }
+    return candidate.snapshot;
+  }
+
+  private async buildAiScoreSnapshot(
+    poolKey: string,
+    packs: AIStrategyPackDefinition[],
+  ): Promise<{ snapshot: ArenaScoreSnapshot; shouldPersist: boolean }> {
     const latest = await this.deps.arenaStore.getLatestScoreSnapshot('ai', poolKey);
     const existingEntries = new Map((latest?.entries || []).map((entry) => [entry.contestantId, entry] as const));
     const entries: ArenaScoreEntry[] = packs.map((pack) => ({
@@ -684,10 +713,10 @@ export class ArenaKernelService {
       createdAt: latest?.createdAt || Date.now(),
       entries,
     };
-    if (!latest || latest.entries.length !== entries.length) {
-      await this.deps.arenaStore.replaceScoreSnapshot(snapshot);
-    }
-    return snapshot;
+    return {
+      snapshot,
+      shouldPersist: !latest || latest.entries.length !== entries.length,
+    };
   }
 
   private async ensureSrsScoreSnapshot(
@@ -842,23 +871,24 @@ export class ArenaKernelService {
     }
   }
 
-  private async applyPackScoreDelta(
+  private async buildPackScoreDeltaSnapshot(
     poolKey: string,
     packId: string,
     title: string,
     scoreDelta: number,
-  ): Promise<void> {
+    updatedAt: number,
+  ): Promise<ArenaScoreSnapshot> {
     const pool = parseArenaPoolKey(poolKey);
     const settings = this.getArenaSettings();
     const packs = pool ? this.listEligiblePacks(pool, settings) : settings.ai.strategyPacks.filter((entry) => entry.id === packId);
-    const snapshot = await this.ensureAiScoreSnapshot(poolKey, packs.length > 0 ? packs : [{
+    const candidate = await this.buildAiScoreSnapshot(poolKey, packs.length > 0 ? packs : [{
       id: packId,
       title,
       source: 'ai-generated',
       state: 'active',
       eligibleScenarios: [],
     }]);
-    const entries = snapshot.entries.map((entry) => (
+    const entries = candidate.snapshot.entries.map((entry) => (
       entry.contestantId === packId
         ? {
           ...entry,
@@ -867,16 +897,16 @@ export class ArenaKernelService {
           sampleCount: entry.sampleCount + 1,
           winCount: entry.winCount + (scoreDelta > 0 ? 1 : 0),
           lossCount: entry.lossCount + (scoreDelta < 0 ? 1 : 0),
-          lastEventAt: Date.now(),
+          lastEventAt: updatedAt,
         }
         : entry
     ));
-    await this.deps.arenaStore.replaceScoreSnapshot({
-      ...snapshot,
+    return {
+      ...candidate.snapshot,
       id: createId('arena-score'),
-      createdAt: Date.now(),
+      createdAt: updatedAt,
       entries,
-    });
+    };
   }
 
   private buildSrsPredictions(
@@ -1020,45 +1050,50 @@ export class ArenaKernelService {
     if (!attribution) {
       return;
     }
+    const now = Date.now();
     const scoreDelta = pass
       ? (rating === Rating.Easy ? 1.1 : 0.8)
       : (rating === Rating.Again ? -1.4 : -0.9);
-    await this.applyPackScoreDelta(
+    const scoreSnapshot = await this.buildPackScoreDeltaSnapshot(
       attribution.poolKey,
       attribution.sourcePackId,
       attribution.sourcePackTitle,
       scoreDelta,
+      now,
     );
-    await this.deps.arenaStore.upsertAttribution({
-      ...attribution,
-      updatedAt: Date.now(),
-      reviewCount: attribution.reviewCount + 1,
-      lastReviewAt: Date.now(),
-      lastOutcome: pass ? 'positive' : 'negative',
-    });
-    await this.deps.arenaStore.appendMatch({
-      id: createId('arena-match'),
-      domain: 'ai',
-      poolKey: attribution.poolKey,
-      createdAt: Date.now(),
-      surface: attribution.surface,
-      scenarioId: attribution.scenarioId,
-      targetKind: attribution.targetKind,
-      ai: {
-        exposureId: attribution.exposureId,
-        sessionId: null,
-        packId: attribution.sourcePackId,
-        challengerPackIds: [],
-        skillId: null,
-        tabId: null,
-        eventType: 'judge',
-        scoreDelta,
-        metadata: {
-          source: 'delayed-review-attribution',
-          rating,
-          cardId,
+    await this.deps.arenaStore.commitBatch({
+      scoreSnapshots: [scoreSnapshot],
+      attributions: [{
+        ...attribution,
+        updatedAt: now,
+        reviewCount: attribution.reviewCount + 1,
+        lastReviewAt: now,
+        lastOutcome: pass ? 'positive' : 'negative',
+      }],
+      matches: [{
+        id: createId('arena-match'),
+        domain: 'ai',
+        poolKey: attribution.poolKey,
+        createdAt: now,
+        surface: attribution.surface,
+        scenarioId: attribution.scenarioId,
+        targetKind: attribution.targetKind,
+        ai: {
+          exposureId: attribution.exposureId,
+          sessionId: null,
+          packId: attribution.sourcePackId,
+          challengerPackIds: [],
+          skillId: null,
+          tabId: null,
+          eventType: 'judge',
+          scoreDelta,
+          metadata: {
+            source: 'delayed-review-attribution',
+            rating,
+            cardId,
+          },
         },
-      },
+      }],
     });
   }
 }

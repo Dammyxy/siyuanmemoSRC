@@ -53,6 +53,7 @@ export interface UnifiedDataSourceManager {
   getCard(cardId: string, options?: { silent?: boolean }): Promise<FSRSCard>;
   getCards(filter?: CardFilter): Promise<FSRSCard[]>;
   updateCard(card: FSRSCard): Promise<void>;
+  restoreCardSnapshotForFailedFeedback?(card: FSRSCard): Promise<void> | void;
   onCardUpdatedFromScheduler?(card: FSRSCard): Promise<void> | void;
   notifyObservers(event: DataChangeEvent): void;
   getQueue(type: QueueType): IReviewQueue;

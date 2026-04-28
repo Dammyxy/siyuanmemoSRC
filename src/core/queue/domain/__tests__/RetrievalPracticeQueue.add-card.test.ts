@@ -43,7 +43,10 @@ describe('RetrievalPracticeQueue addCard', () => {
     const storedCard = createCard();
 
     const manager = {
-      getCard: vi.fn(async (_id: string) => {
+      getCard: vi.fn(async (id: string) => {
+        if (id === storedCard.id) {
+          return storedCard;
+        }
         throw new Error('card not found by id');
       }),
       getCards: vi.fn(async (filter?: Record<string, unknown>) => {
@@ -79,14 +82,14 @@ describe('RetrievalPracticeQueue addCard', () => {
     );
   });
 
-  it('respects autoSort toggle when building outstanding queue', async () => {
+  it('orders formal due cards by due before priority under the SRS v2 policy', async () => {
     const now = Date.now();
     const sourceOrderCards = [
       createCard({ id: 'card-low-priority', blockId: 'block-low', due: now + 500, priority: 80 }),
       createCard({ id: 'card-high-priority', blockId: 'block-high', due: now + 1000, priority: 10 }),
     ];
 
-    const createManager = (autoSortEnabled: boolean) => ({
+    const manager = {
       getCard: vi.fn(async (_id: string) => {
         throw new Error('not found');
       }),
@@ -100,17 +103,13 @@ describe('RetrievalPracticeQueue addCard', () => {
       notifyObservers: vi.fn(),
       getDayStartHour: vi.fn(() => 4),
       getPriorityRandomness: vi.fn(() => 0),
-      getAutoSortEnabled: vi.fn(() => autoSortEnabled),
       getAddToOutstandingEveryNth: vi.fn(() => 2),
-    });
+    };
 
-    const sortedQueue = new RetrievalPracticeQueue(createManager(true) as never);
-    const sortedCards = await sortedQueue.getCards();
-    expect(sortedCards.map((card) => card.id)).toEqual(['card-high-priority', 'card-low-priority']);
+    const queue = new RetrievalPracticeQueue(manager as never);
+    const cards = await queue.getCards();
 
-    const unsortedQueue = new RetrievalPracticeQueue(createManager(false) as never);
-    const unsortedCards = await unsortedQueue.getCards();
-    expect(unsortedCards.map((card) => card.id)).toEqual(['card-low-priority', 'card-high-priority']);
+    expect(cards.map((card) => card.id)).toEqual(['card-low-priority', 'card-high-priority']);
   });
 
   it('allows manually adding cards that were already reviewed today', async () => {
@@ -220,5 +219,34 @@ describe('RetrievalPracticeQueue addCard', () => {
 
     expect(cards.map((card) => card.id)).toContain(completedToday.id);
     expect(persistence.set).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to an unfiltered full-card scan when a manual card is missing', async () => {
+    const persistence = createPersistenceStub(['missing-manual-card']);
+    const manager = {
+      getCard: vi.fn(async () => {
+        throw new Error('card not found by id');
+      }),
+      getCards: vi.fn(async (filter?: Record<string, unknown>) => {
+        if (!filter) {
+          throw new Error('unfiltered scan should not be used');
+        }
+        return [];
+      }),
+      updateCard: vi.fn(async (_card: FSRSCard) => {}),
+      notifyObservers: vi.fn(),
+      getDayStartHour: vi.fn(() => 4),
+      getPriorityRandomness: vi.fn(() => 0),
+      getAutoSortEnabled: vi.fn(() => true),
+      getAddToOutstandingEveryNth: vi.fn(() => 2),
+    };
+
+    const queue = new RetrievalPracticeQueue(manager as never, persistence);
+    await queue.load();
+
+    await expect(queue.getCards()).resolves.toEqual([]);
+
+    expect(manager.getCards).not.toHaveBeenCalledWith();
+    expect(persistence.set).toHaveBeenCalledWith('retrievalPracticeQueue', []);
   });
 });

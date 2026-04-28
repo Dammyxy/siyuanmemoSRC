@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 171)
+Last update: 2026-04-28 (Round 172)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - SQL hot path deferred debt cleared
+
+- Task: 清零 `2026-04-28 - SQL review hot path transaction and binary persist` 暂缓的 3 条 SQL 热路径债务。
+- Touched slice: SQL read model / queue manual resolver / AI Arena batching / review feedback compensation across `src/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository.ts`, `src/infrastructure/queries/SqlCardReadModel.ts`, `src/application/ApplicationContext.ts`, `src/core/queue/domain/ManualCardCollectionQueue.ts`, `src/application/services/{ArenaStoreService,ArenaKernelService,UnifiedDataSourceManager}.ts`, `src/application/adapters/UnifiedQueueStrategy.ts`, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: SQL active 时 `CardApplicationService` 使用 `SqlCardReadModel`，`queryCards/getCard/getCardsByBlockId/getDueCards/getAllCards` 先按 `cards` 表索引字段过滤再复用 residual 语义；手动加入卡解析移除无过滤全量 `getCards()` 常规兜底；AI Arena 非复习动作通过 `commitBatch()` 合并 match、score snapshot、attribution，SQL/legacy 都是一逻辑动作一次 store 提交；feedback 普通失败会丢弃失败 history，并恢复 queue snapshot、session exclusions、current item、cache/counter 和评分前 card 内存态，补偿不二次落盘。
+- Debt deferred: 无。本轮只清 `2026-04-28 - SQL review hot path transaction and binary persist` 新增债务，历史 backlog 不在范围内。
+- Why deferred: 不适用。
+- Next safe step: 继续用真实性能日志观察 SQL indexed query 与 dashboard idle scoring；若出现新瓶颈，按独立任务处理，不回填成本轮暂缓债。
+- Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/application/services/__tests__/ArenaStoreService.test.ts src/application/services/__tests__/ArenaKernelService.test.ts src/core/queue/domain/__tests__/RetrievalPracticeQueue.add-card.test.ts src/application/__tests__/UnifiedQueueStrategy.performance.test.ts`; `pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`git diff --check`。
 
 ### 2026-04-28 - SQL review hot path transaction and binary persist
 
 - Task: 扶正 SQL 复习热路径：一次反馈一个 SQLite transaction / 一次二进制落盘，并把 SRS Arena 反馈写入并入 review commit 边界。
 - Touched slice: Review / Scheduler / SQL persistence / Queue overlay / Arena active path across `src/application/usecases/review/ReviewCommitUseCase.ts`, `src/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter.ts`, `src/infrastructure/persistence/sqlite/*`, `src/infrastructure/services/{FileService,QueuePersistenceService}.ts`, `src/application/services/{ArenaKernelService,ArenaStoreService}.ts`, `src/ui/review/v2/ReviewView.vue`, and `ARCHITECTURE.md`.
 - Debt fixed now: `siyuanmemo.db` 改为优先二进制 `putFile` 持久化并兼容旧 base64 envelope 读取/备份；`SqliteDatabaseService` 增加嵌套事务、transaction 内 persist defer，以及 persist 失败后的 SQL 内存 DB 已落盘状态恢复；scheduler 写回在 SQL active 时改成 `cards` 行级 upsert 并抑制 UnifiedStorageManager 自动全量保存；`ReviewCommitUseCase` 包裹 SQL review transaction 并直接记录 SRS Arena batch；ReviewView 不再二次记录 Arena；`QueuePersistenceService` SQL 路径改为 dirty key/delete key 增量保存，不再 runtime `replaceAll`。
-- Debt deferred: 真正从 SQL query 重建所有队列候选仍沿用现有 queue domain 查询/缓存形状逐步替换；AI Arena 非复习事件仍按当前 action 粒度即时 persist；persist 失败时 SQL 内存 DB 会回到上一份已落盘文件，但已经更新过的 JS 队列/UI 聚合状态仍需要外层错误处理与下一次刷新收敛。
-- Why deferred: 本轮根因是 review/hide 热路径写放大；全队列 SQL query 化和跨内存聚合补偿事务会扩大到所有队列与 UI session contract，需要独立回归矩阵。
-- Next safe step: 给 queue dirty-key flush 与 SQL-backed queue candidate 查询继续加 focused tests；随后把 due/review queue candidate 查询下沉到 SQL indexed read model。
+- Debt deferred: 无（已在 `2026-04-28 - SQL hot path deferred debt cleared` 清零）。
+- Why deferred: 不适用。
+- Next safe step: 继续用真实性能日志观察 SQL indexed query 与 dashboard idle scoring。
 - Validation: `pnpm exec vitest run src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/services/__tests__/ArenaKernelService.test.ts`; `pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）；`git diff --check`。
 
 ### 2026-04-28 - SQL storage and AI/SRS Arena foundation

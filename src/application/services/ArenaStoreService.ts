@@ -163,6 +163,12 @@ export interface SrsArenaReviewBatchInput {
   match: ArenaMatchRecord;
 }
 
+export interface ArenaStoreBatchInput {
+  matches?: ArenaMatchRecord[];
+  scoreSnapshots?: ArenaScoreSnapshot[];
+  attributions?: ArenaCardAttributionRecord[];
+}
+
 export class ArenaStoreService {
   constructor(
     private readonly fileService: Pick<IFileService, 'readJSON' | 'writeJSON'>,
@@ -202,22 +208,7 @@ export class ArenaStoreService {
   }
 
   async appendMatch(record: ArenaMatchRecord): Promise<void> {
-    const normalized = normalizeMatchRecord(record);
-    if (!normalized) {
-      logger.warn('Skipping invalid arena match record', { record });
-      return;
-    }
-    if (this.sqlRepository) {
-      this.sqlRepository.appendMatch(normalized);
-      await this.sqlRepository.persist();
-      return;
-    }
-
-    const store = await this.readStore();
-    store.matches = [normalized, ...store.matches.filter((entry) => entry.id !== normalized.id)]
-      .sort((left, right) => right.createdAt - left.createdAt)
-      .slice(0, MAX_MATCH_RECORDS);
-    await this.writeStore(store);
+    await this.commitBatch({ matches: [record] });
   }
 
   async listScoreSnapshots(filters?: {
@@ -258,25 +249,7 @@ export class ArenaStoreService {
   }
 
   async replaceScoreSnapshot(snapshot: ArenaScoreSnapshot): Promise<void> {
-    const normalized = normalizeScoreSnapshot(snapshot);
-    if (!normalized) {
-      logger.warn('Skipping invalid arena score snapshot', { snapshot });
-      return;
-    }
-    if (this.sqlRepository) {
-      this.sqlRepository.replaceScoreSnapshot(normalized);
-      await this.sqlRepository.persist();
-      return;
-    }
-
-    const store = await this.readStore();
-    store.scores = [
-      normalized,
-      ...store.scores.filter((entry) => !(entry.domain === normalized.domain && entry.poolKey === normalized.poolKey)),
-    ]
-      .sort((left, right) => right.createdAt - left.createdAt)
-      .slice(0, MAX_SCORE_SNAPSHOTS);
-    await this.writeStore(store);
+    await this.commitBatch({ scoreSnapshots: [snapshot] });
   }
 
   async getAttribution(cardId: string): Promise<ArenaCardAttributionRecord | null> {
@@ -295,25 +268,7 @@ export class ArenaStoreService {
   }
 
   async upsertAttribution(record: ArenaCardAttributionRecord): Promise<void> {
-    const normalized = normalizeAttribution(record);
-    if (!normalized) {
-      logger.warn('Skipping invalid arena attribution record', { record });
-      return;
-    }
-    if (this.sqlRepository) {
-      this.sqlRepository.upsertAttribution(normalized);
-      await this.sqlRepository.persist();
-      return;
-    }
-
-    const store = await this.readStore();
-    store.attributions = [
-      normalized,
-      ...store.attributions.filter((entry) => entry.cardId !== normalized.cardId),
-    ]
-      .sort((left, right) => right.updatedAt - left.updatedAt)
-      .slice(0, MAX_ATTRIBUTIONS);
-    await this.writeStore(store);
+    await this.commitBatch({ attributions: [record] });
   }
 
   async listAttributions(filters?: {
@@ -384,7 +339,74 @@ export class ArenaStoreService {
       return;
     }
 
-    await this.replaceScoreSnapshot(input.scoreSnapshot);
-    await this.appendMatch(input.match);
+    await this.commitBatch({
+      scoreSnapshots: [input.scoreSnapshot],
+      matches: [input.match],
+    });
+  }
+
+  async commitBatch(input: ArenaStoreBatchInput): Promise<void> {
+    const matches = (input.matches || [])
+      .map(normalizeMatchRecord)
+      .filter((entry): entry is ArenaMatchRecord => Boolean(entry));
+    const scoreSnapshots = (input.scoreSnapshots || [])
+      .map(normalizeScoreSnapshot)
+      .filter((entry): entry is ArenaScoreSnapshot => Boolean(entry));
+    const attributions = (input.attributions || [])
+      .map(normalizeAttribution)
+      .filter((entry): entry is ArenaCardAttributionRecord => Boolean(entry));
+
+    if (matches.length === 0 && scoreSnapshots.length === 0 && attributions.length === 0) {
+      if ((input.matches || []).length > 0) {
+        logger.warn('Skipping invalid arena match batch', { matches: input.matches });
+      }
+      if ((input.scoreSnapshots || []).length > 0) {
+        logger.warn('Skipping invalid arena score snapshot batch', { scoreSnapshots: input.scoreSnapshots });
+      }
+      if ((input.attributions || []).length > 0) {
+        logger.warn('Skipping invalid arena attribution batch', { attributions: input.attributions });
+      }
+      return;
+    }
+
+    if (this.sqlRepository) {
+      this.sqlRepository.recordBatch({
+        matches,
+        scoreSnapshots,
+        attributions,
+      });
+      await this.sqlRepository.persist();
+      return;
+    }
+
+    const store = await this.readStore();
+    for (const snapshot of scoreSnapshots) {
+      store.scores = [
+        snapshot,
+        ...store.scores.filter((entry) => !(entry.domain === snapshot.domain && entry.poolKey === snapshot.poolKey)),
+      ];
+    }
+    for (const match of matches) {
+      store.matches = [
+        match,
+        ...store.matches.filter((entry) => entry.id !== match.id),
+      ];
+    }
+    for (const attribution of attributions) {
+      store.attributions = [
+        attribution,
+        ...store.attributions.filter((entry) => entry.cardId !== attribution.cardId),
+      ];
+    }
+    store.matches = store.matches
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, MAX_MATCH_RECORDS);
+    store.scores = store.scores
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, MAX_SCORE_SNAPSHOTS);
+    store.attributions = store.attributions
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .slice(0, MAX_ATTRIBUTIONS);
+    await this.writeStore(store);
   }
 }

@@ -79,6 +79,12 @@ interface UnifiedManagerPluginContextLike {
     getReviewLogService?: () => {
         addDrillLogV2?: (log: DrillLogV2) => Promise<void>;
     } | null | undefined;
+    getUnifiedStorage?: () => {
+        updateCard?: (
+            card: FSRSCard,
+            options?: { suppressAutosave?: boolean; preferIncomingScheduling?: boolean }
+        ) => Promise<{ ok: boolean; error?: Error }> | { ok: boolean; error?: Error };
+    } | null | undefined;
 }
 
 interface UnifiedManagerPluginLike {
@@ -682,6 +688,22 @@ export class UnifiedDataSourceManager {
             const errorMessage = error instanceof Error ? error.message : String(error);
             logger.error(`Failed to update card ${card.id}:`, errorMessage);
             throw new Error(`更新卡片失败 (${card.id}): ${errorMessage}`);
+        }
+    }
+
+    public async restoreCardSnapshotForFailedFeedback(card: FSRSCard): Promise<void> {
+        const plugin = this.resolvePlugin();
+        const storage = plugin?.getContext?.()?.getUnifiedStorage?.();
+        if (!storage || typeof storage.updateCard !== 'function') {
+            throw new Error('UnifiedStorageManager not available for feedback rollback');
+        }
+
+        const result = await storage.updateCard(card, {
+            preferIncomingScheduling: true,
+            suppressAutosave: true,
+        });
+        if (!result.ok) {
+            throw result.error ?? new Error(`Failed to restore card snapshot: ${card.id}`);
         }
     }
 

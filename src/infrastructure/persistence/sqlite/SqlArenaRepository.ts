@@ -297,6 +297,22 @@ export class SqlArenaRepository {
     this.appendMatch(input.match);
   }
 
+  recordBatch(input: {
+    matches?: ArenaMatchRecord[];
+    scoreSnapshots?: ArenaScoreSnapshot[];
+    attributions?: ArenaCardAttributionRecord[];
+  }): void {
+    for (const snapshot of input.scoreSnapshots || []) {
+      this.replaceScoreSnapshot(snapshot);
+    }
+    for (const match of input.matches || []) {
+      this.appendMatch(match);
+    }
+    for (const attribution of input.attributions || []) {
+      this.upsertAttribution(attribution);
+    }
+  }
+
   importStore(store: ArenaStoreData): void {
     for (const snapshot of store.scores || []) {
       this.replaceScoreSnapshot(snapshot);

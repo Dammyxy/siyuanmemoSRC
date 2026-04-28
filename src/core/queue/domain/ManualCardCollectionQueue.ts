@@ -295,15 +295,6 @@ export abstract class ManualCardCollectionQueue extends BaseReviewQueue {
           return cardByBlockId;
         }
 
-        // Last-resort fallback for data-source adapters that cannot resolve by cardId
-        // consistently in certain runtime states. This path should be rare.
-        const cardFromFallbackPool = await this.manager.getCards()
-          .then((cards) => cards.find((candidate) => candidate.id === cardId) ?? null)
-          .catch(() => null);
-        if (cardFromFallbackPool) {
-          return cardFromFallbackPool;
-        }
-
         logger.debug(`Card ${cardId} not found, removing from manual additions`);
         return null;
       },

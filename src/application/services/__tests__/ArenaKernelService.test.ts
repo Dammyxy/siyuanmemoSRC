@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ArenaKernelService } from '@/application/services/ArenaKernelService';
-import type { ArenaStoreService, SrsArenaReviewBatchInput } from '@/application/services/ArenaStoreService';
+import type { ArenaStoreBatchInput, ArenaStoreService, SrsArenaReviewBatchInput } from '@/application/services/ArenaStoreService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import {
   DEFAULT_ARENA_SETTINGS,
@@ -124,6 +124,26 @@ function createMemoryArenaStore() {
         ...data.scores.filter((entry) => !(entry.domain === input.scoreSnapshot.domain && entry.poolKey === input.scoreSnapshot.poolKey)),
       ];
       data.matches = [clone(input.match), ...data.matches.filter((entry) => entry.id !== input.match.id)];
+    },
+    async commitBatch(input: ArenaStoreBatchInput) {
+      for (const snapshot of input.scoreSnapshots || []) {
+        data.scores = [
+          clone(snapshot),
+          ...data.scores.filter((entry) => !(entry.domain === snapshot.domain && entry.poolKey === snapshot.poolKey)),
+        ];
+      }
+      for (const match of input.matches || []) {
+        data.matches = [clone(match), ...data.matches.filter((entry) => entry.id !== match.id)];
+      }
+      for (const attribution of input.attributions || []) {
+        data.attributions = [
+          clone(attribution),
+          ...data.attributions.filter((entry) => entry.cardId !== attribution.cardId),
+        ];
+      }
+      data.scores.sort((left, right) => right.createdAt - left.createdAt);
+      data.matches.sort((left, right) => right.createdAt - left.createdAt);
+      data.attributions.sort((left, right) => right.updatedAt - left.updatedAt);
     },
     async getAttribution(cardId: string) {
       return clone(data.attributions.find((entry) => entry.cardId === cardId) || null);
@@ -292,6 +312,42 @@ describe('ArenaKernelService', () => {
       winCount: 1,
       lossCount: 1,
     });
+  });
+
+  it('batches AI create event, score update, and card attributions into one store commit', async () => {
+    const settings = createEnabledArenaSettings();
+    settings.ai.strategyPacks = [
+      createPack({ id: 'pack-a', title: 'Pack A' }),
+    ];
+    const { service, store } = createKernel(settings);
+    const selection = await service.selectAIPack({
+      surface: 'standalone-dialog',
+      scenarioId: 'candidate-card-generation',
+      targetKind: 'note',
+      skillId: 'concept-coach',
+      tabId: 'self-test-cards',
+    });
+    const commitBatchSpy = vi.spyOn(store, 'commitBatch');
+
+    await service.recordAIEvent({
+      selection,
+      eventType: 'create',
+      cardIds: ['card-created-1', 'card-created-2'],
+    });
+
+    expect(commitBatchSpy).toHaveBeenCalledTimes(1);
+    expect(commitBatchSpy.mock.calls[0]?.[0]).toMatchObject({
+      matches: [expect.objectContaining({ domain: 'ai' })],
+      scoreSnapshots: [expect.objectContaining({ domain: 'ai' })],
+      attributions: [
+        expect.objectContaining({ cardId: 'card-created-1' }),
+        expect.objectContaining({ cardId: 'card-created-2' }),
+      ],
+    });
+    expect(store.data.attributions.map((entry) => entry.cardId).sort()).toEqual([
+      'card-created-1',
+      'card-created-2',
+    ]);
   });
 
   it('creates challenge packs from the current pool without crossing scenarios', async () => {

@@ -42,8 +42,8 @@ function createQueueStub(
       rating: number,
       liveCards: FSRSCard[],
     ) => Promise<Partial<QueueReviewResult> | void>;
-    createRollbackSnapshot?: () => Promise<unknown>;
-    restoreRollbackSnapshot?: (snapshot: unknown) => Promise<void>;
+    createRollbackSnapshot?: (liveCards: FSRSCard[]) => Promise<unknown>;
+    restoreRollbackSnapshot?: (snapshot: unknown, liveCards: FSRSCard[]) => Promise<void>;
   }
 ): IReviewQueue & {
   createRollbackSnapshot?: () => Promise<unknown>;
@@ -137,8 +137,12 @@ function createQueueStub(
     insertAt: vi.fn(async () => {}),
     getRemainingSize: vi.fn(async () => liveCards.length),
     getCounterSnapshot: vi.fn(async () => buildSnapshot()),
-    createRollbackSnapshot: options?.createRollbackSnapshot,
-    restoreRollbackSnapshot: options?.restoreRollbackSnapshot,
+    createRollbackSnapshot: options?.createRollbackSnapshot
+      ? () => options.createRollbackSnapshot!(liveCards)
+      : undefined,
+    restoreRollbackSnapshot: options?.restoreRollbackSnapshot
+      ? (snapshot: unknown) => options.restoreRollbackSnapshot!(snapshot, liveCards)
+      : undefined,
   };
 }
 
@@ -1039,6 +1043,50 @@ describe('UnifiedQueueStrategy performance and rollback behavior', () => {
     expect(isQueueItemUnavailableError(caught)).toBe(true);
     const next = await strategy.next();
     expect(next?.id).toBe(nextCard.id);
+  });
+
+  it('restores queue and card memory snapshots when feedback persistence fails', async () => {
+    const first = createCard({ id: 'card-first', blockId: 'block-first', priority: 10 });
+    const second = createCard({ id: 'card-second', blockId: 'block-second', priority: 20 });
+    const changedFirst = createCard({ ...first, due: first.due + DAY_MS, priority: 99 });
+    const restoreCardSnapshotForFailedFeedback = vi.fn(async () => {});
+    const queue = createQueueStub(QueueType.RetrievalPractice, [first, second], {
+      createRollbackSnapshot: async (liveCards) => liveCards.map((card) => ({ ...card })),
+      restoreRollbackSnapshot: async (snapshot, liveCards) => {
+        liveCards.splice(0, liveCards.length, ...(snapshot as FSRSCard[]).map((card) => ({ ...card })));
+      },
+      handleReview: async (_cardId, _rating, liveCards) => {
+        liveCards.splice(0, 1, changedFirst);
+        throw new Error('mock persist failed');
+      },
+    });
+    const manager = {
+      getQueue: vi.fn(() => queue),
+      getCard: vi.fn(async () => ({ ...first })),
+      getCards: vi.fn(async () => []),
+      updateCard: vi.fn(async () => {}),
+      restoreCardSnapshotForFailedFeedback,
+    };
+    const eventBus = { subscribe: vi.fn() };
+
+    const strategy = new UnifiedQueueStrategy(
+      QueueType.RetrievalPractice,
+      manager as never,
+      eventBus as never,
+      null
+    );
+
+    const current = await strategy.next();
+    await expect(strategy.onFeedback(current, { action: 'rate', rating: 3 })).rejects.toThrow('mock persist failed');
+
+    expect(restoreCardSnapshotForFailedFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'card-first',
+      priority: 10,
+    }));
+    expect(strategy.canGoBack()).toBe(false);
+    const next = await strategy.next();
+    expect(next?.id).toBe('card-first');
+    expect(next?.priority).toBe(10);
   });
 
   it('does not clear the current card when a deleted sibling shares the same block id', async () => {

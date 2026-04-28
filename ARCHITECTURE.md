@@ -95,6 +95,7 @@ flowchart TD
 - 初始化 `SchedulerRouter` / `RescheduleService`
 - 初始化 `UnifiedDataSourceManager`
 - 装配 `CardApplicationService` / `BrowserApplicationService` / `ReviewApplicationService`
+- SQL active 时给 `CardApplicationService` 注入 `SqlCardReadModel`，队列候选常规查询从 `cards` 表的 `type/state/due/block_id/priority` 索引字段开始筛选，再复用结构化残余过滤；legacy 时保留 `UnifiedStorageManager` 读模型
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`
 - 装配 Browser 所需的 Siyuan port 与 datasource factory；`BrowserApplicationService` 不直接依赖 `src/ui/browser/*`
 - 装配 Review special renderer service；`ReviewContent.vue` 不直接创建 core infrastructure repository
@@ -166,6 +167,7 @@ flowchart TD
    - progressive excerpt / open-as / fullscreen / SRS editor 继续复用既有 application / dialog 主链
 7. `ReviewContent.vue` 继续在 `主 Protyle / special renderer` 之间路由；special renderer 所需的 quick / descriptor render services 由 `createReviewRenderServices()` 在 application factory 边界创建后注入，UI 不再直接 new core infrastructure repository；其中普通 `builtin-multi-cloze` Item 已回到主 Protyle / 原生编辑路径，历史 `quick-default` 标记也会被普通 multi-cloze 契约压回 native path，只有 `inline-formula-cloze` 继续走专用 `MultiClozeCardRenderer`；`UnifiedReviewAdapter` 会把普通 multi-cloze 与 topic-derived Item 标记为 native inline hidden 候选，最终由 `ReviewContent` 的 DOM 检测按思源 flashcard 配置给 `mark/list/heading/superBlock` 加隐藏 class；special renderer 仍通过 `getEditableSource()` 向 `ReviewView.vue` 暴露当前可编辑块，同块编辑保存或经 `TransactionWebSocketService` 共享 transaction stream 命中的源块刷新则走 `refreshVisibleContent()`：主 Protyle 调 `reload(false)`，special renderer 只重挂自身子组件，外层 review content key 只表达卡片身份
 8. review tab 现在区分 `surface id` 与 `shared review session id`：前者仍用于 tab 生命周期/AI companion 绑定，后者只用于插件托管分屏共享同一套 review controller
+9. SQL active 的队列候选真相是 `cards` 当前状态；`queue_state` 只保存筛选配置、临时黑名单、手动加入、session 排除和手动顺序等 overlay。手动加入卡解析按 card id / block id 定点查询，查不到才清理无效 manual entry，不再常规回退到无过滤全量 `getCards()`
 
 当前 review surface 路由补充：
 
@@ -214,6 +216,11 @@ sequenceDiagram
   UDSM-->>B: data change event
   B->>B: incremental grid patch
 ```
+
+失败补偿语义：
+
+- `QueueItemUnavailableError` 只表示当前卡评分前已消失，继续沿用“清理 stale item -> 下一张”的专用路径，不写 review history，也不套普通补偿
+- 其他 feedback 失败，尤其是 SQL persist 失败，`UnifiedQueueStrategy` 会丢弃刚压入的失败 history，恢复 queue rollback snapshot、session 排除、当前项、计数/cache，并通过 `UnifiedDataSourceManager.restoreCardSnapshotForFailedFeedback()` 用 `suppressAutosave` 恢复评分前 card 内存态；补偿本身不再触发第二次落盘
 
 ### 4.3 Progressive / Excerpt / Topic-derived item
 
@@ -357,8 +364,8 @@ UI surface：
 - `src/application/services/SelectionTopicContinuationService.ts`：选区继续制卡门面，负责同步 menu 预判和异步 progressive source context 解析。
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
-- `src/application/services/ArenaStoreService.ts`：Arena store facade；SQL active 时写 `algorithm_registry / arena_predictions / arena_outcomes / arena_metric_bins / arena_score_snapshots / ai_arena_events / ai_card_attributions`，旧 `arena/store.json` 只作为迁移来源或 fallback。
-- `src/application/services/ArenaKernelService.ts`：Arena 统一内核；负责 AI 场景池、策略包加权抽样、pin/retire/clone/challenge 管理、AI 行为评分、SRS 七选手只读 counterfactual、Universal/Calibration metric 与 delayed attribution。
+- `src/application/services/ArenaStoreService.ts`：Arena store facade；SQL active 时写 `algorithm_registry / arena_predictions / arena_outcomes / arena_metric_bins / arena_score_snapshots / ai_arena_events / ai_card_attributions`，旧 `arena/store.json` 只作为迁移来源或 fallback；非复习 AI 动作通过 `commitBatch()` 把 match、score snapshot、card attribution 合成一次 store 提交，SQL path 只触发一次 persist，legacy JSON path 只读改写一次。
+- `src/application/services/ArenaKernelService.ts`：Arena 统一内核；负责 AI 场景池、策略包加权抽样、pin/retire/clone/challenge 管理、AI 行为评分、SRS 七选手只读 counterfactual、Universal/Calibration metric 与 delayed attribution；`recordAIEvent / applyAttributedReviewFeedback / selectAIPack` 以“一逻辑 AI 动作最多一次 persist”为边界提交。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
 - `src/application/services/AIChatSkillRegistry.ts`：通用 AI chat Skill 注册表；负责合并内置 Skill 与 `settings.ai.userSkills[]`，并把用户 chat / structured skill 解析成统一的 runtime 描述符与 tab/section 元数据。
 - `src/application/services/AIChatToolRegistry.ts`：AI chat 工具描述符、工具组、执行策略与可见性注册。
@@ -374,7 +381,7 @@ UI surface：
 
 - `src/application/factories/createUnifiedReviewDialog.ts`：统一 review dialog 工厂。
 - `src/application/factories/createReviewRenderServices.ts`：review special renderer service 装配边界，集中创建 quick / descriptor render services。
-- `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`IncrementalLearning` 现在走独立的 requery-after-feedback 模式，评分/跳过后只记录一次性 `avoidOnceCardId + avoidOnceBlockId` 可见身份，下一次 `next()` 会重新读取 queue 视图并优先切到不同 source block 的卡，只有没有替代 block 时才退化到同 block 兄弟卡或同卡，而不是继续复用 `pendingRotateCardId + currentIndex + cache hot patch` 的本地轮转链；同时它也是 review 当前卡显示态 hydration 的唯一活跃入口，`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 逻辑，而不是在 controller 再复制一份预览计算；它直接注册为 `UnifiedDataSourceManager` observer，收到当前队列 `queue-changed` 会失效本地缓存，收到 `card-deleted` 会从缓存与前进 buffer 移除匹配卡；如果评分时确认当前 active item 已不存在，则清理 stale item 并抛 `QueueItemUnavailableError`
+- `src/application/adapters/UnifiedQueueStrategy.ts`：review session 到 queue domain 的策略适配；`IncrementalLearning` 现在走独立的 requery-after-feedback 模式，评分/跳过后只记录一次性 `avoidOnceCardId + avoidOnceBlockId` 可见身份，下一次 `next()` 会重新读取 queue 视图并优先切到不同 source block 的卡，只有没有替代 block 时才退化到同 block 兄弟卡或同卡，而不是继续复用 `pendingRotateCardId + currentIndex + cache hot patch` 的本地轮转链；同时它也是 review 当前卡显示态 hydration 的唯一活跃入口，`next()/goBack()` 之外的 restore/refresh/load-by-block 会复用同一套 `maybeAddNextDues()` 逻辑，而不是在 controller 再复制一份预览计算；它直接注册为 `UnifiedDataSourceManager` observer，收到当前队列 `queue-changed` 会失效本地缓存，收到 `card-deleted` 会从缓存与前进 buffer 移除匹配卡；如果评分时确认当前 active item 已不存在，则清理 stale item 并抛 `QueueItemUnavailableError`；其他 feedback 失败会做不落盘补偿，恢复 queue snapshot、session exclusions、当前卡与评分前 card 内存态
 - `src/application/adapters/UnifiedReviewAdapter.ts`：review UI 状态与动作适配。
 - `src/application/queries/browser/*`：Browser 查询对象与处理器；shared 目录承载 application 可用的 browser row projection / sort / filter helper。
 - `src/application/queries/card/*`：卡片查询对象与处理器。
@@ -456,7 +463,7 @@ Siyuan / Riff / LLM 适配器：
 
 - `src/infrastructure/persistence/*`：卡片仓储、DTO、mapper、持久化映射。
 - `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema、算法注册、二进制 DB 落盘、事务级 persist 合并与 persist 失败后的 SQL 内存状态恢复，repository 负责 unified store、queue state、review logs 与 Arena append-only 数据，`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移。
-- `src/infrastructure/queries/CardReadModel.ts`：读模型实现。
+- `src/infrastructure/queries/CardReadModel.ts` / `SqlCardReadModel.ts`：卡片读模型实现；legacy 读内存 `UnifiedStorageManager`，SQL active 读 `SqlUnifiedStorageRepository.queryCards()`，先走 `cards` 表索引字段，再执行 suspended/tags/customFilter 等残余过滤。
 - `src/infrastructure/services/FileService.ts` / `QueuePersistenceService.ts`：文件与队列持久化支撑；SQL active 时 `QueuePersistenceService` 只读写 `queue_state`，旧 `queues.msgpack` 只作为迁移来源或 fallback。
 - `src/infrastructure/queue/*`：队列相关副作用适配器。
 - `src/infrastructure/events/*`：基础设施层事件处理。

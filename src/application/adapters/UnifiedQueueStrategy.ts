@@ -241,6 +241,9 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             return;
         }
 
+        let activeTransaction: ReviewTransaction | null = null;
+        let activeTransactionPushed = false;
+
         try {
             logger.info(`[SiYuanMemo][UnifiedQueueStrategy] Processing feedback:`, {
                 queueType: this.queueType,
@@ -251,10 +254,11 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
             });
 
             if (feedback.action === 'rate' && feedback.rating) {
-                const transaction = await this.createReviewTransaction(activeItem, feedback);
+                activeTransaction = await this.createReviewTransaction(activeItem, feedback);
                 this.forwardBuffer = [];
                 const reviewResult = await this.handleReviewWithFeedbackContext(activeItem, feedback);
-                this.pushHistory(activeItem, transaction);
+                this.pushHistory(activeItem, activeTransaction);
+                activeTransactionPushed = true;
                 this.currentItem = null;
                 if (reviewResult.counterSnapshot) {
                     this.lastCounterSnapshot = reviewResult.counterSnapshot;
@@ -273,6 +277,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         avoidOnceBlockId: this.avoidOnceBlockId,
                         removedFromQueue: reviewResult.removedFromQueue,
                     });
+                    activeTransaction = null;
+                    activeTransactionPushed = false;
                     return;
                 }
 
@@ -311,15 +317,18 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     removedFromQueue: reviewResult.removedFromQueue,
                     requiresCurrentViewReorder: reviewResult.requiresCurrentViewReorder,
                 });
+                activeTransaction = null;
+                activeTransactionPushed = false;
                 return;
             }
 
             if (feedback.action === 'skip') {
-                const transaction = await this.createReviewTransaction(activeItem, feedback, {
+                activeTransaction = await this.createReviewTransaction(activeItem, feedback, {
                     includeCardSnapshot: false,
                 });
                 await this.queue.skip(activeItem.id);
-                this.pushHistory(activeItem, transaction);
+                this.pushHistory(activeItem, activeTransaction);
+                activeTransactionPushed = true;
                 this.forwardBuffer = [];
                 this.currentItem = null;
                 this.pendingRotateCardId = null;
@@ -335,6 +344,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         avoidOnceCardId: this.avoidOnceCardId,
                         avoidOnceBlockId: this.avoidOnceBlockId,
                     });
+                    activeTransaction = null;
+                    activeTransactionPushed = false;
                     return;
                 }
                 const patched = this.applySkipToCache(activeItem.id);
@@ -348,16 +359,19 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                     queueType: this.queueType,
                     cardId: activeItem.id,
                 });
+                activeTransaction = null;
+                activeTransactionPushed = false;
                 return;
             }
 
             if (feedback.action === 'custom' && feedback.customActionId) {
                 if (this.shouldHandleHideCurrentInScope(activeItem, feedback.customActionId)) {
-                    const transaction = await this.createReviewTransaction(activeItem, feedback, {
+                    activeTransaction = await this.createReviewTransaction(activeItem, feedback, {
                         includeCardSnapshot: false,
                     });
                     await this.queue.removeCard(activeItem.id);
-                    this.pushHistory(activeItem, transaction);
+                    this.pushHistory(activeItem, activeTransaction);
+                    activeTransactionPushed = true;
                     this.forwardBuffer = [];
                     this.currentItem = null;
                     this.pendingRotateCardId = null;
@@ -375,6 +389,8 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                         blockId: activeItem.blockId,
                         actionId: feedback.customActionId,
                     });
+                    activeTransaction = null;
+                    activeTransactionPushed = false;
                     return;
                 }
 
@@ -426,6 +442,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
                 stack: errorStack,
             });
 
+            if (activeTransactionPushed && activeTransaction) {
+                this.discardFailedHistoryEntry(activeItem, activeTransaction);
+            }
+            await this.compensateFailedFeedback(activeItem, activeTransaction);
             this.pendingRotateCardId = null;
             this.clearAvoidOnceIdentity();
             throw new Error(`Failed to process feedback: ${errorMessage}`);
@@ -1645,6 +1665,14 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
     }
 
+    private discardFailedHistoryEntry(item: FSRSCard, transaction: ReviewTransaction): void {
+        const last = this.historyStack[this.historyStack.length - 1];
+        if (!last || last.transaction !== transaction || last.item.id !== item.id) {
+            return;
+        }
+        this.historyStack.pop();
+    }
+
     private pushForwardItem(card: FSRSCard): void {
         this.forwardBuffer.unshift(this.cloneCard(card));
     }
@@ -1769,7 +1797,10 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         return cardType === 'topic' || cardType === 'concept';
     }
 
-    private async rollbackTransaction(transaction: ReviewTransaction): Promise<void> {
+    private async restoreReviewTransaction(
+        transaction: ReviewTransaction,
+        options: { persistCardRestore: boolean }
+    ): Promise<void> {
         for (const record of transaction.queueSnapshots) {
             if (typeof record.queue.restoreRollbackSnapshot !== 'function') {
                 continue;
@@ -1778,14 +1809,50 @@ export class UnifiedQueueStrategy implements IQueueStrategy<FSRSCard>, IDataSour
         }
 
         if (transaction.cardBefore) {
-            await this.manager.updateCard(this.cloneCard(transaction.cardBefore));
+            const cardSnapshot = this.cloneCard(transaction.cardBefore);
+            if (options.persistCardRestore) {
+                await this.manager.updateCard(cardSnapshot);
+            } else if (typeof this.manager.restoreCardSnapshotForFailedFeedback === 'function') {
+                await this.manager.restoreCardSnapshotForFailedFeedback(cardSnapshot);
+            } else {
+                logger.warn('[SiYuanMemo][UnifiedQueueStrategy] No no-persist card restore port for failed feedback:', {
+                    queueType: this.queueType,
+                    cardId: transaction.cardId,
+                });
+            }
         }
 
         this.restoreSessionExcludedCardIds(
             transaction.sessionExcludedCardIdsBefore,
             transaction.sessionExcludedLogicalKeysBefore
         );
+    }
+
+    private async rollbackTransaction(transaction: ReviewTransaction): Promise<void> {
+        await this.restoreReviewTransaction(transaction, { persistCardRestore: true });
         this.lastCounterSnapshot = null;
+        this.invalidateCache();
+    }
+
+    private async compensateFailedFeedback(activeItem: FSRSCard, transaction: ReviewTransaction | null): Promise<void> {
+        const restoredItem = transaction?.cardBefore || activeItem;
+        try {
+            if (transaction) {
+                await this.restoreReviewTransaction(transaction, { persistCardRestore: false });
+            }
+        } catch (rollbackError) {
+            logger.warn('[SiYuanMemo][UnifiedQueueStrategy] Failed to compensate failed feedback:', {
+                queueType: this.queueType,
+                cardId: activeItem.id,
+                error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+            });
+        }
+
+        this.forwardBuffer = [];
+        this.pendingRotateCardId = null;
+        this.clearAvoidOnceIdentity();
+        this.currentItem = await this.maybeAddNextDues(this.cloneCard(restoredItem))
+            .catch(() => this.cloneCard(restoredItem));
         this.invalidateCache();
     }
 
