@@ -314,6 +314,8 @@ export interface SrsArenaRecommendation {
   poolKey: string;
   targetKind: Extract<ArenaTargetKind, 'item' | 'descriptor'>;
   leadingContestantId: SrsArenaContestantId | null;
+  ratingBasis: number;
+  schedulingContextLabel: string;
   weightedIntervalDays: number;
   weightedDue: number;
   currentSchedulerIntervalDays: number;

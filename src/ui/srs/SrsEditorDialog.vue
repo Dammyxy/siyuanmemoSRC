@@ -115,6 +115,23 @@
         </div>
       </section>
 
+      <section v-if="showReviewPreview" class="srs-panel">
+        <div class="srs-panel__header srs-panel__header--compact">
+          <div>
+            <h3>{{ t('srsCurrentReviewPreviewTitle', '本次复习预览') }}</h3>
+            <p>{{ transparency?.reviewPreviewContextLabel || t('queueSchedulingContext', '队列上下文') }}</p>
+          </div>
+        </div>
+
+        <div class="srs-review-preview-grid">
+          <div v-for="preview in transparency?.gradePreviews || []" :key="preview.rating" class="srs-review-preview">
+            <p class="srs-review-preview__label">{{ preview.label }}</p>
+            <p class="srs-review-preview__value">{{ preview.nextDue }}</p>
+            <p class="srs-review-preview__due">{{ preview.dueAt }}</p>
+          </div>
+        </div>
+      </section>
+
       <section class="srs-panel">
         <div class="srs-panel__header srs-panel__header--compact">
           <div>
@@ -231,6 +248,7 @@ import type { ScheduleOptions } from '@/ui/review/v2/dialogs/ScheduleDateDialog.
 import type FSRSPlugin from '@/index';
 import { createLogger } from '@/utils/logger';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
+import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
 import type { CardEditorApplicationService, CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SrsTransparencyApplicationService, SrsTransparencyViewModel } from '@/application/services/SrsTransparencyApplicationService';
@@ -253,6 +271,7 @@ const props = defineProps<{
   i18n?: Record<string, string>;
   plugin?: FSRSPlugin;
   reviewService?: ReviewApplicationService;
+  schedulingContext?: SrsV2SchedulingContext | null;
 }>();
 const emit = defineEmits<{
   (e: 'scheduled', payload: { cardId: string; dueTimestamp: number }): void;
@@ -281,6 +300,7 @@ const getSrsTransparencyService = (): SrsTransparencyApplicationService | null =
 const getUnifiedManager = (): IUnifiedDataSourceManagerFacade | null => getContext()?.getUnifiedDataSourceManager?.() || null;
 const getSiyuanApi = () => getReviewService()?.getSiyuanApi?.();
 const currentCard = computed(() => snapshot.value?.card ?? null);
+const showReviewPreview = computed(() => Boolean(props.schedulingContext && transparency.value?.gradePreviews?.length));
 const schedulerBadgeLabel = computed(() => transparency.value?.schedulerLabel || resolveSchedulerTypeLabel(currentCard.value?.schedulerType || 'fsrs-v6'));
 const isDismissed = computed(() => currentCard.value ? isCardDismissed(currentCard.value) : false);
 const currentStateLabel = computed(() => formatState(currentCard.value?.state));
@@ -338,7 +358,10 @@ async function buildTransparency(nextSnapshot: CardEditorSnapshot | null): Promi
   const service = getSrsTransparencyService();
   if (!service) return null;
   try {
-    return await service.build(nextSnapshot, { t });
+    return await service.build(nextSnapshot, {
+      t,
+      ...(props.schedulingContext ? { schedulingContext: props.schedulingContext } : {}),
+    });
   } catch (error) {
     logger.warn('Failed to build SRS transparency snapshot', { error });
     return null;
@@ -595,7 +618,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .srs-editor{--srs-surface:color-mix(in srgb,var(--b3-theme-surface) 86%,white 14%);--srs-border:color-mix(in srgb,var(--b3-border-color) 78%,transparent 22%);--srs-accent:color-mix(in srgb,var(--b3-theme-primary) 82%,#1f5fbf 18%);--srs-accent-soft:color-mix(in srgb,var(--b3-theme-primary-lightest) 74%,white 26%);flex:1 1 auto;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;height:100%;min-height:0;padding:14px;overflow-x:hidden;overflow-y:auto;scrollbar-gutter:stable;background:linear-gradient(180deg,color-mix(in srgb,var(--b3-theme-background) 94%,var(--b3-theme-surface) 6%),var(--b3-theme-background))}
-.srs-editor__banner,.srs-panel,.srs-editor__empty,.srs-preview-pill,.srs-preview-detail,.srs-summary-item,.srs-inline-editor,.srs-detail,.srs-type-option{border:1px solid var(--srs-border);border-radius:14px}
+.srs-editor__banner,.srs-panel,.srs-editor__empty,.srs-preview-pill,.srs-preview-detail,.srs-summary-item,.srs-inline-editor,.srs-detail,.srs-type-option,.srs-review-preview{border:1px solid var(--srs-border);border-radius:14px}
 .srs-editor__banner{padding:10px 12px;background:var(--srs-surface);color:var(--b3-theme-on-surface)}
 .srs-editor__banner--success{border-color:color-mix(in srgb,var(--b3-theme-success) 40%,var(--srs-border) 60%);background:color-mix(in srgb,var(--b3-theme-success-lightest) 74%,white 26%)}
 .srs-editor__banner--error{border-color:color-mix(in srgb,var(--b3-theme-error) 40%,var(--srs-border) 60%);background:color-mix(in srgb,var(--b3-theme-error-lightest) 74%,white 26%)}
@@ -620,13 +643,16 @@ onBeforeUnmount(() => {
 .srs-editor__chip--accent{background:color-mix(in srgb,var(--srs-accent-soft) 78%,white 22%);border-color:color-mix(in srgb,var(--srs-accent) 38%,white 62%);color:var(--srs-accent)}
 .srs-editor__chip--muted{background:transparent;border-color:var(--srs-border)}
 .srs-editor__chip--warning{background:color-mix(in srgb,var(--b3-theme-warning-lightest) 82%,white 18%);border-color:color-mix(in srgb,var(--b3-theme-warning) 36%,var(--srs-border) 64%)}
-.srs-summary-grid,.srs-details-grid,.srs-type-grid{display:grid;gap:8px}
+.srs-summary-grid,.srs-details-grid,.srs-type-grid,.srs-review-preview-grid{display:grid;gap:8px}
 .srs-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 .srs-details-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .srs-type-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.srs-summary-item__label,.srs-inline-editor__label,.srs-detail__label,.srs-danger__title{margin:0;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--b3-theme-on-surface-light)}
-.srs-summary-item__value,.srs-inline-editor__value,.srs-detail__value{margin:0;font-weight:600;color:var(--b3-theme-on-surface)}
+.srs-review-preview-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.srs-summary-item__label,.srs-inline-editor__label,.srs-detail__label,.srs-danger__title,.srs-review-preview__label{margin:0;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--b3-theme-on-surface-light)}
+.srs-summary-item__value,.srs-inline-editor__value,.srs-detail__value,.srs-review-preview__value{margin:0;font-weight:600;color:var(--b3-theme-on-surface)}
 .srs-summary-item,.srs-detail{display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:color-mix(in srgb,var(--b3-theme-background) 82%,white 18%)}
+.srs-review-preview{display:flex;flex-direction:column;gap:5px;padding:10px 12px;background:color-mix(in srgb,var(--b3-theme-background) 86%,white 14%)}
+.srs-review-preview__due{margin:0;font-size:12px;line-height:1.35;color:var(--b3-theme-on-surface-light);word-break:break-word}
 .srs-action-row{display:flex;flex-wrap:wrap;gap:10px}
 .srs-action-row .b3-button{display:inline-flex;align-items:center;gap:8px}
 .srs-detail-stack{display:flex;flex-direction:column;gap:10px}
@@ -647,6 +673,6 @@ onBeforeUnmount(() => {
 .srs-detail__value--mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;word-break:break-all}
 .srs-danger{align-items:center}
 .srs-danger__title{font-weight:700}
-@media (max-width:780px){.srs-summary-grid,.srs-details-grid,.srs-type-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.srs-panel__header,.srs-inline-editor__header,.srs-danger{flex-direction:column}.srs-inline-editor__control--split{grid-template-columns:1fr}}
-@media (max-width:560px){.srs-summary-grid,.srs-details-grid,.srs-type-grid{grid-template-columns:1fr}}
+@media (max-width:780px){.srs-summary-grid,.srs-details-grid,.srs-type-grid,.srs-review-preview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.srs-panel__header,.srs-inline-editor__header,.srs-danger{flex-direction:column}.srs-inline-editor__control--split{grid-template-columns:1fr}}
+@media (max-width:560px){.srs-summary-grid,.srs-details-grid,.srs-type-grid,.srs-review-preview-grid{grid-template-columns:1fr}}
 </style>

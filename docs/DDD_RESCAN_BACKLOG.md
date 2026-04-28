@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 178)
+Last update: 2026-04-29 (Round 179)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - review SRS arena scheduling context alignment
+
+- Task: 修复复习页底部评分预览、Arena 提示、SRS 编辑面板三套排期数字口径分裂；Arena 改为评分后按本次评分和队列上下文提示。
+- Touched slice: Review / Scheduler / SRS transparency / Arena active path across `src/ui/review/v2/ReviewView.vue`, `src/application/usecases/review/ReviewCommitUseCase.ts`, `src/application/services/{ArenaKernelService,SrsTransparencyApplicationService}.ts`, `src/ui/srs/SrsEditorDialog.vue`, `src/types/arena.ts`, i18n, and focused tests.
+- Debt fixed now: `ArenaKernelService` 不再用裸卡 Good 预判冒充当前评分，统一接收 `ratingBasis` 与 `SrsV2SchedulingContext`，预测和记录都使用队列 `reviewTime/memoryStateAsOf/queueMode/commitPolicy`；`ReviewCommitUseCase` 把 `command.context` 传给 Arena 记录；`ReviewView` 进卡只清空 Arena 提示，评分后再按本次评分生成提示；SRS 编辑面板保留当前已存排期并新增队列上下文下的本次评分预览；新增 i18n key，避免构建预检 fallback 阻断。
+- Debt deferred: 未改 FSRS 核心算法；未做真实 SiYuan UI 手工截图复现；仓库既有 i18n 硬编码提示与 Sass legacy API warning 未在本轮清理。
+- Why deferred: 本轮目标是修正显示/记录口径与 Arena 上下文，不重写调度算法；真实 UI 录屏和全仓 i18n/Sass 清理属于独立验收窗口，混入会扩大风险。
+- Next safe step: 用用户截图里的未来卡场景做一次真实复习页手工验收，确认进卡无 Arena、评分后 Arena 和底部/SRS 面板预览同锚点；另开小任务处理全仓 i18n 硬编码与 Sass legacy warning。
+- Validation: `pnpm vitest run src/application/services/__tests__/ArenaKernelService.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/services/__tests__/SrsTransparencyApplicationService.test.ts src/ui/srs/__tests__/SrsEditorDialog.spec.ts src/ui/review/v2/__tests__/ReviewView.srs-editor-schedule.spec.ts`（26 tests 通过）；`pnpm build`（通过；i18n fallback 阻断为 0，保留既有硬编码/Sass warnings）。
 
 ### 2026-04-29 - browser reschedule batch persistence and spread skip clarity
 

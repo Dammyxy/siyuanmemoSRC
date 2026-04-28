@@ -1,4 +1,5 @@
 import type { SchedulerRouter, SchedulerType } from '@/core/scheduler';
+import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
 import type { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import type { CardEditorSnapshot } from '@/application/services/CardEditorApplicationService';
 import { formatNextDue } from '@/application/helpers/formatNextDue';
@@ -36,12 +37,14 @@ export interface SrsTransparencyViewModel {
   gradePreviews: SrsTransparencyGradePreview[];
   stateFacts: SrsTransparencyFact[];
   algorithmFacts: SrsTransparencyFact[];
+  reviewPreviewContextLabel: string | null;
   arenaRecommendation: SrsArenaRecommendation | null;
   arenaHint: string | null;
 }
 
 type BuildOptions = {
   now?: number;
+  schedulingContext?: SrsV2SchedulingContext | null;
   t: Translator;
 };
 
@@ -64,8 +67,14 @@ export class SrsTransparencyApplicationService {
     const { t } = options;
     const now = options.now ?? Date.now();
     const schedulerType = this.schedulerRouter.getSchedulerType(card);
-    const previews = this.schedulerRouter.preview(card);
-    const arenaRecommendation = await this.arenaKernel?.buildSrsRecommendation?.(card, schedulerType, now) || null;
+    const previewContext = options.schedulingContext || undefined;
+    const previewNow = resolvePreviewNow(now, previewContext);
+    const previews = previewContext
+      ? this.schedulerRouter.preview(card, previewContext)
+      : this.schedulerRouter.preview(card);
+    const arenaRecommendation = await this.arenaKernel?.buildSrsRecommendation?.(card, schedulerType, now, {
+      schedulingContext: previewContext,
+    }) || null;
 
     return {
       schedulerType,
@@ -77,7 +86,7 @@ export class SrsTransparencyApplicationService {
           rating,
           tone: resolvePreviewTone(rating),
           label: resolveRatingLabel(rating, t),
-          nextDue: formatNextDue((previewCard.due || now) - now),
+          nextDue: formatNextDue((previewCard.due || previewNow) - previewNow),
           dueAt: formatDateTime(previewCard.due, t('pending', 'Pending')),
           explanation: resolveRatingExplanation(rating, t),
         };
@@ -96,6 +105,7 @@ export class SrsTransparencyApplicationService {
         },
       ],
       algorithmFacts: buildAlgorithmFacts(card, schedulerType, t, arenaRecommendation),
+      reviewPreviewContextLabel: arenaRecommendation?.schedulingContextLabel || (previewContext ? t('queueSchedulingContext', '队列上下文') : null),
       arenaRecommendation,
       arenaHint: buildArenaHint(arenaRecommendation, t),
     };
@@ -110,8 +120,15 @@ function buildAlgorithmFacts(
 ): SrsTransparencyFact[] {
   const arenaFacts: SrsTransparencyFact[] = arenaRecommendation
     ? [
-      { label: t('arenaWeightedInterval', 'Arena 综合间隔'), value: formatDays(arenaRecommendation.weightedIntervalDays, t) },
+      {
+        label: t(
+          'arenaWeightedIntervalWithRating',
+          `Arena 预判间隔（${resolveRatingLabel(arenaRecommendation.ratingBasis as Rating, t)}）`,
+        ),
+        value: formatDays(arenaRecommendation.weightedIntervalDays, t),
+      },
       { label: t('arenaLeadingContestant', 'Arena 当前领先'), value: resolveSrsArenaContestantLabel(arenaRecommendation.leadingContestantId) },
+      { label: t('arenaSchedulingContext', 'Arena 调度上下文'), value: arenaRecommendation.schedulingContextLabel },
       { label: t('arenaDiscrepancy', '与正式调度偏差'), value: `${Math.round(arenaRecommendation.discrepancyRatio * 100)}%` },
     ]
     : [];
@@ -154,10 +171,18 @@ function buildArenaHint(
   }
   return t(
     'srsArenaHint',
-    `Arena 综合建议约 {weighted}，与当前正式调度相差 {gap}。`,
+    `Arena 按{rating}综合建议约 {weighted}，与当前正式调度相差 {gap}。`,
   )
+    .replace('{rating}', resolveRatingLabel(arenaRecommendation.ratingBasis as Rating, t))
     .replace('{weighted}', `${arenaRecommendation.weightedIntervalDays.toFixed(1)} ${t('days', 'days')}`)
     .replace('{gap}', `${Math.round(arenaRecommendation.discrepancyRatio * 100)}%`);
+}
+
+function resolvePreviewNow(now: number, context?: SrsV2SchedulingContext | null): number {
+  const reviewTime = context?.reviewTime instanceof Date
+    ? context.reviewTime.getTime()
+    : Number(context?.reviewTime);
+  return Number.isFinite(reviewTime) && reviewTime > 0 ? reviewTime : now;
 }
 
 function resolveSchedulerLabel(schedulerType: SchedulerType, t: Translator): string {

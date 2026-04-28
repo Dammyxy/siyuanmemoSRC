@@ -183,6 +183,7 @@ import {
   type NeuralRoamSourceEntry,
   type NeuralRoamHistoryEntry,
   type NeuralRoamSessionQueue,
+  type QueueReviewSchedulingContext,
   type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
@@ -360,8 +361,13 @@ type ReviewPluginContextLike = {
   getCardService?: () => CardApplicationService | undefined;
   getCardEditorService?: () => CardEditorApplicationService | undefined;
   getArenaKernelService?: () => {
-    buildSrsRecommendation?: (card: FSRSCard, currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null, now?: number) => Promise<{ shouldHighlight?: boolean; summary?: string | null } | null>;
-    recordSrsReview?: (input: { card: FSRSCard; rating: number; currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null }) => Promise<unknown>;
+    buildSrsRecommendation?: (
+      card: FSRSCard,
+      currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null,
+      now?: number,
+      options?: { ratingBasis?: number; schedulingContext?: QueueReviewSchedulingContext | null },
+    ) => Promise<{ shouldHighlight?: boolean; summary?: string | null } | null>;
+    recordSrsReview?: (input: { card: FSRSCard; rating: number; currentSchedulerType?: 'fsrs-v6' | 'sm15' | 'a-factor-v2' | null; schedulingContext?: QueueReviewSchedulingContext | null }) => Promise<unknown>;
   } | undefined;
   getSchedulerRouter?: () => {
     getSchedulerType?: (card: FSRSCard) => 'fsrs-v6' | 'sm15' | 'a-factor-v2';
@@ -409,6 +415,7 @@ type UnderlyingQueueLike = {
   name?: string;
   removeCard?: (blockId: string) => Promise<void>;
   lockCurrentAsFocus?: (blockId: string, priority?: 'normal' | 'high') => Promise<void>;
+  getReviewSchedulingContext?: (card: FSRSCard) => QueueReviewSchedulingContext | null;
 } & Partial<NeuralRoamSessionQueue>;
 
 type FilterGroupQueueLike = {
@@ -722,6 +729,21 @@ function getUnderlyingQueueFromStrategy(strategy: unknown): UnderlyingQueueLike 
 
 function getUnderlyingQueue(): UnderlyingQueueLike | null {
   return getUnderlyingQueueFromStrategy(hook.getQueueStrategy());
+}
+
+function resolveCurrentReviewSchedulingContext(card: FSRSCard | null | undefined): QueueReviewSchedulingContext | null {
+  if (!card) {
+    return null;
+  }
+  const queue = getUnderlyingQueue();
+  const queueContext = typeof queue?.getReviewSchedulingContext === 'function'
+    ? queue.getReviewSchedulingContext(card)
+    : null;
+  return {
+    queueType: queueContext?.queueType ?? QueueType.RetrievalPractice,
+    source: queueContext?.source ?? 'queue',
+    ...(queueContext || {}),
+  };
 }
 
 function getQueueStrategyWithInsertAt(): QueueStrategyWithInsertAt | null {
@@ -1465,10 +1487,10 @@ function resolveReviewArenaScenario(view: ReviewAIRequestedView, card: FSRSCard 
   return view === 'general-chat' ? 'note-refinement' : 'candidate-card-generation';
 }
 
-async function refreshReviewArenaHint(card?: FSRSCard | null): Promise<void> {
+async function refreshReviewArenaHint(card: FSRSCard | null | undefined, rating: number): Promise<void> {
   const currentCard = (card || state.value.content.card || null) as FSRSCard | null;
   const arenaKernel = getArenaKernelService();
-  if (!arenaKernel?.buildSrsRecommendation || !currentCard) {
+  if (!arenaKernel?.buildSrsRecommendation || !currentCard || rating < 1 || rating > 4) {
     reviewArenaHint.value = null;
     return;
   }
@@ -1477,6 +1499,10 @@ async function refreshReviewArenaHint(card?: FSRSCard | null): Promise<void> {
       currentCard,
       getSchedulerTypeForCard(currentCard),
       Date.now(),
+      {
+        ratingBasis: rating,
+        schedulingContext: resolveCurrentReviewSchedulingContext(currentCard),
+      },
     );
     reviewArenaHint.value = recommendation?.shouldHighlight ? (recommendation.summary || null) : null;
   } catch (error) {
@@ -1485,8 +1511,8 @@ async function refreshReviewArenaHint(card?: FSRSCard | null): Promise<void> {
   }
 }
 
-async function handleReviewArenaFeedback(_payload: { cardId: string; rating: number; item: ActiveReviewItem | null }): Promise<void> {
-  await refreshReviewArenaHint();
+async function handleReviewArenaFeedback(payload: { cardId: string; rating: number; item: ActiveReviewItem | null }): Promise<void> {
+  await refreshReviewArenaHint((payload.item || state.value.content.card || null) as FSRSCard | null, payload.rating);
 }
 
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {
@@ -1551,7 +1577,7 @@ watch(
   () => String((state.value.content.card as FSRSCard | null)?.id || ''),
   () => {
     clearPendingReviewSourceRefresh();
-    void refreshReviewArenaHint();
+    reviewArenaHint.value = null;
   },
   { immediate: true },
 );
@@ -4323,6 +4349,7 @@ function openSrsEditorDialog(blockId: string, cardId?: string) {
       i18n: props.i18n || {},
       plugin: props.plugin,
       reviewService,
+      schedulingContext: resolveCurrentReviewSchedulingContext(card as FSRSCard),
     },
     events: {
       scheduled: async (payload: unknown) => {

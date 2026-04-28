@@ -14,6 +14,7 @@ import type {
   SrsV2AlgorithmFamily,
   SrsV2SchedulingContext,
 } from '@/core/scheduler/srs-v2';
+import { buildMemoryAnchoredCard, resolveReviewDate } from '@/core/scheduler/srs-v2/time';
 import { createLogger } from '@/utils/logger';
 import {
   buildArenaPoolKey,
@@ -74,6 +75,19 @@ type AIPackEventInput = {
   qualityLabel?: ArenaOutcomeLabel | null;
   cardIds?: string[];
   metadata?: Record<string, unknown>;
+};
+
+type SrsArenaRecommendationOptions = {
+  ratingBasis?: Rating | number | null;
+  schedulingContext?: SrsV2SchedulingContext | null;
+};
+
+type NormalizedSrsArenaPredictionContext = {
+  ratingBasis: Rating;
+  reviewDate: Date;
+  reviewTime: number;
+  schedulingContext: SrsV2SchedulingContext;
+  schedulingContextLabel: string;
 };
 
 function normalizeString(value: unknown): string {
@@ -429,19 +443,21 @@ export class ArenaKernelService {
     card: FSRSCard,
     currentSchedulerType: SchedulerType | null | undefined,
     now = Date.now(),
+    options: SrsArenaRecommendationOptions = {},
   ): Promise<SrsArenaRecommendation | null> {
     const targetKind = normalizeTargetKind(card);
     const settings = this.getArenaSettings();
     if (!this.isEnabled() || !settings.srs.enabled || !targetKind || !settings.srs.targetKinds.includes(targetKind)) {
       return null;
     }
+    const predictionContext = this.normalizeSrsArenaPredictionContext(now, options);
     const poolKey = buildSrsArenaPoolKey(targetKind);
     const snapshot = await this.ensureSrsScoreSnapshot(poolKey, settings.srs.contestantIds);
     const weights = this.computeScoreWeights(snapshot.entries);
     const currentSchedulerLabel = resolveSchedulerTypeLabel(currentSchedulerType);
-    const contestants = this.buildSrsPredictions(card, settings.srs.contestantIds, snapshot.entries, weights, now);
+    const contestants = this.buildSrsPredictions(card, settings.srs.contestantIds, snapshot.entries, weights, predictionContext);
     const weightedIntervalDays = contestants.reduce((sum, contestant) => sum + contestant.intervalDays * contestant.weight, 0);
-    const weightedDue = now + weightedIntervalDays * DAY_MS;
+    const weightedDue = predictionContext.reviewTime + weightedIntervalDays * DAY_MS;
     const currentSchedulerPrediction = currentSchedulerType === 'sm15'
       ? contestants.find((entry) => entry.contestantId === 'sm15')
       : contestants.find((entry) => entry.contestantId === 'fsrs-v6');
@@ -459,6 +475,8 @@ export class ArenaKernelService {
       poolKey,
       targetKind,
       leadingContestantId,
+      ratingBasis: predictionContext.ratingBasis,
+      schedulingContextLabel: predictionContext.schedulingContextLabel,
       weightedIntervalDays,
       weightedDue,
       currentSchedulerIntervalDays,
@@ -466,7 +484,7 @@ export class ArenaKernelService {
       shouldHighlight: discrepancyRatio >= settings.srs.divergenceThresholdRatio && discrepancyDays >= 1,
       writeEnabled,
       minimumReviewsMet,
-      summary: `Arena 当前更偏向 ${leadingLabel}，综合建议 ${weightedIntervalDays.toFixed(1)} 天；当前正式调度 ${currentSchedulerLabel} 约 ${currentSchedulerIntervalDays.toFixed(1)} 天。`,
+      summary: `Arena 当前更偏向 ${leadingLabel}，按${this.resolveRatingLabel(predictionContext.ratingBasis)}综合建议 ${weightedIntervalDays.toFixed(1)} 天；当前正式调度 ${currentSchedulerLabel} 约 ${currentSchedulerIntervalDays.toFixed(1)} 天。`,
       contestants,
     };
   }
@@ -475,6 +493,7 @@ export class ArenaKernelService {
     card: FSRSCard;
     rating: number;
     currentSchedulerType: SchedulerType | null | undefined;
+    schedulingContext?: SrsV2SchedulingContext | null;
   }): Promise<SrsArenaRecommendation | null> {
     const card = input.card;
     const rating = Math.max(1, Math.min(4, Math.floor(Number(input.rating) || 0))) as Rating;
@@ -485,13 +504,20 @@ export class ArenaKernelService {
     }
     const now = Date.now();
     const poolKey = buildSrsArenaPoolKey(targetKind);
-    const recommendation = await this.buildSrsRecommendation(card, input.currentSchedulerType, now);
+    const recommendation = await this.buildSrsRecommendation(card, input.currentSchedulerType, now, {
+      ratingBasis: rating,
+      schedulingContext: input.schedulingContext,
+    });
     const snapshot = await this.ensureSrsScoreSnapshot(poolKey, settings.srs.contestantIds);
     const pass = rating >= Rating.Good;
     const attemptId = createId('srs-attempt');
     const weights = this.computeScoreWeights(snapshot.entries);
+    const predictionContext = this.normalizeSrsArenaPredictionContext(now, {
+      ratingBasis: rating,
+      schedulingContext: input.schedulingContext,
+    });
     const predictions = recommendation?.contestants
-      || this.buildSrsPredictions(card, settings.srs.contestantIds, snapshot.entries, weights, now);
+      || this.buildSrsPredictions(card, settings.srs.contestantIds, snapshot.entries, weights, predictionContext);
     const predictionsById = new Map(predictions.map((prediction) => [prediction.contestantId, prediction] as const));
     const predictionBatch = {
       poolKey,
@@ -502,7 +528,7 @@ export class ArenaKernelService {
     };
     const updatedEntries = snapshot.entries.map((entry) => {
       const prediction = predictionsById.get(entry.contestantId as SrsArenaContestantId)
-        || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, weights[entry.contestantId] || 0, now);
+        || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, weights[entry.contestantId] || 0, predictionContext);
       return {
         ...entry,
         score: nextCalibrationScore(entry, prediction.predictedPassProbability, pass),
@@ -513,7 +539,7 @@ export class ArenaKernelService {
     const winner = updatedEntries
       .map((entry) => {
         const prediction = predictionsById.get(entry.contestantId as SrsArenaContestantId)
-          || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, 0, now);
+          || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, 0, predictionContext);
         const error = Math.abs((pass ? 1 : 0) - prediction.predictedPassProbability);
         return { entry, error };
       })
@@ -545,6 +571,8 @@ export class ArenaKernelService {
         payload: {
           attemptId,
           intervalDays: prediction.intervalDays,
+          ratingBasis: recommendation?.ratingBasis || rating,
+          schedulingContextLabel: recommendation?.schedulingContextLabel || '',
           discrepancyRatio: recommendation?.discrepancyRatio || 0,
           weightedIntervalDays: recommendation?.weightedIntervalDays || 0,
         },
@@ -565,7 +593,7 @@ export class ArenaKernelService {
         leadingContestantId: recommendation?.leadingContestantId || null,
         contestantErrors: Object.fromEntries(updatedEntries.map((entry) => {
           const prediction = predictionsById.get(entry.contestantId as SrsArenaContestantId)
-            || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, 0, now);
+            || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, 0, predictionContext);
           return [entry.contestantId, Math.abs((pass ? 1 : 0) - prediction.predictedPassProbability)];
         })),
       },
@@ -784,6 +812,61 @@ export class ArenaKernelService {
     return Object.fromEntries(raw.map((entry) => [entry.id, entry.value / total]));
   }
 
+  private normalizeSrsArenaPredictionContext(
+    now: number,
+    options: SrsArenaRecommendationOptions,
+  ): NormalizedSrsArenaPredictionContext {
+    const ratingBasis = this.normalizeRatingBasis(options.ratingBasis);
+    const schedulingContext = {
+      ...(options.schedulingContext || {}),
+      reviewTime: options.schedulingContext?.reviewTime ?? now,
+      source: options.schedulingContext?.source ?? 'arena',
+    } satisfies SrsV2SchedulingContext;
+    const reviewDate = resolveReviewDate(schedulingContext);
+    return {
+      ratingBasis,
+      reviewDate,
+      reviewTime: reviewDate.getTime(),
+      schedulingContext,
+      schedulingContextLabel: this.resolveSchedulingContextLabel(schedulingContext),
+    };
+  }
+
+  private normalizeRatingBasis(value: Rating | number | null | undefined): Rating {
+    const rating = Math.floor(Number(value));
+    if (rating >= Rating.Again && rating <= Rating.Easy) {
+      return rating as Rating;
+    }
+    return Rating.Good;
+  }
+
+  private resolveRatingLabel(rating: Rating): string {
+    switch (rating) {
+      case Rating.Again:
+        return '重来';
+      case Rating.Hard:
+        return '困难';
+      case Rating.Good:
+        return '良好';
+      case Rating.Easy:
+      default:
+        return '简单';
+    }
+  }
+
+  private resolveSchedulingContextLabel(context: SrsV2SchedulingContext): string {
+    if (context.memoryStateAsOf) {
+      return '队列上下文（按到期日记忆锚点）';
+    }
+    if (context.isFiltered || context.customStudy) {
+      return '筛选复习上下文';
+    }
+    if (context.queueType) {
+      return '队列上下文';
+    }
+    return '默认上下文';
+  }
+
   private pickByWeight<T>(items: T[], resolveWeight: (item: T) => number): T {
     const random = this.deps.random || Math.random;
     const weighted = items.map((item) => ({
@@ -914,7 +997,7 @@ export class ArenaKernelService {
     contestantIds: SrsArenaContestantId[],
     entries: ArenaScoreEntry[],
     weights: Record<string, number>,
-    now: number,
+    predictionContext: NormalizedSrsArenaPredictionContext,
   ): SrsArenaContestantPrediction[] {
     return contestantIds.map((contestantId) => {
       const entry = entries.find((candidate) => candidate.contestantId === contestantId) || {
@@ -927,7 +1010,7 @@ export class ArenaKernelService {
         lossCount: 0,
         lastEventAt: null,
       };
-      return this.buildSingleSrsPrediction(card, contestantId, entry, weights[contestantId] || 0, now);
+      return this.buildSingleSrsPrediction(card, contestantId, entry, weights[contestantId] || 0, predictionContext);
     });
   }
 
@@ -936,15 +1019,10 @@ export class ArenaKernelService {
     contestantId: SrsArenaContestantId,
     entry: ArenaScoreEntry,
     weight: number,
-    now: number,
+    predictionContext: NormalizedSrsArenaPredictionContext,
   ): SrsArenaContestantPrediction {
-    const prediction = this.getSrsContestant(contestantId).predict(card, {
-      reviewTime: now,
-      source: 'arena',
-      queueType: 'arena',
-      commitPolicy: 'preview-only',
-    });
-    const goodChoice = prediction.choices.get(Rating.Good);
+    const prediction = this.getSrsContestant(contestantId).predict(card, predictionContext.schedulingContext);
+    const selectedChoice = prediction.choices.get(predictionContext.ratingBasis) || prediction.choices.get(Rating.Good);
     const retrievability = clamp(Number(prediction.attribution?.retrievability) || 0, 0, 1);
     return {
       contestantId,
@@ -954,9 +1032,9 @@ export class ArenaKernelService {
       confidence: prediction.confidence,
       retrievability,
       predictedPassProbability: retrievability,
-      intervalDays: goodChoice ? toIntervalDays(goodChoice.due, now) : 0,
-      due: goodChoice ? goodChoice.due : now,
-      choices: this.serializeSrsArenaChoices(prediction.choices, now),
+      intervalDays: selectedChoice ? toIntervalDays(selectedChoice.due, predictionContext.reviewTime) : 0,
+      due: selectedChoice ? selectedChoice.due : predictionContext.reviewTime,
+      choices: this.serializeSrsArenaChoices(prediction.choices, predictionContext.reviewTime),
       explanation: prediction.explanation,
       attribution: prediction.attribution,
     };
@@ -974,10 +1052,11 @@ export class ArenaKernelService {
     contestantId: SrsArenaContestantId,
     context: SrsV2SchedulingContext,
   ): CoreArenaContestantPrediction {
-    const now = Number(context.reviewTime) || Date.now();
-    const nowDate = new Date(now);
+    const nowDate = resolveReviewDate(context);
+    const now = nowDate.getTime();
     const scheduler = this.getSrsScheduler(contestantId);
-    const preview = scheduler.preview(card, nowDate);
+    const anchoredCard = buildMemoryAnchoredCard(card, nowDate, context);
+    const preview = scheduler.preview(anchoredCard, nowDate);
     const choices = new Map<Rating, SchedulingChoice>();
 
     for (const [rating, choiceCard] of preview.entries()) {
@@ -996,7 +1075,7 @@ export class ArenaKernelService {
       });
     }
 
-    const retrievability = clamp(scheduler.getRetrievability(card, nowDate), 0, 1);
+    const retrievability = clamp(scheduler.getRetrievability(anchoredCard, nowDate), 0, 1);
     return {
       contestantId,
       algorithm: toArenaAlgorithm(contestantId),

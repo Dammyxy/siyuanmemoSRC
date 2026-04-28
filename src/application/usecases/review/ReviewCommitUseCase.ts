@@ -5,6 +5,7 @@ import type {
   QueueReviewCommand,
   QueueReviewCommitResult,
 } from '@/core/queue/managers/UnifiedDataSourceManager';
+import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
 import type { FSRSCard, Rating } from '@/types';
 import { createReviewLogV2 } from '@/types/review';
 import { createLogger } from '@/utils/logger';
@@ -28,6 +29,7 @@ export interface ReviewCommitArenaRecorder {
     card: FSRSCard;
     rating: number;
     currentSchedulerType?: SchedulerType | null;
+    schedulingContext?: SrsV2SchedulingContext | null;
   }): Promise<unknown>;
 }
 
@@ -94,7 +96,7 @@ export class ReviewCommitUseCase {
         await this.deps.onCommittedCard?.(commitResult.updatedCard);
       }
 
-      await this.recordArenaReview(card, rating);
+      await this.recordArenaReview(card, rating, context);
 
       return {
         card,
@@ -107,7 +109,7 @@ export class ReviewCommitUseCase {
 
     const updatedCard = await this.deps.scheduler.route(card, rating, context);
     await this.deps.onCommittedCard?.(updatedCard);
-    await this.recordArenaReview(card, rating);
+    await this.recordArenaReview(card, rating, context);
     return {
       card,
       updatedCard,
@@ -115,7 +117,7 @@ export class ReviewCommitUseCase {
     };
   }
 
-  private async recordArenaReview(card: FSRSCard, rating: Rating): Promise<void> {
+  private async recordArenaReview(card: FSRSCard, rating: Rating, schedulingContext?: SrsV2SchedulingContext | null): Promise<void> {
     if (!this.deps.arena) {
       return;
     }
@@ -125,6 +127,7 @@ export class ReviewCommitUseCase {
         card,
         rating,
         currentSchedulerType: resolveEffectiveSchedulerTypeForCard(card),
+        schedulingContext,
       });
     } catch (error) {
       logger.warn('Arena SRS review recording failed; review commit kept', {

@@ -73,6 +73,7 @@ function buildTransparencyModel(overrides: Partial<Record<string, unknown>> = {}
       { label: '调度器', value: 'FSRS v6' },
       { label: '调度依据', value: '根据稳定度与难度预测间隔扩张，并对不同评分给出不同增长幅度。' },
     ],
+    reviewPreviewContextLabel: overrides.reviewPreviewContextLabel ?? null,
   };
 }
 
@@ -152,6 +153,60 @@ describe('SrsEditorDialog', () => {
     expect(wrapper.text()).toContain('当前状态');
     expect(wrapper.text()).not.toContain('评分预览');
     expect(wrapper.text()).not.toContain('转换提示');
+  });
+
+  it('shows queue-context review previews only when opened from review', async () => {
+    const loadSnapshot = vi.fn(async () => buildSnapshot({ scheduledDays: 3 }));
+    const buildTransparency = vi.fn(() => buildTransparencyModel({
+      reviewPreviewContextLabel: '队列上下文（按到期日记忆锚点）',
+      gradePreviews: [
+        { rating: 1, tone: 'again', label: '重来', nextDue: '10 min', dueAt: '2026/4/29 10:10:00', explanation: '' },
+        { rating: 2, tone: 'hard', label: '困难', nextDue: '8 d', dueAt: '2026/5/7 10:00:00', explanation: '' },
+        { rating: 3, tone: 'good', label: '良好', nextDue: '13 d', dueAt: '2026/5/12 10:00:00', explanation: '' },
+        { rating: 4, tone: 'easy', label: '简单', nextDue: '23 d', dueAt: '2026/5/22 10:00:00', explanation: '' },
+      ],
+    }));
+    const schedulingContext = {
+      memoryStateAsOf: 1_777_777_777_000,
+      queueMode: 'filtered-preview' as const,
+      commitPolicy: 'preview-only' as const,
+    };
+
+    const wrapper = mount(SrsEditorDialog, {
+      props: {
+        card: { id: 'card-1', blockId: 'block-1' },
+        plugin: createPlugin({
+          loadSnapshot,
+          updateCardType: vi.fn(),
+          updateRender: vi.fn(),
+          updatePriority: vi.fn(),
+          scheduleCard: vi.fn(),
+          setDismissed: vi.fn(),
+          resetProgress: vi.fn(),
+        }, {
+          getSiyuanApi: () => ({ pushMsg: vi.fn(), pushErrMsg: vi.fn() }),
+        }, {
+          registerObserver: vi.fn(),
+          unregisterObserver: vi.fn(),
+        }, {
+          build: buildTransparency,
+        }) as never,
+        schedulingContext,
+      },
+    });
+
+    await flushPromises();
+
+    expect(buildTransparency).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ schedulingContext }),
+    );
+    expect(wrapper.text()).toContain('安排间隔');
+    expect(wrapper.text()).toContain('3.0 天');
+    expect(wrapper.text()).toContain('本次复习预览');
+    expect(wrapper.text()).toContain('8 d');
+    expect(wrapper.text()).toContain('13 d');
+    expect(wrapper.text()).toContain('23 d');
   });
 
   it('shows loading state while saving priority and refreshes after resolve', async () => {

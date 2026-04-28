@@ -169,6 +169,8 @@ describe('SrsTransparencyApplicationService', () => {
         weightedDue: now + 9 * 86_400_000,
         currentSchedulerIntervalDays: 1,
         discrepancyRatio: 8,
+        ratingBasis: Rating.Good,
+        schedulingContextLabel: '默认上下文',
         shouldHighlight: true,
         summary: 'Arena summary',
         contestants: [],
@@ -182,9 +184,11 @@ describe('SrsTransparencyApplicationService', () => {
       expect.objectContaining({ id: 'card-1' }),
       'fsrs-v6',
       now,
+      { schedulingContext: undefined },
     );
-    expect(model.arenaHint).toBe('Arena 综合建议约 9.0 d，与当前正式调度相差 800%。');
-    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 综合间隔', value: '9.0 d' });
+    expect(model.arenaHint).toBe('Arena 按Good综合建议约 9.0 d，与当前正式调度相差 800%。');
+    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 预判间隔（Good）', value: '9.0 d' });
     expect(model.algorithmFacts).toContainEqual({ label: 'Arena 当前领先', value: 'SM-2' });
+    expect(model.algorithmFacts).toContainEqual({ label: 'Arena 调度上下文', value: '默认上下文' });
   });
 });

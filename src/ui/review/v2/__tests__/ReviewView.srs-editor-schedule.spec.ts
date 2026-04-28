@@ -50,6 +50,15 @@ function buildCard(id: string, priority: number) {
 
 function createQueue(cards: Array<ReturnType<typeof buildCard>>) {
   let index = 0;
+  const schedulingContext = {
+    memoryStateAsOf: 1_777_777_777_000,
+    queueMode: 'filtered-preview' as const,
+    commitPolicy: 'preview-only' as const,
+    customStudy: true,
+  };
+  const underlyingQueue = {
+    getReviewSchedulingContext: vi.fn(() => schedulingContext),
+  };
 
   return {
     next: vi.fn(async () => cards[index++] ?? null),
@@ -62,6 +71,9 @@ function createQueue(cards: Array<ReturnType<typeof buildCard>>) {
     })),
     canGoBack: vi.fn(() => false),
     removeCard: vi.fn(async () => undefined),
+    getUnderlyingQueue: vi.fn(() => underlyingQueue),
+    underlyingQueue,
+    schedulingContext,
   };
 }
 
@@ -125,6 +137,7 @@ const ReviewContentStub = defineComponent({
 
 const ReviewActionsStub = defineComponent({
   name: 'ReviewActions',
+  emits: ['grade'],
   setup() {
     return () => h('div', { class: 'review-actions-stub' });
   },
@@ -181,11 +194,15 @@ describe('ReviewView SRS editor scheduling', () => {
 
     expect(createVueDialogMock).toHaveBeenCalledTimes(1);
     const dialogOptions = createVueDialogMock.mock.calls[0]?.[0] as {
+      props?: {
+        schedulingContext?: unknown;
+      };
       events?: {
         scheduled?: (payload: unknown) => Promise<void> | void;
         dismissed?: (payload: unknown) => Promise<void> | void;
       };
     };
+    expect(dialogOptions.props?.schedulingContext).toEqual(expect.objectContaining(queue.schedulingContext));
 
     await dialogOptions.events?.scheduled?.({
       cardId: firstCard.id,
@@ -200,6 +217,66 @@ describe('ReviewView SRS editor scheduling', () => {
     );
     expect(queue.next).toHaveBeenCalledTimes(2);
     expect(wrapper.get('.review-content-card-id').text()).toBe('card-2');
+
+    wrapper.unmount();
+  });
+
+  it('does not build Arena advice on entry and passes rating plus queue context after grading', async () => {
+    const firstCard = buildCard('card-1', 42);
+    const queue = createQueue([firstCard]);
+    const adapter = createAdapter();
+    const buildSrsRecommendation = vi.fn(async () => ({
+      shouldHighlight: true,
+      summary: 'Arena after grade',
+    }));
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        plugin: {
+          getContext: () => ({
+            getArenaKernelService: () => ({ buildSrsRecommendation }),
+            getSchedulerRouter: () => ({ getSchedulerType: () => 'fsrs-v6' }),
+            getUnifiedDataSourceManager: () => null,
+            getStorage: () => ({
+              getSettings: () => ({}),
+              getCard: () => firstCard,
+              getCardByBlockId: () => firstCard,
+            }),
+            getReviewService: () => ({
+              getSiyuanApi: () => ({ BUILTIN_DECK_ID: 'deck-1' }),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(buildSrsRecommendation).not.toHaveBeenCalled();
+
+    wrapper.getComponent(ReviewActionsStub).vm.$emit('grade', 2);
+    await flushPromises();
+
+    expect(buildSrsRecommendation).toHaveBeenCalledWith(
+      expect.objectContaining({ id: firstCard.id }),
+      'fsrs-v6',
+      expect.any(Number),
+      expect.objectContaining({
+        ratingBasis: 2,
+        schedulingContext: expect.objectContaining(queue.schedulingContext),
+      }),
+    );
 
     wrapper.unmount();
   });

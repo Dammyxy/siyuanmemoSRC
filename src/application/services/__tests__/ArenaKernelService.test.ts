@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import type { ArenaStoreBatchInput, ArenaStoreService, SrsArenaReviewBatchInput } from '@/application/services/ArenaStoreService';
-import { CardState, CardType, type FSRSCard } from '@/types/card';
+import { CardState, CardType, Rating, type FSRSCard } from '@/types/card';
 import {
   DEFAULT_ARENA_SETTINGS,
   buildArenaPoolKey,
@@ -442,5 +442,43 @@ describe('ArenaKernelService', () => {
     expect(recommendation?.summary).toContain('Arena 当前更偏向');
     expect(card.due).toBe(NOW + 7 * 86_400_000);
     expect(await store.getLatestScoreSnapshot('srs', 'srs::descriptor')).not.toBeNull();
+  });
+
+  it('anchors SRS recommendations to the queue scheduling context and selected rating basis', async () => {
+    const settings = createEnabledArenaSettings();
+    settings.srs.contestantIds = ['fsrs-v6'];
+    const { service } = createKernel(settings);
+    const reviewTime = NOW;
+    const memoryStateAsOf = NOW + 13 * 86_400_000;
+    const card = buildCard({
+      type: CardType.Item,
+      schedulerType: 'fsrs-v6',
+      due: memoryStateAsOf,
+      lastReview: memoryStateAsOf - 30 * 86_400_000,
+      stability: 30,
+      scheduledDays: 30,
+      elapsedDays: 0,
+    });
+
+    const bare = await service.buildSrsRecommendation(card, 'fsrs-v6', reviewTime, {
+      ratingBasis: Rating.Good,
+    });
+    const anchored = await service.buildSrsRecommendation(card, 'fsrs-v6', reviewTime, {
+      ratingBasis: Rating.Hard,
+      schedulingContext: {
+        reviewTime,
+        memoryStateAsOf,
+        queueType: 'retrieval-practice',
+        queueMode: 'filtered-preview',
+        commitPolicy: 'preview-only',
+        customStudy: true,
+      },
+    });
+
+    const anchoredHardChoice = anchored?.contestants[0]?.choices.find((choice) => choice.rating === Rating.Hard);
+    expect(anchored?.ratingBasis).toBe(Rating.Hard);
+    expect(anchored?.schedulingContextLabel).toContain('记忆锚点');
+    expect(anchored?.currentSchedulerIntervalDays).toBeCloseTo(anchoredHardChoice?.intervalDays || 0, 5);
+    expect(anchored?.currentSchedulerIntervalDays).not.toBeCloseTo(bare?.currentSchedulerIntervalDays || 0, 5);
   });
 });

@@ -118,6 +118,54 @@ describe('ReviewCommitUseCase', () => {
     expect(onCommittedCard).toHaveBeenCalledWith(after);
   });
 
+  it('passes queue scheduling context into Arena SRS review recording', async () => {
+    const before = createCard();
+    const after = createCard({ due: before.due + 13 * 86_400_000, reps: 2, lastReview: before.due });
+    const decision = createDecision(before, after, Rating.Hard);
+    const arena = {
+      recordSrsReview: vi.fn(async () => null),
+    };
+    const scheduler = {
+      answer: vi.fn(() => decision),
+      commit: vi.fn(async () => ({
+        decision,
+        updatedCard: after,
+        committed: true,
+      })),
+      route: vi.fn(),
+    };
+    const schedulingContext = {
+      queueType: 'retrieval-practice' as const,
+      memoryStateAsOf: before.due + 30 * 86_400_000,
+      queueMode: 'filtered-preview' as const,
+      commitPolicy: 'preview-only' as const,
+      customStudy: true,
+    };
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      arena,
+    });
+
+    await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Hard,
+      context: schedulingContext,
+    });
+
+    expect(arena.recordSrsReview).toHaveBeenCalledWith(expect.objectContaining({
+      card: before,
+      rating: Rating.Hard,
+      currentSchedulerType: 'fsrs-v6',
+      schedulingContext: expect.objectContaining({
+        ...schedulingContext,
+        source: 'queue',
+      }),
+    }));
+  });
+
   it('keeps preview-only reviews out of formal card writes and revlog v2', async () => {
     const before = createCard({ due: Date.now() + 5 * 86_400_000 });
     const decision = {
