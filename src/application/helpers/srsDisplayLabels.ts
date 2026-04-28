@@ -16,6 +16,16 @@ export function resolveSrsArenaContestantLabel(
       return FSRSV5_DISPLAY_LABEL;
     case 'sm2':
       return 'SM-2';
+    case 'sm5':
+      return 'SM-5';
+    case 'sm8':
+      return 'SM-8';
+    case 'sm18':
+      return 'SM-18';
+    case 'sm19':
+      return 'SM-19';
+    case 'sm20':
+      return 'SM-20';
     case 'fsrs-v6':
       return 'FSRS v6';
     default:

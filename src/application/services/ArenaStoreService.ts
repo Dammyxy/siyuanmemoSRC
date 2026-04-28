@@ -1,4 +1,5 @@
 import type { IFileService } from '@/infrastructure/services/FileService';
+import type { SqlArenaRepository } from '@/infrastructure/persistence/sqlite';
 import {
   DEFAULT_ARENA_STORE_DATA,
   type ArenaCardAttributionRecord,
@@ -6,6 +7,7 @@ import {
   type ArenaMatchRecord,
   type ArenaScoreSnapshot,
   type ArenaStoreData,
+  type SrsArenaContestantPrediction,
 } from '@/types/arena';
 import { createLogger } from '@/utils/logger';
 
@@ -139,9 +141,14 @@ function normalizeStoreData(value: unknown): ArenaStoreData {
 export class ArenaStoreService {
   constructor(
     private readonly fileService: Pick<IFileService, 'readJSON' | 'writeJSON'>,
+    private readonly sqlRepository?: SqlArenaRepository | null,
   ) {}
 
   async readStore(): Promise<ArenaStoreData> {
+    if (this.sqlRepository) {
+      return this.sqlRepository.readStore();
+    }
+
     return normalizeStoreData(
       await this.fileService.readJSON<ArenaStoreData>(ARENA_STORE_FILE),
     );
@@ -152,6 +159,10 @@ export class ArenaStoreService {
     poolKey?: string | null;
     limit?: number;
   }): Promise<ArenaMatchRecord[]> {
+    if (this.sqlRepository) {
+      return this.sqlRepository.listMatches(filters);
+    }
+
     const store = await this.readStore();
     const poolKey = normalizeString(filters?.poolKey) || null;
     const domain = filters?.domain;
@@ -171,6 +182,12 @@ export class ArenaStoreService {
       logger.warn('Skipping invalid arena match record', { record });
       return;
     }
+    if (this.sqlRepository) {
+      this.sqlRepository.appendMatch(normalized);
+      await this.sqlRepository.persist();
+      return;
+    }
+
     const store = await this.readStore();
     store.matches = [normalized, ...store.matches.filter((entry) => entry.id !== normalized.id)]
       .sort((left, right) => right.createdAt - left.createdAt)
@@ -182,6 +199,10 @@ export class ArenaStoreService {
     domain?: ArenaDomain;
     poolKey?: string | null;
   }): Promise<ArenaScoreSnapshot[]> {
+    if (this.sqlRepository) {
+      return this.sqlRepository.listScoreSnapshots(filters);
+    }
+
     const store = await this.readStore();
     const poolKey = normalizeString(filters?.poolKey) || null;
     const domain = filters?.domain;
@@ -201,6 +222,10 @@ export class ArenaStoreService {
     if (!normalizedPoolKey) {
       return null;
     }
+    if (this.sqlRepository) {
+      return this.sqlRepository.getLatestScoreSnapshot(domain, normalizedPoolKey);
+    }
+
     const store = await this.readStore();
     return clone(
       store.scores.find((snapshot) => snapshot.domain === domain && snapshot.poolKey === normalizedPoolKey) || null,
@@ -213,6 +238,12 @@ export class ArenaStoreService {
       logger.warn('Skipping invalid arena score snapshot', { snapshot });
       return;
     }
+    if (this.sqlRepository) {
+      this.sqlRepository.replaceScoreSnapshot(normalized);
+      await this.sqlRepository.persist();
+      return;
+    }
+
     const store = await this.readStore();
     store.scores = [
       normalized,
@@ -228,6 +259,10 @@ export class ArenaStoreService {
     if (!normalizedCardId) {
       return null;
     }
+    if (this.sqlRepository) {
+      return this.sqlRepository.getAttribution(normalizedCardId);
+    }
+
     const store = await this.readStore();
     return clone(
       store.attributions.find((entry) => entry.cardId === normalizedCardId) || null,
@@ -240,6 +275,12 @@ export class ArenaStoreService {
       logger.warn('Skipping invalid arena attribution record', { record });
       return;
     }
+    if (this.sqlRepository) {
+      this.sqlRepository.upsertAttribution(normalized);
+      await this.sqlRepository.persist();
+      return;
+    }
+
     const store = await this.readStore();
     store.attributions = [
       normalized,
@@ -255,6 +296,10 @@ export class ArenaStoreService {
     poolKey?: string | null;
     limit?: number;
   }): Promise<ArenaCardAttributionRecord[]> {
+    if (this.sqlRepository) {
+      return this.sqlRepository.listAttributions(filters);
+    }
+
     const store = await this.readStore();
     const sourcePackId = normalizeString(filters?.sourcePackId) || null;
     const poolKey = normalizeString(filters?.poolKey) || null;
@@ -273,5 +318,37 @@ export class ArenaStoreService {
       ...DEFAULT_ARENA_STORE_DATA,
       ...store,
     });
+  }
+
+  async recordSrsPredictions(input: {
+    poolKey: string;
+    attemptId: string;
+    cardId: string;
+    createdAt: number;
+    predictions: SrsArenaContestantPrediction[];
+  }): Promise<void> {
+    if (!this.sqlRepository) {
+      return;
+    }
+    this.sqlRepository.recordSrsPredictions(input);
+    await this.sqlRepository.persist();
+  }
+
+  async recordSrsOutcome(input: {
+    poolKey: string;
+    attemptId: string;
+    cardId: string;
+    contestantId: string;
+    predictedRecall: number;
+    actualRecall: boolean;
+    rating: number;
+    reviewedAt: number;
+    payload: unknown;
+  }): Promise<void> {
+    if (!this.sqlRepository) {
+      return;
+    }
+    this.sqlRepository.recordSrsOutcome(input);
+    await this.sqlRepository.persist();
   }
 }

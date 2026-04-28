@@ -17,6 +17,7 @@
  */
 
 import type { IFileService } from '../../infrastructure/services/FileService';
+import type { SqlReviewLogRepository } from '@/infrastructure/persistence/sqlite';
 import type { DrillLogV2, ReviewLog, ReviewLogV2 } from '@/types/review';
 import type { RescheduleLog } from '@/types/scheduler';
 
@@ -87,7 +88,10 @@ export interface IReviewLogService {
  * 复习日志服务实现
  */
 export class ReviewLogService implements IReviewLogService {
-  constructor(private readonly fileService: IFileService) {}
+  constructor(
+    private readonly fileService: IFileService,
+    private readonly sqlRepository?: SqlReviewLogRepository | null,
+  ) {}
 
   /**
    * 添加复习日志
@@ -97,6 +101,12 @@ export class ReviewLogService implements IReviewLogService {
     const year = date.getFullYear();
     const month = date.getMonth() + 1; // 0-11 -> 1-12
     
+    if (this.sqlRepository) {
+      this.sqlRepository.addReviewLog(log);
+      await this.sqlRepository.persist();
+      return;
+    }
+
     await this.appendLog(year, month, 'review', log);
   }
 
@@ -107,6 +117,12 @@ export class ReviewLogService implements IReviewLogService {
     const date = new Date(log.reviewedAt);
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
+
+    if (this.sqlRepository) {
+      this.sqlRepository.addReviewLogV2(log);
+      await this.sqlRepository.persist();
+      return;
+    }
 
     await this.appendLog(year, month, 'review-v2', log);
   }
@@ -119,6 +135,12 @@ export class ReviewLogService implements IReviewLogService {
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
 
+    if (this.sqlRepository) {
+      this.sqlRepository.addDrillLogV2(log);
+      await this.sqlRepository.persist();
+      return;
+    }
+
     await this.appendLog(year, month, 'drill-v2', log);
   }
 
@@ -130,6 +152,12 @@ export class ReviewLogService implements IReviewLogService {
     const year = date.getFullYear();
     const month = date.getMonth() + 1; // 0-11 -> 1-12
     
+    if (this.sqlRepository) {
+      this.sqlRepository.addRescheduleLog(log);
+      await this.sqlRepository.persist();
+      return;
+    }
+
     await this.appendLog(year, month, 'reschedule', log);
   }
 
@@ -137,6 +165,10 @@ export class ReviewLogService implements IReviewLogService {
    * 获取指定年月的复习日志
    */
   async getReviewLogs(year: number, month: number): Promise<ReviewLog[]> {
+    if (this.sqlRepository) {
+      return this.sqlRepository.getReviewLogs(year, month);
+    }
+
     const fileName = this.getLogFileName(year, month);
     const data = await this.fileService.readJSON<MonthlyReviewLogs>(fileName);
     
@@ -151,6 +183,10 @@ export class ReviewLogService implements IReviewLogService {
    * 获取指定年月的 SRS v2 复习日志
    */
   async getReviewLogsV2(year: number, month: number): Promise<ReviewLogV2[]> {
+    if (this.sqlRepository) {
+      return this.sqlRepository.getReviewLogsV2(year, month);
+    }
+
     const fileName = this.getLogFileName(year, month);
     const data = await this.fileService.readJSON<MonthlyReviewLogs>(fileName);
 
@@ -165,6 +201,10 @@ export class ReviewLogService implements IReviewLogService {
    * 获取指定年月的 drill-only 练习日志
    */
   async getDrillLogsV2(year: number, month: number): Promise<DrillLogV2[]> {
+    if (this.sqlRepository) {
+      return this.sqlRepository.getDrillLogsV2(year, month);
+    }
+
     const fileName = this.getLogFileName(year, month);
     const data = await this.fileService.readJSON<MonthlyReviewLogs>(fileName);
 
@@ -179,6 +219,10 @@ export class ReviewLogService implements IReviewLogService {
    * 获取所有复习日志
    */
   async getAllReviewLogs(): Promise<ReviewLog[]> {
+    if (this.sqlRepository) {
+      return this.sqlRepository.getAllReviewLogs();
+    }
+
     // 注意：这个方法可能需要扫描所有可能的日志文件
     // 目前简化实现，只返回当前月份的日志
     // 完整实现需要文件系统扫描功能

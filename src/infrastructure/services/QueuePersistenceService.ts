@@ -22,6 +22,7 @@
  */
 
 import type { IFileService } from './FileService';
+import type { SqlQueueStateRepository } from '@/infrastructure/persistence/sqlite';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('QueuePersistenceService');
@@ -91,7 +92,10 @@ export class QueuePersistenceService implements IQueuePersistenceService {
   private saveTimer: NodeJS.Timeout | null = null;
   private initialized = false;
 
-  constructor(private readonly fileService: IFileService) {}
+  constructor(
+    private readonly fileService: IFileService,
+    private readonly sqlRepository?: SqlQueueStateRepository | null,
+  ) {}
 
   /**
    * 初始化服务（加载所有队列数据）
@@ -103,6 +107,13 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     }
 
     try {
+      if (this.sqlRepository) {
+        this.cache = new Map(Object.entries(this.sqlRepository.loadAll()));
+        this.initialized = true;
+        logger.info(`Loaded ${this.cache.size} queue(s) from SQLite`);
+        return;
+      }
+
       const data = await this.fileService.readMsgpack<Record<string, unknown>>(
         QueuePersistenceService.STORAGE_FILE
       );
@@ -250,6 +261,13 @@ export class QueuePersistenceService implements IQueuePersistenceService {
     try {
       // 将 Map 转换为普通对象
       const data = Object.fromEntries(this.cache);
+
+      if (this.sqlRepository) {
+        this.sqlRepository.replaceAll(data);
+        await this.sqlRepository.persist();
+        logger.info(`Saved ${this.cache.size} queue(s) to SQLite`);
+        return;
+      }
       
       // 写入文件
       await this.fileService.writeMsgpack(

@@ -26,13 +26,24 @@ export const ARENA_TARGET_KINDS = [
 
 export const SRS_ARENA_CONTESTANT_IDS = [
   'fsrs-v6',
-  'sm15',
   'sm2',
+  'sm5',
+  'sm8',
+  'sm15',
+  'sm18',
+  'sm20',
+] as const;
+
+export const SRS_ARENA_ALGORITHM_IDS = [
+  ...SRS_ARENA_CONTESTANT_IDS,
+  'sm19',
 ] as const;
 
 export type AIArenaScenarioId = typeof AI_ARENA_SCENARIO_IDS[number];
 export type ArenaTargetKind = typeof ARENA_TARGET_KINDS[number];
 export type SrsArenaContestantId = typeof SRS_ARENA_CONTESTANT_IDS[number];
+export type SrsArenaAlgorithmId = typeof SRS_ARENA_ALGORITHM_IDS[number];
+export type SrsArenaAlgorithmRegistryState = 'enabled' | 'disabled' | 'official-pending';
 export type ArenaDomain = 'ai' | 'srs';
 export type ArenaChallengeReason = 'low-confidence' | 'high-disagreement' | 'repeated-dissatisfaction';
 export type AIStrategyPackSource = 'builtin' | 'user' | 'ai-generated';
@@ -48,6 +59,95 @@ export type AIArenaEventType =
   | 'create'
   | 'manual-bad'
   | 'judge';
+
+export interface SrsArenaAlgorithmRegistryEntry {
+  id: SrsArenaAlgorithmId;
+  label: string;
+  enabled: boolean;
+  state: SrsArenaAlgorithmRegistryState;
+  runtimeKind: 'browser' | 'kernel-rpc' | 'disabled';
+  version: string;
+  parameterHash: string;
+  metadata?: Record<string, unknown>;
+}
+
+export const SRS_ARENA_ALGORITHM_REGISTRY: SrsArenaAlgorithmRegistryEntry[] = [
+  {
+    id: 'fsrs-v6',
+    label: 'FSRS v6',
+    enabled: true,
+    state: 'enabled',
+    runtimeKind: 'browser',
+    version: 'ts-fsrs',
+    parameterHash: 'settings.fsrs',
+  },
+  {
+    id: 'sm2',
+    label: 'SM-2',
+    enabled: true,
+    state: 'enabled',
+    runtimeKind: 'browser',
+    version: 'classic-sm2-adapter',
+    parameterHash: 'settings.fsrs.retention',
+  },
+  {
+    id: 'sm5',
+    label: 'SM-5',
+    enabled: true,
+    state: 'enabled',
+    runtimeKind: 'browser',
+    version: 'classic-sm-family-v1',
+    parameterHash: 'settings.fsrs.retention',
+  },
+  {
+    id: 'sm8',
+    label: 'SM-8',
+    enabled: true,
+    state: 'enabled',
+    runtimeKind: 'browser',
+    version: 'classic-sm-family-v1',
+    parameterHash: 'settings.fsrs.retention',
+  },
+  {
+    id: 'sm15',
+    label: 'FSRSV5',
+    enabled: true,
+    state: 'enabled',
+    runtimeKind: 'browser',
+    version: 'sm15-adapter',
+    parameterHash: 'settings.fsrs.retention',
+  },
+  {
+    id: 'sm18',
+    label: 'SM-18',
+    enabled: true,
+    state: 'enabled',
+    runtimeKind: 'browser',
+    version: 'classic-sm-family-v1',
+    parameterHash: 'settings.fsrs.retention',
+  },
+  {
+    id: 'sm20',
+    label: 'SM-20',
+    enabled: true,
+    state: 'enabled',
+    runtimeKind: 'browser',
+    version: 'classic-sm-family-v1',
+    parameterHash: 'settings.fsrs.retention',
+  },
+  {
+    id: 'sm19',
+    label: 'SM-19',
+    enabled: false,
+    state: 'official-pending',
+    runtimeKind: 'disabled',
+    version: 'official-pending',
+    parameterHash: 'official-pending',
+    metadata: {
+      reason: 'No complete official/reference implementation wired yet.',
+    },
+  },
+];
 
 const BUILTIN_ARENA_PACK_CREATED_AT = 1;
 
@@ -452,10 +552,10 @@ export const DEFAULT_ARENA_SETTINGS: ArenaSettings = {
   },
   srs: {
     enabled: true,
-    contestantIds: ['fsrs-v6', 'sm15', 'sm2'],
+    contestantIds: ['fsrs-v6', 'sm2', 'sm5', 'sm8', 'sm15', 'sm18', 'sm20'],
     targetKinds: ['item', 'descriptor'],
     advisoryOnly: true,
-    divergenceThresholdRatio: 0.35,
+    divergenceThresholdRatio: 0.5,
     minimumReviewsForConfidence: 10,
   },
   manager: {

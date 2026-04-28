@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-04-27
+最后更新：2026-04-28
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -101,7 +101,8 @@ flowchart TD
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
-- 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，旧配置首次归一化时也会被关闭并写入迁移标记，关闭时不写 `arena/store.json`，也不接入复习建议或 AI 策略包覆盖
+- 初始化 `siyuanmemo.db` 的 sql.js 持久化层；首次启动先把旧 `unified-cards.msgpack`、`queues.msgpack`、月度 review logs 与 `arena/store.json` 迁入 SQL，迁移失败才回退旧文件存储
+- 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，关闭时不接入复习建议或 AI 策略包覆盖；开启后 Arena 数据写入 SQL
 
 这意味着：
 
@@ -339,7 +340,7 @@ UI surface：
 - `src/application/services/CardApplicationService.ts`：卡片创建 / 更新 / 删除的应用编排入口。
 - `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务。
 - `src/application/services/ReviewApplicationService.ts`：复习流程相关编排。
-- `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
+- `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `ReviewLogService` 在 SQL active 时写 `review_events / drill_events / reschedule_events`，旧 JSON 月度分片只作为迁移来源或 SQL 失败后的 fallback；`SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
 - `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan；native `removeFlashcards` 现在走同服务内的 `riff-managed` 定向本地删除，而不是再依赖增量同步或 full sync 才收敛。
 - `src/application/services/ReviewQueuePreparationService.ts` / `DocTreeReviewScopeService.ts`：review scope 与 queue preparation 编排。
 - `src/application/services/ReviewScopeCardCreationSyncService.ts`：review scope 内的卡片增删事件桥接；监听 `CardCreated / CardDeleted / CardsDeleted`，把新增或删除同步到 `UnifiedDataSourceManager`，让打开中的 Browser / Review 队列通过统一 observer 链路刷新。
@@ -350,8 +351,8 @@ UI surface：
 - `src/application/services/SelectionTopicContinuationService.ts`：选区继续制卡门面，负责同步 menu 预判和异步 progressive source context 解析。
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
-- `src/application/services/ArenaStoreService.ts`：Arena 独立 JSON store，持久化比赛记录、评分快照和卡片来源归因，不把 telemetry 塞进 settings。
-- `src/application/services/ArenaKernelService.ts`：Arena 统一内核；负责 AI 场景池、策略包加权抽样、pin/retire/clone/challenge 管理、AI 行为评分、SRS 三选手只读 counterfactual 与 delayed attribution。
+- `src/application/services/ArenaStoreService.ts`：Arena store facade；SQL active 时写 `algorithm_registry / arena_predictions / arena_outcomes / arena_metric_bins / arena_score_snapshots / ai_arena_events / ai_card_attributions`，旧 `arena/store.json` 只作为迁移来源或 fallback。
+- `src/application/services/ArenaKernelService.ts`：Arena 统一内核；负责 AI 场景池、策略包加权抽样、pin/retire/clone/challenge 管理、AI 行为评分、SRS 七选手只读 counterfactual、Universal/Calibration metric 与 delayed attribution。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
 - `src/application/services/AIChatSkillRegistry.ts`：通用 AI chat Skill 注册表；负责合并内置 Skill 与 `settings.ai.userSkills[]`，并把用户 chat / structured skill 解析成统一的 runtime 描述符与 tab/section 元数据。
 - `src/application/services/AIChatToolRegistry.ts`：AI chat 工具描述符、工具组、执行策略与可见性注册。
@@ -406,6 +407,7 @@ Handlers / entries / helpers：
 - `src/core/scheduler/AdvanceEngine.ts` / `PostponeEngine.ts` / `SpreadEngine.ts` / `rescheduleService.ts`：重排与计划引擎。
 - `src/core/scheduler/strategies/*`：具体调度器实现。
 - `src/core/scheduler/strategies/SM2ReadOnlyScheduler.ts`：Arena 专用 SM-2 只读评估器，只参与 counterfactual，不进入正式调度路由。
+- `src/core/scheduler/strategies/ClassicSMScheduler.ts`：Arena 专用 classic SM 家族只读评估器，覆盖 `sm5 / sm8 / sm18 / sm20` 的 shadow prediction，不进入正式调度路由。
 
 存储、卡片、修远：
 
@@ -447,8 +449,9 @@ Siyuan / Riff / LLM 适配器：
 持久化与支撑：
 
 - `src/infrastructure/persistence/*`：卡片仓储、DTO、mapper、持久化映射。
+- `src/infrastructure/persistence/sqlite/*`：sql.js 单文件持久化层；`SqliteDatabaseService` 负责 `siyuanmemo.db`、schema 与算法注册，repository 负责 unified store、queue state、review logs 与 Arena append-only 数据，`SqliteMigrationService` 负责旧 msgpack/JSON 到 SQL 的一次性迁移。
 - `src/infrastructure/queries/CardReadModel.ts`：读模型实现。
-- `src/infrastructure/services/FileService.ts` / `QueuePersistenceService.ts`：文件与队列持久化支撑。
+- `src/infrastructure/services/FileService.ts` / `QueuePersistenceService.ts`：文件与队列持久化支撑；SQL active 时 `QueuePersistenceService` 只读写 `queue_state`，旧 `queues.msgpack` 只作为迁移来源或 fallback。
 - `src/infrastructure/queue/*`：队列相关副作用适配器。
 - `src/infrastructure/events/*`：基础设施层事件处理。
 - `src/infrastructure/notifications/SiyuanErrorNotificationAdapter.ts`：错误通知适配器。
@@ -707,7 +710,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - AI Arena 使用显式场景注册，不靠自由推断入池；v1 注册 `topic-auto-card / candidate-card-generation / card-prompt-rewrite / descriptor-augmentation / concept-expression-coach / note-refinement`
   - 池 key 固定由 `surface + scenarioId + targetKind + skillId/tabId` 组成；`AIWorkbenchService` 在 standalone、review sidecar、review companion 入口把 pool 上下文传给内核
   - 策略包只覆盖 prompt 与工具策略，不覆盖模型；模型选择继续由用户当前 AI settings 决定
-  - 用户行为事件（exposure / accept / edit / rerun / abandon / create / manual-bad）和低权重 judge 信号会更新同一份评分快照；制卡成功会记录 card attribution，后续复习反馈再回流到来源策略包
+  - 用户行为事件（exposure / accept / edit / rerun / abandon / create / manual-bad）和低权重 judge 信号会更新同一份评分快照；制卡成功会记录 card attribution，后续复习反馈再回流到来源策略包；SQL active 时这些事件全部进入 `ai_arena_events / ai_card_attributions`
 - `AIChatSkillRegistry`
   - 注册内置 Skill 描述符：`general-chat` 与 `concept-coach`
   - `general-chat` 是默认通用聊天 Skill，可使用读工具、网页工具与变量工具
@@ -810,7 +813,8 @@ UI 层：
 - `FinalDrill` 是练习覆盖层，不走正式调度，只追加独立 `DrillLogV2` 月度分片；`NeuralRoam` 绑定真实卡时可提交正式 SRS，但不会因 due 窗口自动退出 session；`Leech` 只负责难点治理成员资格，正式复习仍走 SRS v2
 - 成功写正式排期时，`ReviewCommitUseCase` 追加 `ReviewLogV2` 月度分片；旧 `ReviewLog` 保留只读/兼容，`DrillLogV2` 默认不参与 FSRS 参数优化和 Arena 正式归因
 - 对不支持的调度路径显式报错，而不是静默降级
-- 对 item / descriptor 复习，Arena 开启后会在正式调度之外通过 contestant adapters 并行预估 `fsrs-v6 + sm15 + sm2` 三个只读选手，输出四按钮预测、置信度、解释、归因字段、weighted optimum、分歧幅度和领先者；`a-factor-v2` 不进入 v1 SRS contest pack
+- 对 item / descriptor 复习，Arena 开启后会在正式调度之外通过 contestant adapters 并行预估 `fsrs-v6 / sm2 / sm5 / sm8 / sm15 / sm18 / sm20` 七个只读选手，输出四按钮预测、置信度、解释、归因字段、weighted optimum、分歧幅度和领先者；`sm19` 只注册为 `official-pending` 禁用算法，`a-factor-v2` 不进入 v1 SRS contest pack
+- SRS Arena 主评分是 Universal/Calibration metric：按 predicted retrievability 进入 0.0-1.0 十分箱，SQL 中维护 `arena_metric_bins`，快照里的 score 用负 RMS 表示“越接近 0 越好”；Brier/即时误差只做诊断信号
 - `SrsTransparencyApplicationService` / `SrsEditorDialog.vue` / `ReviewView.vue` 只展示轻量分歧提示和透明度事实；只有 `arena.srs.advisoryOnly === false` 且样本数达到 `minimumReviewsForConfidence` 时才允许进入实验写入路径，默认不接管正式 due
 
 同步与事件主入口：
@@ -905,11 +909,12 @@ UI 层：
 - `DialogManager` 负责 dialog surface，`TabManager` 负责 tab surface 与 surface handoff
 - 桌面端标准 review 入口现在由 `DialogManager` 按 `settings.ui.reviewOpenInNewTabByDefault` / `reviewOpenFullscreenByDefault` 做统一路由；filter-backed review 进入 tab 时通过 transfer-state 恢复 session
 - Review runtime 只保留 `ReviewView.vue` v2 + `UnifiedQueueStrategy` + `UnifiedReviewAdapter` 主链；旧 provider-backed review extension path 已删除，special renderer service 由 application factory 注入
+- 主数据持久化优先使用 `siyuanmemo.db`；浏览器插件 application 层通过 sql.js 单写，kernel.js 只保留未来算法计算 RPC 位置，不直接写 DB
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中
 - AI Workbench / Capture 已在主路径中，并升级为通用 chat shell + Skill runtime；standalone 默认 `general-chat`，review 默认 Skill 由 `settings.ai.chatDefaults.reviewDefaultSkillId` 决定（默认 `general-chat`），review 聊天按队列级 `reviewChatKey` 复用持久化会话但 live runtime 仍按真实 review session 隔离
-- Arena 已在组合根中作为应用层内核装配，但默认关闭：启用后 AI Arena 管理显式场景池和策略包评分，SRS Arena 对 item / descriptor 通过 `fsrs-v6 + sm15 + sm2` contestant adapters 做只读建议；它只提供透明度、权重建议、挑战者管理和 delayed attribution，默认不接管正式模型选择或调度写回
+- Arena 已在组合根中作为应用层内核装配，但默认关闭：启用后 AI Arena 管理显式场景池和策略包评分，SRS Arena 对 item / descriptor 通过 `fsrs-v6 / sm2 / sm5 / sm8 / sm15 / sm18 / sm20` contestant adapters 做只读建议，`sm19` 只登记为官方实现待接入；它只提供透明度、权重建议、挑战者管理和 delayed attribution，默认不接管正式模型选择或调度写回
 - AI 设置主结构是 `providers[] + defaultModelId + chatDefaults + webSearch + toolPolicies + skillPromptOverrides + userSkills[]`；旧 `baseUrl/apiKey/model` 只作为读取兼容和迁移来源
 - AI 设置页现在区分“内置 Skill 覆盖”和“用户声明式 Skill 管理”：`concept-coach` 仍沿用 `skills.conceptCoach.baseRun` 与 `skills.conceptCoach.tabs.<tab>.{run,followUp}`，默认推荐模板已经切到 Andy 兼容语义；用户 skill 通过 `userSkills[]` 声明 Prompt、工具组、sections、renderer 和 surface hints；结构化 JSON 契约仍由系统注册表托管，不开放 JS/HTML/runtime 脚本
 - AI chat runtime 当前支持插件内读工具、网页抓取/可选搜索、变量缓存、tool timeline、树形 worldline、compact reply projection 和写工具审批卡；第一阶段不做本地文件系统/脚本执行，也不做独立图形化 world-tree 页面

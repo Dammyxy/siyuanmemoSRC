@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-28 (Round 169)
+Last update: 2026-04-28 (Round 170)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-28 - SQL storage and AI/SRS Arena foundation
+
+- Task: 落地 `siyuanmemo.db` SQL 存储主干，并把 AI/SRS Arena 从 JSON/msgpack 主写路径迁入 SQL。
+- Touched slice: Application composition root / storage persistence / queue persistence / review logs / Arena / scheduler adapters across `src/application/ApplicationContext.ts`, `src/infrastructure/persistence/sqlite/*`, `src/application/services/{ArenaStoreService,ReviewLogService,ArenaKernelService}.ts`, `src/infrastructure/services/QueuePersistenceService.ts`, `src/core/scheduler/strategies/ClassicSMScheduler.ts`, `src/types/arena.ts`, and `ARCHITECTURE.md`.
+- Debt fixed now: 新增 sql.js schema 与 repository，启动时迁移旧 `unified-cards.msgpack / queues.msgpack / review-logs/*.json / arena/store.json`，成功后 UnifiedStorageManager、队列、日志和 Arena 均写 SQL；Arena 注册 `fsrs-v6 / sm2 / sm5 / sm8 / sm15 / sm18 / sm20` 七个参赛算法，`sm19` 只登记为 `official-pending`；SRS Arena 评分改为负 RMS calibration score，并把 prediction/outcome/bin 写入 SQL。
+- Debt deferred: kernel.js JSON-RPC 计算端口尚未接真实 SiYuan kernel；SM5/SM8/SM18/SM20 当前是 browser-side classic SM family shadow adapter，不是官方完整算法端口；SQL 文件用插件数据层保存 base64 sqlite envelope，后续可改成真实二进制 putFile；匿名导出和完整 UI 操作（采用竞技场/少提醒）未在本轮做完。
+- Why deferred: 本轮先收主存储和 Arena 数据事实源，kernel PR 仍不稳定且不能作为硬依赖；官方 SM 变体与匿名评分导出需要独立 golden cases 和 UI/端口验收。
+- Next safe step: 给 sqlite migration / repository / arena metric 加 focused tests，再接 kernel capability detection 与 RPC adapter；拿到官方或可验证参考实现后替换 classic shadow adapters。
+- Validation: `pnpm build`（通过；保留既有 i18n 硬编码提示与 Sass legacy API warning）。
 
 ### 2026-04-28 - review source refresh debt cleared
 

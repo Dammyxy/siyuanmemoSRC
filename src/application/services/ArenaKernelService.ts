@@ -6,6 +6,7 @@ import { resolveSchedulerTypeLabel, resolveSrsArenaContestantLabel } from '@/app
 import { SM15Scheduler } from '@/core/scheduler/strategies/SM15Scheduler';
 import { SM2ReadOnlyScheduler } from '@/core/scheduler/strategies/SM2ReadOnlyScheduler';
 import { TSFSRSScheduler } from '@/core/scheduler/strategies/TSFSRSScheduler';
+import { ClassicSMScheduler, type ClassicSMVariant } from '@/core/scheduler/strategies/ClassicSMScheduler';
 import type {
   ArenaContestantContract,
   ArenaContestantPrediction as CoreArenaContestantPrediction,
@@ -92,6 +93,14 @@ function toIntervalDays(due: number, now: number): number {
 
 function toArenaAlgorithm(contestantId: SrsArenaContestantId): SrsV2AlgorithmFamily | string {
   return contestantId === 'fsrs-v6' ? 'memory-fsrs' : 'legacy-advisory';
+}
+
+function nextCalibrationScore(entry: ArenaScoreEntry, predicted: number, actual: boolean): number {
+  const previousSamples = Math.max(0, Number(entry.sampleCount) || 0);
+  const previousRms = entry.score < 0 ? Math.abs(entry.score) : 0;
+  const error = (actual ? 1 : 0) - clamp(predicted, 0, 1);
+  const nextMse = ((previousRms * previousRms) * previousSamples + error * error) / (previousSamples + 1);
+  return -Math.sqrt(nextMse);
 }
 
 function normalizeTargetKind(card: FSRSCard | null | undefined): Extract<ArenaTargetKind, 'item' | 'descriptor'> | null {
@@ -422,6 +431,7 @@ export class ArenaKernelService {
     const discrepancyRatio = currentSchedulerIntervalDays > 0
       ? Math.abs(weightedIntervalDays - currentSchedulerIntervalDays) / Math.max(1, currentSchedulerIntervalDays)
       : 0;
+    const discrepancyDays = Math.abs(weightedIntervalDays - currentSchedulerIntervalDays);
     const leadingContestantId = contestants.slice().sort((left, right) => right.score - left.score)[0]?.contestantId || null;
     const leadingLabel = leadingContestantId ? resolveSrsArenaContestantLabel(leadingContestantId) : currentSchedulerLabel;
     const sampleCount = snapshot.entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.sampleCount) || 0), 0);
@@ -435,7 +445,7 @@ export class ArenaKernelService {
       weightedDue,
       currentSchedulerIntervalDays,
       discrepancyRatio,
-      shouldHighlight: discrepancyRatio >= settings.srs.divergenceThresholdRatio,
+      shouldHighlight: discrepancyRatio >= settings.srs.divergenceThresholdRatio && discrepancyDays >= 1,
       writeEnabled,
       minimumReviewsMet,
       summary: `Arena 当前更偏向 ${leadingLabel}，综合建议 ${weightedIntervalDays.toFixed(1)} 天；当前正式调度 ${currentSchedulerLabel} 约 ${currentSchedulerIntervalDays.toFixed(1)} 天。`,
@@ -460,19 +470,32 @@ export class ArenaKernelService {
     const recommendation = await this.buildSrsRecommendation(card, input.currentSchedulerType, now);
     const snapshot = await this.ensureSrsScoreSnapshot(poolKey, settings.srs.contestantIds);
     const pass = rating >= Rating.Good;
+    const attemptId = createId('srs-attempt');
+    const weights = this.computeScoreWeights(snapshot.entries);
+    const predictions = recommendation?.contestants
+      || this.buildSrsPredictions(card, settings.srs.contestantIds, snapshot.entries, weights, now);
+    const predictionsById = new Map(predictions.map((prediction) => [prediction.contestantId, prediction] as const));
+    await this.deps.arenaStore.recordSrsPredictions({
+      poolKey,
+      attemptId,
+      cardId: card.id,
+      createdAt: now,
+      predictions,
+    });
     const updatedEntries = snapshot.entries.map((entry) => {
-      const prediction = this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, this.computeScoreWeights(snapshot.entries)[entry.contestantId] || 0, now);
-      const error = Math.abs((pass ? 1 : 0) - prediction.predictedPassProbability);
+      const prediction = predictionsById.get(entry.contestantId as SrsArenaContestantId)
+        || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, weights[entry.contestantId] || 0, now);
       return {
         ...entry,
-        score: entry.score + (1 - error * 2),
+        score: nextCalibrationScore(entry, prediction.predictedPassProbability, pass),
         sampleCount: entry.sampleCount + 1,
         lastEventAt: now,
       };
     });
     const winner = updatedEntries
       .map((entry) => {
-        const prediction = this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, 0, now);
+        const prediction = predictionsById.get(entry.contestantId as SrsArenaContestantId)
+          || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, 0, now);
         const error = Math.abs((pass ? 1 : 0) - prediction.predictedPassProbability);
         return { entry, error };
       })
@@ -492,6 +515,24 @@ export class ArenaKernelService {
       createdAt: now,
       entries: updatedEntries,
     });
+    for (const prediction of predictions) {
+      await this.deps.arenaStore.recordSrsOutcome({
+        poolKey,
+        attemptId,
+        cardId: card.id,
+        contestantId: prediction.contestantId,
+        predictedRecall: prediction.predictedPassProbability,
+        actualRecall: pass,
+        rating,
+        reviewedAt: now,
+        payload: {
+          attemptId,
+          intervalDays: prediction.intervalDays,
+          discrepancyRatio: recommendation?.discrepancyRatio || 0,
+          weightedIntervalDays: recommendation?.weightedIntervalDays || 0,
+        },
+      });
+    }
     await this.deps.arenaStore.appendMatch({
       id: createId('arena-match'),
       domain: 'srs',
@@ -507,7 +548,8 @@ export class ArenaKernelService {
         discrepancyRatio: recommendation?.discrepancyRatio || 0,
         leadingContestantId: recommendation?.leadingContestantId || null,
         contestantErrors: Object.fromEntries(updatedEntries.map((entry) => {
-          const prediction = this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, 0, now);
+          const prediction = predictionsById.get(entry.contestantId as SrsArenaContestantId)
+            || this.buildSingleSrsPrediction(card, entry.contestantId as SrsArenaContestantId, entry, 0, now);
           return [entry.contestantId, Math.abs((pass ? 1 : 0) - prediction.predictedPassProbability)];
         })),
       },
@@ -932,6 +974,7 @@ export class ArenaKernelService {
         retrievability,
         advisoryOnly: true,
         source: 'srs-arena-contestant-contract',
+        parameterHash: contestantId === 'fsrs-v6' ? 'settings.fsrs' : 'settings.fsrs.retention',
       },
     };
   }
@@ -957,6 +1000,11 @@ export class ArenaKernelService {
         return new SM15Scheduler(params);
       case 'sm2':
         return new SM2ReadOnlyScheduler(params);
+      case 'sm5':
+      case 'sm8':
+      case 'sm18':
+      case 'sm20':
+        return new ClassicSMScheduler(contestantId as ClassicSMVariant, params);
       case 'fsrs-v6':
       default:
         return new TSFSRSScheduler(params);

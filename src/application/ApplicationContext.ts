@@ -58,6 +58,14 @@ import { EventBus } from '@/core/shared/domain/events/EventBus';
 // ✅ DDD 重构服务导入
 import { FileService } from '@/infrastructure/services/FileService';
 import { QueuePersistenceService } from '@/infrastructure/services/QueuePersistenceService';
+import {
+  SqlArenaRepository,
+  SqliteDatabaseService,
+  SqliteMigrationService,
+  SqlQueueStateRepository,
+  SqlReviewLogRepository,
+  SqlUnifiedStorageRepository,
+} from '@/infrastructure/persistence/sqlite';
 import { SettingsService } from '@/application/services/SettingsService';
 import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
@@ -141,6 +149,14 @@ interface ApplicationServiceRegistry {
 type ServiceName = keyof ApplicationServiceRegistry;
 type ServiceFactory<K extends ServiceName> = (context: ApplicationContext) => ApplicationServiceRegistry[K];
 
+interface SqlPersistenceBundle {
+  database: SqliteDatabaseService;
+  unified: SqlUnifiedStorageRepository;
+  queue: SqlQueueStateRepository;
+  reviewLogs: SqlReviewLogRepository;
+  arena: SqlArenaRepository;
+}
+
 /**
  * 应用配置接口
  */
@@ -197,6 +213,7 @@ export class ApplicationContext {
   private autoCardHandler?: AutoCardHandler;
   private nativeRiffSyncTriggerHandler?: NativeRiffSyncTriggerHandler;
   private fullSyncTimer?: NodeJS.Timeout;
+  private sqlPersistence?: SqlPersistenceBundle;
   
   // ========================================================================
   // 服务容器
@@ -271,6 +288,7 @@ export class ApplicationContext {
       unifiedDataSourceManager: UnifiedDataSourceManager;
       blockMenuHandler: BlockMenuHandler;
       sharedEventBus?: EventBus;  // ✅ 新增：共享的 EventBus 实例
+      sqlPersistence?: SqlPersistenceBundle;
       hybridSyncService?: XiuyuanSyncService;
       transactionWebSocketService?: TransactionWebSocketService;
       fullSyncTimer?: NodeJS.Timeout;
@@ -286,6 +304,7 @@ export class ApplicationContext {
     this.hybridSyncService = services.hybridSyncService;
     this.transactionWebSocketService = services.transactionWebSocketService;
     this.fullSyncTimer = services.fullSyncTimer;
+    this.sqlPersistence = services.sqlPersistence;
     
     // ✅ 保存 sharedEventBus 引用（如果提供）
     if (services.sharedEventBus) {
@@ -328,7 +347,7 @@ export class ApplicationContext {
     });
     this.registerServiceFactory('queuePersistenceService', (context) => {
       const fileService = context.getFileService();
-      const service = new QueuePersistenceService(fileService);
+      const service = new QueuePersistenceService(fileService, context.sqlPersistence?.queue ?? null);
       // 🔧 修复：延迟初始化（在首次使用前）
       // 注意：init() 会在 ApplicationContext.init() 中调用
       return service;
@@ -426,7 +445,7 @@ export class ApplicationContext {
 
     this.registerServiceFactory('reviewLogService', (context) => {
       const fileService = context.getFileService();
-      return new ReviewLogService(fileService);
+      return new ReviewLogService(fileService, context.sqlPersistence?.reviewLogs ?? null);
     });
 
     this.registerServiceFactory('reviewCommitUseCase', (context) => {
@@ -456,7 +475,7 @@ export class ApplicationContext {
     });
 
     this.registerServiceFactory('arenaStoreService', (context) => {
-      return new ArenaStoreService(context.getFileService());
+      return new ArenaStoreService(context.getFileService(), context.sqlPersistence?.arena ?? null);
     });
 
     this.registerServiceFactory('arenaKernelService', (context) => {
@@ -790,11 +809,40 @@ export class ApplicationContext {
     // 1. 初始化存储管理器
     const storageManager = new StorageManager(config.plugin.name);
     await storageManager.init();
+    const fileService = new FileService(config.plugin as unknown as SiyuanMemoPlugin);
+    const legacyPersistence = createPersistenceCallbacks(config.plugin);
+    let sqlPersistence: SqlPersistenceBundle | undefined;
+    let unifiedSave = legacyPersistence.save;
+    let unifiedLoad = legacyPersistence.load;
+
+    try {
+      const database = new SqliteDatabaseService(fileService);
+      await database.init();
+      const unified = new SqlUnifiedStorageRepository(database);
+      const queue = new SqlQueueStateRepository(database);
+      const reviewLogs = new SqlReviewLogRepository(database);
+      const arena = new SqlArenaRepository(database);
+      const migrationService = new SqliteMigrationService(
+        database,
+        fileService,
+        { unified, queue, reviewLogs, arena },
+        legacyPersistence.load,
+      );
+      await migrationService.migrateIfNeeded();
+      sqlPersistence = { database, unified, queue, reviewLogs, arena };
+      unifiedSave = (data) => unified.saveStore(data);
+      unifiedLoad = (reason) => unified.loadStore(reason);
+      logger.info('[ApplicationContext] ✅ SQLite storage active');
+    } catch (error) {
+      logger.error('[ApplicationContext] SQLite migration/init failed; falling back to legacy storage:', error);
+      sqlPersistence = undefined;
+      unifiedSave = legacyPersistence.save;
+      unifiedLoad = legacyPersistence.load;
+    }
     
     // 🆕 1.1 初始化统一存储管理器
     const unifiedStorageManager = new UnifiedStorageManager();
-    const { save, load } = createPersistenceCallbacks(config.plugin);
-    unifiedStorageManager.setPersistenceCallbacks(save, load);
+    unifiedStorageManager.setPersistenceCallbacks(unifiedSave, unifiedLoad);
     
     // 尝试加载数据，如果文件不存在则初始化为空
     const loadResult = await unifiedStorageManager.load();
@@ -1011,8 +1059,7 @@ export class ApplicationContext {
     // 4. 初始化 ReviewLogService / RescheduleService（使用新架构）
     // static create() 阶段还没有 context 实例，先创建调度写入所需的日志服务，
     // context 创建后再注册回服务容器，避免启动期走不存在的实例 getter。
-    const fileService = new FileService(config.plugin as unknown as SiyuanMemoPlugin);
-    const reviewLogService = new ReviewLogService(fileService);
+    const reviewLogService = new ReviewLogService(fileService, sqlPersistence?.reviewLogs ?? null);
     const schedulerCardUpdater = new UnifiedStorageCardUpdateAdapter(
       unifiedStorageManager,
       reviewLogService
@@ -1093,6 +1140,7 @@ export class ApplicationContext {
       unifiedDataSourceManager,
       blockMenuHandler,
       sharedEventBus,  // ✅ 传入 sharedEventBus
+      sqlPersistence,
       hybridSyncService: undefined,  // 将在下面初始化
       transactionWebSocketService: undefined,  // 将在下面初始化
       fullSyncTimer: undefined,  // 将在下面初始化
@@ -1893,6 +1941,17 @@ export class ApplicationContext {
         }
       } else {
         logger.info('[ApplicationContext] Skipping storage save during disposal (persistStorage=false)');
+      }
+
+      if (this.sqlPersistence) {
+        try {
+          await this.sqlPersistence.database.persist();
+          this.sqlPersistence.database.dispose();
+          logger.info('[ApplicationContext] ✅ SQLite database persisted and closed');
+        } catch (error) {
+          logger.error('[ApplicationContext] Error closing SQLite database:', error);
+          errors.push({ service: 'sqliteDatabase', error });
+        }
       }
 
       // 6. 清空服务容器和工厂
