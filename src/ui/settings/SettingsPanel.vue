@@ -1264,9 +1264,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import {
-  type AIPromptSettingKey,
-} from '@/application/services/AIPromptComposer';
-import {
   AI_CHAT_TOOL_DESCRIPTORS,
   AI_CHAT_TOOL_GROUPS,
 } from '@/application/services/AIChatToolRegistry';
@@ -1280,11 +1277,7 @@ import { getAIWorkbenchSkillTabs } from '@/application/services/AIWorkbenchSkill
 import {
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
-  type AIGeneralChatPromptTemplate,
-  type AIConceptCoachPromptTemplates,
   type AISettings,
-  type AIToolExecutionPolicy,
-  type AIToolResultApprovalPolicy,
   type FSRSParameters,
   type QueueSettings,
   type SchedulerConfig,
@@ -1293,14 +1286,9 @@ import {
 } from '../../types';
 import type {
   AIChatToolGroupKey,
-  AIUserSkillDefinition,
 } from '@/types/ai';
 import { createLogger } from '@/utils/logger';
-import { createVueDialog } from '@/utils/dialog';
 import AiSettingsDraggableList from '@/ui/settings/ai/AiSettingsDraggableList.vue';
-import AiToolPermissionManagerDialog from '@/ui/settings/ai/AiToolPermissionManagerDialog.vue';
-import AiBuiltInPromptEditorDialog from '@/ui/settings/ai/AiBuiltInPromptEditorDialog.vue';
-import AiUserSkillEditorDialog from '@/ui/settings/ai/AiUserSkillEditorDialog.vue';
 import {
   DEFAULT_SETTINGS_SUBTAB_SELECTION,
   buildSettingsSubTabsByTab,
@@ -1315,16 +1303,9 @@ import {
   type SettingsTabKey,
 } from './settingsPanelViewModel';
 import {
-  SETTINGS_AI_USER_SKILL_RENDERER_OPTIONS,
   SETTINGS_AI_USER_SKILL_TOOL_GROUP_OPTIONS,
-  buildSettingsAIPromptEditorTabs,
   buildSettingsAIPromptPresetCards,
   buildSettingsAIUserSkillToolGroupLabelMap,
-  createSettingsUserSkill,
-  duplicateSettingsUserSkill,
-  reorderSettingsListByIds,
-  upsertSettingsUserSkillDraft,
-  type SettingsUserSkillMode,
 } from './settingsAIViewModel';
 import {
   buildSettingsSavePayload,
@@ -1347,13 +1328,11 @@ import {
   type SettingsBlockAttrsCleanupScanResult as CleanupScanResult,
 } from './settingsMaintenanceViewModel';
 import {
-  cloneSettingsSerializable as cloneSerializable,
   createDefaultAISettings,
   createDefaultArenaSettings,
   createDefaultQueueSettings,
   createDefaultSettingsFormState,
   createDefaultUISettings,
-  resetAiPromptToRecommended,
 } from './settingsStateDefaults';
 import {
   createDefaultSettingsRiffIntegrationState,
@@ -1368,10 +1347,9 @@ import {
   isSettingsLibraryStorage,
   isSettingsSourceChildStorage,
 } from './settingsFormViewModel';
+import { useSettingsAIDialogs } from './settingsAIDialogs';
 
 type OptimizationConfig = Record<string, unknown>;
-
-type ManagedDialogHandle = { destroy: () => void };
 
 const logger = createLogger('SettingsPanel');
 
@@ -1443,14 +1421,10 @@ const uiSettings = ref<UISettings>(createDefaultUISettings());
 const aiPromptTabs = getAIWorkbenchSkillTabs('concept-coach');
 const selfTestModeDescriptors = listSelfTestModeDescriptors();
 const expandedAiToolGroups = ref<Record<string, boolean>>({});
-const toolPermissionDialogHandle = ref<ManagedDialogHandle | null>(null);
-const builtInPromptDialogHandle = ref<ManagedDialogHandle | null>(null);
-const userSkillDialogHandle = ref<ManagedDialogHandle | null>(null);
 const userSkillToolGroupOptions = SETTINGS_AI_USER_SKILL_TOOL_GROUP_OPTIONS;
 const userSkillToolGroupLabelMap = computed<Record<string, string>>(
   () => buildSettingsAIUserSkillToolGroupLabelMap(userSkillToolGroupOptions),
 );
-const userSkillRendererOptions = SETTINGS_AI_USER_SKILL_RENDERER_OPTIONS;
 const aiToolGroupsForSettings = computed(() => AI_CHAT_TOOL_GROUPS.map((group) => {
   const tools = AI_CHAT_TOOL_DESCRIPTORS.filter((tool) => tool.group === group.key);
   const overrideCount = tools.filter((tool) => hasToolPermissionOverride(tool.name)).length;
@@ -1498,157 +1472,23 @@ const aiPromptPresetCards = computed(() => buildSettingsAIPromptPresetCards({
   t,
 }));
 
-function destroyManagedDialog(handle: ManagedDialogHandle | null): void {
-  handle?.destroy();
-}
-
-function openToolPermissionManager(groupKey?: AIChatToolGroupKey): void {
-  destroyManagedDialog(toolPermissionDialogHandle.value);
-  toolPermissionDialogHandle.value = createVueDialog({
-    title: groupKey
-      ? t('aiPermissionManagerGroupTitle', '管理分组执行权限').replace(
-        '{group}',
-        AI_CHAT_TOOL_GROUPS.find((group) => group.key === groupKey)?.title || groupKey,
-      )
-      : t('aiPermissionManagerTitle', '管理工具执行权限'),
-    component: AiToolPermissionManagerDialog,
-    props: {
-      groupKey: groupKey || null,
-      groups: AI_CHAT_TOOL_GROUPS,
-      tools: AI_CHAT_TOOL_DESCRIPTORS,
-      executionPolicies: cloneSerializable(aiSettings.value.toolPolicies.executionPolicies),
-      resultApprovalPolicies: cloneSerializable(aiSettings.value.toolPolicies.resultApprovalPolicies),
-      i18n: props.i18n || {},
-    },
-    events: {
-      save: (payload: {
-        executionPolicies: Partial<Record<string, AIToolExecutionPolicy>>;
-        resultApprovalPolicies: Partial<Record<string, AIToolResultApprovalPolicy>>;
-      }) => {
-        aiSettings.value.toolPolicies.executionPolicies = payload.executionPolicies;
-        aiSettings.value.toolPolicies.resultApprovalPolicies = payload.resultApprovalPolicies;
-        destroyManagedDialog(toolPermissionDialogHandle.value);
-        toolPermissionDialogHandle.value = null;
-      },
-      close: () => {
-        destroyManagedDialog(toolPermissionDialogHandle.value);
-        toolPermissionDialogHandle.value = null;
-      },
-    },
-    width: 'min(1080px, 96vw)',
-    height: 'min(780px, 92vh)',
-    responsive: true,
-    visualVariant: 'manager',
-    containerClass: 'siyuanmemo-ai-tool-permission-dialog',
-    onClose: () => {
-      toolPermissionDialogHandle.value = null;
-    },
-  });
-}
-
-function openBuiltInPromptEditor(settingKey: AIPromptSettingKey): void {
-  const preset = aiPromptPresetCards.value.find((entry) => entry.settingKey === settingKey);
-  if (!preset) {
-    return;
-  }
-
-  destroyManagedDialog(builtInPromptDialogHandle.value);
-  builtInPromptDialogHandle.value = createVueDialog({
-    title: preset.title,
-    component: AiBuiltInPromptEditorDialog,
-    props: {
-      mode: settingKey,
-      title: preset.title,
-      summary: preset.usageHint,
-      i18n: props.i18n || {},
-      generalChatTemplate: settingKey === 'generalChat'
-        ? cloneSerializable(aiSettings.value.prompts.skills.generalChat)
-        : undefined,
-      conceptCoachTemplate: settingKey === 'conceptCoach'
-        ? cloneSerializable(aiSettings.value.prompts.skills.conceptCoach)
-        : undefined,
-      tabs: buildSettingsAIPromptEditorTabs(aiPromptTabs),
-      contractSummary: preset.systemContractSummary,
-      contractLines: preset.systemContractLines,
-    },
-    events: {
-      save: (payload: {
-        generalChatTemplate?: AIGeneralChatPromptTemplate;
-        conceptCoachTemplate?: AIConceptCoachPromptTemplates;
-      }) => {
-        if (payload.generalChatTemplate) {
-          aiSettings.value.prompts.skills.generalChat = payload.generalChatTemplate;
-        }
-        if (payload.conceptCoachTemplate) {
-          aiSettings.value.prompts.skills.conceptCoach = payload.conceptCoachTemplate;
-        }
-        destroyManagedDialog(builtInPromptDialogHandle.value);
-        builtInPromptDialogHandle.value = null;
-      },
-      close: () => {
-        destroyManagedDialog(builtInPromptDialogHandle.value);
-        builtInPromptDialogHandle.value = null;
-      },
-    },
-    width: 'min(1100px, 96vw)',
-    height: 'min(820px, 94vh)',
-    responsive: true,
-    visualVariant: 'manager',
-    containerClass: 'siyuanmemo-ai-prompt-dialog',
-    onClose: () => {
-      builtInPromptDialogHandle.value = null;
-    },
-  });
-}
-
-function handleUserSkillReorder(items: Array<{ id: string }>): void {
-  aiSettings.value.userSkills = reorderSettingsListByIds(
-    aiSettings.value.userSkills,
-    items.map((item) => item.id),
-  );
-}
-
-function upsertUserSkillDraft(skill: AIUserSkillDefinition, index?: number): void {
-  aiSettings.value.userSkills = upsertSettingsUserSkillDraft({
-    skills: aiSettings.value.userSkills,
-    skill,
-    index,
-  });
-}
-
-function openUserSkillEditor(skill: AIUserSkillDefinition, options?: { index?: number; isNew?: boolean }): void {
-  destroyManagedDialog(userSkillDialogHandle.value);
-  userSkillDialogHandle.value = createVueDialog({
-    title: options?.isNew ? t('aiCreateUserSkillTitle', '创建用户 Skill') : t('aiEditUserSkillTitle', '编辑用户 Skill'),
-    component: AiUserSkillEditorDialog,
-    props: {
-      skill: cloneSerializable(skill),
-      isNew: options?.isNew === true,
-      toolGroupOptions: userSkillToolGroupOptions,
-      rendererOptions: userSkillRendererOptions,
-      i18n: props.i18n || {},
-    },
-    events: {
-      save: (payload: AIUserSkillDefinition) => {
-        upsertUserSkillDraft(payload, options?.index);
-        destroyManagedDialog(userSkillDialogHandle.value);
-        userSkillDialogHandle.value = null;
-      },
-      close: () => {
-        destroyManagedDialog(userSkillDialogHandle.value);
-        userSkillDialogHandle.value = null;
-      },
-    },
-    width: 'min(1240px, 97vw)',
-    height: 'min(900px, 95vh)',
-    responsive: true,
-    visualVariant: 'manager',
-    containerClass: 'siyuanmemo-ai-user-skill-dialog',
-    onClose: () => {
-      userSkillDialogHandle.value = null;
-    },
-  });
-}
+const {
+  openToolPermissionManager,
+  openBuiltInPromptEditor,
+  openUserSkillEditor,
+  handleUserSkillReorder,
+  resetAiPromptTemplate,
+  addUserSkill,
+  duplicateUserSkill,
+  removeUserSkill,
+  destroySettingsAIDialogs,
+} = useSettingsAIDialogs({
+  aiSettings,
+  aiPromptTabs,
+  aiPromptPresetCards,
+  t,
+  getI18n: () => props.i18n || {},
+});
 
 const settings = ref<Settings>(createDefaultSettingsFormState());
 
@@ -1697,26 +1537,6 @@ watch(activeTab, async () => {
 watch(() => props.defaultTab, (tab) => {
   activeTab.value = normalizeSettingsTabKey(tab);
 });
-
-function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
-  resetAiPromptToRecommended(aiSettings.value, settingKey);
-}
-
-function addUserSkill(mode: SettingsUserSkillMode): void {
-  openUserSkillEditor(createSettingsUserSkill(mode, aiSettings.value.userSkills.length), { isNew: true });
-}
-
-function duplicateUserSkill(index: number): void {
-  const current = aiSettings.value.userSkills[index];
-  if (!current) {
-    return;
-  }
-  aiSettings.value.userSkills.splice(index + 1, 0, duplicateSettingsUserSkill(current));
-}
-
-function removeUserSkill(index: number): void {
-  aiSettings.value.userSkills.splice(index, 1);
-}
 
 const schedulerConfig = ref(createDefaultSettingsSchedulerConfig());
 
@@ -1953,12 +1773,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  destroyManagedDialog(toolPermissionDialogHandle.value);
-  destroyManagedDialog(builtInPromptDialogHandle.value);
-  destroyManagedDialog(userSkillDialogHandle.value);
-  toolPermissionDialogHandle.value = null;
-  builtInPromptDialogHandle.value = null;
-  userSkillDialogHandle.value = null;
+  destroySettingsAIDialogs();
 });
 
 // 🆕 数据修复相关

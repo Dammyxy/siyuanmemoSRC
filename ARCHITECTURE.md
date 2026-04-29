@@ -513,6 +513,7 @@ Review：
 - `src/ui/settings/settingsMaintenanceViewModel.ts`：Settings 面板 maintenance view-model helper；负责 block-attrs cleanup scan/run projection、attr rows、run guard、confirm copy 与 error message projection。
 - `src/ui/settings/settingsLoadState.ts`：Settings 面板 props load hydration helper；负责 FSRS/queue/scheduler/Riff/AI/Arena/UI 初始状态 normalization、legacy queue spacing key 读取与 trigger projection。
 - `src/ui/settings/settingsFormViewModel.ts`：Settings 面板表单展示 helper；负责参数预览、今日范围文本、capture notebook options、storage mode predicates 与 dayStartHour clamp。
+- `src/ui/settings/settingsAIDialogs.ts`：Settings 面板 AI dialog / user-skill command helper；负责 AI tool permission、built-in prompt、user skill editor dialog lifecycle，以及 prompt reset / user-skill reorder/upsert/duplicate/remove。
 - `src/ui/srs/*`：SRS 数据编辑与透明度相关 UI。
 - `src/ui/arena/ArenaManagerDialog.vue`：Arena Manager 管理面板，用于查看 AI / SRS 排名、时间线和策略包管理动作。
 - `src/ui/xiuyuan/*`：修远模板与专用 UI。
