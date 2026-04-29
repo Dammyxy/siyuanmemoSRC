@@ -1308,7 +1308,6 @@ import {
   buildSettingsAIUserSkillToolGroupLabelMap,
 } from './settingsAIViewModel';
 import {
-  buildSettingsSavePayload,
   type SettingsFormState as Settings,
   type SettingsPanelSavePayload,
 } from './settingsSavePayload';
@@ -1327,7 +1326,6 @@ import {
 import {
   createDefaultSettingsRiffIntegrationState,
   createDefaultSettingsSchedulerConfig,
-  resolveSettingsPanelLoadState,
 } from './settingsLoadState';
 import {
   buildSettingsCaptureStorageNotebookOptions,
@@ -1339,6 +1337,7 @@ import {
 import { useSettingsAIDialogs } from './settingsAIDialogs';
 import { useSettingsMaintenanceCommands } from './settingsMaintenanceCommands';
 import { useSettingsFormCommands } from './settingsFormCommands';
+import { useSettingsLoadSaveCommands } from './settingsLoadSaveCommands';
 
 const logger = createLogger('SettingsPanel');
 
@@ -1593,11 +1592,11 @@ const {
   }),
 });
 
-// 加载设置
-function loadSettings() {
-  // 🔍 调试日志：检查接收到的 quickCardSettings
-  logger.debug('Loading settings with quickCardSettings', { quickCardSettings: props.quickCardSettings });
-  const loadedState = resolveSettingsPanelLoadState({
+const {
+  loadSettings,
+  saveSettings,
+} = useSettingsLoadSaveCommands({
+  getSource: () => ({
     fsrsSettings: props.fsrsSettings,
     queueSettings: props.queueSettings,
     newCardsPerDay: props.newCardsPerDay,
@@ -1610,42 +1609,18 @@ function loadSettings() {
     aiSettings: props.aiSettings,
     arenaSettings: props.arenaSettings,
     uiSettings: props.uiSettings,
-    currentSettings: settings.value,
-    currentQueueSettings: queueSettings.value,
-    currentSchedulerConfig: schedulerConfig.value,
-    currentRiffIntegrationConfig: riffIntegrationConfig.value,
-  });
-
-  settings.value = loadedState.settings;
-  queueSettings.value = loadedState.queueSettings;
-  schedulerConfig.value = loadedState.schedulerConfig;
-  riffIntegrationConfig.value = loadedState.riffIntegrationConfig;
-  triggers.value = loadedState.triggers;
-  aiSettings.value = loadedState.aiSettings;
-  arenaSettings.value = loadedState.arenaSettings;
-  uiSettings.value = loadedState.uiSettings;
-
-  logger.debug('Initialized settings.quickCard', { quickCard: settings.value.quickCard });
-}
-
-// 保存设置
-function saveSettings() {
-  const settingsToSave = buildSettingsSavePayload({
-    settings: settings.value,
-    queueSettings: queueSettings.value,
-    schedulerConfig: schedulerConfig.value,
-    riffIntegrationConfig: riffIntegrationConfig.value,
-    triggers: triggers.value,
-    aiSettings: aiSettings.value,
-    arenaSettings: arenaSettings.value,
-    uiSettings: uiSettings.value,
-  });
-  
-  // 🔍 调试日志：检查 quickCard 配置
-  logger.debug('Saving settings with quickCard', { quickCard: settingsToSave.quickCard });
-  
-  emit('save', settingsToSave);
-}
+  }),
+  settings,
+  queueSettings,
+  schedulerConfig,
+  riffIntegrationConfig,
+  triggers,
+  aiSettings,
+  arenaSettings,
+  uiSettings,
+  save: (settingsToSave) => emit('save', settingsToSave),
+  logger,
+});
 
 onMounted(() => {
   loadSettings();
