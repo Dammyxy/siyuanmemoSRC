@@ -18,7 +18,7 @@ export interface QueueCardTypeTransitionResult {
   nextPreviousNonNeuralCardType: CardTypeFilter | null;
 }
 
-function normalizeQueueId(queueId: QueueIdLike): string | null {
+export function normalizeBrowserQueueId(queueId: QueueIdLike): string | null {
   const normalized = String(queueId || '').trim();
   if (!normalized) {
     return null;
@@ -34,7 +34,7 @@ function isNeuralCardType(cardType: CardTypeFilter): boolean {
 }
 
 export function isNeuralQueueId(queueId: QueueIdLike): boolean {
-  const normalized = normalizeQueueId(queueId);
+  const normalized = normalizeBrowserQueueId(queueId);
   return normalized === 'neural-roam';
 }
 
@@ -43,7 +43,7 @@ export function normalizeCardTypeForQueue(
   cardType: CardTypeFilter,
   fallback: CardTypeFilter = FALLBACK_CARD_TYPE,
 ): CardTypeFilter {
-  const normalizedQueueId = normalizeQueueId(queueId);
+  const normalizedQueueId = normalizeBrowserQueueId(queueId);
   const allowed = new Set(
     getAvailableCardTypeFilters(normalizedQueueId).map((option) => option.value),
   );

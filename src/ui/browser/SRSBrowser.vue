@@ -377,6 +377,12 @@ import {
   type BrowserChromePreferenceValue,
 } from './browserChromePreferences';
 import {
+  captureBrowserOpenState,
+  normalizeBrowserNeuralSubview,
+  normalizeBrowserQueueId,
+  resolveInitialBrowserOpenState,
+} from './browserSurfaceState';
+import {
   DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
   normalizeHierarchySnapshotDelayMs,
   resolveBrowserHierarchySnapshotMode,
@@ -845,47 +851,8 @@ async function runWithSuspendedBrowserStateBootstrap<T>(
   }
 }
 
-function cloneCardFilter(filter: CardFilter | null): CardFilter | null {
-  if (!filter) {
-    return null;
-  }
-
-  try {
-    const structuredCloneFn = (globalThis as { structuredClone?: <T>(value: T) => T }).structuredClone;
-    if (typeof structuredCloneFn === 'function') {
-      return structuredCloneFn(filter);
-    }
-  } catch {}
-
-  try {
-    return JSON.parse(JSON.stringify(filter)) as CardFilter;
-  } catch {
-    return filter;
-  }
-}
-
-function normalizeStringArray(value: string[] | null | undefined): string[] | null {
-  const normalized = Array.from(new Set(
-    (value || [])
-      .map((item) => String(item || '').trim())
-      .filter(Boolean)
-  ));
-  return normalized.length > 0 ? normalized : null;
-}
-
-function normalizeNeuralSubview(value: NeuralSubview | null | undefined): NeuralSubview | null {
-  if (
-    value === 'concept-cards'
-    || value === 'roam-history'
-    || value === 'worldline-anchors'
-  ) {
-    return value;
-  }
-  return null;
-}
-
 function captureCurrentBrowserOpenState(): BrowserOpenState {
-  return {
+  return captureBrowserOpenState({
     queueId: activeQueueId.value,
     globalScope: activeGlobalScope.value,
     scopeDocIds: activeScopeDocIds.value ? [...activeScopeDocIds.value] : null,
@@ -893,11 +860,9 @@ function captureCurrentBrowserOpenState(): BrowserOpenState {
     queryText: searchQuery.value,
     preset: currentPreset.value,
     cardType: currentCardType.value,
-    filter: activeQueueId.value === 'filter-group' ? cloneCardFilter(appliedFilter.value) : null,
-    neuralSubview: isNeuralQueueId(activeQueueId.value)
-      ? normalizeNeuralSubview(neuralSubview.value)
-      : null,
-  };
+    filter: appliedFilter.value,
+    neuralSubview: neuralSubview.value,
+  });
 }
 
 async function applyInitialBrowserOpenState(
@@ -906,58 +871,38 @@ async function applyInitialBrowserOpenState(
 ): Promise<void> {
   suspendBrowserStateBootstrap = true;
   try {
-    const rawNextDocId = String(state.docId || '').trim() || null;
-    const isLegacyMissingBlockScope = rawNextDocId === '__lost__';
-    const nextQueueId = isLegacyMissingBlockScope ? null : normalizeQueueId(state.queueId);
-    const nextScopeDocIds = isLegacyMissingBlockScope ? null : normalizeStringArray(state.scopeDocIds);
-    const nextDocId = isLegacyMissingBlockScope ? null : rawNextDocId;
-    const nextGlobalScope = !isLegacyMissingBlockScope && state.globalScope === '__dismissed__' ? '__dismissed__' : '__all__';
-    const nextPreset = isLegacyMissingBlockScope
-      ? 'all'
-      : nextGlobalScope === '__dismissed__'
-      ? 'suspended'
-      : (state.preset || 'all') as PresetFilter;
-    const nextCardType = (isLegacyMissingBlockScope ? 'all' : state.cardType || 'all') as CardTypeFilter;
-    const nextQueryText = isLegacyMissingBlockScope ? '' : String(state.queryText || '');
-    const nextFilter = nextQueueId === 'filter-group' ? cloneCardFilter(state.filter ?? null) : null;
-    const nextNeuralSubview = nextQueueId === 'neural-roam'
-      ? normalizeNeuralSubview(state.neuralSubview) || 'concept-cards'
-      : 'concept-cards';
+    const resolved = resolveInitialBrowserOpenState({
+      state,
+      currentQueueId: activeQueueId.value,
+      previousNonNeuralCardType: previousNonNeuralCardType.value,
+    });
+    const { projection } = resolved;
 
-    if (isLegacyMissingBlockScope) {
+    if (resolved.normalizedLegacyMissingBlockScope) {
       logger.info('[SiYuanMemo][SRSBrowser] Normalized legacy missing-block browser state back to the default global view');
     }
 
     syncSelectionForQueryChange();
 
-    const cardTypeTransition = resolveQueueCardTypeOnSwitch({
-      fromQueueId: activeQueueId.value,
-      toQueueId: nextQueueId,
-      currentCardType: nextCardType,
-      previousNonNeuralCardType: previousNonNeuralCardType.value,
-    });
+    activeQueueId.value = projection.queueId;
+    activeScopeDocIds.value = projection.scopeDocIds;
+    activeDocId.value = projection.docId;
+    shouldFocusDocList.value = projection.shouldFocusDocList;
 
-    activeQueueId.value = nextQueueId;
-    activeScopeDocIds.value = nextScopeDocIds;
-    activeDocId.value = nextDocId;
-    shouldFocusDocList.value = Boolean(nextQueueId) && !nextDocId;
+    currentPreset.value = projection.preset;
+    currentCardType.value = projection.cardType;
+    previousNonNeuralCardType.value = projection.previousNonNeuralCardType;
+    searchQuery.value = projection.queryText;
+    appliedFilter.value = projection.filter;
 
-    currentPreset.value = nextPreset;
-    currentCardType.value = cardTypeTransition.nextCardType;
-    previousNonNeuralCardType.value = cardTypeTransition.nextPreviousNonNeuralCardType;
-    searchQuery.value = nextQueryText;
-    appliedFilter.value = nextFilter;
-
-    if (nextQueueId === 'neural-roam') {
-      neuralSubview.value = nextNeuralSubview;
-    } else {
-      neuralSubview.value = 'concept-cards';
+    neuralSubview.value = projection.neuralSubview;
+    if (resolved.shouldClearNeuralSubviewData) {
       clearNeuralSubviewData();
     }
 
-    if (nextQueueId === 'filter-group') {
+    if (resolved.shouldApplyFilterGroupFilter) {
       try {
-        await setFilterGroupFilterBridge(nextFilter ?? {});
+        await setFilterGroupFilterBridge(projection.filter ?? {});
       } catch (error) {
         logger.error('[SiYuanMemo][SRSBrowser] Failed to apply initial filter-group browser state:', error);
       }
@@ -967,7 +912,7 @@ async function applyInitialBrowserOpenState(
     await refreshQueueCounts();
     await refreshGlobalStats(forceRefresh);
 
-    if (nextQueueId === 'neural-roam' && nextNeuralSubview !== 'concept-cards') {
+    if (resolved.shouldRefreshNeuralSubviewData) {
       await refreshNeuralSubviewData();
     }
   } finally {
@@ -977,17 +922,6 @@ async function applyInitialBrowserOpenState(
 
 function resolveNeuralSourceLabels(engineMode: NeuralEngineMode = neuralNavigationState.value?.engineMode || 'orbit') {
   return getNeuralSourceLabelSet(engineMode, t);
-}
-
-function normalizeQueueId(value: string | null | undefined): string | null {
-  const qid = String(value || '').trim();
-  if (!qid) {
-    return null;
-  }
-  if (qid === 'neural') {
-    return 'neural-roam';
-  }
-  return qid;
 }
 
 async function openDocumentTabById(blockId: string): Promise<boolean> {
@@ -4781,7 +4715,7 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
     return;
   }
 
-  const initialQueueId = normalizeQueueId(props.initialQueueId);
+  const initialQueueId = normalizeBrowserQueueId(props.initialQueueId);
   if (!initialQueueId) {
     await loadData(forceRefresh);
     return;
@@ -4796,12 +4730,8 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
   await refreshQueueCounts();
 
   if (initialQueueId === 'neural-roam') {
-    const initialSubview = props.initialNeuralSubview;
-    if (
-      initialSubview === 'concept-cards'
-      || initialSubview === 'roam-history'
-      || initialSubview === 'worldline-anchors'
-    ) {
+    const initialSubview = normalizeBrowserNeuralSubview(props.initialNeuralSubview);
+    if (initialSubview) {
       neuralSubview.value = initialSubview;
       if (initialSubview !== 'concept-cards') {
         await refreshNeuralSubviewData();
