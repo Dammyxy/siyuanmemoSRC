@@ -103,6 +103,8 @@ import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLe
 import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
 import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
 import { SiyuanBlockAdapter as DescriptorCardSiyuanBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
+import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
+import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter';
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
@@ -1566,8 +1568,7 @@ export class ApplicationContext {
     transactionWebSocketService.registerHandler(this.getDocTreeReviewScopeService());
 
     if (quickCardEnabled) {
-      const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
-      const autoCardHandler = new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
+      const autoCardHandler = await this.createAutoCardHandler();
       transactionWebSocketService.registerHandler(autoCardHandler);
       this.autoCardHandler = autoCardHandler;
       logger.info('[ApplicationContext] ✅ AutoCardHandler registered');
@@ -1597,6 +1598,15 @@ export class ApplicationContext {
 
   getAutoCardHandler(): AutoCardHandler | undefined {
     return this.autoCardHandler;
+  }
+
+  async createAutoCardHandler(): Promise<AutoCardHandler> {
+    this.ensureNotDisposed();
+    const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
+    return new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin, {
+      siyuanApi: new AutoCardSiyuanAdapter(),
+      riffApi: new AutoCardRiffAdapter(),
+    });
   }
   
   /**

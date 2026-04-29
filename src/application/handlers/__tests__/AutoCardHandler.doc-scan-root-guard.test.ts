@@ -53,9 +53,8 @@ describe('AutoCardHandler doc-scan root guard', () => {
     });
 
     expect(createConceptSpy).toHaveBeenCalledTimes(1);
-    expect(createConceptSpy.mock.calls[0][4]).toEqual({
+    expect(createConceptSpy.mock.calls[0][5]).toEqual({
       skipEnsureConceptDocumentBlockId: '20260302000000-docroot1',
     });
   });
 });
-

@@ -2,8 +2,6 @@
 import type FSRSPlugin from '@/index';
 import type { AutoCardSiyuanPort } from '../ports/AutoCardSiyuanPort';
 import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
-import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
-import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter';
 import { createLogger } from '@/utils/logger';
 import { ClozeDetector } from '@/utils/cloze-detector';
 import { isErr, type Result } from '@/types/result';
@@ -175,6 +173,11 @@ type CandidateBlockContext = {
     opIds: string[];
 };
 
+export interface AutoCardHandlerPorts {
+    siyuanApi: AutoCardSiyuanPort;
+    riffApi: AutoCardRiffPort;
+}
+
 /**
  * Auto card handler for quick symbol based card creation.
  *
@@ -222,14 +225,11 @@ export class AutoCardHandler implements ITransactionHandler {
     
     constructor(
         plugin: FSRSPlugin,
-        ports?: {
-            siyuanApi?: AutoCardSiyuanPort;
-            riffApi?: AutoCardRiffPort;
-        }
+        ports: AutoCardHandlerPorts
     ) {
         this.plugin = plugin;
-        this.siyuanApi = ports?.siyuanApi ?? new AutoCardSiyuanAdapter();
-        this.riffApi = ports?.riffApi ?? new AutoCardRiffAdapter();
+        this.siyuanApi = ports.siyuanApi;
+        this.riffApi = ports.riffApi;
         logger.debug('[SiYuanMemo][AutoCard] Handler initialized');
     }
 

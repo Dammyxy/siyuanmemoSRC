@@ -393,7 +393,7 @@ UI surface：
 
 Handlers / entries / helpers：
 
-- `src/application/handlers/AutoCardHandler.ts`：自动制卡、topic continuation、与 Riff / Progressive 的事件联动；当前监听制卡走“transaction 只标记候选块，300ms settled 后重读真实块状态再做 planner / Xiuyuan ensure”的语义触发模型。
+- `src/application/handlers/AutoCardHandler.ts`：自动制卡、topic continuation、与 Riff / Progressive 的事件联动；当前监听制卡走“transaction 只标记候选块，300ms settled 后重读真实块状态再做 planner / Xiuyuan ensure”的语义触发模型；handler 只接收 `AutoCardSiyuanPort` / `AutoCardRiffPort`，真实 adapters 由 `ApplicationContext.createAutoCardHandler()` 在组合根创建并注入。
 - `src/application/handlers/ProgressiveExcerptHotkeyHandler.ts`：编辑器 / review 摘录热键入口。
 - `src/application/entries/*`：surface 级入口解析，如 block context、selection resolver、review entry registry。
 - `src/application/helpers/CardCreationHelper.ts`：建卡共享辅助逻辑。
@@ -842,7 +842,7 @@ UI 层：
 - `UnifiedDataSourceManager` observer 事件
 - `TransactionWebSocketService`（订阅宿主 `eventBus.on('ws-main')`，不再 monkey-patch 主 `WebSocket.onmessage`；当前承载 AutoCard、doc tree review scope、review source refresh，以及统一的 native Riff transaction 路由）
 - `XiuyuanSyncService`（仍是唯一的 Riff 增量/全量对账执行器；transaction 侧的 native riff add/update 走 debounced `incrementalSync()`，native `removeFlashcards` 走同服务内的 managed-local delete route，不恢复旧的 transaction-driven 拉取主链）
-- `AutoCardHandler`（候选块队列 -> settled 评估 -> Xiuyuan ensure/create）
+- `AutoCardHandler`（由 `ApplicationContext.createAutoCardHandler()` 装配 AutoCard Siyuan/Riff ports；候选块队列 -> settled 评估 -> Xiuyuan ensure/create；MenuManager one-click scan 复用同一 factory）
 
 主设计原则：
 

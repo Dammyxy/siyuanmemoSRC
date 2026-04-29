@@ -49,7 +49,22 @@ describe('AutoCardHandler structural listener gating', () => {
       riffApi: riffApi as never,
     });
 
-    await (handler as any).checkListTemplate('20260101010101-abcdefg');
+    const executed = await (handler as any).executePlannerDecision({
+      blockId: '20260101010101-abcdefg',
+      content: 'Question >>>',
+      decision: {
+        id: 'ListTemplateStructuralRule',
+        family: 'list-template',
+        templateId: 'builtin-list-item',
+        cardType: 'item',
+        mode: 'split-list',
+        executorKind: 'list-template-structural',
+        priority: 100,
+      },
+      source: 'symbol-listener',
+    });
+
+    expect(executed).toBe(false);
     expect(siyuanApi.getBlockKramdown).not.toHaveBeenCalled();
   });
 

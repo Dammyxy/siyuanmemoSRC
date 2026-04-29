@@ -11,6 +11,19 @@ vi.mock('siyuan', () => ({
 }));
 
 function createFixture() {
+  const autoCardSummary = {
+    rootId: 'doc-1',
+    scanned: 3,
+    created: 1,
+    skipped: 2,
+    failed: 0,
+    conflicted: 0,
+    consumed: 1,
+  };
+  const tempAutoCardHandler = {
+    scanDocumentByRootId: vi.fn().mockResolvedValue(autoCardSummary),
+    dispose: vi.fn(),
+  };
   const siyuanApi = {
     sql: vi.fn().mockResolvedValue([]),
     getBlockAttrs: vi.fn().mockResolvedValue({}),
@@ -34,16 +47,21 @@ function createFixture() {
       getAllCards: vi.fn().mockReturnValue([]),
     }),
     getAutoCardHandler: vi.fn().mockReturnValue(null),
+    createAutoCardHandler: vi.fn().mockResolvedValue(tempAutoCardHandler),
   } as any;
 
   const menuManager = new MenuManager(
     context,
     {} as any,
-    {} as Record<string, string>,
+    {
+      oneClickSymbolCardsRunning: 'symbol-running',
+      oneClickSymbolCardsDone: 'symbol-done-{scanned}-{created}-{skipped}-{failed}',
+      oneClickSymbolCardsFailed: 'symbol-failed',
+    } as Record<string, string>,
     dialogManager as any,
     siyuanApi as any,
   );
-  return { menuManager, dialogManager };
+  return { menuManager, dialogManager, context, tempAutoCardHandler, autoCardSummary };
 }
 
 describe('MenuManager top bar quick entry actions', () => {
@@ -83,6 +101,31 @@ describe('MenuManager top bar quick entry actions', () => {
 
     expect(byDocSpy).not.toHaveBeenCalled();
     expect(currentSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses ApplicationContext factory for one-click symbol scan when listener handler is inactive', async () => {
+    const { menuManager, context, tempAutoCardHandler } = createFixture();
+
+    await menuManager.runOneClickSymbolCardCreationByDocId('doc-1');
+
+    expect(context.getAutoCardHandler).toHaveBeenCalledTimes(1);
+    expect(context.createAutoCardHandler).toHaveBeenCalledTimes(1);
+    expect(tempAutoCardHandler.scanDocumentByRootId).toHaveBeenCalledWith('doc-1');
+    expect(tempAutoCardHandler.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses active AutoCardHandler for one-click symbol scan', async () => {
+    const { menuManager, context, autoCardSummary, tempAutoCardHandler } = createFixture();
+    const activeAutoCardHandler = {
+      scanDocumentByRootId: vi.fn().mockResolvedValue(autoCardSummary),
+    };
+    context.getAutoCardHandler.mockReturnValue(activeAutoCardHandler);
+
+    await menuManager.runOneClickSymbolCardCreationByDocId('doc-1');
+
+    expect(context.createAutoCardHandler).not.toHaveBeenCalled();
+    expect(activeAutoCardHandler.scanDocumentByRootId).toHaveBeenCalledWith('doc-1');
+    expect(tempAutoCardHandler.dispose).not.toHaveBeenCalled();
   });
 
   it('uses by-doc entry when doc context exists for one-click cancel', async () => {

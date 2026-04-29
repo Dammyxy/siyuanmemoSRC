@@ -29,25 +29,21 @@ function createHandler() {
 describe('AutoCardHandler cloze planner alignment', () => {
   it('uses multi-cloze path for numbered latex cloze even with one cloze', async () => {
     const handler = createHandler();
-    const singleSpy = vi.spyOn(handler as any, 'createSingleClozeCard').mockResolvedValue(undefined);
     const multiSpy = vi.spyOn(handler as any, 'createMultipleClozeCards').mockResolvedValue(undefined);
 
     await (handler as any).createClozeCard('20260301120000-latex01', '$$E=\\\\cloze{c1}{mc^2}$$');
 
-    expect(singleSpy).not.toHaveBeenCalled();
     expect(multiSpy).toHaveBeenCalledTimes(1);
     expect(multiSpy.mock.calls[0][3]).toBe('inline-formula-cloze');
   });
 
-  it('keeps single-card path for non-latex one-cloze content', async () => {
+  it('uses default render mode for non-latex one-cloze content', async () => {
     const handler = createHandler();
-    const singleSpy = vi.spyOn(handler as any, 'createSingleClozeCard').mockResolvedValue(undefined);
     const multiSpy = vi.spyOn(handler as any, 'createMultipleClozeCards').mockResolvedValue(undefined);
 
     await (handler as any).createClozeCard('20260301120000-brace01', 'alpha {{beta}} gamma');
 
-    expect(singleSpy).toHaveBeenCalledTimes(1);
-    expect(multiSpy).not.toHaveBeenCalled();
+    expect(multiSpy).toHaveBeenCalledTimes(1);
+    expect(multiSpy.mock.calls[0][3]).toBe('default');
   });
 });
-

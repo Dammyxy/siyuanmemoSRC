@@ -19,7 +19,6 @@ import type { Plugin } from 'siyuan';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { DialogManager } from './DialogManager';
 import { Menu, showMessage } from 'siyuan';
-import type FSRSPlugin from '@/index';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import { createLogger } from '@/utils/logger';
 import type { FSRSCard } from '@/types/card';
@@ -71,7 +70,7 @@ export class MenuManager {
    */
   constructor(
     private context: ApplicationContext,
-    private plugin: Plugin,
+    _plugin: Plugin,
     private i18n: Record<string, string>,
     private dialogManager: DialogManager,
     private readonly siyuanApi: ManagerSiyuanPort
@@ -420,8 +419,7 @@ export class MenuManager {
 
       let handler = this.context.getAutoCardHandler();
       if (!handler) {
-        const { AutoCardHandler } = await import('@/application/handlers/AutoCardHandler');
-        tempHandler = new AutoCardHandler(this.plugin as unknown as FSRSPlugin);
+        tempHandler = await this.context.createAutoCardHandler();
         handler = tempHandler;
       }
 
