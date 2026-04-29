@@ -1309,10 +1309,6 @@ import {
 } from './settingsAIViewModel';
 import {
   buildSettingsSavePayload,
-  normalizeAutoPostponeSkipTopN,
-  normalizeOutstandingEveryNth,
-  normalizePriorityRandomness,
-  parseSrsV2StepList,
   type SettingsFormState as Settings,
   type SettingsPanelSavePayload,
 } from './settingsSavePayload';
@@ -1337,12 +1333,12 @@ import {
   buildSettingsCaptureStorageNotebookOptions,
   buildSettingsParamsPreview,
   buildSettingsTodayRangeText,
-  clampSettingsDayStartHour,
   isSettingsLibraryStorage,
   isSettingsSourceChildStorage,
 } from './settingsFormViewModel';
 import { useSettingsAIDialogs } from './settingsAIDialogs';
 import { useSettingsMaintenanceCommands } from './settingsMaintenanceCommands';
+import { useSettingsFormCommands } from './settingsFormCommands';
 
 const logger = createLogger('SettingsPanel');
 
@@ -1544,6 +1540,26 @@ const triggers = ref({
   browserOpen: false,
 });
 
+const {
+  resetSettings,
+  handleSrsV2LearningStepsChange,
+  handleSrsV2RelearningStepsChange,
+  handleArenaSrsWriteEnabledChange,
+  handleDayStartHourChange,
+  handleAddToOutstandingEveryNthChange,
+  handleAutoPostponeSkipTopNChange,
+  handlePriorityRandomnessChange,
+  setDayStartHour,
+} = useSettingsFormCommands({
+  settings,
+  queueSettings,
+  schedulerConfig,
+  aiSettings,
+  arenaSettings,
+  uiSettings,
+  logger,
+});
+
 // 参数预览
 const paramsPreview = computed(() => buildSettingsParamsPreview(settings.value.params));
 
@@ -1630,73 +1646,6 @@ function saveSettings() {
   
   emit('save', settingsToSave);
 }
-
-// 重置默认
-function resetSettings() {
-  settings.value = createDefaultSettingsFormState();
-  queueSettings.value = createDefaultQueueSettings();
-  aiSettings.value = createDefaultAISettings();
-  arenaSettings.value = createDefaultArenaSettings();
-  uiSettings.value = createDefaultUISettings();
-}
-
-// 🆕 重置调度器设置
-function resetSchedulerSettings() {
-  schedulerConfig.value = createDefaultSettingsSchedulerConfig();
-}
-
-function handleSrsV2LearningStepsChange(event: Event): void {
-  const value = event.target instanceof HTMLInputElement ? event.target.value : '';
-  schedulerConfig.value.srsV2.learningStepsMinutes = parseSrsV2StepList(
-    value,
-    DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes,
-  );
-}
-
-function handleSrsV2RelearningStepsChange(event: Event): void {
-  const value = event.target instanceof HTMLInputElement ? event.target.value : '';
-  schedulerConfig.value.srsV2.relearningStepsMinutes = parseSrsV2StepList(
-    value,
-    DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
-  );
-}
-
-function handleArenaSrsWriteEnabledChange(event: Event): void {
-  const checked = event.target instanceof HTMLInputElement ? event.target.checked : false;
-  arenaSettings.value.srs.advisoryOnly = !checked;
-}
-
-// 🆕 dayStartHour 变更处理
-function handleDayStartHourChange() {
-  settings.value.dayStartHour = clampSettingsDayStartHour(settings.value.dayStartHour);
-  logger.debug('dayStartHour changed', { dayStartHour: settings.value.dayStartHour });
-}
-
-function handleAddToOutstandingEveryNthChange() {
-  settings.value.addToOutstandingEveryNth = normalizeOutstandingEveryNth(
-    settings.value.addToOutstandingEveryNth
-  );
-}
-
-function handleAutoPostponeSkipTopNChange() {
-  settings.value.autoPostponeSkipTopN = normalizeAutoPostponeSkipTopN(
-    settings.value.autoPostponeSkipTopN
-  );
-}
-
-function handlePriorityRandomnessChange() {
-  settings.value.priorityRandomness = normalizePriorityRandomness(
-    settings.value.priorityRandomness
-  );
-}
-
-// 🆕 快速设置 dayStartHour
-function setDayStartHour(hour: number) {
-  settings.value.dayStartHour = hour;
-  handleDayStartHourChange();
-}
-
-
 
 onMounted(() => {
   loadSettings();
