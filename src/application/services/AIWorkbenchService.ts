@@ -68,14 +68,26 @@ import {
   normalizeConceptCoachState,
   normalizeContextKey,
   normalizeGenericStructuredResult,
-  normalizeNormalizationDiagnostic,
   normalizeSelfTestCards,
-  normalizeTabResultValue,
   tabResultFromConceptCoach,
   type ConceptCoachNormalizationState,
 } from '@/application/services/AIWorkbenchResultNormalization';
 import { AIWorkbenchConversationTreeRuntime } from '@/application/services/AIWorkbenchConversationTreeRuntime';
 import { AIWorkbenchGeneralChatRuntime } from '@/application/services/AIWorkbenchGeneralChatRuntime';
+import {
+  buildContextSignature,
+  buildReviewCardSemantics,
+  deriveReviewChatKey,
+  isDocumentBlockType,
+  isNeuralVirtualReviewCard,
+  readReviewNeuralContext,
+  readStringArrayFromMeta,
+  readXiuyuanMeta,
+} from '@/application/services/AIWorkbenchContextProjection';
+import {
+  createAIWorkbenchRunStatus,
+  generateAIWorkbenchSessionTitle,
+} from '@/application/services/AIWorkbenchRunProjection';
 import {
   AIWorkbenchSessionPersistScheduler,
   buildCurrentAIWorkbenchSessionRecord,
@@ -86,6 +98,13 @@ import {
   normalizeSurface,
   projectAIWorkbenchSessionRecordApplication,
 } from '@/application/services/AIWorkbenchSessionRuntime';
+import {
+  cloneAttachedContexts,
+  createEmptyViewSessionState,
+  createInitialViewState,
+  normalizeThreads,
+  resolveUserMessagePurpose,
+} from '@/application/services/AIWorkbenchThreadNormalization';
 import type { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
 import type { FSRSCard } from '@/types/card';
 import type {
@@ -97,7 +116,6 @@ import type {
   AICdfDescriptorItem,
   AICdfStructure,
   AIChatApprovalRequest,
-  AIChatNormalizationDiagnostic,
   AIChatRuntimeDiagnostic,
   AIChatToolCall,
   AIChatToolExecutionResult,
@@ -115,16 +133,11 @@ import type {
   AIConceptCoachSelfTestCards,
   AIConceptCoachTabResult,
   AIContextProviderKey,
-  AIExplainResult,
   AIFollowUpEntry,
   AIReviewCardContext,
-  AIReviewNeuralContext,
   AISkillId,
   AISkillTabId,
-  AIUserSkillStructuredCard,
-  AIUserSkillStructuredKeyValue,
   AIUserSkillStructuredResult,
-  AIUserSkillStructuredSectionResult,
   AIViewSessionState,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchAssistantTextMessage,
@@ -138,7 +151,6 @@ import type {
   AIWorkbenchMessageKind,
   AIWorkbenchNodeScope,
   AIWorkbenchOpenOptions,
-  AIWorkbenchOpenView,
   AIWorkbenchNotebookOption,
   AIWorkbenchRunMode,
   AIWorkbenchRunStatus,
@@ -149,10 +161,8 @@ import type {
   AIWorkbenchSelfTestCardTargetInput,
   AIWorkbenchSelfTestCardTargetMemory,
   AIWorkbenchSessionRecord,
-  AIWorkbenchSource,
   AIWorkbenchState,
   AIWorkbenchTreeNode,
-  AIWorkbenchThreads,
   AIWorkbenchToolLogMessage,
   AIWorkbenchUserMessage,
   AIWorkbenchUserMessagePurpose,
@@ -163,7 +173,6 @@ import {
   AI_GENERAL_CHAT_SKILL_ID,
   AI_GENERAL_CHAT_TAB_ID,
 } from '@/types/ai';
-import type { NeuralRoamBatchSnapshot } from '@/types/unified-data-source';
 import type {
   AIArenaEventType,
   AIArenaScenarioId,
@@ -253,10 +262,6 @@ function normalizeString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value.trim() : fallback;
 }
 
-function normalizeListText(value: string): string {
-  return normalizeString(value).replace(/\s*\r?\n\s*/g, ' ');
-}
-
 function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -269,80 +274,6 @@ function toErrorMessage(error: unknown, fallback: string): string {
     return error.trim();
   }
   return fallback;
-}
-
-function normalizeStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((entry) => normalizeString(entry)).filter(Boolean);
-  }
-  const text = normalizeString(value);
-  return text ? [text] : [];
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.map((entry) => normalizeString(entry)).filter(Boolean)));
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableStringify(entry)).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function normalizeAliasKey(value: string): string {
-  return String(value || '').replace(/[^a-z0-9\u4e00-\u9fa5]/gi, '').toLowerCase();
-}
-
-function readAliasedValue(raw: Record<string, unknown>, aliases: string[]): unknown {
-  const normalizedAliases = new Set(aliases.map((alias) => normalizeAliasKey(alias)));
-  for (const [key, value] of Object.entries(raw)) {
-    if (normalizedAliases.has(normalizeAliasKey(key))) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function collectStringLeaves(
-  value: unknown,
-  options?: { depth?: number; excludeKeys?: string[] },
-): string[] {
-  const depth = options?.depth ?? 0;
-  if (depth > 3 || value === null || value === undefined) {
-    return [];
-  }
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    const text = String(value).trim();
-    return text ? [text] : [];
-  }
-  if (Array.isArray(value)) {
-    return uniqueStrings(value.flatMap((entry) => collectStringLeaves(entry, { ...options, depth: depth + 1 })));
-  }
-  if (isRecord(value)) {
-    const excluded = new Set((options?.excludeKeys || []).map((key) => normalizeAliasKey(key)));
-    return uniqueStrings(Object.entries(value)
-      .filter(([key]) => !excluded.has(normalizeAliasKey(key)))
-      .flatMap(([, entry]) => collectStringLeaves(entry, { ...options, depth: depth + 1 })));
-  }
-  return [];
-}
-
-function normalizeFlexibleStringArray(value: unknown, excludeKeys: string[] = []): string[] {
-  if (Array.isArray(value)) {
-    return uniqueStrings(value.flatMap((entry) => collectStringLeaves(entry, { excludeKeys })));
-  }
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return normalizeStringArray(value);
-  }
-  if (isRecord(value)) {
-    return collectStringLeaves(value, { excludeKeys });
-  }
-  return [];
 }
 
 function describeRawShape(value: unknown): string {
@@ -362,21 +293,9 @@ function describeRawShape(value: unknown): string {
   return typeof value;
 }
 
-function describeRawShapeFromContent(rawContent: string): string {
-  const parsed = tryParseJson(rawContent);
-  if (parsed.ok) {
-    return describeRawShape(parsed.value);
-  }
-  return rawContent.trim() ? 'text' : 'persisted-result';
-}
-
 function truncateText(value: string, limit = 140): string {
   const normalized = normalizeString(value).replace(/\s+/g, ' ');
   return normalized.length <= limit ? normalized : `${normalized.slice(0, limit)}...`;
-}
-
-function cloneAttachedContexts(items: AIAttachedContextItem[] | undefined | null): AIAttachedContextItem[] {
-  return Array.isArray(items) ? items.map((item) => ({ ...item, blockIds: [...item.blockIds] })) : [];
 }
 
 function createEmptyComposerContextState(): AIComposerContextState {
@@ -446,92 +365,6 @@ function getSkillTabIds(skillId: AISkillId, fallbackTabId: AISkillTabId): AISkil
   return [fallbackTabId];
 }
 
-function resolveUserMessagePurpose(purpose: unknown): AIWorkbenchUserMessagePurpose {
-  return purpose === 'follow-up' ? 'follow-up' : purpose === 'initial-explain' ? 'initial-explain' : 'initial-run';
-}
-
-function createEmptyViewSessionState(): AIViewSessionState {
-  return { resultContextSignature: null, stale: false, staleReason: null, followUps: [] };
-}
-
-function createInitialViewState(): AIWorkbenchState['viewState'] {
-  const makeSkillState = () => ({
-    chat: createEmptyViewSessionState(),
-    'working-definition': createEmptyViewSessionState(),
-    perspectives: createEmptyViewSessionState(),
-    'integrated-understanding': createEmptyViewSessionState(),
-    'self-test-cards': createEmptyViewSessionState(),
-    'cdf-structure': createEmptyViewSessionState(),
-    'real-world-triggers': createEmptyViewSessionState(),
-  });
-  return {
-    [GENERAL_SKILL]: makeSkillState(),
-    [CONCEPT_SKILL]: makeSkillState(),
-  };
-}
-
-function serializeNeuralBatch(batch: NeuralRoamBatchSnapshot | null): unknown {
-  if (!batch) {
-    return null;
-  }
-  if (batch.kind !== 'orbit-round') {
-    return batch;
-  }
-  return {
-    kind: batch.kind,
-    engineMode: batch.engineMode,
-    currentNodeId: batch.currentNodeId,
-    currentEventId: batch.currentEventId,
-    roundSize: batch.roundSize,
-    viewedCount: batch.viewedCount,
-    remainingCount: batch.remainingCount,
-    roundNodes: batch.roundNodes.map((node) => node.nodeId),
-  };
-}
-
-function buildContextSignature(context: AIWorkbenchContextSnapshot | null): string | null {
-  if (!context) {
-    return null;
-  }
-  return JSON.stringify({
-    source: context.source,
-    queueType: context.queueType ?? null,
-    queueProgress: context.queueProgress ?? null,
-    selectedBlockIds: context.selectedBlockIds,
-    blockIds: context.blocks.map((block) => block.blockId),
-    currentCard: context.currentCard ? {
-      cardId: context.currentCard.cardId,
-      blockId: context.currentCard.blockId,
-      cardType: context.currentCard.cardType,
-      revealed: context.currentCard.revealed,
-      hasAnswerFace: context.currentCard.hasAnswerFace,
-      explainRequiresReveal: context.currentCard.explainRequiresReveal,
-      reviewActionLabel: context.currentCard.reviewActionLabel,
-      roleDescription: context.currentCard.roleDescription,
-      sourceBlockIds: context.currentCard.sourceBlockIds,
-      neuralContext: context.currentCard.neuralContext,
-    } : null,
-    neuralBatch: serializeNeuralBatch(context.neuralBatch),
-  });
-}
-
-function buildReviewChatKey(queueType: unknown, queueLabel: unknown): string | null {
-  const normalizedQueueType = normalizeString(queueType);
-  const normalizedQueueLabel = normalizeString(queueLabel);
-  if (!normalizedQueueType || !normalizedQueueLabel) {
-    return null;
-  }
-  return `${normalizedQueueType}::${normalizedQueueLabel}`;
-}
-
-function deriveReviewChatKey(
-  context: AIWorkbenchContextSnapshot | null,
-  explicitReviewChatKey?: string | null,
-): string | null {
-  return normalizeString(explicitReviewChatKey)
-    || buildReviewChatKey(context?.queueType, context?.queueProgress?.queueLabel);
-}
-
 function tryParseJson(candidate: string): { ok: true; value: unknown } | { ok: false } {
   const normalized = candidate.trim().replace(/^json\s*[\r\n]+/i, '');
   if (!normalized) {
@@ -570,72 +403,6 @@ function extractJsonPayload(raw: string): unknown {
   throw new Error('AI response is not valid JSON');
 }
 
-function readXiuyuanMeta(card: FSRSCard | null | undefined): Record<string, unknown> | null {
-  return isRecord(card?.meta) ? card!.meta as Record<string, unknown> : null;
-}
-
-function readReviewNeuralContext(card: FSRSCard | null | undefined): AIReviewNeuralContext | null {
-  const meta = readXiuyuanMeta(card);
-  const raw = meta?.neuralContext;
-  if (!isRecord(raw)) {
-    return null;
-  }
-
-  const neuralContext: AIReviewNeuralContext = {};
-  const associationType = normalizeString(raw.associationType);
-  const reason = normalizeString(raw.reason);
-  const blockType = normalizeString(raw.blockType);
-  const nodeRole = normalizeString(raw.nodeRole);
-  const sourceVirtualNodeId = normalizeString(raw.sourceVirtualNodeId);
-
-  if (associationType) neuralContext.associationType = associationType;
-  if (reason) neuralContext.reason = reason;
-  if (blockType) neuralContext.blockType = blockType;
-  if (typeof raw.isFlashcard === 'boolean') neuralContext.isFlashcard = raw.isFlashcard;
-  if (nodeRole) neuralContext.nodeRole = nodeRole;
-  if (sourceVirtualNodeId) neuralContext.sourceVirtualNodeId = sourceVirtualNodeId;
-
-  return Object.keys(neuralContext).length > 0 ? neuralContext : null;
-}
-
-function isNeuralVirtualReviewCard(card: FSRSCard | null | undefined): boolean {
-  return readReviewNeuralContext(card)?.isFlashcard === false;
-}
-
-function readStringArrayFromMeta(meta: Record<string, unknown> | null, key: string): string[] {
-  return normalizeStringArray(meta?.[key]);
-}
-
-function isDocumentBlockType(value: unknown): boolean {
-  const normalized = normalizeString(value).toLowerCase();
-  return normalized === 'd' || normalized === 'nodedocument';
-}
-
-function isReadModeCardType(cardType: unknown): boolean {
-  const normalized = normalizeString(cardType).toLowerCase();
-  return normalized === 'topic' || normalized === 'concept';
-}
-
-function buildReviewCardSemantics(cardType: unknown): Pick<
-  AIReviewCardContext,
-  'hasAnswerFace' | 'explainRequiresReveal' | 'reviewActionLabel' | 'roleDescription'
-> {
-  if (isReadModeCardType(cardType)) {
-    return {
-      hasAnswerFace: false,
-      explainRequiresReveal: false,
-      reviewActionLabel: '下一张',
-      roleDescription: '阅读型卡片：用于维持对主题、概念和上下文的接触，不依赖正反面答案回忆。',
-    };
-  }
-  return {
-    hasAnswerFace: true,
-    explainRequiresReveal: true,
-    reviewActionLabel: '显示答案',
-    roleDescription: '提取型卡片：先尝试回忆，再揭示答案，用来训练稳定检索。',
-  };
-}
-
 function normalizeOpenSkillId(options: AIWorkbenchOpenOptions): AISkillId {
   return normalizeAIWorkbenchSkillId(options.skillId || options.view, GENERAL_SKILL);
 }
@@ -643,233 +410,6 @@ function normalizeOpenSkillId(options: AIWorkbenchOpenOptions): AISkillId {
 function normalizeOpenTabId(options: AIWorkbenchOpenOptions): AISkillTabId {
   const skillId = normalizeOpenSkillId(options);
   return normalizeAIWorkbenchTabId(options.tabId, skillId);
-}
-
-function normalizeStoredSkillId(value: unknown, fallback: AISkillId): AISkillId {
-  if (typeof value === 'string' && /^user:[a-z0-9_-]+$/.test(value)) {
-    return value as AISkillId;
-  }
-  return normalizeAIWorkbenchSkillId(value, fallback);
-}
-
-function normalizeStoredTabId(value: unknown, skillId: AISkillId): AISkillTabId {
-  if (typeof value === 'string' && value.startsWith('user:')) {
-    return value as AISkillTabId;
-  }
-  return normalizeAIWorkbenchTabId(value, skillId);
-}
-
-function normalizeMessage(message: unknown, fallbackSkillId: AISkillId, fallbackTabId: AISkillTabId): AIWorkbenchMessage | null {
-  if (!isRecord(message) || message.kind === 'candidate-board') {
-    return null;
-  }
-  const kind = normalizeString(message.kind);
-  const skillId = normalizeStoredSkillId(message.skillId || fallbackSkillId, fallbackSkillId);
-  const base = {
-    id: normalizeString(message.id) || createEntryId('ai-msg'),
-    skillId,
-    tabId: normalizeStoredTabId(message.tabId || fallbackTabId, skillId),
-    view: normalizeString(message.view) as AIWorkbenchOpenView || undefined,
-    contextSignature: normalizeString(message.contextSignature) || null,
-    createdAt: Number(message.createdAt) || Date.now(),
-  };
-  if (kind === 'user') {
-    return {
-      ...base,
-      kind,
-      purpose: resolveUserMessagePurpose(message.purpose),
-      content: normalizeString(message.content),
-      editedFromMessageId: normalizeString(message.editedFromMessageId) || null,
-      attachedContexts: cloneAttachedContexts(message.attachedContexts as AIAttachedContextItem[]),
-      runGroupId: normalizeString(message.runGroupId) || null,
-      presentation: normalizeString(message.presentation) as AIWorkbenchUserMessage['presentation'],
-    };
-  }
-  if (kind === 'assistant-text') {
-    return {
-      ...base,
-      kind,
-      content: normalizeString(message.content),
-      sourceContent: normalizeString(message.sourceContent) || null,
-      appliedContexts: cloneAttachedContexts(message.appliedContexts as AIAttachedContextItem[]),
-      reasoningContent: normalizeString(message.reasoningContent) || null,
-      diagnostics: Array.isArray(message.diagnostics) ? message.diagnostics.map((entry) => normalizeString(entry)).filter(Boolean) : [],
-      interrupted: message.interrupted === true,
-      requestSourceMessageId: normalizeString(message.requestSourceMessageId) || null,
-      failureDiagnostic: isRecord(message.failureDiagnostic)
-        ? {
-          content: normalizeString(message.failureDiagnostic.content),
-        } satisfies AIWorkbenchFailureDiagnostic
-        : null,
-      failureRunMode: normalizeString(message.failureRunMode) as AIWorkbenchRunMode || null,
-      runGroupId: normalizeString(message.runGroupId) || null,
-      presentation: normalizeString(message.presentation) as AIWorkbenchAssistantTextMessage['presentation'],
-    };
-  }
-  if (kind === 'assistant-result') {
-    const rawContent = normalizeString(message.rawContent);
-    const conceptCoachResult = isRecord(message.conceptCoachResult)
-      ? normalizeConceptCoachResult(message.conceptCoachResult, rawContent)
-      : null;
-    const tabResult = normalizeTabResultValue(base.tabId, message.tabResult, conceptCoachResult);
-    const genericStructuredResult = isRecord(message.genericStructuredResult)
-      ? message.genericStructuredResult as AIUserSkillStructuredResult
-      : null;
-    const genericSectionResult = isRecord(message.genericSectionResult)
-      ? message.genericSectionResult as AIUserSkillStructuredSectionResult
-      : genericStructuredResult?.sections.find((section) => section.id === base.tabId) || null;
-    return {
-      ...base,
-      kind,
-      rawContent,
-      conceptCoachResult,
-      tabResult,
-      genericStructuredResult,
-      genericSectionResult,
-      normalizationDiagnostic: normalizeNormalizationDiagnostic(message.normalizationDiagnostic)
-        ?? deriveTabNormalizationDiagnostic(base.tabId, tabResult, describeRawShapeFromContent(rawContent)),
-      explainResult: isRecord(message.explainResult) ? message.explainResult as AIExplainResult : null,
-      appliedContexts: cloneAttachedContexts(message.appliedContexts as AIAttachedContextItem[]),
-      reasoningContent: normalizeString(message.reasoningContent) || null,
-      diagnostics: Array.isArray(message.diagnostics) ? message.diagnostics.map((entry) => normalizeString(entry)).filter(Boolean) : [],
-      interrupted: message.interrupted === true,
-      runGroupId: normalizeString(message.runGroupId) || null,
-      presentation: normalizeString(message.presentation) as AIWorkbenchAssistantResultMessage['presentation'],
-    };
-  }
-  if (kind === 'tool-log') {
-    return {
-      ...base,
-      kind,
-      toolCallId: normalizeString(message.toolCallId),
-      toolName: normalizeString(message.toolName),
-      group: normalizeString(message.group) as AIWorkbenchToolLogMessage['group'],
-      status: normalizeString(message.status) as AIWorkbenchToolLogMessage['status'],
-      content: normalizeString(message.content),
-      argsText: normalizeString(message.argsText) || null,
-      resultText: normalizeString(message.resultText) || null,
-      error: normalizeString(message.error) || null,
-      argsVarRef: normalizeString(message.argsVarRef) || null,
-      varRef: normalizeString(message.varRef) || null,
-      durationMs: Number(message.durationMs) || null,
-      roundIndex: Number(message.roundIndex) || null,
-      llmUsage: typeof message.llmUsage === 'object' && message.llmUsage !== null
-        ? {
-          promptTokens: Number((message.llmUsage as { promptTokens?: unknown }).promptTokens) || undefined,
-          completionTokens: Number((message.llmUsage as { completionTokens?: unknown }).completionTokens) || undefined,
-          totalTokens: Number((message.llmUsage as { totalTokens?: unknown }).totalTokens) || undefined,
-        }
-        : null,
-      runGroupId: normalizeString(message.runGroupId) || null,
-      presentation: normalizeString(message.presentation) as AIWorkbenchToolLogMessage['presentation'],
-    };
-  }
-  if (kind === 'approval' && isRecord(message.request)) {
-    const request = message.request as Record<string, unknown>;
-    return {
-      ...base,
-      kind,
-      request: {
-        id: normalizeString(request.id),
-        type: normalizeString(request.type) === 'result' ? 'result' : 'execution',
-        toolCallId: normalizeString(request.toolCallId),
-        toolName: normalizeString(request.toolName),
-        group: normalizeString(request.group) as AIChatApprovalRequest['group'],
-        title: normalizeString(request.title),
-        description: normalizeString(request.description),
-        args: isRecord(request.args) ? request.args : {},
-        argsText: normalizeString(request.argsText) || undefined,
-        resultText: normalizeString(request.resultText) || undefined,
-        resultStatus: normalizeString(request.resultStatus) as AIChatApprovalRequest['resultStatus'],
-        argsVarRef: normalizeString(request.argsVarRef) || undefined,
-        resultVarRef: normalizeString(request.resultVarRef) || undefined,
-        runGroupId: normalizeString(request.runGroupId) || null,
-        skillId: normalizeString(request.skillId) as AIChatApprovalRequest['skillId'],
-        tabId: normalizeString(request.tabId) as AIChatApprovalRequest['tabId'],
-        status: normalizeString(request.status) === 'approved'
-          ? 'approved'
-          : normalizeString(request.status) === 'rejected'
-            ? 'rejected'
-            : 'pending',
-        createdAt: Number(request.createdAt) || base.createdAt,
-        resolvedAt: Number(request.resolvedAt) || undefined,
-        rejectReason: normalizeString(request.rejectReason) || undefined,
-      } satisfies AIChatApprovalRequest,
-      runGroupId: normalizeString(message.runGroupId) || null,
-      presentation: normalizeString(message.presentation) as AIWorkbenchApprovalMessage['presentation'],
-    };
-  }
-  if (kind === 'separator') {
-    return {
-      ...base,
-      kind,
-      label: normalizeString(message.label) || '分隔',
-      runGroupId: normalizeString(message.runGroupId) || null,
-      presentation: normalizeString(message.presentation) as AIWorkbenchSeparatorMessage['presentation'],
-    } satisfies AIWorkbenchSeparatorMessage;
-  }
-  return null;
-}
-
-function normalizeThreadRecord(thread: unknown, skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreads[string][string] {
-  if (!isRecord(thread)) {
-    return createEmptyThreadRecord(skillId, tabId);
-  }
-  const resultContextSignature = normalizeString(thread.resultContextSignature) || null;
-  const messages = Array.isArray(thread.messages)
-    ? thread.messages
-      .map((message) => normalizeMessage(message, skillId, tabId))
-      .filter((message): message is AIWorkbenchMessage => Boolean(message))
-      .map((message) => (
-        skillId === CONCEPT_SKILL && tabId !== CHAT_TAB && !normalizeString(message.contextSignature)
-          ? { ...message, contextSignature: resultContextSignature }
-          : message
-      ))
-    : [];
-  return {
-    skillId,
-    tabId,
-    messages,
-    resultContextSignature,
-    stale: thread.stale === true,
-    staleReason: normalizeString(thread.staleReason) || null,
-  };
-}
-
-function normalizeThreads(threads: unknown): AIWorkbenchThreads {
-  const base = createInitialThreads();
-  const raw = isRecord(threads) ? threads : {};
-  const generalThreads = isRecord(raw[GENERAL_SKILL])
-    ? raw[GENERAL_SKILL] as Record<string, unknown>
-    : null;
-  const conceptCoachThreads = isRecord(raw[CONCEPT_SKILL])
-    ? raw[CONCEPT_SKILL] as Record<string, unknown>
-    : raw;
-  if (generalThreads) {
-    base[GENERAL_SKILL][CHAT_TAB] = normalizeThreadRecord(generalThreads[CHAT_TAB], GENERAL_SKILL, CHAT_TAB);
-  }
-  for (const tabId of AI_CONCEPT_COACH_TAB_IDS) {
-    base[CONCEPT_SKILL][tabId] = normalizeThreadRecord(conceptCoachThreads[tabId], CONCEPT_SKILL, tabId);
-  }
-  const legacyExplain = isRecord(raw.explain) ? normalizeThreadRecord(raw.explain, CONCEPT_SKILL, DEFAULT_TAB) : null;
-  if (legacyExplain && legacyExplain.messages.length > 0) {
-    base[CONCEPT_SKILL][DEFAULT_TAB] = legacyExplain;
-  }
-  for (const [rawSkillId, rawSkillThreads] of Object.entries(raw)) {
-    if (!/^user:[a-z0-9_-]+$/.test(rawSkillId) || !isRecord(rawSkillThreads)) {
-      continue;
-    }
-    const skillId = rawSkillId as AISkillId;
-    base[skillId] = base[skillId] || {};
-    for (const [rawTabId, rawThread] of Object.entries(rawSkillThreads)) {
-      if (typeof rawTabId !== 'string' || (!rawTabId.startsWith('user:') && rawTabId !== CHAT_TAB)) {
-        continue;
-      }
-      const tabId = rawTabId as AISkillTabId;
-      base[skillId][tabId] = normalizeThreadRecord(rawThread, skillId, tabId);
-    }
-  }
-  return base;
 }
 
 export class AIWorkbenchService {
@@ -3544,16 +3084,16 @@ export class AIWorkbenchService {
     this.state.runStatus = this.createRunStatus('chat', [CHAT_TAB]);
     let primaryAssistantMessageId: string | null = null;
     try {
-      await this.runGeneralChatToolLoop(
+      await this.generalChatRuntime.runToolLoop({
         skill,
         tabId,
         attachedContexts,
         runGroupId,
-        sourceUserMessageId,
-        (messageId) => {
+        requestSourceMessageId: sourceUserMessageId,
+        onPrimaryAssistantMessage: (messageId) => {
           primaryAssistantMessageId = messageId;
         },
-      );
+      });
       this.syncDerivedStateFromThreads();
       await this.persistCurrentSession();
     } catch (error) {
@@ -3593,23 +3133,6 @@ export class AIWorkbenchService {
     }
   }
 
-  private async runGeneralChatToolLoop(
-    skill: AIChatRegisteredSkillDescriptor,
-    tabId: AISkillTabId,
-    attachedContexts: AIAttachedContextItem[],
-    runGroupId: string,
-    requestSourceMessageId: string,
-    onPrimaryAssistantMessage?: (messageId: string) => void,
-  ): Promise<void> {
-    await this.generalChatRuntime.runToolLoop({
-      skill,
-      tabId,
-      attachedContexts,
-      runGroupId,
-      requestSourceMessageId,
-      onPrimaryAssistantMessage,
-    });
-  }
   private async requestInlineToolApproval(request: AIChatApprovalRequest): Promise<{ approved: boolean; rejectReason?: string }> {
     this.state.pendingApprovals.push(request);
     this.appendApprovalMessage(request, request.skillId || this.state.activeSkillId, request.tabId || this.state.activeTabId, request.runGroupId);
@@ -3639,95 +3162,6 @@ export class AIWorkbenchService {
     return new Promise((resolve) => {
       this.approvalResolvers.set(request.id, { request, resolve });
     });
-  }
-
-  private async requestToolchainSummary(
-    skill: AIChatRegisteredSkillDescriptor,
-    tabId: AISkillTabId,
-    attachedContexts: AIAttachedContextItem[],
-    llmMessages: LLMMessage[],
-    settings: AISettings,
-    provider: AIProviderConfig,
-    runGroupId: string,
-    requestSourceMessageId: string,
-    onPrimaryAssistantMessage?: (messageId: string) => void,
-  ): Promise<void> {
-    const assistantMessageId = createEntryId('ai-msg');
-    const placeholderNode = this.appendNodeMessage(tabId, {
-      id: assistantMessageId,
-      skillId: skill.id,
-      tabId,
-      view: skill.id,
-      kind: 'assistant-text',
-      content: '',
-      createdAt: Date.now(),
-      sourceContent: null,
-      appliedContexts: attachedContexts,
-      reasoningContent: '',
-      diagnostics: [],
-      requestSourceMessageId,
-      runGroupId,
-      presentation: 'primary',
-    } satisfies AIWorkbenchAssistantTextMessage, {
-      scope: 'skill',
-    });
-    placeholderNode.status = 'streaming';
-    onPrimaryAssistantMessage?.(assistantMessageId);
-
-    const response = await this.requestChatModel([
-      ...llmMessages,
-      {
-        role: 'system',
-        content: '你已经完成当前轮次的工具调用。现在不要再调用工具，只根据已有工具结果和上下文，给用户一个清晰、简短、可执行的最终答复。',
-      },
-    ], {
-      settings,
-      provider,
-      observer: {
-        onTextDelta: (delta) => {
-          if (!delta) {
-            return;
-          }
-          this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-            ...(message as AIWorkbenchAssistantTextMessage),
-            content: `${(message as AIWorkbenchAssistantTextMessage).content || ''}${delta}`,
-          } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
-        },
-        onReasoningDelta: (delta) => {
-          if (!delta) {
-            return;
-          }
-          this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-            ...(message as AIWorkbenchAssistantTextMessage),
-            reasoningContent: `${(message as AIWorkbenchAssistantTextMessage).reasoningContent || ''}${delta}`,
-          } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
-        },
-        onDiagnostic: (diagnostic) => {
-          if (!diagnostic) {
-            return;
-          }
-          this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-            ...(message as AIWorkbenchAssistantTextMessage),
-            diagnostics: [
-              ...((message as AIWorkbenchAssistantTextMessage).diagnostics || []),
-              diagnostic,
-            ].slice(-8),
-          } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
-        },
-      },
-    });
-
-    const assistantContent = normalizeString(response.content)
-      || '工具链已达到最大轮数，我先根据现有结果整理到这里。';
-    this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-      ...(message as AIWorkbenchAssistantTextMessage),
-      content: assistantContent,
-      sourceContent: assistantContent,
-      reasoningContent: response.reasoningContent || (message as AIWorkbenchAssistantTextMessage).reasoningContent || null,
-      diagnostics: response.diagnostics || (message as AIWorkbenchAssistantTextMessage).diagnostics || [],
-      interrupted: false,
-      presentation: 'primary',
-    } satisfies AIWorkbenchAssistantTextMessage), { status: 'ready' });
   }
 
   private stripToolChainSummaryFromContent(content: string): string {
@@ -3843,7 +3277,7 @@ export class AIWorkbenchService {
     const skill = this.getResolvedSkill(this.state.activeSkillId);
     return createAIWorkbenchSessionRecord({
       id: createEntryId('ai-session'),
-      title: this.generateSessionTitle(context),
+      title: generateAIWorkbenchSessionTitle(context),
       context,
       contextSignature,
       sourceReviewSessionId: this.state.sourceReviewSessionId,
@@ -5229,57 +4663,14 @@ export class AIWorkbenchService {
 
   private createRunStatus(mode: AIWorkbenchRunMode, tabIds: AISkillTabId[]): AIWorkbenchRunStatus {
     const skillId = this.state.activeSkillId;
-    const normalizedTabIds = tabIds.map((tabId) => this.normalizeTabForCurrentSettings(tabId, skillId));
-    const tabs = this.getSkillTabs();
-    const tabTitle = (tabId: AISkillTabId) => tabs.find((tab) => tab.id === tabId)?.title || this.getActiveTabDescriptor().title;
-    if (mode === 'chat' || mode === 'tool-chain') {
-      return {
-        mode,
-        skillId,
-        tabIds: normalizedTabIds,
-        activeTabId: CHAT_TAB,
-        title: mode === 'tool-chain' ? 'AI 正在运行工具' : 'AI 正在思考',
-        description: mode === 'tool-chain'
-          ? '正在根据模型请求执行可用工具，并把结果带回同一会话。'
-          : '正在结合当前上下文、会话历史和已启用工具生成回复。',
-        startedAt: Date.now(),
-      };
-    }
-    if (mode === 'tab-rerun') {
-      const targetTabId = normalizedTabIds[0] || this.state.activeTabId;
-      const title = tabTitle(targetTabId);
-      return {
-        mode,
-        skillId,
-        tabIds: normalizedTabIds,
-        activeTabId: targetTabId,
-        title: 'AI 正在重跑当前阶段',
-        description: `只会更新「${title}」，其他阶段保持不变。`,
-        startedAt: Date.now(),
-      };
-    }
-    if (mode === 'follow-up') {
-      const targetTabId = normalizedTabIds[0] || this.state.activeTabId;
-      const title = tabTitle(targetTabId);
-      return {
-        mode,
-        skillId,
-        tabIds: normalizedTabIds,
-        activeTabId: targetTabId,
-        title: 'AI 正在回应追问',
-        description: `只携带「${title}」结果和本次补充上下文。`,
-        startedAt: Date.now(),
-      };
-    }
-    return {
+    return createAIWorkbenchRunStatus({
       mode,
       skillId,
-      tabIds: normalizedTabIds,
+      tabIds: tabIds.map((tabId) => this.normalizeTabForCurrentSettings(tabId, skillId)),
       activeTabId: this.state.activeTabId,
-      title: 'AI 正在理解材料',
-      description: `正在生成 ${tabs.length} 个阶段：${tabs.map((tab) => tab.title).join('、')}`,
-      startedAt: Date.now(),
-    };
+      tabs: this.getSkillTabs(),
+      activeTabTitle: this.getActiveTabDescriptor().title,
+    });
   }
 
   private async runTask(tabIds: AISkillTabId[], runner: () => Promise<void>, mode: AIWorkbenchRunMode): Promise<void> {
@@ -5327,52 +4718,6 @@ export class AIWorkbenchService {
     } finally {
       this.state.isLoading = false;
       this.state.runStatus = null;
-    }
-  }
-
-  private generateSessionTitle(context: AIWorkbenchContextSnapshot): string {
-    if (context.source === 'review') {
-      const queueLabel = normalizeString(context.queueProgress?.queueLabel);
-      if (queueLabel) {
-        return this.truncateTitle(`${queueLabel} · AI 会话`);
-      }
-      const queueType = normalizeString(context.queueType);
-      if (queueType) {
-        return this.truncateTitle(`${queueType} · AI 会话`);
-      }
-    }
-    const currentCard = context.currentCard;
-    if (currentCard) {
-      const cardText = normalizeString(currentCard.frontText) || normalizeString(currentCard.sourceText);
-      if (cardText) {
-        return this.truncateTitle(cardText);
-      }
-    }
-    const firstBlockText = context.blocks
-      .map((block) => normalizeString(block.text))
-      .find((text) => text.length > 0);
-    if (firstBlockText) {
-      return this.truncateTitle(firstBlockText);
-    }
-    const sourceTitle = this.getSourceTitle(context.source);
-    return context.neuralBatch ? `${sourceTitle} · 神经漫游` : `${sourceTitle} · AI 会话`;
-  }
-
-  private truncateTitle(value: string): string {
-    const singleLine = value.replace(/\s+/g, ' ').trim();
-    return singleLine.length > 28 ? `${singleLine.slice(0, 28)}...` : singleLine;
-  }
-
-  private getSourceTitle(source: AIWorkbenchSource): string {
-    switch (source) {
-      case 'review':
-        return '复习';
-      case 'browser':
-        return '浏览器';
-      case 'template-dialog':
-        return '模板制卡';
-      default:
-        return '工作台';
     }
   }
 
