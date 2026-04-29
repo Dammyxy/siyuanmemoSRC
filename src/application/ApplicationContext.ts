@@ -75,6 +75,7 @@ import { CardContentQueryService } from '@/application/queries/CardContentQueryS
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
+import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
 import { ExcerptRecordService } from '@/application/services/ExcerptRecordService';
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
@@ -649,7 +650,8 @@ export class ApplicationContext {
     this.registerServiceFactory('reviewService', (context) => {
       return new ReviewApplicationService(
         context.getUnifiedDataSourceManager(),
-        context.getScheduler()
+        context.getScheduler(),
+        new ReviewSiyuanAdapter()
       );
     });
 

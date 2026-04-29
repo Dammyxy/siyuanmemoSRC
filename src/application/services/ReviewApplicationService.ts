@@ -1,6 +1,5 @@
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import type { SchedulerRouter } from '@/core/scheduler';
-import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
 import type { FSRSCard, Rating } from '@/types';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { createLogger } from '@/utils/logger';
@@ -38,7 +37,7 @@ export class ReviewApplicationService {
   constructor(
     private readonly manager: IUnifiedDataSourceManagerFacade,
     private readonly schedulerRouter: SchedulerRouter,
-    private readonly siyuanApi: ReviewSiyuanPort = new ReviewSiyuanAdapter(),
+    private readonly siyuanApi: ReviewSiyuanPort,
   ) {}
 
   async rescheduleCard(cardId: string, options: RescheduleOptions): Promise<FSRSCard> {

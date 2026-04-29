@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import { CardState, CardType, type FSRSCard, type Rating } from '@/types/card';
 import { QueueType, type IUnifiedDataSourceManagerFacade } from '@/types/unified-data-source';
 import { ReviewApplicationService } from '../ReviewApplicationService';
@@ -26,6 +27,26 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
     skipped: false,
     createdAt: now - 1000,
     updatedAt: now - 500,
+    ...overrides,
+  };
+}
+
+function createReviewSiyuanApi(overrides: Partial<ReviewSiyuanPort> = {}): ReviewSiyuanPort {
+  return {
+    BUILTIN_DECK_ID: 'builtin',
+    sql: vi.fn(async () => []),
+    getBlockAttrs: vi.fn(async () => ({})),
+    setBlockAttrs: vi.fn(async () => {}),
+    getBlockInfo: vi.fn(async () => ({})),
+    getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
+    getBlockDOM: vi.fn(async () => ({ dom: '' })),
+    getBlockBreadcrumb: vi.fn(async () => []),
+    getIconByType: vi.fn(() => ''),
+    updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
+    reviewRiffCard: vi.fn(async () => {}),
+    skipReviewRiffCard: vi.fn(async () => {}),
+    pushMsg: vi.fn(async () => {}),
+    pushErrMsg: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -61,7 +82,7 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     const schedulerRouter = {
       route: vi.fn(async (_card: FSRSCard, _rating: Rating) => card),
     } as never;
-    const service = new ReviewApplicationService(manager, schedulerRouter);
+    const service = new ReviewApplicationService(manager, schedulerRouter, createReviewSiyuanApi());
     const dueTimestamp = new Date('2026-03-14T12:00:00+08:00').getTime();
 
     const updated = await service.rescheduleCard(card.id, {
@@ -104,7 +125,7 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     const schedulerRouter = {
       route: vi.fn(async (_card: FSRSCard, _rating: Rating) => card),
     } as never;
-    const service = new ReviewApplicationService(manager, schedulerRouter);
+    const service = new ReviewApplicationService(manager, schedulerRouter, createReviewSiyuanApi());
     const dueTimestamp = new Date('2026-03-07T23:00:00+08:00').getTime();
 
     await service.rescheduleCard(card.id, {
@@ -132,7 +153,7 @@ describe('ReviewApplicationService reschedule queue membership', () => {
     const schedulerRouter = {
       route: vi.fn(async (_card: FSRSCard, _rating: Rating) => card),
     } as never;
-    const service = new ReviewApplicationService(manager, schedulerRouter);
+    const service = new ReviewApplicationService(manager, schedulerRouter, createReviewSiyuanApi());
     const dueTimestamp = new Date('2026-03-11T10:00:00+08:00').getTime();
 
     const updated = await service.rescheduleCard(card.id, {
@@ -155,10 +176,10 @@ describe('ReviewApplicationService reschedule queue membership', () => {
   it('loads raw block markdown through the review siyuan port', async () => {
     const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
     const schedulerRouter = {} as never;
-    const siyuanApi = {
+    const siyuanApi = createReviewSiyuanApi({
       getBlockKramdown: vi.fn(async () => ({ kramdown: 'Original body' })),
       updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
-    } as never;
+    });
     const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
 
     await expect(service.getBlockKramdown('block-1')).resolves.toBe('Original body');
@@ -168,10 +189,10 @@ describe('ReviewApplicationService reschedule queue membership', () => {
   it('updates raw block markdown through the review siyuan port', async () => {
     const manager = {} as unknown as IUnifiedDataSourceManagerFacade;
     const schedulerRouter = {} as never;
-    const siyuanApi = {
+    const siyuanApi = createReviewSiyuanApi({
       getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
       updateBlockMarkdown: vi.fn(async (blockId: string) => blockId),
-    } as never;
+    });
     const service = new ReviewApplicationService(manager, schedulerRouter, siyuanApi);
 
     await expect(service.updateBlockMarkdown('block-1', 'Updated body')).resolves.toBe('block-1');
