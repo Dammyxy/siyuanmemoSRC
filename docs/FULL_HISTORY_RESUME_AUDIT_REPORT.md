@@ -87,7 +87,7 @@
 | Doc-tree / block-menu review scope | 安全，递归 doc scope 和 exact card removal 已有 active entry/query/queue 证据 | `CoreReviewEntryService`、`BlockMenuHandler`、`scopeDocIds`、`DeckDataSource` / `DataSourceUtils.applyDocFilter()`、`OrderedStaticSubsetQueueBase` 精确 cardId 移除 | `CoreReviewEntryService.test.ts`、`BlockMenuHandler.core-review-entry.test.ts`、`SRSBrowser.hierarchy-regression.spec.ts`、`SubsetReviewQueue.preferred-card.test.ts` |
 | Review current-item hydration tail | 安全，尾部 `review current-item hydration unification` 已在 session controller / queue strategy active path 中统一 current item 水合与 guarded refresh | `Strategy.hydrateCurrentItem` contract、`UnifiedQueueStrategy.hydrateCurrentItem()`、`maybeAddNextDues()`、`reviewSessionController.hydrateDisplayItem()`、`refreshCurrentItem(expectedCurrentCardId/expectedCurrentBlockId)` | `useReviewSession.spec.ts` 覆盖 restored current item hydration、path-loaded hydration、refresh replace、guarded stale refresh skip |
 | Xiuyuan malformed / blank Riff fail-open | 安全，startup/full/incremental sync 遇 malformed/blank Riff records 会跳过并避免 destructive cleanup | `XiuyuanSyncService` 记录 malformed input、跳过 blank content、full sync 有 malformed 时禁用 destructive cleanup；local-owned 优先，native remove 只删 managed records | `XiuyuanSyncService.malformed-riff-input.test.ts`、`XiuyuanSyncService.quick-render-hint.test.ts`、`logicalKeys.ownership.test.ts` |
-| Round33 summary debt hints | 安全，文件尾部 Round33 summary 不是 task delta；其中 system cleanup 已按 active code 抽查，未升级出新 P0/P1 | `WeightedWalkEngine`、`HistoryFilter`、`PrioritySequencer` 保持 active；`scripts/check-boundaries.cjs` 保留 UI infra allowlist；`MenuManager` 已切到组合根注入 `ManagerSiyuanPort`，其余 application 默认 adapter constructor debt 仍在 | 作为 D-10/D-52 延期债记录；`rg` 仅把 summary 当 debt hint，不把模板/summary 计入 task delta |
+| Round33 summary debt hints | 安全，文件尾部 Round33 summary 不是 task delta；其中 system cleanup 已按 active code 抽查，未升级出新 P0/P1 | `WeightedWalkEngine`、`HistoryFilter`、`PrioritySequencer` 保持 active；`scripts/check-boundaries.cjs` 保留 UI infra allowlist；`MenuManager`、`DialogManager`、`TabManager`、`BlockMenuHandler`、`PracticeQueueManager`、`ReviewScopeCardCreationSyncService` 已切到组合根端口注入，usecase/query/factory 默认 adapter constructor debt 仍在 | 作为 D-10/D-52 延期债记录；`rg` 仅把 summary 当 debt hint，不把模板/summary 计入 task delta |
 
 ## 4. 真实 deferred debt
 
@@ -101,7 +101,7 @@
 | D-07 | P3 | Review Protyle flicker | answer Protyle 双缓冲、所有 special renderer 动画设计 | 主正文频闪已收口，答案区和特殊 renderer 是独立 UX pass |
 | D-08 | P3 | Review log startup wiring | 测试 stderr、既有 i18n/Sass warning | 不影响启动崩溃根因，也非 runtime correctness |
 | D-09 | P3 | Retrieval / Incremental manual queues | manual queue metadata、非调度型临时练习、历史重复卡主动清洗、review-tab snapshot version bump | 当前 active path 有 preview-only/write-schedule 明确策略；迁移/清洗需要独立备份和产品语义 |
-| D-10 | P3 | Browser / Review boundary convergence | `MenuManager` 默认 `ManagerSiyuanAdapter` 构造已迁到 `ApplicationContext` 注入；仍剩其他 `new *SiyuanAdapter()` 默认构造、UI infrastructure allowlist、大型 Vue/service 文件拆分、Browser helper 去重 | 边界回流 guard 已存在；剩余是继续组合根迁移和文件瘦身 |
+| D-10 | P3 | Browser / Review boundary convergence | `MenuManager`、`DialogManager`、`TabManager`、`BlockMenuHandler`、`PracticeQueueManager`、`ReviewScopeCardCreationSyncService` 的默认 Siyuan/Progressive/Leech adapter 构造已迁到 `ApplicationContext` 注入；仍剩 usecase/query/default locator/factory 构造、UI infrastructure allowlist、大型 Vue/service 文件拆分、Browser helper 去重 | 边界回流 guard 已存在；剩余是继续迁 usecase/query/factory 与文件瘦身 |
 | D-11 | P3 | Browser SQL / data-source actions | SQL 行级 action disabled/hidden predicate、全局多卡 projection helper、`MenuActions` 调试日志清理 | SQL 真实卡结果和菜单 parity 已覆盖；行级协议会改 UI/action contract |
 | D-12 | P3 | Neural roam AI context | `ReadBlock` / `ReadBlocks` 行为不改，associated-review 真 flashcard 不默认拉 source virtual node | 当前 bug 是当前虚拟节点上下文；扩大工具语义需要产品规则和 AI focused tests |
 | D-13 | P3 | Storage / delete events | 删除链历史创建事件残留、短窗口 `deletionTracker` 生命周期统一 | Durable tombstone / blacklist 已挡住回魂；事件瘦身是架构清理 |
@@ -143,12 +143,12 @@
 | D-49 | P3 | Doc-tree review-entry scope policy | 把 doc-tree/right-click/retrieval/browser 的 count/filter rules 抽成显式 review-entry scope policy | 当前入口已用 `scopeDocIds` 和 exact cardId；统一所有入口口径会改变用户可见数量 |
 | D-50 | P3 | Riff malformed startup diagnostics | 真实库 malformed/blank Riff trace matrix、checkpoint retry 验收、native/plugin delete side-effect 诊断 toast | fail-open 与 local-owned 保护已在 service/tests；诊断和真库矩阵是运维/产品化工作 |
 | D-51 | P3 | Review current-item lifecycle | 把 initial/current/path-loaded/refresh current item 统一成显式 lifecycle command，并同步 review snapshot version | active path 已靠 `hydrateCurrentItem` 与 guarded refresh 防错；抽 command 会碰 review tab restore、queue snapshot、special renderer |
-| D-52 | P3 | Round33 residual cleanup | `MenuManager` adapter constructor 已收口；仍剩其他组合根 adapter constructor 迁移、UI infra allowlist 收窄、大型 active 文件拆分、mojibake 文档/注释清理、AI descriptor i18n/happy-dom 噪音、Arena UI scenario registration | 都是真实 deferred cleanup；当前 active runtime 未见由这些 summary 项直接造成恢复/错写/丢数据风险 |
+| D-52 | P3 | Round33 residual cleanup | manager/service adapter constructor 已收口到 `ApplicationContext`；仍剩 Card CRUD / Xiuyuan / query / ReviewApplicationService / `AutoCardHandler` / review render factory / `UnifiedDataSourceManager` leech effects 的 adapter constructor 迁移、UI infra allowlist 收窄、大型 active 文件拆分、mojibake 文档/注释清理、AI descriptor i18n/happy-dom 噪音、Arena UI scenario registration | 都是真实 deferred cleanup；当前 active runtime 未见由这些 summary 项直接造成恢复/错写/丢数据风险 |
 
 ## 5. 下一批审计建议
 
 1. backlog 当前真实 task delta 已全量扫完；A-01/A-12 P2 与 D-01 性能证据债均已关闭或移入安全历史锚点。
-2. 下一轮建议继续真实 P3：D-10/D-52 Browser / Review 边界清理，优先迁移 `DialogManager` / `TabManager` / `PracticeQueueManager` / `ReviewScopeCardCreationSyncService` 等剩余默认 Siyuan adapter 构造，再收 UI infra allowlist 和大型 active 文件拆分。
+2. 下一轮建议继续真实 P3：D-10/D-52 Browser / Review 边界清理，优先迁移 `ReviewApplicationService` / `CardContentQueryService` / Card CRUD / Xiuyuan use cases 等剩余默认 Siyuan adapter 构造，再收 UI infra allowlist 和大型 active 文件拆分。
 3. 若继续收文档债，优先压缩历史 backlog 的误导性 wording，不回滚 active 语义：manual queue preview-only、Arena Challenger label、missing-block UI hidden、AI declarative skills、progressive `⌥⇧X`。
 4. 若用户切到“开始修复”，先选一个 P3 小批次；否则可继续只读对账 `ARCHITECTURE.md` / tests coverage。
 

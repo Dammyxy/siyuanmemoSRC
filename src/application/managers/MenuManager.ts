@@ -45,7 +45,7 @@ const TOPBAR_MENU_HIDDEN_ACTIONS = new Set<TopBarQuickEntryActionId>([
  * 
  * 使用示例：
  * ```typescript
- * const dialogManager = new DialogManager(context, plugin);
+ * const dialogManager = new DialogManager(context, plugin, dialogPorts);
  * const menuManager = new MenuManager(context, plugin, i18n, dialogManager, siyuanApi);
  * 
  * // 注册所有菜单

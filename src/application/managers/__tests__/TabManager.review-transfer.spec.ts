@@ -39,6 +39,12 @@ vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
   default: {},
 }));
 
+function createSiyuanApiMock() {
+  return {
+    pushErrMsg: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 describe('TabManager filter-group review transfer restore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -75,7 +81,7 @@ describe('TabManager filter-group review transfer restore', () => {
       addTab: vi.fn(),
     } as any;
 
-    const tabManager = new TabManager(context, plugin);
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.registerAll();
 
     const reviewRegistration = plugin.addTab.mock.calls[1][0];
@@ -204,7 +210,7 @@ describe('TabManager filter-group review transfer restore', () => {
       },
     };
 
-    const tabManager = new TabManager(context, plugin);
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.initReviewTab(runtime as never);
 
     const [, props] = mocks.createApp.mock.calls[0];
@@ -294,7 +300,7 @@ describe('TabManager filter-group review transfer restore', () => {
       addTab: vi.fn(),
     } as any;
 
-    const tabManager = new TabManager(context, plugin);
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.registerAll();
 
     const runtime = {
@@ -454,7 +460,7 @@ describe('TabManager filter-group review transfer restore', () => {
       addTab: vi.fn(),
     } as any;
 
-    const tabManager = new TabManager(context, plugin);
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
 
     tabManager.openReviewTab({
       queue,
@@ -524,7 +530,7 @@ describe('TabManager filter-group review transfer restore', () => {
       addTab: vi.fn(),
     } as any;
 
-    const tabManager = new TabManager(context, plugin);
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.registerAll();
 
     const runtime = {
@@ -618,7 +624,7 @@ describe('TabManager filter-group review transfer restore', () => {
       addTab: vi.fn(),
     } as any;
 
-    const tabManager = new TabManager(context, plugin);
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.registerAll();
 
     const reviewRegistration = plugin.addTab.mock.calls[1][0];
@@ -724,7 +730,7 @@ describe('TabManager filter-group review transfer restore', () => {
       addTab: vi.fn(),
     } as any;
 
-    const tabManager = new TabManager(context, plugin);
+    const tabManager = new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     await tabManager.replaceCurrentReviewTabWithStandardQueue(QueueType.FilterGroup);
 
     expect(openTab).toHaveBeenCalledWith(expect.objectContaining({

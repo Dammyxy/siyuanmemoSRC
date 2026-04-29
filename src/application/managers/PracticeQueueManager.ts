@@ -5,7 +5,6 @@
 import type { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import type { QueueItem } from '@/core/queue';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
-import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('PracticeQueueManager');
@@ -21,16 +20,12 @@ interface RetrievalQueuePort {
 }
 
 export class PracticeQueueManager {
-  private readonly siyuanApi: ManagerSiyuanPort;
-
   constructor(
     private retrievalQueue: RetrievalQueuePort,
     private blockMenuHandler: BlockMenuHandler,
     private i18n: Record<string, string>,
-    ports?: { siyuanApi?: ManagerSiyuanPort }
-  ) {
-    this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
-  }
+    private readonly siyuanApi: ManagerSiyuanPort
+  ) {}
 
   private async getPracticeQueueBlockIds(filter: PracticeQueueFilter): Promise<string[]> {
     return this.siyuanApi.getCardBlockIds({ type: filter.type, value: filter.value });

@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { BlockMenuHandler } from '../../application/managers/BlockMenuHandler';
+import { BlockMenuHandler } from '../BlockMenuHandler';
 import type { ApplicationContext } from '@/application/ApplicationContext';
 
 describe('BlockMenuHandler - ApplicationContext Integration', () => {
@@ -39,6 +39,20 @@ describe('BlockMenuHandler - ApplicationContext Integration', () => {
       openNeuralReviewDialog: vi.fn(),
       plugin: {},
       applicationContext: undefined, // 初始时未注入
+      siyuanApi: {
+        BUILTIN_DECK_ID: 'builtin',
+        CARD_ID_ATTR: 'custom-fsrs-card-id',
+        pushMsg: vi.fn().mockResolvedValue(undefined),
+        pushErrMsg: vi.fn().mockResolvedValue(undefined),
+        sql: vi.fn().mockResolvedValue([]),
+        getBlockKramdown: vi.fn().mockResolvedValue({ kramdown: '' }),
+        getBlockText: vi.fn().mockResolvedValue(''),
+        getBlockAttrs: vi.fn().mockResolvedValue({}),
+        setBlockAttrs: vi.fn().mockResolvedValue(undefined),
+        markBlockAsCard: vi.fn().mockResolvedValue(undefined),
+        getCardBlockIds: vi.fn().mockResolvedValue([]),
+        addRiffCards: vi.fn().mockResolvedValue({ name: '', size: 0 }),
+      },
     });
   });
 

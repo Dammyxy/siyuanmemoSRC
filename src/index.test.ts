@@ -224,7 +224,11 @@ function createContext(plugin: any) {
     getHybridSyncService: vi.fn(() => undefined),
     dispose: vi.fn(async () => undefined),
   };
-  const tabManager = new TabManager(context, plugin);
+  const tabManager = new TabManager(context, plugin, {
+    siyuanApi: {
+      pushErrMsg: vi.fn(async () => undefined),
+    } as never,
+  });
   context.getTabManager = vi.fn(() => tabManager);
   return context;
 }

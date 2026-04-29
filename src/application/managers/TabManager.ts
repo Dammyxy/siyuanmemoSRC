@@ -14,7 +14,6 @@ import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import { ReviewView } from '@/ui/review/v2';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
-import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import type { IAdapter, ReviewHeaderVariant, ReviewViewTabBridge } from '@/ui/review/v2/types';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
@@ -423,9 +422,9 @@ export class TabManager {
   constructor(
     private context: ApplicationContext,
     private plugin: Plugin,
-    ports?: { siyuanApi?: ManagerSiyuanPort }
+    ports: { siyuanApi: ManagerSiyuanPort }
   ) {
-    this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
+    this.siyuanApi = ports.siyuanApi;
     this.TAB_TYPE = this.plugin.name + '-browser';
     this.REVIEW_TAB_TYPE = this.plugin.name + '-review';
     this.REVIEW_AI_TAB_TYPE = this.plugin.name + '-review-ai';

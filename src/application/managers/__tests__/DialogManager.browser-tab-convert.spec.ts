@@ -56,6 +56,8 @@ function createManager(opened = true) {
 
   const dialogManager = new DialogManager(context, { app: {} } as any, {
     siyuanApi: siyuanApi as any,
+    progressiveSiyuanApi: {} as any,
+    leechActionEffects: {} as any,
   });
 
   return {

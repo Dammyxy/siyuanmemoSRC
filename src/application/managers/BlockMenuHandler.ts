@@ -5,7 +5,6 @@
 
 import type { App } from 'siyuan';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
-import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { applyDialogChrome, createVueDialog } from '@/utils/dialog';
 import { DEFAULT_PRIORITY } from '@/core/queue';
 import { QueueType } from '@/types/unified-data-source';
@@ -122,14 +121,14 @@ export interface BlockMenuHandlerDeps {
   openNeuralReviewDialog: (options?: { focusBlockId?: string; includeFocusAsFirst?: boolean; resetHistory?: boolean }) => Promise<void>;
   applicationContext: ApplicationContext;  // ✅ 必需：用于访问所有 DDD 架构服务
   cardCreationHelper: CardCreationHelper;  // ✅ 卡片创建辅助类
-  siyuanApi?: ManagerSiyuanPort;
+  siyuanApi: ManagerSiyuanPort;
 }
 
 export class BlockMenuHandler {
   private readonly siyuanApi: ManagerSiyuanPort;
 
   constructor(private deps: BlockMenuHandlerDeps) {
-    this.siyuanApi = deps.siyuanApi ?? new ManagerSiyuanAdapter();
+    this.siyuanApi = deps.siyuanApi;
     // ReviewEntry 类已删除，功能直接在 BlockMenuHandler 中实现
   }
 

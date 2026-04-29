@@ -93,6 +93,7 @@ import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiy
 import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
 import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
+import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
@@ -412,6 +413,7 @@ export class ApplicationContext {
         context.getCardService(),
         context.getUnifiedDataSourceManager(),
         context.getDocTreeReviewScopeService(),
+        { siyuanApi: new ManagerSiyuanAdapter() },
       );
     });
 
@@ -533,7 +535,11 @@ export class ApplicationContext {
     // TODO: Phase 1 Task 2 - 注册 UI 管理器工厂
     // ✅ Task 2.1: DialogManager 已注册
     this.registerServiceFactory('dialogManager', (context) => {
-      return new DialogManager(context, context.getPlugin());
+      return new DialogManager(context, context.getPlugin(), {
+        siyuanApi: new ManagerSiyuanAdapter(),
+        progressiveSiyuanApi: new ProgressiveSiyuanAdapter(),
+        leechActionEffects: new SiyuanLeechActionEffectsAdapter(),
+      });
     });
     // ✅ Task 2.2: MenuManager 已注册
     this.registerServiceFactory('menuManager', (context) => {
@@ -547,7 +553,9 @@ export class ApplicationContext {
     });
     // ✅ Task 2.3: TabManager 已注册
     this.registerServiceFactory('tabManager', (context) => {
-      return new TabManager(context, context.getPlugin());
+      return new TabManager(context, context.getPlugin(), {
+        siyuanApi: new ManagerSiyuanAdapter(),
+      });
     });
     // ✅ Phase 9 Task 1.3: TabApplicationService 已注册
     this.registerServiceFactory('tabApplicationService', (context) => {
@@ -562,7 +570,8 @@ export class ApplicationContext {
       return new PracticeQueueManager(
         context.getRetrievalQueue(),
         context.getBlockMenuHandler(),
-        context.getI18n()
+        context.getI18n(),
+        new ManagerSiyuanAdapter()
       );
     });
     
@@ -1118,6 +1127,7 @@ export class ApplicationContext {
       i18n: config.i18n,
       dialogManager: undefined as unknown as DialogManager, // 将在 ApplicationContext 创建后设置
       cardCreationHelper: cardCreationHelper,  // ✅ 注入 CardCreationHelper
+      siyuanApi: new ManagerSiyuanAdapter(),
       openCreateTemplateCardDialog: async (blockIds) => {
         // 使用闭包延迟获取 DialogManager
         if (contextRef) {

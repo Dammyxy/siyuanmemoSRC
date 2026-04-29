@@ -49,6 +49,7 @@ describe('DialogManager', () => {
   let mockI18n: any;
   let mockSettingsService: any;
   let mockSiyuanApi: any;
+  let mockProgressiveSiyuanApi: any;
   let mockPracticeQueueManager: any;
   let mockRetrievalQueue: any;
 
@@ -77,6 +78,7 @@ describe('DialogManager', () => {
     mockSiyuanApi = {
       pushErrMsg: vi.fn(async () => undefined),
     };
+    mockProgressiveSiyuanApi = {};
 
     mockI18n = {
       settings: 'Settings',
@@ -103,7 +105,11 @@ describe('DialogManager', () => {
 
     mockPlugin = {} as Plugin;
 
-    dialogManager = new DialogManager(mockContext, mockPlugin, { siyuanApi: mockSiyuanApi });
+    dialogManager = new DialogManager(mockContext, mockPlugin, {
+      siyuanApi: mockSiyuanApi,
+      progressiveSiyuanApi: mockProgressiveSiyuanApi,
+      leechActionEffects: {} as any,
+    });
   });
 
   afterEach(() => {
@@ -230,7 +236,11 @@ describe('DialogManager', () => {
       mockI18n = {};
       mockContext.getI18n = vi.fn(() => mockI18n);
       
-      dialogManager = new DialogManager(mockContext, mockPlugin);
+      dialogManager = new DialogManager(mockContext, mockPlugin, {
+        siyuanApi: mockSiyuanApi,
+        progressiveSiyuanApi: mockProgressiveSiyuanApi,
+        leechActionEffects: {} as any,
+      });
       
       const { createVueDialog } = await import('@/utils/dialog');
       

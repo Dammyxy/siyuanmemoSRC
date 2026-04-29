@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 190)
+Last update: 2026-04-29 (Round 191)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - D10 D52 manager adapter injection phase12
+
+- Task: 按阶段 1+2 加速清理 D-10 / D-52，把 manager/service 小闭环里的默认 Siyuan adapter 构造继续迁到组合根注入。
+- Touched slice: Composition root and manager/service boundary in `src/application/ApplicationContext.ts`, `src/application/managers/{DialogManager,TabManager,BlockMenuHandler,PracticeQueueManager}.ts`, `src/application/services/ReviewScopeCardCreationSyncService.ts`, focused manager/service tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
+- Debt fixed now: `DialogManager`、`TabManager`、`BlockMenuHandler`、`PracticeQueueManager`、`ReviewScopeCardCreationSyncService` 不再 import 或默认构造 `ManagerSiyuanAdapter` / `ProgressiveSiyuanAdapter` / `SiyuanLeechActionEffectsAdapter`；这些 infrastructure adapters 现在只在 `ApplicationContext` 组合根创建，并通过显式 port 参数注入；对应 tests 改为显式 mock port，不再靠隐藏默认构造过关。
+- Debt deferred: Card CRUD / Xiuyuan use cases、`ReviewApplicationService`、query services、`AutoCardHandler`、`createReviewRenderServices`、`UnifiedDataSourceManager` 的 leech effects 构造、`ConceptLocator` 默认 port、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留。
+- Why deferred: 本批只清低风险 manager/service active slice；usecase/query/default locator 会碰卡片写入、Xiuyuan 语义、Review service 合同和 Browser query path，UI allowlist 需要 browser preview port 设计，不能混进组合根参数迁移。
+- Next safe step: 选一个 usecase/query 小闭环，优先迁 `ReviewApplicationService` 或 `CardContentQueryService` 到 required port；若转 UI 边界，则先给 browser preview breadcrumb 建 Browser application port，再收窄 `scripts/check-boundaries.cjs` allowlist。
+- Validation: `pnpm exec vitest run src/application/managers/DialogManager.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/application/managers/__tests__/DialogManager.quick-template-filter.test.ts src/application/managers/__tests__/DialogManager.progressive-split.spec.ts src/application/managers/__tests__/DialogManager.cdf-multiline.test.ts src/application/managers/__tests__/DialogManager.browser-tab-convert.spec.ts src/application/managers/TabManager.test.ts src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/application/managers/__tests__/TabManager.review-close.spec.ts src/application/managers/__tests__/TabManager.review-ai-companion.spec.ts src/application/managers/__tests__/TabManager.openReviewInNewWindow.spec.ts src/application/managers/__tests__/TabManager.neural-review-tab-sync.spec.ts src/application/managers/__tests__/BlockMenuHandler.applicationContext.test.ts src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/managers/__tests__/BlockMenuHandler.cancel-subtree.test.ts src/application/managers/__tests__/BlockMenuHandler.list-card-summary.test.ts src/application/managers/__tests__/BlockMenuHandler.list-marker-route.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-split.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts src/application/managers/MenuManager.test.ts src/application/managers/__tests__/MenuManager.topbar-quick-entry.test.ts src/application/managers/__tests__/MenuManager.topbar-menu-render.test.ts src/application/managers/__tests__/MenuManager.cancel-current-doc.test.ts src/application/services/__tests__/ReviewScopeCardCreationSyncService.test.ts src/index.test.ts --reporter=dot`（25 files / 118 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 MenuManager adapter injection
 
@@ -2585,7 +2595,7 @@ Do not add an entry for skill-only or docs-only work.
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
 | P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts beyond the in-process writer queue | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then decide whether a cross-window/device lock or tombstone reconciliation model is required |
-| P1 | Adapter construction is not yet fully centralized in `ApplicationContext` | card CRUD usecases, Xiuyuan usecases, `DialogManager`, `TabManager`, `MenuManager`, `ReviewApplicationService`, query services | Continue converting constructors to required ports and inject them from `ApplicationContext`; keep manager/factory exceptions explicit while migrating |
+| P1 | Adapter construction is not yet fully centralized in `ApplicationContext` | card CRUD usecases, Xiuyuan usecases, `AutoCardHandler`, `ReviewApplicationService`, query services, review render factory, `UnifiedDataSourceManager` leech effects | Continue converting constructors to required ports and inject them from `ApplicationContext`; keep factory exceptions explicit while migrating |
 | P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
@@ -2600,6 +2610,6 @@ Do not add an entry for skill-only or docs-only work.
 
 ## 4. Next convergence batch
 
-1. Continue adapter constructor migration so card CRUD, Xiuyuan, managers, query services, and review services receive ports from `ApplicationContext` instead of defaulting to infrastructure adapters.
+1. Continue adapter constructor migration so card CRUD, Xiuyuan, `AutoCardHandler`, query services, and review services receive ports from `ApplicationContext` instead of defaulting to infrastructure adapters.
 2. Shrink the UI infrastructure allowlist by replacing the remaining direct imports with application factories/ports.
 3. Split the largest active files by state / command / projection / persistence boundaries, starting with the AI workbench service only after Browser/Review wiring remains stable.

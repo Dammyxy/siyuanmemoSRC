@@ -70,7 +70,11 @@ function createDialogManager() {
   } as any;
 
   return {
-    dialogManager: new DialogManager(context, {} as any, { siyuanApi: siyuanApi as any }),
+    dialogManager: new DialogManager(context, {} as any, {
+      siyuanApi: siyuanApi as any,
+      progressiveSiyuanApi: {} as any,
+      leechActionEffects: {} as any,
+    }),
     splitDocument,
     siyuanApi,
   };

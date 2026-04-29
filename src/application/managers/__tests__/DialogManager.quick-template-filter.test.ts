@@ -66,7 +66,11 @@ function createDialogManager(templates: ICardTemplate[]) {
     getI18n: vi.fn().mockReturnValue({}),
   } as any;
 
-  const dialogManager = new DialogManager(context, {} as any, { siyuanApi: siyuanApi as any });
+  const dialogManager = new DialogManager(context, {} as any, {
+    siyuanApi: siyuanApi as any,
+    progressiveSiyuanApi: {} as any,
+    leechActionEffects: {} as any,
+  });
   return { dialogManager, siyuanApi };
 }
 

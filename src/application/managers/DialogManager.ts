@@ -22,7 +22,6 @@ import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import MobileReviewLauncher from '@/ui/mobile/MobileReviewLauncher.vue';
 import { TemplateSelectDialog } from '@/ui/xiuyuan';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
-import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
@@ -40,7 +39,7 @@ import type { ReviewHeaderVariant } from '@/ui/review/v2/types';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
 import { SubsetReviewQueue } from '@/core/queue/domain/SubsetReviewQueue';
 import { TemporaryDrillQueue } from '@/core/queue/domain/TemporaryDrillQueue';
-import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
+import type { LeechActionEffectsPort } from '@/core/queue/domain/ports';
 import { createLogger } from '@/utils/logger';
 import { isErr } from '@/types/result';
 import { DEFAULT_SETTINGS, type PluginSettings, type RiffIntegrationConfig } from '@/types/settings';
@@ -69,7 +68,6 @@ import {
 import type { PracticeQueueFilter } from './PracticeQueueManager';
 import type { BrowserOpenState } from '@/types/browser';
 import type { ProgressiveSiyuanPort } from '@/application/ports/ProgressiveSiyuanPort';
-import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import ProgressiveSplitDialog from '@/ui/progressive/ProgressiveSplitDialog.vue';
 
 const logger = createLogger('DialogManager');
@@ -154,7 +152,7 @@ const HIDDEN_TEMPLATE_IDS_IN_QUICK_CARD_DIALOG = new Set<string>(['builtin-conce
  * 
  * 使用示例：
  * ```typescript
- * const dialogManager = new DialogManager(context, plugin);
+ * const dialogManager = new DialogManager(context, plugin, ports);
  * 
  * // 打开设置对话框
  * dialogManager.openSettingsDialog();
@@ -186,14 +184,20 @@ export class DialogManager implements IDialogManager {
   
   private readonly siyuanApi: ManagerSiyuanPort;
   private readonly progressiveSiyuanApi: ProgressiveSiyuanPort;
+  private readonly leechActionEffects: LeechActionEffectsPort;
 
   constructor(
     private context: ApplicationContext,
     private plugin: Plugin,
-    ports?: { siyuanApi?: ManagerSiyuanPort; progressiveSiyuanApi?: ProgressiveSiyuanPort }
+    ports: {
+      siyuanApi: ManagerSiyuanPort;
+      progressiveSiyuanApi: ProgressiveSiyuanPort;
+      leechActionEffects: LeechActionEffectsPort;
+    }
   ) {
-    this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
-    this.progressiveSiyuanApi = ports?.progressiveSiyuanApi ?? new ProgressiveSiyuanAdapter();
+    this.siyuanApi = ports.siyuanApi;
+    this.progressiveSiyuanApi = ports.progressiveSiyuanApi;
+    this.leechActionEffects = ports.leechActionEffects;
   }
 
   private isMobileFrontend(): boolean {
@@ -1167,7 +1171,7 @@ export class DialogManager implements IDialogManager {
         threshold: Number(leech?.threshold) || 8,
         action: leech?.action || 'notify',
         tagName: String(leech?.tagName || ''),
-        effects: new SiyuanLeechActionEffectsAdapter(),
+        effects: this.leechActionEffects,
       });
 
       this.registerCurrentReviewDialog((onClose) =>

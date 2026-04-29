@@ -86,6 +86,12 @@ function createPlugin(): Plugin {
   } as unknown as Plugin;
 }
 
+function createSiyuanApiMock() {
+  return {
+    pushErrMsg: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createCompanionRuntime(sourceReviewSessionId: string) {
   const headElement = document.createElement('button');
   const element = document.createElement('div');
@@ -143,7 +149,7 @@ describe('TabManager review AI companion tab', () => {
   it('opens a companion tab once and focuses the existing runtime on repeat opens', async () => {
     const { context, registry } = createContext();
     const plugin = createPlugin();
-    const tabManager = new TabManager(context as never, plugin);
+    const tabManager = new TabManager(context as never, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.registerAll();
 
     const reviewAiRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[2][0];
@@ -185,7 +191,7 @@ describe('TabManager review AI companion tab', () => {
   it('closes the bound companion tab and disposes the review AI session when the review tab is destroyed', () => {
     const { context, registry } = createContext();
     const plugin = createPlugin();
-    const tabManager = new TabManager(context as never, plugin);
+    const tabManager = new TabManager(context as never, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.registerAll();
 
     const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];

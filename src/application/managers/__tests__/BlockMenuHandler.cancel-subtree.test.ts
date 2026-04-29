@@ -26,6 +26,13 @@ function createFixture(params: {
   const sql = vi.fn(async () => params.subtreeRows);
   const pushMsg = vi.fn(async () => undefined);
   const pushErrMsg = vi.fn(async () => undefined);
+  const docTreeReviewScopeService = {
+    hasDoc: vi.fn(() => false),
+    collectDocReviewScope: vi.fn(() => ({ cards: [], docIds: [] })),
+    isReady: vi.fn(() => true),
+    hydrate: vi.fn().mockResolvedValue(undefined),
+    scheduleRebuild: vi.fn(),
+  };
 
   const handler = new BlockMenuHandler({
     app: {} as any,
@@ -42,6 +49,7 @@ function createFixture(params: {
       getXiuyuanApplicationService: vi.fn(),
       getPlugin: vi.fn(),
       getReviewService: vi.fn(),
+      getDocTreeReviewScopeService: () => docTreeReviewScopeService,
     } as any,
     cardCreationHelper: {} as any,
     siyuanApi: {
@@ -139,4 +147,3 @@ describe('BlockMenuHandler cancel flashcards in subtree', () => {
     expect(args.cardIds).toHaveLength(2);
   });
 });
-

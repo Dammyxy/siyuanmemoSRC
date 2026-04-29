@@ -110,7 +110,11 @@ function createDialogManager() {
     getI18n: vi.fn().mockReturnValue({}),
   } as any;
   const plugin = {} as any;
-  const dialogManager = new DialogManager(context, plugin, { siyuanApi });
+  const dialogManager = new DialogManager(context, plugin, {
+    siyuanApi,
+    progressiveSiyuanApi: {} as any,
+    leechActionEffects: {} as any,
+  });
   return { dialogManager, siyuanApi, xiuyuanAppService };
 }
 

@@ -136,6 +136,8 @@ function createDialogManager(options?: {
         pushMsg: vi.fn().mockResolvedValue(undefined),
         pushErrMsg: vi.fn().mockResolvedValue(undefined),
       } as any,
+      progressiveSiyuanApi: {} as any,
+      leechActionEffects: {} as any,
     }),
     filterGroupQueue,
     tabManager,

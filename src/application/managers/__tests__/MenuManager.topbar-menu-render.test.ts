@@ -25,14 +25,6 @@ vi.mock('siyuan', () => ({
   showMessage: vi.fn(),
 }));
 
-vi.mock('@/infrastructure/siyuan/ManagerSiyuanAdapter', () => ({
-  ManagerSiyuanAdapter: vi.fn().mockImplementation(() => ({
-    sql: vi.fn().mockResolvedValue([]),
-    getBlockAttrs: vi.fn().mockResolvedValue({}),
-    setBlockAttrs: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
-
 describe('MenuManager top bar menu rendering', () => {
   beforeEach(() => {
     vi.clearAllMocks();

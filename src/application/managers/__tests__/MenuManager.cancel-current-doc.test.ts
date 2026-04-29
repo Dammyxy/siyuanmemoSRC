@@ -15,14 +15,6 @@ vi.mock('siyuan', () => ({
   showMessage: vi.fn(),
 }));
 
-vi.mock('@/infrastructure/siyuan/ManagerSiyuanAdapter', () => ({
-  ManagerSiyuanAdapter: vi.fn().mockImplementation(() => ({
-    sql: sqlMock,
-    getBlockAttrs: getBlockAttrsMock,
-    setBlockAttrs: setBlockAttrsMock,
-  })),
-}));
-
 describe('MenuManager one-click cancel current doc cards', () => {
   const mockCardService = {
     getDueCards: vi.fn().mockResolvedValue({ count: 0, total: 0 }),

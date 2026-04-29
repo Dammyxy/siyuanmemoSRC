@@ -5,7 +5,6 @@ import type { CardApplicationService } from '@/application/services/CardApplicat
 import { UnifiedDataSourceManager } from '@/application/services/UnifiedDataSourceManager';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
-import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import type { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { FSRSCard } from '@/types/card';
 import { createLogger } from '@/utils/logger';
@@ -41,9 +40,9 @@ export class ReviewScopeCardCreationSyncService {
     private readonly cardService: CardApplicationService,
     private readonly unifiedDataSourceManager: UnifiedDataSourceManager,
     private readonly docTreeReviewScopeService: DocTreeReviewScopeService,
-    ports?: { siyuanApi?: ManagerSiyuanPort },
+    ports: { siyuanApi: ManagerSiyuanPort },
   ) {
-    this.siyuanApi = ports?.siyuanApi ?? new ManagerSiyuanAdapter();
+    this.siyuanApi = ports.siyuanApi;
     this.handleCardCreated = async (event) => {
       await this.syncCreatedCard(event);
     };

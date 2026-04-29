@@ -73,6 +73,12 @@ function createPlugin(): Plugin {
   } as unknown as Plugin;
 }
 
+function createSiyuanApiMock() {
+  return {
+    pushErrMsg: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createReviewRuntime(customId: string, options?: {
   close?: ReturnType<typeof vi.fn>;
   removeTab?: ReturnType<typeof vi.fn>;
@@ -110,7 +116,7 @@ describe('TabManager closeReviewTab', () => {
   it('closes the review tab through tab.close when available', () => {
     const { context } = createContext();
     const plugin = createPlugin();
-    const tabManager = new TabManager(context as never, plugin);
+    const tabManager = new TabManager(context as never, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.registerAll();
 
     const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];
@@ -125,7 +131,7 @@ describe('TabManager closeReviewTab', () => {
   it('falls back to parent.removeTab when tab.close is unavailable', () => {
     const { context } = createContext();
     const plugin = createPlugin();
-    const tabManager = new TabManager(context as never, plugin);
+    const tabManager = new TabManager(context as never, plugin, { siyuanApi: createSiyuanApiMock() } as never);
     tabManager.registerAll();
 
     const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];

@@ -33,6 +33,12 @@ vi.mock('@/ui/review/v2', () => ({
   ReviewView: {},
 }));
 
+function createSiyuanApiMock() {
+  return {
+    pushErrMsg: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createManager() {
   const queueStub = {
     getType: vi.fn(() => QueueType.NeuralRoam),
@@ -67,7 +73,7 @@ function createManager() {
     addTab: vi.fn(),
   } as unknown as Plugin;
 
-  const tabManager = new TabManager(context as never, plugin);
+  const tabManager = new TabManager(context as never, plugin, { siyuanApi: createSiyuanApiMock() } as never);
   tabManager.registerAll();
 
   const reviewRegistration = (plugin.addTab as ReturnType<typeof vi.fn>).mock.calls[1][0];

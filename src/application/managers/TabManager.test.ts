@@ -38,6 +38,12 @@ vi.mock('@/ui/ai/AiWorkbenchPane.vue', () => ({
   default: {},
 }));
 
+function createSiyuanApiMock() {
+  return {
+    pushErrMsg: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createManager() {
   const context = {
     getI18n: vi.fn(() => ({
@@ -55,7 +61,7 @@ function createManager() {
   } as any;
 
   return {
-    tabManager: new TabManager(context, plugin),
+    tabManager: new TabManager(context, plugin, { siyuanApi: createSiyuanApiMock() } as never),
     plugin,
   };
 }
