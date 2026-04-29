@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import type { BrowserCard } from '../../types';
 import {
   deriveAncestorDocumentPaths,
@@ -35,7 +36,46 @@ function createCard(overrides: Partial<BrowserCard> = {}): BrowserCard {
   };
 }
 
+function createFetchBackedPreviewSiyuanApi(): BrowserPreviewSiyuanPort {
+  return {
+    async getBlockBreadcrumb(blockId: string) {
+      const response = await fetch('/api/block/getBlockBreadcrumb', {
+        method: 'POST',
+        body: JSON.stringify({ id: blockId }),
+      });
+      const payload = await response.json();
+      return payload.data ?? [];
+    },
+    async getDocInfo(docId: string) {
+      const response = await fetch('/api/filetree/getDoc', {
+        method: 'POST',
+        body: JSON.stringify({ id: docId }),
+      });
+      const payload = await response.json();
+      return payload.data ?? null;
+    },
+    async listNotebooks() {
+      const response = await fetch('/api/notebook/lsNotebooks', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const payload = await response.json();
+      return payload.data?.notebooks ?? [];
+    },
+    async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
+      const response = await fetch('/api/query/sql', {
+        method: 'POST',
+        body: JSON.stringify({ stmt }),
+      });
+      const payload = await response.json();
+      return payload.data ?? [];
+    },
+  };
+}
+
 describe('previewBreadcrumbData', () => {
+  let siyuanApi: BrowserPreviewSiyuanPort;
+
   beforeEach(() => {
     const breadcrumbMap: Record<string, Array<Record<string, string>>> = {
       'block-1': [
@@ -118,6 +158,7 @@ describe('previewBreadcrumbData', () => {
         json: async () => ({ code: 0, data: [] }),
       };
     }));
+    siyuanApi = createFetchBackedPreviewSiyuanApi();
   });
 
   afterEach(() => {
@@ -139,7 +180,7 @@ describe('previewBreadcrumbData', () => {
   });
 
   it('keeps same-name ancestors with different ids while excluding current block', async () => {
-    const breadcrumbs = await loadPreviewBreadcrumbTrail('block-1', createCard({
+    const breadcrumbs = await loadPreviewBreadcrumbTrail('block-1', siyuanApi, createCard({
       blockId: 'block-1',
       meta: {
         blockType: 'p',
@@ -155,7 +196,7 @@ describe('previewBreadcrumbData', () => {
   });
 
   it('falls back to the document parent trail when breadcrumb API only returns self', async () => {
-    const breadcrumbs = await loadPreviewBreadcrumbTrail('doc-1', createCard({
+    const breadcrumbs = await loadPreviewBreadcrumbTrail('doc-1', siyuanApi, createCard({
       blockId: 'doc-1',
       fullContent: 'Document Title',
       meta: {
@@ -171,7 +212,7 @@ describe('previewBreadcrumbData', () => {
   });
 
   it('falls back to the current document itself when a root document has no parent path', async () => {
-    const breadcrumbs = await loadPreviewBreadcrumbTrail('doc-root', createCard({
+    const breadcrumbs = await loadPreviewBreadcrumbTrail('doc-root', siyuanApi, createCard({
       blockId: 'doc-root',
       fullContent: 'Root Document',
       meta: {
@@ -187,7 +228,7 @@ describe('previewBreadcrumbData', () => {
   });
 
   it('infers document breadcrumbs from the raw self breadcrumb even without document meta markers', async () => {
-    const breadcrumbs = await loadPreviewBreadcrumbTrail('doc-meta-less', createCard({
+    const breadcrumbs = await loadPreviewBreadcrumbTrail('doc-meta-less', siyuanApi, createCard({
       blockId: 'doc-meta-less',
       fullContent: 'Meta Less Document',
       meta: {},

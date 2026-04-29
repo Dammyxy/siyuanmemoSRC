@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 
 const mockState = vi.hoisted(() => ({
   createdBlockIds: [] as string[],
@@ -53,6 +54,43 @@ function createCard(overrides: Partial<BrowserCard> = {}): BrowserCard {
     priority: overrides.priority ?? 0,
     suspended: overrides.suspended ?? false,
     meta: overrides.meta ?? {},
+  };
+}
+
+function createFetchBackedPreviewSiyuanApi(): BrowserPreviewSiyuanPort {
+  return {
+    async getBlockBreadcrumb(blockId: string) {
+      const response = await fetch('/api/block/getBlockBreadcrumb', {
+        method: 'POST',
+        body: JSON.stringify({ id: blockId }),
+      });
+      const payload = await response.json();
+      return payload.data ?? [];
+    },
+    async getDocInfo(docId: string) {
+      const response = await fetch('/api/filetree/getDoc', {
+        method: 'POST',
+        body: JSON.stringify({ id: docId }),
+      });
+      const payload = await response.json();
+      return payload.data ?? null;
+    },
+    async listNotebooks() {
+      const response = await fetch('/api/notebook/lsNotebooks', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const payload = await response.json();
+      return payload.data?.notebooks ?? [];
+    },
+    async sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
+      const response = await fetch('/api/query/sql', {
+        method: 'POST',
+        body: JSON.stringify({ stmt }),
+      });
+      const payload = await response.json();
+      return payload.data ?? [];
+    },
   };
 }
 
@@ -167,6 +205,7 @@ describe('BrowserPreview', () => {
         }),
         mode: 'dialog',
         size: 360,
+        siyuanApi: createFetchBackedPreviewSiyuanApi(),
         i18n: {
           preview: 'Preview',
           jumpToBlock: 'Jump to Block',
@@ -199,6 +238,7 @@ describe('BrowserPreview', () => {
         }),
         mode: 'dialog',
         size: 360,
+        siyuanApi: createFetchBackedPreviewSiyuanApi(),
         i18n: {
           preview: 'Preview',
           jumpToBlock: 'Jump to Block',
@@ -230,6 +270,7 @@ describe('BrowserPreview', () => {
         }),
         mode: 'dialog',
         size: 360,
+        siyuanApi: createFetchBackedPreviewSiyuanApi(),
         i18n: {
           preview: 'Preview',
           jumpToBlock: 'Jump to Block',
@@ -286,6 +327,7 @@ describe('BrowserPreview', () => {
         }),
         mode: 'dialog',
         size: 360,
+        siyuanApi: createFetchBackedPreviewSiyuanApi(),
         i18n: {
           previewTemporary: 'Temporary Preview',
           previewBackToCurrentCard: 'Back to Current Card',
@@ -333,6 +375,7 @@ describe('BrowserPreview', () => {
         }),
         mode: 'dialog',
         size: 360,
+        siyuanApi: createFetchBackedPreviewSiyuanApi(),
         i18n: {},
       },
     });
@@ -374,6 +417,7 @@ describe('BrowserPreview', () => {
         card,
         mode: 'dialog',
         size: 360,
+        siyuanApi: createFetchBackedPreviewSiyuanApi(),
         i18n: {
           previewMissingBlockTitle: 'Source block deleted',
           previewMissingBlockDescription: 'Cannot preview this orphan card.',

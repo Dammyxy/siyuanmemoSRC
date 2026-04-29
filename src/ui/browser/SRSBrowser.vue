@@ -301,6 +301,7 @@
       :card="previewCard"
       :mode="mode"
       :size="previewSize"
+      :siyuan-api="browserPreviewSiyuanApi"
       @jump="jumpToBlock"
       @delete-card="handlePreviewDeleteCard"
     />
@@ -481,6 +482,7 @@ import type {
   BrowserQueueCountsRequest,
   IBrowserApplicationService,
 } from '@/application/interfaces/IBrowserApplicationService';
+import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
 import type { CardTypeMarkerStoragePort } from '@/core/storage/ports';
@@ -573,6 +575,9 @@ const pluginUnifiedDataSourceManager = computed(
   () => browserAppServiceRef.value?.getUnifiedDataSourceManager?.() || pluginContext.value?.getUnifiedDataSourceManager?.()
 );
 const browserSiyuanApi = computed(() => browserAppServiceRef.value?.getSiyuanApi?.());
+const browserPreviewSiyuanApi = computed(() => (
+  browserSiyuanApi.value as unknown as BrowserPreviewSiyuanPort | undefined
+));
 const {
   getQueueById: resolveQueueById,
   refreshQueueCounts: refreshQueueCountsBridge,

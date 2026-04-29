@@ -42,10 +42,6 @@ function isApplicationManagerOrFactory(relativePath) {
     || relativePath.startsWith('src/application/factories/');
 }
 
-const uiInfrastructureAllowlist = new Set([
-  'src/ui/browser/utils/previewBreadcrumbData.ts',
-]);
-
 for (const file of walk(srcRoot)) {
   const relativePath = rel(file);
   const text = fs.readFileSync(file, 'utf8');
@@ -70,7 +66,6 @@ for (const file of walk(srcRoot)) {
     relativePath.startsWith('src/ui/')
     && text.includes('@/infrastructure/')
     && !isTestFile(relativePath)
-    && !uiInfrastructureAllowlist.has(relativePath)
   ) {
     addFailure(file, 'UI imports from infrastructure must go through an application factory/port');
   }

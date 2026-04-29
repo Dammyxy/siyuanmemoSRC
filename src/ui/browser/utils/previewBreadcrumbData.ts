@@ -3,7 +3,7 @@ import {
   normalizeBreadcrumbName,
   normalizeRawBreadcrumbs,
 } from '@/core/card/common/application/breadcrumbNormalization';
-import { getBlockBreadcrumb, getDocInfo, listNotebooks, sql } from '@/infrastructure/siyuan/api';
+import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import { isIgnorableMissingBlockError } from '@/application/usecases/card/shared/SiyuanBlockErrorClassifier';
 import { escapeSQL } from '@/utils/sqlOptimizer';
 import { createLogger } from '@/utils/logger';
@@ -122,12 +122,13 @@ export function deriveAncestorDocumentPaths(documentPath: string): string[] {
 
 async function loadDocumentParentTrail(
   blockId: string,
+  siyuanApi: BrowserPreviewSiyuanPort,
   card: Pick<BrowserCard, 'meta'> | null | undefined,
 ): Promise<BreadcrumbItem[]> {
   let docInfo: DocumentInfoLike | null = null;
 
   try {
-    docInfo = await getDocInfo(blockId);
+    docInfo = await siyuanApi.getDocInfo(blockId);
   }
   catch (error) {
     logPreviewInfoFallback(
@@ -146,7 +147,7 @@ async function loadDocumentParentTrail(
     return [];
   }
 
-  const rows = await sql<DocumentBreadcrumbRow>(`
+  const rows = await siyuanApi.sql<DocumentBreadcrumbRow>(`
     SELECT id, content, hpath, path, type
     FROM blocks
     WHERE box = '${escapeSQL(box)}'
@@ -173,13 +174,13 @@ async function loadDocumentParentTrail(
     .filter((item): item is BreadcrumbItem => Boolean(item?.id) && Boolean(item?.name));
 }
 
-async function hydrateNotebookNameCache(): Promise<void> {
+async function hydrateNotebookNameCache(siyuanApi: BrowserPreviewSiyuanPort): Promise<void> {
   if (notebookCacheHydrationPromise) {
     return notebookCacheHydrationPromise;
   }
 
   notebookCacheHydrationPromise = (async () => {
-    const notebooks = await listNotebooks();
+    const notebooks = await siyuanApi.listNotebooks();
     for (const notebook of notebooks as NotebookLike[]) {
       const notebookId = readString(notebook.id);
       const notebookName = readString(notebook.name);
@@ -198,7 +199,7 @@ async function hydrateNotebookNameCache(): Promise<void> {
   }
 }
 
-async function resolveNotebookName(box: string): Promise<string> {
+async function resolveNotebookName(box: string, siyuanApi: BrowserPreviewSiyuanPort): Promise<string> {
   const notebookId = readString(box);
   if (!notebookId) {
     return '';
@@ -210,7 +211,7 @@ async function resolveNotebookName(box: string): Promise<string> {
   }
 
   try {
-    await hydrateNotebookNameCache();
+    await hydrateNotebookNameCache(siyuanApi);
   }
   catch (error) {
     logger.warn('[PreviewBreadcrumbData] Failed to hydrate notebook cache', error);
@@ -240,12 +241,13 @@ function resolvePreviewDocumentId(
 
 async function loadPreviewDocumentInfo(
   documentId: string,
+  siyuanApi: BrowserPreviewSiyuanPort,
   card: Pick<BrowserCard, 'meta'> | null | undefined,
 ): Promise<{ box: string; path: string }> {
   let docInfo: DocumentInfoLike | null = null;
 
   try {
-    docInfo = await getDocInfo(documentId);
+    docInfo = await siyuanApi.getDocInfo(documentId);
   }
   catch (error) {
     logPreviewInfoFallback(
@@ -260,18 +262,19 @@ async function loadPreviewDocumentInfo(
 async function prependNotebookBreadcrumb(
   trail: BreadcrumbItem[],
   documentId: string,
+  siyuanApi: BrowserPreviewSiyuanPort,
   card: Pick<BrowserCard, 'meta'> | null | undefined,
 ): Promise<BreadcrumbItem[]> {
   if (!documentId || trail.some(item => isNotebookType(readString(item.type)))) {
     return trail;
   }
 
-  const { box } = await loadPreviewDocumentInfo(documentId, card);
+  const { box } = await loadPreviewDocumentInfo(documentId, siyuanApi, card);
   if (!box) {
     return trail;
   }
 
-  const notebookName = await resolveNotebookName(box);
+  const notebookName = await resolveNotebookName(box, siyuanApi);
   if (!notebookName) {
     return trail;
   }
@@ -318,6 +321,7 @@ function resolveSelectedDocumentSelfBreadcrumb(
 
 export async function loadPreviewBreadcrumbTrail(
   blockId: string,
+  siyuanApi: BrowserPreviewSiyuanPort,
   card: Pick<BrowserCard, 'blockId' | 'meta' | 'content' | 'fullContent'> | null | undefined,
 ): Promise<BreadcrumbItem[]> {
   const trimTrailingCount = getPreviewBreadcrumbTrimCount(card);
@@ -329,7 +333,7 @@ export async function loadPreviewBreadcrumbTrail(
     return cached.map((item) => ({ ...item }));
   }
 
-  const rawBreadcrumbs = await getBlockBreadcrumb(blockId);
+  const rawBreadcrumbs = await siyuanApi.getBlockBreadcrumb(blockId);
   const allBreadcrumbs = normalizeRawBreadcrumbs(rawBreadcrumbs, {
     trimTrailingCount: 0,
   });
@@ -340,19 +344,19 @@ export async function loadPreviewBreadcrumbTrail(
   }).filter(item => item.id !== blockId);
 
   if (!selfDocumentBreadcrumb || normalizedTrail.length > 0) {
-    const trail = await prependNotebookBreadcrumb(normalizedTrail, documentId, card);
+    const trail = await prependNotebookBreadcrumb(normalizedTrail, documentId, siyuanApi, card);
     return cacheBreadcrumbTrail(cacheKey, trail);
   }
 
   try {
-    const documentParentTrail = await loadDocumentParentTrail(blockId, card);
+    const documentParentTrail = await loadDocumentParentTrail(blockId, siyuanApi, card);
     const documentTrail = documentParentTrail.length > 0 ? documentParentTrail : [selfDocumentBreadcrumb];
-    const trail = await prependNotebookBreadcrumb(documentTrail, documentId, card);
+    const trail = await prependNotebookBreadcrumb(documentTrail, documentId, siyuanApi, card);
     return cacheBreadcrumbTrail(cacheKey, trail);
   }
   catch (error) {
     logPreviewInfoFallback('[PreviewBreadcrumbData] Failed to resolve document parent trail', error);
-    const trail = await prependNotebookBreadcrumb([selfDocumentBreadcrumb], documentId, card);
+    const trail = await prependNotebookBreadcrumb([selfDocumentBreadcrumb], documentId, siyuanApi, card);
     return cacheBreadcrumbTrail(cacheKey, trail);
   }
 }

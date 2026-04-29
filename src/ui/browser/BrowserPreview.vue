@@ -85,6 +85,7 @@ import { Protyle, type App } from 'siyuan';
 
 import type { BreadcrumbItem } from '@/core/card/common/application/types';
 import CardBreadcrumb from '@/core/card/common/ui/CardBreadcrumb.vue';
+import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import type { BrowserCard, BrowserPreviewSource } from './types';
 import { isIgnorableMissingBlockError } from '@/application/usecases/card/shared/SiyuanBlockErrorClassifier';
 import { applyProtyleReadonly } from './utils/protyleControl';
@@ -108,6 +109,7 @@ const props = defineProps<{
   card: BrowserCard | null;
   mode: 'dialog' | 'tab' | 'dock';
   size: number;
+  siyuanApi?: BrowserPreviewSiyuanPort | null;
 }>();
 
 const emit = defineEmits<{
@@ -133,6 +135,13 @@ let loadToken = 0;
 let lastPreviewGutterInteractionAt = 0;
 
 const PREVIEW_MENU_ERROR_SUPPRESS_WINDOW_MS = 1500;
+
+function requireSiyuanApi(): BrowserPreviewSiyuanPort {
+  if (!props.siyuanApi) {
+    throw new Error('BrowserPreview requires BrowserPreviewSiyuanPort');
+  }
+  return props.siyuanApi;
+}
 
 interface ProtyleWithReadonlyPreviewElements {
   protyle?: {
@@ -373,7 +382,7 @@ async function fetchBreadcrumbs(blockId: string, token: number = loadToken): Pro
   }
 
   try {
-    const nextBreadcrumbs = await loadPreviewBreadcrumbTrail(blockId, props.card);
+    const nextBreadcrumbs = await loadPreviewBreadcrumbTrail(blockId, requireSiyuanApi(), props.card);
     if (token !== loadToken) {
       return;
     }
