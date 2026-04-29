@@ -136,6 +136,7 @@ flowchart TD
 5. Browser DTO、query parser、stable row id 与排序显示契约以 `src/types/browser.ts` 为共享契约；application query kernel 只依赖 `src/application/queries/browser/shared/*` 与 `src/types/browser.ts`，不再 import UI browser module
 6. 右键批量动作通过当前数据源持有的 `UnifiedDataSourceManager` 批量入口执行：删卡走 `batchDeleteCards(cardIds, { blockIds })`，优先级/重置/暂停/恢复走 `batchUpdateCards(cards)`，加入/移除队列走 `batchAddToQueue()` / queue `addCards()` 与 `removeCards()`；`postpone/advance/spread` 走 `RescheduleService -> UnifiedStorageCardUpdateAdapter -> UnifiedStorageManager.batchUpdateCards()`，SQL active 时再一次 `cards` upsert + persist；这些入口在应用层分块 upsert / 批量删除 / 一次队列持久化后统一发布 `CardDeleted / CardsDeleted`、`card-updated` 与 `queue-changed`，单卡 API 只作为旧调用 fallback
 7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection、preview breadcrumb 等 Siyuan 调用必须显式拿到 Browser 侧 Siyuan port，不再依赖 browser service 模块全局状态，也不从 UI 直接 import infrastructure Siyuan API
+8. Browser surface profile 默认值由 `layoutProfile.ts` 维护；profile-scoped chrome preference 读写、legacy dialog key 迁移与 storage failure contract 由 `browserChromePreferences.ts` 维护，`SRSBrowser.vue` 只负责把偏好应用到当前 UI state 与移动端 / suspend gate
 
 ### 4.2 Review
 
@@ -474,7 +475,8 @@ Siyuan / Riff / LLM 适配器：
 
 Browser：
 
-- `src/ui/browser/SRSBrowser.vue`：Browser 主视图。
+- `src/ui/browser/SRSBrowser.vue`：Browser 主视图，负责应用当前 chrome state、加载数据与调度 UI 交互。
+- `src/ui/browser/layoutProfile.ts` / `browserChromePreferences.ts`：Browser surface profile、默认 chrome 状态与 profile-scoped preference 持久化。
 - `src/ui/browser/SRSBrowserAdapter.ts` / `SRSBrowserQueueView.ts`：Browser 桥接与队列视图逻辑。
 - `src/ui/browser/composables/*`：Browser 状态、刷新、排序、筛选、动作封装。
 - `src/ui/browser/datasource/*`：Browser UI-side datasource 实现；共享 DTO、query parser、row id、sort contract 已迁到 `src/types/browser.ts`，application query 不从这里取契约；deck datasource 在 service 提供 `getDeckPage/getDeckMatchedIds` 时直接使用应用层分页端口，不再先构造全量 snapshot。

@@ -364,16 +364,18 @@ import {
   type CardTypeFilter,
 } from './types';
 import {
-  buildBrowserPreferenceKey,
-  LEGACY_BROWSER_VIEW_MODE_KEY,
   resolveBrowserLayoutProfile,
-  resolveDefaultBrowserNavigatorOpen,
   resolveDefaultBrowserNarrowRoamPane,
   resolveDefaultBrowserShowPreview,
-  resolveDefaultBrowserViewMode,
+  type BrowserChromePreferenceKey,
   type BrowserLayoutProfile,
   type BrowserNarrowRoamPane,
 } from './layoutProfile';
+import {
+  readBrowserChromePreferences,
+  writeBrowserChromePreference,
+  type BrowserChromePreferenceValue,
+} from './browserChromePreferences';
 import {
   DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
   normalizeHierarchySnapshotDelayMs,
@@ -778,63 +780,15 @@ function setupBrowserLayoutObserver(): void {
   browserRootResizeObserver.observe(root);
 }
 
-function readStoredViewMode(profile: BrowserLayoutProfile): BrowserViewMode {
-  const key = buildBrowserPreferenceKey('viewMode', profile);
-  try {
-    const stored = localStorage.getItem(key);
-    if (stored === 'flat' || stored === 'hierarchy') {
-      return stored;
-    }
-
-    if (profile === 'dialog') {
-      const legacy = localStorage.getItem(LEGACY_BROWSER_VIEW_MODE_KEY);
-      if (legacy === 'flat' || legacy === 'hierarchy') {
-        localStorage.setItem(key, legacy);
-        return legacy;
-      }
-    }
-  } catch {}
-
-  return resolveDefaultBrowserViewMode(profile);
-}
-
-function readStoredBooleanPreference(
-  key: 'showPreview' | 'navigatorOpen',
-  profile: BrowserLayoutProfile,
-  fallback: boolean,
-): boolean {
-  try {
-    const stored = localStorage.getItem(buildBrowserPreferenceKey(key, profile));
-    if (stored === '1') {
-      return true;
-    }
-    if (stored === '0') {
-      return false;
-    }
-  } catch {}
-
-  return fallback;
-}
-
-function readStoredNarrowRoamPane(profile: BrowserLayoutProfile): BrowserNarrowRoamPane {
-  try {
-    const stored = localStorage.getItem(buildBrowserPreferenceKey('narrowRoamPane', profile));
-    if (stored === 'history' || stored === 'wake') {
-      return stored;
-    }
-  } catch {}
-
-  return resolveDefaultBrowserNarrowRoamPane();
-}
-
-function persistBrowserChromePreference(key: string, value: string): void {
+function persistBrowserChromePreference(
+  key: BrowserChromePreferenceKey,
+  value: BrowserChromePreferenceValue,
+): void {
   if (isMobileMode.value || suspendBrowserChromePersistence) {
     return;
   }
 
-  try {
-    localStorage.setItem(key, value);
-  } catch {}
+  writeBrowserChromePreference(key, layoutProfile.value, value);
 }
 
 function applyBrowserChromePreferences(profile: BrowserLayoutProfile): void {
@@ -848,18 +802,11 @@ function applyBrowserChromePreferences(profile: BrowserLayoutProfile): void {
       return;
     }
 
-    viewMode.value = readStoredViewMode(profile);
-    showPreview.value = readStoredBooleanPreference(
-      'showPreview',
-      profile,
-      resolveDefaultBrowserShowPreview(profile),
-    );
-    navigatorOpen.value = readStoredBooleanPreference(
-      'navigatorOpen',
-      profile,
-      resolveDefaultBrowserNavigatorOpen(profile),
-    );
-    narrowRoamPane.value = readStoredNarrowRoamPane(profile);
+    const preferences = readBrowserChromePreferences(profile);
+    viewMode.value = preferences.viewMode;
+    showPreview.value = preferences.showPreview;
+    navigatorOpen.value = preferences.navigatorOpen;
+    narrowRoamPane.value = preferences.narrowRoamPane;
 
     if (profile === 'tab-narrow' && viewMode.value !== 'hierarchy') {
       navigatorOpen.value = false;
@@ -2113,31 +2060,19 @@ watch(viewMode, (value) => {
   if (layoutProfile.value === 'tab-narrow' && value !== 'hierarchy') {
     navigatorOpen.value = false;
   }
-  persistBrowserChromePreference(
-    buildBrowserPreferenceKey('viewMode', layoutProfile.value),
-    value,
-  );
+  persistBrowserChromePreference('viewMode', value);
 });
 
 watch(showPreview, (value) => {
-  persistBrowserChromePreference(
-    buildBrowserPreferenceKey('showPreview', layoutProfile.value),
-    value ? '1' : '0',
-  );
+  persistBrowserChromePreference('showPreview', value);
 });
 
 watch(navigatorOpen, (value) => {
-  persistBrowserChromePreference(
-    buildBrowserPreferenceKey('navigatorOpen', layoutProfile.value),
-    value ? '1' : '0',
-  );
+  persistBrowserChromePreference('navigatorOpen', value);
 });
 
 watch(narrowRoamPane, (value) => {
-  persistBrowserChromePreference(
-    buildBrowserPreferenceKey('narrowRoamPane', layoutProfile.value),
-    value,
-  );
+  persistBrowserChromePreference('narrowRoamPane', value);
 });
 
 /*

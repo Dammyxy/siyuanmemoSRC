@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 202)
+Last update: 2026-04-29 (Round 203)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - D10 D52 Browser chrome preference split
+
+- Task: 继续 D-10 / D-52 大型 active 文件拆分评估，先沿 Browser UI persistence boundary 把 `SRSBrowser.vue` 内的 chrome preference 持久化抽出。
+- Touched slice: Browser UI chrome state in `src/ui/browser/SRSBrowser.vue`, new `src/ui/browser/browserChromePreferences.ts`, existing `src/ui/browser/layoutProfile.ts`, focused `src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts`, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
+- Debt fixed now: `SRSBrowser.vue` 不再直接读写 `localStorage` 或承担 legacy dialog view-mode key 迁移；profile-scoped key 读写、boolean 编码、默认值回落与 storage throw contract 集中到 `browserChromePreferences.ts`，并由 focused tests 锁住。
+- Debt deferred: D-10 / D-52 的大型 active 文件债只缩小了一刀；`SRSBrowser.vue` 仍有加载、导航、队列动作与 neural projection 交织，`AIWorkbenchService.ts`、`ReviewView.vue`、`SettingsPanel.vue`、`AiWorkbenchPane.vue` 仍待按 active behavior boundary 拆分；Browser helper duplication 与 Native Riff hard-delete / 多窗口多设备冲突等产品语义债未混入本批。
+- Why deferred: 本批选择低风险 Browser persistence 切片，能减少 SFC 内 state/persistence 混杂且不改变数据加载或 review/browser 行为；继续拆 command/projection/loading 或产品语义会扩大回归面，需要单独验收。
+- Next safe step: 继续从 `SRSBrowser.vue` 抽一个 browser-surface state hydrator 或 neural navigation command helper；或者转到 `AIWorkbenchService.ts` 的 session persistence boundary。
+- Validation: `pnpm exec vitest run src/ui/browser/__tests__/SRSBrowser.tab-layout.spec.ts --reporter=dot`（1 file / 9 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，保留既有 i18n/Sass warnings）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 Xiuyuan sync port injection
 
@@ -2708,7 +2718,7 @@ Do not add an entry for skill-only or docs-only work.
 | P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
-| P1 | Large active files still mix state, command, projection, and persistence concerns | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue` | Split only along active behavior boundaries after Browser/Review/adapter wiring stabilizes; avoid naming-only moves |
+| P1 | Large active files still mix state, command, projection, and persistence concerns; Browser chrome preference persistence has been split out, but the larger state/command/projection seams remain | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue`, `src/ui/browser/browserChromePreferences.ts` | Continue splitting only along active behavior boundaries; next Browser-safe cut is a state hydrator or neural navigation command helper, not naming-only moves |
 | P2 | Browser filter/query helper logic still has local duplication after contract migration | `src/types/browser.ts`, `src/ui/browser/utils/cardFilters.ts`, browser datasource helpers | Deduplicate around shared parser/matcher only after current Browser tests cover the migrated behavior |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
@@ -2718,5 +2728,5 @@ Do not add an entry for skill-only or docs-only work.
 
 ## 4. Next convergence batch
 
-1. Split the largest active files by state / command / projection / persistence boundaries, starting with the AI workbench service only after Browser/Review wiring remains stable.
+1. Continue splitting the largest active files by state / command / projection / persistence boundaries; Browser chrome preference persistence is already extracted, so the next safe cut should target Browser state hydration / neural commands or AI workbench session persistence.
 2. Evaluate product semantics debt separately: Native Riff hard-delete vs local hide/tombstone and cross-window/device conflict handling.
