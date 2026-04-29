@@ -19,6 +19,11 @@ vi.mock('@/infrastructure/siyuan/ManagerSiyuanAdapter', () => ({
 }));
 
 function createFixture() {
+  const siyuanApi = {
+    sql: vi.fn().mockResolvedValue([]),
+    getBlockAttrs: vi.fn().mockResolvedValue({}),
+    setBlockAttrs: vi.fn().mockResolvedValue(undefined),
+  };
   const dialogManager = {
     openReviewDialog: vi.fn().mockResolvedValue(undefined),
     openIncrementalLearningDialog: vi.fn().mockResolvedValue(undefined),
@@ -39,7 +44,13 @@ function createFixture() {
     getAutoCardHandler: vi.fn().mockReturnValue(null),
   } as any;
 
-  const menuManager = new MenuManager(context, {} as any, {} as Record<string, string>, dialogManager as any);
+  const menuManager = new MenuManager(
+    context,
+    {} as any,
+    {} as Record<string, string>,
+    dialogManager as any,
+    siyuanApi as any,
+  );
   return { menuManager, dialogManager };
 }
 

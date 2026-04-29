@@ -541,7 +541,8 @@ export class ApplicationContext {
         context, 
         context.getPlugin(), 
         context.getI18n(),
-        context.getDialogManager()  // ✅ 注入 DialogManager
+        context.getDialogManager(),  // ✅ 注入 DialogManager
+        new ManagerSiyuanAdapter()
       );
     });
     // ✅ Task 2.3: TabManager 已注册

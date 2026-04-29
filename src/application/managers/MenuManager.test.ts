@@ -14,6 +14,7 @@ vi.mock('siyuan', () => ({
     addSeparator: vi.fn(),
     open: vi.fn(),
   })),
+  showMessage: vi.fn(),
 }));
 
 describe('MenuManager', () => {
@@ -46,6 +47,9 @@ describe('MenuManager', () => {
         ]),
       }),
       getDialogManager: vi.fn().mockReturnValue(mockDialogManager),
+      getArenaKernelService: vi.fn().mockReturnValue({
+        isEnabled: vi.fn().mockReturnValue(false),
+      }),
     } as any;
     
     // Mock Plugin
@@ -64,7 +68,13 @@ describe('MenuManager', () => {
       totalCountLabel: '总计',
     };
     
-    menuManager = new MenuManager(mockContext, mockPlugin, mockI18n, mockDialogManager);
+    const mockSiyuanApi = {
+      sql: vi.fn().mockResolvedValue([]),
+      getBlockAttrs: vi.fn().mockResolvedValue({}),
+      setBlockAttrs: vi.fn().mockResolvedValue(undefined),
+    };
+
+    menuManager = new MenuManager(mockContext, mockPlugin, mockI18n, mockDialogManager, mockSiyuanApi as any);
   });
   
   describe('构造函数', () => {
@@ -82,7 +92,7 @@ describe('MenuManager', () => {
   });
   
   describe('openTopBarMenu', () => {
-    it('应该打开顶栏菜单', () => {
+    it('应该打开顶栏菜单', async () => {
       const mockEvent = {
         currentTarget: {
           getBoundingClientRect: vi.fn().mockReturnValue({
@@ -93,20 +103,20 @@ describe('MenuManager', () => {
       } as any;
       
       // 不会抛出错误
-      expect(() => menuManager.openTopBarMenu(mockEvent)).not.toThrow();
+      await expect(menuManager.openTopBarMenu(mockEvent)).resolves.toBeUndefined();
     });
     
-    it('应该在没有 rect 时使用鼠标坐标', () => {
+    it('应该在没有 rect 时使用鼠标坐标', async () => {
       const mockEvent = {
         clientX: 100,
         clientY: 50,
       } as any;
       
       // 不会抛出错误
-      expect(() => menuManager.openTopBarMenu(mockEvent)).not.toThrow();
+      await expect(menuManager.openTopBarMenu(mockEvent)).resolves.toBeUndefined();
     });
     
-    it('应该委托给 DialogManager 打开对话框', () => {
+    it('应该委托给 DialogManager 打开对话框', async () => {
       const mockEvent = {
         currentTarget: {
           getBoundingClientRect: vi.fn().mockReturnValue({
@@ -116,7 +126,7 @@ describe('MenuManager', () => {
         },
       } as any;
       
-      menuManager.openTopBarMenu(mockEvent);
+      await menuManager.openTopBarMenu(mockEvent);
       
       // 验证 DialogManager 的方法被调用（通过菜单项点击）
       // 注意：由于菜单项的 click 回调是异步的，这里只验证菜单创建不报错

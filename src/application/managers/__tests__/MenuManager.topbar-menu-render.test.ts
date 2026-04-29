@@ -62,6 +62,9 @@ describe('MenuManager top bar menu rendering', () => {
       getTabManager: vi.fn().mockReturnValue({
         openBrowserTab: vi.fn().mockReturnValue(true),
       }),
+      getArenaKernelService: vi.fn().mockReturnValue({
+        isEnabled: vi.fn().mockReturnValue(false),
+      }),
     } as any;
 
     const i18n = {
@@ -76,8 +79,13 @@ describe('MenuManager top bar menu rendering', () => {
       oneClickCancelCardsCurrentDoc: 'L8',
       settings: 'Settings',
     } as Record<string, string>;
+    const siyuanApi = {
+      sql: vi.fn().mockResolvedValue([]),
+      getBlockAttrs: vi.fn().mockResolvedValue({}),
+      setBlockAttrs: vi.fn().mockResolvedValue(undefined),
+    };
 
-    const menuManager = new MenuManager(context, {} as any, i18n, dialogManager as any);
+    const menuManager = new MenuManager(context, {} as any, i18n, dialogManager as any, siyuanApi as any);
     const runSpy = vi.spyOn(menuManager, 'runTopBarQuickEntryAction').mockResolvedValue(undefined);
 
     await menuManager.openTopBarMenu({

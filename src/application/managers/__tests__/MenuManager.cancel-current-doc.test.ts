@@ -64,6 +64,11 @@ describe('MenuManager one-click cancel current doc cards', () => {
       {} as any,
       i18n,
       {} as any,
+      {
+        sql: sqlMock,
+        getBlockAttrs: getBlockAttrsMock,
+        setBlockAttrs: setBlockAttrsMock,
+      } as any,
     );
   });
 

@@ -24,7 +24,7 @@ import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
 import { createLogger } from '@/utils/logger';
 import type { FSRSCard } from '@/types/card';
 import { isErr } from '@/types/result';
-import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
+import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
 import { buildClearedBlockAttrs } from '@/application/usecases/card/shared/CardBlockAttrCleaner';
 import {
   TOPBAR_QUICK_ENTRY_DEFINITIONS,
@@ -46,7 +46,7 @@ const TOPBAR_MENU_HIDDEN_ACTIONS = new Set<TopBarQuickEntryActionId>([
  * 使用示例：
  * ```typescript
  * const dialogManager = new DialogManager(context, plugin);
- * const menuManager = new MenuManager(context, plugin, i18n, dialogManager);
+ * const menuManager = new MenuManager(context, plugin, i18n, dialogManager, siyuanApi);
  * 
  * // 注册所有菜单
  * menuManager.registerAll();
@@ -56,8 +56,6 @@ const TOPBAR_MENU_HIDDEN_ACTIONS = new Set<TopBarQuickEntryActionId>([
  * ```
  */
 export class MenuManager {
-  private readonly siyuanApi = new ManagerSiyuanAdapter();
-
   // ========================================================================
   // 构造函数
   // ========================================================================
@@ -69,12 +67,14 @@ export class MenuManager {
    * @param plugin - 插件实例
    * @param i18n - 国际化字典
    * @param dialogManager - 对话框管理器（依赖注入）
+   * @param siyuanApi - 思源 API 端口（组合根注入）
    */
   constructor(
     private context: ApplicationContext,
     private plugin: Plugin,
     private i18n: Record<string, string>,
-    private dialogManager: DialogManager
+    private dialogManager: DialogManager,
+    private readonly siyuanApi: ManagerSiyuanPort
   ) {}
   
   // ========================================================================

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 189)
+Last update: 2026-04-29 (Round 190)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - D10 D52 MenuManager adapter injection
+
+- Task: 开始 D-10 / D-52 边界收口第一批，迁移一个低风险默认 Siyuan adapter 构造到组合根注入。
+- Touched slice: Menu / composition root boundary in `src/application/managers/MenuManager.ts`, `src/application/ApplicationContext.ts`, focused MenuManager tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
+- Debt fixed now: `MenuManager` 不再 import 或默认构造 `ManagerSiyuanAdapter`；`ApplicationContext` 在组合根创建 `ManagerSiyuanAdapter` 并通过 `ManagerSiyuanPort` 注入；focused tests 改为显式传入 mock port，顺手补齐 topbar render 对 Arena service 的 mock 与 async assertion，避免测试靠隐藏默认构造过关。
+- Debt deferred: 其他 application manager/service/usecase 里的默认 Siyuan adapter 构造仍保留；`scripts/check-boundaries.cjs` 的 UI infrastructure allowlist 仍保留；`MenuManager` 内既有 one-click cancel stale-card local cleanup 和临时 `AutoCardHandler` 创建未在本批改动。
+- Why deferred: 本批只收一个组合根注入闭环，避免同时改 Dialog / Tab / BlockMenu / Xiuyuan / Card CRUD 等多条 active call chain；one-click cancel cleanup 和临时 AutoCardHandler 涉及恢复/删除语义，不能混入纯边界收口。
+- Next safe step: 继续迁移 `PracticeQueueManager` 或 `ReviewScopeCardCreationSyncService` 的 `ManagerSiyuanAdapter` 默认构造；若改 UI preview，则先把 `previewBreadcrumbData` 移到端口注入后再收窄 boundary allowlist。
+- Validation: `pnpm exec vitest run src/application/managers/MenuManager.test.ts src/application/managers/__tests__/MenuManager.topbar-quick-entry.test.ts src/application/managers/__tests__/MenuManager.topbar-menu-render.test.ts src/application/managers/__tests__/MenuManager.cancel-current-doc.test.ts --reporter=dot`（19 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过；阻断 i18n 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过）。
 
 ### 2026-04-29 - browser sql D01 profile closure
 
