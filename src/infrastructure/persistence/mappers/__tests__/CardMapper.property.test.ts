@@ -19,6 +19,26 @@ import { canonicalizeSchedulingState } from '../../../../core/scheduler/scheduli
 
 // ==================== Arbitraries（生成器）====================
 
+const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function stripUnsafeObjectKeys<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUnsafeObjectKeys(item)) as T;
+  }
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, entryValue] of Object.entries(value as Record<string, unknown>)) {
+    if (UNSAFE_OBJECT_KEYS.has(key)) {
+      continue;
+    }
+    cleaned[key] = stripUnsafeObjectKeys(entryValue);
+  }
+  return cleaned as T;
+}
+
 /**
  * 生成有效的 CardState
  */
@@ -147,7 +167,7 @@ function comparableOwnObject(value: Record<string, unknown> | undefined): Record
   if (value === undefined) {
     return undefined;
   }
-  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== '__proto__'));
+  return stripUnsafeObjectKeys(value);
 }
 
 function expectComparableObject(
@@ -491,7 +511,8 @@ describe('CardMapper Property Tests', () => {
           
           // meta 字段 - 接受规范化行为：空对象 {} 会被规范化为 undefined
           // 这是预期行为，用于清理无意义的空对象
-          const normalizedOriginalMeta = expectedCard.meta && Object.keys(expectedCard.meta).length > 0 ? expectedCard.meta : undefined;
+          const safeMeta = stripUnsafeObjectKeys(expectedCard.meta);
+          const normalizedOriginalMeta = safeMeta && Object.keys(safeMeta).length > 0 ? safeMeta : undefined;
           expect(restoredCard.meta).toEqual(normalizedOriginalMeta);
           
           return true;

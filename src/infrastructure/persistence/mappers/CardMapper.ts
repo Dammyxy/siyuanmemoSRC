@@ -28,6 +28,8 @@ import type { Result } from '../../../types/result';
 import { ok, err, isErr } from '../../../types/result';
 import { canonicalizeSchedulingState } from '../../../core/scheduler/schedulingStateCleanliness';
 
+const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
  * 深拷贝函数，保持特殊值（负零、undefined、null）
  * 
@@ -49,6 +51,9 @@ function deepClone<T>(obj: T): T {
   const cloned: Record<string, unknown> = {};
   for (const key in obj) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      if (UNSAFE_OBJECT_KEYS.has(key)) {
+        continue;
+      }
       const value = obj[key];
       // 特殊处理数字类型以保持负零
       if (typeof value === 'number' && Object.is(value, -0)) {

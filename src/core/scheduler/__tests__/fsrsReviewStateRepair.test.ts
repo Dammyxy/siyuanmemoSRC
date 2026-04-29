@@ -71,6 +71,23 @@ describe('repairFsrsReviewState', () => {
     expect(result.card.scheduledDays).toBe(1);
   });
 
+  it('keeps same-day Review elapsedDays=0 clean', () => {
+    const lastReview = new Date('2026-04-26T10:00:00+08:00').getTime();
+    const result = repairFsrsReviewState(createCard({
+      due: new Date('2026-05-06T10:00:00+08:00').getTime(),
+      stability: 10,
+      difficulty: 5,
+      scheduledDays: 10,
+      elapsedDays: 0,
+      lastReview,
+    }), {
+      now: new Date('2026-04-26T18:00:00+08:00'),
+    });
+
+    expect(result.repaired).toBe(false);
+    expect(result.card.elapsedDays).toBe(0);
+  });
+
   it('keeps New cards eligible for zero stability', () => {
     const result = repairFsrsReviewState(createCard({
       state: CardState.New,

@@ -108,7 +108,7 @@ export function repairFsrsReviewState(
 
   if (lastReview > 0) {
     const actualElapsedDays = Math.max(0, Math.floor((now - lastReview) / DAY_MS));
-    if (elapsedDays <= 0 || elapsedDays !== actualElapsedDays) {
+    if (elapsedDays !== actualElapsedDays) {
       elapsedDays = actualElapsedDays;
       reasons.push('elapsedDays');
     }

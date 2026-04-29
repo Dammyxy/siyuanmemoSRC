@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 185)
+Last update: 2026-04-29 (Round 186)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - same-day elapsedDays dirty repair
+
+- Task: 解释真实库第二次日志 `SQLite algorithm card state repair finished with dirty rows { dirty: 54, invalidStateRows: 0 }` 并继续清零。
+- Touched slice: FSRS repair idempotency / CardMapper meta roundtrip in `src/core/scheduler/{fsrsReviewStateRepair.ts,__tests__/fsrsReviewStateRepair.test.ts}` and `src/infrastructure/persistence/mappers/{CardMapper.ts,__tests__/CardMapper.property.test.ts}`.
+- Debt fixed now: 真实库只读扫描确认剩余 54 个 dirty reason 全部是 `elapsedDays`；修复器不再把同日 Review 的合法 `elapsedDays=0` 判脏，只在 `elapsedDays !== actualElapsedDays` 时修复，避免 backfill 后仍 dirty；顺手加固 CardMapper meta 深拷贝，剥离 `__proto__/constructor/prototype`，并让 property test 不再随机保留原型污染键。
+- Debt deferred: 无。
+- Why deferred: 不适用。
+- Next safe step: 用新构建重启真实库，预期不再出现 `SQLite algorithm card state repair finished with dirty rows`；若出现，展开对象看 `reasons`，不再应有 `elapsedDays: 54`。
+- Validation: `pnpm vitest run src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.property.test.ts src/infrastructure/persistence/mappers/__tests__/RiffMapper.fsrs-repair.test.ts src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts src/core/storage/__tests__/UnifiedStorageManager.stability-idempotency.test.ts src/core/storage/__tests__/UnifiedStorageManager.batch-update.test.ts src/core/storage/__tests__/UnifiedStorageManager.dto.test.ts src/infrastructure/persistence/sqlite/__tests__/algorithmCardState.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueStateRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteMigrationService.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/core/scheduler/adapters/__tests__/UnifiedStorageCardUpdateAdapter.test.ts src/core/scheduler/__tests__/SchedulerRouter.fsrs-v6.test.ts --reporter=dot`（177 tests 通过）；`pnpm build`（通过；i18n 阻断问题 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（仅 CRLF 工作区提示）。
 
 ### 2026-04-29 - algorithm card state dirty repair follow-up
 
