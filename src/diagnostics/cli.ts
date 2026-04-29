@@ -7,10 +7,12 @@
  * - validate
  * - analyze
  * - report
+ * - algorithm-state
  */
 
 import minimist from 'minimist';
 import * as path from 'path';
+import { runAlgorithmStateDiagnosticCommand } from './algorithmStateDiagnostic.ts';
 import { ArchitectureScanner } from './scanners/ArchitectureScanner.ts';
 import { InterfaceValidator } from './validators/InterfaceValidator.ts';
 import { MigrationAnalyzer } from './analyzers/MigrationAnalyzer.ts';
@@ -29,14 +31,15 @@ const parseArgs = () => {
         rootDir: args.root ? path.resolve(args.root) : process.cwd(),
         output: args.output ? path.resolve(args.output) : undefined,
         compatOutput: args['compat-output'] ? path.resolve(args['compat-output']) : undefined,
+        dbPath: args.db ? path.resolve(args.db) : undefined,
     };
 };
 
 async function run() {
-    const { command, rootDir, output, compatOutput } = parseArgs();
+    const { command, rootDir, output, compatOutput, dbPath } = parseArgs();
 
     if (!command) {
-        diagnosticsOutput.error('Usage: diagnostics <scan|validate|analyze|report> [--root <path>] [--output <path>]');
+        diagnosticsOutput.error('Usage: diagnostics <scan|validate|analyze|report|algorithm-state> [--root <path>] [--output <path>] [--db <path>]');
         process.exit(1);
     }
 
@@ -104,6 +107,15 @@ async function run() {
                 compatOutput ?? path.join(rootDir, 'QUEUE_API_COMPATIBILITY_REPORT.md');
             compatibilityChecker.saveCompatibilityReport(compatReport, compatPath);
 
+            break;
+        }
+
+        case 'algorithm-state': {
+            logProgress('Running SQLite algorithm card state diagnostic...');
+            const result = await runAlgorithmStateDiagnosticCommand({ dbPath, output: diagnosticsOutput });
+            if (!result.clean) {
+                process.exitCode = 2;
+            }
             break;
         }
 

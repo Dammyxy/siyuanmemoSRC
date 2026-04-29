@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 186)
+Last update: 2026-04-29 (Round 187)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - audit P2 A01 A05 evidence closure
+
+- Task: 关闭全历史审计报告中 A-01 / A-05 两个 P2 证据债，不改业务 runtime。
+- Touched slice: Dev diagnostics / audit docs in `src/diagnostics/{cli.ts,algorithmStateDiagnostic.ts}`, `package.json`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
+- Debt fixed now: 新增只读 `diagnostics:algorithm-state` dev command，读取真实 `siyuanmemo.db` bytes 到 sql.js 内存库，镜像 active `algorithm_card_state` diagnostic/backfill simulation，不写原库；真实库 `H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo\siyuanmemo.db` 返回 `total=426`、`dirty=0`、`missingStateRows=0`、`invalidStateRows=0`、`cardStateMismatches=0`、`orphanStateRows=0`、`afterDirty=0`；`AIWorkbenchService.review-session.test.ts` 整文件 34 tests 通过，A-05 不再缺全文件证据；审计报告 P2 从 12 降到 10，并把 A-01/A-05 移入安全表。
+- Debt deferred: D-01 真实 1k/5k Browser profiling、Browser source cache 收敛验收、D-10/D-52 边界清理、Arena/UI/AI 大功能债仍按审计报告延期。
+- Why deferred: 本轮只关闭 P2 证据债和增加 dev-only 诊断入口；扩大到性能 profiling、边界拆分或产品功能会混入无关风险。
+- Next safe step: 继续处理剩余 P2 文档漂移项，或单开 D-01 的 Browser source cache / 1k/5k 真实库性能验收。
+- Validation: `pnpm diagnostics:algorithm-state -- --db "H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo\siyuanmemo.db"`（clean true, dirty 0, afterDirty 0）；`pnpm exec vitest run src/application/services/__tests__/AIWorkbenchService.review-session.test.ts --reporter=dot`（34 tests 通过）；`pnpm exec vitest run src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts src/core/scheduler/__tests__/fsrsReviewStateRepair.test.ts --reporter=dot`（12 tests 通过）。
 
 ### 2026-04-29 - same-day elapsedDays dirty repair
 
