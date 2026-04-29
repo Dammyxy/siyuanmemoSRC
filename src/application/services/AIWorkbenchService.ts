@@ -1880,17 +1880,7 @@ export class AIWorkbenchService {
   }
 
   async setCdfAnchorSelected(messageId: string, anchorId: string, selected: boolean): Promise<void> {
-    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
-      anchors: structure.anchors.map((anchor) => (
-        anchor.id === anchorId
-          ? { ...anchor, selected }
-          : anchor
-      )),
-    }));
-    if (!updated) {
-      return;
-    }
-    await this.persistCurrentSession();
+    await this.cdfRuntime.setAnchorSelected(messageId, anchorId, selected);
   }
 
   async setCdfDefinitionSelected(
@@ -1899,46 +1889,11 @@ export class AIWorkbenchService {
     definitionId: string,
     selected: boolean,
   ): Promise<void> {
-    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
-      anchors: structure.anchors.map((anchor) => (
-        anchor.id === anchorId
-          ? {
-            ...anchor,
-            definitionCandidates: anchor.definitionCandidates.map((definition) => (
-              selected
-                ? { ...definition, selected: definition.id === definitionId }
-                : definition.id === definitionId
-                  ? { ...definition, selected: false }
-                  : definition
-            )),
-          }
-          : anchor
-      )),
-    }));
-    if (!updated) {
-      return;
-    }
-    await this.persistCurrentSession();
+    await this.cdfRuntime.setDefinitionSelected(messageId, anchorId, definitionId, selected);
   }
 
   async clearCdfDefinitionSelection(messageId: string, anchorId: string): Promise<void> {
-    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
-      anchors: structure.anchors.map((anchor) => (
-        anchor.id === anchorId
-          ? {
-            ...anchor,
-            definitionCandidates: anchor.definitionCandidates.map((definition) => ({
-              ...definition,
-              selected: false,
-            })),
-          }
-          : anchor
-      )),
-    }));
-    if (!updated) {
-      return;
-    }
-    await this.persistCurrentSession();
+    await this.cdfRuntime.clearDefinitionSelection(messageId, anchorId);
   }
 
   async setCdfDescriptorGroupSelected(
@@ -1947,22 +1902,7 @@ export class AIWorkbenchService {
     groupId: string,
     selected: boolean,
   ): Promise<void> {
-    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
-      anchors: structure.anchors.map((anchor) => (
-        anchor.id === anchorId
-          ? {
-            ...anchor,
-            descriptorGroups: anchor.descriptorGroups.map((group) => (
-              group.id === groupId ? { ...group, selected } : group
-            )),
-          }
-          : anchor
-      )),
-    }));
-    if (!updated) {
-      return;
-    }
-    await this.persistCurrentSession();
+    await this.cdfRuntime.setDescriptorGroupSelected(messageId, anchorId, groupId, selected);
   }
 
   async setCdfDescriptorItemSelected(
@@ -1972,29 +1912,7 @@ export class AIWorkbenchService {
     itemId: string,
     selected: boolean,
   ): Promise<void> {
-    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
-      anchors: structure.anchors.map((anchor) => (
-        anchor.id === anchorId
-          ? {
-            ...anchor,
-            descriptorGroups: anchor.descriptorGroups.map((group) => (
-              group.id === groupId
-                ? {
-                  ...group,
-                  items: group.items.map((item) => (
-                    item.id === itemId ? { ...item, selected } : item
-                  )),
-                }
-                : group
-            )),
-          }
-          : anchor
-      )),
-    }));
-    if (!updated) {
-      return;
-    }
-    await this.persistCurrentSession();
+    await this.cdfRuntime.setDescriptorItemSelected(messageId, anchorId, groupId, itemId, selected);
   }
 
   async previewCdfStructure(
@@ -2004,92 +1922,25 @@ export class AIWorkbenchService {
       forceResolve?: boolean;
     },
   ): Promise<AICdfStructure> {
-    return this.flashcardTools.previewSemanticCdfStructure(
-      this.getCdfStructureForMessage(messageId),
-      target,
-      {
-        context: this.state.context,
-        attachedContexts: [],
-      },
-      options,
-    );
+    return this.cdfRuntime.previewStructure(messageId, target, options);
   }
 
   async createCdfCardsFromSelectedAnchors(
     target: AIWorkbenchSelfTestCardTargetInput,
     messageId: string,
   ): Promise<AIWorkbenchCdfCreationResult> {
-    const result = await this.flashcardTools.createSemanticCdfCards(
-      this.getCdfStructureForMessage(messageId),
-      target,
-      {
-        context: this.state.context,
-        attachedContexts: [],
-      },
-    );
-    if (result.createdCount > 0) {
-      await this.getSessionStore().saveSelfTestCardTargetMemory(result.target);
-    }
-    await this.recordArenaEvent('create', {
-      qualityLabel: result.createdCount > 0 ? 'strong' : 'usable',
-      metadata: {
-        messageId,
-        createdCount: result.createdCount,
-        createdDefinitionCount: result.createdDefinitionCount,
-        createdDescriptorCount: result.createdDescriptorCount,
-        targetLabel: result.targetLabel,
-      },
-    });
-    return result;
+    return this.cdfRuntime.createCardsFromSelectedAnchors(target, messageId);
   }
 
   formatAssistantResultMarkdown(messageId: string): string {
-    const message = this.getConceptCoachResultMessage(messageId);
-    if (!message) {
-      return '';
-    }
-    return formatConceptCoachAssistantResultMarkdown(message, {
-      selfTestCreationMode: this.getSelfTestCreationMode(),
-    });
+    return this.cdfRuntime.formatAssistantResultMarkdown(messageId);
   }
 
   async sendAssistantResultToSiyuan(
     target: AIWorkbenchSelfTestCardTargetInput,
     messageId: string,
   ): Promise<AIWorkbenchSendToSiyuanResult> {
-    const message = this.getConceptCoachResultMessage(messageId);
-    if (!message) {
-      throw new Error('当前消息不支持发送到思源。');
-    }
-    const resolvedTarget = await this.resolveSelfTestCardWriteTarget(target);
-    const sectionTitle = getConceptCoachTabTitle(message.tabId);
-    const bodyMarkdown = this.formatAssistantResultMarkdown(messageId);
-    if (!bodyMarkdown) {
-      throw new Error('当前阶段没有可发送到思源的内容。');
-    }
-    const markdown = buildAiWorkbenchSectionMarkdown(sectionTitle, bodyMarkdown, Date.now());
-    const mutation = resolvedTarget.writeMode === 'append'
-      ? await this.deps.siyuanPort.appendBlockUnderParentDetailed(markdown, resolvedTarget.targetBlockId)
-      : await this.deps.siyuanPort.insertBlockAfterDetailed(markdown, resolvedTarget.targetBlockId);
-    const insertedRootBlockId = normalizeString(mutation.doOperations[0]?.id) || null;
-    await this.getSessionStore().saveSelfTestCardTargetMemory(resolvedTarget.memory);
-    await this.recordArenaEvent('create', {
-      qualityLabel: insertedRootBlockId ? 'strong' : 'usable',
-      metadata: {
-        messageId,
-        insertedRootBlockId,
-        targetLabel: resolvedTarget.memory.targetLabel,
-        sectionTitle,
-      },
-    });
-    return {
-      target: resolvedTarget.memory,
-      targetBlockId: resolvedTarget.targetBlockId,
-      targetLabel: resolvedTarget.memory.targetLabel,
-      sectionTitle,
-      markdown,
-      insertedRootBlockId,
-    };
+    return this.cdfRuntime.sendAssistantResultToSiyuan(target, messageId);
   }
 
   async searchCdfConceptDocuments(
@@ -2097,7 +1948,7 @@ export class AIWorkbenchService {
     query: string,
     limit?: number,
   ): Promise<AIWorkbenchConceptDocumentSearchResult[]> {
-    return this.flashcardTools.searchConceptDocumentsInNotebook(target, query, limit);
+    return this.cdfRuntime.searchConceptDocuments(target, query, limit);
   }
 
   async setCdfAnchorManualResolution(
@@ -2106,15 +1957,7 @@ export class AIWorkbenchService {
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
     document: AIWorkbenchConceptDocumentSearchResult,
   ): Promise<void> {
-    const memory = normalizeSelfTestCardTargetMemory(target, Date.now());
-    if (!memory?.notebookId) {
-      throw new Error('设置概念文档前请先选择目标笔记本。');
-    }
-    const updated = this.applyCdfAnchorManualResolution(messageId, anchorId, memory, document, '手动选择概念文档。');
-    if (!updated) {
-      throw new Error('未找到要更新的 CDF 概念锚点。');
-    }
-    await this.persistCurrentSession();
+    await this.cdfRuntime.setAnchorManualResolution(messageId, anchorId, target, document);
   }
 
   async createAndBindCdfConceptDocument(
@@ -2122,75 +1965,11 @@ export class AIWorkbenchService {
     anchorId: string,
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
   ): Promise<void> {
-    const memory = normalizeSelfTestCardTargetMemory(target, Date.now());
-    if (!memory?.notebookId) {
-      throw new Error('新建概念文档前请先选择目标笔记本。');
-    }
-    const message = this.getConceptCoachResultMessage(messageId);
-    if (!message) {
-      throw new Error('未找到要更新的 CDF 结果消息。');
-    }
-    const structure = this.getCdfStructureForMessage(messageId);
-    const anchor = structure?.anchors.find((item) => item.id === anchorId);
-    if (!anchor) {
-      throw new Error('未找到要新建概念文档的 CDF 概念锚点。');
-    }
-    const created = await this.flashcardTools.createOrReuseConceptDocumentInNotebook(memory, anchor.conceptName);
-    const updated = this.applyCdfAnchorManualResolution(
-      messageId,
-      anchorId,
-      memory,
-      created.document,
-      created.reused ? '已复用现有概念文档。' : '已新建概念文档并手动绑定。',
-    );
-    if (!updated) {
-      throw new Error('未找到要更新的 CDF 概念锚点。');
-    }
-    await this.persistCurrentSession();
+    await this.cdfRuntime.createAndBindConceptDocument(messageId, anchorId, target);
   }
 
   async restoreCdfAnchorAutoResolution(messageId: string, anchorId: string): Promise<void> {
-    const updated = this.updateCdfResultMessage(messageId, (structure) => ({
-      anchors: structure.anchors.map((anchor) => (
-        anchor.id === anchorId
-          ? {
-            ...anchor,
-            resolution: null,
-            warnings: (anchor.warnings || []).filter((warning) => warning !== CDF_UNRESOLVED_WARNING),
-          }
-          : anchor
-      )),
-    }));
-    if (!updated) {
-      throw new Error('未找到要恢复自动解析的 CDF 概念锚点。');
-    }
-    await this.persistCurrentSession();
-  }
-
-  private applyCdfAnchorManualResolution(
-    messageId: string,
-    anchorId: string,
-    memory: AIWorkbenchSelfTestCardTargetMemory,
-    document: AIWorkbenchConceptDocumentSearchResult,
-    reason: string,
-  ): boolean {
-    return this.updateCdfResultMessage(messageId, (structure) => ({
-      anchors: structure.anchors.map((anchor) => (
-        anchor.id === anchorId
-          ? {
-            ...anchor,
-            resolution: {
-              status: 'resolved-manual',
-              conceptBlockId: normalizeString(document.id) || null,
-              conceptTitle: normalizeString(document.title) || anchor.conceptName,
-              reason,
-              notebookId: memory.notebookId,
-            },
-            warnings: (anchor.warnings || []).filter((warning) => warning !== CDF_UNRESOLVED_WARNING),
-          }
-          : anchor
-      )),
-    }));
+    await this.cdfRuntime.restoreAnchorAutoResolution(messageId, anchorId);
   }
 
   async resolveToolApproval(approvalId: string, approved: boolean, rejectReason = ''): Promise<void> {
