@@ -220,6 +220,20 @@ import {
   type ReviewMenuItem,
 } from './reviewMoreMenuItems';
 import {
+  createReviewSourceRefreshRuntime,
+  type ReviewTransactionWebSocketServiceLike,
+} from './reviewSourceRefreshRuntime';
+import {
+  bindReviewGlobalEvents,
+  createReviewDuplicateKeyGuard,
+} from './reviewKeyboardRuntime';
+import {
+  buildReviewOpenAsMenuItems,
+  type ReviewOpenAsDialogManager,
+  type ReviewOpenAsTabManager,
+  type ReviewTabOpenOptions,
+} from './reviewOpenAsCommands';
+import {
   isProgressiveSelectionInsideNativeProtyle,
   type ProgressiveExcerptSelectionSnapshot,
   resolveProgressiveExcerptSelectionSnapshot,
@@ -273,21 +287,14 @@ const MAIN_REVIEW_QUEUE_BY_HEADER_VARIANT: Partial<Record<ReviewHeaderVariant, Q
 
 type ReviewPluginContextLike = {
   getDialogManager?: () =>
-    | {
+    | (ReviewOpenAsDialogManager & {
         openBrowserDialog?: (options?: {
           initialQueueId?: string;
           initialNeuralSubview?: 'concept-cards' | 'roam-history' | 'worldline-anchors';
         }) => void;
         openAiWorkbenchDialog?: (options?: AIWorkbenchOpenOptions) => Promise<void> | void;
-        openStandardReviewDialog?: (options: {
-          queueType: QueueType;
-          title: string;
-          headerVariant: ReviewHeaderVariant;
-          queueInstance?: unknown;
-          initialSessionState?: InitialReviewSessionState;
-        }) => void;
         switchStandardReviewDialogQueue?: (queueType: QueueType) => Promise<void> | void;
-      }
+      })
     | undefined;
   getReviewAIWorkbenchRegistry?: () =>
     | (ReviewAIRegistryLike & {
@@ -298,43 +305,13 @@ type ReviewPluginContextLike = {
   createReviewRenderServices?: (options?: { i18n?: Record<string, string> }) => ReviewRenderServices;
   getCardStorage?: () => unknown;
   getTabManager?: () =>
-    | {
-        openReviewTab: (options: {
-          queue?: unknown;
-          adapter?: unknown;
-          title: string;
-          headerVariant?: ReviewHeaderVariant;
-          position?: 'right' | 'bottom';
-          sharedReviewSessionId?: string | null;
-          transferState?: ReviewTabTransferState;
-          reviewState?: ReviewTabRuntimeState | null;
-        }) => void;
-        openReviewTabInNewTab?: (options: {
-          queue?: unknown;
-          adapter?: unknown;
-          title: string;
-          headerVariant?: ReviewHeaderVariant;
-          position?: 'right' | 'bottom';
-          sharedReviewSessionId?: string | null;
-          transferState?: ReviewTabTransferState;
-          reviewState?: ReviewTabRuntimeState | null;
-        }) => void;
-        openReviewInNewWindow?: (options: {
-          queue?: unknown;
-          adapter?: unknown;
-          title: string;
-          headerVariant?: ReviewHeaderVariant;
-          position?: 'right' | 'bottom';
-          sharedReviewSessionId?: string | null;
-          transferState?: ReviewTabTransferState;
-          reviewState?: ReviewTabRuntimeState | null;
-        }) => void;
+    | (ReviewOpenAsTabManager & {
         replaceCurrentReviewTabWithStandardQueue?: (queueType: QueueType) => void;
         closeReviewTab?: (reviewSessionId: string) => void;
         openReviewAICompanionTab?: (options: AIWorkbenchOpenOptions & { sessionId: string; title: string }) => Promise<void> | void;
         focusReviewAICompanionTab?: (reviewSessionId: string) => boolean;
         hasReviewAICompanionTab?: (reviewSessionId: string) => boolean;
-      }
+      })
     | undefined;
   getHybridSyncService?: () => { incrementalSync: () => Promise<void> } | undefined;
   getStorage?: () => {
@@ -392,26 +369,6 @@ type ReviewPluginContextLike = {
 type ReviewRuntimeSettingsLike = Pick<Partial<PluginSettings>,
   'ai' | 'progressiveReading' | 'quickCard' | 'riffIntegration' | 'ui'
 >;
-
-type ReviewWorkspaceTransactionOperation = {
-  id?: unknown;
-  parentID?: unknown;
-  previousID?: unknown;
-  nextID?: unknown;
-};
-
-type ReviewWorkspaceTransaction = {
-  doOperations?: ReviewWorkspaceTransactionOperation[] | null;
-};
-
-type ReviewTransactionHandler = {
-  handle(transactions: ReviewWorkspaceTransaction[]): void;
-};
-
-type ReviewTransactionWebSocketServiceLike = {
-  registerHandler?: (handler: ReviewTransactionHandler) => void;
-  unregisterHandler?: (handler: ReviewTransactionHandler) => void;
-};
 
 type ReviewPluginLike = {
   name?: unknown;
@@ -645,8 +602,6 @@ const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 14
 const rootRef = ref<HTMLDivElement | null>(null);
 const contentRef = ref<ReviewContentExpose | null>(null);
 const recentModifiedHotkeys = new Map<string, number>();
-const reviewSourceRefreshSuppressedBlockIds = new Map<string, number>();
-const pendingReviewSourceBlockIds = new Set<string>();
 const editorState = ref<ReviewEditorState>(createReviewEditorState());
 const renderEpoch = ref(0);
 const reviewTextEditorOpen = ref(false);
@@ -657,16 +612,14 @@ const reviewTextEditorValue = ref('');
 const reviewTextEditorOriginalValue = ref('');
 let reviewTextEditorSeq = 0;
 let reviewResizeHandler: (() => void) | null = null;
+let removeReviewGlobalEventBindings: (() => void) | null = null;
 let srsArenaConflictDialog: ReturnType<typeof createVueDialog> | null = null;
 let initialFullscreenTimer: number | null = null;
 let initialTabSurfaceRefreshTimer: number | null = null;
 let nativeSplitMenuPruneTimer: number | null = null;
-let reviewSourceRefreshTimer: number | null = null;
 let nativeSplitBlockedNoticeAt = 0;
 let escRepeatLatch = false;
 const NATIVE_SPLIT_BLOCKED_NOTICE_COOLDOWN_MS = 1500;
-const REVIEW_SOURCE_REFRESH_DEBOUNCE_MS = 200;
-const REVIEW_SOURCE_REFRESH_SUPPRESSION_MS = 600;
 
 const reviewTextEditorTitle = computed(() => (
   reviewTextEditorSource.value?.title || t('editCurrentContent', '编辑当前内容')
@@ -687,39 +640,37 @@ const reviewTextEditorHint = computed(() => {
   return t('editCurrentContentHint', '支持 Markdown，Ctrl/Cmd + Enter 保存');
 });
 
-// 🆕 防重复触发机制 - 使用更智能的策略
-let lastKeyPressTime = 0;
-let lastKeyPressed = '';
-let isProcessingKey = false; // 标记是否正在处理按键
-const KEY_PRESS_DEBOUNCE = 30; // 30ms 内的重复按键视为同一次（进一步降低延迟）
+const duplicateReviewKeyGuard = createReviewDuplicateKeyGuard({ logger });
+const reviewSourceRefreshRuntime = createReviewSourceRefreshRuntime({
+  isEnabled: isReviewSourceBlockRefreshEnabled,
+  isAdvancePending: isReviewAdvancePending,
+  getCurrentReference: getCurrentReviewCardReference,
+  getDependencyBlockIds() {
+    const dependencyBlockIds = contentRef.value?.getDependencyBlockIds?.() || [];
+    if (dependencyBlockIds.length > 0) {
+      return dependencyBlockIds;
+    }
 
-function shouldIgnoreDuplicateKey(key: string): boolean {
-  const now = Date.now();
-  const timeSinceLastPress = now - lastKeyPressTime;
-  
-  // 如果正在处理同一个按键，直接忽略
-  if (isProcessingKey && key === lastKeyPressed) {
-    logger.debug('[SiYuanMemo][ReviewView] Key is being processed, ignoring:', key);
-    return true;
-  }
-  
-  // 如果是相同按键且在防抖时间内，忽略
-  if (key === lastKeyPressed && timeSinceLastPress < KEY_PRESS_DEBOUNCE) {
-    logger.debug('[SiYuanMemo][ReviewView] Ignoring duplicate key press:', key, 'timeSince:', timeSinceLastPress);
-    return true;
-  }
-  
-  lastKeyPressTime = now;
-  lastKeyPressed = key;
-  isProcessingKey = true;
-  
-  // 30ms 后重置处理标记
-  setTimeout(() => {
-    isProcessingKey = false;
-  }, KEY_PRESS_DEBOUNCE);
-  
-  return false;
-}
+    const currentCard = state.value.content.card;
+    return [
+      state.value.content.id,
+      state.value.content.answerBlockID,
+      currentCard?.blockId,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter((value) => value.length > 0);
+  },
+  isMainProtyleEditing() {
+    const currentEditorState = editorState.value;
+    return currentEditorState.renderer === 'main-protyle'
+      && currentEditorState.supportsNativeEdit === true
+      && currentEditorState.isEditing === true;
+  },
+  refreshVisibleContent(reason) {
+    return contentRef.value?.refreshVisibleContent?.(reason) ?? false;
+  },
+  logger,
+});
 
 function getUnderlyingQueueFromStrategy(strategy: unknown): UnderlyingQueueLike | null {
   if (!isRecord(strategy)) {
@@ -1017,7 +968,7 @@ function buildReviewTabOpenOptions(overrides?: {
   position?: 'right' | 'bottom';
   sharedReviewSessionId?: string | null;
   reviewState?: ReviewTabRuntimeState | null;
-}) {
+}): ReviewTabOpenOptions {
   const resolvedSharedReviewSessionId = overrides?.sharedReviewSessionId ?? sharedReviewSessionId.value;
   return {
     queue: props.queue,
@@ -1380,14 +1331,15 @@ onMounted(() => {
     ourDialog: rootRef.value?.closest('.b3-dialog__container.siyuanmemo-review-dialog-container'),
   });
 
-  // 🆕 添加键盘事件监听器
-  document.addEventListener('keydown', handleKeyDown, true);
-  document.addEventListener('keyup', handleKeyUp, true);
-  document.addEventListener('contextmenu', handleNativeSplitTabContextMenu, true);
-  window.addEventListener(PROGRESSIVE_EXCERPT_REQUEST_EVENT, handleProgressiveExcerptCommandRequest as EventListener);
-  window.addEventListener(REVIEW_SET_PRIORITY_REQUEST_EVENT, handleReviewSetPriorityCommandRequest as EventListener);
-  window.addEventListener(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, handleReviewSuspendCurrentCardCommandRequest as EventListener);
-  window.addEventListener(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, handleReviewDeleteCurrentCardCommandRequest as EventListener);
+  removeReviewGlobalEventBindings = bindReviewGlobalEvents([
+    { target: document, type: 'keydown', listener: handleKeyDown as EventListener, options: true },
+    { target: document, type: 'keyup', listener: handleKeyUp as EventListener, options: true },
+    { target: document, type: 'contextmenu', listener: handleNativeSplitTabContextMenu as EventListener, options: true },
+    { target: window, type: PROGRESSIVE_EXCERPT_REQUEST_EVENT, listener: handleProgressiveExcerptCommandRequest as EventListener },
+    { target: window, type: REVIEW_SET_PRIORITY_REQUEST_EVENT, listener: handleReviewSetPriorityCommandRequest as EventListener },
+    { target: window, type: REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, listener: handleReviewSuspendCurrentCardCommandRequest as EventListener },
+    { target: window, type: REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, listener: handleReviewDeleteCurrentCardCommandRequest as EventListener },
+  ]);
   logger.debug('[SiYuanMemo][ReviewView] Keyboard event listener added');
 
   // 🌌 恢复侧边栏状态（已删除）
@@ -1415,15 +1367,9 @@ onMounted(() => {
   }
 });
 
-// 🆕 组件卸载时移除键盘事件监听器
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeyDown, true);
-  document.removeEventListener('keyup', handleKeyUp, true);
-  document.removeEventListener('contextmenu', handleNativeSplitTabContextMenu, true);
-  window.removeEventListener(PROGRESSIVE_EXCERPT_REQUEST_EVENT, handleProgressiveExcerptCommandRequest as EventListener);
-  window.removeEventListener(REVIEW_SET_PRIORITY_REQUEST_EVENT, handleReviewSetPriorityCommandRequest as EventListener);
-  window.removeEventListener(REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT, handleReviewSuspendCurrentCardCommandRequest as EventListener);
-  window.removeEventListener(REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT, handleReviewDeleteCurrentCardCommandRequest as EventListener);
+  removeReviewGlobalEventBindings?.();
+  removeReviewGlobalEventBindings = null;
   if (reviewDialogTitlebarSyncTimer !== null) {
     window.clearTimeout(reviewDialogTitlebarSyncTimer);
     reviewDialogTitlebarSyncTimer = null;
@@ -1431,6 +1377,7 @@ onUnmounted(() => {
   disconnectReviewDialogTitlebarObserver();
   restoreReviewDialogTitlebarText();
   recentModifiedHotkeys.clear();
+  duplicateReviewKeyGuard.reset();
   escRepeatLatch = false;
   clearNativeSplitMenuPruneTimer();
   unbindReviewDataObserver();
@@ -1658,7 +1605,7 @@ const neuralNavigationState = ref<NeuralNavigationState | null>(null);
 watch(
   () => String((state.value.content.card as FSRSCard | null)?.id || ''),
   () => {
-    clearPendingReviewSourceRefresh();
+    reviewSourceRefreshRuntime.clearPending();
     reviewArenaHint.value = null;
   },
   { immediate: true },
@@ -2215,186 +2162,9 @@ async function appendCreatedCardsToActiveScopeQueue(cardIds: string[]): Promise<
   }
 }
 
-function clearReviewSourceRefreshTimer(): void {
-  if (reviewSourceRefreshTimer !== null) {
-    window.clearTimeout(reviewSourceRefreshTimer);
-    reviewSourceRefreshTimer = null;
-  }
-}
-
-function clearPendingReviewSourceRefresh(): void {
-  clearReviewSourceRefreshTimer();
-  pendingReviewSourceBlockIds.clear();
-}
-
 function isReviewAdvancePending(): boolean {
   return state.value.meta.advancePending?.active === true;
 }
-
-function pruneReviewSourceRefreshSuppression(now: number = Date.now()): void {
-  for (const [blockId, expiresAt] of reviewSourceRefreshSuppressedBlockIds.entries()) {
-    if (expiresAt <= now) {
-      reviewSourceRefreshSuppressedBlockIds.delete(blockId);
-    }
-  }
-}
-
-function suppressReviewSourceRefreshForBlock(blockId: string): void {
-  const normalizedBlockId = String(blockId || '').trim();
-  if (!normalizedBlockId) {
-    return;
-  }
-
-  reviewSourceRefreshSuppressedBlockIds.set(
-    normalizedBlockId,
-    Date.now() + REVIEW_SOURCE_REFRESH_SUPPRESSION_MS,
-  );
-}
-
-function collectChangedBlockIdsFromTransactions(transactions: ReviewWorkspaceTransaction[]): string[] {
-  const changedBlockIds = new Set<string>();
-
-  for (const transaction of transactions) {
-    for (const operation of transaction.doOperations || []) {
-      for (const candidate of [operation.id, operation.parentID, operation.previousID, operation.nextID]) {
-        const normalized = String(candidate || '').trim();
-        if (normalized.length > 0) {
-          changedBlockIds.add(normalized);
-        }
-      }
-    }
-  }
-
-  return Array.from(changedBlockIds);
-}
-
-function getCurrentReviewDependencyBlockIds(): string[] {
-  const dependencyBlockIds = contentRef.value?.getDependencyBlockIds?.() || [];
-  if (dependencyBlockIds.length > 0) {
-    return dependencyBlockIds;
-  }
-
-  const currentCard = state.value.content.card;
-  return [
-    state.value.content.id,
-    state.value.content.answerBlockID,
-    currentCard?.blockId,
-  ]
-    .map((value) => String(value || '').trim())
-    .filter((value) => value.length > 0);
-}
-
-function isCurrentMainProtyleEditing(): boolean {
-  const state = editorState.value;
-  return state.renderer === 'main-protyle'
-    && state.supportsNativeEdit === true
-    && state.isEditing === true;
-}
-
-async function refreshCurrentReviewCardForSourceChange(matchedBlockIds: string[]): Promise<void> {
-  if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
-    clearPendingReviewSourceRefresh();
-    return;
-  }
-
-  const currentCard = state.value.content.card as FSRSCard | null | undefined;
-  const currentReference = getCurrentReviewCardReference();
-  if (!currentCard || (!currentReference.cardId && !currentReference.blockId)) {
-    return;
-  }
-
-  logger.debug('[SiYuanMemo][ReviewView] Refreshing current review card for source block changes:', {
-    matchedBlockIds,
-    currentCardId: currentReference.cardId,
-    currentBlockId: currentReference.blockId,
-  });
-
-  if (isCurrentMainProtyleEditing()) {
-    logger.debug('[SiYuanMemo][ReviewView] Skip source refresh while native Protyle editing is active:', {
-      matchedBlockIds,
-      currentCardId: currentReference.cardId,
-      currentBlockId: currentReference.blockId,
-    });
-    return;
-  }
-
-  await contentRef.value?.refreshVisibleContent?.('source-transaction');
-}
-
-async function flushPendingReviewSourceRefresh(): Promise<void> {
-  if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
-    clearPendingReviewSourceRefresh();
-    return;
-  }
-
-  const pendingBlockIds = Array.from(pendingReviewSourceBlockIds);
-  pendingReviewSourceBlockIds.clear();
-  if (pendingBlockIds.length === 0) {
-    return;
-  }
-
-  const now = Date.now();
-  pruneReviewSourceRefreshSuppression(now);
-  const effectiveBlockIds = pendingBlockIds.filter((blockId) => {
-    const expiresAt = reviewSourceRefreshSuppressedBlockIds.get(blockId);
-    return !expiresAt || expiresAt <= now;
-  });
-  if (effectiveBlockIds.length === 0) {
-    return;
-  }
-
-  const dependencyBlockIds = new Set(getCurrentReviewDependencyBlockIds());
-  if (dependencyBlockIds.size === 0) {
-    return;
-  }
-
-  const matchedBlockIds = effectiveBlockIds.filter((blockId) => dependencyBlockIds.has(blockId));
-  if (matchedBlockIds.length === 0) {
-    return;
-  }
-
-  await refreshCurrentReviewCardForSourceChange(matchedBlockIds);
-}
-
-function queueReviewSourceRefresh(blockIds: string[]): void {
-  if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
-    clearPendingReviewSourceRefresh();
-    return;
-  }
-
-  for (const blockId of blockIds) {
-    const normalized = String(blockId || '').trim();
-    if (normalized.length > 0) {
-      pendingReviewSourceBlockIds.add(normalized);
-    }
-  }
-
-  if (pendingReviewSourceBlockIds.size === 0) {
-    return;
-  }
-
-  clearReviewSourceRefreshTimer();
-  reviewSourceRefreshTimer = window.setTimeout(() => {
-    reviewSourceRefreshTimer = null;
-    void flushPendingReviewSourceRefresh();
-  }, REVIEW_SOURCE_REFRESH_DEBOUNCE_MS);
-}
-
-const reviewSourceTransactionHandler: ReviewTransactionHandler = {
-  handle(transactions: ReviewWorkspaceTransaction[]): void {
-    if (!isReviewSourceBlockRefreshEnabled() || isReviewAdvancePending()) {
-      clearPendingReviewSourceRefresh();
-      return;
-    }
-
-    const changedBlockIds = collectChangedBlockIdsFromTransactions(transactions);
-    if (changedBlockIds.length === 0) {
-      return;
-    }
-
-    queueReviewSourceRefresh(changedBlockIds);
-  },
-};
 
 const reviewDataObserver: IDataSourceObserver = {
   onDataChanged(event: DataChangeEvent) {
@@ -2478,10 +2248,10 @@ function bindReviewTransactionService(): void {
     return;
   }
 
-  subscribedReviewTransactionService?.unregisterHandler?.(reviewSourceTransactionHandler);
+  subscribedReviewTransactionService?.unregisterHandler?.(reviewSourceRefreshRuntime.transactionHandler);
 
   subscribedReviewTransactionService = transactionService;
-  subscribedReviewTransactionService?.registerHandler?.(reviewSourceTransactionHandler);
+  subscribedReviewTransactionService?.registerHandler?.(reviewSourceRefreshRuntime.transactionHandler);
 }
 
 function unbindReviewDataObserver(): void {
@@ -2494,15 +2264,13 @@ function unbindReviewDataObserver(): void {
 }
 
 function unbindReviewTransactionService(): void {
-  clearReviewSourceRefreshTimer();
-  pendingReviewSourceBlockIds.clear();
-  reviewSourceRefreshSuppressedBlockIds.clear();
+  reviewSourceRefreshRuntime.clear();
 
   if (!subscribedReviewTransactionService) {
     return;
   }
 
-  subscribedReviewTransactionService.unregisterHandler?.(reviewSourceTransactionHandler);
+  subscribedReviewTransactionService.unregisterHandler?.(reviewSourceRefreshRuntime.transactionHandler);
   subscribedReviewTransactionService = null;
 }
 
@@ -2788,7 +2556,7 @@ function handleReviewKeyAction(
     return;
   }
 
-  if (shouldIgnoreDuplicateKey(key)) {
+  if (duplicateReviewKeyGuard.shouldIgnore(key)) {
     return;
   }
 
@@ -3850,7 +3618,7 @@ async function confirmCurrentContentEditor(): Promise<void> {
     }
 
     reviewTextEditorOriginalValue.value = reviewTextEditorValue.value;
-    suppressReviewSourceRefreshForBlock(editableSource.blockId);
+    reviewSourceRefreshRuntime.suppressBlock(editableSource.blockId);
     await contentRef.value?.refreshVisibleContent?.('manual-edit-save');
 
     reviewTextEditorOpen.value = false;
@@ -4102,140 +3870,23 @@ function closeCurrentReviewSurface(): void {
 }
 
 function buildOpenAsMenuItems(): ReviewMenuItem[] {
-  const currentSourceBlockId = resolveCurrentReviewSourceBlockId();
-  const tabManager = getTabManager();
-  const dialogManager = getDialogManager();
-  const isTabSurface = props.mode === 'tab';
-  const standardDialogTarget = isTabSurface ? resolveStandardReviewDialogTarget() : null;
-
-  if (!tabManager || typeof tabManager.openReviewTab !== 'function') {
-    return [];
-  }
-
-  const menuItems: ReviewMenuItem[] = [
-    {
-      id: 'locateSourceBlock',
-      icon: 'iconOpen',
-      label: t('locateSourceBlock', '定位到原块位置'),
-      disabled: !props.app || !currentSourceBlockId,
-      click() {
-        if (!props.app || !currentSourceBlockId) {
-          return;
-        }
-        openReviewBlockAtSource({
-          app: props.app,
-          blockId: currentSourceBlockId,
-        });
-      },
-    },
-    {
-      id: 'openRightReviewAndLocateSource',
-      icon: 'iconLayoutRight',
-      label: t('openRightReviewAndLocateSource', '右侧复习并定位原块'),
-      disabled: !props.app || !currentSourceBlockId,
-      async click() {
-        if (!props.app || !currentSourceBlockId) {
-          return;
-        }
-        try {
-          await openReviewBlockAtSource({
-            app: props.app,
-            blockId: currentSourceBlockId,
-          });
-        } catch (error) {
-          logger.warn('[SiYuanMemo][ReviewView] Failed to locate source block before opening review:', error);
-        }
-        tabManager.openReviewTab(buildReviewTabOpenOptions({
-          position: 'right',
-          reviewState: buildReviewTabRuntimeState(),
-        }));
-        closeCurrentReviewSurface();
-      },
-    },
-  ];
-
-  if (isTabSurface) {
-    menuItems.push({
-      id: 'managedSplitRight',
-      icon: 'iconLayoutRight',
-      label: t('splitCurrentReviewRight', '右侧分屏当前复习'),
-      click() {
-        openManagedReviewSplit('right');
-      },
-    });
-
-    menuItems.push({
-      id: 'managedSplitBottom',
-      icon: 'iconLayout',
-      label: t('splitCurrentReviewBottom', '下方分屏当前复习'),
-      click() {
-        openManagedReviewSplit('bottom');
-      },
-    });
-
-    if (standardDialogTarget && typeof dialogManager?.openStandardReviewDialog === 'function') {
-      menuItems.push({
-        id: 'openInDialog',
-        icon: 'iconOpen',
-        label: t('openInDialog', 'Dialog'),
-        click() {
-          logger.debug('[SiYuanMemo][ReviewView] Opening review in dialog and closing current tab');
-          dialogManager.openStandardReviewDialog?.({
-            queueType: standardDialogTarget.queueType,
-            title: props.title || t('reviewTitle', 'Review'),
-            headerVariant: standardDialogTarget.headerVariant,
-            queueInstance: getUnderlyingQueue(),
-            initialSessionState: getInitialReviewSessionState(),
-          });
-          closeCurrentReviewSurface();
-        },
-      });
-    }
-    return menuItems;
-  }
-
-  menuItems.push({
-    id: 'openByTab',
-    icon: 'iconOpen',
-    label: t('openInNewTab', 'New Tab'),
-    click() {
-      logger.debug('[SiYuanMemo][ReviewView] Opening review in new tab and closing dialog');
-      const reviewTabOptions = buildReviewTabOpenOptions();
-      if (typeof tabManager.openReviewTabInNewTab === 'function') {
-        tabManager.openReviewTabInNewTab(reviewTabOptions);
-      } else {
-        tabManager.openReviewTab(reviewTabOptions);
-      }
-      closeCurrentReviewSurface();
-    },
+  return buildReviewOpenAsMenuItems({
+    app: props.app,
+    mode: props.mode,
+    title: props.title,
+    currentSourceBlockId: resolveCurrentReviewSourceBlockId(),
+    tabManager: getTabManager(),
+    dialogManager: getDialogManager(),
+    standardDialogTarget: props.mode === 'tab' ? resolveStandardReviewDialogTarget() : null,
+    t,
+    buildReviewTabOpenOptions,
+    buildReviewTabRuntimeState,
+    getInitialReviewSessionState,
+    getUnderlyingQueue,
+    openManagedReviewSplit,
+    closeCurrentReviewSurface,
+    logger,
   });
-  menuItems.push({
-    id: 'insertRight',
-    icon: 'iconLayoutRight',
-    label: t('openInRight', 'Right Side'),
-    click() {
-      logger.debug('[SiYuanMemo][ReviewView] Opening review on right side and closing dialog');
-      tabManager.openReviewTab(buildReviewTabOpenOptions({
-        position: 'right',
-      }));
-      closeCurrentReviewSurface();
-    },
-  });
-
-  if (typeof tabManager.openReviewInNewWindow === 'function') {
-    menuItems.push({
-      id: 'openByNewWindow',
-      icon: 'iconOpenWindow',
-      label: t('openInNewWindow', 'New Window'),
-      click() {
-        logger.debug('[SiYuanMemo][ReviewView] Opening review in new window and closing dialog');
-        tabManager.openReviewInNewWindow?.(buildReviewTabOpenOptions());
-        closeCurrentReviewSurface();
-      },
-    });
-  }
-
-  return menuItems;
 }
 
 function handleOpenAsMenu(ev: MouseEvent) {
