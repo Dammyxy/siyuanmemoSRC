@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 187)
+Last update: 2026-04-29 (Round 188)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - remaining audit P2 history closure
+
+- Task: 关闭全历史审计报告中剩余 A-02/A-12 P2 文档漂移项，不改业务 runtime。
+- Touched slice: Audit docs only in `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md` and this backlog entry.
+- Debt fixed now: A-02/A-04 manual queue 历史语义、A-03 SQL/Arena foundation 证据债、A-06/A-07/A-08/A-09 UI/source/missing-block/source-refresh 历史漂移、A-10/A-11/A-12 AI/progressive 历史合同漂移全部移出高风险表，改为安全历史锚点；审计报告 P2 从 10 降到 0，P0/P1 仍为 0。
+- Debt deferred: D-01 Browser source cache / 1k/5k 真实库 profiling、D-10/D-52 边界清理、大型 Arena/UI/AI 产品债仍保留为 P3。
+- Why deferred: 本轮目标是清理旧 backlog wording 的误导风险；真实性能、架构拆分、产品功能会触碰 runtime 和更大验收面。
+- Next safe step: 单开 D-01，做 Browser source cache / 1k/5k 真实库只读或可回滚性能验收。
+- Validation: `rg` 交叉核对 manual queue、Arena label、missing-block hidden UI、source refresh default-off、AI legacy migration、progressive `⌥⇧X` active evidence；`git diff --check`；尾随空白检查；docs-only，未跑 `pnpm build` / `pnpm test:run`。
 
 ### 2026-04-29 - audit P2 A01 A05 evidence closure
 
