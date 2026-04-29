@@ -1264,7 +1264,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import {
-  getRecommendedPromptTemplateForSetting,
   type AIPromptSettingKey,
 } from '@/application/services/AIPromptComposer';
 import {
@@ -1272,7 +1271,6 @@ import {
   AI_CHAT_TOOL_GROUPS,
 } from '@/application/services/AIChatToolRegistry';
 import {
-  normalizeArenaSettings,
   type ArenaSettings,
 } from '@/types/arena';
 import {
@@ -1280,15 +1278,6 @@ import {
 } from '@/application/services/AIPromptContractRegistry';
 import { getAIWorkbenchSkillTabs } from '@/application/services/AIWorkbenchSkillRegistry';
 import {
-  ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-  normalizeConfiguredCaptureStorageSettings as normalizeCaptureStorageSettings,
-  normalizeAISettings,
-  normalizeAIUserSkills,
-  normalizeAIPromptContractVersion,
-  normalizeAIPromptTemplates,
-  type ConfiguredCaptureStorageSettings,
-  DEFAULT_AI_SETTINGS,
-  DEFAULT_FSRS_WEIGHTS,
   DEFAULT_SETTINGS,
   FSRS_WEIGHT_COUNT,
   type AIGeneralChatPromptTemplate,
@@ -1296,7 +1285,6 @@ import {
   type AISettings,
   type AIToolExecutionPolicy,
   type AIToolResultApprovalPolicy,
-  type FilterGroupDefinition,
   type FSRSParameters,
   type QueueSettings,
   type SchedulerConfig,
@@ -1339,174 +1327,57 @@ import {
   upsertSettingsUserSkillDraft,
   type SettingsUserSkillMode,
 } from './settingsAIViewModel';
+import {
+  buildSettingsSavePayload,
+  normalizeAutoPostponeSkipTopN,
+  normalizeBoolean,
+  normalizeConflictResolutionStrategy,
+  normalizeDailyLimit,
+  normalizeOutstandingEveryNth,
+  normalizePriorityRandomness,
+  normalizeSrsV2StepList,
+  parseSrsV2StepList,
+  type SettingsConflictResolutionStrategy as ConflictResolutionStrategy,
+  type SettingsFormState as Settings,
+  type SettingsPanelSavePayload,
+  type SettingsSchedulerConfigWithSrsV2 as SchedulerConfigWithSrsV2,
+} from './settingsSavePayload';
+import {
+  buildSettingsBlockAttrsCleanupAttrRows,
+  buildSettingsBlockAttrsCleanupConfirmMessages,
+  canRunSettingsBlockAttrsCleanup,
+  getSettingsBlockAttrsCleanupErrorMessage,
+  hasSettingsBlockAttrsCleanupScan,
+  shouldResetSettingsBlockAttrsCleanupForModeChange,
+  type SettingsBlockAttrsCleanupMode as CleanupMode,
+  type SettingsBlockAttrsCleanupRunResult as CleanupRunResult,
+  type SettingsBlockAttrsCleanupScanResult as CleanupScanResult,
+} from './settingsMaintenanceViewModel';
+import {
+  cloneSettingsSerializable as cloneSerializable,
+  createDefaultAISettings,
+  createDefaultArenaSettings,
+  createDefaultQueueSettings,
+  createDefaultSettingsFormState,
+  createDefaultUISettings,
+  mergeAISettings,
+  mergeArenaSettings,
+  mergeConfiguredCaptureStorageSettings,
+  mergeQueueSettings,
+  mergeQuickCardSettings,
+  mergeUISettings,
+  resetAiPromptToRecommended,
+} from './settingsStateDefaults';
 
 type OptimizationConfig = Record<string, unknown>;
-type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
-type CleanupMode = 'safe' | 'full';
-type CleanupScanResult = {
-  totalBlocks: number;
-  removableBlocks: number;
-  attrCounts: Record<string, number>;
-  staleXiuyuanCount: number;
-  skippedTreeNotFoundCount: number;
-};
-type CleanupRunResult = CleanupScanResult & {
-  mode: CleanupMode;
-  cleanedBlocks: number;
-  cleanedAttrs: number;
-};
 
 type ManagedDialogHandle = { destroy: () => void };
 
 const logger = createLogger('SettingsPanel');
 
-const DEFAULT_PARAMS = [...DEFAULT_FSRS_WEIGHTS];
-
-function createDefaultQuickCardSettings(): QuickCardSettings {
-  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.quickCard)) as QuickCardSettings;
-}
-
-function mergeQuickCardSettings(source?: Partial<QuickCardSettings>): QuickCardSettings {
-  const defaults = createDefaultQuickCardSettings();
-  return {
-    ...defaults,
-    ...(source || {}),
-    flashcard: {
-      ...defaults.flashcard,
-      ...(source?.flashcard || {}),
-    },
-    enabledSymbols: {
-      ...defaults.enabledSymbols,
-      ...(source?.enabledSymbols || {}),
-    },
-    debounceDelay: {
-      ...defaults.debounceDelay,
-      ...(source?.debounceDelay || {}),
-    },
-    topicDerivation: {
-      ...defaults.topicDerivation,
-      ...(source?.topicDerivation || {}),
-    },
-    descriptorUseXiuyuan: source?.descriptorUseXiuyuan ?? defaults.descriptorUseXiuyuan,
-    flashcardSeededFromSiyuan: source?.flashcardSeededFromSiyuan ?? defaults.flashcardSeededFromSiyuan,
-  };
-}
-
-function createDefaultQueueSettings(): QueueSettings {
-  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.queues)) as QueueSettings;
-}
-
-function createDefaultAISettings(): AISettings {
-  return JSON.parse(JSON.stringify(DEFAULT_AI_SETTINGS)) as AISettings;
-}
-
-function createDefaultArenaSettings(): ArenaSettings {
-  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.arena)) as ArenaSettings;
-}
-
-function createDefaultUISettings(): UISettings {
-  return JSON.parse(JSON.stringify(DEFAULT_SETTINGS.ui)) as UISettings;
-}
-
-function cloneSerializable<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function mergeUISettings(source?: Partial<UISettings>): UISettings {
-  const defaults = createDefaultUISettings();
-  return {
-    ...defaults,
-    ...(source || {}),
-  };
-}
-
-function createDefaultConfiguredCaptureStorageSettings(
-  source?: Partial<ConfiguredCaptureStorageSettings>,
-): ConfiguredCaptureStorageSettings {
-  return normalizeCaptureStorageSettings(source, {
-    allowSourceChild: true,
-    fallback: DEFAULT_SETTINGS.progressiveReading.storage,
-  });
-}
-
-function mergeConfiguredCaptureStorageSettings(
-  source: Partial<ConfiguredCaptureStorageSettings> | undefined,
-  defaults: ConfiguredCaptureStorageSettings,
-): ConfiguredCaptureStorageSettings {
-  return normalizeCaptureStorageSettings(source, {
-    allowSourceChild: true,
-    fallback: defaults,
-  });
-}
-
-function mergeAISettings(source?: Partial<AISettings>): AISettings {
-  const legacyAwareSource = (source || {}) as Partial<AISettings> & {
-    promptProfiles?: unknown;
-    draftStorage?: unknown;
-  };
-  const {
-    promptProfiles: _legacyPromptProfiles,
-    draftStorage: _legacyDraftStorage,
-    ...sourceWithoutLegacy
-  } = legacyAwareSource;
-  return normalizeAISettings({
-    ...sourceWithoutLegacy,
-    promptContractVersion: normalizeAIPromptContractVersion(sourceWithoutLegacy.promptContractVersion)
-      || ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-  });
-}
-
-function resetAiPromptToRecommended(settingsState: AISettings, settingKey: AIPromptSettingKey): void {
-  switch (settingKey) {
-    case 'generalChat':
-      settingsState.prompts.skills.generalChat = getRecommendedPromptTemplateForSetting(settingKey) as AIGeneralChatPromptTemplate;
-      break;
-    case 'conceptCoach':
-    default:
-      settingsState.prompts.skills.conceptCoach = getRecommendedPromptTemplateForSetting(settingKey) as AIConceptCoachPromptTemplates;
-      break;
-  }
-}
-
-function mergeQueueSettings(source?: Partial<QueueSettings>): QueueSettings {
-  const defaults = createDefaultQueueSettings();
-  return {
-    ...defaults,
-    ...(source || {}),
-    neuralWandering: {
-      ...defaults.neuralWandering,
-      ...(source?.neuralWandering || {}),
-      weights: {
-        ...defaults.neuralWandering.weights,
-        ...(source?.neuralWandering?.weights || {}),
-      },
-    },
-    neuralRoam: {
-      ...defaults.neuralRoam,
-      ...(source?.neuralRoam || {}),
-      history: {
-        ...defaults.neuralRoam?.history,
-        ...(source?.neuralRoam?.history || {}),
-      },
-      hyperspace: {
-        ...defaults.neuralRoam?.hyperspace,
-        ...(source?.neuralRoam?.hyperspace || {}),
-        treeChannels: {
-          ...defaults.neuralRoam?.hyperspace.treeChannels,
-          ...(source?.neuralRoam?.hyperspace?.treeChannels || {}),
-        },
-      },
-    },
-    filterGroup: {
-      ...defaults.filterGroup,
-      ...(source?.filterGroup || {}),
-    },
-  };
-}
-
 // Emits
 const emit = defineEmits<{
-  (e: 'save', settings: Record<string, unknown>): void;
+  (e: 'save', settings: SettingsPanelSavePayload): void;
   (e: 'close'): void;
   (e: 'repair-dates'): void;  // 🆕 数据修复事件
   (e: 'optimize-parameters', config: OptimizationConfig): Promise<OptimizationConfig | void>;  // 🆕 参数优化事件
@@ -1675,10 +1546,6 @@ function openToolPermissionManager(groupKey?: AIChatToolGroupKey): void {
   });
 }
 
-function mergeArenaSettings(source?: Partial<ArenaSettings>): ArenaSettings {
-  return normalizeArenaSettings(source);
-}
-
 function openBuiltInPromptEditor(settingKey: AIPromptSettingKey): void {
   const preset = aiPromptPresetCards.value.find((entry) => entry.settingKey === settingKey);
   if (!preset) {
@@ -1783,42 +1650,7 @@ function openUserSkillEditor(skill: AIUserSkillDefinition, options?: { index?: n
   });
 }
 
-// 设置
-interface Settings {
-  requestRetention: number;
-  maximumInterval: number;
-  enableShortTerm: boolean;
-  params: number[];
-  dayStartHour: number;  // 🆕 每日刷新时间
-  newCardsPerDay: number;
-  reviewsPerDay: number;
-  autoPostponeEnabled: boolean;
-  autoPostponeSkipTopN: number;
-  autoSortEnabled: boolean;
-  addToOutstandingEveryNth: number;
-  priorityRandomness: number;
-  quickCard: QuickCardSettings;  // 🆕 快速制卡设置
-  progressiveAltXExcerptEnabled: boolean;
-  progressiveStorage: ConfiguredCaptureStorageSettings;
-}
-
-const settings = ref<Settings>({
-  requestRetention: 0.9,
-  maximumInterval: 365,
-  enableShortTerm: true,
-  params: [...DEFAULT_PARAMS],
-  dayStartHour: 4,  // 🆕 默认值：凌晨4点
-  newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
-  reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
-  autoPostponeEnabled: false,
-  autoPostponeSkipTopN: 20,
-  autoSortEnabled: true,
-  addToOutstandingEveryNth: 2,
-  priorityRandomness: 0.1,
-  quickCard: createDefaultQuickCardSettings(),
-  progressiveAltXExcerptEnabled: false,
-  progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
-});
+const settings = ref<Settings>(createDefaultSettingsFormState());
 
 function ensureActiveSubTab(tabKey = activeTab.value): void {
   activeSubTabByTab.value = ensureActiveSettingsSubTabSelection({
@@ -1885,9 +1717,6 @@ function duplicateUserSkill(index: number): void {
 function removeUserSkill(index: number): void {
   aiSettings.value.userSkills.splice(index, 1);
 }
-
-// 🆕 调度器配置
-type SchedulerConfigWithSrsV2 = SchedulerConfig & { srsV2: NonNullable<SchedulerConfig['srsV2']> };
 
 const schedulerConfig = ref<SchedulerConfigWithSrsV2>({
   defaultScheduler: 'fsrs-v6',
@@ -1960,16 +1789,13 @@ const blockAttrsCleanupScanResult = ref<CleanupScanResult | null>(null);
 const blockAttrsCleanupRunResult = ref<CleanupRunResult | null>(null);
 const blockAttrsCleanupBusy = ref(false);
 const blockAttrsCleanupError = ref('');
-const blockAttrsCleanupHasScan = computed(() => blockAttrsCleanupScanResult.value !== null);
-const blockAttrsCleanupAttrRows = computed(() => {
-  const counts = blockAttrsCleanupScanResult.value?.attrCounts || {};
-  return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-});
+const blockAttrsCleanupHasScan = computed(() => hasSettingsBlockAttrsCleanupScan(blockAttrsCleanupScanResult.value));
+const blockAttrsCleanupAttrRows = computed(() => buildSettingsBlockAttrsCleanupAttrRows(blockAttrsCleanupScanResult.value));
 
 watch(
   () => blockAttrsCleanupMode.value,
   (mode, prevMode) => {
-    if (mode === prevMode) {
+    if (!shouldResetSettingsBlockAttrsCleanupForModeChange(mode, prevMode)) {
       return;
     }
     blockAttrsCleanupScanResult.value = null;
@@ -1977,67 +1803,6 @@ watch(
     blockAttrsCleanupError.value = '';
   }
 );
-
-function normalizeConflictResolutionStrategy(value: unknown): ConflictResolutionStrategy {
-  if (value === 'prefer-local' || value === 'prefer-remote' || value === 'merge') {
-    return value;
-  }
-  return 'merge';
-}
-
-function normalizeOutstandingEveryNth(value: unknown): number {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return 2;
-  }
-  return Math.max(1, Math.min(100, Math.floor(numeric)));
-}
-
-function normalizePriorityRandomness(value: unknown): number {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return 0.1;
-  }
-  return Math.max(0, Math.min(1, numeric));
-}
-
-function normalizeDailyLimit(value: unknown, fallback: number): number {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return Math.max(0, Math.floor(fallback));
-  }
-  return Math.max(0, Math.min(9999, Math.floor(numeric)));
-}
-
-function normalizeSrsV2StepList(value: unknown, fallback: number[]): number[] {
-  const source = Array.isArray(value) ? value : fallback;
-  const normalized = source
-    .map((item) => Math.max(1, Math.min(30 * 24 * 60, Math.floor(Number(item)))))
-    .filter((item) => Number.isFinite(item));
-  return normalized.length > 0 ? normalized : [...fallback];
-}
-
-function parseSrsV2StepList(value: string, fallback: number[]): number[] {
-  return normalizeSrsV2StepList(
-    value.split(',').map((part) => part.trim()).filter(Boolean),
-    fallback,
-  );
-}
-
-function normalizeBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  return fallback;
-}
-
-function normalizeAutoPostponeSkipTopN(value: unknown): number {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return 20;
-  }
-  return Math.max(0, Math.min(2000, Math.floor(numeric)));
-}
 
 function requestBlockAttrsCleanupScan(mode: CleanupMode): Promise<CleanupScanResult> {
   return new Promise((resolve, reject) => {
@@ -2062,35 +1827,25 @@ async function handleScanBlockAttrsCleanup(): Promise<void> {
     const result = await requestBlockAttrsCleanupScan(blockAttrsCleanupMode.value);
     blockAttrsCleanupScanResult.value = result;
   } catch (error) {
-    blockAttrsCleanupError.value = (error instanceof Error ? error.message : String(error)) || '扫描失败';
+    blockAttrsCleanupError.value = getSettingsBlockAttrsCleanupErrorMessage(error, '扫描失败');
   } finally {
     blockAttrsCleanupBusy.value = false;
   }
 }
 
 async function handleRunBlockAttrsCleanup(): Promise<void> {
-  if (blockAttrsCleanupBusy.value || !blockAttrsCleanupHasScan.value) {
+  if (!canRunSettingsBlockAttrsCleanup({
+    busy: blockAttrsCleanupBusy.value,
+    scanResult: blockAttrsCleanupScanResult.value,
+  })) {
     return;
   }
 
-  if (blockAttrsCleanupMode.value === 'full') {
-    const firstConfirm = window.confirm(
-      t('blockAttrsCleanupFullFirstConfirm', 'FULL 模式会清除所有插件块属性（包含 custom-xiuyuan-id 与功能字段），是否继续？')
-    );
-    if (!firstConfirm) {
-      return;
-    }
-    const secondConfirm = window.confirm(
-      t('blockAttrsCleanupFullSecondConfirm', '这是第二次确认：执行后不可恢复，确定立即执行 FULL 清理吗？')
-    );
-    if (!secondConfirm) {
-      return;
-    }
-  } else {
-    const safeConfirm = window.confirm(
-      t('blockAttrsCleanupSafeConfirm', '将执行 SAFE 清理（保留功能字段与有效 custom-xiuyuan-id），是否继续？')
-    );
-    if (!safeConfirm) {
+  for (const message of buildSettingsBlockAttrsCleanupConfirmMessages({
+    mode: blockAttrsCleanupMode.value,
+    t,
+  })) {
+    if (!window.confirm(message)) {
       return;
     }
   }
@@ -2101,7 +1856,7 @@ async function handleRunBlockAttrsCleanup(): Promise<void> {
     const result = await requestBlockAttrsCleanupRun(blockAttrsCleanupMode.value);
     blockAttrsCleanupRunResult.value = result;
   } catch (error) {
-    blockAttrsCleanupError.value = (error instanceof Error ? error.message : String(error)) || '执行失败';
+    blockAttrsCleanupError.value = getSettingsBlockAttrsCleanupErrorMessage(error, '执行失败');
   } finally {
     blockAttrsCleanupBusy.value = false;
   }
@@ -2252,117 +2007,16 @@ function loadSettings() {
 
 // 保存设置
 function saveSettings() {
-  const prompts = normalizeAIPromptTemplates(aiSettings.value.prompts);
-  const primaryProvider = {
-    ...aiSettings.value.providers[0],
-    baseUrl: String(aiSettings.value.baseUrl || '').trim(),
-    apiKey: String(aiSettings.value.apiKey || '').trim(),
-    models: [{
-      ...(aiSettings.value.providers[0]?.models?.[0] || {}),
-      id: String(aiSettings.value.model || '').trim(),
-    }],
-  };
-  const normalizedAI = normalizeAISettings({
-    ...aiSettings.value,
-    userSkills: normalizeAIUserSkills(aiSettings.value.userSkills),
-    providers: [
-      primaryProvider,
-      ...aiSettings.value.providers.slice(1),
-    ],
-    defaultModelId: String(aiSettings.value.model || aiSettings.value.defaultModelId || '').trim(),
-    promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-    prompts,
+  const settingsToSave = buildSettingsSavePayload({
+    settings: settings.value,
+    queueSettings: queueSettings.value,
+    schedulerConfig: schedulerConfig.value,
+    riffIntegrationConfig: riffIntegrationConfig.value,
+    triggers: triggers.value,
+    aiSettings: aiSettings.value,
+    arenaSettings: arenaSettings.value,
+    uiSettings: uiSettings.value,
   });
-  const queueInput = queueSettings.value as QueueSettings & {
-    outstandingEveryNth?: number;
-    outstandingSpacing?: number;
-  };
-  const {
-    outstandingEveryNth: _legacyOutstandingEveryNth,
-    outstandingSpacing: _legacyOutstandingSpacing,
-    ...queueBase
-  } = queueInput;
-  const queues: QueueSettings = {
-    ...queueBase,
-    addToOutstandingEveryNth: normalizeOutstandingEveryNth(settings.value.addToOutstandingEveryNth),
-    autoSort: {
-      ...(queueBase.autoSort || {}),
-      enabled: settings.value.autoSortEnabled,
-    },
-    autoPostpone: {
-      ...(queueBase.autoPostpone || {}),
-      enabled: settings.value.autoPostponeEnabled,
-      skipTopNElements: normalizeAutoPostponeSkipTopN(settings.value.autoPostponeSkipTopN),
-    },
-  };
-
-  // 🆕 从复选框状态构建 triggers 数组
-  const triggersArray: Array<'plugin-start' | 'browser-open'> = [];
-  if (triggers.value.pluginStart) triggersArray.push('plugin-start');
-  if (triggers.value.browserOpen) triggersArray.push('browser-open');
-
-  const {
-    addToOutstandingEveryNth: _spacingFromForm,
-    autoSortEnabled: _autoSortEnabled,
-    autoPostponeEnabled: _autoPostponeEnabled,
-    autoPostponeSkipTopN: _autoPostponeSkipTopN,
-    progressiveAltXExcerptEnabled: _progressiveAltXExcerptEnabled,
-    ...settingsBase
-  } = settings.value;
-
-  const settingsToSave = {
-    ...settingsBase,
-    newCardsPerDay: normalizeDailyLimit(settings.value.newCardsPerDay, DEFAULT_SETTINGS.newCardsPerDay),
-    reviewsPerDay: normalizeDailyLimit(settings.value.reviewsPerDay, DEFAULT_SETTINGS.reviewsPerDay),
-    queues,
-    priorityRandomness: normalizePriorityRandomness(settings.value.priorityRandomness),
-    // quickCard 已经在 settings.value 中,不需要单独处理
-    // 🆕 保存调度器配置
-    scheduler: {
-      defaultScheduler: schedulerConfig.value.defaultScheduler,
-      topicScheduler: schedulerConfig.value.topicScheduler,
-      itemScheduler: schedulerConfig.value.itemScheduler,
-      srsV2: {
-        learningStepsMinutes: normalizeSrsV2StepList(
-          schedulerConfig.value.srsV2.learningStepsMinutes,
-          DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes,
-        ),
-        relearningStepsMinutes: normalizeSrsV2StepList(
-          schedulerConfig.value.srsV2.relearningStepsMinutes,
-          DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
-        ),
-        filteredReviewDefault: schedulerConfig.value.srsV2.filteredReviewDefault,
-      },
-    },
-    // 🆕 保存 Riff 集成配置
-    riffIntegration: {
-      mode: riffIntegrationConfig.value.mode,
-      useLocalScheduler: riffIntegrationConfig.value.useLocalScheduler,
-      incrementalSync: {
-        ...riffIntegrationConfig.value.incrementalSync,
-        triggers: triggersArray,
-      },
-      fullSync: riffIntegrationConfig.value.fullSync,
-      deleteSync: riffIntegrationConfig.value.deleteSync,
-      storageConflictResolution: riffIntegrationConfig.value.storageConflictResolution,
-    },
-    progressiveReading: {
-      altXExcerptEnabled: settings.value.progressiveAltXExcerptEnabled,
-      storage: mergeConfiguredCaptureStorageSettings(
-        settings.value.progressiveStorage,
-        DEFAULT_SETTINGS.progressiveReading.storage,
-      ),
-    },
-    ai: {
-      ...normalizedAI,
-      promptContractVersion: ACTIVE_AI_PROMPT_CONTRACT_VERSION,
-      prompts,
-    },
-    arena: normalizeArenaSettings(arenaSettings.value),
-    ui: {
-      ...uiSettings.value,
-    },
-  };
   
   // 🔍 调试日志：检查 quickCard 配置
   logger.debug('Saving settings with quickCard', { quickCard: settingsToSave.quickCard });
@@ -2372,23 +2026,7 @@ function saveSettings() {
 
 // 重置默认
 function resetSettings() {
-  settings.value = {
-    requestRetention: 0.9,
-    maximumInterval: 365,
-    enableShortTerm: true,
-    params: [...DEFAULT_PARAMS],
-    dayStartHour: 4,  // 🆕 重置为默认值4
-    newCardsPerDay: DEFAULT_SETTINGS.newCardsPerDay,
-    reviewsPerDay: DEFAULT_SETTINGS.reviewsPerDay,
-    autoPostponeEnabled: false,
-    autoPostponeSkipTopN: 20,
-    autoSortEnabled: true,
-    addToOutstandingEveryNth: 2,
-    priorityRandomness: 0.1,
-    quickCard: createDefaultQuickCardSettings(),
-    progressiveAltXExcerptEnabled: false,
-    progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
-  };
+  settings.value = createDefaultSettingsFormState();
   queueSettings.value = createDefaultQueueSettings();
   aiSettings.value = createDefaultAISettings();
   arenaSettings.value = createDefaultArenaSettings();
