@@ -55,6 +55,16 @@ import {
   normalizeAIWorkbenchTabId,
   type AIWorkbenchSkillTabDescriptor,
 } from '@/application/services/AIWorkbenchSkillRegistry';
+import {
+  AIWorkbenchSessionPersistScheduler,
+  buildCurrentAIWorkbenchSessionRecord,
+  createAIWorkbenchSessionRecord,
+  createEmptyConversationTree,
+  createEmptyThreadRecord,
+  createInitialThreads,
+  normalizeSurface,
+  projectAIWorkbenchSessionRecordApplication,
+} from '@/application/services/AIWorkbenchSessionRuntime';
 import type { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkbenchSessionStoreService';
 import type { FSRSCard } from '@/types/card';
 import type {
@@ -120,7 +130,6 @@ import type {
   AIWorkbenchSessionRecord,
   AIWorkbenchSource,
   AIWorkbenchState,
-  AIWorkbenchSurface,
   AIWorkbenchTreeNode,
   AIWorkbenchThreads,
   AIWorkbenchToolLogMessage,
@@ -419,15 +428,6 @@ function createTreeViewKey(skillId: AISkillId, tabId: AISkillTabId): string {
   return `${skillId}::${tabId}`;
 }
 
-function createEmptyConversationTree(): AIWorkbenchConversationTree {
-  return {
-    rootNodeId: null,
-    activeLeafNodeId: null,
-    activeLeafNodeIds: {},
-    nodes: {},
-  };
-}
-
 function cloneMessagePayload<T extends AIWorkbenchMessage>(message: T): T {
   return JSON.parse(JSON.stringify(message)) as T;
 }
@@ -481,39 +481,6 @@ function createInitialViewState(): AIWorkbenchState['viewState'] {
     [GENERAL_SKILL]: makeSkillState(),
     [CONCEPT_SKILL]: makeSkillState(),
   };
-}
-
-function createEmptyThreadRecord(skillId: AISkillId, tabId: AISkillTabId): AIWorkbenchThreads[string][string] {
-  return {
-    skillId,
-    tabId,
-    messages: [],
-    resultContextSignature: null,
-    stale: false,
-    staleReason: null,
-  };
-}
-
-function createInitialThreads(): AIWorkbenchThreads {
-  const makeSkillThreads = (skillId: AISkillId): AIWorkbenchThreads[AISkillId] => ({
-    chat: createEmptyThreadRecord(skillId, 'chat'),
-    'working-definition': createEmptyThreadRecord(skillId, 'working-definition'),
-    perspectives: createEmptyThreadRecord(skillId, 'perspectives'),
-    'integrated-understanding': createEmptyThreadRecord(skillId, 'integrated-understanding'),
-    'self-test-cards': createEmptyThreadRecord(skillId, 'self-test-cards'),
-    'cdf-structure': createEmptyThreadRecord(skillId, 'cdf-structure'),
-    'real-world-triggers': createEmptyThreadRecord(skillId, 'real-world-triggers'),
-  });
-  return {
-    [GENERAL_SKILL]: makeSkillThreads(GENERAL_SKILL),
-    [CONCEPT_SKILL]: makeSkillThreads(CONCEPT_SKILL),
-  };
-}
-
-function normalizeSurface(value: unknown): AIWorkbenchSurface {
-  return value === 'review-dialog-sidecar' || value === 'review-tab-companion' || value === 'standalone-dialog'
-    ? value
-    : 'standalone-dialog';
 }
 
 function serializeNeuralBatch(batch: NeuralRoamBatchSnapshot | null): unknown {
@@ -1848,7 +1815,7 @@ export class AIWorkbenchService {
     legacyNotice: null,
   });
 
-  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly persistScheduler = new AIWorkbenchSessionPersistScheduler();
   private currentRunAbortController: AbortController | null = null;
   private currentArenaSelection: AIArenaSelection | null = null;
   private currentArenaRuntimeOverrides: ArenaSkillRuntimeOverrides = {
@@ -5211,39 +5178,20 @@ export class AIWorkbenchService {
     contextSignature: string | null,
   ): AIWorkbenchSessionRecord {
     const now = Date.now();
-    const threads = createInitialThreads();
     const skill = this.getResolvedSkill(this.state.activeSkillId);
-    threads[skill.id] = threads[skill.id] || {};
-    for (const tab of skill.tabs) {
-      threads[skill.id][tab.id] = threads[skill.id][tab.id] || createEmptyThreadRecord(skill.id, tab.id);
-    }
-    return {
+    return createAIWorkbenchSessionRecord({
       id: createEntryId('ai-session'),
       title: this.generateSessionTitle(context),
-      source: context.source,
+      context,
+      contextSignature,
       sourceReviewSessionId: this.state.sourceReviewSessionId,
       reviewChatKey: this.state.reviewChatKey,
       surface: this.state.surface,
-      contextSignature,
-      createdAt: now,
-      updatedAt: now,
       activeSkillId: this.state.activeSkillId,
       activeTabId: this.state.activeTabId,
-      activeSkills: [],
-      messageCount: 0,
-      lastActiveView: this.state.activeSkillId,
-      activeViews: [],
-      context,
-      schemaVersion: 5,
-      messages: [],
-      threads,
-      tree: createEmptyConversationTree(),
-      skillResults: { [GENERAL_SKILL]: null, [CONCEPT_SKILL]: null },
-      conceptCoachResultsByContext: {},
-      genericSkillResults: {},
-      vars: [],
-      diagnostics: [],
-    };
+      skillTabIds: skill.tabs.map((tab) => tab.id),
+      now,
+    });
   }
 
   private async applyAndPersistSession(
@@ -5259,21 +5207,22 @@ export class AIWorkbenchService {
     record: AIWorkbenchSessionRecord,
     liveContext: AIWorkbenchContextSnapshot | null,
   ): void {
+    const projection = projectAIWorkbenchSessionRecordApplication({
+      record,
+      liveContext,
+      liveContextSignature: buildContextSignature(liveContext),
+      fallbackReviewChatKey: deriveReviewChatKey(record.context || null),
+    });
     this.approvalResolvers.clear();
-    this.state.sessionId = record.id;
-    this.state.sessionTitle = record.title;
-    this.state.surface = normalizeSurface(record.surface);
-    this.state.sourceReviewSessionId = record.sourceReviewSessionId;
-    this.state.reviewChatKey = normalizeString(record.reviewChatKey)
-      || deriveReviewChatKey(record.context || null);
-    this.state.context = record.context;
-    this.state.contextSignature = record.contextSignature;
-    this.state.liveContext = liveContext;
-    this.state.contextIsHistorical = Boolean(
-      record.contextSignature
-      && liveContext
-      && record.contextSignature !== buildContextSignature(liveContext)
-    );
+    this.state.sessionId = projection.sessionId;
+    this.state.sessionTitle = projection.sessionTitle;
+    this.state.surface = projection.surface;
+    this.state.sourceReviewSessionId = projection.sourceReviewSessionId;
+    this.state.reviewChatKey = projection.reviewChatKey;
+    this.state.context = projection.context;
+    this.state.contextSignature = projection.contextSignature;
+    this.state.liveContext = projection.liveContext;
+    this.state.contextIsHistorical = projection.contextIsHistorical;
     this.state.activeSkillId = this.normalizeSkillForCurrentSettings(record.activeSkillId, this.state.activeSkillId);
     this.ensureSkillRuntimeState(this.state.activeSkillId);
     this.state.activeTabId = this.normalizeTabForCurrentSettings(record.activeTabId, this.state.activeSkillId);
@@ -6771,17 +6720,10 @@ export class AIWorkbenchService {
       return null;
     }
     const tree = this.ensureTreeState();
-    const messageCount = Object.values(tree.nodes).filter((node) => node.kind === 'message').length;
-    const activeSkills: AISkillId[] = Array.from(new Set(
-      Object.values(tree.nodes)
-        .filter((node) => node.kind === 'message')
-        .map((node) => node.skillId),
-    ));
-    return {
-      schemaVersion: 5,
-      id: sessionId,
-      title: normalizeString(this.state.sessionTitle) || '未命名会话',
-      source: this.state.context?.source || this.state.liveContext?.source || 'standalone',
+    return buildCurrentAIWorkbenchSessionRecord({
+      sessionId,
+      title: this.state.sessionTitle,
+      fallbackTitle: '未命名会话',
       sourceReviewSessionId: this.state.sourceReviewSessionId,
       reviewChatKey: this.state.reviewChatKey,
       surface: this.state.surface,
@@ -6790,20 +6732,14 @@ export class AIWorkbenchService {
       updatedAt: Date.now(),
       activeSkillId: this.state.activeSkillId,
       activeTabId: this.state.activeTabId,
-      activeSkills,
-      messageCount,
-      lastActiveView: this.state.activeSkillId,
-      activeViews: activeSkills,
       context: this.state.context,
+      liveContext: this.state.liveContext,
       messages: this.flattenTimelineMessages(),
       threads: normalizeThreads(this.state.threads),
       tree,
-      skillResults: {
-        [GENERAL_SKILL]: null,
-        [CONCEPT_SKILL]: this.state.skillResults[CONCEPT_SKILL]
-          ? cloneConceptCoachResult(this.state.skillResults[CONCEPT_SKILL]!)
-          : null,
-      },
+      conceptSkillResult: this.state.skillResults[CONCEPT_SKILL]
+        ? cloneConceptCoachResult(this.state.skillResults[CONCEPT_SKILL]!)
+        : null,
       conceptCoachResultsByContext: Object.fromEntries(
         Object.entries(this.state.conceptCoachResultsByContext).map(([contextKey, result]) => [
           contextKey,
@@ -6814,7 +6750,7 @@ export class AIWorkbenchService {
       vars: this.varStore.list(),
       diagnostics: [...this.state.diagnostics],
       legacyExplainMessages: this.state.legacyNotice ? this.getThreadMessages(undefined, DEFAULT_TAB) : undefined,
-    };
+    });
   }
 
   private resolveExistingSummary(sessionId: string) {
@@ -6822,22 +6758,16 @@ export class AIWorkbenchService {
   }
 
   private schedulePersistCurrentSession(): void {
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer);
-    }
-    this.persistTimer = setTimeout(() => {
-      this.persistTimer = null;
-      void this.persistCurrentSession().catch((error) => {
+    this.persistScheduler.schedule(
+      () => this.persistCurrentSession(),
+      (error) => {
         this.state.error = error instanceof Error ? error.message : String(error);
-      });
-    }, 220);
+      },
+    );
   }
 
   private async persistCurrentSession(): Promise<void> {
-    if (this.persistTimer) {
-      clearTimeout(this.persistTimer);
-      this.persistTimer = null;
-    }
+    this.persistScheduler.clear();
     const record = this.buildCurrentSessionRecord();
     if (!record) {
       return;

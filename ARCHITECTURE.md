@@ -276,6 +276,7 @@ sequenceDiagram
 - `AIChatToolRegistry` / `AIChatToolExecutorService`：插件内工具、网页工具、变量缓存和制卡工具的描述符、启用策略、执行链与透明化日志；支持按组/单工具启用、执行/结果审批、变量引用和多轮工具链续跑
 - `AIChatVarStoreService`：会话级变量缓存，支撑长工具结果的 `ListVars` / `ReadVar`
 - `AIWorkbenchSessionStoreService`：通过 `FileService` 持久化 AI 会话索引与单会话记录文件；当前 schema v5 以统一树节点池 + per skill/tab active leaf 保存会话，并额外保存 review 队列级 `reviewChatKey`、按 `contextSignature` 分仓的 `conceptCoachResultsByContext`、工具透明化兼容字段与制卡目标记忆；旧 `skill -> tab -> thread/result` 记录会迁移到树世界线，旧 review 结构化结果会按当前上下文签名补种一次
+- `AIWorkbenchSessionRuntime`：AI workbench session runtime helper，维护空树/initial threads scaffold、new/current session record build、record basic apply projection 与 delayed persist scheduler；`AIWorkbenchService` 只调用 projection 并负责实际状态赋值、history refresh 和 `AIWorkbenchSessionStoreService.saveSession()` side effects
 - `AIFlashcardToolService`：AI 制卡工具的应用层门面，负责复用 AI 制卡目标记忆、解析显式目标覆盖、写入思源源块、读取 mutation 子树，并按模式桥接到 `XiuyuanApplicationService` 或思源原生 Riff 制卡；自测卡 active mode 现在只保留 `list-item / mark / heading / super-block` 四种原生路径，统一走 detailed mutation + 结构根块解析；`cdf-structure` 语义制卡则先解析概念锚点到“当前上下文已有概念文档 or 目标笔记本精确标题命中 or 当前目标笔记本手动搜索/手动新建后选定”，再把已选 anchor 物化成 AI 专用混合 CDF 源块树 `((concept-doc))::定义 / 维度;;值 / 维度;;; + 子级条目`；描述符条目仍只保存 `items[].text`，但当同一 descriptor group 下有多个 items 时，契约要求每个 text 都直接编码 `提示→答案`（例如 `前身→恒星`），后续继续依赖 `parseCueAndAnswer()` 在 scan/create 阶段拆回 cue/answer；随后直接基于 mutation rows + kramdown 构造 `CdfScanResult` 并委托 `CreateCdfMultilineCardsUseCase.executeFromScanResult()` 建卡，不再依赖插入后第二次按根块 ID live scan
 - `AISelfTestCardCreationService`：`AI 理解与制卡 / 自测卡片` 的模式分发门面，负责把当前工作台选择的 `creationMode` 与候选草稿映射到具体制卡工具，不让 UI 或 workbench runtime 直接拼装原生/插件制卡细节
 - `AIWorkbenchService`：通用 AI chat runtime，负责会话编排、树节点生命周期、消息版本/分支/分隔/隐藏/固定、Skill 切换、工具执行、审批状态、结构化结果渲染适配、候选项编辑制卡和历史管理；general-chat 的工具审批通过后会在原工具链里继续执行，拒绝会把拒绝结果回传模型，达到最大轮数后仍会请求一次最终总结；composer 触发的发送/追问/编辑后重发/失败重试现在都会把失败归属到对应 `assistant-text` 节点，带上 `requestSourceMessageId + failureDiagnostic + failureRunMode` 持久化到会话树里，顶部全局 `error` 只保留给非消息类失败；review 场景下 `general-chat` 继续按 `reviewChatKey` 复用同队列聊天历史，但 `concept-coach` 的结构化结果、tab rerun 与 follow-up 改为按当前 `contextSignature` 分仓，切卡后默认切到当前卡自己的结构化工作区；`cdf-structure` 现在是 `concept-coach` 的一等结构化阶段，支持概念锚点/定义候选/描述符组选择与语义制卡；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
@@ -365,6 +366,7 @@ UI surface：
 - `src/application/services/SelectionTopicContinuationService.ts`：选区继续制卡门面，负责同步 menu 预判和异步 progressive source context 解析。
 - `src/application/services/TopicDerivedItemService.ts`：topic continuation / derived item 创建编排。
 - `src/application/services/AIWorkbenchSessionStoreService.ts`：AI 会话索引 + 单会话 JSON 持久化。
+- `src/application/services/AIWorkbenchSessionRuntime.ts`：AI workbench session runtime helper；负责 session record build/apply projection、空树/initial threads scaffold 与 delayed persist scheduler。
 - `src/application/services/ArenaStoreService.ts`：Arena store facade；SQL active 时写 `algorithm_registry / arena_predictions / arena_outcomes / arena_metric_bins / arena_score_snapshots / ai_arena_events / ai_card_attributions`，旧 `arena/store.json` 只作为迁移来源或 fallback；非复习 AI 动作通过 `commitBatch()` 把 match、score snapshot、card attribution 合成一次 store 提交，SQL path 只触发一次 persist，legacy JSON path 只读改写一次。
 - `src/application/services/ArenaKernelService.ts`：Arena 统一内核；负责 AI 场景池、策略包加权抽样、pin/retire/clone/challenge 管理、AI 行为评分、SRS 七选手只读 counterfactual、Universal/Calibration metric 与 delayed attribution；`recordAIEvent / applyAttributedReviewFeedback / selectAIPack` 以“一逻辑 AI 动作最多一次 persist”为边界提交。
 - `src/application/services/ReviewAIWorkbenchRegistry.ts`：AI 工作台会话注册中心。
@@ -376,7 +378,7 @@ UI surface：
 - `src/application/services/AIFlashcardToolService.ts`：AI 制卡工具门面，集中处理制卡目标解析、块写入、mutation 子树定位，以及原生 Riff / Xiuyuan 制卡桥接。
 - `src/application/services/AISelfTestCardCreationService.ts`：自测卡模式分发门面，把 `creationMode + draftMarkdown` 映射到原生列表项/标记/标题/超级块或插件多标记/CDF 工具。
 - `src/application/services/SharedReviewSessionRegistry.ts`：插件托管 review 分屏的共享 session 注册中心。
-- `src/application/services/AIWorkbenchService.ts`：通用 AI chat runtime 与 concept-coach 结构化 renderer 的状态和动作编排。
+- `src/application/services/AIWorkbenchService.ts`：通用 AI chat runtime 与 concept-coach 结构化 renderer 的状态和动作编排；session record scaffold/build/apply projection 与 persist scheduling 已下沉到 `AIWorkbenchSessionRuntime.ts`。
 
 适配器、工厂、查询、用例：
 
@@ -762,6 +764,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 额外保存 `AI 理解与制卡 / 自测卡片` 的最近制卡目标记忆，独立于会话 record 与设置页 schema
 - `AIWorkbenchService`
   - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
+  - 调用 `AIWorkbenchSessionRuntime` 生成/投影 session records，并通过 delayed persist scheduler 合并高频消息树变更；实际 `saveSession()` 与历史刷新仍由 service 编排
   - 维护 `activeSkillId + activeTabId`、树节点、兼容 thread 投影、compact render 投影、tool timeline、pending approvals、vars、diagnostics
   - 运行前按当前 surface / scenario / target kind 选择 Arena 策略包，并把策略包 prompt/tool 覆盖合入 resolved skill；低信心、高分歧或连续不满意时只显示轻量挑战者提示，不做高频 head-to-head
   - `general-chat` 走多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，`QueryBlocksSql / FetchWebPage / SearchWeb` 默认首次审批后缓存决定，写工具继续每次审批；审批工具暂停等待用户确认，确认后在原轮次继续执行

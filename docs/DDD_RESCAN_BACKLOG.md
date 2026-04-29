@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 204)
+Last update: 2026-04-29 (Round 205)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - D10 D52 AI workbench session runtime split
+
+- Task: 继续 D-10 / D-52 大文件拆分 campaign，做 Batch 2 `AIWorkbenchService.ts` session record build/apply/persist scheduling boundary。
+- Touched slice: AI workbench / capture session runtime in `src/application/services/AIWorkbenchService.ts`, new `src/application/services/AIWorkbenchSessionRuntime.ts`, focused AI workbench session runtime / service / store / registry tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
+- Debt fixed now: `AIWorkbenchService.ts` 不再内联空 conversation tree / initial threads scaffold、new session record assembly、current session record projection、session record basic apply projection 或 220ms delayed persist timer bookkeeping；这些 session-runtime mechanics 集中到 `AIWorkbenchSessionRuntime.ts`，service 继续保留 context building、tool execution、state assignment、history refresh 与 save side effects。
+- Debt deferred: D-10 / D-52 的大型 active 文件债继续存在；`AIWorkbenchService.ts` 仍有 LLM/tool-chain、concept-coach normalization、CDF/self-test action 与 message tree command 编排，`SRSBrowser.vue`、`ReviewView.vue`、`SettingsPanel.vue`、`AiWorkbenchPane.vue` 仍待按 active behavior boundary 拆分；AI descriptor i18n / happy-dom 噪音 / Arena scenario registration 等产品债未混入本批。
+- Why deferred: 本批只处理 session record build/apply/persist scheduling seam；继续拆 tool execution、message render projection、CDF/self-test 或 UI pane 会扩大回归面，需要单独验收。
+- Next safe step: 按计划进入 Batch 3 `AiWorkbenchPane.vue` CDF/self-test/message render projection；或在 `AIWorkbenchService.ts` 内继续单独抽 tool-chain/message command seam。
+- Validation: `pnpm exec vitest run src/application/services/__tests__/AIWorkbenchSessionRuntime.test.ts --reporter=dot`（1 file / 4 tests 通过）；`pnpm exec vitest run src/application/services/__tests__/AIWorkbenchSessionRuntime.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/services/__tests__/AIWorkbenchSessionStoreService.test.ts src/application/services/__tests__/ReviewAIWorkbenchRegistry.test.ts src/application/services/__tests__/AIWorkbenchService.user-skill.test.ts --reporter=dot`（5 files / 48 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示 338 / i18n 内容提示 14 与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 Browser open-state hydration split
 
@@ -2728,7 +2738,7 @@ Do not add an entry for skill-only or docs-only work.
 | P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
-| P1 | Large active files still mix state, command, projection, and persistence concerns; Browser chrome preference persistence and open-state hydration projection have been split out, but the larger command/loading/neural orchestration seams remain | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue`, `src/ui/browser/browserChromePreferences.ts`, `src/ui/browser/browserSurfaceState.ts` | Continue splitting only along active behavior boundaries; next Browser-safe cut is a neural navigation command helper or loading orchestration seam, not naming-only moves |
+| P1 | Large active files still mix state, command, projection, and persistence concerns; Browser chrome preference/open-state hydration and AI workbench session runtime mechanics have been split out, but larger command/loading/neural/tool-chain/render orchestration seams remain | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue`, `src/ui/browser/browserChromePreferences.ts`, `src/ui/browser/browserSurfaceState.ts`, `src/application/services/AIWorkbenchSessionRuntime.ts` | Continue splitting only along active behavior boundaries; next safe cut is `AiWorkbenchPane.vue` CDF/self-test/message render projection or Browser neural command/loading orchestration, not naming-only moves |
 | P2 | Browser filter/query helper logic still has local duplication after contract migration | `src/types/browser.ts`, `src/ui/browser/utils/cardFilters.ts`, browser datasource helpers | Deduplicate around shared parser/matcher only after current Browser tests cover the migrated behavior |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
@@ -2738,5 +2748,5 @@ Do not add an entry for skill-only or docs-only work.
 
 ## 4. Next convergence batch
 
-1. Continue splitting the largest active files by state / command / projection / persistence boundaries; Browser chrome preference persistence and open-state hydration are already extracted, so the next safe cut should target Browser neural commands / loading orchestration or AI workbench session persistence.
+1. Continue splitting the largest active files by state / command / projection / persistence boundaries; Browser chrome preference/open-state hydration and AI workbench session runtime are already extracted, so the next safe cut should target `AiWorkbenchPane.vue` CDF/self-test/message render projection or Browser neural commands / loading orchestration.
 2. Evaluate product semantics debt separately: Native Riff hard-delete vs local hide/tombstone and cross-window/device conflict handling.
