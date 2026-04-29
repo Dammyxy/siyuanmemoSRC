@@ -7,8 +7,7 @@ import type {
   AISiyuanBlockRow,
   AISiyuanPort,
 } from '@/application/ports/AISiyuanPort';
-import type { LLMMessage, LLMPort, LLMResponse, LLMToolCall } from '@/application/ports/LLMPort';
-import { LLMError } from '@/application/ports/LLMPort';
+import type { LLMPort } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import {
@@ -40,9 +39,6 @@ import type { SelectionExcerptService } from '@/application/services/SelectionEx
 import type { SelectionTopicContinuationService } from '@/application/services/SelectionTopicContinuationService';
 import { getAIContextProviders } from '@/application/services/AIWorkbenchContextProviderRegistry';
 import {
-  formatStructuredPromptContract,
-  getPromptContractForResolvedSkillRun,
-  getPromptContractForSkillRun,
   getSelfTestModeDescriptor,
 } from '@/application/services/AIPromptContractRegistry';
 import {
@@ -72,6 +68,7 @@ import {
 } from '@/application/services/AIWorkbenchResultNormalization';
 import { AIWorkbenchConversationTreeRuntime } from '@/application/services/AIWorkbenchConversationTreeRuntime';
 import { AIWorkbenchGeneralChatRuntime } from '@/application/services/AIWorkbenchGeneralChatRuntime';
+import { AIWorkbenchPromptRuntime } from '@/application/services/AIWorkbenchPromptRuntime';
 import {
   buildContextSignature,
   buildReviewCardSemantics,
@@ -124,7 +121,6 @@ import type {
   AICdfStructure,
   AIChatApprovalRequest,
   AIChatRuntimeDiagnostic,
-  AIChatToolCall,
   AIChatToolExecutionResult,
   AIBlockContext,
   AIComposerContextState,
@@ -187,7 +183,7 @@ import type {
   ArenaOutcomeLabel,
   ArenaTargetKind,
 } from '@/types/arena';
-import { normalizeAISettings, normalizeAIPromptTemplates, type AIConceptCoachPromptTemplates, type AIProviderConfig, type AISettings } from '@/types/settings';
+import { normalizeAISettings, type AISettings } from '@/types/settings';
 
 export type AIWorkbenchServiceDeps = {
   getAISettings: () => AISettings;
@@ -349,44 +345,6 @@ function getSkillTabIds(skillId: AISkillId, fallbackTabId: AISkillTabId): AISkil
   return [fallbackTabId];
 }
 
-function tryParseJson(candidate: string): { ok: true; value: unknown } | { ok: false } {
-  const normalized = candidate.trim().replace(/^json\s*[\r\n]+/i, '');
-  if (!normalized) {
-    return { ok: false };
-  }
-  try {
-    return { ok: true, value: JSON.parse(normalized) };
-  } catch {
-    return { ok: false };
-  }
-}
-
-function extractJsonPayload(raw: string): unknown {
-  const direct = raw.trim();
-  if (!direct) {
-    throw new Error('AI returned empty content');
-  }
-  const directParsed = tryParseJson(direct);
-  if (directParsed.ok) {
-    return directParsed.value;
-  }
-  for (const match of direct.matchAll(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g)) {
-    const parsed = tryParseJson(match[1] || '');
-    if (parsed.ok) {
-      return parsed.value;
-    }
-  }
-  const objectStart = direct.indexOf('{');
-  const objectEnd = direct.lastIndexOf('}');
-  if (objectStart >= 0 && objectEnd > objectStart) {
-    const parsed = tryParseJson(direct.slice(objectStart, objectEnd + 1));
-    if (parsed.ok) {
-      return parsed.value;
-    }
-  }
-  throw new Error('AI response is not valid JSON');
-}
-
 function normalizeOpenSkillId(options: AIWorkbenchOpenOptions): AISkillId {
   return normalizeAIWorkbenchSkillId(options.skillId || options.view, GENERAL_SKILL);
 }
@@ -437,7 +395,6 @@ export class AIWorkbenchService {
   });
 
   private readonly persistScheduler = new AIWorkbenchSessionPersistScheduler();
-  private currentRunAbortController: AbortController | null = null;
   private currentArenaSelection: AIArenaSelection | null = null;
   private currentArenaRuntimeOverrides: ArenaSkillRuntimeOverrides = {
     selectedPackId: null,
@@ -452,6 +409,7 @@ export class AIWorkbenchService {
   private readonly flashcardTools: AIFlashcardToolService;
   private readonly selfTestCardCreationService: AISelfTestCardCreationService;
   private readonly toolExecutor: AIChatToolExecutorService;
+  private readonly promptRuntime: AIWorkbenchPromptRuntime;
   private readonly generalChatRuntime: AIWorkbenchGeneralChatRuntime;
   private readonly approvalResolvers = new Map<string, {
     request: AIChatApprovalRequest;
@@ -487,30 +445,38 @@ export class AIWorkbenchService {
       flashcardTools: this.flashcardTools,
       getAISettings: this.deps.getAISettings,
     });
+    this.promptRuntime = new AIWorkbenchPromptRuntime({
+      state: this.state,
+      getAISettings: this.deps.getAISettings,
+      llmPort: this.deps.llmPort,
+      getSelfTestCreationMode: () => this.getSelfTestCreationMode(),
+      getResolvedSkill: (skillId) => this.getResolvedSkill(skillId),
+      normalizeTabForCurrentSettings: (value, skillId) => this.normalizeTabForCurrentSettings(value, skillId),
+      getArenaRuntimeOverrides: (skillId) => this.getArenaRuntimeOverrides(skillId),
+      getRenderEntriesForTab: (tabId) => this.getRenderEntries(undefined, tabId),
+      getFollowUpsForTab: (tabId) => this.getFollowUps(undefined, tabId),
+      findLatestConceptCoachResultForContext: (signature) => this.findLatestConceptCoachResultForContext(signature),
+    });
     this.generalChatRuntime = new AIWorkbenchGeneralChatRuntime({
       state: this.state,
       toolRegistry: this.toolRegistry,
       toolExecutor: this.toolExecutor,
-      assertModelSettings: () => this.assertModelSettings(),
-      resolveDefaultProvider: (settings) => this.resolveDefaultProvider(settings),
-      buildGeneralChatMessages: (settings, skill, tabId, attachedContexts, toolRules) => this.buildGeneralChatMessages(
+      assertModelSettings: () => this.promptRuntime.assertModelSettings(),
+      resolveDefaultProvider: (settings) => this.promptRuntime.resolveDefaultProvider(settings),
+      buildGeneralChatMessages: (settings, skill, tabId, attachedContexts, toolRules) => this.promptRuntime.buildGeneralChatMessages(
         settings,
         skill,
         tabId,
         attachedContexts,
         toolRules,
       ),
-      requestChatModel: (messages, input) => this.requestChatModel(messages, input),
+      requestChatModel: (messages, input) => this.promptRuntime.requestChatModel(messages, input),
       appendNodeMessage: (tabId, message, options) => this.appendNodeMessage(tabId, message, options),
       patchActiveNodeMessage: (messageId, updater, options) => this.patchActiveNodeMessage(messageId, updater, options),
-      toRuntimeToolCall: (toolCall) => this.toRuntimeToolCall(toolCall),
+      toRuntimeToolCall: (toolCall) => this.promptRuntime.toRuntimeToolCall(toolCall),
       requestInlineToolApproval: (request) => this.requestInlineToolApproval(request),
       appendToolLogMessage: (result, skillId, tabId, runGroupId) => this.appendToolLogMessage(result, skillId, tabId, runGroupId),
-      ensureRunNotAborted: () => {
-        if (this.currentRunAbortController?.signal.aborted) {
-          throw new Error('当前 AI 运行已停止。');
-        }
-      },
+      ensureRunNotAborted: () => this.promptRuntime.ensureRunNotAborted(),
     });
   }
 
@@ -652,10 +618,10 @@ export class AIWorkbenchService {
 
     this.state.error = null;
     this.state.failureDiagnostic = null;
-    const settings = this.assertModelSettings();
-    const provider = this.resolveDefaultProvider(settings);
+    const settings = this.promptRuntime.assertModelSettings();
+    const provider = this.promptRuntime.resolveDefaultProvider(settings);
     const descriptor = getSelfTestModeDescriptor(normalizedMode);
-    const response = await this.requestChatModel(
+    const response = await this.promptRuntime.requestChatModel(
       buildModeDraftGenerationMessages(settings, normalizedMode, pendingCards, this.state.context),
       {
         settings,
@@ -663,7 +629,7 @@ export class AIWorkbenchService {
         stream: false,
       },
     );
-    const payload = this.extractStructuredPayload(`${descriptor.label} 草稿生成`, response.content);
+    const payload = this.promptRuntime.extractStructuredPayload(`${descriptor.label} 草稿生成`, response.content);
     const drafts = extractModeDraftsFromPayload(payload, pendingCards);
     if (Object.keys(drafts).length === 0) {
       throw this.fail(`AI 没有返回任何可用的 ${descriptor.label} 草稿，请重试。`);
@@ -1537,7 +1503,7 @@ export class AIWorkbenchService {
   }
 
   cancelCurrentRun(): void {
-    this.currentRunAbortController?.abort();
+    this.promptRuntime.cancelCurrentRun();
     for (const approvalId of this.state.pendingApprovals.map((request) => request.id)) {
       void this.resolveToolApproval(approvalId, false, '用户已停止当前运行。');
     }
@@ -1665,9 +1631,7 @@ export class AIWorkbenchService {
   }
 
   getCurrentModelLabel(): string {
-    const settings = normalizeAISettings(this.deps.getAISettings());
-    const provider = this.resolveDefaultProvider(settings);
-    return [provider.name, settings.defaultModelId || settings.model].map(normalizeString).filter(Boolean).join(' · ') || '未配置模型';
+    return this.promptRuntime.getCurrentModelLabel();
   }
 
   setActiveView(_view: unknown): void {
@@ -2377,11 +2341,11 @@ export class AIWorkbenchService {
     await this.runTask(tabIds, async () => {
       const attachedContexts = this.consumeComposerContexts();
       if (skill.id === CONCEPT_SKILL) {
-        const response = await this.requestConceptCoachResult(attachedContexts);
+        const response = await this.promptRuntime.requestConceptCoachResult(attachedContexts);
         this.appendConceptCoachFullResult(response.content, attachedContexts);
         return;
       }
-      const response = await this.requestGenericStructuredResult(skill, attachedContexts);
+      const response = await this.promptRuntime.requestGenericStructuredResult(skill, attachedContexts);
       this.appendGenericStructuredFullResult(skill, response.content, attachedContexts);
     }, 'full-run');
   }
@@ -2397,11 +2361,11 @@ export class AIWorkbenchService {
     await this.runTask([tabId], async () => {
       const attachedContexts = this.consumeComposerContexts();
       if (skill.id === CONCEPT_SKILL) {
-        const response = await this.requestConceptCoachTabResult(tabId, attachedContexts);
+        const response = await this.promptRuntime.requestConceptCoachTabResult(tabId, attachedContexts);
         this.appendConceptCoachTabResult(tabId, response.content, attachedContexts);
         return;
       }
-      const response = await this.requestGenericStructuredTabResult(skill, tabId, attachedContexts);
+      const response = await this.promptRuntime.requestGenericStructuredTabResult(skill, tabId, attachedContexts);
       this.appendGenericStructuredTabResult(skill, tabId, response.content, attachedContexts);
     }, 'tab-rerun');
   }
@@ -2490,10 +2454,10 @@ export class AIWorkbenchService {
     }
     try {
       if (skill.id === CONCEPT_SKILL) {
-        const response = await this.requestConceptCoachResult(attachedContexts, question);
+        const response = await this.promptRuntime.requestConceptCoachResult(attachedContexts, question);
         this.appendConceptCoachFullResult(response.content, attachedContexts, sourceNode.id);
       } else {
-        const response = await this.requestGenericStructuredResult(skill, attachedContexts, question);
+        const response = await this.promptRuntime.requestGenericStructuredResult(skill, attachedContexts, question);
         this.appendGenericStructuredFullResult(skill, response.content, attachedContexts, sourceNode.id);
       }
       for (const tabId of tabIds) {
@@ -2563,8 +2527,8 @@ export class AIWorkbenchService {
     this.state.runStatus = this.createRunStatus('follow-up', [tabId]);
     try {
       const response = skill.id === CONCEPT_SKILL
-        ? await this.requestFollowUp(tabId, attachedContexts)
-        : await this.requestGenericFollowUp(skill, tabId, attachedContexts);
+        ? await this.promptRuntime.requestFollowUp(tabId, attachedContexts)
+        : await this.promptRuntime.requestGenericFollowUp(skill, tabId, attachedContexts);
       const content = normalizeString(response.content) || '这次没有返回可用内容。';
       this.appendNodeMessage(tabId, {
         id: createEntryId('ai-msg'),
@@ -2732,30 +2696,6 @@ export class AIWorkbenchService {
     return new Promise((resolve) => {
       this.approvalResolvers.set(request.id, { request, resolve });
     });
-  }
-
-  private stripToolChainSummaryFromContent(content: string): string {
-    return normalizeString(content)
-      .replace(/<tool-chain-summary>[\s\S]*?<\/tool-chain-summary>/gi, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
-
-  private toGeneralChatHistoryMessage(entry: AIWorkbenchRenderEntry): LLMMessage | null {
-    const primary = entry.primaryMessage;
-    if (primary.kind === 'user') {
-      const content = normalizeString(primary.content);
-      return content ? { role: 'user', content } : null;
-    }
-    if (
-      primary.kind !== 'assistant-text'
-      || primary.presentation === 'supplemental'
-      || primary.failureDiagnostic
-    ) {
-      return null;
-    }
-    const content = this.stripToolChainSummaryFromContent(primary.sourceContent || primary.content);
-    return content ? { role: 'assistant', content } : null;
   }
 
   private async activateLiveContext(
@@ -3492,157 +3432,6 @@ export class AIWorkbenchService {
     }
   }
 
-  private buildPromptPayload(input: {
-    attachedContexts: AIAttachedContextItem[];
-    userPrompt?: string;
-    tabId?: AISkillTabId;
-  }): Record<string, unknown> {
-    const context = this.requireContext();
-    const tabId = input.tabId ? normalizeAIWorkbenchTabId(input.tabId) : null;
-    const selfTestMode = this.getSelfTestCreationMode();
-    const selfTestDescriptor = getSelfTestModeDescriptor(selfTestMode);
-    return {
-      language: this.deps.getAISettings().defaultOutputLanguage,
-      skillId: ACTIVE_SKILL,
-      contextSignature: this.state.contextSignature,
-      tabIds: tabId ? [tabId] : [...AI_CONCEPT_COACH_TAB_IDS],
-      ...(tabId ? {
-        tabId,
-        currentTabResult: tabResultFromConceptCoach(this.state.skillResults[ACTIVE_SKILL], tabId),
-      } : {}),
-      attachedContexts: input.attachedContexts,
-      ...(normalizeString(input.userPrompt) ? { userPrompt: normalizeString(input.userPrompt) } : {}),
-      selfTestConfig: {
-        creationMode: selfTestMode,
-        label: selfTestDescriptor.label,
-        summary: selfTestDescriptor.summary,
-      },
-      context: {
-        source: context.source,
-        queueType: context.queueType,
-        queueProgress: context.queueProgress,
-        currentCard: context.currentCard,
-        neuralBatch: context.neuralBatch,
-        selectedBlocks: context.blocks,
-      },
-    };
-  }
-
-  private buildGeneralChatMessages(
-    settings: AISettings,
-    skill: AIChatRegisteredSkillDescriptor,
-    tabId: AISkillTabId,
-    attachedContexts: AIAttachedContextItem[],
-    toolRules = '',
-  ): LLMMessage[] {
-    const context = this.state.context;
-    const systemPayload = {
-      language: settings.defaultOutputLanguage,
-      skillId: skill.id,
-      context: {
-        source: context?.source || 'standalone',
-        queueType: context?.queueType,
-        queueProgress: context?.queueProgress,
-        currentCard: context?.currentCard,
-        selectedBlocks: context?.blocks.map((block) => ({
-          blockId: block.blockId,
-          type: block.type,
-          hPath: block.hPath,
-          text: block.text.slice(0, 1200),
-        })) || [],
-      },
-      attachedContexts: attachedContexts.map((item) => ({
-        title: item.title,
-        summary: item.summary,
-        blockIds: item.blockIds,
-        preview: item.preview,
-      })),
-    };
-    const systemMessage: LLMMessage = {
-      role: 'system',
-      content: [
-        skill.systemPromptTemplate,
-        toolRules,
-        '工具规则：优先复用已有答案与工具摘要；确实需要时再继续调用工具。不要在同一轮里反复读取同一上下文。',
-        '如果需要长结果，请优先使用 ListVars / ReadVar 管理工具缓存，不要把超长内容完整复述给用户。',
-        '当前会话上下文：',
-        JSON.stringify(systemPayload, null, 2),
-      ].join('\n\n'),
-    };
-
-    const historyMessages = this.getRenderEntries(undefined, tabId)
-      .map((entry) => this.toGeneralChatHistoryMessage(entry))
-      .filter((message): message is LLMMessage => Boolean(message))
-      .slice(-12);
-    return [systemMessage, ...historyMessages];
-  }
-
-  private resolveDefaultProvider(settings: AISettings): AIProviderConfig {
-    const matched = settings.providers.find((provider) => (
-      provider.models.some((model) => model.id === settings.defaultModelId || model.id === settings.model)
-    ));
-    return matched || settings.providers[0];
-  }
-
-  private async requestChatModel(
-    messages: LLMMessage[],
-    input: {
-      settings: AISettings;
-      provider: AIProviderConfig;
-      tools?: Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }>;
-      observer?: Parameters<NonNullable<LLMPort['chat']>>[0]['observer'];
-      stream?: boolean;
-    },
-  ): Promise<LLMResponse> {
-    const settings = input.settings;
-    const provider = input.provider;
-    this.currentRunAbortController = new AbortController();
-    try {
-      return await this.deps.llmPort.chat({
-        baseUrl: provider.baseUrl || settings.baseUrl,
-        apiKey: provider.apiKey || settings.apiKey,
-        model: settings.defaultModelId || settings.model,
-        provider,
-        protocol: provider.protocol,
-        modelRef: {
-          providerId: provider.id,
-          modelId: settings.defaultModelId || settings.model,
-        },
-        timeoutMs: settings.timeoutMs,
-        temperature: settings.temperature,
-        messages,
-        tools: input.tools,
-        toolChoice: input.tools?.length ? 'auto' : undefined,
-        stream: input.stream ?? settings.chatDefaults.stream,
-        abortSignal: this.currentRunAbortController.signal,
-        observer: input.observer,
-      });
-    } catch (error) {
-      if (error instanceof LLMError) {
-        this.captureFailureDiagnostic(error);
-        throw this.fail(this.mapLlmError(error));
-      }
-      throw error;
-    } finally {
-      this.currentRunAbortController = null;
-    }
-  }
-
-  private toRuntimeToolCall(toolCall: LLMToolCall): AIChatToolCall {
-    let args: Record<string, unknown> = {};
-    try {
-      const parsed = JSON.parse(toolCall.function.arguments || '{}');
-      args = isRecord(parsed) ? parsed : {};
-    } catch {
-      args = {};
-    }
-    return {
-      id: toolCall.id,
-      name: toolCall.function.name,
-      arguments: args,
-    };
-  }
-
   private appendToolLogMessage(
     result: AIChatToolExecutionResult,
     skillId: AISkillId = this.state.activeSkillId,
@@ -3715,371 +3504,12 @@ export class AIWorkbenchService {
     ].slice(-40);
   }
 
-  private async requestConceptCoachResult(
-    attachedContexts: AIAttachedContextItem[],
-    userPrompt?: string,
-  ): Promise<LLMResponse> {
-    const context = this.requireContext();
-    this.assertConceptCoachAllowed(context);
-    return this.requestStructuredModel(
-      this.buildPromptPayload({ attachedContexts, userPrompt }),
-    );
-  }
-
-  private async requestConceptCoachTabResult(
-    tabId: AISkillTabId,
-    attachedContexts: AIAttachedContextItem[],
-  ): Promise<LLMResponse> {
-    const context = this.requireContext();
-    this.assertConceptCoachAllowed(context);
-    return this.requestStructuredModel(
-      this.buildPromptPayload({ attachedContexts, tabId }),
-      tabId,
-    );
-  }
-
-  private buildGenericStructuredPromptPayload(input: {
-    skill: AIChatRegisteredSkillDescriptor;
-    attachedContexts: AIAttachedContextItem[];
-    userPrompt?: string;
-    tabId?: AISkillTabId;
-  }): Record<string, unknown> {
-    const context = this.requireContext();
-    const tabId = input.tabId ? this.normalizeTabForCurrentSettings(input.tabId, input.skill.id) : null;
-    return {
-      language: this.deps.getAISettings().defaultOutputLanguage,
-      skillId: input.skill.id,
-      skillTitle: input.skill.title,
-      tabIds: tabId ? [tabId] : input.skill.tabs.map((tab) => tab.id),
-      sections: (input.skill.sections || [])
-        .filter((section) => !tabId || section.id === tabId)
-        .map((section) => ({
-          id: section.id,
-          title: section.title,
-          responseKey: section.responseKey,
-          renderer: section.renderer,
-          required: section.required,
-        })),
-      ...(tabId ? {
-        tabId,
-        currentTabResult: this.state.genericSkillResults[input.skill.id]?.sections.find((section) => section.id === tabId) || null,
-      } : {}),
-      attachedContexts: input.attachedContexts,
-      ...(normalizeString(input.userPrompt) ? { userPrompt: normalizeString(input.userPrompt) } : {}),
-      context: {
-        source: context.source,
-        queueType: context.queueType,
-        queueProgress: context.queueProgress,
-        currentCard: context.currentCard,
-        neuralBatch: context.neuralBatch,
-        selectedBlocks: context.blocks,
-      },
-    };
-  }
-
-  private async requestGenericStructuredResult(
-    skill: AIChatRegisteredSkillDescriptor,
-    attachedContexts: AIAttachedContextItem[],
-    userPrompt?: string,
-  ): Promise<LLMResponse> {
-    return this.requestStructuredModel(
-      this.buildGenericStructuredPromptPayload({ skill, attachedContexts, userPrompt }),
-      undefined,
-      skill,
-    );
-  }
-
-  private async requestGenericStructuredTabResult(
-    skill: AIChatRegisteredSkillDescriptor,
-    tabId: AISkillTabId,
-    attachedContexts: AIAttachedContextItem[],
-  ): Promise<LLMResponse> {
-    return this.requestStructuredModel(
-      this.buildGenericStructuredPromptPayload({ skill, attachedContexts, tabId }),
-      tabId,
-      skill,
-    );
-  }
-
-  private async requestStructuredModel(
-    payload: Record<string, unknown>,
-    tabId?: AISkillTabId,
-    skill: AIChatRegisteredSkillDescriptor = this.getResolvedSkill(ACTIVE_SKILL),
-  ): Promise<LLMResponse> {
-    const settings = this.assertModelSettings();
-    const provider = this.resolveDefaultProvider(settings);
-    this.currentRunAbortController = new AbortController();
-    try {
-      return await this.deps.llmPort.chat({
-        baseUrl: provider.baseUrl || settings.baseUrl,
-        apiKey: provider.apiKey || settings.apiKey,
-        model: settings.defaultModelId || settings.model,
-        provider,
-        protocol: provider.protocol,
-        modelRef: {
-          providerId: provider.id,
-          modelId: settings.defaultModelId || settings.model,
-        },
-        timeoutMs: settings.timeoutMs,
-        temperature: settings.temperature,
-        responseFormat: 'json_object',
-        messages: [
-          {
-            role: 'system',
-            content: this.buildStructuredRunSystemPrompt(settings, skill, tabId),
-          },
-          {
-            role: 'user',
-            content: JSON.stringify(payload, null, 2),
-          },
-        ],
-        abortSignal: this.currentRunAbortController.signal,
-      });
-    } catch (error) {
-      if (error instanceof LLMError) {
-        this.captureFailureDiagnostic(error);
-        throw this.fail(this.mapLlmError(error));
-      }
-      throw error;
-    } finally {
-      this.currentRunAbortController = null;
-    }
-  }
-
-  private async requestFollowUp(
-    tabId: AISkillTabId,
-    attachedContexts: AIAttachedContextItem[] = [],
-  ): Promise<LLMResponse> {
-    const context = this.requireContext();
-    const settings = this.assertModelSettings();
-    const provider = this.resolveDefaultProvider(settings);
-    const tabResult = tabResultFromConceptCoach(this.findLatestConceptCoachResultForContext(this.state.contextSignature), tabId);
-    if (!tabResult) {
-      throw this.fail('当前阶段没有可追问的结构化结果。');
-    }
-    const prompts = settings.prompts.skills.conceptCoach;
-    this.currentRunAbortController = new AbortController();
-    try {
-      return await this.deps.llmPort.chat({
-        baseUrl: provider.baseUrl || settings.baseUrl,
-        apiKey: provider.apiKey || settings.apiKey,
-        model: settings.defaultModelId || settings.model,
-        provider,
-        protocol: provider.protocol,
-        modelRef: {
-          providerId: provider.id,
-          modelId: settings.defaultModelId || settings.model,
-        },
-        timeoutMs: settings.timeoutMs,
-        temperature: settings.temperature,
-        messages: [
-          {
-            role: 'system',
-            content: [
-              this.getResolvedSkill(this.state.activeSkillId).systemPromptTemplate,
-              this.getArenaRuntimeOverrides(this.state.activeSkillId).tabFollowUpPrompts?.[tabId],
-              prompts.tabs[tabId].followUp,
-            ].map((part) => normalizeString(part)).filter(Boolean).join('\n\n'),
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              language: settings.defaultOutputLanguage,
-              skillId: ACTIVE_SKILL,
-              contextSignature: this.state.contextSignature,
-              tabId,
-              tabResult,
-              attachedContexts,
-              context: {
-                source: context.source,
-                queueType: context.queueType,
-                queueProgress: context.queueProgress,
-                currentCard: context.currentCard,
-                neuralBatch: context.neuralBatch,
-                selectedBlocks: context.blocks,
-              },
-            }, null, 2),
-          },
-          ...this.getFollowUps(undefined, tabId).map((entry) => ({
-            role: entry.role,
-            content: entry.content,
-          })),
-        ],
-        abortSignal: this.currentRunAbortController.signal,
-      });
-    } catch (error) {
-      if (error instanceof LLMError) {
-        this.captureFailureDiagnostic(error);
-        throw this.fail(this.mapLlmError(error));
-      }
-      throw error;
-    } finally {
-      this.currentRunAbortController = null;
-    }
-  }
-
-  private async requestGenericFollowUp(
-    skill: AIChatRegisteredSkillDescriptor,
-    tabId: AISkillTabId,
-    attachedContexts: AIAttachedContextItem[] = [],
-  ): Promise<LLMResponse> {
-    const context = this.requireContext();
-    const settings = this.assertModelSettings();
-    const provider = this.resolveDefaultProvider(settings);
-    const section = (skill.sections || []).find((entry) => entry.id === tabId);
-    const tabResult = this.state.genericSkillResults[skill.id]?.sections.find((entry) => entry.id === tabId) || null;
-    if (!section || !tabResult) {
-      throw this.fail('当前 section 没有可追问的结构化结果。');
-    }
-    this.currentRunAbortController = new AbortController();
-    try {
-      return await this.deps.llmPort.chat({
-        baseUrl: provider.baseUrl || settings.baseUrl,
-        apiKey: provider.apiKey || settings.apiKey,
-        model: settings.defaultModelId || settings.model,
-        provider,
-        protocol: provider.protocol,
-        modelRef: {
-          providerId: provider.id,
-          modelId: settings.defaultModelId || settings.model,
-        },
-        timeoutMs: settings.timeoutMs,
-        temperature: settings.temperature,
-        messages: [
-          {
-            role: 'system',
-            content: [
-              skill.systemPromptTemplate,
-              section.followUpPrompt,
-              '只基于给定 section 结果、上下文和用户追问回答；不要执行未启用的写入动作。',
-            ].map((part) => normalizeString(part)).filter(Boolean).join('\n\n'),
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              language: settings.defaultOutputLanguage,
-              skillId: skill.id,
-              tabId,
-              tabResult,
-              attachedContexts,
-              context: {
-                source: context.source,
-                queueType: context.queueType,
-                queueProgress: context.queueProgress,
-                currentCard: context.currentCard,
-                neuralBatch: context.neuralBatch,
-                selectedBlocks: context.blocks,
-              },
-            }, null, 2),
-          },
-          ...this.getFollowUps(undefined, tabId).map((entry) => ({
-            role: entry.role,
-            content: entry.content,
-          })),
-        ],
-        abortSignal: this.currentRunAbortController.signal,
-      });
-    } catch (error) {
-      if (error instanceof LLMError) {
-        this.captureFailureDiagnostic(error);
-        throw this.fail(this.mapLlmError(error));
-      }
-      throw error;
-    } finally {
-      this.currentRunAbortController = null;
-    }
-  }
-
-  private assertModelSettings(): AISettings {
-    const settings = normalizeAISettings(this.deps.getAISettings());
-    if (!settings.enabled) {
-      throw this.fail('请先在设置中启用 AI 功能。');
-    }
-    if (!settings.apiKey.trim()) {
-      throw this.fail('请先在设置中填写 AI API Key。');
-    }
-    if (!settings.baseUrl.trim() || !settings.model.trim()) {
-      throw this.fail('AI Base URL 或模型名未配置。');
-    }
-    return {
-      ...settings,
-      prompts: normalizeAIPromptTemplates(settings.prompts),
-    };
-  }
-
-  private buildStructuredRunSystemPrompt(
-    settings: AISettings,
-    skill: AIChatRegisteredSkillDescriptor,
-    tabId?: AISkillTabId,
-  ): string {
-    if (skill.id !== CONCEPT_SKILL) {
-      const sections = (skill.sections || []).filter((section) => !tabId || section.id === tabId);
-      const behaviorPrompts = [
-        skill.systemPromptTemplate,
-        ...sections.map((section) => section.runPrompt),
-      ];
-      const contractText = formatStructuredPromptContract(getPromptContractForResolvedSkillRun(skill, tabId));
-      return [...behaviorPrompts, contractText]
-        .map((section) => normalizeString(section))
-        .filter(Boolean)
-        .join('\n\n');
-    }
-    const prompts: AIConceptCoachPromptTemplates = settings.prompts.skills.conceptCoach;
-    const arenaOverrides = this.getArenaRuntimeOverrides(skill.id);
-    const arenaRunOverride = tabId
-      ? arenaOverrides.tabRunPrompts?.[tabId]
-      : undefined;
-    const conceptTabId = tabId as typeof AI_CONCEPT_COACH_TAB_IDS[number] | undefined;
-    const behaviorPrompts = tabId
-      ? [skill.systemPromptTemplate, prompts.baseRun, arenaRunOverride, prompts.tabs[conceptTabId!].run]
-      : [
-        skill.systemPromptTemplate,
-        prompts.baseRun,
-        ...Object.values(arenaOverrides.tabRunPrompts || {}),
-        ...AI_CONCEPT_COACH_TAB_IDS.map((id) => prompts.tabs[id].run),
-      ];
-    const contractText = formatStructuredPromptContract(getPromptContractForSkillRun(ACTIVE_SKILL, tabId));
-    return [...behaviorPrompts, contractText]
-      .map((section) => normalizeString(section))
-      .filter(Boolean)
-      .join('\n\n');
-  }
-
-  private extractStructuredPayload(taskLabel: string, rawContent: string): unknown {
-    try {
-      return extractJsonPayload(rawContent);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      this.state.failureDiagnostic = {
-        content: [
-          'Diagnostic type: invalid_json',
-          `Task: ${taskLabel}`,
-          `Reason: ${reason}`,
-          'Response body:',
-          rawContent.trim() || '<empty body>',
-        ].join('\n'),
-      };
-      throw this.fail(`${taskLabel}返回的内容不是合法 JSON。请检查设置里的 AI 理解与制卡 Prompt 是否把系统结构化输出要求冲掉了。原始原因：${reason}`);
-    }
-  }
-
-  private assertConceptCoachAllowed(context: AIWorkbenchContextSnapshot): void {
-    if (
-      context.source === 'review'
-      && context.currentCard
-      && context.currentCard.explainRequiresReveal
-      && !context.currentCard.revealed
-    ) {
-      throw this.fail('请先揭示答案，再使用 AI 理解与制卡。');
-    }
-  }
-
   private appendConceptCoachFullResult(
     rawContent: string,
     appliedContexts: AIAttachedContextItem[],
     parentNodeId?: string | null,
   ): void {
-    const payload = this.extractStructuredPayload('AI 理解与制卡', rawContent);
+    const payload = this.promptRuntime.extractStructuredPayload('AI 理解与制卡', rawContent);
     let normalized: ConceptCoachNormalizationState;
     try {
       normalized = normalizeConceptCoachState(payload, rawContent, this.getSelfTestCreationMode());
@@ -4117,7 +3547,7 @@ export class AIWorkbenchService {
     rawContent: string,
     appliedContexts: AIAttachedContextItem[],
   ): void {
-    const payload = this.extractStructuredPayload(this.getActiveTabDescriptor().title, rawContent);
+    const payload = this.promptRuntime.extractStructuredPayload(this.getActiveTabDescriptor().title, rawContent);
     let normalized: ReturnType<typeof mergeTabResult>;
     try {
       normalized = mergeTabResult(
@@ -4156,7 +3586,7 @@ export class AIWorkbenchService {
     appliedContexts: AIAttachedContextItem[],
     parentNodeId?: string | null,
   ): void {
-    const payload = this.extractStructuredPayload(skill.title, rawContent);
+    const payload = this.promptRuntime.extractStructuredPayload(skill.title, rawContent);
     const normalized = normalizeGenericStructuredResult(skill, payload, rawContent);
     this.state.genericSkillResults[skill.id] = normalized.result;
     const now = Date.now();
@@ -4189,7 +3619,7 @@ export class AIWorkbenchService {
     rawContent: string,
     appliedContexts: AIAttachedContextItem[],
   ): void {
-    const payload = this.extractStructuredPayload(this.getActiveTabDescriptor().title, rawContent);
+    const payload = this.promptRuntime.extractStructuredPayload(this.getActiveTabDescriptor().title, rawContent);
     const normalized = normalizeGenericStructuredResult(skill, payload, rawContent, tabId);
     const current = this.state.genericSkillResults[skill.id];
     const nextSections = [
@@ -4355,39 +3785,5 @@ export class AIWorkbenchService {
 
   private fail(message: string): Error {
     return new Error(message);
-  }
-
-  private captureFailureDiagnostic(error: LLMError): void {
-    const settings = normalizeAISettings(this.deps.getAISettings());
-    const provider = this.resolveDefaultProvider(settings);
-    const content = normalizeString(error.diagnostic) || [
-      `Error code: ${error.code}`,
-      ...(typeof error.status === 'number' ? [`HTTP status: ${error.status}`] : []),
-      `Provider: ${normalizeString(provider.name) || '<unconfigured>'}`,
-      `Model: ${normalizeString(settings.defaultModelId || settings.model) || '<unconfigured>'}`,
-      `Base URL: ${normalizeString(provider.baseUrl || settings.baseUrl) || '<unconfigured>'}`,
-      'Response body:',
-      '<not captured>',
-    ].join('\n');
-    this.state.failureDiagnostic = content
-      ? { content } satisfies AIWorkbenchFailureDiagnostic
-      : null;
-  }
-
-  private mapLlmError(error: LLMError): string {
-    switch (error.code) {
-      case 'unauthorized':
-        return 'AI 请求鉴权失败，请检查 API Key。';
-      case 'rate_limited':
-        return 'AI 请求过于频繁，请稍后再试。';
-      case 'timeout':
-        return 'AI 请求超时，请检查网络或调大超时时间。';
-      case 'aborted':
-        return '已停止本次生成，已保留当前输出片段。';
-      case 'empty_response':
-        return 'AI 请求已发出，但模型返回了空正文。请重试；如果连续出现，请检查 Base URL、模型名，以及该模型是否支持 Chat Completions 的 json_object 输出。';
-      default:
-        return error.message || 'AI 请求失败。';
-    }
   }
 }
