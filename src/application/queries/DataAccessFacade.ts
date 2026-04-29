@@ -38,7 +38,6 @@ import type { CardFilter as QueryCardFilter } from './card/GetCardsQuery';
 import {
     isCardDismissed,
 } from '@/core/card/domain/services/dismissState';
-import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import { isErr } from '@/types/result';
 import { createLogger } from '@/utils/logger';
 
@@ -173,14 +172,19 @@ export class DataAccessFacade implements IDataRouter {
      * @param storage 本地存储管理器实例(用于 fillMissingRootIds)
      * @param plugin 插件实例(用于访问配置)
      * @param settingsService 设置服务实例(用于访问设置)
+     * @param siyuanApi 查询与 Riff due 同步端口
      */
     constructor(
         cardService: CardApplicationService,
         storage: StorageManager,
-        plugin?: DataAccessPlugin,
-        settingsService?: SettingsServiceLike,
-        siyuanApi: QuerySiyuanPort = new QuerySiyuanAdapter()
+        plugin: DataAccessPlugin | undefined,
+        settingsService: SettingsServiceLike | undefined,
+        siyuanApi: QuerySiyuanPort
     ) {
+        if (!siyuanApi) {
+            throw new Error('[SiYuanMemo][DataAccessFacade] QuerySiyuanPort is required');
+        }
+
         this.cardService = cardService;
         this.cardFilterService = new CardFilterService();
         this.blockRepository = new BlockRepository();

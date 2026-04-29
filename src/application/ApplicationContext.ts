@@ -1207,7 +1207,8 @@ export class ApplicationContext {
       cardApplicationService, 
       unifiedStorageManager as unknown as StorageManager,  // ✅ 使用 UnifiedStorageManager
       config.plugin, 
-      settingsService
+      settingsService,
+      new QuerySiyuanAdapter()
     );
     // ✅ 设置 ApplicationContext 引用，使 advancedRouter 可以访问 CardContentQueryService
     advancedRouter.setApplicationContext(context);

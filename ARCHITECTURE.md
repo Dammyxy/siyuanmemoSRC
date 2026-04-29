@@ -94,7 +94,7 @@ flowchart TD
 - 初始化 `StorageManager` / `UnifiedStorageManager`
 - 初始化 `SchedulerRouter` / `RescheduleService`
 - 初始化 `UnifiedDataSourceManager`
-- 装配 `CardApplicationService` / `BrowserApplicationService` / `ReviewApplicationService`；其中 `ReviewApplicationService` 的 `ReviewSiyuanPort` 与 `CardContentQueryService` 的 `QuerySiyuanPort` 由组合根注入，不在 service 内默认构造基础设施 adapter
+- 装配 `CardApplicationService` / `BrowserApplicationService` / `ReviewApplicationService`；其中 `ReviewApplicationService` 的 `ReviewSiyuanPort`、`CardContentQueryService` / `DataAccessFacade` 的 `QuerySiyuanPort` 由组合根注入，不在 service/facade 内默认构造基础设施 adapter
 - SQL active 时给 `CardApplicationService` 注入 `SqlCardReadModel`，并把 `SqlUnifiedStorageRepository` 作为 `BrowserDeckReadPort` 注入 `BrowserApplicationService` / `DocTreeReviewScopeService`；卡片计数、Browser stats、deck 主表分页、source-existence cache、root-scope 候选与 card-type-marker 扫描优先走 `cards` 表 v3 投影列和索引，legacy、SQL 不可用或 SQL 不可表达条件再回到 `UnifiedStorageManager` / snapshot 读模型
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`；`DialogManager`、`MenuManager`、`TabManager`、`BlockMenuHandler`、`PracticeQueueManager`、`ReviewScopeCardCreationSyncService` 的 Siyuan / Progressive / Leech effects 依赖由 `ApplicationContext` 通过应用端口注入，不在 manager/service 内部默认构造基础设施 adapter
 - 装配 Browser 所需的 Siyuan port 与 datasource factory；`BrowserApplicationService` 不直接依赖 `src/ui/browser/*`
@@ -385,7 +385,7 @@ UI surface：
 - `src/application/adapters/UnifiedReviewAdapter.ts`：review UI 状态与动作适配。
 - `src/application/queries/browser/*`：Browser 查询对象与处理器；shared 目录承载 application 可用的 browser row projection / sort / filter helper，并为 SQL page hydrate 复用同一套 Browser row 投影。
 - `src/application/queries/card/*`：卡片查询对象与处理器。
-- `src/application/queries/DataAccessFacade.ts`：查询门面与统一数据访问入口。
+- `src/application/queries/DataAccessFacade.ts`：查询门面与统一数据访问入口；依赖 `QuerySiyuanPort`，由 `ApplicationContext` 注入 `QuerySiyuanAdapter`。
 - `src/application/queries/CardContentQueryService.ts`：批量块内容查询服务，依赖 `QuerySiyuanPort`，由 `ApplicationContext` 注入 `QuerySiyuanAdapter`。
 - `src/application/usecases/card/*`：卡片 CRUD 用例。
 - `src/application/usecases/xiuyuan/*`：修远创建 / 删除 / 重绑定 / 查询用例。
