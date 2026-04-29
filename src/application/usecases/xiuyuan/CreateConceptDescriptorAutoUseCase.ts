@@ -37,7 +37,6 @@
 import { Result, ok, err } from '@/types/result';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
-import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { findConceptByUpwardSearch } from './shared/ConceptLocator';
@@ -89,10 +88,10 @@ export class CreateConceptDescriptorAutoUseCase {
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
     private readonly templateRegistry: Map<string, ICardTemplate>,
-    ports?: { siyuanApi?: XiuyuanSiyuanPort; eventBus?: EventBus }
+    ports: { siyuanApi: XiuyuanSiyuanPort; eventBus?: EventBus }
   ) {
-    this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
-    this.eventBus = ports?.eventBus ?? new EventBus(false);
+    this.siyuanApi = ports.siyuanApi;
+    this.eventBus = ports.eventBus ?? new EventBus(false);
   }
 
   /**

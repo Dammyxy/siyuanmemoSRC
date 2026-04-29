@@ -37,7 +37,6 @@ import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { ClozeCardGenerator } from '@/core/xiuyuan/domain/services/ClozeCardGenerator';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
-import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import { createLogger } from '@/utils/logger';
 import { isDefinitionTemplate, isDescriptorTemplate } from './shared/DescriptorTemplateStrategy';
@@ -109,10 +108,10 @@ export class CreateXiuyuanFromBlocksUseCase {
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
     private readonly templateRegistry: Map<string, ICardTemplate>,
-    ports?: { siyuanApi?: XiuyuanSiyuanPort; eventBus?: EventBus }
+    ports: { siyuanApi: XiuyuanSiyuanPort; eventBus?: EventBus }
   ) {
-    this.siyuanApi = ports?.siyuanApi ?? new XiuyuanSiyuanAdapter();
-    this.eventBus = ports?.eventBus ?? new EventBus(false);
+    this.siyuanApi = ports.siyuanApi;
+    this.eventBus = ports.eventBus ?? new EventBus(false);
   }
 
   /**

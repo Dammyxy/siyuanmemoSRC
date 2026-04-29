@@ -34,7 +34,7 @@ function createRepositoryMock(order: string[]) {
 
   return {
     save,
-    findById: vi.fn(),
+    findById: vi.fn().mockResolvedValue(ok(null)),
     findByBlockId: vi.fn(),
     findAll: vi.fn().mockResolvedValue(ok([])),
     delete: vi.fn(),

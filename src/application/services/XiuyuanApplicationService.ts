@@ -33,6 +33,7 @@ import { GetXiuyuanQuery, GetXiuyuanQueryResult } from '../queries/xiuyuan/GetXi
 import { GetAllXiuyuansQuery, GetAllXiuyuansQueryResult } from '../queries/xiuyuan/GetAllXiuyuansQuery';
 import type { IXiuyuanRepository } from '@/core/xiuyuan/domain/repositories/IXiuyuanRepository';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
+import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
 import {
   CreateXiuyuanFromBlocksUseCase,
   DeleteXiuyuanUseCase,
@@ -77,13 +78,14 @@ export class XiuyuanApplicationService {
   constructor(
     xiuyuanRepository: IXiuyuanRepository,
     templateRegistry: Map<string, ICardTemplate>,
-    eventBus: EventBus
+    eventBus: EventBus,
+    siyuanApi: XiuyuanSiyuanPort
   ) {
     // 初始化 UseCase 实例
     this.createXiuyuanFromBlocksUseCase = new CreateXiuyuanFromBlocksUseCase(
       xiuyuanRepository,
       templateRegistry,
-      { eventBus }
+      { siyuanApi, eventBus }
     );
     this.deleteXiuyuanUseCase = new DeleteXiuyuanUseCase(xiuyuanRepository);
     this.getXiuyuanQueryHandler = new GetXiuyuanQueryHandler(xiuyuanRepository);
@@ -91,22 +93,22 @@ export class XiuyuanApplicationService {
     this.createListTemplateCardsUseCase = new CreateListTemplateCardsUseCase(
       xiuyuanRepository,
       templateRegistry,
-      { eventBus }
+      { siyuanApi, eventBus }
     );
     this.createConceptDescriptorCardsUseCase = new CreateConceptDescriptorCardsUseCase(
       xiuyuanRepository,
       templateRegistry,
-      { eventBus }
+      { siyuanApi, eventBus }
     );
     this.createConceptDescriptorAutoUseCase = new CreateConceptDescriptorAutoUseCase(
       xiuyuanRepository,
       templateRegistry,
-      { eventBus }
+      { siyuanApi, eventBus }
     );
     this.rebindDescriptorConceptUseCase = new RebindDescriptorConceptUseCase(
       xiuyuanRepository,
       templateRegistry,
-      { eventBus }
+      { siyuanApi, eventBus }
     );
     this.createTemplateUseCase = new CreateTemplateUseCase(templateRegistry);
     this.getTemplateQueryHandler = new GetTemplateQueryHandler(templateRegistry);

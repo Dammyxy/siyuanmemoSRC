@@ -77,6 +77,7 @@ import { ReviewLogService } from '@/application/services/ReviewLogService';
 import { RiffBlacklistService } from '@/application/services/RiffBlacklistService';
 import { ReviewQueuePreparationService } from '@/application/services/ReviewQueuePreparationService';
 import { CardContentQueryService } from '@/application/queries/CardContentQueryService';
+import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
@@ -1490,7 +1491,8 @@ export class ApplicationContext {
       this.xiuyuanApplicationService = new XiuyuanApplicationService(
         xiuyuanRepository,
         templateRegistry,
-        this.getEventBus()
+        this.getEventBus(),
+        new XiuyuanSiyuanAdapter()
       );
     }
     return this.xiuyuanApplicationService;

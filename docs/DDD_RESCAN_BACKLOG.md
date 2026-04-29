@@ -1,17 +1,27 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 200)
+Last update: 2026-04-29 (Round 201)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - D10 D52 Xiuyuan usecase port injection
+
+- Task: 继续 D-10 / D-52 大债务批次，把 Xiuyuan 写入 usecases 的默认 `XiuyuanSiyuanAdapter` 构造收口到 composition root 注入。
+- Touched slice: Xiuyuan write path in `src/application/usecases/xiuyuan/{CreateXiuyuanFromBlocksUseCase.ts,CreateListTemplateCardsUseCase.ts,CreateConceptDescriptorCardsUseCase.ts,CreateConceptDescriptorAutoUseCase.ts,RebindDescriptorConceptUseCase.ts}`, shared concept-card resolver call chain, `src/application/services/XiuyuanApplicationService.ts`, `src/application/ApplicationContext.ts`, focused Xiuyuan tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
+- Debt fixed now: Xiuyuan 写入 usecases 不再 import 或默认构造 `XiuyuanSiyuanAdapter`；constructors 改为 required `XiuyuanSiyuanPort`；`XiuyuanApplicationService` 接收组合根注入的 port，并把同一 port 传给 create/list/concept-descriptor/auto/rebind usecases；嵌套的 concept-card resolver / descriptor creation 继续复用调用者传入 port。
+- Debt deferred: `XiuyuanSyncService` 的默认 `XiuyuanSyncSiyuanAdapter` 构造仍保留为独立 sync-service 小债；大型 active 文件拆分仍保留；Native Riff hard-delete vs local hide/tombstone、多窗口/多设备并发写入冲突等产品语义债未混入本批。
+- Why deferred: 本批只收 Xiuyuan usecase 写入族；sync service 是独立 Riff 对账生命周期，大文件拆分与删除/并发产品语义需要单独验收。
+- Next safe step: 如继续 adapter constructor 收口，单独处理 `XiuyuanSyncService` required `XiuyuanSyncSiyuanPort`；否则进入大型 active 文件拆分评估。
+- Validation: `pnpm exec vitest run src/application/usecases/xiuyuan/__tests__/CreateXiuyuanFromBlocksUseCase.events.test.ts src/application/usecases/xiuyuan/__tests__/CreateListTemplateCardsUseCase.split-v2.test.ts src/application/usecases/xiuyuan/__tests__/CreateConceptDescriptorCardsUseCase.test.ts src/application/usecases/xiuyuan/__tests__/CreateCdfMultilineCardsUseCase.test.ts --reporter=dot`（4 files / 21 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示 338 / i18n 内容提示 14 与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 Card CRUD port injection
 
 - Task: 继续 D-10 / D-52 大债务批次，把 Card CRUD usecases 的默认 Siyuan adapter 构造收口到 composition root 注入。
 - Touched slice: Card CRUD write path in `src/application/usecases/card/{CreateCardUseCase.ts,DeleteCardUseCase.ts,DeleteCardsUseCase.ts,DeleteFSRSCardUseCase.ts}`, `src/application/services/CardApplicationService.ts`, `src/application/ApplicationContext.ts`, focused Card CRUD / CardApplicationService tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: Card CRUD usecases 不再 import 或默认构造 `CardCreationSiyuanAdapter` / `CardDeletionSiyuanAdapter`；constructors 改为 required `CardCreationSiyuanPort` / `CardDeletionSiyuanPort`；`ApplicationContext` 统一创建真实 adapters，并注入 create/delete/batch-delete/FSRS-delete usecases；`CardApplicationService` 改为接收已装配的 `DeleteFSRSCardUseCase`，不在 service 内隐藏创建带 Siyuan 依赖的 usecase。
-- Debt deferred: Xiuyuan usecases 默认 `XiuyuanSiyuanAdapter` 构造、大型 active 文件拆分仍保留；Native Riff hard-delete vs local hide/tombstone、多窗口/多设备并发写入冲突等产品语义债未混入本批。
-- Why deferred: 本批只收 Card CRUD 写入族的 adapter constructor 边界；Xiuyuan usecases 是独立高风险修远写入路径，大文件拆分与删除/并发产品语义都需要单独验收。
-- Next safe step: 单独选一个 Xiuyuan usecase family 做 required `XiuyuanSiyuanPort` 迁移；大文件拆分继续放后面。
+- Debt deferred: Xiuyuan usecases 默认 `XiuyuanSiyuanAdapter` 构造已在后续 Round 201 清掉；`XiuyuanSyncService` 默认 sync adapter 构造、大型 active 文件拆分仍保留；Native Riff hard-delete vs local hide/tombstone、多窗口/多设备并发写入冲突等产品语义债未混入本批。
+- Why deferred: 本批只收 Card CRUD 写入族的 adapter constructor 边界；Xiuyuan usecases 是独立高风险修远写入路径，已在后续批次收口；sync service、大文件拆分与删除/并发产品语义都需要单独验收。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/application/usecases/card/__tests__/CreateCardUseCase.test.ts src/application/usecases/card/__tests__/CreateCardUseCase.template-selection.test.ts src/application/usecases/card/__tests__/DeleteCardPersistence.test.ts src/application/usecases/card/__tests__/DeleteCardsUseCase.test.ts src/application/usecases/card/__tests__/DeleteDescriptorBlockResolution.test.ts src/application/usecases/card/__tests__/DeleteListTemplateBlockResolution.test.ts src/application/services/__tests__/CardApplicationService.test.ts --reporter=dot`（7 files / 38 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示 338 / i18n 内容提示 14 与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 AutoCardHandler port injection
@@ -19,9 +29,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 继续 D-10 / D-52 大债务批次，把 `AutoCardHandler` 的默认 Siyuan/Riff adapter 构造收口到 composition root 注入。
 - Touched slice: AutoCard / Siyuan integration write path in `src/application/handlers/AutoCardHandler.ts`, `src/application/ApplicationContext.ts`, `src/application/managers/MenuManager.ts`, focused AutoCard/MenuManager tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `AutoCardHandler` 不再 import 或默认构造 `AutoCardSiyuanAdapter` / `AutoCardRiffAdapter`；constructor 改为必需 `AutoCardHandlerPorts`；`ApplicationContext.createAutoCardHandler()` 统一创建真实 Siyuan/Riff adapters 并供 transaction listener 与 MenuManager one-click scan 复用；focused tests 锁住无活跃 listener handler 时必须走 context factory。
-- Debt deferred: Xiuyuan usecases、大型 active 文件拆分仍保留；Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
-- Why deferred: 本批只收自动制卡/Riff 写路径的 handler 装配闭环；Xiuyuan usecase 默认 adapter 是独立写入族，大文件拆分仍需按行为边界单独做；Card CRUD 已在后续批次单独收口。
-- Next safe step: 单独选一个 Xiuyuan usecase family 做 required port 迁移；大文件拆分继续放后面。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、大型 active 文件拆分仍保留；Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
+- Why deferred: 本批只收自动制卡/Riff 写路径的 handler 装配闭环；sync service 是独立 Riff 对账生命周期，大文件拆分仍需按行为边界单独做；Card CRUD 与 Xiuyuan usecases 已在后续批次单独收口。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/application/handlers/__tests__/AutoCardHandler.cloze-planner.test.ts src/application/handlers/__tests__/AutoCardHandler.inline-content-normalize.test.ts src/application/handlers/__tests__/AutoCardHandler.quick-cloze-content.test.ts src/application/handlers/__tests__/AutoCardHandler.triple-symbol-exclusion.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts src/application/handlers/__tests__/AutoCardHandler.listener-structural-disabled.test.ts src/application/handlers/__tests__/AutoCardHandler.doc-scan-root-guard.test.ts src/application/managers/__tests__/MenuManager.topbar-quick-entry.test.ts --reporter=dot`（8 files / 26 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 review render factory injection
@@ -29,9 +39,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 继续 D-10 / D-52 大债务批次，把 review special renderer factory 的默认 Siyuan block adapter 构造收口到 composition root 注入。
 - Touched slice: Review render factory / active review UI path in `src/application/factories/createReviewRenderServices.ts`, `src/application/ApplicationContext.ts`, `src/ui/review/v2/{ReviewView.vue,ReviewContent.vue}`, focused ReviewContent / ReviewView tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `createReviewRenderServices()` 不再默认 `new SiyuanBlockAdapter()` / descriptor block adapter；`ApplicationContext.createReviewRenderServices()` 在 composition root 创建 quick / descriptor block adapters 并注入 factory；`ReviewView` 只从 context/显式 prop 接收 render services；`ReviewContent` 删除自建 fallback factory，缺 render services 会显式失败。
-- Debt deferred: Xiuyuan usecases、大型 active 文件拆分仍保留；`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
-- Why deferred: 本批只收 review render 装配闭环；写入 usecase 和大文件拆分仍是独立高风险债；AutoCard handler 已在后续 Round 199 单独收口。
-- Next safe step: Xiuyuan 写入 usecase 继续一族一批；大文件拆分继续放后面。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、大型 active 文件拆分仍保留；`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
+- Why deferred: 本批只收 review render 装配闭环；sync service 与大文件拆分仍是独立债；AutoCard handler / Card CRUD / Xiuyuan usecases 已在后续批次单独收口。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewContent.editor-state.spec.ts src/ui/review/v2/__tests__/ReviewView.empty-state.spec.ts --reporter=dot`（2 files / 33 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 ConceptLocator required port
@@ -39,9 +49,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 继续 D-10 / D-52 大债务批次，把 `ConceptLocator` 的默认 `XiuyuanSiyuanAdapter` 构造清掉，改为调用者显式传入 Xiuyuan Siyuan port。
 - Touched slice: Xiuyuan concept lookup helper and DialogManager descriptor auto path in `src/application/usecases/xiuyuan/shared/ConceptLocator.ts`, `src/application/managers/DialogManager.ts`, focused Xiuyuan/DialogManager tests, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `findConceptByUpwardSearch()` 不再 import 或默认构造 `XiuyuanSiyuanAdapter`；`DialogManager` 的反向/双向概念描述符自动路径改用已注入 `ManagerSiyuanPort` 调用 concept lookup；focused test 锁住 locator 收到注入 port。
-- Debt deferred: Xiuyuan usecases、大型 active 文件拆分仍保留；`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
-- Why deferred: 本批只收 shared concept lookup 小闭环；写入 usecase 和大文件拆分仍是独立高风险债；review render factory 与 AutoCard handler 已在后续批次单独清掉。
-- Next safe step: 继续选一个 Xiuyuan 写入 usecase family 做 required port 迁移。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、大型 active 文件拆分仍保留；`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
+- Why deferred: 本批只收 shared concept lookup 小闭环；sync service 与大文件拆分仍是独立高风险债；review render factory、AutoCard handler、Card CRUD 与 Xiuyuan usecases 已在后续批次单独清掉。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/application/managers/__tests__/DialogManager.cdf-multiline.test.ts src/application/usecases/xiuyuan/__tests__/CreateCdfMultilineCardsUseCase.test.ts --reporter=dot`（2 files / 22 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 browser preview breadcrumb port
@@ -49,9 +59,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 先清 D-10 / D-52 小债，把 Browser preview breadcrumb 的 UI -> infrastructure 例外收口到 Browser preview Siyuan port，并删除 boundary allowlist。
 - Touched slice: Browser preview breadcrumb path in `src/ui/browser/BrowserPreview.vue`, `src/ui/browser/SRSBrowser.vue`, `src/ui/browser/utils/previewBreadcrumbData.ts`, `src/application/ports/BrowserPreviewSiyuanPort.ts`, `src/infrastructure/siyuan/BrowserSiyuanAdapter.ts`, `scripts/check-boundaries.cjs`, focused Browser preview tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `previewBreadcrumbData.ts` 不再 import `@/infrastructure/siyuan/api`；Browser preview breadcrumb 读取改为显式 `BrowserPreviewSiyuanPort`；`BrowserSiyuanAdapter` 在 infrastructure 实现该 port；`SRSBrowser` 从 Browser application service 取 Siyuan adapter 传给 `BrowserPreview`；`scripts/check-boundaries.cjs` 删除最后一个 UI infrastructure allowlist。
-- Debt deferred: Xiuyuan use cases、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
-- Why deferred: 本批只清一个 UI boundary exception；Xiuyuan 是写入路径，大型文件拆分是更大结构任务；review render factory、AutoCard handler 与 Card CRUD 已在后续批次收口。
-- Next safe step: 写入 usecase 继续单独小批次；大文件拆分放后。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
+- Why deferred: 本批只清一个 UI boundary exception；sync service 是独立 Riff 对账生命周期，大型文件拆分是更大结构任务；review render factory、AutoCard handler、Card CRUD 与 Xiuyuan usecases 已在后续批次收口。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/application/services/__tests__/UnifiedDataSourceManager.settings.test.ts src/ui/browser/utils/__tests__/previewBreadcrumbData.test.ts src/ui/browser/__tests__/BrowserPreview.spec.ts`（3 files / 18 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 leech effects adapter injection
@@ -59,9 +69,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 继续 D-10 / D-52 边界清理，把 `UnifiedDataSourceManager` 内部的 `SiyuanLeechActionEffectsAdapter` 默认构造迁到 composition root / required port 注入。
 - Touched slice: Queue / composition root boundary in `src/application/services/UnifiedDataSourceManager.ts`, `src/application/ApplicationContext.ts`, focused UnifiedDataSourceManager tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `UnifiedDataSourceManager` 不再 import 或直接 `new SiyuanLeechActionEffectsAdapter()`；新增必需 `LeechActionEffectsPort` 槽位，`ApplicationContext.create()` 在组合根创建真实 adapter 并注入；Leech queue 创建前若缺端口会显式抛错，不再由 application service 隐式接触基础设施实现。
-- Debt deferred: Xiuyuan use cases、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
-- Why deferred: 本批只收 queue leech effects 小闭环；Xiuyuan 是写入 usecase；`createReviewRenderServices`、`AutoCardHandler` 与 Card CRUD 已在后续批次单独收口。
-- Next safe step: 写入 usecase 继续留独立小批次。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
+- Why deferred: 本批只收 queue leech effects 小闭环；sync service 是独立 Riff 对账生命周期；`createReviewRenderServices`、`AutoCardHandler`、Card CRUD 与 Xiuyuan usecases 已在后续批次单独收口。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/application/services/__tests__/UnifiedDataSourceManager.settings.test.ts`（6 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 data access facade adapter injection
@@ -69,9 +79,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 继续 D-10 / D-52 边界清理，把 `DataAccessFacade` 的默认 `QuerySiyuanAdapter` 构造迁到 composition root / required port 注入。
 - Touched slice: Query / composition root boundary in `src/application/queries/DataAccessFacade.ts`, `src/application/ApplicationContext.ts`, focused DataAccessFacade tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `DataAccessFacade` 不再 import 或默认构造 `QuerySiyuanAdapter`；构造函数改为必需 `QuerySiyuanPort`；`ApplicationContext` 在创建 `AdvancedDataRouter` 时注入 `QuerySiyuanAdapter`；现有 focused tests 已显式传 mock port，继续覆盖 missing-block SQL、64-cap LIMIT、update/sync path。
-- Debt deferred: Xiuyuan use cases、`UnifiedDataSourceManager` 的 leech effects 构造、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，UI browser preview breadcrumb infrastructure allowlist 已在后续 Round 196 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
-- Why deferred: 本批只清 query facade 小闭环；Xiuyuan 是写入 usecase，render factory / AutoCard handler / UI allowlist / Card CRUD 均已在后续批次单独收口。
-- Next safe step: Xiuyuan 写入 usecase 留给独立小批次。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、`UnifiedDataSourceManager` 的 leech effects 构造、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，UI browser preview breadcrumb infrastructure allowlist 已在后续 Round 196 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
+- Why deferred: 本批只清 query facade 小闭环；sync service 是独立 Riff 对账生命周期，render factory / AutoCard handler / UI allowlist / Card CRUD / Xiuyuan usecases 均已在后续批次单独收口。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/application/queries/__tests__/DataAccessFacade.missing-block-filter.test.ts src/application/queries/__tests__/DataAccessFacade.limit-cap-regression.test.ts src/application/queries/__tests__/DataAccessFacade.update-card-regression.test.ts --reporter=dot`（3 files / 9 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`rg -n "from '@/infrastructure/siyuan/QuerySiyuanAdapter'|new QuerySiyuanAdapter|new (DataAccessFacade|AdvancedDataRouter)\\(" src/application src/ui scripts/check-boundaries.cjs`（确认 `QuerySiyuanAdapter` 仅在 `ApplicationContext` 组合根创建，`DataAccessFacade` production 无 infrastructure import / default adapter）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 card content query adapter injection
@@ -79,9 +89,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 继续 D-10 / D-52 阶段清理，收 `CardContentQueryService` 的默认 `QuerySiyuanAdapter` 构造到 composition root / required port 注入。
 - Touched slice: Query / composition root boundary in `src/application/queries/CardContentQueryService.ts`, `src/application/ApplicationContext.ts`, `src/application/queries/__tests__/CardContentQueryService.test.ts`, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `CardContentQueryService` 不再 import 或默认构造 `QuerySiyuanAdapter`；构造函数改为必需 `QuerySiyuanPort`；`ApplicationContext` 在组合根创建 `QuerySiyuanAdapter` 并注入；新增 focused tests 锁住 injected query port、SQL id escaping、cache hit 与 empty input 不触 port。
-- Debt deferred: Xiuyuan use cases、`UnifiedDataSourceManager` 的 leech effects 构造、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
-- Why deferred: 本批只清一个只读 query service；Xiuyuan 是写入 usecase，UI allowlist 需要 Browser application port 设计，不能混入本次构造注入；Card CRUD 已在后续批次收口。
-- Next safe step: Xiuyuan 写入 usecase 留给独立小批次。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、`UnifiedDataSourceManager` 的 leech effects 构造、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
+- Why deferred: 本批只清一个只读 query service；UI allowlist 需要 Browser application port 设计，不能混入本次构造注入；Card CRUD 与 Xiuyuan usecases 已在后续批次收口。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/application/queries/__tests__/CardContentQueryService.test.ts --reporter=dot`（3 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`rg -n "from '@/infrastructure/siyuan/QuerySiyuanAdapter'|new QuerySiyuanAdapter|new CardContentQueryService\\(" src/application src/ui scripts/check-boundaries.cjs`（当轮确认 `CardContentQueryService` 无 infrastructure import，后续 Round 194 已继续清掉 `DataAccessFacade` 默认构造）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 review service adapter injection
@@ -89,9 +99,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 阶段 3 只收一个小闭环，把 `ReviewApplicationService` 的默认 `ReviewSiyuanAdapter` 构造迁到 composition root / required port 注入。
 - Touched slice: Review / composition root boundary in `src/application/services/ReviewApplicationService.ts`, `src/application/ApplicationContext.ts`, focused review service tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `ReviewApplicationService` 不再 import 或默认构造 `ReviewSiyuanAdapter`；构造函数改为必需 `ReviewSiyuanPort`；`ApplicationContext` 在组合根创建 `ReviewSiyuanAdapter` 并注入；focused tests 改为显式 stub port，避免继续依赖隐藏默认构造。
-- Debt deferred: Xiuyuan use cases、`UnifiedDataSourceManager` 的 leech effects 构造、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
-- Why deferred: 本阶段按要求只选 Review service 一个小闭环；Xiuyuan 是写入 usecase，render factory 是不同 active path，UI allowlist 需要先设计 Browser application port，不能混入本批；Card CRUD 已在后续批次收口。
-- Next safe step: Xiuyuan 写入 usecase 留给独立小批次。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、`UnifiedDataSourceManager` 的 leech effects 构造、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
+- Why deferred: 本阶段按要求只选 Review service 一个小闭环；render factory 是不同 active path，UI allowlist 需要先设计 Browser application port，不能混入本批；Card CRUD 与 Xiuyuan usecases 已在后续批次收口。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估。
 - Validation: `pnpm exec vitest run src/application/services/__tests__/ReviewApplicationService.reschedule-membership.test.ts --reporter=dot`（5 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`rg -n "ReviewSiyuanAdapter|new ReviewApplicationService\\(|new .*Siyuan.*Adapter|ReviewApplicationService" src/application src/ui scripts/check-boundaries.cjs`（确认 `ReviewApplicationService` 无 infrastructure import，剩余 adapter constructors 均为 deferred 范围）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 manager adapter injection phase12
@@ -99,9 +109,9 @@ Last update: 2026-04-29 (Round 200)
 - Task: 按阶段 1+2 加速清理 D-10 / D-52，把 manager/service 小闭环里的默认 Siyuan adapter 构造继续迁到组合根注入。
 - Touched slice: Composition root and manager/service boundary in `src/application/ApplicationContext.ts`, `src/application/managers/{DialogManager,TabManager,BlockMenuHandler,PracticeQueueManager}.ts`, `src/application/services/ReviewScopeCardCreationSyncService.ts`, focused manager/service tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
 - Debt fixed now: `DialogManager`、`TabManager`、`BlockMenuHandler`、`PracticeQueueManager`、`ReviewScopeCardCreationSyncService` 不再 import 或默认构造 `ManagerSiyuanAdapter` / `ProgressiveSiyuanAdapter` / `SiyuanLeechActionEffectsAdapter`；这些 infrastructure adapters 现在只在 `ApplicationContext` 组合根创建，并通过显式 port 参数注入；对应 tests 改为显式 mock port，不再靠隐藏默认构造过关。
-- Debt deferred: Xiuyuan use cases、`UnifiedDataSourceManager` 的 leech effects 构造、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉。
+- Debt deferred: `XiuyuanSyncService` 默认 sync adapter 构造、`UnifiedDataSourceManager` 的 leech effects 构造、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留；`ConceptLocator` 默认 port 已在后续 Round 197 清掉，`createReviewRenderServices` 默认 adapter 构造已在后续 Round 198 清掉，`AutoCardHandler` 默认 adapter 构造已在后续 Round 199 清掉，Card CRUD 默认 adapter 构造已在后续 Round 200 清掉，Xiuyuan usecase 默认 adapter 构造已在后续 Round 201 清掉。
 - Why deferred: 本批只清低风险 manager/service active slice；usecase/query/default locator 会碰卡片写入、Xiuyuan 语义和 Browser query path，UI allowlist 当轮需要 browser preview port 设计，不能混进组合根参数迁移。
-- Next safe step: Xiuyuan 写入 usecase 留给独立小批次；browser preview breadcrumb port / boundary allowlist 已在后续 Round 196 清掉，review render factory 已在后续 Round 198 清掉，AutoCard handler 已在后续 Round 199 清掉，Card CRUD 已在后续 Round 200 清掉。
+- Next safe step: 单独处理 `XiuyuanSyncService` required sync port，或进入大型 active 文件拆分评估；browser preview breadcrumb port / boundary allowlist 已在后续 Round 196 清掉，review render factory 已在后续 Round 198 清掉，AutoCard handler 已在后续 Round 199 清掉，Card CRUD 已在后续 Round 200 清掉，Xiuyuan usecases 已在后续 Round 201 清掉。
 - Validation: `pnpm exec vitest run src/application/managers/DialogManager.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/application/managers/__tests__/DialogManager.quick-template-filter.test.ts src/application/managers/__tests__/DialogManager.progressive-split.spec.ts src/application/managers/__tests__/DialogManager.cdf-multiline.test.ts src/application/managers/__tests__/DialogManager.browser-tab-convert.spec.ts src/application/managers/TabManager.test.ts src/application/managers/__tests__/TabManager.review-transfer.spec.ts src/application/managers/__tests__/TabManager.review-close.spec.ts src/application/managers/__tests__/TabManager.review-ai-companion.spec.ts src/application/managers/__tests__/TabManager.openReviewInNewWindow.spec.ts src/application/managers/__tests__/TabManager.neural-review-tab-sync.spec.ts src/application/managers/__tests__/BlockMenuHandler.applicationContext.test.ts src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/managers/__tests__/BlockMenuHandler.cancel-subtree.test.ts src/application/managers/__tests__/BlockMenuHandler.list-card-summary.test.ts src/application/managers/__tests__/BlockMenuHandler.list-marker-route.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-split.test.ts src/application/managers/__tests__/BlockMenuHandler.progressive-excerpt.test.ts src/application/managers/MenuManager.test.ts src/application/managers/__tests__/MenuManager.topbar-quick-entry.test.ts src/application/managers/__tests__/MenuManager.topbar-menu-render.test.ts src/application/managers/__tests__/MenuManager.cancel-current-doc.test.ts src/application/services/__tests__/ReviewScopeCardCreationSyncService.test.ts src/index.test.ts --reporter=dot`（25 files / 118 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 MenuManager adapter injection
@@ -501,7 +511,7 @@ Last update: 2026-04-29 (Round 200)
 - Debt fixed now: Browser DTO、open state、query parser、stable id、sort display contract 与 queue row projection 从 UI 收到共享 types / application query shared 层；`BrowserApplicationService`、deck/query kernels 不再 import `@/ui/browser/*`，browser service 删除 module-global manager/api/query 状态并移除 `browserService.v2.ts`；Review 删除 deprecated `core/extensions` provider path、`ReviewViewAdapter`、`ReviewViewController`，`ReviewContent` 的 quick/descriptor render services 改由 application factory 注入；新增 `pnpm check:boundaries` 禁止 core/extensions、application query/service 反向 import UI browser，以及 UI 新增 infrastructure 直连。
 - Debt deferred: Application/UI 下仍有一批历史 `new *SiyuanAdapter()` 默认构造留待下一刀；`SRSBrowser.vue`、`ReviewView.vue`、`AIWorkbenchService.ts`、`SettingsPanel.vue` 等大文件仍未拆；UI 里少数历史 infrastructure 直连暂通过 allowlist 保留；Browser filter/query helper 还有局部重复，未做全仓去重。
 - Why deferred: 这轮优先切断会继续制造 bug 的 Browser/Review 倒挂和旧 runtime 双路径；一次性迁移所有 adapter 默认构造和拆大文件当时会跨 Xiuyuan、Card CRUD、AI、manager lifecycle 多个 bounded context，回归面明显高于首轮安全收益；Card CRUD 已在后续 Round 200 单独收口。
-- Next safe step: 以 `ApplicationContext` 为唯一组合根继续迁移 Xiuyuan usecase Siyuan ports；UI infrastructure allowlist、handler/factory/effects 与 Card CRUD 默认 adapter 构造已在后续批次清掉，随后再按状态/命令/投影/持久化拆 `AIWorkbenchService.ts` 与大型 Vue surface。
+- Next safe step: 以 `ApplicationContext` 为唯一组合根继续评估 `XiuyuanSyncService` sync adapter constructor；UI infrastructure allowlist、handler/factory/effects、Card CRUD 与 Xiuyuan usecase 默认 adapter 构造已在后续批次清掉，随后再按状态/命令/投影/持久化拆 `AIWorkbenchService.ts` 与大型 Vue surface。
 - Validation: focused Browser/Review vitest set passed; `pnpm check:boundaries`; `pnpm build`; `git diff --check`.
 
 ### 2026-04-26 - browser subset review exact card scope
@@ -2685,7 +2695,7 @@ Do not add an entry for skill-only or docs-only work.
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
 | P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts beyond the in-process writer queue | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then decide whether a cross-window/device lock or tombstone reconciliation model is required |
-| P1 | Adapter construction is not yet fully centralized in `ApplicationContext` | Xiuyuan usecases | Continue converting constructors to required ports and inject them from `ApplicationContext`; keep write-path migrations split by usecase family |
+| P1 | Adapter construction is not yet fully centralized in `ApplicationContext` | `XiuyuanSyncService` | Convert constructor to required `XiuyuanSyncSiyuanPort` and inject from `ApplicationContext`, or close if accepted as a service test convenience |
 | P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
@@ -2699,5 +2709,5 @@ Do not add an entry for skill-only or docs-only work.
 
 ## 4. Next convergence batch
 
-1. Continue adapter constructor migration so Xiuyuan usecases receive ports from `ApplicationContext` instead of defaulting to infrastructure adapters.
+1. Handle `XiuyuanSyncService` required sync port if continuing adapter constructor cleanup.
 2. Split the largest active files by state / command / projection / persistence boundaries, starting with the AI workbench service only after Browser/Review wiring remains stable.
