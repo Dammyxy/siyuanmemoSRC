@@ -1295,7 +1295,6 @@ import type {
   AIChatToolGroupKey,
   AIUserSkillDefinition,
 } from '@/types/ai';
-import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
 import { createVueDialog } from '@/utils/dialog';
 import AiSettingsDraggableList from '@/ui/settings/ai/AiSettingsDraggableList.vue';
@@ -1330,17 +1329,11 @@ import {
 import {
   buildSettingsSavePayload,
   normalizeAutoPostponeSkipTopN,
-  normalizeBoolean,
-  normalizeConflictResolutionStrategy,
-  normalizeDailyLimit,
   normalizeOutstandingEveryNth,
   normalizePriorityRandomness,
-  normalizeSrsV2StepList,
   parseSrsV2StepList,
-  type SettingsConflictResolutionStrategy as ConflictResolutionStrategy,
   type SettingsFormState as Settings,
   type SettingsPanelSavePayload,
-  type SettingsSchedulerConfigWithSrsV2 as SchedulerConfigWithSrsV2,
 } from './settingsSavePayload';
 import {
   buildSettingsBlockAttrsCleanupAttrRows,
@@ -1360,14 +1353,21 @@ import {
   createDefaultQueueSettings,
   createDefaultSettingsFormState,
   createDefaultUISettings,
-  mergeAISettings,
-  mergeArenaSettings,
-  mergeConfiguredCaptureStorageSettings,
-  mergeQueueSettings,
-  mergeQuickCardSettings,
-  mergeUISettings,
   resetAiPromptToRecommended,
 } from './settingsStateDefaults';
+import {
+  createDefaultSettingsRiffIntegrationState,
+  createDefaultSettingsSchedulerConfig,
+  resolveSettingsPanelLoadState,
+} from './settingsLoadState';
+import {
+  buildSettingsCaptureStorageNotebookOptions,
+  buildSettingsParamsPreview,
+  buildSettingsTodayRangeText,
+  clampSettingsDayStartHour,
+  isSettingsLibraryStorage,
+  isSettingsSourceChildStorage,
+} from './settingsFormViewModel';
 
 type OptimizationConfig = Record<string, unknown>;
 
@@ -1718,16 +1718,7 @@ function removeUserSkill(index: number): void {
   aiSettings.value.userSkills.splice(index, 1);
 }
 
-const schedulerConfig = ref<SchedulerConfigWithSrsV2>({
-  defaultScheduler: 'fsrs-v6',
-  topicScheduler: 'a-factor-v2',
-  itemScheduler: 'fsrs-v6',
-  srsV2: {
-    learningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes],
-    relearningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes],
-    filteredReviewDefault: DEFAULT_SETTINGS.scheduler!.srsV2!.filteredReviewDefault,
-  },
-});
+const schedulerConfig = ref(createDefaultSettingsSchedulerConfig());
 
 // 调度器说明
 const schedulerDescriptions: Record<string, string> = {
@@ -1737,25 +1728,7 @@ const schedulerDescriptions: Record<string, string> = {
 };
 
 // 🆕 Riff 集成配置
-const riffIntegrationConfig = ref({
-  mode: 'advanced' as 'advanced' | 'simple',
-  useLocalScheduler: true,
-  incrementalSync: {
-    enabled: true,
-    triggers: ['plugin-start'] as Array<'plugin-start' | 'browser-open'>,
-    useBlacklist: true,
-  },
-  fullSync: {
-    enabled: true,
-    interval: 86400000,  // 24小时
-    cleanupBlacklist: true,
-  },
-  deleteSync: {
-    enabled: true,
-    useBlacklistFallback: true,
-  },
-  storageConflictResolution: 'merge' as ConflictResolutionStrategy,
-});
+const riffIntegrationConfig = ref(createDefaultSettingsRiffIntegrationState());
 
 // 🆕 触发器复选框状态（用于 UI 绑定）
 const triggers = ref({
@@ -1764,25 +1737,17 @@ const triggers = ref({
 });
 
 // 参数预览
-const paramsPreview = computed(() => {
-  return settings.value.params.map(p => p.toFixed(4)).join(', ');
-});
+const paramsPreview = computed(() => buildSettingsParamsPreview(settings.value.params));
 
 // 🆕 计算"今天"范围的显示文本
-const todayRangeText = computed(() => {
-  const range = getTodayRange(settings.value.dayStartHour);
-  return formatTodayRange(range);
-});
+const todayRangeText = computed(() => buildSettingsTodayRangeText(settings.value.dayStartHour));
 
-const captureStorageNotebookOptions = computed(() => (props.captureStorageNotebooks || [])
-  .map((notebook) => ({
-    id: String(notebook.id || '').trim(),
-    name: String(notebook.name || '').trim() || String(notebook.id || '').trim(),
-  }))
-  .filter((notebook) => notebook.id.length > 0));
+const captureStorageNotebookOptions = computed(() => buildSettingsCaptureStorageNotebookOptions(
+  props.captureStorageNotebooks,
+));
 
-const progressiveUsesSourceChildStorage = computed(() => settings.value.progressiveStorage.mode === 'source-child');
-const progressiveUsesLibraryStorage = computed(() => settings.value.progressiveStorage.mode === 'library');
+const progressiveUsesSourceChildStorage = computed(() => isSettingsSourceChildStorage(settings.value.progressiveStorage.mode));
+const progressiveUsesLibraryStorage = computed(() => isSettingsLibraryStorage(settings.value.progressiveStorage.mode));
 
 const blockAttrsCleanupMode = ref<CleanupMode>('safe');
 const blockAttrsCleanupScanResult = ref<CleanupScanResult | null>(null);
@@ -1866,143 +1831,35 @@ async function handleRunBlockAttrsCleanup(): Promise<void> {
 function loadSettings() {
   // 🔍 调试日志：检查接收到的 quickCardSettings
   logger.debug('Loading settings with quickCardSettings', { quickCardSettings: props.quickCardSettings });
-  
-  if (props.fsrsSettings) {
-    settings.value = {
-      requestRetention: props.fsrsSettings.requestRetention,
-      maximumInterval: props.fsrsSettings.maximumInterval,
-      enableShortTerm: props.fsrsSettings.enableShortTerm,
-      params: [...props.fsrsSettings.weights],
-      dayStartHour: props.fsrsSettings.dayStartHour ?? 4,  // 🆕 加载 dayStartHour 配置
-      newCardsPerDay: normalizeDailyLimit(props.newCardsPerDay, DEFAULT_SETTINGS.newCardsPerDay),
-      reviewsPerDay: normalizeDailyLimit(props.reviewsPerDay, DEFAULT_SETTINGS.reviewsPerDay),
-      autoPostponeEnabled: false,
-      autoPostponeSkipTopN: 20,
-      autoSortEnabled: true,
-      addToOutstandingEveryNth: 2,
-      priorityRandomness: normalizePriorityRandomness(props.priorityRandomness),
-      quickCard: mergeQuickCardSettings(props.quickCardSettings),
-      progressiveAltXExcerptEnabled: props.progressiveReadingSettings?.altXExcerptEnabled === true,
-      progressiveStorage: mergeConfiguredCaptureStorageSettings(
-        props.progressiveReadingSettings?.storage,
-        DEFAULT_SETTINGS.progressiveReading.storage,
-      ),
-    };
-    
-    // 🔍 调试日志：检查初始化后的 settings.quickCard
-    logger.debug('Initialized settings.quickCard', { quickCard: settings.value.quickCard });
-  }
+  const loadedState = resolveSettingsPanelLoadState({
+    fsrsSettings: props.fsrsSettings,
+    queueSettings: props.queueSettings,
+    newCardsPerDay: props.newCardsPerDay,
+    reviewsPerDay: props.reviewsPerDay,
+    priorityRandomness: props.priorityRandomness,
+    schedulerSettings: props.schedulerSettings,
+    riffIntegrationSettings: props.riffIntegrationSettings,
+    quickCardSettings: props.quickCardSettings,
+    progressiveReadingSettings: props.progressiveReadingSettings,
+    aiSettings: props.aiSettings,
+    arenaSettings: props.arenaSettings,
+    uiSettings: props.uiSettings,
+    currentSettings: settings.value,
+    currentQueueSettings: queueSettings.value,
+    currentSchedulerConfig: schedulerConfig.value,
+    currentRiffIntegrationConfig: riffIntegrationConfig.value,
+  });
 
-  settings.value.quickCard = mergeQuickCardSettings(props.quickCardSettings);
-  settings.value.progressiveAltXExcerptEnabled = props.progressiveReadingSettings?.altXExcerptEnabled === true;
-  settings.value.progressiveStorage = mergeConfiguredCaptureStorageSettings(
-    props.progressiveReadingSettings?.storage,
-    DEFAULT_SETTINGS.progressiveReading.storage,
-  );
-  
-  if (props.queueSettings) {
-    const incoming = JSON.parse(JSON.stringify(props.queueSettings));
-    queueSettings.value = mergeQueueSettings(incoming);
+  settings.value = loadedState.settings;
+  queueSettings.value = loadedState.queueSettings;
+  schedulerConfig.value = loadedState.schedulerConfig;
+  riffIntegrationConfig.value = loadedState.riffIntegrationConfig;
+  triggers.value = loadedState.triggers;
+  aiSettings.value = loadedState.aiSettings;
+  arenaSettings.value = loadedState.arenaSettings;
+  uiSettings.value = loadedState.uiSettings;
 
-    settings.value.addToOutstandingEveryNth = normalizeOutstandingEveryNth(
-      (incoming as QueueSettings & { outstandingEveryNth?: unknown; outstandingSpacing?: unknown })
-        .addToOutstandingEveryNth
-      ?? (incoming as { outstandingEveryNth?: unknown }).outstandingEveryNth
-      ?? (incoming as { outstandingSpacing?: unknown }).outstandingSpacing
-      ?? settings.value.addToOutstandingEveryNth
-    );
-    settings.value.autoSortEnabled = normalizeBoolean(
-      (incoming as { autoSort?: { enabled?: unknown } }).autoSort?.enabled,
-      true
-    );
-    settings.value.autoPostponeEnabled = normalizeBoolean(
-      (incoming as { autoPostpone?: { enabled?: unknown } }).autoPostpone?.enabled,
-      false
-    );
-    settings.value.autoPostponeSkipTopN = normalizeAutoPostponeSkipTopN(
-      (incoming as { autoPostpone?: { skipTopNElements?: unknown } }).autoPostpone?.skipTopNElements
-    );
-  }
-
-  settings.value.priorityRandomness = normalizePriorityRandomness(
-    props.priorityRandomness ?? settings.value.priorityRandomness
-  );
-
-  // 🆕 加载调度器配置
-  if (props.schedulerSettings) {
-    schedulerConfig.value = {
-      defaultScheduler: props.schedulerSettings.defaultScheduler || 'fsrs-v6',
-      topicScheduler: props.schedulerSettings.topicScheduler || 'a-factor-v2',
-      itemScheduler: props.schedulerSettings.itemScheduler || 'fsrs-v6',
-      srsV2: {
-        learningStepsMinutes: normalizeSrsV2StepList(
-          props.schedulerSettings.srsV2?.learningStepsMinutes,
-          DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes,
-        ),
-        relearningStepsMinutes: normalizeSrsV2StepList(
-          props.schedulerSettings.srsV2?.relearningStepsMinutes,
-          DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes,
-        ),
-        filteredReviewDefault: props.schedulerSettings.srsV2?.filteredReviewDefault === 'reschedule'
-          ? 'reschedule'
-          : 'preview-only',
-      },
-    };
-  }
-
-  const riffSettings = props.riffIntegrationSettings || {};
-  const incomingIncremental = (
-    typeof riffSettings.incrementalSync === 'object' &&
-    riffSettings.incrementalSync !== null
-  ) ? riffSettings.incrementalSync as Record<string, unknown> : {};
-  const incomingFullSync = (
-    typeof riffSettings.fullSync === 'object' &&
-    riffSettings.fullSync !== null
-  ) ? riffSettings.fullSync as Record<string, unknown> : {};
-  const incomingDeleteSync = (
-    typeof riffSettings.deleteSync === 'object' &&
-    riffSettings.deleteSync !== null
-  ) ? riffSettings.deleteSync as Record<string, unknown> : {};
-
-  const incomingTriggers = Array.isArray(incomingIncremental.triggers)
-    ? incomingIncremental.triggers.filter(
-      (trigger): trigger is 'plugin-start' | 'browser-open' =>
-        trigger === 'plugin-start' || trigger === 'browser-open'
-    )
-    : riffIntegrationConfig.value.incrementalSync.triggers;
-
-  riffIntegrationConfig.value = {
-    mode: riffSettings.mode === 'simple' ? 'simple' : 'advanced',
-    useLocalScheduler: typeof riffSettings.useLocalScheduler === 'boolean'
-      ? riffSettings.useLocalScheduler
-      : true,
-    incrementalSync: {
-      enabled: typeof incomingIncremental.enabled === 'boolean' ? incomingIncremental.enabled : true,
-      triggers: incomingTriggers.length > 0 ? incomingTriggers : ['plugin-start'],
-      useBlacklist: typeof incomingIncremental.useBlacklist === 'boolean' ? incomingIncremental.useBlacklist : true,
-    },
-    fullSync: {
-      enabled: typeof incomingFullSync.enabled === 'boolean' ? incomingFullSync.enabled : true,
-      interval: typeof incomingFullSync.interval === 'number' ? incomingFullSync.interval : 86400000,
-      cleanupBlacklist: typeof incomingFullSync.cleanupBlacklist === 'boolean' ? incomingFullSync.cleanupBlacklist : true,
-    },
-    deleteSync: {
-      enabled: typeof incomingDeleteSync.enabled === 'boolean' ? incomingDeleteSync.enabled : true,
-      useBlacklistFallback: typeof incomingDeleteSync.useBlacklistFallback === 'boolean'
-        ? incomingDeleteSync.useBlacklistFallback
-        : true,
-    },
-    storageConflictResolution: normalizeConflictResolutionStrategy(riffSettings.storageConflictResolution),
-  };
-
-  triggers.value = {
-    pluginStart: riffIntegrationConfig.value.incrementalSync.triggers.includes('plugin-start'),
-    browserOpen: riffIntegrationConfig.value.incrementalSync.triggers.includes('browser-open'),
-  };
-
-  aiSettings.value = mergeAISettings(props.aiSettings);
-  arenaSettings.value = mergeArenaSettings(props.arenaSettings);
-  uiSettings.value = mergeUISettings(props.uiSettings);
+  logger.debug('Initialized settings.quickCard', { quickCard: settings.value.quickCard });
 }
 
 // 保存设置
@@ -2035,16 +1892,7 @@ function resetSettings() {
 
 // 🆕 重置调度器设置
 function resetSchedulerSettings() {
-  schedulerConfig.value = {
-    defaultScheduler: 'fsrs-v6',
-    topicScheduler: 'a-factor-v2',
-    itemScheduler: 'fsrs-v6',
-    srsV2: {
-      learningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.learningStepsMinutes],
-      relearningStepsMinutes: [...DEFAULT_SETTINGS.scheduler!.srsV2!.relearningStepsMinutes],
-      filteredReviewDefault: DEFAULT_SETTINGS.scheduler!.srsV2!.filteredReviewDefault,
-    },
-  };
+  schedulerConfig.value = createDefaultSettingsSchedulerConfig();
 }
 
 function handleSrsV2LearningStepsChange(event: Event): void {
@@ -2070,13 +1918,7 @@ function handleArenaSrsWriteEnabledChange(event: Event): void {
 
 // 🆕 dayStartHour 变更处理
 function handleDayStartHourChange() {
-  // 验证范围
-  if (settings.value.dayStartHour < 0) {
-    settings.value.dayStartHour = 0;
-  } else if (settings.value.dayStartHour > 23) {
-    settings.value.dayStartHour = 23;
-  }
-  
+  settings.value.dayStartHour = clampSettingsDayStartHour(settings.value.dayStartHour);
   logger.debug('dayStartHour changed', { dayStartHour: settings.value.dayStartHour });
 }
 
