@@ -167,7 +167,6 @@ import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
 import { openReviewBlockAtSource } from '@/ui/review/openReviewBlockAtSource';
-import { getNeuralEngineLabel, getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
 import SrsEditorDialog from '@/ui/srs/SrsEditorDialog.vue';
 import type { CardApplicationService } from '@/application/services/CardApplicationService';
 import type { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
@@ -182,8 +181,6 @@ import {
   type IUnifiedDataSourceManagerFacade,
   isNeuralRoamSessionQueue,
   type NeuralNavigationState,
-  type NeuralRoamSourceEntry,
-  type NeuralRoamHistoryEntry,
   type NeuralRoamSessionQueue,
   type QueueReviewSchedulingContext,
   type ReviewQueueProgressSnapshot,
@@ -219,6 +216,14 @@ import {
   isReviewMenuSeparator,
   type ReviewMenuItem,
 } from './reviewMoreMenuItems';
+import {
+  buildReviewNeuralFocusMenuItems,
+  buildReviewNeuralHistoryMenuItems,
+  handleReviewNeuralToolbarAction,
+  isReviewNeuralMenuAction,
+  isReviewNeuralToolbarAction,
+  type ReviewNeuralBrowserSubview,
+} from './reviewNeuralCommands';
 import {
   createReviewSourceRefreshRuntime,
   type ReviewTransactionWebSocketServiceLike,
@@ -1307,7 +1312,7 @@ async function injectExcerptIntoCurrentHyperspaceReview(excerptEntityId: string)
   });
 }
 
-function openNeuralBrowserSubview(subview: 'concept-cards' | 'roam-history' | 'worldline-anchors'): void {
+function openNeuralBrowserSubview(subview: ReviewNeuralBrowserSubview): void {
   const dialogManager = getDialogManager();
   if (!dialogManager || typeof dialogManager.openBrowserDialog !== 'function') {
     showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
@@ -1769,53 +1774,6 @@ function openNumberDialog(options: {
       containerClass: 'siyuanmemo-action-params-dialog',
     });
   });
-}
-
-function resolveNeuralSourceLabels(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()) {
-  const engineMode = neuralQueue?.getNavigationState().engineMode ?? neuralNavigationState.value?.engineMode ?? 'orbit';
-  return getNeuralSourceLabelSet(engineMode, t);
-}
-
-function getReviewSourceListLabel(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
-  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('viewActivationSourceList', '查看概念卡：激活源列表')
-    : t('viewOrbitCenterList', '查看概念卡：轨道中心列表');
-}
-
-function getBuildStationSuccessMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
-  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('stationBuiltAndSetPrimaryActivationSource', '已建立空间站，并切换为当前主概念卡：激活源')
-    : t('stationBuiltAndSetOrbitCenter', '已建立空间站，并切换为当前概念卡：轨道中心');
-}
-
-function getBuildStationFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
-  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('buildStationAndSetPrimaryActivationSourceFailed', '建立空间站并切换主概念卡：激活源失败')
-    : t('buildStationAndSetOrbitCenterFailed', '建立空间站并切换概念卡：轨道中心失败');
-}
-
-function getLockCurrentCenterFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
-  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('lockPrimaryActivationSourceFailed', '设为主概念卡：激活源失败')
-    : t('lockCurrentOrbitCenterFailed', '设为当前概念卡：轨道中心失败');
-}
-
-function getStartPathFromSourceMessage(nodeId: string, neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
-  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('roamStartedFromActivationSource', '已从概念卡：激活源 {id} 开始新的路径').replace('{id}', nodeId)
-    : t('roamStartedFromOrbitCenter', '已从概念卡：轨道中心 {id} 开始新的路径').replace('{id}', nodeId);
-}
-
-function getSourceRemovedMessage(nodeId: string, neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
-  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('activationSourceRemoved', '已移除概念卡：激活源 {id}').replace('{id}', nodeId)
-    : t('orbitCenterRemoved', '已移除概念卡：轨道中心 {id}').replace('{id}', nodeId);
-}
-
-function getRemoveSourceFailedMessage(neuralQueue: NeuralRoamSessionQueue | null = getNeuralRoamQueue()): string {
-  return neuralQueue?.getNavigationState().engineMode === 'hyperspace'
-    ? t('removeActivationSourceFailed', '移除概念卡：激活源失败')
-    : t('removeOrbitCenterFailed', '移除概念卡：轨道中心失败');
 }
 
 function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
@@ -3681,15 +3639,19 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
   });
 }
 
-function handleOpenMoreMenu(ev: MouseEvent): void {
-  const menu = new Menu('review-more-menu');
-  for (const item of buildMoreMenuItems()) {
+function addReviewMenuItems(menu: Menu, items: ReviewMenuItem[]): void {
+  for (const item of items) {
     if (isReviewMenuSeparator(item)) {
       menu.addSeparator();
       continue;
     }
     menu.addItem(item);
   }
+}
+
+function handleOpenMoreMenu(ev: MouseEvent): void {
+  const menu = new Menu('review-more-menu');
+  addReviewMenuItems(menu, buildMoreMenuItems());
   openMenuAtEvent(menu, ev);
 }
 
@@ -3744,114 +3706,24 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   } else if (actionType === 'sticktab') {
     // 打开为菜单
     handleOpenAsMenu(ev);
-  } else if (actionType === 'lock-focus') {
-    logger.debug('[SiYuanMemo][ReviewView] Lock focus button clicked');
-    const blockId = resolveCurrentReviewBlockId();
-
-    if (!blockId) {
-      logger.error('[SiYuanMemo][ReviewView] ERROR: blockId is undefined!');
-      return;
-    }
-
-    const neuralQueue = getNeuralRoamQueue();
-    if (!neuralQueue) {
-      logger.error('[SiYuanMemo][ReviewView] Queue does not support orbit center actions');
-      showMessage(t('queueNoFocusSupport', 'This queue does not support center actions'), 3000, 'error');
-      return;
-    }
-
-    void (async () => {
-      await startWorldlineFromCurrentNode(neuralQueue, blockId);
-      refreshNavigationState();
-      logger.debug('[SiYuanMemo][ReviewView] Started a new orbit from center node:', blockId);
-      showMessage(getBuildStationSuccessMessage(neuralQueue), 3000, 'info');
-    })().catch((error: Error) => {
-      logger.error('[SiYuanMemo][ReviewView] Failed to set orbit center:', error);
-      showMessage(getBuildStationFailedMessage(neuralQueue), 3000, 'error');
-    });
-  } else if (actionType === 'neural-engine-mode') {
-    logger.debug('[SiYuanMemo][ReviewView] Engine mode toggle button clicked');
-    const neuralQueue = getNeuralRoamQueue();
-    if (!neuralQueue) {
-      return;
-    }
-
-    const nextMode = neuralQueue.getEngineMode() === 'hyperspace' ? 'orbit' : 'hyperspace';
-    void (async () => {
-      await neuralQueue.setEngineMode(nextMode, { carryCurrentNode: true });
-      refreshNavigationState();
-      const navState = neuralQueue.getNavigationState();
-      if (navState.currentNodeId) {
-        await hook.loadCardByBlockId(navState.currentNodeId);
-      }
-      const modeText = getNeuralEngineLabel(nextMode, t, 'full');
-      showMessage(t('engineModeSwitched', '已切换引擎：{mode}').replace('{mode}', modeText), 2000, 'info');
-    })().catch((error: Error) => {
-      logger.error('[SiYuanMemo][ReviewView] Failed to switch engine mode:', error);
-      showMessage(t('engineModeSwitchFailed', 'Failed to switch engine mode'), 3000, 'error');
-    });
-  } else if (actionType === 'neural-focuses') {
+  } else if (isReviewNeuralMenuAction(actionType)) {
     ev.stopPropagation();
     ev.preventDefault();
-    handleNeuralFocusMenu(ev);
-  } else if (actionType === 'neural-history') {
-    ev.stopPropagation();
-    ev.preventDefault();
-    handleNeuralHistoryMenu(ev);
-  } else if (actionType === 'neural-nav-mode') {
-    logger.debug('[SiYuanMemo][ReviewView] Navigation mode toggle button clicked');
-    const neuralQueue = getNeuralRoamQueue();
-    if (!neuralQueue) {
-      return;
+    if (actionType === 'neural-focuses') {
+      handleNeuralFocusMenu(ev);
+    } else {
+      handleNeuralHistoryMenu(ev);
     }
-
-    const currentMode = neuralQueue.getNavigationState().navigationMode;
-    const newMode = currentMode === 'follow' ? 'explore' : 'follow';
-    if (newMode === 'explore') {
-      const blockId = resolveCurrentReviewBlockId();
-      if (!blockId) {
-        logger.error('[SiYuanMemo][ReviewView] Cannot start branch exploration without current block id');
-        showMessage(getLockCurrentCenterFailedMessage(neuralQueue), 3000, 'error');
-        return;
-      }
-
-      void (async () => {
-        await startWorldlineFromCurrentNode(neuralQueue, blockId);
-        refreshNavigationState();
-        const modeText = t('navModeExplore', '自由航行');
-        showMessage(t('navModeSwitched', '已切换为：{mode}').replace('{mode}', modeText), 2000, 'info');
-      })().catch((error: Error) => {
-        logger.error('[SiYuanMemo][ReviewView] Failed to promote current node as worldline focus:', error);
-        showMessage(getLockCurrentCenterFailedMessage(neuralQueue), 3000, 'error');
-      });
-      return;
-    }
-
-    neuralQueue.setNavigationMode(newMode);
-    refreshNavigationState();
-
-    const modeText = newMode === 'follow'
-      ? t('navModeFollow', '沿当前路径')
-      : t('navModeExplore', '自由航行');
-    showMessage(t('navModeSwitched', '已切换为：{mode}').replace('{mode}', modeText), 2000, 'info');
-  } else if (actionType === 'neural-return-bookmark') {
-    logger.debug('[SiYuanMemo][ReviewView] Return to bookmark button clicked');
-    const neuralQueue = getNeuralRoamQueue();
-    if (!neuralQueue) {
-      return;
-    }
-
-    const success = neuralQueue.returnToBookmark();
-    if (!success) {
-      return;
-    }
-
-    const navState = neuralQueue.getNavigationState();
-    if (navState.currentNodeId) {
-      void hook.loadCardByBlockId(navState.currentNodeId);
-    }
-    refreshNavigationState();
-    showMessage(t('navReturnedToBookmark', '已返回空间站'), 2000, 'info');
+  } else if (isReviewNeuralToolbarAction(actionType)) {
+    void handleReviewNeuralToolbarAction(actionType, {
+      t,
+      neuralQueue: getNeuralRoamQueue(),
+      currentBlockId: resolveCurrentReviewBlockId(),
+      loadCardByBlockId: (blockId) => hook.loadCardByBlockId(blockId),
+      refreshNavigationState,
+      showMessage,
+      logger,
+    });
   }
 }
 
@@ -4019,36 +3891,6 @@ function openMenuAtEvent(menu: Menu, ev: MouseEvent): void {
   openMenuAtAnchor(menu, target);
 }
 
-function shortenBlockId(blockId: string): string {
-  return blockId.length > 20 ? `${blockId.slice(0, 20)}...` : blockId;
-}
-
-function buildSeedMenuLabel(entry: NeuralRoamSourceEntry): string {
-  const preview = entry.nodePreview || shortenBlockId(entry.nodeId);
-  const typeLabel = entry.role === 'activation-source'
-    ? t('activationKindSourceRoot', '概念卡：激活源')
-    : t('activationKindFocusRoot', '概念卡：轨道中心节点');
-  return `${preview} — ${typeLabel}`;
-}
-
-function resolveAssociationTypeLabel(entry: NeuralRoamHistoryEntry): string {
-  const reason = String(entry.reason || '').trim();
-  if (reason) {
-    return reason;
-  }
-
-  const associationTypeMap: Record<string, string> = {
-    backlink: t('associationBacklink', '反向链接'),
-    'outgoing-direct': t('associationOutgoingDirect', '直接引用'),
-    'outgoing-indirect': t('associationOutgoingIndirect', '间接引用'),
-    descriptor: t('descriptorCard', '描述符卡'),
-    focus: t('associationFocusNode', '概念卡：轨道中心节点'),
-    source: t('activationKindSourceRoot', '概念卡：激活源'),
-    path: t('associationPathNode', '轨迹节点'),
-  };
-  return associationTypeMap[entry.associationType] || entry.associationType || t('unknown', '未知');
-}
-
 function handleNeuralFocusMenu(ev: MouseEvent): void {
   const neuralQueue = getNeuralRoamQueue();
   if (!neuralQueue) {
@@ -4056,68 +3898,18 @@ function handleNeuralFocusMenu(ev: MouseEvent): void {
     return;
   }
 
-  const sourceLabels = resolveNeuralSourceLabels(neuralQueue);
-  const seedEntries = neuralQueue.getSourceSnapshot().sort((a, b) => b.visitedAt - a.visitedAt);
   const menu = new Menu('neural-focuses-menu');
-
-  menu.addItem({
-    icon: 'iconList',
-    label: getReviewSourceListLabel(neuralQueue),
-    click: () => {
-      openNeuralBrowserSubview('concept-cards');
-    },
-  });
-
-  menu.addItem({
-    icon: 'iconPlay',
-    label: sourceLabels.startPath,
-    disabled: seedEntries.length === 0,
-    submenu: seedEntries.map((entry) => ({
-      label: buildSeedMenuLabel(entry),
-      click: async () => {
-        try {
-          await neuralQueue.setCurrentFocus(entry.nodeId, {
-            includeFocusAsFirst: true,
-            resetHistory: false,
-            bookmarkCurrentPath: true,
-          });
-          await hook.loadCardByBlockId(entry.nodeId);
-          refreshNavigationState();
-          showMessage(getStartPathFromSourceMessage(entry.nodeId, neuralQueue), 3000, 'info');
-        } catch (error) {
-          logger.error('[SiYuanMemo][ReviewView] Failed to start roaming from focus:', error);
-          showMessage(t('roamStartFailed', '开始漫游失败'), 3000, 'error');
-        }
-      },
-    })),
-  });
-
-  menu.addItem({
-    icon: 'iconTrashcan',
-    label: sourceLabels.removeItem,
-    disabled: seedEntries.length === 0,
-    submenu: seedEntries.map((entry) => ({
-      label: buildSeedMenuLabel(entry),
-      click: async () => {
-        try {
-          await neuralQueue.setSourceEntry(entry.nodeId, false);
-          refreshNavigationState();
-          showMessage(getSourceRemovedMessage(entry.nodeId, neuralQueue), 3000, 'info');
-        } catch (error) {
-          logger.error('[SiYuanMemo][ReviewView] Failed to remove focus:', error);
-          showMessage(getRemoveSourceFailedMessage(neuralQueue), 3000, 'error');
-        }
-      },
-    })),
-  });
+  addReviewMenuItems(menu, buildReviewNeuralFocusMenuItems({
+    t,
+    neuralQueue,
+    loadCardByBlockId: (blockId) => hook.loadCardByBlockId(blockId),
+    refreshNavigationState,
+    showMessage,
+    logger,
+    openNeuralBrowserSubview,
+  }));
 
   openMenuAtEvent(menu, ev);
-}
-
-function buildHistoryLabel(entry: NeuralRoamHistoryEntry, absoluteIndex: number): string {
-  const preview = entry.nodePreview || shortenBlockId(entry.nodeId);
-  const association = resolveAssociationTypeLabel(entry);
-  return `${absoluteIndex}. ${preview} · ${association}`;
 }
 
 function handleNeuralHistoryMenu(ev: MouseEvent): void {
@@ -4127,57 +3919,16 @@ function handleNeuralHistoryMenu(ev: MouseEvent): void {
     return;
   }
 
-  const totalHistoryCount = neuralQueue.getHistoryCount();
-  const jumpCandidates = neuralQueue.getHistoryPage({
-    offset: 0,
-    limit: 20,
-  }).entries.slice().reverse();
   const menu = new Menu('neural-history-menu');
-
-  menu.addItem({
-    icon: 'iconHistory',
-    label: t('viewHistory', '查看双链轨道'),
-    click: () => {
-      openNeuralBrowserSubview('roam-history');
-    },
-  });
-
-  menu.addItem({
-    icon: 'iconBookmark',
-    label: t('viewAnchors', '查看空间站'),
-    click: () => {
-      openNeuralBrowserSubview('worldline-anchors');
-    },
-  });
-
-  menu.addItem({
-    icon: 'iconOpen',
-    label: t('jumpHistoryNode', '跳转轨迹节点'),
-    disabled: jumpCandidates.length === 0,
-    submenu: jumpCandidates.map((entry, index) => ({
-      label: buildHistoryLabel(entry, totalHistoryCount - jumpCandidates.length + index + 1),
-      click: async () => {
-        const jumped = await neuralQueue.jumpToHistoryNode(entry.nodeId);
-        if (!jumped) {
-          showMessage(t('jumpHistoryNodeFailed', '跳转轨迹节点失败'), 3000, 'error');
-          return;
-        }
-        const currentNodeId = neuralQueue.getNavigationState().currentNodeId || entry.nodeId;
-        await hook.loadCardByBlockId(currentNodeId);
-        refreshNavigationState();
-      },
-    })),
-  });
-
-  menu.addItem({
-    icon: 'iconClear',
-    label: t('clearHistory', '清空轨迹历史'),
-    click: () => {
-      neuralQueue.clearHistory('all');
-      refreshNavigationState();
-      showMessage(t('historyClearedSuccess', '轨迹历史已清空'), 3000, 'info');
-    },
-  });
+  addReviewMenuItems(menu, buildReviewNeuralHistoryMenuItems({
+    t,
+    neuralQueue,
+    loadCardByBlockId: (blockId) => hook.loadCardByBlockId(blockId),
+    refreshNavigationState,
+    showMessage,
+    logger,
+    openNeuralBrowserSubview,
+  }));
 
   openMenuAtEvent(menu, ev);
 }
@@ -4444,18 +4195,6 @@ async function handleProgressiveCompletePiece(): Promise<void> {
       'error',
     );
   }
-}
-
-async function startWorldlineFromCurrentNode(
-  neuralQueue: NeuralRoamSessionQueue,
-  blockId: string,
-): Promise<void> {
-  await neuralQueue.setAnchorEntry(blockId, true);
-  await neuralQueue.setCurrentFocus(blockId, {
-    includeFocusAsFirst: false,
-    resetHistory: false,
-    bookmarkCurrentPath: true,
-  });
 }
 
 // 🌐 Part 7: 侧边栏处理函数（已删除）
