@@ -1,6 +1,6 @@
 import { getPreferredSchedulerForCardType } from '@/core/scheduler/schedulerPolicy';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
-import type { FSRSCard } from '@/types/card';
+import { CardState, type FSRSCard } from '@/types/card';
 
 export const ACTIVE_ALGORITHM_IDS = ['fsrs-v6', 'a-factor-v2'] as const;
 export type ActiveAlgorithmId = typeof ACTIVE_ALGORITHM_IDS[number];
@@ -249,10 +249,11 @@ function parseAlgorithmCardState(
     }
     const stability = numberOrInvalid(value.fsrs.stability);
     const difficulty = numberOrInvalid(value.fsrs.difficulty);
-    if (stability === null || stability <= 0) {
+    const isReviewLike = common.state === CardState.Review || common.state === CardState.Relearning;
+    if (stability === null || stability < 0 || (isReviewLike && stability <= 0)) {
       return { ok: false, reasons: ['algorithmState.stability'] };
     }
-    if (difficulty === null || difficulty < 1 || difficulty > 10) {
+    if (difficulty === null || difficulty < 0 || difficulty > 10 || (isReviewLike && difficulty < 1)) {
       return { ok: false, reasons: ['algorithmState.difficulty'] };
     }
     return {

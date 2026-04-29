@@ -57,6 +57,48 @@ describe('algorithmCardState codec', () => {
     expect(applied.invalidStateRow).toBe(false);
   });
 
+  it('allows empty FSRS memory only for non-review states', () => {
+    const newCard = createCard({
+      state: CardState.New,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lastReview: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+    });
+    const derived = deriveAlgorithmCardState(newCard);
+
+    expect(diagnoseAlgorithmCardStateRow(newCard, {
+      cardId: newCard.id,
+      algorithmId: derived.algorithmId,
+      stateJson: stringifyAlgorithmCardState(derived.state),
+    })).toMatchObject({
+      invalid: false,
+      mismatch: false,
+    });
+
+    const reviewCard = createCard({
+      state: CardState.Review,
+      stability: 0,
+      difficulty: 0,
+    });
+    expect(diagnoseAlgorithmCardStateRow(reviewCard, {
+      cardId: reviewCard.id,
+      algorithmId: 'fsrs-v6',
+      stateJson: JSON.stringify({
+        ...derived.state,
+        common: {
+          ...derived.state.common,
+          state: CardState.Review,
+        },
+      }),
+    })).toMatchObject({
+      invalid: true,
+      reasons: expect.arrayContaining(['algorithmState.stability']),
+    });
+  });
+
   it('roundtrips Topic state with a-factor-v2 and topic schedulerMeta only', () => {
     const topic = createCard({
       id: 'topic-state-codec',

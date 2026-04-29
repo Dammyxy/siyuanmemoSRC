@@ -142,4 +142,60 @@ describe('SqliteMigrationService algorithm card state migration', () => {
 
     expect(secondRun).toEqual({ migrated: false, usedSql: true });
   });
+
+  it('repairs dirty algorithm state rows left behind by a previous marked migration', async () => {
+    const fileService = new MemoryMigrationFileService();
+    const database = new SqliteDatabaseService(fileService);
+    await database.init();
+    const unified = new SqlUnifiedStorageRepository(database);
+    await unified.saveStore(createLegacyStore());
+    database.markMigration('initial-msgpack-json-import-v1', 1_701_000_000_000);
+    database.markMigration('algorithm-card-state-production-v1', 1_701_000_000_000);
+    database.run(
+      `UPDATE algorithm_card_state
+       SET state_json = ?
+       WHERE card_id = ? AND algorithm_id = ?`,
+      [
+        JSON.stringify({
+          schemaVersion: 1,
+          schedulerType: 'fsrs-v6',
+          common: {
+            due: 1_700_000_000_000,
+            state: CardState.Review,
+            reps: 1,
+            lapses: 0,
+            lastReview: 1_699_000_000_000,
+            elapsedDays: 1,
+            scheduledDays: 1,
+          },
+          fsrs: { stability: 0, difficulty: 0 },
+        }),
+        'migration-dirty-card',
+        'fsrs-v6',
+      ],
+    );
+
+    const migration = new SqliteMigrationService(
+      database,
+      fileService,
+      {
+        unified,
+        queue: new SqlQueueStateRepository(database),
+        reviewLogs: new SqlReviewLogRepository(database),
+        arena: new SqlArenaRepository(database),
+      },
+      async () => ({ ...createLegacyStore(), cards: {} }),
+    );
+
+    expect(unified.getAlgorithmCardStateDiagnostic().dirty).toBeGreaterThan(0);
+
+    const result = await migration.migrateIfNeeded(1_701_000_000_002);
+
+    expect(result).toEqual({ migrated: true, usedSql: true });
+    expect(fileService.json.has('migration-backups/algorithm-card-state-repair-1701000000002.json')).toBe(true);
+    expect(unified.getAlgorithmCardStateDiagnostic()).toMatchObject({
+      dirty: 0,
+      invalidStateRows: 0,
+    });
+  });
 });

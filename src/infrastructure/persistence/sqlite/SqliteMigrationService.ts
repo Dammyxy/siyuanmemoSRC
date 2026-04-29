@@ -78,18 +78,25 @@ export class SqliteMigrationService {
     if (this.database.hasMigration(ALGORITHM_CARD_STATE_MIGRATION_ID)) {
       const diagnostic = this.repositories.unified.getAlgorithmCardStateDiagnostic();
       if (diagnostic.dirty > 0 || diagnostic.orphanStateRows > 0) {
-        logger.warn('SQLite algorithm card state diagnostic found dirty rows after previous migration', diagnostic);
+        await this.writeAlgorithmCardStateBackup(`migration-backups/algorithm-card-state-repair-${now}.json`, now);
+        let summary: AlgorithmCardStateBackfillSummary | null = null;
+        await this.database.runTransaction('sqlite.algorithm-card-state-production-repair', () => {
+          summary = this.repositories.unified.backfillAlgorithmCardStates(now);
+        });
+        if (!summary) {
+          throw new Error('Algorithm card state repair did not produce a summary');
+        }
+        if (summary.afterDirty > 0 || summary.orphanStateRows > 0) {
+          logger.warn('SQLite algorithm card state repair finished with dirty rows', summary);
+        } else {
+          logger.info('SQLite algorithm card state repair finished', summary);
+        }
+        return { migrated: true };
       }
       return { migrated: false };
     }
 
-    const backup = this.repositories.unified.createAlgorithmCardStateMigrationBackup();
-    if (backup.cards.length > 0 || backup.algorithmCardStates.length > 0) {
-      await this.fileService.writeJSON(`migration-backups/algorithm-card-state-${now}.json`, {
-        capturedAt: now,
-        ...backup,
-      });
-    }
+    await this.writeAlgorithmCardStateBackup(`migration-backups/algorithm-card-state-${now}.json`, now);
 
     let summary: AlgorithmCardStateBackfillSummary | null = null;
     await this.database.runTransaction('sqlite.algorithm-card-state-production-v1', () => {
@@ -106,6 +113,17 @@ export class SqliteMigrationService {
       logger.info('SQLite algorithm card state migration finished', summary);
     }
     return { migrated: true };
+  }
+
+  private async writeAlgorithmCardStateBackup(fileName: string, now: number): Promise<void> {
+    const backup = this.repositories.unified.createAlgorithmCardStateMigrationBackup();
+    if (backup.cards.length === 0 && backup.algorithmCardStates.length === 0) {
+      return;
+    }
+    await this.fileService.writeJSON(fileName, {
+      capturedAt: now,
+      ...backup,
+    });
   }
 
   private async migrateQueueState(): Promise<void> {

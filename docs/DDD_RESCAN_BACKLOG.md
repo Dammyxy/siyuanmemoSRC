@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 184)
+Last update: 2026-04-29 (Round 185)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - algorithm card state dirty repair follow-up
+
+- Task: 解释真实库启动日志 `SQLite algorithm card state migration finished with dirty rows`，并修掉迁移后仍有 dirty row 的恢复缺口。
+- Touched slice: SQL algorithm state codec / startup migration repair path in `src/infrastructure/persistence/sqlite/{algorithmCardState.ts,SqliteMigrationService.ts}` plus focused tests.
+- Debt fixed now: FSRS active state row 校验改为按 card state 区分，New/Learning 允许合法空记忆 `stability/difficulty = 0`，Review/Relearning 仍强制 `stability > 0`、`difficulty 1..10`；已写入 `algorithm-card-state-production-v1` marker 的真实库若仍 dirty，下一次启动会先备份到 `migration-backups/algorithm-card-state-repair-*.json`，再自动 backfill/repair，而不是只 warn。
+- Debt deferred: 无。
+- Why deferred: 不适用。
+- Next safe step: 用新构建重启真实库一次，预期日志变为 `SQLite algorithm card state repair finished` 且 `afterDirty: 0`；若仍 warn，展开控制台对象看 `reasons`。
+- Validation: `pnpm vitest run src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.property.test.ts src/infrastructure/persistence/mappers/__tests__/RiffMapper.fsrs-repair.test.ts src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts src/core/storage/__tests__/UnifiedStorageManager.stability-idempotency.test.ts src/core/storage/__tests__/UnifiedStorageManager.batch-update.test.ts src/core/storage/__tests__/UnifiedStorageManager.dto.test.ts src/infrastructure/persistence/sqlite/__tests__/algorithmCardState.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueStateRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteMigrationService.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/core/scheduler/adapters/__tests__/UnifiedStorageCardUpdateAdapter.test.ts src/core/scheduler/__tests__/SchedulerRouter.fsrs-v6.test.ts --reporter=dot`（170 tests 通过）；`pnpm build`（通过；i18n 阻断问题 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（仅 CRLF 工作区提示）。
 
 ### 2026-04-29 - algorithm card state production authority
 
