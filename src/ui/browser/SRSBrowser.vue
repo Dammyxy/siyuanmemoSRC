@@ -344,7 +344,7 @@ import type {
   SortChangedEvent,
 } from 'ag-grid-community';
 import { openTab, Menu, Protyle, type App } from 'siyuan';
-import { confirmDialog, createVueDialog } from '@/utils/dialog';
+import { confirmDialog } from '@/utils/dialog';
 import {
   loadBrowserCardsByBlockIds,
   invalidateCardCache,
@@ -391,12 +391,9 @@ import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToT
 import type {
   BrowserActionTarget,
   ICardDataSource,
-  IBrowserQueryableDataSource,
   SortModel,
 } from './datasource/types';
 import { hasQuerySessionInvalidation, isBrowserQueryableDataSource } from './datasource/types';
-import { adjustTime } from './datasource/MenuActions';  // Import adjustTime
-import ActionParamsDialog from './ActionParamsDialog.vue';
 import BrowserHierarchy from './BrowserHierarchy.vue';
 import BrowserPreview from './BrowserPreview.vue';
 import BrowserToolbar from './BrowserToolbar.vue';
@@ -408,13 +405,8 @@ import NeuralNavigationBar from './neural/NeuralNavigationBar.vue';
 import NeuralSubviewTabs from './neural/NeuralSubviewTabs.vue';
 import { useNeuralBrowserController } from './neural/useNeuralBrowserController';
 import FilterDialog from './dialogs/FilterDialog.vue';
-import PostponeDialog from './dialogs/PostponeDialog.vue';
-import AdvanceDialog from './dialogs/AdvanceDialog.vue';
-import SpreadDialog from './dialogs/SpreadDialog.vue';
-import RescheduleResultDialog from './dialogs/RescheduleResultDialog.vue';
 import SyncStatusIndicator from '../components/SyncStatusIndicator.vue';  // 🆕 导入同步状指示器
 import { useCardTypeDetection } from './composables/useCardTypeDetection';
-import { ConfigManager } from '@/core/scheduler/ConfigManager';
 import type { RescheduleStoragePort } from '@/core/scheduler/ports';
 import { createColumnDefs } from './config';
 import { getNeuralSourceLabelSet } from '@/ui/shared/neuralRoamLabels';
@@ -445,6 +437,29 @@ import { interpolateI18n } from './utils/i18n';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
 import { resolveSubsetReviewSelection } from './utils/subsetReviewSelection';
 import { resolveEffectiveSortModel } from './utils/sortModel';
+import {
+  fetchAllRowsFromDataSource,
+  loadAllRowsFromQueryableDataSource,
+  resolveQueryableDataSource,
+} from './browserDataSnapshots';
+import {
+  buildBrowserSelectionContextFingerprint,
+  collectScopedBrowserSelectionIds,
+  describeBrowserFilterSummary,
+  isBrowserGridApiAlive as isGridApiAlive,
+  isBrowserNodeInSelectionScope,
+  resolveBrowserCardSelectionId,
+} from './browserSelectionScope';
+import {
+  getBrowserActionErrorMessage,
+  getBrowserActionLabel,
+  parseBrowserAddToQueueResult,
+  shouldForceRefreshAfterBrowserAction,
+  shouldReloadAfterBrowserAction,
+  summarizeBrowserActionResult,
+} from './browserActionFeedback';
+import { createBrowserActionParamBuilders } from './browserActionParamDialogs';
+import { openBrowserSpreadDialog } from './browserSpreadDialog';
 import {
   isNeuralQueueId,
   resolveQueueCardTypeOnSwitch,
@@ -1196,145 +1211,36 @@ function scheduleDatasourceUiUpdate(version: number, update: () => void): void {
   }, 0);
 }
 
-function isGridApiAlive(api: GridApi | null | undefined): api is GridApi {
-  if (!api) {
-    return false;
-  }
-  if (typeof api.isDestroyed === 'function' && api.isDestroyed()) {
-    return false;
-  }
-  return true;
-}
-
-async function fetchAllRowsFromDataSource(
-  dataSource: ICardDataSource,
-  sortModel: SortModel[] = []
-): Promise<BrowserCard[]> {
-  const probe = await dataSource.fetchRows({
-    sortModel,
-    filterModel: {},
-    startRow: 0,
-    endRow: 1,
-  });
-
-  if (probe.totalCount <= probe.rows.length) {
-    return probe.rows;
-  }
-
-  const full = await dataSource.fetchRows({
-    sortModel,
-    filterModel: {},
-    startRow: 0,
-    endRow: probe.totalCount,
-  });
-  return full.rows;
-}
-
-async function loadAllRowsFromQueryableDataSource(
-  dataSource: ICardDataSource,
-  sortModel: SortModel[] = [],
-  options: {
-    chunkSize?: number;
-    shouldAbort?: () => boolean;
-  } = {},
-): Promise<BrowserCard[]> {
-  const queryable = resolveQueryableDataSource(dataSource);
-  if (!queryable) {
-    return fetchAllRowsFromDataSource(dataSource, sortModel);
-  }
-
-  await dataSource.fetchRows({
-    sortModel,
-    filterModel: {},
-    startRow: 0,
-    endRow: 0,
-  });
-
-  if (options.shouldAbort?.()) {
-    return [];
-  }
-
-  const allIds = await queryable.getAllMatchedIds();
-  if (allIds.length === 0) {
-    return [];
-  }
-
-  const chunkSize = Math.max(1, Math.floor(Number(options.chunkSize) || 500));
-  const rows: BrowserCard[] = [];
-  for (let index = 0; index < allIds.length; index += chunkSize) {
-    if (options.shouldAbort?.()) {
-      return rows;
-    }
-
-    const chunkIds = allIds.slice(index, index + chunkSize);
-    const hydratedRows = await queryable.getRowsByIds(chunkIds);
-    if (options.shouldAbort?.()) {
-      return rows;
-    }
-    rows.push(...hydratedRows);
-  }
-
-  return rows;
-}
-
-function resolveQueryableDataSource(
-  dataSource: ICardDataSource | null
-): IBrowserQueryableDataSource | null {
-  if (!dataSource || !isBrowserQueryableDataSource(dataSource)) {
-    return null;
-  }
-  return dataSource;
-}
-
 function resolveIncrementalRowId(card: BrowserCard | null | undefined): string {
-  return resolveBrowserCardStableId(card);
-}
-
-function resolveBrowserCardSelectionId(card: BrowserCard | null | undefined): string {
   return resolveBrowserCardStableId(card);
 }
 
 function buildSelectionContextFingerprint(): string {
   const dataSource = currentDataSource.value;
   const queryable = resolveQueryableDataSource(dataSource);
-  if (queryable) {
-    return queryable.getQueryFingerprint();
-  }
-
-  return JSON.stringify({
-    queueId: activeQueueId.value || '',
-    scopeDocIds: activeScopeDocIds.value || [],
-    docId: activeDocId.value || '',
-    preset: currentPreset.value,
-    queryText: searchQuery.value,
+  return buildBrowserSelectionContextFingerprint({
+    activeDocId: activeDocId.value,
+    activeQueueId: activeQueueId.value,
+    activeScopeDocIds: activeScopeDocIds.value,
     cardType: currentCardType.value,
+    preset: currentPreset.value,
+    queryFingerprint: queryable?.getQueryFingerprint(),
+    queryText: searchQuery.value,
     sortModel: currentSortModel.value,
   });
 }
 
 function describeCurrentFilterSummary(): string {
-  const parts: string[] = [];
-  const scopeLabel = activeQueueId.value || t('allCards', 'All');
-  parts.push(`${t('scope', 'Scope')}: ${scopeLabel}`);
-
-  if (hasActiveScopeDocIds.value) {
-    parts.push(
-      `${t('docTreeScope', 'Doc Tree Scope')}: ${String(activeScopeDocIds.value?.length || 0)}`,
-    );
-  }
-  if (activeDocId.value) {
-    parts.push(`${t('document', 'Document')}: ${activeDocId.value}`);
-  }
-  if (currentPreset.value && currentPreset.value !== 'all') {
-    parts.push(`${t('preset', 'Preset')}: ${currentPreset.value}`);
-  }
-  if (currentCardType.value && currentCardType.value !== 'all') {
-    parts.push(`${t('cardType', 'Card Type')}: ${currentCardType.value}`);
-  }
-  if (searchQuery.value.trim()) {
-    parts.push(`${t('search', 'Search')}: ${searchQuery.value.trim()}`);
-  }
-  return parts.join(' · ');
+  return describeBrowserFilterSummary({
+    activeDocId: activeDocId.value,
+    activeQueueId: activeQueueId.value,
+    activeScopeDocIds: activeScopeDocIds.value,
+    cardType: currentCardType.value,
+    hasActiveScopeDocIds: hasActiveScopeDocIds.value,
+    preset: currentPreset.value,
+    queryText: searchQuery.value,
+    t,
+  });
 }
 
 function clearSelectionState(shouldNotify = false): void {
@@ -1372,47 +1278,6 @@ function syncSelectionForQueryChange(): void {
   resetPaginationToFirstPage();
 }
 
-function isNodeInSelectionScope(api: GridApi<BrowserCard>, rowIndex: number | null | undefined): boolean {
-  if (!desktopPaginationEnabled.value) {
-    return true;
-  }
-  if (!Number.isFinite(rowIndex)) {
-    return false;
-  }
-
-  const currentPage = Number(api.paginationGetCurrentPage?.() ?? 0);
-  const pageSizeCandidate = Number(api.paginationGetPageSize?.() ?? DESKTOP_PAGE_SIZE);
-  const pageSize = Number.isFinite(pageSizeCandidate) && pageSizeCandidate > 0
-    ? Math.floor(pageSizeCandidate)
-    : DESKTOP_PAGE_SIZE;
-  const startRow = Math.max(0, currentPage) * pageSize;
-  const endRow = startRow + pageSize;
-
-  return Number(rowIndex) >= startRow && Number(rowIndex) < endRow;
-}
-
-function collectScopedSelectionIds(api: GridApi<BrowserCard>): { visibleIds: string[]; selectedIds: string[] } {
-  const visibleIds: string[] = [];
-  const selectedIds: string[] = [];
-
-  api.forEachNode((node) => {
-    if (!isNodeInSelectionScope(api, node.rowIndex)) {
-      return;
-    }
-    const row = node.data as BrowserCard | undefined;
-    const id = resolveBrowserCardSelectionId(row);
-    if (!id) {
-      return;
-    }
-    visibleIds.push(id);
-    if (node.isSelected()) {
-      selectedIds.push(id);
-    }
-  });
-
-  return { visibleIds, selectedIds };
-}
-
 function applyGlobalSelectionToLoadedRows(): void {
   const api = gridApi.value;
   if (!isGridApiAlive(api)) {
@@ -1427,7 +1292,10 @@ function applyGlobalSelectionToLoadedRows(): void {
   isApplyingSelectionToGrid = true;
   try {
     api.forEachNode((node) => {
-      if (!isNodeInSelectionScope(api, node.rowIndex)) {
+      if (!isBrowserNodeInSelectionScope(api, node.rowIndex, {
+        defaultPageSize: DESKTOP_PAGE_SIZE,
+        paginationEnabled: desktopPaginationEnabled.value,
+      })) {
         return;
       }
       const row = node.data as BrowserCard | undefined;
@@ -2187,7 +2055,10 @@ function onSelectionChanged() {
     return;
   }
 
-  const { visibleIds, selectedIds } = collectScopedSelectionIds(api);
+  const { visibleIds, selectedIds } = collectScopedBrowserSelectionIds(api, {
+    defaultPageSize: DESKTOP_PAGE_SIZE,
+    paginationEnabled: desktopPaginationEnabled.value,
+  });
 
   if (globalSelection.mode.value === 'all-matching') {
     globalSelection.syncAllMatchingVisibleSelection(visibleIds, selectedIds);
@@ -2280,51 +2151,6 @@ function handlePreviewDeleteCard(card: BrowserCard): void {
   void handleAction('delete-card', [card], card);
 }
 
-function openNumberDialog(options: {
-  title: string;
-  label: string;
-  description?: string;
-  unit?: string;
-  defaultValue?: number;
-  min?: number;
-  max?: number;
-  step?: number;
-  integer?: boolean;
-}): Promise<number | null> {
-  return new Promise((resolve) => {
-    const dlg = createVueDialog({
-      title: options.title,
-      component: ActionParamsDialog,
-      props: {
-        label: options.label,
-        description: options.description,
-        unit: options.unit,
-        defaultValue: options.defaultValue,
-        min: options.min,
-        max: options.max,
-        step: options.step,
-        integer: options.integer,
-        confirmText: t('confirm', '确认'),
-        cancelText: t('cancel', '取消'),
-      },
-      events: {
-        confirm: (value: number) => {
-          dlg.destroy();
-          resolve(value);
-        },
-        cancel: () => {
-          dlg.destroy();
-          resolve(null);
-        },
-      },
-      width: '520px',
-      height: '220px',
-      visualVariant: 'form',
-      containerClass: 'siyuanmemo-action-params-dialog',
-    });
-  });
-}
-
 function convertToTab() {
   emit('convertToTab', captureCurrentBrowserOpenState());
 }
@@ -2337,179 +2163,17 @@ type BrowserMenuItem = {
   submenu?: BrowserMenuItem[];
 };
 
-type ActionParams = Record<string, unknown>;
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-  if (typeof error === 'string' && error.trim()) {
-    return error;
-  }
-  return fallback;
-}
-
-type ActionParamBuilder = (targetCards: BrowserActionTarget[]) => Promise<ActionParams | null>;
-
-const ACTION_PARAM_BUILDERS: Record<string, ActionParamBuilder> = {
-  postpone: async (cards) => {
-    // Use new PostponeDialog
-    return new Promise((resolve) => {
-      const configManager = new ConfigManager(pluginStorage.value!);
-      const dlg = createVueDialog({
-        title: t('postpone', 'Postpone'),
-        component: PostponeDialog,
-        props: {
-          count: cards.length,
-          configManager,
-          i18n: props.i18n,
-        },
-        events: {
-          confirm: async (config) => {
-            dlg.destroy();
-            resolve({ config });
-          },
-          cancel: () => {
-            dlg.destroy();
-            resolve(null);
-          },
-        },
-        width: '800px',  // 🆕 增大默认宽度
-        height: '85vh',  // 🆕 增大默认高度
-        responsive: true,
-        visualVariant: 'manager',
-        containerClass: 'siyuanmemo-postpone-dialog',
-      });
-    });
-  },
-  advance: async (cards) => {
-    // Use new AdvanceDialog
-    return new Promise((resolve) => {
-      const configManager = new ConfigManager(pluginStorage.value!);
-      const dlg = createVueDialog({
-        title: t('advance', 'Advance'),
-        component: AdvanceDialog,
-        props: {
-          count: cards.length,
-          configManager,
-          i18n: props.i18n,
-        },
-        events: {
-          confirm: async (config) => {
-            dlg.destroy();
-            resolve({ config });
-          },
-          cancel: () => {
-            dlg.destroy();
-            resolve(null);
-          },
-        },
-        width: '800px',  // 🆕 增大默认宽度
-        height: '85vh',  // 🆕 增大默认高度
-        responsive: true,
-        visualVariant: 'manager',
-        containerClass: 'siyuanmemo-advance-dialog',
-      });
-    });
-  },
-  spread: async (cards) => {
-    const snapshotRows = await ensureAllRowsSnapshotReady();
-    const fullRows = snapshotRows.length > 0 ? snapshotRows : await loadAllRowsForCurrentView([]);
-
-    return new Promise((resolve) => {
-      const configManager = new ConfigManager(pluginStorage.value!);
-      const dlg = createVueDialog({
-        title: t('spread', 'Spread Workload'),
-        component: SpreadDialog,
-        props: {
-          count: cards.length,
-          configManager,
-          allCards: fullRows,
-          i18n: props.i18n,
-        },
-        events: {
-          confirm: async (config) => {
-            dlg.destroy();
-            resolve({ config });
-          },
-          cancel: () => {
-            dlg.destroy();
-            resolve(null);
-          },
-        },
-        width: '700px',
-        height: '80vh',
-        visualVariant: 'manager',
-        containerClass: 'siyuanmemo-spread-dialog',
-      });
-    });
-  },
-  'set-priority': async (cards) => {
-    const row = cards?.[0];
-    const p = await openNumberDialog({
-      title: t('setPriority', 'Set Priority'),
-      label: t('priorityLabel', 'Priority'),
-      description: t('priorityHint', '0-100, smaller = higher priority'),
-      defaultValue: typeof row?.priority === 'number' ? row.priority : 50,
-      min: 0,
-      max: 100,
-      step: 1,
-      integer: true,
-    });
-    if (p == null) return null;
-    return { priority: p };
-  },
-  'insert-at': async () => {
-    const q = getQueueById('final-drill');
-    let len = 0;
-    if (typeof q?.getSize === 'function') {
-      len = Number(await q.getSize()) || 0;
-    }
-    const pos = await openNumberDialog({
-      title: t('insertAt', 'Insert At Position'),
-      label: t('positionLabel', 'Position'),
-      description: t('insertAtHint', 'Enter 1~{max}, 1 means insert at top')
-        .replace('{max}', String(len + 1)),
-      defaultValue: 1,
-      min: 1,
-      max: Math.max(1, len + 1),
-      step: 1,
-      integer: true,
-    });
-    if (pos == null) return null;
-    const index = Math.max(0, Math.floor(Number(pos)) - 1);
-    return { index };
-  },
-};
+const ACTION_PARAM_BUILDERS = createBrowserActionParamBuilders({
+  ensureAllRowsSnapshotReady,
+  getQueueById,
+  getStorage: () => pluginStorage.value,
+  i18n: props.i18n,
+  loadAllRowsForCurrentView,
+  t,
+});
 
 function getActionLabel(action: { id: string; label: string }): string {
-  const map: Record<string, { key: string; fallback: string }> = {
-    'review-subset': { key: 'reviewSubset', fallback: 'Review Subset' },
-    open: { key: 'openInTab', fallback: 'Open' },
-    postpone: { key: 'postpone', fallback: 'Postpone' },
-    advance: { key: 'advance', fallback: 'Advance' },
-    spread: { key: 'spread', fallback: 'Spread' },
-    reset: { key: 'resetCard', fallback: 'Reset' },
-    suspend: { key: 'suspend', fallback: 'Suspend' },
-    unsuspend: { key: 'restore', fallback: 'Restore' },
-    'remove-from-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
-    'remove-from-current-queue': { key: 'removeFromQueue', fallback: 'Remove from Queue' },
-    'delete-card': { key: 'deleteCard', fallback: '取消闪卡' },
-    'add-to-queue': { key: 'addToQueueMenu', fallback: '加入队列' },
-    'add-to-retrieval-queue': { key: 'addToRetrievalQueue', fallback: '提取练习' },
-    'add-to-retrieval-queue-all': { key: 'addToRetrievalQueueAll', fallback: '提取练习（含今日已复习）' },
-    'add-to-incremental-queue': { key: 'addToIncrementalQueue', fallback: '渐进学习' },
-    'add-to-incremental-queue-all': { key: 'addToIncrementalQueueAll', fallback: '渐进学习（含今日已复习）' },
-    'add-to-final-drill-queue': { key: 'addToFinalDrillQueue', fallback: '刻意练习' },
-    'add-to-filter-group-queue': { key: 'addToFilterGroupQueue', fallback: 'Filter Group Review' },
-    'add-to-neural-roam-queue': { key: 'addToNeuralRoamQueue', fallback: '神经漫游' },
-    'insert-at': { key: 'insertAt', fallback: 'Insert at' },
-    'set-priority': { key: 'setPriority', fallback: 'Set Priority' },
-    'auto-sort': { key: 'autoSortQueue', fallback: 'Auto Sort' },
-  };
-  const m = map[action.id];
-  if (!m) return action.label;
-  return t(m.key, action.label || m.fallback);
+  return getBrowserActionLabel(action, t);
 }
 
 function getReviewSubsetAction() {
@@ -2686,44 +2350,21 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
   try {
     const res = await ds.performAction(actionId, materializedTargets, ctx);
     logger.debug('performAction result:', { actionId, res });
-    const isAddToQueueAction = actionId.startsWith('add-to-');
     let handledActionMessage = false;
+    const addToQueueResult = parseBrowserAddToQueueResult(actionId, res);
 
-    if (isAddToQueueAction && typeof res === 'object' && res !== null) {
-      const addResult = res as { added?: unknown; message?: unknown };
-      const added = typeof addResult.added === 'number' ? addResult.added : Number.NaN;
-      const message = typeof addResult.message === 'string' ? addResult.message : '';
-
-      if (Number.isFinite(added)) {
-        handledActionMessage = true;
-        if (added <= 0) {
-          await refreshQueueCounts();
-          await pushErrMsg(message || t('batchNoEffect', 'No cards were updated (some cards may be unsynced)'));
-          return;
-        }
-
-        await pushMsg(message || t('actionSuccess', 'Success'));
+    if (addToQueueResult) {
+      handledActionMessage = true;
+      if (addToQueueResult.added <= 0) {
+        await refreshQueueCounts();
+        await pushErrMsg(addToQueueResult.message || t('batchNoEffect', 'No cards were updated (some cards may be unsynced)'));
+        return;
       }
+
+      await pushMsg(addToQueueResult.message || t('actionSuccess', 'Success'));
     }
 
-    const result =
-      typeof res === 'object' && res !== null
-        ? (res as { updated?: unknown; skipped?: unknown })
-        : undefined;
-    const updated = Number(
-      typeof result?.updated === 'number'
-        ? result.updated
-        : Array.isArray(result?.updated)
-        ? result.updated.length
-        : 0
-    );
-    const skipped = Number(
-      typeof result?.skipped === 'number'
-        ? result.skipped
-        : Array.isArray(result?.skipped)
-        ? result.skipped.length
-        : 0
-    );
+    const { updated, skipped } = summarizeBrowserActionResult(res);
     if (updated <= 0 && skipped > 0) {
       await pushErrMsg(t('batchNoEffect', 'No cards were updated (some cards may be unsynced)'));
       return;
@@ -2736,29 +2377,14 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
       );
     }
 
-    if (
-      actionId === 'remove-from-queue'
-      || actionId === 'remove-from-current-queue'
-      || actionId === 'delete-card'
-      || actionId === 'insert-at'
-      || actionId === 'set-priority'
-      || actionId === 'spread'
-      || actionId === 'auto-sort'
-      || actionId === 'reset'
-      || actionId === 'suspend'
-      || actionId === 'unsuspend'
-      || actionId === 'postpone'
-      || actionId === 'advance'
-    ) {
+    if (shouldReloadAfterBrowserAction(actionId)) {
       if (actionId === 'delete-card') {
         logger.debug('invalidate card cache after delete-card');
         invalidateCardCache();
         void refreshGlobalStats(true);
       }
       
-      // Force refresh after postpone/advance to show new due date
-      const forceRefresh = actionId === 'delete-card' || actionId === 'postpone' || actionId === 'advance';
-      await loadData(forceRefresh);
+      await loadData(shouldForceRefreshAfterBrowserAction(actionId));
     } else {
       gridApi.value?.refreshCells({ force: true });
     }
@@ -2768,7 +2394,7 @@ async function handleAction(actionId: string, targetCards: BrowserCard[], anchor
     }
   } catch (err: unknown) {
     logger.error('action failed:', { actionId, err });
-    await pushErrMsg(getErrorMessage(err, t('actionFailed', 'Action failed')));
+    await pushErrMsg(getBrowserActionErrorMessage(err, t('actionFailed', 'Action failed')));
   }
 }
 
@@ -2968,7 +2594,10 @@ async function handleSelectCurrentPage(): Promise<void> {
     return;
   }
 
-  const { visibleIds } = collectScopedSelectionIds(api);
+  const { visibleIds } = collectScopedBrowserSelectionIds(api, {
+    defaultPageSize: DESKTOP_PAGE_SIZE,
+    paginationEnabled: desktopPaginationEnabled.value,
+  });
   if (visibleIds.length === 0) {
     await pushMsg(t('noCards', 'No cards'));
     return;
@@ -3842,121 +3471,18 @@ async function handleRebuildQueue() {
  * @see supermemo-reschedule-operations requirements 8.2, 10.4
  */
 async function handleOpenSpreadDialog() {
-  logger.info('[SiYuanMemo][SRSBrowser] Opening Spread dialog');
-  
-  try {
-    const isQueueMode = activeQueueId.value === 'retrieval' || activeQueueId.value === 'incremental-learning';
-
-    // Spread requires full-snapshot semantics under infinite paging.
-    let cardsToSpread = await ensureAllRowsSnapshotReady();
-    if (cardsToSpread.length === 0) {
-      cardsToSpread = await loadAllRowsForCurrentView([]);
-    }
-    
-    logger.info('[SiYuanMemo][SRSBrowser] Cards to spread:', {
-      mode: activeQueueId.value || 'all',
-      total: cardsToSpread.length,
-      sample: cardsToSpread.slice(0, 3).map(c => ({ blockId: c.blockId, due: c.due })),
-    });
-    
-    // Check whether there are cards
-    if (cardsToSpread.length === 0) {
-      await pushMsg(t('noCards', 'No cards'));
-      return;
-    }
-    
-    const now = Date.now();
-    const outstandingCards = cardsToSpread.filter(card => {
-      const dueTime = card.due instanceof Date ? card.due.getTime() : card.due;
-      return dueTime <= now;
-    });
-    
-    logger.info('[SiYuanMemo][SRSBrowser] Spread default eligible cards:', {
-      total: cardsToSpread.length,
-      outstanding: outstandingCards.length,
-      defaultFilter: isQueueMode ? 'queue-all' : 'due-only',
-    });
-    
-
-    const configManager = new ConfigManager(pluginStorage.value!);
-    const dlg = createVueDialog({
-      title: t('spread', '分散复习压力'),
-      component: SpreadDialog,
-      props: {
-        count: outstandingCards.length,  // 初始显示到期卡片数量
-        configManager,
-        allCards: cardsToSpread,
-        queueMode: isQueueMode,  // Pass queue-mode flag
-        i18n: props.i18n,
-      },
-      events: {
-        confirm: async (config) => {
-          dlg.destroy();
-          
-          // 3. 执行 Spread 操作
-
-          // - considerFutureRepetitions = false: pass all cards; SpreadEngine filters due <= now
-          try {
-            const effectiveConfig = {
-              ...config,
-              collectAllCards: isQueueMode,
-            };
-
-            const result = await adjustTime(
-              props.plugin,
-              cardsToSpread,
-              'spread',
-              { config: effectiveConfig }
-            );
-            
-            if (result) {
-              const resultDlg = createVueDialog({
-                title: t('spreadResult', '分散结果'),
-                component: RescheduleResultDialog,
-                props: {
-                  result: {
-                    success: true,  // 🆕 添加 success 字段
-                    updated: result.updated,
-                    skipped: result.skipped,
-                    skippedReasons: result.skippedReasons,
-                    averageCardsPerDay: result.averageCardsPerDay,
-                  },
-                  operationType: 'spread',  // 🆕 修正属名
-                },
-                events: {
-                  close: () => {
-                    resultDlg.destroy();
-                  },
-                },
-                width: '600px',  // Increase dialog width
-                height: '450px',  // Increase dialog height
-                responsive: true,
-                visualVariant: 'form',
-                containerClass: 'siyuanmemo-reschedule-result-dialog',
-              });
-            }
-            
-            // 5. Refresh data
-            await refreshData(true);
-            await pushMsg(t('spreadSuccess', '分散操作完成'));
-          } catch (err: unknown) {
-            logger.error('[SiYuanMemo][SRSBrowser] Spread operation failed:', err);
-            await pushErrMsg(getErrorMessage(err, t('spreadFailed', '分散操作失败')));
-          }
-        },
-        cancel: () => {
-          dlg.destroy();
-        },
-      },
-      width: '800px',  // 🆕 增大默认宽度
-      height: '85vh',  // 🆕 增大默认高度
-      responsive: true,
-      visualVariant: 'manager',
-      containerClass: 'siyuanmemo-spread-dialog',
-    });
-  } catch (err: unknown) {
-    logger.error('[SiYuanMemo][SRSBrowser] Failed to open Spread dialog:', err);
-    await pushErrMsg(getErrorMessage(err, t('openDialogFailed', 'Failed to open dialog')));
-  }
+  await openBrowserSpreadDialog({
+    activeQueueId: activeQueueId.value,
+    ensureAllRowsSnapshotReady,
+    getStorage: () => pluginStorage.value,
+    i18n: props.i18n,
+    loadAllRowsForCurrentView: () => loadAllRowsForCurrentView([]),
+    logger,
+    plugin: props.plugin,
+    pushErrMsg,
+    pushMsg,
+    refreshData: (forceRefresh = false) => refreshData(forceRefresh),
+    t,
+  });
 }
 </script>

@@ -138,6 +138,7 @@ flowchart TD
 7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection、preview breadcrumb 等 Siyuan 调用必须显式拿到 Browser 侧 Siyuan port，不再依赖 browser service 模块全局状态，也不从 UI 直接 import infrastructure Siyuan API
 8. Browser surface profile 默认值由 `layoutProfile.ts` 维护；profile-scoped chrome preference 读写、legacy dialog key 迁移与 storage failure contract 由 `browserChromePreferences.ts` 维护；open-state capture、初始 open-state normalization、legacy `__lost__` 归一与 neural subview / queue-id 投影由 `browserSurfaceState.ts` 维护，`SRSBrowser.vue` 只负责把这些 projection 应用到当前 UI state 并调度加载 / 刷新副作用
 9. Browser neural 子视图的 trace/list projection、jump/focus/source/anchor/history commands、engine/navigation/bookmark/review-surface handoff commands，以及 trace refresh/enrichment/convergence/preview controller state 由 `src/ui/browser/neural/*` helpers 维护；`SRSBrowser.vue` 只持有 Browser shell、template binding 与跨 surface 依赖注入
+10. Browser grid snapshot hydration、selection scope/fingerprint/filter-summary projection、batch action label/result/reload policy、reschedule parameter dialogs 与 toolbar Spread dialog 由 `browserDataSnapshots.ts`、`browserSelectionScope.ts`、`browserActionFeedback.ts`、`browserActionParamDialogs.ts`、`browserSpreadDialog.ts` 维护；`SRSBrowser.vue` 只串联 refs、datasource、dialog deps 与真实 side effects
 
 ### 4.2 Review
 
@@ -482,6 +483,7 @@ Browser：
 
 - `src/ui/browser/SRSBrowser.vue`：Browser 主视图，负责应用当前 chrome/open-state projection、加载数据与调度 UI 交互。
 - `src/ui/browser/layoutProfile.ts` / `browserChromePreferences.ts` / `browserSurfaceState.ts`：Browser surface profile、默认 chrome 状态、profile-scoped preference 持久化、open-state capture 与初始 hydration projection。
+- `src/ui/browser/{browserDataSnapshots.ts,browserSelectionScope.ts,browserActionFeedback.ts,browserActionParamDialogs.ts,browserSpreadDialog.ts}`：Browser grid snapshot/queryable hydration、selection projection、batch action feedback/reload policy、action 参数 dialogs 与 toolbar Spread dialog orchestration。
 - `src/ui/browser/neural/{neuralTraceViewModel.ts,neuralListViewModels.ts,neuralBrowserCommands.ts,neuralNavigationCommands.ts,useNeuralBrowserController.ts}`：Browser neural trace/list projection、command orchestration 与 controller state；不访问 infrastructure。
 - `src/ui/browser/SRSBrowserAdapter.ts` / `SRSBrowserQueueView.ts`：Browser 桥接与队列视图逻辑。
 - `src/ui/browser/composables/*`：Browser 状态、刷新、排序、筛选、动作封装。
