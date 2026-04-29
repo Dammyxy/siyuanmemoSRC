@@ -507,7 +507,6 @@ export class DialogManager implements IDialogManager {
     const settingsService = this.context.getSettingsService();
     const currentSettings = settingsService.getSettings();
     const schedulerRouter = this.context.getScheduler();
-    const storage = this.context.getStorage();
     const hybridSyncService = this.context.getHybridSyncService();
     const configuredCaptureStorageService = this.context.getConfiguredCaptureStorageService();
     const practiceQueueManager = this.context.getPracticeQueueManager();
@@ -632,20 +631,6 @@ export class DialogManager implements IDialogManager {
         },
         close: () => {
           this.closeSettingsDialog();
-        },
-        // 数据修复事件
-        'repair-dates': async () => {
-          try {
-            const result = await storage.repairInvalidDates();
-            if (result.fixed > 0) {
-              this.siyuanApi.pushMsg(`已修复 ${result.fixed}/${result.total} 张卡片的无效日期`, 5000);
-            } else {
-              this.siyuanApi.pushMsg(`检查完成，未发现问题（共 ${result.total} 张卡片）`, 3000);
-            }
-          } catch (err) {
-            logger.error('[DialogManager] Failed to repair dates:', err);
-            this.siyuanApi.pushErrMsg(`修复失败: ${(err as Error).message}`);
-          }
         },
         'scan-block-attrs-cleanup': async (
           mode: BlockAttrCleanupMode,

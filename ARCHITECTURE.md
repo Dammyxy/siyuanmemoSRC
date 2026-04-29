@@ -505,12 +505,13 @@ Review：
 
 其他 UI：
 
-- `src/ui/settings/SettingsPanel.vue`：设置面板；保留 Vue refs、将 props load projection 应用到 refs、dialog、emit save/cleanup 与 scroll side effects。
+- `src/ui/settings/SettingsPanel.vue`：设置面板；保留 Vue refs、将 props load projection 应用到 refs、dialog、emit save/cleanup command bridge 与 scroll side effects。
 - `src/ui/settings/settingsPanelViewModel.ts`：Settings 面板 tab/subtab navigation view-model helper；负责 tab label projection、legacy tab normalization、active subtab fallback、disabled selection guard 与 footer visibility。
 - `src/ui/settings/settingsAIViewModel.ts`：Settings 面板 AI prompt / user-skill view-model helper；负责 Prompt 使用状态、preset card、editor tab、user-skill option/default/reorder/upsert/duplicate projection。
 - `src/ui/settings/settingsSavePayload.ts`：Settings 面板 save payload helper；负责保存时的 numeric/list normalization、queue legacy key removal、Riff trigger projection、AI provider/prompt normalization 与 final payload assembly。
 - `src/ui/settings/settingsStateDefaults.ts`：Settings 面板默认/merge state helper；负责 Settings form default、quick-card/queue/AI/Arena/UI/capture-storage clone 与 merge，以及 recommended prompt reset。
 - `src/ui/settings/settingsMaintenanceViewModel.ts`：Settings 面板 maintenance view-model helper；负责 block-attrs cleanup scan/run projection、attr rows、run guard、confirm copy 与 error message projection。
+- `src/ui/settings/settingsMaintenanceCommands.ts`：Settings 面板 maintenance command helper；负责 block-attrs cleanup busy/error state、scan/run event bridge、confirm gating 与 mode-change stale preview reset。
 - `src/ui/settings/settingsLoadState.ts`：Settings 面板 props load hydration helper；负责 FSRS/queue/scheduler/Riff/AI/Arena/UI 初始状态 normalization、legacy queue spacing key 读取与 trigger projection。
 - `src/ui/settings/settingsFormViewModel.ts`：Settings 面板表单展示 helper；负责参数预览、今日范围文本、capture notebook options、storage mode predicates 与 dayStartHour clamp。
 - `src/ui/settings/settingsAIDialogs.ts`：Settings 面板 AI dialog / user-skill command helper；负责 AI tool permission、built-in prompt、user skill editor dialog lifecycle，以及 prompt reset / user-skill reorder/upsert/duplicate/remove。

@@ -1316,16 +1316,10 @@ import {
   type SettingsFormState as Settings,
   type SettingsPanelSavePayload,
 } from './settingsSavePayload';
-import {
-  buildSettingsBlockAttrsCleanupAttrRows,
-  buildSettingsBlockAttrsCleanupConfirmMessages,
-  canRunSettingsBlockAttrsCleanup,
-  getSettingsBlockAttrsCleanupErrorMessage,
-  hasSettingsBlockAttrsCleanupScan,
-  shouldResetSettingsBlockAttrsCleanupForModeChange,
-  type SettingsBlockAttrsCleanupMode as CleanupMode,
-  type SettingsBlockAttrsCleanupRunResult as CleanupRunResult,
-  type SettingsBlockAttrsCleanupScanResult as CleanupScanResult,
+import type {
+  SettingsBlockAttrsCleanupMode as CleanupMode,
+  SettingsBlockAttrsCleanupRunResult as CleanupRunResult,
+  SettingsBlockAttrsCleanupScanResult as CleanupScanResult,
 } from './settingsMaintenanceViewModel';
 import {
   createDefaultAISettings,
@@ -1348,8 +1342,7 @@ import {
   isSettingsSourceChildStorage,
 } from './settingsFormViewModel';
 import { useSettingsAIDialogs } from './settingsAIDialogs';
-
-type OptimizationConfig = Record<string, unknown>;
+import { useSettingsMaintenanceCommands } from './settingsMaintenanceCommands';
 
 const logger = createLogger('SettingsPanel');
 
@@ -1357,8 +1350,6 @@ const logger = createLogger('SettingsPanel');
 const emit = defineEmits<{
   (e: 'save', settings: SettingsPanelSavePayload): void;
   (e: 'close'): void;
-  (e: 'repair-dates'): void;  // 🆕 数据修复事件
-  (e: 'optimize-parameters', config: OptimizationConfig): Promise<OptimizationConfig | void>;  // 🆕 参数优化事件
   (e: 'scan-block-attrs-cleanup', mode: CleanupMode, resolve?: (result: CleanupScanResult) => void, reject?: (error: Error) => void): void;
   (e: 'run-block-attrs-cleanup', mode: CleanupMode, resolve?: (result: CleanupRunResult) => void, reject?: (error: Error) => void): void;
 }>();
@@ -1386,9 +1377,6 @@ const props = defineProps<{
     add: (filter: { type: string; value: string }) => Promise<number>;
     start: () => Promise<void>;
     clear: () => Promise<void>;
-  };
-  optimizationHandlers?: {  // 🆕 参数优化处理器
-    optimize: (config: OptimizationConfig) => Promise<OptimizationConfig>;
   };
 }>();
 
@@ -1569,83 +1557,25 @@ const captureStorageNotebookOptions = computed(() => buildSettingsCaptureStorage
 const progressiveUsesSourceChildStorage = computed(() => isSettingsSourceChildStorage(settings.value.progressiveStorage.mode));
 const progressiveUsesLibraryStorage = computed(() => isSettingsLibraryStorage(settings.value.progressiveStorage.mode));
 
-const blockAttrsCleanupMode = ref<CleanupMode>('safe');
-const blockAttrsCleanupScanResult = ref<CleanupScanResult | null>(null);
-const blockAttrsCleanupRunResult = ref<CleanupRunResult | null>(null);
-const blockAttrsCleanupBusy = ref(false);
-const blockAttrsCleanupError = ref('');
-const blockAttrsCleanupHasScan = computed(() => hasSettingsBlockAttrsCleanupScan(blockAttrsCleanupScanResult.value));
-const blockAttrsCleanupAttrRows = computed(() => buildSettingsBlockAttrsCleanupAttrRows(blockAttrsCleanupScanResult.value));
-
-watch(
-  () => blockAttrsCleanupMode.value,
-  (mode, prevMode) => {
-    if (!shouldResetSettingsBlockAttrsCleanupForModeChange(mode, prevMode)) {
-      return;
-    }
-    blockAttrsCleanupScanResult.value = null;
-    blockAttrsCleanupRunResult.value = null;
-    blockAttrsCleanupError.value = '';
-  }
-);
-
-function requestBlockAttrsCleanupScan(mode: CleanupMode): Promise<CleanupScanResult> {
-  return new Promise((resolve, reject) => {
+const {
+  blockAttrsCleanupMode,
+  blockAttrsCleanupScanResult,
+  blockAttrsCleanupRunResult,
+  blockAttrsCleanupBusy,
+  blockAttrsCleanupError,
+  blockAttrsCleanupHasScan,
+  blockAttrsCleanupAttrRows,
+  handleScanBlockAttrsCleanup,
+  handleRunBlockAttrsCleanup,
+} = useSettingsMaintenanceCommands({
+  t,
+  scanBlockAttrsCleanup: (mode) => new Promise((resolve, reject) => {
     emit('scan-block-attrs-cleanup', mode, resolve, reject);
-  });
-}
-
-function requestBlockAttrsCleanupRun(mode: CleanupMode): Promise<CleanupRunResult> {
-  return new Promise((resolve, reject) => {
+  }),
+  runBlockAttrsCleanup: (mode) => new Promise((resolve, reject) => {
     emit('run-block-attrs-cleanup', mode, resolve, reject);
-  });
-}
-
-async function handleScanBlockAttrsCleanup(): Promise<void> {
-  if (blockAttrsCleanupBusy.value) {
-    return;
-  }
-  blockAttrsCleanupBusy.value = true;
-  blockAttrsCleanupError.value = '';
-  blockAttrsCleanupRunResult.value = null;
-  try {
-    const result = await requestBlockAttrsCleanupScan(blockAttrsCleanupMode.value);
-    blockAttrsCleanupScanResult.value = result;
-  } catch (error) {
-    blockAttrsCleanupError.value = getSettingsBlockAttrsCleanupErrorMessage(error, '扫描失败');
-  } finally {
-    blockAttrsCleanupBusy.value = false;
-  }
-}
-
-async function handleRunBlockAttrsCleanup(): Promise<void> {
-  if (!canRunSettingsBlockAttrsCleanup({
-    busy: blockAttrsCleanupBusy.value,
-    scanResult: blockAttrsCleanupScanResult.value,
-  })) {
-    return;
-  }
-
-  for (const message of buildSettingsBlockAttrsCleanupConfirmMessages({
-    mode: blockAttrsCleanupMode.value,
-    t,
-  })) {
-    if (!window.confirm(message)) {
-      return;
-    }
-  }
-
-  blockAttrsCleanupBusy.value = true;
-  blockAttrsCleanupError.value = '';
-  try {
-    const result = await requestBlockAttrsCleanupRun(blockAttrsCleanupMode.value);
-    blockAttrsCleanupRunResult.value = result;
-  } catch (error) {
-    blockAttrsCleanupError.value = getSettingsBlockAttrsCleanupErrorMessage(error, '执行失败');
-  } finally {
-    blockAttrsCleanupBusy.value = false;
-  }
-}
+  }),
+});
 
 // 加载设置
 function loadSettings() {
@@ -1775,28 +1705,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   destroySettingsAIDialogs();
 });
-
-// 🆕 数据修复相关
-const isRepairing = ref(false);
-const repairResult = ref<{ fixed: number; total: number } | null>(null);
-
-async function handleRepairDates() {
-  if (isRepairing.value) return;
-  
-  isRepairing.value = true;
-  repairResult.value = null;
-  
-  try {
-    // 调用插件的修复方法
-    // 注意：这里需要通过 emit 或其他方式调用插件的 storage.repairInvalidDates()
-    // 由于 SettingsPanel 是一个独立组件，我们需要通过 emit 传递修复请求
-    emit('repair-dates');
-  } catch (err) {
-    logger.error('Failed to repair dates', err);
-  } finally {
-    isRepairing.value = false;
-  }
-}
 </script>
 
 <style scoped>
