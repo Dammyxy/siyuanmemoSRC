@@ -18,7 +18,6 @@ import type {
     XiuyuanSyncRiffBlock as RiffBlock,
     XiuyuanSyncSiyuanPort
 } from '@/application/ports/XiuyuanSyncSiyuanPort';
-import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiyuanAdapter';
 import type { EventBus, EventHandler } from '@/core/shared/domain/events/EventBus';
 import { DomainEvent } from '@/core/shared/domain/events/DomainEvent';
 import type {
@@ -160,7 +159,7 @@ export class XiuyuanSyncService {
         riffBlacklistService: RiffBlacklistService,
         cardTypeDetectionService: CardTypeDetectionService,
         deletionTracker: IDeletionTracker,
-        siyuanApi: XiuyuanSyncSiyuanPort = new XiuyuanSyncSiyuanAdapter()
+        siyuanApi: XiuyuanSyncSiyuanPort
     ) {
         this.config = {
             ...config,

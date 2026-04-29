@@ -99,7 +99,7 @@ flowchart TD
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`；`DialogManager`、`MenuManager`、`TabManager`、`BlockMenuHandler`、`PracticeQueueManager`、`ReviewScopeCardCreationSyncService` 的 Siyuan / Progressive / Leech effects 依赖由 `ApplicationContext` 通过应用端口注入，不在 manager/service 内部默认构造基础设施 adapter
 - 装配 Browser 所需的 Siyuan port 与 datasource factory；`BrowserApplicationService` 不直接依赖 `src/ui/browser/*`
 - 装配 Review special renderer service；`ReviewContent.vue` 不直接创建 core infrastructure repository
-- 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`；`XiuyuanApplicationService` 的修远写入 usecases 共享组合根注入的 `XiuyuanSiyuanAdapter`
+- 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`；`XiuyuanApplicationService` 的修远写入 usecases 共享组合根注入的 `XiuyuanSiyuanAdapter`，`XiuyuanSyncService` 的 Riff sync API 依赖由组合根注入 `XiuyuanSyncSiyuanAdapter`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
 - 初始化 `siyuanmemo.db` 的 sql.js 持久化层；首次启动先把旧 `unified-cards.msgpack`、`queues.msgpack`、月度 review logs 与 `arena/store.json` 迁入 SQL，迁移失败才回退旧文件存储；SQL active 后 DB 以二进制文件写入，旧 base64 envelope 只作为读取兼容与迁移备份
@@ -354,7 +354,7 @@ UI surface：
 - `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务；SQL active 时优先消费 `BrowserDeckReadPort` 做 deck page、matched ids、rows-by-ids、stats 与 source-existence 懒刷新，SQL 不可用或查询不可表达时回退旧 snapshot kernel。
 - `src/application/services/ReviewApplicationService.ts`：复习流程相关编排；依赖 `ReviewSiyuanPort`，由 `ApplicationContext` 注入 `ReviewSiyuanAdapter`。
 - `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `ReviewLogService` 在 SQL active 时写 `review_events / drill_events / reschedule_events`，旧 JSON 月度分片只作为迁移来源或 SQL 失败后的 fallback；`SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
-- `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan；native `removeFlashcards` 现在走同服务内的 `riff-managed` 定向本地删除，而不是再依赖增量同步或 full sync 才收敛。
+- `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；Siyuan/Riff API 通过 `XiuyuanSyncSiyuanPort` 从 `ApplicationContext` 注入，不在 service 内默认构造 infrastructure adapter；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan；native `removeFlashcards` 现在走同服务内的 `riff-managed` 定向本地删除，而不是再依赖增量同步或 full sync 才收敛。
 - `src/application/services/ReviewQueuePreparationService.ts` / `DocTreeReviewScopeService.ts`：review scope 与 queue preparation 编排；SQL active 时 doc-tree scope 先用 `root_id IN (...)` 查询候选 card id，再按 id hydrate，SQL 不可用时回 storage scan。
 - `src/application/services/ReviewScopeCardCreationSyncService.ts`：review scope 内的卡片增删事件桥接；监听 `CardCreated / CardDeleted / CardsDeleted`，把新增或删除同步到 `UnifiedDataSourceManager`，让打开中的 Browser / Review 队列通过统一 observer 链路刷新。
 - `src/application/services/ConfiguredCaptureStorageService.ts`：capture 目标存储解析与写入策略。
