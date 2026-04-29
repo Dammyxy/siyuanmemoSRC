@@ -507,6 +507,7 @@ Review：
 
 - `src/ui/settings/SettingsPanel.vue`：设置面板；保留表单状态、保存、dialog 与 scroll side effects。
 - `src/ui/settings/settingsPanelViewModel.ts`：Settings 面板 tab/subtab navigation view-model helper；负责 tab label projection、legacy tab normalization、active subtab fallback、disabled selection guard 与 footer visibility。
+- `src/ui/settings/settingsAIViewModel.ts`：Settings 面板 AI prompt / user-skill view-model helper；负责 Prompt 使用状态、preset card、editor tab、user-skill option/default/reorder/upsert/duplicate projection。
 - `src/ui/srs/*`：SRS 数据编辑与透明度相关 UI。
 - `src/ui/arena/ArenaManagerDialog.vue`：Arena Manager 管理面板，用于查看 AI / SRS 排名、时间线和策略包管理动作。
 - `src/ui/xiuyuan/*`：修远模板与专用 UI。

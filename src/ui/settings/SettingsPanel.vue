@@ -1264,7 +1264,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import {
-  AI_PROMPT_PRESET_DESCRIPTORS,
   getRecommendedPromptTemplateForSetting,
   type AIPromptSettingKey,
 } from '@/application/services/AIPromptComposer';
@@ -1277,7 +1276,6 @@ import {
   type ArenaSettings,
 } from '@/types/arena';
 import {
-  getPromptContractForSetting,
   listSelfTestModeDescriptors,
 } from '@/application/services/AIPromptContractRegistry';
 import { getAIWorkbenchSkillTabs } from '@/application/services/AIWorkbenchSkillRegistry';
@@ -1307,9 +1305,7 @@ import {
 } from '../../types';
 import type {
   AIChatToolGroupKey,
-  AIConceptCoachTabId,
   AIUserSkillDefinition,
-  AIUserSkillSectionDefinition,
 } from '@/types/ai';
 import { getTodayRange, formatTodayRange } from '../../utils/dateUtils';  // 🆕 导入日期工具
 import { createLogger } from '@/utils/logger';
@@ -1331,11 +1327,22 @@ import {
   type SettingsSubTabSelection,
   type SettingsTabKey,
 } from './settingsPanelViewModel';
+import {
+  SETTINGS_AI_USER_SKILL_RENDERER_OPTIONS,
+  SETTINGS_AI_USER_SKILL_TOOL_GROUP_OPTIONS,
+  buildSettingsAIPromptEditorTabs,
+  buildSettingsAIPromptPresetCards,
+  buildSettingsAIUserSkillToolGroupLabelMap,
+  createSettingsUserSkill,
+  duplicateSettingsUserSkill,
+  reorderSettingsListByIds,
+  upsertSettingsUserSkillDraft,
+  type SettingsUserSkillMode,
+} from './settingsAIViewModel';
 
 type OptimizationConfig = Record<string, unknown>;
 type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
 type CleanupMode = 'safe' | 'full';
-type AIPromptUsageState = 'recommended' | 'custom' | 'empty';
 type CleanupScanResult = {
   totalBlocks: number;
   removableBlocks: number;
@@ -1349,7 +1356,6 @@ type CleanupRunResult = CleanupScanResult & {
   cleanedAttrs: number;
 };
 
-type UserSkillMode = 'chat' | 'structured';
 type ManagedDialogHandle = { destroy: () => void };
 
 const logger = createLogger('SettingsPanel');
@@ -1569,25 +1575,11 @@ const expandedAiToolGroups = ref<Record<string, boolean>>({});
 const toolPermissionDialogHandle = ref<ManagedDialogHandle | null>(null);
 const builtInPromptDialogHandle = ref<ManagedDialogHandle | null>(null);
 const userSkillDialogHandle = ref<ManagedDialogHandle | null>(null);
-const userSkillToolGroupOptions: Array<{ key: AIChatToolGroupKey; label: string; hint: string }> = [
-  { key: 'context-read', label: 'context-read', hint: '读取当前卡片、选中块和手工材料。' },
-  { key: 'study-decision', label: 'study-decision', hint: '只做学习动作判断，不直接写入。' },
-  { key: 'siyuan-read', label: 'siyuan-read', hint: '检索和读取思源块内容。' },
-  { key: 'siyuan-write', label: 'siyuan-write', hint: '追加内容、建文档和 diff 写入，默认更严格审批。' },
-  { key: 'review-read', label: 'review-read', hint: '读取复习状态和当前队列。' },
-  { key: 'web', label: 'web', hint: '抓取网页或调用搜索后端。' },
-  { key: 'vars', label: 'vars', hint: '读写会话内变量缓存。' },
-  { key: 'flashcard-write', label: 'flashcard-write', hint: '写工具始终逐次审批。' },
-];
-const userSkillToolGroupLabelMap = computed<Record<string, string>>(() => Object.fromEntries(
-  userSkillToolGroupOptions.map((option) => [option.key, option.label]),
-));
-const userSkillRendererOptions: Array<{ key: AIUserSkillSectionDefinition['renderer']; label: string }> = [
-  { key: 'markdown', label: 'Markdown' },
-  { key: 'list', label: 'List' },
-  { key: 'cards', label: 'Cards' },
-  { key: 'keyValue', label: 'Key / Value' },
-];
+const userSkillToolGroupOptions = SETTINGS_AI_USER_SKILL_TOOL_GROUP_OPTIONS;
+const userSkillToolGroupLabelMap = computed<Record<string, string>>(
+  () => buildSettingsAIUserSkillToolGroupLabelMap(userSkillToolGroupOptions),
+);
+const userSkillRendererOptions = SETTINGS_AI_USER_SKILL_RENDERER_OPTIONS;
 const aiToolGroupsForSettings = computed(() => AI_CHAT_TOOL_GROUPS.map((group) => {
   const tools = AI_CHAT_TOOL_DESCRIPTORS.filter((tool) => tool.group === group.key);
   const overrideCount = tools.filter((tool) => hasToolPermissionOverride(tool.name)).length;
@@ -1629,107 +1621,11 @@ function isAiToolGroupExpanded(groupKey: AIChatToolGroupKey): boolean {
   return expandedAiToolGroups.value[groupKey] === true;
 }
 
-function isConceptCoachPromptEmpty(template: AIConceptCoachPromptTemplates): boolean {
-  return String(template.baseRun || '').trim().length === 0
-    && aiPromptTabs.every((tab) => {
-      const pair = template.tabs[tab.id];
-      return String(pair.run || '').trim().length === 0 && String(pair.followUp || '').trim().length === 0;
-    });
-}
-
-function areConceptCoachPromptsEqual(left: AIConceptCoachPromptTemplates, right: AIConceptCoachPromptTemplates): boolean {
-  return String(left.baseRun || '').trim() === String(right.baseRun || '').trim()
-    && aiPromptTabs.every((tab) => {
-      const leftPair = left.tabs[tab.id];
-      const rightPair = right.tabs[tab.id];
-      return String(leftPair.run || '').trim() === String(rightPair.run || '').trim()
-        && String(leftPair.followUp || '').trim() === String(rightPair.followUp || '').trim();
-    });
-}
-
-function isGeneralChatPromptEmpty(template: AIGeneralChatPromptTemplate): boolean {
-  return String(template.systemPrompt || '').trim().length === 0;
-}
-
-function areGeneralChatPromptsEqual(left: AIGeneralChatPromptTemplate, right: AIGeneralChatPromptTemplate): boolean {
-  return String(left.systemPrompt || '').trim() === String(right.systemPrompt || '').trim();
-}
-
-function resolveAiPromptUsageState(settingKey: AIPromptSettingKey): AIPromptUsageState {
-  switch (settingKey) {
-    case 'generalChat': {
-      const currentValue = aiSettings.value.prompts.skills.generalChat;
-      if (isGeneralChatPromptEmpty(currentValue)) {
-        return 'empty';
-      }
-      return areGeneralChatPromptsEqual(
-        currentValue,
-        getRecommendedPromptTemplateForSetting(settingKey) as AIGeneralChatPromptTemplate,
-      )
-        ? 'recommended'
-        : 'custom';
-    }
-    case 'conceptCoach':
-    default: {
-      const currentValue = aiSettings.value.prompts.skills.conceptCoach;
-      if (isConceptCoachPromptEmpty(currentValue)) {
-        return 'empty';
-      }
-
-      return areConceptCoachPromptsEqual(
-        currentValue,
-        getRecommendedPromptTemplateForSetting(settingKey) as AIConceptCoachPromptTemplates,
-      )
-        ? 'recommended'
-        : 'custom';
-    }
-  }
-}
-
-function getAiPromptUsageCopy(settingKey: AIPromptSettingKey): {
-  usageState: AIPromptUsageState;
-  usageLabel: string;
-  usageHint: string;
-} {
-  const usageState = resolveAiPromptUsageState(settingKey);
-  switch (usageState) {
-    case 'custom':
-      return {
-        usageState,
-        usageLabel: t('aiPromptStatusCustom', '当前使用自定义覆盖'),
-        usageHint: t('aiPromptStatusCustomHint', '下面显示的是你当前保存或正在编辑的行为 Prompt 和追问 Prompt；结构化规则会由系统自动附加。'),
-      };
-    case 'empty':
-      return {
-        usageState,
-        usageLabel: t('aiPromptStatusEmpty', '当前编辑区为空'),
-        usageHint: t('aiPromptStatusEmptyHint', '当前这组 Prompt 为空；你可以直接填写，或点击恢复推荐模板。'),
-      };
-    case 'recommended':
-    default:
-      return {
-        usageState: 'recommended',
-        usageLabel: t('aiPromptStatusRecommended', '当前使用推荐模板'),
-        usageHint: t('aiPromptStatusRecommendedHint', '下面显示的是当前内置推荐的行为 Prompt 和追问 Prompt；结构化规则会由系统自动附加。'),
-      };
-  }
-}
-
-const aiPromptPresetCards = computed(() => AI_PROMPT_PRESET_DESCRIPTORS.map((descriptor) => ({
-  ...descriptor,
-  title: t(descriptor.titleKey, descriptor.titleFallback),
-  audience: t(descriptor.audienceKey, descriptor.audienceFallback),
-  behavior: t(descriptor.behaviorKey, descriptor.behaviorFallback),
-  output: t(descriptor.outputKey, descriptor.outputFallback),
-  hasStructuredContract: descriptor.settingKey === 'conceptCoach',
-  systemContractSummary: descriptor.settingKey === 'conceptCoach'
-    ? getPromptContractForSetting(descriptor.settingKey).summary
-    : '',
-  systemContractLines: descriptor.settingKey === 'conceptCoach'
-    ? getPromptContractForSetting(descriptor.settingKey).runtimeLines
-    : [],
-  ...getAiPromptUsageCopy(descriptor.settingKey),
-})));
+const aiPromptPresetCards = computed(() => buildSettingsAIPromptPresetCards({
+  aiSettings: aiSettings.value,
+  aiPromptTabs,
+  t,
+}));
 
 function destroyManagedDialog(handle: ManagedDialogHandle | null): void {
   handle?.destroy();
@@ -1804,10 +1700,7 @@ function openBuiltInPromptEditor(settingKey: AIPromptSettingKey): void {
       conceptCoachTemplate: settingKey === 'conceptCoach'
         ? cloneSerializable(aiSettings.value.prompts.skills.conceptCoach)
         : undefined,
-      tabs: aiPromptTabs.map((tab) => ({
-        id: tab.id as AIConceptCoachTabId,
-        title: tab.title,
-      })),
+      tabs: buildSettingsAIPromptEditorTabs(aiPromptTabs),
       contractSummary: preset.systemContractSummary,
       contractLines: preset.systemContractLines,
     },
@@ -1841,28 +1734,19 @@ function openBuiltInPromptEditor(settingKey: AIPromptSettingKey): void {
   });
 }
 
-function reorderListByIds<T extends { id: string }>(source: T[], orderedIds: string[]): T[] {
-  const itemsById = new Map(source.map((item) => [item.id, item] as const));
-  return orderedIds
-    .map((id) => itemsById.get(id))
-    .filter((item): item is T => Boolean(item));
-}
-
 function handleUserSkillReorder(items: Array<{ id: string }>): void {
-  aiSettings.value.userSkills = reorderListByIds(
+  aiSettings.value.userSkills = reorderSettingsListByIds(
     aiSettings.value.userSkills,
     items.map((item) => item.id),
   );
 }
 
 function upsertUserSkillDraft(skill: AIUserSkillDefinition, index?: number): void {
-  const next = [...aiSettings.value.userSkills];
-  if (typeof index === 'number' && index >= 0 && index < next.length) {
-    next.splice(index, 1, skill);
-  } else {
-    next.push(skill);
-  }
-  aiSettings.value.userSkills = normalizeAIUserSkills(next);
+  aiSettings.value.userSkills = upsertSettingsUserSkillDraft({
+    skills: aiSettings.value.userSkills,
+    skill,
+    index,
+  });
 }
 
 function openUserSkillEditor(skill: AIUserSkillDefinition, options?: { index?: number; isNew?: boolean }): void {
@@ -1986,44 +1870,8 @@ function resetAiPromptTemplate(settingKey: AIPromptSettingKey): void {
   resetAiPromptToRecommended(aiSettings.value, settingKey);
 }
 
-function createUserSkillSection(index = 0): AIUserSkillSectionDefinition {
-  return {
-    id: `section-${index + 1}`,
-    title: `Section ${index + 1}`,
-    emptyHint: '这个 section 暂时没有可展示内容。',
-    runPrompt: `生成第 ${index + 1} 个 section。`,
-    followUpPrompt: `基于第 ${index + 1} 个 section 回答用户追问。`,
-    responseKey: `section${index + 1}`,
-    renderer: 'markdown',
-    required: true,
-  };
-}
-
-function createUserSkill(mode: UserSkillMode, index = aiSettings.value.userSkills.length): AIUserSkillDefinition {
-  return normalizeAIUserSkills([{
-    id: `skill-${index + 1}`,
-    title: mode === 'structured' ? `结构化 Skill ${index + 1}` : `聊天 Skill ${index + 1}`,
-    brief: mode === 'structured' ? '按 section 生成结构化结果。' : '在统一会话里使用上下文和工具聊天。',
-    enabled: true,
-    mode,
-    systemPromptTemplate: mode === 'structured'
-      ? '你是一个结构化学习助手。请按给定 sections 返回 JSON。'
-      : '你是一个学习助手。请基于当前上下文和工具回答用户。',
-    composerPreset: mode === 'structured' ? '请基于当前材料运行这个 Skill。' : '请继续聊天或贴入材料。',
-    primaryActionLabel: mode === 'structured' ? '运行 Skill' : '开始聊天',
-    defaultToolGroups: ['context-read', 'vars'],
-    sections: mode === 'structured' ? [createUserSkillSection(0)] : [],
-    surfaceHints: {
-      hideTabs: mode === 'chat',
-      composerRows: mode === 'chat' ? 5 : 4,
-      compactTitle: '',
-    },
-    version: 1,
-  }])[0];
-}
-
-function addUserSkill(mode: UserSkillMode): void {
-  openUserSkillEditor(createUserSkill(mode), { isNew: true });
+function addUserSkill(mode: SettingsUserSkillMode): void {
+  openUserSkillEditor(createSettingsUserSkill(mode, aiSettings.value.userSkills.length), { isNew: true });
 }
 
 function duplicateUserSkill(index: number): void {
@@ -2031,12 +1879,7 @@ function duplicateUserSkill(index: number): void {
   if (!current) {
     return;
   }
-  const duplicate = normalizeAIUserSkills([{
-    ...cloneSerializable(current),
-    id: `${current.id}-copy`,
-    title: `${current.title} Copy`,
-  }])[0];
-  aiSettings.value.userSkills.splice(index + 1, 0, duplicate);
+  aiSettings.value.userSkills.splice(index + 1, 0, duplicateSettingsUserSkill(current));
 }
 
 function removeUserSkill(index: number): void {
