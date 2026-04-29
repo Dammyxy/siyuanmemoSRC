@@ -56,6 +56,27 @@ import {
   type AIWorkbenchSkillTabDescriptor,
 } from '@/application/services/AIWorkbenchSkillRegistry';
 import {
+  cloneConceptCoachResult,
+  deriveTabNormalizationDiagnostic,
+  emptyCdfStructure,
+  explainResultFromConceptCoach,
+  hasGenericSectionContent,
+  hasTabResultContent,
+  mergeTabResult,
+  normalizeCdfStructure,
+  normalizeConceptCoachResult,
+  normalizeConceptCoachState,
+  normalizeContextKey,
+  normalizeGenericStructuredResult,
+  normalizeNormalizationDiagnostic,
+  normalizeSelfTestCards,
+  normalizeTabResultValue,
+  tabResultFromConceptCoach,
+  type ConceptCoachNormalizationState,
+} from '@/application/services/AIWorkbenchResultNormalization';
+import { AIWorkbenchConversationTreeRuntime } from '@/application/services/AIWorkbenchConversationTreeRuntime';
+import { AIWorkbenchGeneralChatRuntime } from '@/application/services/AIWorkbenchGeneralChatRuntime';
+import {
   AIWorkbenchSessionPersistScheduler,
   buildCurrentAIWorkbenchSessionRecord,
   createAIWorkbenchSessionRecord,
@@ -186,46 +207,12 @@ const GENERAL_SKILL: AISkillId = AI_GENERAL_CHAT_SKILL_ID;
 const ACTIVE_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
 const CHAT_TAB: AISkillTabId = AI_GENERAL_CHAT_TAB_ID;
 const DEFAULT_TAB: AISkillTabId = 'working-definition';
-const EMPTY_CONTEXT_KEY = '__empty_context__';
 const ALL_TAB_IDS: AISkillTabId[] = [
   CHAT_TAB,
   ...AI_CONCEPT_COACH_TAB_IDS,
 ];
 const LEGACY_NOTICE = '旧解释结果仅供查看，重跑后会生成完整的 AI 理解与制卡 Tabs。';
 const CDF_UNRESOLVED_WARNING = '未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。';
-const PERSPECTIVE_SECTION_META = {
-  traits: {
-    title: '特性和倾向',
-    aliases: ['traits', 'trait', 'features', 'feature', 'characteristics', 'tendencies'],
-  },
-  contrasts: {
-    title: '辨析异同',
-    aliases: ['contrasts', 'contrast', 'compare', 'comparison', 'differences', 'difference', 'distinctions'],
-  },
-  partsAndWhole: {
-    title: '部分和整体',
-    aliases: ['partsAndWhole', 'partWhole', 'partsWhole', 'structure', 'composition'],
-  },
-  causality: {
-    title: '因果关系',
-    aliases: ['causality', 'causeEffect', 'causes', 'effects', 'mechanism'],
-  },
-  significance: {
-    title: '意义和影响',
-    aliases: ['significance', 'meaning', 'impact', 'importance', 'implication'],
-  },
-} as const satisfies Record<keyof AIConceptCoachPerspectives, { title: string; aliases: string[] }>;
-const INTEGRATED_FIELD_LABELS = {
-  essence: '本质压缩',
-  notWhat: '它不是什么',
-  capabilities: '学会后能做到',
-} as const;
-
-type ConceptCoachNormalizationState = {
-  result: AIConceptCoachResult;
-  diagnostics: Partial<Record<AISkillTabId, AIConceptCoachNormalizationDiagnostic | null>>;
-};
-
 type SelfTestCardWriteTarget = {
   memory: AIWorkbenchSelfTestCardTargetMemory;
   targetBlockId: string;
@@ -649,896 +636,6 @@ function buildReviewCardSemantics(cardType: unknown): Pick<
   };
 }
 
-function emptyPerspectiveSection(title: string): AIConceptCoachPerspectiveSection {
-  return { title, keyPoints: [] };
-}
-
-function emptyPerspectives(): AIConceptCoachPerspectives {
-  return {
-    traits: emptyPerspectiveSection('特性和倾向'),
-    contrasts: emptyPerspectiveSection('辨析异同'),
-    partsAndWhole: emptyPerspectiveSection('部分和整体'),
-    causality: emptyPerspectiveSection('因果关系'),
-    significance: emptyPerspectiveSection('意义和影响'),
-  };
-}
-
-function normalizeContextKey(value: string | null | undefined): string {
-  return normalizeString(value) || EMPTY_CONTEXT_KEY;
-}
-
-function emptyCdfStructure(): AICdfStructure {
-  return {
-    anchors: [],
-  };
-}
-
-function normalizeCdfDefinitionCandidate(value: unknown, index: number): AICdfDefinitionCandidate | null {
-  if (!isRecord(value)) {
-    const text = normalizeString(value);
-    return text
-      ? {
-        id: createEntryId(`ai-cdf-def-${index}`),
-        text,
-        selected: true,
-      }
-      : null;
-  }
-  const text = normalizeString(readAliasedValue(value, ['text', 'definition', 'content', 'value']));
-  if (!text) {
-    return null;
-  }
-  return {
-    id: normalizeString(value.id) || createEntryId(`ai-cdf-def-${index}`),
-    text,
-    selected: value.selected !== false,
-  };
-}
-
-function normalizeCdfDescriptorItem(value: unknown, index: number): AICdfDescriptorItem | null {
-  if (!isRecord(value)) {
-    const text = normalizeString(value);
-    return text
-      ? {
-        id: createEntryId(`ai-cdf-item-${index}`),
-        text,
-        selected: true,
-      }
-      : null;
-  }
-  const text = normalizeString(readAliasedValue(value, ['text', 'item', 'content', 'value']));
-  if (!text) {
-    return null;
-  }
-  return {
-    id: normalizeString(value.id) || createEntryId(`ai-cdf-item-${index}`),
-    text,
-    selected: value.selected !== false,
-  };
-}
-
-function normalizeCdfDescriptorGroup(value: unknown, index: number): AICdfDescriptorGroup | null {
-  if (!isRecord(value)) {
-    const title = normalizeString(value);
-    return title
-      ? {
-        id: createEntryId(`ai-cdf-group-${index}`),
-        title,
-        selected: true,
-        items: [],
-      }
-      : null;
-  }
-  const title = normalizeString(readAliasedValue(value, ['title', 'name', 'descriptor', 'dimension']));
-  const itemsRaw = readAliasedValue(value, ['items', 'descriptors', 'entries', 'points']);
-  const itemsSource = Array.isArray(itemsRaw) ? itemsRaw : normalizeFlexibleStringArray(itemsRaw);
-  const items = itemsSource
-    .map((item, itemIndex) => normalizeCdfDescriptorItem(item, itemIndex))
-    .filter((item): item is AICdfDescriptorItem => Boolean(item));
-  if (!title && items.length === 0) {
-    return null;
-  }
-  return {
-    id: normalizeString(value.id) || createEntryId(`ai-cdf-group-${index}`),
-    title: title || `描述维度 ${index + 1}`,
-    selected: value.selected !== false,
-    items,
-  };
-}
-
-function normalizeCdfAnchorResolution(value: unknown): AICdfAnchorResolution | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const status = value.status === 'resolved-context'
-    || value.status === 'resolved-notebook'
-    || value.status === 'resolved-manual'
-    || value.status === 'unresolved'
-    ? value.status
-    : null;
-  if (!status) {
-    return null;
-  }
-  return {
-    status,
-    conceptBlockId: normalizeString(value.conceptBlockId) || null,
-    conceptTitle: normalizeString(value.conceptTitle),
-    reason: normalizeString(value.reason) || null,
-    notebookId: normalizeString(value.notebookId) || null,
-  };
-}
-
-function normalizeCdfAnchor(value: unknown, index: number): AICdfAnchor | null {
-  if (!isRecord(value)) {
-    const conceptName = normalizeString(value);
-    return conceptName
-      ? {
-        id: createEntryId(`ai-cdf-anchor-${index}`),
-        conceptName,
-        selected: true,
-        definitionCandidates: [],
-        descriptorGroups: [],
-        resolution: null,
-        warnings: [],
-      }
-      : null;
-  }
-  const conceptName = normalizeString(readAliasedValue(value, ['conceptName', 'concept', 'title', 'name']));
-  const definitionsRaw = readAliasedValue(value, ['definitionCandidates', 'definitions', 'definition', 'workingDefinitions']);
-  const definitionSource = Array.isArray(definitionsRaw) ? definitionsRaw : normalizeFlexibleStringArray(definitionsRaw);
-  const descriptorGroupsRaw = readAliasedValue(value, ['descriptorGroups', 'descriptorGroup', 'groups', 'descriptors']);
-  const groupSource = Array.isArray(descriptorGroupsRaw) ? descriptorGroupsRaw : [];
-  const definitionCandidates = definitionSource
-    .map((item, itemIndex) => normalizeCdfDefinitionCandidate(item, itemIndex))
-    .filter((item): item is AICdfDefinitionCandidate => Boolean(item));
-  const descriptorGroups = groupSource
-    .map((group, groupIndex) => normalizeCdfDescriptorGroup(group, groupIndex))
-    .filter((group): group is AICdfDescriptorGroup => Boolean(group));
-  if (!conceptName && definitionCandidates.length === 0 && descriptorGroups.length === 0) {
-    return null;
-  }
-  return {
-    id: normalizeString(value.id) || createEntryId(`ai-cdf-anchor-${index}`),
-    conceptName: conceptName || `概念 ${index + 1}`,
-    selected: value.selected !== false,
-    definitionCandidates,
-    descriptorGroups,
-    resolution: normalizeCdfAnchorResolution(value.resolution),
-    warnings: normalizeStringArray(value.warnings),
-  };
-}
-
-function normalizeCdfStructure(value: unknown): AICdfStructure {
-  const raw = isRecord(value) ? value : {};
-  const anchorsSource = Array.isArray(readAliasedValue(raw, ['anchors', 'concepts', 'items']))
-    ? readAliasedValue(raw, ['anchors', 'concepts', 'items']) as unknown[]
-    : Array.isArray(value)
-      ? value
-      : [];
-  return {
-    anchors: anchorsSource
-      .map((anchor, index) => normalizeCdfAnchor(anchor, index))
-      .filter((anchor): anchor is AICdfAnchor => Boolean(anchor)),
-  };
-}
-
-function hasCdfStructureContent(value: AICdfStructure | null): boolean {
-  return Boolean(value && value.anchors.some((anchor) => (
-    normalizeString(anchor.conceptName)
-    || anchor.definitionCandidates.length > 0
-    || anchor.descriptorGroups.some((group) => normalizeString(group.title) || group.items.length > 0)
-  )));
-}
-
-function emptyConceptCoachResult(rawContent = ''): AIConceptCoachResult {
-  return {
-    workingDefinition: '',
-    perspectives: emptyPerspectives(),
-    integratedUnderstanding: { essence: '', notWhat: [], capabilities: [] },
-    selfTestCards: { creationMode: 'list-item', cards: [] },
-    cdfStructure: emptyCdfStructure(),
-    realWorldTriggers: { triggers: [] },
-    rawContent,
-  };
-}
-
-function normalizePerspectiveComparisons(value: unknown): AIConceptCoachPerspectiveSection['comparisons'] {
-  const entries = Array.isArray(value)
-    ? value
-    : isRecord(value)
-      ? Object.values(value)
-      : [];
-  return entries.map((entry) => isRecord(entry) ? {
-    concept: normalizeString(readAliasedValue(entry, ['concept', 'name', 'item'])),
-    similarity: normalizeString(readAliasedValue(entry, ['similarity', 'same', 'shared'])),
-    difference: normalizeString(readAliasedValue(entry, ['difference', 'different', 'contrast'])),
-    clue: normalizeString(readAliasedValue(entry, ['clue', 'hint', 'signal'])),
-  } : null).filter((entry): entry is { concept: string; similarity: string; difference: string; clue: string } => (
-    Boolean(entry?.concept || entry?.similarity || entry?.difference || entry?.clue)
-  ));
-}
-
-function hasPerspectiveSectionContent(section: AIConceptCoachPerspectiveSection): boolean {
-  return (
-    section.keyPoints.length > 0
-    || (section.easyMisjudgments?.length || 0) > 0
-    || (section.examples?.length || 0) > 0
-    || (section.comparisons?.length || 0) > 0
-    || (section.subConcepts?.length || 0) > 0
-    || (section.parentConcepts?.length || 0) > 0
-    || Boolean(section.metaphor)
-    || (section.reasons?.length || 0) > 0
-    || (section.applicableScenarios?.length || 0) > 0
-    || (section.nonApplicableScenarios?.length || 0) > 0
-    || Boolean(section.commonMisuse)
-    || Boolean(section.importance)
-    || Boolean(section.behaviorChange)
-    || Boolean(section.triggerScenario)
-  );
-}
-
-function normalizePerspectiveSection(value: unknown, title: string): AIConceptCoachPerspectiveSection {
-  if (!isRecord(value)) {
-    return {
-      title,
-      keyPoints: normalizeFlexibleStringArray(value),
-    };
-  }
-
-  const raw = value;
-  const knownFieldAliases = [
-    'title',
-    'label',
-    'name',
-    'keyPoints',
-    'points',
-    'features',
-    'feature',
-    'traits',
-    'roles',
-    'items',
-    'bullets',
-    'highlights',
-    'summary',
-    'easyMisjudgments',
-    'misjudgments',
-    'misunderstandings',
-    'examples',
-    'example',
-    'comparisons',
-    'comparison',
-    'compare',
-    'differences',
-    'subConcepts',
-    'parts',
-    'components',
-    'parentConcepts',
-    'whole',
-    'context',
-    'metaphor',
-    'reasons',
-    'causes',
-    'applicableScenarios',
-    'applicable',
-    'useCases',
-    'applications',
-    'nonApplicableScenarios',
-    'nonApplicable',
-    'limits',
-    'commonMisuse',
-    'misuse',
-    'importance',
-    'impact',
-    'behaviorChange',
-    'action',
-    'triggerScenario',
-    'trigger',
-  ];
-
-  const section: AIConceptCoachPerspectiveSection = {
-    title: normalizeString(readAliasedValue(raw, ['title', 'label', 'name'])) || title,
-    keyPoints: normalizeFlexibleStringArray(readAliasedValue(raw, ['keyPoints', 'points', 'features', 'feature', 'traits', 'roles', 'items', 'bullets', 'highlights', 'summary'])),
-    easyMisjudgments: normalizeFlexibleStringArray(readAliasedValue(raw, ['easyMisjudgments', 'misjudgments', 'misunderstandings', 'commonErrors'])),
-    examples: normalizeFlexibleStringArray(readAliasedValue(raw, ['examples', 'example', 'instances'])),
-    comparisons: normalizePerspectiveComparisons(readAliasedValue(raw, ['comparisons', 'comparison', 'compare'])),
-    subConcepts: normalizeFlexibleStringArray(readAliasedValue(raw, ['subConcepts', 'parts', 'components', 'elements'])),
-    parentConcepts: normalizeFlexibleStringArray(readAliasedValue(raw, ['parentConcepts', 'whole', 'context', 'supersets'])),
-    metaphor: normalizeString(readAliasedValue(raw, ['metaphor', 'analogy'])),
-    reasons: normalizeFlexibleStringArray(readAliasedValue(raw, ['reasons', 'causes', 'why'])),
-    applicableScenarios: normalizeFlexibleStringArray(readAliasedValue(raw, ['applicableScenarios', 'applicable', 'useCases', 'applications', 'scenarios'])),
-    nonApplicableScenarios: normalizeFlexibleStringArray(readAliasedValue(raw, ['nonApplicableScenarios', 'nonApplicable', 'limits', 'nonExamples'])),
-    commonMisuse: normalizeString(readAliasedValue(raw, ['commonMisuse', 'misuse', 'pitfall'])),
-    importance: normalizeString(readAliasedValue(raw, ['importance', 'impact', 'meaning'])),
-    behaviorChange: normalizeString(readAliasedValue(raw, ['behaviorChange', 'action', 'whatChanges', 'changes'])),
-    triggerScenario: normalizeString(readAliasedValue(raw, ['triggerScenario', 'trigger', 'cue'])),
-  };
-
-  if (!hasPerspectiveSectionContent(section)) {
-    section.keyPoints = collectStringLeaves(raw, { excludeKeys: knownFieldAliases });
-  }
-
-  return section;
-}
-
-function buildNormalizationDiagnostic(
-  status: AIConceptCoachNormalizationDiagnostic['status'],
-  missingSections: string[],
-  rawShape: string,
-): AIConceptCoachNormalizationDiagnostic | null {
-  return status === 'full'
-    ? null
-    : {
-      status,
-      missingSections,
-      rawShape,
-    };
-}
-
-function normalizePerspectivesWithDiagnostic(value: unknown): {
-  value: AIConceptCoachPerspectives;
-  diagnostic: AIConceptCoachNormalizationDiagnostic | null;
-} {
-  const rawShape = describeRawShape(value);
-  const container = isRecord(value)
-    ? (isRecord(readAliasedValue(value, ['perspectives', 'perspective', 'multiPerspective', 'multiPerspectives']))
-      ? readAliasedValue(value, ['perspectives', 'perspective', 'multiPerspective', 'multiPerspectives']) as Record<string, unknown>
-      : value)
-    : null;
-
-  const hasRecognizedSection = container
-    ? (Object.keys(PERSPECTIVE_SECTION_META) as Array<keyof AIConceptCoachPerspectives>)
-      .some((sectionKey) => readAliasedValue(container, [sectionKey, ...PERSPECTIVE_SECTION_META[sectionKey].aliases]) !== undefined)
-    : false;
-
-  const perspectives = {
-    traits: normalizePerspectiveSection(
-      container
-        ? readAliasedValue(container, ['traits', ...PERSPECTIVE_SECTION_META.traits.aliases]) ?? (!hasRecognizedSection ? container : undefined)
-        : value,
-      PERSPECTIVE_SECTION_META.traits.title,
-    ),
-    contrasts: normalizePerspectiveSection(
-      container ? readAliasedValue(container, ['contrasts', ...PERSPECTIVE_SECTION_META.contrasts.aliases]) : undefined,
-      PERSPECTIVE_SECTION_META.contrasts.title,
-    ),
-    partsAndWhole: normalizePerspectiveSection(
-      container ? readAliasedValue(container, ['partsAndWhole', ...PERSPECTIVE_SECTION_META.partsAndWhole.aliases]) : undefined,
-      PERSPECTIVE_SECTION_META.partsAndWhole.title,
-    ),
-    causality: normalizePerspectiveSection(
-      container ? readAliasedValue(container, ['causality', ...PERSPECTIVE_SECTION_META.causality.aliases]) : undefined,
-      PERSPECTIVE_SECTION_META.causality.title,
-    ),
-    significance: normalizePerspectiveSection(
-      container ? readAliasedValue(container, ['significance', ...PERSPECTIVE_SECTION_META.significance.aliases]) : undefined,
-      PERSPECTIVE_SECTION_META.significance.title,
-    ),
-  } satisfies AIConceptCoachPerspectives;
-
-  const missingSections = (Object.keys(perspectives) as Array<keyof AIConceptCoachPerspectives>)
-    .filter((sectionKey) => !hasPerspectiveSectionContent(perspectives[sectionKey]))
-    .map((sectionKey) => sectionKey as string);
-  const status = missingSections.length === 0
-    ? 'full'
-    : missingSections.length === 5
-      ? 'empty'
-      : 'partial';
-
-  return {
-    value: perspectives,
-    diagnostic: buildNormalizationDiagnostic(status, missingSections, rawShape),
-  };
-}
-
-function normalizeSelfTestCards(
-  value: unknown,
-  fallbackMode: AIConceptCoachSelfTestCreationMode = 'list-item',
-): AIConceptCoachSelfTestCards {
-  const raw = isRecord(value) ? value : {};
-  const cards = Array.isArray(readAliasedValue(raw, ['cards', 'candidateCards', 'items']))
-    ? readAliasedValue(raw, ['cards', 'candidateCards', 'items']) as unknown[]
-    : Array.isArray(value)
-      ? value
-      : [];
-  const declaredMode = normalizeSelfTestCreationMode(readAliasedValue(raw, ['creationMode', 'mode']), fallbackMode);
-  const normalizedCards = cards
-    .map((entry, index) => normalizeSelfTestCandidateCard(entry, index, declaredMode))
-    .filter((card): card is AIConceptCoachCandidateCard => Boolean(card));
-  return {
-    creationMode: declaredMode,
-    cards: normalizedCards,
-  };
-}
-
-function normalizeIntegratedUnderstanding(value: unknown): AIConceptCoachIntegratedUnderstanding {
-  return normalizeIntegratedUnderstandingWithDiagnostic(value).value;
-}
-
-function normalizeRealWorldTriggers(value: unknown): AIConceptCoachRealWorldTriggers {
-  const raw = isRecord(value) ? value : {};
-  return {
-    triggers: normalizeFlexibleStringArray(readAliasedValue(raw, ['triggers', 'triggerScenarios', 'scenarios']) ?? value),
-  };
-}
-
-function normalizeIntegratedUnderstandingWithDiagnostic(value: unknown): {
-  value: AIConceptCoachIntegratedUnderstanding;
-  diagnostic: AIConceptCoachNormalizationDiagnostic | null;
-} {
-  const rawShape = describeRawShape(value);
-  if (!isRecord(value)) {
-    const essence = normalizeString(value);
-    const missingSections = essence ? ['notWhat', 'capabilities'] : ['essence', 'notWhat', 'capabilities'];
-    return {
-      value: {
-        essence,
-        notWhat: [],
-        capabilities: [],
-      },
-      diagnostic: buildNormalizationDiagnostic(
-        essence ? 'partial' : 'empty',
-        missingSections,
-        rawShape,
-      ),
-    };
-  }
-
-  const raw = isRecord(readAliasedValue(value, ['integratedUnderstanding', 'integrated', 'integratedSummary']))
-    ? readAliasedValue(value, ['integratedUnderstanding', 'integrated', 'integratedSummary']) as Record<string, unknown>
-    : value;
-  const fallbackLeaves = collectStringLeaves(raw, {
-    excludeKeys: ['essence', 'whatItIs', 'summary', 'gist', 'notWhat', 'not', 'notThis', 'capabilities', 'canDo', 'applications'],
-  });
-  const essence = normalizeString(readAliasedValue(raw, ['essence', 'whatItIs', 'summary', 'gist']))
-    || fallbackLeaves[0]
-    || '';
-  const capabilities = normalizeFlexibleStringArray(readAliasedValue(raw, ['capabilities', 'canDo', 'applications', 'apply', 'skills']));
-  const notWhat = normalizeFlexibleStringArray(readAliasedValue(raw, ['notWhat', 'not', 'notThis', 'isNot']));
-  const missingSections = (Object.keys(INTEGRATED_FIELD_LABELS) as Array<keyof AIConceptCoachIntegratedUnderstanding>)
-    .filter((key) => key === 'essence' ? !essence : (key === 'notWhat' ? notWhat.length === 0 : capabilities.length === 0))
-    .map((key) => key as string);
-  const status = missingSections.length === 0
-    ? 'full'
-    : missingSections.length === 3
-      ? 'empty'
-      : 'partial';
-
-  return {
-    value: {
-      essence,
-      notWhat,
-      capabilities,
-    },
-    diagnostic: buildNormalizationDiagnostic(status, missingSections, rawShape),
-  };
-}
-
-function normalizeWorkingDefinition(value: unknown): string {
-  if (isRecord(value)) {
-    return normalizeString(readAliasedValue(value, ['workingDefinition', 'workDefinition', 'definition', 'summary']));
-  }
-  return normalizeString(value);
-}
-
-function resolveTabPayload(raw: Record<string, unknown>, tabId: AISkillTabId, fallback: unknown): unknown {
-  switch (tabId) {
-    case 'working-definition':
-      return readAliasedValue(raw, ['workingDefinition', 'workDefinition', 'definition']) ?? fallback;
-    case 'perspectives':
-      return readAliasedValue(raw, ['perspectives', 'perspective', 'multiPerspective', 'multiPerspectives']) ?? fallback;
-    case 'integrated-understanding':
-      return readAliasedValue(raw, ['integratedUnderstanding', 'integrated', 'integratedSummary']) ?? fallback;
-    case 'self-test-cards':
-      return readAliasedValue(raw, ['selfTestCards', 'candidateCards', 'cards']) ?? fallback;
-    case 'cdf-structure':
-      return readAliasedValue(raw, ['cdfStructure', 'cdf', 'conceptDescriptorFramework']) ?? fallback;
-    case 'real-world-triggers':
-      return readAliasedValue(raw, ['realWorldTriggers', 'triggers', 'triggerScenarios']) ?? fallback;
-    default:
-      return fallback;
-  }
-}
-
-function normalizeConceptCoachState(
-  payload: unknown,
-  rawContent: string,
-  selfTestCreationMode: AIConceptCoachSelfTestCreationMode = 'list-item',
-): ConceptCoachNormalizationState {
-  const raw = isRecord(payload) ? payload : {};
-  const perspectives = normalizePerspectivesWithDiagnostic(resolveTabPayload(raw, 'perspectives', raw.perspectives));
-  const integratedUnderstanding = normalizeIntegratedUnderstandingWithDiagnostic(
-    resolveTabPayload(raw, 'integrated-understanding', raw.integratedUnderstanding),
-  );
-
-  return {
-    result: {
-      workingDefinition: normalizeWorkingDefinition(resolveTabPayload(raw, 'working-definition', raw)),
-      perspectives: perspectives.value,
-      integratedUnderstanding: integratedUnderstanding.value,
-      selfTestCards: normalizeSelfTestCards(
-        resolveTabPayload(raw, 'self-test-cards', raw.selfTestCards),
-        selfTestCreationMode,
-      ),
-      cdfStructure: normalizeCdfStructure(resolveTabPayload(raw, 'cdf-structure', raw.cdfStructure)),
-      realWorldTriggers: normalizeRealWorldTriggers(resolveTabPayload(raw, 'real-world-triggers', raw.realWorldTriggers)),
-      rawContent,
-    },
-    diagnostics: {
-      perspectives: perspectives.diagnostic,
-      'integrated-understanding': integratedUnderstanding.diagnostic,
-    },
-  };
-}
-
-function normalizeConceptCoachResult(
-  payload: unknown,
-  rawContent: string,
-  selfTestCreationMode: AIConceptCoachSelfTestCreationMode = 'list-item',
-): AIConceptCoachResult {
-  return normalizeConceptCoachState(payload, rawContent, selfTestCreationMode).result;
-}
-
-function stringifyGenericValue(value: unknown): string {
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value).trim();
-  }
-  if (Array.isArray(value)) {
-    return collectStringLeaves(value).join('\n');
-  }
-  if (isRecord(value)) {
-    const summary = collectStringLeaves(value).join('\n');
-    return summary || JSON.stringify(value, null, 2);
-  }
-  return '';
-}
-
-function normalizeGenericCards(value: unknown): AIUserSkillStructuredCard[] {
-  const entries = Array.isArray(value)
-    ? value
-    : isRecord(value) && Array.isArray(readAliasedValue(value, ['cards', 'items', 'questions']))
-      ? readAliasedValue(value, ['cards', 'items', 'questions']) as unknown[]
-      : [];
-  return entries.map((entry, index): AIUserSkillStructuredCard | null => {
-    if (!isRecord(entry)) {
-      const text = normalizeString(entry);
-      return text ? {
-        id: createEntryId(`ai-user-card-${index}`),
-        question: text,
-        answer: '',
-        selected: true,
-      } : null;
-    }
-    const question = normalizeString(readAliasedValue(entry, ['question', 'q', 'front', 'title']));
-    const answer = normalizeString(readAliasedValue(entry, ['answer', 'a', 'back', 'body', 'content']));
-    if (!question && !answer) {
-      return null;
-    }
-    return {
-      id: normalizeString(entry.id) || createEntryId(`ai-user-card-${index}`),
-      question,
-      answer,
-      kind: normalizeString(entry.kind ?? entry.type) || undefined,
-      selected: entry.selected !== false,
-    };
-  }).filter((card): card is AIUserSkillStructuredCard => Boolean(card));
-}
-
-function normalizeGenericKeyValues(value: unknown): AIUserSkillStructuredKeyValue[] {
-  if (Array.isArray(value)) {
-    return value.flatMap((entry, index): AIUserSkillStructuredKeyValue[] => {
-      if (isRecord(entry)) {
-        const explicitKey = normalizeString(readAliasedValue(entry, ['key', 'name', 'title']));
-        const explicitValue = stringifyGenericValue(readAliasedValue(entry, ['value', 'content', 'text']));
-        if (explicitKey || explicitValue) {
-          return [{ key: explicitKey || `Item ${index + 1}`, value: explicitValue }];
-        }
-        return Object.entries(entry)
-          .map(([key, nestedValue]) => ({ key, value: stringifyGenericValue(nestedValue) }))
-          .filter((item) => item.value);
-      }
-      const text = stringifyGenericValue(entry);
-      return text ? [{ key: `Item ${index + 1}`, value: text }] : [];
-    });
-  }
-  if (isRecord(value)) {
-    return Object.entries(value)
-      .map(([key, entry]) => ({ key, value: stringifyGenericValue(entry) }))
-      .filter((item) => item.key && item.value);
-  }
-  const text = stringifyGenericValue(value);
-  return text ? [{ key: '内容', value: text }] : [];
-}
-
-function normalizeGenericSectionResult(
-  section: AIResolvedSkillSectionDescriptor,
-  value: unknown,
-): AIUserSkillStructuredSectionResult {
-  const text = section.renderer === 'markdown'
-    ? stringifyGenericValue(value)
-    : '';
-  const items = section.renderer === 'list'
-    ? normalizeFlexibleStringArray(value)
-    : [];
-  const cards = section.renderer === 'cards'
-    ? normalizeGenericCards(value)
-    : [];
-  const keyValues = section.renderer === 'keyValue'
-    ? normalizeGenericKeyValues(value)
-    : [];
-  return {
-    id: section.id,
-    responseKey: section.responseKey,
-    title: section.title,
-    renderer: section.renderer,
-    value,
-    text,
-    items,
-    cards,
-    keyValues,
-  };
-}
-
-function hasGenericSectionContent(section: AIUserSkillStructuredSectionResult): boolean {
-  return Boolean(
-    normalizeString(section.text)
-    || section.items.length > 0
-    || section.cards.length > 0
-    || section.keyValues.length > 0,
-  );
-}
-
-function normalizeGenericStructuredResult(
-  skill: AIChatRegisteredSkillDescriptor,
-  payload: unknown,
-  rawContent: string,
-  onlyTabId?: AISkillTabId,
-): {
-  result: AIUserSkillStructuredResult;
-  diagnostic: AIChatNormalizationDiagnostic | null;
-} {
-  const raw = isRecord(payload) ? payload : {};
-  const sections = (skill.sections || [])
-    .filter((section) => !onlyTabId || section.id === onlyTabId)
-    .map((section) => normalizeGenericSectionResult(
-      section,
-      readAliasedValue(raw, [section.responseKey, section.sourceId, section.id, section.title]) ?? (onlyTabId ? payload : undefined),
-    ));
-  const requiredSections = (skill.sections || [])
-    .filter((section) => section.required && (!onlyTabId || section.id === onlyTabId));
-  const missingSections = requiredSections
-    .filter((section) => !sections.some((result) => result.id === section.id && hasGenericSectionContent(result)))
-    .map((section) => section.title || section.responseKey);
-  const hasAnyContent = sections.some(hasGenericSectionContent);
-  const status: AIChatNormalizationDiagnostic['status'] = !hasAnyContent
-    ? 'empty'
-    : missingSections.length > 0
-      ? 'partial'
-      : 'full';
-  return {
-    result: {
-      skillId: skill.id,
-      sections,
-      rawContent,
-    },
-    diagnostic: status === 'full'
-      ? null
-      : {
-        status,
-        missingSections,
-        rawShape: describeRawShape(payload),
-        renderer: sections[0]?.renderer || 'markdown',
-      },
-  };
-}
-
-function cloneConceptCoachResult(result: AIConceptCoachResult): AIConceptCoachResult {
-  return JSON.parse(JSON.stringify(result)) as AIConceptCoachResult;
-}
-
-function hasTabResultContent(tabId: AISkillTabId, value: AIConceptCoachTabResult | null): boolean {
-  if (value === null) {
-    return false;
-  }
-  switch (tabId) {
-    case 'working-definition':
-      return typeof value === 'string' && value.trim().length > 0;
-    case 'perspectives':
-      return (Object.values(value as AIConceptCoachPerspectives) as AIConceptCoachPerspectiveSection[])
-        .some((section) => hasPerspectiveSectionContent(section));
-    case 'integrated-understanding': {
-      const result = value as AIConceptCoachIntegratedUnderstanding;
-      return Boolean(result.essence || result.notWhat.length > 0 || result.capabilities.length > 0);
-    }
-    case 'self-test-cards':
-      return ((value as AIConceptCoachSelfTestCards).cards || []).length > 0;
-    case 'cdf-structure':
-      return hasCdfStructureContent(value as AICdfStructure);
-    case 'real-world-triggers':
-      return ((value as AIConceptCoachRealWorldTriggers).triggers || []).length > 0;
-    default:
-      return false;
-  }
-}
-
-function normalizeNormalizationDiagnostic(value: unknown): AIConceptCoachNormalizationDiagnostic | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const status = value.status === 'full' || value.status === 'partial' || value.status === 'empty'
-    ? value.status
-    : null;
-  if (!status) {
-    return null;
-  }
-  return {
-    status,
-    missingSections: Array.isArray(value.missingSections)
-      ? value.missingSections.map((entry) => normalizeString(entry)).filter(Boolean)
-      : [],
-    rawShape: normalizeString(value.rawShape) || 'persisted-result',
-  };
-}
-
-function deriveTabNormalizationDiagnostic(
-  tabId: AISkillTabId,
-  value: AIConceptCoachTabResult | null,
-  rawShape = 'persisted-result',
-): AIConceptCoachNormalizationDiagnostic | null {
-  switch (tabId) {
-    case 'perspectives': {
-      const perspectives = value as AIConceptCoachPerspectives | null;
-      if (!perspectives) {
-        return buildNormalizationDiagnostic('empty', Object.keys(PERSPECTIVE_SECTION_META), rawShape);
-      }
-      const missingSections = (Object.keys(perspectives) as Array<keyof AIConceptCoachPerspectives>)
-        .filter((sectionKey) => !hasPerspectiveSectionContent(perspectives[sectionKey]))
-        .map((sectionKey) => sectionKey as string);
-      const status = missingSections.length === 0
-        ? 'full'
-        : missingSections.length === 5
-          ? 'empty'
-          : 'partial';
-      return buildNormalizationDiagnostic(status, missingSections, rawShape);
-    }
-    case 'integrated-understanding': {
-      const understanding = value as AIConceptCoachIntegratedUnderstanding | null;
-      const missingSections = [
-        !understanding?.essence ? 'essence' : '',
-        !understanding || understanding.notWhat.length === 0 ? 'notWhat' : '',
-        !understanding || understanding.capabilities.length === 0 ? 'capabilities' : '',
-      ].filter(Boolean);
-      const status = missingSections.length === 0
-        ? 'full'
-        : missingSections.length === 3
-          ? 'empty'
-          : 'partial';
-      return buildNormalizationDiagnostic(status, missingSections, rawShape);
-    }
-    case 'cdf-structure': {
-      const cdf = value as AICdfStructure | null;
-      return buildNormalizationDiagnostic(
-        hasCdfStructureContent(cdf) ? 'full' : 'empty',
-        hasCdfStructureContent(cdf) ? [] : ['anchors'],
-        rawShape,
-      );
-    }
-    default:
-      return null;
-  }
-}
-
-function tabResultFromConceptCoach(result: AIConceptCoachResult | null, tabId: AISkillTabId): AIConceptCoachTabResult | null {
-  if (!result) {
-    return null;
-  }
-  switch (tabId) {
-    case 'working-definition':
-      return result.workingDefinition;
-    case 'perspectives':
-      return result.perspectives;
-    case 'integrated-understanding':
-      return result.integratedUnderstanding;
-    case 'self-test-cards':
-      return result.selfTestCards;
-    case 'cdf-structure':
-      return result.cdfStructure;
-    case 'real-world-triggers':
-      return result.realWorldTriggers;
-    default:
-      return null;
-  }
-}
-
-function normalizeTabResultValue(
-  tabId: AISkillTabId,
-  value: unknown,
-  conceptCoachResult: AIConceptCoachResult | null,
-): AIConceptCoachTabResult | null {
-  if (value === null || value === undefined) {
-    return tabResultFromConceptCoach(conceptCoachResult, tabId);
-  }
-  switch (tabId) {
-    case 'working-definition':
-      return normalizeWorkingDefinition(value);
-    case 'perspectives':
-      return normalizePerspectivesWithDiagnostic(value).value;
-    case 'integrated-understanding':
-      return normalizeIntegratedUnderstandingWithDiagnostic(value).value;
-    case 'self-test-cards':
-      return normalizeSelfTestCards(value, conceptCoachResult?.selfTestCards.creationMode || 'list-item');
-    case 'cdf-structure':
-      return normalizeCdfStructure(value);
-    case 'real-world-triggers':
-      return normalizeRealWorldTriggers(value);
-    default:
-      return tabResultFromConceptCoach(conceptCoachResult, tabId);
-  }
-}
-
-function mergeTabResult(
-  current: AIConceptCoachResult | null,
-  tabId: AISkillTabId,
-  payload: unknown,
-  rawContent: string,
-  selfTestCreationMode: AIConceptCoachSelfTestCreationMode = 'list-item',
-): ConceptCoachNormalizationState {
-  const next = current ? cloneConceptCoachResult(current) : emptyConceptCoachResult(rawContent);
-  const raw = isRecord(payload) ? payload : {};
-  const resolvedPayload = resolveTabPayload(raw, tabId, payload);
-  const diagnostics: ConceptCoachNormalizationState['diagnostics'] = {};
-  next.rawContent = rawContent;
-  switch (tabId) {
-    case 'working-definition':
-      next.workingDefinition = normalizeWorkingDefinition(resolvedPayload);
-      break;
-    case 'perspectives': {
-      const normalized = normalizePerspectivesWithDiagnostic(resolvedPayload);
-      next.perspectives = normalized.value;
-      diagnostics.perspectives = normalized.diagnostic;
-      break;
-    }
-    case 'integrated-understanding': {
-      const normalized = normalizeIntegratedUnderstandingWithDiagnostic(resolvedPayload);
-      next.integratedUnderstanding = normalized.value;
-      diagnostics['integrated-understanding'] = normalized.diagnostic;
-      break;
-    }
-    case 'self-test-cards':
-      next.selfTestCards = normalizeSelfTestCards(resolvedPayload, selfTestCreationMode);
-      break;
-    case 'cdf-structure':
-      next.cdfStructure = normalizeCdfStructure(resolvedPayload);
-      break;
-    case 'real-world-triggers':
-      next.realWorldTriggers = normalizeRealWorldTriggers(resolvedPayload);
-      break;
-  }
-  return {
-    result: next,
-    diagnostics,
-  };
-}
-
-function explainResultFromConceptCoach(result: AIConceptCoachResult | null): AIExplainResult | null {
-  if (!result) {
-    return null;
-  }
-  return {
-    workingDefinition: result.workingDefinition,
-    whatItTests: result.integratedUnderstanding.essence,
-    whyItsTricky: result.perspectives.contrasts.keyPoints.join('\n'),
-    connections: [
-      ...result.perspectives.partsAndWhole.keyPoints,
-      ...result.integratedUnderstanding.capabilities,
-    ].filter(Boolean),
-    triggers: result.realWorldTriggers.triggers,
-    cardIdeas: result.selfTestCards.cards.map((card) => (
-      `${card.summary || card.prompt || card.question || '草稿'} -> ${card.answer || ''}`
-    )),
-    rawContent: result.rawContent,
-  };
-}
-
 function normalizeOpenSkillId(options: AIWorkbenchOpenOptions): AISkillId {
   return normalizeAIWorkbenchSkillId(options.skillId || options.view, GENERAL_SKILL);
 }
@@ -1831,10 +928,17 @@ export class AIWorkbenchService {
   private readonly flashcardTools: AIFlashcardToolService;
   private readonly selfTestCardCreationService: AISelfTestCardCreationService;
   private readonly toolExecutor: AIChatToolExecutorService;
+  private readonly generalChatRuntime: AIWorkbenchGeneralChatRuntime;
   private readonly approvalResolvers = new Map<string, {
     request: AIChatApprovalRequest;
     resolve: (value: { approved: boolean; rejectReason?: string }) => void;
   }>();
+  private readonly conversationTree = new AIWorkbenchConversationTreeRuntime({
+    state: this.state,
+    normalizeSkillForCurrentSettings: (skillId, fallback) => this.normalizeSkillForCurrentSettings(skillId, fallback),
+    normalizeTabForCurrentSettings: (tabId, skillId) => this.normalizeTabForCurrentSettings(tabId, skillId),
+    isContextScopedConceptTab: (skillId, tabId) => this.isContextScopedConceptTab(skillId, tabId),
+  });
 
   constructor(private readonly deps: AIWorkbenchServiceDeps) {
     this.flashcardTools = new AIFlashcardToolService({
@@ -1858,6 +962,31 @@ export class AIWorkbenchService {
       siyuanPort: this.deps.siyuanPort,
       flashcardTools: this.flashcardTools,
       getAISettings: this.deps.getAISettings,
+    });
+    this.generalChatRuntime = new AIWorkbenchGeneralChatRuntime({
+      state: this.state,
+      toolRegistry: this.toolRegistry,
+      toolExecutor: this.toolExecutor,
+      assertModelSettings: () => this.assertModelSettings(),
+      resolveDefaultProvider: (settings) => this.resolveDefaultProvider(settings),
+      buildGeneralChatMessages: (settings, skill, tabId, attachedContexts, toolRules) => this.buildGeneralChatMessages(
+        settings,
+        skill,
+        tabId,
+        attachedContexts,
+        toolRules,
+      ),
+      requestChatModel: (messages, input) => this.requestChatModel(messages, input),
+      appendNodeMessage: (tabId, message, options) => this.appendNodeMessage(tabId, message, options),
+      patchActiveNodeMessage: (messageId, updater, options) => this.patchActiveNodeMessage(messageId, updater, options),
+      toRuntimeToolCall: (toolCall) => this.toRuntimeToolCall(toolCall),
+      requestInlineToolApproval: (request) => this.requestInlineToolApproval(request),
+      appendToolLogMessage: (result, skillId, tabId, runGroupId) => this.appendToolLogMessage(result, skillId, tabId, runGroupId),
+      ensureRunNotAborted: () => {
+        if (this.currentRunAbortController?.signal.aborted) {
+          throw new Error('当前 AI 运行已停止。');
+        }
+      },
     });
   }
 
@@ -2890,177 +2019,45 @@ export class AIWorkbenchService {
   }
 
   private ensureTreeState(): AIWorkbenchConversationTree {
-    this.state.tree = this.state.tree || createEmptyConversationTree();
-    this.state.tree.activeLeafNodeIds = this.state.tree.activeLeafNodeIds || {};
-    return this.state.tree;
+    return this.conversationTree.ensureTreeState();
   }
 
   private getTreeNode(nodeId: string): AIWorkbenchTreeNode | null {
-    const normalizedId = normalizeString(nodeId);
-    if (!normalizedId) {
-      return null;
-    }
-    return this.ensureTreeState().nodes[normalizedId] || null;
-  }
-
-  private getActiveNodeVersion(node: AIWorkbenchTreeNode) {
-    return node.versions.find((version) => version.id === node.activeVersionId)
-      || node.versions[node.versions.length - 1]
-      || null;
+    return this.conversationTree.getTreeNode(nodeId);
   }
 
   private getNodeMessage(node: AIWorkbenchTreeNode): AIWorkbenchMessage | null {
-    const version = this.getActiveNodeVersion(node);
-    if (!version) {
-      return null;
-    }
-    return cloneMessagePayload({
-      ...version.message,
-      id: node.id,
-      skillId: node.skillId,
-      tabId: node.tabId,
-    });
+    return this.conversationTree.getNodeMessage(node);
   }
 
   private resolveViewLeafId(skillId: AISkillId, tabId: AISkillTabId): string | null {
-    const tree = this.ensureTreeState();
-    const exactKey = createTreeViewKey(skillId, tabId);
-    if (tree.activeLeafNodeIds?.[exactKey]) {
-      return tree.activeLeafNodeIds[exactKey] || null;
-    }
-    const fallbackNode = Object.values(tree.nodes)
-      .filter((node) => this.shouldIncludeNodeInView(node, skillId, tabId))
-      .sort((left, right) => left.createdAt - right.createdAt)
-      .at(-1);
-    return fallbackNode?.id || tree.activeLeafNodeId || tree.rootNodeId || null;
+    return this.conversationTree.resolveViewLeafId(skillId, tabId);
   }
 
   private syncTreeLeafWithActiveView(): void {
-    const leafId = this.resolveViewLeafId(this.state.activeSkillId, this.state.activeTabId);
-    this.ensureTreeState().activeLeafNodeId = leafId;
+    this.conversationTree.syncTreeLeafWithActiveView();
   }
 
   private shouldIncludeNodeInView(node: AIWorkbenchTreeNode, skillId: AISkillId, tabId: AISkillTabId): boolean {
-    if (node.skillId !== skillId) {
-      return false;
-    }
-    if (skillId === GENERAL_SKILL) {
-      return true;
-    }
-    return node.scope === 'skill' || node.tabId === tabId;
+    return this.conversationTree.shouldIncludeNodeInView(node, skillId, tabId);
   }
 
   private getProjectedMessagesForView(
     skillId: AISkillId,
     tabId: AISkillTabId,
   ): AIWorkbenchMessage[] {
-    const tree = this.ensureTreeState();
-    const path = traceTreePath(tree, this.resolveViewLeafId(skillId, tabId));
-    const messages = path
-      .map((nodeId) => tree.nodes[nodeId])
-      .filter((node): node is AIWorkbenchTreeNode => Boolean(node))
-      .filter((node) => this.shouldIncludeNodeInView(node, skillId, tabId))
-      .map((node) => this.getNodeMessage(node))
-      .filter((message): message is AIWorkbenchMessage => Boolean(message));
-    if (!this.isContextScopedConceptTab(skillId, tabId)) {
-      return messages;
-    }
-    const currentSignature = normalizeString(this.state.contextSignature);
-    if (!currentSignature) {
-      return messages;
-    }
-    return messages.filter((message) => normalizeString(message.contextSignature) === currentSignature);
+    return this.conversationTree.getProjectedMessagesForView(skillId, tabId);
   }
 
   private getModelContextMessagesForView(
     skillId: AISkillId,
     tabId: AISkillTabId,
   ): AIWorkbenchMessage[] {
-    const tree = this.ensureTreeState();
-    const pathNodes = traceTreePath(tree, this.resolveViewLeafId(skillId, tabId))
-      .map((nodeId) => tree.nodes[nodeId])
-      .filter((node): node is AIWorkbenchTreeNode => Boolean(node))
-      .filter((node) => this.shouldIncludeNodeInView(node, skillId, tabId));
-    const lastSeparatorIndex = [...pathNodes]
-      .map((node, index) => ({ node, index }))
-      .filter(({ node }) => node.kind === 'separator')
-      .at(-1)?.index ?? -1;
-    const selectedNodeIds = new Set<string>();
-    const nodesForContext = [
-      ...pathNodes.slice(0, lastSeparatorIndex + 1).filter((node) => node.pinned),
-      ...pathNodes.slice(lastSeparatorIndex + 1),
-    ]
-      .filter((node) => node.kind === 'message' && !node.hidden)
-      .filter((node) => {
-        if (selectedNodeIds.has(node.id)) {
-          return false;
-        }
-        selectedNodeIds.add(node.id);
-        return true;
-      });
-    return nodesForContext
-      .map((node) => this.getNodeMessage(node))
-      .filter((message): message is AIWorkbenchMessage => Boolean(message));
+    return this.conversationTree.getModelContextMessagesForView(skillId, tabId);
   }
 
   private rebuildProjectedThreads(): void {
-    const previous = this.state.threads;
-    const next = createInitialThreads();
-    const knownEntries = new Map<string, { skillId: AISkillId; tabId: AISkillTabId }>();
-
-    for (const [skillId, skillThreads] of Object.entries(previous)) {
-      for (const tabId of Object.keys(skillThreads || {})) {
-        knownEntries.set(createTreeViewKey(skillId as AISkillId, tabId as AISkillTabId), {
-          skillId: skillId as AISkillId,
-          tabId: tabId as AISkillTabId,
-        });
-      }
-    }
-    for (const node of Object.values(this.ensureTreeState().nodes)) {
-      knownEntries.set(createTreeViewKey(node.skillId, node.tabId), {
-        skillId: node.skillId,
-        tabId: node.tabId,
-      });
-      if (node.scope === 'skill') {
-        for (const tabId of getSkillTabIds(node.skillId, node.tabId)) {
-          knownEntries.set(createTreeViewKey(node.skillId, tabId), {
-            skillId: node.skillId,
-            tabId,
-          });
-        }
-      }
-    }
-
-    for (const { skillId, tabId } of knownEntries.values()) {
-      next[skillId] = next[skillId] || {};
-      const previousThread = previous[skillId]?.[tabId] || createEmptyThreadRecord(skillId, tabId);
-      const messages = this.getProjectedMessagesForView(skillId, tabId);
-      const latestContextSignature = [...messages]
-        .reverse()
-        .map((message) => normalizeString(message.contextSignature))
-        .find(Boolean) || null;
-      next[skillId][tabId] = {
-        ...previousThread,
-        skillId,
-        tabId,
-        messages,
-        resultContextSignature: latestContextSignature,
-        stale: Boolean(
-          this.isContextScopedConceptTab(skillId, tabId)
-          && latestContextSignature
-          && this.state.contextSignature
-          && latestContextSignature !== this.state.contextSignature,
-        ),
-        staleReason: this.isContextScopedConceptTab(skillId, tabId)
-          && latestContextSignature
-          && this.state.contextSignature
-          && latestContextSignature !== this.state.contextSignature
-          ? '当前上下文已变化，请重新运行这个阶段以获得最新结果。'
-          : null,
-      };
-    }
-
-    this.state.threads = next;
+    this.conversationTree.rebuildProjectedThreads();
   }
 
   private appendNodeMessage(
@@ -3073,59 +2070,7 @@ export class AIWorkbenchService {
       updateTabIds?: AISkillTabId[];
     },
   ): AIWorkbenchTreeNode {
-    const skillId = this.normalizeSkillForCurrentSettings(message.skillId || this.state.activeSkillId, this.state.activeSkillId);
-    const normalizedTabId = this.normalizeTabForCurrentSettings(tabId, skillId);
-    const tree = this.ensureTreeState();
-    const scope = options?.scope || (skillId === GENERAL_SKILL ? 'skill' : 'tab');
-    const payload = cloneMessagePayload({
-      ...message,
-      id: normalizeString(message.id) || createEntryId('ai-msg'),
-      skillId,
-      tabId: normalizedTabId,
-      view: message.view || skillId,
-      contextSignature: this.isContextScopedConceptTab(skillId, normalizedTabId)
-        ? normalizeString(message.contextSignature) || this.state.contextSignature
-        : normalizeString(message.contextSignature) || null,
-    } as AIWorkbenchMessage);
-    const parentNodeId = options?.parentNodeId === undefined
-      ? this.resolveViewLeafId(skillId, normalizedTabId)
-      : options.parentNodeId;
-    const versionId = `${payload.id}::v${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const node: AIWorkbenchTreeNode = {
-      id: payload.id,
-      kind: getMessageNodeKind(payload),
-      skillId,
-      tabId: normalizedTabId,
-      scope,
-      parentId: parentNodeId || null,
-      childIds: [],
-      createdAt: payload.createdAt,
-      hidden: false,
-      pinned: false,
-      status: 'ready',
-      activeVersionId: versionId,
-      versions: [{
-        id: versionId,
-        createdAt: Date.now(),
-        message: payload,
-      }],
-    };
-    tree.nodes[node.id] = node;
-    if (!tree.rootNodeId) {
-      tree.rootNodeId = node.id;
-    }
-    if (node.parentId && tree.nodes[node.parentId] && !tree.nodes[node.parentId].childIds.includes(node.id)) {
-      tree.nodes[node.parentId].childIds.push(node.id);
-    }
-    const updateTabIds = options?.updateTabIds || (scope === 'skill' ? getSkillTabIds(skillId, normalizedTabId) : [normalizedTabId]);
-    for (const affectedTabId of updateTabIds) {
-      tree.activeLeafNodeIds![createTreeViewKey(skillId, affectedTabId)] = node.id;
-    }
-    if (options?.activateView !== false) {
-      tree.activeLeafNodeId = node.id;
-    }
-    this.rebuildProjectedThreads();
-    return node;
+    return this.conversationTree.appendNodeMessage(tabId, message, options);
   }
 
   private addNodeVersion(
@@ -3133,30 +2078,7 @@ export class AIWorkbenchService {
     updater: (message: AIWorkbenchMessage) => AIWorkbenchMessage,
     options?: { status?: AIWorkbenchTreeNode['status'] },
   ): AIWorkbenchMessage | null {
-    const node = this.getTreeNode(messageId);
-    if (!node) {
-      return null;
-    }
-    const currentMessage = this.getNodeMessage(node);
-    if (!currentMessage) {
-      return null;
-    }
-    const nextMessage = cloneMessagePayload(updater(currentMessage));
-    nextMessage.id = node.id;
-    nextMessage.skillId = node.skillId;
-    nextMessage.tabId = node.tabId;
-    const versionId = `${node.id}::v${node.versions.length + 1}`;
-    node.versions.push({
-      id: versionId,
-      createdAt: Date.now(),
-      message: nextMessage,
-    });
-    node.activeVersionId = versionId;
-    if (options?.status) {
-      node.status = options.status;
-    }
-    this.rebuildProjectedThreads();
-    return nextMessage;
+    return this.conversationTree.addNodeVersion(messageId, updater, options);
   }
 
   private patchActiveNodeMessage(
@@ -3164,67 +2086,23 @@ export class AIWorkbenchService {
     updater: (message: AIWorkbenchMessage) => AIWorkbenchMessage,
     options?: { status?: AIWorkbenchTreeNode['status'] },
   ): AIWorkbenchMessage | null {
-    const node = this.getTreeNode(messageId);
-    const version = node ? this.getActiveNodeVersion(node) : null;
-    if (!node || !version) {
-      return null;
-    }
-    const nextMessage = cloneMessagePayload(updater(version.message));
-    nextMessage.id = node.id;
-    nextMessage.skillId = node.skillId;
-    nextMessage.tabId = node.tabId;
-    version.message = nextMessage;
-    if (options?.status) {
-      node.status = options.status;
-    }
-    this.rebuildProjectedThreads();
-    return nextMessage;
+    return this.conversationTree.patchActiveNodeMessage(messageId, updater, options);
   }
 
   private isRenderablePrimaryMessage(message: AIWorkbenchMessage): boolean {
-    if (message.kind === 'tool-log' || message.kind === 'approval') {
-      return false;
-    }
-    if (message.kind === 'assistant-text' && message.presentation === 'supplemental') {
-      return false;
-    }
-    return true;
+    return AIWorkbenchConversationTreeRuntime.isRenderablePrimaryMessage(message);
   }
 
   private isSupplementalMessage(messages: AIWorkbenchMessage[], index: number): boolean {
-    const message = messages[index];
-    if (!message) {
-      return false;
-    }
-    if (message.kind === 'tool-log' || message.kind === 'approval') {
-      return true;
-    }
-    if (message.kind !== 'assistant-text') {
-      return false;
-    }
-    if (message.presentation === 'supplemental') {
-      return true;
-    }
-    const nextMessage = messages[index + 1] || null;
-    return Boolean(nextMessage && (nextMessage.kind === 'tool-log' || nextMessage.kind === 'approval'));
+    return AIWorkbenchConversationTreeRuntime.isSupplementalMessage(messages, index);
   }
 
   private createRenderEntry(
     primaryMessage: AIWorkbenchMessage,
     supplementalMessages: AIWorkbenchMessage[],
   ): AIWorkbenchRenderEntry {
-    const nextSupplementalMessages = supplementalMessages.filter((message) => message.id !== primaryMessage.id);
-    return {
-      key: `${primaryMessage.id}::render`,
-      primaryMessage,
-      supplementalMessages: nextSupplementalMessages,
-      stepCount: nextSupplementalMessages.length,
-      pendingApproval: nextSupplementalMessages.find((message): message is AIWorkbenchApprovalMessage => (
-        message.kind === 'approval' && message.request.status === 'pending'
-      )) || null,
-    };
+    return AIWorkbenchConversationTreeRuntime.createRenderEntry(primaryMessage, supplementalMessages);
   }
-
   getMessageMeta(messageId: string): {
     scope: AIWorkbenchNodeScope;
     hidden: boolean;
@@ -4723,231 +3601,15 @@ export class AIWorkbenchService {
     requestSourceMessageId: string,
     onPrimaryAssistantMessage?: (messageId: string) => void,
   ): Promise<void> {
-    const settings = this.assertModelSettings();
-    const provider = this.resolveDefaultProvider(settings);
-    const enabledTools = this.toolExecutor.getEnabledToolDefinitions(skill.defaultToolGroups);
-    const llmMessages: LLMMessage[] = this.buildGeneralChatMessages(
-      settings,
+    await this.generalChatRuntime.runToolLoop({
       skill,
       tabId,
       attachedContexts,
-      this.toolExecutor.buildToolRules(skill.defaultToolGroups),
-    );
-    const maxRounds = Math.max(1, settings.chatDefaults.maxToolRounds || 4);
-    const maxToolCalls = Math.max(6, maxRounds * 4);
-    const repeatedToolCalls = new Map<string, number>();
-    let totalToolCalls = 0;
-    let toolBudgetReached = false;
-
-    for (let round = 0; round < maxRounds; round += 1) {
-      this.ensureRunNotAborted();
-      const assistantMessageId = createEntryId('ai-msg');
-      const placeholderNode = this.appendNodeMessage(tabId, {
-        id: assistantMessageId,
-        skillId: skill.id,
-        tabId,
-        view: skill.id,
-        kind: 'assistant-text',
-        content: '',
-        createdAt: Date.now(),
-        sourceContent: null,
-        appliedContexts: attachedContexts,
-        reasoningContent: '',
-        diagnostics: [],
-        requestSourceMessageId,
-        runGroupId,
-        presentation: 'primary',
-      } satisfies AIWorkbenchAssistantTextMessage, {
-        scope: 'skill',
-      });
-      placeholderNode.status = 'streaming';
-      onPrimaryAssistantMessage?.(assistantMessageId);
-      let response: LLMResponse;
-      try {
-        response = await this.requestChatModel(llmMessages, {
-          settings,
-          provider,
-          tools: enabledTools,
-          observer: {
-            onTextDelta: (delta) => {
-              if (!delta) {
-                return;
-              }
-              this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-                ...(message as AIWorkbenchAssistantTextMessage),
-                content: `${(message as AIWorkbenchAssistantTextMessage).content || ''}${delta}`,
-              } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
-            },
-            onReasoningDelta: (delta) => {
-              if (!delta) {
-                return;
-              }
-              this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-                ...(message as AIWorkbenchAssistantTextMessage),
-                reasoningContent: `${(message as AIWorkbenchAssistantTextMessage).reasoningContent || ''}${delta}`,
-              } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
-            },
-            onDiagnostic: (diagnostic) => {
-              if (!diagnostic) {
-                return;
-              }
-              this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-                ...(message as AIWorkbenchAssistantTextMessage),
-                diagnostics: [
-                  ...((message as AIWorkbenchAssistantTextMessage).diagnostics || []),
-                  diagnostic,
-                ].slice(-8),
-              } satisfies AIWorkbenchAssistantTextMessage), { status: 'streaming' });
-            },
-          },
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('已停止') || message.includes('aborted')) {
-          this.patchActiveNodeMessage(assistantMessageId, (entry) => ({
-            ...(entry as AIWorkbenchAssistantTextMessage),
-            interrupted: true,
-          } satisfies AIWorkbenchAssistantTextMessage), { status: 'interrupted' });
-        }
-        throw error;
-      }
-      const assistantContent = normalizeString(response.content);
-      const toolCalls = response.toolCalls || [];
-      if (toolCalls.length === 0) {
-        this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-          ...(message as AIWorkbenchAssistantTextMessage),
-          content: assistantContent || '这次没有返回可用内容。',
-          sourceContent: assistantContent || null,
-          reasoningContent: response.reasoningContent || (message as AIWorkbenchAssistantTextMessage).reasoningContent || null,
-          diagnostics: response.diagnostics || (message as AIWorkbenchAssistantTextMessage).diagnostics || [],
-          interrupted: false,
-          presentation: 'primary',
-        } satisfies AIWorkbenchAssistantTextMessage), { status: 'ready' });
-        return;
-      }
-
-      llmMessages.push({
-        role: 'assistant',
-        content: assistantContent,
-        toolCalls,
-        reasoningContent: response.reasoningContent,
-      });
-
-      this.patchActiveNodeMessage(assistantMessageId, (message) => ({
-        ...(message as AIWorkbenchAssistantTextMessage),
-        content: assistantContent || '我先调用几步工具来补全信息。',
-        sourceContent: assistantContent || (message as AIWorkbenchAssistantTextMessage).sourceContent || null,
-        reasoningContent: response.reasoningContent || (message as AIWorkbenchAssistantTextMessage).reasoningContent || null,
-        diagnostics: response.diagnostics || (message as AIWorkbenchAssistantTextMessage).diagnostics || [],
-        interrupted: false,
-        presentation: 'supplemental',
-      } satisfies AIWorkbenchAssistantTextMessage), { status: 'ready' });
-
-      for (const llmToolCall of toolCalls) {
-        this.ensureRunNotAborted();
-        const toolCall = this.toRuntimeToolCall(llmToolCall);
-        const toolCallSignature = `${toolCall.name}:${stableStringify(toolCall.arguments)}`;
-        const previousCount = repeatedToolCalls.get(toolCallSignature) || 0;
-        let result: AIChatToolExecutionResult;
-        if (totalToolCalls >= maxToolCalls) {
-          toolBudgetReached = true;
-          result = this.buildToolLoopGuardResult(
-            toolCall,
-            settings,
-            'execution-rejected',
-            `工具调用预算已达到上限（${maxToolCalls} 次）。请直接基于当前结果给出最终答复。`,
-            round + 1,
-            response.usage,
-          );
-        } else if (previousCount >= 2) {
-          result = this.buildToolLoopGuardResult(
-            toolCall,
-            settings,
-            'execution-rejected',
-            '同一轮里重复调用了相同工具和参数。请改用已有结果、ReadVar，或直接总结。',
-            round + 1,
-            response.usage,
-          );
-        } else {
-          repeatedToolCalls.set(toolCallSignature, previousCount + 1);
-          totalToolCalls += 1;
-          result = await this.toolExecutor.executeToolCall(toolCall, {
-            context: this.state.context,
-            attachedContexts,
-          }, {
-            roundIndex: round + 1,
-            llmUsage: response.usage,
-            approvals: {
-              requestApproval: (request) => this.requestInlineToolApproval({
-                ...request,
-                runGroupId,
-                skillId: skill.id,
-                tabId,
-              }),
-            },
-          });
-        }
-        this.ensureRunNotAborted();
-        this.state.toolTimeline.push(result);
-        this.appendToolLogMessage(result, skill.id, tabId, runGroupId);
-        llmMessages.push({
-          role: 'tool',
-          toolCallId: result.toolCallId,
-          name: result.toolName,
-          content: result.finalText || (result.status === 'success' ? 'Tool finished with no textual output.' : result.error || 'Tool call was rejected.'),
-        });
-        if (toolBudgetReached) {
-          break;
-        }
-      }
-      if (toolBudgetReached) {
-        break;
-      }
-    }
-
-    await this.requestToolchainSummary(
-      skill,
-      tabId,
-      attachedContexts,
-      llmMessages,
-      settings,
-      provider,
       runGroupId,
       requestSourceMessageId,
       onPrimaryAssistantMessage,
-    );
+    });
   }
-
-  private ensureRunNotAborted(): void {
-    if (this.currentRunAbortController?.signal.aborted) {
-      throw new Error('当前 AI 运行已停止。');
-    }
-  }
-
-  private buildToolLoopGuardResult(
-    toolCall: AIChatToolCall,
-    settings: AISettings,
-    status: AIChatToolExecutionResult['status'],
-    message: string,
-    roundIndex?: number,
-    llmUsage?: AIChatToolExecutionResult['llmUsage'],
-  ): AIChatToolExecutionResult {
-    return {
-      status,
-      toolCallId: toolCall.id,
-      toolName: toolCall.name,
-      group: this.toolRegistry.get(toolCall.name, settings)?.group || 'vars',
-      args: { ...toolCall.arguments },
-      argsText: JSON.stringify(toolCall.arguments, null, 2),
-      finalText: message,
-      resultText: message,
-      error: status === 'success' ? undefined : message,
-      roundIndex,
-      llmUsage,
-      createdAt: Date.now(),
-    };
-  }
-
   private async requestInlineToolApproval(request: AIChatApprovalRequest): Promise<{ approved: boolean; rejectReason?: string }> {
     this.state.pendingApprovals.push(request);
     this.appendApprovalMessage(request, request.skillId || this.state.activeSkillId, request.tabId || this.state.activeTabId, request.runGroupId);
