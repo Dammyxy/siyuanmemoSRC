@@ -1006,36 +1006,60 @@ import {
   getSelfTestModeDescriptor,
   listSelfTestModeDescriptors,
 } from '@/application/services/AIPromptContractRegistry';
-import {
-  isPluginSelfTestCreationMode,
-  resolveSelfTestCandidateDraftMarkdown,
-  summarizeSelfTestCandidateCard,
-} from '@/application/services/AISelfTestDraftSupport';
-import { formatConceptCoachPerspectiveSectionMarkdown } from '@/application/services/AIWorkbenchResultFormatter';
+import { isPluginSelfTestCreationMode } from '@/application/services/AISelfTestDraftSupport';
 import type { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import { AI_CONCEPT_COACH_SKILL_ID } from '@/types/ai';
 import RichMarkdownContent from '@/ui/shared/RichMarkdownContent.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
 import type {
+  AIWorkbenchPaneProjectionLabels,
+  AssistantSection,
+} from '@/ui/ai/aiWorkbenchPaneProjection';
+import {
+  buildAssistantResultNotice,
+  buildAssistantSections,
+  canCreateCdfConceptDocument as canCreateCdfConceptDocumentProjection,
+  countSelectedCdfAnchors,
+  countSelectedCdfDefinitions,
+  countSelectedCdfDescriptors,
+  countSelectedCdfDescriptorItemsInGroup,
+  countSelectedSelfTestCandidates,
+  entryHasProjectionDetails,
+  formatSelectedCardsLabel,
+  getApprovalArgsText,
+  getCdfAnchorCreationHint,
+  getCdfAnchors,
+  getCdfDescriptorGroupMode,
+  getCdfResolutionLabel,
+  getCdfResolutionReason,
+  getCdfStructureForMessage,
+  getEntryDetailsLabel,
+  getEntryDiagnostics,
+  getEntryReasoningContent,
+  getMessageContextItems,
+  getMessageFooterMeta,
+  getMessageSpeaker,
+  getSelfTestCandidateCards,
+  getSelfTestCandidateDraftMarkdown,
+  getSelfTestCandidateSummary,
+  getSelfTestCreationFailureItems,
+  getToolLogMeta,
+  getVisibleSupplementalMessages,
+  hasSelectedCdfDefinition,
+  hasUsableCdfResolution as hasUsableCdfResolutionProjection,
+  isCdfResolutionStaleForTarget,
+  normalizeText,
+  previewText,
+  resolveCdfCardCreationDisabledReason,
+  resolveSelfTestCardCreationDisabledReason,
+} from '@/ui/ai/aiWorkbenchPaneProjection';
+import type {
   AIAttachedContextItem,
   AICdfAnchor,
-  AICdfAnchorResolution,
-  AICdfDescriptorGroup,
   AICdfStructure,
   AIConceptCoachCandidateCard,
   AIConceptCoachCardKind,
-  AIConceptCoachIntegratedUnderstanding,
-  AIConceptCoachNormalizationDiagnostic,
-  AIConceptCoachPerspectiveSection,
-  AIConceptCoachPerspectives,
-  AIConceptCoachRealWorldTriggers,
   AIConceptCoachSelfTestCreationMode,
-  AIConceptCoachSelfTestCards,
-  AIChatApprovalRequest,
-  AIExplainResult,
-  AIUserSkillStructuredCard,
-  AIUserSkillStructuredKeyValue,
-  AIWorkbenchApprovalMessage,
   AIWorkbenchAssistantTextMessage,
   AIWorkbenchAssistantResultMessage,
   AIWorkbenchConceptDocumentSearchResult,
@@ -1048,7 +1072,6 @@ import type {
   AIWorkbenchSelfTestCardTargetInput,
   AIWorkbenchSelfTestCardTargetMemory,
   AIWorkbenchSource,
-  AIWorkbenchToolLogMessage,
   AIWorkbenchUserMessage,
 } from '@/types/ai';
 
@@ -1058,12 +1081,6 @@ type ContextProvider = {
   description: string;
   inputKind: 'none' | 'line' | 'area';
 };
-
-type AssistantSection =
-  | { key: string; title: string; kind: 'text'; text: string }
-  | { key: string; title: string; kind: 'list'; items: string[] }
-  | { key: string; title: string; kind: 'cards'; cards: AIUserSkillStructuredCard[] }
-  | { key: string; title: string; kind: 'keyValue'; keyValues: AIUserSkillStructuredKeyValue[] };
 
 type WindowWithPlugin = Window & {
   siyuanMemoPlugin?: {
@@ -1168,56 +1185,60 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function normalizeLooseStringList(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((entry) => String(entry || '').trim()).filter(Boolean);
-  }
-  const normalized = String(value || '').trim();
-  return normalized ? [normalized] : [];
-}
-
-function normalizeText(value: unknown): string {
-  return String(value || '').trim();
-}
-
-function tryParseStructuredJson(value: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveLegacyExplainResult(message: AIWorkbenchAssistantResultMessage): AIExplainResult | null {
-  if (message.explainResult && (
-    message.explainResult.workingDefinition
-    || message.explainResult.whatItTests
-    || message.explainResult.whyItsTricky
-    || message.explainResult.connections.length > 0
-    || message.explainResult.triggers.length > 0
-    || message.explainResult.cardIdeas.length > 0
-  )) {
-    return message.explainResult;
-  }
-  const raw = tryParseStructuredJson(message.rawContent);
-  if (!raw) {
-    return message.explainResult || null;
-  }
+function projectionLabels(): AIWorkbenchPaneProjectionLabels {
   return {
-    workingDefinition: typeof raw.workingDefinition === 'string' ? raw.workingDefinition.trim() : (typeof raw.workDefinition === 'string' ? raw.workDefinition.trim() : ''),
-    whatItTests: typeof raw.whatItTests === 'string' ? raw.whatItTests.trim() : (typeof raw.testPoint === 'string' ? raw.testPoint.trim() : ''),
-    whyItsTricky: typeof raw.whyItsTricky === 'string' ? raw.whyItsTricky.trim() : (typeof raw.confusionBoundary === 'string' ? raw.confusionBoundary.trim() : ''),
-    connections: normalizeLooseStringList(raw.connections ?? raw.knowledgeNetwork),
-    triggers: normalizeLooseStringList(raw.triggers ?? raw.recognizeNextTime ?? raw.recallTrigger),
-    cardIdeas: normalizeLooseStringList(raw.cardIdeas),
-    rawContent: message.rawContent,
+    aiBusyWait: t('aiBusyWait', 'AI 正在处理中，请稍后再操作。'),
+    aiStructuredEmptyResult: t('aiStructuredEmptyResult', '当前阶段没有识别到可展示的结构字段。'),
+    aiStructuredPartialResult: t('aiStructuredPartialResult', '模型只返回了部分结构，已尽量展示可用内容。'),
+    aiWorkbench: t('aiWorkbench', 'AI 工作台'),
+    anchorNotSelectedHint: t('anchorNotSelectedHint', '当前概念未勾选，不会参与制卡。'),
+    approval: t('approval', '审批'),
+    branches: t('branches', '个分支'),
+    capabilities: t('capabilities', '学会后能做到'),
+    cardIdeas: t('cardIdeas', '可顺手补的卡'),
+    candidateDraft: t('candidateDraft', '候选草稿'),
+    causality: t('causality', '因果关系'),
+    characters: t('characters', '字'),
+    conceptPendingResolve: t('conceptPendingResolve', '待解析'),
+    conceptResolutionStale: t('conceptResolutionStale', '解析结果已过期'),
+    conceptResolutionStaleHint: t('conceptResolutionStaleHint', '当前解析结果属于旧目标笔记本，请重新解析或重新搜索概念文档。'),
+    conceptUnresolved: t('conceptUnresolved', '未命中概念'),
+    connections: t('connections', '它和现有知识网络的连接'),
+    contrasts: t('contrasts', '辨析异同'),
+    createSelectedCards: t('createSelectedCards', '制卡选中项'),
+    creatingCards: t('creatingCards', '制卡中...'),
+    essence: t('essence', '本质压缩'),
+    itemsUnit: t('itemsUnit', '项'),
+    missingSections: t('missingSections', '缺少'),
+    noResolvedConcepts: t('noResolvedConcepts', '当前没有解析到可建卡的概念文档。'),
+    notWhat: t('notWhat', '它不是什么'),
+    partsAndWhole: t('partsAndWhole', '部分和整体'),
+    rawShape: t('rawShape', '原始形状'),
+    realWorldTriggers: t('realWorldTriggers', '现实触发器'),
+    resolvedFromContext: t('resolvedFromContext', '上下文已命中'),
+    resolvedFromNotebook: t('resolvedFromNotebook', '笔记本已命中'),
+    resolvedManually: t('resolvedManually', '手动已选定'),
+    round: t('round', '轮次'),
+    rounds: t('rounds', '轮'),
+    selectCandidateFirst: t('selectCandidateFirst', '请先勾选至少一张包含有效草稿的自测卡片。'),
+    selectCdfFieldsFirst: t('selectCdfFieldsFirst', '请至少勾选一个定义或描述符条目。'),
+    selectConceptFirst: t('selectConceptFirst', '请先勾选至少一个概念锚点。'),
+    setSelfTestTargetFirst: t('setSelfTestTargetFirst', '请先设置制卡位置。'),
+    setTargetFirst: t('setTargetFirst', '先设位置'),
+    significance: t('significance', '意义和影响'),
+    steps: t('steps', '个步骤'),
+    toolCalls: t('toolCalls', '次'),
+    toolCallsLabel: t('toolCallsLabel', '工具调用'),
+    toolRuntime: t('toolRuntime', '工具 Runtime'),
+    traits: t('traits', '特性和倾向'),
+    triggers: t('triggers', '下次什么时候该想起它'),
+    versions: t('versions', '个版本'),
+    viewDetails: t('viewDetails', '查看详情'),
+    whatItTests: t('whatItTests', '这张卡在考什么'),
+    whyItsTricky: t('whyItsTricky', '为什么容易错'),
+    workingDefinition: t('workingDefinition', '工作定义'),
+    you: t('you', '你'),
   };
-}
-
-function previewText(value: string | null | undefined, limit = 180): string {
-  const normalized = String(value || '').trim().replace(/\s+/g, ' ');
-  return normalized.length <= limit ? normalized : `${normalized.slice(0, limit)}...`;
 }
 
 function formatTime(value: number): string {
@@ -1384,7 +1405,7 @@ const selfTestTargetSummary = computed(() => (
   selfTestTargetMemory.value?.targetLabel || t('selfTestTargetNotSet', '尚未设置制卡位置')
 ));
 const selfTestCardCreationFailures = computed(() => (
-  selfTestCreationResult.value?.itemResults.filter((item) => item.status === 'failed') || []
+  getSelfTestCreationFailureItems(selfTestCreationResult.value)
 ));
 const cdfPreviewTargetKey = computed(() => {
   const target = selfTestTargetMemory.value;
@@ -1398,161 +1419,24 @@ const cdfPreviewTargetKey = computed(() => {
   ].join('::');
 });
 
-function sectionsFromPerspectives(value: AIConceptCoachPerspectives): AssistantSection[] {
-  return [
-    { key: 'traits', title: value.traits.title || t('traits', '特性和倾向'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.traits) },
-    { key: 'contrasts', title: value.contrasts.title || t('contrasts', '辨析异同'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.contrasts) },
-    { key: 'partsAndWhole', title: value.partsAndWhole.title || t('partsAndWhole', '部分和整体'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.partsAndWhole) },
-    { key: 'causality', title: value.causality.title || t('causality', '因果关系'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.causality) },
-    { key: 'significance', title: value.significance.title || t('significance', '意义和影响'), kind: 'text' as const, text: formatConceptCoachPerspectiveSectionMarkdown(value.significance) },
-  ];
-}
-
-function missingSectionLabel(tabId: AIWorkbenchAssistantResultMessage['tabId'], key: string): string {
-  if (tabId === 'perspectives') {
-    switch (key) {
-      case 'traits':
-        return t('traits', '特性和倾向');
-      case 'contrasts':
-        return t('contrasts', '辨析异同');
-      case 'partsAndWhole':
-        return t('partsAndWhole', '部分和整体');
-      case 'causality':
-        return t('causality', '因果关系');
-      case 'significance':
-        return t('significance', '意义和影响');
-      default:
-        return key;
-    }
-  }
-  if (tabId === 'integrated-understanding') {
-    switch (key) {
-      case 'essence':
-        return t('essence', '本质压缩');
-      case 'notWhat':
-        return t('notWhat', '它不是什么');
-      case 'capabilities':
-        return t('capabilities', '学会后能做到');
-      default:
-        return key;
-    }
-  }
-  return key;
-}
-
-function assistantResultNotice(message: AIWorkbenchMessage): { status: AIConceptCoachNormalizationDiagnostic['status']; text: string } | null {
-  if (message.kind !== 'assistant-result' || !message.normalizationDiagnostic) {
-    return null;
-  }
-  const diagnostic = message.normalizationDiagnostic;
-  if (diagnostic.status === 'full') {
-    return null;
-  }
-  const missing = diagnostic.missingSections
-    .map((key) => missingSectionLabel(message.tabId, key))
-    .filter(Boolean)
-    .join('、');
-
-  if (diagnostic.status === 'empty') {
-    const base = t('aiStructuredEmptyResult', '当前阶段没有识别到可展示的结构字段。');
-    const detail = missing
-      ? `${t('missingSections', '缺少')}：${missing}。`
-      : '';
-    const shape = diagnostic.rawShape && diagnostic.rawShape !== 'persisted-result'
-      ? `${t('rawShape', '原始形状')}：${diagnostic.rawShape}。`
-      : '';
-    return {
-      status: diagnostic.status,
-      text: `${base}${detail}${shape}`.trim(),
-    };
-  }
-
-  return {
-    status: diagnostic.status,
-    text: `${t('aiStructuredPartialResult', '模型只返回了部分结构，已尽量展示可用内容。')}${missing ? ` ${t('missingSections', '缺少')}：${missing}。` : ''}`.trim(),
-  };
+function assistantResultNotice(message: AIWorkbenchMessage) {
+  return buildAssistantResultNotice(message, projectionLabels());
 }
 
 function assistantSections(message: AIWorkbenchMessage): AssistantSection[] {
-  if (message.kind !== 'assistant-result') {
-    return [];
-  }
-  const genericSections = message.genericSectionResult
-    ? [message.genericSectionResult]
-    : message.genericStructuredResult?.sections.filter((section) => section.id === message.tabId) || [];
-  if (genericSections.length > 0) {
-    return genericSections
-      .map((section): AssistantSection | null => {
-        if (section.renderer === 'markdown') {
-          return section.text.trim()
-            ? { key: section.id, title: section.title, kind: 'text', text: section.text }
-            : null;
-        }
-        if (section.renderer === 'list') {
-          return section.items.length > 0
-            ? { key: section.id, title: section.title, kind: 'list', items: section.items }
-            : null;
-        }
-        if (section.renderer === 'cards') {
-          return section.cards.length > 0
-            ? { key: section.id, title: section.title, kind: 'cards', cards: section.cards }
-            : null;
-        }
-        return section.keyValues.length > 0
-          ? { key: section.id, title: section.title, kind: 'keyValue', keyValues: section.keyValues }
-          : null;
-      })
-      .filter((section): section is AssistantSection => Boolean(section));
-  }
-  const legacyResult = !message.conceptCoachResult && !message.tabResult
-    ? resolveLegacyExplainResult(message)
-    : null;
-  if (legacyResult) {
-    return [
-      { key: 'workingDefinition', title: t('workingDefinition', '工作定义'), kind: 'text' as const, text: legacyResult.workingDefinition },
-      { key: 'whatItTests', title: t('whatItTests', '这张卡在考什么'), kind: 'text' as const, text: legacyResult.whatItTests },
-      { key: 'whyItsTricky', title: t('whyItsTricky', '为什么容易错'), kind: 'text' as const, text: legacyResult.whyItsTricky },
-      { key: 'connections', title: t('connections', '它和现有知识网络的连接'), kind: 'list' as const, items: legacyResult.connections },
-      { key: 'triggers', title: t('triggers', '下次什么时候该想起它'), kind: 'list' as const, items: legacyResult.triggers },
-      { key: 'cardIdeas', title: t('cardIdeas', '可顺手补的卡'), kind: 'list' as const, items: legacyResult.cardIdeas },
-    ].filter((section) => section.kind === 'text' ? section.text.trim().length > 0 : section.items.length > 0);
-  }
-  if (message.tabId === 'working-definition') {
-    const text = typeof message.tabResult === 'string'
-      ? message.tabResult
-      : message.conceptCoachResult?.workingDefinition || '';
-    return [{ key: 'workingDefinition', title: t('workingDefinition', '工作定义'), kind: 'text', text }].filter((section) => section.text.trim());
-  }
-  if (message.tabId === 'perspectives') {
-    return sectionsFromPerspectives((message.tabResult || message.conceptCoachResult?.perspectives) as AIConceptCoachPerspectives)
-      .filter((section) => section.kind === 'text' ? section.text.trim().length > 0 : section.items.length > 0);
-  }
-  if (message.tabId === 'integrated-understanding') {
-    const value = (message.tabResult || message.conceptCoachResult?.integratedUnderstanding) as AIConceptCoachIntegratedUnderstanding | null;
-    return value ? [
-      { key: 'essence', title: t('essence', '本质压缩'), kind: 'text' as const, text: normalizeText(value.essence) },
-      { key: 'notWhat', title: t('notWhat', '它不是什么'), kind: 'list' as const, items: normalizeLooseStringList(value.notWhat) },
-      { key: 'capabilities', title: t('capabilities', '学会后能做到'), kind: 'list' as const, items: normalizeLooseStringList(value.capabilities) },
-    ].filter((section) => section.kind === 'text' ? section.text.length > 0 : section.items.length > 0) : [];
-  }
-  if (message.tabId === 'real-world-triggers') {
-    const value = (message.tabResult || message.conceptCoachResult?.realWorldTriggers) as AIConceptCoachRealWorldTriggers | null;
-    return value ? [{ key: 'triggers', title: t('realWorldTriggers', '现实触发器'), kind: 'list', items: normalizeLooseStringList(value.triggers) }] : [];
-  }
-  return [];
+  return buildAssistantSections(message, projectionLabels());
 }
 
 function candidateCards(message: AIWorkbenchAssistantResultMessage): AIConceptCoachCandidateCard[] {
-  const value = (message.tabResult || message.conceptCoachResult?.selfTestCards) as AIConceptCoachSelfTestCards | null;
-  return Array.isArray(value?.cards) ? value.cards : [];
+  return getSelfTestCandidateCards(message);
 }
 
 function candidateDraftMarkdown(card: AIConceptCoachCandidateCard): string {
-  return resolveSelfTestCandidateDraftMarkdown(card, selfTestCreationMode.value, { allowFallback: true });
+  return getSelfTestCandidateDraftMarkdown(card, selfTestCreationMode.value);
 }
 
 function candidateSummary(card: AIConceptCoachCandidateCard): string {
-  return summarizeSelfTestCandidateCard(card) || t('candidateDraft', '候选草稿');
+  return getSelfTestCandidateSummary(card, projectionLabels());
 }
 
 function messageSelfTestCreationMode(message: AIWorkbenchAssistantResultMessage): AIConceptCoachSelfTestCreationMode {
@@ -1600,21 +1484,11 @@ function cdfCreationOutcomeSummary(result: AIWorkbenchCdfCreationResult): string
 }
 
 function selectedCandidateCount(message: AIWorkbenchAssistantResultMessage): number {
-  return candidateCards(message).filter((card) => card.selected !== false).length;
+  return countSelectedSelfTestCandidates(message);
 }
 
 function createSelectedCardsLabel(selectedCount: number, busy: boolean): string {
-  if (busy) {
-    return t('creatingCards', '制卡中...');
-  }
-  return `${t('createSelectedCards', '制卡选中项')} · ${selectedCount} ${t('itemsUnit', '项')}`;
-}
-
-function validSelectedCandidateCount(message: AIWorkbenchAssistantResultMessage): number {
-  return candidateCards(message).filter((card) => (
-    card.selected !== false
-    && normalizeText(candidateDraftMarkdown(card)).length > 0
-  )).length;
+  return formatSelectedCardsLabel(selectedCount, busy, projectionLabels());
 }
 
 function isPluginSelfTestMode(mode: AIConceptCoachSelfTestCreationMode): boolean {
@@ -1629,31 +1503,6 @@ function isCdfStructureMessage(message: AIWorkbenchMessage): message is AIWorkbe
   return message.kind === 'assistant-result' && message.tabId === 'cdf-structure';
 }
 
-function rawCdfStructure(message: AIWorkbenchAssistantResultMessage): AICdfStructure {
-  const value = (message.tabResult || message.conceptCoachResult?.cdfStructure) as AICdfStructure | null;
-  return value?.anchors ? value : { anchors: [] };
-}
-
-function mergePreviewIntoCdfStructure(base: AICdfStructure, preview: AICdfStructure | null | undefined): AICdfStructure {
-  if (!preview?.anchors?.length) {
-    return base;
-  }
-  const previewById = new Map(preview.anchors.map((anchor) => [anchor.id, anchor] as const));
-  return {
-    anchors: base.anchors.map((anchor) => {
-      const resolved = previewById.get(anchor.id);
-      if (!resolved) {
-        return anchor;
-      }
-      return {
-        ...anchor,
-        resolution: resolved.resolution,
-        warnings: resolved.warnings || anchor.warnings || [],
-      };
-    }),
-  };
-}
-
 function cdfPreviewBusy(messageId: string): boolean {
   return cdfPreviewBusyMessageIds.value.includes(messageId);
 }
@@ -1663,11 +1512,11 @@ function cdfPreviewError(messageId: string): string {
 }
 
 function cdfStructureForMessage(message: AIWorkbenchAssistantResultMessage): AICdfStructure {
-  return mergePreviewIntoCdfStructure(rawCdfStructure(message), cdfPreviewByMessageId.value[message.id]);
+  return getCdfStructureForMessage(message, cdfPreviewByMessageId.value[message.id]);
 }
 
 function cdfAnchors(message: AIWorkbenchAssistantResultMessage): AICdfAnchor[] {
-  return cdfStructureForMessage(message).anchors || [];
+  return getCdfAnchors(message, cdfPreviewByMessageId.value[message.id]);
 }
 
 function cdfSearchKey(messageId: string, anchorId: string): string {
@@ -1686,108 +1535,44 @@ function clearCdfPreviewState(messageId: string): void {
   cdfPreviewErrors.value = nextErrors;
 }
 
-function isCdfResolutionStale(resolution: AICdfAnchorResolution | null | undefined): boolean {
-  if (!resolution || !selfTestTargetMemory.value) {
-    return false;
-  }
-  if (resolution.status !== 'resolved-notebook' && resolution.status !== 'resolved-manual') {
-    return false;
-  }
-  const resolutionNotebookId = normalizeText(resolution.notebookId);
-  if (!resolutionNotebookId) {
-    return false;
-  }
-  return resolutionNotebookId !== normalizeText(selfTestTargetMemory.value.notebookId);
+function isCdfResolutionStale(resolution: AICdfAnchor['resolution']): boolean {
+  return isCdfResolutionStaleForTarget(resolution, selfTestTargetMemory.value);
 }
 
 function hasUsableCdfResolution(anchor: AICdfAnchor): boolean {
-  if (!anchor.resolution || isCdfResolutionStale(anchor.resolution)) {
-    return false;
-  }
-  return anchor.resolution.status === 'resolved-context'
-    || anchor.resolution.status === 'resolved-notebook'
-    || anchor.resolution.status === 'resolved-manual';
+  return hasUsableCdfResolutionProjection(anchor, selfTestTargetMemory.value);
 }
 
 function selectedCdfAnchorCount(message: AIWorkbenchAssistantResultMessage): number {
-  return cdfAnchors(message).filter((anchor) => anchor.selected !== false).length;
+  return countSelectedCdfAnchors(cdfAnchors(message));
 }
 
 function selectedCdfDefinitionCount(message: AIWorkbenchAssistantResultMessage): number {
-  return cdfAnchors(message).reduce((total, anchor) => total + anchor.definitionCandidates.filter((definition) => (
-    anchor.selected !== false && definition.selected !== false && normalizeText(definition.text).length > 0
-  )).length, 0);
+  return countSelectedCdfDefinitions(cdfAnchors(message));
 }
 
-function hasSelectedCdfDefinition(anchor: AICdfAnchor): boolean {
-  return anchor.definitionCandidates.some((definition) => (
-    definition.selected !== false && normalizeText(definition.text).length > 0
-  ));
+function selectedCdfDescriptorItemsInGroup(group: Parameters<typeof countSelectedCdfDescriptorItemsInGroup>[0]): number {
+  return countSelectedCdfDescriptorItemsInGroup(group);
 }
 
-function selectedCdfDescriptorItemsInGroup(group: AICdfDescriptorGroup): number {
-  return group.items.filter((item) => item.selected !== false && normalizeText(item.text).length > 0).length;
-}
-
-function cdfDescriptorGroupMode(group: AICdfDescriptorGroup): ';;' | ';;;' {
-  return selectedCdfDescriptorItemsInGroup(group) > 1 ? ';;;' : ';;';
+function cdfDescriptorGroupMode(group: Parameters<typeof getCdfDescriptorGroupMode>[0]): ';;' | ';;;' {
+  return getCdfDescriptorGroupMode(group);
 }
 
 function selectedCdfDescriptorCount(message: AIWorkbenchAssistantResultMessage): number {
-  return cdfAnchors(message).reduce((total, anchor) => total + anchor.descriptorGroups.reduce((groupTotal, group) => (
-    anchor.selected !== false && group.selected !== false
-      ? groupTotal + selectedCdfDescriptorItemsInGroup(group)
-      : groupTotal
-  ), 0), 0);
+  return countSelectedCdfDescriptors(cdfAnchors(message));
 }
 
 function cdfResolutionLabel(anchor: AICdfAnchor): string {
-  if (isCdfResolutionStale(anchor.resolution)) {
-    return t('conceptResolutionStale', '解析结果已过期');
-  }
-  switch (anchor.resolution?.status) {
-    case 'resolved-context':
-      return t('resolvedFromContext', '上下文已命中');
-    case 'resolved-notebook':
-      return t('resolvedFromNotebook', '笔记本已命中');
-    case 'resolved-manual':
-      return t('resolvedManually', '手动已选定');
-    case 'unresolved':
-      return t('conceptUnresolved', '未命中概念');
-    default:
-      return selfTestTargetMemory.value
-        ? t('conceptPendingResolve', '待解析')
-        : t('setTargetFirst', '先设位置');
-  }
+  return getCdfResolutionLabel(anchor, selfTestTargetMemory.value, projectionLabels());
 }
 
 function cdfResolutionReason(anchor: AICdfAnchor): string {
-  if (isCdfResolutionStale(anchor.resolution)) {
-    return t('conceptResolutionStaleHint', '当前解析结果属于旧目标笔记本，请重新解析或重新搜索概念文档。');
-  }
-  return normalizeText(anchor.resolution?.reason);
+  return getCdfResolutionReason(anchor, selfTestTargetMemory.value, projectionLabels());
 }
 
 function cdfAnchorCreationHint(anchor: AICdfAnchor): string | null {
-  if (anchor.selected === false) {
-    return t('anchorNotSelectedHint', '当前概念未勾选，不会参与制卡。');
-  }
-  if (!anchor.resolution) {
-    return selfTestTargetMemory.value ? null : t('setTargetFirst', '请先设置制卡位置。');
-  }
-  if (isCdfResolutionStale(anchor.resolution) || anchor.resolution.status === 'unresolved') {
-    return null;
-  }
-  const selectedDefinitions = anchor.definitionCandidates.filter((definition) => definition.selected !== false && normalizeText(definition.text).length > 0).length;
-  const selectedDescriptors = anchor.descriptorGroups.reduce((total, group) => (
-    group.selected === false
-      ? total
-      : total + group.items.filter((item) => item.selected !== false && normalizeText(item.text).length > 0).length
-  ), 0);
-  if (selectedDefinitions === 0 && selectedDescriptors === 0) {
-    return t('selectCdfFieldsFirst', '请至少勾选一个定义或描述符条目。');
-  }
-  return null;
+  return getCdfAnchorCreationHint(anchor, selfTestTargetMemory.value, projectionLabels());
 }
 
 function cdfSearchOpen(messageId: string, anchorId: string): boolean {
@@ -1830,10 +1615,7 @@ function cdfDefinitionGroupName(messageId: string, anchorId: string): string {
 }
 
 function canCreateCdfConceptDocument(anchor: AICdfAnchor): boolean {
-  if (!selfTestTargetMemory.value || !anchor.resolution) {
-    return false;
-  }
-  return anchor.resolution.status === 'unresolved' || isCdfResolutionStale(anchor.resolution);
+  return canCreateCdfConceptDocumentProjection(anchor, selfTestTargetMemory.value);
 }
 
 function modeDraftError(messageId: string): string {
@@ -1903,16 +1685,15 @@ const selfTestStaleHint = computed(() => (
 ));
 
 function selfTestCardCreationDisabledReason(message: AIWorkbenchAssistantResultMessage): string | null {
-  if (state.isLoading || selfTestCardCreationBusy.value || modeDraftBusy(message.id)) {
-    return t('aiBusyWait', 'AI 正在处理中，请稍后再操作。');
-  }
-  if (validSelectedCandidateCount(message) === 0) {
-    return t('selectCandidateFirst', '请先勾选至少一张包含有效草稿的自测卡片。');
-  }
-  if (!selfTestTargetMemory.value) {
-    return t('setSelfTestTargetFirst', '请先设置制卡位置。');
-  }
-  return null;
+  return resolveSelfTestCardCreationDisabledReason({
+    message,
+    mode: selfTestCreationMode.value,
+    isLoading: state.isLoading,
+    creationBusy: selfTestCardCreationBusy.value,
+    modeDraftBusy: modeDraftBusy(message.id),
+    target: selfTestTargetMemory.value,
+    labels: projectionLabels(),
+  });
 }
 
 function selfTestCreationStatusLabel(status: AIWorkbenchSelfTestCardCreationResult['itemResults'][number]['status']): string {
@@ -1928,29 +1709,11 @@ function selfTestCreationStatusLabel(status: AIWorkbenchSelfTestCardCreationResu
 }
 
 function messageSpeaker(message: AIWorkbenchMessage): string {
-  if (message.kind === 'user') {
-    return t('you', '你');
-  }
-  if (message.kind === 'tool-log') {
-    return t('toolRuntime', '工具 Runtime');
-  }
-  if (message.kind === 'approval') {
-    return t('approval', '审批');
-  }
-  return t('aiWorkbench', 'AI');
+  return getMessageSpeaker(message, projectionLabels());
 }
 
-function messageContextItems(message: AIWorkbenchMessage): AIAttachedContextItem[] {
-  if (message.kind === 'separator') {
-    return [];
-  }
-  if ('attachedContexts' in message) {
-    return message.attachedContexts;
-  }
-  if ('appliedContexts' in message) {
-    return message.appliedContexts;
-  }
-  return [];
+function messageContextItems(message: AIWorkbenchMessage) {
+  return getMessageContextItems(message);
 }
 
 function relatedUserMessage(message: AIWorkbenchMessage): AIWorkbenchUserMessage | null {
@@ -2003,95 +1766,35 @@ function toggleEntryDetails(entryKey: string): void {
 }
 
 function visibleSupplementalMessages(entry: AIWorkbenchRenderEntry): AIWorkbenchMessage[] {
-  return entry.supplementalMessages.filter((message) => (
-    message.kind !== 'approval' || message.request.status !== 'pending'
-  ));
-}
-
-function entryToolLogs(entry: AIWorkbenchRenderEntry): AIWorkbenchToolLogMessage[] {
-  return visibleSupplementalMessages(entry).filter((message): message is AIWorkbenchToolLogMessage => message.kind === 'tool-log');
-}
-
-function entryApprovalHistory(entry: AIWorkbenchRenderEntry): AIWorkbenchApprovalMessage[] {
-  return visibleSupplementalMessages(entry).filter((message): message is AIWorkbenchApprovalMessage => message.kind === 'approval');
+  return getVisibleSupplementalMessages(entry);
 }
 
 function entryReasoningContent(entry: AIWorkbenchRenderEntry): string | null {
-  const message = entry.primaryMessage;
-  if (message.kind !== 'assistant-text' && message.kind !== 'assistant-result') {
-    return null;
-  }
-  return message.reasoningContent || null;
+  return getEntryReasoningContent(entry);
 }
 
 function entryDiagnostics(entry: AIWorkbenchRenderEntry): string[] {
-  const message = entry.primaryMessage;
-  if (message.kind !== 'assistant-text' && message.kind !== 'assistant-result') {
-    return [];
-  }
-  return message.diagnostics || [];
+  return getEntryDiagnostics(entry);
 }
 
 function entryHasDetails(entry: AIWorkbenchRenderEntry): boolean {
-  return visibleSupplementalMessages(entry).length > 0
-    || Boolean(entryReasoningContent(entry))
-    || entryDiagnostics(entry).length > 0;
+  return entryHasProjectionDetails(entry);
 }
 
 function entryDetailsLabel(entry: AIWorkbenchRenderEntry): string {
-  const toolLogs = entryToolLogs(entry);
-  if (toolLogs.length > 0) {
-    const rounds = Math.max(...toolLogs.map((detail) => detail.roundIndex || 0), 0);
-    const duration = toolLogs.reduce((total, detail) => total + (detail.durationMs || 0), 0);
-    const summary = [`${t('toolCallsLabel', '工具调用')}（${toolLogs.length} ${t('toolCalls', '次')}`];
-    if (rounds > 0) {
-      summary.push(`${rounds} ${t('rounds', '轮')}`);
-    }
-    summary[0] = `${summary[0]}${summary.length > 1 ? ' · ' : ''}${summary.slice(1).join(' · ')}`.trimEnd();
-    summary.splice(1);
-    summary[0] = `${summary[0]}）`;
-    if (duration > 0) {
-      summary.push(`${(duration / 1000).toFixed(duration >= 10000 ? 0 : 1)}s`);
-    }
-    return summary.join(' · ');
-  }
-  if (entry.stepCount > 0 || entryApprovalHistory(entry).length > 0) {
-    return `${entry.stepCount} ${t('steps', '个步骤')}`;
-  }
-  return t('viewDetails', '查看详情');
+  return getEntryDetailsLabel(entry, projectionLabels());
 }
 
-function toolLogMeta(detail: AIWorkbenchToolLogMessage): string {
-  const parts = [detail.status];
-  if (detail.roundIndex) {
-    parts.push(`${t('round', '轮次')} ${detail.roundIndex}`);
-  }
-  if (detail.durationMs) {
-    parts.push(`${detail.durationMs}ms`);
-  }
-  if (detail.llmUsage?.totalTokens) {
-    parts.push(`${detail.llmUsage.totalTokens} tokens`);
-  }
-  return parts.join(' · ');
+function toolLogMeta(detail: Parameters<typeof getToolLogMeta>[0]): string {
+  return getToolLogMeta(detail, projectionLabels());
 }
 
-function approvalArgsText(request: AIChatApprovalRequest): string {
-  return request.argsText || JSON.stringify(request.args, null, 2);
+function approvalArgsText(request: Parameters<typeof getApprovalArgsText>[0]): string {
+  return getApprovalArgsText(request);
 }
 
 function messageFooterMeta(message: AIWorkbenchMessage): string {
-  const meta = messageMeta(message);
-  const parts: string[] = [];
-  if ((meta?.versionCount || 0) > 1) {
-    parts.push(`${meta?.versionCount} ${t('versions', '个版本')}`);
-  }
-  if ((meta?.branchCount || 0) > 0) {
-    parts.push(`${meta?.branchCount} ${t('branches', '个分支')}`);
-  }
-  if (message.kind === 'assistant-text' && message.content) {
-    parts.push(`${message.content.length} ${t('characters', '字')}`);
-  }
-  return parts.join(' · ');
+  return getMessageFooterMeta(message, messageMeta(message), projectionLabels());
 }
 
 function treeNodeTitle(node: { message: AIWorkbenchMessage | null; kind: string }): string {
@@ -2498,23 +2201,14 @@ async function previewVisibleCdfMessages(force = false): Promise<void> {
 }
 
 function cdfCardCreationDisabledReason(message: AIWorkbenchAssistantResultMessage): string | null {
-  if (state.isLoading || cdfCreationBusy.value || cdfPreviewBusy(message.id)) {
-    return t('aiBusyWait', 'AI 正在处理中，请稍后再操作。');
-  }
-  if (!selfTestTargetMemory.value) {
-    return t('setSelfTestTargetFirst', '请先设置制卡位置。');
-  }
-  const anchors = cdfAnchors(message).filter((anchor) => anchor.selected !== false);
-  if (anchors.length === 0) {
-    return t('selectConceptFirst', '请先勾选至少一个概念锚点。');
-  }
-  if (anchors.every((anchor) => !hasUsableCdfResolution(anchor))) {
-    return t('noResolvedConcepts', '当前没有解析到可建卡的概念文档。');
-  }
-  if (!anchors.some((anchor) => cdfAnchorCreationHint(anchor) === null)) {
-    return t('selectCdfFieldsFirst', '请至少勾选一个定义或描述符条目。');
-  }
-  return null;
+  return resolveCdfCardCreationDisabledReason({
+    anchors: cdfAnchors(message),
+    target: selfTestTargetMemory.value,
+    isLoading: state.isLoading,
+    creationBusy: cdfCreationBusy.value,
+    previewBusy: cdfPreviewBusy(message.id),
+    labels: projectionLabels(),
+  });
 }
 
 async function toggleCdfAnchor(messageId: string, anchorId: string, event: Event): Promise<void> {
