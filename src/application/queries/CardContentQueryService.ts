@@ -12,7 +12,6 @@
  */
 
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
-import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CardContentQueryService');
@@ -47,11 +46,11 @@ interface BlockContentRow extends Record<string, unknown> {
  * - 处理查询错误
  * 
  * 依赖：
- * - 基础设施层：通过动态导入 siyuan API
+ * - QuerySiyuanPort：由组合根注入
  */
 export class CardContentQueryService {
   constructor(
-    private readonly siyuanApi: QuerySiyuanPort = new QuerySiyuanAdapter()
+    private readonly siyuanApi: QuerySiyuanPort
   ) {}
 
   /**

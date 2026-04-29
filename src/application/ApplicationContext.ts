@@ -76,6 +76,7 @@ import { XiuyuanSyncSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSyncSiy
 import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapter';
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
 import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
+import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
 import { ExcerptRecordService } from '@/application/services/ExcerptRecordService';
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
@@ -478,7 +479,7 @@ export class ApplicationContext {
     
     // ✅ 卡片内容查询服务
     this.registerServiceFactory('cardContentQueryService', () => {
-      return new CardContentQueryService();
+      return new CardContentQueryService(new QuerySiyuanAdapter());
     });
 
     this.registerServiceFactory('aiWorkbenchSessionStoreService', (context) => {
