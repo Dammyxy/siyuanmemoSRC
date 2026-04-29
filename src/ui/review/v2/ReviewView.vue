@@ -215,6 +215,11 @@ import {
   rememberModifiedReviewHotkey,
 } from './reviewKeyboardGuard';
 import {
+  buildReviewMoreMenuItems,
+  isReviewMenuSeparator,
+  type ReviewMenuItem,
+} from './reviewMoreMenuItems';
+import {
   isProgressiveSelectionInsideNativeProtyle,
   type ProgressiveExcerptSelectionSnapshot,
   resolveProgressiveExcerptSelectionSnapshot,
@@ -455,15 +460,6 @@ type CommandLike = {
   id?: unknown;
   label?: unknown;
   icon?: string;
-};
-
-type ReviewMenuItem = {
-  id?: string;
-  icon?: string;
-  label: string;
-  disabled?: boolean;
-  click?: () => void | Promise<void>;
-  submenu?: ReviewMenuItem[];
 };
 
 type ProtyleLike = {
@@ -1916,11 +1912,6 @@ function resolveCurrentReviewCardPriority(): number | null {
 function resolveCurrentReviewCardDismissed(): boolean {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   return currentCard ? isCardDismissed(currentCard) : false;
-}
-
-function buildReviewPriorityMenuLabel(priority: number | null): string {
-  const displayValue = priority === null ? '-' : String(priority);
-  return t('reviewPriorityMenuLabel', '优先级：{value}').replace('{value}', displayValue);
 }
 
 function getActiveRemovableReviewQueue(): { removeCard?: (cardIdOrBlockId: string) => Promise<void> } | null {
@@ -3887,138 +3878,45 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
   const openAsItems = buildOpenAsMenuItems();
   const peerInfo = resolveCurrentBlockPeerCards();
-  const peerCount = peerInfo?.peerCards.length ?? 0;
-  const currentPriority = resolveCurrentReviewCardPriority();
-  const currentDismissed = resolveCurrentReviewCardDismissed();
   const editableSource = resolveCurrentEditableSource();
-  const canEditCurrentPriority = hasCurrentReviewCard() && Boolean(getCardEditorService());
-  const canSuspendCurrentCard = hasCurrentReviewCard() && Boolean(getCardEditorService());
-  const canDeleteCurrentCard = hasCurrentReviewCard() && Boolean(getCardService());
-  const items: ReviewMenuItem[] = [];
+  const hasReviewCard = hasCurrentReviewCard();
+  const hasCardEditorService = Boolean(getCardEditorService());
 
-  if (currentCard?.type === 'topic' && isProgressiveExcerptEnabled()) {
-    items.push({
-      id: 'progressive-excerpt',
-      icon: 'iconQuote',
-      label: t('progressiveExcerptSelection', '摘录选区'),
-      click: () => void handleProgressiveExcerptFromReview('toolbar'),
-    });
-  }
-
-  const sourceTargetId = resolveProgressiveSourceTargetId();
-  if (sourceTargetId) {
-    items.push({
-      id: 'progressive-open-source',
-      icon: 'iconOpen',
-      label: t('progressiveOpenSource', '跳到来源'),
-      click: handleProgressiveOpenSource,
-    });
-  }
-
-  if (isLinearPieceReviewCard(currentCard)) {
-    items.push({
-      id: 'progressive-complete-piece',
-      icon: 'iconRight',
-      label: t('progressiveCompletePiece', '完成当前片'),
-      click: () => void handleProgressiveCompletePiece(),
-    });
-  }
-
-  if (items.length > 0) {
-    items.push({
-      id: 'separator-progressive',
-      label: '',
-    });
-  }
-
-  items.push({
-    id: 'open-as',
-    icon: 'iconOpen',
-    label: t('openBy', '打开为'),
-    disabled: openAsItems.length === 0,
-    submenu: openAsItems,
+  return buildReviewMoreMenuItems({
+    t,
+    currentCardType: currentCard?.type,
+    progressiveExcerptEnabled: isProgressiveExcerptEnabled(),
+    hasProgressiveSourceTarget: Boolean(resolveProgressiveSourceTargetId()),
+    isLinearPieceReviewCard: isLinearPieceReviewCard(currentCard),
+    openAsItems,
+    editableSourceTitle: editableSource?.title ?? null,
+    currentPriority: resolveCurrentReviewCardPriority(),
+    currentDismissed: resolveCurrentReviewCardDismissed(),
+    canEditCurrentPriority: hasReviewCard && hasCardEditorService,
+    canSuspendCurrentCard: hasReviewCard && hasCardEditorService,
+    canDeleteCurrentCard: hasReviewCard && Boolean(getCardService()),
+    peerCount: peerInfo?.peerCards.length ?? 0,
+    isMobile: props.isMobile === true,
+    actions: {
+      progressiveExcerpt: () => void handleProgressiveExcerptFromReview('toolbar'),
+      progressiveOpenSource: handleProgressiveOpenSource,
+      progressiveCompletePiece: () => void handleProgressiveCompletePiece(),
+      editSrs: openCurrentSrsEditor,
+      editCurrentContent: () => void openCurrentContentEditor(),
+      toggleFullscreen: toggleReviewFullscreen,
+      editPriority: () => void handleEditCurrentCardPriority(),
+      toggleDismissed: () => void handleDismissCurrentCard(),
+      dismissPeers: () => void handleDismissPeerCards(),
+      deleteCurrent: () => void handleDeleteCurrentCard(),
+      deletePeers: () => void handleDeletePeerCards(),
+    },
   });
-
-  items.push({
-    id: 'edit-srs',
-    icon: 'iconEdit',
-    label: t('editSrsData', '编辑 SRS 数据'),
-    click: openCurrentSrsEditor,
-  });
-
-  if (editableSource) {
-    items.push({
-      id: 'edit-current-content',
-      icon: 'iconEdit',
-      label: editableSource.title,
-      click: () => void openCurrentContentEditor(),
-    });
-  }
-
-  items.push({
-    id: 'fullscreen',
-    icon: 'iconFullscreen',
-    label: t('fullscreen', '全屏'),
-    disabled: props.isMobile === true,
-    click: toggleReviewFullscreen,
-  });
-
-  items.push({
-    id: 'separator-card-actions',
-    label: '',
-  });
-
-  items.push({
-    id: 'edit-current-priority',
-    icon: 'iconSort',
-    label: buildReviewPriorityMenuLabel(currentPriority),
-    disabled: !canEditCurrentPriority,
-    click: () => void handleEditCurrentCardPriority(),
-  });
-
-  items.push({
-    id: 'pause-current-card',
-    icon: 'iconPause',
-    label: currentDismissed
-      ? t('unsuspendCurrentCard', '取消暂停这张卡片')
-      : t('suspendCurrentCard', '暂停这张卡片'),
-    disabled: !canSuspendCurrentCard,
-    click: () => void handleDismissCurrentCard(),
-  });
-
-  if (peerCount > 0) {
-    items.push({
-      id: 'pause-peer-cards',
-      icon: 'iconPause',
-      label: t('suspendPeerCards', '暂停这张卡片和同块的其余 {count} 张卡片').replace('{count}', String(peerCount)),
-      click: () => void handleDismissPeerCards(),
-    });
-  }
-
-  items.push({
-    id: 'delete-current-card',
-    icon: 'iconTrashcan',
-    label: t('deleteCurrentCard', '删除卡片'),
-    disabled: !canDeleteCurrentCard,
-    click: () => void handleDeleteCurrentCard(),
-  });
-
-  if (peerCount > 0) {
-    items.push({
-      id: 'delete-peer-cards',
-      icon: 'iconTrashcan',
-      label: t('deletePeerCards', '删除这张卡片和同块的其余 {count} 张卡片').replace('{count}', String(peerCount)),
-      click: () => void handleDeletePeerCards(),
-    });
-  }
-
-  return items;
 }
 
 function handleOpenMoreMenu(ev: MouseEvent): void {
   const menu = new Menu('review-more-menu');
   for (const item of buildMoreMenuItems()) {
-    if (item.id?.startsWith('separator-')) {
+    if (isReviewMenuSeparator(item)) {
       menu.addSeparator();
       continue;
     }
