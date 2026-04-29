@@ -1,9 +1,7 @@
 import type { XiuyuanSiyuanPort } from '@/application/ports/XiuyuanSiyuanPort';
-import { XiuyuanSiyuanAdapter } from '@/infrastructure/siyuan/XiuyuanSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('XiuyuanConceptLocator');
-const defaultSiyuanApi = new XiuyuanSiyuanAdapter();
 
 export type LocatedConceptType = 'block-ref' | 'heading' | 'document';
 
@@ -178,7 +176,7 @@ async function findConceptWithoutListParent(
 
 export async function findConceptByUpwardSearch(
   blockId: string,
-  siyuanApi: XiuyuanSiyuanPort = defaultSiyuanApi
+  siyuanApi: XiuyuanSiyuanPort
 ): Promise<LocatedConcept | null> {
   const listParent = await hasListItemParent(blockId, siyuanApi);
   logger.debug('Has list item parent:', listParent);

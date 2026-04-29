@@ -2095,7 +2095,7 @@ export class DialogManager implements IDialogManager {
       // 对于反向和双向模板，需要使用特殊的创建逻辑
       if (actualTemplateId === 'builtin-concept-descriptor-reverse' || actualTemplateId === 'builtin-concept-descriptor-both') {
         // 🆕 使用通用的 createFromBlocks 方法，但需要先找到概念块
-        const conceptResult = await findConceptByUpwardSearch(blockIds[0]);
+        const conceptResult = await findConceptByUpwardSearch(blockIds[0], this.siyuanApi);
 
         if (!conceptResult) {
           this.siyuanApi.pushErrMsg('未找到概念块');

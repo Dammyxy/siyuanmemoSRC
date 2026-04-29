@@ -225,6 +225,28 @@ describe('DialogManager CDF multiline routing', () => {
     expect(xiuyuanAppService.createFromBlocks).not.toHaveBeenCalled();
   });
 
+  it('passes the injected manager Siyuan port to descriptor auto concept lookup', async () => {
+    const { dialogManager, xiuyuanAppService, siyuanApi } = createDialogManager();
+    vi.mocked(siyuanApi.getBlockKramdown).mockResolvedValue({ kramdown: '时间;<1987' });
+    mockedFindConceptByUpwardSearch.mockResolvedValue({
+      conceptId: CONCEPT_DOC,
+      conceptType: 'document',
+    });
+
+    await (dialogManager as any).handleConceptDescriptorAutoCard(
+      [PARENT_I],
+      'builtin-concept-descriptor-auto'
+    );
+
+    expect(mockedFindConceptByUpwardSearch).toHaveBeenCalledWith(PARENT_I, siyuanApi);
+    expect(xiuyuanAppService.createFromBlocks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blockIds: [CONCEPT_DOC, PARENT_I],
+        templateId: 'builtin-concept-descriptor-reverse',
+      })
+    );
+  });
+
   it('maps ::: unmarked child to concept-definition template', async () => {
     const { dialogManager, xiuyuanAppService } = createDialogManager();
     mockedResolveCdfMultilineScan.mockResolvedValue(createScanResult());
