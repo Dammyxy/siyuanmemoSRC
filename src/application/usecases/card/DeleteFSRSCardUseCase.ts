@@ -18,7 +18,7 @@
  * 
  * @example
  * ```typescript
- * const useCase = new DeleteFSRSCardUseCase(storage);
+ * const useCase = new DeleteFSRSCardUseCase(storage, { siyuanApi });
  * 
  * const result = await useCase.execute({
  *   cardId: 'card-123',
@@ -41,7 +41,6 @@ import type { DeleteFSRSCardStoragePort } from '@/core/storage/ports';
 import { ok, err, type Result } from '@/types/result';
 import type { DeleteFSRSCardCommand, DeleteFSRSCardCommandResult } from '@/application/commands/card/DeleteFSRSCardCommand';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
-import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
 import { isIgnorableMissingBlockError } from './shared/SiyuanBlockErrorClassifier';
 import { throwOnFailedStorageOperation } from './shared/StorageOperationResult';
@@ -57,9 +56,9 @@ export class DeleteFSRSCardUseCase {
 
   constructor(
     private readonly storage: DeleteFSRSCardStoragePort,
-    ports?: { siyuanApi?: CardDeletionSiyuanPort }
+    ports: { siyuanApi: CardDeletionSiyuanPort }
   ) {
-    this.siyuanApi = ports?.siyuanApi ?? new CardDeletionSiyuanAdapter();
+    this.siyuanApi = ports.siyuanApi;
   }
   
   /**

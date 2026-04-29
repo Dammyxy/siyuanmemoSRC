@@ -44,7 +44,6 @@ import { CardsDeletedEvent } from '@/core/xiuyuan/domain/events/CardsDeletedEven
 import type { Xiuyuan } from '@/core/xiuyuan/domain/Xiuyuan';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
 import type { CardDeletionSiyuanPort } from '@/application/ports/CardDeletionSiyuanPort';
-import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { buildClearedBlockAttrs } from './shared/CardBlockAttrCleaner';
 import { persistXiuyuanAfterCardDeletion } from './shared/PersistXiuyuanAfterCardDeletion';
 import { warmupXiuyuanCardIndex } from './shared/WarmupXiuyuanCardIndex';
@@ -62,9 +61,9 @@ export class DeleteCardsUseCase {
     private readonly cardDeletionService: CardDeletionService,
     private readonly eventBus: EventBus,
     private readonly deletionTracker: IDeletionTracker,
-    ports?: { siyuanApi?: CardDeletionSiyuanPort }
+    ports: { siyuanApi: CardDeletionSiyuanPort }
   ) {
-    this.siyuanApi = ports?.siyuanApi ?? new CardDeletionSiyuanAdapter();
+    this.siyuanApi = ports.siyuanApi;
   }
 
   /**

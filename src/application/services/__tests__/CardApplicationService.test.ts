@@ -10,7 +10,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CardApplicationService } from '../CardApplicationService';
 import { CreateCardUseCase } from '../../usecases/card/CreateCardUseCase';
 import { DeleteCardUseCase } from '../../usecases/card/DeleteCardUseCase';
+import { DeleteCardsUseCase } from '../../usecases/card/DeleteCardsUseCase';
 import { UpdateCardUseCase } from '../../usecases/card/UpdateCardUseCase';
+import { DeleteFSRSCardUseCase } from '../../usecases/card/DeleteFSRSCardUseCase';
 import { CreateCardCommand } from '../../commands/card/CreateCardCommand';
 import { DeleteCardCommand } from '../../commands/card/DeleteCardCommand';
 import { UpdateCardCommand } from '../../commands/card/UpdateCardCommand';
@@ -19,12 +21,15 @@ import { Card } from '@/core/xiuyuan/domain/Card';
 import { CardId } from '@/core/xiuyuan/domain/CardId';
 import { XiuyuanId } from '@/core/xiuyuan/domain/XiuyuanId';
 import { ScheduleInfo } from '@/core/xiuyuan/domain/ScheduleInfo';
+import { CardScheduleService } from '@/core/card/domain/services/CardScheduleService';
 
 describe('CardApplicationService', () => {
   let service: CardApplicationService;
   let mockCreateCardUseCase: CreateCardUseCase;
   let mockDeleteCardUseCase: DeleteCardUseCase;
+  let mockDeleteCardsUseCase: DeleteCardsUseCase;
   let mockUpdateCardUseCase: UpdateCardUseCase;
+  let mockDeleteFSRSCardUseCase: DeleteFSRSCardUseCase;
 
   beforeEach(() => {
     // 创建 mock 用例
@@ -36,7 +41,15 @@ describe('CardApplicationService', () => {
       execute: vi.fn()
     } as any;
 
+    mockDeleteCardsUseCase = {
+      execute: vi.fn()
+    } as any;
+
     mockUpdateCardUseCase = {
+      execute: vi.fn()
+    } as any;
+
+    mockDeleteFSRSCardUseCase = {
       execute: vi.fn()
     } as any;
 
@@ -44,7 +57,12 @@ describe('CardApplicationService', () => {
     service = new CardApplicationService(
       mockCreateCardUseCase,
       mockDeleteCardUseCase,
-      mockUpdateCardUseCase
+      mockDeleteCardsUseCase,
+      mockUpdateCardUseCase,
+      {} as any,
+      new CardScheduleService(),
+      {} as any,
+      mockDeleteFSRSCardUseCase
     );
   });
 

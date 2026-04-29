@@ -94,6 +94,7 @@ export class CardApplicationService {
    * @param readModel - 卡片读取模型（用于查询）
    * @param scheduleService - 卡片调度服务（用于查询）
    * @param unifiedStorage - 统一存储管理器（用于 FSRS 卡片操作）
+   * @param deleteFSRSCardUseCase - 删除 FSRS 卡片用例（由组合根注入 Siyuan port）
    */
   constructor(
     private readonly createCardUseCase: CreateCardUseCase,
@@ -102,7 +103,8 @@ export class CardApplicationService {
     private readonly updateCardUseCase: UpdateCardUseCase,
     readModel: ICardReadModel,  // ✅ 使用 Read Model 接口
     scheduleService: CardScheduleService,
-    private readonly unifiedStorage: CardApplicationStoragePort
+    private readonly unifiedStorage: CardApplicationStoragePort,
+    deleteFSRSCardUseCase: DeleteFSRSCardUseCase
   ) {
     this.readModel = readModel;
     // 初始化查询处理器
@@ -115,7 +117,7 @@ export class CardApplicationService {
     
     // ✅ 使用 UnifiedStorageManager 初始化 FSRS 卡片用例
     this.updateFSRSCardUseCase = new UpdateFSRSCardUseCase(this.unifiedStorage);
-    this.deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(this.unifiedStorage);
+    this.deleteFSRSCardUseCase = deleteFSRSCardUseCase;
   }
 
   /**

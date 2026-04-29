@@ -38,7 +38,6 @@ import { CardFace } from '@/core/xiuyuan/domain/CardFace';
 import { Priority } from '@/core/xiuyuan/domain/Priority';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 import type { CardCreationSiyuanPort } from '@/application/ports/CardCreationSiyuanPort';
-import { CardCreationSiyuanAdapter } from '@/infrastructure/siyuan/CardCreationSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('CreateCardUseCase');
@@ -50,9 +49,9 @@ export class CreateCardUseCase {
     private readonly xiuyuanRepo: IXiuyuanRepository,
     private readonly cardCreationService: CardCreationService,
     private readonly eventBus: EventBus,
-    ports?: { siyuanApi?: CardCreationSiyuanPort }
+    ports: { siyuanApi: CardCreationSiyuanPort }
   ) {
-    this.siyuanApi = ports?.siyuanApi ?? new CardCreationSiyuanAdapter();
+    this.siyuanApi = ports.siyuanApi;
   }
 
   /**

@@ -41,6 +41,7 @@ import { CardTypeDetectionService } from '@/core/xiuyuan/domain/services/CardTyp
 import { CreateCardUseCase } from '@/application/usecases/card/CreateCardUseCase';
 import { DeleteCardUseCase } from '@/application/usecases/card/DeleteCardUseCase';
 import { DeleteCardsUseCase } from '@/application/usecases/card/DeleteCardsUseCase';
+import { DeleteFSRSCardUseCase } from '@/application/usecases/card/DeleteFSRSCardUseCase';
 import { UpdateCardUseCase } from '@/application/usecases/card/UpdateCardUseCase';
 import { ReviewCommitUseCase } from '@/application/usecases/review/ReviewCommitUseCase';
 import { CardApplicationService } from '@/application/services/CardApplicationService';
@@ -105,6 +106,8 @@ import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/q
 import { SiyuanBlockAdapter as DescriptorCardSiyuanBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
 import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
 import { AutoCardRiffAdapter } from '@/infrastructure/siyuan/AutoCardRiffAdapter';
+import { CardCreationSiyuanAdapter } from '@/infrastructure/siyuan/CardCreationSiyuanAdapter';
+import { CardDeletionSiyuanAdapter } from '@/infrastructure/siyuan/CardDeletionSiyuanAdapter';
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
@@ -602,6 +605,8 @@ export class ApplicationContext {
       // 创建领域服务
       const cardCreationService = new CardCreationService();
       const cardDeletionService = new CardDeletionService();
+      const cardCreationSiyuanApi = new CardCreationSiyuanAdapter();
+      const cardDeletionSiyuanApi = new CardDeletionSiyuanAdapter();
 
       // ✅ 获取 DeletionTracker（应该已经在 create() 中创建）
       const deletionTracker = context.deletionTracker;
@@ -610,9 +615,20 @@ export class ApplicationContext {
       }
 
       // 创建用例
-      const createCardUseCase = new CreateCardUseCase(xiuyuanRepo, cardCreationService, context.getEventBus());
-      const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus(), { deletionTracker });
-      const deleteCardsUseCase = new DeleteCardsUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus(), deletionTracker);
+      const createCardUseCase = new CreateCardUseCase(xiuyuanRepo, cardCreationService, context.getEventBus(), {
+        siyuanApi: cardCreationSiyuanApi,
+      });
+      const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepo, cardDeletionService, context.getEventBus(), {
+        siyuanApi: cardDeletionSiyuanApi,
+        deletionTracker,
+      });
+      const deleteCardsUseCase = new DeleteCardsUseCase(
+        xiuyuanRepo,
+        cardDeletionService,
+        context.getEventBus(),
+        deletionTracker,
+        { siyuanApi: cardDeletionSiyuanApi }
+      );
       const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepo);
 
       // ✅ 创建 Read Model（基础设施层）
@@ -623,6 +639,9 @@ export class ApplicationContext {
       
       // 创建应用服务
       const scheduleService = new CardScheduleService();
+      const deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(unifiedStorage, {
+        siyuanApi: cardDeletionSiyuanApi,
+      });
       
       return new CardApplicationService(
         createCardUseCase,
@@ -631,7 +650,8 @@ export class ApplicationContext {
         updateCardUseCase,
         cardReadModel,  // ✅ 传入 Read Model 接口
         scheduleService,
-        unifiedStorage  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
+        unifiedStorage,  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
+        deleteFSRSCardUseCase
       );
     });
     
@@ -1059,6 +1079,8 @@ export class ApplicationContext {
     const cardCreationService = new CardCreationService();
     const cardDeletionService = new CardDeletionService();
     const cardScheduleService = new CardScheduleService();
+    const cardCreationSiyuanApi = new CardCreationSiyuanAdapter();
+    const cardDeletionSiyuanApi = new CardDeletionSiyuanAdapter();
     
     // ⚠️ 注意：此时 context 还未创建，所以先创建一个临时的 EventBus
     // 这个 EventBus 将被 DeleteCardUseCase 和 RiffSyncEventHandler 共享
@@ -1070,15 +1092,29 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] Created InMemoryDeletionTracker for early initialization');
     
     // 创建用例
-    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService, sharedEventBus);
-    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus, { deletionTracker });
-    const deleteCardsUseCase = new DeleteCardsUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus, deletionTracker);
+    const createCardUseCase = new CreateCardUseCase(xiuyuanRepoTemp, cardCreationService, sharedEventBus, {
+      siyuanApi: cardCreationSiyuanApi,
+    });
+    const deleteCardUseCase = new DeleteCardUseCase(xiuyuanRepoTemp, cardDeletionService, sharedEventBus, {
+      siyuanApi: cardDeletionSiyuanApi,
+      deletionTracker,
+    });
+    const deleteCardsUseCase = new DeleteCardsUseCase(
+      xiuyuanRepoTemp,
+      cardDeletionService,
+      sharedEventBus,
+      deletionTracker,
+      { siyuanApi: cardDeletionSiyuanApi }
+    );
     const updateCardUseCase = new UpdateCardUseCase(xiuyuanRepoTemp);
     
     // ✅ 创建 Read Model（基础设施层）
     const cardReadModel = sqlPersistence
       ? new SqlCardReadModel(sqlPersistence.unified)
       : new CardReadModel(unifiedStorageManager);
+    const deleteFSRSCardUseCase = new DeleteFSRSCardUseCase(unifiedStorageManager, {
+      siyuanApi: cardDeletionSiyuanApi,
+    });
     
     // ✅ 创建 CardApplicationService（使用 UnifiedStorageManager）
     const cardApplicationService = new CardApplicationService(
@@ -1088,7 +1124,8 @@ export class ApplicationContext {
       updateCardUseCase,
       cardReadModel,  // ✅ 传入 Read Model 接口
       cardScheduleService,
-      unifiedStorageManager  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
+      unifiedStorageManager,  // ✅ 传递 UnifiedStorageManager 用于 FSRS 卡片操作
+      deleteFSRSCardUseCase
     );
     
     // 4. 初始化 ReviewLogService / RescheduleService（使用新架构）
