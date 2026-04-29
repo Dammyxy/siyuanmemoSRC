@@ -5,7 +5,6 @@ import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuy
 import type { CardContentQueryService } from '@/application/queries/CardContentQueryService';
 import type {
   AISiyuanBlockRow,
-  AISiyuanMutationResult,
   AISiyuanPort,
 } from '@/application/ports/AISiyuanPort';
 import type { LLMMessage, LLMPort, LLMResponse, LLMToolCall } from '@/application/ports/LLMPort';
@@ -22,7 +21,6 @@ import {
   normalizeSelfTestCandidateCard,
   normalizeSelfTestCardKind,
   normalizeSelfTestCreationMode,
-  resolveSelfTestCandidateDraftMarkdown,
   summarizeSelfTestCandidateCard,
 } from '@/application/services/AISelfTestDraftSupport';
 import { AISelfTestCardCreationService } from '@/application/services/AISelfTestCardCreationService';
@@ -88,6 +86,15 @@ import {
   createAIWorkbenchRunStatus,
   generateAIWorkbenchSessionTitle,
 } from '@/application/services/AIWorkbenchRunProjection';
+import {
+  buildModeDraftGenerationMessages,
+  extractModeDraftsFromPayload,
+  isAppendableSelfTestTarget,
+  listSelfTestCardsPendingDrafts,
+  normalizeSelfTestCardTargetMemory,
+  selectSelfTestCardCandidates,
+  type SelfTestCardWriteTarget,
+} from '@/application/services/AIWorkbenchSelfTestRuntime';
 import {
   AIWorkbenchSessionPersistScheduler,
   buildCurrentAIWorkbenchSessionRecord,
@@ -222,23 +229,6 @@ const ALL_TAB_IDS: AISkillTabId[] = [
 ];
 const LEGACY_NOTICE = '旧解释结果仅供查看，重跑后会生成完整的 AI 理解与制卡 Tabs。';
 const CDF_UNRESOLVED_WARNING = '未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。';
-type SelfTestCardWriteTarget = {
-  memory: AIWorkbenchSelfTestCardTargetMemory;
-  targetBlockId: string;
-  writeMode: 'append' | 'after';
-};
-
-type SelfTestCardFieldBlocks = {
-  insertedRootBlockId: string;
-  questionBlockId: string;
-  answerBlockId: string;
-};
-
-type SelfTestCardMutationBlockRow = AISiyuanBlockRow & {
-  sort?: string | number;
-  depth?: number;
-};
-
 const NOOP_SESSION_STORE: Required<NonNullable<AIWorkbenchServiceDeps['sessionStore']>> = {
   async listSummaries() { return []; },
   async loadSession() { return null; },
@@ -322,12 +312,6 @@ function parseBlockReferenceIds(value: string): string[] {
 
 function createEntryId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function waitFor(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 function createTreeViewKey(skillId: AISkillId, tabId: AISkillTabId): string {
@@ -573,34 +557,6 @@ export class AIWorkbenchService {
     this.state.explainResult = explainResultFromConceptCoach(current);
   }
 
-  private normalizeSelfTestCardTargetMemory(
-    target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
-    updatedAt: number,
-  ): AIWorkbenchSelfTestCardTargetMemory | null {
-    const mode = target.mode === 'block' ? 'block' : 'daily-note';
-    const notebookId = normalizeString(target.notebookId);
-    if (!notebookId) {
-      return null;
-    }
-    const targetBlockId = normalizeString(target.targetBlockId) || null;
-    if (mode === 'block' && !targetBlockId) {
-      return null;
-    }
-    const notebookName = normalizeString(target.notebookName) || notebookId;
-    const targetLabel = normalizeString(target.targetLabel)
-      || (mode === 'daily-note'
-        ? `${notebookName} · 今日日记`
-        : `${notebookName} · ${targetBlockId}`);
-    return {
-      mode,
-      notebookId,
-      notebookName,
-      targetBlockId: mode === 'block' ? targetBlockId : null,
-      targetLabel,
-      updatedAt,
-    };
-  }
-
   private getConceptCoachResultMessage(
     messageId: string,
     tabId?: AISkillTabId,
@@ -673,103 +629,10 @@ export class AIWorkbenchService {
   }
 
   private getSelectedSelfTestCardCandidates(messageId: string): AIConceptCoachCandidateCard[] {
-    const creationMode = this.getSelfTestCreationMode();
-    return this.getSelfTestCardsForMessage(messageId)
-      .filter((card) => (
-        card.selected !== false
-        && normalizeString(resolveSelfTestCandidateDraftMarkdown(card, creationMode, {
-          allowFallback: !isPluginSelfTestCreationMode(creationMode),
-        }))
-      ));
-  }
-
-  private buildModeDraftGenerationMessages(
-    settings: AISettings,
-    mode: AIConceptCoachSelfTestCreationMode,
-    cards: AIConceptCoachCandidateCard[],
-  ): LLMMessage[] {
-    const descriptor = getSelfTestModeDescriptor(mode);
-    const context = this.state.context;
-    const payload = {
-      language: settings.defaultOutputLanguage,
-      mode: {
-        id: descriptor.mode,
-        label: descriptor.label,
-        summary: descriptor.summary,
-      },
-      context: {
-        source: context?.source || 'standalone',
-        queueType: context?.queueType || null,
-        queueProgress: context?.queueProgress || null,
-        currentCard: context?.currentCard
-          ? {
-            frontText: context.currentCard.frontText,
-            backText: context.currentCard.backText,
-            sourceText: context.currentCard.sourceText,
-          }
-          : null,
-        selectedBlocks: (context?.blocks || []).map((block) => ({
-          blockId: block.blockId,
-          type: block.type,
-          hPath: block.hPath,
-          text: truncateText(block.text, 320),
-        })),
-      },
-      cards: cards.map((card) => ({
-        id: card.id,
-        kind: card.kind,
-        summary: card.summary,
-        prompt: card.prompt,
-        answer: card.answer,
-        details: card.details,
-        clozeTargets: card.clozeTargets,
-      })),
-    };
-    const modeRules = [
-      '当前系统只保留原生自测模式，这个插件模式草稿生成功能已停用。',
-      '如果调用到这里，说明存在旧路径残留；请直接返回空 cards 数组，不要尝试生成任何 draftMarkdown。',
-    ];
-    return [
-      {
-        role: 'system',
-        content: [
-          '你是 SiyuanMemo 的插件制卡转换器。',
-          '只返回合法 JSON，不要附带 Markdown 代码块，也不要输出解释文本。',
-          'JSON 顶层字段固定为 cards，格式固定为 {"cards":[{"id":"card-id","draftMarkdown":"..."}]}。',
-          '每张卡都必须回填原始 id，draftMarkdown 必须忠实表达 canonical prompt / answer / details / clozeTargets，不要凭空扩写材料里没有的知识。',
-          ...modeRules,
-        ].join('\n'),
-      },
-      {
-        role: 'user',
-        content: JSON.stringify(payload, null, 2),
-      },
-    ];
-  }
-
-  private extractModeDraftsFromPayload(
-    payload: unknown,
-    cards: AIConceptCoachCandidateCard[],
-  ): Record<string, string> {
-    const requestedIds = new Set(cards.map((card) => card.id));
-    const rawEntries = Array.isArray(payload)
-      ? payload
-      : isRecord(payload) && Array.isArray(payload.cards)
-        ? payload.cards
-        : [];
-    const drafts: Record<string, string> = {};
-    for (const rawEntry of rawEntries) {
-      if (!isRecord(rawEntry)) {
-        continue;
-      }
-      const id = normalizeString(rawEntry.id);
-      const draftMarkdown = normalizeString(rawEntry.draftMarkdown ?? rawEntry.content ?? rawEntry.markdown);
-      if (!id || !draftMarkdown || !requestedIds.has(id)) {
-        continue;
-      }
-      drafts[id] = draftMarkdown;
-    }
-    return drafts;
+    return selectSelfTestCardCandidates(
+      this.getSelfTestCardsForMessage(messageId),
+      this.getSelfTestCreationMode(),
+    );
   }
 
   async generateModeDrafts(
@@ -781,12 +644,8 @@ export class AIWorkbenchService {
     if (!isPluginSelfTestCreationMode(normalizedMode)) {
       return this.getSelfTestCardsForMessage(messageId);
     }
-    const requestedIds = new Set(uniqueIds(cardIds || []));
     const cards = this.getSelfTestCardsForMessage(messageId);
-    const pendingCards = cards.filter((card) => (
-      (requestedIds.size === 0 || requestedIds.has(card.id))
-      && !normalizeString(resolveSelfTestCandidateDraftMarkdown(card, normalizedMode, { allowFallback: false }))
-    ));
+    const pendingCards = listSelfTestCardsPendingDrafts(cards, normalizedMode, cardIds);
     if (pendingCards.length === 0) {
       return cards;
     }
@@ -797,7 +656,7 @@ export class AIWorkbenchService {
     const provider = this.resolveDefaultProvider(settings);
     const descriptor = getSelfTestModeDescriptor(normalizedMode);
     const response = await this.requestChatModel(
-      this.buildModeDraftGenerationMessages(settings, normalizedMode, pendingCards),
+      buildModeDraftGenerationMessages(settings, normalizedMode, pendingCards, this.state.context),
       {
         settings,
         provider,
@@ -805,7 +664,7 @@ export class AIWorkbenchService {
       },
     );
     const payload = this.extractStructuredPayload(`${descriptor.label} 草稿生成`, response.content);
-    const drafts = this.extractModeDraftsFromPayload(payload, pendingCards);
+    const drafts = extractModeDraftsFromPayload(payload, pendingCards);
     if (Object.keys(drafts).length === 0) {
       throw this.fail(`AI 没有返回任何可用的 ${descriptor.label} 草稿，请重试。`);
     }
@@ -850,7 +709,7 @@ export class AIWorkbenchService {
 
   private async resolveSelfTestCardWriteTarget(target: AIWorkbenchSelfTestCardTargetInput): Promise<SelfTestCardWriteTarget> {
     if (target.mode === 'daily-note') {
-      const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+      const memory = normalizeSelfTestCardTargetMemory(target, Date.now());
       if (!memory) {
         throw new Error('请选择要写入今日日记的目标笔记本。');
       }
@@ -866,7 +725,7 @@ export class AIWorkbenchService {
       };
     }
 
-    const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+    const memory = normalizeSelfTestCardTargetMemory(target, Date.now());
     if (!memory || !memory.targetBlockId) {
       throw new Error('请填写要写入的文档或块 ID。');
     }
@@ -886,7 +745,7 @@ export class AIWorkbenchService {
         targetLabel,
       },
       targetBlockId: memory.targetBlockId,
-      writeMode: this.isAppendableSelfTestTarget(targetBlock) ? 'append' : 'after',
+      writeMode: isAppendableSelfTestTarget(targetBlock) ? 'append' : 'after',
     };
   }
 
@@ -902,11 +761,6 @@ export class AIWorkbenchService {
       throw new Error('未找到目标文档或块，请检查块 ID 是否有效。');
     }
     return row;
-  }
-
-  private isAppendableSelfTestTarget(block: AISiyuanBlockRow): boolean {
-    const type = normalizeString(block.type);
-    return type === 'd' || type === 'h' || type === 'l' || type === 'i' || type === 's';
   }
 
   private updateSelfTestResultMessage(
@@ -944,290 +798,6 @@ export class AIWorkbenchService {
       } satisfies AIWorkbenchAssistantResultMessage;
     });
     return nextMessage?.kind === 'assistant-result' ? nextMessage : null;
-  }
-
-  private collectSelfTestMutationBlockIds(result: AISiyuanMutationResult): string[] {
-    return uniqueIds(result.doOperations.map((operation) => normalizeString(operation.id)));
-  }
-
-  private async loadSelfTestMutationRows(blockIds: string[]): Promise<SelfTestCardMutationBlockRow[]> {
-    const normalizedIds = uniqueIds(blockIds);
-    if (normalizedIds.length === 0) {
-      return [];
-    }
-    const escapedIds = normalizedIds.map((id) => `'${escapeSql(id)}'`).join(', ');
-    return this.deps.siyuanPort.sql<SelfTestCardMutationBlockRow>(`
-      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort
-      FROM blocks
-      WHERE id IN (${escapedIds})
-      ORDER BY sort ASC, id ASC
-      LIMIT ${Math.max(normalizedIds.length, 1)}
-    `);
-  }
-
-  private async loadSelfTestMutationSubtreeRows(rootBlockId: string): Promise<SelfTestCardMutationBlockRow[]> {
-    const normalizedRootId = normalizeString(rootBlockId);
-    if (!normalizedRootId) {
-      return [];
-    }
-    return this.deps.siyuanPort.sql<SelfTestCardMutationBlockRow>(`
-      WITH RECURSIVE descendants(id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, depth) AS (
-        SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, 0
-        FROM blocks
-        WHERE id = '${escapeSql(normalizedRootId)}'
-        UNION ALL
-        SELECT b.id, b.parent_id, b.root_id, b.box, b.path, b.hpath, b.type, b.subtype, b.content, b.markdown, b.sort, descendants.depth + 1
-        FROM blocks b
-        INNER JOIN descendants ON b.parent_id = descendants.id
-      )
-      SELECT id, parent_id, root_id, box, path, hpath, type, subtype, content, markdown, sort, depth
-      FROM descendants
-      ORDER BY depth ASC, sort ASC, id ASC
-    `);
-  }
-
-  private resolveSelfTestQuestionRootId(mutationResult: AISiyuanMutationResult): string | null {
-    const operations = mutationResult.doOperations
-      .map((operation) => ({
-        id: normalizeString(operation.id),
-        parentId: normalizeString(operation.parentID),
-      }))
-      .filter((operation) => Boolean(operation.id));
-    if (operations.length === 0) {
-      return null;
-    }
-    const operationById = new Map(operations.map((operation) => [operation.id, operation] as const));
-    const childrenByParent = new Map<string, string[]>();
-    const descendantCount = (id: string): number => {
-      const children = childrenByParent.get(id) || [];
-      return children.reduce((total, childId) => total + 1 + descendantCount(childId), 0);
-    };
-    for (const operation of operations) {
-      if (!operation.parentId) {
-        continue;
-      }
-      childrenByParent.set(operation.parentId, [...(childrenByParent.get(operation.parentId) || []), operation.id]);
-    }
-    const roots = operations
-      .filter((operation) => !operation.parentId || !operationById.has(operation.parentId))
-      .sort((left, right) => descendantCount(right.id) - descendantCount(left.id));
-    const root = roots[0] || operations[0];
-    const directChildren = childrenByParent.get(root.id) || [];
-    if (directChildren.length === 1 && (childrenByParent.get(directChildren[0]!) || []).length > 0) {
-      return directChildren[0]!;
-    }
-    return root.id;
-  }
-
-  private resolveSelfTestCardFieldBlocksFromKramdown(
-    rootBlockId: string,
-    kramdown: string,
-  ): SelfTestCardFieldBlocks | null {
-    const lines = String(kramdown || '').split(/\r?\n/);
-    const listItemLines = lines
-      .map((line, lineIndex) => {
-        const match = line.match(/^(\s*)[*+-]\s+\{:\s*id="([^"]+)"/);
-        if (!match) {
-          return null;
-        }
-        return {
-          id: normalizeString(match[2]),
-          indent: match[1]?.length || 0,
-          lineIndex,
-        };
-      })
-      .filter((entry): entry is { id: string; indent: number; lineIndex: number } => Boolean(entry?.id));
-    if (listItemLines.length === 0) {
-      return null;
-    }
-    const attrLines = lines
-      .map((line, lineIndex) => {
-        const match = line.match(/^(\s*)\{:\s*id="([^"]+)"/);
-        if (!match) {
-          return null;
-        }
-        return {
-          id: normalizeString(match[2]),
-          indent: match[1]?.length || 0,
-          lineIndex,
-        };
-      })
-      .filter((entry): entry is { id: string; indent: number; lineIndex: number } => Boolean(entry?.id));
-    const questionItem = listItemLines[0]!;
-    const answerItem = listItemLines.find((entry) => (
-      entry.lineIndex > questionItem.lineIndex
-      && entry.indent > questionItem.indent
-    )) || listItemLines[1] || null;
-    if (!answerItem?.id) {
-      return {
-        insertedRootBlockId: rootBlockId,
-        questionBlockId: rootBlockId,
-        answerBlockId: rootBlockId,
-      };
-    }
-    const questionParagraph = attrLines.find((entry) => (
-      entry.lineIndex > questionItem.lineIndex
-      && entry.lineIndex < answerItem.lineIndex
-      && entry.indent > questionItem.indent
-    ));
-    const answerParagraph = attrLines.find((entry) => (
-      entry.lineIndex > answerItem.lineIndex
-      && entry.indent > answerItem.indent
-    ));
-    return {
-      insertedRootBlockId: questionItem.id || rootBlockId,
-      questionBlockId: questionParagraph?.id || questionItem.id || rootBlockId,
-      answerBlockId: answerParagraph?.id || answerItem.id,
-    };
-  }
-
-  private async waitForSelfTestFieldBlocksVisible(fields: SelfTestCardFieldBlocks): Promise<void> {
-    const expectedIds = uniqueIds([
-      fields.insertedRootBlockId,
-      fields.questionBlockId,
-      fields.answerBlockId,
-    ]);
-    if (expectedIds.length === 0) {
-      return;
-    }
-    let lastVisibleCount = 0;
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const rows = await this.loadSelfTestMutationRows(expectedIds);
-      const visibleIds = new Set(rows.map((row) => normalizeString(row.id)).filter(Boolean));
-      lastVisibleCount = visibleIds.size;
-      if (expectedIds.every((id) => visibleIds.has(id))) {
-        return;
-      }
-      if (attempt < 11) {
-        await waitFor(attempt < 4 ? 80 : 140);
-      }
-    }
-    throw new Error(`已写入列表，但问答块尚未进入可读索引（已就绪 ${lastVisibleCount}/${expectedIds.length}）。`);
-  }
-
-  private resolveSelfTestItemAncestor(
-    row: SelfTestCardMutationBlockRow,
-    rowMap: Map<string, SelfTestCardMutationBlockRow>,
-  ): SelfTestCardMutationBlockRow | null {
-    let parentId = normalizeString(row.parent_id);
-    while (parentId) {
-      const parent = rowMap.get(parentId);
-      if (!parent) {
-        return null;
-      }
-      if (normalizeString(parent.type) === 'i') {
-        return parent;
-      }
-      parentId = normalizeString(parent.parent_id);
-    }
-    return null;
-  }
-
-  private isDescendantMutationRow(
-    row: SelfTestCardMutationBlockRow,
-    ancestorId: string,
-    rowMap: Map<string, SelfTestCardMutationBlockRow>,
-  ): boolean {
-    let parentId = normalizeString(row.parent_id);
-    while (parentId) {
-      if (parentId === ancestorId) {
-        return true;
-      }
-      const parent = rowMap.get(parentId);
-      if (!parent) {
-        return false;
-      }
-      parentId = normalizeString(parent.parent_id);
-    }
-    return false;
-  }
-
-  private resolveSelfTestCardFieldBlocks(rows: SelfTestCardMutationBlockRow[]): SelfTestCardFieldBlocks {
-    if (rows.length === 0) {
-      throw new Error('已写入列表，但尚未能读取到本次新增块。');
-    }
-    const rowMap = new Map(rows
-      .map((row) => [normalizeString(row.id), row] as const)
-      .filter(([id]) => Boolean(id)));
-    const itemRows = rows.filter((row) => normalizeString(row.type) === 'i' && normalizeString(row.id));
-    const questionItem = itemRows.find((row) => !this.resolveSelfTestItemAncestor(row, rowMap));
-    if (!questionItem?.id) {
-      throw new Error('已写入列表，但未能从本次新增列表项里定位问题列表项。');
-    }
-    const answerItem = itemRows.find((row) => (
-      row.id !== questionItem.id
-      && this.isDescendantMutationRow(row, questionItem.id, rowMap)
-    ));
-    if (!answerItem?.id) {
-      throw new Error('已写入列表，但未能从本次新增列表项里定位答案列表项。');
-    }
-    const questionBlock = rows.find((row) => (
-      normalizeString(row.parent_id) === questionItem.id && normalizeString(row.type) === 'p'
-    )) || questionItem;
-    const answerBlock = rows.find((row) => (
-      normalizeString(row.parent_id) === answerItem.id && normalizeString(row.type) === 'p'
-    )) || answerItem;
-    if (!questionBlock.id || !answerBlock.id) {
-      throw new Error('已写入列表，但未能定位问题或答案块。');
-    }
-    return {
-      insertedRootBlockId: questionItem.id,
-      questionBlockId: questionBlock.id,
-      answerBlockId: answerBlock.id,
-    };
-  }
-
-  private async resolveSelfTestCardFieldBlocksFromMutation(
-    mutationResult: AISiyuanMutationResult,
-    candidate: AIConceptCoachCandidateCard,
-  ): Promise<SelfTestCardFieldBlocks> {
-    const mutationBlockIds = this.collectSelfTestMutationBlockIds(mutationResult);
-    if (mutationBlockIds.length === 0) {
-      throw new Error(`思源没有返回本次列表写入的块信息，无法继续制卡：${truncateText(candidate.question, 60)}`);
-    }
-    let lastError: unknown = null;
-    const questionRootId = this.resolveSelfTestQuestionRootId(mutationResult);
-    if (questionRootId) {
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const rows = await this.loadSelfTestMutationSubtreeRows(questionRootId);
-        try {
-          const fields = this.resolveSelfTestCardFieldBlocks(rows);
-          await this.waitForSelfTestFieldBlocksVisible(fields);
-          return fields;
-        } catch (error) {
-          lastError = error;
-        }
-        if (attempt < 7) {
-          await waitFor(attempt < 3 ? 80 : 140);
-        }
-      }
-      try {
-        const { kramdown } = await this.deps.siyuanPort.getBlockKramdown(questionRootId);
-        const fields = this.resolveSelfTestCardFieldBlocksFromKramdown(questionRootId, kramdown || '');
-        if (fields) {
-          await this.waitForSelfTestFieldBlocksVisible(fields);
-          return fields;
-        }
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const rows = await this.loadSelfTestMutationRows(mutationBlockIds);
-      try {
-        const fields = this.resolveSelfTestCardFieldBlocks(rows);
-        await this.waitForSelfTestFieldBlocksVisible(fields);
-        return fields;
-      } catch (error) {
-        lastError = error;
-      }
-      if (attempt < 5) {
-        await waitFor(attempt < 2 ? 80 : 140);
-      }
-    }
-    throw new Error(
-      `${toErrorMessage(lastError, '已写入列表，但未能从本次新增列表项解析出问答块。')}（候选卡：${truncateText(candidate.question, 60)}）`,
-    );
   }
 
   private getNormalizedAISettings(): AISettings {
@@ -2334,7 +1904,7 @@ export class AIWorkbenchService {
   async saveSelfTestCardTargetMemory(
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
   ): Promise<AIWorkbenchSelfTestCardTargetMemory | null> {
-    const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+    const memory = normalizeSelfTestCardTargetMemory(target, Date.now());
     if (!memory) {
       return null;
     }
@@ -2604,7 +2174,7 @@ export class AIWorkbenchService {
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
     document: AIWorkbenchConceptDocumentSearchResult,
   ): Promise<void> {
-    const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+    const memory = normalizeSelfTestCardTargetMemory(target, Date.now());
     if (!memory?.notebookId) {
       throw new Error('设置概念文档前请先选择目标笔记本。');
     }
@@ -2620,7 +2190,7 @@ export class AIWorkbenchService {
     anchorId: string,
     target: AIWorkbenchSelfTestCardTargetInput | AIWorkbenchSelfTestCardTargetMemory,
   ): Promise<void> {
-    const memory = this.normalizeSelfTestCardTargetMemory(target, Date.now());
+    const memory = normalizeSelfTestCardTargetMemory(target, Date.now());
     if (!memory?.notebookId) {
       throw new Error('新建概念文档前请先选择目标笔记本。');
     }

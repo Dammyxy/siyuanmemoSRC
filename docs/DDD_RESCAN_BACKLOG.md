@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-30 (Round 220)
+Last update: 2026-04-30 (Round 221)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-30 - D10 D52 AI workbench self-test runtime split
+
+- Task: 继续 D-10 / D-52 大文件快拆 campaign，在 AI Workbench / self-test bounded context 内拆 `AIWorkbenchService.ts` 的自测目标、候选草稿与旧 mutation 解析残留。
+- Touched slice: AI workbench self-test runtime in `src/application/services/AIWorkbenchService.ts`, new `src/application/services/AIWorkbenchSelfTestRuntime.ts`, focused helper tests, `ARCHITECTURE.md`, `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`, and this backlog.
+- Debt fixed now: `AIWorkbenchService.ts` 不再内联 self-test target memory normalization、原生模式候选卡筛选、旧插件模式 draft payload/extract、pending draft 判定或 appendable target policy；同时移除 active path 不再使用的 self-test mutation rows/subtree/kramdown field-block polling 解析链，原生制卡继续交给 `AISelfTestCardCreationService` / `AIFlashcardToolService`。
+- Debt deferred: D-10 / D-52 的大型 active 文件债继续存在；`AIWorkbenchService.ts` 仍保留 prompt/context assembly、CDF write orchestration、LLM request dispatch、approval message bridge 与 session persistence glue；`ReviewView.vue`、`AiWorkbenchPane.vue` 仍有下一批可切 seam。
+- Why deferred: 本批限定 AI Workbench self-test runtime seam；继续拆 prompt/context 或 CDF write path 会碰 LLM request wire shape、概念文档选择和 Siyuan mutation side effects，需要独立 focused regression。
+- Next safe step: 继续 AI Workbench 可抽 CDF write orchestration / prompt-context assembly；若切 UI 主债，优先 `ReviewView.vue` neural/progressive command glue 或 `AiWorkbenchPane.vue` CDF/search/self-test command helper。
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchSelfTestRuntime.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/services/__tests__/AIWorkbenchService.user-skill.test.ts src/application/services/__tests__/AIWorkbenchSessionRuntime.test.ts src/application/services/__tests__/AIWorkbenchGeneralChatRuntime.test.ts src/application/services/__tests__/AIWorkbenchThreadNormalization.test.ts src/application/services/__tests__/AIWorkbenchContextProjection.test.ts src/application/services/__tests__/AIWorkbenchRunProjection.test.ts src/application/services/__tests__/AISelfTestCardCreationService.test.ts src/application/services/__tests__/AIFlashcardToolService.test.ts`（10 files / 70 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示 338 / i18n 内容提示 14 与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-30 - D10 D52 Review open-as source keyboard runtime split
 
