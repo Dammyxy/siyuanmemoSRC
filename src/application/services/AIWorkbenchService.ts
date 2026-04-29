@@ -11,11 +11,6 @@ import type { LLMPort } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import {
-  buildAiWorkbenchSectionMarkdown,
-  formatConceptCoachAssistantResultMarkdown,
-  getConceptCoachTabTitle,
-} from '@/application/services/AIWorkbenchResultFormatter';
-import {
   isPluginSelfTestCreationMode,
   normalizeSelfTestCandidateCard,
   normalizeSelfTestCardKind,
@@ -52,12 +47,10 @@ import {
 import {
   cloneConceptCoachResult,
   deriveTabNormalizationDiagnostic,
-  emptyCdfStructure,
   explainResultFromConceptCoach,
   hasGenericSectionContent,
   hasTabResultContent,
   mergeTabResult,
-  normalizeCdfStructure,
   normalizeConceptCoachResult,
   normalizeConceptCoachState,
   normalizeContextKey,
@@ -66,6 +59,7 @@ import {
   tabResultFromConceptCoach,
   type ConceptCoachNormalizationState,
 } from '@/application/services/AIWorkbenchResultNormalization';
+import { AIWorkbenchCdfRuntime } from '@/application/services/AIWorkbenchCdfRuntime';
 import { AIWorkbenchConversationTreeRuntime } from '@/application/services/AIWorkbenchConversationTreeRuntime';
 import { AIWorkbenchGeneralChatRuntime } from '@/application/services/AIWorkbenchGeneralChatRuntime';
 import { AIWorkbenchPromptRuntime } from '@/application/services/AIWorkbenchPromptRuntime';
@@ -113,11 +107,6 @@ import type { AIWorkbenchSessionStoreService } from '@/application/services/AIWo
 import type { FSRSCard } from '@/types/card';
 import type {
   AIAttachedContextItem,
-  AICdfAnchor,
-  AICdfAnchorResolution,
-  AICdfDefinitionCandidate,
-  AICdfDescriptorGroup,
-  AICdfDescriptorItem,
   AICdfStructure,
   AIChatApprovalRequest,
   AIChatRuntimeDiagnostic,
@@ -224,7 +213,6 @@ const ALL_TAB_IDS: AISkillTabId[] = [
   ...AI_CONCEPT_COACH_TAB_IDS,
 ];
 const LEGACY_NOTICE = '旧解释结果仅供查看，重跑后会生成完整的 AI 理解与制卡 Tabs。';
-const CDF_UNRESOLVED_WARNING = '未解析到现有概念文档，当前概念只保留为草稿，无法直接建卡。';
 const NOOP_SESSION_STORE: Required<NonNullable<AIWorkbenchServiceDeps['sessionStore']>> = {
   async listSummaries() { return []; },
   async loadSession() { return null; },
@@ -409,6 +397,7 @@ export class AIWorkbenchService {
   private readonly flashcardTools: AIFlashcardToolService;
   private readonly selfTestCardCreationService: AISelfTestCardCreationService;
   private readonly toolExecutor: AIChatToolExecutorService;
+  private readonly cdfRuntime: AIWorkbenchCdfRuntime;
   private readonly promptRuntime: AIWorkbenchPromptRuntime;
   private readonly generalChatRuntime: AIWorkbenchGeneralChatRuntime;
   private readonly approvalResolvers = new Map<string, {
@@ -437,6 +426,29 @@ export class AIWorkbenchService {
         context: this.state.context,
         attachedContexts: [],
       }),
+    });
+    this.cdfRuntime = new AIWorkbenchCdfRuntime({
+      getContext: () => this.state.context,
+      getContextSignature: () => this.state.contextSignature,
+      flashcardTools: this.flashcardTools,
+      siyuanPort: this.deps.siyuanPort,
+      getSessionStore: () => this.getSessionStore(),
+      getSelfTestCreationMode: () => this.getSelfTestCreationMode(),
+      getConceptCoachResultMessage: (messageId, tabId) => (
+        this.getConceptCoachResultMessage(messageId, tabId as AISkillTabId | undefined)
+      ),
+      findLatestConceptCoachResultForContext: (signature) => this.findLatestConceptCoachResultForContext(signature),
+      setScopedConceptCoachResult: (result, signature) => this.setScopedConceptCoachResult(result, signature),
+      addNodeVersion: (messageId, updater) => this.addNodeVersion(messageId, (message) => {
+        if (message.kind !== 'assistant-result') {
+          return message;
+        }
+        return updater(message);
+      }) as AIWorkbenchAssistantResultMessage | null,
+      syncDerivedStateFromThreads: () => this.syncDerivedStateFromThreads(),
+      persistCurrentSession: () => this.persistCurrentSession(),
+      resolveSelfTestCardWriteTarget: (target) => this.resolveSelfTestCardWriteTarget(target),
+      recordArenaCreate: (input) => this.recordArenaEvent('create', input),
     });
     this.toolExecutor = new AIChatToolExecutorService({
       registry: this.toolRegistry,
@@ -548,50 +560,6 @@ export class AIWorkbenchService {
     return Array.isArray(selfTestCards?.cards)
       ? selfTestCards.cards.map((card) => ({ ...card }))
       : [];
-  }
-
-  private getCdfResultMessage(messageId: string): AIWorkbenchAssistantResultMessage | null {
-    return this.getConceptCoachResultMessage(messageId, 'cdf-structure');
-  }
-
-  private getCdfStructureForMessage(messageId: string): AICdfStructure {
-    const message = this.getCdfResultMessage(messageId);
-    if (!message) {
-      return emptyCdfStructure();
-    }
-    const cdfStructure = (message.tabResult || message.conceptCoachResult?.cdfStructure) as AICdfStructure | null;
-    return cdfStructure ? JSON.parse(JSON.stringify(cdfStructure)) as AICdfStructure : emptyCdfStructure();
-  }
-
-  private updateCdfResultMessage(
-    messageId: string,
-    updater: (current: AICdfStructure) => AICdfStructure,
-  ): AICdfStructure | null {
-    const message = this.getCdfResultMessage(messageId);
-    if (!message) {
-      return null;
-    }
-    const currentResult = this.findLatestConceptCoachResultForContext(this.state.contextSignature);
-    if (!currentResult) {
-      return null;
-    }
-    const nextCdfStructure = normalizeCdfStructure(updater(this.getCdfStructureForMessage(messageId)));
-    const nextResult: AIConceptCoachResult = {
-      ...cloneConceptCoachResult(currentResult),
-      cdfStructure: nextCdfStructure,
-    };
-    this.setScopedConceptCoachResult(nextResult, this.state.contextSignature);
-    this.addNodeVersion(messageId, (current) => ({
-      ...(current as AIWorkbenchAssistantResultMessage),
-      contextSignature: this.state.contextSignature,
-      conceptCoachResult: cloneConceptCoachResult(nextResult),
-      tabResult: nextCdfStructure,
-      normalizationDiagnostic: deriveTabNormalizationDiagnostic('cdf-structure', nextCdfStructure, 'edited-result'),
-      explainResult: explainResultFromConceptCoach(nextResult),
-      rawContent: JSON.stringify({ cdfStructure: nextCdfStructure }, null, 2),
-    } satisfies AIWorkbenchAssistantResultMessage));
-    this.syncDerivedStateFromThreads();
-    return nextCdfStructure;
   }
 
   private getSelectedSelfTestCardCandidates(messageId: string): AIConceptCoachCandidateCard[] {
