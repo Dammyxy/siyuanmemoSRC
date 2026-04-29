@@ -54,6 +54,10 @@ const ReviewContentStub = defineComponent({
       type: Object,
       default: undefined,
     },
+    renderServices: {
+      type: Object,
+      default: undefined,
+    },
   },
   setup(props) {
     return () => h(
@@ -85,6 +89,16 @@ function createQueue(nextImpl: () => Promise<unknown>) {
       allowSkip: true,
     })),
     canGoBack: vi.fn(() => false),
+  };
+}
+
+function createRenderServicesStub() {
+  return {
+    quickCardRenderService: {},
+    descriptorCardRenderService: {},
+    conceptDefinitionCardRenderService: {},
+    conceptCardRenderService: {},
+    multiClozeCardRenderService: {},
   };
 }
 
@@ -144,8 +158,12 @@ describe('ReviewView empty state actions', () => {
   it('passes the plugin context to ReviewContent for renderer-owned Siyuan access', async () => {
     const queue = createQueue(async () => null);
     const adapter = createCompletedEmptyAdapter();
+    const renderServices = createRenderServicesStub();
+    const createReviewRenderServices = vi.fn(() => renderServices);
     const plugin = {
-      getContext: () => ({}),
+      getContext: () => ({
+        createReviewRenderServices,
+      }),
     };
 
     const wrapper = mountReviewView({
@@ -160,6 +178,8 @@ describe('ReviewView empty state actions', () => {
     expect(wrapper.getComponent(ReviewContentStub).props('plugin')).toMatchObject({
       getContext: expect.any(Function),
     });
+    expect(createReviewRenderServices).toHaveBeenCalledWith({ i18n: {} });
+    expect(wrapper.getComponent(ReviewContentStub).props('renderServices')).toBe(renderServices);
 
     wrapper.unmount();
   });

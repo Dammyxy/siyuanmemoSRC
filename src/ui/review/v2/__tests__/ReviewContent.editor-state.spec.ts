@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 import type { ReviewEditorState } from '../reviewEditorState';
+import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 
 const reviewContentMocks = vi.hoisted(() => {
   const instances: Array<{
@@ -543,6 +544,20 @@ function findWarnCall(message: string): unknown[] | undefined {
   return reviewContentLoggerMocks.warn.mock.calls.find(([firstArg]) => firstArg === message);
 }
 
+function createRenderServicesStub(): ReviewRenderServices {
+  return {
+    quickCardRenderService: {
+      isQuickCard: (blockId?: string, cardId?: string) => reviewContentQuickCardMocks.isQuickCard(blockId, cardId),
+    },
+    descriptorCardRenderService: {
+      isDescriptorCard: (blockId?: string) => reviewContentDescriptorMocks.isDescriptorCard(blockId),
+    },
+    conceptDefinitionCardRenderService: {},
+    conceptCardRenderService: {},
+    multiClozeCardRenderService: {},
+  } as unknown as ReviewRenderServices;
+}
+
 async function settleReviewContent(): Promise<void> {
   await flushPromises();
   await new Promise(resolve => setTimeout(resolve, 25));
@@ -633,6 +648,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -725,6 +741,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -786,6 +803,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -993,6 +1011,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1066,6 +1085,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1117,6 +1137,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1163,6 +1184,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1219,6 +1241,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1268,6 +1291,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1315,6 +1339,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1362,6 +1387,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1409,6 +1435,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1457,6 +1484,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1506,6 +1534,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1558,6 +1587,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1604,6 +1634,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1664,6 +1695,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1729,6 +1761,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1787,6 +1820,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1843,6 +1877,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1884,6 +1919,7 @@ describe('ReviewContent editor state', () => {
     const wrapper = mount(ReviewContent, {
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1931,6 +1967,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -1983,6 +2020,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -2034,6 +2072,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -2094,6 +2133,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -2146,6 +2186,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -2197,6 +2238,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -2237,6 +2279,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,
@@ -2309,6 +2352,7 @@ describe('ReviewContent editor state', () => {
       attachTo: attachTarget,
       props: {
         app: {},
+        renderServices: createRenderServicesStub(),
         plugin: {
           getContext: () => ({
             getCardStorage: () => null,

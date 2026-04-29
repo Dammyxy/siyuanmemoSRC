@@ -54,6 +54,10 @@ import { BrowserApplicationService } from '@/application/services/BrowserApplica
 import { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import { SrsTransparencyApplicationService } from '@/application/services/SrsTransparencyApplicationService';
+import {
+  createReviewRenderServices as createInjectedReviewRenderServices,
+  type ReviewRenderServices,
+} from '@/application/factories/createReviewRenderServices';
 import { EventBus } from '@/core/shared/domain/events/EventBus';
 
 // ✅ DDD 重构服务导入
@@ -97,6 +101,8 @@ import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
+import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
+import { SiyuanBlockAdapter as DescriptorCardSiyuanBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
 import { createLogger } from '@/utils/logger';
 import type { ICardTemplate } from '@/core/xiuyuan/types';
 import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionTracker';
@@ -1855,6 +1861,16 @@ export class ApplicationContext {
    */
   getCardStorage(): StorageManager {
     return this.getStorage(); // StorageManager 实现了 ICardStorage 接口
+  }
+
+  createReviewRenderServices(options: { i18n?: Record<string, string> } = {}): ReviewRenderServices {
+    this.ensureNotDisposed();
+    return createInjectedReviewRenderServices({
+      quickBlockAdapter: new QuickCardSiyuanBlockAdapter(),
+      descriptorBlockAdapter: new DescriptorCardSiyuanBlockAdapter(),
+      cardStorage: this.getCardStorage(),
+      i18n: options.i18n || this.getI18n(),
+    });
   }
 
   /**

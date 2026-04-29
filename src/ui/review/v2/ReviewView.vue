@@ -224,7 +224,7 @@ import type { PluginSettings } from '@/types/settings';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
-import { createReviewRenderServices } from '@/application/factories/createReviewRenderServices';
+import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { prepareReviewPresentation } from './reviewPresentationPreparer';
 import type { SrsArenaRecommendation } from '@/types/arena';
 
@@ -285,6 +285,7 @@ type ReviewPluginContextLike = {
       }
     | undefined;
   getSharedReviewSessionRegistry?: () => SharedReviewSessionRegistry | undefined;
+  createReviewRenderServices?: (options?: { i18n?: Record<string, string> }) => ReviewRenderServices;
   getCardStorage?: () => unknown;
   getTabManager?: () =>
     | {
@@ -611,6 +612,7 @@ const props = defineProps<{
   initialCurrentCardId?: string;
   initialShowAnswer?: boolean;
   onTabRuntimeStateChange?: (state: ReviewTabRuntimeState | null) => void;
+  reviewRenderServices?: ReviewRenderServices;
 }>();
 
 const emit = defineEmits<{
@@ -630,10 +632,10 @@ function createSharedReviewSessionId(): string {
 const reviewSessionId = ref(String(props.reviewSessionId || '').trim() || createReviewSessionId());
 const sharedReviewSessionId = ref(String(props.sharedReviewSessionId || '').trim());
 const i18n = props.i18n;
-const reviewRenderServices = createReviewRenderServices({
-  cardStorage: getPluginContext(props.plugin)?.getCardStorage?.() as never,
-  i18n: i18n || {},
-});
+const reviewRenderServices = computed(() => (
+  props.reviewRenderServices
+  ?? getPluginContext(props.plugin)?.createReviewRenderServices?.({ i18n: i18n || {} })
+));
 const reviewAIService = ref<AIWorkbenchService | null>(null);
 const reviewAISidebarOpen = ref(false);
 const reviewArenaHint = ref<string | null>(null);

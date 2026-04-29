@@ -161,7 +161,7 @@ import QuickCardRenderer from '../components/QuickCardRenderer.vue';
 import DescriptorCardRenderer from '../components/DescriptorCardRenderer.vue';
 import ConceptDefinitionCardRenderer from '../components/ConceptDefinitionCardRenderer.vue';
 import ConceptCardRenderer from '../components/ConceptCardRenderer.vue';
-import { createReviewRenderServices, type ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
+import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import type { ReviewSiyuanPort } from '@/application/ports/ReviewSiyuanPort';
 import { 
   type XiuyuanCardMeta,
@@ -369,9 +369,14 @@ const invalidForcedQuickRenderVersion = ref(0);
 const invalidForcedQuickRenderKeys = new Set<string>();
 const MAX_MAIN_RENDER_RETRIES = 6;
 
-const resolvedRenderServices = computed(() => props.renderServices ?? createReviewRenderServices({
-  i18n: props.i18n,
-}));
+function requireRenderServices(): ReviewRenderServices {
+  if (!props.renderServices) {
+    throw new Error('[ReviewContent] renderServices are required');
+  }
+  return props.renderServices;
+}
+
+const resolvedRenderServices = computed(requireRenderServices);
 const reviewSiyuanApi = computed(() => getReviewSiyuanApi());
 
 // 快速卡片渲染服务
