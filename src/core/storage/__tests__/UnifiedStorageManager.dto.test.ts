@@ -323,8 +323,8 @@ describe('UnifiedStorageManager DTO Operations', () => {
     it('should create multiple DTOs in a single operation', async () => {
       const xiuyuan = createTestXiuYuan();
       const dtos = [
-        createTestDTO('card-1', xiuyuan.id, 'block-1'),
-        createTestDTO('card-2', xiuyuan.id, 'block-2'),
+        { ...createTestDTO('card-1', xiuyuan.id, 'block-1'), meta: { faceIndex: 0 } },
+        { ...createTestDTO('card-2', xiuyuan.id, 'block-2'), meta: { faceIndex: 1 } },
       ];
 
       const result = await storage.batchCreateCardsDTO(xiuyuan, dtos);
@@ -344,7 +344,7 @@ describe('UnifiedStorageManager DTO Operations', () => {
      * 测试批量操作的原子性
      * 验证：需求 4.3
      */
-    it('should be atomic - rollback on error', async () => {
+    it('should merge same-id and logical duplicate DTOs instead of rolling back', async () => {
       const xiuyuan = createTestXiuYuan();
       const dto1 = createTestDTO('card-1', xiuyuan.id, 'block-1');
       
@@ -359,12 +359,10 @@ describe('UnifiedStorageManager DTO Operations', () => {
 
       const result = await storage.batchCreateCardsDTO(xiuyuan, dtos);
 
-      expect(result.ok).toBe(false);
-      
-      // 验证 card-2 没有被创建（回滚）
+      expect(result.ok).toBe(true);
+
+      // 同一 Xiuyuan + 默认 faceIndex=0 是同一逻辑卡，card-2 被合并进 card-1
       expect(storage.getCardDTO('card-2')).toBeUndefined();
-      
-      // 验证 card-1 仍然存在
       expect(storage.getCardDTO('card-1')).toBeDefined();
     });
 
@@ -374,40 +372,52 @@ describe('UnifiedStorageManager DTO Operations', () => {
      */
     it('should update indexes only once for batch operations', async () => {
       const xiuyuan = createTestXiuYuan();
-      const dtos = Array.from({ length: 10 }, (_, i) => 
+      const dtos = Array.from({ length: 10 }, (_, i) =>
         createTestDTO(`card-${i}`, xiuyuan.id, 'block-1')
       );
 
       const result = await storage.batchCreateCardsDTO(xiuyuan, dtos);
 
       expect(result.ok).toBe(true);
-      
+
+      // 同一 Xiuyuan + 同一 faceIndex 归并为一张逻辑卡
       const cardsByBlock = storage.getCardsByBlockId('block-1');
-      expect(cardsByBlock).toHaveLength(10);
-      
+      expect(cardsByBlock).toHaveLength(1);
+
       const cardsByXiuyuan = storage.getCardsByXiuyuanId(xiuyuan.id);
-      expect(cardsByXiuyuan).toHaveLength(10);
+      expect(cardsByXiuyuan).toHaveLength(1);
+    });
+
+    it('should create multiple logical faces when faceIndex differs', async () => {
+      const xiuyuan = createTestXiuYuan();
+      const dtos = Array.from({ length: 10 }, (_, i) => ({
+        ...createTestDTO(`card-${i}`, xiuyuan.id, `block-${i}`),
+        meta: { faceIndex: i },
+      }));
+
+      const result = await storage.batchCreateCardsDTO(xiuyuan, dtos);
+
+      expect(result.ok).toBe(true);
+      expect(storage.getCardsByXiuyuanId(xiuyuan.id)).toHaveLength(10);
     });
 
     /**
      * 测试空数组验证
      * 验证：需求 4.3
      */
-    it('should return error for empty array', async () => {
+    it('should treat empty batch as an ok no-op', async () => {
       const xiuyuan = createTestXiuYuan();
       const result = await storage.batchCreateCardsDTO(xiuyuan, []);
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.message).toContain('empty array');
-      }
+      expect(result.ok).toBe(true);
+      expect(storage.getAllCards()).toHaveLength(0);
     });
 
     /**
      * 测试 xiuyuanID 不匹配验证
      * 验证：需求 4.3
      */
-    it('should return error if DTO xiuyuanID does not match', async () => {
+    it('should canonicalize DTO xiuyuanID to the provided Xiuyuan', async () => {
       const xiuyuan = createTestXiuYuan('xy_1');
       const dtos = [
         createTestDTO('card-1', 'xy_2', 'block-1'), // 不匹配
@@ -415,10 +425,8 @@ describe('UnifiedStorageManager DTO Operations', () => {
 
       const result = await storage.batchCreateCardsDTO(xiuyuan, dtos);
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.message).toContain('mismatch');
-      }
+      expect(result.ok).toBe(true);
+      expect(storage.getCardDTO('card-1')?.xiuyuanID).toBe('xy_1');
     });
   });
 
@@ -622,8 +630,8 @@ describe('UnifiedStorageManager DTO Operations', () => {
      */
     it('should provide accurate statistics after DTO operations', async () => {
       const xiuyuan = createTestXiuYuan();
-      const dto1 = createTestDTO('card-1');
-      const dto2 = createTestDTO('card-2', xiuyuan.id, 'block-2');
+      const dto1 = { ...createTestDTO('card-1'), meta: { faceIndex: 0 } };
+      const dto2 = { ...createTestDTO('card-2', xiuyuan.id, 'block-2'), meta: { faceIndex: 1 } };
 
       await storage.createCardDTO(xiuyuan, dto1);
       await storage.createCardDTO(xiuyuan, dto2);

@@ -5,13 +5,17 @@ import type { DrillLogV2, ReviewLog, ReviewLogV2 } from '@/types/review';
 import type { RescheduleLog } from '@/types/scheduler';
 import { createLogger } from '@/utils/logger';
 import type { SqliteDatabaseService } from './SqliteDatabaseService';
-import type { SqlUnifiedStorageRepository } from './SqlUnifiedStorageRepository';
+import type {
+  AlgorithmCardStateBackfillSummary,
+  SqlUnifiedStorageRepository,
+} from './SqlUnifiedStorageRepository';
 import type { SqlQueueStateRepository } from './SqlQueueStateRepository';
 import type { SqlReviewLogRepository } from './SqlReviewLogRepository';
 import type { SqlArenaRepository } from './SqlArenaRepository';
 
 const logger = createLogger('SqliteMigrationService');
 const INITIAL_MIGRATION_ID = 'initial-msgpack-json-import-v1';
+const ALGORITHM_CARD_STATE_MIGRATION_ID = 'algorithm-card-state-production-v1';
 
 type LegacyStoreLoader = (reason?: StorageLoadReason) => Promise<UnifiedCardStore>;
 
@@ -45,26 +49,63 @@ export class SqliteMigrationService {
   ) {}
 
   async migrateIfNeeded(now = Date.now()): Promise<{ migrated: boolean; usedSql: boolean }> {
-    if (this.database.hasMigration(INITIAL_MIGRATION_ID)) {
-      return { migrated: false, usedSql: true };
+    let migrated = false;
+    if (!this.database.hasMigration(INITIAL_MIGRATION_ID)) {
+      const legacyStore = await this.legacyStoreLoader('startup-load');
+      if (hasStoreContent(legacyStore)) {
+        await this.fileService.writeJSON(`migration-backups/unified-cards-${now}.json`, legacyStore);
+      }
+      await this.database.runTransaction('sqlite.initial-migration', async () => {
+        await this.repositories.unified.saveStore(legacyStore);
+        await this.migrateQueueState();
+        await this.migrateArenaStore();
+        await this.migrateReviewLogs(now);
+        this.database.markMigration(INITIAL_MIGRATION_ID, now);
+      });
+      logger.info('SQLite migration finished', {
+        cards: Object.keys(legacyStore.cards || {}).length,
+        xiuyuans: Object.keys(legacyStore.xiuyuans || {}).length,
+      });
+      migrated = true;
     }
 
-    const legacyStore = await this.legacyStoreLoader('startup-load');
-    if (hasStoreContent(legacyStore)) {
-      await this.fileService.writeJSON(`migration-backups/unified-cards-${now}.json`, legacyStore);
+    const stateMigration = await this.migrateAlgorithmCardStateIfNeeded(now);
+    migrated ||= stateMigration.migrated;
+    return { migrated, usedSql: true };
+  }
+
+  private async migrateAlgorithmCardStateIfNeeded(now: number): Promise<{ migrated: boolean }> {
+    if (this.database.hasMigration(ALGORITHM_CARD_STATE_MIGRATION_ID)) {
+      const diagnostic = this.repositories.unified.getAlgorithmCardStateDiagnostic();
+      if (diagnostic.dirty > 0 || diagnostic.orphanStateRows > 0) {
+        logger.warn('SQLite algorithm card state diagnostic found dirty rows after previous migration', diagnostic);
+      }
+      return { migrated: false };
     }
-    await this.database.runTransaction('sqlite.initial-migration', async () => {
-      await this.repositories.unified.saveStore(legacyStore);
-      await this.migrateQueueState();
-      await this.migrateArenaStore();
-      await this.migrateReviewLogs(now);
-      this.database.markMigration(INITIAL_MIGRATION_ID, now);
+
+    const backup = this.repositories.unified.createAlgorithmCardStateMigrationBackup();
+    if (backup.cards.length > 0 || backup.algorithmCardStates.length > 0) {
+      await this.fileService.writeJSON(`migration-backups/algorithm-card-state-${now}.json`, {
+        capturedAt: now,
+        ...backup,
+      });
+    }
+
+    let summary: AlgorithmCardStateBackfillSummary | null = null;
+    await this.database.runTransaction('sqlite.algorithm-card-state-production-v1', () => {
+      summary = this.repositories.unified.backfillAlgorithmCardStates(now);
+      this.database.markMigration(ALGORITHM_CARD_STATE_MIGRATION_ID, now);
     });
-    logger.info('SQLite migration finished', {
-      cards: Object.keys(legacyStore.cards || {}).length,
-      xiuyuans: Object.keys(legacyStore.xiuyuans || {}).length,
-    });
-    return { migrated: true, usedSql: true };
+
+    if (!summary) {
+      throw new Error('Algorithm card state migration did not produce a summary');
+    }
+    if (summary.afterDirty > 0 || summary.orphanStateRows > 0) {
+      logger.warn('SQLite algorithm card state migration finished with dirty rows', summary);
+    } else {
+      logger.info('SQLite algorithm card state migration finished', summary);
+    }
+    return { migrated: true };
   }
 
   private async migrateQueueState(): Promise<void> {

@@ -23,6 +23,15 @@ import { isCardDismissed } from '@/core/card/domain/services/dismissState';
 import { parseQuery } from '@/types/browser';
 import { stringifyJson, parseJson } from './json';
 import type { SqliteDatabaseService } from './SqliteDatabaseService';
+import {
+  ACTIVE_ALGORITHM_IDS,
+  applyAlgorithmCardState,
+  deriveAlgorithmCardState,
+  diagnoseAlgorithmCardStateRow,
+  resolveActiveAlgorithmId,
+  stringifyAlgorithmCardState,
+  type AlgorithmCardStateRow,
+} from './algorithmCardState';
 
 interface CardProjection {
   deckId: string | null;
@@ -67,6 +76,22 @@ interface CardPageRequest {
 interface CardPageResult {
   cards: FSRSCard[];
   total: number;
+}
+
+export interface AlgorithmCardStateDiagnosticSummary {
+  total: number;
+  dirty: number;
+  missingStateRows: number;
+  invalidStateRows: number;
+  cardStateMismatches: number;
+  orphanStateRows: number;
+  reasons: Record<string, number>;
+}
+
+export interface AlgorithmCardStateBackfillSummary extends AlgorithmCardStateDiagnosticSummary {
+  backfilled: number;
+  repaired: number;
+  afterDirty: number;
 }
 
 function createEmptyStore(): UnifiedCardStore {
@@ -220,6 +245,14 @@ function appendInClause(
   params.push(...values);
 }
 
+function addReason(summary: Pick<AlgorithmCardStateDiagnosticSummary, 'reasons'>, reason: string): void {
+  summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
+}
+
+function stateRowKey(cardId: string, algorithmId: string): string {
+  return `${cardId}\u0000${algorithmId}`;
+}
+
 export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   constructor(private readonly database: SqliteDatabaseService) {}
 
@@ -231,6 +264,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         payload_json: string;
         dto_json: string | null;
       }>('SELECT id, payload_json, dto_json FROM cards ORDER BY id');
+      const stateRows = this.loadAlgorithmStateRowMap(cardRows.map((row) => row.id));
       const xiuyuanRows = this.database.getAll<{
         id: string;
         payload_json: string;
@@ -245,13 +279,9 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
         store.xiuyuans[row.id] = parseJson<IXiuyuan>(row.payload_json, {} as IXiuyuan);
       }
       for (const row of cardRows) {
-        const rawCard = parseJson<FSRSCard>(row.payload_json, {} as FSRSCard);
-        if (row.dto_json) {
-          const cleanDto = canonicalizeSqlDTO(parseJson<CardPersistenceDTO>(row.dto_json, {} as CardPersistenceDTO));
-          store.cardDTOs![row.id] = cleanDto;
-          store.cards[row.id] = CardMapper.toDomain(cleanDto);
-        } else if (rawCard?.id) {
-          const cleanCard = canonicalizeSqlCard(rawCard);
+        const baseCard = this.parseBaseCardRow(row);
+        if (baseCard?.id) {
+          const cleanCard = this.hydrateWithAlgorithmState(baseCard, stateRows);
           store.cards[row.id] = cleanCard;
           store.cardDTOs![row.id] = CardMapper.toPersistence(cleanCard);
         }
@@ -288,6 +318,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
     await this.database.write((db) => {
       const existingSource = this.loadSourceExistenceByCardId();
       db.run('DELETE FROM cards');
+      db.run('DELETE FROM algorithm_card_state WHERE algorithm_id IN (?, ?)', [...ACTIVE_ALGORITHM_IDS]);
       db.run('DELETE FROM xiuyuans');
       db.run('DELETE FROM tombstones');
       db.run('DELETE FROM riff_sync');
@@ -296,48 +327,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       const cardDTOs = store.cardDTOs || {};
       for (const [id, card] of Object.entries(store.cards || {})) {
         const dto = cardDTOs[id];
-        const cleanCard = canonicalizeSqlCard(card);
-        const cleanDto = dto ? canonicalizeSqlDTO(dto) : CardMapper.toPersistence(cleanCard);
-        const projection = createCardProjection(cleanCard, cleanDto);
-        db.run(
-          `INSERT INTO cards
-          (
-            id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
-            deck_id, root_id, content_text, tags, suspended, lapses, reps, last_review, created_at,
-            scheduled_days, stability, difficulty, a_factor, search_text, card_type_marker,
-            source_exists, source_checked_at, source_missing_at, payload_json, dto_json
-          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            cleanCard.blockId || null,
-            resolveXiuyuanId(cleanCard, cleanDto),
-            cleanCard.type || null,
-            normalizeNumber(cleanCard.state),
-            normalizeNumber(cleanCard.due),
-            normalizeNumber(cleanCard.priority),
-            cleanCard.schedulerType || null,
-            normalizeNumber(cleanCard.updatedAt) || Date.now(),
-            projection.deckId,
-            projection.rootId,
-            projection.contentText,
-            projection.tags,
-            projection.suspended,
-            projection.lapses,
-            projection.reps,
-            projection.lastReview,
-            projection.createdAt,
-            projection.scheduledDays,
-            projection.stability,
-            projection.difficulty,
-            projection.aFactor,
-            projection.searchText,
-            projection.cardTypeMarker,
-            ...this.resolvePreservedSourceValues(existingSource.get(id), cleanCard.blockId),
-            stringifyJson(cleanCard),
-            stringifyJson(cleanDto),
-          ],
-        );
+        this.writeCardRecord(db, { ...card, id }, dto, existingSource.get(id));
       }
 
       for (const [id, xiuyuan] of Object.entries(store.xiuyuans || {})) {
@@ -390,49 +380,8 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
   }
 
   upsertCard(card: FSRSCard): void {
-    const cleanCard = canonicalizeSqlCard(card);
-    const dto = CardMapper.toPersistence(cleanCard);
-    const projection = createCardProjection(cleanCard, dto);
-    const existingSource = this.loadSourceExistenceForCard(cleanCard.id);
-    this.database.run(
-      `INSERT OR REPLACE INTO cards
-        (
-          id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
-          deck_id, root_id, content_text, tags, suspended, lapses, reps, last_review, created_at,
-          scheduled_days, stability, difficulty, a_factor, search_text, card_type_marker,
-          source_exists, source_checked_at, source_missing_at, payload_json, dto_json
-        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        cleanCard.id,
-        cleanCard.blockId || null,
-        resolveXiuyuanId(cleanCard, dto),
-        cleanCard.type || null,
-        normalizeNumber(cleanCard.state),
-        normalizeNumber(cleanCard.due),
-        normalizeNumber(cleanCard.priority),
-        cleanCard.schedulerType || null,
-        normalizeNumber(cleanCard.updatedAt) || Date.now(),
-        projection.deckId,
-        projection.rootId,
-        projection.contentText,
-        projection.tags,
-        projection.suspended,
-        projection.lapses,
-        projection.reps,
-        projection.lastReview,
-        projection.createdAt,
-        projection.scheduledDays,
-        projection.stability,
-        projection.difficulty,
-        projection.aFactor,
-        projection.searchText,
-        projection.cardTypeMarker,
-        ...this.resolvePreservedSourceValues(existingSource, cleanCard.blockId),
-        stringifyJson(cleanCard),
-        stringifyJson(dto),
-      ],
-    );
+    const existingSource = this.loadSourceExistenceForCard(card.id);
+    this.writeCardRecord(this.database, card, undefined, existingSource);
   }
 
   getAllCards(): FSRSCard[] {
@@ -448,7 +397,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       'SELECT payload_json FROM cards WHERE id = ?',
       [normalizedId],
     );
-    return row ? this.parseCardRow(row) : undefined;
+    return row ? this.parseCardRows([row])[0] : undefined;
   }
 
   getCardByBlockId(blockId: string): FSRSCard | undefined {
@@ -483,11 +432,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       [...uniqueIds, ...uniqueIds],
     );
     const cardById = new Map<string, FSRSCard>();
-    for (const row of rows) {
-      const card = this.parseCardRow(row);
-      if (!card) {
-        continue;
-      }
+    for (const card of this.parseCardRows(rows)) {
       cardById.set(normalizeString(card.id), card);
       cardById.set(normalizeString(card.blockId), card);
     }
@@ -511,9 +456,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       where?.params,
     );
 
-    return rows
-      .map((row) => this.parseCardRow(row))
-      .filter((card): card is FSRSCard => Boolean(card))
+    return this.parseCardRows(rows)
       .filter((card) => this.matchesStructuredQueryResiduals(card, query));
   }
 
@@ -547,9 +490,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       [...(where?.params || []), limit, startRow],
     );
     return {
-      cards: rows
-        .map((row) => this.parseCardRow(row))
-        .filter((card): card is FSRSCard => Boolean(card)),
+      cards: this.parseCardRows(rows),
       total,
     };
   }
@@ -582,9 +523,7 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       [...(deckQuery.where?.params || []), limit, startRow],
     );
     return {
-      cards: rows
-        .map((row) => this.parseCardRow(row))
-        .filter((card): card is FSRSCard => Boolean(card)),
+      cards: this.parseCardRows(rows),
       total,
     };
   }
@@ -815,6 +754,295 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
       'SELECT (SELECT COUNT(*) FROM cards) + (SELECT COUNT(*) FROM xiuyuans) AS count',
     );
     return Number(row?.count) > 0;
+  }
+
+  createAlgorithmCardStateMigrationBackup(): {
+    cards: Array<{ id: string; payload_json: string; dto_json: string | null }>;
+    algorithmCardStates: Array<{ card_id: string; algorithm_id: string; state_json: string; updated_at: number }>;
+  } {
+    return {
+      cards: this.database.getAll<{ id: string; payload_json: string; dto_json: string | null }>(
+        'SELECT id, payload_json, dto_json FROM cards ORDER BY id',
+      ),
+      algorithmCardStates: this.database.getAll<{
+        card_id: string;
+        algorithm_id: string;
+        state_json: string;
+        updated_at: number;
+      }>(
+        'SELECT card_id, algorithm_id, state_json, updated_at FROM algorithm_card_state ORDER BY card_id, algorithm_id',
+      ),
+    };
+  }
+
+  getAlgorithmCardStateDiagnostic(): AlgorithmCardStateDiagnosticSummary {
+    const rows = this.database.getAll<{
+      id: string;
+      payload_json: string;
+      dto_json: string | null;
+    }>('SELECT id, payload_json, dto_json FROM cards ORDER BY id');
+    const stateRows = this.loadAlgorithmStateRowMap(rows.map((row) => row.id));
+    const summary: AlgorithmCardStateDiagnosticSummary = {
+      total: 0,
+      dirty: 0,
+      missingStateRows: 0,
+      invalidStateRows: 0,
+      cardStateMismatches: 0,
+      orphanStateRows: this.countOrphanActiveAlgorithmRows(),
+      reasons: {},
+    };
+
+    for (const row of rows) {
+      const baseCard = this.parseBaseCardRow(row);
+      if (!baseCard?.id) {
+        continue;
+      }
+      summary.total += 1;
+      let dirtyCard = false;
+      const rawCard = parseJson<FSRSCard | null>(row.payload_json, null);
+      if (rawCard?.id) {
+        const cleanResult = canonicalizeSchedulingState(rawCard, {
+          source: 'sql-repository',
+          mode: 'repair-external',
+        });
+        if (cleanResult.changed) {
+          dirtyCard = true;
+          for (const reason of cleanResult.reasons) {
+            addReason(summary, reason);
+          }
+        }
+      }
+
+      const diagnostic = diagnoseAlgorithmCardStateRow(
+        baseCard,
+        this.getStateRowForCard(baseCard, stateRows),
+      );
+      if (diagnostic.missing) {
+        summary.missingStateRows += 1;
+        dirtyCard = true;
+      }
+      if (diagnostic.invalid) {
+        summary.invalidStateRows += 1;
+        dirtyCard = true;
+      }
+      if (diagnostic.mismatch) {
+        summary.cardStateMismatches += 1;
+        dirtyCard = true;
+      }
+      for (const reason of diagnostic.reasons) {
+        addReason(summary, reason);
+      }
+      if (dirtyCard) {
+        summary.dirty += 1;
+      }
+    }
+
+    return summary;
+  }
+
+  backfillAlgorithmCardStates(now = Date.now()): AlgorithmCardStateBackfillSummary {
+    const before = this.getAlgorithmCardStateDiagnostic();
+    const rows = this.database.getAll<{
+      id: string;
+      payload_json: string;
+      dto_json: string | null;
+    }>('SELECT id, payload_json, dto_json FROM cards ORDER BY id');
+    const stateRows = this.loadAlgorithmStateRowMap(rows.map((row) => row.id));
+    const existingSource = this.loadSourceExistenceByCardId();
+
+    for (const row of rows) {
+      const baseCard = this.parseBaseCardRow(row);
+      if (!baseCard?.id) {
+        continue;
+      }
+      const hydrated = applyAlgorithmCardState(
+        baseCard,
+        this.getStateRowForCard(baseCard, stateRows),
+      );
+      this.writeCardRecord(
+        this.database,
+        hydrated.card,
+        undefined,
+        existingSource.get(row.id),
+        now,
+      );
+    }
+    this.database.run(
+      `DELETE FROM algorithm_card_state
+       WHERE algorithm_id IN (?, ?)
+         AND card_id NOT IN (SELECT id FROM cards)`,
+      [...ACTIVE_ALGORITHM_IDS],
+    );
+
+    const after = this.getAlgorithmCardStateDiagnostic();
+    return {
+      ...after,
+      backfilled: before.missingStateRows,
+      repaired: before.dirty,
+      afterDirty: after.dirty,
+    };
+  }
+
+  private writeCardRecord(
+    db: Pick<SqliteDatabaseService, 'run'>,
+    card: FSRSCard,
+    dto?: CardPersistenceDTO,
+    existingSource?: SourceExistenceProjection | null,
+    now = Date.now(),
+  ): void {
+    const dtoDomain = dto ? CardMapper.toDomain(canonicalizeSqlDTO(dto)) : null;
+    const sourceCard = dtoDomain
+      ? {
+        ...dtoDomain,
+        ...card,
+        meta: {
+          ...(dtoDomain.meta || {}),
+          ...(card.meta || {}),
+        },
+      } as FSRSCard
+      : card;
+    const derived = deriveAlgorithmCardState(sourceCard);
+    const cleanCard = derived.card;
+    const cleanDto = CardMapper.toPersistence(cleanCard);
+    const projection = createCardProjection(cleanCard, cleanDto);
+    db.run(
+      `INSERT OR REPLACE INTO cards
+        (
+          id, block_id, xiuyuan_id, type, state, due, priority, scheduler_type, updated_at,
+          deck_id, root_id, content_text, tags, suspended, lapses, reps, last_review, created_at,
+          scheduled_days, stability, difficulty, a_factor, search_text, card_type_marker,
+          source_exists, source_checked_at, source_missing_at, payload_json, dto_json
+        )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        cleanCard.id,
+        cleanCard.blockId || null,
+        resolveXiuyuanId(cleanCard, cleanDto),
+        cleanCard.type || null,
+        normalizeNumber(cleanCard.state),
+        normalizeNumber(cleanCard.due),
+        normalizeNumber(cleanCard.priority),
+        cleanCard.schedulerType || null,
+        normalizeNumber(cleanCard.updatedAt) || now,
+        projection.deckId,
+        projection.rootId,
+        projection.contentText,
+        projection.tags,
+        projection.suspended,
+        projection.lapses,
+        projection.reps,
+        projection.lastReview,
+        projection.createdAt,
+        projection.scheduledDays,
+        projection.stability,
+        projection.difficulty,
+        projection.aFactor,
+        projection.searchText,
+        projection.cardTypeMarker,
+        ...this.resolvePreservedSourceValues(existingSource, cleanCard.blockId),
+        stringifyJson(cleanCard),
+        stringifyJson(cleanDto),
+      ],
+    );
+    db.run(
+      `DELETE FROM algorithm_card_state
+       WHERE card_id = ?
+         AND algorithm_id IN (?, ?)
+         AND algorithm_id != ?`,
+      [cleanCard.id, ...ACTIVE_ALGORITHM_IDS, derived.algorithmId],
+    );
+    db.run(
+      `INSERT OR REPLACE INTO algorithm_card_state
+        (card_id, algorithm_id, state_json, updated_at)
+       VALUES (?, ?, ?, ?)`,
+      [
+        cleanCard.id,
+        derived.algorithmId,
+        stringifyAlgorithmCardState(derived.state),
+        now,
+      ],
+    );
+  }
+
+  private loadAlgorithmStateRowMap(cardIds: string[]): Map<string, AlgorithmCardStateRow> {
+    const normalizedIds = normalizeStringArray(cardIds);
+    const result = new Map<string, AlgorithmCardStateRow>();
+    if (normalizedIds.length === 0) {
+      return result;
+    }
+
+    const chunkSize = 400;
+    for (let index = 0; index < normalizedIds.length; index += chunkSize) {
+      const chunk = normalizedIds.slice(index, index + chunkSize);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const rows = this.database.getAll<{
+        card_id: string;
+        algorithm_id: string;
+        state_json: string;
+      }>(
+        `SELECT card_id, algorithm_id, state_json
+         FROM algorithm_card_state
+         WHERE card_id IN (${placeholders})
+           AND algorithm_id IN (?, ?)`,
+        [...chunk, ...ACTIVE_ALGORITHM_IDS],
+      );
+      for (const row of rows) {
+        result.set(stateRowKey(row.card_id, row.algorithm_id), {
+          cardId: row.card_id,
+          algorithmId: row.algorithm_id,
+          stateJson: row.state_json,
+        });
+      }
+    }
+    return result;
+  }
+
+  private getStateRowForCard(
+    card: Pick<FSRSCard, 'id' | 'type'>,
+    stateRows: Map<string, AlgorithmCardStateRow>,
+  ): AlgorithmCardStateRow | null {
+    return stateRows.get(stateRowKey(card.id, resolveActiveAlgorithmId(card))) || null;
+  }
+
+  private hydrateWithAlgorithmState(
+    card: FSRSCard,
+    stateRows: Map<string, AlgorithmCardStateRow>,
+  ): FSRSCard {
+    return applyAlgorithmCardState(card, this.getStateRowForCard(card, stateRows)).card;
+  }
+
+  private countOrphanActiveAlgorithmRows(): number {
+    const row = this.database.getOne<{ count: number }>(
+      `SELECT COUNT(*) AS count
+       FROM algorithm_card_state state
+       LEFT JOIN cards card ON card.id = state.card_id
+       WHERE card.id IS NULL
+         AND state.algorithm_id IN (?, ?)`,
+      [...ACTIVE_ALGORITHM_IDS],
+    );
+    return Math.max(0, Number(row?.count) || 0);
+  }
+
+  private parseBaseCardRow(row: { payload_json: string; dto_json?: string | null }): FSRSCard | null {
+    if (row.dto_json) {
+      const dto = parseJson<CardPersistenceDTO | null>(row.dto_json, null);
+      if (dto?.id) {
+        return CardMapper.toDomain(dto);
+      }
+    }
+    const card = parseJson<FSRSCard | null>(row.payload_json, null);
+    return card?.id ? canonicalizeSqlCard(card) : null;
+  }
+
+  private parseCardRows(rows: Array<{ payload_json: string }>): FSRSCard[] {
+    const baseCards = rows
+      .map((row) => {
+        const card = parseJson<FSRSCard | null>(row.payload_json, null);
+        return card?.id ? canonicalizeSqlCard(card) : null;
+      })
+      .filter((card): card is FSRSCard => Boolean(card));
+    const stateRows = this.loadAlgorithmStateRowMap(baseCards.map((card) => card.id));
+    return baseCards.map((card) => this.hydrateWithAlgorithmState(card, stateRows));
   }
 
   private loadSourceExistenceByCardId(): Map<string, SourceExistenceProjection> {
@@ -1265,11 +1493,6 @@ export class SqlUnifiedStorageRepository implements BrowserDeckReadPort {
 
   private toWhereSql(where?: WhereClause | null): string {
     return where?.sql ? `WHERE ${where.sql}` : '';
-  }
-
-  private parseCardRow(row: { payload_json: string }): FSRSCard | null {
-    const card = parseJson<FSRSCard | null>(row.payload_json, null);
-    return card?.id ? canonicalizeSqlCard(card) : null;
   }
 
   private matchesStructuredQueryResiduals(card: FSRSCard, query?: StructuredCardQuery): boolean {

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 183)
+Last update: 2026-04-29 (Round 184)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - algorithm card state production authority
+
+- Task: 全量清零调度负债，把 SQL `algorithm_card_state` 升级为生产调度状态权威来源，并校准旧 DTO logical merge 测试。
+- Touched slice: Scheduler / SQL persistence / startup migration / card DTO storage tests across `src/infrastructure/persistence/sqlite/{algorithmCardState.ts,SqlUnifiedStorageRepository.ts,SqliteDatabaseService.ts,SqliteMigrationService.ts}`, focused sqlite tests, `src/core/storage/__tests__/UnifiedStorageManager.dto.test.ts`, and `ARCHITECTURE.md`.
+- Debt fixed now: `algorithm_card_state` 现在按 active scheduler 双写并在 SQL load/get/query hydration 时覆盖 card payload；`cards`/DTO 调度字段降级为兼容快照与查询投影；启动迁移 `algorithm-card-state-production-v1` 会备份 SQL cards/state、回填 active rows、重写 clean snapshot、跑 dirty diagnostic；DTO 测试改为当前 logical duplicate merge 语义，明确同 Xiuyuan 同 face 合并、不同 `faceIndex` 才是多卡；补齐 missing/invalid/mismatch state row、registry seed、迁移幂等测试。
+- Debt deferred: 无。
+- Why deferred: 不适用。
+- Next safe step: 用真实用户库启动一次，确认日志中的 algorithm card state diagnostic 为 `dirty: 0`，再做一次 Browser due/filter 手工抽查。
+- Validation: `pnpm vitest run src/core/scheduler/__tests__/schedulingStateCleanliness.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.test.ts src/infrastructure/persistence/mappers/__tests__/CardMapper.property.test.ts src/infrastructure/persistence/mappers/__tests__/RiffMapper.fsrs-repair.test.ts src/core/storage/__tests__/UnifiedStorageManager.migration.test.ts src/core/storage/__tests__/UnifiedStorageManager.stability-idempotency.test.ts src/core/storage/__tests__/UnifiedStorageManager.batch-update.test.ts src/core/storage/__tests__/UnifiedStorageManager.dto.test.ts src/infrastructure/persistence/sqlite/__tests__/algorithmCardState.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteDatabaseService.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlQueueStateRepository.test.ts src/infrastructure/persistence/sqlite/__tests__/SqliteMigrationService.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/core/scheduler/adapters/__tests__/UnifiedStorageCardUpdateAdapter.test.ts src/core/scheduler/__tests__/SchedulerRouter.fsrs-v6.test.ts --reporter=dot`（168 tests 通过）；`pnpm build`（通过；i18n 阻断问题 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（仅 CRLF 工作区提示）。
 
 ### 2026-04-29 - scheduler metadata cleanliness boundary
 

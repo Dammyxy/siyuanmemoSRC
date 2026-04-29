@@ -5,6 +5,10 @@ import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite
 import { SqlCardReadModel } from '@/infrastructure/queries/SqlCardReadModel';
 import { UnifiedStorageManager } from '@/core/storage/UnifiedStorageManager';
 import type { CardPersistenceDTO } from '@/infrastructure/persistence/dto/CardPersistenceDTO';
+import {
+  deriveAlgorithmCardState,
+  stringifyAlgorithmCardState,
+} from '@/infrastructure/persistence/sqlite/algorithmCardState';
 import type { IXiuyuan } from '@/core/xiuyuan/types';
 import { CardState, CardType } from '@/types/card';
 import type { FSRSCard } from '@/types/card';
@@ -364,5 +368,125 @@ describe('SqlUnifiedStorageRepository queryCards', () => {
     expect(repository.queryDeckMatchedIds({
       sortModel: [{ colId: 'aFactor', sort: 'desc' }],
     })).toEqual(['topic-afactor', 'item-meta-afactor']);
+  });
+
+  it('writes algorithm_card_state and hydrates cards from that authoritative state row', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const card = {
+      ...createDTO({
+        id: 'state-authority',
+        blockId: 'block-state-authority',
+        type: CardType.Item,
+        state: CardState.Review,
+        due: 1_700_000_000_000,
+        scheduledDays: 5,
+        stability: 5,
+        difficulty: 5,
+      }),
+      xiuyuanID: 'xy-state-authority',
+      schedulerType: 'fsrs-v6',
+    } as FSRSCard;
+
+    repository.upsertCard(card);
+    const storedState = database.getOne<{ algorithm_id: string; state_json: string }>(
+      'SELECT algorithm_id, state_json FROM algorithm_card_state WHERE card_id = ?',
+      ['state-authority'],
+    );
+    expect(storedState?.algorithm_id).toBe('fsrs-v6');
+
+    const rowState = deriveAlgorithmCardState({
+      ...card,
+      due: 1_700_900_000_000,
+      scheduledDays: 9,
+      stability: 9,
+      difficulty: 4,
+    }).state;
+    database.run(
+      'UPDATE algorithm_card_state SET state_json = ? WHERE card_id = ? AND algorithm_id = ?',
+      [stringifyAlgorithmCardState(rowState), 'state-authority', 'fsrs-v6'],
+    );
+
+    expect(repository.getCard('state-authority')).toMatchObject({
+      due: 1_700_900_000_000,
+      scheduledDays: 9,
+      stability: 9,
+      difficulty: 4,
+    });
+    expect(repository.getAlgorithmCardStateDiagnostic()).toMatchObject({
+      total: 1,
+      dirty: 1,
+      cardStateMismatches: 1,
+    });
+    const summary = repository.backfillAlgorithmCardStates(1_701_000_000_000);
+    expect(summary.afterDirty).toBe(0);
+    expect(repository.getAlgorithmCardStateDiagnostic().dirty).toBe(0);
+  });
+
+  it('diagnoses missing and invalid algorithm_card_state rows and backfills them cleanly', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+    const repository = new SqlUnifiedStorageRepository(database);
+    const missing = {
+      ...createDTO({
+        id: 'state-missing',
+        blockId: 'block-state-missing',
+        type: CardType.Item,
+      }),
+      xiuyuanID: 'xy-state-missing',
+      schedulerType: 'fsrs-v6',
+    } as FSRSCard;
+    const invalid = {
+      ...createDTO({
+        id: 'state-invalid',
+        blockId: 'block-state-invalid',
+        type: CardType.Item,
+      }),
+      xiuyuanID: 'xy-state-invalid',
+      schedulerType: 'fsrs-v6',
+    } as FSRSCard;
+
+    repository.upsertCard(missing);
+    repository.upsertCard(invalid);
+    database.run(
+      'DELETE FROM algorithm_card_state WHERE card_id = ?',
+      ['state-missing'],
+    );
+    database.run(
+      'UPDATE algorithm_card_state SET state_json = ? WHERE card_id = ?',
+      [
+        JSON.stringify({
+          schemaVersion: 1,
+          schedulerType: 'fsrs-v6',
+          common: {
+            due: invalid.due,
+            state: invalid.state,
+            reps: invalid.reps,
+            lapses: invalid.lapses,
+            lastReview: invalid.lastReview,
+            elapsedDays: invalid.elapsedDays,
+            scheduledDays: invalid.scheduledDays,
+          },
+          fsrs: { stability: 1, difficulty: 99 },
+        }),
+        'state-invalid',
+      ],
+    );
+
+    expect(repository.getAlgorithmCardStateDiagnostic()).toMatchObject({
+      total: 2,
+      dirty: 2,
+      missingStateRows: 1,
+      invalidStateRows: 1,
+    });
+    const summary = repository.backfillAlgorithmCardStates(1_701_000_000_000);
+    expect(summary.backfilled).toBe(1);
+    expect(summary.afterDirty).toBe(0);
+    expect(repository.getAlgorithmCardStateDiagnostic()).toMatchObject({
+      dirty: 0,
+      missingStateRows: 0,
+      invalidStateRows: 0,
+    });
   });
 });

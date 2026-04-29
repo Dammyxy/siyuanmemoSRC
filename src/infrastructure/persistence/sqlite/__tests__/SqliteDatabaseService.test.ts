@@ -123,4 +123,15 @@ describe('SqliteDatabaseService', () => {
       "SELECT name FROM sqlite_master WHERE name = '__siyuanmemo_fts5_probe'",
     )).toBeNull();
   });
+
+  it('seeds production scheduling algorithms in the registry', async () => {
+    const database = new SqliteDatabaseService(new MemorySqliteFileService());
+    await database.init();
+
+    const rows = database.getAll<{ algorithm_id: string }>(
+      "SELECT algorithm_id FROM algorithm_registry WHERE algorithm_id IN ('fsrs-v6', 'a-factor-v2') ORDER BY algorithm_id",
+    );
+
+    expect(rows.map((row) => row.algorithm_id)).toEqual(['a-factor-v2', 'fsrs-v6']);
+  });
 });

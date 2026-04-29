@@ -396,6 +396,21 @@ export class SqliteDatabaseService {
         ],
       );
     }
+    this.run(
+      `INSERT OR REPLACE INTO algorithm_registry
+        (algorithm_id, label, domain, enabled, state, runtime_kind, version, parameter_hash, state_schema_version, metadata_json)
+       VALUES (?, ?, 'srs', 1, 'enabled', 'browser', ?, ?, 1, ?)`,
+      [
+        'a-factor-v2',
+        'A-Factor v2',
+        'a-factor-v2',
+        'settings.topicScheduler',
+        JSON.stringify({
+          role: 'production-scheduling-state',
+          seededAt: now,
+        }),
+      ],
+    );
   }
 
   private requireDb(): Database {
