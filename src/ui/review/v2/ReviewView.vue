@@ -194,6 +194,18 @@ import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
 import { createReviewEditorState, type ReviewEditorState } from './reviewEditorState';
+import {
+  buildReviewAIChatKey as buildReviewAIChatKeyFromQueue,
+  buildReviewAICompanionTitle,
+  buildReviewAIOpenOptions,
+  openReviewAIAssistantCommand,
+  resolveDefaultReviewAIEntryView as resolveDefaultReviewAIEntryViewFromSettings,
+  resolveReviewAIEntryView as resolveReviewAIEntryViewFromState,
+  syncReviewAIContextIfNeededCommand,
+  type ReviewAIRegistryLike,
+  type ReviewAIRequestedView,
+  type ReviewAISurface,
+} from './reviewAICommands';
 import { resolveReviewKeyAction } from './reviewKeyActionResolver';
 import {
   consumeRecentlyModifiedReviewHotkey,
@@ -219,7 +231,7 @@ import {
 } from '@/application/entries/ProgressiveExcerptHighlight';
 import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
 import type { ProgressiveExcerptCreationResult } from '@/application/services/ProgressiveReadingService';
-import type { AIWorkbenchLegacyView, AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
+import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
 import type { PluginSettings } from '@/types/settings';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
 import type { ReviewApplicationService } from '@/application/services/ReviewApplicationService';
@@ -254,9 +266,6 @@ const MAIN_REVIEW_QUEUE_BY_HEADER_VARIANT: Partial<Record<ReviewHeaderVariant, Q
   'neural-roam': QueueType.NeuralRoam,
 };
 
-type ReviewAIEntryView = 'general-chat' | 'concept-coach';
-type ReviewAIRequestedView = ReviewAIEntryView | AIWorkbenchLegacyView;
-
 type ReviewPluginContextLike = {
   getDialogManager?: () =>
     | {
@@ -276,13 +285,9 @@ type ReviewPluginContextLike = {
       }
     | undefined;
   getReviewAIWorkbenchRegistry?: () =>
-    | {
-        hasReviewSession?: (sessionId: string) => boolean;
-        getReviewSession?: (sessionId: string) => AIWorkbenchService | null;
-        openReviewSession?: (options: AIWorkbenchOpenOptions & { sessionId: string; surface: 'review-dialog-sidecar' | 'review-tab-companion' }) => Promise<AIWorkbenchService>;
-        updateReviewSessionContext?: (options: AIWorkbenchOpenOptions & { sessionId: string; surface: 'review-dialog-sidecar' | 'review-tab-companion' }) => Promise<AIWorkbenchService>;
+    | (ReviewAIRegistryLike & {
         disposeReviewSession?: (sessionId: string) => void;
-      }
+      })
     | undefined;
   getSharedReviewSessionRegistry?: () => SharedReviewSessionRegistry | undefined;
   createReviewRenderServices?: (options?: { i18n?: Record<string, string> }) => ReviewRenderServices;
@@ -888,12 +893,10 @@ function resolveActiveReviewQueueLabel(): string {
 }
 
 function buildReviewAIChatKey(): string | null {
-  const queueType = String(resolveActiveReviewQueueType() || '').trim();
-  const queueLabel = String(resolveActiveReviewQueueLabel() || '').trim();
-  if (!queueType || !queueLabel) {
-    return null;
-  }
-  return `${queueType}::${queueLabel}`;
+  return buildReviewAIChatKeyFromQueue({
+    queueType: resolveActiveReviewQueueType(),
+    queueLabel: resolveActiveReviewQueueLabel(),
+  });
 }
 
 function buildReviewQueueProgress(): ReviewQueueProgressSnapshot | null {
@@ -3150,12 +3153,10 @@ async function handleRebuildReviewFilterQueue(): Promise<void> {
 function buildReviewAIOptions(view: ReviewAIRequestedView, surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
   const neuralQueue = getNeuralRoamQueue();
   const currentCard = state.value.content.card as FSRSCard | null;
-  return {
+  return buildReviewAIOpenOptions({
     view,
-    source: 'review',
     surface,
     sessionId: reviewSessionId.value,
-    sourceReviewSessionId: reviewSessionId.value,
     reviewChatKey: buildReviewAIChatKey(),
     currentCard,
     currentBlockId: resolveCurrentReviewBlockId() || null,
@@ -3165,37 +3166,35 @@ function buildReviewAIOptions(view: ReviewAIRequestedView, surface?: AIWorkbench
     neuralBatch: neuralQueue?.getCurrentBatchSnapshot() ?? null,
     arenaScenarioId: resolveReviewArenaScenario(view, currentCard),
     arenaTargetKind: resolveArenaTargetKindFromCard(currentCard),
-  };
+  });
 }
 
-function resolveDefaultReviewAIEntryView(): ReviewAIEntryView {
+function resolveDefaultReviewAIEntryView() {
   const context = getPluginContext(props.plugin) || getWindowPlugin()?.getContext?.();
   const configured = context?.getSettingsService?.().getSettings?.()?.ai?.chatDefaults?.reviewDefaultSkillId;
-  return configured === 'concept-coach' ? 'concept-coach' : 'general-chat';
+  return resolveDefaultReviewAIEntryViewFromSettings(configured);
 }
 
 function resolveReviewAIEntryView(requestedView?: ReviewAIRequestedView): ReviewAIRequestedView {
-  if (requestedView) {
-    if (requestedView === 'explain' || requestedView === 'make-cards' || requestedView === 'tutor') {
-      return requestedView;
-    }
-    return requestedView === 'concept-coach' ? 'concept-coach' : 'general-chat';
-  }
-
   const registry = getReviewAIWorkbenchRegistry();
-  const activeView = reviewAIService.value?.state.activeView
-    || registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView;
-  return activeView === 'concept-coach' || activeView === 'general-chat'
-    ? activeView
-    : resolveDefaultReviewAIEntryView();
+  return resolveReviewAIEntryViewFromState({
+    requestedView,
+    activeServiceView: reviewAIService.value?.state.activeView,
+    activeRegistryView: registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView,
+    defaultView: resolveDefaultReviewAIEntryView(),
+  });
 }
 
 function getReviewAICompanionTitle(view: ReviewAIRequestedView): string {
-  const viewTitle = view === 'general-chat'
-    ? t('generalChat', '通用 AI 聊天')
-    : t('aiConceptCoachCard', 'AI 理解与制卡');
-  const reviewTitle = String(props.title || t('reviewTitle', 'Review')).trim();
-  return `${viewTitle} · ${reviewTitle || t('reviewTitle', 'Review')}`;
+  return buildReviewAICompanionTitle({
+    view,
+    reviewTitle: String(props.title || t('reviewTitle', 'Review')).trim(),
+    labels: {
+      generalChat: t('generalChat', '通用 AI 聊天'),
+      conceptCoach: t('aiConceptCoachCard', 'AI 理解与制卡'),
+      review: t('reviewTitle', 'Review'),
+    },
+  });
 }
 
 function updateReviewDialogContainerLayout(): void {
@@ -3223,80 +3222,54 @@ function closeReviewAISidebar(): void {
   updateReviewDialogContainerLayout();
 }
 
-function isReviewAIContextSyncVisible(surface: 'review-dialog-sidecar' | 'review-tab-companion'): boolean {
+function isReviewAIContextSyncVisible(surface: ReviewAISurface): boolean {
   if (surface === 'review-dialog-sidecar') {
     return showReviewAISidecar.value;
   }
   return getTabManager()?.hasReviewAICompanionTab?.(reviewSessionId.value) === true;
 }
 
-async function syncReviewAIContextIfNeeded(surface: 'review-dialog-sidecar' | 'review-tab-companion'): Promise<void> {
-  if (!isReviewAIContextSyncVisible(surface)) {
-    return;
-  }
-
-  const registry = getReviewAIWorkbenchRegistry();
-  if (!registry?.hasReviewSession?.(reviewSessionId.value) || !registry.updateReviewSessionContext) {
-    return;
-  }
-
+async function syncReviewAIContextIfNeeded(surface: ReviewAISurface): Promise<void> {
   const activeView = resolveReviewAIEntryView();
-  const service = await registry.updateReviewSessionContext({
-    ...buildReviewAIOptions(activeView, surface),
-    view: activeView,
-    surface,
+  await syncReviewAIContextIfNeededCommand({
+    visible: isReviewAIContextSyncVisible(surface),
+    registry: getReviewAIWorkbenchRegistry(),
     sessionId: reviewSessionId.value,
+    surface,
+    activeView,
+    buildOptions: buildReviewAIOptions,
+    onService: (service) => {
+      reviewAIService.value = service;
+    },
   });
-  reviewAIService.value = service;
 }
 
 async function openReviewAIAssistant(requestedView?: ReviewAIRequestedView): Promise<void> {
-  const view = resolveReviewAIEntryView(requestedView);
-  const surface: 'review-dialog-sidecar' | 'review-tab-companion' = props.mode === 'tab'
-    ? 'review-tab-companion'
-    : 'review-dialog-sidecar';
-
-  if (surface === 'review-dialog-sidecar' && !canUseEmbeddedReviewAISidecar.value) {
-    const dialogManager = getDialogManager();
-    if (!dialogManager?.openAiWorkbenchDialog) {
-      showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-      return;
-    }
-    await dialogManager.openAiWorkbenchDialog(buildReviewAIOptions(view, 'standalone-dialog'));
-    return;
-  }
-
   const registry = getReviewAIWorkbenchRegistry();
-  if (!registry?.openReviewSession) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  if (surface === 'review-tab-companion') {
-    const context = getPluginContext(props.plugin) || getWindowPlugin()?.getContext?.();
-    const tabManager = context?.getTabManager?.();
-    if (!tabManager?.openReviewAICompanionTab) {
-      showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-      return;
-    }
-
-    await tabManager.openReviewAICompanionTab({
-      ...buildReviewAIOptions(view, surface),
-      sessionId: reviewSessionId.value,
-      title: getReviewAICompanionTitle(view),
-    });
-    reviewAIService.value = registry.getReviewSession?.(reviewSessionId.value) || null;
-    return;
-  }
-
-  const service = await registry.openReviewSession({
-    ...buildReviewAIOptions(view, surface),
+  await openReviewAIAssistantCommand({
+    requestedView,
+    mode: props.mode,
+    canUseEmbeddedReviewAISidecar: canUseEmbeddedReviewAISidecar.value,
     sessionId: reviewSessionId.value,
-    surface,
+    activeServiceView: reviewAIService.value?.state.activeView,
+    activeRegistryView: registry?.getReviewSession?.(reviewSessionId.value)?.state.activeView,
+    defaultView: resolveDefaultReviewAIEntryView(),
+    registry,
+    dialogManager: getDialogManager(),
+    tabManager: getTabManager(),
+    buildOptions: buildReviewAIOptions,
+    getCompanionTitle: getReviewAICompanionTitle,
+    onService: (service) => {
+      reviewAIService.value = service;
+    },
+    onOpenSidecar: () => {
+      reviewAISidebarOpen.value = true;
+      updateReviewDialogContainerLayout();
+    },
+    onPluginNotReady: () => {
+      showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
+    },
   });
-  reviewAIService.value = service;
-  reviewAISidebarOpen.value = true;
-  updateReviewDialogContainerLayout();
 }
 
 function openCurrentSrsEditor(): void {
