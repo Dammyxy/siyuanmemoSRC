@@ -137,6 +137,7 @@ flowchart TD
 6. 右键批量动作通过当前数据源持有的 `UnifiedDataSourceManager` 批量入口执行：删卡走 `batchDeleteCards(cardIds, { blockIds })`，优先级/重置/暂停/恢复走 `batchUpdateCards(cards)`，加入/移除队列走 `batchAddToQueue()` / queue `addCards()` 与 `removeCards()`；`postpone/advance/spread` 走 `RescheduleService -> UnifiedStorageCardUpdateAdapter -> UnifiedStorageManager.batchUpdateCards()`，SQL active 时再一次 `cards` upsert + persist；这些入口在应用层分块 upsert / 批量删除 / 一次队列持久化后统一发布 `CardDeleted / CardsDeleted`、`card-updated` 与 `queue-changed`，单卡 API 只作为旧调用 fallback
 7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection、preview breadcrumb 等 Siyuan 调用必须显式拿到 Browser 侧 Siyuan port，不再依赖 browser service 模块全局状态，也不从 UI 直接 import infrastructure Siyuan API
 8. Browser surface profile 默认值由 `layoutProfile.ts` 维护；profile-scoped chrome preference 读写、legacy dialog key 迁移与 storage failure contract 由 `browserChromePreferences.ts` 维护；open-state capture、初始 open-state normalization、legacy `__lost__` 归一与 neural subview / queue-id 投影由 `browserSurfaceState.ts` 维护，`SRSBrowser.vue` 只负责把这些 projection 应用到当前 UI state 并调度加载 / 刷新副作用
+9. Browser neural 子视图的 trace/list projection、jump/focus/source/anchor/history commands、engine/navigation/bookmark/review-surface handoff commands，以及 trace refresh/enrichment/convergence/preview controller state 由 `src/ui/browser/neural/*` helpers 维护；`SRSBrowser.vue` 只持有 Browser shell、template binding 与跨 surface 依赖注入
 
 ### 4.2 Review
 
@@ -481,6 +482,7 @@ Browser：
 
 - `src/ui/browser/SRSBrowser.vue`：Browser 主视图，负责应用当前 chrome/open-state projection、加载数据与调度 UI 交互。
 - `src/ui/browser/layoutProfile.ts` / `browserChromePreferences.ts` / `browserSurfaceState.ts`：Browser surface profile、默认 chrome 状态、profile-scoped preference 持久化、open-state capture 与初始 hydration projection。
+- `src/ui/browser/neural/{neuralTraceViewModel.ts,neuralListViewModels.ts,neuralBrowserCommands.ts,neuralNavigationCommands.ts,useNeuralBrowserController.ts}`：Browser neural trace/list projection、command orchestration 与 controller state；不访问 infrastructure。
 - `src/ui/browser/SRSBrowserAdapter.ts` / `SRSBrowserQueueView.ts`：Browser 桥接与队列视图逻辑。
 - `src/ui/browser/composables/*`：Browser 状态、刷新、排序、筛选、动作封装。
 - `src/ui/browser/datasource/*`：Browser UI-side datasource 实现；共享 DTO、query parser、row id、sort contract 已迁到 `src/types/browser.ts`，application query 不从这里取契约；deck datasource 在 service 提供 `getDeckPage/getDeckMatchedIds` 时直接使用应用层分页端口，不再先构造全量 snapshot。
@@ -620,6 +622,7 @@ Browser 分层边界：
 - Source existence 以 SiYuan `blocks` 为真源、SQLite 为懒刷新缓存：正常 deck 查询排除 known missing 且 unknown fail-open，`__lost__` / `missing-block-only` 读取 known missing；stats 先返回 SQL 当前统计并后台刷新 stale/unknown；`QueueBrowserQueryKernel` 只用 SQL source cache 标记 missing，不物化队列 membership/order。
 - Browser 搜索优先使用 `search_text/content_text/tags/root/deck` 投影；当前 sql.js 构建不支持 FTS5 时走 `LIKE` fallback，不硬建 FTS 表；retrievability 等 SQL 不可表达查询显式回 snapshot。
 - `src/ui/browser/browserService.ts` 只保留 UI-side helper；SQL、消息、文档树和 block projection 必须显式传入 `BrowserSiyuanPort` / `UnifiedDataSourceManager`，不再维护全局 browser context。
+- Browser neural helpers 只处理 UI projection / command orchestration / controller state，实际 queue 语义继续来自 `NeuralRoamSessionQueue`，review tab/dialog handoff 通过显式注入的 manager deps 进入 application manager surface。
 - Browser 右键批量动作不直连底层 infra：删除、优先级、重置、暂停/恢复经 `UnifiedDataSourceManager.batchDeleteCards()` / `batchUpdateCards()`，队列加入/移除经 `batchAddToQueue()` 或 queue domain `addCards()` / `removeCards()`；完成后 datasource 只做一次 cache invalidate / reload / forceRefresh。
 - `src/ui/browser/browserService.v2.ts` 已删除，旧 import 不应恢复。
 
