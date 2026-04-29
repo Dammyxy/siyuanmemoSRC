@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueType, type IDataRouter } from '@/types/unified-data-source';
+import type { LeechActionEffectsPort } from '@/core/queue/domain/ports';
 import { UnifiedDataSourceManager } from '../UnifiedDataSourceManager';
 
 function createRouterWithSettings(settings: unknown): IDataRouter {
@@ -38,6 +39,23 @@ function setupManager(settings: unknown): UnifiedDataSourceManager {
 describe('UnifiedDataSourceManager settings accessors', () => {
   beforeEach(() => {
     UnifiedDataSourceManager.resetInstance();
+  });
+
+  it('requires an injected LeechActionEffectsPort before creating the leech queue', () => {
+    const manager = UnifiedDataSourceManager.getInstance();
+
+    expect(() => manager.getQueue(QueueType.Leech)).toThrow(
+      'LeechActionEffectsPort not initialized. Call setLeechActionEffects() first.',
+    );
+
+    const effects: LeechActionEffectsPort = {
+      notify: vi.fn(),
+      setBlockAttrs: vi.fn(),
+    };
+
+    manager.setLeechActionEffects(effects);
+
+    expect(manager.getQueue(QueueType.Leech).name).toBe('LeechReviewQueue');
   });
 
   it('prefers fsrs.dayStartHour and falls back to queues.dayStartHour', () => {

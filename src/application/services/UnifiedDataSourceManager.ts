@@ -32,11 +32,11 @@ import { FilterGroupQueue } from '@/core/queue/domain/FilterGroupQueue';
 import { FinalDrillQueue } from '@/core/queue/domain/FinalDrillQueue';
 import { NeuralRoamQueue } from '@/core/queue/domain/NeuralRoamQueue';
 import { LeechReviewQueue } from '@/core/queue/domain/LeechReviewQueue';
-import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import type { QueueInitialLoadAware, QueueSchedulerPort } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type { QueueReviewCommand, QueueReviewCommitResult } from '@/core/queue/managers/UnifiedDataSourceManager';
 import type {
     AutoFailedCardSinkPort,
+    LeechActionEffectsPort,
     NeuralRoamNodeType,
     QueuePersistencePort,
 } from '@/core/queue/domain/ports';
@@ -189,6 +189,13 @@ export class UnifiedDataSourceManager {
     private queuePersistence: QueuePersistencePort | null;
 
     /**
+     * Leech 队列副作用端口
+     *
+     * 由组合根注入真实的思源通知/属性写入适配器。
+     */
+    private leechActionEffects: LeechActionEffectsPort | null;
+
+    /**
      * 待分发的数据变更事件（同一 tick 合并）
      */
     private pendingObserverEvents: Map<string, DataChangeEvent>;
@@ -217,6 +224,7 @@ export class UnifiedDataSourceManager {
         // 初始化队列实例缓存
         this.queueInstances = new Map<QueueType, IReviewQueue>();
         this.queuePersistence = null;
+        this.leechActionEffects = null;
         this.pendingObserverEvents = new Map<string, DataChangeEvent>();
         this.pendingObserverEventOrder = [];
         this.observerFlushScheduled = false;
@@ -232,6 +240,19 @@ export class UnifiedDataSourceManager {
     public setQueuePersistence(queuePersistence: QueuePersistencePort): void {
         this.queuePersistence = queuePersistence;
         logger.info('QueuePersistence service set');
+    }
+
+    /**
+     * 设置 Leech 队列副作用端口
+     *
+     * 必须在使用 Leech 队列之前由组合根注入。
+     *
+     * @param leechActionEffects Leech 队列副作用端口
+     */
+    public setLeechActionEffects(leechActionEffects: LeechActionEffectsPort): void {
+        this.leechActionEffects = leechActionEffects;
+        this.invalidateQueue(QueueType.Leech);
+        logger.info('LeechActionEffects port set');
     }
     
     /**
@@ -962,8 +983,11 @@ export class UnifiedDataSourceManager {
                 });
             
             case QueueType.Leech:
+                if (!this.leechActionEffects) {
+                    throw new QueueError('LeechActionEffectsPort not initialized. Call setLeechActionEffects() first.');
+                }
                 return new LeechReviewQueue(this, {
-                    effects: new SiyuanLeechActionEffectsAdapter(),
+                    effects: this.leechActionEffects,
                 });
             
             default:

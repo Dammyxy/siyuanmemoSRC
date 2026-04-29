@@ -1114,6 +1114,7 @@ export class ApplicationContext {
     
     // 7. 初始化统一数据源管理器
     const unifiedDataSourceManager = UnifiedDataSourceManager.getInstance();
+    unifiedDataSourceManager.setLeechActionEffects(new SiyuanLeechActionEffectsAdapter());
     
     // 8. 初始化队列上下文（空的，稍后注册队列）
     // 10. 加载内置模板（硬编码，不需要持久化）

@@ -93,7 +93,7 @@ flowchart TD
 
 - 初始化 `StorageManager` / `UnifiedStorageManager`
 - 初始化 `SchedulerRouter` / `RescheduleService`
-- 初始化 `UnifiedDataSourceManager`
+- 初始化 `UnifiedDataSourceManager`，并在组合根注入队列持久化与 `LeechActionEffectsPort`；Leech queue 不在 manager 内部默认构造 Siyuan effects adapter
 - 装配 `CardApplicationService` / `BrowserApplicationService` / `ReviewApplicationService`；其中 `ReviewApplicationService` 的 `ReviewSiyuanPort`、`CardContentQueryService` / `DataAccessFacade` 的 `QuerySiyuanPort` 由组合根注入，不在 service/facade 内默认构造基础设施 adapter
 - SQL active 时给 `CardApplicationService` 注入 `SqlCardReadModel`，并把 `SqlUnifiedStorageRepository` 作为 `BrowserDeckReadPort` 注入 `BrowserApplicationService` / `DocTreeReviewScopeService`；卡片计数、Browser stats、deck 主表分页、source-existence cache、root-scope 候选与 card-type-marker 扫描优先走 `cards` 表 v3 投影列和索引，legacy、SQL 不可用或 SQL 不可表达条件再回到 `UnifiedStorageManager` / snapshot 读模型
 - 装配 `DialogManager` / `MenuManager` / `TabManager` / `DockManager`；`DialogManager`、`MenuManager`、`TabManager`、`BlockMenuHandler`、`PracticeQueueManager`、`ReviewScopeCardCreationSyncService` 的 Siyuan / Progressive / Leech effects 依赖由 `ApplicationContext` 通过应用端口注入，不在 manager/service 内部默认构造基础设施 adapter

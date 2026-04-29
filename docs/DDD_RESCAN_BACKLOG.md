@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 194)
+Last update: 2026-04-29 (Round 195)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - D10 D52 leech effects adapter injection
+
+- Task: 继续 D-10 / D-52 边界清理，把 `UnifiedDataSourceManager` 内部的 `SiyuanLeechActionEffectsAdapter` 默认构造迁到 composition root / required port 注入。
+- Touched slice: Queue / composition root boundary in `src/application/services/UnifiedDataSourceManager.ts`, `src/application/ApplicationContext.ts`, focused UnifiedDataSourceManager tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
+- Debt fixed now: `UnifiedDataSourceManager` 不再 import 或直接 `new SiyuanLeechActionEffectsAdapter()`；新增必需 `LeechActionEffectsPort` 槽位，`ApplicationContext.create()` 在组合根创建真实 adapter 并注入；Leech queue 创建前若缺端口会显式抛错，不再由 application service 隐式接触基础设施实现。
+- Debt deferred: Card CRUD / Xiuyuan use cases、`AutoCardHandler`、`createReviewRenderServices`、`ConceptLocator` 默认 port、UI browser preview breadcrumb infrastructure allowlist、大型 active 文件拆分仍保留。
+- Why deferred: 本批只收 queue leech effects 小闭环；Card CRUD / Xiuyuan 是写入 usecase，`AutoCardHandler` 涉 Riff/自动制卡写路径，`createReviewRenderServices` 仍牵动 `ReviewView` / `ReviewContent` 默认渲染服务兜底与多组 UI tests，不能混入本次安全 slice。
+- Next safe step: 在 `createReviewRenderServices` 设计一个明确的 Review render service factory 注入路径，或单独评估 `AutoCardHandler` 的 Siyuan/Riff ports；写入 usecase 继续留独立小批次。
+- Validation: `pnpm exec vitest run src/application/services/__tests__/UnifiedDataSourceManager.settings.test.ts`（6 tests 通过）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 data access facade adapter injection
 
@@ -2625,7 +2635,7 @@ Do not add an entry for skill-only or docs-only work.
 | Priority | Issue | Typical Locations | Suggested Action |
 |---|---|---|---|
 | P1 | Native Riff hard-delete and multi-device concurrency can still create real document conflicts beyond the in-process writer queue | review/browser delete entrypoints, card delete flows, Riff sync delete paths | Split local hide/tombstone semantics from destructive native Riff deletion, then decide whether a cross-window/device lock or tombstone reconciliation model is required |
-| P1 | Adapter construction is not yet fully centralized in `ApplicationContext` | card CRUD usecases, Xiuyuan usecases, `AutoCardHandler`, review render factory, `UnifiedDataSourceManager` leech effects | Continue converting constructors to required ports and inject them from `ApplicationContext`; keep factory exceptions explicit while migrating |
+| P1 | Adapter construction is not yet fully centralized in `ApplicationContext` | card CRUD usecases, Xiuyuan usecases, `AutoCardHandler`, review render factory | Continue converting constructors to required ports and inject them from `ApplicationContext`; keep factory exceptions explicit while migrating |
 | P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
@@ -2640,6 +2650,6 @@ Do not add an entry for skill-only or docs-only work.
 
 ## 4. Next convergence batch
 
-1. Continue adapter constructor migration so card CRUD, Xiuyuan, `AutoCardHandler`, and remaining factory/effects surfaces receive ports from `ApplicationContext` instead of defaulting to infrastructure adapters.
+1. Continue adapter constructor migration so card CRUD, Xiuyuan, `AutoCardHandler`, and remaining review render factory surfaces receive ports from `ApplicationContext` instead of defaulting to infrastructure adapters.
 2. Shrink the UI infrastructure allowlist by replacing the remaining direct imports with application factories/ports.
 3. Split the largest active files by state / command / projection / persistence boundaries, starting with the AI workbench service only after Browser/Review wiring remains stable.
