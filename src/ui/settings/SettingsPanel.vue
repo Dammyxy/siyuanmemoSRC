@@ -1318,6 +1318,19 @@ import AiSettingsDraggableList from '@/ui/settings/ai/AiSettingsDraggableList.vu
 import AiToolPermissionManagerDialog from '@/ui/settings/ai/AiToolPermissionManagerDialog.vue';
 import AiBuiltInPromptEditorDialog from '@/ui/settings/ai/AiBuiltInPromptEditorDialog.vue';
 import AiUserSkillEditorDialog from '@/ui/settings/ai/AiUserSkillEditorDialog.vue';
+import {
+  DEFAULT_SETTINGS_SUBTAB_SELECTION,
+  buildSettingsSubTabsByTab,
+  buildSettingsTabs,
+  ensureActiveSettingsSubTabSelection,
+  isSettingsSubTabActive,
+  normalizeSettingsTabKey,
+  resolveSettingsNavigationViewModel,
+  selectSettingsSubTab,
+  type SettingsSubTabKey,
+  type SettingsSubTabSelection,
+  type SettingsTabKey,
+} from './settingsPanelViewModel';
 
 type OptimizationConfig = Record<string, unknown>;
 type ConflictResolutionStrategy = 'merge' | 'prefer-local' | 'prefer-remote';
@@ -1528,60 +1541,22 @@ function t(key: string, fallback: string): string {
   return props.i18n?.[key] || fallback;
 }
 
-type SettingsTabKey = 'learning' | 'review' | 'card' | 'capture-sync' | 'neural' | 'ai' | 'maintenance' | 'about';
-type SettingsSubTabKey = string;
-
-interface SettingsSubTabDefinition {
-  key: SettingsSubTabKey;
-  label: string;
-  disabled?: boolean;
-}
-
-function normalizeSettingsTabKey(tab?: string): SettingsTabKey {
-  switch (tab) {
-  case 'learning':
-  case 'review':
-  case 'card':
-  case 'capture-sync':
-  case 'neural':
-  case 'ai':
-  case 'maintenance':
-  case 'about':
-    return tab;
-  case 'fsrs':
-  case 'general':
-  case 'params':
-  case 'study':
-  default:
-    return 'learning';
-  }
-}
-
-const tabs = computed<Array<{ key: SettingsTabKey; label: string; icon: string; section: 'primary' | 'secondary' }>>(() => [
-  { key: 'learning', label: t('settingsStudyTab', '学习与调度'), icon: '#iconSettings', section: 'primary' },
-  { key: 'review', label: t('settingsReviewQueueTab', '复习与队列'), icon: '#iconSettings', section: 'primary' },
-  { key: 'card', label: t('settingsCardTab', '制卡'), icon: '#iconSettings', section: 'primary' },
-  { key: 'capture-sync', label: t('settingsCaptureSyncTab', '摘录与同步'), icon: '#iconSettings', section: 'primary' },
-  { key: 'neural', label: t('settingsNeuralTab', '神经漫游'), icon: '#iconSettings', section: 'primary' },
-  { key: 'ai', label: t('settingsAiTab', 'AI 工作台'), icon: '#iconSparkles', section: 'primary' },
-  { key: 'maintenance', label: t('settingsMaintenanceTab', '维护'), icon: '#iconSettings', section: 'secondary' },
-  { key: 'about', label: t('settingsAboutTab', '关于'), icon: '#iconInfo', section: 'secondary' },
-]);
-
 const activeTab = ref<SettingsTabKey>(normalizeSettingsTabKey(props.defaultTab));
-const activeSubTabByTab = ref<Record<SettingsTabKey, SettingsSubTabKey>>({
-  learning: 'fsrs',
-  review: 'surface',
-  card: 'quick-card',
-  'capture-sync': 'entry',
-  neural: 'history',
-  ai: 'provider',
-  maintenance: 'block-attrs',
-  about: 'about',
-});
-const primaryTabs = computed(() => tabs.value.filter((tab) => tab.section === 'primary'));
-const secondaryTabs = computed(() => tabs.value.filter((tab) => tab.section === 'secondary'));
-const showSettingsFooter = computed(() => activeTab.value !== 'maintenance' && activeTab.value !== 'about');
+const activeSubTabByTab = ref<SettingsSubTabSelection>({ ...DEFAULT_SETTINGS_SUBTAB_SELECTION });
+const tabs = computed(() => buildSettingsTabs(t));
+const subTabsByTab = computed(() => buildSettingsSubTabsByTab(t));
+const navigationViewModel = computed(() => resolveSettingsNavigationViewModel({
+  tabs: tabs.value,
+  subTabsByTab: subTabsByTab.value,
+  activeTab: activeTab.value,
+  selectedSubTabs: activeSubTabByTab.value,
+}));
+const primaryTabs = computed(() => navigationViewModel.value.primaryTabs);
+const secondaryTabs = computed(() => navigationViewModel.value.secondaryTabs);
+const activeTabLabel = computed(() => navigationViewModel.value.activeTabLabel);
+const activeSubTabs = computed(() => navigationViewModel.value.activeSubTabs);
+const activeSubTabKey = computed(() => navigationViewModel.value.activeSubTabKey);
+const showSettingsFooter = computed(() => navigationViewModel.value.showSettingsFooter);
 const settingsContentRef = ref<HTMLElement | null>(null);
 
 const queueSettings = ref<QueueSettings>(createDefaultQueueSettings());
@@ -1961,72 +1936,12 @@ const settings = ref<Settings>({
   progressiveStorage: createDefaultConfiguredCaptureStorageSettings(DEFAULT_SETTINGS.progressiveReading.storage),
 });
 
-const subTabsByTab = computed<Record<SettingsTabKey, SettingsSubTabDefinition[]>>(() => ({
-  learning: [
-    { key: 'fsrs', label: t('settingsSubtabFsrsParams', 'FSRS 参数') },
-    { key: 'scheduler', label: t('settingsSubtabScheduler', '调度器') },
-    { key: 'day-start', label: t('settingsSubtabDayStart', '每日刷新') },
-  ],
-  review: [
-    { key: 'surface', label: t('settingsSubtabReviewSurface', '复习界面') },
-    { key: 'automation', label: t('settingsSubtabQueueAutomation', '队列自动化') },
-    { key: 'ordering', label: t('settingsSubtabQueueOrdering', '排序与插入') },
-  ],
-  card: [
-    { key: 'quick-card', label: t('settingsSubtabQuickCard', '监听符号制卡') },
-  ],
-  'capture-sync': [
-    { key: 'entry', label: t('settingsSubtabExcerptEntry', '摘录入口') },
-    { key: 'storage', label: t('settingsSubtabStorage', '存放位置') },
-    { key: 'conflict', label: t('settingsSubtabConflict', '冲突处理') },
-  ],
-  neural: [
-    { key: 'history', label: t('settingsSubtabNeuralHistory', '轨迹历史') },
-    { key: 'channels', label: t('settingsSubtabHyperspaceChannels', '传播通道') },
-    { key: 'range', label: t('settingsSubtabHyperspaceRange', '扩散范围') },
-    { key: 'weights', label: t('settingsSubtabHyperspaceWeights', '传播权重') },
-  ],
-  ai: [
-    { key: 'provider', label: t('settingsSubtabAiProvider', '模型接入') },
-    { key: 'runtime', label: t('settingsSubtabAiRuntime', '聊天与工具') },
-    { key: 'built-in-skill', label: t('settingsSubtabAiBuiltInSkill', '内置 Skill') },
-    { key: 'user-skills', label: t('settingsSubtabAiUserSkills', '用户 Skill') },
-  ],
-  maintenance: [
-    { key: 'block-attrs', label: t('blockAttrsCleanupTitle', '块属性清理') },
-  ],
-  about: [
-    { key: 'about', label: t('settingsAboutTab', '关于') },
-  ],
-}));
-
-const activeTabLabel = computed(() => tabs.value.find((tab) => tab.key === activeTab.value)?.label || '');
-const activeSubTabs = computed(() => subTabsByTab.value[activeTab.value] || []);
-const activeSubTabKey = computed(() => {
-  const selectedKey = activeSubTabByTab.value[activeTab.value];
-  const selected = activeSubTabs.value.find((subTab) => subTab.key === selectedKey && !subTab.disabled);
-  if (selected) {
-    return selected.key;
-  }
-
-  return activeSubTabs.value.find((subTab) => !subTab.disabled)?.key || activeSubTabs.value[0]?.key || '';
-});
-
 function ensureActiveSubTab(tabKey = activeTab.value): void {
-  const availableSubTabs = subTabsByTab.value[tabKey] || [];
-  const selectedKey = activeSubTabByTab.value[tabKey];
-  const selected = availableSubTabs.find((subTab) => subTab.key === selectedKey && !subTab.disabled);
-  if (selected) {
-    return;
-  }
-
-  const fallback = availableSubTabs.find((subTab) => !subTab.disabled) || availableSubTabs[0];
-  if (fallback) {
-    activeSubTabByTab.value = {
-      ...activeSubTabByTab.value,
-      [tabKey]: fallback.key,
-    };
-  }
+  activeSubTabByTab.value = ensureActiveSettingsSubTabSelection({
+    tab: tabKey,
+    selectedSubTabs: activeSubTabByTab.value,
+    subTabsByTab: subTabsByTab.value,
+  });
 }
 
 async function scrollSettingsContentToTop(): Promise<void> {
@@ -2035,20 +1950,27 @@ async function scrollSettingsContentToTop(): Promise<void> {
 }
 
 function selectSubTab(subTabKey: SettingsSubTabKey): void {
-  const target = activeSubTabs.value.find((subTab) => subTab.key === subTabKey);
-  if (!target || target.disabled) {
+  const nextSelection = selectSettingsSubTab({
+    activeTab: activeTab.value,
+    requestedSubTab: subTabKey,
+    selectedSubTabs: activeSubTabByTab.value,
+    subTabsByTab: subTabsByTab.value,
+  });
+  if (!nextSelection) {
     return;
   }
 
-  activeSubTabByTab.value = {
-    ...activeSubTabByTab.value,
-    [activeTab.value]: subTabKey,
-  };
+  activeSubTabByTab.value = nextSelection;
   void scrollSettingsContentToTop();
 }
 
 function isActiveSubTab(tabKey: SettingsTabKey, subTabKey: SettingsSubTabKey): boolean {
-  return activeTab.value === tabKey && activeSubTabKey.value === subTabKey;
+  return isSettingsSubTabActive({
+    activeTab: activeTab.value,
+    activeSubTabKey: activeSubTabKey.value,
+    tab: tabKey,
+    subTab: subTabKey,
+  });
 }
 
 watch(activeTab, async () => {

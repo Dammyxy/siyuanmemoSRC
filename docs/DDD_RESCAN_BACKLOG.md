@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 207)
+Last update: 2026-04-29 (Round 208)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - D10 D52 Settings panel navigation view-model split
+
+- Task: 继续 D-10 / D-52 大文件拆分 campaign，做 Batch 5 `SettingsPanel.vue` tab/subtab/view-model projection boundary。
+- Touched slice: Settings panel navigation projection in `src/ui/settings/SettingsPanel.vue`, new `src/ui/settings/settingsPanelViewModel.ts`, focused settings navigation / SettingsPanel tests, `ARCHITECTURE.md`, and `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`.
+- Debt fixed now: `SettingsPanel.vue` 不再内联 settings tab 定义、primary/secondary split、legacy defaultTab normalization、默认 subtab map、active subtab fallback、disabled subtab selection guard、active subtab panel predicate 或 footer visibility projection；这些纯 navigation view-model rules 集中到 `settingsPanelViewModel.ts`，SFC 继续保留 Vue refs、scroll-to-top、settings load/save、dialog manager 和各设置域表单副作用。
+- Debt deferred: D-10 / D-52 的大型 active 文件债继续存在；`SettingsPanel.vue` 仍有 AI prompt/user-skill dialog orchestration、quick-card/progressive storage/block-attrs form state 与 save payload assembly 可继续拆，`AIWorkbenchService.ts`、`SRSBrowser.vue`、`ReviewView.vue`、`AiWorkbenchPane.vue` 也仍待按 active behavior boundary 继续拆；AI descriptor i18n / happy-dom 噪音 / Arena scenario registration 等产品债未混入本批。
+- Why deferred: 本批只处理 Settings navigation projection seam；继续拆 AI settings dialogs、表单 payload assembly 或 maintenance commands 会扩大回归面，需要单独验收。
+- Next safe step: 继续 `SettingsPanel.vue` AI prompt/user-skill dialog view-model，或回到 Browser neural command/loading orchestration / `ReviewView.vue` more-menu command grouping。
+- Validation: `pnpm exec vitest run src/ui/settings/__tests__/settingsPanelViewModel.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts --reporter=dot`（2 files / 16 tests 通过，保留既有 SettingsPanel stdout 日志）；`pnpm run check:boundaries`（通过）；`pnpm build`（通过，i18n 阻断 0，保留既有硬编码提示 338 / i18n 内容提示 14 与 Sass legacy warning）；`git diff --check`（通过，仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - D10 D52 Review AI command helper split
 
@@ -2758,7 +2768,7 @@ Do not add an entry for skill-only or docs-only work.
 | P2 | New two-phase Riff sync still needs broader lifecycle coverage beyond the core apply/ownership tests | `XiuyuanSyncService`, browser/manual sync entrypoints | Add browser-open/manual sync tests for checkpoint retry, repeated incremental/full sync, local-owned vs riff-managed same-block reconciliation, and duplicate logical-face merge cleanup |
 | P3 | `CardRepository.save()` remains a thin storage wrapper rather than a first-class logical-key CRUD boundary | `src/infrastructure/persistence/CardRepository.ts` and any future direct card write paths | Only promote it when direct CardRepository write paths become common or need explicit logical-key CRUD semantics |
 | P1 | Mojibake/encoding debt in long-lived docs and some comments | `ARCHITECTURE.md`, selected large Vue/TS files with historical garbled comments | Run dedicated UTF-8 restoration pass (content-preserving) |
-| P1 | Large active files still mix state, command, projection, and persistence concerns; Browser chrome preference/open-state hydration, AI workbench session runtime mechanics, AI workbench pane CDF/self-test/message render projection, and Review AI sidecar/companion command orchestration have been split out, but larger command/loading/neural/tool-chain/orchestration seams remain | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue`, `src/ui/browser/browserChromePreferences.ts`, `src/ui/browser/browserSurfaceState.ts`, `src/application/services/AIWorkbenchSessionRuntime.ts`, `src/ui/ai/aiWorkbenchPaneProjection.ts`, `src/ui/review/v2/reviewAICommands.ts` | Continue splitting only along active behavior boundaries; next safe cut is `SettingsPanel.vue` tab view-model projection, Browser neural command/loading orchestration, or `ReviewView.vue` more-menu command grouping, not naming-only moves |
+| P1 | Large active files still mix state, command, projection, and persistence concerns; Browser chrome preference/open-state hydration, AI workbench session runtime mechanics, AI workbench pane CDF/self-test/message render projection, Review AI sidecar/companion command orchestration, and SettingsPanel tab/subtab navigation view-model have been split out, but larger command/loading/neural/tool-chain/orchestration seams remain | `AIWorkbenchService.ts`, `SRSBrowser.vue`, `ReviewView.vue`, `SettingsPanel.vue`, `AiWorkbenchPane.vue`, `src/ui/browser/browserChromePreferences.ts`, `src/ui/browser/browserSurfaceState.ts`, `src/application/services/AIWorkbenchSessionRuntime.ts`, `src/ui/ai/aiWorkbenchPaneProjection.ts`, `src/ui/review/v2/reviewAICommands.ts`, `src/ui/settings/settingsPanelViewModel.ts` | Continue splitting only along active behavior boundaries; next safe cut is Browser neural command/loading orchestration, `ReviewView.vue` more-menu command grouping, or `SettingsPanel.vue` AI prompt/user-skill dialog view-model, not naming-only moves |
 | P2 | Browser filter/query helper logic still has local duplication after contract migration | `src/types/browser.ts`, `src/ui/browser/utils/cardFilters.ts`, browser datasource helpers | Deduplicate around shared parser/matcher only after current Browser tests cover the migrated behavior |
 | P2 | Repeated local i18n helper patterns (`t(key, fallback)`) | UI components in browser/review | Optional dedupe via shared translator utility (low risk, non-functional) |
 | P2 | AI tool/group descriptor copy is still hard-coded inside runtime registry rather than routed through i18n-backed metadata | `src/application/services/AIChatToolRegistry.ts`, AI settings/pane tool surfaces | Extract descriptor copy into a localized source of truth once the AI tool surface stabilizes |
@@ -2768,5 +2778,5 @@ Do not add an entry for skill-only or docs-only work.
 
 ## 4. Next convergence batch
 
-1. Continue splitting the largest active files by state / command / projection / persistence boundaries; Browser chrome preference/open-state hydration, AI workbench session runtime, AI workbench pane projection, and Review AI command helper are already extracted, so the next safe cut should target `SettingsPanel.vue` tab view-model projection, Browser neural commands / loading orchestration, or `ReviewView.vue` more-menu command grouping.
+1. Continue splitting the largest active files by state / command / projection / persistence boundaries; Browser chrome preference/open-state hydration, AI workbench session runtime, AI workbench pane projection, Review AI command helper, and SettingsPanel navigation view-model are already extracted, so the next safe cut should target Browser neural commands / loading orchestration, `ReviewView.vue` more-menu command grouping, or `SettingsPanel.vue` AI prompt/user-skill dialog view-model.
 2. Evaluate product semantics debt separately: Native Riff hard-delete vs local hide/tombstone and cross-window/device conflict handling.
