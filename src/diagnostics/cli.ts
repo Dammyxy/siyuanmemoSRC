@@ -8,11 +8,13 @@
  * - analyze
  * - report
  * - algorithm-state
+ * - browser-sql-profile
  */
 
 import minimist from 'minimist';
 import * as path from 'path';
 import { runAlgorithmStateDiagnosticCommand } from './algorithmStateDiagnostic.ts';
+import { runBrowserSqlProfileCommand } from './browserSqlProfile.ts';
 import { ArchitectureScanner } from './scanners/ArchitectureScanner.ts';
 import { InterfaceValidator } from './validators/InterfaceValidator.ts';
 import { MigrationAnalyzer } from './analyzers/MigrationAnalyzer.ts';
@@ -39,7 +41,7 @@ async function run() {
     const { command, rootDir, output, compatOutput, dbPath } = parseArgs();
 
     if (!command) {
-        diagnosticsOutput.error('Usage: diagnostics <scan|validate|analyze|report|algorithm-state> [--root <path>] [--output <path>] [--db <path>]');
+        diagnosticsOutput.error('Usage: diagnostics <scan|validate|analyze|report|algorithm-state|browser-sql-profile> [--root <path>] [--output <path>] [--db <path>]');
         process.exit(1);
     }
 
@@ -114,6 +116,15 @@ async function run() {
             logProgress('Running SQLite algorithm card state diagnostic...');
             const result = await runAlgorithmStateDiagnosticCommand({ dbPath, output: diagnosticsOutput });
             if (!result.clean) {
+                process.exitCode = 2;
+            }
+            break;
+        }
+
+        case 'browser-sql-profile': {
+            logProgress('Running Browser SQL profile...');
+            const result = await runBrowserSqlProfileCommand({ dbPath, output: diagnosticsOutput });
+            if (!result.pass) {
                 process.exitCode = 2;
             }
             break;

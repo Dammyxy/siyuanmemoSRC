@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-29 (Round 188)
+Last update: 2026-04-29 (Round 189)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-29 - browser sql D01 profile closure
+
+- Task: 关闭 D-01 Browser source cache / SQL read model / 1k-5k profile / batch persist 证据债，不改用户 runtime。
+- Touched slice: Dev diagnostics and audit docs in `src/diagnostics/{browserSqlProfile.ts,cli.ts,__tests__/browserSqlProfile.test.ts}`, `package.json`, `docs/FULL_HISTORY_RESUME_AUDIT_REPORT.md`, and this backlog entry.
+- Debt fixed now: 新增只读 `diagnostics:browser-sql-profile` dev command，读取真实 `siyuanmemo.db` bytes 到 sql.js 内存库，按 Browser SQL read-port projection/source-existence query 形状跑 `getBrowserStats`、deck page、matched ids、LIKE search、source summary、source candidate + update simulation；真实库 `rowCount=426`、内存扩容 `1000/5000` 全部通过预算，5k 最大耗时 stats `7.196ms`、page `11.379ms`、matched ids `13.938ms`、LIKE `15.187ms`、source summary `5.515ms`、source update simulation `94.608ms`；focused tests 同步覆盖 Browser deck SQL、SQL repository、block-id path、batch scheduler adapter，一并锁住 batch delete/suspend/scheduler batch update 仍走批量入口/单次 persist；审计报告把 D-01 移入安全表，P3 从 52 降到 51。
+- Debt deferred: D-01 无 runtime debt deferred；真实 SiYuan kernel `blocks` SQL 网络/IPC 成本不属于本次 DB-side convergence acceptance。D-10/D-52 边界清理、Arena/UI/AI 产品债仍按审计报告保留为 P3。
+- Why deferred: D-01 已按用户选择的真实库只读 + 内存 1k/5k 口径关闭；剩余 P3 会触碰架构边界、产品功能或真实宿主截图/交互验收，不能混入本批。
+- Next safe step: 单开 D-10/D-52，先迁移剩余默认构造的 Siyuan adapter、收窄 UI infrastructure allowlist、拆大型 active Browser/Review 文件。
+- Validation: `pnpm exec vitest run src/diagnostics/__tests__/browserSqlProfile.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/infrastructure/persistence/sqlite/__tests__/SqlUnifiedStorageRepository.test.ts src/ui/browser/__tests__/browserService.block-id-paths.test.ts src/core/scheduler/adapters/__tests__/UnifiedStorageCardUpdateAdapter.test.ts --reporter=dot`（22 tests 通过）；`pnpm diagnostics:browser-sql-profile -- --db "H:\SiYuanXY\data\storage\petal\siyuan-plugin-siyuanmemo\siyuanmemo.db"`（pass true，426/1000/5000 全部过预算）；`pnpm build`（通过；i18n 阻断 0，保留既有硬编码提示与 Sass legacy warning）；`git diff --check`（通过；仅 LF/CRLF 工作区提示）。
 
 ### 2026-04-29 - remaining audit P2 history closure
 
