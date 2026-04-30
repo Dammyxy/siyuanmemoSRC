@@ -160,14 +160,15 @@ flowchart TD
    - `UnifiedDataSourceManager`
 4. 挂载 `src/ui/review/v2/ReviewView.vue`
 5. `useReviewSession.ts` 绑定 `reviewSessionController.ts`；controller 统一驱动 `next / reveal / grade / skip / custom`，并且所有“直接把某张卡写成当前卡”的恢复/刷新入口都会先走 queue strategy 的 `hydrateCurrentItem()` 显示态补水，再更新 UI，避免外部刷新、会话恢复、AI 新卡同步等路径把原始 `FSRSCard` 直接塞回当前位后丢掉 runtime `nextDues`；当当前队列项在评分前已被删除或失效时，queue strategy 会抛出 `QueueItemUnavailableError`，controller 只重新 `queue.next()` 跳到下一张，不记录复习历史，也不把 session 误置为空完成态
-6. review header 的二级动作仍由 `ReviewView.vue` 编排，more-menu 的纯分组 / label / disabled projection 由 `reviewMoreMenuItems.ts` 承接，neural toolbar/menu command projection 由 `reviewNeuralCommands.ts` 承接，open-as 菜单命令由 `reviewOpenAsCommands.ts` 承接，source transaction refresh 队列由 `reviewSourceRefreshRuntime.ts` 承接，键盘去重与全局事件绑定由 `reviewKeyboardRuntime.ts` 承接；SFC 只注入当前状态、依赖与真实命令回调：
+6. review header 的二级动作仍由 `ReviewView.vue` 编排，more-menu 的纯分组 / label / disabled projection 由 `reviewMoreMenuItems.ts` 承接，neural toolbar/menu command projection 由 `reviewNeuralCommands.ts` 承接，progressive excerpt / source / complete-piece command runtime 由 `reviewProgressiveExcerptCommands.ts` 承接，open-as 菜单命令由 `reviewOpenAsCommands.ts` 承接，source transaction refresh 队列由 `reviewSourceRefreshRuntime.ts` 承接，键盘去重与全局事件绑定由 `reviewKeyboardRuntime.ts` 承接；SFC 只注入当前状态、依赖与真实命令回调：
    - `AI 侧栏` 统一走 `reviewAICommands.ts` 组装 review-bound open options / visible-only context sync / sidecar or companion tab command，再交给 `ReviewAIWorkbenchRegistry`、`DialogManager` 或 `TabManager`
    - `更多` 菜单中的优先级编辑走 `CardEditorApplicationService.updatePriority(...)`
    - `更多` 菜单中的“编辑当前内容”走 `ReviewApplicationService.getBlockKramdown/updateBlockMarkdown(...)`，通过共享 `LargeTextEditorDialog` 编辑当前块原始 Markdown；保存后只调用 `ReviewContent.refreshVisibleContent()` 原地刷新当前内容，不重建 review session
    - tab 模式下插件托管的“在新页签中打开”走 `TabManager.openReviewTabInNewTab(...)`，而“右侧/下方分屏当前复习”先通过 `SharedReviewSessionRegistry` 提升或复用共享 review session，再交给 `TabManager.openReviewTab(...)`
    - `更多` 菜单中的暂停动作走 `CardEditorApplicationService`
    - `更多` 菜单中的删除动作走 `CardApplicationService`
-   - progressive excerpt / fullscreen / SRS editor 继续复用既有 application / dialog 主链
+   - progressive excerpt 仍复用 `SelectionExcerptService` / `ProgressiveReadingService` 主链，Review helper 只负责 selection/materialize/highlight/duplicate-open/review-route/hyperspace-inject 的命令编排
+   - fullscreen / SRS editor 继续复用既有 application / dialog 主链
 7. `ReviewContent.vue` 继续在 `主 Protyle / special renderer` 之间路由；special renderer 所需的 quick / descriptor render services 由 `ApplicationContext.createReviewRenderServices()` 在 composition root 创建 Siyuan block adapters 后，经 `ReviewView.vue` 注入 `ReviewContent.vue`；`createReviewRenderServices()` 只接收已注入 adapter，不再默认 new block adapter，`ReviewContent.vue` 也不再自建 fallback render services；Image Occlusion 与 Xiuyuan list-template 读取块属性 / Markdown / breadcrumb 时只接收 `ReviewSiyuanPort` 投影，不直连 `@/infrastructure/siyuan/api`；其中普通 `builtin-multi-cloze` Item 已回到主 Protyle / 原生编辑路径，历史 `quick-default` 标记也会被普通 multi-cloze 契约压回 native path，只有 `inline-formula-cloze` 继续走专用 `MultiClozeCardRenderer`；`UnifiedReviewAdapter` 会把普通 multi-cloze 与 topic-derived Item 标记为 native inline hidden 候选，最终由 `ReviewContent` 的 DOM 检测按思源 flashcard 配置给 `mark/list/heading/superBlock` 加隐藏 class；special renderer 仍通过 `getEditableSource()` 向 `ReviewView.vue` 暴露当前可编辑块，同块编辑保存或经 `TransactionWebSocketService` 共享 transaction stream 命中的源块刷新由 `reviewSourceRefreshRuntime.ts` 做 debounce、suppression 和依赖块匹配，命中后走 `refreshVisibleContent()`：主 Protyle 调 `reload(false)`，special renderer 只重挂自身子组件，外层 review content key 只表达卡片身份
 8. review tab 现在区分 `surface id` 与 `shared review session id`：前者仍用于 tab 生命周期/AI companion 绑定，后者只用于插件托管分屏共享同一套 review controller
 9. SQL active 的队列候选真相是 `cards` 当前状态；`queue_state` 只保存筛选配置、临时黑名单、手动加入、session 排除和手动顺序等 overlay。手动加入卡解析按 card id / block id 定点查询，查不到才清理无效 manual entry，不再常规回退到无过滤全量 `getCards()`
@@ -511,6 +512,7 @@ Review：
 - `src/ui/review/v2/reviewAICommands.ts`：Review AI sidecar / companion command helper。
 - `src/ui/review/v2/reviewMoreMenuItems.ts`：Review `更多` 菜单纯 projection helper，集中分组顺序、separator、文案和禁用态。
 - `src/ui/review/v2/reviewNeuralCommands.ts`：Review neural toolbar/menu command helper，集中 lock-focus、engine/nav-mode/bookmark actions、focus/source 菜单与 history 菜单项；真实 queue mutation、loadCard 与 toast 仍由 `ReviewView.vue` 注入。
+- `src/ui/review/v2/reviewProgressiveExcerptCommands.ts`：Review progressive excerpt command runtime，集中 setting gate、Topic/selection guard、materialize/create、source highlight、duplicate open、progressive queue insertion、hyperspace injection、source open 与 complete-piece command glue；真实 service、current card/root/filter/neural queue、toast 与 grade side effect 仍由 `ReviewView.vue` 注入。
 - `src/ui/review/v2/reviewOpenAsCommands.ts`：Review open-as / locate-source / tab-dialog handoff menu command helper。
 - `src/ui/review/v2/reviewSourceRefreshRuntime.ts`：Review source transaction refresh debounce / suppression / dependency matching runtime。
 - `src/ui/review/v2/reviewKeyboardRuntime.ts`：Review duplicate key guard 与全局键盘 / command event binding helper。
@@ -680,7 +682,7 @@ Review surface 的当前统一点是：
 
 Review 运行时要点：
 
-- `ReviewView.vue` 负责界面、progressive excerpt 触发、review header 二级动作编排，以及把当前 review/card/queue/neural/Arena snapshot 传给 Review helpers；`reviewMoreMenuItems.ts` 只负责 `更多` 菜单纯 projection，不读取 Vue refs 或插件 context；`reviewNeuralCommands.ts` 只负责 neural toolbar/menu command projection，不读取 Vue refs 或插件 context；`reviewOpenAsCommands.ts` 只负责 locate-source / open tab / right split / dialog conversion 菜单 command projection，真实 tab/dialog/source side effect 仍由注入回调执行；`reviewSourceRefreshRuntime.ts` 负责 source transaction debounce、local-save suppression、依赖块匹配和主 Protyle 编辑态跳过；`reviewKeyboardRuntime.ts` 负责重复按键 guard 与全局 keyboard / command event binding；块内容编辑与当前依赖块 transaction 命中时只软刷新当前 `ReviewContent`，其中 transaction 来自共享 `TransactionWebSocketService` 而非每个复习面单独监听 `ws-main`
+- `ReviewView.vue` 负责界面、progressive excerpt 触发、review header 二级动作编排，以及把当前 review/card/queue/neural/Arena snapshot 传给 Review helpers；`reviewMoreMenuItems.ts` 只负责 `更多` 菜单纯 projection，不读取 Vue refs 或插件 context；`reviewNeuralCommands.ts` 只负责 neural toolbar/menu command projection，不读取 Vue refs 或插件 context；`reviewProgressiveExcerptCommands.ts` 只负责 review-side progressive excerpt command runtime，不读取 Vue refs 或插件 context，真实 selection root、service、filter queue、neural queue、toast 和 grade side effect 仍由 `ReviewView.vue` 注入；`reviewOpenAsCommands.ts` 只负责 locate-source / open tab / right split / dialog conversion 菜单 command projection，真实 tab/dialog/source side effect 仍由注入回调执行；`reviewSourceRefreshRuntime.ts` 负责 source transaction debounce、local-save suppression、依赖块匹配和主 Protyle 编辑态跳过；`reviewKeyboardRuntime.ts` 负责重复按键 guard 与全局 keyboard / command event binding；块内容编辑与当前依赖块 transaction 命中时只软刷新当前 `ReviewContent`，其中 transaction 来自共享 `TransactionWebSocketService` 而非每个复习面单独监听 `ws-main`
 - `reviewAICommands.ts` 是 Review-bound AI command helper：维护 `reviewChatKey`、默认/active AI view 选择、open options、companion title、visible-only context sync，以及 standalone dialog / embedded sidecar / companion tab 的打开命令；它不直接读取 Vue refs 或插件 context
 - `useReviewSession.ts` 负责把 Vue 生命周期绑定到共享或本地 `reviewSessionController`
 - `reviewSessionController.ts` 负责真正的 review session 状态机、动作串行化，以及多 surface 共享时的单一 authoritative controller；它不自己计算 `nextDues`，只在 restore/refresh/load-by-block 等直写当前卡路径上调用 queue strategy 的显示态 hydration
@@ -707,7 +709,7 @@ Review 运行时要点：
 当前 progressive 相关能力已经汇聚到一条主路径：
 
 - progressive split：`DialogManager` -> `ProgressiveSplitDialog.vue` -> `ProgressiveReadingService`
-- progressive excerpt：热键 / block menu / review surface -> `SelectionExcerptService` -> `ProgressiveReadingService`
+- progressive excerpt：热键 / block menu / review surface -> `reviewProgressiveExcerptCommands.ts`（review surface command runtime）或 `ProgressiveExcerptHotkeyHandler` -> `SelectionExcerptService` -> `ProgressiveReadingService`
 - editor manual continuation：`ProgressiveExcerptHotkeyHandler` -> `SelectionTopicContinuationService` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
 - topic continuation：`AutoCardHandler` -> `TopicDerivedItemService` -> `ProgressiveReadingService`
 

@@ -240,7 +240,6 @@ import {
 } from './reviewOpenAsCommands';
 import {
   isProgressiveSelectionInsideNativeProtyle,
-  type ProgressiveExcerptSelectionSnapshot,
   resolveProgressiveExcerptSelectionSnapshot,
 } from '@/application/entries/ProgressiveSelectionResolver';
 import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
@@ -250,11 +249,19 @@ import {
   REVIEW_SUSPEND_CURRENT_CARD_REQUEST_EVENT,
 } from '@/application/handlers/ReviewCommandRequestEvents';
 import {
-  applyProgressiveExcerptHighlight,
-  prepareProgressiveExcerptHighlight,
-} from '@/application/entries/ProgressiveExcerptHighlight';
-import type { ExcerptRecord } from '@/application/services/ExcerptRecordService';
-import type { ProgressiveExcerptCreationResult } from '@/application/services/ProgressiveReadingService';
+  getReviewProgressiveReadingService,
+  handleProgressiveCompletePiece as handleProgressiveCompletePieceCommand,
+  handleProgressiveOpenSource as handleProgressiveOpenSourceCommand,
+  isLinearPieceReviewCard,
+  isProgressiveExcerptCard,
+  isReviewProgressiveExcerptEnabled,
+  resolveProgressiveSourceTargetId,
+  runReviewProgressiveExcerptCommand,
+  type ReviewProgressiveExcerptTrigger,
+  type ReviewProgressiveReadingServiceLike,
+  type ReviewSelectionExcerptServiceLike,
+  type ReviewTabApplicationServiceLike,
+} from './reviewProgressiveExcerptCommands';
 import type { AIWorkbenchOpenOptions, AIWorkbenchSurface } from '@/types/ai';
 import type { PluginSettings } from '@/types/settings';
 import { AIWorkbenchService } from '@/application/services/AIWorkbenchService';
@@ -325,31 +332,9 @@ type ReviewPluginContextLike = {
     getCardByBlockId?: (blockId: string) => { id: string } | undefined;
   };
   getReviewService?: () => ReviewApplicationService | undefined;
-  getProgressiveReadingService?: () => {
-    completeCurrentPiece: (pieceDocId: string) => Promise<{ nextPieceDocId?: string }>;
-  } | undefined;
-  getSelectionExcerptService?: () => {
-    materializeExcerptSource: (snapshot: ProgressiveExcerptSelectionSnapshot) => Promise<{
-      sourceBlockId: string;
-      sourceBlockIds: string[];
-      contentDom: string;
-      highlightSnapshot: ProgressiveExcerptSelectionSnapshot;
-      reused: boolean;
-    }>;
-    createFromSelection: (input: {
-      sourceBlockId: string;
-      sourceBlockIds?: string[];
-      selectedText: string;
-      contentDom?: string;
-      origin: 'editor' | 'review';
-      currentCardId?: string;
-    }) => Promise<ProgressiveExcerptCreationResult>;
-    updateSourceBlockDom: (blockId: string, dom: string) => Promise<void>;
-  } | undefined;
-  getTabApplicationService?: () => {
-    openDocumentTab: (options: { docId: string }) => Promise<void>;
-    openBlockTab: (options: { blockId: string }) => Promise<void>;
-  } | undefined;
+  getProgressiveReadingService?: () => ReviewProgressiveReadingServiceLike | undefined;
+  getSelectionExcerptService?: () => ReviewSelectionExcerptServiceLike | undefined;
+  getTabApplicationService?: () => ReviewTabApplicationServiceLike | undefined;
   getSettingsService?: () => {
     getSettings?: () => ReviewRuntimeSettingsLike;
   } | undefined;
@@ -1182,33 +1167,6 @@ function matchesFilterCardType(card: FSRSCard, filter: CardFilter): boolean {
   return requestedTypes.includes(card.type as typeof requestedTypes[number]);
 }
 
-function isProgressiveExcerptCard(card: FSRSCard): boolean {
-  if (card.type !== 'topic') {
-    return false;
-  }
-
-  const progressive = isRecord(card.meta) ? card.meta.progressive : null;
-  return isRecord(progressive) && String(progressive.kind || '').trim() === 'excerpt';
-}
-
-function getProgressiveReadingService() {
-  const contextFromProps = getPluginContext(props.plugin);
-  const contextFromWindow = getWindowPlugin()?.getContext?.();
-  return contextFromProps?.getProgressiveReadingService?.() || contextFromWindow?.getProgressiveReadingService?.() || null;
-}
-
-function getSelectionExcerptService() {
-  const contextFromProps = getPluginContext(props.plugin);
-  const contextFromWindow = getWindowPlugin()?.getContext?.();
-  return contextFromProps?.getSelectionExcerptService?.() || contextFromWindow?.getSelectionExcerptService?.() || null;
-}
-
-function getTabApplicationService() {
-  const contextFromProps = getPluginContext(props.plugin);
-  const contextFromWindow = getWindowPlugin()?.getContext?.();
-  return contextFromProps?.getTabApplicationService?.() || contextFromWindow?.getTabApplicationService?.() || null;
-}
-
 function getCardService(): CardApplicationService | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
@@ -1227,89 +1185,10 @@ function getReviewService(): ReviewApplicationService | null {
   return contextFromProps?.getReviewService?.() || contextFromWindow?.getReviewService?.() || null;
 }
 
-function isProgressiveExcerptEnabled(): boolean {
+function getReviewProgressiveContexts(): Array<ReviewPluginContextLike | undefined> {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
-  const candidates = [contextFromProps, contextFromWindow];
-  for (const candidate of candidates) {
-    try {
-      const enabled = candidate?.getSettingsService?.()?.getSettings?.()?.progressiveReading?.altXExcerptEnabled;
-      if (typeof enabled === 'boolean') {
-        return enabled;
-      }
-    } catch (error) {
-      logger.warn('[SiYuanMemo][ReviewView] Failed to read progressive excerpt setting:', error);
-    }
-  }
-  return false;
-}
-
-function isCurrentProgressivePieceCard(): boolean {
-  const progressive = state.value.content.card?.meta?.progressive;
-  return Boolean(progressive && typeof progressive === 'object' && (progressive as Record<string, unknown>).kind === 'piece');
-}
-
-async function enqueueExcerptIntoCurrentProgressiveReview(excerptEntityId: string): Promise<boolean> {
-  if (!isCurrentProgressivePieceCard()) {
-    return false;
-  }
-
-  const normalizedBlockId = String(excerptEntityId || '').trim();
-  if (!normalizedBlockId) {
-    return false;
-  }
-
-  const filterQueue = getFilterGroupQueue();
-  const queueStrategy = getQueueStrategyWithInsertAt();
-  if (!filterQueue || typeof filterQueue.getFilter !== 'function' || typeof filterQueue.setFilter !== 'function' || !queueStrategy?.insertAt) {
-    return false;
-  }
-
-  const currentFilter = filterQueue.getFilter() || {};
-  const currentBlockIds = Array.isArray(currentFilter.blockIds)
-    ? currentFilter.blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean)
-    : [];
-
-  if (currentBlockIds.length === 0) {
-    return false;
-  }
-
-  const nextBlockIds = Array.from(new Set([...currentBlockIds, normalizedBlockId]));
-  if (nextBlockIds.length !== currentBlockIds.length) {
-    await filterQueue.setFilter({
-      ...currentFilter,
-      blockIds: nextBlockIds,
-    });
-    appliedReviewFilter.value = {
-      ...currentFilter,
-      blockIds: nextBlockIds,
-    };
-  }
-
-  await queueStrategy.insertAt(normalizedBlockId, 1);
-  return true;
-}
-
-async function injectExcerptIntoCurrentHyperspaceReview(excerptEntityId: string): Promise<boolean> {
-  const normalizedBlockId = String(excerptEntityId || '').trim();
-  if (!normalizedBlockId) {
-    return false;
-  }
-
-  const neuralQueue = getNeuralRoamQueue();
-  if (!neuralQueue || neuralQueue.getEngineMode() !== 'hyperspace') {
-    return false;
-  }
-
-  if (typeof neuralQueue.injectExcerptIntoHyperspace !== 'function') {
-    return false;
-  }
-
-  const navigationState = neuralQueue.getNavigationState();
-  return neuralQueue.injectExcerptIntoHyperspace(normalizedBlockId, {
-    currentNodeId: navigationState.currentNodeId ?? null,
-    currentEventId: navigationState.currentEventId ?? null,
-  });
+  return [contextFromProps, contextFromWindow];
 }
 
 function openNeuralBrowserSubview(subview: ReviewNeuralBrowserSubview): void {
@@ -3245,16 +3124,6 @@ function toggleReviewFullscreen(): void {
   }
 }
 
-function isLinearPieceReviewCard(card: FSRSCard | null | undefined): boolean {
-  if (!card || card.type !== 'topic' || !isRecord(card.meta)) {
-    return false;
-  }
-  const progressive = card.meta.progressive;
-  return isRecord(progressive)
-    && String(progressive.kind || '').trim() === 'piece'
-    && String(progressive.mode || '').trim() === 'linear';
-}
-
 async function handleEditCurrentCardPriority(): Promise<void> {
   const cardEditorService = getCardEditorService();
   const reference = resolveCurrentReviewCardActionReference();
@@ -3611,8 +3480,11 @@ function buildMoreMenuItems(): ReviewMenuItem[] {
   return buildReviewMoreMenuItems({
     t,
     currentCardType: currentCard?.type,
-    progressiveExcerptEnabled: isProgressiveExcerptEnabled(),
-    hasProgressiveSourceTarget: Boolean(resolveProgressiveSourceTargetId()),
+    progressiveExcerptEnabled: isReviewProgressiveExcerptEnabled({
+      contexts: getReviewProgressiveContexts(),
+      logger,
+    }),
+    hasProgressiveSourceTarget: Boolean(resolveProgressiveSourceTargetId(currentCard)),
     isLinearPieceReviewCard: isLinearPieceReviewCard(currentCard),
     openAsItems,
     editableSourceTitle: editableSource?.title ?? null,
@@ -3992,209 +3864,48 @@ function resolveCurrentReviewCardId(): string {
   ).trim();
 }
 
-function resolveProgressiveSourceTargetId(): string {
-  const card = state.value.content.card;
-  if (typeof card?.extractedFrom === 'string' && card.extractedFrom.trim().length > 0) {
-    return card.extractedFrom.trim();
-  }
-  const progressive = card?.meta?.progressive;
-  if (!progressive || typeof progressive !== 'object') {
-    return '';
-  }
-  const sourceBlockId = (progressive as Record<string, unknown>).sourceBlockId;
-  if (typeof sourceBlockId === 'string' && sourceBlockId.trim().length > 0) {
-    return sourceBlockId.trim();
-  }
-  const sourceDocId = (progressive as Record<string, unknown>).sourceDocId;
-  return typeof sourceDocId === 'string' ? sourceDocId.trim() : '';
-}
-
-async function handleProgressiveExcerptFromReview(trigger: 'hotkey' | 'toolbar' | 'command'): Promise<void> {
-  if (!isProgressiveExcerptEnabled()) {
-    showMessage(t('progressiveExcerptDisabled', '摘抄快捷键已关闭，请先在设置中开启'), 3000, 'info');
-    return;
-  }
-
-  const currentCard = state.value.content.card;
-  if (!currentCard || currentCard.type !== 'topic') {
-    showMessage(t('progressiveExcerptTopicOnly', '⌥⇧X 当前先只支持 Topic 卡'), 3000, 'error');
-    return;
-  }
-
-  const selectionService = getSelectionExcerptService();
-  if (!selectionService) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  const selection = resolveProgressiveExcerptSelectionSnapshot({
+async function handleProgressiveExcerptFromReview(trigger: ReviewProgressiveExcerptTrigger): Promise<void> {
+  await runReviewProgressiveExcerptCommand({
+    trigger,
+    contexts: getReviewProgressiveContexts(),
+    currentCard: state.value.content.card,
+    currentCardId: resolveCurrentReviewCardId(),
     root: rootRef.value,
+    resolveSelection: resolveProgressiveExcerptSelectionSnapshot,
     resolveProtyle: (commonElement) => {
       const host = commonElement.closest('.fsrs-review-v2-content__protyle-host');
       return host ? getProtyleFromHost(host) : null;
     },
+    filterQueue: getFilterGroupQueue(),
+    queueStrategy: getQueueStrategyWithInsertAt(),
+    setAppliedReviewFilter: (filter) => {
+      appliedReviewFilter.value = { ...filter };
+    },
+    neuralQueue: getNeuralRoamQueue(),
+    t,
+    showMessage,
+    logger,
   });
-  if (!selection) {
-    showMessage(t('progressiveExcerptNoSelection', '请先选中文本后再摘抄'), 3000, 'error');
-    return;
-  }
-
-  await createProgressiveExcerptFromReviewSelection(selection, trigger);
-}
-
-async function createProgressiveExcerptFromReviewSelection(
-  selection: ProgressiveExcerptSelectionSnapshot,
-  trigger: 'hotkey' | 'toolbar' | 'command',
-): Promise<void> {
-  const selectionService = getSelectionExcerptService();
-  if (!selectionService) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  try {
-    const materialized = await selectionService.materializeExcerptSource(selection);
-    const preparedHighlight = tryPrepareProgressiveExcerptHighlight(materialized.highlightSnapshot);
-    const result = await selectionService.createFromSelection({
-      sourceBlockId: materialized.sourceBlockId,
-      sourceBlockIds: materialized.sourceBlockIds,
-      selectedText: selection.text,
-      contentDom: materialized.contentDom,
-      origin: 'review',
-      currentCardId: resolveCurrentReviewCardId(),
-    });
-    if (result.kind === 'duplicate') {
-      await tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight);
-      await tryOpenExistingExcerptFromReview(result.record);
-      showMessage(
-        t('progressiveExcerptDuplicateJumped', '这段原文已摘录过，已跳到现有摘录'),
-        3000,
-        'info',
-      );
-      return;
-    }
-
-    result.colorApplied = await tryApplyPreparedProgressiveExcerptHighlight(preparedHighlight);
-    const routedExcerptTarget = await enqueueExcerptIntoCurrentProgressiveReview(result.excerptEntityId)
-      .then((inserted) => (inserted ? 'progressive' as const : null))
-      .then(async (target) => {
-        if (target) {
-          return target;
-        }
-        const injected = await injectExcerptIntoCurrentHyperspaceReview(result.excerptEntityId);
-        return injected ? 'hyperspace' as const : null;
-      })
-      .catch((error) => {
-        logger.warn('[SiYuanMemo][ReviewView] Failed to route progressive excerpt into current review:', error);
-        return null;
-      });
-    showMessage(
-      routedExcerptTarget === 'progressive'
-        ? t('progressiveExcerptCreatedInserted', '已创建 Topic，并插入当前渐进复习')
-        : routedExcerptTarget === 'hyperspace'
-          ? t('progressiveExcerptCreatedMergedHyperspace', '已创建 Topic，并并入当前超空间神经漫游')
-        : trigger !== 'toolbar'
-          ? t('progressiveExcerptCreatedHotkey', '已创建 Topic')
-          : t('progressiveExcerptCreated', '已创建 Topic'),
-      3000,
-      'info',
-    );
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to create excerpt from review:', error);
-    showMessage(
-      t('progressiveExcerptFailed', '摘抄失败：{message}')
-        .replace('{message}', error instanceof Error ? error.message : String(error)),
-      5000,
-      'error',
-    );
-  }
-}
-
-function tryPrepareProgressiveExcerptHighlight(selection: ProgressiveExcerptSelectionSnapshot) {
-  try {
-    return prepareProgressiveExcerptHighlight(selection);
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to prepare progressive excerpt highlight:', error);
-    return null;
-  }
-}
-
-async function tryApplyPreparedProgressiveExcerptHighlight(
-  preparedHighlight: ReturnType<typeof prepareProgressiveExcerptHighlight>,
-): Promise<boolean> {
-  const selectionService = getSelectionExcerptService();
-  if (!selectionService) {
-    return false;
-  }
-
-  try {
-    return await applyProgressiveExcerptHighlight(preparedHighlight, {
-      persistDomBlock: (blockId, dom) => selectionService.updateSourceBlockDom(blockId, dom),
-    });
-  } catch (highlightError) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to apply progressive excerpt highlight:', highlightError);
-    return false;
-  }
-}
-
-async function tryOpenExistingExcerptFromReview(record: ExcerptRecord): Promise<void> {
-  try {
-    const tabApplicationService = getTabApplicationService();
-    if (!tabApplicationService) {
-      return;
-    }
-
-    if (record.excerptEntityType === 'doc') {
-      await tabApplicationService.openDocumentTab({ docId: record.excerptEntityId });
-      return;
-    }
-
-    await tabApplicationService.openBlockTab({ blockId: record.excerptEntityId });
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to open existing duplicate excerpt:', error);
-  }
 }
 
 function handleProgressiveOpenSource(): void {
-  const sourceTargetId = resolveProgressiveSourceTargetId();
-  if (!props.app || !sourceTargetId) {
-    showMessage(t('progressiveOpenSourceUnavailable', '当前卡片没有可回源的来源块'), 3000, 'error');
-    return;
-  }
-
-  void openReviewBlockAtSource({
+  handleProgressiveOpenSourceCommand({
     app: props.app,
-    blockId: sourceTargetId,
+    sourceTargetId: resolveProgressiveSourceTargetId(state.value.content.card),
+    t,
+    showMessage,
   });
 }
 
 async function handleProgressiveCompletePiece(): Promise<void> {
-  const service = getProgressiveReadingService();
-  const pieceDocId = resolveCurrentReviewBlockId();
-  if (!service || !pieceDocId) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  try {
-    const result = await service.completeCurrentPiece(pieceDocId);
-    showMessage(
-      result.nextPieceDocId
-        ? t('progressivePieceCompletedNext', '当前片已完成，下一片已激活')
-        : t('progressivePieceCompletedFinal', '当前片已完成，已到最后一片'),
-      3000,
-      'info',
-    );
-    handleGrade(3);
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to complete current progressive piece:', error);
-    showMessage(
-      t('progressiveCompletePieceFailed', '完成当前片失败：{message}')
-        .replace('{message}', error instanceof Error ? error.message : String(error)),
-      5000,
-      'error',
-    );
-  }
+  await handleProgressiveCompletePieceCommand({
+    service: getReviewProgressiveReadingService(getReviewProgressiveContexts()),
+    pieceDocId: resolveCurrentReviewBlockId(),
+    gradeGood: () => handleGrade(3),
+    t,
+    showMessage,
+    logger,
+  });
 }
 
 // 🌐 Part 7: 侧边栏处理函数（已删除）
