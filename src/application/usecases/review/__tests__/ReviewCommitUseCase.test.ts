@@ -294,6 +294,64 @@ describe('ReviewCommitUseCase', () => {
     }));
   });
 
+  it('uses follower relay when runtime is follower and relay client is available', async () => {
+    const before = createCard({ id: 'card-follower-1', due: Date.now() - 3_600_000 });
+    const after = createCard({
+      id: before.id,
+      due: before.due + 2 * 86_400_000,
+      reps: before.reps + 1,
+      lastReview: before.due,
+      scheduledDays: 2,
+      updatedAt: before.updatedAt + 1_000,
+    });
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+    }));
+    const submitAndWait = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+    }));
+    const ensureWritable = vi.fn(async () => {});
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn(), route: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      onCommittedCard: vi.fn(async () => {}),
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable,
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-1',
+      } as unknown as {
+        ensureWritable: () => Promise<void>;
+      },
+      followerCommandClient: {
+        submitAndWait,
+      },
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        sessionId: 'session-follower',
+      },
+    });
+
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-follower-1',
+      method: 'review.feedback',
+    }));
+    expect(ensureWritable).not.toHaveBeenCalled();
+    expect(reviewFeedback).not.toHaveBeenCalled();
+    expect(result.committed).toBe(true);
+    expect(result.updatedCard).toEqual(expect.objectContaining({ id: before.id, due: after.due }));
+  });
+
   it('fails fast when writer lease guard rejects and keeps worker feedback untouched', async () => {
     const before = createCard({ id: 'card-lease-guard-1', due: Date.now() - 1_000 });
     const reviewFeedback = vi.fn(async () => ({

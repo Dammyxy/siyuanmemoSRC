@@ -2,7 +2,12 @@ const startedAt = Date.now();
 const WRITER_LEASE_DEFAULT_TTL_MS = 12_000;
 const WRITER_LEASE_MIN_TTL_MS = 3_000;
 const WRITER_LEASE_MAX_TTL_MS = 60_000;
+const WRITER_COMMAND_PENDING_TTL_MS = 60_000;
+const WRITER_COMMAND_RESULT_TTL_MS = 300_000;
+const WRITER_COMMAND_DISPATCH_TTL_MS = 5_000;
 let writerLease = null;
+const writerCommandsPending = new Map();
+const writerCommandResults = new Map();
 
 function nowMs() {
   return Date.now();
@@ -28,6 +33,26 @@ function normalizeInstanceId(value) {
     throw new Error('writer lease requires non-empty instanceId');
   }
   return instanceId;
+}
+
+function normalizeCommandId(value) {
+  const commandId = String(value || '').trim();
+  if (!commandId) {
+    throw new Error('writer command requires non-empty commandId');
+  }
+  return commandId;
+}
+
+function normalizeMethodName(value) {
+  const method = String(value || '').trim();
+  if (!method) {
+    throw new Error('writer command requires non-empty method');
+  }
+  return method;
+}
+
+function createCommandId() {
+  return `cmd-${nowMs().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function normalizeTtlMs(value) {
@@ -102,11 +127,48 @@ function buildLeaseEnvelope(lease, at = nowMs()) {
   };
 }
 
+function buildOkEnvelope(payload, at = nowMs()) {
+  return {
+    ok: true,
+    ...payload,
+    now: at,
+  };
+}
+
 async function broadcastWriterLeaseChanged(lease) {
   try {
     await siyuan.rpc.broadcast('memo.writer.leaseChanged', cloneLease(lease));
   } catch (error) {
     await siyuan.logger.warn('[SiYuanMemo kernel] failed to broadcast writer lease change', String(error));
+  }
+}
+
+async function broadcastWriterCommand(command) {
+  try {
+    await siyuan.rpc.broadcast('memo.writer.command', command);
+  } catch (error) {
+    await siyuan.logger.warn('[SiYuanMemo kernel] failed to broadcast writer command', String(error));
+  }
+}
+
+async function broadcastWriterCommandResult(result) {
+  try {
+    await siyuan.rpc.broadcast('memo.writer.commandResult', result);
+  } catch (error) {
+    await siyuan.logger.warn('[SiYuanMemo kernel] failed to broadcast writer command result', String(error));
+  }
+}
+
+function cleanupWriterCommandState(at = nowMs()) {
+  for (const [commandId, pending] of writerCommandsPending.entries()) {
+    if (pending.expiresAt <= at) {
+      writerCommandsPending.delete(commandId);
+    }
+  }
+  for (const [commandId, result] of writerCommandResults.entries()) {
+    if (result.expiresAt <= at) {
+      writerCommandResults.delete(commandId);
+    }
   }
 }
 
@@ -122,7 +184,7 @@ function buildHealth() {
 
 function buildCapabilities() {
   return {
-    version: 2,
+    version: 4,
     methods: [
       'health',
       'version',
@@ -132,6 +194,11 @@ function buildCapabilities() {
       'writer.acquireLease',
       'writer.renewLease',
       'writer.releaseLease',
+      'writer.submitCommand',
+      'writer.completeCommand',
+      'writer.failCommand',
+      'writer.getCommandResult',
+      'writer.takeCommand',
     ],
     storage: 'siyuan.storage',
     rpc: 'json-rpc-2.0',
@@ -272,6 +339,276 @@ async function writerReleaseLease(params) {
   return buildLeaseEnvelope(null, at);
 }
 
+async function writerSubmitCommand(params) {
+  const at = nowMs();
+  cleanupWriterCommandState(at);
+  const named = toObjectParams(params);
+  const activeLease = getActiveLease(at);
+  let instanceId;
+  let method;
+  try {
+    instanceId = normalizeInstanceId(named.instanceId);
+    method = normalizeMethodName(named.method);
+  } catch (error) {
+    return buildInvalidEnvelope(
+      error instanceof Error ? error.message : String(error),
+      activeLease,
+      at,
+    );
+  }
+
+  if (!activeLease) {
+    return buildUnavailableEnvelope(
+      'writer command unavailable: no active writer lease',
+      null,
+      at,
+    );
+  }
+  if (activeLease.instanceId === instanceId) {
+    return buildInvalidEnvelope(
+      'writer instance should execute command locally instead of submitCommand',
+      activeLease,
+      at,
+    );
+  }
+
+  const commandId = String(named.commandId || '').trim() || createCommandId();
+  writerCommandResults.delete(commandId);
+  writerCommandsPending.set(commandId, {
+    commandId,
+    requesterInstanceId: instanceId,
+    writerInstanceId: activeLease.instanceId,
+    method,
+    params: named.params,
+    requestedAt: at,
+    expiresAt: at + WRITER_COMMAND_PENDING_TTL_MS,
+    inFlightUntil: 0,
+  });
+  await broadcastWriterCommand({
+    commandId,
+    requesterInstanceId: instanceId,
+    method,
+    params: named.params,
+    requestedAt: at,
+  });
+  return buildOkEnvelope({
+    commandId,
+    ownerInstanceId: activeLease.instanceId,
+    status: 'queued',
+  }, at);
+}
+
+async function writerCompleteCommand(params) {
+  const at = nowMs();
+  cleanupWriterCommandState(at);
+  const named = toObjectParams(params);
+  const activeLease = getActiveLease(at);
+  let instanceId;
+  let commandId;
+  try {
+    instanceId = normalizeInstanceId(named.instanceId);
+    commandId = normalizeCommandId(named.commandId);
+  } catch (error) {
+    return buildInvalidEnvelope(
+      error instanceof Error ? error.message : String(error),
+      activeLease,
+      at,
+    );
+  }
+
+  if (!activeLease || activeLease.instanceId !== instanceId) {
+    return buildUnavailableEnvelope(
+      'writer completeCommand unavailable: current instance is not active writer',
+      activeLease,
+      at,
+    );
+  }
+
+  const pending = writerCommandsPending.get(commandId);
+  if (!pending) {
+    return buildInvalidEnvelope(
+      `writer completeCommand unknown commandId: ${commandId}`,
+      activeLease,
+      at,
+    );
+  }
+  writerCommandsPending.delete(commandId);
+  const resultPayload = {
+    commandId,
+    requesterInstanceId: pending.requesterInstanceId,
+    writerInstanceId: instanceId,
+    ok: true,
+    result: named.result,
+    completedAt: at,
+    expiresAt: at + WRITER_COMMAND_RESULT_TTL_MS,
+  };
+  writerCommandResults.set(commandId, resultPayload);
+  await broadcastWriterCommandResult({
+    commandId,
+    requesterInstanceId: pending.requesterInstanceId,
+    writerInstanceId: instanceId,
+    ok: true,
+    result: named.result,
+    completedAt: at,
+  });
+  return buildOkEnvelope({ commandId, status: 'completed' }, at);
+}
+
+async function writerFailCommand(params) {
+  const at = nowMs();
+  cleanupWriterCommandState(at);
+  const named = toObjectParams(params);
+  const activeLease = getActiveLease(at);
+  let instanceId;
+  let commandId;
+  try {
+    instanceId = normalizeInstanceId(named.instanceId);
+    commandId = normalizeCommandId(named.commandId);
+  } catch (error) {
+    return buildInvalidEnvelope(
+      error instanceof Error ? error.message : String(error),
+      activeLease,
+      at,
+    );
+  }
+
+  if (!activeLease || activeLease.instanceId !== instanceId) {
+    return buildUnavailableEnvelope(
+      'writer failCommand unavailable: current instance is not active writer',
+      activeLease,
+      at,
+    );
+  }
+
+  const pending = writerCommandsPending.get(commandId);
+  if (!pending) {
+    return buildInvalidEnvelope(
+      `writer failCommand unknown commandId: ${commandId}`,
+      activeLease,
+      at,
+    );
+  }
+  writerCommandsPending.delete(commandId);
+  const errorEnvelope = named.error && typeof named.error === 'object'
+    ? {
+      code: String(named.error.code || 'INTERNAL_ERROR'),
+      message: String(named.error.message || 'writer command failed'),
+    }
+    : {
+      code: 'INTERNAL_ERROR',
+      message: 'writer command failed',
+    };
+  const resultPayload = {
+    commandId,
+    requesterInstanceId: pending.requesterInstanceId,
+    writerInstanceId: instanceId,
+    ok: false,
+    error: errorEnvelope,
+    completedAt: at,
+    expiresAt: at + WRITER_COMMAND_RESULT_TTL_MS,
+  };
+  writerCommandResults.set(commandId, resultPayload);
+  await broadcastWriterCommandResult({
+    commandId,
+    requesterInstanceId: pending.requesterInstanceId,
+    writerInstanceId: instanceId,
+    ok: false,
+    error: errorEnvelope,
+    completedAt: at,
+  });
+  return buildOkEnvelope({ commandId, status: 'failed' }, at);
+}
+
+function writerGetCommandResult(params) {
+  const at = nowMs();
+  cleanupWriterCommandState(at);
+  const named = toObjectParams(params);
+  let commandId;
+  try {
+    commandId = normalizeCommandId(named.commandId);
+  } catch (error) {
+    return buildInvalidEnvelope(
+      error instanceof Error ? error.message : String(error),
+      getActiveLease(at),
+      at,
+    );
+  }
+
+  const pending = writerCommandsPending.get(commandId);
+  if (pending) {
+    return buildOkEnvelope({
+      commandId,
+      status: 'pending',
+      ownerInstanceId: pending.writerInstanceId,
+    }, at);
+  }
+
+  const result = writerCommandResults.get(commandId);
+  if (result) {
+    return buildOkEnvelope({
+      commandId,
+      status: result.ok ? 'completed' : 'failed',
+      ownerInstanceId: result.writerInstanceId,
+      result: result.result,
+      error: result.error,
+      completedAt: result.completedAt,
+    }, at);
+  }
+
+  return buildUnavailableEnvelope(
+    `writer command result unavailable or expired: ${commandId}`,
+    getActiveLease(at),
+    at,
+  );
+}
+
+function writerTakeCommand(params) {
+  const at = nowMs();
+  cleanupWriterCommandState(at);
+  const named = toObjectParams(params);
+  const activeLease = getActiveLease(at);
+  let instanceId;
+  try {
+    instanceId = normalizeInstanceId(named.instanceId);
+  } catch (error) {
+    return buildInvalidEnvelope(
+      error instanceof Error ? error.message : String(error),
+      activeLease,
+      at,
+    );
+  }
+
+  if (!activeLease || activeLease.instanceId !== instanceId) {
+    return buildUnavailableEnvelope(
+      'writer takeCommand unavailable: current instance is not active writer',
+      activeLease,
+      at,
+    );
+  }
+
+  for (const pending of writerCommandsPending.values()) {
+    if (pending.writerInstanceId !== instanceId) {
+      continue;
+    }
+    if (Number(pending.inFlightUntil || 0) > at) {
+      continue;
+    }
+    pending.inFlightUntil = at + WRITER_COMMAND_DISPATCH_TTL_MS;
+    writerCommandsPending.set(pending.commandId, pending);
+    return buildOkEnvelope({
+      command: {
+        commandId: pending.commandId,
+        requesterInstanceId: pending.requesterInstanceId,
+        method: pending.method,
+        params: pending.params,
+        requestedAt: pending.requestedAt,
+      },
+    }, at);
+  }
+
+  return buildOkEnvelope({ command: null }, at);
+}
+
 siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.logger.info('[SiYuanMemo kernel] loading');
 
@@ -287,6 +624,11 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind('writer.acquireLease', async (params) => writerAcquireLease(params), 'Acquire or refresh writer lease for one instance.');
   await siyuan.rpc.bind('writer.renewLease', async (params) => writerRenewLease(params), 'Renew writer lease heartbeat for current owner instance.');
   await siyuan.rpc.bind('writer.releaseLease', async (params) => writerReleaseLease(params), 'Release writer lease owned by current frontend instance.');
+  await siyuan.rpc.bind('writer.submitCommand', async (params) => writerSubmitCommand(params), 'Relay a write command from follower instance to active writer instance.');
+  await siyuan.rpc.bind('writer.completeCommand', async (params) => writerCompleteCommand(params), 'Submit completed writer command result from active writer instance.');
+  await siyuan.rpc.bind('writer.failCommand', async (params) => writerFailCommand(params), 'Submit failed writer command result from active writer instance.');
+  await siyuan.rpc.bind('writer.getCommandResult', async (params) => writerGetCommandResult(params), 'Poll writer command relay result.');
+  await siyuan.rpc.bind('writer.takeCommand', async (params) => writerTakeCommand(params), 'Poll next pending writer relay command for active writer instance.');
 };
 
 siyuan.plugin.lifecycle.onrunning = async () => {

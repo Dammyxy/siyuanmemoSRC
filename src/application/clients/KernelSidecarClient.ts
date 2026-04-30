@@ -3,12 +3,20 @@ import type {
   KernelCompanionStatus,
 } from '@/application/ports/KernelCompanionPort';
 import type {
+  KernelWriterCommandResultLookupEnvelope,
+  KernelWriterCompleteCommandRequest,
   KernelWriterAcquireLeaseRequest,
+  KernelWriterFailCommandRequest,
+  KernelWriterGetCommandResultRequest,
   KernelWriterHelloRequest,
   KernelWriterLeaseEnvelope,
   KernelWriterLeaseSuccessEnvelope,
+  KernelWriterTakeCommandLookupEnvelope,
+  KernelWriterTakeCommandRequest,
   KernelWriterReleaseLeaseRequest,
   KernelWriterRenewLeaseRequest,
+  KernelWriterSubmitCommandEnvelope,
+  KernelWriterSubmitCommandRequest,
 } from '../../../packages/contracts/src/kernel-rpc';
 
 export class KernelSidecarClient {
@@ -47,10 +55,144 @@ export class KernelSidecarClient {
     return this.unwrapWriterLeaseEnvelope('writer.releaseLease', result);
   }
 
+  async writerSubmitCommand(request: KernelWriterSubmitCommandRequest): Promise<{
+    commandId: string;
+    ownerInstanceId: string;
+    status: 'queued';
+    now: number;
+  }> {
+    const result = await this.call<KernelWriterSubmitCommandEnvelope>('writer.submitCommand', request);
+    return this.unwrapWriterSubmitEnvelope('writer.submitCommand', result);
+  }
+
+  async writerCompleteCommand(request: KernelWriterCompleteCommandRequest): Promise<{ ok: true; now: number }> {
+    const result = await this.call<{ ok: true; now: number }>('writer.completeCommand', request);
+    this.assertSimpleOkEnvelope('writer.completeCommand', result);
+    return result;
+  }
+
+  async writerFailCommand(request: KernelWriterFailCommandRequest): Promise<{ ok: true; now: number }> {
+    const result = await this.call<{ ok: true; now: number }>('writer.failCommand', request);
+    this.assertSimpleOkEnvelope('writer.failCommand', result);
+    return result;
+  }
+
+  async writerGetCommandResult(request: KernelWriterGetCommandResultRequest): Promise<{
+    commandId: string;
+    status: 'pending' | 'completed' | 'failed';
+    ownerInstanceId?: string;
+    result?: unknown;
+    error?: {
+      code: string;
+      message: string;
+    };
+    completedAt?: number;
+    now: number;
+  }> {
+    const result = await this.call<KernelWriterCommandResultLookupEnvelope>('writer.getCommandResult', request);
+    return this.unwrapWriterCommandResultEnvelope('writer.getCommandResult', result);
+  }
+
+  async writerTakeCommand(request: KernelWriterTakeCommandRequest): Promise<{
+    command: {
+      commandId: string;
+      requesterInstanceId: string;
+      method: string;
+      params?: unknown;
+      requestedAt: number;
+    } | null;
+    now: number;
+  }> {
+    const result = await this.call<KernelWriterTakeCommandLookupEnvelope>('writer.takeCommand', request);
+    return this.unwrapWriterTakeCommandEnvelope('writer.takeCommand', result);
+  }
+
   private unwrapWriterLeaseEnvelope(
     method: string,
     envelope: KernelWriterLeaseEnvelope,
   ): KernelWriterLeaseSuccessEnvelope {
+    if (!envelope || typeof envelope !== 'object') {
+      throw new Error(`Kernel companion ${method} returned invalid response envelope`);
+    }
+    if (!('ok' in envelope)) {
+      throw new Error(`Kernel companion ${method} response missing ok field`);
+    }
+    if (envelope.ok === false) {
+      throw new Error(`${envelope.error.code}: ${envelope.error.message}`);
+    }
+    return envelope;
+  }
+
+  private unwrapWriterSubmitEnvelope(
+    method: string,
+    envelope: KernelWriterSubmitCommandEnvelope,
+  ): {
+    commandId: string;
+    ownerInstanceId: string;
+    status: 'queued';
+    now: number;
+  } {
+    if (!envelope || typeof envelope !== 'object') {
+      throw new Error(`Kernel companion ${method} returned invalid response envelope`);
+    }
+    if (!('ok' in envelope)) {
+      throw new Error(`Kernel companion ${method} response missing ok field`);
+    }
+    if (envelope.ok === false) {
+      throw new Error(`${envelope.error.code}: ${envelope.error.message}`);
+    }
+    return envelope;
+  }
+
+  private unwrapWriterCommandResultEnvelope(
+    method: string,
+    envelope: KernelWriterCommandResultLookupEnvelope,
+  ): {
+    commandId: string;
+    status: 'pending' | 'completed' | 'failed';
+    ownerInstanceId?: string;
+    result?: unknown;
+    error?: {
+      code: string;
+      message: string;
+    };
+    completedAt?: number;
+    now: number;
+  } {
+    if (!envelope || typeof envelope !== 'object') {
+      throw new Error(`Kernel companion ${method} returned invalid response envelope`);
+    }
+    if (!('ok' in envelope)) {
+      throw new Error(`Kernel companion ${method} response missing ok field`);
+    }
+    if (envelope.ok === false) {
+      throw new Error(`${envelope.error.code}: ${envelope.error.message}`);
+    }
+    return envelope;
+  }
+
+  private assertSimpleOkEnvelope(method: string, envelope: unknown): void {
+    if (!envelope || typeof envelope !== 'object') {
+      throw new Error(`Kernel companion ${method} returned invalid response envelope`);
+    }
+    if (!('ok' in envelope) || (envelope as { ok?: unknown }).ok !== true) {
+      throw new Error(`Kernel companion ${method} response missing ok=true`);
+    }
+  }
+
+  private unwrapWriterTakeCommandEnvelope(
+    method: string,
+    envelope: KernelWriterTakeCommandLookupEnvelope,
+  ): {
+    command: {
+      commandId: string;
+      requesterInstanceId: string;
+      method: string;
+      params?: unknown;
+      requestedAt: number;
+    } | null;
+    now: number;
+  } {
     if (!envelope || typeof envelope !== 'object') {
       throw new Error(`Kernel companion ${method} returned invalid response envelope`);
     }

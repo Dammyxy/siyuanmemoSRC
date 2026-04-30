@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 234)
+Last update: 2026-05-01 (Round 235)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase4 p4-2 p4-3 frontend runtime relay closure
+
+- Task: 一次推进 P4-2/P4-3：补 `FrontendInstanceRuntime` 生命周期后的 writer relay 执行闭环，并让 worker-first `review.feedback` 在 follower 模式走 kernel writer relay。
+- Touched slice: kernel writer coordinator + review worker-first write path；`kernel.js`、`packages/contracts/src/kernel-rpc.ts`、`src/application/clients/{KernelSidecarClient.ts,FrontendInstanceRuntime.ts,FollowerCommandClient.ts}`、`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/application/ApplicationContext.ts`、对应 client/usecase tests、`ARCHITECTURE.md`。
+- Debt fixed now: kernel 新增 `writer.takeCommand`（配合 submit/result/complete/fail）形成可轮询 relay contract；`FrontendInstanceRuntime` 新增 writer relay pump（writer 模式拉取命令并 complete/fail 回传）；`ReviewCommitUseCase` 在 follower runtime + relay client 可用时不再硬失败，而是把 `review.feedback` 提交给 active writer 执行并回收结果；`BrowserApplicationService` 的 worker-side `browser.sourceExistence.applySweepHost` 写入也在 follower 模式通过 relay 交给 active writer。
+- Debt deferred: relay method 当前仅覆盖 `review.feedback` 与 `browser.sourceExistence.applySweepHost`；其余 Browser/Card/Queue mutation 尚未统一接入；`takeCommand` 为 polling contract（尚未接 WebSocket push/ack）。
+- Why deferred: 本轮优先完成 P4 最小可运行闭环并控制 blast radius，避免一次跨到所有 mutation 和 transport 形态切换。
+- Next safe step: 进入 P4 收尾：把其它 worker mutation 按风险分批接入 relay（先 queue/card 高频写），并补 multi-window handover 的崩溃接管回归测试。
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/__tests__/service-access.integration.test.ts`（5 files/44 tests passed）；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 i18n/Sass warnings）；`git diff --check` passed（仅 LF/CRLF warning）。
 
 ### 2026-05-01 - phase4 p4-1 writer lease rpc + worker write precheck gate
 

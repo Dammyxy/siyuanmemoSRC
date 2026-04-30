@@ -20,6 +20,8 @@ import {
 } from '../queries/browser/shared/SourceExistenceCache';
 import { markKnownMissingBlockRows } from '../queries/browser/shared/MissingBlockMarker';
 import type { SrsBackendClient } from '../clients/SrsBackendClient';
+import type { FrontendInstanceRuntime } from '../clients/FrontendInstanceRuntime';
+import type { FollowerCommandClient } from '../clients/FollowerCommandClient';
 import type {
   BrowserStats,
   GetBrowserCardsQuery,
@@ -95,6 +97,8 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     private readonly dataSourceFactory?: BrowserDataSourceFactory | null,
     private readonly browserDeckReadPort?: BrowserDeckReadPort | null,
     private readonly srsBackendClient?: SrsBackendClient | null,
+    private readonly frontendInstanceRuntime?: FrontendInstanceRuntime | null,
+    private readonly followerCommandClient?: FollowerCommandClient | null,
   ) {
     this.browserDeckQueryKernel = new BrowserDeckQueryKernel(
       storageManager,
@@ -407,7 +411,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     try {
-      const sweep = await this.srsBackendClient.browserSourceExistenceApplySweepHost({
+      const sweep = await this.invokeBackendSourceExistenceSweepHost({
         blockIds,
         limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
         staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
@@ -466,10 +470,55 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         ...request,
         blockIds: candidates.map((candidate) => candidate.blockId),
       };
-      await this.srsBackendClient!.browserSourceExistenceApplySweepHost(scopedRequest, Date.now());
+      await this.invokeBackendSourceExistenceSweepHost(scopedRequest, Date.now());
     })().finally(() => {
       this.sourceExistenceSweepInFlight = null;
     });
+  }
+
+  private async invokeBackendSourceExistenceSweepHost(
+    request: {
+      blockIds?: string[];
+      limit?: number;
+      staleBefore?: number;
+      includeKnownMissing?: boolean;
+    },
+    checkedAt: number,
+  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean }> {
+    if (!this.srsBackendClient) {
+      return { checked: 0, updated: 0, changed: false, changedToMissing: false };
+    }
+
+    if (
+      this.frontendInstanceRuntime?.getMode() === 'follower'
+      && this.followerCommandClient
+    ) {
+      const relayed = await this.followerCommandClient.submitAndWait<unknown>({
+        instanceId: this.frontendInstanceRuntime.getInstanceId(),
+        method: 'browser.sourceExistence.applySweepHost',
+        params: {
+          request,
+          checkedAt,
+        },
+      });
+      if (!relayed || typeof relayed !== 'object') {
+        throw new Error('worker relay applySweepHost returned invalid payload');
+      }
+      const payload = relayed as {
+        checked?: unknown;
+        updated?: unknown;
+        changed?: unknown;
+        changedToMissing?: unknown;
+      };
+      return {
+        checked: Number(payload.checked || 0),
+        updated: Number(payload.updated || 0),
+        changed: Boolean(payload.changed),
+        changedToMissing: Boolean(payload.changedToMissing),
+      };
+    }
+
+    return this.srsBackendClient.browserSourceExistenceApplySweepHost(request, checkedAt);
   }
 
   private normalizeQueueId(queueId: string): BrowserQueueId | null {

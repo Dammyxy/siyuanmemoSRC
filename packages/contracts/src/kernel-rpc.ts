@@ -69,6 +69,99 @@ export interface KernelWriterReleaseLeaseRequest {
   instanceId: string;
 }
 
+export interface KernelWriterSubmitCommandRequest {
+  instanceId: string;
+  commandId?: string;
+  method: string;
+  params?: unknown;
+}
+
+export interface KernelWriterCompleteCommandRequest {
+  instanceId: string;
+  commandId: string;
+  result?: unknown;
+}
+
+export interface KernelWriterFailCommandRequest {
+  instanceId: string;
+  commandId: string;
+  error: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface KernelWriterGetCommandResultRequest {
+  commandId: string;
+}
+
+export interface KernelWriterTakeCommandRequest {
+  instanceId: string;
+}
+
+export interface WriterRelayCommandPayload {
+  commandId: string;
+  requesterInstanceId: string;
+  method: string;
+  params?: unknown;
+  requestedAt: number;
+}
+
+export interface WriterRelayCommandResultPayload {
+  commandId: string;
+  requesterInstanceId: string;
+  writerInstanceId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: {
+    code: string;
+    message: string;
+  };
+  completedAt: number;
+}
+
+export interface KernelWriterSubmitCommandSuccessEnvelope {
+  ok: true;
+  commandId: string;
+  ownerInstanceId: string;
+  status: 'queued';
+  now: number;
+}
+
+export interface KernelWriterCommandResultEnvelope {
+  ok: true;
+  commandId: string;
+  status: 'pending' | 'completed' | 'failed';
+  result?: unknown;
+  error?: {
+    code: string;
+    message: string;
+  };
+  ownerInstanceId?: string;
+  completedAt?: number;
+  now: number;
+}
+
+export interface KernelWriterTakeCommandEnvelope {
+  ok: true;
+  command: WriterRelayCommandPayload | null;
+  now: number;
+}
+
+export type KernelWriterSubmitCommandEnvelope =
+  | KernelWriterLeaseErrorEnvelope
+  | KernelWriterSubmitCommandSuccessEnvelope;
+
+export type KernelWriterCommandResultLookupEnvelope =
+  | KernelWriterLeaseErrorEnvelope
+  | KernelWriterCommandResultEnvelope;
+
+export type KernelWriterTakeCommandLookupEnvelope =
+  | KernelWriterLeaseErrorEnvelope
+  | KernelWriterTakeCommandEnvelope;
+
 export type KernelBroadcastEvent =
   | { method: 'memo.kernel.ready'; params: KernelHealthPayload }
-  | { method: 'memo.writer.leaseChanged'; params: WriterLeasePayload | null };
+  | { method: 'memo.writer.leaseChanged'; params: WriterLeasePayload | null }
+  | { method: 'memo.writer.command'; params: WriterRelayCommandPayload }
+  | { method: 'memo.writer.commandResult'; params: WriterRelayCommandResultPayload };

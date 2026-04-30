@@ -551,4 +551,126 @@ describe('BrowserApplicationService deck query kernel', () => {
       expect.any(Number),
     );
   });
+
+  it('relays source-existence sweep host mutation through follower command client when runtime is follower', async () => {
+    const cards = [
+      buildCard({
+        id: 'card-worker-follower-1',
+        blockId: 'block-worker-follower-1',
+        due: Date.now() - 1000,
+        priority: 20,
+        meta: { content: 'Worker follower card', rootId: 'doc-worker' },
+      }),
+    ];
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserDeckMatchedIds'
+      | 'browserDeckRowsByIds'
+      | 'browserCountCards'
+      | 'browserStats'
+      | 'browserSourceExistenceRefreshCandidates'
+      | 'browserSourceExistenceApplySweep'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceUpdate'
+      | 'browserSourceExistenceByBlockIds'
+      | 'browserSourceExistenceSummary'
+    > = {
+      browserDeckPage: vi.fn(async () => ({ total: 1, cards })),
+      browserDeckMatchedIds: vi.fn(async () => ['card-worker-follower-1']),
+      browserDeckRowsByIds: vi.fn(async () => cards),
+      browserCountCards: vi.fn(async () => 1),
+      browserStats: vi.fn(async () => ({
+        totalCards: 1,
+        dueCards: 1,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 1,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+      browserSourceExistenceRefreshCandidates: vi.fn(async () => []),
+      browserSourceExistenceUpdate: vi.fn(async () => 0),
+      browserSourceExistenceApplySweep: vi.fn(async () => ({
+        checked: 0,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: true,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-follower-1', true],
+      ])),
+      browserSourceExistenceSummary: vi.fn(async () => ({ unknown: 0, stale: 0, missing: 0 })),
+    };
+    const readPort: BrowserDeckReadPort = {
+      queryDeckPage: vi.fn(() => {
+        throw new Error('readPort should not be used when worker backend client is available');
+      }),
+      queryDeckMatchedIds: vi.fn(() => []),
+      getDeckCardsByIds: vi.fn(() => []),
+      countCards: vi.fn(() => 0),
+      getBrowserStats: vi.fn(() => ({
+        totalCards: 0,
+        dueCards: 0,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 0,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+    };
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async () => [{ id: 'block-worker-follower-1' }]),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    };
+    const submitAndWait = vi.fn(async () => ({
+      checked: 1,
+      updated: 1,
+      changed: true,
+      changedToMissing: false,
+    }));
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      siyuanApi as never,
+      null,
+      readPort,
+      backendClient as SrsBackendClient,
+      {
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-1',
+      } as never,
+      {
+        submitAndWait,
+      } as never,
+    );
+
+    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+    expect(page.total).toBe(1);
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-follower-1',
+      method: 'browser.sourceExistence.applySweepHost',
+    }));
+    expect(backendClient.browserSourceExistenceApplySweepHost).not.toHaveBeenCalled();
+  });
 });

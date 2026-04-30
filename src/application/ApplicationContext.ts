@@ -120,6 +120,8 @@ import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPor
 import { SrsBackendClient, type SrsBackendTransport } from '@/application/clients/SrsBackendClient';
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { KernelWriterLeaseGuard } from '@/application/clients/KernelWriterLeaseGuard';
+import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
+import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import { BackendKernel } from '../../worker/bootstrap/BackendKernel';
 import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
 import { WorkerSqliteDatabaseService } from '../../worker/db/SqliteDatabaseService';
@@ -245,6 +247,8 @@ export class ApplicationContext {
   private fullSyncTimer?: NodeJS.Timeout;
   private sqlPersistence?: SqlPersistenceBundle;
   private srsBackendClient: SrsBackendClient | null = null;
+  private frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
+  private followerCommandClient: FollowerCommandClient | null = null;
   
   // ========================================================================
   // 服务容器
@@ -324,6 +328,8 @@ export class ApplicationContext {
       transactionWebSocketService?: TransactionWebSocketService;
       fullSyncTimer?: NodeJS.Timeout;
       srsBackendClient?: SrsBackendClient | null;
+      frontendInstanceRuntime?: FrontendInstanceRuntime | null;
+      followerCommandClient?: FollowerCommandClient | null;
     }
   ) {
     this.config = config;
@@ -338,6 +344,8 @@ export class ApplicationContext {
     this.fullSyncTimer = services.fullSyncTimer;
     this.sqlPersistence = services.sqlPersistence;
     this.srsBackendClient = services.srsBackendClient ?? null;
+    this.frontendInstanceRuntime = services.frontendInstanceRuntime ?? null;
+    this.followerCommandClient = services.followerCommandClient ?? null;
     
     // ✅ 保存 sharedEventBus 引用（如果提供）
     if (services.sharedEventBus) {
@@ -489,15 +497,16 @@ export class ApplicationContext {
 
     this.registerServiceFactory('reviewCommitUseCase', (context) => {
       const unifiedDataSourceManager = context.getUnifiedDataSourceManager();
-      const writerLeaseGuard = context.srsBackendClient && ApplicationContext.isKernelWriterLeaseGuardEnabled()
-        ? new KernelWriterLeaseGuard(
+      const writerLeaseGuard = context.frontendInstanceRuntime
+        ?? (context.srsBackendClient && ApplicationContext.isKernelWriterLeaseGuardEnabled()
+          ? new KernelWriterLeaseGuard(
           new KernelSidecarClient(context.getKernelCompanionPort()),
           {
             instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
             ttlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
           },
         )
-        : null;
+          : null);
       return new ReviewCommitUseCase({
         cards: unifiedDataSourceManager,
         scheduler: context.getScheduler(),
@@ -510,6 +519,7 @@ export class ApplicationContext {
         arena: context.getArenaKernelService(),
         srsBackend: context.srsBackendClient,
         writerLeaseGuard,
+        followerCommandClient: context.followerCommandClient,
         onCommittedCard: (card) => unifiedDataSourceManager.onCardUpdatedFromScheduler(card),
       });
     });
@@ -706,6 +716,8 @@ export class ApplicationContext {
         null,
         context.sqlPersistence?.unified ?? null,
         context.srsBackendClient,
+        context.frontendInstanceRuntime,
+        context.followerCommandClient,
       );
     });
     
@@ -1188,6 +1200,8 @@ export class ApplicationContext {
     );
 
     let srsBackendClient: SrsBackendClient | null = null;
+    let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
+    let followerCommandClient: FollowerCommandClient | null = null;
     if (ApplicationContext.isSrsBackendWorkerEnabled()) {
       try {
         const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
@@ -1206,6 +1220,27 @@ export class ApplicationContext {
         logger.info('[ApplicationContext] ✅ SRS backend worker client bootstrap enabled by feature flag');
       } catch (error) {
         logger.error('[ApplicationContext] Failed to bootstrap SRS backend worker client; SQL legacy path remains active:', error);
+      }
+    }
+
+    if (srsBackendClient && ApplicationContext.isKernelWriterLeaseGuardEnabled()) {
+      try {
+        const sidecarClient = new KernelSidecarClient(new SiyuanKernelCompanionAdapter());
+        frontendInstanceRuntime = new FrontendInstanceRuntime(sidecarClient, {
+          instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
+          leaseTtlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
+          writerCommandHandler: (command) => ApplicationContext.executeWriterRelayCommand(
+            srsBackendClient!,
+            command,
+          ),
+        });
+        followerCommandClient = new FollowerCommandClient(sidecarClient);
+        await frontendInstanceRuntime.start();
+        logger.info('[ApplicationContext] ✅ Frontend instance runtime started for kernel writer lease');
+      } catch (error) {
+        frontendInstanceRuntime = null;
+        followerCommandClient = null;
+        logger.warn('[ApplicationContext] Frontend instance runtime unavailable; review write path keeps explicit unavailable contract', error);
       }
     }
 
@@ -1276,6 +1311,8 @@ export class ApplicationContext {
       transactionWebSocketService: undefined,  // 将在下面初始化
       fullSyncTimer: undefined,  // 将在下面初始化
       srsBackendClient,
+      frontendInstanceRuntime,
+      followerCommandClient,
     });
     
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
@@ -1465,6 +1502,48 @@ export class ApplicationContext {
     }
 
     return Array.from(new Set(existing));
+  }
+
+  private static async executeWriterRelayCommand(
+    srsBackendClient: SrsBackendClient,
+    command: {
+      method: string;
+      params?: unknown;
+    },
+  ): Promise<unknown> {
+    if (command.method === 'review.feedback') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: review.feedback relay requires params object');
+      }
+      return srsBackendClient.reviewFeedback(command.params as {
+        cardId: string;
+        rating: 1 | 2 | 3 | 4;
+        queueType?: string;
+        queueMode?: string;
+        commitPolicy?: string;
+        sessionId?: string;
+        reviewedAt?: number;
+      });
+    }
+    if (command.method === 'browser.sourceExistence.applySweepHost') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: browser.sourceExistence.applySweepHost relay requires params object');
+      }
+      const params = command.params as {
+        request?: {
+          blockIds?: string[];
+          limit?: number;
+          staleBefore?: number;
+          includeKnownMissing?: boolean;
+        };
+        checkedAt?: number;
+      };
+      return srsBackendClient.browserSourceExistenceApplySweepHost(
+        params.request ?? {},
+        Number(params.checkedAt || Date.now()),
+      );
+    }
+    throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
   }
 
   private static isSrsBackendWorkerEnabled(): boolean {
@@ -2163,6 +2242,18 @@ export class ApplicationContext {
         } catch (error) {
           logger.error('[ApplicationContext] Error stopping HybridSyncService:', error);
           errors.push({ service: 'hybridSyncService', error });
+        }
+      }
+
+      if (this.frontendInstanceRuntime) {
+        try {
+          await this.frontendInstanceRuntime.dispose();
+          this.frontendInstanceRuntime = null;
+          this.followerCommandClient = null;
+          logger.info('[ApplicationContext] ✅ FrontendInstanceRuntime disposed');
+        } catch (error) {
+          logger.error('[ApplicationContext] Error disposing FrontendInstanceRuntime:', error);
+          errors.push({ service: 'frontendInstanceRuntime', error });
         }
       }
       

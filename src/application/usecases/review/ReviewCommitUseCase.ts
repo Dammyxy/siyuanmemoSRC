@@ -53,6 +53,14 @@ export interface ReviewCommitWriterLeaseGuard {
   ensureWritable(): Promise<void>;
 }
 
+export interface ReviewCommitFollowerCommandClient {
+  submitAndWait<TResult>(request: {
+    instanceId: string;
+    method: string;
+    params?: unknown;
+  }, timeoutMs?: number): Promise<TResult>;
+}
+
 export interface ReviewCommitUseCaseDependencies {
   cards: ReviewCommitCardReader;
   scheduler: Pick<SchedulerRouter, 'answer' | 'commit' | 'route'>;
@@ -61,6 +69,7 @@ export interface ReviewCommitUseCaseDependencies {
   arena?: ReviewCommitArenaRecorder | null;
   srsBackend?: ReviewCommitBackendFeedbackClient | null;
   writerLeaseGuard?: ReviewCommitWriterLeaseGuard | null;
+  followerCommandClient?: ReviewCommitFollowerCommandClient | null;
   onCommittedCard?: (card: FSRSCard) => Promise<void> | void;
 }
 
@@ -204,10 +213,7 @@ export class ReviewCommitUseCase {
     };
     const workerContext = resolveWorkerFeedbackContext(context);
     const reviewedAt = normalizeReviewedAt(context.reviewTime);
-    if (this.deps.writerLeaseGuard) {
-      await this.deps.writerLeaseGuard.ensureWritable();
-    }
-    const result = await this.deps.srsBackend!.reviewFeedback({
+    const requestPayload = {
       cardId: command.cardId,
       rating,
       queueType: workerContext.queueType,
@@ -215,7 +221,25 @@ export class ReviewCommitUseCase {
       commitPolicy: workerContext.commitPolicy,
       sessionId: context.sessionId,
       reviewedAt,
-    });
+    };
+    const followerRelayRuntime = resolveFollowerRelayRuntime(this.deps.writerLeaseGuard);
+    let result: {
+      committed: boolean;
+      updatedCard: unknown | null;
+    };
+    if (followerRelayRuntime && this.deps.followerCommandClient) {
+      const relayPayload = await this.deps.followerCommandClient.submitAndWait<unknown>({
+        instanceId: followerRelayRuntime.instanceId,
+        method: 'review.feedback',
+        params: requestPayload,
+      });
+      result = normalizeRelayFeedbackResult(relayPayload);
+    } else {
+      if (this.deps.writerLeaseGuard) {
+        await this.deps.writerLeaseGuard.ensureWritable();
+      }
+      result = await this.deps.srsBackend!.reviewFeedback(requestPayload);
+    }
 
     const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, card);
     if (result.committed) {
@@ -252,6 +276,46 @@ export class ReviewCommitUseCase {
 
 function normalizeRating(value: number): Rating {
   return Math.max(1, Math.min(4, Math.floor(Number(value) || 0))) as Rating;
+}
+
+function resolveFollowerRelayRuntime(
+  writerLeaseGuard: ReviewCommitWriterLeaseGuard | null | undefined,
+): { instanceId: string } | null {
+  if (!writerLeaseGuard || typeof writerLeaseGuard !== 'object') {
+    return null;
+  }
+  const runtime = writerLeaseGuard as {
+    getMode?: () => unknown;
+    getInstanceId?: () => unknown;
+  };
+  if (runtime.getMode?.() !== 'follower') {
+    return null;
+  }
+  const instanceId = String(runtime.getInstanceId?.() || '').trim();
+  if (!instanceId) {
+    return null;
+  }
+  return { instanceId };
+}
+
+function normalizeRelayFeedbackResult(payload: unknown): {
+  committed: boolean;
+  updatedCard: unknown | null;
+} {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('review.feedback follower relay returned invalid payload');
+  }
+  const candidate = payload as {
+    committed?: unknown;
+    updatedCard?: unknown;
+  };
+  if (typeof candidate.committed !== 'boolean') {
+    throw new Error('review.feedback follower relay payload missing committed');
+  }
+  return {
+    committed: candidate.committed,
+    updatedCard: candidate.updatedCard ?? null,
+  };
 }
 
 function normalizeReviewedAt(value: Date | number | undefined): number | undefined {

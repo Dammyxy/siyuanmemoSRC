@@ -17,7 +17,7 @@
 上游依据需每轮复核：
 
 - SiYuan PR #17487: https://github.com/siyuan-note/siyuan/pull/17487
-- `kernel.d.ts`: https://github.com/Zuoqiu-Yingyi/petal/blob/feat/kernel-plugin/kernel.d.ts
+- `kernel.d.ts`: H:/project-F/flashcard/资料/kernel.d.ts
 
 ## Key Changes
 
