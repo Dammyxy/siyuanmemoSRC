@@ -159,18 +159,25 @@ export class ReviewCommitUseCase {
     }
 
     const queueType = String(command.context.queueType || '').trim();
-    const supportedQueueTypes = new Set(['retrieval-practice', 'incremental-learning']);
-    if (!supportedQueueTypes.has(queueType)) {
-      return false;
-    }
-
-    const commitPolicy = command.context.commitPolicy ?? 'write-schedule';
-    if (commitPolicy !== 'write-schedule') {
+    if (!queueType) {
       return false;
     }
 
     const queueMode = command.context.queueMode ?? 'formal';
-    return queueMode === 'formal';
+    const commitPolicy = command.context.commitPolicy ?? 'write-schedule';
+
+    if (queueType === 'retrieval-practice' || queueType === 'incremental-learning') {
+      return queueMode === 'formal' && commitPolicy === 'write-schedule';
+    }
+
+    if (queueType === 'filter-group') {
+      return (
+        (queueMode === 'filtered-preview' && commitPolicy === 'preview-only')
+        || (queueMode === 'filtered-rescheduling' && commitPolicy === 'write-schedule')
+      );
+    }
+
+    return false;
   }
 
   private async executeViaWorkerFeedback(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
@@ -180,13 +187,19 @@ export class ReviewCommitUseCase {
       ...command.context,
       source: command.context.source ?? 'queue',
     };
+    const queueType = context.queueType ?? 'retrieval-practice';
+    const commitPolicy = context.commitPolicy ?? 'write-schedule';
+    const queueMode = context.queueMode
+      ?? (queueType === 'filter-group'
+        ? (commitPolicy === 'preview-only' ? 'filtered-preview' : 'filtered-rescheduling')
+        : 'formal');
     const reviewedAt = normalizeReviewedAt(context.reviewTime);
     const result = await this.deps.srsBackend!.reviewFeedback({
       cardId: command.cardId,
       rating,
-      queueType: context.queueType,
-      queueMode: context.queueMode ?? 'formal',
-      commitPolicy: context.commitPolicy ?? 'write-schedule',
+      queueType,
+      queueMode,
+      commitPolicy,
       sessionId: context.sessionId,
       reviewedAt,
     });

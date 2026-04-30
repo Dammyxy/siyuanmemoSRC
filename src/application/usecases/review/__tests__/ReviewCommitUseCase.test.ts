@@ -344,6 +344,100 @@ describe('ReviewCommitUseCase', () => {
     expect(scheduler.commit).not.toHaveBeenCalled();
   });
 
+  it('uses worker feedback path for filter-group preview-only feedback when backend client is provided', async () => {
+    const before = createCard({ id: 'card-filter-preview-1', due: Date.now() + 120_000 });
+    const scheduler = {
+      answer: vi.fn(),
+      commit: vi.fn(),
+      route: vi.fn(),
+    };
+    const reviewFeedback = vi.fn(async () => ({
+      committed: false,
+      updatedCard: null,
+    }));
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      onCommittedCard: vi.fn(async () => {}),
+      srsBackend: { reviewFeedback },
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'filter-group',
+        queueMode: 'filtered-preview',
+        commitPolicy: 'preview-only',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'filter-group',
+      queueMode: 'filtered-preview',
+      commitPolicy: 'preview-only',
+    }));
+    expect(result).toMatchObject({
+      card: before,
+      updatedCard: before,
+      committed: false,
+    });
+    expect(scheduler.answer).not.toHaveBeenCalled();
+    expect(scheduler.commit).not.toHaveBeenCalled();
+  });
+
+  it('uses worker feedback path for filter-group rescheduling feedback when backend client is provided', async () => {
+    const before = createCard({ id: 'card-filter-reschedule-1', due: Date.now() - 60_000 });
+    const after = createCard({
+      id: before.id,
+      due: before.due + 3 * 86_400_000,
+      reps: before.reps + 1,
+      lastReview: before.due,
+      scheduledDays: 3,
+      updatedAt: before.updatedAt + 3_000,
+    });
+    const scheduler = {
+      answer: vi.fn(),
+      commit: vi.fn(),
+      route: vi.fn(),
+    };
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+    }));
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      onCommittedCard: vi.fn(async () => {}),
+      srsBackend: { reviewFeedback },
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Hard,
+      context: {
+        queueType: 'filter-group',
+        queueMode: 'filtered-rescheduling',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'filter-group',
+      queueMode: 'filtered-rescheduling',
+      commitPolicy: 'write-schedule',
+    }));
+    expect(result).toMatchObject({
+      card: before,
+      updatedCard: expect.objectContaining({ id: before.id, due: after.due }),
+      committed: true,
+    });
+    expect(scheduler.answer).not.toHaveBeenCalled();
+    expect(scheduler.commit).not.toHaveBeenCalled();
+  });
+
   it('fails fast when the scheduler returns dirty persistent scheduling metadata', async () => {
     const before = createCard();
     const after = {

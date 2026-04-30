@@ -254,6 +254,27 @@ describe('BackendKernel', () => {
         message: 'SrsBackendWorker review.feedback unavailable for queueMode in current phase: filtered-preview',
       },
     });
+
+    const reviewFeedbackFilterInvalidResponse = await kernel.handle({
+      id: 'review-feedback-filter-invalid',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-1',
+        rating: 3,
+        queueType: 'filter-group',
+        queueMode: 'filtered-rescheduling',
+        commitPolicy: 'preview-only',
+      }],
+    });
+    expect(reviewFeedbackFilterInvalidResponse).toEqual({
+      id: 'review-feedback-filter-invalid',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'SrsBackendWorker review.feedback unavailable for filter-group mode/policy in current phase: filtered-rescheduling/preview-only',
+      },
+    });
   });
 
   it('commits retrieval review feedback in worker transaction', async () => {
@@ -305,6 +326,72 @@ describe('BackendKernel', () => {
         cardId: 'card-incremental-1',
         committed: true,
         queueType: 'incremental-learning',
+      });
+      expect(response.result.updatedCard).toBeTruthy();
+    }
+  });
+
+  it('supports filter-group preview-only review feedback without schedule writes', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-filter-preview-1', due: Date.now() + 86_400_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-filter-preview',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-filter-preview-1',
+        rating: 3,
+        queueType: 'filter-group',
+        queueMode: 'filtered-preview',
+        commitPolicy: 'preview-only',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-filter-preview-1',
+        committed: false,
+        queueType: 'filter-group',
+        updatedCard: null,
+      });
+    }
+  });
+
+  it('commits filter-group filtered-rescheduling review feedback in worker transaction', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-filter-reschedule-1', due: Date.now() - 10_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-filter-reschedule',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-filter-reschedule-1',
+        rating: 2,
+        queueType: 'filter-group',
+        queueMode: 'filtered-rescheduling',
+        commitPolicy: 'write-schedule',
+      }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-filter-reschedule-1',
+        committed: true,
+        queueType: 'filter-group',
       });
       expect(response.result.updatedCard).toBeTruthy();
     }

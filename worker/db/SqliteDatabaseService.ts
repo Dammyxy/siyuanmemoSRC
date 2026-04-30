@@ -225,23 +225,39 @@ export class WorkerSqliteDatabaseService {
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     await this.init();
     const queueType = String(request.queueType || 'retrieval-practice').trim() || 'retrieval-practice';
-    const queueMode = String(request.queueMode || 'formal').trim() || 'formal';
     const commitPolicy = String(request.commitPolicy || 'write-schedule').trim() || 'write-schedule';
+    const defaultQueueMode = queueType === 'filter-group'
+      ? (commitPolicy === 'preview-only' ? 'filtered-preview' : 'filtered-rescheduling')
+      : 'formal';
+    const queueMode = String(request.queueMode || defaultQueueMode).trim() || defaultQueueMode;
     const reviewedAt = Number(request.reviewedAt || Date.now());
     const rating = Math.max(1, Math.min(4, Math.floor(Number(request.rating) || 0))) as 1 | 2 | 3 | 4;
     const cardId = String(request.cardId || '').trim();
     if (!cardId) {
       throw new Error('review.feedback requires cardId');
     }
-    const supportedQueueTypes = new Set(['retrieval-practice', 'incremental-learning']);
+    const supportedQueueTypes = new Set(['retrieval-practice', 'incremental-learning', 'filter-group']);
     if (!supportedQueueTypes.has(queueType)) {
       throw new Error(`SrsBackendWorker review.feedback unavailable for queueType in current phase: ${queueType}`);
     }
-    if (queueMode !== 'formal') {
-      throw new Error(`SrsBackendWorker review.feedback unavailable for queueMode in current phase: ${queueMode}`);
-    }
-    if (commitPolicy !== 'write-schedule') {
-      throw new Error(`SrsBackendWorker review.feedback unavailable for commitPolicy in current phase: ${commitPolicy}`);
+    if (queueType === 'filter-group') {
+      const allowed = (
+        (queueMode === 'filtered-preview' && commitPolicy === 'preview-only')
+        || (queueMode === 'filtered-rescheduling' && commitPolicy === 'write-schedule')
+      );
+      if (!allowed) {
+        throw new Error(
+          `SrsBackendWorker review.feedback unavailable for filter-group mode/policy in current phase: `
+          + `${queueMode}/${commitPolicy}`,
+        );
+      }
+    } else {
+      if (queueMode !== 'formal') {
+        throw new Error(`SrsBackendWorker review.feedback unavailable for queueMode in current phase: ${queueMode}`);
+      }
+      if (commitPolicy !== 'write-schedule') {
+        throw new Error(`SrsBackendWorker review.feedback unavailable for commitPolicy in current phase: ${commitPolicy}`);
+      }
     }
 
     return this.runtime.runTransaction('review.feedback', async () => {
@@ -270,8 +286,8 @@ export class WorkerSqliteDatabaseService {
 
       const decision = scheduler.answer(card, rating, {
         queueType,
-        queueMode: 'formal',
-        commitPolicy: 'write-schedule',
+        queueMode,
+        commitPolicy: commitPolicy as 'write-schedule' | 'preview-only',
         source: 'queue',
         sessionId: request.sessionId,
         reviewTime: reviewedAt,

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 231)
+Last update: 2026-05-01 (Round 232)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase3 p3-3 filter-group preview/reschedule worker contract
+
+- Task: 一次推进并完成 P3-3：把 `filter-group` 复习反馈迁到 worker contract，覆盖 preview-only 与 filtered-rescheduling 两条语义。
+- Touched slice: Review worker commit contract + application worker-first routing；`worker/db/SqliteDatabaseService.ts`、`worker/__tests__/BackendKernel.test.ts`、`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: worker `review.feedback` 现支持 `filter-group` 两个受控组合：`filtered-preview + preview-only`（不写正式排期）与 `filtered-rescheduling + write-schedule`（正式提交）；`ReviewCommitUseCase` worker-first guard 同步升级，避免 filter-group 在 application/worker 间语义分裂。
+- Debt deferred: `final-drill`、`neural-roam`、其他 queueType 仍未进入 worker commit；RPC 结果仍是 compact envelope，未回传完整 decision/commitResult；transport 仍是同进程 bridge。
+- Why deferred: 本轮目标是先闭合 filter-group 两条高频 contract；继续扩展其他 queueType 会碰 drill/neural 专属语义和更大回归面。
+- Next safe step: 进入 P3-4，评估 `neural-roam` 与 `final-drill` 的 worker contract（尤其 drill-only suppress 语义），先落 contract test 再接 usecase 路径。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase3 p3-2 incremental formal review feedback and mode/policy gate
 
