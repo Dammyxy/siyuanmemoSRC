@@ -69,6 +69,19 @@ function normalizeMethods(methods: LoadedPluginData['methods']): KernelCompanion
     }));
 }
 
+function normalizeJsonRpcParams(params: unknown): unknown[] | Record<string, unknown> {
+  if (params === undefined || params === null) {
+    return [];
+  }
+  if (Array.isArray(params)) {
+    return params;
+  }
+  if (isRecord(params)) {
+    return params;
+  }
+  return [params];
+}
+
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -181,7 +194,7 @@ export class SiyuanKernelCompanionAdapter implements KernelCompanionPort {
     const body: Record<string, unknown> = {
       jsonrpc: JSON_RPC_VERSION,
       method,
-      params: params ?? null,
+      params: normalizeJsonRpcParams(params),
       id: 1,
     };
 

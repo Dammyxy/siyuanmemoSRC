@@ -956,7 +956,7 @@ UI 层：
 4. `src/core/siyuan/*` 不是 UI / application 默认直连边界；优先端口 + adapter。
 5. Application query/service 不从 `@/ui/browser/*` 取 Browser 契约；共享契约放在 `src/types/browser.ts` 或 application query shared helper。
 6. UI 不新增 `@/infrastructure/*` 直连；确有历史例外时需要在 `scripts/check-boundaries.cjs` allowlist 中显式说明。
-7. Kernel companion 是 Siyuan integration 的可选 RPC 能力。UI / application manager 只能通过 `KernelCompanionPort` 获取状态或调用方法；不要从 Settings、usecase、scheduler、Riff sync 或 persistence 代码直接 fetch `/api/plugin/rpc/*`。
+7. Kernel companion 是 Siyuan integration 的可选 RPC 能力。UI / application manager 只能通过 `KernelCompanionPort` 获取状态或调用方法；不要从 Settings、usecase、scheduler、Riff sync 或 persistence 代码直接 fetch `/api/plugin/rpc/*`。JSON-RPC 请求由 `SiyuanKernelCompanionAdapter` 统一组装；无参调用发送 `params: []`，不要发送 `params: null`，否则当前内核会返回 `-32600 Invalid Request`。
 8. 不要把以下路径当活跃架构基线：
    - `src/domain/queues/*`
    - `src/index.simplified.ts`
@@ -980,7 +980,7 @@ UI 层：
 
 ---
 
-## 14. 当前状态快照（2026-04-26）
+## 14. 当前状态快照（2026-04-30）
 
 当前架构基线：
 
@@ -994,6 +994,9 @@ UI 层：
 - 桌面端标准 review 入口现在由 `DialogManager` 按 `settings.ui.reviewOpenInNewTabByDefault` / `reviewOpenFullscreenByDefault` 做统一路由；filter-backed review 进入 tab 时通过 transfer-state 恢复 session
 - Review runtime 只保留 `ReviewView.vue` v2 + `UnifiedQueueStrategy` + `UnifiedReviewAdapter` 主链；旧 provider-backed review extension path 已删除，special renderer service 由 application factory 注入
 - 主数据持久化优先使用 `siyuanmemo.db`；浏览器插件 application 层通过 sql.js 单写，`kernel.js` 当前只提供内核伴生 `health` / `version` / `capabilities` 握手与状态检查，不直接写 DB，不迁移 scheduler，不接管 Riff 写入
+- 后端迁移 `Phase 0-1` 已落地第一批基线：新增 `docs/ADR-001..004` 约束 runtime split / SQL authority / kernel sidecar coordinator / no-ui-sql；并把 `scripts/check-no-ui-sql.cjs` 与 `scripts/check-no-kernel-db-owner.cjs` 接入 `pnpm run check:boundaries`
+- `worker/` 已接入最小后端骨架：`BackendKernel` + `WorkerSqliteDatabaseService` + persistence bridge，当前提供 `system.health`、`db.load`、`db.persist`、`diagnostics.status` RPC；`ApplicationContext` 仍保留旧 SQL 主路径，Worker bootstrap 先走 feature flag，不改变 Review/Browser 行为
+- `packages/contracts/src/backend-rpc.ts` 与 `packages/contracts/src/kernel-rpc.ts` 作为 worker/kernel envelope 契约草案；`src/application/clients/SrsBackendClient.ts` 与 `KernelSidecarClient.ts` 作为应用层唯一调用入口预留，不让 UI/feature 代码直接碰 RPC 细节
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中

@@ -166,6 +166,54 @@ describe('SiyuanKernelCompanionAdapter', () => {
     );
   });
 
+  it('uses empty positional params for parameterless method calls', async () => {
+    fetchMock.mockResolvedValueOnce(mockJsonResponse({
+      jsonrpc: '2.0',
+      result: { ok: true },
+      id: 1,
+    }));
+
+    const adapter = new SiyuanKernelCompanionAdapter();
+    await expect(adapter.call('health')).resolves.toEqual({ ok: true });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/plugin/rpc/siyuan-plugin-siyuanmemo',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'health',
+          params: [],
+          id: 1,
+        }),
+      }),
+    );
+  });
+
+  it('wraps primitive params as positional params', async () => {
+    fetchMock.mockResolvedValueOnce(mockJsonResponse({
+      jsonrpc: '2.0',
+      result: 'ok',
+      id: 1,
+    }));
+
+    const adapter = new SiyuanKernelCompanionAdapter();
+    await expect(adapter.call('echo', 'value')).resolves.toBe('ok');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/plugin/rpc/siyuan-plugin-siyuanmemo',
+      expect.objectContaining({
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'echo',
+          params: ['value'],
+          id: 1,
+        }),
+      }),
+    );
+  });
+
   it('surfaces JSON-RPC errors as adapter errors', async () => {
     fetchMock.mockResolvedValueOnce(mockJsonResponse({
       jsonrpc: '2.0',

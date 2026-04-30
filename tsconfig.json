@@ -44,9 +44,11 @@
   ],
   "include": [
     "tools/**/*.ts",
+    "packages/**/*.ts",
     "src/**/*.ts",
     "src/**/*.d.ts",
-    "src/**/*.vue"
+    "src/**/*.vue",
+    "worker/**/*.ts"
   ],
   "exclude": [
     "node_modules",

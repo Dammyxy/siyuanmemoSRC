@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-30 (Round 228)
+Last update: 2026-04-30 (Round 229)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-30 - Kernel companion RPC params contract fix
+
+- Task: 修复维护页“内核伴生”显示 `running` 但健康检查返回 `Kernel companion RPC error -32600: Invalid Request` 的问题，并把 SiYuan PR 17487 / `kernel.d.ts` 的当前开发约束写入技能参考。
+- Touched slice: Siyuan integration / kernel companion adapter in `src/infrastructure/siyuan/SiyuanKernelCompanionAdapter.ts`, focused adapter tests, `ARCHITECTURE.md`, `docs/KERNEL_PLUGIN_SYSTEM_RESEARCH.md`, this backlog, and external skill reference `H:/project-F/flashcard/.agents/skills/siyuanmemo-plugin-dev/references/kernel-plugin-system.md`.
+- Debt fixed now: `SiyuanKernelCompanionAdapter` 不再把无参 RPC 发成 `params: null`；无参调用统一为 `params: []`，对象/数组 params 保持原形，primitive params 包成 positional array，避免 current kernel branch 以 `-32600 Invalid Request` 拒绝格式错误请求。PR / `kernel.d.ts` 相关约束也沉淀到技能 reference，降低新上下文误改 adapter 或 `kernel.js` 的概率。
+- Debt deferred: 不在本轮迁移 scheduler、Riff/card 写入、Xiuyuan sync、WebSocket broadcast 或 `siyuanmemo.db` ownership；也未由当前 Codex 会话直接操控用户本地 SiYuan 界面做二次手工 smoke。
+- Why deferred: 本轮 root cause 是 JSON-RPC request params shape，属于 adapter contract；把数据写入、调度和宿主事件迁入 kernel companion 会引入新的 ownership/事务/并发协议，超出 P0 修复范围。UI live smoke 需要用户已启动的本地 SiYuan 运行态，自动化价值低于 adapter regression。
+- Next safe step: 重新构建/部署插件后在已编译 SiYuan 内核分支里打开维护页，确认 `health` 返回 available；若上游 endpoint 或 envelope 后续变化，仍只收口修改 `SiyuanKernelCompanionAdapter` 与对应契约测试。
+- Validation: Added red/green adapter regression for no-arg RPC params (`params: null` failed, `params: []` passed); `pnpm exec vitest run src/infrastructure/siyuan/__tests__/SiyuanKernelCompanionAdapter.test.ts src/ui/settings/__tests__/settingsPanelViewModel.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/application/managers/DialogManager.test.ts --reporter=dot` (4 files / 44 tests passed); `pnpm run check:boundaries` passed; `pnpm build` passed with existing i18n/Sass warnings and static copy still copying `kernel.js`; `git diff --check` passed with LF/CRLF warnings only.
 
 ### 2026-04-30 - Kernel companion P0 handshake
 
@@ -2918,6 +2928,16 @@ Do not add an entry for skill-only or docs-only work.
 - Why deferred: 这些剩余逻辑会碰真实 Siyuan writes、LLM wire shape 或 persistence side effects；本轮只切纯 projection / normalization / dead wrapper，避免扩大到工具审批和 session schema。
 - Next safe step: 下一轮继续同 bounded context 时，优先拆 self-test/CDF write orchestration 或 prompt/context assembly；若转 UI，则拆 `ReviewView.vue` neural/progressive command glue 或 `AiWorkbenchPane.vue` command helpers。
 - Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchThreadNormalization.test.ts src/application/services/__tests__/AIWorkbenchContextProjection.test.ts src/application/services/__tests__/AIWorkbenchRunProjection.test.ts src/application/services/__tests__/AIWorkbenchService.review-session.test.ts src/application/services/__tests__/AIWorkbenchService.user-skill.test.ts src/application/services/__tests__/AIWorkbenchSessionRuntime.test.ts src/application/services/__tests__/AIWorkbenchGeneralChatRuntime.test.ts`; plus final `pnpm run check:boundaries`, `pnpm build`, `git diff --check`.
+
+### 2026-04-30 - backend migration phase 0-1 scaffold and boundary guards
+
+- Task: 按迁移 spec 先完成 `Phase 0-1` 基线，不搬迁 Review/Browser 热路径：补 runtime ADR、边界检查脚本、Worker 后端最小可运行骨架，并保持 kernel 侧 `writesSiyuanMemoDb: false`。
+- Touched slice: Runtime/docs/contracts/worker boundary；`docs/ADR-001-runtime-split.md`、`ADR-002-sql-worker-authority.md`、`ADR-003-kernel-sidecar-coordinator.md`、`ADR-004-no-ui-sql.md`、`scripts/check-no-ui-sql.cjs`、`scripts/check-no-kernel-db-owner.cjs`、`package.json(check:boundaries)`、`worker/*`、`packages/contracts/src/{backend-rpc,kernel-rpc}.ts`、`packages/domain/src/index.ts`、`src/application/clients/{SrsBackendClient,KernelSidecarClient}.ts`、`tsconfig.json`。
+- Debt fixed now: 把“UI/application 可继续悄悄 import SQL”与“kernel 未来可能误接管 DB 文件”的架构退化点变成可执行检查；同时把 Worker RPC/DB bridge 骨架落地，避免后续每个 phase 重复从零搭建 transport/error envelope。
+- Debt deferred: `ApplicationContext` 仍保留旧 SQL 主路径，Review/Queue/Scheduler 事务提交尚未迁到 Worker；kernel writer lease / multi-window single-writer 仍在后续 phase。
+- Why deferred: 本轮目标是先锁边界和建立可验证基线；直接迁复习热路径会放大行为回归风险，也会和当前 kernel companion P0 未提交改动冲突。
+- Next safe step: 进入 Phase 2，先搬 Browser query 子集（`getDeckPage/getStats/getMatchedIds/source-existence`）到 Worker，再通过 feature flag 做灰度切换与回归验证。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts`、`pnpm run check:boundaries`、`pnpm build`、`git diff --check`。
 
 ### Entry template
 

@@ -16,7 +16,7 @@
     "diagnostics": "node --loader ts-node/esm --experimental-specifier-resolution=node src/diagnostics/cli.ts report",
     "diagnostics:algorithm-state": "node --loader ts-node/esm/transpile-only --experimental-specifier-resolution=node src/diagnostics/cli.ts algorithm-state",
     "diagnostics:browser-sql-profile": "node --loader ts-node/esm/transpile-only --experimental-specifier-resolution=node src/diagnostics/cli.ts browser-sql-profile",
-    "check:boundaries": "node scripts/check-boundaries.cjs",
+    "check:boundaries": "node scripts/check-boundaries.cjs && node scripts/check-no-ui-sql.cjs && node scripts/check-no-kernel-db-owner.cjs",
     "release": "node ./release.js",
     "release:patch": "node ./release.js --mode=patch",
     "release:minor": "node ./release.js --mode=minor",

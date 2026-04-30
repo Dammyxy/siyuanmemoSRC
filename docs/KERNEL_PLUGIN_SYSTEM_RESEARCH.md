@@ -173,6 +173,13 @@ data/storage/petal/<plugin-name>/
 - `POST /api/plugin/rpc/:name`
 - `GET /ws/plugin/rpc/:name`
 
+P0 adapter 采用的 JSON-RPC 请求形状：
+
+- body 固定为 `{ "jsonrpc": "2.0", "method": string, "params": array | object, "id": number | string }`。
+- 无参方法使用空 positional params：`"params": []`。
+- 不要发送 `"params": null`；即使插件状态为 `running`，当前内核也会返回 `-32600 Invalid Request`。
+- adapter 层负责把 HTTP/RPC error 映射成显式 unavailable 或抛出 adapter error，Settings/UI 不直接处理 `/api/plugin/rpc/*` envelope。
+
 这正好适合浏览器端 SiYuanMemo 通过 adapter 调 kernel companion。
 
 ### `siyuan.client`
@@ -533,7 +540,7 @@ siyuan.plugin.lifecycle.onunload = async () => {
 - `plugin.json.kernels` 桌面平台匹配后能启动。
 - `kernel.js` 热更新/禁用/启用生命周期表现。
 - `/api/plugin/listLoadedPlugins` 与 `/api/plugin/getLoadedPlugin` 返回结构。
-- `POST /api/plugin/rpc/:name` 是否需要 `jsonrpc: "2.0"` 完整 envelope。
+- `POST /api/plugin/rpc/:name` 已确认使用完整 JSON-RPC 2.0 envelope；升级内核分支时继续复核 endpoint shape 与 `params` 校验。
 - `/ws/plugin/rpc/:name` broadcast 是否稳定。
 - `siyuan.client.fetch('/api/riff/getRiffDecks')` 返回 envelope 形状。
 - `siyuan.client.socket()` 能否订阅思源主 WS 或相关 proxy endpoint。
