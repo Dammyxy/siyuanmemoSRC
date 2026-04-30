@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-30 (Round 229)
+Last update: 2026-05-01 (Round 230)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase3 retrieval review worker-first commit wiring
+
+- Task: 在保持 feature flag 灰度和默认主路径不切换前提下，继续推进 P3：把 retrieval-practice formal `review.feedback` 从“worker explicit unavailable 骨架”推进到可提交链，并接到 `ReviewCommitUseCase` worker-first 路径。
+- Touched slice: Review commit application seam + worker rpc；`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/application/ApplicationContext.ts`、`worker/db/SqliteDatabaseService.ts`、`worker/bootstrap/BackendKernel.ts`、`packages/contracts/src/backend-rpc.ts`、`src/application/clients/SrsBackendClient.ts`、`src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`、`worker/__tests__/BackendKernel.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: `review.feedback` 不再只返回 unavailable；retrieval-practice formal 现在在 worker 内走 `runTransaction('review.feedback')` + `SchedulerRouter.answer/commit` + `review-v2` event 写入，并在 feature flag 开启时由 `ReviewCommitUseCase` 直连 worker-first（不进入本地 SQL transaction、不卡双写）。
+- Debt deferred: `incremental-learning` / `filter-group` / `final-drill` / `neural-roam` 等 queueType 仍不在 worker 提交范围；worker transport 仍是同进程 bridge，不是独立 postMessage runtime；review decision/commitResult 细粒度对象尚未通过 RPC 返回。
+- Why deferred: 当前最小安全步是先打通 retrieval formal 单链并保持可控 blast radius；扩展到其他 queueType 或独立 transport 会牵涉 queue policy、session lifecycle 与并发协议。
+- Next safe step: 继续 P3-2：补 worker-side queueType 路由策略（先 incremental-learning / filtered-preview 的 explicit contract），并在 `ReviewCommitUseCase` 增加对应 contract 测试，确保 unavailable/error envelope 行为稳定。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase2 host-sweep downshift + phase3 review rpc scaffold
 

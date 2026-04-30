@@ -4,6 +4,7 @@ import {
   type BackendBrowserDeckSnapshotQuery,
   type BackendSourceExistenceSweepApplyRequest,
   type BackendSourceExistenceSweepApplyResult,
+  type BackendReviewFeedbackResult,
   type BackendSourceExistenceRefreshCandidate,
   type BackendSourceExistenceRefreshRequest,
   type BackendSourceExistenceSummary,
@@ -115,7 +116,12 @@ export class BackendKernel {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('persistence bridge is unavailable') || message.includes('is unavailable')) {
+      if (
+        message.includes('persistence bridge is unavailable')
+        || message.includes('is unavailable')
+        || message.includes(' unavailable ')
+        || message.startsWith('unavailable')
+      ) {
         return buildError(request.id, 'BACKEND_UNAVAILABLE', message);
       }
       return buildError(request.id, 'INTERNAL_ERROR', message);
@@ -248,10 +254,11 @@ export class BackendKernel {
     );
   }
 
-  private async handleReviewFeedback(params: unknown): Promise<never> {
+  private async handleReviewFeedback(params: unknown): Promise<BackendReviewFeedbackResult> {
     const named = this.readNamedParams<BackendReviewFeedbackRequest>(params);
-    throw new Error(
-      `SrsBackendWorker review.feedback is unavailable in current phase (cardId=${String(named?.cardId || '')})`,
-    );
+    if (!named || typeof named !== 'object') {
+      throw new Error('review.feedback requires named params');
+    }
+    return this.deps.database.reviewFeedback(named);
   }
 }

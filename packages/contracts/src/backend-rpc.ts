@@ -161,3 +161,11 @@ export interface BackendReviewFeedbackRequest {
   sessionId?: string;
   reviewedAt?: number;
 }
+
+export interface BackendReviewFeedbackResult {
+  cardId: string;
+  committed: boolean;
+  reviewedAt: number;
+  queueType: string;
+  updatedCard: unknown | null;
+}

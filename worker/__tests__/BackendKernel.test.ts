@@ -2,6 +2,35 @@ import { describe, expect, it } from 'vitest';
 import { BackendKernel } from '../bootstrap/BackendKernel';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
+import { CardState, CardType, type FSRSCard } from '@/types/card';
+
+function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
+  const now = 1_700_000_000_000;
+  return {
+    id: overrides.id ?? 'card-1',
+    xiuyuanID: overrides.xiuyuanID ?? 'xiuyuan-1',
+    blockId: overrides.blockId ?? 'block-1',
+    due: overrides.due ?? now + 86_400_000,
+    stability: overrides.stability ?? 4,
+    difficulty: overrides.difficulty ?? 5,
+    reps: overrides.reps ?? 3,
+    lapses: overrides.lapses ?? 1,
+    state: overrides.state ?? CardState.Review,
+    lastReview: overrides.lastReview ?? now,
+    elapsedDays: overrides.elapsedDays ?? 0,
+    scheduledDays: overrides.scheduledDays ?? 7,
+    priority: overrides.priority ?? 19,
+    type: overrides.type ?? CardType.Item,
+    tags: overrides.tags ?? [],
+    neuralRoamSeed: overrides.neuralRoamSeed ?? false,
+    leechCount: overrides.leechCount ?? 0,
+    isLeech: overrides.isLeech ?? false,
+    skipped: overrides.skipped ?? false,
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+    meta: overrides.meta ?? {},
+  };
+}
 
 describe('BackendKernel', () => {
   it('returns explicit unavailable when no persistence bridge is configured', async () => {
@@ -194,15 +223,42 @@ describe('BackendKernel', () => {
       id: 'review-feedback',
       jsonrpc: '2.0',
       method: 'review.feedback',
-      params: [{ cardId: 'card-1', rating: 3 }],
+      params: [{ cardId: 'card-1', rating: 3, queueType: 'final-drill' }],
     });
     expect(reviewFeedbackResponse).toEqual({
       id: 'review-feedback',
       jsonrpc: '2.0',
       error: {
         code: 'BACKEND_UNAVAILABLE',
-        message: 'SrsBackendWorker review.feedback is unavailable in current phase (cardId=card-1)',
+        message: 'SrsBackendWorker review.feedback unavailable for queueType in current phase: final-drill',
       },
     });
+  });
+
+  it('commits retrieval review feedback in worker transaction', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-review-1', due: Date.now() - 10_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-success',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-review-1', rating: 3, queueType: 'retrieval-practice' }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-review-1',
+        committed: true,
+        queueType: 'retrieval-practice',
+      });
+      expect(response.result.updatedCard).toBeTruthy();
+    }
   });
 });

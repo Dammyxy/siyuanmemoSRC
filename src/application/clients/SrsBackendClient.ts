@@ -4,6 +4,7 @@ import type {
   BackendBrowserDeckSnapshotQuery,
   BackendSourceExistenceSweepApplyResult,
   BackendReviewFeedbackRequest,
+  BackendReviewFeedbackResult,
   BackendSourceExistenceRefreshCandidate,
   BackendSourceExistenceRefreshRequest,
   BackendSourceExistenceSummary,
@@ -122,8 +123,8 @@ export class SrsBackendClient {
     });
   }
 
-  async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<never> {
-    return this.call<never>('review.feedback', request);
+  async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
+    return this.call<BackendReviewFeedbackResult>('review.feedback', request);
   }
 
   private async call<TResult>(method: BackendRpcRequest['method'], params?: unknown): Promise<TResult> {

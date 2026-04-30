@@ -494,6 +494,7 @@ export class ApplicationContext {
             }
           : null,
         arena: context.getArenaKernelService(),
+        srsBackend: context.srsBackendClient,
         onCommittedCard: (card) => unifiedDataSourceManager.onCardUpdatedFromScheduler(card),
       });
     });

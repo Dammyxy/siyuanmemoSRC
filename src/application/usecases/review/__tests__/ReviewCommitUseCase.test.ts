@@ -219,6 +219,78 @@ describe('ReviewCommitUseCase', () => {
     expect(onCommittedCard).not.toHaveBeenCalled();
   });
 
+  it('uses worker feedback path for retrieval-practice formal commit when backend client is provided', async () => {
+    const before = createCard({ due: Date.now() - 3_600_000 });
+    const after = createCard({
+      id: before.id,
+      due: before.due + 5 * 86_400_000,
+      reps: before.reps + 1,
+      lastReview: before.due,
+      scheduledDays: 5,
+      updatedAt: before.updatedAt + 1_000,
+    });
+    const scheduler = {
+      answer: vi.fn(),
+      commit: vi.fn(),
+      route: vi.fn(),
+    };
+    const addReviewLogV2 = vi.fn(async () => {});
+    const onCommittedCard = vi.fn(async () => {});
+    const arena = { recordSrsReview: vi.fn(async () => null) };
+    const transactionRunner = {
+      runTransaction: vi.fn(async (_label: string, operation: () => Promise<unknown>) => operation()),
+    };
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+    }));
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2 },
+      onCommittedCard,
+      arena,
+      transactionRunner,
+      srsBackend: { reviewFeedback },
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+        sessionId: 'session-1',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      cardId: before.id,
+      rating: Rating.Good,
+      queueType: 'retrieval-practice',
+      sessionId: 'session-1',
+    }));
+    expect(result).toMatchObject({
+      card: before,
+      updatedCard: expect.objectContaining({
+        id: before.id,
+        due: after.due,
+      }),
+      committed: true,
+    });
+    expect(scheduler.answer).not.toHaveBeenCalled();
+    expect(scheduler.commit).not.toHaveBeenCalled();
+    expect(addReviewLogV2).not.toHaveBeenCalled();
+    expect(transactionRunner.runTransaction).not.toHaveBeenCalled();
+    expect(onCommittedCard).toHaveBeenCalledWith(expect.objectContaining({ id: before.id, due: after.due }));
+    expect(arena.recordSrsReview).toHaveBeenCalledWith(expect.objectContaining({
+      card: before,
+      rating: Rating.Good,
+      schedulingContext: expect.objectContaining({ queueType: 'retrieval-practice' }),
+    }));
+  });
+
   it('fails fast when the scheduler returns dirty persistent scheduling metadata', async () => {
     const before = createCard();
     const after = {

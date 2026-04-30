@@ -34,12 +34,26 @@ export interface ReviewCommitArenaRecorder {
   }): Promise<unknown>;
 }
 
+export interface ReviewCommitBackendFeedbackClient {
+  reviewFeedback(request: {
+    cardId: string;
+    rating: number;
+    queueType?: string;
+    sessionId?: string;
+    reviewedAt?: number;
+  }): Promise<{
+    committed: boolean;
+    updatedCard: unknown | null;
+  }>;
+}
+
 export interface ReviewCommitUseCaseDependencies {
   cards: ReviewCommitCardReader;
   scheduler: Pick<SchedulerRouter, 'answer' | 'commit' | 'route'>;
   reviewLogs: ReviewCommitLogWriter;
   transactionRunner?: ReviewCommitTransactionRunner | null;
   arena?: ReviewCommitArenaRecorder | null;
+  srsBackend?: ReviewCommitBackendFeedbackClient | null;
   onCommittedCard?: (card: FSRSCard) => Promise<void> | void;
 }
 
@@ -47,6 +61,10 @@ export class ReviewCommitUseCase {
   constructor(private readonly deps: ReviewCommitUseCaseDependencies) {}
 
   async execute(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
+    if (this.shouldUseWorkerFeedback(command)) {
+      return this.executeViaWorkerFeedback(command);
+    }
+
     if (this.deps.transactionRunner) {
       return this.deps.transactionRunner.runTransaction('review.feedback', () => this.executeInner(command));
     }
@@ -133,6 +151,53 @@ export class ReviewCommitUseCase {
     };
   }
 
+  private shouldUseWorkerFeedback(command: QueueReviewCommand): boolean {
+    if (!this.deps.srsBackend) {
+      return false;
+    }
+
+    const queueType = String(command.context.queueType || '').trim();
+    if (queueType !== 'retrieval-practice') {
+      return false;
+    }
+
+    const commitPolicy = command.context.commitPolicy ?? 'write-schedule';
+    if (commitPolicy !== 'write-schedule') {
+      return false;
+    }
+
+    const queueMode = command.context.queueMode ?? 'formal';
+    return queueMode === 'formal';
+  }
+
+  private async executeViaWorkerFeedback(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
+    const card = await this.deps.cards.getCard(command.cardId);
+    const rating = normalizeRating(command.rating);
+    const context = {
+      ...command.context,
+      source: command.context.source ?? 'queue',
+    };
+    const reviewedAt = normalizeReviewedAt(context.reviewTime);
+    const result = await this.deps.srsBackend!.reviewFeedback({
+      cardId: command.cardId,
+      rating,
+      queueType: 'retrieval-practice',
+      sessionId: context.sessionId,
+      reviewedAt,
+    });
+
+    const updatedCard = normalizeWorkerUpdatedCard(result.updatedCard, card);
+    if (result.committed) {
+      await this.deps.onCommittedCard?.(updatedCard);
+    }
+    await this.recordArenaReview(card, rating, context);
+    return {
+      card,
+      updatedCard,
+      committed: result.committed,
+    };
+  }
+
   private async recordArenaReview(card: FSRSCard, rating: Rating, schedulingContext?: SrsV2SchedulingContext | null): Promise<void> {
     if (!this.deps.arena) {
       return;
@@ -156,4 +221,29 @@ export class ReviewCommitUseCase {
 
 function normalizeRating(value: number): Rating {
   return Math.max(1, Math.min(4, Math.floor(Number(value) || 0))) as Rating;
+}
+
+function normalizeReviewedAt(value: Date | number | undefined): number | undefined {
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    return Number.isFinite(timestamp) ? timestamp : undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  return undefined;
+}
+
+function normalizeWorkerUpdatedCard(updatedCard: unknown, fallbackCard: FSRSCard): FSRSCard {
+  if (!updatedCard || typeof updatedCard !== 'object') {
+    return fallbackCard;
+  }
+  const candidate = updatedCard as FSRSCard;
+  if (typeof candidate.id !== 'string' || !candidate.id) {
+    throw new Error('review.feedback worker response missing updatedCard.id');
+  }
+  return canonicalizeSchedulingState(candidate, {
+    source: 'review-commit',
+    mode: 'assert-internal',
+  }).card;
 }
