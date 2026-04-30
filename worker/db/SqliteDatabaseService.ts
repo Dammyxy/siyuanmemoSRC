@@ -4,6 +4,7 @@ import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
 import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
+import type { FSRSCard } from '@/types/card';
 import type {
   BrowserDeckCardPageResult,
   BrowserDeckPageRequest,
@@ -105,6 +106,11 @@ export class WorkerSqliteDatabaseService {
     return this.repository!.queryDeckMatchedIds(query);
   }
 
+  async getDeckRowsByIds(ids: string[]): Promise<FSRSCard[]> {
+    await this.init();
+    return this.repository!.getDeckCardsByIds(ids);
+  }
+
   async countCards(query?: StructuredCardQuery): Promise<number> {
     await this.init();
     return this.repository!.countCards(query);
@@ -142,6 +148,52 @@ export class WorkerSqliteDatabaseService {
   async getSourceExistenceSummary(staleBefore?: number): Promise<SourceExistenceSummary> {
     await this.init();
     return this.repository!.getSourceExistenceSummary(staleBefore);
+  }
+
+  async applySourceExistenceSweep(
+    request: SourceExistenceRefreshRequest = {},
+    existingBlockIds: string[],
+    checkedAt = Date.now(),
+  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean }> {
+    await this.init();
+
+    const candidates = this.repository!.getSourceExistenceRefreshCandidates(request);
+    if (candidates.length === 0) {
+      return { checked: 0, updated: 0, changed: false, changedToMissing: false };
+    }
+
+    const existingSet = new Set(
+      existingBlockIds
+        .map((blockId) => String(blockId || '').trim())
+        .filter(Boolean),
+    );
+
+    let changed = false;
+    let changedToMissing = false;
+    const updates: SourceExistenceUpdate[] = [];
+    for (const candidate of candidates) {
+      const exists = existingSet.has(candidate.blockId);
+      if (candidate.sourceExists !== exists) {
+        changed = true;
+        if (!exists) {
+          changedToMissing = true;
+        }
+      }
+      updates.push({
+        cardId: candidate.cardId,
+        blockId: candidate.blockId,
+        exists,
+      });
+    }
+
+    await this.repository!.updateSourceExistence(updates, checkedAt);
+
+    return {
+      checked: candidates.length,
+      updated: updates.length,
+      changed,
+      changedToMissing,
+    };
   }
 
   async runTransaction<T>(

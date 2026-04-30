@@ -248,6 +248,19 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getDeckRowsByIds(ids: string[]) {
+    if (this.srsBackendClient) {
+      try {
+        const cards = await this.srsBackendClient.browserDeckRowsByIds(ids);
+        await this.refreshSourceExistenceForBackendCards(cards, {
+          limit: SOURCE_EXISTENCE_BATCH_SIZE,
+        });
+        const rows = await this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false });
+        return this.markRowsFromBackendSourceExistence(rows);
+      } catch (error) {
+        logger.debug('Worker deck hydrate-by-id query failed; falling back to SQL/legacy hydrate', { error });
+      }
+    }
+
     if (this.browserDeckReadPort) {
       try {
         const cards = this.browserDeckReadPort.getDeckCardsByIds(ids);
@@ -394,39 +407,17 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     try {
-      const candidates = await this.srsBackendClient.browserSourceExistenceRefreshCandidates({
+      const existingBlockIds = await this.loadExistingBlockIds(blockIds);
+      const sweep = await this.srsBackendClient.browserSourceExistenceApplySweep({
         blockIds,
         limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
         staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
         includeKnownMissing: true,
-      });
-      if (candidates.length === 0) {
-        return { changed: false, changedToMissing: false };
-      }
-
-      const existingBlockIds = await this.loadExistingBlockIds(candidates.map((candidate) => candidate.blockId));
-      const updates: Array<{ cardId: string; blockId: string; exists: boolean }> = [];
-      let changed = false;
-      let changedToMissing = false;
-      for (const candidate of candidates) {
-        const exists = existingBlockIds.has(candidate.blockId);
-        if (candidate.sourceExists !== exists) {
-          changed = true;
-          if (!exists) {
-            changedToMissing = true;
-          }
-        }
-        updates.push({
-          cardId: candidate.cardId,
-          blockId: candidate.blockId,
-          exists,
-        });
-      }
-
-      if (updates.length > 0) {
-        await this.srsBackendClient.browserSourceExistenceUpdate(updates, Date.now());
-      }
-      return { changed, changedToMissing };
+      }, Array.from(existingBlockIds), Date.now());
+      return {
+        changed: sweep.changed,
+        changedToMissing: sweep.changedToMissing,
+      };
     } catch (error) {
       logger.debug('Worker source existence refresh failed; keeping cache fail-open', { error });
       return { changed: false, changedToMissing: false };
@@ -487,18 +478,21 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     this.sourceExistenceSweepInFlight = (async () => {
-      const candidates = await this.srsBackendClient!.browserSourceExistenceRefreshCandidates({
+      const request = {
         limit: SOURCE_EXISTENCE_BACKGROUND_LIMIT,
         staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
         includeKnownMissing: true,
-      });
+      };
+      const candidates = await this.srsBackendClient!.browserSourceExistenceRefreshCandidates(request);
       if (candidates.length === 0) {
         return;
       }
 
-      await this.refreshSourceExistenceForBackendCards(
-        candidates.map((candidate) => ({ blockId: candidate.blockId })),
-        { limit: candidates.length },
+      const existingBlockIds = await this.loadExistingBlockIds(candidates.map((candidate) => candidate.blockId));
+      await this.srsBackendClient!.browserSourceExistenceApplySweep(
+        request,
+        Array.from(existingBlockIds),
+        Date.now(),
       );
     })().finally(() => {
       this.sourceExistenceSweepInFlight = null;

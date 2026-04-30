@@ -2,6 +2,8 @@ import {
   BACKEND_RPC_VERSION,
   type BackendBrowserDeckPageRequest,
   type BackendBrowserDeckSnapshotQuery,
+  type BackendSourceExistenceSweepApplyRequest,
+  type BackendSourceExistenceSweepApplyResult,
   type BackendSourceExistenceRefreshCandidate,
   type BackendSourceExistenceRefreshRequest,
   type BackendSourceExistenceSummary,
@@ -86,6 +88,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleBrowserDeckPage(request.params));
         case 'browser.deck.matchedIds':
           return buildSuccess(request.id, await this.handleBrowserDeckMatchedIds(request.params));
+        case 'browser.deck.rowsByIds':
+          return buildSuccess(request.id, await this.handleBrowserDeckRowsByIds(request.params));
         case 'browser.count':
           return buildSuccess(request.id, await this.handleBrowserCount(request.params));
         case 'browser.stats':
@@ -98,6 +102,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleSourceExistenceByBlockIds(request.params));
         case 'browser.sourceExistence.summary':
           return buildSuccess(request.id, await this.handleSourceExistenceSummary(request.params));
+        case 'browser.sourceExistence.applySweep':
+          return buildSuccess(request.id, await this.handleSourceExistenceApplySweep(request.params));
         default:
           return buildError(request.id, 'METHOD_NOT_FOUND', `Unknown method: ${request.method}`);
       }
@@ -161,6 +167,13 @@ export class BackendKernel {
     return { ids: ids ?? [] };
   }
 
+  private async handleBrowserDeckRowsByIds(params: unknown): Promise<{ cards: unknown[] }> {
+    const named = this.readNamedParams<{ ids?: string[] }>(params);
+    const ids = Array.isArray(named?.ids) ? named.ids : [];
+    const cards = await this.deps.database.getDeckRowsByIds(ids);
+    return { cards };
+  }
+
   private async handleBrowserCount(params: unknown): Promise<{ count: number }> {
     const named = this.readNamedParams<{ query?: StructuredCardQuery }>(params);
     const count = await this.deps.database.countCards(named?.query);
@@ -197,5 +210,15 @@ export class BackendKernel {
   private async handleSourceExistenceSummary(params: unknown): Promise<BackendSourceExistenceSummary> {
     const named = this.readNamedParams<{ staleBefore?: number }>(params);
     return this.deps.database.getSourceExistenceSummary(named?.staleBefore);
+  }
+
+  private async handleSourceExistenceApplySweep(params: unknown): Promise<BackendSourceExistenceSweepApplyResult> {
+    const named = this.readNamedParams<BackendSourceExistenceSweepApplyRequest>(params);
+    const existingBlockIds = Array.isArray(named?.existingBlockIds) ? named.existingBlockIds : [];
+    return this.deps.database.applySourceExistenceSweep(
+      named?.request ?? {},
+      existingBlockIds,
+      named?.checkedAt,
+    );
   }
 }

@@ -7,12 +7,14 @@ export type BackendRpcMethod =
   | 'diagnostics.status'
   | 'browser.deck.page'
   | 'browser.deck.matchedIds'
+  | 'browser.deck.rowsByIds'
   | 'browser.stats'
   | 'browser.count'
   | 'browser.sourceExistence.refreshCandidates'
   | 'browser.sourceExistence.update'
   | 'browser.sourceExistence.byBlockIds'
-  | 'browser.sourceExistence.summary';
+  | 'browser.sourceExistence.summary'
+  | 'browser.sourceExistence.applySweep';
 
 export type BackendRpcId = number | string;
 
@@ -135,4 +137,17 @@ export interface BackendSourceExistenceSummary {
   unknown: number;
   stale: number;
   missing: number;
+}
+
+export interface BackendSourceExistenceSweepApplyRequest {
+  request?: BackendSourceExistenceRefreshRequest;
+  existingBlockIds: string[];
+  checkedAt?: number;
+}
+
+export interface BackendSourceExistenceSweepApplyResult {
+  checked: number;
+  updated: number;
+  changed: boolean;
+  changedToMissing: boolean;
 }

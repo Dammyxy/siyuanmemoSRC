@@ -4,6 +4,16 @@ Last update: 2026-04-30 (Round 229)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-01 - backend migration phase 2 worker-first rows-by-ids and source sweep apply
+
+- Task: 在不切默认主路径前提下继续收口 Phase 2：`getDeckRowsByIds` 走 worker-first，并把 source-existence sweep 的 diff/update 逻辑进一步下沉到 worker-side pipeline。
+- Touched slice: Browser query + worker rpc bridge；`src/application/services/BrowserApplicationService.ts`、`src/application/clients/SrsBackendClient.ts`、`packages/contracts/src/backend-rpc.ts`、`worker/bootstrap/BackendKernel.ts`、`worker/db/SqliteDatabaseService.ts`、对应 focused tests，以及 `ARCHITECTURE.md`。
+- Debt fixed now: `BrowserApplicationService.getDeckRowsByIds()` 在 feature flag 打开时优先命中 Worker（新增 `browser.deck.rowsByIds`）；source-existence 后台刷新不再在 app 侧逐条拼 `updates`，改为 worker `browser.sourceExistence.applySweep` 统一完成候选评估 + update + changed flags，应用层只保留 host blocks existence 查询与结果回传。
+- Debt deferred: source-existence 的 host existence 查询仍在 application 侧通过 `BrowserSiyuanPort.sql` 执行，尚未迁到 kernel sidecar host-query pipeline；worker transport 仍是同进程 `BackendKernel` 调用桥，不是独立 postMessage worker runtime。
+- Why deferred: 本轮目标是 Phase 2 安全收口，控制 blast radius，不跨到 Phase 3/4；直接推进 sidecar host-query 或独立 worker transport 会引入新的运行时生命周期与并发协议风险。
+- Next safe step: 在现有 feature flag 下继续收口 source-existence host query 到 sidecar/worker 协议（显式 unavailable contract），并补 `browser.sourceExistence.applySweep` 的异常路径与 degrade contract 定向测试。
+- Validation: `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts`（3 files/9 tests passed）；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 i18n/Sass warning）；`git diff --check` passed（仅 LF/CRLF warning）。
+
 ### 2026-04-30 - Kernel companion RPC params contract fix
 
 - Task: 修复维护页“内核伴生”显示 `running` 但健康检查返回 `Kernel companion RPC error -32600: Invalid Request` 的问题，并把 SiYuan PR 17487 / `kernel.d.ts` 的当前开发约束写入技能参考。

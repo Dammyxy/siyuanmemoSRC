@@ -2,6 +2,7 @@ import type {
   BackendBrowserDeckPageRequest,
   BackendBrowserDeckPageResult,
   BackendBrowserDeckSnapshotQuery,
+  BackendSourceExistenceSweepApplyResult,
   BackendSourceExistenceRefreshCandidate,
   BackendSourceExistenceRefreshRequest,
   BackendSourceExistenceSummary,
@@ -15,6 +16,7 @@ import type {
 import { BACKEND_RPC_VERSION } from '../../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
+import type { FSRSCard } from '@/types/card';
 
 export interface SrsBackendTransport {
   request(request: BackendRpcRequest): Promise<BackendRpcResponse>;
@@ -51,6 +53,11 @@ export class SrsBackendClient {
   async browserDeckMatchedIds(query: BackendBrowserDeckSnapshotQuery): Promise<string[]> {
     const result = await this.call<{ ids: string[] }>('browser.deck.matchedIds', { query });
     return result.ids || [];
+  }
+
+  async browserDeckRowsByIds(ids: string[]): Promise<FSRSCard[]> {
+    const result = await this.call<{ cards: FSRSCard[] }>('browser.deck.rowsByIds', { ids });
+    return result.cards || [];
   }
 
   async browserStats(now?: number): Promise<BrowserStats> {
@@ -90,6 +97,18 @@ export class SrsBackendClient {
 
   async browserSourceExistenceSummary(staleBefore?: number): Promise<BackendSourceExistenceSummary> {
     return this.call<BackendSourceExistenceSummary>('browser.sourceExistence.summary', { staleBefore });
+  }
+
+  async browserSourceExistenceApplySweep(
+    request: BackendSourceExistenceRefreshRequest,
+    existingBlockIds: string[],
+    checkedAt = Date.now(),
+  ): Promise<BackendSourceExistenceSweepApplyResult> {
+    return this.call<BackendSourceExistenceSweepApplyResult>('browser.sourceExistence.applySweep', {
+      request,
+      existingBlockIds,
+      checkedAt,
+    });
   }
 
   private async call<TResult>(method: BackendRpcRequest['method'], params?: unknown): Promise<TResult> {

@@ -374,7 +374,7 @@ UI surface：
 
 - `src/application/services/UnifiedDataSourceManager.ts`：统一队列创建、缓存、失效、观察者通知中心。
 - `src/application/services/CardApplicationService.ts`：卡片创建 / 更新 / 删除的应用编排入口；SQL active 时通过 read model `countCards()` 提供 due / total 计数。
-- `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务；SQL active 时优先消费 `BrowserDeckReadPort` 做 deck page、matched ids、rows-by-ids、stats 与 source-existence 懒刷新，SQL 不可用或查询不可表达时回退旧 snapshot kernel。
+- `src/application/services/BrowserApplicationService.ts`：Browser 读模型、统计与交互动作的主服务；当 `VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER` 开启且 `SrsBackendClient` 可用时，deck page/matched ids/rows-by-ids/count/stats 与 source-existence sweep 优先走 Worker RPC（含 worker-side sweep apply 聚合）；关闭或失败时回退 SQL `BrowserDeckReadPort`，再回退 legacy snapshot kernel。
 - `src/application/services/ReviewApplicationService.ts`：复习流程相关编排；依赖 `ReviewSiyuanPort`，由 `ApplicationContext` 注入 `ReviewSiyuanAdapter`。
 - `src/application/services/SettingsService.ts` / `ReviewLogService.ts` / `RiffBlacklistService.ts`：配置、日志、黑名单等横切服务；其中 `ReviewLogService` 在 SQL active 时写 `review_events / drill_events / reschedule_events`，旧 JSON 月度分片只作为迁移来源或 SQL 失败后的 fallback；`SettingsService` 在 init/update 时负责把持久化的 `ui.enableDebugLogs` 同步到运行时 logger 级别与 console bridge。
 - `src/application/services/XiuyuanSyncService.ts`：Riff 对账服务；Siyuan/Riff API 通过 `XiuyuanSyncSiyuanPort` 从 `ApplicationContext` 注入，不在 service 内默认构造 infrastructure adapter；增量/全量先规划 `SyncChangeSet`，再通过 Xiuyuan repository 单次提交；增量只做幂等 upsert / 元数据同步，全量才允许删除 riff-owned Xiuyuan；native `removeFlashcards` 现在走同服务内的 `riff-managed` 定向本地删除，而不是再依赖增量同步或 full sync 才收敛。
@@ -997,7 +997,7 @@ UI 层：
 - 后端迁移 `Phase 0-1` 已落地第一批基线：新增 `docs/ADR-001..004` 约束 runtime split / SQL authority / kernel sidecar coordinator / no-ui-sql；并把 `scripts/check-no-ui-sql.cjs` 与 `scripts/check-no-kernel-db-owner.cjs` 接入 `pnpm run check:boundaries`
 - `worker/` 已接入最小后端骨架：`BackendKernel` + `WorkerSqliteDatabaseService` + persistence bridge，当前提供 `system.health`、`db.load`、`db.persist`、`diagnostics.status` RPC；`ApplicationContext` 仍保留旧 SQL 主路径，Worker bootstrap 先走 feature flag，不改变 Review/Browser 行为
 - `packages/contracts/src/backend-rpc.ts` 与 `packages/contracts/src/kernel-rpc.ts` 作为 worker/kernel envelope 契约草案；`src/application/clients/SrsBackendClient.ts` 与 `KernelSidecarClient.ts` 作为应用层唯一调用入口预留，不让 UI/feature 代码直接碰 RPC 细节
-- 后端迁移 `Phase 2` 已开启第一批 Browser query 下沉：Worker 新增 `browser.deck.page`、`browser.deck.matchedIds`、`browser.count`、`browser.stats` 与 `browser.sourceExistence.*` RPC；组合根现已支持 `VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER` feature flag 灰度注入 `SrsBackendClient`（关闭时保持 SQL read port/legacy 基线，开启时 `BrowserApplicationService` 优先走 Worker）
+- 后端迁移 `Phase 2` 已推进到第二批 Browser query 收口：Worker 新增 `browser.deck.page`、`browser.deck.matchedIds`、`browser.deck.rowsByIds`、`browser.count`、`browser.stats` 与 `browser.sourceExistence.*`（含 `applySweep`）RPC；组合根支持 `VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER` feature flag 灰度注入 `SrsBackendClient`（关闭时保持 SQL read port/legacy 基线，开启时 `BrowserApplicationService` 优先走 Worker）
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中

@@ -110,6 +110,18 @@ describe('BackendKernel', () => {
       result: { ids: [] },
     });
 
+    const rowsByIdsResponse = await kernel.handle({
+      id: 'deck-rows',
+      jsonrpc: '2.0',
+      method: 'browser.deck.rowsByIds',
+      params: [{ ids: ['card-1'] }],
+    });
+    expect(rowsByIdsResponse).toEqual({
+      id: 'deck-rows',
+      jsonrpc: '2.0',
+      result: { cards: [] },
+    });
+
     const statsResponse = await kernel.handle({
       id: 'stats',
       jsonrpc: '2.0',
@@ -143,6 +155,23 @@ describe('BackendKernel', () => {
         unknown: 0,
         stale: 0,
         missing: 0,
+      },
+    });
+
+    const sourceSweepResponse = await kernel.handle({
+      id: 'source-sweep',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.applySweep',
+      params: [{ request: { blockIds: ['block-1'] }, existingBlockIds: ['block-1'] }],
+    });
+    expect(sourceSweepResponse).toEqual({
+      id: 'source-sweep',
+      jsonrpc: '2.0',
+      result: {
+        checked: 0,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
       },
     });
   });

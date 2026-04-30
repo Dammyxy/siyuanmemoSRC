@@ -12,6 +12,8 @@ describe('SrsBackendClient', () => {
             return { jsonrpc: '2.0', id: request.id, result: { total: 0, cards: [] } };
           case 'browser.deck.matchedIds':
             return { jsonrpc: '2.0', id: request.id, result: { ids: ['card-1'] } };
+          case 'browser.deck.rowsByIds':
+            return { jsonrpc: '2.0', id: request.id, result: { cards: [{ id: 'card-1', blockId: 'block-1' }] } };
           case 'browser.stats':
             return {
               jsonrpc: '2.0',
@@ -57,6 +59,12 @@ describe('SrsBackendClient', () => {
             return { jsonrpc: '2.0', id: request.id, result: { updated: 1 } };
           case 'browser.sourceExistence.summary':
             return { jsonrpc: '2.0', id: request.id, result: { unknown: 0, stale: 0, missing: 1 } };
+          case 'browser.sourceExistence.applySweep':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: { checked: 1, updated: 1, changed: true, changedToMissing: false },
+            };
           default:
             return { jsonrpc: '2.0', id: request.id, error: { code: 'METHOD_NOT_FOUND', message: 'not mocked' } };
         }
@@ -66,22 +74,31 @@ describe('SrsBackendClient', () => {
     const client = new SrsBackendClient(transport);
     await client.browserDeckPage({ preset: 'all' }, { startRow: 0, endRow: 10 });
     await expect(client.browserDeckMatchedIds({ preset: 'all' })).resolves.toEqual(['card-1']);
+    await expect(client.browserDeckRowsByIds(['card-1'])).resolves.toEqual([{ id: 'card-1', blockId: 'block-1' }]);
     await expect(client.browserStats()).resolves.toMatchObject({ totalCards: 1, dueCards: 1 });
     await expect(client.browserCountCards({ includeSuspended: false })).resolves.toBe(1);
     await expect(client.browserSourceExistenceRefreshCandidates({ blockIds: ['block-1'] })).resolves.toHaveLength(1);
     await expect(client.browserSourceExistenceByBlockIds(['block-1'])).resolves.toEqual(new Map([['block-1', false]]));
     await expect(client.browserSourceExistenceUpdate([{ blockId: 'block-1', exists: false }], 1)).resolves.toBe(1);
     await expect(client.browserSourceExistenceSummary()).resolves.toEqual({ unknown: 0, stale: 0, missing: 1 });
+    await expect(client.browserSourceExistenceApplySweep({ blockIds: ['block-1'] }, ['block-1'], 1)).resolves.toEqual({
+      checked: 1,
+      updated: 1,
+      changed: true,
+      changedToMissing: false,
+    });
 
     expect(requests.map((request) => request.method)).toEqual([
       'browser.deck.page',
       'browser.deck.matchedIds',
+      'browser.deck.rowsByIds',
       'browser.stats',
       'browser.count',
       'browser.sourceExistence.refreshCandidates',
       'browser.sourceExistence.byBlockIds',
       'browser.sourceExistence.update',
       'browser.sourceExistence.summary',
+      'browser.sourceExistence.applySweep',
     ]);
     expect(requests[0].params).toEqual([{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }]);
     expect(requests[1].params).toEqual([{ query: { preset: 'all' } }]);

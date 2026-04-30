@@ -438,15 +438,18 @@ describe('BrowserApplicationService deck query kernel', () => {
     const backendClient: Pick<SrsBackendClient,
       | 'browserDeckPage'
       | 'browserDeckMatchedIds'
+      | 'browserDeckRowsByIds'
       | 'browserCountCards'
       | 'browserStats'
       | 'browserSourceExistenceRefreshCandidates'
+      | 'browserSourceExistenceApplySweep'
       | 'browserSourceExistenceUpdate'
       | 'browserSourceExistenceByBlockIds'
       | 'browserSourceExistenceSummary'
     > = {
       browserDeckPage: vi.fn(async () => ({ total: 2, cards })),
       browserDeckMatchedIds: vi.fn(async () => ['card-worker-1', 'card-worker-2']),
+      browserDeckRowsByIds: vi.fn(async (ids: string[]) => cards.filter((card) => ids.includes(card.id))),
       browserCountCards: vi.fn(async () => 1),
       browserStats: vi.fn(async () => ({
         totalCards: 2,
@@ -466,6 +469,12 @@ describe('BrowserApplicationService deck query kernel', () => {
         },
       ]),
       browserSourceExistenceUpdate: vi.fn(async () => 1),
+      browserSourceExistenceApplySweep: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: true,
+        changedToMissing: false,
+      })),
       browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
         ['block-worker-1', true],
         ['block-worker-2', true],
@@ -520,12 +529,15 @@ describe('BrowserApplicationService deck query kernel', () => {
     const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
     expect(page.total).toBe(2);
     expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-worker-1', 'card-worker-2']);
+    await expect(service.getDeckRowsByIds(['card-worker-2'])).resolves.toMatchObject([{ fsrsCardId: 'card-worker-2' }]);
     await expect(service.getDeckMatchedIds({ preset: 'all' })).resolves.toEqual(['card-worker-1', 'card-worker-2']);
     await expect(service.getDueCount()).resolves.toBe(1);
     await expect(service.getStats()).resolves.toMatchObject({ totalCards: 2, dueCards: 1 });
     expect(backendClient.browserDeckPage).toHaveBeenCalled();
+    expect(backendClient.browserDeckRowsByIds).toHaveBeenCalledWith(['card-worker-2']);
     expect(backendClient.browserDeckMatchedIds).toHaveBeenCalled();
     expect(backendClient.browserCountCards).toHaveBeenCalled();
     expect(backendClient.browserStats).toHaveBeenCalled();
+    expect(backendClient.browserSourceExistenceApplySweep).toHaveBeenCalled();
   });
 });
