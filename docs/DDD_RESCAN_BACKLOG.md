@@ -4,6 +4,16 @@ Last update: 2026-04-30 (Round 229)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-01 - backend migration phase 2 source-sweep candidate drift guard
+
+- Task: 继续 Phase 2 收口时修复 source-existence 后台 sweep 的候选漂移风险，并补 worker-first 断言测试。
+- Touched slice: Browser source-existence sweep runtime + tests；`src/application/services/BrowserApplicationService.ts`、`src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`。
+- Debt fixed now: 后台 sweep 在 `refreshCandidates -> host existence query -> applySweep` 之间改为显式传递同一批 `blockIds`，避免 `applySweep` 重新取到更大候选集时把未校验块误判为 missing。
+- Debt deferred: host existence 查询仍在 application 侧执行，尚未迁到 kernel sidecar host-query pipeline；worker transport 仍是同进程 bridge。
+- Why deferred: 本轮维持 Phase 2 安全步幅，先保证现有 worker-first source sweep 的一致性与可验证性，不引入跨 runtime ownership 变更。
+- Next safe step: 继续把 source-existence host query 协议化下沉到 sidecar/worker，并补 `BACKEND_UNAVAILABLE` / timeout 路径的显式错误契约测试。
+- Validation: `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts`（3 files/9 tests passed）；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 i18n/Sass warning）；`git diff --check` passed（仅 LF/CRLF warning）。
+
 ### 2026-05-01 - backend migration phase 2 worker-first rows-by-ids and source sweep apply
 
 - Task: 在不切默认主路径前提下继续收口 Phase 2：`getDeckRowsByIds` 走 worker-first，并把 source-existence sweep 的 diff/update 逻辑进一步下沉到 worker-side pipeline。

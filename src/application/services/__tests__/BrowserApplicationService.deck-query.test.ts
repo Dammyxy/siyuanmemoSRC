@@ -539,5 +539,10 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(backendClient.browserCountCards).toHaveBeenCalled();
     expect(backendClient.browserStats).toHaveBeenCalled();
     expect(backendClient.browserSourceExistenceApplySweep).toHaveBeenCalled();
+    expect(backendClient.browserSourceExistenceApplySweep).toHaveBeenCalledWith(
+      expect.objectContaining({ blockIds: ['block-worker-1', 'block-worker-2'] }),
+      expect.any(Array),
+      expect.any(Number),
+    );
   });
 });

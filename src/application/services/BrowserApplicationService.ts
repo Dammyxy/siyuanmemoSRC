@@ -489,8 +489,12 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       }
 
       const existingBlockIds = await this.loadExistingBlockIds(candidates.map((candidate) => candidate.blockId));
+      const scopedRequest = {
+        ...request,
+        blockIds: candidates.map((candidate) => candidate.blockId),
+      };
       await this.srsBackendClient!.browserSourceExistenceApplySweep(
-        request,
+        scopedRequest,
         Array.from(existingBlockIds),
         Date.now(),
       );
