@@ -225,14 +225,23 @@ export class WorkerSqliteDatabaseService {
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     await this.init();
     const queueType = String(request.queueType || 'retrieval-practice').trim() || 'retrieval-practice';
+    const queueMode = String(request.queueMode || 'formal').trim() || 'formal';
+    const commitPolicy = String(request.commitPolicy || 'write-schedule').trim() || 'write-schedule';
     const reviewedAt = Number(request.reviewedAt || Date.now());
     const rating = Math.max(1, Math.min(4, Math.floor(Number(request.rating) || 0))) as 1 | 2 | 3 | 4;
     const cardId = String(request.cardId || '').trim();
     if (!cardId) {
       throw new Error('review.feedback requires cardId');
     }
-    if (queueType !== 'retrieval-practice') {
+    const supportedQueueTypes = new Set(['retrieval-practice', 'incremental-learning']);
+    if (!supportedQueueTypes.has(queueType)) {
       throw new Error(`SrsBackendWorker review.feedback unavailable for queueType in current phase: ${queueType}`);
+    }
+    if (queueMode !== 'formal') {
+      throw new Error(`SrsBackendWorker review.feedback unavailable for queueMode in current phase: ${queueMode}`);
+    }
+    if (commitPolicy !== 'write-schedule') {
+      throw new Error(`SrsBackendWorker review.feedback unavailable for commitPolicy in current phase: ${commitPolicy}`);
     }
 
     return this.runtime.runTransaction('review.feedback', async () => {
@@ -260,7 +269,7 @@ export class WorkerSqliteDatabaseService {
       );
 
       const decision = scheduler.answer(card, rating, {
-        queueType: 'retrieval-practice',
+        queueType,
         queueMode: 'formal',
         commitPolicy: 'write-schedule',
         source: 'queue',
@@ -310,7 +319,7 @@ export class WorkerSqliteDatabaseService {
         cardId,
         committed: commitResult.committed,
         reviewedAt,
-        queueType: 'retrieval-practice',
+        queueType,
         updatedCard: commitResult.updatedCard ?? null,
       };
     });

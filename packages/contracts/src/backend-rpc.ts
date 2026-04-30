@@ -158,6 +158,8 @@ export interface BackendReviewFeedbackRequest {
   cardId: string;
   rating: 1 | 2 | 3 | 4;
   queueType?: string;
+  queueMode?: string;
+  commitPolicy?: string;
   sessionId?: string;
   reviewedAt?: number;
 }

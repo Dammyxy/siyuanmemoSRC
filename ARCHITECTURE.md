@@ -998,7 +998,7 @@ UI 层：
 - `worker/` 已接入最小后端骨架：`BackendKernel` + `WorkerSqliteDatabaseService` + persistence bridge，当前提供 `system.health`、`db.load`、`db.persist`、`diagnostics.status` RPC；`ApplicationContext` 仍保留旧 SQL 主路径，Worker bootstrap 先走 feature flag，不改变 Review/Browser 行为
 - `packages/contracts/src/backend-rpc.ts` 与 `packages/contracts/src/kernel-rpc.ts` 作为 worker/kernel envelope 契约草案；`src/application/clients/SrsBackendClient.ts` 与 `KernelSidecarClient.ts` 作为应用层唯一调用入口预留，不让 UI/feature 代码直接碰 RPC 细节
 - 后端迁移 `Phase 2` 已推进到第二批 Browser query 收口：Worker 新增 `browser.deck.page`、`browser.deck.matchedIds`、`browser.deck.rowsByIds`、`browser.count`、`browser.stats` 与 `browser.sourceExistence.*`（含 `applySweep` / `applySweepHost`）RPC；组合根支持 `VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER` feature flag 灰度注入 `SrsBackendClient`（关闭时保持 SQL read port/legacy 基线，开启时 `BrowserApplicationService` 优先走 Worker）。
-- `Phase 3` 已推进到 P3-1：Worker `review.feedback` 已落地 retrieval-practice formal 单事务提交（`SchedulerRouter.answer/commit + review-v2 event`）并通过 `ReviewCommitUseCase` 在 worker feature flag 开启时走 worker-first；其他 queueType 仍返回 explicit `BACKEND_UNAVAILABLE`（不做隐藏 fallback 双写）。
+- `Phase 3` 已推进到 P3-2：Worker `review.feedback` 已支持 `retrieval-practice` + `incremental-learning` 的 formal/write-schedule 单事务提交（`SchedulerRouter.answer/commit + review-v2 event`），并通过 `ReviewCommitUseCase` 在 worker feature flag 开启时走 worker-first；非 formal/write-schedule 或其他 queueType 继续返回 explicit `BACKEND_UNAVAILABLE`（不做隐藏 fallback 双写）。
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中

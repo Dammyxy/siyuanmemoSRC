@@ -291,6 +291,59 @@ describe('ReviewCommitUseCase', () => {
     }));
   });
 
+  it('uses worker feedback path for incremental-learning formal commit when backend client is provided', async () => {
+    const before = createCard({ id: 'card-incremental-1', due: Date.now() - 120_000 });
+    const after = createCard({
+      id: before.id,
+      due: before.due + 2 * 86_400_000,
+      reps: before.reps + 1,
+      lastReview: before.due,
+      scheduledDays: 2,
+      updatedAt: before.updatedAt + 2_000,
+    });
+    const scheduler = {
+      answer: vi.fn(),
+      commit: vi.fn(),
+      route: vi.fn(),
+    };
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+    }));
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      onCommittedCard: vi.fn(async () => {}),
+      srsBackend: { reviewFeedback },
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Hard,
+      context: {
+        queueType: 'incremental-learning',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      cardId: before.id,
+      rating: Rating.Hard,
+      queueType: 'incremental-learning',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+    }));
+    expect(result).toMatchObject({
+      card: before,
+      updatedCard: expect.objectContaining({ id: before.id, due: after.due }),
+      committed: true,
+    });
+    expect(scheduler.answer).not.toHaveBeenCalled();
+    expect(scheduler.commit).not.toHaveBeenCalled();
+  });
+
   it('fails fast when the scheduler returns dirty persistent scheduling metadata', async () => {
     const before = createCard();
     const after = {

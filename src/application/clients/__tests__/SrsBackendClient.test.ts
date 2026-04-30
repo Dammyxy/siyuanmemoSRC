@@ -101,7 +101,13 @@ describe('SrsBackendClient', () => {
       changed: true,
       changedToMissing: false,
     });
-    await expect(client.reviewFeedback({ cardId: 'card-1', rating: 3 })).rejects.toThrow('BACKEND_UNAVAILABLE: review not ready');
+    await expect(client.reviewFeedback({
+      cardId: 'card-1',
+      rating: 3,
+      queueType: 'incremental-learning',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: review not ready');
 
     expect(requests.map((request) => request.method)).toEqual([
       'browser.deck.page',
@@ -119,5 +125,12 @@ describe('SrsBackendClient', () => {
     ]);
     expect(requests[0].params).toEqual([{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }]);
     expect(requests[1].params).toEqual([{ query: { preset: 'all' } }]);
+    expect(requests[11].params).toEqual([{
+      cardId: 'card-1',
+      rating: 3,
+      queueType: 'incremental-learning',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+    }]);
   });
 });

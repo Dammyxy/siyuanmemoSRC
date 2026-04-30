@@ -233,6 +233,27 @@ describe('BackendKernel', () => {
         message: 'SrsBackendWorker review.feedback unavailable for queueType in current phase: final-drill',
       },
     });
+
+    const reviewFeedbackPreviewResponse = await kernel.handle({
+      id: 'review-feedback-preview',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{
+        cardId: 'card-1',
+        rating: 3,
+        queueType: 'retrieval-practice',
+        queueMode: 'filtered-preview',
+        commitPolicy: 'preview-only',
+      }],
+    });
+    expect(reviewFeedbackPreviewResponse).toEqual({
+      id: 'review-feedback-preview',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'SrsBackendWorker review.feedback unavailable for queueMode in current phase: filtered-preview',
+      },
+    });
   });
 
   it('commits retrieval review feedback in worker transaction', async () => {
@@ -257,6 +278,33 @@ describe('BackendKernel', () => {
         cardId: 'card-review-1',
         committed: true,
         queueType: 'retrieval-practice',
+      });
+      expect(response.result.updatedCard).toBeTruthy();
+    }
+  });
+
+  it('commits incremental-learning review feedback in worker transaction', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-incremental-1', due: Date.now() - 20_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-incremental',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-incremental-1', rating: 2, queueType: 'incremental-learning' }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-incremental-1',
+        committed: true,
+        queueType: 'incremental-learning',
       });
       expect(response.result.updatedCard).toBeTruthy();
     }

@@ -39,6 +39,8 @@ export interface ReviewCommitBackendFeedbackClient {
     cardId: string;
     rating: number;
     queueType?: string;
+    queueMode?: string;
+    commitPolicy?: string;
     sessionId?: string;
     reviewedAt?: number;
   }): Promise<{
@@ -157,7 +159,8 @@ export class ReviewCommitUseCase {
     }
 
     const queueType = String(command.context.queueType || '').trim();
-    if (queueType !== 'retrieval-practice') {
+    const supportedQueueTypes = new Set(['retrieval-practice', 'incremental-learning']);
+    if (!supportedQueueTypes.has(queueType)) {
       return false;
     }
 
@@ -181,7 +184,9 @@ export class ReviewCommitUseCase {
     const result = await this.deps.srsBackend!.reviewFeedback({
       cardId: command.cardId,
       rating,
-      queueType: 'retrieval-practice',
+      queueType: context.queueType,
+      queueMode: context.queueMode ?? 'formal',
+      commitPolicy: context.commitPolicy ?? 'write-schedule',
       sessionId: context.sessionId,
       reviewedAt,
     });

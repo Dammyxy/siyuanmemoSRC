@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 230)
+Last update: 2026-05-01 (Round 231)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase3 p3-2 incremental formal review feedback and mode/policy gate
+
+- Task: 开始清理后续任务并完成 P3-2：把 worker `review.feedback` 从 retrieval-only 扩到 incremental formal 提交，同时显式固化 queue mode/commit policy contract。
+- Touched slice: Review worker commit seam + application worker-first guard；`worker/db/SqliteDatabaseService.ts`、`worker/__tests__/BackendKernel.test.ts`、`packages/contracts/src/backend-rpc.ts`、`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`、`src/application/clients/__tests__/SrsBackendClient.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: worker `review.feedback` 现支持 `retrieval-practice` 与 `incremental-learning` 的 `formal + write-schedule` 单事务提交；同时对 `queueMode`/`commitPolicy` 非法输入给出 explicit unavailable，不隐式降级。`ReviewCommitUseCase` worker-first guard 与请求参数同步升级，避免未来新增 queueType 时 contract 漂移。
+- Debt deferred: `filter-group` preview/rescheduling、`final-drill`、`neural-roam` 与其他 queueType 仍未迁入 worker commit；RPC 仍返回 compact result，尚未回传完整 decision/commitResult；transport 仍是同进程 bridge。
+- Why deferred: 本轮目标是 P3-2 最小安全闭环，先收口 incremental formal 与 contract gate；跨到 filtered/reschedule 或 drill/neural 会触及不同 queue policy 与 session lifecycle，风险更高。
+- Next safe step: 进入 P3-3，先定义 `filter-group` preview/reschedule 的 worker contract（明确 preview-only suppress 与 reschedule write path），补 `BACKEND_UNAVAILABLE` / `INVALID_REQUEST` 边界测试后再接入 usecase。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase3 retrieval review worker-first commit wiring
 
