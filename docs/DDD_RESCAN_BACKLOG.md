@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 232)
+Last update: 2026-05-01 (Round 233)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase3 p3-4 queue tail contracts and phase-3 closure
+
+- Task: 一次推进 P3 收口：补齐 `review.feedback` 在剩余 queue contract 的 worker 语义（`neural-roam` / `leech` / `final-drill`），并同步 `ReviewCommitUseCase` worker-first 路由与默认 mode/policy。
+- Touched slice: Review worker contract + application worker-first routing；`worker/db/SqliteDatabaseService.ts`、`worker/__tests__/BackendKernel.test.ts`、`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: worker `review.feedback` 新增 `neural-roam` 与 `leech` 的 `formal/write-schedule` 提交，新增 `final-drill` 的 `drill/drill-only` suppress contract；`ReviewCommitUseCase` 同步扩展 worker-first 白名单并在 `final-drill` 默认补齐 `drill/drill-only`，避免 fallback 到隐式 formal 写入。
+- Debt deferred: RPC 返回仍是 compact envelope（未回传完整 decision/commitResult）；transport 仍为同进程 bridge（非独立 postMessage worker runtime）；Phase 4 writer-lease 未启动。
+- Why deferred: 本轮目标是完成 Phase 3 的 review/queue/scheduler worker contract 收口，避免跨到并发与 runtime 编排层改造。
+- Next safe step: 进入 Phase 4（kernel writer lease / multi-window single-writer），先定义 lease 协议与 `BACKEND_UNAVAILABLE` 降级契约，再接 bridge runtime。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase3 p3-3 filter-group preview/reschedule worker contract
 

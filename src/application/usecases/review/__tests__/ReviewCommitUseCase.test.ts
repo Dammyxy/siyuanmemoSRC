@@ -438,6 +438,149 @@ describe('ReviewCommitUseCase', () => {
     expect(scheduler.commit).not.toHaveBeenCalled();
   });
 
+  it('uses worker feedback path for neural-roam formal commit when backend client is provided', async () => {
+    const before = createCard({ id: 'card-neural-1', due: Date.now() - 90_000 });
+    const after = createCard({
+      id: before.id,
+      due: before.due + 4 * 86_400_000,
+      reps: before.reps + 1,
+      lastReview: before.due,
+      scheduledDays: 4,
+      updatedAt: before.updatedAt + 4_000,
+    });
+    const scheduler = {
+      answer: vi.fn(),
+      commit: vi.fn(),
+      route: vi.fn(),
+    };
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+    }));
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      onCommittedCard: vi.fn(async () => {}),
+      srsBackend: { reviewFeedback },
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'neural-roam',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'neural-roam',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+    }));
+    expect(result).toMatchObject({
+      card: before,
+      updatedCard: expect.objectContaining({ id: before.id, due: after.due }),
+      committed: true,
+    });
+    expect(scheduler.answer).not.toHaveBeenCalled();
+    expect(scheduler.commit).not.toHaveBeenCalled();
+  });
+
+  it('uses worker feedback path for leech formal commit when backend client is provided', async () => {
+    const before = createCard({ id: 'card-leech-1', due: Date.now() - 45_000 });
+    const after = createCard({
+      id: before.id,
+      due: before.due + 6 * 86_400_000,
+      reps: before.reps + 1,
+      lastReview: before.due,
+      scheduledDays: 6,
+      updatedAt: before.updatedAt + 5_000,
+    });
+    const scheduler = {
+      answer: vi.fn(),
+      commit: vi.fn(),
+      route: vi.fn(),
+    };
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: after,
+    }));
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      onCommittedCard: vi.fn(async () => {}),
+      srsBackend: { reviewFeedback },
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Hard,
+      context: {
+        queueType: 'leech',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'leech',
+      queueMode: 'formal',
+      commitPolicy: 'write-schedule',
+    }));
+    expect(result).toMatchObject({
+      card: before,
+      updatedCard: expect.objectContaining({ id: before.id, due: after.due }),
+      committed: true,
+    });
+    expect(scheduler.answer).not.toHaveBeenCalled();
+    expect(scheduler.commit).not.toHaveBeenCalled();
+  });
+
+  it('uses worker feedback path for final-drill drill-only feedback when backend client is provided', async () => {
+    const before = createCard({ id: 'card-final-drill-1', due: Date.now() + 120_000 });
+    const scheduler = {
+      answer: vi.fn(),
+      commit: vi.fn(),
+      route: vi.fn(),
+    };
+    const reviewFeedback = vi.fn(async () => ({
+      committed: false,
+      updatedCard: null,
+    }));
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: scheduler as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      onCommittedCard: vi.fn(async () => {}),
+      srsBackend: { reviewFeedback },
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'final-drill',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      queueType: 'final-drill',
+      queueMode: 'drill',
+      commitPolicy: 'drill-only',
+    }));
+    expect(result).toMatchObject({
+      card: before,
+      updatedCard: before,
+      committed: false,
+    });
+    expect(scheduler.answer).not.toHaveBeenCalled();
+    expect(scheduler.commit).not.toHaveBeenCalled();
+  });
+
   it('fails fast when the scheduler returns dirty persistent scheduling metadata', async () => {
     const before = createCard();
     const after = {

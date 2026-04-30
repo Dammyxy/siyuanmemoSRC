@@ -158,15 +158,21 @@ export class ReviewCommitUseCase {
       return false;
     }
 
-    const queueType = String(command.context.queueType || '').trim();
+    const workerContext = resolveWorkerFeedbackContext(command.context);
+    const queueType = workerContext.queueType;
     if (!queueType) {
       return false;
     }
 
-    const queueMode = command.context.queueMode ?? 'formal';
-    const commitPolicy = command.context.commitPolicy ?? 'write-schedule';
+    const queueMode = workerContext.queueMode;
+    const commitPolicy = workerContext.commitPolicy;
 
-    if (queueType === 'retrieval-practice' || queueType === 'incremental-learning') {
+    if (
+      queueType === 'retrieval-practice'
+      || queueType === 'incremental-learning'
+      || queueType === 'neural-roam'
+      || queueType === 'leech'
+    ) {
       return queueMode === 'formal' && commitPolicy === 'write-schedule';
     }
 
@@ -175,6 +181,10 @@ export class ReviewCommitUseCase {
         (queueMode === 'filtered-preview' && commitPolicy === 'preview-only')
         || (queueMode === 'filtered-rescheduling' && commitPolicy === 'write-schedule')
       );
+    }
+
+    if (queueType === 'final-drill') {
+      return queueMode === 'drill' && commitPolicy === 'drill-only';
     }
 
     return false;
@@ -187,19 +197,14 @@ export class ReviewCommitUseCase {
       ...command.context,
       source: command.context.source ?? 'queue',
     };
-    const queueType = context.queueType ?? 'retrieval-practice';
-    const commitPolicy = context.commitPolicy ?? 'write-schedule';
-    const queueMode = context.queueMode
-      ?? (queueType === 'filter-group'
-        ? (commitPolicy === 'preview-only' ? 'filtered-preview' : 'filtered-rescheduling')
-        : 'formal');
+    const workerContext = resolveWorkerFeedbackContext(context);
     const reviewedAt = normalizeReviewedAt(context.reviewTime);
     const result = await this.deps.srsBackend!.reviewFeedback({
       cardId: command.cardId,
       rating,
-      queueType,
-      queueMode,
-      commitPolicy,
+      queueType: workerContext.queueType,
+      queueMode: workerContext.queueMode,
+      commitPolicy: workerContext.commitPolicy,
       sessionId: context.sessionId,
       reviewedAt,
     });
@@ -264,4 +269,35 @@ function normalizeWorkerUpdatedCard(updatedCard: unknown, fallbackCard: FSRSCard
     source: 'review-commit',
     mode: 'assert-internal',
   }).card;
+}
+
+function resolveWorkerFeedbackContext(context: {
+  queueType?: string;
+  queueMode?: string;
+  commitPolicy?: string;
+}): {
+  queueType: string;
+  queueMode: string;
+  commitPolicy: string;
+} {
+  const queueType = String(context.queueType || 'retrieval-practice').trim() || 'retrieval-practice';
+  const commitPolicy = String(
+    context.commitPolicy || (queueType === 'final-drill' ? 'drill-only' : 'write-schedule'),
+  ).trim() || (queueType === 'final-drill' ? 'drill-only' : 'write-schedule');
+  const queueMode = String(
+    context.queueMode || (
+      queueType === 'filter-group'
+        ? (commitPolicy === 'preview-only' ? 'filtered-preview' : 'filtered-rescheduling')
+        : (queueType === 'final-drill' ? 'drill' : 'formal')
+    ),
+  ).trim() || (
+    queueType === 'filter-group'
+      ? (commitPolicy === 'preview-only' ? 'filtered-preview' : 'filtered-rescheduling')
+      : (queueType === 'final-drill' ? 'drill' : 'formal')
+  );
+  return {
+    queueType,
+    queueMode,
+    commitPolicy,
+  };
 }

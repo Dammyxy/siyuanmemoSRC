@@ -223,14 +223,20 @@ describe('BackendKernel', () => {
       id: 'review-feedback',
       jsonrpc: '2.0',
       method: 'review.feedback',
-      params: [{ cardId: 'card-1', rating: 3, queueType: 'final-drill' }],
+      params: [{
+        cardId: 'card-1',
+        rating: 3,
+        queueType: 'final-drill',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      }],
     });
     expect(reviewFeedbackResponse).toEqual({
       id: 'review-feedback',
       jsonrpc: '2.0',
       error: {
         code: 'BACKEND_UNAVAILABLE',
-        message: 'SrsBackendWorker review.feedback unavailable for queueType in current phase: final-drill',
+        message: 'SrsBackendWorker review.feedback unavailable for final-drill mode/policy in current phase: formal/write-schedule',
       },
     });
 
@@ -328,6 +334,87 @@ describe('BackendKernel', () => {
         queueType: 'incremental-learning',
       });
       expect(response.result.updatedCard).toBeTruthy();
+    }
+  });
+
+  it('commits neural-roam formal review feedback in worker transaction', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-neural-1', due: Date.now() - 15_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-neural',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-neural-1', rating: 3, queueType: 'neural-roam' }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-neural-1',
+        committed: true,
+        queueType: 'neural-roam',
+      });
+      expect(response.result.updatedCard).toBeTruthy();
+    }
+  });
+
+  it('commits leech formal review feedback in worker transaction', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-leech-1', due: Date.now() - 18_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-leech',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-leech-1', rating: 2, queueType: 'leech' }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-leech-1',
+        committed: true,
+        queueType: 'leech',
+      });
+      expect(response.result.updatedCard).toBeTruthy();
+    }
+  });
+
+  it('supports final-drill drill-only feedback without schedule writes', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-final-drill-1', due: Date.now() + 60_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'review-feedback-final-drill',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-final-drill-1', rating: 3, queueType: 'final-drill' }],
+    });
+
+    expect('result' in response).toBe(true);
+    if ('result' in response) {
+      expect(response.result).toMatchObject({
+        cardId: 'card-final-drill-1',
+        committed: false,
+        queueType: 'final-drill',
+        updatedCard: null,
+      });
     }
   });
 
