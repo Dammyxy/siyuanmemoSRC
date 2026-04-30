@@ -17,6 +17,7 @@ export type BackendRpcMethod =
   | 'browser.sourceExistence.applySweep'
   | 'browser.sourceExistence.applySweepHost'
   | 'kernel.transaction.ingest'
+  | 'kernel.transaction.dequeue'
   | 'review.feedback';
 
 export type BackendRpcId = number | string;
@@ -198,4 +199,21 @@ export interface BackendKernelTransactionIngestResult {
   duplicate: boolean;
   queueLength: number;
   maxQueueLength: number;
+}
+
+export interface BackendKernelTransactionAction {
+  type: 'native-riff-remove';
+  blockIds: string[];
+  source: 'kernel-sidecar' | 'ws-main';
+  receivedAt: number;
+  idempotencyKey: string;
+}
+
+export interface BackendKernelTransactionDequeueRequest {
+  maxActions?: number;
+}
+
+export interface BackendKernelTransactionDequeueResult {
+  actions: BackendKernelTransactionAction[];
+  remaining: number;
 }

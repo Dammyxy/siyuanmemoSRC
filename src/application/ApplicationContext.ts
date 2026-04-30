@@ -29,6 +29,7 @@ import { BlockMenuHandler } from '@/application/managers/BlockMenuHandler';
 import { XiuyuanSyncService } from '@/application/services/XiuyuanSyncService';
 import { TransactionWebSocketService } from '@/core/infrastructure/websocket/TransactionWebSocketService';
 import type { AutoCardHandler } from '@/application/handlers/AutoCardHandler';
+import type { KernelTransactionActionPump } from '@/application/handlers/KernelTransactionActionPump';
 import type { KernelTransactionIngestHandler } from '@/application/handlers/KernelTransactionIngestHandler';
 import type { NativeRiffSyncTriggerHandler } from '@/application/handlers/NativeRiffSyncTriggerHandler';
 import { QueueType, type IReviewQueue } from '@/types/unified-data-source';
@@ -246,6 +247,7 @@ export class ApplicationContext {
   private transactionWebSocketService?: TransactionWebSocketService;
   private autoCardHandler?: AutoCardHandler;
   private kernelTransactionIngestHandler?: KernelTransactionIngestHandler;
+  private kernelTransactionActionPump?: KernelTransactionActionPump;
   private nativeRiffSyncTriggerHandler?: NativeRiffSyncTriggerHandler;
   private fullSyncTimer?: NodeJS.Timeout;
   private sqlPersistence?: SqlPersistenceBundle;
@@ -1591,6 +1593,15 @@ export class ApplicationContext {
         source?: 'kernel-sidecar' | 'ws-main';
         transactions?: unknown[];
         receivedAt?: number;
+        idempotencyKey?: string;
+      });
+    }
+    if (command.method === 'kernel.transaction.dequeue') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: kernel.transaction.dequeue relay requires params object');
+      }
+      return srsBackendClient.dequeueKernelTransactions(command.params as {
+        maxActions?: number;
       });
     }
     throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
@@ -1865,6 +1876,8 @@ export class ApplicationContext {
         this.autoCardHandler = undefined;
         this.kernelTransactionIngestHandler?.dispose();
         this.kernelTransactionIngestHandler = undefined;
+        void this.kernelTransactionActionPump?.dispose();
+        this.kernelTransactionActionPump = undefined;
         this.nativeRiffSyncTriggerHandler?.dispose?.();
         this.nativeRiffSyncTriggerHandler = undefined;
         this.transactionWebSocketService = undefined;
@@ -1878,6 +1891,8 @@ export class ApplicationContext {
       this.autoCardHandler = undefined;
       this.kernelTransactionIngestHandler?.dispose();
       this.kernelTransactionIngestHandler = undefined;
+      void this.kernelTransactionActionPump?.dispose();
+      this.kernelTransactionActionPump = undefined;
       this.nativeRiffSyncTriggerHandler?.dispose?.();
       this.nativeRiffSyncTriggerHandler = undefined;
       this.transactionWebSocketService = undefined;
@@ -1912,6 +1927,7 @@ export class ApplicationContext {
 
     if (kernelTransactionIngestEnabled && this.srsBackendClient) {
       const { KernelTransactionIngestHandler } = await import('@/application/handlers/KernelTransactionIngestHandler');
+      const { KernelTransactionActionPump } = await import('@/application/handlers/KernelTransactionActionPump');
       const kernelTransactionIngestHandler = new KernelTransactionIngestHandler(
         this.srsBackendClient,
         this.frontendInstanceRuntime,
@@ -1919,6 +1935,14 @@ export class ApplicationContext {
       );
       transactionWebSocketService.registerHandler(kernelTransactionIngestHandler);
       this.kernelTransactionIngestHandler = kernelTransactionIngestHandler;
+      const kernelTransactionActionPump = new KernelTransactionActionPump(
+        this.srsBackendClient,
+        this.frontendInstanceRuntime,
+        this.followerCommandClient,
+        () => this.hybridSyncService,
+      );
+      kernelTransactionActionPump.start();
+      this.kernelTransactionActionPump = kernelTransactionActionPump;
       logger.info('[ApplicationContext] ✅ KernelTransactionIngestHandler registered');
     }
 
@@ -2293,6 +2317,8 @@ export class ApplicationContext {
           this.autoCardHandler = undefined;
           this.kernelTransactionIngestHandler?.dispose();
           this.kernelTransactionIngestHandler = undefined;
+          void this.kernelTransactionActionPump?.dispose();
+          this.kernelTransactionActionPump = undefined;
           this.nativeRiffSyncTriggerHandler?.dispose?.();
           this.nativeRiffSyncTriggerHandler = undefined;
           logger.info('[ApplicationContext] ✅ TransactionWebSocketService stopped');

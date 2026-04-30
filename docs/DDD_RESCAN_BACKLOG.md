@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 238)
+Last update: 2026-05-01 (Round 239)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase5 p5-3 first action consumer chain (native riff remove)
+
+- Task: 按“开始做 P5-3”推进 Phase 5 第三安全步：在保持灰度开关不切默认主路径的前提下，补 worker action dequeue 和应用层最小消费器，把 native riff remove 事务从 ingest inbox 接到现有 `XiuyuanSyncService` 删除语义。
+- Touched slice: Worker action dequeue + application transaction consumer chain；`packages/contracts/src/backend-rpc.ts`、`worker/db/SqliteDatabaseService.ts`、`worker/bootstrap/BackendKernel.ts`、`src/application/clients/SrsBackendClient.ts`、`src/application/handlers/KernelTransactionActionPump.ts`、`src/application/ApplicationContext.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: worker 侧新增 `kernel.transaction.dequeue`（返回标准 action envelope），`ApplicationContext` 在 transaction ingest feature flag 开启时会同时启动 `KernelTransactionActionPump`；pump 在 writer 模式直连 worker，在 follower 模式走 writer relay，并把首条 action `native-riff-remove` 路由到 `XiuyuanSyncService.handleNativeRiffRemove()`；relay dispatch 同步补入 `kernel.transaction.dequeue`，避免 follower 消费盲区。
+- Debt deferred: 当前 action 仍只覆盖 `native-riff-remove`；ingest queue 与 action queue 仍是内存态（重启不保留）；尚未接 native add/update -> incremental sync 或 AutoCard 决策提交主链。
+- Why deferred: 本轮目标是先打通一条最小可验证消费链并控制 blast radius，不在同轮引入更多事务语义和持久化复杂度。
+- Next safe step: 进入 P5-4 时先加 `native-riff-add/update` action 映射与批量去抖提交策略，再评估是否需要 action queue 持久化/恢复契约。
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase5 p5-2 worker ingest inbox + ws-main relay ingestion bridge
 

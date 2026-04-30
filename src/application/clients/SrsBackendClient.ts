@@ -5,6 +5,8 @@ import type {
   BackendSourceExistenceSweepApplyResult,
   BackendKernelTransactionIngestRequest,
   BackendKernelTransactionIngestResult,
+  BackendKernelTransactionDequeueRequest,
+  BackendKernelTransactionDequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
   BackendSourceExistenceRefreshCandidate,
@@ -133,6 +135,12 @@ export class SrsBackendClient {
     request: BackendKernelTransactionIngestRequest,
   ): Promise<BackendKernelTransactionIngestResult> {
     return this.call<BackendKernelTransactionIngestResult>('kernel.transaction.ingest', request);
+  }
+
+  async dequeueKernelTransactions(
+    request: BackendKernelTransactionDequeueRequest = {},
+  ): Promise<BackendKernelTransactionDequeueResult> {
+    return this.call<BackendKernelTransactionDequeueResult>('kernel.transaction.dequeue', request);
   }
 
   private async call<TResult>(method: BackendRpcRequest['method'], params?: unknown): Promise<TResult> {

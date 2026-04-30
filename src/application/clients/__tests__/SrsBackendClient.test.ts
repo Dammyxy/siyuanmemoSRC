@@ -84,6 +84,15 @@ describe('SrsBackendClient', () => {
                 maxQueueLength: 256,
               },
             };
+          case 'kernel.transaction.dequeue':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                actions: [],
+                remaining: 0,
+              },
+            };
           case 'review.feedback':
             return { jsonrpc: '2.0', id: request.id, error: { code: 'BACKEND_UNAVAILABLE', message: 'review not ready' } };
           default:
@@ -127,6 +136,12 @@ describe('SrsBackendClient', () => {
       queueLength: 1,
       maxQueueLength: 256,
     });
+    await expect(client.dequeueKernelTransactions({
+      maxActions: 8,
+    })).resolves.toEqual({
+      actions: [],
+      remaining: 0,
+    });
     await expect(client.reviewFeedback({
       cardId: 'card-1',
       rating: 3,
@@ -148,11 +163,12 @@ describe('SrsBackendClient', () => {
       'browser.sourceExistence.applySweep',
       'browser.sourceExistence.applySweepHost',
       'kernel.transaction.ingest',
+      'kernel.transaction.dequeue',
       'review.feedback',
     ]);
     expect(requests[0].params).toEqual([{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }]);
     expect(requests[1].params).toEqual([{ query: { preset: 'all' } }]);
-    expect(requests[12].params).toEqual([{
+    expect(requests[13].params).toEqual([{
       cardId: 'card-1',
       rating: 3,
       queueType: 'incremental-learning',

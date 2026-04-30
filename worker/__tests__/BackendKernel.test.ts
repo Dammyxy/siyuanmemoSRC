@@ -246,6 +246,21 @@ describe('BackendKernel', () => {
       },
     });
 
+    const transactionDequeueResponse = await kernel.handle({
+      id: 'kernel-transaction-dequeue',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 4 }],
+    });
+    expect(transactionDequeueResponse).toEqual({
+      id: 'kernel-transaction-dequeue',
+      jsonrpc: '2.0',
+      result: {
+        actions: [],
+        remaining: 0,
+      },
+    });
+
     const reviewFeedbackResponse = await kernel.handle({
       id: 'review-feedback',
       jsonrpc: '2.0',
@@ -360,6 +375,54 @@ describe('BackendKernel', () => {
         duplicate: true,
         queueLength: 1,
         maxQueueLength: 256,
+      },
+    });
+  });
+
+  it('dequeues native-riff-remove actions parsed from transaction operations', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const ingest = await kernel.handle({
+      id: 'ingest-remove-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'remove-action-key',
+        transactions: [
+          {
+            doOperations: [
+              {
+                action: 'removeFlashcards',
+                blockIDs: ['block-a', 'block-b'],
+              },
+            ],
+          },
+        ],
+      }],
+    });
+    expect('result' in ingest).toBe(true);
+
+    const dequeue = await kernel.handle({
+      id: 'dequeue-remove-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 8 }],
+    });
+    expect(dequeue).toEqual({
+      id: 'dequeue-remove-action',
+      jsonrpc: '2.0',
+      result: {
+        actions: [{
+          type: 'native-riff-remove',
+          blockIds: ['block-a', 'block-b'],
+          source: 'ws-main',
+          receivedAt: expect.any(Number),
+          idempotencyKey: 'remove-action-key',
+        }],
+        remaining: 0,
       },
     });
   });

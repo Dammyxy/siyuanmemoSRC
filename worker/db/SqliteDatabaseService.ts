@@ -13,6 +13,8 @@ import type {
   BrowserDeckSnapshotQuery,
 } from '@/application/queries/browser/browser-deck-query';
 import type {
+  BackendKernelTransactionAction,
+  BackendKernelTransactionDequeueResult,
   BackendKernelTransactionIngestRequest,
   BackendKernelTransactionIngestResult,
   BackendReviewFeedbackRequest,
@@ -28,6 +30,7 @@ import type { SqlitePersistenceBridge } from './SqlitePersistenceBridge';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
+import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
 
 type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
@@ -70,6 +73,7 @@ export class WorkerSqliteDatabaseService {
     acceptedAt: number;
   }> = [];
   private readonly recentKernelTransactionKeys = new Map<string, number>();
+  private readonly kernelTransactionActions: BackendKernelTransactionAction[] = [];
   private kernelQueuedTransactions = 0;
   private kernelAcceptedTotal = 0;
   private kernelDeduplicatedTotal = 0;
@@ -487,6 +491,16 @@ export class WorkerSqliteDatabaseService {
       idempotencyKey,
       acceptedAt: now,
     });
+    const nativeRiffRemoveBlockIds = collectNativeRiffRemoveBlockIds(transactions);
+    if (nativeRiffRemoveBlockIds.length > 0) {
+      this.kernelTransactionActions.push({
+        type: 'native-riff-remove',
+        blockIds: nativeRiffRemoveBlockIds,
+        source,
+        receivedAt,
+        idempotencyKey,
+      });
+    }
     this.kernelQueuedTransactions += transactions.length;
     this.kernelAcceptedTotal += transactions.length;
     this.lastKernelAcceptedAt = now;
@@ -498,6 +512,15 @@ export class WorkerSqliteDatabaseService {
       duplicate: false,
       queueLength: this.kernelTransactionQueue.length,
       maxQueueLength: this.maxKernelTransactionQueueLength,
+    };
+  }
+
+  dequeueKernelTransactionActions(maxActions = 16): BackendKernelTransactionDequeueResult {
+    const limit = Math.max(1, Math.floor(Number(maxActions) || 0));
+    const actions = this.kernelTransactionActions.splice(0, limit);
+    return {
+      actions,
+      remaining: this.kernelTransactionActions.length,
     };
   }
 
@@ -596,4 +619,58 @@ export class WorkerSqliteDatabaseService {
     this.repository = null;
     this.initialized = false;
   }
+}
+
+const REMOVE_FLASHCARDS_ACTION = 'removeFlashcards';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeString(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function uniqueStrings(values: Iterable<unknown>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeString(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function extractOperationBlockIds(operation: DoOperation): string[] {
+  const data = isRecord(operation.data) ? operation.data : undefined;
+  return uniqueStrings([
+    ...(operation.blockIDs || []),
+    ...(operation.ids || []),
+    ...(Array.isArray(data?.blockIDs) ? data.blockIDs : []),
+    ...(Array.isArray(data?.ids) ? data.ids : []),
+    operation.id,
+  ]);
+}
+
+function collectNativeRiffRemoveBlockIds(transactions: unknown[]): string[] {
+  const ids: unknown[] = [];
+  for (const transaction of transactions) {
+    if (!isRecord(transaction) || !Array.isArray(transaction.doOperations)) {
+      continue;
+    }
+    for (const operation of transaction.doOperations) {
+      if (!isRecord(operation)) {
+        continue;
+      }
+      if (normalizeString(operation.action) !== REMOVE_FLASHCARDS_ACTION) {
+        continue;
+      }
+      ids.push(...extractOperationBlockIds(operation as DoOperation));
+    }
+  }
+  return uniqueStrings(ids);
 }

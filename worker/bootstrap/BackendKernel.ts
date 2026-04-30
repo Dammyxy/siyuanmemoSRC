@@ -6,6 +6,8 @@ import {
   type BackendSourceExistenceSweepApplyResult,
   type BackendKernelTransactionIngestRequest,
   type BackendKernelTransactionIngestResult,
+  type BackendKernelTransactionDequeueRequest,
+  type BackendKernelTransactionDequeueResult,
   type BackendReviewFeedbackResult,
   type BackendSourceExistenceRefreshCandidate,
   type BackendSourceExistenceRefreshRequest,
@@ -111,6 +113,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleSourceExistenceApplySweepHost(request.params));
         case 'kernel.transaction.ingest':
           return buildSuccess(request.id, await this.handleKernelTransactionIngest(request.params));
+        case 'kernel.transaction.dequeue':
+          return buildSuccess(request.id, await this.handleKernelTransactionDequeue(request.params));
         case 'review.feedback':
           return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
         case 'browser.sourceExistence.applySweep':
@@ -271,5 +275,11 @@ export class BackendKernel {
   private async handleKernelTransactionIngest(params: unknown): Promise<BackendKernelTransactionIngestResult> {
     const named = this.readNamedParams<BackendKernelTransactionIngestRequest>(params);
     return this.deps.database.ingestKernelTransactions(named ?? {});
+  }
+
+  private async handleKernelTransactionDequeue(params: unknown): Promise<BackendKernelTransactionDequeueResult> {
+    const named = this.readNamedParams<BackendKernelTransactionDequeueRequest>(params);
+    const maxActions = Number(named?.maxActions);
+    return this.deps.database.dequeueKernelTransactionActions(Number.isFinite(maxActions) ? maxActions : 16);
   }
 }
