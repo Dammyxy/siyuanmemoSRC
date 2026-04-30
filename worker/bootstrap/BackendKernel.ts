@@ -1,10 +1,17 @@
 import {
   BACKEND_RPC_VERSION,
+  type BackendBrowserDeckPageRequest,
+  type BackendBrowserDeckSnapshotQuery,
+  type BackendSourceExistenceRefreshCandidate,
+  type BackendSourceExistenceRefreshRequest,
+  type BackendSourceExistenceSummary,
+  type BackendSourceExistenceUpdate,
   type BackendDiagnosticsStatusResult,
   type BackendHealthResult,
   type BackendRpcRequest,
   type BackendRpcResponse,
 } from '../../packages/contracts/src/backend-rpc';
+import type { StructuredCardQuery } from '@/types/card-query';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import {
   createUnavailableSqlitePersistenceBridge,
@@ -75,6 +82,22 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.deps.database.persist());
         case 'diagnostics.status':
           return buildSuccess(request.id, this.diagnosticsStatus());
+        case 'browser.deck.page':
+          return buildSuccess(request.id, await this.handleBrowserDeckPage(request.params));
+        case 'browser.deck.matchedIds':
+          return buildSuccess(request.id, await this.handleBrowserDeckMatchedIds(request.params));
+        case 'browser.count':
+          return buildSuccess(request.id, await this.handleBrowserCount(request.params));
+        case 'browser.stats':
+          return buildSuccess(request.id, await this.handleBrowserStats(request.params));
+        case 'browser.sourceExistence.refreshCandidates':
+          return buildSuccess(request.id, await this.handleSourceExistenceRefreshCandidates(request.params));
+        case 'browser.sourceExistence.update':
+          return buildSuccess(request.id, await this.handleSourceExistenceUpdate(request.params));
+        case 'browser.sourceExistence.byBlockIds':
+          return buildSuccess(request.id, await this.handleSourceExistenceByBlockIds(request.params));
+        case 'browser.sourceExistence.summary':
+          return buildSuccess(request.id, await this.handleSourceExistenceSummary(request.params));
         default:
           return buildError(request.id, 'METHOD_NOT_FOUND', `Unknown method: ${request.method}`);
       }
@@ -102,5 +125,77 @@ export class BackendKernel {
       initialized: status.initialized,
       dbFile: status.dbFile,
     };
+  }
+
+  private readNamedParams<TParams extends Record<string, unknown>>(params: unknown): TParams | null {
+    if (!params) {
+      return null;
+    }
+    if (Array.isArray(params)) {
+      const [first] = params;
+      if (!first || typeof first !== 'object') {
+        return null;
+      }
+      return first as TParams;
+    }
+    if (typeof params === 'object') {
+      return params as TParams;
+    }
+    return null;
+  }
+
+  private async handleBrowserDeckPage(params: unknown): Promise<{ total: number; cards: unknown[] }> {
+    const named = this.readNamedParams<{ query?: BackendBrowserDeckSnapshotQuery; page?: BackendBrowserDeckPageRequest }>(params);
+    const query = named?.query ?? {};
+    const page = named?.page ?? {};
+    const result = await this.deps.database.queryDeckPage(query, page);
+    return {
+      total: result?.total ?? 0,
+      cards: result?.cards ?? [],
+    };
+  }
+
+  private async handleBrowserDeckMatchedIds(params: unknown): Promise<{ ids: string[] }> {
+    const named = this.readNamedParams<{ query?: BackendBrowserDeckSnapshotQuery }>(params);
+    const ids = await this.deps.database.queryDeckMatchedIds(named?.query ?? {});
+    return { ids: ids ?? [] };
+  }
+
+  private async handleBrowserCount(params: unknown): Promise<{ count: number }> {
+    const named = this.readNamedParams<{ query?: StructuredCardQuery }>(params);
+    const count = await this.deps.database.countCards(named?.query);
+    return { count };
+  }
+
+  private async handleBrowserStats(params: unknown): Promise<Record<string, number>> {
+    const named = this.readNamedParams<{ now?: number }>(params);
+    return this.deps.database.getBrowserStats(named?.now);
+  }
+
+  private async handleSourceExistenceRefreshCandidates(
+    params: unknown,
+  ): Promise<{ candidates: BackendSourceExistenceRefreshCandidate[] }> {
+    const named = this.readNamedParams<{ request?: BackendSourceExistenceRefreshRequest }>(params);
+    const candidates = await this.deps.database.getSourceExistenceRefreshCandidates(named?.request ?? {});
+    return { candidates };
+  }
+
+  private async handleSourceExistenceUpdate(params: unknown): Promise<{ updated: number }> {
+    const named = this.readNamedParams<{ updates?: BackendSourceExistenceUpdate[]; checkedAt?: number }>(params);
+    const updates = Array.isArray(named?.updates) ? named.updates : [];
+    await this.deps.database.updateSourceExistence(updates, named?.checkedAt);
+    return { updated: updates.length };
+  }
+
+  private async handleSourceExistenceByBlockIds(params: unknown): Promise<{ statusByBlockId: Array<{ blockId: string; exists: boolean | null }> }> {
+    const named = this.readNamedParams<{ blockIds?: string[] }>(params);
+    const blockIds = Array.isArray(named?.blockIds) ? named.blockIds : [];
+    const statusByBlockId = await this.deps.database.getSourceExistenceByBlockIds(blockIds);
+    return { statusByBlockId };
+  }
+
+  private async handleSourceExistenceSummary(params: unknown): Promise<BackendSourceExistenceSummary> {
+    const named = this.readNamedParams<{ staleBefore?: number }>(params);
+    return this.deps.database.getSourceExistenceSummary(named?.staleBefore);
   }
 }

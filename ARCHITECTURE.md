@@ -997,6 +997,7 @@ UI 层：
 - 后端迁移 `Phase 0-1` 已落地第一批基线：新增 `docs/ADR-001..004` 约束 runtime split / SQL authority / kernel sidecar coordinator / no-ui-sql；并把 `scripts/check-no-ui-sql.cjs` 与 `scripts/check-no-kernel-db-owner.cjs` 接入 `pnpm run check:boundaries`
 - `worker/` 已接入最小后端骨架：`BackendKernel` + `WorkerSqliteDatabaseService` + persistence bridge，当前提供 `system.health`、`db.load`、`db.persist`、`diagnostics.status` RPC；`ApplicationContext` 仍保留旧 SQL 主路径，Worker bootstrap 先走 feature flag，不改变 Review/Browser 行为
 - `packages/contracts/src/backend-rpc.ts` 与 `packages/contracts/src/kernel-rpc.ts` 作为 worker/kernel envelope 契约草案；`src/application/clients/SrsBackendClient.ts` 与 `KernelSidecarClient.ts` 作为应用层唯一调用入口预留，不让 UI/feature 代码直接碰 RPC 细节
+- 后端迁移 `Phase 2` 已开启第一批 Browser query 下沉：Worker 新增 `browser.deck.page`、`browser.deck.matchedIds`、`browser.count`、`browser.stats` 与 `browser.sourceExistence.*` RPC，`BrowserApplicationService` 在注入 `SrsBackendClient` 时优先走 Worker；当前组合根默认仍走 SQL read port/legacy 路径，作为 feature-flag 灰度前的安全基线
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中

@@ -1,6 +1,20 @@
 import type { Database, ParamsObject, SqlValue } from 'sql.js';
 import { SqliteDatabaseService as RuntimeSqliteDatabaseService } from '@/infrastructure/persistence/sqlite';
 import { SQLITE_DB_FILE } from '@/infrastructure/persistence/sqlite/schema';
+import { SqlUnifiedStorageRepository } from '@/infrastructure/persistence/sqlite/SqlUnifiedStorageRepository';
+import type { StructuredCardQuery } from '@/types/card-query';
+import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
+import type {
+  BrowserDeckCardPageResult,
+  BrowserDeckPageRequest,
+  BrowserDeckSnapshotQuery,
+} from '@/application/queries/browser/browser-deck-query';
+import type {
+  SourceExistenceRefreshCandidate,
+  SourceExistenceRefreshRequest,
+  SourceExistenceSummary,
+  SourceExistenceUpdate,
+} from '@/application/ports/BrowserDeckReadPort';
 import type { SqlitePersistenceBridge } from './SqlitePersistenceBridge';
 
 type SqlParams = SqlValue[] | ParamsObject;
@@ -33,6 +47,7 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
 
 export class WorkerSqliteDatabaseService {
   private readonly runtime: RuntimeSqliteDatabaseService;
+  private repository: SqlUnifiedStorageRepository | null = null;
   private initialized = false;
 
   constructor(
@@ -47,6 +62,7 @@ export class WorkerSqliteDatabaseService {
       return;
     }
     await this.runtime.init();
+    this.repository = new SqlUnifiedStorageRepository(this.runtime);
     this.initialized = true;
   }
 
@@ -76,6 +92,58 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
+  async queryDeckPage(
+    query: BrowserDeckSnapshotQuery,
+    page: BrowserDeckPageRequest,
+  ): Promise<BrowserDeckCardPageResult | null> {
+    await this.init();
+    return this.repository!.queryDeckPage(query, page);
+  }
+
+  async queryDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[] | null> {
+    await this.init();
+    return this.repository!.queryDeckMatchedIds(query);
+  }
+
+  async countCards(query?: StructuredCardQuery): Promise<number> {
+    await this.init();
+    return this.repository!.countCards(query);
+  }
+
+  async getBrowserStats(now?: number): Promise<BrowserStats> {
+    await this.init();
+    return this.repository!.getBrowserStats(now);
+  }
+
+  async getSourceExistenceRefreshCandidates(
+    request?: SourceExistenceRefreshRequest,
+  ): Promise<SourceExistenceRefreshCandidate[]> {
+    await this.init();
+    return this.repository!.getSourceExistenceRefreshCandidates(request);
+  }
+
+  async updateSourceExistence(
+    updates: SourceExistenceUpdate[],
+    checkedAt?: number,
+  ): Promise<void> {
+    await this.init();
+    await this.repository!.updateSourceExistence(updates, checkedAt);
+  }
+
+  async getSourceExistenceByBlockIds(
+    blockIds: string[],
+  ): Promise<Array<{ blockId: string; exists: boolean | null }>> {
+    await this.init();
+    const statusByBlockId = this.repository!.getSourceExistenceByBlockIds(blockIds);
+    return Array.from(statusByBlockId.entries())
+      .map(([blockId, exists]) => ({ blockId, exists }));
+  }
+
+  async getSourceExistenceSummary(staleBefore?: number): Promise<SourceExistenceSummary> {
+    await this.init();
+    return this.repository!.getSourceExistenceSummary(staleBefore);
+  }
+
   async runTransaction<T>(
     label: string,
     writer: (db: Database) => T | Promise<T>,
@@ -90,6 +158,7 @@ export class WorkerSqliteDatabaseService {
 
   dispose(): void {
     this.runtime.dispose();
+    this.repository = null;
     this.initialized = false;
   }
 }

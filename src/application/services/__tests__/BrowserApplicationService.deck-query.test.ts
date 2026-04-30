@@ -5,6 +5,7 @@ import { CardScheduleService } from '@/core/card/domain/services/CardScheduleSer
 import { CardSortService } from '@/core/card/domain/services/CardSortService';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
+import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -415,5 +416,116 @@ describe('BrowserApplicationService deck query kernel', () => {
       ]),
       expect.any(Number),
     );
+  });
+
+  it('uses worker backend client for deck page, matched ids, due count and stats when provided', async () => {
+    const cards = [
+      buildCard({
+        id: 'card-worker-1',
+        blockId: 'block-worker-1',
+        due: Date.now() - 1000,
+        priority: 20,
+        meta: { content: 'Worker card 1', rootId: 'doc-worker' },
+      }),
+      buildCard({
+        id: 'card-worker-2',
+        blockId: 'block-worker-2',
+        due: Date.now() + 1000,
+        priority: 30,
+        meta: { content: 'Worker card 2', rootId: 'doc-worker' },
+      }),
+    ];
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserDeckMatchedIds'
+      | 'browserCountCards'
+      | 'browserStats'
+      | 'browserSourceExistenceRefreshCandidates'
+      | 'browserSourceExistenceUpdate'
+      | 'browserSourceExistenceByBlockIds'
+      | 'browserSourceExistenceSummary'
+    > = {
+      browserDeckPage: vi.fn(async () => ({ total: 2, cards })),
+      browserDeckMatchedIds: vi.fn(async () => ['card-worker-1', 'card-worker-2']),
+      browserCountCards: vi.fn(async () => 1),
+      browserStats: vi.fn(async () => ({
+        totalCards: 2,
+        dueCards: 1,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 2,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+      browserSourceExistenceRefreshCandidates: vi.fn(async () => [
+        {
+          cardId: 'card-worker-1',
+          blockId: 'block-worker-1',
+          sourceExists: null,
+          sourceCheckedAt: null,
+        },
+      ]),
+      browserSourceExistenceUpdate: vi.fn(async () => 1),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-1', true],
+        ['block-worker-2', true],
+      ])),
+      browserSourceExistenceSummary: vi.fn(async () => ({ unknown: 0, stale: 0, missing: 0 })),
+    };
+    const readPort: BrowserDeckReadPort = {
+      queryDeckPage: vi.fn(() => {
+        throw new Error('readPort should not be used when worker backend client is available');
+      }),
+      queryDeckMatchedIds: vi.fn(() => []),
+      getDeckCardsByIds: vi.fn(() => []),
+      countCards: vi.fn(() => 0),
+      getBrowserStats: vi.fn(() => ({
+        totalCards: 0,
+        dueCards: 0,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 0,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+    };
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async () => [{ id: 'block-worker-1' }, { id: 'block-worker-2' }]),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      siyuanApi as never,
+      null,
+      readPort,
+      backendClient as SrsBackendClient,
+    );
+
+    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+    expect(page.total).toBe(2);
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-worker-1', 'card-worker-2']);
+    await expect(service.getDeckMatchedIds({ preset: 'all' })).resolves.toEqual(['card-worker-1', 'card-worker-2']);
+    await expect(service.getDueCount()).resolves.toBe(1);
+    await expect(service.getStats()).resolves.toMatchObject({ totalCards: 2, dueCards: 1 });
+    expect(backendClient.browserDeckPage).toHaveBeenCalled();
+    expect(backendClient.browserDeckMatchedIds).toHaveBeenCalled();
+    expect(backendClient.browserCountCards).toHaveBeenCalled();
+    expect(backendClient.browserStats).toHaveBeenCalled();
   });
 });

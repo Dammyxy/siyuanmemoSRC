@@ -2939,6 +2939,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: 进入 Phase 2，先搬 Browser query 子集（`getDeckPage/getStats/getMatchedIds/source-existence`）到 Worker，再通过 feature flag 做灰度切换与回归验证。
 - Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts`、`pnpm run check:boundaries`、`pnpm build`、`git diff --check`。
 
+### 2026-04-30 - backend migration phase 2 browser worker query bridge
+
+- Task: 启动 `Phase 2`，把 Browser query 子集（`getDeckPage/getStats/getMatchedIds/source-existence`）先打通到 Worker RPC，并在应用层保留可灰度切换入口，不改变默认组合根行为。
+- Touched slice: Browser query + worker rpc bridge；`packages/contracts/src/backend-rpc.ts`、`worker/bootstrap/BackendKernel.ts`、`worker/db/SqliteDatabaseService.ts`、`src/application/clients/SrsBackendClient.ts`、`src/application/services/BrowserApplicationService.ts`、`src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`、`worker/__tests__/BackendKernel.test.ts`、`src/application/clients/__tests__/SrsBackendClient.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: Worker 侧不再只有 health/load/persist 骨架；Browser deck page/matched ids/stats/count/source-existence 已有统一 RPC 契约与实现，应用层新增 `SrsBackendClient` 优先分支后不需要 UI/feature 代码直接碰 SQL repository。
+- Debt deferred: `ApplicationContext` 还没默认注入 Worker transport（默认仍走 SQL read port）；`getDeckRowsByIds` 仍保留 read-port 主链；source-existence refresh 仍在 UI/app 侧执行 Siyuan blocks existence SQL，而不是完全下沉到 worker-side sidecar pipeline。
+- Why deferred: 这轮目标是先把 Worker query 能力和应用层调用面打通并保证行为稳定；立即切默认路径会扩大到 transport lifecycle、fallback policy 和多窗口 writer lease 协调，回归面过大。
+- Next safe step: 在组合根补可控 feature flag 注入 `SrsBackendClient` transport，先灰度 deck datasource，再把 `getDeckRowsByIds` 与 source-existence sweep 收口到同一 worker-first 路径。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`、`pnpm run check:boundaries`、`pnpm build`、`git diff --check`。
+
 ### Entry template
 
 ### YYYY-MM-DD - <short task name>

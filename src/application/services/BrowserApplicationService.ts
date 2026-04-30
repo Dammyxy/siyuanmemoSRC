@@ -6,6 +6,7 @@ import { QueueType, type CardFilter, type IReviewQueue, type IUnifiedDataSourceM
 import type { BrowserSiyuanPort } from '@/application/ports/BrowserSiyuanPort';
 import type { QuerySiyuanPort } from '@/application/ports/QuerySiyuanPort';
 import type { BrowserDeckReadPort } from '@/application/ports/BrowserDeckReadPort';
+import type { FSRSCard } from '@/types/card';
 import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQueryHandler';
 import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
 import { QueueBrowserQueryKernel } from '../queries/browser/shared/QueueBrowserQueryKernel';
@@ -17,6 +18,8 @@ import {
   SOURCE_EXISTENCE_BACKGROUND_LIMIT,
   SOURCE_EXISTENCE_TTL_MS,
 } from '../queries/browser/shared/SourceExistenceCache';
+import { markKnownMissingBlockRows } from '../queries/browser/shared/MissingBlockMarker';
+import type { SrsBackendClient } from '../clients/SrsBackendClient';
 import type {
   BrowserStats,
   GetBrowserCardsQuery,
@@ -91,6 +94,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     siyuanApi: BrowserSiyuanPort,
     private readonly dataSourceFactory?: BrowserDataSourceFactory | null,
     private readonly browserDeckReadPort?: BrowserDeckReadPort | null,
+    private readonly srsBackendClient?: SrsBackendClient | null,
   ) {
     this.browserDeckQueryKernel = new BrowserDeckQueryKernel(
       storageManager,
@@ -169,6 +173,27 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     query: BrowserDeckSnapshotQuery,
     page: BrowserDeckPageRequest,
   ): Promise<BrowserDeckPageResult> {
+    if (this.srsBackendClient) {
+      try {
+        const initialPage = await this.srsBackendClient.browserDeckPage(query, page);
+        const initialCards = initialPage.cards as FSRSCard[];
+        const refreshResult = await this.refreshSourceExistenceForBackendCards(initialCards, {
+          limit: SOURCE_EXISTENCE_BATCH_SIZE,
+        });
+        const finalPage = refreshResult.changed
+          ? await this.srsBackendClient.browserDeckPage(query, page)
+          : initialPage;
+        const finalCards = finalPage.cards as FSRSCard[];
+        const rows = await this.browserDeckQueryKernel.getBrowserCardsFromCards(finalCards, { markMissing: false });
+        return {
+          rows: await this.markRowsFromBackendSourceExistence(rows),
+          total: finalPage.total,
+        };
+      } catch (error) {
+        logger.debug('Worker deck page query failed; falling back to SQL/legacy snapshot', { error });
+      }
+    }
+
     const sqlPage = this.tryReadSqlDeckPage(query, page);
     if (sqlPage) {
       const refreshResult = await this.refreshSourceExistenceForCards(sqlPage.cards, {
@@ -201,6 +226,13 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[]> {
+    if (this.srsBackendClient) {
+      try {
+        return await this.srsBackendClient.browserDeckMatchedIds(query);
+      } catch (error) {
+        logger.debug('Worker deck matched-id query failed; falling back to SQL/legacy snapshot', { error });
+      }
+    }
     if (this.browserDeckReadPort) {
       try {
         const sqlIds = this.browserDeckReadPort.queryDeckMatchedIds(query);
@@ -248,6 +280,18 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getDueCount(): Promise<number> {
+    if (this.srsBackendClient) {
+      try {
+        return await this.srsBackendClient.browserCountCards({
+          dueDate: { lte: Date.now() },
+          includeSuspended: false,
+          sourceStatus: 'active',
+        });
+      } catch (error) {
+        logger.debug('Worker due count failed; falling back to SQL/legacy snapshot', { error });
+      }
+    }
+
     if (this.browserDeckReadPort) {
       try {
         return this.browserDeckReadPort.countCards({
@@ -266,6 +310,16 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getStats(): Promise<BrowserStats> {
+    if (this.srsBackendClient) {
+      try {
+        const stats = await this.srsBackendClient.browserStats();
+        this.scheduleSourceExistenceSweepFromBackend();
+        return stats;
+      } catch (error) {
+        logger.debug('Worker browser stats failed; falling back to SQL/legacy stats', { error });
+      }
+    }
+
     if (this.browserDeckReadPort) {
       try {
         const stats = this.browserDeckReadPort.getBrowserStats();
@@ -322,6 +376,131 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
       },
     ).finally(() => {
+      this.sourceExistenceSweepInFlight = null;
+    });
+  }
+
+  private async refreshSourceExistenceForBackendCards(
+    cards: Array<{ blockId?: unknown }>,
+    options: { limit?: number } = {},
+  ): Promise<{ changed: boolean; changedToMissing: boolean }> {
+    if (!this.srsBackendClient) {
+      return { changed: false, changedToMissing: false };
+    }
+
+    const blockIds = Array.from(new Set(cards.map((card) => String(card.blockId || '').trim()).filter(Boolean)));
+    if (blockIds.length === 0) {
+      return { changed: false, changedToMissing: false };
+    }
+
+    try {
+      const candidates = await this.srsBackendClient.browserSourceExistenceRefreshCandidates({
+        blockIds,
+        limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
+        staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
+        includeKnownMissing: true,
+      });
+      if (candidates.length === 0) {
+        return { changed: false, changedToMissing: false };
+      }
+
+      const existingBlockIds = await this.loadExistingBlockIds(candidates.map((candidate) => candidate.blockId));
+      const updates: Array<{ cardId: string; blockId: string; exists: boolean }> = [];
+      let changed = false;
+      let changedToMissing = false;
+      for (const candidate of candidates) {
+        const exists = existingBlockIds.has(candidate.blockId);
+        if (candidate.sourceExists !== exists) {
+          changed = true;
+          if (!exists) {
+            changedToMissing = true;
+          }
+        }
+        updates.push({
+          cardId: candidate.cardId,
+          blockId: candidate.blockId,
+          exists,
+        });
+      }
+
+      if (updates.length > 0) {
+        await this.srsBackendClient.browserSourceExistenceUpdate(updates, Date.now());
+      }
+      return { changed, changedToMissing };
+    } catch (error) {
+      logger.debug('Worker source existence refresh failed; keeping cache fail-open', { error });
+      return { changed: false, changedToMissing: false };
+    }
+  }
+
+  private async markRowsFromBackendSourceExistence<TRow extends { blockId?: unknown; blockType?: string | null; meta?: unknown }>(
+    rows: TRow[],
+  ): Promise<TRow[]> {
+    if (!this.srsBackendClient || rows.length === 0) {
+      return rows;
+    }
+
+    try {
+      const blockIds = Array.from(new Set(rows.map((row) => String(row.blockId || '').trim()).filter(Boolean)));
+      if (blockIds.length === 0) {
+        return rows;
+      }
+      const statusByBlockId = await this.srsBackendClient.browserSourceExistenceByBlockIds(blockIds);
+      const missingBlockIds = Array.from(statusByBlockId.entries())
+        .filter(([, exists]) => exists === false)
+        .map(([blockId]) => blockId);
+      return markKnownMissingBlockRows(rows, missingBlockIds);
+    } catch (error) {
+      logger.debug('Worker source existence mark failed; keeping rows fail-open', { error });
+      return rows;
+    }
+  }
+
+  private async loadExistingBlockIds(blockIds: string[]): Promise<Set<string>> {
+    const normalizedBlockIds = Array.from(new Set(blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean)));
+    const existing = new Set<string>();
+    if (normalizedBlockIds.length === 0) {
+      return existing;
+    }
+
+    for (let index = 0; index < normalizedBlockIds.length; index += SOURCE_EXISTENCE_BATCH_SIZE) {
+      const batchIds = normalizedBlockIds.slice(index, index + SOURCE_EXISTENCE_BATCH_SIZE);
+      const rows = await this.siyuanApi.sql<{ id?: unknown }>(`
+        SELECT id
+        FROM blocks
+        WHERE id IN (${batchIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(',')})
+      `);
+      for (const row of rows) {
+        const id = String(row.id || '').trim();
+        if (id) {
+          existing.add(id);
+        }
+      }
+    }
+
+    return existing;
+  }
+
+  private scheduleSourceExistenceSweepFromBackend(): void {
+    if (!this.srsBackendClient || this.sourceExistenceSweepInFlight) {
+      return;
+    }
+
+    this.sourceExistenceSweepInFlight = (async () => {
+      const candidates = await this.srsBackendClient!.browserSourceExistenceRefreshCandidates({
+        limit: SOURCE_EXISTENCE_BACKGROUND_LIMIT,
+        staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
+        includeKnownMissing: true,
+      });
+      if (candidates.length === 0) {
+        return;
+      }
+
+      await this.refreshSourceExistenceForBackendCards(
+        candidates.map((candidate) => ({ blockId: candidate.blockId })),
+        { limit: candidates.length },
+      );
+    })().finally(() => {
       this.sourceExistenceSweepInFlight = null;
     });
   }

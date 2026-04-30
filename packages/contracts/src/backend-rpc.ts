@@ -4,7 +4,15 @@ export type BackendRpcMethod =
   | 'system.health'
   | 'db.load'
   | 'db.persist'
-  | 'diagnostics.status';
+  | 'diagnostics.status'
+  | 'browser.deck.page'
+  | 'browser.deck.matchedIds'
+  | 'browser.stats'
+  | 'browser.count'
+  | 'browser.sourceExistence.refreshCandidates'
+  | 'browser.sourceExistence.update'
+  | 'browser.sourceExistence.byBlockIds'
+  | 'browser.sourceExistence.summary';
 
 export type BackendRpcId = number | string;
 
@@ -79,4 +87,52 @@ export interface BackendDiagnosticsStatusResult {
   runtime: 'srs-backend-worker';
   initialized: boolean;
   dbFile: string;
+}
+
+export interface BackendBrowserDeckSnapshotQuery {
+  preset?: string;
+  searchText?: string;
+  docId?: string;
+  scopeDocIds?: string[] | null;
+  states?: number[];
+  cardTypes?: string[];
+  deckIds?: string[];
+  tags?: string[];
+  sortModel?: Array<{ colId: string; sort: 'asc' | 'desc' }>;
+}
+
+export interface BackendBrowserDeckPageRequest {
+  startRow?: number;
+  endRow?: number;
+}
+
+export interface BackendBrowserDeckPageResult {
+  total: number;
+  cards: unknown[];
+}
+
+export interface BackendSourceExistenceRefreshRequest {
+  blockIds?: string[];
+  limit?: number;
+  staleBefore?: number;
+  includeKnownMissing?: boolean;
+}
+
+export interface BackendSourceExistenceRefreshCandidate {
+  cardId: string;
+  blockId: string;
+  sourceExists: boolean | null;
+  sourceCheckedAt: number | null;
+}
+
+export interface BackendSourceExistenceUpdate {
+  cardId?: string;
+  blockId: string;
+  exists: boolean;
+}
+
+export interface BackendSourceExistenceSummary {
+  unknown: number;
+  stale: number;
+  missing: number;
 }

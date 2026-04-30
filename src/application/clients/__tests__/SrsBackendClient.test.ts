@@ -1,0 +1,89 @@
+import { describe, expect, it, vi } from 'vitest';
+import { SrsBackendClient, type SrsBackendTransport } from '../SrsBackendClient';
+
+describe('SrsBackendClient', () => {
+  it('sends browser phase-2 rpc envelopes with positional params', async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => {
+        requests.push({ method: request.method, params: request.params });
+        switch (request.method) {
+          case 'browser.deck.page':
+            return { jsonrpc: '2.0', id: request.id, result: { total: 0, cards: [] } };
+          case 'browser.deck.matchedIds':
+            return { jsonrpc: '2.0', id: request.id, result: { ids: ['card-1'] } };
+          case 'browser.stats':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                totalCards: 1,
+                dueCards: 1,
+                newCards: 0,
+                learningCards: 0,
+                reviewCards: 1,
+                suspendedCards: 0,
+                lostCards: 0,
+              },
+            };
+          case 'browser.count':
+            return { jsonrpc: '2.0', id: request.id, result: { count: 1 } };
+          case 'browser.sourceExistence.refreshCandidates':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                candidates: [
+                  {
+                    cardId: 'card-1',
+                    blockId: 'block-1',
+                    sourceExists: null,
+                    sourceCheckedAt: null,
+                  },
+                ],
+              },
+            };
+          case 'browser.sourceExistence.byBlockIds':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                statusByBlockId: [
+                  { blockId: 'block-1', exists: false },
+                ],
+              },
+            };
+          case 'browser.sourceExistence.update':
+            return { jsonrpc: '2.0', id: request.id, result: { updated: 1 } };
+          case 'browser.sourceExistence.summary':
+            return { jsonrpc: '2.0', id: request.id, result: { unknown: 0, stale: 0, missing: 1 } };
+          default:
+            return { jsonrpc: '2.0', id: request.id, error: { code: 'METHOD_NOT_FOUND', message: 'not mocked' } };
+        }
+      }),
+    };
+
+    const client = new SrsBackendClient(transport);
+    await client.browserDeckPage({ preset: 'all' }, { startRow: 0, endRow: 10 });
+    await expect(client.browserDeckMatchedIds({ preset: 'all' })).resolves.toEqual(['card-1']);
+    await expect(client.browserStats()).resolves.toMatchObject({ totalCards: 1, dueCards: 1 });
+    await expect(client.browserCountCards({ includeSuspended: false })).resolves.toBe(1);
+    await expect(client.browserSourceExistenceRefreshCandidates({ blockIds: ['block-1'] })).resolves.toHaveLength(1);
+    await expect(client.browserSourceExistenceByBlockIds(['block-1'])).resolves.toEqual(new Map([['block-1', false]]));
+    await expect(client.browserSourceExistenceUpdate([{ blockId: 'block-1', exists: false }], 1)).resolves.toBe(1);
+    await expect(client.browserSourceExistenceSummary()).resolves.toEqual({ unknown: 0, stale: 0, missing: 1 });
+
+    expect(requests.map((request) => request.method)).toEqual([
+      'browser.deck.page',
+      'browser.deck.matchedIds',
+      'browser.stats',
+      'browser.count',
+      'browser.sourceExistence.refreshCandidates',
+      'browser.sourceExistence.byBlockIds',
+      'browser.sourceExistence.update',
+      'browser.sourceExistence.summary',
+    ]);
+    expect(requests[0].params).toEqual([{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }]);
+    expect(requests[1].params).toEqual([{ query: { preset: 'all' } }]);
+  });
+});

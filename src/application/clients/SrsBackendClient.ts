@@ -1,4 +1,11 @@
 import type {
+  BackendBrowserDeckPageRequest,
+  BackendBrowserDeckPageResult,
+  BackendBrowserDeckSnapshotQuery,
+  BackendSourceExistenceRefreshCandidate,
+  BackendSourceExistenceRefreshRequest,
+  BackendSourceExistenceSummary,
+  BackendSourceExistenceUpdate,
   BackendDiagnosticsStatusResult,
   BackendHealthResult,
   BackendRpcRequest,
@@ -6,6 +13,8 @@ import type {
   BackendRpcSuccess,
 } from '../../../packages/contracts/src/backend-rpc';
 import { BACKEND_RPC_VERSION } from '../../../packages/contracts/src/backend-rpc';
+import type { StructuredCardQuery } from '@/types/card-query';
+import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 
 export interface SrsBackendTransport {
   request(request: BackendRpcRequest): Promise<BackendRpcResponse>;
@@ -32,12 +41,63 @@ export class SrsBackendClient {
     return this.call<BackendDiagnosticsStatusResult>('diagnostics.status');
   }
 
-  private async call<TResult>(method: BackendRpcRequest['method']): Promise<TResult> {
+  async browserDeckPage(
+    query: BackendBrowserDeckSnapshotQuery,
+    page: BackendBrowserDeckPageRequest,
+  ): Promise<BackendBrowserDeckPageResult> {
+    return this.call('browser.deck.page', { query, page });
+  }
+
+  async browserDeckMatchedIds(query: BackendBrowserDeckSnapshotQuery): Promise<string[]> {
+    const result = await this.call<{ ids: string[] }>('browser.deck.matchedIds', { query });
+    return result.ids || [];
+  }
+
+  async browserStats(now?: number): Promise<BrowserStats> {
+    return this.call<BrowserStats>('browser.stats', { now });
+  }
+
+  async browserCountCards(query?: StructuredCardQuery): Promise<number> {
+    const result = await this.call<{ count: number }>('browser.count', { query });
+    return Number(result.count || 0);
+  }
+
+  async browserSourceExistenceRefreshCandidates(
+    request: BackendSourceExistenceRefreshRequest,
+  ): Promise<BackendSourceExistenceRefreshCandidate[]> {
+    const result = await this.call<{ candidates: BackendSourceExistenceRefreshCandidate[] }>(
+      'browser.sourceExistence.refreshCandidates',
+      { request },
+    );
+    return result.candidates || [];
+  }
+
+  async browserSourceExistenceUpdate(updates: BackendSourceExistenceUpdate[], checkedAt = Date.now()): Promise<number> {
+    const result = await this.call<{ updated: number }>(
+      'browser.sourceExistence.update',
+      { updates, checkedAt },
+    );
+    return Number(result.updated || 0);
+  }
+
+  async browserSourceExistenceByBlockIds(blockIds: string[]): Promise<Map<string, boolean | null>> {
+    const result = await this.call<{ statusByBlockId: Array<{ blockId: string; exists: boolean | null }> }>(
+      'browser.sourceExistence.byBlockIds',
+      { blockIds },
+    );
+    return new Map((result.statusByBlockId || []).map((row) => [row.blockId, row.exists] as const));
+  }
+
+  async browserSourceExistenceSummary(staleBefore?: number): Promise<BackendSourceExistenceSummary> {
+    return this.call<BackendSourceExistenceSummary>('browser.sourceExistence.summary', { staleBefore });
+  }
+
+  private async call<TResult>(method: BackendRpcRequest['method'], params?: unknown): Promise<TResult> {
     const request: BackendRpcRequest = {
       jsonrpc: BACKEND_RPC_VERSION,
       id: ++this.requestId,
       method,
-      params: [],
+      params: params == null ? [] : [params],
     };
     const response = await this.transport.request(request);
     if ('error' in response) {
