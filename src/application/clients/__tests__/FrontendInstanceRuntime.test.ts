@@ -213,4 +213,48 @@ describe('FrontendInstanceRuntime', () => {
     }));
     await runtime.dispose();
   });
+
+  it('drops to follower when relay polling detects writer lease unavailable', async () => {
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          lease: {
+            instanceId: 'instance-a',
+            acquiredAt: 1,
+            expiresAt: 2,
+            lastHeartbeatAt: 1,
+          },
+          now: 1,
+        })
+        .mockRejectedValue(new Error('BACKEND_UNAVAILABLE: writer lease held by another instance')),
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-b',
+          acquiredAt: 1,
+          expiresAt: 2,
+          lastHeartbeatAt: 1,
+        },
+        now: 2,
+      })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+      writerTakeCommand: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: writer takeCommand unavailable: current instance is not active writer');
+      }),
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      relayPollIntervalMs: 250,
+      writerCommandHandler: async () => ({ committed: true }),
+    });
+
+    await runtime.start();
+    expect(runtime.getMode()).toBe('writer');
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    expect(runtime.getMode()).toBe('follower');
+    await runtime.dispose();
+  });
 });

@@ -172,6 +172,25 @@ function cleanupWriterCommandState(at = nowMs()) {
   }
 }
 
+function rebindPendingWriterCommands(ownerInstanceId, at = nowMs()) {
+  let changed = false;
+  for (const [commandId, pending] of writerCommandsPending.entries()) {
+    if (pending.expiresAt <= at) {
+      continue;
+    }
+    if (pending.writerInstanceId === ownerInstanceId) {
+      continue;
+    }
+    writerCommandsPending.set(commandId, {
+      ...pending,
+      writerInstanceId: ownerInstanceId,
+      inFlightUntil: 0,
+    });
+    changed = true;
+  }
+  return changed;
+}
+
 function buildHealth() {
   return {
     ok: true,
@@ -267,6 +286,7 @@ async function writerAcquireLease(params) {
       : activeLease?.surfaceId,
   };
   writerLease = nextLease;
+  rebindPendingWriterCommands(nextLease.instanceId, at);
 
   if (!activeLease || activeLease.instanceId !== nextLease.instanceId) {
     await broadcastWriterLeaseChanged(nextLease);
@@ -585,6 +605,8 @@ function writerTakeCommand(params) {
       at,
     );
   }
+
+  rebindPendingWriterCommands(instanceId, at);
 
   for (const pending of writerCommandsPending.values()) {
     if (pending.writerInstanceId !== instanceId) {

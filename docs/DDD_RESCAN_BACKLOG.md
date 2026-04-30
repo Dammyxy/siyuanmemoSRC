@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 236)
+Last update: 2026-05-01 (Round 238)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase5 p5-2 worker ingest inbox + ws-main relay ingestion bridge
+
+- Task: 按“开始 P5，多做点”推进第二安全步：把 `kernel.transaction.ingest` 从 unavailable scaffold 升级为可接收 inbox（幂等 + backpressure + diagnostics），并补可灰度启用的 ws-main -> worker ingest handler（支持 writer/follower relay）。
+- Touched slice: Worker ingest contract/runtime + transaction websocket bridge；`packages/contracts/src/backend-rpc.ts`、`worker/db/SqliteDatabaseService.ts`、`worker/bootstrap/BackendKernel.ts`、`src/application/handlers/KernelTransactionIngestHandler.ts`、`src/application/ApplicationContext.ts`、`.env.example`、focused tests。
+- Debt fixed now: `kernel.transaction.ingest` 现在可接收事务并写入 worker inbox，支持 `idempotencyKey` 去重、队列/事务双阈值 backpressure（explicit unavailable）、以及 `diagnostics.status.ingest` 可观测计数；应用层新增 `KernelTransactionIngestHandler`，可在 `VITE_SIYUANMEMO_ENABLE_KERNEL_TRANSACTION_INGEST` 打开时将 ws-main transaction 批量投递到 worker，并在 follower 模式走 kernel writer relay，避免多窗口下直接写冲突。
+- Debt deferred: ingest inbox 目前只完成接收/排队/排空能力，尚未接入 AutoCard / Riff / Xiuyuan 的实际决策提交消费器；relay transport 仍是 polling contract。
+- Why deferred: 本轮优先建立 P5 事务入口和并发/错误契约，先把 blast radius 控制在 worker ingress 与可控灰度接线，不直接切换现有 AutoCard/Riff 主链。
+- Next safe step: 进入 P5-3：在 worker 内实现第一条最小消费器（先 native riff add/update 或 remove 其一），把 ingest envelope 映射到现有 `XiuyuanSyncService`/managed-delete 语义，并补端到端 contract tests。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
+
+### 2026-05-01 - phase4 handover hardening + phase5 transaction ingest scaffold
+
+- Task: 继续清理 P4 及之前债务并进入 P5 第一安全步：补 multi-window handover 下 relay pending command 接管契约，并落 `kernel.transaction.ingest` worker RPC 骨架（explicit unavailable，不切主路径）。
+- Touched slice: Kernel relay handover + frontend runtime demotion + worker ingress contract；`kernel.js`、`src/application/clients/FrontendInstanceRuntime.ts`、`src/application/ApplicationContext.ts`、`packages/contracts/src/backend-rpc.ts`、`src/application/clients/SrsBackendClient.ts`、`worker/bootstrap/BackendKernel.ts`、`worker/db/SqliteDatabaseService.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: kernel 在 `writerAcquireLease/writerTakeCommand` 时会把未过期 pending relay command 重绑定到新 owner 并清 `inFlightUntil`，降低 writer 接管后命令悬挂；`FrontendInstanceRuntime` 在 relay poll 遇到 `BACKEND_UNAVAILABLE:*` 时会触发 ownership refresh 并自动降级 follower；composition root relay 白名单补入 `kernel.transaction.ingest`，避免新增 worker mutation 在 follower 模式下出现 relay 盲区。
+- Debt deferred: relay transport 仍是 polling（未接 push/ack）；`kernel.transaction.ingest` 仍是 phase scaffold，仅返回 explicit unavailable，尚未承接 AutoCard/Riff 决策提交主链。
+- Why deferred: 本轮目标是先把 P4 handover 风险点收口并建立 P5 ingress 契约，不跨入更高风险的 transaction 语义落地与同步主链切换。
+- Next safe step: 在保持 feature flag 灰度前提下实现 `kernel.transaction.ingest` 最小 ingest queue + 幂等 key + backpressure envelope，再分批接 AutoCard/Riff 事务事件进入 worker 决策提交。
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase4 relay method extension + failure contracts hardening
 

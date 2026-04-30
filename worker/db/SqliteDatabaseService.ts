@@ -13,8 +13,12 @@ import type {
   BrowserDeckSnapshotQuery,
 } from '@/application/queries/browser/browser-deck-query';
 import type {
+  BackendKernelTransactionIngestRequest,
+  BackendKernelTransactionIngestResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+} from '../../../packages/contracts/src/backend-rpc';
+import type {
   SourceExistenceRefreshCandidate,
   SourceExistenceRefreshRequest,
   SourceExistenceSummary,
@@ -23,8 +27,10 @@ import type {
 import type { SqlitePersistenceBridge } from './SqlitePersistenceBridge';
 import { DEFAULT_SETTINGS } from '@/types/settings';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
+import { createLogger } from '@/utils/logger';
 
 type SqlParams = SqlValue[] | ParamsObject;
+const logger = createLogger('WorkerSqliteDatabaseService');
 
 type SqliteFileServiceAdapter = {
   readJSON<T>(fileName: string): Promise<T | null>;
@@ -56,12 +62,47 @@ export class WorkerSqliteDatabaseService {
   private readonly runtime: RuntimeSqliteDatabaseService;
   private repository: SqlUnifiedStorageRepository | null = null;
   private initialized = false;
+  private readonly kernelTransactionQueue: Array<{
+    source: 'kernel-sidecar' | 'ws-main';
+    transactions: unknown[];
+    receivedAt: number;
+    idempotencyKey: string;
+    acceptedAt: number;
+  }> = [];
+  private readonly recentKernelTransactionKeys = new Map<string, number>();
+  private kernelQueuedTransactions = 0;
+  private kernelAcceptedTotal = 0;
+  private kernelDeduplicatedTotal = 0;
+  private kernelRejectedTotal = 0;
+  private kernelDrainedTotal = 0;
+  private lastKernelAcceptedAt: number | null = null;
+  private lastKernelDrainAt: number | null = null;
+  private readonly maxKernelTransactionQueueLength: number;
+  private readonly maxKernelQueuedTransactions: number;
+  private readonly kernelTransactionDedupeTtlMs: number;
 
   constructor(
     bridge: SqlitePersistenceBridge,
     private readonly dbFile = SQLITE_DB_FILE,
+    options?: {
+      maxKernelTransactionQueueLength?: number;
+      maxKernelQueuedTransactions?: number;
+      kernelTransactionDedupeTtlMs?: number;
+    },
   ) {
     this.runtime = new RuntimeSqliteDatabaseService(createSqliteFileServiceAdapter(bridge), dbFile);
+    this.maxKernelTransactionQueueLength = Math.max(
+      1,
+      Math.floor(Number(options?.maxKernelTransactionQueueLength ?? 256)),
+    );
+    this.maxKernelQueuedTransactions = Math.max(
+      1,
+      Math.floor(Number(options?.maxKernelQueuedTransactions ?? 8_192)),
+    );
+    this.kernelTransactionDedupeTtlMs = Math.max(
+      5_000,
+      Math.floor(Number(options?.kernelTransactionDedupeTtlMs ?? 120_000)),
+    );
   }
 
   async init(): Promise<void> {
@@ -92,10 +133,35 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  getStatus(): { initialized: boolean; dbFile: string } {
+  getStatus(): {
+    initialized: boolean;
+    dbFile: string;
+    ingest: {
+      queueLength: number;
+      queuedTransactions: number;
+      maxQueueLength: number;
+      acceptedTotal: number;
+      deduplicatedTotal: number;
+      rejectedTotal: number;
+      drainedTotal: number;
+      lastAcceptedAt: number | null;
+      lastDrainAt: number | null;
+    };
+  } {
     return {
       initialized: this.initialized,
       dbFile: this.dbFile,
+      ingest: {
+        queueLength: this.kernelTransactionQueue.length,
+        queuedTransactions: this.kernelQueuedTransactions,
+        maxQueueLength: this.maxKernelTransactionQueueLength,
+        acceptedTotal: this.kernelAcceptedTotal,
+        deduplicatedTotal: this.kernelDeduplicatedTotal,
+        rejectedTotal: this.kernelRejectedTotal,
+        drainedTotal: this.kernelDrainedTotal,
+        lastAcceptedAt: this.lastKernelAcceptedAt,
+        lastDrainAt: this.lastKernelDrainAt,
+      },
     };
   }
 
@@ -354,6 +420,163 @@ export class WorkerSqliteDatabaseService {
         updatedCard: commitResult.updatedCard ?? null,
       };
     });
+  }
+
+  async ingestKernelTransactions(
+    request: BackendKernelTransactionIngestRequest,
+  ): Promise<BackendKernelTransactionIngestResult> {
+    await this.init();
+
+    const now = Date.now();
+    this.cleanupKernelTransactionDeduplication(now);
+
+    const source = this.normalizeKernelTransactionSource(request.source);
+    const receivedAt = Number.isFinite(Number(request.receivedAt))
+      ? Math.max(0, Math.floor(Number(request.receivedAt)))
+      : now;
+    const transactions = (Array.isArray(request.transactions) ? request.transactions : [])
+      .filter((transaction) => transaction != null && typeof transaction === 'object');
+    const idempotencyKey = this.resolveKernelTransactionIdempotencyKey({
+      source,
+      transactions,
+      receivedAt,
+      requestIdempotencyKey: request.idempotencyKey,
+    });
+
+    if (transactions.length === 0) {
+      return {
+        accepted: 0,
+        queued: this.kernelQueuedTransactions,
+        receivedAt,
+        duplicate: false,
+        queueLength: this.kernelTransactionQueue.length,
+        maxQueueLength: this.maxKernelTransactionQueueLength,
+      };
+    }
+
+    if (this.recentKernelTransactionKeys.has(idempotencyKey)) {
+      this.kernelDeduplicatedTotal += transactions.length;
+      return {
+        accepted: 0,
+        queued: this.kernelQueuedTransactions,
+        receivedAt,
+        duplicate: true,
+        queueLength: this.kernelTransactionQueue.length,
+        maxQueueLength: this.maxKernelTransactionQueueLength,
+      };
+    }
+
+    if (this.kernelTransactionQueue.length >= this.maxKernelTransactionQueueLength) {
+      this.kernelRejectedTotal += transactions.length;
+      throw new Error(
+        `SrsBackendWorker kernel.transaction.ingest unavailable: queue backpressure (pending=${this.kernelTransactionQueue.length}, limit=${this.maxKernelTransactionQueueLength})`,
+      );
+    }
+    if (this.kernelQueuedTransactions + transactions.length > this.maxKernelQueuedTransactions) {
+      this.kernelRejectedTotal += transactions.length;
+      throw new Error(
+        `SrsBackendWorker kernel.transaction.ingest unavailable: transaction backpressure (pending=${this.kernelQueuedTransactions}, incoming=${transactions.length}, limit=${this.maxKernelQueuedTransactions})`,
+      );
+    }
+
+    this.recentKernelTransactionKeys.set(idempotencyKey, now + this.kernelTransactionDedupeTtlMs);
+    this.kernelTransactionQueue.push({
+      source,
+      transactions,
+      receivedAt,
+      idempotencyKey,
+      acceptedAt: now,
+    });
+    this.kernelQueuedTransactions += transactions.length;
+    this.kernelAcceptedTotal += transactions.length;
+    this.lastKernelAcceptedAt = now;
+
+    return {
+      accepted: transactions.length,
+      queued: this.kernelQueuedTransactions,
+      receivedAt,
+      duplicate: false,
+      queueLength: this.kernelTransactionQueue.length,
+      maxQueueLength: this.maxKernelTransactionQueueLength,
+    };
+  }
+
+  drainKernelTransactions(maxTransactions = 256): Array<{
+    source: 'kernel-sidecar' | 'ws-main';
+    transactions: unknown[];
+    receivedAt: number;
+    idempotencyKey: string;
+    acceptedAt: number;
+  }> {
+    const budget = Math.max(1, Math.floor(Number(maxTransactions) || 0));
+    let consumed = 0;
+    const drained: Array<{
+      source: 'kernel-sidecar' | 'ws-main';
+      transactions: unknown[];
+      receivedAt: number;
+      idempotencyKey: string;
+      acceptedAt: number;
+    }> = [];
+
+    while (this.kernelTransactionQueue.length > 0 && consumed < budget) {
+      const next = this.kernelTransactionQueue[0];
+      const nextCount = next.transactions.length;
+      if (drained.length > 0 && consumed + nextCount > budget) {
+        break;
+      }
+      this.kernelTransactionQueue.shift();
+      drained.push(next);
+      consumed += nextCount;
+      this.kernelQueuedTransactions = Math.max(0, this.kernelQueuedTransactions - nextCount);
+    }
+
+    if (drained.length > 0) {
+      this.kernelDrainedTotal += consumed;
+      this.lastKernelDrainAt = Date.now();
+      logger.debug('Drained kernel transaction batch', {
+        envelopes: drained.length,
+        transactions: consumed,
+        remaining: this.kernelQueuedTransactions,
+      });
+    }
+
+    return drained;
+  }
+
+  private cleanupKernelTransactionDeduplication(now: number): void {
+    for (const [key, expiresAt] of this.recentKernelTransactionKeys.entries()) {
+      if (expiresAt <= now) {
+        this.recentKernelTransactionKeys.delete(key);
+      }
+    }
+  }
+
+  private normalizeKernelTransactionSource(source: unknown): 'kernel-sidecar' | 'ws-main' {
+    return source === 'kernel-sidecar' ? 'kernel-sidecar' : 'ws-main';
+  }
+
+  private resolveKernelTransactionIdempotencyKey(input: {
+    source: 'kernel-sidecar' | 'ws-main';
+    transactions: unknown[];
+    receivedAt: number;
+    requestIdempotencyKey?: string;
+  }): string {
+    const explicit = String(input.requestIdempotencyKey || '').trim();
+    if (explicit) {
+      return explicit.slice(0, 256);
+    }
+    const signatureRaw = JSON.stringify(input.transactions) || '[]';
+    const signature = this.fnv1a32(signatureRaw);
+    return `${input.source}:${input.receivedAt}:${input.transactions.length}:${signature}`;
+  }
+
+  private fnv1a32(input: string): string {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
   }
 
   async runTransaction<T>(

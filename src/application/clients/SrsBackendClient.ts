@@ -3,6 +3,8 @@ import type {
   BackendBrowserDeckPageResult,
   BackendBrowserDeckSnapshotQuery,
   BackendSourceExistenceSweepApplyResult,
+  BackendKernelTransactionIngestRequest,
+  BackendKernelTransactionIngestResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
   BackendSourceExistenceRefreshCandidate,
@@ -125,6 +127,12 @@ export class SrsBackendClient {
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     return this.call<BackendReviewFeedbackResult>('review.feedback', request);
+  }
+
+  async ingestKernelTransactions(
+    request: BackendKernelTransactionIngestRequest,
+  ): Promise<BackendKernelTransactionIngestResult> {
+    return this.call<BackendKernelTransactionIngestResult>('kernel.transaction.ingest', request);
   }
 
   private async call<TResult>(method: BackendRpcRequest['method'], params?: unknown): Promise<TResult> {

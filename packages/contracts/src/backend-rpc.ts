@@ -16,6 +16,7 @@ export type BackendRpcMethod =
   | 'browser.sourceExistence.summary'
   | 'browser.sourceExistence.applySweep'
   | 'browser.sourceExistence.applySweepHost'
+  | 'kernel.transaction.ingest'
   | 'review.feedback';
 
 export type BackendRpcId = number | string;
@@ -91,6 +92,17 @@ export interface BackendDiagnosticsStatusResult {
   runtime: 'srs-backend-worker';
   initialized: boolean;
   dbFile: string;
+  ingest?: {
+    queueLength: number;
+    queuedTransactions: number;
+    maxQueueLength: number;
+    acceptedTotal: number;
+    deduplicatedTotal: number;
+    rejectedTotal: number;
+    drainedTotal: number;
+    lastAcceptedAt: number | null;
+    lastDrainAt: number | null;
+  };
 }
 
 export interface BackendBrowserDeckSnapshotQuery {
@@ -170,4 +182,20 @@ export interface BackendReviewFeedbackResult {
   reviewedAt: number;
   queueType: string;
   updatedCard: unknown | null;
+}
+
+export interface BackendKernelTransactionIngestRequest {
+  source?: 'kernel-sidecar' | 'ws-main';
+  transactions?: unknown[];
+  receivedAt?: number;
+  idempotencyKey?: string;
+}
+
+export interface BackendKernelTransactionIngestResult {
+  accepted: number;
+  queued: number;
+  receivedAt: number;
+  duplicate: boolean;
+  queueLength: number;
+  maxQueueLength: number;
 }

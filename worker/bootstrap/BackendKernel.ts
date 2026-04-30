@@ -4,6 +4,8 @@ import {
   type BackendBrowserDeckSnapshotQuery,
   type BackendSourceExistenceSweepApplyRequest,
   type BackendSourceExistenceSweepApplyResult,
+  type BackendKernelTransactionIngestRequest,
+  type BackendKernelTransactionIngestResult,
   type BackendReviewFeedbackResult,
   type BackendSourceExistenceRefreshCandidate,
   type BackendSourceExistenceRefreshRequest,
@@ -107,6 +109,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleSourceExistenceSummary(request.params));
         case 'browser.sourceExistence.applySweepHost':
           return buildSuccess(request.id, await this.handleSourceExistenceApplySweepHost(request.params));
+        case 'kernel.transaction.ingest':
+          return buildSuccess(request.id, await this.handleKernelTransactionIngest(request.params));
         case 'review.feedback':
           return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
         case 'browser.sourceExistence.applySweep':
@@ -120,6 +124,7 @@ export class BackendKernel {
         message.includes('persistence bridge is unavailable')
         || message.includes('is unavailable')
         || message.includes(' unavailable ')
+        || message.includes('unavailable:')
         || message.startsWith('unavailable')
       ) {
         return buildError(request.id, 'BACKEND_UNAVAILABLE', message);
@@ -142,6 +147,7 @@ export class BackendKernel {
       runtime: 'srs-backend-worker',
       initialized: status.initialized,
       dbFile: status.dbFile,
+      ingest: status.ingest,
     };
   }
 
@@ -260,5 +266,10 @@ export class BackendKernel {
       throw new Error('review.feedback requires named params');
     }
     return this.deps.database.reviewFeedback(named);
+  }
+
+  private async handleKernelTransactionIngest(params: unknown): Promise<BackendKernelTransactionIngestResult> {
+    const named = this.readNamedParams<BackendKernelTransactionIngestRequest>(params);
+    return this.deps.database.ingestKernelTransactions(named ?? {});
   }
 }

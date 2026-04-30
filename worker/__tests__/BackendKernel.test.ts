@@ -96,15 +96,19 @@ describe('BackendKernel', () => {
       method: 'diagnostics.status',
       params: [],
     });
-    expect(statusResponse).toEqual({
-      id: 'status',
-      jsonrpc: '2.0',
-      result: {
+    expect('result' in statusResponse).toBe(true);
+    if ('result' in statusResponse) {
+      expect(statusResponse.result).toMatchObject({
         runtime: 'srs-backend-worker',
         initialized: true,
         dbFile: 'siyuanmemo.db',
-      },
-    });
+        ingest: {
+          queueLength: 0,
+          queuedTransactions: 0,
+          maxQueueLength: 256,
+        },
+      });
+    }
   });
 
   it('serves browser phase-2 rpc methods from worker sqlite repository', async () => {
@@ -219,6 +223,29 @@ describe('BackendKernel', () => {
       },
     });
 
+    const transactionIngestResponse = await kernel.handle({
+      id: 'kernel-transaction-ingest',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'kernel-sidecar',
+        transactions: [{ id: 'tx-1' }],
+        receivedAt: 1,
+      }],
+    });
+    expect(transactionIngestResponse).toEqual({
+      id: 'kernel-transaction-ingest',
+      jsonrpc: '2.0',
+      result: {
+        accepted: 1,
+        queued: 1,
+        receivedAt: 1,
+        duplicate: false,
+        queueLength: 1,
+        maxQueueLength: 256,
+      },
+    });
+
     const reviewFeedbackResponse = await kernel.handle({
       id: 'review-feedback',
       jsonrpc: '2.0',
@@ -279,6 +306,102 @@ describe('BackendKernel', () => {
       error: {
         code: 'BACKEND_UNAVAILABLE',
         message: 'SrsBackendWorker review.feedback unavailable for filter-group mode/policy in current phase: filtered-rescheduling/preview-only',
+      },
+    });
+  });
+
+  it('deduplicates kernel.transaction.ingest by idempotency key', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const first = await kernel.handle({
+      id: 'ingest-first',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        transactions: [{ id: 'tx-a' }],
+        receivedAt: 10,
+        idempotencyKey: 'same-key',
+      }],
+    });
+    expect(first).toEqual({
+      id: 'ingest-first',
+      jsonrpc: '2.0',
+      result: {
+        accepted: 1,
+        queued: 1,
+        receivedAt: 10,
+        duplicate: false,
+        queueLength: 1,
+        maxQueueLength: 256,
+      },
+    });
+
+    const second = await kernel.handle({
+      id: 'ingest-second',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        transactions: [{ id: 'tx-a' }],
+        receivedAt: 10,
+        idempotencyKey: 'same-key',
+      }],
+    });
+    expect(second).toEqual({
+      id: 'ingest-second',
+      jsonrpc: '2.0',
+      result: {
+        accepted: 0,
+        queued: 1,
+        receivedAt: 10,
+        duplicate: true,
+        queueLength: 1,
+        maxQueueLength: 256,
+      },
+    });
+  });
+
+  it('returns explicit unavailable when kernel transaction ingest queue is backpressured', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge, undefined, {
+      maxKernelTransactionQueueLength: 1,
+      maxKernelQueuedTransactions: 1,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const first = await kernel.handle({
+      id: 'ingest-backpressure-first',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        transactions: [{ id: 'tx-1' }],
+        receivedAt: 1,
+        idempotencyKey: 'k1',
+      }],
+    });
+    expect('result' in first).toBe(true);
+
+    const second = await kernel.handle({
+      id: 'ingest-backpressure-second',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        transactions: [{ id: 'tx-2' }],
+        receivedAt: 2,
+        idempotencyKey: 'k2',
+      }],
+    });
+    expect(second).toEqual({
+      id: 'ingest-backpressure-second',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'SrsBackendWorker kernel.transaction.ingest unavailable: queue backpressure (pending=1, limit=1)',
       },
     });
   });

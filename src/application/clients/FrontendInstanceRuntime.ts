@@ -169,8 +169,19 @@ export class FrontendInstanceRuntime {
           });
         }
       }
+    } catch (error) {
+      if (this.isWriterLeaseUnavailableError(error)) {
+        await this.refreshOwnership().catch(() => {
+          this.mode = 'follower';
+        });
+      }
     } finally {
       this.drainingRelay = false;
     }
+  }
+
+  private isWriterLeaseUnavailableError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return message.startsWith('BACKEND_UNAVAILABLE:');
   }
 }
