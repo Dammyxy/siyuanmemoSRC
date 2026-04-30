@@ -120,6 +120,7 @@ import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPor
 import { SrsBackendClient, type SrsBackendTransport } from '@/application/clients/SrsBackendClient';
 import { BackendKernel } from '../../worker/bootstrap/BackendKernel';
 import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
+import { WorkerSqliteDatabaseService } from '../../worker/db/SqliteDatabaseService';
 
 const logger = createLogger('ApplicationContext');
 
@@ -1174,7 +1175,14 @@ export class ApplicationContext {
     if (ApplicationContext.isSrsBackendWorkerEnabled()) {
       try {
         const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
-        const backendKernel = BackendKernel.createWithBridge(bridge);
+        const browserSiyuanApi = new BrowserSiyuanAdapter();
+        const backendKernel = new BackendKernel({
+          database: new WorkerSqliteDatabaseService(bridge),
+          resolveExistingBlockIds: async (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
+            browserSiyuanApi,
+            blockIds,
+          ),
+        });
         const transport: SrsBackendTransport = {
           request: (request) => backendKernel.handle(request),
         };
@@ -1409,6 +1417,38 @@ export class ApplicationContext {
       readJSON: <T>(path: string) => fileService.readJSON<T>(path),
       writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
     };
+  }
+
+  private static async resolveExistingBlockIdsViaSiyuan(
+    siyuanApi: Pick<BrowserSiyuanAdapter, 'sql'>,
+    blockIds: string[],
+  ): Promise<string[]> {
+    const normalized = Array.from(new Set(
+      blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean),
+    ));
+    if (normalized.length === 0) {
+      return [];
+    }
+
+    const existing: string[] = [];
+    const batchSize = 500;
+    for (let index = 0; index < normalized.length; index += batchSize) {
+      const batch = normalized.slice(index, index + batchSize);
+      const sql = `
+        SELECT id
+        FROM blocks
+        WHERE id IN (${batch.map((id) => `'${id.replace(/'/g, "''")}'`).join(',')})
+      `;
+      const rows = await siyuanApi.sql<{ id?: unknown }>(sql);
+      for (const row of rows) {
+        const id = String(row.id || '').trim();
+        if (id) {
+          existing.push(id);
+        }
+      }
+    }
+
+    return Array.from(new Set(existing));
   }
 
   private static isSrsBackendWorkerEnabled(): boolean {

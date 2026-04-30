@@ -174,5 +174,35 @@ describe('BackendKernel', () => {
         changedToMissing: false,
       },
     });
+
+    const sourceSweepHostResponse = await kernel.handle({
+      id: 'source-sweep-host',
+      jsonrpc: '2.0',
+      method: 'browser.sourceExistence.applySweepHost',
+      params: [{ request: { blockIds: ['block-1'] } }],
+    });
+    expect(sourceSweepHostResponse).toEqual({
+      id: 'source-sweep-host',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'SrsBackendWorker host source-existence resolver is unavailable',
+      },
+    });
+
+    const reviewFeedbackResponse = await kernel.handle({
+      id: 'review-feedback',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-1', rating: 3 }],
+    });
+    expect(reviewFeedbackResponse).toEqual({
+      id: 'review-feedback',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'SrsBackendWorker review.feedback is unavailable in current phase (cardId=card-1)',
+      },
+    });
   });
 });

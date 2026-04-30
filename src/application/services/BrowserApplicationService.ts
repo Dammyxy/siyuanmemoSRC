@@ -407,13 +407,12 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
 
     try {
-      const existingBlockIds = await this.loadExistingBlockIds(blockIds);
-      const sweep = await this.srsBackendClient.browserSourceExistenceApplySweep({
+      const sweep = await this.srsBackendClient.browserSourceExistenceApplySweepHost({
         blockIds,
         limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
         staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
         includeKnownMissing: true,
-      }, Array.from(existingBlockIds), Date.now());
+      }, Date.now());
       return {
         changed: sweep.changed,
         changedToMissing: sweep.changedToMissing,
@@ -447,31 +446,6 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
   }
 
-  private async loadExistingBlockIds(blockIds: string[]): Promise<Set<string>> {
-    const normalizedBlockIds = Array.from(new Set(blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean)));
-    const existing = new Set<string>();
-    if (normalizedBlockIds.length === 0) {
-      return existing;
-    }
-
-    for (let index = 0; index < normalizedBlockIds.length; index += SOURCE_EXISTENCE_BATCH_SIZE) {
-      const batchIds = normalizedBlockIds.slice(index, index + SOURCE_EXISTENCE_BATCH_SIZE);
-      const rows = await this.siyuanApi.sql<{ id?: unknown }>(`
-        SELECT id
-        FROM blocks
-        WHERE id IN (${batchIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(',')})
-      `);
-      for (const row of rows) {
-        const id = String(row.id || '').trim();
-        if (id) {
-          existing.add(id);
-        }
-      }
-    }
-
-    return existing;
-  }
-
   private scheduleSourceExistenceSweepFromBackend(): void {
     if (!this.srsBackendClient || this.sourceExistenceSweepInFlight) {
       return;
@@ -488,16 +462,11 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         return;
       }
 
-      const existingBlockIds = await this.loadExistingBlockIds(candidates.map((candidate) => candidate.blockId));
       const scopedRequest = {
         ...request,
         blockIds: candidates.map((candidate) => candidate.blockId),
       };
-      await this.srsBackendClient!.browserSourceExistenceApplySweep(
-        scopedRequest,
-        Array.from(existingBlockIds),
-        Date.now(),
-      );
+      await this.srsBackendClient!.browserSourceExistenceApplySweepHost(scopedRequest, Date.now());
     })().finally(() => {
       this.sourceExistenceSweepInFlight = null;
     });

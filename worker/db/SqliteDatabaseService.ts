@@ -158,6 +158,16 @@ export class WorkerSqliteDatabaseService {
     await this.init();
 
     const candidates = this.repository!.getSourceExistenceRefreshCandidates(request);
+    return this.applySourceExistenceSweepFromCandidates(candidates, existingBlockIds, checkedAt);
+  }
+
+  async applySourceExistenceSweepFromCandidates(
+    candidates: SourceExistenceRefreshCandidate[],
+    existingBlockIds: string[],
+    checkedAt = Date.now(),
+  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean }> {
+    await this.init();
+
     if (candidates.length === 0) {
       return { checked: 0, updated: 0, changed: false, changedToMissing: false };
     }

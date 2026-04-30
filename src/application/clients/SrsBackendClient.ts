@@ -3,6 +3,7 @@ import type {
   BackendBrowserDeckPageResult,
   BackendBrowserDeckSnapshotQuery,
   BackendSourceExistenceSweepApplyResult,
+  BackendReviewFeedbackRequest,
   BackendSourceExistenceRefreshCandidate,
   BackendSourceExistenceRefreshRequest,
   BackendSourceExistenceSummary,
@@ -109,6 +110,20 @@ export class SrsBackendClient {
       existingBlockIds,
       checkedAt,
     });
+  }
+
+  async browserSourceExistenceApplySweepHost(
+    request: BackendSourceExistenceRefreshRequest,
+    checkedAt = Date.now(),
+  ): Promise<BackendSourceExistenceSweepApplyResult> {
+    return this.call<BackendSourceExistenceSweepApplyResult>('browser.sourceExistence.applySweepHost', {
+      request,
+      checkedAt,
+    });
+  }
+
+  async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<never> {
+    return this.call<never>('review.feedback', request);
   }
 
   private async call<TResult>(method: BackendRpcRequest['method'], params?: unknown): Promise<TResult> {

@@ -14,7 +14,9 @@ export type BackendRpcMethod =
   | 'browser.sourceExistence.update'
   | 'browser.sourceExistence.byBlockIds'
   | 'browser.sourceExistence.summary'
-  | 'browser.sourceExistence.applySweep';
+  | 'browser.sourceExistence.applySweep'
+  | 'browser.sourceExistence.applySweepHost'
+  | 'review.feedback';
 
 export type BackendRpcId = number | string;
 
@@ -150,4 +152,12 @@ export interface BackendSourceExistenceSweepApplyResult {
   updated: number;
   changed: boolean;
   changedToMissing: boolean;
+}
+
+export interface BackendReviewFeedbackRequest {
+  cardId: string;
+  rating: 1 | 2 | 3 | 4;
+  queueType?: string;
+  sessionId?: string;
+  reviewedAt?: number;
 }

@@ -4,6 +4,16 @@ Last update: 2026-04-30 (Round 229)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-01 - phase2 host-sweep downshift + phase3 review rpc scaffold
+
+- Task: 按“做快点和多点”要求同轮推进 Phase2 + P3：把 source-existence host existence 查询从 Browser app 侧下沉到 worker-side pipeline，并落地 `review.feedback` worker RPC 骨架（explicit unavailable）。
+- Touched slice: Browser worker bridge + composition root + worker rpc contracts；`src/application/services/BrowserApplicationService.ts`、`src/application/ApplicationContext.ts`、`src/application/clients/SrsBackendClient.ts`、`packages/contracts/src/backend-rpc.ts`、`worker/bootstrap/BackendKernel.ts`、`worker/db/SqliteDatabaseService.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: Browser source-existence refresh/sweep 不再在 app 侧拼 host SQL existence 结果；`BackendKernel` 通过注入 resolver 承担 host existence 查询并在 worker 内完成候选评估+update（`applySweepHost`），减少 app-layer SQL owner 影子路径；同时补了 P3 `review.feedback` 显式 unavailable 契约，避免未来临时 fallback 双写。
+- Debt deferred: `review.feedback` 仍未接入真实 Review/Queue/Scheduler 单事务提交（仅 RPC 骨架）；worker transport 仍是同进程 bridge，不是独立 postMessage worker runtime。
+- Why deferred: 本轮优先满足“快+多”但仍控制风险；真实 P3 提交链会触及 queue/session/scheduler ownership，需单独事务契约与回滚语义验证。
+- Next safe step: 把 `review.feedback` 接到 worker 内部 transaction boundary（先 retrieval queue 一条链），并保持 feature flag 灰度+显式 unavailable contract。
+- Validation: `pnpm exec vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts src/application/__tests__/service-access.integration.test.ts`（4 files/31 tests passed）；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 i18n/Sass warning）；`git diff --check` passed（仅 LF/CRLF warning）。
+
 ### 2026-05-01 - backend migration phase 2 source-sweep candidate drift guard
 
 - Task: 继续 Phase 2 收口时修复 source-existence 后台 sweep 的候选漂移风险，并补 worker-first 断言测试。

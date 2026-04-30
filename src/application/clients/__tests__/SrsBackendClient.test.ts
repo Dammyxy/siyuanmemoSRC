@@ -65,6 +65,14 @@ describe('SrsBackendClient', () => {
               id: request.id,
               result: { checked: 1, updated: 1, changed: true, changedToMissing: false },
             };
+          case 'browser.sourceExistence.applySweepHost':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: { checked: 1, updated: 1, changed: true, changedToMissing: false },
+            };
+          case 'review.feedback':
+            return { jsonrpc: '2.0', id: request.id, error: { code: 'BACKEND_UNAVAILABLE', message: 'review not ready' } };
           default:
             return { jsonrpc: '2.0', id: request.id, error: { code: 'METHOD_NOT_FOUND', message: 'not mocked' } };
         }
@@ -87,6 +95,13 @@ describe('SrsBackendClient', () => {
       changed: true,
       changedToMissing: false,
     });
+    await expect(client.browserSourceExistenceApplySweepHost({ blockIds: ['block-1'] }, 1)).resolves.toEqual({
+      checked: 1,
+      updated: 1,
+      changed: true,
+      changedToMissing: false,
+    });
+    await expect(client.reviewFeedback({ cardId: 'card-1', rating: 3 })).rejects.toThrow('BACKEND_UNAVAILABLE: review not ready');
 
     expect(requests.map((request) => request.method)).toEqual([
       'browser.deck.page',
@@ -99,6 +114,8 @@ describe('SrsBackendClient', () => {
       'browser.sourceExistence.update',
       'browser.sourceExistence.summary',
       'browser.sourceExistence.applySweep',
+      'browser.sourceExistence.applySweepHost',
+      'review.feedback',
     ]);
     expect(requests[0].params).toEqual([{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }]);
     expect(requests[1].params).toEqual([{ query: { preset: 'all' } }]);

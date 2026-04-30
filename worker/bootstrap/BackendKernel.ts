@@ -8,6 +8,7 @@ import {
   type BackendSourceExistenceRefreshRequest,
   type BackendSourceExistenceSummary,
   type BackendSourceExistenceUpdate,
+  type BackendReviewFeedbackRequest,
   type BackendDiagnosticsStatusResult,
   type BackendHealthResult,
   type BackendRpcRequest,
@@ -22,6 +23,7 @@ import {
 
 interface BackendKernelDependencies {
   database: WorkerSqliteDatabaseService;
+  resolveExistingBlockIds?: (blockIds: string[]) => Promise<string[]>;
 }
 
 function buildSuccess<TResult>(
@@ -102,6 +104,10 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleSourceExistenceByBlockIds(request.params));
         case 'browser.sourceExistence.summary':
           return buildSuccess(request.id, await this.handleSourceExistenceSummary(request.params));
+        case 'browser.sourceExistence.applySweepHost':
+          return buildSuccess(request.id, await this.handleSourceExistenceApplySweepHost(request.params));
+        case 'review.feedback':
+          return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
         case 'browser.sourceExistence.applySweep':
           return buildSuccess(request.id, await this.handleSourceExistenceApplySweep(request.params));
         default:
@@ -109,7 +115,7 @@ export class BackendKernel {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('persistence bridge is unavailable')) {
+      if (message.includes('persistence bridge is unavailable') || message.includes('is unavailable')) {
         return buildError(request.id, 'BACKEND_UNAVAILABLE', message);
       }
       return buildError(request.id, 'INTERNAL_ERROR', message);
@@ -219,6 +225,33 @@ export class BackendKernel {
       named?.request ?? {},
       existingBlockIds,
       named?.checkedAt,
+    );
+  }
+
+  private async handleSourceExistenceApplySweepHost(params: unknown): Promise<BackendSourceExistenceSweepApplyResult> {
+    if (!this.deps.resolveExistingBlockIds) {
+      throw new Error('SrsBackendWorker host source-existence resolver is unavailable');
+    }
+    const named = this.readNamedParams<{ request?: BackendSourceExistenceRefreshRequest; checkedAt?: number }>(params);
+    const request = named?.request ?? {};
+    const candidates = await this.deps.database.getSourceExistenceRefreshCandidates(request);
+    if (candidates.length === 0) {
+      return { checked: 0, updated: 0, changed: false, changedToMissing: false };
+    }
+    const existingBlockIds = await this.deps.resolveExistingBlockIds(
+      candidates.map((candidate) => candidate.blockId),
+    );
+    return this.deps.database.applySourceExistenceSweepFromCandidates(
+      candidates,
+      existingBlockIds,
+      named?.checkedAt,
+    );
+  }
+
+  private async handleReviewFeedback(params: unknown): Promise<never> {
+    const named = this.readNamedParams<BackendReviewFeedbackRequest>(params);
+    throw new Error(
+      `SrsBackendWorker review.feedback is unavailable in current phase (cardId=${String(named?.cardId || '')})`,
     );
   }
 }

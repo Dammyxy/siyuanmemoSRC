@@ -443,6 +443,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       | 'browserStats'
       | 'browserSourceExistenceRefreshCandidates'
       | 'browserSourceExistenceApplySweep'
+      | 'browserSourceExistenceApplySweepHost'
       | 'browserSourceExistenceUpdate'
       | 'browserSourceExistenceByBlockIds'
       | 'browserSourceExistenceSummary'
@@ -470,6 +471,12 @@ describe('BrowserApplicationService deck query kernel', () => {
       ]),
       browserSourceExistenceUpdate: vi.fn(async () => 1),
       browserSourceExistenceApplySweep: vi.fn(async () => ({
+        checked: 1,
+        updated: 1,
+        changed: true,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
         checked: 1,
         updated: 1,
         changed: true,
@@ -538,10 +545,9 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(backendClient.browserDeckMatchedIds).toHaveBeenCalled();
     expect(backendClient.browserCountCards).toHaveBeenCalled();
     expect(backendClient.browserStats).toHaveBeenCalled();
-    expect(backendClient.browserSourceExistenceApplySweep).toHaveBeenCalled();
-    expect(backendClient.browserSourceExistenceApplySweep).toHaveBeenCalledWith(
+    expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalled();
+    expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledWith(
       expect.objectContaining({ blockIds: ['block-worker-1', 'block-worker-2'] }),
-      expect.any(Array),
       expect.any(Number),
     );
   });
