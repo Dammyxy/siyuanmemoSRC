@@ -4,6 +4,7 @@
 pnpm-lock.yaml
 package.zip
 node_modules
+.worktrees/
 dev
 dist
 build
