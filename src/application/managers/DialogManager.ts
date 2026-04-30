@@ -570,6 +570,9 @@ export class DialogManager implements IDialogManager {
           }),
           clear: () => practiceQueueManager.clearPracticeQueue(),
         },
+        kernelCompanionHandlers: {
+          refresh: () => this.context.getKernelCompanionPort().getStatus(),
+        },
       },
       events: {
         save: async (settings: SettingsPanelSavePayload) => {

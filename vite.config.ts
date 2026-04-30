@@ -74,6 +74,10 @@ export default defineConfig(({
             dest: "./",
           },
           {
+            src: "./kernel.js",
+            dest: "./",
+          },
+          {
             src: [
               "./src/i18n/**/*.json",
               "!./src/i18n/**/__tests__/**",
@@ -128,6 +132,7 @@ export default defineConfig(({
                       "src/i18n/*.json",
                       "./README*.md",
                       "./plugin.json",
+                      "./kernel.js",
                     ])
                     for (const file of files) {
                       this.addWatchFile(file)

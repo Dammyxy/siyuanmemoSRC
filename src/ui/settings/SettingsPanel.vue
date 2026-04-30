@@ -675,6 +675,59 @@
           </div>
         </div>
         </div>
+
+        <div v-show="isActiveSubTab('maintenance', 'kernel-companion')" class="settings-subtab-panel">
+        <h3>{{ t('kernelCompanionTitle', '内核伴生') }}</h3>
+        <p class="form-hint form-hint--section">
+          {{ t('kernelCompanionIntro', '检查 SiYuanMemo 内核侧 kernel.js 是否已加载，并验证 JSON-RPC 握手。') }}
+        </p>
+
+        <div class="form-actions">
+          <button
+            class="btn-secondary"
+            type="button"
+            :disabled="kernelCompanionBusy"
+            @click="refreshKernelCompanionStatus"
+          >
+            {{ kernelCompanionBusy ? t('kernelCompanionRefreshing', '刷新中...') : t('kernelCompanionRefresh', '刷新') }}
+          </button>
+        </div>
+
+        <p v-if="kernelCompanionError" class="form-hint form-hint--warning">
+          {{ kernelCompanionError }}
+        </p>
+
+        <div v-if="kernelCompanionStatus" class="form-example">
+          <div class="example-label">
+            {{ kernelCompanionStatus.kind === 'available' ? t('kernelCompanionAvailable', '可用') : t('kernelCompanionUnavailable', '不可用') }}
+          </div>
+          <div class="example-value">
+            {{ kernelCompanionStatus.pluginName }}
+            <span v-if="kernelCompanionStatus.pluginState"> | {{ t('kernelCompanionState', '状态') }}: {{ kernelCompanionStatus.pluginState }}</span>
+          </div>
+          <div v-if="kernelCompanionStatus.kind === 'available'" class="example-value" style="margin-top: 6px;">
+            {{ t('kernelCompanionVersion', '版本') }}: {{ kernelCompanionStatus.version || '-' }}
+            |
+            {{ t('kernelCompanionPlatform', '平台') }}: {{ kernelCompanionStatus.platform || '-' }}
+            |
+            {{ t('kernelCompanionUptime', '运行时长') }}: {{ formatKernelCompanionUptime(kernelCompanionStatus.uptimeMs) }}
+          </div>
+          <div v-else class="example-value" style="margin-top: 6px;">
+            {{ t('kernelCompanionReason', '原因') }}: {{ kernelCompanionStatus.message || kernelCompanionStatus.reason }}
+          </div>
+          <div class="example-value" style="margin-top: 6px;">
+            {{ t('kernelCompanionMethods', 'RPC 方法') }}:
+            <span v-if="kernelCompanionStatus.methods.length === 0">-</span>
+            <code
+              v-for="method in kernelCompanionStatus.methods"
+              :key="method.name"
+              style="margin-left: 6px;"
+            >
+              {{ method.name }}
+            </code>
+          </div>
+        </div>
+        </div>
             </section>
           </div>
 
@@ -1307,6 +1360,7 @@ import {
   buildSettingsAIPromptPresetCards,
   buildSettingsAIUserSkillToolGroupLabelMap,
 } from './settingsAIViewModel';
+import type { KernelCompanionStatus } from '@/application/ports/KernelCompanionPort';
 import {
   type SettingsFormState as Settings,
   type SettingsPanelSavePayload,
@@ -1372,6 +1426,9 @@ const props = defineProps<{
     add: (filter: { type: string; value: string }) => Promise<number>;
     start: () => Promise<void>;
     clear: () => Promise<void>;
+  };
+  kernelCompanionHandlers?: {
+    refresh: () => Promise<KernelCompanionStatus>;
   };
 }>();
 
@@ -1474,6 +1531,10 @@ const {
 });
 
 const settings = ref<Settings>(createDefaultSettingsFormState());
+const kernelCompanionStatus = ref<KernelCompanionStatus | null>(null);
+const kernelCompanionBusy = ref(false);
+const kernelCompanionError = ref('');
+let didAutoRefreshKernelCompanion = false;
 
 function ensureActiveSubTab(tabKey = activeTab.value): void {
   activeSubTabByTab.value = ensureActiveSettingsSubTabSelection({
@@ -1512,9 +1573,63 @@ function isActiveSubTab(tabKey: SettingsTabKey, subTabKey: SettingsSubTabKey): b
   });
 }
 
+function isKernelCompanionSubTabActive(): boolean {
+  return isActiveSubTab('maintenance', 'kernel-companion');
+}
+
+function formatKernelCompanionUptime(uptimeMs?: number): string {
+  if (typeof uptimeMs !== 'number' || !Number.isFinite(uptimeMs) || uptimeMs < 0) {
+    return '-';
+  }
+  if (uptimeMs < 1000) {
+    return `${Math.round(uptimeMs)}ms`;
+  }
+  return `${Math.round(uptimeMs / 1000)}s`;
+}
+
+async function refreshKernelCompanionStatus(): Promise<void> {
+  if (kernelCompanionBusy.value) {
+    return;
+  }
+
+  kernelCompanionBusy.value = true;
+  kernelCompanionError.value = '';
+  try {
+    if (!props.kernelCompanionHandlers?.refresh) {
+      kernelCompanionStatus.value = {
+        kind: 'unavailable',
+        checkedAt: Date.now(),
+        pluginName: 'siyuan-plugin-siyuanmemo',
+        methods: [],
+        reason: 'not-loaded',
+        message: t('kernelCompanionHandlerMissing', '当前前端未接入内核伴生状态查询。'),
+      };
+      return;
+    }
+    kernelCompanionStatus.value = await props.kernelCompanionHandlers.refresh();
+  } catch (error) {
+    kernelCompanionError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    kernelCompanionBusy.value = false;
+  }
+}
+
+async function maybeAutoRefreshKernelCompanionStatus(): Promise<void> {
+  if (didAutoRefreshKernelCompanion || !isKernelCompanionSubTabActive()) {
+    return;
+  }
+  didAutoRefreshKernelCompanion = true;
+  await refreshKernelCompanionStatus();
+}
+
 watch(activeTab, async () => {
   ensureActiveSubTab();
   await scrollSettingsContentToTop();
+  await maybeAutoRefreshKernelCompanionStatus();
+});
+
+watch(activeSubTabKey, async () => {
+  await maybeAutoRefreshKernelCompanionStatus();
 });
 
 watch(() => props.defaultTab, (tab) => {

@@ -107,6 +107,7 @@ export function buildSettingsSubTabsByTab(
     ],
     maintenance: [
       { key: 'block-attrs', label: t('blockAttrsCleanupTitle', '块属性清理') },
+      { key: 'kernel-companion', label: t('settingsSubtabKernelCompanion', '内核伴生') },
     ],
     about: [
       { key: 'about', label: t('settingsAboutTab', '关于') },

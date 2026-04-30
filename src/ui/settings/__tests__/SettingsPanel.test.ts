@@ -158,6 +158,17 @@ function mountPanel(defaultTab = 'params', extraProps: Record<string, unknown> =
         tools: 'Tools',
         sections: 'Sections',
         primaryAction: 'Primary Action',
+        settingsSubtabKernelCompanion: 'Kernel Companion',
+        kernelCompanionTitle: 'Kernel Companion',
+        kernelCompanionRefresh: 'Refresh',
+        kernelCompanionAvailable: 'Available',
+        kernelCompanionUnavailable: 'Unavailable',
+        kernelCompanionState: 'State',
+        kernelCompanionVersion: 'Version',
+        kernelCompanionPlatform: 'Platform',
+        kernelCompanionUptime: 'Uptime',
+        kernelCompanionMethods: 'RPC Methods',
+        kernelCompanionReason: 'Reason',
         saveSettings: 'Save Settings',
       },
       ...extraProps,
@@ -294,6 +305,90 @@ describe('SettingsPanel', () => {
 
     expect(aboutWrapper.text()).not.toContain('Save Settings');
     expect(aboutWrapper.find('.settings-footer').exists()).toBe(false);
+  });
+
+  it('refreshes and renders available kernel companion status on the maintenance tab', async () => {
+    const refresh = vi.fn(async () => ({
+      kind: 'available' as const,
+      checkedAt: 1777536000000,
+      pluginName: 'siyuan-plugin-siyuanmemo',
+      pluginState: 'running',
+      methods: [
+        { name: 'health', descriptions: ['Return health'] },
+        { name: 'capabilities', descriptions: [] },
+      ],
+      version: '0.2.1',
+      platform: 'windows',
+      uptimeMs: 4321,
+    }));
+    const wrapper = mountPanel('maintenance', {
+      kernelCompanionHandlers: { refresh },
+    });
+    await wrapper.vm.$nextTick();
+
+    await clickSubtab(wrapper, 'Kernel Companion');
+    await wrapper.vm.$nextTick();
+    await Promise.resolve();
+    await wrapper.vm.$nextTick();
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('Available');
+    expect(wrapper.text()).toContain('0.2.1');
+    expect(wrapper.text()).toContain('windows');
+    expect(wrapper.text()).toContain('health');
+    expect(wrapper.text()).toContain('capabilities');
+  });
+
+  it('renders unavailable kernel companion status without blocking settings save elsewhere', async () => {
+    const refresh = vi.fn(async () => ({
+      kind: 'unavailable' as const,
+      checkedAt: 1777536000000,
+      pluginName: 'siyuan-plugin-siyuanmemo',
+      pluginState: 'loaded',
+      methods: [],
+      reason: 'not-running' as const,
+      message: 'Plugin not running',
+    }));
+    const wrapper = mountPanel('maintenance', {
+      kernelCompanionHandlers: { refresh },
+    });
+    await wrapper.vm.$nextTick();
+
+    await clickSubtab(wrapper, 'Kernel Companion');
+    await wrapper.vm.$nextTick();
+    await Promise.resolve();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain('Unavailable');
+    expect(wrapper.text()).toContain('Plugin not running');
+
+    const learningTab = wrapper.findAll('.settings-tab').find((tab) => tab.text() === 'Learning & Scheduling');
+    expect(learningTab).toBeDefined();
+    await learningTab!.trigger('click');
+    await wrapper.vm.$nextTick();
+
+    const saveButton = wrapper.findAll('button').find((btn) => btn.text().includes('Save Settings'));
+    expect(saveButton).toBeDefined();
+    await saveButton!.trigger('click');
+    expect(wrapper.emitted('save')).toBeTruthy();
+  });
+
+  it('shows kernel companion refresh failures in the maintenance panel', async () => {
+    const refresh = vi.fn(async () => {
+      throw new Error('network down');
+    });
+    const wrapper = mountPanel('maintenance', {
+      kernelCompanionHandlers: { refresh },
+    });
+    await wrapper.vm.$nextTick();
+
+    await clickSubtab(wrapper, 'Kernel Companion');
+    await wrapper.vm.$nextTick();
+    await Promise.resolve();
+    await wrapper.vm.$nextTick();
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('network down');
   });
 
   it('shows the symbol-only continuation toggle in the card tab without restoring extra subtabs', async () => {

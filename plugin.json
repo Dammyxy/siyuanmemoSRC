@@ -8,6 +8,11 @@
   "backends": [
     "all"
   ],
+  "kernels": [
+    "windows",
+    "linux",
+    "darwin"
+  ],
   "frontends": [
     "all"
   ],

@@ -75,7 +75,7 @@ flowchart TD
 - AI Workbench / Capture
 - Arena
 - Mobile entry
-- Siyuan / Riff integration
+- Siyuan / Riff / Kernel companion integration
 
 ---
 
@@ -102,6 +102,7 @@ flowchart TD
 - 装配 `XiuyuanApplicationService` / `XiuyuanSyncService`；`XiuyuanApplicationService` 的修远写入 usecases 共享组合根注入的 `XiuyuanSiyuanAdapter`，`XiuyuanSyncService` 的 Riff sync API 依赖由组合根注入 `XiuyuanSyncSiyuanAdapter`
 - 装配 `ProgressiveReadingService` / `SelectionExcerptService` / `SelectionTopicContinuationService` / `TopicDerivedItemService`
 - 装配 `ConfiguredCaptureStorageService` / `ReviewAIWorkbenchRegistry` / `AIWorkbenchService`
+- 装配 `KernelCompanionPort`，把可选内核伴生 JSON-RPC 能力限制在 Siyuan integration 边界内；Settings 只通过应用端口读状态，不直接调用 `/api/plugin/rpc/*`
 - 初始化 `siyuanmemo.db` 的 sql.js 持久化层；首次启动先把旧 `unified-cards.msgpack`、`queues.msgpack`、月度 review logs 与 `arena/store.json` 迁入 SQL，迁移失败才回退旧文件存储；SQL active 后 DB 以二进制文件写入，旧 base64 envelope 只作为读取兼容与迁移备份
 - 装配 `ArenaStoreService` / `ArenaKernelService`，把 AI 策略包竞技和 SRS 只读算法竞技挂到同一个应用层内核；`arena.enabled` 默认为 `false`，关闭时不接入复习建议或 AI 策略包覆盖；开启后 Arena 数据写入 SQL
 
@@ -347,7 +348,7 @@ UI surface：
 - 目标不是枚举所有历史文件，而是让协作者能快速定位“这类行为该去哪一层、哪一组文件找”
 - `__tests__`、备份文件、历史迁移文档不作为主架构基线
 
-### 5.1 根入口（`src/`）
+### 5.1 根入口与插件伴生脚本
 
 - `src/index.ts`：插件生命周期入口；创建 `ApplicationContext`，注册顶栏、Dock、命令、Slash、移动端入口与事件处理器。
 - `src/main.ts`：独立前端挂载入口，主要用于调试 / standalone surface。
@@ -355,6 +356,7 @@ UI surface：
 - `src/commands.ts`：命令入口的轻量封装。
 - `src/index.scss`：全局样式入口。
 - `src/global.d.ts` / `src/shims-vue.d.ts`：全局与 Vue 类型声明。
+- `kernel.js`：SiYuan 内核插件伴生脚本，当前只绑定 `health` / `version` / `capabilities` 三个 JSON-RPC 方法；不写 `siyuanmemo.db`，不接管 scheduler、Riff 写入或主数据流。
 
 ### 5.2 Application 层（`src/application/*`）
 
@@ -428,7 +430,7 @@ Handlers / entries / helpers：
 
 端口与接口：
 
-- `src/application/ports/*`：应用层端口定义，约束基础设施依赖方向；`BrowserDeckReadPort` 是 Browser deck SQL 读优化端口，UI 不直接依赖 SQLite。
+- `src/application/ports/*`：应用层端口定义，约束基础设施依赖方向；`BrowserDeckReadPort` 是 Browser deck SQL 读优化端口，`KernelCompanionPort` 是可选内核伴生 RPC 状态/调用端口，UI 不直接依赖 SQLite 或 Siyuan RPC endpoint。
 - `src/application/interfaces/*`：应用层接口契约。
 
 ### 5.3 Core 层（`src/core/*`）
@@ -485,6 +487,7 @@ Siyuan / Riff / LLM 适配器：
 - `src/infrastructure/siyuan/ProgressiveSiyuanAdapter.ts`
 - `src/infrastructure/siyuan/ProgressiveNativeRiffAdapter.ts`
 - `src/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter.ts`
+- `src/infrastructure/siyuan/SiyuanKernelCompanionAdapter.ts`：调用 `/api/plugin/getLoadedPlugin` 与 `/api/plugin/rpc/siyuan-plugin-siyuanmemo`，把内核伴生加载、运行、RPC error 映射为 `KernelCompanionStatus`；它是唯一允许访问 kernel companion RPC endpoint 的插件前端适配器。
 - `src/infrastructure/siyuan/AISiyuanAdapter.ts`
 - `src/infrastructure/llm/OpenAICompatibleLLMAdapter.ts`：统一 `LLMPort` 的基础设施适配器，支持 OpenAI-compatible / OpenAI / Claude / Gemini 协议和结构化输出传输诊断；provider 自定义 endpoint 既可写完整 URL，也可写 sy-f-misc 风格的相对路径（如 `/chat/completions`、`/messages`、`/models/{model}:generateContent`），运行时会先按 `baseUrl` 解析成最终请求地址，再发起真实上游请求，避免相对地址误打到宿主环境。
 
@@ -953,7 +956,8 @@ UI 层：
 4. `src/core/siyuan/*` 不是 UI / application 默认直连边界；优先端口 + adapter。
 5. Application query/service 不从 `@/ui/browser/*` 取 Browser 契约；共享契约放在 `src/types/browser.ts` 或 application query shared helper。
 6. UI 不新增 `@/infrastructure/*` 直连；确有历史例外时需要在 `scripts/check-boundaries.cjs` allowlist 中显式说明。
-7. 不要把以下路径当活跃架构基线：
+7. Kernel companion 是 Siyuan integration 的可选 RPC 能力。UI / application manager 只能通过 `KernelCompanionPort` 获取状态或调用方法；不要从 Settings、usecase、scheduler、Riff sync 或 persistence 代码直接 fetch `/api/plugin/rpc/*`。
+8. 不要把以下路径当活跃架构基线：
    - `src/domain/queues/*`
    - `src/index.simplified.ts`
    - `src/core/extensions/*`
@@ -989,7 +993,7 @@ UI 层：
 - `DialogManager` 负责 dialog surface，`TabManager` 负责 tab surface 与 surface handoff
 - 桌面端标准 review 入口现在由 `DialogManager` 按 `settings.ui.reviewOpenInNewTabByDefault` / `reviewOpenFullscreenByDefault` 做统一路由；filter-backed review 进入 tab 时通过 transfer-state 恢复 session
 - Review runtime 只保留 `ReviewView.vue` v2 + `UnifiedQueueStrategy` + `UnifiedReviewAdapter` 主链；旧 provider-backed review extension path 已删除，special renderer service 由 application factory 注入
-- 主数据持久化优先使用 `siyuanmemo.db`；浏览器插件 application 层通过 sql.js 单写，kernel.js 只保留未来算法计算 RPC 位置，不直接写 DB
+- 主数据持久化优先使用 `siyuanmemo.db`；浏览器插件 application 层通过 sql.js 单写，`kernel.js` 当前只提供内核伴生 `health` / `version` / `capabilities` 握手与状态检查，不直接写 DB，不迁移 scheduler，不接管 Riff 写入
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-04-30 (Round 227)
+Last update: 2026-04-30 (Round 228)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-04-30 - Kernel companion P0 handshake
+
+- Task: 按上游 SiYuan 内核插件系统预研实现 SiYuanMemo kernel companion P0：跑通 `kernel.js` + JSON-RPC 握手，并在设置页维护区显示内核伴生状态。
+- Touched slice: Siyuan integration / Settings maintenance slice in `plugin.json`, `kernel.js`, `vite.config.ts`, `src/application/ports/KernelCompanionPort.ts`, `src/infrastructure/siyuan/SiyuanKernelCompanionAdapter.ts`, `src/application/ApplicationContext.ts`, `src/application/managers/DialogManager.ts`, `src/ui/settings/{SettingsPanel.vue,settingsPanelViewModel.ts}`, i18n, focused tests, and `ARCHITECTURE.md`.
+- Debt fixed now: 内核 RPC endpoint 访问被收口到 `KernelCompanionPort` + `SiyuanKernelCompanionAdapter`，Settings/DialogManager 不直接 fetch `/api/plugin/rpc/*`；伴生能力以 explicit `available | unavailable` 状态暴露，不用隐藏 fallback 掩盖未加载、未运行或 RPC error；`kernel.js` 纳入 build/dev 静态拷贝，避免 manifest 声明和发布产物脱节。
+- Debt deferred: 不迁移 scheduler、Riff 写入、Xiuyuan sync、WebSocket broadcast 或 `siyuanmemo.db` ownership；也不做 `listRiffDecks` / `auditNativeRiff`。
+- Why deferred: P0 目标是验证内核插件生命周期与 JSON-RPC envelope，真实写入/调度/存储 ownership 需要单独的事务、并发和错误恢复契约，混入本轮会扩大风险。
+- Next safe step: 在本地已编译 SiYuan 内核分支里手测维护页状态；若 RPC envelope 或 loaded-plugin shape 与预研不一致，先只改 `SiyuanKernelCompanionAdapter` 和对应契约测试。
+- Validation: `pnpm exec vitest run src/infrastructure/siyuan/__tests__/SiyuanKernelCompanionAdapter.test.ts src/ui/settings/__tests__/settingsPanelViewModel.test.ts src/ui/settings/__tests__/SettingsPanel.test.ts src/application/managers/DialogManager.test.ts --reporter=dot` (4 files / 42 tests passed); `pnpm run check:boundaries` passed; `pnpm build` passed with existing i18n/Sass warnings and copied `kernel.js` into `dist`; `git diff --check` passed with LF/CRLF warnings only.
 
 ### 2026-04-30 - D10 D52 continuous bounded-context big-file split
 

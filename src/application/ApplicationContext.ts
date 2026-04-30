@@ -101,6 +101,7 @@ import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiy
 import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
 import { AISiyuanAdapter } from '@/infrastructure/siyuan/AISiyuanAdapter';
 import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/ConfiguredCaptureStorageSiyuanAdapter';
+import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
 import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
@@ -115,6 +116,7 @@ import type { IDeletionTracker } from '@/core/xiuyuan/domain/services/IDeletionT
 import { DEFAULT_SETTINGS } from '@/types/settings';
 import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService.types';
 import { isErr } from '@/types/result';
+import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
 
 const logger = createLogger('ApplicationContext');
 
@@ -136,6 +138,7 @@ interface ApplicationServiceRegistry {
   cardTypeDetectionService: CardTypeDetectionService;
   docTreeReviewScopeService: DocTreeReviewScopeService;
   configuredCaptureStorageService: ConfiguredCaptureStorageService;
+  kernelCompanion: KernelCompanionPort;
   excerptRecordService: ExcerptRecordService;
   progressiveReadingService: ProgressiveReadingService;
   reviewScopeCardCreationSyncService: ReviewScopeCardCreationSyncService;
@@ -402,6 +405,10 @@ export class ApplicationContext {
       return new ConfiguredCaptureStorageService(
         new ConfiguredCaptureStorageSiyuanAdapter(context.getPlugin().app),
       );
+    });
+
+    this.registerServiceFactory('kernelCompanion', () => {
+      return new SiyuanKernelCompanionAdapter();
     });
 
     this.registerServiceFactory('excerptRecordService', (context) => {
@@ -1818,6 +1825,10 @@ export class ApplicationContext {
 
   getConfiguredCaptureStorageService(): ConfiguredCaptureStorageService {
     return this.getService('configuredCaptureStorageService');
+  }
+
+  getKernelCompanionPort(): KernelCompanionPort {
+    return this.getService('kernelCompanion');
   }
 
   getExcerptRecordService(): ExcerptRecordService {

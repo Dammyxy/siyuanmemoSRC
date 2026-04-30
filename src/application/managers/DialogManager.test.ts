@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DialogManager } from './DialogManager';
 import type { ApplicationContext } from '../ApplicationContext';
 import type { Plugin } from 'siyuan';
+import { createVueDialog } from '@/utils/dialog';
 
 // Mock dependencies
 vi.mock('@/utils/dialog', () => ({
@@ -101,6 +102,16 @@ describe('DialogManager', () => {
       getConfiguredCaptureStorageService: vi.fn(() => ({
         listOpenNotebooks: vi.fn(async () => []),
       })),
+      getKernelCompanionPort: vi.fn(() => ({
+        getStatus: vi.fn(async () => ({
+          kind: 'unavailable',
+          checkedAt: Date.now(),
+          pluginName: 'siyuan-plugin-siyuanmemo',
+          methods: [],
+          reason: 'not-loaded',
+          message: 'Plugin not loaded',
+        })),
+      })),
     } as any;
 
     mockPlugin = {} as Plugin;
@@ -151,6 +162,36 @@ describe('DialogManager', () => {
       expect(() => {
         dialogManager.closeSettingsDialog();
       }).not.toThrow();
+    });
+
+    it('passes kernel companion refresh handler through the settings dialog props', async () => {
+      const getStatus = vi.fn(async () => ({
+        kind: 'available',
+        checkedAt: Date.now(),
+        pluginName: 'siyuan-plugin-siyuanmemo',
+        pluginState: 'running',
+        methods: [{ name: 'health', descriptions: [] }],
+        version: '0.2.1',
+        platform: 'windows',
+        uptimeMs: 100,
+      }));
+      vi.mocked(mockContext.getKernelCompanionPort).mockReturnValue({ getStatus } as never);
+
+      await dialogManager.openSettingsDialog('maintenance');
+
+      const dialogConfig = vi.mocked(createVueDialog).mock.calls.at(-1)?.[0] as {
+        props?: {
+          kernelCompanionHandlers?: {
+            refresh: () => Promise<unknown>;
+          };
+        };
+      };
+      expect(dialogConfig.props?.kernelCompanionHandlers?.refresh).toBeTypeOf('function');
+      await expect(dialogConfig.props!.kernelCompanionHandlers!.refresh()).resolves.toMatchObject({
+        kind: 'available',
+        pluginState: 'running',
+      });
+      expect(getStatus).toHaveBeenCalledTimes(1);
     });
   });
 

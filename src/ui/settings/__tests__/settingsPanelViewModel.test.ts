@@ -39,6 +39,7 @@ const labels: Record<string, string> = {
   settingsSubtabAiBuiltInSkill: 'Built-in Skill',
   settingsSubtabAiUserSkills: 'User Skills',
   blockAttrsCleanupTitle: 'Block Attribute Cleanup',
+  settingsSubtabKernelCompanion: 'Kernel Companion',
 };
 
 const t: SettingsI18nLookup = (key, fallback) => labels[key] || fallback;
@@ -95,6 +96,20 @@ describe('settingsPanelViewModel', () => {
       activeTab: 'about',
       selectedSubTabs: DEFAULT_SETTINGS_SUBTAB_SELECTION,
     }).showSettingsFooter).toBe(false);
+  });
+
+  it('exposes kernel companion under maintenance subtabs', () => {
+    const viewModel = resolveSettingsNavigationViewModel({
+      tabs: buildSettingsTabs(t),
+      subTabsByTab: buildSettingsSubTabsByTab(t),
+      activeTab: 'maintenance',
+      selectedSubTabs: DEFAULT_SETTINGS_SUBTAB_SELECTION,
+    });
+
+    expect(viewModel.activeSubTabs.map((tab) => tab.label)).toEqual([
+      'Block Attribute Cleanup',
+      'Kernel Companion',
+    ]);
   });
 
   it('falls back to first enabled subtab and refuses disabled selection', () => {
