@@ -64,5 +64,27 @@ describe('FollowerCommandClient', () => {
       params: { cardId: 'card-1' },
     }, 2_000)).rejects.toThrow('INTERNAL_ERROR: boom');
   });
-});
 
+  it('throws explicit unavailable when relay polling times out', async () => {
+    const client = new FollowerCommandClient({
+      writerSubmitCommand: vi.fn(async () => ({
+        commandId: 'cmd-1',
+        ownerInstanceId: 'writer-1',
+        status: 'queued',
+        now: 1,
+      })),
+      writerGetCommandResult: vi.fn(async () => ({
+        commandId: 'cmd-1',
+        status: 'pending',
+        ownerInstanceId: 'writer-1',
+        now: Date.now(),
+      })),
+    } as unknown as KernelSidecarClient);
+
+    await expect(client.submitAndWait({
+      instanceId: 'follower-1',
+      method: 'review.feedback',
+      params: { cardId: 'card-1' },
+    }, 50)).rejects.toThrow('BACKEND_UNAVAILABLE: writer relay timeout');
+  });
+});

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 235)
+Last update: 2026-05-01 (Round 236)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase4 relay method extension + failure contracts hardening
+
+- Task: 继续按“多做几个”推进 P4 收尾，在不切默认主路径前提下扩展 writer relay method 覆盖，并补 follower/writer 异常契约回归测试。
+- Touched slice: Application relay dispatch + runtime relay failure contract；`src/application/ApplicationContext.ts`、`src/application/clients/__tests__/FollowerCommandClient.test.ts`、`src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: `ApplicationContext.executeWriterRelayCommand()` 新增 `browser.sourceExistence.update` 与 `browser.sourceExistence.applySweep` relay 分支（配合既有 `review.feedback`/`applySweepHost`），避免 follower->writer 仅能覆盖 host-sweep 的 method 盲区；补了 relay timeout 显式 `BACKEND_UNAVAILABLE`、lease owner 变更后 mode 降级、writer command handler 异常 -> `writerFailCommand(INTERNAL_ERROR)` 三类关键失败契约测试。
+- Debt deferred: writer relay 仍为 polling contract（未接 WebSocket push/ack）；worker mutation 仍主要集中在 review + source-existence 族，Card/Queue 其他写入尚未统一迁入 backend-rpc relay 面。
+- Why deferred: 本轮优先收 P4 低风险闭环（method coverage + failure semantics），避免一次跨到新 transport 机制与更大 mutation 面导致 blast radius 扩大。
+- Next safe step: 继续 P4 收尾，补 multi-window handover 崩溃接管回归（至少覆盖 pending relay 在 writer owner 切换时的 contract），并按风险把新增 worker mutation 纳入 relay 白名单。
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase4 p4-2 p4-3 frontend runtime relay closure
 

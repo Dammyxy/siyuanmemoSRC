@@ -110,4 +110,107 @@ describe('FrontendInstanceRuntime', () => {
     }));
     await runtime.dispose();
   });
+
+  it('reports follower when lease owner changes after start', async () => {
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          lease: {
+            instanceId: 'instance-a',
+            acquiredAt: 1,
+            expiresAt: 2,
+            lastHeartbeatAt: 1,
+          },
+          now: 1,
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          lease: {
+            instanceId: 'instance-b',
+            acquiredAt: 1,
+            expiresAt: 2,
+            lastHeartbeatAt: 1,
+          },
+          now: 2,
+        }),
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-b',
+          acquiredAt: 1,
+          expiresAt: 2,
+          lastHeartbeatAt: 1,
+        },
+        now: 2,
+      })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      leaseTtlMs: 9_000,
+    });
+
+    await runtime.start();
+    expect(runtime.getMode()).toBe('writer');
+    await expect(runtime.ensureWritable()).rejects.toThrow(
+      'BACKEND_UNAVAILABLE: writer lease held by another instance',
+    );
+    expect(runtime.getMode()).toBe('follower');
+    await runtime.dispose();
+  });
+
+  it('fails relay command via writerFailCommand when handler throws', async () => {
+    const writerTakeCommand = vi.fn()
+      .mockResolvedValueOnce({
+        command: {
+          commandId: 'cmd-fail-1',
+          requesterInstanceId: 'follower-1',
+          method: 'review.feedback',
+          params: { cardId: 'card-1' },
+          requestedAt: 1,
+        },
+        now: 2,
+      })
+      .mockResolvedValue({
+        command: null,
+        now: 3,
+      });
+    const writerFailCommand = vi.fn(async () => ({ ok: true, now: 4 }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 1,
+          expiresAt: 2,
+          lastHeartbeatAt: 1,
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+      writerFailCommand,
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      relayPollIntervalMs: 250,
+      writerCommandHandler: async () => {
+        throw new Error('boom-handler');
+      },
+    });
+
+    await runtime.start();
+    await new Promise((resolve) => setTimeout(resolve, 320));
+    expect(writerFailCommand).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-a',
+      commandId: 'cmd-fail-1',
+      error: expect.objectContaining({
+        code: 'INTERNAL_ERROR',
+      }),
+    }));
+    await runtime.dispose();
+  });
 });

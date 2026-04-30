@@ -18,7 +18,7 @@
 ## 调研来源
 
 - PR: https://github.com/siyuan-note/siyuan/pull/17487
-- Kernel plugin type declaration: https://raw.githubusercontent.com/Zuoqiu-Yingyi/petal/feat/kernel-plugin/kernel.d.ts
+- Kernel plugin type declaration: `H:/project-F/flashcard/资料/kernel.d.ts`
 - 上游实现分支：
   - `kernel/plugin/*`
   - `kernel/api/plugin.go`

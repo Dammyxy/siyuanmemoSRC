@@ -1543,6 +1543,43 @@ export class ApplicationContext {
         Number(params.checkedAt || Date.now()),
       );
     }
+    if (command.method === 'browser.sourceExistence.update') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: browser.sourceExistence.update relay requires params object');
+      }
+      const params = command.params as {
+        updates?: Array<{
+          cardId?: string;
+          blockId: string;
+          exists: boolean;
+        }>;
+        checkedAt?: number;
+      };
+      return srsBackendClient.browserSourceExistenceUpdate(
+        Array.isArray(params.updates) ? params.updates : [],
+        Number(params.checkedAt || Date.now()),
+      );
+    }
+    if (command.method === 'browser.sourceExistence.applySweep') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: browser.sourceExistence.applySweep relay requires params object');
+      }
+      const params = command.params as {
+        request?: {
+          blockIds?: string[];
+          limit?: number;
+          staleBefore?: number;
+          includeKnownMissing?: boolean;
+        };
+        existingBlockIds?: string[];
+        checkedAt?: number;
+      };
+      return srsBackendClient.browserSourceExistenceApplySweep(
+        params.request ?? {},
+        Array.isArray(params.existingBlockIds) ? params.existingBlockIds : [],
+        Number(params.checkedAt || Date.now()),
+      );
+    }
     throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
   }
 
