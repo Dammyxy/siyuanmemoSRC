@@ -279,6 +279,31 @@ describe('服务访问集成测试', () => {
       expect(context.hasService('browserService')).toBe(true);
       expect(context.isServiceCreated('browserService')).toBe(true);
     });
+
+    it('开启 worker backend feature flag 时应注入 SrsBackendClient 到 browser service', async () => {
+      const flagKey = 'VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER';
+      const previous = process.env[flagKey];
+      process.env[flagKey] = 'true';
+
+      let flaggedContext: ApplicationContext | null = null;
+      try {
+        flaggedContext = await ApplicationContext.create({
+          plugin: mockPlugin,
+          i18n: {},
+        });
+        const browserService = flaggedContext.getBrowserService() as unknown as { srsBackendClient?: unknown };
+        expect(browserService.srsBackendClient).toBeTruthy();
+      } finally {
+        if (flaggedContext && !flaggedContext.isDisposed()) {
+          await flaggedContext.dispose();
+        }
+        if (previous === undefined) {
+          delete process.env[flagKey];
+        } else {
+          process.env[flagKey] = previous;
+        }
+      }
+    });
   });
 
   describe('依赖注入验证', () => {

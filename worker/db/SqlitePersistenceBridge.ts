@@ -1,5 +1,3 @@
-import { Buffer } from 'node:buffer';
-
 export interface SqlitePersistenceBridge {
   readBinary(path: string): Promise<Uint8Array | null>;
   writeBinary(path: string, bytes: Uint8Array): Promise<void>;
@@ -55,7 +53,7 @@ export function createInMemorySqlitePersistenceBridge(): SqlitePersistenceBridge
     snapshot() {
       const first = binary.values().next().value as Uint8Array | undefined;
       return {
-        bytes: first ? new Uint8Array(Buffer.from(first)) : null,
+        bytes: first ? new Uint8Array(first) : null,
       };
     },
   };

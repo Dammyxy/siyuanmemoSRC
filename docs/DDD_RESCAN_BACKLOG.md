@@ -2949,6 +2949,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: 在组合根补可控 feature flag 注入 `SrsBackendClient` transport，先灰度 deck datasource，再把 `getDeckRowsByIds` 与 source-existence sweep 收口到同一 worker-first 路径。
 - Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`、`pnpm run check:boundaries`、`pnpm build`、`git diff --check`。
 
+### 2026-04-30 - backend migration phase 2 composition-root worker flag injection
+
+- Task: 执行上一步 Next safe step，在 `ApplicationContext` 增加可控 feature flag 注入 `SrsBackendClient` transport，让 Browser worker-first 查询可以灰度启用而不改变默认行为。
+- Touched slice: Composition root + worker bridge wiring；`src/application/ApplicationContext.ts`、`src/application/__tests__/service-access.integration.test.ts`、`worker/db/SqlitePersistenceBridge.ts`、`.env.example`、`ARCHITECTURE.md`。
+- Debt fixed now: `ApplicationContext` 不再只停留在“Worker query 能力存在但无法组合根接线”的状态；现在可通过 `VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER` 明确启用 worker backend client，并自动注入 `BrowserApplicationService`。
+- Debt deferred: 当前 transport 仍为同进程 `BackendKernel` 调用桥；`getDeckRowsByIds` 仍保留 legacy/read-port 主链；source-existence sweep 仍在 app 侧执行 Siyuan existence SQL。
+- Why deferred: 这一步目标是先把灰度入口和生命周期接线补齐，确保回归面可控；直接切换到 dedicated Web Worker runtime 与全量 source-existence 下沉会扩大到打包策略、消息通道和更高风险行为变更。
+- Next safe step: 新增独立 `SrsBackendWorker` transport（postMessage + transferable binary bridge）并沿用同一 feature flag，再迁 `getDeckRowsByIds` 与 source-existence sweep 到 worker-only pipeline。
+- Validation: `pnpm exec vitest run src/application/__tests__/service-access.integration.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts worker/__tests__/WorkerSqliteDatabaseService.test.ts`、`pnpm run check:boundaries`、`pnpm build`、`git diff --check`。
+
 ### Entry template
 
 ### YYYY-MM-DD - <short task name>

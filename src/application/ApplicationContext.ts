@@ -117,6 +117,9 @@ import { DEFAULT_SETTINGS } from '@/types/settings';
 import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService.types';
 import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
+import { SrsBackendClient, type SrsBackendTransport } from '@/application/clients/SrsBackendClient';
+import { BackendKernel } from '../../worker/bootstrap/BackendKernel';
+import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
 
 const logger = createLogger('ApplicationContext');
 
@@ -207,6 +210,8 @@ export interface ApplicationConfig {
  * ```
  */
 export class ApplicationContext {
+  private static readonly SRS_BACKEND_WORKER_ENV_KEY = 'VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER';
+
   // ========================================================================
   // 核心服务
   // ========================================================================
@@ -233,6 +238,7 @@ export class ApplicationContext {
   private nativeRiffSyncTriggerHandler?: NativeRiffSyncTriggerHandler;
   private fullSyncTimer?: NodeJS.Timeout;
   private sqlPersistence?: SqlPersistenceBundle;
+  private srsBackendClient: SrsBackendClient | null = null;
   
   // ========================================================================
   // 服务容器
@@ -311,6 +317,7 @@ export class ApplicationContext {
       hybridSyncService?: XiuyuanSyncService;
       transactionWebSocketService?: TransactionWebSocketService;
       fullSyncTimer?: NodeJS.Timeout;
+      srsBackendClient?: SrsBackendClient | null;
     }
   ) {
     this.config = config;
@@ -324,6 +331,7 @@ export class ApplicationContext {
     this.transactionWebSocketService = services.transactionWebSocketService;
     this.fullSyncTimer = services.fullSyncTimer;
     this.sqlPersistence = services.sqlPersistence;
+    this.srsBackendClient = services.srsBackendClient ?? null;
     
     // ✅ 保存 sharedEventBus 引用（如果提供）
     if (services.sharedEventBus) {
@@ -680,6 +688,7 @@ export class ApplicationContext {
         new BrowserSiyuanAdapter(),
         null,
         context.sqlPersistence?.unified ?? null,
+        context.srsBackendClient,
       );
     });
     
@@ -1161,6 +1170,21 @@ export class ApplicationContext {
       schedulerCardUpdater
     );
 
+    let srsBackendClient: SrsBackendClient | null = null;
+    if (ApplicationContext.isSrsBackendWorkerEnabled()) {
+      try {
+        const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
+        const backendKernel = BackendKernel.createWithBridge(bridge);
+        const transport: SrsBackendTransport = {
+          request: (request) => backendKernel.handle(request),
+        };
+        srsBackendClient = new SrsBackendClient(transport);
+        logger.info('[ApplicationContext] ✅ SRS backend worker client bootstrap enabled by feature flag');
+      } catch (error) {
+        logger.error('[ApplicationContext] Failed to bootstrap SRS backend worker client; SQL legacy path remains active:', error);
+      }
+    }
+
     // 创建 CardCreationHelper
     const cardCreationHelper = new CardCreationHelper(cardApplicationService);
     logger.info('[ApplicationContext] ✅ CardCreationHelper initialized');
@@ -1227,6 +1251,7 @@ export class ApplicationContext {
       hybridSyncService: undefined,  // 将在下面初始化
       transactionWebSocketService: undefined,  // 将在下面初始化
       fullSyncTimer: undefined,  // 将在下面初始化
+      srsBackendClient,
     });
     
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
@@ -1365,6 +1390,36 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] ✅ ApplicationContext created successfully');
     
     return context;
+  }
+
+  private static createWorkerPersistenceBridge(fileService: FileService): SqlitePersistenceBridge {
+    return {
+      readBinary: async (path: string) => {
+        if (!fileService.readBinary) {
+          return null;
+        }
+        return fileService.readBinary(path);
+      },
+      writeBinary: async (path: string, bytes: Uint8Array) => {
+        if (!fileService.writeBinary) {
+          throw new Error('FileService.writeBinary is unavailable');
+        }
+        await fileService.writeBinary(path, bytes);
+      },
+      readJSON: <T>(path: string) => fileService.readJSON<T>(path),
+      writeJSON: (path: string, value: unknown) => fileService.writeJSON(path, value),
+    };
+  }
+
+  private static isSrsBackendWorkerEnabled(): boolean {
+    const key = ApplicationContext.SRS_BACKEND_WORKER_ENV_KEY;
+    const viteEnv = typeof import.meta !== 'undefined'
+      && import.meta.env
+      ? import.meta.env[key]
+      : undefined;
+    const processEnv = typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
+    const raw = String(viteEnv ?? processEnv ?? '').trim().toLowerCase();
+    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
   }
   
   // ========================================================================
