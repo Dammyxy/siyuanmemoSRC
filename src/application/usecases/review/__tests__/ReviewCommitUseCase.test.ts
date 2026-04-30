@@ -244,6 +244,7 @@ describe('ReviewCommitUseCase', () => {
       committed: true,
       updatedCard: after,
     }));
+    const ensureWritable = vi.fn(async () => {});
     const useCase = new ReviewCommitUseCase({
       cards: { getCard: vi.fn(async () => before) },
       scheduler: scheduler as never,
@@ -252,6 +253,7 @@ describe('ReviewCommitUseCase', () => {
       arena,
       transactionRunner,
       srsBackend: { reviewFeedback },
+      writerLeaseGuard: { ensureWritable },
     });
 
     const result = await useCase.execute({
@@ -271,6 +273,7 @@ describe('ReviewCommitUseCase', () => {
       queueType: 'retrieval-practice',
       sessionId: 'session-1',
     }));
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
       card: before,
       updatedCard: expect.objectContaining({
@@ -289,6 +292,36 @@ describe('ReviewCommitUseCase', () => {
       rating: Rating.Good,
       schedulingContext: expect.objectContaining({ queueType: 'retrieval-practice' }),
     }));
+  });
+
+  it('fails fast when writer lease guard rejects and keeps worker feedback untouched', async () => {
+    const before = createCard({ id: 'card-lease-guard-1', due: Date.now() - 1_000 });
+    const reviewFeedback = vi.fn(async () => ({
+      committed: true,
+      updatedCard: before,
+    }));
+    const ensureWritable = vi.fn(async () => {
+      throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance');
+    });
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn(), route: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: { ensureWritable },
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: writer lease held by another instance');
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(reviewFeedback).not.toHaveBeenCalled();
   });
 
   it('uses worker feedback path for incremental-learning formal commit when backend client is provided', async () => {

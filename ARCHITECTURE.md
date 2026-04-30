@@ -993,12 +993,13 @@ UI 层：
 - `DialogManager` 负责 dialog surface，`TabManager` 负责 tab surface 与 surface handoff
 - 桌面端标准 review 入口现在由 `DialogManager` 按 `settings.ui.reviewOpenInNewTabByDefault` / `reviewOpenFullscreenByDefault` 做统一路由；filter-backed review 进入 tab 时通过 transfer-state 恢复 session
 - Review runtime 只保留 `ReviewView.vue` v2 + `UnifiedQueueStrategy` + `UnifiedReviewAdapter` 主链；旧 provider-backed review extension path 已删除，special renderer service 由 application factory 注入
-- 主数据持久化优先使用 `siyuanmemo.db`；浏览器插件 application 层通过 sql.js 单写，`kernel.js` 当前只提供内核伴生 `health` / `version` / `capabilities` 握手与状态检查，不直接写 DB，不迁移 scheduler，不接管 Riff 写入
+- 主数据持久化优先使用 `siyuanmemo.db`；浏览器插件 application 层通过 sql.js 单写，`kernel.js` 当前提供 `health` / `version` / `capabilities` 与 writer lease RPC（`writer.hello/getLease/acquireLease/renewLease/releaseLease`）作为 sidecar 协调能力；kernel 不直接写 DB，不迁移 scheduler，不接管 Riff 写入
 - 后端迁移 `Phase 0-1` 已落地第一批基线：新增 `docs/ADR-001..004` 约束 runtime split / SQL authority / kernel sidecar coordinator / no-ui-sql；并把 `scripts/check-no-ui-sql.cjs` 与 `scripts/check-no-kernel-db-owner.cjs` 接入 `pnpm run check:boundaries`
 - `worker/` 已接入最小后端骨架：`BackendKernel` + `WorkerSqliteDatabaseService` + persistence bridge，当前提供 `system.health`、`db.load`、`db.persist`、`diagnostics.status` RPC；`ApplicationContext` 仍保留旧 SQL 主路径，Worker bootstrap 先走 feature flag，不改变 Review/Browser 行为
 - `packages/contracts/src/backend-rpc.ts` 与 `packages/contracts/src/kernel-rpc.ts` 作为 worker/kernel envelope 契约草案；`src/application/clients/SrsBackendClient.ts` 与 `KernelSidecarClient.ts` 作为应用层唯一调用入口预留，不让 UI/feature 代码直接碰 RPC 细节
 - 后端迁移 `Phase 2` 已推进到第二批 Browser query 收口：Worker 新增 `browser.deck.page`、`browser.deck.matchedIds`、`browser.deck.rowsByIds`、`browser.count`、`browser.stats` 与 `browser.sourceExistence.*`（含 `applySweep` / `applySweepHost`）RPC；组合根支持 `VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER` feature flag 灰度注入 `SrsBackendClient`（关闭时保持 SQL read port/legacy 基线，开启时 `BrowserApplicationService` 优先走 Worker）。
 - `Phase 3` 已收口：Worker `review.feedback` 已覆盖 `retrieval-practice`、`incremental-learning`、`neural-roam`、`leech` 的 formal/write-schedule 提交，`filter-group` 的 `filtered-preview/preview-only` 与 `filtered-rescheduling/write-schedule` contract，以及 `final-drill` 的 `drill/drill-only`（suppress schedule write）contract；`ReviewCommitUseCase` 在 worker feature flag 开启时按这些白名单组合走 worker-first，非法 queueType 或 mode/policy 继续返回 explicit `BACKEND_UNAVAILABLE`（不做隐藏 fallback 双写）。
+- `Phase 4` 进入灰度：`packages/contracts/src/kernel-rpc.ts` + `KernelSidecarClient` 已补 writer lease envelope/DTO，`ReviewCommitUseCase` 在 worker-first 写路径可选接入 lease precheck（`VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD`，默认关闭）；开启后先经 kernel lease guard 再发 `review.feedback`，不可用时返回 explicit unavailable，不做隐藏 fallback 双写。
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中

@@ -118,6 +118,8 @@ import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService
 import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
 import { SrsBackendClient, type SrsBackendTransport } from '@/application/clients/SrsBackendClient';
+import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
+import { KernelWriterLeaseGuard } from '@/application/clients/KernelWriterLeaseGuard';
 import { BackendKernel } from '../../worker/bootstrap/BackendKernel';
 import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
 import { WorkerSqliteDatabaseService } from '../../worker/db/SqliteDatabaseService';
@@ -212,6 +214,9 @@ export interface ApplicationConfig {
  */
 export class ApplicationContext {
   private static readonly SRS_BACKEND_WORKER_ENV_KEY = 'VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER';
+  private static readonly KERNEL_WRITER_LEASE_GUARD_ENV_KEY = 'VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD';
+  private static readonly KERNEL_WRITER_LEASE_INSTANCE_ID_ENV_KEY = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_INSTANCE_ID';
+  private static readonly KERNEL_WRITER_LEASE_TTL_MS_ENV_KEY = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_TTL_MS';
 
   // ========================================================================
   // 核心服务
@@ -484,6 +489,15 @@ export class ApplicationContext {
 
     this.registerServiceFactory('reviewCommitUseCase', (context) => {
       const unifiedDataSourceManager = context.getUnifiedDataSourceManager();
+      const writerLeaseGuard = context.srsBackendClient && ApplicationContext.isKernelWriterLeaseGuardEnabled()
+        ? new KernelWriterLeaseGuard(
+          new KernelSidecarClient(context.getKernelCompanionPort()),
+          {
+            instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
+            ttlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
+          },
+        )
+        : null;
       return new ReviewCommitUseCase({
         cards: unifiedDataSourceManager,
         scheduler: context.getScheduler(),
@@ -495,6 +509,7 @@ export class ApplicationContext {
           : null,
         arena: context.getArenaKernelService(),
         srsBackend: context.srsBackendClient,
+        writerLeaseGuard,
         onCommittedCard: (card) => unifiedDataSourceManager.onCardUpdatedFromScheduler(card),
       });
     });
@@ -1454,13 +1469,39 @@ export class ApplicationContext {
 
   private static isSrsBackendWorkerEnabled(): boolean {
     const key = ApplicationContext.SRS_BACKEND_WORKER_ENV_KEY;
+    const raw = ApplicationContext.readEnvValue(key);
+    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  }
+
+  private static isKernelWriterLeaseGuardEnabled(): boolean {
+    const key = ApplicationContext.KERNEL_WRITER_LEASE_GUARD_ENV_KEY;
+    const raw = ApplicationContext.readEnvValue(key);
+    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  }
+
+  private static resolveKernelWriterLeaseInstanceId(): string | undefined {
+    const raw = ApplicationContext.readEnvValue(ApplicationContext.KERNEL_WRITER_LEASE_INSTANCE_ID_ENV_KEY, false);
+    const value = String(raw || '').trim();
+    return value || undefined;
+  }
+
+  private static resolveKernelWriterLeaseTtlMs(): number | undefined {
+    const raw = ApplicationContext.readEnvValue(ApplicationContext.KERNEL_WRITER_LEASE_TTL_MS_ENV_KEY, false);
+    const ttlMs = Number(raw);
+    if (!Number.isFinite(ttlMs)) {
+      return undefined;
+    }
+    return Math.max(3_000, Math.floor(ttlMs));
+  }
+
+  private static readEnvValue(key: string, lowercase = true): string {
     const viteEnv = typeof import.meta !== 'undefined'
       && import.meta.env
       ? import.meta.env[key]
       : undefined;
     const processEnv = typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
-    const raw = String(viteEnv ?? processEnv ?? '').trim().toLowerCase();
-    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+    const raw = String(viteEnv ?? processEnv ?? '').trim();
+    return lowercase ? raw.toLowerCase() : raw;
   }
   
   // ========================================================================

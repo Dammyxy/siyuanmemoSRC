@@ -49,6 +49,10 @@ export interface ReviewCommitBackendFeedbackClient {
   }>;
 }
 
+export interface ReviewCommitWriterLeaseGuard {
+  ensureWritable(): Promise<void>;
+}
+
 export interface ReviewCommitUseCaseDependencies {
   cards: ReviewCommitCardReader;
   scheduler: Pick<SchedulerRouter, 'answer' | 'commit' | 'route'>;
@@ -56,6 +60,7 @@ export interface ReviewCommitUseCaseDependencies {
   transactionRunner?: ReviewCommitTransactionRunner | null;
   arena?: ReviewCommitArenaRecorder | null;
   srsBackend?: ReviewCommitBackendFeedbackClient | null;
+  writerLeaseGuard?: ReviewCommitWriterLeaseGuard | null;
   onCommittedCard?: (card: FSRSCard) => Promise<void> | void;
 }
 
@@ -199,6 +204,9 @@ export class ReviewCommitUseCase {
     };
     const workerContext = resolveWorkerFeedbackContext(context);
     const reviewedAt = normalizeReviewedAt(context.reviewTime);
+    if (this.deps.writerLeaseGuard) {
+      await this.deps.writerLeaseGuard.ensureWritable();
+    }
     const result = await this.deps.srsBackend!.reviewFeedback({
       cardId: command.cardId,
       rating,

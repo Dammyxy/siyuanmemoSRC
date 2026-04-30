@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 233)
+Last update: 2026-05-01 (Round 234)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase4 p4-1 writer lease rpc + worker write precheck gate
+
+- Task: 按 P4 最小安全闭环启动 writer lease：在 kernel companion 落 lease RPC 和 explicit unavailable envelope，并把 worker-first `review.feedback` 写路径接入可选 lease precheck（默认灰度关闭）。
+- Touched slice: Siyuan integration + review write routing；`kernel.js`、`packages/contracts/src/kernel-rpc.ts`、`src/application/clients/KernelSidecarClient.ts`、`src/application/clients/KernelWriterLeaseGuard.ts`、`src/application/ApplicationContext.ts`、`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts`、`src/application/__tests__/service-access.integration.test.ts`、新增 client tests、`ARCHITECTURE.md`。
+- Debt fixed now: kernel 侧新增 `writer.hello/getLease/acquireLease/renewLease/releaseLease`、TTL lease 状态机与 `memo.writer.leaseChanged` 广播；应用层新增 typed sidecar lease client 和 lease guard，worker-first 复习写入在启用 `VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD` 时先做 lease precheck，失败显式返回 unavailable，不走隐藏 fallback 双写。
+- Debt deferred: 还未实现 follower command relay / writer complete result 回传；未实现自动 heartbeat/崩溃接管 runtime；lease guard 目前只接入 `review.feedback` worker 写链，Browser/Card/Queue 其他 mutation 未统一接入。
+- Why deferred: 本轮目标是 P4 第一安全步，先固化 lease contract 与写前门禁，避免一次跨到多窗口转发编排导致 blast radius 过大。
+- Next safe step: 进入 P4-2，补 `FrontendInstanceRuntime`（hello/acquire/renew/release 生命周期）和 follower write relay contract，再把 worker mutation 统一接入 lease guard。
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/__tests__/service-access.integration.test.ts`（4 files/39 tests passed）；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 i18n/Sass warning）；`git diff --check` passed（仅 LF/CRLF warning）。
 
 ### 2026-05-01 - phase3 p3-4 queue tail contracts and phase-3 closure
 

@@ -304,6 +304,41 @@ describe('服务访问集成测试', () => {
         }
       }
     });
+
+    it('开启 writer lease guard flag 时应把 guard 注入 ReviewCommitUseCase', async () => {
+      const workerFlagKey = 'VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER';
+      const leaseFlagKey = 'VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD';
+      const previousWorker = process.env[workerFlagKey];
+      const previousLease = process.env[leaseFlagKey];
+      process.env[workerFlagKey] = 'true';
+      process.env[leaseFlagKey] = 'true';
+
+      let flaggedContext: ApplicationContext | null = null;
+      try {
+        flaggedContext = await ApplicationContext.create({
+          plugin: mockPlugin,
+          i18n: {},
+        });
+        const useCase = flaggedContext.getReviewCommitUseCase() as unknown as {
+          deps?: { writerLeaseGuard?: unknown };
+        };
+        expect(useCase.deps?.writerLeaseGuard).toBeTruthy();
+      } finally {
+        if (flaggedContext && !flaggedContext.isDisposed()) {
+          await flaggedContext.dispose();
+        }
+        if (previousWorker === undefined) {
+          delete process.env[workerFlagKey];
+        } else {
+          process.env[workerFlagKey] = previousWorker;
+        }
+        if (previousLease === undefined) {
+          delete process.env[leaseFlagKey];
+        } else {
+          process.env[leaseFlagKey] = previousLease;
+        }
+      }
+    });
   });
 
   describe('依赖注入验证', () => {
