@@ -138,7 +138,7 @@ flowchart TD
 7. UI 增量刷新由 `useBrowserAdapterSync`、`useIncrementalGridUpdates`、`useQueueBridge` 驱动；Browser SQL、文档树读取、queue block projection、preview breadcrumb 等 Siyuan 调用必须显式拿到 Browser 侧 Siyuan port，不再依赖 browser service 模块全局状态，也不从 UI 直接 import infrastructure Siyuan API
 8. Browser surface profile 默认值由 `layoutProfile.ts` 维护；profile-scoped chrome preference 读写、legacy dialog key 迁移与 storage failure contract 由 `browserChromePreferences.ts` 维护；open-state capture、初始 open-state normalization、legacy `__lost__` 归一与 neural subview / queue-id 投影由 `browserSurfaceState.ts` 维护，`SRSBrowser.vue` 只负责把这些 projection 应用到当前 UI state 并调度加载 / 刷新副作用
 9. Browser neural 子视图的 trace/list projection、jump/focus/source/anchor/history commands、engine/navigation/bookmark/review-surface handoff commands，以及 trace refresh/enrichment/convergence/preview controller state 由 `src/ui/browser/neural/*` helpers 维护；`SRSBrowser.vue` 只持有 Browser shell、template binding 与跨 surface 依赖注入
-10. Browser grid snapshot hydration、selection scope/fingerprint/filter-summary projection、batch action label/result/reload policy、reschedule parameter dialogs 与 toolbar Spread dialog 由 `browserDataSnapshots.ts`、`browserSelectionScope.ts`、`browserActionFeedback.ts`、`browserActionParamDialogs.ts`、`browserSpreadDialog.ts` 维护；`SRSBrowser.vue` 只串联 refs、datasource、dialog deps 与真实 side effects
+10. Browser grid snapshot hydration、selection scope/fingerprint/filter-summary projection、batch action label/result/reload policy、reschedule parameter dialogs、action/context/practice menu runtime、loadData datasource controller 与 toolbar Spread dialog 由 `browserDataSnapshots.ts`、`browserSelectionScope.ts`、`browserActionFeedback.ts`、`browserActionParamDialogs.ts`、`browserActionMenuRuntime.ts`、`browserLoadDataRuntime.ts`、`browserSpreadDialog.ts` 维护；`SRSBrowser.vue` 只串联 refs、datasource、dialog deps 与真实 side effects
 
 ### 4.2 Review
 
@@ -160,7 +160,7 @@ flowchart TD
    - `UnifiedDataSourceManager`
 4. 挂载 `src/ui/review/v2/ReviewView.vue`
 5. `useReviewSession.ts` 绑定 `reviewSessionController.ts`；controller 统一驱动 `next / reveal / grade / skip / custom`，并且所有“直接把某张卡写成当前卡”的恢复/刷新入口都会先走 queue strategy 的 `hydrateCurrentItem()` 显示态补水，再更新 UI，避免外部刷新、会话恢复、AI 新卡同步等路径把原始 `FSRSCard` 直接塞回当前位后丢掉 runtime `nextDues`；当当前队列项在评分前已被删除或失效时，queue strategy 会抛出 `QueueItemUnavailableError`，controller 只重新 `queue.next()` 跳到下一张，不记录复习历史，也不把 session 误置为空完成态
-6. review header 的二级动作仍由 `ReviewView.vue` 编排，more-menu 的纯分组 / label / disabled projection 由 `reviewMoreMenuItems.ts` 承接，neural toolbar/menu command projection 由 `reviewNeuralCommands.ts` 承接，progressive excerpt / source / complete-piece command runtime 由 `reviewProgressiveExcerptCommands.ts` 承接，open-as 菜单命令由 `reviewOpenAsCommands.ts` 承接，standard queue switch / native titlebar / fullscreen shell runtime 由 `reviewShellCommands.ts` 承接，SRS editor dialog glue 由 `reviewSrsEditorCommands.ts` 承接，source transaction refresh 队列由 `reviewSourceRefreshRuntime.ts` 承接，键盘去重与全局事件绑定由 `reviewKeyboardRuntime.ts` 承接；SFC 只注入当前状态、依赖与真实命令回调：
+6. review header 的二级动作仍由 `ReviewView.vue` 编排，more-menu 的纯分组 / label / disabled projection 由 `reviewMoreMenuItems.ts` 承接，neural toolbar/menu command projection 由 `reviewNeuralCommands.ts` 承接，progressive excerpt / source / complete-piece command runtime 由 `reviewProgressiveExcerptCommands.ts` 承接，open-as 菜单命令由 `reviewOpenAsCommands.ts` 承接，standard queue switch / native titlebar / fullscreen shell runtime 由 `reviewShellCommands.ts` 承接，SRS editor dialog glue 由 `reviewSrsEditorCommands.ts` 承接，Arena conflict/advisory、current-content editor、review card action、filter/scope、data observer/doc-scope queue 与 native split runtime 分别由 `reviewArenaCommands.ts`、`reviewCurrentContentEditorRuntime.ts`、`reviewCardActionCommands.ts`、`reviewFilterCommands.ts`、`reviewDataObserverRuntime.ts`、`reviewNativeSplitRuntime.ts` 承接，source transaction refresh 队列由 `reviewSourceRefreshRuntime.ts` 承接，键盘去重与全局事件绑定由 `reviewKeyboardRuntime.ts` 承接；SFC 只注入当前状态、依赖与真实命令回调：
    - `AI 侧栏` 统一走 `reviewAICommands.ts` 组装 review-bound open options / visible-only context sync / sidecar or companion tab command，再交给 `ReviewAIWorkbenchRegistry`、`DialogManager` 或 `TabManager`
    - `更多` 菜单中的优先级编辑走 `CardEditorApplicationService.updatePriority(...)`
    - `更多` 菜单中的“编辑当前内容”走 `ReviewApplicationService.getBlockKramdown/updateBlockMarkdown(...)`，通过共享 `LargeTextEditorDialog` 编辑当前块原始 Markdown；保存后只调用 `ReviewContent.refreshVisibleContent()` 原地刷新当前内容，不重建 review session
@@ -283,7 +283,10 @@ sequenceDiagram
 - `AIWorkbenchSessionRuntime`：AI workbench session runtime helper，维护空树/initial threads scaffold、new/current session record build、record basic apply projection 与 delayed persist scheduler；`AIWorkbenchService` 只调用 projection 并负责实际状态赋值、history refresh 和 `AIWorkbenchSessionStoreService.saveSession()` side effects
 - `AIWorkbenchThreadNormalization`：AI persisted thread/message normalization helper，承接旧 thread map、assistant/user/tool/approval/separator message shape、concept tab contextSignature backfill、user skill thread keepalive 和 initial view state scaffold；session schema 与 tool approval policy 不变
 - `AIWorkbenchContextProjection`：AI review/browser/template context projection helper，承接 `contextSignature`、review queue chat key、review card meta/neural virtual card semantics、document block type 判定；`AIWorkbenchService` 继续负责实际 block/context load side effects
+- `AIWorkbenchContextRuntime`：AI context snapshot / attachment runtime helper，承接 manual/selection/block-ref/current-doc attachments 与 context snapshot build；session schema 与 LLM request wire shape 不变
 - `AIWorkbenchRunProjection`：AI run-status/title projection helper，承接 chat/tool-chain/tab-rerun/follow-up 文案与 session title fallback；`AIWorkbenchService` 只传入当前 skill/tab/context 状态
+- `AIWorkbenchApprovalRuntime`：AI approval/tool-log message bridge helper，承接 pending approval resolver、approval message projection 与 tool log append；tool approval policy 不变
+- `AIWorkbenchRunRuntime`：AI run orchestration tail helper，承接 create run status 与 task runner tail；`AIWorkbenchService` 继续保留 public API wrapper、persistence 与 service state side effects
 - `AIWorkbenchResultNormalization`：AI structured result normalization helper，承接 concept-coach / CDF / user structured skill 的 alias 容错、tab merge、diagnostic derivation、legacy result clone 与 explain projection；`AIWorkbenchService` 只保存结果、追加消息和触发制卡 side effects
 - `AIWorkbenchConversationTreeRuntime`：AI 会话树 runtime helper，承接 active leaf resolution、context-scoped projection、thread rebuild、node append/version/patch 与 render-entry supplemental grouping；session record schema 不变
 - `AIWorkbenchGeneralChatRuntime`：general-chat 多轮工具链 runtime helper，承接 tool-call loop、重复/预算 guard、工具结果回灌、streaming placeholder patch 与最终 summary request；`AIWorkbenchService` 继续负责失败物化、Arena event、persist 与 approval UI 消息入口
@@ -292,8 +295,9 @@ sequenceDiagram
 - `AIWorkbenchCdfRuntime`：AI CDF/write runtime helper，承接 CDF anchor/definition/descriptor 选择、preview/create dispatch、概念文档 search/manual bind/create-or-reuse、assistant result markdown/send-to-Siyuan 写入编排与 Arena create metadata；`AIWorkbenchService` 只保留同名 public API wrapper、target resolution delegate 与 persistence/Arena bridge，Siyuan write mode 和 markdown shape 不改
 - `AIFlashcardToolService`：AI 制卡工具的应用层门面，负责复用 AI 制卡目标记忆、解析显式目标覆盖、写入思源源块、读取 mutation 子树，并按模式桥接到 `XiuyuanApplicationService` 或思源原生 Riff 制卡；自测卡 active mode 现在只保留 `list-item / mark / heading / super-block` 四种原生路径，统一走 detailed mutation + 结构根块解析；`cdf-structure` 语义制卡则先解析概念锚点到“当前上下文已有概念文档 or 目标笔记本精确标题命中 or 当前目标笔记本手动搜索/手动新建后选定”，再把已选 anchor 物化成 AI 专用混合 CDF 源块树 `((concept-doc))::定义 / 维度;;值 / 维度;;; + 子级条目`；描述符条目仍只保存 `items[].text`，但当同一 descriptor group 下有多个 items 时，契约要求每个 text 都直接编码 `提示→答案`（例如 `前身→恒星`），后续继续依赖 `parseCueAndAnswer()` 在 scan/create 阶段拆回 cue/answer；随后直接基于 mutation rows + kramdown 构造 `CdfScanResult` 并委托 `CreateCdfMultilineCardsUseCase.executeFromScanResult()` 建卡，不再依赖插入后第二次按根块 ID live scan
 - `AISelfTestCardCreationService`：`AI 理解与制卡 / 自测卡片` 的模式分发门面，负责把当前工作台选择的 `creationMode` 与候选草稿映射到具体制卡工具，不让 UI 或 workbench runtime 直接拼装原生/插件制卡细节
-- `AIWorkbenchService`：通用 AI workbench application orchestrator，负责会话打开/切换、Skill 切换、审批状态、失败物化、结构化结果落库、候选项编辑制卡和历史管理；thread/message normalization、context signature/card projection、run-status/title projection、tree projection、general-chat tool-loop、prompt/request runtime、self-test target/draft runtime、CDF/write runtime 和 structured result normalization 已拆到 focused runtime helpers。composer 触发的发送/追问/编辑后重发/失败重试现在都会把失败归属到对应 `assistant-text` 节点，带上 `requestSourceMessageId + failureDiagnostic + failureRunMode` 持久化到会话树里，顶部全局 `error` 只保留给非消息类失败；review 场景下 `general-chat` 继续按 `reviewChatKey` 复用同队列聊天历史，但 `concept-coach` 的结构化结果、tab rerun 与 follow-up 改为按当前 `contextSignature` 分仓，切卡后默认切到当前卡自己的结构化工作区；`cdf-structure` 现在是 `concept-coach` 的一等结构化阶段，支持概念锚点/定义候选/描述符组选择与语义制卡；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
+- `AIWorkbenchService`：通用 AI workbench application orchestrator，负责会话打开/切换、Skill 切换、审批状态、失败物化、结构化结果落库、候选项编辑制卡和历史管理；thread/message normalization、context signature/card projection、context attachment runtime、approval/tool-log message bridge、run-status/title projection、run orchestration tail、tree projection、general-chat tool-loop、prompt/request runtime、self-test target/draft runtime、CDF/write runtime 和 structured result normalization 已拆到 focused runtime helpers。composer 触发的发送/追问/编辑后重发/失败重试现在都会把失败归属到对应 `assistant-text` 节点，带上 `requestSourceMessageId + failureDiagnostic + failureRunMode` 持久化到会话树里，顶部全局 `error` 只保留给非消息类失败；review 场景下 `general-chat` 继续按 `reviewChatKey` 复用同队列聊天历史，但 `concept-coach` 的结构化结果、tab rerun 与 follow-up 改为按当前 `contextSignature` 分仓，切卡后默认切到当前卡自己的结构化工作区；`cdf-structure` 现在是 `concept-coach` 的一等结构化阶段，支持概念锚点/定义候选/描述符组选择与语义制卡；旧 `make-cards` / `tutor` / `explain` 打开请求会归一到 `concept-coach`
 - `aiWorkbenchPaneProjection.ts`：AI pane 的 UI-only pure projection helper，负责 assistant result notice/sections、legacy explain JSON projection、自测候选卡 draft/count/disabled state、CDF preview merge / stale resolution / selection counts / creation disabled state，以及 message supplemental/tool/approval/reasoning/footer metadata projection；`AiWorkbenchPane.vue` 只把 projection 结果接回 refs/template，并保留 service commands 与 UI side effects
+- `aiWorkbenchPaneCdfSearchRuntime.ts`：AI pane CDF concept search helper，集中 concept search dialog refs、busy/error/result state 与 projection helpers；pane 只调用 service/search commands 并绑定 template
 - `src/types/settings.ts`：AI provider / model / tool / web-search / prompt 的持久化真相源；旧 `baseUrl/apiKey/model` 会迁移为 `providers[] + defaultModelId`，旧 explain-only prompt 在 contract version 升级后直接回落到当前默认模板；内置 `concept-coach` 默认 Prompt 现在改为 Andy 兼容的方法论，但仍输出当前 canonical 结构化结果；`cdf-structure` 默认提示词会显式要求模型在任一描述符组拥有超过 1 个子项时，把每个描述符条目都写成 `提示→答案`
 - `AIPromptContractRegistry`：Skill-aware 系统契约注册表；维护 `concept-coach/full-run` 整份 JSON schema 与 `concept-coach/<tab>` 局部 schema，也会根据用户 structured skill 的 sections 动态生成最小 JSON contract，并为运行时追加和设置页只读说明提供同一份事实源；`self-test-cards` 现在要求模式无关的 canonical 草稿字段，由运行时再按当前 `creationMode` 本地渲染到具体卡型，并额外约束 `summary` 短、`answer` 短、`details` 默认稀疏；`cdf-structure` 则继续要求语义 JSON，并把“multi-item descriptor group 的每个 `items[].text` 必须使用 `提示→答案`”作为系统契约
 - `AIPromptComposer`：只负责推荐 Skill prompt 模板描述与默认 base/tab Prompt，不再承担运行时结构化协议拼接；设置页里“恢复推荐模板”拿到的是和运行时一致的 Andy 兼容默认文案
@@ -500,7 +504,7 @@ Browser：
 
 - `src/ui/browser/SRSBrowser.vue`：Browser 主视图，负责应用当前 chrome/open-state projection、加载数据与调度 UI 交互。
 - `src/ui/browser/layoutProfile.ts` / `browserChromePreferences.ts` / `browserSurfaceState.ts`：Browser surface profile、默认 chrome 状态、profile-scoped preference 持久化、open-state capture 与初始 hydration projection。
-- `src/ui/browser/{browserDataSnapshots.ts,browserSelectionScope.ts,browserActionFeedback.ts,browserActionParamDialogs.ts,browserSpreadDialog.ts}`：Browser grid snapshot/queryable hydration、selection projection、batch action feedback/reload policy、action 参数 dialogs 与 toolbar Spread dialog orchestration。
+- `src/ui/browser/{browserDataSnapshots.ts,browserSelectionScope.ts,browserActionFeedback.ts,browserActionParamDialogs.ts,browserActionMenuRuntime.ts,browserLoadDataRuntime.ts,browserSpreadDialog.ts}`：Browser grid snapshot/queryable hydration、selection projection、batch action feedback/reload policy、action 参数 dialogs、action/context/practice menu runtime、loadData datasource controller 与 toolbar Spread dialog orchestration。
 - `src/ui/browser/neural/{neuralTraceViewModel.ts,neuralListViewModels.ts,neuralBrowserCommands.ts,neuralNavigationCommands.ts,useNeuralBrowserController.ts}`：Browser neural trace/list projection、command orchestration 与 controller state；不访问 infrastructure。
 - `src/ui/browser/SRSBrowserAdapter.ts` / `SRSBrowserQueueView.ts`：Browser 桥接与队列视图逻辑。
 - `src/ui/browser/composables/*`：Browser 状态、刷新、排序、筛选、动作封装。
@@ -517,6 +521,7 @@ Review：
 - `src/ui/review/v2/reviewOpenAsCommands.ts`：Review open-as / locate-source / tab-dialog handoff menu command helper。
 - `src/ui/review/v2/reviewShellCommands.ts`：Review shell command/runtime helper，集中 standard queue switch presets/menu dispatch、native dialog titlebar queue trigger sync/restore、pointer containment 与 fullscreen class / Protyle resize glue；真实 dialog/tab manager、DOM roots 与 toast 仍由 `ReviewView.vue` 注入。
 - `src/ui/review/v2/reviewSrsEditorCommands.ts`：Review SRS editor dialog command helper，集中 app/service/card guard、deck/scheduling context projection、`SrsEditorDialog` props 与 scheduled/dismissed events；真实 scheduling context resolver 与 local advance side effect 仍由 `ReviewView.vue` 注入。
+- `src/ui/review/v2/{reviewArenaCommands.ts,reviewCurrentContentEditorRuntime.ts,reviewCardActionCommands.ts,reviewFilterCommands.ts,reviewDataObserverRuntime.ts,reviewNativeSplitRuntime.ts}`：Review Arena conflict/advisory、current-content editor、card action、filter/scope、data observer/doc-scope queue 与 native split runtime helpers。
 - `src/ui/review/v2/reviewSourceRefreshRuntime.ts`：Review source transaction refresh debounce / suppression / dependency matching runtime。
 - `src/ui/review/v2/reviewKeyboardRuntime.ts`：Review duplicate key guard 与全局键盘 / command event binding helper。
 - `src/ui/review/v2/useReviewSession.ts`：复习会话状态机。
@@ -531,10 +536,12 @@ Review：
 - `src/ui/ai/AiWorkbenchDialog.vue`：standalone AI dialog。
 - `src/ui/ai/AiWorkbenchPane.vue`：AI pane 主内容。
 - `src/ui/ai/aiWorkbenchPaneProjection.ts`：AI pane 纯展示投影 helper，覆盖 assistant sections/notice、自测候选、CDF resolution/counts 与 message detail/footer metadata。
+- `src/ui/ai/aiWorkbenchPaneCdfSearchRuntime.ts`：AI pane CDF concept search state / projection helper。
 
 其他 UI：
 
 - `src/ui/settings/SettingsPanel.vue`：设置面板；保留 Vue refs、dialog / cleanup bridge、load/save/form command wiring 与 scroll side effects。
+- `src/ui/settings/SettingsPanel.css`：Settings 面板 scoped CSS；由 `SettingsPanel.vue` 通过 scoped src 引入。
 - `src/ui/settings/settingsPanelViewModel.ts`：Settings 面板 tab/subtab navigation view-model helper；负责 tab label projection、legacy tab normalization、active subtab fallback、disabled selection guard 与 footer visibility。
 - `src/ui/settings/settingsAIViewModel.ts`：Settings 面板 AI prompt / user-skill view-model helper；负责 Prompt 使用状态、preset card、editor tab、user-skill option/default/reorder/upsert/duplicate projection。
 - `src/ui/settings/settingsSavePayload.ts`：Settings 面板 save payload helper；负责保存时的 numeric/list normalization、queue legacy key removal、Riff trigger projection、AI provider/prompt normalization 与 final payload assembly。
@@ -812,6 +819,7 @@ AI 工作台的当前架构已经从“固定 tab 工作台”升级为通用聊
   - 管理当前 session、历史索引、上下文抽屉 / 历史抽屉 UI 状态
   - 调用 `AIWorkbenchSessionRuntime` 生成/投影 session records，并通过 delayed persist scheduler 合并高频消息树变更；实际 `saveSession()` 与历史刷新仍由 service 编排
   - 维护 `activeSkillId + activeTabId`、树节点、兼容 thread 投影、compact render 投影、tool timeline、pending approvals、vars、diagnostics
+  - 调用 `AIWorkbenchContextRuntime`、`AIWorkbenchApprovalRuntime` 与 `AIWorkbenchRunRuntime` 承接 context attachments、approval/tool-log message bridge 与 run orchestration tail；public API、session schema、LLM request wire shape 和 tool approval policy 不变
   - 运行前按当前 surface / scenario / target kind 选择 Arena 策略包，并把策略包 prompt/tool 覆盖合入 resolved skill；低信心、高分歧或连续不满意时只显示轻量挑战者提示，不做高频 head-to-head
   - `general-chat` 走 `AIWorkbenchPromptRuntime` 构造 system/context/history 后进入多轮 `LLMPort -> tool calls -> tool results` 循环；读工具自动执行，`QueryBlocksSql / FetchWebPage / SearchWeb` 默认首次审批后缓存决定，写工具继续每次审批；审批工具暂停等待用户确认，确认后在原轮次继续执行
   - `general-chat` 每次回复链路写入 `runGroupId`，中间 assistant/tool/approval 标记为 `presentation=supplemental`，最终回复标记为 `presentation=primary`
@@ -855,6 +863,7 @@ UI 层：
   - 消息区使用 compact render projection：主列表只显示用户消息、最终回复、结构化 Skill 结果和分隔；tool log、审批历史、reasoning、diagnostics 默认折叠到最终回复下方的透明化面板
   - pending approval 在对应回复下方显示 inline approval card；消息复制、编辑、分支、隐藏上下文、固定、插入分隔等操作统一落到消息尾部 toolbar；尾部 `•••` 菜单使用受控弹层而不是原生 `<details>`；消息请求失败会以内联 error bubble 归属到本次对话分支，并提供“重试本次 / 编辑后重发”
   - `concept-coach` 的五阶段 tab 作为结构化结果卡的 section/switch 展示；`general-chat` 隐藏 tab，直接显示单时间线；自测卡模式切换时，native 模式直接本地重渲染，插件模式显示“生成中 / 重试”并按需补齐缓存后的 preview 与制卡 payload；stale 结果显示轻量提示而不是整块锁死
+  - CDF 概念文档搜索的 open/query/busy/error/result 状态由 `aiWorkbenchPaneCdfSearchRuntime.ts` 承接；pane 只绑定当前 helper projection 和 service commands
 
 外部边界：
 

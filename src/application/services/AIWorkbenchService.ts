@@ -1,12 +1,7 @@
 import { reactive } from 'vue';
-import { BlockContextResolver } from '@/application/entries/BlockContextResolver';
-import { resolveProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type { CardContentQueryService } from '@/application/queries/CardContentQueryService';
-import type {
-  AISiyuanBlockRow,
-  AISiyuanPort,
-} from '@/application/ports/AISiyuanPort';
+import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMPort } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
 import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
@@ -59,24 +54,20 @@ import {
   tabResultFromConceptCoach,
   type ConceptCoachNormalizationState,
 } from '@/application/services/AIWorkbenchResultNormalization';
+import { AIWorkbenchApprovalRuntime } from '@/application/services/AIWorkbenchApprovalRuntime';
 import { AIWorkbenchCdfRuntime } from '@/application/services/AIWorkbenchCdfRuntime';
+import { AIWorkbenchContextRuntime } from '@/application/services/AIWorkbenchContextRuntime';
 import { AIWorkbenchConversationTreeRuntime } from '@/application/services/AIWorkbenchConversationTreeRuntime';
 import { AIWorkbenchGeneralChatRuntime } from '@/application/services/AIWorkbenchGeneralChatRuntime';
 import { AIWorkbenchPromptRuntime } from '@/application/services/AIWorkbenchPromptRuntime';
 import {
   buildContextSignature,
-  buildReviewCardSemantics,
   deriveReviewChatKey,
-  isDocumentBlockType,
-  isNeuralVirtualReviewCard,
-  readReviewNeuralContext,
-  readStringArrayFromMeta,
-  readXiuyuanMeta,
 } from '@/application/services/AIWorkbenchContextProjection';
 import {
-  createAIWorkbenchRunStatus,
   generateAIWorkbenchSessionTitle,
 } from '@/application/services/AIWorkbenchRunProjection';
+import { AIWorkbenchRunRuntime } from '@/application/services/AIWorkbenchRunRuntime';
 import {
   buildModeDraftGenerationMessages,
   extractModeDraftsFromPayload,
@@ -109,9 +100,7 @@ import type {
   AIAttachedContextItem,
   AICdfStructure,
   AIChatApprovalRequest,
-  AIChatRuntimeDiagnostic,
   AIChatToolExecutionResult,
-  AIBlockContext,
   AIComposerContextState,
   AIConceptCoachCandidateCard,
   AIConceptCoachCardKind,
@@ -126,7 +115,6 @@ import type {
   AIConceptCoachTabResult,
   AIContextProviderKey,
   AIFollowUpEntry,
-  AIReviewCardContext,
   AISkillId,
   AISkillTabId,
   AIUserSkillStructuredResult,
@@ -145,7 +133,6 @@ import type {
   AIWorkbenchOpenOptions,
   AIWorkbenchNotebookOption,
   AIWorkbenchRunMode,
-  AIWorkbenchRunStatus,
   AIWorkbenchRenderEntry,
   AIWorkbenchSendToSiyuanResult,
   AIWorkbenchSeparatorMessage,
@@ -290,10 +277,6 @@ function uniqueContextItems(items: AIAttachedContextItem[]): AIAttachedContextIt
   return result;
 }
 
-function parseBlockReferenceIds(value: string): string[] {
-  return uniqueIds((normalizeString(value).match(/\d{14}-[0-9a-z]{7}/ig) || []));
-}
-
 function createEntryId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -397,6 +380,9 @@ export class AIWorkbenchService {
   private readonly flashcardTools: AIFlashcardToolService;
   private readonly selfTestCardCreationService: AISelfTestCardCreationService;
   private readonly toolExecutor: AIChatToolExecutorService;
+  private readonly approvalRuntime: AIWorkbenchApprovalRuntime;
+  private readonly contextRuntime: AIWorkbenchContextRuntime;
+  private readonly runRuntime: AIWorkbenchRunRuntime;
   private readonly cdfRuntime: AIWorkbenchCdfRuntime;
   private readonly promptRuntime: AIWorkbenchPromptRuntime;
   private readonly generalChatRuntime: AIWorkbenchGeneralChatRuntime;
@@ -412,6 +398,11 @@ export class AIWorkbenchService {
   });
 
   constructor(private readonly deps: AIWorkbenchServiceDeps) {
+    this.contextRuntime = new AIWorkbenchContextRuntime({
+      state: this.state,
+      cardContentQueryService: this.deps.cardContentQueryService,
+      siyuanPort: this.deps.siyuanPort,
+    });
     this.flashcardTools = new AIFlashcardToolService({
       siyuanPort: this.deps.siyuanPort,
       getXiuyuanApplicationService: async () => this.requireXiuyuanApplicationService(),
@@ -456,6 +447,31 @@ export class AIWorkbenchService {
       siyuanPort: this.deps.siyuanPort,
       flashcardTools: this.flashcardTools,
       getAISettings: this.deps.getAISettings,
+    });
+    this.approvalRuntime = new AIWorkbenchApprovalRuntime({
+      state: this.state,
+      approvalResolvers: this.approvalResolvers,
+      appendMessage: (tabId, message) => this.appendMessage(tabId, message),
+      patchActiveNodeMessage: (messageId, updater) => this.patchActiveNodeMessage(messageId, updater),
+      findApprovalMessageNodeId: (requestId) => (
+        Object.values(this.ensureTreeState().nodes)
+          .find((entry) => {
+            const message = this.getNodeMessage(entry);
+            return message?.kind === 'approval' && message.request.id === requestId;
+          })?.id || null
+      ),
+      syncDerivedStateFromThreads: () => this.syncDerivedStateFromThreads(),
+      persistCurrentSession: () => this.persistCurrentSession(),
+    });
+    this.runRuntime = new AIWorkbenchRunRuntime({
+      state: this.state,
+      normalizeTabForCurrentSettings: (tabId, skillId) => this.normalizeTabForCurrentSettings(tabId, skillId),
+      getSkillTabs: () => this.getSkillTabs(),
+      getActiveTabDescriptor: () => this.getActiveTabDescriptor(),
+      ensureSkillRuntimeState: (skillId) => this.ensureSkillRuntimeState(skillId),
+      syncDerivedStateFromThreads: () => this.syncDerivedStateFromThreads(),
+      persistCurrentSession: () => this.persistCurrentSession(),
+      recordArenaEvent: (eventType, input) => this.recordArenaEvent(eventType, input),
     });
     this.promptRuntime = new AIWorkbenchPromptRuntime({
       state: this.state,
@@ -970,7 +986,7 @@ export class AIWorkbenchService {
     this.state.error = null;
     this.state.failureDiagnostic = null;
     try {
-      const nextContext = await this.buildContextSnapshot(options);
+      const nextContext = await this.contextRuntime.buildContextSnapshot(options);
       const nextReviewChatKey = nextContext.source === 'review'
         ? deriveReviewChatKey(nextContext, options.reviewChatKey)
         : null;
@@ -1018,7 +1034,7 @@ export class AIWorkbenchService {
     this.state.error = null;
     this.state.failureDiagnostic = null;
     try {
-      const nextContext = await this.buildContextSnapshot(options);
+      const nextContext = await this.contextRuntime.buildContextSnapshot(options);
       const nextReviewChatKey = nextContext.source === 'review'
         ? deriveReviewChatKey(nextContext, options.reviewChatKey)
         : null;
@@ -1658,23 +1674,7 @@ export class AIWorkbenchService {
     providerKey: AIContextProviderKey,
     input?: string,
   ): Promise<AIAttachedContextItem | null> {
-    let item: AIAttachedContextItem | null = null;
-    switch (providerKey) {
-      case 'manual-text':
-        item = this.createManualContextAttachment(input);
-        break;
-      case 'selected-content':
-        item = await this.createSelectedContentAttachment();
-        break;
-      case 'block-refs':
-        item = await this.createBlockRefsAttachment(input);
-        break;
-      case 'current-document':
-        item = await this.createCurrentDocumentAttachment();
-        break;
-      default:
-        item = null;
-    }
+    const item = await this.contextRuntime.attachContextFromProvider(providerKey, input);
     if (!item) {
       return null;
     }
@@ -1973,42 +1973,7 @@ export class AIWorkbenchService {
   }
 
   async resolveToolApproval(approvalId: string, approved: boolean, rejectReason = ''): Promise<void> {
-    const normalizedId = normalizeString(approvalId);
-    if (!normalizedId) {
-      return;
-    }
-    const nextPending: AIChatApprovalRequest[] = [];
-    for (const request of this.state.pendingApprovals) {
-      if (request.id !== normalizedId) {
-        nextPending.push(request);
-        continue;
-      }
-      const resolved: AIChatApprovalRequest = {
-        ...request,
-        status: approved ? 'approved' : 'rejected',
-        resolvedAt: Date.now(),
-        rejectReason: approved ? undefined : normalizeString(rejectReason) || '用户拒绝执行。',
-      };
-      this.updateApprovalMessage(resolved);
-      this.addRuntimeDiagnostic({
-        type: 'approval',
-        message: approved
-          ? `用户已批准工具 ${request.toolName}。`
-          : `用户已拒绝工具 ${request.toolName}。`,
-        detail: approved ? undefined : resolved.rejectReason,
-        createdAt: Date.now(),
-      });
-      const resolver = this.approvalResolvers.get(request.id);
-      if (resolver) {
-        resolver.resolve({
-          approved,
-          rejectReason: approved ? undefined : resolved.rejectReason,
-        });
-        this.approvalResolvers.delete(request.id);
-      }
-    }
-    this.state.pendingApprovals = nextPending;
-    await this.persistCurrentSession();
+    await this.approvalRuntime.resolveToolApproval(approvalId, approved, rejectReason);
   }
 
   async createNewSession(): Promise<void> {
@@ -2193,7 +2158,7 @@ export class AIWorkbenchService {
       });
     this.state.isLoading = true;
     this.clearMessageRequestErrorState();
-    this.state.runStatus = this.createRunStatus('full-run', tabIds);
+    this.state.runStatus = this.runRuntime.createRunStatus('full-run', tabIds);
     for (const tabId of tabIds) {
       const thread = this.state.threads[skill.id][tabId];
       thread.stale = false;
@@ -2271,7 +2236,7 @@ export class AIWorkbenchService {
       });
     this.state.isLoading = true;
     this.clearMessageRequestErrorState();
-    this.state.runStatus = this.createRunStatus('follow-up', [tabId]);
+    this.state.runStatus = this.runRuntime.createRunStatus('follow-up', [tabId]);
     try {
       const response = skill.id === CONCEPT_SKILL
         ? await this.promptRuntime.requestFollowUp(tabId, attachedContexts)
@@ -2362,7 +2327,7 @@ export class AIWorkbenchService {
   ): Promise<void> {
     this.state.isLoading = true;
     this.clearMessageRequestErrorState();
-    this.state.runStatus = this.createRunStatus('chat', [CHAT_TAB]);
+    this.state.runStatus = this.runRuntime.createRunStatus('chat', [CHAT_TAB]);
     let primaryAssistantMessageId: string | null = null;
     try {
       await this.generalChatRuntime.runToolLoop({
@@ -2415,34 +2380,7 @@ export class AIWorkbenchService {
   }
 
   private async requestInlineToolApproval(request: AIChatApprovalRequest): Promise<{ approved: boolean; rejectReason?: string }> {
-    this.state.pendingApprovals.push(request);
-    this.appendApprovalMessage(request, request.skillId || this.state.activeSkillId, request.tabId || this.state.activeTabId, request.runGroupId);
-    this.addRuntimeDiagnostic({
-      type: 'approval',
-      message: request.type === 'result'
-        ? `工具 ${request.toolName} 的结果等待用户审批。`
-        : `工具 ${request.toolName} 等待用户审批后执行。`,
-      detail: request.argsText || JSON.stringify(request.args, null, 2),
-      createdAt: Date.now(),
-    });
-    this.appendMessage(request.tabId || this.state.activeTabId, {
-      id: createEntryId('ai-msg'),
-      skillId: request.skillId || this.state.activeSkillId,
-      tabId: request.tabId || this.state.activeTabId,
-      view: request.skillId || this.state.activeSkillId,
-      kind: 'assistant-text',
-      content: request.type === 'result'
-        ? `工具「${request.title}」已经得到结果，等你确认后我就继续。`
-        : `我准备执行工具「${request.title}」，请先确认。`,
-      createdAt: Date.now(),
-      sourceContent: null,
-      appliedContexts: [],
-      runGroupId: request.runGroupId || null,
-      presentation: 'supplemental',
-    } satisfies AIWorkbenchAssistantTextMessage);
-    return new Promise((resolve) => {
-      this.approvalResolvers.set(request.id, { request, resolve });
-    });
+    return this.approvalRuntime.requestInlineToolApproval(request);
   }
 
   private async activateLiveContext(
@@ -2823,432 +2761,13 @@ export class AIWorkbenchService {
     this.state.sessionHistory = await this.getSessionStore().listSummaries();
   }
 
-  private async buildContextSnapshot(options: AIWorkbenchOpenOptions): Promise<AIWorkbenchContextSnapshot> {
-    const currentCard = options.currentCard ?? null;
-    const sourceBlockIdsFromCard = this.resolveSourceBlockIdsFromCard(currentCard);
-    const neuralVirtualBlockIds = this.resolveNeuralVirtualBlockIds(currentCard);
-    const selectedBlockIds = uniqueIds([
-      ...(options.selectedBlockIds || []),
-      options.currentBlockId || null,
-      ...sourceBlockIdsFromCard,
-      ...neuralVirtualBlockIds,
-    ]);
-    const blocks = await this.enrichNeuralVirtualBlockContexts(
-      await this.loadBlockContexts(selectedBlockIds),
-      neuralVirtualBlockIds,
-    );
-    return {
-      source: options.source || 'standalone',
-      selectedBlockIds,
-      blocks,
-      queueType: options.queueType ?? null,
-      queueProgress: options.queueProgress ?? null,
-      currentCard: await this.buildReviewCardContext(currentCard, options.revealed === true),
-      currentCardRaw: currentCard,
-      neuralBatch: options.neuralBatch ?? null,
-    };
-  }
-
-  private async buildReviewCardContext(card: FSRSCard | null, revealed: boolean): Promise<AIReviewCardContext | null> {
-    if (!card) {
-      return null;
-    }
-    const semantics = buildReviewCardSemantics(card.type);
-    const meta = readXiuyuanMeta(card);
-    const neuralContext = readReviewNeuralContext(card);
-    const frontBlockIds = readStringArrayFromMeta(meta, 'frontBlockIDs');
-    const backBlockIds = readStringArrayFromMeta(meta, 'backBlockIDs');
-    const neuralVirtualBlockIds = this.resolveNeuralVirtualBlockIds(card);
-    const sourceBlockIds = uniqueIds([
-      ...frontBlockIds,
-      ...backBlockIds,
-      card.blockId,
-      typeof card.extractedFrom === 'string' ? card.extractedFrom : '',
-      ...neuralVirtualBlockIds,
-    ]);
-    const contentMap = await this.resolveAIBlockContents(sourceBlockIds);
-    await this.enrichAIBlockContentsWithStandardMarkdown(contentMap, neuralVirtualBlockIds);
-    const frontText = frontBlockIds
-      .map((blockId) => contentMap.get(blockId)?.content || '')
-      .filter(Boolean)
-      .join('\n\n');
-    const backText = backBlockIds
-      .map((blockId) => contentMap.get(blockId)?.content || '')
-      .filter(Boolean)
-      .join('\n\n');
-    const sourceText = sourceBlockIds
-      .map((blockId) => contentMap.get(blockId)?.content || '')
-      .filter(Boolean)
-      .join('\n\n');
-    return {
-      cardId: card.id,
-      blockId: card.blockId,
-      cardType: String(card.type || ''),
-      revealed,
-      ...semantics,
-      sourceBlockIds,
-      frontText,
-      backText: semantics.hasAnswerFace ? backText : '',
-      sourceText,
-      neuralContext,
-    };
-  }
-
-  private async loadBlockContexts(blockIds: string[]): Promise<AIBlockContext[]> {
-    if (blockIds.length === 0) {
-      return [];
-    }
-    const escapedIds = blockIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
-    const rows = await this.deps.siyuanPort.sql<AISiyuanBlockRow>(`
-      SELECT id, parent_id, root_id, type, subtype, content, markdown, hpath
-      FROM blocks
-      WHERE id IN (${escapedIds})
-      LIMIT ${blockIds.length}
-    `);
-    const documentMarkdownById = await this.resolveDocumentMarkdownByRows(rows);
-    const byId = new Map(rows.map((row) => [row.id, row] as const));
-    return blockIds.map((blockId) => {
-      const row = byId.get(blockId);
-      const documentMarkdown = documentMarkdownById.get(blockId);
-      const fallbackMarkdown = normalizeString(row?.markdown);
-      const fallbackContent = normalizeString(row?.content);
-      return {
-        blockId,
-        text: documentMarkdown || fallbackMarkdown || fallbackContent,
-        markdown: documentMarkdown || fallbackMarkdown,
-        type: normalizeString(row?.type) || undefined,
-        parentId: normalizeString(row?.parent_id) || null,
-        rootId: normalizeString(row?.root_id) || null,
-        hPath: normalizeString(row?.hpath) || null,
-      } satisfies AIBlockContext;
-    });
-  }
-
-  private resolveNeuralVirtualBlockIds(card: FSRSCard | null): string[] {
-    if (!isNeuralVirtualReviewCard(card)) {
-      return [];
-    }
-    const neuralContext = readReviewNeuralContext(card);
-    return uniqueIds([
-      card?.blockId,
-      neuralContext?.sourceVirtualNodeId,
-    ]);
-  }
-
-  private async readStandardMarkdownByBlockIds(blockIds: string[]): Promise<Map<string, string>> {
-    const result = new Map<string, string>();
-    for (const blockId of uniqueIds(blockIds)) {
-      try {
-        const markdown = normalizeString(await this.deps.siyuanPort.copyStdMarkdown(blockId));
-        if (markdown) {
-          result.set(blockId, markdown);
-        }
-      } catch {
-        // Keep the SQL-derived block text already loaded for the context snapshot.
-      }
-    }
-    return result;
-  }
-
-  private async enrichNeuralVirtualBlockContexts(
-    blocks: AIBlockContext[],
-    blockIds: string[],
-  ): Promise<AIBlockContext[]> {
-    if (blockIds.length === 0 || blocks.length === 0) {
-      return blocks;
-    }
-    const markdownById = await this.readStandardMarkdownByBlockIds(blockIds);
-    if (markdownById.size === 0) {
-      return blocks;
-    }
-    return blocks.map((block) => {
-      const markdown = markdownById.get(block.blockId);
-      return markdown
-        ? {
-            ...block,
-            text: markdown,
-            markdown,
-          }
-        : block;
-    });
-  }
-
-  private buildAttachedContextItem(input: {
-    providerKey: AIContextProviderKey;
-    title: string;
-    content: string;
-    blockIds?: string[];
-    summary?: string;
-    preview?: string;
-  }): AIAttachedContextItem | null {
-    const content = normalizeString(input.content);
-    if (!content) {
-      return null;
-    }
-    const blockIds = uniqueIds(input.blockIds || []);
-    return {
-      id: createEntryId('ai-context'),
-      providerKey: input.providerKey,
-      title: normalizeString(input.title) || '补充上下文',
-      summary: normalizeString(input.summary)
-        || `${blockIds.length > 0 ? `${blockIds.length} 个块` : '临时材料'} · ${content.length} 字`,
-      preview: normalizeString(input.preview) || truncateText(content, 80),
-      content,
-      blockIds,
-      createdAt: Date.now(),
-    };
-  }
-
-  private createManualContextAttachment(input?: string): AIAttachedContextItem | null {
-    const content = normalizeString(input);
-    return this.buildAttachedContextItem({
-      providerKey: 'manual-text',
-      title: '手工材料',
-      content,
-      summary: `手工材料 · ${content.length} 字`,
-    });
-  }
-
-  private async createSelectedContentAttachment(): Promise<AIAttachedContextItem | null> {
-    const selectionSnapshot = resolveProgressiveExcerptSelectionSnapshot();
-    if (selectionSnapshot?.text) {
-      return this.buildAttachedContextItem({
-        providerKey: 'selected-content',
-        title: '选中内容',
-        content: selectionSnapshot.text,
-        blockIds: selectionSnapshot.sourceBlockIds,
-        summary: `${selectionSnapshot.sourceBlockIds.length} 个块 · ${selectionSnapshot.text.length} 字`,
-      });
-    }
-    const resolver = new BlockContextResolver({ i18n: {}, notify: () => {} });
-    const resolved = resolver.resolve({});
-    const blockIds = uniqueIds(
-      (resolved?.blockElements || []).map((element) => element.getAttribute('data-node-id')),
-    );
-    if (blockIds.length === 0) {
-      return null;
-    }
-    const blocks = await this.loadBlockContexts(blockIds);
-    const content = blocks
-      .map((block) => normalizeString(block.markdown || block.text))
-      .filter(Boolean)
-      .join('\n\n');
-    return this.buildAttachedContextItem({
-      providerKey: 'selected-content',
-      title: '选中内容',
-      content,
-      blockIds,
-      summary: `${blockIds.length} 个块 · ${content.length} 字`,
-    });
-  }
-
-  private async createBlockRefsAttachment(input?: string): Promise<AIAttachedContextItem | null> {
-    const blockIds = parseBlockReferenceIds(normalizeString(input));
-    if (blockIds.length === 0) {
-      return null;
-    }
-    const blocks = await this.loadBlockContexts(blockIds);
-    const content = blocks
-      .map((block) => normalizeString(block.markdown || block.text))
-      .filter(Boolean)
-      .join('\n\n');
-    return this.buildAttachedContextItem({
-      providerKey: 'block-refs',
-      title: '指定块内容',
-      content,
-      blockIds,
-      summary: `${blockIds.length} 个块 · ${content.length} 字`,
-    });
-  }
-
-  private async createCurrentDocumentAttachment(): Promise<AIAttachedContextItem | null> {
-    const liveOrHistoricalContext = this.state.liveContext || this.state.context;
-    const candidateRootIds = uniqueIds([
-      ...(liveOrHistoricalContext?.blocks || []).map((block) => block.rootId),
-      liveOrHistoricalContext?.currentCard?.blockId || null,
-    ]);
-    let documentId = candidateRootIds[0] || '';
-    if (!documentId) {
-      const resolver = new BlockContextResolver({ i18n: {}, notify: () => {} });
-      const resolved = resolver.resolve({});
-      const firstBlockId = normalizeString(resolved?.blockElements?.[0]?.getAttribute('data-node-id'));
-      if (firstBlockId) {
-        const rows = await this.deps.siyuanPort.sql<{ root_id?: string }>(`
-          SELECT root_id
-          FROM blocks
-          WHERE id = '${firstBlockId.replace(/'/g, "''")}'
-          LIMIT 1
-        `);
-        documentId = normalizeString(rows[0]?.root_id);
-      }
-    }
-    if (!documentId) {
-      return null;
-    }
-    const [documentBlock] = await this.loadBlockContexts([documentId]);
-    if (!documentBlock) {
-      return null;
-    }
-    return this.buildAttachedContextItem({
-      providerKey: 'current-document',
-      title: '当前文档',
-      content: normalizeString(documentBlock.markdown || documentBlock.text),
-      blockIds: [documentId],
-      summary: `${documentBlock.hPath || '当前文档'} · ${normalizeString(documentBlock.text).length} 字`,
-      preview: truncateText(normalizeString(documentBlock.text), 96),
-    });
-  }
-
-  private resolveSourceBlockIdsFromCard(card: FSRSCard | null): string[] {
-    if (!card) {
-      return [];
-    }
-    const meta = readXiuyuanMeta(card);
-    return uniqueIds([
-      ...readStringArrayFromMeta(meta, 'frontBlockIDs'),
-      ...readStringArrayFromMeta(meta, 'backBlockIDs'),
-      card.blockId,
-      typeof card.extractedFrom === 'string' ? card.extractedFrom : '',
-    ]);
-  }
-
-  private async resolveAIBlockContents(
-    blockIds: string[],
-  ): Promise<Map<string, { content: string; type: string; isDocument: boolean }>> {
-    const queryResults = await this.deps.cardContentQueryService.getBlockContentsWithType(blockIds);
-    const resolved = new Map<string, { content: string; type: string; isDocument: boolean }>();
-    for (const blockId of blockIds) {
-      const entry = queryResults.get(blockId);
-      const type = normalizeString(entry?.type);
-      const title = normalizeString(entry?.content);
-      if (isDocumentBlockType(type)) {
-        resolved.set(blockId, {
-          content: await this.readDocumentMarkdown(blockId, title),
-          type: type || 'd',
-          isDocument: true,
-        });
-        continue;
-      }
-      resolved.set(blockId, {
-        content: title,
-        type,
-        isDocument: entry?.isDocument === true,
-      });
-    }
-    return resolved;
-  }
-
-  private async enrichAIBlockContentsWithStandardMarkdown(
-    contentMap: Map<string, { content: string; type: string; isDocument: boolean }>,
-    blockIds: string[],
-  ): Promise<void> {
-    if (blockIds.length === 0) {
-      return;
-    }
-    const markdownById = await this.readStandardMarkdownByBlockIds(blockIds);
-    for (const [blockId, markdown] of markdownById.entries()) {
-      const existing = contentMap.get(blockId);
-      contentMap.set(blockId, {
-        content: markdown,
-        type: existing?.type || '',
-        isDocument: existing?.isDocument === true,
-      });
-    }
-  }
-
-  private async resolveDocumentMarkdownByRows(rows: AISiyuanBlockRow[]): Promise<Map<string, string>> {
-    const documentRows = rows.filter((row) => isDocumentBlockType(row.type));
-    const resolved = new Map<string, string>();
-    for (const row of documentRows) {
-      const blockId = normalizeString(row.id);
-      if (!blockId) {
-        continue;
-      }
-      const title = normalizeString(row.content) || normalizeString(row.hpath);
-      resolved.set(blockId, await this.readDocumentMarkdown(blockId, title));
-    }
-    return resolved;
-  }
-
-  private async readDocumentMarkdown(blockId: string, title?: string): Promise<string> {
-    try {
-      return normalizeString(await this.deps.siyuanPort.copyStdMarkdown(blockId));
-    } catch {
-      const label = normalizeString(title) || blockId;
-      throw this.fail(`AI 无法读取文档「${label}」的正文，请稍后重试。`);
-    }
-  }
-
   private appendToolLogMessage(
     result: AIChatToolExecutionResult,
     skillId: AISkillId = this.state.activeSkillId,
     tabId: AISkillTabId = this.state.activeTabId,
     runGroupId?: string | null,
   ): void {
-    this.appendMessage(tabId, {
-      id: createEntryId('ai-tool'),
-      skillId,
-      tabId,
-      view: skillId,
-      kind: 'tool-log',
-      createdAt: result.createdAt,
-      toolCallId: result.toolCallId,
-      toolName: result.toolName,
-      group: result.group,
-      status: result.status,
-      content: result.finalText,
-      argsText: result.argsText || null,
-      resultText: result.resultText || null,
-      error: result.error || null,
-      argsVarRef: result.argsVarRef || null,
-      varRef: result.varRef || null,
-      durationMs: result.durationMs || null,
-      roundIndex: result.roundIndex || null,
-      llmUsage: result.llmUsage || null,
-      runGroupId: normalizeString(runGroupId) || null,
-      presentation: 'supplemental',
-    } satisfies AIWorkbenchToolLogMessage);
-  }
-
-  private appendApprovalMessage(
-    request: AIChatApprovalRequest,
-    skillId: AISkillId = this.state.activeSkillId,
-    tabId: AISkillTabId = this.state.activeTabId,
-    runGroupId?: string | null,
-  ): void {
-    this.appendMessage(tabId, {
-      id: createEntryId('ai-approval'),
-      skillId,
-      tabId,
-      view: skillId,
-      kind: 'approval',
-      createdAt: request.createdAt,
-      request,
-      runGroupId: normalizeString(runGroupId) || null,
-      presentation: 'supplemental',
-    } satisfies AIWorkbenchApprovalMessage);
-  }
-
-  private updateApprovalMessage(request: AIChatApprovalRequest): void {
-    const node = Object.values(this.ensureTreeState().nodes)
-      .find((entry) => {
-        const message = this.getNodeMessage(entry);
-        return message?.kind === 'approval' && message.request.id === request.id;
-      }) || null;
-    if (node) {
-      this.patchActiveNodeMessage(node.id, (message) => ({
-        ...(message as AIWorkbenchApprovalMessage),
-        request,
-      } satisfies AIWorkbenchApprovalMessage));
-    }
-    this.syncDerivedStateFromThreads();
-  }
-
-  private addRuntimeDiagnostic(diagnostic: AIChatRuntimeDiagnostic): void {
-    this.state.diagnostics = [
-      ...this.state.diagnostics,
-      diagnostic,
-    ].slice(-40);
+    this.approvalRuntime.appendToolLogMessage(result, skillId, tabId, runGroupId);
   }
 
   private appendConceptCoachFullResult(
@@ -3408,64 +2927,8 @@ export class AIWorkbenchService {
     return this.state.context;
   }
 
-  private createRunStatus(mode: AIWorkbenchRunMode, tabIds: AISkillTabId[]): AIWorkbenchRunStatus {
-    const skillId = this.state.activeSkillId;
-    return createAIWorkbenchRunStatus({
-      mode,
-      skillId,
-      tabIds: tabIds.map((tabId) => this.normalizeTabForCurrentSettings(tabId, skillId)),
-      activeTabId: this.state.activeTabId,
-      tabs: this.getSkillTabs(),
-      activeTabTitle: this.getActiveTabDescriptor().title,
-    });
-  }
-
   private async runTask(tabIds: AISkillTabId[], runner: () => Promise<void>, mode: AIWorkbenchRunMode): Promise<void> {
-    this.state.isLoading = true;
-    this.state.error = null;
-    this.state.failureDiagnostic = null;
-    const skillId = this.state.activeSkillId;
-    this.ensureSkillRuntimeState(skillId);
-    const normalizedTabIds = tabIds.map((tabId) => this.normalizeTabForCurrentSettings(tabId, skillId));
-    this.state.runStatus = this.createRunStatus(mode, normalizedTabIds);
-    for (const tabId of normalizedTabIds) {
-      const thread = this.state.threads[skillId][tabId];
-      thread.stale = false;
-      thread.staleReason = null;
-    }
-    try {
-      await runner();
-      for (const tabId of normalizedTabIds) {
-        const thread = this.state.threads[skillId][tabId];
-        thread.resultContextSignature = this.state.contextSignature;
-        thread.stale = false;
-        thread.staleReason = null;
-      }
-      this.state.legacyNotice = null;
-      this.syncDerivedStateFromThreads();
-      await this.persistCurrentSession();
-      if (mode === 'tab-rerun') {
-        await this.recordArenaEvent('rerun', {
-          metadata: {
-            tabIds: normalizedTabIds,
-            skillId,
-          },
-        });
-      }
-    } catch (error) {
-      this.state.error = error instanceof Error ? error.message : String(error);
-      await this.recordArenaEvent('abandon', {
-        metadata: {
-          mode,
-          tabIds: normalizedTabIds,
-          skillId,
-          error: this.state.error,
-        },
-      });
-    } finally {
-      this.state.isLoading = false;
-      this.state.runStatus = null;
-    }
+    await this.runRuntime.runTask(tabIds, runner, mode);
   }
 
   private buildCurrentSessionRecord(): AIWorkbenchSessionRecord | null {

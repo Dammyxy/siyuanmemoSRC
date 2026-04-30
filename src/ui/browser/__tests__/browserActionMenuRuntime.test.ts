@@ -1,0 +1,158 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { ICardDataSource } from '../datasource/types';
+import type { BrowserCard } from '../types';
+import { createBrowserActionMenuRuntime, type BrowserMenuItem } from '../browserActionMenuRuntime';
+
+function ref<T>(value: T): { value: T } {
+  return { value };
+}
+
+function card(id: string): BrowserCard {
+  return { id, blockId: `block-${id}` } as BrowserCard;
+}
+
+function createLogger() {
+  return {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  };
+}
+
+function createMenuRecorder() {
+  const menus: Array<{
+    id: string;
+    items: BrowserMenuItem[];
+    open: ReturnType<typeof vi.fn>;
+  }> = [];
+
+  return {
+    menus,
+    createMenu: (id: string) => {
+      const menu = {
+        id,
+        items: [] as BrowserMenuItem[],
+        open: vi.fn(),
+        addItem(item: BrowserMenuItem) {
+          this.items.push(item);
+        },
+      };
+      menus.push(menu);
+      return menu;
+    },
+  };
+}
+
+function createRuntimeDeps(overrides: Record<string, unknown> = {}) {
+  const dataSource = {
+    id: 'deck',
+    label: 'Deck',
+    getSupportedActions: vi.fn(() => [{ id: 'custom-action', label: 'Custom Action' }]),
+    fetchRows: vi.fn(),
+    performAction: vi.fn(async () => ({ updated: 1, skipped: 0 })),
+  } as unknown as ICardDataSource;
+  const menuRecorder = createMenuRecorder();
+  const openReviewDialog = vi.fn();
+  const deps = {
+    applyRandomSort: vi.fn(),
+    applySort: vi.fn(),
+    buildCardTypeSubmenu: vi.fn(() => [{ icon: 'iconFile', label: 'Topic' }]),
+    currentDataSource: ref<ICardDataSource | null>(dataSource),
+    createMenu: menuRecorder.createMenu,
+    defer: (fn: () => void) => fn(),
+    describeCurrentFilterSummary: vi.fn(() => 'Scope: all'),
+    ensureAllRowsSnapshotReady: vi.fn(async () => []),
+    getDialogManager: vi.fn(() => ({
+      openReviewDialog,
+      openIncrementalLearningDialog: vi.fn(),
+      openFinalDrillDialog: vi.fn(),
+      openNeuralRoamDialog: vi.fn(),
+      openFilterGroupPracticeDialog: vi.fn(),
+    })),
+    getNeuralRoamQueue: vi.fn(() => null),
+    getPlugin: vi.fn(() => null),
+    getQueueById: vi.fn(() => undefined),
+    getStorage: vi.fn(() => null),
+    globalSelection: {
+      mode: ref('none'),
+      explicitIds: ref(new Set<string>()),
+      resolveSelectedIds: vi.fn((ids: string[]) => ids),
+    },
+    gridApi: ref({ refreshCells: vi.fn() }),
+    i18n: {},
+    invalidateCardCache: vi.fn(),
+    isMobileMode: ref(false),
+    isNeuralRoamQueueActive: ref(false),
+    loadAllRowsForCurrentView: vi.fn(async () => []),
+    loadData: vi.fn(async () => undefined),
+    logger: createLogger(),
+    neuralSubview: ref('concept-cards'),
+    openDocumentTabById: vi.fn(async () => true),
+    pushErrMsg: vi.fn(async () => undefined),
+    pushMsg: vi.fn(async () => undefined),
+    refreshGlobalStats: vi.fn(),
+    refreshNeuralSubviewData: vi.fn(async () => undefined),
+    refreshQueueCounts: vi.fn(async () => undefined),
+    resolveNeuralSourceLabels: vi.fn(() => ({ addItem: 'Add source', removeItem: 'Remove source' })),
+    selectedRows: ref<BrowserCard[]>([]),
+    t: (_key: string, fallback: string) => fallback,
+    ...overrides,
+  };
+
+  return { dataSource, deps, menuRecorder, openReviewDialog };
+}
+
+describe('browserActionMenuRuntime', () => {
+  it('executes data source actions and keeps browser refresh feedback centralized', async () => {
+    const { dataSource, deps } = createRuntimeDeps();
+    const runtime = createBrowserActionMenuRuntime(deps);
+
+    await runtime.handleAction('custom-action', [card('a')]);
+
+    expect(dataSource.performAction).toHaveBeenCalledWith(
+      'custom-action',
+      [expect.objectContaining({ blockId: 'block-a' })],
+      expect.objectContaining({ refresh: expect.any(Function) }),
+    );
+    expect(deps.gridApi.value?.refreshCells).toHaveBeenCalledWith({ force: true });
+    expect(deps.refreshQueueCounts).toHaveBeenCalledTimes(1);
+    expect(deps.pushMsg).toHaveBeenCalledWith('Success');
+  });
+
+  it('routes open action through tab bridge without requiring a data source', async () => {
+    const { deps } = createRuntimeDeps({ currentDataSource: ref<ICardDataSource | null>(null) });
+    const runtime = createBrowserActionMenuRuntime(deps);
+
+    await runtime.handleAction('open', [card('a')], card('anchor'));
+
+    expect(deps.openDocumentTabById).toHaveBeenCalledWith('block-anchor');
+    expect(deps.pushErrMsg).not.toHaveBeenCalled();
+  });
+
+  it('builds practice menu through dialog manager and opens at trigger rect', () => {
+    const { deps, menuRecorder, openReviewDialog } = createRuntimeDeps();
+    const runtime = createBrowserActionMenuRuntime(deps);
+    const target = {
+      getBoundingClientRect: () => ({ left: 42, bottom: 84 }),
+    };
+    const event = {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      currentTarget: target,
+      target,
+      clientX: 1,
+      clientY: 2,
+    } as unknown as MouseEvent;
+
+    runtime.openPracticeMenu(event);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(event.stopPropagation).toHaveBeenCalled();
+    expect(menuRecorder.menus[0].id).toBe('fsrs-browser-practice-menu');
+    expect(menuRecorder.menus[0].open).toHaveBeenCalledWith({ x: 42, y: 84, isLeft: true });
+
+    menuRecorder.menus[0].items[0].click?.();
+    expect(openReviewDialog).toHaveBeenCalledTimes(1);
+  });
+});

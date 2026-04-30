@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div
     ref="browserRootRef"
     class="card-browser"
@@ -102,7 +102,7 @@
       <div v-if="!showNeuralCustomSubview && loading && !currentDataSource" class="card-browser__loading">
         <div class="fn__loading"></div>
       </div>
-      
+
       <!-- Empty state -->
       <div
         v-else-if="!showNeuralCustomSubview && !loading && hasFirstDataBlockLoaded && totalRowCount === 0"
@@ -111,7 +111,7 @@
         <div>📭</div>
         <span>{{ t('noCards', 'No cards') }}</span>
       </div>
-      
+
       <!-- AG-Grid table -->
       <div v-else-if="!showNeuralCustomSubview" class="card-browser__grid">
         <ag-grid-vue
@@ -284,15 +284,15 @@
         />
       </div>
     </div>
-    
+
     <!-- Drag resizer -->
-    <div 
-      v-if="showPreview && !isMobileMode" 
+    <div
+      v-if="showPreview && !isMobileMode"
       class="card-browser__resizer"
       :class="{ 'card-browser__resizer--dragging': isResizing }"
       @mousedown="startResize"
     ></div>
-    
+
     <!-- Preview panel -->
     <BrowserPreview
       v-if="showPreview"
@@ -343,7 +343,7 @@ import type {
   RowSelectionOptions,
   SortChangedEvent,
 } from 'ag-grid-community';
-import { openTab, Menu, Protyle, type App } from 'siyuan';
+import { openTab, Protyle, type App } from 'siyuan';
 import { confirmDialog } from '@/utils/dialog';
 import {
   loadBrowserCardsByBlockIds,
@@ -385,11 +385,9 @@ import {
 import {
   DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
   normalizeHierarchySnapshotDelayMs,
-  resolveBrowserHierarchySnapshotMode,
 } from './hierarchySnapshotPlan';
 import { migrateExistingCards, checkMigrationNeeded } from '@/scripts/migrateToTopicItem';
 import type {
-  BrowserActionTarget,
   ICardDataSource,
   SortModel,
 } from './datasource/types';
@@ -419,11 +417,9 @@ import type {
 } from '@/types/unified-data-source';
 import { filterService } from './services/FilterService';
 import type { NeuralSubview } from './neural/types';
-import { 
-  CARD_STATE_COLORS, 
-  DEFAULT_PRIORITY, 
-  SORT_FIELD_CONFIGS, 
-  type SortFieldConfig,
+import {
+  CARD_STATE_COLORS,
+  DEFAULT_PRIORITY,
   PREVIEW_SIZE_MIN,
   PREVIEW_SIZE_MAX,
   DEFAULT_PREVIEW_SIZE,
@@ -433,9 +429,7 @@ import {
   resolveBrowserCardStableId,
 } from './utils/browserCardIdentity';
 import { extractBlockIds } from './utils/helpers';
-import { interpolateI18n } from './utils/i18n';
 import { mergeExplicitSelectionByPage } from './utils/paginatedSelection';
-import { resolveSubsetReviewSelection } from './utils/subsetReviewSelection';
 import { resolveEffectiveSortModel } from './utils/sortModel';
 import {
   fetchAllRowsFromDataSource,
@@ -450,24 +444,18 @@ import {
   isBrowserNodeInSelectionScope,
   resolveBrowserCardSelectionId,
 } from './browserSelectionScope';
+import { createBrowserActionMenuRuntime } from './browserActionMenuRuntime';
 import {
-  getBrowserActionErrorMessage,
-  getBrowserActionLabel,
-  parseBrowserAddToQueueResult,
-  shouldForceRefreshAfterBrowserAction,
-  shouldReloadAfterBrowserAction,
-  summarizeBrowserActionResult,
-} from './browserActionFeedback';
-import { createBrowserActionParamBuilders } from './browserActionParamDialogs';
+  createBrowserLoadDataRuntime,
+  type BrowserLoadDataOptions,
+} from './browserLoadDataRuntime';
 import { openBrowserSpreadDialog } from './browserSpreadDialog';
 import {
   isNeuralQueueId,
   resolveQueueCardTypeOnSwitch,
 } from './utils/queueCardTypePolicy';
 import {
-  createQueueDataSource,
   createDeckDataSource,
-  createQueryDataSource,
   createFocusDataSource,
   type DataSourceOptionsWithDoc,
 } from './utils/dataSourceFactory';
@@ -740,9 +728,9 @@ const calculateInitialPreviewSize = (): number => {
     const target = Math.round(window.innerHeight * 0.34);
     return Math.min(360, Math.max(240, target));
   }
-  
+
   const dialogWidth = window.innerWidth;
-  
+
 
   if (dialogWidth < 1024) {
     return 280;
@@ -1090,9 +1078,9 @@ const focusedDocIds = computed(() => {
       docs.add(card.rootId);
     }
   }
-  
+
   const result = docs.size > 0 ? Array.from(docs) : null;
-  
+
   if (isDevMode) {
 
     const allRootIds = rowsForFocus.value.map(c => ({ blockId: c.blockId, rootId: c.rootId }));
@@ -1114,11 +1102,11 @@ const focusedDocIds = computed(() => {
       docsCount: docs.size,
     });
   }
-  
+
   if (result === null && rowsForFocus.value.length > 0) {
     logger.warn('[SiYuanMemo][SRSBrowser] 鈿狅笍 All cards missing rootId, cannot focus documents');
   }
-  
+
   return result;
 });
 
@@ -1642,168 +1630,11 @@ async function ensureAllRowsSnapshotReady(): Promise<BrowserCard[]> {
   return allRows.value;
 }
 
-type LoadDataOptions = {
-  refreshQueueCounts?: boolean;
-  snapshotDelayMs?: number;
-  origin?: 'default' | 'queue-sync';
-};
+let loadDataImpl: (forceRefresh?: boolean, options?: BrowserLoadDataOptions) => Promise<void> = async () => {};
+let abortLoadData = () => {};
 
-let loadDataAbortController: AbortController | null = null;
-
-async function loadData(forceRefresh = false, options: LoadDataOptions = {}) {
-  const shouldRefreshQueueCounts = options.refreshQueueCounts ?? true;
-  const origin = options.origin ?? 'default';
-
-  if (loadDataAbortController) {
-    loadDataAbortController.abort();
-    logger.info('[SiYuanMemo][SRSBrowser] Previous loadData() aborted');
-  }
-  invalidateHierarchySnapshots();
-  
-  // Create a new AbortController
-  loadDataAbortController = new AbortController();
-  const currentController = loadDataAbortController;
-  let datasourceTriggered = false;
-  
-  loading.value = true;
-  hasRandomSort.value = false;
-  randomSortRows.value = null;
-  try {
-    if (currentController.signal.aborted) {
-      logger.info('[SiYuanMemo][SRSBrowser] loadData() aborted before execution');
-      return;
-    }
-    
-    if (origin !== 'queue-sync') {
-      selectedRows.value = [];
-      globalSelection.clear();
-      previewCard.value = null;
-    }
-
-    const unifiedDataSourceManager = pluginUnifiedDataSourceManager.value;
-
-    // Queue mode: create queue data source and keep doc filter semantics.
-    if (activeQueueId.value) {
-      if (!unifiedDataSourceManager) {
-        logger.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available');
-        rows.value = [];
-        rowsForFocus.value = [];
-        allRows.value = [];
-        totalRowCount.value = 0;
-        return;
-      }
-
-      currentDataSource.value = createQueueDataSource(
-        activeQueueId.value,
-        unifiedDataSourceManager,
-        {
-          docId: activeDocId.value,
-          scopeDocIds: activeScopeDocIds.value,
-          preset: currentPreset.value,
-          queryText: searchQuery.value,
-          cardType: currentCardType.value as BrowserCardTypeFilter,
-        },
-        props.plugin,
-        browserAppServiceRef.value || null,
-      );
-
-      if (!currentDataSource.value) {
-        logger.error('[SiYuanMemo][SRSBrowser] Failed to create data source for queue:', activeQueueId.value);
-        rows.value = [];
-        rowsForFocus.value = [];
-        allRows.value = [];
-        totalRowCount.value = 0;
-        return;
-      }
-    } else {
-      clearNeuralSubviewData();
-      const sqlStmt = resolveActiveSqlStatement(searchQuery.value);
-      if (sqlStmt != null) {
-        const ok = await ensureSqlModeConfirmed();
-        if (!ok) return;
-        activeQueueId.value = null;
-        currentDataSource.value = createQueryDataSource(sqlStmt, {
-          manager: unifiedDataSourceManager,
-          plugin: props.plugin,
-          siyuanApi: browserSiyuanApi.value || undefined,
-        });
-      } else {
-        if (!unifiedDataSourceManager) {
-          logger.error('[SiYuanMemo][SRSBrowser] UnifiedDataSourceManager not available for deck mode');
-          await pushErrMsg(t('envNotInit', 'Environment not initialized'));
-          rows.value = [];
-          rowsForFocus.value = [];
-          allRows.value = [];
-          totalRowCount.value = 0;
-          return;
-        }
-
-        currentDataSource.value = createDeckDataSource(
-          unifiedDataSourceManager,
-          {
-            docId: activeDocId.value,
-            scopeDocIds: activeScopeDocIds.value,
-            preset: currentPreset.value,
-            queryText: searchQuery.value,
-            cardType: currentCardType.value as BrowserCardTypeFilter,
-          },
-          props.currentDocId || null,
-          props.plugin,
-          browserAppServiceRef.value || null,
-        );
-      }
-    }
-
-    if (!currentDataSource.value) {
-      rows.value = [];
-      rowsForFocus.value = [];
-      allRows.value = [];
-      totalRowCount.value = 0;
-      return;
-    }
-
-    if (currentController.signal.aborted) {
-      logger.info('[SiYuanMemo][SRSBrowser] loadData() aborted before datasource apply');
-      return;
-    }
-
-    rebuildInfiniteDatasource(forceRefresh);
-    datasourceTriggered = true;
-    const hierarchySnapshotMode = resolveBrowserHierarchySnapshotMode({
-      shouldFocusDocList: shouldFocusDocList.value,
-      activeDocId: activeDocId.value,
-    });
-    if (hierarchySnapshotMode === 'focus') {
-      startFocusRowsSnapshot();
-    } else if (hierarchySnapshotMode === 'all') {
-      scheduleAllRowsSnapshot(options.snapshotDelayMs);
-    }
-    void origin;
-
-    if (currentQueueType.value === 'neural-roam') {
-      await refreshNeuralSubviewData();
-    } else {
-      clearNeuralSubviewData();
-    }
-  } catch (err) {
-    logger.error('[SiYuanMemo][CardBrowser] Load data error:', err);
-    rows.value = [];
-    totalRowCount.value = 0;
-  } finally {
-    if (!currentController.signal.aborted) {
-      if (!datasourceTriggered) {
-        loading.value = false;
-      }
-      if (shouldRefreshQueueCounts) {
-        // queue count refresh is independent from row loading.
-        void refreshQueueCounts();
-      }
-    }
-
-    if (loadDataAbortController === currentController) {
-      loadDataAbortController = null;
-    }
-  }
+async function loadData(forceRefresh = false, options: BrowserLoadDataOptions = {}) {
+  return loadDataImpl(forceRefresh, options);
 }
 
 function resolveActiveSqlStatement(queryText: string = searchQuery.value): string | null {
@@ -2077,11 +1908,11 @@ function onSelectionChanged() {
 function onRowClicked(event: RowClickedEvent<BrowserCard>) {
   const mouseEvent = event.event as MouseEvent;
   const isMultiSelect = mouseEvent?.shiftKey || mouseEvent?.ctrlKey || mouseEvent?.metaKey;
-  
+
   if (isMultiSelect) {
     return;
   }
-  
+
   previewCard.value = event.data;
 }
 
@@ -2091,7 +1922,7 @@ async function onRowDoubleClicked(event: RowDoubleClickedEvent<BrowserCard>) {
     logger.warn('[SiYuanMemo][CardBrowser] No blockId found in row data:', event.data);
     return;
   }
-  
+
   await openDocumentTabById(blockId);
 }
 
@@ -2103,14 +1934,14 @@ function startResize(e: MouseEvent) {
 
   e.preventDefault();
   isResizing.value = true;
-  
+
   // 禁止文本选择
   document.body.style.userSelect = 'none';
   document.body.style.cursor = mode.value === 'dialog' ? 'col-resize' : 'row-resize';
-  
+
   const startPos = mode.value === 'dialog' ? e.clientX : e.clientY;
   const startSize = previewSize.value;
-  
+
   const onMouseMove = (moveEvent: MouseEvent) => {
     moveEvent.preventDefault();
     const currentPos = mode.value === 'dialog' ? moveEvent.clientX : moveEvent.clientY;
@@ -2119,7 +1950,7 @@ function startResize(e: MouseEvent) {
     const newSize = Math.min(PREVIEW_SIZE_MAX, Math.max(PREVIEW_SIZE_MIN, startSize + delta));
     previewSize.value = newSize;
   };
-  
+
   const onMouseUp = () => {
     isResizing.value = false;
     // 恢复文本选择
@@ -2128,7 +1959,7 @@ function startResize(e: MouseEvent) {
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
   };
-  
+
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('mouseup', onMouseUp);
 }
@@ -2155,397 +1986,20 @@ function convertToTab() {
   emit('convertToTab', captureCurrentBrowserOpenState());
 }
 
-type BrowserMenuItem = {
-  icon?: string;
-  label?: string;
-  type?: 'separator';
-  click?: () => void;
-  submenu?: BrowserMenuItem[];
-};
-
-const ACTION_PARAM_BUILDERS = createBrowserActionParamBuilders({
-  ensureAllRowsSnapshotReady,
-  getQueueById,
-  getStorage: () => pluginStorage.value,
-  i18n: props.i18n,
-  loadAllRowsForCurrentView,
-  t,
-});
-
-function getActionLabel(action: { id: string; label: string }): string {
-  return getBrowserActionLabel(action, t);
-}
-
-function getReviewSubsetAction() {
-  return {
-    id: 'review-subset',
-    label: t('reviewSubset', 'Review Subset'),
-    icon: 'iconPlay',
-  };
-}
-
-function ensureReviewSubsetAction(actions: Array<{ id: string; label: string; icon?: string }>) {
-  if (typeof props.plugin?.openSubsetReviewDialog !== 'function') {
-    return actions;
-  }
-
-  if (actions.some((action) => action.id === 'review-subset')) {
-    return actions;
-  }
-
-  return [getReviewSubsetAction(), ...actions];
-}
-
-async function openSubsetReviewFromSelection(cards: BrowserActionTarget[], anchorRow?: BrowserCard): Promise<void> {
-  if (typeof props.plugin?.openSubsetReviewDialog !== 'function') {
-    await pushErrMsg(t('initFailed', 'FSRS plugin initialization failed, please check console for errors'));
-    return;
-  }
-
-  const selection = resolveSubsetReviewSelection(cards, anchorRow);
-  if (selection.blockIds.length === 0 && selection.cardIds.length === 0) {
-    await pushErrMsg(t('drillNoCards', 'No flashcards available in the current range'));
-    return;
-  }
-
-  await Promise.resolve(
-    props.plugin.openSubsetReviewDialog(selection.blockIds, {
-      cardIds: selection.cardIds.length > 0 ? selection.cardIds : undefined,
-      preferredCardId: selection.preferredCardId,
-    })
-  );
-}
-
-async function resolveActionTargets(
-  actionId: string,
-  targetCards: BrowserCard[]
-): Promise<BrowserActionTarget[]> {
-  if (actionId === 'open') {
-    return targetCards;
-  }
-
-  if (globalSelection.mode.value === 'explicit') {
-    const explicitIds = Array.from(globalSelection.explicitIds.value);
-    if (explicitIds.length === 0) {
-      return targetCards;
-    }
-
-    const queryable = resolveQueryableDataSource(currentDataSource.value);
-    if (!queryable) {
-      if (explicitIds.length > targetCards.length) {
-        await pushMsg('Current view does not support cross-page selection. Using visible selections only.');
-      }
-      return targetCards;
-    }
-
-    return PerformanceMonitor.measure('browser.action.targets.ms', async () => {
-      return queryable.getActionTargetsByIds(explicitIds);
-    });
-  }
-
-  if (globalSelection.mode.value !== 'all-matching') {
-    return targetCards;
-  }
-
-  const queryable = resolveQueryableDataSource(currentDataSource.value);
-  if (!queryable) {
-    await pushErrMsg(t('selectAllMatchingUnsupported', 'Current view does not support select-all-matching'));
-    return [];
-  }
-
-  const allMatchedIds = await queryable.getAllMatchedIds();
-  const selectedIds = globalSelection.resolveSelectedIds(allMatchedIds);
-  if (selectedIds.length === 0) {
-    return [];
-  }
-
-  return PerformanceMonitor.measure('browser.action.targets.ms', async () => {
-    const targets: BrowserActionTarget[] = [];
-    for (let index = 0; index < selectedIds.length; index += 500) {
-      const chunkIds = selectedIds.slice(index, index + 500);
-      const chunkTargets = await queryable.getActionTargetsByIds(chunkIds);
-      targets.push(...chunkTargets);
-    }
-    return targets;
-  });
-}
+let handleActionImpl: (actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) => Promise<void> = async () => {};
+let onCellContextMenuImpl: (event: CellContextMenuEvent) => void = () => {};
+let openPracticeMenuImpl: (event: MouseEvent) => void = () => {};
 
 async function handleAction(actionId: string, targetCards: BrowserCard[], anchorRow?: BrowserCard) {
-  const materializedTargets = await resolveActionTargets(actionId, targetCards);
-
-  logger.debug('handleAction called:', {
-    actionId,
-    count: materializedTargets?.length || 0,
-    blockIds: materializedTargets?.map(c => c.blockId),
-  });
-  
-  if (!materializedTargets?.length) {
-    logger.debug('handleAction skipped: no selected cards');
-    return;
-  }
-
-  if (actionId === 'open') {
-    const blockId = String(anchorRow?.blockId || materializedTargets[0]?.blockId || '');
-    if (blockId) {
-      await openDocumentTabById(blockId);
-      return;
-    }
-    await pushErrMsg(t('envNotInit', 'Environment not initialized, cannot open tab'));
-    return;
-  }
-
-  if (actionId === 'review-subset') {
-    await openSubsetReviewFromSelection(materializedTargets, anchorRow);
-    return;
-  }
-
-  const ds = currentDataSource.value;
-  logger.debug('current data source:', ds?.constructor?.name);
-  
-  if (!ds) {
-    logger.debug('handleAction skipped: data source is not available');
-    return;
-  }
-
-  if (actionId === 'reset') {
-    const ok = await confirmDialog({
-      title: t('resetCard', 'Reset'),
-      content: interpolateI18n(
-        t('confirmReset', 'Are you sure you want to reset {count} cards?'),
-        { count: materializedTargets.length },
-      ),
-      confirmText: t('confirm', 'Confirm'),
-      cancelText: t('cancel', 'Cancel'),
-    });
-    if (!ok) return;
-  }
-
-  // 🆕 删除卡片确认
-  if (actionId === 'delete-card') {
-    const confirmContent = interpolateI18n(
-      t('confirmDelete', 'Are you sure you want to remove {count} flashcards? This action cannot be undone.'),
-      { count: materializedTargets.length },
-    );
-    const contentWithScope = globalSelection.mode.value === 'all-matching'
-      ? `${confirmContent}\n${describeCurrentFilterSummary()}`
-      : confirmContent;
-    const ok = await confirmDialog({
-      title: t('deleteCard', 'Remove Flashcard'),
-      content: contentWithScope,
-      confirmText: t('confirm', 'Confirm'),
-      cancelText: t('cancel', 'Cancel'),
-    });
-    if (!ok) return;
-  }
-
-  const builder = ACTION_PARAM_BUILDERS[actionId];
-  logger.debug('action param builder exists:', Boolean(builder));
-  
-  const ctx = builder ? await builder(materializedTargets) : { refresh: () => void loadData() };
-  if (builder && ctx == null) {
-    logger.debug('action canceled by builder');
-    return;
-  }
-
-  try {
-    const res = await ds.performAction(actionId, materializedTargets, ctx);
-    logger.debug('performAction result:', { actionId, res });
-    let handledActionMessage = false;
-    const addToQueueResult = parseBrowserAddToQueueResult(actionId, res);
-
-    if (addToQueueResult) {
-      handledActionMessage = true;
-      if (addToQueueResult.added <= 0) {
-        await refreshQueueCounts();
-        await pushErrMsg(addToQueueResult.message || t('batchNoEffect', 'No cards were updated (some cards may be unsynced)'));
-        return;
-      }
-
-      await pushMsg(addToQueueResult.message || t('actionSuccess', 'Success'));
-    }
-
-    const { updated, skipped } = summarizeBrowserActionResult(res);
-    if (updated <= 0 && skipped > 0) {
-      await pushErrMsg(t('batchNoEffect', 'No cards were updated (some cards may be unsynced)'));
-      return;
-    }
-    if (skipped > 0) {
-      await pushMsg(
-        t('batchSummary', 'Updated {updated}, skipped {skipped}')
-          .replace('{updated}', String(updated))
-          .replace('{skipped}', String(skipped))
-      );
-    }
-
-    if (shouldReloadAfterBrowserAction(actionId)) {
-      if (actionId === 'delete-card') {
-        logger.debug('invalidate card cache after delete-card');
-        invalidateCardCache();
-        void refreshGlobalStats(true);
-      }
-      
-      await loadData(shouldForceRefreshAfterBrowserAction(actionId));
-    } else {
-      gridApi.value?.refreshCells({ force: true });
-    }
-    await refreshQueueCounts();
-    if (!handledActionMessage) {
-      await pushMsg(t('actionSuccess', 'Success'));
-    }
-  } catch (err: unknown) {
-    logger.error('action failed:', { actionId, err });
-    await pushErrMsg(getBrowserActionErrorMessage(err, t('actionFailed', 'Action failed')));
-  }
+  return handleActionImpl(actionId, targetCards, anchorRow);
 }
 
-// Context menu
 function onCellContextMenu(event: CellContextMenuEvent) {
-  event.event?.preventDefault();
-  
-  const ds = currentDataSource.value;
-  
-  const rawActions = ds?.getSupportedActions?.() || [];
-  const actions = ensureReviewSubsetAction(rawActions.filter(a => a && a.id));
-  logger.debug('context menu actions:', {
-    rawCount: rawActions.length,
-    validCount: actions.length,
-    dataSourceType: ds?.constructor?.name,
-    dataSourceId: ds?.id,
-  });
-  
-  const menu = new Menu('card-browser-context');
-  const rowData = event.data as BrowserCard;
-  const selected = selectedRows.value?.length ? selectedRows.value : [rowData];
+  return onCellContextMenuImpl(event);
+}
 
-  if (isNeuralRoamQueueActive.value && neuralSubview.value === 'concept-cards') {
-    const neuralQueue = getNeuralRoamQueue();
-    if (neuralQueue) {
-      const sourceLabels = resolveNeuralSourceLabels(neuralQueue.getNavigationState().engineMode);
-      const seedIds = new Set(neuralQueue.getSeedSnapshot().map((entry) => entry.nodeId));
-      const selectedIds = selected.map((row) => String(row.blockId || '')).filter(Boolean);
-      const allInSeedPool = selectedIds.length > 0 && selectedIds.every((id) => seedIds.has(id));
-
-      menu.addItem({
-        icon: 'iconList',
-        label: allInSeedPool
-          ? sourceLabels.removeItem
-          : sourceLabels.addItem,
-        click: () => {
-          void (async () => {
-            for (const blockId of selectedIds) {
-              await neuralQueue.setSeedEntry(blockId, !allInSeedPool);
-            }
-            await refreshNeuralSubviewData();
-            await refreshQueueCounts();
-          })();
-        },
-      });
-      menu.addItem({ type: 'separator' });
-    }
-  }
-
-  // ========== Add sort menu ==========
-  const sortMenu: BrowserMenuItem[] = [];
-
-  // 添加每个排序字段的子菜单
-  for (const field of SORT_FIELD_CONFIGS) {
-    sortMenu.push({
-      icon: field.icon || 'iconSort',
-      label: t(field.i18nKey, field.label),
-      submenu: [
-        {
-          icon: 'iconUp',
-          label: t('sortAscending', 'Ascending'),
-          click: () => {
-            logger.debug('menu click sort asc:', field.colId);
-            applySort(field.colId, 'asc');
-          },
-        },
-        {
-          icon: 'iconDown',
-          label: t('sortDescending', 'Descending'),
-          click: () => {
-            logger.debug('menu click sort desc:', field.colId);
-            applySort(field.colId, 'desc');
-          },
-        },
-      ],
-    });
-  }
-
-  sortMenu.push({ type: 'separator' });
-
-  // Add random sort
-  sortMenu.push({
-    icon: 'iconRefresh',
-    label: t('sortRandom', 'Random Sort'),
-    click: () => {
-      logger.debug('menu click random sort');
-      void applyRandomSort();
-    },
-  });
-
-  // Insert sort menu
-  menu.addItem({
-    icon: 'iconSort',
-    label: t('sortMenu', 'Sort'),
-    submenu: sortMenu,
-  });
-
-  // Add separator between sort and existing actions
-  menu.addItem({ type: 'separator' });
-
-  const cardTypeMenu: BrowserMenuItem[] = buildCardTypeSubmenu(selected);
-
-  menu.addItem({
-    icon: 'iconHR',
-    label: t('cardTypeMenu', 'Card Type'),
-    submenu: cardTypeMenu,
-  });
-
-  // Add separator between card-type menu and existing actions
-  menu.addItem({ type: 'separator' });
-
-  logger.debug('rendering context actions:', actions.length);
-  
-  for (const action of actions) {
-    if (!action || !action.id) {
-      logger.warn('skip invalid action:', action);
-      continue;
-    }
-    
-    if (action.submenu && action.submenu.length > 0) {
-
-      const validSubmenu = action.submenu.filter(sub => sub && sub.id);
-      
-      const submenuItems = validSubmenu.map(sub => {
-        return {
-          icon: sub.icon || 'iconMore',
-          label: getActionLabel({ id: sub.id, label: sub.label }),
-          click: () => {
-            logger.debug('submenu clicked:', { id: sub.id, label: sub.label });
-            void handleAction(sub.id, selected, rowData);
-          },
-        };
-      });
-      
-      menu.addItem({
-        icon: action.icon || 'iconMore',
-        label: getActionLabel({ id: action.id, label: action.label }),
-        submenu: submenuItems,
-      });
-    } else {
-      // 处理普菜单项
-      menu.addItem({
-        icon: action.icon || 'iconMore',
-        label: getActionLabel({ id: action.id, label: action.label }),
-        click: () => void handleAction(action.id, selected, rowData),
-      });
-    }
-  }
-
-  const mouseEvent = event.event as MouseEvent;
-  menu.open({ x: mouseEvent.clientX, y: mouseEvent.clientY });
+function openPracticeMenu(event: MouseEvent) {
+  return openPracticeMenuImpl(event);
 }
 
 async function autoSortFinalDrillQueue() {
@@ -2625,43 +2079,13 @@ function handleClearSelection(): void {
   clearSelectionState(false);
 }
 
-// Batch menu
-function showBatchMenu(event?: MouseEvent) {
-  const menu = new Menu('card-browser-batch');
-
-  const ds = currentDataSource.value;
-  const actions = ensureReviewSubsetAction((ds?.getSupportedActions?.() || []).filter(action => action && action.id));
-  const selected = selectedRows.value || [];
-  const anchorRow = selected[0];
-
-  for (const action of actions) {
-    menu.addItem({
-      icon: action.icon || 'iconMore',
-      label: getActionLabel({ id: action.id, label: action.label }),
-      click: () => void handleAction(action.id, selected, anchorRow),
-    });
-  }
-  
-  const anchor = (event?.currentTarget || event?.target) as HTMLElement | null;
-  const rect = anchor?.getBoundingClientRect?.();
-  if (rect) {
-    menu.open({ x: rect.left, y: rect.bottom, isLeft: true });
-    return;
-  }
-  if (event) {
-    menu.open({ x: event.clientX, y: event.clientY, isLeft: true });
-    return;
-  }
-  menu.open({ x: 0, y: 0, isLeft: true });
-}
-
 // Refresh data
 async function refreshData(
   forceRefresh = false,
   preserveFocusState = false,
-  options: LoadDataOptions = {}
+  options: BrowserLoadDataOptions = {}
 ) {
-  const mergedOptions: LoadDataOptions = {
+  const mergedOptions: BrowserLoadDataOptions = {
     refreshQueueCounts: false,
     origin: 'default',
     ...options,
@@ -2676,7 +2100,7 @@ async function refreshData(
   if (!preserveFocusState) {
     shouldFocusDocList.value = true;
   }
-  
+
 
   if (!forceRefresh) {
     const cacheStats = getCacheStats();
@@ -2688,7 +2112,7 @@ async function refreshData(
       logger.info('[SiYuanMemo][CardBrowser] Cache invalid or expired, reloading data');
     }
   }
-  
+
   await loadData(forceRefresh, mergedOptions);
 }
 
@@ -2826,11 +2250,11 @@ function handleSyncComplete(type: 'incremental' | 'full') {
 // Show performance report
 function showPerformanceReport() {
   PerformanceMonitor.printReport();
-  
+
   // 显示缓存统计
   const cacheStats = getCacheStats();
   logger.info('缓存统计:', cacheStats);
-  
+
   void pushMsg('Performance report printed to console', 2000);
 }
 
@@ -2872,10 +2296,7 @@ onBeforeUnmount(() => {
   disposeIncrementalGridUpdates();
   destroyBrowserAdapter();
 
-  if (loadDataAbortController) {
-    loadDataAbortController.abort();
-    loadDataAbortController = null;
-  }
+  abortLoadData();
   datasourceVersion += 1;
   pendingGridDatasource = null;
   currentDataSource.value = null;
@@ -2894,7 +2315,7 @@ onBeforeUnmount(() => {
     loadedRowsFlushTimer = null;
   }
   loadedRowsDirty = false;
-  
+
   if (unsubscribe) {
     unsubscribe();
     unsubscribe = null;
@@ -2931,7 +2352,7 @@ onMounted(() => {
     // Listen for wsSync events (WebSocket sync completion)
     hybridService.on('wsSync', (event: WsSyncEvent) => {
       logger.info('[SiYuanMemo][SRSBrowser] Received wsSync event:', event);
-      
+
       if (event.success) {
         logger.info('[SiYuanMemo][SRSBrowser] 鈿?Reloading data due to WebSocket sync...');
         void loadData(true); // Force refresh cache
@@ -2941,7 +2362,7 @@ onMounted(() => {
         void loadData();
       }
     });
-    
+
     logger.info('[SiYuanMemo][SRSBrowser] 鉁?Subscribed to HybridSyncService wsSync events');
   }
 
@@ -2949,7 +2370,7 @@ onMounted(() => {
   if (hybridService) {
     const storage = pluginStorage.value;
     const riffConfig = storage?.getSettings?.()?.riffIntegration;
-    
+
 
     logger.info('[SiYuanMemo][SRSBrowser] Checking auto-sync configuration:', {
       hasHybridSyncService: !!hybridService,
@@ -2960,13 +2381,13 @@ onMounted(() => {
       triggers: riffConfig?.incrementalSync?.triggers,
       hasBrowserOpenTrigger: riffConfig?.incrementalSync?.triggers?.includes('browser-open')
     });
-    
-    const shouldSyncOnBrowserOpen = riffConfig?.incrementalSync?.enabled && 
+
+    const shouldSyncOnBrowserOpen = riffConfig?.incrementalSync?.enabled &&
                                     riffConfig?.incrementalSync?.triggers?.includes('browser-open');
-    
+
     if (shouldSyncOnBrowserOpen) {
       logger.info('[SiYuanMemo][SRSBrowser] 鉁?Triggering incremental sync on browser open...');
-      
+
       void (async () => {
         try {
           await hybridService.incrementalSync();
@@ -2977,7 +2398,7 @@ onMounted(() => {
           await applyInitialBrowserView(false);
         }
       })();
-      
+
       return;
     } else {
       logger.info('[SiYuanMemo][SRSBrowser] 鈿狅笍 Auto-sync not triggered, loading data without sync', {
@@ -3017,111 +2438,6 @@ function toggleNavigator() {
 
 function closeNavigatorDrawer() {
   navigatorOpen.value = false;
-}
-
-function openPracticeMenu(ev: MouseEvent) {
-  try {
-    ev?.preventDefault?.();
-    ev?.stopPropagation?.();
-  } catch {}
-
-  const dialogManager = pluginContext.value?.getDialogManager?.();
-  if (!dialogManager) return;
-
-  const menu = new Menu('fsrs-browser-practice-menu');
-
-  // 1. Retrieval practice
-  menu.addItem({
-    icon: 'iconRiffCard',
-    label: t('practiceExtract', 'Retrieval Practice'),
-    click: () => {
-      void dialogManager.openReviewDialog?.();
-    },
-  });
-
-  // 2. Incremental learning
-  menu.addItem({
-    icon: 'iconBook',
-    label: t('incrementalLearning', 'Incremental Learning'),
-    click: () => {
-      void dialogManager.openIncrementalLearningDialog?.();
-    },
-  });
-
-  // 3. Deliberate practice
-  menu.addItem({
-    icon: 'iconFlag',
-    label: t('practiceDeliberate', 'Deliberate Practice'),
-    click: () => {
-      void dialogManager.openFinalDrillDialog?.();
-    },
-  });
-
-  // 4. 神经漫游
-  menu.addItem({
-    icon: 'iconRefresh',
-    label: t('practiceNeural', 'Neural Roam'),
-    click: () => {
-      void dialogManager.openNeuralRoamDialog?.();
-    },
-  });
-
-  menu.addItem({
-    icon: 'iconList',
-    label: t('practiceFilterGroup', 'Filtered Review'),
-    click: () => {
-      void dialogManager.openFilterGroupPracticeDialog?.();
-    },
-  });
-
-  // menu.addItem({
-  //   icon: 'iconBug',
-  //   label: t('practiceLeech', 'Leech review'),
-  //   click: () => {
-  //   },
-  // });
-
-  const target = (ev?.currentTarget || ev?.target) as HTMLElement | null;
-  const rect = target?.getBoundingClientRect?.();
-  const rawX = Number(ev?.clientX);
-  const rawY = Number(ev?.clientY);
-  const hasMousePoint = Number.isFinite(rawX) && Number.isFinite(rawY);
-  const pos = rect
-    ? { x: rect.left, y: rect.bottom }
-    : hasMousePoint
-      ? { x: rawX, y: rawY }
-      : null;
-
-  if (!pos) {
-    logger.error('[SiYuanMemo][CardBrowser] openPracticeMenu failed: invalid pointer position');
-    void pushErrMsg('打开练习菜单失败');
-    return;
-  }
-
-  if (String(process.env.DEV_MODE) === 'true') {
-    logger.info('[SiYuanMemo][CardBrowser] openPracticeMenu', { pos, hasDialogManager: Boolean(dialogManager) });
-  }
-
-  const safePos = (() => {
-    const padding = 8;
-    if (!isMobileMode.value) {
-      return pos;
-    }
-    const estimatedMenuWidth = 220;
-    return {
-      x: Math.max(padding, Math.min(pos.x, window.innerWidth - estimatedMenuWidth - padding)),
-      y: Math.max(padding, Math.min(pos.y, window.innerHeight - padding)),
-    };
-  })();
-
-  setTimeout(() => {
-    try {
-      menu.open({ x: safePos.x, y: safePos.y, isLeft: !isMobileMode.value });
-    } catch (err) {
-      logger.error('[SiYuanMemo][CardBrowser] openPracticeMenu failed:', err);
-      void pushErrMsg('打开练习菜单失败');
-    }
-  }, 0);
 }
 
 function getQueueById(id: string) {
@@ -3211,6 +2527,47 @@ const {
   pushErrMsg: (msg, duration) => pushErrMsg(msg, duration),
 });
 
+const browserLoadDataRuntime = createBrowserLoadDataRuntime({
+  activeDocId,
+  activeQueueId,
+  activeScopeDocIds,
+  allRows,
+  browserAppService: browserAppServiceRef,
+  browserSiyuanApi,
+  clearNeuralSubviewData,
+  currentCardType,
+  currentDataSource,
+  currentPreset,
+  currentQueueType,
+  ensureSqlModeConfirmed,
+  getCurrentDocId: () => props.currentDocId || null,
+  getPlugin: () => props.plugin,
+  globalSelection,
+  hasRandomSort,
+  invalidateHierarchySnapshots,
+  loading,
+  logger,
+  previewCard,
+  pluginUnifiedDataSourceManager,
+  pushErrMsg,
+  randomSortRows,
+  rebuildInfiniteDatasource,
+  refreshNeuralSubviewData,
+  refreshQueueCounts,
+  resolveActiveSqlStatement,
+  rows,
+  rowsForFocus,
+  scheduleAllRowsSnapshot,
+  searchQuery,
+  selectedRows,
+  shouldFocusDocList,
+  startFocusRowsSnapshot,
+  t,
+  totalRowCount,
+});
+loadDataImpl = browserLoadDataRuntime.loadData;
+abortLoadData = browserLoadDataRuntime.abortLoadData;
+
 const {
   migrateTopicItem,
   buildCardTypeSubmenu,
@@ -3224,6 +2581,42 @@ const {
   storage: pluginStorage.value,
   manager: pluginUnifiedDataSourceManager.value,
 });
+
+const browserActionMenuRuntime = createBrowserActionMenuRuntime({
+  applyRandomSort,
+  applySort,
+  buildCardTypeSubmenu,
+  currentDataSource,
+  describeCurrentFilterSummary,
+  ensureAllRowsSnapshotReady,
+  getDialogManager: () => pluginContext.value?.getDialogManager?.(),
+  getNeuralRoamQueue,
+  getPlugin: () => props.plugin,
+  getQueueById,
+  getStorage: () => pluginStorage.value,
+  globalSelection,
+  gridApi,
+  i18n: props.i18n,
+  invalidateCardCache,
+  isMobileMode,
+  isNeuralRoamQueueActive,
+  loadAllRowsForCurrentView,
+  loadData,
+  logger,
+  neuralSubview,
+  openDocumentTabById,
+  pushErrMsg,
+  pushMsg,
+  refreshGlobalStats,
+  refreshNeuralSubviewData,
+  refreshQueueCounts,
+  resolveNeuralSourceLabels,
+  selectedRows,
+  t,
+});
+handleActionImpl = browserActionMenuRuntime.handleAction;
+onCellContextMenuImpl = browserActionMenuRuntime.onCellContextMenu;
+openPracticeMenuImpl = browserActionMenuRuntime.openPracticeMenu;
 
 const cardTypeDetection = useCardTypeDetection(() => rows.value, {
   siyuanApi: () => browserSiyuanApi.value || null,
@@ -3252,7 +2645,7 @@ async function handleSelectQueue(queueId: string) {
     fromQueueId,
     beforeActiveDocId: activeDocId.value,
   });
-  
+
   await runWithSuspendedBrowserStateBootstrap(async () => {
     activeQueueId.value = queueId;
     activeDocId.value = null;
@@ -3386,10 +2779,10 @@ function handleFilterDoc(docId: string) {
  */
 async function handleApplyFilter(filter: CardFilter) {
   logger.info('[SiYuanMemo][SRSBrowser] Applying filter:', filter);
-  
+
   appliedFilter.value = filter;
   showFilterDialog.value = false;
-  
+
 
   if (activeQueueId.value === 'filter-group') {
     try {
@@ -3401,7 +2794,7 @@ async function handleApplyFilter(filter: CardFilter) {
       logger.error('[SiYuanMemo][SRSBrowser] Failed to set filter on queue:', error);
     }
   }
-  
+
   await refreshData(false, true);
 }
 
@@ -3411,10 +2804,10 @@ async function handleApplyFilter(filter: CardFilter) {
  */
 async function handleClearFilter() {
   logger.info('[SiYuanMemo][SRSBrowser] Clearing filter');
-  
+
   appliedFilter.value = null;
   showFilterDialog.value = false;
-  
+
 
   if (activeQueueId.value === 'filter-group') {
     try {
@@ -3426,13 +2819,13 @@ async function handleClearFilter() {
       logger.error('[SiYuanMemo][SRSBrowser] Failed to clear filter on queue:', error);
     }
   }
-  
+
   await refreshData(false, true);
 }
 
 /**
  * Rebuild filtered queue
- * 
+ *
  * Similar to Anki Rebuild:
  * - Reload cards with current saved filter
  * - Clear temporary blacklist
@@ -3440,17 +2833,17 @@ async function handleClearFilter() {
  */
 async function handleRebuildQueue() {
   logger.info('[SiYuanMemo][SRSBrowser] Rebuilding filter queue');
-  
+
   if (activeQueueId.value !== 'filter-group') {
     logger.warn('[SiYuanMemo][SRSBrowser] Rebuild only works for filter-group queue');
     return;
   }
-  
+
   try {
     const rebuilt = await rebuildFilterGroupQueueBridge();
     if (rebuilt) {
       logger.info('[SiYuanMemo][SRSBrowser] Queue rebuilt successfully');
-      
+
       // Refresh displayed data
       await refreshData(true); // Force refresh cache
     } else {
@@ -3467,7 +2860,7 @@ async function handleRebuildQueue() {
  * Spread collects cards automatically (SuperMemo style):
  * - Default: collect Outstanding cards with due <= now
  * - considerFutureRepetitions: collect cards due <= now + collectingPeriod
- * 
+ *
  * @see supermemo-reschedule-operations requirements 8.2, 10.4
  */
 async function handleOpenSpreadDialog() {

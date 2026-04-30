@@ -142,10 +142,8 @@ import ReviewActions from './ReviewActions.vue';
 import ReviewContent from './ReviewContent.vue';
 import ReviewHeader from './ReviewHeader.vue';
 import FilterDialog from '@/ui/browser/dialogs/FilterDialog.vue';
-import ActionParamsDialog from '@/ui/browser/ActionParamsDialog.vue';
 import AiWorkbenchPane from '@/ui/ai/AiWorkbenchPane.vue';
 import LargeTextEditorDialog from '@/ui/shared/LargeTextEditorDialog.vue';
-import SrsArenaConflictDialog from './dialogs/SrsArenaConflictDialog.vue';
 import {
   createReviewSessionController,
   useReviewSession,
@@ -162,7 +160,6 @@ import {
   type ReviewUIState,
   type ReviewViewTabBridge,
 } from './types';
-import { matchReviewNativeTabSplitCommand, pruneNativeTabSplitMenu } from './reviewNativeSplitHostGuard';
 import type { IQueueCommand } from '@/core/queue/abstraction/Command';
 import { confirmDialog, createVueDialog } from '@/utils/dialog';
 import { createLogger } from '@/utils/logger';
@@ -171,10 +168,7 @@ import type { CardApplicationService } from '@/application/services/CardApplicat
 import type { CardEditorApplicationService } from '@/application/services/CardEditorApplicationService';
 import {
   QueueType,
-  type DataChangeEvent,
-  type CardFilter,
   type FilterGroupQueueSessionSnapshot,
-  type IDataSourceObserver,
   type InitialReviewSessionState,
   type ReviewTabTransferState,
   type IUnifiedDataSourceManagerFacade,
@@ -185,7 +179,7 @@ import {
   type ReviewQueueProgressSnapshot,
 } from '@/types/unified-data-source';
 import type { FSRSCard } from '@/types/card';
-import { isCardDismissed } from '@/core/card/domain/services/dismissState';
+import type { SrsArenaRecommendation } from '@/types/arena';
 import type { ReviewQueueSessionSnapshot, ReviewTabRuntimeState } from '@/types/review-tab';
 import { isTopicLikeCard } from './reviewCardSemantics';
 import { resolveReviewDialogEscapeKeydown, shouldResetReviewDialogEscapeLatch } from './reviewDialogEscape';
@@ -237,10 +231,7 @@ import {
   type ReviewOpenAsTabManager,
   type ReviewTabOpenOptions,
 } from './reviewOpenAsCommands';
-import {
-  isProgressiveSelectionInsideNativeProtyle,
-  resolveProgressiveExcerptSelectionSnapshot,
-} from '@/application/entries/ProgressiveSelectionResolver';
+import { resolveProgressiveExcerptSelectionSnapshot } from '@/application/entries/ProgressiveSelectionResolver';
 import { PROGRESSIVE_EXCERPT_REQUEST_EVENT } from '@/application/handlers/ProgressiveExcerptHotkeyHandler';
 import {
   REVIEW_DELETE_CURRENT_CARD_REQUEST_EVENT,
@@ -282,7 +273,16 @@ import type { ReviewApplicationService } from '@/application/services/ReviewAppl
 import type { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 import { prepareReviewPresentation } from './reviewPresentationPreparer';
-import type { SrsArenaRecommendation } from '@/types/arena';
+import {
+  createReviewArenaRuntime,
+  resolveArenaTargetKindFromCard,
+  resolveReviewArenaScenario,
+} from './reviewArenaCommands';
+import { createReviewCardActionRuntime, type ReviewCardPeerInfo } from './reviewCardActionCommands';
+import { createReviewCurrentContentEditorRuntime } from './reviewCurrentContentEditorRuntime';
+import { createReviewFilterRuntime, type ReviewFilterGroupQueueLike } from './reviewFilterCommands';
+import { createReviewDataObserverRuntime } from './reviewDataObserverRuntime';
+import { createReviewNativeSplitRuntime } from './reviewNativeSplitRuntime';
 
 const logger = createLogger('ReviewView');
 
@@ -376,10 +376,7 @@ type UnderlyingQueueLike = {
   getReviewSchedulingContext?: (card: FSRSCard) => QueueReviewSchedulingContext | null;
 } & Partial<NeuralRoamSessionQueue>;
 
-type FilterGroupQueueLike = {
-  setFilter?: (filter: CardFilter) => Promise<void> | void;
-  getFilter?: () => CardFilter;
-  rebuild?: () => Promise<void> | void;
+type FilterGroupQueueLike = ReviewFilterGroupQueueLike & {
   getSize?: () => Promise<number>;
   serializeSessionSnapshot?: () => FilterGroupQueueSessionSnapshot;
 };
@@ -426,23 +423,10 @@ type ScheduledReviewCardPayload = {
   dueTimestamp?: number;
 };
 
-type SrsArenaConflictAdoptPayload = {
-  kind?: 'weighted' | 'contestant';
-  contestantId?: string;
-  dueTimestamp?: number;
-  scheduledDays?: number;
-};
-
 type DismissedReviewCardPayload = {
   cardId?: string;
   blockId?: string;
   dismissed?: boolean;
-};
-
-type ReviewCardPeerInfo = {
-  currentCardId: string;
-  currentBlockId: string;
-  peerCards: FSRSCard[];
 };
 
 type ReviewContentExpose = {
@@ -583,7 +567,6 @@ const reviewRenderServices = computed(() => (
 ));
 const reviewAIService = ref<AIWorkbenchService | null>(null);
 const reviewAISidebarOpen = ref(false);
-const reviewArenaHint = ref<string | null>(null);
 const viewportWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
 const rootRef = ref<HTMLDivElement | null>(null);
@@ -591,41 +574,11 @@ const contentRef = ref<ReviewContentExpose | null>(null);
 const recentModifiedHotkeys = new Map<string, number>();
 const editorState = ref<ReviewEditorState>(createReviewEditorState());
 const renderEpoch = ref(0);
-const reviewTextEditorOpen = ref(false);
-const reviewTextEditorLoading = ref(false);
-const reviewTextEditorSaving = ref(false);
-const reviewTextEditorSource = ref<ReviewEditableSource | null>(null);
-const reviewTextEditorValue = ref('');
-const reviewTextEditorOriginalValue = ref('');
-let reviewTextEditorSeq = 0;
 let reviewResizeHandler: (() => void) | null = null;
 let removeReviewGlobalEventBindings: (() => void) | null = null;
-let srsArenaConflictDialog: ReturnType<typeof createVueDialog> | null = null;
 let initialFullscreenTimer: number | null = null;
 let initialTabSurfaceRefreshTimer: number | null = null;
-let nativeSplitMenuPruneTimer: number | null = null;
-let nativeSplitBlockedNoticeAt = 0;
 let escRepeatLatch = false;
-const NATIVE_SPLIT_BLOCKED_NOTICE_COOLDOWN_MS = 1500;
-
-const reviewTextEditorTitle = computed(() => (
-  reviewTextEditorSource.value?.title || t('editCurrentContent', '编辑当前内容')
-));
-const reviewTextEditorReadonly = computed(() => reviewTextEditorLoading.value || reviewTextEditorSaving.value);
-const reviewTextEditorConfirmDisabled = computed(() => (
-  reviewTextEditorReadonly.value
-  || !reviewTextEditorSource.value
-  || reviewTextEditorValue.value === reviewTextEditorOriginalValue.value
-));
-const reviewTextEditorHint = computed(() => {
-  if (reviewTextEditorLoading.value) {
-    return t('loadingCurrentContentMarkdown', '正在读取当前块的原始 Markdown...');
-  }
-  if (reviewTextEditorSaving.value) {
-    return t('savingCurrentContentMarkdown', '正在保存到思源块...');
-  }
-  return t('editCurrentContentHint', '支持 Markdown，Ctrl/Cmd + Enter 保存');
-});
 
 const duplicateReviewKeyGuard = createReviewDuplicateKeyGuard({ logger });
 const reviewSourceRefreshRuntime = createReviewSourceRefreshRuntime({
@@ -656,6 +609,62 @@ const reviewSourceRefreshRuntime = createReviewSourceRefreshRuntime({
   refreshVisibleContent(reason) {
     return contentRef.value?.refreshVisibleContent?.(reason) ?? false;
   },
+  logger,
+});
+const reviewArenaRuntime = createReviewArenaRuntime({
+  t,
+  i18n: props.i18n || {},
+  logger,
+  showMessage: notifyReviewMessage,
+  createDialog: createVueDialog,
+  getCurrentCard: () => state.value.content.card as FSRSCard | null,
+  getArenaKernelService,
+  getReviewService,
+  getSchedulerTypeForCard,
+  resolveSchedulingContext: resolveCurrentReviewSchedulingContext,
+});
+const reviewArenaHint = reviewArenaRuntime.hint;
+const reviewTextEditorRuntime = createReviewCurrentContentEditorRuntime({
+  t,
+  showMessage,
+  logger,
+  getReviewService,
+  resolveEditableSource: () => resolveCurrentEditableSource(),
+  suppressSourceBlockRefresh: (blockId) => reviewSourceRefreshRuntime.suppressBlock(blockId),
+  refreshVisibleContent: (reason) => contentRef.value?.refreshVisibleContent?.(reason),
+});
+const reviewTextEditorOpen = reviewTextEditorRuntime.open;
+const reviewTextEditorValue = reviewTextEditorRuntime.value;
+const reviewTextEditorTitle = reviewTextEditorRuntime.title;
+const reviewTextEditorReadonly = reviewTextEditorRuntime.readonly;
+const reviewTextEditorConfirmDisabled = reviewTextEditorRuntime.confirmDisabled;
+const reviewTextEditorHint = reviewTextEditorRuntime.hint;
+const reviewCardActionRuntime = createReviewCardActionRuntime({
+  t,
+  showMessage,
+  logger,
+  createDialog: createVueDialog,
+  confirmDialog,
+  getCurrentCard: () => state.value.content.card as FSRSCard | null | undefined,
+  getCurrentCardMeta: () => state.value.actions.cardMeta,
+  getCurrentReviewCardId: resolveCurrentReviewCardId,
+  getCurrentReviewBlockId: resolveCurrentReviewBlockId,
+  getCardEditorService,
+  getCardService,
+  buildExpectedRefreshOptions,
+  refreshCurrentItem: (card, options) => hook.refreshCurrentItem(card, options),
+  advanceDismissedCurrentCard,
+  advanceCurrentReviewCardByReference,
+  removeCardIdsFromActiveQueue,
+});
+const reviewNativeSplitRuntime = createReviewNativeSplitRuntime({
+  rootRef,
+  editorState,
+  mode: () => props.mode,
+  reviewSessionId: () => reviewSessionId.value,
+  resolveGuardState: () => contentRef.value?.getNativeSplitGuardState?.() || null,
+  t,
+  showMessage,
   logger,
 });
 
@@ -869,16 +878,6 @@ function getUnifiedDataSourceManager(): IUnifiedDataSourceManagerFacade | null {
   return contextFromProps?.getUnifiedDataSourceManager?.() || contextFromWindow?.getUnifiedDataSourceManager?.() || null;
 }
 
-function normalizeCardFilterIds(ids: string[] | undefined): string[] {
-  if (!Array.isArray(ids)) {
-    return [];
-  }
-
-  return ids
-    .map((id) => String(id || '').trim())
-    .filter((id) => id.length > 0);
-}
-
 function getInitialReviewSessionState(): InitialReviewSessionState | undefined {
   const session = hook.context.value.session;
   if (!session) {
@@ -1078,25 +1077,6 @@ function handleQueueSwitchTrigger(event: MouseEvent): void {
   openQueueSwitchMenuAtAnchor(anchor, event);
 }
 
-function readCardRootId(card: FSRSCard): string {
-  const meta = card.meta;
-  if (!isRecord(meta)) {
-    return '';
-  }
-
-  const value = meta.rootId ?? meta.rootID ?? meta.root_id;
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function matchesFilterCardType(card: FSRSCard, filter: CardFilter): boolean {
-  if (!filter.cardType) {
-    return true;
-  }
-
-  const requestedTypes = Array.isArray(filter.cardType) ? filter.cardType : [filter.cardType];
-  return requestedTypes.includes(card.type as typeof requestedTypes[number]);
-}
-
 function getCardService(): CardApplicationService | null {
   const contextFromProps = getPluginContext(props.plugin);
   const contextFromWindow = getWindowPlugin()?.getContext?.();
@@ -1203,7 +1183,7 @@ onUnmounted(() => {
     window.clearTimeout(initialTabSurfaceRefreshTimer);
     initialTabSurfaceRefreshTimer = null;
   }
-  destroySrsArenaConflictDialog();
+  reviewArenaRuntime.destroyConflictDialog();
   if (props.mode !== 'tab') {
     getReviewAIWorkbenchRegistry()?.disposeReviewSession?.(reviewSessionId.value);
   }
@@ -1239,118 +1219,8 @@ const effectiveInitialShowAnswer = props.initialShowAnswer === true
   ? true
   : props.reviewState?.showAnswer === true;
 
-function resolveArenaTargetKindFromCard(card: FSRSCard | null | undefined): 'topic' | 'item' | 'concept' | 'descriptor' | 'note' {
-  const type = String(card?.type || '').trim();
-  if (type === 'topic' || type === 'item' || type === 'concept' || type === 'descriptor') {
-    return type;
-  }
-  return 'note';
-}
-
-function resolveReviewArenaScenario(view: ReviewAIRequestedView, card: FSRSCard | null | undefined): 'topic-auto-card' | 'candidate-card-generation' | 'card-prompt-rewrite' | 'descriptor-augmentation' | 'concept-expression-coach' | 'note-refinement' {
-  const type = String(card?.type || '').trim();
-  if (type === 'topic') return 'topic-auto-card';
-  if (type === 'descriptor') return 'descriptor-augmentation';
-  if (type === 'concept') return 'concept-expression-coach';
-  if (type === 'item') return 'card-prompt-rewrite';
-  return view === 'general-chat' ? 'note-refinement' : 'candidate-card-generation';
-}
-
-function destroySrsArenaConflictDialog(): void {
-  if (!srsArenaConflictDialog) {
-    return;
-  }
-  srsArenaConflictDialog.destroy();
-  srsArenaConflictDialog = null;
-}
-
-function openSrsArenaConflictDialog(card: FSRSCard, recommendation: SrsArenaRecommendation): void {
-  const context = getPluginContext(props.plugin);
-  const reviewService = context?.getReviewService?.();
-  if (!reviewService?.rescheduleCard) {
-    logger.warn('[SiYuanMemo][ReviewView] Cannot open SRS arena conflict dialog without review service');
-    return;
-  }
-
-  destroySrsArenaConflictDialog();
-  srsArenaConflictDialog = createVueDialog({
-    title: t('srsArenaConflictTitle', 'Arena 排期冲突'),
-    component: SrsArenaConflictDialog,
-    props: {
-      recommendation,
-      i18n: props.i18n || {},
-    },
-    events: {
-      keep: () => {
-        destroySrsArenaConflictDialog();
-      },
-      close: () => {
-        destroySrsArenaConflictDialog();
-      },
-      adopt: async (payload: unknown) => {
-        const adoptPayload = isRecord(payload) ? payload as SrsArenaConflictAdoptPayload : {};
-        const dueTimestamp = Number(adoptPayload.dueTimestamp);
-        const scheduledDays = Number(adoptPayload.scheduledDays);
-        if (!Number.isFinite(dueTimestamp) || dueTimestamp <= 0 || !Number.isFinite(scheduledDays) || scheduledDays < 0) {
-          logger.warn('[SiYuanMemo][ReviewView] Ignore invalid SRS arena adopt payload', adoptPayload);
-          return;
-        }
-        try {
-          await reviewService.rescheduleCard(card.id, {
-            mode: 'direct',
-            dueTimestamp,
-            scheduledDays,
-          });
-          notifyReviewMessage(t('srsArenaAdopted', '已采用 Arena 排期'), 2000, 'info');
-          destroySrsArenaConflictDialog();
-        } catch (error) {
-          logger.error('[SiYuanMemo][ReviewView] Failed to adopt SRS arena schedule:', error);
-          notifyReviewMessage(t('srsArenaAdoptFailed', '采用 Arena 排期失败'), 3000, 'error');
-        }
-      },
-    },
-    width: 'min(720px, 92vw)',
-    height: 'min(680px, 78vh)',
-    onClose: () => {
-      srsArenaConflictDialog = null;
-    },
-    visualVariant: 'form',
-    containerClass: 'siyuanmemo-srs-arena-conflict-dialog',
-  });
-}
-
-async function refreshReviewArenaHint(card: FSRSCard | null | undefined, rating: number): Promise<SrsArenaRecommendation | null> {
-  const currentCard = (card || state.value.content.card || null) as FSRSCard | null;
-  const arenaKernel = getArenaKernelService();
-  if (!arenaKernel?.buildSrsRecommendation || !currentCard || rating < 1 || rating > 4) {
-    reviewArenaHint.value = null;
-    return null;
-  }
-  try {
-    const recommendation = await arenaKernel.buildSrsRecommendation(
-      currentCard,
-      getSchedulerTypeForCard(currentCard),
-      Date.now(),
-      {
-        ratingBasis: rating,
-        schedulingContext: resolveCurrentReviewSchedulingContext(currentCard),
-      },
-    );
-    reviewArenaHint.value = recommendation?.shouldHighlight ? (recommendation.summary || null) : null;
-    return recommendation;
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to refresh SRS arena hint:', error);
-    reviewArenaHint.value = null;
-    return null;
-  }
-}
-
 async function handleReviewArenaFeedback(payload: { cardId: string; rating: number; item: ActiveReviewItem | null }): Promise<void> {
-  const reviewedCard = (payload.item || state.value.content.card || null) as FSRSCard | null;
-  const recommendation = await refreshReviewArenaHint(reviewedCard, payload.rating);
-  if (reviewedCard && recommendation?.shouldHighlight === true) {
-    openSrsArenaConflictDialog(reviewedCard, recommendation);
-  }
+  await reviewArenaRuntime.handleFeedback(payload);
 }
 
 function createReviewSessionControllerInstance(): ReviewSessionController<ActiveReviewItem> {
@@ -1407,8 +1277,15 @@ const hook = useReviewSession(
 );
 const state = hook.state;
 const app = props.app;
-const showReviewFilterDialog = ref(false);
-const appliedReviewFilter = ref<CardFilter | null>(null);
+const reviewFilterRuntime = createReviewFilterRuntime({
+  t,
+  showMessage,
+  logger,
+  getFilterGroupQueue,
+  reload: () => hook.reload(),
+});
+const showReviewFilterDialog = reviewFilterRuntime.dialogOpen;
+const appliedReviewFilter = reviewFilterRuntime.appliedFilter;
 const neuralNavigationState = ref<NeuralNavigationState | null>(null);
 
 watch(
@@ -1433,8 +1310,29 @@ const resolvedReviewSurfaceTitle = computed(() => (
     || t('reviewTitle', 'Review'),
   ).trim() || t('reviewTitle', 'Review')
 ));
-let subscribedReviewManager: IUnifiedDataSourceManagerFacade | null = null;
 let subscribedReviewTransactionService: ReviewTransactionWebSocketServiceLike | null = null;
+const reviewDataObserverRuntime = createReviewDataObserverRuntime({
+  logger,
+  getManager: getUnifiedDataSourceManager,
+  getFilterGroupQueue,
+  getQueueStrategyWithTailAppend,
+  getActiveQueueStrategy,
+  getCurrentReference: getCurrentReviewCardReference,
+  getCurrentCard: () => state.value.content.card as FSRSCard | null | undefined,
+  getSession: () => hook.context.value.session,
+  setAppliedFilter: (filter) => {
+    appliedReviewFilter.value = filter;
+  },
+  setShowAnswer: (showAnswer) => {
+    hook.context.value.showAnswer = showAnswer;
+  },
+  isAdvancePending: isReviewAdvancePending,
+  buildExpectedRefreshOptions,
+  refreshCurrentItem: (item, options) => hook.refreshCurrentItem(item as never, options),
+  refreshCurrentReviewCard,
+  advanceCurrentReviewCardByReference,
+  removeCardIdsFromActiveQueue,
+});
 
 const REVIEW_AI_SIDECAR_MIN_VIEWPORT = 1040;
 
@@ -1496,58 +1394,8 @@ function notifyReviewMessage(message: string, timeout = 3000, type: 'info' | 'er
   }
 }
 
-function openNumberDialog(options: {
-  title: string;
-  label: string;
-  description?: string;
-  unit?: string;
-  defaultValue?: number;
-  min?: number;
-  max?: number;
-  step?: number;
-  integer?: boolean;
-}): Promise<number | null> {
-  return new Promise((resolve) => {
-    const dialog = createVueDialog({
-      title: options.title,
-      component: ActionParamsDialog,
-      props: {
-        label: options.label,
-        description: options.description,
-        unit: options.unit,
-        defaultValue: options.defaultValue,
-        min: options.min,
-        max: options.max,
-        step: options.step,
-        integer: options.integer,
-        confirmText: t('confirm', '确认'),
-        cancelText: t('cancel', '取消'),
-      },
-      events: {
-        confirm: (value: number) => {
-          dialog.destroy();
-          resolve(value);
-        },
-        cancel: () => {
-          dialog.destroy();
-          resolve(null);
-        },
-      },
-      width: '520px',
-      height: '220px',
-      visualVariant: 'form',
-      containerClass: 'siyuanmemo-action-params-dialog',
-    });
-  });
-}
-
 function getCurrentReviewCardReference(): { cardId: string; blockId: string } {
-  const cardMeta = state.value.actions.cardMeta;
-  const currentCard = state.value.content.card;
-  return {
-    cardId: String(cardMeta?.cardID || currentCard?.id || '').trim(),
-    blockId: String(cardMeta?.blockID || currentCard?.blockId || '').trim(),
-  };
+  return reviewCardActionRuntime.getCurrentReviewCardReference();
 }
 
 function buildExpectedRefreshOptions(reference: { cardId?: string; blockId?: string } | null | undefined): RefreshCurrentItemOptions {
@@ -1558,30 +1406,19 @@ function buildExpectedRefreshOptions(reference: { cardId?: string; blockId?: str
 }
 
 function hasCurrentReviewCard(): boolean {
-  const reference = getCurrentReviewCardReference();
-  return reference.cardId.length > 0 && reference.blockId.length > 0;
+  return reviewCardActionRuntime.hasCurrentReviewCard();
 }
 
 function resolveCurrentReviewCardActionReference(): { cardId: string; blockId: string } | null {
-  const reference = getCurrentReviewCardReference();
-  if (reference.cardId.length === 0 || reference.blockId.length === 0) {
-    showMessage(t('reviewNoCurrentCardAction', '当前没有可操作的卡片'), 3000, 'info');
-    return null;
-  }
-  return reference;
+  return reviewCardActionRuntime.resolveCurrentReviewCardActionReference();
 }
 
 function resolveCurrentReviewCardPriority(): number | null {
-  const currentCard = state.value.content.card as FSRSCard | null | undefined;
-  if (!currentCard) {
-    return null;
-  }
-  return Math.max(0, Math.min(100, Math.floor(Number(currentCard.priority) || 0)));
+  return reviewCardActionRuntime.resolveCurrentReviewCardPriority();
 }
 
 function resolveCurrentReviewCardDismissed(): boolean {
-  const currentCard = state.value.content.card as FSRSCard | null | undefined;
-  return currentCard ? isCardDismissed(currentCard) : false;
+  return reviewCardActionRuntime.resolveCurrentReviewCardDismissed();
 }
 
 function getActiveRemovableReviewQueue(): { removeCard?: (cardIdOrBlockId: string) => Promise<void> } | null {
@@ -1621,37 +1458,11 @@ async function removeCardIdsFromActiveQueue(cardIds: string[]): Promise<void> {
 }
 
 function resolveCurrentBlockPeerCards(): ReviewCardPeerInfo | null {
-  const currentCardId = resolveCurrentReviewCardId();
-  const currentBlockId = resolveCurrentReviewBlockId();
-  if (!currentCardId || !currentBlockId) {
-    return null;
-  }
-
-  const cardService = getCardService();
-  if (!cardService) {
-    return null;
-  }
-
-  const peerCards = cardService
-    .getCardsByBlockId(currentBlockId)
-    .filter((card) => String(card?.id || '').trim().length > 0 && card.id !== currentCardId);
-
-  return {
-    currentCardId,
-    currentBlockId,
-    peerCards,
-  };
-}
-
-function resolveCurrentAndPeerCardIds(peerInfo: ReviewCardPeerInfo): string[] {
-  return Array.from(new Set([
-    peerInfo.currentCardId,
-    ...peerInfo.peerCards.map((card) => String(card?.id || '').trim()),
-  ].filter((cardId) => cardId.length > 0)));
+  return reviewCardActionRuntime.resolveCurrentBlockPeerCards();
 }
 
 function filterOutCurrentCardId(cardIds: string[], currentCardId: string): string[] {
-  return cardIds.filter((cardId) => cardId !== currentCardId);
+  return reviewCardActionRuntime.filterOutCurrentCardId(cardIds, currentCardId);
 }
 
 async function advanceCurrentReviewCardByReference(payload: { cardId?: string; blockId?: string }): Promise<void> {
@@ -1697,7 +1508,7 @@ async function advanceDismissedCurrentCard(payload: DismissedReviewCardPayload):
 }
 
 async function refreshCurrentReviewCard(): Promise<void> {
-  const manager = subscribedReviewManager;
+  const manager = reviewDataObserverRuntime.getSubscribedManager();
   const currentReference = getCurrentReviewCardReference();
   const { cardId } = currentReference;
   if (!manager || !cardId) {
@@ -1725,7 +1536,7 @@ async function refreshReviewCardById(cardId: string): Promise<boolean> {
     return false;
   }
 
-  const manager = subscribedReviewManager || getUnifiedDataSourceManager();
+  const manager = reviewDataObserverRuntime.getSubscribedManager() || getUnifiedDataSourceManager();
   if (!manager) {
     return false;
   }
@@ -1780,184 +1591,12 @@ async function refreshTabSurface(preferredCardId?: string | null): Promise<boole
   );
 }
 
-async function appendCreatedCardsToActiveScopeQueue(cardIds: string[]): Promise<void> {
-  const manager = subscribedReviewManager;
-  const filterQueue = getFilterGroupQueue();
-  const queueStrategy = getQueueStrategyWithTailAppend();
-  if (!manager || !filterQueue || typeof filterQueue.getFilter !== 'function' || typeof filterQueue.setFilter !== 'function' || !queueStrategy?.appendCardsToTail) {
-    return;
-  }
-
-  const currentFilter = filterQueue.getFilter() || {};
-  const scopeDocIds = normalizeCardFilterIds(currentFilter.scopeDocIds);
-  if (scopeDocIds.length === 0) {
-    return;
-  }
-
-  const normalizedCardIds = Array.from(new Set(
-    cardIds
-      .map((cardId) => String(cardId || '').trim())
-      .filter((cardId) => cardId.length > 0)
-  ));
-  if (normalizedCardIds.length === 0) {
-    return;
-  }
-
-  const loadedCards = await Promise.all(
-    normalizedCardIds.map(async (cardId) => {
-      try {
-        return await manager.getCard(cardId, { silent: true });
-      } catch (error) {
-        logger.warn('[SiYuanMemo][ReviewView] Failed to load created card for doc-scope enqueue:', {
-          cardId,
-          error,
-        });
-        return null;
-      }
-    })
-  );
-
-  const cardsToAppend = loadedCards
-    .filter((card): card is FSRSCard => Boolean(card))
-    .filter((card) => {
-      const rootId = readCardRootId(card);
-      return rootId.length > 0 && scopeDocIds.includes(rootId);
-    })
-    .filter((card) => matchesFilterCardType(card, currentFilter))
-    .filter((card) => !isProgressiveExcerptCard(card));
-
-  if (cardsToAppend.length === 0) {
-    return;
-  }
-
-  const currentBlockIds = normalizeCardFilterIds(currentFilter.blockIds);
-  const nextBlockIds = Array.from(new Set([
-    ...currentBlockIds,
-    ...cardsToAppend.map((card) => String(card.blockId || '').trim()).filter((blockId) => blockId.length > 0),
-  ]));
-
-  const nextFilter = nextBlockIds.length === currentBlockIds.length
-    ? currentFilter
-    : {
-        ...currentFilter,
-        blockIds: nextBlockIds,
-      };
-
-  if (nextFilter !== currentFilter) {
-    await filterQueue.setFilter(nextFilter);
-    appliedReviewFilter.value = nextFilter;
-  }
-
-  const appendedCount = queueStrategy.appendCardsToTail(cardsToAppend);
-  if (appendedCount === 0) {
-    return;
-  }
-
-  const session = hook.context.value.session;
-  if (session) {
-    const currentInitialTotal = Math.max(0, Number(session.initialTotal) || 0);
-    session.initialTotal = currentInitialTotal + appendedCount;
-  }
-
-  const currentCard = state.value.content.card as FSRSCard | null | undefined;
-  if (currentCard) {
-    await hook.refreshCurrentItem(currentCard, buildExpectedRefreshOptions({
-      cardId: currentCard.id,
-      blockId: currentCard.blockId,
-    }));
-    return;
-  }
-
-  const activeQueue = getActiveQueueStrategy();
-  if (typeof activeQueue?.next !== 'function') {
-    return;
-  }
-
-  try {
-    const nextItem = await activeQueue.next();
-    if (!nextItem) {
-      return;
-    }
-    hook.context.value.showAnswer = false;
-    await hook.refreshCurrentItem(nextItem);
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to advance into newly appended scope card:', error);
-  }
-}
-
 function isReviewAdvancePending(): boolean {
   return state.value.meta.advancePending?.active === true;
 }
 
-const reviewDataObserver: IDataSourceObserver = {
-  onDataChanged(event: DataChangeEvent) {
-    if (event.type === 'card-created') {
-      void appendCreatedCardsToActiveScopeQueue(event.cardIds || []);
-      return;
-    }
-
-    if (event.type === 'card-deleted') {
-      const deletedCardIds = Array.from(new Set(
-        (event.cardIds || [])
-          .map((id) => String(id || '').trim())
-          .filter((id) => id.length > 0)
-      ));
-      if (deletedCardIds.length === 0) {
-        return;
-      }
-
-      const { cardId, blockId } = getCurrentReviewCardReference();
-      if (cardId && deletedCardIds.includes(cardId)) {
-        void advanceCurrentReviewCardByReference({ cardId, blockId });
-        return;
-      }
-
-      void removeCardIdsFromActiveQueue(deletedCardIds);
-      return;
-    }
-
-    if (event.type !== 'card-updated') {
-      return;
-    }
-
-    const { cardId, blockId } = getCurrentReviewCardReference();
-    if (!cardId && !blockId) {
-      return;
-    }
-
-    const matched = (event.cardIds || []).some((id) => {
-      const normalized = String(id || '').trim();
-      return normalized === cardId || normalized === blockId;
-    });
-    if (!matched) {
-      return;
-    }
-
-    if (isReviewAdvancePending()) {
-      logger.debug('[SiYuanMemo][ReviewView] Skip current card refresh while review advance is pending:', {
-        cardId,
-        blockId,
-        eventCardIds: event.cardIds || [],
-      });
-      return;
-    }
-
-    void refreshCurrentReviewCard();
-  },
-};
-
 function bindReviewDataObserver(): void {
-  const manager = getUnifiedDataSourceManager();
-  if (manager === subscribedReviewManager) {
-    return;
-  }
-
-  if (subscribedReviewManager) {
-    subscribedReviewManager.unregisterObserver(reviewDataObserver);
-  }
-
-  subscribedReviewManager = manager;
-  subscribedReviewManager?.registerObserver(reviewDataObserver);
+  reviewDataObserverRuntime.bind();
 }
 
 function bindReviewTransactionService(): void {
@@ -1978,12 +1617,7 @@ function bindReviewTransactionService(): void {
 }
 
 function unbindReviewDataObserver(): void {
-  if (!subscribedReviewManager) {
-    return;
-  }
-
-  subscribedReviewManager.unregisterObserver(reviewDataObserver);
-  subscribedReviewManager = null;
+  reviewDataObserverRuntime.unbind();
 }
 
 function unbindReviewTransactionService(): void {
@@ -1997,202 +1631,21 @@ function unbindReviewTransactionService(): void {
   subscribedReviewTransactionService = null;
 }
 
-function getEventElement(target: EventTarget | null): HTMLElement | null {
-  if (target instanceof HTMLElement) {
-    return target;
-  }
-  if (target instanceof Node) {
-    return target.parentElement;
-  }
-  return null;
-}
-
-function resolveCurrentNativeSplitGuardState(): ReviewNativeSplitGuardState | null {
-  return contentRef.value?.getNativeSplitGuardState?.() || null;
-}
-
-function getActiveTabHeaderId(): string {
-  const activeTabHeader = document.querySelector('[data-type="tab-header"].item--focus');
-  if (!(activeTabHeader instanceof HTMLElement)) {
-    return '';
-  }
-  return String(activeTabHeader.getAttribute('data-id') || '').trim();
-}
-
-function isCurrentReviewTabActive(): boolean {
-  if (props.mode !== 'tab') {
-    return false;
-  }
-  const normalizedReviewSessionId = String(reviewSessionId.value || '').trim();
-  return normalizedReviewSessionId.length > 0 && getActiveTabHeaderId() === normalizedReviewSessionId;
-}
-
-function shouldBlockCurrentNativeTabSplit(): boolean {
-  return isCurrentReviewTabActive() && resolveCurrentNativeSplitGuardState()?.blockNativeTabSplit === true;
-}
-
-function showNativeSplitBlockedNotice(): void {
-  const now = Date.now();
-  if (now - nativeSplitBlockedNoticeAt < NATIVE_SPLIT_BLOCKED_NOTICE_COOLDOWN_MS) {
-    return;
-  }
-  nativeSplitBlockedNoticeAt = now;
-  showMessage(
-    t(
-      'nativeSplitBlockedForSpecialReview',
-      '当前特殊渲染卡已禁用思源原生分屏，请使用“右侧/下方分屏当前复习”',
-    ),
-    2500,
-    'info',
-  );
-}
-
-function clearNativeSplitMenuPruneTimer(): void {
-  if (nativeSplitMenuPruneTimer !== null) {
-    window.clearTimeout(nativeSplitMenuPruneTimer);
-    nativeSplitMenuPruneTimer = null;
-  }
-}
-
-function scheduleNativeSplitMenuPrune(): void {
-  clearNativeSplitMenuPruneTimer();
-  nativeSplitMenuPruneTimer = window.setTimeout(() => {
-    nativeSplitMenuPruneTimer = null;
-    if (!shouldBlockCurrentNativeTabSplit()) {
-      return;
-    }
-    const commonMenu = document.getElementById('commonMenu');
-    if (!(commonMenu instanceof HTMLElement) || commonMenu.getAttribute('data-name') !== 'tab') {
-      return;
-    }
-    const removed = pruneNativeTabSplitMenu(commonMenu);
-    if (removed) {
-      logger.debug('[SiYuanMemo][ReviewView] Removed native split menu for special renderer review tab', {
-        reviewSessionId: reviewSessionId.value,
-        rendererKind: resolveCurrentNativeSplitGuardState()?.rendererKind,
-      });
-    }
-  }, 0);
-}
-
-function handleNativeSplitTabContextMenu(event: MouseEvent): void {
-  if (!shouldBlockCurrentNativeTabSplit()) {
-    return;
-  }
-
-  const targetElement = getEventElement(event.target);
-  const tabHeader = targetElement?.closest('[data-type="tab-header"]');
-  if (!(tabHeader instanceof HTMLElement)) {
-    return;
-  }
-
-  if (String(tabHeader.getAttribute('data-id') || '').trim() !== String(reviewSessionId.value || '').trim()) {
-    return;
-  }
-
-  scheduleNativeSplitMenuPrune();
-}
-
-function isInsideReviewRoot(target: EventTarget | null): boolean {
-  const root = rootRef.value;
-  const element = getEventElement(target);
-  return !!root && !!element && root.contains(element);
-}
-
-function isVisibleReviewRoot(root: HTMLElement | null): root is HTMLElement {
-  if (!root || !root.isConnected) {
-    return false;
-  }
-  if (root.hidden) {
-    return false;
-  }
-  const style = window.getComputedStyle(root);
-  return style.display !== 'none' && style.visibility !== 'hidden';
-}
-
-function getVisibleReviewRoots(): HTMLElement[] {
-  return Array.from(document.querySelectorAll('.fsrs-review-v2'))
-    .filter((element): element is HTMLDivElement => element instanceof HTMLDivElement)
-    .filter((element) => isVisibleReviewRoot(element));
-}
-
-function isActiveReviewSurface(): boolean {
-  const root = rootRef.value;
-  if (!isVisibleReviewRoot(root)) {
-    return false;
-  }
-
-  const activeElement = document.activeElement;
-  if (activeElement instanceof HTMLElement && root.contains(activeElement)) {
-    return true;
-  }
-
-  const visibleRoots = getVisibleReviewRoots();
-  return visibleRoots.length === 1
-    && visibleRoots[0] === root
-    && (activeElement === document.body || activeElement === document.documentElement || activeElement === null);
-}
-
-function maybeHandleBlockedNativeTabSplitHotkey(event: KeyboardEvent): boolean {
-  const command = matchReviewNativeTabSplitCommand(event);
-  if (!command || !shouldBlockCurrentNativeTabSplit()) {
-    return false;
-  }
-
-  event.preventDefault();
-  event.stopPropagation();
-  event.stopImmediatePropagation?.();
-  logger.debug('[SiYuanMemo][ReviewView] Blocked native split hotkey for special renderer review tab', {
-    command,
-    reviewSessionId: reviewSessionId.value,
-    rendererKind: resolveCurrentNativeSplitGuardState()?.rendererKind,
-  });
-  showNativeSplitBlockedNotice();
-  return true;
-}
-
-function isReviewKeyboardContext(target: EventTarget | null): boolean {
-  if (isInsideReviewRoot(target) || isInsideReviewRoot(document.activeElement)) {
-    return true;
-  }
-
-  const root = rootRef.value;
-  const activeElement = document.activeElement;
-  return !!root
-    && root.isConnected
-    && (activeElement === document.body || activeElement === document.documentElement);
-}
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  const element = getEventElement(target);
-  if (!element) {
-    return false;
-  }
-  return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
-}
+const clearNativeSplitMenuPruneTimer = reviewNativeSplitRuntime.clearMenuPruneTimer;
+const handleNativeSplitTabContextMenu = reviewNativeSplitRuntime.handleTabContextMenu;
+const isInsideReviewRoot = reviewNativeSplitRuntime.isInsideReviewRoot;
+const isActiveReviewSurface = reviewNativeSplitRuntime.isActiveReviewSurface;
+const maybeHandleBlockedNativeTabSplitHotkey = reviewNativeSplitRuntime.maybeHandleBlockedHotkey;
+const isReviewKeyboardContext = reviewNativeSplitRuntime.isReviewKeyboardContext;
+const isTypingTarget = reviewNativeSplitRuntime.isTypingTarget;
+const isCurrentReviewNativeProtyleSurface = reviewNativeSplitRuntime.isCurrentNativeProtyleSurface;
+const hasProgressiveExcerptRequestContext = reviewNativeSplitRuntime.hasProgressiveExcerptRequestContext;
 
 function handleEditorStateChange(nextState: ReviewEditorState): void {
   editorState.value = nextState;
   if (nextState.renderer !== 'main-protyle') {
     escRepeatLatch = false;
   }
-}
-
-function isCurrentReviewNativeProtyleSurface(target: EventTarget | null): boolean {
-  if (editorState.value.renderer !== 'main-protyle') {
-    return false;
-  }
-  const root = rootRef.value;
-  if (!root || !root.querySelector('.protyle')) {
-    return false;
-  }
-  return isInsideReviewRoot(target) || isInsideReviewRoot(document.activeElement);
-}
-
-function hasProgressiveExcerptRequestContext(): boolean {
-  return isCurrentReviewNativeProtyleSurface(document.activeElement)
-    || isProgressiveSelectionInsideNativeProtyle({ root: rootRef.value })
-    || isInsideReviewRoot(document.activeElement);
 }
 
 function handleProgressiveExcerptCommandRequest(event: Event): void {
@@ -2572,65 +2025,10 @@ function handleContext(payload: { id: string; openNewTab: boolean }) {
   });
 }
 
-function syncReviewFilterFromQueue(): void {
-  const filterQueue = getFilterGroupQueue();
-  if (!filterQueue || typeof filterQueue.getFilter !== 'function') {
-    appliedReviewFilter.value = null;
-    return;
-  }
-
-  try {
-    const nextFilter = filterQueue.getFilter();
-    appliedReviewFilter.value = nextFilter ? { ...nextFilter } : null;
-  } catch (error) {
-    logger.warn('[SiYuanMemo][ReviewView] Failed to read filter-group filter:', error);
-    appliedReviewFilter.value = null;
-  }
-}
-
-async function applyFilterAndReload(filter: CardFilter): Promise<void> {
-  const filterQueue = getFilterGroupQueue();
-  if (!filterQueue) {
-    showMessage(t('filterQueueUnavailable', '筛选复习队列不可用'), 3000, 'error');
-    return;
-  }
-
-  try {
-    await filterQueue.setFilter?.(filter);
-    await filterQueue.rebuild?.();
-    appliedReviewFilter.value = Object.keys(filter).length > 0 ? { ...filter } : null;
-    showReviewFilterDialog.value = false;
-    await hook.reload();
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to apply review filter:', error);
-    showMessage(t('applyFilterFailed', '应用筛选失败'), 3000, 'error');
-  }
-}
-
-async function handleApplyReviewFilter(filter: CardFilter): Promise<void> {
-  await applyFilterAndReload(filter);
-}
-
-async function handleClearReviewFilter(): Promise<void> {
-  await applyFilterAndReload({});
-}
-
-async function handleRebuildReviewFilterQueue(): Promise<void> {
-  const filterQueue = getFilterGroupQueue();
-  if (!filterQueue) {
-    showMessage(t('filterQueueUnavailable', '筛选复习队列不可用'), 3000, 'error');
-    return;
-  }
-
-  try {
-    await filterQueue.rebuild?.();
-    syncReviewFilterFromQueue();
-    await hook.reload();
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to rebuild filter-group queue:', error);
-    showMessage(t('rebuildFailed', '重建失败'), 3000, 'error');
-  }
-}
+const syncReviewFilterFromQueue = reviewFilterRuntime.syncFromQueue;
+const handleApplyReviewFilter = reviewFilterRuntime.handleApply;
+const handleClearReviewFilter = reviewFilterRuntime.handleClear;
+const handleRebuildReviewFilterQueue = reviewFilterRuntime.handleRebuild;
 
 function buildReviewAIOptions(view: ReviewAIRequestedView, surface?: AIWorkbenchSurface): AIWorkbenchOpenOptions {
   const neuralQueue = getNeuralRoamQueue();
@@ -2821,350 +2219,19 @@ function toggleReviewFullscreen(): void {
   });
 }
 
-async function handleEditCurrentCardPriority(): Promise<void> {
-  const cardEditorService = getCardEditorService();
-  const reference = resolveCurrentReviewCardActionReference();
-  if (!reference) {
-    return;
-  }
-  if (!cardEditorService) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  const nextPriority = await openNumberDialog({
-    title: t('priority', '优先级'),
-    label: t('priorityLabel', '优先级'),
-    description: t('priorityHelper', '范围 0-100，数值越小越优先。'),
-    defaultValue: resolveCurrentReviewCardPriority() ?? 0,
-    min: 0,
-    max: 100,
-    step: 1,
-    integer: true,
-  });
-  if (nextPriority === null) {
-    return;
-  }
-
-  try {
-    const snapshot = await cardEditorService.updatePriority(reference.cardId, nextPriority);
-    await hook.refreshCurrentItem(snapshot.card, buildExpectedRefreshOptions(reference));
-    showMessage(t('prioritySaved', '优先级已更新'), 3000, 'info');
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to update current card priority:', error);
-    showMessage(
-      t('prioritySaveFailed', '优先级更新失败'),
-      5000,
-      'error',
-    );
-  }
-}
-
-async function handleDismissCurrentCard(): Promise<void> {
-  const cardEditorService = getCardEditorService();
-  const reference = resolveCurrentReviewCardActionReference();
-  if (!reference) {
-    return;
-  }
-  if (!cardEditorService) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  try {
-    const nextDismissed = !resolveCurrentReviewCardDismissed();
-    const snapshot = await cardEditorService.setDismissed(reference.cardId, nextDismissed);
-    if (!nextDismissed) {
-      await hook.refreshCurrentItem(snapshot.card, buildExpectedRefreshOptions(reference));
-      showMessage(t('reviewCardUnsuspended', '已取消暂停这张卡片'), 3000, 'info');
-      return;
-    }
-
-    await advanceDismissedCurrentCard({
-      cardId: reference.cardId,
-      blockId: reference.blockId,
-      dismissed: true,
-    });
-    showMessage(t('reviewCardSuspended', '已暂停这张卡片'), 3000, 'info');
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to toggle current card dismissed state:', error);
-    showMessage(
-      t('reviewCardDismissToggleFailed', '更新暂停状态失败：{message}')
-        .replace('{message}', error instanceof Error ? error.message : String(error)),
-      5000,
-      'error',
-    );
-  }
-}
-
-async function handleDismissPeerCards(): Promise<void> {
-  const cardEditorService = getCardEditorService();
-  const peerInfo = resolveCurrentBlockPeerCards();
-  if (!cardEditorService || !peerInfo || peerInfo.peerCards.length === 0) {
-    return;
-  }
-  const targetCardIds = resolveCurrentAndPeerCardIds(peerInfo);
-
-  try {
-    const result = await cardEditorService.setDismissedMany(
-      targetCardIds,
-      true,
-    );
-    const currentUpdated = result.updatedCardIds.includes(peerInfo.currentCardId);
-    const updatedPeerCardIds = filterOutCurrentCardId(result.updatedCardIds, peerInfo.currentCardId);
-    await removeCardIdsFromActiveQueue(updatedPeerCardIds);
-    if (currentUpdated) {
-      await advanceDismissedCurrentCard({
-        cardId: peerInfo.currentCardId,
-        blockId: peerInfo.currentBlockId,
-        dismissed: true,
-      });
-    }
-
-    if (result.failedCardIds.length > 0) {
-      showMessage(
-        t('reviewPeerCardsSuspendPartial', '已暂停 {done} 张卡片，另有 {failed} 张失败')
-          .replace('{done}', String(result.updatedCardIds.length))
-          .replace('{failed}', String(result.failedCardIds.length)),
-        4000,
-        'error',
-      );
-      return;
-    }
-
-    showMessage(
-      t('reviewPeerCardsSuspended', '已暂停这张卡片和同块的其余 {count} 张卡片')
-        .replace('{count}', String(Math.max(0, result.updatedCardIds.length - 1))),
-      3000,
-      'info',
-    );
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to suspend peer cards:', error);
-    showMessage(
-      t('reviewPeerCardsSuspendFailed', '暂停其余卡片失败：{message}')
-        .replace('{message}', error instanceof Error ? error.message : String(error)),
-      5000,
-      'error',
-    );
-  }
-}
-
-async function handleDeleteCurrentCard(): Promise<void> {
-  const cardService = getCardService();
-  const reference = resolveCurrentReviewCardActionReference();
-  if (!reference) {
-    return;
-  }
-  if (!cardService) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  const confirmed = await confirmDialog({
-    title: t('deleteCurrentCardConfirmTitle', '删除卡片'),
-    content: t('deleteCurrentCardConfirmContent', '确认删除当前卡片吗？此操作不可撤销。'),
-    confirmText: t('deleteCard', '删除'),
-    cancelText: t('cancel', '取消'),
-  });
-  if (!confirmed) {
-    return;
-  }
-
-  try {
-    const result = await cardService.deleteCard({ cardId: reference.cardId });
-    if (!result.ok) {
-      throw result.error;
-    }
-    await advanceCurrentReviewCardByReference({
-      cardId: reference.cardId,
-      blockId: reference.blockId,
-    });
-    showMessage(t('reviewCardDeleted', '已删除当前卡片'), 3000, 'info');
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to delete current card:', error);
-    showMessage(
-      t('reviewCardDeleteFailed', '删除卡片失败：{message}')
-        .replace('{message}', error instanceof Error ? error.message : String(error)),
-      5000,
-      'error',
-    );
-  }
-}
-
-async function handleDeletePeerCards(): Promise<void> {
-  const cardService = getCardService();
-  const peerInfo = resolveCurrentBlockPeerCards();
-  if (!cardService || !peerInfo || peerInfo.peerCards.length === 0) {
-    return;
-  }
-  const targetCardIds = resolveCurrentAndPeerCardIds(peerInfo);
-
-  const confirmed = await confirmDialog({
-    title: t('deletePeerCardsConfirmTitle', '删除这张卡片和同块卡片'),
-    content: t('deletePeerCardsConfirmContent', '确认删除这张卡片和同块的其余 {count} 张卡片吗？此操作不可撤销。')
-      .replace('{count}', String(peerInfo.peerCards.length)),
-    confirmText: t('deleteCard', '删除'),
-    cancelText: t('cancel', '取消'),
-  });
-  if (!confirmed) {
-    return;
-  }
-
-  try {
-    const result = await cardService.deleteCards({
-      cardIds: targetCardIds,
-    });
-    if (!result.ok) {
-      throw result.error;
-    }
-
-    const currentDeleted = result.value.deletedCardIds.includes(peerInfo.currentCardId);
-    const deletedPeerCardIds = filterOutCurrentCardId(result.value.deletedCardIds, peerInfo.currentCardId);
-    await removeCardIdsFromActiveQueue(deletedPeerCardIds);
-    if (currentDeleted) {
-      await advanceCurrentReviewCardByReference({
-        cardId: peerInfo.currentCardId,
-        blockId: peerInfo.currentBlockId,
-      });
-    }
-
-    if (result.value.failedCardIds.length > 0) {
-      showMessage(
-        t('reviewPeerCardsDeletePartial', '已删除 {done} 张卡片，另有 {failed} 张失败')
-          .replace('{done}', String(result.value.deletedCardIds.length))
-          .replace('{failed}', String(result.value.failedCardIds.length)),
-        4000,
-        'error',
-      );
-      return;
-    }
-
-    showMessage(
-      t('reviewPeerCardsDeleted', '已删除这张卡片和同块的其余 {count} 张卡片')
-        .replace('{count}', String(Math.max(0, result.value.deletedCardIds.length - 1))),
-      3000,
-      'info',
-    );
-  } catch (error) {
-    logger.error('[SiYuanMemo][ReviewView] Failed to delete peer cards:', error);
-    showMessage(
-      t('reviewPeerCardsDeleteFailed', '删除其余卡片失败：{message}')
-        .replace('{message}', error instanceof Error ? error.message : String(error)),
-      5000,
-      'error',
-    );
-  }
-}
+const handleEditCurrentCardPriority = reviewCardActionRuntime.handleEditCurrentCardPriority;
+const handleDismissCurrentCard = reviewCardActionRuntime.handleDismissCurrentCard;
+const handleDismissPeerCards = reviewCardActionRuntime.handleDismissPeerCards;
+const handleDeleteCurrentCard = reviewCardActionRuntime.handleDeleteCurrentCard;
+const handleDeletePeerCards = reviewCardActionRuntime.handleDeletePeerCards;
 
 function resolveCurrentEditableSource(): ReviewEditableSource | null {
   return contentRef.value?.getEditableSource?.() || null;
 }
 
-function closeCurrentContentEditor(): void {
-  if (reviewTextEditorSaving.value) {
-    return;
-  }
-
-  reviewTextEditorOpen.value = false;
-  reviewTextEditorLoading.value = false;
-  reviewTextEditorSource.value = null;
-  reviewTextEditorValue.value = '';
-  reviewTextEditorOriginalValue.value = '';
-  reviewTextEditorSeq += 1;
-}
-
-async function openCurrentContentEditor(): Promise<void> {
-  const editableSource = resolveCurrentEditableSource();
-  if (!editableSource) {
-    showMessage(t('currentContentNotEditable', '当前内容暂不支持编辑'), 3000, 'info');
-    return;
-  }
-
-  const reviewService = getReviewService();
-  if (!reviewService) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  const seq = ++reviewTextEditorSeq;
-  reviewTextEditorSource.value = editableSource;
-  reviewTextEditorOpen.value = true;
-  reviewTextEditorLoading.value = true;
-  reviewTextEditorValue.value = '';
-  reviewTextEditorOriginalValue.value = '';
-
-  try {
-    const kramdown = await reviewService.getBlockKramdown(editableSource.blockId);
-    if (seq !== reviewTextEditorSeq || !reviewTextEditorOpen.value) {
-      return;
-    }
-    reviewTextEditorValue.value = kramdown;
-    reviewTextEditorOriginalValue.value = kramdown;
-  } catch (error) {
-    if (seq !== reviewTextEditorSeq) {
-      return;
-    }
-    logger.error('[SiYuanMemo][ReviewView] Failed to load editable review content:', error);
-    closeCurrentContentEditor();
-    showMessage(
-      t('loadCurrentContentFailed', '读取当前内容失败：{message}')
-        .replace('{message}', error instanceof Error ? error.message : String(error)),
-      5000,
-      'error',
-    );
-    return;
-  } finally {
-    if (seq === reviewTextEditorSeq) {
-      reviewTextEditorLoading.value = false;
-    }
-  }
-}
-
-async function confirmCurrentContentEditor(): Promise<void> {
-  const editableSource = reviewTextEditorSource.value;
-  if (!editableSource || reviewTextEditorConfirmDisabled.value) {
-    return;
-  }
-
-  const reviewService = getReviewService();
-  if (!reviewService) {
-    showMessage(t('pluginNotReady', 'Plugin not ready'), 3000, 'error');
-    return;
-  }
-
-  const seq = ++reviewTextEditorSeq;
-  reviewTextEditorSaving.value = true;
-
-  try {
-    await reviewService.updateBlockMarkdown(editableSource.blockId, reviewTextEditorValue.value);
-    if (seq !== reviewTextEditorSeq) {
-      return;
-    }
-
-    reviewTextEditorOriginalValue.value = reviewTextEditorValue.value;
-    reviewSourceRefreshRuntime.suppressBlock(editableSource.blockId);
-    await contentRef.value?.refreshVisibleContent?.('manual-edit-save');
-
-    reviewTextEditorOpen.value = false;
-    reviewTextEditorSource.value = null;
-    showMessage(t('currentContentSaved', '当前内容已保存'), 2000, 'info');
-  } catch (error) {
-    if (seq !== reviewTextEditorSeq) {
-      return;
-    }
-    logger.error('[SiYuanMemo][ReviewView] Failed to save editable review content:', error);
-    showMessage(
-      t('saveCurrentContentFailed', '保存当前内容失败：{message}')
-        .replace('{message}', error instanceof Error ? error.message : String(error)),
-      5000,
-      'error',
-    );
-  } finally {
-    if (seq === reviewTextEditorSeq) {
-      reviewTextEditorSaving.value = false;
-    }
-  }
-}
+const closeCurrentContentEditor = reviewTextEditorRuntime.close;
+const openCurrentContentEditor = reviewTextEditorRuntime.openEditor;
+const confirmCurrentContentEditor = reviewTextEditorRuntime.confirm;
 
 function buildMoreMenuItems(): ReviewMenuItem[] {
   const currentCard = state.value.content.card as FSRSCard | null | undefined;
@@ -3233,8 +2300,7 @@ function handleToolbarAction(actionType: string, ev: MouseEvent) {
   }
 
   if (actionType === 'plan-review-scope') {
-    syncReviewFilterFromQueue();
-    showReviewFilterDialog.value = true;
+    reviewFilterRuntime.openDialog();
     return;
   }
 
