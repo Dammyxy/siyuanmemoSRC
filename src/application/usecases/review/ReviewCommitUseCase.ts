@@ -74,18 +74,44 @@ export interface ReviewCommitUseCaseDependencies {
   onCommittedCard?: (card: FSRSCard) => Promise<void> | void;
 }
 
+type ReviewPolicyDecisionReason =
+  | 'runtime-policy-missing'
+  | 'backend-worker-disabled'
+  | 'writer-relay-disabled'
+  | 'writer-relay-runtime-missing'
+  | 'writer-relay-runtime-unknown'
+  | 'backend-worker-unavailable'
+  | 'follower-relay-unavailable'
+  | 'follower-relay-timeout'
+  | 'writer-unavailable';
+
+type RelayRuntimeState =
+  | { mode: 'missing' }
+  | { mode: 'unknown'; rawMode: string | null }
+  | { mode: 'writer' }
+  | { mode: 'follower'; instanceId: string };
+
 export class ReviewCommitUseCase {
   constructor(private readonly deps: ReviewCommitUseCaseDependencies) {}
 
   async execute(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
-    if (!this.isRuntimePolicyReadyForWrite()) {
-      throw new Error('BACKEND_UNAVAILABLE: review.feedback requires backend+writer ownership');
+    const relayRuntime = resolveRelayRuntimeState(this.deps.writerLeaseGuard);
+    const runtimeReadiness = this.resolveRuntimeWriteReadiness(relayRuntime);
+    if (!runtimeReadiness.ready) {
+      this.logPolicyDecision(runtimeReadiness.reason, {
+        relayRuntimeMode: relayRuntime.mode,
+        relayRuntimeRawMode: relayRuntime.mode === 'unknown' ? relayRuntime.rawMode : null,
+      });
+      throw new Error(runtimeReadiness.message);
     }
     if (!this.shouldUseWorkerFeedback(command)) {
+      this.logPolicyDecision('backend-worker-unavailable', {
+        hasBackendClient: Boolean(this.deps.srsBackend),
+      });
       throw new Error('BACKEND_UNAVAILABLE: review.feedback requires backend-worker ownership');
     }
 
-    return this.executeViaWorkerFeedback(command);
+    return this.executeViaWorkerFeedback(command, relayRuntime);
   }
 
   private shouldUseWorkerFeedback(command: QueueReviewCommand): boolean {
@@ -125,7 +151,10 @@ export class ReviewCommitUseCase {
     return false;
   }
 
-  private async executeViaWorkerFeedback(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
+  private async executeViaWorkerFeedback(
+    command: QueueReviewCommand,
+    relayRuntime: RelayRuntimeState,
+  ): Promise<QueueReviewCommitResult> {
     const card = await this.deps.cards.getCard(command.cardId);
     const rating = normalizeRating(command.rating);
     const context = {
@@ -143,24 +172,48 @@ export class ReviewCommitUseCase {
       sessionId: context.sessionId,
       reviewedAt,
     };
-    const followerRelayRuntime = resolveFollowerRelayRuntime(this.deps.writerLeaseGuard);
     let result: {
       committed: boolean;
       updatedCard: unknown | null;
     };
-    if (followerRelayRuntime && this.deps.followerCommandClient) {
-      const relayPayload = await this.deps.followerCommandClient.submitAndWait<unknown>({
-        instanceId: followerRelayRuntime.instanceId,
-        method: 'review.feedback',
-        params: requestPayload,
-      });
-      result = normalizeRelayFeedbackResult(relayPayload);
-    } else {
-      if (followerRelayRuntime && !this.deps.followerCommandClient) {
+    if (relayRuntime.mode === 'follower') {
+      if (!this.deps.followerCommandClient) {
+        this.logPolicyDecision('follower-relay-unavailable', {
+          instanceId: relayRuntime.instanceId,
+        });
         throw new Error('BACKEND_UNAVAILABLE: review.feedback relay is unavailable in follower mode');
       }
+      try {
+        const relayPayload = await this.deps.followerCommandClient.submitAndWait<unknown>({
+          instanceId: relayRuntime.instanceId,
+          method: 'review.feedback',
+          params: requestPayload,
+        });
+        result = normalizeRelayFeedbackResult(relayPayload);
+      } catch (error) {
+        if (isWriterRelayTimeoutError(error)) {
+          this.logPolicyDecision('follower-relay-timeout', {
+            instanceId: relayRuntime.instanceId,
+          });
+        }
+        throw error;
+      }
+    } else {
+      if (relayRuntime.mode === 'unknown') {
+        this.logPolicyDecision('writer-relay-runtime-unknown', {
+          relayRuntimeRawMode: relayRuntime.rawMode,
+        });
+        throw new Error('BACKEND_UNAVAILABLE: review.feedback requires writer relay runtime');
+      }
       if (this.deps.writerLeaseGuard) {
-        await this.deps.writerLeaseGuard.ensureWritable();
+        try {
+          await this.deps.writerLeaseGuard.ensureWritable();
+        } catch (error) {
+          this.logPolicyDecision('writer-unavailable', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
       }
       result = await this.deps.srsBackend!.reviewFeedback(requestPayload);
     }
@@ -177,18 +230,57 @@ export class ReviewCommitUseCase {
     };
   }
 
-  private isRuntimePolicyReadyForWrite(): boolean {
+  private resolveRuntimeWriteReadiness(relayRuntime: RelayRuntimeState): {
+    ready: boolean;
+    reason: ReviewPolicyDecisionReason;
+    message: string;
+  } {
     const runtimePolicy = this.deps.runtimePolicy;
     if (!runtimePolicy) {
-      return true;
+      return {
+        ready: true,
+        reason: 'runtime-policy-missing',
+        message: '',
+      };
     }
     if (!runtimePolicy.capabilities.reviewFeedbackWriteEnabled) {
-      return false;
+      const reason = runtimePolicy.capabilities.backendWorkerAvailable
+        ? 'writer-relay-disabled'
+        : 'backend-worker-disabled';
+      return {
+        ready: false,
+        reason,
+        message: 'BACKEND_UNAVAILABLE: review.feedback requires backend+writer ownership',
+      };
     }
-    if (runtimePolicy.capabilities.writerRelayRequiredForBackendWrites && !this.deps.writerLeaseGuard) {
-      return false;
+    if (runtimePolicy.capabilities.writerRelayRequiredForBackendWrites) {
+      if (relayRuntime.mode === 'missing') {
+        return {
+          ready: false,
+          reason: 'writer-relay-runtime-missing',
+          message: 'BACKEND_UNAVAILABLE: review.feedback requires writer relay runtime',
+        };
+      }
+      if (relayRuntime.mode === 'unknown') {
+        return {
+          ready: false,
+          reason: 'writer-relay-runtime-unknown',
+          message: 'BACKEND_UNAVAILABLE: review.feedback requires writer relay runtime',
+        };
+      }
     }
-    return true;
+    return {
+      ready: true,
+      reason: 'runtime-policy-missing',
+      message: '',
+    };
+  }
+
+  private logPolicyDecision(reason: ReviewPolicyDecisionReason, payload?: Record<string, unknown>): void {
+    logger.info('[BackendMigrationPolicy][ReviewCommitUseCase]', {
+      reason,
+      ...(payload || {}),
+    });
   }
 
   private async recordArenaReview(card: FSRSCard, rating: Rating, schedulingContext?: SrsV2SchedulingContext | null): Promise<void> {
@@ -216,24 +308,36 @@ function normalizeRating(value: number): Rating {
   return Math.max(1, Math.min(4, Math.floor(Number(value) || 0))) as Rating;
 }
 
-function resolveFollowerRelayRuntime(
+function resolveRelayRuntimeState(
   writerLeaseGuard: ReviewCommitWriterLeaseGuard | null | undefined,
-): { instanceId: string } | null {
+): RelayRuntimeState {
   if (!writerLeaseGuard || typeof writerLeaseGuard !== 'object') {
-    return null;
+    return { mode: 'missing' };
   }
   const runtime = writerLeaseGuard as {
     getMode?: () => unknown;
     getInstanceId?: () => unknown;
   };
-  if (runtime.getMode?.() !== 'follower') {
-    return null;
+  const rawMode = runtime.getMode?.();
+  if (rawMode === 'follower') {
+    const instanceId = String(runtime.getInstanceId?.() || '').trim();
+    if (!instanceId) {
+      return { mode: 'unknown', rawMode: 'follower-without-instance' };
+    }
+    return { mode: 'follower', instanceId };
   }
-  const instanceId = String(runtime.getInstanceId?.() || '').trim();
-  if (!instanceId) {
-    return null;
+  if (rawMode === 'writer') {
+    return { mode: 'writer' };
   }
-  return { instanceId };
+  if (typeof rawMode === 'undefined' || rawMode === null || rawMode === '') {
+    return { mode: 'unknown', rawMode: null };
+  }
+  return { mode: 'unknown', rawMode: String(rawMode) };
+}
+
+function isWriterRelayTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return message.includes('BACKEND_UNAVAILABLE: writer relay timeout');
 }
 
 function normalizeRelayFeedbackResult(payload: unknown): {

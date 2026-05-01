@@ -2,32 +2,52 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
+const allowListPath = path.join(root, 'scripts', 'backend-migration-compat-allowlist.json');
+const sourceExtensions = new Set(['.ts', '.vue']);
 
-const checks = [
+const behaviorChecks = [
   {
     file: 'src/application/usecases/review/ReviewCommitUseCase.ts',
-    forbidden: [
-      { pattern: /legacy review commit fallback/i, reason: 'legacy review commit fallback still present' },
-    ],
+    kind: 'review-local-fallback',
+    pattern: /(legacy review commit fallback|scheduler\.commit\s*\()/i,
+    reason: 'review local fallback path still present',
   },
   {
-    file: 'src/core/scheduler/SchedulerRouter.ts',
-    forbidden: [
-      { pattern: /legacy scheduler commit fallback/i, reason: 'legacy scheduler commit fallback still present' },
-    ],
-  },
-  {
-    file: 'src/application/queries/browser/shared/BrowserDeckQueryKernel.ts',
-    forbidden: [
-      { pattern: /sql-fallback-getAllCards/i, reason: 'legacy browser SQL fallback path still present' },
-    ],
+    file: 'src/application/services/BrowserApplicationService.ts',
+    kind: 'browser-sql-fallback',
+    pattern: /(falling back to SQL\/legacy|falling back to legacy snapshot|tryReadSqlDeckPage\s*\()/i,
+    reason: 'browser compatibility fallback still present in production path',
   },
   {
     file: 'src/application/handlers/AutoCardHandler.ts',
-    forbidden: [
-      { pattern: /follower-local fallback/i, reason: 'AutoCard follower-local fallback marker still present' },
-    ],
+    kind: 'autocard-follower-direct-mutation',
+    pattern: /getMode\(\)\s*===\s*'follower'[\s\S]{0,220}backendClient\.executeAutoCard\s*\(/i,
+    reason: 'AutoCard follower path still allows direct backend mutation bypass',
   },
+  {
+    file: 'src/application/services/AIWorkbenchPromptRuntime.ts',
+    kind: 'ai-frontend-llm-call',
+    pattern: /llmPort\.chat\s*\(/,
+    reason: 'AI runtime still calls frontend llmPort chat path',
+  },
+  {
+    file: 'src/application/clients/PrivateApiClient.ts',
+    kind: 'private-follower-direct-mutation',
+    pattern: /getMode\(\)\s*===\s*'follower'[\s\S]{0,220}backendClient\.privateCommand\s*\(/i,
+    reason: 'Private API follower path still allows direct backend mutation bypass',
+  },
+];
+
+const requiredAllowListFields = [
+  'id',
+  'checker',
+  'file',
+  'kind',
+  'symbolPattern',
+  'owner',
+  'reason',
+  'removalCondition',
+  'trackingTask',
 ];
 
 function readFile(rootDir, relativePath) {
@@ -38,9 +58,120 @@ function readFile(rootDir, relativePath) {
   return fs.readFileSync(absolute, 'utf8');
 }
 
+function loadAllowList(customAllowListPath) {
+  const resolvedPath = customAllowListPath || allowListPath;
+  if (!fs.existsSync(resolvedPath)) {
+    return [];
+  }
+  const payload = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  const invalidEntries = [];
+  for (const entry of entries) {
+    for (const field of requiredAllowListFields) {
+      if (!String(entry[field] || '').trim()) {
+        invalidEntries.push(`invalid allowlist entry "${entry.id || '<unknown>'}": missing ${field}`);
+      }
+    }
+  }
+  if (invalidEntries.length > 0) {
+    throw new Error(invalidEntries.join('\n'));
+  }
+  return entries.filter((entry) => entry.checker === 'check-backend-migration-cutover');
+}
+
+function isAllowed(allowEntries, check) {
+  return allowEntries.some((entry) => (
+    entry.file === check.file
+    && entry.kind === check.kind
+  ));
+}
+
+function walk(dir, files = []) {
+  if (!fs.existsSync(dir)) {
+    return files;
+  }
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '__tests__') {
+      continue;
+    }
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walk(fullPath, files);
+      continue;
+    }
+    if (sourceExtensions.has(path.extname(entry.name))) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+function isTestFile(relativePath) {
+  return /(^|\/)__tests__\//.test(relativePath)
+    || /\.(test|spec)\.ts$/.test(relativePath);
+}
+
+function evaluateFeatureGateUsage(rootDir) {
+  const failures = [];
+  const ownershipMapText = readFile(rootDir, 'src/application/backendMigration/ownershipMap.ts');
+  if (!ownershipMapText) {
+    failures.push('src/application/backendMigration/ownershipMap.ts: file missing');
+    return failures;
+  }
+
+  const gateKeys = [];
+  const gateKeyRegex = /([a-zA-Z0-9_]+)\s*:\s*'VITE_SIYUANMEMO_[A-Z0-9_]+'/g;
+  let match = gateKeyRegex.exec(ownershipMapText);
+  while (match) {
+    gateKeys.push(match[1]);
+    match = gateKeyRegex.exec(ownershipMapText);
+  }
+
+  const files = walk(path.join(rootDir, 'src'))
+    .map((file) => path.relative(rootDir, file).replace(/\\/g, '/'))
+    .filter((relativePath) => !isTestFile(relativePath))
+    .filter((relativePath) => relativePath !== 'src/application/backendMigration/ownershipMap.ts')
+    .filter((relativePath) => relativePath !== 'src/application/backendMigration/featureGateMatrix.ts');
+
+  const fileTexts = new Map();
+  for (const relativePath of files) {
+    fileTexts.set(relativePath, readFile(rootDir, relativePath) || '');
+  }
+
+  for (const gateKey of gateKeys) {
+    const usageMarker = `BACKEND_MIGRATION_FEATURE_GATES.${gateKey}`;
+    const isUsed = Array.from(fileTexts.values()).some((text) => text.includes(usageMarker));
+    if (!isUsed) {
+      failures.push(`src/application/backendMigration/featureGateMatrix.ts: feature gate ${gateKey} is not consumed by production runtime code`);
+    }
+  }
+  return failures;
+}
+
+function evaluateServiceWiring(rootDir, allowEntries) {
+  const failures = [];
+  const applicationContextText = readFile(rootDir, 'src/application/ApplicationContext.ts') || '';
+  const hasPrivateApiWiring = (
+    applicationContextText.includes('PrivateApiService')
+    || applicationContextText.includes('PrivateApiClient')
+    || applicationContextText.includes('PrivateApiAuditService')
+  );
+  if (!hasPrivateApiWiring) {
+    const check = {
+      file: 'src/application/ApplicationContext.ts',
+      kind: 'private-api-unwired',
+    };
+    if (!isAllowed(allowEntries, check)) {
+      failures.push('src/application/ApplicationContext.ts: Private API runtime service/client wiring is missing in composition root');
+    }
+  }
+  return failures;
+}
+
 function evaluate(options = {}) {
   const rootDir = options.rootDir || root;
-  const checksList = options.checks || checks;
+  const checksList = options.checks || behaviorChecks;
+  const allowEntries = options.allowEntries || loadAllowList(options.allowListPath);
   const failures = [];
   for (const check of checksList) {
     const text = readFile(rootDir, check.file);
@@ -48,17 +179,16 @@ function evaluate(options = {}) {
       failures.push(`${check.file}: file missing`);
       continue;
     }
-    for (const entry of check.forbidden) {
-      if (!entry.pattern.test(text)) {
-        continue;
-      }
-      const allowed = (check.allow || []).some((allowEntry) => allowEntry.pattern.test(text));
-      if (allowed) {
-        continue;
-      }
-      failures.push(`${check.file}: ${entry.reason}`);
+    if (!check.pattern.test(text)) {
+      continue;
     }
+    if (isAllowed(allowEntries, check)) {
+      continue;
+    }
+    failures.push(`${check.file}: ${check.reason}`);
   }
+  failures.push(...evaluateFeatureGateUsage(rootDir));
+  failures.push(...evaluateServiceWiring(rootDir, allowEntries));
   return failures;
 }
 
@@ -81,5 +211,8 @@ if (require.main === module) {
 module.exports = {
   run,
   evaluate,
-  checks,
+  behaviorChecks,
+  evaluateFeatureGateUsage,
+  evaluateServiceWiring,
+  loadAllowList,
 };

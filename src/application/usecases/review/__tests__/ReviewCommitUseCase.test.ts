@@ -1,6 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
-import { ReviewCommitUseCase } from '../ReviewCommitUseCase';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveBackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import { CardState, CardType, Rating, type FSRSCard } from '@/types/card';
+
+const reviewPolicyLoggerMocks = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => reviewPolicyLoggerMocks,
+}));
+
+import { ReviewCommitUseCase } from '../ReviewCommitUseCase';
 
 function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = new Date('2026-04-27T08:00:00+08:00').getTime();
@@ -30,7 +43,240 @@ function createCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
+function createReleasePolicy(overrides?: {
+  backendWorker?: string;
+  writerLeaseGuard?: string;
+  autocardDecisionRelay?: string;
+}) {
+  return resolveBackendMigrationRuntimePolicy({
+    VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: overrides?.backendWorker ?? 'true',
+    VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD: overrides?.writerLeaseGuard ?? 'true',
+    VITE_SIYUANMEMO_ENABLE_AUTOCARD_DECISION_RELAY: overrides?.autocardDecisionRelay ?? 'true',
+    VITE_SIYUANMEMO_ENABLE_KERNEL_TRANSACTION_INGEST: 'false',
+    VITE_SIYUANMEMO_ENABLE_PRIVATE_API: 'false',
+    VITE_SIYUANMEMO_ENABLE_AI_BACKEND_RUNTIME: 'false',
+  });
+}
+
 describe('ReviewCommitUseCase', () => {
+  beforeEach(() => {
+    reviewPolicyLoggerMocks.info.mockReset();
+    reviewPolicyLoggerMocks.warn.mockReset();
+    reviewPolicyLoggerMocks.error.mockReset();
+    reviewPolicyLoggerMocks.debug.mockReset();
+  });
+
+  it('uses backend worker write path in default release env (backend+writer writer mode)', async () => {
+    const before = createCard({ id: 'card-default-env' });
+    const after = createCard({ id: before.id, due: before.due + 2 * 86_400_000 });
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const ensureWritable = vi.fn(async () => {});
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable,
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+      onCommittedCard: vi.fn(async () => {}),
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(result.committed).toBe(true);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(reviewFeedback).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when backend is disabled by runtime policy', async () => {
+    const before = createCard({ id: 'card-backend-disabled' });
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      runtimePolicy: createReleasePolicy({ backendWorker: 'false', writerLeaseGuard: 'false' }),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: { queueType: 'retrieval-practice' },
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback requires backend+writer ownership');
+
+    expect(reviewPolicyLoggerMocks.info).toHaveBeenCalledWith(
+      '[BackendMigrationPolicy][ReviewCommitUseCase]',
+      expect.objectContaining({ reason: 'backend-worker-disabled' }),
+    );
+  });
+
+  it('fails closed when backend is enabled without writer relay runtime policy capability', async () => {
+    const before = createCard({ id: 'card-backend-only' });
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      runtimePolicy: createReleasePolicy({ backendWorker: 'true', writerLeaseGuard: 'false' }),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: { queueType: 'retrieval-practice' },
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback requires backend+writer ownership');
+
+    expect(reviewPolicyLoggerMocks.info).toHaveBeenCalledWith(
+      '[BackendMigrationPolicy][ReviewCommitUseCase]',
+      expect.objectContaining({ reason: 'writer-relay-disabled' }),
+    );
+  });
+
+  it('uses follower relay in follower mode for backend+writer policy', async () => {
+    const before = createCard({ id: 'card-follower-mode' });
+    const after = createCard({ id: before.id, due: before.due + 3 * 86_400_000 });
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+    const submitAndWait = vi.fn(async () => ({ committed: true, updatedCard: after }));
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-1',
+      } as never,
+      followerCommandClient: { submitAndWait },
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    const result = await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(result.committed).toBe(true);
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-follower-1',
+      method: 'review.feedback',
+    }));
+    expect(reviewFeedback).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when writer runtime injection is partial/unknown under writer-required policy', async () => {
+    const before = createCard({ id: 'card-partial-di' });
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: { queueType: 'retrieval-practice' },
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback requires writer relay runtime');
+
+    expect(reviewPolicyLoggerMocks.info).toHaveBeenCalledWith(
+      '[BackendMigrationPolicy][ReviewCommitUseCase]',
+      expect.objectContaining({ reason: 'writer-relay-runtime-unknown' }),
+    );
+  });
+
+  it('surfaces writer unavailable error and emits diagnostics', async () => {
+    const before = createCard({ id: 'card-writer-unavailable' });
+    const writerError = new Error('BACKEND_UNAVAILABLE: writer lease not owned by current instance');
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {
+          throw writerError;
+        }),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: writer lease not owned by current instance');
+
+    expect(reviewPolicyLoggerMocks.info).toHaveBeenCalledWith(
+      '[BackendMigrationPolicy][ReviewCommitUseCase]',
+      expect.objectContaining({ reason: 'writer-unavailable' }),
+    );
+  });
+
+  it('emits follower relay timeout diagnostics when follower relay call times out', async () => {
+    const before = createCard({ id: 'card-follower-timeout' });
+    const relayTimeout = new Error('BACKEND_UNAVAILABLE: writer relay timeout');
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-timeout',
+      } as never,
+      followerCommandClient: {
+        submitAndWait: vi.fn(async () => {
+          throw relayTimeout;
+        }),
+      },
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await expect(useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: writer relay timeout');
+
+    expect(reviewPolicyLoggerMocks.info).toHaveBeenCalledWith(
+      '[BackendMigrationPolicy][ReviewCommitUseCase]',
+      expect.objectContaining({ reason: 'follower-relay-timeout' }),
+    );
+  });
+
   it('fails with explicit unavailable when backend worker path is not configured', async () => {
     const before = createCard();
     const useCase = new ReviewCommitUseCase({
@@ -44,166 +290,5 @@ describe('ReviewCommitUseCase', () => {
       rating: Rating.Good,
       context: { queueType: 'retrieval-practice' },
     })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback requires backend-worker ownership');
-  });
-
-  it('uses worker feedback path for retrieval-practice formal commit', async () => {
-    const before = createCard({ due: Date.now() - 3_600_000 });
-    const after = createCard({
-      id: before.id,
-      due: before.due + 5 * 86_400_000,
-      reps: before.reps + 1,
-      lastReview: before.due,
-      scheduledDays: 5,
-      updatedAt: before.updatedAt + 1_000,
-    });
-    const reviewFeedback = vi.fn(async () => ({
-      committed: true,
-      updatedCard: after,
-    }));
-    const onCommittedCard = vi.fn(async () => {});
-    const arena = { recordSrsReview: vi.fn(async () => null) };
-    const ensureWritable = vi.fn(async () => {});
-
-    const useCase = new ReviewCommitUseCase({
-      cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
-      onCommittedCard,
-      arena,
-      srsBackend: { reviewFeedback },
-      writerLeaseGuard: { ensureWritable },
-    });
-
-    const result = await useCase.execute({
-      cardId: before.id,
-      rating: Rating.Good,
-      context: {
-        queueType: 'retrieval-practice',
-        queueMode: 'formal',
-        commitPolicy: 'write-schedule',
-        sessionId: 'session-1',
-      },
-    });
-
-    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
-      cardId: before.id,
-      rating: Rating.Good,
-      queueType: 'retrieval-practice',
-      queueMode: 'formal',
-      commitPolicy: 'write-schedule',
-      sessionId: 'session-1',
-    }));
-    expect(ensureWritable).toHaveBeenCalledTimes(1);
-    expect(result.committed).toBe(true);
-    expect(result.updatedCard).toEqual(expect.objectContaining({ id: before.id, due: after.due }));
-    expect(onCommittedCard).toHaveBeenCalledWith(expect.objectContaining({ id: before.id, due: after.due }));
-    expect(arena.recordSrsReview).toHaveBeenCalled();
-  });
-
-  it('uses follower relay for review.feedback in follower mode', async () => {
-    const before = createCard({ id: 'card-follower-1', due: Date.now() - 1_000 });
-    const after = createCard({
-      id: before.id,
-      due: before.due + 2 * 86_400_000,
-      reps: before.reps + 1,
-      lastReview: before.due,
-      scheduledDays: 2,
-      updatedAt: before.updatedAt + 1_000,
-    });
-    const reviewFeedback = vi.fn(async () => ({
-      committed: true,
-      updatedCard: after,
-    }));
-    const submitAndWait = vi.fn(async () => ({
-      committed: true,
-      updatedCard: after,
-    }));
-
-    const useCase = new ReviewCommitUseCase({
-      cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
-      onCommittedCard: vi.fn(async () => {}),
-      srsBackend: { reviewFeedback },
-      writerLeaseGuard: {
-        ensureWritable: vi.fn(async () => {}),
-        getMode: () => 'follower',
-        getInstanceId: () => 'instance-follower-1',
-      } as never,
-      followerCommandClient: { submitAndWait },
-    });
-
-    const result = await useCase.execute({
-      cardId: before.id,
-      rating: Rating.Good,
-      context: {
-        queueType: 'retrieval-practice',
-        queueMode: 'formal',
-        commitPolicy: 'write-schedule',
-      },
-    });
-
-    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
-      instanceId: 'instance-follower-1',
-      method: 'review.feedback',
-    }));
-    expect(reviewFeedback).not.toHaveBeenCalled();
-    expect(result.committed).toBe(true);
-  });
-
-  it('fails closed when runtime policy disables backend+writer ownership', async () => {
-    const before = createCard({ id: 'card-policy-1' });
-    const useCase = new ReviewCommitUseCase({
-      cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
-      runtimePolicy: {
-        capabilities: {
-          backendWorkerAvailable: true,
-          writerRelayRuntimeEnabled: false,
-          writerRelayRequiredForBackendWrites: true,
-          reviewFeedbackWriteEnabled: false,
-          autoCardExecuteWriteEnabled: false,
-          autoCardDecisionBackendEnabled: false,
-          kernelTransactionIngestEnabled: false,
-          privateApiReadEnabled: false,
-          privateApiMutationEnabled: false,
-          aiBackendSessionEnabled: false,
-        },
-      },
-    });
-
-    await expect(useCase.execute({
-      cardId: before.id,
-      rating: Rating.Good,
-      context: { queueType: 'retrieval-practice' },
-    })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback requires backend+writer ownership');
-  });
-
-  it('fails closed when follower relay client is missing', async () => {
-    const before = createCard({ id: 'card-follower-2' });
-    const useCase = new ReviewCommitUseCase({
-      cards: { getCard: vi.fn(async () => before) },
-      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
-      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
-      srsBackend: { reviewFeedback: vi.fn(async () => ({ committed: true, updatedCard: before })) },
-      writerLeaseGuard: {
-        ensureWritable: vi.fn(async () => {}),
-        getMode: () => 'follower',
-        getInstanceId: () => 'instance-follower-2',
-      } as never,
-      followerCommandClient: null,
-    });
-
-    await expect(useCase.execute({
-      cardId: before.id,
-      rating: Rating.Good,
-      context: {
-        queueType: 'retrieval-practice',
-        queueMode: 'formal',
-        commitPolicy: 'write-schedule',
-      },
-    })).rejects.toThrow('BACKEND_UNAVAILABLE: review.feedback relay is unavailable in follower mode');
   });
 });

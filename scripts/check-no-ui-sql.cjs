@@ -2,26 +2,62 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
+const allowListPath = path.join(root, 'scripts', 'backend-migration-compat-allowlist.json');
 const scanRoots = [
-  path.join(root, 'src', 'ui'),
-  path.join(root, 'src', 'application'),
+  { scope: 'ui', dir: path.join(root, 'src', 'ui') },
+  { scope: 'application', dir: path.join(root, 'src', 'application') },
 ];
 const sourceExtensions = new Set(['.ts', '.vue']);
 
-const sqlPatterns = [
-  /from\s+['"]sql\.js['"]/,
+const violationRules = [
+  {
+    kind: 'sqljs-import',
+    scopes: ['ui', 'application'],
+    pattern: /from\s+['"]sql\.js['"]/,
+  },
+  {
+    kind: 'runtime-sqlite-import',
+    scopes: ['ui', 'application'],
+    pattern: /import\s+(?!type\b)[^;]*from\s+['"]@\/infrastructure\/persistence\/sqlite(?:\/|['"])/,
+  },
+  {
+    kind: 'siyuan-api-sql',
+    scopes: ['ui', 'application'],
+    pattern: /siyuanApi\.sql\s*\(/,
+  },
+  {
+    kind: 'host-sql-endpoint',
+    scopes: ['ui', 'application'],
+    pattern: /\/api\/query\/sql/,
+  },
+  {
+    kind: 'host-plugin-rpc-endpoint',
+    scopes: ['ui', 'application'],
+    pattern: /\/api\/plugin\/rpc/,
+  },
+  {
+    kind: 'host-fetch-api',
+    scopes: ['ui', 'application'],
+    pattern: /fetch\s*\(\s*['"]\s*\/api\//,
+  },
+  {
+    kind: 'siyuan-query-adapter-import',
+    scopes: ['ui', 'application'],
+    pattern: /from\s+['"]@\/infrastructure\/siyuan\/(?:QuerySiyuanAdapter|ManagerSiyuanAdapter|BrowserSiyuanAdapter)['"]/,
+  },
 ];
 
-const runtimeSqliteImportPatterns = [
-  /import\s+(?!type\b)[^;]*from\s+['"]@\/infrastructure\/persistence\/sqlite['"]/,
-  /import\s+(?!type\b)[^;]*from\s+['"]@\/infrastructure\/persistence\/sqlite\//,
+const requiredAllowListFields = [
+  'id',
+  'checker',
+  'file',
+  'kind',
+  'symbolPattern',
+  'owner',
+  'reason',
+  'removalCondition',
+  'trackingTask',
 ];
-
-const allowList = new Set([
-  'src/application/ApplicationContext.ts',
-]);
-
-const failures = [];
 
 function walk(dir, files = []) {
   if (!fs.existsSync(dir)) {
@@ -47,42 +83,98 @@ function rel(file) {
   return path.relative(root, file).replace(/\\/g, '/');
 }
 
-for (const scanRoot of scanRoots) {
-  for (const file of walk(scanRoot)) {
-    const relativePath = rel(file);
-    if (allowList.has(relativePath)) {
-      continue;
-    }
-    if (/\.(test|spec)\.ts$/.test(relativePath)) {
-      continue;
-    }
-    const text = fs.readFileSync(file, 'utf8');
-    let runtimeSqlViolation = false;
-    for (const pattern of runtimeSqliteImportPatterns) {
-      if (pattern.test(text)) {
-        failures.push(`${relativePath}: violates no-ui-sql rule (${pattern})`);
-        runtimeSqlViolation = true;
-        break;
-      }
-    }
-    if (runtimeSqlViolation) {
-      continue;
-    }
-    for (const pattern of sqlPatterns) {
-      if (pattern.test(text)) {
-        failures.push(`${relativePath}: violates no-ui-sql rule (${pattern})`);
-        break;
+function isTestFile(relativePath) {
+  return /(^|\/)__tests__\//.test(relativePath)
+    || /\.(test|spec)\.ts$/.test(relativePath);
+}
+
+function loadAllowList(customAllowListPath) {
+  const resolvedPath = customAllowListPath || allowListPath;
+  if (!fs.existsSync(resolvedPath)) {
+    return [];
+  }
+  const payload = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  const invalidEntries = [];
+  for (const entry of entries) {
+    for (const field of requiredAllowListFields) {
+      if (!String(entry[field] || '').trim()) {
+        invalidEntries.push(`invalid allowlist entry "${entry.id || '<unknown>'}": missing ${field}`);
       }
     }
   }
-}
-
-if (failures.length > 0) {
-  console.error('No-UI-SQL boundary check failed:');
-  for (const failure of failures) {
-    console.error(`- ${failure}`);
+  if (invalidEntries.length > 0) {
+    throw new Error(invalidEntries.join('\n'));
   }
-  process.exit(1);
+  return entries.filter((entry) => entry.checker === 'check-no-ui-sql');
 }
 
-console.log('No-UI-SQL boundary check passed.');
+function isAllowed(allowEntries, violation) {
+  return allowEntries.some((entry) => (
+    entry.file === violation.file
+    && entry.kind === violation.kind
+  ));
+}
+
+function evaluate(options = {}) {
+  const rootDir = options.rootDir || root;
+  const rules = options.rules || violationRules;
+  const allowEntries = options.allowEntries || loadAllowList(options.allowListPath);
+  const failures = [];
+  const defaultScanRootsByScope = {
+    ui: path.join(rootDir, 'src', 'ui'),
+    application: path.join(rootDir, 'src', 'application'),
+  };
+
+  for (const scanRoot of scanRoots) {
+    const scanDir = options.scanRootsByScope?.[scanRoot.scope] || defaultScanRootsByScope[scanRoot.scope];
+    for (const file of walk(scanDir)) {
+      const relativePath = path.relative(rootDir, file).replace(/\\/g, '/');
+      if (isTestFile(relativePath)) {
+        continue;
+      }
+      const text = fs.readFileSync(file, 'utf8');
+      for (const rule of rules) {
+        if (!rule.scopes.includes(scanRoot.scope)) {
+          continue;
+        }
+        if (!rule.pattern.test(text)) {
+          continue;
+        }
+        const violation = {
+          file: relativePath,
+          kind: rule.kind,
+          symbolPattern: rule.pattern.toString(),
+        };
+        if (isAllowed(allowEntries, violation)) {
+          continue;
+        }
+        failures.push(`${relativePath}: violates no-ui-sql rule (${rule.kind})`);
+      }
+    }
+  }
+  return failures;
+}
+
+function run() {
+  const failures = evaluate();
+  if (failures.length > 0) {
+    console.error('No-UI-SQL boundary check failed:');
+    for (const failure of failures) {
+      console.error(`- ${failure}`);
+    }
+    process.exit(1);
+  }
+  console.log('No-UI-SQL boundary check passed.');
+}
+
+if (require.main === module) {
+  run();
+}
+
+module.exports = {
+  run,
+  evaluate,
+  violationRules,
+  loadAllowList,
+};

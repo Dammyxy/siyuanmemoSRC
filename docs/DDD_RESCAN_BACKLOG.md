@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 253)
+Last update: 2026-05-02 (Round 254)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-02 - remediation r3 rm013-rm017 review autocard write safety
+
+- Task: 继续 backend migration remediation R3，仅执行 RM013-RM017，统一 Review/AutoCard 在 default env、backend-only、backend+writer、follower、多窗口异常与 unavailable 场景下的 runtime policy 行为与诊断。
+- Touched slice: review + autocard backend write ownership；`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/application/handlers/AutoCardHandler.ts`、对应 focused tests（`ReviewCommitUseCase.test.ts`、`AutoCardHandler.backend-execute.test.ts`）。
+- Debt fixed now: `ReviewCommitUseCase` 新增 runtime readiness 判定与 reason-coded policy diagnostics，封死“writer relay required 但 runtime missing/unknown”的 partial DI 静默写入路径；follower relay timeout、writer unavailable、backend disabled/writer disabled 均输出明确诊断。`AutoCardHandler` 的 `autocard.execute` 与 `autocard.decision.resolve` 增加同构 fail-closed 判定，禁止 unknown multi-window mode 直连 backend 写入；补齐 follower relay timeout、writer unavailable、compatibility local decision path 的诊断事件。
+- Debt deferred: `specs/001-backend-migration-next/remediation-tasks.md` 位于 workspace root，不在当前 `kernel-companion-p0` worktree checkout，无法在本分支直接勾选 RM013-RM017；“compatibility read used”在 R3 范围仅覆盖 AutoCard decision local compatibility 路径，Browser compatibility read 仍待 R4 统一收口。
+- Why deferred: 本轮遵守“代码改动仅在指定 worktree”限制；R4 Browser fallback policy 与 allowlist 归属是后续独立里程碑，不在 R3 范围内混改。
+- Next safe step: 进入 R4（RM018-RM021）前，先在包含 `specs/` 的执行分支同步任务状态；随后按选定 Browser policy（compat retained 或 backend-only）对 `BrowserApplicationService` 与 compatibility allowlist 做一致性收口。
+- Validation: `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - runtime policy remediation r1 rm001-rm006
 

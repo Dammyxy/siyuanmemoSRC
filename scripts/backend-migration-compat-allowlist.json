@@ -1,0 +1,224 @@
+{
+  "entries": [
+    {
+      "id": "ui-flashcard-meta-sql-read",
+      "checker": "check-no-ui-sql",
+      "file": "src/ui/srs/FlashcardMetaMenu.vue",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "compatibility-read",
+      "reason": "UI metadata tooltip still relies on host SQL read path during Browser compatibility phase.",
+      "removalCondition": "Remove after Browser metadata query is migrated to backend read contract (RM019/RM020).",
+      "trackingTask": "RM019"
+    },
+    {
+      "id": "ui-browser-service-sql-read",
+      "checker": "check-no-ui-sql",
+      "file": "src/ui/browser/browserService.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "compatibility-read",
+      "reason": "Legacy Browser service compatibility read remains while backend-only browser policy is pending.",
+      "removalCondition": "Remove when Browser SQL fallback retirement is completed (RM018-RM021).",
+      "trackingTask": "RM019"
+    },
+    {
+      "id": "ui-preview-panel-host-fetch-api",
+      "checker": "check-no-ui-sql",
+      "file": "src/ui/browser/composables/usePreviewPanel.ts",
+      "kind": "host-fetch-api",
+      "symbolPattern": "fetch('/api/...)",
+      "owner": "compatibility-read",
+      "reason": "Preview breadcrumb currently relies on direct host API call for lightweight compatibility read.",
+      "removalCondition": "Replace with application query/port boundary before Browser backend-only cutover.",
+      "trackingTask": "RM019"
+    },
+    {
+      "id": "app-block-menu-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/managers/BlockMenuHandler.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Menu orchestration still reads block metadata directly for compatibility behavior.",
+      "removalCondition": "Replace with port-backed query service and remove direct SQL calls in P6 scope reconciliation.",
+      "trackingTask": "RM024"
+    },
+    {
+      "id": "app-dialog-manager-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/managers/DialogManager.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Dialog flows still use host SQL reads for compatibility and migration diagnostics.",
+      "removalCondition": "Route through application query ports and retire direct SQL usage in P6 follow-up.",
+      "trackingTask": "RM024"
+    },
+    {
+      "id": "app-autocard-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/handlers/AutoCardHandler.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "AutoCard compatibility read still queries host blocks for scan and planner context.",
+      "removalCondition": "Move remaining scan queries behind backend/application boundary in P6 remediation.",
+      "trackingTask": "RM025"
+    },
+    {
+      "id": "app-data-access-facade-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/queries/DataAccessFacade.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "compatibility-read",
+      "reason": "Facade fallback still supports legacy reads during migration parity checks.",
+      "removalCondition": "Remove after owner map confirms backend/application query ownership cutover.",
+      "trackingTask": "RM024"
+    },
+    {
+      "id": "app-block-attr-cleanup-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/services/BlockAttrCleanupService.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Cleanup service still uses host SQL read query for attribute sweep.",
+      "removalCondition": "Introduce dedicated cleanup query port and remove direct SQL access.",
+      "trackingTask": "RM024"
+    },
+    {
+      "id": "app-doc-post-scan-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/services/DocumentPostCreationScanService.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Document scan compatibility path still reads blocks via host SQL.",
+      "removalCondition": "Move scan read model to backend/app query boundary in P6 follow-up.",
+      "trackingTask": "RM025"
+    },
+    {
+      "id": "app-xiuyuan-cdf-multiline-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Xiuyuan multiline use case still depends on direct host SQL traversal.",
+      "removalCondition": "Convert to explicit query boundary or classify as compatibility read with owner map update.",
+      "trackingTask": "RM025"
+    },
+    {
+      "id": "app-xiuyuan-concept-auto-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/usecases/xiuyuan/CreateConceptDescriptorAutoUseCase.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Xiuyuan auto flow still reads block content via host SQL.",
+      "removalCondition": "Port to backend/application query boundary during P6 scope closure.",
+      "trackingTask": "RM025"
+    },
+    {
+      "id": "app-xiuyuan-concept-cards-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/usecases/xiuyuan/CreateConceptDescriptorCardsUseCase.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Xiuyuan concept/descriptor card pipeline still uses direct SQL compatibility path.",
+      "removalCondition": "Replace with bounded query service and remove direct SQL in P6 reconciliation.",
+      "trackingTask": "RM025"
+    },
+    {
+      "id": "app-xiuyuan-shared-cdf-scanner-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/usecases/xiuyuan/shared/CdfMultilineScanner.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Shared CDF scanner still performs direct SQL tree traversal.",
+      "removalCondition": "Replace with query adapter boundary or backend command ownership.",
+      "trackingTask": "RM025"
+    },
+    {
+      "id": "app-xiuyuan-shared-concept-locator-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/usecases/xiuyuan/shared/ConceptLocator.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "Concept locator still uses direct SQL parent lookup during migration.",
+      "removalCondition": "Route through dedicated concept query port and remove direct SQL dependency.",
+      "trackingTask": "RM025"
+    },
+    {
+      "id": "app-xiuyuan-shared-list-resolver-sql-compat",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/usecases/xiuyuan/shared/ListChildrenResolver.ts",
+      "kind": "siyuan-api-sql",
+      "symbolPattern": "siyuanApi.sql(",
+      "owner": "application-command",
+      "reason": "List resolver still queries host SQL for child traversal compatibility.",
+      "removalCondition": "Move traversal reads behind backend/application query boundary.",
+      "trackingTask": "RM025"
+    },
+    {
+      "id": "app-context-query-adapter-import",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/ApplicationContext.ts",
+      "kind": "siyuan-query-adapter-import",
+      "symbolPattern": "QuerySiyuanAdapter/ManagerSiyuanAdapter/BrowserSiyuanAdapter import",
+      "owner": "application-command",
+      "reason": "Composition root currently instantiates Siyuan adapters directly.",
+      "removalCondition": "Keep only composition-root wiring and remove non-essential direct query adapter imports.",
+      "trackingTask": "RM024"
+    },
+    {
+      "id": "app-context-runtime-sqlite-import",
+      "checker": "check-no-ui-sql",
+      "file": "src/application/ApplicationContext.ts",
+      "kind": "runtime-sqlite-import",
+      "symbolPattern": "@/infrastructure/persistence/sqlite import",
+      "owner": "application-command",
+      "reason": "Composition root wires sqlite persistence bundle for current runtime bootstrap.",
+      "removalCondition": "Replace with narrower infrastructure wiring boundary when migration runtime split is finalized.",
+      "trackingTask": "RM024"
+    },
+    {
+      "id": "cutover-browser-fallback-compat-read",
+      "checker": "check-backend-migration-cutover",
+      "file": "src/application/services/BrowserApplicationService.ts",
+      "kind": "browser-sql-fallback",
+      "symbolPattern": "falling back to SQL/legacy",
+      "owner": "compatibility-read",
+      "reason": "Browser compatibility-read fallback intentionally retained before RM018-RM021 decision.",
+      "removalCondition": "Delete allowlist entry when Browser fallback policy is resolved and checker can enforce backend-only.",
+      "trackingTask": "RM019"
+    },
+    {
+      "id": "cutover-ai-frontend-network-foundation",
+      "checker": "check-backend-migration-cutover",
+      "file": "src/application/services/AIWorkbenchPromptRuntime.ts",
+      "kind": "ai-frontend-llm-call",
+      "symbolPattern": "llmPort.chat(",
+      "owner": "foundation-only",
+      "reason": "Phase 7 is still foundation-only; prompt runtime has not fully moved behind backend session/job path.",
+      "removalCondition": "Remove after RM028-RM030 runtime migration and tests are complete.",
+      "trackingTask": "RM031"
+    },
+    {
+      "id": "cutover-private-api-unwired-foundation",
+      "checker": "check-backend-migration-cutover",
+      "file": "src/application/ApplicationContext.ts",
+      "kind": "private-api-unwired",
+      "symbolPattern": "missing PrivateApiService wiring",
+      "owner": "foundation-only",
+      "reason": "Phase 8 private API remains foundation-only and is not yet exposed through composition root runtime surface.",
+      "removalCondition": "Remove once RM032-RM035 wires and validates private API runtime exposure.",
+      "trackingTask": "RM036"
+    }
+  ]
+}
