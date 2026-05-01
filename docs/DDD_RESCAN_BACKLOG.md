@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 241)
+Last update: 2026-05-01 (Round 242)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase5 p5-6~p5-8 action reliability and auto-card ingestion path
+
+- Task: 按“能一次做完 P5 并体验提升”继续收口：补 action 回灌/背压保护，增加 upsert 冷却窗口，并把 AutoCard transaction 触发接到 worker action pipeline（灰度下避免 legacy 双触发）。
+- Touched slice: Transaction ingest/action pipeline（worker + application pump + composition root relay）；`packages/contracts/src/backend-rpc.ts`、`worker/db/SqliteDatabaseService.ts`、`worker/bootstrap/BackendKernel.ts`、`src/application/clients/SrsBackendClient.ts`、`src/application/handlers/KernelTransactionActionPump.ts`、`src/application/ApplicationContext.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: 新增 `kernel.transaction.requeue` RPC，action 消费失败时可回灌，修复“dequeue 后失败即丢失”风险；worker 新增 action queue 背压阈值与可观测计数（`actionRequeuedTotal/actionRejectedTotal/autoCardActionQueuedTotal/maxActionQueueLength`）；`KernelTransactionActionPump` 增加 upsert cooldown（避免 transaction 风暴下高频重复 incremental sync）；worker action 提取新增 `auto-card-candidates`，ingest 模式下 `AutoCardHandler` 改由 action pump 驱动，同时跳过 ws-main 直连注册的 `NativeRiffSyncTriggerHandler` 与 AutoCard 直连触发，减少重复触发与抖动。
+- Debt deferred: action queue 仍是内存态（重启不恢复）；AutoCard 的“决策计算”仍在 application `AutoCardHandler`，尚未迁成 worker 纯决策内核；upsert 仍按批次触发 sync（未做 per-block 精细裁剪）。
+- Why deferred: 本轮目标是先完成 P5 的可靠性和单路径收口，不在同轮引入持久化队列和 AutoCard 规则引擎重构，控制 blast radius。
+- Next safe step: 进入 P6 时优先评估 action queue 持久化是否真需要（仅当跨重启一致性成为实际需求），并按 bounded context 把 AutoCard 决策逐步迁入 worker。
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase5 p5-5 action coalescing and ingest action metrics
 

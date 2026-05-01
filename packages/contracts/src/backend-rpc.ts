@@ -18,6 +18,7 @@ export type BackendRpcMethod =
   | 'browser.sourceExistence.applySweepHost'
   | 'kernel.transaction.ingest'
   | 'kernel.transaction.dequeue'
+  | 'kernel.transaction.requeue'
   | 'review.feedback';
 
 export type BackendRpcId = number | string;
@@ -104,8 +105,12 @@ export interface BackendDiagnosticsStatusResult {
     actionQueueLength: number;
     actionEnqueuedTotal: number;
     actionDequeuedTotal: number;
+    actionRequeuedTotal: number;
+    actionRejectedTotal: number;
     removeActionQueuedTotal: number;
     upsertActionQueuedTotal: number;
+    autoCardActionQueuedTotal: number;
+    maxActionQueueLength: number;
     lastAcceptedAt: number | null;
     lastDrainAt: number | null;
   };
@@ -222,9 +227,18 @@ export interface BackendKernelTransactionUpsertAction extends BackendKernelTrans
   blockIds: string[];
 }
 
+export interface BackendKernelTransactionAutoCardAction extends BackendKernelTransactionActionBase {
+  type: 'auto-card-candidates';
+  operations: Array<{
+    action: 'insert' | 'update' | 'delete';
+    blockId: string;
+  }>;
+}
+
 export type BackendKernelTransactionAction =
   | BackendKernelTransactionRemoveAction
-  | BackendKernelTransactionUpsertAction;
+  | BackendKernelTransactionUpsertAction
+  | BackendKernelTransactionAutoCardAction;
 
 export interface BackendKernelTransactionDequeueRequest {
   maxActions?: number;
@@ -233,4 +247,14 @@ export interface BackendKernelTransactionDequeueRequest {
 export interface BackendKernelTransactionDequeueResult {
   actions: BackendKernelTransactionAction[];
   remaining: number;
+}
+
+export interface BackendKernelTransactionRequeueRequest {
+  actions?: BackendKernelTransactionAction[];
+}
+
+export interface BackendKernelTransactionRequeueResult {
+  requeued: number;
+  queueLength: number;
+  maxQueueLength: number;
 }

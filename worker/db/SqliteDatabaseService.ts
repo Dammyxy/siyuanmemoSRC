@@ -17,6 +17,7 @@ import type {
   BackendKernelTransactionDequeueResult,
   BackendKernelTransactionIngestRequest,
   BackendKernelTransactionIngestResult,
+  BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
 } from '../../../packages/contracts/src/backend-rpc';
@@ -81,12 +82,16 @@ export class WorkerSqliteDatabaseService {
   private kernelDrainedTotal = 0;
   private kernelActionEnqueuedTotal = 0;
   private kernelActionDequeuedTotal = 0;
+  private kernelActionRequeuedTotal = 0;
+  private kernelActionRejectedTotal = 0;
   private kernelRemoveActionQueuedTotal = 0;
   private kernelUpsertActionQueuedTotal = 0;
+  private kernelAutoCardActionQueuedTotal = 0;
   private lastKernelAcceptedAt: number | null = null;
   private lastKernelDrainAt: number | null = null;
   private readonly maxKernelTransactionQueueLength: number;
   private readonly maxKernelQueuedTransactions: number;
+  private readonly maxKernelActionQueueLength: number;
   private readonly kernelTransactionDedupeTtlMs: number;
 
   constructor(
@@ -95,6 +100,7 @@ export class WorkerSqliteDatabaseService {
     options?: {
       maxKernelTransactionQueueLength?: number;
       maxKernelQueuedTransactions?: number;
+      maxKernelActionQueueLength?: number;
       kernelTransactionDedupeTtlMs?: number;
     },
   ) {
@@ -106,6 +112,10 @@ export class WorkerSqliteDatabaseService {
     this.maxKernelQueuedTransactions = Math.max(
       1,
       Math.floor(Number(options?.maxKernelQueuedTransactions ?? 8_192)),
+    );
+    this.maxKernelActionQueueLength = Math.max(
+      8,
+      Math.floor(Number(options?.maxKernelActionQueueLength ?? 4_096)),
     );
     this.kernelTransactionDedupeTtlMs = Math.max(
       5_000,
@@ -155,8 +165,12 @@ export class WorkerSqliteDatabaseService {
       actionQueueLength: number;
       actionEnqueuedTotal: number;
       actionDequeuedTotal: number;
+      actionRequeuedTotal: number;
+      actionRejectedTotal: number;
       removeActionQueuedTotal: number;
       upsertActionQueuedTotal: number;
+      autoCardActionQueuedTotal: number;
+      maxActionQueueLength: number;
       lastAcceptedAt: number | null;
       lastDrainAt: number | null;
     };
@@ -175,8 +189,12 @@ export class WorkerSqliteDatabaseService {
         actionQueueLength: this.kernelTransactionActions.length,
         actionEnqueuedTotal: this.kernelActionEnqueuedTotal,
         actionDequeuedTotal: this.kernelActionDequeuedTotal,
+        actionRequeuedTotal: this.kernelActionRequeuedTotal,
+        actionRejectedTotal: this.kernelActionRejectedTotal,
         removeActionQueuedTotal: this.kernelRemoveActionQueuedTotal,
         upsertActionQueuedTotal: this.kernelUpsertActionQueuedTotal,
+        autoCardActionQueuedTotal: this.kernelAutoCardActionQueuedTotal,
+        maxActionQueueLength: this.maxKernelActionQueueLength,
         lastAcceptedAt: this.lastKernelAcceptedAt,
         lastDrainAt: this.lastKernelDrainAt,
       },
@@ -497,6 +515,21 @@ export class WorkerSqliteDatabaseService {
       );
     }
 
+    const actions = collectKernelTransactionActions({
+      source,
+      transactions,
+      receivedAt,
+      idempotencyKey,
+    });
+    if (this.kernelTransactionActions.length + actions.length > this.maxKernelActionQueueLength) {
+      this.kernelRejectedTotal += transactions.length;
+      this.kernelActionRejectedTotal += actions.length;
+      throw new Error(
+        `SrsBackendWorker kernel.transaction.ingest unavailable: action queue backpressure `
+        + `(pending=${this.kernelTransactionActions.length}, incoming=${actions.length}, limit=${this.maxKernelActionQueueLength})`,
+      );
+    }
+
     this.recentKernelTransactionKeys.set(idempotencyKey, now + this.kernelTransactionDedupeTtlMs);
     this.kernelTransactionQueue.push({
       source,
@@ -504,12 +537,6 @@ export class WorkerSqliteDatabaseService {
       receivedAt,
       idempotencyKey,
       acceptedAt: now,
-    });
-    const actions = collectKernelTransactionActions({
-      source,
-      transactions,
-      receivedAt,
-      idempotencyKey,
     });
     if (actions.length > 0) {
       this.kernelTransactionActions.push(...actions);
@@ -519,6 +546,8 @@ export class WorkerSqliteDatabaseService {
           this.kernelRemoveActionQueuedTotal += 1;
         } else if (action.type === 'native-riff-upsert') {
           this.kernelUpsertActionQueuedTotal += 1;
+        } else if (action.type === 'auto-card-candidates') {
+          this.kernelAutoCardActionQueuedTotal += 1;
         }
       }
     }
@@ -543,6 +572,40 @@ export class WorkerSqliteDatabaseService {
     return {
       actions,
       remaining: this.kernelTransactionActions.length,
+    };
+  }
+
+  requeueKernelTransactionActions(
+    actions: BackendKernelTransactionAction[],
+  ): BackendKernelTransactionRequeueResult {
+    const normalized = (Array.isArray(actions) ? actions : [])
+      .filter((action): action is BackendKernelTransactionAction => (
+        Boolean(action)
+        && typeof action === 'object'
+        && typeof action.type === 'string'
+        && typeof action.idempotencyKey === 'string'
+      ));
+    if (normalized.length === 0) {
+      return {
+        requeued: 0,
+        queueLength: this.kernelTransactionActions.length,
+        maxQueueLength: this.maxKernelActionQueueLength,
+      };
+    }
+    const available = Math.max(0, this.maxKernelActionQueueLength - this.kernelTransactionActions.length);
+    const accepted = normalized.slice(0, available);
+    if (accepted.length > 0) {
+      this.kernelTransactionActions.unshift(...accepted);
+      this.kernelActionRequeuedTotal += accepted.length;
+    }
+    const dropped = normalized.length - accepted.length;
+    if (dropped > 0) {
+      this.kernelActionRejectedTotal += dropped;
+    }
+    return {
+      requeued: accepted.length,
+      queueLength: this.kernelTransactionActions.length,
+      maxQueueLength: this.maxKernelActionQueueLength,
     };
   }
 
@@ -646,6 +709,7 @@ export class WorkerSqliteDatabaseService {
 const RELEVANT_UPSERT_ACTIONS = new Set(['insert', 'update', 'delete', 'setAttrs', 'updateAttrs']);
 const REMOVE_FLASHCARDS_ACTION = 'removeFlashcards';
 const ADD_FLASHCARDS_ACTION = 'addFlashcards';
+const AUTO_CARD_RELEVANT_ACTIONS = new Set(['insert', 'update', 'delete']);
 const NATIVE_RIFF_MARKERS = [
   'custom-riff-decks',
   'custom-is-flashcard',
@@ -771,6 +835,41 @@ function collectNativeRiffUpsertBlockIds(transactions: unknown[]): string[] {
   return uniqueStrings(ids);
 }
 
+function collectAutoCardCandidateOperations(
+  transactions: unknown[],
+): Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> {
+  const operations: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
+  const seen = new Set<string>();
+  for (const transaction of transactions) {
+    if (!isRecord(transaction) || !Array.isArray(transaction.doOperations)) {
+      continue;
+    }
+    for (const operation of transaction.doOperations) {
+      if (!isRecord(operation)) {
+        continue;
+      }
+      const action = normalizeString(operation.action);
+      if (!AUTO_CARD_RELEVANT_ACTIONS.has(action)) {
+        continue;
+      }
+      const blockId = normalizeString(operation.id);
+      if (!blockId) {
+        continue;
+      }
+      const key = `${action}:${blockId}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      operations.push({
+        action: action as 'insert' | 'update' | 'delete',
+        blockId,
+      });
+    }
+  }
+  return operations;
+}
+
 function collectKernelTransactionActions(input: {
   source: 'kernel-sidecar' | 'ws-main';
   transactions: unknown[];
@@ -793,6 +892,16 @@ function collectKernelTransactionActions(input: {
     actions.push({
       type: 'native-riff-upsert',
       blockIds: nativeRiffUpsertBlockIds,
+      source: input.source,
+      receivedAt: input.receivedAt,
+      idempotencyKey: input.idempotencyKey,
+    });
+  }
+  const autoCardOperations = collectAutoCardCandidateOperations(input.transactions);
+  if (autoCardOperations.length > 0) {
+    actions.push({
+      type: 'auto-card-candidates',
+      operations: autoCardOperations,
       source: input.source,
       receivedAt: input.receivedAt,
       idempotencyKey: input.idempotencyKey,

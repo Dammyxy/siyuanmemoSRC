@@ -8,6 +8,8 @@ import {
   type BackendKernelTransactionIngestResult,
   type BackendKernelTransactionDequeueRequest,
   type BackendKernelTransactionDequeueResult,
+  type BackendKernelTransactionRequeueRequest,
+  type BackendKernelTransactionRequeueResult,
   type BackendReviewFeedbackResult,
   type BackendSourceExistenceRefreshCandidate,
   type BackendSourceExistenceRefreshRequest,
@@ -115,6 +117,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleKernelTransactionIngest(request.params));
         case 'kernel.transaction.dequeue':
           return buildSuccess(request.id, await this.handleKernelTransactionDequeue(request.params));
+        case 'kernel.transaction.requeue':
+          return buildSuccess(request.id, await this.handleKernelTransactionRequeue(request.params));
         case 'review.feedback':
           return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
         case 'browser.sourceExistence.applySweep':
@@ -281,5 +285,11 @@ export class BackendKernel {
     const named = this.readNamedParams<BackendKernelTransactionDequeueRequest>(params);
     const maxActions = Number(named?.maxActions);
     return this.deps.database.dequeueKernelTransactionActions(Number.isFinite(maxActions) ? maxActions : 16);
+  }
+
+  private async handleKernelTransactionRequeue(params: unknown): Promise<BackendKernelTransactionRequeueResult> {
+    const named = this.readNamedParams<BackendKernelTransactionRequeueRequest>(params);
+    const actions = Array.isArray(named?.actions) ? named.actions : [];
+    return this.deps.database.requeueKernelTransactionActions(actions);
   }
 }

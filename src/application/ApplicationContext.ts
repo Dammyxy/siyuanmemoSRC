@@ -1604,6 +1604,24 @@ export class ApplicationContext {
         maxActions?: number;
       });
     }
+    if (command.method === 'kernel.transaction.requeue') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: kernel.transaction.requeue relay requires params object');
+      }
+      return srsBackendClient.requeueKernelTransactions(command.params as {
+        actions?: Array<{
+          type: 'native-riff-remove' | 'native-riff-upsert' | 'auto-card-candidates';
+          blockIds?: string[];
+          operations?: Array<{
+            action: 'insert' | 'update' | 'delete';
+            blockId: string;
+          }>;
+          source: 'kernel-sidecar' | 'ws-main';
+          receivedAt: number;
+          idempotencyKey: string;
+        }>;
+      });
+    }
     throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
   }
 
@@ -1912,17 +1930,23 @@ export class ApplicationContext {
 
     if (quickCardEnabled) {
       const autoCardHandler = await this.createAutoCardHandler();
-      transactionWebSocketService.registerHandler(autoCardHandler);
       this.autoCardHandler = autoCardHandler;
-      logger.info('[ApplicationContext] ✅ AutoCardHandler registered');
+      if (kernelTransactionIngestEnabled) {
+        logger.info('[ApplicationContext] AutoCardHandler wired to kernel transaction action pump (ws-main direct registration skipped)');
+      } else {
+        transactionWebSocketService.registerHandler(autoCardHandler);
+        logger.info('[ApplicationContext] ✅ AutoCardHandler registered');
+      }
     }
 
-    if (nativeRiffSyncEnabled) {
+    if (nativeRiffSyncEnabled && !kernelTransactionIngestEnabled) {
       const { NativeRiffSyncTriggerHandler } = await import('@/application/handlers/NativeRiffSyncTriggerHandler');
       const nativeRiffSyncTriggerHandler = new NativeRiffSyncTriggerHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
       transactionWebSocketService.registerHandler(nativeRiffSyncTriggerHandler);
       this.nativeRiffSyncTriggerHandler = nativeRiffSyncTriggerHandler;
       logger.info('[ApplicationContext] ✅ NativeRiffSyncTriggerHandler registered');
+    } else if (nativeRiffSyncEnabled && kernelTransactionIngestEnabled) {
+      logger.info('[ApplicationContext] NativeRiffSyncTriggerHandler skipped because kernel transaction ingest pipeline is enabled');
     }
 
     if (kernelTransactionIngestEnabled && this.srsBackendClient) {
@@ -1940,6 +1964,7 @@ export class ApplicationContext {
         this.frontendInstanceRuntime,
         this.followerCommandClient,
         () => this.hybridSyncService,
+        () => this.autoCardHandler,
       );
       kernelTransactionActionPump.start();
       this.kernelTransactionActionPump = kernelTransactionActionPump;

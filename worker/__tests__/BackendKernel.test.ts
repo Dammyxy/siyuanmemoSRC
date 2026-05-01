@@ -109,8 +109,12 @@ describe('BackendKernel', () => {
           actionQueueLength: 0,
           actionEnqueuedTotal: 0,
           actionDequeuedTotal: 0,
+          actionRequeuedTotal: 0,
+          actionRejectedTotal: 0,
           removeActionQueuedTotal: 0,
           upsertActionQueuedTotal: 0,
+          autoCardActionQueuedTotal: 0,
+          maxActionQueueLength: 4096,
         },
       });
     }
@@ -494,6 +498,106 @@ describe('BackendKernel', () => {
         upsertActionQueuedTotal: 1,
       });
     }
+  });
+
+  it('dequeues auto-card-candidates actions parsed from transaction operations', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const ingest = await kernel.handle({
+      id: 'ingest-auto-card-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'auto-card-action-key',
+        transactions: [
+          {
+            doOperations: [
+              { action: 'insert', id: 'block-auto-1' },
+              { action: 'update', id: 'block-auto-2' },
+            ],
+          },
+        ],
+      }],
+    });
+    expect('result' in ingest).toBe(true);
+
+    const dequeue = await kernel.handle({
+      id: 'dequeue-auto-card-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 8 }],
+    });
+    expect(dequeue).toEqual({
+      id: 'dequeue-auto-card-action',
+      jsonrpc: '2.0',
+      result: {
+        actions: [{
+          type: 'auto-card-candidates',
+          operations: [
+            { action: 'insert', blockId: 'block-auto-1' },
+            { action: 'update', blockId: 'block-auto-2' },
+          ],
+          source: 'ws-main',
+          receivedAt: expect.any(Number),
+          idempotencyKey: 'auto-card-action-key',
+        }],
+        remaining: 0,
+      },
+    });
+  });
+
+  it('supports kernel.transaction.requeue and keeps actions in queue', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const requeue = await kernel.handle({
+      id: 'requeue-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.requeue',
+      params: [{
+        actions: [{
+          type: 'native-riff-remove',
+          blockIds: ['block-rq-1'],
+          source: 'ws-main',
+          receivedAt: 1,
+          idempotencyKey: 'rq-1',
+        }],
+      }],
+    });
+    expect(requeue).toEqual({
+      id: 'requeue-action',
+      jsonrpc: '2.0',
+      result: {
+        requeued: 1,
+        queueLength: 1,
+        maxQueueLength: 4096,
+      },
+    });
+
+    const dequeue = await kernel.handle({
+      id: 'dequeue-requeued-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 8 }],
+    });
+    expect(dequeue).toEqual({
+      id: 'dequeue-requeued-action',
+      jsonrpc: '2.0',
+      result: {
+        actions: [{
+          type: 'native-riff-remove',
+          blockIds: ['block-rq-1'],
+          source: 'ws-main',
+          receivedAt: 1,
+          idempotencyKey: 'rq-1',
+        }],
+        remaining: 0,
+      },
+    });
   });
 
   it('returns explicit unavailable when kernel transaction ingest queue is backpressured', async () => {
