@@ -74,6 +74,62 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('coalesces repeated upsert/remove actions in one poll', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [
+        {
+          type: 'native-riff-upsert' as const,
+          blockIds: ['block-a'],
+          source: 'ws-main' as const,
+          receivedAt: 10,
+          idempotencyKey: 'k10',
+        },
+        {
+          type: 'native-riff-upsert' as const,
+          blockIds: ['block-b'],
+          source: 'ws-main' as const,
+          receivedAt: 11,
+          idempotencyKey: 'k11',
+        },
+        {
+          type: 'native-riff-remove' as const,
+          blockIds: ['block-1', 'block-2'],
+          source: 'ws-main' as const,
+          receivedAt: 12,
+          idempotencyKey: 'k12',
+        },
+        {
+          type: 'native-riff-remove' as const,
+          blockIds: ['block-2', 'block-3'],
+          source: 'ws-main' as const,
+          receivedAt: 13,
+          idempotencyKey: 'k13',
+        },
+      ],
+      remaining: 0,
+    }));
+    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
+    const handleNativeRiffRemove = vi.fn(async () => ({ success: true }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions },
+      null,
+      null,
+      () => ({ handleNativeRiffUpsert, handleNativeRiffRemove }),
+      { pollIntervalMs: 250, maxActionsPerPoll: 8 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+    expect(handleNativeRiffRemove).toHaveBeenCalledTimes(1);
+    expect(handleNativeRiffRemove).toHaveBeenCalledWith(['block-1', 'block-2', 'block-3']);
+
+    await pump.dispose();
+  });
+
   it('uses relay dequeue command when runtime is follower', async () => {
     const dequeueKernelTransactions = vi.fn();
     const submitAndWait = vi.fn(async () => ({

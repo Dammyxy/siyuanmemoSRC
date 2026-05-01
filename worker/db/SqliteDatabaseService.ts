@@ -79,6 +79,10 @@ export class WorkerSqliteDatabaseService {
   private kernelDeduplicatedTotal = 0;
   private kernelRejectedTotal = 0;
   private kernelDrainedTotal = 0;
+  private kernelActionEnqueuedTotal = 0;
+  private kernelActionDequeuedTotal = 0;
+  private kernelRemoveActionQueuedTotal = 0;
+  private kernelUpsertActionQueuedTotal = 0;
   private lastKernelAcceptedAt: number | null = null;
   private lastKernelDrainAt: number | null = null;
   private readonly maxKernelTransactionQueueLength: number;
@@ -148,6 +152,11 @@ export class WorkerSqliteDatabaseService {
       deduplicatedTotal: number;
       rejectedTotal: number;
       drainedTotal: number;
+      actionQueueLength: number;
+      actionEnqueuedTotal: number;
+      actionDequeuedTotal: number;
+      removeActionQueuedTotal: number;
+      upsertActionQueuedTotal: number;
       lastAcceptedAt: number | null;
       lastDrainAt: number | null;
     };
@@ -163,6 +172,11 @@ export class WorkerSqliteDatabaseService {
         deduplicatedTotal: this.kernelDeduplicatedTotal,
         rejectedTotal: this.kernelRejectedTotal,
         drainedTotal: this.kernelDrainedTotal,
+        actionQueueLength: this.kernelTransactionActions.length,
+        actionEnqueuedTotal: this.kernelActionEnqueuedTotal,
+        actionDequeuedTotal: this.kernelActionDequeuedTotal,
+        removeActionQueuedTotal: this.kernelRemoveActionQueuedTotal,
+        upsertActionQueuedTotal: this.kernelUpsertActionQueuedTotal,
         lastAcceptedAt: this.lastKernelAcceptedAt,
         lastDrainAt: this.lastKernelDrainAt,
       },
@@ -499,6 +513,14 @@ export class WorkerSqliteDatabaseService {
     });
     if (actions.length > 0) {
       this.kernelTransactionActions.push(...actions);
+      this.kernelActionEnqueuedTotal += actions.length;
+      for (const action of actions) {
+        if (action.type === 'native-riff-remove') {
+          this.kernelRemoveActionQueuedTotal += 1;
+        } else if (action.type === 'native-riff-upsert') {
+          this.kernelUpsertActionQueuedTotal += 1;
+        }
+      }
     }
     this.kernelQueuedTransactions += transactions.length;
     this.kernelAcceptedTotal += transactions.length;
@@ -517,6 +539,7 @@ export class WorkerSqliteDatabaseService {
   dequeueKernelTransactionActions(maxActions = 16): BackendKernelTransactionDequeueResult {
     const limit = Math.max(1, Math.floor(Number(maxActions) || 0));
     const actions = this.kernelTransactionActions.splice(0, limit);
+    this.kernelActionDequeuedTotal += actions.length;
     return {
       actions,
       remaining: this.kernelTransactionActions.length,

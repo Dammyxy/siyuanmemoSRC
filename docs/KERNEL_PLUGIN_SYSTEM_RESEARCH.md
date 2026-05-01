@@ -17,7 +17,7 @@
 
 ## 调研来源
 
-- PR: https://github.com/siyuan-note/siyuan/pull/17487
+- PR 本地摘要: `docs/UPSTREAM_PR_17487_SUMMARY.md`
 - Kernel plugin type declaration: `H:/project-F/flashcard/资料/kernel.d.ts`
 - 上游实现分支：
   - `kernel/plugin/*`

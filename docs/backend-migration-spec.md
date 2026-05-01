@@ -16,7 +16,7 @@
 
 上游依据需每轮复核：
 
-- SiYuan PR #17487: https://github.com/siyuan-note/siyuan/pull/17487
+- SiYuan PR #17487 本地摘要: `docs/UPSTREAM_PR_17487_SUMMARY.md`
 - `kernel.d.ts`: H:/project-F/flashcard/资料/kernel.d.ts
 
 ## Key Changes

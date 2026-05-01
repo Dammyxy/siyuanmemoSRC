@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 240)
+Last update: 2026-05-01 (Round 241)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase5 p5-5 action coalescing and ingest action metrics
+
+- Task: 按“继续多做，顺便清理债务”在 P5 action 消费链内继续收口：补 action 级可观测指标，并把 action pump 从逐条执行改为单轮合并执行，降低 transaction 风暴下重复触发成本。
+- Touched slice: Worker ingest diagnostics + application action pump execution policy；`packages/contracts/src/backend-rpc.ts`、`worker/db/SqliteDatabaseService.ts`、`src/application/handlers/KernelTransactionActionPump.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: `diagnostics.status.ingest` 新增 action 观测字段（`actionQueueLength/actionEnqueuedTotal/actionDequeuedTotal/removeActionQueuedTotal/upsertActionQueuedTotal`）；`KernelTransactionActionPump` 单轮消费现在会把多条 `native-riff-upsert` 合并为一次 upsert 执行，把多条 `native-riff-remove` 的 blockIds 合并去重后一次删除路由，减少重复 sync/delete 调用与抖动。
+- Debt deferred: action queue 仍是内存态（进程重启不恢复）；upsert 仍以整段 incremental sync 为提交粒度，尚未做 per-block 差异裁剪；auto-card 相关 transaction action 仍未下沉。
+- Why deferred: 本轮聚焦在“同 slice 可观测 + 执行抖动”低风险优化，避免同时引入持久化队列与更复杂增量规划，控制 blast radius。
+- Next safe step: 进入 P5-6，补最小 action backlog 保护（如 upsert cool-down/circuit-breaker）并评估是否需要持久化 action queue（只在真实重启一致性需求下启用）。
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts worker/__tests__/BackendKernel.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase5 p5-4 native riff upsert action chain
 

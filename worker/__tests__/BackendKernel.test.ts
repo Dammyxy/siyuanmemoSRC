@@ -106,6 +106,11 @@ describe('BackendKernel', () => {
           queueLength: 0,
           queuedTransactions: 0,
           maxQueueLength: 256,
+          actionQueueLength: 0,
+          actionEnqueuedTotal: 0,
+          actionDequeuedTotal: 0,
+          removeActionQueuedTotal: 0,
+          upsertActionQueuedTotal: 0,
         },
       });
     }
@@ -473,6 +478,22 @@ describe('BackendKernel', () => {
         remaining: 0,
       },
     });
+
+    const status = await kernel.handle({
+      id: 'status-upsert-action',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+    expect('result' in status).toBe(true);
+    if ('result' in status) {
+      expect(status.result.ingest).toMatchObject({
+        actionQueueLength: 0,
+        actionEnqueuedTotal: 1,
+        actionDequeuedTotal: 1,
+        upsertActionQueuedTotal: 1,
+      });
+    }
   });
 
   it('returns explicit unavailable when kernel transaction ingest queue is backpressured', async () => {

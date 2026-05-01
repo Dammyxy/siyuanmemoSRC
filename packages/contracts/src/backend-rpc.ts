@@ -101,6 +101,11 @@ export interface BackendDiagnosticsStatusResult {
     deduplicatedTotal: number;
     rejectedTotal: number;
     drainedTotal: number;
+    actionQueueLength: number;
+    actionEnqueuedTotal: number;
+    actionDequeuedTotal: number;
+    removeActionQueuedTotal: number;
+    upsertActionQueuedTotal: number;
     lastAcceptedAt: number | null;
     lastDrainAt: number | null;
   };

@@ -70,34 +70,47 @@ export class KernelTransactionActionPump {
     this.pollingInFlight = true;
     try {
       const result = await this.dequeueActions();
-      for (const action of result.actions || []) {
-        const hybridSyncService = this.getHybridSyncService();
+      const actions = result.actions || [];
+      if (actions.length === 0) {
+        return;
+      }
+      const hybridSyncService = this.getHybridSyncService();
+      const removeBlockIds = new Set<string>();
+      let shouldRunUpsert = false;
+      for (const action of actions) {
         if (action.type === 'native-riff-upsert') {
-          if (typeof hybridSyncService?.handleNativeRiffUpsert === 'function') {
-            await hybridSyncService.handleNativeRiffUpsert();
-            continue;
+          shouldRunUpsert = true;
+        } else if (action.type === 'native-riff-remove') {
+          for (const blockId of action.blockIds || []) {
+            const normalized = String(blockId || '').trim();
+            if (normalized) {
+              removeBlockIds.add(normalized);
+            }
           }
-          if (typeof hybridSyncService?.incrementalSync === 'function') {
-            await hybridSyncService.incrementalSync(undefined, {
-              source: 'native-riff-transaction',
-              persistIdleCheckpoint: false,
-            });
-            continue;
-          }
-          logger.warn('Skip native-riff-upsert action because hybrid sync service is unavailable', {
-            blockIds: action.blockIds,
+        }
+      }
+
+      if (shouldRunUpsert) {
+        if (typeof hybridSyncService?.handleNativeRiffUpsert === 'function') {
+          await hybridSyncService.handleNativeRiffUpsert();
+        } else if (typeof hybridSyncService?.incrementalSync === 'function') {
+          await hybridSyncService.incrementalSync(undefined, {
+            source: 'native-riff-transaction',
+            persistIdleCheckpoint: false,
           });
-          continue;
+        } else {
+          logger.warn('Skip native-riff-upsert action because hybrid sync service is unavailable');
         }
-        if (action.type === 'native-riff-remove') {
-          if (typeof hybridSyncService?.handleNativeRiffRemove !== 'function') {
-            logger.warn('Skip native-riff-remove action because hybrid sync service is unavailable', {
-              blockIds: action.blockIds,
-            });
-            continue;
-          }
-          await hybridSyncService.handleNativeRiffRemove(action.blockIds);
+      }
+
+      if (removeBlockIds.size > 0) {
+        if (typeof hybridSyncService?.handleNativeRiffRemove !== 'function') {
+          logger.warn('Skip native-riff-remove action because hybrid sync service is unavailable', {
+            blockIds: Array.from(removeBlockIds),
+          });
+          return;
         }
+        await hybridSyncService.handleNativeRiffRemove(Array.from(removeBlockIds));
       }
     } catch (error) {
       logger.warn('Kernel transaction action polling failed', {
