@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 249)
+Last update: 2026-05-01 (Round 250)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase6 p6-5 autocard app-side execute envelope runtime split
+
+- Task: 按“继续推进，这次多做点”续上 P6，把 worker-first 决策后的 AutoCard 执行 side effects 从 `AutoCardHandler` 内联逻辑中收口为独立 app-side execute runtime，保持默认主路径灰度不切换。
+- Touched slice: AutoCard execution seam in `src/application/handlers/AutoCardHandler.ts`, new `src/application/handlers/AutoCardExecutionRuntime.ts`, focused tests (`AutoCardExecutionRuntime` + AutoCard/doc-scan/worker 回归), `ARCHITECTURE.md`, and this backlog.
+- Debt fixed now: 新增 `AutoCardExecutionRuntime` 作为 app-side execute envelope（`planner-decision` / `topic-derived`）执行层；`AutoCardHandler.checkQuickSymbols()` 的 TopicDerived 写入与 toast、以及 selected decision 的执行不再内联，统一走 runtime；`scanDocumentByRootId()` 的 single/structural executor 也改走同一 planner envelope runtime，形成“worker 决策 -> app execute envelope”统一链路。
+- Debt deferred: AutoCard 的 domain side effects（Xiuyuan create / TopicDerived write / toast）仍在 application boundary 内执行，尚未迁入 worker mutation contract；follower relay 与 action pump 还未接 `autocard.decision.resolve` 专用命令链。
+- Why deferred: 本轮先完成 P6-5 的“执行层收口与主链对齐”，不在同轮把写入 ownership 继续下沉到 worker，避免把 SQL/relay/command queue 改动混进同一 blast radius。
+- Next safe step: 进入 P6-6 时评估 `autocard.execute` worker/app contract（先 envelope DTO + explicit unavailable，再决定是否把 Xiuyuan/TopicDerived 写入迁入 worker），并保持默认 feature flag 灰度关闭。
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/AutoCardExecutionRuntime.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts src/application/handlers/__tests__/AutoCardHandler.doc-scan-root-guard.test.ts src/application/handlers/__tests__/AutoCardHandler.listener-structural-disabled.test.ts src/application/services/__tests__/DocumentPostCreationScanService.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase6 p6-4 doc-scan structural worker-first scope contract
 

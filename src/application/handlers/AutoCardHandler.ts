@@ -24,6 +24,10 @@ import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuy
 import type {
     BackendAutoCardDecisionProjection,
 } from '../../../packages/contracts/src/backend-rpc';
+import {
+    AutoCardExecutionRuntime,
+    type AutoCardExecutionSource,
+} from './AutoCardExecutionRuntime';
 
 const logger = createLogger('AutoCardHandler');
 
@@ -168,7 +172,6 @@ type AutoCardTraceContext = {
     nextBlockId?: string;
 };
 
-type AutoCardExecutionSource = 'symbol-listener' | 'doc-oneclick-scan';
 type AutoCardDecisionRuleScope = 'all' | 'single-block' | 'structural';
 
 type CandidateBlockContext = {
@@ -198,6 +201,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private readonly riffApi: AutoCardRiffPort;
     private readonly postCreationPlanner = new UnifiedPostCreationPlanner();
     private readonly conflictMediator = new PostCreationConflictMediator();
+    private readonly executionRuntime: AutoCardExecutionRuntime;
     
 
     private processing: Set<string> = new Set();
@@ -236,6 +240,11 @@ export class AutoCardHandler implements ITransactionHandler {
         this.plugin = plugin;
         this.siyuanApi = ports.siyuanApi;
         this.riffApi = ports.riffApi;
+        this.executionRuntime = new AutoCardExecutionRuntime({
+            executePlannerDecision: async (input) => this.executePlannerDecision(input),
+            createTopicDerivedItem: async (input) => this.getTopicDerivedItemService().createFromTopicSource(input),
+            pushMsg: async (message) => this.siyuanApi.pushMsg(message),
+        });
         logger.debug('[SiYuanMemo][AutoCard] Handler initialized');
     }
 
@@ -885,7 +894,8 @@ export class AutoCardHandler implements ITransactionHandler {
             },
             {
                 executeSingleBlockDecision: async ({ blockId, content, decision }) => {
-                    return this.executePlannerDecision({
+                    return this.executionRuntime.execute({
+                        kind: 'planner-decision',
                         blockId,
                         content,
                         decision,
@@ -894,7 +904,8 @@ export class AutoCardHandler implements ITransactionHandler {
                     });
                 },
                 executeStructuralDecision: async ({ blockId, content, decision }) => {
-                    return this.executePlannerDecision({
+                    return this.executionRuntime.execute({
+                        kind: 'planner-decision',
                         blockId,
                         content,
                         decision,
@@ -1124,23 +1135,20 @@ export class AutoCardHandler implements ITransactionHandler {
                     return;
                 }
 
-                const derivedResult = await this.getTopicDerivedItemService().createFromTopicSource({
-                    sourceBlockId: blockId,
-                    sourceDocId: progressiveSourceContext.sourceDocId,
-                    parentTopicCardId: progressiveSourceContext.parentTopicCardId!,
-                    parentExcerptId: progressiveSourceContext.parentExcerptId,
-                    sourceRootKind: progressiveSourceContext.rootKind,
-                    plannerContent: kramdown,
-                    mode: 'planner-derived',
-                    decisions: enabledDecisions,
-                    storageMode: normalizedSettings.topicDerivation?.storageMode,
+                await this.executionRuntime.execute({
+                    kind: 'topic-derived',
+                    input: {
+                        sourceBlockId: blockId,
+                        sourceDocId: progressiveSourceContext.sourceDocId,
+                        parentTopicCardId: progressiveSourceContext.parentTopicCardId!,
+                        parentExcerptId: progressiveSourceContext.parentExcerptId,
+                        sourceRootKind: progressiveSourceContext.rootKind,
+                        plannerContent: kramdown,
+                        mode: 'planner-derived',
+                        decisions: enabledDecisions,
+                        storageMode: normalizedSettings.topicDerivation?.storageMode,
+                    },
                 });
-
-                if (derivedResult.created > 0) {
-                    await this.siyuanApi.pushMsg(
-                        `已在当前 Topic 下新增 ${derivedResult.created} 个 Item${derivedResult.skipped > 0 ? `，跳过 ${derivedResult.skipped} 个重复项` : ''}`
-                    );
-                }
                 return;
             }
 
@@ -1176,7 +1184,8 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
 
-            await this.executePlannerDecision({
+            await this.executionRuntime.execute({
+                kind: 'planner-decision',
                 blockId,
                 content: kramdown,
                 decision: decisionCoreResult.selectedDecision,
