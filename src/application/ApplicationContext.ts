@@ -124,6 +124,11 @@ import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { KernelWriterLeaseGuard } from '@/application/clients/KernelWriterLeaseGuard';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
+import {
+  BACKEND_MIGRATION_FEATURE_GATES,
+  listMigratedStateFamilies,
+  type MigratedStateFamily,
+} from '@/application/backendMigration/ownershipMap';
 import { BackendKernel } from '../../worker/bootstrap/BackendKernel';
 import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
 import { WorkerSqliteDatabaseService } from '../../worker/db/SqliteDatabaseService';
@@ -1665,6 +1670,19 @@ export class ApplicationContext {
         };
       });
     }
+    if (command.method === 'private.command.execute') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: private.command.execute relay requires params object');
+      }
+      return srsBackendClient.privateCommand(command.params as {
+        requestId: string;
+        method: 'private.command.execute';
+        callerIntent: string;
+        idempotencyKey: string;
+        params?: Record<string, unknown>;
+        auditContext?: Record<string, unknown>;
+      });
+    }
     throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
   }
 
@@ -2102,6 +2120,14 @@ export class ApplicationContext {
 
   getFollowerCommandClient(): FollowerCommandClient | null {
     return this.followerCommandClient;
+  }
+
+  getBackendMigrationOwnershipMap(): MigratedStateFamily[] {
+    return listMigratedStateFamilies();
+  }
+
+  getBackendMigrationFeatureGates(): typeof BACKEND_MIGRATION_FEATURE_GATES {
+    return BACKEND_MIGRATION_FEATURE_GATES;
   }
 
   getCardEditorService(): CardEditorApplicationService {

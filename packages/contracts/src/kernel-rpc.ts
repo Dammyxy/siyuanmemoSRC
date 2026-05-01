@@ -73,7 +73,7 @@ export interface KernelWriterSubmitCommandRequest {
   instanceId: string;
   commandId?: string;
   idempotencyKey?: string;
-  method: string;
+  method: KernelRelayMethod;
   params?: unknown;
 }
 
@@ -103,12 +103,21 @@ export interface KernelWriterTakeCommandRequest {
 export interface WriterRelayCommandPayload {
   commandId: string;
   requesterInstanceId: string;
-  method: string;
+  method: KernelRelayMethod;
   params?: unknown;
   idempotencyKey?: string;
   requestedAt: number;
   expiresAt?: number;
 }
+
+export type KernelRelayMethod =
+  | 'review.feedback'
+  | 'autocard.decision.resolve'
+  | 'autocard.execute'
+  | 'kernel.transaction.ingest'
+  | 'kernel.transaction.dequeue'
+  | 'kernel.transaction.requeue'
+  | 'private.command.execute';
 
 export interface WriterRelayCommandResultPayload {
   commandId: string;

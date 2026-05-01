@@ -3189,6 +3189,16 @@ Do not add an entry for skill-only or docs-only work.
 - Next safe step: 如果后续还出现菜单计数漂移，把 `CoreReviewEntryService` 的 action count/filter rules 抽成一个可注入的 review-entry scope policy，并让浏览器入口显式声明是否使用 same policy。
 - Validation: `pnpm exec vitest run src/application/entries/__tests__/CoreReviewEntryService.test.ts src/application/managers/__tests__/BlockMenuHandler.core-review-entry.test.ts src/application/managers/__tests__/BlockMenuHandler.doc-scope-concept-visibility.test.ts src/application/managers/__tests__/DialogManager.review-header-variant.test.ts src/core/queue/domain/__tests__/SubsetReviewQueue.preferred-card.test.ts`；`pnpm build`；`git diff --check`。
 
+### 2026-05-01 - backend migration US2 ownership/private API foundation
+
+- Task: 执行 backend migration roadmap 的 US2（T034-T053）首轮：补齐 ownership map、private API contracts/client/service/audit、worker read-only/private command handlers、以及 review/queue/transaction parity diagnostics 回归。
+- Touched slice: backend migration + worker/app relay boundary；`src/application/backendMigration/ownershipMap.ts`、`src/application/clients/PrivateApiClient.ts`、`src/application/services/PrivateApiService.ts`、`src/application/services/PrivateApiAuditService.ts`、`src/application/ApplicationContext.ts`、`worker/bootstrap/BackendKernel.ts`、`worker/db/SqliteDatabaseService.ts`、`packages/contracts/src/{backend-rpc,kernel-rpc}.ts`，和对应 tests/docs。
+- Debt fixed now: owner map 从口头规则变成可测试的代码清单；private mutation 在 follower 模式走 writer relay 或显式 unavailable；private read/mutation 增加 capability + audit + payload-size guard；worker diagnostics 新增 review counters 并把 private audit/read surfaces 接到 backend contract。
+- Debt deferred: `PrivateApiService` 目前是应用层可用基础件，尚未在全部 UI/manager entrypoint 接线；`private.command.execute` 当前仍是安全 no-op contract（回传 command envelope 与 audit），未承载真实业务 mutation 家族。
+- Why deferred: 本轮目标是先补 contract 与边界，确保无 dual-write/hidden fallback；直接接入真实 private mutation 语义会扩大到权限模型、业务用例编排和回滚策略，风险过大。
+- Next safe step: 在 US3/US4 前先选一个真实 private mutation（低风险、幂等）接到 `PrivateApiService.mutate()`，补端到端 writer handover + unavailable + duplicate idempotency 场景，并将调用入口限定在 feature gate 下。
+- Validation: `pnpm vitest run src/application/__tests__/backendMigrationOwnership.test.ts src/application/clients/__tests__/PrivateApiClient.test.ts src/application/services/__tests__/PrivateApiService.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts worker/__tests__/BackendKernel.test.ts`；`pnpm run check:boundaries`；`pnpm build`。
+
 ### 2026-04-30 - AI workbench service quick split
 
 - Task: 继续快拆最大 active 文件，优先压 `AIWorkbenchService.ts`，但保持 public API、session schema、LLM/tool approval 行为不变。

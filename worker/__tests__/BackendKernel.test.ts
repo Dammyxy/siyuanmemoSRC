@@ -1291,4 +1291,110 @@ describe('BackendKernel', () => {
       expect(response.result.updatedCard).toBeTruthy();
     }
   });
+
+  it('reports review/queue parity diagnostics after ingest and review mutation', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-parity-1', due: Date.now() - 10_000 })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const ingest = await kernel.handle({
+      id: 'ingest-parity',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'parity-key-1',
+        transactions: [{ id: 'tx-parity-1' }],
+      }],
+    });
+    expect('result' in ingest).toBe(true);
+
+    const review = await kernel.handle({
+      id: 'review-parity',
+      jsonrpc: '2.0',
+      method: 'review.feedback',
+      params: [{ cardId: 'card-parity-1', rating: 3, queueType: 'retrieval-practice' }],
+    });
+    expect('result' in review).toBe(true);
+
+    const diagnostics = await kernel.handle({
+      id: 'status-parity',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+    expect('result' in diagnostics).toBe(true);
+    if ('result' in diagnostics) {
+      expect(diagnostics.result.ingest?.acceptedTotal).toBeGreaterThanOrEqual(1);
+      expect(diagnostics.result.ingest?.queueLength).toBeGreaterThanOrEqual(1);
+      expect(diagnostics.result.review?.feedbackTotal).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('serves private read and private command methods with audit trail', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    await database.upsertCards([buildCard({ id: 'card-private-1' })]);
+    const kernel = new BackendKernel({ database });
+
+    const read = await kernel.handle({
+      id: 'private-read-cards',
+      jsonrpc: '2.0',
+      method: 'private.read.cards',
+      params: [{
+        requestId: 'private-read-1',
+        method: 'private.read.cards',
+        callerIntent: 'test-private-read',
+        limit: 5,
+      }],
+    });
+    expect('result' in read).toBe(true);
+    if ('result' in read) {
+      expect(read.result).toMatchObject({
+        ok: true,
+        auditStatus: 'recorded',
+      });
+    }
+
+    const mutate = await kernel.handle({
+      id: 'private-command-execute',
+      jsonrpc: '2.0',
+      method: 'private.command.execute',
+      params: [{
+        requestId: 'private-mutate-1',
+        method: 'private.command.execute',
+        callerIntent: 'test-private-mutation',
+        idempotencyKey: 'private-key-1',
+        params: { action: 'noop' },
+      }],
+    });
+    expect('result' in mutate).toBe(true);
+    if ('result' in mutate) {
+      expect(mutate.result).toMatchObject({
+        ok: true,
+        commandId: 'private-mutate-1',
+      });
+    }
+
+    const audit = await kernel.handle({
+      id: 'private-audit-query',
+      jsonrpc: '2.0',
+      method: 'private.audit.query',
+      params: [{
+        requestId: 'private-audit-1',
+        method: 'private.audit.query',
+        callerIntent: 'test-private-audit',
+        limit: 10,
+      }],
+    });
+    expect('result' in audit).toBe(true);
+    if ('result' in audit) {
+      expect(Array.isArray(audit.result.data)).toBe(true);
+      expect(audit.result.data.length).toBeGreaterThan(0);
+    }
+  });
 });

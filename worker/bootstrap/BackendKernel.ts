@@ -15,6 +15,11 @@ import {
   type BackendKernelTransactionRequeueRequest,
   type BackendKernelTransactionRequeueResult,
   type BackendReviewFeedbackResult,
+  type PrivateApiAuditQueryRequest,
+  type PrivateApiMutationRequest,
+  type PrivateApiMutationResult,
+  type PrivateApiReadRequest,
+  type PrivateApiReadResult,
   type BackendSourceExistenceRefreshCandidate,
   type BackendSourceExistenceRefreshRequest,
   type BackendSourceExistenceSummary,
@@ -65,6 +70,14 @@ function buildError(
 }
 
 export class BackendKernel {
+  private readonly privateApiAuditTrail: Array<{
+    requestId: string;
+    method: string;
+    callerIntent: string;
+    status: 'accepted' | 'completed' | 'rejected' | 'failed';
+    timestamp: number;
+  }> = [];
+
   constructor(private readonly deps: BackendKernelDependencies) {}
 
   static createWithoutBridge(): BackendKernel {
@@ -130,6 +143,18 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleAutoCardExecute(request.params));
         case 'review.feedback':
           return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
+        case 'private.health':
+          return buildSuccess(request.id, this.handlePrivateHealth());
+        case 'private.diagnostics.status':
+          return buildSuccess(request.id, this.handlePrivateDiagnosticsStatus());
+        case 'private.audit.query':
+          return buildSuccess(request.id, this.handlePrivateAuditQuery(request.params));
+        case 'private.read.cards':
+        case 'private.read.queues':
+        case 'private.read.sessions':
+          return buildSuccess(request.id, await this.handlePrivateRead(request.method, request.params));
+        case 'private.command.execute':
+          return buildSuccess(request.id, await this.handlePrivateCommand(request.params));
         case 'browser.sourceExistence.applySweep':
           return buildSuccess(request.id, await this.handleSourceExistenceApplySweep(request.params));
         default:
@@ -166,6 +191,7 @@ export class BackendKernel {
       dbFile: status.dbFile,
       ingest: status.ingest,
       autoCard: status.autoCard,
+      review: status.review,
     };
   }
 
@@ -340,6 +366,141 @@ export class BackendKernel {
         status: message.startsWith('BACKEND_UNAVAILABLE:') ? 'unavailable' : 'failed',
       });
       throw error;
+    }
+  }
+
+  private handlePrivateHealth(): { ok: true; runtime: 'srs-backend-worker'; feature: 'private-api' } {
+    return {
+      ok: true,
+      runtime: 'srs-backend-worker',
+      feature: 'private-api',
+    };
+  }
+
+  private handlePrivateDiagnosticsStatus(): {
+    ok: true;
+    runtime: 'srs-backend-worker';
+    status: BackendDiagnosticsStatusResult;
+    auditEvents: number;
+  } {
+    return {
+      ok: true,
+      runtime: 'srs-backend-worker',
+      status: this.diagnosticsStatus(),
+      auditEvents: this.privateApiAuditTrail.length,
+    };
+  }
+
+  private handlePrivateAuditQuery(params: unknown): {
+    ok: true;
+    data: unknown[];
+    diagnosticEventId: string;
+    auditStatus: 'recorded';
+  } {
+    const named = this.readNamedParams<PrivateApiAuditQueryRequest>(params);
+    const limit = Math.max(1, Math.floor(Number(named?.limit ?? 20)));
+    const rows = this.privateApiAuditTrail.slice(-limit).reverse();
+    return {
+      ok: true,
+      data: rows,
+      diagnosticEventId: `private-audit:${Date.now()}`,
+      auditStatus: 'recorded',
+    };
+  }
+
+  private async handlePrivateRead(
+    method: 'private.read.cards' | 'private.read.queues' | 'private.read.sessions',
+    params: unknown,
+  ): Promise<PrivateApiReadResult> {
+    const named = this.readNamedParams<PrivateApiReadRequest>(params);
+    const requestId = String(named?.requestId || `private-read:${Date.now()}`).trim();
+    const callerIntent = String(named?.callerIntent || 'unknown').trim() || 'unknown';
+    const limit = Math.max(1, Math.floor(Number(named?.limit ?? 20)));
+    this.recordPrivateApiAudit({
+      requestId,
+      method,
+      callerIntent,
+      status: 'accepted',
+    });
+    let data: unknown;
+    if (method === 'private.read.cards') {
+      const page = await this.deps.database.queryDeckPage({}, { startRow: 0, endRow: limit });
+      data = page.cards ?? [];
+    } else if (method === 'private.read.queues') {
+      const status = this.deps.database.getStatus();
+      data = {
+        ingest: status.ingest,
+      };
+    } else {
+      data = [];
+    }
+    this.recordPrivateApiAudit({
+      requestId,
+      method,
+      callerIntent,
+      status: 'completed',
+    });
+    return {
+      ok: true,
+      data,
+      diagnosticEventId: `private-read:${requestId}`,
+      auditStatus: 'recorded',
+    };
+  }
+
+  private async handlePrivateCommand(params: unknown): Promise<PrivateApiMutationResult> {
+    const named = this.readNamedParams<PrivateApiMutationRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('private.command.execute requires named params');
+    }
+    const requestId = String(named.requestId || '').trim();
+    const callerIntent = String(named.callerIntent || '').trim();
+    const idempotencyKey = String(named.idempotencyKey || '').trim();
+    if (!requestId || !callerIntent || !idempotencyKey) {
+      throw new Error('private.command.execute requires requestId/callerIntent/idempotencyKey');
+    }
+    this.recordPrivateApiAudit({
+      requestId,
+      method: 'private.command.execute',
+      callerIntent,
+      status: 'accepted',
+    });
+    const result = {
+      ok: true,
+      commandId: requestId,
+      writerInstanceId: 'backend-worker',
+      changed: {},
+      result: {
+        idempotencyKey,
+        committed: false,
+      },
+      auditStatus: 'recorded',
+      diagnosticEventId: `private-command:${requestId}`,
+    } as PrivateApiMutationResult;
+    this.recordPrivateApiAudit({
+      requestId,
+      method: 'private.command.execute',
+      callerIntent,
+      status: 'completed',
+    });
+    return result;
+  }
+
+  private recordPrivateApiAudit(input: {
+    requestId: string;
+    method: string;
+    callerIntent: string;
+    status: 'accepted' | 'completed' | 'rejected' | 'failed';
+  }): void {
+    this.privateApiAuditTrail.push({
+      requestId: input.requestId,
+      method: input.method,
+      callerIntent: input.callerIntent,
+      status: input.status,
+      timestamp: Date.now(),
+    });
+    if (this.privateApiAuditTrail.length > 500) {
+      this.privateApiAuditTrail.splice(0, this.privateApiAuditTrail.length - 500);
     }
   }
 }

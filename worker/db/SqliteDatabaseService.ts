@@ -107,6 +107,10 @@ export class WorkerSqliteDatabaseService {
   private autoCardExecuteSkippedTotal = 0;
   private autoCardExecuteUnavailableTotal = 0;
   private autoCardExecuteFailedTotal = 0;
+  private reviewFeedbackTotal = 0;
+  private reviewFeedbackCommittedTotal = 0;
+  private reviewFeedbackPreviewTotal = 0;
+  private reviewFeedbackUnavailableTotal = 0;
   private lastKernelAcceptedAt: number | null = null;
   private lastKernelDrainAt: number | null = null;
   private readonly maxKernelTransactionQueueLength: number;
@@ -210,6 +214,12 @@ export class WorkerSqliteDatabaseService {
       executeUnavailableTotal: number;
       executeFailedTotal: number;
     };
+    review: {
+      feedbackTotal: number;
+      feedbackCommittedTotal: number;
+      feedbackPreviewTotal: number;
+      feedbackUnavailableTotal: number;
+    };
   } {
     return {
       initialized: this.initialized,
@@ -246,6 +256,12 @@ export class WorkerSqliteDatabaseService {
         executeSkippedTotal: this.autoCardExecuteSkippedTotal,
         executeUnavailableTotal: this.autoCardExecuteUnavailableTotal,
         executeFailedTotal: this.autoCardExecuteFailedTotal,
+      },
+      review: {
+        feedbackTotal: this.reviewFeedbackTotal,
+        feedbackCommittedTotal: this.reviewFeedbackCommittedTotal,
+        feedbackPreviewTotal: this.reviewFeedbackPreviewTotal,
+        feedbackUnavailableTotal: this.reviewFeedbackUnavailableTotal,
       },
     };
   }
@@ -687,6 +703,7 @@ export class WorkerSqliteDatabaseService {
     const rating = Math.max(1, Math.min(4, Math.floor(Number(request.rating) || 0))) as 1 | 2 | 3 | 4;
     const cardId = String(request.cardId || '').trim();
     if (!cardId) {
+      this.reviewFeedbackUnavailableTotal += 1;
       throw new Error('review.feedback requires cardId');
     }
     const supportedQueueTypes = new Set([
@@ -698,6 +715,7 @@ export class WorkerSqliteDatabaseService {
       'final-drill',
     ]);
     if (!supportedQueueTypes.has(queueType)) {
+      this.reviewFeedbackUnavailableTotal += 1;
       throw new Error(`SrsBackendWorker review.feedback unavailable for queueType in current phase: ${queueType}`);
     }
     if (queueType === 'filter-group') {
@@ -706,6 +724,7 @@ export class WorkerSqliteDatabaseService {
         || (queueMode === 'filtered-rescheduling' && commitPolicy === 'write-schedule')
       );
       if (!allowed) {
+        this.reviewFeedbackUnavailableTotal += 1;
         throw new Error(
           `SrsBackendWorker review.feedback unavailable for filter-group mode/policy in current phase: `
           + `${queueMode}/${commitPolicy}`,
@@ -713,6 +732,7 @@ export class WorkerSqliteDatabaseService {
       }
     } else if (queueType === 'final-drill') {
       if (queueMode !== 'drill' || commitPolicy !== 'drill-only') {
+        this.reviewFeedbackUnavailableTotal += 1;
         throw new Error(
           `SrsBackendWorker review.feedback unavailable for final-drill mode/policy in current phase: `
           + `${queueMode}/${commitPolicy}`,
@@ -720,14 +740,16 @@ export class WorkerSqliteDatabaseService {
       }
     } else {
       if (queueMode !== 'formal') {
+        this.reviewFeedbackUnavailableTotal += 1;
         throw new Error(`SrsBackendWorker review.feedback unavailable for queueMode in current phase: ${queueMode}`);
       }
       if (commitPolicy !== 'write-schedule') {
+        this.reviewFeedbackUnavailableTotal += 1;
         throw new Error(`SrsBackendWorker review.feedback unavailable for commitPolicy in current phase: ${commitPolicy}`);
       }
     }
 
-    return this.runtime.runTransaction('review.feedback', async () => {
+    const result = await this.runtime.runTransaction('review.feedback', async () => {
       const card = this.repository!.getCard(cardId);
       if (!card) {
         throw new Error(`review.feedback card not found: ${cardId}`);
@@ -806,6 +828,13 @@ export class WorkerSqliteDatabaseService {
         updatedCard: commitResult.updatedCard ?? null,
       };
     });
+    this.reviewFeedbackTotal += 1;
+    if (result.committed) {
+      this.reviewFeedbackCommittedTotal += 1;
+    } else {
+      this.reviewFeedbackPreviewTotal += 1;
+    }
+    return result;
   }
 
   async resolveAutoCardDecision(

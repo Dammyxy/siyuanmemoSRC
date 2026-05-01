@@ -21,7 +21,14 @@ export type BackendRpcMethod =
   | 'kernel.transaction.requeue'
   | 'autocard.decision.resolve'
   | 'autocard.execute'
-  | 'review.feedback';
+  | 'review.feedback'
+  | 'private.health'
+  | 'private.diagnostics.status'
+  | 'private.audit.query'
+  | 'private.read.cards'
+  | 'private.read.queues'
+  | 'private.read.sessions'
+  | 'private.command.execute';
 
 export type BackendRpcId = number | string;
 
@@ -137,6 +144,12 @@ export interface BackendDiagnosticsStatusResult {
     executeUnavailableTotal: number;
     executeFailedTotal: number;
   };
+  review?: {
+    feedbackTotal: number;
+    feedbackCommittedTotal: number;
+    feedbackPreviewTotal: number;
+    feedbackUnavailableTotal: number;
+  };
 }
 
 export type BackendUnavailableClass =
@@ -151,6 +164,58 @@ export type BackendUnavailableClass =
   | 'CANCELED'
   | 'INVALID_REQUEST'
   | 'FAILED';
+
+export interface PrivateApiCapabilityResult {
+  available: boolean;
+  reason: string | null;
+  kernelSidecarAvailable: boolean;
+  backendWorkerAvailable: boolean;
+  writerAvailable: boolean;
+  methodAllowed: boolean;
+}
+
+export interface PrivateApiReadRequest {
+  requestId: string;
+  method: 'private.read.cards' | 'private.read.queues' | 'private.read.sessions';
+  callerIntent: string;
+  capabilityResult?: PrivateApiCapabilityResult;
+  limit?: number;
+  filter?: Record<string, unknown>;
+}
+
+export interface PrivateApiReadResult {
+  ok: true;
+  data: unknown;
+  diagnosticEventId: string;
+  auditStatus: 'recorded' | 'skipped';
+}
+
+export interface PrivateApiMutationRequest {
+  requestId: string;
+  method: 'private.command.execute';
+  callerIntent: string;
+  capabilityResult?: PrivateApiCapabilityResult;
+  idempotencyKey: string;
+  params?: Record<string, unknown>;
+  auditContext?: Record<string, unknown>;
+}
+
+export interface PrivateApiMutationResult {
+  ok: true;
+  commandId: string;
+  writerInstanceId: string;
+  changed: MutationChangedSet;
+  result: unknown;
+  auditStatus: 'recorded' | 'skipped';
+  diagnosticEventId: string;
+}
+
+export interface PrivateApiAuditQueryRequest {
+  requestId: string;
+  method: 'private.audit.query';
+  callerIntent: string;
+  limit?: number;
+}
 
 export interface BackendBrowserDeckSnapshotQuery {
   preset?: string;

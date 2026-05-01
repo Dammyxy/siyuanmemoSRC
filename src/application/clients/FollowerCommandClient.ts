@@ -1,9 +1,10 @@
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
+import type { KernelRelayMethod } from '../../../packages/contracts/src/kernel-rpc';
 
 export interface FollowerCommandRequest {
   instanceId: string;
   commandId?: string;
-  method: string;
+  method: KernelRelayMethod;
   params?: unknown;
 }
 

@@ -15,6 +15,10 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  PrivateApiMutationRequest,
+  PrivateApiMutationResult,
+  PrivateApiReadRequest,
+  PrivateApiReadResult,
   BackendSourceExistenceRefreshCandidate,
   BackendSourceExistenceRefreshRequest,
   BackendSourceExistenceSummary,
@@ -135,6 +139,26 @@ export class SrsBackendClient {
 
   async reviewFeedback(request: BackendReviewFeedbackRequest): Promise<BackendReviewFeedbackResult> {
     return this.call<BackendReviewFeedbackResult>('review.feedback', request);
+  }
+
+  async privateHealth(): Promise<{ ok: true; runtime: 'srs-backend-worker'; feature: 'private-api' }> {
+    return this.call('private.health');
+  }
+
+  async privateDiagnosticsStatus(): Promise<unknown> {
+    return this.call('private.diagnostics.status');
+  }
+
+  async privateAuditQuery(request: { requestId: string; method: 'private.audit.query'; callerIntent: string; limit?: number }): Promise<unknown> {
+    return this.call('private.audit.query', request);
+  }
+
+  async privateRead(request: PrivateApiReadRequest): Promise<PrivateApiReadResult> {
+    return this.call<PrivateApiReadResult>(request.method, request);
+  }
+
+  async privateCommand(request: PrivateApiMutationRequest): Promise<PrivateApiMutationResult> {
+    return this.call<PrivateApiMutationResult>(request.method, request);
   }
 
   async ingestKernelTransactions(

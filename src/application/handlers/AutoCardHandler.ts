@@ -583,6 +583,19 @@ export class AutoCardHandler implements ITransactionHandler {
         return localResult.executed;
     }
 
+    private resolveExecutionOwnership(input: {
+        kind: AutoCardExecutionEnvelope['kind'];
+    }): {
+        owner: 'backend-command' | 'application-command';
+        envelopeKind: AutoCardExecutionEnvelope['kind'];
+    } {
+        const backendClient = this.getSrsBackendClientOptional();
+        return {
+            owner: backendClient ? 'backend-command' : 'application-command',
+            envelopeKind: input.kind,
+        };
+    }
+
     async executeEnvelopeFromBackend(
         request: BackendAutoCardExecuteRequest,
     ): Promise<BackendAutoCardExecuteResult> {
@@ -1414,6 +1427,9 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
             if (decisionCoreResult.shouldUseTopicDerivation) {
+                const executionOwnership = this.resolveExecutionOwnership({
+                    kind: 'topic-derived',
+                });
                 if (this.hasXiuyuanBinding(attrs) && progressiveSourceContext?.topicContext?.scope !== 'block') {
                     logger.debug('[SiYuanMemo][AutoCard] Skip topic derivation: current block already has a non-topic Xiuyuan binding', {
                         blockId,
@@ -1430,6 +1446,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     decisionEventId: decisionCoreResult.decisionEventId,
                     decisionStatus: decisionCoreResult.status,
                     envelopeKind: 'topic-derived',
+                    executionOwner: executionOwnership.owner,
                 });
                 const executed = await this.executeAutoCardEnvelope({
                     kind: 'topic-derived',
@@ -1453,6 +1470,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     decisionEventId: decisionCoreResult.decisionEventId,
                     decisionStatus: decisionCoreResult.status,
                     envelopeKind: 'topic-derived',
+                    executionOwner: executionOwnership.owner,
                     executed,
                 });
                 return;
@@ -1495,6 +1513,9 @@ export class AutoCardHandler implements ITransactionHandler {
             }
 
             this.traceAutoCard('decision.execute.begin', {
+                executionOwner: this.resolveExecutionOwnership({
+                    kind: 'planner-decision',
+                }).owner,
                 runId: traceContext?.runId ?? null,
                 txBatchId: traceContext?.txBatchId ?? null,
                 blockId,
@@ -1511,6 +1532,9 @@ export class AutoCardHandler implements ITransactionHandler {
                 source: 'symbol-listener',
             });
             this.traceAutoCard('decision.execute.end', {
+                executionOwner: this.resolveExecutionOwnership({
+                    kind: 'planner-decision',
+                }).owner,
                 runId: traceContext?.runId ?? null,
                 txBatchId: traceContext?.txBatchId ?? null,
                 blockId,

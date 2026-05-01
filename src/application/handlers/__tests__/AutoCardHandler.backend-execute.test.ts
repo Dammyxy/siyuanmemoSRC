@@ -295,4 +295,36 @@ describe('AutoCardHandler backend execute routing', () => {
 
     expect(result.selectedDecision).toBeTruthy();
   });
+
+  it('records application-owned execution ownership by default', async () => {
+    const { handler } = createHandler({
+      backendClient: null,
+    });
+    const ownership = (handler as any).resolveExecutionOwnership({
+      kind: 'planner-decision',
+    });
+    expect(ownership).toEqual({
+      owner: 'application-command',
+      envelopeKind: 'planner-decision',
+    });
+  });
+
+  it('records backend-command ownership when backend execution path is available', async () => {
+    const { handler } = createHandler({
+      backendClient: {
+        executeAutoCard: vi.fn(async () => ({
+          executed: true,
+          created: 1,
+          skipped: 0,
+        })),
+      },
+    });
+    const ownership = (handler as any).resolveExecutionOwnership({
+      kind: 'topic-derived',
+    });
+    expect(ownership).toEqual({
+      owner: 'backend-command',
+      envelopeKind: 'topic-derived',
+    });
+  });
 });

@@ -124,4 +124,38 @@ describe('ApplicationContext writer relay command dispatch', () => {
     })).rejects.toThrow('INVALID_REQUEST: autocard.decision.resolve relay requires params object');
     expect(client.resolveAutoCardDecision).not.toHaveBeenCalled();
   });
+
+  it('dispatches private.command.execute to backend client', async () => {
+    const privateCommand = vi.fn(async () => ({
+      ok: true,
+      commandId: 'private-cmd-1',
+      writerInstanceId: 'writer-1',
+      changed: {},
+      result: { committed: true },
+      auditStatus: 'recorded',
+      diagnosticEventId: 'diag-1',
+    }));
+    const client = {
+      privateCommand,
+    };
+
+    const result = await (ApplicationContext as unknown as {
+      executeWriterRelayCommand: (backend: unknown, command: { method: string; params?: unknown }) => Promise<unknown>;
+    }).executeWriterRelayCommand(client, {
+      method: 'private.command.execute',
+      params: {
+        requestId: 'req-1',
+        method: 'private.command.execute',
+        callerIntent: 'test',
+        idempotencyKey: 'idempotency-1',
+        params: { action: 'noop' },
+      },
+    });
+
+    expect(privateCommand).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: true,
+      commandId: 'private-cmd-1',
+    });
+  });
 });
