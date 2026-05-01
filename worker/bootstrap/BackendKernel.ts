@@ -1,5 +1,16 @@
 import {
   BACKEND_RPC_VERSION,
+  type BackendAiJobCancelRequest,
+  type BackendAiJobGetRequest,
+  type BackendAiJobResult,
+  type BackendAiSessionCancelRequest,
+  type BackendAiSessionCreateRequest,
+  type BackendAiSessionGetRequest,
+  type BackendAiSessionResult,
+  type BackendAiSessionUpdateRequest,
+  type BackendAiStreamCancelRequest,
+  type BackendAiStreamResult,
+  type BackendAiStreamStartRequest,
   type BackendAutoCardExecuteRequest,
   type BackendAutoCardExecuteResult,
   type BackendAutoCardDecisionResolveRequest,
@@ -32,6 +43,7 @@ import {
 } from '../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
+import { BackendJobRuntime } from './BackendJobRuntime';
 import {
   createUnavailableSqlitePersistenceBridge,
   type SqlitePersistenceBridge,
@@ -77,8 +89,22 @@ export class BackendKernel {
     status: 'accepted' | 'completed' | 'rejected' | 'failed';
     timestamp: number;
   }> = [];
+  private readonly aiRuntime: BackendJobRuntime;
 
-  constructor(private readonly deps: BackendKernelDependencies) {}
+  constructor(private readonly deps: BackendKernelDependencies) {
+    this.aiRuntime = new BackendJobRuntime({
+      onSessionCreate: () => this.deps.database.recordAiSessionOutcome('create'),
+      onSessionUpdate: () => this.deps.database.recordAiSessionOutcome('update'),
+      onSessionCancel: () => this.deps.database.recordAiSessionOutcome('cancel'),
+      onStreamStart: () => this.deps.database.recordAiStreamOutcome('start'),
+      onStreamCancel: () => this.deps.database.recordAiStreamOutcome('cancel'),
+      onJobCreated: () => this.deps.database.recordAiJobOutcome('created'),
+      onJobCompleted: () => this.deps.database.recordAiJobOutcome('completed'),
+      onJobCanceled: () => this.deps.database.recordAiJobOutcome('canceled'),
+      onJobTimeout: () => this.deps.database.recordAiJobOutcome('timeout'),
+      onJobFailed: () => this.deps.database.recordAiJobOutcome('failed'),
+    });
+  }
 
   static createWithoutBridge(): BackendKernel {
     const reason = 'SrsBackendWorker persistence bridge is unavailable';
@@ -143,6 +169,22 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleAutoCardExecute(request.params));
         case 'review.feedback':
           return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
+        case 'ai.session.create':
+          return buildSuccess(request.id, this.handleAiSessionCreate(request.params));
+        case 'ai.session.get':
+          return buildSuccess(request.id, this.handleAiSessionGet(request.params));
+        case 'ai.session.update':
+          return buildSuccess(request.id, this.handleAiSessionUpdate(request.params));
+        case 'ai.session.cancel':
+          return buildSuccess(request.id, this.handleAiSessionCancel(request.params));
+        case 'ai.stream.start':
+          return buildSuccess(request.id, this.handleAiStreamStart(request.params));
+        case 'ai.stream.cancel':
+          return buildSuccess(request.id, this.handleAiStreamCancel(request.params));
+        case 'job.get':
+          return buildSuccess(request.id, this.handleAiJobGet(request.params));
+        case 'job.cancel':
+          return buildSuccess(request.id, this.handleAiJobCancel(request.params));
         case 'private.health':
           return buildSuccess(request.id, this.handlePrivateHealth());
         case 'private.diagnostics.status':
@@ -192,6 +234,7 @@ export class BackendKernel {
       ingest: status.ingest,
       autoCard: status.autoCard,
       review: status.review,
+      ai: status.ai,
     };
   }
 
@@ -310,6 +353,70 @@ export class BackendKernel {
       throw new Error('review.feedback requires named params');
     }
     return this.deps.database.reviewFeedback(named);
+  }
+
+  private handleAiSessionCreate(params: unknown): BackendAiSessionResult {
+    const named = this.readNamedParams<BackendAiSessionCreateRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('ai.session.create requires named params');
+    }
+    return this.aiRuntime.createSession(named);
+  }
+
+  private handleAiSessionGet(params: unknown): BackendAiSessionResult {
+    const named = this.readNamedParams<BackendAiSessionGetRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('ai.session.get requires named params');
+    }
+    return this.aiRuntime.getSession(named);
+  }
+
+  private handleAiSessionUpdate(params: unknown): BackendAiSessionResult {
+    const named = this.readNamedParams<BackendAiSessionUpdateRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('ai.session.update requires named params');
+    }
+    return this.aiRuntime.updateSession(named);
+  }
+
+  private handleAiSessionCancel(params: unknown): BackendAiSessionResult {
+    const named = this.readNamedParams<BackendAiSessionCancelRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('ai.session.cancel requires named params');
+    }
+    return this.aiRuntime.cancelSession(named);
+  }
+
+  private handleAiStreamStart(params: unknown): BackendAiStreamResult {
+    const named = this.readNamedParams<BackendAiStreamStartRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('ai.stream.start requires named params');
+    }
+    return this.aiRuntime.startStream(named);
+  }
+
+  private handleAiStreamCancel(params: unknown): BackendAiStreamResult {
+    const named = this.readNamedParams<BackendAiStreamCancelRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('ai.stream.cancel requires named params');
+    }
+    return this.aiRuntime.cancelStream(named);
+  }
+
+  private handleAiJobGet(params: unknown): BackendAiJobResult {
+    const named = this.readNamedParams<BackendAiJobGetRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('job.get requires named params');
+    }
+    return this.aiRuntime.getJob(named);
+  }
+
+  private handleAiJobCancel(params: unknown): BackendAiJobResult {
+    const named = this.readNamedParams<BackendAiJobCancelRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('job.cancel requires named params');
+    }
+    return this.aiRuntime.cancelJob(named);
   }
 
   private async handleKernelTransactionIngest(params: unknown): Promise<BackendKernelTransactionIngestResult> {

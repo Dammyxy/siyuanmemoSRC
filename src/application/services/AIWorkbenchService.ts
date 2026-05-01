@@ -4,6 +4,7 @@ import type { CardContentQueryService } from '@/application/queries/CardContentQ
 import type { AISiyuanBlockRow, AISiyuanPort } from '@/application/ports/AISiyuanPort';
 import type { LLMPort } from '@/application/ports/LLMPort';
 import type { XiuyuanApplicationService } from '@/application/services/XiuyuanApplicationService';
+import type { AIBackendSessionService } from '@/application/services/AIBackendSessionService';
 import { AIFlashcardToolService } from '@/application/services/AIFlashcardToolService';
 import {
   isPluginSelfTestCreationMode,
@@ -187,6 +188,12 @@ export type AIWorkbenchServiceDeps = {
     | 'findLatestByReviewChatKey'
     | 'loadSelfTestCardTargetMemory'
     | 'saveSelfTestCardTargetMemory'
+  >;
+  backendSessionService?: Pick<
+    AIBackendSessionService,
+    | 'createSession'
+    | 'updateSession'
+    | 'cancelSession'
   >;
 };
 
@@ -2017,6 +2024,7 @@ export class AIWorkbenchService {
     if (!normalizedId) {
       return;
     }
+    await this.syncBackendSessionCancel(normalizedId);
     await this.getSessionStore().deleteSession(normalizedId);
     await this.refreshSessionHistory();
     if (this.state.sessionId !== normalizedId) {
@@ -2450,6 +2458,7 @@ export class AIWorkbenchService {
   ): Promise<void> {
     this.applyRuntimeSessionContext(nextContext, nextSignature);
     await this.persistCurrentSession();
+    await this.syncBackendSessionUpdate();
   }
 
   private applyRuntimeSessionContext(
@@ -2492,6 +2501,7 @@ export class AIWorkbenchService {
     const persisted = await this.getSessionStore().saveSession(record);
     this.applySessionRecord(persisted, liveContext);
     await this.refreshSessionHistory();
+    await this.syncBackendSessionCreate();
   }
 
   private applySessionRecord(
@@ -2995,5 +3005,70 @@ export class AIWorkbenchService {
 
   private fail(message: string): Error {
     return new Error(message);
+  }
+
+  private async syncBackendSessionCreate(): Promise<void> {
+    const backendSessionService = this.deps.backendSessionService;
+    const sessionId = normalizeString(this.state.sessionId);
+    if (!backendSessionService || !sessionId) {
+      return;
+    }
+    try {
+      await backendSessionService.createSession({
+        sessionId,
+        surfaceId: this.state.surface,
+        reviewSessionId: this.state.sourceReviewSessionId,
+        owner: 'backend',
+      });
+    } catch (error) {
+      this.state.diagnostics.push({
+        type: 'transport',
+        message: error instanceof Error ? error.message : String(error || 'backend session create failed'),
+        detail: 'backend-session-create',
+        createdAt: Date.now(),
+      });
+    }
+  }
+
+  private async syncBackendSessionUpdate(): Promise<void> {
+    const backendSessionService = this.deps.backendSessionService;
+    const sessionId = normalizeString(this.state.sessionId);
+    if (!backendSessionService || !sessionId) {
+      return;
+    }
+    try {
+      await backendSessionService.updateSession({
+        sessionId,
+        state: this.state.runStatus ? 'streaming' : 'active',
+      });
+    } catch (error) {
+      this.state.diagnostics.push({
+        type: 'transport',
+        message: error instanceof Error ? error.message : String(error || 'backend session update failed'),
+        detail: 'backend-session-update',
+        createdAt: Date.now(),
+      });
+    }
+  }
+
+  private async syncBackendSessionCancel(sessionId: string): Promise<void> {
+    const backendSessionService = this.deps.backendSessionService;
+    const normalized = normalizeString(sessionId);
+    if (!backendSessionService || !normalized) {
+      return;
+    }
+    try {
+      await backendSessionService.cancelSession({
+        sessionId: normalized,
+        reason: 'deleted',
+      });
+    } catch (error) {
+      this.state.diagnostics.push({
+        type: 'transport',
+        message: error instanceof Error ? error.message : String(error || 'backend session cancel failed'),
+        detail: 'backend-session-cancel',
+        createdAt: Date.now(),
+      });
+    }
   }
 }

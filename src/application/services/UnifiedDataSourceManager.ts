@@ -296,7 +296,10 @@ export class UnifiedDataSourceManager {
     }
 
     private isQueueSchedulerPort(candidate: unknown): candidate is QueueSchedulerPort {
-        return typeof (candidate as { route?: unknown })?.route === 'function';
+        return (
+            typeof (candidate as { answer?: unknown })?.answer === 'function'
+            && typeof (candidate as { commit?: unknown })?.commit === 'function'
+        );
     }
 
     public getSchedulerRouter(): QueueSchedulerPort {

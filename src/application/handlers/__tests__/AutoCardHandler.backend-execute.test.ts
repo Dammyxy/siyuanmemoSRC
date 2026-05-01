@@ -296,7 +296,30 @@ describe('AutoCardHandler backend execute routing', () => {
     expect(result.selectedDecision).toBeTruthy();
   });
 
-  it('records application-owned execution ownership by default', async () => {
+  it('returns explicit unavailable when backend execution path is disabled', async () => {
+    const { handler } = createHandler({
+      backendClient: null,
+    });
+
+    await expect((handler as any).executeAutoCardEnvelope({
+      kind: 'planner-decision',
+      blockId: 'block-2',
+      content: 'Alpha <> Beta',
+      decision: {
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-bidirectional-single',
+        cardType: 'item',
+        mode: 'multi-face',
+        executorKind: 'quick-basic',
+        priority: 50,
+        direction: 'both',
+      },
+      source: 'symbol-listener',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: autocard.execute requires backend-worker ownership');
+  });
+
+  it('records backend-command execution ownership by default', async () => {
     const { handler } = createHandler({
       backendClient: null,
     });
@@ -304,7 +327,7 @@ describe('AutoCardHandler backend execute routing', () => {
       kind: 'planner-decision',
     });
     expect(ownership).toEqual({
-      owner: 'application-command',
+      owner: 'backend-command',
       envelopeKind: 'planner-decision',
     });
   });

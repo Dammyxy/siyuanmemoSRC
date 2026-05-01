@@ -19,9 +19,8 @@ import type {
 } from '@/core/scheduler/srs-v2';
 
 export interface QueueSchedulerPort {
-  route(card: FSRSCard, rating: number, options?: SrsV2SchedulingContext): Promise<FSRSCard>;
-  answer?(card: FSRSCard, rating: number, options?: SrsV2SchedulingContext): SchedulingDecision;
-  commit?(decision: SchedulingDecision): Promise<ReviewCommitResult>;
+  answer(card: FSRSCard, rating: number, options?: SrsV2SchedulingContext): SchedulingDecision;
+  commit(decision: SchedulingDecision): Promise<ReviewCommitResult>;
 }
 
 export interface QueueReviewCommand {

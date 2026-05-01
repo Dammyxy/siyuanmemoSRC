@@ -111,6 +111,16 @@ export class WorkerSqliteDatabaseService {
   private reviewFeedbackCommittedTotal = 0;
   private reviewFeedbackPreviewTotal = 0;
   private reviewFeedbackUnavailableTotal = 0;
+  private aiSessionCreateTotal = 0;
+  private aiSessionUpdateTotal = 0;
+  private aiSessionCancelTotal = 0;
+  private aiStreamStartTotal = 0;
+  private aiStreamCancelTotal = 0;
+  private aiJobCreatedTotal = 0;
+  private aiJobCompletedTotal = 0;
+  private aiJobCanceledTotal = 0;
+  private aiJobTimeoutTotal = 0;
+  private aiJobFailedTotal = 0;
   private lastKernelAcceptedAt: number | null = null;
   private lastKernelDrainAt: number | null = null;
   private readonly maxKernelTransactionQueueLength: number;
@@ -220,6 +230,18 @@ export class WorkerSqliteDatabaseService {
       feedbackPreviewTotal: number;
       feedbackUnavailableTotal: number;
     };
+    ai: {
+      sessionCreateTotal: number;
+      sessionUpdateTotal: number;
+      sessionCancelTotal: number;
+      streamStartTotal: number;
+      streamCancelTotal: number;
+      jobCreatedTotal: number;
+      jobCompletedTotal: number;
+      jobCanceledTotal: number;
+      jobTimeoutTotal: number;
+      jobFailedTotal: number;
+    };
   } {
     return {
       initialized: this.initialized,
@@ -262,6 +284,18 @@ export class WorkerSqliteDatabaseService {
         feedbackCommittedTotal: this.reviewFeedbackCommittedTotal,
         feedbackPreviewTotal: this.reviewFeedbackPreviewTotal,
         feedbackUnavailableTotal: this.reviewFeedbackUnavailableTotal,
+      },
+      ai: {
+        sessionCreateTotal: this.aiSessionCreateTotal,
+        sessionUpdateTotal: this.aiSessionUpdateTotal,
+        sessionCancelTotal: this.aiSessionCancelTotal,
+        streamStartTotal: this.aiStreamStartTotal,
+        streamCancelTotal: this.aiStreamCancelTotal,
+        jobCreatedTotal: this.aiJobCreatedTotal,
+        jobCompletedTotal: this.aiJobCompletedTotal,
+        jobCanceledTotal: this.aiJobCanceledTotal,
+        jobTimeoutTotal: this.aiJobTimeoutTotal,
+        jobFailedTotal: this.aiJobFailedTotal,
       },
     };
   }
@@ -871,6 +905,46 @@ export class WorkerSqliteDatabaseService {
     if (input.status === 'failed') {
       this.autoCardExecuteFailedTotal += 1;
     }
+  }
+
+  recordAiSessionOutcome(status: 'create' | 'update' | 'cancel'): void {
+    if (status === 'create') {
+      this.aiSessionCreateTotal += 1;
+      return;
+    }
+    if (status === 'update') {
+      this.aiSessionUpdateTotal += 1;
+      return;
+    }
+    this.aiSessionCancelTotal += 1;
+  }
+
+  recordAiStreamOutcome(status: 'start' | 'cancel'): void {
+    if (status === 'start') {
+      this.aiStreamStartTotal += 1;
+      return;
+    }
+    this.aiStreamCancelTotal += 1;
+  }
+
+  recordAiJobOutcome(status: 'created' | 'completed' | 'canceled' | 'timeout' | 'failed'): void {
+    if (status === 'created') {
+      this.aiJobCreatedTotal += 1;
+      return;
+    }
+    if (status === 'completed') {
+      this.aiJobCompletedTotal += 1;
+      return;
+    }
+    if (status === 'canceled') {
+      this.aiJobCanceledTotal += 1;
+      return;
+    }
+    if (status === 'timeout') {
+      this.aiJobTimeoutTotal += 1;
+      return;
+    }
+    this.aiJobFailedTotal += 1;
   }
 
   async ingestKernelTransactions(

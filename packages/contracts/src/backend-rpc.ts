@@ -22,6 +22,14 @@ export type BackendRpcMethod =
   | 'autocard.decision.resolve'
   | 'autocard.execute'
   | 'review.feedback'
+  | 'ai.session.create'
+  | 'ai.session.get'
+  | 'ai.session.update'
+  | 'ai.session.cancel'
+  | 'ai.stream.start'
+  | 'ai.stream.cancel'
+  | 'job.get'
+  | 'job.cancel'
   | 'private.health'
   | 'private.diagnostics.status'
   | 'private.audit.query'
@@ -150,6 +158,18 @@ export interface BackendDiagnosticsStatusResult {
     feedbackPreviewTotal: number;
     feedbackUnavailableTotal: number;
   };
+  ai?: {
+    sessionCreateTotal: number;
+    sessionUpdateTotal: number;
+    sessionCancelTotal: number;
+    streamStartTotal: number;
+    streamCancelTotal: number;
+    jobCreatedTotal: number;
+    jobCompletedTotal: number;
+    jobCanceledTotal: number;
+    jobTimeoutTotal: number;
+    jobFailedTotal: number;
+  };
 }
 
 export type BackendUnavailableClass =
@@ -164,6 +184,132 @@ export type BackendUnavailableClass =
   | 'CANCELED'
   | 'INVALID_REQUEST'
   | 'FAILED';
+
+export type BackendAiSessionState =
+  | 'active'
+  | 'streaming'
+  | 'completed'
+  | 'canceled'
+  | 'expired'
+  | 'unavailable'
+  | 'failed';
+
+export type BackendAiJobState =
+  | 'queued'
+  | 'running'
+  | 'progress'
+  | 'completed'
+  | 'canceled'
+  | 'timeout'
+  | 'unavailable'
+  | 'failed';
+
+export interface BackendAiSessionRecord {
+  sessionId: string;
+  surfaceId: string;
+  reviewSessionId: string | null;
+  owner: 'application' | 'backend';
+  skillId: string | null;
+  providerId: string | null;
+  modelId: string | null;
+  state: BackendAiSessionState;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number | null;
+  lastError: string | null;
+  diagnosticEventId: string;
+}
+
+export interface BackendAiSessionCreateRequest {
+  sessionId: string;
+  surfaceId: string;
+  reviewSessionId?: string | null;
+  owner?: 'application' | 'backend';
+  skillId?: string | null;
+  providerId?: string | null;
+  modelId?: string | null;
+  idempotencyKey?: string;
+}
+
+export interface BackendAiSessionGetRequest {
+  sessionId: string;
+}
+
+export interface BackendAiSessionUpdateRequest {
+  sessionId: string;
+  state?: BackendAiSessionState;
+  skillId?: string | null;
+  providerId?: string | null;
+  modelId?: string | null;
+  expiresAt?: number | null;
+  lastError?: string | null;
+}
+
+export interface BackendAiSessionCancelRequest {
+  sessionId: string;
+  reason?: string;
+}
+
+export interface BackendAiSessionResult {
+  ok: true;
+  session: BackendAiSessionRecord;
+}
+
+export interface BackendAiStreamStartRequest {
+  streamId: string;
+  sessionId: string;
+  jobId: string;
+  providerId?: string | null;
+  modelId?: string | null;
+  inputFingerprint?: string;
+  timeoutMs?: number;
+  idempotencyKey?: string;
+}
+
+export interface BackendAiStreamCancelRequest {
+  streamId: string;
+  sessionId: string;
+  jobId: string;
+  reason?: string;
+}
+
+export interface BackendAiStreamResult {
+  ok: true;
+  streamId: string;
+  sessionId: string;
+  jobId: string;
+  state: 'started' | 'canceled' | 'timeout' | 'unavailable' | 'failed' | 'completed';
+  diagnosticEventId: string;
+}
+
+export interface BackendAiJobRecord {
+  jobId: string;
+  kind: 'ai-stream';
+  owner: 'application' | 'backend';
+  idempotencyKey: string;
+  state: BackendAiJobState;
+  progress: number;
+  startedAt: number;
+  updatedAt: number;
+  deadlineAt: number | null;
+  retryPolicy: 'none' | 'safe-retry';
+  result: unknown;
+  error: string | null;
+}
+
+export interface BackendAiJobGetRequest {
+  jobId: string;
+}
+
+export interface BackendAiJobCancelRequest {
+  jobId: string;
+  reason?: string;
+}
+
+export interface BackendAiJobResult {
+  ok: true;
+  job: BackendAiJobRecord;
+}
 
 export interface PrivateApiCapabilityResult {
   available: boolean;

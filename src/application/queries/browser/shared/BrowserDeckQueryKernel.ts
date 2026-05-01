@@ -58,7 +58,7 @@ interface BlockIdRow extends Record<string, unknown> {
 
 interface ResolvedCandidateCards {
   cards: FSRSCard[];
-  path: 'all-cards-query' | 'structured-query' | 'sql-candidate-query' | 'sql-fallback-getAllCards';
+  path: 'all-cards-query' | 'structured-query' | 'sql-candidate-query';
   sqlCandidateCount: number | null;
   usedFallback: boolean;
 }
@@ -427,10 +427,6 @@ export class BrowserDeckQueryKernel {
     return this.storageManager.queryCards({ states: ALL_CARD_QUERY_STATES });
   }
 
-  private async loadAllCardsFromFallback(): Promise<FSRSCard[]> {
-    return this.storageManager.getAllCards();
-  }
-
   private shouldUsePureStructuredQueryPath(query: BrowserDeckSnapshotQuery): boolean {
     const simpleSearchText = this.resolveSimpleSearchText(query.searchText);
     return !simpleSearchText && !query.docId && !(query.scopeDocIds?.length);
@@ -523,12 +519,20 @@ export class BrowserDeckQueryKernel {
         };
       }
     } catch (error) {
-      logger.warn('SQL candidate prefilter failed, falling back to all-cards path', error);
+      logger.warn('SQL candidate prefilter failed, using structured/all-cards query path', error);
+      if (structuredQuery) {
+        return {
+          cards: this.storageManager.queryCards(structuredQuery),
+          path: 'structured-query',
+          sqlCandidateCount: null,
+          usedFallback: false,
+        };
+      }
       return {
-        cards: await this.loadAllCardsFromFallback(),
-        path: 'sql-fallback-getAllCards',
+        cards: await this.loadAllCards(),
+        path: 'all-cards-query',
         sqlCandidateCount: null,
-        usedFallback: true,
+        usedFallback: false,
       };
     }
 

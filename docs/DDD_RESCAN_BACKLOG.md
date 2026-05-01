@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 252)
+Last update: 2026-05-01 (Round 253)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase9 cutover retirement (review/scheduler/browser/autocard)
+
+- Task: 完成 backend migration US4 旧主路径 retirement（T079-T086）：移除 review/scheduler/browser/autocard 旧主路径入口并收口为 explicit backend ownership + unavailable contract。
+- Touched slice: review + scheduler + browser query + autocard cutover；`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/core/scheduler/SchedulerRouter.ts`、`src/application/services/ReviewApplicationService.ts`、`src/core/queue/{domain,managers}/UnifiedDataSourceManager.ts`、`src/application/services/UnifiedDataSourceManager.ts`、`src/application/queries/browser/shared/BrowserDeckQueryKernel.ts`、`src/application/handlers/AutoCardHandler.ts`、`src/application/backendMigration/{ownershipMap,featureGateMatrix}.ts`、`scripts/check-backend-migration-cutover.cjs`、focused tests。
+- Debt fixed now: `ReviewCommitUseCase` 移除本地 scheduler commit fallback，改为 backend-worker ownership-only；`SchedulerRouter` 移除 `route()` 主入口，应用主链统一 `answer()+commit()`；`BrowserDeckQueryKernel` 删除 `sql-fallback-getAllCards` 主路径；`AutoCardHandler` 执行去掉 local mutation fallback（backend 不可用时 explicit unavailable）；ownership map 把 `autocard.execute` writer 从 `application-command` 收口为 `backend-worker`；`featureGateMatrix` 记录 retained flags 的保留理由与复查日期。
+- Debt deferred: `compatibility.read` 家族作为 read-only 占位仍保留（当前无 active compatibility read）；manual UI 双窗口/AI/private smoke 仅完成“记录状态”，未在本 CLI 会话执行真实交互。
+- Why deferred: 本会话是终端实现环境，缺少可交互 SiYuan 双窗口与真实 provider/runtime 条件；为了保持证据链完整先记录 blocked 状态与后续操作步骤。
+- Next safe step: 在真实 SiYuan 桌面环境执行 quickstart 第 8 节三组手动 smoke，并把 pass/fail 与日志编号回填到同一节。
+- Validation: `pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts src/application/__tests__/BackendMigrationCompatibilityRead.test.ts scripts/__tests__/check-backend-migration-cutover.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
+
+### 2026-05-01 - phase7 foundation and phase9 cutover scaffold
+
+- Task: 执行 backend migration US3/US4 的首轮骨架：补 AI session/job/network backend contract runtime、cutover parity harness 与边界检查脚本，并保持旧主路径不被隐式删除。
+- Touched slice: AI workbench/backend-worker + migration cutover guardrails；`worker/bootstrap/{BackendKernel,BackendJobRuntime}.ts`、`worker/db/SqliteDatabaseService.ts`、`src/application/services/{AIBackendSessionService,AIWorkbenchService}.ts`、`src/application/ports/AINetworkProxyPort.ts`、`src/infrastructure/ai/BackendAINetworkProxyAdapter.ts`、`src/application/backendMigration/{parityHarness,featureGateMatrix}.ts`、`scripts/check-backend-migration-cutover.cjs`、`scripts/check-no-ui-sql.cjs`、`package.json`、focused tests。
+- Debt fixed now: AI backend session/job/stream 从“仅 contract 声明”变成可执行 worker runtime（显式 create/update/cancel/timeout/unavailable 结果）；worker diagnostics 新增 `ai.*` 计数；application 层引入 backend-facing AI session service 与 network proxy port/adapter（含 secret redaction/error contract）；`AIWorkbenchService` 增加可选 backend session create/update/cancel 同步钩子；新增 parity harness、feature gate matrix 与 cutover checker，并把 checker 接入 `check:boundaries`，同时把 Browser SQL fallback 明确标记为 compatibility read。
+- Debt deferred: 未执行 Phase 9 的旧路径实删（`ReviewCommitUseCase` / `SchedulerRouter` / `BrowserDeckQueryKernel` / `AutoCardHandler` 仍保留现有兼容主链）；AI backend 仍是最小内存 runtime（未接持久化恢复/跨窗口 job ownership handover）；manual 双窗口 smoke 尚未补录。
+- Why deferred: 本轮优先收口 contract、可观测性和边界守卫，避免在同轮混入高风险主路径删除与跨窗口状态迁移，控制 blast radius。
+- Next safe step: 先补 US3/US4 manual smoke（AI session reload/cancel/timeout + private mutation/cutover rollback），确认 parity 证据后再逐项执行 T079-T086 的旧路径 retirement。
+- Validation: `pnpm vitest run src/application/services/__tests__/AIWorkbenchService.backend-session.test.ts src/application/services/__tests__/AIBackendSessionService.test.ts src/infrastructure/ai/__tests__/BackendAINetworkProxyAdapter.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.ai-job.test.ts src/application/__tests__/BackendMigrationParity.test.ts src/application/__tests__/BackendMigrationCompatibilityRead.test.ts scripts/__tests__/check-backend-migration-cutover.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase6 p6-8 autocard decision relay-only and linked diagnostics
 

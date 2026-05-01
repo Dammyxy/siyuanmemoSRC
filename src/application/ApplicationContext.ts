@@ -98,6 +98,7 @@ import { AIWorkbenchSessionStoreService } from '@/application/services/AIWorkben
 import { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import { ArenaStoreService } from '@/application/services/ArenaStoreService';
 import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
+import { AIBackendSessionService } from '@/application/services/AIBackendSessionService';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
@@ -106,6 +107,7 @@ import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/C
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
+import { BackendAINetworkProxyAdapter } from '@/infrastructure/ai/BackendAINetworkProxyAdapter';
 import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
 import { SiyuanBlockAdapter as DescriptorCardSiyuanBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
 import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
@@ -570,6 +572,32 @@ export class ApplicationContext {
 
     this.registerServiceFactory('reviewAIWorkbenchRegistry', (context) => {
       const siyuanPort = new AISiyuanAdapter(context.getPlugin().app);
+      const aiBackendSessionService = context.srsBackendClient
+        ? new AIBackendSessionService({
+            backendClient: context.srsBackendClient,
+            networkProxy: new BackendAINetworkProxyAdapter(),
+            resolveSecret: (name) => {
+              const key = String(name || '').trim();
+              if (!key) {
+                return null;
+              }
+              const settings = context.getSettingsService().getSettings().ai;
+              const providers = Array.isArray(settings?.providers) ? settings.providers : [];
+              for (const provider of providers) {
+                const providerRecord = provider as Record<string, unknown>;
+                const providerApiKey = String(providerRecord.apiKey || '').trim();
+                if (key === 'apiKey' && providerApiKey) {
+                  return providerApiKey;
+                }
+                const providerId = String(providerRecord.id || '').trim();
+                if (providerId && key === `${providerId}:apiKey` && providerApiKey) {
+                  return providerApiKey;
+                }
+              }
+              return null;
+            },
+          })
+        : undefined;
       return new ReviewAIWorkbenchRegistry({
         getAISettings: () => context.getSettingsService().getSettings().ai,
         updateAISettings: async (updater) => {
@@ -587,6 +615,7 @@ export class ApplicationContext {
         getSelectionTopicContinuationService: () => context.getSelectionTopicContinuationService(),
         sessionStore: context.getAIWorkbenchSessionStoreService(),
         arenaKernel: context.getArenaKernelService(),
+        backendSessionService: aiBackendSessionService,
       });
     });
 
@@ -1681,6 +1710,40 @@ export class ApplicationContext {
         idempotencyKey: string;
         params?: Record<string, unknown>;
         auditContext?: Record<string, unknown>;
+      });
+    }
+    if (command.method === 'ai.session.create') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: ai.session.create relay requires params object');
+      }
+      return srsBackendClient.createAiSession(command.params as {
+        sessionId: string;
+        surfaceId: string;
+        reviewSessionId?: string | null;
+      });
+    }
+    if (command.method === 'ai.session.get') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: ai.session.get relay requires params object');
+      }
+      return srsBackendClient.getAiSession(command.params as { sessionId: string });
+    }
+    if (command.method === 'ai.session.update') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: ai.session.update relay requires params object');
+      }
+      return srsBackendClient.updateAiSession(command.params as {
+        sessionId: string;
+        state?: 'active' | 'streaming' | 'completed' | 'canceled' | 'expired' | 'unavailable' | 'failed';
+      });
+    }
+    if (command.method === 'ai.session.cancel') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: ai.session.cancel relay requires params object');
+      }
+      return srsBackendClient.cancelAiSession(command.params as {
+        sessionId: string;
+        reason?: string;
       });
     }
     throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);

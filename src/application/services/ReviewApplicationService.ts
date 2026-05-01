@@ -45,7 +45,10 @@ export class ReviewApplicationService {
 
     let updatedCard: FSRSCard;
     if (options.mode === 'rating' && options.rating) {
-      updatedCard = withManualScheduleFields(await this.schedulerRouter.route(card, options.rating), options);
+      const decision = this.schedulerRouter.answer(card, options.rating);
+      const commitResult = await this.schedulerRouter.commit(decision);
+      const reviewedCard = commitResult.updatedCard ?? decision.current;
+      updatedCard = withManualScheduleFields(reviewedCard, options);
 
       logger.info('Schedule with rating', {
         cardId,

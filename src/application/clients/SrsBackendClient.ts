@@ -1,6 +1,17 @@
 import type {
   BackendAutoCardExecuteRequest,
   BackendAutoCardExecuteResult,
+  BackendAiJobCancelRequest,
+  BackendAiJobGetRequest,
+  BackendAiJobResult,
+  BackendAiSessionCancelRequest,
+  BackendAiSessionCreateRequest,
+  BackendAiSessionGetRequest,
+  BackendAiSessionResult,
+  BackendAiSessionUpdateRequest,
+  BackendAiStreamCancelRequest,
+  BackendAiStreamResult,
+  BackendAiStreamStartRequest,
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
   BackendBrowserDeckPageRequest,
@@ -141,6 +152,42 @@ export class SrsBackendClient {
     return this.call<BackendReviewFeedbackResult>('review.feedback', request);
   }
 
+  async createAiSession(request: BackendAiSessionCreateRequest): Promise<BackendAiSessionResult> {
+    return this.call<BackendAiSessionResult>('ai.session.create', request);
+  }
+
+  async getAiSession(request: BackendAiSessionGetRequest): Promise<BackendAiSessionResult> {
+    return this.call<BackendAiSessionResult>('ai.session.get', request);
+  }
+
+  async updateAiSession(request: BackendAiSessionUpdateRequest): Promise<BackendAiSessionResult> {
+    return this.call<BackendAiSessionResult>('ai.session.update', request);
+  }
+
+  async cancelAiSession(request: BackendAiSessionCancelRequest): Promise<BackendAiSessionResult> {
+    return this.call<BackendAiSessionResult>('ai.session.cancel', request);
+  }
+
+  async startAiStream(request: BackendAiStreamStartRequest): Promise<BackendAiStreamResult> {
+    const result = await this.call<BackendAiStreamResult>('ai.stream.start', request);
+    return this.validateAiStreamResult(result, 'ai.stream.start');
+  }
+
+  async cancelAiStream(request: BackendAiStreamCancelRequest): Promise<BackendAiStreamResult> {
+    const result = await this.call<BackendAiStreamResult>('ai.stream.cancel', request);
+    return this.validateAiStreamResult(result, 'ai.stream.cancel');
+  }
+
+  async getAiJob(request: BackendAiJobGetRequest): Promise<BackendAiJobResult> {
+    const result = await this.call<BackendAiJobResult>('job.get', request);
+    return this.validateAiJobResult(result, 'job.get');
+  }
+
+  async cancelAiJob(request: BackendAiJobCancelRequest): Promise<BackendAiJobResult> {
+    const result = await this.call<BackendAiJobResult>('job.cancel', request);
+    return this.validateAiJobResult(result, 'job.cancel');
+  }
+
   async privateHealth(): Promise<{ ok: true; runtime: 'srs-backend-worker'; feature: 'private-api' }> {
     return this.call('private.health');
   }
@@ -237,5 +284,27 @@ export class SrsBackendClient {
       || value === 'no-op'
       || value === 'unavailable'
       || value === 'failed';
+  }
+
+  private validateAiStreamResult(payload: unknown, method: string): BackendAiStreamResult {
+    const candidate = this.assertObjectResult<Record<string, unknown>>(method, payload);
+    if (candidate.ok !== true) {
+      throw new Error(`${method} returned invalid payload`);
+    }
+    const streamId = String(candidate.streamId || '').trim();
+    const sessionId = String(candidate.sessionId || '').trim();
+    const jobId = String(candidate.jobId || '').trim();
+    if (!streamId || !sessionId || !jobId) {
+      throw new Error(`${method} returned invalid payload`);
+    }
+    return candidate as BackendAiStreamResult;
+  }
+
+  private validateAiJobResult(payload: unknown, method: string): BackendAiJobResult {
+    const candidate = this.assertObjectResult<Record<string, unknown>>(method, payload);
+    if (candidate.ok !== true || !candidate.job || typeof candidate.job !== 'object') {
+      throw new Error(`${method} returned invalid payload`);
+    }
+    return candidate as BackendAiJobResult;
   }
 }

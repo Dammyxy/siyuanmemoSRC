@@ -117,6 +117,10 @@ export type KernelRelayMethod =
   | 'kernel.transaction.ingest'
   | 'kernel.transaction.dequeue'
   | 'kernel.transaction.requeue'
+  | 'ai.session.create'
+  | 'ai.session.get'
+  | 'ai.session.update'
+  | 'ai.session.cancel'
   | 'private.command.execute';
 
 export interface WriterRelayCommandResultPayload {

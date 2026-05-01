@@ -83,34 +83,6 @@ export class SchedulerRouter {
     }
 
     /**
-     * 路由到合适的调度器并执行复习
-     *
-     * @param card 卡片
-     * @param rating 评分 (1-4)
-     * @returns 更新后的卡片
-     */
-    async route(card: FSRSCard, rating: Rating, options: SrsV2SchedulingContext = {}): Promise<FSRSCard> {
-        try {
-            const decision = this.answer(card, rating, options);
-            const result = await this.commit(decision);
-
-            if (!result.updatedCard) {
-                throw new Error(`SRS v2 commit policy "${decision.commitPolicy}" did not produce a writable card`);
-            }
-
-            return result.updatedCard;
-        } catch (error) {
-            logger.error('route() failed:', {
-                cardId: card.id,
-                rating,
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-            });
-            throw error;
-        }
-    }
-
-    /**
      * 生成 SRS v2 调度决策，但不执行持久化。
      */
     answer(card: FSRSCard, rating: Rating, options: SrsV2SchedulingContext = {}): SchedulingDecision {

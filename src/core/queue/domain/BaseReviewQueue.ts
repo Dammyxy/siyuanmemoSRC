@@ -611,7 +611,7 @@ export abstract class BaseReviewQueue implements IReviewQueue {
      * 通过 UnifiedDataSourceManager 访问 SchedulerRouter。
      * 
      * @returns SchedulerRouter 实例
-     * @throws Error 如果 application commit 端口或 SchedulerRouter 兼容 fallback 不可用
+     * @throws Error 如果 application commit 端口或 SchedulerRouter 不可用
      * @see 需求 8.3
      */
     protected getSchedulerRouter(): QueueSchedulerPort {
@@ -621,7 +621,11 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         }
 
         const schedulerRouter = resolver.call(this.manager);
-        if (!schedulerRouter || typeof schedulerRouter.route !== 'function') {
+        if (
+            !schedulerRouter
+            || typeof schedulerRouter.answer !== 'function'
+            || typeof schedulerRouter.commit !== 'function'
+        ) {
             throw new Error(`[${this.type}] SchedulerRouter not available - plugin initialization failed`);
         }
 
@@ -640,17 +644,6 @@ export abstract class BaseReviewQueue implements IReviewQueue {
         };
     }
 
-    protected buildLegacyRouteOptions(context: QueueReviewSchedulingContext): QueueReviewSchedulingContext | undefined {
-        const options: QueueReviewSchedulingContext = {};
-        if (context.reviewTime) {
-            options.reviewTime = context.reviewTime;
-        }
-        if (context.memoryStateAsOf) {
-            options.memoryStateAsOf = context.memoryStateAsOf;
-        }
-        return options.reviewTime || options.memoryStateAsOf ? options : undefined;
-    }
-    
     /**
      * 获取一天开始的小时数
      * 
@@ -823,17 +816,10 @@ export abstract class BaseReviewQueue implements IReviewQueue {
             } else {
                 const schedulerRouter = this.getSchedulerRouter();
                 postCommitNotificationRequired = true;
-                if (typeof schedulerRouter.answer === 'function' && typeof schedulerRouter.commit === 'function') {
-                    const decision = schedulerRouter.answer(card, rating, routeOptions);
-                    const commitResult = await schedulerRouter.commit(decision);
-                    schedulingCommitted = commitResult.committed;
-                    updatedCard = commitResult.updatedCard ?? decision.current;
-                } else {
-                    const legacyRouteOptions = this.buildLegacyRouteOptions(routeOptions);
-                    updatedCard = legacyRouteOptions
-                        ? await schedulerRouter.route(card, rating, legacyRouteOptions)
-                        : await schedulerRouter.route(card, rating);
-                }
+                const decision = schedulerRouter.answer(card, rating, routeOptions);
+                const commitResult = await schedulerRouter.commit(decision);
+                schedulingCommitted = commitResult.committed;
+                updatedCard = commitResult.updatedCard ?? decision.current;
             }
             
             logger.debug(`[${this.type}] handleReviewWithScheduler - After scheduling:`, {

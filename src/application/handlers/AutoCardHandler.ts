@@ -539,10 +539,10 @@ export class AutoCardHandler implements ITransactionHandler {
 
     private async executeViaWorkerIfAvailable(
         envelope: AutoCardExecutionEnvelope,
-    ): Promise<AutoCardExecutionResult | null> {
+    ): Promise<AutoCardExecutionResult> {
         const backendClient = this.getSrsBackendClientOptional();
         if (!backendClient) {
-            return null;
+            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires backend-worker ownership');
         }
         const runtime = this.getFrontendRelayRuntimeOptional();
         const followerClient = this.getFollowerCommandClientOptional();
@@ -566,7 +566,7 @@ export class AutoCardHandler implements ITransactionHandler {
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error || '');
             if (message.startsWith('BACKEND_UNAVAILABLE:')) {
-                return null;
+                throw error;
             }
             throw error;
         }
@@ -576,11 +576,7 @@ export class AutoCardHandler implements ITransactionHandler {
         envelope: AutoCardExecutionEnvelope,
     ): Promise<boolean> {
         const workerResult = await this.executeViaWorkerIfAvailable(envelope);
-        if (workerResult) {
-            return workerResult.executed;
-        }
-        const localResult = await this.executionRuntime.executeLocalWithResult(envelope);
-        return localResult.executed;
+        return workerResult.executed;
     }
 
     private resolveExecutionOwnership(input: {
@@ -589,9 +585,8 @@ export class AutoCardHandler implements ITransactionHandler {
         owner: 'backend-command' | 'application-command';
         envelopeKind: AutoCardExecutionEnvelope['kind'];
     } {
-        const backendClient = this.getSrsBackendClientOptional();
         return {
-            owner: backendClient ? 'backend-command' : 'application-command',
+            owner: 'backend-command',
             envelopeKind: input.kind,
         };
     }

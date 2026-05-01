@@ -10,16 +10,15 @@ const sourceExtensions = new Set(['.ts', '.vue']);
 
 const sqlPatterns = [
   /from\s+['"]sql\.js['"]/,
-  /from\s+['"]@\/infrastructure\/persistence\/sqlite['"]/,
-  /from\s+['"]@\/infrastructure\/persistence\/sqlite\//,
-  /\bSqliteDatabaseService\b/,
-  /\bSqlUnifiedStorageRepository\b/,
+];
+
+const runtimeSqliteImportPatterns = [
+  /import\s+(?!type\b)[^;]*from\s+['"]@\/infrastructure\/persistence\/sqlite['"]/,
+  /import\s+(?!type\b)[^;]*from\s+['"]@\/infrastructure\/persistence\/sqlite\//,
 ];
 
 const allowList = new Set([
   'src/application/ApplicationContext.ts',
-  'src/application/services/ReviewLogService.ts',
-  'src/application/services/ArenaStoreService.ts',
 ]);
 
 const failures = [];
@@ -58,6 +57,17 @@ for (const scanRoot of scanRoots) {
       continue;
     }
     const text = fs.readFileSync(file, 'utf8');
+    let runtimeSqlViolation = false;
+    for (const pattern of runtimeSqliteImportPatterns) {
+      if (pattern.test(text)) {
+        failures.push(`${relativePath}: violates no-ui-sql rule (${pattern})`);
+        runtimeSqlViolation = true;
+        break;
+      }
+    }
+    if (runtimeSqlViolation) {
+      continue;
+    }
     for (const pattern of sqlPatterns) {
       if (pattern.test(text)) {
         failures.push(`${relativePath}: violates no-ui-sql rule (${pattern})`);
