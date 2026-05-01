@@ -366,6 +366,38 @@ describe('BackendKernel', () => {
       },
     });
 
+    const autoCardExecuteResponse = await kernel.handle({
+      id: 'autocard-execute',
+      jsonrpc: '2.0',
+      method: 'autocard.execute',
+      params: [{
+        envelope: {
+          kind: 'planner-decision',
+          blockId: 'block-1',
+          content: 'question <> answer',
+          decision: {
+            id: 'BasicDirectionRule',
+            family: 'basic',
+            templateId: 'builtin-bidirectional-single',
+            cardType: 'item',
+            mode: 'multi-face',
+            executorKind: 'quick-basic',
+            priority: 50,
+            direction: 'both',
+          },
+          source: 'symbol-listener',
+        },
+      }],
+    });
+    expect(autoCardExecuteResponse).toEqual({
+      id: 'autocard-execute',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: 'SrsBackendWorker autocard.execute unavailable in current phase',
+      },
+    });
+
     const reviewFeedbackResponse = await kernel.handle({
       id: 'review-feedback',
       jsonrpc: '2.0',

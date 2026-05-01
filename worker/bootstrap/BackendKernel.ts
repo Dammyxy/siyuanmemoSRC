@@ -1,5 +1,7 @@
 import {
   BACKEND_RPC_VERSION,
+  type BackendAutoCardExecuteRequest,
+  type BackendAutoCardExecuteResult,
   type BackendAutoCardDecisionResolveRequest,
   type BackendAutoCardDecisionResolveResult,
   type BackendBrowserDeckPageRequest,
@@ -123,6 +125,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleKernelTransactionRequeue(request.params));
         case 'autocard.decision.resolve':
           return buildSuccess(request.id, await this.handleAutoCardDecisionResolve(request.params));
+        case 'autocard.execute':
+          return buildSuccess(request.id, await this.handleAutoCardExecute(request.params));
         case 'review.feedback':
           return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
         case 'browser.sourceExistence.applySweep':
@@ -305,5 +309,15 @@ export class BackendKernel {
       throw new Error('autocard.decision.resolve requires named params');
     }
     return this.deps.database.resolveAutoCardDecision(named);
+  }
+
+  private async handleAutoCardExecute(
+    params: unknown,
+  ): Promise<BackendAutoCardExecuteResult> {
+    const named = this.readNamedParams<BackendAutoCardExecuteRequest>(params);
+    if (!named || typeof named !== 'object' || !named.envelope || typeof named.envelope !== 'object') {
+      throw new Error('autocard.execute requires named params with envelope');
+    }
+    throw new Error('SrsBackendWorker autocard.execute unavailable in current phase');
   }
 }

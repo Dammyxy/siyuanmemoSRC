@@ -1647,6 +1647,16 @@ export class ApplicationContext {
         };
       });
     }
+    if (command.method === 'autocard.execute') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: autocard.execute relay requires params object');
+      }
+      return srsBackendClient.executeAutoCard(command.params as {
+        envelope: {
+          kind: 'planner-decision' | 'topic-derived';
+        };
+      });
+    }
     throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
   }
 

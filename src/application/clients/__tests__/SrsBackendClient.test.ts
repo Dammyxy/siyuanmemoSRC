@@ -118,6 +118,16 @@ describe('SrsBackendClient', () => {
                 shouldUseTopicDerivation: false,
               },
             };
+          case 'autocard.execute':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                executed: true,
+                created: 1,
+                skipped: 0,
+              },
+            };
           case 'review.feedback':
             return { jsonrpc: '2.0', id: request.id, error: { code: 'BACKEND_UNAVAILABLE', message: 'review not ready' } };
           default:
@@ -198,6 +208,28 @@ describe('SrsBackendClient', () => {
       selectedDecision: null,
       strategyUsed: 'semantic-first',
     });
+    await expect(client.executeAutoCard({
+      envelope: {
+        kind: 'planner-decision',
+        blockId: 'block-1',
+        content: 'Q <> A',
+        decision: {
+          id: 'BasicDirectionRule',
+          family: 'basic',
+          templateId: 'builtin-bidirectional-single',
+          cardType: 'item',
+          mode: 'multi-face',
+          executorKind: 'quick-basic',
+          priority: 50,
+          direction: 'both',
+        },
+        source: 'symbol-listener',
+      },
+    })).resolves.toEqual({
+      executed: true,
+      created: 1,
+      skipped: 0,
+    });
     await expect(client.reviewFeedback({
       cardId: 'card-1',
       rating: 3,
@@ -222,11 +254,30 @@ describe('SrsBackendClient', () => {
       'kernel.transaction.dequeue',
       'kernel.transaction.requeue',
       'autocard.decision.resolve',
+      'autocard.execute',
       'review.feedback',
     ]);
     expect(requests[0].params).toEqual([{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }]);
     expect(requests[1].params).toEqual([{ query: { preset: 'all' } }]);
     expect(requests[15].params).toEqual([{
+      envelope: {
+        kind: 'planner-decision',
+        blockId: 'block-1',
+        content: 'Q <> A',
+        decision: {
+          id: 'BasicDirectionRule',
+          family: 'basic',
+          templateId: 'builtin-bidirectional-single',
+          cardType: 'item',
+          mode: 'multi-face',
+          executorKind: 'quick-basic',
+          priority: 50,
+          direction: 'both',
+        },
+        source: 'symbol-listener',
+      },
+    }]);
+    expect(requests[16].params).toEqual([{
       cardId: 'card-1',
       rating: 3,
       queueType: 'incremental-learning',

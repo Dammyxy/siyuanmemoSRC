@@ -20,6 +20,7 @@ export type BackendRpcMethod =
   | 'kernel.transaction.dequeue'
   | 'kernel.transaction.requeue'
   | 'autocard.decision.resolve'
+  | 'autocard.execute'
   | 'review.feedback';
 
 export type BackendRpcId = number | string;
@@ -243,6 +244,47 @@ export interface BackendAutoCardDecisionResolveResult {
   strategyUsed: 'semantic-first' | 'cloze-first' | 'basic-first' | 'skip';
   markOnlyClozeCandidate: boolean;
   shouldUseTopicDerivation: boolean;
+}
+
+export interface BackendAutoCardExecutePlannerEnvelope {
+  kind: 'planner-decision';
+  blockId: string;
+  content: string;
+  decision: BackendAutoCardDecisionProjection;
+  source: 'symbol-listener' | 'doc-oneclick-scan';
+  docRootId?: string;
+}
+
+export interface BackendAutoCardExecuteTopicDerivedEnvelope {
+  kind: 'topic-derived';
+  input: {
+    sourceBlockId: string;
+    sourceDocId: string;
+    parentTopicCardId: string;
+    parentExcerptId?: string;
+    sourceRootKind?: 'ordinary-doc' | 'piece' | 'excerpt-doc' | 'excerpt-block' | 'topic-doc';
+    plannerContent: string;
+    artifactContentDom?: string;
+    mode?: 'planner-derived' | 'manual-cloze';
+    answerFingerprint?: string;
+    previewText?: string;
+    decisions: BackendAutoCardDecisionProjection[];
+    storageMode?: 'workbench' | 'source-child';
+  };
+}
+
+export type BackendAutoCardExecuteEnvelope =
+  | BackendAutoCardExecutePlannerEnvelope
+  | BackendAutoCardExecuteTopicDerivedEnvelope;
+
+export interface BackendAutoCardExecuteRequest {
+  envelope: BackendAutoCardExecuteEnvelope;
+}
+
+export interface BackendAutoCardExecuteResult {
+  executed: boolean;
+  created: number;
+  skipped: number;
 }
 
 export interface BackendKernelTransactionIngestRequest {

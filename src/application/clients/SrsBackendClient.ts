@@ -1,4 +1,6 @@
 import type {
+  BackendAutoCardExecuteRequest,
+  BackendAutoCardExecuteResult,
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
   BackendBrowserDeckPageRequest,
@@ -157,6 +159,12 @@ export class SrsBackendClient {
     request: BackendAutoCardDecisionResolveRequest,
   ): Promise<BackendAutoCardDecisionResolveResult> {
     return this.call<BackendAutoCardDecisionResolveResult>('autocard.decision.resolve', request);
+  }
+
+  async executeAutoCard(
+    request: BackendAutoCardExecuteRequest,
+  ): Promise<BackendAutoCardExecuteResult> {
+    return this.call<BackendAutoCardExecuteResult>('autocard.execute', request);
   }
 
   private async call<TResult>(method: BackendRpcRequest['method'], params?: unknown): Promise<TResult> {

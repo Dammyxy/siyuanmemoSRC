@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 250)
+Last update: 2026-05-01 (Round 251)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase6 p6-6 autocard execute rpc contract scaffold
+
+- Task: 按“继续 P6，能一下做完吗”续做 P6-6：先把 `autocard.execute` worker/app contract 与 writer relay dispatch 补齐为可验证脚手架，保持默认主路径与 ownership 不切换。
+- Touched slice: AutoCard execute contract seam；`packages/contracts/src/backend-rpc.ts`、`src/application/clients/SrsBackendClient.ts`、`worker/bootstrap/BackendKernel.ts`、`src/application/ApplicationContext.ts`、focused tests、`ARCHITECTURE.md`、本 backlog。
+- Debt fixed now: 新增 `autocard.execute` RPC method 与 execute envelope DTO（`planner-decision` / `topic-derived`）；`SrsBackendClient` 新增 `executeAutoCard()`；`BackendKernel` 增加 `autocard.execute` handler 并返回 explicit unavailable contract；`ApplicationContext` writer relay dispatch 补入 `autocard.execute` method，确保 follower->writer relay contract 面先闭合。
+- Debt deferred: `autocard.execute` 仍未迁入真实 worker-side side effects（Xiuyuan create / TopicDerived write / toast 仍在 application execute runtime）；`AutoCardExecutionRuntime` 仍未切到 worker mutation 主执行链。
+- Why deferred: 本轮先锁定 P6-6 的“契约与 relay 形状”，避免同轮引入跨 bounded context 的写入 ownership 迁移和并发语义变化，控制 blast radius。
+- Next safe step: 进入 P6-7 时把 `AutoCardExecutionRuntime` 增加可选 worker execute 通道（先 explicit unavailable + fallback contract 回归），再评估 follower 模式下是否需要强制 relay-only 执行语义。
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/SrsBackendClient.test.ts worker/__tests__/BackendKernel.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase6 p6-5 autocard app-side execute envelope runtime split
 
