@@ -28,6 +28,13 @@ type ScanExecutor = {
   executeStructuralDecision: (params: { blockId: string; content: string; decision: CreationDecision }) => Promise<boolean>;
 };
 
+type SingleBlockDecisionResolution = {
+  matchedRuleIds?: string[];
+  enabledDecisions?: CreationDecision[];
+  selectedDecision: CreationDecision | null;
+  conflicted?: boolean;
+};
+
 export interface DocumentPostCreationScanResult {
   rootId: string;
   scanned: number;
@@ -61,6 +68,18 @@ export class DocumentPostCreationScanService {
   private readonly planner: UnifiedPostCreationPlanner;
   private readonly conflictMediator: PostCreationConflictMediator;
   private readonly resolveCardType?: (params: { blockId: string; blockType: string; content: string }) => Promise<'topic' | 'item'>;
+  private readonly resolveStructuralDecision?: (params: {
+    blockId: string;
+    blockType: string;
+    content: string;
+    resolvedCardType?: 'topic' | 'item';
+  }) => Promise<SingleBlockDecisionResolution>;
+  private readonly resolveSingleBlockDecision?: (params: {
+    blockId: string;
+    blockType: string;
+    content: string;
+    resolvedCardType?: 'topic' | 'item';
+  }) => Promise<SingleBlockDecisionResolution>;
 
   constructor(
     private readonly siyuanApi: DocumentScanSiyuanPort,
@@ -70,12 +89,26 @@ export class DocumentPostCreationScanService {
       conflictMediator?: PostCreationConflictMediator;
       promptPort?: ConflictPromptPort;
       resolveCardType?: (params: { blockId: string; blockType: string; content: string }) => Promise<'topic' | 'item'>;
+      resolveStructuralDecision?: (params: {
+        blockId: string;
+        blockType: string;
+        content: string;
+        resolvedCardType?: 'topic' | 'item';
+      }) => Promise<SingleBlockDecisionResolution>;
+      resolveSingleBlockDecision?: (params: {
+        blockId: string;
+        blockType: string;
+        content: string;
+        resolvedCardType?: 'topic' | 'item';
+      }) => Promise<SingleBlockDecisionResolution>;
     }
   ) {
     this.planner = options?.planner || new UnifiedPostCreationPlanner();
     this.conflictMediator = options?.conflictMediator || new PostCreationConflictMediator();
     this.promptPort = options?.promptPort;
     this.resolveCardType = options?.resolveCardType;
+    this.resolveStructuralDecision = options?.resolveStructuralDecision;
+    this.resolveSingleBlockDecision = options?.resolveSingleBlockDecision;
   }
 
   private readonly promptPort?: ConflictPromptPort;
@@ -137,7 +170,9 @@ export class DocumentPostCreationScanService {
 
     const consumedBlockIds = new Set<string>();
     const runContext = this.conflictMediator.createRunContext();
-    const structuralRulesEnabled = resolveDefaultCapabilities('doc-oneclick-scan').allowStructuralRules;
+    const structuralRulesEnabled = this.resolveStructuralDecision
+      ? true
+      : resolveDefaultCapabilities('doc-oneclick-scan').allowStructuralRules;
 
     // Pass 1: structural anchors (`i` blocks only).
     if (!structuralRulesEnabled) {
@@ -157,46 +192,63 @@ export class DocumentPostCreationScanService {
           const resolvedCardType = this.resolveCardType
             ? await this.resolveCardType({ blockId: row.id, blockType: row.type, content: normalizedContent })
             : undefined;
-          const plan = this.planner.plan({
-            blockId: row.id,
-            blockType: row.type,
-            content: normalizedContent,
-            source: 'doc-oneclick-scan',
-            resolvedCardType,
-          });
-          const structuralDecisions = plan.decisions.filter((decision) =>
-            decision.executorKind === 'list-template-structural'
-            || decision.executorKind === 'cdf-multiline-structural'
-          );
+          let selectedDecision: CreationDecision | null = null;
+          let conflicted = false;
 
-          if (structuralDecisions.length === 0) {
-            continue;
+          if (this.resolveStructuralDecision) {
+            const resolved = await this.resolveStructuralDecision({
+              blockId: row.id,
+              blockType: row.type,
+              content: normalizedContent,
+              resolvedCardType,
+            });
+            selectedDecision = resolved.selectedDecision || null;
+            conflicted = resolved.conflicted === true;
+          } else {
+            const plan = this.planner.plan({
+              blockId: row.id,
+              blockType: row.type,
+              content: normalizedContent,
+              source: 'doc-oneclick-scan',
+              resolvedCardType,
+            });
+            const structuralDecisions = plan.decisions.filter((decision) =>
+              decision.executorKind === 'list-template-structural'
+              || decision.executorKind === 'cdf-multiline-structural'
+            );
+
+            if (structuralDecisions.length === 0) {
+              continue;
+            }
+
+            const structuralPlan = {
+              ...plan,
+              decisions: structuralDecisions,
+              conflicts: plan.conflicts.filter((conflict) =>
+                conflict.decisionIds.filter((decisionId) =>
+                  structuralDecisions.some((decision) => decision.id === decisionId)
+                ).length > 1
+              ),
+            };
+            const resolved = await this.conflictMediator.resolveSingleDecision(
+              structuralPlan,
+              runContext,
+              {
+                sourceLabel: 'doc-oneclick-scan',
+                promptPort: this.promptPort,
+              }
+            );
+            selectedDecision = resolved.decision;
+            conflicted = resolved.conflicted;
           }
 
-          const structuralPlan = {
-            ...plan,
-            decisions: structuralDecisions,
-            conflicts: plan.conflicts.filter((conflict) =>
-              conflict.decisionIds.filter((decisionId) =>
-                structuralDecisions.some((decision) => decision.id === decisionId)
-              ).length > 1
-            ),
-          };
-          const resolved = await this.conflictMediator.resolveSingleDecision(
-            structuralPlan,
-            runContext,
-            {
-              sourceLabel: 'doc-oneclick-scan',
-              promptPort: this.promptPort,
-            }
-          );
-          if (resolved.conflicted) {
+          if (conflicted) {
             summary.conflicted += 1;
           }
 
           consumedBlockIds.add(row.id);
 
-          if (!resolved.decision) {
+          if (!selectedDecision) {
             summary.skipped += 1;
             continue;
           }
@@ -204,7 +256,7 @@ export class DocumentPostCreationScanService {
           const created = await this.executor.executeStructuralDecision({
             blockId: row.id,
             content,
-            decision: resolved.decision,
+            decision: selectedDecision,
           });
           if (created) {
             summary.created += 1;
@@ -243,44 +295,61 @@ export class DocumentPostCreationScanService {
         const resolvedCardType = this.resolveCardType
           ? await this.resolveCardType({ blockId: row.id, blockType: row.type, content: normalizedContent })
           : undefined;
-        const plan = this.planner.plan({
-          blockId: row.id,
-          blockType: row.type,
-          content: normalizedContent,
-          source: 'doc-oneclick-scan',
-          resolvedCardType,
-        });
-        const nonStructuralDecisions = plan.decisions.filter((decision) =>
-          decision.executorKind !== 'list-template-structural'
-          && decision.executorKind !== 'cdf-multiline-structural'
-        );
-        if (nonStructuralDecisions.length === 0) {
-          summary.skipped += 1;
-          continue;
+        let selectedDecision: CreationDecision | null = null;
+        let conflicted = false;
+
+        if (this.resolveSingleBlockDecision) {
+          const resolved = await this.resolveSingleBlockDecision({
+            blockId: row.id,
+            blockType: row.type,
+            content: normalizedContent,
+            resolvedCardType,
+          });
+          selectedDecision = resolved.selectedDecision || null;
+          conflicted = resolved.conflicted === true;
+        } else {
+          const plan = this.planner.plan({
+            blockId: row.id,
+            blockType: row.type,
+            content: normalizedContent,
+            source: 'doc-oneclick-scan',
+            resolvedCardType,
+          });
+          const nonStructuralDecisions = plan.decisions.filter((decision) =>
+            decision.executorKind !== 'list-template-structural'
+            && decision.executorKind !== 'cdf-multiline-structural'
+          );
+          if (nonStructuralDecisions.length === 0) {
+            summary.skipped += 1;
+            continue;
+          }
+
+          const nonStructuralPlan = {
+            ...plan,
+            decisions: nonStructuralDecisions,
+            conflicts: plan.conflicts.filter((conflict) =>
+              conflict.decisionIds.filter((decisionId) =>
+                nonStructuralDecisions.some((decision) => decision.id === decisionId)
+              ).length > 1
+            ),
+          };
+          const resolved = await this.conflictMediator.resolveSingleDecision(
+            nonStructuralPlan,
+            runContext,
+            {
+              sourceLabel: 'doc-oneclick-scan',
+              promptPort: this.promptPort,
+            }
+          );
+          selectedDecision = resolved.decision;
+          conflicted = resolved.conflicted;
         }
 
-        const nonStructuralPlan = {
-          ...plan,
-          decisions: nonStructuralDecisions,
-          conflicts: plan.conflicts.filter((conflict) =>
-            conflict.decisionIds.filter((decisionId) =>
-              nonStructuralDecisions.some((decision) => decision.id === decisionId)
-            ).length > 1
-          ),
-        };
-        const resolved = await this.conflictMediator.resolveSingleDecision(
-          nonStructuralPlan,
-          runContext,
-          {
-            sourceLabel: 'doc-oneclick-scan',
-            promptPort: this.promptPort,
-          }
-        );
-        if (resolved.conflicted) {
+        if (conflicted) {
           summary.conflicted += 1;
         }
 
-        if (!resolved.decision) {
+        if (!selectedDecision) {
           summary.skipped += 1;
           continue;
         }
@@ -288,7 +357,7 @@ export class DocumentPostCreationScanService {
         const created = await this.executor.executeSingleBlockDecision({
           blockId: row.id,
           content: normalizedContent,
-          decision: resolved.decision,
+          decision: selectedDecision,
         });
         if (created) {
           summary.created += 1;

@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 247)
+Last update: 2026-05-01 (Round 249)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase6 p6-4 doc-scan structural worker-first scope contract
+
+- Task: 按“继续做，这次多做点”继续推进 P6-4：把 doc-oneclick-scan structural pass 的决策链也收口到 worker-first，并显式补齐 auto-card 决策 scope contract（all/single-block/structural），保持默认主路径灰度不切换。
+- Touched slice: AutoCard decision contract + doc scan structural resolver seam；`packages/contracts/src/backend-rpc.ts`、`worker/db/AutoCardDecisionService.ts`、`src/application/handlers/AutoCardHandler.ts`、`src/application/services/DocumentPostCreationScanService.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: `autocard.decision.resolve` 新增 `ruleScope`（`all`/`single-block`/`structural`）；worker `AutoCardDecisionService` 按 scope 做规则过滤，`structural` scope 会显式打开 structural capabilities 再决策；`DocumentPostCreationScanService` 新增 `resolveStructuralDecision` 注入点，structural pass 在注入 resolver 时走该 worker-first seam；`AutoCardHandler.scanDocumentByRootId()` 在 backend client 可用时注入 structural resolver（`ruleScope='structural'`）和 single-block resolver（`ruleScope='single-block'`），默认无 backend client 时仍维持“doc-scan structural 关闭”旧行为。
+- Debt deferred: AutoCard side effects（Xiuyuan create / TopicDerived write / toast）仍在 application；follower relay 与 action pump 的 `autocard.decision.resolve` 专用命令链仍未独立化。
+- Why deferred: 本轮先收口“决策 scope contract + doc-scan structural 决策 seam”，不在同轮迁移执行写入 side effects，避免跨 bounded context 扩大 blast radius。
+- Next safe step: 进入 P6-5，把 AutoCard side effects 抽成独立执行层（worker 决策 -> app execute envelope），再评估是否需要把 structural execution 本身拆成可观测 command。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/services/__tests__/DocumentPostCreationScanService.test.ts`；`pnpm exec vitest run src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts src/application/handlers/__tests__/AutoCardHandler.doc-scan-root-guard.test.ts src/application/handlers/__tests__/AutoCardHandler.listener-structural-disabled.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
+
+### 2026-05-01 - phase6 p6-4 partial doc-scan worker-first decision resolver
+
+- Task: 按“继续做，这次多做点”在 P6-3 基础上继续推进：把 doc-oneclick-scan 的单块决策链也接入 worker 决策核心，并补 conflicted 语义回传，保持默认主路径灰度不切换。
+- Touched slice: AutoCard decision DTO + doc scan resolver seam；`packages/contracts/src/backend-rpc.ts`、`worker/db/AutoCardDecisionService.ts`、`src/application/services/DocumentPostCreationScanService.ts`、`src/application/handlers/AutoCardHandler.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: `autocard.decision.resolve` 结果新增 `conflicted`；`DocumentPostCreationScanService` 新增可选 `resolveSingleBlockDecision` 注入点，`AutoCardHandler.scanDocumentByRootId()` 已注入 worker-first 决策回调（source=`doc-oneclick-scan`），让文档扫描单块决策与 listener 决策核心对齐，同时保留旧 planner/m mediator fallback。
+- Debt deferred: AutoCard 执行 side effects（Xiuyuan create / TopicDerived write / toast）仍在 application；doc-scan structural pass 仍未走 worker resolver（当前 source capability 默认禁用 structural）；跨窗口 follower 下的决策调用仍依赖当前 backend client transport。
+- Why deferred: 本轮优先把“决策核心”覆盖面从 listener 扩到 doc-scan 单块路径，不在同轮迁移写入 side effects 与 structural 扫描策略，避免扩大 blast radius。
+- Next safe step: 进入 P6-4 后续，把 AutoCard side effects 执行封装成独立执行层（worker 决策 -> app execute contract），并评估 structural pass 是否需要独立 worker 决策 RPC。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/services/__tests__/DocumentPostCreationScanService.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase6 p6-3 autocard decision core worker-first (planner/gating/conflict resolution)
 

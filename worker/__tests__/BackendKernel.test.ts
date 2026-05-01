@@ -333,9 +333,36 @@ describe('BackendKernel', () => {
             isBidirectional: true,
           },
         },
+        conflicted: false,
         strategyUsed: 'semantic-first',
         markOnlyClozeCandidate: false,
         shouldUseTopicDerivation: false,
+      },
+    });
+
+    const autoCardStructuralDecisionResponse = await kernel.handle({
+      id: 'autocard-decision-structural',
+      jsonrpc: '2.0',
+      method: 'autocard.decision.resolve',
+      params: [{
+        blockId: 'block-structural-1',
+        content: '概念 >>>',
+        blockType: 'i',
+        resolvedCardType: 'item',
+        source: 'doc-oneclick-scan',
+        ruleScope: 'structural',
+      }],
+    });
+    expect(autoCardStructuralDecisionResponse).toMatchObject({
+      id: 'autocard-decision-structural',
+      jsonrpc: '2.0',
+      result: {
+        matchedRuleIds: ['ListTemplateStructuralRule'],
+        selectedDecision: {
+          id: 'ListTemplateStructuralRule',
+          executorKind: 'list-template-structural',
+          mode: 'split-list',
+        },
       },
     });
 

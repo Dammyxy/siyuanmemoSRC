@@ -215,6 +215,7 @@ export interface BackendAutoCardDecisionResolveRequest {
   blockType?: string;
   resolvedCardType?: 'topic' | 'item';
   source?: 'symbol-listener' | 'doc-oneclick-scan';
+  ruleScope?: 'all' | 'single-block' | 'structural';
   hasParentTopicCard?: boolean;
   settings?: BackendAutoCardDecisionSettings;
 }
@@ -238,6 +239,7 @@ export interface BackendAutoCardDecisionResolveResult {
   enabledDecisions: BackendAutoCardDecisionProjection[];
   filteredDecisions: BackendAutoCardDecisionProjection[];
   selectedDecision: BackendAutoCardDecisionProjection | null;
+  conflicted: boolean;
   strategyUsed: 'semantic-first' | 'cloze-first' | 'basic-first' | 'skip';
   markOnlyClozeCandidate: boolean;
   shouldUseTopicDerivation: boolean;

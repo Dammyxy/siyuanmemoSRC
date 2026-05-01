@@ -19,6 +19,11 @@ const TOPIC_DERIVATION_FAMILIES = new Set([
   'descriptor',
 ]);
 
+const STRUCTURAL_EXECUTOR_KINDS = new Set([
+  'list-template-structural',
+  'cdf-multiline-structural',
+]);
+
 const STRATEGY_ORDER: Record<ConflictResolutionStrategy, CreationRuleFamily[]> = {
   'semantic-first': [
     'concept-definition',
@@ -111,12 +116,12 @@ function filterTopicDerivedDecisions(
 function chooseDecisionWithStrategy(
   plan: CreationPlan,
   strategy: ConflictResolutionStrategy = 'semantic-first',
-): { selectedDecision: CreationDecision | null; strategyUsed: ConflictResolutionStrategy | 'skip' } {
+): { selectedDecision: CreationDecision | null; strategyUsed: ConflictResolutionStrategy | 'skip'; conflicted: boolean } {
   if (plan.decisions.length === 0) {
-    return { selectedDecision: null, strategyUsed: strategy };
+    return { selectedDecision: null, strategyUsed: strategy, conflicted: false };
   }
   if (plan.conflicts.length === 0) {
-    return { selectedDecision: plan.decisions[0] || null, strategyUsed: strategy };
+    return { selectedDecision: plan.decisions[0] || null, strategyUsed: strategy, conflicted: false };
   }
   const familyOrder = STRATEGY_ORDER[strategy];
   const rank = new Map<CreationRuleFamily, number>();
@@ -132,7 +137,30 @@ function chooseDecisionWithStrategy(
   return {
     selectedDecision: ordered[0] || null,
     strategyUsed: strategy,
+    conflicted: true,
   };
+}
+
+function normalizeRuleScope(
+  scope: BackendAutoCardDecisionResolveRequest['ruleScope'],
+): 'all' | 'single-block' | 'structural' {
+  if (scope === 'single-block' || scope === 'structural') {
+    return scope;
+  }
+  return 'all';
+}
+
+function filterByRuleScope(
+  decisions: CreationDecision[],
+  scope: 'all' | 'single-block' | 'structural',
+): CreationDecision[] {
+  if (scope === 'single-block') {
+    return decisions.filter((decision) => !STRUCTURAL_EXECUTOR_KINDS.has(decision.executorKind));
+  }
+  if (scope === 'structural') {
+    return decisions.filter((decision) => STRUCTURAL_EXECUTOR_KINDS.has(decision.executorKind));
+  }
+  return decisions;
 }
 
 function toProjection(decision: CreationDecision): BackendAutoCardDecisionProjection {
@@ -166,6 +194,7 @@ export class AutoCardDecisionService {
         enabledDecisions: [],
         filteredDecisions: [],
         selectedDecision: null,
+        conflicted: false,
         strategyUsed: 'semantic-first',
         markOnlyClozeCandidate: false,
         shouldUseTopicDerivation: false,
@@ -174,14 +203,19 @@ export class AutoCardDecisionService {
 
     const settings = normalizeQuickSettings(request.settings);
     const source = request.source === 'doc-oneclick-scan' ? 'doc-oneclick-scan' : 'symbol-listener';
+    const ruleScope = normalizeRuleScope(request.ruleScope);
     const plan = this.planner.plan({
       blockId,
       content,
       source,
       blockType: String(request.blockType || '').trim(),
       resolvedCardType: request.resolvedCardType === 'topic' ? 'topic' : 'item',
+      capabilities: ruleScope === 'structural' ? {
+        allowStructuralRules: true,
+      } : undefined,
     });
-    const enabledDecisions = plan.decisions.filter((decision) => isDecisionEnabledBySettings(decision, settings));
+    const scopedDecisions = filterByRuleScope(plan.decisions, ruleScope);
+    const enabledDecisions = scopedDecisions.filter((decision) => isDecisionEnabledBySettings(decision, settings));
     const { filteredDecisions, markOnlyClozeCandidate } = filterTopicDerivedDecisions(
       enabledDecisions,
       content,
@@ -206,6 +240,7 @@ export class AutoCardDecisionService {
       enabledDecisions: enabledDecisions.map(toProjection),
       filteredDecisions: filteredDecisions.map(toProjection),
       selectedDecision: resolved.selectedDecision ? toProjection(resolved.selectedDecision) : null,
+      conflicted: resolved.conflicted,
       strategyUsed: resolved.strategyUsed,
       markOnlyClozeCandidate,
       shouldUseTopicDerivation,

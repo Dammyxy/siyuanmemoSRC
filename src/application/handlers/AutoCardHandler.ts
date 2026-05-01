@@ -169,6 +169,7 @@ type AutoCardTraceContext = {
 };
 
 type AutoCardExecutionSource = 'symbol-listener' | 'doc-oneclick-scan';
+type AutoCardDecisionRuleScope = 'all' | 'single-block' | 'structural';
 
 type CandidateBlockContext = {
     blockId: string;
@@ -339,12 +340,14 @@ export class AutoCardHandler implements ITransactionHandler {
         blockType: string;
         resolvedCardType: 'topic' | 'item';
         source: AutoCardExecutionSource;
+        ruleScope?: AutoCardDecisionRuleScope;
         quickCardSettings: QuickCardSettings;
         sourceContext: ProgressiveSourceContext | null;
     }): Promise<{
         matchedRuleIds: string[];
         enabledDecisions: CreationDecision[];
         selectedDecision: CreationDecision | null;
+        conflicted: boolean;
         shouldUseTopicDerivation: boolean;
         markOnlyClozeCandidate: boolean;
     }> {
@@ -356,6 +359,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 blockType: input.blockType,
                 resolvedCardType: input.resolvedCardType,
                 source: input.source,
+                ruleScope: input.ruleScope ?? 'all',
                 hasParentTopicCard: Boolean(input.sourceContext?.parentTopicCardId),
                 settings: {
                     enabledSymbols: {
@@ -374,6 +378,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 matchedRuleIds: decisionResult.matchedRuleIds || [],
                 enabledDecisions: (decisionResult.filteredDecisions || []).map((decision) => this.toCreationDecision(decision)),
                 selectedDecision: decisionResult.selectedDecision ? this.toCreationDecision(decisionResult.selectedDecision) : null,
+                conflicted: decisionResult.conflicted === true,
                 shouldUseTopicDerivation: decisionResult.shouldUseTopicDerivation === true,
                 markOnlyClozeCandidate: decisionResult.markOnlyClozeCandidate === true,
             };
@@ -387,12 +392,14 @@ export class AutoCardHandler implements ITransactionHandler {
         blockType: string;
         resolvedCardType: 'topic' | 'item';
         source: AutoCardExecutionSource;
+        ruleScope?: AutoCardDecisionRuleScope;
         quickCardSettings: QuickCardSettings;
         sourceContext: ProgressiveSourceContext | null;
     }): Promise<{
         matchedRuleIds: string[];
         enabledDecisions: CreationDecision[];
         selectedDecision: CreationDecision | null;
+        conflicted: boolean;
         shouldUseTopicDerivation: boolean;
         markOnlyClozeCandidate: boolean;
     }> {
@@ -402,8 +409,12 @@ export class AutoCardHandler implements ITransactionHandler {
             source: input.source,
             blockType: input.blockType,
             resolvedCardType: input.resolvedCardType,
+            capabilities: input.ruleScope === 'structural' ? {
+                allowStructuralRules: true,
+            } : undefined,
         });
-        const preliminaryEnabledDecisions = plan.decisions.filter((decision) =>
+        const scopedDecisions = this.filterDecisionsByRuleScope(plan.decisions, input.ruleScope ?? 'all');
+        const preliminaryEnabledDecisions = scopedDecisions.filter((decision) =>
             this.isDecisionEnabledBySettings(decision, input.quickCardSettings)
         );
         const enabledDecisions = this.filterTopicDerivedDecisions(
@@ -443,9 +454,29 @@ export class AutoCardHandler implements ITransactionHandler {
             matchedRuleIds: plan.diagnostics.matchedRuleIds,
             enabledDecisions,
             selectedDecision: resolved.decision,
+            conflicted: resolved.conflicted,
             shouldUseTopicDerivation,
             markOnlyClozeCandidate,
         };
+    }
+
+    private filterDecisionsByRuleScope(
+        decisions: CreationDecision[],
+        ruleScope: AutoCardDecisionRuleScope,
+    ): CreationDecision[] {
+        if (ruleScope === 'single-block') {
+            return decisions.filter((decision) => (
+                decision.executorKind !== 'list-template-structural'
+                && decision.executorKind !== 'cdf-multiline-structural'
+            ));
+        }
+        if (ruleScope === 'structural') {
+            return decisions.filter((decision) => (
+                decision.executorKind === 'list-template-structural'
+                || decision.executorKind === 'cdf-multiline-structural'
+            ));
+        }
+        return decisions;
     }
 
     private async resolveDetectedCardType(
@@ -831,6 +862,22 @@ export class AutoCardHandler implements ITransactionHandler {
             return emptyResult;
         }
 
+        const backendClient = this.getSrsBackendClientOptional();
+        const docScanQuickCardSettings: QuickCardSettings = {
+            enabled: true,
+            enabledSymbols: {
+                basic: true,
+                concept: true,
+                descriptor: true,
+                cloze: true,
+                multiLine: true,
+            },
+            topicDerivation: {
+                enabled: true,
+                storageMode: 'workbench',
+            },
+        };
+
         const scanner = new DocumentPostCreationScanService(
             {
                 sql: (stmt: string) => this.siyuanApi.sql<Record<string, unknown>>(stmt),
@@ -862,6 +909,42 @@ export class AutoCardHandler implements ITransactionHandler {
                 resolveCardType: async ({ blockId, blockType, content }) => (
                     this.resolveDetectedCardType(blockId, blockType, content)
                 ),
+                resolveStructuralDecision: backendClient ? async ({ blockId, blockType, content, resolvedCardType }) => {
+                    const decisionCoreResult = await this.resolveAutoCardDecisionCore({
+                        blockId,
+                        content,
+                        blockType,
+                        resolvedCardType: resolvedCardType === 'topic' ? 'topic' : 'item',
+                        source: 'doc-oneclick-scan',
+                        ruleScope: 'structural',
+                        quickCardSettings: docScanQuickCardSettings,
+                        sourceContext: null,
+                    });
+                    return {
+                        matchedRuleIds: decisionCoreResult.matchedRuleIds,
+                        enabledDecisions: decisionCoreResult.enabledDecisions,
+                        selectedDecision: decisionCoreResult.selectedDecision,
+                        conflicted: decisionCoreResult.conflicted,
+                    };
+                } : undefined,
+                resolveSingleBlockDecision: async ({ blockId, blockType, content, resolvedCardType }) => {
+                    const decisionCoreResult = await this.resolveAutoCardDecisionCore({
+                        blockId,
+                        content,
+                        blockType,
+                        resolvedCardType: resolvedCardType === 'topic' ? 'topic' : 'item',
+                        source: 'doc-oneclick-scan',
+                        ruleScope: 'single-block',
+                        quickCardSettings: docScanQuickCardSettings,
+                        sourceContext: null,
+                    });
+                    return {
+                        matchedRuleIds: decisionCoreResult.matchedRuleIds,
+                        enabledDecisions: decisionCoreResult.enabledDecisions,
+                        selectedDecision: decisionCoreResult.selectedDecision,
+                        conflicted: decisionCoreResult.conflicted,
+                    };
+                },
             }
         );
 

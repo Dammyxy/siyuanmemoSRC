@@ -112,6 +112,7 @@ describe('SrsBackendClient', () => {
                 enabledDecisions: [],
                 filteredDecisions: [],
                 selectedDecision: null,
+                conflicted: false,
                 strategyUsed: 'semantic-first',
                 markOnlyClozeCandidate: false,
                 shouldUseTopicDerivation: false,
@@ -185,6 +186,7 @@ describe('SrsBackendClient', () => {
       blockType: 'p',
       resolvedCardType: 'item',
       source: 'symbol-listener',
+      ruleScope: 'all',
       hasParentTopicCard: false,
       settings: {
         enabledSymbols: {
@@ -230,6 +232,20 @@ describe('SrsBackendClient', () => {
       queueType: 'incremental-learning',
       queueMode: 'formal',
       commitPolicy: 'write-schedule',
+    }]);
+    expect(requests[14].params).toEqual([{
+      blockId: 'block-1',
+      content: 'Q <> A',
+      blockType: 'p',
+      resolvedCardType: 'item',
+      source: 'symbol-listener',
+      ruleScope: 'all',
+      hasParentTopicCard: false,
+      settings: {
+        enabledSymbols: {
+          basic: true,
+        },
+      },
     }]);
   });
 });
