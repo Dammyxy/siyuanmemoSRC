@@ -138,12 +138,17 @@ export const BACKEND_MIGRATION_OWNERSHIP_MAP: MigratedStateFamily[] = [
     currentOwner: 'compatibility-read',
     targetOwner: 'compatibility-read',
     storage: 'memory',
-    allowedReaders: [],
+    allowedReaders: ['application.services.BrowserApplicationService'],
     allowedWriters: ['compatibility-read'],
-    compatibilityReads: [],
+    compatibilityReads: [
+      'BrowserApplicationService.getDeckPage -> SQL/legacy snapshot fallback when backend deck page fails',
+      'BrowserApplicationService.getDeckMatchedIds -> SQL/legacy snapshot fallback when backend matched-id query fails',
+      'BrowserApplicationService.getDeckRowsByIds -> SQL/legacy hydrate fallback when backend row query fails',
+      'BrowserApplicationService.getDueCount/getStats -> SQL/legacy snapshot fallback when backend count/stats fails',
+    ],
     featureGate: null,
     rollbackMode: 'compatibility-read-only',
-    diagnostics: ['source', 'allowedUntil', 'removalCondition'],
+    diagnostics: ['source', 'allowedUntil', 'removalCondition', 'fallbackReason'],
   },
 ];
 

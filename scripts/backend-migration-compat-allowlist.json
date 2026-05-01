@@ -194,8 +194,8 @@
       "kind": "browser-sql-fallback",
       "symbolPattern": "falling back to SQL/legacy",
       "owner": "compatibility-read",
-      "reason": "Browser compatibility-read fallback intentionally retained before RM018-RM021 decision.",
-      "removalCondition": "Delete allowlist entry when Browser fallback policy is resolved and checker can enforce backend-only.",
+      "reason": "Browser compatibility-read fallback is intentionally retained in R4 policy while backend read parity and source-existence sweep reliability are still being hardened.",
+      "removalCondition": "Delete this allowlist entry only after RM020 backend-only cutover removes Browser SQL/legacy fallback branches from BrowserApplicationService.",
       "trackingTask": "RM019"
     },
     {

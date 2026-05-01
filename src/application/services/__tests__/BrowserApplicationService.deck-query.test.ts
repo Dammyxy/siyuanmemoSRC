@@ -552,6 +552,150 @@ describe('BrowserApplicationService deck query kernel', () => {
     );
   });
 
+  it('falls back to SQL/legacy browser compatibility read when backend deck query fails', async () => {
+    const fallbackCard = buildCard({
+      id: 'card-backend-fallback',
+      blockId: 'block-backend-fallback',
+      due: Date.now() - 500,
+      priority: 25,
+      meta: { content: 'Backend fallback card', rootId: 'doc-fallback' },
+    });
+    const backendClient: Pick<SrsBackendClient, 'browserDeckPage'> = {
+      browserDeckPage: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: backend deck page unavailable');
+      }),
+    };
+    const readPort: BrowserDeckReadPort = {
+      queryDeckPage: vi.fn(() => ({ cards: [fallbackCard], total: 1 })),
+      queryDeckMatchedIds: vi.fn(() => ['card-backend-fallback']),
+      getDeckCardsByIds: vi.fn(() => [fallbackCard]),
+      countCards: vi.fn(() => 1),
+      getBrowserStats: vi.fn(() => ({
+        totalCards: 1,
+        dueCards: 1,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 1,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+    };
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes('SELECT id') && stmt.includes('WHERE id IN') && !stmt.includes('GROUP_CONCAT')) {
+          return [{ id: 'block-backend-fallback' }];
+        }
+        if (stmt.includes('GROUP_CONCAT')) {
+          return [{ id: 'block-backend-fallback', root_id: 'doc-fallback', content: 'Backend fallback card', attrs: '' }];
+        }
+        return [];
+      }),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn((id: string) => (id === fallbackCard.id ? fallbackCard : null)),
+        queryCards: vi.fn(() => [fallbackCard]),
+        getAllCards: vi.fn(() => [fallbackCard]),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      siyuanApi as never,
+      null,
+      readPort,
+      backendClient as SrsBackendClient,
+    );
+
+    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+
+    expect(page.total).toBe(1);
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-backend-fallback']);
+    expect(backendClient.browserDeckPage).toHaveBeenCalledTimes(1);
+    expect(readPort.queryDeckPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('requeries backend deck page after source-existence host sweep changes current backend page', async () => {
+    const missingCard = buildCard({
+      id: 'card-worker-missing',
+      blockId: 'block-worker-missing',
+      due: Date.now() - 2000,
+      priority: 5,
+      meta: { content: 'Worker missing card', rootId: 'doc-worker' },
+    });
+    const activeCard = buildCard({
+      id: 'card-worker-active',
+      blockId: 'block-worker-active',
+      due: Date.now() - 1000,
+      priority: 20,
+      meta: { content: 'Worker active card', rootId: 'doc-worker' },
+    });
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckPage'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckPage: vi.fn()
+        .mockResolvedValueOnce({ total: 2, cards: [missingCard, activeCard] })
+        .mockResolvedValueOnce({ total: 1, cards: [activeCard] }),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 2,
+        updated: 2,
+        changed: true,
+        changedToMissing: true,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-worker-active', true],
+      ])),
+    };
+    const siyuanApi = {
+      ATTR_CARD_ID: 'custom-fsrs-card-id',
+      ATTR_PRIORITY: 'custom-fsrs-priority',
+      ATTR_SUSPENDED: 'custom-fsrs-suspended',
+      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
+      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
+      sql: vi.fn(async () => [{ id: 'block-worker-active' }]),
+      setBlockAttrs: vi.fn(),
+      pushMsg: vi.fn(),
+      pushErrMsg: vi.fn(),
+    };
+
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      siyuanApi as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
+    );
+
+    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
+
+    expect(page.total).toBe(1);
+    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-worker-active']);
+    expect(backendClient.browserDeckPage).toHaveBeenCalledTimes(2);
+    expect(backendClient.browserSourceExistenceApplySweepHost).toHaveBeenCalledWith(
+      expect.objectContaining({ blockIds: ['block-worker-missing', 'block-worker-active'] }),
+      expect.any(Number),
+    );
+  });
+
   it('relays source-existence sweep host mutation through follower command client when runtime is follower', async () => {
     const cards = [
       buildCard({

@@ -4,6 +4,16 @@ Last update: 2026-05-02 (Round 254)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-02 - remediation r4 browser compatibility-read policy rm018-rm021
+
+- Task: 执行 remediation R4，确定 Browser fallback policy，并让 owner map/allowlist/架构文档/测试对齐同一策略。
+- Touched slice: browser read ownership + compatibility ledger；`src/application/services/BrowserApplicationService.ts`（行为沿用、测试强化）、`src/application/backendMigration/ownershipMap.ts`、`scripts/backend-migration-compat-allowlist.json`、`src/application/__tests__/BackendMigrationCompatibilityRead.test.ts`、`src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: 明确 R4 策略为“保留 compatibility read”；在 owner map 把 Browser fallback 注册到 `compatibility.read` 的 `allowedReaders/compatibilityReads` 并补 `fallbackReason` 诊断字段；cutover allowlist 明确 Browser fallback 保留原因与 RM020 removal condition；测试补齐 backend success、backend failure->SQL/legacy fallback、backend source-existence 变更后重查页面三类证据。
+- Debt deferred: RM020（backend-only cutover 删除 Browser fallback 分支）未执行，保持未勾选；R4 之外的 UI/application 其他 compatibility SQL 读路径未在本轮扩大处理。
+- Why deferred: 当前策略明确选择 compatibility-read retained；直接执行 RM020 会与本轮策略冲突并扩大回归面。
+- Next safe step: 若后续决定切 backend-only（执行 RM020），先用同一套 Browser 回归测试改为断言 explicit unavailable，再删除 `BrowserApplicationService` fallback 分支与 allowlist 对应条目。
+- Validation: `pnpm vitest run src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts src/application/__tests__/BackendMigrationCompatibilityRead.test.ts`；`pnpm run check:boundaries`；`pnpm build`。
+
 ### 2026-05-02 - remediation r3 rm013-rm017 review autocard write safety
 
 - Task: 继续 backend migration remediation R3，仅执行 RM013-RM017，统一 Review/AutoCard 在 default env、backend-only、backend+writer、follower、多窗口异常与 unavailable 场景下的 runtime policy 行为与诊断。
