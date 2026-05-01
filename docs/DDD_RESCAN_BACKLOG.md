@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 244)
+Last update: 2026-05-01 (Round 245)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase6 start p6-1 (autocard action coalescing in pump path)
+
+- Task: 按“开始做 P6”先落第一安全步：在不改默认主路径和不迁动 AutoCard 决策内核的前提下，先压缩 worker action pump 到 `AutoCardHandler` 的候选噪音流量。
+- Touched slice: Application transaction action consumer (`KernelTransactionActionPump`) + focused test + runtime doc sync；`src/application/handlers/KernelTransactionActionPump.ts`、`src/application/handlers/__tests__/KernelTransactionActionPump.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: `KernelTransactionActionPump` 新增跨 action 的 auto-card 同块操作合并（insert/update/delete 抵消/收敛），在 dispatch 到 `AutoCardHandler.handle()` 前只保留最小必要 `doOperations`，减少重复 settle/重读/planner 触发；新增回归测试覆盖跨 action 合并语义。
+- Debt deferred: AutoCard 决策核心（symbol 解析、planner、Xiuyuan side effects）仍位于 application `AutoCardHandler`，尚未迁入 worker；Progressive/Xiuyuan/topic-derived 正式 worker mutation contract 仍未落地。
+- Why deferred: 本轮聚焦 P6 起步的低风险性能收益，先减少候选噪音和抖动；决策核心下沉会跨多个 bounded contexts，需要独立契约与迁移分段。
+- Next safe step: 进入 P6-2，定义 AutoCard worker 决策 contract（先纯决策/候选解析，无 side effects），由 pump 改为“worker 决策 -> application 执行”双段模式并保持 feature flag 灰度。
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase5 debt cleanup (ingest inbox durability + auto-card candidate coalescing)
 

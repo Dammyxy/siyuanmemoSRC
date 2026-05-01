@@ -209,6 +209,58 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('coalesces same-block auto-card operations across actions before dispatch', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [
+        {
+          type: 'auto-card-candidates' as const,
+          operations: [
+            { action: 'insert' as const, blockId: 'block-1' },
+            { action: 'update' as const, blockId: 'block-1' },
+            { action: 'delete' as const, blockId: 'block-1' },
+          ],
+          source: 'ws-main' as const,
+          receivedAt: 4,
+          idempotencyKey: 'k4',
+        },
+        {
+          type: 'auto-card-candidates' as const,
+          operations: [
+            { action: 'insert' as const, blockId: 'block-2' },
+            { action: 'update' as const, blockId: 'block-2' },
+          ],
+          source: 'ws-main' as const,
+          receivedAt: 5,
+          idempotencyKey: 'k5',
+        },
+      ],
+      remaining: 0,
+    }));
+    const handle = vi.fn();
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => undefined,
+      () => ({ handle }),
+      { pollIntervalMs: 250, maxActionsPerPoll: 8 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(handle).toHaveBeenCalledWith([{
+      doOperations: [
+        { action: 'insert', id: 'block-2' },
+      ],
+      undoOperations: null,
+    }]);
+
+    await pump.dispose();
+  });
+
   it('requeues actions when action processing fails', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [{

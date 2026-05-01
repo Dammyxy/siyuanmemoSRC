@@ -39,6 +39,41 @@ interface KernelTransactionActionPumpOptions {
   upsertCooldownMs?: number;
 }
 
+type AutoCardActionType = 'insert' | 'update' | 'delete';
+
+function coalesceAutoCardOperations(
+  operations: Array<{ action: AutoCardActionType; blockId: string }>,
+): Array<{ action: AutoCardActionType; blockId: string }> {
+  const byBlockId = new Map<string, AutoCardActionType | null>();
+  for (const operation of operations) {
+    const action = String(operation.action || '').trim() as AutoCardActionType;
+    const blockId = String(operation.blockId || '').trim();
+    if (!blockId || (action !== 'insert' && action !== 'update' && action !== 'delete')) {
+      continue;
+    }
+    const current = byBlockId.get(blockId) ?? null;
+    if (action === 'delete') {
+      byBlockId.set(blockId, current === 'insert' ? null : 'delete');
+      continue;
+    }
+    if (action === 'insert') {
+      byBlockId.set(blockId, 'insert');
+      continue;
+    }
+    if (current === null) {
+      byBlockId.set(blockId, 'update');
+    }
+  }
+  const normalized: Array<{ action: AutoCardActionType; blockId: string }> = [];
+  for (const [blockId, action] of byBlockId.entries()) {
+    if (!action) {
+      continue;
+    }
+    normalized.push({ action, blockId });
+  }
+  return normalized;
+}
+
 export class KernelTransactionActionPump {
   private readonly pollIntervalMs: number;
   private readonly maxActionsPerPoll: number;
@@ -93,7 +128,7 @@ export class KernelTransactionActionPump {
       }
       const hybridSyncService = this.getHybridSyncService();
       const removeBlockIds = new Set<string>();
-      const autoCardOperations: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
+      const autoCardOperations: Array<{ action: AutoCardActionType; blockId: string }> = [];
       let sawUpsertAction = false;
       for (const action of actions) {
         if (action.type === 'native-riff-upsert') {
@@ -138,15 +173,16 @@ export class KernelTransactionActionPump {
 
         await this.maybeRunDeferredUpsert();
 
-        if (autoCardOperations.length > 0) {
+        const coalescedAutoCardOperations = coalesceAutoCardOperations(autoCardOperations);
+        if (coalescedAutoCardOperations.length > 0) {
           const autoCardHandler = this.getAutoCardHandler();
           if (!autoCardHandler) {
             logger.warn('Skip auto-card-candidates action because AutoCardHandler is unavailable', {
-              operations: autoCardOperations.length,
+              operations: coalescedAutoCardOperations.length,
             });
           } else {
             autoCardHandler.handle([{
-              doOperations: autoCardOperations.map((operation) => ({
+              doOperations: coalescedAutoCardOperations.map((operation) => ({
                 action: operation.action,
                 id: operation.blockId,
               })),
