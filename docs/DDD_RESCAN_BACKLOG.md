@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 245)
+Last update: 2026-05-01 (Round 246)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase6 p6-2 action pipeline deep coalescing (worker dequeue + pump cooldown batching)
+
+- Task: 按“这次尽量多做点”继续推进 P6，进一步降低 transaction->AutoCard 执行链抖动：把 action 合并从单点扩展到 worker dequeue 与 pump dispatch 两层。
+- Touched slice: Worker action dequeue batching + application action pump buffering；`worker/db/SqliteDatabaseService.ts`、`worker/__tests__/BackendKernel.test.ts`、`src/application/handlers/KernelTransactionActionPump.ts`、`src/application/handlers/__tests__/KernelTransactionActionPump.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: worker `dequeueKernelTransactionActions()` 新增批次级 coalesce：同轮中 `native-riff-remove`、`native-riff-upsert`、`auto-card-candidates` 会分别合并后再下发（含 auto-card 同块冲突收敛），减少 action 数量和重复 block 处理；pump 新增 AutoCard 冷却批处理（`autoCardCooldownMs`）和缓冲区，冷却窗内增量候选先缓冲再单次 dispatch，并保持“成功后才清缓冲”，降低高频事务下重复 `AutoCardHandler.handle()` 触发与瞬时 CPU 抖动；新增 worker mixed dequeue 合并回归和 pump cooldown batching 回归。
+- Debt deferred: AutoCard 决策核心本体（symbol 解析、planner、Xiuyuan side effects）仍在 application `AutoCardHandler`，尚未迁入 worker；Progressive/Xiuyuan/topic-derived 正式 worker mutation contract 仍未落地。
+- Why deferred: 本轮先把 action pipeline 的吞吐与稳定性做到更高，避免直接跨入大范围领域迁移导致 blast radius 扩大；决策核心下沉需要独立 contract 与分段迁移。
+- Next safe step: 进入 P6-3，定义 AutoCard worker decision contract（先纯决策 DTO + deterministic candidate rules），由 pump 改为“worker 决策 -> app 执行 side effects”。
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase6 start p6-1 (autocard action coalescing in pump path)
 

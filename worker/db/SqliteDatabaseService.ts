@@ -883,11 +883,12 @@ export class WorkerSqliteDatabaseService {
   async dequeueKernelTransactionActions(maxActions = 16): Promise<BackendKernelTransactionDequeueResult> {
     await this.init();
     const limit = Math.max(1, Math.floor(Number(maxActions) || 0));
-    const actions = this.kernelTransactionActions.splice(0, limit);
-    this.kernelActionDequeuedTotal += actions.length;
-    if (actions.length > 0) {
+    const rawActions = this.kernelTransactionActions.splice(0, limit);
+    this.kernelActionDequeuedTotal += rawActions.length;
+    if (rawActions.length > 0) {
       await this.persistKernelActionQueueSnapshot();
     }
+    const actions = coalesceDequeuedKernelActions(rawActions);
     return {
       actions,
       remaining: this.kernelTransactionActions.length,
@@ -1165,7 +1166,7 @@ function collectNativeRiffUpsertBlockIds(transactions: unknown[]): string[] {
 function collectAutoCardCandidateOperations(
   transactions: unknown[],
 ): Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> {
-  const byBlockId = new Map<string, 'insert' | 'update' | 'delete' | null>();
+  const operations: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
   for (const transaction of transactions) {
     if (!isRecord(transaction) || !Array.isArray(transaction.doOperations)) {
       continue;
@@ -1182,29 +1183,113 @@ function collectAutoCardCandidateOperations(
       if (!blockId) {
         continue;
       }
-      const nextAction = action as 'insert' | 'update' | 'delete';
-      const current = byBlockId.get(blockId) ?? null;
-      if (nextAction === 'delete') {
-        byBlockId.set(blockId, current === 'insert' ? null : 'delete');
-        continue;
-      }
-      if (nextAction === 'insert') {
-        byBlockId.set(blockId, current === 'delete' ? 'insert' : 'insert');
-        continue;
-      }
-      if (current === null) {
-        byBlockId.set(blockId, 'update');
-      }
+      operations.push({
+        action: action as 'insert' | 'update' | 'delete',
+        blockId,
+      });
     }
   }
-  const operations: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
+  return coalesceAutoCardOperationList(operations);
+}
+
+function coalesceAutoCardOperationList(
+  operations: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }>,
+): Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> {
+  const byBlockId = new Map<string, 'insert' | 'update' | 'delete' | null>();
+  for (const operation of operations) {
+    const blockId = normalizeString(operation.blockId);
+    if (!blockId) {
+      continue;
+    }
+    const nextAction = operation.action;
+    const current = byBlockId.get(blockId) ?? null;
+    if (nextAction === 'delete') {
+      byBlockId.set(blockId, current === 'insert' ? null : 'delete');
+      continue;
+    }
+    if (nextAction === 'insert') {
+      byBlockId.set(blockId, current === 'delete' ? 'insert' : 'insert');
+      continue;
+    }
+    if (current === null) {
+      byBlockId.set(blockId, 'update');
+    }
+  }
+  const coalesced: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
   for (const [blockId, action] of byBlockId.entries()) {
     if (!action) {
       continue;
     }
-    operations.push({ action, blockId });
+    coalesced.push({ action, blockId });
   }
-  return operations;
+  return coalesced;
+}
+
+function coalesceDequeuedKernelActions(
+  actions: BackendKernelTransactionAction[],
+): BackendKernelTransactionAction[] {
+  if (actions.length <= 1) {
+    return actions;
+  }
+  const removeBlockIds: string[] = [];
+  const upsertBlockIds: string[] = [];
+  const autoCardOps: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
+  let removeEnvelope: BackendKernelTransactionAction | null = null;
+  let upsertEnvelope: BackendKernelTransactionAction | null = null;
+  let autoCardEnvelope: BackendKernelTransactionAction | null = null;
+  const passthrough: BackendKernelTransactionAction[] = [];
+
+  for (const action of actions) {
+    if (action.type === 'native-riff-remove') {
+      removeEnvelope = removeEnvelope ?? action;
+      removeBlockIds.push(...(Array.isArray(action.blockIds) ? action.blockIds : []));
+      continue;
+    }
+    if (action.type === 'native-riff-upsert') {
+      upsertEnvelope = upsertEnvelope ?? action;
+      upsertBlockIds.push(...(Array.isArray(action.blockIds) ? action.blockIds : []));
+      continue;
+    }
+    if (action.type === 'auto-card-candidates') {
+      autoCardEnvelope = autoCardEnvelope ?? action;
+      autoCardOps.push(...(Array.isArray(action.operations) ? action.operations : []));
+      continue;
+    }
+    passthrough.push(action);
+  }
+
+  const merged: BackendKernelTransactionAction[] = [...passthrough];
+  if (removeEnvelope) {
+    merged.push({
+      type: 'native-riff-remove',
+      blockIds: uniqueStrings(removeBlockIds),
+      source: removeEnvelope.source,
+      receivedAt: removeEnvelope.receivedAt,
+      idempotencyKey: removeEnvelope.idempotencyKey,
+    });
+  }
+  if (upsertEnvelope) {
+    merged.push({
+      type: 'native-riff-upsert',
+      blockIds: uniqueStrings(upsertBlockIds),
+      source: upsertEnvelope.source,
+      receivedAt: upsertEnvelope.receivedAt,
+      idempotencyKey: upsertEnvelope.idempotencyKey,
+    });
+  }
+  if (autoCardEnvelope) {
+    const coalesced = coalesceAutoCardOperationList(autoCardOps);
+    if (coalesced.length > 0) {
+    merged.push({
+      type: 'auto-card-candidates',
+      operations: coalesced,
+      source: autoCardEnvelope.source,
+      receivedAt: autoCardEnvelope.receivedAt,
+      idempotencyKey: autoCardEnvelope.idempotencyKey,
+    });
+    }
+  }
+  return merged;
 }
 
 function collectKernelTransactionActions(input: {

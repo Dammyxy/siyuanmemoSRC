@@ -37,6 +37,7 @@ interface KernelTransactionActionPumpOptions {
   maxActionsPerPoll?: number;
   relayTimeoutMs?: number;
   upsertCooldownMs?: number;
+  autoCardCooldownMs?: number;
 }
 
 type AutoCardActionType = 'insert' | 'update' | 'delete';
@@ -79,10 +80,13 @@ export class KernelTransactionActionPump {
   private readonly maxActionsPerPoll: number;
   private readonly relayTimeoutMs: number;
   private readonly upsertCooldownMs: number;
+  private readonly autoCardCooldownMs: number;
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private pollingInFlight = false;
   private pendingUpsert = false;
   private nextUpsertAt = 0;
+  private readonly pendingAutoCardOpsByBlock = new Map<string, AutoCardActionType | null>();
+  private nextAutoCardAt = 0;
 
   constructor(
     private readonly srsBackendClient: Pick<SrsBackendClient, 'dequeueKernelTransactions' | 'requeueKernelTransactions'>,
@@ -96,6 +100,7 @@ export class KernelTransactionActionPump {
     this.maxActionsPerPoll = Math.max(1, Math.floor(options.maxActionsPerPoll ?? 8));
     this.relayTimeoutMs = Math.max(1_000, Math.floor(options.relayTimeoutMs ?? 15_000));
     this.upsertCooldownMs = Math.max(250, Math.floor(options.upsertCooldownMs ?? 1_500));
+    this.autoCardCooldownMs = Math.max(250, Math.floor(options.autoCardCooldownMs ?? 1_000));
   }
 
   start(): void {
@@ -124,6 +129,7 @@ export class KernelTransactionActionPump {
       const actions = result.actions || [];
       if (actions.length === 0) {
         await this.maybeRunDeferredUpsert();
+        this.maybeRunDeferredAutoCard();
         return;
       }
       const hybridSyncService = this.getHybridSyncService();
@@ -173,23 +179,8 @@ export class KernelTransactionActionPump {
 
         await this.maybeRunDeferredUpsert();
 
-        const coalescedAutoCardOperations = coalesceAutoCardOperations(autoCardOperations);
-        if (coalescedAutoCardOperations.length > 0) {
-          const autoCardHandler = this.getAutoCardHandler();
-          if (!autoCardHandler) {
-            logger.warn('Skip auto-card-candidates action because AutoCardHandler is unavailable', {
-              operations: coalescedAutoCardOperations.length,
-            });
-          } else {
-            autoCardHandler.handle([{
-              doOperations: coalescedAutoCardOperations.map((operation) => ({
-                action: operation.action,
-                id: operation.blockId,
-              })),
-              undoOperations: null,
-            }]);
-          }
-        }
+        this.bufferAutoCardOperations(autoCardOperations);
+        this.maybeRunDeferredAutoCard();
       } catch (error) {
         await this.requeueActions(actions, error);
         throw error;
@@ -201,6 +192,72 @@ export class KernelTransactionActionPump {
     } finally {
       this.pollingInFlight = false;
     }
+  }
+
+  private bufferAutoCardOperations(
+    operations: Array<{ action: AutoCardActionType; blockId: string }>,
+  ): void {
+    const coalesced = coalesceAutoCardOperations(operations);
+    for (const operation of coalesced) {
+      const blockId = String(operation.blockId || '').trim();
+      if (!blockId) {
+        continue;
+      }
+      const current = this.pendingAutoCardOpsByBlock.get(blockId) ?? null;
+      const nextAction = operation.action;
+      if (nextAction === 'delete') {
+        this.pendingAutoCardOpsByBlock.set(blockId, current === 'insert' ? null : 'delete');
+        continue;
+      }
+      if (nextAction === 'insert') {
+        this.pendingAutoCardOpsByBlock.set(blockId, 'insert');
+        continue;
+      }
+      if (current === null) {
+        this.pendingAutoCardOpsByBlock.set(blockId, 'update');
+      }
+    }
+  }
+
+  private maybeRunDeferredAutoCard(): void {
+    if (this.pendingAutoCardOpsByBlock.size === 0) {
+      return;
+    }
+    const now = Date.now();
+    if (now < this.nextAutoCardAt) {
+      return;
+    }
+    const operations: Array<{ action: AutoCardActionType; blockId: string }> = [];
+    for (const [blockId, action] of this.pendingAutoCardOpsByBlock.entries()) {
+      if (!action) {
+        continue;
+      }
+      operations.push({ action, blockId });
+    }
+    if (operations.length === 0) {
+      this.pendingAutoCardOpsByBlock.clear();
+      this.nextAutoCardAt = now + this.autoCardCooldownMs;
+      return;
+    }
+
+    const autoCardHandler = this.getAutoCardHandler();
+    if (!autoCardHandler) {
+      logger.warn('Skip auto-card-candidates action because AutoCardHandler is unavailable', {
+        operations: operations.length,
+      });
+      this.nextAutoCardAt = now + this.autoCardCooldownMs;
+      return;
+    }
+
+    autoCardHandler.handle([{
+      doOperations: operations.map((operation) => ({
+        action: operation.action,
+        id: operation.blockId,
+      })),
+      undoOperations: null,
+    }]);
+    this.pendingAutoCardOpsByBlock.clear();
+    this.nextAutoCardAt = now + this.autoCardCooldownMs;
   }
 
   private async dequeueActions(): Promise<{

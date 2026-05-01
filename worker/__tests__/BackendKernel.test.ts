@@ -599,6 +599,88 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('coalesces mixed dequeue action batch inside worker before dispatch', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const ingestFirst = await kernel.handle({
+      id: 'ingest-mixed-1',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'mixed-1',
+        transactions: [{
+          doOperations: [
+            { action: 'removeFlashcards', blockIDs: ['block-rm-1'] },
+            { action: 'addFlashcards', blockIDs: ['block-up-1'] },
+            { action: 'insert', id: 'block-auto-x' },
+          ],
+        }],
+      }],
+    });
+    expect('result' in ingestFirst).toBe(true);
+
+    const ingestSecond = await kernel.handle({
+      id: 'ingest-mixed-2',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'mixed-2',
+        transactions: [{
+          doOperations: [
+            { action: 'removeFlashcards', blockIDs: ['block-rm-2'] },
+            { action: 'addFlashcards', blockIDs: ['block-up-2'] },
+            { action: 'delete', id: 'block-auto-x' },
+            { action: 'update', id: 'block-auto-y' },
+          ],
+        }],
+      }],
+    });
+    expect('result' in ingestSecond).toBe(true);
+
+    const dequeue = await kernel.handle({
+      id: 'dequeue-mixed-coalesced',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 32 }],
+    });
+    expect(dequeue).toEqual({
+      id: 'dequeue-mixed-coalesced',
+      jsonrpc: '2.0',
+      result: {
+        actions: [
+          {
+            type: 'native-riff-remove',
+            blockIds: ['block-rm-1', 'block-rm-2'],
+            source: 'ws-main',
+            receivedAt: expect.any(Number),
+            idempotencyKey: 'mixed-1',
+          },
+          {
+            type: 'native-riff-upsert',
+            blockIds: ['block-up-1', 'block-up-2'],
+            source: 'ws-main',
+            receivedAt: expect.any(Number),
+            idempotencyKey: 'mixed-1',
+          },
+          {
+            type: 'auto-card-candidates',
+            operations: [
+              { action: 'update', blockId: 'block-auto-y' },
+            ],
+            source: 'ws-main',
+            receivedAt: expect.any(Number),
+            idempotencyKey: 'mixed-1',
+          },
+        ],
+        remaining: 0,
+      },
+    });
+  });
+
   it('supports kernel.transaction.requeue and keeps actions in queue', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);

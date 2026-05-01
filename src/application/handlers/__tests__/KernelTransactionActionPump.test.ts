@@ -261,6 +261,67 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('buffers auto-card actions within cooldown window and dispatches once', async () => {
+    const dequeueKernelTransactions = vi.fn()
+      .mockResolvedValueOnce({
+        actions: [{
+          type: 'auto-card-candidates' as const,
+          operations: [{ action: 'insert' as const, blockId: 'block-cool-1' }],
+          source: 'ws-main' as const,
+          receivedAt: 10,
+          idempotencyKey: 'cool-1',
+        }],
+        remaining: 0,
+      })
+      .mockResolvedValueOnce({
+        actions: [{
+          type: 'auto-card-candidates' as const,
+          operations: [{ action: 'update' as const, blockId: 'block-cool-2' }],
+          source: 'ws-main' as const,
+          receivedAt: 11,
+          idempotencyKey: 'cool-2',
+        }],
+        remaining: 0,
+      })
+      .mockResolvedValue({
+        actions: [],
+        remaining: 0,
+      });
+    const handle = vi.fn();
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => undefined,
+      () => ({ handle }),
+      { pollIntervalMs: 250, maxActionsPerPoll: 8, autoCardCooldownMs: 1_000 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(handle).toHaveBeenCalledTimes(1);
+    expect(handle).toHaveBeenLastCalledWith([{
+      doOperations: [{ action: 'insert', id: 'block-cool-1' }],
+      undoOperations: null,
+    }]);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(handle).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+    expect(handle).toHaveBeenCalledTimes(2);
+    expect(handle).toHaveBeenLastCalledWith([{
+      doOperations: [{ action: 'update', id: 'block-cool-2' }],
+      undoOperations: null,
+    }]);
+
+    await pump.dispose();
+  });
+
   it('requeues actions when action processing fails', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [{
