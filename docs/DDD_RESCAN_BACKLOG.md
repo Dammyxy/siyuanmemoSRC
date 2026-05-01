@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 246)
+Last update: 2026-05-01 (Round 247)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase6 p6-3 autocard decision core worker-first (planner/gating/conflict resolution)
+
+- Task: 按“这次能把 autocard 决策核心一次做完吗”推进 P6-3：把 AutoCard 决策核心从 `AutoCardHandler` 下沉为 worker RPC，并保持 feature flag 灰度不切默认主路径。
+- Touched slice: AutoCard decision contract + worker resolver + app worker-first call chain；`packages/contracts/src/backend-rpc.ts`、`worker/db/AutoCardDecisionService.ts`、`worker/db/SqliteDatabaseService.ts`、`worker/bootstrap/BackendKernel.ts`、`src/application/clients/SrsBackendClient.ts`、`src/application/ApplicationContext.ts`、`src/application/handlers/AutoCardHandler.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: 新增 `autocard.decision.resolve` RPC，由 worker 执行 `UnifiedPostCreationPlanner`、quickCard settings gating、topic mark-only cloze 过滤、semantic-first 冲突选主与 topic-derivation 判定；`AutoCardHandler.checkQuickSymbols()` 在 backend client 可用时改为 worker-first 决策，应用层只执行 Xiuyuan/TopicDerived side effects；默认未启 backend client 仍走本地旧路径，保持灰度和默认主路径不变。
+- Debt deferred: AutoCard side effects（Xiuyuan 创建、TopicDerivedItem 写入、消息提示）仍在 application；doc-oneclick-scan 的 scanner conflict loop 仍沿本地 planner/mediator 路径；follower relay 尚未把 `autocard.decision.resolve` 接入 action pump 专用命令链。
+- Why deferred: 本轮先完成“决策核心”下沉，避免同轮把写路径和 doc-scan 全链路一起搬迁导致 blast radius 放大；side effects contract 需要独立 P6-4 分段推进。
+- Next safe step: 进入 P6-4，把 `AutoCardHandler` side effects 拆成可RPC的执行命令（worker 决策 -> app execute envelope），并评估 doc-oneclick-scan 是否改为同一决策 RPC。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/handlers/__tests__/AutoCardHandler.inline-content-normalize.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase6 p6-2 action pipeline deep coalescing (worker dequeue + pump cooldown batching)
 

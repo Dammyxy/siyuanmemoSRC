@@ -13,6 +13,8 @@ import type {
   BrowserDeckSnapshotQuery,
 } from '@/application/queries/browser/browser-deck-query';
 import type {
+  BackendAutoCardDecisionResolveRequest,
+  BackendAutoCardDecisionResolveResult,
   BackendKernelTransactionAction,
   BackendKernelTransactionDequeueResult,
   BackendKernelTransactionIngestRequest,
@@ -32,6 +34,7 @@ import { DEFAULT_SETTINGS } from '@/types/settings';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
 import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
+import { AutoCardDecisionService } from './AutoCardDecisionService';
 
 type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
@@ -69,6 +72,7 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
 export class WorkerSqliteDatabaseService {
   private readonly fileService: SqliteFileServiceAdapter;
   private readonly runtime: RuntimeSqliteDatabaseService;
+  private readonly autoCardDecisionService = new AutoCardDecisionService();
   private repository: SqlUnifiedStorageRepository | null = null;
   private initialized = false;
   private readonly kernelTransactionQueue: Array<{
@@ -765,6 +769,13 @@ export class WorkerSqliteDatabaseService {
         updatedCard: commitResult.updatedCard ?? null,
       };
     });
+  }
+
+  async resolveAutoCardDecision(
+    request: BackendAutoCardDecisionResolveRequest,
+  ): Promise<BackendAutoCardDecisionResolveResult> {
+    await this.init();
+    return this.autoCardDecisionService.resolve(request);
   }
 
   async ingestKernelTransactions(

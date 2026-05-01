@@ -19,6 +19,7 @@ export type BackendRpcMethod =
   | 'kernel.transaction.ingest'
   | 'kernel.transaction.dequeue'
   | 'kernel.transaction.requeue'
+  | 'autocard.decision.resolve'
   | 'review.feedback';
 
 export type BackendRpcId = number | string;
@@ -193,6 +194,53 @@ export interface BackendReviewFeedbackResult {
   reviewedAt: number;
   queueType: string;
   updatedCard: unknown | null;
+}
+
+export interface BackendAutoCardDecisionSettings {
+  enabledSymbols?: {
+    basic?: boolean;
+    concept?: boolean;
+    descriptor?: boolean;
+    cloze?: boolean;
+    multiLine?: boolean;
+  };
+  topicDerivation?: {
+    enabled?: boolean;
+  };
+}
+
+export interface BackendAutoCardDecisionResolveRequest {
+  blockId: string;
+  content: string;
+  blockType?: string;
+  resolvedCardType?: 'topic' | 'item';
+  source?: 'symbol-listener' | 'doc-oneclick-scan';
+  hasParentTopicCard?: boolean;
+  settings?: BackendAutoCardDecisionSettings;
+}
+
+export interface BackendAutoCardDecisionProjection {
+  id: string;
+  family: string;
+  templateId: string;
+  cardType: string;
+  mode: string;
+  executorKind: string;
+  renderProfile?: string;
+  direction?: 'forward' | 'backward' | 'both';
+  priority: number;
+  conflictGroup?: string;
+  hints?: Record<string, unknown>;
+}
+
+export interface BackendAutoCardDecisionResolveResult {
+  matchedRuleIds: string[];
+  enabledDecisions: BackendAutoCardDecisionProjection[];
+  filteredDecisions: BackendAutoCardDecisionProjection[];
+  selectedDecision: BackendAutoCardDecisionProjection | null;
+  strategyUsed: 'semantic-first' | 'cloze-first' | 'basic-first' | 'skip';
+  markOnlyClozeCandidate: boolean;
+  shouldUseTopicDerivation: boolean;
 }
 
 export interface BackendKernelTransactionIngestRequest {

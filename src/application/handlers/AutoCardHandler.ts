@@ -2,6 +2,7 @@
 import type FSRSPlugin from '@/index';
 import type { AutoCardSiyuanPort } from '../ports/AutoCardSiyuanPort';
 import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
+import type { SrsBackendClient } from '../clients/SrsBackendClient';
 import { createLogger } from '@/utils/logger';
 import { ClozeDetector } from '@/utils/cloze-detector';
 import { isErr, type Result } from '@/types/result';
@@ -20,6 +21,9 @@ import {
 import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/shared/ListChildrenResolver';
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
+import type {
+    BackendAutoCardDecisionProjection,
+} from '../../../packages/contracts/src/backend-rpc';
 
 const logger = createLogger('AutoCardHandler');
 
@@ -103,6 +107,7 @@ type AutoCardContextLike = {
     getXiuyuanApplicationService?: () => Promise<XiuyuanApplicationServiceLike>;
     getCardTypeDetectionService?: () => CardTypeDetectionServiceLike;
     getTopicDerivedItemService?: () => TopicDerivedItemServiceLike;
+    getSrsBackendClient?: () => SrsBackendClient | null;
 };
 
 type TopicDerivedItemServiceLike = {
@@ -297,6 +302,150 @@ export class AutoCardHandler implements ITransactionHandler {
             return context.getTopicDerivedItemService();
         }
         throw new Error('[AutoCard] TopicDerivedItemService is unavailable');
+    }
+
+    private getSrsBackendClientOptional(): SrsBackendClient | null {
+        try {
+            const context = this.getContext();
+            if (context?.getSrsBackendClient) {
+                return context.getSrsBackendClient() ?? null;
+            }
+            return null;
+        } catch (error) {
+            logger.warn('[AutoCard] Failed to get SrsBackendClient from context:', error);
+            return null;
+        }
+    }
+
+    private toCreationDecision(decision: BackendAutoCardDecisionProjection): CreationDecision {
+        return {
+            id: decision.id,
+            family: decision.family as CreationDecision['family'],
+            templateId: decision.templateId,
+            cardType: decision.cardType as CreationDecision['cardType'],
+            mode: decision.mode as CreationDecision['mode'],
+            executorKind: decision.executorKind as CreationDecision['executorKind'],
+            renderProfile: decision.renderProfile as CreationDecision['renderProfile'],
+            direction: decision.direction,
+            priority: decision.priority,
+            conflictGroup: decision.conflictGroup,
+            hints: decision.hints,
+        };
+    }
+
+    private async resolveAutoCardDecisionCore(input: {
+        blockId: string;
+        content: string;
+        blockType: string;
+        resolvedCardType: 'topic' | 'item';
+        source: AutoCardExecutionSource;
+        quickCardSettings: QuickCardSettings;
+        sourceContext: ProgressiveSourceContext | null;
+    }): Promise<{
+        matchedRuleIds: string[];
+        enabledDecisions: CreationDecision[];
+        selectedDecision: CreationDecision | null;
+        shouldUseTopicDerivation: boolean;
+        markOnlyClozeCandidate: boolean;
+    }> {
+        const backendClient = this.getSrsBackendClientOptional();
+        if (backendClient) {
+            const decisionResult = await backendClient.resolveAutoCardDecision({
+                blockId: input.blockId,
+                content: input.content,
+                blockType: input.blockType,
+                resolvedCardType: input.resolvedCardType,
+                source: input.source,
+                hasParentTopicCard: Boolean(input.sourceContext?.parentTopicCardId),
+                settings: {
+                    enabledSymbols: {
+                        basic: input.quickCardSettings.enabledSymbols?.basic,
+                        concept: input.quickCardSettings.enabledSymbols?.concept,
+                        descriptor: input.quickCardSettings.enabledSymbols?.descriptor,
+                        cloze: input.quickCardSettings.enabledSymbols?.cloze,
+                        multiLine: input.quickCardSettings.enabledSymbols?.multiLine,
+                    },
+                    topicDerivation: {
+                        enabled: input.quickCardSettings.topicDerivation?.enabled,
+                    },
+                },
+            });
+            return {
+                matchedRuleIds: decisionResult.matchedRuleIds || [],
+                enabledDecisions: (decisionResult.filteredDecisions || []).map((decision) => this.toCreationDecision(decision)),
+                selectedDecision: decisionResult.selectedDecision ? this.toCreationDecision(decisionResult.selectedDecision) : null,
+                shouldUseTopicDerivation: decisionResult.shouldUseTopicDerivation === true,
+                markOnlyClozeCandidate: decisionResult.markOnlyClozeCandidate === true,
+            };
+        }
+        return this.resolveAutoCardDecisionCoreLocal(input);
+    }
+
+    private async resolveAutoCardDecisionCoreLocal(input: {
+        blockId: string;
+        content: string;
+        blockType: string;
+        resolvedCardType: 'topic' | 'item';
+        source: AutoCardExecutionSource;
+        quickCardSettings: QuickCardSettings;
+        sourceContext: ProgressiveSourceContext | null;
+    }): Promise<{
+        matchedRuleIds: string[];
+        enabledDecisions: CreationDecision[];
+        selectedDecision: CreationDecision | null;
+        shouldUseTopicDerivation: boolean;
+        markOnlyClozeCandidate: boolean;
+    }> {
+        const plan = this.postCreationPlanner.plan({
+            blockId: input.blockId,
+            content: input.content,
+            source: input.source,
+            blockType: input.blockType,
+            resolvedCardType: input.resolvedCardType,
+        });
+        const preliminaryEnabledDecisions = plan.decisions.filter((decision) =>
+            this.isDecisionEnabledBySettings(decision, input.quickCardSettings)
+        );
+        const enabledDecisions = this.filterTopicDerivedDecisions(
+            preliminaryEnabledDecisions,
+            input.content,
+            input.sourceContext,
+        );
+        const shouldUseTopicDerivation = this.shouldUseTopicDerivation(
+            input.quickCardSettings,
+            input.sourceContext,
+            enabledDecisions,
+        );
+        const markOnlyClozeCandidate = (
+            Boolean(input.sourceContext?.parentTopicCardId)
+            && preliminaryEnabledDecisions.length > 0
+            && enabledDecisions.length === 0
+            && this.isMarkOnlyClozeCandidate(input.content, preliminaryEnabledDecisions)
+        );
+        const enabledDecisionIds = new Set(enabledDecisions.map((decision) => decision.id));
+        const filteredPlan = {
+            ...plan,
+            decisions: enabledDecisions,
+            conflicts: plan.conflicts.filter((conflict) =>
+                conflict.decisionIds.filter((decisionId) => enabledDecisionIds.has(decisionId)).length > 1
+            ),
+        };
+        const runContext = this.conflictMediator.createRunContext();
+        const resolved = await this.conflictMediator.resolveSingleDecision(
+            filteredPlan,
+            runContext,
+            {
+                sourceLabel: input.source,
+                defaultStrategy: 'semantic-first',
+            }
+        );
+        return {
+            matchedRuleIds: plan.diagnostics.matchedRuleIds,
+            enabledDecisions,
+            selectedDecision: resolved.decision,
+            shouldUseTopicDerivation,
+            markOnlyClozeCandidate,
+        };
     }
 
     private async resolveDetectedCardType(
@@ -801,17 +950,6 @@ export class AutoCardHandler implements ITransactionHandler {
             };
 
             const resolvedCardType = await this.resolveDetectedCardType(blockId, blockType, kramdown);
-
-            const plan = this.postCreationPlanner.plan({
-                blockId,
-                content: kramdown,
-                source: 'symbol-listener',
-                blockType,
-                resolvedCardType,
-            });
-            const preliminaryEnabledDecisions = plan.decisions.filter((decision) =>
-                this.isDecisionEnabledBySettings(decision, normalizedSettings)
-            );
             const progressiveSourceContext = await resolveProgressiveSourceContext({
                 blockId,
                 rootId,
@@ -823,11 +961,16 @@ export class AutoCardHandler implements ITransactionHandler {
                     getBlockAttrs: async (candidateBlockId: string) => this.siyuanApi.getBlockAttrs(candidateBlockId),
                 },
             });
-            const enabledDecisions = this.filterTopicDerivedDecisions(
-                preliminaryEnabledDecisions,
-                kramdown,
-                progressiveSourceContext,
-            );
+            const decisionCoreResult = await this.resolveAutoCardDecisionCore({
+                blockId,
+                content: kramdown,
+                blockType,
+                resolvedCardType,
+                source: 'symbol-listener',
+                quickCardSettings: normalizedSettings,
+                sourceContext: progressiveSourceContext,
+            });
+            const enabledDecisions = decisionCoreResult.enabledDecisions;
             const evaluationFingerprint = this.buildEvaluationFingerprint({
                 blockType,
                 content: kramdown,
@@ -846,7 +989,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 contentPreview: this.previewContent(kramdown),
                 attrs: this.summarizeAttrs(attrs),
                 localCardCount: existingCards.length,
-                matchedRuleIds: plan.diagnostics.matchedRuleIds,
+                matchedRuleIds: decisionCoreResult.matchedRuleIds,
                 enabledDecisions: enabledDecisions.map((decision) => this.summarizeDecision(decision)),
                 hasBidirectionalBasicDecision: enabledDecisions.some((decision) => (
                     decision.id === 'BasicDirectionRule' && decision.direction === 'both'
@@ -872,8 +1015,7 @@ export class AutoCardHandler implements ITransactionHandler {
             if (
                 progressiveSourceContext?.parentTopicCardId
                 && enabledDecisions.length === 0
-                && preliminaryEnabledDecisions.length > 0
-                && this.isMarkOnlyClozeCandidate(kramdown, preliminaryEnabledDecisions)
+                && decisionCoreResult.markOnlyClozeCandidate
                 && this.consumeSuppressedTopicDerivedMarkMutation(blockId)
             ) {
                 logger.debug('[SiYuanMemo][AutoCard] Suppressed one programmatic Topic mark mutation after manual continuation', {
@@ -886,11 +1028,11 @@ export class AutoCardHandler implements ITransactionHandler {
             if (enabledDecisions.length === 0) {
                 logger.debug('[SiYuanMemo][AutoCard] No enabled planner decision detected:', {
                     blockId,
-                    matchedRules: plan.diagnostics.matchedRuleIds,
+                    matchedRules: decisionCoreResult.matchedRuleIds,
                 });
                 return;
             }
-            if (this.shouldUseTopicDerivation(normalizedSettings, progressiveSourceContext, enabledDecisions)) {
+            if (decisionCoreResult.shouldUseTopicDerivation) {
                 if (this.hasXiuyuanBinding(attrs) && progressiveSourceContext?.topicContext?.scope !== 'block') {
                     logger.debug('[SiYuanMemo][AutoCard] Skip topic derivation: current block already has a non-topic Xiuyuan binding', {
                         blockId,
@@ -933,38 +1075,19 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
 
-            const enabledDecisionIds = new Set(enabledDecisions.map((decision) => decision.id));
-            const filteredPlan = {
-                ...plan,
-                decisions: enabledDecisions,
-                conflicts: plan.conflicts.filter((conflict) =>
-                    conflict.decisionIds.filter((decisionId) => enabledDecisionIds.has(decisionId)).length > 1
-                ),
-            };
-
-            const runContext = this.conflictMediator.createRunContext();
-            const resolved = await this.conflictMediator.resolveSingleDecision(
-                filteredPlan,
-                runContext,
-                {
-                    sourceLabel: 'symbol-listener',
-                    defaultStrategy: 'semantic-first',
-                }
-            );
-
             this.traceAutoCard('checkQuickSymbols.resolution', {
                 runId: traceContext?.runId ?? null,
                 txBatchId: traceContext?.txBatchId ?? null,
                 blockId,
-                strategy: resolved.strategyUsed,
-                selectedDecision: this.summarizeDecision(resolved.decision),
+                strategy: 'semantic-first',
+                selectedDecision: this.summarizeDecision(decisionCoreResult.selectedDecision),
                 enabledDecisionIds: enabledDecisions.map((decision) => decision.id),
             });
 
-            if (!resolved.decision) {
+            if (!decisionCoreResult.selectedDecision) {
                 logger.info('[SiYuanMemo][AutoCard] Planner decision skipped by conflict strategy', {
                     blockId,
-                    strategy: resolved.strategyUsed,
+                    strategy: 'semantic-first',
                     decisions: enabledDecisions.map((decision) => decision.id),
                 });
                 return;
@@ -973,7 +1096,7 @@ export class AutoCardHandler implements ITransactionHandler {
             await this.executePlannerDecision({
                 blockId,
                 content: kramdown,
-                decision: resolved.decision,
+                decision: decisionCoreResult.selectedDecision,
                 source: 'symbol-listener',
             });
         } catch (error) {

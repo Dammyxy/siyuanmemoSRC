@@ -1,5 +1,7 @@
 import {
   BACKEND_RPC_VERSION,
+  type BackendAutoCardDecisionResolveRequest,
+  type BackendAutoCardDecisionResolveResult,
   type BackendBrowserDeckPageRequest,
   type BackendBrowserDeckSnapshotQuery,
   type BackendSourceExistenceSweepApplyRequest,
@@ -119,6 +121,8 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handleKernelTransactionDequeue(request.params));
         case 'kernel.transaction.requeue':
           return buildSuccess(request.id, await this.handleKernelTransactionRequeue(request.params));
+        case 'autocard.decision.resolve':
+          return buildSuccess(request.id, await this.handleAutoCardDecisionResolve(request.params));
         case 'review.feedback':
           return buildSuccess(request.id, await this.handleReviewFeedback(request.params));
         case 'browser.sourceExistence.applySweep':
@@ -291,5 +295,15 @@ export class BackendKernel {
     const named = this.readNamedParams<BackendKernelTransactionRequeueRequest>(params);
     const actions = Array.isArray(named?.actions) ? named.actions : [];
     return this.deps.database.requeueKernelTransactionActions(actions);
+  }
+
+  private async handleAutoCardDecisionResolve(
+    params: unknown,
+  ): Promise<BackendAutoCardDecisionResolveResult> {
+    const named = this.readNamedParams<BackendAutoCardDecisionResolveRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('autocard.decision.resolve requires named params');
+    }
+    return this.deps.database.resolveAutoCardDecision(named);
   }
 }

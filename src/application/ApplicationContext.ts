@@ -1622,6 +1622,31 @@ export class ApplicationContext {
         }>;
       });
     }
+    if (command.method === 'autocard.decision.resolve') {
+      if (!command.params || typeof command.params !== 'object') {
+        throw new Error('INVALID_REQUEST: autocard.decision.resolve relay requires params object');
+      }
+      return srsBackendClient.resolveAutoCardDecision(command.params as {
+        blockId: string;
+        content: string;
+        blockType?: string;
+        resolvedCardType?: 'topic' | 'item';
+        source?: 'symbol-listener' | 'doc-oneclick-scan';
+        hasParentTopicCard?: boolean;
+        settings?: {
+          enabledSymbols?: {
+            basic?: boolean;
+            concept?: boolean;
+            descriptor?: boolean;
+            cloze?: boolean;
+            multiLine?: boolean;
+          };
+          topicDerivation?: {
+            enabled?: boolean;
+          };
+        };
+      });
+    }
     throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
   }
 
@@ -2047,6 +2072,10 @@ export class ApplicationContext {
    */
   getReviewService(): ReviewApplicationService {
     return this.getService('reviewService');
+  }
+
+  getSrsBackendClient(): SrsBackendClient | null {
+    return this.srsBackendClient;
   }
 
   getCardEditorService(): CardEditorApplicationService {

@@ -270,6 +270,75 @@ describe('BackendKernel', () => {
       },
     });
 
+    const autoCardDecisionResponse = await kernel.handle({
+      id: 'autocard-decision-resolve',
+      jsonrpc: '2.0',
+      method: 'autocard.decision.resolve',
+      params: [{
+        blockId: 'block-1',
+        content: 'question <> answer',
+        blockType: 'p',
+        resolvedCardType: 'item',
+        source: 'symbol-listener',
+        hasParentTopicCard: false,
+      }],
+    });
+    expect(autoCardDecisionResponse).toMatchObject({
+      id: 'autocard-decision-resolve',
+      jsonrpc: '2.0',
+      result: {
+        matchedRuleIds: ['BasicDirectionRule'],
+        enabledDecisions: [{
+          id: 'BasicDirectionRule',
+          family: 'basic',
+          templateId: 'builtin-bidirectional-single',
+          cardType: 'item',
+          mode: 'multi-face',
+          executorKind: 'quick-basic',
+          renderProfile: 'quick-default',
+          direction: 'both',
+          priority: 50,
+          conflictGroup: 'single-block',
+          hints: {
+            isBidirectional: true,
+          },
+        }],
+        filteredDecisions: [{
+          id: 'BasicDirectionRule',
+          family: 'basic',
+          templateId: 'builtin-bidirectional-single',
+          cardType: 'item',
+          mode: 'multi-face',
+          executorKind: 'quick-basic',
+          renderProfile: 'quick-default',
+          direction: 'both',
+          priority: 50,
+          conflictGroup: 'single-block',
+          hints: {
+            isBidirectional: true,
+          },
+        }],
+        selectedDecision: {
+          id: 'BasicDirectionRule',
+          family: 'basic',
+          templateId: 'builtin-bidirectional-single',
+          cardType: 'item',
+          mode: 'multi-face',
+          executorKind: 'quick-basic',
+          renderProfile: 'quick-default',
+          direction: 'both',
+          priority: 50,
+          conflictGroup: 'single-block',
+          hints: {
+            isBidirectional: true,
+          },
+        },
+        strategyUsed: 'semantic-first',
+        markOnlyClozeCandidate: false,
+        shouldUseTopicDerivation: false,
+      },
+    });
+
     const reviewFeedbackResponse = await kernel.handle({
       id: 'review-feedback',
       jsonrpc: '2.0',

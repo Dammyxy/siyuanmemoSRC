@@ -103,6 +103,20 @@ describe('SrsBackendClient', () => {
                 maxQueueLength: 4096,
               },
             };
+          case 'autocard.decision.resolve':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                matchedRuleIds: ['BasicDirectionRule'],
+                enabledDecisions: [],
+                filteredDecisions: [],
+                selectedDecision: null,
+                strategyUsed: 'semantic-first',
+                markOnlyClozeCandidate: false,
+                shouldUseTopicDerivation: false,
+              },
+            };
           case 'review.feedback':
             return { jsonrpc: '2.0', id: request.id, error: { code: 'BACKEND_UNAVAILABLE', message: 'review not ready' } };
           default:
@@ -165,6 +179,23 @@ describe('SrsBackendClient', () => {
       queueLength: 1,
       maxQueueLength: 4096,
     });
+    await expect(client.resolveAutoCardDecision({
+      blockId: 'block-1',
+      content: 'Q <> A',
+      blockType: 'p',
+      resolvedCardType: 'item',
+      source: 'symbol-listener',
+      hasParentTopicCard: false,
+      settings: {
+        enabledSymbols: {
+          basic: true,
+        },
+      },
+    })).resolves.toMatchObject({
+      matchedRuleIds: ['BasicDirectionRule'],
+      selectedDecision: null,
+      strategyUsed: 'semantic-first',
+    });
     await expect(client.reviewFeedback({
       cardId: 'card-1',
       rating: 3,
@@ -188,11 +219,12 @@ describe('SrsBackendClient', () => {
       'kernel.transaction.ingest',
       'kernel.transaction.dequeue',
       'kernel.transaction.requeue',
+      'autocard.decision.resolve',
       'review.feedback',
     ]);
     expect(requests[0].params).toEqual([{ query: { preset: 'all' }, page: { startRow: 0, endRow: 10 } }]);
     expect(requests[1].params).toEqual([{ query: { preset: 'all' } }]);
-    expect(requests[14].params).toEqual([{
+    expect(requests[15].params).toEqual([{
       cardId: 'card-1',
       rating: 3,
       queueType: 'incremental-learning',
