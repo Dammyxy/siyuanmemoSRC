@@ -158,7 +158,8 @@ export class SrsBackendClient {
   async resolveAutoCardDecision(
     request: BackendAutoCardDecisionResolveRequest,
   ): Promise<BackendAutoCardDecisionResolveResult> {
-    return this.call<BackendAutoCardDecisionResolveResult>('autocard.decision.resolve', request);
+    const result = await this.call<BackendAutoCardDecisionResolveResult>('autocard.decision.resolve', request);
+    return this.validateAutoCardDecisionResolveResult(result);
   }
 
   async executeAutoCard(
@@ -179,5 +180,38 @@ export class SrsBackendClient {
       throw new Error(`${response.error.code}: ${response.error.message}`);
     }
     return (response as BackendRpcSuccess<TResult>).result;
+  }
+
+  private assertObjectResult<T extends Record<string, unknown>>(method: string, payload: unknown): T {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error(`${method} returned invalid payload`);
+    }
+    return payload as T;
+  }
+
+  private validateAutoCardDecisionResolveResult(
+    payload: unknown,
+  ): BackendAutoCardDecisionResolveResult {
+    const candidate = this.assertObjectResult<Record<string, unknown>>('autocard.decision.resolve', payload);
+    const status = String(candidate.status || '').trim();
+    if (!this.isAutoCardDecisionStatus(status)) {
+      throw new Error('autocard.decision.resolve returned invalid payload');
+    }
+    const candidateId = String(candidate.candidateId || '').trim();
+    const decisionEventId = String(candidate.decisionEventId || '').trim();
+    if (!candidateId || !decisionEventId) {
+      throw new Error('autocard.decision.resolve returned invalid payload');
+    }
+    return candidate as BackendAutoCardDecisionResolveResult;
+  }
+
+  private isAutoCardDecisionStatus(
+    value: string,
+  ): value is BackendAutoCardDecisionResolveResult['status'] {
+    return value === 'selected'
+      || value === 'skipped'
+      || value === 'no-op'
+      || value === 'unavailable'
+      || value === 'failed';
   }
 }

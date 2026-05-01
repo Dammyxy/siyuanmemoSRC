@@ -79,8 +79,10 @@ export class KernelSidecarClient {
 
   async writerGetCommandResult(request: KernelWriterGetCommandResultRequest): Promise<{
     commandId: string;
-    status: 'pending' | 'completed' | 'failed';
+    status: 'pending' | 'completed' | 'failed' | 'unavailable' | 'expired';
     ownerInstanceId?: string;
+    requesterInstanceId?: string;
+    writerInstanceId?: string;
     result?: unknown;
     error?: {
       code: string;
@@ -94,13 +96,15 @@ export class KernelSidecarClient {
   }
 
   async writerTakeCommand(request: KernelWriterTakeCommandRequest): Promise<{
-    command: {
-      commandId: string;
-      requesterInstanceId: string;
-      method: string;
-      params?: unknown;
-      requestedAt: number;
-    } | null;
+      command: {
+        commandId: string;
+        requesterInstanceId: string;
+        method: string;
+        params?: unknown;
+        idempotencyKey?: string;
+        requestedAt: number;
+        expiresAt?: number;
+      } | null;
     now: number;
   }> {
     const result = await this.call<KernelWriterTakeCommandLookupEnvelope>('writer.takeCommand', request);
@@ -149,8 +153,10 @@ export class KernelSidecarClient {
     envelope: KernelWriterCommandResultLookupEnvelope,
   ): {
     commandId: string;
-    status: 'pending' | 'completed' | 'failed';
+    status: 'pending' | 'completed' | 'failed' | 'unavailable' | 'expired';
     ownerInstanceId?: string;
+    requesterInstanceId?: string;
+    writerInstanceId?: string;
     result?: unknown;
     error?: {
       code: string;
@@ -168,6 +174,9 @@ export class KernelSidecarClient {
     if (envelope.ok === false) {
       throw new Error(`${envelope.error.code}: ${envelope.error.message}`);
     }
+    if (!this.isWriterCommandResultStatus(envelope.status)) {
+      throw new Error(`Kernel companion ${method} returned invalid command status: ${String((envelope as { status?: unknown }).status)}`);
+    }
     return envelope;
   }
 
@@ -184,13 +193,15 @@ export class KernelSidecarClient {
     method: string,
     envelope: KernelWriterTakeCommandLookupEnvelope,
   ): {
-    command: {
-      commandId: string;
-      requesterInstanceId: string;
-      method: string;
-      params?: unknown;
-      requestedAt: number;
-    } | null;
+      command: {
+        commandId: string;
+        requesterInstanceId: string;
+        method: string;
+        params?: unknown;
+        idempotencyKey?: string;
+        requestedAt: number;
+        expiresAt?: number;
+      } | null;
     now: number;
   } {
     if (!envelope || typeof envelope !== 'object') {
@@ -203,5 +214,13 @@ export class KernelSidecarClient {
       throw new Error(`${envelope.error.code}: ${envelope.error.message}`);
     }
     return envelope;
+  }
+
+  private isWriterCommandResultStatus(value: unknown): value is 'pending' | 'completed' | 'failed' | 'unavailable' | 'expired' {
+    return value === 'pending'
+      || value === 'completed'
+      || value === 'failed'
+      || value === 'unavailable'
+      || value === 'expired';
   }
 }

@@ -1,5 +1,6 @@
 import type {
   BackendAutoCardDecisionProjection,
+  BackendUnavailableClass,
   BackendAutoCardDecisionResolveRequest,
   BackendAutoCardDecisionResolveResult,
 } from '../../packages/contracts/src/backend-rpc';
@@ -179,23 +180,88 @@ function toProjection(decision: CreationDecision): BackendAutoCardDecisionProjec
   };
 }
 
+function fnv1a32(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function buildCandidateId(request: BackendAutoCardDecisionResolveRequest): string {
+  const explicit = String(request.candidateId || '').trim();
+  if (explicit) {
+    return explicit.slice(0, 256);
+  }
+  const fingerprint = JSON.stringify({
+    blockId: String(request.blockId || '').trim(),
+    content: String(request.content || ''),
+    blockType: String(request.blockType || '').trim(),
+    resolvedCardType: request.resolvedCardType === 'topic' ? 'topic' : 'item',
+    source: request.source === 'doc-oneclick-scan' ? 'doc-oneclick-scan' : 'symbol-listener',
+    ruleScope: normalizeRuleScope(request.ruleScope),
+    hasParentTopicCard: request.hasParentTopicCard === true,
+    settings: normalizeQuickSettings(request.settings),
+  });
+  return `autocard-candidate:${fnv1a32(fingerprint)}`;
+}
+
+function buildDecisionEventId(input: {
+  candidateId: string;
+  selectedDecisionId: string | null;
+  status: BackendAutoCardDecisionResolveResult['status'];
+  unavailableClass: BackendUnavailableClass | null;
+}): string {
+  return `autocard-decision:${fnv1a32(JSON.stringify(input))}`;
+}
+
 export class AutoCardDecisionService {
   private readonly planner = new UnifiedPostCreationPlanner();
 
   resolve(request: BackendAutoCardDecisionResolveRequest): BackendAutoCardDecisionResolveResult {
     const blockId = String(request.blockId || '').trim();
     const content = String(request.content || '');
+    const candidateId = buildCandidateId(request);
     if (!blockId) {
-      throw new Error('autocard.decision.resolve requires blockId');
-    }
-    if (!content) {
+      const unavailableClass: BackendUnavailableClass = 'INVALID_REQUEST';
       return {
+        candidateId,
+        decisionEventId: buildDecisionEventId({
+          candidateId,
+          selectedDecisionId: null,
+          status: 'unavailable',
+          unavailableClass,
+        }),
+        status: 'unavailable',
+        unavailableClass,
         matchedRuleIds: [],
         enabledDecisions: [],
         filteredDecisions: [],
         selectedDecision: null,
         conflicted: false,
-        strategyUsed: 'semantic-first',
+        strategyUsed: 'skip',
+        markOnlyClozeCandidate: false,
+        shouldUseTopicDerivation: false,
+      };
+    }
+    if (!content) {
+      return {
+        candidateId,
+        decisionEventId: buildDecisionEventId({
+          candidateId,
+          selectedDecisionId: null,
+          status: 'no-op',
+          unavailableClass: null,
+        }),
+        status: 'no-op',
+        unavailableClass: null,
+        matchedRuleIds: [],
+        enabledDecisions: [],
+        filteredDecisions: [],
+        selectedDecision: null,
+        conflicted: false,
+        strategyUsed: 'skip',
         markOnlyClozeCandidate: false,
         shouldUseTopicDerivation: false,
       };
@@ -235,7 +301,22 @@ export class AutoCardDecisionService {
       && settings.topicDerivation.enabled !== false
       && filteredDecisions.some((decision) => TOPIC_DERIVATION_FAMILIES.has(decision.family))
     );
+    const status: BackendAutoCardDecisionResolveResult['status'] = resolved.selectedDecision
+      ? 'selected'
+      : filteredDecisions.length > 0
+        ? 'skipped'
+        : 'no-op';
+    const unavailableClass: BackendUnavailableClass | null = null;
     return {
+      candidateId,
+      decisionEventId: buildDecisionEventId({
+        candidateId,
+        selectedDecisionId: resolved.selectedDecision?.id || null,
+        status,
+        unavailableClass,
+      }),
+      status,
+      unavailableClass,
       matchedRuleIds: plan.diagnostics.matchedRuleIds,
       enabledDecisions: enabledDecisions.map(toProjection),
       filteredDecisions: filteredDecisions.map(toProjection),

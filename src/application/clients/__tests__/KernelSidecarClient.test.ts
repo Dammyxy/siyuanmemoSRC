@@ -78,6 +78,8 @@ describe('KernelSidecarClient', () => {
             method: 'review.feedback',
             params: { cardId: 'card-1' },
             requestedAt: 1,
+            expiresAt: 99,
+            idempotencyKey: 'review:card-1',
           },
           now: 2,
         };
@@ -111,7 +113,41 @@ describe('KernelSidecarClient', () => {
         commandId: 'cmd-1',
         requesterInstanceId: 'follower-1',
         method: 'review.feedback',
+        expiresAt: 99,
+        idempotencyKey: 'review:card-1',
       }),
+    });
+  });
+
+  it('preserves unavailable relay lookup envelope without collapsing error class', async () => {
+    const client = new KernelSidecarClient({
+      getStatus: vi.fn(),
+      call: vi.fn(async (method: string) => {
+        if (method !== 'writer.getCommandResult') {
+          return { ok: true, now: 1 };
+        }
+        return {
+          ok: true,
+          commandId: 'cmd-expired',
+          status: 'expired',
+          ownerInstanceId: 'writer-1',
+          error: {
+            code: 'COMMAND_EXPIRED',
+            message: 'writer command expired before completion',
+          },
+          completedAt: 4,
+          now: 4,
+        };
+      }),
+    });
+
+    await expect(client.writerGetCommandResult({ commandId: 'cmd-expired' })).resolves.toMatchObject({
+      commandId: 'cmd-expired',
+      status: 'expired',
+      error: {
+        code: 'COMMAND_EXPIRED',
+        message: 'writer command expired before completion',
+      },
     });
   });
 });

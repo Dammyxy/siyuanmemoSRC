@@ -96,6 +96,17 @@ export class WorkerSqliteDatabaseService {
   private kernelRemoveActionQueuedTotal = 0;
   private kernelUpsertActionQueuedTotal = 0;
   private kernelAutoCardActionQueuedTotal = 0;
+  private autoCardDecisionTotal = 0;
+  private autoCardDecisionSelectedTotal = 0;
+  private autoCardDecisionSkippedTotal = 0;
+  private autoCardDecisionNoOpTotal = 0;
+  private autoCardDecisionUnavailableTotal = 0;
+  private autoCardDecisionFailedTotal = 0;
+  private autoCardExecuteTotal = 0;
+  private autoCardExecuteCreatedTotal = 0;
+  private autoCardExecuteSkippedTotal = 0;
+  private autoCardExecuteUnavailableTotal = 0;
+  private autoCardExecuteFailedTotal = 0;
   private lastKernelAcceptedAt: number | null = null;
   private lastKernelDrainAt: number | null = null;
   private readonly maxKernelTransactionQueueLength: number;
@@ -186,6 +197,19 @@ export class WorkerSqliteDatabaseService {
       lastAcceptedAt: number | null;
       lastDrainAt: number | null;
     };
+    autoCard: {
+      decisionTotal: number;
+      decisionSelectedTotal: number;
+      decisionSkippedTotal: number;
+      decisionNoOpTotal: number;
+      decisionUnavailableTotal: number;
+      decisionFailedTotal: number;
+      executeTotal: number;
+      executeCreatedTotal: number;
+      executeSkippedTotal: number;
+      executeUnavailableTotal: number;
+      executeFailedTotal: number;
+    };
   } {
     return {
       initialized: this.initialized,
@@ -209,6 +233,19 @@ export class WorkerSqliteDatabaseService {
         maxActionQueueLength: this.maxKernelActionQueueLength,
         lastAcceptedAt: this.lastKernelAcceptedAt,
         lastDrainAt: this.lastKernelDrainAt,
+      },
+      autoCard: {
+        decisionTotal: this.autoCardDecisionTotal,
+        decisionSelectedTotal: this.autoCardDecisionSelectedTotal,
+        decisionSkippedTotal: this.autoCardDecisionSkippedTotal,
+        decisionNoOpTotal: this.autoCardDecisionNoOpTotal,
+        decisionUnavailableTotal: this.autoCardDecisionUnavailableTotal,
+        decisionFailedTotal: this.autoCardDecisionFailedTotal,
+        executeTotal: this.autoCardExecuteTotal,
+        executeCreatedTotal: this.autoCardExecuteCreatedTotal,
+        executeSkippedTotal: this.autoCardExecuteSkippedTotal,
+        executeUnavailableTotal: this.autoCardExecuteUnavailableTotal,
+        executeFailedTotal: this.autoCardExecuteFailedTotal,
       },
     };
   }
@@ -775,7 +812,36 @@ export class WorkerSqliteDatabaseService {
     request: BackendAutoCardDecisionResolveRequest,
   ): Promise<BackendAutoCardDecisionResolveResult> {
     await this.init();
-    return this.autoCardDecisionService.resolve(request);
+    const result = this.autoCardDecisionService.resolve(request);
+    this.autoCardDecisionTotal += 1;
+    if (result.status === 'selected') {
+      this.autoCardDecisionSelectedTotal += 1;
+    } else if (result.status === 'skipped') {
+      this.autoCardDecisionSkippedTotal += 1;
+    } else if (result.status === 'no-op') {
+      this.autoCardDecisionNoOpTotal += 1;
+    } else if (result.status === 'unavailable') {
+      this.autoCardDecisionUnavailableTotal += 1;
+    } else if (result.status === 'failed') {
+      this.autoCardDecisionFailedTotal += 1;
+    }
+    return result;
+  }
+
+  recordAutoCardExecuteOutcome(input: {
+    status: 'created' | 'skipped' | 'no-op' | 'unavailable' | 'failed';
+    created?: number;
+    skipped?: number;
+  }): void {
+    this.autoCardExecuteTotal += 1;
+    this.autoCardExecuteCreatedTotal += Math.max(0, Math.floor(Number(input.created || 0)));
+    this.autoCardExecuteSkippedTotal += Math.max(0, Math.floor(Number(input.skipped || 0)));
+    if (input.status === 'unavailable') {
+      this.autoCardExecuteUnavailableTotal += 1;
+    }
+    if (input.status === 'failed') {
+      this.autoCardExecuteFailedTotal += 1;
+    }
   }
 
   async ingestKernelTransactions(

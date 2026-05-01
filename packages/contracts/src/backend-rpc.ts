@@ -33,10 +33,18 @@ export interface BackendRpcRequest<TParams = unknown> {
 }
 
 export type BackendRpcErrorCode =
+  | 'WRITER_UNAVAILABLE'
+  | 'LEASE_UNAVAILABLE'
+  | 'RELAY_QUEUE_UNAVAILABLE'
+  | 'KERNEL_SIDECAR_UNAVAILABLE'
+  | 'NETWORK_UNAVAILABLE'
+  | 'TIMEOUT'
+  | 'CANCELED'
   | 'BACKEND_UNAVAILABLE'
   | 'INVALID_REQUEST'
   | 'METHOD_NOT_FOUND'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  | 'FAILED';
 
 export interface BackendRpcError {
   code: BackendRpcErrorCode;
@@ -116,7 +124,33 @@ export interface BackendDiagnosticsStatusResult {
     lastAcceptedAt: number | null;
     lastDrainAt: number | null;
   };
+  autoCard?: {
+    decisionTotal: number;
+    decisionSelectedTotal: number;
+    decisionSkippedTotal: number;
+    decisionNoOpTotal: number;
+    decisionUnavailableTotal: number;
+    decisionFailedTotal: number;
+    executeTotal: number;
+    executeCreatedTotal: number;
+    executeSkippedTotal: number;
+    executeUnavailableTotal: number;
+    executeFailedTotal: number;
+  };
 }
+
+export type BackendUnavailableClass =
+  | 'WRITER_UNAVAILABLE'
+  | 'LEASE_UNAVAILABLE'
+  | 'RELAY_QUEUE_UNAVAILABLE'
+  | 'BACKEND_UNAVAILABLE'
+  | 'KERNEL_SIDECAR_UNAVAILABLE'
+  | 'UPSTREAM_SIYUAN_UNAVAILABLE'
+  | 'NETWORK_UNAVAILABLE'
+  | 'TIMEOUT'
+  | 'CANCELED'
+  | 'INVALID_REQUEST'
+  | 'FAILED';
 
 export interface BackendBrowserDeckSnapshotQuery {
   preset?: string;
@@ -211,6 +245,9 @@ export interface BackendAutoCardDecisionSettings {
 }
 
 export interface BackendAutoCardDecisionResolveRequest {
+  candidateId?: string;
+  idempotencyKey?: string;
+  requesterInstanceId?: string;
   blockId: string;
   content: string;
   blockType?: string;
@@ -236,6 +273,10 @@ export interface BackendAutoCardDecisionProjection {
 }
 
 export interface BackendAutoCardDecisionResolveResult {
+  candidateId: string;
+  decisionEventId: string;
+  status: 'selected' | 'skipped' | 'no-op' | 'unavailable' | 'failed';
+  unavailableClass: BackendUnavailableClass | null;
   matchedRuleIds: string[];
   enabledDecisions: BackendAutoCardDecisionProjection[];
   filteredDecisions: BackendAutoCardDecisionProjection[];
@@ -282,6 +323,10 @@ export interface BackendAutoCardExecuteRequest {
 }
 
 export interface BackendAutoCardExecuteResult {
+  candidateId?: string;
+  decisionEventId?: string;
+  status?: 'created' | 'skipped' | 'no-op' | 'unavailable' | 'failed';
+  unavailableClass?: BackendUnavailableClass | null;
   executed: boolean;
   created: number;
   skipped: number;

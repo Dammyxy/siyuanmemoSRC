@@ -72,6 +72,7 @@ export interface KernelWriterReleaseLeaseRequest {
 export interface KernelWriterSubmitCommandRequest {
   instanceId: string;
   commandId?: string;
+  idempotencyKey?: string;
   method: string;
   params?: unknown;
 }
@@ -104,7 +105,9 @@ export interface WriterRelayCommandPayload {
   requesterInstanceId: string;
   method: string;
   params?: unknown;
+  idempotencyKey?: string;
   requestedAt: number;
+  expiresAt?: number;
 }
 
 export interface WriterRelayCommandResultPayload {
@@ -114,11 +117,21 @@ export interface WriterRelayCommandResultPayload {
   ok: boolean;
   result?: unknown;
   error?: {
-    code: string;
+    code: KernelWriterRelayErrorCode;
     message: string;
   };
   completedAt: number;
 }
+
+export type KernelWriterRelayErrorCode =
+  | 'WRITER_UNAVAILABLE'
+  | 'LEASE_UNAVAILABLE'
+  | 'RELAY_QUEUE_UNAVAILABLE'
+  | 'COMMAND_EXPIRED'
+  | 'INVALID_REQUEST'
+  | 'BACKEND_UNAVAILABLE'
+  | 'KERNEL_SIDECAR_UNAVAILABLE'
+  | 'INTERNAL_ERROR';
 
 export interface KernelWriterSubmitCommandSuccessEnvelope {
   ok: true;
@@ -131,10 +144,12 @@ export interface KernelWriterSubmitCommandSuccessEnvelope {
 export interface KernelWriterCommandResultEnvelope {
   ok: true;
   commandId: string;
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'completed' | 'failed' | 'unavailable' | 'expired';
+  requesterInstanceId?: string;
+  writerInstanceId?: string;
   result?: unknown;
   error?: {
-    code: string;
+    code: KernelWriterRelayErrorCode;
     message: string;
   };
   ownerInstanceId?: string;

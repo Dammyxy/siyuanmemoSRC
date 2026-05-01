@@ -165,6 +165,7 @@ export class BackendKernel {
       initialized: status.initialized,
       dbFile: status.dbFile,
       ingest: status.ingest,
+      autoCard: status.autoCard,
     };
   }
 
@@ -320,8 +321,25 @@ export class BackendKernel {
       throw new Error('autocard.execute requires named params with envelope');
     }
     if (typeof this.deps.executeAutoCard !== 'function') {
+      this.deps.database.recordAutoCardExecuteOutcome({
+        status: 'unavailable',
+      });
       throw new Error('SrsBackendWorker autocard.execute unavailable: execute callback is not configured');
     }
-    return this.deps.executeAutoCard(named);
+    try {
+      const result = await this.deps.executeAutoCard(named);
+      this.deps.database.recordAutoCardExecuteOutcome({
+        status: result.executed ? 'created' : result.skipped > 0 ? 'skipped' : 'no-op',
+        created: result.created,
+        skipped: result.skipped,
+      });
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      this.deps.database.recordAutoCardExecuteOutcome({
+        status: message.startsWith('BACKEND_UNAVAILABLE:') ? 'unavailable' : 'failed',
+      });
+      throw error;
+    }
   }
 }

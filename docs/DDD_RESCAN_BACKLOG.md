@@ -4,6 +4,16 @@ Last update: 2026-05-01 (Round 252)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-01 - phase6 p6-8 autocard decision relay-only and linked diagnostics
+
+- Task: 执行 backend migration MVP 的 P6-8：把 `autocard.decision.resolve` 在 follower 场景改成 writer relay-only，补齐显式 unavailable 与 candidate/decision/execute 关联诊断。
+- Touched slice: AutoCard decision contract + relay/client + worker diagnostics；`packages/contracts/src/backend-rpc.ts`、`packages/contracts/src/kernel-rpc.ts`、`src/application/clients/{SrsBackendClient,FollowerCommandClient,KernelSidecarClient}.ts`、`src/application/handlers/AutoCardHandler.ts`、`worker/db/{AutoCardDecisionService,SqliteDatabaseService}.ts`、`worker/bootstrap/BackendKernel.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: follower 模式下 `resolveAutoCardDecision` 走 `writer.submitCommand -> writer.getCommandResult` relay 主链，relay 不可用时显式抛 `BACKEND_UNAVAILABLE`；禁止 decision 的 follower 本地静默 fallback；`autocard.decision.resolve` 结果统一扩展为 `candidateId/decisionEventId/status/unavailableClass` 并在 client 侧做 payload 校验；worker 侧决策 candidate identity 变为稳定可复现，重复请求收敛；`AutoCardHandler` trace 增加 decision->execute 关联字段；worker diagnostics 新增 `autoCard` 计数（decision/execute）。
+- Debt deferred: AutoCard execute/TopicDerived/Xiuyuan side effects ownership 仍在 application runtime，尚未迁为 worker DB authority；kernel relay runtime 尚未把 `idempotencyKey/expiresAt` 全量写入 `kernel.js` 存储层字段（当前先完成 TS contract 与 client 解析）。
+- Why deferred: 本轮按 MVP 只收口 P6-8 的决策 authority 与观测链路，不跨入更高风险的 side-effect ownership 迁移与 kernel runtime 持久结构变更，控制 blast radius。
+- Next safe step: 进入 P6-9/P6-10，先确认 AutoCard/TopicDerived/Xiuyuan side effects 的最终 owner map，再决定 execute side effects 是否继续下沉到 worker contract。
+- Validation: `pnpm vitest run src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts`；`pnpm vitest run src/application/clients/__tests__/FollowerCommandClient.test.ts`；`pnpm vitest run src/application/__tests__/ApplicationContext.writer-relay.test.ts`；`pnpm vitest run worker/__tests__/BackendKernel.test.ts`；`pnpm vitest run src/application/clients/__tests__/SrsBackendClient.test.ts`；`pnpm vitest run src/application/clients/__tests__/KernelSidecarClient.test.ts`；后续再跑 `pnpm run check:boundaries` 与 `pnpm build`。
+
 ### 2026-05-01 - phase6 p6-7 autocard execute worker-callback activation and follower relay routing
 
 - Task: 按“清掉暂缓债务，然后继续做 P6”把 P6-6 暂缓项清掉：激活 `autocard.execute` 可执行链，并让 AutoCard 执行在 follower 场景走 writer relay。

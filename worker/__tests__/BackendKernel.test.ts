@@ -287,6 +287,10 @@ describe('BackendKernel', () => {
       id: 'autocard-decision-resolve',
       jsonrpc: '2.0',
       result: {
+        candidateId: expect.any(String),
+        decisionEventId: expect.any(String),
+        status: 'selected',
+        unavailableClass: null,
         matchedRuleIds: ['BasicDirectionRule'],
         enabledDecisions: [{
           id: 'BasicDirectionRule',
@@ -510,6 +514,41 @@ describe('BackendKernel', () => {
         skipped: 1,
       },
     });
+  });
+
+  it('returns deterministic candidate identity for duplicate decision requests', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+    const payload = {
+      blockId: 'block-dup-1',
+      content: 'question <> answer',
+      blockType: 'p',
+      resolvedCardType: 'item',
+      source: 'symbol-listener',
+      ruleScope: 'all',
+      hasParentTopicCard: false,
+    } as const;
+
+    const first = await kernel.handle({
+      id: 'autocard-decision-dup-1',
+      jsonrpc: '2.0',
+      method: 'autocard.decision.resolve',
+      params: [payload],
+    });
+    const second = await kernel.handle({
+      id: 'autocard-decision-dup-2',
+      jsonrpc: '2.0',
+      method: 'autocard.decision.resolve',
+      params: [payload],
+    });
+
+    expect('result' in first).toBe(true);
+    expect('result' in second).toBe(true);
+    if ('result' in first && 'result' in second) {
+      expect(first.result.candidateId).toBe(second.result.candidateId);
+      expect(first.result.status).toBe(second.result.status);
+    }
   });
 
   it('deduplicates kernel.transaction.ingest by idempotency key', async () => {

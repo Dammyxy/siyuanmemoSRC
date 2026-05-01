@@ -108,6 +108,10 @@ describe('SrsBackendClient', () => {
               jsonrpc: '2.0',
               id: request.id,
               result: {
+                candidateId: 'candidate-1',
+                decisionEventId: 'decision-1',
+                status: 'selected',
+                unavailableClass: null,
                 matchedRuleIds: ['BasicDirectionRule'],
                 enabledDecisions: [],
                 filteredDecisions: [],
@@ -204,6 +208,10 @@ describe('SrsBackendClient', () => {
         },
       },
     })).resolves.toMatchObject({
+      candidateId: 'candidate-1',
+      decisionEventId: 'decision-1',
+      status: 'selected',
+      unavailableClass: null,
       matchedRuleIds: ['BasicDirectionRule'],
       selectedDecision: null,
       strategyUsed: 'semantic-first',
@@ -298,5 +306,31 @@ describe('SrsBackendClient', () => {
         },
       },
     }]);
+  });
+
+  it('rejects autocard.decision.resolve payload when status envelope is missing', async () => {
+    const transport: SrsBackendTransport = {
+      request: vi.fn(async (request) => ({
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          matchedRuleIds: [],
+          enabledDecisions: [],
+          filteredDecisions: [],
+          selectedDecision: null,
+          conflicted: false,
+          strategyUsed: 'semantic-first',
+          markOnlyClozeCandidate: false,
+          shouldUseTopicDerivation: false,
+        },
+      })),
+    };
+    const client = new SrsBackendClient(transport);
+
+    await expect(client.resolveAutoCardDecision({
+      blockId: 'block-1',
+      content: 'Q <> A',
+      source: 'symbol-listener',
+    })).rejects.toThrow('autocard.decision.resolve returned invalid payload');
   });
 });

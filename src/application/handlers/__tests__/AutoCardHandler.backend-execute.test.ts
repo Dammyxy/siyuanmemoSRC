@@ -4,6 +4,7 @@ import { AutoCardHandler } from '../AutoCardHandler';
 function createHandler(input?: {
   backendClient?: {
     executeAutoCard?: (request: unknown) => Promise<unknown>;
+    resolveAutoCardDecision?: (request: unknown) => Promise<unknown>;
   } | null;
   relayRuntime?: {
     getMode: () => 'writer' | 'follower';
@@ -148,5 +149,150 @@ describe('AutoCardHandler backend execute routing', () => {
     expect(executed).toBe(true);
     expect(submitAndWait).toHaveBeenCalledTimes(1);
     expect(executeAutoCard).not.toHaveBeenCalled();
+  });
+
+  it('uses follower relay for autocard.decision.resolve when runtime is follower', async () => {
+    const resolveAutoCardDecision = vi.fn(async () => ({
+      candidateId: 'candidate-backend',
+      decisionEventId: 'decision-backend',
+      status: 'selected',
+      unavailableClass: null,
+      matchedRuleIds: ['BasicDirectionRule'],
+      enabledDecisions: [],
+      filteredDecisions: [],
+      selectedDecision: null,
+      conflicted: false,
+      strategyUsed: 'semantic-first',
+      markOnlyClozeCandidate: false,
+      shouldUseTopicDerivation: false,
+    }));
+    const submitAndWait = vi.fn(async () => ({
+      candidateId: 'candidate-relay',
+      decisionEventId: 'decision-relay',
+      status: 'selected',
+      unavailableClass: null,
+      matchedRuleIds: ['BasicDirectionRule'],
+      enabledDecisions: [],
+      filteredDecisions: [],
+      selectedDecision: null,
+      conflicted: false,
+      strategyUsed: 'semantic-first',
+      markOnlyClozeCandidate: false,
+      shouldUseTopicDerivation: false,
+    }));
+    const { handler } = createHandler({
+      backendClient: { resolveAutoCardDecision },
+      relayRuntime: {
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-1',
+      },
+      followerClient: {
+        submitAndWait,
+      },
+    });
+
+    const result = await (handler as any).resolveAutoCardDecisionCore({
+      blockId: 'block-2',
+      content: 'Alpha <> Beta',
+      blockType: 'p',
+      resolvedCardType: 'item',
+      source: 'symbol-listener',
+      ruleScope: 'all',
+      quickCardSettings: {
+        enabledSymbols: {
+          basic: true,
+          concept: true,
+          descriptor: true,
+          cloze: true,
+          multiLine: true,
+        },
+        topicDerivation: {
+          enabled: true,
+        },
+      },
+      sourceContext: null,
+    });
+
+    expect(result.candidateId).toBe('candidate-relay');
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-follower-1',
+      method: 'autocard.decision.resolve',
+    }));
+    expect(resolveAutoCardDecision).not.toHaveBeenCalled();
+  });
+
+  it('returns explicit unavailable when follower decision relay is not ready', async () => {
+    const { handler } = createHandler({
+      backendClient: {
+        resolveAutoCardDecision: vi.fn(async () => ({
+          matchedRuleIds: [],
+          enabledDecisions: [],
+          filteredDecisions: [],
+          selectedDecision: null,
+          conflicted: false,
+          strategyUsed: 'semantic-first',
+          markOnlyClozeCandidate: false,
+          shouldUseTopicDerivation: false,
+        })),
+      },
+      relayRuntime: {
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-1',
+      },
+      followerClient: null,
+    });
+
+    await expect((handler as any).resolveAutoCardDecisionCore({
+      blockId: 'block-2',
+      content: 'Alpha <> Beta',
+      blockType: 'p',
+      resolvedCardType: 'item',
+      source: 'symbol-listener',
+      ruleScope: 'all',
+      quickCardSettings: {
+        enabledSymbols: {
+          basic: true,
+          concept: true,
+          descriptor: true,
+          cloze: true,
+          multiLine: true,
+        },
+        topicDerivation: {
+          enabled: true,
+        },
+      },
+      sourceContext: null,
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: autocard.decision.resolve relay is unavailable in follower mode');
+  });
+
+  it('keeps local decision path when backend client is disabled', async () => {
+    const { handler } = createHandler({
+      backendClient: null,
+    });
+
+    const result = await (handler as any).resolveAutoCardDecisionCore({
+      blockId: 'block-3',
+      content: 'Alpha <> Beta',
+      blockType: 'p',
+      resolvedCardType: 'item',
+      source: 'symbol-listener',
+      ruleScope: 'all',
+      quickCardSettings: {
+        enabledSymbols: {
+          basic: true,
+          concept: true,
+          descriptor: true,
+          cloze: true,
+          multiLine: true,
+        },
+        topicDerivation: {
+          enabled: true,
+        },
+      },
+      sourceContext: null,
+    });
+
+    expect(result.selectedDecision).toBeTruthy();
   });
 });

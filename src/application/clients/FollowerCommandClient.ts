@@ -2,6 +2,7 @@ import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 
 export interface FollowerCommandRequest {
   instanceId: string;
+  commandId?: string;
   method: string;
   params?: unknown;
 }
@@ -12,6 +13,7 @@ export class FollowerCommandClient {
   async submitAndWait<TResult>(request: FollowerCommandRequest, timeoutMs = 15_000): Promise<TResult> {
     const submitted = await this.sidecarClient.writerSubmitCommand({
       instanceId: request.instanceId,
+      commandId: request.commandId,
       method: request.method,
       params: request.params,
     });
@@ -25,13 +27,22 @@ export class FollowerCommandClient {
         continue;
       }
       if (result.status === 'failed') {
-        const code = result.error?.code || 'INTERNAL_ERROR';
-        const message = result.error?.message || 'writer relay failed';
-        throw new Error(`${code}: ${message}`);
+        throw new Error(this.formatRelayError(result.error, 'writer relay failed'));
+      }
+      if (result.status === 'unavailable' || result.status === 'expired') {
+        throw new Error(this.formatRelayError(result.error, 'writer relay unavailable'));
       }
       return result.result as TResult;
     }
     throw new Error('BACKEND_UNAVAILABLE: writer relay timeout');
   }
-}
 
+  private formatRelayError(
+    error: { code: string; message: string } | undefined,
+    fallbackMessage: string,
+  ): string {
+    const code = String(error?.code || 'INTERNAL_ERROR').trim() || 'INTERNAL_ERROR';
+    const message = String(error?.message || fallbackMessage).trim() || fallbackMessage;
+    return `${code}: ${message}`;
+  }
+}

@@ -26,6 +26,8 @@ import type {
     BackendAutoCardExecuteRequest,
     BackendAutoCardExecuteResult,
     BackendAutoCardDecisionProjection,
+    BackendAutoCardDecisionResolveResult,
+    BackendUnavailableClass,
 } from '../../../packages/contracts/src/backend-rpc';
 import {
     AutoCardExecutionRuntime,
@@ -124,10 +126,24 @@ type AutoCardContextLike = {
     getFollowerCommandClient?: () => {
         submitAndWait: <TResult>(request: {
             instanceId: string;
+            commandId?: string;
             method: string;
             params?: unknown;
         }, timeoutMs?: number) => Promise<TResult>;
     } | null;
+};
+
+type AutoCardDecisionCoreResult = {
+    candidateId: string;
+    decisionEventId: string;
+    status: 'selected' | 'skipped' | 'no-op' | 'unavailable' | 'failed';
+    unavailableClass: BackendUnavailableClass | null;
+    matchedRuleIds: string[];
+    enabledDecisions: CreationDecision[];
+    selectedDecision: CreationDecision | null;
+    conflicted: boolean;
+    shouldUseTopicDerivation: boolean;
+    markOnlyClozeCandidate: boolean;
 };
 
 type TopicDerivedItemServiceLike = {
@@ -362,6 +378,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private getFollowerCommandClientOptional(): {
         submitAndWait: <TResult>(request: {
             instanceId: string;
+            commandId?: string;
             method: string;
             params?: unknown;
         }, timeoutMs?: number) => Promise<TResult>;
@@ -466,6 +483,60 @@ export class AutoCardHandler implements ITransactionHandler {
         };
     }
 
+    private normalizeBackendDecisionResolveResult(payload: unknown): BackendAutoCardDecisionResolveResult {
+        if (!payload || typeof payload !== 'object') {
+            throw new Error('autocard.decision.resolve returned invalid payload');
+        }
+        const candidate = payload as Record<string, unknown>;
+        const status = String(candidate.status || '').trim();
+        if (!this.isDecisionStatus(status)) {
+            throw new Error('autocard.decision.resolve returned invalid payload');
+        }
+        const candidateId = String(candidate.candidateId || '').trim();
+        const decisionEventId = String(candidate.decisionEventId || '').trim();
+        if (!candidateId || !decisionEventId) {
+            throw new Error('autocard.decision.resolve returned invalid payload');
+        }
+        return payload as BackendAutoCardDecisionResolveResult;
+    }
+
+    private isDecisionStatus(value: string): value is AutoCardDecisionCoreResult['status'] {
+        return value === 'selected'
+            || value === 'skipped'
+            || value === 'no-op'
+            || value === 'unavailable'
+            || value === 'failed';
+    }
+
+    private hashFNV1a32(input: string): string {
+        let hash = 0x811c9dc5;
+        for (let index = 0; index < input.length; index += 1) {
+            hash ^= input.charCodeAt(index);
+            hash = Math.imul(hash, 0x01000193);
+        }
+        return (hash >>> 0).toString(16).padStart(8, '0');
+    }
+
+    private buildLocalCandidateId(input: {
+        blockId: string;
+        content: string;
+        blockType: string;
+        resolvedCardType: 'topic' | 'item';
+        source: AutoCardExecutionSource;
+        ruleScope: AutoCardDecisionRuleScope;
+    }): string {
+        return `autocard-candidate:${this.hashFNV1a32(JSON.stringify(input))}`;
+    }
+
+    private buildLocalDecisionEventId(input: {
+        candidateId: string;
+        selectedDecisionId: string | null;
+        status: AutoCardDecisionCoreResult['status'];
+        unavailableClass: BackendUnavailableClass | null;
+    }): string {
+        return `autocard-decision:${this.hashFNV1a32(JSON.stringify(input))}`;
+    }
+
     private async executeViaWorkerIfAvailable(
         envelope: AutoCardExecutionEnvelope,
     ): Promise<AutoCardExecutionResult | null> {
@@ -536,38 +607,54 @@ export class AutoCardHandler implements ITransactionHandler {
         ruleScope?: AutoCardDecisionRuleScope;
         quickCardSettings: QuickCardSettings;
         sourceContext: ProgressiveSourceContext | null;
-    }): Promise<{
-        matchedRuleIds: string[];
-        enabledDecisions: CreationDecision[];
-        selectedDecision: CreationDecision | null;
-        conflicted: boolean;
-        shouldUseTopicDerivation: boolean;
-        markOnlyClozeCandidate: boolean;
-    }> {
+    }): Promise<AutoCardDecisionCoreResult> {
         const backendClient = this.getSrsBackendClientOptional();
-        if (backendClient) {
-            const decisionResult = await backendClient.resolveAutoCardDecision({
-                blockId: input.blockId,
-                content: input.content,
-                blockType: input.blockType,
-                resolvedCardType: input.resolvedCardType,
-                source: input.source,
-                ruleScope: input.ruleScope ?? 'all',
-                hasParentTopicCard: Boolean(input.sourceContext?.parentTopicCardId),
-                settings: {
-                    enabledSymbols: {
-                        basic: input.quickCardSettings.enabledSymbols?.basic,
-                        concept: input.quickCardSettings.enabledSymbols?.concept,
-                        descriptor: input.quickCardSettings.enabledSymbols?.descriptor,
-                        cloze: input.quickCardSettings.enabledSymbols?.cloze,
-                        multiLine: input.quickCardSettings.enabledSymbols?.multiLine,
-                    },
-                    topicDerivation: {
-                        enabled: input.quickCardSettings.topicDerivation?.enabled,
-                    },
+        const request = {
+            blockId: input.blockId,
+            content: input.content,
+            blockType: input.blockType,
+            resolvedCardType: input.resolvedCardType,
+            source: input.source,
+            ruleScope: input.ruleScope ?? 'all',
+            hasParentTopicCard: Boolean(input.sourceContext?.parentTopicCardId),
+            settings: {
+                enabledSymbols: {
+                    basic: input.quickCardSettings.enabledSymbols?.basic,
+                    concept: input.quickCardSettings.enabledSymbols?.concept,
+                    descriptor: input.quickCardSettings.enabledSymbols?.descriptor,
+                    cloze: input.quickCardSettings.enabledSymbols?.cloze,
+                    multiLine: input.quickCardSettings.enabledSymbols?.multiLine,
                 },
-            });
+                topicDerivation: {
+                    enabled: input.quickCardSettings.topicDerivation?.enabled,
+                },
+            },
+        } as const;
+        if (backendClient) {
+            const runtime = this.getFrontendRelayRuntimeOptional();
+            const followerClient = this.getFollowerCommandClientOptional();
+            let decisionResult: BackendAutoCardDecisionResolveResult;
+            if (runtime && runtime.getMode() === 'follower') {
+                if (!followerClient) {
+                    throw new Error('BACKEND_UNAVAILABLE: autocard.decision.resolve relay is unavailable in follower mode');
+                }
+                const relayResult = await followerClient.submitAndWait<unknown>({
+                    instanceId: runtime.getInstanceId(),
+                    commandId: `autocard.decision.resolve:${this.hashFNV1a32(JSON.stringify(request))}`,
+                    method: 'autocard.decision.resolve',
+                    params: request,
+                });
+                decisionResult = this.normalizeBackendDecisionResolveResult(relayResult);
+            } else {
+                decisionResult = this.normalizeBackendDecisionResolveResult(
+                    await backendClient.resolveAutoCardDecision(request),
+                );
+            }
             return {
+                candidateId: decisionResult.candidateId,
+                decisionEventId: decisionResult.decisionEventId,
+                status: decisionResult.status,
+                unavailableClass: decisionResult.unavailableClass ?? null,
                 matchedRuleIds: decisionResult.matchedRuleIds || [],
                 enabledDecisions: (decisionResult.filteredDecisions || []).map((decision) => this.toCreationDecision(decision)),
                 selectedDecision: decisionResult.selectedDecision ? this.toCreationDecision(decisionResult.selectedDecision) : null,
@@ -588,14 +675,7 @@ export class AutoCardHandler implements ITransactionHandler {
         ruleScope?: AutoCardDecisionRuleScope;
         quickCardSettings: QuickCardSettings;
         sourceContext: ProgressiveSourceContext | null;
-    }): Promise<{
-        matchedRuleIds: string[];
-        enabledDecisions: CreationDecision[];
-        selectedDecision: CreationDecision | null;
-        conflicted: boolean;
-        shouldUseTopicDerivation: boolean;
-        markOnlyClozeCandidate: boolean;
-    }> {
+    }): Promise<AutoCardDecisionCoreResult> {
         const plan = this.postCreationPlanner.plan({
             blockId: input.blockId,
             content: input.content,
@@ -643,7 +723,30 @@ export class AutoCardHandler implements ITransactionHandler {
                 defaultStrategy: 'semantic-first',
             }
         );
+        const status: AutoCardDecisionCoreResult['status'] = resolved.decision
+            ? 'selected'
+            : enabledDecisions.length > 0
+                ? 'skipped'
+                : 'no-op';
+        const candidateId = this.buildLocalCandidateId({
+            blockId: input.blockId,
+            content: input.content,
+            blockType: input.blockType,
+            resolvedCardType: input.resolvedCardType,
+            source: input.source,
+            ruleScope: input.ruleScope ?? 'all',
+        });
+        const unavailableClass: BackendUnavailableClass | null = null;
         return {
+            candidateId,
+            decisionEventId: this.buildLocalDecisionEventId({
+                candidateId,
+                selectedDecisionId: resolved.decision?.id || null,
+                status,
+                unavailableClass,
+            }),
+            status,
+            unavailableClass,
             matchedRuleIds: plan.diagnostics.matchedRuleIds,
             enabledDecisions,
             selectedDecision: resolved.decision,
@@ -1319,7 +1422,16 @@ export class AutoCardHandler implements ITransactionHandler {
                     return;
                 }
 
-                await this.executeAutoCardEnvelope({
+                this.traceAutoCard('decision.execute.begin', {
+                    runId: traceContext?.runId ?? null,
+                    txBatchId: traceContext?.txBatchId ?? null,
+                    blockId,
+                    candidateId: decisionCoreResult.candidateId,
+                    decisionEventId: decisionCoreResult.decisionEventId,
+                    decisionStatus: decisionCoreResult.status,
+                    envelopeKind: 'topic-derived',
+                });
+                const executed = await this.executeAutoCardEnvelope({
                     kind: 'topic-derived',
                     input: {
                         sourceBlockId: blockId,
@@ -1332,6 +1444,16 @@ export class AutoCardHandler implements ITransactionHandler {
                         decisions: enabledDecisions,
                         storageMode: normalizedSettings.topicDerivation?.storageMode,
                     },
+                });
+                this.traceAutoCard('decision.execute.end', {
+                    runId: traceContext?.runId ?? null,
+                    txBatchId: traceContext?.txBatchId ?? null,
+                    blockId,
+                    candidateId: decisionCoreResult.candidateId,
+                    decisionEventId: decisionCoreResult.decisionEventId,
+                    decisionStatus: decisionCoreResult.status,
+                    envelopeKind: 'topic-derived',
+                    executed,
                 });
                 return;
             }
@@ -1354,6 +1476,10 @@ export class AutoCardHandler implements ITransactionHandler {
                 runId: traceContext?.runId ?? null,
                 txBatchId: traceContext?.txBatchId ?? null,
                 blockId,
+                candidateId: decisionCoreResult.candidateId,
+                decisionEventId: decisionCoreResult.decisionEventId,
+                decisionStatus: decisionCoreResult.status,
+                decisionUnavailableClass: decisionCoreResult.unavailableClass,
                 strategy: 'semantic-first',
                 selectedDecision: this.summarizeDecision(decisionCoreResult.selectedDecision),
                 enabledDecisionIds: enabledDecisions.map((decision) => decision.id),
@@ -1368,12 +1494,31 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
 
-            await this.executeAutoCardEnvelope({
+            this.traceAutoCard('decision.execute.begin', {
+                runId: traceContext?.runId ?? null,
+                txBatchId: traceContext?.txBatchId ?? null,
+                blockId,
+                candidateId: decisionCoreResult.candidateId,
+                decisionEventId: decisionCoreResult.decisionEventId,
+                decisionStatus: decisionCoreResult.status,
+                envelopeKind: 'planner-decision',
+            });
+            const executed = await this.executeAutoCardEnvelope({
                 kind: 'planner-decision',
                 blockId,
                 content: kramdown,
                 decision: decisionCoreResult.selectedDecision,
                 source: 'symbol-listener',
+            });
+            this.traceAutoCard('decision.execute.end', {
+                runId: traceContext?.runId ?? null,
+                txBatchId: traceContext?.txBatchId ?? null,
+                blockId,
+                candidateId: decisionCoreResult.candidateId,
+                decisionEventId: decisionCoreResult.decisionEventId,
+                decisionStatus: decisionCoreResult.status,
+                envelopeKind: 'planner-decision',
+                executed,
             });
         } catch (error) {
             logger.error('[SiYuanMemo][AutoCard] Error checking quick symbols:', blockId, error);
