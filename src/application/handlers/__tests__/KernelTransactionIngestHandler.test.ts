@@ -113,5 +113,29 @@ describe('KernelTransactionIngestHandler', () => {
 
     handler.dispose();
   });
-});
 
+  it('fails closed when writer relay runtime is required but unavailable', async () => {
+    const ingestKernelTransactions = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: Date.now(),
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const handler = new KernelTransactionIngestHandler(
+      { ingestKernelTransactions },
+      null,
+      null,
+      { batchDebounceMs: 10, writerRelayRequired: true },
+    );
+
+    handler.handle([createTransaction('block-runtime-required')]);
+    await vi.advanceTimersByTimeAsync(10);
+    await Promise.resolve();
+
+    expect(ingestKernelTransactions).not.toHaveBeenCalled();
+
+    handler.dispose();
+  });
+});

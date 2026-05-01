@@ -305,7 +305,7 @@ describe('服务访问集成测试', () => {
       }
     });
 
-    it('开启 writer lease guard flag 时应把 guard 注入 ReviewCommitUseCase', async () => {
+    it('开启 backend+writer flags 时应把 runtime policy 注入 ReviewCommitUseCase', async () => {
       const workerFlagKey = 'VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER';
       const leaseFlagKey = 'VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD';
       const previousWorker = process.env[workerFlagKey];
@@ -320,9 +320,13 @@ describe('服务访问集成测试', () => {
           i18n: {},
         });
         const useCase = flaggedContext.getReviewCommitUseCase() as unknown as {
-          deps?: { writerLeaseGuard?: unknown };
+          deps?: {
+            writerLeaseGuard?: unknown;
+            runtimePolicy?: { capabilities?: { reviewFeedbackWriteEnabled?: boolean } };
+          };
         };
-        expect(useCase.deps?.writerLeaseGuard).toBeTruthy();
+        expect(useCase.deps?.runtimePolicy?.capabilities?.reviewFeedbackWriteEnabled).toBe(true);
+        expect(useCase.deps?.writerLeaseGuard).toBe(flaggedContext.getFrontendInstanceRuntime());
       } finally {
         if (flaggedContext && !flaggedContext.isDisposed()) {
           await flaggedContext.dispose();

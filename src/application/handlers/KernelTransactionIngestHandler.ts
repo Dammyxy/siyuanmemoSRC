@@ -22,6 +22,7 @@ interface KernelTransactionIngestHandlerOptions {
   maxBatchTransactions?: number;
   relayTimeoutMs?: number;
   maxAttempts?: number;
+  writerRelayRequired?: boolean;
 }
 
 type PendingBatch = {
@@ -35,6 +36,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   private readonly maxBatchTransactions: number;
   private readonly relayTimeoutMs: number;
   private readonly maxAttempts: number;
+  private readonly writerRelayRequired: boolean;
   private readonly pendingTransactions: Transaction[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushInFlight = false;
@@ -50,6 +52,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
     this.maxBatchTransactions = Math.max(1, Math.floor(options.maxBatchTransactions ?? 256));
     this.relayTimeoutMs = Math.max(1_000, Math.floor(options.relayTimeoutMs ?? 15_000));
     this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
+    this.writerRelayRequired = options.writerRelayRequired === true;
   }
 
   handle(transactions: Transaction[]): void {
@@ -125,6 +128,10 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   }
 
   private async sendBatch(batch: PendingBatch): Promise<void> {
+    if (this.writerRelayRequired && !this.runtime) {
+      throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.ingest requires writer relay runtime');
+    }
+
     const payload = {
       source: 'ws-main' as const,
       transactions: batch.transactions,
@@ -132,7 +139,10 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
       idempotencyKey: batch.idempotencyKey,
     };
 
-    if (this.runtime && this.followerCommandClient && this.runtime.getMode() !== 'writer') {
+    if (this.runtime && this.runtime.getMode() !== 'writer') {
+      if (!this.followerCommandClient) {
+        throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.ingest relay is unavailable in follower mode');
+      }
       await this.followerCommandClient.submitAndWait(
         {
           instanceId: this.runtime.getInstanceId(),
@@ -151,4 +161,3 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
-

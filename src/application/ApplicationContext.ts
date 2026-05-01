@@ -123,7 +123,6 @@ import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
 import { SrsBackendClient, type SrsBackendTransport } from '@/application/clients/SrsBackendClient';
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
-import { KernelWriterLeaseGuard } from '@/application/clients/KernelWriterLeaseGuard';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
 import {
@@ -131,6 +130,10 @@ import {
   listMigratedStateFamilies,
   type MigratedStateFamily,
 } from '@/application/backendMigration/ownershipMap';
+import {
+  resolveBackendMigrationRuntimePolicy,
+  type BackendMigrationRuntimePolicy,
+} from '@/application/backendMigration/runtimePolicy';
 import { BackendKernel } from '../../worker/bootstrap/BackendKernel';
 import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
 import { WorkerSqliteDatabaseService } from '../../worker/db/SqliteDatabaseService';
@@ -224,9 +227,6 @@ export interface ApplicationConfig {
  * ```
  */
 export class ApplicationContext {
-  private static readonly SRS_BACKEND_WORKER_ENV_KEY = 'VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER';
-  private static readonly KERNEL_WRITER_LEASE_GUARD_ENV_KEY = 'VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD';
-  private static readonly KERNEL_TRANSACTION_INGEST_ENV_KEY = 'VITE_SIYUANMEMO_ENABLE_KERNEL_TRANSACTION_INGEST';
   private static readonly KERNEL_WRITER_LEASE_INSTANCE_ID_ENV_KEY = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_INSTANCE_ID';
   private static readonly KERNEL_WRITER_LEASE_TTL_MS_ENV_KEY = 'VITE_SIYUANMEMO_KERNEL_WRITER_LEASE_TTL_MS';
 
@@ -261,6 +261,7 @@ export class ApplicationContext {
   private srsBackendClient: SrsBackendClient | null = null;
   private frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
   private followerCommandClient: FollowerCommandClient | null = null;
+  private readonly backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
   
   // ========================================================================
   // 服务容器
@@ -342,6 +343,7 @@ export class ApplicationContext {
       srsBackendClient?: SrsBackendClient | null;
       frontendInstanceRuntime?: FrontendInstanceRuntime | null;
       followerCommandClient?: FollowerCommandClient | null;
+      backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
     }
   ) {
     this.config = config;
@@ -358,6 +360,7 @@ export class ApplicationContext {
     this.srsBackendClient = services.srsBackendClient ?? null;
     this.frontendInstanceRuntime = services.frontendInstanceRuntime ?? null;
     this.followerCommandClient = services.followerCommandClient ?? null;
+    this.backendMigrationRuntimePolicy = services.backendMigrationRuntimePolicy;
     
     // ✅ 保存 sharedEventBus 引用（如果提供）
     if (services.sharedEventBus) {
@@ -509,16 +512,10 @@ export class ApplicationContext {
 
     this.registerServiceFactory('reviewCommitUseCase', (context) => {
       const unifiedDataSourceManager = context.getUnifiedDataSourceManager();
-      const writerLeaseGuard = context.frontendInstanceRuntime
-        ?? (context.srsBackendClient && ApplicationContext.isKernelWriterLeaseGuardEnabled()
-          ? new KernelWriterLeaseGuard(
-          new KernelSidecarClient(context.getKernelCompanionPort()),
-          {
-            instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
-            ttlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
-          },
-        )
-          : null);
+      const runtimePolicy = context.getBackendMigrationRuntimePolicy();
+      const writerLeaseGuard = runtimePolicy.capabilities.writerRelayRuntimeEnabled
+        ? context.frontendInstanceRuntime
+        : null;
       return new ReviewCommitUseCase({
         cards: unifiedDataSourceManager,
         scheduler: context.getScheduler(),
@@ -532,6 +529,7 @@ export class ApplicationContext {
         srsBackend: context.srsBackendClient,
         writerLeaseGuard,
         followerCommandClient: context.followerCommandClient,
+        runtimePolicy,
         onCommittedCard: (card) => unifiedDataSourceManager.onCardUpdatedFromScheduler(card),
       });
     });
@@ -572,7 +570,8 @@ export class ApplicationContext {
 
     this.registerServiceFactory('reviewAIWorkbenchRegistry', (context) => {
       const siyuanPort = new AISiyuanAdapter(context.getPlugin().app);
-      const aiBackendSessionService = context.srsBackendClient
+      const aiBackendSessionService = context.getBackendMigrationRuntimePolicy().capabilities.aiBackendSessionEnabled
+        && context.srsBackendClient
         ? new AIBackendSessionService({
             backendClient: context.srsBackendClient,
             networkProxy: new BackendAINetworkProxyAdapter(),
@@ -1242,7 +1241,8 @@ export class ApplicationContext {
     let srsBackendClient: SrsBackendClient | null = null;
     let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
     let followerCommandClient: FollowerCommandClient | null = null;
-    if (ApplicationContext.isSrsBackendWorkerEnabled()) {
+    const backendMigrationRuntimePolicy = resolveBackendMigrationRuntimePolicy(process.env as Record<string, string | undefined>);
+    if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable) {
       try {
         const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
         const browserSiyuanApi = new BrowserSiyuanAdapter();
@@ -1273,7 +1273,7 @@ export class ApplicationContext {
       }
     }
 
-    if (srsBackendClient && ApplicationContext.isKernelWriterLeaseGuardEnabled()) {
+    if (srsBackendClient && backendMigrationRuntimePolicy.capabilities.writerRelayRuntimeEnabled) {
       try {
         const sidecarClient = new KernelSidecarClient(new SiyuanKernelCompanionAdapter());
         frontendInstanceRuntime = new FrontendInstanceRuntime(sidecarClient, {
@@ -1290,7 +1290,7 @@ export class ApplicationContext {
       } catch (error) {
         frontendInstanceRuntime = null;
         followerCommandClient = null;
-        logger.warn('[ApplicationContext] Frontend instance runtime unavailable; review write path keeps explicit unavailable contract', error);
+        logger.warn('[ApplicationContext] Frontend instance runtime unavailable; backend write families fail closed with explicit unavailable', error);
       }
     }
 
@@ -1360,6 +1360,7 @@ export class ApplicationContext {
       srsBackendClient,
       frontendInstanceRuntime,
       followerCommandClient,
+      backendMigrationRuntimePolicy,
     });
     
     // 设置 context 引用（用于 blockMenuHandler 的闭包）
@@ -1749,24 +1750,6 @@ export class ApplicationContext {
     throw new Error(`BACKEND_UNAVAILABLE: unsupported writer relay method ${String(command.method || '')}`);
   }
 
-  private static isSrsBackendWorkerEnabled(): boolean {
-    const key = ApplicationContext.SRS_BACKEND_WORKER_ENV_KEY;
-    const raw = ApplicationContext.readEnvValue(key);
-    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-  }
-
-  private static isKernelWriterLeaseGuardEnabled(): boolean {
-    const key = ApplicationContext.KERNEL_WRITER_LEASE_GUARD_ENV_KEY;
-    const raw = ApplicationContext.readEnvValue(key);
-    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-  }
-
-  private static isKernelTransactionIngestEnabled(): boolean {
-    const key = ApplicationContext.KERNEL_TRANSACTION_INGEST_ENV_KEY;
-    const raw = ApplicationContext.readEnvValue(key);
-    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-  }
-
   private static resolveKernelWriterLeaseInstanceId(): string | undefined {
     const raw = ApplicationContext.readEnvValue(ApplicationContext.KERNEL_WRITER_LEASE_INSTANCE_ID_ENV_KEY, false);
     const value = String(raw || '').trim();
@@ -2004,8 +1987,10 @@ export class ApplicationContext {
     const nativeRiffSyncEnabled = settings.riffIntegration?.incrementalSync?.enabled === true
       && Boolean(this.hybridSyncService);
     const reviewSourceBlockRefreshEnabled = settings.ui?.reviewSourceBlockRefreshEnabled === true;
-    const kernelTransactionIngestEnabled = ApplicationContext.isKernelTransactionIngestEnabled()
-      && Boolean(this.srsBackendClient);
+    const runtimePolicy = this.getBackendMigrationRuntimePolicy();
+    const kernelTransactionIngestEnabled = runtimePolicy.capabilities.kernelTransactionIngestEnabled
+      && Boolean(this.srsBackendClient)
+      && Boolean(this.frontendInstanceRuntime);
     const shouldEnable = quickCardEnabled
       || nativeRiffSyncEnabled
       || reviewSourceBlockRefreshEnabled
@@ -2080,6 +2065,9 @@ export class ApplicationContext {
         this.srsBackendClient,
         this.frontendInstanceRuntime,
         this.followerCommandClient,
+        {
+          writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
+        },
       );
       transactionWebSocketService.registerHandler(kernelTransactionIngestHandler);
       this.kernelTransactionIngestHandler = kernelTransactionIngestHandler;
@@ -2089,6 +2077,9 @@ export class ApplicationContext {
         this.followerCommandClient,
         () => this.hybridSyncService,
         () => this.autoCardHandler,
+        {
+          writerRelayRequired: runtimePolicy.capabilities.writerRelayRequiredForBackendWrites,
+        },
       );
       kernelTransactionActionPump.start();
       this.kernelTransactionActionPump = kernelTransactionActionPump;
@@ -2183,6 +2174,10 @@ export class ApplicationContext {
 
   getFollowerCommandClient(): FollowerCommandClient | null {
     return this.followerCommandClient;
+  }
+
+  getBackendMigrationRuntimePolicy(): BackendMigrationRuntimePolicy {
+    return this.backendMigrationRuntimePolicy;
   }
 
   getBackendMigrationOwnershipMap(): MigratedStateFamily[] {

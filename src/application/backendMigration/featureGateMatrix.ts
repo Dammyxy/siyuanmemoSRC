@@ -20,7 +20,7 @@ export const BACKEND_FEATURE_GATE_MATRIX: BackendFeatureGateRow[] = [
     reviewAfter: '2026-08-01',
     rollbackMode: 'disable-feature-flag',
     owner: 'writer-relay',
-    defaultEnabled: true,
+    defaultEnabled: false,
   },
   {
     gate: BACKEND_MIGRATION_FEATURE_GATES.autocardExecuteRelay,
@@ -28,9 +28,9 @@ export const BACKEND_FEATURE_GATE_MATRIX: BackendFeatureGateRow[] = [
     status: 'retained',
     retentionReason: 'backend execute ownership is enforced and still needs rollback control during phase-9 hardening',
     reviewAfter: '2026-08-01',
-    rollbackMode: 'disable-feature-flag',
+    rollbackMode: 'return-unavailable',
     owner: 'backend-worker',
-    defaultEnabled: true,
+    defaultEnabled: false,
   },
   {
     gate: BACKEND_MIGRATION_FEATURE_GATES.kernelTransactionIngest,
@@ -40,7 +40,7 @@ export const BACKEND_FEATURE_GATE_MATRIX: BackendFeatureGateRow[] = [
     reviewAfter: '2026-08-01',
     rollbackMode: 'return-unavailable',
     owner: 'backend-worker',
-    defaultEnabled: true,
+    defaultEnabled: false,
   },
   {
     gate: BACKEND_MIGRATION_FEATURE_GATES.privateApi,

@@ -8,6 +8,7 @@ import type {
 import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import type { FSRSCard, Rating } from '@/types';
+import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ReviewCommitUseCase');
@@ -69,6 +70,7 @@ export interface ReviewCommitUseCaseDependencies {
   srsBackend?: ReviewCommitBackendFeedbackClient | null;
   writerLeaseGuard?: ReviewCommitWriterLeaseGuard | null;
   followerCommandClient?: ReviewCommitFollowerCommandClient | null;
+  runtimePolicy?: Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
   onCommittedCard?: (card: FSRSCard) => Promise<void> | void;
 }
 
@@ -76,6 +78,9 @@ export class ReviewCommitUseCase {
   constructor(private readonly deps: ReviewCommitUseCaseDependencies) {}
 
   async execute(command: QueueReviewCommand): Promise<QueueReviewCommitResult> {
+    if (!this.isRuntimePolicyReadyForWrite()) {
+      throw new Error('BACKEND_UNAVAILABLE: review.feedback requires backend+writer ownership');
+    }
     if (!this.shouldUseWorkerFeedback(command)) {
       throw new Error('BACKEND_UNAVAILABLE: review.feedback requires backend-worker ownership');
     }
@@ -151,6 +156,9 @@ export class ReviewCommitUseCase {
       });
       result = normalizeRelayFeedbackResult(relayPayload);
     } else {
+      if (followerRelayRuntime && !this.deps.followerCommandClient) {
+        throw new Error('BACKEND_UNAVAILABLE: review.feedback relay is unavailable in follower mode');
+      }
       if (this.deps.writerLeaseGuard) {
         await this.deps.writerLeaseGuard.ensureWritable();
       }
@@ -167,6 +175,20 @@ export class ReviewCommitUseCase {
       updatedCard,
       committed: result.committed,
     };
+  }
+
+  private isRuntimePolicyReadyForWrite(): boolean {
+    const runtimePolicy = this.deps.runtimePolicy;
+    if (!runtimePolicy) {
+      return true;
+    }
+    if (!runtimePolicy.capabilities.reviewFeedbackWriteEnabled) {
+      return false;
+    }
+    if (runtimePolicy.capabilities.writerRelayRequiredForBackendWrites && !this.deps.writerLeaseGuard) {
+      return false;
+    }
+    return true;
   }
 
   private async recordArenaReview(card: FSRSCard, rating: Rating, schedulingContext?: SrsV2SchedulingContext | null): Promise<void> {

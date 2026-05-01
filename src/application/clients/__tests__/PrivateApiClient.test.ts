@@ -98,4 +98,66 @@ describe('PrivateApiClient', () => {
       params: { action: 'noop' },
     })).rejects.toThrow('WRITER_UNAVAILABLE: private mutation relay is unavailable in follower mode');
   });
+
+  it('rejects mutation when writer relay runtime is required but missing', async () => {
+    const privateCommand = vi.fn(async () => ({
+      ok: true,
+      commandId: 'cmd-direct',
+      writerInstanceId: 'writer-1',
+      changed: {},
+      result: { committed: true },
+      auditStatus: 'recorded',
+      diagnosticEventId: 'diag-direct',
+    }));
+    const client = new PrivateApiClient({
+      backendClient: {
+        privateCommand,
+      } as unknown as SrsBackendClient,
+      frontendRuntime: null,
+      followerCommandClient: null,
+    });
+
+    await expect(client.mutate({
+      method: 'private.command.execute',
+      callerIntent: 'test-mutation',
+      requestId: 'mutation-3',
+      idempotencyKey: 'private-mutation-3',
+      params: { action: 'noop' },
+    })).rejects.toThrow('WRITER_UNAVAILABLE: private mutation requires writer relay runtime');
+    expect(privateCommand).not.toHaveBeenCalled();
+  });
+
+  it('allows explicit single-writer mutation mode without relay runtime', async () => {
+    const privateCommand = vi.fn(async () => ({
+      ok: true,
+      commandId: 'cmd-single-writer',
+      writerInstanceId: 'writer-1',
+      changed: {},
+      result: { committed: true },
+      auditStatus: 'recorded',
+      diagnosticEventId: 'diag-single-writer',
+    }));
+    const client = new PrivateApiClient({
+      backendClient: {
+        privateCommand,
+      } as unknown as SrsBackendClient,
+      frontendRuntime: null,
+      followerCommandClient: null,
+      writerRelayRequiredForMutations: false,
+    });
+
+    const result = await client.mutate({
+      method: 'private.command.execute',
+      callerIntent: 'test-mutation',
+      requestId: 'mutation-4',
+      idempotencyKey: 'private-mutation-4',
+      params: { action: 'noop' },
+    });
+
+    expect(privateCommand).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: true,
+      commandId: 'cmd-single-writer',
+    });
+  });
 });

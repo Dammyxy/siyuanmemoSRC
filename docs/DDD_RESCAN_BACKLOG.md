@@ -4,6 +4,16 @@ Last update: 2026-05-01 (Round 253)
 
 ## 0. Task Deltas (newest first)
 
+### 2026-05-01 - runtime policy remediation r1 rm001-rm006
+
+- Task: 执行 backend migration remediation 的 RM001-RM006，建立统一 runtime policy，并把 backend worker / writer relay / feature gates / default env / unavailable 语义收口到同一运行时契约。
+- Touched slice: composition root + review/autocard/transaction/private mutation ownership；`src/application/backendMigration/{runtimePolicy,featureGateMatrix}.ts`、`src/application/ApplicationContext.ts`、`src/application/usecases/review/ReviewCommitUseCase.ts`、`src/application/handlers/{AutoCardHandler,KernelTransactionIngestHandler,KernelTransactionActionPump}.ts`、`src/application/clients/PrivateApiClient.ts`、`.env.example`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: 新增 `runtimePolicy` 统一解析 gates/env/capabilities；`ApplicationContext` 移除分散的 `isSrsBackendWorkerEnabled/isKernelWriterLeaseGuardEnabled/isKernelTransactionIngestEnabled` 判定并改为 policy 消费；`ReviewCommitUseCase`、`AutoCardHandler`、transaction ingest/action pump、`PrivateApiClient` 在“writer relay required 但 runtime 不可用”场景统一 fail-closed，不再允许直写 backend mutation；`featureGateMatrix` 的 gate 全部被生产 runtime 路径消费；`.env.example` 切到 release 示例 `backend+writer` 开启，`private API/AI backend runtime` 默认关闭。
+- Debt deferred: `specs/001-backend-migration-next/remediation-tasks.md` 不在当前 worktree 内，无法在本分支直接勾选 RM001-RM006 复选框；private API 仍是 foundation wiring（未在 ApplicationContext 暴露完整 runtime surface）。
+- Why deferred: 当前任务要求只在 `kernel-companion-p0` worktree 改动；spec 文件位于 workspace 根且不在该 worktree checkout。private API runtime 暴露属于 RM032+ 后续范围，不在本轮 RM001-RM006。
+- Next safe step: 在包含 `specs/` 的执行分支同步勾选 RM001-RM006，并进入 RM007-RM012（boundary/cutover checker 强化）前先确认 remediation 任务文档与本次代码状态一致。
+- Validation: `pnpm vitest run src/application/backendMigration/__tests__/runtimePolicy.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts src/application/clients/__tests__/PrivateApiClient.test.ts src/application/__tests__/BackendMigrationParity.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
+
 ### 2026-05-01 - phase9 cutover retirement (review/scheduler/browser/autocard)
 
 - Task: 完成 backend migration US4 旧主路径 retirement（T079-T086）：移除 review/scheduler/browser/autocard 旧主路径入口并收口为 explicit backend ownership + unavailable contract。

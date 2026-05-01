@@ -367,4 +367,28 @@ describe('KernelTransactionActionPump', () => {
 
     await pump.dispose();
   });
+
+  it('fails closed when writer relay runtime is required but unavailable', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => undefined,
+      () => undefined,
+      { pollIntervalMs: 250, writerRelayRequired: true },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(dequeueKernelTransactions).not.toHaveBeenCalled();
+
+    await pump.dispose();
+  });
 });

@@ -3,6 +3,7 @@ import type FSRSPlugin from '@/index';
 import type { AutoCardSiyuanPort } from '../ports/AutoCardSiyuanPort';
 import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
 import type { SrsBackendClient } from '../clients/SrsBackendClient';
+import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import { createLogger } from '@/utils/logger';
 import { ClozeDetector } from '@/utils/cloze-detector';
 import { isErr, type Result } from '@/types/result';
@@ -131,6 +132,7 @@ type AutoCardContextLike = {
             params?: unknown;
         }, timeoutMs?: number) => Promise<TResult>;
     } | null;
+    getBackendMigrationRuntimePolicy?: () => Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
 };
 
 type AutoCardDecisionCoreResult = {
@@ -395,6 +397,19 @@ export class AutoCardHandler implements ITransactionHandler {
         }
     }
 
+    private getRuntimePolicyOptional(): Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null {
+        try {
+            const context = this.getContext();
+            if (context?.getBackendMigrationRuntimePolicy) {
+                return context.getBackendMigrationRuntimePolicy() ?? null;
+            }
+            return null;
+        } catch (error) {
+            logger.warn('[AutoCard] Failed to get backend migration runtime policy from context:', error);
+            return null;
+        }
+    }
+
     private toCreationDecision(decision: BackendAutoCardDecisionProjection): CreationDecision {
         return {
             id: decision.id,
@@ -540,11 +555,18 @@ export class AutoCardHandler implements ITransactionHandler {
     private async executeViaWorkerIfAvailable(
         envelope: AutoCardExecutionEnvelope,
     ): Promise<AutoCardExecutionResult> {
+        const runtimePolicy = this.getRuntimePolicyOptional();
+        if (runtimePolicy && !runtimePolicy.capabilities.autoCardExecuteWriteEnabled) {
+            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires backend+writer ownership');
+        }
         const backendClient = this.getSrsBackendClientOptional();
         if (!backendClient) {
             throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires backend-worker ownership');
         }
         const runtime = this.getFrontendRelayRuntimeOptional();
+        if (runtimePolicy?.capabilities.writerRelayRequiredForBackendWrites && !runtime) {
+            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires writer relay runtime');
+        }
         const followerClient = this.getFollowerCommandClientOptional();
         const request: BackendAutoCardExecuteRequest = {
             envelope: this.toBackendExecuteEnvelope(envelope),
@@ -617,6 +639,7 @@ export class AutoCardHandler implements ITransactionHandler {
         sourceContext: ProgressiveSourceContext | null;
     }): Promise<AutoCardDecisionCoreResult> {
         const backendClient = this.getSrsBackendClientOptional();
+        const runtimePolicy = this.getRuntimePolicyOptional();
         const request = {
             blockId: input.blockId,
             content: input.content,
@@ -638,8 +661,11 @@ export class AutoCardHandler implements ITransactionHandler {
                 },
             },
         } as const;
-        if (backendClient) {
+        if (backendClient && (runtimePolicy?.capabilities.autoCardDecisionBackendEnabled ?? true)) {
             const runtime = this.getFrontendRelayRuntimeOptional();
+            if (runtimePolicy?.capabilities.writerRelayRequiredForBackendWrites && !runtime) {
+                throw new Error('BACKEND_UNAVAILABLE: autocard.decision.resolve requires writer relay runtime');
+            }
             const followerClient = this.getFollowerCommandClientOptional();
             let decisionResult: BackendAutoCardDecisionResolveResult;
             if (runtime && runtime.getMode() === 'follower') {

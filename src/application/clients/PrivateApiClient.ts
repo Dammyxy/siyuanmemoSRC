@@ -12,17 +12,20 @@ interface PrivateApiClientDeps {
   backendClient: Pick<SrsBackendClient, 'privateRead' | 'privateCommand'>;
   frontendRuntime?: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId'> | null;
   followerCommandClient?: Pick<FollowerCommandClient, 'submitAndWait'> | null;
+  writerRelayRequiredForMutations?: boolean;
 }
 
 export class PrivateApiClient {
   private readonly backendClient: Pick<SrsBackendClient, 'privateRead' | 'privateCommand'>;
   private readonly frontendRuntime: Pick<FrontendInstanceRuntime, 'getMode' | 'getInstanceId'> | null;
   private readonly followerCommandClient: Pick<FollowerCommandClient, 'submitAndWait'> | null;
+  private readonly writerRelayRequiredForMutations: boolean;
 
   constructor(deps: PrivateApiClientDeps) {
     this.backendClient = deps.backendClient;
     this.frontendRuntime = deps.frontendRuntime ?? null;
     this.followerCommandClient = deps.followerCommandClient ?? null;
+    this.writerRelayRequiredForMutations = deps.writerRelayRequiredForMutations !== false;
   }
 
   async read(request: PrivateApiReadRequest): Promise<PrivateApiReadResult> {
@@ -30,6 +33,9 @@ export class PrivateApiClient {
   }
 
   async mutate(request: PrivateApiMutationRequest): Promise<PrivateApiMutationResult> {
+    if (this.writerRelayRequiredForMutations && !this.frontendRuntime) {
+      throw new Error('WRITER_UNAVAILABLE: private mutation requires writer relay runtime');
+    }
     if (!this.isFollowerMode()) {
       return this.backendClient.privateCommand(request);
     }

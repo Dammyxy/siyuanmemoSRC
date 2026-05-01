@@ -38,6 +38,7 @@ interface KernelTransactionActionPumpOptions {
   relayTimeoutMs?: number;
   upsertCooldownMs?: number;
   autoCardCooldownMs?: number;
+  writerRelayRequired?: boolean;
 }
 
 type AutoCardActionType = 'insert' | 'update' | 'delete';
@@ -81,6 +82,7 @@ export class KernelTransactionActionPump {
   private readonly relayTimeoutMs: number;
   private readonly upsertCooldownMs: number;
   private readonly autoCardCooldownMs: number;
+  private readonly writerRelayRequired: boolean;
   private pollingTimer: ReturnType<typeof setInterval> | null = null;
   private pollingInFlight = false;
   private pendingUpsert = false;
@@ -101,6 +103,7 @@ export class KernelTransactionActionPump {
     this.relayTimeoutMs = Math.max(1_000, Math.floor(options.relayTimeoutMs ?? 15_000));
     this.upsertCooldownMs = Math.max(250, Math.floor(options.upsertCooldownMs ?? 1_500));
     this.autoCardCooldownMs = Math.max(250, Math.floor(options.autoCardCooldownMs ?? 1_000));
+    this.writerRelayRequired = options.writerRelayRequired === true;
   }
 
   start(): void {
@@ -274,8 +277,14 @@ export class KernelTransactionActionPump {
     }>;
     remaining: number;
   }> {
+    if (this.writerRelayRequired && !this.runtime) {
+      throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.dequeue requires writer relay runtime');
+    }
     const params = { maxActions: this.maxActionsPerPoll };
-    if (this.runtime && this.followerCommandClient && this.runtime.getMode() !== 'writer') {
+    if (this.runtime && this.runtime.getMode() !== 'writer') {
+      if (!this.followerCommandClient) {
+        throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.dequeue relay is unavailable in follower mode');
+      }
       return this.followerCommandClient.submitAndWait(
         {
           instanceId: this.runtime.getInstanceId(),
@@ -327,7 +336,13 @@ export class KernelTransactionActionPump {
     error: unknown,
   ): Promise<void> {
     try {
-      if (this.runtime && this.followerCommandClient && this.runtime.getMode() !== 'writer') {
+      if (this.writerRelayRequired && !this.runtime) {
+        throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.requeue requires writer relay runtime');
+      }
+      if (this.runtime && this.runtime.getMode() !== 'writer') {
+        if (!this.followerCommandClient) {
+          throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.requeue relay is unavailable in follower mode');
+        }
         await this.followerCommandClient.submitAndWait(
           {
             instanceId: this.runtime.getInstanceId(),

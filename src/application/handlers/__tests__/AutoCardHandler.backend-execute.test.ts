@@ -17,6 +17,20 @@ function createHandler(input?: {
       params?: unknown;
     }, timeoutMs?: number) => Promise<TResult>;
   } | null;
+  runtimePolicy?: {
+    capabilities: {
+      backendWorkerAvailable: boolean;
+      writerRelayRuntimeEnabled: boolean;
+      writerRelayRequiredForBackendWrites: boolean;
+      reviewFeedbackWriteEnabled: boolean;
+      autoCardExecuteWriteEnabled: boolean;
+      autoCardDecisionBackendEnabled: boolean;
+      kernelTransactionIngestEnabled: boolean;
+      privateApiReadEnabled: boolean;
+      privateApiMutationEnabled: boolean;
+      aiBackendSessionEnabled: boolean;
+    };
+  } | null;
 }) {
   const topicDerivedItemService = {
     createFromTopicSource: vi.fn(async () => ({
@@ -46,6 +60,7 @@ function createHandler(input?: {
       getSrsBackendClient: () => input?.backendClient ?? null,
       getFrontendInstanceRuntime: () => input?.relayRuntime ?? null,
       getFollowerCommandClient: () => input?.followerClient ?? null,
+      getBackendMigrationRuntimePolicy: () => input?.runtimePolicy ?? null,
     }),
   };
 
@@ -349,5 +364,48 @@ describe('AutoCardHandler backend execute routing', () => {
       owner: 'backend-command',
       envelopeKind: 'topic-derived',
     });
+  });
+
+  it('fails closed when runtime policy requires writer relay runtime for backend execute', async () => {
+    const { handler } = createHandler({
+      backendClient: {
+        executeAutoCard: vi.fn(async () => ({
+          executed: true,
+          created: 1,
+          skipped: 0,
+        })),
+      },
+      runtimePolicy: {
+        capabilities: {
+          backendWorkerAvailable: true,
+          writerRelayRuntimeEnabled: true,
+          writerRelayRequiredForBackendWrites: true,
+          reviewFeedbackWriteEnabled: true,
+          autoCardExecuteWriteEnabled: true,
+          autoCardDecisionBackendEnabled: true,
+          kernelTransactionIngestEnabled: true,
+          privateApiReadEnabled: false,
+          privateApiMutationEnabled: false,
+          aiBackendSessionEnabled: false,
+        },
+      },
+    });
+
+    await expect((handler as any).executeAutoCardEnvelope({
+      kind: 'planner-decision',
+      blockId: 'block-runtime-missing',
+      content: 'Alpha <> Beta',
+      decision: {
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-bidirectional-single',
+        cardType: 'item',
+        mode: 'multi-face',
+        executorKind: 'quick-basic',
+        priority: 50,
+        direction: 'both',
+      },
+      source: 'symbol-listener',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: autocard.execute requires writer relay runtime');
   });
 });
