@@ -50,7 +50,8 @@
   - Phase 3：Review / Queue / Scheduler `review.feedback` 单事务迁 Worker。
   - Phase 4：kernel writer lease，多窗口 single-writer。
   - Phase 5：Transaction / AutoCard / Riff：kernel 收集，Worker 决策提交。
-  - Phase 6：Progressive / Xiuyuan / Topic-derived 迁 Worker。
+- Phase 6（historical target）：Progressive / Xiuyuan / Topic-derived 迁 Worker。
+- P6（current execution in this branch）：AutoCard decision/execute writer+worker ownership milestone。旧 Phase 6 Progressive/Xiuyuan/Topic-derived 迁移改为 closure backlog，详见 `docs/backend-migration-p6-scope-reconciliation.md`。
   - Phase 7：AI session 入 Worker，network/streaming 走 kernel proxy。
   - Phase 8：private HTTP API，经 writer relay 调 Worker。
   - Phase 9：删除旧前端 SQL / scheduler / review commit 主路径。
