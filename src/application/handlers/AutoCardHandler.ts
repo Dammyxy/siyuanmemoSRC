@@ -22,10 +22,15 @@ import { resolveListChildrenBySubtype } from '@/application/usecases/xiuyuan/sha
 import { CreateCdfMultilineCardsUseCase } from '@/application/usecases/xiuyuan/CreateCdfMultilineCardsUseCase';
 import type { CreateXiuyuanFromBlocksCommand } from '@/application/commands/xiuyuan/CreateXiuyuanFromBlocksCommand';
 import type {
+    BackendAutoCardExecuteEnvelope,
+    BackendAutoCardExecuteRequest,
+    BackendAutoCardExecuteResult,
     BackendAutoCardDecisionProjection,
 } from '../../../packages/contracts/src/backend-rpc';
 import {
     AutoCardExecutionRuntime,
+    type AutoCardExecutionEnvelope,
+    type AutoCardExecutionResult,
     type AutoCardExecutionSource,
 } from './AutoCardExecutionRuntime';
 
@@ -112,6 +117,17 @@ type AutoCardContextLike = {
     getCardTypeDetectionService?: () => CardTypeDetectionServiceLike;
     getTopicDerivedItemService?: () => TopicDerivedItemServiceLike;
     getSrsBackendClient?: () => SrsBackendClient | null;
+    getFrontendInstanceRuntime?: () => {
+        getMode: () => 'writer' | 'follower';
+        getInstanceId: () => string;
+    } | null;
+    getFollowerCommandClient?: () => {
+        submitAndWait: <TResult>(request: {
+            instanceId: string;
+            method: string;
+            params?: unknown;
+        }, timeoutMs?: number) => Promise<TResult>;
+    } | null;
 };
 
 type TopicDerivedItemServiceLike = {
@@ -327,6 +343,41 @@ export class AutoCardHandler implements ITransactionHandler {
         }
     }
 
+    private getFrontendRelayRuntimeOptional(): {
+        getMode: () => 'writer' | 'follower';
+        getInstanceId: () => string;
+    } | null {
+        try {
+            const context = this.getContext();
+            if (context?.getFrontendInstanceRuntime) {
+                return context.getFrontendInstanceRuntime() ?? null;
+            }
+            return null;
+        } catch (error) {
+            logger.warn('[AutoCard] Failed to get FrontendInstanceRuntime from context:', error);
+            return null;
+        }
+    }
+
+    private getFollowerCommandClientOptional(): {
+        submitAndWait: <TResult>(request: {
+            instanceId: string;
+            method: string;
+            params?: unknown;
+        }, timeoutMs?: number) => Promise<TResult>;
+    } | null {
+        try {
+            const context = this.getContext();
+            if (context?.getFollowerCommandClient) {
+                return context.getFollowerCommandClient() ?? null;
+            }
+            return null;
+        } catch (error) {
+            logger.warn('[AutoCard] Failed to get FollowerCommandClient from context:', error);
+            return null;
+        }
+    }
+
     private toCreationDecision(decision: BackendAutoCardDecisionProjection): CreationDecision {
         return {
             id: decision.id,
@@ -340,6 +391,139 @@ export class AutoCardHandler implements ITransactionHandler {
             priority: decision.priority,
             conflictGroup: decision.conflictGroup,
             hints: decision.hints,
+        };
+    }
+
+    private toBackendDecisionProjection(decision: CreationDecision): BackendAutoCardDecisionProjection {
+        return {
+            id: decision.id,
+            family: decision.family,
+            templateId: decision.templateId,
+            cardType: decision.cardType,
+            mode: decision.mode,
+            executorKind: decision.executorKind,
+            renderProfile: decision.renderProfile,
+            direction: decision.direction,
+            priority: decision.priority,
+            conflictGroup: decision.conflictGroup,
+            hints: decision.hints,
+        };
+    }
+
+    private toBackendExecuteEnvelope(envelope: AutoCardExecutionEnvelope): BackendAutoCardExecuteEnvelope {
+        if (envelope.kind === 'planner-decision') {
+            return {
+                kind: 'planner-decision',
+                blockId: envelope.blockId,
+                content: envelope.content,
+                decision: this.toBackendDecisionProjection(envelope.decision),
+                source: envelope.source,
+                docRootId: envelope.docRootId,
+            };
+        }
+        return {
+            kind: 'topic-derived',
+            input: {
+                ...envelope.input,
+                decisions: envelope.input.decisions.map((decision) => this.toBackendDecisionProjection(decision)),
+            },
+        };
+    }
+
+    private fromBackendExecuteEnvelope(envelope: BackendAutoCardExecuteEnvelope): AutoCardExecutionEnvelope {
+        if (envelope.kind === 'planner-decision') {
+            return {
+                kind: 'planner-decision',
+                blockId: envelope.blockId,
+                content: envelope.content,
+                decision: this.toCreationDecision(envelope.decision),
+                source: envelope.source,
+                docRootId: envelope.docRootId,
+            };
+        }
+        return {
+            kind: 'topic-derived',
+            input: {
+                ...envelope.input,
+                decisions: (envelope.input.decisions || []).map((decision) => this.toCreationDecision(decision)),
+            },
+        };
+    }
+
+    private normalizeBackendExecuteResult(payload: unknown): AutoCardExecutionResult {
+        if (!payload || typeof payload !== 'object') {
+            throw new Error('autocard.execute returned invalid payload');
+        }
+        const candidate = payload as {
+            executed?: unknown;
+            created?: unknown;
+            skipped?: unknown;
+        };
+        return {
+            executed: candidate.executed === true,
+            created: Math.max(0, Math.floor(Number(candidate.created || 0))),
+            skipped: Math.max(0, Math.floor(Number(candidate.skipped || 0))),
+        };
+    }
+
+    private async executeViaWorkerIfAvailable(
+        envelope: AutoCardExecutionEnvelope,
+    ): Promise<AutoCardExecutionResult | null> {
+        const backendClient = this.getSrsBackendClientOptional();
+        if (!backendClient) {
+            return null;
+        }
+        const runtime = this.getFrontendRelayRuntimeOptional();
+        const followerClient = this.getFollowerCommandClientOptional();
+        const request: BackendAutoCardExecuteRequest = {
+            envelope: this.toBackendExecuteEnvelope(envelope),
+        };
+        if (runtime && runtime.getMode() === 'follower') {
+            if (!followerClient) {
+                throw new Error('BACKEND_UNAVAILABLE: autocard.execute relay is unavailable in follower mode');
+            }
+            const relayResult = await followerClient.submitAndWait<unknown>({
+                instanceId: runtime.getInstanceId(),
+                method: 'autocard.execute',
+                params: request,
+            });
+            return this.normalizeBackendExecuteResult(relayResult);
+        }
+        try {
+            const result = await backendClient.executeAutoCard(request);
+            return this.normalizeBackendExecuteResult(result);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || '');
+            if (message.startsWith('BACKEND_UNAVAILABLE:')) {
+                return null;
+            }
+            throw error;
+        }
+    }
+
+    private async executeAutoCardEnvelope(
+        envelope: AutoCardExecutionEnvelope,
+    ): Promise<boolean> {
+        const workerResult = await this.executeViaWorkerIfAvailable(envelope);
+        if (workerResult) {
+            return workerResult.executed;
+        }
+        const localResult = await this.executionRuntime.executeLocalWithResult(envelope);
+        return localResult.executed;
+    }
+
+    async executeEnvelopeFromBackend(
+        request: BackendAutoCardExecuteRequest,
+    ): Promise<BackendAutoCardExecuteResult> {
+        if (!request || typeof request !== 'object' || !request.envelope || typeof request.envelope !== 'object') {
+            throw new Error('autocard.execute requires named params with envelope');
+        }
+        const localEnvelope = this.fromBackendExecuteEnvelope(request.envelope);
+        const result = await this.executionRuntime.executeLocalWithResult(localEnvelope);
+        return {
+            executed: result.executed,
+            created: result.created,
+            skipped: result.skipped,
         };
     }
 
@@ -894,7 +1078,7 @@ export class AutoCardHandler implements ITransactionHandler {
             },
             {
                 executeSingleBlockDecision: async ({ blockId, content, decision }) => {
-                    return this.executionRuntime.execute({
+                    return this.executeAutoCardEnvelope({
                         kind: 'planner-decision',
                         blockId,
                         content,
@@ -904,7 +1088,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     });
                 },
                 executeStructuralDecision: async ({ blockId, content, decision }) => {
-                    return this.executionRuntime.execute({
+                    return this.executeAutoCardEnvelope({
                         kind: 'planner-decision',
                         blockId,
                         content,
@@ -1135,7 +1319,7 @@ export class AutoCardHandler implements ITransactionHandler {
                     return;
                 }
 
-                await this.executionRuntime.execute({
+                await this.executeAutoCardEnvelope({
                     kind: 'topic-derived',
                     input: {
                         sourceBlockId: blockId,
@@ -1184,7 +1368,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 return;
             }
 
-            await this.executionRuntime.execute({
+            await this.executeAutoCardEnvelope({
                 kind: 'planner-decision',
                 blockId,
                 content: kramdown,

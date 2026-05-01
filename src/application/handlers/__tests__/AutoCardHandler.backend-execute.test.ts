@@ -1,0 +1,152 @@
+import { describe, expect, it, vi } from 'vitest';
+import { AutoCardHandler } from '../AutoCardHandler';
+
+function createHandler(input?: {
+  backendClient?: {
+    executeAutoCard?: (request: unknown) => Promise<unknown>;
+  } | null;
+  relayRuntime?: {
+    getMode: () => 'writer' | 'follower';
+    getInstanceId: () => string;
+  } | null;
+  followerClient?: {
+    submitAndWait: <TResult>(request: {
+      instanceId: string;
+      method: string;
+      params?: unknown;
+    }, timeoutMs?: number) => Promise<TResult>;
+  } | null;
+}) {
+  const topicDerivedItemService = {
+    createFromTopicSource: vi.fn(async () => ({
+      created: 1,
+      skipped: 0,
+      items: [],
+    })),
+  };
+  const plugin = {
+    getContext: () => ({
+      getSettingsService: () => ({
+        getSettings: () => ({
+          quickCard: {
+            enabled: true,
+          },
+        }),
+      }),
+      getCardService: () => ({
+        getCardByBlockId: () => null,
+        getCardsByBlockId: () => [],
+        saveCards: async () => undefined,
+      }),
+      getCardTypeDetectionService: () => ({
+        detectCardType: async () => 'item',
+      }),
+      getTopicDerivedItemService: () => topicDerivedItemService,
+      getSrsBackendClient: () => input?.backendClient ?? null,
+      getFrontendInstanceRuntime: () => input?.relayRuntime ?? null,
+      getFollowerCommandClient: () => input?.followerClient ?? null,
+    }),
+  };
+
+  const handler = new AutoCardHandler(plugin as never, {
+    siyuanApi: {
+      getBlockKramdown: vi.fn(async () => ({ kramdown: '' })),
+      sql: vi.fn(async () => []),
+      getBlockAttrs: vi.fn(async () => ({})),
+      pushMsg: vi.fn(async () => undefined),
+      pushErrMsg: vi.fn(async () => undefined),
+      setBlockAttrs: vi.fn(async () => undefined),
+      markBlockAsCard: vi.fn(async () => undefined),
+    } as never,
+    riffApi: {
+      BUILTIN_DECK_ID: 'builtin-deck',
+      addRiffCards: vi.fn(async () => ({ name: 'builtin-deck', size: 0 })),
+    } as never,
+  });
+
+  return {
+    handler,
+    topicDerivedItemService,
+  };
+}
+
+describe('AutoCardHandler backend execute routing', () => {
+  it('uses backend autocard.execute when backend client is available', async () => {
+    const executeAutoCard = vi.fn(async () => ({
+      executed: true,
+      created: 2,
+      skipped: 0,
+    }));
+    const { handler, topicDerivedItemService } = createHandler({
+      backendClient: { executeAutoCard },
+    });
+
+    const executed = await (handler as any).executeAutoCardEnvelope({
+      kind: 'topic-derived',
+      input: {
+        sourceBlockId: 'block-1',
+        sourceDocId: 'doc-1',
+        parentTopicCardId: 'topic-1',
+        plannerContent: 'Alpha <> Beta',
+        decisions: [{
+          id: 'BasicDirectionRule',
+          family: 'basic',
+          templateId: 'builtin-bidirectional-single',
+          cardType: 'item',
+          mode: 'multi-face',
+          executorKind: 'quick-basic',
+          priority: 50,
+          direction: 'both',
+        }],
+      },
+    });
+
+    expect(executed).toBe(true);
+    expect(executeAutoCard).toHaveBeenCalledTimes(1);
+    expect(topicDerivedItemService.createFromTopicSource).not.toHaveBeenCalled();
+  });
+
+  it('uses follower relay for autocard.execute when runtime is follower', async () => {
+    const executeAutoCard = vi.fn(async () => ({
+      executed: false,
+      created: 0,
+      skipped: 1,
+    }));
+    const submitAndWait = vi.fn(async () => ({
+      executed: true,
+      created: 1,
+      skipped: 0,
+    }));
+    const { handler } = createHandler({
+      backendClient: { executeAutoCard },
+      relayRuntime: {
+        getMode: () => 'follower',
+        getInstanceId: () => 'instance-follower-1',
+      },
+      followerClient: {
+        submitAndWait,
+      },
+    });
+
+    const executed = await (handler as any).executeAutoCardEnvelope({
+      kind: 'planner-decision',
+      blockId: 'block-2',
+      content: 'Alpha <> Beta',
+      decision: {
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-bidirectional-single',
+        cardType: 'item',
+        mode: 'multi-face',
+        executorKind: 'quick-basic',
+        priority: 50,
+        direction: 'both',
+      },
+      source: 'symbol-listener',
+    });
+
+    expect(executed).toBe(true);
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(executeAutoCard).not.toHaveBeenCalled();
+  });
+});

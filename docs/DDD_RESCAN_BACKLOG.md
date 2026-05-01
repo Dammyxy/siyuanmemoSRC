@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 251)
+Last update: 2026-05-01 (Round 252)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase6 p6-7 autocard execute worker-callback activation and follower relay routing
+
+- Task: 按“清掉暂缓债务，然后继续做 P6”把 P6-6 暂缓项清掉：激活 `autocard.execute` 可执行链，并让 AutoCard 执行在 follower 场景走 writer relay。
+- Touched slice: AutoCard execute runtime + worker callback seam；`src/application/handlers/AutoCardHandler.ts`、`src/application/handlers/AutoCardExecutionRuntime.ts`、`src/application/ApplicationContext.ts`、`worker/bootstrap/BackendKernel.ts`、focused tests、`ARCHITECTURE.md`、本 backlog。
+- Debt fixed now: `BackendKernel` 新增 `executeAutoCard` callback 依赖，`autocard.execute` 不再固定 unavailable scaffold；`ApplicationContext` 在 worker bootstrap 时注入 execute callback（通过 active `AutoCardHandler` 执行本地 execute runtime）；`AutoCardHandler` 新增 execute envelope 路由：优先 worker contract，follower 模式优先 `FollowerCommandClient.submitAndWait(method='autocard.execute')` 走 writer relay，writer/单实例模式优先 `SrsBackendClient.executeAutoCard()`，worker unavailable 时回落本地执行；`AutoCardExecutionRuntime` 扩展为 `executeWithResult/executeLocalWithResult` 明确返回 `executed/created/skipped`。
+- Debt deferred: AutoCard domain side effects ownership 仍在 application execute runtime（未迁入 worker DB/service 内部）；`autocard.decision.resolve` 目前仍是 local-worker direct call（尚未做 follower 强制 relay）。
+- Why deferred: 本轮优先清掉“execute unavailable + follower 执行链缺口”这两个高风险债务；决策链 relay 强制化会影响 transaction pump 与冲突调解链路，需在下一步单独收口。
+- Next safe step: 进入 P6-8，把 `autocard.decision.resolve` 在 follower 模式切到 writer relay（与 `autocard.execute` 对齐），并补 decision/execute 一致性 telemetry。
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/AutoCardExecutionRuntime.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts src/application/handlers/__tests__/AutoCardHandler.topic-derivation.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/__tests__/ApplicationContext.writer-relay.test.ts worker/__tests__/BackendKernel.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase6 p6-6 autocard execute rpc contract scaffold
 

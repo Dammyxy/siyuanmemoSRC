@@ -35,6 +35,7 @@ import {
 interface BackendKernelDependencies {
   database: WorkerSqliteDatabaseService;
   resolveExistingBlockIds?: (blockIds: string[]) => Promise<string[]>;
+  executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
 }
 
 function buildSuccess<TResult>(
@@ -318,6 +319,9 @@ export class BackendKernel {
     if (!named || typeof named !== 'object' || !named.envelope || typeof named.envelope !== 'object') {
       throw new Error('autocard.execute requires named params with envelope');
     }
-    throw new Error('SrsBackendWorker autocard.execute unavailable in current phase');
+    if (typeof this.deps.executeAutoCard !== 'function') {
+      throw new Error('SrsBackendWorker autocard.execute unavailable: execute callback is not configured');
+    }
+    return this.deps.executeAutoCard(named);
   }
 }

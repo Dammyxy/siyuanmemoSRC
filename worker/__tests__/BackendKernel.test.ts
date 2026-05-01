@@ -394,7 +394,7 @@ describe('BackendKernel', () => {
       jsonrpc: '2.0',
       error: {
         code: 'BACKEND_UNAVAILABLE',
-        message: 'SrsBackendWorker autocard.execute unavailable in current phase',
+        message: 'SrsBackendWorker autocard.execute unavailable: execute callback is not configured',
       },
     });
 
@@ -458,6 +458,56 @@ describe('BackendKernel', () => {
       error: {
         code: 'BACKEND_UNAVAILABLE',
         message: 'SrsBackendWorker review.feedback unavailable for filter-group mode/policy in current phase: filtered-rescheduling/preview-only',
+      },
+    });
+  });
+
+  it('executes autocard.execute through injected callback when configured', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({
+      database,
+      executeAutoCard: async () => ({
+        executed: true,
+        created: 2,
+        skipped: 1,
+      }),
+    });
+
+    const response = await kernel.handle({
+      id: 'autocard-execute-callback',
+      jsonrpc: '2.0',
+      method: 'autocard.execute',
+      params: [{
+        envelope: {
+          kind: 'topic-derived',
+          input: {
+            sourceBlockId: 'block-1',
+            sourceDocId: 'doc-1',
+            parentTopicCardId: 'topic-1',
+            plannerContent: 'Q <> A',
+            decisions: [{
+              id: 'BasicDirectionRule',
+              family: 'basic',
+              templateId: 'builtin-bidirectional-single',
+              cardType: 'item',
+              mode: 'multi-face',
+              executorKind: 'quick-basic',
+              priority: 50,
+              direction: 'both',
+            }],
+          },
+        },
+      }],
+    });
+
+    expect(response).toEqual({
+      id: 'autocard-execute-callback',
+      jsonrpc: '2.0',
+      result: {
+        executed: true,
+        created: 2,
+        skipped: 1,
       },
     });
   });

@@ -1204,6 +1204,7 @@ export class ApplicationContext {
       schedulerCardUpdater
     );
 
+    let contextRef: ApplicationContext | null = null;
     let srsBackendClient: SrsBackendClient | null = null;
     let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
     let followerCommandClient: FollowerCommandClient | null = null;
@@ -1217,6 +1218,16 @@ export class ApplicationContext {
             browserSiyuanApi,
             blockIds,
           ),
+          executeAutoCard: async (request) => {
+            if (!contextRef) {
+              throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
+            }
+            const autoCardHandler = contextRef.getAutoCardHandler();
+            if (!autoCardHandler) {
+              throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
+            }
+            return autoCardHandler.executeEnvelopeFromBackend(request);
+          },
         });
         const transport: SrsBackendTransport = {
           request: (request) => backendKernel.handle(request),
@@ -1264,9 +1275,6 @@ export class ApplicationContext {
     logger.info('[ApplicationContext] ✅ Loaded', BUILTIN_TEMPLATES.length, 'builtin templates from code');
     
     // 11. 初始化 BlockMenuHandler
-    // 创建一个临时变量来存储 context 引用（用于闭包）
-    let contextRef: ApplicationContext | null = null;
-    
     const blockMenuHandler = new BlockMenuHandler({
       app: config.plugin.app,
       i18n: config.i18n,
@@ -2086,6 +2094,14 @@ export class ApplicationContext {
 
   getSrsBackendClient(): SrsBackendClient | null {
     return this.srsBackendClient;
+  }
+
+  getFrontendInstanceRuntime(): FrontendInstanceRuntime | null {
+    return this.frontendInstanceRuntime;
+  }
+
+  getFollowerCommandClient(): FollowerCommandClient | null {
+    return this.followerCommandClient;
   }
 
   getCardEditorService(): CardEditorApplicationService {

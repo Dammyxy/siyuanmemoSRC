@@ -108,4 +108,36 @@ describe('AutoCardExecutionRuntime', () => {
     expect(created).toBe(false);
     expect(pushMsg).not.toHaveBeenCalled();
   });
+
+  it('prefers backend execute channel when provided', async () => {
+    const executeViaBackend = vi.fn(async () => ({
+      executed: true,
+      created: 3,
+      skipped: 0,
+    }));
+    const runtime = new AutoCardExecutionRuntime({
+      executePlannerDecision: vi.fn(async () => true),
+      createTopicDerivedItem: vi.fn(async () => ({
+        created: 1,
+        skipped: 0,
+      })),
+      pushMsg: vi.fn(async () => undefined),
+      executeViaBackend,
+    });
+
+    const result = await runtime.executeWithResult({
+      kind: 'planner-decision',
+      blockId: 'block-4',
+      content: 'Alpha <> Beta',
+      decision: createDecision(),
+      source: 'symbol-listener',
+    });
+
+    expect(executeViaBackend).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      executed: true,
+      created: 3,
+      skipped: 0,
+    });
+  });
 });
