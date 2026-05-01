@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-02 (Round 254)
+Last update: 2026-05-02 (Round 255)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-02 - remediation r6-r7 truthfulness/runtime exposure rm027-rm035
+
+- Task: 继续 backend migration remediation 的 R6/R7；保持 Phase 7 truthfulness 为 foundation-only，并把 Phase 8 private API 从基础件收口为 runtime policy 受控暴露面。
+- Touched slice: private API runtime wiring + policy gates + diagnostics evidence；`src/application/ApplicationContext.ts`、`src/application/services/PrivateApiService.ts`、`src/application/__tests__/ApplicationContext.private-api.test.ts`、`src/application/services/__tests__/PrivateApiAuditService.test.ts`、`worker/__tests__/BackendKernel.test.ts`、`ARCHITECTURE.md`、`specs/001-backend-migration-next/remediation-tasks.md`。
+- Debt fixed now: `ApplicationContext` 新增 private API 受控 factory/getter（read/mutation 都走 runtime policy fail-closed）；`PrivateApiService` 改为默认合并 runtime capability source，避免调用方漏传 capability 时误放行；private mutation 在 writer runtime 缺失时强制 unavailable；补齐 unavailable class/payload limit/audit trail/read-vs-mutation gate/idempotency 证据测试，并补 backend `private.health/private.diagnostics.status` 断言。
+- Debt deferred: RM028-RM030 继续 deferred（AI prompt/network/streaming 仍未迁入 backend runtime）；RM041 手工 private mutation/cutover smoke 仍未执行（CLI 会话缺少真实双窗口 SiYuan 交互环境）。
+- Why deferred: R6 已明确本次发布是 Phase 7 foundation-only，强行执行 RM028-RM030 会超出当前范围且风险高；RM041 需要真人在真实 Siyuan runtime 采集日志证据，不适合终端自动化伪造。
+- Next safe step: 先在真实 SiYuan 双窗口环境执行 quickstart 的 private API 手工 smoke（RM041），随后若要提升 AI Phase 7 状态，再单独执行 RM028-RM030 的 runtime migration 与异常流测试。
+- Validation: `pnpm vitest run src/application/__tests__/ApplicationContext.private-api.test.ts src/application/services/__tests__/PrivateApiAuditService.test.ts src/application/services/__tests__/PrivateApiService.test.ts src/application/clients/__tests__/PrivateApiClient.test.ts worker/__tests__/BackendKernel.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`（worktree + workspace root）。
 
 ### 2026-05-02 - remediation r4 browser compatibility-read policy rm018-rm021
 
@@ -3355,6 +3365,8 @@ Do not add an entry for skill-only or docs-only work.
 | P3 | AI pane tests still inherit localhost asset fetch noise from shared markdown rendering setup | `src/ui/ai/__tests__/*`, shared markdown/test harness setup | Add a shared happy-dom asset shim or markdown renderer test mode to silence unrelated network noise |
 | P2 | Arena Manager v1 lacks deeper analytics and UI test coverage beyond the service/kernel contracts | `src/ui/arena/ArenaManagerDialog.vue`, AI workbench/review Arena entrypoints | Add focused manager action tests and richer pool/sample views after v1 collects enough real match data |
 | P2 | Future AI-assisted rewrite/generation surfaces still need explicit Arena scenario registration | new AI workbench/review/browser surfaces | Require each new AI surface to pass `AIArenaScenarioId + ArenaTargetKind` into the workbench open/run path instead of relying on inference |
+| P1 | Phase 7 runtime migration remains open: prompt execution is still frontend `llmPort.chat(...)` and not backend session/job/network proxy owned | `src/application/services/AIWorkbenchPromptRuntime.ts`, `scripts/backend-migration-compat-allowlist.json` | Keep release status as foundation-only; close RM028-RM030 before any claim of live backend AI prompt/network/streaming migration |
+| P1 | Phase 8 private API 已 runtime exposed，但手工 cutover 证据仍缺失 | `specs/001-backend-migration-next/quickstart.md`, `specs/001-backend-migration-next/remediation-tasks.md` (RM041) | 在真实 SiYuan 双窗口环境执行 private mutation/cutover smoke，并补 operator/env/window/log evidence；在证据补齐前不要宣称 private API 手工验收已完成 |
 | P1 | P6 scope reconciliation debt: old Phase 6 Progressive/Xiuyuan/Topic-derived ownership migration is still open, while current P6 execution only closed AutoCard milestone | `src/application/usecases/xiuyuan/*`, `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `src/application/handlers/AutoCardHandler.ts`, `src/application/managers/{BlockMenuHandler,DialogManager}.ts` | Track as blocked closure list with acceptance impact in `docs/backend-migration-p6-scope-reconciliation.md`; do not claim old Phase 6 cutover complete until blocked list is closed or explicitly downgraded to compatibility-read policy |
 
 ## 4. Next convergence batch

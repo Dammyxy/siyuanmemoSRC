@@ -1377,6 +1377,36 @@ describe('BackendKernel', () => {
       expect(mutate.result).toMatchObject({
         ok: true,
         commandId: 'private-mutate-1',
+        result: {
+          idempotencyKey: 'private-key-1',
+        },
+      });
+    }
+
+    const health = await kernel.handle({
+      id: 'private-health',
+      jsonrpc: '2.0',
+      method: 'private.health',
+      params: [],
+    });
+    expect('result' in health).toBe(true);
+    if ('result' in health) {
+      expect(health.result).toMatchObject({
+        ok: true,
+        feature: 'private-api',
+      });
+    }
+
+    const diagnostics = await kernel.handle({
+      id: 'private-diagnostics-status',
+      jsonrpc: '2.0',
+      method: 'private.diagnostics.status',
+      params: [],
+    });
+    expect('result' in diagnostics).toBe(true);
+    if ('result' in diagnostics) {
+      expect(diagnostics.result).toMatchObject({
+        ok: true,
       });
     }
 

@@ -11,6 +11,7 @@ import type { PrivateApiAuditEvent, PrivateApiAuditService } from '@/application
 interface PrivateApiServiceDeps {
   privateApiClient: Pick<PrivateApiClient, 'read' | 'mutate'>;
   auditService: Pick<PrivateApiAuditService, 'canExecute' | 'ensurePayloadWithinLimit' | 'record'>;
+  resolveCapabilitySource?: () => CapabilitySourceInput;
 }
 
 interface CapabilitySourceInput {
@@ -22,6 +23,7 @@ interface CapabilitySourceInput {
 export class PrivateApiService {
   private readonly privateApiClient: Pick<PrivateApiClient, 'read' | 'mutate'>;
   private readonly auditService: Pick<PrivateApiAuditService, 'canExecute' | 'ensurePayloadWithinLimit' | 'record'>;
+  private readonly resolveCapabilitySource: (() => CapabilitySourceInput) | null;
   private readonly maxMutationPayloadBytes: number;
 
   constructor(
@@ -32,6 +34,7 @@ export class PrivateApiService {
   ) {
     this.privateApiClient = deps.privateApiClient;
     this.auditService = deps.auditService;
+    this.resolveCapabilitySource = deps.resolveCapabilitySource || null;
     this.maxMutationPayloadBytes = Math.max(
       64,
       Math.floor(Number(options?.maxMutationPayloadBytes ?? 8_192)),
@@ -42,7 +45,10 @@ export class PrivateApiService {
     request: PrivateApiReadRequest,
     capabilitySource: CapabilitySourceInput = {},
   ): Promise<PrivateApiReadResult> {
-    const capabilityResult = this.resolveCapability(request.method, capabilitySource);
+    const capabilityResult = this.resolveCapability(
+      request.method,
+      this.mergeCapabilitySource(capabilitySource),
+    );
     if (!capabilityResult.available) {
       this.recordAudit({
         requestId: request.requestId,
@@ -86,7 +92,10 @@ export class PrivateApiService {
       throw new Error('INVALID_REQUEST: private mutation requires idempotencyKey');
     }
     this.auditService.ensurePayloadWithinLimit(request.params ?? {}, this.maxMutationPayloadBytes);
-    const capabilityResult = this.resolveCapability(request.method, capabilitySource);
+    const capabilityResult = this.resolveCapability(
+      request.method,
+      this.mergeCapabilitySource(capabilitySource),
+    );
     if (!capabilityResult.available) {
       this.recordAudit({
         requestId: request.requestId,
@@ -132,6 +141,15 @@ export class PrivateApiService {
       kernelSidecarAvailable: capabilitySource.kernelSidecarAvailable !== false,
       writerAvailable: capabilitySource.writerAvailable !== false,
     });
+  }
+
+  private mergeCapabilitySource(overrides: CapabilitySourceInput): CapabilitySourceInput {
+    const base = this.resolveCapabilitySource?.() || {};
+    return {
+      backendWorkerAvailable: overrides.backendWorkerAvailable ?? base.backendWorkerAvailable,
+      kernelSidecarAvailable: overrides.kernelSidecarAvailable ?? base.kernelSidecarAvailable,
+      writerAvailable: overrides.writerAvailable ?? base.writerAvailable,
+    };
   }
 
   private recordAudit(event: Omit<PrivateApiAuditEvent, 'timestamp'>): void {

@@ -99,6 +99,8 @@ import { ArenaKernelService } from '@/application/services/ArenaKernelService';
 import { ArenaStoreService } from '@/application/services/ArenaStoreService';
 import { ReviewAIWorkbenchRegistry } from '@/application/services/ReviewAIWorkbenchRegistry';
 import { AIBackendSessionService } from '@/application/services/AIBackendSessionService';
+import { PrivateApiAuditService } from '@/application/services/PrivateApiAuditService';
+import { PrivateApiService } from '@/application/services/PrivateApiService';
 import { SharedReviewSessionRegistry } from '@/application/services/SharedReviewSessionRegistry';
 import { ProgressiveSiyuanAdapter } from '@/infrastructure/siyuan/ProgressiveSiyuanAdapter';
 import { ProgressiveNativeRiffAdapter } from '@/infrastructure/siyuan/ProgressiveNativeRiffAdapter';
@@ -125,6 +127,7 @@ import { SrsBackendClient, type SrsBackendTransport } from '@/application/client
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
+import { PrivateApiClient } from '@/application/clients/PrivateApiClient';
 import {
   BACKEND_MIGRATION_FEATURE_GATES,
   listMigratedStateFamilies,
@@ -172,6 +175,9 @@ interface ApplicationServiceRegistry {
   reviewAIWorkbenchRegistry: ReviewAIWorkbenchRegistry;
   sharedReviewSessionRegistry: SharedReviewSessionRegistry;
   aiWorkbenchService: AIWorkbenchService;
+  privateApiAuditService: PrivateApiAuditService;
+  privateApiClient: PrivateApiClient;
+  privateApiService: PrivateApiService;
   dialogManager: DialogManager;
   menuManager: MenuManager;
   tabManager: TabManager;
@@ -615,6 +621,40 @@ export class ApplicationContext {
         sessionStore: context.getAIWorkbenchSessionStoreService(),
         arenaKernel: context.getArenaKernelService(),
         backendSessionService: aiBackendSessionService,
+      });
+    });
+
+    this.registerServiceFactory('privateApiAuditService', () => {
+      return new PrivateApiAuditService();
+    });
+
+    this.registerServiceFactory('privateApiClient', (context) => {
+      if (!context.srsBackendClient) {
+        throw new Error('BACKEND_UNAVAILABLE: private API backend client unavailable');
+      }
+      return new PrivateApiClient({
+        backendClient: context.srsBackendClient,
+        frontendRuntime: context.getFrontendInstanceRuntime(),
+        followerCommandClient: context.getFollowerCommandClient(),
+        writerRelayRequiredForMutations: context.getBackendMigrationRuntimePolicy().capabilities.writerRelayRequiredForBackendWrites,
+      });
+    });
+
+    this.registerServiceFactory('privateApiService', (context) => {
+      const runtimePolicy = context.getBackendMigrationRuntimePolicy();
+      if (!runtimePolicy.capabilities.privateApiReadEnabled) {
+        throw new Error('BACKEND_UNAVAILABLE: private API is disabled by runtime policy');
+      }
+      const auditService = context.getService('privateApiAuditService');
+      const privateApiClient = context.getService('privateApiClient');
+      return new PrivateApiService({
+        privateApiClient,
+        auditService,
+        resolveCapabilitySource: () => ({
+          backendWorkerAvailable: runtimePolicy.capabilities.backendWorkerAvailable,
+          kernelSidecarAvailable: true,
+          writerAvailable: runtimePolicy.capabilities.writerRelayRuntimeEnabled,
+        }),
       });
     });
 
@@ -2394,6 +2434,20 @@ export class ApplicationContext {
 
   getAIWorkbenchService(): AIWorkbenchService {
     return this.getService('aiWorkbenchService');
+  }
+
+  getPrivateApiService(options: { mutation?: boolean } = {}): PrivateApiService {
+    const runtimePolicy = this.getBackendMigrationRuntimePolicy();
+    if (!runtimePolicy.capabilities.privateApiReadEnabled) {
+      throw new Error('BACKEND_UNAVAILABLE: private API read is disabled by runtime policy');
+    }
+    if (options.mutation === true && !runtimePolicy.capabilities.privateApiMutationEnabled) {
+      throw new Error('BACKEND_UNAVAILABLE: private API mutation requires backend worker + writer relay runtime');
+    }
+    if (options.mutation === true && !this.getFrontendInstanceRuntime()) {
+      throw new Error('BACKEND_UNAVAILABLE: private API mutation requires writer relay runtime instance');
+    }
+    return this.getService('privateApiService');
   }
 
   /**

@@ -52,7 +52,8 @@
   - Phase 5：Transaction / AutoCard / Riff：kernel 收集，Worker 决策提交。
 - Phase 6（historical target）：Progressive / Xiuyuan / Topic-derived 迁 Worker。
 - P6（current execution in this branch）：AutoCard decision/execute writer+worker ownership milestone。旧 Phase 6 Progressive/Xiuyuan/Topic-derived 迁移改为 closure backlog，详见 `docs/backend-migration-p6-scope-reconciliation.md`。
-  - Phase 7：AI session 入 Worker，network/streaming 走 kernel proxy。
+  - Phase 7（historical target）：AI session 入 Worker，network/streaming 走 kernel proxy。
+  - Phase 7（current release truth）：foundation-only（contracts/session-job scaffolding/diagnostics），prompt runtime 仍未完成 backend prompt/network/streaming cutover；详见 `docs/backend-migration-phase7-truthfulness.md`。
   - Phase 8：private HTTP API，经 writer relay 调 Worker。
   - Phase 9：删除旧前端 SQL / scheduler / review commit 主路径。
 
