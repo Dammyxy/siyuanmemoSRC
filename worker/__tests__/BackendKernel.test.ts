@@ -549,6 +549,56 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('coalesces auto-card candidate operations for same block in worker extraction', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const ingest = await kernel.handle({
+      id: 'ingest-auto-card-coalesce',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'auto-card-coalesce-key',
+        transactions: [
+          {
+            doOperations: [
+              { action: 'insert', id: 'block-auto-c1' },
+              { action: 'update', id: 'block-auto-c1' },
+              { action: 'delete', id: 'block-auto-c1' },
+              { action: 'insert', id: 'block-auto-c2' },
+            ],
+          },
+        ],
+      }],
+    });
+    expect('result' in ingest).toBe(true);
+
+    const dequeue = await kernel.handle({
+      id: 'dequeue-auto-card-coalesce',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 8 }],
+    });
+    expect(dequeue).toEqual({
+      id: 'dequeue-auto-card-coalesce',
+      jsonrpc: '2.0',
+      result: {
+        actions: [{
+          type: 'auto-card-candidates',
+          operations: [
+            { action: 'insert', blockId: 'block-auto-c2' },
+          ],
+          source: 'ws-main',
+          receivedAt: expect.any(Number),
+          idempotencyKey: 'auto-card-coalesce-key',
+        }],
+        remaining: 0,
+      },
+    });
+  });
+
   it('supports kernel.transaction.requeue and keeps actions in queue', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -598,6 +648,106 @@ describe('BackendKernel', () => {
         remaining: 0,
       },
     });
+  });
+
+  it('restores persisted action queue snapshot across worker restart', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const databaseA = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernelA = new BackendKernel({ database: databaseA });
+
+    const ingest = await kernelA.handle({
+      id: 'ingest-persisted-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'persisted-action-key',
+        transactions: [{
+          doOperations: [{ action: 'removeFlashcards', id: 'block-persist-1' }],
+        }],
+      }],
+    });
+    expect('result' in ingest).toBe(true);
+
+    databaseA.dispose();
+
+    const databaseB = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernelB = new BackendKernel({ database: databaseB });
+    const dequeue = await kernelB.handle({
+      id: 'dequeue-persisted-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 8 }],
+    });
+    expect(dequeue).toEqual({
+      id: 'dequeue-persisted-action',
+      jsonrpc: '2.0',
+      result: {
+        actions: [{
+          type: 'native-riff-remove',
+          blockIds: ['block-persist-1'],
+          source: 'ws-main',
+          receivedAt: expect.any(Number),
+          idempotencyKey: 'persisted-action-key',
+        }],
+        remaining: 0,
+      },
+    });
+  });
+
+  it('restores persisted ingest queue snapshot across worker restart', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const databaseA = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernelA = new BackendKernel({ database: databaseA });
+
+    const ingest = await kernelA.handle({
+      id: 'ingest-persisted-inbox',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'persisted-inbox-key',
+        transactions: [{ id: 'tx-persist-1' }],
+      }],
+    });
+    expect(ingest).toEqual({
+      id: 'ingest-persisted-inbox',
+      jsonrpc: '2.0',
+      result: {
+        accepted: 1,
+        queued: 1,
+        receivedAt: expect.any(Number),
+        duplicate: false,
+        queueLength: 1,
+        maxQueueLength: 256,
+      },
+    });
+
+    databaseA.dispose();
+
+    const databaseB = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernelB = new BackendKernel({ database: databaseB });
+    const load = await kernelB.handle({
+      id: 'load-persisted-inbox',
+      jsonrpc: '2.0',
+      method: 'db.load',
+      params: [],
+    });
+    expect('result' in load).toBe(true);
+    const status = await kernelB.handle({
+      id: 'status-persisted-inbox',
+      jsonrpc: '2.0',
+      method: 'diagnostics.status',
+      params: [],
+    });
+    expect('result' in status).toBe(true);
+    if ('result' in status) {
+      expect(status.result.ingest).toMatchObject({
+        queueLength: 1,
+        queuedTransactions: 1,
+        acceptedTotal: 1,
+      });
+    }
   });
 
   it('returns explicit unavailable when kernel transaction ingest queue is backpressured', async () => {

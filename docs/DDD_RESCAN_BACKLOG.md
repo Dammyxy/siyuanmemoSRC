@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 242)
+Last update: 2026-05-01 (Round 244)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase5 debt cleanup (ingest inbox durability + auto-card candidate coalescing)
+
+- Task: 按“清理债务，把 P5 彻底完成”继续收口：补 ingest inbox 重启恢复，并把 auto-card candidates 在 worker 侧先做同块操作合并，减少无效触发。
+- Touched slice: Worker transaction ingest durability + auto-card candidate extraction；`worker/db/SqliteDatabaseService.ts`、`worker/__tests__/BackendKernel.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: `kernel.transaction.ingest` 新增本地快照持久化（`kernel-transaction-ingest.snapshot.json`），在 ingest 去重/背压计数、接受入队、drain 与 dispose 时同步写入，worker init 时恢复 pending envelope、关键 ingest 指标与 dedupe keys；新增重启恢复回归测试。`auto-card-candidates` 提取新增同 block 最小合并（insert/update/delete 同批抵消/收敛），减少 action pump 对 `AutoCardHandler` 的噪音调用；新增提取合并回归测试。
+- Debt deferred: AutoCard 决策规则本体仍位于 application `AutoCardHandler`（worker 目前负责候选提取、合并和队列编排，尚未承接符号解析/planner/xiuyuan 写入决策）。
+- Why deferred: AutoCard 决策内核下沉会跨 application services / Siyuan port / Xiuyuan usecase 边界，属于 P6 级别的独立迁移里程碑，本轮优先完成 P5 可靠性闭环并控制 blast radius。
+- Next safe step: 进入 P6 时为 AutoCard 决策定义 worker contract（先下沉纯决策与候选解析，再逐步收口执行 side effects），保持 feature flag 灰度并禁止双写 fallback。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
+
+### 2026-05-01 - phase5 final debt cleanup (action queue durability + recovery)
+
+- Task: 按“清理债务，把 P5 彻底完成”继续收尾：把 action queue 从纯内存态升级为可恢复快照，并补重启恢复与统计字段一致性验证。
+- Touched slice: Worker transaction action durability + rpc dequeue/requeue init gate；`worker/db/SqliteDatabaseService.ts`、`worker/__tests__/BackendKernel.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: `kernel.transaction` action queue 新增本地快照持久化（`kernel-transaction-actions.snapshot.json`），在 ingest/dequeue/requeue 变更后同步写入；worker init 时恢复 action queue 与关键 action 指标；`dequeue/requeue` 补 `init()` 门禁，保证“未显式 db.load 也能恢复队列”；新增重启恢复回归测试，确认 pending action 可跨 worker 重建保留。
+- Debt deferred: AutoCard 决策规则仍位于 application `AutoCardHandler`（当前已由 worker action pipeline 驱动触发，但决策引擎本体未迁入 worker）。
+- Why deferred: 本轮聚焦 P5 可靠性与队列一致性收口，AutoCard 决策内核迁移属于更大 bounded context 变更，应在 P6 按独立里程碑推进。
+- Next safe step: 进入 P6 时，把 AutoCard 决策核心按契约下沉到 worker（保留现有 feature flag 灰度），再评估是否需要对 ingest 原始事务队列做同级持久化。
+- Validation: `pnpm exec vitest run worker/__tests__/BackendKernel.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase5 p5-6~p5-8 action reliability and auto-card ingestion path
 

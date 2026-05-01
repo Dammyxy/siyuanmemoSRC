@@ -35,6 +35,10 @@ import type { DoOperation } from '@/core/infrastructure/websocket/transaction-ty
 
 type SqlParams = SqlValue[] | ParamsObject;
 const logger = createLogger('WorkerSqliteDatabaseService');
+const KERNEL_INGEST_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-ingest.snapshot.json';
+const KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION = 1;
+const KERNEL_ACTION_QUEUE_SNAPSHOT_FILE = 'kernel-transaction-actions.snapshot.json';
+const KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION = 1;
 
 type SqliteFileServiceAdapter = {
   readJSON<T>(fileName: string): Promise<T | null>;
@@ -63,6 +67,7 @@ function createSqliteFileServiceAdapter(bridge: SqlitePersistenceBridge): Sqlite
 }
 
 export class WorkerSqliteDatabaseService {
+  private readonly fileService: SqliteFileServiceAdapter;
   private readonly runtime: RuntimeSqliteDatabaseService;
   private repository: SqlUnifiedStorageRepository | null = null;
   private initialized = false;
@@ -104,7 +109,8 @@ export class WorkerSqliteDatabaseService {
       kernelTransactionDedupeTtlMs?: number;
     },
   ) {
-    this.runtime = new RuntimeSqliteDatabaseService(createSqliteFileServiceAdapter(bridge), dbFile);
+    this.fileService = createSqliteFileServiceAdapter(bridge);
+    this.runtime = new RuntimeSqliteDatabaseService(this.fileService, dbFile);
     this.maxKernelTransactionQueueLength = Math.max(
       1,
       Math.floor(Number(options?.maxKernelTransactionQueueLength ?? 256)),
@@ -129,6 +135,8 @@ export class WorkerSqliteDatabaseService {
     }
     await this.runtime.init();
     this.repository = new SqlUnifiedStorageRepository(this.runtime);
+    await this.restoreKernelIngestQueueSnapshot();
+    await this.restoreKernelActionQueueSnapshot();
     this.initialized = true;
   }
 
@@ -199,6 +207,307 @@ export class WorkerSqliteDatabaseService {
         lastDrainAt: this.lastKernelDrainAt,
       },
     };
+  }
+
+  private async restoreKernelActionQueueSnapshot(): Promise<void> {
+    try {
+      const snapshot = await this.fileService.readJSON<{
+        version?: number;
+        actions?: unknown[];
+        metrics?: {
+          actionEnqueuedTotal?: number;
+          actionDequeuedTotal?: number;
+          actionRequeuedTotal?: number;
+          actionRejectedTotal?: number;
+          removeActionQueuedTotal?: number;
+          upsertActionQueuedTotal?: number;
+          autoCardActionQueuedTotal?: number;
+        };
+      }>(KERNEL_ACTION_QUEUE_SNAPSHOT_FILE);
+      if (!snapshot || snapshot.version !== KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION) {
+        return;
+      }
+      const normalized = this.normalizeKernelActions(snapshot.actions || []);
+      if (normalized.length > 0) {
+        const restored = normalized.slice(0, this.maxKernelActionQueueLength);
+        this.kernelTransactionActions.push(...restored);
+      }
+      const metrics = snapshot.metrics;
+      if (metrics && typeof metrics === 'object') {
+        this.kernelActionEnqueuedTotal = Math.max(
+          this.kernelActionEnqueuedTotal,
+          Math.max(0, Math.floor(Number(metrics.actionEnqueuedTotal || 0))),
+        );
+        this.kernelActionDequeuedTotal = Math.max(
+          this.kernelActionDequeuedTotal,
+          Math.max(0, Math.floor(Number(metrics.actionDequeuedTotal || 0))),
+        );
+        this.kernelActionRequeuedTotal = Math.max(
+          this.kernelActionRequeuedTotal,
+          Math.max(0, Math.floor(Number(metrics.actionRequeuedTotal || 0))),
+        );
+        this.kernelActionRejectedTotal = Math.max(
+          this.kernelActionRejectedTotal,
+          Math.max(0, Math.floor(Number(metrics.actionRejectedTotal || 0))),
+        );
+        this.kernelRemoveActionQueuedTotal = Math.max(
+          this.kernelRemoveActionQueuedTotal,
+          Math.max(0, Math.floor(Number(metrics.removeActionQueuedTotal || 0))),
+        );
+        this.kernelUpsertActionQueuedTotal = Math.max(
+          this.kernelUpsertActionQueuedTotal,
+          Math.max(0, Math.floor(Number(metrics.upsertActionQueuedTotal || 0))),
+        );
+        this.kernelAutoCardActionQueuedTotal = Math.max(
+          this.kernelAutoCardActionQueuedTotal,
+          Math.max(0, Math.floor(Number(metrics.autoCardActionQueuedTotal || 0))),
+        );
+      }
+    } catch (error) {
+      logger.warn('Failed to restore kernel action queue snapshot', {
+        message: error instanceof Error ? error.message : String(error || ''),
+      });
+    }
+  }
+
+  private async restoreKernelIngestQueueSnapshot(): Promise<void> {
+    try {
+      const snapshot = await this.fileService.readJSON<{
+        version?: number;
+        queue?: unknown[];
+        recentKeys?: Array<{ key?: unknown; expiresAt?: unknown }>;
+        metrics?: {
+          acceptedTotal?: number;
+          deduplicatedTotal?: number;
+          rejectedTotal?: number;
+          drainedTotal?: number;
+          lastAcceptedAt?: number | null;
+          lastDrainAt?: number | null;
+        };
+      }>(KERNEL_INGEST_QUEUE_SNAPSHOT_FILE);
+      if (!snapshot || snapshot.version !== KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION) {
+        return;
+      }
+      const now = Date.now();
+      const normalizedQueue = this.normalizeKernelTransactionQueue(snapshot.queue || []);
+      let queuedTransactions = 0;
+      for (const entry of normalizedQueue) {
+        if (this.kernelTransactionQueue.length >= this.maxKernelTransactionQueueLength) {
+          break;
+        }
+        const nextCount = entry.transactions.length;
+        if (nextCount <= 0) {
+          continue;
+        }
+        if (queuedTransactions + nextCount > this.maxKernelQueuedTransactions) {
+          break;
+        }
+        this.kernelTransactionQueue.push(entry);
+        queuedTransactions += nextCount;
+        this.recentKernelTransactionKeys.set(
+          entry.idempotencyKey,
+          Math.max(entry.acceptedAt + this.kernelTransactionDedupeTtlMs, now + this.kernelTransactionDedupeTtlMs),
+        );
+      }
+      this.kernelQueuedTransactions = queuedTransactions;
+      if (Array.isArray(snapshot.recentKeys)) {
+        for (const entry of snapshot.recentKeys) {
+          if (!entry || typeof entry !== 'object') {
+            continue;
+          }
+          const key = String(entry.key || '').trim();
+          const expiresAt = Number(entry.expiresAt);
+          if (!key || !Number.isFinite(expiresAt)) {
+            continue;
+          }
+          if (expiresAt <= now) {
+            continue;
+          }
+          this.recentKernelTransactionKeys.set(key, Math.floor(expiresAt));
+        }
+      }
+      const metrics = snapshot.metrics;
+      if (metrics && typeof metrics === 'object') {
+        this.kernelAcceptedTotal = Math.max(
+          this.kernelAcceptedTotal,
+          Math.max(0, Math.floor(Number(metrics.acceptedTotal || 0))),
+        );
+        this.kernelDeduplicatedTotal = Math.max(
+          this.kernelDeduplicatedTotal,
+          Math.max(0, Math.floor(Number(metrics.deduplicatedTotal || 0))),
+        );
+        this.kernelRejectedTotal = Math.max(
+          this.kernelRejectedTotal,
+          Math.max(0, Math.floor(Number(metrics.rejectedTotal || 0))),
+        );
+        this.kernelDrainedTotal = Math.max(
+          this.kernelDrainedTotal,
+          Math.max(0, Math.floor(Number(metrics.drainedTotal || 0))),
+        );
+        this.lastKernelAcceptedAt = Number.isFinite(Number(metrics.lastAcceptedAt))
+          ? Math.max(0, Math.floor(Number(metrics.lastAcceptedAt)))
+          : this.lastKernelAcceptedAt;
+        this.lastKernelDrainAt = Number.isFinite(Number(metrics.lastDrainAt))
+          ? Math.max(0, Math.floor(Number(metrics.lastDrainAt)))
+          : this.lastKernelDrainAt;
+      }
+    } catch (error) {
+      logger.warn('Failed to restore kernel ingest queue snapshot', {
+        message: error instanceof Error ? error.message : String(error || ''),
+      });
+    }
+  }
+
+  private async persistKernelIngestQueueSnapshot(): Promise<void> {
+    try {
+      await this.fileService.writeJSON(KERNEL_INGEST_QUEUE_SNAPSHOT_FILE, {
+        version: KERNEL_INGEST_QUEUE_SNAPSHOT_VERSION,
+        queue: this.kernelTransactionQueue,
+        recentKeys: Array.from(this.recentKernelTransactionKeys.entries()).map(([key, expiresAt]) => ({
+          key,
+          expiresAt,
+        })),
+        metrics: {
+          acceptedTotal: this.kernelAcceptedTotal,
+          deduplicatedTotal: this.kernelDeduplicatedTotal,
+          rejectedTotal: this.kernelRejectedTotal,
+          drainedTotal: this.kernelDrainedTotal,
+          lastAcceptedAt: this.lastKernelAcceptedAt,
+          lastDrainAt: this.lastKernelDrainAt,
+        },
+      });
+    } catch (error) {
+      logger.warn('Failed to persist kernel ingest queue snapshot', {
+        message: error instanceof Error ? error.message : String(error || ''),
+      });
+    }
+  }
+
+  private async persistKernelActionQueueSnapshot(): Promise<void> {
+    try {
+      await this.fileService.writeJSON(KERNEL_ACTION_QUEUE_SNAPSHOT_FILE, {
+        version: KERNEL_ACTION_QUEUE_SNAPSHOT_VERSION,
+        actions: this.kernelTransactionActions,
+        metrics: {
+          actionEnqueuedTotal: this.kernelActionEnqueuedTotal,
+          actionDequeuedTotal: this.kernelActionDequeuedTotal,
+          actionRequeuedTotal: this.kernelActionRequeuedTotal,
+          actionRejectedTotal: this.kernelActionRejectedTotal,
+          removeActionQueuedTotal: this.kernelRemoveActionQueuedTotal,
+          upsertActionQueuedTotal: this.kernelUpsertActionQueuedTotal,
+          autoCardActionQueuedTotal: this.kernelAutoCardActionQueuedTotal,
+        },
+      });
+    } catch (error) {
+      logger.warn('Failed to persist kernel action queue snapshot', {
+        message: error instanceof Error ? error.message : String(error || ''),
+      });
+    }
+  }
+
+  private normalizeKernelActions(actions: unknown[]): BackendKernelTransactionAction[] {
+    const normalized: BackendKernelTransactionAction[] = [];
+    for (const action of actions) {
+      if (!action || typeof action !== 'object') {
+        continue;
+      }
+      const record = action as Record<string, unknown>;
+      const source = record.source === 'kernel-sidecar' ? 'kernel-sidecar' : 'ws-main';
+      const receivedAt = Number.isFinite(Number(record.receivedAt))
+        ? Math.max(0, Math.floor(Number(record.receivedAt)))
+        : Date.now();
+      const idempotencyKey = String(record.idempotencyKey || '').trim();
+      const type = String(record.type || '').trim();
+      if (!idempotencyKey) {
+        continue;
+      }
+      if (type === 'native-riff-remove' || type === 'native-riff-upsert') {
+        const blockIds = Array.isArray(record.blockIds)
+          ? uniqueStrings(record.blockIds)
+          : [];
+        normalized.push({
+          type,
+          blockIds,
+          source,
+          receivedAt,
+          idempotencyKey,
+        });
+        continue;
+      }
+      if (type === 'auto-card-candidates') {
+        const operations = Array.isArray(record.operations)
+          ? record.operations
+            .filter((entry): entry is { action: 'insert' | 'update' | 'delete'; blockId: string } => {
+              if (!entry || typeof entry !== 'object') {
+                return false;
+              }
+              const candidate = entry as Record<string, unknown>;
+              const actionType = String(candidate.action || '').trim();
+              const blockId = String(candidate.blockId || '').trim();
+              return (
+                (actionType === 'insert' || actionType === 'update' || actionType === 'delete')
+                && Boolean(blockId)
+              );
+            })
+            .map((entry) => ({
+              action: entry.action,
+              blockId: String(entry.blockId).trim(),
+            }))
+          : [];
+        normalized.push({
+          type: 'auto-card-candidates',
+          operations,
+          source,
+          receivedAt,
+          idempotencyKey,
+        });
+      }
+    }
+    return normalized;
+  }
+
+  private normalizeKernelTransactionQueue(
+    queue: unknown[],
+  ): Array<{
+    source: 'kernel-sidecar' | 'ws-main';
+    transactions: unknown[];
+    receivedAt: number;
+    idempotencyKey: string;
+    acceptedAt: number;
+  }> {
+    const normalized: Array<{
+      source: 'kernel-sidecar' | 'ws-main';
+      transactions: unknown[];
+      receivedAt: number;
+      idempotencyKey: string;
+      acceptedAt: number;
+    }> = [];
+    for (const entry of queue) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+      const record = entry as Record<string, unknown>;
+      const source = record.source === 'kernel-sidecar' ? 'kernel-sidecar' : 'ws-main';
+      const transactions = Array.isArray(record.transactions) ? record.transactions : [];
+      const idempotencyKey = String(record.idempotencyKey || '').trim();
+      if (!idempotencyKey || transactions.length === 0) {
+        continue;
+      }
+      const receivedAt = Number.isFinite(Number(record.receivedAt))
+        ? Math.max(0, Math.floor(Number(record.receivedAt)))
+        : Date.now();
+      const acceptedAt = Number.isFinite(Number(record.acceptedAt))
+        ? Math.max(0, Math.floor(Number(record.acceptedAt)))
+        : receivedAt;
+      normalized.push({
+        source,
+        transactions,
+        receivedAt,
+        idempotencyKey,
+        acceptedAt,
+      });
+    }
+    return normalized;
   }
 
   async queryDeckPage(
@@ -492,6 +801,7 @@ export class WorkerSqliteDatabaseService {
 
     if (this.recentKernelTransactionKeys.has(idempotencyKey)) {
       this.kernelDeduplicatedTotal += transactions.length;
+      await this.persistKernelIngestQueueSnapshot();
       return {
         accepted: 0,
         queued: this.kernelQueuedTransactions,
@@ -504,12 +814,14 @@ export class WorkerSqliteDatabaseService {
 
     if (this.kernelTransactionQueue.length >= this.maxKernelTransactionQueueLength) {
       this.kernelRejectedTotal += transactions.length;
+      await this.persistKernelIngestQueueSnapshot();
       throw new Error(
         `SrsBackendWorker kernel.transaction.ingest unavailable: queue backpressure (pending=${this.kernelTransactionQueue.length}, limit=${this.maxKernelTransactionQueueLength})`,
       );
     }
     if (this.kernelQueuedTransactions + transactions.length > this.maxKernelQueuedTransactions) {
       this.kernelRejectedTotal += transactions.length;
+      await this.persistKernelIngestQueueSnapshot();
       throw new Error(
         `SrsBackendWorker kernel.transaction.ingest unavailable: transaction backpressure (pending=${this.kernelQueuedTransactions}, incoming=${transactions.length}, limit=${this.maxKernelQueuedTransactions})`,
       );
@@ -524,6 +836,7 @@ export class WorkerSqliteDatabaseService {
     if (this.kernelTransactionActions.length + actions.length > this.maxKernelActionQueueLength) {
       this.kernelRejectedTotal += transactions.length;
       this.kernelActionRejectedTotal += actions.length;
+      await this.persistKernelActionQueueSnapshot();
       throw new Error(
         `SrsBackendWorker kernel.transaction.ingest unavailable: action queue backpressure `
         + `(pending=${this.kernelTransactionActions.length}, incoming=${actions.length}, limit=${this.maxKernelActionQueueLength})`,
@@ -550,10 +863,12 @@ export class WorkerSqliteDatabaseService {
           this.kernelAutoCardActionQueuedTotal += 1;
         }
       }
+      await this.persistKernelActionQueueSnapshot();
     }
     this.kernelQueuedTransactions += transactions.length;
     this.kernelAcceptedTotal += transactions.length;
     this.lastKernelAcceptedAt = now;
+    await this.persistKernelIngestQueueSnapshot();
 
     return {
       accepted: transactions.length,
@@ -565,19 +880,24 @@ export class WorkerSqliteDatabaseService {
     };
   }
 
-  dequeueKernelTransactionActions(maxActions = 16): BackendKernelTransactionDequeueResult {
+  async dequeueKernelTransactionActions(maxActions = 16): Promise<BackendKernelTransactionDequeueResult> {
+    await this.init();
     const limit = Math.max(1, Math.floor(Number(maxActions) || 0));
     const actions = this.kernelTransactionActions.splice(0, limit);
     this.kernelActionDequeuedTotal += actions.length;
+    if (actions.length > 0) {
+      await this.persistKernelActionQueueSnapshot();
+    }
     return {
       actions,
       remaining: this.kernelTransactionActions.length,
     };
   }
 
-  requeueKernelTransactionActions(
+  async requeueKernelTransactionActions(
     actions: BackendKernelTransactionAction[],
-  ): BackendKernelTransactionRequeueResult {
+  ): Promise<BackendKernelTransactionRequeueResult> {
+    await this.init();
     const normalized = (Array.isArray(actions) ? actions : [])
       .filter((action): action is BackendKernelTransactionAction => (
         Boolean(action)
@@ -597,10 +917,14 @@ export class WorkerSqliteDatabaseService {
     if (accepted.length > 0) {
       this.kernelTransactionActions.unshift(...accepted);
       this.kernelActionRequeuedTotal += accepted.length;
+      await this.persistKernelActionQueueSnapshot();
     }
     const dropped = normalized.length - accepted.length;
     if (dropped > 0) {
       this.kernelActionRejectedTotal += dropped;
+      if (accepted.length === 0) {
+        await this.persistKernelActionQueueSnapshot();
+      }
     }
     return {
       requeued: accepted.length,
@@ -641,6 +965,7 @@ export class WorkerSqliteDatabaseService {
     if (drained.length > 0) {
       this.kernelDrainedTotal += consumed;
       this.lastKernelDrainAt = Date.now();
+      void this.persistKernelIngestQueueSnapshot();
       logger.debug('Drained kernel transaction batch', {
         envelopes: drained.length,
         transactions: consumed,
@@ -700,6 +1025,8 @@ export class WorkerSqliteDatabaseService {
   }
 
   dispose(): void {
+    void this.persistKernelIngestQueueSnapshot();
+    void this.persistKernelActionQueueSnapshot();
     this.runtime.dispose();
     this.repository = null;
     this.initialized = false;
@@ -838,8 +1165,7 @@ function collectNativeRiffUpsertBlockIds(transactions: unknown[]): string[] {
 function collectAutoCardCandidateOperations(
   transactions: unknown[],
 ): Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> {
-  const operations: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
-  const seen = new Set<string>();
+  const byBlockId = new Map<string, 'insert' | 'update' | 'delete' | null>();
   for (const transaction of transactions) {
     if (!isRecord(transaction) || !Array.isArray(transaction.doOperations)) {
       continue;
@@ -856,16 +1182,27 @@ function collectAutoCardCandidateOperations(
       if (!blockId) {
         continue;
       }
-      const key = `${action}:${blockId}`;
-      if (seen.has(key)) {
+      const nextAction = action as 'insert' | 'update' | 'delete';
+      const current = byBlockId.get(blockId) ?? null;
+      if (nextAction === 'delete') {
+        byBlockId.set(blockId, current === 'insert' ? null : 'delete');
         continue;
       }
-      seen.add(key);
-      operations.push({
-        action: action as 'insert' | 'update' | 'delete',
-        blockId,
-      });
+      if (nextAction === 'insert') {
+        byBlockId.set(blockId, current === 'delete' ? 'insert' : 'insert');
+        continue;
+      }
+      if (current === null) {
+        byBlockId.set(blockId, 'update');
+      }
     }
+  }
+  const operations: Array<{ action: 'insert' | 'update' | 'delete'; blockId: string }> = [];
+  for (const [blockId, action] of byBlockId.entries()) {
+    if (!action) {
+      continue;
+    }
+    operations.push({ action, blockId });
   }
   return operations;
 }
