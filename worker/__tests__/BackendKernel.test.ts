@@ -427,6 +427,54 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('dequeues native-riff-upsert actions parsed from transaction operations', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const ingest = await kernel.handle({
+      id: 'ingest-upsert-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'upsert-action-key',
+        transactions: [
+          {
+            doOperations: [
+              {
+                action: 'addFlashcards',
+                blockIDs: ['block-upsert-a', 'block-upsert-b'],
+              },
+            ],
+          },
+        ],
+      }],
+    });
+    expect('result' in ingest).toBe(true);
+
+    const dequeue = await kernel.handle({
+      id: 'dequeue-upsert-action',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 8 }],
+    });
+    expect(dequeue).toEqual({
+      id: 'dequeue-upsert-action',
+      jsonrpc: '2.0',
+      result: {
+        actions: [{
+          type: 'native-riff-upsert',
+          blockIds: ['block-upsert-a', 'block-upsert-b'],
+          source: 'ws-main',
+          receivedAt: expect.any(Number),
+          idempotencyKey: 'upsert-action-key',
+        }],
+        remaining: 0,
+      },
+    });
+  });
+
   it('returns explicit unavailable when kernel transaction ingest queue is backpressured', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge, undefined, {

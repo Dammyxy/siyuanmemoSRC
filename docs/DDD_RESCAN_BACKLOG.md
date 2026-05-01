@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-01 (Round 239)
+Last update: 2026-05-01 (Round 240)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-01 - phase5 p5-4 native riff upsert action chain
+
+- Task: 在 P5-3 基础上继续施工并“多做点”，把 native riff add/update 也纳入 worker action 消费链，形成 upsert+remove 双动作闭环。
+- Touched slice: Worker transaction action extraction + application action pump routing；`packages/contracts/src/backend-rpc.ts`、`worker/db/SqliteDatabaseService.ts`、`src/application/handlers/KernelTransactionActionPump.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: worker ingest 现在除 `native-riff-remove` 外，还会提取 `native-riff-upsert` action（含 `addFlashcards` 和 marker-based upsert 操作）；`KernelTransactionActionPump` 新增 upsert 路由，优先调用 `XiuyuanSyncService.handleNativeRiffUpsert()`，缺省回退 `incrementalSync(source='native-riff-transaction', persistIdleCheckpoint=false)`；follower 模式仍通过 writer relay 消费，不引入双写。
+- Debt deferred: action queue 仍是内存态（重启不恢复）；upsert 目前按批次触发整段 incremental sync，尚未做 action-level 精细 block 范围裁剪；AutoCard 其它事务决策仍未下沉到 worker。
+- Why deferred: 本轮重点是快速扩展第二条高价值 action 且保持低风险，不在同轮引入持久化队列和更复杂的 per-block 调度策略。
+- Next safe step: 进入 P5-5，给 upsert action 增加最小批处理去抖/合并窗口与可观测计数，再评估 action queue 持久化契约（仅在重启一致性成为真实问题时引入）。
+- Validation: `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts worker/__tests__/BackendKernel.test.ts src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/__tests__/service-access.integration.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-01 - phase5 p5-3 first action consumer chain (native riff remove)
 

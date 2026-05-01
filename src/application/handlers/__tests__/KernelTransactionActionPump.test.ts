@@ -42,6 +42,38 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('routes native-riff-upsert to hybrid sync upsert handler', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [{
+        type: 'native-riff-upsert' as const,
+        blockIds: ['block-3'],
+        source: 'ws-main' as const,
+        receivedAt: 2,
+        idempotencyKey: 'k2',
+      }],
+      remaining: 0,
+    }));
+    const handleNativeRiffUpsert = vi.fn(async () => ({ success: true }));
+    const incrementalSync = vi.fn(async () => ({ success: true }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions },
+      null,
+      null,
+      () => ({ handleNativeRiffUpsert, incrementalSync }),
+      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+    expect(incrementalSync).not.toHaveBeenCalled();
+
+    await pump.dispose();
+  });
+
   it('uses relay dequeue command when runtime is follower', async () => {
     const dequeueKernelTransactions = vi.fn();
     const submitAndWait = vi.fn(async () => ({

@@ -491,15 +491,14 @@ export class WorkerSqliteDatabaseService {
       idempotencyKey,
       acceptedAt: now,
     });
-    const nativeRiffRemoveBlockIds = collectNativeRiffRemoveBlockIds(transactions);
-    if (nativeRiffRemoveBlockIds.length > 0) {
-      this.kernelTransactionActions.push({
-        type: 'native-riff-remove',
-        blockIds: nativeRiffRemoveBlockIds,
-        source,
-        receivedAt,
-        idempotencyKey,
-      });
+    const actions = collectKernelTransactionActions({
+      source,
+      transactions,
+      receivedAt,
+      idempotencyKey,
+    });
+    if (actions.length > 0) {
+      this.kernelTransactionActions.push(...actions);
     }
     this.kernelQueuedTransactions += transactions.length;
     this.kernelAcceptedTotal += transactions.length;
@@ -621,7 +620,18 @@ export class WorkerSqliteDatabaseService {
   }
 }
 
+const RELEVANT_UPSERT_ACTIONS = new Set(['insert', 'update', 'delete', 'setAttrs', 'updateAttrs']);
 const REMOVE_FLASHCARDS_ACTION = 'removeFlashcards';
+const ADD_FLASHCARDS_ACTION = 'addFlashcards';
+const NATIVE_RIFF_MARKERS = [
+  'custom-riff-decks',
+  'custom-is-flashcard',
+  'flashcard',
+  'riffCardID',
+  'riffCardId',
+  'riffCard',
+  'custom-card-type',
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -643,6 +653,26 @@ function uniqueStrings(values: Iterable<unknown>): string[] {
     result.push(normalized);
   }
   return result;
+}
+
+function containsNativeRiffMarker(value: unknown): boolean {
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (!normalized) {
+      return false;
+    }
+    return NATIVE_RIFF_MARKERS.some((marker) => normalized.includes(marker));
+  }
+  if (Array.isArray(value)) {
+    return value.some((entry) => containsNativeRiffMarker(entry));
+  }
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Object.entries(value).some(([key, nested]) => (
+    NATIVE_RIFF_MARKERS.includes(key)
+    || containsNativeRiffMarker(nested)
+  ));
 }
 
 function extractOperationBlockIds(operation: DoOperation): string[] {
@@ -673,4 +703,77 @@ function collectNativeRiffRemoveBlockIds(transactions: unknown[]): string[] {
     }
   }
   return uniqueStrings(ids);
+}
+
+function looksLikeNativeRiffAttrRemoval(operation: DoOperation): boolean {
+  if (operation.action !== 'setAttrs' && operation.action !== 'updateAttrs') {
+    return false;
+  }
+  const oldHasMarker = containsNativeRiffMarker(operation.data?.old);
+  const newHasMarker = containsNativeRiffMarker(operation.data?.new);
+  return oldHasMarker && !newHasMarker;
+}
+
+function looksLikeNativeRiffUpsert(operation: DoOperation): boolean {
+  if (operation.action === ADD_FLASHCARDS_ACTION) {
+    return extractOperationBlockIds(operation).length > 0;
+  }
+  if (looksLikeNativeRiffAttrRemoval(operation)) {
+    return false;
+  }
+  if (!RELEVANT_UPSERT_ACTIONS.has(operation.action)) {
+    return false;
+  }
+  return containsNativeRiffMarker(operation.data?.new)
+    || containsNativeRiffMarker(operation.data?.old);
+}
+
+function collectNativeRiffUpsertBlockIds(transactions: unknown[]): string[] {
+  const ids: unknown[] = [];
+  for (const transaction of transactions) {
+    if (!isRecord(transaction) || !Array.isArray(transaction.doOperations)) {
+      continue;
+    }
+    for (const operation of transaction.doOperations) {
+      if (!isRecord(operation)) {
+        continue;
+      }
+      const typed = operation as DoOperation;
+      if (!looksLikeNativeRiffUpsert(typed)) {
+        continue;
+      }
+      ids.push(...extractOperationBlockIds(typed));
+    }
+  }
+  return uniqueStrings(ids);
+}
+
+function collectKernelTransactionActions(input: {
+  source: 'kernel-sidecar' | 'ws-main';
+  transactions: unknown[];
+  receivedAt: number;
+  idempotencyKey: string;
+}): BackendKernelTransactionAction[] {
+  const actions: BackendKernelTransactionAction[] = [];
+  const nativeRiffRemoveBlockIds = collectNativeRiffRemoveBlockIds(input.transactions);
+  if (nativeRiffRemoveBlockIds.length > 0) {
+    actions.push({
+      type: 'native-riff-remove',
+      blockIds: nativeRiffRemoveBlockIds,
+      source: input.source,
+      receivedAt: input.receivedAt,
+      idempotencyKey: input.idempotencyKey,
+    });
+  }
+  const nativeRiffUpsertBlockIds = collectNativeRiffUpsertBlockIds(input.transactions);
+  if (nativeRiffUpsertBlockIds.length > 0) {
+    actions.push({
+      type: 'native-riff-upsert',
+      blockIds: nativeRiffUpsertBlockIds,
+      source: input.source,
+      receivedAt: input.receivedAt,
+      idempotencyKey: input.idempotencyKey,
+    });
+  }
+  return actions;
 }

@@ -17,6 +17,8 @@ type FollowerCommandClientLike = {
 };
 
 type HybridSyncServiceLike = {
+  handleNativeRiffUpsert?: () => Promise<unknown>;
+  incrementalSync?: (_onProgress?: unknown, _options?: { source?: string; persistIdleCheckpoint?: boolean }) => Promise<unknown>;
   handleNativeRiffRemove?: (blockIds: string[]) => Promise<unknown>;
 };
 
@@ -69,17 +71,33 @@ export class KernelTransactionActionPump {
     try {
       const result = await this.dequeueActions();
       for (const action of result.actions || []) {
-        if (action.type !== 'native-riff-remove') {
-          continue;
-        }
         const hybridSyncService = this.getHybridSyncService();
-        if (typeof hybridSyncService?.handleNativeRiffRemove !== 'function') {
-          logger.warn('Skip native-riff-remove action because hybrid sync service is unavailable', {
+        if (action.type === 'native-riff-upsert') {
+          if (typeof hybridSyncService?.handleNativeRiffUpsert === 'function') {
+            await hybridSyncService.handleNativeRiffUpsert();
+            continue;
+          }
+          if (typeof hybridSyncService?.incrementalSync === 'function') {
+            await hybridSyncService.incrementalSync(undefined, {
+              source: 'native-riff-transaction',
+              persistIdleCheckpoint: false,
+            });
+            continue;
+          }
+          logger.warn('Skip native-riff-upsert action because hybrid sync service is unavailable', {
             blockIds: action.blockIds,
           });
           continue;
         }
-        await hybridSyncService.handleNativeRiffRemove(action.blockIds);
+        if (action.type === 'native-riff-remove') {
+          if (typeof hybridSyncService?.handleNativeRiffRemove !== 'function') {
+            logger.warn('Skip native-riff-remove action because hybrid sync service is unavailable', {
+              blockIds: action.blockIds,
+            });
+            continue;
+          }
+          await hybridSyncService.handleNativeRiffRemove(action.blockIds);
+        }
       }
     } catch (error) {
       logger.warn('Kernel transaction action polling failed', {
@@ -92,7 +110,7 @@ export class KernelTransactionActionPump {
 
   private async dequeueActions(): Promise<{
     actions: Array<{
-      type: 'native-riff-remove';
+      type: 'native-riff-remove' | 'native-riff-upsert';
       blockIds: string[];
       source: 'kernel-sidecar' | 'ws-main';
       receivedAt: number;
@@ -114,4 +132,3 @@ export class KernelTransactionActionPump {
     return this.srsBackendClient.dequeueKernelTransactions(params);
   }
 }
-

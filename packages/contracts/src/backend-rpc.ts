@@ -201,13 +201,25 @@ export interface BackendKernelTransactionIngestResult {
   maxQueueLength: number;
 }
 
-export interface BackendKernelTransactionAction {
-  type: 'native-riff-remove';
-  blockIds: string[];
+export interface BackendKernelTransactionActionBase {
   source: 'kernel-sidecar' | 'ws-main';
   receivedAt: number;
   idempotencyKey: string;
 }
+
+export interface BackendKernelTransactionRemoveAction extends BackendKernelTransactionActionBase {
+  type: 'native-riff-remove';
+  blockIds: string[];
+}
+
+export interface BackendKernelTransactionUpsertAction extends BackendKernelTransactionActionBase {
+  type: 'native-riff-upsert';
+  blockIds: string[];
+}
+
+export type BackendKernelTransactionAction =
+  | BackendKernelTransactionRemoveAction
+  | BackendKernelTransactionUpsertAction;
 
 export interface BackendKernelTransactionDequeueRequest {
   maxActions?: number;
