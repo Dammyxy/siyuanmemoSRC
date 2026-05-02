@@ -975,9 +975,6 @@ export class UnifiedDataSourceManager {
             
             case QueueType.NeuralRoam:
                 return new NeuralRoamQueue(this, this.queuePersistence!, {
-                    cardTypeResolver: {
-                        resolveCardType: async (blockId: string) => this.resolveNeuralRoamCardTypeFromLocalCard(blockId),
-                    },
                     nodeTypeResolver: {
                         resolveNodeType: async (blockId: string) => this.resolveNeuralRoamNodeType(blockId),
                     },
@@ -996,13 +993,6 @@ export class UnifiedDataSourceManager {
             default:
                 throw new QueueError(`Unknown queue type: ${type}`);
         }
-    }
-
-    private async resolveNeuralRoamCardTypeFromLocalCard(blockId: string): Promise<'item' | 'topic'> {
-        const nodeType = await this.resolveNeuralRoamNodeType(blockId);
-        return nodeType === 'item' || nodeType === 'descriptor'
-            ? 'item'
-            : 'topic';
     }
 
     public async batchDeleteCards(

@@ -1372,7 +1372,11 @@ async function prepareReviewStateBeforeCommit(
   reason: ReviewSessionUpdateReason,
 ): Promise<ReviewUIState> {
   try {
-    return await prepareReviewPresentation(nextState, reviewRenderServices);
+    const services = reviewRenderServices.value;
+    if (!services) {
+      return nextState;
+    }
+    return await prepareReviewPresentation(nextState, services);
   } catch (error) {
     logger.warn('[SiYuanMemo][ReviewView] Failed to prepare review presentation before commit:', {
       reason,

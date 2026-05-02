@@ -17,10 +17,6 @@ export interface AutoFailedCardSinkPort {
   addAutoFailed(cardId: string): Promise<void>;
 }
 
-export interface NeuralRoamCardTypeResolverPort {
-  resolveCardType(blockId: string): Promise<'item' | 'topic'>;
-}
-
 export type NeuralRoamNodeType = 'concept' | 'item' | 'topic' | 'descriptor' | 'unknown';
 
 export interface NeuralRoamNodeTypeResolverPort {

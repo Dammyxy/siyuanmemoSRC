@@ -30,7 +30,7 @@ type LocalCardSeed = {
   blockId: string;
   type: 'concept' | 'item' | 'topic' | 'descriptor';
   cardTypeMarker?: 'concept' | 'descriptor';
-  meta?: { cardTypeMarker?: 'concept' | 'descriptor' };
+  meta?: Record<string, unknown>;
   due?: number;
   reps?: number;
   lapses?: number;
@@ -132,11 +132,24 @@ function createManager(options: {
     cardByBlockId.set(card.blockId, JSON.parse(JSON.stringify(card)));
     cardById.set(card.id, JSON.parse(JSON.stringify(card)));
   });
+  const commitReview = vi.fn(async (command: { cardId: string; rating: number }) => {
+    const card = cardById.get(command.cardId);
+    if (!card) {
+      throw new Error(`missing card ${command.cardId}`);
+    }
+    const updated = await route(JSON.parse(JSON.stringify(card)) as FSRSCard, command.rating);
+    return {
+      card: JSON.parse(JSON.stringify(card)) as FSRSCard,
+      updatedCard: updated,
+      committed: true,
+    };
+  });
 
   return {
     manager: {
       getCard,
       getCards,
+      commitReview,
       getSchedulerRouter: vi.fn(() => ({
         route,
       })),
@@ -145,6 +158,7 @@ function createManager(options: {
     getCard,
     getCards,
     route,
+    commitReview,
     onCardUpdatedFromScheduler,
   };
 }
@@ -178,6 +192,21 @@ function descriptorCard(blockId: string): LocalCardSeed {
     type: 'descriptor',
     cardTypeMarker: 'descriptor',
     meta: { cardTypeMarker: 'descriptor' },
+  };
+}
+
+function nativeRiffSyncCard(blockId: string, blockType: 'i' | 'h'): LocalCardSeed {
+  return {
+    blockId,
+    type: 'item',
+    meta: {
+      templateID: 'builtin-riff-sync',
+      ownership: 'riff-managed',
+      source: 'riff-sync',
+      blockType,
+      frontBlockIDs: [blockId],
+      backBlockIDs: [blockId],
+    },
   };
 }
 
@@ -458,12 +487,7 @@ describe('NeuralRoamQueue', () => {
     const manager = createManager();
     const queue = new NeuralRoamQueue(
       manager.manager,
-      persistence,
-      {
-        cardTypeResolver: {
-          resolveCardType: vi.fn(async (): Promise<'item' | 'topic'> => 'item'),
-        },
-      }
+      persistence
     );
 
     await queue.load();
@@ -679,12 +703,7 @@ describe('NeuralRoamQueue', () => {
     const manager = createManager();
     const queue = new NeuralRoamQueue(
       manager.manager,
-      persistence,
-      {
-        cardTypeResolver: {
-          resolveCardType: vi.fn(async (): Promise<'item' | 'topic'> => 'item'),
-        },
-      }
+      persistence
     );
 
     await queue.load();
@@ -849,6 +868,54 @@ describe('NeuralRoamQueue', () => {
     expect(persisted?.seenAssociatedReviewCardIds).toContain('descriptor-1');
   });
 
+  it.each([
+    { label: 'list item', blockId: 'native-list-1', blockType: 'i' as const },
+    { label: 'heading', blockId: 'native-heading-1', blockType: 'h' as const },
+  ])('keeps native riff-sync $label blocks as topic-only neural roam nodes', async ({ blockId, blockType }) => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [nativeRiffSyncCard(blockId, blockType)],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+    const conceptQueue = (queue as any).conceptQueue;
+    conceptQueue.getNextCard = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: blockId,
+        blockId,
+        deckId: 'neural-roam',
+        blockData: {
+          id: blockId,
+          content: `${blockId} content`,
+          type: blockType,
+          root_id: 'doc-1',
+        },
+        associationType: 'backlink',
+        reason: '反向链接',
+      })
+      .mockResolvedValueOnce(null);
+    const queryEngine = (queue as any).queryEngine;
+    queryEngine.fetchSubtreeBlockIds = vi.fn(async () => [blockId]);
+
+    const virtualCard = await queue.getNextCard();
+    const associatedCard = await queue.getNextCard();
+
+    expect(virtualCard).not.toBeNull();
+    expect(virtualCard?.id).toBe(blockId);
+    expect(virtualCard?.type).toBe('topic');
+    expect(virtualCard?.meta).toEqual(expect.objectContaining({
+      neuralContext: expect.objectContaining({
+        isFlashcard: false,
+        nodeRole: 'virtual',
+        blockType,
+      }),
+    }));
+    expect(associatedCard).toBeNull();
+  });
+
   it('deduplicates associated review cards across multiple virtual nodes within one session', async () => {
     const { persistence } = createPersistence(undefined);
     const manager = createManager({
@@ -931,6 +998,39 @@ describe('NeuralRoamQueue', () => {
     expect(result.remainsInQueue).toBe(true);
   });
 
+  it('keeps local concept blocks on the main path as virtual topic practice nodes without formal SRS writeback', async () => {
+    const { persistence } = createPersistence(undefined);
+    const manager = createManager({
+      cards: [conceptCard('concept-1')],
+    });
+    const queue = new NeuralRoamQueue(manager.manager, persistence);
+
+    await queue.load();
+    mockNeuralEngine(queue);
+
+    const card = await queue.getPathItemByNodeId('concept-1');
+
+    expect(card).not.toBeNull();
+    expect(card?.id).toBe('concept-1');
+    expect(card?.type).toBe('topic');
+    expect(card?.cardTypeMarker).toBeUndefined();
+    expect(card?.meta).toEqual(expect.objectContaining({
+      neuralContext: expect.objectContaining({
+        isFlashcard: false,
+        nodeRole: 'virtual',
+        blockType: 'p',
+      }),
+    }));
+
+    const result = await queue.handleReview('concept-1', 3);
+    expect(manager.commitReview).not.toHaveBeenCalled();
+    expect(manager.route).not.toHaveBeenCalled();
+    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
+    expect(result.updatedCard).toBeNull();
+    expect(result.removedFromQueue).toBe(false);
+    expect(result.remainsInQueue).toBe(true);
+  });
+
   it('writes back formal SRS reviews for real neural-roam flashcards without removing them from the roam queue', async () => {
     const { persistence } = createPersistence(undefined);
     const manager = createManager({
@@ -950,7 +1050,8 @@ describe('NeuralRoamQueue', () => {
     const result = await queue.handleReview('review-card-1', 3);
 
     expect(manager.route).toHaveBeenCalledTimes(1);
-    expect(manager.onCardUpdatedFromScheduler).toHaveBeenCalledTimes(1);
+    expect(manager.commitReview).toHaveBeenCalledTimes(1);
+    expect(manager.onCardUpdatedFromScheduler).not.toHaveBeenCalled();
     expect(result.updatedCard).not.toBeNull();
     expect(result.removedFromQueue).toBe(false);
     expect(result.remainsInQueue).toBe(true);

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-02 (Round 258)
+Last update: 2026-05-02 (Round 260)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-02 - neural roam non-flashcard topic UI and review preprepare fix
+
+- Task: 修复评分后 `ReviewView` 预渲染警告，并让神经漫游中的 concept、topic、普通块和其他非闪卡虚拟节点统一使用 topic 复习界面，直接进入下一张；只有 item/descriptor 真闪卡保留正反面与评分界面。
+- Touched slice: Review bounded context + neural-roam queue semantics；`src/ui/review/v2/ReviewView.vue`、`src/application/adapters/UnifiedReviewAdapter.ts`、`src/core/queue/domain/NeuralRoamQueue.ts`、`src/application/services/UnifiedDataSourceManager.ts`、相关 focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: `ReviewView.prepareReviewStateBeforeCommit()` 传入 resolved `ReviewRenderServices`，不再把 Vue computed ref 本体交给 `prepareReviewPresentation()`；neural-roam 主路径删除按原生 Riff/list/heading 形态投 item 的 `cardTypeResolver` 入口，practice-only 虚拟节点一律合成 topic 语义，不再克隆本地 concept 卡到主路径；本地原生 `builtin-riff-sync` 列表/标题块不再被排成 associated-review 闪卡，只有 item/descriptor 且带明确答案契约的本地卡才进入正式评分；同时删除已脱离运行时的 `SiyuanNeuralRoamCardTypeResolverAdapter` 与旧端口，并移除随之变成写入无读取的本地卡缓存。
+- Debt deferred: 真实 SiYuan 中的非闪卡 topic UI 仍需手工复测视觉/交互（确认动作区只显示下一张），自动化已覆盖 queue/adaptor/state 语义。
+- Why deferred: 终端测试能覆盖合同与状态，但不能替代真实宿主里的 Protyle/native Riff 视觉 smoke。
+- Next safe step: 构建后在真实 SiYuan 神经漫游里分别点 concept、topic、普通列表项/标题块、真实 descriptor/Item 闪卡：前三类应无“显示答案/评分”，真实闪卡仍进入评分。
+- Validation: `pnpm exec vitest run src/ui/review/v2/__tests__/ReviewView.local-advance-race.spec.ts src/application/adapters/__tests__/UnifiedReviewAdapter.spec.ts src/core/queue/domain/__tests__/NeuralRoamQueue.test.ts`（51 passed）；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-02 - kernel writer relay startup handshake
 

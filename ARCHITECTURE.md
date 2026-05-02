@@ -608,6 +608,7 @@ Review：
 
 - `subset`、temporary drill 等会话型 surface 存在，但不是 `QueueType` 主字面量的一部分
 - `neural-roam` 的字面量不变，但当前活跃契约是 focus-first
+- `neural-roam` 主路径只产出 practice-only 虚拟 topic 节点：concept、topic、普通块和其他非闪卡虚拟节点统一走 topic 复习界面，不再按原生 Riff/list/heading 或概念卡类型投成有答案卡；真实有答案闪卡只通过 associated-review 的 item/descriptor 卡进入评分界面
 - 活跃队列语义以 `QUEUE_ARCHITECTURE.md` 为专题事实源；其中固定了 6 个活跃队列的 `membership rule / base order / post-review retention`
 - 浏览器列排序是 view-only 行为，不允许通过 `queue.sort()` 或 `reorder()` 改写真实队列顺序
 - 复习后是否留队由具体队列自己的 active-window 语义决定，而不是统一 today-window 或历史启发式
@@ -630,7 +631,7 @@ Review：
 - `RetrievalPractice` / `IncrementalLearning`：today-window 队列，基础顺序 `due -> priority -> id`，允许 outstanding/manual 稀疏插入；其中 `IncrementalLearning` 的 unified review 推进现在以“反馈后重新读取 queue.getCards() 视图”为单一真相源，评分或跳过后把同一 source block 的兄弟卡视为同一个可见卡单元并优先避开，存在不同 block 替代卡时强制切过去，不再在 unified 层本地 splice/rotate 当前缓存数组
 - `FilterGroup`：filter-backed 队列，复习后按当前 filter 镜像留队
 - `FinalDrill`：静态练习队列，评分 `4` 出队，评分 `1/2/3` 留队并移到尾部
-- `NeuralRoam`：engine-session 队列，不因窗口自动出队
+- `NeuralRoam`：engine-session 队列，不因窗口自动出队；主路径始终是 topic 练习节点，只有 item/descriptor 且带明确答案契约的本地卡会作为 associated-review 进入正式评分/调度
 - `Leech`：按 `lapses/manual membership` 建队列，但复习后仍按 today-window 判定留队
 
 ---
@@ -701,6 +702,7 @@ Review 运行时要点：
 - `useReviewSession.ts` 负责把 Vue 生命周期绑定到共享或本地 `reviewSessionController`
 - `reviewSessionController.ts` 负责真正的 review session 状态机、动作串行化，以及多 surface 共享时的单一 authoritative controller；它不自己计算 `nextDues`，只在 restore/refresh/load-by-block 等直写当前卡路径上调用 queue strategy 的显示态 hydration
 - queue-specific header / actions / variant 由 adapter 与 queue config 决定
+- `UnifiedReviewAdapter` 对 `neuralContext.isFlashcard === false` 的 neural-roam 节点强制投影为 topic actions，不显示答案阶段，不携带 answer pane；这只是 UI contract 对 queue 语义的边界校验，不替代 queue domain 的闪卡判定
 - `TabManager` 负责 review tab、browser handoff、AI companion tab 复用；插件托管 review 分屏时会携带 `sharedReviewSessionId + reviewState`
 - deprecated provider-backed path 已移除：`ProviderBackedQueueStrategy`、`QueueProvider`、`ReviewViewAdapter`、`ReviewViewController` 与 `src/core/extensions/*` 不再属于 active review runtime
 

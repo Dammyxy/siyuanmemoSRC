@@ -5,9 +5,18 @@ import { defineComponent, h } from 'vue';
 import { describe, expect, it, vi } from 'vitest';
 import ReviewView from '../ReviewView.vue';
 import { createEmptyReviewUIState } from '../types';
+import type { ReviewRenderServices } from '@/application/factories/createReviewRenderServices';
 
-function buildCard(id: string, priority: number) {
-  return {
+function buildCard(
+  id: string,
+  priority: number,
+  overrides: Partial<{
+    type: string;
+    meta: Record<string, unknown>;
+    updatedAt: number;
+  }> = {},
+) {
+  const base = {
     id,
     cardID: id,
     blockId: `block-${id}`,
@@ -31,6 +40,14 @@ function buildCard(id: string, priority: number) {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     meta: {},
+  };
+  return {
+    ...base,
+    ...overrides,
+    meta: {
+      ...base.meta,
+      ...(overrides.meta ?? {}),
+    },
   };
 }
 
@@ -75,6 +92,18 @@ function createAdapter() {
     })),
     cleanup: vi.fn(),
   };
+}
+
+function createRenderServicesStub(
+  multiClozePrepareViewModel = vi.fn(async () => ({ kind: 'multi' })),
+): ReviewRenderServices {
+  return {
+    quickCardRenderService: { prepareViewModel: vi.fn() },
+    descriptorCardRenderService: { prepareViewModel: vi.fn() },
+    conceptDefinitionCardRenderService: { prepareViewModel: vi.fn() },
+    conceptCardRenderService: { prepareViewModel: vi.fn() },
+    multiClozeCardRenderService: { prepareViewModel: multiClozePrepareViewModel },
+  } as unknown as ReviewRenderServices;
 }
 
 const ReviewHeaderStub = defineComponent({
@@ -211,6 +240,95 @@ describe('ReviewView local advance race guard', () => {
     expect(manager.getCard).not.toHaveBeenCalled();
     expect(wrapper.get('.review-current-card').text()).toBe('card-2');
     expect(wrapper.get('.review-header-priority').text()).toBe('5');
+
+    wrapper.unmount();
+  });
+
+  it('prepares the advanced card with resolved render services before committing state', async () => {
+    const initialCard = buildCard('card-1', 42);
+    const nextCard = buildCard('card-2', 5, {
+      meta: {
+        templateID: 'builtin-multi-cloze',
+        clozeRenderMode: 'inline-formula-cloze',
+        renderProfile: 'quick-inline-formula',
+        faceIndex: 0,
+        faces: [
+          {
+            question: '$$x+1$$',
+            answer: '$$x$$',
+          },
+        ],
+      },
+    });
+    const prepareViewModel = vi.fn(async () => ({ kind: 'multi' }));
+
+    const queue = {
+      next: vi.fn()
+        .mockResolvedValueOnce(initialCard)
+        .mockResolvedValueOnce(nextCard),
+      onFeedback: vi.fn(async () => undefined),
+      getStats: vi.fn(async () => ({ size: 2, label: '2 due' })),
+      getCounterSnapshot: vi.fn(async () => ({
+        version: 1,
+        remaining: 2,
+        due: 2,
+        total: 2,
+        buckets: {
+          all: 2,
+          item: 2,
+          descriptor: 0,
+          topic: 0,
+          concept: 0,
+        },
+        source: 'hot' as const,
+      })),
+      getUIConfig: vi.fn(() => ({
+        statsType: 'queue-size' as const,
+        showRatingButtons: true,
+        allowSkip: true,
+      })),
+      canGoBack: vi.fn(() => false),
+    };
+
+    const adapter = createAdapter();
+    const manager = {
+      registerObserver: vi.fn(),
+      unregisterObserver: vi.fn(),
+      getCard: vi.fn(),
+    };
+
+    const wrapper = mount(ReviewView, {
+      props: {
+        app: {} as never,
+        queue: queue as never,
+        adapter: adapter as never,
+        reviewRenderServices: createRenderServicesStub(prepareViewModel),
+        plugin: {
+          getContext: () => ({
+            getUnifiedDataSourceManager: () => manager,
+            getStorage: () => ({
+              getSettings: () => ({}),
+            }),
+          }),
+        },
+      },
+      global: {
+        stubs: {
+          ReviewHeader: ReviewHeaderStub,
+          ReviewContent: ReviewContentStub,
+          ReviewActions: ReviewActionsStub,
+          FilterDialog: true,
+          teleport: true,
+        },
+      },
+    });
+
+    await flushPromises();
+    await wrapper.get('.review-grade-button').trigger('click');
+    await flushPromises();
+
+    expect(prepareViewModel).toHaveBeenCalledTimes(1);
+    expect(prepareViewModel).toHaveBeenCalledWith(nextCard);
 
     wrapper.unmount();
   });

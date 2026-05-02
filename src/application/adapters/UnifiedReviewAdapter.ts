@@ -414,17 +414,29 @@ function buildQueueProgressSnapshot(
   };
 }
 
-function isRealFlashcardPriority(item: UnifiedReviewItem, queueType: string): boolean {
+function isExplicitNeuralRoamNonFlashcard(item: UnifiedReviewItem, queueType: string): boolean {
   if (queueType !== 'neural-roam') {
-    return true;
+    return false;
   }
 
   const neuralContext = item.meta?.neuralContext;
   if (!neuralContext || typeof neuralContext !== 'object') {
-    return true;
+    return false;
   }
 
-  return (neuralContext as Record<string, unknown>).isFlashcard === true;
+  return (neuralContext as Record<string, unknown>).isFlashcard === false;
+}
+
+function isRealFlashcardPriority(item: UnifiedReviewItem, queueType: string): boolean {
+  return !isExplicitNeuralRoamNonFlashcard(item, queueType);
+}
+
+function resolveEffectiveCardType(item: UnifiedReviewItem, queueType: string): ReviewCardKind {
+  const cardType = normalizeCardType(item.type);
+  if (isExplicitNeuralRoamNonFlashcard(item, queueType)) {
+    return 'topic';
+  }
+  return cardType;
 }
 
 function createEmptyBucketMap(): Map<HeaderBucket, number> {
@@ -552,15 +564,15 @@ export class UnifiedReviewAdapter implements IAdapter<UnifiedReviewItem> {
     const uiConfig = queue.getUIConfig(item);
     const blockId = resolveBlockId(item);
     const cardId = resolveCardId(item);
-    const cardType = normalizeCardType(item.type);
+    const cardType = resolveEffectiveCardType(item, queueType);
     const isTopicDocument = isTopicDocumentCard(item, cardType);
     const contentBlockId = isTopicDocument
       ? blockId
       : resolveContentBlockId(item, blockId);
-    const answerBlockID = isTopicDocument
+    const isTopicLike = isTopicLikeCardType(cardType);
+    const answerBlockID = isTopicDocument || isTopicLike
       ? ''
       : resolveAnswerBlockId(item, blockId);
-    const isTopicLike = isTopicLikeCardType(cardType);
     const hasInlineHiddenContent = isNativeInlineHiddenCard(item);
 
     if (shouldLogBidirectionalTemplateDiagnostic(item)) {

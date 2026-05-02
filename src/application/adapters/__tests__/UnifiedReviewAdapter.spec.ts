@@ -534,6 +534,72 @@ describe('UnifiedReviewAdapter', () => {
     });
   });
 
+  it('maps neural-roam non-flashcard item nodes to topic actions', async () => {
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
+    const currentItem = createCard('native-list-node', CardType.Item, {
+      meta: {
+        templateID: 'builtin-riff-sync',
+        ownership: 'riff-managed',
+        source: 'riff-sync',
+        neuralContext: {
+          blockType: 'i',
+          isFlashcard: false,
+          nodeRole: 'virtual',
+        },
+      },
+    });
+
+    const ui = await renderState(
+      adapter,
+      createQueue({
+        queueType: 'neural-roam',
+        liveCards: [currentItem],
+        underlyingQueue: createNeuralUnderlyingQueue(5, 1, 1),
+      }),
+      currentItem,
+      createContext(),
+    );
+
+    expect(ui.actions.cardMeta).toMatchObject({
+      type: 'topic',
+      cardType: 'topic',
+    });
+    expect(ui.meta.hasHiddenContent).toBe(false);
+    expect(ui.content.answerBlockID).toBe('');
+  });
+
+  it('maps neural-roam non-flashcard concept nodes to topic actions', async () => {
+    const adapter = new UnifiedReviewAdapter({ headerVariant: 'neural-roam' });
+    const currentItem = createCard('concept-node', CardType.Concept, {
+      meta: {
+        cardTypeMarker: 'concept',
+        neuralContext: {
+          blockType: 'p',
+          isFlashcard: false,
+          nodeRole: 'virtual',
+        },
+      },
+    });
+
+    const ui = await renderState(
+      adapter,
+      createQueue({
+        queueType: 'neural-roam',
+        liveCards: [currentItem],
+        underlyingQueue: createNeuralUnderlyingQueue(5, 1, 1),
+      }),
+      currentItem,
+      createContext(),
+    );
+
+    expect(ui.actions.cardMeta).toMatchObject({
+      type: 'topic',
+      cardType: 'topic',
+    });
+    expect(ui.meta.hasHiddenContent).toBe(false);
+    expect(ui.content.answerBlockID).toBe('');
+  });
+
   it('keeps contextual review variants on their own surface titles instead of the base queue name', async () => {
     const liveCards = [createCard('item-1', CardType.Item)];
 
