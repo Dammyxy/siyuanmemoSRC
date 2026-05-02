@@ -71,4 +71,52 @@ describe('AIBackendSessionService', () => {
       requiredSecretName: 'provider:apiKey',
     })).rejects.toThrow('BACKEND_UNAVAILABLE: missing secret provider:apiKey');
   });
+
+  it('surfaces network unavailable from backend proxy adapter', async () => {
+    const service = new AIBackendSessionService({
+      backendClient: {
+        createAiSession: vi.fn(),
+        getAiSession: vi.fn(),
+        updateAiSession: vi.fn(),
+        cancelAiSession: vi.fn(),
+        startAiStream: vi.fn(),
+        cancelAiStream: vi.fn(),
+        getAiJob: vi.fn(),
+        cancelAiJob: vi.fn(),
+      },
+      networkProxy: {
+        execute: vi.fn(async () => {
+          throw new Error('BACKEND_UNAVAILABLE: network unavailable');
+        }),
+      },
+      resolveSecret: () => 'secret',
+    });
+
+    await expect(service.proxyNetwork({
+      url: 'https://example.com',
+      requiredSecretName: 'provider:apiKey',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: network unavailable');
+  });
+
+  it('surfaces backend unavailable when backend session client fails', async () => {
+    const service = new AIBackendSessionService({
+      backendClient: {
+        createAiSession: vi.fn(async () => {
+          throw new Error('BACKEND_UNAVAILABLE: ai session unavailable');
+        }),
+        getAiSession: vi.fn(),
+        updateAiSession: vi.fn(),
+        cancelAiSession: vi.fn(),
+        startAiStream: vi.fn(),
+        cancelAiStream: vi.fn(),
+        getAiJob: vi.fn(),
+        cancelAiJob: vi.fn(),
+      },
+    });
+
+    await expect(service.createSession({
+      sessionId: 'session-x',
+      surfaceId: 'standalone-dialog',
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: ai session unavailable');
+  });
 });

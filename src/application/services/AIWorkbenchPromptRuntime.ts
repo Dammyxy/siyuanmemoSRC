@@ -1,7 +1,8 @@
-import type { LLMMessage, LLMPort, LLMResponse, LLMToolCall } from '@/application/ports/LLMPort';
+import type { LLMMessage, LLMPort, LLMRequest, LLMResponse, LLMToolCall } from '@/application/ports/LLMPort';
 import { LLMError } from '@/application/ports/LLMPort';
 import type { AIChatRegisteredSkillDescriptor } from '@/application/services/AIChatSkillRegistry';
 import type { ArenaSkillRuntimeOverrides } from '@/application/services/ArenaKernelService';
+import type { AIBackendSessionService } from '@/application/services/AIBackendSessionService';
 import {
   formatStructuredPromptContract,
   getPromptContractForResolvedSkillRun,
@@ -50,6 +51,15 @@ export type AIWorkbenchPromptRuntimeDeps = {
   state: AIWorkbenchState;
   getAISettings: () => AISettings;
   llmPort: LLMPort;
+  backendRuntimeEnabled?: boolean;
+  backendSessionService?: Pick<
+    AIBackendSessionService,
+    | 'createSession'
+    | 'startStream'
+    | 'cancelStream'
+    | 'getJob'
+    | 'proxyNetwork'
+  >;
   getSelfTestCreationMode: () => AIConceptCoachSelfTestCreationMode;
   getResolvedSkill: (skillId: AISkillId) => AIChatRegisteredSkillDescriptor;
   normalizeTabForCurrentSettings: (value: unknown, skillId: AISkillId) => AISkillTabId;
@@ -246,16 +256,17 @@ export class AIWorkbenchPromptRuntime {
     const settings = input.settings;
     const provider = input.provider;
     this.currentRunAbortController = new AbortController();
+    const modelId = settings.defaultModelId || settings.model;
     try {
-      return await this.deps.llmPort.chat({
+      return await this.dispatchChatRequest({
         baseUrl: provider.baseUrl || settings.baseUrl,
         apiKey: provider.apiKey || settings.apiKey,
-        model: settings.defaultModelId || settings.model,
+        model: modelId,
         provider,
         protocol: provider.protocol,
         modelRef: {
           providerId: provider.id,
-          modelId: settings.defaultModelId || settings.model,
+          modelId,
         },
         timeoutMs: settings.timeoutMs,
         temperature: settings.temperature,
@@ -344,16 +355,17 @@ export class AIWorkbenchPromptRuntime {
     }
     const prompts = settings.prompts.skills.conceptCoach;
     this.currentRunAbortController = new AbortController();
+    const modelId = settings.defaultModelId || settings.model;
     try {
-      return await this.deps.llmPort.chat({
+      return await this.dispatchChatRequest({
         baseUrl: provider.baseUrl || settings.baseUrl,
         apiKey: provider.apiKey || settings.apiKey,
-        model: settings.defaultModelId || settings.model,
+        model: modelId,
         provider,
         protocol: provider.protocol,
         modelRef: {
           providerId: provider.id,
-          modelId: settings.defaultModelId || settings.model,
+          modelId,
         },
         timeoutMs: settings.timeoutMs,
         temperature: settings.temperature,
@@ -410,16 +422,17 @@ export class AIWorkbenchPromptRuntime {
       throw new Error('当前 section 没有可追问的结构化结果。');
     }
     this.currentRunAbortController = new AbortController();
+    const modelId = settings.defaultModelId || settings.model;
     try {
-      return await this.deps.llmPort.chat({
+      return await this.dispatchChatRequest({
         baseUrl: provider.baseUrl || settings.baseUrl,
         apiKey: provider.apiKey || settings.apiKey,
-        model: settings.defaultModelId || settings.model,
+        model: modelId,
         provider,
         protocol: provider.protocol,
         modelRef: {
           providerId: provider.id,
-          modelId: settings.defaultModelId || settings.model,
+          modelId,
         },
         timeoutMs: settings.timeoutMs,
         temperature: settings.temperature,
@@ -548,16 +561,17 @@ export class AIWorkbenchPromptRuntime {
     const settings = this.assertModelSettings();
     const provider = this.resolveDefaultProvider(settings);
     this.currentRunAbortController = new AbortController();
+    const modelId = settings.defaultModelId || settings.model;
     try {
-      return await this.deps.llmPort.chat({
+      return await this.dispatchChatRequest({
         baseUrl: provider.baseUrl || settings.baseUrl,
         apiKey: provider.apiKey || settings.apiKey,
-        model: settings.defaultModelId || settings.model,
+        model: modelId,
         provider,
         protocol: provider.protocol,
         modelRef: {
           providerId: provider.id,
-          modelId: settings.defaultModelId || settings.model,
+          modelId,
         },
         timeoutMs: settings.timeoutMs,
         temperature: settings.temperature,
@@ -583,6 +597,313 @@ export class AIWorkbenchPromptRuntime {
     } finally {
       this.currentRunAbortController = null;
     }
+  }
+
+  private shouldUseBackendRuntime(): boolean {
+    return this.deps.backendRuntimeEnabled === true;
+  }
+
+  private async dispatchChatRequest(request: LLMRequest): Promise<LLMResponse> {
+    if (!this.shouldUseBackendRuntime()) {
+      return this.callFrontendChat(request);
+    }
+    return this.callBackendChat(request);
+  }
+
+  private callFrontendChat(request: LLMRequest): Promise<LLMResponse> {
+    const chat = this.deps.llmPort['chat'].bind(this.deps.llmPort);
+    return chat(request);
+  }
+
+  private async callBackendChat(request: LLMRequest): Promise<LLMResponse> {
+    const backendSessionService = this.deps.backendSessionService;
+    if (!backendSessionService) {
+      throw new LLMError('BACKEND_UNAVAILABLE: AI backend runtime service unavailable', {
+        code: 'network_error',
+      });
+    }
+
+    const now = Date.now();
+    const sessionId = normalizeString(this.deps.state.sessionId) || `ai-session-${now.toString(36)}`;
+    const streamId = `ai-stream-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const jobId = `ai-job-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const providerId = normalizeString(request.modelRef?.providerId || request.provider?.id || 'provider');
+    const timeoutMs = Math.max(1_000, Number(request.timeoutMs || 0));
+    const requiredSecretName = providerId ? `${providerId}:apiKey` : 'apiKey';
+    const signal = request.abortSignal;
+
+    const cancelStream = async (reason: string): Promise<void> => {
+      try {
+        await backendSessionService.cancelStream({
+          streamId,
+          sessionId,
+          jobId,
+          reason,
+        });
+      } catch {
+        // best effort cancel
+      }
+    };
+
+    try {
+      await backendSessionService.createSession({
+        sessionId,
+        surfaceId: normalizeString(this.deps.state.surface || 'standalone-dialog') || 'standalone-dialog',
+        reviewSessionId: normalizeString(this.deps.state.sourceReviewSessionId) || undefined,
+        owner: 'backend',
+        skillId: normalizeString(this.deps.state.activeSkillId) || undefined,
+        providerId,
+        modelId: normalizeString(request.model),
+      });
+
+      const streamStart = await backendSessionService.startStream({
+        streamId,
+        sessionId,
+        jobId,
+        providerId,
+        modelId: normalizeString(request.model),
+        timeoutMs,
+        idempotencyKey: `${sessionId}:${jobId}`,
+      });
+
+      if (streamStart.state === 'timeout') {
+        throw new LLMError('LLM request timed out', {
+          code: 'timeout',
+          retryable: true,
+        });
+      }
+      if (streamStart.state === 'unavailable') {
+        throw new LLMError('BACKEND_UNAVAILABLE: ai stream unavailable', {
+          code: 'network_error',
+        });
+      }
+
+      if (signal?.aborted) {
+        await cancelStream('aborted-before-network');
+        throw new LLMError('LLM request aborted', {
+          code: 'aborted',
+          retryable: true,
+        });
+      }
+
+      const onAbort = () => {
+        void cancelStream('aborted');
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+      try {
+        const response = await backendSessionService.proxyNetwork({
+          url: this.resolveChatEndpoint(request),
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${request.apiKey}`,
+          },
+          body: JSON.stringify(this.buildOpenAIRequestBody(request)),
+          timeoutMs,
+          requiredSecretName,
+          redactionKeys: ['apiKey', `${providerId}:apiKey`],
+        });
+
+        if (signal?.aborted) {
+          await cancelStream('aborted-after-network');
+          throw new LLMError('LLM request aborted', {
+            code: 'aborted',
+            retryable: true,
+          });
+        }
+
+        const parsed = this.parseBackendChatResponse(response.body);
+        if (response.status >= 400) {
+          throw this.httpStatusToLlmError(response.status, parsed.message || 'Backend AI proxy request failed', response.body);
+        }
+        const content = parsed.content;
+        if (!content && parsed.toolCalls.length === 0) {
+          throw new LLMError('LLM returned an empty completion', { code: 'empty_response' });
+        }
+
+        try {
+          await backendSessionService.getJob({ jobId });
+        } catch {
+          // keep response path resilient when backend diagnostics is eventually consistent
+        }
+
+        return {
+          role: 'assistant',
+          content,
+          toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
+          finishReason: parsed.finishReason,
+          usage: parsed.usage,
+          raw: {
+            backend: true,
+            status: response.status,
+            headers: response.headers,
+            body: parsed.raw,
+            streamId,
+            sessionId,
+            jobId,
+          },
+        };
+      } finally {
+        signal?.removeEventListener('abort', onAbort);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      if (error instanceof LLMError) {
+        throw error;
+      }
+      if (/timeout/i.test(message) || message.startsWith('TIMEOUT:')) {
+        throw new LLMError('LLM request timed out', {
+          code: 'timeout',
+          retryable: true,
+          diagnostic: message,
+        });
+      }
+      if (/aborted/i.test(message) || /canceled/i.test(message)) {
+        throw new LLMError('LLM request aborted', {
+          code: 'aborted',
+          retryable: true,
+          diagnostic: message,
+        });
+      }
+      throw new LLMError(message || 'BACKEND_UNAVAILABLE: AI backend runtime request failed', {
+        code: 'network_error',
+        retryable: true,
+        diagnostic: message,
+      });
+    }
+  }
+
+  private resolveChatEndpoint(request: LLMRequest): string {
+    const configured = normalizeString(request.provider?.endpoints?.chatCompletions);
+    if (/^https?:\/\//i.test(configured)) {
+      return configured;
+    }
+    const baseUrl = normalizeString(request.baseUrl).replace(/\/+$/u, '');
+    const path = configured
+      ? (configured.startsWith('/') ? configured : `/${configured}`)
+      : '/chat/completions';
+    return `${baseUrl}${path}`;
+  }
+
+  private buildOpenAIRequestBody(request: LLMRequest): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+      model: request.model,
+      temperature: request.temperature,
+      messages: request.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+        ...(message.name ? { name: message.name } : {}),
+        ...(message.role === 'tool' && message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
+      })),
+      ...(request.responseFormat === 'json_object' ? { response_format: { type: 'json_object' } } : {}),
+      ...(request.tools?.length ? { tools: request.tools } : {}),
+      ...(request.toolChoice ? { tool_choice: request.toolChoice } : {}),
+      ...(request.stream === true ? { stream: true } : {}),
+    };
+    return body;
+  }
+
+  private parseBackendChatResponse(rawBody: string): {
+    content: string;
+    finishReason?: string;
+    message?: string;
+    toolCalls: LLMToolCall[];
+    usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+    raw: unknown;
+  } {
+    const bodyText = String(rawBody || '');
+    let raw: unknown = null;
+    try {
+      raw = JSON.parse(bodyText);
+    } catch {
+      raw = null;
+    }
+    if (!raw || typeof raw !== 'object') {
+      return {
+        content: bodyText.trim(),
+        toolCalls: [],
+        raw: bodyText,
+      };
+    }
+    const payload = raw as {
+      choices?: Array<{
+        text?: unknown;
+        finish_reason?: unknown;
+        message?: {
+          content?: unknown;
+          tool_calls?: unknown[];
+        };
+      }>;
+      usage?: {
+        prompt_tokens?: unknown;
+        completion_tokens?: unknown;
+        total_tokens?: unknown;
+      };
+      error?: {
+        message?: unknown;
+      };
+    };
+    const firstChoice = payload.choices?.[0];
+    const content = normalizeString(
+      (typeof firstChoice?.message?.content === 'string' ? firstChoice.message.content : '')
+      || (typeof firstChoice?.text === 'string' ? firstChoice.text : ''),
+    );
+    const toolCalls = Array.isArray(firstChoice?.message?.tool_calls)
+      ? firstChoice!.message!.tool_calls!
+        .map((candidate, index) => {
+          if (!candidate || typeof candidate !== 'object') {
+            return null;
+          }
+          const toolCall = candidate as {
+            id?: unknown;
+            function?: { name?: unknown; arguments?: unknown };
+          };
+          const name = normalizeString(toolCall.function?.name);
+          if (!name) {
+            return null;
+          }
+          return {
+            id: normalizeString(toolCall.id) || `tool-${Date.now().toString(36)}-${index}`,
+            type: 'function' as const,
+            function: {
+              name,
+              arguments: typeof toolCall.function?.arguments === 'string'
+                ? toolCall.function.arguments
+                : JSON.stringify(toolCall.function?.arguments || {}),
+            },
+          };
+        })
+        .filter((value): value is LLMToolCall => Boolean(value))
+      : [];
+    return {
+      content,
+      finishReason: normalizeString(firstChoice?.finish_reason),
+      message: normalizeString(payload.error?.message),
+      toolCalls,
+      usage: payload.usage
+        ? {
+            promptTokens: Number(payload.usage.prompt_tokens) || undefined,
+            completionTokens: Number(payload.usage.completion_tokens) || undefined,
+            totalTokens: Number(payload.usage.total_tokens) || undefined,
+          }
+        : undefined,
+      raw,
+    };
+  }
+
+  private httpStatusToLlmError(status: number, message: string, diagnostic: string): LLMError {
+    if (status === 401) {
+      return new LLMError(message, { code: 'unauthorized', status, diagnostic });
+    }
+    if (status === 429) {
+      return new LLMError(message, { code: 'rate_limited', status, retryable: true, diagnostic });
+    }
+    return new LLMError(message, {
+      code: 'http_error',
+      status,
+      retryable: status >= 500,
+      diagnostic,
+    });
   }
 
   private buildStructuredRunSystemPrompt(

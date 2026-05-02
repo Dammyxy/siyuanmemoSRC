@@ -37,6 +37,23 @@ type TopicDerivationSettingsProvider = {
   };
 };
 
+type TopicDerivedOwnershipBoundaryClient = {
+  p6OwnershipQuery?: (request: {
+    requestId?: string;
+    surface: 'topic-derived';
+    operation: 'scan-candidates' | 'resolve-list-children' | 'resolve-concept' | 'read-block-meta' | 'read-block-content' | 'read-card-context';
+    payload?: Record<string, unknown>;
+    idempotencyKey?: string;
+  }) => Promise<unknown>;
+  p6OwnershipCommand?: (request: {
+    requestId?: string;
+    surface: 'topic-derived';
+    operation: 'execute-side-effect';
+    payload?: Record<string, unknown>;
+    idempotencyKey: string;
+  }) => Promise<unknown>;
+};
+
 type DerivedCandidate = {
   creationRuleId: string;
   answerFingerprint: string;
@@ -93,6 +110,7 @@ export class TopicDerivedItemService {
     private readonly progressiveReadingService: ProgressiveReadingService,
     private readonly nativeRiffApi: ProgressiveNativeRiffPort,
     private readonly settingsProvider: TopicDerivationSettingsProvider,
+    private readonly ownershipBoundaryClient?: TopicDerivedOwnershipBoundaryClient,
   ) {}
 
   async createFromTopicSource(input: TopicDerivedItemInput): Promise<TopicDerivedItemResult> {
@@ -110,6 +128,12 @@ export class TopicDerivedItemService {
         items: [],
       };
     }
+    void this.reportOwnershipQuery('scan-candidates', {
+      sourceBlockId,
+      sourceDocId,
+      parentTopicCardId,
+      mode: input.mode || 'planner-derived',
+    });
 
     const storageMode = this.resolveStorageMode(input.storageMode, input.sourceRootKind);
     const candidates = input.mode === 'manual-cloze'
@@ -175,6 +199,15 @@ export class TopicDerivedItemService {
         if (!derivedBlockId) {
           throw new Error('Topic 下继续制卡的子文档创建成功，但内容块未返回');
         }
+        void this.reportOwnershipCommand({
+          sourceBlockId,
+          sourceDocId,
+          parentTopicCardId,
+          parentExcerptId,
+          derivedDocId: childDoc.docId,
+          derivedBlockId,
+          ruleId: candidate.creationRuleId,
+        });
 
         const derivedCardId = await this.createDerivedItemCard({
           candidate,
@@ -530,6 +563,36 @@ export class TopicDerivedItemService {
         ...context,
         cleanupError,
       });
+    }
+  }
+
+  private async reportOwnershipQuery(
+    operation: 'scan-candidates' | 'resolve-list-children' | 'resolve-concept' | 'read-block-meta' | 'read-block-content' | 'read-card-context',
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.ownershipBoundaryClient?.p6OwnershipQuery?.({
+        requestId: `topic-derived:${operation}:${Date.now().toString(36)}`,
+        surface: 'topic-derived',
+        operation,
+        payload,
+      });
+    } catch (error) {
+      logger.warn('Failed to report topic-derived ownership query', { operation, payload, error });
+    }
+  }
+
+  private async reportOwnershipCommand(payload: Record<string, unknown>): Promise<void> {
+    try {
+      await this.ownershipBoundaryClient?.p6OwnershipCommand?.({
+        requestId: `topic-derived:command:${Date.now().toString(36)}`,
+        surface: 'topic-derived',
+        operation: 'execute-side-effect',
+        payload,
+        idempotencyKey: `topic-derived:${String(payload.sourceBlockId || 'unknown')}:${String(payload.ruleId || 'rule')}:${Date.now().toString(36)}`,
+      });
+    } catch (error) {
+      logger.warn('Failed to report topic-derived ownership command', { payload, error });
     }
   }
 }

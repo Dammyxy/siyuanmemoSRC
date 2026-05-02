@@ -118,6 +118,9 @@ function createServiceUnderTest(
   },
   configuredCaptureStorageService = createConfiguredCaptureStorageServiceMock(),
   nativeRiffApi = createProgressiveNativeRiffPortMock(),
+  ownershipBoundaryClient?: {
+    p6OwnershipQuery?: ReturnType<typeof vi.fn>;
+  },
 ) {
   const excerptRecordService = new ExcerptRecordService(fileService);
   return new ProgressiveReadingService(
@@ -128,6 +131,8 @@ function createServiceUnderTest(
     settingsProvider,
     configuredCaptureStorageService as never,
     excerptRecordService,
+    undefined,
+    ownershipBoundaryClient as never,
   );
 }
 
@@ -250,6 +255,44 @@ function createExcerptSelectionSnapshot(
 describe('ProgressiveReadingService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('reports progressive ownership boundary query before direct block reads', async () => {
+    const fileService = createFileServiceMock();
+    const port = createProgressiveSiyuanPortMock({
+      sql: vi.fn(async (stmt: string) => {
+        if (stmt.includes("WHERE id = 'source-boundary-1'")) {
+          return [
+            { id: 'source-boundary-1', root_id: 'doc-1', parent_id: 'doc-1', box: 'nb', type: 'p', content: 'text', markdown: 'text' },
+          ];
+        }
+        throw new Error(`Unexpected SQL: ${stmt}`);
+      }),
+    });
+    const { service: cardService } = createCardServiceMock();
+    const ownershipBoundaryClient = {
+      p6OwnershipQuery: vi.fn(async () => ({ ok: true })),
+    };
+    const service = createServiceUnderTest(
+      port,
+      fileService,
+      cardService,
+      createSettingsProviderMock(),
+      createConfiguredCaptureStorageServiceMock(),
+      createProgressiveNativeRiffPortMock(),
+      ownershipBoundaryClient,
+    );
+
+    const row = await (service as unknown as {
+      getBlockInfo: (blockId: string) => Promise<ProgressiveBlockRow>;
+    }).getBlockInfo('source-boundary-1');
+
+    expect(row.id).toBe('source-boundary-1');
+    expect(ownershipBoundaryClient.p6OwnershipQuery).toHaveBeenCalledWith(expect.objectContaining({
+      surface: 'progressive',
+      operation: 'read-block-meta',
+      payload: expect.objectContaining({ blockId: 'source-boundary-1' }),
+    }));
   });
 
   it('updates excerpt source blocks through the progressive Siyuan port DOM update path', async () => {

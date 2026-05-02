@@ -73,16 +73,57 @@ function createRuntime(options?: {
   state?: AIWorkbenchState;
   llmChat?: ReturnType<typeof vi.fn>;
   renderEntries?: AIWorkbenchRenderEntry[];
+  backendRuntimeEnabled?: boolean;
+  backendSessionService?: {
+    createSession: ReturnType<typeof vi.fn>;
+    startStream: ReturnType<typeof vi.fn>;
+    cancelStream: ReturnType<typeof vi.fn>;
+    getJob: ReturnType<typeof vi.fn>;
+    proxyNetwork: ReturnType<typeof vi.fn>;
+  };
 }) {
   const settings = options?.settings || createSettings();
   const state = options?.state || createState();
   const llmChat = options?.llmChat || vi.fn(async () => ({ content: '{}', raw: {} }));
+  const backendSessionService = options?.backendSessionService || {
+    createSession: vi.fn(async () => ({ ok: true, session: { sessionId: 'session-1' } })),
+    startStream: vi.fn(async () => ({
+      ok: true,
+      streamId: 'stream-1',
+      sessionId: 'session-1',
+      jobId: 'job-1',
+      state: 'started',
+      diagnosticEventId: 'diag-start',
+    })),
+    cancelStream: vi.fn(async () => ({
+      ok: true,
+      streamId: 'stream-1',
+      sessionId: 'session-1',
+      jobId: 'job-1',
+      state: 'canceled',
+      diagnosticEventId: 'diag-cancel',
+    })),
+    getJob: vi.fn(async () => ({ ok: true, job: { jobId: 'job-1', state: 'completed' } })),
+    proxyNetwork: vi.fn(async () => ({
+      status: 200,
+      headers: {},
+      body: JSON.stringify({
+        choices: [{
+          message: { content: '{"ok":true}' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 },
+      }),
+    })),
+  };
   const runtime = new AIWorkbenchPromptRuntime({
     state,
     getAISettings: () => settings,
     llmPort: {
       chat: llmChat,
     },
+    backendRuntimeEnabled: options?.backendRuntimeEnabled,
+    backendSessionService,
     getSelfTestCreationMode: () => 'list-item',
     getResolvedSkill: (skillId) => getAIChatSkill(skillId, settings),
     normalizeTabForCurrentSettings: (value) => String(value || 'working-definition') as never,
@@ -102,7 +143,7 @@ function createRuntime(options?: {
     getFollowUpsForTab: () => [],
     findLatestConceptCoachResultForContext: () => null,
   });
-  return { runtime, state, llmChat, settings };
+  return { runtime, state, llmChat, settings, backendSessionService };
 }
 
 function attachedContext(): AIAttachedContextItem {
@@ -233,5 +274,60 @@ describe('AIWorkbenchPromptRuntime', () => {
       provider: settings.providers[0]!,
     })).rejects.toThrow('AI 请求已发出，但模型返回了空正文');
     expect(state.failureDiagnostic?.content).toBe('provider diagnostic');
+  });
+
+  it('routes chat through backend runtime when enabled and avoids frontend llmPort chat', async () => {
+    const { runtime, settings, llmChat, backendSessionService } = createRuntime({
+      backendRuntimeEnabled: true,
+      state: {
+        ...createState(),
+        sessionId: 'session-1',
+        surface: 'standalone-dialog',
+      } as AIWorkbenchState,
+    });
+
+    const response = await runtime.requestChatModel(
+      [{ role: 'user', content: 'hello backend' }],
+      {
+        settings,
+        provider: settings.providers[0]!,
+      },
+    );
+
+    expect(llmChat).not.toHaveBeenCalled();
+    expect(backendSessionService.createSession).toHaveBeenCalled();
+    expect(backendSessionService.startStream).toHaveBeenCalled();
+    expect(backendSessionService.proxyNetwork).toHaveBeenCalled();
+    expect(response.content).toBe('{"ok":true}');
+    expect(response.raw).toMatchObject({
+      backend: true,
+      sessionId: 'session-1',
+    });
+  });
+
+  it('returns backend unavailable error when backend runtime is enabled but unavailable', async () => {
+    const backendSessionService = {
+      createSession: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: backend worker unavailable');
+      }),
+      startStream: vi.fn(),
+      cancelStream: vi.fn(),
+      getJob: vi.fn(),
+      proxyNetwork: vi.fn(),
+    };
+    const { runtime, settings } = createRuntime({
+      backendRuntimeEnabled: true,
+      backendSessionService,
+      state: {
+        ...createState(),
+        sessionId: 'session-2',
+        surface: 'standalone-dialog',
+      } as AIWorkbenchState,
+    });
+
+    await expect(runtime.requestChatModel([], {
+      settings,
+      provider: settings.providers[0]!,
+    })).rejects.toThrow('BACKEND_UNAVAILABLE');
   });
 });

@@ -469,6 +469,7 @@ export class ApplicationContext {
         context.getConfiguredCaptureStorageService(),
         context.getExcerptRecordService(),
         context.getDocTreeReviewScopeService(),
+        context.srsBackendClient || undefined,
       );
     });
 
@@ -500,6 +501,7 @@ export class ApplicationContext {
         context.getProgressiveReadingService(),
         new ProgressiveNativeRiffAdapter(),
         context.getSettingsService(),
+        context.srsBackendClient || undefined,
       );
     });
     

@@ -110,6 +110,49 @@ const CONCEPT_DEFINITION_DECISION: CreationDecision = {
 };
 
 describe('TopicDerivedItemService', () => {
+  it('reports topic-derived ownership query/command boundaries during creation', async () => {
+    const cardService = createCardServiceMock();
+    const progressiveReadingService = createProgressiveReadingServiceMock();
+    const nativeRiffApi = createNativeRiffPortMock();
+    const ownershipBoundaryClient = {
+      p6OwnershipQuery: vi.fn(async () => ({ ok: true })),
+      p6OwnershipCommand: vi.fn(async () => ({ ok: true })),
+    };
+    const service = new TopicDerivedItemService(
+      cardService.service,
+      progressiveReadingService.service,
+      nativeRiffApi,
+      createSettingsProvider(),
+      ownershipBoundaryClient,
+    );
+
+    await service.createFromTopicSource({
+      sourceBlockId: 'source-boundary-1',
+      sourceDocId: 'doc-boundary-1',
+      parentTopicCardId: 'topic-boundary-1',
+      plannerContent: 'Alpha ==Beta==',
+      decisions: [CLOZE_DECISION],
+    });
+
+    expect(ownershipBoundaryClient.p6OwnershipQuery).toHaveBeenCalledWith(expect.objectContaining({
+      surface: 'topic-derived',
+      operation: 'scan-candidates',
+      payload: expect.objectContaining({
+        sourceBlockId: 'source-boundary-1',
+        sourceDocId: 'doc-boundary-1',
+        parentTopicCardId: 'topic-boundary-1',
+      }),
+    }));
+    expect(ownershipBoundaryClient.p6OwnershipCommand).toHaveBeenCalledWith(expect.objectContaining({
+      surface: 'topic-derived',
+      operation: 'execute-side-effect',
+      payload: expect.objectContaining({
+        sourceBlockId: 'source-boundary-1',
+        sourceDocId: 'doc-boundary-1',
+      }),
+    }));
+  });
+
   it('creates one derived item per cloze and keeps only the target answer marked in each child doc', async () => {
     const cardService = createCardServiceMock();
     const progressiveReadingService = createProgressiveReadingServiceMock();

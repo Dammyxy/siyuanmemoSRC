@@ -165,6 +165,16 @@ interface ProgressiveDocTreeScopeRefresher {
   scheduleRebuild(): void;
 }
 
+type ProgressiveOwnershipBoundaryClient = {
+  p6OwnershipQuery?: (request: {
+    requestId?: string;
+    surface: 'progressive';
+    operation: 'scan-candidates' | 'resolve-list-children' | 'resolve-concept' | 'read-block-meta' | 'read-block-content' | 'read-card-context';
+    payload?: Record<string, unknown>;
+    idempotencyKey?: string;
+  }) => Promise<unknown>;
+};
+
 export interface ProgressiveSplitResult {
   sessionId: string;
   pieceDocIds: string[];
@@ -345,6 +355,7 @@ export class ProgressiveReadingService {
     private readonly configuredCaptureStorageService: ConfiguredCaptureStorageService,
     private readonly excerptRecordService: ExcerptRecordService,
     private readonly docTreeScopeRefresher?: ProgressiveDocTreeScopeRefresher,
+    private readonly ownershipBoundaryClient?: ProgressiveOwnershipBoundaryClient,
   ) {}
 
   async splitDocument(
@@ -2039,6 +2050,7 @@ export class ProgressiveReadingService {
   }
 
   private async getBlockInfo(blockId: string): Promise<ProgressiveBlockRow> {
+    void this.reportOwnershipBoundaryQuery('read-block-meta', { blockId });
     const rows = await this.siyuanApi.sql<ProgressiveBlockRow>(`
       SELECT id, root_id, parent_id, box, type, subtype, content, markdown
       FROM blocks
@@ -2057,6 +2069,7 @@ export class ProgressiveReadingService {
     if (normalizedIds.length === 0) {
       return [];
     }
+    void this.reportOwnershipBoundaryQuery('read-block-content', { blockIds: normalizedIds });
 
     const rows = await this.siyuanApi.sql<ProgressiveExcerptMaterializationBlockRow>(`
       SELECT id, root_id, parent_id, box, type, subtype, content, markdown, sort
@@ -2076,6 +2089,7 @@ export class ProgressiveReadingService {
   }
 
   private async getDirectChildRows(parentId: string): Promise<ProgressiveExcerptMaterializationBlockRow[]> {
+    void this.reportOwnershipBoundaryQuery('resolve-list-children', { parentId });
     return this.siyuanApi.sql<ProgressiveExcerptMaterializationBlockRow>(`
       SELECT id, root_id, parent_id, box, type, subtype, content, markdown, sort
       FROM blocks
@@ -2126,6 +2140,11 @@ export class ProgressiveReadingService {
     kind: ProgressiveKind,
     extraAttrs: Record<string, string> = {},
   ): Promise<string | null> {
+    void this.reportOwnershipBoundaryQuery('resolve-concept', {
+      parentId,
+      kind,
+      extraAttrs,
+    });
     const aliasJoins = [
       this.buildCompatAttrJoin('a0', 'b.id', ATTR_PROGRESSIVE_KIND, kind),
     ];
@@ -2347,6 +2366,11 @@ export class ProgressiveReadingService {
     kind: Extract<ProgressiveKind, 'excerpt-doc' | 'derived-item-doc'>;
     titlePrefix: string;
   }): Promise<number> {
+    void this.reportOwnershipBoundaryQuery('scan-candidates', {
+      sourceDocId: input.sourceDocId,
+      kind: input.kind,
+      titlePrefix: input.titlePrefix,
+    });
     const rows = await this.siyuanApi.sql<ProgressiveBlockRow>(`
       SELECT b.id, b.content
       FROM blocks b
@@ -2521,6 +2545,26 @@ export class ProgressiveReadingService {
   private throwIfSplitCancelled(options?: ProgressiveSplitExecutionOptions): void {
     if (options?.isCancellationRequested?.()) {
       throw new ProgressiveSplitCancelledError();
+    }
+  }
+
+  private async reportOwnershipBoundaryQuery(
+    operation: 'scan-candidates' | 'resolve-list-children' | 'resolve-concept' | 'read-block-meta' | 'read-block-content' | 'read-card-context',
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.ownershipBoundaryClient?.p6OwnershipQuery?.({
+        requestId: `progressive:${operation}:${Date.now().toString(36)}`,
+        surface: 'progressive',
+        operation,
+        payload,
+      });
+    } catch (error) {
+      logger.warn('Failed to report progressive ownership boundary query', {
+        operation,
+        payload,
+        error,
+      });
     }
   }
 

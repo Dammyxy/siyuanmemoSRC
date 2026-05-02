@@ -194,6 +194,10 @@ export type AIWorkbenchServiceDeps = {
     | 'createSession'
     | 'updateSession'
     | 'cancelSession'
+    | 'startStream'
+    | 'cancelStream'
+    | 'getJob'
+    | 'proxyNetwork'
   >;
 };
 
@@ -484,6 +488,8 @@ export class AIWorkbenchService {
       state: this.state,
       getAISettings: this.deps.getAISettings,
       llmPort: this.deps.llmPort,
+      backendRuntimeEnabled: Boolean(this.deps.backendSessionService),
+      backendSessionService: this.deps.backendSessionService,
       getSelfTestCreationMode: () => this.getSelfTestCreationMode(),
       getResolvedSkill: (skillId) => this.getResolvedSkill(skillId),
       normalizeTabForCurrentSettings: (value, skillId) => this.normalizeTabForCurrentSettings(value, skillId),

@@ -160,4 +160,44 @@ describe('BackendKernel AI session/job runtime', () => {
       },
     });
   });
+
+  it('returns backend unavailable when stream or job targets are missing', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(bridge);
+    const kernel = new BackendKernel({ database });
+
+    const missingStream = await kernel.handle({
+      id: 'ai-stream-start-missing-session',
+      jsonrpc: '2.0',
+      method: 'ai.stream.start',
+      params: [{
+        streamId: 'stream-missing',
+        sessionId: 'missing-session',
+        jobId: 'job-missing',
+      }],
+    });
+    expect(missingStream).toEqual({
+      id: 'ai-stream-start-missing-session',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: expect.stringContaining('ai.stream.start unavailable'),
+      },
+    });
+
+    const missingJob = await kernel.handle({
+      id: 'job-get-missing',
+      jsonrpc: '2.0',
+      method: 'job.get',
+      params: [{ jobId: 'job-not-exist' }],
+    });
+    expect(missingJob).toEqual({
+      id: 'job-get-missing',
+      jsonrpc: '2.0',
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: expect.stringContaining('job unavailable'),
+      },
+    });
+  });
 });

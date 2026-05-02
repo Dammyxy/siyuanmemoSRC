@@ -153,17 +153,6 @@
       "reason": "Composition root wires sqlite persistence bundle for current runtime bootstrap.",
       "removalCondition": "Replace with narrower infrastructure wiring boundary when migration runtime split is finalized.",
       "trackingTask": "RM024"
-    },
-    {
-      "id": "cutover-ai-frontend-network-foundation",
-      "checker": "check-backend-migration-cutover",
-      "file": "src/application/services/AIWorkbenchPromptRuntime.ts",
-      "kind": "ai-frontend-llm-call",
-      "symbolPattern": "llmPort.chat(",
-      "owner": "foundation-only",
-      "reason": "Phase 7 is still foundation-only; prompt runtime has not fully moved behind backend session/job path.",
-      "removalCondition": "Remove after RM028-RM030 runtime migration and tests are complete.",
-      "trackingTask": "RM031"
     }
   ]
 }
