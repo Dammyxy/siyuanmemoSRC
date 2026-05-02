@@ -1,8 +1,25 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-02 (Round 260)
+Last update: 2026-05-03 (Round 261)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-03 - remediation r14 fallback classification and perf smoke baseline
+
+- Task: 启动 R14（RM076-RM081）并先完成 fallback/legacy/compat/degrade 分支分类、checker fixture、性能 smoke 脚本与文档同步。
+- Touched slice: backend migration guardrails + evidence docs；`scripts/check-backend-migration-cutover.cjs`、`scripts/__tests__/check-backend-migration-cutover.test.ts`、`scripts/backend-migration-performance-smoke.cjs`、`ARCHITECTURE.md`、`specs/001-backend-migration-next/*`。
+- Debt fixed now: 增加“fallback 分类”fixture 模式（`fallbackClassificationFiles`）并补测试，确保未分类 fallback 分支会在 checker fixture 中失败；新增性能 smoke 脚本，用同一套 test workload 对比 `legacy-like` 与 `backend+writer` 两组 env。
+- Fallback classification (backend-migration scope):
+  - `src/application/ApplicationContext.ts` 中 sqlite load/save legacy 回退与 backend bootstrap 报错日志：`migration-source`
+  - `src/application/usecases/review/ReviewCommitUseCase.ts` 与 `src/application/handlers/AutoCardHandler.ts` 的 writer/backend 不可用路径：`explicit-unavailable`
+  - `src/application/handlers/AutoCardHandler.ts` 的 `compatibility-read-used` 决策分支：`bounded-compat-read`
+  - `src/application/services/BrowserApplicationService.ts` 的 queue/source-existence 读取失败日志回退：`bounded-compat-read`
+  - `src/application/services/AIWorkbenchPromptRuntime.ts` 的 backend runtime fallback（`executePrompt` 缺失时 `startStream + proxyNetwork`）: `migration-source`
+- Bug-class fallback result: no `bug` classification branch was found in the current backend-migration scope, so RM077 required no production `src/` deletion in this round.
+- Debt deferred: R13（RM073/RM074）与 RM072 live AI smoke 仍需真实双窗口 SiYuan 手工证据；本轮 CLI 仅能补模板和阻塞状态。
+- Why deferred: 终端环境无法真实模拟双窗口 UI、用户交互和 provider 网络链路证据。
+- Next safe step: 在真实 SiYuan 执行 quickstart 的 T091/T092/T093，回填 operator/env/window/log 证据后再解除 acceptance 阻塞。
+- Validation: `pnpm vitest run scripts/__tests__/check-backend-migration-cutover.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-02 - neural roam non-flashcard topic UI and review preprepare fix
 

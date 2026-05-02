@@ -1014,6 +1014,8 @@ UI 层：
   - Browser 已切到 backend-only read ownership（R10），`BrowserApplicationService` 对 deck/matched-id/rows/count/stats 的 backend 不可用场景统一 fail-closed，不再走 SQL/legacy fallback；
   - Private API 已 runtime exposed（`RM032-RM035`），因此 foundation-only truthfulness 任务 `RM036` 不适用；
   - old-path retirement 以已执行 cutover checker + targeted tests 为证据，仍保留手工 smoke gating：双窗口 AutoCard 与 private mutation cutover 需要真人在真实 SiYuan runtime 执行后才可宣称最终 release acceptance。
+  - R14 fallback debt sweep（2026-05-03）新增“分类式 checker fixture”能力：`check-backend-migration-cutover` 在 fixture 模式可对 fallback/legacy/compat/degrade 分支执行分类校验（`migration-source | explicit-unavailable | bounded-compat-read | bug`），未分类分支会失败；
+  - R14 performance smoke（2026-05-03）新增 `scripts/backend-migration-performance-smoke.cjs`，可对 Browser/Review/AI workload 以 `legacy-like` vs `backend+writer` env 做基线耗时对比；是否可宣称“性能显著提升”仍取决于真实/代表性数据集上的实测证据（见 acceptance review）。
 - 移动端入口已收敛到 `openMobileQueueLauncherDialog()` -> `MobileReviewLauncher.vue`
 - Neural Roam 保持 `neural-roam` 字面量，但活跃契约是 focus-first、history/session-aware
 - Progressive / Excerpt / Topic-derived item 已在主路径中

@@ -55,6 +55,13 @@ const requiredAllowListFields = [
   'trackingTask',
 ];
 
+const FALLBACK_CLASSIFICATIONS = new Set([
+  'migration-source',
+  'explicit-unavailable',
+  'bounded-compat-read',
+  'bug',
+]);
+
 function readFile(rootDir, relativePath) {
   const absolute = path.join(rootDir, relativePath);
   if (!fs.existsSync(absolute)) {
@@ -115,6 +122,49 @@ function walk(dir, files = []) {
 function isTestFile(relativePath) {
   return /(^|\/)__tests__\//.test(relativePath)
     || /\.(test|spec)\.ts$/.test(relativePath);
+}
+
+function evaluateFallbackClassification(rootDir, options = {}) {
+  const files = Array.isArray(options.fallbackClassificationFiles)
+    ? options.fallbackClassificationFiles
+    : [];
+  if (files.length === 0) {
+    return [];
+  }
+
+  const failures = [];
+  for (const file of files) {
+    const text = readFile(rootDir, file);
+    if (text == null) {
+      failures.push(`${file}: file missing`);
+      continue;
+    }
+
+    const lines = text.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const fallbackLike = /\b(fallback|legacy|compat|degrade)\b/i.test(line);
+      if (!fallbackLike) {
+        continue;
+      }
+
+      const markerMatch = line.match(/backend-migration-fallback:\s*([a-z-]+)/i);
+      if (!markerMatch) {
+        failures.push(
+          `${file}:${index + 1}: unclassified fallback branch marker missing (add "backend-migration-fallback: <class>")`,
+        );
+        continue;
+      }
+      const classification = String(markerMatch[1] || '').trim();
+      if (!FALLBACK_CLASSIFICATIONS.has(classification)) {
+        failures.push(
+          `${file}:${index + 1}: unknown fallback classification "${classification}" (allowed: migration-source|explicit-unavailable|bounded-compat-read|bug)`,
+        );
+      }
+    }
+  }
+
+  return failures;
 }
 
 function evaluateFeatureGateUsage(rootDir) {
@@ -196,6 +246,7 @@ function evaluate(options = {}) {
   }
   failures.push(...evaluateFeatureGateUsage(rootDir));
   failures.push(...evaluateServiceWiring(rootDir, allowEntries));
+  failures.push(...evaluateFallbackClassification(rootDir, options));
   return failures;
 }
 
@@ -221,5 +272,6 @@ module.exports = {
   behaviorChecks,
   evaluateFeatureGateUsage,
   evaluateServiceWiring,
+  evaluateFallbackClassification,
   loadAllowList,
 };
