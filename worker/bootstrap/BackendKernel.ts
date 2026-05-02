@@ -81,6 +81,22 @@ function buildError(
   };
 }
 
+function isAuthorizedPrivateMutationCapability(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const capability = value as {
+    available?: unknown;
+    methodAllowed?: unknown;
+    backendWorkerAvailable?: unknown;
+    writerAvailable?: unknown;
+  };
+  return capability.available === true
+    && capability.methodAllowed === true
+    && capability.backendWorkerAvailable === true
+    && capability.writerAvailable === true;
+}
+
 export class BackendKernel {
   private readonly privateApiAuditTrail: Array<{
     requestId: string;
@@ -89,6 +105,7 @@ export class BackendKernel {
     status: 'accepted' | 'completed' | 'rejected' | 'failed';
     timestamp: number;
   }> = [];
+  private readonly privateCommandResultsByIdempotencyKey = new Map<string, PrivateApiMutationResult>();
   private readonly aiRuntime: BackendJobRuntime;
 
   constructor(private readonly deps: BackendKernelDependencies) {
@@ -204,6 +221,9 @@ export class BackendKernel {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith('INVALID_REQUEST:')) {
+        return buildError(request.id, 'INVALID_REQUEST', message.replace(/^INVALID_REQUEST:\s*/, ''));
+      }
       if (
         message.includes('persistence bridge is unavailable')
         || message.includes('is unavailable')
@@ -238,7 +258,7 @@ export class BackendKernel {
     };
   }
 
-  private readNamedParams<TParams extends Record<string, unknown>>(params: unknown): TParams | null {
+  private readNamedParams<TParams extends object>(params: unknown): TParams | null {
     if (!params) {
       return null;
     }
@@ -558,13 +578,26 @@ export class BackendKernel {
   private async handlePrivateCommand(params: unknown): Promise<PrivateApiMutationResult> {
     const named = this.readNamedParams<PrivateApiMutationRequest>(params);
     if (!named || typeof named !== 'object') {
-      throw new Error('private.command.execute requires named params');
+      throw new Error('INVALID_REQUEST: private.command.execute requires named params');
     }
     const requestId = String(named.requestId || '').trim();
     const callerIntent = String(named.callerIntent || '').trim();
     const idempotencyKey = String(named.idempotencyKey || '').trim();
     if (!requestId || !callerIntent || !idempotencyKey) {
-      throw new Error('private.command.execute requires requestId/callerIntent/idempotencyKey');
+      throw new Error('INVALID_REQUEST: private.command.execute requires requestId/callerIntent/idempotencyKey');
+    }
+    if (!isAuthorizedPrivateMutationCapability(named.capabilityResult)) {
+      throw new Error('INVALID_REQUEST: private.command.execute requires authorized private API capability');
+    }
+    const cached = this.privateCommandResultsByIdempotencyKey.get(idempotencyKey);
+    if (cached) {
+      this.recordPrivateApiAudit({
+        requestId,
+        method: 'private.command.execute',
+        callerIntent,
+        status: 'completed',
+      });
+      return cached;
     }
     this.recordPrivateApiAudit({
       requestId,
@@ -584,6 +617,7 @@ export class BackendKernel {
       auditStatus: 'recorded',
       diagnosticEventId: `private-command:${requestId}`,
     } as PrivateApiMutationResult;
+    this.privateCommandResultsByIdempotencyKey.set(idempotencyKey, result);
     this.recordPrivateApiAudit({
       requestId,
       method: 'private.command.execute',

@@ -12,7 +12,7 @@ import type {
   BackendAiStreamCancelRequest,
   BackendAiStreamResult,
   BackendAiStreamStartRequest,
-} from '../../../packages/contracts/src/backend-rpc';
+} from '../../packages/contracts/src/backend-rpc';
 
 type RuntimeDeps = {
   now?: () => number;

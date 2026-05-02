@@ -8,7 +8,9 @@ import type {
 import type { SrsV2SchedulingContext } from '@/core/scheduler/srs-v2';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import type { FSRSCard, Rating } from '@/types';
+import type { ReviewLogV2 } from '@/types/review';
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
+import type { BackendReviewSchedulerConfig } from '../../../../packages/contracts/src/backend-rpc';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('ReviewCommitUseCase');
@@ -18,7 +20,7 @@ export interface ReviewCommitCardReader {
 }
 
 export interface ReviewCommitLogWriter {
-  addReviewLogV2(log: ReturnType<typeof createReviewLogV2>): Promise<void>;
+  addReviewLogV2(log: ReviewLogV2): Promise<void>;
 }
 
 export interface ReviewCommitTransactionRunner {
@@ -43,6 +45,7 @@ export interface ReviewCommitBackendFeedbackClient {
     commitPolicy?: string;
     sessionId?: string;
     reviewedAt?: number;
+    scheduler?: BackendReviewSchedulerConfig;
   }): Promise<{
     committed: boolean;
     updatedCard: unknown | null;
@@ -70,6 +73,7 @@ export interface ReviewCommitUseCaseDependencies {
   srsBackend?: ReviewCommitBackendFeedbackClient | null;
   writerLeaseGuard?: ReviewCommitWriterLeaseGuard | null;
   followerCommandClient?: ReviewCommitFollowerCommandClient | null;
+  schedulerConfig?: BackendReviewSchedulerConfig | null;
   runtimePolicy?: Pick<BackendMigrationRuntimePolicy, 'capabilities'> | null;
   onCommittedCard?: (card: FSRSCard) => Promise<void> | void;
 }
@@ -163,6 +167,7 @@ export class ReviewCommitUseCase {
     };
     const workerContext = resolveWorkerFeedbackContext(context);
     const reviewedAt = normalizeReviewedAt(context.reviewTime);
+    const schedulerConfig = normalizeBackendReviewSchedulerConfig(this.deps.schedulerConfig);
     const requestPayload = {
       cardId: command.cardId,
       rating,
@@ -171,6 +176,7 @@ export class ReviewCommitUseCase {
       commitPolicy: workerContext.commitPolicy,
       sessionId: context.sessionId,
       reviewedAt,
+      ...(schedulerConfig ? { scheduler: schedulerConfig } : {}),
     };
     let result: {
       committed: boolean;
@@ -369,6 +375,23 @@ function normalizeReviewedAt(value: Date | number | undefined): number | undefin
     return value;
   }
   return undefined;
+}
+
+function normalizeBackendReviewSchedulerConfig(
+  config: BackendReviewSchedulerConfig | null | undefined,
+): BackendReviewSchedulerConfig | null {
+  if (!config || typeof config !== 'object') {
+    return null;
+  }
+  const defaultScheduler = config.defaultScheduler;
+  const fsrsParams = config.fsrsParams;
+  if (!defaultScheduler && (!fsrsParams || typeof fsrsParams !== 'object')) {
+    return null;
+  }
+  return {
+    ...(defaultScheduler ? { defaultScheduler } : {}),
+    ...(fsrsParams && typeof fsrsParams === 'object' ? { fsrsParams } : {}),
+  };
 }
 
 function normalizeWorkerUpdatedCard(updatedCard: unknown, fallbackCard: FSRSCard): FSRSCard {

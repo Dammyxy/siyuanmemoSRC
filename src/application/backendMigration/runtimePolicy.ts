@@ -4,7 +4,13 @@ import { BACKEND_MIGRATION_FEATURE_GATES } from '@/application/backendMigration/
 export const BACKEND_MIGRATION_WRITER_LEASE_GUARD_ENV_KEY = 'VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD';
 export const BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY = 'VITE_SIYUANMEMO_ENABLE_AI_BACKEND_RUNTIME';
 
-type RuntimeEnv = Record<string, string | undefined>;
+export type RuntimeEnv = Record<string, string | undefined>;
+
+export const BACKEND_MIGRATION_RUNTIME_ENV_KEYS = Array.from(new Set([
+  ...Object.values(BACKEND_MIGRATION_FEATURE_GATES),
+  BACKEND_MIGRATION_WRITER_LEASE_GUARD_ENV_KEY,
+  BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY,
+]));
 
 export interface BackendMigrationRuntimePolicy {
   flags: {
@@ -120,10 +126,30 @@ export function resolveBackendMigrationRuntimePolicy(env: RuntimeEnv): BackendMi
   };
 }
 
+export function collectBackendMigrationRuntimeEnv(
+  primary: RuntimeEnv = {},
+  fallback: RuntimeEnv = {},
+): RuntimeEnv {
+  const env: RuntimeEnv = {};
+  for (const key of BACKEND_MIGRATION_RUNTIME_ENV_KEYS) {
+    const primaryValue = normalizeEnvValue(primary[key]);
+    const fallbackValue = normalizeEnvValue(fallback[key]);
+    env[key] = primaryValue ?? fallbackValue;
+  }
+  return env;
+}
+
 export function readBooleanEnv(env: RuntimeEnv, key: string, fallback: boolean): boolean {
   const raw = String(env[key] || '').trim().toLowerCase();
   if (!raw) {
     return fallback;
   }
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+function normalizeEnvValue(value: unknown): string | undefined {
+  if (typeof value === 'undefined' || value === null) {
+    return undefined;
+  }
+  return String(value).trim();
 }

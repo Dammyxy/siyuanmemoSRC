@@ -432,6 +432,12 @@ export interface BackendReviewFeedbackRequest {
   commitPolicy?: string;
   sessionId?: string;
   reviewedAt?: number;
+  scheduler?: BackendReviewSchedulerConfig;
+}
+
+export interface BackendReviewSchedulerConfig {
+  defaultScheduler?: 'fsrs-v6' | 'sm15' | 'a-factor-v2';
+  fsrsParams?: unknown;
 }
 
 export interface BackendReviewFeedbackResult {

@@ -9,30 +9,35 @@ const behaviorChecks = [
   {
     file: 'src/application/usecases/review/ReviewCommitUseCase.ts',
     kind: 'review-local-fallback',
+    symbolPattern: 'scheduler.commit(',
     pattern: /(legacy review commit fallback|scheduler\.commit\s*\()/i,
     reason: 'review local fallback path still present',
   },
   {
     file: 'src/application/services/BrowserApplicationService.ts',
     kind: 'browser-sql-fallback',
+    symbolPattern: 'falling back to SQL/legacy',
     pattern: /(falling back to SQL\/legacy|falling back to legacy snapshot|tryReadSqlDeckPage\s*\()/i,
     reason: 'browser compatibility fallback still present in production path',
   },
   {
     file: 'src/application/handlers/AutoCardHandler.ts',
     kind: 'autocard-follower-direct-mutation',
+    symbolPattern: 'follower backendClient.executeAutoCard(',
     pattern: /getMode\(\)\s*===\s*'follower'[\s\S]{0,220}backendClient\.executeAutoCard\s*\(/i,
     reason: 'AutoCard follower path still allows direct backend mutation bypass',
   },
   {
     file: 'src/application/services/AIWorkbenchPromptRuntime.ts',
     kind: 'ai-frontend-llm-call',
+    symbolPattern: 'llmPort.chat(',
     pattern: /llmPort\.chat\s*\(/,
     reason: 'AI runtime still calls frontend llmPort chat path',
   },
   {
     file: 'src/application/clients/PrivateApiClient.ts',
     kind: 'private-follower-direct-mutation',
+    symbolPattern: 'follower backendClient.privateCommand(',
     pattern: /getMode\(\)\s*===\s*'follower'[\s\S]{0,220}backendClient\.privateCommand\s*\(/i,
     reason: 'Private API follower path still allows direct backend mutation bypass',
   },
@@ -83,6 +88,7 @@ function isAllowed(allowEntries, check) {
   return allowEntries.some((entry) => (
     entry.file === check.file
     && entry.kind === check.kind
+    && entry.symbolPattern === check.symbolPattern
   ));
 }
 
@@ -160,6 +166,7 @@ function evaluateServiceWiring(rootDir, allowEntries) {
     const check = {
       file: 'src/application/ApplicationContext.ts',
       kind: 'private-api-unwired',
+      symbolPattern: 'missing PrivateApiService wiring',
     };
     if (!isAllowed(allowEntries, check)) {
       failures.push('src/application/ApplicationContext.ts: Private API runtime service/client wiring is missing in composition root');

@@ -110,18 +110,24 @@ export interface WriterRelayCommandPayload {
   expiresAt?: number;
 }
 
-export type KernelRelayMethod =
-  | 'review.feedback'
-  | 'autocard.decision.resolve'
-  | 'autocard.execute'
-  | 'kernel.transaction.ingest'
-  | 'kernel.transaction.dequeue'
-  | 'kernel.transaction.requeue'
-  | 'ai.session.create'
-  | 'ai.session.get'
-  | 'ai.session.update'
-  | 'ai.session.cancel'
-  | 'private.command.execute';
+export const KERNEL_RELAY_METHODS = [
+  'review.feedback',
+  'browser.sourceExistence.applySweepHost',
+  'browser.sourceExistence.update',
+  'browser.sourceExistence.applySweep',
+  'autocard.decision.resolve',
+  'autocard.execute',
+  'kernel.transaction.ingest',
+  'kernel.transaction.dequeue',
+  'kernel.transaction.requeue',
+  'ai.session.create',
+  'ai.session.get',
+  'ai.session.update',
+  'ai.session.cancel',
+  'private.command.execute',
+] as const;
+
+export type KernelRelayMethod = typeof KERNEL_RELAY_METHODS[number];
 
 export interface WriterRelayCommandResultPayload {
   commandId: string;

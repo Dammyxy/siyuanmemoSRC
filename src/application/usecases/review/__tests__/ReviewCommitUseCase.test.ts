@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveBackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import { CardState, CardType, Rating, type FSRSCard } from '@/types/card';
+import { DEFAULT_SETTINGS } from '@/types/settings';
 
 const reviewPolicyLoggerMocks = vi.hoisted(() => ({
   info: vi.fn(),
@@ -98,6 +99,50 @@ describe('ReviewCommitUseCase', () => {
     expect(result.committed).toBe(true);
     expect(ensureWritable).toHaveBeenCalledTimes(1);
     expect(reviewFeedback).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes current scheduler configuration to backend review feedback', async () => {
+    const before = createCard({ id: 'card-custom-fsrs' });
+    const after = createCard({ id: before.id, due: before.due + 4 * 86_400_000 });
+    const customFsrs = {
+      ...DEFAULT_SETTINGS.fsrs,
+      requestRetention: 0.97,
+      enableFuzz: false,
+    };
+    const reviewFeedback = vi.fn(async () => ({ committed: true, updatedCard: after }));
+
+    const useCase = new ReviewCommitUseCase({
+      cards: { getCard: vi.fn(async () => before) },
+      scheduler: { answer: vi.fn(), commit: vi.fn() } as never,
+      schedulerConfig: {
+        defaultScheduler: 'fsrs-v6',
+        fsrsParams: customFsrs,
+      },
+      reviewLogs: { addReviewLogV2: vi.fn(async () => {}) },
+      srsBackend: { reviewFeedback },
+      writerLeaseGuard: {
+        ensureWritable: vi.fn(async () => {}),
+        getMode: () => 'writer',
+      } as never,
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    await useCase.execute({
+      cardId: before.id,
+      rating: Rating.Good,
+      context: {
+        queueType: 'retrieval-practice',
+        queueMode: 'formal',
+        commitPolicy: 'write-schedule',
+      },
+    });
+
+    expect(reviewFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      scheduler: {
+        defaultScheduler: 'fsrs-v6',
+        fsrsParams: customFsrs,
+      },
+    }));
   });
 
   it('fails closed when backend is disabled by runtime policy', async () => {

@@ -7,6 +7,7 @@ import { createReviewLogV2 } from '@/types/review';
 import type { StructuredCardQuery } from '@/types/card-query';
 import type { BrowserStats } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { FSRSCard } from '@/types/card';
+import type { SchedulerType } from '@/core/scheduler/schedulerPolicy';
 import type {
   BrowserDeckCardPageResult,
   BrowserDeckPageRequest,
@@ -22,7 +23,7 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
-} from '../../../packages/contracts/src/backend-rpc';
+} from '../../packages/contracts/src/backend-rpc';
 import type {
   SourceExistenceRefreshCandidate,
   SourceExistenceRefreshRequest,
@@ -30,7 +31,7 @@ import type {
   SourceExistenceUpdate,
 } from '@/application/ports/BrowserDeckReadPort';
 import type { SqlitePersistenceBridge } from './SqlitePersistenceBridge';
-import { DEFAULT_SETTINGS } from '@/types/settings';
+import { DEFAULT_SETTINGS, type FSRSParameters } from '@/types/settings';
 import { canonicalizeSchedulingState } from '@/core/scheduler/schedulingStateCleanliness';
 import { createLogger } from '@/utils/logger';
 import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
@@ -783,6 +784,7 @@ export class WorkerSqliteDatabaseService {
       }
     }
 
+    const schedulerConfig = resolveWorkerReviewSchedulerConfig(request);
     const result = await this.runtime.runTransaction('review.feedback', async () => {
       const card = this.repository!.getCard(cardId);
       if (!card) {
@@ -791,8 +793,8 @@ export class WorkerSqliteDatabaseService {
 
       const scheduler = new SchedulerRouter(
         {
-          defaultScheduler: 'fsrs-v6',
-          fsrsParams: DEFAULT_SETTINGS.fsrs,
+          defaultScheduler: schedulerConfig.defaultScheduler,
+          fsrsParams: schedulerConfig.fsrsParams,
         },
         {
           batchUpdateCardsWithoutEvents: async (cards) => {
@@ -1510,4 +1512,34 @@ function collectKernelTransactionActions(input: {
     });
   }
   return actions;
+}
+
+function resolveWorkerReviewSchedulerConfig(request: BackendReviewFeedbackRequest): {
+  defaultScheduler: SchedulerType;
+  fsrsParams: FSRSParameters;
+} {
+  const scheduler = request.scheduler && typeof request.scheduler === 'object'
+    ? request.scheduler
+    : null;
+  const defaultScheduler = isSchedulerType(scheduler?.defaultScheduler)
+    ? scheduler.defaultScheduler
+    : 'fsrs-v6';
+  const candidate = scheduler?.fsrsParams && typeof scheduler.fsrsParams === 'object'
+    ? scheduler.fsrsParams as Partial<FSRSParameters>
+    : {};
+  const candidateWeights = Array.isArray(candidate.weights)
+    ? candidate.weights.filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+    : [];
+  return {
+    defaultScheduler,
+    fsrsParams: {
+      ...DEFAULT_SETTINGS.fsrs,
+      ...candidate,
+      weights: candidateWeights.length > 0 ? [...candidateWeights] : [...DEFAULT_SETTINGS.fsrs.weights],
+    },
+  };
+}
+
+function isSchedulerType(value: unknown): value is SchedulerType {
+  return value === 'fsrs-v6' || value === 'sm15' || value === 'a-factor-v2';
 }

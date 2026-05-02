@@ -25,6 +25,7 @@ export class PrivateApiService {
   private readonly auditService: Pick<PrivateApiAuditService, 'canExecute' | 'ensurePayloadWithinLimit' | 'record'>;
   private readonly resolveCapabilitySource: (() => CapabilitySourceInput) | null;
   private readonly maxMutationPayloadBytes: number;
+  private readonly mutationResultsByIdempotencyKey = new Map<string, Promise<PrivateApiMutationResult>>();
 
   constructor(
     deps: PrivateApiServiceDeps,
@@ -91,6 +92,26 @@ export class PrivateApiService {
     if (!idempotencyKey) {
       throw new Error('INVALID_REQUEST: private mutation requires idempotencyKey');
     }
+    const cached = this.mutationResultsByIdempotencyKey.get(idempotencyKey);
+    if (cached) {
+      return cached;
+    }
+
+    const operation = this.executeMutation({ ...request, idempotencyKey }, capabilitySource);
+    this.mutationResultsByIdempotencyKey.set(idempotencyKey, operation);
+    try {
+      return await operation;
+    } catch (error) {
+      this.mutationResultsByIdempotencyKey.delete(idempotencyKey);
+      throw error;
+    }
+  }
+
+  private async executeMutation(
+    request: PrivateApiMutationRequest,
+    capabilitySource: CapabilitySourceInput,
+  ): Promise<PrivateApiMutationResult> {
+    const idempotencyKey = String(request.idempotencyKey || '').trim();
     this.auditService.ensurePayloadWithinLimit(request.params ?? {}, this.maxMutationPayloadBytes);
     const capabilityResult = this.resolveCapability(
       request.method,

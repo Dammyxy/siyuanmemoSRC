@@ -3,6 +3,7 @@ import { BackendKernel } from '../bootstrap/BackendKernel';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
 import { createInMemorySqlitePersistenceBridge } from '../db/SqlitePersistenceBridge';
 import { CardState, CardType, type FSRSCard } from '@/types/card';
+import { DEFAULT_SETTINGS } from '@/types/settings';
 
 function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   const now = 1_700_000_000_000;
@@ -1118,6 +1119,53 @@ describe('BackendKernel', () => {
     }
   });
 
+  it('uses request scheduler config for review feedback scheduling', async () => {
+    const reviewedAt = 1_700_200_000_000;
+    const runWithRetention = async (id: string, requestRetention: number) => {
+      const persistenceBridge = createInMemorySqlitePersistenceBridge();
+      const database = new WorkerSqliteDatabaseService(persistenceBridge);
+      await database.upsertCards([buildCard({
+        id,
+        due: reviewedAt - 10_000,
+        lastReview: reviewedAt - 86_400_000,
+        stability: 2,
+        difficulty: 7,
+        reps: 3,
+        scheduledDays: 1,
+      })]);
+      const kernel = new BackendKernel({ database });
+      const response = await kernel.handle({
+        id: `review-feedback-${id}`,
+        jsonrpc: '2.0',
+        method: 'review.feedback',
+        params: [{
+          cardId: id,
+          rating: 3,
+          queueType: 'retrieval-practice',
+          reviewedAt,
+          scheduler: {
+            defaultScheduler: 'fsrs-v6',
+            fsrsParams: {
+              ...DEFAULT_SETTINGS.fsrs,
+              requestRetention,
+              enableFuzz: false,
+            },
+          },
+        }],
+      });
+      expect('result' in response).toBe(true);
+      if (!('result' in response)) {
+        throw new Error(response.error.message);
+      }
+      return response.result.updatedCard as FSRSCard;
+    };
+
+    const lowRetention = await runWithRetention('card-review-low-retention', 0.5);
+    const highRetention = await runWithRetention('card-review-high-retention', 0.99);
+
+    expect(lowRetention.scheduledDays).not.toBe(highRetention.scheduledDays);
+  });
+
   it('commits incremental-learning review feedback in worker transaction', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
@@ -1369,6 +1417,14 @@ describe('BackendKernel', () => {
         method: 'private.command.execute',
         callerIntent: 'test-private-mutation',
         idempotencyKey: 'private-key-1',
+        capabilityResult: {
+          available: true,
+          reason: null,
+          kernelSidecarAvailable: true,
+          backendWorkerAvailable: true,
+          writerAvailable: true,
+          methodAllowed: true,
+        },
         params: { action: 'noop' },
       }],
     });
@@ -1425,6 +1481,83 @@ describe('BackendKernel', () => {
     if ('result' in audit) {
       expect(Array.isArray(audit.result.data)).toBe(true);
       expect(audit.result.data.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('rejects direct private command calls without an authorized capability result', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    const response = await kernel.handle({
+      id: 'private-command-direct',
+      jsonrpc: '2.0',
+      method: 'private.command.execute',
+      params: [{
+        requestId: 'private-direct-1',
+        method: 'private.command.execute',
+        callerIntent: 'test-private-mutation',
+        idempotencyKey: 'private-direct-key',
+        params: { action: 'noop' },
+      }],
+    });
+
+    expect(response).toEqual({
+      id: 'private-command-direct',
+      jsonrpc: '2.0',
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'private.command.execute requires authorized private API capability',
+      },
+    });
+  });
+
+  it('replays private command result for duplicate idempotency keys', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+    const capabilityResult = {
+      available: true,
+      reason: null,
+      kernelSidecarAvailable: true,
+      backendWorkerAvailable: true,
+      writerAvailable: true,
+      methodAllowed: true,
+    };
+
+    const first = await kernel.handle({
+      id: 'private-command-first',
+      jsonrpc: '2.0',
+      method: 'private.command.execute',
+      params: [{
+        requestId: 'private-first',
+        method: 'private.command.execute',
+        callerIntent: 'test-private-mutation',
+        idempotencyKey: 'private-same-key',
+        capabilityResult,
+        params: { action: 'noop' },
+      }],
+    });
+    const second = await kernel.handle({
+      id: 'private-command-second',
+      jsonrpc: '2.0',
+      method: 'private.command.execute',
+      params: [{
+        requestId: 'private-second',
+        method: 'private.command.execute',
+        callerIntent: 'test-private-mutation',
+        idempotencyKey: 'private-same-key',
+        capabilityResult,
+        params: { action: 'noop-again' },
+      }],
+    });
+
+    expect('result' in first).toBe(true);
+    expect('result' in second).toBe(true);
+    if ('result' in second) {
+      expect(second.result.commandId).toBe('private-first');
+      expect(second.result.result).toMatchObject({
+        idempotencyKey: 'private-same-key',
+        committed: false,
+      });
     }
   });
 });

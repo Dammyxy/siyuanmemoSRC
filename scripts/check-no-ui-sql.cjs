@@ -13,36 +13,43 @@ const violationRules = [
   {
     kind: 'sqljs-import',
     scopes: ['ui', 'application'],
+    symbolPattern: 'sql.js import',
     pattern: /from\s+['"]sql\.js['"]/,
   },
   {
     kind: 'runtime-sqlite-import',
     scopes: ['ui', 'application'],
+    symbolPattern: '@/infrastructure/persistence/sqlite import',
     pattern: /import\s+(?!type\b)[^;]*from\s+['"]@\/infrastructure\/persistence\/sqlite(?:\/|['"])/,
   },
   {
     kind: 'siyuan-api-sql',
     scopes: ['ui', 'application'],
+    symbolPattern: 'siyuanApi.sql(',
     pattern: /siyuanApi\.sql\s*\(/,
   },
   {
     kind: 'host-sql-endpoint',
     scopes: ['ui', 'application'],
+    symbolPattern: '/api/query/sql',
     pattern: /\/api\/query\/sql/,
   },
   {
     kind: 'host-plugin-rpc-endpoint',
     scopes: ['ui', 'application'],
+    symbolPattern: '/api/plugin/rpc',
     pattern: /\/api\/plugin\/rpc/,
   },
   {
     kind: 'host-fetch-api',
     scopes: ['ui', 'application'],
+    symbolPattern: 'fetch(\'/api/...)',
     pattern: /fetch\s*\(\s*['"]\s*\/api\//,
   },
   {
     kind: 'siyuan-query-adapter-import',
     scopes: ['ui', 'application'],
+    symbolPattern: 'QuerySiyuanAdapter/ManagerSiyuanAdapter/BrowserSiyuanAdapter import',
     pattern: /from\s+['"]@\/infrastructure\/siyuan\/(?:QuerySiyuanAdapter|ManagerSiyuanAdapter|BrowserSiyuanAdapter)['"]/,
   },
 ];
@@ -113,6 +120,7 @@ function isAllowed(allowEntries, violation) {
   return allowEntries.some((entry) => (
     entry.file === violation.file
     && entry.kind === violation.kind
+    && entry.symbolPattern === violation.symbolPattern
   ));
 }
 
@@ -144,7 +152,7 @@ function evaluate(options = {}) {
         const violation = {
           file: relativePath,
           kind: rule.kind,
-          symbolPattern: rule.pattern.toString(),
+          symbolPattern: rule.symbolPattern || rule.pattern.toString(),
         };
         if (isAllowed(allowEntries, violation)) {
           continue;

@@ -76,7 +76,7 @@ describe('check-no-ui-sql', () => {
         checker: 'check-no-ui-sql',
         file: 'src/application/services/legacy.ts',
         kind: 'siyuan-query-adapter-import',
-        symbolPattern: 'QuerySiyuanAdapter',
+        symbolPattern: 'QuerySiyuanAdapter/ManagerSiyuanAdapter/BrowserSiyuanAdapter import',
         owner: 'application-command',
         reason: 'temporary',
         removalCondition: 'remove later',
@@ -85,5 +85,33 @@ describe('check-no-ui-sql', () => {
     ];
 
     expect(evaluate({ rootDir, allowEntries })).toEqual([]);
+  });
+
+  it('does not allow a different symbol in the same file and violation kind', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/services/legacy.ts', `
+      export async function readLegacy(siyuanApi: { sql: (stmt: string) => Promise<unknown> }) {
+        return siyuanApi.sql("select * from blocks");
+      }
+    `);
+
+    const failures = evaluate({
+      rootDir,
+      allowEntries: [{
+        id: 'wrong-symbol',
+        checker: 'check-no-ui-sql',
+        file: 'src/application/services/legacy.ts',
+        kind: 'siyuan-api-sql',
+        symbolPattern: 'fetch(\'/api/...)',
+        owner: 'compatibility-read',
+        reason: 'temporary',
+        removalCondition: 'remove later',
+        trackingTask: 'RM019',
+      }],
+    });
+
+    expect(failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('src/application/services/legacy.ts'),
+    ]));
   });
 });

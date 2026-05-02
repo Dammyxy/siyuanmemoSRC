@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-02 (Round 255)
+Last update: 2026-05-02 (Round 256)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-02 - remediation construction review fixes
+
+- Task: 复查从 `6eeb9c5a0e3131f5f4c78903bf5e04ec70dbb194` 之后按 `docs/backend-migration-spec.md` 施工的 remediation diff，并修复 review 中发现的高风险缺口。
+- Touched slice: backend migration runtime policy + review scheduler cutover + kernel relay contract + private API mutation guard + boundary checkers；`src/application/backendMigration/runtimePolicy.ts`、`src/application/ApplicationContext.ts`、`src/application/usecases/review/ReviewCommitUseCase.ts`、`worker/db/SqliteDatabaseService.ts`、`worker/bootstrap/BackendKernel.ts`、`packages/contracts/src/{backend-rpc,kernel-rpc}.ts`、`src/application/services/PrivateApiService.ts`、`scripts/check-*.cjs`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: `ApplicationContext` 读取 backend migration env 时改为 `import.meta.env` 优先、`process.env` fallback；Review `review.feedback` contract 透传当前 scheduler/default FSRS 参数，worker 不再硬编码 `DEFAULT_SETTINGS.fsrs`；`KernelRelayMethod` 改由 `KERNEL_RELAY_METHODS` runtime list 派生并补齐 `browser.sourceExistence.*` relay 方法；Private API mutation 在 service 与 worker 两层按 `idempotencyKey` replay，worker 拒绝缺少授权 `capabilityResult` 的直接 private command；boundary/cutover allowlist 改为 `file + kind + symbolPattern` 精确匹配，并移除已过期 private-api-unwired allowlist。
+- Debt deferred: RM039 双窗口 AutoCard smoke 与 RM041 private API mutation/cutover smoke 仍需真实 SiYuan runtime 人工执行；RM028-RM030 继续按 Phase 7 foundation-only 暂缓；整仓 `tsc --noEmit` 仍有 legacy type debt，不能把它当本轮完成门禁。
+- Why deferred: manual smoke 需要真实双窗口 SiYuan 与日志证据，终端测试不能伪造；AI runtime migration 超出当前 remediation review fix；整仓类型债横跨历史测试与旧路径，需单独收口。
+- Next safe step: 先在真实 SiYuan 环境执行 RM039/RM041 并回填 quickstart 证据；若要继续提升质量，下一轮单独收敛 `tsc --noEmit` 中仍属于 backend migration touched slice 的类型债。
+- Validation: `pnpm vitest run src/application/backendMigration/__tests__/runtimePolicy.test.ts src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts src/application/services/__tests__/PrivateApiService.test.ts worker/__tests__/BackendKernel.test.ts worker/__tests__/BackendKernel.ai-job.test.ts scripts/__tests__/check-no-ui-sql.test.ts scripts/__tests__/check-backend-migration-cutover.test.ts --reporter=dot`（57 passed）；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-02 - remediation r6-r7 truthfulness/runtime exposure rm027-rm035
 

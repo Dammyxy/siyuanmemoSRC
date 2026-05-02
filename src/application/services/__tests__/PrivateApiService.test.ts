@@ -86,6 +86,55 @@ describe('PrivateApiService', () => {
     });
   });
 
+  it('replays duplicate mutation idempotency keys without calling the backend twice', async () => {
+    const mutate = vi.fn(async () => ({
+      ok: true,
+      commandId: 'cmd-first',
+      writerInstanceId: 'writer-1',
+      changed: { cardIds: ['card-1'] },
+      result: { committed: true },
+      auditStatus: 'recorded',
+      diagnosticEventId: 'diag-first',
+    }));
+    const service = new PrivateApiService({
+      privateApiClient: {
+        read: vi.fn(),
+        mutate,
+      },
+      auditService: {
+        canExecute: vi.fn(() => ({
+          available: true,
+          reason: null,
+          kernelSidecarAvailable: true,
+          backendWorkerAvailable: true,
+          writerAvailable: true,
+          methodAllowed: true,
+        })),
+        ensurePayloadWithinLimit: vi.fn(),
+        record: vi.fn(),
+      },
+    });
+
+    const first = await service.mutate({
+      method: 'private.command.execute',
+      callerIntent: 'test-mutate',
+      requestId: 'mutation-first',
+      idempotencyKey: 'same-private-key',
+      params: { action: 'noop' },
+    });
+    const second = await service.mutate({
+      method: 'private.command.execute',
+      callerIntent: 'test-mutate',
+      requestId: 'mutation-second',
+      idempotencyKey: 'same-private-key',
+      params: { action: 'noop-again' },
+    });
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+    expect(second.commandId).toBe('cmd-first');
+  });
+
   it('rejects mutation without idempotency key', async () => {
     const service = new PrivateApiService({
       privateApiClient: {

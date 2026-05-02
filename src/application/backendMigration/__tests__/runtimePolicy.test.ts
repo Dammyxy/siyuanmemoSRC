@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolveBackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
+import {
+  collectBackendMigrationRuntimeEnv,
+  resolveBackendMigrationRuntimePolicy,
+} from '@/application/backendMigration/runtimePolicy';
 
 describe('backend migration runtime policy', () => {
   it('uses safe defaults for empty env', () => {
@@ -86,5 +89,26 @@ describe('backend migration runtime policy', () => {
     expect(policy.capabilities.privateApiReadEnabled).toBe(false);
     expect(policy.capabilities.privateApiMutationEnabled).toBe(false);
     expect(policy.capabilities.aiBackendSessionEnabled).toBe(false);
+  });
+
+  it('collects Vite env values before process fallback values', () => {
+    const env = collectBackendMigrationRuntimeEnv({
+      VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'true',
+      VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD: 'true',
+      VITE_SIYUANMEMO_ENABLE_AUTOCARD_DECISION_RELAY: 'true',
+      VITE_SIYUANMEMO_ENABLE_PRIVATE_API: 'false',
+    }, {
+      VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'false',
+      VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD: 'false',
+      VITE_SIYUANMEMO_ENABLE_AUTOCARD_DECISION_RELAY: 'false',
+      VITE_SIYUANMEMO_ENABLE_PRIVATE_API: 'true',
+      VITE_SIYUANMEMO_ENABLE_AI_BACKEND_RUNTIME: 'true',
+    });
+    const policy = resolveBackendMigrationRuntimePolicy(env);
+
+    expect(policy.capabilities.reviewFeedbackWriteEnabled).toBe(true);
+    expect(policy.capabilities.autoCardDecisionBackendEnabled).toBe(true);
+    expect(policy.capabilities.privateApiReadEnabled).toBe(false);
+    expect(policy.capabilities.aiBackendSessionEnabled).toBe(true);
   });
 });

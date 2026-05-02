@@ -157,4 +157,35 @@ describe('check-backend-migration-cutover', () => {
       expect.stringContaining('Private API runtime service/client wiring is missing'),
     ]));
   });
+
+  it('does not allow a different cutover marker in the same file and violation kind', () => {
+    const rootDir = createFixtureRoot();
+    writeFile(rootDir, 'src/application/usecases/review/ReviewCommitUseCase.ts', 'export const ok = true;\n');
+    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'logger.debug("falling back to SQL/legacy");\n');
+    writeFile(rootDir, 'src/application/handlers/AutoCardHandler.ts', 'export const ok = true;\n');
+    writeFile(rootDir, 'src/application/services/AIWorkbenchPromptRuntime.ts', 'export const ok = true;\n');
+    writeFile(rootDir, 'src/application/clients/PrivateApiClient.ts', 'export const ok = true;\n');
+    writeFile(rootDir, 'src/application/backendMigration/ownershipMap.ts', `export const BACKEND_MIGRATION_FEATURE_GATES = {};\n`);
+    writeFile(rootDir, 'src/application/backendMigration/featureGateMatrix.ts', 'export const BACKEND_FEATURE_GATE_MATRIX = [];\n');
+    writeFile(rootDir, 'src/application/ApplicationContext.ts', 'export class ApplicationContext { private x = "PrivateApiService"; }\n');
+
+    const failures = evaluate({
+      rootDir,
+      allowEntries: [{
+        id: 'wrong-cutover-symbol',
+        checker: 'check-backend-migration-cutover',
+        file: 'src/application/services/BrowserApplicationService.ts',
+        kind: 'browser-sql-fallback',
+        symbolPattern: 'llmPort.chat(',
+        owner: 'compatibility-read',
+        reason: 'temporary',
+        removalCondition: 'remove later',
+        trackingTask: 'RM019',
+      }],
+    });
+
+    expect(failures).toEqual(expect.arrayContaining([
+      expect.stringContaining('BrowserApplicationService.ts'),
+    ]));
+  });
 });

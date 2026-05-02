@@ -208,17 +208,6 @@
       "reason": "Phase 7 is still foundation-only; prompt runtime has not fully moved behind backend session/job path.",
       "removalCondition": "Remove after RM028-RM030 runtime migration and tests are complete.",
       "trackingTask": "RM031"
-    },
-    {
-      "id": "cutover-private-api-unwired-foundation",
-      "checker": "check-backend-migration-cutover",
-      "file": "src/application/ApplicationContext.ts",
-      "kind": "private-api-unwired",
-      "symbolPattern": "missing PrivateApiService wiring",
-      "owner": "foundation-only",
-      "reason": "Phase 8 private API remains foundation-only and is not yet exposed through composition root runtime surface.",
-      "removalCondition": "Remove once RM032-RM035 wires and validates private API runtime exposure.",
-      "trackingTask": "RM036"
     }
   ]
 }

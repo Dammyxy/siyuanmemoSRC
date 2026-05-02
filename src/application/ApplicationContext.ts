@@ -134,6 +134,7 @@ import {
   type MigratedStateFamily,
 } from '@/application/backendMigration/ownershipMap';
 import {
+  collectBackendMigrationRuntimeEnv,
   resolveBackendMigrationRuntimePolicy,
   type BackendMigrationRuntimePolicy,
 } from '@/application/backendMigration/runtimePolicy';
@@ -522,9 +523,14 @@ export class ApplicationContext {
       const writerLeaseGuard = runtimePolicy.capabilities.writerRelayRuntimeEnabled
         ? context.frontendInstanceRuntime
         : null;
+      const schedulerSettings = context.getSettingsService().getSettings();
       return new ReviewCommitUseCase({
         cards: unifiedDataSourceManager,
         scheduler: context.getScheduler(),
+        schedulerConfig: {
+          defaultScheduler: schedulerSettings.scheduler?.defaultScheduler || 'fsrs-v6',
+          fsrsParams: schedulerSettings.fsrs,
+        },
         reviewLogs: context.getReviewLogService(),
         transactionRunner: context.sqlPersistence
           ? {
@@ -1281,7 +1287,16 @@ export class ApplicationContext {
     let srsBackendClient: SrsBackendClient | null = null;
     let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
     let followerCommandClient: FollowerCommandClient | null = null;
-    const backendMigrationRuntimePolicy = resolveBackendMigrationRuntimePolicy(process.env as Record<string, string | undefined>);
+    const backendMigrationRuntimePolicy = resolveBackendMigrationRuntimePolicy(
+      collectBackendMigrationRuntimeEnv(
+        typeof import.meta !== 'undefined' && import.meta.env
+          ? import.meta.env as Record<string, string | undefined>
+          : {},
+        typeof process !== 'undefined' && process.env
+          ? process.env as Record<string, string | undefined>
+          : {},
+      ),
+    );
     if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable) {
       try {
         const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
@@ -1611,6 +1626,10 @@ export class ApplicationContext {
         commitPolicy?: string;
         sessionId?: string;
         reviewedAt?: number;
+        scheduler?: {
+          defaultScheduler?: 'fsrs-v6' | 'sm15' | 'a-factor-v2';
+          fsrsParams?: Record<string, unknown>;
+        };
       });
     }
     if (command.method === 'browser.sourceExistence.applySweepHost') {
@@ -1749,6 +1768,14 @@ export class ApplicationContext {
         method: 'private.command.execute';
         callerIntent: string;
         idempotencyKey: string;
+        capabilityResult?: {
+          available: boolean;
+          reason: string | null;
+          kernelSidecarAvailable: boolean;
+          backendWorkerAvailable: boolean;
+          writerAvailable: boolean;
+          methodAllowed: boolean;
+        };
         params?: Record<string, unknown>;
         auditContext?: Record<string, unknown>;
       });
