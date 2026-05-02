@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-02 (Round 257)
+Last update: 2026-05-02 (Round 258)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-02 - kernel writer relay startup handshake
+
+- Task: 修复 Review 评分在 backend worker 已启后继续报 `writer-relay-runtime-missing`；根因是前端启动时只尝试一次 kernel writer RPC，未等待 kernel companion 进入 PR 17487 要求的 `running` 状态，失败后永久置空 writer runtime。
+- Touched slice: kernel companion writer relay startup；`src/application/clients/FrontendInstanceRuntime.ts`、`src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: `FrontendInstanceRuntime.start()` 在 `writer.hello/acquireLease` 前先通过 `KernelSidecarClient.getStatus()` 等待 companion 从 `not-loaded/not-running` 进入 `running`，再开始 lease 生命周期；非可恢复状态（如 endpoint/network/http/invalid response）仍显式 `BACKEND_UNAVAILABLE`，不走 Review 本地 scheduler fallback，也不放开 private mutation。
+- Debt deferred: 如果真实 SiYuan 仍返回 `network-error/http-error`，说明当前宿主没有暴露 PR 17487 的 `/api/plugin/*` kernel plugin endpoint，需切到支持 kernel plugin system 的 SiYuan 构建或回滚 backend+writer release gate，而不是在 Review 里加兜底。
+- Why deferred: 宿主是否包含 kernel plugin system 不能由插件代码修复；本轮修复的是插件自身的 running-state 启动竞态。
+- Next safe step: 重新构建并复测评分；若仍失败，抓启动期 `[ApplicationContext] Frontend instance runtime unavailable` 后面的 exact reason，区分 `not-loaded/not-running` 超时与 endpoint 缺失。
+- Validation: red `pnpm vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot` failed before startup wait, then green same command（7 passed）；`pnpm vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts src/infrastructure/siyuan/__tests__/SiyuanKernelCompanionAdapter.test.ts src/application/__tests__/service-access.integration.test.ts --reporter=dot`（4 files / 43 tests passed）；`pnpm run check:boundaries` passed；`pnpm build` passed（保留既有 i18n/Sass warnings，构建到 `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`）；`git diff --check` passed（仅 LF/CRLF warning）。
 
 ### 2026-05-02 - review rating release-default env fix
 

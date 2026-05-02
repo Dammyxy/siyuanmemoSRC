@@ -4,6 +4,8 @@ export interface FrontendInstanceRuntimeOptions {
   instanceId?: string;
   leaseTtlMs?: number;
   relayPollIntervalMs?: number;
+  startupRetryDelayMs?: number;
+  startupMaxWaitMs?: number;
   writerCommandHandler?: (command: {
     commandId: string;
     requesterInstanceId: string;
@@ -23,6 +25,8 @@ export class FrontendInstanceRuntime {
   private readonly instanceId: string;
   private readonly leaseTtlMs: number;
   private readonly relayPollIntervalMs: number;
+  private readonly startupRetryDelayMs: number;
+  private readonly startupMaxWaitMs: number;
   private readonly writerCommandHandler: FrontendInstanceRuntimeOptions['writerCommandHandler'];
   private mode: FrontendInstanceMode = 'follower';
   private started = false;
@@ -41,6 +45,12 @@ export class FrontendInstanceRuntime {
     this.relayPollIntervalMs = Number.isFinite(Number(options.relayPollIntervalMs))
       ? Math.max(250, Math.floor(Number(options.relayPollIntervalMs)))
       : 1_000;
+    this.startupRetryDelayMs = Number.isFinite(Number(options.startupRetryDelayMs))
+      ? Math.max(1, Math.floor(Number(options.startupRetryDelayMs)))
+      : 250;
+    this.startupMaxWaitMs = Number.isFinite(Number(options.startupMaxWaitMs))
+      ? Math.max(this.startupRetryDelayMs, Math.floor(Number(options.startupMaxWaitMs)))
+      : 5_000;
     this.writerCommandHandler = options.writerCommandHandler;
   }
 
@@ -56,11 +66,19 @@ export class FrontendInstanceRuntime {
     if (this.started) {
       return;
     }
+    await this.waitForKernelCompanionRunning();
     this.started = true;
-    await this.sidecarClient.writerHello({ instanceId: this.instanceId });
-    await this.refreshOwnership();
-    this.startHeartbeat();
-    this.startRelayPump();
+    try {
+      await this.sidecarClient.writerHello({ instanceId: this.instanceId });
+      await this.refreshOwnership();
+      this.startHeartbeat();
+      this.startRelayPump();
+    } catch (error) {
+      this.started = false;
+      this.stopHeartbeat();
+      this.stopRelayPump();
+      throw error;
+    }
   }
 
   async ensureWritable(): Promise<void> {
@@ -118,6 +136,34 @@ export class FrontendInstanceRuntime {
       clearInterval(this.relayTimer);
       this.relayTimer = null;
     }
+  }
+
+  private async waitForKernelCompanionRunning(): Promise<void> {
+    if (typeof this.sidecarClient.getStatus !== 'function') {
+      return;
+    }
+
+    const startedAt = Date.now();
+    let lastMessage = 'kernel companion is not available';
+    while (Date.now() - startedAt <= this.startupMaxWaitMs) {
+      const status = await this.sidecarClient.getStatus();
+      if (status.kind === 'available') {
+        return;
+      }
+
+      lastMessage = [
+        `reason=${status.reason}`,
+        status.pluginState ? `state=${status.pluginState}` : null,
+        status.message ? `message=${status.message}` : null,
+      ].filter(Boolean).join(' ');
+
+      if (status.reason !== 'not-loaded' && status.reason !== 'not-running') {
+        throw new Error(`BACKEND_UNAVAILABLE: kernel companion unavailable (${lastMessage})`);
+      }
+      await sleep(this.startupRetryDelayMs);
+    }
+
+    throw new Error(`BACKEND_UNAVAILABLE: kernel companion did not reach running state (${lastMessage})`);
   }
 
   private async refreshOwnership(): Promise<void> {
@@ -184,4 +230,8 @@ export class FrontendInstanceRuntime {
     const message = error instanceof Error ? error.message : String(error || '');
     return message.startsWith('BACKEND_UNAVAILABLE:');
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

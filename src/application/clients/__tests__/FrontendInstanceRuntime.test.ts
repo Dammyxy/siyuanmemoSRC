@@ -3,6 +3,51 @@ import { FrontendInstanceRuntime } from '../FrontendInstanceRuntime';
 import type { KernelSidecarClient } from '../KernelSidecarClient';
 
 describe('FrontendInstanceRuntime', () => {
+  it('waits for kernel companion running state before writer hello', async () => {
+    const getStatus = vi.fn()
+      .mockResolvedValueOnce({
+        kind: 'unavailable',
+        reason: 'not-running',
+        pluginName: 'siyuan-plugin-siyuanmemo',
+        pluginState: 'loaded',
+        checkedAt: 1,
+      })
+      .mockResolvedValueOnce({
+        kind: 'available',
+        pluginName: 'siyuan-plugin-siyuanmemo',
+        pluginState: 'running',
+        checkedAt: 2,
+      });
+    const writerHello = vi.fn(async () => ({ ok: true, lease: null, now: 3 }));
+    const runtime = new FrontendInstanceRuntime({
+      getStatus,
+      writerHello,
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 3,
+          expiresAt: 4,
+          lastHeartbeatAt: 3,
+        },
+        now: 3,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 4 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      startupRetryDelayMs: 1,
+      startupMaxWaitMs: 50,
+    });
+
+    await runtime.start();
+
+    expect(getStatus).toHaveBeenCalledTimes(2);
+    expect(writerHello).toHaveBeenCalledTimes(1);
+    expect(runtime.getMode()).toBe('writer');
+    await runtime.dispose();
+  });
+
   it('acquires writer lease on start and reports writer mode', async () => {
     const runtime = new FrontendInstanceRuntime({
       writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
