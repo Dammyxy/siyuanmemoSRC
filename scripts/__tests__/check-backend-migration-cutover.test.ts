@@ -55,7 +55,7 @@ describe('check-backend-migration-cutover', () => {
   it('fails on real fallback and bypass patterns without allowlist', () => {
     const rootDir = createFixtureRoot();
     writeFile(rootDir, 'src/application/usecases/review/ReviewCommitUseCase.ts', 'this.deps.scheduler.commit(card, rating);\n');
-    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'logger.debug("Worker deck page query failed; falling back to SQL/legacy snapshot");\n');
+    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'return this.browserDeckReadPort.queryDeckPage(query, page);\n');
     writeFile(rootDir, 'src/application/handlers/AutoCardHandler.ts', `
       if (runtime.getMode() === 'follower') {
         return backendClient.executeAutoCard(request);
@@ -90,7 +90,7 @@ describe('check-backend-migration-cutover', () => {
   it('supports allowlisted compatibility fallback and foundation-only status', () => {
     const rootDir = createFixtureRoot();
     writeFile(rootDir, 'src/application/usecases/review/ReviewCommitUseCase.ts', 'export const ok = true;\n');
-    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'logger.debug("falling back to SQL/legacy");\n');
+    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'return this.browserDeckReadPort.queryDeckPage(query, page);\n');
     writeFile(rootDir, 'src/application/handlers/AutoCardHandler.ts', `
       if (runtime.getMode() === 'follower') {
         return backendClient.executeAutoCard(request);
@@ -117,7 +117,7 @@ describe('check-backend-migration-cutover', () => {
         checker: 'check-backend-migration-cutover',
         file: 'src/application/services/BrowserApplicationService.ts',
         kind: 'browser-sql-fallback',
-        symbolPattern: 'falling back to SQL/legacy',
+        symbolPattern: 'browserDeckReadPort.queryDeckPage/queryDeckMatchedIds/getDeckCardsByIds/countCards/getBrowserStats',
         owner: 'compatibility-read',
         reason: 'temporary compatibility read',
         removalCondition: 'remove later',
@@ -161,7 +161,7 @@ describe('check-backend-migration-cutover', () => {
   it('does not allow a different cutover marker in the same file and violation kind', () => {
     const rootDir = createFixtureRoot();
     writeFile(rootDir, 'src/application/usecases/review/ReviewCommitUseCase.ts', 'export const ok = true;\n');
-    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'logger.debug("falling back to SQL/legacy");\n');
+    writeFile(rootDir, 'src/application/services/BrowserApplicationService.ts', 'return this.browserDeckReadPort.queryDeckPage(query, page);\n');
     writeFile(rootDir, 'src/application/handlers/AutoCardHandler.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/services/AIWorkbenchPromptRuntime.ts', 'export const ok = true;\n');
     writeFile(rootDir, 'src/application/clients/PrivateApiClient.ts', 'export const ok = true;\n');

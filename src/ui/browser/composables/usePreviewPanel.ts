@@ -60,13 +60,13 @@ export function usePreviewPanel(props: PreviewPanelOptions) {
     if (!props.app) return;
 
     try {
-      const response = await fetch('/api/block/getBlockBreadcrumb', {
-        method: 'POST',
-        body: JSON.stringify({ id: blockId }),
-      });
-      const data = await response.json();
-      if (data.code === 0 && data.data) {
-        breadcrumbs.value = data.data;
+      const siyuanApi = getSiyuanApi() as { getBlockBreadcrumb?: (id: string) => Promise<unknown> } | undefined;
+      if (!siyuanApi?.getBlockBreadcrumb) {
+        return;
+      }
+      const data = await siyuanApi.getBlockBreadcrumb(blockId);
+      if (Array.isArray(data)) {
+        breadcrumbs.value = data as IBreadcrumbItem[];
       }
     } catch (err) {
       logger.error('[SiYuanMemo][CardBrowser] Fetch breadcrumbs error:', err);

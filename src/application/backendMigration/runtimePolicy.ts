@@ -117,8 +117,8 @@ export function resolveBackendMigrationRuntimePolicy(env: RuntimeEnv): BackendMi
         unavailableCode: 'BACKEND_UNAVAILABLE',
       },
       browserReads: {
-        owner: 'compatibility-read',
-        rollbackMode: 'compatibility-read-only',
+        owner: 'backend-worker',
+        rollbackMode: 'return-unavailable',
         unavailableCode: 'BACKEND_UNAVAILABLE',
       },
       aiBackend: {

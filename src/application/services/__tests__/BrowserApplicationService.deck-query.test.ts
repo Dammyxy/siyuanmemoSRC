@@ -125,6 +125,36 @@ describe('BrowserApplicationService deck query kernel', () => {
       pushErrMsg: vi.fn(),
     };
 
+    const backendClient: Pick<SrsBackendClient,
+      | 'browserDeckRowsByIds'
+      | 'browserStats'
+      | 'browserSourceExistenceRefreshCandidates'
+      | 'browserSourceExistenceApplySweepHost'
+      | 'browserSourceExistenceByBlockIds'
+    > = {
+      browserDeckRowsByIds: vi.fn(async (ids: string[]) => ids.map((id) => getCard(id)).filter(Boolean) as FSRSCard[]),
+      browserStats: vi.fn(async () => ({
+        totalCards: 3,
+        dueCards: 2,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 3,
+        suspendedCards: 0,
+        lostCards: 0,
+      })),
+      browserSourceExistenceRefreshCandidates: vi.fn(async () => []),
+      browserSourceExistenceApplySweepHost: vi.fn(async () => ({
+        checked: 0,
+        updated: 0,
+        changed: false,
+        changedToMissing: false,
+      })),
+      browserSourceExistenceByBlockIds: vi.fn(async () => new Map([
+        ['block-1', true],
+        ['block-2', true],
+      ])),
+    };
+
     const service = new BrowserApplicationService(
       {
         getCard,
@@ -136,6 +166,9 @@ describe('BrowserApplicationService deck query kernel', () => {
       new CardSortService(),
       null,
       siyuanApi as never,
+      null,
+      null,
+      backendClient as SrsBackendClient,
     );
 
     const snapshot = await service.getDeckQuerySnapshot({
@@ -156,46 +189,18 @@ describe('BrowserApplicationService deck query kernel', () => {
     expect(queryCards).toHaveBeenCalled();
   });
 
-  it('uses SQL browser read port for paged rows, matched ids, and stats', async () => {
-    const now = Date.now();
-    const cards = [
-      buildCard({
-        id: 'card-1',
-        blockId: 'block-1',
-        due: now - 1_000,
-        priority: 10,
-        meta: { content: 'Alpha card', rootId: 'doc-a', deckId: 'deck-a' },
-      }),
-      buildCard({
-        id: 'card-2',
-        blockId: 'block-2',
-        due: now - 500,
-        priority: 80,
-        meta: { content: 'Beta card', rootId: 'doc-a', deckId: 'deck-a' },
-      }),
-    ];
-    const storage = {
-      getCard: vi.fn(() => {
-        throw new Error('storage getCard should not be used for SQL browser page');
-      }),
-      queryCards: vi.fn(() => {
-        throw new Error('storage queryCards should not be used for SQL browser page');
-      }),
-      getAllCards: vi.fn(() => {
-        throw new Error('storage getAllCards should not be used for SQL browser page');
-      }),
-    };
+  it('fails closed for deck reads when backend worker client is unavailable', async () => {
     const readPort: BrowserDeckReadPort = {
-      queryDeckPage: vi.fn(() => ({ cards: [cards[1]], total: 2 })),
-      queryDeckMatchedIds: vi.fn(() => ['card-2', 'card-1']),
-      getDeckCardsByIds: vi.fn((ids: string[]) => ids.map((id) => cards.find((card) => card.id === id)!).filter(Boolean)),
-      countCards: vi.fn(() => 1),
+      queryDeckPage: vi.fn(),
+      queryDeckMatchedIds: vi.fn(),
+      getDeckCardsByIds: vi.fn(),
+      countCards: vi.fn(),
       getBrowserStats: vi.fn(() => ({
-        totalCards: 2,
-        dueCards: 1,
+        totalCards: 0,
+        dueCards: 0,
         newCards: 0,
         learningCards: 0,
-        reviewCards: 2,
+        reviewCards: 0,
         suspendedCards: 0,
         lostCards: 0,
       })),
@@ -206,184 +211,7 @@ describe('BrowserApplicationService deck query kernel', () => {
       ATTR_SUSPENDED: 'custom-fsrs-suspended',
       ATTR_CARD_TYPE: 'custom-fsrs-card-type',
       ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-      sql: vi.fn(async () => [
-        { id: 'block-1', root_id: 'doc-a', content: 'Alpha card', attrs: '' },
-        { id: 'block-2', root_id: 'doc-a', content: 'Beta card', attrs: '' },
-      ]),
-      setBlockAttrs: vi.fn(),
-      pushMsg: vi.fn(),
-      pushErrMsg: vi.fn(),
-    };
-
-    const service = new BrowserApplicationService(
-      storage as never,
-      new CardScheduleService(),
-      new CardFilterService(),
-      new CardSortService(),
-      null,
-      siyuanApi as never,
-      null,
-      readPort,
-    );
-
-    const page = await service.getDeckPage(
-      { preset: 'review', sortModel: [{ colId: 'priority', sort: 'desc' }] },
-      { startRow: 0, endRow: 1 },
-    );
-    expect(page.total).toBe(2);
-    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-2']);
-    expect(readPort.queryDeckPage).toHaveBeenCalledWith(
-      { preset: 'review', sortModel: [{ colId: 'priority', sort: 'desc' }] },
-      { startRow: 0, endRow: 1 },
-    );
-
-    await expect(service.getDeckMatchedIds({ preset: 'review' })).resolves.toEqual(['card-2', 'card-1']);
-    await expect(service.getDeckRowsByIds(['card-1'])).resolves.toMatchObject([{ fsrsCardId: 'card-1' }]);
-    await expect(service.getDueCount()).resolves.toBe(1);
-    await expect(service.getStats()).resolves.toMatchObject({ totalCards: 2, dueCards: 1 });
-    expect(storage.getAllCards).not.toHaveBeenCalled();
-    expect(storage.queryCards).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the legacy snapshot when the SQL browser read port throws', async () => {
-    const now = Date.now();
-    const cards = [
-      buildCard({
-        id: 'card-legacy',
-        blockId: 'block-legacy',
-        due: now - 1_000,
-        priority: 10,
-        meta: { content: 'Legacy fallback card', rootId: 'doc-a' },
-      }),
-    ];
-    const queryCards = createQueryCardsMock(cards);
-    const storage = {
-      getCard: vi.fn((id: string) => cards.find((card) => card.id === id)),
-      queryCards,
-      getAllCards: vi.fn(() => cards),
-    };
-    const readPort: BrowserDeckReadPort = {
-      queryDeckPage: vi.fn(() => {
-        throw new Error('SQL unavailable');
-      }),
-      queryDeckMatchedIds: vi.fn(() => {
-        throw new Error('SQL unavailable');
-      }),
-      getDeckCardsByIds: vi.fn(() => {
-        throw new Error('SQL unavailable');
-      }),
-      countCards: vi.fn(() => {
-        throw new Error('SQL unavailable');
-      }),
-      getBrowserStats: vi.fn(() => {
-        throw new Error('SQL unavailable');
-      }),
-    };
-    const siyuanApi = {
-      ATTR_CARD_ID: 'custom-fsrs-card-id',
-      ATTR_PRIORITY: 'custom-fsrs-priority',
-      ATTR_SUSPENDED: 'custom-fsrs-suspended',
-      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
-      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-      sql: vi.fn(async (stmt: string) => {
-        if (stmt.includes('SELECT id') && stmt.includes('WHERE id IN') && !stmt.includes('GROUP_CONCAT')) {
-          return [{ id: 'block-legacy' }];
-        }
-        if (stmt.includes('GROUP_CONCAT')) {
-          return [{ id: 'block-legacy', root_id: 'doc-a', content: 'Legacy fallback card', attrs: '' }];
-        }
-        return [];
-      }),
-      setBlockAttrs: vi.fn(),
-      pushMsg: vi.fn(),
-      pushErrMsg: vi.fn(),
-    };
-
-    const service = new BrowserApplicationService(
-      storage as never,
-      new CardScheduleService(),
-      new CardFilterService(),
-      new CardSortService(),
-      null,
-      siyuanApi as never,
-      null,
-      readPort,
-    );
-
-    const page = await service.getDeckPage({ preset: 'due' }, { startRow: 0, endRow: 10 });
-
-    expect(page.total).toBe(1);
-    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-legacy']);
-    await expect(service.getDeckMatchedIds({ preset: 'due' })).resolves.toEqual(['card-legacy']);
-    await expect(service.getDeckRowsByIds(['card-legacy'])).resolves.toMatchObject([{ fsrsCardId: 'card-legacy' }]);
-    await expect(service.getDueCount()).resolves.toBe(1);
-    await expect(service.getStats()).resolves.toMatchObject({ totalCards: 1, dueCards: 1 });
-    expect(queryCards).toHaveBeenCalled();
-  });
-
-  it('refreshes current SQL page source existence and requeries when a row becomes missing', async () => {
-    const missingCard = buildCard({
-      id: 'card-missing',
-      blockId: 'block-missing',
-      meta: { content: 'Missing card', rootId: 'doc-a' },
-    });
-    const activeCard = buildCard({
-      id: 'card-active',
-      blockId: 'block-active',
-      meta: { content: 'Active card', rootId: 'doc-a' },
-    });
-    const sourceState = new Map<string, boolean | null>();
-    const readPort: BrowserDeckReadPort = {
-      queryDeckPage: vi.fn()
-        .mockReturnValueOnce({ cards: [missingCard, activeCard], total: 2 })
-        .mockReturnValueOnce({ cards: [activeCard], total: 1 }),
-      queryDeckMatchedIds: vi.fn(() => ['card-active']),
-      getDeckCardsByIds: vi.fn(() => [activeCard]),
-      countCards: vi.fn(() => 1),
-      getBrowserStats: vi.fn(() => ({
-        totalCards: 1,
-        dueCards: 1,
-        newCards: 0,
-        learningCards: 0,
-        reviewCards: 1,
-        suspendedCards: 0,
-        lostCards: 1,
-      })),
-      getSourceExistenceRefreshCandidates: vi.fn(() => [
-        {
-          cardId: 'card-missing',
-          blockId: 'block-missing',
-          sourceExists: null,
-          sourceCheckedAt: null,
-        },
-        {
-          cardId: 'card-active',
-          blockId: 'block-active',
-          sourceExists: null,
-          sourceCheckedAt: null,
-        },
-      ]),
-      updateSourceExistence: vi.fn(async (updates) => {
-        for (const update of updates) {
-          sourceState.set(update.blockId, update.exists);
-        }
-      }),
-      getSourceExistenceByBlockIds: vi.fn((blockIds: string[]) => new Map(
-        blockIds
-          .map((blockId) => [blockId, sourceState.get(blockId) ?? null] as const),
-      )),
-      getSourceExistenceSummary: vi.fn(() => ({ unknown: 0, stale: 0, missing: 1 })),
-      queryCardIdsByRootIds: vi.fn(() => []),
-      queryRootlessCardBlockIds: vi.fn(() => []),
-      queryInconsistentCardTypeMarkerIds: vi.fn(() => []),
-    };
-    const siyuanApi = {
-      ATTR_CARD_ID: 'custom-fsrs-card-id',
-      ATTR_PRIORITY: 'custom-fsrs-priority',
-      ATTR_SUSPENDED: 'custom-fsrs-suspended',
-      ATTR_CARD_TYPE: 'custom-fsrs-card-type',
-      ATTR_A_FACTOR: 'custom-fsrs-a-factor',
-      sql: vi.fn(async () => [{ id: 'block-active' }]),
+      sql: vi.fn(async () => []),
       setBlockAttrs: vi.fn(),
       pushMsg: vi.fn(),
       pushErrMsg: vi.fn(),
@@ -402,20 +230,24 @@ describe('BrowserApplicationService deck query kernel', () => {
       siyuanApi as never,
       null,
       readPort,
+      null,
     );
 
-    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
-
-    expect(page.total).toBe(1);
-    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-active']);
-    expect(readPort.queryDeckPage).toHaveBeenCalledTimes(2);
-    expect(readPort.updateSourceExistence).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ blockId: 'block-missing', exists: false }),
-        expect.objectContaining({ blockId: 'block-active', exists: true }),
-      ]),
-      expect.any(Number),
-    );
+    await expect(service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 }))
+      .rejects.toThrow('BACKEND_UNAVAILABLE: browser.deck.page requires backend-worker ownership');
+    await expect(service.getDeckMatchedIds({ preset: 'all' }))
+      .rejects.toThrow('BACKEND_UNAVAILABLE: browser.deck.matchedIds requires backend-worker ownership');
+    await expect(service.getDeckRowsByIds(['card-1']))
+      .rejects.toThrow('BACKEND_UNAVAILABLE: browser.deck.rowsByIds requires backend-worker ownership');
+    await expect(service.getDueCount())
+      .rejects.toThrow('BACKEND_UNAVAILABLE: browser.count requires backend-worker ownership');
+    await expect(service.getStats())
+      .rejects.toThrow('BACKEND_UNAVAILABLE: browser.stats requires backend-worker ownership');
+    expect(readPort.queryDeckPage).not.toHaveBeenCalled();
+    expect(readPort.queryDeckMatchedIds).not.toHaveBeenCalled();
+    expect(readPort.getDeckCardsByIds).not.toHaveBeenCalled();
+    expect(readPort.countCards).not.toHaveBeenCalled();
+    expect(readPort.getBrowserStats).not.toHaveBeenCalled();
   });
 
   it('uses worker backend client for deck page, matched ids, due count and stats when provided', async () => {
@@ -552,14 +384,7 @@ describe('BrowserApplicationService deck query kernel', () => {
     );
   });
 
-  it('falls back to SQL/legacy browser compatibility read when backend deck query fails', async () => {
-    const fallbackCard = buildCard({
-      id: 'card-backend-fallback',
-      blockId: 'block-backend-fallback',
-      due: Date.now() - 500,
-      priority: 25,
-      meta: { content: 'Backend fallback card', rootId: 'doc-fallback' },
-    });
+  it('returns explicit unavailable when backend deck query fails', async () => {
     const backendClient: Pick<SrsBackendClient, 'browserDeckPage'> = {
       browserDeckPage: vi.fn(async () => {
         throw new Error('BACKEND_UNAVAILABLE: backend deck page unavailable');
@@ -602,9 +427,9 @@ describe('BrowserApplicationService deck query kernel', () => {
 
     const service = new BrowserApplicationService(
       {
-        getCard: vi.fn((id: string) => (id === fallbackCard.id ? fallbackCard : null)),
-        queryCards: vi.fn(() => [fallbackCard]),
-        getAllCards: vi.fn(() => [fallbackCard]),
+        getCard: vi.fn(),
+        queryCards: vi.fn(() => []),
+        getAllCards: vi.fn(() => []),
       } as never,
       new CardScheduleService(),
       new CardFilterService(),
@@ -616,12 +441,10 @@ describe('BrowserApplicationService deck query kernel', () => {
       backendClient as SrsBackendClient,
     );
 
-    const page = await service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 });
-
-    expect(page.total).toBe(1);
-    expect(page.rows.map((row) => row.fsrsCardId)).toEqual(['card-backend-fallback']);
+    await expect(service.getDeckPage({ preset: 'all' }, { startRow: 0, endRow: 20 }))
+      .rejects.toThrow('BACKEND_UNAVAILABLE: backend deck page unavailable');
     expect(backendClient.browserDeckPage).toHaveBeenCalledTimes(1);
-    expect(readPort.queryDeckPage).toHaveBeenCalledTimes(1);
+    expect(readPort.queryDeckPage).not.toHaveBeenCalled();
   });
 
   it('requeries backend deck page after source-existence host sweep changes current backend page', async () => {

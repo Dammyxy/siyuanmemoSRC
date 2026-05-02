@@ -11,9 +11,6 @@ import { GetBrowserCardsQueryHandler } from '../queries/browser/GetBrowserCardsQ
 import { BrowserDeckQueryKernel } from '../queries/browser/shared/BrowserDeckQueryKernel';
 import { QueueBrowserQueryKernel } from '../queries/browser/shared/QueueBrowserQueryKernel';
 import {
-  markRowsFromSourceExistenceCache,
-  refreshSourceExistenceForBlockIds,
-  refreshSourceExistenceSweep,
   SOURCE_EXISTENCE_BATCH_SIZE,
   SOURCE_EXISTENCE_BACKGROUND_LIMIT,
   SOURCE_EXISTENCE_TTL_MS,
@@ -28,7 +25,6 @@ import type {
   GetBrowserCardsQueryResult,
 } from '../queries/browser/GetBrowserCardsQuery';
 import type {
-  BrowserDeckCardPageResult,
   BrowserDeckPageRequest,
   BrowserDeckPageResult,
   BrowserDeckSnapshotQuery,
@@ -177,109 +173,54 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     query: BrowserDeckSnapshotQuery,
     page: BrowserDeckPageRequest,
   ): Promise<BrowserDeckPageResult> {
-    if (this.srsBackendClient) {
-      try {
-        const initialPage = await this.srsBackendClient.browserDeckPage(query, page);
-        const initialCards = initialPage.cards as FSRSCard[];
-        const refreshResult = await this.refreshSourceExistenceForBackendCards(initialCards, {
-          limit: SOURCE_EXISTENCE_BATCH_SIZE,
-        });
-        const finalPage = refreshResult.changed
-          ? await this.srsBackendClient.browserDeckPage(query, page)
-          : initialPage;
-        const finalCards = finalPage.cards as FSRSCard[];
-        const rows = await this.browserDeckQueryKernel.getBrowserCardsFromCards(finalCards, { markMissing: false });
-        return {
-          rows: await this.markRowsFromBackendSourceExistence(rows),
-          total: finalPage.total,
-        };
-      } catch (error) {
-        logger.debug('Worker deck page query failed; falling back to SQL/legacy snapshot', { error });
-      }
+    if (!this.srsBackendClient) {
+      throw this.toBackendReadUnavailable('browser.deck.page');
     }
-
-    const sqlPage = this.tryReadSqlDeckPage(query, page);
-    if (sqlPage) {
-      const refreshResult = await this.refreshSourceExistenceForCards(sqlPage.cards, {
+    try {
+      const initialPage = await this.srsBackendClient.browserDeckPage(query, page);
+      const initialCards = initialPage.cards as FSRSCard[];
+      const refreshResult = await this.refreshSourceExistenceForBackendCards(initialCards, {
         limit: SOURCE_EXISTENCE_BATCH_SIZE,
       });
-      const finalSqlPage = refreshResult.changed
-        ? this.tryReadSqlDeckPage(query, page) || sqlPage
-        : sqlPage;
-      const rows = markRowsFromSourceExistenceCache(
-        await this.browserDeckQueryKernel.getBrowserCardsFromCards(finalSqlPage.cards, { markMissing: false }),
-        this.browserDeckReadPort,
-      );
+      const finalPage = refreshResult.changed
+        ? await this.srsBackendClient.browserDeckPage(query, page)
+        : initialPage;
+      const finalCards = finalPage.cards as FSRSCard[];
+      const rows = await this.browserDeckQueryKernel.getBrowserCardsFromCards(finalCards, { markMissing: false });
       return {
-        rows,
-        total: finalSqlPage.total,
+        rows: await this.markRowsFromBackendSourceExistence(rows),
+        total: finalPage.total,
       };
+    } catch (error) {
+      throw this.toBackendReadUnavailable('browser.deck.page', error);
     }
-
-    const snapshot = await this.browserDeckQueryKernel.buildSnapshot(query);
-    const startRow = Math.max(0, Math.floor(Number(page.startRow) || 0));
-    const endRow = Math.max(startRow, Math.min(
-      page.endRow == null ? snapshot.total : Math.floor(Number(page.endRow) || 0),
-      snapshot.total,
-    ));
-    const ids = snapshot.rows.slice(startRow, endRow).map((row) => row.id);
-    return {
-      rows: await this.browserDeckQueryKernel.getBrowserCardsByIds(ids),
-      total: snapshot.total,
-    };
   }
 
   async getDeckMatchedIds(query: BrowserDeckSnapshotQuery): Promise<string[]> {
-    if (this.srsBackendClient) {
-      try {
-        return await this.srsBackendClient.browserDeckMatchedIds(query);
-      } catch (error) {
-        logger.debug('Worker deck matched-id query failed; falling back to SQL/legacy snapshot', { error });
-      }
+    if (!this.srsBackendClient) {
+      throw this.toBackendReadUnavailable('browser.deck.matchedIds');
     }
-    if (this.browserDeckReadPort) {
-      try {
-        const sqlIds = this.browserDeckReadPort.queryDeckMatchedIds(query);
-        if (sqlIds) {
-          return sqlIds;
-        }
-      } catch (error) {
-        logger.debug('SQL deck matched-id query failed; falling back to legacy snapshot', { error });
-      }
+    try {
+      return await this.srsBackendClient.browserDeckMatchedIds(query);
+    } catch (error) {
+      throw this.toBackendReadUnavailable('browser.deck.matchedIds', error);
     }
-    const snapshot = await this.browserDeckQueryKernel.buildSnapshot(query);
-    return snapshot.rows.map((row) => row.id);
   }
 
   async getDeckRowsByIds(ids: string[]) {
-    if (this.srsBackendClient) {
-      try {
-        const cards = await this.srsBackendClient.browserDeckRowsByIds(ids);
-        await this.refreshSourceExistenceForBackendCards(cards, {
-          limit: SOURCE_EXISTENCE_BATCH_SIZE,
-        });
-        const rows = await this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false });
-        return this.markRowsFromBackendSourceExistence(rows);
-      } catch (error) {
-        logger.debug('Worker deck hydrate-by-id query failed; falling back to SQL/legacy hydrate', { error });
-      }
+    if (!this.srsBackendClient) {
+      throw this.toBackendReadUnavailable('browser.deck.rowsByIds');
     }
-
-    if (this.browserDeckReadPort) {
-      try {
-        const cards = this.browserDeckReadPort.getDeckCardsByIds(ids);
-        await this.refreshSourceExistenceForCards(cards, {
-          limit: SOURCE_EXISTENCE_BATCH_SIZE,
-        });
-        return markRowsFromSourceExistenceCache(
-          await this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false }),
-          this.browserDeckReadPort,
-        );
-      } catch (error) {
-        logger.debug('SQL deck hydrate-by-id query failed; falling back to legacy hydrate', { error });
-      }
+    try {
+      const cards = await this.srsBackendClient.browserDeckRowsByIds(ids);
+      await this.refreshSourceExistenceForBackendCards(cards, {
+        limit: SOURCE_EXISTENCE_BATCH_SIZE,
+      });
+      const rows = await this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false });
+      return this.markRowsFromBackendSourceExistence(rows);
+    } catch (error) {
+      throw this.toBackendReadUnavailable('browser.deck.rowsByIds', error);
     }
-    return this.browserDeckQueryKernel.getBrowserCardsByIds(ids);
   }
 
   async getQueueQuerySnapshot(query: QueueBrowserSnapshotQuery): Promise<QueueBrowserSnapshotResult> {
@@ -297,104 +238,42 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   }
 
   async getDueCount(): Promise<number> {
-    if (this.srsBackendClient) {
-      try {
-        return await this.srsBackendClient.browserCountCards({
-          dueDate: { lte: Date.now() },
-          includeSuspended: false,
-          sourceStatus: 'active',
-        });
-      } catch (error) {
-        logger.debug('Worker due count failed; falling back to SQL/legacy snapshot', { error });
-      }
+    if (!this.srsBackendClient) {
+      throw this.toBackendReadUnavailable('browser.count');
     }
-
-    if (this.browserDeckReadPort) {
-      try {
-        return this.browserDeckReadPort.countCards({
-          dueDate: { lte: Date.now() },
-          includeSuspended: false,
-          sourceStatus: 'active',
-        });
-      } catch (error) {
-        logger.debug('SQL due count failed; falling back to legacy snapshot', { error });
-      }
+    try {
+      return await this.srsBackendClient.browserCountCards({
+        dueDate: { lte: Date.now() },
+        includeSuspended: false,
+        sourceStatus: 'active',
+      });
+    } catch (error) {
+      throw this.toBackendReadUnavailable('browser.count', error);
     }
-    const result = await this.browserDeckQueryKernel.buildSnapshot({
-      preset: 'due',
-    });
-    return result.total;
   }
 
   async getStats(): Promise<BrowserStats> {
-    if (this.srsBackendClient) {
-      try {
-        const stats = await this.srsBackendClient.browserStats();
-        this.scheduleSourceExistenceSweepFromBackend();
-        return stats;
-      } catch (error) {
-        logger.debug('Worker browser stats failed; falling back to SQL/legacy stats', { error });
-      }
-    }
-
-    if (this.browserDeckReadPort) {
-      try {
-        const stats = this.browserDeckReadPort.getBrowserStats();
-        this.scheduleSourceExistenceSweep();
-        return stats;
-      } catch (error) {
-        logger.debug('SQL browser stats failed; falling back to legacy stats', { error });
-      }
-    }
-    return this.browserDeckQueryKernel.getStats();
-  }
-
-  private tryReadSqlDeckPage(
-    query: BrowserDeckSnapshotQuery,
-    page: BrowserDeckPageRequest,
-  ): BrowserDeckCardPageResult | null {
-    if (!this.browserDeckReadPort) {
-      return null;
+    if (!this.srsBackendClient) {
+      throw this.toBackendReadUnavailable('browser.stats');
     }
     try {
-      return this.browserDeckReadPort.queryDeckPage(query, page);
+      const stats = await this.srsBackendClient.browserStats();
+      this.scheduleSourceExistenceSweepFromBackend();
+      return stats;
     } catch (error) {
-      logger.debug('SQL deck page query failed; falling back to legacy snapshot', { error });
-      return null;
+      throw this.toBackendReadUnavailable('browser.stats', error);
     }
   }
 
-  private refreshSourceExistenceForCards(
-    cards: Array<{ blockId?: unknown }>,
-    options: { limit?: number } = {},
-  ) {
-    return refreshSourceExistenceForBlockIds(
-      this.browserDeckReadPort,
-      this.siyuanApi as unknown as QuerySiyuanPort,
-      cards.map((card) => card.blockId),
-      {
-        limit: options.limit,
-        staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
-        includeKnownMissing: true,
-      },
-    );
-  }
-
-  private scheduleSourceExistenceSweep(): void {
-    if (!this.browserDeckReadPort || this.sourceExistenceSweepInFlight) {
-      return;
+  private toBackendReadUnavailable(operation: string, error?: unknown): Error {
+    const message = error instanceof Error ? String(error.message || '') : String(error || '');
+    if (message.startsWith('BACKEND_UNAVAILABLE:')) {
+      return error instanceof Error ? error : new Error(message);
     }
-
-    this.sourceExistenceSweepInFlight = refreshSourceExistenceSweep(
-      this.browserDeckReadPort,
-      this.siyuanApi as unknown as QuerySiyuanPort,
-      {
-        limit: SOURCE_EXISTENCE_BACKGROUND_LIMIT,
-        staleBefore: Date.now() - SOURCE_EXISTENCE_TTL_MS,
-      },
-    ).finally(() => {
-      this.sourceExistenceSweepInFlight = null;
-    });
+    if (message) {
+      return new Error(`BACKEND_UNAVAILABLE: ${operation} unavailable (${message})`);
+    }
+    return new Error(`BACKEND_UNAVAILABLE: ${operation} requires backend-worker ownership`);
   }
 
   private async refreshSourceExistenceForBackendCards(

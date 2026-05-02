@@ -29,6 +29,7 @@ import { createScheduler } from '@/core/scheduler';
 import { DEFAULT_SETTINGS } from '@/types';
 import type FSRSPlugin from '@/index';
 import { createLogger } from '@/utils/logger';
+import { runBrowserSql } from '@/ui/browser/browserService';
 
 const logger = createLogger('FlashcardMetaMenu');
 
@@ -99,7 +100,7 @@ onMounted(async () => {
     }
 
     // 获取块信息
-    const rows = await siyuanApi.sql(`SELECT created, updated, tag FROM blocks WHERE id = '${props.blockId}'`);
+    const rows = await runBrowserSql(`SELECT created, updated, tag FROM blocks WHERE id = '${props.blockId}'`, siyuanApi);
     const block = toBlockMetaRow(rows?.[0]);
     if (!block) {
       error.value = t('blockNotFound', '未找到块信息');

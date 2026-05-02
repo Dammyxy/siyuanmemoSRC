@@ -173,9 +173,9 @@ function getAttrKeys(siyuanApi: BrowserSiyuanPort): BrowserAttrKeys {
 
 export async function runBrowserSql<T extends SqlRow = SqlRow>(
     stmt: string,
-    siyuanApi: BrowserSiyuanPort,
+    api: BrowserSiyuanPort,
 ): Promise<T[]> {
-    const rows = await siyuanApi.sql(stmt);
+    const rows = await api.sql(stmt);
     return Array.isArray(rows) ? (rows as T[]) : [];
 }
 

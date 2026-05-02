@@ -1,39 +1,6 @@
 {
   "entries": [
     {
-      "id": "ui-flashcard-meta-sql-read",
-      "checker": "check-no-ui-sql",
-      "file": "src/ui/srs/FlashcardMetaMenu.vue",
-      "kind": "siyuan-api-sql",
-      "symbolPattern": "siyuanApi.sql(",
-      "owner": "compatibility-read",
-      "reason": "UI metadata tooltip still relies on host SQL read path during Browser compatibility phase.",
-      "removalCondition": "Remove after Browser metadata query is migrated to backend read contract (RM019/RM020).",
-      "trackingTask": "RM019"
-    },
-    {
-      "id": "ui-browser-service-sql-read",
-      "checker": "check-no-ui-sql",
-      "file": "src/ui/browser/browserService.ts",
-      "kind": "siyuan-api-sql",
-      "symbolPattern": "siyuanApi.sql(",
-      "owner": "compatibility-read",
-      "reason": "Legacy Browser service compatibility read remains while backend-only browser policy is pending.",
-      "removalCondition": "Remove when Browser SQL fallback retirement is completed (RM018-RM021).",
-      "trackingTask": "RM019"
-    },
-    {
-      "id": "ui-preview-panel-host-fetch-api",
-      "checker": "check-no-ui-sql",
-      "file": "src/ui/browser/composables/usePreviewPanel.ts",
-      "kind": "host-fetch-api",
-      "symbolPattern": "fetch('/api/...)",
-      "owner": "compatibility-read",
-      "reason": "Preview breadcrumb currently relies on direct host API call for lightweight compatibility read.",
-      "removalCondition": "Replace with application query/port boundary before Browser backend-only cutover.",
-      "trackingTask": "RM019"
-    },
-    {
       "id": "app-block-menu-sql-compat",
       "checker": "check-no-ui-sql",
       "file": "src/application/managers/BlockMenuHandler.ts",
@@ -186,17 +153,6 @@
       "reason": "Composition root wires sqlite persistence bundle for current runtime bootstrap.",
       "removalCondition": "Replace with narrower infrastructure wiring boundary when migration runtime split is finalized.",
       "trackingTask": "RM024"
-    },
-    {
-      "id": "cutover-browser-fallback-compat-read",
-      "checker": "check-backend-migration-cutover",
-      "file": "src/application/services/BrowserApplicationService.ts",
-      "kind": "browser-sql-fallback",
-      "symbolPattern": "falling back to SQL/legacy",
-      "owner": "compatibility-read",
-      "reason": "Browser compatibility-read fallback is intentionally retained in R4 policy while backend read parity and source-existence sweep reliability are still being hardened.",
-      "removalCondition": "Delete this allowlist entry only after RM020 backend-only cutover removes Browser SQL/legacy fallback branches from BrowserApplicationService.",
-      "trackingTask": "RM019"
     },
     {
       "id": "cutover-ai-frontend-network-foundation",

@@ -16,8 +16,8 @@ const behaviorChecks = [
   {
     file: 'src/application/services/BrowserApplicationService.ts',
     kind: 'browser-sql-fallback',
-    symbolPattern: 'falling back to SQL/legacy',
-    pattern: /(falling back to SQL\/legacy|falling back to legacy snapshot|tryReadSqlDeckPage\s*\()/i,
+    symbolPattern: 'browserDeckReadPort.queryDeckPage/queryDeckMatchedIds/getDeckCardsByIds/countCards/getBrowserStats',
+    pattern: /(browserDeckReadPort\.(queryDeckPage|queryDeckMatchedIds|getDeckCardsByIds|countCards|getBrowserStats)\s*\()/i,
     reason: 'browser compatibility fallback still present in production path',
   },
   {
