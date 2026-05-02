@@ -1303,6 +1303,7 @@ export class ApplicationContext {
       try {
         const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
         const browserSiyuanApi = new BrowserSiyuanAdapter();
+        const aiNetworkProxy = new BackendAINetworkProxyAdapter();
         const backendKernel = new BackendKernel({
           database: new WorkerSqliteDatabaseService(bridge),
           resolveExistingBlockIds: async (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
@@ -1319,6 +1320,7 @@ export class ApplicationContext {
             }
             return autoCardHandler.executeEnvelopeFromBackend(request);
           },
+          executeAiPrompt: async (request) => aiNetworkProxy.execute(request),
         });
         const transport: SrsBackendTransport = {
           request: (request) => backendKernel.handle(request),

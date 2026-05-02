@@ -174,6 +174,25 @@ describe('SrsBackendClient', () => {
                 diagnosticEventId: 'diag-ai-stream-1',
               },
             };
+          case 'ai.prompt.execute':
+            return {
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                ok: true,
+                sessionId: 'ai-session-1',
+                streamId: 'stream-1',
+                jobId: 'job-1',
+                state: 'completed',
+                unavailableClass: null,
+                diagnosticEventId: 'diag-ai-prompt-1',
+                response: {
+                  status: 200,
+                  headers: {},
+                  body: '{"choices":[{"message":{"content":"ok"}}]}',
+                },
+              },
+            };
           case 'job.get':
           case 'job.cancel':
             return {
@@ -359,6 +378,19 @@ describe('SrsBackendClient', () => {
       ok: true,
       state: 'canceled',
     });
+    await expect(client.executeAiPrompt({
+      sessionId: 'ai-session-1',
+      streamId: 'stream-1',
+      jobId: 'job-1',
+      request: {
+        url: 'https://example.com/chat/completions',
+        method: 'POST',
+        body: '{}',
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      state: 'completed',
+    });
     await expect(client.getAiJob({
       jobId: 'job-1',
     })).resolves.toMatchObject({
@@ -401,6 +433,7 @@ describe('SrsBackendClient', () => {
       'ai.session.cancel',
       'ai.stream.start',
       'ai.stream.cancel',
+      'ai.prompt.execute',
       'job.get',
       'job.cancel',
     ]);
@@ -486,6 +519,16 @@ describe('SrsBackendClient', () => {
             },
           };
         }
+        if (request.method === 'ai.prompt.execute') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              ok: true,
+              streamId: '',
+            },
+          };
+        }
         return {
           jsonrpc: '2.0',
           id: request.id,
@@ -506,5 +549,14 @@ describe('SrsBackendClient', () => {
     await expect(client.getAiJob({
       jobId: 'job-1',
     })).rejects.toThrow('job.get returned invalid payload');
+
+    await expect(client.executeAiPrompt({
+      sessionId: 'session-1',
+      streamId: 'stream-1',
+      jobId: 'job-1',
+      request: {
+        url: 'https://example.com/chat/completions',
+      },
+    })).rejects.toThrow('ai.prompt.execute returned invalid payload');
   });
 });

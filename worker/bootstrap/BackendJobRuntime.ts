@@ -3,6 +3,10 @@ import type {
   BackendAiJobGetRequest,
   BackendAiJobRecord,
   BackendAiJobResult,
+  BackendAiPromptExecuteRequest,
+  BackendAiPromptExecuteResult,
+  BackendAiPromptNetworkRequest,
+  BackendAiPromptNetworkResponse,
   BackendAiSessionCancelRequest,
   BackendAiSessionCreateRequest,
   BackendAiSessionGetRequest,
@@ -221,6 +225,127 @@ export class BackendJobRuntime {
     };
   }
 
+  async executePrompt(
+    request: BackendAiPromptExecuteRequest,
+    executeNetwork?: (request: BackendAiPromptNetworkRequest) => Promise<BackendAiPromptNetworkResponse>,
+  ): Promise<BackendAiPromptExecuteResult> {
+    const streamResult = this.startStream({
+      streamId: request.streamId,
+      sessionId: request.sessionId,
+      jobId: request.jobId,
+      providerId: request.providerId,
+      modelId: request.modelId,
+      timeoutMs: request.timeoutMs,
+      idempotencyKey: request.idempotencyKey,
+    });
+
+    if (streamResult.state === 'timeout') {
+      return {
+        ok: true,
+        sessionId: streamResult.sessionId,
+        streamId: streamResult.streamId,
+        jobId: streamResult.jobId,
+        state: 'timeout',
+        unavailableClass: 'TIMEOUT',
+        diagnosticEventId: streamResult.diagnosticEventId,
+      };
+    }
+
+    if (typeof executeNetwork !== 'function') {
+      this.failJob(request.jobId, 'KERNEL_SIDECAR_UNAVAILABLE: ai prompt network executor is not configured');
+      return {
+        ok: true,
+        sessionId: request.sessionId,
+        streamId: request.streamId,
+        jobId: request.jobId,
+        state: 'unavailable',
+        unavailableClass: 'KERNEL_SIDECAR_UNAVAILABLE',
+        diagnosticEventId: createDiagnosticId('ai-prompt-unavailable', this.now()),
+      };
+    }
+
+    try {
+      const response = await executeNetwork(request.request);
+      if (response.status >= 400) {
+        this.failJob(request.jobId, `http-${response.status}`);
+        return {
+          ok: true,
+          sessionId: request.sessionId,
+          streamId: request.streamId,
+          jobId: request.jobId,
+          state: 'failed',
+          unavailableClass: null,
+          diagnosticEventId: createDiagnosticId('ai-prompt-failed', this.now()),
+          response,
+        };
+      }
+
+      this.completeJob(request.jobId, {
+        status: response.status,
+      });
+      this.markSessionCompleted(request.sessionId);
+      return {
+        ok: true,
+        sessionId: request.sessionId,
+        streamId: request.streamId,
+        jobId: request.jobId,
+        state: 'completed',
+        unavailableClass: null,
+        diagnosticEventId: createDiagnosticId('ai-prompt-completed', this.now()),
+        response,
+      };
+    } catch (error) {
+      const message = normalizeString(error instanceof Error ? error.message : String(error || ''));
+      if (message.startsWith('TIMEOUT:') || /timeout/i.test(message)) {
+        this.deps.onJobTimeout?.();
+        this.failJob(request.jobId, message || 'timeout');
+        return {
+          ok: true,
+          sessionId: request.sessionId,
+          streamId: request.streamId,
+          jobId: request.jobId,
+          state: 'timeout',
+          unavailableClass: 'TIMEOUT',
+          diagnosticEventId: createDiagnosticId('ai-prompt-timeout', this.now()),
+        };
+      }
+      if (message.startsWith('KERNEL_SIDECAR_UNAVAILABLE:') || message.includes('sidecar unavailable')) {
+        this.failJob(request.jobId, message || 'sidecar unavailable');
+        return {
+          ok: true,
+          sessionId: request.sessionId,
+          streamId: request.streamId,
+          jobId: request.jobId,
+          state: 'unavailable',
+          unavailableClass: 'KERNEL_SIDECAR_UNAVAILABLE',
+          diagnosticEventId: createDiagnosticId('ai-prompt-sidecar-unavailable', this.now()),
+        };
+      }
+      if (message.startsWith('BACKEND_UNAVAILABLE:') || message.includes('network unavailable')) {
+        this.failJob(request.jobId, message || 'network unavailable');
+        return {
+          ok: true,
+          sessionId: request.sessionId,
+          streamId: request.streamId,
+          jobId: request.jobId,
+          state: 'unavailable',
+          unavailableClass: 'NETWORK_UNAVAILABLE',
+          diagnosticEventId: createDiagnosticId('ai-prompt-network-unavailable', this.now()),
+        };
+      }
+      this.failJob(request.jobId, message || 'failed');
+      return {
+        ok: true,
+        sessionId: request.sessionId,
+        streamId: request.streamId,
+        jobId: request.jobId,
+        state: 'failed',
+        unavailableClass: 'FAILED',
+        diagnosticEventId: createDiagnosticId('ai-prompt-failed', this.now()),
+      };
+    }
+  }
+
   cancelStream(request: BackendAiStreamCancelRequest): BackendAiStreamResult {
     const streamId = normalizeString(request.streamId);
     const sessionId = normalizeString(request.sessionId);
@@ -348,5 +473,19 @@ export class BackendJobRuntime {
     };
     this.jobs.set(job.jobId, next);
     return next;
+  }
+
+  private markSessionCompleted(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+    this.sessions.set(sessionId, {
+      ...session,
+      state: 'completed',
+      updatedAt: this.now(),
+      diagnosticEventId: createDiagnosticId('ai-session-completed', this.now()),
+      lastError: null,
+    });
   }
 }

@@ -76,6 +76,7 @@ function createRuntime(options?: {
   backendRuntimeEnabled?: boolean;
   backendSessionService?: {
     createSession: ReturnType<typeof vi.fn>;
+    executePrompt: ReturnType<typeof vi.fn>;
     startStream: ReturnType<typeof vi.fn>;
     cancelStream: ReturnType<typeof vi.fn>;
     getJob: ReturnType<typeof vi.fn>;
@@ -87,6 +88,22 @@ function createRuntime(options?: {
   const llmChat = options?.llmChat || vi.fn(async () => ({ content: '{}', raw: {} }));
   const backendSessionService = options?.backendSessionService || {
     createSession: vi.fn(async () => ({ ok: true, session: { sessionId: 'session-1' } })),
+    executePrompt: vi.fn(async () => ({
+      ok: true,
+      sessionId: 'session-1',
+      streamId: 'stream-1',
+      jobId: 'job-1',
+      state: 'completed',
+      diagnosticEventId: 'diag-exec',
+      response: {
+        status: 200,
+        headers: {},
+        body: JSON.stringify({
+          choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 },
+        }),
+      },
+    })),
     startStream: vi.fn(async () => ({
       ok: true,
       streamId: 'stream-1',
@@ -296,8 +313,7 @@ describe('AIWorkbenchPromptRuntime', () => {
 
     expect(llmChat).not.toHaveBeenCalled();
     expect(backendSessionService.createSession).toHaveBeenCalled();
-    expect(backendSessionService.startStream).toHaveBeenCalled();
-    expect(backendSessionService.proxyNetwork).toHaveBeenCalled();
+    expect(backendSessionService.executePrompt).toHaveBeenCalled();
     expect(response.content).toBe('{"ok":true}');
     expect(response.raw).toMatchObject({
       backend: true,
@@ -310,6 +326,7 @@ describe('AIWorkbenchPromptRuntime', () => {
       createSession: vi.fn(async () => {
         throw new Error('BACKEND_UNAVAILABLE: backend worker unavailable');
       }),
+      executePrompt: vi.fn(),
       startStream: vi.fn(),
       cancelStream: vi.fn(),
       getJob: vi.fn(),
@@ -329,5 +346,37 @@ describe('AIWorkbenchPromptRuntime', () => {
       settings,
       provider: settings.providers[0]!,
     })).rejects.toThrow('BACKEND_UNAVAILABLE');
+  });
+
+  it('maps backend prompt timeout to user-facing timeout error', async () => {
+    const { runtime, settings } = createRuntime({
+      backendRuntimeEnabled: true,
+      backendSessionService: {
+        createSession: vi.fn(async () => ({ ok: true, session: { sessionId: 's-timeout' } })),
+        executePrompt: vi.fn(async () => ({
+          ok: true,
+          sessionId: 's-timeout',
+          streamId: 'st-timeout',
+          jobId: 'j-timeout',
+          state: 'timeout',
+          unavailableClass: 'TIMEOUT',
+          diagnosticEventId: 'diag-timeout',
+        })),
+        startStream: vi.fn(),
+        cancelStream: vi.fn(),
+        getJob: vi.fn(),
+        proxyNetwork: vi.fn(),
+      },
+      state: {
+        ...createState(),
+        sessionId: 's-timeout',
+        surface: 'standalone-dialog',
+      } as AIWorkbenchState,
+    });
+
+    await expect(runtime.requestChatModel([], {
+      settings,
+      provider: settings.providers[0]!,
+    })).rejects.toThrow('请求超时');
   });
 });

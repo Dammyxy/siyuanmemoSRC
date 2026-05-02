@@ -26,6 +26,7 @@ export type BackendRpcMethod =
   | 'ai.session.get'
   | 'ai.session.update'
   | 'ai.session.cancel'
+  | 'ai.prompt.execute'
   | 'ai.stream.start'
   | 'ai.stream.cancel'
   | 'job.get'
@@ -266,6 +267,43 @@ export interface BackendAiStreamStartRequest {
   inputFingerprint?: string;
   timeoutMs?: number;
   idempotencyKey?: string;
+}
+
+export interface BackendAiPromptNetworkRequest {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+  redactionKeys?: string[];
+}
+
+export interface BackendAiPromptExecuteRequest {
+  sessionId: string;
+  streamId: string;
+  jobId: string;
+  providerId?: string | null;
+  modelId?: string | null;
+  timeoutMs?: number;
+  idempotencyKey?: string;
+  request: BackendAiPromptNetworkRequest;
+}
+
+export interface BackendAiPromptNetworkResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+export interface BackendAiPromptExecuteResult {
+  ok: true;
+  sessionId: string;
+  streamId: string;
+  jobId: string;
+  state: 'completed' | 'timeout' | 'canceled' | 'unavailable' | 'failed';
+  unavailableClass?: BackendUnavailableClass | null;
+  diagnosticEventId: string;
+  response?: BackendAiPromptNetworkResponse;
 }
 
 export interface BackendAiStreamCancelRequest {

@@ -194,10 +194,6 @@ export type AIWorkbenchServiceDeps = {
     | 'createSession'
     | 'updateSession'
     | 'cancelSession'
-    | 'startStream'
-    | 'cancelStream'
-    | 'getJob'
-    | 'proxyNetwork'
   >;
 };
 

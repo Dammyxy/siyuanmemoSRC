@@ -2,6 +2,8 @@ import type {
   BackendAiJobCancelRequest,
   BackendAiJobGetRequest,
   BackendAiJobResult,
+  BackendAiPromptExecuteRequest,
+  BackendAiPromptExecuteResult,
   BackendAiSessionCancelRequest,
   BackendAiSessionCreateRequest,
   BackendAiSessionGetRequest,
@@ -25,6 +27,7 @@ interface AIBackendSessionServiceDeps {
     | 'cancelAiStream'
     | 'getAiJob'
     | 'cancelAiJob'
+    | 'executeAiPrompt'
   >;
   networkProxy?: AINetworkProxyPort | null;
   resolveSecret?: (name: string) => string | null | undefined;
@@ -67,6 +70,33 @@ export class AIBackendSessionService {
 
   cancelJob(request: BackendAiJobCancelRequest): Promise<BackendAiJobResult> {
     return this.deps.backendClient.cancelAiJob(request);
+  }
+
+  async executePrompt(request: BackendAiPromptExecuteRequest & {
+    requiredSecretName?: string;
+  }): Promise<BackendAiPromptExecuteResult> {
+    const requiredSecretName = String(request.requiredSecretName || '').trim();
+    const { requiredSecretName: _requiredSecretName, ...rpcRequest } = request;
+    void _requiredSecretName;
+    const headers = {
+      ...(request.request.headers || {}),
+    } as Record<string, string>;
+    if (requiredSecretName) {
+      const secret = normalizeSecret(this.deps.resolveSecret?.(requiredSecretName));
+      if (!secret) {
+        throw new Error(`BACKEND_UNAVAILABLE: missing secret ${requiredSecretName}`);
+      }
+      if (!headers.Authorization) {
+        headers.Authorization = `Bearer ${secret}`;
+      }
+    }
+    return this.deps.backendClient.executeAiPrompt({
+      ...rpcRequest,
+      request: {
+        ...rpcRequest.request,
+        headers,
+      },
+    });
   }
 
   async proxyNetwork(request: AINetworkProxyRequest & {

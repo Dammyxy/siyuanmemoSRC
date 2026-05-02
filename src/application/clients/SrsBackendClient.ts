@@ -6,6 +6,8 @@ import type {
   BackendAiJobResult,
   BackendAiSessionCancelRequest,
   BackendAiSessionCreateRequest,
+  BackendAiPromptExecuteRequest,
+  BackendAiPromptExecuteResult,
   BackendAiSessionGetRequest,
   BackendAiSessionResult,
   BackendAiSessionUpdateRequest,
@@ -171,6 +173,11 @@ export class SrsBackendClient {
     return this.call<BackendAiSessionResult>('ai.session.cancel', request);
   }
 
+  async executeAiPrompt(request: BackendAiPromptExecuteRequest): Promise<BackendAiPromptExecuteResult> {
+    const result = await this.call<BackendAiPromptExecuteResult>('ai.prompt.execute', request);
+    return this.validateAiPromptExecuteResult(result, 'ai.prompt.execute');
+  }
+
   async startAiStream(request: BackendAiStreamStartRequest): Promise<BackendAiStreamResult> {
     const result = await this.call<BackendAiStreamResult>('ai.stream.start', request);
     return this.validateAiStreamResult(result, 'ai.stream.start');
@@ -317,5 +324,19 @@ export class SrsBackendClient {
       throw new Error(`${method} returned invalid payload`);
     }
     return candidate as BackendAiJobResult;
+  }
+
+  private validateAiPromptExecuteResult(payload: unknown, method: string): BackendAiPromptExecuteResult {
+    const candidate = this.assertObjectResult<Record<string, unknown>>(method, payload);
+    if (candidate.ok !== true) {
+      throw new Error(`${method} returned invalid payload`);
+    }
+    const streamId = String(candidate.streamId || '').trim();
+    const sessionId = String(candidate.sessionId || '').trim();
+    const jobId = String(candidate.jobId || '').trim();
+    if (!streamId || !sessionId || !jobId) {
+      throw new Error(`${method} returned invalid payload`);
+    }
+    return candidate as BackendAiPromptExecuteResult;
   }
 }

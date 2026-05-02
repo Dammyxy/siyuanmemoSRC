@@ -52,14 +52,15 @@ export type AIWorkbenchPromptRuntimeDeps = {
   getAISettings: () => AISettings;
   llmPort: LLMPort;
   backendRuntimeEnabled?: boolean;
-  backendSessionService?: Pick<
+  backendSessionService?: Partial<Pick<
     AIBackendSessionService,
     | 'createSession'
+    | 'executePrompt'
     | 'startStream'
     | 'cancelStream'
     | 'getJob'
     | 'proxyNetwork'
-  >;
+  >>;
   getSelfTestCreationMode: () => AIConceptCoachSelfTestCreationMode;
   getResolvedSkill: (skillId: AISkillId) => AIChatRegisteredSkillDescriptor;
   normalizeTabForCurrentSettings: (value: unknown, skillId: AISkillId) => AISkillTabId;
@@ -617,7 +618,7 @@ export class AIWorkbenchPromptRuntime {
 
   private async callBackendChat(request: LLMRequest): Promise<LLMResponse> {
     const backendSessionService = this.deps.backendSessionService;
-    if (!backendSessionService) {
+    if (!backendSessionService || typeof backendSessionService.createSession !== 'function') {
       throw new LLMError('BACKEND_UNAVAILABLE: AI backend runtime service unavailable', {
         code: 'network_error',
       });
@@ -634,6 +635,9 @@ export class AIWorkbenchPromptRuntime {
 
     const cancelStream = async (reason: string): Promise<void> => {
       try {
+        if (typeof backendSessionService.cancelStream !== 'function') {
+          return;
+        }
         await backendSessionService.cancelStream({
           streamId,
           sessionId,
@@ -655,31 +659,8 @@ export class AIWorkbenchPromptRuntime {
         providerId,
         modelId: normalizeString(request.model),
       });
-
-      const streamStart = await backendSessionService.startStream({
-        streamId,
-        sessionId,
-        jobId,
-        providerId,
-        modelId: normalizeString(request.model),
-        timeoutMs,
-        idempotencyKey: `${sessionId}:${jobId}`,
-      });
-
-      if (streamStart.state === 'timeout') {
-        throw new LLMError('LLM request timed out', {
-          code: 'timeout',
-          retryable: true,
-        });
-      }
-      if (streamStart.state === 'unavailable') {
-        throw new LLMError('BACKEND_UNAVAILABLE: ai stream unavailable', {
-          code: 'network_error',
-        });
-      }
-
       if (signal?.aborted) {
-        await cancelStream('aborted-before-network');
+        await cancelStream('aborted-before-execute');
         throw new LLMError('LLM request aborted', {
           code: 'aborted',
           retryable: true,
@@ -691,6 +672,112 @@ export class AIWorkbenchPromptRuntime {
       };
       signal?.addEventListener('abort', onAbort, { once: true });
       try {
+        if (typeof backendSessionService.executePrompt === 'function') {
+          const promptResult = await backendSessionService.executePrompt({
+            sessionId,
+            streamId,
+            jobId,
+            providerId,
+            modelId: normalizeString(request.model),
+            timeoutMs,
+            idempotencyKey: `${sessionId}:${jobId}`,
+            request: {
+              url: this.resolveChatEndpoint(request),
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(this.buildOpenAIRequestBody(request)),
+              timeoutMs,
+              redactionKeys: ['apiKey', `${providerId}:apiKey`],
+            },
+            requiredSecretName,
+          });
+
+          if (signal?.aborted || promptResult.state === 'canceled') {
+            throw new LLMError('LLM request aborted', {
+              code: 'aborted',
+              retryable: true,
+            });
+          }
+          if (promptResult.state === 'timeout') {
+            throw new LLMError('LLM request timed out', {
+              code: 'timeout',
+              retryable: true,
+            });
+          }
+          if (promptResult.state === 'unavailable') {
+            throw new LLMError('BACKEND_UNAVAILABLE: ai prompt unavailable', {
+              code: 'network_error',
+              diagnostic: promptResult.unavailableClass || undefined,
+            });
+          }
+          if (promptResult.state === 'failed') {
+            const body = promptResult.response?.body || '';
+            const parsedFailed = this.parseBackendChatResponse(body);
+            throw this.httpStatusToLlmError(
+              Number(promptResult.response?.status || 500),
+              parsedFailed.message || 'Backend AI prompt execution failed',
+              body,
+            );
+          }
+          const response = promptResult.response;
+          if (!response) {
+            throw new LLMError('BACKEND_UNAVAILABLE: ai prompt response unavailable', {
+              code: 'network_error',
+            });
+          }
+          const parsed = this.parseBackendChatResponse(response.body);
+          if (response.status >= 400) {
+            throw this.httpStatusToLlmError(response.status, parsed.message || 'Backend AI proxy request failed', response.body);
+          }
+          const content = parsed.content;
+          if (!content && parsed.toolCalls.length === 0) {
+            throw new LLMError('LLM returned an empty completion', { code: 'empty_response' });
+          }
+          return {
+            role: 'assistant',
+            content,
+            toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
+            finishReason: parsed.finishReason,
+            usage: parsed.usage,
+            raw: {
+              backend: true,
+              status: response.status,
+              headers: response.headers,
+              body: parsed.raw,
+              streamId,
+              sessionId,
+              jobId,
+            },
+          };
+        }
+
+        if (typeof backendSessionService.startStream !== 'function') {
+          throw new LLMError('BACKEND_UNAVAILABLE: ai stream runtime unavailable', {
+            code: 'network_error',
+          });
+        }
+        const streamStart = await backendSessionService.startStream({
+          streamId,
+          sessionId,
+          jobId,
+          providerId,
+          modelId: normalizeString(request.model),
+          timeoutMs,
+          idempotencyKey: `${sessionId}:${jobId}`,
+        });
+        if (streamStart.state === 'timeout') {
+          throw new LLMError('LLM request timed out', {
+            code: 'timeout',
+            retryable: true,
+          });
+        }
+        if (typeof backendSessionService.proxyNetwork !== 'function') {
+          throw new LLMError('BACKEND_UNAVAILABLE: ai network proxy unavailable', {
+            code: 'network_error',
+          });
+        }
         const response = await backendSessionService.proxyNetwork({
           url: this.resolveChatEndpoint(request),
           method: 'POST',
@@ -703,33 +790,13 @@ export class AIWorkbenchPromptRuntime {
           requiredSecretName,
           redactionKeys: ['apiKey', `${providerId}:apiKey`],
         });
-
-        if (signal?.aborted) {
-          await cancelStream('aborted-after-network');
-          throw new LLMError('LLM request aborted', {
-            code: 'aborted',
-            retryable: true,
-          });
-        }
-
         const parsed = this.parseBackendChatResponse(response.body);
         if (response.status >= 400) {
           throw this.httpStatusToLlmError(response.status, parsed.message || 'Backend AI proxy request failed', response.body);
         }
-        const content = parsed.content;
-        if (!content && parsed.toolCalls.length === 0) {
-          throw new LLMError('LLM returned an empty completion', { code: 'empty_response' });
-        }
-
-        try {
-          await backendSessionService.getJob({ jobId });
-        } catch {
-          // keep response path resilient when backend diagnostics is eventually consistent
-        }
-
         return {
           role: 'assistant',
-          content,
+          content: parsed.content,
           toolCalls: parsed.toolCalls.length > 0 ? parsed.toolCalls : undefined,
           finishReason: parsed.finishReason,
           usage: parsed.usage,

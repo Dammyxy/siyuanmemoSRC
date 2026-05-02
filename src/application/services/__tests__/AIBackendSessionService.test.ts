@@ -12,6 +12,7 @@ describe('AIBackendSessionService', () => {
       cancelAiStream: vi.fn(async () => ({ ok: true, streamId: 'st1', sessionId: 's1', jobId: 'j1', state: 'canceled', diagnosticEventId: 'd2' })),
       getAiJob: vi.fn(async () => ({ ok: true, job: { jobId: 'j1' } })),
       cancelAiJob: vi.fn(async () => ({ ok: true, job: { jobId: 'j1', state: 'canceled' } })),
+      executeAiPrompt: vi.fn(async () => ({ ok: true, sessionId: 's1', streamId: 'st1', jobId: 'j1', state: 'completed', diagnosticEventId: 'd3' })),
     };
     const service = new AIBackendSessionService({ backendClient });
 
@@ -23,6 +24,12 @@ describe('AIBackendSessionService', () => {
     await expect(service.cancelStream({ streamId: 'st1', sessionId: 's1', jobId: 'j1' })).resolves.toMatchObject({ state: 'canceled' });
     await expect(service.getJob({ jobId: 'j1' })).resolves.toMatchObject({ ok: true });
     await expect(service.cancelJob({ jobId: 'j1' })).resolves.toMatchObject({ ok: true });
+    await expect(service.executePrompt({
+      sessionId: 's1',
+      streamId: 'st1',
+      jobId: 'j1',
+      request: { url: 'https://example.com', method: 'POST' },
+    })).resolves.toMatchObject({ ok: true });
   });
 
   it('rejects network proxy when adapter is unavailable', async () => {
@@ -36,6 +43,7 @@ describe('AIBackendSessionService', () => {
         cancelAiStream: vi.fn(),
         getAiJob: vi.fn(),
         cancelAiJob: vi.fn(),
+        executeAiPrompt: vi.fn(),
       },
       networkProxy: null,
     });
@@ -61,6 +69,7 @@ describe('AIBackendSessionService', () => {
         cancelAiStream: vi.fn(),
         getAiJob: vi.fn(),
         cancelAiJob: vi.fn(),
+        executeAiPrompt: vi.fn(),
       },
       networkProxy: { execute },
       resolveSecret: (name) => (name === 'provider:apiKey' ? null : 'value'),
@@ -83,6 +92,7 @@ describe('AIBackendSessionService', () => {
         cancelAiStream: vi.fn(),
         getAiJob: vi.fn(),
         cancelAiJob: vi.fn(),
+        executeAiPrompt: vi.fn(),
       },
       networkProxy: {
         execute: vi.fn(async () => {
@@ -111,6 +121,7 @@ describe('AIBackendSessionService', () => {
         cancelAiStream: vi.fn(),
         getAiJob: vi.fn(),
         cancelAiJob: vi.fn(),
+        executeAiPrompt: vi.fn(),
       },
     });
 
@@ -118,5 +129,32 @@ describe('AIBackendSessionService', () => {
       sessionId: 'session-x',
       surfaceId: 'standalone-dialog',
     })).rejects.toThrow('BACKEND_UNAVAILABLE: ai session unavailable');
+  });
+
+  it('propagates sidecar unavailable from backend prompt execution', async () => {
+    const service = new AIBackendSessionService({
+      backendClient: {
+        createAiSession: vi.fn(),
+        getAiSession: vi.fn(),
+        updateAiSession: vi.fn(),
+        cancelAiSession: vi.fn(),
+        startAiStream: vi.fn(),
+        cancelAiStream: vi.fn(),
+        getAiJob: vi.fn(),
+        cancelAiJob: vi.fn(),
+        executeAiPrompt: vi.fn(async () => {
+          throw new Error('KERNEL_SIDECAR_UNAVAILABLE: sidecar unavailable');
+        }),
+      },
+      resolveSecret: () => 'secret',
+    });
+
+    await expect(service.executePrompt({
+      sessionId: 's-sidecar',
+      streamId: 'st-sidecar',
+      jobId: 'j-sidecar',
+      request: { url: 'https://example.com', method: 'POST' },
+      requiredSecretName: 'provider:apiKey',
+    })).rejects.toThrow('KERNEL_SIDECAR_UNAVAILABLE');
   });
 });

@@ -200,4 +200,163 @@ describe('BackendKernel AI session/job runtime', () => {
       },
     });
   });
+
+  it('dispatches ai.prompt.execute and returns completed/unavailable/timeout states', async () => {
+    const bridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(bridge);
+
+    const kernel = new BackendKernel({
+      database,
+      executeAiPrompt: async () => ({
+        status: 200,
+        headers: {},
+        body: JSON.stringify({
+          choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        }),
+      }),
+    });
+
+    await kernel.handle({
+      id: 'session-for-prompt',
+      jsonrpc: '2.0',
+      method: 'ai.session.create',
+      params: [{
+        sessionId: 'session-prompt-1',
+        surfaceId: 'standalone-dialog',
+      }],
+    });
+
+    const completed = await kernel.handle({
+      id: 'ai-prompt-completed',
+      jsonrpc: '2.0',
+      method: 'ai.prompt.execute',
+      params: [{
+        sessionId: 'session-prompt-1',
+        streamId: 'stream-prompt-1',
+        jobId: 'job-prompt-1',
+        timeoutMs: 5000,
+        request: {
+          url: 'https://example.com/chat/completions',
+          method: 'POST',
+          body: '{}',
+        },
+      }],
+    });
+    expect(completed).toEqual({
+      id: 'ai-prompt-completed',
+      jsonrpc: '2.0',
+      result: expect.objectContaining({
+        ok: true,
+        sessionId: 'session-prompt-1',
+        streamId: 'stream-prompt-1',
+        jobId: 'job-prompt-1',
+        state: 'completed',
+        response: expect.objectContaining({
+          status: 200,
+        }),
+      }),
+    });
+
+    const timeout = await kernel.handle({
+      id: 'ai-prompt-timeout',
+      jsonrpc: '2.0',
+      method: 'ai.prompt.execute',
+      params: [{
+        sessionId: 'session-prompt-1',
+        streamId: 'stream-prompt-timeout',
+        jobId: 'job-prompt-timeout',
+        timeoutMs: 1,
+        request: {
+          url: 'https://example.com/chat/completions',
+          method: 'POST',
+          body: '{}',
+        },
+      }],
+    });
+    expect(timeout).toEqual({
+      id: 'ai-prompt-timeout',
+      jsonrpc: '2.0',
+      result: expect.objectContaining({
+        state: 'timeout',
+        unavailableClass: 'TIMEOUT',
+      }),
+    });
+
+    const sidecarKernel = new BackendKernel({
+      database,
+    });
+    await sidecarKernel.handle({
+      id: 'session-for-sidecar',
+      jsonrpc: '2.0',
+      method: 'ai.session.create',
+      params: [{
+        sessionId: 'session-sidecar-1',
+        surfaceId: 'standalone-dialog',
+      }],
+    });
+    const sidecarUnavailable = await sidecarKernel.handle({
+      id: 'ai-prompt-sidecar',
+      jsonrpc: '2.0',
+      method: 'ai.prompt.execute',
+      params: [{
+        sessionId: 'session-sidecar-1',
+        streamId: 'stream-sidecar-1',
+        jobId: 'job-sidecar-1',
+        timeoutMs: 5000,
+        request: {
+          url: 'https://example.com/chat/completions',
+          method: 'POST',
+          body: '{}',
+        },
+      }],
+    });
+    expect(sidecarUnavailable).toEqual({
+      id: 'ai-prompt-sidecar',
+      jsonrpc: '2.0',
+      result: expect.objectContaining({
+        state: 'unavailable',
+        unavailableClass: 'KERNEL_SIDECAR_UNAVAILABLE',
+      }),
+    });
+
+    const networkKernel = new BackendKernel({
+      database,
+      executeAiPrompt: async () => {
+        throw new Error('BACKEND_UNAVAILABLE: network unavailable');
+      },
+    });
+    await networkKernel.handle({
+      id: 'session-for-network',
+      jsonrpc: '2.0',
+      method: 'ai.session.create',
+      params: [{
+        sessionId: 'session-network-1',
+        surfaceId: 'standalone-dialog',
+      }],
+    });
+    const networkUnavailable = await networkKernel.handle({
+      id: 'ai-prompt-network',
+      jsonrpc: '2.0',
+      method: 'ai.prompt.execute',
+      params: [{
+        sessionId: 'session-network-1',
+        streamId: 'stream-network-1',
+        jobId: 'job-network-1',
+        timeoutMs: 5000,
+        request: {
+          url: 'https://example.com/chat/completions',
+          method: 'POST',
+          body: '{}',
+        },
+      }],
+    });
+    expect(networkUnavailable).toEqual({
+      id: 'ai-prompt-network',
+      jsonrpc: '2.0',
+      result: expect.objectContaining({
+        state: 'unavailable',
+        unavailableClass: 'NETWORK_UNAVAILABLE',
+      }),
+    });
+  });
 });

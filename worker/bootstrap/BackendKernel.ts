@@ -1,5 +1,7 @@
 import {
   BACKEND_RPC_VERSION,
+  type BackendAiPromptExecuteRequest,
+  type BackendAiPromptExecuteResult,
   type BackendAiJobCancelRequest,
   type BackendAiJobGetRequest,
   type BackendAiJobResult,
@@ -53,6 +55,11 @@ interface BackendKernelDependencies {
   database: WorkerSqliteDatabaseService;
   resolveExistingBlockIds?: (blockIds: string[]) => Promise<string[]>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
+  executeAiPrompt?: (request: BackendAiPromptExecuteRequest['request']) => Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+  }>;
 }
 
 function buildSuccess<TResult>(
@@ -194,6 +201,8 @@ export class BackendKernel {
           return buildSuccess(request.id, this.handleAiSessionUpdate(request.params));
         case 'ai.session.cancel':
           return buildSuccess(request.id, this.handleAiSessionCancel(request.params));
+        case 'ai.prompt.execute':
+          return buildSuccess(request.id, await this.handleAiPromptExecute(request.params));
         case 'ai.stream.start':
           return buildSuccess(request.id, this.handleAiStreamStart(request.params));
         case 'ai.stream.cancel':
@@ -405,6 +414,14 @@ export class BackendKernel {
       throw new Error('ai.session.cancel requires named params');
     }
     return this.aiRuntime.cancelSession(named);
+  }
+
+  private async handleAiPromptExecute(params: unknown): Promise<BackendAiPromptExecuteResult> {
+    const named = this.readNamedParams<BackendAiPromptExecuteRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('ai.prompt.execute requires named params');
+    }
+    return this.aiRuntime.executePrompt(named, this.deps.executeAiPrompt);
   }
 
   private handleAiStreamStart(params: unknown): BackendAiStreamResult {
