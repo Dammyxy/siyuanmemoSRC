@@ -12,6 +12,15 @@ export const BACKEND_MIGRATION_RUNTIME_ENV_KEYS = Array.from(new Set([
   BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY,
 ]));
 
+export const BACKEND_MIGRATION_RELEASE_DEFAULT_ENV: RuntimeEnv = {
+  [BACKEND_MIGRATION_FEATURE_GATES.autocardExecuteRelay]: 'true',
+  [BACKEND_MIGRATION_WRITER_LEASE_GUARD_ENV_KEY]: 'true',
+  [BACKEND_MIGRATION_FEATURE_GATES.autocardDecisionRelay]: 'true',
+  [BACKEND_MIGRATION_FEATURE_GATES.kernelTransactionIngest]: 'false',
+  [BACKEND_MIGRATION_FEATURE_GATES.privateApi]: 'false',
+  [BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY]: 'false',
+};
+
 export interface BackendMigrationRuntimePolicy {
   flags: {
     backendWorker: boolean;
@@ -129,12 +138,14 @@ export function resolveBackendMigrationRuntimePolicy(env: RuntimeEnv): BackendMi
 export function collectBackendMigrationRuntimeEnv(
   primary: RuntimeEnv = {},
   fallback: RuntimeEnv = {},
+  defaults: RuntimeEnv = BACKEND_MIGRATION_RELEASE_DEFAULT_ENV,
 ): RuntimeEnv {
   const env: RuntimeEnv = {};
   for (const key of BACKEND_MIGRATION_RUNTIME_ENV_KEYS) {
     const primaryValue = normalizeEnvValue(primary[key]);
     const fallbackValue = normalizeEnvValue(fallback[key]);
-    env[key] = primaryValue ?? fallbackValue;
+    const defaultValue = normalizeEnvValue(defaults[key]);
+    env[key] = primaryValue ?? fallbackValue ?? defaultValue;
   }
   return env;
 }

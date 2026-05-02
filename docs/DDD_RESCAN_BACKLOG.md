@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-02 (Round 256)
+Last update: 2026-05-02 (Round 257)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-02 - review rating release-default env fix
+
+- Task: 修复真实 SiYuan 评分时报 `BACKEND_UNAVAILABLE: review.feedback requires backend+writer ownership`，日志显示 runtime policy 在只配置 workspace path 的构建中判成 `backend-worker-disabled`。
+- Touched slice: backend migration runtime policy + Review composition wiring docs；`src/application/backendMigration/runtimePolicy.ts`、`src/application/backendMigration/__tests__/runtimePolicy.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: `collectBackendMigrationRuntimeEnv()` 现在按 `import.meta.env` > `process.env` > release defaults 合并，缺省时补齐 `backend worker + writer lease + autocard decision relay` 开启、`kernel transaction ingest/private API/AI backend runtime` 关闭；显式 `false` 仍保留 rollback 语义，避免 `.env.example` 没被 Vite 加载时把 Review 主链误关。
+- Debt deferred: 若真实环境后续仍报 `writer-relay-runtime-missing`，需继续检查 kernel companion `/api/plugin/rpc/siyuan-plugin-siyuanmemo` 是否可用；本轮只修复已证实的 env-default 漏洞。
+- Why deferred: 当前用户日志的 policy reason 是 `backend-worker-disabled`，不是 kernel sidecar/lease handover 失败；真实 kernel RPC 需要在 SiYuan runtime 手工 smoke。
+- Next safe step: 重新 `pnpm build` 并在真实 SiYuan 中复测普通评分；若错误 reason 改为 writer relay runtime 类，再沿 kernel companion 启动链路查。
+- Validation: red `pnpm vitest run src/application/backendMigration/__tests__/runtimePolicy.test.ts --reporter=dot` failed on missing release defaults, then green `pnpm vitest run src/application/backendMigration/__tests__/runtimePolicy.test.ts --reporter=dot`（9 passed）；`pnpm vitest run src/application/usecases/review/__tests__/ReviewCommitUseCase.test.ts --reporter=dot`（9 passed）；`pnpm vitest run src/application/__tests__/service-access.integration.test.ts --reporter=dot`（23 passed）；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-02 - remediation construction review fixes
 

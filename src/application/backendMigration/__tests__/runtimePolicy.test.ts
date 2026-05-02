@@ -33,6 +33,21 @@ describe('backend migration runtime policy', () => {
     expect(policy.capabilities.privateApiReadEnabled).toBe(false);
   });
 
+  it('collects backend+writer release defaults when env omits migration flags', () => {
+    const env = collectBackendMigrationRuntimeEnv({
+      VITE_SIYUAN_WORKSPACE_PATH: 'H:/SiYuanXY',
+    }, {});
+    const policy = resolveBackendMigrationRuntimePolicy(env);
+
+    expect(policy.flags.backendWorker).toBe(true);
+    expect(policy.flags.writerLeaseGuard).toBe(true);
+    expect(policy.flags.autoCardDecisionRelay).toBe(true);
+    expect(policy.flags.kernelTransactionIngest).toBe(false);
+    expect(policy.flags.privateApi).toBe(false);
+    expect(policy.flags.aiBackendRuntime).toBe(false);
+    expect(policy.capabilities.reviewFeedbackWriteEnabled).toBe(true);
+  });
+
   it('fails closed for backend-only mode', () => {
     const policy = resolveBackendMigrationRuntimePolicy({
       VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'true',
@@ -46,6 +61,20 @@ describe('backend migration runtime policy', () => {
     expect(policy.capabilities.autoCardExecuteWriteEnabled).toBe(false);
     expect(policy.capabilities.autoCardDecisionBackendEnabled).toBe(false);
     expect(policy.capabilities.kernelTransactionIngestEnabled).toBe(false);
+  });
+
+  it('keeps explicit flag-off env values above release defaults', () => {
+    const env = collectBackendMigrationRuntimeEnv({
+      VITE_SIYUANMEMO_ENABLE_SRS_BACKEND_WORKER: 'false',
+      VITE_SIYUANMEMO_ENABLE_KERNEL_WRITER_LEASE_GUARD: 'false',
+      VITE_SIYUANMEMO_ENABLE_AUTOCARD_DECISION_RELAY: 'false',
+    }, {});
+    const policy = resolveBackendMigrationRuntimePolicy(env);
+
+    expect(policy.flags.backendWorker).toBe(false);
+    expect(policy.flags.writerLeaseGuard).toBe(false);
+    expect(policy.flags.autoCardDecisionRelay).toBe(false);
+    expect(policy.capabilities.reviewFeedbackWriteEnabled).toBe(false);
   });
 
   it('fails closed for writer-only mode', () => {
