@@ -12,6 +12,10 @@ import {
   parseCueAndAnswer,
 } from '@/core/xiuyuan/parseCueAndAnswer';
 import { createLogger } from '@/utils/logger';
+import {
+  toXiuyuanSharedQueryPort,
+  type XiuyuanSharedQueryPort,
+} from './shared/XiuyuanSharedQueryPort';
 
 const logger = createLogger('CreateCdfMultilineCardsUseCase');
 
@@ -54,17 +58,14 @@ type CdfDescriptorMeta = {
   answer: string;
 };
 
-function escapeSql(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
 function isDefinitionTemplate(templateId: string): boolean {
   return templateId.startsWith('builtin-concept-definition');
 }
 
 async function getBlockAttrsSafe(
   blockId: string,
-  siyuanApi: CdfSiyuanPort
+  siyuanApi: CdfSiyuanPort,
+  queryPort: XiuyuanSharedQueryPort
 ): Promise<Record<string, string>> {
   if (typeof siyuanApi.getBlockAttrs === 'function') {
     try {
@@ -77,49 +78,26 @@ async function getBlockAttrsSafe(
     }
   }
 
-  const attrRows = await siyuanApi.sql(`
-    SELECT name, value
-    FROM attributes
-    WHERE block_id = '${escapeSql(blockId)}'
-      AND name IN ('custom-xiuyuan-id', 'custom-fsrs-xiuyuan-id')
-  `);
-
-  const attrs: Record<string, string> = {};
-  for (const row of attrRows) {
-    const name = typeof row?.name === 'string' ? row.name : '';
-    const value = typeof row?.value === 'string' ? row.value : '';
-    if (name.length > 0) {
-      attrs[name] = value;
-    }
-  }
-
-  return attrs;
+  return queryPort.getXiuyuanBindingAttrs(blockId);
 }
 
 async function getFirstParagraphIdForListItem(
   listItemId: string,
-  siyuanApi: CdfSiyuanPort
+  queryPort: XiuyuanSharedQueryPort
 ): Promise<string | null> {
-  const rows = await siyuanApi.sql(`
-    SELECT id
-    FROM blocks
-    WHERE parent_id = '${escapeSql(listItemId)}'
-      AND type = 'p'
-    ORDER BY sort ASC, id ASC
-    LIMIT 1
-  `);
-  const id = rows?.[0]?.id;
-  return typeof id === 'string' && id.length > 0 ? id : null;
+  const paragraph = await queryPort.getFirstParagraphUnderParent(listItemId);
+  return paragraph?.id || null;
 }
 
 async function hasXiuyuanBindingOnParagraphOrListItem(
   paragraphId: string,
   listItemId: string,
-  siyuanApi: CdfSiyuanPort
+  siyuanApi: CdfSiyuanPort,
+  queryPort: XiuyuanSharedQueryPort
 ): Promise<boolean> {
   const [paragraphAttrs, listItemAttrs] = await Promise.all([
-    getBlockAttrsSafe(paragraphId, siyuanApi),
-    getBlockAttrsSafe(listItemId, siyuanApi),
+    getBlockAttrsSafe(paragraphId, siyuanApi, queryPort),
+    getBlockAttrsSafe(listItemId, siyuanApi, queryPort),
   ]);
   const paraBinding = paragraphAttrs?.['custom-xiuyuan-id'] || paragraphAttrs?.['custom-fsrs-xiuyuan-id'];
   const itemBinding = listItemAttrs?.['custom-xiuyuan-id'] || listItemAttrs?.['custom-fsrs-xiuyuan-id'];
@@ -129,7 +107,7 @@ async function hasXiuyuanBindingOnParagraphOrListItem(
 
 async function resolveConceptDocumentIdFromReference(
   markdown: string,
-  siyuanApi: CdfSiyuanPort
+  queryPort: XiuyuanSharedQueryPort
 ): Promise<string | null> {
   const refMatch = markdown.match(/\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/i);
   if (!refMatch) {
@@ -137,25 +115,18 @@ async function resolveConceptDocumentIdFromReference(
   }
 
   const refId = refMatch[1];
-  const typeRows = await siyuanApi.sql(`
-    SELECT type
-    FROM blocks
-    WHERE id = '${escapeSql(refId)}'
-    LIMIT 1
-  `);
-  if (!typeRows || typeRows.length === 0) {
-    return null;
-  }
-  return typeRows[0]?.type === 'd' ? refId : null;
+  const refType = await queryPort.getBlockType(refId);
+  return refType === 'd' ? refId : null;
 }
 
 async function ensureConceptCard(
   conceptBlockId: string,
   xiuyuanAppService: XiuyuanAppLike,
   siyuanApi: CdfSiyuanPort,
+  queryPort: XiuyuanSharedQueryPort,
   deckId?: string
 ): Promise<Result<void>> {
-  const attrs = await getBlockAttrsSafe(conceptBlockId, siyuanApi);
+  const attrs = await getBlockAttrsSafe(conceptBlockId, siyuanApi, queryPort);
   const existing = attrs?.['custom-xiuyuan-id'] || attrs?.['custom-fsrs-xiuyuan-id'];
   if (existing && existing.trim().length > 0) {
     return ok(undefined);
@@ -176,10 +147,14 @@ async function ensureConceptCard(
 }
 
 export class CreateCdfMultilineCardsUseCase {
+  private readonly queryPort: XiuyuanSharedQueryPort;
+
   constructor(
     private readonly xiuyuanAppService: XiuyuanAppLike,
     private readonly siyuanApi: CdfSiyuanPort
-  ) {}
+  ) {
+    this.queryPort = toXiuyuanSharedQueryPort(siyuanApi);
+  }
 
   async execute(command: CreateCdfMultilineCardsCommand): Promise<Result<CreateCdfMultilineCardsPayload>> {
     try {
@@ -201,12 +176,12 @@ export class CreateCdfMultilineCardsUseCase {
 
       let conceptBlockId: string | null = null;
       if (templateId === 'builtin-list-concept-multiline') {
-        conceptBlockId = await resolveConceptDocumentIdFromReference(scanResult.parentParagraphKramdown, this.siyuanApi);
+        conceptBlockId = await resolveConceptDocumentIdFromReference(scanResult.parentParagraphKramdown, this.queryPort);
         if (!conceptBlockId && scanResult.parentKramdown !== scanResult.parentParagraphKramdown) {
-          conceptBlockId = await resolveConceptDocumentIdFromReference(scanResult.parentKramdown, this.siyuanApi);
+          conceptBlockId = await resolveConceptDocumentIdFromReference(scanResult.parentKramdown, this.queryPort);
         }
       } else {
-        const located = await findConceptByUpwardSearch(scanResult.parentBlockId, this.siyuanApi as never);
+        const located = await findConceptByUpwardSearch(scanResult.parentBlockId, this.queryPort);
         conceptBlockId = located?.conceptId || null;
       }
 
@@ -218,6 +193,7 @@ export class CreateCdfMultilineCardsUseCase {
         conceptBlockId,
         this.xiuyuanAppService,
         this.siyuanApi,
+        this.queryPort,
         deckId
       );
       if (isErr(ensureResult)) {
@@ -240,15 +216,10 @@ export class CreateCdfMultilineCardsUseCase {
       const loadParagraphMarkdownAndContent = async (
         paragraphId: string
       ): Promise<{ markdown: string; content: string }> => {
-        const paragraphRows = await this.siyuanApi.sql(`
-          SELECT markdown, content
-          FROM blocks
-          WHERE id = '${escapeSql(paragraphId)}'
-          LIMIT 1
-        `);
+        const paragraph = await this.queryPort.getBlockMarkdownAndContent(paragraphId);
         return {
-          markdown: String(paragraphRows?.[0]?.markdown || paragraphRows?.[0]?.content || ''),
-          content: String(paragraphRows?.[0]?.content || paragraphRows?.[0]?.markdown || ''),
+          markdown: String(paragraph?.markdown || paragraph?.content || ''),
+          content: String(paragraph?.content || paragraph?.markdown || ''),
         };
       };
 
@@ -258,7 +229,12 @@ export class CreateCdfMultilineCardsUseCase {
         markerKind: DescriptorOrDefinitionKind,
         descriptorMeta?: CdfDescriptorMeta
       ): Promise<void> => {
-        const hasBinding = await hasXiuyuanBindingOnParagraphOrListItem(paragraphId, listItemId, this.siyuanApi);
+        const hasBinding = await hasXiuyuanBindingOnParagraphOrListItem(
+          paragraphId,
+          listItemId,
+          this.siyuanApi,
+          this.queryPort
+        );
         if (hasBinding) {
           skipped += 1;
           skippedExistingBinding += 1;
@@ -363,7 +339,7 @@ export class CreateCdfMultilineCardsUseCase {
           );
           const nestedIds = [...node.orderedChildListItemIds, ...node.unorderedChildListItemIds];
           for (const nestedListItemId of nestedIds) {
-            const paragraphId = await getFirstParagraphIdForListItem(nestedListItemId, this.siyuanApi);
+            const paragraphId = await getFirstParagraphIdForListItem(nestedListItemId, this.queryPort);
             if (!paragraphId) {
               failed += 1;
               setFirstError(`子级缺少段落块：${nestedListItemId}`);

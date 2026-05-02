@@ -46,6 +46,7 @@ import {
   templateIdFromDescriptorDirection,
 } from './shared/DescriptorTemplateStrategy';
 import { createLogger } from '@/utils/logger';
+import { toXiuyuanSharedQueryPort } from './shared/XiuyuanSharedQueryPort';
 
 const logger = createLogger('CreateConceptDescriptorAutoUseCase');
 
@@ -78,6 +79,7 @@ export interface ConceptDescriptorAutoResult {
 export class CreateConceptDescriptorAutoUseCase {
   private readonly siyuanApi: XiuyuanSiyuanPort;
   private readonly eventBus: EventBus;
+  private readonly queryPort: ReturnType<typeof toXiuyuanSharedQueryPort>;
 
   /**
    * 构造函数
@@ -92,6 +94,7 @@ export class CreateConceptDescriptorAutoUseCase {
   ) {
     this.siyuanApi = ports.siyuanApi;
     this.eventBus = ports.eventBus ?? new EventBus(false);
+    this.queryPort = toXiuyuanSharedQueryPort(this.siyuanApi);
   }
 
   /**
@@ -156,9 +159,9 @@ export class CreateConceptDescriptorAutoUseCase {
         let direction = command.direction;
         if (!direction) {
           // 从块内容中检测
-          const blockQuery = await this.siyuanApi.sql(`SELECT content FROM blocks WHERE id = '${descriptorBlockId}' LIMIT 1`);
-          if (blockQuery && blockQuery.length > 0) {
-            direction = detectDescriptorDirection(String(blockQuery[0].content || ''));
+          const blockData = await this.queryPort.getBlockTypeAndContent(descriptorBlockId);
+          if (blockData) {
+            direction = detectDescriptorDirection(String(blockData.content || ''));
             logger.debug('Detected direction from content:', direction);
           } else {
             direction = 'forward';  // 默认正向

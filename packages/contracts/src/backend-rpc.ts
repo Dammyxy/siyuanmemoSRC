@@ -36,7 +36,9 @@ export type BackendRpcMethod =
   | 'private.read.cards'
   | 'private.read.queues'
   | 'private.read.sessions'
-  | 'private.command.execute';
+  | 'private.command.execute'
+  | 'p6.ownership.query'
+  | 'p6.ownership.command';
 
 export type BackendRpcId = number | string;
 
@@ -361,6 +363,51 @@ export interface PrivateApiAuditQueryRequest {
   method: 'private.audit.query';
   callerIntent: string;
   limit?: number;
+}
+
+export type P6OwnershipSurface =
+  | 'xiuyuan'
+  | 'progressive'
+  | 'topic-derived'
+  | 'autocard-scanner'
+  | 'block-menu'
+  | 'dialog-manager'
+  | 'data-access-facade';
+
+export type P6OwnershipOperation =
+  | 'scan-candidates'
+  | 'resolve-list-children'
+  | 'resolve-concept'
+  | 'read-block-meta'
+  | 'read-block-content'
+  | 'read-card-context'
+  | 'execute-side-effect';
+
+export interface P6OwnershipQueryRequest {
+  requestId?: string;
+  surface: P6OwnershipSurface;
+  operation: Exclude<P6OwnershipOperation, 'execute-side-effect'>;
+  payload?: Record<string, unknown>;
+  idempotencyKey?: string;
+}
+
+export interface P6OwnershipCommandRequest {
+  requestId?: string;
+  surface: P6OwnershipSurface;
+  operation: 'execute-side-effect';
+  payload?: Record<string, unknown>;
+  idempotencyKey: string;
+}
+
+export interface P6OwnershipResult {
+  ok: true;
+  surface: P6OwnershipSurface;
+  operation: P6OwnershipOperation;
+  owner: 'application-command' | 'backend-worker' | 'writer-relay' | 'compatibility-read';
+  status: 'completed' | 'unavailable' | 'failed';
+  unavailableClass?: BackendUnavailableClass | null;
+  diagnosticEventId: string;
+  data?: unknown;
 }
 
 export interface BackendBrowserDeckSnapshotQuery {

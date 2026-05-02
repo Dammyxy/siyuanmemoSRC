@@ -1,6 +1,10 @@
 import { detectDescriptorOrDefinitionKind, type DescriptorOrDefinitionKind } from './DescriptorTemplateStrategy';
+import {
+  toXiuyuanSharedQueryPort,
+  type XiuyuanSharedQueryPort,
+} from './XiuyuanSharedQueryPort';
 
-type SqlPort = {
+type SqlSource = {
   sql<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]>;
   getBlockKramdown: (blockId: string) => Promise<{ kramdown: string }>;
 };
@@ -46,14 +50,6 @@ export interface CdfScanResult {
   stopNodeId?: string;
 }
 
-function escapeSqlValue(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function toRows(result: unknown): BlockRow[] {
-  return Array.isArray(result) ? result as BlockRow[] : [];
-}
-
 function extractBlockReferenceIds(content: string): string[] {
   const matches = [...content.matchAll(/\(\((\d{14}-[a-z0-9]{7})/g)];
   return Array.from(new Set(matches.map((match) => match[1])));
@@ -61,44 +57,30 @@ function extractBlockReferenceIds(content: string): string[] {
 
 async function getParentParagraph(
   parentBlockId: string,
-  siyuanApi: SqlPort
+  queryPort: XiuyuanSharedQueryPort
 ): Promise<{ id: string; text: string; kramdown: string }> {
-  const safeParentBlockId = escapeSqlValue(parentBlockId);
-  const paragraphRows = toRows(await siyuanApi.sql(`
-    SELECT id, content, markdown
-    FROM blocks
-    WHERE parent_id = '${safeParentBlockId}'
-      AND type = 'p'
-    ORDER BY sort ASC, id ASC
-    LIMIT 1
-  `));
-  if (paragraphRows.length === 0 || typeof paragraphRows[0].id !== 'string') {
+  const paragraph = await queryPort.getFirstParagraphUnderParent(parentBlockId);
+  if (!paragraph) {
     throw new Error('Parent list-item is missing paragraph block');
   }
-  const kramdown = typeof paragraphRows[0].markdown === 'string' && paragraphRows[0].markdown.length > 0
-    ? paragraphRows[0].markdown
-    : typeof paragraphRows[0].content === 'string'
-      ? paragraphRows[0].content
+  const kramdown = paragraph.markdown.length > 0
+    ? paragraph.markdown
+    : paragraph.content.length > 0
+      ? paragraph.content
       : '';
-  const text = typeof paragraphRows[0].content === 'string'
-    ? paragraphRows[0].content
+  const text = paragraph.content.length > 0
+    ? paragraph.content
     : kramdown;
   return {
-    id: paragraphRows[0].id,
+    id: paragraph.id,
     text,
     kramdown,
   };
 }
 
-async function getDirectChildListItems(parentBlockId: string, siyuanApi: SqlPort): Promise<BlockRow[]> {
-  const safeParentBlockId = escapeSqlValue(parentBlockId);
-  const listContainerRows = toRows(await siyuanApi.sql(`
-    SELECT id
-    FROM blocks
-    WHERE parent_id = '${safeParentBlockId}'
-      AND type = 'l'
-    ORDER BY sort ASC, id ASC
-  `));
+async function getDirectChildListItems(parentBlockId: string, queryPort: XiuyuanSharedQueryPort): Promise<BlockRow[]> {
+  const listContainerIds = await queryPort.listListContainerIds(parentBlockId);
+  const listContainerRows = listContainerIds.map((id) => ({ id }));
   if (listContainerRows.length === 0) {
     return [];
   }
@@ -108,50 +90,20 @@ async function getDirectChildListItems(parentBlockId: string, siyuanApi: SqlPort
     if (!container.id) {
       continue;
     }
-    const safeContainerId = escapeSqlValue(container.id);
-    const childRows = toRows(await siyuanApi.sql(`
-      SELECT id, subtype
-      FROM blocks
-      WHERE parent_id = '${safeContainerId}'
-        AND type = 'i'
-      ORDER BY sort ASC, id ASC
-    `));
+    const childRows = await queryPort.listListItemsUnderParent(container.id);
     directChildren.push(...childRows);
   }
 
   return directChildren;
 }
 
-async function getFirstParagraph(childListItemId: string, siyuanApi: SqlPort): Promise<BlockRow | null> {
-  const safeChildListItemId = escapeSqlValue(childListItemId);
-  const paragraphRows = toRows(await siyuanApi.sql(`
-    SELECT id, content, markdown
-    FROM blocks
-    WHERE parent_id = '${safeChildListItemId}'
-      AND type = 'p'
-    ORDER BY sort ASC, id ASC
-    LIMIT 1
-  `));
-  return paragraphRows.length > 0 ? paragraphRows[0] : null;
+async function getFirstParagraph(childListItemId: string, queryPort: XiuyuanSharedQueryPort): Promise<BlockRow | null> {
+  const paragraph = await queryPort.getFirstParagraphUnderParent(childListItemId);
+  return paragraph ? { ...paragraph } : null;
 }
 
-async function detectRecursiveFirstKind(childListItemId: string, siyuanApi: SqlPort): Promise<CdfNodeKind> {
-  const safeChildListItemId = escapeSqlValue(childListItemId);
-  const paragraphRows = toRows(await siyuanApi.sql(`
-    WITH RECURSIVE descendants AS (
-      SELECT id, type, parent_id, sort, content, markdown, printf('%020d', COALESCE(sort, 0)) AS path
-      FROM blocks
-      WHERE id = '${safeChildListItemId}'
-      UNION ALL
-      SELECT b.id, b.type, b.parent_id, b.sort, b.content, b.markdown, d.path || '/' || printf('%020d', COALESCE(b.sort, 0))
-      FROM blocks b
-      INNER JOIN descendants d ON b.parent_id = d.id
-    )
-    SELECT id, content, markdown
-    FROM descendants
-    WHERE type = 'p'
-    ORDER BY path ASC, id ASC
-  `));
+async function detectRecursiveFirstKind(childListItemId: string, queryPort: XiuyuanSharedQueryPort): Promise<CdfNodeKind> {
+  const paragraphRows = await queryPort.listDescendantParagraphs(childListItemId);
 
   for (const row of paragraphRows) {
     const source = typeof row.markdown === 'string' && row.markdown.length > 0
@@ -168,48 +120,27 @@ async function detectRecursiveFirstKind(childListItemId: string, siyuanApi: SqlP
   return 'none';
 }
 
-async function containsDocumentBlockReference(content: string, siyuanApi: SqlPort): Promise<boolean> {
+async function containsDocumentBlockReference(content: string, queryPort: XiuyuanSharedQueryPort): Promise<boolean> {
   const refIds = extractBlockReferenceIds(content);
   if (refIds.length === 0) {
     return false;
   }
 
-  const inClause = refIds.map((id) => `'${escapeSqlValue(id)}'`).join(',');
-  const typeRows = toRows(await siyuanApi.sql(`
-    SELECT id, type
-    FROM blocks
-    WHERE id IN (${inClause})
-  `));
+  const typeRows = await queryPort.listBlockTypesByIds(refIds);
 
   return typeRows.some((row) => row.type === 'd');
 }
 
 async function resolveDescriptorMultilineChildren(
   childListItemId: string,
-  siyuanApi: SqlPort
+  queryPort: XiuyuanSharedQueryPort
 ): Promise<{ orderedChildListItemIds: string[]; unorderedChildListItemIds: string[] }> {
-  const safeChildListItemId = escapeSqlValue(childListItemId);
-  const nestedContainerRows = toRows(await siyuanApi.sql(`
-    SELECT id
-    FROM blocks
-    WHERE parent_id = '${safeChildListItemId}'
-      AND type = 'l'
-    ORDER BY sort ASC, id ASC
-    LIMIT 1
-  `));
-
-  if (nestedContainerRows.length === 0 || !nestedContainerRows[0].id) {
+  const nestedContainerId = await queryPort.getFirstListContainerId(childListItemId);
+  if (!nestedContainerId) {
     return { orderedChildListItemIds: [], unorderedChildListItemIds: [] };
   }
 
-  const safeNestedContainerId = escapeSqlValue(nestedContainerRows[0].id);
-  const nestedChildren = toRows(await siyuanApi.sql(`
-    SELECT id, subtype
-    FROM blocks
-    WHERE parent_id = '${safeNestedContainerId}'
-      AND type = 'i'
-    ORDER BY sort ASC, id ASC
-  `));
+  const nestedChildren = await queryPort.listListItemsUnderParent(nestedContainerId);
 
   const orderedChildListItemIds = nestedChildren
     .filter((row) => row.id && row.subtype === 'o')
@@ -223,25 +154,20 @@ async function resolveDescriptorMultilineChildren(
 
 export async function resolveCdfMultilineScan(
   parentBlockId: string,
-  siyuanApi: SqlPort
+  queryPortOrSource: XiuyuanSharedQueryPort | SqlSource
 ): Promise<CdfScanResult> {
-  const safeParentBlockId = escapeSqlValue(parentBlockId);
-  const parentTypeRows = toRows(await siyuanApi.sql(`
-    SELECT type
-    FROM blocks
-    WHERE id = '${safeParentBlockId}'
-    LIMIT 1
-  `));
-  if (parentTypeRows.length === 0) {
+  const queryPort = toXiuyuanSharedQueryPort(queryPortOrSource);
+  const parentType = await queryPort.getBlockType(parentBlockId);
+  if (!parentType) {
     throw new Error('Block does not exist');
   }
-  if (parentTypeRows[0].type !== 'i') {
-    throw new Error(`Only list-item blocks are supported (current type: ${String(parentTypeRows[0].type || '')})`);
+  if (parentType !== 'i') {
+    throw new Error(`Only list-item blocks are supported (current type: ${String(parentType || '')})`);
   }
 
-  const parentParagraph = await getParentParagraph(parentBlockId, siyuanApi);
-  const { kramdown } = await siyuanApi.getBlockKramdown(parentBlockId);
-  const directChildren = await getDirectChildListItems(parentBlockId, siyuanApi);
+  const parentParagraph = await getParentParagraph(parentBlockId, queryPort);
+  const { kramdown } = await queryPort.getBlockKramdown(parentBlockId);
+  const directChildren = await getDirectChildListItems(parentBlockId, queryPort);
 
   const nodes: CdfScanNode[] = [];
   let stoppedByDocumentReference = false;
@@ -251,7 +177,7 @@ export async function resolveCdfMultilineScan(
     if (!child.id) {
       continue;
     }
-    const firstParagraph = await getFirstParagraph(child.id, siyuanApi);
+    const firstParagraph = await getFirstParagraph(child.id, queryPort);
     if (!firstParagraph || !firstParagraph.id) {
       continue;
     }
@@ -265,7 +191,7 @@ export async function resolveCdfMultilineScan(
       ? firstParagraph.content
       : firstParagraphKramdown;
 
-    const hasDocumentReference = await containsDocumentBlockReference(firstParagraphKramdown, siyuanApi);
+    const hasDocumentReference = await containsDocumentBlockReference(firstParagraphKramdown, queryPort);
     if (hasDocumentReference) {
       stoppedByDocumentReference = true;
       stopNodeId = child.id;
@@ -273,13 +199,13 @@ export async function resolveCdfMultilineScan(
     }
 
     const explicitMarkerKind = detectDescriptorOrDefinitionKind(firstParagraphKramdown);
-    const recursiveMarkerKind = await detectRecursiveFirstKind(child.id, siyuanApi);
+    const recursiveMarkerKind = await detectRecursiveFirstKind(child.id, queryPort);
     const markerKind = explicitMarkerKind !== 'none' ? explicitMarkerKind : recursiveMarkerKind;
 
     let orderedChildListItemIds: string[] = [];
     let unorderedChildListItemIds: string[] = [];
     if (markerKind === 'descriptor-multiline') {
-      const resolvedNested = await resolveDescriptorMultilineChildren(child.id, siyuanApi);
+      const resolvedNested = await resolveDescriptorMultilineChildren(child.id, queryPort);
       orderedChildListItemIds = resolvedNested.orderedChildListItemIds;
       unorderedChildListItemIds = resolvedNested.unorderedChildListItemIds;
     }

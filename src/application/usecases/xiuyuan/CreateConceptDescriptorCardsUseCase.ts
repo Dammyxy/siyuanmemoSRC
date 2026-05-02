@@ -10,32 +10,20 @@ import {
   resolveDescriptorTemplateByMarkdown,
 } from './shared/DescriptorTemplateStrategy';
 import { resolveListItemAnchorBlockId } from './shared/ListItemAnchorResolver';
+import {
+  toXiuyuanSharedQueryPort,
+  type XiuyuanSharedQueryPort,
+} from './shared/XiuyuanSharedQueryPort';
 
 const logger = createLogger('CreateConceptDescriptorCardsUseCase');
 
-const FW_SEMICOLON = '\uFF1B';
-const FW_COLON = '\uFF1A';
-const L_ANGLE = '\u300A';
-const R_ANGLE = '\u300B';
-
 const CONCEPT_REF_PATTERN = /\(\((\d{14}-[a-z0-9]{7})[^\)]*\)\)/;
-const DESCRIPTOR_CONTENT_FILTER_SQL = `
-  (
-    content LIKE '%;;%' OR content LIKE '%${FW_SEMICOLON}${FW_SEMICOLON}%'
-    OR content LIKE '%;<%' OR content LIKE '%${FW_SEMICOLON}${L_ANGLE}%'
-    OR content LIKE '%;<>%' OR content LIKE '%${FW_SEMICOLON}${L_ANGLE}${R_ANGLE}%'
-    OR content LIKE '%::%' OR content LIKE '%${FW_COLON}${FW_COLON}%'
-    OR content LIKE '%:>%' OR content LIKE '%${FW_COLON}${R_ANGLE}%'
-    OR content LIKE '%:<%' OR content LIKE '%${FW_COLON}${L_ANGLE}%'
-  )
-`;
 
 interface BlockRow {
   id: string;
   type?: string;
   content?: string;
   markdown?: string;
-  parent_id?: string;
 }
 
 interface DescriptorBuildResult {
@@ -58,10 +46,6 @@ export interface ConceptDescriptorCardsResult {
     cards: Array<{ id: string; faceIndex: number }>;
   }>;
   skipped: string[];
-}
-
-function toRows(result: unknown): BlockRow[] {
-  return Array.isArray(result) ? (result as BlockRow[]) : [];
 }
 
 function buildDescriptorPayload(conceptBlockId: string, descriptorBlockId: string, markdown: string): DescriptorBuildResult {
@@ -87,9 +71,25 @@ function buildDescriptorPayload(conceptBlockId: string, descriptorBlockId: strin
   };
 }
 
+function toDescriptorCandidate(paragraph: { id: string; markdown: string; content: string } | null): BlockRow | null {
+  if (!paragraph) {
+    return null;
+  }
+  const markdown = paragraph.markdown || paragraph.content || '';
+  if (!containsDescriptorOrDefinitionSymbol(markdown)) {
+    return null;
+  }
+  return {
+    id: paragraph.id,
+    content: paragraph.content,
+    markdown: paragraph.markdown,
+  };
+}
+
 export class CreateConceptDescriptorCardsUseCase {
   private readonly siyuanApi: XiuyuanSiyuanPort;
   private readonly eventBus: EventBus;
+  private readonly queryPort: XiuyuanSharedQueryPort;
 
   constructor(
     private readonly xiuyuanRepository: IXiuyuanRepository,
@@ -98,6 +98,7 @@ export class CreateConceptDescriptorCardsUseCase {
   ) {
     this.siyuanApi = ports.siyuanApi;
     this.eventBus = ports.eventBus ?? new EventBus(false);
+    this.queryPort = toXiuyuanSharedQueryPort(this.siyuanApi);
   }
 
   async execute(command: CreateConceptDescriptorCardsCommand): Promise<Result<ConceptDescriptorCardsResult>> {
@@ -107,21 +108,11 @@ export class CreateConceptDescriptorCardsUseCase {
         return err(new Error('Only list-item blocks or their direct paragraph blocks are supported'));
       }
 
-      const safeAnchorBlockId = anchorBlockId.replace(/'/g, "''");
-      const parentParagraphRows = toRows(
-        await this.siyuanApi.sql(`
-          SELECT id, content, markdown FROM blocks
-          WHERE parent_id = '${safeAnchorBlockId}'
-            AND type = 'p'
-          ORDER BY sort ASC, id ASC
-          LIMIT 1
-        `)
-      );
-      if (parentParagraphRows.length === 0) {
+      const parentParagraph = await this.queryPort.getFirstParagraphUnderParent(anchorBlockId);
+      if (!parentParagraph) {
         return err(new Error('List item paragraph not found'));
       }
 
-      const parentParagraph = parentParagraphRows[0];
       const parentMarkdown = parentParagraph.markdown || parentParagraph.content || '';
       const refMatch = parentMarkdown.match(CONCEPT_REF_PATTERN);
       if (!refMatch) {
@@ -131,17 +122,11 @@ export class CreateConceptDescriptorCardsUseCase {
       const conceptBlockId = refMatch[1];
       logger.info('Found concept block ID:', conceptBlockId);
 
-      const conceptRows = toRows(
-        await this.siyuanApi.sql(`
-          SELECT type FROM blocks
-          WHERE id = '${conceptBlockId}'
-          LIMIT 1
-        `)
-      );
-      if (conceptRows.length === 0) {
+      const conceptType = await this.queryPort.getBlockType(conceptBlockId);
+      if (!conceptType) {
         return err(new Error('Referenced concept block does not exist'));
       }
-      if (conceptRows[0].type !== 'd') {
+      if (conceptType !== 'd') {
         return err(new Error('Concept reference must point to a document block'));
       }
 
@@ -159,85 +144,36 @@ export class CreateConceptDescriptorCardsUseCase {
       logger.debug('Resolved concept name:', resolvedConcept.conceptName);
 
       const descriptorBlockMap = new Map<string, BlockRow>();
-      const addDescriptorRows = (rows: BlockRow[]): void => {
-        for (const row of rows) {
-          if (row?.id && !descriptorBlockMap.has(row.id)) {
-            descriptorBlockMap.set(row.id, row);
-          }
+      const addDescriptorCandidate = (row: BlockRow | null): void => {
+        if (row?.id && !descriptorBlockMap.has(row.id)) {
+          descriptorBlockMap.set(row.id, row);
         }
       };
 
-      if (containsDescriptorOrDefinitionSymbol(parentMarkdown)) {
-        addDescriptorRows(parentParagraphRows);
+      addDescriptorCandidate(toDescriptorCandidate(parentParagraph));
+      if (descriptorBlockMap.size > 0) {
         logger.debug('Added parent paragraph as descriptor/definition block');
       }
 
-      const listContainerRows = toRows(
-        await this.siyuanApi.sql(`
-          SELECT id FROM blocks
-          WHERE parent_id = '${safeAnchorBlockId}'
-            AND type = 'l'
-          LIMIT 1
-        `)
-      );
-      if (listContainerRows.length > 0) {
-        const listContainerId = listContainerRows[0].id;
-        const childItemRows = toRows(
-          await this.siyuanApi.sql(`
-            SELECT id FROM blocks
-            WHERE parent_id = '${listContainerId}'
-              AND type = 'i'
-            ORDER BY id ASC
-          `)
-        );
+      const listContainerId = await this.queryPort.getFirstListContainerId(anchorBlockId);
+      if (listContainerId) {
+        const childItemRows = await this.queryPort.listListItemIdsUnderParent(listContainerId);
         logger.debug(`Found ${childItemRows.length} child list items`);
-
-        for (const item of childItemRows) {
-          const descriptorRows = toRows(
-            await this.siyuanApi.sql(`
-              SELECT id, content, markdown FROM blocks
-              WHERE parent_id = '${item.id}'
-                AND type = 'p'
-                AND ${DESCRIPTOR_CONTENT_FILTER_SQL}
-              LIMIT 1
-            `)
-          );
-          addDescriptorRows(descriptorRows);
+        for (const itemId of childItemRows) {
+          const descriptorParagraph = await this.queryPort.getFirstParagraphUnderParent(itemId);
+          addDescriptorCandidate(toDescriptorCandidate(descriptorParagraph));
         }
       }
 
       if (descriptorBlockMap.size === 0) {
-        const parentContainerRows = toRows(
-          await this.siyuanApi.sql(`
-            SELECT parent_id FROM blocks
-            WHERE id = '${safeAnchorBlockId}'
-            LIMIT 1
-          `)
-        );
-        if (parentContainerRows.length > 0 && parentContainerRows[0].parent_id) {
-          const parentContainerId = parentContainerRows[0].parent_id;
-          const siblingItemRows = toRows(
-            await this.siyuanApi.sql(`
-              SELECT id FROM blocks
-              WHERE parent_id = '${parentContainerId}'
-                AND type = 'i'
-                AND id > '${safeAnchorBlockId}'
-              ORDER BY id ASC
-            `)
-          );
+        const parentContainerId = await this.queryPort.getParentId(anchorBlockId);
+        if (parentContainerId) {
+          const siblingItemRows = (await this.queryPort.listListItemIdsUnderParent(parentContainerId))
+            .filter((id) => id > anchorBlockId);
           logger.debug(`Found ${siblingItemRows.length} sibling list items`);
-
-          for (const item of siblingItemRows) {
-            const descriptorRows = toRows(
-              await this.siyuanApi.sql(`
-                SELECT id, content, markdown FROM blocks
-                WHERE parent_id = '${item.id}'
-                  AND type = 'p'
-                  AND ${DESCRIPTOR_CONTENT_FILTER_SQL}
-                LIMIT 1
-              `)
-            );
-            addDescriptorRows(descriptorRows);
+          for (const itemId of siblingItemRows) {
+            const descriptorParagraph = await this.queryPort.getFirstParagraphUnderParent(itemId);
+            addDescriptorCandidate(toDescriptorCandidate(descriptorParagraph));
           }
         }
       }

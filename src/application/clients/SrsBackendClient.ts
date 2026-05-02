@@ -26,6 +26,9 @@ import type {
   BackendKernelTransactionRequeueResult,
   BackendReviewFeedbackRequest,
   BackendReviewFeedbackResult,
+  P6OwnershipCommandRequest,
+  P6OwnershipQueryRequest,
+  P6OwnershipResult,
   PrivateApiMutationRequest,
   PrivateApiMutationResult,
   PrivateApiReadRequest,
@@ -206,6 +209,14 @@ export class SrsBackendClient {
 
   async privateCommand(request: PrivateApiMutationRequest): Promise<PrivateApiMutationResult> {
     return this.call<PrivateApiMutationResult>(request.method, request);
+  }
+
+  async p6OwnershipQuery(request: P6OwnershipQueryRequest): Promise<P6OwnershipResult> {
+    return this.call<P6OwnershipResult>('p6.ownership.query', request);
+  }
+
+  async p6OwnershipCommand(request: P6OwnershipCommandRequest): Promise<P6OwnershipResult> {
+    return this.call<P6OwnershipResult>('p6.ownership.command', request);
   }
 
   async ingestKernelTransactions(
