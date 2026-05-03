@@ -54,6 +54,7 @@ describe('KernelSidecarClient', () => {
           ok: true,
           commandId: 'cmd-1',
           ownerInstanceId: 'writer-1',
+          ownerSurfaceId: 'scope-writer',
           status: 'queued',
           now: 1,
         };
@@ -65,6 +66,7 @@ describe('KernelSidecarClient', () => {
           status: 'completed',
           result: { committed: true },
           ownerInstanceId: 'writer-1',
+          ownerSurfaceId: 'scope-writer',
           completedAt: 2,
           now: 2,
         };
@@ -98,6 +100,7 @@ describe('KernelSidecarClient', () => {
     })).resolves.toMatchObject({
       commandId: 'cmd-1',
       ownerInstanceId: 'writer-1',
+      ownerSurfaceId: 'scope-writer',
       status: 'queued',
     });
 
@@ -106,6 +109,7 @@ describe('KernelSidecarClient', () => {
       status: 'completed',
       result: { committed: true },
       ownerInstanceId: 'writer-1',
+      ownerSurfaceId: 'scope-writer',
     });
 
     await expect(client.writerTakeCommand({ instanceId: 'writer-1' })).resolves.toMatchObject({

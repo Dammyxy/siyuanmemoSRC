@@ -105,6 +105,7 @@ function mountHook(options: {
   };
   initialCurrentItem?: ReturnType<typeof createItem> | null;
   initialShowAnswer?: boolean;
+  onReviewDetailed?: ReturnType<typeof vi.fn>;
   onActionError?: ReturnType<typeof vi.fn>;
   prepareStateBeforeCommit?: (state: ReviewUIState, reason: string) => Promise<ReviewUIState>;
 } = {}) {
@@ -118,6 +119,7 @@ function mountHook(options: {
         initialSessionState: options.initialSessionState,
         initialCurrentItem: options.initialCurrentItem as never,
         initialShowAnswer: options.initialShowAnswer,
+        onReviewDetailed: options.onReviewDetailed,
         onActionError: options.onActionError,
         prepareStateBeforeCommit: options.prepareStateBeforeCommit as never,
       });
@@ -523,6 +525,38 @@ describe('useReviewSession', () => {
 
     wrapper.unmount();
   });
+
+  it('commits the next card before slow review detail handlers finish', async () => {
+    const detailGate = createDeferred<void>();
+    const onReviewDetailed = vi.fn(() => detailGate.promise);
+    const adapter = createAdapter({
+      toUIState: vi.fn(async (_queue: unknown, item: { id?: string } | null) => createReviewState(item?.id ?? 'empty')),
+    });
+
+    const { getHook, wrapper } = mountHook({
+      adapter,
+      onReviewDetailed,
+    });
+    await flushAsync();
+    await flushAsync();
+
+    const hook = getHook();
+    expect(hook.state.value.content.id).toBe('card-1');
+
+    const gradePromise = hook.grade(3);
+    await gradePromise;
+
+    expect(hook.state.value.content.id).toBe('card-2');
+    expect(hook.context.value.session?.answeredCount).toBe(1);
+    expect(onReviewDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      cardId: 'card-1',
+      rating: 3,
+    }));
+
+    detailGate.resolve();
+
+    wrapper.unmount();
+  }, 1_000);
 
   it('commits the next card when skipped-card presentation preparation fails', async () => {
     const actionError = vi.fn();

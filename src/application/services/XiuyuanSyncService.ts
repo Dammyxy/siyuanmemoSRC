@@ -76,6 +76,10 @@ type PreparedRiffBlocks = {
     blocks: RiffBlock[];
     skippedCount: number;
 };
+type LocalOwnedSkipSummary = {
+    count: number;
+    sampleBlockIds: string[];
+};
 type RiffInputStage = 'legacy-card-type-migration' | 'incremental' | 'full';
 
 type RiffSyncMetaSource = 'riff-sync';
@@ -96,6 +100,7 @@ type RiffSyncStateStore = {
 };
 
 const INCREMENTAL_SYNC_OVERLAP_MS = 5_000;
+const LOCAL_OWNED_SKIP_SAMPLE_LIMIT = 5;
 
 class XiuyuanSyncBridgeEvent<TPayload extends object> extends DomainEvent {
     constructor(
@@ -269,7 +274,38 @@ export class XiuyuanSyncService {
             && changeSet.metadataUpdates.length === 0
             && changeSet.deletes.length === 0
             && changeSet.blacklistCleanup.length === 0
-            && changeSet.postDetectTargets.length === 0;
+            && changeSet.postDetectTargets.length === 0
+            && changeSet.stats.skippedCount === 0;
+    }
+
+    private createLocalOwnedSkipSummary(): LocalOwnedSkipSummary {
+        return {
+            count: 0,
+            sampleBlockIds: [],
+        };
+    }
+
+    private recordLocalOwnedSkip(summary: LocalOwnedSkipSummary, stage: RiffInputStage, blockId: string): void {
+        summary.count++;
+        const shouldRecordSample = summary.sampleBlockIds.length < LOCAL_OWNED_SKIP_SAMPLE_LIMIT;
+        if (shouldRecordSample) {
+            summary.sampleBlockIds.push(blockId);
+            logger.debug('[XiuyuanSyncService] Skipping Riff card because local-owned Xiuyuan already exists', {
+                stage,
+                blockId,
+            });
+        }
+    }
+
+    private logLocalOwnedSkipSummary(stage: RiffInputStage, summary: LocalOwnedSkipSummary): void {
+        if (summary.count === 0) {
+            return;
+        }
+        logger.info('[XiuyuanSyncService] Skipped Riff cards because local-owned Xiuyuan already exists', {
+            stage,
+            skippedCount: summary.count,
+            sampleBlockIds: summary.sampleBlockIds,
+        });
     }
     
     /**
@@ -1063,6 +1099,7 @@ export class XiuyuanSyncService {
 
         this.reportProgress(onProgress, 'incremental', 'adding', 3, 7, '正在规划新增/更新...');
         const seenBlockIds = new Set<string>();
+        const localOwnedSkips = this.createLocalOwnedSkipSummary();
         for (const riffCard of filteredCards) {
             if (seenBlockIds.has(riffCard.id)) {
                 changeSet.stats.skippedCount++;
@@ -1086,7 +1123,7 @@ export class XiuyuanSyncService {
             }
 
             if (existingXiuyuan && !this.isManagedRiffXiuyuan(existingXiuyuan)) {
-                logger.info(`Skipping Riff card ${riffCard.id}: local-owned Xiuyuan already exists`);
+                this.recordLocalOwnedSkip(localOwnedSkips, 'incremental', riffCard.id);
                 changeSet.stats.skippedCount++;
                 continue;
             }
@@ -1114,6 +1151,7 @@ export class XiuyuanSyncService {
             changeSet.postDetectTargets.push(riffCard);
             changeSet.stats.addedCount++;
         }
+        this.logLocalOwnedSkipSummary('incremental', localOwnedSkips);
 
         logger.info('Incremental reconcile only handles native riff upsert/metadata sync; native riff removals use direct delete routing and full sync remains the deletion fallback');
         changeSet.checkpointAdvance = {
@@ -1150,6 +1188,7 @@ export class XiuyuanSyncService {
 
         this.reportProgress(onProgress, 'full', 'adding', 3, 7, '正在规划新增/更新...');
         const seenBlockIds = new Set<string>();
+        const localOwnedSkips = this.createLocalOwnedSkipSummary();
         for (const riffCard of preparedRiffCards.blocks) {
             if (seenBlockIds.has(riffCard.id)) {
                 changeSet.stats.skippedCount++;
@@ -1173,7 +1212,7 @@ export class XiuyuanSyncService {
             }
 
             if (existingXiuyuan && !this.isManagedRiffXiuyuan(existingXiuyuan)) {
-                logger.info(`Skipping full sync card ${riffCard.id}: local-owned Xiuyuan already exists`);
+                this.recordLocalOwnedSkip(localOwnedSkips, 'full', riffCard.id);
                 changeSet.stats.skippedCount++;
                 continue;
             }
@@ -1201,6 +1240,7 @@ export class XiuyuanSyncService {
             changeSet.postDetectTargets.push(riffCard);
             changeSet.stats.addedCount++;
         }
+        this.logLocalOwnedSkipSummary('full', localOwnedSkips);
 
         this.reportProgress(onProgress, 'full', 'deleting', 4, 7, '正在规划删除同步...');
         if (hadMalformedRiffInput) {

@@ -3,6 +3,144 @@ import { FollowerCommandClient } from '../FollowerCommandClient';
 import type { KernelSidecarClient } from '../KernelSidecarClient';
 
 describe('FollowerCommandClient', () => {
+  it('emits submitted and completed relay diagnostics', async () => {
+    const info = vi.fn();
+    const writerSubmitCommand = vi.fn(async () => ({
+      commandId: 'cmd-1',
+      ownerInstanceId: 'writer-1',
+      ownerSurfaceId: 'scope-writer',
+      status: 'queued',
+      now: 1,
+    }));
+    const writerGetCommandResult = vi.fn(async () => ({
+      commandId: 'cmd-1',
+      status: 'completed',
+      ownerInstanceId: 'writer-1',
+      ownerSurfaceId: 'scope-writer',
+      result: { ok: true },
+      completedAt: 2,
+      now: 2,
+    }));
+    const client = new FollowerCommandClient({
+      writerSubmitCommand,
+      writerGetCommandResult,
+    } as unknown as KernelSidecarClient, {
+      info,
+      warn: vi.fn(),
+    });
+
+    await client.submitAndWait<{ ok: boolean }>({
+      instanceId: 'follower-1',
+      method: 'autocard.execute',
+      params: { idempotencyKey: 'auto-card:block-1' },
+    }, 2_000);
+
+    expect(info).toHaveBeenCalledWith('[FollowerCommandClient] relay command submitted', expect.objectContaining({
+      commandId: 'cmd-1',
+      instanceId: 'follower-1',
+      method: 'autocard.execute',
+      ownerInstanceId: 'writer-1',
+      ownerSurfaceId: 'scope-writer',
+      status: 'queued',
+    }));
+    expect(info).toHaveBeenCalledWith('[FollowerCommandClient] relay command completed', expect.objectContaining({
+      commandId: 'cmd-1',
+      instanceId: 'follower-1',
+      method: 'autocard.execute',
+      ownerInstanceId: 'writer-1',
+      ownerSurfaceId: 'scope-writer',
+      status: 'completed',
+    }));
+  });
+
+  it('keeps empty kernel transaction dequeue polling out of info diagnostics', async () => {
+    const info = vi.fn();
+    const writerSubmitCommand = vi.fn(async () => ({
+      commandId: 'cmd-empty-dequeue',
+      ownerInstanceId: 'writer-1',
+      status: 'queued',
+      now: 1,
+    }));
+    const writerGetCommandResult = vi.fn(async () => ({
+      commandId: 'cmd-empty-dequeue',
+      status: 'completed',
+      ownerInstanceId: 'writer-1',
+      result: { actions: [], remaining: 0 },
+      completedAt: 2,
+      now: 2,
+    }));
+    const client = new FollowerCommandClient({
+      writerSubmitCommand,
+      writerGetCommandResult,
+    } as unknown as KernelSidecarClient, {
+      info,
+      warn: vi.fn(),
+    });
+
+    await client.submitAndWait<{ actions: unknown[]; remaining: number }>({
+      instanceId: 'follower-1',
+      method: 'kernel.transaction.dequeue',
+      params: { maxActions: 4 },
+    }, 2_000);
+
+    expect(info).not.toHaveBeenCalledWith(
+      '[FollowerCommandClient] relay command submitted',
+      expect.objectContaining({ commandId: 'cmd-empty-dequeue' }),
+    );
+    expect(info).not.toHaveBeenCalledWith(
+      '[FollowerCommandClient] relay command completed',
+      expect.objectContaining({ commandId: 'cmd-empty-dequeue' }),
+    );
+  });
+
+  it('emits completed diagnostics for kernel transaction dequeue when actions exist', async () => {
+    const info = vi.fn();
+    const writerSubmitCommand = vi.fn(async () => ({
+      commandId: 'cmd-action-dequeue',
+      ownerInstanceId: 'writer-1',
+      status: 'queued',
+      now: 1,
+    }));
+    const writerGetCommandResult = vi.fn(async () => ({
+      commandId: 'cmd-action-dequeue',
+      status: 'completed',
+      ownerInstanceId: 'writer-1',
+      result: {
+        actions: [{ type: 'native-riff-upsert' }],
+        remaining: 0,
+      },
+      completedAt: 2,
+      now: 2,
+    }));
+    const client = new FollowerCommandClient({
+      writerSubmitCommand,
+      writerGetCommandResult,
+    } as unknown as KernelSidecarClient, {
+      info,
+      warn: vi.fn(),
+    });
+
+    await client.submitAndWait<{ actions: unknown[]; remaining: number }>({
+      instanceId: 'follower-1',
+      method: 'kernel.transaction.dequeue',
+      params: { maxActions: 4 },
+    }, 2_000);
+
+    expect(info).not.toHaveBeenCalledWith(
+      '[FollowerCommandClient] relay command submitted',
+      expect.objectContaining({ commandId: 'cmd-action-dequeue' }),
+    );
+    expect(info).toHaveBeenCalledWith('[FollowerCommandClient] relay command completed', expect.objectContaining({
+      commandId: 'cmd-action-dequeue',
+      instanceId: 'follower-1',
+      method: 'kernel.transaction.dequeue',
+      ownerInstanceId: 'writer-1',
+      status: 'completed',
+      actionCount: 1,
+      remaining: 0,
+    }));
+  });
+
   it('submits command and resolves completed result', async () => {
     const writerSubmitCommand = vi.fn(async () => ({
       commandId: 'cmd-1',

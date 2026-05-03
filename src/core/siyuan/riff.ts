@@ -25,12 +25,79 @@ type BlockInfoRow = Record<string, unknown> & {
     updated_at?: unknown;
 };
 
-function toRiffTimestamp(value: unknown, fallback: string): string {
-    if (typeof value === 'string' && value.trim()) {
-        return value;
+const SIYUAN_BLOCK_ID_TIMESTAMP = /^(\d{14})-/;
+
+function normalizeEpochMs(value: number): number | null {
+    if (!Number.isFinite(value) || value <= 0) {
+        return null;
     }
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-        return new Date(value).toISOString();
+    return value < 10_000_000_000 ? value * 1_000 : value;
+}
+
+function parseSiyuanCompactTimestamp(value: string): number | null {
+    const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(value.trim());
+    if (!match) {
+        return null;
+    }
+    const [, year, month, day, hour, minute, second] = match;
+    const timestamp = Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second),
+    );
+    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
+}
+
+function parseRiffTimestampMs(value: unknown): number | null {
+    if (typeof value === 'number') {
+        return normalizeEpochMs(value);
+    }
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return null;
+    }
+    const compact = parseSiyuanCompactTimestamp(trimmed);
+    if (compact !== null) {
+        return compact;
+    }
+    const parsed = Date.parse(trimmed);
+    if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+    }
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+        return normalizeEpochMs(numeric);
+    }
+    return null;
+}
+
+function parseBlockIdTimestampMs(blockId: unknown): number | null {
+    if (typeof blockId !== 'string') {
+        return null;
+    }
+    const match = SIYUAN_BLOCK_ID_TIMESTAMP.exec(blockId.trim());
+    if (!match) {
+        return null;
+    }
+    return parseSiyuanCompactTimestamp(match[1]);
+}
+
+function resolveRiffBlockCreatedAtMs(block: RiffBlock): number | null {
+    return parseRiffTimestampMs(block.created)
+        ?? parseRiffTimestampMs(block.updated)
+        ?? parseBlockIdTimestampMs(block.id);
+}
+
+function toRiffTimestamp(value: unknown, fallback: string): string {
+    const timestamp = parseRiffTimestampMs(value);
+    if (timestamp !== null) {
+        return new Date(timestamp).toISOString();
     }
     return fallback;
 }
@@ -47,6 +114,36 @@ function withReviewedCards<T extends Record<string, unknown>>(
         ...payload,
         reviewedCards: [...reviewedCards],
     };
+}
+
+async function enrichRiffBlocksWithTimestamps(blocks: RiffBlock[]): Promise<RiffBlock[]> {
+    const blockIdsNeedingInfo = Array.from(new Set(
+        blocks
+            .filter(block => parseRiffTimestampMs(block.created) === null && parseRiffTimestampMs(block.updated) === null)
+            .map(block => String(block.id || '').trim())
+            .filter(Boolean),
+    ));
+    if (blockIdsNeedingInfo.length === 0) {
+        return blocks;
+    }
+
+    try {
+        const blockInfos = await getBlocksByIds<BlockInfoRow>(blockIdsNeedingInfo);
+        const infoMap = new Map(blockInfos.map(info => [String(info.id || '').trim(), info]));
+        return blocks.map((block) => {
+            const info = infoMap.get(String(block.id || '').trim());
+            if (!info) return block;
+            const created = info.created_time ?? info.created ?? info.createdAt ?? info.created_at ?? block.created;
+            const updated = info.last_edited_time ?? info.updated ?? info.updatedAt ?? info.updated_at ?? block.updated;
+            return {
+                ...block,
+                created: toRiffTimestamp(created, block.created),
+                updated: toRiffTimestamp(updated, block.updated),
+            };
+        });
+    } catch {
+        return blocks;
+    }
 }
 
 // ==================== 卡包管理 ====================
@@ -189,15 +286,11 @@ export async function getRiffNewCards(deckID: string, since?: number): Promise<R
     // 获取所有卡片
     const allCards = await getRiffCards(deckID, { includeNew: true });
     
-    // 如果指定了 since，只返回新卡片。
-    // created 无法解析时按“未知创建时间”处理，纳入增量集合，避免漏同步。
     if (since !== undefined && since > 0) {
-        return allCards.filter(card => {
-            const created = Date.parse(card.created);
-            if (!Number.isFinite(created) || created <= 0) {
-                return true;
-            }
-            return created > since;
+        const enrichedCards = await enrichRiffBlocksWithTimestamps(allCards);
+        return enrichedCards.filter((card) => {
+            const created = resolveRiffBlockCreatedAtMs(card);
+            return created !== null && created > since;
         });
     }
     

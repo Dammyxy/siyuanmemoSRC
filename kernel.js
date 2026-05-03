@@ -172,7 +172,7 @@ function cleanupWriterCommandState(at = nowMs()) {
   }
 }
 
-function rebindPendingWriterCommands(ownerInstanceId, at = nowMs()) {
+function rebindPendingWriterCommands(ownerInstanceId, ownerSurfaceId, at = nowMs()) {
   let changed = false;
   for (const [commandId, pending] of writerCommandsPending.entries()) {
     if (pending.expiresAt <= at) {
@@ -184,6 +184,7 @@ function rebindPendingWriterCommands(ownerInstanceId, at = nowMs()) {
     writerCommandsPending.set(commandId, {
       ...pending,
       writerInstanceId: ownerInstanceId,
+      writerSurfaceId: ownerSurfaceId,
       inFlightUntil: 0,
     });
     changed = true;
@@ -286,7 +287,7 @@ async function writerAcquireLease(params) {
       : activeLease?.surfaceId,
   };
   writerLease = nextLease;
-  rebindPendingWriterCommands(nextLease.instanceId, at);
+  rebindPendingWriterCommands(nextLease.instanceId, nextLease.surfaceId, at);
 
   if (!activeLease || activeLease.instanceId !== nextLease.instanceId) {
     await broadcastWriterLeaseChanged(nextLease);
@@ -324,6 +325,9 @@ function writerRenewLease(params) {
     lastHeartbeatAt: at,
     expiresAt: at + ttlMs,
     dbRevision: Number.isFinite(Number(named.dbRevision)) ? Number(named.dbRevision) : activeLease.dbRevision,
+    surfaceId: typeof named.surfaceId === 'string' && named.surfaceId.trim()
+      ? named.surfaceId.trim()
+      : activeLease.surfaceId,
   };
   return buildLeaseEnvelope(writerLease, at);
 }
@@ -398,6 +402,7 @@ async function writerSubmitCommand(params) {
     commandId,
     requesterInstanceId: instanceId,
     writerInstanceId: activeLease.instanceId,
+    writerSurfaceId: activeLease.surfaceId,
     method,
     params: named.params,
     requestedAt: at,
@@ -414,6 +419,7 @@ async function writerSubmitCommand(params) {
   return buildOkEnvelope({
     commandId,
     ownerInstanceId: activeLease.instanceId,
+    ownerSurfaceId: activeLease.surfaceId,
     status: 'queued',
   }, at);
 }
@@ -457,6 +463,7 @@ async function writerCompleteCommand(params) {
     commandId,
     requesterInstanceId: pending.requesterInstanceId,
     writerInstanceId: instanceId,
+    writerSurfaceId: activeLease.surfaceId,
     ok: true,
     result: named.result,
     completedAt: at,
@@ -467,6 +474,7 @@ async function writerCompleteCommand(params) {
     commandId,
     requesterInstanceId: pending.requesterInstanceId,
     writerInstanceId: instanceId,
+    writerSurfaceId: activeLease.surfaceId,
     ok: true,
     result: named.result,
     completedAt: at,
@@ -522,6 +530,7 @@ async function writerFailCommand(params) {
     commandId,
     requesterInstanceId: pending.requesterInstanceId,
     writerInstanceId: instanceId,
+    writerSurfaceId: activeLease.surfaceId,
     ok: false,
     error: errorEnvelope,
     completedAt: at,
@@ -532,6 +541,7 @@ async function writerFailCommand(params) {
     commandId,
     requesterInstanceId: pending.requesterInstanceId,
     writerInstanceId: instanceId,
+    writerSurfaceId: activeLease.surfaceId,
     ok: false,
     error: errorEnvelope,
     completedAt: at,
@@ -560,6 +570,7 @@ function writerGetCommandResult(params) {
       commandId,
       status: 'pending',
       ownerInstanceId: pending.writerInstanceId,
+      ownerSurfaceId: pending.writerSurfaceId,
     }, at);
   }
 
@@ -569,6 +580,7 @@ function writerGetCommandResult(params) {
       commandId,
       status: result.ok ? 'completed' : 'failed',
       ownerInstanceId: result.writerInstanceId,
+      ownerSurfaceId: result.writerSurfaceId,
       result: result.result,
       error: result.error,
       completedAt: result.completedAt,

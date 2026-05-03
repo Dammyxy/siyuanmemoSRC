@@ -364,6 +364,46 @@ describe('XiuyuanSyncService malformed riff input handling', () => {
     vi.useRealTimers();
   });
 
+  it('persists native-riff checkpoints when the run only skips local-owned cards', async () => {
+    vi.useFakeTimers();
+    const syncStartedAt = new Date('2026-03-02T11:00:00.000Z').getTime();
+    vi.setSystemTime(syncStartedAt);
+
+    const storage = {
+      getRiffSyncState: vi.fn(() => ({})),
+      updateRiffSyncState: vi.fn(async () => ({ ok: true as const })),
+    };
+    const { service, xiuyuanRepository, siyuanApi } = createHarness({ storage });
+    const blockId = '20260302110000-abc1234';
+    const localXiuyuan = createLocalOwnedXiuyuan(blockId);
+
+    vi.mocked(xiuyuanRepository.findByBlockId).mockResolvedValue({
+      ok: true,
+      value: [localXiuyuan],
+    });
+    vi.mocked(siyuanApi.getRiffNewCards).mockResolvedValue([
+      createRiffBlock({
+        id: blockId,
+        content: 'local-owned should advance native checkpoint',
+      }),
+    ]);
+
+    const result = await service.incrementalSync(undefined, {
+      source: 'native-riff-transaction',
+      persistIdleCheckpoint: false,
+    });
+
+    expectSyncSuccess(result);
+    expect(result.addedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(xiuyuanRepository.applySyncChangeSet).mock.calls[0]?.[0].checkpointAdvance).toMatchObject({
+      lastSuccessfulIncrementalAt: syncStartedAt,
+      lastSuccessfulIncrementalCursor: `timestamp:${syncStartedAt}`,
+    });
+    vi.useRealTimers();
+  });
+
   it('still persists idle incremental checkpoints for default incremental sync calls', async () => {
     const { service, xiuyuanRepository, siyuanApi } = createHarness();
 

@@ -58,6 +58,7 @@ export class KernelSidecarClient {
   async writerSubmitCommand(request: KernelWriterSubmitCommandRequest): Promise<{
     commandId: string;
     ownerInstanceId: string;
+    ownerSurfaceId?: string;
     status: 'queued';
     now: number;
   }> {
@@ -81,6 +82,7 @@ export class KernelSidecarClient {
     commandId: string;
     status: 'pending' | 'completed' | 'failed' | 'unavailable' | 'expired';
     ownerInstanceId?: string;
+    ownerSurfaceId?: string;
     requesterInstanceId?: string;
     writerInstanceId?: string;
     result?: unknown;
@@ -133,6 +135,7 @@ export class KernelSidecarClient {
   ): {
     commandId: string;
     ownerInstanceId: string;
+    ownerSurfaceId?: string;
     status: 'queued';
     now: number;
   } {
@@ -155,6 +158,7 @@ export class KernelSidecarClient {
     commandId: string;
     status: 'pending' | 'completed' | 'failed' | 'unavailable' | 'expired';
     ownerInstanceId?: string;
+    ownerSurfaceId?: string;
     requesterInstanceId?: string;
     writerInstanceId?: string;
     result?: unknown;

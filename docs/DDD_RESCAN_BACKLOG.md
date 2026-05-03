@@ -1,8 +1,48 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-03 (Round 261)
+Last update: 2026-05-03 (Round 265)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-03 - frontend runtime scope diagnostics and same-context writer cleanup
+
+- Task: 修复/定位两个可见窗口却出现第三个 writer owner instance 的双窗口验证歧义。
+- Touched slice: kernel writer relay diagnostics + kernel sidecar lease metadata；`src/application/clients/{FrontendInstanceRuntime,FollowerCommandClient,KernelSidecarClient}.ts`、`packages/contracts/src/kernel-rpc.ts`、`kernel.js`、focused client tests。
+- Debt fixed now: `FrontendInstanceRuntime` now carries `runtimeScopeId` as kernel lease `surfaceId`; startup/mode/relay logs include runtime scope/window diagnostics; follower relay logs include `ownerSurfaceId`; same-JS-context replacement runtime disposes the previous runtime before acquiring writer lease.
+- Debt deferred: does not forcibly kill a writer from a different JS context or old bundle without `surfaceId`.
+- Why deferred: forcibly stealing cross-context writer lease can break legitimate multi-window writer handoff; stale old runtimes should be cleared by plugin reload or lease TTL before adding a stronger takeover policy.
+- Next safe step: rebuild/reload both windows, then look for exactly one `mode: writer`; `ownerSurfaceId` should match one visible window's `runtimeScopeId`. Missing `ownerSurfaceId` means the writer is an old pre-fix runtime and should disappear after full plugin reload/TTL.
+- Validation: `pnpm exec vitest run src/core/siyuan/__tests__/riff.test.ts src/application/services/__tests__/XiuyuanSyncService.malformed-riff-input.test.ts src/ui/review/v2/__tests__/useReviewSession.spec.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（7 files / 64 tests passed）；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
+
+### 2026-05-03 - suppress expected follower heartbeat lease contention warnings
+
+- Task: 修复双窗口 follower 控制台反复刷 `writer lease acquire failed` / `reason: heartbeat`。
+- Touched slice: kernel writer relay diagnostics；`src/application/clients/FrontendInstanceRuntime.ts` 与 focused runtime tests。
+- Debt fixed now: follower heartbeat 遇到另一个 active writer 持有 lease 时视为健康态，不再输出 warn；writer 丢失 lease、启动/手动 acquire 异常、relay 失败/超时仍保留 operator-visible warning。
+- Debt deferred: 心跳仍按当前 lease polling contract 运行，未改成 push-based ownership notification。
+- Why deferred: ownership notification 改造需要 kernel companion contract 与前端 runtime 双边协议变更，本轮只修误报噪声。
+- Next safe step: 重新构建后在真实双窗口空闲 30 秒，控制台不应连续出现 `reason: heartbeat` 的 `writer lease acquire failed`。
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
+
+### 2026-05-03 - suppress empty kernel dequeue relay polling logs
+
+- Task: 修复真实双窗口控制台持续刷 `kernel.transaction.dequeue` relay taken/completed。
+- Touched slice: kernel writer relay diagnostics；`src/application/clients/{FrontendInstanceRuntime,FollowerCommandClient,relayDiagnostics}.ts` 与对应 tests。
+- Debt fixed now: 明确 `kernel.transaction.dequeue` 是 action pump polling 命令；空 dequeue 结果不再输出 submitted/taken/completed info，非空 action 仍输出 `actionCount/remaining`，失败、超时、lease 丢失仍保留 warn。
+- Debt deferred: 仍未把 relay polling contract 改成 push/ack；当前只修日志噪声，不改双窗口 action pump 行为。
+- Why deferred: polling 是现有 kernel companion relay contract；改成 push/ack 需要 kernel.js、contract、runtime 三边重设，超出本轮刷屏修复。
+- Next safe step: 重新构建后在真实双窗口观察控制台：空闲时不应连续出现 `kernel.transaction.dequeue` taken/completed，发生真实 native-riff/autocard action 时可见非空 action 日志。
+- Validation: `pnpm exec vitest run src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
+
+### 2026-05-03 - post-remediation two-window diagnostics and riff-sync spam fix
+
+- Task: 按复查反馈修复两窗口验证缺日志、Riff `local-owned` 刷屏与评分后切卡慢。
+- Touched slice: Siyuan/Riff integration + Xiuyuan sync + Review session + kernel writer relay diagnostics；`src/core/siyuan/riff.ts`、`src/application/services/XiuyuanSyncService.ts`、`src/ui/review/v2/reviewSessionController.ts`、`src/application/clients/{FrontendInstanceRuntime,FollowerCommandClient}.ts`、`src/application/ApplicationContext.ts`。
+- Debt fixed now: `getRiffNewCards()` enriches created/updated timestamps from block metadata and block-id fallback, unknown timestamps no longer repeat in `since` scans; native-riff local-owned/no-op skip advances checkpoint; per-card `local-owned` info spam replaced with aggregate summary plus debug-only sample rows; review detail/Arena post-processing runs after next-card commit; relay startup/submit/take/complete/fail/timeout diagnostics include instance/mode/lease/command context; `.env.local` enables kernel transaction ingest for live smoke.
+- Debt deferred: RM073/RM074/RM090 real SiYuan two-window smoke still not executed in this CLI session.
+- Why deferred: Needs interactive two-window SiYuan runtime and operator log capture; terminal tests cannot prove real host handoff.
+- Next safe step: Rebuild plugin is already done; open two SiYuan windows, confirm logs listed in quickstart, then record RM073/RM074 evidence.
+- Validation: `pnpm exec vitest run src/core/siyuan/__tests__/riff.test.ts src/application/services/__tests__/XiuyuanSyncService.malformed-riff-input.test.ts src/ui/review/v2/__tests__/useReviewSession.spec.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts`；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-03 - remediation r14 fallback classification and perf smoke baseline
 

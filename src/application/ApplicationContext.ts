@@ -1299,6 +1299,10 @@ export class ApplicationContext {
           : {},
       ),
     );
+    logger.info('[ApplicationContext] Backend migration runtime policy resolved', {
+      flags: backendMigrationRuntimePolicy.flags,
+      capabilities: backendMigrationRuntimePolicy.capabilities,
+    });
     if (backendMigrationRuntimePolicy.capabilities.backendWorkerAvailable) {
       try {
         const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
@@ -1345,7 +1349,11 @@ export class ApplicationContext {
         });
         followerCommandClient = new FollowerCommandClient(sidecarClient);
         await frontendInstanceRuntime.start();
-        logger.info('[ApplicationContext] ✅ Frontend instance runtime started for kernel writer lease');
+        logger.info('[ApplicationContext] ✅ Frontend instance runtime started for kernel writer lease', {
+          instanceId: frontendInstanceRuntime.getInstanceId(),
+          runtimeScopeId: frontendInstanceRuntime.getRuntimeScopeId(),
+          mode: frontendInstanceRuntime.getMode(),
+        });
       } catch (error) {
         frontendInstanceRuntime = null;
         followerCommandClient = null;
@@ -2124,7 +2132,11 @@ export class ApplicationContext {
       const nativeRiffSyncTriggerHandler = new NativeRiffSyncTriggerHandler(this.config.plugin as unknown as SiyuanMemoPlugin);
       transactionWebSocketService.registerHandler(nativeRiffSyncTriggerHandler);
       this.nativeRiffSyncTriggerHandler = nativeRiffSyncTriggerHandler;
-      logger.info('[ApplicationContext] ✅ NativeRiffSyncTriggerHandler registered');
+      logger.warn('[ApplicationContext] NativeRiffSyncTriggerHandler registered because kernel transaction ingest is disabled; two-window transaction smoke cannot validate ingest/action-pump logs in this mode', {
+        backendWorker: runtimePolicy.flags.backendWorker,
+        writerLeaseGuard: runtimePolicy.flags.writerLeaseGuard,
+        kernelTransactionIngest: runtimePolicy.flags.kernelTransactionIngest,
+      });
     } else if (nativeRiffSyncEnabled && kernelTransactionIngestEnabled) {
       logger.info('[ApplicationContext] NativeRiffSyncTriggerHandler skipped because kernel transaction ingest pipeline is enabled');
     }

@@ -18,6 +18,7 @@ import type {
 import { createEmptyReviewUIState } from './types';
 
 const logger = createLogger('ReviewSessionController');
+const REVIEW_GRADE_PHASE_SLOW_MS = 120;
 
 type RatingValue = 1 | 2 | 3 | 4;
 
@@ -133,6 +134,26 @@ function extractCardId(item: unknown): string {
   const shaped = item as ItemIdLike;
   const raw = shaped.cardID ?? shaped.cardId ?? shaped.id;
   return raw == null ? '' : String(raw);
+}
+
+async function measureReviewPhase<TResult>(
+  phase: string,
+  cardId: string,
+  task: () => Promise<TResult>,
+): Promise<TResult> {
+  const startedAt = Date.now();
+  try {
+    return await task();
+  } finally {
+    const durationMs = Date.now() - startedAt;
+    if (durationMs >= REVIEW_GRADE_PHASE_SLOW_MS) {
+      logger.info('[ReviewSessionController] slow review grade phase', {
+        phase,
+        cardId,
+        durationMs,
+      });
+    }
+  }
 }
 
 function extractBlockId(item: unknown): string {
@@ -594,6 +615,44 @@ export function createReviewSessionController<TItem extends QueueItem>(
     await updateState(reason, { skipPrepare: true });
   };
 
+  const scheduleReviewDetailedHandler = (
+    payload: { cardId: string; rating: number; item: TItem | null },
+  ): void => {
+    if (!options?.onReviewDetailed) {
+      return;
+    }
+    const startedAt = Date.now();
+    let detailResult: void | Promise<void>;
+    try {
+      detailResult = options.onReviewDetailed(payload);
+    } catch (error) {
+      logger.warn('[ReviewSessionController] Review detail handler failed after next card commit:', {
+        cardId: payload.cardId,
+        rating: payload.rating,
+        error,
+      });
+      return;
+    }
+    void Promise.resolve(detailResult)
+      .then(() => {
+        const durationMs = Date.now() - startedAt;
+        if (durationMs >= REVIEW_GRADE_PHASE_SLOW_MS) {
+          logger.info('[ReviewSessionController] slow review detail handler', {
+            cardId: payload.cardId,
+            rating: payload.rating,
+            durationMs,
+          });
+        }
+      })
+      .catch((error) => {
+        logger.warn('[ReviewSessionController] Review detail handler failed after next card commit:', {
+          cardId: payload.cardId,
+          rating: payload.rating,
+          error,
+        });
+      });
+  };
+
   const grade = async (rating: number): Promise<void> => runSerialized(async () => {
     const previousItem = currentItem.value;
     const previousShowAnswer = context.value.showAnswer;
@@ -603,34 +662,31 @@ export function createReviewSessionController<TItem extends QueueItem>(
       const normalized = toRatingValue(rating);
       const feedback: QueueFeedback = { action: 'rate', rating: normalized };
       const reviewedItem = currentItem.value;
+      const reviewedCardId = extractCardId(reviewedItem);
 
-      await queue.onFeedback(reviewedItem, feedback);
+      await measureReviewPhase('feedback', reviewedCardId, () => queue.onFeedback(reviewedItem, feedback));
       if (options?.onReview && reviewedItem) {
-        const cardId = extractCardId(reviewedItem);
-        if (cardId) {
-          options.onReview(cardId, normalized);
+        if (reviewedCardId) {
+          options.onReview(reviewedCardId, normalized);
         }
       }
 
-      if (options?.onReviewDetailed && reviewedItem) {
-        const cardId = extractCardId(reviewedItem);
-        if (cardId) {
-          await options.onReviewDetailed({
-            cardId,
-            rating: normalized,
-            item: reviewedItem,
-          });
-        }
-      }
       pushReviewHistory(context.value, {
         action: 'rate',
         answeredDelta: 1,
         correctDelta: normalized >= 3 ? 1 : 0,
       });
       pushedHistory = true;
-      currentItem.value = await queue.next();
+      currentItem.value = await measureReviewPhase('next', reviewedCardId, () => queue.next());
       context.value.showAnswer = false;
-      await updateState('grade');
+      await measureReviewPhase('update-state', reviewedCardId, () => updateState('grade'));
+      if (options?.onReviewDetailed && reviewedItem && reviewedCardId) {
+        scheduleReviewDetailedHandler({
+          cardId: reviewedCardId,
+          rating: normalized,
+          item: reviewedItem,
+        });
+      }
     } catch (error) {
       currentItem.value = previousItem;
       context.value.showAnswer = previousShowAnswer;

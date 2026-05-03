@@ -63,6 +63,7 @@ export interface KernelWriterRenewLeaseRequest {
   instanceId: string;
   ttlMs?: number;
   dbRevision?: number;
+  surfaceId?: string;
 }
 
 export interface KernelWriterReleaseLeaseRequest {
@@ -133,6 +134,7 @@ export interface WriterRelayCommandResultPayload {
   commandId: string;
   requesterInstanceId: string;
   writerInstanceId: string;
+  writerSurfaceId?: string;
   ok: boolean;
   result?: unknown;
   error?: {
@@ -156,6 +158,7 @@ export interface KernelWriterSubmitCommandSuccessEnvelope {
   ok: true;
   commandId: string;
   ownerInstanceId: string;
+  ownerSurfaceId?: string;
   status: 'queued';
   now: number;
 }
@@ -172,6 +175,7 @@ export interface KernelWriterCommandResultEnvelope {
     message: string;
   };
   ownerInstanceId?: string;
+  ownerSurfaceId?: string;
   completedAt?: number;
   now: number;
 }
