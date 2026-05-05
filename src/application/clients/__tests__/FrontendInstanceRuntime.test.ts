@@ -136,6 +136,58 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('passes frontend visibility diagnostics through writer lease calls', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      hasFocus: vi.fn(() => true),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'app://siyuan/main-window' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerHello = vi.fn(async () => ({ ok: true, lease: null, now: 1 }));
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'scope-a',
+        visibilityState: 'visible',
+        documentHasFocus: true,
+        locationHref: 'app://siyuan/main-window',
+      },
+      now: 1,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello,
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+    });
+
+    await runtime.start();
+
+    expect(writerHello).toHaveBeenCalledWith(expect.objectContaining({
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'app://siyuan/main-window',
+    }));
+    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'app://siyuan/main-window',
+    }));
+    await runtime.dispose();
+  });
+
   it('uses a longer default writer lease ttl for background-throttled windows', async () => {
     const writerAcquireLease = vi.fn(async () => ({
       ok: true,
@@ -458,6 +510,57 @@ describe('FrontendInstanceRuntime', () => {
     );
   });
 
+  it('does not warn when writer heartbeat observes another active writer takeover', async () => {
+    const warn = vi.fn();
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          lease: {
+            instanceId: 'instance-a',
+            acquiredAt: 1,
+            expiresAt: 13_000,
+            lastHeartbeatAt: 1,
+          },
+          now: 1,
+        })
+        .mockRejectedValue(new Error('BACKEND_UNAVAILABLE: writer lease held by another instance: writer-b')),
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-b',
+          acquiredAt: 2,
+          expiresAt: 14_000,
+          lastHeartbeatAt: 2,
+        },
+        now: 2,
+      })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      logger: {
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+      },
+    });
+
+    await runtime.start();
+    expect(runtime.getMode()).toBe('writer');
+
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('heartbeat');
+
+    expect(runtime.getMode()).toBe('follower');
+    expect(warn).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] writer lease acquire failed',
+      expect.objectContaining({ reason: 'heartbeat' }),
+    );
+    await runtime.dispose();
+  });
+
   it('drains relay command when current instance is writer', async () => {
     const info = vi.fn();
     const writerTakeCommand = vi.fn()
@@ -698,6 +801,7 @@ describe('FrontendInstanceRuntime', () => {
   });
 
   it('drops to follower when relay polling detects writer lease unavailable', async () => {
+    const warn = vi.fn();
     const runtime = new FrontendInstanceRuntime({
       writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
       writerAcquireLease: vi.fn()
@@ -732,12 +836,21 @@ describe('FrontendInstanceRuntime', () => {
       instanceId: 'instance-a',
       relayPollIntervalMs: 250,
       writerCommandHandler: async () => ({ committed: true }),
+      logger: {
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+      },
     });
 
     await runtime.start();
     expect(runtime.getMode()).toBe('writer');
     await new Promise((resolve) => setTimeout(resolve, 320));
     expect(runtime.getMode()).toBe('follower');
+    expect(warn).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] relay polling lost writer lease',
+      expect.anything(),
+    );
     await runtime.dispose();
   });
 });

@@ -51,6 +51,27 @@ function normalizeMethodName(value) {
   return method;
 }
 
+function normalizeOptionalString(value, maxLength = 512) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return undefined;
+  }
+  return text.slice(0, maxLength);
+}
+
+function normalizeDocumentHasFocus(value) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (value === 'true') {
+    return true;
+  }
+  if (value === 'false') {
+    return false;
+  }
+  return undefined;
+}
+
 function createCommandId() {
   return `cmd-${nowMs().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -77,6 +98,9 @@ function cloneLease(lease) {
     lastHeartbeatAt: lease.lastHeartbeatAt,
     dbRevision: lease.dbRevision,
     surfaceId: lease.surfaceId,
+    visibilityState: lease.visibilityState,
+    documentHasFocus: lease.documentHasFocus,
+    locationHref: lease.locationHref,
   };
 }
 
@@ -93,6 +117,41 @@ function getActiveLease(at = nowMs()) {
     return null;
   }
   return writerLease;
+}
+
+function buildLeaseClientState(named, activeLease = null) {
+  const visibilityState = normalizeOptionalString(named.visibilityState, 32) ?? activeLease?.visibilityState;
+  const documentHasFocus = normalizeDocumentHasFocus(named.documentHasFocus);
+  const locationHref = normalizeOptionalString(named.locationHref, 512) ?? activeLease?.locationHref;
+  return {
+    visibilityState,
+    documentHasFocus: typeof documentHasFocus === 'boolean'
+      ? documentHasFocus
+      : activeLease?.documentHasFocus,
+    locationHref,
+  };
+}
+
+function isRequesterHidden(named) {
+  return normalizeOptionalString(named.visibilityState, 32) === 'hidden';
+}
+
+function isRequesterVisible(named) {
+  return normalizeOptionalString(named.visibilityState, 32) === 'visible';
+}
+
+function isRequesterFocusedVisible(named) {
+  return isRequesterVisible(named) && normalizeDocumentHasFocus(named.documentHasFocus) === true;
+}
+
+function isLeaseReclaimableByVisibleRequester(activeLease, named) {
+  if (!activeLease || !isRequesterVisible(named)) {
+    return false;
+  }
+  if (!activeLease.visibilityState || activeLease.visibilityState === 'hidden') {
+    return true;
+  }
+  return isRequesterFocusedVisible(named) && activeLease.documentHasFocus !== true;
 }
 
 function buildUnavailableEnvelope(message, lease, at = nowMs()) {
@@ -268,14 +327,25 @@ async function writerAcquireLease(params) {
   }
 
   if (activeLease && activeLease.instanceId !== instanceId) {
+    if (!isLeaseReclaimableByVisibleRequester(activeLease, named)) {
+      return buildUnavailableEnvelope(
+        `writer lease held by another instance: ${activeLease.instanceId}`,
+        activeLease,
+        at,
+      );
+    }
+  }
+
+  if (!activeLease && isRequesterHidden(named)) {
     return buildUnavailableEnvelope(
-      `writer lease held by another instance: ${activeLease.instanceId}`,
-      activeLease,
+      'writer lease requester is hidden; foreground runtime required',
+      null,
       at,
     );
   }
 
   const ttlMs = normalizeTtlMs(named.ttlMs);
+  const clientState = buildLeaseClientState(named, activeLease);
   const nextLease = {
     instanceId,
     acquiredAt: activeLease ? activeLease.acquiredAt : at,
@@ -285,6 +355,7 @@ async function writerAcquireLease(params) {
     surfaceId: typeof named.surfaceId === 'string' && named.surfaceId.trim()
       ? named.surfaceId.trim()
       : activeLease?.surfaceId,
+    ...clientState,
   };
   writerLease = nextLease;
   rebindPendingWriterCommands(nextLease.instanceId, nextLease.surfaceId, at);
@@ -320,6 +391,7 @@ function writerRenewLease(params) {
   }
 
   const ttlMs = normalizeTtlMs(named.ttlMs);
+  const clientState = buildLeaseClientState(named, activeLease);
   writerLease = {
     ...activeLease,
     lastHeartbeatAt: at,
@@ -328,6 +400,7 @@ function writerRenewLease(params) {
     surfaceId: typeof named.surfaceId === 'string' && named.surfaceId.trim()
       ? named.surfaceId.trim()
       : activeLease.surfaceId,
+    ...clientState,
   };
   return buildLeaseEnvelope(writerLease, at);
 }

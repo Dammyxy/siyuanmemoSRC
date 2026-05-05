@@ -87,6 +87,17 @@ function resolveDocumentVisibilityState(): string | null {
   return typeof document.visibilityState === 'string' ? document.visibilityState : null;
 }
 
+function resolveDocumentHasFocus(): boolean | null {
+  if (typeof document === 'undefined' || typeof document.hasFocus !== 'function') {
+    return null;
+  }
+  try {
+    return document.hasFocus();
+  } catch {
+    return null;
+  }
+}
+
 function isDocumentHidden(): boolean {
   return resolveDocumentVisibilityState() === 'hidden';
 }
@@ -165,6 +176,7 @@ export class FrontendInstanceRuntime {
       await this.sidecarClient.writerHello({
         instanceId: this.instanceId,
         surfaceId: this.runtimeScopeId,
+        ...this.buildWriterLeaseClientState(),
       });
       const ownership = await this.refreshOwnership('startup');
       this.startHeartbeat();
@@ -175,6 +187,7 @@ export class FrontendInstanceRuntime {
         instanceId: this.instanceId,
         runtimeScopeId: this.runtimeScopeId,
         visibilityState: resolveDocumentVisibilityState(),
+        documentHasFocus: resolveDocumentHasFocus(),
         locationHref: resolveWindowLocationHref(),
         mode: this.mode,
         leaseHolder: ownership.leaseHolder,
@@ -404,6 +417,7 @@ export class FrontendInstanceRuntime {
         instanceId: this.instanceId,
         ttlMs: this.leaseTtlMs,
         surfaceId: this.runtimeScopeId,
+        ...this.buildWriterLeaseClientState(),
       });
       const leaseHolder = typeof lease.lease?.instanceId === 'string' ? lease.lease.instanceId : null;
       const leaseSurfaceId = typeof lease.lease?.surfaceId === 'string' ? lease.lease.surfaceId : null;
@@ -411,18 +425,34 @@ export class FrontendInstanceRuntime {
       return { leaseHolder, leaseSurfaceId };
     } catch (error) {
       const previousMode = this.mode;
-      this.setMode('follower', `${reason}:acquire-failed`, null, null);
-      if (!this.isExpectedFollowerHeartbeatLeaseContention(reason, previousMode, error)) {
+      const observedOwnership = await this.observeCurrentLease(`${reason}:acquire-failed`);
+      if (!this.isExpectedOwnershipAcquireContention(reason, previousMode, error, observedOwnership)) {
         this.logger.warn('[FrontendInstanceRuntime] writer lease acquire failed', {
           instanceId: this.instanceId,
           runtimeScopeId: this.runtimeScopeId,
           reason,
+          leaseHolder: observedOwnership.leaseHolder,
+          leaseSurfaceId: observedOwnership.leaseSurfaceId,
           error,
         });
       }
+      return observedOwnership;
     }
+  }
 
-    return this.observeCurrentLease(`${reason}:get-lease`);
+  private buildWriterLeaseClientState(): {
+    visibilityState?: string;
+    documentHasFocus?: boolean;
+    locationHref?: string;
+  } {
+    const visibilityState = resolveDocumentVisibilityState();
+    const documentHasFocus = resolveDocumentHasFocus();
+    const locationHref = resolveWindowLocationHref();
+    return {
+      ...(visibilityState ? { visibilityState } : {}),
+      ...(typeof documentHasFocus === 'boolean' ? { documentHasFocus } : {}),
+      ...(locationHref ? { locationHref } : {}),
+    };
   }
 
   private async observeCurrentLease(reason: string): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
@@ -497,14 +527,16 @@ export class FrontendInstanceRuntime {
       }
     } catch (error) {
       if (this.isWriterLeaseUnavailableError(error)) {
-        this.logger.warn('[FrontendInstanceRuntime] relay polling lost writer lease', {
-          instanceId: this.instanceId,
-          runtimeScopeId: this.runtimeScopeId,
-          error,
-        });
-        await this.refreshOwnership('relay-poll').catch(() => {
-          this.mode = 'follower';
-        });
+        const ownership = await this.observeCurrentLease('relay-poll:lost-writer');
+        if (!ownership.leaseHolder || ownership.leaseHolder === this.instanceId) {
+          this.logger.warn('[FrontendInstanceRuntime] relay polling lost writer lease', {
+            instanceId: this.instanceId,
+            runtimeScopeId: this.runtimeScopeId,
+            leaseHolder: ownership.leaseHolder,
+            leaseSurfaceId: ownership.leaseSurfaceId,
+            error,
+          });
+        }
       }
     } finally {
       this.drainingRelay = false;
@@ -516,16 +548,23 @@ export class FrontendInstanceRuntime {
     return message.startsWith('BACKEND_UNAVAILABLE:');
   }
 
-  private isExpectedFollowerHeartbeatLeaseContention(
+  private isExpectedOwnershipAcquireContention(
     reason: string,
     previousMode: FrontendInstanceMode,
     error: unknown,
+    ownership: { leaseHolder: string | null; leaseSurfaceId: string | null },
   ): boolean {
-    if (reason !== 'heartbeat' || previousMode !== 'follower') {
+    if (reason !== 'heartbeat') {
       return false;
     }
     const message = error instanceof Error ? error.message : String(error || '');
-    return message.includes('writer lease held by another instance');
+    if (!message.includes('writer lease held by another instance')) {
+      return false;
+    }
+    if (previousMode === 'follower') {
+      return true;
+    }
+    return previousMode === 'writer' && !!ownership.leaseHolder && ownership.leaseHolder !== this.instanceId;
   }
 }
 

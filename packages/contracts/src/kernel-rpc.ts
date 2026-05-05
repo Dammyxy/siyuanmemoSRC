@@ -21,6 +21,9 @@ export interface WriterLeasePayload {
   lastHeartbeatAt: number;
   dbRevision?: number;
   surfaceId?: string;
+  visibilityState?: string;
+  documentHasFocus?: boolean;
+  locationHref?: string;
 }
 
 export type KernelWriterLeaseErrorCode =
@@ -50,6 +53,9 @@ export type KernelWriterLeaseEnvelope =
 export interface KernelWriterHelloRequest {
   instanceId: string;
   surfaceId?: string;
+  visibilityState?: string;
+  documentHasFocus?: boolean;
+  locationHref?: string;
 }
 
 export interface KernelWriterAcquireLeaseRequest {
@@ -57,6 +63,9 @@ export interface KernelWriterAcquireLeaseRequest {
   ttlMs?: number;
   dbRevision?: number;
   surfaceId?: string;
+  visibilityState?: string;
+  documentHasFocus?: boolean;
+  locationHref?: string;
 }
 
 export interface KernelWriterRenewLeaseRequest {
@@ -64,6 +73,9 @@ export interface KernelWriterRenewLeaseRequest {
   ttlMs?: number;
   dbRevision?: number;
   surfaceId?: string;
+  visibilityState?: string;
+  documentHasFocus?: boolean;
+  locationHref?: string;
 }
 
 export interface KernelWriterReleaseLeaseRequest {

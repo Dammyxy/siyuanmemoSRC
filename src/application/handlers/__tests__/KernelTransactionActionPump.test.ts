@@ -169,6 +169,43 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
+  it('dequeues locally when stale follower mode self-relay is rejected by kernel', async () => {
+    const dequeueKernelTransactions = vi.fn(async () => ({
+      actions: [],
+      remaining: 0,
+    }));
+    const submitAndWait = vi.fn(async () => {
+      throw new Error('INVALID_REQUEST: writer instance should execute command locally instead of submitCommand');
+    });
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      {
+        getMode: () => 'follower',
+        getInstanceId: () => 'runtime-1',
+      },
+      { submitAndWait },
+      () => undefined,
+      () => undefined,
+      { pollIntervalMs: 250 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(submitAndWait).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instanceId: 'runtime-1',
+        method: 'kernel.transaction.dequeue',
+      }),
+      15000,
+    );
+    expect(dequeueKernelTransactions).toHaveBeenCalledWith({ maxActions: 8 });
+
+    await pump.dispose();
+  });
+
   it('routes auto-card-candidates actions to AutoCardHandler', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [{
@@ -364,6 +401,70 @@ describe('KernelTransactionActionPump', () => {
         idempotencyKey: 'k4',
       }],
     });
+
+    await pump.dispose();
+  });
+
+  it('requeues locally when stale follower mode self-relay is rejected by kernel', async () => {
+    const action = {
+      type: 'native-riff-upsert' as const,
+      blockIds: ['block-fail'],
+      source: 'ws-main' as const,
+      receivedAt: 4,
+      idempotencyKey: 'k4',
+    };
+    const submitAndWait = vi.fn()
+      .mockResolvedValueOnce({
+        actions: [action],
+        remaining: 0,
+      })
+      .mockRejectedValueOnce(new Error('INVALID_REQUEST: writer instance should execute command locally instead of submitCommand'));
+    const requeueKernelTransactions = vi.fn(async () => ({
+      requeued: 1,
+      queueLength: 1,
+      maxQueueLength: 4096,
+    }));
+    const handleNativeRiffUpsert = vi.fn(async () => {
+      throw new Error('upsert failed');
+    });
+
+    const pump = new KernelTransactionActionPump(
+      {
+        dequeueKernelTransactions: vi.fn(async () => ({ actions: [], remaining: 0 })),
+        requeueKernelTransactions,
+      },
+      {
+        getMode: () => 'follower',
+        getInstanceId: () => 'runtime-1',
+      },
+      { submitAndWait },
+      () => ({ handleNativeRiffUpsert }),
+      () => undefined,
+      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+
+    expect(submitAndWait).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        instanceId: 'runtime-1',
+        method: 'kernel.transaction.dequeue',
+      }),
+      15000,
+    );
+    expect(submitAndWait).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        instanceId: 'runtime-1',
+        method: 'kernel.transaction.requeue',
+        params: { actions: [action] },
+      }),
+      15000,
+    );
+    expect(requeueKernelTransactions).toHaveBeenCalledWith({ actions: [action] });
 
     await pump.dispose();
   });

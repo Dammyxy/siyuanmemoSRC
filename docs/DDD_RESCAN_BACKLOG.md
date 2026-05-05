@@ -1,8 +1,58 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-05 (Round 267)
+Last update: 2026-05-05 (Round 272)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-05 - action pump self-relay stale mode recovery
+
+- Task: 修复 `KernelTransactionActionPump` 在 writer 接管窗口里报 `INVALID_REQUEST: writer instance should execute command locally instead of submitCommand`。
+- Touched slice: kernel transaction action pump relay boundary；`src/application/handlers/KernelTransactionActionPump.ts`、focused pump test、`ARCHITECTURE.md`。
+- Debt fixed now: 当 runtime 本地 mode 滞后为 follower，但 kernel 拒绝 `writer.submitCommand` 并明确当前 instance 已是 writer 时，pump 将本轮 `kernel.transaction.dequeue/requeue` 改为本地 backend worker 调用，并尝试 `ensureWritable()` 同步 runtime mode；其他 relay 错误仍 fail-closed。
+- Debt deferred: writer/follower mode 仍是 frontend runtime 轮询心跳同步，没有引入 kernel push event 直接驱动 action pump mode。
+- Why deferred: push mode 需要改 kernel companion event、runtime subscription 与 pump lifecycle；当前真实阻塞是 self-relay race 的最小恢复。
+- Next safe step: 重新构建重启后，切窗口/QuickNote handover 时不应再看到该 `INVALID_REQUEST` action polling failed；若出现其他 `KernelTransactionActionPump` warn，优先看 `message` 是否是 no active writer 或 queue backpressure。
+- Validation: red `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts --reporter=dot` failed on local dequeue not called after self-relay invalid；green same command（1 file / 11 tests passed）；green `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionActionPump.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（6 files / 47 tests passed）；`pnpm run check:boundaries`；`pnpm build`。
+
+### 2026-05-05 - quiet heartbeat handover after writer takeover
+
+- Task: 修复旧 writer 在 heartbeat 阶段发现另一个 active writer 接管后仍输出 `writer lease acquire failed` warn 的误报。
+- Touched slice: kernel writer lease lifecycle；`src/application/clients/FrontendInstanceRuntime.ts`、focused runtime test、`ARCHITECTURE.md`。
+- Debt fixed now: `refreshOwnership()` 的 acquire 失败路径改为先 `writer.getLease` 观察当前 holder，再决定是否 warn。若 heartbeat 看到 holder 已是另一个 active writer，只降级 follower，不输出 warn；startup/manual/visibility acquire 失败仍保留 operator-visible warning，并附带 `leaseHolder/leaseSurfaceId` 诊断。
+- Debt deferred: writer election 仍是 lease + polling 协调，没有引入跨窗口 leader election push channel。
+- Why deferred: 本轮只修真实日志里的健康 handover 误报；push/leader 协议会牵动 kernel contract、runtime lifecycle 与 relay queue，不适合作为最小热修。
+- Next safe step: 重新构建重启后切换窗口，旧 writer heartbeat 遇到新 writer 时应只看到 mode change，不应再刷 `reason: heartbeat` 的 `writer lease acquire failed`；若仍出现，重点看日志里的 `leaseHolder` 是否为空。
+- Validation: red `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot` failed on unexpected heartbeat acquire warn during active-owner takeover；green same command（1 file / 18 tests passed）；green `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（5 files / 31 tests passed）；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`（only LF/CRLF warnings）。
+
+### 2026-05-05 - quiet relay handover after writer takeover
+
+- Task: 修复主窗口/QuickNote writer handover 后，旧 writer relay polling 先输出 `relay polling lost writer lease` warn 的误报。
+- Touched slice: kernel writer relay diagnostics；`src/application/clients/FrontendInstanceRuntime.ts`、focused runtime test、`ARCHITECTURE.md`。
+- Debt fixed now: relay pump 遇到 `writerTakeCommand` 返回 lease unavailable 时不再先 warn 再 acquire；改为先 `writer.getLease` 观察当前 holder 并降级 follower。若 holder 已是另一个 active writer，这是正常 handover，不输出 warn；只有无 holder 或 holder 仍指向自己这类不一致状态才 warn。
+- Debt deferred: relay transport 仍是 polling contract，未改成 push/ack。
+- Why deferred: 本轮是 handover 误报降噪；push/ack 需要 kernel.js、contract、runtime 三边协议变更，超出当前最小修复。
+- Next safe step: 重新构建重启后，QuickNote/主窗口 handover 期间应只看到 mode change，不应持续出现 `relay polling lost writer lease`；如果仍出现，重点看同条日志里的 `leaseHolder` 是否为空。
+- Validation: red `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot` failed on unexpected `relay polling lost writer lease` warn during active-owner handover；green same command（1 file / 17 tests passed）；green `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（5 files / 30 tests passed）；`pnpm run check:boundaries`；`pnpm build`。
+
+### 2026-05-05 - focused-visible writer lease takeover
+
+- Task: 根据真实日志修复 QuickNote 辅助窗口 `visibilityState=visible` 但 `documentHasFocus=false` 时抢走 writer lease，主窗口 visibility refresh 反复失败的问题。
+- Touched slice: kernel writer relay lifecycle；`kernel.js`、`__tests__/kernel-writer-lease.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: kernel writer lease reclaim policy 从“active visible owner 一律保护”收紧为“active focused visible owner 保护”；有焦点的 visible requester 可接管 visible 但 `documentHasFocus=false` 的 holder，QuickNote/辅助窗口不能反抢有焦点主窗口。
+- Debt deferred: 仍未基于 `locationHref` 白名单硬编码 QuickNote/增强窗口；也未实现多可见窗口之间的复杂优先级仲裁。
+- Why deferred: focus/visibility 是更通用的宿主信号，硬编码 `enWindowTitle=QuickNote` 会把策略绑死到一个插件/窗口名；复杂仲裁需要更完整的窗口角色模型，本轮只修已证实的最小根因。
+- Next safe step: 重新构建并完整重启 SiYuan；主窗口点一下获得焦点后跑 `writer.getLease`，应看到 lease owner 切到主窗口实例，`documentHasFocus=true`，QuickNote 不应继续持有 writer。
+- Validation: red `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts --reporter=dot` failed on focused-visible requester reclaiming unfocused visible holder；green same command（1 file / 5 tests passed）；green `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（5 files / 30 tests passed）；`pnpm run check:boundaries`；`pnpm build`。
+
+### 2026-05-05 - foreground writer lease diagnostics guard
+
+- Task: 修复“只有一个可见 SiYuan 窗口，但当前 runtime 仍被另一个 instance 抢走 writer lease”的真实宿主场景。
+- Touched slice: kernel writer relay lifecycle；`src/application/clients/FrontendInstanceRuntime.ts`、`packages/contracts/src/kernel-rpc.ts`、`kernel.js`、focused runtime/kernel tests、`ARCHITECTURE.md`。
+- Debt fixed now: `FrontendInstanceRuntime` 随 `writer.hello/acquireLease` 上报 `visibilityState/documentHasFocus/locationHref`；kernel writer lease payload 保存这些前台诊断；`kernel.js` 拒绝隐藏 requester 抢空 lease，允许可见 requester 接管缺少前台诊断的旧 holder 或 hidden holder，同时保护 active visible owner，避免单可见窗口下另一个 renderer/context 继续心跳抢 writer。
+- Debt deferred: 两个真实可见窗口同时 `visibilityState='visible'` 时仍沿用“已有 active visible owner 受保护”的单 writer policy，未改成焦点窗口强制抢占。
+- Why deferred: 多可见窗口中强制按 focus 抢占会导致切焦点时 writer 频繁迁移，可能放大 relay handover 抖动；当前阻塞根因是隐藏/旧上下文抢 lease，不是合法可见 writer handoff。
+- Next safe step: 构建后完整退出 SiYuan（含托盘）再打开；在控制台确认 `writer.getLease` 返回的 `lease.visibilityState` 为 `visible` 且 `lease.locationHref` 对应当前可见窗口，再做双窗口切换 smoke。
+- Validation: red `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot` failed on hidden requester / visible reclaim / frontend diagnostics；green same command（2 files / 20 tests passed）；green `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（5 files / 28 tests passed）；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`（only LF/CRLF warnings）。
 
 ### 2026-05-05 - hidden-window writer lease ownership guard
 

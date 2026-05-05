@@ -6,6 +6,7 @@ const logger = createLogger('KernelTransactionActionPump');
 type FrontendRuntimeLike = {
   getMode: () => 'writer' | 'follower';
   getInstanceId: () => string;
+  ensureWritable?: () => Promise<void>;
 };
 
 type FollowerCommandClientLike = {
@@ -285,14 +286,21 @@ export class KernelTransactionActionPump {
       if (!this.followerCommandClient) {
         throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.dequeue relay is unavailable in follower mode');
       }
-      return this.followerCommandClient.submitAndWait(
-        {
-          instanceId: this.runtime.getInstanceId(),
-          method: 'kernel.transaction.dequeue',
-          params,
-        },
-        this.relayTimeoutMs,
-      );
+      try {
+        return await this.followerCommandClient.submitAndWait(
+          {
+            instanceId: this.runtime.getInstanceId(),
+            method: 'kernel.transaction.dequeue',
+            params,
+          },
+          this.relayTimeoutMs,
+        );
+      } catch (error) {
+        if (!this.isSelfRelaySubmissionError(error)) {
+          throw error;
+        }
+        await this.refreshStaleWriterModeAfterSelfRelay();
+      }
     }
     return this.srsBackendClient.dequeueKernelTransactions(params);
   }
@@ -343,14 +351,22 @@ export class KernelTransactionActionPump {
         if (!this.followerCommandClient) {
           throw new Error('BACKEND_UNAVAILABLE: kernel.transaction.requeue relay is unavailable in follower mode');
         }
-        await this.followerCommandClient.submitAndWait(
-          {
-            instanceId: this.runtime.getInstanceId(),
-            method: 'kernel.transaction.requeue',
-            params: { actions },
-          },
-          this.relayTimeoutMs,
-        );
+        try {
+          await this.followerCommandClient.submitAndWait(
+            {
+              instanceId: this.runtime.getInstanceId(),
+              method: 'kernel.transaction.requeue',
+              params: { actions },
+            },
+            this.relayTimeoutMs,
+          );
+        } catch (error) {
+          if (!this.isSelfRelaySubmissionError(error)) {
+            throw error;
+          }
+          await this.refreshStaleWriterModeAfterSelfRelay();
+          await this.srsBackendClient.requeueKernelTransactions({ actions });
+        }
         return;
       }
       await this.srsBackendClient.requeueKernelTransactions({ actions });
@@ -359,6 +375,23 @@ export class KernelTransactionActionPump {
         message: requeueError instanceof Error ? requeueError.message : String(requeueError || ''),
         originalError: error instanceof Error ? error.message : String(error || ''),
       });
+    }
+  }
+
+  private isSelfRelaySubmissionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || '');
+    return message.includes('INVALID_REQUEST: writer instance should execute command locally instead of submitCommand');
+  }
+
+  private async refreshStaleWriterModeAfterSelfRelay(): Promise<void> {
+    if (typeof this.runtime?.ensureWritable !== 'function') {
+      return;
+    }
+    try {
+      await this.runtime.ensureWritable();
+    } catch {
+      // The kernel submitCommand rejection already proved this instance owns the active lease.
+      // Keep processing local so action polling does not stall on a stale frontend mode flag.
     }
   }
 }
