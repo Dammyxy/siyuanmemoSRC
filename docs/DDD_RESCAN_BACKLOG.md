@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-03 (Round 265)
+Last update: 2026-05-05 (Round 267)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-05 - hidden-window writer lease ownership guard
+
+- Task: 修复真实 SiYuan 双窗口切换一段时间后两个可见窗口都变成 follower，writer lease 被隐藏/第三实例持有的问题。
+- Touched slice: kernel writer relay lifecycle；`src/application/clients/{FrontendInstanceRuntime,KernelWriterLeaseGuard}.ts`、focused client tests、`kernel.js`、`.env.example`、`ARCHITECTURE.md`。
+- Debt fixed now: `FrontendInstanceRuntime` 默认 writer lease TTL 提升到 60 秒；隐藏 follower 只 `writer.getLease` 观察，不再主动 `writer.acquireLease`；窗口 `visibilitychange` / `focus` 回到可见时立即 refresh ownership；启动新 runtime 前释放同一 JS context registry 里的全部旧 runtime（即使 `runtimeScopeId` 不同），修复单窗口重复装配留下另一个 active writer；旧 `KernelWriterLeaseGuard` 与 `kernel.js` capability 默认 TTL 同步为 60 秒。
+- Debt deferred: kernel transaction ingest inbox/action queue backpressure 仍是独立 Phase 5 队列债务；本轮不改 `kernel.transaction.ingest/dequeue` 的消费模型。
+- Why deferred: 用户当前阻塞点是 writer ownership 漂移；队列消费/快照恢复需要 worker DB queue contract 单独测试，和 lease 可见性修复不是同一最小根因。
+- Next safe step: 重启 SiYuan 后先只开一个窗口，确认不会出现 `writer.getLease` 指向另一个活跃 `instanceId`；再打开两个窗口，确认一个可见窗口为 `writer`、另一个为 `follower`；切换窗口并等待 1-2 分钟后不应出现两个可见窗口都 follower 且 `writer.getLease` 指向第三个活跃实例。
+- Validation: red `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot` failed on hidden follower acquire/default TTL/visibility refresh and same-context different-scope duplicate runtime；red `pnpm exec vitest run src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts --reporter=dot` failed on old 12s default；green `pnpm exec vitest run src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot`（2 files / 19 tests passed）；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`。
 
 ### 2026-05-03 - frontend runtime scope diagnostics and same-context writer cleanup
 

@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FrontendInstanceRuntime } from '../FrontendInstanceRuntime';
 import type { KernelSidecarClient } from '../KernelSidecarClient';
 
 describe('FrontendInstanceRuntime', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('emits startup ownership diagnostics with lease holder details', async () => {
     const info = vi.fn();
     const runtime = new FrontendInstanceRuntime({
@@ -132,6 +136,131 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('uses a longer default writer lease ttl for background-throttled windows', async () => {
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'scope-a',
+      },
+      now: 1,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+    });
+
+    await runtime.start();
+
+    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+      ttlMs: 60_000,
+    }));
+    await runtime.dispose();
+  });
+
+  it('keeps hidden follower observe-only instead of acquiring writer lease', async () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'hidden',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => {
+      throw new Error('hidden follower must not acquire');
+    });
+    const writerGetLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'visible-writer',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'scope-visible',
+      },
+      now: 2,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease,
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'hidden-follower',
+      runtimeScopeId: 'scope-hidden',
+    });
+
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('heartbeat');
+
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+    expect(writerGetLease).toHaveBeenCalledTimes(1);
+    expect(runtime.getMode()).toBe('follower');
+  });
+
+  it('refreshes ownership when a hidden follower becomes visible', async () => {
+    let visibilityState = 'hidden';
+    const documentListeners = new Map<string, EventListener>();
+    vi.stubGlobal('document', {
+      get visibilityState() {
+        return visibilityState;
+      },
+      addEventListener: vi.fn((event: string, listener: EventListener) => {
+        documentListeners.set(event, listener);
+      }),
+      removeEventListener: vi.fn((event: string) => {
+        documentListeners.delete(event);
+      }),
+    });
+    vi.stubGlobal('window', {
+      location: { href: 'app://siyuan/window-a' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'scope-a',
+      },
+      now: 1,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+    });
+
+    await runtime.start();
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+
+    visibilityState = 'visible';
+    documentListeners.get('visibilitychange')?.(new Event('visibilitychange'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-a',
+      surfaceId: 'scope-a',
+    }));
+    expect(runtime.getMode()).toBe('writer');
+    await runtime.dispose();
+  });
+
   it('disposes previous runtime in same runtime scope before starting a replacement', async () => {
     const firstRelease = vi.fn(async () => ({ ok: true, lease: null, now: 2 }));
     const firstRuntime = new FrontendInstanceRuntime({
@@ -175,6 +304,58 @@ describe('FrontendInstanceRuntime', () => {
     } as unknown as KernelSidecarClient, {
       instanceId: 'instance-new',
       runtimeScopeId: 'scope-replace',
+    });
+
+    await secondRuntime.start();
+
+    expect(firstRelease).toHaveBeenCalledWith({ instanceId: 'instance-old' });
+    expect(firstRuntime.getMode()).toBe('follower');
+    expect(secondRuntime.getMode()).toBe('writer');
+    await secondRuntime.dispose();
+  });
+
+  it('disposes previous runtime in the same JS context even when runtime scope differs', async () => {
+    const firstRelease = vi.fn(async () => ({ ok: true, lease: null, now: 2 }));
+    const firstRuntime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-old',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-old',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: firstRelease,
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-old',
+      runtimeScopeId: 'scope-old',
+    });
+
+    await firstRuntime.start();
+
+    const secondRuntime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-new',
+          acquiredAt: 3,
+          expiresAt: 64_000,
+          lastHeartbeatAt: 3,
+          surfaceId: 'scope-new',
+        },
+        now: 3,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 4 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-new',
+      runtimeScopeId: 'scope-new',
     });
 
     await secondRuntime.start();

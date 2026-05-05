@@ -1,6 +1,6 @@
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 
-const DEFAULT_LEASE_TTL_MS = 12_000;
+const DEFAULT_LEASE_TTL_MS = 60_000;
 
 export interface KernelWriterLeaseGuardOptions {
   instanceId?: string;
@@ -37,4 +37,3 @@ export class KernelWriterLeaseGuard {
     }
   }
 }
-

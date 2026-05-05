@@ -87,6 +87,10 @@ function resolveDocumentVisibilityState(): string | null {
   return typeof document.visibilityState === 'string' ? document.visibilityState : null;
 }
 
+function isDocumentHidden(): boolean {
+  return resolveDocumentVisibilityState() === 'hidden';
+}
+
 function resolveWindowLocationHref(): string | null {
   if (typeof window === 'undefined') {
     return null;
@@ -113,6 +117,7 @@ export class FrontendInstanceRuntime {
   private started = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private relayTimer: ReturnType<typeof setInterval> | null = null;
+  private visibilityRefreshDisposer: (() => void) | null = null;
   private drainingRelay = false;
 
   constructor(
@@ -123,7 +128,7 @@ export class FrontendInstanceRuntime {
     this.runtimeScopeId = String(options.runtimeScopeId || '').trim() || resolveDefaultRuntimeScopeId();
     this.leaseTtlMs = Number.isFinite(Number(options.leaseTtlMs))
       ? Math.max(3_000, Math.floor(Number(options.leaseTtlMs)))
-      : 12_000;
+      : 60_000;
     this.relayPollIntervalMs = Number.isFinite(Number(options.relayPollIntervalMs))
       ? Math.max(250, Math.floor(Number(options.relayPollIntervalMs)))
       : 1_000;
@@ -153,7 +158,7 @@ export class FrontendInstanceRuntime {
     if (this.started) {
       return;
     }
-    await this.disposePreviousRuntimeInSameScope();
+    await this.disposePreviousRuntimesInSameContext();
     await this.waitForKernelCompanionRunning();
     this.started = true;
     try {
@@ -164,6 +169,7 @@ export class FrontendInstanceRuntime {
       const ownership = await this.refreshOwnership('startup');
       this.startHeartbeat();
       this.startRelayPump();
+      this.startVisibilityRefresh();
       this.registerCurrentRuntimeInScope();
       this.logger.info('[FrontendInstanceRuntime] started', {
         instanceId: this.instanceId,
@@ -180,6 +186,7 @@ export class FrontendInstanceRuntime {
       this.started = false;
       this.stopHeartbeat();
       this.stopRelayPump();
+      this.stopVisibilityRefresh();
       this.unregisterCurrentRuntimeInScope();
       this.logger.error('[FrontendInstanceRuntime] start failed', {
         instanceId: this.instanceId,
@@ -201,6 +208,7 @@ export class FrontendInstanceRuntime {
     this.started = false;
     this.stopHeartbeat();
     this.stopRelayPump();
+    this.stopVisibilityRefresh();
     this.unregisterCurrentRuntimeInScope();
     if (this.mode === 'writer') {
       try {
@@ -248,6 +256,44 @@ export class FrontendInstanceRuntime {
     }
   }
 
+  private startVisibilityRefresh(): void {
+    this.stopVisibilityRefresh();
+    const disposers: Array<() => void> = [];
+    const refreshWhenVisible = () => {
+      if (!this.started || isDocumentHidden()) {
+        return;
+      }
+      this.refreshOwnership('visibility').catch(() => {
+        // keep visibility-triggered ownership refresh best-effort
+      });
+    };
+
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', refreshWhenVisible);
+      disposers.push(() => document.removeEventListener('visibilitychange', refreshWhenVisible));
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('focus', refreshWhenVisible);
+      disposers.push(() => window.removeEventListener('focus', refreshWhenVisible));
+    }
+    if (disposers.length === 0) {
+      return;
+    }
+    this.visibilityRefreshDisposer = () => {
+      for (const dispose of disposers) {
+        dispose();
+      }
+    };
+  }
+
+  private stopVisibilityRefresh(): void {
+    if (!this.visibilityRefreshDisposer) {
+      return;
+    }
+    this.visibilityRefreshDisposer();
+    this.visibilityRefreshDisposer = null;
+  }
+
   private async waitForKernelCompanionRunning(): Promise<void> {
     if (typeof this.sidecarClient.getStatus !== 'function') {
       return;
@@ -276,26 +322,37 @@ export class FrontendInstanceRuntime {
     throw new Error(`BACKEND_UNAVAILABLE: kernel companion did not reach running state (${lastMessage})`);
   }
 
-  private async disposePreviousRuntimeInSameScope(): Promise<void> {
+  private async disposePreviousRuntimesInSameContext(): Promise<void> {
     const registry = getRuntimeScopeRegistry();
-    const previous = registry?.get(this.runtimeScopeId);
-    if (!previous || previous.instanceId === this.instanceId) {
+    if (!registry || registry.size === 0) {
       return;
     }
-    this.logger.warn('[FrontendInstanceRuntime] disposing previous runtime in same scope before start', {
-      instanceId: this.instanceId,
-      runtimeScopeId: this.runtimeScopeId,
-      previousInstanceId: previous.instanceId,
-    });
-    try {
-      await previous.dispose();
-    } catch (error) {
-      this.logger.warn('[FrontendInstanceRuntime] previous runtime dispose failed', {
+
+    const previousEntries = Array.from(registry.entries())
+      .filter(([, previous]) => previous.instanceId !== this.instanceId);
+    for (const [previousRuntimeScopeId, previous] of previousEntries) {
+      this.logger.warn('[FrontendInstanceRuntime] disposing previous runtime in same JS context before start', {
         instanceId: this.instanceId,
         runtimeScopeId: this.runtimeScopeId,
         previousInstanceId: previous.instanceId,
-        error,
+        previousRuntimeScopeId,
       });
+      try {
+        await previous.dispose();
+      } catch (error) {
+        this.logger.warn('[FrontendInstanceRuntime] previous runtime dispose failed', {
+          instanceId: this.instanceId,
+          runtimeScopeId: this.runtimeScopeId,
+          previousInstanceId: previous.instanceId,
+          previousRuntimeScopeId,
+          error,
+        });
+      } finally {
+        const currentEntry = registry.get(previousRuntimeScopeId);
+        if (currentEntry?.instanceId === previous.instanceId) {
+          registry.delete(previousRuntimeScopeId);
+        }
+      }
     }
   }
 
@@ -338,6 +395,10 @@ export class FrontendInstanceRuntime {
   }
 
   private async refreshOwnership(reason = 'manual'): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
+    if (this.mode !== 'writer' && isDocumentHidden()) {
+      return this.observeCurrentLease(`${reason}:hidden-observe`);
+    }
+
     try {
       const lease = await this.sidecarClient.writerAcquireLease({
         instanceId: this.instanceId,
@@ -361,10 +422,14 @@ export class FrontendInstanceRuntime {
       }
     }
 
+    return this.observeCurrentLease(`${reason}:get-lease`);
+  }
+
+  private async observeCurrentLease(reason: string): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
     const lease = await this.sidecarClient.writerGetLease().catch(() => null);
     const leaseHolder = typeof lease?.lease?.instanceId === 'string' ? lease.lease.instanceId : null;
     const leaseSurfaceId = typeof lease?.lease?.surfaceId === 'string' ? lease.lease.surfaceId : null;
-    this.setMode(leaseHolder === this.instanceId ? 'writer' : 'follower', `${reason}:get-lease`, leaseHolder, leaseSurfaceId);
+    this.setMode(leaseHolder === this.instanceId ? 'writer' : 'follower', reason, leaseHolder, leaseSurfaceId);
     return { leaseHolder, leaseSurfaceId };
   }
 

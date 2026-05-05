@@ -36,6 +36,36 @@ describe('KernelWriterLeaseGuard', () => {
     });
   });
 
+  it('uses the shared longer default ttl when no override is provided', async () => {
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+      },
+      now: 1,
+    }));
+    const guard = new KernelWriterLeaseGuard({
+      writerHello: vi.fn(async () => ({
+        ok: true,
+        lease: null,
+        now: 1,
+      })),
+      writerAcquireLease,
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+    });
+
+    await guard.ensureWritable();
+
+    expect(writerAcquireLease).toHaveBeenCalledWith({
+      instanceId: 'instance-a',
+      ttlMs: 60_000,
+    });
+  });
+
   it('throws when lease owner is different from local instance', async () => {
     const guard = new KernelWriterLeaseGuard({
       writerHello: vi.fn(async () => ({
@@ -62,4 +92,3 @@ describe('KernelWriterLeaseGuard', () => {
     );
   });
 });
-
