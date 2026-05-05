@@ -1092,6 +1092,64 @@ describe('BackendKernel', () => {
     });
   });
 
+  it('drains accepted ingest envelopes when transaction actions are dequeued', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge, undefined, {
+      maxKernelTransactionQueueLength: 1,
+      maxKernelQueuedTransactions: 4,
+    });
+    const kernel = new BackendKernel({ database });
+
+    const first = await kernel.handle({
+      id: 'ingest-drain-first',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        transactions: [{
+          doOperations: [{ action: 'insert', id: 'block-drain-1' }],
+        }],
+        receivedAt: 1,
+        idempotencyKey: 'drain-first',
+      }],
+    });
+    expect('result' in first).toBe(true);
+
+    const dequeue = await kernel.handle({
+      id: 'dequeue-drain-first',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 8 }],
+    });
+    expect('result' in dequeue).toBe(true);
+
+    const second = await kernel.handle({
+      id: 'ingest-drain-second',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        transactions: [{
+          doOperations: [{ action: 'insert', id: 'block-drain-2' }],
+        }],
+        receivedAt: 2,
+        idempotencyKey: 'drain-second',
+      }],
+    });
+    expect(second).toEqual({
+      id: 'ingest-drain-second',
+      jsonrpc: '2.0',
+      result: {
+        accepted: 1,
+        queued: 1,
+        receivedAt: 2,
+        duplicate: false,
+        queueLength: 1,
+        maxQueueLength: 1,
+      },
+    });
+  });
+
   it('commits retrieval review feedback in worker transaction', async () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);

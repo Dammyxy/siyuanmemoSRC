@@ -4,7 +4,6 @@ import { DEFAULT_SETTINGS } from '@/types/settings';
 
 const loggerMocks = vi.hoisted(() => ({
   setGlobalLogLevel: vi.fn(),
-  installConsoleBridge: vi.fn(),
 }));
 
 vi.mock('@/utils/logger', () => ({
@@ -17,7 +16,6 @@ vi.mock('@/utils/logger', () => ({
     error: vi.fn(),
   }),
   applyDebugLogPreference: (enabled: boolean) => {
-    loggerMocks.installConsoleBridge();
     loggerMocks.setGlobalLogLevel(enabled ? 'debug' : 'warn');
   },
 }));
@@ -57,7 +55,6 @@ describe('SettingsService logging runtime wiring', () => {
 
     await service.init();
 
-    expect(loggerMocks.installConsoleBridge).toHaveBeenCalledTimes(1);
     expect(loggerMocks.setGlobalLogLevel).toHaveBeenCalledWith('debug');
   });
 
@@ -65,7 +62,6 @@ describe('SettingsService logging runtime wiring', () => {
     const service = new SettingsService(createFileServiceMock());
     await service.init();
 
-    loggerMocks.installConsoleBridge.mockClear();
     loggerMocks.setGlobalLogLevel.mockClear();
 
     await service.updateSettings({
@@ -74,7 +70,6 @@ describe('SettingsService logging runtime wiring', () => {
       } as typeof DEFAULT_SETTINGS.ui,
     });
 
-    expect(loggerMocks.installConsoleBridge).toHaveBeenCalledTimes(1);
     expect(loggerMocks.setGlobalLogLevel).toHaveBeenCalledWith('debug');
 
     await service.dispose();

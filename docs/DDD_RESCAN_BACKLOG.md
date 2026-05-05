@@ -1,8 +1,38 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-05 (Round 272)
+Last update: 2026-05-06 (Round 275)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-06 - stop prefixing foreign plugin console errors
+
+- Task: 排查 `[SiYuanMemo] TypeError: Failed to fetch` 但 stack 全在 `sy-plugin-enhance/kmind-plugin/sy-f-misc` 的真实控制台误报。
+- Touched slice: logging/settings runtime；`src/utils/logger.ts`、`src/application/services/__tests__/SettingsService.logging.test.ts`、focused logger test、`ARCHITECTURE.md`。
+- Debt fixed now: `applyDebugLogPreference()` 只切换 SiYuanMemo logger 级别，不再安装全局 console bridge；`installConsoleBridge()` 保留为兼容 no-op，避免在思源共享 renderer 中把其他插件的 `console.error` 改成 `[SiYuanMemo]` 前缀。
+- Debt deferred: 历史代码里的少量直接 `console.*` 示例/旧调试输出没有本轮全量迁移到 `createLogger()`。
+- Why deferred: 当前用户日志的根因是全局 console 污染，不是直接 console 调用缺前缀；全量迁移会扩大到无关文件和示例注释。
+- Next safe step: 重新构建重启后，再看到 `sy-plugin-enhance/kmind-plugin/sy-f-misc` stack 的 `Failed to fetch` 时不应带 `[SiYuanMemo]`；若仍带，说明旧 bundle 未完全重载。
+- Validation: red `pnpm exec vitest run src/utils/__tests__/logger.test.ts --reporter=dot` failed because `console.error` was patched；green `pnpm exec vitest run src/utils/__tests__/logger.test.ts src/application/services/__tests__/SettingsService.logging.test.ts --reporter=dot`（2 files / 4 tests passed）；`pnpm run check:boundaries`；`pnpm build`。
+
+### 2026-05-05 - drain kernel transaction ingest inbox after action dequeue
+
+- Task: 修复真实双窗口一段时间后 `kernel.transaction.ingest unavailable: queue backpressure (pending=256, limit=256)`。
+- Touched slice: kernel transaction ingest/action pipeline；`src/application/handlers/KernelTransactionIngestHandler.ts`、`worker/db/SqliteDatabaseService.ts`、focused ingest/worker tests、`ARCHITECTURE.md`。
+- Debt fixed now: `KernelTransactionIngestHandler` 改用 transaction 内容生成稳定 ws-main `idempotencyKey`，不同窗口收到同一 transaction batch 时 worker 会按同 key 去重；worker `kernel.transaction.dequeue` 现在会同时 drain 已接受的 raw ingest envelope，避免 action 已派生但 inbox 只入不出，最终卡死在 `pending=256`。
+- Debt deferred: follower 仍会把 ws-main ingest 命令 relay 给 writer，只是现在由稳定 key 在 worker 层去重，没有改成 writer-only ingest。
+- Why deferred: 是否可以完全关闭 follower ingest 取决于 SiYuan 不同窗口的 ws-main 广播保证；本轮先修确定根因（raw inbox 不出队）并降低多窗口重复投递，不冒险丢 follower 窗口独有 transaction。
+- Next safe step: 重新构建重启后等待一次 action pump tick，旧 `kernel-transaction-ingest.snapshot.json` 里的 pending envelope 应被 dequeue drain；若再看到 backpressure，优先看 message 是 raw `queue backpressure` 还是 `action queue backpressure`。
+- Validation: red `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts worker/__tests__/BackendKernel.test.ts --reporter=dot` failed on deterministic idempotency and drain-capacity expectations；green same command（2 files / 33 tests passed）；green broader `pnpm exec vitest run src/application/handlers/__tests__/KernelTransactionIngestHandler.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts worker/__tests__/BackendKernel.test.ts src/application/clients/__tests__/SrsBackendClient.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts __tests__/kernel-writer-lease.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（8 files / 81 tests passed）；`pnpm run check:boundaries`；`pnpm build`。
+
+### 2026-05-05 - quiet visibility handover after lease acquire race
+
+- Task: 修复 `FrontendInstanceRuntime` 在 visibility 自动刷新时，`writer.acquireLease` 先失败但随后 `writer.getLease` 已显示 active holder（甚至已回到自己）仍输出 `writer lease acquire failed` warn。
+- Touched slice: kernel writer lease lifecycle；`src/application/clients/FrontendInstanceRuntime.ts`、focused runtime tests、`ARCHITECTURE.md`。
+- Debt fixed now: `refreshOwnership()` 的 acquire 失败路径继续先观察当前 lease；若错误是 `writer lease held by another instance`，并且本次是 `heartbeat/visibility` 自动刷新且观察到 active holder，就只按 holder 更新 writer/follower mode，不输出 warn。若观察到 holder 已是当前 instance，则说明竞态已收敛为本地 writer，也不输出 warn。`startup/manual` 仍保留 operator-visible warning。
+- Debt deferred: writer ownership 仍靠 acquire/getLease 轮询收敛，没有引入 kernel push event 直接通知 visibility refresh。
+- Why deferred: push event 会改 kernel companion、runtime subscription 与多窗口 lifecycle；本轮修复真实控制台噪声里的最小竞态。
+- Next safe step: 重新构建重启后，切换窗口时不应再看到 `reason: visibility` 且 `leaseHolder` 已有 active holder 的 `writer lease acquire failed`；若仍出现，重点看 `leaseHolder` 是否为空，空 holder 才是真无主窗口。
+- Validation: red `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot` failed on two visibility acquire-race warn expectations；green same command（1 file / 20 tests passed）；green `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts __tests__/kernel-writer-lease.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（6 files / 49 tests passed）；`pnpm run check:boundaries`；`pnpm build`。
 
 ### 2026-05-05 - action pump self-relay stale mode recovery
 

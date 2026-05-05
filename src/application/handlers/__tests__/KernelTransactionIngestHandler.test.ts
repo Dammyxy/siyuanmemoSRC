@@ -85,6 +85,54 @@ describe('KernelTransactionIngestHandler', () => {
     handler.dispose();
   });
 
+  it('uses deterministic idempotency keys for the same transaction batch across runtime instances', async () => {
+    const firstIngestKernelTransactions = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: Date.now(),
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const secondIngestKernelTransactions = vi.fn(async () => ({
+      accepted: 1,
+      queued: 1,
+      receivedAt: Date.now(),
+      duplicate: false,
+      queueLength: 1,
+      maxQueueLength: 256,
+    }));
+    const transaction = createTransaction('block-same-event');
+    const firstHandler = new KernelTransactionIngestHandler(
+      { ingestKernelTransactions: firstIngestKernelTransactions },
+      null,
+      null,
+      { batchDebounceMs: 10 },
+    );
+    const secondHandler = new KernelTransactionIngestHandler(
+      { ingestKernelTransactions: secondIngestKernelTransactions },
+      null,
+      null,
+      { batchDebounceMs: 10 },
+    );
+
+    firstHandler.handle([transaction]);
+    await vi.advanceTimersByTimeAsync(10);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    secondHandler.handle([transaction]);
+    await vi.advanceTimersByTimeAsync(10);
+    await Promise.resolve();
+
+    const firstKey = firstIngestKernelTransactions.mock.calls[0]?.[0]?.idempotencyKey;
+    const secondKey = secondIngestKernelTransactions.mock.calls[0]?.[0]?.idempotencyKey;
+    expect(firstKey).toBeTruthy();
+    expect(firstKey).toBe(secondKey);
+
+    firstHandler.dispose();
+    secondHandler.dispose();
+  });
+
   it('retries BACKEND_UNAVAILABLE failures before giving up', async () => {
     const ingestKernelTransactions = vi
       .fn()

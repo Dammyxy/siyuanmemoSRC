@@ -4,7 +4,7 @@
  * 目标：
  * - 所有日志通过统一入口输出
  * - 支持按级别过滤
- * - 支持将 legacy console.* 自动桥接到 logger
+ * - 不修改宿主全局 console，避免污染其他思源插件日志
  */
 
 type ConsoleMethod = 'trace' | 'debug' | 'info' | 'log' | 'warn' | 'error';
@@ -34,8 +34,6 @@ function isDevEnv(): boolean {
 }
 
 let globalLevel: LogLevel = isDevEnv() ? 'debug' : 'warn';
-let bridgeInstalled = false;
-
 function canEmit(method: ConsoleMethod, localLevel?: LogLevel): boolean {
   const effectiveLevel = localLevel ?? globalLevel;
   return PRIORITY[method] >= PRIORITY[effectiveLevel];
@@ -44,11 +42,6 @@ function canEmit(method: ConsoleMethod, localLevel?: LogLevel): boolean {
 function emitNative(method: ConsoleMethod, args: unknown[]): void {
   const sink = nativeConsole[method] ?? nativeConsole.log;
   sink(...args);
-}
-
-function isAlreadyPrefixed(args: unknown[]): boolean {
-  const first = args[0];
-  return typeof first === 'string' && first.startsWith('[SiYuanMemo]');
 }
 
 export class Logger {
@@ -101,38 +94,18 @@ export function getGlobalLogLevel(): LogLevel {
 }
 
 export function applyDebugLogPreference(enabled: boolean): void {
-  installConsoleBridge();
   setGlobalLogLevel(enabled ? 'debug' : 'warn');
 }
 
 /**
- * 安装 console 桥接：
- * - 把遗留 console.* 收敛到 logger
- * - 已带 [SiYuanMemo] 前缀的日志保持原样输出（避免重复前缀）
+ * 兼容旧调用点。
+ *
+ * 思源多个插件共享同一个 renderer，全局 patch console 会把其他插件的
+ * `console.error` 也改成 `[SiYuanMemo]` 前缀，导致跨插件错误误归因。
+ * SiYuanMemo 运行时代码应显式使用 `createLogger()`。
  */
 export function installConsoleBridge(): void {
-  if (bridgeInstalled) {
-    return;
-  }
-
-  bridgeInstalled = true;
-
-  const methods: ConsoleMethod[] = ['trace', 'debug', 'info', 'log', 'warn', 'error'];
-  const consoleRecord = console as Record<ConsoleMethod, (...args: unknown[]) => void>;
-  for (const method of methods) {
-    consoleRecord[method] = (...args: unknown[]) => {
-      if (!canEmit(method)) {
-        return;
-      }
-
-      if (isAlreadyPrefixed(args)) {
-        emitNative(method, args);
-        return;
-      }
-
-      logger[method](...args);
-    };
-  }
+  // Intentionally no-op: never patch host console in a shared SiYuan renderer.
 }
 
 export const logger = new Logger();

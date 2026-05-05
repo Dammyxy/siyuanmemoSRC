@@ -561,6 +561,100 @@ describe('FrontendInstanceRuntime', () => {
     await runtime.dispose();
   });
 
+  it('does not warn when visibility refresh observes local writer after acquire race', async () => {
+    const warn = vi.fn();
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          lease: {
+            instanceId: 'instance-a',
+            acquiredAt: 1,
+            expiresAt: 13_000,
+            lastHeartbeatAt: 1,
+            surfaceId: 'scope-a',
+          },
+          now: 1,
+        })
+        .mockRejectedValue(new Error('BACKEND_UNAVAILABLE: writer lease held by another instance: writer-b')),
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 2,
+          expiresAt: 14_000,
+          lastHeartbeatAt: 2,
+          surfaceId: 'scope-a',
+        },
+        now: 2,
+      })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+      logger: {
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+      },
+    });
+
+    await runtime.start();
+    expect(runtime.getMode()).toBe('writer');
+
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('visibility');
+
+    expect(runtime.getMode()).toBe('writer');
+    expect(warn).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] writer lease acquire failed',
+      expect.objectContaining({ reason: 'visibility' }),
+    );
+    await runtime.dispose();
+  });
+
+  it('does not warn when visibility refresh observes another active writer', async () => {
+    const warn = vi.fn();
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance: writer-b');
+      }),
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-b',
+          acquiredAt: 2,
+          expiresAt: 14_000,
+          lastHeartbeatAt: 2,
+          surfaceId: 'scope-b',
+        },
+        now: 2,
+      })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+      logger: {
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+      },
+    });
+
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('visibility');
+
+    expect(runtime.getMode()).toBe('follower');
+    expect(warn).not.toHaveBeenCalledWith(
+      '[FrontendInstanceRuntime] writer lease acquire failed',
+      expect.objectContaining({ reason: 'visibility' }),
+    );
+  });
+
   it('drains relay command when current instance is writer', async () => {
     const info = vi.fn();
     const writerTakeCommand = vi.fn()

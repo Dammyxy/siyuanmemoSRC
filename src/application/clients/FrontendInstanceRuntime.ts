@@ -424,9 +424,8 @@ export class FrontendInstanceRuntime {
       this.setMode(leaseHolder === this.instanceId ? 'writer' : 'follower', reason, leaseHolder, leaseSurfaceId);
       return { leaseHolder, leaseSurfaceId };
     } catch (error) {
-      const previousMode = this.mode;
       const observedOwnership = await this.observeCurrentLease(`${reason}:acquire-failed`);
-      if (!this.isExpectedOwnershipAcquireContention(reason, previousMode, error, observedOwnership)) {
+      if (!this.isExpectedOwnershipAcquireContention(reason, error, observedOwnership)) {
         this.logger.warn('[FrontendInstanceRuntime] writer lease acquire failed', {
           instanceId: this.instanceId,
           runtimeScopeId: this.runtimeScopeId,
@@ -550,21 +549,20 @@ export class FrontendInstanceRuntime {
 
   private isExpectedOwnershipAcquireContention(
     reason: string,
-    previousMode: FrontendInstanceMode,
     error: unknown,
     ownership: { leaseHolder: string | null; leaseSurfaceId: string | null },
   ): boolean {
-    if (reason !== 'heartbeat') {
-      return false;
-    }
     const message = error instanceof Error ? error.message : String(error || '');
     if (!message.includes('writer lease held by another instance')) {
       return false;
     }
-    if (previousMode === 'follower') {
+    if (ownership.leaseHolder === this.instanceId) {
       return true;
     }
-    return previousMode === 'writer' && !!ownership.leaseHolder && ownership.leaseHolder !== this.instanceId;
+    if (reason === 'heartbeat' || reason === 'visibility') {
+      return !!ownership.leaseHolder;
+    }
+    return false;
   }
 }
 

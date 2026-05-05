@@ -31,6 +31,30 @@ type PendingBatch = {
   idempotencyKey: string;
 };
 
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' ? serialized : 'undefined';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(',')}}`;
+}
+
+function fnv1a32(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
 export class KernelTransactionIngestHandler implements ITransactionHandler {
   private readonly batchDebounceMs: number;
   private readonly maxBatchTransactions: number;
@@ -40,7 +64,6 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
   private readonly pendingTransactions: Transaction[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushInFlight = false;
-  private sequence = 0;
 
   constructor(
     private readonly srsBackendClient: Pick<SrsBackendClient, 'ingestKernelTransactions'>,
@@ -93,7 +116,7 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
         const pending: PendingBatch = {
           transactions: batch,
           receivedAt,
-          idempotencyKey: `ws-main:${receivedAt}:${++this.sequence}:${batch.length}`,
+          idempotencyKey: this.createBatchIdempotencyKey(batch),
         };
         await this.sendWithRetry(pending);
       }
@@ -155,6 +178,11 @@ export class KernelTransactionIngestHandler implements ITransactionHandler {
     }
 
     await this.srsBackendClient.ingestKernelTransactions(payload);
+  }
+
+  private createBatchIdempotencyKey(transactions: Transaction[]): string {
+    const signature = fnv1a32(stableStringify(transactions));
+    return `ws-main:${transactions.length}:${signature}`;
   }
 
   private async sleep(ms: number): Promise<void> {

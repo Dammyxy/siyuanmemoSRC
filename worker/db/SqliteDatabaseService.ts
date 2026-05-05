@@ -1066,6 +1066,7 @@ export class WorkerSqliteDatabaseService {
     await this.init();
     const limit = Math.max(1, Math.floor(Number(maxActions) || 0));
     const rawActions = this.kernelTransactionActions.splice(0, limit);
+    this.drainKernelTransactions(Math.max(256, limit * 32));
     this.kernelActionDequeuedTotal += rawActions.length;
     if (rawActions.length > 0) {
       await this.persistKernelActionQueueSnapshot();
