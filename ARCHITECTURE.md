@@ -1,6 +1,6 @@
 # SiyuanMemo 插件架构说明
 
-最后更新：2026-05-05
+最后更新：2026-05-06
 
 本文是当前运行时架构与主数据流的单一事实来源（Single Source of Truth），面向协作者、贡献者与 AI 代理。它描述的是当前仍在生效的主路径，不负责保留历史迁移过程。
 
@@ -938,6 +938,7 @@ UI 层：
 - ownership 规则固定为 local-owned 优先：同一 block 已存在 AutoCard / 手动创建的本地 Xiuyuan 时，Riff 对账不创建第二个 Xiuyuan、不改模板/卡面结构、不覆盖本地调度数据；riff-owned 仅允许同步合法元数据并在 full reconcile 中删除。
 - `UnifiedStorageManager` 的 canonical store 现已升级到 version 2：除 `xiuyuans / cardDTOs / riffBlacklist / riffSyncState` 外，还持久化 `deletedCardDTOs / deletedXiuyuans` tombstone；冲突 hash 从 32-bit 升级为 64-bit FNV-1a，并把 tombstone 与 checkpoint 一起纳入内容哈希。
 - `UnifiedStorageManager` 的 merge 先合并 tombstone 再合并实体；若实体 `updatedAt` 不晚于 tombstone 的 `deletedAt`，实体会被直接丢弃，防止多窗口/外部旧快照把已删卡片或 Xiuyuan 合并回来。只有远端 `lastModifiedBy === instanceId` 的同实例异常回退才记 `error`，正常多窗口/外部 writer 恢复保留 `warn`。
+- `UnifiedStorageManager.runWriteTransaction()` 是同一 writer 进程内的写入串行边界：独立写任务必须排队；只有由当前 `runWriteTransaction` 回调显式传下来的 `StorageWriteTransaction` token 才允许嵌套 `create/update/delete/save` 直接复用当前事务。Xiuyuan repository 与 scheduler adapter 会把该 token 继续传给 storage 写入/保存，避免 auto-card 创建、Riff sync、rootId 补写、review/scheduler 写回在同一个 writer 内并发穿插，触发 `lastModifiedBy === instanceId` 的异常 merge。
 - 当前仍不提供跨设备分布式锁；多窗口/多端同时写入会由 storage merge、逻辑 face 去重与稳定 Xiuyuan/card id 收敛。
 
 ---

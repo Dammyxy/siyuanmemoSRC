@@ -82,12 +82,24 @@ export interface StorageDeletionTombstone {
 
 export type RiffSyncStatePatch = Partial<RiffSyncState>;
 
-export interface CardUpdateOptions {
+export interface StorageWriteTransaction {
+  readonly token: symbol;
+  readonly label: string;
+}
+
+export interface StorageMutationOptions {
+  transaction?: StorageWriteTransaction;
+}
+
+export interface CardUpdateOptions extends StorageMutationOptions {
   preferIncomingScheduling?: boolean;
   schedulingWriteSource?: SchedulingWriteSource;
   suppressAutosave?: boolean;
   suppressDueIndexSort?: boolean;
 }
+
+export interface StorageSaveOptions extends StorageMutationOptions {}
+
 export type StorageLoadReason = 'startup-load' | 'pre-save-conflict-check' | 'unspecified';
 type XiuyuanLookup = ReadonlyMap<string, IXiuyuan> | Record<string, IXiuyuan>;
 type TombstoneLookup = ReadonlyMap<string, StorageDeletionTombstone> | Record<string, StorageDeletionTombstone>;
@@ -239,13 +251,20 @@ export class UnifiedStorageManager {
   private lastKnownRevision: number = 0;
   private writeQueue: Promise<void> = Promise.resolve();
   private writeDepth = 0;
+  private activeWriteTransactionToken: symbol | null = null;
 
   async runWriteTransaction<T>(
     label: string,
-    operation: () => Promise<T> | T
+    operation: (transaction: StorageWriteTransaction) => Promise<T> | T,
+    transaction?: StorageWriteTransaction,
   ): Promise<T> {
-    if (this.writeDepth > 0) {
-      return await operation();
+    if (transaction && this.activeWriteTransactionToken === transaction.token) {
+      this.writeDepth += 1;
+      try {
+        return await operation(transaction);
+      } finally {
+        this.writeDepth = Math.max(0, this.writeDepth - 1);
+      }
     }
 
     const previousQueue = this.writeQueue;
@@ -255,13 +274,20 @@ export class UnifiedStorageManager {
     });
 
     await previousQueue;
+    const nextTransaction: StorageWriteTransaction = {
+      token: Symbol(label),
+      label,
+    };
+    const previousTransactionToken = this.activeWriteTransactionToken;
     const startedAt = Date.now();
+    this.activeWriteTransactionToken = nextTransaction.token;
     this.writeDepth += 1;
     logger.debug('[UnifiedStorageManager] Local write transaction begin', { label });
     try {
-      return await operation();
+      return await operation(nextTransaction);
     } finally {
       this.writeDepth = Math.max(0, this.writeDepth - 1);
+      this.activeWriteTransactionToken = previousTransactionToken;
       releaseQueue?.();
       logger.debug('[UnifiedStorageManager] Local write transaction end', {
         label,
@@ -272,9 +298,10 @@ export class UnifiedStorageManager {
 
   private async runWriteMutation<T>(
     label: string,
-    operation: () => Promise<T> | T
+    operation: (transaction: StorageWriteTransaction) => Promise<T> | T,
+    transaction?: StorageWriteTransaction,
   ): Promise<T> {
-    return this.runWriteTransaction(label, operation);
+    return this.runWriteTransaction(label, operation, transaction);
   }
 
   private getXiuyuanFromLookup(
@@ -703,7 +730,7 @@ export class UnifiedStorageManager {
 
   patchRiffSyncState(
     patch: RiffSyncStatePatch,
-    options: {
+    options: StorageMutationOptions & {
       scheduleSave?: boolean;
     } = {},
   ): boolean {
@@ -727,11 +754,11 @@ export class UnifiedStorageManager {
   }
 
   async updateRiffSyncState(patch: RiffSyncStatePatch): Promise<Result<void>> {
-    return this.runWriteMutation('riff-sync-state', async () => {
+    return this.runWriteMutation('riff-sync-state', async (transaction) => {
       if (!this.patchRiffSyncState(patch, { scheduleSave: false })) {
         return ok(undefined);
       }
-      const saveResult = await this.save();
+      const saveResult = await this.save({ transaction });
       if (isErr(saveResult)) {
         return saveResult;
       }
@@ -852,7 +879,7 @@ export class UnifiedStorageManager {
     return normalizedCount;
   }
 
-  async save(): Promise<Result<void>> {
+  async save(options: StorageSaveOptions = {}): Promise<Result<void>> {
     return this.runWriteMutation('save', async () => {
       try {
         if (!this.saveCallback) {
@@ -890,7 +917,7 @@ export class UnifiedStorageManager {
       } catch (error) {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
-    });
+    }, options.transaction);
   }
 
   /**
@@ -1629,13 +1656,13 @@ export class UnifiedStorageManager {
    * @param xiuyuan XiuYuan 瀹炰綋
    * @param card FSRSCard 瀹炰綋
    */
-  async createCard(xiuyuan: IXiuyuan, card: FSRSCard): Promise<Result<void>> {
+  async createCard(xiuyuan: IXiuyuan, card: FSRSCard, options: CardUpdateOptions = {}): Promise<Result<void>> {
     try {
       // 杞崲 FSRSCard 涓?DTO
       const dto = CardMapper.toPersistence(card);
       
       // 璋冪敤 DTO 鏂规硶锛堜繚鎸佸悜鍚庡吋瀹癸級
-      return await this.createCardDTO(xiuyuan, dto);
+      return await this.createCardDTO(xiuyuan, dto, options);
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
@@ -1657,11 +1684,14 @@ export class UnifiedStorageManager {
      * - 澶辫触鍥炴粴锛氬鏋滀换浣曟搷浣滃け璐ワ紝鍥炴粴鎵€鏈夋洿鏀?
      * - 鎬ц兘浼樺寲锛氫竴娆℃€ф洿鏂扮储寮曪紝涓€娆′繚瀛?
      */
-    async batchCreateCards(xiuyuan: IXiuyuan, cards: FSRSCard[]): Promise<Result<void>> {
-      return this.runWriteMutation('batchCreateCards', async () => {
+    async batchCreateCards(xiuyuan: IXiuyuan, cards: FSRSCard[], options: CardUpdateOptions = {}): Promise<Result<void>> {
+      return this.runWriteMutation('batchCreateCards', async (transaction) => {
       try {
         for (const card of cards) {
-          const result = await this.createCard(xiuyuan, card);
+          const result = await this.createCard(xiuyuan, card, {
+            ...options,
+            transaction,
+          });
           if (isErr(result)) {
             return result;
           }
@@ -1671,7 +1701,7 @@ export class UnifiedStorageManager {
       } catch (error) {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
-      });
+      }, options.transaction);
     }
 
     // === DTO CRUD 鎿嶄綔 ===
@@ -1682,7 +1712,7 @@ export class UnifiedStorageManager {
      * @param dto CardPersistenceDTO
      */
     async createCardDTO(xiuyuan: IXiuyuan, dto: CardPersistenceDTO, options: CardUpdateOptions = {}): Promise<Result<void>> {
-      return this.runWriteMutation('createCardDTO', async () => {
+      return this.runWriteMutation('createCardDTO', async (transaction) => {
       try {
         const canonicalXiuyuan = this.resolveCanonicalXiuyuanSnapshot(xiuyuan);
         const canonicalXiuyuanUpdatedAt = readFiniteNumber(canonicalXiuyuan.updatedAt);
@@ -1736,7 +1766,10 @@ export class UnifiedStorageManager {
             canonicalXiuyuanId: canonicalXiuyuan.id,
             preferIncomingScheduling: options.preferIncomingScheduling,
             schedulingWriteSource: options.schedulingWriteSource,
-          }).value, options);
+          }).value, {
+            ...options,
+            transaction,
+          });
         }
 
         const logicalDuplicate = this.findExistingCardDTOByLogicalKey(normalizedDto, canonicalXiuyuan);
@@ -1745,7 +1778,10 @@ export class UnifiedStorageManager {
             canonicalXiuyuanId: canonicalXiuyuan.id,
             preferIncomingScheduling: options.preferIncomingScheduling,
             schedulingWriteSource: options.schedulingWriteSource,
-          }).value, options);
+          }).value, {
+            ...options,
+            transaction,
+          });
         }
 
         this.cardDTOs.set(normalizedDto.id, normalizedDto);
@@ -1762,7 +1798,7 @@ export class UnifiedStorageManager {
       } catch (error) {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
-      });
+      }, options.transaction);
     }
 
     /**
@@ -1933,7 +1969,7 @@ export class UnifiedStorageManager {
       } catch (error) {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
-      });
+      }, options.transaction);
     }
 
     /**
@@ -1941,11 +1977,11 @@ export class UnifiedStorageManager {
      * @param xiuyuan XiuYuan 瀹炰綋
      * @param dtos CardPersistenceDTO 鏁扮粍
      */
-    async batchCreateCardsDTO(xiuyuan: IXiuyuan, dtos: CardPersistenceDTO[]): Promise<Result<void>> {
-      return this.runWriteMutation('batchCreateCardsDTO', async () => {
+  async batchCreateCardsDTO(xiuyuan: IXiuyuan, dtos: CardPersistenceDTO[]): Promise<Result<void>> {
+      return this.runWriteMutation('batchCreateCardsDTO', async (transaction) => {
       try {
         for (const dto of dtos) {
-          const result = await this.createCardDTO(xiuyuan, dto);
+          const result = await this.createCardDTO(xiuyuan, dto, { transaction });
           if (isErr(result)) {
             return result;
           }
@@ -2033,7 +2069,7 @@ export class UnifiedStorageManager {
   }
 
   async batchUpdateCards(cards: FSRSCard[], options: CardUpdateOptions = {}): Promise<Result<void>> {
-    return this.runWriteMutation('batchUpdateCards', async () => {
+    return this.runWriteMutation('batchUpdateCards', async (transaction) => {
       try {
         const dedupedCards = new Map<string, FSRSCard>();
         for (const card of cards || []) {
@@ -2054,6 +2090,7 @@ export class UnifiedStorageManager {
             ...options,
             suppressAutosave: true,
             suppressDueIndexSort: true,
+            transaction,
           });
           if (isErr(result)) {
             return result;
@@ -2077,14 +2114,14 @@ export class UnifiedStorageManager {
       } catch (error) {
         return err(error instanceof Error ? error : new Error(String(error)));
       }
-    });
+    }, options.transaction);
   }
 
   /**
    * 鍒犻櫎鍗＄墖
    * @param cardId 鍗＄墖 ID
    */
-  async deleteCard(cardId: string): Promise<Result<void>> {
+  async deleteCard(cardId: string, options: StorageMutationOptions = {}): Promise<Result<void>> {
     return this.runWriteMutation('deleteCard', async () => {
     try {
       const dto = this.cardDTOs.get(cardId);
@@ -2120,14 +2157,14 @@ export class UnifiedStorageManager {
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
-    });
+    }, options.transaction);
   }
 
   /**
    * 鍒犻櫎 XiuYuan锛堢骇鑱斿垹闄ゆ墍鏈夊叧鑱斿崱鐗囷級
    * @param xiuyuanId XiuYuan ID
    */
-  async deleteXiuYuan(xiuyuanId: string): Promise<Result<void>> {
+  async deleteXiuYuan(xiuyuanId: string, options: StorageMutationOptions = {}): Promise<Result<void>> {
     return this.runWriteMutation('deleteXiuYuan', async () => {
     try {
       const xiuyuan = this.xiuyuans.get(xiuyuanId);
@@ -2161,7 +2198,7 @@ export class UnifiedStorageManager {
     } catch (error) {
       return err(error instanceof Error ? error : new Error(String(error)));
     }
-    });
+    }, options.transaction);
   }
 
   // === 鏌ヨ鏂规硶 ===
@@ -2563,7 +2600,7 @@ export class UnifiedStorageManager {
     return stats;
   }
 
-  addToRiffBlacklist(blockID: string): void {
+  addToRiffBlacklist(blockID: string, _options: StorageMutationOptions = {}): void {
     if (this.riffBlacklist.has(blockID)) {
       return;
     }
@@ -2571,7 +2608,7 @@ export class UnifiedStorageManager {
     this.scheduleSave('add-riff-blacklist');
   }
 
-  removeFromRiffBlacklist(blockID: string): void {
+  removeFromRiffBlacklist(blockID: string, _options: StorageMutationOptions = {}): void {
     if (!this.riffBlacklist.has(blockID)) {
       return;
     }

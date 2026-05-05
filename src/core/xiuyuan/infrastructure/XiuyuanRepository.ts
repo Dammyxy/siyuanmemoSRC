@@ -44,7 +44,12 @@ import type {
 import { IXiuyuan } from '../types';
 import { CardState, CardType } from '../../../types/card';
 import type { FSRSCard } from '../../../types/card';
-import { UnifiedStorageManager, type UnifiedCardStore } from '../../storage/UnifiedStorageManager';
+import {
+  UnifiedStorageManager,
+  type StorageMutationOptions,
+  type StorageWriteTransaction,
+  type UnifiedCardStore,
+} from '../../storage/UnifiedStorageManager';
 import { getBlockAttrs, setBlockAttrs } from '../../siyuan/api';
 import { ATTR_CARD_TYPE } from '../../siyuan/block';
 import { TemplateRegistry } from '../templates/TemplateRegistry';
@@ -226,6 +231,62 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     };
   }
 
+  private withStorageTransaction<T extends object>(
+    options: T,
+    transaction: StorageWriteTransaction | undefined,
+  ): T & StorageMutationOptions {
+    return transaction ? { ...options, transaction } : options;
+  }
+
+  private async createStorageCard(
+    xiuyuan: IXiuyuan,
+    card: FSRSCard,
+    transaction?: StorageWriteTransaction,
+  ): Promise<Result<void>> {
+    return transaction
+      ? this.storage.createCard(xiuyuan, card, { transaction })
+      : this.storage.createCard(xiuyuan, card);
+  }
+
+  private async updateStorageCard(
+    card: FSRSCard,
+    transaction?: StorageWriteTransaction,
+  ): Promise<Result<void>> {
+    return transaction
+      ? this.storage.updateCard(card, { transaction })
+      : this.storage.updateCard(card);
+  }
+
+  private async deleteStorageCard(
+    cardId: string,
+    transaction?: StorageWriteTransaction,
+  ): Promise<Result<void>> {
+    return transaction
+      ? this.storage.deleteCard(cardId, { transaction })
+      : this.storage.deleteCard(cardId);
+  }
+
+  private async deleteStorageXiuyuan(
+    xiuyuanId: string,
+    transaction?: StorageWriteTransaction,
+  ): Promise<Result<void>> {
+    return transaction
+      ? this.storage.deleteXiuYuan(xiuyuanId, { transaction })
+      : this.storage.deleteXiuYuan(xiuyuanId);
+  }
+
+  private removeStorageRiffBlacklist(
+    blockId: string,
+    transaction?: StorageWriteTransaction,
+  ): void {
+    if (transaction) {
+      this.storage.removeFromRiffBlacklist(blockId, { transaction });
+      return;
+    }
+
+    this.storage.removeFromRiffBlacklist(blockId);
+  }
+
   private mergeDeferredSideEffects(
     target: DeferredRepositorySideEffects,
     source: DeferredRepositorySideEffects,
@@ -375,16 +436,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<void>
    */
   async save(xiuyuan: Xiuyuan): Promise<Result<void>> {
-    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.save', async () => {
+    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.save', async (transaction) => {
       const rollbackSnapshot = this.cloneStorageSnapshot();
       try {
-        const stagedResult = await this.stageSaveXiuyuanMutation(xiuyuan);
+        const stagedResult = await this.stageSaveXiuyuanMutation(xiuyuan, transaction);
         if (!stagedResult.ok) {
           this.restoreStorageSnapshot(rollbackSnapshot, 'save', stagedResult.error);
           return stagedResult;
         }
 
-        const saveResult = await this.storage.save();
+        const saveResult = await this.storage.save({ transaction });
         if (isErr(saveResult)) {
           const error = saveResult.error || new Error('Failed to persist xiuyuan snapshot');
           logger.error('Failed to persist xiuyuan snapshot:', error);
@@ -408,13 +469,13 @@ export class XiuyuanRepository implements IXiuyuanRepository {
   }
 
   async applySyncChangeSet(changeSet: SyncChangeSet): Promise<Result<AppliedSyncSummary>> {
-    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.applySyncChangeSet', async () => {
+    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.applySyncChangeSet', async (transaction) => {
       const rollbackSnapshot = this.cloneStorageSnapshot();
       try {
         const deferredSideEffects = this.createDeferredSideEffects();
 
         for (const create of changeSet.creates) {
-          const stageResult = await this.stageSaveXiuyuanMutation(create.xiuyuanEntity);
+          const stageResult = await this.stageSaveXiuyuanMutation(create.xiuyuanEntity, transaction);
           if (!stageResult.ok) {
             this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
             return stageResult;
@@ -423,7 +484,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
 
         for (const update of changeSet.metadataUpdates) {
-          const stageResult = await this.stageSaveXiuyuanMutation(update.xiuyuanEntity);
+          const stageResult = await this.stageSaveXiuyuanMutation(update.xiuyuanEntity, transaction);
           if (!stageResult.ok) {
             this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
             return stageResult;
@@ -432,7 +493,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
 
         for (const deletion of changeSet.deletes) {
-          const stageResult = await this.stageDeleteXiuyuanMutation(deletion.xiuyuanEntity);
+          const stageResult = await this.stageDeleteXiuyuanMutation(deletion.xiuyuanEntity, transaction);
           if (!stageResult.ok) {
             this.restoreStorageSnapshot(rollbackSnapshot, 'applySyncChangeSet', stageResult.error);
             return stageResult;
@@ -442,14 +503,17 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
         const blacklistCleanup = Array.from(new Set(changeSet.blacklistCleanup));
         for (const blockId of blacklistCleanup) {
-          this.storage.removeFromRiffBlacklist(blockId);
+          this.removeStorageRiffBlacklist(blockId, transaction);
         }
 
         if (changeSet.checkpointAdvance) {
-          this.storage.patchRiffSyncState(changeSet.checkpointAdvance, { scheduleSave: false });
+          this.storage.patchRiffSyncState(
+            changeSet.checkpointAdvance,
+            this.withStorageTransaction({ scheduleSave: false }, transaction),
+          );
         }
 
-        const saveResult = await this.storage.save();
+        const saveResult = await this.storage.save({ transaction });
         if (isErr(saveResult)) {
           const error = saveResult.error || new Error('Failed to persist sync change set');
           logger.error('Failed to persist sync change set:', error);
@@ -599,16 +663,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
    * @returns Result<void>
    */
   async delete(xiuyuan: Xiuyuan): Promise<Result<void>> {
-    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.delete', async () => {
+    const transactionalResult = await this.storage.runWriteTransaction('xiuyuan-repository.delete', async (transaction) => {
       const rollbackSnapshot = this.cloneStorageSnapshot();
       try {
-        const stagedResult = await this.stageDeleteXiuyuanMutation(xiuyuan);
+        const stagedResult = await this.stageDeleteXiuyuanMutation(xiuyuan, transaction);
         if (!stagedResult.ok) {
           this.restoreStorageSnapshot(rollbackSnapshot, 'delete', stagedResult.error);
           return stagedResult;
         }
 
-        const saveResult = await this.storage.save();
+        const saveResult = await this.storage.save({ transaction });
         if (isErr(saveResult)) {
           const error = saveResult.error || new Error('Failed to persist xiuyuan deletion');
           logger.error('Failed to persist xiuyuan deletion:', error);
@@ -673,7 +737,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
 
   // ============ 绉佹湁鏂规硶 ============
 
-  private async stageSaveXiuyuanMutation(xiuyuan: Xiuyuan): Promise<Result<DeferredRepositorySideEffects>> {
+  private async stageSaveXiuyuanMutation(
+    xiuyuan: Xiuyuan,
+    transaction?: StorageWriteTransaction,
+  ): Promise<Result<DeferredRepositorySideEffects>> {
     try {
       const persistedCardType = this.resolvePersistedCardType(xiuyuan);
       const blockIDs = xiuyuan.getBlockIDs();
@@ -728,16 +795,16 @@ export class XiuyuanRepository implements IXiuyuanRepository {
       });
 
       for (const cardToDelete of cardsToDelete) {
-        await this.storage.deleteCard(cardToDelete.id);
+        await this.deleteStorageCard(cardToDelete.id, transaction);
       }
 
       for (const fsrsCard of resolvedCards) {
         const existingCard = this.storage.getCard(fsrsCard.id);
 
         if (existingCard) {
-          await this.storage.updateCard(fsrsCard);
+          await this.updateStorageCard(fsrsCard, transaction);
         } else {
-          await this.storage.createCard(persistenceModel, fsrsCard);
+          await this.createStorageCard(persistenceModel, fsrsCard, transaction);
         }
       }
 
@@ -878,7 +945,10 @@ export class XiuyuanRepository implements IXiuyuanRepository {
     });
   }
 
-  private async stageDeleteXiuyuanMutation(xiuyuan: Xiuyuan): Promise<Result<DeferredRepositorySideEffects>> {
+  private async stageDeleteXiuyuanMutation(
+    xiuyuan: Xiuyuan,
+    transaction?: StorageWriteTransaction,
+  ): Promise<Result<DeferredRepositorySideEffects>> {
     try {
       const xiuyuanId = xiuyuan.getId().getValue();
 
@@ -888,7 +958,7 @@ export class XiuyuanRepository implements IXiuyuanRepository {
         }
       }
 
-      const deleteResult = await this.storage.deleteXiuYuan(xiuyuanId);
+      const deleteResult = await this.deleteStorageXiuyuan(xiuyuanId, transaction);
       if (!deleteResult.ok) {
         return deleteResult;
       }

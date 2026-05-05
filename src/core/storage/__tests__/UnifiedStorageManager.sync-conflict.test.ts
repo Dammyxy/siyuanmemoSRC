@@ -93,6 +93,35 @@ describe('UnifiedStorageManager sync conflict resolution', () => {
     return manager;
   }
 
+  it('serializes independent write transactions while another transaction is awaiting', async () => {
+    const manager = createManager('merge');
+    const order: string[] = [];
+    let releaseFirstTransaction: (() => void) | undefined;
+
+    const firstTransaction = manager.runWriteTransaction('first', async () => {
+      order.push('first-start');
+      await new Promise<void>((resolve) => {
+        releaseFirstTransaction = resolve;
+      });
+      order.push('first-end');
+    });
+
+    await Promise.resolve();
+
+    const secondTransaction = manager.runWriteTransaction('second', async () => {
+      order.push('second-run');
+    });
+
+    await Promise.resolve();
+
+    expect(order).toEqual(['first-start']);
+
+    releaseFirstTransaction?.();
+    await Promise.all([firstTransaction, secondTransaction]);
+
+    expect(order).toEqual(['first-start', 'first-end', 'second-run']);
+  });
+
   it('merge strategy keeps both local and remote updates', async () => {
     const managerA = createManager('merge');
     const managerB = createManager('merge');

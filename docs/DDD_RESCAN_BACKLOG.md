@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-06 (Round 276)
+Last update: 2026-05-06 (Round 277)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-06 - serialize in-process storage writer transactions
+
+- Task: 修复 follower 监听制卡交给 writer 后，writer 控制台出现同一 `UnifiedStorageManager` 实例自己的 `Storage conflict detected` / `Abnormal local storage conflict fallback`。
+- Touched slice: Card CRUD / Xiuyuan / Scheduler / storage write transaction boundary；`src/core/storage/UnifiedStorageManager.ts`、`src/core/xiuyuan/infrastructure/XiuyuanRepository.ts`、`src/core/scheduler/adapters/UnifiedStorageCardUpdateAdapter.ts`、focused storage/Xiuyuan/scheduler tests、`ARCHITECTURE.md`。
+- Debt fixed now: `runWriteTransaction()` 不再用全局 `writeDepth` 判断嵌套；独立异步写任务即使在当前事务 `await` 期间进入也必须排队。真正嵌套的 storage 写入需要显式传递当前 `StorageWriteTransaction` token，Xiuyuan 保存/applySync/delete 与 scheduler batch 写回都把 token 继续传给 `create/update/delete/save`，避免 auto-card 创建、Riff sync、rootId 补写等同 writer 内并发穿插。
+- Debt deferred: `UnifiedStorageManager` 仍有少量同步 mutation helper（如 blacklist 直接 add/remove、`upsertXiuYuan`）没有完全改成强制 token API；本轮只收紧会发生 async save/mutation 交错的主写链路。
+- Why deferred: 这些同步 helper 已被当前 Xiuyuan transaction 包住或由上层显式 save 控制；强制改签名会扩大到 RiffBlacklistService、兼容接口和旧测试，本轮先修真实异常 merge 根因。
+- Next safe step: 重新构建重启后，在 follower 窗口触发监听制卡；writer 仍应执行 `autocard.execute`，但不应再出现 `lastModifiedBy` 是同一 storage instance 的 `Abnormal local storage conflict fallback`。若出现，下一步抓同条日志前后的 `Local write transaction begin/end` 标签，查未传 token 的写入口。
+- Validation: red `pnpm exec vitest run src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts --reporter=dot` failed because an independent transaction entered while the first transaction was awaiting；green same command；green `pnpm exec vitest run src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.riff-sync-binding.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.list-template-split-v2.test.ts --reporter=dot`；green `pnpm exec vitest run src/core/scheduler/adapters/__tests__/UnifiedStorageCardUpdateAdapter.test.ts --reporter=dot`；green broader `pnpm exec vitest run src/core/storage/__tests__/UnifiedStorageManager.sync-conflict.test.ts src/core/scheduler/adapters/__tests__/UnifiedStorageCardUpdateAdapter.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.riff-sync-binding.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.list-template-split-v2.test.ts src/core/xiuyuan/infrastructure/__tests__/XiuyuanRepository.sync-change-set.test.ts src/application/services/__tests__/ReviewScopeCardCreationSyncService.test.ts --reporter=dot`（6 files / 26 tests passed）；`pnpm run check:boundaries`；`pnpm build`（通过；i18n 阻断问题 0，保留既有 338 个硬编码提示、14 个 i18n 内容提示与 Sass legacy warning）；`git diff --check`（only LF/CRLF warnings）。
 
 ### 2026-05-06 - prevent visible-window writer lease flapping
 

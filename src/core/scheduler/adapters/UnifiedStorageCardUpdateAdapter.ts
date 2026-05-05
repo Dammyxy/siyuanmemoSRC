@@ -50,11 +50,12 @@ export class UnifiedStorageCardUpdateAdapter implements CardUpdatePort {
     ));
     const schedulingWriteSource = options.schedulingWriteSource ?? 'review-commit';
 
-    await this.storage.runWriteTransaction('scheduler.batchUpdateCardsWithoutEvents', async () => {
+    await this.storage.runWriteTransaction('scheduler.batchUpdateCardsWithoutEvents', async (transaction) => {
       const result = await this.storage.batchUpdateCards(cardsToPersist, {
           preferIncomingScheduling: true,
           schedulingWriteSource,
           suppressAutosave: Boolean(this.sqlCards),
+          transaction,
         });
       if (isErr(result)) {
         throw new Error(
