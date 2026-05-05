@@ -408,10 +408,29 @@ export class FrontendInstanceRuntime {
   }
 
   private async refreshOwnership(reason = 'manual'): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
+    if (reason === 'heartbeat') {
+      if (this.mode === 'writer') {
+        return this.renewCurrentWriterLease(reason);
+      }
+      const observedOwnership = await this.observeCurrentLease(`${reason}:observe`);
+      if (observedOwnership.leaseHolder || isDocumentHidden()) {
+        return observedOwnership;
+      }
+      return this.acquireWriterLease(reason);
+    }
+
+    if (this.mode === 'writer' && reason === 'visibility') {
+      return this.renewCurrentWriterLease(reason);
+    }
+
     if (this.mode !== 'writer' && isDocumentHidden()) {
       return this.observeCurrentLease(`${reason}:hidden-observe`);
     }
 
+    return this.acquireWriterLease(reason);
+  }
+
+  private async acquireWriterLease(reason: string): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
     try {
       const lease = await this.sidecarClient.writerAcquireLease({
         instanceId: this.instanceId,
@@ -419,10 +438,7 @@ export class FrontendInstanceRuntime {
         surfaceId: this.runtimeScopeId,
         ...this.buildWriterLeaseClientState(),
       });
-      const leaseHolder = typeof lease.lease?.instanceId === 'string' ? lease.lease.instanceId : null;
-      const leaseSurfaceId = typeof lease.lease?.surfaceId === 'string' ? lease.lease.surfaceId : null;
-      this.setMode(leaseHolder === this.instanceId ? 'writer' : 'follower', reason, leaseHolder, leaseSurfaceId);
-      return { leaseHolder, leaseSurfaceId };
+      return this.applyLeaseOwnership(lease, reason);
     } catch (error) {
       const observedOwnership = await this.observeCurrentLease(`${reason}:acquire-failed`);
       if (!this.isExpectedOwnershipAcquireContention(reason, error, observedOwnership)) {
@@ -437,6 +453,41 @@ export class FrontendInstanceRuntime {
       }
       return observedOwnership;
     }
+  }
+
+  private async renewCurrentWriterLease(reason: string): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
+    try {
+      const lease = await this.sidecarClient.writerRenewLease({
+        instanceId: this.instanceId,
+        ttlMs: this.leaseTtlMs,
+        surfaceId: this.runtimeScopeId,
+        ...this.buildWriterLeaseClientState(),
+      });
+      return this.applyLeaseOwnership(lease, reason);
+    } catch (error) {
+      const observedOwnership = await this.observeCurrentLease(`${reason}:renew-failed`);
+      if (!this.isExpectedOwnershipRenewContention(reason, error, observedOwnership)) {
+        this.logger.warn('[FrontendInstanceRuntime] writer lease renew failed', {
+          instanceId: this.instanceId,
+          runtimeScopeId: this.runtimeScopeId,
+          reason,
+          leaseHolder: observedOwnership.leaseHolder,
+          leaseSurfaceId: observedOwnership.leaseSurfaceId,
+          error,
+        });
+      }
+      return observedOwnership;
+    }
+  }
+
+  private applyLeaseOwnership(
+    lease: { lease?: { instanceId?: unknown; surfaceId?: unknown } | null },
+    reason: string,
+  ): { leaseHolder: string | null; leaseSurfaceId: string | null } {
+    const leaseHolder = typeof lease.lease?.instanceId === 'string' ? lease.lease.instanceId : null;
+    const leaseSurfaceId = typeof lease.lease?.surfaceId === 'string' ? lease.lease.surfaceId : null;
+    this.setMode(leaseHolder === this.instanceId ? 'writer' : 'follower', reason, leaseHolder, leaseSurfaceId);
+    return { leaseHolder, leaseSurfaceId };
   }
 
   private buildWriterLeaseClientState(): {
@@ -554,6 +605,23 @@ export class FrontendInstanceRuntime {
   ): boolean {
     const message = error instanceof Error ? error.message : String(error || '');
     if (!message.includes('writer lease held by another instance')) {
+      return false;
+    }
+    if (ownership.leaseHolder === this.instanceId) {
+      return true;
+    }
+    if (reason === 'heartbeat' || reason === 'visibility') {
+      return !!ownership.leaseHolder;
+    }
+    return false;
+  }
+
+  private isExpectedOwnershipRenewContention(
+    reason: string,
+    error: unknown,
+    ownership: { leaseHolder: string | null; leaseSurfaceId: string | null },
+  ): boolean {
+    if (!this.isWriterLeaseUnavailableError(error)) {
       return false;
     }
     if (ownership.leaseHolder === this.instanceId) {

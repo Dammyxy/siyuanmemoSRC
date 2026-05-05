@@ -140,18 +140,11 @@ function isRequesterVisible(named) {
   return normalizeOptionalString(named.visibilityState, 32) === 'visible';
 }
 
-function isRequesterFocusedVisible(named) {
-  return isRequesterVisible(named) && normalizeDocumentHasFocus(named.documentHasFocus) === true;
-}
-
 function isLeaseReclaimableByVisibleRequester(activeLease, named) {
   if (!activeLease || !isRequesterVisible(named)) {
     return false;
   }
-  if (!activeLease.visibilityState || activeLease.visibilityState === 'hidden') {
-    return true;
-  }
-  return isRequesterFocusedVisible(named) && activeLease.documentHasFocus !== true;
+  return !activeLease.visibilityState || activeLease.visibilityState === 'hidden';
 }
 
 function buildUnavailableEnvelope(message, lease, at = nowMs()) {

@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-06 (Round 275)
+Last update: 2026-05-06 (Round 276)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-06 - prevent visible-window writer lease flapping
+
+- Task: 修复真实主窗口与 `window.html` 新窗口都显示 `isRealWriter: true`，kernel lease 在两个 visible renderer 间来回被 `acquireLease` 覆盖的问题。
+- Touched slice: kernel writer lease lifecycle；`kernel.js`、`src/application/clients/FrontendInstanceRuntime.ts`、focused runtime/kernel tests、`ARCHITECTURE.md`。
+- Debt fixed now: `kernel.js` 不再允许 active visible holder 被另一个 visible requester 仅凭 `documentHasFocus` 抢占，只保留 visible requester 接管缺少前台诊断或 hidden holder 的恢复路径；`FrontendInstanceRuntime` 的 writer heartbeat / writer visibility refresh 改走 `writer.renewLease`，follower heartbeat 先 observe active holder，避免自动心跳/切焦点继续用 `writer.acquireLease` 抢锁。
+- Debt deferred: 仍未引入跨窗口 push leader election；崩溃 writer 的恢复仍依赖 release / TTL 过期 / 后续 visible acquire。
+- Why deferred: push election 会牵动 kernel RPC/broadcast subscription、runtime lifecycle 与 relay queue；本轮根因已定位为 visible-vs-visible preempt + writer heartbeat acquire，先收紧单写者不变量。
+- Next safe step: 重新构建重启 SiYuan（含托盘退出）后同时打开主窗口和新窗口，跑 `isRealWriter` 快照时应只有一个窗口为 true；另一个即使本地 `mode` 短暂滞后，也必须因 `kernelLease.instanceId !== local.instanceId` 显示 `isRealWriter: false`。
+- Validation: red `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts --reporter=dot` failed on visible requester reclaiming visible owner；red `pnpm exec vitest run src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot` failed because writer heartbeat still called acquire twice；green same two focused commands；green broader `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（7 files / 53 tests passed）；`pnpm run check:boundaries`；`pnpm build`；`git diff --check`（only LF/CRLF warnings）。
 
 ### 2026-05-06 - stop prefixing foreign plugin console errors
 

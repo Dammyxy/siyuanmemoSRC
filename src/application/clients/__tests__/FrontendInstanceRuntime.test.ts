@@ -510,6 +510,55 @@ describe('FrontendInstanceRuntime', () => {
     );
   });
 
+  it('renews writer heartbeat instead of acquiring the lease again', async () => {
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'scope-a',
+      },
+      now: 1,
+    }));
+    const writerRenewLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 81_000,
+        lastHeartbeatAt: 21_000,
+        surfaceId: 'scope-a',
+      },
+      now: 21_000,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerRenewLease,
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+    });
+
+    await runtime.start();
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('heartbeat');
+
+    expect(writerAcquireLease).toHaveBeenCalledTimes(1);
+    expect(writerRenewLease).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-a',
+      surfaceId: 'scope-a',
+      ttlMs: 60_000,
+    }));
+    expect(runtime.getMode()).toBe('writer');
+    await runtime.dispose();
+  });
+
   it('does not warn when writer heartbeat observes another active writer takeover', async () => {
     const warn = vi.fn();
     const runtime = new FrontendInstanceRuntime({

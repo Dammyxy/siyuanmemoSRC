@@ -134,7 +134,7 @@ describe('kernel writer lease foreground policy', () => {
     });
   });
 
-  it('lets focused visible requester reclaim a visible owner without document focus', async () => {
+  it('keeps visible owner protected from another visible requester even when owner lacks document focus', async () => {
     const kernel = await loadKernelRpc();
 
     await expect(kernel.call('writer.acquireLease', {
@@ -160,12 +160,15 @@ describe('kernel writer lease foreground policy', () => {
       documentHasFocus: true,
       locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html',
     })).resolves.toMatchObject({
-      ok: true,
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
       lease: expect.objectContaining({
-        instanceId: 'main-instance',
-        surfaceId: 'main-scope',
+        instanceId: 'quicknote-instance',
+        surfaceId: 'quicknote-scope',
         visibilityState: 'visible',
-        documentHasFocus: true,
+        documentHasFocus: false,
       }),
     });
   });
