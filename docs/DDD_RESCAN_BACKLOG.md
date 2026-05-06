@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-06 (Round 283)
+Last update: 2026-05-06 (Round 284)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-06 - live kernel private/network smoke on fixed SiYuan port
+
+- Task: 用用户本地 SiYuan `http://127.0.0.1:6806` 补真实 kernel private HTTP 与 network proxy 烟测，并修掉 live `network.fetchExternal` 的 Goja promise/header 兼容问题。
+- Touched slice: Kernel companion live runtime；`kernel.js`、`__tests__/kernel-writer-lease.test.ts`、运行目录 `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo` smoke deployment、`ARCHITECTURE.md`。
+- Debt fixed now: `network.fetchExternal` 的 `/api/network/proxy` `h` 参数改为 SiYuan Go 实现要求的 `map[string][]string` base64url JSON；返回 headers 归一为普通 JS record；移除 `Promise.race(siyuan.client.fetch(...))` 包装，避免当前 Goja promise 在 live RPC 中变成 `promise rejected: <nil>`。真实浏览器会话中 plugin reload 成功，`health` uptime 重置，`GET /plugin/private/siyuan-plugin-siyuanmemo/status` 返回 `writesSiyuanMemoDb=false`，`POST /command` 提交 `browser.sourceExistence.applySweepHost` 返回 `committed=true` / `checked=1` / `updated=1` / `changed.blockIds=[20260430101444-otdi7bu]`，`network.fetchExternal` 通过 `/api/network/proxy` 拉取 `https://example.com/` 返回 200 与 `Siyuan-Proxy-*` headers。
+- Debt deferred: 未在本轮从 AI 面板真实调用外部 provider 发完整 prompt，也未跑双窗口 idempotency/unavailable private command 场景；`timeoutMs` 仍保留在 kernel RPC contract，但 live kernel proxy 不再用 JS `Promise.race` 包 Goja promise，当前依赖 SiYuan `/api/network/proxy` 的安全超时与 AI job 外层 timeout。
+- Why deferred: 完整 provider smoke 需要真实模型配置、成本和 UI 操作；双窗口 failure/idempotency smoke 需要另开窗口和制造 writer unavailable，不应混入本轮修 live network proxy 的最小闭环。
+- Next safe step: 在真实双窗口里补 private command idempotency/unavailable，再从 AI 面板发一条真实 provider prompt，确认控制台出现 backend prompt submitted/completed anchors 且没有 renderer/raw fetch fallback。
+- Validation: `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts --reporter=dot`（17 passed）；`pnpm build`；同步 `dist/*` 到 `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo` 后浏览器 CDP smoke：`/api/petal/setPetalEnabled` reload 200，`health.uptimeMs=5439`，private status 200，private command 200 committed，`network.fetchExternal` 200 / Example Domain / `Siyuan-Proxy-*` headers；`pnpm run check:boundaries`；targeted `rg` for app/UI `siyuanApi.sql(` and `@/core/siyuan/block` returned no matches；`git diff --check` only LF/CRLF warnings。
 
 ### 2026-05-06 - backend migration closure: P6 ownership, private HTTP, kernel network proxy
 
@@ -3632,8 +3642,8 @@ Do not add an entry for skill-only or docs-only work.
 | P3 | AI pane tests still inherit localhost asset fetch noise from shared markdown rendering setup | `src/ui/ai/__tests__/*`, shared markdown/test harness setup | Add a shared happy-dom asset shim or markdown renderer test mode to silence unrelated network noise |
 | P2 | Arena Manager v1 lacks deeper analytics and UI test coverage beyond the service/kernel contracts | `src/ui/arena/ArenaManagerDialog.vue`, AI workbench/review Arena entrypoints | Add focused manager action tests and richer pool/sample views after v1 collects enough real match data |
 | P2 | Future AI-assisted rewrite/generation surfaces still need explicit Arena scenario registration | new AI workbench/review/browser surfaces | Require each new AI surface to pass `AIArenaScenarioId + ArenaTargetKind` into the workbench open/run path instead of relying on inference |
-| P1 | Phase 7 live kernel-network smoke remains open: backend prompt execution is wired through `network.fetchExternal`, but provider SSE/delta streaming is not yet a completed contract | `src/infrastructure/ai/KernelAINetworkProxyAdapter.ts`, `kernel.js`, `specs/001-backend-migration-next/quickstart.md` | Run real provider smoke with `AI_BACKEND_RUNTIME=true` and confirm no renderer/raw fetch fallback; add `network.openExternalSse` only if the UI needs token delta streaming |
-| P1 | Phase 8 kernel private HTTP smoke remains open for the new `/status` and `/command` facade | `kernel.js`, `worker/bootstrap/BackendKernel.ts`, `specs/001-backend-migration-next/quickstart.md` | In real SiYuan two-window runtime, POST `/plugin/private/siyuan-plugin-siyuanmemo/command`, verify writer-routed commit/idempotency/unavailable behavior, then record operator/env/window/log evidence |
+| P1 | Phase 7 live kernel-network provider smoke remains partially open: raw `network.fetchExternal` now passes live SiYuan `/api/network/proxy`, but a real AI provider prompt and SSE/delta streaming are not yet completed contracts | `src/infrastructure/ai/KernelAINetworkProxyAdapter.ts`, `kernel.js`, `specs/001-backend-migration-next/quickstart.md` | Run real provider smoke with `AI_BACKEND_RUNTIME=true` and confirm submitted/completed log anchors plus no renderer/raw fetch fallback; add `network.openExternalSse` only if the UI needs token delta streaming |
+| P1 | Phase 8 kernel private HTTP basic smoke is passed for `/status` and `/command`, but two-window idempotency/unavailable behavior still needs live evidence | `kernel.js`, `worker/bootstrap/BackendKernel.ts`, `specs/001-backend-migration-next/quickstart.md` | In real SiYuan two-window runtime, repeat private command with same idempotency key and force no-writer/unavailable, then record operator/env/window/log evidence |
 | P2 | P6 broader backend-command ownership remains staged after direct SQL/helper boundary closure | `src/application/usecases/xiuyuan/*`, `src/application/services/{ProgressiveReadingService,TopicDerivedItemService}.ts`, `src/application/handlers/AutoCardHandler.ts`, `src/application/managers/{BlockMenuHandler,DialogManager}.ts` | Current owner is explicit app query boundary + writer relay; only open a follow-up if these side effects must become backend-worker commands rather than writer-relayed application commands |
 
 ## 4. Next convergence batch

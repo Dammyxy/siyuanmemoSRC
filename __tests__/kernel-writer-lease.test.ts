@@ -654,7 +654,10 @@ describe('kernel writer lease foreground policy', () => {
 
     expect(kernel.clientFetchCalls).toHaveLength(1);
     expect(kernel.clientFetchCalls[0]).toEqual({
-      path: `/api/network/proxy?u=${base64Url(url)}&h=${base64Url(JSON.stringify(headers))}`,
+      path: `/api/network/proxy?u=${base64Url(url)}&h=${base64Url(JSON.stringify({
+        Authorization: ['Bearer secret'],
+        'Content-Type': ['application/json'],
+      }))}`,
       init: {
         method: 'POST',
         headers: {

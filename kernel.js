@@ -8,7 +8,6 @@ const WRITER_COMMAND_RESULT_TTL_MS = 300_000;
 const WRITER_COMMAND_DISPATCH_TTL_MS = 5_000;
 const PRIVATE_COMMAND_WAIT_TIMEOUT_MS = 30_000;
 const PRIVATE_COMMAND_POLL_INTERVAL_MS = 250;
-const NETWORK_FETCH_DEFAULT_TIMEOUT_MS = 30_000;
 let writerLease = null;
 let writerLeaseEpoch = 0;
 const writerCommandsPending = new Map();
@@ -87,6 +86,17 @@ function normalizeHeaderRecord(value) {
     }
   }
   return headers;
+}
+
+function toProxyHeaderRecord(headers) {
+  const proxyHeaders = {};
+  for (const key of Object.keys(headers || {})) {
+    const value = headers[key];
+    if (value !== undefined && value !== null) {
+      proxyHeaders[key] = [String(value)];
+    }
+  }
+  return proxyHeaders;
 }
 
 function normalizeUrl(value) {
@@ -950,32 +960,32 @@ function writerTakeCommand(params) {
 }
 
 async function networkFetchExternal(params) {
-  const named = toObjectParams(params);
-  const requestId = normalizeOptionalString(named.requestId, 128) || `network-${nowMs()}`;
-  const url = normalizeUrl(named.url);
-  const headers = normalizeHeaderRecord(named.headers);
-  const timeoutMs = Math.max(500, Math.floor(Number(named.timeoutMs || NETWORK_FETCH_DEFAULT_TIMEOUT_MS)));
-  const proxyPath = `/api/network/proxy?u=${base64UrlEncode(url)}&h=${base64UrlEncode(JSON.stringify(headers))}`;
-  const requestInit = {
-    method: normalizeHttpMethod(named.method),
-    headers: {},
-  };
-  if (named.body !== undefined && named.body !== null) {
-    requestInit.headers['Content-Type'] = headers['Content-Type'] || headers['content-type'] || 'application/json';
-    requestInit.body = String(named.body);
+  try {
+    const named = toObjectParams(params);
+    const requestId = normalizeOptionalString(named.requestId, 128) || `network-${nowMs()}`;
+    const url = normalizeUrl(named.url);
+    const headers = normalizeHeaderRecord(named.headers);
+    const proxyPath = `/api/network/proxy?u=${base64UrlEncode(url)}&h=${base64UrlEncode(JSON.stringify(toProxyHeaderRecord(headers)))}`;
+    const requestInit = {
+      method: normalizeHttpMethod(named.method),
+      headers: {},
+    };
+    if (named.body !== undefined && named.body !== null) {
+      requestInit.headers['Content-Type'] = headers['Content-Type'] || headers['content-type'] || 'application/json';
+      requestInit.body = String(named.body);
+    }
+    const response = await siyuan.client.fetch(proxyPath, requestInit);
+    const body = await response.text();
+    return {
+      requestId,
+      status: Number(response.status) || 0,
+      headers: normalizeHeaderRecord(response.headers),
+      body,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'unknown network.fetchExternal failure');
+    throw new Error(message || 'unknown network.fetchExternal failure');
   }
-  const response = await withTimeout(
-    siyuan.client.fetch(proxyPath, requestInit),
-    timeoutMs,
-    'TIMEOUT: network.fetchExternal request timed out',
-  );
-  const body = await response.text();
-  return {
-    requestId,
-    status: Number(response.status) || 0,
-    headers: response.headers || {},
-    body,
-  };
 }
 
 function jsonHttpResponse(statusCode, data) {
