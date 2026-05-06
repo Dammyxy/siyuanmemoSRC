@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-06 (Round 278)
+Last update: 2026-05-06 (Round 279)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-06 - stabilize writer lease and guard backend direct writes
+
+- Task: 修复真实双窗口再次出现“两个窗口本地都像 writer”/writer 漂移的问题，并按计划收紧所有直接 backend mutation 的真实 lease guard。
+- Touched slice: kernel writer lease lifecycle + backend write relay boundary；`kernel.js`、`packages/contracts/src/kernel-rpc.ts`、`src/application/clients/PrivateApiClient.ts`、`src/application/handlers/AutoCardHandler.ts`、`src/application/services/BrowserApplicationService.ts`、focused tests、`ARCHITECTURE.md`。
+- Debt fixed now: `kernel.js` 不再让 `document.hasFocus()` 参与普通可见窗口之间的 writer 抢占，focus 只保留为诊断；普通 app/window writer 只能在过期、hidden、缺少前台诊断，或被 QuickNote/enhance/unknown 这类低优先级 surface 持有时被正常窗口接管。writer lease payload 新增 `leaseEpoch` / `ownerChangedAt`，只有 holder 真变更才递增 epoch，续租不递增，避免用相同 `acquiredAt` 误判双 writer。`PrivateApiClient.mutate()`、`AutoCardHandler` 的 `autocard.execute` 直写路径、`BrowserApplicationService` 的 `browser.sourceExistence.applySweepHost` host mutation 都会在直写前 `ensureWritable()`；若 guard 后本地已变 follower，则走 writer relay，否则 fail closed。`writer.takeCommand` 的 pending command rebind 同步保留 owner surface，避免接管后丢失 ownerSurfaceId。
+- Debt deferred: 不把 writer lease 迁到 `siyuan.storage`；当前上游/本地 kernel plugin manager 证据显示同名 kernel plugin 由 singleton manager 持有，当前根因是焦点抢占与本地 mode 滞后。暂不引入 Web Locks / BroadcastChannel 前端选主、`siyuan.storage` 持久 relay queue、AI backend session ownership 重构。
+- Why deferred: storage/前端选主会新增第二套 authority，与当前 kernel singleton RPC 事实不匹配；AI session ownership 是独立 bounded context。本轮先收紧已证实的 writer lease authority 与 backend mutation guard。
+- Next safe step: 真实 SiYuan 重新 build/reload 后，用主窗口 + 文档新窗口连续切焦点 1 分钟，`writer.getLease().lease.leaseEpoch` 不应因普通窗口切焦点来回递增；follower 符号监听制卡应成功且无 `Storage conflict detected`、backpressure、双 writer；private API smoke 仍需手动执行，外层 `RM074/RM090` 保持未完成。
+- Validation: red `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/PrivateApiClient.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts --reporter=dot` failed on focus reclaim, missing lease epoch, and missing direct-write guards；green `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/PrivateApiClient.test.ts src/application/handlers/__tests__/AutoCardHandler.backend-execute.test.ts src/application/services/__tests__/BrowserApplicationService.deck-query.test.ts --reporter=dot`（5 files / 55 tests passed）；`pnpm run check:boundaries`；`pnpm build`（通过；build copied to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`，保留既有 338 个硬编码 UI 字符串提示、14 个 i18n 内容提示和 Sass legacy warning）；`git diff --check`（only LF/CRLF warnings）。
 
 ### 2026-05-06 - prioritize normal app writer lease recovery
 

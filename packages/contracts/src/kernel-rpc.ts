@@ -24,6 +24,8 @@ export interface WriterLeasePayload {
   visibilityState?: string;
   documentHasFocus?: boolean;
   locationHref?: string;
+  leaseEpoch?: number;
+  ownerChangedAt?: number;
 }
 
 export type KernelWriterLeaseErrorCode =

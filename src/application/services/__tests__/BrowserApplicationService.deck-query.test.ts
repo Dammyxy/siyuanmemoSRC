@@ -640,4 +640,99 @@ describe('BrowserApplicationService deck query kernel', () => {
     }));
     expect(backendClient.browserSourceExistenceApplySweepHost).not.toHaveBeenCalled();
   });
+
+  it('refreshes writer lease before direct source-existence sweep host mutation', async () => {
+    const ensureWritable = vi.fn(async () => undefined);
+    const applySweepHost = vi.fn(async () => ({
+      checked: 1,
+      updated: 1,
+      changed: true,
+      changedToMissing: false,
+    }));
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {} as never,
+      null,
+      null,
+      {
+        browserSourceExistenceApplySweepHost: applySweepHost,
+      } as unknown as SrsBackendClient,
+      {
+        getMode: () => 'writer',
+        getInstanceId: () => 'writer-browser-1',
+        ensureWritable,
+      } as never,
+      {
+        submitAndWait: vi.fn(async () => {
+          throw new Error('real writer must not relay browser sweep');
+        }),
+      } as never,
+    );
+
+    const result = await (service as any).invokeBackendSourceExistenceSweepHost({
+      blockIds: ['block-writer-browser-1'],
+    }, Date.now());
+
+    expect(result.changed).toBe(true);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(applySweepHost).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes stale writer source-existence sweep host mutation through follower relay after guard refresh', async () => {
+    let mode: 'writer' | 'follower' = 'writer';
+    const applySweepHost = vi.fn(async () => {
+      throw new Error('stale writer must not run browser sweep directly');
+    });
+    const submitAndWait = vi.fn(async () => ({
+      checked: 1,
+      updated: 1,
+      changed: true,
+      changedToMissing: false,
+    }));
+    const service = new BrowserApplicationService(
+      {
+        getCard: vi.fn(),
+        queryCards: vi.fn(),
+        getAllCards: vi.fn(),
+      } as never,
+      new CardScheduleService(),
+      new CardFilterService(),
+      new CardSortService(),
+      null,
+      {} as never,
+      null,
+      null,
+      {
+        browserSourceExistenceApplySweepHost: applySweepHost,
+      } as unknown as SrsBackendClient,
+      {
+        getMode: () => mode,
+        getInstanceId: () => 'stale-writer-browser-1',
+        ensureWritable: vi.fn(async () => {
+          mode = 'follower';
+          throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance');
+        }),
+      } as never,
+      { submitAndWait } as never,
+    );
+
+    const result = await (service as any).invokeBackendSourceExistenceSweepHost({
+      blockIds: ['block-stale-writer-browser-1'],
+    }, Date.now());
+
+    expect(result.changed).toBe(true);
+    expect(applySweepHost).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'stale-writer-browser-1',
+      method: 'browser.sourceExistence.applySweepHost',
+    }));
+  });
 });

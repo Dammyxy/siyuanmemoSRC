@@ -170,7 +170,7 @@ describe('kernel writer lease foreground policy', () => {
     });
   });
 
-  it('lets focused normal app window reclaim an unfocused normal visible owner', async () => {
+  it('keeps normal visible owner protected from focused normal visible requester', async () => {
     const kernel = await loadKernelRpc();
 
     await expect(kernel.call('writer.acquireLease', {
@@ -196,13 +196,59 @@ describe('kernel writer lease foreground policy', () => {
       documentHasFocus: true,
       locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
     })).resolves.toMatchObject({
-      ok: true,
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
       lease: expect.objectContaining({
-        instanceId: 'focused-main-instance',
-        surfaceId: 'focused-main-scope',
-        documentHasFocus: true,
+        instanceId: 'old-window-instance',
+        surfaceId: 'old-window-scope',
+        documentHasFocus: false,
       }),
     });
+  });
+
+  it('increments leaseEpoch only when owner changes', async () => {
+    const kernel = await loadKernelRpc();
+
+    const first = await kernel.call('writer.acquireLease', {
+      instanceId: 'first-window-instance',
+      surfaceId: 'first-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: false,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#first',
+    }) as { lease: { leaseEpoch?: number; ownerChangedAt?: number } };
+    expect(first.lease).toMatchObject({
+      leaseEpoch: 1,
+      ownerChangedAt: expect.any(Number),
+    });
+
+    const renewed = await kernel.call('writer.renewLease', {
+      instanceId: 'first-window-instance',
+      surfaceId: 'first-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#first',
+    }) as { lease: { leaseEpoch?: number; ownerChangedAt?: number } };
+    expect(renewed.lease.leaseEpoch).toBe(1);
+    expect(renewed.lease.ownerChangedAt).toBe(first.lease.ownerChangedAt);
+
+    await kernel.call('writer.releaseLease', {
+      instanceId: 'first-window-instance',
+    });
+
+    const second = await kernel.call('writer.acquireLease', {
+      instanceId: 'second-window-instance',
+      surfaceId: 'second-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+    }) as { lease: { leaseEpoch?: number; ownerChangedAt?: number } };
+    expect(second.lease.leaseEpoch).toBe(2);
+    expect(second.lease.ownerChangedAt).toEqual(expect.any(Number));
   });
 
   it('keeps unfocused normal visible owner protected from another unfocused normal visible requester', async () => {

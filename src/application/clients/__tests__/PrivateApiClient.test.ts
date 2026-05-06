@@ -76,6 +76,92 @@ describe('PrivateApiClient', () => {
     });
   });
 
+  it('refreshes writer lease before direct private mutation', async () => {
+    const ensureWritable = vi.fn(async () => undefined);
+    const privateCommand = vi.fn(async () => ({
+      ok: true,
+      commandId: 'cmd-private-writer',
+      writerInstanceId: 'writer-1',
+      changed: {},
+      result: { committed: true },
+      auditStatus: 'recorded',
+      diagnosticEventId: 'diag-private-writer',
+    }));
+    const client = new PrivateApiClient({
+      backendClient: {
+        privateCommand,
+      } as unknown as SrsBackendClient,
+      frontendRuntime: {
+        getMode: () => 'writer',
+        getInstanceId: () => 'writer-1',
+        ensureWritable,
+      } as unknown as FrontendInstanceRuntime,
+      followerCommandClient: {
+        submitAndWait: vi.fn(async () => {
+          throw new Error('should not relay real writer mutation');
+        }),
+      } as unknown as FollowerCommandClient,
+    });
+
+    await client.mutate({
+      method: 'private.command.execute',
+      callerIntent: 'test-writer-mutation',
+      requestId: 'mutation-writer-1',
+      idempotencyKey: 'private-mutation-writer-1',
+      params: { action: 'noop' },
+    });
+
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(privateCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes stale writer private mutation through follower relay after guard refresh', async () => {
+    let mode: 'writer' | 'follower' = 'writer';
+    const privateCommand = vi.fn(async () => {
+      throw new Error('stale writer must not write directly');
+    });
+    const submitAndWait = vi.fn(async () => ({
+      ok: true,
+      commandId: 'cmd-private-relayed-after-refresh',
+      writerInstanceId: 'writer-real',
+      changed: {},
+      result: { committed: true },
+      auditStatus: 'recorded',
+      diagnosticEventId: 'diag-relayed-after-refresh',
+    }));
+    const client = new PrivateApiClient({
+      backendClient: {
+        privateCommand,
+      } as unknown as SrsBackendClient,
+      frontendRuntime: {
+        getMode: () => mode,
+        getInstanceId: () => 'stale-writer-1',
+        ensureWritable: vi.fn(async () => {
+          mode = 'follower';
+          throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance');
+        }),
+      } as unknown as FrontendInstanceRuntime,
+      followerCommandClient: {
+        submitAndWait,
+      } as unknown as FollowerCommandClient,
+    });
+
+    const result = await client.mutate({
+      method: 'private.command.execute',
+      callerIntent: 'test-stale-writer-mutation',
+      requestId: 'mutation-stale-writer-1',
+      idempotencyKey: 'private-mutation-stale-writer-1',
+      params: { action: 'noop' },
+    });
+
+    expect(privateCommand).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'stale-writer-1',
+      method: 'private.command.execute',
+    }), 15_000);
+    expect(result.commandId).toBe('cmd-private-relayed-after-refresh');
+  });
+
   it('rejects follower mutation when relay is unavailable', async () => {
     const client = new PrivateApiClient({
       backendClient: {

@@ -37,6 +37,7 @@ function createHandler(input?: {
   relayRuntime?: {
     getMode: () => string;
     getInstanceId: () => string;
+    ensureWritable?: () => Promise<void>;
   } | null;
   followerClient?: {
     submitAndWait: <TResult>(request: {
@@ -172,6 +173,7 @@ describe('AutoCardHandler backend execute routing', () => {
       relayRuntime: {
         getMode: () => 'writer',
         getInstanceId: () => 'writer-1',
+        ensureWritable: vi.fn(async () => undefined),
       },
       runtimePolicy: createReleasePolicy(),
     });
@@ -198,6 +200,99 @@ describe('AutoCardHandler backend execute routing', () => {
     expect(decision.candidateId).toBe('candidate-backend');
     expect(executeAutoCard).toHaveBeenCalledTimes(1);
     expect(resolveAutoCardDecision).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes writer lease before direct backend autocard.execute', async () => {
+    const ensureWritable = vi.fn(async () => undefined);
+    const executeAutoCard = vi.fn(async () => ({
+      executed: true,
+      created: 1,
+      skipped: 0,
+    }));
+    const { handler } = createHandler({
+      backendClient: { executeAutoCard },
+      relayRuntime: {
+        getMode: () => 'writer',
+        getInstanceId: () => 'writer-guarded-1',
+        ensureWritable,
+      },
+      followerClient: {
+        submitAndWait: vi.fn(async () => {
+          throw new Error('real writer must not relay autocard.execute');
+        }),
+      },
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    const executed = await (handler as any).executeAutoCardEnvelope({
+      kind: 'planner-decision',
+      blockId: 'block-writer-guarded',
+      content: 'Alpha <> Beta',
+      decision: {
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-bidirectional-single',
+        cardType: 'item',
+        mode: 'multi-face',
+        executorKind: 'quick-basic',
+        priority: 50,
+        direction: 'both',
+      },
+      source: 'symbol-listener',
+    });
+
+    expect(executed).toBe(true);
+    expect(ensureWritable).toHaveBeenCalledTimes(1);
+    expect(executeAutoCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes stale writer autocard.execute through follower relay after guard refresh', async () => {
+    let mode: 'writer' | 'follower' = 'writer';
+    const executeAutoCard = vi.fn(async () => {
+      throw new Error('stale writer must not execute autocard directly');
+    });
+    const submitAndWait = vi.fn(async () => ({
+      executed: true,
+      created: 1,
+      skipped: 0,
+    }));
+    const { handler } = createHandler({
+      backendClient: { executeAutoCard },
+      relayRuntime: {
+        getMode: () => mode,
+        getInstanceId: () => 'stale-writer-autocard-1',
+        ensureWritable: vi.fn(async () => {
+          mode = 'follower';
+          throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance');
+        }),
+      },
+      followerClient: { submitAndWait },
+      runtimePolicy: createReleasePolicy(),
+    });
+
+    const executed = await (handler as any).executeAutoCardEnvelope({
+      kind: 'planner-decision',
+      blockId: 'block-stale-writer-autocard',
+      content: 'Alpha <> Beta',
+      decision: {
+        id: 'BasicDirectionRule',
+        family: 'basic',
+        templateId: 'builtin-bidirectional-single',
+        cardType: 'item',
+        mode: 'multi-face',
+        executorKind: 'quick-basic',
+        priority: 50,
+        direction: 'both',
+      },
+      source: 'symbol-listener',
+    });
+
+    expect(executed).toBe(true);
+    expect(executeAutoCard).not.toHaveBeenCalled();
+    expect(submitAndWait).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'stale-writer-autocard-1',
+      method: 'autocard.execute',
+    }));
   });
 
   it('fails closed for backend-disabled policy in execute path and emits diagnostics', async () => {
@@ -466,6 +561,7 @@ describe('AutoCardHandler backend execute routing', () => {
       relayRuntime: {
         getMode: () => 'writer',
         getInstanceId: () => 'writer-1',
+        ensureWritable: vi.fn(async () => undefined),
       },
       runtimePolicy: createReleasePolicy(),
     });

@@ -6,6 +6,7 @@ const WRITER_COMMAND_PENDING_TTL_MS = 60_000;
 const WRITER_COMMAND_RESULT_TTL_MS = 300_000;
 const WRITER_COMMAND_DISPATCH_TTL_MS = 5_000;
 let writerLease = null;
+let writerLeaseEpoch = 0;
 const writerCommandsPending = new Map();
 const writerCommandResults = new Map();
 
@@ -101,6 +102,8 @@ function cloneLease(lease) {
     visibilityState: lease.visibilityState,
     documentHasFocus: lease.documentHasFocus,
     locationHref: lease.locationHref,
+    leaseEpoch: lease.leaseEpoch,
+    ownerChangedAt: lease.ownerChangedAt,
   };
 }
 
@@ -170,8 +173,7 @@ function getWriterLeaseForegroundScore(state) {
   if (visibilityState !== 'visible') {
     return 5;
   }
-  const focusBonus = normalizeDocumentHasFocus(state?.documentHasFocus) === true ? 1 : 0;
-  return getWriterLeaseSurfaceScore(state) * 10 + focusBonus;
+  return getWriterLeaseSurfaceScore(state) * 10;
 }
 
 function isLeaseReclaimableByVisibleRequester(activeLease, named) {
@@ -182,6 +184,25 @@ function isLeaseReclaimableByVisibleRequester(activeLease, named) {
     return true;
   }
   return getWriterLeaseForegroundScore(named) > getWriterLeaseForegroundScore(activeLease);
+}
+
+function buildWriterLeaseOwnerMetadata(activeLease, instanceId, at) {
+  const previousEpoch = Math.max(writerLeaseEpoch, Number(activeLease?.leaseEpoch) || 0);
+  const ownerChanged = !activeLease || activeLease.instanceId !== instanceId;
+  if (ownerChanged) {
+    writerLeaseEpoch = previousEpoch + 1;
+    return {
+      leaseEpoch: writerLeaseEpoch,
+      ownerChangedAt: at,
+      ownerChanged,
+    };
+  }
+  writerLeaseEpoch = previousEpoch || 1;
+  return {
+    leaseEpoch: writerLeaseEpoch,
+    ownerChangedAt: Number(activeLease.ownerChangedAt) || Number(activeLease.acquiredAt) || at,
+    ownerChanged,
+  };
 }
 
 function buildUnavailableEnvelope(message, lease, at = nowMs()) {
@@ -293,7 +314,7 @@ function buildHealth() {
 
 function buildCapabilities() {
   return {
-    version: 4,
+    version: 5,
     methods: [
       'health',
       'version',
@@ -316,6 +337,7 @@ function buildCapabilities() {
       defaultTtlMs: WRITER_LEASE_DEFAULT_TTL_MS,
       minTtlMs: WRITER_LEASE_MIN_TTL_MS,
       maxTtlMs: WRITER_LEASE_MAX_TTL_MS,
+      payloadFields: ['leaseEpoch', 'ownerChangedAt'],
     },
   };
 }
@@ -376,6 +398,7 @@ async function writerAcquireLease(params) {
 
   const ttlMs = normalizeTtlMs(named.ttlMs);
   const clientState = buildLeaseClientState(named, activeLease);
+  const ownerMetadata = buildWriterLeaseOwnerMetadata(activeLease, instanceId, at);
   const nextLease = {
     instanceId,
     acquiredAt: activeLease ? activeLease.acquiredAt : at,
@@ -386,11 +409,13 @@ async function writerAcquireLease(params) {
       ? named.surfaceId.trim()
       : activeLease?.surfaceId,
     ...clientState,
+    leaseEpoch: ownerMetadata.leaseEpoch,
+    ownerChangedAt: ownerMetadata.ownerChangedAt,
   };
   writerLease = nextLease;
   rebindPendingWriterCommands(nextLease.instanceId, nextLease.surfaceId, at);
 
-  if (!activeLease || activeLease.instanceId !== nextLease.instanceId) {
+  if (ownerMetadata.ownerChanged) {
     await broadcastWriterLeaseChanged(nextLease);
   }
 
@@ -422,6 +447,7 @@ function writerRenewLease(params) {
 
   const ttlMs = normalizeTtlMs(named.ttlMs);
   const clientState = buildLeaseClientState(named, activeLease);
+  const ownerMetadata = buildWriterLeaseOwnerMetadata(activeLease, instanceId, at);
   writerLease = {
     ...activeLease,
     lastHeartbeatAt: at,
@@ -431,6 +457,8 @@ function writerRenewLease(params) {
       ? named.surfaceId.trim()
       : activeLease.surfaceId,
     ...clientState,
+    leaseEpoch: ownerMetadata.leaseEpoch,
+    ownerChangedAt: ownerMetadata.ownerChangedAt,
   };
   return buildLeaseEnvelope(writerLease, at);
 }
@@ -721,7 +749,7 @@ function writerTakeCommand(params) {
     );
   }
 
-  rebindPendingWriterCommands(instanceId, at);
+  rebindPendingWriterCommands(instanceId, activeLease.surfaceId, at);
 
   for (const pending of writerCommandsPending.values()) {
     if (pending.writerInstanceId !== instanceId) {

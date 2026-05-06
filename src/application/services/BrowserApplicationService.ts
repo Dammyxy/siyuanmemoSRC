@@ -368,10 +368,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       return { checked: 0, updated: 0, changed: false, changedToMissing: false };
     }
 
-    if (
-      this.frontendInstanceRuntime?.getMode() === 'follower'
-      && this.followerCommandClient
-    ) {
+    const relaySweepHost = async () => {
+      if (!this.frontendInstanceRuntime || !this.followerCommandClient) {
+        throw new Error('worker relay applySweepHost is unavailable');
+      }
       const relayed = await this.followerCommandClient.submitAndWait<unknown>({
         instanceId: this.frontendInstanceRuntime.getInstanceId(),
         method: 'browser.sourceExistence.applySweepHost',
@@ -395,6 +395,33 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         changed: Boolean(payload.changed),
         changedToMissing: Boolean(payload.changedToMissing),
       };
+    };
+
+    if (
+      this.frontendInstanceRuntime?.getMode() === 'follower'
+      && this.followerCommandClient
+    ) {
+      return relaySweepHost();
+    }
+
+    if (this.frontendInstanceRuntime) {
+      try {
+        await this.frontendInstanceRuntime.ensureWritable();
+      } catch (error) {
+        if (
+          this.frontendInstanceRuntime.getMode() === 'follower'
+          && this.followerCommandClient
+        ) {
+          return relaySweepHost();
+        }
+        throw error;
+      }
+      if (
+        this.frontendInstanceRuntime.getMode() === 'follower'
+        && this.followerCommandClient
+      ) {
+        return relaySweepHost();
+      }
     }
 
     return this.srsBackendClient.browserSourceExistenceApplySweepHost(request, checkedAt);

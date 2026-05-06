@@ -123,6 +123,7 @@ type AutoCardContextLike = {
     getFrontendInstanceRuntime?: () => {
         getMode: () => string;
         getInstanceId: () => string;
+        ensureWritable?: () => Promise<void>;
     } | null;
     getFollowerCommandClient?: () => {
         submitAndWait: <TResult>(request: {
@@ -370,6 +371,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private getFrontendRelayRuntimeOptional(): {
         getMode: () => string;
         getInstanceId: () => string;
+        ensureWritable?: () => Promise<void>;
     } | null {
         try {
             const context = this.getContext();
@@ -619,17 +621,17 @@ export class AutoCardHandler implements ITransactionHandler {
         const request: BackendAutoCardExecuteRequest = {
             envelope: this.toBackendExecuteEnvelope(envelope),
         };
-        if (relayRuntime.mode === 'follower') {
+        const relayExecute = async (followerRuntime: Extract<BackendRelayRuntimeState, { mode: 'follower' }>) => {
             if (!followerClient) {
                 this.traceBackendPolicyDecision('follower-relay-unavailable', {
                     method: 'autocard.execute',
-                    instanceId: relayRuntime.instanceId,
+                    instanceId: followerRuntime.instanceId,
                 });
                 throw new Error('BACKEND_UNAVAILABLE: autocard.execute relay is unavailable in follower mode');
             }
             try {
                 const relayResult = await followerClient.submitAndWait<unknown>({
-                    instanceId: relayRuntime.instanceId,
+                    instanceId: followerRuntime.instanceId,
                     method: 'autocard.execute',
                     params: request,
                 });
@@ -639,10 +641,40 @@ export class AutoCardHandler implements ITransactionHandler {
                 if (message.includes('BACKEND_UNAVAILABLE: writer relay timeout')) {
                     this.traceBackendPolicyDecision('follower-relay-timeout', {
                         method: 'autocard.execute',
-                        instanceId: relayRuntime.instanceId,
+                        instanceId: followerRuntime.instanceId,
                     });
                 }
                 throw error;
+            }
+        };
+        if (relayRuntime.mode === 'follower') {
+            return relayExecute(relayRuntime);
+        }
+        const runtime = this.getFrontendRelayRuntimeOptional();
+        if (runtimePolicy?.capabilities.writerRelayRequiredForBackendWrites && !runtime?.ensureWritable) {
+            this.traceBackendPolicyDecision('writer-relay-runtime-missing', { method: 'autocard.execute' });
+            throw new Error('BACKEND_UNAVAILABLE: autocard.execute requires writer relay runtime');
+        }
+        if (runtime?.ensureWritable) {
+            try {
+                await runtime.ensureWritable();
+            } catch (error) {
+                const refreshedRelayRuntime = this.resolveBackendRelayRuntimeState();
+                if (refreshedRelayRuntime.mode === 'follower') {
+                    return relayExecute(refreshedRelayRuntime);
+                }
+                const message = error instanceof Error ? error.message : String(error || '');
+                if (message.startsWith('BACKEND_UNAVAILABLE:')) {
+                    this.traceBackendPolicyDecision('writer-unavailable', {
+                        method: 'autocard.execute',
+                        error: message,
+                    });
+                }
+                throw error;
+            }
+            const refreshedRelayRuntime = this.resolveBackendRelayRuntimeState();
+            if (refreshedRelayRuntime.mode === 'follower') {
+                return relayExecute(refreshedRelayRuntime);
             }
         }
         try {
