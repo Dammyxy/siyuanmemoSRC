@@ -257,6 +257,107 @@ describe('FrontendInstanceRuntime', () => {
     expect(runtime.getMode()).toBe('follower');
   });
 
+  it('keeps startup follower observe-only when another active writer exists', async () => {
+    const writerAcquireLease = vi.fn(async () => {
+      throw new Error('startup follower must not acquire while another writer is active');
+    });
+    const writerGetLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'writer-instance',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'writer-scope',
+      },
+      now: 2,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease,
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'follower-instance',
+      runtimeScopeId: 'follower-scope',
+    });
+
+    await runtime.start();
+
+    expect(writerGetLease).toHaveBeenCalledTimes(1);
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+    expect(runtime.getMode()).toBe('follower');
+    await runtime.dispose();
+  });
+
+  it('observes an empty lease before visible startup acquires writer ownership', async () => {
+    const writerGetLease = vi.fn(async () => ({ ok: true, lease: null, now: 1 }));
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'scope-a',
+      },
+      now: 1,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease,
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+    });
+
+    await runtime.start();
+
+    expect(writerGetLease).toHaveBeenCalledTimes(1);
+    expect(writerAcquireLease).toHaveBeenCalledTimes(1);
+    expect(writerGetLease.mock.invocationCallOrder[0]).toBeLessThan(
+      writerAcquireLease.mock.invocationCallOrder[0],
+    );
+    expect(runtime.getMode()).toBe('writer');
+    await runtime.dispose();
+  });
+
+  it('keeps manual visible follower observe-only when another active writer exists', async () => {
+    const writerAcquireLease = vi.fn(async () => {
+      throw new Error('manual follower must not acquire while another writer is active');
+    });
+    const writerGetLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'writer-instance',
+        acquiredAt: 1,
+        expiresAt: 61_000,
+        lastHeartbeatAt: 1,
+        surfaceId: 'writer-scope',
+      },
+      now: 2,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease,
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'follower-instance',
+      runtimeScopeId: 'follower-scope',
+    });
+
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('manual');
+
+    expect(writerGetLease).toHaveBeenCalledTimes(1);
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+    expect(runtime.getMode()).toBe('follower');
+  });
+
   it('refreshes ownership when a hidden follower becomes visible', async () => {
     let visibilityState = 'hidden';
     const documentListeners = new Map<string, EventListener>();
@@ -302,13 +403,10 @@ describe('FrontendInstanceRuntime', () => {
 
     visibilityState = 'visible';
     documentListeners.get('visibilitychange')?.(new Event('visibilitychange'));
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
       instanceId: 'instance-a',
       surfaceId: 'scope-a',
-    }));
+    })));
     expect(runtime.getMode()).toBe('writer');
     await runtime.dispose();
   });
@@ -575,16 +673,21 @@ describe('FrontendInstanceRuntime', () => {
           now: 1,
         })
         .mockRejectedValue(new Error('BACKEND_UNAVAILABLE: writer lease held by another instance: writer-b')),
-      writerGetLease: vi.fn(async () => ({
-        ok: true,
-        lease: {
-          instanceId: 'writer-b',
-          acquiredAt: 2,
-          expiresAt: 14_000,
-          lastHeartbeatAt: 2,
-        },
-        now: 2,
-      })),
+      writerRenewLease: vi.fn(async () => {
+        throw new Error('BACKEND_UNAVAILABLE: writer lease held by another instance: writer-b');
+      }),
+      writerGetLease: vi.fn()
+        .mockResolvedValueOnce({ ok: true, lease: null, now: 1 })
+        .mockResolvedValue({
+          ok: true,
+          lease: {
+            instanceId: 'writer-b',
+            acquiredAt: 2,
+            expiresAt: 14_000,
+            lastHeartbeatAt: 2,
+          },
+          now: 2,
+        }),
       writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
     } as unknown as KernelSidecarClient, {
       instanceId: 'instance-a',
@@ -864,16 +967,18 @@ describe('FrontendInstanceRuntime', () => {
           },
           now: 2,
         }),
-      writerGetLease: vi.fn(async () => ({
-        ok: true,
-        lease: {
-          instanceId: 'instance-b',
-          acquiredAt: 1,
-          expiresAt: 2,
-          lastHeartbeatAt: 1,
-        },
-        now: 2,
-      })),
+      writerGetLease: vi.fn()
+        .mockResolvedValueOnce({ ok: true, lease: null, now: 1 })
+        .mockResolvedValue({
+          ok: true,
+          lease: {
+            instanceId: 'instance-b',
+            acquiredAt: 1,
+            expiresAt: 2,
+            lastHeartbeatAt: 1,
+          },
+          now: 2,
+        }),
       writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
     } as unknown as KernelSidecarClient, {
       instanceId: 'instance-a',
@@ -959,16 +1064,18 @@ describe('FrontendInstanceRuntime', () => {
           now: 1,
         })
         .mockRejectedValue(new Error('BACKEND_UNAVAILABLE: writer lease held by another instance')),
-      writerGetLease: vi.fn(async () => ({
-        ok: true,
-        lease: {
-          instanceId: 'instance-b',
-          acquiredAt: 1,
-          expiresAt: 2,
-          lastHeartbeatAt: 1,
-        },
-        now: 2,
-      })),
+      writerGetLease: vi.fn()
+        .mockResolvedValueOnce({ ok: true, lease: null, now: 1 })
+        .mockResolvedValue({
+          ok: true,
+          lease: {
+            instanceId: 'instance-b',
+            acquiredAt: 1,
+            expiresAt: 2,
+            lastHeartbeatAt: 1,
+          },
+          now: 2,
+        }),
       writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
       writerTakeCommand: vi.fn(async () => {
         throw new Error('BACKEND_UNAVAILABLE: writer takeCommand unavailable: current instance is not active writer');

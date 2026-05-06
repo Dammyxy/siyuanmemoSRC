@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { Script, createContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
-async function loadKernelRpc() {
+async function loadKernelRpc(options: { nowMs?: () => number } = {}) {
   const rpcHandlers = new Map<string, (params?: unknown) => unknown | Promise<unknown>>();
+  const RuntimeDate = options.nowMs ? { now: options.nowMs } : Date;
   const context = createContext({
-    Date,
+    Date: RuntimeDate,
     Math,
     String,
     Number,
@@ -204,6 +205,119 @@ describe('kernel writer lease foreground policy', () => {
         instanceId: 'old-window-instance',
         surfaceId: 'old-window-scope',
         documentHasFocus: false,
+      }),
+    });
+  });
+
+  it('keeps hidden normal app owner protected from focused normal visible requester', async () => {
+    const kernel = await loadKernelRpc();
+
+    await kernel.call('writer.acquireLease', {
+      instanceId: 'first-window-instance',
+      surfaceId: 'first-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#first',
+    });
+
+    await expect(kernel.call('writer.renewLease', {
+      instanceId: 'first-window-instance',
+      surfaceId: 'first-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'hidden',
+      documentHasFocus: false,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#first',
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: expect.objectContaining({
+        instanceId: 'first-window-instance',
+        visibilityState: 'hidden',
+      }),
+    });
+
+    await expect(kernel.call('writer.acquireLease', {
+      instanceId: 'second-window-instance',
+      surfaceId: 'second-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+    })).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
+      lease: expect.objectContaining({
+        instanceId: 'first-window-instance',
+        surfaceId: 'first-window-scope',
+        visibilityState: 'hidden',
+      }),
+    });
+  });
+
+  it('lets a visible normal app window acquire after the writer releases its lease', async () => {
+    const kernel = await loadKernelRpc();
+
+    await kernel.call('writer.acquireLease', {
+      instanceId: 'first-window-instance',
+      surfaceId: 'first-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#first',
+    });
+
+    await expect(kernel.call('writer.releaseLease', {
+      instanceId: 'first-window-instance',
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: null,
+    });
+
+    await expect(kernel.call('writer.acquireLease', {
+      instanceId: 'second-window-instance',
+      surfaceId: 'second-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: expect.objectContaining({
+        instanceId: 'second-window-instance',
+        surfaceId: 'second-window-scope',
+      }),
+    });
+  });
+
+  it('lets a visible normal app window acquire after the writer lease expires', async () => {
+    let now = 1_000;
+    const kernel = await loadKernelRpc({ nowMs: () => now });
+
+    await kernel.call('writer.acquireLease', {
+      instanceId: 'first-window-instance',
+      surfaceId: 'first-window-scope',
+      ttlMs: 3_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#first',
+    });
+
+    now = 4_001;
+
+    await expect(kernel.call('writer.acquireLease', {
+      instanceId: 'second-window-instance',
+      surfaceId: 'second-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: expect.objectContaining({
+        instanceId: 'second-window-instance',
+        surfaceId: 'second-window-scope',
       }),
     });
   });

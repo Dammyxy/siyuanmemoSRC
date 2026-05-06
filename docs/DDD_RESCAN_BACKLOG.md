@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-06 (Round 279)
+Last update: 2026-05-06 (Round 280)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-06 - sticky normal app writer lease
+
+- Task: 固定首个普通 SiYuan app 窗口为 sticky writer；后续普通窗口默认 follower，只有 writer release/关闭/unload/lease 过期后才接任。
+- Touched slice: kernel writer lease lifecycle + frontend runtime ownership refresh；`kernel.js`、`src/application/clients/FrontendInstanceRuntime.ts`、focused runtime/kernel tests、`ARCHITECTURE.md`。
+- Debt fixed now: `kernel.js` 把普通 SiYuan app/window surface 识别为 sticky writer owner；active 普通 app owner 即使 hidden/unfocused 也不再被后开普通窗口按 foreground score 抢占。QuickNote/enhance 辅助 owner 仍可被普通 app reclaim，辅助窗口不能反抢普通 app writer；release/TTL expiry/no active lease/same instance renew-acquire 仍保留 failover。`FrontendInstanceRuntime` 的 follower startup/manual/visibility refresh 改为先 `writer.getLease` observe，已有 holder 时保持 follower，不再制造无意义 acquire 和 warn；可见 follower 只有 observe 到空 lease 才 acquire。
+- Debt deferred: 不新增 env 开关，不引入前端 BroadcastChannel/Web Locks 选主，也不把 writer lease 持久化到 `siyuan.storage`。
+- Why deferred: 当前请求是默认策略收口；新增开关或第二套选主 authority 会扩大回归面，并与 kernel singleton writer relay 当前事实重叠。
+- Next safe step: 真实双窗口 smoke：首窗应 `mode=writer`，后开窗 `mode=follower`；首窗 hidden/unfocused 后后开窗仍 follower；关闭首窗或等 TTL 后剩余 visible 窗口接任 writer，follower private API mutation 应走 relay submitted/completed。
+- Validation: red `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts --reporter=dot` failed on hidden normal app owner being reclaimed and follower startup/manual still acquiring；green same command（2 files / 36 tests passed）；green broader `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（6 files / 60 tests passed）；`pnpm run check:boundaries`；`pnpm build`（通过；build copied to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`，保留既有 338 个硬编码 UI 字符串提示、14 个 i18n 内容提示和 Sass legacy warning）；`git diff --check`（only LF/CRLF warnings）。
 
 ### 2026-05-06 - stabilize writer lease and guard backend direct writes
 

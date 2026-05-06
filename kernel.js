@@ -150,6 +150,15 @@ function isAuxiliarySiyuanSurface(locationHref) {
     || href.includes('quicknote');
 }
 
+function isNormalSiyuanAppSurface(state) {
+  const locationHref = normalizeOptionalString(state?.locationHref, 512);
+  if (!locationHref) {
+    return false;
+  }
+  const href = locationHref.toLowerCase();
+  return href.includes('/stage/build/app') && !isAuxiliarySiyuanSurface(href);
+}
+
 function getWriterLeaseSurfaceScore(state) {
   const locationHref = normalizeOptionalString(state?.locationHref, 512);
   if (!locationHref) {
@@ -179,6 +188,13 @@ function getWriterLeaseForegroundScore(state) {
 function isLeaseReclaimableByVisibleRequester(activeLease, named) {
   if (!activeLease || !isRequesterVisible(named)) {
     return false;
+  }
+  const requesterIsNormalApp = isNormalSiyuanAppSurface(named);
+  if (isNormalSiyuanAppSurface(activeLease)) {
+    return false;
+  }
+  if (requesterIsNormalApp && isAuxiliarySiyuanSurface(activeLease.locationHref)) {
+    return true;
   }
   if (!activeLease.visibilityState || activeLease.visibilityState === 'hidden') {
     return true;

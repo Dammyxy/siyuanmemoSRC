@@ -423,8 +423,12 @@ export class FrontendInstanceRuntime {
       return this.renewCurrentWriterLease(reason);
     }
 
-    if (this.mode !== 'writer' && isDocumentHidden()) {
-      return this.observeCurrentLease(`${reason}:hidden-observe`);
+    if (this.mode !== 'writer') {
+      const observedOwnership = await this.observeCurrentLease(`${reason}:observe`);
+      if (observedOwnership.leaseHolder || isDocumentHidden()) {
+        return observedOwnership;
+      }
+      return this.acquireWriterLease(reason);
     }
 
     return this.acquireWriterLease(reason);
