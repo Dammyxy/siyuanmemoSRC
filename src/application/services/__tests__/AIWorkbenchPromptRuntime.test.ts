@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LLMError, type LLMRequest } from '@/application/ports/LLMPort';
 import { getAIChatSkill, type AIChatRegisteredSkillDescriptor } from '@/application/services/AIChatSkillRegistry';
 import { AIWorkbenchPromptRuntime } from '@/application/services/AIWorkbenchPromptRuntime';
@@ -12,6 +12,17 @@ import {
   type AIWorkbenchState,
 } from '@/types/ai';
 import { DEFAULT_AI_SETTINGS, type AISettings } from '@/types/settings';
+
+const loggerMocks = vi.hoisted(() => ({
+  debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+}));
+
+vi.mock('@/utils/logger', () => ({
+  createLogger: () => loggerMocks,
+}));
 
 function createSettings(): AISettings {
   return {
@@ -177,6 +188,13 @@ function attachedContext(): AIAttachedContextItem {
 }
 
 describe('AIWorkbenchPromptRuntime', () => {
+  beforeEach(() => {
+    loggerMocks.debug.mockClear();
+    loggerMocks.error.mockClear();
+    loggerMocks.info.mockClear();
+    loggerMocks.warn.mockClear();
+  });
+
   it('preserves the concept coach structured request wire shape', async () => {
     const { runtime, llmChat } = createRuntime();
 
@@ -319,6 +337,25 @@ describe('AIWorkbenchPromptRuntime', () => {
       backend: true,
       sessionId: 'session-1',
     });
+    expect(loggerMocks.info).toHaveBeenCalledWith(
+      '[AIWorkbenchPromptRuntime] backend ai prompt submitted',
+      expect.objectContaining({
+        sessionId: 'session-1',
+        surface: 'standalone-dialog',
+        providerId: 'provider-1',
+        modelId: 'model-1',
+      }),
+    );
+    expect(loggerMocks.info).toHaveBeenCalledWith(
+      '[AIWorkbenchPromptRuntime] backend ai prompt completed',
+      expect.objectContaining({
+        sessionId: 'session-1',
+        status: 200,
+        state: 'completed',
+        diagnosticEventId: 'diag-exec',
+      }),
+    );
+    expect(JSON.stringify(loggerMocks.info.mock.calls)).not.toContain('provider-key');
   });
 
   it('returns backend unavailable error when backend runtime is enabled but unavailable', async () => {

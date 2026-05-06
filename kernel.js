@@ -2,6 +2,7 @@ const startedAt = Date.now();
 const WRITER_LEASE_DEFAULT_TTL_MS = 60_000;
 const WRITER_LEASE_MIN_TTL_MS = 3_000;
 const WRITER_LEASE_MAX_TTL_MS = 60_000;
+const WRITER_LEASE_STALE_OWNER_RECLAIM_GRACE_MS = 30_000;
 const WRITER_COMMAND_PENDING_TTL_MS = 60_000;
 const WRITER_COMMAND_RESULT_TTL_MS = 300_000;
 const WRITER_COMMAND_DISPATCH_TTL_MS = 5_000;
@@ -150,25 +151,38 @@ function isAuxiliarySiyuanSurface(locationHref) {
     || href.includes('quicknote');
 }
 
-function isNormalSiyuanAppSurface(state) {
+function getSiyuanAppSurfaceRole(state) {
   const locationHref = normalizeOptionalString(state?.locationHref, 512);
   if (!locationHref) {
-    return false;
+    return 'unknown';
   }
   const href = locationHref.toLowerCase();
-  return href.includes('/stage/build/app') && !isAuxiliarySiyuanSurface(href);
+  if (!href.includes('/stage/build/app')) {
+    return 'unknown';
+  }
+  if (isAuxiliarySiyuanSurface(href)) {
+    return 'auxiliary';
+  }
+  if (href.includes('/window.html')) {
+    return 'document-window';
+  }
+  return 'primary-app';
+}
+
+function isNormalSiyuanAppSurface(state) {
+  const role = getSiyuanAppSurfaceRole(state);
+  return role === 'primary-app' || role === 'document-window';
 }
 
 function getWriterLeaseSurfaceScore(state) {
-  const locationHref = normalizeOptionalString(state?.locationHref, 512);
-  if (!locationHref) {
-    return 10;
-  }
-  const href = locationHref.toLowerCase();
-  if (href.includes('/stage/build/app') && !isAuxiliarySiyuanSurface(href)) {
+  const role = getSiyuanAppSurfaceRole(state);
+  if (role === 'primary-app') {
     return 30;
   }
-  if (href.includes('/stage/build/app')) {
+  if (role === 'document-window') {
+    return 25;
+  }
+  if (role === 'auxiliary') {
     return 20;
   }
   return 10;
@@ -185,13 +199,43 @@ function getWriterLeaseForegroundScore(state) {
   return getWriterLeaseSurfaceScore(state) * 10;
 }
 
-function isLeaseReclaimableByVisibleRequester(activeLease, named) {
+function getWriterLeaseOwnerAgeMs(activeLease, at) {
+  const ownerChangedAt = Number(activeLease?.ownerChangedAt)
+    || Number(activeLease?.acquiredAt)
+    || Number(activeLease?.lastHeartbeatAt)
+    || at;
+  return Math.max(0, at - ownerChangedAt);
+}
+
+function isStaleNormalAppOwnerReclaimable(activeLease, named, at) {
+  const ownerRole = getSiyuanAppSurfaceRole(activeLease);
+  const requesterRole = getSiyuanAppSurfaceRole(named);
+  if (ownerRole !== 'document-window' || requesterRole !== 'document-window') {
+    return false;
+  }
+  if (getWriterLeaseOwnerAgeMs(activeLease, at) < WRITER_LEASE_STALE_OWNER_RECLAIM_GRACE_MS) {
+    return false;
+  }
+  const ownerVisibilityState = normalizeOptionalString(activeLease.visibilityState, 32);
+  const ownerDocumentHasFocus = normalizeDocumentHasFocus(activeLease.documentHasFocus);
+  return ownerVisibilityState === 'hidden' || ownerDocumentHasFocus === false;
+}
+
+function isLeaseReclaimableByVisibleRequester(activeLease, named, at) {
   if (!activeLease || !isRequesterVisible(named)) {
     return false;
   }
-  const requesterIsNormalApp = isNormalSiyuanAppSurface(named);
-  if (isNormalSiyuanAppSurface(activeLease)) {
+  const requesterRole = getSiyuanAppSurfaceRole(named);
+  const ownerRole = getSiyuanAppSurfaceRole(activeLease);
+  const requesterIsNormalApp = requesterRole === 'primary-app' || requesterRole === 'document-window';
+  if (ownerRole === 'primary-app') {
     return false;
+  }
+  if (requesterRole === 'primary-app' && (ownerRole === 'document-window' || ownerRole === 'auxiliary')) {
+    return true;
+  }
+  if (ownerRole === 'document-window') {
+    return isStaleNormalAppOwnerReclaimable(activeLease, named, at);
   }
   if (requesterIsNormalApp && isAuxiliarySiyuanSurface(activeLease.locationHref)) {
     return true;
@@ -395,7 +439,7 @@ async function writerAcquireLease(params) {
   }
 
   if (activeLease && activeLease.instanceId !== instanceId) {
-    if (!isLeaseReclaimableByVisibleRequester(activeLease, named)) {
+    if (!isLeaseReclaimableByVisibleRequester(activeLease, named, at)) {
       return buildUnavailableEnvelope(
         `writer lease held by another instance: ${activeLease.instanceId}`,
         activeLease,

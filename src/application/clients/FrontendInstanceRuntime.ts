@@ -34,6 +34,34 @@ interface FrontendRuntimeScopeRegistryEntry {
   dispose: () => Promise<void>;
 }
 
+interface FrontendObservedLeasePayload {
+  instanceId?: unknown;
+  surfaceId?: unknown;
+  visibilityState?: unknown;
+  documentHasFocus?: unknown;
+  locationHref?: unknown;
+  ownerChangedAt?: unknown;
+  acquiredAt?: unknown;
+  lastHeartbeatAt?: unknown;
+}
+
+interface FrontendObservedLeaseEnvelope {
+  lease?: FrontendObservedLeasePayload | null;
+  now?: unknown;
+}
+
+interface FrontendOwnershipSnapshot {
+  leaseHolder: string | null;
+  leaseSurfaceId: string | null;
+  leaseVisibilityState: string | null;
+  leaseDocumentHasFocus: boolean | null;
+  leaseLocationHref: string | null;
+  leaseOwnerChangedAt: number | null;
+  leaseAcquiredAt: number | null;
+  leaseLastHeartbeatAt: number | null;
+  leaseObservedAt: number;
+}
+
 function createDefaultInstanceId(): string {
   return `memo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -44,6 +72,7 @@ function createDefaultRuntimeScopeId(): string {
 
 const GLOBAL_RUNTIME_SCOPE_ID_KEY = '__siyuanmemoFrontendRuntimeScopeId';
 const GLOBAL_RUNTIME_SCOPE_REGISTRY_KEY = '__siyuanmemoFrontendRuntimeScopeRegistry';
+const WRITER_LEASE_STALE_OWNER_RECLAIM_GRACE_MS = 30_000;
 
 function getGlobalRecord(): Record<string, unknown> | null {
   if (typeof globalThis !== 'object' || !globalThis) {
@@ -111,6 +140,43 @@ function resolveWindowLocationHref(): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizeObservedString(value: unknown): string | null {
+  const text = String(value || '').trim();
+  return text ? text : null;
+}
+
+function normalizeObservedNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeObservedBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function isAuxiliarySiyuanSurfaceHref(locationHref: string | null): boolean {
+  const href = String(locationHref || '').toLowerCase();
+  return href.includes('enhance=true')
+    || href.includes('enwindowtitle=quicknote')
+    || href.includes('quicknote');
+}
+
+type SiyuanAppSurfaceRole = 'primary-app' | 'document-window' | 'auxiliary' | 'unknown';
+
+function getSiyuanAppSurfaceRole(locationHref: string | null): SiyuanAppSurfaceRole {
+  const href = String(locationHref || '').toLowerCase();
+  if (!href.includes('/stage/build/app')) {
+    return 'unknown';
+  }
+  if (isAuxiliarySiyuanSurfaceHref(href)) {
+    return 'auxiliary';
+  }
+  if (href.includes('/window.html')) {
+    return 'document-window';
+  }
+  return 'primary-app';
 }
 
 type FrontendInstanceMode = 'writer' | 'follower';
@@ -407,7 +473,7 @@ export class FrontendInstanceRuntime {
     }
   }
 
-  private async refreshOwnership(reason = 'manual'): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
+  private async refreshOwnership(reason = 'manual'): Promise<FrontendOwnershipSnapshot> {
     if (reason === 'heartbeat') {
       if (this.mode === 'writer') {
         return this.renewCurrentWriterLease(reason);
@@ -425,7 +491,7 @@ export class FrontendInstanceRuntime {
 
     if (this.mode !== 'writer') {
       const observedOwnership = await this.observeCurrentLease(`${reason}:observe`);
-      if (observedOwnership.leaseHolder || isDocumentHidden()) {
+      if (!this.shouldAcquireWriterLeaseAfterObserve(reason, observedOwnership)) {
         return observedOwnership;
       }
       return this.acquireWriterLease(reason);
@@ -434,7 +500,49 @@ export class FrontendInstanceRuntime {
     return this.acquireWriterLease(reason);
   }
 
-  private async acquireWriterLease(reason: string): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
+  private shouldAcquireWriterLeaseAfterObserve(reason: string, ownership: FrontendOwnershipSnapshot): boolean {
+    if (isDocumentHidden()) {
+      return false;
+    }
+    if (!ownership.leaseHolder) {
+      return true;
+    }
+    if (ownership.leaseHolder === this.instanceId || reason === 'heartbeat') {
+      return false;
+    }
+    if (this.shouldPreferCurrentSurfaceOverObservedOwner(ownership)) {
+      return true;
+    }
+    if (reason === 'visibility') {
+      return false;
+    }
+    return this.isObservedStaleUnfocusedNormalAppOwner(ownership);
+  }
+
+  private shouldPreferCurrentSurfaceOverObservedOwner(ownership: FrontendOwnershipSnapshot): boolean {
+    const currentRole = getSiyuanAppSurfaceRole(resolveWindowLocationHref());
+    const ownerRole = getSiyuanAppSurfaceRole(ownership.leaseLocationHref);
+    return currentRole === 'primary-app' && (ownerRole === 'document-window' || ownerRole === 'auxiliary');
+  }
+
+  private isObservedStaleUnfocusedNormalAppOwner(ownership: FrontendOwnershipSnapshot): boolean {
+    const currentRole = getSiyuanAppSurfaceRole(resolveWindowLocationHref());
+    const ownerRole = getSiyuanAppSurfaceRole(ownership.leaseLocationHref);
+    if (currentRole !== 'document-window' || ownerRole !== 'document-window') {
+      return false;
+    }
+    const ownerSince = ownership.leaseOwnerChangedAt
+      ?? ownership.leaseAcquiredAt
+      ?? ownership.leaseLastHeartbeatAt
+      ?? ownership.leaseObservedAt;
+    const ownerAgeMs = Math.max(0, ownership.leaseObservedAt - ownerSince);
+    if (ownerAgeMs < WRITER_LEASE_STALE_OWNER_RECLAIM_GRACE_MS) {
+      return false;
+    }
+    return ownership.leaseVisibilityState === 'hidden' || ownership.leaseDocumentHasFocus === false;
+  }
+
+  private async acquireWriterLease(reason: string): Promise<FrontendOwnershipSnapshot> {
     try {
       const lease = await this.sidecarClient.writerAcquireLease({
         instanceId: this.instanceId,
@@ -459,7 +567,7 @@ export class FrontendInstanceRuntime {
     }
   }
 
-  private async renewCurrentWriterLease(reason: string): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
+  private async renewCurrentWriterLease(reason: string): Promise<FrontendOwnershipSnapshot> {
     try {
       const lease = await this.sidecarClient.writerRenewLease({
         instanceId: this.instanceId,
@@ -485,13 +593,17 @@ export class FrontendInstanceRuntime {
   }
 
   private applyLeaseOwnership(
-    lease: { lease?: { instanceId?: unknown; surfaceId?: unknown } | null },
+    lease: FrontendObservedLeaseEnvelope,
     reason: string,
-  ): { leaseHolder: string | null; leaseSurfaceId: string | null } {
-    const leaseHolder = typeof lease.lease?.instanceId === 'string' ? lease.lease.instanceId : null;
-    const leaseSurfaceId = typeof lease.lease?.surfaceId === 'string' ? lease.lease.surfaceId : null;
-    this.setMode(leaseHolder === this.instanceId ? 'writer' : 'follower', reason, leaseHolder, leaseSurfaceId);
-    return { leaseHolder, leaseSurfaceId };
+  ): FrontendOwnershipSnapshot {
+    const ownership = this.buildOwnershipSnapshot(lease);
+    this.setMode(
+      ownership.leaseHolder === this.instanceId ? 'writer' : 'follower',
+      reason,
+      ownership.leaseHolder,
+      ownership.leaseSurfaceId,
+    );
+    return ownership;
   }
 
   private buildWriterLeaseClientState(): {
@@ -509,12 +621,31 @@ export class FrontendInstanceRuntime {
     };
   }
 
-  private async observeCurrentLease(reason: string): Promise<{ leaseHolder: string | null; leaseSurfaceId: string | null }> {
+  private async observeCurrentLease(reason: string): Promise<FrontendOwnershipSnapshot> {
     const lease = await this.sidecarClient.writerGetLease().catch(() => null);
-    const leaseHolder = typeof lease?.lease?.instanceId === 'string' ? lease.lease.instanceId : null;
-    const leaseSurfaceId = typeof lease?.lease?.surfaceId === 'string' ? lease.lease.surfaceId : null;
-    this.setMode(leaseHolder === this.instanceId ? 'writer' : 'follower', reason, leaseHolder, leaseSurfaceId);
-    return { leaseHolder, leaseSurfaceId };
+    const ownership = this.buildOwnershipSnapshot(lease);
+    this.setMode(
+      ownership.leaseHolder === this.instanceId ? 'writer' : 'follower',
+      reason,
+      ownership.leaseHolder,
+      ownership.leaseSurfaceId,
+    );
+    return ownership;
+  }
+
+  private buildOwnershipSnapshot(envelope: FrontendObservedLeaseEnvelope | null): FrontendOwnershipSnapshot {
+    const lease = envelope?.lease ?? null;
+    return {
+      leaseHolder: typeof lease?.instanceId === 'string' ? lease.instanceId : null,
+      leaseSurfaceId: typeof lease?.surfaceId === 'string' ? lease.surfaceId : null,
+      leaseVisibilityState: normalizeObservedString(lease?.visibilityState),
+      leaseDocumentHasFocus: normalizeObservedBoolean(lease?.documentHasFocus),
+      leaseLocationHref: normalizeObservedString(lease?.locationHref),
+      leaseOwnerChangedAt: normalizeObservedNumber(lease?.ownerChangedAt),
+      leaseAcquiredAt: normalizeObservedNumber(lease?.acquiredAt),
+      leaseLastHeartbeatAt: normalizeObservedNumber(lease?.lastHeartbeatAt),
+      leaseObservedAt: normalizeObservedNumber(envelope?.now) ?? Date.now(),
+    };
   }
 
   private async drainPendingWriterCommands(): Promise<void> {

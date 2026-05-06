@@ -35,9 +35,11 @@ import {
   type AIProviderConfig,
   type AISettings,
 } from '@/types/settings';
+import { createLogger } from '@/utils/logger';
 
 const CONCEPT_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
 const ACTIVE_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
+const logger = createLogger('AIWorkbenchPromptRuntime');
 
 type ChatModelRequest = {
   settings: AISettings;
@@ -629,9 +631,21 @@ export class AIWorkbenchPromptRuntime {
     const streamId = `ai-stream-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const jobId = `ai-job-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const providerId = normalizeString(request.modelRef?.providerId || request.provider?.id || 'provider');
+    const modelId = normalizeString(request.model);
+    const surface = normalizeString(this.deps.state.surface || 'standalone-dialog') || 'standalone-dialog';
     const timeoutMs = Math.max(1_000, Number(request.timeoutMs || 0));
     const requiredSecretName = providerId ? `${providerId}:apiKey` : 'apiKey';
     const signal = request.abortSignal;
+    const logContext = {
+      sessionId,
+      streamId,
+      jobId,
+      providerId,
+      modelId,
+      surface,
+      skillId: normalizeString(this.deps.state.activeSkillId) || null,
+    };
+    let terminalLogged = false;
 
     const cancelStream = async (reason: string): Promise<void> => {
       try {
@@ -644,20 +658,26 @@ export class AIWorkbenchPromptRuntime {
           jobId,
           reason,
         });
+        terminalLogged = true;
+        logger.info('[AIWorkbenchPromptRuntime] backend ai prompt canceled', {
+          ...logContext,
+          reason,
+        });
       } catch {
         // best effort cancel
       }
     };
 
     try {
+      logger.info('[AIWorkbenchPromptRuntime] backend ai prompt submitted', logContext);
       await backendSessionService.createSession({
         sessionId,
-        surfaceId: normalizeString(this.deps.state.surface || 'standalone-dialog') || 'standalone-dialog',
+        surfaceId: surface,
         reviewSessionId: normalizeString(this.deps.state.sourceReviewSessionId) || undefined,
         owner: 'backend',
         skillId: normalizeString(this.deps.state.activeSkillId) || undefined,
         providerId,
-        modelId: normalizeString(request.model),
+        modelId,
       });
       if (signal?.aborted) {
         await cancelStream('aborted-before-execute');
@@ -678,7 +698,7 @@ export class AIWorkbenchPromptRuntime {
             streamId,
             jobId,
             providerId,
-            modelId: normalizeString(request.model),
+            modelId,
             timeoutMs,
             idempotencyKey: `${sessionId}:${jobId}`,
             request: {
@@ -693,20 +713,33 @@ export class AIWorkbenchPromptRuntime {
             },
             requiredSecretName,
           });
+          const promptLogContext = {
+            ...logContext,
+            state: promptResult.state,
+            unavailableClass: promptResult.unavailableClass || null,
+            diagnosticEventId: promptResult.diagnosticEventId,
+            responseStatus: promptResult.response?.status ?? null,
+          };
 
           if (signal?.aborted || promptResult.state === 'canceled') {
+            terminalLogged = true;
+            logger.info('[AIWorkbenchPromptRuntime] backend ai prompt canceled', promptLogContext);
             throw new LLMError('LLM request aborted', {
               code: 'aborted',
               retryable: true,
             });
           }
           if (promptResult.state === 'timeout') {
+            terminalLogged = true;
+            logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', promptLogContext);
             throw new LLMError('LLM request timed out', {
               code: 'timeout',
               retryable: true,
             });
           }
           if (promptResult.state === 'unavailable') {
+            terminalLogged = true;
+            logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', promptLogContext);
             throw new LLMError('BACKEND_UNAVAILABLE: ai prompt unavailable', {
               code: 'network_error',
               diagnostic: promptResult.unavailableClass || undefined,
@@ -715,6 +748,11 @@ export class AIWorkbenchPromptRuntime {
           if (promptResult.state === 'failed') {
             const body = promptResult.response?.body || '';
             const parsedFailed = this.parseBackendChatResponse(body);
+            terminalLogged = true;
+            logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', {
+              ...promptLogContext,
+              message: parsedFailed.message || 'Backend AI prompt execution failed',
+            });
             throw this.httpStatusToLlmError(
               Number(promptResult.response?.status || 500),
               parsedFailed.message || 'Backend AI prompt execution failed',
@@ -723,18 +761,38 @@ export class AIWorkbenchPromptRuntime {
           }
           const response = promptResult.response;
           if (!response) {
+            terminalLogged = true;
+            logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', {
+              ...promptLogContext,
+              message: 'ai prompt response unavailable',
+            });
             throw new LLMError('BACKEND_UNAVAILABLE: ai prompt response unavailable', {
               code: 'network_error',
             });
           }
           const parsed = this.parseBackendChatResponse(response.body);
           if (response.status >= 400) {
+            terminalLogged = true;
+            logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', {
+              ...promptLogContext,
+              message: parsed.message || 'Backend AI proxy request failed',
+            });
             throw this.httpStatusToLlmError(response.status, parsed.message || 'Backend AI proxy request failed', response.body);
           }
           const content = parsed.content;
           if (!content && parsed.toolCalls.length === 0) {
+            terminalLogged = true;
+            logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', {
+              ...promptLogContext,
+              message: 'LLM returned an empty completion',
+            });
             throw new LLMError('LLM returned an empty completion', { code: 'empty_response' });
           }
+          terminalLogged = true;
+          logger.info('[AIWorkbenchPromptRuntime] backend ai prompt completed', {
+            ...promptLogContext,
+            status: response.status,
+          });
           return {
             role: 'assistant',
             content,
@@ -763,11 +821,22 @@ export class AIWorkbenchPromptRuntime {
           sessionId,
           jobId,
           providerId,
-          modelId: normalizeString(request.model),
+          modelId,
           timeoutMs,
           idempotencyKey: `${sessionId}:${jobId}`,
         });
+        logger.info('[AIWorkbenchPromptRuntime] backend ai stream started', {
+          ...logContext,
+          state: streamStart.state,
+          diagnosticEventId: streamStart.diagnosticEventId,
+        });
         if (streamStart.state === 'timeout') {
+          terminalLogged = true;
+          logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', {
+            ...logContext,
+            state: streamStart.state,
+            diagnosticEventId: streamStart.diagnosticEventId,
+          });
           throw new LLMError('LLM request timed out', {
             code: 'timeout',
             retryable: true,
@@ -792,8 +861,21 @@ export class AIWorkbenchPromptRuntime {
         });
         const parsed = this.parseBackendChatResponse(response.body);
         if (response.status >= 400) {
+          terminalLogged = true;
+          logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', {
+            ...logContext,
+            state: 'failed',
+            status: response.status,
+            message: parsed.message || 'Backend AI proxy request failed',
+          });
           throw this.httpStatusToLlmError(response.status, parsed.message || 'Backend AI proxy request failed', response.body);
         }
+        terminalLogged = true;
+        logger.info('[AIWorkbenchPromptRuntime] backend ai prompt completed', {
+          ...logContext,
+          state: 'completed',
+          status: response.status,
+        });
         return {
           role: 'assistant',
           content: parsed.content,
@@ -815,6 +897,16 @@ export class AIWorkbenchPromptRuntime {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || '');
+      if (!terminalLogged) {
+        terminalLogged = true;
+        logger.warn('[AIWorkbenchPromptRuntime] backend ai prompt failed', {
+          ...logContext,
+          message,
+          code: error instanceof LLMError ? error.code : undefined,
+          status: error instanceof LLMError ? error.status : undefined,
+          diagnostic: error instanceof LLMError ? error.diagnostic : undefined,
+        });
+      }
       if (error instanceof LLMError) {
         throw error;
       }

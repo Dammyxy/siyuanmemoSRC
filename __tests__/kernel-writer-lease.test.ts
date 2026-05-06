@@ -171,8 +171,83 @@ describe('kernel writer lease foreground policy', () => {
     });
   });
 
-  it('keeps normal visible owner protected from focused normal visible requester', async () => {
+  it('lets primary app surface reclaim a document-window owner immediately', async () => {
     const kernel = await loadKernelRpc();
+
+    await expect(kernel.call('writer.acquireLease', {
+      instanceId: 'document-window-instance',
+      surfaceId: 'document-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: false,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#old',
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: expect.objectContaining({
+        instanceId: 'document-window-instance',
+        documentHasFocus: false,
+      }),
+    });
+
+    await expect(kernel.call('writer.acquireLease', {
+      instanceId: 'primary-app-instance',
+      surfaceId: 'primary-app-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+    })).resolves.toMatchObject({
+      lease: expect.objectContaining({
+        instanceId: 'primary-app-instance',
+        surfaceId: 'primary-app-scope',
+        documentHasFocus: true,
+      }),
+    });
+  });
+
+  it('keeps primary app owner protected from document-window requester after grace', async () => {
+    let now = 1_000;
+    const kernel = await loadKernelRpc({ nowMs: () => now });
+
+    await expect(kernel.call('writer.acquireLease', {
+      instanceId: 'primary-app-instance',
+      surfaceId: 'primary-app-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: false,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: expect.objectContaining({
+        instanceId: 'primary-app-instance',
+        ownerChangedAt: 1_000,
+      }),
+    });
+
+    now = 31_001;
+
+    await expect(kernel.call('writer.acquireLease', {
+      instanceId: 'document-window-instance',
+      surfaceId: 'document-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#doc',
+    })).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+      },
+      lease: expect.objectContaining({
+        instanceId: 'primary-app-instance',
+        surfaceId: 'primary-app-scope',
+      }),
+    });
+  });
+
+  it('lets focused document-window requester reclaim stale unfocused document-window owner after grace', async () => {
+    let now = 1_000;
+    const kernel = await loadKernelRpc({ nowMs: () => now });
 
     await expect(kernel.call('writer.acquireLease', {
       instanceId: 'old-window-instance',
@@ -185,31 +260,31 @@ describe('kernel writer lease foreground policy', () => {
       ok: true,
       lease: expect.objectContaining({
         instanceId: 'old-window-instance',
-        documentHasFocus: false,
+        ownerChangedAt: 1_000,
       }),
     });
 
+    now = 31_001;
+
     await expect(kernel.call('writer.acquireLease', {
-      instanceId: 'focused-main-instance',
-      surfaceId: 'focused-main-scope',
+      instanceId: 'focused-window-instance',
+      surfaceId: 'focused-window-scope',
       ttlMs: 60_000,
       visibilityState: 'visible',
       documentHasFocus: true,
-      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#new',
     })).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: 'BACKEND_UNAVAILABLE',
-      },
+      ok: true,
       lease: expect.objectContaining({
-        instanceId: 'old-window-instance',
-        surfaceId: 'old-window-scope',
-        documentHasFocus: false,
+        instanceId: 'focused-window-instance',
+        surfaceId: 'focused-window-scope',
+        visibilityState: 'visible',
+        documentHasFocus: true,
       }),
     });
   });
 
-  it('keeps hidden normal app owner protected from focused normal visible requester', async () => {
+  it('keeps fresh hidden document-window owner protected from focused document-window requester', async () => {
     const kernel = await loadKernelRpc();
 
     await kernel.call('writer.acquireLease', {
@@ -242,7 +317,7 @@ describe('kernel writer lease foreground policy', () => {
       ttlMs: 60_000,
       visibilityState: 'visible',
       documentHasFocus: true,
-      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#second',
     })).resolves.toMatchObject({
       ok: false,
       error: {
@@ -252,6 +327,55 @@ describe('kernel writer lease foreground policy', () => {
         instanceId: 'first-window-instance',
         surfaceId: 'first-window-scope',
         visibilityState: 'hidden',
+      }),
+    });
+  });
+
+  it('lets focused normal visible requester reclaim stale hidden normal app owner after grace', async () => {
+    let now = 1_000;
+    const kernel = await loadKernelRpc({ nowMs: () => now });
+
+    await kernel.call('writer.acquireLease', {
+      instanceId: 'first-window-instance',
+      surfaceId: 'first-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#first',
+    });
+
+    await expect(kernel.call('writer.renewLease', {
+      instanceId: 'first-window-instance',
+      surfaceId: 'first-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'hidden',
+      documentHasFocus: false,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#first',
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: expect.objectContaining({
+        instanceId: 'first-window-instance',
+        visibilityState: 'hidden',
+        ownerChangedAt: 1_000,
+      }),
+    });
+
+    now = 31_001;
+
+    await expect(kernel.call('writer.acquireLease', {
+      instanceId: 'second-window-instance',
+      surfaceId: 'second-window-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+    })).resolves.toMatchObject({
+      ok: true,
+      lease: expect.objectContaining({
+        instanceId: 'second-window-instance',
+        surfaceId: 'second-window-scope',
+        visibilityState: 'visible',
+        documentHasFocus: true,
       }),
     });
   });
@@ -365,7 +489,7 @@ describe('kernel writer lease foreground policy', () => {
     expect(second.lease.ownerChangedAt).toEqual(expect.any(Number));
   });
 
-  it('keeps unfocused normal visible owner protected from another unfocused normal visible requester', async () => {
+  it('keeps unfocused document-window owner protected from another fresh document-window requester', async () => {
     const kernel = await loadKernelRpc();
 
     await kernel.call('writer.acquireLease', {
@@ -383,7 +507,7 @@ describe('kernel writer lease foreground policy', () => {
       ttlMs: 60_000,
       visibilityState: 'visible',
       documentHasFocus: false,
-      locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#second',
     })).resolves.toMatchObject({
       ok: false,
       error: {

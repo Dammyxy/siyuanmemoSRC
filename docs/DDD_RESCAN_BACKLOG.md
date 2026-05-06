@@ -1,8 +1,28 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-06 (Round 280)
+Last update: 2026-05-06 (Round 282)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-06 - add AI backend prompt smoke log anchors
+
+- Task: 真实 AI 发消息后控制台没有可用于 RM072 live smoke 的 backend runtime 日志锚点。
+- Touched slice: AI workbench prompt runtime observability；`src/application/services/AIWorkbenchPromptRuntime.ts`、focused prompt runtime tests、`ARCHITECTURE.md`、`specs/001-backend-migration-next/quickstart.md`。
+- Debt fixed now: `AIWorkbenchPromptRuntime` 在 backend runtime 路径输出 operator-visible `backend ai prompt submitted/completed/canceled/failed` 日志，带 sessionId、streamId、jobId、providerId、modelId、surface、skillId、status、diagnosticEventId 等证据字段；日志不记录 prompt body、response body 或 API key。focused test 断言 backend prompt 成功时有 submitted/completed anchors 且不泄露 provider key。
+- Debt deferred: RM072/T092 live AI smoke 仍需用户在真实 SiYuan UI + real provider 环境执行并把结果回填 quickstart；本轮没有新增 token-by-token streaming delta 日志，只补 prompt/job/network 边界的验收锚点。
+- Why deferred: Codex 终端不能替用户完成真实 provider/UI 交互；逐 token 观测会牵动 UI observer/stream adapter，不是这次“发消息后无日志”的最小根因修复。
+- Next safe step: 重新加载 SiYuan 插件后打开主 writer 窗口，发一条 AI 消息；控制台应出现 `[AIWorkbenchPromptRuntime] backend ai prompt submitted`，完成后出现 `... completed`。取消时应出现 `... canceled`，错误/不可用时应出现 `... failed`。
+- Validation: red `pnpm exec vitest run src\application\services\__tests__\AIWorkbenchPromptRuntime.test.ts --reporter=dot` failed because `logger.info` had 0 calls；green same command（1 file / 7 tests passed）；green `pnpm exec vitest run src\application\services\__tests__\AIWorkbenchPromptRuntime.test.ts src\application\services\__tests__\AIBackendSessionService.test.ts worker\__tests__\BackendKernel.ai-job.test.ts src\application\clients\__tests__\SrsBackendClient.test.ts --reporter=dot`（4 files / 20 tests passed）；`pnpm run check:boundaries`；`pnpm build`（通过；build copied to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`，保留既有 338 个硬编码 UI 字符串提示、14 个 i18n 内容提示和 Sass legacy warning）。
+
+### 2026-05-06 - primary frontend writer lease role
+
+- Task: 修复两个当前窗口都是 follower，但 writer lease 被第三个 frontend runtime 持有；按 SiYuan 源码区分 `desktop` 主界面和 `desktop-window` 文档窗口。
+- Touched slice: Siyuan integration / kernel writer lease lifecycle + frontend runtime ownership refresh；`kernel.js`、`src/application/clients/FrontendInstanceRuntime.ts`、focused runtime/kernel tests、`ARCHITECTURE.md`。
+- Debt fixed now: `kernel.js` 和 `FrontendInstanceRuntime` 不再把 `/stage/build/app/` 与 `/stage/build/app/window.html` 当同级普通窗口；writer lease role 改为 `primary-app` > `document-window` > auxiliary > unknown。主界面可立即 reclaim 文档窗口/QuickNote/enhance holder；文档窗口不能反抢主界面 writer，只能在无主界面 owner 且另一个文档窗口 holder 超过 30 秒并 hidden/unfocused 时接任。observe 路径保留 `locationHref`、focus、visibility、ownerChanged/heartbeat metadata，避免 follower 在已有主界面 writer 时继续 acquire。
+- Debt deferred: 不引入完整 frontend renderer 注册表、不加 BroadcastChannel/Web Locks 第二套前端选主、不把 writer window list 持久化到 `siyuan.storage`。
+- Why deferred: SiYuan 源码显示插件会在每个 frontend renderer 里 onload，但 kernel plugin manager 仍是同名 singleton；本轮根因是 renderer surface role 判断错误，不是需要第二个选主 authority。
+- Next safe step: 重新 build/reload SiYuan 后，在主工具栏窗口跑 diagnostics 应看到 `mode=writer`；文档 `window.html` 新窗口应是 follower。若文档窗口先持有 writer，主窗口 visibility/manual refresh 应 reclaim；文档窗口 private API mutation 应出现 relay submitted/completed。
+- Validation: red `pnpm exec vitest run __tests__\kernel-writer-lease.test.ts src\application\clients\__tests__\FrontendInstanceRuntime.test.ts --reporter=dot` failed on primary/document-window role expectations；green same focused command（2 files / 42 tests passed）；green broader `pnpm exec vitest run __tests__\kernel-writer-lease.test.ts src\application\clients\__tests__\FrontendInstanceRuntime.test.ts src\application\clients\__tests__\KernelSidecarClient.test.ts src\application\clients\__tests__\FollowerCommandClient.test.ts src\application\handlers\__tests__\KernelTransactionActionPump.test.ts packages\contracts\src\__tests__\kernel-rpc.test.ts --reporter=dot`（6 files / 66 tests passed）；`pnpm run check:boundaries`；`pnpm build`（通过；build copied to `H:/SiYuanXY/data/plugins/siyuan-plugin-siyuanmemo`，保留既有 338 个硬编码 UI 字符串提示、14 个 i18n 内容提示和 Sass legacy warning）。
 
 ### 2026-05-06 - sticky normal app writer lease
 

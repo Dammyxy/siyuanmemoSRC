@@ -807,6 +807,168 @@ describe('FrontendInstanceRuntime', () => {
     );
   });
 
+  it('visible follower tries acquire after observing stale unfocused normal app writer', async () => {
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5#current' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'instance-a',
+        acquiredAt: 61_000,
+        expiresAt: 121_000,
+        lastHeartbeatAt: 61_000,
+        surfaceId: 'scope-a',
+        visibilityState: 'visible',
+        documentHasFocus: true,
+        locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html',
+        ownerChangedAt: 61_000,
+      },
+      now: 61_000,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'ghost-writer',
+          acquiredAt: 1,
+          expiresAt: 120_000,
+          lastHeartbeatAt: 60_000,
+          surfaceId: 'ghost-scope',
+          visibilityState: 'visible',
+          documentHasFocus: false,
+          locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html',
+          ownerChangedAt: 1,
+        },
+        now: 60_000,
+      })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 62_000 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      runtimeScopeId: 'scope-a',
+    });
+
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('manual');
+
+    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'instance-a',
+      surfaceId: 'scope-a',
+      ttlMs: 60_000,
+    }));
+    expect(runtime.getMode()).toBe('writer');
+  });
+
+  it('primary app follower tries acquire after observing document-window writer', async () => {
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'primary-instance',
+        acquiredAt: 2,
+        expiresAt: 62_000,
+        lastHeartbeatAt: 2,
+        surfaceId: 'primary-scope',
+        visibilityState: 'visible',
+        documentHasFocus: true,
+        locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+        ownerChangedAt: 2,
+      },
+      now: 2,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'document-window-instance',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'document-window-scope',
+          visibilityState: 'visible',
+          documentHasFocus: false,
+          locationHref: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5',
+          ownerChangedAt: 1,
+        },
+        now: 1,
+      })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'primary-instance',
+      runtimeScopeId: 'primary-scope',
+    });
+
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('visibility');
+
+    expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'primary-instance',
+      surfaceId: 'primary-scope',
+    }));
+    expect(runtime.getMode()).toBe('writer');
+  });
+
+  it('document-window follower does not acquire from primary app writer', async () => {
+    vi.stubGlobal('window', {
+      location: { href: 'http://127.0.0.1:49744/stage/build/app/window.html?v=3.6.5' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const writerAcquireLease = vi.fn(async () => ({
+      ok: true,
+      lease: {
+        instanceId: 'document-window-instance',
+        acquiredAt: 2,
+        expiresAt: 62_000,
+        lastHeartbeatAt: 2,
+        surfaceId: 'document-window-scope',
+      },
+      now: 2,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease,
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'primary-instance',
+          acquiredAt: 1,
+          expiresAt: 121_000,
+          lastHeartbeatAt: 60_000,
+          surfaceId: 'primary-scope',
+          visibilityState: 'visible',
+          documentHasFocus: false,
+          locationHref: 'http://127.0.0.1:49744/stage/build/app/?v=1778023002402',
+          ownerChangedAt: 1,
+        },
+        now: 60_000,
+      })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 3 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'document-window-instance',
+      runtimeScopeId: 'document-window-scope',
+    });
+
+    await (runtime as unknown as {
+      refreshOwnership: (reason: string) => Promise<{ leaseHolder: string | null }>;
+    }).refreshOwnership('manual');
+
+    expect(writerAcquireLease).not.toHaveBeenCalled();
+    expect(runtime.getMode()).toBe('follower');
+  });
+
   it('drains relay command when current instance is writer', async () => {
     const info = vi.fn();
     const writerTakeCommand = vi.fn()
