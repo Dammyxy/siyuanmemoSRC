@@ -37,4 +37,13 @@ describe('Backend migration parity harness', () => {
     expect(gates.VITE_SIYUANMEMO_ENABLE_KERNEL_TRANSACTION_INGEST).toBe(false);
     expect(BACKEND_FEATURE_GATE_MATRIX.length).toBeGreaterThan(0);
   });
+
+  it('keeps every retained migration gate default-on for the release path', () => {
+    const gates = resolveBackendFeatureGates({});
+
+    expect(BACKEND_FEATURE_GATE_MATRIX.every((row) => row.defaultEnabled)).toBe(true);
+    for (const row of BACKEND_FEATURE_GATE_MATRIX) {
+      expect(gates[row.gate]).toBe(true);
+    }
+  });
 });

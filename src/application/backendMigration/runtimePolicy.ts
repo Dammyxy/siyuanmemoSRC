@@ -16,9 +16,9 @@ export const BACKEND_MIGRATION_RELEASE_DEFAULT_ENV: RuntimeEnv = {
   [BACKEND_MIGRATION_FEATURE_GATES.autocardExecuteRelay]: 'true',
   [BACKEND_MIGRATION_WRITER_LEASE_GUARD_ENV_KEY]: 'true',
   [BACKEND_MIGRATION_FEATURE_GATES.autocardDecisionRelay]: 'true',
-  [BACKEND_MIGRATION_FEATURE_GATES.kernelTransactionIngest]: 'false',
-  [BACKEND_MIGRATION_FEATURE_GATES.privateApi]: 'false',
-  [BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY]: 'false',
+  [BACKEND_MIGRATION_FEATURE_GATES.kernelTransactionIngest]: 'true',
+  [BACKEND_MIGRATION_FEATURE_GATES.privateApi]: 'true',
+  [BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY]: 'true',
 };
 
 export interface BackendMigrationRuntimePolicy {
@@ -63,11 +63,11 @@ export function resolveBackendMigrationRuntimePolicy(env: RuntimeEnv): BackendMi
   const gates = resolveBackendFeatureGates(env);
   const flags = {
     backendWorker: gates[BACKEND_MIGRATION_FEATURE_GATES.autocardExecuteRelay] === true,
-    writerLeaseGuard: readBooleanEnv(env, BACKEND_MIGRATION_WRITER_LEASE_GUARD_ENV_KEY, false),
+    writerLeaseGuard: readBooleanEnv(env, BACKEND_MIGRATION_WRITER_LEASE_GUARD_ENV_KEY, true),
     autoCardDecisionRelay: gates[BACKEND_MIGRATION_FEATURE_GATES.autocardDecisionRelay] === true,
     kernelTransactionIngest: gates[BACKEND_MIGRATION_FEATURE_GATES.kernelTransactionIngest] === true,
     privateApi: gates[BACKEND_MIGRATION_FEATURE_GATES.privateApi] === true,
-    aiBackendRuntime: readBooleanEnv(env, BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY, false),
+    aiBackendRuntime: readBooleanEnv(env, BACKEND_MIGRATION_AI_BACKEND_RUNTIME_ENV_KEY, true),
   };
 
   const backendWorkerAvailable = flags.backendWorker;
