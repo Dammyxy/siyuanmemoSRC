@@ -140,11 +140,48 @@ function isRequesterVisible(named) {
   return normalizeOptionalString(named.visibilityState, 32) === 'visible';
 }
 
+function isAuxiliarySiyuanSurface(locationHref) {
+  const href = String(locationHref || '').toLowerCase();
+  return href.includes('enhance=true')
+    || href.includes('enwindowtitle=quicknote')
+    || href.includes('quicknote');
+}
+
+function getWriterLeaseSurfaceScore(state) {
+  const locationHref = normalizeOptionalString(state?.locationHref, 512);
+  if (!locationHref) {
+    return 10;
+  }
+  const href = locationHref.toLowerCase();
+  if (href.includes('/stage/build/app') && !isAuxiliarySiyuanSurface(href)) {
+    return 30;
+  }
+  if (href.includes('/stage/build/app')) {
+    return 20;
+  }
+  return 10;
+}
+
+function getWriterLeaseForegroundScore(state) {
+  const visibilityState = normalizeOptionalString(state?.visibilityState, 32);
+  if (visibilityState === 'hidden') {
+    return 0;
+  }
+  if (visibilityState !== 'visible') {
+    return 5;
+  }
+  const focusBonus = normalizeDocumentHasFocus(state?.documentHasFocus) === true ? 1 : 0;
+  return getWriterLeaseSurfaceScore(state) * 10 + focusBonus;
+}
+
 function isLeaseReclaimableByVisibleRequester(activeLease, named) {
   if (!activeLease || !isRequesterVisible(named)) {
     return false;
   }
-  return !activeLease.visibilityState || activeLease.visibilityState === 'hidden';
+  if (!activeLease.visibilityState || activeLease.visibilityState === 'hidden') {
+    return true;
+  }
+  return getWriterLeaseForegroundScore(named) > getWriterLeaseForegroundScore(activeLease);
 }
 
 function buildUnavailableEnvelope(message, lease, at = nowMs()) {

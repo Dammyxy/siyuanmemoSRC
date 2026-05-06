@@ -1,8 +1,18 @@
 # DDD Re-Scan Backlog
 
-Last update: 2026-05-06 (Round 277)
+Last update: 2026-05-06 (Round 278)
 
 ## 0. Task Deltas (newest first)
+
+### 2026-05-06 - prioritize normal app writer lease recovery
+
+- Task: 修复真实双窗口都变成 follower，kernel lease 仍被第三个可见但非当前窗口的 instance 续租，导致两个正常窗口都无法抢回 writer 的问题。
+- Touched slice: kernel writer lease lifecycle；`kernel.js`、`__tests__/kernel-writer-lease.test.ts`、`ARCHITECTURE.md`。
+- Debt fixed now: `kernel.js` 不再把所有 `visibilityState=visible` holder 当作同级一律保护；writer lease reclaim 现在按 surface role + focus score 判断：正常 SiYuan `app/window` surface 高于 `enhance=true` / QuickNote / 未知 surface，正常窗口可接管低优先级 holder；同为正常窗口时，有焦点 requester 可接管无焦点 holder，但同级都无焦点或已有 focused owner 时不抢，避免回到 visible 窗口反复覆盖 lease。
+- Debt deferred: kernel 仍没有真实窗口注册表或 renderer 关闭事件；跨 renderer 残留 holder 的最终清理仍依赖 visible acquire、显式 release 或 TTL。
+- Why deferred: 引入窗口注册表需要扩大到 SiYuan host lifecycle、kernel broadcast 与 runtime teardown 协议；本轮先修已证实的 holder 优先级错误，不增加第二套选主路径。
+- Next safe step: 重新构建并完整重启 SiYuan 后，若 `kernelLease.instanceId` 不是两个可见窗口之一，点一下正常主窗口或文档窗口应让该窗口 acquire 成真实 writer；QuickNote/enhance/旧 unknown holder 不应继续压住两个正常窗口。
+- Validation: red `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts --reporter=dot` failed on normal app reclaiming auxiliary/unfocused visible holders；green same command（1 file / 8 tests passed）；green broader `pnpm exec vitest run __tests__/kernel-writer-lease.test.ts src/application/clients/__tests__/FrontendInstanceRuntime.test.ts src/application/clients/__tests__/KernelSidecarClient.test.ts src/application/clients/__tests__/KernelWriterLeaseGuard.test.ts src/application/clients/__tests__/FollowerCommandClient.test.ts src/application/handlers/__tests__/KernelTransactionActionPump.test.ts packages/contracts/src/__tests__/kernel-rpc.test.ts --reporter=dot`（7 files / 56 tests passed）；`pnpm run check:boundaries`；`pnpm build`（通过；i18n 阻断问题 0，保留既有 338 个硬编码提示、14 个 i18n 内容提示与 Sass legacy warning）；`git diff --check`（only LF/CRLF warnings）。
 
 ### 2026-05-06 - serialize in-process storage writer transactions
 
