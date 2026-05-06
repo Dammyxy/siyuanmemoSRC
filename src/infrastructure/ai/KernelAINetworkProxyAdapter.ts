@@ -4,8 +4,12 @@ import type {
   AINetworkProxyResponse,
 } from '@/application/ports/AINetworkProxyPort';
 import type { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
+import type { KernelAiStreamEvent } from '../../../packages/contracts/src/kernel-rpc';
 
-type KernelNetworkClient = Pick<KernelSidecarClient, 'getStatus' | 'networkFetchExternal'>;
+type KernelNetworkClient = Pick<
+  KernelSidecarClient,
+  'getStatus' | 'networkFetchExternal' | 'networkStreamExternal' | 'subscribeAiStream'
+>;
 
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
@@ -82,6 +86,13 @@ export class KernelAINetworkProxyAdapter implements AINetworkProxyPort {
       if (status.kind !== 'available') {
         throw new Error(status.message || `kernel companion is ${status.reason}`);
       }
+      if (request.stream === true) {
+        return await this.executeStreaming({
+          ...request,
+          url,
+          timeoutMs,
+        }, redactionKeys);
+      }
       const response = await this.client.networkFetchExternal({
         requestId: `ai-network-${Date.now().toString(36)}`,
         url,
@@ -98,5 +109,105 @@ export class KernelAINetworkProxyAdapter implements AINetworkProxyPort {
     } catch (error) {
       throw toUnavailableError(error, redactionKeys);
     }
+  }
+
+  subscribeStream(
+    streamId: string,
+    handlers: {
+      onEvent(event: KernelAiStreamEvent): void;
+      onError?(error: Error): void;
+      onClose?(): void;
+    },
+  ): { close(): void } {
+    const subscription = this.client.subscribeAiStream(streamId, handlers);
+    if (!subscription) {
+      handlers.onError?.(new Error('KERNEL_SIDECAR_UNAVAILABLE: private AI stream SSE is unavailable'));
+      return { close: () => undefined };
+    }
+    return subscription;
+  }
+
+  private async executeStreaming(
+    request: AINetworkProxyRequest & { url: string; timeoutMs: number },
+    redactionKeys: string[],
+  ): Promise<AINetworkProxyResponse> {
+    const streamId = normalizeString(request.streamId);
+    if (!streamId) {
+      throw new Error('KERNEL_SIDECAR_UNAVAILABLE: ai streaming requires streamId');
+    }
+    if (normalizeString(request.method || 'GET').toUpperCase() !== 'GET' || request.body != null) {
+      throw new Error('KERNEL_SIDECAR_UNAVAILABLE: ai streaming unsupported by kernel SSE proxy for non-GET/body requests');
+    }
+
+    let finalEvent: KernelAiStreamEvent | null = null;
+    let terminalError: Error | null = null;
+    let streamSubscription: { close(): void } = { close: () => undefined };
+    const terminal = new Promise<KernelAiStreamEvent>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`TIMEOUT: ai streaming request timed out (${request.timeoutMs}ms)`));
+      }, request.timeoutMs);
+      streamSubscription = this.subscribeStream(streamId, {
+        onEvent: (event) => {
+          request.onStreamEvent?.(event);
+          if (event.type === 'final') {
+            finalEvent = event;
+            clearTimeout(timeout);
+            streamSubscription.close();
+            resolve(event);
+          }
+          if (event.type === 'error' || event.type === 'timeout' || event.type === 'canceled') {
+            terminalError = new Error(`${event.error?.code || event.type.toUpperCase()}: ${event.error?.message || event.type}`);
+            clearTimeout(timeout);
+            streamSubscription.close();
+            reject(terminalError);
+          }
+        },
+        onError: (error) => {
+          terminalError = error;
+          clearTimeout(timeout);
+          streamSubscription.close();
+          reject(error);
+        },
+      });
+    });
+
+    let started;
+    try {
+      started = await this.client.networkStreamExternal({
+        requestId: `ai-stream-${Date.now().toString(36)}`,
+        streamId,
+        sessionId: request.sessionId,
+        jobId: request.jobId,
+        url: request.url,
+        method: request.method || 'GET',
+        headers: request.headers,
+        timeoutMs: request.timeoutMs,
+      });
+    } catch (error) {
+      streamSubscription.close();
+      terminal.catch(() => undefined);
+      throw error;
+    }
+    if (started.state !== 'started') {
+      streamSubscription.close();
+      terminal.catch(() => undefined);
+      throw new Error(`KERNEL_SIDECAR_UNAVAILABLE: ai streaming unavailable (${started.unavailableReason || 'unknown'}) ${started.message || ''}`.trim());
+    }
+
+    let event: KernelAiStreamEvent;
+    try {
+      event = finalEvent ?? await terminal;
+    } catch (error) {
+      streamSubscription.close();
+      throw error;
+    }
+    if (!event.final) {
+      throw terminalError || new Error('KERNEL_SIDECAR_UNAVAILABLE: ai streaming finished without final response');
+    }
+    return {
+      status: event.final.status,
+      headers: normalizeHeaderRecord(event.final.headers),
+      body: redactSecrets(event.final.body || '', redactionKeys),
+    };
   }
 }

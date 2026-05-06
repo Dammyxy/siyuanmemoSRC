@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FollowerCommandClient } from '../FollowerCommandClient';
 import type { KernelSidecarClient } from '../KernelSidecarClient';
 
 describe('FollowerCommandClient', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('emits submitted and completed relay diagnostics', async () => {
     const info = vi.fn();
     const writerSubmitCommand = vi.fn(async () => ({
@@ -288,5 +292,143 @@ describe('FollowerCommandClient', () => {
       method: 'autocard.decision.resolve',
       params: { blockId: 'block-1', content: 'Alpha <> Beta' },
     }, 2_000)).rejects.toThrow('WRITER_UNAVAILABLE: writer lease lost');
+  });
+
+  it('uses command result push notifications instead of waiting for polling delay', async () => {
+    vi.useFakeTimers();
+    let onEvent: ((event: {
+      method: string;
+      params: unknown;
+    }) => void) | null = null;
+    const subscribeBroadcast = vi.fn((handlers: {
+      onEvent: typeof onEvent;
+    }) => {
+      onEvent = handlers.onEvent;
+      return {
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'open' }),
+      };
+    });
+    const writerGetCommandResult = vi.fn()
+      .mockResolvedValueOnce({
+        commandId: 'cmd-push-result',
+        status: 'pending',
+        ownerInstanceId: 'writer-1',
+        now: 1,
+      })
+      .mockResolvedValueOnce({
+        commandId: 'cmd-push-result',
+        status: 'completed',
+        ownerInstanceId: 'writer-1',
+        result: { ok: true },
+        completedAt: 2,
+        now: 2,
+      });
+    const client = new FollowerCommandClient({
+      subscribeBroadcast,
+      writerSubmitCommand: vi.fn(async () => ({
+        commandId: 'cmd-push-result',
+        ownerInstanceId: 'writer-1',
+        status: 'queued',
+        now: 1,
+      })),
+      writerGetCommandResult,
+    } as unknown as KernelSidecarClient);
+
+    const promise = client.submitAndWait<{ ok: boolean }>({
+      instanceId: 'follower-1',
+      method: 'review.feedback',
+      params: { cardId: 'card-1' },
+    }, 2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(subscribeBroadcast).toHaveBeenCalledTimes(1);
+    expect(writerGetCommandResult).toHaveBeenCalledTimes(1);
+    onEvent?.({
+      method: 'memo.writer.commandResult',
+      params: {
+        commandId: 'cmd-push-result',
+        requesterInstanceId: 'follower-1',
+        writerInstanceId: 'writer-1',
+        ok: true,
+        result: { ok: true },
+        completedAt: 2,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerGetCommandResult).toHaveBeenCalledTimes(2);
+    await expect(promise).resolves.toEqual({ ok: true });
+  });
+
+  it('deduplicates duplicate command result push notifications', async () => {
+    vi.useFakeTimers();
+    let onEvent: ((event: {
+      method: string;
+      params: unknown;
+    }) => void) | null = null;
+    const subscribeBroadcast = vi.fn((handlers: {
+      onEvent: typeof onEvent;
+    }) => {
+      onEvent = handlers.onEvent;
+      return {
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'open' }),
+      };
+    });
+    const writerGetCommandResult = vi.fn()
+      .mockResolvedValueOnce({
+        commandId: 'cmd-duplicate-result',
+        status: 'pending',
+        ownerInstanceId: 'writer-1',
+        now: 1,
+      })
+      .mockResolvedValueOnce({
+        commandId: 'cmd-duplicate-result',
+        status: 'completed',
+        ownerInstanceId: 'writer-1',
+        result: { ok: true },
+        completedAt: 2,
+        now: 2,
+      });
+    const client = new FollowerCommandClient({
+      subscribeBroadcast,
+      writerSubmitCommand: vi.fn(async () => ({
+        commandId: 'cmd-duplicate-result',
+        ownerInstanceId: 'writer-1',
+        status: 'queued',
+        now: 1,
+      })),
+      writerGetCommandResult,
+    } as unknown as KernelSidecarClient);
+
+    const promise = client.submitAndWait<{ ok: boolean }>({
+      instanceId: 'follower-1',
+      method: 'review.feedback',
+      params: { cardId: 'card-1' },
+    }, 2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const event = {
+      method: 'memo.writer.commandResult',
+      params: {
+        commandId: 'cmd-duplicate-result',
+        requesterInstanceId: 'follower-1',
+        writerInstanceId: 'writer-1',
+        ok: true,
+        result: { ok: true },
+        completedAt: 2,
+      },
+    };
+    onEvent?.(event);
+    onEvent?.(event);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerGetCommandResult).toHaveBeenCalledTimes(2);
+    await expect(promise).resolves.toEqual({ ok: true });
   });
 });

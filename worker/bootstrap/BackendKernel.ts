@@ -60,7 +60,10 @@ interface BackendKernelDependencies {
   database: WorkerSqliteDatabaseService;
   resolveExistingBlockIds?: (blockIds: string[]) => Promise<string[]>;
   executeAutoCard?: (request: BackendAutoCardExecuteRequest) => Promise<BackendAutoCardExecuteResult>;
-  executeAiPrompt?: (request: BackendAiPromptExecuteRequest['request']) => Promise<{
+  executeAiPrompt?: (
+    request: BackendAiPromptExecuteRequest['request'],
+    context: BackendAiPromptExecuteRequest,
+  ) => Promise<{
     status: number;
     headers: Record<string, string>;
     body: string;

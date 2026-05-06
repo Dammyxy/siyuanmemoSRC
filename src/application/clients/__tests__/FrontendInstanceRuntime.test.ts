@@ -5,6 +5,7 @@ import type { KernelSidecarClient } from '../KernelSidecarClient';
 describe('FrontendInstanceRuntime', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('emits startup ownership diagnostics with lease holder details', async () => {
@@ -215,6 +216,296 @@ describe('FrontendInstanceRuntime', () => {
     expect(writerAcquireLease).toHaveBeenCalledWith(expect.objectContaining({
       ttlMs: 60_000,
     }));
+    await runtime.dispose();
+  });
+
+  it('drains writer commands immediately when push relay command notification arrives', async () => {
+    let onEvent: ((event: {
+      method: string;
+      params: unknown;
+    }) => void) | null = null;
+    const subscribeBroadcast = vi.fn((handlers: {
+      onEvent: typeof onEvent;
+    }) => {
+      onEvent = handlers.onEvent;
+      return {
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'open' }),
+      };
+    });
+    const writerTakeCommand = vi.fn()
+      .mockResolvedValueOnce({
+        command: {
+          commandId: 'cmd-push-1',
+          requesterInstanceId: 'follower-1',
+          method: 'review.feedback',
+          requestedAt: 1,
+        },
+        now: 1,
+      })
+      .mockResolvedValueOnce({ command: null, now: 2 });
+    const writerCompleteCommand = vi.fn(async () => ({ ok: true, now: 2 }));
+    const writerCommandHandler = vi.fn(async () => ({ ok: true }));
+    const runtime = new FrontendInstanceRuntime({
+      subscribeBroadcast,
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-1',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-writer',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerTakeCommand,
+      writerCompleteCommand,
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'writer-1',
+      runtimeScopeId: 'scope-writer',
+      writerCommandHandler,
+    });
+
+    await runtime.start();
+
+    expect(subscribeBroadcast).toHaveBeenCalledTimes(1);
+    expect(writerTakeCommand).not.toHaveBeenCalled();
+    onEvent?.({
+      method: 'memo.writer.command',
+      params: {
+        commandId: 'cmd-push-1',
+        requesterInstanceId: 'follower-1',
+        method: 'review.feedback',
+        requestedAt: 1,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerTakeCommand).toHaveBeenCalledTimes(2);
+    expect(writerCommandHandler).toHaveBeenCalledWith(expect.objectContaining({
+      commandId: 'cmd-push-1',
+    }));
+    expect(writerCompleteCommand).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'writer-1',
+      commandId: 'cmd-push-1',
+      result: { ok: true },
+    }));
+    await runtime.dispose();
+  });
+
+  it('deduplicates duplicate push command notifications while a command is in flight', async () => {
+    let onEvent: ((event: {
+      method: string;
+      params: unknown;
+    }) => void) | null = null;
+    const subscribeBroadcast = vi.fn((handlers: {
+      onEvent: typeof onEvent;
+    }) => {
+      onEvent = handlers.onEvent;
+      return {
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'open' }),
+      };
+    });
+    const command = {
+      commandId: 'cmd-duplicate-1',
+      requesterInstanceId: 'follower-1',
+      method: 'review.feedback',
+      requestedAt: 1,
+    };
+    const writerTakeCommand = vi.fn()
+      .mockResolvedValueOnce({ command, now: 1 })
+      .mockResolvedValueOnce({ command, now: 1 })
+      .mockResolvedValue({ command: null, now: 2 });
+    let resolveHandler: ((value: unknown) => void) | null = null;
+    const writerCommandHandler = vi.fn(() => new Promise((resolve) => {
+      resolveHandler = resolve;
+    }));
+    const writerCompleteCommand = vi.fn(async () => ({ ok: true, now: 2 }));
+    const runtime = new FrontendInstanceRuntime({
+      subscribeBroadcast,
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-1',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-writer',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerTakeCommand,
+      writerCompleteCommand,
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'writer-1',
+      runtimeScopeId: 'scope-writer',
+      writerCommandHandler,
+    });
+
+    await runtime.start();
+    onEvent?.({ method: 'memo.writer.command', params: command });
+    onEvent?.({ method: 'memo.writer.command', params: command });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerCommandHandler).toHaveBeenCalledTimes(1);
+    resolveHandler?.({ ok: true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerCompleteCommand).toHaveBeenCalledTimes(1);
+    await runtime.dispose();
+  });
+
+  it('drains pending commands when push relay reconnects', async () => {
+    let onStateChange: ((state: { state: string }) => void) | null = null;
+    const subscribeBroadcast = vi.fn((handlers: {
+      onEvent: (event: { method: string; params: unknown }) => void;
+      onStateChange?: typeof onStateChange;
+    }) => {
+      onStateChange = handlers.onStateChange || null;
+      return {
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'connecting' }),
+      };
+    });
+    const writerTakeCommand = vi.fn()
+      .mockResolvedValueOnce({
+        command: {
+          commandId: 'cmd-reconnect-1',
+          requesterInstanceId: 'follower-1',
+          method: 'review.feedback',
+          requestedAt: 1,
+        },
+        now: 1,
+      })
+      .mockResolvedValueOnce({ command: null, now: 2 });
+    const writerCommandHandler = vi.fn(async () => ({ ok: true }));
+    const runtime = new FrontendInstanceRuntime({
+      subscribeBroadcast,
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'writer-1',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-writer',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'writer-1',
+      runtimeScopeId: 'scope-writer',
+      writerCommandHandler,
+    });
+
+    await runtime.start();
+    expect(writerTakeCommand).not.toHaveBeenCalled();
+    onStateChange?.({ state: 'open' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerCommandHandler).toHaveBeenCalledWith(expect.objectContaining({
+      commandId: 'cmd-reconnect-1',
+    }));
+    await runtime.dispose();
+  });
+
+  it('ignores push relay command notifications while follower', async () => {
+    let onEvent: ((event: {
+      method: string;
+      params: unknown;
+    }) => void) | null = null;
+    const subscribeBroadcast = vi.fn((handlers: {
+      onEvent: typeof onEvent;
+    }) => {
+      onEvent = handlers.onEvent;
+      return {
+        close: vi.fn(),
+        getDiagnostics: () => ({ state: 'open' }),
+      };
+    });
+    const writerTakeCommand = vi.fn(async () => ({
+      command: {
+        commandId: 'cmd-must-not-run',
+        requesterInstanceId: 'follower-1',
+        method: 'review.feedback',
+        requestedAt: 1,
+      },
+      now: 1,
+    }));
+    const runtime = new FrontendInstanceRuntime({
+      subscribeBroadcast,
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'other-writer',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-other',
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'other-writer',
+          acquiredAt: 1,
+          expiresAt: 61_000,
+          lastHeartbeatAt: 1,
+          surfaceId: 'scope-other',
+        },
+        now: 1,
+      })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 2 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'follower-1',
+      runtimeScopeId: 'scope-follower',
+      writerCommandHandler: vi.fn(),
+    });
+
+    await runtime.start();
+    expect(runtime.getMode()).toBe('follower');
+
+    onEvent?.({
+      method: 'memo.writer.command',
+      params: {
+        commandId: 'cmd-must-not-run',
+        requesterInstanceId: 'follower-1',
+        method: 'review.feedback',
+        requestedAt: 1,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writerTakeCommand).not.toHaveBeenCalled();
     await runtime.dispose();
   });
 

@@ -13,6 +13,7 @@ import type {
   BackendAiStreamResult,
   BackendAiStreamStartRequest,
 } from '../../../packages/contracts/src/backend-rpc';
+import type { KernelAiStreamEvent } from '../../../packages/contracts/src/kernel-rpc';
 import type { SrsBackendClient } from '@/application/clients/SrsBackendClient';
 import type { AINetworkProxyPort, AINetworkProxyRequest, AINetworkProxyResponse } from '@/application/ports/AINetworkProxyPort';
 
@@ -112,5 +113,20 @@ export class AIBackendSessionService {
       }
     }
     return this.deps.networkProxy.execute(request);
+  }
+
+  subscribeStream(
+    streamId: string,
+    handlers: {
+      onEvent(event: KernelAiStreamEvent): void;
+      onError?(error: Error): void;
+      onClose?(): void;
+    },
+  ): { close(): void } {
+    if (!this.deps.networkProxy?.subscribeStream) {
+      handlers.onError?.(new Error('BACKEND_UNAVAILABLE: ai stream subscription unavailable'));
+      return { close: () => undefined };
+    }
+    return this.deps.networkProxy.subscribeStream(streamId, handlers);
   }
 }

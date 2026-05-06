@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Script, createContext } from 'node:vm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 function base64Url(value: string): string {
   return Buffer.from(value, 'utf8')
@@ -18,9 +18,12 @@ async function loadKernelRpc(options: {
     headers?: Record<string, string>;
     text: () => Promise<string>;
   }>;
+  clientEvent?: (path: string) => Promise<unknown>;
 } = {}) {
   const rpcHandlers = new Map<string, (params?: unknown) => unknown | Promise<unknown>>();
   const clientFetchCalls: Array<{ path: string; init: unknown }> = [];
+  const clientEventCalls: string[] = [];
+  const broadcasts: Array<{ method: string; params: unknown }> = [];
   const RuntimeDate = options.nowMs ? { now: options.nowMs } : Date;
   const context = createContext({
     Buffer,
@@ -46,7 +49,9 @@ async function loadKernelRpc(options: {
         bind: async (method: string, handler: (params?: unknown) => unknown | Promise<unknown>) => {
           rpcHandlers.set(method, handler);
         },
-        broadcast: async () => undefined,
+        broadcast: async (method: string, params: unknown) => {
+          broadcasts.push({ method, params });
+        },
       },
       logger: {
         info: async () => undefined,
@@ -64,10 +69,26 @@ async function loadKernelRpc(options: {
             text: async () => '{"ok":true}',
           };
         },
+        event: async (path: string) => {
+          clientEventCalls.push(path);
+          if (options.clientEvent) {
+            return options.clientEvent(path);
+          }
+          return {
+            readyState: 1,
+            url: path,
+            onopen: null,
+            onmessage: null,
+            onerror: null,
+            onclose: null,
+            close: () => undefined,
+          };
+        },
       },
       server: {
         private: {
           http: {},
+          es: {},
         },
       },
     },
@@ -79,7 +100,9 @@ async function loadKernelRpc(options: {
   }).plugin.lifecycle;
   await lifecycle.onload?.();
   return {
+    broadcasts,
     clientFetchCalls,
+    clientEventCalls,
     call: async (method: string, params?: unknown) => {
       const handler = rpcHandlers.get(method);
       if (!handler) {
@@ -96,10 +119,32 @@ async function loadKernelRpc(options: {
       }
       return handler(request);
     },
+    privateEs: async (request: unknown) => {
+      const handler = (context.siyuan as {
+        server?: { private?: { es?: { handler?: (request: unknown) => Promise<unknown> } } };
+      }).server?.private?.es?.handler;
+      if (!handler) {
+        throw new Error('missing private es handler');
+      }
+      return handler(request);
+    },
   };
 }
 
 describe('kernel writer lease foreground policy', () => {
+  it('keeps kernel companion boundary narrow', () => {
+    const source = readFileSync(join(process.cwd(), 'kernel.js'), 'utf8');
+
+    expect(source).not.toMatch(/siyuanmemo\.db/i);
+    expect(source).not.toMatch(/sql\.js/i);
+    expect(source).not.toMatch(/new\s+SQL/i);
+    expect(source).not.toMatch(/scheduler/i);
+    expect(source).not.toMatch(/\/review\//);
+    expect(source).not.toMatch(/\/ai\/send/);
+    expect(source).not.toMatch(/\/cards\/query/);
+    expect(source).toMatch(/\/ai\/stream\//);
+  });
+
   it('rejects hidden requester when no writer lease exists', async () => {
     const kernel = await loadKernelRpc();
 
@@ -666,6 +711,125 @@ describe('kernel writer lease foreground policy', () => {
         body: '{"hello":"world"}',
       },
     });
+  });
+
+  it('streams external AI SSE through kernel network proxy and private SSE', async () => {
+    const upstream = {
+      readyState: 0,
+      url: '',
+      onopen: null as null | (() => Promise<void> | void),
+      onmessage: null as null | ((event: { data: string }) => Promise<void> | void),
+      onerror: null,
+      onclose: null,
+      close: vi.fn(),
+    };
+    const kernel = await loadKernelRpc({
+      clientEvent: async () => upstream,
+    });
+
+    await expect(kernel.call('capabilities')).resolves.toMatchObject({
+      methods: expect.arrayContaining(['network.streamExternal', 'private.es.aiStream']),
+      kernelNetworkSse: true,
+      privateSse: true,
+      aiStreaming: true,
+    });
+
+    await expect(kernel.call('network.streamExternal', {
+      requestId: 'stream-request-1',
+      streamId: 'stream-1',
+      sessionId: 'session-1',
+      jobId: 'job-1',
+      url: 'https://provider.test/events',
+      method: 'GET',
+      headers: { Authorization: 'Bearer secret' },
+    })).resolves.toMatchObject({
+      requestId: 'stream-request-1',
+      streamId: 'stream-1',
+      state: 'started',
+      privateSsePath: '/plugin/private/siyuan-plugin-siyuanmemo/ai/stream/stream-1',
+    });
+    expect(kernel.clientEventCalls).toEqual([
+      `/es/network/proxy?u=${base64Url('https://provider.test/events')}&h=${base64Url(JSON.stringify({
+        Accept: ['text/event-stream'],
+        Authorization: ['Bearer secret'],
+      }))}`,
+    ]);
+
+    const sent: Array<{ name: string; message: unknown }> = [];
+    const port = {
+      onopen: null as null | (() => void),
+      onclose: null as null | (() => void),
+      send: (name: string, message: unknown) => sent.push({ name, message }),
+      close: vi.fn(),
+    };
+    await kernel.privateEs({
+      context: { path: '/ai/stream/stream-1' },
+      port,
+    });
+    port.onopen?.();
+
+    await upstream.onmessage?.({ data: '{"choices":[{"delta":{"content":"hel"}}]}' });
+    await upstream.onmessage?.({ data: '{"choices":[{"delta":{"content":"lo"}}]}' });
+    await upstream.onmessage?.({ data: '[DONE]' });
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        name: 'token',
+        message: expect.objectContaining({ streamId: 'stream-1', text: 'hel' }),
+      }),
+      expect.objectContaining({
+        name: 'token',
+        message: expect.objectContaining({ streamId: 'stream-1', text: 'lo' }),
+      }),
+      expect.objectContaining({
+        name: 'final',
+        message: expect.objectContaining({
+          streamId: 'stream-1',
+          final: expect.objectContaining({ status: 200, body: 'hello' }),
+        }),
+      }),
+    ]);
+    expect(port.close).toHaveBeenCalledTimes(1);
+    expect(kernel.broadcasts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: 'memo.ai.stream',
+        params: expect.objectContaining({ type: 'token', text: 'hel' }),
+      }),
+      expect.objectContaining({
+        method: 'memo.ai.stream',
+        params: expect.objectContaining({ type: 'final' }),
+      }),
+    ]));
+  });
+
+  it('rejects unsupported non-GET AI SSE without falling back to fetch text', async () => {
+    const kernel = await loadKernelRpc();
+
+    await expect(kernel.call('network.streamExternal', {
+      requestId: 'stream-request-post',
+      streamId: 'stream-post',
+      url: 'https://provider.test/v1/chat/completions',
+      method: 'POST',
+      body: '{"stream":true}',
+    })).resolves.toMatchObject({
+      requestId: 'stream-request-post',
+      streamId: 'stream-post',
+      state: 'unavailable',
+      unavailableReason: 'streaming-unsupported',
+    });
+
+    expect(kernel.clientEventCalls).toHaveLength(0);
+    expect(kernel.clientFetchCalls).toHaveLength(0);
+    expect(kernel.broadcasts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: 'memo.ai.stream',
+        params: expect.objectContaining({
+          type: 'error',
+          streamId: 'stream-post',
+          error: expect.objectContaining({ code: 'STREAMING_UNSUPPORTED' }),
+        }),
+      }),
+    ]));
   });
 
   it('serves private HTTP status and relays command requests through the active writer', async () => {

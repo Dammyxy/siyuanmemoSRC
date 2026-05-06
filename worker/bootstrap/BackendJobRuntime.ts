@@ -227,7 +227,10 @@ export class BackendJobRuntime {
 
   async executePrompt(
     request: BackendAiPromptExecuteRequest,
-    executeNetwork?: (request: BackendAiPromptNetworkRequest) => Promise<BackendAiPromptNetworkResponse>,
+    executeNetwork?: (
+      request: BackendAiPromptNetworkRequest,
+      context: BackendAiPromptExecuteRequest,
+    ) => Promise<BackendAiPromptNetworkResponse>,
   ): Promise<BackendAiPromptExecuteResult> {
     const streamResult = this.startStream({
       streamId: request.streamId,
@@ -265,7 +268,7 @@ export class BackendJobRuntime {
     }
 
     try {
-      const response = await executeNetwork(request.request);
+      const response = await executeNetwork(request.request, request);
       if (response.status >= 400) {
         this.failJob(request.jobId, `http-${response.status}`);
         return {

@@ -14,6 +14,47 @@ export interface KernelCapabilitiesPayload {
   writesSiyuanMemoDb: false;
 }
 
+export const KERNEL_FAST_PATH_CAPABILITY_KEYS = [
+  'rpcWebSocketPush',
+  'backendRealWorkerTransport',
+  'kernelNetworkSse',
+  'privateSse',
+  'aiKernelStreaming',
+] as const;
+
+export type KernelFastPathCapabilityKey = typeof KERNEL_FAST_PATH_CAPABILITY_KEYS[number];
+
+export type KernelFastPathCapabilityState =
+  | 'available'
+  | 'unavailable'
+  | 'degraded'
+  | 'unknown';
+
+export type KernelFastPathUnavailableReason =
+  | 'not-loaded'
+  | 'not-running'
+  | 'network-error'
+  | 'http-error'
+  | 'rpc-error'
+  | 'invalid-response'
+  | 'websocket-url-unavailable'
+  | 'websocket-closed'
+  | 'worker-closed'
+  | 'streaming-unsupported'
+  | 'timeout'
+  | 'canceled'
+  | 'smoke-required'
+  | 'not-configured';
+
+export interface KernelFastPathCapability {
+  state: KernelFastPathCapabilityState;
+  reason?: KernelFastPathUnavailableReason;
+  message?: string;
+  checkedAt?: number;
+}
+
+export type KernelFastPathCapabilities = Record<KernelFastPathCapabilityKey, KernelFastPathCapability>;
+
 export interface WriterLeasePayload {
   instanceId: string;
   acquiredAt: number;
@@ -158,6 +199,42 @@ export interface WriterRelayCommandResultPayload {
   completedAt: number;
 }
 
+export const KERNEL_AI_STREAM_EVENT_TYPES = [
+  'token',
+  'progress',
+  'error',
+  'final',
+  'canceled',
+  'timeout',
+  'close',
+] as const;
+
+export type KernelAiStreamEventType = typeof KERNEL_AI_STREAM_EVENT_TYPES[number];
+
+export interface KernelAiStreamEvent {
+  type: KernelAiStreamEventType;
+  streamId: string;
+  sessionId?: string;
+  jobId?: string;
+  sequence?: number;
+  text?: string;
+  progress?: {
+    phase: string;
+    current?: number;
+    total?: number;
+  };
+  error?: {
+    code: string;
+    message: string;
+  };
+  final?: {
+    status: number;
+    headers?: Record<string, string>;
+    body?: string;
+  };
+  emittedAt: number;
+}
+
 export type KernelWriterRelayErrorCode =
   | 'WRITER_UNAVAILABLE'
   | 'LEASE_UNAVAILABLE'
@@ -182,6 +259,28 @@ export interface KernelNetworkFetchExternalResult {
   status: number;
   headers: Record<string, string>;
   body: string;
+}
+
+export interface KernelNetworkStreamExternalRequest {
+  requestId?: string;
+  streamId: string;
+  sessionId?: string;
+  jobId?: string;
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+}
+
+export interface KernelNetworkStreamExternalResult {
+  requestId: string;
+  streamId: string;
+  state: 'started' | 'unavailable';
+  privateSsePath: string;
+  unavailableReason?: KernelFastPathUnavailableReason;
+  message?: string;
+  startedAt: number;
 }
 
 export interface KernelWriterSubmitCommandSuccessEnvelope {
@@ -232,4 +331,5 @@ export type KernelBroadcastEvent =
   | { method: 'memo.kernel.ready'; params: KernelHealthPayload }
   | { method: 'memo.writer.leaseChanged'; params: WriterLeasePayload | null }
   | { method: 'memo.writer.command'; params: WriterRelayCommandPayload }
-  | { method: 'memo.writer.commandResult'; params: WriterRelayCommandResultPayload };
+  | { method: 'memo.writer.commandResult'; params: WriterRelayCommandResultPayload }
+  | { method: 'memo.ai.stream'; params: KernelAiStreamEvent };

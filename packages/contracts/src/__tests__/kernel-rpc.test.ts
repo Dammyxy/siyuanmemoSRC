@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { KERNEL_RELAY_METHODS } from '../kernel-rpc';
+import {
+  KERNEL_AI_STREAM_EVENT_TYPES,
+  KERNEL_FAST_PATH_CAPABILITY_KEYS,
+  KERNEL_RELAY_METHODS,
+} from '../kernel-rpc';
 
 describe('kernel relay contract', () => {
   it('declares every backend mutation relay method used by ApplicationContext', () => {
@@ -15,5 +19,27 @@ describe('kernel relay contract', () => {
       'autocard.execute',
       'private.command.execute',
     ]));
+  });
+
+  it('declares fast-path capability keys used by runtime diagnostics', () => {
+    expect(KERNEL_FAST_PATH_CAPABILITY_KEYS).toEqual([
+      'rpcWebSocketPush',
+      'backendRealWorkerTransport',
+      'kernelNetworkSse',
+      'privateSse',
+      'aiKernelStreaming',
+    ]);
+  });
+
+  it('declares normalized AI stream event types without exposing raw SSE payloads', () => {
+    expect(KERNEL_AI_STREAM_EVENT_TYPES).toEqual([
+      'token',
+      'progress',
+      'error',
+      'final',
+      'canceled',
+      'timeout',
+      'close',
+    ]);
   });
 });

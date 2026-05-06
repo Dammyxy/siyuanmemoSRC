@@ -125,6 +125,7 @@ import type { HybridSyncConfig } from '@/application/services/XiuyuanSyncService
 import { isErr } from '@/types/result';
 import type { KernelCompanionPort } from '@/application/ports/KernelCompanionPort';
 import { SrsBackendClient, type SrsBackendTransport } from '@/application/clients/SrsBackendClient';
+import { BrowserSrsBackendWorkerTransport } from '@/application/clients/BrowserSrsBackendWorkerTransport';
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
 import { FrontendInstanceRuntime } from '@/application/clients/FrontendInstanceRuntime';
 import { FollowerCommandClient } from '@/application/clients/FollowerCommandClient';
@@ -139,9 +140,7 @@ import {
   resolveBackendMigrationRuntimePolicy,
   type BackendMigrationRuntimePolicy,
 } from '@/application/backendMigration/runtimePolicy';
-import { BackendKernel } from '../../worker/bootstrap/BackendKernel';
 import type { SqlitePersistenceBridge } from '../../worker/db/SqlitePersistenceBridge';
-import { WorkerSqliteDatabaseService } from '../../worker/db/SqliteDatabaseService';
 
 const logger = createLogger('ApplicationContext');
 
@@ -203,6 +202,10 @@ interface SqlPersistenceBundle {
   reviewLogs: SqlReviewLogRepository;
   arena: SqlArenaRepository;
 }
+
+type DisposableSrsBackendTransport = SrsBackendTransport & {
+  dispose?: () => void;
+};
 
 /**
  * 应用配置接口
@@ -267,6 +270,7 @@ export class ApplicationContext {
   private fullSyncTimer?: NodeJS.Timeout;
   private sqlPersistence?: SqlPersistenceBundle;
   private srsBackendClient: SrsBackendClient | null = null;
+  private srsBackendTransport: DisposableSrsBackendTransport | null = null;
   private frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
   private followerCommandClient: FollowerCommandClient | null = null;
   private kernelSidecarClient: KernelSidecarClient;
@@ -350,6 +354,7 @@ export class ApplicationContext {
       transactionWebSocketService?: TransactionWebSocketService;
       fullSyncTimer?: NodeJS.Timeout;
       srsBackendClient?: SrsBackendClient | null;
+      srsBackendTransport?: DisposableSrsBackendTransport | null;
       frontendInstanceRuntime?: FrontendInstanceRuntime | null;
       followerCommandClient?: FollowerCommandClient | null;
       kernelSidecarClient: KernelSidecarClient;
@@ -368,6 +373,7 @@ export class ApplicationContext {
     this.fullSyncTimer = services.fullSyncTimer;
     this.sqlPersistence = services.sqlPersistence;
     this.srsBackendClient = services.srsBackendClient ?? null;
+    this.srsBackendTransport = services.srsBackendTransport ?? null;
     this.frontendInstanceRuntime = services.frontendInstanceRuntime ?? null;
     this.followerCommandClient = services.followerCommandClient ?? null;
     this.kernelSidecarClient = services.kernelSidecarClient;
@@ -1294,6 +1300,7 @@ export class ApplicationContext {
 
     let contextRef: ApplicationContext | null = null;
     let srsBackendClient: SrsBackendClient | null = null;
+    let srsBackendTransport: DisposableSrsBackendTransport | null = null;
     let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
     let followerCommandClient: FollowerCommandClient | null = null;
     const kernelSidecarClient = new KernelSidecarClient(new SiyuanKernelCompanionAdapter());
@@ -1316,31 +1323,45 @@ export class ApplicationContext {
         const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
         const browserSiyuanApi = new BrowserSiyuanAdapter();
         const aiNetworkProxy = new KernelAINetworkProxyAdapter(kernelSidecarClient);
-        const backendKernel = new BackendKernel({
-          database: new WorkerSqliteDatabaseService(bridge),
-          resolveExistingBlockIds: async (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
-            browserSiyuanApi,
-            blockIds,
-          ),
-          executeAutoCard: async (request) => {
-            if (!contextRef) {
-              throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
-            }
-            const autoCardHandler = contextRef.getAutoCardHandler();
-            if (!autoCardHandler) {
-              throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
-            }
-            return autoCardHandler.executeEnvelopeFromBackend(request);
+        srsBackendTransport = new BrowserSrsBackendWorkerTransport({
+          hostEffects: {
+            readBinary: (path) => bridge.readBinary(path),
+            writeBinary: (path, bytes) => bridge.writeBinary(path, bytes),
+            readJSON: <T>(path: string) => bridge.readJSON?.<T>(path) ?? Promise.resolve(null),
+            writeJSON: (path, value) => {
+              if (!bridge.writeJSON) {
+                return Promise.reject(new Error(`SrsBackendWorker JSON persistence unavailable for ${path}`));
+              }
+              return bridge.writeJSON(path, value);
+            },
+            resolveExistingBlockIds: (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
+              browserSiyuanApi,
+              blockIds,
+            ),
+            executeAutoCard: async (request) => {
+              if (!contextRef) {
+                throw new Error('SrsBackendWorker autocard.execute unavailable: application context is not ready');
+              }
+              const autoCardHandler = contextRef.getAutoCardHandler();
+              if (!autoCardHandler) {
+                throw new Error('SrsBackendWorker autocard.execute unavailable: auto-card handler is not active');
+              }
+              return autoCardHandler.executeEnvelopeFromBackend(request);
+            },
+            executeAiPrompt: async (request, context) => aiNetworkProxy.execute({
+              ...request,
+              streamId: context.streamId,
+              sessionId: context.sessionId,
+              jobId: context.jobId,
+            }),
           },
-          executeAiPrompt: async (request) => aiNetworkProxy.execute(request),
         });
-        const transport: SrsBackendTransport = {
-          request: (request) => backendKernel.handle(request),
-        };
-        srsBackendClient = new SrsBackendClient(transport);
-        logger.info('[ApplicationContext] ✅ SRS backend worker client bootstrap enabled by feature flag');
+        srsBackendClient = new SrsBackendClient(srsBackendTransport);
+        logger.info('[ApplicationContext] ✅ SRS backend browser Worker transport bootstrap enabled by feature flag');
       } catch (error) {
-        logger.error('[ApplicationContext] Failed to bootstrap SRS backend worker client; SQL legacy path remains active:', error);
+        srsBackendTransport?.dispose?.();
+        srsBackendTransport = null;
+        logger.error('[ApplicationContext] Failed to bootstrap SRS backend browser Worker transport; backend runtime remains unavailable:', error);
       }
     }
 
@@ -1433,6 +1454,7 @@ export class ApplicationContext {
       transactionWebSocketService: undefined,  // 将在下面初始化
       fullSyncTimer: undefined,  // 将在下面初始化
       srsBackendClient,
+      srsBackendTransport,
       frontendInstanceRuntime,
       followerCommandClient,
       kernelSidecarClient,
@@ -2641,6 +2663,18 @@ export class ApplicationContext {
       
       // 4. 销毁所有已创建的服务（按创建顺序的逆序）
       await this.disposeServices(errors);
+
+      if (this.srsBackendTransport) {
+        try {
+          this.srsBackendTransport.dispose?.();
+          this.srsBackendTransport = null;
+          this.srsBackendClient = null;
+          logger.info('[ApplicationContext] ✅ SRS backend Worker transport disposed');
+        } catch (error) {
+          logger.error('[ApplicationContext] Error disposing SRS backend Worker transport:', error);
+          errors.push({ service: 'srsBackendTransport', error });
+        }
+      }
       
       // 5. Save storage data only when explicitly allowed
       if (shouldPersistStorage) {

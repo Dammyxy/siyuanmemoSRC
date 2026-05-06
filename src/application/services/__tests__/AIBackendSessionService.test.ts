@@ -108,6 +108,35 @@ describe('AIBackendSessionService', () => {
     })).rejects.toThrow('BACKEND_UNAVAILABLE: network unavailable');
   });
 
+  it('subscribes to AI stream deltas through the network proxy boundary', () => {
+    const close = vi.fn();
+    const subscribeStream = vi.fn(() => ({ close }));
+    const service = new AIBackendSessionService({
+      backendClient: {
+        createAiSession: vi.fn(),
+        getAiSession: vi.fn(),
+        updateAiSession: vi.fn(),
+        cancelAiSession: vi.fn(),
+        startAiStream: vi.fn(),
+        cancelAiStream: vi.fn(),
+        getAiJob: vi.fn(),
+        cancelAiJob: vi.fn(),
+        executeAiPrompt: vi.fn(),
+      },
+      networkProxy: {
+        execute: vi.fn(),
+        subscribeStream,
+      },
+    });
+    const handlers = { onEvent: vi.fn() };
+
+    const subscription = service.subscribeStream('stream-1', handlers);
+
+    expect(subscribeStream).toHaveBeenCalledWith('stream-1', handlers);
+    subscription.close();
+    expect(close).toHaveBeenCalled();
+  });
+
   it('surfaces backend unavailable when backend session client fails', async () => {
     const service = new AIBackendSessionService({
       backendClient: {

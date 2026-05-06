@@ -1,9 +1,14 @@
 import { KernelSidecarClient } from '@/application/clients/KernelSidecarClient';
+import type {
+  KernelCompanionBroadcastDiagnostics,
+  KernelCompanionBroadcastSubscription,
+} from '@/application/ports/KernelCompanionPort';
 import {
   getRelayCompletionExtraDiagnostics,
   shouldLogRelayCommandSubmitted,
 } from '@/application/clients/relayDiagnostics';
 import { createLogger } from '@/utils/logger';
+import type { KernelBroadcastEvent } from '../../../packages/contracts/src/kernel-rpc';
 
 export interface FrontendInstanceRuntimeOptions {
   instanceId?: string;
@@ -195,7 +200,10 @@ export class FrontendInstanceRuntime {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private relayTimer: ReturnType<typeof setInterval> | null = null;
   private visibilityRefreshDisposer: (() => void) | null = null;
+  private pushRelaySubscription: KernelCompanionBroadcastSubscription | null = null;
+  private pushRelayDiagnostics: KernelCompanionBroadcastDiagnostics | null = null;
   private drainingRelay = false;
+  private readonly processingRelayCommandIds = new Set<string>();
 
   constructor(
     private readonly sidecarClient: KernelSidecarClient,
@@ -246,6 +254,7 @@ export class FrontendInstanceRuntime {
       });
       const ownership = await this.refreshOwnership('startup');
       this.startHeartbeat();
+      this.startPushRelay();
       this.startRelayPump();
       this.startVisibilityRefresh();
       this.registerCurrentRuntimeInScope();
@@ -260,10 +269,12 @@ export class FrontendInstanceRuntime {
         leaseSurfaceId: ownership.leaseSurfaceId,
         leaseTtlMs: this.leaseTtlMs,
         relayPollIntervalMs: this.writerCommandHandler ? this.relayPollIntervalMs : null,
+        pushRelayState: this.pushRelayDiagnostics?.state ?? null,
       });
     } catch (error) {
       this.started = false;
       this.stopHeartbeat();
+      this.stopPushRelay();
       this.stopRelayPump();
       this.stopVisibilityRefresh();
       this.unregisterCurrentRuntimeInScope();
@@ -286,6 +297,7 @@ export class FrontendInstanceRuntime {
   async dispose(): Promise<void> {
     this.started = false;
     this.stopHeartbeat();
+    this.stopPushRelay();
     this.stopRelayPump();
     this.stopVisibilityRefresh();
     this.unregisterCurrentRuntimeInScope();
@@ -333,6 +345,64 @@ export class FrontendInstanceRuntime {
       clearInterval(this.relayTimer);
       this.relayTimer = null;
     }
+  }
+
+  private startPushRelay(): void {
+    this.stopPushRelay();
+    if (!this.writerCommandHandler) {
+      return;
+    }
+    const subscription = this.sidecarClient.subscribeBroadcast?.({
+      onEvent: (event) => this.handleKernelBroadcastEvent(event),
+      onStateChange: (diagnostics) => {
+        this.pushRelayDiagnostics = diagnostics;
+        if (diagnostics.state === 'degraded' || diagnostics.state === 'unavailable') {
+          this.logger.warn('[FrontendInstanceRuntime] push relay degraded', {
+            instanceId: this.instanceId,
+            runtimeScopeId: this.runtimeScopeId,
+            diagnostics,
+          });
+        }
+        if (diagnostics.state === 'open') {
+          this.drainPendingWriterCommands('push:reconnect-drain').catch(() => {
+            // keep reconnect catch-up best-effort
+          });
+        }
+      },
+    });
+    if (!subscription) {
+      this.pushRelayDiagnostics = {
+        state: 'unavailable',
+        reconnectAttempts: 0,
+        unavailableReason: 'not-configured',
+        message: 'Kernel broadcast subscription is not available',
+      };
+      return;
+    }
+    this.pushRelaySubscription = subscription;
+    this.pushRelayDiagnostics = subscription.getDiagnostics();
+  }
+
+  private stopPushRelay(): void {
+    if (!this.pushRelaySubscription) {
+      return;
+    }
+    this.pushRelaySubscription.close();
+    this.pushRelayDiagnostics = this.pushRelaySubscription.getDiagnostics();
+    this.pushRelaySubscription = null;
+  }
+
+  private handleKernelBroadcastEvent(event: KernelBroadcastEvent): void {
+    if (event.method !== 'memo.writer.command') {
+      return;
+    }
+    this.drainPendingWriterCommands('push:command').catch((error) => {
+      this.logger.warn('[FrontendInstanceRuntime] push relay drain failed', {
+        instanceId: this.instanceId,
+        runtimeScopeId: this.runtimeScopeId,
+        error,
+      });
+    });
   }
 
   private startVisibilityRefresh(): void {
@@ -648,7 +718,7 @@ export class FrontendInstanceRuntime {
     };
   }
 
-  private async drainPendingWriterCommands(): Promise<void> {
+  private async drainPendingWriterCommands(reason = 'watchdog'): Promise<void> {
     if (!this.started || this.mode !== 'writer' || !this.writerCommandHandler || this.drainingRelay) {
       return;
     }
@@ -662,6 +732,10 @@ export class FrontendInstanceRuntime {
           break;
         }
         const command = pulled.command;
+        if (this.processingRelayCommandIds.has(command.commandId)) {
+          continue;
+        }
+        this.processingRelayCommandIds.add(command.commandId);
         const relayContext = {
           commandId: command.commandId,
           method: command.method,
@@ -671,7 +745,10 @@ export class FrontendInstanceRuntime {
         };
         const logTakenBeforeHandling = shouldLogRelayCommandSubmitted(command.method);
         if (logTakenBeforeHandling) {
-          this.logger.info('[FrontendInstanceRuntime] relay command taken', relayContext);
+          this.logger.info('[FrontendInstanceRuntime] relay command taken', {
+            ...relayContext,
+            wakeReason: reason,
+          });
         }
         try {
           const result = await this.writerCommandHandler(command);
@@ -687,9 +764,15 @@ export class FrontendInstanceRuntime {
               ...completionDiagnostics,
             };
             if (!logTakenBeforeHandling) {
-              this.logger.info('[FrontendInstanceRuntime] relay command taken', completionContext);
+              this.logger.info('[FrontendInstanceRuntime] relay command taken', {
+                ...completionContext,
+                wakeReason: reason,
+              });
             }
-            this.logger.info('[FrontendInstanceRuntime] relay command completed', completionContext);
+            this.logger.info('[FrontendInstanceRuntime] relay command completed', {
+              ...completionContext,
+              wakeReason: reason,
+            });
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -707,16 +790,20 @@ export class FrontendInstanceRuntime {
             requesterInstanceId: command.requesterInstanceId,
             writerInstanceId: this.instanceId,
             error: message,
+            wakeReason: reason,
           });
+        } finally {
+          this.processingRelayCommandIds.delete(command.commandId);
         }
       }
     } catch (error) {
       if (this.isWriterLeaseUnavailableError(error)) {
-        const ownership = await this.observeCurrentLease('relay-poll:lost-writer');
+        const ownership = await this.observeCurrentLease(`${reason}:lost-writer`);
         if (!ownership.leaseHolder || ownership.leaseHolder === this.instanceId) {
           this.logger.warn('[FrontendInstanceRuntime] relay polling lost writer lease', {
             instanceId: this.instanceId,
             runtimeScopeId: this.runtimeScopeId,
+            wakeReason: reason,
             leaseHolder: ownership.leaseHolder,
             leaseSurfaceId: ownership.leaseSurfaceId,
             error,

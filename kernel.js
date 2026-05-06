@@ -8,10 +8,13 @@ const WRITER_COMMAND_RESULT_TTL_MS = 300_000;
 const WRITER_COMMAND_DISPATCH_TTL_MS = 5_000;
 const PRIVATE_COMMAND_WAIT_TIMEOUT_MS = 30_000;
 const PRIVATE_COMMAND_POLL_INTERVAL_MS = 250;
+const AI_STREAM_TTL_MS = 300_000;
+const AI_STREAM_BUFFER_LIMIT = 256;
 let writerLease = null;
 let writerLeaseEpoch = 0;
 const writerCommandsPending = new Map();
 const writerCommandResults = new Map();
+const aiStreams = new Map();
 
 function nowMs() {
   return Date.now();
@@ -105,6 +108,18 @@ function normalizeUrl(value) {
     throw new Error('network.fetchExternal requires absolute http/https url');
   }
   return url;
+}
+
+function normalizeStreamId(value) {
+  const streamId = String(value || '').trim();
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(streamId)) {
+    throw new Error('ai stream requires safe non-empty streamId');
+  }
+  return streamId;
+}
+
+function buildPrivateAiStreamPath(streamId) {
+  return `/plugin/private/${encodeURIComponent(siyuan.plugin.name)}/ai/stream/${encodeURIComponent(streamId)}`;
 }
 
 function utf8Bytes(value) {
@@ -451,6 +466,136 @@ async function broadcastWriterCommandResult(result) {
   }
 }
 
+async function broadcastAiStreamEvent(event) {
+  try {
+    await siyuan.rpc.broadcast('memo.ai.stream', event);
+  } catch (error) {
+    await siyuan.logger.warn('[SiYuanMemo kernel] failed to broadcast AI stream event', String(error));
+  }
+}
+
+function cleanupAiStreams(at = nowMs()) {
+  for (const [streamId, stream] of aiStreams.entries()) {
+    if (stream.expiresAt <= at && stream.subscribers.size === 0) {
+      aiStreams.delete(streamId);
+    }
+  }
+}
+
+function getOrCreateAiStream(streamId, meta = {}) {
+  cleanupAiStreams();
+  const normalized = normalizeStreamId(streamId);
+  const current = aiStreams.get(normalized);
+  const at = nowMs();
+  if (current) {
+    current.expiresAt = at + AI_STREAM_TTL_MS;
+    current.sessionId = meta.sessionId || current.sessionId;
+    current.jobId = meta.jobId || current.jobId;
+    return current;
+  }
+  const stream = {
+    streamId: normalized,
+    sessionId: meta.sessionId,
+    jobId: meta.jobId,
+    sequence: 0,
+    body: '',
+    events: [],
+    subscribers: new Set(),
+    terminal: false,
+    upstream: null,
+    createdAt: at,
+    expiresAt: at + AI_STREAM_TTL_MS,
+  };
+  aiStreams.set(normalized, stream);
+  return stream;
+}
+
+function sendAiStreamEventToSubscriber(subscriber, event) {
+  try {
+    subscriber.port.send(event.type, event);
+  } catch (error) {
+    subscriber.closed = true;
+  }
+}
+
+async function appendAiStreamEvent(streamId, type, payload = {}) {
+  const stream = getOrCreateAiStream(streamId, payload);
+  const event = {
+    type,
+    streamId: stream.streamId,
+    sessionId: payload.sessionId || stream.sessionId,
+    jobId: payload.jobId || stream.jobId,
+    sequence: ++stream.sequence,
+    emittedAt: nowMs(),
+    ...payload,
+  };
+  stream.events.push(event);
+  if (stream.events.length > AI_STREAM_BUFFER_LIMIT) {
+    stream.events.splice(0, stream.events.length - AI_STREAM_BUFFER_LIMIT);
+  }
+  stream.expiresAt = nowMs() + AI_STREAM_TTL_MS;
+  if (type === 'final' || type === 'error' || type === 'canceled' || type === 'timeout' || type === 'close') {
+    stream.terminal = true;
+  }
+  for (const subscriber of Array.from(stream.subscribers)) {
+    if (subscriber.closed) {
+      stream.subscribers.delete(subscriber);
+      continue;
+    }
+    sendAiStreamEventToSubscriber(subscriber, event);
+    if (stream.terminal) {
+      try {
+        subscriber.port.close();
+      } catch {
+        // subscriber may already be gone
+      }
+      stream.subscribers.delete(subscriber);
+    }
+  }
+  await broadcastAiStreamEvent(event);
+  return event;
+}
+
+function extractTokenTextFromSseData(data) {
+  const raw = String(data || '');
+  const text = raw.trim();
+  if (!text || text === '[DONE]') {
+    return '';
+  }
+  try {
+    const parsed = JSON.parse(text);
+    const choice = Array.isArray(parsed.choices) ? parsed.choices[0] : null;
+    const delta = choice?.delta?.content ?? choice?.text ?? choice?.message?.content;
+    if (delta !== undefined && delta !== null) {
+      return String(delta);
+    }
+  } catch {
+    // non-JSON SSE data can still be useful token text
+  }
+  return raw;
+}
+
+async function handleUpstreamAiSseMessage(streamId, event) {
+  const data = String(event?.data || '');
+  const stream = getOrCreateAiStream(streamId);
+  if (data.trim() === '[DONE]') {
+    await appendAiStreamEvent(streamId, 'final', {
+      final: {
+        status: 200,
+        headers: {},
+        body: stream.body,
+      },
+    });
+    return;
+  }
+  const token = extractTokenTextFromSseData(data);
+  if (!token) {
+    return;
+  }
+  stream.body += token;
+  await appendAiStreamEvent(streamId, 'token', { text: token });
+}
+
 function cleanupWriterCommandState(at = nowMs()) {
   for (const [commandId, pending] of writerCommandsPending.entries()) {
     if (pending.expiresAt <= at) {
@@ -512,12 +657,17 @@ function buildCapabilities() {
       'writer.getCommandResult',
       'writer.takeCommand',
       'network.fetchExternal',
+      'network.streamExternal',
       'private.http.status',
       'private.http.command',
+      'private.es.aiStream',
     ],
     storage: 'siyuan.storage',
     rpc: 'json-rpc-2.0',
     writesSiyuanMemoDb: false,
+    kernelNetworkSse: true,
+    privateSse: Boolean(siyuan.server?.private?.es),
+    aiStreaming: true,
     writerLease: {
       defaultTtlMs: WRITER_LEASE_DEFAULT_TTL_MS,
       minTtlMs: WRITER_LEASE_MIN_TTL_MS,
@@ -988,6 +1138,102 @@ async function networkFetchExternal(params) {
   }
 }
 
+async function networkStreamExternal(params) {
+  const named = toObjectParams(params);
+  const requestId = normalizeOptionalString(named.requestId, 128) || `network-stream-${nowMs()}`;
+  const streamId = normalizeStreamId(named.streamId || requestId);
+  const sessionId = normalizeOptionalString(named.sessionId, 128);
+  const jobId = normalizeOptionalString(named.jobId, 128);
+  const method = normalizeHttpMethod(named.method);
+  const startedAt = nowMs();
+  const privateSsePath = buildPrivateAiStreamPath(streamId);
+  getOrCreateAiStream(streamId, { sessionId, jobId });
+
+  if (method !== 'GET' || named.body !== undefined && named.body !== null) {
+    const message = 'kernel /es/network/proxy currently supports GET SSE streams only';
+    await appendAiStreamEvent(streamId, 'error', {
+      sessionId,
+      jobId,
+      error: {
+        code: 'STREAMING_UNSUPPORTED',
+        message,
+      },
+    });
+    return {
+      requestId,
+      streamId,
+      state: 'unavailable',
+      unavailableReason: 'streaming-unsupported',
+      message,
+      privateSsePath,
+      startedAt,
+    };
+  }
+
+  try {
+    const url = normalizeUrl(named.url);
+    const headers = normalizeHeaderRecord(named.headers);
+    const proxyPath = `/es/network/proxy?u=${base64UrlEncode(url)}&h=${base64UrlEncode(JSON.stringify(toProxyHeaderRecord({
+      Accept: 'text/event-stream',
+      ...headers,
+    })))}`;
+    const eventSource = await siyuan.client.event(proxyPath);
+    const stream = getOrCreateAiStream(streamId, { sessionId, jobId });
+    stream.upstream = eventSource;
+    eventSource.onopen = async () => appendAiStreamEvent(streamId, 'progress', {
+      sessionId,
+      jobId,
+      progress: {
+        phase: 'upstream-open',
+      },
+    });
+    eventSource.onmessage = async (event) => handleUpstreamAiSseMessage(streamId, event);
+    eventSource.onerror = async (event) => {
+      const message = event?.error?.message || 'upstream SSE error';
+      await appendAiStreamEvent(streamId, 'error', {
+        sessionId,
+        jobId,
+        error: {
+          code: 'NETWORK_UNAVAILABLE',
+          message: String(message),
+        },
+      });
+    };
+    eventSource.onclose = async () => {
+      const current = getOrCreateAiStream(streamId);
+      if (!current.terminal) {
+        await appendAiStreamEvent(streamId, 'close', { sessionId, jobId });
+      }
+    };
+    return {
+      requestId,
+      streamId,
+      state: 'started',
+      privateSsePath,
+      startedAt,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'unknown network.streamExternal failure');
+    await appendAiStreamEvent(streamId, 'error', {
+      sessionId,
+      jobId,
+      error: {
+        code: 'NETWORK_UNAVAILABLE',
+        message,
+      },
+    });
+    return {
+      requestId,
+      streamId,
+      state: 'unavailable',
+      unavailableReason: 'network-error',
+      message,
+      privateSsePath,
+      startedAt,
+    };
+  }
+}
+
 function jsonHttpResponse(statusCode, data) {
   return {
     statusCode,
@@ -1121,6 +1367,49 @@ async function handlePrivateHttp(request) {
   });
 }
 
+async function handlePrivateSse(request) {
+  const path = String(request?.context?.path || request?.url?.path || '').replace(/\/+$/g, '') || '/';
+  const match = path.match(/^\/ai\/stream\/([^/]+)$/);
+  const port = request?.port;
+  if (!port || typeof port.send !== 'function' || typeof port.close !== 'function') {
+    return;
+  }
+  if (!match) {
+    port.onopen = () => {
+      port.send('error', {
+        type: 'error',
+        streamId: 'unknown',
+        error: {
+          code: 'NOT_FOUND',
+          message: `Unsupported private SSE route: ${path}`,
+        },
+        emittedAt: nowMs(),
+      });
+      port.close();
+    };
+    return;
+  }
+  const streamId = normalizeStreamId(decodeURIComponent(match[1]));
+  const stream = getOrCreateAiStream(streamId);
+  const subscriber = {
+    port,
+    closed: false,
+  };
+  port.onopen = () => {
+    stream.subscribers.add(subscriber);
+    for (const event of stream.events) {
+      sendAiStreamEventToSubscriber(subscriber, event);
+    }
+    if (stream.terminal) {
+      port.close();
+    }
+  };
+  port.onclose = () => {
+    subscriber.closed = true;
+    stream.subscribers.delete(subscriber);
+  };
+}
+
 siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.logger.info('[SiYuanMemo kernel] loading');
 
@@ -1142,8 +1431,12 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind('writer.getCommandResult', async (params) => writerGetCommandResult(params), 'Poll writer command relay result.');
   await siyuan.rpc.bind('writer.takeCommand', async (params) => writerTakeCommand(params), 'Poll next pending writer relay command for active writer instance.');
   await siyuan.rpc.bind('network.fetchExternal', async (params) => networkFetchExternal(params), 'Fetch external HTTP endpoint through kernel network proxy.');
+  await siyuan.rpc.bind('network.streamExternal', async (params) => networkStreamExternal(params), 'Stream external SSE endpoint through kernel network proxy.');
   if (siyuan.server?.private?.http) {
     siyuan.server.private.http.handler = handlePrivateHttp;
+  }
+  if (siyuan.server?.private?.es) {
+    siyuan.server.private.es.handler = handlePrivateSse;
   }
 };
 

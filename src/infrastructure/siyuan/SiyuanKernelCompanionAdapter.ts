@@ -1,12 +1,25 @@
 import type {
+  KernelCompanionAiStreamHandlers,
+  KernelCompanionAiStreamSubscription,
+  KernelCompanionBroadcastDiagnostics,
+  KernelCompanionBroadcastHandlers,
+  KernelCompanionBroadcastSubscription,
   KernelCompanionMethod,
   KernelCompanionPort,
   KernelCompanionStatus,
   KernelCompanionUnavailableReason,
 } from '@/application/ports/KernelCompanionPort';
+import type {
+  KernelAiStreamEvent,
+  KernelBroadcastEvent,
+  KernelFastPathCapabilities,
+  KernelFastPathUnavailableReason,
+} from '../../../packages/contracts/src/kernel-rpc';
 
 const DEFAULT_PLUGIN_NAME = 'siyuan-plugin-siyuanmemo';
 const JSON_RPC_VERSION = '2.0';
+const BROADCAST_RECONNECT_DELAY_MS = 1_000;
+const BROADCAST_RECONNECT_MAX_DELAY_MS = 15_000;
 
 interface SiyuanApiEnvelope<T> {
   code: number;
@@ -29,6 +42,13 @@ interface KernelHealthResult {
   version?: string;
   platform?: string;
   uptimeMs?: number;
+}
+
+interface KernelCapabilitiesResult {
+  methods?: string[];
+  privateSse?: boolean;
+  kernelNetworkSse?: boolean;
+  aiStreaming?: boolean;
 }
 
 interface JsonRpcSuccess<TResult> {
@@ -86,6 +106,105 @@ function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function buildUnknownFastPathCapabilities(): KernelFastPathCapabilities {
+  return {
+    rpcWebSocketPush: {
+      state: 'unknown',
+      reason: 'not-configured',
+    },
+    backendRealWorkerTransport: {
+      state: 'unknown',
+      reason: 'not-configured',
+    },
+    kernelNetworkSse: {
+      state: 'unknown',
+      reason: 'smoke-required',
+    },
+    privateSse: {
+      state: 'unknown',
+      reason: 'smoke-required',
+    },
+    aiKernelStreaming: {
+      state: 'unknown',
+      reason: 'smoke-required',
+    },
+  };
+}
+
+function buildUnavailableFastPathCapabilities(
+  reason: KernelFastPathUnavailableReason,
+  message?: string,
+): KernelFastPathCapabilities {
+  const checkedAt = Date.now();
+  return {
+    rpcWebSocketPush: {
+      state: 'unavailable',
+      reason,
+      message,
+      checkedAt,
+    },
+    backendRealWorkerTransport: {
+      state: 'unknown',
+      reason: 'not-configured',
+      checkedAt,
+    },
+    kernelNetworkSse: {
+      state: 'unavailable',
+      reason,
+      message,
+      checkedAt,
+    },
+    privateSse: {
+      state: 'unavailable',
+      reason,
+      message,
+      checkedAt,
+    },
+    aiKernelStreaming: {
+      state: 'unavailable',
+      reason,
+      message,
+      checkedAt,
+    },
+  };
+}
+
+function buildAvailableCompanionFastPathCapabilities(
+  checkedAt: number,
+  capabilities?: KernelCapabilitiesResult,
+): KernelFastPathCapabilities {
+  const methods = new Set((capabilities?.methods || []).map((method) => String(method)));
+  const aiStreamingAvailable = capabilities?.aiStreaming === true
+    || (methods.has('network.streamExternal') && capabilities?.privateSse === true);
+  return {
+    ...buildUnknownFastPathCapabilities(),
+    rpcWebSocketPush: {
+      state: 'available',
+      checkedAt,
+    },
+    backendRealWorkerTransport: {
+      state: 'unknown',
+      reason: 'not-configured',
+      checkedAt,
+    },
+    kernelNetworkSse: {
+      state: capabilities?.kernelNetworkSse === true || methods.has('network.streamExternal') ? 'available' : 'unknown',
+      reason: capabilities?.kernelNetworkSse === true || methods.has('network.streamExternal') ? undefined : 'smoke-required',
+      checkedAt,
+    },
+    privateSse: {
+      state: capabilities?.privateSse === true ? 'available' : 'unknown',
+      reason: capabilities?.privateSse === true ? undefined : 'smoke-required',
+      checkedAt,
+    },
+    aiKernelStreaming: {
+      state: aiStreamingAvailable ? 'available' : 'unknown',
+      reason: aiStreamingAvailable ? undefined : 'smoke-required',
+      checkedAt,
+    },
+  };
+}
+
 function buildUnavailable(input: {
   checkedAt: number;
   pluginName: string;
@@ -100,9 +219,97 @@ function buildUnavailable(input: {
     pluginName: input.pluginName,
     pluginState: input.pluginState,
     methods: input.methods ?? [],
+    capabilities: buildUnavailableFastPathCapabilities(input.reason, input.message),
     reason: input.reason,
     message: input.message,
   };
+}
+
+function normalizeLocationWsBase(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const location = window.location;
+  const hostname = typeof location?.hostname === 'string' ? location.hostname.trim() : '';
+  if (!hostname) {
+    return null;
+  }
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const port = location.port ? `:${location.port}` : '';
+  return `${protocol}://${hostname}${port}/ws`;
+}
+
+function normalizePrivateBase(pluginName: string): string {
+  return `/plugin/private/${encodeURIComponent(pluginName)}`;
+}
+
+function isKernelAiStreamEventType(value: unknown): value is KernelAiStreamEvent['type'] {
+  return value === 'token'
+    || value === 'progress'
+    || value === 'error'
+    || value === 'final'
+    || value === 'canceled'
+    || value === 'timeout'
+    || value === 'close';
+}
+
+function normalizeAiStreamEvent(raw: unknown, fallbackType?: unknown): KernelAiStreamEvent | null {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const type = isKernelAiStreamEventType(raw.type) ? raw.type : fallbackType;
+  if (!isKernelAiStreamEventType(type) || typeof raw.streamId !== 'string') {
+    return null;
+  }
+  return {
+    ...raw,
+    type,
+    streamId: raw.streamId,
+    emittedAt: typeof raw.emittedAt === 'number' ? raw.emittedAt : Date.now(),
+  } as KernelAiStreamEvent;
+}
+
+function parseAiStreamMessage(event: MessageEvent, fallbackType?: string): KernelAiStreamEvent | null {
+  try {
+    const parsed = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+    return normalizeAiStreamEvent(parsed, fallbackType || event.type);
+  } catch {
+    return null;
+  }
+}
+
+function isKernelBroadcastMethod(value: unknown): value is KernelBroadcastEvent['method'] {
+  return value === 'memo.kernel.ready'
+    || value === 'memo.writer.leaseChanged'
+    || value === 'memo.writer.command'
+    || value === 'memo.writer.commandResult'
+    || value === 'memo.ai.stream';
+}
+
+function normalizeBroadcastEvent(message: unknown): KernelBroadcastEvent | null {
+  if (!isRecord(message) || message.jsonrpc !== JSON_RPC_VERSION || !isKernelBroadcastMethod(message.method)) {
+    return null;
+  }
+  return {
+    method: message.method,
+    params: 'params' in message ? message.params : undefined,
+  } as KernelBroadcastEvent;
+}
+
+class StaticBroadcastSubscription implements KernelCompanionBroadcastSubscription {
+  constructor(private diagnostics: KernelCompanionBroadcastDiagnostics) {}
+
+  close(): void {
+    this.diagnostics = {
+      ...this.diagnostics,
+      state: this.diagnostics.state === 'unavailable' ? 'unavailable' : 'closed',
+      closedAt: Date.now(),
+    };
+  }
+
+  getDiagnostics(): KernelCompanionBroadcastDiagnostics {
+    return { ...this.diagnostics };
+  }
 }
 
 export class SiyuanKernelCompanionAdapter implements KernelCompanionPort {
@@ -168,12 +375,19 @@ export class SiyuanKernelCompanionAdapter implements KernelCompanionPort {
 
     try {
       const health = await this.call<KernelHealthResult>('health');
+      let capabilities: KernelCapabilitiesResult | undefined;
+      try {
+        capabilities = await this.call<KernelCapabilitiesResult>('capabilities');
+      } catch {
+        capabilities = undefined;
+      }
       return {
         kind: 'available',
         checkedAt,
         pluginName: String(loadedPlugin.name || health.plugin || this.pluginName),
         pluginState,
         methods,
+        capabilities: buildAvailableCompanionFastPathCapabilities(checkedAt, capabilities),
         version: health.version,
         platform: health.platform,
         uptimeMs: typeof health.uptimeMs === 'number' ? health.uptimeMs : undefined,
@@ -219,5 +433,197 @@ export class SiyuanKernelCompanionAdapter implements KernelCompanionPort {
     }
 
     return (result as JsonRpcSuccess<TResult>).result;
+  }
+
+  subscribeBroadcast(handlers: KernelCompanionBroadcastHandlers): KernelCompanionBroadcastSubscription {
+    const wsBase = normalizeLocationWsBase();
+    if (!wsBase || typeof WebSocket === 'undefined') {
+      return new StaticBroadcastSubscription({
+        state: 'unavailable',
+        reconnectAttempts: 0,
+        unavailableReason: 'websocket-url-unavailable',
+        message: 'Kernel companion RPC WebSocket URL is unavailable',
+      });
+    }
+
+    let socket: WebSocket | null = null;
+    let closedByClient = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempts = 0;
+    let diagnostics: KernelCompanionBroadcastDiagnostics = {
+      state: 'connecting',
+      reconnectAttempts,
+    };
+
+    const emitState = (next: Partial<KernelCompanionBroadcastDiagnostics>) => {
+      diagnostics = {
+        ...diagnostics,
+        ...next,
+        reconnectAttempts,
+      };
+      handlers.onStateChange?.({ ...diagnostics });
+    };
+
+    const connect = () => {
+      const url = `${wsBase}/plugin/rpc/${encodeURIComponent(this.pluginName)}`;
+      emitState({
+        state: 'connecting',
+        message: undefined,
+        unavailableReason: undefined,
+      });
+      try {
+        socket = new WebSocket(url);
+      } catch (error) {
+        emitState({
+          state: 'unavailable',
+          unavailableReason: 'network-error',
+          message: toErrorMessage(error),
+          closedAt: Date.now(),
+        });
+        scheduleReconnect();
+        return;
+      }
+
+      socket.onopen = () => {
+        reconnectAttempts = 0;
+        emitState({
+          state: 'open',
+          openedAt: Date.now(),
+          message: undefined,
+          unavailableReason: undefined,
+        });
+      };
+      socket.onmessage = (event: MessageEvent) => {
+        if (typeof event.data !== 'string') {
+          return;
+        }
+        try {
+          const parsed = JSON.parse(event.data) as unknown;
+          const normalized = normalizeBroadcastEvent(parsed);
+          if (!normalized) {
+            return;
+          }
+          emitState({
+            lastEventAt: Date.now(),
+          });
+          handlers.onEvent(normalized);
+        } catch (error) {
+          emitState({
+            state: diagnostics.state === 'open' ? 'open' : 'degraded',
+            message: `Invalid kernel broadcast event: ${toErrorMessage(error)}`,
+          });
+        }
+      };
+      socket.onerror = () => {
+        emitState({
+          state: diagnostics.state === 'open' ? 'degraded' : 'unavailable',
+          unavailableReason: 'network-error',
+          message: 'Kernel companion RPC WebSocket error',
+        });
+      };
+      socket.onclose = () => {
+        socket = null;
+        emitState({
+          state: closedByClient ? 'closed' : 'degraded',
+          closedAt: Date.now(),
+          unavailableReason: closedByClient ? undefined : 'websocket-closed',
+          message: closedByClient ? undefined : 'Kernel companion RPC WebSocket closed',
+        });
+        if (!closedByClient) {
+          scheduleReconnect();
+        }
+      };
+    };
+
+    const scheduleReconnect = () => {
+      if (closedByClient || reconnectTimer) {
+        return;
+      }
+      reconnectAttempts += 1;
+      const delayMs = Math.min(
+        BROADCAST_RECONNECT_MAX_DELAY_MS,
+        BROADCAST_RECONNECT_DELAY_MS * 2 ** Math.max(0, reconnectAttempts - 1),
+      );
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delayMs);
+    };
+
+    connect();
+
+    return {
+      close: () => {
+        closedByClient = true;
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        const currentSocket = socket;
+        socket = null;
+        if (currentSocket && currentSocket.readyState !== WebSocket.CLOSED) {
+          currentSocket.close();
+        } else {
+          emitState({
+            state: 'closed',
+            closedAt: Date.now(),
+            unavailableReason: undefined,
+            message: undefined,
+          });
+        }
+      },
+      getDiagnostics: () => ({ ...diagnostics }),
+    };
+  }
+
+  subscribeAiStream(streamId: string, handlers: KernelCompanionAiStreamHandlers): KernelCompanionAiStreamSubscription {
+    const normalizedStreamId = String(streamId || '').trim();
+    if (!normalizedStreamId || typeof EventSource === 'undefined') {
+      handlers.onError?.(new Error('KERNEL_SIDECAR_UNAVAILABLE: private AI stream SSE is unavailable'));
+      return { close: () => undefined };
+    }
+
+    const source = new EventSource(
+      `${normalizePrivateBase(this.pluginName)}/ai/stream/${encodeURIComponent(normalizedStreamId)}`,
+    );
+    let closed = false;
+
+    const close = () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      source.close();
+      handlers.onClose?.();
+    };
+
+    const handleEvent = (event: MessageEvent, fallbackType?: string) => {
+      const parsed = parseAiStreamMessage(event, fallbackType);
+      if (!parsed) {
+        handlers.onError?.(new Error('KERNEL_SIDECAR_UNAVAILABLE: invalid AI stream event payload'));
+        return;
+      }
+      handlers.onEvent(parsed);
+      if (
+        parsed.type === 'final'
+        || parsed.type === 'error'
+        || parsed.type === 'canceled'
+        || parsed.type === 'timeout'
+        || parsed.type === 'close'
+      ) {
+        close();
+      }
+    };
+
+    for (const type of ['token', 'progress', 'error', 'final', 'canceled', 'timeout', 'close']) {
+      source.addEventListener(type, (event) => handleEvent(event as MessageEvent, type));
+    }
+    source.onmessage = (event) => handleEvent(event);
+    source.onerror = () => {
+      handlers.onError?.(new Error('KERNEL_SIDECAR_UNAVAILABLE: private AI stream SSE error'));
+      close();
+    };
+
+    return { close };
   }
 }

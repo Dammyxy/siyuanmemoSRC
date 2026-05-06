@@ -276,6 +276,7 @@ export interface BackendAiPromptNetworkRequest {
   body?: string;
   timeoutMs?: number;
   redactionKeys?: string[];
+  stream?: boolean;
 }
 
 export interface BackendAiPromptExecuteRequest {
