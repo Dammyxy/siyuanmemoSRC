@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ATTR_RIFF_DECKS } from '@/core/siyuan/block';
+import { ATTR_RIFF_DECKS } from '@/application/services/BlockAttrContract';
 import { NativeRiffSyncTriggerHandler } from '@/application/handlers/NativeRiffSyncTriggerHandler';
 
 function createDeferred<T>() {

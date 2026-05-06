@@ -10,7 +10,7 @@ import {
   ATTR_PROGRESSIVE_SOURCE_BLOCK_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
   ATTR_PROGRESSIVE_STORAGE_MODE,
-} from '@/core/siyuan/block';
+} from '@/application/services/ProgressiveAttrContract';
 import type { CardApplicationService } from '../CardApplicationService';
 import type { ProgressiveNativeRiffPort } from '@/application/ports/ProgressiveNativeRiffPort';
 import type { ProgressiveReadingService } from '../ProgressiveReadingService';

@@ -2,6 +2,10 @@
 import type FSRSPlugin from '@/index';
 import type { AutoCardSiyuanPort } from '../ports/AutoCardSiyuanPort';
 import type { AutoCardRiffPort } from '../ports/AutoCardRiffPort';
+import {
+    createUnavailableHostBlockQueryPort,
+    type HostBlockQueryPort,
+} from '@/application/ports/HostBlockQueryPort';
 import type { SrsBackendClient } from '../clients/SrsBackendClient';
 import type { BackendMigrationRuntimePolicy } from '@/application/backendMigration/runtimePolicy';
 import { createLogger } from '@/utils/logger';
@@ -182,24 +186,6 @@ type ListChildBlock = {
     id: string;
 };
 
-type BlockTypeRow = {
-    type?: string;
-    root_id?: string;
-};
-
-type BlockTypeContentRow = {
-    type?: string;
-    content?: string;
-};
-
-type BlockContentRow = {
-    content?: string;
-};
-
-type ParentIdRow = {
-    parent_id?: string;
-};
-
 type AutoCardTraceContext = {
     runId: string;
     trigger: string;
@@ -226,6 +212,7 @@ type CandidateBlockContext = {
 export interface AutoCardHandlerPorts {
     siyuanApi: AutoCardSiyuanPort;
     riffApi: AutoCardRiffPort;
+    hostBlockQuery?: HostBlockQueryPort;
 }
 
 /**
@@ -240,6 +227,7 @@ export class AutoCardHandler implements ITransactionHandler {
     private plugin: FSRSPlugin;
     private readonly siyuanApi: AutoCardSiyuanPort;
     private readonly riffApi: AutoCardRiffPort;
+    private readonly hostBlockQuery: HostBlockQueryPort;
     private readonly postCreationPlanner = new UnifiedPostCreationPlanner();
     private readonly conflictMediator = new PostCreationConflictMediator();
     private readonly executionRuntime: AutoCardExecutionRuntime;
@@ -281,6 +269,7 @@ export class AutoCardHandler implements ITransactionHandler {
         this.plugin = plugin;
         this.siyuanApi = ports.siyuanApi;
         this.riffApi = ports.riffApi;
+        this.hostBlockQuery = ports.hostBlockQuery ?? createUnavailableHostBlockQueryPort('AutoCardHandler was constructed without HostBlockQueryPort');
         this.executionRuntime = new AutoCardExecutionRuntime({
             executePlannerDecision: async (input) => this.executePlannerDecision(input),
             createTopicDerivedItem: async (input) => this.getTopicDerivedItemService().createFromTopicSource(input),
@@ -1082,10 +1071,6 @@ export class AutoCardHandler implements ITransactionHandler {
         return decisions.filter((decision) => decision.family !== 'cloze');
     }
 
-    private async sqlRows<TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string): Promise<TRow[]> {
-        return this.siyuanApi.sql<TRow>(stmt);
-    }
-
     private nextTraceId(prefix: string): string {
         this.traceSequence += 1;
         return `${prefix}-${Date.now()}-${this.traceSequence}`;
@@ -1348,9 +1333,9 @@ export class AutoCardHandler implements ITransactionHandler {
 
         const scanner = new DocumentPostCreationScanService(
             {
-                sql: (stmt: string) => this.siyuanApi.sql<Record<string, unknown>>(stmt),
                 getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
             },
+            this.hostBlockQuery,
             {
                 executeSingleBlockDecision: async ({ blockId, content, decision }) => {
                     return this.executeAutoCardEnvelope({
@@ -1454,20 +1439,15 @@ export class AutoCardHandler implements ITransactionHandler {
             logger.debug('[SiYuanMemo][AutoCard] Checking quick symbols:', blockId, 'content:', kramdown);
             
 
-            const typeResult = await this.sqlRows<BlockTypeRow>(`
-                SELECT type, root_id
-                FROM blocks
-                WHERE id = '${blockId}'
-                LIMIT 1
-            `);
+            const blockInfo = await this.hostBlockQuery.getBlock(blockId);
             
-            if (!typeResult || typeResult.length === 0) {
+            if (!blockInfo) {
                 logger.debug('[SiYuanMemo][AutoCard] Block not found:', blockId);
                 return;
             }
             
-            const blockType = typeof typeResult[0]?.type === 'string' ? typeResult[0].type : '';
-            const rootId = typeof typeResult[0]?.root_id === 'string' ? typeResult[0].root_id.trim() : '';
+            const blockType = typeof blockInfo.type === 'string' ? blockInfo.type : '';
+            const rootId = typeof blockInfo.root_id === 'string' ? blockInfo.root_id.trim() : '';
             if (!this.isQuickSymbolSupportedBlockType(blockType)) {
                 logger.debug(
                     '[SiYuanMemo][AutoCard] Block type not supported for symbol detection (type:',
@@ -1902,11 +1882,10 @@ export class AutoCardHandler implements ITransactionHandler {
             xiuyuanAppService,
             {
                 BUILTIN_DECK_ID: this.riffApi.BUILTIN_DECK_ID,
-                sql: <TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string) =>
-                    this.siyuanApi.sql<TRow>(stmt),
                 getBlockAttrs: (blockId: string) => this.siyuanApi.getBlockAttrs(blockId),
                 getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
-            }
+            },
+            this.hostBlockQuery,
         );
 
         const result = await useCase.execute({
@@ -2241,26 +2220,20 @@ export class AutoCardHandler implements ITransactionHandler {
                 logger.debug('[SiYuanMemo][AutoCard] Detected block reference format:', refId, definition);
                 
 
-                                const blockTypeQuery = `
-                    SELECT type, content 
-                    FROM blocks 
-                    WHERE id = '${refId}' 
-                    LIMIT 1
-                `;
-                const typeResult = await this.sqlRows<BlockTypeContentRow>(blockTypeQuery);
+                const refBlock = await this.hostBlockQuery.getBlockTypeAndContent(refId);
                 
-                if (!typeResult || typeResult.length === 0) {
+                if (!refBlock) {
                     logger.error('[SiYuanMemo][AutoCard] Block reference not found:', refId);
                     return;
                 }
                 
-                if (typeResult[0].type !== 'd') {
+                if (refBlock.type !== 'd') {
                     logger.debug('[SiYuanMemo][AutoCard] Block reference is not a document block, skipping:', refId);
                                         await this.siyuanApi.pushErrMsg('概念定义卡要求引用文档块，当前引用不是文档块');
                     return;
                 }
                 
-                const conceptName = typeof typeResult[0]?.content === 'string' ? typeResult[0].content : '';
+                const conceptName = refBlock.content;
                 logger.debug('[SiYuanMemo][AutoCard] Concept name from document block:', conceptName);
                 
 
@@ -2834,15 +2807,9 @@ export class AutoCardHandler implements ITransactionHandler {
                 logger.debug('[SiYuanMemo][AutoCard] Checking block reference:', refId);
                 
 
-                const blockTypeQuery = `
-                    SELECT type 
-                    FROM blocks 
-                    WHERE id = '${refId}' 
-                    LIMIT 1
-                `;
-                const typeResult = await this.sqlRows<BlockTypeRow>(blockTypeQuery);
+                const refBlock = await this.hostBlockQuery.getBlockTypeAndContent(refId);
                 
-                if (!typeResult || typeResult.length === 0 || typeResult[0].type !== 'd') {
+                if (!refBlock || refBlock.type !== 'd') {
                     logger.debug('[SiYuanMemo][AutoCard] Block reference is not a document block, skipping:', refId);
                     continue;
                 }
@@ -2865,15 +2832,7 @@ export class AutoCardHandler implements ITransactionHandler {
                 logger.debug('[SiYuanMemo][AutoCard] Auto-marking block as concept card:', refId);
                 
 
-                const blockQuery = `SELECT content FROM blocks WHERE id = '${refId}' LIMIT 1`;
-                const blockResult = await this.sqlRows<BlockContentRow>(blockQuery);
-                
-                if (!blockResult || blockResult.length === 0) {
-                    logger.warn('[SiYuanMemo][AutoCard] Block not found:', refId);
-                    continue;
-                }
-                
-                const conceptName = typeof blockResult[0]?.content === 'string' ? blockResult[0].content : '';
+                const conceptName = refBlock.content;
                 logger.debug('[SiYuanMemo][AutoCard] Marking as concept card:', conceptName);
                 
 
@@ -2904,34 +2863,14 @@ export class AutoCardHandler implements ITransactionHandler {
         const maxDepth = 10;
         
         for (let depth = 0; depth < maxDepth; depth++) {
-            const query = `
-                SELECT parent_id 
-                FROM blocks 
-                WHERE id = '${currentId}' 
-                LIMIT 1
-            `;
-            const result = await this.sqlRows<ParentIdRow>(query);
+            const parentId = await this.hostBlockQuery.getParentId(currentId);
             
-            if (!result || result.length === 0 || !result[0]?.parent_id) {
-                break;
-            }
-            
-            const parentId = typeof result[0]?.parent_id === 'string' ? result[0].parent_id : '';
             if (!parentId) {
                 break;
             }
-            
 
-            const parentQuery = `
-                SELECT type 
-                FROM blocks 
-                WHERE id = '${parentId}' 
-                LIMIT 1
-            `;
-            const parentResult = await this.sqlRows<BlockTypeRow>(parentQuery);
-            
-            if (parentResult && parentResult.length > 0) {
-                const parentType = typeof parentResult[0]?.type === 'string' ? parentResult[0].type : '';
+            const parentType = await this.hostBlockQuery.getBlockType(parentId);
+            if (parentType) {
                 
 
                 if (parentType === 'i') {
@@ -2964,35 +2903,16 @@ export class AutoCardHandler implements ITransactionHandler {
         const maxDepth = 20;
         
         for (let depth = 0; depth < maxDepth; depth++) {
-            const query = `
-                SELECT parent_id 
-                FROM blocks 
-                WHERE id = '${currentId}' 
-                LIMIT 1
-            `;
-            const result = await this.sqlRows<ParentIdRow>(query);
+            const parentId = await this.hostBlockQuery.getParentId(currentId);
             
-            if (!result || result.length === 0 || !result[0]?.parent_id) {
-                break;
-            }
-            
-            const parentId = typeof result[0]?.parent_id === 'string' ? result[0].parent_id : '';
             if (!parentId) {
                 break;
             }
-            
 
-            const parentQuery = `
-                SELECT type, content 
-                FROM blocks 
-                WHERE id = '${parentId}' 
-                LIMIT 1
-            `;
-            const parentResult = await this.sqlRows<BlockTypeContentRow>(parentQuery);
-            
-            if (parentResult && parentResult.length > 0) {
-                const parentType = typeof parentResult[0]?.type === 'string' ? parentResult[0].type : '';
-                const parentContent = typeof parentResult[0]?.content === 'string' ? parentResult[0].content : '';
+            const parentBlock = await this.hostBlockQuery.getBlockTypeAndContent(parentId);
+            if (parentBlock) {
+                const parentType = parentBlock.type || '';
+                const parentContent = parentBlock.content;
                 
 
                 if (parentType === 'h' && !firstHeadingId) {
@@ -3048,9 +2968,8 @@ export class AutoCardHandler implements ITransactionHandler {
         }
 
         try {
-            const blockQuery = `SELECT content FROM blocks WHERE id = '${conceptId}' LIMIT 1`;
-            const blockResult = await this.sqlRows<BlockContentRow>(blockQuery);
-            const conceptName = typeof blockResult?.[0]?.content === 'string' ? blockResult[0].content : 'unknown concept';
+            const conceptBlock = await this.hostBlockQuery.getBlockTypeAndContent(conceptId);
+            const conceptName = conceptBlock?.content || 'unknown concept';
 
             await this.ensureConceptBlockCard(conceptId, conceptName);
             logger.debug('[SiYuanMemo][AutoCard] Empty concept card created:', conceptId);
@@ -3071,17 +2990,10 @@ export class AutoCardHandler implements ITransactionHandler {
         let currentId = blockId;
         
         for (let depth = 0; depth < maxDepth; depth++) {
-            const parentQuery = `SELECT parent_id FROM blocks WHERE id = '${currentId}' LIMIT 1`;
-            const parentResult = await this.sqlRows<ParentIdRow>(parentQuery);
+            const parentId = await this.hostBlockQuery.getParentId(currentId);
             
-            if (!parentResult || parentResult.length === 0 || !parentResult[0]?.parent_id) {
-                logger.debug(`[SiYuanMemo][AutoCard] No parent at depth ${depth}`);
-                break;
-            }
-            
-            const parentId = typeof parentResult[0]?.parent_id === 'string' ? parentResult[0].parent_id : '';
             if (!parentId) {
-                logger.debug(`[SiYuanMemo][AutoCard] Empty parent id at depth ${depth}`);
+                logger.debug(`[SiYuanMemo][AutoCard] No parent at depth ${depth}`);
                 break;
             }
             logger.debug(`[SiYuanMemo][AutoCard] Checking parent at depth ${depth}:`, parentId);
@@ -3126,19 +3038,8 @@ export class AutoCardHandler implements ITransactionHandler {
             return '';
         }
 
-        type BlockRootRow = {
-            root_id?: string;
-        };
-
         try {
-            const rows = await this.siyuanApi.sql(`
-                SELECT root_id
-                FROM blocks
-                WHERE id = '${this.escapeSql(normalizedNodeId)}'
-                LIMIT 1
-            `) as BlockRootRow[];
-
-            const rootId = typeof rows?.[0]?.root_id === 'string' ? rows[0].root_id.trim() : '';
+            const rootId = await this.hostBlockQuery.getDocumentRootId(normalizedNodeId);
             return rootId || normalizedNodeId;
         } catch (error) {
             logger.warn('[SiYuanMemo][AutoCard] Failed to resolve document root id, fallback to input id:', normalizedNodeId, error);
@@ -3168,7 +3069,4 @@ export class AutoCardHandler implements ITransactionHandler {
         return 'unknown error';
     }
 
-    private escapeSql(value: string): string {
-        return value.replace(/'/g, "''");
-    }
 }

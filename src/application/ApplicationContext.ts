@@ -85,6 +85,7 @@ import { ManagerSiyuanAdapter } from '@/infrastructure/siyuan/ManagerSiyuanAdapt
 import { BrowserSiyuanAdapter } from '@/infrastructure/siyuan/BrowserSiyuanAdapter';
 import { ReviewSiyuanAdapter } from '@/infrastructure/siyuan/ReviewSiyuanAdapter';
 import { QuerySiyuanAdapter } from '@/infrastructure/siyuan/QuerySiyuanAdapter';
+import { HostBlockQuerySiyuanAdapter } from '@/infrastructure/siyuan/HostBlockQuerySiyuanAdapter';
 import { DocTreeReviewScopeService } from '@/application/services/DocTreeReviewScopeService';
 import { ExcerptRecordService } from '@/application/services/ExcerptRecordService';
 import { ProgressiveReadingService } from '@/application/services/ProgressiveReadingService';
@@ -109,7 +110,7 @@ import { ConfiguredCaptureStorageSiyuanAdapter } from '@/infrastructure/siyuan/C
 import { SiyuanKernelCompanionAdapter } from '@/infrastructure/siyuan/SiyuanKernelCompanionAdapter';
 import { SiyuanLeechActionEffectsAdapter } from '@/infrastructure/queue/SiyuanLeechActionEffectsAdapter';
 import { OpenAICompatibleLLMAdapter } from '@/infrastructure/llm/OpenAICompatibleLLMAdapter';
-import { BackendAINetworkProxyAdapter } from '@/infrastructure/ai/BackendAINetworkProxyAdapter';
+import { KernelAINetworkProxyAdapter } from '@/infrastructure/ai/KernelAINetworkProxyAdapter';
 import { SiyuanBlockAdapter as QuickCardSiyuanBlockAdapter } from '@/core/card/quick-card/infrastructure/SiyuanBlockAdapter';
 import { SiyuanBlockAdapter as DescriptorCardSiyuanBlockAdapter } from '@/core/card/descriptor-card/infrastructure/SiyuanBlockAdapter';
 import { AutoCardSiyuanAdapter } from '@/infrastructure/siyuan/AutoCardSiyuanAdapter';
@@ -268,6 +269,7 @@ export class ApplicationContext {
   private srsBackendClient: SrsBackendClient | null = null;
   private frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
   private followerCommandClient: FollowerCommandClient | null = null;
+  private kernelSidecarClient: KernelSidecarClient;
   private readonly backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
   
   // ========================================================================
@@ -350,6 +352,7 @@ export class ApplicationContext {
       srsBackendClient?: SrsBackendClient | null;
       frontendInstanceRuntime?: FrontendInstanceRuntime | null;
       followerCommandClient?: FollowerCommandClient | null;
+      kernelSidecarClient: KernelSidecarClient;
       backendMigrationRuntimePolicy: BackendMigrationRuntimePolicy;
     }
   ) {
@@ -367,6 +370,7 @@ export class ApplicationContext {
     this.srsBackendClient = services.srsBackendClient ?? null;
     this.frontendInstanceRuntime = services.frontendInstanceRuntime ?? null;
     this.followerCommandClient = services.followerCommandClient ?? null;
+    this.kernelSidecarClient = services.kernelSidecarClient;
     this.backendMigrationRuntimePolicy = services.backendMigrationRuntimePolicy;
     
     // ✅ 保存 sharedEventBus 引用（如果提供）
@@ -584,11 +588,12 @@ export class ApplicationContext {
 
     this.registerServiceFactory('reviewAIWorkbenchRegistry', (context) => {
       const siyuanPort = new AISiyuanAdapter(context.getPlugin().app);
-      const aiBackendSessionService = context.getBackendMigrationRuntimePolicy().capabilities.aiBackendSessionEnabled
+      const runtimePolicy = context.getBackendMigrationRuntimePolicy();
+      const aiBackendSessionService = runtimePolicy.capabilities.aiBackendSessionEnabled
         && context.srsBackendClient
         ? new AIBackendSessionService({
             backendClient: context.srsBackendClient,
-            networkProxy: new BackendAINetworkProxyAdapter(),
+            networkProxy: new KernelAINetworkProxyAdapter(context.getKernelSidecarClient()),
             resolveSecret: (name) => {
               const key = String(name || '').trim();
               if (!key) {
@@ -628,6 +633,7 @@ export class ApplicationContext {
         getSelectionTopicContinuationService: () => context.getSelectionTopicContinuationService(),
         sessionStore: context.getAIWorkbenchSessionStoreService(),
         arenaKernel: context.getArenaKernelService(),
+        backendRuntimeEnabled: runtimePolicy.flags.aiBackendRuntime,
         backendSessionService: aiBackendSessionService,
       });
     });
@@ -680,6 +686,7 @@ export class ApplicationContext {
       return new DialogManager(context, context.getPlugin(), {
         siyuanApi: new ManagerSiyuanAdapter(),
         progressiveSiyuanApi: new ProgressiveSiyuanAdapter(),
+        hostBlockQuery: new HostBlockQuerySiyuanAdapter(),
         leechActionEffects: new SiyuanLeechActionEffectsAdapter(),
       });
     });
@@ -1289,6 +1296,7 @@ export class ApplicationContext {
     let srsBackendClient: SrsBackendClient | null = null;
     let frontendInstanceRuntime: FrontendInstanceRuntime | null = null;
     let followerCommandClient: FollowerCommandClient | null = null;
+    const kernelSidecarClient = new KernelSidecarClient(new SiyuanKernelCompanionAdapter());
     const backendMigrationRuntimePolicy = resolveBackendMigrationRuntimePolicy(
       collectBackendMigrationRuntimeEnv(
         typeof import.meta !== 'undefined' && import.meta.env
@@ -1307,7 +1315,7 @@ export class ApplicationContext {
       try {
         const bridge = ApplicationContext.createWorkerPersistenceBridge(fileService);
         const browserSiyuanApi = new BrowserSiyuanAdapter();
-        const aiNetworkProxy = new BackendAINetworkProxyAdapter();
+        const aiNetworkProxy = new KernelAINetworkProxyAdapter(kernelSidecarClient);
         const backendKernel = new BackendKernel({
           database: new WorkerSqliteDatabaseService(bridge),
           resolveExistingBlockIds: async (blockIds: string[]) => ApplicationContext.resolveExistingBlockIdsViaSiyuan(
@@ -1338,8 +1346,7 @@ export class ApplicationContext {
 
     if (srsBackendClient && backendMigrationRuntimePolicy.capabilities.writerRelayRuntimeEnabled) {
       try {
-        const sidecarClient = new KernelSidecarClient(new SiyuanKernelCompanionAdapter());
-        frontendInstanceRuntime = new FrontendInstanceRuntime(sidecarClient, {
+        frontendInstanceRuntime = new FrontendInstanceRuntime(kernelSidecarClient, {
           instanceId: ApplicationContext.resolveKernelWriterLeaseInstanceId(),
           leaseTtlMs: ApplicationContext.resolveKernelWriterLeaseTtlMs(),
           writerCommandHandler: (command) => ApplicationContext.executeWriterRelayCommand(
@@ -1347,7 +1354,7 @@ export class ApplicationContext {
             command,
           ),
         });
-        followerCommandClient = new FollowerCommandClient(sidecarClient);
+        followerCommandClient = new FollowerCommandClient(kernelSidecarClient);
         await frontendInstanceRuntime.start();
         logger.info('[ApplicationContext] ✅ Frontend instance runtime started for kernel writer lease', {
           instanceId: frontendInstanceRuntime.getInstanceId(),
@@ -1382,6 +1389,7 @@ export class ApplicationContext {
       dialogManager: undefined as unknown as DialogManager, // 将在 ApplicationContext 创建后设置
       cardCreationHelper: cardCreationHelper,  // ✅ 注入 CardCreationHelper
       siyuanApi: new ManagerSiyuanAdapter(),
+      hostBlockQuery: new HostBlockQuerySiyuanAdapter(),
       openCreateTemplateCardDialog: async (blockIds) => {
         // 使用闭包延迟获取 DialogManager
         if (contextRef) {
@@ -1427,6 +1435,7 @@ export class ApplicationContext {
       srsBackendClient,
       frontendInstanceRuntime,
       followerCommandClient,
+      kernelSidecarClient,
       backendMigrationRuntimePolicy,
     });
     
@@ -1463,7 +1472,8 @@ export class ApplicationContext {
       unifiedStorageManager as unknown as StorageManager,  // ✅ 使用 UnifiedStorageManager
       config.plugin, 
       settingsService,
-      new QuerySiyuanAdapter()
+      new QuerySiyuanAdapter(),
+      new HostBlockQuerySiyuanAdapter(),
     );
     // ✅ 设置 ApplicationContext 引用，使 advancedRouter 可以访问 CardContentQueryService
     advancedRouter.setApplicationContext(context);
@@ -2193,6 +2203,7 @@ export class ApplicationContext {
     return new AutoCardHandler(this.config.plugin as unknown as SiyuanMemoPlugin, {
       siyuanApi: new AutoCardSiyuanAdapter(),
       riffApi: new AutoCardRiffAdapter(),
+      hostBlockQuery: new HostBlockQuerySiyuanAdapter(),
     });
   }
   
@@ -2257,6 +2268,10 @@ export class ApplicationContext {
 
   getFollowerCommandClient(): FollowerCommandClient | null {
     return this.followerCommandClient;
+  }
+
+  getKernelSidecarClient(): KernelSidecarClient {
+    return this.kernelSidecarClient;
   }
 
   getBackendMigrationRuntimePolicy(): BackendMigrationRuntimePolicy {

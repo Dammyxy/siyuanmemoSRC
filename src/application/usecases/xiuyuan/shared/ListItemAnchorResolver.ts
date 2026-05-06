@@ -1,56 +1,39 @@
+import {
+  toXiuyuanSharedQueryPort,
+  type XiuyuanSharedQueryPort,
+} from './XiuyuanSharedQueryPort';
+
 type SqlPort = {
   sql: <T extends Record<string, unknown> = Record<string, unknown>>(stmt: string) => Promise<T[]>;
 };
 
-interface BlockRow extends Record<string, unknown> {
-  id?: unknown;
-  type?: unknown;
-  parent_id?: unknown;
-}
-
-function escapeSqlValue(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
 export async function resolveListItemAnchorBlockId(
   selectedBlockId: string,
-  siyuanApi: SqlPort,
+  siyuanApi: SqlPort | XiuyuanSharedQueryPort,
 ): Promise<string | null> {
-  const safeSelectedBlockId = escapeSqlValue(selectedBlockId);
-  const selectedRows = await siyuanApi.sql<BlockRow>(`
-    SELECT id, type, parent_id
-    FROM blocks
-    WHERE id = '${safeSelectedBlockId}'
-    LIMIT 1
-  `);
-  if (!selectedRows || selectedRows.length === 0) {
+  const queryPort = toXiuyuanSharedQueryPort(siyuanApi);
+  const selectedType = await queryPort.getBlockType(selectedBlockId);
+  if (!selectedType) {
     return null;
   }
 
-  const selected = selectedRows[0];
-  if (selected?.type === 'i' && typeof selected.id === 'string' && selected.id.length > 0) {
-    return selected.id;
+  if (selectedType === 'i') {
+    return selectedBlockId;
   }
 
-  if (selected?.type !== 'p' || typeof selected.parent_id !== 'string' || selected.parent_id.length === 0) {
+  if (selectedType !== 'p') {
     return null;
   }
 
-  const safeParentId = escapeSqlValue(selected.parent_id);
-  const parentRows = await siyuanApi.sql<BlockRow>(`
-    SELECT id, type
-    FROM blocks
-    WHERE id = '${safeParentId}'
-    LIMIT 1
-  `);
-  if (!parentRows || parentRows.length === 0) {
+  const parentId = await queryPort.getParentId(selectedBlockId);
+  if (!parentId) {
     return null;
   }
 
-  const parent = parentRows[0];
-  if (parent?.type !== 'i' || typeof parent.id !== 'string' || parent.id.length === 0) {
+  const parentType = await queryPort.getBlockType(parentId);
+  if (parentType !== 'i') {
     return null;
   }
 
-  return parent.id;
+  return parentId;
 }

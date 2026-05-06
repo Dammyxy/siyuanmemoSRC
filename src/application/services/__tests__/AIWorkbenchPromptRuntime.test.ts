@@ -92,12 +92,14 @@ function createRuntime(options?: {
     cancelStream: ReturnType<typeof vi.fn>;
     getJob: ReturnType<typeof vi.fn>;
     proxyNetwork: ReturnType<typeof vi.fn>;
-  };
+  } | null;
 }) {
   const settings = options?.settings || createSettings();
   const state = options?.state || createState();
   const llmChat = options?.llmChat || vi.fn(async () => ({ content: '{}', raw: {} }));
-  const backendSessionService = options?.backendSessionService || {
+  const backendSessionService = options?.backendSessionService === null
+    ? undefined
+    : options?.backendSessionService || {
     createSession: vi.fn(async () => ({ ok: true, session: { sessionId: 'session-1' } })),
     executePrompt: vi.fn(async () => ({
       ok: true,
@@ -143,7 +145,7 @@ function createRuntime(options?: {
         usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 },
       }),
     })),
-  };
+    };
   const runtime = new AIWorkbenchPromptRuntime({
     state,
     getAISettings: () => settings,
@@ -383,6 +385,21 @@ describe('AIWorkbenchPromptRuntime', () => {
       settings,
       provider: settings.providers[0]!,
     })).rejects.toThrow('BACKEND_UNAVAILABLE');
+  });
+
+  it('does not fall back to frontend llmPort when backend runtime flag is enabled without a backend service', async () => {
+    const llmChat = vi.fn(async () => ({ content: '{"frontend":true}', raw: {} }));
+    const { runtime, settings } = createRuntime({
+      backendRuntimeEnabled: true,
+      backendSessionService: null,
+      llmChat,
+    });
+
+    await expect(runtime.requestChatModel([], {
+      settings,
+      provider: settings.providers[0]!,
+    })).rejects.toThrow('BACKEND_UNAVAILABLE: AI backend runtime service unavailable');
+    expect(llmChat).not.toHaveBeenCalled();
   });
 
   it('maps backend prompt timeout to user-facing timeout error', async () => {

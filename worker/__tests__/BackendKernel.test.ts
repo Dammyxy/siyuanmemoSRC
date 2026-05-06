@@ -33,6 +33,17 @@ function buildCard(overrides: Partial<FSRSCard> = {}): FSRSCard {
   };
 }
 
+function authorizedPrivateCapability() {
+  return {
+    available: true,
+    reason: null,
+    kernelSidecarAvailable: true,
+    backendWorkerAvailable: true,
+    writerAvailable: true,
+    methodAllowed: true,
+  };
+}
+
 describe('BackendKernel', () => {
   it('returns explicit unavailable when no persistence bridge is configured', async () => {
     const kernel = BackendKernel.createWithoutBridge();
@@ -1445,7 +1456,10 @@ describe('BackendKernel', () => {
     const persistenceBridge = createInMemorySqlitePersistenceBridge();
     const database = new WorkerSqliteDatabaseService(persistenceBridge);
     await database.upsertCards([buildCard({ id: 'card-private-1' })]);
-    const kernel = new BackendKernel({ database });
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
 
     const read = await kernel.handle({
       id: 'private-read-cards',
@@ -1475,15 +1489,12 @@ describe('BackendKernel', () => {
         method: 'private.command.execute',
         callerIntent: 'test-private-mutation',
         idempotencyKey: 'private-key-1',
-        capabilityResult: {
-          available: true,
-          reason: null,
-          kernelSidecarAvailable: true,
-          backendWorkerAvailable: true,
-          writerAvailable: true,
-          methodAllowed: true,
+        capabilityResult: authorizedPrivateCapability(),
+        params: {
+          operation: 'browser.sourceExistence.applySweepHost',
+          request: { blockIds: ['block-1'] },
+          checkedAt: 20,
         },
-        params: { action: 'noop' },
       }],
     });
     expect('result' in mutate).toBe(true);
@@ -1491,8 +1502,19 @@ describe('BackendKernel', () => {
       expect(mutate.result).toMatchObject({
         ok: true,
         commandId: 'private-mutate-1',
+        changed: {
+          blockIds: ['block-1'],
+        },
         result: {
+          operation: 'browser.sourceExistence.applySweepHost',
           idempotencyKey: 'private-key-1',
+          committed: true,
+          sweep: {
+            checked: 1,
+            updated: 1,
+            changed: true,
+            changedToMissing: false,
+          },
         },
       });
     }
@@ -1555,7 +1577,7 @@ describe('BackendKernel', () => {
         method: 'private.command.execute',
         callerIntent: 'test-private-mutation',
         idempotencyKey: 'private-direct-key',
-        params: { action: 'noop' },
+        params: { operation: 'browser.sourceExistence.applySweepHost' },
       }],
     });
 
@@ -1571,15 +1593,12 @@ describe('BackendKernel', () => {
 
   it('replays private command result for duplicate idempotency keys', async () => {
     const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
-    const kernel = new BackendKernel({ database });
-    const capabilityResult = {
-      available: true,
-      reason: null,
-      kernelSidecarAvailable: true,
-      backendWorkerAvailable: true,
-      writerAvailable: true,
-      methodAllowed: true,
-    };
+    await database.upsertCards([buildCard({ id: 'card-private-replay', blockId: 'block-1' })]);
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+    const capabilityResult = authorizedPrivateCapability();
 
     const first = await kernel.handle({
       id: 'private-command-first',
@@ -1591,7 +1610,11 @@ describe('BackendKernel', () => {
         callerIntent: 'test-private-mutation',
         idempotencyKey: 'private-same-key',
         capabilityResult,
-        params: { action: 'noop' },
+        params: {
+          operation: 'browser.sourceExistence.applySweepHost',
+          request: { blockIds: ['block-1'] },
+          checkedAt: 20,
+        },
       }],
     });
     const second = await kernel.handle({
@@ -1604,7 +1627,11 @@ describe('BackendKernel', () => {
         callerIntent: 'test-private-mutation',
         idempotencyKey: 'private-same-key',
         capabilityResult,
-        params: { action: 'noop-again' },
+        params: {
+          operation: 'browser.sourceExistence.applySweepHost',
+          request: { blockIds: ['block-1'] },
+          checkedAt: 30,
+        },
       }],
     });
 
@@ -1612,10 +1639,98 @@ describe('BackendKernel', () => {
     expect('result' in second).toBe(true);
     if ('result' in second) {
       expect(second.result.commandId).toBe('private-first');
+      expect(second.result.changed).toMatchObject({
+        blockIds: ['block-1'],
+      });
       expect(second.result.result).toMatchObject({
         idempotencyKey: 'private-same-key',
-        committed: false,
+        committed: true,
       });
+    }
+  });
+
+  it('rejects unsupported private command operations', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({
+      database,
+      resolveExistingBlockIds: async (blockIds) => blockIds,
+    });
+
+    const response = await kernel.handle({
+      id: 'private-command-unknown',
+      jsonrpc: '2.0',
+      method: 'private.command.execute',
+      params: [{
+        requestId: 'private-unknown',
+        method: 'private.command.execute',
+        callerIntent: 'test-private-mutation',
+        idempotencyKey: 'private-unknown-key',
+        capabilityResult: authorizedPrivateCapability(),
+        params: { operation: 'unknown.operation' },
+      }],
+    });
+
+    expect(response).toEqual({
+      id: 'private-command-unknown',
+      jsonrpc: '2.0',
+      error: {
+        code: 'INVALID_REQUEST',
+        message: 'unsupported private.command.execute operation: unknown.operation',
+      },
+    });
+  });
+
+  it('answers P6 ownership query and command contracts instead of METHOD_NOT_FOUND', async () => {
+    const database = new WorkerSqliteDatabaseService(createInMemorySqlitePersistenceBridge());
+    const kernel = new BackendKernel({ database });
+
+    const query = await kernel.handle({
+      id: 'p6-query',
+      jsonrpc: '2.0',
+      method: 'p6.ownership.query',
+      params: [{
+        requestId: 'p6-query-1',
+        surface: 'dialog-manager',
+        operation: 'read-block-meta',
+        payload: { blockId: 'block-1' },
+      }],
+    });
+    const command = await kernel.handle({
+      id: 'p6-command',
+      jsonrpc: '2.0',
+      method: 'p6.ownership.command',
+      params: [{
+        requestId: 'p6-command-1',
+        surface: 'autocard-scanner',
+        operation: 'execute-side-effect',
+        idempotencyKey: 'p6-command-key',
+        payload: { blockId: 'block-1' },
+      }],
+    });
+
+    expect('result' in query).toBe(true);
+    if ('result' in query) {
+      expect(query.result).toMatchObject({
+        ok: true,
+        surface: 'dialog-manager',
+        operation: 'read-block-meta',
+        owner: 'compatibility-read',
+        status: 'completed',
+        unavailableClass: null,
+      });
+      expect(query.result.diagnosticEventId).toContain('p6-ownership:dialog-manager:read-block-meta');
+    }
+    expect('result' in command).toBe(true);
+    if ('result' in command) {
+      expect(command.result).toMatchObject({
+        ok: true,
+        surface: 'autocard-scanner',
+        operation: 'execute-side-effect',
+        owner: 'writer-relay',
+        status: 'completed',
+        unavailableClass: null,
+      });
+      expect(command.result.diagnosticEventId).toContain('p6-ownership:autocard-scanner:execute-side-effect');
     }
   });
 });

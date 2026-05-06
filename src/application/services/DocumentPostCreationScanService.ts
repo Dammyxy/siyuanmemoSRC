@@ -9,11 +9,11 @@ import {
   type ConflictPromptPort,
 } from './PostCreationConflictMediator';
 import { createLogger } from '@/utils/logger';
+import type { HostBlockQueryPort } from '@/application/ports/HostBlockQueryPort';
 
 const logger = createLogger('DocumentPostCreationScanService');
 
 type DocumentScanSiyuanPort = {
-  sql: (stmt: string) => Promise<Array<Record<string, unknown>>>;
   getBlockKramdown: (blockId: string) => Promise<{ kramdown: string }>;
 };
 
@@ -43,14 +43,6 @@ export interface DocumentPostCreationScanResult {
   failed: number;
   conflicted: number;
   consumed: number;
-}
-
-function escapeSql(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-function buildInClause(ids: string[]): string {
-  return ids.map((id) => `'${escapeSql(id)}'`).join(', ');
 }
 
 function normalizeInlineSymbolContent(content: string): string {
@@ -83,6 +75,7 @@ export class DocumentPostCreationScanService {
 
   constructor(
     private readonly siyuanApi: DocumentScanSiyuanPort,
+    private readonly blockQuery: Pick<HostBlockQueryPort, 'listBlocksByRoot' | 'listParentIdsWithParagraphChild'>,
     private readonly executor: ScanExecutor,
     options?: {
       planner?: UnifiedPostCreationPlanner;
@@ -129,13 +122,10 @@ export class DocumentPostCreationScanService {
       return summary;
     }
 
-    const rows = await this.siyuanApi.sql(`
-      SELECT id, type
-      FROM blocks
-      WHERE root_id = '${escapeSql(normalizedRootId)}'
-        AND type IN ('p', 'm', 'i')
-      ORDER BY id ASC
-    `) as ScannedBlockRow[];
+    const rows = await this.blockQuery.listBlocksByRoot(
+      normalizedRootId,
+      ['p', 'm', 'i'],
+    ) as ScannedBlockRow[];
 
     const blockRows = rows
       .map((row) => ({
@@ -149,18 +139,8 @@ export class DocumentPostCreationScanService {
       .map((row) => row.id);
     const listItemsWithParagraphChild = new Set<string>();
     if (listItemIds.length > 0) {
-      const childRows = await this.siyuanApi.sql(`
-        SELECT DISTINCT parent_id
-        FROM blocks
-        WHERE parent_id IN (${buildInClause(listItemIds)})
-          AND type = 'p'
-      `) as ScannedBlockRow[];
-      for (const row of childRows) {
-        const parentId = typeof row.parent_id === 'string' ? row.parent_id.trim() : '';
-        if (parentId.length > 0) {
-          listItemsWithParagraphChild.add(parentId);
-        }
-      }
+      const parentIds = await this.blockQuery.listParentIdsWithParagraphChild(listItemIds);
+      parentIds.forEach((parentId) => listItemsWithParagraphChild.add(parentId));
     }
 
     summary.scanned = blockRows.length;

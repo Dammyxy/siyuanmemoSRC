@@ -35,6 +35,13 @@ const behaviorChecks = [
     reason: 'AI runtime still calls frontend llmPort chat path',
   },
   {
+    file: 'src/application/ApplicationContext.ts',
+    kind: 'ai-backend-raw-fetch-proxy',
+    symbolPattern: 'BackendAINetworkProxyAdapter',
+    pattern: /BackendAINetworkProxyAdapter/,
+    reason: 'AI backend runtime still wires renderer/raw fetch adapter instead of kernel network proxy',
+  },
+  {
     file: 'src/application/clients/PrivateApiClient.ts',
     kind: 'private-follower-direct-mutation',
     symbolPattern: 'follower backendClient.privateCommand(',

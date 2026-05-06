@@ -42,12 +42,12 @@ type CardServiceLike = {
   deleteFSRSCard: ReturnType<typeof vi.fn>;
 };
 
-describe('DataAccessFacade SQL 64-cap regression', () => {
+describe('DataAccessFacade host block query regression', () => {
   let cardService: CardServiceLike;
   let siyuanApi: {
-    sql: ReturnType<typeof vi.fn>;
     batchSetRiffCardsDueTime: ReturnType<typeof vi.fn>;
   };
+  let getExistingBlockIds: ReturnType<typeof vi.fn>;
   let facade: DataAccessFacade;
 
   beforeEach(() => {
@@ -58,9 +58,9 @@ describe('DataAccessFacade SQL 64-cap regression', () => {
       deleteFSRSCard: vi.fn(),
     };
     siyuanApi = {
-      sql: vi.fn().mockResolvedValue([]),
       batchSetRiffCardsDueTime: vi.fn(),
     };
+    getExistingBlockIds = vi.fn().mockResolvedValue(new Set<string>());
 
     facade = new DataAccessFacade(
       cardService as unknown as CardApplicationService,
@@ -68,45 +68,22 @@ describe('DataAccessFacade SQL 64-cap regression', () => {
       undefined,
       undefined,
       siyuanApi as unknown as QuerySiyuanPort,
+      { getExistingBlockIds },
     );
   });
 
-  it('keeps all cards when block existence SQL includes explicit LIMIT', async () => {
+  it('keeps all cards when semantic block query returns every requested id', async () => {
     const cards = Array.from({ length: 200 }, (_, index) => createCard(index + 1));
     cardService.getCards.mockResolvedValue({
       cards,
       total: cards.length,
     });
-
-    const allRows = cards.map((card) => ({ id: card.blockId }));
-    siyuanApi.sql.mockImplementation(async (stmt: string) => {
-      const isBlockExistenceQuery =
-        /SELECT\s+id/i.test(stmt)
-        && /FROM\s+blocks/i.test(stmt)
-        && /WHERE\s+id\s+IN/i.test(stmt);
-
-      if (!isBlockExistenceQuery) {
-        return [];
-      }
-
-      // Simulate Siyuan behavior: queries without LIMIT are truncated to 64.
-      if (!/\bLIMIT\b/i.test(stmt)) {
-        return allRows.slice(0, 64);
-      }
-
-      return allRows;
-    });
+    getExistingBlockIds.mockResolvedValue(new Set(cards.map((card) => card.blockId)));
 
     const result = await facade.getCards();
 
     expect(result).toHaveLength(200);
-
-    const existenceQueries = siyuanApi.sql.mock.calls
-      .map(([stmt]) => String(stmt))
-      .filter((stmt) => /SELECT\s+id[\s\S]*FROM\s+blocks[\s\S]*WHERE\s+id\s+IN/i.test(stmt));
-
-    expect(existenceQueries.length).toBeGreaterThan(0);
-    expect(existenceQueries.every((stmt) => /\bLIMIT\s+\d+/i.test(stmt))).toBe(true);
+    expect(getExistingBlockIds).toHaveBeenCalledWith(cards.map((card) => card.blockId));
   });
 });
 

@@ -46,9 +46,9 @@ type CardServiceLike = {
 describe('DataAccessFacade missing block filtering', () => {
   let cardService: CardServiceLike;
   let siyuanApi: {
-    sql: ReturnType<typeof vi.fn>;
     batchSetRiffCardsDueTime: ReturnType<typeof vi.fn>;
   };
+  let getExistingBlockIds: ReturnType<typeof vi.fn>;
   let facade: DataAccessFacade;
 
   beforeEach(() => {
@@ -59,16 +59,17 @@ describe('DataAccessFacade missing block filtering', () => {
       deleteFSRSCard: vi.fn(),
     };
     siyuanApi = {
-      sql: vi.fn().mockResolvedValue([]),
       batchSetRiffCardsDueTime: vi.fn(),
     };
+    getExistingBlockIds = vi.fn().mockResolvedValue(new Set<string>());
 
     facade = new DataAccessFacade(
       cardService as unknown as CardApplicationService,
       { getSettings: () => ({}) } as unknown as StorageManager,
       undefined,
       undefined,
-      siyuanApi as unknown as QuerySiyuanPort
+      siyuanApi as unknown as QuerySiyuanPort,
+      { getExistingBlockIds },
     );
   });
 
@@ -90,7 +91,7 @@ describe('DataAccessFacade missing block filtering', () => {
       cards: [existingCard, missingCard],
       total: 2,
     });
-    siyuanApi.sql.mockResolvedValue([{ id: 'block-existing' }]);
+    getExistingBlockIds.mockResolvedValue(new Set(['block-existing']));
 
     const cards = await facade.getCards();
 
@@ -114,7 +115,7 @@ describe('DataAccessFacade missing block filtering', () => {
       cards: [cardA, cardB],
       total: 2,
     });
-    siyuanApi.sql.mockRejectedValue(new Error('sql unavailable'));
+    getExistingBlockIds.mockRejectedValue(new Error('host block query unavailable'));
 
     const cards = await facade.getCards();
 
@@ -137,7 +138,7 @@ describe('DataAccessFacade missing block filtering', () => {
       cards: [card],
       total: 1,
     });
-    siyuanApi.sql.mockResolvedValue([{ id: 'block-keyword' }]);
+    getExistingBlockIds.mockResolvedValue(new Set(['block-keyword']));
 
     const result = await facade.getCards({
       keyword: 'needle',
@@ -166,7 +167,7 @@ describe('DataAccessFacade missing block filtering', () => {
       cards: [card],
       total: 1,
     });
-    siyuanApi.sql.mockResolvedValue([{ id: 'block-filtered' }]);
+    getExistingBlockIds.mockResolvedValue(new Set(['block-filtered']));
 
     const result = await facade.getCards({
       blockIds: ['block-filtered'],
@@ -198,7 +199,7 @@ describe('DataAccessFacade missing block filtering', () => {
     });
 
     cardService.getCard.mockResolvedValue({ card: missingCard });
-    siyuanApi.sql.mockResolvedValue([]);
+    getExistingBlockIds.mockResolvedValue(new Set());
 
     await expect(facade.getCard('card-missing')).rejects.toThrow('Block not found for card');
   });
@@ -211,7 +212,7 @@ describe('DataAccessFacade missing block filtering', () => {
     });
 
     cardService.getCard.mockResolvedValue({ card: existingCard });
-    siyuanApi.sql.mockResolvedValue([{ id: 'block-existing' }]);
+    getExistingBlockIds.mockResolvedValue(new Set(['block-existing']));
 
     const card = await facade.getCard('card-existing');
 

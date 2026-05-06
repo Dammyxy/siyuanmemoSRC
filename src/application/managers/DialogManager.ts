@@ -22,6 +22,11 @@ import SRSBrowser from '@/ui/browser/SRSBrowser.vue';
 import MobileReviewLauncher from '@/ui/mobile/MobileReviewLauncher.vue';
 import { TemplateSelectDialog } from '@/ui/xiuyuan';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
+import {
+  createUnavailableHostBlockQueryPort,
+  type HostBlockQueryPort,
+  type HostBlockRow,
+} from '@/application/ports/HostBlockQueryPort';
 import { createUnifiedReviewDialog } from '@/application/factories/createUnifiedReviewDialog';
 import { UnifiedQueueStrategy } from '@/application/adapters/UnifiedQueueStrategy';
 import { UnifiedReviewAdapter } from '@/application/adapters/UnifiedReviewAdapter';
@@ -127,15 +132,6 @@ function hasFilterSessionSerializer(queue: IReviewQueue | null): queue is Filter
   return Boolean(queue && typeof (queue as FilterGroupQueueLike).serializeSessionSnapshot === 'function');
 }
 
-interface BlockSqlRow extends Record<string, unknown> {
-  id: string;
-  type?: string;
-  subtype?: string;
-  parent_id?: string;
-  content?: string;
-  markdown?: string;
-}
-
 type ProgressiveSplitDialogStatus = 'config' | 'running' | 'cancelling';
 
 interface ProgressiveSplitDialogState {
@@ -184,6 +180,7 @@ export class DialogManager implements IDialogManager {
   
   private readonly siyuanApi: ManagerSiyuanPort;
   private readonly progressiveSiyuanApi: ProgressiveSiyuanPort;
+  private readonly hostBlockQuery: HostBlockQueryPort;
   private readonly leechActionEffects: LeechActionEffectsPort;
 
   constructor(
@@ -192,11 +189,13 @@ export class DialogManager implements IDialogManager {
     ports: {
       siyuanApi: ManagerSiyuanPort;
       progressiveSiyuanApi: ProgressiveSiyuanPort;
+      hostBlockQuery?: HostBlockQueryPort;
       leechActionEffects: LeechActionEffectsPort;
     }
   ) {
     this.siyuanApi = ports.siyuanApi;
     this.progressiveSiyuanApi = ports.progressiveSiyuanApi;
+    this.hostBlockQuery = ports.hostBlockQuery ?? createUnavailableHostBlockQueryPort('DialogManager was constructed without HostBlockQueryPort');
     this.leechActionEffects = ports.leechActionEffects;
   }
 
@@ -237,6 +236,7 @@ export class DialogManager implements IDialogManager {
     const syncLock = this.context.getHybridSyncService();
     return new BlockAttrCleanupService(
       this.siyuanApi,
+      this.hostBlockQuery,
       this.context.getUnifiedStorage(),
       syncLock ? { runWithGlobalSyncLock: (operation) => syncLock.runWithGlobalSyncLock(operation) } : undefined
     );
@@ -1535,7 +1535,7 @@ export class DialogManager implements IDialogManager {
   }
 
   private async resolveListItemAnchorBlockId(selectedBlockId: string): Promise<string | null> {
-    return resolveListItemAnchorBlockIdHelper(selectedBlockId, this.siyuanApi);
+    return resolveListItemAnchorBlockIdHelper(selectedBlockId, this.hostBlockQuery);
   }
 
   private hasExpectedTailMarker(
@@ -1587,7 +1587,7 @@ export class DialogManager implements IDialogManager {
       }
 
       const parentBlockId = anchorBlockId;
-      const scanResult = await resolveCdfMultilineScan(parentBlockId, this.siyuanApi);
+      const scanResult = await resolveCdfMultilineScan(parentBlockId, this.hostBlockQuery);
       if (scanResult.nodes.length === 0) {
         await this.siyuanApi.pushErrMsg('未找到可制卡的子级块');
         return;
@@ -1613,10 +1613,10 @@ export class DialogManager implements IDialogManager {
         xiuyuanAppService,
         {
           BUILTIN_DECK_ID: this.siyuanApi.BUILTIN_DECK_ID,
-          sql: async (stmt: string) => this.siyuanApi.sql(stmt),
           getBlockAttrs: (blockId: string) => this.siyuanApi.getBlockAttrs(blockId),
           getBlockKramdown: (blockId: string) => this.siyuanApi.getBlockKramdown(blockId),
-        }
+        },
+        this.hostBlockQuery,
       );
       const result = await useCase.execute({
         parentBlockId,
@@ -1686,18 +1686,14 @@ export class DialogManager implements IDialogManager {
       }
 
       // 1. 检查块类型
-      const typeResult = await this.siyuanApi.sql(`
-        SELECT type, content FROM blocks
-        WHERE id = '${parentBlockId}'
-        LIMIT 1
-      `);
+      const blockInfo = await this.hostBlockQuery.getBlockTypeAndContent(parentBlockId);
 
-      if (!typeResult || typeResult.length === 0) {
+      if (!blockInfo) {
         this.siyuanApi.pushErrMsg('块不存在');
         return;
       }
 
-      const blockType = typeResult[0].type;
+      const blockType = blockInfo.type;
 
       if (blockType !== 'i') {
         this.siyuanApi.pushErrMsg(`只能对列表项块使用此功能（当前类型：${blockType}）`);
@@ -1806,12 +1802,7 @@ export class DialogManager implements IDialogManager {
       // 🆕 1. 读取块内容，检测是否有方向符号
 
       // 获取所有子块（只查询段落块）
-      const children = await this.siyuanApi.sql<BlockSqlRow>(`
-        SELECT id, markdown 
-        FROM blocks 
-        WHERE parent_id = '${parentBlockId}' AND type = 'p'
-        ORDER BY sort
-      `);
+      const children = await this.hostBlockQuery.listParagraphChildren(parentBlockId);
 
       // 检测是否有反向或双向符号
       let hasReverse = false;
@@ -1976,10 +1967,9 @@ export class DialogManager implements IDialogManager {
       const conceptBlockId = blockRefMatch[1];
 
       // 4. 验证概念块是否为文档块
-      const blockTypeQuery = `SELECT type FROM blocks WHERE id = '${conceptBlockId}' LIMIT 1`;
-      const typeResult = await this.siyuanApi.sql(blockTypeQuery);
+      const conceptBlockInfo = await this.hostBlockQuery.getBlockTypeAndContent(conceptBlockId);
       
-      if (!typeResult || typeResult.length === 0 || typeResult[0].type !== 'd') {
+      if (!conceptBlockInfo || conceptBlockInfo.type !== 'd') {
         this.siyuanApi.pushErrMsg('❌ 概念定义卡要求引用文档块，当前引用的不是文档块');
         return;
       }
@@ -2171,13 +2161,12 @@ export class DialogManager implements IDialogManager {
       const blockId = blockIds[0];
 
       // 1. 读取块内容
-      const blocks = await this.siyuanApi.sql<BlockSqlRow>(`SELECT * FROM blocks WHERE id = '${blockId}'`);
-      if (!blocks || blocks.length === 0) {
+      const block = await this.hostBlockQuery.getBlock(blockId);
+      if (!block) {
         this.siyuanApi.pushErrMsg('无法读取块内容');
         return;
       }
 
-      const block = blocks[0];
       // 优先使用 markdown 字段，如果没有则使用 content 字段
       let content = block.markdown || block.content || '';
       
@@ -2520,25 +2509,18 @@ export class DialogManager implements IDialogManager {
         return;
       }
 
-      const safeConceptFieldBlockId = conceptFieldBlockId.replace(/'/g, "''");
       logger.info('[DialogManager] Ensuring concept document card:', conceptFieldBlockId);
 
       // 1. 解析概念文档块 ID（支持直接传文档块 ID，或传引用块 ID）
-      const conceptBlockRows = await this.siyuanApi.sql<BlockSqlRow>(`
-        SELECT id, type, content, markdown
-        FROM blocks
-        WHERE id = '${safeConceptFieldBlockId}'
-        LIMIT 1
-      `);
+      const conceptFieldBlock = await this.hostBlockQuery.getBlock(conceptFieldBlockId);
 
-      if (!conceptBlockRows || conceptBlockRows.length === 0) {
+      if (!conceptFieldBlock) {
         logger.warn('[DialogManager] Concept field block not found:', conceptFieldBlockId);
         return;
       }
 
-      const conceptFieldBlock = conceptBlockRows[0];
       let conceptDocumentId = conceptFieldBlock.id;
-      let conceptDocumentBlock: BlockSqlRow = conceptFieldBlock;
+      let conceptDocumentBlock: HostBlockRow = conceptFieldBlock;
 
       if (conceptFieldBlock.type !== 'd') {
         const refMatch = conceptFieldBlock.markdown?.match(/\(\((\d{14}-[a-z0-9]{7})(?:\s+'[^']*')?\)\)/);
@@ -2548,20 +2530,14 @@ export class DialogManager implements IDialogManager {
         }
 
         conceptDocumentId = refMatch[1];
-        const safeConceptDocumentId = conceptDocumentId.replace(/'/g, "''");
-        const conceptDocumentRows = await this.siyuanApi.sql<BlockSqlRow>(`
-          SELECT id, type, content
-          FROM blocks
-          WHERE id = '${safeConceptDocumentId}'
-          LIMIT 1
-        `);
+        const conceptDocument = await this.hostBlockQuery.getBlock(conceptDocumentId);
 
-        if (!conceptDocumentRows || conceptDocumentRows.length === 0) {
+        if (!conceptDocument) {
           logger.warn('[DialogManager] Referenced concept document not found:', conceptDocumentId);
           return;
         }
 
-        conceptDocumentBlock = conceptDocumentRows[0];
+        conceptDocumentBlock = conceptDocument;
       }
 
       if (conceptDocumentBlock.type !== 'd') {

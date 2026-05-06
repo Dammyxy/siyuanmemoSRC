@@ -4,7 +4,7 @@ import {
   ATTR_PROGRESSIVE_SESSION_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
   getLegacyProgressiveAttrName,
-} from '@/core/siyuan/block';
+} from '@/application/services/ProgressiveAttrContract';
 
 export type ProgressiveTopicScope = 'block' | 'doc-root';
 export type ProgressiveSourceRootKind =

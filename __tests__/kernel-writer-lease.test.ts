@@ -3,10 +3,27 @@ import { join } from 'node:path';
 import { Script, createContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
-async function loadKernelRpc(options: { nowMs?: () => number } = {}) {
+function base64Url(value: string): string {
+  return Buffer.from(value, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+async function loadKernelRpc(options: {
+  nowMs?: () => number;
+  clientFetch?: (path: string, init: unknown) => Promise<{
+    status: number;
+    headers?: Record<string, string>;
+    text: () => Promise<string>;
+  }>;
+} = {}) {
   const rpcHandlers = new Map<string, (params?: unknown) => unknown | Promise<unknown>>();
+  const clientFetchCalls: Array<{ path: string; init: unknown }> = [];
   const RuntimeDate = options.nowMs ? { now: options.nowMs } : Date;
   const context = createContext({
+    Buffer,
     Date: RuntimeDate,
     Math,
     String,
@@ -15,6 +32,8 @@ async function loadKernelRpc(options: { nowMs?: () => number } = {}) {
     Map,
     Error,
     Promise,
+    setTimeout,
+    clearTimeout,
     console,
     siyuan: {
       plugin: {
@@ -33,6 +52,24 @@ async function loadKernelRpc(options: { nowMs?: () => number } = {}) {
         info: async () => undefined,
         warn: async () => undefined,
       },
+      client: {
+        fetch: async (path: string, init: unknown) => {
+          clientFetchCalls.push({ path, init });
+          if (options.clientFetch) {
+            return options.clientFetch(path, init);
+          }
+          return {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+            text: async () => '{"ok":true}',
+          };
+        },
+      },
+      server: {
+        private: {
+          http: {},
+        },
+      },
     },
   });
   const source = readFileSync(join(process.cwd(), 'kernel.js'), 'utf8');
@@ -42,12 +79,22 @@ async function loadKernelRpc(options: { nowMs?: () => number } = {}) {
   }).plugin.lifecycle;
   await lifecycle.onload?.();
   return {
+    clientFetchCalls,
     call: async (method: string, params?: unknown) => {
       const handler = rpcHandlers.get(method);
       if (!handler) {
         throw new Error(`missing rpc handler: ${method}`);
       }
       return handler(params);
+    },
+    privateHttp: async (request: unknown) => {
+      const handler = (context.siyuan as {
+        server?: { private?: { http?: { handler?: (request: unknown) => Promise<unknown> } } };
+      }).server?.private?.http?.handler;
+      if (!handler) {
+        throw new Error('missing private http handler');
+      }
+      return handler(request);
     },
   };
 }
@@ -580,6 +627,138 @@ describe('kernel writer lease foreground policy', () => {
         instanceId: 'main-instance',
         documentHasFocus: true,
       }),
+    });
+  });
+
+  it('fetches external network requests through the SiYuan kernel network proxy', async () => {
+    const kernel = await loadKernelRpc();
+    const url = 'https://provider.test/v1/chat/completions?model=a b';
+    const headers = {
+      Authorization: 'Bearer secret',
+      'Content-Type': 'application/json',
+    };
+
+    await expect(kernel.call('network.fetchExternal', {
+      requestId: 'network-1',
+      url,
+      method: 'POST',
+      headers,
+      body: '{"hello":"world"}',
+      timeoutMs: 5_000,
+    })).resolves.toEqual({
+      requestId: 'network-1',
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: '{"ok":true}',
+    });
+
+    expect(kernel.clientFetchCalls).toHaveLength(1);
+    expect(kernel.clientFetchCalls[0]).toEqual({
+      path: `/api/network/proxy?u=${base64Url(url)}&h=${base64Url(JSON.stringify(headers))}`,
+      init: {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: '{"hello":"world"}',
+      },
+    });
+  });
+
+  it('serves private HTTP status and relays command requests through the active writer', async () => {
+    const kernel = await loadKernelRpc();
+
+    const status = await kernel.privateHttp({
+      context: { path: '/status' },
+      request: { method: 'GET' },
+    });
+    expect(status).toMatchObject({
+      statusCode: 200,
+      body: {
+        data: {
+          data: {
+            ok: true,
+            runtime: 'siyuanmemo-kernel-private-http',
+          },
+        },
+      },
+    });
+
+    await kernel.call('writer.acquireLease', {
+      instanceId: 'writer-instance',
+      surfaceId: 'main-scope',
+      ttlMs: 60_000,
+      visibilityState: 'visible',
+      documentHasFocus: true,
+      locationHref: 'http://127.0.0.1:49744/stage/build/app/',
+    });
+
+    const commandResponsePromise = kernel.privateHttp({
+      context: { path: '/command' },
+      request: {
+        method: 'POST',
+        body: {
+          data: {
+            text: async () => JSON.stringify({
+              requestId: 'private-http-command-1',
+              idempotencyKey: 'private-http-key',
+              operation: 'browser.sourceExistence.applySweepHost',
+              request: { blockIds: ['block-1'] },
+              checkedAt: 123,
+            }),
+          },
+        },
+      },
+    });
+
+    let pendingCommand: { command?: { commandId: string; method: string; params?: unknown } | null } = {};
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      pendingCommand = await kernel.call('writer.takeCommand', { instanceId: 'writer-instance' }) as {
+        command?: { commandId: string; method: string; params?: unknown } | null;
+      };
+      if (pendingCommand.command) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(pendingCommand.command).toMatchObject({
+      commandId: 'private-http-command-1',
+      method: 'private.command.execute',
+    });
+    expect(pendingCommand.command?.params).toMatchObject({
+      method: 'private.command.execute',
+      idempotencyKey: 'private-http-key',
+      params: {
+        operation: 'browser.sourceExistence.applySweepHost',
+        request: { blockIds: ['block-1'] },
+        checkedAt: 123,
+      },
+    });
+
+    await kernel.call('writer.completeCommand', {
+      instanceId: 'writer-instance',
+      commandId: 'private-http-command-1',
+      result: {
+        ok: true,
+        commandId: 'private-http-command-1',
+        changed: { blockIds: ['block-1'] },
+        result: { committed: true },
+      },
+    });
+
+    await expect(commandResponsePromise).resolves.toMatchObject({
+      statusCode: 200,
+      body: {
+        data: {
+          data: {
+            ok: true,
+            commandId: 'private-http-command-1',
+            result: {
+              committed: true,
+            },
+          },
+        },
+      },
     });
   });
 });

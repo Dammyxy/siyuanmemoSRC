@@ -47,7 +47,6 @@ type CardServiceLike = {
 describe('DataAccessFacade updateCard regression', () => {
   let cardService: CardServiceLike;
   let siyuanApi: {
-    sql: ReturnType<typeof vi.fn>;
     batchSetRiffCardsDueTime: ReturnType<typeof vi.fn>;
   };
   let facade: DataAccessFacade;
@@ -64,7 +63,6 @@ describe('DataAccessFacade updateCard regression', () => {
       }),
     };
     siyuanApi = {
-      sql: vi.fn().mockResolvedValue([]),
       batchSetRiffCardsDueTime: vi.fn(),
     };
 

@@ -30,7 +30,7 @@ type XiuyuanAppLike = {
 
 type CdfSiyuanPort = {
   BUILTIN_DECK_ID: string;
-  sql: <TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string) => Promise<TRow[]>;
+  sql?: <TRow extends Record<string, unknown> = Record<string, unknown>>(stmt: string) => Promise<TRow[]>;
   getBlockAttrs?: (blockId: string) => Promise<Record<string, string>>;
   getBlockKramdown: (blockId: string) => Promise<{ kramdown: string }>;
 };
@@ -151,14 +151,15 @@ export class CreateCdfMultilineCardsUseCase {
 
   constructor(
     private readonly xiuyuanAppService: XiuyuanAppLike,
-    private readonly siyuanApi: CdfSiyuanPort
+    private readonly siyuanApi: CdfSiyuanPort,
+    queryPort?: XiuyuanSharedQueryPort
   ) {
-    this.queryPort = toXiuyuanSharedQueryPort(siyuanApi);
+    this.queryPort = queryPort ?? toXiuyuanSharedQueryPort(siyuanApi as never);
   }
 
   async execute(command: CreateCdfMultilineCardsCommand): Promise<Result<CreateCdfMultilineCardsPayload>> {
     try {
-      const scanResult = await resolveCdfMultilineScan(command.parentBlockId, this.siyuanApi);
+      const scanResult = await resolveCdfMultilineScan(command.parentBlockId, this.queryPort);
       return this.executeFromScanResult(scanResult, command.templateId, command.deckId);
     } catch (error) {
       logger.error('Failed to create CDF multiline cards:', error);

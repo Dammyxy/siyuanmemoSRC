@@ -73,7 +73,7 @@ describe('check-backend-migration-cutover', () => {
       };
     `);
     writeFile(rootDir, 'src/application/backendMigration/featureGateMatrix.ts', 'export const BACKEND_FEATURE_GATE_MATRIX = [];\n');
-    writeFile(rootDir, 'src/application/ApplicationContext.ts', 'export class ApplicationContext {}\n');
+    writeFile(rootDir, 'src/application/ApplicationContext.ts', 'export class ApplicationContext { private x = "BackendAINetworkProxyAdapter"; }\n');
 
     const failures = evaluate({ rootDir, allowEntries: [] });
     expect(failures).toEqual(expect.arrayContaining([
@@ -81,6 +81,7 @@ describe('check-backend-migration-cutover', () => {
       expect.stringContaining('BrowserApplicationService.ts'),
       expect.stringContaining('AutoCardHandler.ts'),
       expect.stringContaining('AIWorkbenchPromptRuntime.ts'),
+      expect.stringContaining('renderer/raw fetch adapter'),
       expect.stringContaining('PrivateApiClient.ts'),
       expect.stringContaining('feature gate autocardDecisionRelay'),
       expect.stringContaining('Private API runtime service/client wiring is missing'),
@@ -109,7 +110,7 @@ describe('check-backend-migration-cutover', () => {
       const a = BACKEND_MIGRATION_FEATURE_GATES.autocardDecisionRelay;
       export const runtime = { a };
     `);
-    writeFile(rootDir, 'src/application/ApplicationContext.ts', 'export class ApplicationContext {}\n');
+    writeFile(rootDir, 'src/application/ApplicationContext.ts', 'export class ApplicationContext { private x = "PrivateApiService"; }\n');
 
     const allowEntries = [
       {

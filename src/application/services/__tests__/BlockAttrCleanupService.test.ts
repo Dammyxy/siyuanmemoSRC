@@ -14,7 +14,7 @@ function createHarness(options: {
   setBlockAttrsImpl?: (blockId: string, attrs: Record<string, string>) => Promise<void>;
   withSyncLock?: boolean;
 }) {
-  const sql = vi.fn(async () => options.rows);
+  const getManagedBlockAttrs = vi.fn(async () => options.rows);
   const setBlockAttrs = vi.fn(
     options.setBlockAttrsImpl ?? (async () => undefined)
   );
@@ -28,14 +28,15 @@ function createHarness(options: {
     : undefined;
 
   const service = new BlockAttrCleanupService(
-    { sql, setBlockAttrs },
+    { setBlockAttrs },
+    { getManagedBlockAttrs },
     { getXiuYuan } as unknown as UnifiedStorageManager,
     syncLock
   );
 
   return {
     service,
-    sql,
+    getManagedBlockAttrs,
     setBlockAttrs,
     getXiuYuan,
     syncLock,

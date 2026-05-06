@@ -15,7 +15,7 @@ import {
   ATTR_PROGRESSIVE_SOURCE_BLOCK_ID,
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
   ATTR_PROGRESSIVE_STORAGE_MODE,
-} from '@/core/siyuan/block';
+} from '@/application/services/ProgressiveAttrContract';
 import { createLogger } from '@/utils/logger';
 import {
   parseBasicDirectionContent,

@@ -168,6 +168,22 @@ export type KernelWriterRelayErrorCode =
   | 'KERNEL_SIDECAR_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 
+export interface KernelNetworkFetchExternalRequest {
+  requestId?: string;
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+}
+
+export interface KernelNetworkFetchExternalResult {
+  requestId: string;
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
 export interface KernelWriterSubmitCommandSuccessEnvelope {
   ok: true;
   commandId: string;

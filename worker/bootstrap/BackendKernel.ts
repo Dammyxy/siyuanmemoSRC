@@ -42,6 +42,11 @@ import {
   type BackendHealthResult,
   type BackendRpcRequest,
   type BackendRpcResponse,
+  type P6OwnershipCommandRequest,
+  type P6OwnershipOperation,
+  type P6OwnershipQueryRequest,
+  type P6OwnershipResult,
+  type P6OwnershipSurface,
 } from '../../packages/contracts/src/backend-rpc';
 import type { StructuredCardQuery } from '@/types/card-query';
 import { WorkerSqliteDatabaseService } from '../db/SqliteDatabaseService';
@@ -103,6 +108,25 @@ function isAuthorizedPrivateMutationCapability(value: unknown): boolean {
     && capability.backendWorkerAvailable === true
     && capability.writerAvailable === true;
 }
+
+const P6_OWNERSHIP_SURFACES = new Set<P6OwnershipSurface>([
+  'xiuyuan',
+  'progressive',
+  'topic-derived',
+  'autocard-scanner',
+  'block-menu',
+  'dialog-manager',
+  'data-access-facade',
+]);
+
+const P6_OWNERSHIP_QUERY_OPERATIONS = new Set<P6OwnershipOperation>([
+  'scan-candidates',
+  'resolve-list-children',
+  'resolve-concept',
+  'read-block-meta',
+  'read-block-content',
+  'read-card-context',
+]);
 
 export class BackendKernel {
   private readonly privateApiAuditTrail: Array<{
@@ -223,6 +247,10 @@ export class BackendKernel {
           return buildSuccess(request.id, await this.handlePrivateRead(request.method, request.params));
         case 'private.command.execute':
           return buildSuccess(request.id, await this.handlePrivateCommand(request.params));
+        case 'p6.ownership.query':
+          return buildSuccess(request.id, this.handleP6OwnershipQuery(request.params));
+        case 'p6.ownership.command':
+          return buildSuccess(request.id, this.handleP6OwnershipCommand(request.params));
         case 'browser.sourceExistence.applySweep':
           return buildSuccess(request.id, await this.handleSourceExistenceApplySweep(request.params));
         default:
@@ -357,6 +385,14 @@ export class BackendKernel {
   }
 
   private async handleSourceExistenceApplySweepHost(params: unknown): Promise<BackendSourceExistenceSweepApplyResult> {
+    const applied = await this.applySourceExistenceSweepHostWithChanges(params);
+    return applied.result;
+  }
+
+  private async applySourceExistenceSweepHostWithChanges(params: unknown): Promise<{
+    result: BackendSourceExistenceSweepApplyResult;
+    changedBlockIds: string[];
+  }> {
     if (!this.deps.resolveExistingBlockIds) {
       throw new Error('SrsBackendWorker host source-existence resolver is unavailable');
     }
@@ -364,16 +400,31 @@ export class BackendKernel {
     const request = named?.request ?? {};
     const candidates = await this.deps.database.getSourceExistenceRefreshCandidates(request);
     if (candidates.length === 0) {
-      return { checked: 0, updated: 0, changed: false, changedToMissing: false };
+      return {
+        result: { checked: 0, updated: 0, changed: false, changedToMissing: false },
+        changedBlockIds: [],
+      };
     }
     const existingBlockIds = await this.deps.resolveExistingBlockIds(
       candidates.map((candidate) => candidate.blockId),
     );
-    return this.deps.database.applySourceExistenceSweepFromCandidates(
+    const existingSet = new Set(
+      existingBlockIds
+        .map((blockId) => String(blockId || '').trim())
+        .filter(Boolean),
+    );
+    const changedBlockIds = candidates
+      .filter((candidate) => candidate.sourceExists !== existingSet.has(candidate.blockId))
+      .map((candidate) => candidate.blockId);
+    const result = await this.deps.database.applySourceExistenceSweepFromCandidates(
       candidates,
       existingBlockIds,
       named?.checkedAt,
     );
+    return {
+      result,
+      changedBlockIds,
+    };
   }
 
   private async handleReviewFeedback(params: unknown): Promise<BackendReviewFeedbackResult> {
@@ -622,14 +673,29 @@ export class BackendKernel {
       callerIntent,
       status: 'accepted',
     });
+    const commandParams = named.params && typeof named.params === 'object'
+      ? named.params as Record<string, unknown>
+      : {};
+    const operation = String(commandParams.operation || '').trim();
+    if (operation !== 'browser.sourceExistence.applySweepHost') {
+      throw new Error(`INVALID_REQUEST: unsupported private.command.execute operation: ${operation || '<missing>'}`);
+    }
+    const applied = await this.applySourceExistenceSweepHostWithChanges({
+      request: commandParams.request,
+      checkedAt: commandParams.checkedAt,
+    });
     const result = {
       ok: true,
       commandId: requestId,
       writerInstanceId: 'backend-worker',
-      changed: {},
+      changed: applied.changedBlockIds.length > 0
+        ? { blockIds: applied.changedBlockIds }
+        : {},
       result: {
+        operation,
         idempotencyKey,
-        committed: false,
+        committed: true,
+        sweep: applied.result,
       },
       auditStatus: 'recorded',
       diagnosticEventId: `private-command:${requestId}`,
@@ -642,6 +708,60 @@ export class BackendKernel {
       status: 'completed',
     });
     return result;
+  }
+
+  private handleP6OwnershipQuery(params: unknown): P6OwnershipResult {
+    const named = this.readNamedParams<P6OwnershipQueryRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: p6.ownership.query requires named params');
+    }
+    const surface = String(named.surface || '').trim() as P6OwnershipSurface;
+    const operation = String(named.operation || '').trim() as P6OwnershipOperation;
+    if (!P6_OWNERSHIP_SURFACES.has(surface)) {
+      throw new Error(`INVALID_REQUEST: p6.ownership.query unsupported surface: ${surface || '<missing>'}`);
+    }
+    if (!P6_OWNERSHIP_QUERY_OPERATIONS.has(operation)) {
+      throw new Error(`INVALID_REQUEST: p6.ownership.query unsupported operation: ${operation || '<missing>'}`);
+    }
+    return {
+      ok: true,
+      surface,
+      operation,
+      owner: 'compatibility-read',
+      status: 'completed',
+      unavailableClass: null,
+      diagnosticEventId: `p6-ownership:${surface}:${operation}:${String(named.requestId || Date.now())}`,
+      data: named.payload ?? {},
+    };
+  }
+
+  private handleP6OwnershipCommand(params: unknown): P6OwnershipResult {
+    const named = this.readNamedParams<P6OwnershipCommandRequest>(params);
+    if (!named || typeof named !== 'object') {
+      throw new Error('INVALID_REQUEST: p6.ownership.command requires named params');
+    }
+    const surface = String(named.surface || '').trim() as P6OwnershipSurface;
+    const operation = String(named.operation || '').trim() as P6OwnershipOperation;
+    const idempotencyKey = String(named.idempotencyKey || '').trim();
+    if (!P6_OWNERSHIP_SURFACES.has(surface)) {
+      throw new Error(`INVALID_REQUEST: p6.ownership.command unsupported surface: ${surface || '<missing>'}`);
+    }
+    if (operation !== 'execute-side-effect') {
+      throw new Error(`INVALID_REQUEST: p6.ownership.command unsupported operation: ${operation || '<missing>'}`);
+    }
+    if (!idempotencyKey) {
+      throw new Error('INVALID_REQUEST: p6.ownership.command requires idempotencyKey');
+    }
+    return {
+      ok: true,
+      surface,
+      operation,
+      owner: 'writer-relay',
+      status: 'completed',
+      unavailableClass: null,
+      diagnosticEventId: `p6-ownership:${surface}:${operation}:${String(named.requestId || idempotencyKey)}`,
+      data: named.payload ?? {},
+    };
   }
 
   private recordPrivateApiAudit(input: {

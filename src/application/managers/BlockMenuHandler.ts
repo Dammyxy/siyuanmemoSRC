@@ -5,6 +5,10 @@
 
 import type { App } from 'siyuan';
 import type { ManagerSiyuanPort } from '@/application/ports/ManagerSiyuanPort';
+import {
+  createUnavailableHostBlockQueryPort,
+  type HostBlockQueryPort,
+} from '@/application/ports/HostBlockQueryPort';
 import { applyDialogChrome, createVueDialog } from '@/utils/dialog';
 import { DEFAULT_PRIORITY } from '@/core/queue';
 import { QueueType } from '@/types/unified-data-source';
@@ -95,15 +99,6 @@ interface BlockSqlRow extends Record<string, unknown> {
   markdown?: string;
 }
 
-interface BlockTypeRow extends Record<string, unknown> {
-  type?: string;
-  content?: string;
-}
-
-interface BlockIdRow extends Record<string, unknown> {
-  id?: string;
-}
-
 interface NeuralRoamQueueLike {
   addCard(card: FSRSCard | string, priority?: 'normal' | 'high'): Promise<void>;
 }
@@ -122,13 +117,16 @@ export interface BlockMenuHandlerDeps {
   applicationContext: ApplicationContext;  // ✅ 必需：用于访问所有 DDD 架构服务
   cardCreationHelper: CardCreationHelper;  // ✅ 卡片创建辅助类
   siyuanApi: ManagerSiyuanPort;
+  hostBlockQuery?: HostBlockQueryPort;
 }
 
 export class BlockMenuHandler {
   private readonly siyuanApi: ManagerSiyuanPort;
+  private readonly hostBlockQuery: HostBlockQueryPort;
 
   constructor(private deps: BlockMenuHandlerDeps) {
     this.siyuanApi = deps.siyuanApi;
+    this.hostBlockQuery = deps.hostBlockQuery ?? createUnavailableHostBlockQueryPort('BlockMenuHandler was constructed without HostBlockQueryPort');
     // ReviewEntry 类已删除，功能直接在 BlockMenuHandler 中实现
   }
 
@@ -282,29 +280,7 @@ export class BlockMenuHandler {
     }
 
     try {
-      const inClause = normalizedRoots
-        .map((id) => `'${this.escapeSQL(id)}'`)
-        .join(',');
-      const rows = await this.siyuanApi.sql<BlockIdRow>(`
-        WITH RECURSIVE descendants AS (
-          SELECT id
-          FROM blocks
-          WHERE id IN (${inClause})
-          UNION
-          SELECT b.id
-          FROM blocks b
-          INNER JOIN descendants d ON b.parent_id = d.id
-        )
-        SELECT DISTINCT id
-        FROM descendants
-      `);
-
-      const subtreeIds = rows
-        .map((row) => row.id)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0);
-
-      const merged = new Set<string>([...normalizedRoots, ...subtreeIds]);
-      return Array.from(merged);
+      return this.hostBlockQuery.getSubtreeBlockIds(normalizedRoots);
     } catch (error) {
       logger.warn('[BlockMenuHandler] Failed to resolve subtree block ids, fallback to selected roots only:', {
         blockIds: normalizedRoots,
@@ -1435,7 +1411,7 @@ export class BlockMenuHandler {
   }
 
   private async resolveListItemAnchorBlockId(selectedBlockId: string): Promise<string | null> {
-    return resolveListItemAnchorBlockIdHelper(selectedBlockId, this.siyuanApi);
+    return resolveListItemAnchorBlockIdHelper(selectedBlockId, this.hostBlockQuery);
   }
 
   private async getParentParagraphSources(parentBlockId: string): Promise<{
@@ -1443,16 +1419,8 @@ export class BlockMenuHandler {
     paragraphText: string;
     parentKramdown: string;
   }> {
-    const rows = await this.siyuanApi.sql(`
-      SELECT id, content
-      FROM blocks
-      WHERE parent_id = '${this.escapeSQL(parentBlockId)}'
-        AND type = 'p'
-      ORDER BY sort ASC, id ASC
-      LIMIT 1
-    `) as Array<BlockIdRow & { content?: string }>;
-
-    const paragraphId = rows?.[0]?.id;
+    const paragraphRow = await this.hostBlockQuery.getFirstParagraphUnderParent(parentBlockId);
+    const paragraphId = paragraphRow?.id;
     if (!paragraphId) {
       const parent = await this.siyuanApi.getBlockKramdown(parentBlockId);
       return {
@@ -1461,13 +1429,13 @@ export class BlockMenuHandler {
         parentKramdown: parent.kramdown || '',
       };
     }
-    const paragraphText = typeof rows?.[0]?.content === 'string' ? rows[0].content : '';
-    const [paragraph, parent] = await Promise.all([
+    const paragraphText = paragraphRow.content;
+    const [paragraphKramdown, parent] = await Promise.all([
       this.siyuanApi.getBlockKramdown(paragraphId),
       this.siyuanApi.getBlockKramdown(parentBlockId),
     ]);
     return {
-      paragraphKramdown: paragraph.kramdown || '',
+      paragraphKramdown: paragraphKramdown.kramdown || '',
       paragraphText,
       parentKramdown: parent.kramdown || '',
     };
@@ -1539,18 +1507,14 @@ export class BlockMenuHandler {
       logger.info(`[SiYuanMemo] 🎯 Creating list template cards for: ${parentBlockId}`);
 
       // 1. 检查块类型
-      const typeResult = await this.siyuanApi.sql(`
-        SELECT type, content FROM blocks
-        WHERE id = '${parentBlockId}'
-        LIMIT 1
-      `) as BlockTypeRow[];
+      const blockInfo = await this.hostBlockQuery.getBlockTypeAndContent(parentBlockId);
 
-      if (!typeResult || typeResult.length === 0) {
+      if (!blockInfo) {
         await this.siyuanApi.pushErrMsg('块不存在');
         return;
       }
 
-      const blockType = typeResult[0].type;
+      const blockType = blockInfo.type;
 
       if (blockType !== 'i') {
         await this.siyuanApi.pushErrMsg(`只能对列表项块使用此功能（当前类型：${blockType}）`);

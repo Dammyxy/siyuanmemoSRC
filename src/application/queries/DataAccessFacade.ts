@@ -34,6 +34,10 @@ import { getCurrentDayEnd } from '../../utils/dateUtils';
 import { getDayStartHour } from '../../utils/configUtils';
 import { migrateCard } from '../../utils/cardMigration';
 import type { QuerySiyuanPort } from '../ports/QuerySiyuanPort';
+import {
+    createUnavailableHostBlockQueryPort,
+    type HostBlockQueryPort,
+} from '@/application/ports/HostBlockQueryPort';
 import type { CardFilter as QueryCardFilter } from './card/GetCardsQuery';
 import {
     isCardDismissed,
@@ -160,6 +164,7 @@ export class DataAccessFacade implements IDataRouter {
     private readonly BLOCK_CHECK_BATCH_SIZE = 500;
     private readonly knownMissingBlockIds = new Set<string>();
     private readonly siyuanApi: QuerySiyuanPort;
+    private readonly blockQuery: Pick<HostBlockQueryPort, 'getExistingBlockIds'>;
     
     // ========================================================================
     // 构造函数
@@ -179,7 +184,8 @@ export class DataAccessFacade implements IDataRouter {
         storage: StorageManager,
         plugin: DataAccessPlugin | undefined,
         settingsService: SettingsServiceLike | undefined,
-        siyuanApi: QuerySiyuanPort
+        siyuanApi: QuerySiyuanPort,
+        blockQuery?: Pick<HostBlockQueryPort, 'getExistingBlockIds'>
     ) {
         if (!siyuanApi) {
             throw new Error('[SiYuanMemo][DataAccessFacade] QuerySiyuanPort is required');
@@ -192,6 +198,7 @@ export class DataAccessFacade implements IDataRouter {
         this.plugin = plugin;
         this.settingsService = settingsService;
         this.siyuanApi = siyuanApi;
+        this.blockQuery = blockQuery ?? createUnavailableHostBlockQueryPort('DataAccessFacade was constructed without HostBlockQueryPort');
         this.applicationContext = null;  // 将在 setApplicationContext() 中设置
         
         // 🔍 调试日志：检查 plugin 是否正确传递
@@ -853,27 +860,6 @@ export class DataAccessFacade implements IDataRouter {
         return Array.from(deduped.values());
     }
 
-    private toSqlInClauseValues(blockIds: string[]): string {
-        return blockIds
-            .map((id) => `'${id.replace(/'/g, "''")}'`)
-            .join(', ');
-    }
-
-    private readSqlRowId(row: unknown): string {
-        if (!row || typeof row !== 'object') {
-            return '';
-        }
-
-        const value = (row as Record<string, unknown>).id;
-        if (typeof value === 'string') {
-            return value;
-        }
-        if (typeof value === 'number') {
-            return String(value);
-        }
-        return '';
-    }
-
     private async collectMissingBlockIds(blockIds: string[]): Promise<{
         missingBlockIds: Set<string>;
         uncheckedBlockIds: Set<string>;
@@ -888,22 +874,8 @@ export class DataAccessFacade implements IDataRouter {
 
         for (let i = 0; i < normalizedBlockIds.length; i += this.BLOCK_CHECK_BATCH_SIZE) {
             const batchBlockIds = normalizedBlockIds.slice(i, i + this.BLOCK_CHECK_BATCH_SIZE);
-            const query = `
-                SELECT id
-                FROM blocks
-                WHERE id IN (${this.toSqlInClauseValues(batchBlockIds)})
-                LIMIT ${batchBlockIds.length}
-            `;
-
             try {
-                const rows = await this.siyuanApi.sql(query);
-                const existingBlockIds = new Set<string>();
-                for (const row of rows) {
-                    const id = this.readSqlRowId(row);
-                    if (id) {
-                        existingBlockIds.add(id);
-                    }
-                }
+                const existingBlockIds = await this.blockQuery.getExistingBlockIds(batchBlockIds);
 
                 for (const blockId of batchBlockIds) {
                     if (existingBlockIds.has(blockId)) {

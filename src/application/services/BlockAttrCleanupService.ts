@@ -6,6 +6,7 @@ import {
   type BlockAttrCleanupMode,
   shouldRemoveAttrForMode,
 } from './BlockAttrPolicy';
+import type { HostBlockQueryPort } from '@/application/ports/HostBlockQueryPort';
 
 const logger = createLogger('BlockAttrCleanupService');
 
@@ -26,7 +27,6 @@ type SyncLockPort = {
 };
 
 type CleanupSiyuanPort = {
-  sql(stmt: string): Promise<unknown[]>;
   setBlockAttrs(blockId: string, attrs: Record<string, string>): Promise<void>;
 };
 
@@ -47,6 +47,7 @@ export interface CleanupRunResult extends CleanupScanResult {
 export class BlockAttrCleanupService {
   constructor(
     private readonly siyuanApi: CleanupSiyuanPort,
+    private readonly blockQuery: Pick<HostBlockQueryPort, 'getManagedBlockAttrs'>,
     private readonly unifiedStorage: UnifiedStorageManager,
     private readonly syncLock?: SyncLockPort
   ) {}
@@ -160,16 +161,7 @@ export class BlockAttrCleanupService {
   }
 
   private async queryManagedAttrs(): Promise<AttrSqlRow[]> {
-    if (ALL_PLUGIN_BLOCK_ATTR_KEYS.length === 0) {
-      return [];
-    }
-    const names = ALL_PLUGIN_BLOCK_ATTR_KEYS.map((name) => `'${this.escapeSql(name)}'`).join(',');
-    const stmt = `
-      SELECT block_id, name, value
-      FROM attributes
-      WHERE name IN (${names})
-    `;
-    const rows = await this.siyuanApi.sql(stmt);
+    const rows = await this.blockQuery.getManagedBlockAttrs(ALL_PLUGIN_BLOCK_ATTR_KEYS);
     return Array.isArray(rows) ? (rows as AttrSqlRow[]) : [];
   }
 
@@ -186,10 +178,6 @@ export class BlockAttrCleanupService {
 
     const existing = this.unifiedStorage.getXiuYuan(rawBinding);
     return !existing;
-  }
-
-  private escapeSql(value: string): string {
-    return String(value || '').replace(/'/g, "''");
   }
 
   private toTrimmedString(value: unknown): string {

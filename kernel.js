@@ -6,6 +6,9 @@ const WRITER_LEASE_STALE_OWNER_RECLAIM_GRACE_MS = 30_000;
 const WRITER_COMMAND_PENDING_TTL_MS = 60_000;
 const WRITER_COMMAND_RESULT_TTL_MS = 300_000;
 const WRITER_COMMAND_DISPATCH_TTL_MS = 5_000;
+const PRIVATE_COMMAND_WAIT_TIMEOUT_MS = 30_000;
+const PRIVATE_COMMAND_POLL_INTERVAL_MS = 250;
+const NETWORK_FETCH_DEFAULT_TIMEOUT_MS = 30_000;
 let writerLease = null;
 let writerLeaseEpoch = 0;
 const writerCommandsPending = new Map();
@@ -59,6 +62,115 @@ function normalizeOptionalString(value, maxLength = 512) {
     return undefined;
   }
   return text.slice(0, maxLength);
+}
+
+function normalizeHttpMethod(value) {
+  const method = String(value || 'GET').trim().toUpperCase();
+  return method || 'GET';
+}
+
+function normalizeHeaderRecord(value) {
+  const headers = {};
+  if (!value || typeof value !== 'object') {
+    return headers;
+  }
+  for (const key of Object.keys(value)) {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) {
+      continue;
+    }
+    const raw = value[key];
+    if (Array.isArray(raw)) {
+      headers[normalizedKey] = raw.map((item) => String(item)).join(', ');
+    } else if (raw !== undefined && raw !== null) {
+      headers[normalizedKey] = String(raw);
+    }
+  }
+  return headers;
+}
+
+function normalizeUrl(value) {
+  const url = String(value || '').trim();
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error('network.fetchExternal requires absolute http/https url');
+  }
+  return url;
+}
+
+function utf8Bytes(value) {
+  const text = String(value || '');
+  const bytes = [];
+  for (let i = 0; i < text.length; i += 1) {
+    let codePoint = text.charCodeAt(i);
+    if (codePoint >= 0xd800 && codePoint <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        codePoint = 0x10000 + ((codePoint - 0xd800) << 10) + (next - 0xdc00);
+        i += 1;
+      }
+    }
+    if (codePoint <= 0x7f) {
+      bytes.push(codePoint);
+    } else if (codePoint <= 0x7ff) {
+      bytes.push(0xc0 | (codePoint >> 6));
+      bytes.push(0x80 | (codePoint & 0x3f));
+    } else if (codePoint <= 0xffff) {
+      bytes.push(0xe0 | (codePoint >> 12));
+      bytes.push(0x80 | ((codePoint >> 6) & 0x3f));
+      bytes.push(0x80 | (codePoint & 0x3f));
+    } else {
+      bytes.push(0xf0 | (codePoint >> 18));
+      bytes.push(0x80 | ((codePoint >> 12) & 0x3f));
+      bytes.push(0x80 | ((codePoint >> 6) & 0x3f));
+      bytes.push(0x80 | (codePoint & 0x3f));
+    }
+  }
+  return bytes;
+}
+
+function base64UrlEncode(value) {
+  if (typeof Buffer !== 'undefined' && Buffer.from) {
+    return Buffer.from(String(value || ''), 'utf8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
+  }
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const bytes = utf8Bytes(value);
+  let output = '';
+  for (let index = 0; index < bytes.length; index += 3) {
+    const a = bytes[index];
+    const b = index + 1 < bytes.length ? bytes[index + 1] : 0;
+    const c = index + 2 < bytes.length ? bytes[index + 2] : 0;
+    const triple = (a << 16) | (b << 8) | c;
+    output += alphabet[(triple >> 18) & 0x3f];
+    output += alphabet[(triple >> 12) & 0x3f];
+    output += index + 1 < bytes.length ? alphabet[(triple >> 6) & 0x3f] : '=';
+    output += index + 2 < bytes.length ? alphabet[triple & 0x3f] : '=';
+  }
+  return output.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function delayMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout(operation, timeoutMs, message) {
+  if (typeof setTimeout !== 'function') {
+    return operation;
+  }
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (typeof clearTimeout === 'function') {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function normalizeDocumentHasFocus(value) {
@@ -374,7 +486,7 @@ function buildHealth() {
 
 function buildCapabilities() {
   return {
-    version: 5,
+    version: 6,
     methods: [
       'health',
       'version',
@@ -389,6 +501,9 @@ function buildCapabilities() {
       'writer.failCommand',
       'writer.getCommandResult',
       'writer.takeCommand',
+      'network.fetchExternal',
+      'private.http.status',
+      'private.http.command',
     ],
     storage: 'siyuan.storage',
     rpc: 'json-rpc-2.0',
@@ -834,6 +949,168 @@ function writerTakeCommand(params) {
   return buildOkEnvelope({ command: null }, at);
 }
 
+async function networkFetchExternal(params) {
+  const named = toObjectParams(params);
+  const requestId = normalizeOptionalString(named.requestId, 128) || `network-${nowMs()}`;
+  const url = normalizeUrl(named.url);
+  const headers = normalizeHeaderRecord(named.headers);
+  const timeoutMs = Math.max(500, Math.floor(Number(named.timeoutMs || NETWORK_FETCH_DEFAULT_TIMEOUT_MS)));
+  const proxyPath = `/api/network/proxy?u=${base64UrlEncode(url)}&h=${base64UrlEncode(JSON.stringify(headers))}`;
+  const requestInit = {
+    method: normalizeHttpMethod(named.method),
+    headers: {},
+  };
+  if (named.body !== undefined && named.body !== null) {
+    requestInit.headers['Content-Type'] = headers['Content-Type'] || headers['content-type'] || 'application/json';
+    requestInit.body = String(named.body);
+  }
+  const response = await withTimeout(
+    siyuan.client.fetch(proxyPath, requestInit),
+    timeoutMs,
+    'TIMEOUT: network.fetchExternal request timed out',
+  );
+  const body = await response.text();
+  return {
+    requestId,
+    status: Number(response.status) || 0,
+    headers: response.headers || {},
+    body,
+  };
+}
+
+function jsonHttpResponse(statusCode, data) {
+  return {
+    statusCode,
+    headers: {
+      'Content-Type': ['application/json; charset=utf-8'],
+    },
+    body: {
+      data: {
+        type: 'JSON',
+        data,
+      },
+    },
+  };
+}
+
+async function readJsonRequestBody(request) {
+  const body = request?.request?.body;
+  const raw = body?.data ? await body.data.text() : '';
+  const text = String(raw || '').trim();
+  if (!text) {
+    return {};
+  }
+  return JSON.parse(text);
+}
+
+function buildPrivateCapabilityResult() {
+  return {
+    available: true,
+    reason: null,
+    kernelSidecarAvailable: true,
+    backendWorkerAvailable: true,
+    writerAvailable: true,
+    methodAllowed: true,
+  };
+}
+
+function normalizePrivateCommandPayload(payload) {
+  const commandId = normalizeOptionalString(payload.requestId, 128) || createCommandId();
+  const idempotencyKey = normalizeOptionalString(payload.idempotencyKey, 256) || commandId;
+  const callerIntent = normalizeOptionalString(payload.callerIntent, 256) || 'kernel-private-http';
+  return {
+    commandId,
+    idempotencyKey,
+    params: {
+      requestId: commandId,
+      method: 'private.command.execute',
+      callerIntent,
+      idempotencyKey,
+      capabilityResult: buildPrivateCapabilityResult(),
+      params: payload.params && typeof payload.params === 'object'
+        ? payload.params
+        : {
+          operation: payload.operation,
+          request: payload.request,
+          checkedAt: payload.checkedAt,
+        },
+      auditContext: payload.auditContext && typeof payload.auditContext === 'object'
+        ? payload.auditContext
+        : { source: 'kernel-private-http' },
+    },
+  };
+}
+
+async function waitForPrivateCommandResult(commandId, timeoutMs = PRIVATE_COMMAND_WAIT_TIMEOUT_MS) {
+  const deadline = nowMs() + timeoutMs;
+  while (nowMs() <= deadline) {
+    const result = writerGetCommandResult({ commandId });
+    if (result.ok === true && result.status === 'completed') {
+      return { statusCode: 200, result: result.result };
+    }
+    if (result.ok === true && result.status === 'failed') {
+      return {
+        statusCode: 503,
+        result: {
+          ok: false,
+          error: result.error || { code: 'BACKEND_UNAVAILABLE', message: 'private command failed' },
+        },
+      };
+    }
+    if (typeof setTimeout !== 'function') {
+      break;
+    }
+    await delayMs(PRIVATE_COMMAND_POLL_INTERVAL_MS);
+  }
+  return {
+    statusCode: 503,
+    result: {
+      ok: false,
+      error: {
+        code: 'BACKEND_UNAVAILABLE',
+        message: `private command timed out: ${commandId}`,
+      },
+    },
+  };
+}
+
+async function handlePrivateHttp(request) {
+  const method = String(request?.request?.method || '').toUpperCase();
+  const path = String(request?.context?.path || request?.url?.path || '').replace(/\/+$/g, '') || '/';
+  if (method === 'GET' && (path === '/status' || path === '/')) {
+    return jsonHttpResponse(200, {
+      ok: true,
+      runtime: 'siyuanmemo-kernel-private-http',
+      health: buildHealth(),
+      capabilities: buildCapabilities(),
+      writerLease: cloneLease(getActiveLease()),
+    });
+  }
+  if (method === 'POST' && path === '/command') {
+    const payload = await readJsonRequestBody(request);
+    const command = normalizePrivateCommandPayload(payload);
+    const submitted = await writerSubmitCommand({
+      instanceId: 'kernel-private-http',
+      commandId: command.commandId,
+      idempotencyKey: command.idempotencyKey,
+      method: 'private.command.execute',
+      params: command.params,
+    });
+    if (submitted.ok !== true) {
+      return jsonHttpResponse(503, submitted);
+    }
+    const waited = await waitForPrivateCommandResult(command.commandId);
+    return jsonHttpResponse(waited.statusCode, waited.result);
+  }
+  return jsonHttpResponse(404, {
+    ok: false,
+    error: {
+      code: 'NOT_FOUND',
+      message: `Unsupported private route: ${method} ${path}`,
+    },
+  });
+}
+
 siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.logger.info('[SiYuanMemo kernel] loading');
 
@@ -854,6 +1131,10 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind('writer.failCommand', async (params) => writerFailCommand(params), 'Submit failed writer command result from active writer instance.');
   await siyuan.rpc.bind('writer.getCommandResult', async (params) => writerGetCommandResult(params), 'Poll writer command relay result.');
   await siyuan.rpc.bind('writer.takeCommand', async (params) => writerTakeCommand(params), 'Poll next pending writer relay command for active writer instance.');
+  await siyuan.rpc.bind('network.fetchExternal', async (params) => networkFetchExternal(params), 'Fetch external HTTP endpoint through kernel network proxy.');
+  if (siyuan.server?.private?.http) {
+    siyuan.server.private.http.handler = handlePrivateHttp;
+  }
 };
 
 siyuan.plugin.lifecycle.onrunning = async () => {

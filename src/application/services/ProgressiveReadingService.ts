@@ -27,7 +27,7 @@ import {
   ATTR_PROGRESSIVE_SOURCE_DOC_ID,
   ATTR_PROGRESSIVE_WORKBENCH_ID,
   getLegacyProgressiveAttrName,
-} from '@/core/siyuan/block';
+} from '@/application/services/ProgressiveAttrContract';
 
 const logger = createLogger('ProgressiveReadingService');
 const STORAGE_KEY = 'progressive-reading.json';

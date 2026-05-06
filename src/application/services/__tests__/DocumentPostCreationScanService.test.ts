@@ -1,17 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DocumentPostCreationScanService } from '../DocumentPostCreationScanService';
 
+function createBlockQuery(rows: Array<{ id: string; type: string }>, parentIdsWithParagraphChild: string[] = []) {
+  return {
+    listBlocksByRoot: vi.fn(async () => rows),
+    listParentIdsWithParagraphChild: vi.fn(async () => new Set(parentIdsWithParagraphChild)),
+  };
+}
+
 describe('DocumentPostCreationScanService', () => {
   it('prefers paragraph blocks and skips list-item fallback when list item has paragraph child', async () => {
-    const sql = vi.fn().mockImplementation(async (stmt: string) => {
-      if (stmt.includes('SELECT DISTINCT parent_id')) {
-        return [{ parent_id: 'i-1' }];
-      }
-      return [
-        { id: 'i-1', type: 'i' },
-        { id: 'p-1', type: 'p' },
-      ];
-    });
+    const blockQuery = createBlockQuery([
+      { id: 'i-1', type: 'i' },
+      { id: 'p-1', type: 'p' },
+    ], ['i-1']);
 
     const getBlockKramdown = vi.fn(async (blockId: string) => {
       if (blockId === 'i-1') return { kramdown: 'List root >>>' };
@@ -23,9 +25,9 @@ describe('DocumentPostCreationScanService', () => {
 
     const service = new DocumentPostCreationScanService(
       {
-        sql,
         getBlockKramdown,
       },
+      blockQuery,
       {
         executeSingleBlockDecision,
         executeStructuralDecision,
@@ -47,14 +49,9 @@ describe('DocumentPostCreationScanService', () => {
   });
 
   it('uses list-item fallback when list item has no paragraph child', async () => {
-    const sql = vi.fn().mockImplementation(async (stmt: string) => {
-      if (stmt.includes('SELECT DISTINCT parent_id')) {
-        return [];
-      }
-      return [
-        { id: 'i-1', type: 'i' },
-      ];
-    });
+    const blockQuery = createBlockQuery([
+      { id: 'i-1', type: 'i' },
+    ]);
 
     const getBlockKramdown = vi.fn().mockResolvedValue({ kramdown: '术语;;描述' });
     const executeSingleBlockDecision = vi.fn().mockResolvedValue(true);
@@ -62,9 +59,9 @@ describe('DocumentPostCreationScanService', () => {
 
     const service = new DocumentPostCreationScanService(
       {
-        sql,
         getBlockKramdown,
       },
+      blockQuery,
       {
         executeSingleBlockDecision,
         executeStructuralDecision,
@@ -81,7 +78,7 @@ describe('DocumentPostCreationScanService', () => {
   });
 
   it('uses injected single-block decision resolver when provided', async () => {
-    const sql = vi.fn().mockResolvedValue([
+    const blockQuery = createBlockQuery([
       { id: 'p-2', type: 'p' },
     ]);
     const getBlockKramdown = vi.fn().mockResolvedValue({ kramdown: 'Alpha >> Beta' });
@@ -114,9 +111,9 @@ describe('DocumentPostCreationScanService', () => {
 
     const service = new DocumentPostCreationScanService(
       {
-        sql,
         getBlockKramdown,
       },
+      blockQuery,
       {
         executeSingleBlockDecision,
         executeStructuralDecision,
@@ -149,14 +146,9 @@ describe('DocumentPostCreationScanService', () => {
   });
 
   it('uses injected structural decision resolver when provided', async () => {
-    const sql = vi.fn().mockImplementation(async (stmt: string) => {
-      if (stmt.includes('SELECT DISTINCT parent_id')) {
-        return [];
-      }
-      return [
-        { id: 'i-3', type: 'i' },
-      ];
-    });
+    const blockQuery = createBlockQuery([
+      { id: 'i-3', type: 'i' },
+    ]);
     const getBlockKramdown = vi.fn().mockResolvedValue({ kramdown: '术语 >>>' });
     const executeSingleBlockDecision = vi.fn().mockResolvedValue(false);
     const executeStructuralDecision = vi.fn().mockResolvedValue(true);
@@ -185,9 +177,9 @@ describe('DocumentPostCreationScanService', () => {
 
     const service = new DocumentPostCreationScanService(
       {
-        sql,
         getBlockKramdown,
       },
+      blockQuery,
       {
         executeSingleBlockDecision,
         executeStructuralDecision,

@@ -194,7 +194,13 @@ export type AIWorkbenchServiceDeps = {
     | 'createSession'
     | 'updateSession'
     | 'cancelSession'
+    | 'executePrompt'
+    | 'startStream'
+    | 'cancelStream'
+    | 'getJob'
+    | 'proxyNetwork'
   >;
+  backendRuntimeEnabled?: boolean;
 };
 
 const CONCEPT_SKILL: AISkillId = AI_CONCEPT_COACH_SKILL_ID;
@@ -484,7 +490,7 @@ export class AIWorkbenchService {
       state: this.state,
       getAISettings: this.deps.getAISettings,
       llmPort: this.deps.llmPort,
-      backendRuntimeEnabled: Boolean(this.deps.backendSessionService),
+      backendRuntimeEnabled: this.deps.backendRuntimeEnabled ?? Boolean(this.deps.backendSessionService),
       backendSessionService: this.deps.backendSessionService,
       getSelfTestCreationMode: () => this.getSelfTestCreationMode(),
       getResolvedSkill: (skillId) => this.getResolvedSkill(skillId),

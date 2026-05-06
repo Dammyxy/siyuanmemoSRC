@@ -17,6 +17,8 @@ import type {
   KernelWriterRenewLeaseRequest,
   KernelWriterSubmitCommandEnvelope,
   KernelWriterSubmitCommandRequest,
+  KernelNetworkFetchExternalRequest,
+  KernelNetworkFetchExternalResult,
 } from '../../../packages/contracts/src/kernel-rpc';
 
 export class KernelSidecarClient {
@@ -111,6 +113,23 @@ export class KernelSidecarClient {
   }> {
     const result = await this.call<KernelWriterTakeCommandLookupEnvelope>('writer.takeCommand', request);
     return this.unwrapWriterTakeCommandEnvelope('writer.takeCommand', result);
+  }
+
+  async networkFetchExternal(request: KernelNetworkFetchExternalRequest): Promise<KernelNetworkFetchExternalResult> {
+    const result = await this.call<KernelNetworkFetchExternalResult>('network.fetchExternal', request);
+    if (!result || typeof result !== 'object') {
+      throw new Error('Kernel companion network.fetchExternal returned invalid response envelope');
+    }
+    const candidate = result as KernelNetworkFetchExternalResult;
+    if (typeof candidate.status !== 'number' || typeof candidate.body !== 'string') {
+      throw new Error('Kernel companion network.fetchExternal returned invalid payload');
+    }
+    return {
+      requestId: typeof candidate.requestId === 'string' ? candidate.requestId : '',
+      status: candidate.status,
+      headers: candidate.headers && typeof candidate.headers === 'object' ? candidate.headers : {},
+      body: candidate.body,
+    };
   }
 
   private unwrapWriterLeaseEnvelope(

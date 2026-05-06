@@ -2,7 +2,7 @@ import type { ITransactionHandler, Transaction } from '@/core/infrastructure/web
 import type { DoOperation } from '@/core/infrastructure/websocket/transaction-types';
 import type { IncrementalSyncOptions } from '@/application/services/XiuyuanSyncService.types';
 import type FSRSPlugin from '@/index';
-import { ATTR_IS_FLASHCARD, ATTR_RIFF_DECKS } from '@/core/siyuan/block';
+import { ATTR_IS_FLASHCARD, ATTR_RIFF_DECKS } from '@/application/services/BlockAttrContract';
 import { createLogger } from '@/utils/logger';
 
 const logger = createLogger('NativeRiffSyncTriggerHandler');

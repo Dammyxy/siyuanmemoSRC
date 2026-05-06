@@ -154,4 +154,39 @@ describe('KernelSidecarClient', () => {
       },
     });
   });
+
+  it('calls kernel network.fetchExternal and validates payload shape', async () => {
+    const call = vi.fn(async () => ({
+      requestId: 'network-1',
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: '{"ok":true}',
+    }));
+    const client = new KernelSidecarClient({
+      getStatus: vi.fn(),
+      call,
+    });
+
+    await expect(client.networkFetchExternal({
+      requestId: 'network-1',
+      url: 'https://provider.test/v1/chat/completions',
+      method: 'POST',
+      headers: { Authorization: 'Bearer secret' },
+      body: '{}',
+      timeoutMs: 10_000,
+    })).resolves.toEqual({
+      requestId: 'network-1',
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: '{"ok":true}',
+    });
+    expect(call).toHaveBeenCalledWith('network.fetchExternal', {
+      requestId: 'network-1',
+      url: 'https://provider.test/v1/chat/completions',
+      method: 'POST',
+      headers: { Authorization: 'Bearer secret' },
+      body: '{}',
+      timeoutMs: 10_000,
+    });
+  });
 });
