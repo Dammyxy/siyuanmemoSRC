@@ -389,7 +389,10 @@ export class BackendKernel {
 
   private async handleSourceExistenceApplySweepHost(params: unknown): Promise<BackendSourceExistenceSweepApplyResult> {
     const applied = await this.applySourceExistenceSweepHostWithChanges(params);
-    return applied.result;
+    return {
+      ...applied.result,
+      changedBlockIds: applied.changedBlockIds,
+    };
   }
 
   private async applySourceExistenceSweepHostWithChanges(params: unknown): Promise<{
@@ -426,7 +429,7 @@ export class BackendKernel {
     );
     return {
       result,
-      changedBlockIds,
+      changedBlockIds: result.changedBlockIds.length > 0 ? result.changedBlockIds : changedBlockIds,
     };
   }
 

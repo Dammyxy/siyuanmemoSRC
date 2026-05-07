@@ -17,7 +17,7 @@ export interface BrowserForceRefreshPlanDeps {
 
 export async function runBrowserForceRefresh(deps: BrowserForceRefreshPlanDeps): Promise<void> {
   deps.invalidateCardCache();
-  await deps.refreshGlobalStats(true);
   await deps.refreshData(true, false, { refreshQueueCounts: false });
   await deps.refreshQueueCounts({ forceRefresh: true });
+  await deps.refreshGlobalStats(true);
 }

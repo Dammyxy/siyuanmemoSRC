@@ -11,6 +11,12 @@ describe('KernelTransactionActionPump', () => {
     vi.clearAllMocks();
   });
 
+  async function flushDeferredUpsertTimer(): Promise<void> {
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.resolve();
+  }
+
   it('dequeues actions from backend and routes native-riff-remove to hybrid sync service', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [{
@@ -69,10 +75,56 @@ describe('KernelTransactionActionPump', () => {
 
     await vi.advanceTimersByTimeAsync(250);
     await Promise.resolve();
+    await flushDeferredUpsertTimer();
 
     expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
     expect(incrementalSync).not.toHaveBeenCalled();
 
+    await pump.dispose();
+  });
+
+  it('does not keep pollOnce in flight while native-riff-upsert is still running', async () => {
+    let resolveUpsert: (() => void) | null = null;
+    const dequeueKernelTransactions = vi.fn()
+      .mockResolvedValueOnce({
+        actions: [{
+          type: 'native-riff-upsert' as const,
+          blockIds: ['block-slow'],
+          source: 'ws-main' as const,
+          receivedAt: 2,
+          idempotencyKey: 'slow-upsert',
+        }],
+        remaining: 0,
+      })
+      .mockResolvedValue({
+        actions: [],
+        remaining: 0,
+      });
+    const handleNativeRiffUpsert = vi.fn(() => new Promise<void>((resolve) => {
+      resolveUpsert = resolve;
+    }));
+
+    const pump = new KernelTransactionActionPump(
+      { dequeueKernelTransactions, requeueKernelTransactions: vi.fn(async () => ({ requeued: 0, queueLength: 0, maxQueueLength: 4096 })) },
+      null,
+      null,
+      () => ({ handleNativeRiffUpsert }),
+      () => undefined,
+      { pollIntervalMs: 250, maxActionsPerPoll: 4 },
+    );
+    pump.start();
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    await flushDeferredUpsertTimer();
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect(dequeueKernelTransactions).toHaveBeenCalledTimes(2);
+
+    resolveUpsert?.();
+    await Promise.resolve();
     await pump.dispose();
   });
 
@@ -125,6 +177,7 @@ describe('KernelTransactionActionPump', () => {
 
     await vi.advanceTimersByTimeAsync(250);
     await Promise.resolve();
+    await flushDeferredUpsertTimer();
 
     expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
     expect(handleNativeRiffRemove).toHaveBeenCalledTimes(1);
@@ -359,7 +412,7 @@ describe('KernelTransactionActionPump', () => {
     await pump.dispose();
   });
 
-  it('requeues actions when action processing fails', async () => {
+  it('keeps native-riff-upsert pending for cooldown retry when background processing fails', async () => {
     const dequeueKernelTransactions = vi.fn(async () => ({
       actions: [{
         type: 'native-riff-upsert' as const,
@@ -391,16 +444,15 @@ describe('KernelTransactionActionPump', () => {
 
     await vi.advanceTimersByTimeAsync(250);
     await Promise.resolve();
+    await flushDeferredUpsertTimer();
 
-    expect(requeueKernelTransactions).toHaveBeenCalledWith({
-      actions: [{
-        type: 'native-riff-upsert',
-        blockIds: ['block-fail'],
-        source: 'ws-main',
-        receivedAt: 4,
-        idempotencyKey: 'k4',
-      }],
-    });
+    expect(requeueKernelTransactions).not.toHaveBeenCalled();
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    await Promise.resolve();
+    await flushDeferredUpsertTimer();
+    expect(handleNativeRiffUpsert).toHaveBeenCalledTimes(2);
 
     await pump.dispose();
   });
@@ -455,16 +507,8 @@ describe('KernelTransactionActionPump', () => {
       }),
       15000,
     );
-    expect(submitAndWait).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        instanceId: 'runtime-1',
-        method: 'kernel.transaction.requeue',
-        params: { actions: [action] },
-      }),
-      15000,
-    );
-    expect(requeueKernelTransactions).toHaveBeenCalledWith({ actions: [action] });
+    expect(submitAndWait).toHaveBeenCalledTimes(1);
+    expect(requeueKernelTransactions).not.toHaveBeenCalled();
 
     await pump.dispose();
   });

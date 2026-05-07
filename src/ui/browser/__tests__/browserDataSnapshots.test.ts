@@ -61,6 +61,29 @@ describe('browserDataSnapshots', () => {
     expect(getRowsByIds).toHaveBeenNthCalledWith(3, ['e']);
   });
 
+  it('yields between hydrate chunks so snapshots cannot monopolize the renderer', async () => {
+    const fetchRows = vi.fn().mockResolvedValue({ rows: [], totalCount: 0 });
+    const getAllMatchedIds = vi.fn(async () => ['a', 'b', 'c', 'd']);
+    const getRowsByIds = vi.fn(async (ids: string[]) => ids.map(row));
+    const yieldBetweenChunks = vi.fn(async () => {});
+    const dataSource = {
+      fetchRows,
+      getActionTargetsByIds: vi.fn(),
+      getAllMatchedIds,
+      getQueryFingerprint: vi.fn(() => 'fp'),
+      getRowsByIds,
+    } as unknown as ICardDataSource;
+
+    await expect(loadAllRowsFromQueryableDataSource(dataSource, [], {
+      chunkSize: 2,
+      yieldBetweenChunks,
+    })).resolves.toEqual(['a', 'b', 'c', 'd'].map(row));
+
+    expect(yieldBetweenChunks).toHaveBeenCalledTimes(1);
+    expect(getRowsByIds).toHaveBeenNthCalledWith(1, ['a', 'b']);
+    expect(getRowsByIds).toHaveBeenNthCalledWith(2, ['c', 'd']);
+  });
+
   it('drops an in-flight chunk when abort happens after hydration', async () => {
     let aborted = false;
     const dataSource = {

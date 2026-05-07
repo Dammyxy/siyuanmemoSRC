@@ -226,6 +226,7 @@ describe('BackendKernel', () => {
         updated: 0,
         changed: false,
         changedToMissing: false,
+        changedBlockIds: [],
       },
     });
 
@@ -772,6 +773,62 @@ describe('BackendKernel', () => {
           source: 'ws-main',
           receivedAt: expect.any(Number),
           idempotencyKey: 'auto-card-action-key',
+        }],
+        remaining: 0,
+      },
+    });
+  });
+
+  it('prefilters no-marker auto-card insert and update payloads in worker extraction', async () => {
+    const persistenceBridge = createInMemorySqlitePersistenceBridge();
+    const database = new WorkerSqliteDatabaseService(persistenceBridge);
+    const kernel = new BackendKernel({ database });
+
+    const ingest = await kernel.handle({
+      id: 'ingest-auto-card-prefilter',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.ingest',
+      params: [{
+        source: 'ws-main',
+        idempotencyKey: 'auto-card-prefilter-key',
+        transactions: [
+          {
+            doOperations: [
+              {
+                action: 'insert',
+                id: 'block-plain-insert',
+                data: { new: { content: 'ordinary paragraph without marker' } },
+              },
+              {
+                action: 'update',
+                id: 'block-marker-update',
+                data: { new: { content: 'question >> answer' } },
+              },
+            ],
+          },
+        ],
+      }],
+    });
+    expect('result' in ingest).toBe(true);
+
+    const dequeue = await kernel.handle({
+      id: 'dequeue-auto-card-prefilter',
+      jsonrpc: '2.0',
+      method: 'kernel.transaction.dequeue',
+      params: [{ maxActions: 8 }],
+    });
+    expect(dequeue).toEqual({
+      id: 'dequeue-auto-card-prefilter',
+      jsonrpc: '2.0',
+      result: {
+        actions: [{
+          type: 'auto-card-candidates',
+          operations: [
+            { action: 'update', blockId: 'block-marker-update' },
+          ],
+          source: 'ws-main',
+          receivedAt: expect.any(Number),
+          idempotencyKey: 'auto-card-prefilter-key',
         }],
         remaining: 0,
       },

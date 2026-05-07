@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FrontendInstanceRuntime } from '../FrontendInstanceRuntime';
 import type { KernelSidecarClient } from '../KernelSidecarClient';
+import {
+  getRuntimePerformanceDiagnosticsReport,
+  setRuntimePerformanceDiagnosticsEnabled,
+} from '@/utils/runtimePerformanceDiagnostics';
 
 describe('FrontendInstanceRuntime', () => {
   afterEach(() => {
+    setRuntimePerformanceDiagnosticsEnabled(false, { reset: true });
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('emits startup ownership diagnostics with lease holder details', async () => {
@@ -365,7 +371,9 @@ describe('FrontendInstanceRuntime', () => {
     resolveHandler?.({ ok: true });
     await Promise.resolve();
     await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
+    expect(writerCommandHandler).toHaveBeenCalledTimes(1);
     expect(writerCompleteCommand).toHaveBeenCalledTimes(1);
     await runtime.dispose();
   });
@@ -1393,6 +1401,137 @@ describe('FrontendInstanceRuntime', () => {
       '[FrontendInstanceRuntime] relay command completed',
       expect.objectContaining({ commandId: 'cmd-empty-dequeue' }),
     );
+    await runtime.dispose();
+  });
+
+  it('yields relay drain after budget while preserving writer command order', async () => {
+    const nowValues = [0, 2, 3, 3, 3, 3];
+    vi.spyOn(performance, 'now').mockImplementation(() => nowValues.shift() ?? 3);
+    const commands = [
+      {
+        commandId: 'cmd-budget-1',
+        requesterInstanceId: 'follower-1',
+        method: 'review.feedback',
+        requestedAt: 1,
+      },
+      {
+        commandId: 'cmd-budget-2',
+        requesterInstanceId: 'follower-1',
+        method: 'browser.sourceExistence.applySweepHost',
+        requestedAt: 2,
+      },
+    ];
+    const writerTakeCommand = vi.fn()
+      .mockResolvedValueOnce({ command: commands[0], pendingCommandCount: 1, now: 1 })
+      .mockResolvedValueOnce({ command: commands[1], pendingCommandCount: 0, now: 2 })
+      .mockResolvedValueOnce({ command: null, pendingCommandCount: 0, now: 3 });
+    const writerCompleteCommand = vi.fn(async () => ({ ok: true, now: 4 }));
+    const writerCommandHandler = vi.fn(async (command) => ({ handled: command.commandId }));
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 1,
+          expiresAt: 2,
+          lastHeartbeatAt: 1,
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+      writerTakeCommand,
+      writerCompleteCommand,
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      relayDrainBudgetMs: 1,
+      writerCommandHandler,
+    });
+
+    await runtime.start();
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason: string) => Promise<void>;
+    }).drainPendingWriterCommands('budget-test');
+
+    expect(writerCommandHandler).toHaveBeenCalledTimes(1);
+    expect(writerCommandHandler).toHaveBeenLastCalledWith(expect.objectContaining({
+      commandId: 'cmd-budget-1',
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(writerCommandHandler.mock.calls.map(([command]) => command.commandId)).toEqual([
+      'cmd-budget-1',
+      'cmd-budget-2',
+    ]);
+    expect(writerCompleteCommand.mock.calls.map(([request]) => request.commandId)).toEqual([
+      'cmd-budget-1',
+      'cmd-budget-2',
+    ]);
+    await runtime.dispose();
+  });
+
+  it('records relay drain budget diagnostics', async () => {
+    setRuntimePerformanceDiagnosticsEnabled(true, { reset: true });
+    const writerTakeCommand = vi.fn()
+      .mockResolvedValueOnce({
+        command: {
+          commandId: 'cmd-diagnostics-1',
+          requesterInstanceId: 'follower-1',
+          method: 'review.feedback',
+          requestedAt: 1,
+        },
+        pendingCommandCount: 0,
+        now: 2,
+      })
+      .mockResolvedValueOnce({
+        command: null,
+        pendingCommandCount: 0,
+        now: 3,
+      });
+    const runtime = new FrontendInstanceRuntime({
+      writerHello: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerAcquireLease: vi.fn(async () => ({
+        ok: true,
+        lease: {
+          instanceId: 'instance-a',
+          acquiredAt: 1,
+          expiresAt: 2,
+          lastHeartbeatAt: 1,
+        },
+        now: 1,
+      })),
+      writerGetLease: vi.fn(async () => ({ ok: true, lease: null, now: 1 })),
+      writerReleaseLease: vi.fn(async () => ({ ok: true, lease: null, now: 2 })),
+      writerTakeCommand,
+      writerCompleteCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+      writerFailCommand: vi.fn(async () => ({ ok: true, now: 4 })),
+    } as unknown as KernelSidecarClient, {
+      instanceId: 'instance-a',
+      relayDrainBudgetMs: 999_999,
+      writerCommandHandler: vi.fn(async () => ({ ok: true })),
+    });
+
+    await runtime.start();
+    await (runtime as unknown as {
+      drainPendingWriterCommands: (reason: string) => Promise<void>;
+    }).drainPendingWriterCommands('diagnostics-test');
+
+    const report = getRuntimePerformanceDiagnosticsReport();
+    const drainEvent = report.events.find((event) => event.operation === 'writer.drain-pending-commands');
+    expect(drainEvent?.metadata).toMatchObject({
+      wakeReason: 'diagnostics-test',
+      commandCount: 1,
+      pendingCommandCount: 0,
+      budgetExceeded: false,
+      commandLimit: 4,
+      budgetMs: 999_999,
+      status: 'drained',
+    });
+    expect(report.counters['relay.writer-drain-wakes']).toBeGreaterThanOrEqual(1);
+    expect(report.counters['relay.writer-drain-commands']).toBeGreaterThanOrEqual(1);
     await runtime.dispose();
   });
 

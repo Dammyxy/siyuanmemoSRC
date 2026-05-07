@@ -10,6 +10,14 @@ import {
   measureRuntimePerformance,
 } from '@/utils/runtimePerformanceDiagnostics';
 
+const DEFAULT_QUERYABLE_SNAPSHOT_CHUNK_SIZE = 96;
+
+function yieldToRenderer(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
+
 export function resolveQueryableDataSource(
   dataSource: ICardDataSource | null,
 ): IBrowserQueryableDataSource | null {
@@ -49,6 +57,7 @@ export async function loadAllRowsFromQueryableDataSource(
   options: {
     chunkSize?: number;
     shouldAbort?: () => boolean;
+    yieldBetweenChunks?: () => Promise<void>;
   } = {},
 ): Promise<BrowserCard[]> {
   const queryable = resolveQueryableDataSource(dataSource);
@@ -73,7 +82,8 @@ export async function loadAllRowsFromQueryableDataSource(
     return [];
   }
 
-  const chunkSize = Math.max(1, Math.floor(Number(options.chunkSize) || 500));
+  const chunkSize = Math.max(1, Math.floor(Number(options.chunkSize) || DEFAULT_QUERYABLE_SNAPSHOT_CHUNK_SIZE));
+  const yieldBetweenChunks = options.yieldBetweenChunks || yieldToRenderer;
   const rows: BrowserCard[] = [];
   for (let index = 0; index < allIds.length; index += chunkSize) {
     if (options.shouldAbort?.()) {
@@ -89,6 +99,15 @@ export async function loadAllRowsFromQueryableDataSource(
       return rows;
     }
     rows.push(...hydratedRows);
+    if (index + chunkSize < allIds.length) {
+      await measureRuntimePerformance('browser', 'snapshot.queryable.yield-between-chunks', () => yieldBetweenChunks(), {
+        chunkSize,
+        offset: index + chunkSize,
+      });
+      if (options.shouldAbort?.()) {
+        return rows;
+      }
+    }
   }
 
   return rows;

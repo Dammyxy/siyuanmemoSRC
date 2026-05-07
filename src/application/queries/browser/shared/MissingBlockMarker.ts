@@ -58,6 +58,29 @@ function markRowAsMissing<TRow extends MissingBlockMarkableRow>(row: TRow): TRow
   } as TRow;
 }
 
+function clearMissingBlockMark<TRow extends MissingBlockMarkableRow>(row: TRow): TRow {
+  if (!hasMissingBlockType(row)) {
+    return row;
+  }
+
+  const base = { ...(row as Record<string, unknown>) };
+  if (base.blockType === 'missing') {
+    delete base.blockType;
+  }
+
+  const meta = isRecord(row.meta) ? { ...row.meta } : undefined;
+  if (meta?.blockType === 'missing') {
+    delete meta.blockType;
+  }
+  if (meta && Object.keys(meta).length > 0) {
+    base.meta = meta;
+  } else if (meta) {
+    delete base.meta;
+  }
+
+  return base as TRow;
+}
+
 async function loadExistingBlockIds(
   blockIds: string[],
   siyuanApi: QuerySqlPort,
@@ -146,6 +169,45 @@ export function markKnownMissingBlockRows<TRow extends MissingBlockMarkableRow>(
     }
     changed = true;
     return markRowAsMissing(row);
+  });
+
+  return changed ? nextRows : rows;
+}
+
+export function applyKnownSourceExistenceToRows<TRow extends MissingBlockMarkableRow>(
+  rows: TRow[],
+  statusByBlockId: Iterable<readonly [string, boolean | null]>,
+): TRow[] {
+  const normalizedStatusByBlockId = new Map<string, boolean | null>();
+  for (const [blockId, exists] of statusByBlockId) {
+    const normalized = normalizeBlockId(blockId);
+    if (normalized) {
+      normalizedStatusByBlockId.set(normalized, exists);
+    }
+  }
+  if (rows.length === 0 || normalizedStatusByBlockId.size === 0) {
+    return rows;
+  }
+
+  let changed = false;
+  const nextRows = rows.map((row) => {
+    const blockId = normalizeBlockId(row.blockId);
+    if (!blockId || !normalizedStatusByBlockId.has(blockId)) {
+      return row;
+    }
+
+    const exists = normalizedStatusByBlockId.get(blockId);
+    if (exists === false) {
+      const next = markRowAsMissing(row);
+      changed = changed || next !== row;
+      return next;
+    }
+    if (exists === true) {
+      const next = clearMissingBlockMark(row);
+      changed = changed || next !== row;
+      return next;
+    }
+    return row;
   });
 
   return changed ? nextRows : rows;

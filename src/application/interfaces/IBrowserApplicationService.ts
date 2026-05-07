@@ -54,6 +54,16 @@ export interface BrowserQueueCountsRequest {
   affectedQueueTypes?: QueueType[] | null;
 }
 
+export interface BrowserSourceExistenceStatus {
+  blockId: string;
+  exists: boolean | null;
+}
+
+export interface BrowserSourceExistenceUpdate {
+  source: 'page-refresh' | 'background-sweep';
+  statuses: BrowserSourceExistenceStatus[];
+}
+
 /**
  * 数据源创建选项
  */
@@ -123,6 +133,12 @@ export interface IBrowserApplicationService {
    * @returns 统计信息
    */
   getStats(): Promise<unknown>;
+
+  /**
+   * Subscribe to async source-existence refreshes so the Browser can patch
+   * visible rows without blocking the first page fetch.
+   */
+  subscribeSourceExistenceUpdates?(listener: (update: BrowserSourceExistenceUpdate) => void): () => void;
 
   /**
    * Resolve queue instance by browser queue id.

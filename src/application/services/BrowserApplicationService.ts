@@ -15,7 +15,7 @@ import {
   SOURCE_EXISTENCE_BACKGROUND_LIMIT,
   SOURCE_EXISTENCE_TTL_MS,
 } from '../queries/browser/shared/SourceExistenceCache';
-import { markKnownMissingBlockRows } from '../queries/browser/shared/MissingBlockMarker';
+import { applyKnownSourceExistenceToRows } from '../queries/browser/shared/MissingBlockMarker';
 import type { SrsBackendClient } from '../clients/SrsBackendClient';
 import type { FrontendInstanceRuntime } from '../clients/FrontendInstanceRuntime';
 import type { FollowerCommandClient } from '../clients/FollowerCommandClient';
@@ -37,6 +37,8 @@ import type {
 import type {
   IBrowserApplicationService,
   BrowserQueueCountsRequest,
+  BrowserSourceExistenceStatus,
+  BrowserSourceExistenceUpdate,
   BrowserDataSourceFactory,
   DataSourceOptions,
   BrowserQueueId,
@@ -86,6 +88,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private readonly queueCountInFlight = new Map<BrowserQueueId, Promise<number>>();
   private readonly queueCountCache = new Map<BrowserQueueId, { value: number; timestamp: number }>();
   private sourceExistenceSweepInFlight: Promise<unknown> | null = null;
+  private readonly sourceExistenceUpdateListeners = new Set<(update: BrowserSourceExistenceUpdate) => void>();
   private static readonly QUEUE_COUNTS_CACHE_TTL_MS = 150;
 
   constructor(
@@ -187,22 +190,15 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         startRow: page.startRow,
       });
       const initialCards = initialPage.cards as FSRSCard[];
-      const refreshResult = await this.refreshSourceExistenceForBackendCards(initialCards, {
+      this.scheduleSourceExistenceRefreshForBackendCards(initialCards, {
         limit: SOURCE_EXISTENCE_BATCH_SIZE,
       });
-      const finalPage = refreshResult.changed
-        ? await measureRuntimePerformance('browser', 'backend.deck-page-refetch-after-source-refresh', () => this.srsBackendClient!.browserDeckPage(query, page), {
-          endRow: page.endRow,
-          startRow: page.startRow,
-        })
-        : initialPage;
-      const finalCards = finalPage.cards as FSRSCard[];
-      const rows = await measureRuntimePerformance('browser', 'deck-page.map-browser-rows', () => this.browserDeckQueryKernel.getBrowserCardsFromCards(finalCards, { markMissing: false }), {
-        rowCount: finalCards.length,
+      const rows = await measureRuntimePerformance('browser', 'deck-page.map-browser-rows', () => this.browserDeckQueryKernel.getBrowserCardsFromCards(initialCards, { markMissing: false }), {
+        rowCount: initialCards.length,
       });
       return {
         rows: await this.markRowsFromBackendSourceExistence(rows),
-        total: finalPage.total,
+        total: initialPage.total,
       };
     } catch (error) {
       throw this.toBackendReadUnavailable('browser.deck.page', error);
@@ -228,7 +224,7 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       const cards = await measureRuntimePerformance('browser', 'backend.deck-rows-by-ids', () => this.srsBackendClient!.browserDeckRowsByIds(ids), {
         idCount: ids.length,
       });
-      await this.refreshSourceExistenceForBackendCards(cards, {
+      this.scheduleSourceExistenceRefreshForBackendCards(cards, {
         limit: SOURCE_EXISTENCE_BATCH_SIZE,
       });
       const rows = await measureRuntimePerformance('browser', 'deck-rows-by-ids.map-browser-rows', () => this.browserDeckQueryKernel.getBrowserCardsFromCards(cards, { markMissing: false }), {
@@ -282,6 +278,13 @@ export class BrowserApplicationService implements IBrowserApplicationService {
     }
   }
 
+  subscribeSourceExistenceUpdates(listener: (update: BrowserSourceExistenceUpdate) => void): () => void {
+    this.sourceExistenceUpdateListeners.add(listener);
+    return () => {
+      this.sourceExistenceUpdateListeners.delete(listener);
+    };
+  }
+
   private toBackendReadUnavailable(operation: string, error?: unknown): Error {
     const message = error instanceof Error ? String(error.message || '') : String(error || '');
     if (message.startsWith('BACKEND_UNAVAILABLE:')) {
@@ -296,14 +299,14 @@ export class BrowserApplicationService implements IBrowserApplicationService {
   private async refreshSourceExistenceForBackendCards(
     cards: Array<{ blockId?: unknown }>,
     options: { limit?: number } = {},
-  ): Promise<{ changed: boolean; changedToMissing: boolean }> {
+  ): Promise<{ changed: boolean; changedToMissing: boolean; changedBlockIds: string[] }> {
     if (!this.srsBackendClient) {
-      return { changed: false, changedToMissing: false };
+      return { changed: false, changedToMissing: false, changedBlockIds: [] };
     }
 
     const blockIds = Array.from(new Set(cards.map((card) => String(card.blockId || '').trim()).filter(Boolean)));
     if (blockIds.length === 0) {
-      return { changed: false, changedToMissing: false };
+      return { changed: false, changedToMissing: false, changedBlockIds: [] };
     }
 
     try {
@@ -316,14 +319,36 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         blockCount: blockIds.length,
         limit: options.limit ?? SOURCE_EXISTENCE_BATCH_SIZE,
       });
+      const changedBlockIds = Array.from(new Set((sweep.changedBlockIds || [])
+        .map((blockId) => String(blockId || '').trim())
+        .filter(Boolean)));
+      if (changedBlockIds.length > 0) {
+        await this.emitSourceExistenceUpdateForBlockIds(changedBlockIds, 'page-refresh');
+      }
       return {
         changed: sweep.changed,
         changedToMissing: sweep.changedToMissing,
+        changedBlockIds,
       };
     } catch (error) {
       logger.debug('Worker source existence refresh failed; keeping cache fail-open', { error });
-      return { changed: false, changedToMissing: false };
+      return { changed: false, changedToMissing: false, changedBlockIds: [] };
     }
+  }
+
+  private scheduleSourceExistenceRefreshForBackendCards(
+    cards: Array<{ blockId?: unknown }>,
+    options: { limit?: number } = {},
+  ): void {
+    if (!this.srsBackendClient || cards.length === 0) {
+      return;
+    }
+
+    setTimeout(() => {
+      void this.refreshSourceExistenceForBackendCards(cards, options).catch((error) => {
+        logger.debug('Worker source existence background refresh failed; keeping cache fail-open', { error });
+      });
+    }, 0);
   }
 
   private async markRowsFromBackendSourceExistence<TRow extends { blockId?: unknown; blockType?: string | null; meta?: unknown }>(
@@ -344,13 +369,53 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         () => this.srsBackendClient!.browserSourceExistenceByBlockIds(blockIds),
         { blockCount: blockIds.length },
       );
-      const missingBlockIds = Array.from(statusByBlockId.entries())
-        .filter(([, exists]) => exists === false)
-        .map(([blockId]) => blockId);
-      return markKnownMissingBlockRows(rows, missingBlockIds);
+      return applyKnownSourceExistenceToRows(rows, statusByBlockId.entries());
     } catch (error) {
       logger.debug('Worker source existence mark failed; keeping rows fail-open', { error });
       return rows;
+    }
+  }
+
+  private async emitSourceExistenceUpdateForBlockIds(
+    blockIds: string[],
+    source: BrowserSourceExistenceUpdate['source'],
+  ): Promise<void> {
+    if (!this.srsBackendClient || this.sourceExistenceUpdateListeners.size === 0 || blockIds.length === 0) {
+      return;
+    }
+
+    const uniqueBlockIds = Array.from(new Set(blockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean)));
+    if (uniqueBlockIds.length === 0) {
+      return;
+    }
+
+    try {
+      const statusByBlockId = await measureRuntimePerformance(
+        'source-existence',
+        'visible-patch.status-by-block-ids',
+        () => this.srsBackendClient!.browserSourceExistenceByBlockIds(uniqueBlockIds),
+        {
+          blockCount: uniqueBlockIds.length,
+          source,
+        },
+      );
+      const statuses: BrowserSourceExistenceStatus[] = uniqueBlockIds.map((blockId) => ({
+        blockId,
+        exists: statusByBlockId.get(blockId) ?? null,
+      }));
+      const update: BrowserSourceExistenceUpdate = {
+        source,
+        statuses,
+      };
+      for (const listener of Array.from(this.sourceExistenceUpdateListeners)) {
+        try {
+          listener(update);
+        } catch (error) {
+          logger.debug('Browser source-existence listener failed', { error });
+        }
+      }
+    } catch (error) {
+      logger.debug('Worker source existence visible patch status read failed; keeping visible rows unchanged', { error });
     }
   }
 
@@ -386,7 +451,10 @@ export class BrowserApplicationService implements IBrowserApplicationService {
           ...request,
           blockIds: candidates.map((candidate) => candidate.blockId),
         };
-        await this.invokeBackendSourceExistenceSweepHost(scopedRequest, Date.now());
+        const sweep = await this.invokeBackendSourceExistenceSweepHost(scopedRequest, Date.now());
+        if (sweep.changedBlockIds?.length) {
+          await this.emitSourceExistenceUpdateForBlockIds(sweep.changedBlockIds, 'background-sweep');
+        }
         status = 'swept';
       } catch (error) {
         status = 'error';
@@ -413,9 +481,9 @@ export class BrowserApplicationService implements IBrowserApplicationService {
       includeKnownMissing?: boolean;
     },
     checkedAt: number,
-  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean }> {
+  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean; changedBlockIds?: string[] }> {
     if (!this.srsBackendClient) {
-      return { checked: 0, updated: 0, changed: false, changedToMissing: false };
+      return { checked: 0, updated: 0, changed: false, changedToMissing: false, changedBlockIds: [] };
     }
 
     const relaySweepHost = async () => {
@@ -441,12 +509,16 @@ export class BrowserApplicationService implements IBrowserApplicationService {
         updated?: unknown;
         changed?: unknown;
         changedToMissing?: unknown;
+        changedBlockIds?: unknown;
       };
       return {
         checked: Number(payload.checked || 0),
         updated: Number(payload.updated || 0),
         changed: Boolean(payload.changed),
         changedToMissing: Boolean(payload.changedToMissing),
+        changedBlockIds: Array.isArray(payload.changedBlockIds)
+          ? payload.changedBlockIds.map((blockId) => String(blockId || '').trim()).filter(Boolean)
+          : [],
       };
     };
 

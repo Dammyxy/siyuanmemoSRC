@@ -250,6 +250,94 @@ export interface AutoCardHandlerPorts {
     hostBlockQuery?: HostBlockQueryPort;
 }
 
+const QUICK_CARD_PREFILTER_MARKERS = [
+    '>>',
+    '》》',
+    '<<',
+    '《《',
+    '<>',
+    '《》',
+    '>>>',
+    '》》》',
+    '::',
+    '：：',
+    ';;',
+    '；；',
+    ';<',
+    '；<',
+    '；《',
+    ';<>',
+    '；<>',
+    '；《》',
+    '{{',
+    '}}',
+    '==',
+    '\\cloze',
+    'data-type="mark"',
+];
+
+const QUICK_CARD_PREFILTER_CONTENT_KEYS = new Set([
+    'content',
+    'markdown',
+    'kramdown',
+    'text',
+    'html',
+    'data',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function inspectQuickCardPayload(value: unknown, key = ''): { inspected: boolean; hasMarker: boolean } {
+    if (typeof value === 'string') {
+        const inspected = key === '' || QUICK_CARD_PREFILTER_CONTENT_KEYS.has(key.toLowerCase());
+        return {
+            inspected,
+            hasMarker: inspected && QUICK_CARD_PREFILTER_MARKERS.some((marker) => value.includes(marker)),
+        };
+    }
+    if (Array.isArray(value)) {
+        return value.reduce(
+            (summary, entry) => {
+                const next = inspectQuickCardPayload(entry, key);
+                return {
+                    inspected: summary.inspected || next.inspected,
+                    hasMarker: summary.hasMarker || next.hasMarker,
+                };
+            },
+            { inspected: false, hasMarker: false },
+        );
+    }
+    if (!isRecord(value)) {
+        return { inspected: false, hasMarker: false };
+    }
+    return Object.entries(value).reduce(
+        (summary, [childKey, childValue]) => {
+            const next = inspectQuickCardPayload(childValue, childKey);
+            return {
+                inspected: summary.inspected || next.inspected,
+                hasMarker: summary.hasMarker || next.hasMarker,
+            };
+        },
+        { inspected: false, hasMarker: false },
+    );
+}
+
+function shouldPrefilterAutoCardOperation(op: { action?: unknown; data?: unknown }): boolean {
+    const action = String(op.action || '').trim();
+    if (action !== 'insert' && action !== 'update') {
+        return false;
+    }
+    const data = isRecord(op.data) ? op.data : null;
+    const newPayload = inspectQuickCardPayload(data?.new);
+    const oldPayload = inspectQuickCardPayload(data?.old);
+    if (newPayload.hasMarker || oldPayload.hasMarker) {
+        return false;
+    }
+    return newPayload.inspected || oldPayload.inspected;
+}
+
 /**
  * Auto card handler for quick symbol based card creation.
  *
@@ -1489,6 +1577,7 @@ export class AutoCardHandler implements ITransactionHandler {
         const relevantOperations: Array<Record<string, unknown>> = [];
         let scheduledCount = 0;
         let cancelledCount = 0;
+        let prefilteredCount = 0;
         
         for (const [txIndex, tx] of transactions.entries()) {
             if (!tx.doOperations) continue;
@@ -1497,6 +1586,23 @@ export class AutoCardHandler implements ITransactionHandler {
                 const blockId = op.id;
 
                 if (op.action === 'insert' || op.action === 'update') {
+                    if (shouldPrefilterAutoCardOperation(op)) {
+                        prefilteredCount++;
+                        relevantOperations.push({
+                            txIndex,
+                            opIndex,
+                            action: op.action,
+                            opId: op.id,
+                            blockId,
+                            prefiltered: true,
+                            scheduled: false,
+                        });
+                        recordRuntimePerformanceSpan('autocard', 'candidate.prefilter-no-op', 0, {
+                            action: op.action,
+                            txBatchId,
+                        });
+                        continue;
+                    }
                     this.enqueueCandidateBlock(blockId, txBatchId, op.action, op.id);
                     scheduledCount++;
                     relevantOperations.push({
@@ -1543,9 +1649,11 @@ export class AutoCardHandler implements ITransactionHandler {
         });
         incrementRuntimePerformanceCounter('autocard', 'candidate-operations-scheduled', scheduledCount);
         incrementRuntimePerformanceCounter('autocard', 'candidate-operations-cancelled', cancelledCount);
+        incrementRuntimePerformanceCounter('autocard', 'candidate-operations-prefiltered', prefilteredCount);
         finishHandleSpan({
             cancelledCount,
             pendingCandidateCount: this.candidateContexts.size,
+            prefilteredCount,
             quickCardEnabled: true,
             scheduledCount,
             txBatchId,

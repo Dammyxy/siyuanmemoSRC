@@ -1103,10 +1103,28 @@ function writerTakeCommand(params) {
         params: pending.params,
         requestedAt: pending.requestedAt,
       },
+      pendingCommandCount: countDispatchableWriterCommands(instanceId, at),
     }, at);
   }
 
-  return buildOkEnvelope({ command: null }, at);
+  return buildOkEnvelope({
+    command: null,
+    pendingCommandCount: countDispatchableWriterCommands(instanceId, at),
+  }, at);
+}
+
+function countDispatchableWriterCommands(instanceId, at) {
+  let count = 0;
+  for (const pending of writerCommandsPending.values()) {
+    if (pending.writerInstanceId !== instanceId) {
+      continue;
+    }
+    if (Number(pending.inFlightUntil || 0) > at) {
+      continue;
+    }
+    count++;
+  }
+  return count;
 }
 
 async function networkFetchExternal(params) {

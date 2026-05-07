@@ -132,6 +132,9 @@
           :suppressRowHoverHighlight="false"
           :rowBuffer="10"
           @grid-ready="onGridReady"
+          @first-data-rendered="onFirstDataRendered"
+          @model-updated="onModelUpdated"
+          @filter-changed="onFilterChanged"
           @sort-changed="onSortChanged"
           @displayed-columns-changed="onDisplayedColumnsChanged"
           @pagination-changed="onPaginationChanged"
@@ -359,6 +362,7 @@ import {
   incrementRuntimePerformanceCounter,
   measureRuntimePerformance,
   printRuntimePerformanceDiagnosticsReport,
+  recordRuntimePerformanceSpan,
   startRuntimePerformanceSpan,
 } from '@/utils/runtimePerformanceDiagnostics';
 import { runBrowserForceRefresh } from './forceRefreshDataPlan';
@@ -475,8 +479,10 @@ import { useGlobalSelection } from './composables/useGlobalSelection';
 import { createLogger } from '@/utils/logger';
 import type {
   BrowserQueueCountsRequest,
+  BrowserSourceExistenceUpdate,
   IBrowserApplicationService,
 } from '@/application/interfaces/IBrowserApplicationService';
+import { applyKnownSourceExistenceToRows } from '@/application/queries/browser/shared/MissingBlockMarker';
 import type { BrowserPreviewSiyuanPort } from '@/application/ports/BrowserPreviewSiyuanPort';
 import type { PresetFilter } from '@/application/queries/browser/GetBrowserCardsQuery';
 import type { IPluginFacade } from '@/application/interfaces/IPluginFacade';
@@ -634,6 +640,16 @@ const showFilterDialog = ref(false);
 const canSelectAllMatching = computed(() => isBrowserQueryableDataSource(currentDataSource.value));
 
 let detectionTriggered = false;
+const browserOpenStartedAt = browserPerfNow();
+let browserShellAttachedRecorded = false;
+let browserFirstRowsRecorded = false;
+let gridModelUpdateSeq = 0;
+let pendingGridModelUpdate: {
+  reason: string;
+  seq: number;
+  startedAt: number;
+  version?: number;
+} | null = null;
 
 const showPreview = ref(resolveDefaultBrowserShowPreview(layoutProfile.value));
 const previewCard = ref<BrowserCard | null>(null);
@@ -707,6 +723,8 @@ const desktopPageSize = computed(() => DESKTOP_PAGE_SIZE);
 const gridCacheBlockSize = computed(() => (isMobileMode.value ? 120 : DESKTOP_PAGE_SIZE));
 const gridMaxBlocksInCache = computed(() => (isMobileMode.value ? 4 : 8));
 const randomSortRows = ref<BrowserCard[] | null>(null);
+const SNAPSHOT_HYDRATE_CHUNK_SIZE = 96;
+const SNAPSHOT_FIRST_ROWS_POLL_MS = 50;
 
 const loadedRowsByBlockId = new Map<string, BrowserCard>();
 let datasourceVersion = 0;
@@ -716,6 +734,9 @@ let allRowsSnapshotTaskId = 0;
 let allRowsSnapshotPromise: Promise<void> | null = null;
 let focusRowsTaskId = 0;
 let backgroundSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+let globalStatsAfterFirstRowsTimer: ReturnType<typeof setTimeout> | null = null;
+let resolveGlobalStatsAfterFirstRows: (() => void) | null = null;
+let globalStatsAfterFirstRowsSequence = 0;
 let loadedRowsFlushTimer: ReturnType<typeof setTimeout> | null = null;
 let loadedRowsDirty = false;
 let longTaskObserver: PerformanceObserver | null = null;
@@ -863,6 +884,18 @@ function clearBackgroundSnapshotTimer(): void {
   backgroundSnapshotTimer = null;
 }
 
+function clearGlobalStatsAfterFirstRowsTimer(): void {
+  globalStatsAfterFirstRowsSequence += 1;
+  if (globalStatsAfterFirstRowsTimer) {
+    clearTimeout(globalStatsAfterFirstRowsTimer);
+    globalStatsAfterFirstRowsTimer = null;
+  }
+  if (resolveGlobalStatsAfterFirstRows) {
+    resolveGlobalStatsAfterFirstRows();
+    resolveGlobalStatsAfterFirstRows = null;
+  }
+}
+
 function invalidateHierarchySnapshots(): void {
   clearBackgroundSnapshotTimer();
   allRowsSnapshotTaskId += 1;
@@ -942,7 +975,7 @@ async function applyInitialBrowserOpenState(
 
     await loadData(forceRefresh, { refreshQueueCounts: false, snapshotDelayMs: 120 });
     await refreshQueueCounts();
-    await refreshGlobalStats(forceRefresh);
+    await refreshGlobalStatsAfterFirstRows(forceRefresh);
 
     if (resolved.shouldRefreshNeuralSubviewData) {
       await refreshNeuralSubviewData();
@@ -1196,6 +1229,128 @@ function mergeLoadedRows(cards: BrowserCard[]): void {
   }
 }
 
+function patchSourceExistenceRows(
+  targetRows: BrowserCard[],
+  statusEntries: Array<readonly [string, boolean | null]>,
+  maxScan: number = Number.POSITIVE_INFINITY,
+): { rows: BrowserCard[]; updatedRows: BrowserCard[] } {
+  if (targetRows.length === 0 || statusEntries.length === 0) {
+    return { rows: targetRows, updatedRows: [] };
+  }
+
+  const scanLimit = Number.isFinite(maxScan) ? Math.max(0, Math.floor(maxScan)) : targetRows.length;
+  const end = Math.min(targetRows.length, scanLimit);
+  if (end === 0) {
+    return { rows: targetRows, updatedRows: [] };
+  }
+
+  const scanRows = targetRows.slice(0, end);
+  const patchedRows = applyKnownSourceExistenceToRows(scanRows, statusEntries);
+  if (patchedRows === scanRows) {
+    return { rows: targetRows, updatedRows: [] };
+  }
+
+  let nextRows = targetRows;
+  const updatedRows: BrowserCard[] = [];
+  for (let index = 0; index < patchedRows.length; index++) {
+    const patched = patchedRows[index];
+    if (patched === scanRows[index]) {
+      continue;
+    }
+    if (nextRows === targetRows) {
+      nextRows = [...targetRows];
+    }
+    nextRows[index] = patched;
+    updatedRows.push(patched);
+  }
+
+  return { rows: nextRows, updatedRows };
+}
+
+function patchGridRows(updatedRows: BrowserCard[]): number {
+  if (updatedRows.length === 0) {
+    return 0;
+  }
+  const api = gridApi.value;
+  if (!isGridApiAlive(api)) {
+    return 0;
+  }
+
+  const updatedById = new Map(
+    updatedRows
+      .map((row) => [resolveBrowserCardStableId(row), row] as const)
+      .filter(([rowId]) => Boolean(rowId)),
+  );
+  let patched = 0;
+  api.forEachNode((node) => {
+    const current = node.data as BrowserCard | undefined;
+    const rowId = resolveBrowserCardStableId(current);
+    if (!rowId) {
+      return;
+    }
+    const updated = updatedById.get(rowId);
+    if (!updated) {
+      return;
+    }
+    node.setData(updated);
+    patched++;
+  });
+  return patched;
+}
+
+function handleSourceExistenceUpdate(update: BrowserSourceExistenceUpdate): void {
+  const statusEntries = update.statuses
+    .map((status) => [String(status.blockId || '').trim(), status.exists] as const)
+    .filter(([blockId]) => Boolean(blockId));
+  if (statusEntries.length === 0) {
+    return;
+  }
+
+  measureRuntimePerformance('source-existence', 'visible-rows-patch.apply', () => {
+    const updatedRows: BrowserCard[] = [];
+    const rowsPatch = patchSourceExistenceRows(rows.value, statusEntries);
+    if (rowsPatch.rows !== rows.value) {
+      rows.value = rowsPatch.rows;
+      updatedRows.push(...rowsPatch.updatedRows);
+    }
+
+    const focusPatch = patchSourceExistenceRows(rowsForFocus.value, statusEntries);
+    if (focusPatch.rows !== rowsForFocus.value) {
+      rowsForFocus.value = focusPatch.rows;
+      updatedRows.push(...focusPatch.updatedRows);
+    }
+
+    const allRowsPatch = patchSourceExistenceRows(allRows.value, statusEntries, 2000);
+    if (allRowsPatch.rows !== allRows.value) {
+      allRows.value = allRowsPatch.rows;
+      updatedRows.push(...allRowsPatch.updatedRows);
+    }
+
+    for (const [blockId] of statusEntries) {
+      const current = loadedRowsByBlockId.get(blockId);
+      if (!current) {
+        continue;
+      }
+      const [patched] = applyKnownSourceExistenceToRows([current], statusEntries);
+      if (patched !== current) {
+        loadedRowsByBlockId.set(blockId, patched);
+        updatedRows.push(patched);
+      }
+    }
+
+    const patchedGridRows = patchGridRows(updatedRows);
+    recordRuntimePerformanceSpan('source-existence', 'visible-rows-patch.grid', 0, {
+      patchedGridRows,
+      source: update.source,
+      statusCount: statusEntries.length,
+      updatedRows: updatedRows.length,
+    });
+  }, {
+    source: update.source,
+    statusCount: statusEntries.length,
+  });
+}
+
 function scheduleDatasourceUiUpdate(version: number, update: () => void): void {
   setTimeout(() => {
     if (version !== datasourceVersion) {
@@ -1395,6 +1550,112 @@ async function refreshGlobalStats(force = false): Promise<void> {
   }
 }
 
+async function refreshGlobalStatsAfterFirstRows(force = false): Promise<void> {
+  clearGlobalStatsAfterFirstRowsTimer();
+  const requestId = globalStatsAfterFirstRowsSequence;
+
+  if (!loading.value || hasFirstDataBlockLoaded.value) {
+    await refreshGlobalStats(force);
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    resolveGlobalStatsAfterFirstRows = resolve;
+    const poll = () => {
+      globalStatsAfterFirstRowsTimer = null;
+      if (!loading.value || hasFirstDataBlockLoaded.value) {
+        resolveGlobalStatsAfterFirstRows = null;
+        resolve();
+        return;
+      }
+      globalStatsAfterFirstRowsTimer = setTimeout(poll, SNAPSHOT_FIRST_ROWS_POLL_MS);
+    };
+    globalStatsAfterFirstRowsTimer = setTimeout(poll, SNAPSHOT_FIRST_ROWS_POLL_MS);
+  });
+
+  if (requestId !== globalStatsAfterFirstRowsSequence) {
+    return;
+  }
+  await refreshGlobalStats(force);
+}
+
+function browserPerfNow(): number {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function browserOpenElapsedMs(now = browserPerfNow()): number {
+  return Math.max(0, now - browserOpenStartedAt);
+}
+
+function recordBrowserOpenMilestone(
+  operation: string,
+  endedAt: number,
+  metadata: Record<string, unknown> = {},
+  startedAt = browserOpenStartedAt,
+): void {
+  recordRuntimePerformanceSpan('browser', operation, Math.max(0, endedAt - startedAt), {
+    ...metadata,
+    elapsedMs: browserOpenElapsedMs(endedAt),
+    hasFirstRows: hasFirstDataBlockLoaded.value,
+    loading: loading.value,
+    mode: mode.value,
+  }, {
+    startedAt,
+    endedAt,
+  });
+}
+
+function recordBrowserShellAttached(): void {
+  if (browserShellAttachedRecorded) {
+    return;
+  }
+  browserShellAttachedRecorded = true;
+  recordBrowserOpenMilestone('open.shell-attached', browserPerfNow(), {
+    layoutProfile: layoutProfile.value,
+  });
+}
+
+function recordBrowserFirstRowsVisible(metadata: Record<string, unknown> = {}): void {
+  if (browserFirstRowsRecorded) {
+    return;
+  }
+  browserFirstRowsRecorded = true;
+  recordBrowserOpenMilestone('open.first-rows-visible', browserPerfNow(), metadata);
+  incrementRuntimePerformanceCounter('browser', 'open-first-rows-visible');
+}
+
+function startGridModelUpdate(reason: string, metadata: { version?: number } = {}): void {
+  pendingGridModelUpdate = {
+    reason,
+    seq: ++gridModelUpdateSeq,
+    startedAt: browserPerfNow(),
+    version: metadata.version,
+  };
+}
+
+function recordGridModelUpdate(operation: string, metadata: Record<string, unknown> = {}): void {
+  const endedAt = browserPerfNow();
+  const pending = pendingGridModelUpdate;
+  const startedAt = pending?.startedAt ?? endedAt;
+  recordRuntimePerformanceSpan('browser', operation, Math.max(0, endedAt - startedAt), {
+    ...metadata,
+    elapsedMs: browserOpenElapsedMs(endedAt),
+    firstRowsLoaded: hasFirstDataBlockLoaded.value,
+    reason: pending?.reason ?? 'unknown',
+    seq: pending?.seq ?? null,
+    version: pending?.version ?? null,
+  }, {
+    startedAt,
+    endedAt,
+  });
+  if (pending) {
+    pendingGridModelUpdate = null;
+  }
+}
+
 function createInfiniteDatasource(
   version: number,
   dataSourceSnapshot: ICardDataSource | null
@@ -1419,6 +1680,13 @@ function createInfiniteDatasource(
                 totalRowCount.value = 0;
                 hasFirstDataBlockLoaded.value = true;
                 loading.value = false;
+                void nextTick(() => recordBrowserFirstRowsVisible({
+                  empty: true,
+                  rowCount: 0,
+                  source: 'empty-datasource',
+                  totalCount: 0,
+                  version,
+                }));
               });
             }
             params.successCallback([], 0);
@@ -1486,6 +1754,13 @@ function createInfiniteDatasource(
               mergeLoadedRows(rowsForBlock);
               applyGlobalSelectionToLoadedRows();
               loading.value = false;
+              void nextTick(() => recordBrowserFirstRowsVisible({
+                empty: totalCount === 0,
+                rowCount: rowsForBlock.length,
+                source: 'datasource-ui-update',
+                totalCount,
+                version,
+              }));
             }, {
               rowCount: rowsForBlock.length,
               totalCount,
@@ -1504,6 +1779,7 @@ function createInfiniteDatasource(
           params.failCallback();
         } finally {
           finishGetRowsSpan({
+            firstRowsLoaded: hasFirstDataBlockLoaded.value,
             rowCount: rowsForBlockCount,
             status,
             totalCount,
@@ -1532,6 +1808,7 @@ function applyPendingDatasourceToGrid(): void {
     if (!isGridApiAlive(api) || !datasource) {
       return;
     }
+    startGridModelUpdate('apply-datasource', { version: datasourceVersion });
     measureRuntimePerformance('browser', 'grid.apply-datasource', () => api.setGridOption?.('datasource', datasource));
   }, 0);
 }
@@ -1570,7 +1847,7 @@ function startAllRowsSnapshot(): void {
       const fullRows = randomSortRows.value
         ? [...randomSortRows.value]
         : await measureRuntimePerformance('browser', 'snapshot.all-rows.load', () => loadAllRowsFromQueryableDataSource(dataSource, currentSortModel.value || [], {
-          chunkSize: 500,
+          chunkSize: SNAPSHOT_HYDRATE_CHUNK_SIZE,
           shouldAbort: () => taskId !== allRowsSnapshotTaskId,
         }));
       if (taskId !== allRowsSnapshotTaskId) {
@@ -1611,22 +1888,31 @@ function scheduleAllRowsSnapshot(delayMs?: number): void {
     delayMs,
     DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
   );
-  if (normalizedDelay === 0) {
-    startAllRowsSnapshot();
-    return;
-  }
-
-  backgroundSnapshotTimer = setTimeout(() => {
+  const maybeStartSnapshot = () => {
     backgroundSnapshotTimer = null;
     if (shouldFocusDocList.value || activeDocId.value) {
       return;
     }
+    if (loading.value && !hasFirstDataBlockLoaded.value) {
+      backgroundSnapshotTimer = setTimeout(maybeStartSnapshot, SNAPSHOT_FIRST_ROWS_POLL_MS);
+      return;
+    }
     startAllRowsSnapshot();
-  }, normalizedDelay);
+  };
+
+  backgroundSnapshotTimer = setTimeout(maybeStartSnapshot, normalizedDelay);
 }
 
 function startFocusRowsSnapshot(): void {
   if (!shouldFocusDocList.value) {
+    return;
+  }
+  if (loading.value && !hasFirstDataBlockLoaded.value) {
+    clearBackgroundSnapshotTimer();
+    backgroundSnapshotTimer = setTimeout(() => {
+      backgroundSnapshotTimer = null;
+      startFocusRowsSnapshot();
+    }, SNAPSHOT_FIRST_ROWS_POLL_MS);
     return;
   }
 
@@ -1663,7 +1949,7 @@ function startFocusRowsSnapshot(): void {
     let rowCount = 0;
     try {
       const focusRows = await measureRuntimePerformance('browser', 'snapshot.focus-rows.load', () => loadAllRowsFromQueryableDataSource(focusDataSource, [], {
-        chunkSize: 500,
+        chunkSize: SNAPSHOT_HYDRATE_CHUNK_SIZE,
         shouldAbort: () => taskId !== focusRowsTaskId,
       }));
       if (taskId !== focusRowsTaskId) {
@@ -1735,6 +2021,11 @@ function handleSearchInput() {
       lastSearchQuery = searchQuery.value;
       shouldFocusDocList.value = true;
       syncSelectionForQueryChange();
+      recordRuntimePerformanceSpan('browser', 'search.reload-scheduled', 0, {
+        queryChanged,
+        queryLength: searchQuery.value.length,
+        sqlChanged,
+      });
       void loadData(false, { refreshQueueCounts: false, snapshotDelayMs: 120 });
     }
   }, 150);
@@ -1879,6 +2170,60 @@ function onGridReady(params: GridReadyEvent<BrowserCard>) {
   });
 }
 
+function getDisplayedRowCount(api: GridApi | null | undefined): number | null {
+  if (!api || typeof api.getDisplayedRowCount !== 'function') {
+    return null;
+  }
+  try {
+    return api.getDisplayedRowCount();
+  } catch {
+    return null;
+  }
+}
+
+function onFirstDataRendered(params: { api?: GridApi | null }) {
+  const api = params?.api || gridApi.value;
+  const endedAt = browserPerfNow();
+  const pending = pendingGridModelUpdate;
+  const startedAt = pending?.startedAt ?? browserOpenStartedAt;
+  const displayedRowCount = getDisplayedRowCount(api);
+  recordRuntimePerformanceSpan('browser', 'grid.first-data-rendered', Math.max(0, endedAt - startedAt), {
+    displayedRowCount,
+    elapsedMs: browserOpenElapsedMs(endedAt),
+    firstRowsLoaded: hasFirstDataBlockLoaded.value,
+    reason: pending?.reason ?? 'unknown',
+    seq: pending?.seq ?? null,
+    version: pending?.version ?? null,
+  }, {
+    startedAt,
+    endedAt,
+  });
+  recordBrowserFirstRowsVisible({
+    displayedRowCount,
+    source: 'ag-grid-first-data-rendered',
+    totalCount: totalRowCount.value,
+  });
+}
+
+function onModelUpdated(params: { api?: GridApi | null }) {
+  const api = params?.api || gridApi.value;
+  recordGridModelUpdate('grid.model-updated', {
+    displayedRowCount: getDisplayedRowCount(api),
+    totalCount: totalRowCount.value,
+  });
+}
+
+function onFilterChanged(params: { api?: GridApi | null }) {
+  const api = params?.api || gridApi.value;
+  startGridModelUpdate('filter', { version: datasourceVersion });
+  recordRuntimePerformanceSpan('browser', 'grid.filter-changed', 0, {
+    displayedRowCount: getDisplayedRowCount(api),
+    elapsedMs: browserOpenElapsedMs(),
+    firstRowsLoaded: hasFirstDataBlockLoaded.value,
+    version: datasourceVersion,
+  });
+}
+
 function onDisplayedColumnsChanged(_params: DisplayedColumnsChangedEvent<BrowserCard>) {
   logger.info('[SiYuanMemo][CardBrowser] Displayed columns changed');
 }
@@ -1929,6 +2274,12 @@ function onSortChanged(params: SortChangedEvent<BrowserCard>) {
   });
 
   if (api) {
+    startGridModelUpdate('sort', { version: datasourceVersion });
+    recordRuntimePerformanceSpan('browser', 'grid.sort-reload-scheduled', 0, {
+      revision: sortModelRevision.value,
+      sortCount: sortArray.length,
+      version: datasourceVersion,
+    });
     setTimeout(() => {
       const currentApi = gridApi.value;
       if (!isGridApiAlive(currentApi)) {
@@ -2308,12 +2659,29 @@ function handleCardTypeChange() {
 
 // Force refresh data (clear cache)
 async function forceRefreshData() {
-  await runBrowserForceRefresh({
-    invalidateCardCache,
-    refreshGlobalStats,
-    refreshData,
-    refreshQueueCounts,
-  });
+  const finishForceRefreshSpan = startRuntimePerformanceSpan('browser', 'force-refresh.total');
+  let status = 'started';
+  try {
+    await runBrowserForceRefresh({
+      invalidateCardCache,
+      refreshGlobalStats: refreshGlobalStatsAfterFirstRows,
+      refreshData,
+      refreshQueueCounts,
+    });
+    status = 'completed';
+  } catch (error) {
+    status = 'error';
+    throw error;
+  } finally {
+    finishForceRefreshSpan({
+      firstRowsLoaded: hasFirstDataBlockLoaded.value,
+      status,
+      totalCount: totalRowCount.value,
+    }, {
+      ok: status !== 'error',
+      errorName: status === 'error' ? 'BrowserForceRefreshError' : undefined,
+    });
+  }
 }
 
 // 🆕 处理同步完成事件
@@ -2368,6 +2736,7 @@ function setupLongTaskMonitor(): void {
 
 // Cleanup
 let unsubscribe: (() => void) | null = null;
+let unsubscribeSourceExistence: (() => void) | null = null;
 
 onBeforeUnmount(() => {
   disposeIncrementalGridUpdates();
@@ -2383,6 +2752,7 @@ onBeforeUnmount(() => {
     gridDatasourceApplyTimer = null;
   }
   clearBackgroundSnapshotTimer();
+  clearGlobalStatsAfterFirstRowsTimer();
   if (searchDebounceTimer) {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = null;
@@ -2397,6 +2767,10 @@ onBeforeUnmount(() => {
     unsubscribe();
     unsubscribe = null;
   }
+  if (unsubscribeSourceExistence) {
+    unsubscribeSourceExistence();
+    unsubscribeSourceExistence = null;
+  }
 
   browserRootResizeObserver?.disconnect();
   browserRootResizeObserver = null;
@@ -2406,10 +2780,11 @@ onBeforeUnmount(() => {
 onMounted(() => {
   setupBrowserLayoutObserver();
   applyBrowserChromePreferences(layoutProfile.value);
+  void nextTick(recordBrowserShellAttached);
 
   initBrowserAdapter();
   setupLongTaskMonitor();
-  void refreshGlobalStats(false);
+  unsubscribeSourceExistence = browserAppServiceRef.value?.subscribeSourceExistenceUpdates?.(handleSourceExistenceUpdate) ?? null;
 
   // Subscribe to incremental updates
   unsubscribe = subscribeCacheUpdate((cards, isComplete) => {
@@ -2684,7 +3059,7 @@ const browserActionMenuRuntime = createBrowserActionMenuRuntime({
   openDocumentTabById,
   pushErrMsg,
   pushMsg,
-  refreshGlobalStats,
+  refreshGlobalStats: refreshGlobalStatsAfterFirstRows,
   refreshNeuralSubviewData,
   refreshQueueCounts,
   resolveNeuralSourceLabels,
@@ -2756,6 +3131,7 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
   const initialQueueId = normalizeBrowserQueueId(props.initialQueueId);
   if (!initialQueueId) {
     await loadData(forceRefresh);
+    await refreshGlobalStatsAfterFirstRows(forceRefresh);
     return;
   }
 
@@ -2766,6 +3142,7 @@ async function applyInitialBrowserView(forceRefresh = false): Promise<void> {
   }
 
   await refreshQueueCounts();
+  await refreshGlobalStatsAfterFirstRows(forceRefresh);
 
   if (initialQueueId === 'neural-roam') {
     const initialSubview = normalizeBrowserNeuralSubview(props.initialNeuralSubview);
@@ -2812,7 +3189,7 @@ function handleExitFocus() {
       refreshQueueCounts: false,
       snapshotDelayMs: activeQueueId.value ? 120 : DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
     });
-    await refreshGlobalStats(false);
+    await refreshGlobalStatsAfterFirstRows(false);
   });
 }
 
@@ -2835,7 +3212,7 @@ function handleSelectDoc(docId: string) {
         refreshQueueCounts: false,
         snapshotDelayMs: DEFAULT_HIERARCHY_SNAPSHOT_DELAY_MS,
       });
-      await refreshGlobalStats(false);
+      await refreshGlobalStatsAfterFirstRows(false);
     });
     return;
   }

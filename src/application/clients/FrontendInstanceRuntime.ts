@@ -20,6 +20,7 @@ export interface FrontendInstanceRuntimeOptions {
   runtimeScopeId?: string;
   leaseTtlMs?: number;
   relayPollIntervalMs?: number;
+  relayDrainBudgetMs?: number;
   startupRetryDelayMs?: number;
   startupMaxWaitMs?: number;
   logger?: FrontendRuntimeDiagnosticsLogger;
@@ -83,6 +84,15 @@ function createDefaultRuntimeScopeId(): string {
 const GLOBAL_RUNTIME_SCOPE_ID_KEY = '__siyuanmemoFrontendRuntimeScopeId';
 const GLOBAL_RUNTIME_SCOPE_REGISTRY_KEY = '__siyuanmemoFrontendRuntimeScopeRegistry';
 const WRITER_LEASE_STALE_OWNER_RECLAIM_GRACE_MS = 30_000;
+const WRITER_RELAY_DRAIN_MAX_COMMANDS_PER_WAKE = 4;
+const WRITER_RELAY_DRAIN_BUDGET_MS = 24;
+
+function nowMs(): number {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
 
 function getGlobalRecord(): Record<string, unknown> | null {
   if (typeof globalThis !== 'object' || !globalThis) {
@@ -196,6 +206,7 @@ export class FrontendInstanceRuntime {
   private readonly runtimeScopeId: string;
   private readonly leaseTtlMs: number;
   private readonly relayPollIntervalMs: number;
+  private readonly relayDrainBudgetMs: number;
   private readonly startupRetryDelayMs: number;
   private readonly startupMaxWaitMs: number;
   private readonly logger: FrontendRuntimeDiagnosticsLogger;
@@ -208,6 +219,10 @@ export class FrontendInstanceRuntime {
   private pushRelaySubscription: KernelCompanionBroadcastSubscription | null = null;
   private pushRelayDiagnostics: KernelCompanionBroadcastDiagnostics | null = null;
   private drainingRelay = false;
+  private relayDrainRequestedWhileActive = false;
+  private relayDrainRequestedWithoutCommandId = false;
+  private relayDrainContinuationTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly relayDrainCoalescedCommandIds = new Set<string>();
   private readonly processingRelayCommandIds = new Set<string>();
 
   constructor(
@@ -222,6 +237,9 @@ export class FrontendInstanceRuntime {
     this.relayPollIntervalMs = Number.isFinite(Number(options.relayPollIntervalMs))
       ? Math.max(250, Math.floor(Number(options.relayPollIntervalMs)))
       : 1_000;
+    this.relayDrainBudgetMs = Number.isFinite(Number(options.relayDrainBudgetMs))
+      ? Math.max(1, Math.floor(Number(options.relayDrainBudgetMs)))
+      : WRITER_RELAY_DRAIN_BUDGET_MS;
     this.startupRetryDelayMs = Number.isFinite(Number(options.startupRetryDelayMs))
       ? Math.max(1, Math.floor(Number(options.startupRetryDelayMs)))
       : 250;
@@ -350,6 +368,38 @@ export class FrontendInstanceRuntime {
       clearInterval(this.relayTimer);
       this.relayTimer = null;
     }
+    this.clearRelayDrainContinuation();
+  }
+
+  private clearRelayDrainContinuation(): void {
+    if (!this.relayDrainContinuationTimer) {
+      this.relayDrainCoalescedCommandIds.clear();
+      this.relayDrainRequestedWithoutCommandId = false;
+      this.relayDrainRequestedWhileActive = false;
+      return;
+    }
+    clearTimeout(this.relayDrainContinuationTimer);
+    this.relayDrainContinuationTimer = null;
+    this.relayDrainCoalescedCommandIds.clear();
+    this.relayDrainRequestedWithoutCommandId = false;
+    this.relayDrainRequestedWhileActive = false;
+  }
+
+  private scheduleRelayDrainContinuation(reason: string): void {
+    if (!this.started || this.mode !== 'writer' || !this.writerCommandHandler || this.relayDrainContinuationTimer) {
+      return;
+    }
+    this.relayDrainContinuationTimer = setTimeout(() => {
+      this.relayDrainContinuationTimer = null;
+      this.drainPendingWriterCommands(reason).catch((error) => {
+        this.logger.warn('[FrontendInstanceRuntime] relay drain continuation failed', {
+          instanceId: this.instanceId,
+          runtimeScopeId: this.runtimeScopeId,
+          wakeReason: reason,
+          error,
+        });
+      });
+    }, 0);
   }
 
   private startPushRelay(): void {
@@ -402,7 +452,12 @@ export class FrontendInstanceRuntime {
       return;
     }
     incrementRuntimePerformanceCounter('relay', 'writer-push-command-events');
-    this.drainPendingWriterCommands('push:command').catch((error) => {
+    const commandId = typeof event.params?.commandId === 'string' ? event.params.commandId : null;
+    if (commandId && this.processingRelayCommandIds.has(commandId)) {
+      incrementRuntimePerformanceCounter('relay', 'writer-push-duplicate-inflight-events');
+      return;
+    }
+    this.drainPendingWriterCommands('push:command', commandId || undefined).catch((error) => {
       this.logger.warn('[FrontendInstanceRuntime] push relay drain failed', {
         instanceId: this.instanceId,
         runtimeScopeId: this.runtimeScopeId,
@@ -724,27 +779,50 @@ export class FrontendInstanceRuntime {
     };
   }
 
-  private async drainPendingWriterCommands(reason = 'watchdog'): Promise<void> {
-    if (!this.started || this.mode !== 'writer' || !this.writerCommandHandler || this.drainingRelay) {
+  private async drainPendingWriterCommands(reason = 'watchdog', coalescedCommandId?: string): Promise<void> {
+    if (!this.started || this.mode !== 'writer' || !this.writerCommandHandler) {
+      return;
+    }
+    if (this.drainingRelay) {
+      this.relayDrainRequestedWhileActive = true;
+      if (coalescedCommandId) {
+        this.relayDrainCoalescedCommandIds.add(coalescedCommandId);
+      } else {
+        this.relayDrainRequestedWithoutCommandId = true;
+      }
+      incrementRuntimePerformanceCounter('relay', 'writer-drain-coalesced-wakes');
       return;
     }
     const finishDrainSpan = startRuntimePerformanceSpan('relay', 'writer.drain-pending-commands', {
       mode: this.mode,
       wakeReason: reason,
+      commandLimit: WRITER_RELAY_DRAIN_MAX_COMMANDS_PER_WAKE,
+      budgetMs: this.relayDrainBudgetMs,
     });
     let commandCount = 0;
+    let pendingCommandCount = 0;
     let status = 'started';
+    let budgetExceeded = false;
+    let yieldReason: string | null = null;
+    const drainStartedAt = nowMs();
+    const handledCommandIds = new Set<string>();
     this.drainingRelay = true;
     try {
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < WRITER_RELAY_DRAIN_MAX_COMMANDS_PER_WAKE; i += 1) {
         const pulled = await measureRuntimePerformance('relay', 'writer.take-command', () => this.sidecarClient.writerTakeCommand({
           instanceId: this.instanceId,
         }), { wakeReason: reason });
+        pendingCommandCount = Math.max(0, Math.trunc(Number(pulled.pendingCommandCount) || 0));
         if (!pulled.command) {
           break;
         }
         commandCount++;
         const command = pulled.command;
+        this.relayDrainCoalescedCommandIds.delete(command.commandId);
+        if (handledCommandIds.has(command.commandId)) {
+          incrementRuntimePerformanceCounter('relay', 'writer-drain-duplicate-taken-commands');
+          continue;
+        }
         if (this.processingRelayCommandIds.has(command.commandId)) {
           continue;
         }
@@ -816,11 +894,24 @@ export class FrontendInstanceRuntime {
             wakeReason: reason,
           });
         } finally {
+          handledCommandIds.add(command.commandId);
           this.processingRelayCommandIds.delete(command.commandId);
+        }
+        const elapsedMs = Math.max(0, nowMs() - drainStartedAt);
+        budgetExceeded = elapsedMs >= this.relayDrainBudgetMs;
+        if (budgetExceeded && pendingCommandCount > 0) {
+          yieldReason = 'budget';
+          incrementRuntimePerformanceCounter('relay', 'writer-drain-budget-yields');
+          break;
+        }
+        if (i + 1 >= WRITER_RELAY_DRAIN_MAX_COMMANDS_PER_WAKE && pendingCommandCount > 0) {
+          yieldReason = 'command-limit';
+          incrementRuntimePerformanceCounter('relay', 'writer-drain-command-limit-yields');
+          break;
         }
       }
       if (status === 'started') {
-        status = 'drained';
+        status = yieldReason ? 'yielded' : 'drained';
       }
     } catch (error) {
       status = 'error';
@@ -838,14 +929,37 @@ export class FrontendInstanceRuntime {
         }
       }
     } finally {
+      const requestedWhileActive = this.relayDrainRequestedWhileActive;
+      const requestedWithoutCommandId = this.relayDrainRequestedWithoutCommandId;
+      const coalescedCommandCount = this.relayDrainCoalescedCommandIds.size;
+      this.relayDrainRequestedWhileActive = false;
+      this.relayDrainRequestedWithoutCommandId = false;
       this.drainingRelay = false;
+      if (commandCount > 0) {
+        incrementRuntimePerformanceCounter('relay', 'writer-drain-commands', commandCount);
+      }
+      incrementRuntimePerformanceCounter('relay', 'writer-drain-wakes');
+      if (
+        (yieldReason || pendingCommandCount > 0 || requestedWithoutCommandId || coalescedCommandCount > 0)
+        && this.started
+        && this.mode === 'writer'
+      ) {
+        this.scheduleRelayDrainContinuation(yieldReason ? `${reason}:yield:${yieldReason}` : `${reason}:coalesced`);
+      }
       finishDrainSpan({
         commandCount,
+        pendingCommandCount,
+        budgetExceeded,
+        yieldReason,
+        coalescedWake: requestedWhileActive,
+        coalescedCommandCount,
+        commandLimit: WRITER_RELAY_DRAIN_MAX_COMMANDS_PER_WAKE,
+        budgetMs: this.relayDrainBudgetMs,
         status,
         wakeReason: reason,
       }, {
-        ok: status === 'drained',
-        errorName: status === 'drained' ? undefined : 'WriterRelayDrainError',
+        ok: status === 'drained' || status === 'yielded',
+        errorName: status === 'drained' || status === 'yielded' ? undefined : 'WriterRelayDrainError',
       });
     }
   }

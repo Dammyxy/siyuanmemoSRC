@@ -673,7 +673,7 @@ export class WorkerSqliteDatabaseService {
     request: SourceExistenceRefreshRequest = {},
     existingBlockIds: string[],
     checkedAt = Date.now(),
-  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean }> {
+  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean; changedBlockIds: string[] }> {
     await this.init();
 
     const candidates = this.repository!.getSourceExistenceRefreshCandidates(request);
@@ -684,11 +684,11 @@ export class WorkerSqliteDatabaseService {
     candidates: SourceExistenceRefreshCandidate[],
     existingBlockIds: string[],
     checkedAt = Date.now(),
-  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean }> {
+  ): Promise<{ checked: number; updated: number; changed: boolean; changedToMissing: boolean; changedBlockIds: string[] }> {
     await this.init();
 
     if (candidates.length === 0) {
-      return { checked: 0, updated: 0, changed: false, changedToMissing: false };
+      return { checked: 0, updated: 0, changed: false, changedToMissing: false, changedBlockIds: [] };
     }
 
     const existingSet = new Set(
@@ -699,11 +699,13 @@ export class WorkerSqliteDatabaseService {
 
     let changed = false;
     let changedToMissing = false;
+    const changedBlockIds: string[] = [];
     const updates: SourceExistenceUpdate[] = [];
     for (const candidate of candidates) {
       const exists = existingSet.has(candidate.blockId);
       if (candidate.sourceExists !== exists) {
         changed = true;
+        changedBlockIds.push(candidate.blockId);
         if (!exists) {
           changedToMissing = true;
         }
@@ -722,6 +724,7 @@ export class WorkerSqliteDatabaseService {
       updated: updates.length,
       changed,
       changedToMissing,
+      changedBlockIds,
     };
   }
 
@@ -1221,6 +1224,39 @@ const RELEVANT_UPSERT_ACTIONS = new Set(['insert', 'update', 'delete', 'setAttrs
 const REMOVE_FLASHCARDS_ACTION = 'removeFlashcards';
 const ADD_FLASHCARDS_ACTION = 'addFlashcards';
 const AUTO_CARD_RELEVANT_ACTIONS = new Set(['insert', 'update', 'delete']);
+const QUICK_CARD_MARKERS = [
+  '>>',
+  '》》',
+  '<<',
+  '《《',
+  '<>',
+  '《》',
+  '>>>',
+  '》》》',
+  '::',
+  '：：',
+  ';;',
+  '；；',
+  ';<',
+  '；<',
+  '；《',
+  ';<>',
+  '；<>',
+  '；《》',
+  '{{',
+  '}}',
+  '==',
+  '\\cloze',
+  'data-type="mark"',
+];
+const QUICK_CARD_CONTENT_KEYS = new Set([
+  'content',
+  'markdown',
+  'kramdown',
+  'text',
+  'html',
+  'data',
+]);
 const NATIVE_RIFF_MARKERS = [
   'custom-riff-decks',
   'custom-is-flashcard',
@@ -1271,6 +1307,66 @@ function containsNativeRiffMarker(value: unknown): boolean {
     NATIVE_RIFF_MARKERS.includes(key)
     || containsNativeRiffMarker(nested)
   ));
+}
+
+function containsQuickCardMarkerText(value: string): boolean {
+  const normalized = value.trim();
+  return normalized.length > 0 && QUICK_CARD_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function inspectQuickCardPayload(value: unknown, key = ''): { inspected: boolean; hasMarker: boolean } {
+  if (typeof value === 'string') {
+    const inspectString = key === '' || QUICK_CARD_CONTENT_KEYS.has(key.toLowerCase());
+    return {
+      inspected: inspectString,
+      hasMarker: inspectString && containsQuickCardMarkerText(value),
+    };
+  }
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (summary, entry) => {
+        const next = inspectQuickCardPayload(entry, key);
+        return {
+          inspected: summary.inspected || next.inspected,
+          hasMarker: summary.hasMarker || next.hasMarker,
+        };
+      },
+      { inspected: false, hasMarker: false },
+    );
+  }
+  if (!isRecord(value)) {
+    return { inspected: false, hasMarker: false };
+  }
+  return Object.entries(value).reduce(
+    (summary, [childKey, childValue]) => {
+      const next = inspectQuickCardPayload(childValue, childKey);
+      return {
+        inspected: summary.inspected || next.inspected,
+        hasMarker: summary.hasMarker || next.hasMarker,
+      };
+    },
+    { inspected: false, hasMarker: false },
+  );
+}
+
+function shouldCollectAutoCardOperation(operation: DoOperation): boolean {
+  const action = normalizeString(operation.action);
+  if (action === 'delete') {
+    return true;
+  }
+  if (action !== 'insert' && action !== 'update') {
+    return false;
+  }
+
+  const newPayload = inspectQuickCardPayload(operation.data?.new);
+  const oldPayload = inspectQuickCardPayload(operation.data?.old);
+  if (newPayload.hasMarker || oldPayload.hasMarker) {
+    return true;
+  }
+  if (newPayload.inspected || oldPayload.inspected) {
+    return false;
+  }
+  return true;
 }
 
 function extractOperationBlockIds(operation: DoOperation): string[] {
@@ -1358,11 +1454,15 @@ function collectAutoCardCandidateOperations(
       if (!isRecord(operation)) {
         continue;
       }
-      const action = normalizeString(operation.action);
+      const typed = operation as DoOperation;
+      const action = normalizeString(typed.action);
       if (!AUTO_CARD_RELEVANT_ACTIONS.has(action)) {
         continue;
       }
-      const blockId = normalizeString(operation.id);
+      if (!shouldCollectAutoCardOperation(typed)) {
+        continue;
+      }
+      const blockId = normalizeString(typed.id);
       if (!blockId) {
         continue;
       }

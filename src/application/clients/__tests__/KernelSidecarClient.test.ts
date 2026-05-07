@@ -83,6 +83,7 @@ describe('KernelSidecarClient', () => {
             expiresAt: 99,
             idempotencyKey: 'review:card-1',
           },
+          pendingCommandCount: 2,
           now: 2,
         };
       }
@@ -113,6 +114,7 @@ describe('KernelSidecarClient', () => {
     });
 
     await expect(client.writerTakeCommand({ instanceId: 'writer-1' })).resolves.toMatchObject({
+      pendingCommandCount: 2,
       command: expect.objectContaining({
         commandId: 'cmd-1',
         requesterInstanceId: 'follower-1',

@@ -163,6 +163,46 @@ describe('AutoCardHandler listener reliability', () => {
     vi.clearAllMocks();
   });
 
+  it('prefilters plain insert/update payloads without reading block content', async () => {
+    const { handler, executeAutoCard, getBlockKramdown } = createFixture();
+
+    handler.handle([{
+      doOperations: [{
+        action: 'insert',
+        id: 'block-plain-edit',
+        data: { new: { content: 'ordinary paragraph without quick-card marker' } },
+      }],
+      undoOperations: null,
+    } as never]);
+
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(getBlockKramdown).not.toHaveBeenCalled();
+    expect(executeAutoCard).not.toHaveBeenCalled();
+    expect(latestDiagnostic(handler, 'block-plain-edit')).toBeUndefined();
+  });
+
+  it('keeps marker insert/update payloads on the listener creation path', async () => {
+    const { handler, executeAutoCard, getBlockKramdown } = createFixture();
+
+    handler.handle([{
+      doOperations: [{
+        action: 'update',
+        id: 'block-marker-edit',
+        data: { new: { content: 'Prompt >> Answer' } },
+      }],
+      undoOperations: null,
+    } as never]);
+
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(getBlockKramdown).toHaveBeenCalledTimes(1);
+    expect(executeAutoCard).toHaveBeenCalledTimes(1);
+    expect(latestDiagnostic(handler, 'block-marker-edit')).toEqual(expect.objectContaining({
+      status: 'created',
+    }));
+  });
+
   it('retries transient missing block query data and creates once block is visible', async () => {
     let getBlockCalls = 0;
     const { handler, executeAutoCard, hostBlockQuery } = createFixture({

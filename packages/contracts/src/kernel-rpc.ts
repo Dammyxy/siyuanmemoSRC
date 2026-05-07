@@ -312,6 +312,7 @@ export interface KernelWriterCommandResultEnvelope {
 export interface KernelWriterTakeCommandEnvelope {
   ok: true;
   command: WriterRelayCommandPayload | null;
+  pendingCommandCount?: number;
   now: number;
 }
 

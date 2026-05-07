@@ -30,9 +30,9 @@ describe('runBrowserForceRefresh', () => {
 
     expect(steps).toEqual([
       'invalidate',
-      'global:true',
       'data:true:false:false',
       'counts:true',
+      'global:true',
     ]);
     expect(refreshData).toHaveBeenCalledWith(true, false, { refreshQueueCounts: false });
     expect(refreshQueueCounts).toHaveBeenCalledWith({ forceRefresh: true });

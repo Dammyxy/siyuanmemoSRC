@@ -129,6 +129,7 @@ export class KernelSidecarClient {
         requestedAt: number;
         expiresAt?: number;
       } | null;
+    pendingCommandCount?: number;
     now: number;
   }> {
     const result = await this.call<KernelWriterTakeCommandLookupEnvelope>('writer.takeCommand', request);
@@ -260,6 +261,7 @@ export class KernelSidecarClient {
         requestedAt: number;
         expiresAt?: number;
       } | null;
+    pendingCommandCount?: number;
     now: number;
   } {
     if (!envelope || typeof envelope !== 'object') {

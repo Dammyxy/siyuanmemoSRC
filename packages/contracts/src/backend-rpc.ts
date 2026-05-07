@@ -508,6 +508,7 @@ export interface BackendSourceExistenceSweepApplyResult {
   updated: number;
   changed: boolean;
   changedToMissing: boolean;
+  changedBlockIds?: string[];
 }
 
 export interface BackendReviewFeedbackRequest {
